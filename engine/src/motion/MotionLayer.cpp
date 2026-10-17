@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "text/TextLayout.h"
+
 namespace eng::motion {
 
 namespace {
@@ -84,7 +86,8 @@ LayerBase MotionLayer::poseAt(const MotionIndex& index, const AnimatedNode& an, 
       case VariableField::MOTION_TRANSFORM_ORIGIN_XY: base = KeyframeValue::vector({pose.originX.value, pose.originY.value}); break;
       default: break;
     }
-    if (b.base.kind == VariableData::Kind::FLOAT) base = KeyframeValue::number(b.base.floatValue);
+    const FieldInfo* info = fieldInfo(b.slot.field);
+    if (b.base.kind == VariableData::Kind::FLOAT && !(info && info->value == ValueKind::VECTOR)) base = KeyframeValue::number(b.base.floatValue);
     KeyframeValue v;
     if (!foldValue(base, b.params, tau, tracks, v)) continue;
     Vec2 xy = v.kind == ValueKind::VECTOR ? v.v : Vec2{v.f, v.f};
@@ -191,6 +194,13 @@ size_t MotionLayer::apply(Document& doc, const MotionIndex& index, Guid root, in
   };
   std::vector<Pose> poses;
   std::vector<Guid> laidOut;  // layers whose layout inputs changed
+  // A text preset's parameters (round 8h): played per element in step 5, not by the text itself.
+  struct Staggered {
+    Guid id, layer;
+    int64_t tau;
+    std::vector<std::pair<VariableField, std::vector<Param>>> fields;
+  };
+  std::vector<Staggered> staggered;
   size_t written = 0;
   for (const Work& w : work) {
     const AnimatedNode* an = w.an;
@@ -204,7 +214,20 @@ size_t MotionLayer::apply(Document& doc, const MotionIndex& index, Guid root, in
     Vec2 translation = an->base.translation, scale = an->base.scale;
     double rotation = an->base.rotation, shear = an->base.shear;
     LayerBase anchor = an->base;
+    bool text = entry.base.type == NodeType::TEXT && hooks.textLayout;
     for (const Binding& b : an->bindings) {
+      // On a text, its staggered presets' parameters go to step 5; the rest fold here.
+      std::vector<Param> own;
+      const std::vector<Param>* params = &b.params;
+      if (text && std::any_of(b.params.begin(), b.params.end(), [](const Param& q) { return q.staggered; })) {
+        std::vector<Param> per;
+        for (const Param& q : b.params) (q.staggered ? per : own).push_back(q);
+        params = &own;
+        if (b.slot.kind == Slot::Kind::NODE && (b.slot.field == VariableField::OPACITY || isMotionTransformField(b.slot.field))) {
+          if (staggered.empty() || staggered.back().id != w.id) staggered.push_back({w.id, an->id, w.tau, {}});
+          staggered.back().fields.push_back({b.slot.field, std::move(per)});
+        }
+      }
       KeyframeValue base;
       bool haveBase = false;
       if (b.base.kind == VariableData::Kind::FLOAT) {
@@ -220,6 +243,9 @@ size_t MotionLayer::apply(Document& doc, const MotionIndex& index, Guid root, in
         const FieldInfo* info = fieldInfo(b.slot.field);
         if (!info) continue;
         if (isMotionTransformField(b.slot.field)) {
+          // An XY field's literal argument is a placeholder (the schema has no VECTOR literal): its base is the
+          // layer's motionTransform, which a preset's OFFSET track then moves (round 8h).
+          if (info->value == ValueKind::VECTOR && b.base.kind == VariableData::Kind::FLOAT) haveBase = false;
           if (!haveBase) {
             switch (b.slot.field) {
               case VariableField::MOTION_TRANSLATION_X: base = KeyframeValue::number(an->base.translation.x); break;
@@ -237,7 +263,7 @@ size_t MotionLayer::apply(Document& doc, const MotionIndex& index, Guid root, in
             }
           }
           KeyframeValue v;
-          if (!foldValue(base, b.params, w.tau, tracks, v)) continue;
+          if (!foldValue(base, *params, w.tau, tracks, v)) continue;
           motion = true;
           // A FLOAT on an XY track is uniform (SCALE_XY's FLOAT input, docs/motion.md §4.5).
           auto vec = [&](Vec2) { return v.kind == ValueKind::VECTOR ? v.v : Vec2{v.f, v.f}; };
@@ -266,7 +292,7 @@ size_t MotionLayer::apply(Document& doc, const MotionIndex& index, Guid root, in
           base = KeyframeValue::number(nodeToStored(*info, cur));
         }
         KeyframeValue v;
-        if (!foldValue(base, b.params, w.tau, tracks, v)) continue;
+        if (!foldValue(base, *params, w.tau, tracks, v)) continue;
         FieldMask m = maskOf(b.slot.field);
         if (!m) continue;
         if (writeNodeFloat(p, b.slot.field, storedToNode(*info, v.f))) {
@@ -282,7 +308,7 @@ size_t MotionLayer::apply(Document& doc, const MotionIndex& index, Guid root, in
         bool color = b.slot.kind == Slot::Kind::FILL_COLOR || b.slot.kind == Slot::Kind::STROKE_COLOR;
         if (!haveBase) base = color ? KeyframeValue::color(pt.color) : KeyframeValue::number(pt.opacity);
         KeyframeValue v;
-        if (!foldValue(base, b.params, w.tau, tracks, v)) continue;
+        if (!foldValue(base, *params, w.tau, tracks, v)) continue;
         if (color) {
           if (v.kind != ValueKind::COLOR) continue;
           pt.color = v.c;
@@ -303,7 +329,7 @@ size_t MotionLayer::apply(Document& doc, const MotionIndex& index, Guid root, in
           }
         }
         KeyframeValue v;
-        if (!foldValue(base, b.params, w.tau, tracks, v)) continue;
+        if (!foldValue(base, *params, w.tau, tracks, v)) continue;
         switch (b.slot.effect) {
           case Slot::EffectField::RADIUS: e.radius = std::max(0.0, v.f); break;
           case Slot::EffectField::SPREAD: e.spread = std::clamp(v.f, -30000.0, 30000.0); break;
@@ -351,6 +377,72 @@ size_t MotionLayer::apply(Document& doc, const MotionIndex& index, Guid root, in
     entry.mask |= F_TRANSFORM;
     if (doc.apply(c)) written++;
   }
+
+  // 5. Text stagger (docs/motion.md §4.10; round 8h): each element of a text plays its staggered tracks its rank × the
+  // step later — moved, turned and scaled about its own box's centre over identity bases, faded by its own opacity —
+  // as poses the renderer draws its glyphs with; the text's own box stays. Its props are written again as they are, so
+  // the canvas draws it again where its elements reach (its ink grows by them, Renderer's text ink).
+  for (const Staggered& st : staggered) {
+    const text::TextLayout* L = hooks.textLayout(st.id);
+    const Preset* pr = nullptr;
+    for (const auto& f : st.fields)
+      for (const Param& q : f.second)
+        if (!pr) pr = index.preset(q.preset);
+    if (!L || !pr) continue;
+    TextElements els = groupElements(*L, pr->stagger.grouping);
+    std::vector<uint32_t> ranks = staggerRanks(els.boxes.size(), pr->stagger.order, st.layer);
+    TextElementPoses out;
+    out.elementOf = els.elementOf;
+    out.transform.resize(els.boxes.size());
+    out.alpha.resize(els.boxes.size(), 1);
+    bool reached = false;
+    for (size_t e = 0; e < els.boxes.size(); e++) {
+      int64_t tauE = st.tau - static_cast<int64_t>(ranks[e]) * pr->stagger.stepUs;
+      Vec2 t{0, 0}, sc{1, 1};
+      double r = 0, op = 1;
+      for (const auto& [field, params] : st.fields) {
+        bool vector = field == VariableField::MOTION_TRANSLATION_XY || field == VariableField::MOTION_SCALE_XY;
+        bool scaling = field == VariableField::MOTION_SCALE_X || field == VariableField::MOTION_SCALE_Y || field == VariableField::MOTION_SCALE_XY;
+        KeyframeValue base = field == VariableField::OPACITY ? KeyframeValue::number(100)
+                             : vector                        ? KeyframeValue::vector(scaling ? Vec2{1, 1} : Vec2{0, 0})
+                                                             : KeyframeValue::number(scaling ? 1 : 0);
+        KeyframeValue v;
+        if (!foldValue(base, params, tauE, tracks, v)) continue;
+        Vec2 xy = v.kind == ValueKind::VECTOR ? v.v : Vec2{v.f, v.f};
+        switch (field) {
+          case VariableField::OPACITY: op = std::clamp(v.f / 100, 0.0, 1.0); break;
+          case VariableField::MOTION_TRANSLATION_X: t.x = v.f; break;
+          case VariableField::MOTION_TRANSLATION_Y: t.y = v.f; break;
+          case VariableField::MOTION_TRANSLATION_XY: t = xy; break;
+          case VariableField::MOTION_ROTATION: r = v.f; break;
+          case VariableField::MOTION_SCALE_X: sc.x = v.f; break;
+          case VariableField::MOTION_SCALE_Y: sc.y = v.f; break;
+          case VariableField::MOTION_SCALE_XY: sc = xy; break;
+          default: break;
+        }
+      }
+      const Rect& box = els.boxes[e];
+      Vec2 c{box.x + box.w / 2, box.y + box.h / 2};
+      Mat2x3 m = Mat2x3::translate(c.x + t.x, c.y + t.y) * Mat2x3::rotate(r) * Mat2x3{sc.x, 0, 0, 0, sc.y, 0} * Mat2x3::translate(-c.x, -c.y);
+      out.transform[e] = m;
+      out.alpha[e] = static_cast<float>(op);
+      Vec2 corners[4] = {m.apply({box.x, box.y}), m.apply({box.right(), box.y}), m.apply({box.x, box.bottom()}), m.apply({box.right(), box.bottom()})};
+      for (Vec2 q : corners) {
+        Rect pt{q.x, q.y, 0, 0};
+        out.reach = reached ? out.reach.united(pt) : pt;
+        reached = true;
+      }
+    }
+    texts_[st.id] = std::move(out);
+    const Node* n = doc.get(st.id);
+    if (!n) continue;
+    Entry& entry = remember(doc, st.id);
+    NodeChange c = NodeChange::changed(st.id);
+    c.mask = F_OPACITY;
+    c.props = n->props;
+    entry.mask |= F_OPACITY;
+    if (doc.apply(c)) written++;
+  }
   return written;
 }
 
@@ -362,6 +454,7 @@ bool MotionLayer::preview(Document& doc, const NodeChange& c) {
 }
 
 void MotionLayer::restore(Document& doc) {
+  texts_.clear();
   for (auto& [id, e] : entries_) {
     if (!e.mask || !doc.has(id)) continue;
     NodeChange c = NodeChange::changed(id);

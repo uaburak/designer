@@ -8,15 +8,19 @@
  * the selected keyframes and paste them at the playhead, the top edge resizes the timeline. Round 8a increment 2: an
  * animated instance's purple bar drags in time (its offset in the root's timeline, docs/motion.md §4.3).
  *
+ * Round 8h: each preset's clip is a row under its layer (docs/motion.md §6.2 "Clips"): a bar with its type's name from
+ * its start for its duration — click selects it (and opens its settings in the Animations section), drag moves it,
+ * its side handles change its start or its length (snapped as keyframes are), Delete removes it.
+ *
  * A pure view of a `TimelineModel`: every change goes out through its callbacks, so MotionMode wires it to the engine
- * and the tests mount it on a fixed model. Not yet: clips (presets), audio rows, the layer bar's drag and scale
- * handles, the timeline settings popover.
+ * and the tests mount it on a fixed model. Not yet: audio rows, the layer bar's drag and scale handles, the timeline
+ * settings popover.
  */
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type WheelEvent as ReactWheelEvent } from "react";
 import { Icon, IconButton, Slider, TextInput, type IconName } from "@/ds";
 import { capture } from "@/ds/util/pointer";
 import { t, useT } from "@/i18n";
-import { EASING_LABELS, PLAYBACK_CYCLE, PLAYBACK_LABELS, type EasingRef, type GuidString, type Micros, type PlaybackName, type TimelineKeyframe, type TimelineLayer, type TimelineModel, type TimelineTrack, type TimelineUnit } from "@shared/motion/types";
+import { ANIMATION_PRESETS, EASING_LABELS, PLAYBACK_CYCLE, PLAYBACK_LABELS, type EasingRef, type GuidString, type Micros, type PlaybackName, type TimelineClip, type TimelineKeyframe, type TimelineLayer, type TimelineModel, type TimelineTrack, type TimelineUnit } from "@shared/motion/types";
 import { EasingMenu } from "../easing/EasingEditor";
 import { DIAMOND_PX, clampTimelineHeight, fitScale, formatTime, frameUs, layerExtent, marqueeBox, otherKeyframeTimes, overlaps, parseTime, rulerTicks, snapTime, snapToFrame, timeToX, xToTime, type Box, type Scale } from "./maths";
 import styles from "./Timeline.module.css";
@@ -56,6 +60,12 @@ export interface TimelineProps {
   onResize(heightPx: number, final: boolean): void;
   /** An animated instance's bar dragged: its offset in the root's time each frame (`final` false), once more on release */
   onMoveInstance?(node: GuidString, offsetUs: Micros, final: boolean): void;
+  /** The preset clip selected (round 8h; its settings open in the Animations section) */
+  selectedClip?: GuidString | null;
+  onSelectClip?(id: GuidString | null): void;
+  /** A clip dragged (its start) or a side handle (its start and length): each frame (`final` false), once more on release */
+  onEditClip?(clip: TimelineClip, patch: { startUs?: Micros; durationUs?: Micros }, final: boolean): void;
+  onDeleteClip?(id: GuidString): void;
 }
 
 const PLAYBACK_ICON: Record<PlaybackName, IconName> = { LOOP: "24.loop", ONCE: "24.play-once", PING_PONG: "24.ping-pong" };
@@ -112,12 +122,14 @@ export function Timeline(p: TimelineProps) {
   }, [durationUs, width, zoom]);
 
   const layers = useMemo(() => model?.layers ?? [], [model]);
-  // A row per layer, then (expanded) a row per track: the same list draws the layer column and the lanes.
+  // A row per layer, then (expanded) a row per clip and a row per track: the same list draws the layer column and the lanes.
   const rows = useMemo(() => {
-    const out: { kind: "layer" | "track"; layer: TimelineLayer; track?: TimelineTrack }[] = [];
+    const out: { kind: "layer" | "clip" | "track"; layer: TimelineLayer; track?: TimelineTrack; clip?: TimelineClip }[] = [];
     for (const l of layers) {
       out.push({ kind: "layer", layer: l });
-      if (!collapsedLayers.has(l.node) && !l.instance) for (const tr of l.tracks) out.push({ kind: "track", layer: l, track: tr });
+      if (collapsedLayers.has(l.node) || l.instance) continue;
+      for (const c of l.clips) out.push({ kind: "clip", layer: l, clip: c });
+      for (const tr of l.tracks) out.push({ kind: "track", layer: l, track: tr });
     }
     return out;
   }, [layers, collapsedLayers]);
@@ -224,6 +236,44 @@ export function Timeline(p: TimelineProps) {
     window.addEventListener("pointercancel", up);
   };
 
+  // ---- A preset's clip: drag moves it, its side handles change its start or its length (frames; ⇧ the playhead, keyframes) -
+  const onClipDown = (e: ReactPointerEvent<HTMLElement>, clip: TimelineClip, edge: "move" | "start" | "end") => {
+    if (e.button !== 0 || readOnly) return;
+    e.stopPropagation();
+    p.onSelectClip?.(clip.id);
+    p.onSelectKeyframes([]);
+    setSelectedRow(null);
+    if (!p.onEditClip) return;
+    capture(e.currentTarget, e.pointerId);
+    const startX = e.clientX;
+    const targets = [timeUs, ...otherKeyframeTimes(layers, new Set())];
+    const minUs = frameUs(fps);
+    let moving = false;
+    const at = (clientX: number, shift: boolean): { startUs?: Micros; durationUs?: Micros } => {
+      const d = (clientX - startX) / scale.pxPerUs;
+      const snap = (us: number) => Math.round(shift ? snapTime(us, fps, targets, SNAP_PX / scale.pxPerUs) : snapToFrame(us, fps));
+      if (edge === "move") return { startUs: Math.max(0, snap(clip.startUs + d)) };
+      const end = clip.startUs + clip.durationUs;
+      if (edge === "end") return { durationUs: Math.max(minUs, snap(end + d) - clip.startUs) };
+      const start = Math.min(end - minUs, Math.max(0, snap(clip.startUs + d)));
+      return { startUs: start, durationUs: end - start };
+    };
+    const move = (ev: PointerEvent) => {
+      if (!moving && Math.abs(ev.clientX - startX) < DRAG_PX) return;
+      moving = true;
+      p.onEditClip!(clip, at(ev.clientX, ev.shiftKey), false);
+    };
+    const up = (ev: PointerEvent) => {
+      if (moving) p.onEditClip!(clip, at(ev.clientX, ev.shiftKey), true);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
+
   // ---- The duration handle --------------------------------------------------------------------------------------------
   const onDurationDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 || readOnly) return;
@@ -313,6 +363,7 @@ export function Timeline(p: TimelineProps) {
     if ((e.key === "Delete" || e.key === "Backspace") && !readOnly) {
       e.preventDefault();
       if (selectedKeyframes.size) return p.onDeleteKeyframes([...selectedKeyframes]);
+      if (p.selectedClip && p.onDeleteClip) return p.onDeleteClip(p.selectedClip);
       if (selectedRow) {
         const track = layers.find((l) => l.node === selectedRow.node)?.tracks.find((tr) => tr.id === selectedRow.track);
         if (track) p.onDeleteTrack(selectedRow.node, track);
@@ -387,6 +438,14 @@ export function Timeline(p: TimelineProps) {
                         p.onSelectKeyframes(r.layer.tracks.flatMap((tr) => tr.keyframes.map((k) => k.id)));
                         setSelectedRow(null);
                       }} />
+                    ) : r.kind === "clip" ? (
+                      <button key={r.clip!.id} type="button" role="treeitem" aria-level={r.layer.depth + 2} aria-selected={p.selectedClip === r.clip!.id} data-clip-row={r.clip!.id} className={styles.propertyRow} style={{ "--depth": r.layer.depth } as CSSProperties} onClick={() => {
+                        setSelectedRow(null);
+                        p.onSelectKeyframes([]);
+                        p.onSelectClip?.(r.clip!.id);
+                      }}>
+                        <span className={styles.name}>{clipName(r.clip!)}</span>
+                      </button>
                     ) : (
                       <button key={r.track!.id} type="button" role="treeitem" aria-level={r.layer.depth + 2} aria-selected={selectedRow?.track === r.track!.id} data-track-row={r.track!.id} className={styles.propertyRow} style={{ "--depth": r.layer.depth } as CSSProperties} onClick={() => {
                         setSelectedRow({ node: r.layer.node, track: r.track!.id });
@@ -422,8 +481,10 @@ export function Timeline(p: TimelineProps) {
                 </div>
                 <div className={styles.lanes}>
                   {rows.map((r) => (
-                    <div key={r.kind === "layer" ? r.layer.node : r.track!.id} className={styles.lane} aria-selected={r.kind === "track" && selectedRow?.track === r.track!.id ? true : undefined} data-lane={r.kind === "layer" ? r.layer.node : r.track!.id}>
-                      {r.kind === "layer" ? <LayerLane layer={r.layer} scale={scale} onInstanceDown={readOnly || !p.onMoveInstance ? undefined : (e) => onInstanceDown(e, r.layer)} /> : <TrackLane track={r.track!} scale={scale} durationUs={shownDuration} selected={selectedKeyframes} dragging={drag?.moving ? new Set(drag.items.map((i) => i.id)) : null} onDown={onDiamondDown} onDouble={(k) => {
+                    <div key={r.kind === "layer" ? r.layer.node : r.kind === "clip" ? r.clip!.id : r.track!.id} className={styles.lane} aria-selected={r.kind === "track" && selectedRow?.track === r.track!.id ? true : undefined} data-lane={r.kind === "layer" ? r.layer.node : r.kind === "clip" ? r.clip!.id : r.track!.id}>
+                      {r.kind === "clip" ? (
+                        <ClipLane clip={r.clip!} scale={scale} selected={p.selectedClip === r.clip!.id} onDown={(e, edge) => onClipDown(e, r.clip!, edge)} />
+                      ) : r.kind === "layer" ? <LayerLane layer={r.layer} scale={scale} onInstanceDown={readOnly || !p.onMoveInstance ? undefined : (e) => onInstanceDown(e, r.layer)} /> : <TrackLane track={r.track!} scale={scale} durationUs={shownDuration} selected={selectedKeyframes} dragging={drag?.moving ? new Set(drag.items.map((i) => i.id)) : null} onDown={onDiamondDown} onDouble={(k) => {
                         p.onSeek(k.timeUs);
                         p.onSelectLayer(r.layer.node, false);
                       }} onSegment={(k, anchor) => setEasingAt({ ids: [k.id], easing: k.easing, anchor })} />}
@@ -471,6 +532,20 @@ function LayerRowView({ layer, expanded, selected, onToggle, onSelect }: { layer
       </span>
       <span className={styles.glyph}><Icon name={iconOf(layer.icon)} /></span>
       <span className={styles.name}>{layer.name}</span>
+    </div>
+  );
+}
+
+/** A clip's name: its preset type's, else the instance's own. */
+const clipName = (c: TimelineClip) => t(ANIMATION_PRESETS.find((d) => d.key === c.preset)?.name ?? c.name);
+
+/** A preset's clip: its bar from its start for its length, its name in it, a handle at each side. */
+function ClipLane({ clip, scale, selected, onDown }: { clip: TimelineClip; scale: Scale; selected: boolean; onDown(e: ReactPointerEvent<HTMLElement>, edge: "move" | "start" | "end"): void }) {
+  return (
+    <div className={styles.clip} data-clip={clip.id} data-selected={selected || undefined} data-disabled={clip.disabled || undefined} style={{ left: timeToX(clip.startUs, scale), width: Math.max(6, clip.durationUs * scale.pxPerUs) }} title={clipName(clip)} onPointerDown={(e) => onDown(e, "move")}>
+      <span className={styles.clipLabel}>{clipName(clip)}</span>
+      <span className={styles.clipHandle} data-clip-handle="start" onPointerDown={(e) => onDown(e, "start")} />
+      <span className={styles.clipHandle} data-clip-handle="end" onPointerDown={(e) => onDown(e, "end")} />
     </div>
   );
 }

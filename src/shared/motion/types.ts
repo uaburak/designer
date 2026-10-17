@@ -253,9 +253,10 @@ export interface TimelineClip {
   durationUs: Micros;
   disabled: boolean;
   easing: EasingRef;
+  /** Keyed by each prop's defID ("0:<hash>", src/renderer/src/editor/motion/presets.ts `propId`); Delay, Duration and Easing are the clip's own */
   props: Record<string, PresetPropValue>;
-  /** The composite style that generated it, if any */
-  style?: { id: GuidString; key: string; name: string };
+  /** The composite style that generated it, if any: its entry in the layer's `styleIdsForAnimation` and the style's key */
+  style?: { id: GuidString; key: string };
 }
 
 export interface TimelineLayer {
@@ -329,6 +330,10 @@ export interface PresetPropDef {
   max?: number;
   /** A NUMBER that resolves as timing (Delay, Duration: TIMING variables bind to it) */
   timing?: boolean;
+  /** Shown only for these values of the preset's `type` prop (Figma's flyout hides the rest) [ours] */
+  shownFor?: string[];
+  /** Shown only while this BOOL prop is on (a text stagger's sub-animation) [ours] */
+  shownWith?: string;
   default: PresetPropValue;
 }
 
@@ -337,67 +342,98 @@ export interface PresetDef {
   /** The Animations + menu's label */
   name: string;
   props: PresetPropDef[];
+  /** Offered only for text layers (Text, Text stagger), or for layers with strokes (Path) */
+  needs?: "text" | "strokes";
 }
 
-// Shared by every preset (Figma's): Delay 0 s, Duration 0.5 s (min 0.01), Easing OUT_CUBIC.
+// Shared by every preset (Figma's): Delay 0 s, Duration 0.5 s (min 0.01), Easing OUT_CUBIC. Delay is the clip's start
+// (`timelineOffset`), Duration its length (`timelineDuration`), Easing its `easingData` (round 8h).
 const TIMING_PROPS = (duration = 0.5): PresetPropDef[] => [
   { key: "delay", label: "Delay", kind: "number", unit: "s", min: 0, timing: true, default: 0 },
   { key: "duration", label: "Duration", kind: "number", unit: "s", min: 0.01, timing: true, default: duration },
   { key: "easing", label: "Easing", kind: "easing", default: { type: "EASE_OUT" } },
 ];
+/** The props every preset shares, kept on the clip itself rather than among its props. */
+export const TIMING_PROP_KEYS: readonly string[] = ["delay", "duration", "easing"];
 
-/** The first-party presets and their defaults (Figma's propDefs, docs/research/rea/motion.md §2.18); the code is ours. */
+const DIRECTIONS: [string, string][] = [["left", "Left"], ["right", "Right"], ["top", "Top"], ["bottom", "Bottom"], ["top_left", "Top left"], ["top_right", "Top right"], ["bottom_left", "Bottom left"], ["bottom_right", "Bottom right"]];
+
+/** The first-party presets and their defaults (Figma's propDefs, docs/research/rea/motion.md §2.18); the code is ours (./presets). */
 export const ANIMATION_PRESETS: readonly PresetDef[] = [
   { key: "new", name: "New", props: [...TIMING_PROPS()] },
   { key: "opacity", name: "Opacity", props: [
     { key: "type", label: "Type", kind: "enum", options: [["fadeIn", "Fade in"], ["fadeOut", "Fade out"], ["custom", "Custom"]], default: "fadeIn" },
-    { key: "amount", label: "Amount", kind: "number", unit: "%", default: 0 },
-    { key: "start", label: "Start", kind: "number", unit: "%", default: 0 },
-    { key: "end", label: "End", kind: "number", unit: "%", default: 100 },
+    { key: "amount", label: "Amount", kind: "number", unit: "%", min: 0, max: 100, shownFor: ["fadeIn", "fadeOut"], default: 0 },
+    { key: "start", label: "Start", kind: "number", unit: "%", min: 0, max: 100, shownFor: ["custom"], default: 0 },
+    { key: "end", label: "End", kind: "number", unit: "%", min: 0, max: 100, shownFor: ["custom"], default: 100 },
     ...TIMING_PROPS(),
   ] },
   { key: "position", name: "Position", props: [
     { key: "type", label: "Type", kind: "enum", options: [["slide_in", "Slide in"], ["slide_out", "Slide out"], ["custom", "Custom"]], default: "slide_in" },
-    { key: "direction", label: "Direction", kind: "enum", options: [["left", "Left"], ["right", "Right"], ["top", "Top"], ["bottom", "Bottom"], ["top_left", "Top left"], ["top_right", "Top right"], ["bottom_left", "Bottom left"], ["bottom_right", "Bottom right"]], default: "left" },
-    { key: "distance", label: "Distance", kind: "number", unit: "px", default: 200 },
+    { key: "direction", label: "Direction", kind: "enum", options: DIRECTIONS, shownFor: ["slide_in", "slide_out"], default: "left" },
+    { key: "distance", label: "Distance", kind: "number", unit: "px", shownFor: ["slide_in", "slide_out"], default: 200 },
+    { key: "startX", label: "Start X", kind: "number", unit: "px", shownFor: ["custom"], default: 200 },
+    { key: "startY", label: "Start Y", kind: "number", unit: "px", shownFor: ["custom"], default: 200 },
+    { key: "endX", label: "End X", kind: "number", unit: "px", shownFor: ["custom"], default: 0 },
+    { key: "endY", label: "End Y", kind: "number", unit: "px", shownFor: ["custom"], default: 0 },
     ...TIMING_PROPS(),
   ] },
   { key: "scale", name: "Scale", props: [
     { key: "type", label: "Type", kind: "enum", options: [["scaleIn", "Scale in"], ["scaleOut", "Scale out"], ["custom", "Custom"]], default: "scaleIn" },
-    { key: "amount", label: "Amount", kind: "number", unit: "%", default: 120 },
+    { key: "amount", label: "Amount", kind: "number", unit: "%", min: 0, shownFor: ["scaleIn", "scaleOut"], default: 120 },
+    { key: "start", label: "Start", kind: "number", unit: "%", min: 0, shownFor: ["custom"], default: 120 },
+    { key: "end", label: "End", kind: "number", unit: "%", min: 0, shownFor: ["custom"], default: 100 },
     ...TIMING_PROPS(),
   ] },
   { key: "rotation", name: "Rotation", props: [
     { key: "type", label: "Type", kind: "enum", options: [["rotateIn", "Rotate in"], ["rotateOut", "Rotate out"], ["custom", "Custom"]], default: "rotateIn" },
-    { key: "direction", label: "Direction", kind: "enum", options: [["clockwise", "Clockwise"], ["counterclockwise", "Counterclockwise"]], default: "clockwise" },
-    { key: "amount", label: "Amount", kind: "number", unit: "°", default: 180 },
+    { key: "direction", label: "Direction", kind: "enum", options: [["clockwise", "Clockwise"], ["counterclockwise", "Counterclockwise"]], shownFor: ["rotateIn", "rotateOut"], default: "clockwise" },
+    { key: "amount", label: "Amount", kind: "number", unit: "°", shownFor: ["rotateIn", "rotateOut"], default: 180 },
+    { key: "start", label: "Start", kind: "number", unit: "°", shownFor: ["custom"], default: 180 },
+    { key: "end", label: "End", kind: "number", unit: "°", shownFor: ["custom"], default: 0 },
     ...TIMING_PROPS(),
   ] },
   { key: "size", name: "Size", props: [
     { key: "type", label: "Type", kind: "enum", options: [["resize_in", "Resize in"], ["resize_out", "Resize out"], ["custom", "Custom"]], default: "resize_in" },
-    { key: "amount", label: "Amount", kind: "number", unit: "px", default: 50 },
+    { key: "amount", label: "Amount", kind: "number", unit: "px", shownFor: ["resize_in", "resize_out"], default: 50 },
+    { key: "start", label: "Start", kind: "number", unit: "px", shownFor: ["custom"], default: 50 },
+    { key: "end", label: "End", kind: "number", unit: "px", shownFor: ["custom"], default: 100 },
     ...TIMING_PROPS(),
   ] },
   { key: "cornerRadius", name: "Corner Radius", props: [
     { key: "type", label: "Type", kind: "enum", options: [["roundIn", "Round in"], ["roundOut", "Round out"], ["custom", "Custom"]], default: "roundIn" },
-    { key: "amount", label: "Amount", kind: "number", unit: "px", default: 10 },
+    { key: "amount", label: "Amount", kind: "number", unit: "px", min: 0, shownFor: ["roundIn", "roundOut"], default: 10 },
+    { key: "start", label: "Start", kind: "number", unit: "px", shownFor: ["custom"], default: 0 },
+    { key: "end", label: "End", kind: "number", unit: "px", shownFor: ["custom"], default: 10 },
     ...TIMING_PROPS(),
   ] },
-  { key: "path", name: "Path", props: [
+  { key: "path", name: "Path", needs: "strokes", props: [
     { key: "type", label: "Type", kind: "enum", options: [["draw", "Draw"], ["erase", "Erase"], ["travel", "Travel"], ["custom", "Custom"]], default: "draw" },
-    { key: "segment", label: "Segment", kind: "number", unit: "%", default: 10 },
+    { key: "segment", label: "Segment", kind: "number", unit: "%", min: 0, max: 100, shownFor: ["travel"], default: 10 },
+    { key: "start", label: "Start", kind: "number", unit: "%", min: 0, max: 100, shownFor: ["custom"], default: 0 },
+    { key: "end", label: "End", kind: "number", unit: "%", min: 0, max: 100, shownFor: ["custom"], default: 100 },
     ...TIMING_PROPS(),
   ] },
-  { key: "text", name: "Text", props: [
+  { key: "text", name: "Text", needs: "text", props: [
     { key: "revealBy", label: "Reveal by", kind: "enum", options: [["character", "Character"], ["word", "Word"], ["line", "Line"]], default: "character" },
     ...TIMING_PROPS(1.5),
   ] },
-  { key: "textStagger", name: "Text stagger", props: [
+  { key: "textStagger", name: "Text stagger", needs: "text", props: [
     { key: "animationDirection", label: "Direction", kind: "enum", options: [["in", "In"], ["out", "Out"]], default: "in" },
     { key: "textDelayGrouping", label: "Grouping", kind: "enum", options: [["CHARACTER", "Character"], ["CHARACTER_NO_WHITESPACE", "Character (no spaces)"], ["WORD", "Word"], ["LINE", "Line"], ["PARAGRAPH", "Paragraph"]], default: "CHARACTER" },
     { key: "presetStaggerOverlap", label: "Overlap", kind: "number", unit: "%", min: 0, max: 100, default: 50 },
     { key: "textDelayOrder", label: "Order", kind: "enum", options: [["LEFT_RIGHT", "Left to right"], ["RIGHT_LEFT", "Right to left"], ["CENTER_OUT", "Center out"], ["RANDOM", "Random"]], default: "LEFT_RIGHT" },
     { key: "clipContent", label: "Clip content", kind: "bool", default: false },
+    // The sub-animations (Figma's: position on, top, 40; rotation off, 180°; scale off, 120 %; opacity off, 0 %; blur off, 20 px).
+    { key: "position", label: "Position", kind: "bool", default: true },
+    { key: "positionDirection", label: "Direction", kind: "enum", options: DIRECTIONS, shownWith: "position", default: "top" },
+    { key: "positionDistance", label: "Distance", kind: "number", unit: "px", shownWith: "position", default: 40 },
+    { key: "rotation", label: "Rotation", kind: "bool", default: false },
+    { key: "rotationAmount", label: "Amount", kind: "number", unit: "°", shownWith: "rotation", default: 180 },
+    { key: "scale", label: "Scale", kind: "bool", default: false },
+    { key: "scaleAmount", label: "Amount", kind: "number", unit: "%", min: 0, shownWith: "scale", default: 120 },
+    { key: "opacity", label: "Opacity", kind: "bool", default: false },
+    { key: "opacityAmount", label: "Amount", kind: "number", unit: "%", min: 0, max: 100, shownWith: "opacity", default: 0 },
     ...TIMING_PROPS(),
   ] },
 ];
@@ -409,12 +445,59 @@ export interface AnimationStyleDef {
   name: string;
   /** Text-only styles show only for text layers */
   textOnly?: boolean;
-  /** The presets it inserts, each offset from the playhead */
+  /** The presets it inserts, each offset from the playhead; props not given take the preset's defaults */
   presets: { preset: PresetKey; offsetMs: number; props: Record<string, PresetPropValue> }[];
 }
 
-/** Composite animation styles: none until probe 5.10 (`figma.motion.figmaAnimationStyles()`) shows Figma's own; "Text enter" / "Text exit" are the help's names. */
-export const ANIMATION_STYLES: readonly AnimationStyleDef[] = [];
+/**
+ * Composite animation styles (round 8h) [unverified: names and contents ours until probe 5.10, `figma.motion.
+ * figmaAnimationStyles()`, shows Figma's own; "Text enter" / "Text exit" are the help's names]: Figma's presets at
+ * their defaults, stacked to play together.
+ */
+export const ANIMATION_STYLES: readonly AnimationStyleDef[] = [
+  { key: "fadeIn", name: "Fade in", presets: [{ preset: "opacity", offsetMs: 0, props: { type: "fadeIn" } }] },
+  { key: "fadeOut", name: "Fade out", presets: [{ preset: "opacity", offsetMs: 0, props: { type: "fadeOut" } }] },
+  { key: "slideIn", name: "Slide in", presets: [{ preset: "position", offsetMs: 0, props: { type: "slide_in", direction: "top", distance: 40 } }, { preset: "opacity", offsetMs: 0, props: { type: "fadeIn" } }] },
+  { key: "slideOut", name: "Slide out", presets: [{ preset: "position", offsetMs: 0, props: { type: "slide_out", direction: "bottom", distance: 40 } }, { preset: "opacity", offsetMs: 0, props: { type: "fadeOut" } }] },
+  { key: "scaleIn", name: "Scale in", presets: [{ preset: "scale", offsetMs: 0, props: { type: "scaleIn", amount: 80 } }, { preset: "opacity", offsetMs: 0, props: { type: "fadeIn" } }] },
+  { key: "scaleOut", name: "Scale out", presets: [{ preset: "scale", offsetMs: 0, props: { type: "scaleOut", amount: 80 } }, { preset: "opacity", offsetMs: 0, props: { type: "fadeOut" } }] },
+  { key: "spinIn", name: "Spin in", presets: [{ preset: "rotation", offsetMs: 0, props: { type: "rotateIn" } }, { preset: "scale", offsetMs: 0, props: { type: "scaleIn", amount: 0 } }] },
+  { key: "textEnter", name: "Text enter", textOnly: true, presets: [{ preset: "textStagger", offsetMs: 0, props: { animationDirection: "in", opacity: true } }] },
+  { key: "textExit", name: "Text exit", textOnly: true, presets: [{ preset: "textStagger", offsetMs: 0, props: { animationDirection: "out", opacity: true } }] },
+];
+
+/** A materialised preset (the `figma:motion` runtime's AnimationPreset, §4.6): keyframes in µs from the clip's start, values in public units (a SCALE track's are multipliers). */
+export interface PresetTrackOutput {
+  field: KeyframeField;
+  operation: "SET" | "OFFSET" | "SCALE";
+  keyframes: { timeUs: Micros; value: KeyframeValue; easing?: MotionEasing }[];
+  enabled?: boolean;
+}
+
+/** A text stagger (§4.10): how the text's elements play the preset's tracks one after another. */
+export interface TextStaggerOutput {
+  grouping: "CHARACTER" | "CHARACTER_NO_WHITESPACE" | "WORD" | "LINE" | "PARAGRAPH";
+  order: "LEFT_RIGHT" | "RIGHT_LEFT" | "CENTER_OUT" | "RANDOM";
+  /** 0–100: how much of each element's animation overlaps the next one's */
+  overlap: number;
+  clipContent?: boolean;
+}
+
+export interface PresetOutput {
+  tracks: PresetTrackOutput[];
+  textStagger?: TextStaggerOutput;
+}
+
+/** One preset of a composite style as MOTION_APPLY_STYLE takes it (the TypeScript side expands the style). */
+export interface StylePresetRun {
+  preset: PresetKey;
+  name: string;
+  props: Record<string, PresetPropValue>;
+  offsetUs: Micros;
+  durationUs: Micros;
+  easing: MotionEasing;
+  output: PresetOutput;
+}
 
 // ---- Commands ----------------------------------------------------------------------------------------------------
 
@@ -447,10 +530,13 @@ export interface MotionCommandArgs {
   MOTION_DELETE_TRACKS: { node: GuidString; fields: KeyframeField[] };
   MOTION_SET_EASING: { ids: GuidString[]; easing: EasingRef };
   MOTION_SET_TIMELINE: { root: GuidString; durationUs?: Micros; playback?: PlaybackName; snappingFps?: number };
-  MOTION_ADD_ANIMATION: { nodes: GuidString[]; preset: PresetKey; props?: Record<string, PresetPropValue>; startUs?: Micros };
-  MOTION_SET_ANIMATION: { id: GuidString; preset?: PresetKey; props?: Record<string, PresetPropValue>; startUs?: Micros; durationUs?: Micros; disabled?: boolean };
+  /** `props` keyed by defID (as TimelineClip's); `output` the preset's code run (§4.6) */
+  MOTION_ADD_ANIMATION: { nodes: GuidString[]; preset: PresetKey; name?: string; props?: Record<string, PresetPropValue>; startUs?: Micros; durationUs?: Micros; easing?: MotionEasing; output?: PresetOutput };
+  /** Without `output`, a new duration stretches the clip's tracks and a new easing goes on its keyframes */
+  MOTION_SET_ANIMATION: { id: GuidString; preset?: PresetKey; name?: string; props?: Record<string, PresetPropValue>; startUs?: Micros; durationUs?: Micros; easing?: MotionEasing; disabled?: boolean; output?: PresetOutput };
   MOTION_REMOVE_ANIMATIONS: { ids: GuidString[] };
-  MOTION_APPLY_STYLE: { nodes: GuidString[]; style: string; startUs?: Micros };
+  /** A style's presets on the layers; or `detach`: a style entry forgotten, its presets kept */
+  MOTION_APPLY_STYLE: { nodes?: GuidString[]; style?: string; startUs?: Micros; presets?: StylePresetRun[]; detach?: GuidString };
   MOTION_RETIME_LAYER: { node: GuidString; deltaUs?: Micros; scale?: { factor: number; pivotUs: Micros } };
   MOTION_SET_INSTANCE_OFFSET: { instance: GuidString; offsetUs: Micros };
   MOTION_SET_ANCHOR: { nodes: GuidString[]; x: number; y: number; keepInPlace?: boolean };
@@ -461,6 +547,7 @@ export interface MotionCommandArgs {
   MOTION_SPLIT_AUDIO: { root: GuidString; id: GuidString; atUs: Micros };
   MOTION_REMOVE_AUDIO: { root: GuidString; ids: GuidString[] };
   MOTION_PASTE_KEYFRAMES: { nodes: GuidString[]; atUs: Micros; clipboard: MotionClipboard };
+  MOTION_SET_PRESET_TRACKS: { id: GuidString; output: PresetOutput };
 }
 
 /** Keyframes copied from the timeline (the editor keeps it; relative times from the earliest). */

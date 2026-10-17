@@ -30,6 +30,7 @@
 #include "editor/Snapping.h"
 #include "geometry/Path.h"
 #include "gfx/Device.h"
+#include "motion/TextStagger.h"
 #include "render/Camera.h"
 #include "render/CurveCache.h"
 #include "render/DrawInstance.h"
@@ -478,6 +479,9 @@ class TextLayouts {
  public:
   virtual ~TextLayouts() = default;
   virtual const text::TextLayout* textLayout(Guid id) = 0;
+  // A staggered text's element poses (Figma Motion, docs/motion.md §4.10; round 8h): each glyph drawn with its
+  // element's transform and opacity. nullptr: drawn as laid out.
+  virtual const motion::TextElementPoses* textElements(Guid) { return nullptr; }
 };
 
 struct Viewport {

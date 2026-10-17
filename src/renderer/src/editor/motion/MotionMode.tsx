@@ -5,20 +5,22 @@
  * playback clock (clock.ts) drives the playhead, which `setPlayhead` pushes to the engine every frame. Increment 2: ⌘C /
  * ⌘V of keyframes (keyframeClipboard.ts) and the height dragged by the top edge (`ui.motion.height`, put on the editor
  * as --ds-size-motion-timeline so the panels and the toolbar lift with it). Round 8a increment 2: an animated
- * instance's bar dragged (MOTION_SET_INSTANCE_OFFSET, one undo step).
+ * instance's bar dragged (MOTION_SET_INSTANCE_OFFSET, one undo step). Round 8h: a preset's clip selected (the
+ * Animations section opens its settings), dragged or stretched (MOTION_SET_ANIMATION, one undo step) and deleted.
  *
  * Every engine call is guarded: the loaded wasm may predate round 8 (built on another machine), in which case the
  * timeline shows its empty state and the chrome's own state still works.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Guid } from "@/engine/codec";
-import type { EasingRef, GuidString, Micros, PlaybackName, TimelineModel, TimelineTrack } from "@shared/motion/types";
+import type { EasingRef, GuidString, Micros, PlaybackName, TimelineClip, TimelineModel, TimelineTrack } from "@shared/motion/types";
 import { useEditor } from "../controller";
 import { useTopics, useUI } from "../hooks";
 import { MOTION_UI_DEFAULT } from "../uiStore";
 import { Clock } from "./clock";
 import { copySelectedKeyframes, pasteKeyframes } from "./keyframeClipboard";
 import { motionRead, motionUi, setMotionUi, setPlayhead, toggleAutoKeyframe, toggleMotionPlaying } from "./motionState";
+import { editPreset, removePresets } from "./presets";
 import { Timeline } from "./timeline/Timeline";
 
 export function MotionMode() {
@@ -140,6 +142,31 @@ function MotionShell() {
     },
     [ed, run]
   );
+  // A clip dragged or stretched: one step ("Move animation" / "Change animation duration"), its tracks stretched with it.
+  const clipDrag = useRef(false);
+  const onEditClip = useCallback(
+    (clip: TimelineClip, patch: { startUs?: Micros; durationUs?: Micros }, final: boolean) =>
+      run(() => {
+        if (!clipDrag.current) {
+          ed.engine.txnBegin(patch.durationUs !== undefined ? "Change animation duration" : "Move animation");
+          clipDrag.current = true;
+        }
+        // Absolute start and length: the engine stretches the tracks from the clip's length as it is now.
+        editPreset(ed, clip, patch);
+        if (final) {
+          ed.engine.txnCommit();
+          clipDrag.current = false;
+        }
+      }),
+    [ed, run]
+  );
+  const onDeleteClip = useCallback(
+    (id: GuidString) => {
+      removePresets(ed, [id]);
+      setMotionUi(ed, { selectedClip: null });
+    },
+    [ed]
+  );
   const selectedKeyframes = useMemo(() => new Set(ui.selectedKeyframes), [ui.selectedKeyframes]);
 
   return (
@@ -173,6 +200,10 @@ function MotionShell() {
       onPasteKeyframes={() => pasteKeyframes(ed, model)}
       onResize={(height) => setMotionUi(ed, { height })}
       onMoveInstance={onMoveInstance}
+      selectedClip={ui.selectedClip ?? null}
+      onSelectClip={(id) => setMotionUi(ed, { selectedClip: id })}
+      onEditClip={onEditClip}
+      onDeleteClip={onDeleteClip}
     />
   );
 }

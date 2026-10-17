@@ -35,4 +35,60 @@
   .row[data-state="none"] .label { color: var(--figma-color-text-secondary); }
   .value { flex: none; color: var(--figma-color-text-secondary); font-variant-numeric: tabular-nums; }
   .hint { padding: 0 var(--ds-size-panel-pad-right) var(--ds-space-1) var(--ds-size-panel-pad-left); color: var(--figma-color-text-secondary); }
+
+  /* The Animations section (round 8h): its header's menus in an icon button's box */
+  .iconMenu {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    min-width: var(--ds-size-control);
+    height: var(--ds-size-control);
+    padding: 0;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-icon-secondary);
+    outline: none;
+  }
+  .iconMenu:hover { background: var(--ds-color-bg-transparent-hover); color: var(--figma-color-icon); }
+  .iconMenu[data-open] { background: var(--ds-color-bg-transparent-pressed); color: var(--figma-color-icon); }
+  .iconMenu:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
+
+  /* A preset clip's row: its glyph and name (opens its settings), the style that made it, detach, eye, remove */
+  .clipRow { display: flex; align-items: center; gap: var(--ds-space-1); min-height: var(--ds-size-row); padding: 0 var(--ds-size-panel-pad-right) 0 calc(var(--ds-size-panel-pad-left) - var(--ds-space-2)); }
+  .clipOff .clipName { opacity: 0.4; }
+  .clipName {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: var(--ds-space-1);
+    min-width: 0;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-1) 0 0;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: none;
+    color: var(--figma-color-icon-secondary);
+    text-align: left;
+    outline: none;
+  }
+  .clipName:hover, .clipRow[data-open] .clipName { background: var(--figma-color-bg-hover); }
+  .clipName:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
+  .clipSettings { padding: 0 0 var(--ds-space-2); }
+  .easingField {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-2);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+    color: var(--figma-color-text);
+    text-align: left;
+    outline: none;
+  }
+  .easingField:hover { box-shadow: inset 0 0 0 1px var(--figma-color-border); }
+  .easingField:focus-visible { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
 }

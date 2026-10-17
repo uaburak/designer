@@ -8,7 +8,8 @@
 // transform is untouched the moment the layer restores. Increment 2: an animated component's instances play their
 // main's timeline placed in their container's (instance sublayers, `timelineAssignments`, §4.3), and layout-changing
 // fields (WIDTH, paddings, gaps…) lay out again through the caller's hook, its writes previews too (§4.5) — the motion
-// transforms then compose over where layout put each layer.
+// transforms then compose over where layout put each layer. Round 8h: a text preset's tracks play per text element
+// (TextStagger.h) — the poses kept for the renderer (`textElements`), the text's own box unmoved.
 #pragma once
 
 #include <cstdint>
@@ -18,6 +19,7 @@
 
 #include "motion/Evaluate.h"
 #include "motion/Model.h"
+#include "motion/TextStagger.h"
 
 namespace eng::motion {
 
@@ -46,6 +48,8 @@ class MotionLayer {
     // Lays out what depends on these nodes (their layout inputs changed), writing through preview() (nullptr: no
     // layout, siblings stay where they were).
     std::function<void(const std::vector<Guid>&)> relayout;
+    // A TEXT node's layout (nullptr: its text animations don't stagger this time).
+    std::function<const text::TextLayout*(Guid)> textLayout;
   };
 
   // Evaluates every animated layer under `root` at root time `timeUs` (the timeline's playback style applied) — the
@@ -70,6 +74,11 @@ class MotionLayer {
   size_t appliedCount() const { return entries_.size(); }
   // The base props of an applied node (what the document held before the layer wrote it), or nullptr.
   const NodeProps* baseOf(Guid id) const;
+  // The poses of a staggered text's elements at the applied time (round 8h), or nullptr.
+  const TextElementPoses* textElements(Guid id) const {
+    auto it = texts_.find(id);
+    return it == texts_.end() ? nullptr : &it->second;
+  }
 
   // The motion transform of a layer: M · T(o) · T(t) · R(−r) · Shear(k) · S(s) · T(−o) (docs/motion.md §4.5), with the
   // anchor o resolved against `size`. `rotationStored` is Figma's stored value (−radians).
@@ -87,6 +96,7 @@ class MotionLayer {
   };
   Entry& remember(const Document& doc, Guid id);
   std::unordered_map<Guid, Entry, GuidHash> entries_;
+  TextElementMap texts_;
 };
 
 // Puts the base values back for the scope and applies again after it (nestable): storage, exports, clipboard reads.

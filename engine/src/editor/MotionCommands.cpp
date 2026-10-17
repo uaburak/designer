@@ -5,11 +5,13 @@
 // routed into keyframes while Motion is on; tracks removed with their last layer, and copied with a duplicated, pasted
 // or detached one. Round 8a increment 2: an animated instance's offset (341) and its bar and sublayers in the reads,
 // path trim's panel write routed, the layout of what the motion layer resized (its previews), the motion path and the
-// anchor point tool on the canvas.
+// anchor point tool on the canvas. Round 8h: animation presets (336–338, 352) and composite styles (339) — clips whose
+// materialised tracks (the TypeScript runtime's output) are their own children, bound through ANIMATION_PRESET
+// parameters — copied and removed with their layers, a text preset's stagger timed to the text's elements.
 //
-// Not yet (the contract's later increments): presets and styles (336–339, 352; round 8h's code), audio (345–348), paste
-// (349), combine / split (350–351), text stagger (344), keyframe values or easings bound to variables, the corner radius
-// / shape handles and the Scale tool routed, the motion path's squares and handles dragged on the canvas.
+// Not yet (the contract's later increments): audio (345–348), paste (349), combine / split (350–351), text stagger by
+// hand (344), keyframe values, easings and preset timings bound to variables, the corner radius / shape handles and
+// the Scale tool routed, the motion path's squares and handles dragged on the canvas.
 #include <algorithm>
 #include <cmath>
 
@@ -30,7 +32,15 @@ using motion::ValueKind;
 const json::Value* member(const json::Value& o, const char* k) { return o.isObject() ? o.get(k) : nullptr; }
 const json::Value* member(const json::Value* o, const char* k) { return o ? member(*o, k) : nullptr; }
 
+// A GUID as the args give it ("s:l"), or as a field read back from `extra` gives it ({sessionID, localID}).
 bool guidOf(const json::Value* v, Guid& out) {
+  if (v && v->isObject()) {
+    const json::Value* s = v->get("sessionID");
+    const json::Value* l = v->get("localID");
+    if (!s || !l || !s->isNumber() || !l->isNumber()) return false;
+    out = Guid{static_cast<uint32_t>(s->number), static_cast<uint32_t>(l->number)};
+    return true;
+  }
   if (!v || !v->isString()) return false;
   bool ok = false;
   out = Guid::parse(v->string, &ok);
@@ -566,6 +576,46 @@ Mat2x3 linearPart(Mat2x3 m) {
   return m;
 }
 
+// An AnimationPresetId / KeyframeTrackId as JSON ({guid}).
+json::Value idJson(Guid g) {
+  json::Value o = jobj();
+  put(o, "guid", jstr(g.toString()));
+  return o;
+}
+
+// A preset's props (round 8h) as the instance's `componentPropAssignments`: each key a prop's defID (the TypeScript
+// side names them, src/shared/motion/presets), its value a NUMBER, BOOL or TEXT ComponentPropValue. The engine reads
+// none of them: Delay, Duration and Easing are the clip's own fields.
+std::vector<ComponentPropAssignment> propAssignments(const json::Value* props) {
+  std::vector<ComponentPropAssignment> out;
+  if (!props || !props->isObject()) return out;
+  for (const auto& [key, v] : props->object) {
+    bool ok = false;
+    Guid def = Guid::parse(key, &ok);
+    if (!ok) continue;
+    ComponentPropAssignment a;
+    a.defID = def;
+    if (v.isNumber()) a.value.hasFloat = true, a.value.floatValue = static_cast<float>(v.number);
+    else if (v.isBool()) a.value.hasBool = true, a.value.boolValue = v.boolean;
+    else if (v.isString()) a.value.hasText = true, a.value.textValue.characters = v.string;
+    else continue;
+    out.push_back(std::move(a));
+  }
+  return out;
+}
+
+void writePropAssignments(json::Writer& w, const std::vector<ComponentPropAssignment>& list) {
+  w.beginObject();
+  for (const ComponentPropAssignment& a : list) {
+    w.key(a.defID.toString());
+    if (a.value.hasFloat) w.number(a.value.floatValue);
+    else if (a.value.hasBool) w.boolean(a.value.boolValue);
+    else if (a.value.hasText) w.string(a.value.textValue.characters);
+    else w.null();
+  }
+  w.endObject();
+}
+
 bool nearlyEqual(const Mat2x3& a, const Mat2x3& b, double eps) {
   return std::fabs(a.m00 - b.m00) < eps && std::fabs(a.m01 - b.m01) < eps && std::fabs(a.m02 - b.m02) < eps && std::fabs(a.m10 - b.m10) < eps &&
          std::fabs(a.m11 - b.m11) < eps && std::fabs(a.m12 - b.m12) < eps;
@@ -709,38 +759,49 @@ Guid Editor::motionTrackOf(const NodeProps& p, const motion::Slot& s) const {
   return kNoGuid;
 }
 
+// The slot's KEYFRAME expression as it stands — its base argument and its parameters — or, when it has none, the base
+// it would take: an alias (or another expression) kept whole as the base argument, else the field's literal (docs/
+// motion.md §4.2). False when the node has no such slot.
+bool Editor::motionBindingOf(const NodeProps& p, const motion::Slot& s, VariableData& base, std::vector<motion::Param>& params) const {
+  params.clear();
+  const VariableData* existing = motionSlotData(p, s);
+  if (existing && isKeyframeExpression(*existing)) {
+    base = existing->args[0];
+    if (existing->args.size() >= 2) motion::decodeParams(existing->args[1], params);
+    return true;
+  }
+  if (existing && existing->present()) {
+    base = *existing;
+    return true;
+  }
+  KeyframeValue v;
+  if (!motionBaseValue(p, s, v)) return false;
+  base = v.kind == ValueKind::COLOR ? VariableData::color(v.c) : VariableData::number(v.f);
+  if (v.kind == ValueKind::VECTOR) {
+    // A VECTOR base: a literal the schema has no VariableData for; the motion layer takes the component of
+    // motionTransform instead, so the argument carries no value.
+    base = VariableData{};
+    base.hasDataType = base.hasResolvedType = true;
+    base.dataType = VariableDataType::FLOAT;
+    base.resolvedDataType = VariableResolvedType::FLOAT;
+    base.kind = VariableData::Kind::FLOAT;
+    base.floatValue = 0;
+  }
+  return true;
+}
+
 // The slot's manual track, made when there is none: a KEYFRAME_TRACK on the internal canvas, bound through the slot's
-// KEYFRAME expression (the existing expression gains a MANUAL parameter; a plain or alias-bound slot becomes the
-// expression's base argument). A transaction is open.
+// KEYFRAME expression (the existing expression gains a MANUAL parameter after its presets'; a plain or alias-bound
+// slot becomes the expression's base argument). A transaction is open.
 Guid Editor::motionEnsureTrack(Guid id, const motion::Slot& s, Guid root) {
   const Node* n = doc_.get(id);
   if (!n) return kNoGuid;
   if (Guid t = motionTrackOf(n->props, s); t != kNoGuid) return t;
   Guid internal = internalCanvas();
   if (internal == kNoGuid) return kNoGuid;
-  const VariableData* existing = motionSlotData(n->props, s);
   VariableData base;
   std::vector<motion::Param> params;
-  if (existing && isKeyframeExpression(*existing)) {
-    base = existing->args[0];
-    if (existing->args.size() >= 2) motion::decodeParams(existing->args[1], params);
-  } else if (existing && existing->present()) {
-    base = *existing;  // an alias (or another expression): kept as the base argument (docs/motion.md §4.2)
-  } else {
-    KeyframeValue v;
-    if (!motionBaseValue(n->props, s, v)) return kNoGuid;
-    base = v.kind == ValueKind::COLOR ? VariableData::color(v.c) : v.kind == ValueKind::VECTOR ? VariableData::number(v.v.x) : VariableData::number(v.f);
-    if (v.kind == ValueKind::VECTOR) {
-      // A VECTOR base: a literal the schema has no VariableData for; the motion layer takes the component of
-      // motionTransform instead, so the argument carries no value.
-      base = VariableData{};
-      base.hasDataType = base.hasResolvedType = true;
-      base.dataType = VariableDataType::FLOAT;
-      base.resolvedDataType = VariableResolvedType::FLOAT;
-      base.kind = VariableData::Kind::FLOAT;
-      base.floatValue = 0;
-    }
-  }
+  if (!motionBindingOf(n->props, s, base, params)) return kNoGuid;
   NodeProps tp = defaultProps(NodeType::KEYFRAME_TRACK);
   tp.type = NodeType::KEYFRAME_TRACK;
   tp.name = keyOf(s);
@@ -799,9 +860,11 @@ Guid Editor::motionUpsertKeyframe(Guid track, int64_t timeUs, const motion::Keyf
   return id;
 }
 
-// Removes a track with its keyframes and its MANUAL parameter from every slot that names it (children first).
+// Removes a track with its keyframes and its parameter from every slot that names it (children first); a preset's
+// instance goes whole (round 8h, motionRemovePreset).
 void Editor::motionRemoveTrack(Guid track) {
   if (!doc_.has(track)) return;
+  if (doc_.get(track)->props.type == NodeType::ANIMATION_PRESET_INSTANCE) return motionRemovePreset(track);
   std::vector<std::pair<Guid, Slot>> users;
   doc_.forEach([&](const Node& n) {
     if (n.guid.isDerived()) return;
@@ -835,7 +898,8 @@ void Editor::motionRemoveTrack(Guid track) {
   motionDirty_ = true;
 }
 
-// The tracks only the given nodes (and their descendants) bind: removed with them (docs/motion.md §4.2 ownership).
+// The tracks only the given nodes (and their descendants) bind, and their presets' instances: removed with them
+// (docs/motion.md §4.2 ownership; motionRemoveTrack takes both).
 std::vector<Guid> Editor::motionTracksOwnedBy(const std::vector<Guid>& ids) {
   const motion::MotionIndex& ix = motionIndex();
   std::unordered_set<Guid, GuidHash> going;
@@ -858,6 +922,8 @@ std::vector<Guid> Editor::motionTracksOwnedBy(const std::vector<Guid>& ids) {
         if (it == onlyOurs.end()) onlyOurs[q.track] = ours;
         else it->second = it->second && ours;
       }
+    for (Guid preset : an->presets)
+      if (ours) onlyOurs[preset] = true;
   });
   std::vector<Guid> out;
   for (auto& [t, only] : onlyOurs)
@@ -873,14 +939,19 @@ uint32_t Editor::motionCommandState(CommandId id) const {
     case CommandId::MOTION_ADD_KEYFRAME:
     case CommandId::MOTION_SET_ANCHOR:
     case CommandId::MOTION_RETIME_LAYER:
-    case CommandId::MOTION_DELETE_TRACKS: return motion_.on && !selection_.empty() ? CMD_ENABLED : 0;
+    case CommandId::MOTION_DELETE_TRACKS:
+    case CommandId::MOTION_ADD_ANIMATION:
+    case CommandId::MOTION_APPLY_STYLE: return motion_.on && !selection_.empty() ? CMD_ENABLED : 0;
+    case CommandId::MOTION_SET_ANIMATION:
+    case CommandId::MOTION_REMOVE_ANIMATIONS:
+    case CommandId::MOTION_SET_PRESET_TRACKS:
     case CommandId::MOTION_SET_KEYFRAMES:
     case CommandId::MOTION_DELETE_KEYFRAMES:
     case CommandId::MOTION_SET_EASING:
     case CommandId::MOTION_SET_TIMELINE:
     case CommandId::MOTION_SET_PATH_HANDLES:
     case CommandId::MOTION_SET_INSTANCE_OFFSET: return motion_.on ? CMD_ENABLED : 0;
-    default: return 0;  // presets, audio, paste, combine / split, text stagger: later increments
+    default: return 0;  // audio, paste, combine / split, text stagger by hand: later increments
   }
 }
 
@@ -1078,9 +1149,15 @@ Status Editor::motionCommand(CommandId id, const CommandArgs& args) {
         if (!guidOf(&v, g) || !doc_.has(g)) continue;
         NodeType t = doc_.get(g)->props.type;
         if (t != NodeType::KEYFRAME && t != NodeType::ANIMATION_PRESET_INSTANCE) continue;
+        if (t == NodeType::ANIMATION_PRESET_INSTANCE) {
+          // A clip's easing is its tweens' (round 8h): its keyframes take it too.
+          motionEditPreset(g, raw);
+          done++;
+          continue;
+        }
         NodeChange c = NodeChange::changed(g);
         putExtra(c, "easingData", encodeExtra("easingData", ed));
-        if (t == NodeType::KEYFRAME) putExtra(c, "interpolationType", encodeExtra("interpolationType", jstr(interpolationTypeOf(spec.type))));
+        putExtra(c, "interpolationType", encodeExtra("interpolationType", jstr(interpolationTypeOf(spec.type))));
         write(c);
         done++;
       }
@@ -1136,8 +1213,20 @@ Status Editor::motionCommand(CommandId id, const CommandArgs& args) {
       for (const motion::Binding& b : an->bindings)
         for (const motion::Param& q : b.params)
           if (q.kind == motion::Param::Kind::MANUAL && doc_.has(q.track)) tracks.push_back(q.track);
-      if (tracks.empty()) return E_INVALID;
+      if (tracks.empty() && an->presets.empty()) return E_INVALID;
       begin(TxnKind::USER, delta ? "Move animation" : "Change animation duration");
+      // The clips (round 8h) move with the keyframes; scaled, a clip's start and length scale about the pivot and its
+      // tracks with it.
+      for (Guid preset : an->presets) {
+        const motion::Preset* pr = motionIndex_.preset(preset);
+        if (!pr) continue;
+        NodeChange c = NodeChange::changed(preset);
+        double start = delta ? static_cast<double>(pr->offsetUs) + delta->number : pivot + (static_cast<double>(pr->offsetUs) - pivot) * factor;
+        putExtra(c, "timelineOffset", encodeExtra("timelineOffset", jnum(static_cast<double>(roundUs(start)))));
+        if (!delta) putExtra(c, "timelineDuration", encodeExtra("timelineDuration", jnum(std::max(1.0, std::round(static_cast<double>(pr->durationUs) * factor)))));
+        write(c);
+        if (!delta) motionScalePreset(preset, factor);
+      }
       for (Guid t : tracks) {
         // Every keyframe moves; the new positions are written in one pass (no upsert collisions: a scale keeps order
         // and a delta is uniform).
@@ -1247,8 +1336,423 @@ Status Editor::motionCommand(CommandId id, const CommandArgs& args) {
       commit();
       return OK;
     }
+    case CommandId::MOTION_ADD_ANIMATION: {
+      // A preset on each layer at the playhead (or `startUs`), its tracks the runtime's `output` (docs/motion.md §4.6).
+      const json::Value* preset = member(raw, "preset");
+      if (!preset || !preset->isString() || preset->string.empty()) return E_INVALID;
+      std::vector<Guid> nodes = nodesOf();
+      int64_t startUs = timeArg("startUs", motion_.timeUs);
+      begin(TxnKind::USER, "Add animation");
+      for (Guid n : nodes) {
+        Guid root = rootFor(n);
+        if (root == kNoGuid) continue;
+        if (Guid id = motionAddPreset(n, root, raw, startUs); id != kNoGuid) created_.push_back(id);
+      }
+      bool made = !created_.empty();
+      commit();
+      return made ? OK : E_INVALID;
+    }
+    case CommandId::MOTION_SET_ANIMATION: {
+      Guid id;
+      if (!guidOf(member(raw, "id"), id) || !doc_.has(id) || doc_.get(id)->props.type != NodeType::ANIMATION_PRESET_INSTANCE) return E_INVALID;
+      // Figma's names: a clip dragged is "Move animation", its handles "Change animation duration", the rest "Edit animation".
+      bool start = member(raw, "startUs") != nullptr, duration = member(raw, "durationUs") != nullptr;
+      size_t keys = raw.isObject() ? raw.object.size() : 0;
+      const char* label = start && keys == 2 ? "Move animation" : duration && keys <= 3 && !member(raw, "output") && !member(raw, "props") ? "Change animation duration" : "Edit animation";
+      begin(TxnKind::USER, label);
+      bool ok = motionEditPreset(id, raw);
+      commit();
+      return ok ? OK : E_INVALID;
+    }
+    case CommandId::MOTION_REMOVE_ANIMATIONS: {
+      const json::Value* ids = member(raw, "ids");
+      if (!ids || !ids->isArray()) return E_INVALID;
+      std::vector<Guid> presets;
+      for (const json::Value& v : ids->array) {
+        Guid g;
+        if (guidOf(&v, g) && doc_.has(g) && doc_.get(g)->props.type == NodeType::ANIMATION_PRESET_INSTANCE) presets.push_back(g);
+      }
+      if (presets.empty()) return E_INVALID;
+      begin(TxnKind::USER, "Remove animation");
+      for (Guid g : presets) motionRemovePreset(g);
+      commit();
+      return OK;
+    }
+    case CommandId::MOTION_APPLY_STYLE: {
+      // A composite style (docs/motion.md §4.6): its presets — expanded by the TypeScript side, each with its offset from
+      // the style's start and its output — on each layer, and one `styleIdsForAnimation` entry naming what it generated.
+      // `detach` instead forgets a style entry wherever it is; its presets stay as they are.
+      if (Guid binding; guidOf(member(raw, "detach"), binding)) {
+        std::vector<Guid> holders;
+        doc_.forEach([&](const Node& n) {
+          if (!n.guid.isDerived() && n.props.extra.count("styleIdsForAnimation")) holders.push_back(n.guid);
+        });
+        begin(TxnKind::USER, "Detach animation style");
+        size_t done = 0;
+        for (Guid n : holders) {
+          json::Value list = motion::extraJson(doc_.get(n)->props, "styleIdsForAnimation");
+          if (!list.isArray()) continue;
+          json::Value kept;
+          kept.kind = json::Value::Kind::Array;
+          for (const json::Value& e : list.array) {
+            Guid g;
+            if (guidOf(member(e, "id"), g) && g == binding) continue;
+            kept.array.push_back(e);
+          }
+          if (kept.array.size() == list.array.size()) continue;
+          NodeChange c = NodeChange::changed(n);
+          putExtra(c, "styleIdsForAnimation", kept.array.empty() ? std::string() : encodeExtra("styleIdsForAnimation", kept));
+          write(c);
+          done++;
+        }
+        motionDirty_ = true;
+        commit();
+        return done ? OK : E_INVALID;
+      }
+      const json::Value* style = member(raw, "style");
+      const json::Value* presets = member(raw, "presets");
+      if (!style || !style->isString() || !presets || !presets->isArray() || presets->array.empty()) return E_INVALID;
+      std::vector<Guid> nodes = nodesOf();
+      int64_t startUs = timeArg("startUs", motion_.timeUs);
+      begin(TxnKind::USER, "Apply animation style");
+      for (Guid n : nodes) {
+        Guid root = rootFor(n);
+        if (root == kNoGuid) continue;
+        json::Value generated;
+        generated.kind = json::Value::Kind::Array;
+        for (const json::Value& spec : presets->array) {
+          const json::Value* off = member(spec, "offsetUs");
+          Guid id = motionAddPreset(n, root, spec, startUs + (off && off->isNumber() ? roundUs(off->number) : 0));
+          if (id == kNoGuid) continue;
+          created_.push_back(id);
+          json::Value g = jobj();
+          put(g, "animationPresetId", idJson(id));
+          generated.array.push_back(g);
+        }
+        if (generated.array.empty()) continue;
+        json::Value list = motion::extraJson(doc_.get(n)->props, "styleIdsForAnimation");
+        if (!list.isArray()) list.kind = json::Value::Kind::Array;
+        json::Value entry = jobj(), styleId = jobj(), ref = jobj();
+        put(ref, "key", jstr(style->string));
+        put(styleId, "assetRef", ref);
+        put(entry, "id", jstr(newGuid().toString()));
+        put(entry, "timelineDefId", jstr(root.toString()));
+        put(entry, "animationStyleId", styleId);
+        put(entry, "timelineOffset", jnum(static_cast<double>(startUs)));
+        put(entry, "generatedAnimationPresets", generated);
+        list.array.push_back(entry);
+        NodeChange c = NodeChange::changed(n);
+        putExtra(c, "styleIdsForAnimation", encodeExtra("styleIdsForAnimation", list));
+        write(c);
+      }
+      bool made = !created_.empty();
+      motionDirty_ = true;
+      commit();
+      return made ? OK : E_INVALID;
+    }
+    case CommandId::MOTION_SET_PRESET_TRACKS: {
+      // A preset's code run again (its props changed): its tracks replaced by the output (docs/motion.md §4.6) — inside
+      // the step that changed the props when the chrome opened one, else a step of its own.
+      Guid id;
+      const json::Value* output = member(raw, "output");
+      if (!guidOf(member(raw, "id"), id) || !output || !doc_.has(id) || doc_.get(id)->props.type != NodeType::ANIMATION_PRESET_INSTANCE) return E_INVALID;
+      begin(TxnKind::USER, "Edit animation");
+      motionSetPresetTracks(id, *output);
+      commit();
+      return OK;
+    }
     default: return E_UNSUPPORTED;  // the later increments (docs/motion.md §4.9's table)
   }
+}
+
+// ---- Presets (docs/motion.md §4.6; round 8h) ----------------------------------------------------------------------------
+
+// The layer whose `animationPresets` lists `preset`, kNoGuid when none.
+Guid Editor::motionPresetOwner(Guid preset) const {
+  Guid found = kNoGuid;
+  doc_.forEach([&](const Node& n) {
+    if (found != kNoGuid || n.guid.isDerived() || !n.props.extra.count("animationPresets")) return;
+    for (Guid g : motion::decodePresetList(n.props))
+      if (g == preset) found = n.guid;
+  });
+  return found;
+}
+
+// A layer's `animationPresets` (521) written: the instances in stacking order on the timeline of the root it is under
+// (an empty list removes the field).
+void Editor::motionWritePresetList(Guid node, const std::vector<Guid>& presets) {
+  NodeChange c = NodeChange::changed(node);
+  if (presets.empty()) {
+    putExtra(c, "animationPresets", std::string());
+  } else {
+    Guid root = motionIndex_.rootOf(doc_, node);
+    json::Value list, out = jobj();
+    list.kind = json::Value::Kind::Array;
+    for (Guid g : presets) {
+      json::Value e = jobj();
+      put(e, "animationPresetId", idJson(g));
+      put(e, "timelineDefId", jstr(root.toString()));
+      list.array.push_back(e);
+    }
+    put(out, "presets", list);
+    putExtra(c, "animationPresets", encodeExtra("animationPresets", out));
+  }
+  write(c);
+  motionDirty_ = true;
+}
+
+// A preset's clip on `node` (docs/motion.md §4.6): an ANIMATION_PRESET_INSTANCE on the internal canvas —
+// `backingAnimationPresetId` names the preset type (its assetRef key), `timelineOffset` its start (the Delay),
+// `timelineDuration` its length (Figma's 0.5 s when not given), `easingData` its easing (Figma's Ease out), its other
+// props its `componentPropAssignments` — appended to the layer's `animationPresets`, and the runtime's `output`
+// materialised. A transaction is open.
+Guid Editor::motionAddPreset(Guid node, Guid root, const json::Value& spec, int64_t startUs) {
+  const json::Value* key = member(spec, "preset");
+  if (!doc_.has(node) || !key || !key->isString() || key->string.empty()) return kNoGuid;
+  Guid internal = internalCanvas(true);
+  if (internal == kNoGuid) return kNoGuid;
+  NodeProps pp = defaultProps(NodeType::ANIMATION_PRESET_INSTANCE);
+  pp.type = NodeType::ANIMATION_PRESET_INSTANCE;
+  const json::Value* name = member(spec, "name");
+  pp.name = name && name->isString() && !name->string.empty() ? name->string : key->string;
+  pp.parentIndex = {internal, doc_.positionAtEnd(internal)};
+  json::Value backing = jobj(), ref = jobj();
+  put(ref, "key", jstr(key->string));
+  put(backing, "assetRef", ref);
+  pp.extra["backingAnimationPresetId"] = encodeExtra("backingAnimationPresetId", backing);
+  pp.extra["timelineOffset"] = encodeExtra("timelineOffset", jnum(static_cast<double>(startUs)));
+  const json::Value* d = member(spec, "durationUs");
+  pp.extra["timelineDuration"] = encodeExtra("timelineDuration", jnum(d && d->isNumber() && d->number >= 1 ? std::round(d->number) : 500000));
+  json::Value ed, easeOut = jobj();
+  put(easeOut, "type", jstr("EASE_OUT"));
+  const json::Value* e = member(spec, "easing");
+  if (!e || !easingFromPublic(*e, ed)) easingFromPublic(easeOut, ed);
+  pp.extra["easingData"] = encodeExtra("easingData", ed);
+  pp.comp().componentPropAssignments = propAssignments(member(spec, "props"));
+  Guid id = newGuid();
+  write(NodeChange::created(id, pp));
+  std::vector<Guid> list = motion::decodePresetList(doc_.get(node)->props);
+  list.push_back(id);
+  motionWritePresetList(node, list);
+  if (const json::Value* out = member(spec, "output")) motionSetPresetTracks(id, *out);
+  motionDirty_ = true;
+  return id;
+}
+
+// A clip's settings changed (MOTION_SET_ANIMATION): its type, props, start, length, easing, off switch. Without a new
+// `output`, a new length scales the clip's tracks (the runtime's tweens span the clip, so that is the code run again)
+// and a new easing goes on its keyframes (the tweens carry the clip's easing). A transaction is open.
+bool Editor::motionEditPreset(Guid preset, const json::Value& edit) {
+  const Node* n = doc_.get(preset);
+  if (!n) return false;
+  motion::Preset was;
+  motion::decodePreset(n->props, preset, was);
+  NodeChange c = NodeChange::changed(preset);
+  if (const json::Value* key = member(edit, "preset"); key && key->isString() && !key->string.empty()) {
+    json::Value backing = jobj(), ref = jobj();
+    put(ref, "key", jstr(key->string));
+    put(backing, "assetRef", ref);
+    putExtra(c, "backingAnimationPresetId", encodeExtra("backingAnimationPresetId", backing));
+  }
+  if (const json::Value* name = member(edit, "name"); name && name->isString()) {
+    c.mask |= F_NAME;
+    c.props.name = name->string;
+  }
+  if (const json::Value* s = member(edit, "startUs"); s && s->isNumber())
+    putExtra(c, "timelineOffset", encodeExtra("timelineOffset", jnum(static_cast<double>(roundUs(s->number)))));
+  double factor = 1;
+  if (const json::Value* d = member(edit, "durationUs"); d && d->isNumber() && d->number >= 1) {
+    double us = std::round(d->number);
+    putExtra(c, "timelineDuration", encodeExtra("timelineDuration", jnum(us)));
+    if (was.durationUs > 0) factor = us / static_cast<double>(was.durationUs);
+  }
+  if (const json::Value* dis = member(edit, "disabled"); dis && dis->isBool()) putExtra(c, "timelineDisabled", encodeExtra("timelineDisabled", jbool(dis->boolean)));
+  const json::Value* easing = member(edit, "easing");
+  json::Value ed;
+  EasingSpec spec;
+  bool eased = easing && easingFromPublic(*easing, ed, &spec);
+  if (eased) putExtra(c, "easingData", encodeExtra("easingData", ed));
+  if (const json::Value* props = member(edit, "props"); props && props->isObject()) {
+    c.mask |= F_COMPONENT_PROP_ASSIGNMENTS;
+    c.props.comp().componentPropAssignments = propAssignments(props);
+  }
+  const json::Value* output = member(edit, "output");
+  if (!c.mask && !output) return false;
+  if (c.mask) write(c);
+  if (output) {
+    motionSetPresetTracks(preset, *output);
+  } else {
+    if (factor != 1) motionScalePreset(preset, factor);
+    if (eased)
+      for (Guid t : doc_.children(preset))
+        for (Guid k : doc_.children(t)) {
+          NodeChange kc = NodeChange::changed(k);
+          putExtra(kc, "easingData", encodeExtra("easingData", ed));
+          putExtra(kc, "interpolationType", encodeExtra("interpolationType", jstr(interpolationTypeOf(spec.type))));
+          write(kc);
+        }
+  }
+  motionDirty_ = true;
+  return true;
+}
+
+// A clip's tracks stretched by `factor` about its start (its keyframes' positions in the clip's own time), and a text
+// stagger's step with them (both are parts of the clip's length).
+void Editor::motionScalePreset(Guid preset, double factor) {
+  if (const Node* n = doc_.get(preset)) {
+    json::Value b = motion::extraJson(n->props, "textElementDelayBehaviour");
+    if (const json::Value* d = member(b, "delayMs"); d && d->isNumber()) {
+      put(b, "delayMs", jnum(d->number * factor));
+      NodeChange c = NodeChange::changed(preset);
+      putExtra(c, "textElementDelayBehaviour", encodeExtra("textElementDelayBehaviour", b));
+      write(c);
+    }
+  }
+  for (Guid t : doc_.children(preset))
+    for (Guid k : doc_.children(t)) {
+      const Node* kn = doc_.get(k);
+      motion::Keyframe kf;
+      if (!kn || !motion::decodeKeyframe(kn->props, k, kf)) continue;
+      NodeChange c = NodeChange::changed(k);
+      putExtra(c, "timelinePosition", encodeExtra("timelinePosition", jnum(static_cast<double>(roundUs(static_cast<double>(kf.timeUs) * factor)))));
+      write(c);
+    }
+  motionDirty_ = true;
+}
+
+// A preset's materialised output (docs/motion.md §4.6: the `figma:motion` runtime's AnimationPreset, in public units and
+// µs from the clip's start) replaces its tracks: each one a KEYFRAME_TRACK child of the instance with the track's
+// operation, its keyframes upserted by position (a duplicate position in the output collapses to the last one, as
+// Figma's), bound to the layer's field by an ANIMATION_PRESET parameter placed after the other presets' and before the
+// manual track. A SCALE track's values are multipliers (never converted). A text stagger (§4.10) on a text: the
+// tracks span one element's part of the clip — g = D / (1 + (m − 1)(1 − overlap)) of the clip's D, m the order's slots
+// for the text as laid out now — and the step between elements goes in the instance's own
+// `textElementDelayBehaviour` (TextStagger.h). A transaction is open.
+void Editor::motionSetPresetTracks(Guid preset, const json::Value& output) {
+  std::vector<Guid> old;
+  for (Guid t : doc_.children(preset))
+    if (const Node* tn = doc_.get(t); tn && tn->props.type == NodeType::KEYFRAME_TRACK) old.push_back(t);
+  for (Guid t : old) motionRemoveTrack(t);
+  Guid owner = motionPresetOwner(preset);
+  if (owner == kNoGuid) return;
+  Guid root = motionIndex_.rootOf(doc_, owner);
+  double timeScale = 1;
+  {
+    motion::Preset clip;
+    motion::decodePreset(doc_.get(preset)->props, preset, clip);
+    const json::Value* ts = member(output, "textStagger");
+    NodeChange c = NodeChange::changed(preset);
+    if (ts && ts->isObject() && doc_.get(owner)->props.type == NodeType::TEXT) {
+      constexpr const char* kGroupings[] = {"CHARACTER", "CHARACTER_NO_WHITESPACE", "WORD", "LINE", "PARAGRAPH"};
+      constexpr const char* kOrders[] = {"LEFT_RIGHT", "RIGHT_LEFT", "CENTER_OUT", "RANDOM"};
+      auto pick = [&](const char* key, const char* const* names, int count) {
+        const json::Value* v = member(ts, key);
+        for (int i = 0; v && v->isString() && i < count; i++)
+          if (v->string == names[i]) return i;
+        return 0;
+      };
+      int grouping = pick("grouping", kGroupings, 5), order = pick("order", kOrders, 4);
+      const json::Value* ov = member(ts, "overlap");
+      double overlap = ov && ov->isNumber() ? ov->number / 100 : 0.5;
+      const text::TextLayout* L = textLayout(owner);
+      size_t n = L ? motion::groupElements(*L, static_cast<motion::Grouping>(grouping)).boxes.size() : 1;
+      uint32_t slots = motion::slotsOf(motion::staggerRanks(n, static_cast<motion::StaggerOrder>(order), owner));
+      int64_t elementUs = clip.durationUs, stepUs = 0;
+      motion::staggerTiming(clip.durationUs, slots, overlap, elementUs, stepUs);
+      timeScale = clip.durationUs > 0 ? static_cast<double>(elementUs) / static_cast<double>(clip.durationUs) : 1;
+      json::Value b = jobj();
+      put(b, "enabled", jbool(true));
+      put(b, "grouping", jstr(kGroupings[grouping]));
+      put(b, "delayMs", jnum(static_cast<double>(stepUs) / 1000));
+      put(b, "order", jstr(kOrders[order]));
+      putExtra(c, "textElementDelayBehaviour", encodeExtra("textElementDelayBehaviour", b));
+    } else if (doc_.get(preset)->props.extra.count("textElementDelayBehaviour")) {
+      putExtra(c, "textElementDelayBehaviour", std::string());
+    }
+    if (c.mask) write(c);
+  }
+  const json::Value* tracks = member(output, "tracks");
+  if (!tracks || !tracks->isArray()) return;
+  for (const json::Value& tr : tracks->array) {
+    if (const json::Value* en = member(tr, "enabled"); en && en->isBool() && !en->boolean) continue;
+    Slot slot;
+    if (!slotFromPublic(member(tr, "field"), slot)) continue;
+    VariableData base;
+    std::vector<motion::Param> params;
+    if (!motionBindingOf(doc_.get(owner)->props, slot, base, params)) continue;  // the layer has no such field
+    const json::Value* op = member(tr, "operation");
+    std::string operation = op && op->isString() && (op->string == "OFFSET" || op->string == "SCALE") ? op->string : "SET";
+    NodeProps tp = defaultProps(NodeType::KEYFRAME_TRACK);
+    tp.type = NodeType::KEYFRAME_TRACK;
+    tp.name = keyOf(slot);
+    tp.parentIndex = {preset, doc_.positionAtEnd(preset)};
+    tp.extra["keyframeOperation"] = encodeExtra("keyframeOperation", jstr(operation));
+    Guid track = newGuid();
+    write(NodeChange::created(track, tp));
+    if (const json::Value* keys = member(tr, "keyframes"); keys && keys->isArray())
+      for (const json::Value& k : keys->array) {
+        const json::Value* t = member(k, "timeUs");
+        if (!t || !t->isNumber()) continue;
+        KeyframeValue value;
+        const json::Value* v = member(k, "value");
+        if (operation == "SCALE") {
+          // A multiplier: a FLOAT (uniform on an XY field) or a VECTOR, as it is.
+          const json::Value* type = member(v, "type");
+          const json::Value* val = member(v, "value");
+          if (!type || !type->isString() || !val) continue;
+          if (type->string == "FLOAT" && val->isNumber()) value = slotKind(slot) == ValueKind::VECTOR ? KeyframeValue::vector({val->number, val->number}) : KeyframeValue::number(val->number);
+          else if (type->string == "VECTOR" && val->isObject()) value = KeyframeValue::vector({member(val, "x") ? member(val, "x")->numberOr(1) : 1, member(val, "y") ? member(val, "y")->numberOr(1) : 1});
+          else continue;
+        } else if (!valueFromPublic(v, slot, value)) {
+          continue;
+        }
+        motionUpsertKeyframe(track, roundUs(t->number * timeScale), value, member(k, "easing"));
+      }
+    motion::Param q;
+    q.kind = motion::Param::Kind::ANIMATION_PRESET;
+    q.preset = preset;
+    q.track = track;
+    q.timelineDef = root;
+    auto at = std::find_if(params.begin(), params.end(), [](const motion::Param& x) { return x.kind == motion::Param::Kind::MANUAL; });
+    params.insert(at, q);
+    motionWriteSlot(owner, slot, keyframeExpression(std::move(base), params));
+  }
+  motionDirty_ = true;
+}
+
+// A clip removed: its tracks (and their parameters), its place in its layer's `animationPresets` and in the composite
+// styles that generated it (a style entry left with nothing goes), then the instance. A transaction is open.
+void Editor::motionRemovePreset(Guid preset) {
+  if (!doc_.has(preset)) return;
+  std::vector<Guid> tracks = doc_.children(preset);
+  for (Guid t : tracks) motionRemoveTrack(t);
+  if (Guid owner = motionPresetOwner(preset); owner != kNoGuid) {
+    std::vector<Guid> list = motion::decodePresetList(doc_.get(owner)->props);
+    list.erase(std::remove(list.begin(), list.end(), preset), list.end());
+    motionWritePresetList(owner, list);
+    json::Value styles = motion::extraJson(doc_.get(owner)->props, "styleIdsForAnimation");
+    if (styles.isArray()) {
+      json::Value kept;
+      kept.kind = json::Value::Kind::Array;
+      for (json::Value e : styles.array) {
+        json::Value gen;
+        gen.kind = json::Value::Kind::Array;
+        if (const json::Value* g = member(e, "generatedAnimationPresets"); g && g->isArray())
+          for (const json::Value& x : g->array) {
+            Guid id;
+            if (!(guidOf(member(member(x, "animationPresetId"), "guid"), id) && id == preset)) gen.array.push_back(x);
+          }
+        if (gen.array.empty()) continue;
+        put(e, "generatedAnimationPresets", gen);
+        kept.array.push_back(e);
+      }
+      NodeChange c = NodeChange::changed(owner);
+      putExtra(c, "styleIdsForAnimation", kept.array.empty() ? std::string() : encodeExtra("styleIdsForAnimation", kept));
+      write(c);
+    }
+  }
+  write(NodeChange::removed(preset));
+  motionDirty_ = true;
 }
 
 // The slot a track belongs to (the first node binding it), false when none.
@@ -1621,12 +2125,56 @@ void Editor::motionShiftTranslation(Guid id, Vec2 by) {
 // A copied layer's props (a duplicate, a paste, a detached instance's layer) before it is written: each manual track
 // its KEYFRAME expressions name is copied with its keyframes — from `clip` when the clipboard carries it, else from the
 // document — and the parameter re-pointed at the copy and at the timeline of the root `parent` is under; a track found
-// nowhere drops its parameter (the last one gone, the base is the slot's binding again). A transaction is open.
+// nowhere drops its parameter (the last one gone, the base is the slot's binding again). Round 8h: each preset's
+// instance is copied with its tracks, the layer's `animationPresets` and its styles' generated lists re-pointed at the
+// copies, and the ANIMATION_PRESET parameters with them. A transaction is open.
 void Editor::motionCopyTracks(NodeProps& p, Guid parent, const std::vector<NodeChange>* clip) {
   std::vector<std::pair<Slot, VariableData>> found;
   forEachKeyframeSlot(p, [&](const Slot& s, const VariableData& d) { found.push_back({s, d}); });
-  if (found.empty()) return;
+  std::vector<Guid> presets = motion::decodePresetList(p);
+  if (found.empty() && presets.empty()) return;
   Guid root = motionIndex_.rootOf(doc_, parent);
+  std::unordered_map<Guid, Guid, GuidHash> presetCopies, trackCopies;
+  if (!presets.empty()) {
+    json::Value list, out = jobj();
+    list.kind = json::Value::Kind::Array;
+    for (Guid g : presets) {
+      Guid copy = motionCopyPreset(g, clip, trackCopies);
+      if (copy == kNoGuid) continue;
+      presetCopies[g] = copy;
+      json::Value e = jobj();
+      put(e, "animationPresetId", idJson(copy));
+      put(e, "timelineDefId", jstr(root.toString()));
+      list.array.push_back(e);
+    }
+    put(out, "presets", list);
+    if (list.array.empty()) p.extra.erase("animationPresets");
+    else p.extra["animationPresets"] = encodeExtra("animationPresets", out);
+    json::Value styles = motion::extraJson(p, "styleIdsForAnimation");
+    if (styles.isArray()) {
+      json::Value kept;
+      kept.kind = json::Value::Kind::Array;
+      for (json::Value e : styles.array) {
+        json::Value gen;
+        gen.kind = json::Value::Kind::Array;
+        if (const json::Value* g = member(e, "generatedAnimationPresets"); g && g->isArray())
+          for (const json::Value& x : g->array) {
+            Guid id;
+            if (!guidOf(member(member(x, "animationPresetId"), "guid"), id) || !presetCopies.count(id)) continue;
+            json::Value y = jobj();
+            put(y, "animationPresetId", idJson(presetCopies[id]));
+            gen.array.push_back(y);
+          }
+        if (gen.array.empty()) continue;
+        put(e, "id", jstr(newGuid().toString()));
+        put(e, "timelineDefId", jstr(root.toString()));
+        put(e, "generatedAnimationPresets", gen);
+        kept.array.push_back(e);
+      }
+      if (kept.array.empty()) p.extra.erase("styleIdsForAnimation");
+      else p.extra["styleIdsForAnimation"] = encodeExtra("styleIdsForAnimation", kept);
+    }
+  }
   for (auto& [s, d] : found) {
     std::vector<motion::Param> params, kept;
     motion::decodeParams(d.args[1], params);
@@ -1634,9 +2182,15 @@ void Editor::motionCopyTracks(NodeProps& p, Guid parent, const std::vector<NodeC
       if (q.kind == motion::Param::Kind::MANUAL) {
         q.track = motionCopyTrack(q.track, clip);
         if (q.track == kNoGuid) continue;
-        if (root != kNoGuid) q.timelineDef = root;
+      } else if (q.kind == motion::Param::Kind::ANIMATION_PRESET) {
+        auto pc = presetCopies.find(q.preset);
+        auto tc = trackCopies.find(q.track);
+        if (pc == presetCopies.end() || tc == trackCopies.end()) continue;
+        q.preset = pc->second;
+        q.track = tc->second;
       }
-      kept.push_back(q);  // preset parameters as they are: their instances come with presets (round 8h)
+      if (root != kNoGuid && q.kind != motion::Param::Kind::STYLE) q.timelineDef = root;
+      kept.push_back(q);
     }
     const VariableData& base = d.args[0];
     if (!kept.empty()) putSlot(p, s, keyframeExpression(base, kept));
@@ -1678,8 +2232,57 @@ Guid Editor::motionCopyTrack(Guid track, const std::vector<NodeChange>* clip) {
   return id;
 }
 
+// A copy of a preset's instance, its tracks and their keyframes on the internal canvas under new GUIDs (round 8h), from
+// the clipboard when it carries them, else from the document; `tracks` maps each track to its copy. kNoGuid when
+// neither has it.
+Guid Editor::motionCopyPreset(Guid preset, const std::vector<NodeChange>* clip, std::unordered_map<Guid, Guid, GuidHash>& tracks) {
+  NodeProps pp;
+  std::vector<std::pair<Guid, NodeProps>> trackProps, keyProps;
+  bool found = false;
+  if (clip) {
+    for (const NodeChange& c : *clip)
+      if (c.phase != Phase::REMOVED && c.guid == preset && c.props.type == NodeType::ANIMATION_PRESET_INSTANCE) pp = c.props, found = true;
+    if (found)
+      for (const NodeChange& c : *clip)
+        if (c.phase != Phase::REMOVED && c.props.type == NodeType::KEYFRAME_TRACK && c.props.parentIndex.guid == preset) trackProps.push_back({c.guid, c.props});
+    if (found)
+      for (const NodeChange& c : *clip)
+        for (auto& [t, tp] : trackProps)
+          if (c.phase != Phase::REMOVED && c.props.type == NodeType::KEYFRAME && c.props.parentIndex.guid == t) keyProps.push_back({t, c.props});
+  }
+  if (!found) {
+    const Node* n = doc_.get(preset);
+    if (!n || n->props.type != NodeType::ANIMATION_PRESET_INSTANCE) return kNoGuid;
+    pp = n->props;
+    for (Guid t : doc_.children(preset)) {
+      const Node* tn = doc_.get(t);
+      if (!tn || tn->props.type != NodeType::KEYFRAME_TRACK) continue;
+      trackProps.push_back({t, tn->props});
+      for (Guid k : doc_.children(t))
+        if (const Node* kn = doc_.get(k); kn && kn->props.type == NodeType::KEYFRAME) keyProps.push_back({t, kn->props});
+    }
+  }
+  Guid internal = internalCanvas(true);
+  if (internal == kNoGuid) return kNoGuid;
+  pp.parentIndex = {internal, doc_.positionAtEnd(internal)};
+  Guid id = newGuid();
+  write(NodeChange::created(id, pp));
+  for (auto& [t, tp] : trackProps) {
+    Guid copy = newGuid();
+    tracks[t] = copy;
+    tp.parentIndex = {id, tp.parentIndex.position};
+    write(NodeChange::created(copy, tp));
+  }
+  for (auto& [t, kp] : keyProps) {
+    kp.parentIndex.guid = tracks[t];
+    write(NodeChange::created(newGuid(), kp));
+  }
+  motionDirty_ = true;
+  return id;
+}
+
 // The clipboard carries the tracks its layers animate on, with their keyframes, outside its regions (as it carries
-// brushes): a cut, or a paste in another file, keeps the animation.
+// brushes), and their presets' instances with theirs (round 8h): a cut, or a paste in another file, keeps the animation.
 void Editor::motionClipboard(std::vector<NodeChange>& nodes, const std::vector<const NodeProps*>& copied) const {
   std::unordered_set<Guid, GuidHash> have;
   for (const NodeChange& c : nodes) have.insert(c.guid);
@@ -1693,9 +2296,21 @@ void Editor::motionClipboard(std::vector<NodeChange>& nodes, const std::vector<c
         if (t && t->props.type == NodeType::KEYFRAME_TRACK && have.insert(q.track).second) tracks.push_back(q.track);
       }
     });
+  std::vector<Guid> presets;  // read before `nodes` grows (`copied` may point into it)
+  for (const NodeProps* p : copied)
+    for (Guid preset : motion::decodePresetList(*p)) presets.push_back(preset);
   for (Guid t : tracks) {
     nodes.push_back(NodeChange::created(t, doc_.get(t)->props));
     for (Guid k : doc_.children(t)) nodes.push_back(NodeChange::created(k, doc_.get(k)->props));
+  }
+  for (Guid preset : presets) {
+    const Node* pn = doc_.get(preset);
+    if (!pn || !have.insert(preset).second) continue;
+    nodes.push_back(NodeChange::created(preset, pn->props));
+    for (Guid t : doc_.children(preset)) {
+      nodes.push_back(NodeChange::created(t, doc_.get(t)->props));
+      for (Guid k : doc_.children(t)) nodes.push_back(NodeChange::created(k, doc_.get(k)->props));
+    }
   }
 }
 
@@ -1957,7 +2572,35 @@ void Editor::writeMotionTimeline(json::Writer& w, Guid rootIn) {
       }
     }
     w.endArray();
-    w.key("clips").beginArray().endArray();  // presets: round 8h
+    // The presets' clips (round 8h), in stacking order, each with the composite style that generated it.
+    w.key("clips").beginArray();
+    std::unordered_map<Guid, std::pair<Guid, std::string>, GuidHash> styleOf;
+    json::Value styles = motion::extraJson(n->props, "styleIdsForAnimation");
+    if (styles.isArray())
+      for (const json::Value& e : styles.array) {
+        Guid binding;
+        const json::Value* key = member(member(member(e, "animationStyleId"), "assetRef"), "key");
+        if (!guidOf(member(e, "id"), binding)) continue;
+        if (const json::Value* g = member(e, "generatedAnimationPresets"); g && g->isArray())
+          for (const json::Value& x : g->array)
+            if (Guid id; guidOf(member(member(x, "animationPresetId"), "guid"), id)) styleOf[id] = {binding, key && key->isString() ? key->string : ""};
+      }
+    for (Guid preset : an ? an->presets : std::vector<Guid>{}) {
+      const motion::Preset* pr = ix.preset(preset);
+      const Node* pn = doc_.get(preset);
+      if (!pr || !pn) continue;
+      start = std::min(start, pr->offsetUs);
+      end = std::max(end, pr->offsetUs + pr->durationUs);
+      w.beginObject().key("id").string(preset.toString()).key("preset").string(pr->key).key("name").string(pr->name);
+      w.key("startUs").number(static_cast<double>(pr->offsetUs)).key("durationUs").number(static_cast<double>(pr->durationUs)).key("disabled").boolean(pr->disabled);
+      w.key("easing");
+      writePublicEasing(w, pr->easing);
+      w.key("props");
+      writePropAssignments(w, pn->props.comp().componentPropAssignments);
+      if (auto it = styleOf.find(preset); it != styleOf.end()) w.key("style").beginObject().key("id").string(it->second.first.toString()).key("key").string(it->second.second).endObject();
+      w.endObject();
+    }
+    w.endArray();
     w.key("startUs").number(start == INT64_MAX ? 0 : static_cast<double>(start)).key("endUs").number(end == INT64_MIN ? 0 : static_cast<double>(end));
     w.endObject();
   }
@@ -1984,7 +2627,7 @@ void Editor::writeMotionFieldStates(json::Writer& w, const std::vector<Guid>& id
         bool tracked = false;
         for (const motion::Param& q : b.params) {
           const motion::Track* t = ix.track(q.track);
-          if (!t) continue;
+          if (!t || q.kind != motion::Param::Kind::MANUAL) continue;  // a preset's tracks are its clip's, not a diamond's
           tracked = true;
           for (const motion::Keyframe& k : t->keyframes)
             if (std::llabs(k.timeUs - tau) <= half) at = k.id;
@@ -2055,15 +2698,17 @@ void Editor::writeMotionResolved(json::Writer& w, Guid node) {
     for (const motion::Binding& b : an->bindings) {
       const motion::FieldInfo* info = b.slot.kind == Slot::Kind::NODE ? motion::fieldInfo(b.slot.field) : nullptr;
       const char* kind = info ? (info->compose == motion::Compose::ADDITIVE ? "additive" : info->compose == motion::Compose::MULTIPLICATIVE ? "multiplicative" : "absolute") : "absolute";
-      // Manual tracks in root time (an instance sublayer's moved by its instances' offsets).
+      // Manual tracks in root time (an instance sublayer's moved by its instances' offsets); a preset's moved by its
+      // clip's start too (round 8h), a disabled clip left out.
       for (const motion::Param& q : b.params) {
         const motion::Track* t = ix.track(q.track);
-        if (!t) continue;
+        if (!t || q.disabled) continue;
+        int64_t shift = l.offsetUs + (q.kind == motion::Param::Kind::ANIMATION_PRESET ? q.offsetUs : 0);
         w.beginObject().key("field");
         writePublicField(w, b.slot);
         w.key("kind").string(kind).key("keyframes").beginArray();
         for (const motion::Keyframe& k : t->keyframes) {
-          w.beginObject().key("timeUs").number(static_cast<double>(k.timeUs + l.offsetUs)).key("value");
+          w.beginObject().key("timeUs").number(static_cast<double>(k.timeUs + shift)).key("value");
           writePublicValue(w, b.slot, k.value);
           w.key("easing");
           writePublicEasing(w, k.easing);

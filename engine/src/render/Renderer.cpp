@@ -2916,6 +2916,8 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
     const text::TextLayout* L = texts_ ? texts_->textLayout(id) : nullptr;
     if (!L) return false;
     out = L->inkBounds;
+    // Motion's text stagger (round 8h): its glyphs reach where their elements are.
+    if (const motion::TextElementPoses* st = texts_->textElements(id); st && !st->reach.empty()) out = out.united(st->reach);
     return true;
   });
   tree.sync(doc, page);
