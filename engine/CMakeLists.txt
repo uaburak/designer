@@ -70,6 +70,7 @@ add_library(eng_core STATIC
   src/gfx/null/NullDevice.cpp
   src/api/Api.cpp
   src/text/Unicode.cpp
+  src/text/Bidi.cpp
   src/text/Fonts.cpp
   src/text/TextLayout.cpp
   src/text/TextPathLayout.cpp
@@ -201,6 +202,7 @@ else()
     tests/unit/text.stored.test.cpp
     tests/unit/text.parity.test.cpp
     tests/unit/text.features.test.cpp
+    tests/unit/text.wave3.test.cpp
     tests/unit/render.brush.test.cpp
     tests/unit/r7.draw.test.cpp
     tests/unit/r7.draw_edit.test.cpp

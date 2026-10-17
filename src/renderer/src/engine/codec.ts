@@ -1151,8 +1151,12 @@ export const decodeTextRangeStyle = (bytes: Uint8Array): TextRangeStyle => decod
 
 /** engine_font_info: a font's variable axes (fvar) and OpenType features (GSUB / GPOS), for Type settings. */
 export interface FontInfo {
-  axes: { tag: string; name: string; min: number; default: number; max: number; value: number; hidden: boolean }[];
+  /** `instances`: the named instances' values on the axis (ascending), the Variable tab's slider hints */
+  axes: { tag: string; name: string; min: number; default: number; max: number; value: number; hidden: boolean; instances?: number[] }[];
   features: { tag: string; name?: string }[];
+  /** The font's own underline thickness and offset (em): the Underline panel's Auto */
+  underlineThickness?: number;
+  underlineOffset?: number;
 }
 
 /** engine_export's result (docs/engine-build.md "E7 export"). */

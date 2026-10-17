@@ -885,7 +885,7 @@ Overlays are drawn by the engine after the scene, straight into the default fram
   - auto-resize writes are suppressed;
   - its `DerivedInfo.missingFont` is set (the panel shows "Missing fonts");
   - text editing on it is refused with `NOTIFY{MISSING_FONT}`.
-- **Fallback**: TS calls `engine_set_fallback_fonts([...])` once at startup, with an ordered list of families (Apple Color Emoji, PingFang SC, Hiragino Sans, Apple SD Gothic Neo, Noto Sans …). The engine requests each the first time a codepoint isn't covered by the primary face.
+- **Fallback**: TS calls `engine_set_fallback_fonts([...])` once at startup, with an ordered list of families. The engine requests each the first time a codepoint isn't covered by the primary face. *As built (Atlas wave 3):* Figma's Noto Sans set (Noto Sans, Symbols, Symbols 2, Math, and one family per script, downloaded from Google Fonts on first use), the script's own family tried first (`scriptFallback`), the Mac's families after them for offline use.
 - *As built (2026-10-07):* `engine_font_bind`, `engine_font_missing` and `engine_set_fallback_fonts` only register; the relayout they cause runs at the next call that can observe it — `engine_tick`, a read, an edit — not at `engine_needs_frame` / `engine_next_frame_delay` / `engine_has_events` (which ask for a frame meanwhile). A file's dozens of fonts arriving within a frame cost one relayout instead of one each (large private test file: 10 s of main-thread work after opening → 0.7 s). Text measurements are cached per node and width until the text's layout fields change or a font arrives (`Editor::measureText`).
 
 ### 7.2 Shaping: **vendor HarfBuzz**
@@ -894,7 +894,7 @@ Figma ships HarfBuzz in its Wasm (R1 §d), and a correct OpenType shaper (GSUB/G
 - **Itemization** (`Itemizer.cpp`) splits the text into runs by:
   1. style run: `textData.characterStyleIDs` + `styleOverrideTable` (each a sparse NodeChange);
   2. script: HarfBuzz's built-in UCD `hb_unicode_script`;
-  3. bidi level: SheenBidi, UAX #9;
+  3. bidi level: UAX #9 (*as built, Atlas wave 3:* `text/Bidi.cpp`, the algorithm over a Bidi_Class table generated from Unicode by `tools/gen-bidi.py`, instead of vendoring SheenBidi — no new dependency; explicit embeddings and isolates, W1–W7, N0 bracket pairs, N1–N2, I1–I2, L1–L2 per line; a paragraph's level from its Text direction or its first strong character; skipped for texts with `textBidiVersion` 0 and for paragraphs with nothing right to left);
   4. font coverage, with fallback.
 - **Pre-shape case mapping**: `textCase` UPPER/LOWER/TITLE via utf8proc (Unicode default and special casing, not locale-sensitive). SMALL_CAPS uses the `smcp`/`c2sc` features.
 - **`hb_shape`** gets features from `fontVariant*` (`liga`, `clig`, `dlig`, `hlig`, `ordn`, `zero`, `lnum`/`onum`, `pnum`/`tnum`, `frac`, `sups`/`subs`, `smcp`), plus `kern`.
@@ -909,7 +909,7 @@ Figma ships HarfBuzz in its Wasm (R1 §d), and a correct OpenType shaper (GSUB/G
 
 ### 7.4 Line breaking and layout (`LineBreaker.cpp`, `TextLayout.cpp`)
 - **Break opportunities**: UAX #14 via libunibreak. Greedy fill, as Figma and browsers do. A word that doesn't fit is broken at grapheme boundaries (libunibreak grapheme breaks). No hyphenation. `textWrapStyle` balance/pretty is after E7.
-- **Line height**: `lineHeight` `Number{value, units}`: RAW 100% means "Auto" = the font's `fontLineHeight` at the size; PIXELS; PERCENT of the font size.
+- **Line height**: `lineHeight` `Number{value, units}`: PERCENT is a percent of the font's own line height (`fontLineHeight` × size), and `{100, PERCENT}` (within 0.1) is "Auto"; RAW is a multiple of the font size (the panel's "140%" is `{1.4, RAW}`); PIXELS. *As built (Atlas wave 3, 2026-10-18):* RAW and PERCENT (Auto too) round to whole pixels unless the text's `textUserLayoutVersion` is 0 (an older Figma text keeps the fraction; a text without the field counts as today's, version 1, and new texts are stamped with it).
 - **Baseline placement** uses CSS half-leading: `baseline = lineTop + (lineHeight − (ascent + descent))/2 + ascent`. The line's ascent/descent is the max over its runs.
 - `leadingTrim CAP_HEIGHT` trims the first and last lines to cap height and baseline (built in the text round, with `textWrapStyle` Balance / Pretty, hyperlink boxes and the underline's style / thickness / offset / colour).
 - `paragraphSpacing`, `paragraphIndent`; lists (`TextData.lines`: bullets and counters per level, indents, list spacing, hanging lists — as built in the text round, docs/engine-build.md). *As built:* RAW line heights round to whole pixels and auto-width boxes are ⌈the widest line⌉ (Figma's stored layouts); a truncated last line breaks at characters.

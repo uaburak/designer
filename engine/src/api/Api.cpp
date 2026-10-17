@@ -1836,7 +1836,7 @@ ENG_EXPORT void engine_font_missing(Ptr familyPtr, uint32_t familyLen, Ptr style
   gFontsDirty = true;
 }
 
-// ["Apple Color Emoji", "PingFang SC", â¦]: tried in order for characters a text's font lacks.
+// ["Noto Sans", "Noto Sans Arabic", ...]: tried for characters a text's font lacks (a script's own Noto family first).
 ENG_EXPORT int32_t engine_set_fallback_fonts(Ptr ptr, uint32_t len) {
   Call call(false);
   json::Value v;
@@ -2150,9 +2150,13 @@ ENG_EXPORT int32_t engine_font_info(Ptr familyPtr, uint32_t familyLen, Ptr style
   for (const text::AxisInfo& a : f->axes()) {
     w.beginObject().key("tag").string(text::tagString(a.tag)).key("name").string(a.name);
     w.key("min").number(a.min).key("default").number(a.def).key("max").number(a.max).key("value").number(a.value);
-    w.key("hidden").boolean(a.hidden).endObject();
+    w.key("hidden").boolean(a.hidden).key("instances").beginArray();
+    for (float v : a.instances) w.number(v);
+    w.endArray().endObject();
   }
-  w.endArray().key("features").beginArray();
+  // The underline's own thickness and offset (em; post / OS/2): Type settings' Auto values ("N%" of the font size).
+  w.endArray().key("underlineThickness").number(f->underlineThickness).key("underlineOffset").number(f->underlineOffset);
+  w.key("features").beginArray();
   for (const text::FeatureInfo& ft : f->features()) {
     w.beginObject().key("tag").string(text::tagString(ft.tag));
     if (!ft.name.empty()) w.key("name").string(ft.name);

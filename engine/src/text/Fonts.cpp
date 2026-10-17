@@ -115,8 +115,15 @@ uint32_t Font::glyphFor(uint32_t cp) const {
 Font* Font::withVariations(const std::vector<std::pair<uint32_t, float>>& variations) {
   if (!face_ || variations.empty() || !hb_ot_var_has_data(face_->hb())) return this;
   // The instance's own coordinates, then the given ones (axes the font doesn't have are dropped).
+  // (Read here rather than through axes(), which names each axis and lists its instances: this runs at every layout.)
   std::vector<std::pair<uint32_t, float>> merged;
-  for (const AxisInfo& a : axes()) merged.push_back({a.tag, a.value});
+  hb_face_t* hf = face_->hb();
+  unsigned count = hb_ot_var_get_axis_count(hf);
+  std::vector<hb_ot_var_axis_info_t> infos(count);
+  hb_ot_var_get_axis_infos(hf, 0, &count, infos.data());
+  unsigned coordsLen = 0;
+  const float* coords = hb_font_get_var_coords_design(font_, &coordsLen);
+  for (unsigned i = 0; i < count; i++) merged.push_back({infos[i].tag, coords && i < coordsLen ? coords[i] : infos[i].default_value});
   bool changed = false;
   for (auto& [tag, value] : variations)
     for (auto& m : merged)
@@ -157,7 +164,26 @@ std::vector<AxisInfo> Font::axes() const {
       a.name.assign(buf, std::min<size_t>(len, sizeof buf - 1));
     out.push_back(std::move(a));
   }
+  std::vector<float> instance(n);
+  for (unsigned k = 0, count = hb_ot_var_get_named_instance_count(hf); k < count; k++) {
+    unsigned len = n;
+    hb_ot_var_named_instance_get_design_coords(hf, k, &len, instance.data());
+    for (unsigned i = 0; i < len && i < out.size(); i++) out[i].instances.push_back(instance[i]);
+  }
+  for (AxisInfo& a : out) {
+    std::sort(a.instances.begin(), a.instances.end());
+    a.instances.erase(std::unique(a.instances.begin(), a.instances.end()), a.instances.end());
+  }
   return out;
+}
+
+bool Font::opticalSizeRange(float& min, float& max) const {
+  if (!face_) return false;
+  hb_ot_var_axis_info_t info;
+  if (!hb_ot_var_find_axis_info(face_->hb(), HB_TAG('o', 'p', 's', 'z'), &info)) return false;
+  min = info.min_value;
+  max = info.max_value;
+  return true;
 }
 
 std::vector<FeatureInfo> Font::features() const {
@@ -484,13 +510,62 @@ Font* FontRegistry::substituteFor(const FontName& name) {
   return f ? f : defaultFont();
 }
 
+namespace {
+
+// Figma's built-in Noto Sans set (Atlas 06 §10), one family per script. Its choice among SC / TC / HK / JP / KR for
+// Han is not known (§15 Q4): Simplified Chinese here, kana Japanese, Hangul Korean, Bopomofo Traditional.
+struct ScriptFamily {
+  hb_script_t script;
+  const char* family;
+};
+constexpr ScriptFamily kScriptFamilies[] = {
+    {HB_SCRIPT_ARABIC, "Noto Sans Arabic"},       {HB_SCRIPT_BENGALI, "Noto Sans Bengali"},
+    {HB_SCRIPT_DEVANAGARI, "Noto Sans Devanagari"}, {HB_SCRIPT_GEORGIAN, "Noto Sans Georgian"},
+    {HB_SCRIPT_GUJARATI, "Noto Sans Gujarati"},   {HB_SCRIPT_HAN, "Noto Sans SC"},
+    {HB_SCRIPT_HIRAGANA, "Noto Sans JP"},         {HB_SCRIPT_KATAKANA, "Noto Sans JP"},
+    {HB_SCRIPT_HANGUL, "Noto Sans KR"},           {HB_SCRIPT_BOPOMOFO, "Noto Sans TC"},
+    {HB_SCRIPT_JAVANESE, "Noto Sans Javanese"},   {HB_SCRIPT_KANNADA, "Noto Sans Kannada"},
+    {HB_SCRIPT_KHMER, "Noto Sans Khmer"},         {HB_SCRIPT_LAO, "Noto Sans Lao"},
+    {HB_SCRIPT_MALAYALAM, "Noto Sans Malayalam"}, {HB_SCRIPT_NEW_TAI_LUE, "Noto Sans New Tai Lue"},
+    {HB_SCRIPT_TAI_LE, "Noto Sans Tai Le"},       {HB_SCRIPT_TAI_THAM, "Noto Sans Tai Tham"},
+    {HB_SCRIPT_TAI_VIET, "Noto Sans Tai Viet"},   {HB_SCRIPT_TAMIL, "Noto Sans Tamil"},
+    {HB_SCRIPT_TELUGU, "Noto Sans Telugu"},       {HB_SCRIPT_THAI, "Noto Sans Thai"},
+};
+
+bool scriptSpecific(const std::string& family) {
+  for (const ScriptFamily& s : kScriptFamilies)
+    if (family == s.family) return true;
+  return false;
+}
+
+}  // namespace
+
+const char* scriptFallback(uint32_t cp) {
+  hb_script_t script = hb_unicode_script(hb_unicode_funcs_get_default(), cp);
+  for (const ScriptFamily& s : kScriptFamilies)
+    if (s.script == script) return s.family;
+  return nullptr;
+}
+
 Font* FontRegistry::fallbackFor(uint32_t cp) {
-  for (const std::string& family : fallbacks_) {
+  // Each family is asked for in turn: one still loading is waited for before the next is tried.
+  auto tried = [&](const std::string& family, Font*& out) {
     State s;
     Font* f = find(FontName{family, "Regular", ""}, &s);
-    if (s == State::Requested) return nullptr;  // wait for it before trying the next one
-    if (f && f->covers(cp)) return f;
-  }
+    if (s == State::Requested) return true;
+    if (f && f->covers(cp)) {
+      out = f;
+      return true;
+    }
+    return false;
+  };
+  // The script's own family first, then the list in its order without the other scripts' families (a Thai character
+  // doesn't download Noto Sans Arabic on the way).
+  Font* out = nullptr;
+  const char* own = scriptFallback(cp);
+  if (own && std::find(fallbacks_.begin(), fallbacks_.end(), own) != fallbacks_.end() && tried(own, out)) return out;
+  for (const std::string& family : fallbacks_)
+    if (!scriptSpecific(family) && tried(family, out)) return out;
   return nullptr;
 }
 

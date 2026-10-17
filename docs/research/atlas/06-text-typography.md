@@ -580,6 +580,75 @@ The repo is mostly there. `engine/src/text` has HarfBuzz, libunibreak, truncatio
 7. **Font picker.** No live preview debounce (50 ms) or >50-node cut-off; the font set is not persisted across tabs.
 8. **Missing-fonts modal.** No All-pages scope or "Replace on the whole page". Not verified in depth.
 
+### As built (2026-10-18, wave 3)
+
+Branch "text" (atlas integration wave 3). Built in the lists' order:
+
+- **Line heights by version** (Differs 1–3): `lineHeightPx` rounds a RAW or PERCENT line height (Auto too) to whole
+  pixels unless the text's `textUserLayoutVersion` is 0 — an older Figma text keeps 19.5 for 150 % of 13 px. A text
+  without the field counts as today's (every text made here before the fields existed), and a new text is stamped
+  with all three versions at 1 (`stampLayoutVersions`, `kLatestTextLayoutVersion`). Auto is `{100, PERCENT}` within
+  0.1 in the engine and the panel (`isAutoLineHeight`). docs/engine.md §7.4 now says PERCENT is of the font's own
+  line height and RAW a multiple of the size.
+- **Font search and order** (Differs 4): Figma's search — the query split at spaces and punctuation, every word in the
+  name, families starting with the first word first, names starting with "." hidden from it (`searchTokens`,
+  `filterFamilies`); families starting with punctuation sort last (`compareFamilyNames`, used by `groupFamilies`).
+- **Font sets** (Differs 5): Popular fonts is the fifteen-slot list (`POPULAR_FONTS`, first name present per slot);
+  the hidden Google families (…charted, Playwrite but US Modern / US Trad, the test names, the nine colour fonts) are
+  never listed; Google fonts leaves out §6.2's families; Variable fonts needs every face variable; In this file is
+  ordered by use (`documentFamilies` counts `documentFonts().uses`).
+- **Fallback** (Differs 6): Figma's Noto Sans set replaces the Mac list (`FALLBACK_FAMILIES`), each family downloaded
+  from Google Fonts the first time a text needs it (nothing added to the repo). The engine asks for the script's own
+  family first (`text/Fonts.cpp scriptFallback`: Noto Sans Thai for Thai, SC for Han, JP for kana, KR for Hangul, TC
+  for Bopomofo) and never downloads another script's on the way; the Mac's families stay after the Noto ones so text
+  is readable offline (not Figma's).
+- **Bidi** (Missing 1): `text/Bidi.{h,cpp}` is UAX #9 over a Bidi_Class table generated from Unicode 15
+  (`tools/gen-bidi.py` → `BidiClass.generated.h`, 722 ranges, 17 KB of source): P2–P3, X1–X10 with isolating run
+  sequences, W1–W7, N0 bracket pairs (HarfBuzz's mirroring and the Ps / Pe categories stand in for BidiBrackets.txt),
+  N1–N2, I1–I2, and per line L1–L2. Layout splits runs by level and shapes the right-to-left ones right to left
+  (HarfBuzz mirrors brackets), breaks lines in logical order, then places each line's clusters in visual order: carets
+  run leftwards inside right-to-left clusters, a right-to-left paragraph's end caret is on its left and its trailing
+  spaces hang on the left, list markers go to its right, decorations and link boxes follow visual runs, and
+  selections of a bidi line are one box per visual run (`LaidLine::boxCount`, `TextLayout::boxes`). A paragraph's
+  direction is its Text direction (round 10's field), or its first strong character on Auto; `textBidiVersion` 0
+  keeps an older text left to right. The Typography summary gives each paragraph's resolved `direction` and
+  `hasRtlText`, and the section shows **Switch text direction** (action2 of the Alignment row) once the text holds
+  right-to-left characters — Figma's `hasHadRTLText` is approximated by the text's current content.
+- **Optical size** (Missing 3): `followOpticalSize` sets a font's `opsz` to the font size clamped into the axis,
+  replacing a stored value, unless `detachOpticalSizeFromFontSize`; the Variable tab's opsz row has **Set optical size
+  automatically** (clearing it writes the detach flag and the value; dragging or typing opsz detaches it too).
+- **Layout-version banner** (Missing 4): at the end of Details, for texts whose fields say they are older
+  (`pendingUpgrades`): "Older text rendering method used" (two kinds), "… for part of the selection", or one kind's
+  line, with **Update** (all three versions to 1); after an Update in the open popover, **Revert** (user and explicit
+  versions to 0). The engine lays the text out again when these fields change (`changesTextLayout`).
+- **Variable tab** (Missing 5): Figma's steps by range (`axisSteps`: 0.01 / 0.25, 0.1 / 1, 1 / 10, 1 / 25 from 500;
+  ⇧-arrows take the big step), the field nudging 1 / 10, hints at the named instances' values and the default thinned
+  to 15 steps apart and only the default past fifteen (`axisStops`; the engine's font info now lists each axis's
+  `instances`), `ital` never shown, hidden axes under a collapsible **Additional axes**, SF Pro's wdth shown and yaxs
+  hidden (`variableAxes`).
+- **Underline** (Missing 6): thickness 0.5–20 % or 0.5 px–0.2 × the size, offset 0–25 % or 0–0.25 × the size
+  (`UNDERLINE_LIMITS`, `clampMetric`); the fields show "Auto", "N%" or "Npx" with 2 decimals, nudge 0.5 % or 0.1 px,
+  and read typed units (`parseMetric`: a start of "auto" is Auto, "%" / "px" alone convert the current value — or the
+  font's own, from its `post` metrics now in the font info as `underlineThickness` / `underlineOffset` — to that
+  unit).
+- **Font picker** (Missing 7): the preview debounce is 50 ms for hover and keys, no preview over more than 50 layers
+  (`MAX_PREVIEW_LAYERS`), and the font set is kept in `localStorage["fontPickerFontSet"]` under Figma's names
+  (`all_fonts`, `document_fonts`, … `user_installed_fonts`), followed by open pickers through the storage event.
+
+**Not done, and why:**
+- **Emoji images** (Missing 2): Figma draws emoji as images from its Apple or Noto set by `emojiId`; the host, sizes
+  and resource versions are §15 Q8, and building it means an image source for emoji (Noto's PNGs are Apache-2.0, but
+  which URL to fetch them from on demand is a decision to take with Q8 answered), the glyphs' image quads in the
+  renderer, SVG / PDF export and `derivedTextData`'s `emojiCodePoints`. Emoji still fall back to fonts (and draw
+  nothing from an sbix font).
+- **Missing-fonts modal** (Missing 8): All pages and "Replace on the whole page" untouched.
+- Bidi, beyond the layout: ← / → move logically, not visually, in right-to-left text; alignment stays absolute
+  (Left is left in a right-to-left paragraph — whether Figma flips it is a probe); a right-to-left list's indent is
+  still from the left; text on a path is laid out as one left-to-right line of the visual glyphs.
+- "Recently installed" (a local family modified within 7 days) needs the files' times from the desktop's index.
+- The single-upgrade banner lines, the Switch text direction icon and when Figma shows Revert are unverified (Q6).
+- Figma's Han choice among Noto Sans SC / TC / HK / JP / KR and whether local fonts take part stay Q4.
+
 ## 15. Open questions
 
 | # | Question | Probe that settles it |

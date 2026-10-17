@@ -15,6 +15,7 @@
 #include "base/Json.h"
 #include "scene/CodecJson.h"
 #include "scene/CodecKiwi.h"
+#include "text/Bidi.h"
 #include "text/TextEdit.h"
 #include "text/TextPathLayout.h"
 #include "text/Unicode.h"
@@ -360,6 +361,7 @@ void Editor::createTextAt(Vec2 world, double width) {
     }
   NodeProps p = toolProps(NodeType::TEXT);
   p.name = "Text";
+  text::stampLayoutVersions(p.extra);  // laid out by today's rules, as Figma's new texts are
   if (width > 0) {
     p.text().textAutoResize = TextAutoResize::HEIGHT;
     p.size = {width, 0};
@@ -855,12 +857,24 @@ std::string Editor::textRangeStyle(Guid id, uint32_t from, uint32_t to, bool use
   text::paragraphsOf(p.text().textData, from, to, first, last);
   static const char* const kTypes[] = {"PLAIN", "ORDERED_LIST", "UNORDERED_LIST"};
   static const char* const kDirections[] = {"AUTO", "LTR", "RTL"};
+  // Each paragraph's direction as laid out too (Auto: its first strong character's), and whether the text has any
+  // right-to-left character: the Typography section's Switch text direction (Atlas 06 §4.1).
+  std::vector<std::u16string_view> paragraphs;
+  for (size_t at = 0;;) {
+    size_t nl = L->text.find(u'\n', at);
+    paragraphs.push_back(std::u16string_view(L->text).substr(at, nl == std::u16string::npos ? std::u16string::npos : nl - at));
+    if (nl == std::u16string::npos) break;
+    at = nl + 1;
+  }
   for (size_t i = first; i <= last; i++) {
     text::LineInfo info = i < p.text().textData.lines.size() ? text::readLine(p.text().textData.lines[i]) : text::LineInfo{};
     put("lineType", quoted(kTypes[static_cast<int>(info.type)]));
     put("indentationLevel", std::to_string(info.indentationLevel));
     put("sourceDirectionality", quoted(kDirections[std::min<int>(info.direction, 2)]));
+    bool rtl = info.direction == 2 || (info.direction == 0 && i < paragraphs.size() && text::paragraphLevel(paragraphs[i]) == 1);
+    put("direction", quoted(rtl ? "RTL" : "LTR"));
   }
+  put("hasRtlText", text::hasRtl(L->text) ? "true" : "false");
   json::Writer w;
   w.beginObject().key("from").number(from).key("to").number(to).key("values").beginObject();
   for (auto& [k, list] : values) w.key(k).raw(list.front());

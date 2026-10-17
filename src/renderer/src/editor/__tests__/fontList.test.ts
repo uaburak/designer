@@ -67,7 +67,7 @@ describe("font list", () => {
     expect(names(filterFamilies(list, "installed", ""))).toEqual(["avenir", "Helvetica Neue", "Roboto Flex"]);
     expect(names(filterFamilies(list, "variable", ""))).toEqual(["Inter", "Lora", "Roboto Flex"]);
     expect(names(filterFamilies(list, "file", "", new Set(["helvetica neue"])))).toEqual(["Helvetica Neue"]);
-    expect(names(filterFamilies(list, "popular", ""))).toEqual(["Abril Fatface", "Inter", "Lora"]);
+    expect(names(filterFamilies(list, "popular", ""))).toEqual(["Inter"]); // Figma's fifteen slots (atlas.text.test.ts)
     expect(names(filterFamilies(list, "all", "neue helv"))).toEqual(["Helvetica Neue"]);
     expect(names(filterFamilies(list, "all", "AVÉN"))).toEqual(["avenir"]);
   });
