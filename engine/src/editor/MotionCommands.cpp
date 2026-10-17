@@ -3,11 +3,13 @@
 // timeline; the anchor (kept in place); the motion path's handles; the layer bar's retime; the timeline model, the right
 // panel's diamonds and the resolved model as JSON; panel writes and canvas gestures (move, resize, rotate, nudge)
 // routed into keyframes while Motion is on; tracks removed with their last layer, and copied with a duplicated, pasted
-// or detached one.
+// or detached one. Round 8a increment 2: an animated instance's offset (341) and its bar and sublayers in the reads,
+// path trim's panel write routed, the layout of what the motion layer resized (its previews), the motion path and the
+// anchor point tool on the canvas.
 //
 // Not yet (the contract's later increments): presets and styles (336–339, 352; round 8h's code), audio (345–348), paste
-// (349), combine / split (350–351), instance offsets (341), text stagger (344), keyframe values or easings bound to
-// variables, the corner radius / shape handles and the Scale tool routed, the motion path dragged on the canvas.
+// (349), combine / split (350–351), text stagger (344), keyframe values or easings bound to variables, the corner radius
+// / shape handles and the Scale tool routed, the motion path's squares and handles dragged on the canvas.
 #include <algorithm>
 #include <cmath>
 
@@ -876,8 +878,9 @@ uint32_t Editor::motionCommandState(CommandId id) const {
     case CommandId::MOTION_DELETE_KEYFRAMES:
     case CommandId::MOTION_SET_EASING:
     case CommandId::MOTION_SET_TIMELINE:
-    case CommandId::MOTION_SET_PATH_HANDLES: return motion_.on ? CMD_ENABLED : 0;
-    default: return 0;  // presets, audio, paste, combine / split, instance offsets, text stagger: later increments
+    case CommandId::MOTION_SET_PATH_HANDLES:
+    case CommandId::MOTION_SET_INSTANCE_OFFSET: return motion_.on ? CMD_ENABLED : 0;
+    default: return 0;  // presets, audio, paste, combine / split, text stagger: later increments
   }
 }
 
@@ -1204,6 +1207,46 @@ Status Editor::motionCommand(CommandId id, const CommandArgs& args) {
       commit();
       return OK;
     }
+    case CommandId::MOTION_SET_INSTANCE_OFFSET: {
+      // An animated instance dragged in time (docs/motion.md §4.3; its purple bar): its `timelineAssignments` entry for
+      // (its main's timeline, the timeline it sits in) takes the offset; the other entries stay.
+      Guid inst;
+      const json::Value* off = member(raw, "offsetUs");
+      if (!guidOf(member(raw, "instance"), inst) || inst.isDerived() || !off || !off->isNumber() || isLibraryCopy(inst)) return E_INVALID;
+      const Node* n = doc_.get(inst);
+      if (!n || n->props.type != NodeType::INSTANCE) return E_INVALID;
+      Guid main = mainOf(inst);
+      Guid containing = rootFor(inst);
+      if (main == kNoGuid || containing == kNoGuid) return E_INVALID;
+      json::Value map = motion::extraJson(n->props, "timelineAssignments");
+      json::Value entries;
+      entries.kind = json::Value::Kind::Array;
+      if (const json::Value* list = member(map, "entries"); list && list->isArray())
+        for (const json::Value& e : list->array) {
+          const json::Value* key = member(e, "key");
+          Guid a, c;
+          if (guidOf(member(key, "assignedTimelineId"), a) && guidOf(member(key, "containingTimelineId"), c) && a == main && c == containing) continue;
+          entries.array.push_back(e);
+        }
+      json::Value entry = jobj(), key = jobj(), value = jobj();
+      put(key, "assignedTimelineId", jstr(main.toString()));
+      put(key, "containingTimelineId", jstr(containing.toString()));
+      put(value, "offsetUs", jnum(static_cast<double>(std::llround(off->number))));
+      put(value, "disabled", jbool(false));
+      put(value, "autoplay", jbool(true));
+      put(entry, "key", key);
+      put(entry, "value", value);
+      entries.array.push_back(entry);
+      json::Value out = jobj();
+      put(out, "entries", entries);
+      begin(TxnKind::USER, "Move animation");
+      NodeChange c = NodeChange::changed(inst);
+      putExtra(c, "timelineAssignments", encodeExtra("timelineAssignments", out));
+      write(c);
+      motionDirty_ = true;
+      commit();
+      return OK;
+    }
     default: return E_UNSUPPORTED;  // the later increments (docs/motion.md §4.9's table)
   }
 }
@@ -1262,8 +1305,8 @@ bool Editor::motionCurrentValue(Guid id, const motion::Slot& slot, int64_t timeU
 
 // Panel writes while Motion is on (docs/motion.md §4.9): a keyframable FLOAT field of a layer under the root with a
 // track — or any such field with auto-keyframe on — becomes a keyframe at the playhead; the base stays. Returns the
-// fields taken; the caller writes the rest as in Design.
-FieldMask Editor::motionRouteWrite(Guid id, const NodeChange& props) {
+// fields taken; the caller writes the rest as in Design (a path trim's keyed end is taken out of `props`' extra).
+FieldMask Editor::motionRouteWrite(Guid id, NodeChange& props) {
   if (!motion_.on || id.isDerived()) return 0;
   Guid root = motionRoot();
   if (root == kNoGuid || root == id) return 0;
@@ -1320,7 +1363,41 @@ FieldMask Editor::motionRouteWrite(Guid id, const NodeChange& props) {
       taken |= F_CORNER_RADII;
     }
   }
-  if (writes.empty()) return 0;
+  // Path trim (docs/motion.md §4.13): the panel writes pathTrim whole; each end moved from what the canvas shows takes a
+  // keyframe when it has a track (or with auto-keyframe on), the other keeps the base's — and the base write is left
+  // only for an end that isn't keyed.
+  if (auto pt = props.props.extra.find("pathTrim"); (props.mask & F_EXTRA) && pt != props.props.extra.end() && !pt->second.empty()) {
+    const VariableField ends[2] = {VariableField::PATH_TRIM_START, VariableField::PATH_TRIM_END};
+    double want[2] = {0, 1}, base[2] = {0, 1};
+    pathTrimOf(props.props, want[0], want[1]);
+    pathTrimOf(n->props, base[0], base[1]);
+    bool rest = false;
+    for (int i = 0; i < 2; i++) {
+      Slot s = nodeSlot(ends[i]);
+      KeyframeValue shown;
+      double cur = motionCurrentValue(id, s, motion_.timeUs, shown) ? shown.f : base[i];
+      if (std::fabs(want[i] - cur) < 1e-9) {
+        want[i] = base[i];  // unchanged here: the base keeps its own
+        continue;
+      }
+      if (motionTrackOf(n->props, s) == kNoGuid && !motion_.autoKeyframe) {
+        rest = true;
+        continue;
+      }
+      writes.push_back({s, want[i]});
+      want[i] = base[i];
+    }
+    if (rest) {
+      NodeProps trimmed;
+      motion::writeNodeFloat(trimmed, ends[0], want[0]);
+      motion::writeNodeFloat(trimmed, ends[1], want[1]);
+      pt->second = trimmed.extra["pathTrim"];
+    } else {
+      props.props.extra.erase(pt);  // nothing for the base: the shown values are the playhead's, not the design's
+      if (props.props.extra.empty()) taken |= F_EXTRA;
+    }
+  }
+  if (writes.empty()) return taken;
   for (auto& [s, v] : writes)
     if (const motion::FieldInfo* info = motion::fieldInfo(s.field)) motionKeyAtPlayhead(id, s, root, KeyframeValue::number(motion::nodeToStored(*info, v)));
   return taken;
@@ -1622,6 +1699,188 @@ void Editor::motionClipboard(std::vector<NodeChange>& nodes, const std::vector<c
   }
 }
 
+// ---- Layout under the motion layer (docs/motion.md §4.5; round 8a, increment 2) ----------------------------------------
+
+// The layers whose size, padding or gap the motion layer wrote, laid out again as Figma lays them out at that time: the
+// layout reads the live nodes (the evaluated values in) and its results are the layer's previews too, so restore()
+// takes them back with the rest — the document's base, the journal and undo never see them. Constraints act on a frame
+// the layer resized, from its base size.
+void Editor::motionRelayout(const std::vector<Guid>& dirty) {
+  struct Host : LayoutHost {
+    Editor& ed;
+    explicit Host(Editor& e) : ed(e) {}
+    const Document& document() const override { return ed.doc_; }
+    void writeGeometry(Guid id, const Mat2x3& transform, Vec2 size) override {
+      const Node* n = ed.doc_.get(id);
+      if (!n || (n->props.transform == transform && n->props.size == size)) return;
+      NodeChange c = NodeChange::changed(id);
+      c.mask = F_TRANSFORM | F_SIZE;
+      c.props = n->props;
+      c.props.transform = transform;
+      c.props.size = size;
+      ed.motionLayer_.preview(ed.doc_, c);
+    }
+    bool resizedInTxn(Guid frame, Vec2& oldSize) const override {
+      const NodeProps* b = ed.motionLayer_.baseOf(frame);
+      const Node* n = ed.doc_.get(frame);
+      if (!b || !n || b->size == n->props.size) return false;
+      oldSize = b->size;
+      return true;
+    }
+    void base(Guid id, Mat2x3& transform, Vec2& size) const override {
+      const NodeProps* b = ed.motionLayer_.baseOf(id);
+      const Node* n = ed.doc_.get(id);
+      const NodeProps* p = b ? b : n ? &n->props : nullptr;
+      if (!p) return;
+      transform = p->transform;
+      size = p->size;
+    }
+    bool excludedFromFlow(Guid) const override { return false; }
+    bool placedByGesture(Guid) const override { return false; }
+    bool ignoreConstraints(Guid) const override { return false; }
+    bool measureText(Guid id, double width, Vec2& size) override { return ed.measureText(id, width, size); }
+    double firstBaseline(Guid id, Vec2 size) override { return ed.firstBaseline(id, size); }
+    Guid slotContentOf(Guid id) override { return ed.slotContentOf(id); }
+  } host(*this);
+  Layout(host).run(dirty);
+}
+
+// ---- The canvas: the motion path and the anchor point (docs/motion.md §4.9, §6.4; round 8a, increment 2) ------------
+
+namespace {
+
+constexpr double kAnchorReach = 8;  // CSS px around the anchor point's target
+constexpr double kAnchorSnap = 6;   // CSS px: the target snaps to the layer's corners, edges' middles and centre
+constexpr size_t kMaxPathDots = 4000;
+
+}  // namespace
+
+// The anchor point's target: the one selected layer under the timeline's root (never the root), where its anchor is on
+// the canvas now (the motion layer's values in). False when there is none.
+bool Editor::motionAnchorTarget(Guid& id, Vec2& world) const {
+  if (!motion_.on || viewer_ || selection_.size() != 1 || motionDirty_) return false;
+  id = selection_[0];
+  Guid root = motionRoot();
+  const Node* n = doc_.get(id);
+  if (!n || id.isDerived() || root == kNoGuid || id == root || motionIndex_.rootOf(doc_, id) != root) return false;
+  const motion::AnimatedNode* an = motionIndex_.node(id);
+  motion::Timeline tl = motionIndex_.timeline(doc_, root);
+  int64_t tau = motion::localTime(motion_.timeUs - tl.offsetUs, tl.durationUs, tl.playback);
+  motion::LayerBase pose = an ? motion::MotionLayer::poseAt(motionIndex_, *an, tau) : motion::decodeLayerBase(n->props);
+  // The live transform holds the motion transform: the anchor is where it maps the anchor of the box.
+  world = doc_.worldTransform(id).apply(motion::MotionLayer::anchorPoint(pose, n->props.size));
+  return true;
+}
+
+void Editor::motionOverlay(Overlay& o) const {
+  Guid id;
+  Vec2 anchor;
+  if (!motionAnchorTarget(id, anchor)) return;
+  if (tool_ == Tool::ANCHOR_POINT || gesture_ == Gesture::MotionAnchor) {
+    o.hasAnchorPoint = true;
+    o.anchorPoint = gesture_ == Gesture::MotionAnchor ? motionAnchor_.world : anchor;
+  }
+  const motion::AnimatedNode* an = motionIndex_.node(id);
+  if (!an || !motion_.showMotionPath || gesture_ == Gesture::Move) return;
+  // The position keyframes: the TRANSLATION_XY track, or the X / Y pair's times merged.
+  std::vector<int64_t> times;
+  const motion::Track* xy = nullptr;
+  for (const motion::Binding& b : an->bindings) {
+    if (b.slot.kind != Slot::Kind::NODE) continue;
+    VariableField f = b.slot.field;
+    if (f != VariableField::MOTION_TRANSLATION_XY && f != VariableField::MOTION_TRANSLATION_X && f != VariableField::MOTION_TRANSLATION_Y) continue;
+    for (const motion::Param& q : b.params) {
+      const motion::Track* t = motionIndex_.track(q.track);
+      if (!t) continue;
+      if (f == VariableField::MOTION_TRANSLATION_XY) xy = t;
+      for (const motion::Keyframe& k : t->keyframes) times.push_back(k.timeUs);
+    }
+  }
+  if (times.empty()) return;
+  std::sort(times.begin(), times.end());
+  times.erase(std::unique(times.begin(), times.end()), times.end());
+  // Where the anchor goes at local time τ: the layout transform of the base (the motion layer's values out) taking the
+  // anchor plus the translation — the path a position animation draws, in the parent's space, then the world's.
+  const Node* n = doc_.get(id);
+  const NodeProps* base = motionLayer_.baseOf(id);
+  const NodeProps& p = base ? *base : n->props;
+  Mat2x3 toWorld = doc_.worldTransform(doc_.parentOf(id)) * p.transform;
+  auto at = [&](int64_t tau, motion::LayerBase* out = nullptr) {
+    motion::LayerBase pose = motion::MotionLayer::poseAt(motionIndex_, *an, tau);
+    if (out) *out = pose;
+    return toWorld.apply(motion::MotionLayer::anchorPoint(pose, p.size) + pose.translation);
+  };
+  Guid root = motionRoot();
+  motion::Timeline tl = motionIndex_.timeline(doc_, root);
+  double frame = tl.fpsNumerator ? std::max(1000.0, 1e6 * tl.fpsDenominator / tl.fpsNumerator) : 1e6 / 60;
+  int64_t tau = motion::localTime(motion_.timeUs - tl.offsetUs, tl.durationUs, tl.playback);
+  // A dot per frame between the first and the last keyframe (their spacing shows the easing).
+  for (size_t k = 0; o.motionDots.size() < kMaxPathDots; k++) {
+    int64_t t = times.front() + static_cast<int64_t>(std::llround(static_cast<double>(k) * frame));
+    if (t > times.back()) break;
+    o.motionDots.push_back(at(t));
+  }
+  for (int64_t t : times) o.motionKeys.push_back({at(t), static_cast<double>(std::llabs(t - tau)) <= frame / 2});
+  // A curved keyframe's handles, from its square (relative to its value).
+  if (xy)
+    for (const motion::Keyframe& k : xy->keyframes) {
+      if (!k.hasPathHandles) continue;
+      motion::LayerBase pose;
+      Vec2 a = at(k.timeUs, &pose);
+      Vec2 o0 = motion::MotionLayer::anchorPoint(pose, p.size) + pose.translation;
+      for (Vec2 h : {k.pathIn, k.pathOut})
+        if (h.x != 0 || h.y != 0) o.motionHandles.push_back({a, toWorld.apply(o0 + h)});
+    }
+}
+
+// A press with the anchor point tool: on the target, its drag begins (no transaction: a view state until let go).
+bool Editor::motionAnchorPress(Vec2 screen) {
+  Guid id;
+  Vec2 world;
+  if (!motionAnchorTarget(id, world) || (camera_.toScreen(world) - screen).length() > kAnchorReach) return false;
+  gesture_ = Gesture::MotionAnchor;
+  motionAnchor_ = {id, world};
+  needsRender_ = true;
+  return true;
+}
+
+// The target follows the pointer, snapped to the layer's corners, the middles of its edges and its centre (⌃: free).
+void Editor::motionAnchorDrag(Vec2 world, uint32_t mods) {
+  const Node* n = doc_.get(motionAnchor_.id);
+  if (!n) return;
+  Mat2x3 m = doc_.worldTransform(motionAnchor_.id);
+  Vec2 to = world;
+  if (!(mods & MOD_CTRL)) {
+    double best = kAnchorSnap + 1e-9;
+    for (double u : {0.0, 0.5, 1.0})
+      for (double v : {0.0, 0.5, 1.0}) {
+        Vec2 q = m.apply({u * n->props.size.x, v * n->props.size.y});
+        double d = (camera_.toScreen(q) - camera_.toScreen(world)).length();
+        if (d < best) best = d, to = q;
+      }
+  }
+  motionAnchor_.world = to;
+  needsRender_ = true;
+}
+
+// Let go: MOTION_SET_ANCHOR with the target's place in the layer's box (as it is drawn), in percent.
+void Editor::motionAnchorDrop() {
+  MotionAnchorDrag drag = motionAnchor_;
+  motionAnchor_ = MotionAnchorDrag{};
+  const Node* n = doc_.get(drag.id);
+  Guid id;
+  Vec2 was;
+  if (!n || !(n->props.size.x > 0) || !(n->props.size.y > 0)) return;
+  if (motionAnchorTarget(id, was) && id == drag.id && (was - drag.world).length() < 1e-9) return;  // a click: nothing moved
+  Vec2 q = doc_.worldTransform(drag.id).inverse().apply(drag.world);
+  json::Writer w;
+  w.beginObject().key("nodes").beginArray().string(drag.id.toString()).endArray();
+  w.key("x").number(q.x / n->props.size.x * 100).key("y").number(q.y / n->props.size.y * 100).endObject();
+  CommandArgs a;
+  if (json::parse(w.take(), a.raw)) motionCommand(CommandId::MOTION_SET_ANCHOR, a);
+  needsRender_ = true;
+}
+
 // ---- Reads ----------------------------------------------------------------------------------------------------------
 
 void Editor::writeMotionTimeline(json::Writer& w, Guid rootIn) {
@@ -1638,14 +1897,21 @@ void Editor::writeMotionTimeline(json::Writer& w, Guid rootIn) {
   w.key("playback").string(tl.playback == motion::Playback::ONCE ? "ONCE" : tl.playback == motion::Playback::BOOMERANG ? "PING_PONG" : "LOOP");
   w.key("snappingFps").number(tl.fpsDenominator ? static_cast<double>(tl.fpsNumerator) / tl.fpsDenominator : 60);
   w.key("layers").beginArray();
-  // The Layers panel's order: top first (the last child first), depth from the root.
+  // The Layers panel's order: top first (the last child first), depth from the root. An instance whose main plays is
+  // one layer (its purple bar; docs/motion.md §4.3), its sublayers not listed.
   std::vector<std::pair<Guid, int>> order;
+  auto playingMain = [&](Guid id) {
+    const Node* n = doc_.get(id);
+    if (!n || n->props.type != NodeType::INSTANCE) return kNoGuid;
+    Guid main = mainOf(id);
+    return main != kNoGuid && ix.plays(main) ? main : kNoGuid;
+  };
   auto visit = [&](auto&& self, Guid id, int depth) -> void {
     const std::vector<Guid>& kids = doc_.children(id);
     for (size_t i = kids.size(); i-- > 0;) {
       Guid c = kids[i];
       if (c.isDerived()) continue;
-      if (ix.animated(c)) order.push_back({c, depth});
+      if (ix.animated(c) || playingMain(c) != kNoGuid) order.push_back({c, depth});
       self(self, c, depth + 1);
     }
   };
@@ -1653,12 +1919,21 @@ void Editor::writeMotionTimeline(json::Writer& w, Guid rootIn) {
   for (auto& [id, depth] : order) {
     const motion::AnimatedNode* an = ix.node(id);
     const Node* n = doc_.get(id);
-    if (!an || !n) continue;
+    if (!n) continue;
     int64_t start = INT64_MAX, end = INT64_MIN;
     w.beginObject();
     w.key("node").string(id.toString()).key("name").string(n->props.name).key("icon").string(nodeTypeName(n->props.type)).key("depth").number(depth);
+    if (Guid main = playingMain(id); main != kNoGuid) {
+      motion::Assignment a = motion::decodeAssignment(n->props, main, root);
+      motion::Timeline mt = ix.timeline(doc_, main);
+      w.key("instance").beginObject().key("offsetUs").number(static_cast<double>(a.offsetUs)).key("durationUs").number(static_cast<double>(mt.durationUs));
+      w.key("mainTimeline").string(main.toString()).endObject();
+      start = a.offsetUs;
+      end = a.offsetUs + mt.durationUs;
+    }
+    static const std::vector<motion::Binding> kNone;
     w.key("tracks").beginArray();
-    for (const motion::Binding& b : an->bindings) {
+    for (const motion::Binding& b : an ? an->bindings : kNone) {
       for (const motion::Param& q : b.params) {
         const motion::Track* t = ix.track(q.track);
         if (!t || q.kind != motion::Param::Kind::MANUAL) continue;
@@ -1737,10 +2012,37 @@ void Editor::writeMotionResolved(json::Writer& w, Guid node) {
   w.key("root").string(root.toString()).key("durationUs").number(static_cast<double>(tl.durationUs));
   w.key("playback").string(tl.playback == motion::Playback::ONCE ? "ONCE" : tl.playback == motion::Playback::BOOMERANG ? "PING_PONG" : "LOOP");
   w.key("layers").beginArray();
-  std::vector<Guid> layers = node == root ? ix.animatedUnder(doc_, root) : std::vector<Guid>{node};
-  if (node != root && !ix.animated(node)) layers.clear();
-  for (Guid id : layers) {
-    const motion::AnimatedNode* an = ix.node(id);
+  // Every animated layer under the root in document order — an instance's sublayers too (its main's tracks, docs/motion.md
+  // §4.3), their keyframes moved by the offsets of the instances above them (the main's playback style not unrolled).
+  struct Layer {
+    Guid row, layer;
+    int64_t offsetUs;
+  };
+  std::vector<Layer> layers;
+  auto visit = [&](auto&& self, Guid parent, Guid containing, int64_t offset) -> void {
+    for (Guid c : doc_.children(parent)) {
+      const Node* n = doc_.get(c);
+      if (!n) continue;
+      Guid layer = c;
+      if (c.isDerived()) {
+        auto it = derivedInfo_.find(c);
+        layer = it != derivedInfo_.end() ? it->second.source : kNoGuid;
+      }
+      if (layer != kNoGuid && ix.animated(layer) && (node == root || node == c)) layers.push_back({c, layer, offset});
+      if (n->props.type != NodeType::INSTANCE) {
+        self(self, c, containing, offset);
+        continue;
+      }
+      Guid main = mainOf(c);
+      if (main == kNoGuid || !ix.plays(main)) continue;
+      motion::Assignment a = motion::decodeAssignment(n->props, main, containing);
+      if (!a.disabled) self(self, c, main, offset + a.offsetUs);
+    }
+  };
+  visit(visit, root, root, 0);
+  for (const Layer& l : layers) {
+    Guid id = l.row;
+    const motion::AnimatedNode* an = ix.node(l.layer);
     const Node* n = doc_.get(id);
     if (!an || !n) continue;
     Vec2 size = n->props.size;
@@ -1753,7 +2055,7 @@ void Editor::writeMotionResolved(json::Writer& w, Guid node) {
     for (const motion::Binding& b : an->bindings) {
       const motion::FieldInfo* info = b.slot.kind == Slot::Kind::NODE ? motion::fieldInfo(b.slot.field) : nullptr;
       const char* kind = info ? (info->compose == motion::Compose::ADDITIVE ? "additive" : info->compose == motion::Compose::MULTIPLICATIVE ? "multiplicative" : "absolute") : "absolute";
-      // Manual tracks as they are, in root time (instance offsets: a later increment).
+      // Manual tracks in root time (an instance sublayer's moved by its instances' offsets).
       for (const motion::Param& q : b.params) {
         const motion::Track* t = ix.track(q.track);
         if (!t) continue;
@@ -1761,7 +2063,7 @@ void Editor::writeMotionResolved(json::Writer& w, Guid node) {
         writePublicField(w, b.slot);
         w.key("kind").string(kind).key("keyframes").beginArray();
         for (const motion::Keyframe& k : t->keyframes) {
-          w.beginObject().key("timeUs").number(static_cast<double>(k.timeUs)).key("value");
+          w.beginObject().key("timeUs").number(static_cast<double>(k.timeUs + l.offsetUs)).key("value");
           writePublicValue(w, b.slot, k.value);
           w.key("easing");
           writePublicEasing(w, k.easing);

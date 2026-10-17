@@ -5,7 +5,8 @@
  * the segments between them, the playhead, the duration handle).
  *
  * Increment 2: a marquee in the track area selects the keyframes it touches (⇧ adds to the selection), ⌘C / ⌘V copy
- * the selected keyframes and paste them at the playhead, the top edge resizes the timeline.
+ * the selected keyframes and paste them at the playhead, the top edge resizes the timeline. Round 8a increment 2: an
+ * animated instance's purple bar drags in time (its offset in the root's timeline, docs/motion.md §4.3).
  *
  * A pure view of a `TimelineModel`: every change goes out through its callbacks, so MotionMode wires it to the engine
  * and the tests mount it on a fixed model. Not yet: clips (presets), audio rows, the layer bar's drag and scale
@@ -53,6 +54,8 @@ export interface TimelineProps {
   onPasteKeyframes(): boolean;
   /** The top edge dragged: the timeline's height in px (`final` on release) */
   onResize(heightPx: number, final: boolean): void;
+  /** An animated instance's bar dragged: its offset in the root's time each frame (`final` false), once more on release */
+  onMoveInstance?(node: GuidString, offsetUs: Micros, final: boolean): void;
 }
 
 const PLAYBACK_ICON: Record<PlaybackName, IconName> = { LOOP: "24.loop", ONCE: "24.play-once", PING_PONG: "24.ping-pong" };
@@ -190,6 +193,36 @@ export function Timeline(p: TimelineProps) {
       window.removeEventListener("pointercancel", up);
     };
   }, [drag, fps, layers, p, scale.pxPerUs, timeUs]);
+
+  // ---- An animated instance's bar: dragged in time (snapped to frames; ⇧ to the playhead and the keyframes) ------------
+  const onInstanceDown = (e: ReactPointerEvent<HTMLDivElement>, layer: TimelineLayer) => {
+    const inst = layer.instance;
+    if (e.button !== 0 || !inst || !p.onMoveInstance) return;
+    e.stopPropagation();
+    p.onSelectLayer(layer.node, false);
+    capture(e.currentTarget, e.pointerId);
+    const startX = e.clientX;
+    const targets = [timeUs, ...otherKeyframeTimes(layers, new Set())];
+    let moving = false;
+    const at = (clientX: number, shift: boolean) => {
+      const want = inst.offsetUs + (clientX - startX) / scale.pxPerUs;
+      return Math.round(shift ? snapTime(want, fps, targets, SNAP_PX / scale.pxPerUs) : snapToFrame(want, fps));
+    };
+    const move = (ev: PointerEvent) => {
+      if (!moving && Math.abs(ev.clientX - startX) < DRAG_PX) return;
+      moving = true;
+      p.onMoveInstance!(layer.node, at(ev.clientX, ev.shiftKey), false);
+    };
+    const up = (ev: PointerEvent) => {
+      if (moving) p.onMoveInstance!(layer.node, at(ev.clientX, ev.shiftKey), true);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
 
   // ---- The duration handle --------------------------------------------------------------------------------------------
   const onDurationDown = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -390,7 +423,7 @@ export function Timeline(p: TimelineProps) {
                 <div className={styles.lanes}>
                   {rows.map((r) => (
                     <div key={r.kind === "layer" ? r.layer.node : r.track!.id} className={styles.lane} aria-selected={r.kind === "track" && selectedRow?.track === r.track!.id ? true : undefined} data-lane={r.kind === "layer" ? r.layer.node : r.track!.id}>
-                      {r.kind === "layer" ? <LayerLane layer={r.layer} scale={scale} /> : <TrackLane track={r.track!} scale={scale} durationUs={shownDuration} selected={selectedKeyframes} dragging={drag?.moving ? new Set(drag.items.map((i) => i.id)) : null} onDown={onDiamondDown} onDouble={(k) => {
+                      {r.kind === "layer" ? <LayerLane layer={r.layer} scale={scale} onInstanceDown={readOnly || !p.onMoveInstance ? undefined : (e) => onInstanceDown(e, r.layer)} /> : <TrackLane track={r.track!} scale={scale} durationUs={shownDuration} selected={selectedKeyframes} dragging={drag?.moving ? new Set(drag.items.map((i) => i.id)) : null} onDown={onDiamondDown} onDouble={(k) => {
                         p.onSeek(k.timeUs);
                         p.onSelectLayer(r.layer.node, false);
                       }} onSegment={(k, anchor) => setEasingAt({ ids: [k.id], easing: k.easing, anchor })} />}
@@ -442,11 +475,11 @@ function LayerRowView({ layer, expanded, selected, onToggle, onSelect }: { layer
   );
 }
 
-/** The layer's lane: its bar from the first to the last keyframe (an instance: the purple clip bar). */
-function LayerLane({ layer, scale }: { layer: TimelineLayer; scale: Scale }) {
+/** The layer's lane: its bar from the first to the last keyframe (an instance: the purple clip bar, dragged in time). */
+function LayerLane({ layer, scale, onInstanceDown }: { layer: TimelineLayer; scale: Scale; onInstanceDown?(e: ReactPointerEvent<HTMLDivElement>): void }) {
   if (layer.instance) {
     const x0 = timeToX(layer.instance.offsetUs, scale);
-    return <div className={styles.instanceBar} style={{ left: x0, width: Math.max(4, layer.instance.durationUs * scale.pxPerUs) }} title={layer.name} />;
+    return <div className={styles.instanceBar} data-instance-bar={layer.node} style={{ left: x0, width: Math.max(4, layer.instance.durationUs * scale.pxPerUs) }} title={layer.name} onPointerDown={onInstanceDown} />;
   }
   const ext = layerExtent(layer);
   if (!ext) return null;

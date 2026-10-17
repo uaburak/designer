@@ -991,6 +991,12 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
     return P_HANDLED;
   }
   if (tool_ == Tool::COMMENT) return P_HANDLED;
+  // Motion's anchor point (⌥R, docs/motion.md §4.9): a press on its target drags it (editor/MotionCommands.cpp);
+  // anywhere else the tool goes back to Move and the press is Move's.
+  if (tool_ == Tool::ANCHOR_POINT) {
+    if (motionAnchorPress(s)) return P_HANDLED | P_CAPTURE;
+    setTool(Tool::MOVE);
+  }
 
   // Dev Mode: status chips, annotation labels and dots, saved measurements, the Annotation and Measurement tools.
   if (uint32_t r = devPointerDown(s, mods)) return r;
@@ -1405,6 +1411,7 @@ void Editor::movePointer(Vec2 s, uint32_t mods) {
     case Gesture::Gap: dragGap(world, mods); break;
     case Gesture::Reorder: dragReorder(world, mods); break;
     case Gesture::RotationOrigin: dragRotationOrigin(world, mods); break;
+    case Gesture::MotionAnchor: motionAnchorDrag(world, mods); break;
     case Gesture::Guide: dragGuide(s, mods); break;
     case Gesture::LayoutBar:
       // A click on the bar edits its value in place (pointerUp); past the threshold it is a drag.
@@ -1519,6 +1526,7 @@ void Editor::pointerUp(Vec2 s, uint32_t mods) {
       commit();
       break;
     case Gesture::RotationOrigin: break;
+    case Gesture::MotionAnchor: motionAnchorDrop(); break;
     case Gesture::Guide:
       finishGuide(s);
       break;
@@ -1651,6 +1659,10 @@ void Editor::cancelGesture() {
     case Gesture::Measure:
     case Gesture::MeasureDrag: needsRender_ = true; break;
     case Gesture::Scrollbar: scroll_.drag = 0; break;
+    case Gesture::MotionAnchor:
+      motionAnchor_ = MotionAnchorDrag{};  // nothing was written
+      needsRender_ = true;
+      break;
     default: break;
   }
   gesture_ = Gesture::None;

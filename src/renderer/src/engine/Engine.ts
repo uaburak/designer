@@ -1424,11 +1424,13 @@ export class Engine {
    * One export, drawn by the engine: `refs` one layer (PNG, JPEG, SVG) or, for PDF, every layer as a page of one
    * file; [] = the current page's canvas. PNG / JPEG come back as straight RGBA pixels (JPEG already on white) for
    * the caller to encode; SVG / PDF as the file. "busy": fonts or images it draws are still loading (they were
-   * requested; try again when they arrive, or pass `allowPending` to draw what there is).
+   * requested; try again when they arrive, or pass `allowPending` to draw what there is). While Motion plays, the
+   * export is of the design (the base values, docs/motion.md §3); `motionTimeUs` draws the first ref's timeline at that
+   * time instead (§7.2), as `motionRenderFrame` draws a root's frame.
    */
-  exportNodes(refs: readonly Guid[], settings: ExportSettings, options: { allowPending?: boolean } = {}): ExportOutput {
+  exportNodes(refs: readonly Guid[], settings: ExportSettings, options: { allowPending?: boolean; motionTimeUs?: Micros } = {}): ExportOutput {
     const format = settings.imageType ?? "PNG";
-    const status = this.x.exportNodes(this.h, encodeRefs(refs), encodeText(JSON.stringify(settings)), options.allowPending ? EXPORT_ALLOW_PENDING : 0);
+    const status = this.x.exportNodes(this.h, encodeRefs(refs), encodeText(exportSettingsJson(settings, options.motionTimeUs)), options.allowPending ? EXPORT_ALLOW_PENDING : 0);
     if (status === Status.E_BUSY) return this.after({ status: "busy" });
     if (status !== Status.OK) {
       this.x.lastError();
@@ -1442,8 +1444,8 @@ export class Engine {
   }
 
   /** What an export would make (its size per layer, the images an SVG / PDF needs handed in, whether it can draw now). */
-  exportInfo(refs: readonly Guid[], settings: ExportSettings): ExportInfo | null {
-    return this.json(this.x.exportInfo(this.h, encodeRefs(refs), encodeText(JSON.stringify(settings))), null);
+  exportInfo(refs: readonly Guid[], settings: ExportSettings, options: { motionTimeUs?: Micros } = {}): ExportInfo | null {
+    return this.json(this.x.exportInfo(this.h, encodeRefs(refs), encodeText(exportSettingsJson(settings, options.motionTimeUs))), null);
   }
 
   /** An image for SVG / PDF exports: the file itself (`kind` "file"), a JPEG of its colour or raw RGB (PDF), with alpha. */
@@ -2015,6 +2017,11 @@ export class Engine {
   runMotionCommand<K extends keyof MotionCommandArgs>(id: K, args: MotionCommandArgs[K]): number {
     return this.command(id, args as unknown as Readonly<Record<string, CommandArgValue>>);
   }
+}
+
+/** An export's settings as the engine reads them: the schema's ExportSettings, and `motionTimeUs` (ours) when asked. */
+function exportSettingsJson(settings: ExportSettings, motionTimeUs: Micros | undefined): string {
+  return JSON.stringify(motionTimeUs === undefined ? settings : { ...settings, motionTimeUs });
 }
 
 /** A Motion binding whose engine side is not built yet (frames at a time and the Lottie shapes: the export increment); the chrome reads the throw as "nothing yet". */

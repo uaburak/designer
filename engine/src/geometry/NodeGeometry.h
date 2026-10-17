@@ -29,6 +29,12 @@ struct NodeGeometry {
   Rect bounds;                          // of the fills and the stroke centre line
 };
 
+// Figma's path trim on a node (`pathTrim` in `extra`, x = start, y = end; docs/motion.md §4.13): true with its start
+// and end (0–1) when it cuts anything (present, and not [0, 1]). The geometry's stroke centre line is the trimmed one
+// where the stroke is centred or open (Figma trims center strokes only), so the renderer, exports and hit-testing all
+// draw and test what is left.
+bool pathTrimOf(const NodeProps& p, double& start, double& end);
+
 class GeometryCache {
  public:
   using TextSource = std::function<const text::TextLayout*(Guid)>;

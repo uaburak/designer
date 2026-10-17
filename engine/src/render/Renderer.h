@@ -403,6 +403,18 @@ struct Overlay {
   // slices, dashed); pixel preview (the page drawn at `pixelPreview`× and scaled up without smoothing; 0: off).
   bool hasRotationOrigin = false;
   Vec2 rotationOrigin;
+  // Figma Motion (docs/motion.md §6.4; round 8a, increment 2): the selected layer's motion path — "a sequence of dots"
+  // (one per frame of its position keyframes: their spacing shows the easing), a square at each keyframe (filled at the
+  // playhead), each curved keyframe's handles — and the anchor point's target (Edit anchor point, ⌥R). World.
+  struct MotionKey {
+    Vec2 at;
+    bool current = false;  // the keyframe at the playhead
+  };
+  std::vector<Vec2> motionDots;
+  std::vector<MotionKey> motionKeys;
+  std::vector<OverlayLine> motionHandles;
+  bool hasAnchorPoint = false;
+  Vec2 anchorPoint;
   std::string badgeText;
   struct RulerGuide {
     Vec2 a, b;           // world

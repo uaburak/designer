@@ -5,8 +5,10 @@
 //
 // As built (round 8a): a MOTION_* field composes into the node's `transform` as a preview write (the contract's
 // `motionWorld`: render, hit-testing and bounds all read the transform; the base is in the restore list), so the layout
-// transform is untouched the moment the layer restores. Layout-changing fields (WIDTH, paddings…) are written; the
-// re-layout of the children (§4.5) is the next increment.
+// transform is untouched the moment the layer restores. Increment 2: an animated component's instances play their
+// main's timeline placed in their container's (instance sublayers, `timelineAssignments`, §4.3), and layout-changing
+// fields (WIDTH, paddings, gaps…) lay out again through the caller's hook, its writes previews too (§4.5) — the motion
+// transforms then compose over where layout put each layer.
 #pragma once
 
 #include <cstdint>
@@ -33,9 +35,32 @@ class MotionLayer {
   // Resolves a binding's base argument (a literal, or an alias in the node's modes) to a value; false: unresolved.
   using BaseResolver = std::function<bool(Guid node, const VariableData& base, KeyframeValue& out)>;
 
-  // Evaluates every animated layer under `root` at root time `timeUs` (the timeline's playback style applied) and
-  // writes the values. Nodes already applied are re-evaluated from their remembered base. Returns the nodes written.
-  size_t apply(Document& doc, const MotionIndex& index, Guid root, int64_t timeUs, const BaseResolver& resolve);
+  // What the layer asks of the editor: the bases (above), an instance's main and a sublayer's layer in it (instance
+  // sublayers play their main's tracks), and the layout of what layout-changing fields touched.
+  struct Hooks {
+    BaseResolver resolve;
+    // An INSTANCE's main component, real or derived (nullptr: its own symbolData's).
+    std::function<Guid(Guid)> mainOf;
+    // A derived row's layer in its main (nullptr, or kNoGuid: the row plays nothing).
+    std::function<Guid(Guid)> sourceOf;
+    // Lays out what depends on these nodes (their layout inputs changed), writing through preview() (nullptr: no
+    // layout, siblings stay where they were).
+    std::function<void(const std::vector<Guid>&)> relayout;
+  };
+
+  // Evaluates every animated layer under `root` at root time `timeUs` (the timeline's playback style applied) — the
+  // root's own layers, and the sublayers of the instances whose main plays, each in its main's time (§4.3) — and writes
+  // the values, starting from the base values (what an earlier apply wrote is restored first). Returns the nodes written.
+  size_t apply(Document& doc, const MotionIndex& index, Guid root, int64_t timeUs, const Hooks& hooks);
+  size_t apply(Document& doc, const MotionIndex& index, Guid root, int64_t timeUs, const BaseResolver& resolve) {
+    Hooks hooks;
+    hooks.resolve = resolve;
+    return apply(doc, index, root, timeUs, hooks);
+  }
+  // Where an instance's main's time is at its container's time `tau` (µs): its assignment's offset, then the main's
+  // playback style over the main's duration; false when its timeline is disabled.
+  static bool instanceTime(const Document& doc, const MotionIndex& index, Guid instance, Guid main, Guid containing, int64_t tau,
+                           int64_t& out);
   // A gesture's preview (round 8b, increment 2): `c`'s fields written over the node as the layer's own values are, its
   // base remembered once; the next restore (or apply, which restores first) takes them back.
   bool preview(Document& doc, const NodeChange& c);
@@ -51,6 +76,9 @@ class MotionLayer {
   static Mat2x3 motionTransform(const Mat2x3& layout, Vec2 size, const LayerBase& anchor, Vec2 translation, double rotationStored,
                                 Vec2 scale, double shear);
   static Vec2 anchorPoint(const LayerBase& b, Vec2 size);
+  // A layer's motion transform components at local time `tau`: its MOTION_* tracks folded over their literal bases (an
+  // alias base reads as the layer's motionTransform), the anchor included — what the canvas overlays draw from.
+  static LayerBase poseAt(const MotionIndex& index, const AnimatedNode& an, int64_t tau);
 
  private:
   struct Entry {

@@ -1238,6 +1238,10 @@ export const editor: Record<string, string> = {
   "Path trim end": "Yol kesme sonu",
   // ── Motion mode, increment 2 (the timeline's top edge) ──
   "Resize timeline": "Zaman çizelgesini yeniden boyutlandır",
+  // ── Motion, round 8a increment 2 (path trim, the anchor point tool) ──
+  "Path trim": "Yol kesme",
+  "Path trim only applies to center strokes.": "Yol kesme yalnızca ortalanmış kenarlıklarda uygulanır.",
+  "Edit anchor point": "Bağlantı noktasını düzenle",
   // ── Animated export (panels/design/ExportAnimated.tsx, editor/motion/export; docs/motion.md §7) ──
   "Export kind": "Dışa aktarma türü",
   Static: "Sabit",

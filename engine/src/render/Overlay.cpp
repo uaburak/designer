@@ -1010,6 +1010,41 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
          Pass::Shape);
   }
 
+  // Figma Motion (docs/motion.md §6.4): the motion path — a 3 px dot per frame, the handles of curved keyframes, a 7 px
+  // square at each keyframe (filled at the playhead) — and the anchor point's target: a ring with a cross through it
+  // and a dot in the middle [look unverified: no signed-in capture].
+  for (Vec2 w : overlay.motionDots) {
+    Vec2 c = view.apply(w);
+    const double d = 3;
+    emit(makeShape(Mat2x3::translate(std::round((c.x - d / 2) * dpr) / dpr, std::round((c.y - d / 2) * dpr) / dpr), {d, d}, ShapeKind::Ellipse, kSquare,
+                   blue, 1, blue, 0, 0, 0),
+         Pass::Shape);
+  }
+  for (const OverlayLine& l : overlay.motionHandles) {
+    Vec2 a = view.apply(l.a), b = view.apply(l.b);
+    polyline({a, b}, false, 1, blue, 1);
+    const double d = 5;
+    emit(makeShape(Mat2x3::translate(std::round((b.x - d / 2) * dpr) / dpr, std::round((b.y - d / 2) * dpr) / dpr), {d, d}, ShapeKind::Ellipse, kSquare,
+                   white, 1, blue, 1, 1, 0),
+         Pass::Shape);
+  }
+  for (const Overlay::MotionKey& k : overlay.motionKeys) {
+    Vec2 c = view.apply(k.at);
+    const double d = 7;
+    emit(makeShape(Mat2x3::translate(std::round((c.x - d / 2) * dpr) / dpr, std::round((c.y - d / 2) * dpr) / dpr), {d, d}, ShapeKind::Rect, kSquare,
+                   k.current ? blue : white, 1, k.current ? white : blue, 1, 1, 0),
+         Pass::Shape);
+  }
+  if (overlay.hasAnchorPoint) {
+    Vec2 c = view.apply(overlay.anchorPoint);
+    c = {std::round(c.x * dpr) / dpr, std::round(c.y * dpr) / dpr};
+    const double d = 14, arm = 10, dot = 4;
+    polyline({{c.x - arm, c.y}, {c.x + arm, c.y}}, false, 1, blue, 1);
+    polyline({{c.x, c.y - arm}, {c.x, c.y + arm}}, false, 1, blue, 1);
+    emit(makeShape(Mat2x3::translate(c.x - d / 2, c.y - d / 2), {d, d}, ShapeKind::Ellipse, kSquare, white, 0, blue, 1, 1.5, 0), Pass::Shape);
+    emit(makeShape(Mat2x3::translate(c.x - dot / 2, c.y - dot / 2), {dot, dot}, ShapeKind::Ellipse, kSquare, blue, 1, white, 1, 1, 0), Pass::Shape);
+  }
+
   // ⌥ measurement: the measured layer outlined in red, its distances, and dashed extensions.
   if (overlay.measureTarget != kNoGuid && doc.has(overlay.measureTarget)) {
     Guid id = overlay.measureTarget;

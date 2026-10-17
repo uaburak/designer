@@ -136,6 +136,14 @@ struct AnimatedNode {
   LayerBase base;
 };
 
+// An animated instance's place in its container's time (docs/motion.md §4.3): its `timelineAssignments` entry for
+// (its main's timeline, the container's timeline); absent = offset 0, playing.
+struct Assignment {
+  int64_t offsetUs = 0;
+  bool disabled = false;
+  bool found = false;  // the entry is in the instance's map
+};
+
 // The decoded model of a document, rebuilt when the document changes (MotionLayer asks).
 class MotionIndex {
  public:
@@ -150,14 +158,18 @@ class MotionIndex {
   Guid rootOf(const Document& doc, Guid id) const;
   // The root's timeline (its own fields, or the defaults); `root` must be a root.
   Timeline timeline(const Document& doc, Guid root) const;
-  // The animated nodes under `root` (real nodes; instance sublayers come later), in document order.
+  // The animated nodes under `root` (real nodes; the motion layer walks instance sublayers itself), in document order.
   std::vector<Guid> animatedUnder(const Document& doc, Guid root) const;
+  // Whether a timeline root plays anything: animated layers of its own, or an instance of a main that plays (an
+  // animated component's instances play its timeline, docs/motion.md §4.3). Real nodes; rebuilt with the index.
+  bool plays(Guid root) const { return playing_.count(root) != 0; }
   size_t trackCount() const { return tracks_.size(); }
   size_t nodeCount() const { return nodes_.size(); }
 
  private:
   std::unordered_map<Guid, Track, GuidHash> tracks_;
   std::unordered_map<Guid, AnimatedNode, GuidHash> nodes_;
+  std::unordered_set<Guid, GuidHash> playing_;
 };
 
 // Decoding helpers (also used by the tests and, in round 8b, by the commands).
@@ -168,6 +180,8 @@ bool decodeKeyframeValue(const json::Value& keyframeValue, KeyframeValue& out);
 // A KEYFRAME expression's second argument (KEYFRAME_TRACK_PARAMETER_DATA): its parameters. False when `arg` isn't one.
 bool decodeParams(const VariableData& arg, std::vector<Param>& out);
 LayerBase decodeLayerBase(const NodeProps& p);
+// An instance's `timelineAssignments` entry for its main's timeline `assigned` placed in `containing`'s.
+Assignment decodeAssignment(const NodeProps& instance, Guid assigned, Guid containing);
 bool isTimelineRoot(const Document& doc, Guid id);
 // One of the node's `extra` fields as JSON (null when absent or unreadable).
 json::Value extraJson(const NodeProps& p, const char* key);

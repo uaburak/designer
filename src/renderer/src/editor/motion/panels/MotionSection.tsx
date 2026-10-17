@@ -7,11 +7,14 @@
  * The values are the live nodes' (the store reads them again whenever the playhead moves, motionState.pushMotion), so
  * Opacity, Corner radius, Stroke weight, Width and Height are the motion layer's; Position, Rotation and Scale are
  * motion-only fields without a node prop to read (blank until the engine gives their evaluated values). Increment 2
- * puts the same diamonds beside Design's own fields (MotionField.tsx); later increments add the Transform section
- * (position from the anchor, Edit anchor point), Path trim, Animations and Audio.
+ * puts the same diamonds beside Design's own fields (MotionField.tsx). Round 8a increment 2: "Edit anchor point" (⌥R)
+ * in the header — the anchor point tool, its target dragged on the canvas — and Path trim (PathTrimSection.tsx);
+ * later increments add the Transform section (position from the anchor), Animations and Audio.
  */
-import { PanelSection } from "@/ds";
+import { ToggleIconButton, PanelSection } from "@/ds";
+import { useTool } from "@/engine/hooks";
 import { t, useT } from "@/i18n";
+import { command, isEnabled, runEditorCommand, shortcutOf } from "../../commands";
 import { KEYFRAME_FIELDS, fieldKey, type KeyframePropertyFieldName } from "@shared/motion/types";
 import { useEditor } from "../../controller";
 import type { PanelNode } from "../../panels/design/shared";
@@ -58,8 +61,25 @@ function MotionRows({ nodes }: { nodes: PanelNode[] }) {
   useT();
   const ed = useEditor();
   const { refs, states, timeUs } = useMotionStates()!;
+  const anchorTool = useTool(ed.store) === "ANCHOR_POINT";
+  const anchor = command("motion.anchor-point");
   return (
-    <PanelSection title={t("Motion")} data-motion-section>
+    <PanelSection
+      title={t("Motion")}
+      data-motion-section
+      actions={
+        <ToggleIconButton
+          icon="24.anchor-point"
+          label={t("Edit anchor point")}
+          shortcut={shortcutOf(command("object.rotation-origin"))}
+          tone="secondary"
+          disabled={!anchorTool && !isEnabled(ed, anchor)}
+          pressed={anchorTool}
+          onPressedChange={() => runEditorCommand(ed, "motion.anchor-point")}
+          data-anchor-point
+        />
+      }
+    >
       {MOTION_SECTION_FIELDS.map((name) => {
         const key = fieldKey({ type: "PROPERTY", name });
         const { state, keyframes } = combinedState(states, refs, key);

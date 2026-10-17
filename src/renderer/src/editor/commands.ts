@@ -544,6 +544,15 @@ export const COMMANDS: EditorCommand[] = [
   // Space plays and pauses while Motion is on (help: "Spacebar plays, again pauses"); elsewhere Space is the Hand tool's.
   { id: "motion.play-pause", label: "Play/Pause", keys: [k("Space")], run: (ed) => toggleMotionPlaying(ed), enabled: (ed) => modeOf(ed) === "motion" },
   { id: "motion.toggle-auto-keyframe", label: "Toggle auto-keyframe", run: (ed) => toggleAutoKeyframe(ed), enabled: (ed) => modeOf(ed) === "motion", checked: (ed) => !!ed.ui.get().motion?.autoKeyframe },
+  // Edit anchor point (help: "in the Transform section, or ⌥R"): Motion's anchor point tool, on and off again. ⌥R is the
+  // rotation origin's key in Design (object.rotation-origin hands it here in Motion).
+  {
+    id: "motion.anchor-point",
+    label: "Edit anchor point",
+    run: (ed) => ed.setTool(ed.store.tool === "ANCHOR_POINT" ? "MOVE" : "ANCHOR_POINT"),
+    enabled: (ed) => modeOf(ed) === "motion" && ed.store.selection.refs.length === 1,
+    checked: (ed) => ed.store.tool === "ANCHOR_POINT",
+  },
   { id: "motion.collapse-timeline", label: "Collapse timeline", run: (ed) => ed.ui.set({ motion: { ...(ed.ui.get().motion ?? MOTION_UI_DEFAULT), collapsed: !(ed.ui.get().motion ?? MOTION_UI_DEFAULT).collapsed } }), enabled: (ed) => modeOf(ed) === "motion" },
   // Figma's shortcut table (Atlas 04 §2.5): ⌘= ⌘+ ⌘Num+ = + Num+ / ⌘- ⌘⇧- ⌘Num- - ⇧- Num-; ⇧1 and ⇧9 fit. With
   // Preferences › Use number keys for opacity off, 0 / 1 / 9 / 2 alone zoom (keyboard.ts).
@@ -720,7 +729,12 @@ export const COMMANDS: EditorCommand[] = [
   engine("arrange.distribute-vertical", "Distribute vertical spacing", "DISTRIBUTE_VERTICAL", [k("KeyV", { alt: true, ctrl: true })]),
   engine("arrange.tidy-up", "Tidy up", "TIDY_UP", [k("KeyT", { alt: true, ctrl: true })]),
   // ⌥R (a forum report; not in the live menus): the rotation origin shown, dragged; rotation turns about it.
-  engine("object.rotation-origin", "Show rotation origin", "SHOW_ROTATION_ORIGIN", [k("KeyR", { alt: true })], { checked: (ed) => (ed.engine.commandState("SHOW_ROTATION_ORIGIN") & 2) !== 0 }),
+  // In Motion, ⌥R is Edit anchor point (docs/motion.md §4.9: Draw's / Design's rotation origin stays theirs).
+  engine("object.rotation-origin", "Show rotation origin", "SHOW_ROTATION_ORIGIN", [k("KeyR", { alt: true })], {
+    run: (ed) => (modeOf(ed) === "motion" ? void runEditorCommand(ed, "motion.anchor-point") : void ed.engine.command("SHOW_ROTATION_ORIGIN")),
+    enabled: (ed) => (modeOf(ed) === "motion" ? isEnabled(ed, command("motion.anchor-point")) : (ed.engine.commandState("SHOW_ROTATION_ORIGIN") & CMD_ENABLED) !== 0),
+    checked: (ed) => (ed.engine.commandState("SHOW_ROTATION_ORIGIN") & 2) !== 0,
+  }),
   engine("canvas.remove-guide", "Remove guide", "REMOVE_GUIDE"),
   // A ruler's context menu (Figma's rulerGuideMenu, Atlas 04 §4.2): the top ruler's guides or the left one's, then
   // Hide rulers. The English of the first two is unverified (keys remove-horizontal-guides / remove-vertical-guides).

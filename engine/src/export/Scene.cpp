@@ -103,7 +103,10 @@ Stroke strokeOf(const Document& doc, Guid id, const NodeProps& p) {
       }
     }
   }
-  if (!independent && !dashedFrame && s.profile.empty() && plainShape(p)) {
+  // A path-trimmed centre stroke is the geometry's cut centre line (docs/motion.md §4.13), not the whole primitive.
+  double trimStart = 0, trimEnd = 1;
+  bool trimmed = p.strokeAlign == StrokeAlign::CENTER && !p.extra.empty() && pathTrimOf(p, trimStart, trimEnd);
+  if (!independent && !dashedFrame && !trimmed && s.profile.empty() && plainShape(p)) {
     s.primitive = p.type == NodeType::ELLIPSE ? Shape::Kind::Ellipse : Shape::Kind::Rect;
     if (s.primitive == Shape::Kind::Rect) s.radii = geom::clampRadii(p.size, p.cornerRadii);
     s.aligned = s.align != StrokeAlign::CENTER;

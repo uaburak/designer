@@ -182,6 +182,7 @@ else()
     tests/unit/r8.motion.test.cpp
     tests/unit/r8.motion_edit.test.cpp
     tests/unit/r8.motion_logo.test.cpp
+    tests/unit/r8.motion_layer.test.cpp
     tests/unit/libraries.test.cpp
     tests/unit/text.layout.test.cpp
     tests/unit/text.edit.test.cpp

@@ -46,7 +46,7 @@ void dropStaleAuthoredColors(const NodeProps& before, NodeChange& c) {
 const char* toolName(Tool t) {
   static constexpr const char* kNames[] = {"MOVE", "SCALE", "HAND", "FRAME", "SECTION", "SLICE", "RECTANGLE", "LINE", "ARROW",
                                            "ELLIPSE", "POLYGON", "STAR", "IMAGE", "PEN", "PENCIL", "TEXT", "COMMENT",
-                                           "ANNOTATION", "MEASUREMENT", "EYEDROPPER", "BRUSH", "TEXT_PATH"};
+                                           "ANNOTATION", "MEASUREMENT", "EYEDROPPER", "BRUSH", "TEXT_PATH", "ANCHOR_POINT"};
   auto i = static_cast<size_t>(t);
   return i < sizeof kNames / sizeof kNames[0] ? kNames[i] : "MOVE";
 }
@@ -55,7 +55,7 @@ bool toolImplemented(Tool t) {
   return t == Tool::MOVE || t == Tool::HAND || t == Tool::FRAME || t == Tool::SECTION || t == Tool::RECTANGLE || t == Tool::ELLIPSE || t == Tool::TEXT ||
          t == Tool::LINE || t == Tool::ARROW || t == Tool::POLYGON || t == Tool::STAR || t == Tool::PEN || t == Tool::PENCIL ||
          t == Tool::ANNOTATION || t == Tool::MEASUREMENT || t == Tool::SCALE || t == Tool::SLICE || t == Tool::COMMENT || t == Tool::EYEDROPPER ||
-         t == Tool::BRUSH || t == Tool::TEXT_PATH;
+         t == Tool::BRUSH || t == Tool::TEXT_PATH || t == Tool::ANCHOR_POINT;
 }
 
 const char* txnKindName(TxnKind k) {
@@ -975,6 +975,8 @@ Overlay Editor::overlay() const {
     o.rotationOrigin = gesture_ == Gesture::Rotate ? rotateCentre_ : rotationOrigin();
   }
   if (gesture_ == Gesture::Rotate) o.badgeText = rotateBadgeText();
+  // Motion (docs/motion.md §6.4): the selected layer's motion path, the anchor point's target.
+  motionOverlay(o);
   guideOverlay(o);
   // Round 10, View › Frame outlines / Mask outlines: every frame's / mask's box on the page as a thin quiet line
   // (help.figma.com lists the toggles; the look is unverified).
@@ -2199,7 +2201,8 @@ void Editor::motionApply() {
   }
   // A root other than the one applied: its layers go back first.
   motionLayer_.restore(doc_);
-  auto resolve = [&](Guid node, const VariableData& base, motion::KeyframeValue& out) {
+  motion::MotionLayer::Hooks hooks;
+  hooks.resolve = [&](Guid node, const VariableData& base, motion::KeyframeValue& out) {
     Resolved r;
     if (!resolveValue(base, node, r)) return false;
     if (r.kind == Resolved::Kind::FLOAT) out = motion::KeyframeValue::number(r.f);
@@ -2207,7 +2210,15 @@ void Editor::motionApply() {
     else return false;
     return true;
   };
-  motionLayer_.apply(doc_, motionIndex_, root, motion_.timeUs, resolve);
+  // Round 8a, increment 2: instance sublayers play their main's tracks (docs/motion.md §4.3); layout-changing fields
+  // lay out again as previews (§4.5, editor/MotionCommands.cpp).
+  hooks.mainOf = [&](Guid id) { return mainOf(id); };
+  hooks.sourceOf = [&](Guid id) {
+    auto it = derivedInfo_.find(id);
+    return it != derivedInfo_.end() ? it->second.source : kNoGuid;
+  };
+  hooks.relayout = [&](const std::vector<Guid>& dirty) { motionRelayout(dirty); };
+  motionLayer_.apply(doc_, motionIndex_, root, motion_.timeUs, hooks);
   needsRender_ = true;
 }
 
@@ -2215,6 +2226,7 @@ void Editor::setMotion(const motion::State& s) {
   bool rootChanged = s.on != motion_.on || s.root != motion_.root;
   motion_ = s;
   if (rootChanged) events_.motion = true;
+  if (!s.on && tool_ == Tool::ANCHOR_POINT) setTool(Tool::MOVE);  // Motion's own tool goes with it
   motionApply();
 }
 

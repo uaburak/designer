@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // The timeline (docs/motion.md §6.2) on a fixed model (the committed wasm predates Motion, so the view is tested on its
 // own): the rows, the diamonds' selection and drag, Delete, the segment's Easing menu, the header's controls; increment
-// 2's marquee, ⌘C / ⌘V and the top edge.
+// 2's marquee, ⌘C / ⌘V and the top edge; round 8a increment 2's animated instance bar dragged in time.
 import { act } from "react";
 import { describe, expect, it } from "vitest";
 import type { TimelineModel } from "@shared/motion/types";
@@ -41,13 +41,13 @@ const MODEL: TimelineModel = {
   audio: [],
 };
 
-type Spies = { [K in keyof TimelineProps as TimelineProps[K] extends (...a: never[]) => void ? K : never]: ReturnType<typeof spy> };
+type Spies = { [K in keyof TimelineProps as NonNullable<TimelineProps[K]> extends (...a: never[]) => void ? K : never]-?: ReturnType<typeof spy> };
 
 function setup(over: Partial<TimelineProps> = {}) {
   const s = {
     onSeek: spy(), onTogglePlay: spy(), onToggleAutoKeyframe: spy(), onToggleCollapse: spy(), onSetTimeline: spy(), onSelectKeyframes: spy(),
     onMoveKeyframes: spy(), onDeleteKeyframes: spy(), onDeleteTrack: spy(), onSetEasing: spy(), onSelectLayer: spy(),
-    onCopyKeyframes: spy(), onPasteKeyframes: spy(), onResize: spy(),
+    onCopyKeyframes: spy(), onPasteKeyframes: spy(), onResize: spy(), onMoveInstance: spy(),
   } as unknown as Spies;
   const props = { model: MODEL, timeUs: 0, playing: false, autoKeyframe: false, collapsed: false, unit: "ms", selectedKeyframes: new Set(), selectedNodes: new Set(), ...(s as unknown as Partial<TimelineProps>), ...over } as TimelineProps;
   // The same component each time, so the view's own state (rows, drags) survives a props change.
@@ -265,5 +265,32 @@ describe("the Motion timeline", () => {
     rerender({ collapsed: true });
     expect(view.host.querySelector("[data-timeline-resize]")).toBeNull();
     view.unmount();
+  });
+
+  it("an animated instance is one purple bar: dragged, it moves the instance in time (snapped to frames), one final call", () => {
+    const withInstance: TimelineModel = {
+      ...MODEL,
+      layers: [...MODEL.layers, { node: "1:4", name: "Pulse", icon: "16.instance", depth: 0, instance: { offsetUs: 250_000, durationUs: 1_000_000, mainTimeline: "2:1" }, tracks: [], clips: [], startUs: 250_000, endUs: 1_250_000 }],
+    };
+    const { view, s, scale } = setup({ model: withInstance });
+    const bar = $('[data-instance-bar="1:4"]', view.host);
+    expect(bar.style.width).toBe(`${1_000_000 * scale.pxPerUs}px`);
+    pointer(bar, "pointerdown", { clientX: 200 });
+    expect(s.onSelectLayer.calls.at(-1)).toEqual(["1:4", false]);
+    windowPointer("pointermove", { clientX: 201 }); // under the drag threshold
+    expect(s.onMoveInstance.calls).toHaveLength(0);
+    windowPointer("pointermove", { clientX: 260 });
+    const want = Math.round(Math.round((250_000 + 60 / scale.pxPerUs) / frameUs(60)) * frameUs(60));
+    expect(s.onMoveInstance.calls.at(-1)).toEqual(["1:4", want, false]);
+    windowPointer("pointerup", { clientX: 260 });
+    expect(s.onMoveInstance.calls.at(-1)).toEqual(["1:4", want, true]);
+    // Read-only (Dev Mode): the bar doesn't move.
+    view.unmount();
+    const ro = setup({ model: withInstance, readOnly: true });
+    pointer($('[data-instance-bar="1:4"]', ro.view.host), "pointerdown", { clientX: 200 });
+    windowPointer("pointermove", { clientX: 300 });
+    expect(ro.s.onMoveInstance.calls).toHaveLength(0);
+    windowPointer("pointerup", { clientX: 300 });
+    ro.view.unmount();
   });
 });

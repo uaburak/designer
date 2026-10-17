@@ -1682,6 +1682,7 @@ ENG_EXPORT int32_t engine_render_region(Handle h, uint32_t pageSessionID, uint32
   uint32_t limit = static_cast<uint32_t>(e->device->caps().maxTextureSize);
   if (width > limit || height > limit) return E_INVALID;
   ed.derivePage(page);  // its instances' sublayers draw
+  auto motionGuard = ed.motionSuspended();  // thumbnails show the base values (docs/motion.md §3.4)
   double zoom = width / w;
   Camera camera{-x * zoom, -y * zoom, zoom};
   Overlay none;
@@ -1709,6 +1710,7 @@ ENG_EXPORT int32_t engine_render_thumbnail(Handle h, uint32_t pageSessionID, uin
   const Node* pn = doc.get(page);
   if (!pn || pn->props.type != NodeType::CANVAS || maxSize == 0) return E_NOT_FOUND;
   ed.derivePage(page);  // its instances' sublayers draw
+  auto motionGuard = ed.motionSuspended();  // thumbnails show the base values (docs/motion.md §3.4)
   bool any = false;
   Rect bounds;
   for (Guid c : doc.children(page)) {
@@ -2338,6 +2340,7 @@ ENG_EXPORT int32_t engine_render_node_thumbnail(Handle h, Ptr refPtr, uint32_t r
   const Node* n = ok ? doc.get(id) : nullptr;
   Guid page = n ? doc.pageOf(id) : kNoGuid;
   if (!n || page == kNoGuid || maxSize == 0) return E_NOT_FOUND;
+  auto motionGuard = ed.motionSuspended();  // thumbnails show the base values (docs/motion.md §3.4)
   Rect bounds = doc.renderBounds(id);
   if (!(bounds.w > 0) || !(bounds.h > 0)) return E_NOT_FOUND;
   double limit = std::min<double>(maxSize, e->device->caps().maxTextureSize);

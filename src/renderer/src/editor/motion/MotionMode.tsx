@@ -4,7 +4,8 @@
  * fed by the engine's `motionTimeline()` and re-read on MOTION_CHANGED, document changes and selection changes; the
  * playback clock (clock.ts) drives the playhead, which `setPlayhead` pushes to the engine every frame. Increment 2: ⌘C /
  * ⌘V of keyframes (keyframeClipboard.ts) and the height dragged by the top edge (`ui.motion.height`, put on the editor
- * as --ds-size-motion-timeline so the panels and the toolbar lift with it).
+ * as --ds-size-motion-timeline so the panels and the toolbar lift with it). Round 8a increment 2: an animated
+ * instance's bar dragged (MOTION_SET_INSTANCE_OFFSET, one undo step).
  *
  * Every engine call is guarded: the loaded wasm may predate round 8 (built on another machine), in which case the
  * timeline shows its empty state and the chrome's own state still works.
@@ -113,6 +114,23 @@ function MotionShell() {
       }),
     [ed, model, run]
   );
+  // An animated instance's bar dragged in time: one "Move animation" step, as a keyframe drag.
+  const instanceDrag = useRef(false);
+  const onMoveInstance = useCallback(
+    (instance: GuidString, offsetUs: Micros, final: boolean) =>
+      run(() => {
+        if (!instanceDrag.current) {
+          ed.engine.txnBegin("Move animation");
+          instanceDrag.current = true;
+        }
+        ed.engine.runMotionCommand("MOTION_SET_INSTANCE_OFFSET", { instance, offsetUs });
+        if (final) {
+          ed.engine.txnCommit();
+          instanceDrag.current = false;
+        }
+      }),
+    [ed, run]
+  );
   const onDeleteTrack = useCallback((node: GuidString, track: TimelineTrack) => run(() => void ed.engine.runMotionCommand("MOTION_DELETE_TRACKS", { node, fields: [track.field] })), [ed, run]);
   const onSetEasing = useCallback((ids: GuidString[], easing: EasingRef) => run(() => void ed.engine.runMotionCommand("MOTION_SET_EASING", { ids, easing })), [ed, run]);
   const onDeleteKeyframes = useCallback(
@@ -154,6 +172,7 @@ function MotionShell() {
       onCopyKeyframes={(ids) => void copySelectedKeyframes(model, ids)}
       onPasteKeyframes={() => pasteKeyframes(ed, model)}
       onResize={(height) => setMotionUi(ed, { height })}
+      onMoveInstance={onMoveInstance}
     />
   );
 }
