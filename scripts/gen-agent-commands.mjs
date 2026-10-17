@@ -2,7 +2,9 @@
 // engine/src/editor/Commands.h) with the argument shapes their comments give — run_command / list_commands' table.
 import { readFileSync, writeFileSync } from "node:fs";
 const h = readFileSync("engine/src/editor/Commands.h", "utf8");
-const body = h.slice(h.indexOf("enum class CommandId"), h.indexOf("};", h.indexOf("enum class CommandId")));
+// The enum ends at the first "};" that starts a line (argument shapes in its comments may hold "};" themselves).
+const start = h.indexOf("enum class CommandId");
+const body = h.slice(start, start + h.slice(start).search(/^\s*\};/m));
 const out = {};
 for (const line of body.split("\n")) {
   const m = /^\s*([A-Z0-9_]+)\s*=\s*\d+,?\s*(?:\/\/\s*(.*))?$/.exec(line);
