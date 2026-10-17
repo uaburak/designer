@@ -88,10 +88,21 @@ export const BUNDLED_FACES: FontFaceInfo[] = INTER_STYLES.flatMap(([style, weigh
 /** The bundled files by face id (tools that load fonts themselves read them from here). */
 export const BUNDLED_URLS: Record<string, string> = { "bundled:inter": interUrl };
 
-/** Families tried, in order, for characters a text's own font lacks (macOS names; absent ones are skipped). */
+/**
+ * Families tried for characters a text's own font lacks: Figma's built-in Noto Sans set (Atlas 06 §10; free, OFL,
+ * each downloaded from Google Fonts the first time a text needs it, nothing bundled). The engine tries a script's
+ * own family first (text/Fonts.cpp scriptFallback: Noto Sans Thai for Thai), then the others in this order without
+ * the other scripts' families. The Mac's own families after them keep text readable offline (not Figma's: whether
+ * its fallback takes local fonts is an open question, §15 Q4); absent ones are skipped.
+ */
 export const FALLBACK_FAMILIES = [
+  "Noto Sans", "Noto Sans Symbols", "Noto Sans Symbols 2", "Noto Sans Math",
+  "Noto Sans Arabic", "Noto Sans Bengali", "Noto Sans Devanagari", "Noto Sans Georgian", "Noto Sans Gujarati", "Noto Sans HK",
+  "Noto Sans JP", "Noto Sans Javanese", "Noto Sans KR", "Noto Sans Kannada", "Noto Sans Khmer", "Noto Sans Lao",
+  "Noto Sans Malayalam", "Noto Sans New Tai Lue", "Noto Sans SC", "Noto Sans TC", "Noto Sans Tai Le", "Noto Sans Tai Tham",
+  "Noto Sans Tai Viet", "Noto Sans Tamil", "Noto Sans Telugu", "Noto Sans Thai",
   "PingFang SC", "Hiragino Sans", "Apple SD Gothic Neo", "Geeza Pro", "Arial Hebrew", "Thonburi", "Kohinoor Devanagari",
-  "Noto Sans", "Arial Unicode MS", "Apple Symbols",
+  "Arial Unicode MS", "Apple Symbols",
 ];
 
 /** A Google Fonts family as the desktop's index lists it (src/shared/ipc.ts GoogleFontFamily). */
@@ -264,7 +275,13 @@ export interface FontFamily {
   popularity?: number;
 }
 
-/** Groups faces into families (sorted by name, case-insensitive) with their styles ordered by weight, upright first. */
+/** Figma's family order (Atlas 06 §6.3): names starting with punctuation last, then by name (case-insensitive). */
+export function compareFamilyNames(a: string, b: string): number {
+  const punct = (s: string) => (/^[\p{P}\p{S}]/u.test(s) ? 1 : 0);
+  return punct(a) - punct(b) || a.localeCompare(b, undefined, { sensitivity: "base" });
+}
+
+/** Groups faces into families (compareFamilyNames' order) with their styles ordered by weight, upright first. */
 export function groupFamilies(faces: readonly FontFaceInfo[]): FontFamily[] {
   const byFamily = new Map<string, FontFaceInfo[]>();
   for (const f of faces) {
@@ -273,7 +290,7 @@ export function groupFamilies(faces: readonly FontFaceInfo[]): FontFamily[] {
     byFamily.set(f.family, list);
   }
   return [...byFamily.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: "base" }))
+    .sort((a, b) => compareFamilyNames(a[0], b[0]))
     .map(([family, list]) => {
       const sorted = [...list].sort((a, b) => a.weight - b.weight || Number(a.italic) - Number(b.italic));
       const first = sorted[0];

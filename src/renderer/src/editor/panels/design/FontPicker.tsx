@@ -18,18 +18,46 @@ import styles from "./FontPicker.module.css";
 
 /** Live (popovers/font-picker.txt): rows 28 high, the name 12 in. */
 const ROW = 28;
-/** How long a hover rests on a family before the canvas previews it (a sweep across the list previews nothing). */
-const PREVIEW_DELAY_MS = 120;
+/** Figma's preview debounce (Atlas 06 §6.1): a family focused or hovered this long is previewed on the canvas. */
+const PREVIEW_DELAY_MS = 50;
 
-/** The filter chosen last, for the session (Figma remembers it per session). */
-let sessionFilter: FontFilter = "all";
+/**
+ * The font set, as Figma keeps it (§6.1): `localStorage["fontPickerFontSet"]` under its own names, so every window
+ * and file opens on the set chosen last, and an open picker follows a change made in another (the storage event).
+ */
+const FONT_SET_KEY = "fontPickerFontSet";
+const FIGMA_SETS: Record<FontFilter, string> = {
+  all: "all_fonts",
+  file: "document_fonts",
+  popular: "popular_fonts",
+  google: "google_fonts",
+  variable: "variable_fonts",
+  org: "shared_fonts",
+  uploaded: "uploaded_fonts",
+  installed: "user_installed_fonts",
+};
+export function readFontSet(): FontFilter {
+  try {
+    const v = localStorage.getItem(FONT_SET_KEY);
+    return (Object.keys(FIGMA_SETS) as FontFilter[]).find((k) => FIGMA_SETS[k] === v) ?? "all";
+  } catch {
+    return "all";
+  }
+}
+export function writeFontSet(f: FontFilter): void {
+  try {
+    localStorage.setItem(FONT_SET_KEY, FIGMA_SETS[f]);
+  } catch {
+    // No storage: the set lasts as long as the picker.
+  }
+}
 
 export interface FontFieldProps {
   family: Mixed<string>;
   style: Mixed<string>;
   list: readonly FontFamily[] | null;
   /** Families the document uses (lower case): "In this file" (read when the picker opens) */
-  fileFamilies: () => ReadonlySet<string>;
+  fileFamilies: () => ReadonlySet<string> | ReadonlyMap<string, number>;
   disabled?: boolean;
   /** Live preview of a family (null: back to what the text had) */
   onPreview?: (font: { family: string; style: string } | null) => void;
@@ -104,7 +132,7 @@ export interface FontPickerProps {
   family: string | null;
   style: string | null;
   list: readonly FontFamily[] | null;
-  fileFamilies: () => ReadonlySet<string>;
+  fileFamilies: () => ReadonlySet<string> | ReadonlyMap<string, number>;
   onPreview?: (font: { family: string; style: string } | null) => void;
   onPick: (font: { family: string; style: string }) => void;
   onClose: () => void;
@@ -121,12 +149,18 @@ export function FontPicker({ anchor, family, style, list, fileFamilies, onPrevie
   // The web app has no fonts on the computer: no "Uploaded by you" / "Installed by you" there.
   const local = !!desktopFonts();
   const filterMenu = useMemo(() => fontFilterMenu(scope ? (scope.orgName ?? "your organization") : null, { local }), [scope, local]);
-  const [chosen, setFilterState] = useState<FontFilter>(sessionFilter);
+  const [chosen, setFilterState] = useState<FontFilter>(readFontSet);
+  // Shared fonts without an organization, and the computer's fonts in the web app, fall back to All fonts.
   const filter: FontFilter = (chosen === "org" && !scope) || (!local && (chosen === "uploaded" || chosen === "installed")) ? "all" : chosen;
   const setFilter = (f: FontFilter) => {
-    sessionFilter = f;
+    writeFontSet(f);
     setFilterState(f);
   };
+  useEffect(() => {
+    const changed = (e: StorageEvent) => e.key === FONT_SET_KEY && setFilterState(readFontSet());
+    window.addEventListener("storage", changed);
+    return () => window.removeEventListener("storage", changed);
+  }, []);
   // The document's families as the picker opened (before any preview changed the text).
   const [inFile] = useState(fileFamilies);
   const shown = useMemo(() => filterFamilies(list ?? [], filter, query, inFile), [list, filter, query, inFile]);
@@ -172,7 +206,7 @@ export function FontPicker({ anchor, family, style, list, fileFamilies, onPrevie
     const i = Math.max(0, Math.min(shown.length - 1, to));
     setActive(i);
     setScrollTo(i);
-    preview(shown[i], 0);
+    preview(shown[i]);
   };
   const onKey = (e: ReactKeyboardEvent) => {
     if (e.key === "ArrowDown") {

@@ -73,9 +73,10 @@ describe("Type settings › Variable (live popovers/type-settings-variable.txt: 
   it("the axes by name", () => {
     expect(axisOrder([{ tag: "wght", name: "Weight" }, { tag: "slnt", name: "Slant" }]).map((a) => a.tag)).toEqual(["slnt", "wght"]);
   });
-  it("Weight marks every 100 (nine for 100…900), another axis its default", () => {
-    expect(axisStops({ tag: "wght", min: 100, max: 900, default: 400 })).toEqual([100, 200, 300, 400, 500, 600, 700, 800, 900]);
-    expect(axisStops({ tag: "slnt", min: -10, max: 0, default: 0 })).toEqual([0]);
+  it("hints at the named instances and the default (Weight's nine for 100…900), an axis without instances its default", () => {
+    const weights = [100, 200, 300, 400, 500, 600, 700, 800, 900];
+    expect(axisStops({ min: 100, max: 900, default: 400, instances: weights })).toEqual(weights);
+    expect(axisStops({ min: -10, max: 0, default: 0 })).toEqual([0]);
   });
 });
 

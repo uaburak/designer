@@ -12,11 +12,11 @@
  */
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { fonts } from "@/engine/fonts";
-import { Checkbox, IconButton, MIXED, NumericInput, Popover, SegmentedControl, Select, Tabs, cx, tooltipProps, type ChangeInfo } from "@/ds";
+import { Banner, Checkbox, Icon, IconButton, MIXED, NumericInput, Popover, SegmentedControl, Select, Tabs, cx, tooltipProps, type ChangeInfo } from "@/ds";
 import type { CSSProperties } from "react";
 import { styleWeight } from "../../fontList";
 import { useEditor } from "../../controller";
-import { AXIS_LABELS, featureName, withAxis, type TextSummary } from "../../model/text";
+import { AXIS_LABELS, axisTagNumber, featureName, withAxis, type TextSummary } from "../../model/text";
 import { exitToCanvas } from "./Sections";
 import { fields, type ExtraFields, type PanelNode } from "./shared";
 import { t, useT } from "@/i18n";
@@ -43,13 +43,15 @@ export function useFontInfo(summary: TextSummary | null): FontInfo | null {
 export function TypeSettings({ nodes, summary, anchor, onClose }: { nodes: PanelNode[]; summary: TextSummary | null; anchor: HTMLElement; onClose: () => void }) {
   useT();
   const info = useFontInfo(summary);
-  const axes = (info?.axes ?? []).filter((a) => !a.hidden);
+  const family = summary?.values.fontFamily;
+  const axes = variableAxes(info?.axes ?? [], typeof family === "string" ? family : "");
+  const variable = axes.shown.length + axes.more.length > 0;
   const [tab, setTab] = useState<Tab>("basics");
-  const shown: Tab = tab === "variable" && !axes.length ? "basics" : tab;
+  const shown: Tab = tab === "variable" && !variable ? "basics" : tab;
   const tabs = [
     { value: "basics", label: t("Basics") },
     { value: "details", label: t("Details") },
-    ...(axes.length ? [{ value: "variable", label: t("Variable") }] : []),
+    ...(variable ? [{ value: "variable", label: t("Variable") }] : []),
   ];
   return (
     <Popover
@@ -63,7 +65,7 @@ export function TypeSettings({ nodes, summary, anchor, onClose }: { nodes: Panel
       <div className={styles.typeSettingsBody}>
         {shown === "basics" && <Basics nodes={nodes} summary={summary} info={info} />}
         {shown === "details" && <Details nodes={nodes} summary={summary} info={info} />}
-        {shown === "variable" && <Variable nodes={nodes} summary={summary} axes={axes} />}
+        {shown === "variable" && <Variable nodes={nodes} summary={summary} axes={axes.shown} more={axes.more} />}
       </div>
     </Popover>
   );
@@ -119,6 +121,82 @@ function nodeValue<T>(nodes: PanelNode[], read: (n: PanelNode) => T): T | typeof
 
 const field = <T,>(v: T | typeof MIXED, mixedAs: T): T => (v === MIXED ? mixedAs : v);
 
+type Metric = { value: number; units: "PIXELS" | "PERCENT" | "RAW" };
+
+/**
+ * The Underline panel's limits (Atlas 06 §5.5, `3653` `re`): thickness 0.5 … 20 % of the font size, or 0.5 px … 0.2 ×
+ * the font size; offset 0 … 25 %, or 0 … 0.25 × the font size.
+ */
+export const UNDERLINE_LIMITS = {
+  thickness: { minPct: 0.5, maxPct: 20, minPx: 0.5, maxPxPerSize: 0.2 },
+  offset: { minPct: 0, maxPct: 25, minPx: 0, maxPxPerSize: 0.25 },
+} as const;
+type MetricLimits = (typeof UNDERLINE_LIMITS)[keyof typeof UNDERLINE_LIMITS];
+
+/** A metric clamped into its unit's range (`fontSize`: the text's, 12 when mixed). */
+export function clampMetric(v: Metric, limits: MetricLimits, fontSize: number): Metric {
+  const [lo, hi] = v.units === "PIXELS" ? [limits.minPx, limits.maxPxPerSize * fontSize] : [limits.minPct, limits.maxPct];
+  return { value: Math.min(Math.max(v.value, lo), Math.max(lo, hi)), units: v.units };
+}
+
+/**
+ * What typing in a thickness / offset field means (Figma's formatter, §5.5): nothing or a start of "auto" is Auto (null);
+ * "%" or "px" alone the current value (Auto: the font's own, `autoEm` × 100 % or × the size) in that unit; "N%" /
+ * "Npx" that; a bare number the current unit (percent when Auto). Clamped. undefined: not a value of this field.
+ */
+export function parseMetric(raw: string, current: Metric | null, autoEm: number | null, limits: MetricLimits, fontSize: number): Metric | null | undefined {
+  const s = raw.trim().toLowerCase();
+  if (s === "" || (/^[a-z]+$/.test(s) && "auto".startsWith(s))) return null;
+  const pct = current && current.units !== "RAW" ? (current.units === "PIXELS" ? (current.value / fontSize) * 100 : current.value) : (autoEm ?? 0) * 100;
+  if (s === "%") return clampMetric({ value: Math.round(pct * 100) / 100, units: "PERCENT" }, limits, fontSize);
+  if (s === "px") return clampMetric({ value: Math.round(((pct * fontSize) / 100) * 100) / 100, units: "PIXELS" }, limits, fontSize);
+  const m = /^(-?\d*\.?\d+)\s*(%|px)?$/.exec(s);
+  if (!m) return undefined;
+  const units = m[2] === "px" ? "PIXELS" : m[2] === "%" ? "PERCENT" : current && current.units === "PIXELS" ? "PIXELS" : "PERCENT";
+  return clampMetric({ value: Number(m[1]), units }, limits, fontSize);
+}
+
+/**
+ * Thickness or offset (§5.5): "Auto" or "N%" / "Npx" (2 decimals), the nudge half a percent or a tenth of a pixel, typed
+ * units switching it (parseMetric).
+ */
+function UnderlineMetric({ label, limits, value, autoEm, fontSize, onWrite, onCancel }: {
+  label: string;
+  limits: MetricLimits;
+  value: Metric | null | typeof MIXED;
+  autoEm: number | null;
+  fontSize: number;
+  onWrite: (v: Metric | null, info?: ChangeInfo) => void;
+  onCancel: () => void;
+}) {
+  useT();
+  const set = value === MIXED || !value || value.units === "RAW" ? null : value;
+  const px = set?.units === "PIXELS";
+  return (
+    <NumericInput
+      scrubHandle="previous"
+      label={label}
+      value={value === MIXED ? MIXED : set ? set.value : null}
+      unit={set ? (px ? "px" : "%") : undefined}
+      placeholder={t("Auto")}
+      precision={2}
+      min={px ? limits.minPx : limits.minPct}
+      max={px ? limits.maxPxPerSize * fontSize : limits.maxPct}
+      step={px ? 0.1 : 0.5}
+      bigStep={px ? 1 : 5}
+      onText={(raw) => {
+        const v = parseMetric(raw, set, autoEm, limits, fontSize);
+        if (v === undefined) return false;
+        onWrite(v);
+        return true;
+      }}
+      onChange={(v, info) => onWrite(clampMetric({ value: v, units: px ? "PIXELS" : "PERCENT" }, limits, fontSize), info)}
+      onClear={() => onWrite(null)}
+      onCancel={onCancel}
+    />
+  );
+}
+
 function Basics({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSummary | null; info: FontInfo | null }) {
   useT();
   const ed = useEditor();
@@ -128,8 +206,8 @@ function Basics({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSum
   const align = nodeValue(nodes, (n) => n.textAlignHorizontal ?? "LEFT");
   const decoration = valueOf<string>(summary, "textDecoration", "NONE");
   const decoStyle = valueOf<string>(summary, "textDecorationStyle", "SOLID");
-  const thickness = valueOf<{ value: number; units: string } | null>(summary, "textDecorationThickness", null);
-  const offset = valueOf<{ value: number; units: string } | null>(summary, "textUnderlineOffset", null);
+  const thickness = valueOf<Metric | null>(summary, "textDecorationThickness", null);
+  const offset = valueOf<Metric | null>(summary, "textUnderlineOffset", null);
   const skipInk = valueOf(summary, "textDecorationSkipInk", false);
   const textCase = valueOf<string>(summary, "textCase", "ORIGINAL");
   const trim = nodeValue(nodes, (n) => n.leadingTrim ?? "NONE");
@@ -139,8 +217,9 @@ function Basics({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSum
   const truncate = nodeValue(nodes, (n) => n.textTruncation === "ENDING");
   const maxLines = nodeValue(nodes, (n) => n.maxLines ?? 0);
   const wrap = nodeValue(nodes, (n) => n.textWrapStyle ?? "AUTO");
-  const px = (v: { value: number; units: string } | null | typeof MIXED) => (v === MIXED ? MIXED : v && v.units === "PIXELS" ? v.value : null);
-  const list = (type: "NONE" | "ORDERED" | "UNORDERED") =>
+  const size = valueOf<number>(summary, "fontSize", 12);
+  const fontSize = size === MIXED ? 12 : size;
+  const list =(type: "NONE" | "ORDERED" | "UNORDERED") =>
     ed.batch(type === "NONE" ? "Remove list" : type === "ORDERED" ? "Numbered list" : "Bulleted list", () =>
       refs.forEach((r) => {
         // NONE: the engine's toggle — the type the paragraphs have, applied again, removes it.
@@ -208,24 +287,23 @@ function Basics({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSum
             onChange={(v) => write("Underline style", { textDecorationStyle: v as ExtraFields["textDecorationStyle"] })}
           />
           <span className={styles.settingsLabel}>{t("Thickness")}</span>
-          <NumericInput
-            scrubHandle="previous"
+          <UnderlineMetric
             label={t("Underline thickness")}
-            value={px(thickness)}
-            placeholder={t("Auto")}
-            min={0}
-            onChange={(v, info) => write("Underline thickness", { textDecorationThickness: { value: v, units: "PIXELS" } }, info)}
-            onClear={() => write("Underline thickness", { textDecorationThickness: null })}
+            limits={UNDERLINE_LIMITS.thickness}
+            value={thickness}
+            autoEm={info?.underlineThickness ?? null}
+            fontSize={fontSize}
+            onWrite={(v, i) => write("Underline thickness", { textDecorationThickness: v }, i)}
             onCancel={() => ed.cancelEdit()}
           />
           <span className={styles.settingsLabel}>{t("Offset")}</span>
-          <NumericInput
-            scrubHandle="previous"
+          <UnderlineMetric
             label={t("Underline offset")}
-            value={px(offset)}
-            placeholder={t("Auto")}
-            onChange={(v, info) => write("Underline offset", { textUnderlineOffset: { value: v, units: "PIXELS" } }, info)}
-            onClear={() => write("Underline offset", { textUnderlineOffset: null })}
+            limits={UNDERLINE_LIMITS.offset}
+            value={offset}
+            autoEm={info?.underlineOffset ?? null}
+            fontSize={fontSize}
+            onWrite={(v, i) => write("Underline offset", { textUnderlineOffset: v }, i)}
             onCancel={() => ed.cancelEdit()}
           />
           <span className={styles.settingsLabel}>{t("Skip ink")}</span>
@@ -568,20 +646,97 @@ function Details({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSu
       {more.map((f) => (
         <Fragment key={f.tag}>{toggle2(f.label, toggled(f.tag, false), applies.feature(f.tag), (v) => toggle(f.tag, v, false, f.label))}</Fragment>
       ))}
+      <LayoutVersionBanner nodes={nodes} />
     </div>
   );
 }
 
 /**
- * An axis's marks on its slider (live popovers/type-settings-variable.txt: Weight's nine at 100…900, Slant's one at its
- * default). Live's marks are likely the font's named instances; the engine gives none, so weight marks every 100 and the
- * rest their default (unverified).
+ * The upgrades a text is due (Atlas 06 §2.4): "layout" while textUserLayoutVersion or textExplicitLayoutVersion is
+ * below today's, "bidi" while textBidiVersion isn't today's. A field the text doesn't have counts as today's (texts
+ * made here before they were written).
  */
-export function axisStops(a: Pick<FontInfo["axes"][number], "tag" | "min" | "max" | "default">): number[] {
-  if (a.tag !== "wght") return [a.default];
-  const out: number[] = [];
-  for (let v = Math.ceil(a.min / 100) * 100; v <= a.max; v += 100) out.push(v);
+export function pendingUpgrades(n: Pick<PanelNode, "textUserLayoutVersion" | "textExplicitLayoutVersion" | "textBidiVersion">): ("layout" | "bidi")[] {
+  const out: ("layout" | "bidi")[] = [];
+  const below = (v: number | undefined) => v !== undefined && v < LATEST_TEXT_LAYOUT_VERSION;
+  if (below(n.textUserLayoutVersion) || below(n.textExplicitLayoutVersion)) out.push("layout");
+  if (n.textBidiVersion !== undefined && n.textBidiVersion !== LATEST_TEXT_LAYOUT_VERSION) out.push("bidi");
   return out;
+}
+
+/** Figma's current text layout versions (all three fields; engine kLatestTextLayoutVersion). */
+export const LATEST_TEXT_LAYOUT_VERSION = 1;
+
+/**
+ * The layout-version banner at the end of Details (§2.4): which older rendering the selection uses and **Update**
+ * (every version to today's); once updated, **Revert** puts the line layout back (textUserLayoutVersion and
+ * textExplicitLayoutVersion 0). The descriptions of a single pending upgrade are ours (Figma's English is unverified).
+ */
+function LayoutVersionBanner({ nodes }: { nodes: PanelNode[] }) {
+  useT();
+  const write = useWrite(nodes);
+  const [updated, setUpdated] = useState(false);
+  const pending = nodes.map(pendingUpgrades);
+  const kinds = new Set(pending.flat());
+  if (!kinds.size && !updated) return null;
+  const message = !kinds.size
+    ? t("Text updated to the latest rendering method")
+    : kinds.size > 1
+      ? t("Older text rendering method used")
+      : pending.some((p) => !p.length)
+        ? t("Older text rendering method used for part of the selection")
+        : kinds.has("bidi")
+          ? t("Older right-to-left text rendering used")
+          : t("Older text layout method used");
+  const latest = LATEST_TEXT_LAYOUT_VERSION;
+  return (
+    <div className={styles.layoutVersion} data-layout-version="">
+      <Banner
+        tone="default"
+        action={
+          kinds.size
+            ? {
+                label: t("Update"),
+                onClick: () => {
+                  write("Update text rendering", { textUserLayoutVersion: latest, textBidiVersion: latest, textExplicitLayoutVersion: latest });
+                  setUpdated(true);
+                },
+              }
+            : {
+                label: t("Revert"),
+                onClick: () => {
+                  write("Revert text rendering", { textUserLayoutVersion: 0, textExplicitLayoutVersion: 0 });
+                  setUpdated(false);
+                },
+              }
+        }
+      >
+        {message}
+      </Banner>
+    </div>
+  );
+}
+
+/** The Variable tab's steps (Atlas 06 §5.4, `3653` `rk`): by the axis's range, the slider's step and its big step. */
+export function axisSteps(a: Pick<FontInfo["axes"][number], "min" | "max">): { step: number; bigStep: number } {
+  const range = a.max - a.min;
+  if (range <= 3) return { step: 0.01, bigStep: 0.25 };
+  if (range <= 6) return { step: 0.1, bigStep: 1 };
+  if (range >= 500) return { step: 1, bigStep: 25 };
+  return { step: 1, bigStep: 10 };
+}
+
+/**
+ * An axis's hints on its slider (§5.4): the font's named instances' values and the default (live
+ * popovers/type-settings-variable.txt: Weight's nine at 100…900, Slant's one at its default); hints closer than 15
+ * steps to one kept are dropped (the default kept first), and with more than 15 left only the default stays.
+ */
+export function axisStops(a: Pick<FontInfo["axes"][number], "min" | "max" | "default" | "instances">): number[] {
+  const { step } = axisSteps(a);
+  const kept = [a.default];
+  for (const v of [...new Set(a.instances ?? [])].sort((x, y) => x - y))
+    if (v >= a.min && v <= a.max && kept.every((k) => Math.abs(k - v) >= 15 * step)) kept.push(v);
+  return kept.length > 15 ? [a.default] : kept.sort((x, y) => x - y);
 }
 
 /** Live's order: the axes by name (Slant before Weight), whatever the font's own order (unverified rule). */
@@ -590,56 +745,113 @@ export function axisOrder<T extends { tag: string; name: string }>(axes: readonl
   return [...axes].sort((x, y) => label(x).localeCompare(label(y)));
 }
 
-function Variable({ nodes, summary, axes }: { nodes: PanelNode[]; summary: TextSummary | null; axes: FontInfo["axes"] }) {
+/**
+ * The axes the Variable tab shows, and those under "Additional axes" (§5.4): never `ital`; the font's hidden axes
+ * folded away; SF Pro's width shown and its yaxs hidden (Figma's one per-family rule).
+ */
+export function variableAxes<T extends { tag: string; hidden: boolean }>(axes: readonly T[], family: string): { shown: T[]; more: T[] } {
+  const sf = family === "SF Pro";
+  const hidden = (a: T) => (sf && a.tag === "wdth" ? false : sf && a.tag === "yaxs" ? true : a.hidden);
+  const all = axes.filter((a) => a.tag !== "ital");
+  return { shown: all.filter((a) => !hidden(a)), more: all.filter(hidden) };
+}
+
+function Variable({ nodes, summary, axes, more }: { nodes: PanelNode[]; summary: TextSummary | null; axes: FontInfo["axes"]; more: FontInfo["axes"] }) {
+  useT();
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={styles.axes}>
+      {axisOrder(axes).map((a) => (
+        <AxisRow key={a.tag} nodes={nodes} summary={summary} axis={a} />
+      ))}
+      {more.length > 0 && (
+        <>
+          <button type="button" className={styles.axesMore} aria-expanded={open} onClick={() => setOpen(!open)} data-additional-axes="">
+            <Icon name={open ? "16.chevron.down" : "16.chevron.right"} />
+            {t("Additional axes")}
+          </button>
+          {open && axisOrder(more).map((a) => <AxisRow key={a.tag} nodes={nodes} summary={summary} axis={a} />)}
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * One axis: its name and field (nudged 1 / 10), the slider with its steps and hints. The optical size follows the
+ * font size until "Set optical size automatically" is cleared (detachOpticalSizeFromFontSize with the value it had
+ * written into fontVariations); dragging it, or typing one, detaches it too. Other axes never write opsz.
+ */
+function AxisRow({ nodes, summary, axis: a }: { nodes: PanelNode[]; summary: TextSummary | null; axis: FontInfo["axes"][number] }) {
   useT();
   const ed = useEditor();
   const write = useWrite(nodes);
-  const axisValue = (tag: string, fallback: number) =>
-    summary?.mixed.has(`axis:${tag}`) ? MIXED : ((summary?.values[`axis:${tag}`] as number | undefined) ?? fallback);
+  const name = AXIS_LABELS[a.tag] ?? a.name ?? a.tag;
+  const value = summary?.mixed.has(`axis:${a.tag}`) ? MIXED : ((summary?.values[`axis:${a.tag}`] as number | undefined) ?? a.default);
+  const at = value === MIXED ? a.default : value;
+  const span = a.max - a.min || 1;
+  const { step, bigStep } = axisSteps(a);
   const variations = summary?.values.fontVariations as { axisTag: number; axisName?: string; value: number }[] | null | undefined;
-  const set = (tag: string, name: string, value: number, info?: ChangeInfo) =>
-    write(name, { fontVariations: withAxis(variations, tag, name, value) }, info);
+  const opsz = a.tag === "opsz";
+  const detached = valueOf(summary, "detachOpticalSizeFromFontSize", false);
+  const auto = opsz && detached !== MIXED && !detached;
+  const set = (v: number, info?: ChangeInfo) =>
+    write(name, { fontVariations: withAxis(variations, a.tag, name, v), ...(auto ? { detachOpticalSizeFromFontSize: true } : {}) }, info);
   // Live: per axis the name and its field (81 × 24 at 143, the number 72 at 151), the slider under them (its marks 4 × 4
   // from 18 to 218, the thumb 16), 65 apart.
   return (
-    <div className={styles.axes}>
-      {axisOrder(axes).map((a) => {
-        const name = AXIS_LABELS[a.tag] ?? a.name ?? a.tag;
-        const value = axisValue(a.tag, a.default);
-        const at = value === MIXED ? a.default : value;
-        const span = a.max - a.min || 1;
-        return (
-          <div key={a.tag} className={styles.axis}>
-            <span className={styles.settingsLabel}>{t(name)}</span>
-            <NumericInput
-              className={styles.axisField}
-              label={t("{name} value", { name: t(name) })}
-              value={value}
-              min={a.min}
-              max={a.max}
-              onChange={(v, info) => set(a.tag, name, v, info)}
-              onCancel={() => ed.cancelEdit()}
-            />
-            <span className={styles.axisTrack}>
-              {axisStops(a).map((v) => (
-                <span key={v} className={styles.axisStop} data-on={v === at || undefined} style={{ left: `calc(${((v - a.min) / span) * 100}% - 2px)` }} />
-              ))}
-              <input
-                type="range"
-                aria-label={t(name)}
-                className={styles.axisSlider}
-                min={a.min}
-                max={a.max}
-                step={a.max - a.min > 10 ? 1 : 0.1}
-                value={at}
-                onChange={(e) => set(a.tag, name, Number(e.currentTarget.value), { final: false, source: "drag" })}
-                onPointerUp={(e) => set(a.tag, name, Number(e.currentTarget.value), { final: true, source: "drag" })}
-                onKeyUp={(e) => set(a.tag, name, Number(e.currentTarget.value), { final: true, source: "drag" })}
-              />
-            </span>
-          </div>
-        );
-      })}
+    <div className={styles.axis}>
+      <span className={styles.settingsLabel}>{t(name)}</span>
+      <NumericInput
+        className={styles.axisField}
+        label={t("{name} value", { name: t(name) })}
+        value={value}
+        min={a.min}
+        max={a.max}
+        step={1}
+        bigStep={10}
+        onChange={(v, info) => set(v, info)}
+        onCancel={() => ed.cancelEdit()}
+      />
+      <span className={styles.axisTrack}>
+        {axisStops(a).map((v) => (
+          <span key={v} className={styles.axisStop} data-on={v === at || undefined} style={{ left: `calc(${((v - a.min) / span) * 100}% - 2px)` }} />
+        ))}
+        <input
+          type="range"
+          aria-label={t(name)}
+          className={styles.axisSlider}
+          min={a.min}
+          max={a.max}
+          step={step}
+          value={at}
+          onKeyDown={(e) => {
+            // ⇧ arrows: the big step.
+            if (!e.shiftKey || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
+            e.preventDefault();
+            const dir = e.key === "ArrowLeft" || e.key === "ArrowDown" ? -1 : 1;
+            set(Math.min(a.max, Math.max(a.min, at + dir * bigStep)));
+          }}
+          onChange={(e) => set(Number(e.currentTarget.value), { final: false, source: "drag" })}
+          onPointerUp={(e) => set(Number(e.currentTarget.value), { final: true, source: "drag" })}
+          onKeyUp={(e) => !e.shiftKey && set(Number(e.currentTarget.value), { final: true, source: "drag" })}
+        />
+      </span>
+      {opsz && (
+        <Checkbox
+          className={styles.axisAuto}
+          label={t("Set optical size automatically")}
+          checked={detached === MIXED ? false : !detached}
+          onChange={(on) =>
+            write(
+              "Optical size",
+              on
+                ? { detachOpticalSizeFromFontSize: false, fontVariations: (variations ?? []).filter((v) => v.axisTag !== axisTagNumber("opsz")) }
+                : { detachOpticalSizeFromFontSize: true, fontVariations: withAxis(variations, "opsz", name, at) }
+            )
+          }
+        />
+      )}
     </div>
   );
 }

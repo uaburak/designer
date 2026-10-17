@@ -69,6 +69,11 @@ export type ExtraFields = {
   textUnderlineOffset?: NumberValue | null;
   hyperlink?: { url?: string; guid?: { sessionID: number; localID: number }; openInNewTab?: boolean } | null;
   fontVariations?: { axisTag: number; axisName?: string; value: number }[] | null;
+  detachOpticalSizeFromFontSize?: boolean | null;
+  // Text layout versions (Atlas 06 §2.4; Type settings' Update / Revert)
+  textUserLayoutVersion?: number;
+  textExplicitLayoutVersion?: number;
+  textBidiVersion?: number;
   toggledOnOTFeatures?: string[] | null;
   toggledOffOTFeatures?: string[] | null;
   fontVariantCommonLigatures?: boolean | null;

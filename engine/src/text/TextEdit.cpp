@@ -245,7 +245,7 @@ bool isRunExtraKey(std::string_view key) {
 bool changesTextLayout(const std::map<std::string, std::string>& extra) {
   for (auto& [k, v] : extra)
     if (isRunExtraKey(k) || k == "leadingTrim" || k == "listSpacing" || k == "hangingList" || k == "hangingPunctuation" ||
-        k == "textWrapStyle")
+        k == "textWrapStyle" || k == "textUserLayoutVersion" || k == "textBidiVersion")
       return true;
   return false;
 }

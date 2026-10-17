@@ -39,6 +39,23 @@ export function FlipTextPathButton({ refs }: { refs: readonly string[] }) {
   const ed = useEditor();
   return <IconButton icon="24.text-path-flip" label={t("Flip text orientation")} tone="secondary" data-flip-text-path="" onClick={() => runDraw(ed, "FLIP_TEXT_PATH", { refs: [...refs] })} />;
 }
+/**
+ * Switch text direction (Atlas 06 §4.1, `text-set-directionality-ltr/rtl`): the paragraphs to right to left, or back
+ * to left to right when they are (as laid out: Auto's direction counts). Its icon is not Figma's (unverified).
+ */
+export function SwitchDirectionButton({ refs, rtl }: { refs: readonly string[]; rtl: boolean }) {
+  useT();
+  const ed = useEditor();
+  return (
+    <IconButton
+      icon={rtl ? "24.arrow.right" : "24.arrow.left"}
+      label={t("Switch text direction")}
+      tone="secondary"
+      data-switch-direction={rtl ? "rtl" : "ltr"}
+      onClick={() => ed.batch("Text direction", () => refs.forEach((r) => ed.engine.setTextDirection(r, rtl ? "LTR" : "RTL")))}
+    />
+  );
+}
 import { t, useT } from "@/i18n";
 import styles from "./Design.module.css";
 import { AppliedStyle, StylesButton, sharedStyle } from "./Styles";
@@ -51,6 +68,9 @@ export const TEXT_DEFAULTS = {
   lineHeight: { value: 100, units: "PERCENT" } as NumberValue,
   letterSpacing: { value: 0, units: "PERCENT" } as NumberValue,
 };
+
+/** The font picker previews a family on at most this many selected layers. */
+export const MAX_PREVIEW_LAYERS = 50;
 
 /** Figma's font size menu. */
 export const FONT_SIZES = [10, 11, 12, 13, 14, 15, 16, 20, 24, 32, 36, 40, 48, 64, 96, 128];
@@ -72,19 +92,27 @@ export function fontStyles(list: readonly FontFamily[] | null, family: string, s
   return styles;
 }
 
-/** The families the document names, lower case (the font picker's "In this file"). */
-export function documentFamilies(engine: { documentFonts?: () => { family: string }[] }): Set<string> {
+/**
+ * The families the document names, lower case, with how often (the font picker's "In this file", most used first:
+ * Figma's collectDocumentFonts by use count, Atlas 06 §6.2).
+ */
+export function documentFamilies(engine: { documentFonts?: () => { family: string; uses?: number }[] }): Map<string, number> {
+  const out = new Map<string, number>();
   try {
-    return new Set((engine.documentFonts?.() ?? []).map((f) => f.family.toLowerCase()));
+    for (const f of engine.documentFonts?.() ?? []) out.set(f.family.toLowerCase(), (out.get(f.family.toLowerCase()) ?? 0) + (f.uses ?? 1));
   } catch {
-    return new Set();
+    // the engine is gone
   }
+  return out;
 }
+
+/** Figma's Auto line height: {100, PERCENT}, within 0.1 (Atlas 06 §4.3). */
+export const isAutoLineHeight = (v: NumberValue): boolean => v.units === "PERCENT" && Math.abs(v.value - 100) < 0.1;
 
 /** Line height as the field shows it: "Auto" ({100, PERCENT}), px, or a percent (the UI's "140%" = {1.4, RAW}, docs/schema.md). */
 export function lineHeightView(lh: NumberValue | undefined): { value: number | null; label?: string; unit?: string } {
   const v = lh ?? TEXT_DEFAULTS.lineHeight;
-  if (v.units === "PERCENT" && Math.abs(v.value - 100) < 1e-6) return { value: null, label: "Auto" };
+  if (isAutoLineHeight(v)) return { value: null, label: "Auto" };
   if (v.units === "PIXELS") return { value: v.value };
   if (v.units === "RAW") return { value: Math.round(v.value * 10000) / 100, unit: "%" };
   return { value: v.value, unit: "%" };
@@ -132,6 +160,9 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
   // Text on a path (docs/draw.md §5.8): TEXT's section without line height (nor Type settings' paragraph, list and
   // truncation fields), Justify added, and Flip (FLIP_TEXT_PATH) in Type settings' place.
   const paths = nodes.length > 0 && nodes.every(isTextPath);
+  // Switch text direction (Atlas 06 §4.1): shown once the text holds right-to-left characters (Figma: hasHadRTLText).
+  const rtlText = summary ? summary.values.hasRtlText === true || summary.mixed.has("hasRtlText") : false;
+  const direction = summary && !summary.mixed.has("direction") ? (summary.values.direction as string | undefined) : undefined;
 
   return (
     <PanelSection
@@ -155,7 +186,8 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
             list={fontList}
             fileFamilies={() => documentFamilies(ed.engine)}
             disabled={!fontKept}
-            onPreview={(f) => (f ? ed.edit("Font", { final: false, source: "pick" }, () => void ed.engine.setProps(refs, fields({ fontName: { ...f, postscript: "" } }))) : ed.cancelEdit())}
+            // No live preview over more than 50 layers (Figma's picker, Atlas 06 §6.1).
+            onPreview={nodes.length > MAX_PREVIEW_LAYERS ? undefined : (f) => (f ? ed.edit("Font", { final: false, source: "pick" }, () => void ed.engine.setProps(refs, fields({ fontName: { ...f, postscript: "" } }))) : ed.cancelEdit())}
             onPick={(f) => ed.edit("Font", { final: true, source: "pick" }, () => void ed.engine.setProps(refs, fields({ fontName: { ...f, postscript: "" } })))}
           />
         </PropertyRow>
@@ -247,6 +279,7 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
         )}
         <PropertyRow
           label={t("Alignment")}
+          action2={!paths && rtlText ? <SwitchDirectionButton refs={refs} rtl={direction === "RTL"} /> : undefined}
           action={
             paths ? (
               <FlipTextPathButton refs={refs} />

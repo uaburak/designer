@@ -122,6 +122,12 @@ void apply(TextFeatures& f, std::string_view key, const json::Value& v, bool run
     f.hangingPunctuation = v.isBool() && v.boolean;
   } else if (key == "textWrapStyle") {
     f.wrapStyle = static_cast<WrapStyle>(enumIndex(v, kWrap));
+  } else if (key == "textUserLayoutVersion") {
+    f.userLayoutVersion = static_cast<int32_t>(v.numberOr(0));
+  } else if (key == "textExplicitLayoutVersion") {
+    f.explicitLayoutVersion = static_cast<int32_t>(v.numberOr(0));
+  } else if (key == "textBidiVersion") {
+    f.bidiVersion = static_cast<int32_t>(v.numberOr(0));
   }
 }
 
@@ -132,7 +138,7 @@ constexpr const char* kKeys[] = {"fontVariations", "detachOpticalSizeFromFontSiz
                                  "fontVariantNumericFraction", "fontVariantCaps", "fontVariantPosition", "hyperlink",
                                  "textDecorationStyle", "textDecorationSkipInk", "textUnderlineOffset", "textDecorationThickness",
                                  "textDecorationFillPaints", "leadingTrim", "listSpacing", "hangingList", "hangingPunctuation",
-                                 "textWrapStyle"};
+                                 "textWrapStyle", "textUserLayoutVersion", "textExplicitLayoutVersion", "textBidiVersion"};
 
 }  // namespace
 
@@ -217,7 +223,18 @@ bool TextFeatures::operator==(const TextFeatures& o) const {
          decorationThickness == o.decorationThickness && hasDecorationThickness == o.hasDecorationThickness &&
          decorationFills == o.decorationFills && hasDecorationFills == o.hasDecorationFills && leadingTrim == o.leadingTrim &&
          listSpacing == o.listSpacing && hangingList == o.hangingList && hangingPunctuation == o.hangingPunctuation &&
-         wrapStyle == o.wrapStyle;
+         wrapStyle == o.wrapStyle && userLayoutVersion == o.userLayoutVersion &&
+         explicitLayoutVersion == o.explicitLayoutVersion && bidiVersion == o.bidiVersion;
+}
+
+void stampLayoutVersions(std::map<std::string, std::string>& extra) {
+  for (const char* key : {"textUserLayoutVersion", "textExplicitLayoutVersion", "textBidiVersion"}) {
+    if (extra.count(key)) continue;
+    json::Value v;
+    v.kind = json::Value::Kind::Number;
+    v.number = kLatestTextLayoutVersion;
+    extra[key] = codec::extraFromJson("NodeChange", key, v);
+  }
 }
 
 TextFeatures nodeFeatures(const std::map<std::string, std::string>& extra) {
