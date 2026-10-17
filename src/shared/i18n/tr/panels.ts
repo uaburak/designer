@@ -633,6 +633,7 @@ export const panels: Record<string, string> = {
   "Left as is": "Olduğu gibi bırakıldı",
   "Left padding": "Sol dolgu payı",
   "Left stroke weight": "Sol kontur kalınlığı",
+  "Legacy": "Eski",
   "Letter case": "Harf durumu",
   "Letter spacing": "Harf aralığı",
   "Letterforms": "Harf biçimleri",
@@ -1189,6 +1190,7 @@ export const panels: Record<string, string> = {
   "Stroke settings": "Kontur ayarları",
   "Stroke Type": "Kontur türü",
   "Stroke weight": "Kontur kalınlığı",
+  "Strokes": "Konturlar",
   "Studio": "Stüdyo",
   "Style": "Stil",
   "Styles": "Stiller",
@@ -1468,4 +1470,5 @@ export const panels: Record<string, string> = {
   "“{name}” has more than {n} layer": "“{name}” içinde {n} katmandan fazla var",
   "“{name}” has more than {n} layers": "“{name}” içinde {n} katmandan fazla var",
   "glass|Light": "Işık",
+  "layout version|Updated": "Güncel",
 };

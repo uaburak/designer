@@ -9,7 +9,7 @@ import { ContextMenu, Icon, IconButton, MIXED, MenuButton, NumericInput, Popover
 import type { Guid, NodeFields } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
-import { isAutoRows, parseRowCount, parseTrackInput, removeTrackAt, rowCountLabel, setTrackCount, setTrackSizing, spanOf, trackLabel, tracksLabel, tracksOf, type GridAxis, type GridItemNode, type GridNode, type TrackType } from "../../model/grid";
+import { MAX_GRID_TRACKS, isAutoRows, parseRowCount, parseTrackInput, removeTrackAt, rowCountLabel, setTrackCount, setTrackSizing, spanOf, trackLabel, tracksLabel, tracksOf, type GridAxis, type GridItemNode, type GridNode, type TrackType } from "../../model/grid";
 import { useUI } from "../../hooks";
 import styles from "./Grid.module.css";
 import { VariableField } from "./Variables";
@@ -165,7 +165,7 @@ function CountFields({ refs, grids }: { refs: Guid[]; grids: (PanelNode & GridNo
         prefix="24.grid-column"
         value={fieldValue(cols)}
         min={1}
-        max={1000}
+        max={MAX_GRID_TRACKS}
         precision={0}
         onChange={(v, info) => setCounts(ed, refs, "Number of columns", info, { columns: v })}
         onCancel={() => ed.cancelEdit()}

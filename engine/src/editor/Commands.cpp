@@ -105,6 +105,7 @@ Status Editor::command(CommandId id, const CommandArgs& args) {
   if (id == CommandId::REPLACE_FONTS) return replaceFonts(args);
   if (id >= CommandId::MEASUREMENT_ADD && id <= CommandId::MEASUREMENT_DELETE) return measurementCommand(id, args);
   if (id >= CommandId::WRAP_IN_SECTION && id <= CommandId::UPGRADE_VECTOR_OPERATION) return selectionCommand(id, args);
+  if (id >= CommandId::SUGGEST_AUTO_LAYOUT && id <= CommandId::SET_STACK_LAYOUT_VERSION) return autoLayoutCommand(id, args);  // Atlas wave 2 (AutoLayoutCommands.cpp)
   if (id >= CommandId::CONVERT_TO_SECTION && id <= CommandId::SET_SPELLING_MARKS) return arrangeCommand(id, args);
   if (id >= CommandId::SET_WIDTH_PROFILE && id <= CommandId::FLIP_WIDTH_POINTS) return widthCommand(id, args);
   if (id >= CommandId::ADD_TRANSFORM_MODIFIER && id <= CommandId::SET_TEXT_PATH_START) return drawCommand(id, args);  // Draw (DrawCommands.cpp)
@@ -222,6 +223,7 @@ uint32_t Editor::commandState(CommandId id) const {
   if (id >= CommandId::CONVERT_TO_SLOT && id <= CommandId::CLEAR_SLOT) return slotCommandState(id);
   if (id >= CommandId::CREATE_VARIABLE_COLLECTION && id <= CommandId::UNGROUP_STYLES) return variableCommandState(id);
   if (id >= CommandId::WRAP_IN_SECTION && id <= CommandId::UPGRADE_VECTOR_OPERATION) return selectionCommandState(id);
+  if (id >= CommandId::SUGGEST_AUTO_LAYOUT && id <= CommandId::SET_STACK_LAYOUT_VERSION) return autoLayoutCommandState(id);
   if (id >= CommandId::CONVERT_TO_SECTION && id <= CommandId::SET_SPELLING_MARKS) return arrangeCommandState(id);
   if (id >= CommandId::MOTION_ADD_KEYFRAME && id <= CommandId::MOTION_SET_PRESET_TRACKS) return motionCommandState(id);
   if (id >= CommandId::SET_WIDTH_PROFILE && id <= CommandId::FLIP_WIDTH_POINTS) return widthCommandState(id);
@@ -990,79 +992,6 @@ void Editor::distribute(bool horizontal) {
 }
 
 // ---- Auto layout -------------------------------------------------------------------------
-
-void Editor::inferAutoLayout(Guid frame, bool padFromContent) {
-  const Node* fn = doc_.get(frame);
-  if (!fn) return;
-  const NodeProps fp = fn->props;
-  std::vector<Guid> kids = doc_.children(frame);
-  NodeChange c = NodeChange::changed(frame);
-  c.mask = F_STACK_MODE | F_STACK_SPACING | F_STACK_PADDING_LEFT | F_STACK_PADDING_TOP | F_STACK_PADDING_RIGHT |
-           F_STACK_PADDING_BOTTOM | F_STACK_PRIMARY_SIZING | F_STACK_COUNTER_SIZING | F_STACK_COUNTER_ALIGN;
-  NodeProps& p = c.props;
-  p.stack().stackCounterAlignItems = StackAlign::MIN;
-  if (kids.empty()) {
-    // An empty frame keeps its size.
-    p.stack().stackMode = StackMode::VERTICAL;
-    p.stack().stackSpacing = 10;
-    p.stack().stackPrimarySizing = StackSize::FIXED;
-    p.stack().stackCounterSizing = StackSize::FIXED;
-    write(c);
-    return;
-  }
-  std::vector<std::pair<Guid, Rect>> boxes;
-  Rect u;
-  for (size_t i = 0; i < kids.size(); i++) {
-    const NodeProps& kp = doc_.get(kids[i])->props;
-    Rect b = layoutBox(kp.transform, kp.size);
-    boxes.push_back({kids[i], b});
-    u = i ? u.united(b) : b;
-  }
-  // The direction the layers spread in: where their centres differ more.
-  double minCx = 1e300, maxCx = -1e300, minCy = 1e300, maxCy = -1e300;
-  for (auto& [id, b] : boxes) {
-    minCx = std::min(minCx, b.x + b.w / 2), maxCx = std::max(maxCx, b.x + b.w / 2);
-    minCy = std::min(minCy, b.y + b.h / 2), maxCy = std::max(maxCy, b.y + b.h / 2);
-  }
-  bool horizontal = boxes.size() == 1 || maxCx - minCx >= maxCy - minCy;
-  int P = horizontal ? 0 : 1;
-  auto lo = [&](const Rect& r, int a) { return a == 0 ? r.x : r.y; };
-  auto len = [&](const Rect& r, int a) { return a == 0 ? r.w : r.h; };
-  std::stable_sort(boxes.begin(), boxes.end(), [&](auto& a, auto& b) { return lo(a.second, P) < lo(b.second, P); });
-  // The gap: the mean space between neighbours (never negative).
-  double sum = 0;
-  for (size_t i = 1; i < boxes.size(); i++) sum += lo(boxes[i].second, P) - (lo(boxes[i - 1].second, P) + len(boxes[i - 1].second, P));
-  p.stack().stackMode = horizontal ? StackMode::HORIZONTAL : StackMode::VERTICAL;
-  p.stack().stackSpacing = boxes.size() > 1 ? std::max(0.0, std::round(sum / static_cast<double>(boxes.size() - 1))) : 10;
-  // The counter alignment they share (else top / left).
-  int C = 1 - P;
-  bool mins = true, mids = true, maxs = true;
-  for (auto& [id, b] : boxes) {
-    const Rect& f = boxes[0].second;
-    mins &= std::fabs(lo(b, C) - lo(f, C)) < 0.5;
-    mids &= std::fabs(lo(b, C) + len(b, C) / 2 - (lo(f, C) + len(f, C) / 2)) < 0.5;
-    maxs &= std::fabs(lo(b, C) + len(b, C) - (lo(f, C) + len(f, C))) < 0.5;
-  }
-  if (!mins && mids) p.stack().stackCounterAlignItems = StackAlign::CENTER;
-  else if (!mins && maxs) p.stack().stackCounterAlignItems = StackAlign::MAX;
-  if (padFromContent) {
-    p.stack().stackPaddingLeft = std::max(0.0, std::round(u.x));
-    p.stack().stackPaddingTop = std::max(0.0, std::round(u.y));
-    p.stack().stackPaddingRight = std::max(0.0, std::round(fp.size.x - u.right()));
-    p.stack().stackPaddingBottom = std::max(0.0, std::round(fp.size.y - u.bottom()));
-  }
-  p.stack().stackPrimarySizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;  // Hug both ways
-  p.stack().stackCounterSizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
-  write(c);
-  // The flow follows the order they sat in.
-  auto keys = fractional::keysBetween("", std::nullopt, static_cast<int>(boxes.size()));
-  for (size_t i = 0; i < boxes.size(); i++) {
-    NodeChange k = NodeChange::changed(boxes[i].first);
-    k.mask = F_PARENT_INDEX;
-    k.props.parentIndex = {frame, keys[i]};
-    write(k);
-  }
-}
 
 void Editor::addAutoLayout() {
   std::vector<Guid> top = topSelectionInPaintOrder();

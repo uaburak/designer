@@ -549,6 +549,13 @@ std::string Layout::gridAutoRowsBytes(bool on) {
   return std::string(reinterpret_cast<const char*>(bb.data()), bb.size());
 }
 
+std::string Layout::gridReflowBytes(bool on) {
+  kiwi::ByteBuffer bb;
+  bb.writeVarUint(kGridReflowEnabled);
+  bb.writeByte(on ? 1 : 0);
+  return std::string(reinterpret_cast<const char*>(bb.data()), bb.size());
+}
+
 double Layout::gridGap(const NodeProps& p, bool column) {
   double v = 0;
   readFloatField(p, column ? "gridColumnGap" : "gridRowGap", column ? kGridColumnGap : kGridRowGap, v);
@@ -559,6 +566,24 @@ std::string Layout::gridGapBytes(bool column, double gap) {
   kiwi::ByteBuffer bb;
   bb.writeVarUint(column ? kGridColumnGap : kGridRowGap);
   bb.writeVarFloat(static_cast<float>(std::max(0.0, gap)));
+  return std::string(reinterpret_cast<const char*>(bb.data()), bb.size());
+}
+
+// stackLayoutVersion = 574: uint.
+constexpr uint32_t kStackLayoutVersion = 574;
+
+uint32_t Layout::stackLayoutVersion(const NodeProps& p) {
+  uint32_t v = 0;
+  if (p.extra.empty() || !readUintField(p, "stackLayoutVersion", kStackLayoutVersion, v)) return 0;
+  return v;
+}
+
+bool Layout::hasStackLayoutVersion(const NodeProps& p) { return !field(p, "stackLayoutVersion", kStackLayoutVersion).empty(); }
+
+std::string Layout::stackLayoutVersionBytes(uint32_t version) {
+  kiwi::ByteBuffer bb;
+  bb.writeVarUint(kStackLayoutVersion);
+  bb.writeVarUint(version);
   return std::string(reinterpret_cast<const char*>(bb.data()), bb.size());
 }
 

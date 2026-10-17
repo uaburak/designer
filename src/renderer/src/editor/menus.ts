@@ -66,7 +66,12 @@ function build(ed: EditorController, specs: Spec[], prefix: string, checks = fal
 /** Live View menu: 201 wide (main-view.txt); see MAIN_MENU_WIDTH for its .4. */
 const VIEW_WIDTH = 201.4;
 
-const MORE_LAYOUT: SubSpec = { label: "More layout options", items: ["object.add-layout-horizontal", "object.add-layout-vertical", "object.add-layout-grid"] };
+// Atlas 09 §4: Figma's Object menu code has a submenu (multi-stack-selection-submenu) with Suggest auto layout and
+// destroy-all-auto-layout that the live menus don't show (gated); they sit here after a line until a probe names it.
+const MORE_LAYOUT: SubSpec = {
+  label: "More layout options",
+  items: ["object.add-layout-horizontal", "object.add-layout-vertical", "object.add-layout-grid", "-", "object.suggest-auto-layout", "object.remove-all-auto-layout"],
+};
 
 /** Dynamic items' ids: "Reset ▸ <group>" carries the group's fields; "Move to page ▸ <page>" the page. */
 export const RESET_PREFIX = "reset-changes:";

@@ -43,7 +43,10 @@ export interface NumericInputProps extends Omit<HTMLAttributes<HTMLDivElement>, 
    * field doesn't scrub
    */
   onScrubBy?: (delta: number, info: ChangeInfo) => void;
-  /** Words the field takes besides numbers (a gap's "Auto", a line height's "Auto"): typed in any case */
+  /**
+   * Words the field takes besides numbers (a gap's "Auto", a line height's "Auto"): typed in any case, or any start of
+   * one ("a", "au": Figma's number fields check `"auto".startsWith(input)`, Atlas 09 §3.3)
+   */
   keywords?: readonly string[];
   onKeyword?: (word: string) => void;
   /** Sees what was typed first; true when it took it (padding's CSS shorthand "8 16") */
@@ -137,7 +140,8 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
     typing.current = false;
     setDraft(null);
     if (raw === undefined) return;
-    const word = keywords?.find((k) => k.toLowerCase() === raw.trim().toLowerCase());
+    const typed = raw.trim().toLowerCase();
+    const word = typed ? keywords?.find((k) => k.toLowerCase().startsWith(typed)) : undefined;
     if (!word && onText?.(raw)) return;
     if (word) {
       onKeyword?.(word);

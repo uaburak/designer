@@ -36,6 +36,7 @@ add_library(eng_core STATIC
   src/layout/Layout.cpp
   src/layout/GridLayout.cpp
   src/layout/Reorder.cpp
+  src/layout/Infer.cpp
   src/editor/Selection.cpp
   src/editor/Snapping.cpp
   src/editor/Undo.cpp
@@ -58,6 +59,7 @@ add_library(eng_core STATIC
   src/editor/SlotCommands.cpp
   src/editor/SelectionCommands.cpp
   src/editor/ArrangeCommands.cpp
+  src/editor/AutoLayoutCommands.cpp
   src/editor/PathTools.cpp
   src/render/Renderer.cpp
   src/render/GradientRamp.cpp
@@ -164,6 +166,7 @@ else()
     tests/unit/hit.picking.test.cpp
     tests/unit/render.camera.test.cpp
     tests/unit/atlas.canvas_shapes.test.cpp
+    tests/unit/atlas.layout.test.cpp
     tests/unit/render.batching.test.cpp
     tests/unit/editor.gestures.test.cpp
     tests/unit/api.test.cpp

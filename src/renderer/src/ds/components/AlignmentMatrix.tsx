@@ -53,16 +53,21 @@ export interface AlignmentMatrixProps extends Omit<HTMLAttributes<HTMLDivElement
   onChange: (next: Alignment) => void;
   disabled?: boolean;
   label?: string;
+  /** X, or a double-click on a cell: the gap's Auto on / off (Figma's alignment box, help 360040451373) */
+  onToggleAutoGap?: () => void;
+  /** B: Align text baseline on / off */
+  onToggleBaseline?: () => void;
 }
 
 /**
  * Figma's auto-layout alignment box (88 × 56, a 3 × 3 grid): the chosen
  * cell shows the children's bars in blue, hovered cells preview them, the
  * others are dots. With space-between ("Auto" gap) a whole row (or column)
- * is chosen and only the counter-axis alignment changes. Keys: arrows move
- * the choice (one tab stop).
+ * is chosen and only the counter-axis alignment changes. Keys (help 360040451373, Atlas 09 §3.5): arrows move the
+ * choice (one tab stop); W / A / S / D take it to the top / left / bottom / right edge; X (or a double-click) turns
+ * the Auto gap on or off, B the text baseline.
  */
-export function AlignmentMatrix({ direction, value, onChange, disabled, label = t("Alignment"), className, ...rest }: AlignmentMatrixProps) {
+export function AlignmentMatrix({ direction, value, onChange, disabled, label = t("Alignment"), onToggleAutoGap, onToggleBaseline, className, ...rest }: AlignmentMatrixProps) {
   useT();
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
   const [hover, setHover] = useState<[number, number] | null>(null);
@@ -104,13 +109,25 @@ export function AlignmentMatrix({ direction, value, onChange, disabled, label = 
               className={styles.cell}
               onPointerEnter={() => setHover([col, row])}
               onClick={() => choose(col, row)}
+              onDoubleClick={() => onToggleAutoGap?.()}
               onKeyDown={(e) => {
+                if (e.metaKey || e.ctrlKey || e.altKey) return;
+                const key = e.key.toLowerCase();
+                const toggle = key === "x" ? onToggleAutoGap : key === "b" ? onToggleBaseline : undefined;
+                if (toggle) {
+                  e.preventDefault();
+                  toggle();
+                  return;
+                }
                 const d: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+                // W / A / S / D: to that edge, the other axis kept.
+                const edge: Record<string, [number, number]> = { w: [col, 0], a: [0, row], s: [col, 2], d: [2, row] };
                 const step = d[e.key];
-                if (!step) return;
+                const to = step ? [col + step[0], row + step[1]] : edge[key];
+                if (!to) return;
                 e.preventDefault();
-                const c = Math.min(2, Math.max(0, col + step[0]));
-                const r = Math.min(2, Math.max(0, row + step[1]));
+                const c = Math.min(2, Math.max(0, to[0]));
+                const r = Math.min(2, Math.max(0, to[1]));
                 choose(c, r);
                 refs.current[r * 3 + c]?.focus();
               }}

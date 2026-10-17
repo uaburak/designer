@@ -70,12 +70,18 @@ describe("sizing", () => {
 });
 
 describe("constraints", () => {
-  it("clicks a line: one side, ⇧ for both, ⇧ again to drop one; the cross centres", () => {
+  it("clicks a line: one side, ⇧ / ⌘ for both, again to drop one, on its own side Scale; the cross centres, then scales", () => {
     expect(clickConstraint("MIN", "max", false)).toBe("MAX");
     expect(clickConstraint("MIN", "max", true)).toBe("STRETCH");
     expect(clickConstraint("STRETCH", "min", true)).toBe("MAX");
     expect(clickConstraint("SCALE", "center", false)).toBe("CENTER");
     expect(clickConstraint("FIXED_MAX" as never, "min", true)).toBe("STRETCH");
+    // Atlas 09 §7: the side already on → Scale; a second click on the centre → Scale.
+    expect(clickConstraint("MIN", "min", true)).toBe("SCALE");
+    expect(clickConstraint("MAX", "max", true)).toBe("SCALE");
+    expect(clickConstraint("MIN", "min", false)).toBe("MIN");
+    expect(clickConstraint("SCALE", "max", true)).toBe("MAX");
+    expect(clickConstraint("CENTER", "center", false)).toBe("SCALE");
   });
 
   it("lights the lines of a constraint", () => {

@@ -509,6 +509,51 @@ Known only by key (English not in the build): `stack_panel.apr26_shift.*` (six c
 | Child margins (`stackChildMargin*`) | missing (Sites only; low priority) | — |
 | Layout after undo / remote | differs (canvas.md §2.3) | `Editor.cpp:400` |
 
+**As built (2026-10-18, wave 2).** Branch "layout", in this table's order:
+
+- **Layout version** (`engine/src/layout/Layout.cpp`, `Layout::stackLayoutVersion` / `updatedLayout`; docs/engine.md
+  §4.2). The six rules of §3.2 are read from each frame's `stackLayoutVersion`: Updated — padding is the least size
+  (max size ignored), only an inside stroke counts and only the frame's own, Fill shares by content box (an
+  auto-layout Fill child keeps its padding and inside stroke), the Between gap ≥ 0, a lone Between child at the start;
+  Legacy — a centre stroke by half and an outside one whole, children measured with their centre / outside strokes,
+  Fill by whole size, the Between gap may go negative, a lone child centred. Absent = Legacy, so Figma's older files
+  (and ours from before today) keep laying out as they did, save what Legacy now does differently from our old mix:
+  a negative Between gap, and outside / children's strokes under "Strokes: Included".
+  New stacks are stamped 1 (`stampNewStack`: any `set_props` that turns `stackMode` on — the panel, the Plugin API,
+  the agents — and ⇧A / Suggest). `SET_STACK_LAYOUT_VERSION` {version, deep, page} (one undo step, re-laid out at
+  once; instances and derived layers skipped: their main's). Panel: Auto layout settings › Layout is a real
+  Updated / Legacy dropdown (Mixed for mixed), and the strokes row reads "Strokes" under Legacy, "Inside stroke"
+  under Updated. Actions: "Update layout version for selection" (the selection and what is inside it) / "… for page".
+- **⇧A inference** (`engine/src/layout/Infer.{h,cpp}`, our rules until probe 2): rows / columns by overlap; one row
+  horizontal, one column vertical; rows in step with every row full → **GRID** (C × R Hug tracks, automatic
+  positioning, the mean gaps); ragged rows from one left edge → **horizontal + wrap** (the width kept fixed, the
+  counter gap the mean space between rows); else the centres' spread. Gaps are the rounded mean and may be
+  **negative** (overlaps). Counter alignment as before, per row for a wrap.
+- **Suggest auto layout ⌃⇧A** (`SUGGEST_AUTO_LAYOUT`, `editor/AutoLayoutCommands.cpp`): a grid / wrap set becomes
+  one stack; else it splits into rows, then columns, recursively, each part of several layers its own stack; plain
+  frames among the layers are stacked inside too when their layers lie within them (a clipped illustration whose
+  shapes spill out stays as it is); a single selected frame becomes the outer stack itself; a pile (overlapping both
+  ways, e.g. a header bar with its logo on it) leaves the whole set alone. One undo step, the new outer stacks selected, toast "{n} frames created"
+  (English ours: Figma ships the key `msal_crated_frames_count` only). **Remove all auto layout**
+  (`REMOVE_ALL_AUTO_LAYOUT`, Figma's destroy-all-auto-layout): the selection and every layer inside it, positions
+  kept, toast "Removed auto layout from {n} frames" (English ours). Both sit in Object › More layout options after a
+  line (Figma's gated multi-stack submenu has no captured label).
+- **Constraint widget** (`model/constraints.ts`): ⇧- or ⌘-click toggles — own side → Scale, opposite → Left & right,
+  both → the opposite side; the centre line a second time → Scale.
+- **Layout guides** (`panels/design/Effects.tsx`): a new guide's size is the big nudge amount; Count takes "Auto"
+  (0x7fffffff, min 0; the row reads "Columns Auto"); "+" turns View › Layout guides on when it was off. Engine:
+  `layoutGridCount` draws and snaps an Auto count as many as fit, capped at 2048 (it used to loop 2³¹ times).
+- **Panel typing rules**: a keyword field takes any start of its word ("a", "au" → Auto: gap, row gap, guide count,
+  grid rows); the gap has no minimum (negative gaps); grid counts 1 … 100 (were 1 000).
+- **Alignment box**: W / A / S / D to an edge, X and a double-click toggle the Auto gap (off → the remembered packed
+  alignment, CENTER at first), B toggles text baseline (horizontal only).
+
+Not done: the six shifts' count and the upgrade dialog (`apr26LayoutShiftsForNode`; the English is probe 5), the
+legacy-in-selection warning popover, the January 2027 "Update" button form; Figma's real inference heuristics (probe
+2) and Suggest's nesting rules (probe 3); the grid picker's Esc revert and "Open grid settings" selecting column 0;
+span fields' max (count − anchor); binding a variable to a Between gap first packing it; child margins (Sites); the
+Windows binding of ⌃⇧A (Ctrl+Shift+Alt+A).
+
 ## 12. Open questions (with the live probe that settles each)
 
 1. **Rounding.** Does auto layout round child positions or sizes to whole pixels (or 1/2 or 1/4)? Probe: a horizontal

@@ -1594,6 +1594,7 @@ Status Editor::setProps(const std::vector<Guid>& ids, const NodeChange& props, u
       }
     }
     dropStaleAuthoredColors(before, c);
+    stampNewStack(before, c);  // auto layout given now: the Updated layout (Atlas 09 §3.2)
     if (c.mask) write(c);
   }
   flushLayout();  // live, also inside a panel scrub

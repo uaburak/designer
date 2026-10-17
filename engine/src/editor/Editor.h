@@ -1419,8 +1419,21 @@ class Editor : private LayoutHost, public TextLayouts {
   // Moves a node by `d` in world space.
   void shiftWorld(Guid id, Vec2 d);
   // Turns `frame` into auto layout, inferring direction, gap and alignment from
-  // its children (and its padding from where they sit, when `padFromContent`).
+  // its children (and its padding from where they sit, when `padFromContent`;
+  // layout/Infer.h: a grid or a wrap too). Atlas wave 2 (editor/AutoLayoutCommands.cpp).
   void inferAutoLayout(Guid frame, bool padFromContent);
+  // Sibling layers wrapped in a new auto-layout frame inferred from them (in the open transaction).
+  Guid wrapInAutoLayout(const std::vector<Guid>& ids);
+  // Suggest auto layout: sibling layers stacked into nested auto-layout frames (`into`: the frame they are in becomes
+  // the outer stack); the frames created go to `made`. What stands for them now, or kNoGuid when nothing was stacked.
+  Guid suggestStack(const std::vector<Guid>& ids, Guid into, std::vector<Guid>& made, int depth);
+  void suggestInside(Guid frame, std::vector<Guid>& made, int depth);
+  // SUGGEST_AUTO_LAYOUT, REMOVE_ALL_AUTO_LAYOUT, SET_STACK_LAYOUT_VERSION.
+  Status autoLayoutCommand(CommandId id, const CommandArgs& args);
+  uint32_t autoLayoutCommandState(CommandId id) const;
+  // The auto-layout frames (their own layout) not at `version`'s layout: the selection's (with what is inside them
+  // when `deep`) or the current page's.
+  std::vector<Guid> stacksAt(uint32_t version, bool page, bool deep) const;
   // A position for a child of `parent` at `index` among its children without
   // `moving`; rebalances the siblings (in the open transaction) when the key
   // would be longer than 24 characters.

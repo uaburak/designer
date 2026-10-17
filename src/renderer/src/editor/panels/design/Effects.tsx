@@ -38,6 +38,7 @@ import { engineMethod } from "../../engineCompat";
 import { Status } from "@/engine/abi";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
 import { mixed, sameData } from "../../model/mixed";
+import { DEFAULT_NUDGE, loadNudge, syncViewOptions } from "../../canvasTools";
 import { PANEL_MENU_GAP, fields, useKeeps, type Effect, type LayoutGrid, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 import { AppliedStyle, StylesButton, sharedStyle } from "./Styles";
@@ -826,17 +827,24 @@ export type GuideKind = "GRID" | "COLUMNS" | "ROWS";
 
 export const guideKind = (g: LayoutGrid): GuideKind => (g.pattern === "GRID" ? "GRID" : g.axis === "Y" ? "ROWS" : "COLUMNS");
 
-/** Figma's new guide of a kind: Grid 10px; Columns / Rows 5, stretch, margin 0, gutter 20. */
-export function defaultGuide(kind: GuideKind = "GRID"): LayoutGrid {
-  if (kind === "GRID") return { pattern: "GRID", sectionSize: 10, color: GUIDE_RED, visible: true, axis: "X", type: "STRETCH" };
-  return { pattern: "STRIPES", axis: kind === "ROWS" ? "Y" : "X", numSections: 5, type: "STRETCH", offset: 0, gutterSize: 20, sectionSize: 10, color: GUIDE_RED, visible: true };
+/**
+ * Figma's new guide of a kind (Atlas 09 §8, its GridsPanel defaults): Grid of `size` — the user's big nudge amount
+ * (Preferences › Nudge amount…, 10 by default); Columns / Rows 5, stretch, margin 0, gutter 20; red at 10 %.
+ */
+export function defaultGuide(kind: GuideKind = "GRID", size = DEFAULT_NUDGE.big): LayoutGrid {
+  if (kind === "GRID") return { pattern: "GRID", sectionSize: size, color: GUIDE_RED, visible: true, axis: "X", type: "STRETCH" };
+  return { pattern: "STRIPES", axis: kind === "ROWS" ? "Y" : "X", numSections: 5, type: "STRETCH", offset: 0, gutterSize: 20, sectionSize: size, color: GUIDE_RED, visible: true };
 }
 
-/** The row's name: "Grid 10px", "Columns 5", "Rows 5" (Figma; "Columns 5 (Auto)" isn't shown). */
+/** A guide's Count "Auto" (Figma's 0x7fffffff, Atlas 09 §8): as many columns or rows as fit. */
+export const GUIDE_COUNT_AUTO = 0x7fffffff;
+export const isAutoCount = (g: LayoutGrid) => (g.numSections ?? 5) >= GUIDE_COUNT_AUTO;
+
+/** The row's name: "Grid 10px", "Columns 5", "Rows 5", "Columns Auto" (Figma; "Columns 5 (Auto)" isn't shown). */
 export function guideLabel(g: LayoutGrid): string {
   const kind = guideKind(g);
   if (kind === "GRID") return t("Grid {size}px", { size: Math.round((g.sectionSize ?? 10) * 100) / 100 });
-  const n = g.numSections ?? 5;
+  const n = isAutoCount(g) ? t("Auto") : (g.numSections ?? 5);
   return kind === "ROWS" ? t("Rows {n}", { n }) : t("Columns {n}", { n });
 }
 
@@ -852,11 +860,20 @@ export function LayoutGuideSection({ nodes }: { nodes: PanelNode[] }) {
   const grids = (shared === undefined || isMixedList ? [] : [...(shared as LayoutGrid[])]) as LayoutGrid[];
   const [open, setOpen] = useState<{ index: number; anchor: HTMLElement } | null>(null);
   const write = (next: LayoutGrid[], label: string, info: ChangeInfo = { final: true, source: "pick" }) => ed.edit(label, info, () => void ed.engine.setProps(refs, fields({ layoutGrids: next })));
+  // "+" (Figma's onGridsChange): a new guide of the big nudge's size, and guides shown if they were hidden.
+  const add = () => {
+    const guide = defaultGuide("GRID", (ed.ui.get().nudge ?? loadNudge()).big);
+    write(isMixedList ? [guide] : [...grids, guide], "Add layout guide");
+    if (ed.ui.get().layoutGuides === false) {
+      ed.ui.set({ layoutGuides: true });
+      syncViewOptions(ed);
+    }
+  };
   const empty = !isMixedList && grids.length === 0;
   const styled = sharedStyle(nodes, "grid");
   const hasStyle = !!styled && styled !== "mixed";
   return (
-    <PanelSection title={t("Layout guide")} empty={empty} actions={<><StylesButton nodes={nodes} slot="grid" />{!hasStyle && <IconButton icon="24.plus.small" label={t("Add layout guide")} tone="secondary" disabled={!kept} onClick={() => write(isMixedList ? [defaultGuide()] : [...grids, defaultGuide()], "Add layout guide")} />}</>}>
+    <PanelSection title={t("Layout guide")} empty={empty} actions={<><StylesButton nodes={nodes} slot="grid" />{!hasStyle && <IconButton icon="24.plus.small" label={t("Add layout guide")} tone="secondary" disabled={!kept} onClick={add} />}</>}>
       {hasStyle && <AppliedStyle nodes={nodes} slot="grid" />}
       {!hasStyle && grids
         .map((g, i) => ({ g, i }))
@@ -982,7 +999,20 @@ export function GuideSettings({ grid, anchor, onChange, onCancel, onClose }: { g
         ) : (
           <>
             <span className={styles.settingsLabel}>{t("Count")}</span>
-            <NumericInput scrubHandle="previous" label={t("Count")} min={1} precision={0} value={grid.numSections ?? 5} onChange={(v, info) => onChange({ ...grid, numSections: Math.round(v) }, info)} onCancel={onCancel} />
+            {/* Atlas 09 §8: min 0, "Auto" (or any start of it) as many as fit (0x7fffffff) */}
+            <NumericInput
+              scrubHandle="previous"
+              label={t("Count")}
+              min={0}
+              max={GUIDE_COUNT_AUTO}
+              precision={0}
+              value={isAutoCount(grid) ? null : (grid.numSections ?? 5)}
+              valueLabel={isAutoCount(grid) ? t("Auto") : undefined}
+              keywords={["Auto"]}
+              onKeyword={() => onChange({ ...grid, numSections: GUIDE_COUNT_AUTO }, pick)}
+              onChange={(v, info) => onChange({ ...grid, numSections: Math.round(v) }, info)}
+              onCancel={onCancel}
+            />
           </>
         )}
         <span className={styles.settingsLabel}>{t("Color")}</span>

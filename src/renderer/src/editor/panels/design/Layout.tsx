@@ -8,8 +8,10 @@
  * - Dimensions — or "Resizing" when an axis hugs or fills — W / H with their sizing menu and "Lock aspect ratio";
  *   min / max rows; a group's W / H scale what is in it;
  * - Spacing for several layers or a group's children;
- * - Alignment and Gap (the matrix; Gap takes "Auto"; a wrap adds the gap between rows) or the grid's dimensions and
- *   gaps, "Auto layout settings" (Auto spacing Between / Evenly / Around, strokes, canvas stacking, text baseline);
+ * - Alignment and Gap (the matrix, with its W / A / S / D, X and B keys; Gap takes "Auto" or any start of it and
+ *   negative numbers; a wrap adds the gap between rows) or the grid's dimensions and gaps, "Auto layout settings"
+ *   (Auto spacing Between / Evenly / Around, strokes, canvas stacking, text baseline, the layout version Updated /
+ *   Legacy);
  * - Padding (horizontal / vertical, "Individual padding" for the four sides, CSS shorthand in any of them);
  * - Clip content.
  */
@@ -32,7 +34,7 @@ import { canResizeToFit, resizeToFit, spacingItems, writeSpacing } from "./layou
 import { cancelScrub, editEach, exitToCanvas, perLayer, scrubEach, stepInfo } from "./Sections";
 import { fields, isFrameNode, isGroupNode, isInstanceSublayer, isTextNode, typeOf, useParents, useSupports, type PanelNode } from "./shared";
 import { useDrawMode } from "../../draw/panels/DrawSliders";
-import { t, useT } from "@/i18n";
+import { t, tx, useT } from "@/i18n";
 import styles from "./Design.module.css";
 
 type Flow = "NONE" | "VERTICAL" | "HORIZONTAL" | "GRID";
@@ -301,17 +303,22 @@ function AutoLayoutRows({ nodes }: { nodes: PanelNode[] }) {
   const autoGap = nodes.every((n) => isAutoGap(n.stackPrimaryAlignItems));
   const rowGap = mixedNumber(nodes.map((n) => n.stackCounterSpacing ?? n.stackSpacing ?? 0));
   const autoRowGap = nodes.every((n) => n.stackCounterAlignContent === "SPACE_BETWEEN");
-  const gapHandlers = perLayer(
-    ed,
-    "Gap",
-    refs,
-    (n) => n.stackSpacing ?? 0,
-    // A typed gap ends Auto: the items pack from the start again.
-    (n, v) => fields({ stackSpacing: v, ...(isAutoGap(n.stackPrimaryAlignItems) ? { stackPrimaryAlignItems: "MIN" } : {}) }),
-    (v) => Math.max(0, v)
-  );
+  // A typed gap ends Auto: the items pack from the start again. No minimum: a negative gap overlaps them (Figma's gap
+  // formatter has none, Atlas 09 §3.3).
+  const gapHandlers = perLayer(ed, "Gap", refs, (n) => n.stackSpacing ?? 0, (n, v) => fields({ stackSpacing: v, ...(isAutoGap(n.stackPrimaryAlignItems) ? { stackPrimaryAlignItems: "MIN" } : {}) }));
   const rowGapHandlers = perLayer(ed, "Gap between rows", refs, (n) => n.stackCounterSpacing ?? n.stackSpacing ?? 0, (_, v) => fields({ stackCounterSpacing: v, stackCounterAlignContent: "AUTO" }), (v) => Math.max(0, v));
   const autoMode = (n: PanelNode) => (isAutoGap(n.stackPrimaryAlignItems) ? n.stackPrimaryAlignItems : SPACE_BETWEEN);
+  // The alignment box's X / double-click (Atlas 09 §3.4): Auto on takes the remembered spacing mode; off goes back to
+  // the packed alignment it had (Figma's ref cache, CENTER when there is none).
+  const packed = useRef<string>("CENTER");
+  const toggleAutoGap = () => {
+    if (autoGap) return editEach(ed, "Alignment", { final: true, source: "pick" }, refs, () => fields({ stackPrimaryAlignItems: packed.current as never }));
+    packed.current = first.stackPrimaryAlignItems ?? "MIN";
+    editEach(ed, "Alignment", { final: true, source: "pick" }, refs, (n) => fields({ stackPrimaryAlignItems: autoMode(n) }));
+  };
+  // B: Align text baseline (a horizontal flow only).
+  const baselineOn = nodes.every((n) => n.stackCounterAlignItems === "BASELINE");
+  const toggleBaseline = () => horizontal && ed.setProps(refs, fields({ stackCounterAlignItems: baselineOn ? "MIN" : "BASELINE" }), "Align text baseline");
   const highlight = useSpacingHighlight();
   if (flow === "GRID")
     return (
@@ -329,6 +336,8 @@ function AutoLayoutRows({ nodes }: { nodes: PanelNode[] }) {
             direction={horizontal ? "horizontal" : "vertical"}
             value={alignment}
             onChange={(a) => editEach(ed, "Alignment", { final: true, source: "pick" }, refs, (n) => fields({ stackPrimaryAlignItems: a.primary === "SPACE_BETWEEN" ? autoMode(n) : a.primary, stackCounterAlignItems: a.counter }))}
+            onToggleAutoGap={toggleAutoGap}
+            onToggleBaseline={toggleBaseline}
           />
         </div>
         <div className={styles.gapStack}>
@@ -339,7 +348,6 @@ function AutoLayoutRows({ nodes }: { nodes: PanelNode[] }) {
               prefix={horizontal ? "24.al.spacing-horizontal" : "24.al.spacing-vertical"}
               className={styles.hoverMenuField}
               value={fieldValue(gap)}
-              min={0}
               valueLabel={autoGap ? t("Auto") : undefined}
               keywords={["Auto"]}
               onKeyword={() => editEach(ed, "Gap", stepInfo, refs, (n) => fields({ stackPrimaryAlignItems: autoMode(n) }))}
@@ -604,6 +612,10 @@ function AutoLayoutSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; an
   const grid = al.every((n) => n.stackMode === "GRID");
   const baseline = mixed(al.map((n) => n.stackCounterAlignItems === "BASELINE"));
   const autoGap = al.every((n) => isAutoGap(n.stackPrimaryAlignItems));
+  // The layout version (stackLayoutVersion, Atlas 09 §3.2): Updated (1) or Legacy (0 / absent); picking one is the
+  // engine's SET_STACK_LAYOUT_VERSION on the selected stacks (they lay out again by its rules at once, one undo step).
+  const version = mixed(al.map((n) => (Number((n as { stackLayoutVersion?: number }).stackLayoutVersion ?? 0) >= 1 ? "UPDATED" : "LEGACY")));
+  const strokesLabel = version === "LEGACY" ? t("Strokes") : t("Inside stroke");
   // Live (popovers/autolayout-advanced-settings.txt, grid/grid-autolayout-settings.txt; 240 wide): a 120-high preview,
   // then rows 32 apart from 173 — labels at 16, 112-wide dropdowns at 112: Inside stroke, Canvas stacking, Align text
   // baseline (Disabled / Enabled), Auto spacing (only for an Auto gap), Layout ("Updated"); a grid has Inside stroke and
@@ -613,9 +625,10 @@ function AutoLayoutSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; an
     <Popover anchor={anchor} title={t("Auto layout settings")} width={240} offsetY={grid ? 0 : -4} onClose={onClose} label={t("Auto layout settings")}>
       <div className={styles.alPreview} aria-hidden="true">{t("Preview")}</div>
       <div className={cx(styles.settings, styles.alSettings)}>
-        <span className={styles.settingsLabel}>{t("Inside stroke")}</span>
+        {/* Atlas 09 §3.9: "Inside stroke" under the Updated layout, "Strokes" under the Legacy one (its key borders_take_space) */}
+        <span className={styles.settingsLabel}>{strokesLabel}</span>
         <Select
-          label={t("Inside stroke")}
+          label={strokesLabel}
           variant="ghost"
           value={strokes ?? MIXED}
           options={[
@@ -671,7 +684,16 @@ function AutoLayoutSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; an
             <Icon name="24.info" style={{ margin: -4 }} />
           </button>
         </span>
-        <Select label={t("Layout")} variant="ghost" value="UPDATED" options={[{ value: "UPDATED", label: t("Updated") }]} onChange={() => {}} />
+        <Select
+          label={t("Layout")}
+          variant="ghost"
+          value={version ?? MIXED}
+          options={[
+            { value: "UPDATED", label: tx("layout version", "Updated") },
+            { value: "LEGACY", label: t("Legacy") },
+          ]}
+          onChange={(v) => void ed.engine.runCommand("SET_STACK_LAYOUT_VERSION", { version: v === "UPDATED" ? 1 : 0 })}
+        />
       </div>
     </Popover>
   );
