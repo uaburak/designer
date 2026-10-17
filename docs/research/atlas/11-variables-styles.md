@@ -491,6 +491,55 @@ DTCG import / export; Timing / Easing types in the model.
   collections read-only; default-mode-changed toast; incompatible-modes bell.
 - Paint variables (gated in Figma), unit-number variables (gated).
 
+**As built (2026-10-18, wave 3).** In list order:
+- **Mode limit by plan** — the top plan, Enterprise **40**, since this is a personal app (the chapter's table: Starter 1,
+  Pro 10, Org 20, Enterprise 40; `MODE_LIMIT_BY_PLAN` keeps the table). `LIMITS.modes` was a 1,000 soft guard in the
+  TS (docs/data.md §16.8, now marked superseded) while the engine already stopped at 40; both say 40. A file bringing
+  more keeps them: the engine refuses renaming, moving and setting values in a mode past 40, moving a mode into those
+  columns, and a new default while there are more than 40 ("Cannot set default mode when there are more modes than
+  allowed"); the table shows those columns disabled (grey header, values as text, only Delete in their menu) and the
+  "+" disabled with "Limited to 40 modes only" (Figma's `reached_hard_mode_limit` text isn't in the cache).
+- **"Name 2" naming** (§3.4) in the engine and the TS fallback: one past the largest " N" (gaps kept); duplicates of
+  variables, collections and groups are numbered from the name without its trailing number ("Color 7" → "Color 8",
+  "Theme" → "Theme 2", group "brand/primary" → "brand/primary 5" among its siblings). Duplicated modes keep
+  "<name> copy" and new extensions "<parent> extended" (the chapter has no rule for the first; open question 3).
+- **Scopes**: the Scoping list in Figma's per-type order — numbers' Text content 4th, Gap with its grey "Auto layout",
+  the "Typography" heading over Font weight … Paragraph indent; strings' "Font weight or style". The engine checks
+  scopes against the type ("Invalid scope for this variable type"; booleans take none) and takes TEXT_CONTENT,
+  TRANSFORM, FONT_VARIATIONS and COLOR_OPACITY for numbers. COLOR_OPACITY isn't offered as a checkbox
+  (`ds_color_opacity_variables`; no composed-colour UI here yet); TRANSFORM / FONT_VARIATIONS have no checkbox in Figma
+  either ("all" covers them).
+- **Edit variable** has Figma's **Details | Scoping** tabs (none for booleans); the bulk "Edit variables" shares the
+  scoping list.
+- **Name column**: dragged 50 … 500, double-click back to 200 (the session's width, not saved).
+- **Row menu** in §8.3's order: Copy, Paste, New group with selection, Edit variable(s), Move to top / up / down / to
+  bottom (within the rows' group; the `ds_variables_context_menu_reorder` gate taken as on — open question 7),
+  Duplicate, Delete. "Rename" left the menu (double-click renames, as in Figma). ⇧Enter and ⌘A were already there.
+- **Bindable fields**: X_POSITION / Y_POSITION (the transform's translation in the parent) and ROTATION (degrees,
+  turned about the centre like the panel's Rotation) — TRANSFORM scope, so only "all" variables offer themselves —,
+  POLYGON_COUNT (whole, 3 … 60), STAR_INNER_SCALE (0.001 … 1), ARC_DATA_* (as stored: radians, 0 … 1); a typed / dragged
+  value detaches them as the other fields do. Motion's KEYFRAME expressions on these eight fields stay the motion
+  layer's (not resolved, not detached). Text content takes a number variable (printed without trailing zeros; the
+  Text "Apply variable" lists numbers scoped to Text content). The Design panel binds X, Y, Rotation (not in Motion
+  mode) and a polygon's / star's Count.
+- **Warnings** on a bound field's pill (Figma's "warning" style, the reason as its tooltip): width / height under the
+  min or over the max, ≤ 0; a negative radius, stroke, padding…; a font size under 1; opacity past 100 % / under 0 %
+  (clamped). Otherwise the pill's tooltip is name, description and value. The texts are ours (Figma's English for
+  `variables.invalid.*` / `variables.opacity.*` isn't in the cache).
+- **Extension chains** stop at 10 sets (engine and UI: "Extend collection" disabled at the tenth).
+
+Not done: the minimized window's geometry (642 × 380, min 400 × 180 / 300, 8 px inset); the collections sidebar's
+"All collections / Created in this file" with library collections read-only; the default-mode-changed toast and the
+incompatible-modes bell; the value cell's Create alias / Clear alias menu; opacity's INERT state; child margins
+(STACK_CHILD_MARGIN_* — no child margins in our layout yet; the schema's enum stops at 76); binding UI for a star's
+ratio and an arc (their variable units are unknown); FONT_VARIATIONS resolution (kept as data); paint and unit-number
+variables (gated). Note: the build's wasm-binding VariableField enum (§6: CMS 38, HYPERLINK 39, RELATIVE_X 43…) differs
+from the kiwi schema's numbering (HYPERLINK 38, X_POSITION 43): ours follows the file format, unchanged.
+New open questions: 8. The unit of a variable bound to a star's ratio or an arc's angles (0…1 / radians as stored, or
+the panel's % / degrees?). 9. Does a bound rotation turn about the centre (as here) or the top-left (the Plugin API's
+`rotation`)? 10. A group's child: is X_POSITION relative to the group or to the frame (the panel's X)? 11. Figma's
+English for `reached_hard_mode_limit`, `variables.invalid.*`, `variables.opacity.*`. 12. A duplicated mode's name.
+
 ## 16. Open questions
 
 1. **FONT_SIZE → PARAGRAPH_SPACING** in the field→scope map: a quirk of the analytics map or the real picker filter?

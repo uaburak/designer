@@ -431,7 +431,7 @@ function TextVariableButton({ nodes }: { nodes: PanelNode[] }) {
       {open && (
         <VariablePicker
           anchor={open}
-          types={[spec.type]}
+          types={[spec.type, ...(spec.also ?? [])]}
           scope={spec.scope}
           current={typeof bound === "string" && bound !== "mixed" ? (bound as Guid) : null}
           consumer={refs[0] ?? null}

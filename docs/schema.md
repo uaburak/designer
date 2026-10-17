@@ -389,7 +389,7 @@ From `docs/research/rea/components.md` §2.2, §2.5, §2.13, §2.19 (Figma's Was
 - A collection is a VARIABLE_SET under `0:2`: `name`, `variableSetModes [{id, name, sortPosition}]` (≥ 1; **the default mode is the first by `sortPosition`**), `sortPosition` (order in the collection list), `isPublishable` (a name starting with `_` or `.` also hides it), `key`, `description`.
 - A variable is a VARIABLE under `0:2`: `name` (slash path = groups), `variableSetID {guid}`, `variableResolvedType` (`BOOLEAN`, `FLOAT`, `STRING`, `COLOR`; `EASING`/`TIMING` are `@later`), `variableDataValues [{modeID, variableData}]`, `variableScopes`, `codeSyntax [{platform: WEB|ANDROID|iOS, value}]`, `description`, `isPublishable` (false = Hide from publishing), `sortPosition` (order within the collection), `key`.
 - A deleted variable that is still referenced stays with `isSoftDeleted true` (REST's `deletedButReferenced`).
-- Limits are enforced by the UI, not the schema: 5,000 variables per collection, 40 modes, mode names ≤ 40 chars (`R3` §2). Phase 7 round 3 lifts the mode cap to a soft guard of 1,000 per collection, extensions unlimited in number and chained ≤ 16 deep (docs/data.md §16.8).
+- Limits are enforced by the UI, not the schema: 5,000 variables per collection, 40 modes, mode names ≤ 40 chars (`R3` §2). Phase 7 round 3 lifted the mode cap to a soft guard of 1,000 per collection, chained ≤ 16 deep; atlas 11 (2026-10-18) brought back Figma's Enterprise 40 and chains of ≤ 10 sets (docs/data.md §16.8).
 
 ### 6.2 Values (`VariableData {value, dataType, resolvedDataType}`)
 

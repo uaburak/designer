@@ -664,12 +664,12 @@ TEST_CASE("variables: groups, order, duplicates and deletes (soft while referenc
   // Duplicates sit after their sources.
   CHECK(run(e, CommandId::DUPLICATE_VARIABLES, "{\"variables\":[" + q(a) + "]}") == OK);
   Guid a2 = e.lastCreated()[0];
-  CHECK(props(e, a2).name == "color/a copy");
+  CHECK(props(e, a2).name == "color/a 2");  // Figma's "Name 2" rule (atlas 11 §3.4)
   CHECK(e.variablesOf(set) == std::vector<Guid>{a, a2, c, b});
   CHECK(run(e, CommandId::DUPLICATE_VARIABLE_GROUP, "{\"collection\":" + q(set) + ",\"group\":\"color\"}") == OK);
   CHECK(e.lastCreated().size() == 4);
-  CHECK(props(e, e.lastCreated()[0]).name == "color copy/a");
-  CHECK(run(e, CommandId::DELETE_VARIABLE_GROUP, "{\"collection\":" + q(set) + ",\"group\":\"color copy\"}") == OK);
+  CHECK(props(e, e.lastCreated()[0]).name == "color 2/a");
+  CHECK(run(e, CommandId::DELETE_VARIABLE_GROUP, "{\"collection\":" + q(set) + ",\"group\":\"color 2\"}") == OK);
   CHECK(e.variablesOf(set).size() == 4);
   // A bound variable is soft-deleted (the layer keeps working); an unused one is removed.
   bind(e, R, "fillPaints[0].color", a);
@@ -703,7 +703,7 @@ TEST_CASE("variables: collections — order, duplicate (aliases inside follow th
   CHECK(e.collections() == std::vector<Guid>{other, set});
   REQUIRE(run(e, CommandId::DUPLICATE_VARIABLE_COLLECTION, "{\"collection\":" + q(set) + "}") == OK);
   Guid copy = e.lastCreated()[0];
-  CHECK(props(e, copy).name == "Theme copy");
+  CHECK(props(e, copy).name == "Theme 2");
   CHECK(e.collections() == std::vector<Guid>{other, set, copy});
   auto vars = e.variablesOf(copy);
   REQUIRE(vars.size() == 2);
@@ -1474,4 +1474,155 @@ TEST_CASE("variables: a grid's column and row gaps bind (GRID_COLUMN_GAP / GRID_
   CHECK(props(e, {7, 3}).transform.m02 == 80);
   bind(e, {7, 1}, "GRID_ROW_GAP", gap);
   CHECK(props(e, {7, 1}).extra.count("gridRowGap") == 1);
+}
+
+TEST_CASE("variables (atlas 11): Figma's \"Name 2\" names — new, duplicated and numbered names, collections and groups") {
+  Editor e = load(doc());
+  auto [set, light, dark] = theme(e);
+  auto create = [&](const char* type) {
+    REQUIRE(run(e, CommandId::CREATE_VARIABLE, "{\"collection\":" + q(set) + ",\"type\":\"" + type + "\"}") == OK);
+    return e.lastCreated()[0];
+  };
+  Guid c1 = create("COLOR"), c2 = create("COLOR");
+  CHECK(props(e, c2).name == "Color 2");
+  // One past the largest number, gaps or not: "Color 7" makes the next "Color 8".
+  REQUIRE(run(e, CommandId::RENAME_VARIABLE, "{\"variable\":" + q(c2) + ",\"name\":\"Color 7\"}") == OK);
+  CHECK(props(e, create("COLOR")).name == "Color 8");
+  // A duplicate is numbered from its name without the number ("Color 7" → "Color 9", not "Color 7 copy").
+  REQUIRE(run(e, CommandId::DUPLICATE_VARIABLES, "{\"variables\":[" + q(c2) + "," + q(c1) + "]}") == OK);
+  REQUIRE(e.lastCreated().size() == 2);
+  CHECK(props(e, e.lastCreated()[0]).name == "Color 9");
+  CHECK(props(e, e.lastCreated()[1]).name == "Color 10");
+  // A name that only ends in digits ("Grey900") keeps them.
+  Guid grey = variable(e, set, "COLOR", "Grey900", R"({"r":0,"g":0,"b":0,"a":1})");
+  REQUIRE(run(e, CommandId::DUPLICATE_VARIABLES, "{\"variables\":[" + q(grey) + "]}") == OK);
+  CHECK(props(e, e.lastCreated()[0]).name == "Grey900 2");
+  // Collections: a new one and a duplicate.
+  REQUIRE(run(e, CommandId::CREATE_VARIABLE_COLLECTION, "{}") == OK);
+  CHECK(props(e, e.lastCreated()[0]).name == "Collection");
+  REQUIRE(run(e, CommandId::CREATE_VARIABLE_COLLECTION, "{}") == OK);
+  Guid second = e.lastCreated()[0];
+  CHECK(props(e, second).name == "Collection 2");
+  REQUIRE(run(e, CommandId::DUPLICATE_VARIABLE_COLLECTION, "{\"collection\":" + q(second) + "}") == OK);
+  CHECK(props(e, e.lastCreated()[0]).name == "Collection 3");
+  // Groups: numbered among their siblings ("brand/primary" → "brand/primary 5" next to "brand/primary 4").
+  variable(e, set, "FLOAT", "brand/primary/sm", "4");
+  variable(e, set, "FLOAT", "brand/primary 4/sm", "4");
+  REQUIRE(run(e, CommandId::DUPLICATE_VARIABLE_GROUP, "{\"collection\":" + q(set) + ",\"group\":\"brand/primary\"}") == OK);
+  CHECK(props(e, e.lastCreated()[0]).name == "brand/primary 5/sm");
+}
+
+TEST_CASE("variables (atlas 11): the mode limit (Enterprise, 40) — modes past it are read-only; extension chains stop at 10 sets") {
+  // A collection from a file with 42 modes (Figma's ds_100_modes): kept, but columns 41 and 42 can't be edited.
+  Editor e = load(doc());
+  REQUIRE(run(e, CommandId::CREATE_VARIABLE_COLLECTION, R"({"name":"Many"})") == OK);
+  Guid set = e.lastCreated()[0];
+  for (int i = 1; i < 40; i++) REQUIRE(run(e, CommandId::ADD_VARIABLE_MODE, "{\"collection\":" + q(set) + "}") == OK);
+  CHECK(run(e, CommandId::ADD_VARIABLE_MODE, "{\"collection\":" + q(set) + "}") == E_INVALID);
+  // Two more, as a file brings them.
+  std::vector<VariableSetMode> modes = props(e, set).orderedModes();
+  REQUIRE(modes.size() == 40);
+  NodeChange c = NodeChange::changed(set);
+  c.mask = F_VARIABLE_SET_MODES;
+  c.props.asset().variableSetModes = props(e, set).asset().variableSetModes;
+  Guid extra1{77, 1}, extra2{77, 2};
+  c.props.asset().variableSetModes.push_back({extra1, "Mode 41", modes.back().sortPosition + "0", {}, kNoGuid});
+  c.props.asset().variableSetModes.push_back({extra2, "Mode 42", modes.back().sortPosition + "1", {}, kNoGuid});
+  REQUIRE(e.applyChanges({c}, APPLY_REMOTE) == OK);
+  REQUIRE(props(e, set).orderedModes().size() == 42);
+  Guid v = variable(e, set, "FLOAT", "n", "1");
+  auto modeArgs = [&](Guid mode, const std::string& rest) { return "{\"collection\":" + q(set) + ",\"mode\":" + q(mode) + rest + "}"; };
+  CHECK(run(e, CommandId::RENAME_VARIABLE_MODE, modeArgs(extra1, ",\"name\":\"X\"")) == E_INVALID);
+  CHECK(run(e, CommandId::MOVE_VARIABLE_MODE, modeArgs(extra1, ",\"index\":3")) == E_INVALID);
+  setValue(e, v, extra1, "5", E_INVALID);
+  // An enabled mode can't move into the disabled columns, nor become the default while there are too many.
+  CHECK(run(e, CommandId::MOVE_VARIABLE_MODE, modeArgs(modes[3].id, ",\"index\":41")) == E_INVALID);
+  CHECK(run(e, CommandId::MOVE_VARIABLE_MODE, modeArgs(modes[3].id, ",\"index\":0")) == E_INVALID);
+  CHECK(run(e, CommandId::MOVE_VARIABLE_MODE, modeArgs(modes[3].id, ",\"index\":5")) == OK);
+  setValue(e, v, modes[3].id, "5");
+  // Deleting brings it back under the limit: the default can change again.
+  CHECK(run(e, CommandId::DELETE_VARIABLE_MODE, modeArgs(extra1, "")) == OK);
+  CHECK(run(e, CommandId::DELETE_VARIABLE_MODE, modeArgs(extra2, "")) == OK);
+  CHECK(run(e, CommandId::MOVE_VARIABLE_MODE, modeArgs(modes[3].id, ",\"index\":0")) == OK);
+
+  // Extended collections: a chain of 10 sets at most (the root and nine extensions).
+  Guid at = set;
+  for (int i = 0; i < 9; i++) {
+    REQUIRE(run(e, CommandId::EXTEND_VARIABLE_COLLECTION, "{\"collection\":" + q(at) + "}") == OK);
+    at = e.lastCreated()[0];
+  }
+  CHECK(run(e, CommandId::EXTEND_VARIABLE_COLLECTION, "{\"collection\":" + q(at) + "}") == E_INVALID);
+}
+
+TEST_CASE("variables (atlas 11): scopes by type — numbers take text content, transforms and font variations; booleans none") {
+  Editor e = load(doc());
+  auto [set, light, dark] = theme(e);
+  Guid n = variable(e, set, "FLOAT", "n", "4");
+  Guid c = variable(e, set, "COLOR", "c", R"({"r":1,"g":0,"b":0,"a":1})");
+  Guid s = variable(e, set, "STRING", "s", "\"x\"");
+  Guid b = variable(e, set, "BOOLEAN", "b", "true");
+  auto scopes = [&](Guid v, const char* list) {
+    return run(e, CommandId::SET_VARIABLE_SCOPES, "{\"variables\":[" + q(v) + "],\"scopes\":" + std::string(list) + "}");
+  };
+  CHECK(scopes(n, R"(["TEXT_CONTENT","TRANSFORM","FONT_VARIATIONS","COLOR_OPACITY"])") == OK);
+  CHECK(scopes(n, R"(["ALL_FILLS"])") == E_INVALID);
+  CHECK(scopes(c, R"(["GAP"])") == E_INVALID);
+  CHECK(scopes(c, R"(["SHAPE_FILL","EFFECT_COLOR"])") == OK);
+  CHECK(scopes(s, R"(["FONT_FAMILY","FONT_WEIGHT"])") == OK);  // the plugin API's FONT_WEIGHT is FONT_STYLE
+  CHECK(scopes(s, R"(["CORNER_RADIUS"])") == E_INVALID);
+  CHECK(scopes(b, R"(["OPACITY"])") == E_INVALID);
+  CHECK(scopes(b, R"(["ALL_SCOPES"])") == OK);
+}
+
+TEST_CASE("variables (atlas 11 §6): x, y and rotation, a polygon's count, a star's ratio and a number as text content bind") {
+  auto nodes = doc();
+  const Guid P{8, 1}, S{8, 2};
+  NodeChange poly = make(P, NodeType::REGULAR_POLYGON, kPage, "$", {100, 500, 40, 40}, "Polygon");
+  poly.props.shape().count = 3;
+  nodes.push_back(poly);
+  NodeChange star = make(S, NodeType::STAR, kPage, "%", {200, 500, 40, 40}, "Star");
+  star.props.shape().count = 5;
+  star.props.shape().starInnerScale = 0.38;
+  nodes.push_back(star);
+  Editor e = load(nodes);
+  auto [set, light, dark] = theme(e);
+  Guid x = variable(e, set, "FLOAT", "x", "120");
+  setValue(e, x, dark, "200");
+  Guid angle = variable(e, set, "FLOAT", "angle", "90");
+  Guid count = variable(e, set, "FLOAT", "count", "6.4");
+  Guid ratio = variable(e, set, "FLOAT", "ratio", "1.5");
+  // X and Y: the layer's place in its parent.
+  bind(e, R2, "X_POSITION", x);
+  bind(e, R2, "Y_POSITION", x);
+  CHECK(props(e, R2).transform.m02 == 120);
+  CHECK(props(e, R2).transform.m12 == 120);
+  setMode(e, R2, set, dark);
+  CHECK(props(e, R2).transform.m02 == 200);
+  // Rotation: turned about its centre, as the panel turns it (90° counter-clockwise on screen).
+  bind(e, R, "ROTATION", angle);
+  const Mat2x3& m = props(e, R).transform;
+  CHECK(std::fabs(m.m00) < 1e-9);
+  CHECK(m.m10 == doctest::Approx(-1));
+  Vec2 centre = m.apply({25, 25});
+  CHECK(centre.x == doctest::Approx(35));
+  CHECK(centre.y == doctest::Approx(35));
+  // A polygon's count is whole (6.4 → 6, at least 3); a star's ratio at most 1.
+  bind(e, P, "POLYGON_COUNT", count);
+  CHECK(props(e, P).shape().count == 6);
+  setValue(e, count, light, "1");
+  CHECK(props(e, P).shape().count == 3);
+  bind(e, S, "STAR_INNER_SCALE", ratio);
+  CHECK(props(e, S).shape().starInnerScale == 1);
+  // Moving the layer by hand drops x / y; a typed count drops the count's binding.
+  REQUIRE(e.setProps({R2}, change(F_TRANSFORM, [](NodeProps& p) { p.transform = Mat2x3::translate(10, 10); }), 0) == OK);
+  CHECK(props(e, R2).parameterConsumptionMap.empty());
+  REQUIRE(e.setProps({P}, change(F_COUNT, [](NodeProps& p) { p.shape().count = 8; }), 0) == OK);
+  CHECK(props(e, P).parameterConsumptionMap.empty());
+  // A number as text: printed without trailing zeros.
+  Guid price = variable(e, set, "FLOAT", "price", "12.5");
+  bind(e, T, "TEXT_DATA", price);
+  CHECK(props(e, T).text().textData.characters == "12.5");
+  setValue(e, price, light, "40");
+  CHECK(props(e, T).text().textData.characters == "40");
+  bind(e, T, "TEXT_DATA", variable(e, set, "BOOLEAN", "flag", "true"), E_INVALID);
 }

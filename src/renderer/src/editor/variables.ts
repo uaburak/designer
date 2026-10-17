@@ -36,7 +36,8 @@ import {
   isCollectionNode,
   isVariableNode,
   LIMITS,
-  extensionDepth,
+  canExtend,
+  stripNumber,
   modeAt,
   nextModeName,
   nextName,
@@ -436,7 +437,7 @@ export function duplicateCollection(ed: EditorController, id: Guid): Guid | null
         ...stripNode(c.node),
         guid: copy,
         phase: "CREATED",
-        name: nextName(`${c.name} copy`, a.collections.map((x) => x.name)),
+        name: nextName(stripNumber(c.name), a.collections.map((x) => x.name)),
         parentIndex: { guid: internal, position: positionAfter(childPositions(ed, internal)) },
         sortPosition: positionBetween(c.sortPosition, next?.sortPosition ?? null),
       } as unknown as NodeChange,
@@ -695,7 +696,7 @@ export function duplicateVariables(ed: EditorController, ids: readonly Guid[]): 
           ...stripNode(v.node),
           guid: copy,
           phase: "CREATED",
-          name: nextName((group ? `${group}/` : "") + `${leaf} copy`, taken),
+          name: nextName((group ? `${group}/` : "") + stripNumber(leaf), taken),
           parentIndex: { guid: internal, position: positionAfter(childPositions(ed, internal)) },
           sortPosition: positionBetween(v.sortPosition, next?.sortPosition ?? null),
         } as unknown as NodeChange,
@@ -971,9 +972,9 @@ export function bindPaint(ed: EditorController, refs: readonly Guid[], field: Pa
 
 /** "Extend collection" (R3-32): a collection inheriting `collection`'s variables and modes; its values overridable. */
 export function extendCollection(ed: EditorController, collection: Guid): Guid | null {
-  // Chains: C extends B extends A — at most 16 deep (docs/data.md §16.8, ours).
+  // Chains: C extends B extends A — at most 10 sets (Figma, atlas 11 §3.1).
   const c = assets(ed).lookup.collection(collection);
-  if (c && extensionDepth(c) + 1 > LIMITS.extensionDepth) {
+  if (c && !canExtend(c)) {
     showToast({ message: t("Can't extend further"), kind: "error" });
     return null;
   }

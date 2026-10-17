@@ -127,6 +127,8 @@
   .pill:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .pillText { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .pillMissing { color: var(--figma-color-text-danger); text-decoration: line-through; }
+  /* A bound value the field can't use as it is (Figma's "warning" input style) */
+  .pillWarning, .pillWarning:hover { border-color: var(--figma-color-border-warning-strong); background: var(--figma-color-bg-warning-tertiary); }
   /* Detach: over the pill's right end, on hover (the name keeps the whole field) */
   .detach {
     position: absolute;
@@ -258,6 +260,13 @@
     letter-spacing: var(--ds-tracking-body-medium-strong);
   }
   .formIndent { padding-left: var(--ds-space-6); }
+  /* Edit variable's Details | Scoping (atlas 11 §8.4) and the scoping list: a heading over Typography, Gap's grey
+     "Auto layout" after its label */
+  .editTabs { padding: 0 var(--ds-space-2); }
+  .scopeList { display: flex; flex-direction: column; gap: var(--ds-space-2); }
+  .scopeSection { margin-top: var(--ds-space-2); padding-bottom: var(--ds-space-2); font: var(--ds-font-body-medium-strong); }
+  .scopeRow { display: flex; align-items: center; gap: var(--ds-space-1); }
+  .scopeSublabel { color: var(--figma-color-text-secondary); }
   .formFooter { display: flex; justify-content: flex-end; margin-top: var(--ds-space-2); }
   .formPair { display: flex; gap: var(--ds-space-2); }
   .formPair > * { flex: 1 1 0; min-width: 0; }

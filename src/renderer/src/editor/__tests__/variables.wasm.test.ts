@@ -220,9 +220,10 @@ describe.each(["engine", "fallback"] as const)("variables and styles on the engi
   it("variables: duplicate, group, rename a group, reorder, delete (a used one is kept soft-deleted)", async () => {
     const { ed } = await editor();
     const [copy] = duplicateVariables(ed, ["5:24"]);
-    expect(ed.variables.get().lookup.variable(copy)?.name).toBe("label/cta copy");
+    // Figma's "Name 2" (atlas 11 §3.4), not "copy"
+    expect(ed.variables.get().lookup.variable(copy)?.name).toBe("label/cta 2");
     const names = () => ed.variables.get().variables.filter((v) => v.collection === "7:2").map((v) => v.name);
-    expect(names().indexOf("label/cta copy")).toBe(names().indexOf("label/cta") + 1);
+    expect(names().indexOf("label/cta 2")).toBe(names().indexOf("label/cta") + 1);
     const group = groupVariables(ed, ["5:24", copy]);
     expect(group).toBe("label/Group");
     expect(ed.variables.get().lookup.variable("5:24")?.name).toBe("label/Group/cta");

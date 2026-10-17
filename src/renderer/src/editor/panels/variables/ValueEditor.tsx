@@ -26,7 +26,7 @@ export function parseColorText(text: string, alpha = 1): Color | null {
   return hexToColor(`#${hex}`, m[2] !== undefined ? Math.min(100, Number(m[2])) / 100 : alpha);
 }
 
-export function ValueEditor({ variable, mode, collection, className }: { variable: Variable; mode: Guid; collection: Collection; className?: string }) {
+export function ValueEditor({ variable, mode, collection, className, disabled }: { variable: Variable; mode: Guid; collection: Collection; className?: string; disabled?: boolean }) {
   useT();
   const ed = useEditor();
   const a = useLocalAssets();
@@ -82,6 +82,14 @@ export function ValueEditor({ variable, mode, collection, className }: { variabl
         break;
     }
   }
+
+  if (disabled)
+    // A mode past the plan's limit (atlas 11 §3.1): its column is disabled, the value shown, not edited.
+    return (
+      <div className={cx(styles.cell, styles.value, styles.valueDisabled, className)} aria-disabled="true" data-value-cell={`${variable.name}|${collection.modes.find((m) => m.id === mode)?.name ?? ""}`}>
+        <span className={styles.valueText}>{formatLiteral(variable.type, resolved)}</span>
+      </div>
+    );
 
   return (
     <div
