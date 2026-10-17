@@ -223,7 +223,7 @@ export const MAIN_MENU: Spec[] = [
       "view.show-slices",
       "view.comments",
       "view.annotations",
-      { label: "Outlines", checks: true, items: ["view.outlines"] },
+      { label: "Outlines", checks: true, items: ["view.outlines", "-", "view.outline-hidden-layers", "view.outline-object-bounds"] },
       "view.pixel-preview",
       "view.mask-outlines",
       "view.frame-outlines",

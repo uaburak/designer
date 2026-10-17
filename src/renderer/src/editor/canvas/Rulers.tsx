@@ -6,7 +6,7 @@
  * selection's span is a band with its edges labelled in blue, and the labels
  * near those edges fade (docs/research/visual-diff.md, model/rulers.ts).
  */
-import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { PointerType, Status } from "@/engine/abi";
 import { modifiersOf } from "@/engine/CanvasController";
 import { canvasChrome, canvasChromeMetrics, text, useTheme, type ThemeName } from "@/ds";
@@ -216,6 +216,12 @@ export function guideDrag(ed: EditorController, axis: "X" | "Y", e: ReactPointer
   el.addEventListener("pointercancel", done);
 }
 
+/** A right click on a ruler: its menu (CanvasMenu's rulerMenu) where the pointer is. */
+function rulerMenuAt(ed: EditorController, ruler: "X" | "Y", e: ReactMouseEvent<HTMLCanvasElement>): void {
+  e.preventDefault();
+  ed.ui.set({ contextMenu: { x: e.clientX, y: e.clientY, canvas: null, ruler } });
+}
+
 export function Rulers() {
   const ed = useEditor();
   const on = useUI((s) => s.rulers);
@@ -255,8 +261,8 @@ export function Rulers() {
   if (!on) return null;
   return (
     <>
-      <canvas ref={top} className={styles.rulerTop} aria-hidden data-ruler="top" onPointerDown={(e) => guideDrag(ed, "Y", e)} />
-      <canvas ref={left} className={styles.rulerLeft} aria-hidden data-ruler="left" onPointerDown={(e) => guideDrag(ed, "X", e)} />
+      <canvas ref={top} className={styles.rulerTop} aria-hidden data-ruler="top" onPointerDown={(e) => guideDrag(ed, "Y", e)} onContextMenu={(e) => rulerMenuAt(ed, "Y", e)} />
+      <canvas ref={left} className={styles.rulerLeft} aria-hidden data-ruler="left" onPointerDown={(e) => guideDrag(ed, "X", e)} onContextMenu={(e) => rulerMenuAt(ed, "X", e)} />
       <div className={styles.rulerCorner} aria-hidden />
     </>
   );

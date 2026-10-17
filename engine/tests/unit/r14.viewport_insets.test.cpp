@@ -39,8 +39,8 @@ TEST_CASE("insets: zoom to selection centres in the visible part, between the pa
   Vec2 c = centreOnScreen(e, e.document().worldBounds(F));
   CHECK(std::abs(c.x - (299 + (1440 - 299 - 241) / 2.0)) <= 1);
   CHECK(std::abs(c.y - 450) <= 1);
-  // Fitted to the visible width (900 − 2 × 64 room), not the canvas's 1440.
-  CHECK(e.camera().zoom * 400 <= 900 - 128 + 0.5);
+  // Fitted to the visible width (900 − 2 × 40 room), not the canvas's 1440.
+  CHECK(e.camera().zoom * 400 == doctest::Approx(900 - 80).epsilon(0.002));
 }
 
 TEST_CASE("insets: zoom to fit puts the page's content in the visible part") {
@@ -49,8 +49,8 @@ TEST_CASE("insets: zoom to fit puts the page's content in the visible part") {
   e.command(CommandId::ZOOM_TO_FIT);
   Rect all = e.document().worldBounds(F).united(e.document().worldBounds(R));
   Vec2 a = e.camera().toScreen({all.x, all.y}), b = e.camera().toScreen({all.right(), all.bottom()});
-  CHECK(a.x >= 299 + 63);
-  CHECK(b.x <= 1440 - 241 - 63);
+  CHECK(a.x >= 299 + 24);
+  CHECK(b.x <= 1440 - 241 - 24);
 }
 
 TEST_CASE("insets: a canvas resize keeps them; keyboard zoom is about the visible centre") {

@@ -352,6 +352,8 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
   const Color& blue = style.selection;
   const Color white{1, 1, 1, 1};
   Mat2x3 view = camera.matrix();
+  // Outline mode's options, under the rest of the chrome.
+  if (overlay.outlines && (overlay.outlineHidden || overlay.outlineBounds) && page != kNoGuid) drawOutlineOptions(doc, page, view, overlay);
 
   // Components, component sets and instances — and every layer inside one — are outlined in the component purple
   // (live Figma; round 15, the owner's screenshots in docs/research/components15/).

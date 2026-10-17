@@ -310,6 +310,24 @@ English from live captures (L) or the repo's i18n (R); otherwise the key only.
 | End caps list (8 entries, Figma order) | to check against `Stroke.tsx` | — |
 | Section paste fallback toast (pasted as group) | missing (I) | — |
 
+### As built (2026-10-17, wave 1)
+
+Branch "canvas and shapes" (with chapter 04; tests in `engine/tests/unit/atlas.canvas_shapes.test.cpp` and `src/renderer/src/editor/__tests__/atlas.canvasShapes.test.ts`).
+
+- **Arc row**: Figma's `properties.label.arc` row is Draw's — the live Design panel of an ellipse has none (`live/design/ellipse.txt`), and Draw's sidebar lists an Arc section (`docs/draw.md` §5.3). Built there: in Draw mode an ellipse selection's Appearance shows "Arc" with Start (°), Sweep (%, −100 … 100) and Ratio (%, 0 … 100) in one row (`Sections.tsx` `ArcRow`; the end written from the start and the sweep).
+- **Boolean version**: new boolean groups carry `vectorOperationVersion` 1 (the owner's recent Figma files carry 1 on their booleans, older ones none); a selection with booleans at 0 / absent shows the note and **Update** under the header (`VectorOperation.tsx`; the engine's `UPGRADE_VECTOR_OPERATION` 240, one undo step "Update boolean"; Figma's rule: shown while the selection's version is 0 or mixed). The engine computes every version alike, so Update only stamps the field.
+- **Star ratio** from 0.1 % (Figma's min 0.001).
+- **Corner smoothing slider**: ⇧ + arrow steps 10 % (Figma's big step 0.1).
+- **End caps**: the list and its order match Figma's (`NONE, ROUND, SQUARE`, then the five arrows).
+- **Polygon count** 3–60 already matched (big nudge 10 is the field's default).
+
+Not done / open:
+- **Arc pills** on the canvas ("Start %s", "Sweep %s", "Ratio"): the engine draws no localised words yet (no path for Turkish), and the English format of `%s` is unattested.
+- **Paint bucket chip**: where the chip sits and how it looks in the vector edit toolbar is not in the live captures (they show the toolbar with Move active); the engine fills a region with the vector's own fill. Needs a capture of the toolbar with Paint active, then region styles (`styleOverrideTable`) for the chip's colour.
+- **Section paste fallback**: the toast's key ("…we pasted your section as a group") reads like FigJam-era text; when Figma Design still fires it (a section pasted into a frame?) is unknown — a live paste with a frame selected settles it. Ours pastes a section into the selected frame as it is.
+- **Preset recognition** (exact W × H, else swapped): what it drives in UI3 — the header's title or a check in the presets menu — needs a live look at a preset-sized frame; the live `frame.txt` header says "Frame".
+- The note's English for the boolean update is unverified (only `vector_operation.update_text` / `update_button` are shipped); corner smoothing on polygons / stars / vectors stays Open Q4.
+
 ## 15. Open questions (and the probe that settles each)
 
 1. Arc handle snapping (which angles, with / without ⇧) and how the start handle is reached — live: drag the sweep

@@ -34,6 +34,7 @@ import { MotionFieldStates } from "../../motion/panels/MotionField";
 import draw from "../../draw/panels/DrawPanels.module.css";
 import { TypeHeader } from "./Header";
 import { RelaunchButtons } from "./RelaunchButtons";
+import { VectorOperationNote } from "./VectorOperation";
 import { ComponentBlock, InstanceHeader, componentSelection } from "./Component";
 import { useMultiEditVariants } from "./multiEdit";
 import { ApplyModeButton, ModeRows } from "./Variables";
@@ -149,6 +150,7 @@ function Selected({ nodes, paintNodes, onPick }: { nodes: PanelNode[]; paintNode
       {/* (Draw: a component's header without its properties; an instance keeps its swap header) */}
       {comp?.kind === "instance" ? <InstanceHeader instance={comp.node} /> : comp && !drawMode ? <ComponentBlock sel={comp} /> : <TypeHeader nodes={nodes} />}
       <RelaunchButtons refs={nodes.map((n) => n.guid)} />
+      <VectorOperationNote nodes={nodes} />
       {/* Motion mode (docs/motion.md §6.5): the keyframable fields with their diamonds, before Design's sections (round 8d, increment 1). */}
       {mode === "motion" && <MotionSection nodes={nodes} />}
       {shown.has("position") && <PositionSection nodes={nodes} />}

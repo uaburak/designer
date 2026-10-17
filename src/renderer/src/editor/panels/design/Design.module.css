@@ -652,4 +652,7 @@
 .relaunchRow { display: flex; flex-direction: column; gap: var(--ds-space-1); }
 .relaunchButton { width: 100%; justify-content: center; }
 .relaunchMessage { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+/* A boolean group made with older boolean operations (Atlas 05 §9.2): the note, then a full-width secondary Update */
+.vectorOperation { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: var(--ds-space-2) var(--ds-space-4); border-bottom: 1px solid var(--figma-color-border); }
+.vectorOperationText { margin: 0; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
 

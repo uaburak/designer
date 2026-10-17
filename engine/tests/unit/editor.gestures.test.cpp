@@ -357,12 +357,12 @@ TEST_CASE("editor: camera — wheel pans, pinch and ⌘ zoom around the pointer,
   CHECK(e.camera().zoom == doctest::Approx(2));
   e.command(CommandId::ZOOM_TO_100);
   CHECK(e.camera().zoom == 1);
-  e.command(CommandId::ZOOM_TO_FIT);  // everything (0,0 → 500,300) fits at ≤ 100%, centred
-  CHECK(e.camera().zoom == doctest::Approx(1));
+  e.command(CommandId::ZOOM_TO_FIT);  // everything (0,0 → 500,300) fits with 25 px a side, past 100 % (no cap), centred
+  CHECK(e.camera().zoom == doctest::Approx((800 - 50) / 500.0));
   CHECK(e.camera().toScreen({250, 150}).x == doctest::Approx(400));
   e.setSelection({R1});
   e.command(CommandId::ZOOM_TO_SELECTION);
-  CHECK(e.camera().zoom == doctest::Approx((600 - 128) / 50.0));
+  CHECK(e.camera().zoom == doctest::Approx((600 - 80) / 50.0));
   for (int i = 0; i < 30; i++) e.command(CommandId::ZOOM_IN);
   CHECK(e.camera().zoom == kMaxZoom);
   CHECK(e.takeEvents().camera);

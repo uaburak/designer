@@ -341,7 +341,7 @@ Status Editor::zoomToSiblingFrame(int step) {
   long next = at < 0 ? (step > 0 ? 0 : n - 1) : ((at + step) % n + n) % n;
   Guid frame = frames[static_cast<size_t>(next)];
   zooming_ = false;
-  changeCamera(snapped(fitVisible(doc_.worldBounds(frame), false)));
+  changeCamera(snapped(fitVisible(doc_.worldBounds(frame), kSelectionPadding)));
   zoomFrame_ = frame;
   zoomSelection_ = selection_;
   return OK;
@@ -393,6 +393,25 @@ Status Editor::selectionCommand(CommandId id, const CommandArgs& args) {
       commit();
       return OK;
     }
+    case CommandId::UPGRADE_VECTOR_OPERATION: return upgradeBooleans();
+    case CommandId::REMOVE_HORIZONTAL_GUIDES:
+    case CommandId::REMOVE_VERTICAL_GUIDES: {
+      // A ruler's context menu (Figma's remove-horizontal-guides / remove-vertical-guides): the top ruler's guides
+      // (horizontal, axis 1) or the left one's (vertical, axis 0).
+      if (viewer_ || page_ == kNoGuid) return E_INVALID;
+      int axis = id == CommandId::REMOVE_HORIZONTAL_GUIDES ? 1 : 0;
+      Guid owner = guideOwner();
+      std::vector<RulerGuide> list = guidesOf(owner);
+      size_t before = list.size();
+      list.erase(std::remove_if(list.begin(), list.end(), [&](const RulerGuide& x) { return x.axis == axis; }), list.end());
+      if (list.size() == before) return E_NOT_FOUND;
+      if (selectedGuide_.owner == owner && selectedGuide_.axis == axis) selectedGuide_ = {};
+      needsRender_ = true;
+      begin(TxnKind::USER, axis == 1 ? "Remove horizontal guides" : "Remove vertical guides");
+      writeGuides(owner, list);
+      commit();
+      return OK;
+    }
     default: return E_UNSUPPORTED;
   }
 }
@@ -419,6 +438,15 @@ uint32_t Editor::selectionCommandState(CommandId id) const {
     case CommandId::ZOOM_TO_PREVIOUS_FRAME: return page_ != kNoGuid ? CMD_ENABLED : 0;
     case CommandId::SHOW_ROTATION_ORIGIN: return selection_.empty() ? 0 : CMD_ENABLED | (rotationOriginOn_ ? CMD_CHECKED : 0);
     case CommandId::REMOVE_GUIDE: return hasSelectedGuide() ? CMD_ENABLED : 0;
+    case CommandId::UPGRADE_VECTOR_OPERATION: return !derived && outdatedBooleans() > 0 ? CMD_ENABLED : 0;
+    case CommandId::REMOVE_HORIZONTAL_GUIDES:
+    case CommandId::REMOVE_VERTICAL_GUIDES: {
+      if (viewer_ || page_ == kNoGuid) return 0;
+      int axis = id == CommandId::REMOVE_HORIZONTAL_GUIDES ? 1 : 0;
+      for (const RulerGuide& g : guidesOf(guideOwner()))
+        if (g.axis == axis) return CMD_ENABLED;
+      return 0;
+    }
     default: return 0;
   }
 }

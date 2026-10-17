@@ -104,7 +104,7 @@ Status Editor::command(CommandId id, const CommandArgs& args) {
   if (id >= CommandId::CONVERT_TO_SLOT && id <= CommandId::CLEAR_SLOT) return slotCommand(id, args);
   if (id == CommandId::REPLACE_FONTS) return replaceFonts(args);
   if (id >= CommandId::MEASUREMENT_ADD && id <= CommandId::MEASUREMENT_DELETE) return measurementCommand(id, args);
-  if (id >= CommandId::WRAP_IN_SECTION && id <= CommandId::REMOVE_GUIDE) return selectionCommand(id, args);
+  if (id >= CommandId::WRAP_IN_SECTION && id <= CommandId::UPGRADE_VECTOR_OPERATION) return selectionCommand(id, args);
   if (id >= CommandId::CONVERT_TO_SECTION && id <= CommandId::SET_SPELLING_MARKS) return arrangeCommand(id, args);
   if (id >= CommandId::SET_WIDTH_PROFILE && id <= CommandId::FLIP_WIDTH_POINTS) return widthCommand(id, args);
   if (id >= CommandId::ADD_TRANSFORM_MODIFIER && id <= CommandId::SET_TEXT_PATH_START) return drawCommand(id, args);  // Draw (DrawCommands.cpp)
@@ -153,8 +153,8 @@ Status Editor::command(CommandId id, const CommandArgs& args) {
     case CommandId::SEND_TO_BACK: reorder(-2); return OK;
     case CommandId::TOGGLE_LOCK: toggle(F_LOCKED); return OK;
     case CommandId::TOGGLE_VISIBLE: toggle(F_VISIBLE); return OK;
-    case CommandId::ZOOM_IN: zoomTo(camera_.zoom * 2); return OK;
-    case CommandId::ZOOM_OUT: zoomTo(camera_.zoom / 2); return OK;
+    case CommandId::ZOOM_IN: zoomTo(Camera::zoomedIn(camera_.zoom)); return OK;
+    case CommandId::ZOOM_OUT: zoomTo(Camera::zoomedOut(camera_.zoom)); return OK;
     case CommandId::ZOOM_TO_100: zoomTo(1); return OK;
     case CommandId::ZOOM_TO_FIT: zoomToFit(); return OK;
     case CommandId::ZOOM_TO_SELECTION: {
@@ -221,7 +221,7 @@ uint32_t Editor::commandState(CommandId id) const {
   if (id >= CommandId::CREATE_COMPONENT && id <= CommandId::SET_VARIANT_PROPERTIES) return componentCommandState(id);
   if (id >= CommandId::CONVERT_TO_SLOT && id <= CommandId::CLEAR_SLOT) return slotCommandState(id);
   if (id >= CommandId::CREATE_VARIABLE_COLLECTION && id <= CommandId::UNGROUP_STYLES) return variableCommandState(id);
-  if (id >= CommandId::WRAP_IN_SECTION && id <= CommandId::REMOVE_GUIDE) return selectionCommandState(id);
+  if (id >= CommandId::WRAP_IN_SECTION && id <= CommandId::UPGRADE_VECTOR_OPERATION) return selectionCommandState(id);
   if (id >= CommandId::CONVERT_TO_SECTION && id <= CommandId::SET_SPELLING_MARKS) return arrangeCommandState(id);
   if (id >= CommandId::MOTION_ADD_KEYFRAME && id <= CommandId::MOTION_SET_PRESET_TRACKS) return motionCommandState(id);
   if (id >= CommandId::SET_WIDTH_PROFILE && id <= CommandId::FLIP_WIDTH_POINTS) return widthCommandState(id);

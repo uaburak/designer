@@ -1972,10 +1972,18 @@ void Renderer::strokePolyline(const std::vector<Vec2>& pts, bool closed, double 
 
 void Renderer::drawOutlined(const Document& doc, uint32_t i, const NodeProps& p, const Mat2x3& m) {
   const RenderNode& rn = tree_->nodes()[i];
+  outlineShape(doc, rn.id, p, m, outlineInk_.a);
+  if (p.isTextLike()) return;
+  if (rn.hasChildren) {
+    if (p.type == NodeType::TRANSFORM) drawRepeat(doc, i, m, 1);
+    else drawChildren(doc, i + 1, rn.end, m, 1);
+  }
+}
+
+void Renderer::outlineShape(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha) {
   const Color ink{outlineInk_.r, outlineInk_.g, outlineInk_.b, 1};
-  const double alpha = outlineInk_.a;
   if (p.isTextLike()) {
-    if (const text::TextLayout* L = texts_ ? texts_->textLayout(rn.id) : nullptr) drawGlyphs(*L, m, ink, alpha);
+    if (const text::TextLayout* L = texts_ ? texts_->textLayout(id) : nullptr) drawGlyphs(*L, m, ink, alpha);
     return;
   }
   if (!p.isGroupLike()) {
@@ -1990,7 +1998,7 @@ void Renderer::drawOutlined(const Document& doc, uint32_t i, const NodeProps& p,
         emit(makeShape(um, {p.size.x * l0, p.size.y * l1}, p.type == NodeType::ELLIPSE ? ShapeKind::Ellipse : ShapeKind::Rect, r, ink, 0, ink, alpha, 1, 0),
              Pass::Shape);
       }
-    } else if (const NodeGeometry* g = doc.geometry(rn.id)) {
+    } else if (const NodeGeometry* g = doc.geometry(id)) {
       auto outline = [&](const geom::Path& path) {
         for (const geom::Polyline& pl : geom::flatten(path.transformed(m), 0.25)) strokePolyline(pl.points, pl.closed, 1, ink, alpha);
       };
@@ -2000,10 +2008,36 @@ void Renderer::drawOutlined(const Document& doc, uint32_t i, const NodeProps& p,
         outline(g->stroke.path);
     }
   }
-  if (rn.hasChildren) {
-    if (p.type == NodeType::TRANSFORM) drawRepeat(doc, i, m, 1);
-    else drawChildren(doc, i + 1, rn.end, m, 1);
-  }
+}
+
+void Renderer::drawOutlineOptions(const Document& doc, Guid page, const Mat2x3& view, const Overlay& overlay) {
+  // Drawn over the page each frame, not into its cached tiles (a hidden layer's changes don't damage them). What a
+  // clipping frame keeps off screen is skipped.
+  const Color ink{outlineInk_.r, outlineInk_.g, outlineInk_.b, 1};
+  auto visit = [&](auto&& self, Guid parent, const Mat2x3& parentM, bool hiddenAbove) -> void {
+    for (Guid c : doc.children(parent)) {
+      const Node* n = doc.get(c);
+      if (!n) continue;
+      const NodeProps& p = n->props;
+      bool hidden = hiddenAbove || !p.visible;
+      if (hidden && !overlay.outlineHidden) continue;
+      Mat2x3 m = parentM * p.transform;
+      Rect box = transformedBounds(m, p.size.x, p.size.y);
+      bool onScreen = box.intersects(screen_);
+      if (hidden && onScreen) outlineShape(doc, c, p, m, outlineInk_.a);
+      if (overlay.outlineBounds && onScreen && !p.isGroupLike() && std::max(box.w, box.h) >= 2) {
+        // The box with unit-length axes so its line is one CSS px (as drawOutlined's boxes).
+        double l0 = std::hypot(m.m00, m.m10), l1 = std::hypot(m.m01, m.m11);
+        if (l0 > 0 && l1 > 0) {
+          Mat2x3 um{m.m00 / l0, m.m01 / l1, m.m02, m.m10 / l0, m.m11 / l1, m.m12};
+          emit(makeShape(um, {p.size.x * l0, p.size.y * l1}, ShapeKind::Rect, kSquare, ink, 0, ink, outlineInk_.a * 0.5, 1, 0), Pass::Shape);
+        }
+      }
+      if (!onScreen && p.isFrameLike() && p.clipsContent()) continue;
+      if (!p.isTextLike()) self(self, c, m, hidden);
+    }
+  };
+  visit(visit, page, view, false);
 }
 
 void Renderer::drawRepeat(const Document& doc, uint32_t i, const Mat2x3& m, double alpha) {
