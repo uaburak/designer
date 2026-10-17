@@ -30,6 +30,7 @@ import { usePaintTargets, useSelectedNodes, type PanelNode } from "./shared";
 import { designSections, isTypeNode } from "../../draw/panels/drawPanel";
 import { TransformSection } from "../../draw/panels/TransformSection";
 import { MotionSection } from "../../motion/panels/MotionSection";
+import { MotionFieldStates } from "../../motion/panels/MotionField";
 import draw from "../../draw/panels/DrawPanels.module.css";
 import { TypeHeader } from "./Header";
 import { RelaunchButtons } from "./RelaunchButtons";
@@ -142,7 +143,7 @@ function Selected({ nodes, paintNodes, onPick }: { nodes: PanelNode[]; paintNode
         <PaintsSection title="Stroke" field="strokePaints" nodes={paintNodes} onPick={onPick} />
       </>
     );
-  return (
+  const sections = (
     <>
       {/* An instance: its name, Go to main component and its properties; a component, set or variant: its name and Properties (Current variant) */}
       {/* (Draw: a component's header without its properties; an instance keeps its swap header) */}
@@ -164,5 +165,7 @@ function Selected({ nodes, paintNodes, onPick }: { nodes: PanelNode[]; paintNode
       <ExportSection targets={nodes as ExportTarget[]} page={false} />
     </>
   );
+  // Motion mode (docs/motion.md §6.5): one read of the selection's diamonds for the Motion section and Design's fields.
+  return mode === "motion" ? <MotionFieldStates nodes={nodes}>{sections}</MotionFieldStates> : sections;
 }
 

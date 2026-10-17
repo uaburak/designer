@@ -2,18 +2,21 @@
  * Motion mode's shell (docs/motion.md §6.1, §6.2): while `ui.mode` is "motion", the timeline docked along the
  * editor's bottom (EditorApp.module.css lifts the panels and the toolbar over it by its `data-motion-timeline` state),
  * fed by the engine's `motionTimeline()` and re-read on MOTION_CHANGED, document changes and selection changes; the
- * playback clock (clock.ts) drives the playhead, which `setPlayhead` pushes to the engine every frame.
+ * playback clock (clock.ts) drives the playhead, which `setPlayhead` pushes to the engine every frame. Increment 2: ⌘C /
+ * ⌘V of keyframes (keyframeClipboard.ts) and the height dragged by the top edge (`ui.motion.height`, put on the editor
+ * as --ds-size-motion-timeline so the panels and the toolbar lift with it).
  *
  * Every engine call is guarded: the loaded wasm may predate round 8 (built on another machine), in which case the
  * timeline shows its empty state and the chrome's own state still works.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Guid } from "@/engine/codec";
 import type { EasingRef, GuidString, Micros, PlaybackName, TimelineModel, TimelineTrack } from "@shared/motion/types";
 import { useEditor } from "../controller";
 import { useTopics, useUI } from "../hooks";
 import { MOTION_UI_DEFAULT } from "../uiStore";
 import { Clock } from "./clock";
+import { copySelectedKeyframes, pasteKeyframes } from "./keyframeClipboard";
 import { motionRead, motionUi, setMotionUi, setPlayhead, toggleAutoKeyframe, toggleMotionPlaying } from "./motionState";
 import { Timeline } from "./timeline/Timeline";
 
@@ -29,6 +32,13 @@ function MotionShell() {
   const version = useTopics(ed.store, ["selection", "structure", "undo"]);
   const [motionVersion, setMotionVersion] = useState(0);
   useEffect(() => ed.engine.on("MOTION_CHANGED", () => setMotionVersion((v) => v + 1)), [ed]);
+  // The height dragged by the top edge: on the editor (EditorApp.module.css reads it for the lift), gone with the mode.
+  useLayoutEffect(() => {
+    const root = document.querySelector<HTMLElement>("[data-editor]");
+    if (!root || ui.height === undefined) return;
+    root.style.setProperty("--ds-size-motion-timeline", `${ui.height}px`);
+    return () => void root.style.removeProperty("--ds-size-motion-timeline");
+  }, [ui.height]);
   const model = useMemo<TimelineModel | null>(() => {
     void version;
     void motionVersion;
@@ -141,6 +151,9 @@ function MotionShell() {
         const refs: Guid[] = additive ? [...new Set([...ed.store.selection.refs, node])] : [node];
         ed.engine.setSelection(refs);
       }}
+      onCopyKeyframes={(ids) => void copySelectedKeyframes(model, ids)}
+      onPasteKeyframes={() => pasteKeyframes(ed, model)}
+      onResize={(height) => setMotionUi(ed, { height })}
     />
   );
 }

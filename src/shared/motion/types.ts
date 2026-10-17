@@ -441,7 +441,7 @@ export interface AudioEdit {
 
 /** engine.runMotionCommand's arguments by CommandId (abi.ts 330–349). */
 export interface MotionCommandArgs {
-  MOTION_ADD_KEYFRAME: { nodes: GuidString[]; field: KeyframeField; timeUs?: Micros; value?: KeyframeValue };
+  MOTION_ADD_KEYFRAME: { nodes: GuidString[]; field: KeyframeField; timeUs?: Micros; value?: KeyframeValue; easing?: EasingRef };
   MOTION_SET_KEYFRAMES: { edits: KeyframeEdit[] };
   MOTION_DELETE_KEYFRAMES: { ids: GuidString[] };
   MOTION_DELETE_TRACKS: { node: GuidString; fields: KeyframeField[] };

@@ -28,6 +28,8 @@ import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
 import { IDENTITY, panelPosition, roundPanel, rotateTo, rotationOf, withPanelPosition } from "../../model/geometry";
 import { PANEL_MENU_GAP, fields, hasCorners, isFrameNode, isGroupNode, isInstanceSublayer, typeOf, useKeeps, useParents, useSupports, useTextEditRef, type BlendModeName, type PanelNode } from "./shared";
 import { SLIDER_RANGE, SliderRow, useDrawMode } from "../../draw/panels/DrawSliders";
+import { MotionField } from "../../motion/panels/MotionField";
+import { motionPerLayer } from "../../motion/panels/motionWrites";
 import { t, useT } from "@/i18n";
 import styles from "./Design.module.css";
 
@@ -204,21 +206,14 @@ export function PositionSection({ nodes }: { nodes: PanelNode[] }) {
   const x = mixedNumber(pos.map((p) => roundPanel(p.x)));
   const y = mixedNumber(pos.map((p) => roundPanel(p.y)));
   const rotation = mixedNumber(nodes.map((n) => roundPanel(rotationOf(n.transform ?? IDENTITY))));
-  const axis = (a: "x" | "y") =>
-    perLayer(
-      ed,
-      "Position",
-      refs,
-      (n) => panelPosition(n.transform ?? IDENTITY, groupChain(ed, n))[a],
-      (n, v) => ({ transform: withPanelPosition(n.transform ?? IDENTITY, groupChain(ed, n), a === "x" ? v : null, a === "y" ? v : null) })
-    );
-  const rotate = perLayer(
-    ed,
-    "Rotate",
-    refs,
-    (n) => rotationOf(n.transform ?? IDENTITY),
-    (n, deg) => (n.size ? { transform: rotateTo(n.transform ?? IDENTITY, n.size, deg) } : null)
-  );
+  const axisOf = (a: "x" | "y") => (n: PanelNode) => panelPosition(n.transform ?? IDENTITY, groupChain(ed, n))[a];
+  const moveTo = (a: "x" | "y") => (n: PanelNode, v: number) => ({ transform: withPanelPosition(n.transform ?? IDENTITY, groupChain(ed, n), a === "x" ? v : null, a === "y" ? v : null) });
+  const turnOf = (n: PanelNode) => rotationOf(n.transform ?? IDENTITY);
+  const turnTo = (n: PanelNode, deg: number) => (n.size ? { transform: rotateTo(n.transform ?? IDENTITY, n.size, deg) } : null);
+  // Motion mode (docs/motion.md §6.5): the fields show the layer at the playhead; a change lands on its keyframe there.
+  const motion = useUI((s) => s.mode === "motion");
+  const axis = (a: "x" | "y") => (motion ? motionPerLayer(ed, "Position", refs, axisOf(a), moveTo(a), a, exitToCanvas(ed)) : perLayer(ed, "Position", refs, axisOf(a), moveTo(a)));
+  const rotate = motion ? motionPerLayer(ed, "Rotate", refs, turnOf, turnTo, "rotation", exitToCanvas(ed)) : perLayer(ed, "Rotate", refs, turnOf, turnTo);
   const container = nodes.length === 1 && (isGroupNode(nodes[0]) || typeOf(nodes[0]) === "BOOLEAN_OPERATION" || (typeOf(nodes[0]) === "FRAME" && !isAutoLayout(nodes[0])));
   // A layer inside an instance keeps its place and turn (live design/nested-instance.txt); a layer in an auto-layout
   // flow keeps its place (autolayout-child, grid-child: X / Y disabled); a text being edited keeps its turn
@@ -270,13 +265,19 @@ export function PositionSection({ nodes }: { nodes: PanelNode[] }) {
           </PropertyRow>
         )}
         <PropertyRow label={t("Position")} action={constraints && !section ? <ConstraintsToggle /> : undefined}>
-          <NumericInput label={t("X-position")} prefix="X" prefixTone="primary" disabled={placeLocked} className={styles.plainDisabled} value={fieldValue(x)} {...axis("x")} />
-          <NumericInput label={t("Y-position")} prefix="Y" prefixTone="primary" disabled={placeLocked} className={styles.plainDisabled} value={fieldValue(y)} {...axis("y")} />
+          <MotionField field="TRANSLATION_XY" axis="TRANSLATION_X">
+            <NumericInput label={t("X-position")} prefix="X" prefixTone="primary" disabled={placeLocked} className={styles.plainDisabled} value={fieldValue(x)} {...axis("x")} />
+          </MotionField>
+          <MotionField field="TRANSLATION_XY" axis="TRANSLATION_Y">
+            <NumericInput label={t("Y-position")} prefix="Y" prefixTone="primary" disabled={placeLocked} className={styles.plainDisabled} value={fieldValue(y)} {...axis("y")} />
+          </MotionField>
         </PropertyRow>
         {constraints && !section && constraintsOpen && <ConstraintsRow nodes={nodes} />}
         {!section && (
           <PropertyRow label={t("Rotation")}>
-            <NumericInput label={t("Rotation")} prefix="24.rotation" unit="°" disabled={locked} className={styles.plainDisabled} value={fieldValue(rotation)} min={-360} max={360} {...rotate} />
+            <MotionField field="ROTATION">
+              <NumericInput label={t("Rotation")} prefix="24.rotation" unit="°" disabled={locked} className={styles.plainDisabled} value={fieldValue(rotation)} min={-360} max={360} {...rotate} />
+            </MotionField>
             <div className={styles.buttonGroup}>
               <GroupButton id="object.rotate-90-right" icon="24.rotate" disabled={locked || editingText || undefined} />
               <GroupButton id="object.flip-horizontal" icon="24.flip.horizontal.small" disabled={locked || editingText || undefined} />
@@ -457,12 +458,16 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
             )
           }
         >
-          <VariableField nodes={nodes} fields={["OPACITY"]} prefix="24.opacity">
-            <NumericInput label={t("Opacity")} prefix="24.opacity" unit="%" precision={0} min={0} max={100} value={fieldValue(opacity)} {...opacityHandlers} />
-          </VariableField>
-          <VariableField nodes={nodes} fields={ALL_CORNERS} prefix="24.corners" disabled={independentNow}>
-            <NumericInput label={t("Corner radius")} prefix="24.corners" min={signedOk ? undefined : 0} disabled={plainOnly} value={independentNow ? MIXED : fieldValue(radius)} {...radiusHandlers} />
-          </VariableField>
+          <MotionField field="OPACITY">
+            <VariableField nodes={nodes} fields={["OPACITY"]} prefix="24.opacity">
+              <NumericInput label={t("Opacity")} prefix="24.opacity" unit="%" precision={0} min={0} max={100} value={fieldValue(opacity)} {...opacityHandlers} />
+            </VariableField>
+          </MotionField>
+          <MotionField field="CORNER_RADIUS" disabled={plainOnly}>
+            <VariableField nodes={nodes} fields={ALL_CORNERS} prefix="24.corners" disabled={independentNow}>
+              <NumericInput label={t("Corner radius")} prefix="24.corners" min={signedOk ? undefined : 0} disabled={plainOnly} value={independentNow ? MIXED : fieldValue(radius)} {...radiusHandlers} />
+            </VariableField>
+          </MotionField>
         </PropertyRow>
         {drawMode && (
           <SliderRow

@@ -1,8 +1,10 @@
 // The timeline's geometry (docs/motion.md §6.2): time ↔ x about the 18 px origin, the ruler's labels, frame snapping
-// and ⇧-snapping, the time formats, the layer bar's extent.
+// and ⇧-snapping, the time formats, the layer bar's extent; the marquee, the top edge's clamp, the keyframes copied;
+// the Design fields' routing in Motion mode (panels/motionWrites.ts).
 import { describe, expect, it } from "vitest";
 import type { TimelineLayer } from "@shared/motion/types";
-import { ORIGIN_PX, fitScale, formatTime, frameUs, layerExtent, otherKeyframeTimes, parseTime, rulerTicks, snapTime, snapToFrame, timeToX, xToTime } from "../timeline/maths";
+import { ORIGIN_PX, clampTimelineHeight, copyKeyframes, fitScale, formatTime, frameUs, layerExtent, marqueeBox, otherKeyframeTimes, overlaps, parseTime, rulerTicks, snapTime, snapToFrame, timeToX, xToTime } from "../timeline/maths";
+import { motionFieldOf, movedValue } from "../panels/motionWrites";
 
 const layer = (tracks: { id: string; times: number[] }[]): TimelineLayer => ({
   node: "1:1",
@@ -60,5 +62,39 @@ describe("timeline maths", () => {
     expect(layerExtent(l)).toEqual({ startUs: 100_000, endUs: 800_000 });
     expect(layerExtent(layer([]))).toBeNull();
     expect(otherKeyframeTimes([l], new Set(["ak0", "bk1"]))).toEqual([800_000, 100_000]);
+  });
+
+  it("the marquee spans the press and the pointer either way; a diamond it touches is in it", () => {
+    expect(marqueeBox({ x: 100, y: 80 }, { x: 40, y: 20 })).toEqual({ left: 40, top: 20, width: 60, height: 60 });
+    const m = marqueeBox({ x: 0, y: 0 }, { x: 50, y: 50 });
+    expect(overlaps(m, { left: 45, top: 45, width: 16, height: 16 })).toBe(true);
+    expect(overlaps(m, { left: 51, top: 10, width: 16, height: 16 })).toBe(false);
+    expect(overlaps(m, { left: -16, top: -16, width: 16, height: 16 })).toBe(true);
+  });
+
+  it("the timeline's height dragged by its top edge: 120 at least, 60 % of the window at most", () => {
+    expect(clampTimelineHeight(80, 1000)).toBe(120);
+    expect(clampTimelineHeight(333.4, 1000)).toBe(333);
+    expect(clampTimelineHeight(900, 1000)).toBe(600);
+  });
+
+  it("copies the selected keyframes per layer and track, timed from the earliest", () => {
+    const a = layer([{ id: "a", times: [100, 400, 900] }]);
+    const b = { ...layer([{ id: "b", times: [250] }]), node: "1:2" };
+    const copy = copyKeyframes([a, b], new Set(["ak1", "ak2", "bk0"]));
+    expect(copy.map((c) => c.node)).toEqual(["1:1", "1:2"]);
+    expect(copy[0].tracks[0].keyframes.map((k) => k.dtUs)).toEqual([150_000, 650_000]);
+    expect(copy[1].tracks[0].keyframes.map((k) => k.dtUs)).toEqual([0]);
+    expect(copy[0].tracks[0].field).toEqual({ type: "PROPERTY", name: "OPACITY" });
+    expect(copyKeyframes([a], new Set())).toEqual([]);
+  });
+
+  it("Design's X / Y key the Position track (a layer's own X / Y track when it has one); a value moves by the change", () => {
+    expect(motionFieldOf("x", undefined)).toBe("TRANSLATION_XY");
+    expect(motionFieldOf("y", { TRANSLATION_Y: { state: "track" } })).toBe("TRANSLATION_Y");
+    expect(motionFieldOf("x", { TRANSLATION_Y: { state: "track" } })).toBe("TRANSLATION_XY");
+    expect(motionFieldOf("rotation", undefined)).toBe("ROTATION");
+    expect(movedValue({ type: "VECTOR", value: { x: 10, y: -5 } }, { x: 5, y: 1 })).toEqual({ type: "VECTOR", value: { x: 15, y: -4 } });
+    expect(movedValue({ type: "FLOAT", value: 90 }, { x: -10, y: 0 })).toEqual({ type: "FLOAT", value: 80 });
   });
 });

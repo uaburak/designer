@@ -127,5 +127,10 @@
   .durationHandle { position: absolute; top: 0; left: -4px; width: 9px; height: 12px; border-radius: 0 0 2px 2px; background: var(--figma-color-icon-secondary); }
   .past { position: absolute; top: 0; right: 0; bottom: 0; background: var(--figma-color-bg-secondary); opacity: 0.25; pointer-events: none; }
 
+  /* The marquee over the track area (the file browser's look): what it touches is selected */
+  .marquee { position: absolute; z-index: 2; border: 1px solid var(--figma-color-border-selected); background: var(--ds-color-marquee-fill); pointer-events: none; }
+  /* The top edge: an 8 strip over the border line, dragged to resize (min 120, max 60 % of the window) [unverified] */
+  .resize { position: absolute; top: calc(var(--ds-space-1) * -1); right: 0; left: 0; z-index: 3; height: var(--ds-space-2); cursor: ns-resize; }
+
   .empty { display: flex; flex: 1 1 auto; align-items: center; justify-content: center; padding: var(--ds-space-4); color: var(--figma-color-text-secondary); text-align: center; }
 }

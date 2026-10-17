@@ -23,6 +23,11 @@
   .diamond[data-state="keyframe"] { color: var(--figma-color-icon-brand); }
   .diamond[data-state="keyframe"] path { fill: currentColor; }
   .diamond:disabled { color: var(--figma-color-icon-disabled); cursor: default; }
+  /* Beside a Design field: 16 wide, the field's height */
+  .diamond[data-size="small"] { width: 16px; border-radius: var(--ds-radius-small); }
+
+  /* A Design field with its diamond before it (Motion mode): the diamond, then the field (a `display: contents` wrapper's field too) */
+  .field { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: center; min-width: 0; }
 
   /* The Motion section's rows: the diamond, the field's name, its value at the playhead */
   .row { display: flex; align-items: center; gap: var(--ds-space-1); height: var(--ds-size-control); padding: 0 var(--ds-size-panel-pad-right) 0 calc(var(--ds-size-panel-pad-left) - var(--ds-space-2)); }

@@ -1186,6 +1186,8 @@ export const editor: Record<string, string> = {
   "Scale Y": "Ölçek Y",
   "Path trim start": "Yol kesme başlangıcı",
   "Path trim end": "Yol kesme sonu",
+  // ── Motion mode, increment 2 (the timeline's top edge) ──
+  "Resize timeline": "Zaman çizelgesini yeniden boyutlandır",
   // ── Animated export (panels/design/ExportAnimated.tsx, editor/motion/export; docs/motion.md §7) ──
   "Export kind": "Dışa aktarma türü",
   Static: "Sabit",

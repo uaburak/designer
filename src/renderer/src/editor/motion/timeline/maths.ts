@@ -1,9 +1,10 @@
 /**
  * The timeline's geometry (docs/motion.md §6.2): time ↔ x, the ruler's labels, snapping to the timeline's frames
- * (`keyframeSnappingFps`) and, with ⇧ held, to the playhead and the other keyframes; the layer bar's extent. Figma's
+ * (`keyframeSnappingFps`) and, with ⇧ held, to the playhead and the other keyframes; the layer bar's extent; the
+ * marquee, the height dragged by the top edge and the keyframes copied (increment 2). Figma's
  * timeline worker draws the origin at x = 18 px and 16 × 16 diamonds (docs/research/rea/motion.md).
  */
-import type { Micros, TimelineLayer } from "@shared/motion/types";
+import type { GuidString, Micros, MotionClipboard, TimelineLayer } from "@shared/motion/types";
 
 /** Where t = 0 sits in the track area (px from its left edge). */
 export const ORIGIN_PX = 18;
@@ -108,5 +109,49 @@ export function otherKeyframeTimes(layers: readonly TimelineLayer[], except: Rea
     for (const t of l.tracks)
       for (const k of t.keyframes)
         if (!except.has(k.id)) out.push(k.timeUs);
+  return out;
+}
+
+export interface Box {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/** The marquee between the press and the pointer (either corner first). */
+export const marqueeBox = (a: { x: number; y: number }, b: { x: number; y: number }): Box => ({
+  left: Math.min(a.x, b.x),
+  top: Math.min(a.y, b.y),
+  width: Math.abs(b.x - a.x),
+  height: Math.abs(b.y - a.y),
+});
+
+/** Do the two boxes overlap (a diamond the marquee touches is in it)? */
+export const overlaps = (a: Box, b: Box): boolean => a.left <= b.left + b.width && b.left <= a.left + a.width && a.top <= b.top + b.height && b.top <= a.top + a.height;
+
+/** The timeline's height dragged by its top edge (docs/motion.md §6.2): at least 120, at most 60 % of the window. */
+export const TIMELINE_MIN_PX = 120;
+export const clampTimelineHeight = (px: number, windowPx: number): number => Math.round(Math.max(TIMELINE_MIN_PX, Math.min(px, windowPx * 0.6)));
+
+/**
+ * Keyframes copied from the timeline (§6.2: ⌘C / ⌘V copy and paste keyframes at the playhead, ours): per layer, per
+ * track, each keyframe's value and easing at its distance from the earliest one copied.
+ */
+export interface KeyframeCopy {
+  node: GuidString;
+  tracks: MotionClipboard["tracks"];
+}
+
+export function copyKeyframes(layers: readonly TimelineLayer[], ids: ReadonlySet<GuidString>): KeyframeCopy[] {
+  let first = Infinity;
+  for (const l of layers) for (const t of l.tracks) for (const k of t.keyframes) if (ids.has(k.id)) first = Math.min(first, k.timeUs);
+  const out: KeyframeCopy[] = [];
+  for (const l of layers) {
+    const tracks = l.tracks
+      .map((t) => ({ field: t.field, keyframes: t.keyframes.filter((k) => ids.has(k.id)).map((k) => ({ dtUs: k.timeUs - first, value: k.value, easing: k.easing })) }))
+      .filter((t) => t.keyframes.length);
+    if (tracks.length) out.push({ node: l.node, tracks });
+  }
   return out;
 }

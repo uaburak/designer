@@ -1,10 +1,12 @@
 // @vitest-environment happy-dom
 // Tooltips never show under an open menu (ds TooltipManager): a menu that opens during the tooltip delay — by a key, by
 // the control's own press, or a canvas menu — keeps the pending tooltip from showing (the "Set status" bug, 2026-10-12).
+// A badge follows the label: the mode switch's "Motion  Beta" (docs/motion.md §6.1).
 import { act, createElement, Fragment } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { EDITOR_MODES } from "../components/EditorToolbar";
 import { ContextMenu } from "../components/Menu";
-import { TooltipManager } from "../overlay/TooltipManager";
+import { TooltipManager, tooltipProps } from "../overlay/TooltipManager";
 import { mount, spy, type Mounted } from "./dom";
 
 let m: Mounted | null = null;
@@ -46,5 +48,16 @@ describe("tooltips and menus", () => {
     m.rerender(Host, { menu: true });
     act(() => vi.advanceTimersByTime(600));
     expect(tooltip()).toBeNull();
+  });
+
+  it("a badge follows the label: the mode switch's Motion radio carries Beta", () => {
+    vi.useFakeTimers();
+    const motion = EDITOR_MODES.find((mode) => mode.id === "motion")!;
+    expect(motion.badge).toBe("Beta");
+    const Beta = () => createElement(Fragment, null, createElement(TooltipManager), createElement("button", { id: "m", ...tooltipProps(motion.label, motion.shortcut, "top", undefined, motion.badge) }, "x"));
+    m = mount(Beta, {});
+    over(document.getElementById("m")!);
+    act(() => vi.advanceTimersByTime(600));
+    expect([...tooltip()!.children].map((c) => c.textContent)).toEqual(["Motion", "Beta"]);
   });
 });

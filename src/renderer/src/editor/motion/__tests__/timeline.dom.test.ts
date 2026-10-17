@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 // The timeline (docs/motion.md §6.2) on a fixed model (the committed wasm predates Motion, so the view is tested on its
-// own): the rows, the diamonds' selection and drag, Delete, the segment's Easing menu, the header's controls.
+// own): the rows, the diamonds' selection and drag, Delete, the segment's Easing menu, the header's controls; increment
+// 2's marquee, ⌘C / ⌘V and the top edge.
 import { act } from "react";
 import { describe, expect, it } from "vitest";
 import type { TimelineModel } from "@shared/motion/types";
@@ -46,6 +47,7 @@ function setup(over: Partial<TimelineProps> = {}) {
   const s = {
     onSeek: spy(), onTogglePlay: spy(), onToggleAutoKeyframe: spy(), onToggleCollapse: spy(), onSetTimeline: spy(), onSelectKeyframes: spy(),
     onMoveKeyframes: spy(), onDeleteKeyframes: spy(), onDeleteTrack: spy(), onSetEasing: spy(), onSelectLayer: spy(),
+    onCopyKeyframes: spy(), onPasteKeyframes: spy(), onResize: spy(),
   } as unknown as Spies;
   const props = { model: MODEL, timeUs: 0, playing: false, autoKeyframe: false, collapsed: false, unit: "ms", selectedKeyframes: new Set(), selectedNodes: new Set(), ...(s as unknown as Partial<TimelineProps>), ...over } as TimelineProps;
   // The same component each time, so the view's own state (rows, drags) survives a props change.
@@ -56,7 +58,7 @@ function setup(over: Partial<TimelineProps> = {}) {
   return { view, s, rerender, scale: fitScale(2_000_000, 600) };
 }
 
-const windowPointer = (type: "pointermove" | "pointerup", init: { clientX: number; shiftKey?: boolean }) =>
+const windowPointer = (type: "pointermove" | "pointerup", init: { clientX: number; clientY?: number; shiftKey?: boolean }) =>
   act(() => void window.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 1, pointerType: "mouse", button: 0, ...init })));
 
 describe("the Motion timeline", () => {
@@ -188,6 +190,80 @@ describe("the Motion timeline", () => {
     const ruler = $("[data-ruler]", view.host);
     pointer(ruler, "pointerdown", { clientX: ORIGIN_PX + 1_000_000 * scale.pxPerUs });
     expect(s.onSeek.calls.at(-1)![0]).toBeCloseTo(1_000_000, -4);
+    view.unmount();
+  });
+
+  it("a marquee over the track area selects the keyframes it touches, ⇧ adds to the selection; a click there clears it", () => {
+    const { view, s, rerender } = setup();
+    // happy-dom has no layout: the diamonds' boxes as drawn (k1, k2 on the Opacity row, k3 on the Position row).
+    box($('[data-keyframe="k1"]', view.host), { left: 10, top: 50, width: 16, height: 16 });
+    box($('[data-keyframe="k2"]', view.host), { left: 150, top: 50, width: 16, height: 16 });
+    box($('[data-keyframe="k3"]', view.host), { left: 300, top: 74, width: 16, height: 16 });
+    const tracks = $('[aria-label="Tracks"]', view.host);
+    pointer(tracks, "pointerdown", { clientX: 0, clientY: 40 });
+    expect(s.onSelectKeyframes.calls).toEqual([[[]]]);
+    windowPointer("pointermove", { clientX: 1, clientY: 41 }); // under the drag threshold: no marquee yet
+    expect($("[data-marquee]", view.host)).toBeNull();
+    windowPointer("pointermove", { clientX: 200, clientY: 60 });
+    expect($("[data-marquee]", view.host).style.width).toBe("200px");
+    expect(s.onSelectKeyframes.calls.at(-1)).toEqual([["k1", "k2"]]);
+    windowPointer("pointerup", { clientX: 200, clientY: 60 });
+    expect($("[data-marquee]", view.host)).toBeNull();
+    rerender({ selectedKeyframes: new Set(["k1", "k2"]) });
+    pointer(tracks, "pointerdown", { clientX: 290, clientY: 70, shiftKey: true });
+    windowPointer("pointermove", { clientX: 320, clientY: 95, shiftKey: true });
+    expect(s.onSelectKeyframes.calls.at(-1)).toEqual([["k1", "k2", "k3"]]);
+    windowPointer("pointerup", { clientX: 320, clientY: 95 });
+    view.unmount();
+  });
+
+  it("⌘C copies the selected keyframes and ⌘V pastes them: the document's clipboard events stop at the track area", () => {
+    let pastes = 0;
+    const { view, s } = setup({ selectedKeyframes: new Set(["k1", "k3"]), onPasteKeyframes: () => ++pastes > 0 });
+    let reached = 0;
+    const count = () => reached++;
+    document.addEventListener("copy", count);
+    document.addEventListener("paste", count);
+    const tracks = $('[aria-label="Tracks"]', view.host);
+    const copy = new Event("copy", { bubbles: true, cancelable: true });
+    act(() => void tracks.dispatchEvent(copy));
+    expect(s.onCopyKeyframes.calls).toEqual([[["k1", "k3"]]]);
+    expect(copy.defaultPrevented).toBe(true);
+    const paste = new Event("paste", { bubbles: true, cancelable: true });
+    act(() => void tracks.dispatchEvent(paste));
+    expect(pastes).toBe(1);
+    expect(paste.defaultPrevented).toBe(true);
+    expect(reached).toBe(0);
+    document.removeEventListener("copy", count);
+    document.removeEventListener("paste", count);
+    view.unmount();
+  });
+
+  it("nothing selected, nothing copied: the clipboard events go on to the document", () => {
+    const { view, s } = setup({ onPasteKeyframes: () => false });
+    const tracks = $('[aria-label="Tracks"]', view.host);
+    const copy = new Event("copy", { bubbles: true, cancelable: true });
+    act(() => void tracks.dispatchEvent(copy));
+    expect(s.onCopyKeyframes.calls).toHaveLength(0);
+    expect(copy.defaultPrevented).toBe(false);
+    const paste = new Event("paste", { bubbles: true, cancelable: true });
+    act(() => void tracks.dispatchEvent(paste));
+    expect(paste.defaultPrevented).toBe(false);
+    view.unmount();
+  });
+
+  it("the top edge resizes the timeline: at least 120, at most 60 % of the window; collapsed, there is no edge", () => {
+    const { view, s, rerender } = setup();
+    box(view.host.querySelector("section")!, { left: 0, top: 560, width: 1000, height: 240 });
+    pointer($("[data-timeline-resize]", view.host), "pointerdown", { clientY: 560 });
+    windowPointer("pointermove", { clientX: 0, clientY: 460 });
+    expect(s.onResize.calls.at(-1)).toEqual([340, false]);
+    windowPointer("pointermove", { clientX: 0, clientY: 900 });
+    expect(s.onResize.calls.at(-1)).toEqual([120, false]);
+    windowPointer("pointerup", { clientX: 0, clientY: -4000 });
+    expect(s.onResize.calls.at(-1)).toEqual([Math.round(window.innerHeight * 0.6), true]);
+    rerender({ collapsed: true });
+    expect(view.host.querySelector("[data-timeline-resize]")).toBeNull();
     view.unmount();
   });
 });

@@ -105,13 +105,14 @@ export function toolForKey(e: { key: string; shiftKey: boolean; metaKey?: boolea
   return ({ v: "move", h: "hand", k: "scale", f: "frame", s: "slice", r: "rectangle", l: "line", o: "ellipse", p: "pen", b: "brush", t: "text", c: "comment", y: "annotation" } as Record<string, ToolId>)[k] ?? null;
 }
 
-export type EditorModeDef = { id: EditorMode; label: string; icon: IconName; shortcut?: string };
+/** `badge`: the tag the radio's tooltip carries (Figma's "Motion  Beta", live motion/behaviour.md) */
+export type EditorModeDef = { id: EditorMode; label: string; icon: IconName; shortcut?: string; badge?: string };
 
 /** The mode switch, left to right (the owner's screenshots; Figma's Draw, Design, Motion, Dev Mode). */
 export const EDITOR_MODES: EditorModeDef[] = [
   { id: "draw", label: "Draw", icon: "24.draw" },
   { id: "design", label: "Design", icon: "24.design" },
-  { id: "motion", label: "Motion", icon: "24.motion" },
+  { id: "motion", label: "Motion", icon: "24.motion", badge: "Beta" },
   { id: "dev", label: "Dev Mode", icon: "24.dev-brackets", shortcut: keys(["shift", "d"]) },
 ];
 
@@ -202,7 +203,7 @@ export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActi
                 modeRefs.current[next]?.focus();
                 onMode(EDITOR_MODES[next].id);
               }}
-              {...tooltipProps(t(m.label), m.shortcut, "top")}
+              {...tooltipProps(t(m.label), m.shortcut, "top", undefined, m.badge && t(m.badge))}
             >
               <Icon name={m.icon} />
             </button>

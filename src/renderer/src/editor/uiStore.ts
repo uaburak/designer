@@ -49,6 +49,8 @@ export interface MotionUIState {
   collapsed: boolean;
   selectedKeyframes: string[];
   unit: "ms" | "frames";
+  /** The timeline's height dragged by its top edge (px); unset: --ds-size-motion-timeline */
+  height?: number;
 }
 export const MOTION_UI_DEFAULT: MotionUIState = { timeUs: 0, playing: false, autoKeyframe: false, collapsed: false, selectedKeyframes: [], unit: "ms" };
 

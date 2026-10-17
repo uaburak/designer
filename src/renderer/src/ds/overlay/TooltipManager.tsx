@@ -9,13 +9,14 @@ import styles from "../components/Tooltip.module.css";
 /**
  * One tooltip manager per document (contract §4.9), mounted by each entry's
  * root: a delegated pointerover / focusin listener reads the target's
- * `data-tooltip`, `data-tooltip-shortcut`, `data-tooltip-placement` and
+ * `data-tooltip`, `data-tooltip-shortcut`, `data-tooltip-badge` (Figma's
+ * "Motion  Beta" tag on the mode switch), `data-tooltip-placement` and
  * `data-tooltip-align`, and draws one dark bubble in the overlay root after
  * 500ms — at once within 300ms of the last one hiding. Pointer leave or
  * down, keys, the wheel and blur hide it; it never shows while a button is
  * held or a menu is open.
  */
-type Tip = { el: HTMLElement; label: string; shortcut?: string; side: Placement; align: Align };
+type Tip = { el: HTMLElement; label: string; shortcut?: string; badge?: string; side: Placement; align: Align };
 
 export function TooltipManager() {
   const [tip, setTip] = useState<Tip | null>(null);
@@ -28,7 +29,7 @@ export function TooltipManager() {
       const label = el.dataset.tooltip;
       if (!label || "tooltipDisabled" in el.dataset || el.matches(":disabled")) return null;
       const side = (el.dataset.tooltipPlacement as Placement) || "bottom";
-      return { el, label, shortcut: el.dataset.tooltipShortcut || undefined, side, align: (el.dataset.tooltipAlign as Align) || "center" };
+      return { el, label, shortcut: el.dataset.tooltipShortcut || undefined, badge: el.dataset.tooltipBadge || undefined, side, align: (el.dataset.tooltipAlign as Align) || "center" };
     };
     const hide = () => {
       window.clearTimeout(timer.current);
@@ -109,6 +110,7 @@ function FloatingTooltip({ tip }: { tip: Tip }) {
     <Portal theme="dark">
       <div ref={ref} role="tooltip" data-ds="Tooltip" className={styles.tooltip} style={{ left: 0, top: 0, visibility: "hidden" }}>
         <span className={styles.label}>{tip.label}</span>
+        {tip.badge && <span className={styles.badge}>{tip.badge}</span>}
         {tip.shortcut && <span className={styles.shortcut}>{tip.shortcut}</span>}
       </div>
     </Portal>
@@ -125,8 +127,8 @@ export function TooltipBubble({ label, shortcut, className }: { label: string; s
   );
 }
 
-/** The attributes that give an element a tooltip (`{...tooltipProps("Move", "V")}`). */
-export function tooltipProps(label: string | undefined, shortcut?: string, placement?: Placement, align?: Align): Record<string, string | undefined> {
+/** The attributes that give an element a tooltip (`{...tooltipProps("Move", "V")}`); `badge`: a tag after the label ("Beta"). */
+export function tooltipProps(label: string | undefined, shortcut?: string, placement?: Placement, align?: Align, badge?: string): Record<string, string | undefined> {
   if (!label) return {};
-  return { "data-tooltip": label, "data-tooltip-shortcut": shortcut, "data-tooltip-placement": placement, "data-tooltip-align": align };
+  return { "data-tooltip": label, "data-tooltip-shortcut": shortcut, "data-tooltip-badge": badge, "data-tooltip-placement": placement, "data-tooltip-align": align };
 }

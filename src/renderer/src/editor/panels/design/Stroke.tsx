@@ -30,6 +30,7 @@ import { DYNAMIC_FIELDS, SCATTER_FIELDS, dynamicOf, pickStrokeBrush, scatterOf, 
 import { DrawSlider, SLIDER_RANGE, SliderRow, useDrawMode, type SliderSpec } from "../../draw/panels/DrawSliders";
 import draw from "../../draw/panels/DrawPanels.module.css";
 import { t, useT } from "@/i18n";
+import { MotionField } from "../../motion/panels/MotionField";
 import styles from "./Design.module.css";
 
 export type StrokeSide = "ALL" | "TOP" | "BOTTOM" | "LEFT" | "RIGHT" | "CUSTOM";
@@ -133,6 +134,7 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
           ]}
           onChange={(v) => ed.setProps(refs, { strokeAlign: v as StrokeAlign }, "Stroke position")}
         />
+        <MotionField field="STROKE_WEIGHT" disabled={side === "CUSTOM"}>
         <VariableField nodes={nodes} fields={["STROKE_WEIGHT"]} prefix="24.stroke-weight" disabled={side === "CUSTOM"}>
         <NumericInput
           label={t("Stroke weight")}
@@ -161,6 +163,7 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
           onExit={exitToCanvas(ed)}
         />
         </VariableField>
+        </MotionField>
       </PropertyRow>
       {drawMode && side !== "CUSTOM" && (
         <SliderRow sliders={[null, { label: t("Stroke weight"), value: weight, min: SLIDER_RANGE.strokeWeight[0], max: SLIDER_RANGE.strokeWeight[1], step: 0.5, onChange: writeWeight, onCancel: () => ed.cancelEdit() }]} />

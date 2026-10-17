@@ -4,9 +4,12 @@
  * animated layer of the root, its property rows under it) and the track area (the ruler, the layer bars, the diamonds,
  * the segments between them, the playhead, the duration handle).
  *
+ * Increment 2: a marquee in the track area selects the keyframes it touches (⇧ adds to the selection), ⌘C / ⌘V copy
+ * the selected keyframes and paste them at the playhead, the top edge resizes the timeline.
+ *
  * A pure view of a `TimelineModel`: every change goes out through its callbacks, so MotionMode wires it to the engine
- * and the tests mount it on a fixed model. Not in this increment: clips (presets), audio rows, marquee selection,
- * copy / paste, the layer bar's drag and scale handles, the timeline settings popover, resizing by the top edge.
+ * and the tests mount it on a fixed model. Not yet: clips (presets), audio rows, the layer bar's drag and scale
+ * handles, the timeline settings popover.
  */
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type WheelEvent as ReactWheelEvent } from "react";
 import { Icon, IconButton, Slider, TextInput, type IconName } from "@/ds";
@@ -14,7 +17,7 @@ import { capture } from "@/ds/util/pointer";
 import { t, useT } from "@/i18n";
 import { EASING_LABELS, PLAYBACK_CYCLE, PLAYBACK_LABELS, type EasingRef, type GuidString, type Micros, type PlaybackName, type TimelineKeyframe, type TimelineLayer, type TimelineModel, type TimelineTrack, type TimelineUnit } from "@shared/motion/types";
 import { EasingMenu } from "../easing/EasingEditor";
-import { DIAMOND_PX, fitScale, formatTime, frameUs, layerExtent, otherKeyframeTimes, parseTime, rulerTicks, snapTime, snapToFrame, timeToX, xToTime, type Scale } from "./maths";
+import { DIAMOND_PX, clampTimelineHeight, fitScale, formatTime, frameUs, layerExtent, marqueeBox, otherKeyframeTimes, overlaps, parseTime, rulerTicks, snapTime, snapToFrame, timeToX, xToTime, type Box, type Scale } from "./maths";
 import styles from "./Timeline.module.css";
 
 export interface TimelineProps {
@@ -44,6 +47,12 @@ export interface TimelineProps {
   onSetEasing(ids: GuidString[], easing: EasingRef): void;
   /** A layer row clicked: select the layer on the canvas */
   onSelectLayer(node: GuidString, additive: boolean): void;
+  /** ⌘C in the track area with keyframes selected (the editor keeps the copy) */
+  onCopyKeyframes(ids: GuidString[]): void;
+  /** ⌘V in the track area: the copied keyframes at the playhead; false when none were copied (the document's paste goes on) */
+  onPasteKeyframes(): boolean;
+  /** The top edge dragged: the timeline's height in px (`final` on release) */
+  onResize(heightPx: number, final: boolean): void;
 }
 
 const PLAYBACK_ICON: Record<PlaybackName, IconName> = { LOOP: "24.loop", ONCE: "24.play-once", PING_PONG: "24.ping-pong" };
@@ -83,6 +92,7 @@ export function Timeline(p: TimelineProps) {
   const [drag, setDrag] = useState<Drag | null>(null);
   const [easingAt, setEasingAt] = useState<EasingTarget | null>(null);
   const [durationDrag, setDurationDrag] = useState<number | null>(null);
+  const [marquee, setMarquee] = useState<Box | null>(null);
 
   // The track area's width decides the scale (fit the duration, then the zoom factor).
   useEffect(() => {
@@ -203,6 +213,57 @@ export function Timeline(p: TimelineProps) {
     window.addEventListener("pointerup", up);
   };
 
+  // ---- A press on empty track area: a click clears the keyframe selection, a drag draws a marquee (⇧ adds to it) ------
+  const onAreaDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (e.button !== 0 || !(target === e.currentTarget || target.classList.contains(styles.lane) || target.classList.contains(styles.lanes))) return;
+    const base = e.shiftKey ? [...selectedKeyframes] : [];
+    if (!e.shiftKey) p.onSelectKeyframes([]);
+    setSelectedRow(null);
+    const el = tracksEl.current;
+    if (!el || readOnly) return;
+    const start = { x: e.clientX, y: e.clientY };
+    let moving = false;
+    const move = (ev: PointerEvent) => {
+      if (!moving && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < DRAG_PX) return;
+      moving = true;
+      const area = el.getBoundingClientRect();
+      const box = marqueeBox(start, { x: ev.clientX, y: ev.clientY });
+      setMarquee({ ...box, left: box.left - area.left, top: box.top - area.top });
+      // The diamonds as drawn: whatever the marquee touches is selected.
+      const hit = [...el.querySelectorAll<HTMLElement>("[data-keyframe]")].filter((d) => overlaps(box, d.getBoundingClientRect())).map((d) => d.dataset.keyframe!);
+      p.onSelectKeyframes([...new Set([...base, ...hit])]);
+    };
+    const up = () => {
+      setMarquee(null);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
+
+  // ---- The top edge: drag to resize (min 120, max 60 % of the window) ---------------------------------------------------
+  const panelEl = useRef<HTMLElement>(null);
+  const onResizeDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    capture(e.currentTarget, e.pointerId);
+    const startY = e.clientY;
+    const startH = panelEl.current?.getBoundingClientRect().height ?? 0;
+    const at = (clientY: number) => clampTimelineHeight(startH + startY - clientY, window.innerHeight);
+    const move = (ev: PointerEvent) => p.onResize(at(ev.clientY), false);
+    const up = (ev: PointerEvent) => {
+      p.onResize(at(ev.clientY), true);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   // ---- Keys in the track area: Delete, ← → (a frame; ⇧ ten), Home / End, Space ------------------------------------------
   const onKeyDown = (e: ReactKeyboardEvent) => {
     if (e.key === " ") {
@@ -247,7 +308,8 @@ export function Timeline(p: TimelineProps) {
   const state = collapsed ? "collapsed" : "open";
 
   return (
-    <section data-motion-timeline={state} data-auto-keyframe={autoKeyframe || undefined} data-theme="dark" className={styles.panel} aria-label={t("Timeline")}>
+    <section ref={panelEl} data-motion-timeline={state} data-auto-keyframe={autoKeyframe || undefined} data-theme="dark" className={styles.panel} aria-label={t("Timeline")}>
+      {!collapsed && <div className={styles.resize} role="separator" aria-orientation="horizontal" aria-label={t("Resize timeline")} data-timeline-resize onPointerDown={onResizeDown} />}
       <div className={styles.header}>
         <IconButton icon={p.playing ? "24.pause" : "24.play"} label={p.playing ? t("Pause") : t("Play")} shortcut="Space" onClick={p.onTogglePlay} />
         {!readOnly && <IconButton icon="24.auto-keyframe" label={t("Toggle auto-keyframe")} aria-pressed={autoKeyframe} className={autoKeyframe ? styles.autoOn : undefined} onClick={p.onToggleAutoKeyframe} />}
@@ -303,12 +365,16 @@ export function Timeline(p: TimelineProps) {
                   )}
                 </div>
               </div>
-              <div ref={tracksEl} className={styles.tracks} tabIndex={0} aria-label={t("Tracks")} onKeyDown={onKeyDown} onWheel={onWheel} onPointerDown={(e) => {
-                // A press on empty track area clears the keyframe selection.
-                if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains(styles.lane)) {
-                  p.onSelectKeyframes([]);
-                  setSelectedRow(null);
-                }
+              <div ref={tracksEl} className={styles.tracks} tabIndex={0} aria-label={t("Tracks")} onKeyDown={onKeyDown} onWheel={onWheel} onPointerDown={onAreaDown} onCopy={(e) => {
+                // ⌘C / ⌘V here are the keyframes' (the document's clipboard events stop at the track area).
+                if (!selectedKeyframes.size || readOnly) return;
+                e.preventDefault();
+                e.stopPropagation();
+                p.onCopyKeyframes([...selectedKeyframes]);
+              }} onPaste={(e) => {
+                if (readOnly || !p.onPasteKeyframes()) return;
+                e.preventDefault();
+                e.stopPropagation();
               }}>
                 <div className={styles.ruler} data-ruler onPointerDown={onRulerDown}>
                   {ticks.map((tk) => (
@@ -333,6 +399,7 @@ export function Timeline(p: TimelineProps) {
                   <div className={styles.past} style={{ left: timeToX(shownDuration, scale) }} />
                   <div className={styles.playhead} data-auto={autoKeyframe || undefined} style={{ left: playheadX }} />
                 </div>
+                {marquee && <div className={styles.marquee} data-marquee style={{ left: marquee.left, top: marquee.top, width: marquee.width, height: marquee.height }} />}
                 <div className={styles.duration} data-duration-handle style={{ left: timeToX(shownDuration, scale) }} onPointerDown={onDurationDown} role="slider" aria-label={t("Duration")} aria-valuenow={Math.round(shownDuration / 1000)} aria-valuemin={0} aria-valuemax={Math.round(xToTime(width, scale) / 1000)}>
                   <span className={styles.durationHandle} />
                 </div>

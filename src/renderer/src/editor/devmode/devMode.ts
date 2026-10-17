@@ -8,6 +8,7 @@
 import type { Guid, NodeFields } from "@/engine/codec";
 import type { EditorController } from "../controller";
 import { MOTION_UI_DEFAULT } from "../uiStore";
+import { watchMotionLayer } from "../motion/motionState";
 import { categoriesOf, encodeCategories, encodeNotes, notesOf, type AnnotationData, type CategoriesJson, type Category, type Note } from "./annotations";
 
 /** Design, Dev Mode, or Draw (round 10, View › Switch to Draw: the Design editor with the Pencil to hand — Figma Draw's own brushes and panels aren't built). */
@@ -29,7 +30,11 @@ function syncEngine(ed: EditorController): void {
     ed.engine.setMotion({ on: motion, root: null, timeUs: m.timeUs, autoKeyframe: m.autoKeyframe });
   } catch {
     // The engine's Motion side not built in this wasm: the chrome shows the timeline on its own state.
+    return;
   }
+  // The panels read the nodes again: the values at the playhead in Motion, the base values out of it (no event says so).
+  ed.store.refreshNodes();
+  watchMotionLayer(ed, motion);
 }
 
 /** Design ⇄ Dev Mode (⇧D, the toolbar's switch) ⇄ Draw. Leaving Dev Mode leaves focus view. */

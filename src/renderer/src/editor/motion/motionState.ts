@@ -16,16 +16,38 @@ export function setMotionUi(ed: EditorController, patch: Partial<MotionUIState>)
   ed.ui.set({ motion: { ...motionUi(ed), ...patch } });
 }
 
-/** The engine's view state from the UI's (on only in Motion mode). */
+/**
+ * The engine's view state from the UI's (on only in Motion mode). The motion layer's preview writes send no node event,
+ * so the store is told to read the nodes again: the panels show the values at the playhead (docs/motion.md §6.5).
+ */
 export function pushMotion(ed: EditorController): boolean {
   if (ed.engine.destroyed) return false;
   const m = motionUi(ed);
   try {
     ed.engine.setMotion({ on: modeOf(ed) === "motion", root: null, timeUs: m.timeUs, autoKeyframe: m.autoKeyframe });
-    return true;
   } catch {
     return false;
   }
+  ed.store.refreshNodes();
+  return true;
+}
+
+const watching = new WeakMap<EditorController, () => void>();
+
+/**
+ * While Motion is on, the store reads the nodes again after every commit and every change of root: a commit applies
+ * the motion layer again (a keyframe moved changes the value at the playhead of a layer the change doesn't name) and
+ * a new root applies it to other layers, and neither tells the store. devMode's syncEngine turns it on and off.
+ */
+export function watchMotionLayer(ed: EditorController, on: boolean): void {
+  if (!on) {
+    watching.get(ed)?.();
+    watching.delete(ed);
+    return;
+  }
+  if (watching.has(ed)) return;
+  const offs = [ed.engine.on("DOCUMENT_CHANGED", () => ed.store.refreshNodes()), ed.engine.on("MOTION_CHANGED", () => ed.store.refreshNodes())];
+  watching.set(ed, () => offs.forEach((off) => off()));
 }
 
 /** The playhead (µs, ≥ 0): the engine evaluates there at once. */
