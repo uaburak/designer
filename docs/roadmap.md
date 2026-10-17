@@ -513,6 +513,10 @@ The manager agent (default Claude Code Haiku 5.5) that hands one chat's work to 
 
 Components, vector / Draw, effects, motion and canvas core read out of Figma desktop's cached editor build with REA and probed live; each report ends in an ordered plan. Batches A (correctness, small) → B (Figma's rules) → C (one schema round) → D (performance, gated by `engine-bench` on the owner's B2C file; the threaded renderer needs the owner's go-ahead). Motion keyframes stay with round 8. Order and status: `docs/research/rea/README.md`.
 
+### Round 18 — Social [ours] — **plan written 2026-10-17** (`docs/social.md`)
+
+A **Social** mode next to Design and Dev Mode: platform templates (Instagram, LinkedIn, …) fed from the Brands library, the agents and Draw's tools working there, and videos built with Motion. Depends on Round 8 (Motion), which the owner unpaused for it (2026-10-17). Plan only; the contract and the owner's answers (`docs/social.md` §7) come first.
+
 ## Legacy removed (2026-10-06)
 
 As the owner decided, the whole site admin was deleted in the Phase 2 integration round, with no import of the old projects: the DOM editor, the CV, site publishing and the preview tab, the old Home, `lib/` (the site's Firebase) and `demo/`, the sign-in, the site's components and the iframe shell for browsers, and the dependencies only they used (Tailwind, gsap, prismjs, dompurify, tailwind-merge). The site's Firebase data is left untouched (burakkoc.net keeps working with its own web admin). The Firebase SDK stayed for a planned Firebase adapter, replaced by Cloudflare (2026-10-10) and removed from the code 2026-10-11 (the npm dependency can go). A converter for the old projects (`data.md` §11.3) is not planned unless the owner asks.

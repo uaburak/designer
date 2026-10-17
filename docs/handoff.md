@@ -2,6 +2,10 @@
 
 First written 2026-10-06 when the first Claude session stopped and the owner moved the work to another Claude account through GitHub (`https://github.com/uaburak/designer`). Updated the same day by the second session, which finished every workstream's partial items and ran the integration round. Read `AGENTS.md`, `docs/architecture.md` and `docs/roadmap.md` first; the contracts in `docs/` decide everything; `docs/research/` holds the verified facts about Figma (with sources).
 
+## Status 2026-10-17 — Social mode + Motion: plan written (docs only)
+
+`docs/social.md`: the owner asked for a **Social** mode (social-media templates from Brands, agents, Draw's tools, video through Motion, Motion built as in Figma). The plan: Motion (Round 8, `docs/motion.md`) first, then Social as a mode of a Design file (shell, templates + brand kit, agent tools, video export presets, bulk create). Waiting on the owner's answers in `docs/social.md` §7. Nothing built.
+
 ## Status 2026-10-15 (evening) — canvas zoom / pan: the best version so far (owner), pushed
 
 The owner tried it and called it the best version so far — to look at again later. Zoom and pan as built now (`04b80636` and before): Figma's wheel rates (zoom 4^(delta/100), pans in device pixels), no hover during a wheel, every zoom frame drawn sharp at full resolution with text under 6 device px drawn as its lines' ink bars while the zoom goes on (the real glyphs come back when it settles), LOD for heavy pages (effects without an offscreen pass under 48 device px, filled frames / instances under 12 device px drawn as their fill), the scaled cache only past a 250 ms zoom frame. Measured on the owner's B2C copy: Test and Desktop pages zoom with no pixelated frame at ~100–110 fps on a loaded machine. Tried and reverted (worse for the owner, kept in git history): tiles drawn ahead at several zoom levels with zooms compositing them (213b24c4…f607ead7), and the half resolution while zooming (blurred). Next ideas when it's picked up again: a glyph atlas for small text (instead of the ink bars), fewer shape instances on dense pages, first visits while images arrive.
