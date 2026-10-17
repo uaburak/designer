@@ -450,6 +450,8 @@
   .imageControls { display: flex; flex-direction: column; gap: var(--ds-space-2); margin: var(--ds-space-3) var(--ds-space-4) var(--ds-space-3); }
   /* The scale mode row's right end: a tile's Scaling factor, then Rotate 90º */
   .imageActions { display: flex; align-items: center; gap: var(--ds-space-1); }
+  /* Mask: the type dropdown under its title */
+  .maskRow { padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left); }
   .tileScale { width: 64px; }
   .adjustment { position: relative; display: grid; grid-template-columns: 88px 120px; align-items: center; height: var(--ds-size-control); }
   .adjustment::after { content: ""; position: absolute; left: 146px; top: 10px; width: 4px; height: 4px; border-radius: var(--ds-radius-full); background: var(--figma-color-icon); pointer-events: none; }

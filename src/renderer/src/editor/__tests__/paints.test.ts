@@ -33,6 +33,9 @@ import type { PanelNode } from "../panels/design/shared";
 import { fitImageSize, imageLayerName, memoryImageStore, sha1Hex } from "../images";
 import { imageRectangles, PLACE_GAP } from "../placeImages";
 import { NO_VECTOR_EDIT, readVectorEdit } from "../vectorEdit";
+import { formatColor, nextEyedropperFormat } from "../colorFormat";
+import { matchColor } from "../eyedropper";
+import type { Style } from "../model/styles";
 
 const red = hexToColor("#ff0000");
 const blue = hexToColor("#0000ff");
@@ -370,5 +373,29 @@ describe("vector edit state", () => {
     const s = readVectorEdit({ active: true, ref: "1:2", tool: "PEN", selectedVertices: [0, 3], selectedSegments: [], vertexCount: 5, segmentCount: 5, mirroring: "MIXED" });
     expect(s).toMatchObject({ active: true, ref: "1:2", tool: "PEN", selectedVertices: [0, 3], mirroring: "MIXED", vertexCount: 5 });
     expect(readVectorEdit({ active: true, tool: "SPLINE" }).tool).toBe("MOVE");
+  });
+});
+
+describe("eyedropper and the colour format (atlas 07 §5.3, §6)", () => {
+  it("writes a colour in each format; Tab cycles them, CSS skipped", () => {
+    const c = { r: 12 / 255, g: 140 / 255, b: 233 / 255 };
+    expect(formatColor(c, "hex")).toBe("#0C8CE9");
+    expect(formatColor(c, "rgb")).toBe("12, 140, 233");
+    expect(formatColor(c, "css")).toBe("rgb(12, 140, 233)");
+    expect(formatColor({ r: 1, g: 0, b: 0 }, "hsl")).toBe("0°, 100%, 50%");
+    expect(formatColor({ r: 0, g: 0.5, b: 0 }, "hsb")).toBe("120°, 100%, 50%");
+    expect((["hex", "rgb", "hsl", "hsb"] as const).map((f) => nextEyedropperFormat(f))).toEqual(["rgb", "hsl", "hsb", "hex"]);
+    expect(nextEyedropperFormat("css")).toBe("hsl");
+  });
+
+  it("names the fill style of the colour under the pointer (one opaque solid paint)", () => {
+    const blue = { r: 12 / 255, g: 140 / 255, b: 233 / 255, a: 1 };
+    const lookup = { variable: () => undefined, collection: () => undefined };
+    const solid = { type: "SOLID", visible: true, opacity: 1, color: blue };
+    const style = (id: string, fillPaints: unknown[]) => ({ id, kind: "FILL", name: "Accent", node: { guid: id, fillPaints } }) as unknown as Style;
+    expect(matchColor({ variables: [], styles: [style("6:1", [solid])], lookup }, blue)).toEqual({ kind: "style", id: "6:1", name: "Accent" });
+    expect(matchColor({ variables: [], styles: [style("6:2", [solid, solid])], lookup }, blue)).toBeNull();
+    expect(matchColor({ variables: [], styles: [style("6:3", [{ ...solid, opacity: 0.5 }])], lookup }, blue)).toBeNull();
+    expect(matchColor({ variables: [], styles: [style("6:1", [solid])], lookup }, { r: 0, g: 0, b: 0 })).toBeNull();
   });
 });
