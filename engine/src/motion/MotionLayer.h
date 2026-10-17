@@ -36,6 +36,9 @@ class MotionLayer {
   // Evaluates every animated layer under `root` at root time `timeUs` (the timeline's playback style applied) and
   // writes the values. Nodes already applied are re-evaluated from their remembered base. Returns the nodes written.
   size_t apply(Document& doc, const MotionIndex& index, Guid root, int64_t timeUs, const BaseResolver& resolve);
+  // A gesture's preview (round 8b, increment 2): `c`'s fields written over the node as the layer's own values are, its
+  // base remembered once; the next restore (or apply, which restores first) takes them back.
+  bool preview(Document& doc, const NodeChange& c);
   // Puts every remembered base value back (bit-identical) and forgets it.
   void restore(Document& doc);
   bool active() const { return !entries_.empty(); }

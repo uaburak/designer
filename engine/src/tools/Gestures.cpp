@@ -1498,10 +1498,14 @@ void Editor::pointerUp(Vec2 s, uint32_t mods) {
     case Gesture::Press: finishClick(mods); break;
     case Gesture::Move: finishMove(); break;
     case Gesture::Resize:
+    case Gesture::Rotate:
+      // Motion's resize and rotate key their layers in one step (MotionCommands.cpp).
+      if (motionDrag_.on) motionFinishGesture(gesture_ == Gesture::Rotate ? "Rotate" : "Resize");
+      else commit();
+      break;
     case Gesture::Radius:
     case Gesture::Shape:
-    case Gesture::Gap:
-    case Gesture::Rotate: commit(); break;
+    case Gesture::Gap: commit(); break;
     case Gesture::LayoutBar:
       if (layoutBarMoved_) {
         commit();
@@ -1620,12 +1624,15 @@ void Editor::cancelGesture() {
       break;
     case Gesture::Move:
     case Gesture::Resize:
+    case Gesture::Rotate:
+      if (motionDrag_.on) motionCancelGesture();  // the previews go; nothing was written
+      else rollback();
+      break;
     case Gesture::Radius:
     case Gesture::Shape:
     case Gesture::Gap:
     case Gesture::Reorder:
-    case Gesture::LayoutBar:
-    case Gesture::Rotate: rollback(); break;
+    case Gesture::LayoutBar: rollback(); break;
     case Gesture::Guide:
       if (txn_.open) rollback();
       guideMoved_ = guideNew_ = false;
@@ -1788,6 +1795,21 @@ bool Editor::startMove(uint32_t mods) {
   // Layers inside an instance can't be moved (Figma): they stay where their main puts them.
   targets.erase(std::remove_if(targets.begin(), targets.end(), [](const Target& t) { return t.id.isDerived(); }), targets.end());
   if (targets.empty()) return false;
+  // Motion on (docs/motion.md §4.9): layers under the timeline's root move where the canvas shows them, as preview
+  // writes, and pointer-up keys them (⌥ duplicates as in Design).
+  if (!(mods & MOD_ALT) && motionStartGesture(targets, false)) {
+    targets_ = std::move(targets);
+    originalTargets_ = targets_;
+    bool any = false;
+    for (const Target& t : targets_) {
+      Rect b = doc_.worldBounds(t.id);
+      moveBox_ = any ? moveBox_.united(b) : b;
+      any = true;
+    }
+    dropParent_ = snapParent_ = kNoGuid;
+    hasInsertion_ = false;
+    return true;
+  }
   begin(TxnKind::GESTURE, "Move");
   targets_ = std::move(targets);
   originalTargets_ = targets_;
@@ -1853,6 +1875,7 @@ void Editor::setDuplicating(bool on) {
         order.push_back(id);
       };
       collect(collect, t.id);
+      for (Guid track : motionTracksOwnedBy(order)) motionRemoveTrack(track);  // the tracks the copy got (Motion)
       for (Guid id : order) write(NodeChange::removed(id));
     }
     targets_ = originalTargets_;
@@ -1873,6 +1896,7 @@ void Editor::setDuplicating(bool on) {
 }
 
 void Editor::dragMove(Vec2 world, uint32_t mods) {
+  if (motionDrag_.on) return motionDragMove(world, mods);
   if (((mods & MOD_ALT) != 0) != duplicating_) setDuplicating((mods & MOD_ALT) != 0);
   if (targets_.empty()) return;
   Vec2 d = world - downWorld_;
@@ -1982,6 +2006,41 @@ void Editor::dragMove(Vec2 world, uint32_t mods) {
     hasInsertion_ = false;
   }
   if (flowDragLive()) slideFrom(shown);
+  needsRender_ = true;
+}
+
+// Motion on (docs/motion.md §4.9): the layers follow the pointer from where the canvas shows them, as the motion
+// layer's preview writes — snapped like a move, never into another frame or along a flow (the motion transform is
+// visual only); pointer-up keys them (MotionCommands.cpp).
+void Editor::motionDragMove(Vec2 world, uint32_t mods) {
+  if (targets_.empty()) return;
+  Vec2 d = world - downWorld_;
+  bool lockX = false, lockY = false;
+  if (mods & MOD_SHIFT) {
+    if (std::fabs(d.x) > std::fabs(d.y)) d.y = 0, lockY = true;
+    else d.x = 0, lockX = true;
+  }
+  guides_.clear();
+  spacings_.clear();
+  Rect box{moveBox_.x + d.x, moveBox_.y + d.y, moveBox_.w, moveBox_.h};
+  SnapResult snap;
+  if (!(mods & MOD_CTRL)) {
+    Guid parent = targets_[0].parent;
+    if (snapParent_ != parent) {
+      GuidSet moving;
+      for (const Target& t : targets_) moving.insert(t.id);
+      prepareSnapping(parent, moving);
+    }
+    snap = snapper_.snapBox(box, kSnapReach / camera_.zoom, !lockX, !lockY);
+  }
+  d.x = snap.snappedX ? d.x + snap.offset.x : px(moveBox_.x + d.x) - moveBox_.x;
+  d.y = snap.snappedY ? d.y + snap.offset.y : px(moveBox_.y + d.y) - moveBox_.y;
+  if (lockX) d.x = 0;
+  if (lockY) d.y = 0;
+  guides_ = std::move(snap.guides);
+  spacings_ = std::move(snap.spacings);
+  Mat2x3 by = Mat2x3::translate(d.x, d.y);
+  for (const Target& t : targets_) motionPreview(t.id, tidy(doc_.worldTransform(t.parent).inverse() * by * t.world), t.size);
   needsRender_ = true;
 }
 
@@ -2302,6 +2361,7 @@ void Editor::updateInsertion(Guid frame, Vec2 world) {
 }
 
 void Editor::finishMove() {
+  if (motionDrag_.on) return motionFinishGesture("Move");
   // Round 15: dropped in its own flow it is already in its place in the document; layout puts it (and any sibling
   // still sliding) there at once (Figma's drop is instant).
   if (!flowDrag_.ids.empty() && doc_.has(flowDrag_.frame)) layoutDirty_.insert(flowDrag_.frame);
@@ -2398,6 +2458,7 @@ void Editor::finishMove() {
         order.push_back(id);
       };
       collect(collect, copy);
+      for (Guid track : motionTracksOwnedBy(order)) motionRemoveTrack(track);  // the tracks the copy got (Motion)
       for (Guid id : order) write(NodeChange::removed(id));
       Guid inst = createInstance(original, parent, position, transform);
       std::replace(sel.begin(), sel.end(), copy, inst);
@@ -2415,11 +2476,9 @@ void Editor::finishMove() {
 }
 
 void Editor::startResize(int hx, int hy) {
-  begin(TxnKind::GESTURE, "Resize");
   lineEnd_ = -1;
   handleX_ = hx;
   handleY_ = hy;
-  box_ = selectionBox(doc_, selection_);
   std::vector<Guid> ids = topLevelSelection(doc_, selection_);
   // A group has no size of its own: resizing it resizes what is in it.
   GuidSet moving(ids.begin(), ids.end());
@@ -2428,6 +2487,10 @@ void Editor::startResize(int hx, int hy) {
   scaling_ = tool_ == Tool::SCALE;
   if (scaling_) ids.erase(std::remove_if(ids.begin(), ids.end(), [](Guid id) { return id.isDerived(); }), ids.end());
   if (!scaling_ && ids.size() == 1 && doc_.get(ids[0])->props.fitsChildren()) ids = doc_.children(ids[0]);
+  // Motion on (docs/motion.md §4.9): resized where the canvas shows them, as preview writes; pointer-up keys WIDTH /
+  // HEIGHT (and the position a left or top handle moves). Otherwise the base, in a transaction.
+  if (scaling_ || !motionStartGesture(targetsOf(ids), false)) begin(TxnKind::GESTURE, "Resize");
+  box_ = selectionBox(doc_, selection_);
   targets_ = targetsOf(ids);
   for (const Target& t : targets_) moving.insert(t.id);
   if (scaling_) startScale();
@@ -2531,6 +2594,10 @@ void Editor::dragResize(Vec2 world, uint32_t mods) {
       c.props.size = t.size;
       c.props.transform = doc_.worldTransform(t.parent).inverse() * Mat2x3::translate(dc.x, dc.y) * t.world;
     }
+    if (motionDrag_.on) {
+      motionPreview(t.id, c.props.transform, c.props.size);  // keyed at pointer-up; constraints and layout don't run
+      continue;
+    }
     write(c);
     if (scaling_) continue;  // applyScale places what is in it
     keepResizedSize(t.id, handleX_ != 0 || (shift && handleY_ != 0), handleY_ != 0 || (shift && handleX_ != 0));
@@ -2555,7 +2622,7 @@ void Editor::dragResize(Vec2 world, uint32_t mods) {
   guides_.clear();
   if (snapping && (snap.snappedX || snap.snappedY))
     guides_ = snapper_.guidesFor(transformedBounds(box_.toWorld * boxScale, W, H), snap.snappedX, snap.snappedY);
-  flushLayout();
+  if (!motionDrag_.on) flushLayout();
   needsRender_ = true;
 }
 
@@ -2589,13 +2656,25 @@ void Editor::keepResizedSize(Guid id, bool x, bool y) {
 }
 
 void Editor::startRotate() {
-  begin(TxnKind::GESTURE, "Rotate");
-  box_ = selectionBox(doc_, selection_);
-  // About the ⌥R origin when it shows, else the selection's centre.
-  rotateCentre_ = rotationOriginShown() ? rotationOrigin() : box_.toWorld.apply({box_.size.x / 2, box_.size.y / 2});
-  targets_ = targetsOf(topLevelSelection(doc_, selection_));
+  std::vector<Target> targets = targetsOf(topLevelSelection(doc_, selection_));
   // Layers inside an instance keep their place (Figma).
-  targets_.erase(std::remove_if(targets_.begin(), targets_.end(), [](const Target& t) { return t.id.isDerived(); }), targets_.end());
+  targets.erase(std::remove_if(targets.begin(), targets.end(), [](const Target& t) { return t.id.isDerived(); }), targets.end());
+  // Motion on (docs/motion.md §4.9): turned where the canvas shows them, as preview writes; pointer-up keys ROTATION.
+  bool motion = motionStartGesture(targets, true);
+  if (!motion) {
+    begin(TxnKind::GESTURE, "Rotate");
+    targets = targetsOf(topLevelSelection(doc_, selection_));
+    targets.erase(std::remove_if(targets.begin(), targets.end(), [](const Target& t) { return t.id.isDerived(); }), targets.end());
+  }
+  box_ = selectionBox(doc_, selection_);
+  // About the ⌥R origin when it shows, else the selection's centre — in Motion, one layer turns about its anchor point.
+  rotateCentre_ = rotationOriginShown() ? rotationOrigin() : box_.toWorld.apply({box_.size.x / 2, box_.size.y / 2});
+  if (motion && targets.size() == 1) {
+    motion::LayerBase pose = motion::decodeLayerBase(doc_.get(targets[0].id)->props);
+    const NodeProps* base = motionLayer_.baseOf(targets[0].id);
+    rotateCentre_ = targets[0].world.apply(motion::MotionLayer::anchorPoint(pose, base ? base->size : targets[0].size));
+  }
+  targets_ = std::move(targets);
 }
 
 void Editor::dragRotate(Vec2 world, uint32_t mods) {
@@ -2615,9 +2694,10 @@ void Editor::dragRotate(Vec2 world, uint32_t mods) {
     NodeChange c = NodeChange::changed(t.id);
     c.mask = F_TRANSFORM;
     c.props.transform = doc_.worldTransform(doc_.parentOf(t.id)).inverse() * R * t.world;
-    write(c);
+    if (motionDrag_.on) motionPreview(t.id, c.props.transform, t.size);  // keyed at pointer-up
+    else write(c);
   }
-  flushLayout();
+  if (!motionDrag_.on) flushLayout();
   changeCursor(CursorKind::ROTATE, std::round(degrees(camera_.toScreen(world) - camera_.toScreen(centre))));
 }
 

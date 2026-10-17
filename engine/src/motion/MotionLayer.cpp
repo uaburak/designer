@@ -214,6 +214,13 @@ size_t MotionLayer::apply(Document& doc, const MotionIndex& index, Guid root, in
   return written;
 }
 
+bool MotionLayer::preview(Document& doc, const NodeChange& c) {
+  if (!c.mask || !doc.has(c.guid)) return false;
+  Entry& entry = remember(doc, c.guid);
+  entry.mask |= c.mask;
+  return doc.apply(c);
+}
+
 void MotionLayer::restore(Document& doc) {
   for (auto& [id, e] : entries_) {
     if (!e.mask || !doc.has(id)) continue;

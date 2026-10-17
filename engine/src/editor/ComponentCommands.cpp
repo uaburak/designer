@@ -1130,6 +1130,7 @@ Guid Editor::detachOne(Guid R) {
       p.comp().componentPropAssignments = it.assigns;
       p.comp().overriddenSymbolID = kNoGuid;
     }
+    motionCopyTracks(p, p.parentIndex.guid, nullptr);  // Motion: the main's tracks copied, not shared (docs/motion.md §4.2)
     Guid id = newGuid();
     write(NodeChange::created(id, p));
     ids[it.id] = id;

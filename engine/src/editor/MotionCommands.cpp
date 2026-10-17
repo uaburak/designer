@@ -1,12 +1,13 @@
-// Figma Motion's editing commands and reads (docs/motion.md §4.2, §4.9, §10; round 8b, increment 1): keyframes added,
-// moved, re-valued, eased and deleted on KEYFRAME_TRACK nodes bound through KEYFRAME expressions; the root's timeline;
-// the anchor; the motion path's handles; the layer bar's retime; the timeline model, the right panel's diamonds and the
-// resolved model as JSON; panel writes routed into keyframes while Motion is on; tracks removed with their last layer.
+// Figma Motion's editing commands and reads (docs/motion.md §4.2, §4.9, §10; round 8b, increments 1–2): keyframes
+// added, moved, re-valued, eased and deleted on KEYFRAME_TRACK nodes bound through KEYFRAME expressions; the root's
+// timeline; the anchor (kept in place); the motion path's handles; the layer bar's retime; the timeline model, the right
+// panel's diamonds and the resolved model as JSON; panel writes and canvas gestures (move, resize, rotate, nudge)
+// routed into keyframes while Motion is on; tracks removed with their last layer, and copied with a duplicated, pasted
+// or detached one.
 //
 // Not yet (the contract's later increments): presets and styles (336–339, 352; round 8h's code), audio (345–348), paste
 // (349), combine / split (350–351), instance offsets (341), text stagger (344), keyframe values or easings bound to
-// variables, the anchor's keep-in-place compensation, gestures routed into keyframes (a move → TRANSLATION_XY), and the
-// deep copy of tracks on duplicate / paste / detach.
+// variables, the corner radius / shape handles and the Scale tool routed, the motion path dragged on the canvas.
 #include <algorithm>
 #include <cmath>
 
@@ -465,6 +466,109 @@ bool isKeyframeExpression(const VariableData& d) { return d.kind == VariableData
 
 int64_t roundUs(double us) { return static_cast<int64_t>(std::llround(std::max(0.0, us))); }
 
+Slot nodeSlot(VariableField f) {
+  Slot s;
+  s.kind = Slot::Kind::NODE;
+  s.field = f;
+  return s;
+}
+
+// Calls `f(slot, data)` for each slot of a node holding a KEYFRAME expression with its parameters: its fields, its
+// paints' colour and opacity, its effects' fields.
+template <class F>
+void forEachKeyframeSlot(const NodeProps& p, F&& f) {
+  auto visit = [&](const VariableData& d, const Slot& s) {
+    if (isKeyframeExpression(d) && d.args.size() >= 2) f(s, d);
+  };
+  for (const ParamBinding& b : p.parameterConsumptionMap)
+    if (b.isVariable()) visit(b.data, nodeSlot(b.field));
+  auto paints = [&](const std::vector<Paint>& list, Slot::Kind colorKind, Slot::Kind opacityKind) {
+    for (size_t i = 0; i < list.size(); i++) {
+      Slot s;
+      s.index = static_cast<uint32_t>(i);
+      s.kind = colorKind;
+      if (list[i].colorVar.present()) visit(list[i].colorVar, s);
+      s.kind = opacityKind;
+      if (list[i].opacityVar.present()) visit(list[i].opacityVar, s);
+    }
+  };
+  paints(p.fillPaints, Slot::Kind::FILL_COLOR, Slot::Kind::FILL_OPACITY);
+  paints(p.strokePaints, Slot::Kind::STROKE_COLOR, Slot::Kind::STROKE_OPACITY);
+  for (size_t i = 0; i < p.effects.size(); i++) {
+    const Effect& e = p.effects[i];
+    Slot s;
+    s.kind = Slot::Kind::EFFECT;
+    s.index = static_cast<uint32_t>(i);
+    struct Pair {
+      const VarBox* box;
+      Slot::EffectField f;
+    } slots[] = {{&e.radiusVar, Slot::EffectField::RADIUS}, {&e.colorVar, Slot::EffectField::COLOR}, {&e.spreadVar, Slot::EffectField::SPREAD},
+                 {&e.xVar, Slot::EffectField::OFFSET_X}, {&e.yVar, Slot::EffectField::OFFSET_Y}};
+    for (const Pair& q : slots)
+      if (q.box->present()) {
+        s.effect = q.f;
+        visit(*q.box, s);
+      }
+  }
+}
+
+// Writes `data` into the slot on `p` (its list must be in `p`); an absent `data` (kind NONE) unbinds it. False when the
+// node has no such slot.
+bool putSlot(NodeProps& p, const Slot& s, const VariableData& data) {
+  switch (s.kind) {
+    case Slot::Kind::NODE: {
+      auto& map = p.parameterConsumptionMap;
+      map.erase(std::remove_if(map.begin(), map.end(), [&](const ParamBinding& b) { return b.field == s.field; }), map.end());
+      if (data.present()) {
+        ParamBinding b;
+        b.field = s.field;
+        b.data = data;
+        map.push_back(std::move(b));
+      }
+      return true;
+    }
+    case Slot::Kind::FILL_COLOR:
+    case Slot::Kind::FILL_OPACITY:
+    case Slot::Kind::STROKE_COLOR:
+    case Slot::Kind::STROKE_OPACITY: {
+      bool fill = s.kind == Slot::Kind::FILL_COLOR || s.kind == Slot::Kind::FILL_OPACITY;
+      std::vector<Paint>& list = fill ? p.fillPaints : p.strokePaints;
+      if (s.index >= list.size()) return false;
+      if (s.kind == Slot::Kind::FILL_COLOR || s.kind == Slot::Kind::STROKE_COLOR) list[s.index].colorVar = data;
+      else list[s.index].opacityVar = data;
+      return true;
+    }
+    case Slot::Kind::EFFECT: {
+      if (s.index >= p.effects.size()) return false;
+      Effect& e = p.effects[s.index];
+      switch (s.effect) {
+        case Slot::EffectField::RADIUS: e.radiusVar = data; break;
+        case Slot::EffectField::COLOR: e.colorVar = data; break;
+        case Slot::EffectField::SPREAD: e.spreadVar = data; break;
+        case Slot::EffectField::OFFSET_X: e.xVar = data; break;
+        case Slot::EffectField::OFFSET_Y: e.yVar = data; break;
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
+// The motion transform's linear part L = R(r) · Shear(k) · S(s), r stored (−radians), as MotionLayer::motionTransform.
+Mat2x3 motionLinear(double rotation, double shear, Vec2 scale) {
+  return Mat2x3::rotate(rotation) * Mat2x3{1, shear, 0, 0, 1, 0} * Mat2x3{scale.x, 0, 0, 0, scale.y, 0};
+}
+
+Mat2x3 linearPart(Mat2x3 m) {
+  m.m02 = m.m12 = 0;
+  return m;
+}
+
+bool nearlyEqual(const Mat2x3& a, const Mat2x3& b, double eps) {
+  return std::fabs(a.m00 - b.m00) < eps && std::fabs(a.m01 - b.m01) < eps && std::fabs(a.m02 - b.m02) < eps && std::fabs(a.m10 - b.m10) < eps &&
+         std::fabs(a.m11 - b.m11) < eps && std::fabs(a.m12 - b.m12) < eps;
+}
+
 }  // namespace
 
 // ---- The slot's binding on a node ----------------------------------------------------------------------------------
@@ -561,48 +665,26 @@ void Editor::motionWriteSlot(Guid id, const motion::Slot& s, const VariableData&
   if (!n) return;
   NodeChange c = NodeChange::changed(id);
   switch (s.kind) {
-    case Slot::Kind::NODE: {
+    case Slot::Kind::NODE:
       c.mask = F_PARAM_MAP;
       c.props.parameterConsumptionMap = n->props.parameterConsumptionMap;
-      auto& map = c.props.parameterConsumptionMap;
-      map.erase(std::remove_if(map.begin(), map.end(), [&](const ParamBinding& b) { return b.field == s.field; }), map.end());
-      if (data.present()) {
-        ParamBinding b;
-        b.field = s.field;
-        b.data = data;
-        map.push_back(std::move(b));
-      }
       break;
-    }
     case Slot::Kind::FILL_COLOR:
     case Slot::Kind::FILL_OPACITY:
-    case Slot::Kind::STROKE_COLOR:
-    case Slot::Kind::STROKE_OPACITY: {
-      bool fill = s.kind == Slot::Kind::FILL_COLOR || s.kind == Slot::Kind::FILL_OPACITY;
-      c.mask = fill ? F_FILLS : F_STROKES;
-      std::vector<Paint>& list = fill ? c.props.fillPaints : c.props.strokePaints;
-      list = fill ? n->props.fillPaints : n->props.strokePaints;
-      if (s.index >= list.size()) return;
-      if (s.kind == Slot::Kind::FILL_COLOR || s.kind == Slot::Kind::STROKE_COLOR) list[s.index].colorVar = data;
-      else list[s.index].opacityVar = data;
+      c.mask = F_FILLS;
+      c.props.fillPaints = n->props.fillPaints;
       break;
-    }
-    case Slot::Kind::EFFECT: {
+    case Slot::Kind::STROKE_COLOR:
+    case Slot::Kind::STROKE_OPACITY:
+      c.mask = F_STROKES;
+      c.props.strokePaints = n->props.strokePaints;
+      break;
+    case Slot::Kind::EFFECT:
       c.mask = F_EFFECTS;
       c.props.effects = n->props.effects;
-      if (s.index >= c.props.effects.size()) return;
-      Effect& e = c.props.effects[s.index];
-      switch (s.effect) {
-        case Slot::EffectField::RADIUS: e.radiusVar = data; break;
-        case Slot::EffectField::COLOR: e.colorVar = data; break;
-        case Slot::EffectField::SPREAD: e.spreadVar = data; break;
-        case Slot::EffectField::OFFSET_X: e.xVar = data; break;
-        case Slot::EffectField::OFFSET_Y: e.yVar = data; break;
-      }
       break;
-    }
   }
-  write(c);
+  if (putSlot(c.props, s, data)) write(c);
 }
 
 // The Internal Only Canvas (docs/schema.md §3.1), where tracks live.
@@ -721,48 +803,12 @@ void Editor::motionRemoveTrack(Guid track) {
   std::vector<std::pair<Guid, Slot>> users;
   doc_.forEach([&](const Node& n) {
     if (n.guid.isDerived()) return;
-    auto check = [&](const VariableData& d, Slot s) {
-      if (!isKeyframeExpression(d) || d.args.size() < 2) return;
+    forEachKeyframeSlot(n.props, [&](const Slot& s, const VariableData& d) {
       std::vector<motion::Param> params;
       motion::decodeParams(d.args[1], params);
       for (const motion::Param& q : params)
         if (q.track == track) users.push_back({n.guid, s});
-    };
-    for (const ParamBinding& b : n.props.parameterConsumptionMap)
-      if (b.isVariable()) {
-        Slot s;
-        s.kind = Slot::Kind::NODE;
-        s.field = b.field;
-        check(b.data, s);
-      }
-    auto paints = [&](const std::vector<Paint>& list, Slot::Kind colorKind, Slot::Kind opacityKind) {
-      for (size_t i = 0; i < list.size(); i++) {
-        Slot s;
-        s.index = static_cast<uint32_t>(i);
-        s.kind = colorKind;
-        if (list[i].colorVar.present()) check(list[i].colorVar, s);
-        s.kind = opacityKind;
-        if (list[i].opacityVar.present()) check(list[i].opacityVar, s);
-      }
-    };
-    paints(n.props.fillPaints, Slot::Kind::FILL_COLOR, Slot::Kind::FILL_OPACITY);
-    paints(n.props.strokePaints, Slot::Kind::STROKE_COLOR, Slot::Kind::STROKE_OPACITY);
-    for (size_t i = 0; i < n.props.effects.size(); i++) {
-      const Effect& e = n.props.effects[i];
-      Slot s;
-      s.kind = Slot::Kind::EFFECT;
-      s.index = static_cast<uint32_t>(i);
-      struct Pair {
-        const VarBox* box;
-        Slot::EffectField f;
-      } slots[] = {{&e.radiusVar, Slot::EffectField::RADIUS}, {&e.colorVar, Slot::EffectField::COLOR}, {&e.spreadVar, Slot::EffectField::SPREAD},
-                   {&e.xVar, Slot::EffectField::OFFSET_X}, {&e.yVar, Slot::EffectField::OFFSET_Y}};
-      for (const Pair& q : slots)
-        if (q.box->present()) {
-          s.effect = q.f;
-          check(*q.box, s);
-        }
-    }
+    });
   });
   for (auto& [id, s] : users) {
     const Node* n = doc_.get(id);
@@ -1113,6 +1159,16 @@ Status Editor::motionCommand(CommandId id, const CommandArgs& args) {
       if (nodes.empty() || !x || !x->isNumber() || !y || !y->isNumber()) return E_INVALID;
       begin(TxnKind::USER, "Move anchor point");
       for (Guid n : nodes) {
+        // Kept in place (docs/motion.md §4.9): with the anchor o → o', T(o) · T(t) · L · T(−o) stays put at the playhead
+        // when t takes (I − L)(o − o'), L the motion rotation, shear and scale there.
+        const Node* node = doc_.get(n);
+        if (!node) continue;
+        motion::LayerBase pose = motionPoseAt(n, motion_.timeUs);
+        motion::LayerBase moved = pose;
+        moved.originX = {x->number, NumberUnits::PERCENT};
+        moved.originY = {y->number, NumberUnits::PERCENT};
+        Vec2 dO = motion::MotionLayer::anchorPoint(pose, node->props.size) - motion::MotionLayer::anchorPoint(moved, node->props.size);
+        Vec2 keep = dO - motionLinear(pose.rotation, pose.shear, pose.scale).applyLinear(dO);
         json::Value to = jobj(), px = jobj(), py = jobj();
         put(px, "value", jnum(x->number));
         put(px, "units", jstr("PERCENT"));
@@ -1123,6 +1179,7 @@ Status Editor::motionCommand(CommandId id, const CommandArgs& args) {
         NodeChange c = NodeChange::changed(n);
         putExtra(c, "transformOrigin", encodeExtra("transformOrigin", to));
         write(c);
+        if (std::fabs(keep.x) > 1e-9 || std::fabs(keep.y) > 1e-9) motionShiftTranslation(n, keep);
       }
       motionDirty_ = true;
       commit();
@@ -1264,20 +1321,305 @@ FieldMask Editor::motionRouteWrite(Guid id, const NodeChange& props) {
     }
   }
   if (writes.empty()) return 0;
-  for (auto& [s, v] : writes) {
-    const motion::FieldInfo* info = motion::fieldInfo(s.field);
-    if (!info) continue;
-    // With auto-keyframe on and no track yet, the first keyframe at t = 0 keeps the value as it was (docs/motion.md §4.9).
-    bool had = motionTrackOf(n->props, s) != kNoGuid;
-    Guid track = motionEnsureTrack(id, s, root);
-    if (track == kNoGuid) continue;
-    if (!had && motion_.timeUs > 0) {
-      KeyframeValue was;
-      if (motionBaseValue(n->props, s, was)) motionUpsertKeyframe(track, 0, was, nullptr);
-    }
-    motionUpsertKeyframe(track, motion_.timeUs, KeyframeValue::number(motion::nodeToStored(*info, v)), nullptr);
-  }
+  for (auto& [s, v] : writes)
+    if (const motion::FieldInfo* info = motion::fieldInfo(s.field)) motionKeyAtPlayhead(id, s, root, KeyframeValue::number(motion::nodeToStored(*info, v)));
   return taken;
+}
+
+// The keyframe at the playhead takes `value` (stored units), the slot's track made when there is none; a new track's
+// first keyframe at t = 0 keeps the value as it was when the playhead is past 0 (docs/motion.md §4.9). A transaction
+// is open.
+void Editor::motionKeyAtPlayhead(Guid id, const motion::Slot& s, Guid root, const motion::KeyframeValue& value) {
+  const Node* n = doc_.get(id);
+  if (!n) return;
+  KeyframeValue was;
+  bool first = motionTrackOf(n->props, s) == kNoGuid && motion_.timeUs > 0 && motionBaseValue(n->props, s, was);
+  Guid track = motionEnsureTrack(id, s, root);
+  if (track == kNoGuid) return;
+  if (first) motionUpsertKeyframe(track, 0, was, nullptr);
+  motionUpsertKeyframe(track, motion_.timeUs, value, nullptr);
+}
+
+// ---- Gestures (docs/motion.md §4.9; round 8b, increment 2) -------------------------------------------------------------
+
+// Whether a move, resize, rotate or nudge of `ids` is Motion's: Motion is on, each layer is under the timeline's root
+// (never the root itself), and auto-keyframe is on or one of them — or a layer above it under the root — is animated
+// (the canvas shows it moved by the motion layer). Otherwise the gesture edits the design as in Design.
+bool Editor::motionGestureFor(const std::vector<Guid>& ids) {
+  if (!motion_.on || ids.empty()) return false;
+  Guid root = motionRoot();
+  if (root == kNoGuid) return false;
+  const motion::MotionIndex& ix = motionIndex();
+  bool animated = motion_.autoKeyframe;
+  for (Guid id : ids) {
+    if (id.isDerived() || id == root || ix.rootOf(doc_, id) != root) return false;
+    for (Guid cur = id; !animated && cur != root && doc_.has(cur); cur = doc_.parentOf(cur)) animated = ix.animated(cur);
+  }
+  return animated;
+}
+
+// Opens Motion's gesture for `targets` (read where the canvas shows them: the motion layer's values in); false when
+// the gesture is Design's. No transaction: the drag writes previews, pointer-up keys them.
+bool Editor::motionStartGesture(const std::vector<Target>& targets, bool rotating) {
+  std::vector<Guid> ids;
+  for (const Target& t : targets) ids.push_back(t.id);
+  if (!motionGestureFor(ids)) return false;
+  motionDrag_ = MotionDrag{};
+  motionDrag_.on = true;
+  motionDrag_.rotating = rotating;
+  for (const Target& t : targets) motionDrag_.items.push_back({t.id, t.transform, t.size, t.transform, t.size});
+  return true;
+}
+
+// One step of the drag: the layer drawn at `transform` / `size` (its parent's space) as a preview write.
+void Editor::motionPreview(Guid id, const Mat2x3& transform, Vec2 size) {
+  const Node* n = doc_.get(id);
+  if (!n) return;
+  NodeChange c = NodeChange::changed(id);
+  c.mask = F_TRANSFORM | F_SIZE;
+  c.props = n->props;
+  c.props.transform = transform;
+  c.props.size = size;
+  motionLayer_.preview(doc_, c);
+  for (MotionDrag::Item& it : motionDrag_.items)
+    if (it.id == id) it.to = transform, it.toSize = size;
+  motionDrag_.moved = true;
+  needsRender_ = true;
+}
+
+// Pointer-up: the gesture keyed in one step (its undo name `label`).
+void Editor::motionFinishGesture(const char* label) {
+  MotionDrag drag = std::move(motionDrag_);
+  motionDrag_ = MotionDrag{};
+  if (!drag.moved) return;  // a press on a handle that never dragged: nothing shown, nothing to key
+  begin(TxnKind::GESTURE, label);  // the layer puts the base values back, the previews with them
+  for (const MotionDrag::Item& it : drag.items) motionKeyPose(it.id, it.shown, it.shownSize, it.to, it.toSize, drag.rotating);
+  commit();  // and applies again: the layers show the keyed values, where the drag left them
+}
+
+// Esc, blur, pointer-cancel: the previews go (nothing was written).
+void Editor::motionCancelGesture() {
+  motionDrag_ = MotionDrag{};
+  motionApply();
+}
+
+// A layer's motion transform at root time `timeUs` (docs/motion.md §4.5): its translation, rotation, scale and shear
+// tracks folded over their bases, with its anchor. Reads base values (the layer restored).
+motion::LayerBase Editor::motionPoseAt(Guid id, int64_t timeUs) {
+  const Node* n = doc_.get(id);
+  if (!n) return motion::LayerBase{};
+  motion::LayerBase pose = motion::decodeLayerBase(n->props);
+  const motion::AnimatedNode* an = motionIndex().node(id);
+  if (!an) return pose;
+  for (const motion::Binding& b : an->bindings) {
+    if (b.slot.kind != Slot::Kind::NODE || !motion::isMotionTransformField(b.slot.field)) continue;
+    KeyframeValue v;
+    if (!motionCurrentValue(id, b.slot, timeUs, v)) continue;
+    Vec2 xy = v.kind == ValueKind::VECTOR ? v.v : Vec2{v.f, v.f};  // a FLOAT on an XY track is uniform
+    switch (b.slot.field) {
+      case VariableField::MOTION_TRANSLATION_X: pose.translation.x = v.f; break;
+      case VariableField::MOTION_TRANSLATION_Y: pose.translation.y = v.f; break;
+      case VariableField::MOTION_TRANSLATION_XY: pose.translation = xy; break;
+      case VariableField::MOTION_ROTATION: pose.rotation = v.f; break;
+      case VariableField::MOTION_SCALE_X: pose.scale.x = v.f; break;
+      case VariableField::MOTION_SCALE_Y: pose.scale.y = v.f; break;
+      case VariableField::MOTION_SCALE_XY: pose.scale = xy; break;
+      case VariableField::MOTION_SHEAR: pose.shear = v.f; break;
+      default: break;
+    }
+  }
+  return pose;
+}
+
+// One layer's gesture keyed (docs/motion.md §4.9). `shown` / `shownSize`: where the canvas showed it when the gesture
+// began; `to` / `toSize`: where the gesture leaves it (its parent's space, the motion layer's values in). Each part
+// goes to its motion field at the playhead when the field has a track or auto-keyframe is on — the position to
+// TRANSLATION_XY (or the X / Y pair a layer has instead), a turn to ROTATION when `rotating`, a new size to WIDTH /
+// HEIGHT — and to the base (x / y, rotation, size, as in Design) otherwise, so the layer ends where the gesture left
+// it. With the motion transform M · T(o) · T(t) · L · T(−o) (L = R(r) · Shear(k) · S(s)), the translation that puts it
+// at `to` is t = M⁻¹(to − M's origin) − o + L·o (linear parts). A transaction is open (base values).
+void Editor::motionKeyPose(Guid id, const Mat2x3& shown, Vec2 shownSize, const Mat2x3& to, Vec2 toSize, bool rotating) {
+  const Node* n = doc_.get(id);
+  Guid root = motionRoot();
+  if (!n || root == kNoGuid) return;
+  const NodeProps base = n->props;
+  auto routed = [&](VariableField f) { return motion_.autoKeyframe || motionTrackOf(base, nodeSlot(f)) != kNoGuid; };
+  const double eps = 1e-6;
+  motion::LayerBase pose = motionPoseAt(id, motion_.timeUs);
+  std::vector<std::pair<Slot, KeyframeValue>> keys;
+  // The size: WIDTH / HEIGHT keyframes, else the base's.
+  Vec2 size = base.size;
+  for (VariableField f : {VariableField::WIDTH, VariableField::HEIGHT}) {
+    bool w = f == VariableField::WIDTH;
+    double from = w ? shownSize.x : shownSize.y, want = w ? toSize.x : toSize.y;
+    if (std::fabs(want - from) < eps) continue;
+    if (routed(f)) keys.push_back({nodeSlot(f), KeyframeValue::number(motion::nodeToStored(*motion::fieldInfo(f), want))});
+    else (w ? size.x : size.y) = want;
+  }
+  // The turn: ROTATION, else the base's linear part takes it (a flip of a resize too).
+  Vec2 o = motion::MotionLayer::anchorPoint(pose, size);
+  Mat2x3 ml = linearPart(base.transform);
+  Mat2x3 toL = linearPart(to), shownL = linearPart(shown);
+  double r = pose.rotation;
+  if (rotating && routed(VariableField::MOTION_ROTATION)) {
+    Mat2x3 q = ml.inverse() * toL * shownL.inverse() * ml;  // the turn in the layer's own space
+    double turn = std::atan2(q.m10, q.m00);
+    if (std::fabs(turn) > eps) {
+      r += turn;
+      keys.push_back({nodeSlot(VariableField::MOTION_ROTATION), KeyframeValue::number(r)});
+    }
+  } else if (!nearlyEqual(toL, shownL, eps)) {
+    Mat2x3 l = motionLinear(r, pose.shear, pose.scale);
+    if (std::fabs(l.determinant()) > eps) ml = toL * l.inverse();
+  }
+  // The position: TRANSLATION_XY (or X / Y), else the base's origin takes what the keys don't.
+  Vec2 need = ml.inverse().applyLinear(to.translation() - base.transform.translation()) - o + motionLinear(r, pose.shear, pose.scale).applyLinear(o);
+  Vec2 delta = need - pose.translation, rest = delta;
+  bool split = motionTrackOf(base, nodeSlot(VariableField::MOTION_TRANSLATION_X)) != kNoGuid ||
+               motionTrackOf(base, nodeSlot(VariableField::MOTION_TRANSLATION_Y)) != kNoGuid;
+  if (split) {
+    if (std::fabs(delta.x) > eps && routed(VariableField::MOTION_TRANSLATION_X)) {
+      keys.push_back({nodeSlot(VariableField::MOTION_TRANSLATION_X), KeyframeValue::number(need.x)});
+      rest.x = 0;
+    }
+    if (std::fabs(delta.y) > eps && routed(VariableField::MOTION_TRANSLATION_Y)) {
+      keys.push_back({nodeSlot(VariableField::MOTION_TRANSLATION_Y), KeyframeValue::number(need.y)});
+      rest.y = 0;
+    }
+  } else if ((std::fabs(delta.x) > eps || std::fabs(delta.y) > eps) && routed(VariableField::MOTION_TRANSLATION_XY)) {
+    keys.push_back({nodeSlot(VariableField::MOTION_TRANSLATION_XY), KeyframeValue::vector(need)});
+    rest = {0, 0};
+  }
+  Mat2x3 m = ml;
+  Vec2 shift = ml.applyLinear(rest);
+  m.m02 = base.transform.m02 + shift.x;
+  m.m12 = base.transform.m12 + shift.y;
+  NodeChange c = NodeChange::changed(id);
+  if (!nearlyEqual(m, base.transform, 1e-9)) c.mask |= F_TRANSFORM, c.props.transform = m;
+  if (!(size == base.size)) c.mask |= F_SIZE, c.props.size = size;
+  if (c.mask) write(c);
+  if (c.mask & F_SIZE) keepResizedSize(id, size.x != base.size.x, size.y != base.size.y);
+  for (auto& [s, v] : keys) motionKeyAtPlayhead(id, s, root, v);
+}
+
+// Shifts a layer's motion translation by `by` (its own space) at every time: the keyframes of its manual position
+// tracks, else the base motionTransform's translation (the anchor kept in place).
+void Editor::motionShiftTranslation(Guid id, Vec2 by) {
+  const Node* n = doc_.get(id);
+  if (!n) return;
+  const NodeProps p = n->props;
+  auto shift = [&](Guid track, Vec2 d) {
+    for (Guid k : doc_.children(track)) {
+      const Node* kn = doc_.get(k);
+      motion::Keyframe kf;
+      if (!kn || !motion::decodeKeyframe(kn->props, k, kf)) continue;
+      if (kf.value.kind == ValueKind::VECTOR) kf.value.v = kf.value.v + d;
+      else kf.value.f += d.x;
+      NodeChange c = NodeChange::changed(k);
+      putExtra(c, "keyframeValue", encodeExtra("keyframeValue", keyframeValueJson(kf.value)));
+      write(c);
+    }
+    motionDirty_ = true;
+  };
+  bool baseX = true, baseY = true;
+  if (Guid t = motionTrackOf(p, nodeSlot(VariableField::MOTION_TRANSLATION_XY)); t != kNoGuid) shift(t, by), baseX = baseY = false;
+  if (Guid t = motionTrackOf(p, nodeSlot(VariableField::MOTION_TRANSLATION_X)); t != kNoGuid) shift(t, {by.x, 0}), baseX = false;
+  if (Guid t = motionTrackOf(p, nodeSlot(VariableField::MOTION_TRANSLATION_Y)); t != kNoGuid) shift(t, {by.y, 0}), baseY = false;
+  if (!baseX && !baseY) return;
+  motion::LayerBase b = motion::decodeLayerBase(p);
+  b.translation = b.translation + Vec2{baseX ? by.x : 0, baseY ? by.y : 0};
+  json::Value mt = jobj();
+  put(mt, "translation", jvec(b.translation));
+  put(mt, "rotation", jnum(b.rotation));
+  put(mt, "scale", jvec(b.scale));
+  put(mt, "shearX", jnum(b.shear));
+  NodeChange c = NodeChange::changed(id);
+  putExtra(c, "motionTransform", encodeExtra("motionTransform", mt));
+  write(c);
+  motionDirty_ = true;
+}
+
+// ---- Ownership: copies animate on tracks of their own (docs/motion.md §4.2; round 8b, increment 2) -------------------
+
+// A copied layer's props (a duplicate, a paste, a detached instance's layer) before it is written: each manual track
+// its KEYFRAME expressions name is copied with its keyframes — from `clip` when the clipboard carries it, else from the
+// document — and the parameter re-pointed at the copy and at the timeline of the root `parent` is under; a track found
+// nowhere drops its parameter (the last one gone, the base is the slot's binding again). A transaction is open.
+void Editor::motionCopyTracks(NodeProps& p, Guid parent, const std::vector<NodeChange>* clip) {
+  std::vector<std::pair<Slot, VariableData>> found;
+  forEachKeyframeSlot(p, [&](const Slot& s, const VariableData& d) { found.push_back({s, d}); });
+  if (found.empty()) return;
+  Guid root = motionIndex_.rootOf(doc_, parent);
+  for (auto& [s, d] : found) {
+    std::vector<motion::Param> params, kept;
+    motion::decodeParams(d.args[1], params);
+    for (motion::Param q : params) {
+      if (q.kind == motion::Param::Kind::MANUAL) {
+        q.track = motionCopyTrack(q.track, clip);
+        if (q.track == kNoGuid) continue;
+        if (root != kNoGuid) q.timelineDef = root;
+      }
+      kept.push_back(q);  // preset parameters as they are: their instances come with presets (round 8h)
+    }
+    const VariableData& base = d.args[0];
+    if (!kept.empty()) putSlot(p, s, keyframeExpression(base, kept));
+    else putSlot(p, s, base.kind == VariableData::Kind::ALIAS || base.kind == VariableData::Kind::EXPRESSION ? base : VariableData{});
+  }
+  motionDirty_ = true;
+}
+
+// A copy of a track and its keyframes on the internal canvas under new GUIDs; kNoGuid when neither the clipboard nor
+// the document has it.
+Guid Editor::motionCopyTrack(Guid track, const std::vector<NodeChange>* clip) {
+  NodeProps tp;
+  std::vector<NodeProps> keys;
+  bool found = false;
+  if (clip) {
+    for (const NodeChange& c : *clip)
+      if (c.phase != Phase::REMOVED && c.guid == track && c.props.type == NodeType::KEYFRAME_TRACK) tp = c.props, found = true;
+    if (found)
+      for (const NodeChange& c : *clip)
+        if (c.phase != Phase::REMOVED && c.props.type == NodeType::KEYFRAME && c.props.parentIndex.guid == track) keys.push_back(c.props);
+  }
+  if (!found) {
+    const Node* t = doc_.get(track);
+    if (!t || t->props.type != NodeType::KEYFRAME_TRACK) return kNoGuid;
+    tp = t->props;
+    for (Guid k : doc_.children(track))
+      if (const Node* kn = doc_.get(k); kn && kn->props.type == NodeType::KEYFRAME) keys.push_back(kn->props);
+  }
+  Guid internal = internalCanvas(true);
+  if (internal == kNoGuid) return kNoGuid;
+  tp.parentIndex = {internal, doc_.positionAtEnd(internal)};
+  Guid id = newGuid();
+  write(NodeChange::created(id, tp));
+  for (NodeProps& kp : keys) {
+    kp.parentIndex.guid = id;
+    write(NodeChange::created(newGuid(), kp));
+  }
+  motionDirty_ = true;
+  return id;
+}
+
+// The clipboard carries the tracks its layers animate on, with their keyframes, outside its regions (as it carries
+// brushes): a cut, or a paste in another file, keeps the animation.
+void Editor::motionClipboard(std::vector<NodeChange>& nodes, const std::vector<const NodeProps*>& copied) const {
+  std::unordered_set<Guid, GuidHash> have;
+  for (const NodeChange& c : nodes) have.insert(c.guid);
+  std::vector<Guid> tracks;
+  for (const NodeProps* p : copied)
+    forEachKeyframeSlot(*p, [&](const Slot&, const VariableData& d) {
+      std::vector<motion::Param> params;
+      motion::decodeParams(d.args[1], params);
+      for (const motion::Param& q : params) {
+        const Node* t = q.kind == motion::Param::Kind::MANUAL ? doc_.get(q.track) : nullptr;
+        if (t && t->props.type == NodeType::KEYFRAME_TRACK && have.insert(q.track).second) tracks.push_back(q.track);
+      }
+    });
+  for (Guid t : tracks) {
+    nodes.push_back(NodeChange::created(t, doc_.get(t)->props));
+    for (Guid k : doc_.children(t)) nodes.push_back(NodeChange::created(k, doc_.get(k)->props));
+  }
 }
 
 // ---- Reads ----------------------------------------------------------------------------------------------------------

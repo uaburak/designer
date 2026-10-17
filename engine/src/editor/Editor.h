@@ -1637,6 +1637,7 @@ class Editor : private LayoutHost, public TextLayouts {
   bool startMove(uint32_t mods);
   void setDuplicating(bool on);
   void dragMove(Vec2 world, uint32_t mods);
+  void motionDragMove(Vec2 world, uint32_t mods);
   void finishMove();
   void updateInsertion(Guid frame, Vec2 world);
   void startResize(int hx, int hy);
@@ -1808,6 +1809,35 @@ class Editor : private LayoutHost, public TextLayouts {
   bool motionSlotOfTrack(Guid track, Guid& owner, motion::Slot& slot);
   bool motionCurrentValue(Guid id, const motion::Slot& slot, int64_t timeUs, motion::KeyframeValue& out);
   FieldMask motionRouteWrite(Guid id, const NodeChange& props);
+  // Round 8b, increment 2: a move, resize or rotate of layers under the timeline's root while Motion is on is drawn as
+  // the motion layer's preview writes (no transaction) and keyed in one step when it ends; a nudge is keyed at once.
+  struct MotionDrag {
+    bool on = false;
+    bool moved = false;     // a preview was written (a click on a handle keys nothing)
+    bool rotating = false;  // the rotate handle: the turn goes to ROTATION
+    struct Item {
+      Guid id;
+      Mat2x3 shown;  // where the canvas showed it when the gesture began (the parent's space)
+      Vec2 shownSize;
+      Mat2x3 to;  // where the gesture leaves it
+      Vec2 toSize;
+    };
+    std::vector<Item> items;
+  };
+  MotionDrag motionDrag_;
+  bool motionGestureFor(const std::vector<Guid>& ids);
+  bool motionStartGesture(const std::vector<Target>& targets, bool rotating);
+  void motionPreview(Guid id, const Mat2x3& transform, Vec2 size);
+  void motionFinishGesture(const char* label);
+  void motionCancelGesture();
+  void motionKeyPose(Guid id, const Mat2x3& shown, Vec2 shownSize, const Mat2x3& to, Vec2 toSize, bool rotating);
+  motion::LayerBase motionPoseAt(Guid id, int64_t timeUs);
+  void motionKeyAtPlayhead(Guid id, const motion::Slot& s, Guid root, const motion::KeyframeValue& value);
+  void motionShiftTranslation(Guid id, Vec2 by);
+  // Ownership (docs/motion.md §4.2): a copied layer's tracks copied with it; the clipboard carries them.
+  void motionCopyTracks(NodeProps& p, Guid parent, const std::vector<NodeChange>* clip);
+  Guid motionCopyTrack(Guid track, const std::vector<NodeChange>* clip);
+  void motionClipboard(std::vector<NodeChange>& nodes, const std::vector<const NodeProps*>& copied) const;
   Guid textPathDrag_ = kNoGuid;    // the TEXT_PATH whose start handle is dragged
   Guid textPathHover_ = kNoGuid;   // the edge the Text on path tool is over (highlighted)
   void switchVectorNode(Guid id);
