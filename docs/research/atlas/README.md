@@ -58,6 +58,19 @@ What DesignerV2 does not do yet, as each chapter's author ranked it. The chapter
 - **21 Settings**: where each preference lives (local, account-roaming); the Accessibility dialog (seven switches); reduced motion; the desktop app's interface scale and troubleshooting menu; nudge dialog rules; language and token options.
 - **22 Undo and file**: `undoBatchPageIds` 46; commit modes instead of time windows; the save-status rules (10 s offline, 30 s unconfirmed, 60 s toast); IndexedDB offline backup; Save Local Copy's partial-file flow. The build's embedded schema is the same as the owner's latest Save Local Copy (version 106; Figma reads up to 110).
 
+## Integration order (owner, 2026-10-17: "apply everything REA found")
+
+Each chapter's "DesignerV2 today" list is built in waves of three branches (one agent each, its own worktree, disjoint files, native tests and `engine:build` where C++ changes), merged into main after review; each branch adds an "As built" note to its chapter and its not-done list. Open questions that need a live Figma probe stay open and are listed, not guessed. Multiplayer (19) waits for Phase 6 as `docs/roadmap.md` says.
+
+| Wave | Branches |
+|---|---|
+| 1 | chrome (02, with 21's panel-level settings) · canvas and shapes (04, 05) · paints and effects (07, 08) |
+| 2 | layout (09) · components (10) · variables and styles (11) |
+| 3 | text (06) · prototyping (13) · export, import and clipboard (15) |
+| 4 | menus and shortcuts (03) · libraries (12) · comments, versions and undo / file (16, 22) |
+| 5 | Dev Mode (14) · plugins (17) · Figma AI (18) |
+| 6 | app shell and Home (01) · rendering and Batch D's rest (20: CPU at low zoom, memory, lazy materialisation, occlusion culling, time-sliced edits, context-loss recovery) · settings and accessibility (21) |
+
 ## Using it
 
 Before building or fixing an area, read its chapter first. The values to copy are in its tables, and the open questions say what still needs a live probe in Figma (devtools console or the Plugin API, as `docs/research/figma/live/` did). The extracted build stays at `~/.cache/figma-rea/` for follow-up reads; when Figma updates, a new extraction can be compared with this one.
