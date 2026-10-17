@@ -27,7 +27,7 @@ import { COMPONENT_COMMAND, canPushChanges, goToMainComponent, instanceChanges, 
 import { collapsedLayers } from "./model/layerTree";
 import { openFind, stepFind } from "./find";
 import { adjustText, syncViewOptions, type TextAdjust } from "./canvasTools";
-import { PREFERENCES, pref, togglePreference } from "./preferences";
+import { PREFERENCES, pref, togglePreference, type PreferenceKey } from "./preferences";
 import { setSpellCheck, spellCheckOn, spellChecker } from "./spellcheck";
 import {
   addLayout,
@@ -302,6 +302,16 @@ const selectAllWith = (id: string, label: string, mode: string): EditorCommand =
   enabled: (ed) => engineEnabled(ed, "SELECT_MATCHING"),
 });
 
+/**
+ * Figma's toasts when a snapping preference is switched (docs/research/atlas/21-settings.md §3:
+ * visual_bell.snap_to_{geometry,objects,pixel_grid}_enabled / _disabled; the English worded as its Pixel preview one).
+ */
+const TOGGLE_TOASTS: Partial<Record<PreferenceKey, readonly [on: string, off: string]>> = {
+  snapToGeometry: ["Snap to geometry enabled", "Snap to geometry disabled"],
+  snapToObjects: ["Snap to objects enabled", "Snap to objects disabled"],
+  snapToPixelGrid: ["Snap to pixel grid enabled", "Snap to pixel grid disabled"],
+};
+
 /** View › Pixel grid's state (on unless turned off). */
 const pixelGridOn = (ed: EditorController) => ed.ui.get().pixelGrid !== false;
 
@@ -315,6 +325,9 @@ export function setViewOption(
   ed.ui.set(patch);
   syncViewOptions(ed);
   if (patch.outlines !== undefined) showToast({ message: patch.outlines ? t("Outlines visible") : t("Outlines hidden") });
+  // Figma's toggle toasts (docs/research/atlas/21-settings.md §3: visual_bell.render_grid_*, show_frame_guides_*).
+  if (patch.pixelGrid !== undefined) showToast({ message: patch.pixelGrid ? t("Pixel grid visible") : t("Pixel grid hidden") });
+  if (patch.layoutGuides !== undefined) showToast({ message: patch.layoutGuides ? t("Layout guides visible") : t("Layout guides hidden") });
   // Live Figma's toasts (behaviour/keys.md: ⌃P).
   if (patch.pixelPreview !== undefined) showToast({ message: patch.pixelPreview ? t("Pixel preview enabled ({n}x)", { n: patch.pixelPreview }) : t("Pixel preview disabled") });
 }
@@ -459,9 +472,11 @@ export const COMMANDS: EditorCommand[] = [
   selectAllWith("edit.select-same-instance", "Same instance", "INSTANCE"),
 
   // ---- View ----
-  ui("view.toggle-ui", "Show/Hide UI", [k("Backslash", { mod: true })], (ed) => ed.ui.set((s) => ({ uiHidden: !s.uiHidden })), (ed) => !ed.ui.get().uiHidden),
-  // ⇧⌘\ (the live View menu; help "Navigate the left sidebar": collapses the navigation bar and both sidebars).
-  ui("view.minimize-ui", "Minimize UI", [k("Backslash", { mod: true, shift: true })], (ed) => ed.ui.set((s) => ({ uiMinimized: !s.uiMinimized, uiHidden: false })), (ed) => ed.ui.get().uiMinimized),
+  // ⌘\, and ⌘. (Figma's shortcut table, docs/research/atlas/02-editor-chrome.md §5).
+  ui("view.toggle-ui", "Show/Hide UI", [k("Backslash", { mod: true }), k("Period", { mod: true })], (ed) => ed.ui.set((s) => ({ uiHidden: !s.uiHidden })), (ed) => !ed.ui.get().uiHidden),
+  // ⇧⌘\ (the live View menu; help "Navigate the left sidebar": collapses the navigation bar and both sidebars), and
+  // Figma's ⇧\ and ⇧. (atlas 02 §5).
+  ui("view.minimize-ui", "Minimize UI", [k("Backslash", { mod: true, shift: true }), k("Backslash", { shift: true }), k("Period", { shift: true })], (ed) => ed.ui.set((s) => ({ uiMinimized: !s.uiMinimized, uiHidden: false })), (ed) => ed.ui.get().uiMinimized),
   // View › Additional labels: the navigation bar's tab names and the Design panel's property labels, together. Its check
   // is the rail's labels (off by default: an icon-only rail, panels/Rail.tsx showsRailLabels), so one click from the
   // default turns both on, the next both off.
@@ -800,6 +815,8 @@ export const COMMANDS: EditorCommand[] = [
       run: (ed) => {
         togglePreference(ed, p.key);
         syncViewOptions(ed);
+        const said = TOGGLE_TOASTS[p.key];
+        if (said) showToast({ message: t(pref(ed.ui.get(), p.key) ? said[0] : said[1]) });
       },
       checked: (ed) => pref(ed.ui.get(), p.key),
     })

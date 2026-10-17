@@ -236,6 +236,22 @@
   .zoom:hover, .zoom[data-open] { background: var(--figma-color-bg-hover); }
   .zoom:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .zoom svg { color: var(--figma-color-icon-secondary); }
+  /* The zoom menu's field (Figma's `zoom_menu` input; its look isn't captured: a 24 field across the menu, G) */
+  .zoomField {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-2);
+    border: 1px solid var(--ds-color-menu-separator);
+    border-radius: var(--ds-radius-medium);
+    outline: none;
+    background: transparent;
+    color: var(--ds-color-menu-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    font-variant-numeric: tabular-nums;
+  }
+  .zoomField:focus { border-color: var(--figma-color-border-selected); }
   .rightBody { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; }
 
   /* ---- Minimized UI (⇧⌘\): the panels as two floating cards ---- */

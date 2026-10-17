@@ -6,14 +6,14 @@ import type { ChangeInfo } from "../types";
 import styles from "./ResizeHandle.module.css";
 import { t, useT } from "@/i18n";
 
-export interface ResizeHandleProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChange"> {
+export interface ResizeHandleProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChange" | "defaultValue"> {
   /** Which edge of its (position: relative) panel; "bottom": a section's lower edge (the Pages list), dragged up and down */
   side: "left" | "right" | "bottom";
   value: number;
   min?: number;
   max?: number;
-  /** Double click resets to it */
-  defaultValue?: number;
+  /** Double click resets to it; null: a double click does nothing (Figma's right panel) */
+  defaultValue?: number | null;
   /** `final: false` while dragging, one `final: true` on release */
   onChange: (px: number, info: ChangeInfo) => void;
 }
@@ -21,8 +21,8 @@ export interface ResizeHandleProps extends Omit<HTMLAttributes<HTMLDivElement>, 
 /**
  * A panel's resize edge (contract §4.19): an invisible 8px hit area centred
  * on its border, col-resize (forced over the whole page while dragging);
- * drag to resize, double click to reset. No keyboard and no hover look, as
- * Figma's.
+ * drag to resize, double click to reset (the left panel to 240; Figma's right
+ * panel has no reset). No keyboard and no hover look, as Figma's.
  */
 export function ResizeHandle({ side, value, min = size["panel-min"], max = size["panel-max"], defaultValue = size.panel, onChange, className, ...rest }: ResizeHandleProps) {
   useT();
@@ -69,7 +69,7 @@ export function ResizeHandle({ side, value, min = size["panel-min"], max = size[
       }}
       onPointerUp={(e) => end(e.currentTarget, e.pointerId)}
       onPointerCancel={(e) => end(e.currentTarget, e.pointerId)}
-      onDoubleClick={() => onChange(defaultValue, { final: true, source: "drag" })}
+      onDoubleClick={defaultValue === null ? undefined : () => onChange(defaultValue, { final: true, source: "drag" })}
       {...rest}
     />
   );

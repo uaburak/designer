@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { clampRound, commitTyped, evaluate, evaluateWith, formatNumber, parseExpression, stripUnit } from "../util/evaluate";
-import { scrubFrom, scrubRate, scrubSteps, scrubValue, stepValue, SCRUB_PX_PER_STEP } from "../util/scrub";
+import { scrubFrom, scrubRate, scrubSpeedLabel, scrubSteps, scrubValue, stepValue, SCRUB_PX_PER_STEP } from "../util/scrub";
 
 describe("a numeric field's arithmetic (ported from figma/ui.tsx)", () => {
   it("reads numbers and decimal commas", () => {
@@ -65,7 +65,7 @@ describe("stepping and scrubbing (contract §4.5)", () => {
     expect(stepValue(0, -1, { min: 0 })).toBe(0);
     expect(stepValue(1, 1, { step: 0.5, bigStep: 5, shift: true })).toBe(6);
   });
-  it("scrubs a whole step per 4 px (live: 90 px → 22), ×10 with Shift, at the pointer's speed (2x, 1x, 1/2, 1/4)", () => {
+  it("scrubs a whole step per 4 px (live: 90 px → 22), ×10 with Shift, at the pointer's speed", () => {
     expect(SCRUB_PX_PER_STEP).toBe(4);
     expect(scrubValue(-3, 90)).toBe(19);
     expect(scrubValue(100, 3)).toBe(100);
@@ -85,7 +85,9 @@ describe("stepping and scrubbing (contract §4.5)", () => {
     expect(scrubValue(61.05, -4)).toBe(61);
     expect(scrubValue(61.05, -8)).toBe(60);
     expect(scrubValue(61.05, 2)).toBe(61.05);
-    expect(scrubValue(61.05, 4, { shift: true })).toBe(71);
+    expect(scrubValue(61.05, 4, { shift: true })).toBe(70);
+    expect(scrubValue(61, -4, { shift: true })).toBe(60);
+    expect(scrubValue(13, 8, { shift: true })).toBe(30);
     expect(scrubValue(-2.5, 4)).toBe(-2);
     expect(scrubValue(0.37, 4, { step: 0.1, precision: 2 })).toBe(0.4);
     expect(scrubValue(0.4, 4, { step: 0.1, precision: 2 })).toBe(0.5);
@@ -97,8 +99,31 @@ describe("stepping and scrubbing (contract §4.5)", () => {
     expect(scrubFrom(61.05, 0)).toBe(61.05);
     expect(scrubFrom(10, 0.5)).toBe(10.5);
   });
-  it("picks the speed from how far above or below the start the pointer is", () => {
-    expect([scrubRate(-200), scrubRate(-60), scrubRate(0), scrubRate(59), scrubRate(60), scrubRate(179), scrubRate(180)]).toEqual([2, 2, 1, 1, 0.5, 0.5, 0.25]);
+  it("picks the speed from how far above or below the start the pointer is, as a share of the screen (Figma's bands)", () => {
+    // A 1000 px screen: past 125 ×2 / ½, past 250 ×4 / ¼, past 500 ×8 / ⅛; beyond the screen stays ×8 / ⅛.
+    const at = (dy: number) => scrubRate(dy, 1000);
+    expect([at(-2000), at(-501), at(-500), at(-251), at(-126), at(-125), at(0), at(125), at(126), at(251), at(501), at(2000)]).toEqual([8, 8, 4, 4, 2, 1, 1, 1, 0.5, 0.25, 0.125, 0.125]);
+    expect([scrubSpeedLabel(8), scrubSpeedLabel(2), scrubSpeedLabel(0.5), scrubSpeedLabel(0.125)]).toEqual(["8x", "2x", "1/2", "1/8"]);
+  });
+});
+
+describe("Figma's postfix operators (atlas 02 §4.5)", () => {
+  it("reads % as a percent of the current value, x as a multiple of it, px as nothing", () => {
+    expect(evaluateWith("50%", 200)).toBe(100);
+    expect(evaluateWith("2x", 30)).toBe(60);
+    expect(evaluateWith("1.5X", 10)).toBe(15);
+    expect(evaluateWith("10px+5", undefined)).toBe(15);
+    expect(evaluateWith("-50%", 40)).toBe(-20);
+    expect(evaluateWith("2^2x", 2)).toBe(16); // postfix binds tighter than ^
+    expect(evaluate("50%")).toBeNaN(); // no current value
+  });
+  it("commits them against the field's value, or each layer's on Mixed; the field's own unit stays a unit", () => {
+    expect(commitTyped("50%", 200)).toBe(100);
+    expect(commitTyped("2x", 24)).toBe(48);
+    expect(commitTyped("50%", 80, { unit: "%" })).toBe(50);
+    const r = commitTyped("50%", null);
+    expect(r && typeof r === "object" && [r.each(10), r.each(300)]).toEqual([5, 150]);
+    expect(stripUnit("50%")).toBe("50%");
   });
 });
 

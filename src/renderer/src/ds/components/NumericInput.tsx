@@ -2,7 +2,8 @@ import { capture, release } from "../util/pointer";
 import { useEffect, useRef, useState, type HTMLAttributes, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { cx } from "../util/cx";
 import { commitTyped, formatNumber } from "../util/evaluate";
-import { scrubRate, scrubValue, stepValue, SCRUB_THRESHOLD } from "../util/scrub";
+import { scrubRate, scrubSpeedLabel, scrubValue, stepValue, SCRUB_THRESHOLD } from "../util/scrub";
+import { ScrubLock } from "../util/scrubLock";
 import { hapticTick } from "../util/haptics";
 import { exitKey, selectAllOnClick } from "../util/selectAll";
 import { useReturnFocus } from "../util/returnFocus";
@@ -14,7 +15,7 @@ import { FieldPrefix } from "./TextInput";
 import styles from "./Field.module.css";
 
 /** What a scrub reads of a pointer event (React's or the DOM's: a label elsewhere listens natively). */
-type ScrubPointer = { clientX: number; clientY: number; pointerId: number; shiftKey: boolean };
+type ScrubPointer = { clientX: number; clientY: number; movementX?: number; movementY?: number; pointerId: number; shiftKey: boolean };
 
 export interface NumericInputProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChange" | "prefix"> {
   label: string;
@@ -57,6 +58,8 @@ export interface NumericInputProps extends Omit<HTMLAttributes<HTMLDivElement>, 
   unit?: string;
   /** Scrub by dragging the prefix, or the field with ⌥ held (default true) */
   scrub?: boolean;
+  /** How fast a scrub moves the value (Figma's `scrubMultiplier`: 1; 4 for a percent field; a corner radius 0.1) */
+  scrubMultiplier?: number;
   /**
    * A label elsewhere that scrubs this field as its prefix would (Figma: a settings popover's "Blur", "Spread",
    * "Gap" scrub): its id, or "previous" — the element just before the field (a settings grid's label cell)
@@ -98,12 +101,13 @@ export interface NumericInputProps extends Omit<HTMLAttributes<HTMLDivElement>, 
  * Enter commits and gives focus back (to the canvas: `ReturnFocusProvider`); Tab or leaving commits; Esc puts the
  * typed text back and keeps the field focused with its text selected, a second Esc leaves like Enter
  * (live/behaviour/fields.md). ↑ ↓ step (⇧ big step). Dragging the prefix — or the field while ⌥ is held — scrubs in
- * whole steps, one per 4 px (⇧ ×10; a fractional value lands on a whole number at the first step: util/scrub.ts),
- * faster toward the top of the screen and slower toward the bottom (2x, 1x, 1/2, 1/4), a haptic tick on each step
- * (util/haptics.ts): `final: false` each step, one `final: true` on release, Esc cancels; a press without movement
- * focuses the field.
+ * whole steps, one per 4 px (⇧ by 10 on the 10 grid; a fractional value lands on a whole number at the first step:
+ * util/scrub.ts), coarser up the screen and finer down it (Figma's bands, ×8 … ×⅛), with the pointer locked and
+ * Figma's own cursor wrapping around the window (util/scrubLock.ts), a haptic tick on each step (util/haptics.ts):
+ * `final: false` each step, one `final: true` on release, Esc cancels; a press without movement focuses the field.
+ * "50%" and "2x" typed are a percent and a multiple of the value (util/evaluate.ts).
  */
-export function NumericInput({ label, prefix, prefixTone, value, onChange, onCancel, onClear, onStep, onExpression, onScrubBy, keywords, onKeyword, onText, min = -1e6, max = 1e6, step = 1, bigStep = 10, precision = 2, unit, scrub = true, scrubHandle, placeholder, suffix, disabled, variant = "filled", onExit, onFocusChange, bare, valueLabel, displayText, modeLabel, dimValue, boxLabel, className, ...rest }: NumericInputProps) {
+export function NumericInput({ label, prefix, prefixTone, value, onChange, onCancel, onClear, onStep, onExpression, onScrubBy, keywords, onKeyword, onText, min = -1e6, max = 1e6, step = 1, bigStep = 10, precision = 2, unit, scrub = true, scrubMultiplier = unit === "%" ? 4 : 1, scrubHandle, placeholder, suffix, disabled, variant = "filled", onExit, onFocusChange, bare, valueLabel, displayText, modeLabel, dimValue, boxLabel, className, ...rest }: NumericInputProps) {
   useT();
   const mixed = isMixed(value);
   const current = mixed ? null : value;
@@ -116,7 +120,8 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
   const exitBy = useRef<ExitReason>("blur");
   const input = useRef<HTMLInputElement>(null);
   const root = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ x: number; y: number; start: number; last: number; moved: boolean; rate: number; shift: boolean; relative: boolean; id: number; el: HTMLElement } | null>(null);
+  // x / y: where this rate's drag started (the pointer as `lock` reads it, past the window's edges once locked)
+  const drag = useRef<{ x: number; y: number; start: number; last: number; moved: boolean; rate: number; shift: boolean; relative: boolean; id: number; el: HTMLElement; lock: ScrubLock } | null>(null);
   const [focused, setFocused] = useState(false);
   const returnFocus = useReturnFocus();
   // Figma writes the unit in the field's text ("100%", "0°"); a bare field (the colour row's opacity) puts it after the number.
@@ -148,20 +153,24 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
   const startScrubOn = (el: HTMLElement, e: ScrubPointer) => {
     capture(el, e.pointerId);
     // A Mixed value (or a list) scrubs by a delta from 0, each layer's own value moving by it (`onScrubBy`).
-    drag.current = { x: e.clientX, y: e.clientY, start: mixed ? 0 : base, last: mixed ? 0 : base, moved: false, rate: 1, shift: e.shiftKey, relative: mixed, id: e.pointerId, el };
+    // Esc unlocks the pointer before the field sees the key: the lock going mid-scrub cancels it, as Esc does.
+    const lock = new ScrubLock(el, e, styles.scrubCursor, () => handle.current.endScrub(true));
+    drag.current = { x: e.clientX, y: e.clientY, start: mixed ? 0 : base, last: mixed ? 0 : base, moved: false, rate: 1, shift: e.shiftKey, relative: mixed, id: e.pointerId, el, lock };
   };
   const moveScrub = (e: ScrubPointer) => {
     const d = drag.current;
     if (!d) return;
-    const dx = e.clientX - d.x;
+    d.lock.move(e);
+    const { x, y } = d.lock;
     if (!d.moved) {
-      if (Math.abs(dx) < SCRUB_THRESHOLD) return;
+      if (Math.abs(x - d.x) < SCRUB_THRESHOLD) return;
       d.moved = true;
       setScrubbing(true);
       document.documentElement.setAttribute("data-cursor", "ew-resize");
+      d.lock.lock();
       onFocusChange?.(true);
     }
-    const rate = scrubRate(e.clientY - d.y);
+    const rate = scrubRate(y - d.y);
     if (rate !== d.rate || e.shiftKey !== d.shift) {
       // A speed change (or ⇧ pressed / let go) keeps the value reached and goes on from there at the new rate.
       if (rate !== d.rate) {
@@ -171,9 +180,9 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
       d.rate = rate;
       d.shift = e.shiftKey;
       d.start = d.last;
-      d.x = e.clientX;
+      d.x = x;
     }
-    const next = scrubValue(d.start, e.clientX - d.x, { step, bigStep, shift: e.shiftKey, min: d.relative ? -Infinity : min, max: d.relative ? Infinity : max, precision, rate });
+    const next = scrubValue(d.start, x - d.x, { step, bigStep, shift: e.shiftKey, min: d.relative ? -Infinity : min, max: d.relative ? Infinity : max, precision, rate: rate * scrubMultiplier });
     if (next !== d.last) {
       d.last = next;
       // Each step a tick on the trackpad, as Figma's (main throttles it; nothing off macOS).
@@ -186,6 +195,7 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
     const d = drag.current;
     if (!d) return;
     drag.current = null;
+    d.lock.end();
     document.documentElement.removeAttribute("data-cursor");
     document.documentElement.removeAttribute("data-scrub-speed");
     release(d.el, d.id);
@@ -416,7 +426,7 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
       {suffix !== undefined && <span className={styles.suffix}>{suffix}</span>}
       {scrubbing && speed !== 1 && (
         <span className={styles.scrubSpeed} role="status" data-scrub-speed={speed}>
-          {speed === 2 ? "2x" : speed === 0.5 ? "1/2" : "1/4"}
+          {scrubSpeedLabel(speed)}
         </span>
       )}
     </div>

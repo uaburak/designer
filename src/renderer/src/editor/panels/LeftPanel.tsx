@@ -173,21 +173,23 @@ function FileHeader() {
     useCallback((changed: () => void) => ed.source.onMetaChanged?.(changed) ?? (() => {}), [ed]),
     () => ed.source.location
   );
-  // The Edit file menu (help "Navigate the left sidebar": rename, version history, color profile, move).
-  // Built when the menu opens (the branch rows follow the file's branch state).
+  // The Edit file menu in Figma's order (docs/research/atlas/02-editor-chrome.md §3.3, EDITOR_FILENAME_DROPDOWN): the
+  // branch rows; version history, the library's, analytics, Export; the color profile; Duplicate, Rename, Move. Built
+  // when the menu opens (the branch rows follow the file's branch state).
   const entries = () => [
-    commandItem(ed, "file.rename"),
-    commandItem(ed, "file.duplicate"),
-    commandItem(ed, "file.move"),
+    ...branchMenuEntries(ed, commandItem).slice(1),
     "-" as const,
-    commandItem(ed, "file.save-version"),
     commandItem(ed, "file.version-history"),
-    "-" as const,
+    commandItem(ed, "file.save-version"),
     commandItem(ed, "file.publish-library"),
     commandItem(ed, "file.library-analytics"),
-    ...branchMenuEntries(ed, commandItem),
+    commandItem(ed, "file.export"),
     "-" as const,
     commandItem(ed, "file.color-profile"),
+    "-" as const,
+    commandItem(ed, "file.duplicate"),
+    commandItem(ed, "file.rename"),
+    commandItem(ed, "file.move"),
   ];
   return (
     <div className={styles.fileHeader}>

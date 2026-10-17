@@ -85,6 +85,11 @@ interface PanelProps {
    * 1208,125 in a 900-high window); the wheel and the arrow keys move it up and down to bring its rows in
    */
   extend?: boolean;
+  /**
+   * Content above the rows, keys kept to itself (the zoom menu's field, Figma's `zoom_menu`: a separator follows it).
+   * The rows' keys still work when the menu itself has focus.
+   */
+  head?: ReactNode;
 }
 
 export type MenuOver = { rect: DOMRect; align?: "left" | "right"; dy?: number };
@@ -92,7 +97,7 @@ export type MenuOver = { rect: DOMRect; align?: "left" | "right"; dy?: number };
 /** Live (menus/main-view.txt: 105 + 787 in a 900-high window): 8 below; main-preferences.txt measured 5 (`edgeBottom`). */
 const SUBMENU_EDGES = { top: 6, bottom: 8 };
 
-function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlighted, onPick, onBack, onClose, label, context, keepTop, over, dropdown, minWidth, width: fixedWidth, submenu, edgeBottom, flush, className, flipY, extend: extendProp }: PanelProps) {
+function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlighted, onPick, onBack, onClose, label, context, keepTop, over, dropdown, minWidth, width: fixedWidth, submenu, edgeBottom, flush, className, flipY, extend: extendProp, head }: PanelProps) {
   useT();
   const panel = useRef<HTMLDivElement>(null);
   // Live (menus/main-object.txt): a submenu taller than the window isn't clamped to it — 185 × 1050 at 210, 6 in a 900 high
@@ -309,6 +314,14 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
             {label}
           </span>
         )}
+        {head && (
+          <>
+            <div className={styles.head} onKeyDown={(e) => e.stopPropagation()}>
+              {head}
+            </div>
+            <div role="separator" className={styles.separator} />
+          </>
+        )}
         {list.map((entry, i) => {
           if (entry === "-") return <div key={`line-${i}`} role="separator" className={styles.separator} />;
           if (!isItem(entry)) return <div key={`header-${i}`} role="presentation" className={styles.header}>{entry.header}</div>;
@@ -483,10 +496,12 @@ export interface ContextMenuProps {
   flipY?: number;
   /** Runs past the window's bottom, moved by the wheel (see MenuPanel) */
   extend?: boolean;
+  /** Content above the rows (see MenuPanel), given the menu's close */
+  head?: (close: () => void) => ReactNode;
 }
 
 /** A menu at a point (contract §4.8): picking anything, a press outside, the wheel, Esc, blur or resize closes it. */
-export function ContextMenu({ at, entries, onSelect, onClose, renderer = "dom", above, static: isStatic, highlighted, ignore, label, context, keepTop, over, dropdown, minWidth, width, flipX, flush, className, flipY, extend }: ContextMenuProps) {
+export function ContextMenu({ at, entries, onSelect, onClose, renderer = "dom", above, static: isStatic, highlighted, ignore, label, context, keepTop, over, dropdown, minWidth, width, flipX, flush, className, flipY, extend, head }: ContextMenuProps) {
   const root = useRef<HTMLDivElement>(null);
   const popup = renderer === "native" ? (window as unknown as DesignerMenuBridge).designer?.menu?.popup : undefined;
   useDismiss(root, onClose, { enabled: !isStatic && !popup, ignore, wheel: true, blur: true, resize: true, escape: false });
@@ -526,6 +541,7 @@ export function ContextMenu({ at, entries, onSelect, onClose, renderer = "dom", 
       flush={flush}
       minWidth={minWidth}
       width={width}
+      head={head?.(onClose)}
       onPick={(id) => {
         onSelect(id);
         onClose();
@@ -592,10 +608,12 @@ export interface MenuButtonProps {
    * goes from field to field (round 17) — and is marked `data-field-menu`, so ⌥↓ in its field opens it (NumericInput)
    */
   tabIndex?: number;
+  /** Content above the rows, given the menu's close (the zoom menu's field) */
+  head?: (close: () => void) => ReactNode;
 }
 
 /** A trigger opening a menu under (or above) it; ↓ / Enter / Space open it; focus returns on close. */
-export function MenuButton({ entries, onSelect, children, label, placement = "bottom", className, disabled, tooltip, shortcut, overField, overAlign, overOffset, align = "start", gap = 4, flip, extend, named, flush, menuClassName, menuWidth, alignOffset = 0, tabIndex }: MenuButtonProps) {
+export function MenuButton({ entries, onSelect, children, label, placement = "bottom", className, disabled, tooltip, shortcut, overField, overAlign, overOffset, align = "start", gap = 4, flip, extend, named, flush, menuClassName, menuWidth, alignOffset = 0, tabIndex, head }: MenuButtonProps) {
   const button = useRef<HTMLButtonElement>(null);
   const [at, setAt] = useState<{ x: number; y: number; over?: MenuOver; flipX?: number; flipY?: number } | null>(null);
   const open = () => {
@@ -632,7 +650,7 @@ export function MenuButton({ entries, onSelect, children, label, placement = "bo
       >
         {children}
       </button>
-      {at && <ContextMenu at={at} above={placement === "top"} keepTop flush={flush} over={at.over} flipX={at.flipX} flipY={at.flipY} extend={extend} dropdown={named} label={named || flush ? label : undefined} className={menuClassName} width={menuWidth} entries={typeof entries === "function" ? entries() : entries} onSelect={onSelect} onClose={close} ignore={button} />}
+      {at && <ContextMenu at={at} above={placement === "top"} keepTop flush={flush} over={at.over} flipX={at.flipX} flipY={at.flipY} extend={extend} dropdown={named} label={named || flush ? label : undefined} className={menuClassName} width={menuWidth} head={head} entries={typeof entries === "function" ? entries() : entries} onSelect={onSelect} onClose={close} ignore={button} />}
     </>
   );
 }

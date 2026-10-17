@@ -28,7 +28,8 @@
     --ds-size-layer-fade: 12px;
     --ds-size-panel: 240px;
     --ds-size-panel-min: 240px;
-    --ds-size-panel-max: 480px;
+    --ds-size-panel-max: 500px;
+    --ds-size-right-panel-max: 499px;
     --ds-size-panel-header: 64px;
     --ds-size-right-header: 80px;
     --ds-size-rail: 56px;
@@ -178,11 +179,12 @@
     --ds-duration-fast: 80ms;
     --ds-duration-medium: 150ms;
     --ds-ease-out: cubic-bezier(0, 0, 0.2, 1);
-    --ds-delay-tooltip: 500ms;
-    --ds-delay-tooltip-warm: 300ms;
+    --ds-delay-tooltip: 1000ms;
+    --ds-delay-tooltip-hide: 300ms;
     --ds-delay-submenu: 100ms;
-    --ds-toast-duration: 4000ms;
-    --ds-toast-duration-action: 8000ms;
+    --ds-toast-duration: 3000ms;
+    --ds-toast-duration-long: 6000ms;
+    --ds-toast-duration-action: 10000ms;
     --ds-duration-shimmer: 1600ms;
     --ds-duration-sweep: 1800ms;
     --ds-duration-fade: 300ms;
