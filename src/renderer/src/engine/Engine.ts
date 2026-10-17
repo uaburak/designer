@@ -52,6 +52,8 @@ import {
   VIEW_RIGHT_DRAG_PAN,
   VIEW_FRAME_OUTLINES,
   VIEW_MASK_OUTLINES,
+  VIEW_OUTLINE_HIDDEN,
+  VIEW_OUTLINE_BOUNDS,
   WIRE_JSON,
   WIRE_KIWI,
   type CommandName,
@@ -711,6 +713,8 @@ export class Engine {
     rightDragPan?: boolean;
     frameOutlines?: boolean;
     maskOutlines?: boolean;
+    outlineHiddenLayers?: boolean;
+    outlineObjectBounds?: boolean;
   }): void {
     const flags =
       (options.pixelGrid ? VIEW_PIXEL_GRID : 0) |
@@ -730,7 +734,9 @@ export class Engine {
       (options.scrollWheelZoom ? VIEW_SCROLL_WHEEL_ZOOM : 0) |
       (options.rightDragPan !== false ? VIEW_RIGHT_DRAG_PAN : 0) |
       (options.frameOutlines ? VIEW_FRAME_OUTLINES : 0) |
-      (options.maskOutlines ? VIEW_MASK_OUTLINES : 0);
+      (options.maskOutlines ? VIEW_MASK_OUTLINES : 0) |
+      (options.outlineHiddenLayers ? VIEW_OUTLINE_HIDDEN : 0) |
+      (options.outlineObjectBounds ? VIEW_OUTLINE_BOUNDS : 0);
     this.after(this.x.setViewOptions(this.h, flags));
   }
 

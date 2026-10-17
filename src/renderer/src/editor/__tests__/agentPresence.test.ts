@@ -2,7 +2,7 @@
 // joining and leaving, the cursor and outline handed to the engine, following (throttled, animated) and what stops it.
 import { describe, expect, it, vi } from "vitest";
 import type { PresencePeer } from "@/engine/Engine";
-import { AGENT_IDLE_MS, AgentPresence, CANVAS_BOUND, FLASH_MS, FOLLOW_EVERY_MS, MOVE_MS, fitCamera, keyStopsFollowing, touchedNodes, unionRects, type AgentPresenceHost, type Clock, type Rect } from "../multiplayer/agentPresence";
+import { AGENT_IDLE_MS, AgentPresence, CANVAS_BOUND, FLASH_MS, FOLLOW_EVERY_MS, MIN_ZOOM, MOVE_MS, fitCamera, keyStopsFollowing, touchedNodes, unionRects, type AgentPresenceHost, type Clock, type Rect } from "../multiplayer/agentPresence";
 import { managerName, workerName } from "../agents/managerName";
 
 /** A clock the test moves by hand: timers and frames run when it says. */
@@ -107,7 +107,7 @@ describe("touched layers from a tool call", () => {
     expect(big.zoom).toBeCloseTo(900 / 4000);
     // Far away: the centre stays inside the canvas.
     expect(fitCamera({ x: 1e9, y: -1e9, w: 10, h: 10 }, { w: 1000, h: 800 })).toMatchObject({ x: CANVAS_BOUND, y: -CANVAS_BOUND });
-    expect(fitCamera({ x: 0, y: 0, w: 1e9, h: 1e9 }, { w: 1000, h: 800 }).zoom).toBe(0.02);
+    expect(fitCamera({ x: 0, y: 0, w: 1e9, h: 1e9 }, { w: 1000, h: 800 }).zoom).toBe(MIN_ZOOM);
   });
 });
 

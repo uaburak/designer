@@ -42,6 +42,8 @@ export function viewOptionsOf(ui: UIState) {
     rightDragPan: pref(ui, "rightDragPan"),
     frameOutlines: !!ui.frameOutlines,
     maskOutlines: !!ui.maskOutlines,
+    outlineHiddenLayers: !!ui.outlineHiddenLayers,
+    outlineObjectBounds: !!ui.outlineObjectBounds,
   };
 }
 

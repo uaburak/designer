@@ -71,6 +71,8 @@ Each chapter's "DesignerV2 today" list is built in waves of three branches (one 
 | 5 | Dev Mode (14) · plugins (17) · Figma AI (18) |
 | 6 | app shell and Home (01) · rendering and Batch D's rest (20: CPU at low zoom, memory, lazy materialisation, occlusion culling, time-sliced edits, context-loss recovery) · settings and accessibility (21) |
 
+**Motion first, then Social (owner, 2026-10-17):** Social (round 18, `docs/social.md`, ours — REA has nothing on it) builds its video on Motion, so Motion is finished before Social starts. From wave 2 on, one of each wave's three slots is Motion's next increment (`docs/motion.md`: 8a increment 2 — instance offsets, re-layout, path trim, text stagger, audio, the player, overlays; 8h presets and animation styles; 8e SVG / Lottie / audio; 8f Dev Mode's Motion tab, the plugin API, the agents' motion tools), and the waves above move down one slot each until Motion is done. Then the Social contract and 18a–18d.
+
 ## Using it
 
 Before building or fixing an area, read its chapter first. The values to copy are in its tables, and the open questions say what still needs a live probe in Figma (devtools console or the Plugin API, as `docs/research/figma/live/` did). The extracted build stays at `~/.cache/figma-rea/` for follow-up reads; when Figma updates, a new extraction can be compared with this one.

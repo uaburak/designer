@@ -547,3 +547,48 @@ export function draggedLayers(tree: LayerTree, rows: readonly RowData[], selecti
   const order = new Map(rows.map((r, i) => [r.id, i]));
   return normalizeSelection(tree, selection).sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0));
 }
+
+/** Figma's drag threshold in the Layers panel: a press becomes a drag once it is more than 3 px from where it went down. */
+export const LAYER_DRAG_THRESHOLD = 3;
+/** How long a drag rests on a closed layer's row (its middle third) before the layer opens (Figma: 1000 ms). */
+export const LAYER_HOVER_EXPAND_MS = 1000;
+
+/**
+ * The closed layer a drag at `fraction` (0 top … 1 bottom) of `row` would open by resting there: a layer with children
+ * when the pointer is in the middle third of its row (Figma's `expandDropTargetIfNeeded`), else null.
+ */
+export function hoverExpandTarget(row: RowData | undefined, fraction: number): Guid | null {
+  return row && row.expandable && !row.expanded && fraction > 1 / 3 && fraction < 2 / 3 ? row.id : null;
+}
+
+/**
+ * How far a drag scrolls the list on one pointer move with the pointer `distance` px past its top or bottom edge:
+ * faster the farther out, at most a row (Figma scales it by the distance and the 32 px row; its curve isn't read).
+ */
+export function dragScrollStep(distance: number, pitch: number): number {
+  return distance <= 0 ? 0 : Math.min(pitch, Math.ceil(distance / 2));
+}
+
+/**
+ * Figma's sticky header (`determineStickyHeader`): scrolled to `scrollTop`, the open top-level layer whose rows hold the
+ * list's top edge stays pinned there — pushed up by the next top-level row as it arrives. Its row index and where it
+ * is drawn (list coordinates); null at the top of the list or over a closed layer.
+ */
+export function stickyHeader(rows: readonly RowData[], pitch: number, scrollTop: number): { index: number; top: number } | null {
+  if (scrollTop <= 0) return null;
+  let at = -1;
+  let next = -1;
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].depth !== 0) continue;
+    if (i * pitch > scrollTop) {
+      next = i;
+      break;
+    }
+    at = i;
+  }
+  if (at < 0 || !rows[at].expanded) return null;
+  const nextTop = next < 0 ? Infinity : next * pitch;
+  if (nextTop > scrollTop + pitch) return { index: at, top: scrollTop };
+  if (nextTop > scrollTop) return { index: at, top: nextTop - pitch };
+  return null;
+}

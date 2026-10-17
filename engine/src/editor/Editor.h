@@ -320,9 +320,12 @@ class Editor : private LayoutHost, public TextLayouts {
     VIEW_KEEP_TOOL = 1024, VIEW_SHOW_DIMENSIONS = 2048, VIEW_FLIP_RESIZE = 4096, VIEW_KEYBOARD_ZOOM_SELECTION = 8192,
     VIEW_INVERT_ZOOM = 16384, VIEW_SCROLL_WHEEL_ZOOM = 32768, VIEW_RIGHT_DRAG_PAN = 65536,
     // Round 10, View › Frame outlines / Mask outlines: each frame's / mask's box as a thin line (unverified look).
-    VIEW_FRAME_OUTLINES = 131072, VIEW_MASK_OUTLINES = 262144
+    VIEW_FRAME_OUTLINES = 131072, VIEW_MASK_OUTLINES = 262144,
+    // Atlas wave 1, View › Outlines ▸ Show hidden layers / Show object bounds (Figma's toggle-outline-mode-hidden-layers /
+    // -object-bounds, Atlas 04 §9.3): in outline mode, hidden layers outlined too; each layer's box drawn.
+    VIEW_OUTLINE_HIDDEN = 524288, VIEW_OUTLINE_BOUNDS = 1048576
   };
-  static constexpr uint32_t kViewOptionsAll = 524287;
+  static constexpr uint32_t kViewOptionsAll = 2097151;
   static constexpr uint32_t kViewOptionsDefault = VIEW_PIXEL_GRID | VIEW_LAYOUT_GUIDES | VIEW_SNAP_PIXELS | VIEW_SLICES | VIEW_SNAP_GEOMETRY |
                                                   VIEW_SNAP_OBJECTS | VIEW_SHOW_DIMENSIONS | VIEW_FLIP_RESIZE | VIEW_RIGHT_DRAG_PAN;
   void setViewOptions(uint32_t options);
@@ -347,6 +350,8 @@ class Editor : private LayoutHost, public TextLayouts {
   // ruler's horizontal one) from `screen` (canvas CSS px); `rulerSize`: the rulers' thickness (a guide let go over a
   // ruler goes). The pointer events that follow drive it.
   Status startGuideDrag(int axis, Vec2 screen, double rulerSize);
+  // Whose guides the rulers add to: the one selected top-level frame (axis-aligned), else the page.
+  Guid guideOwner() const;
   bool hasSelectedGuide() const { return selectedGuide_.owner != kNoGuid; }
   const RulerGuide& selectedGuide() const { return selectedGuide_; }
 
@@ -1199,8 +1204,9 @@ class Editor : private LayoutHost, public TextLayouts {
   // Is the node on a page already derived (or on the internal canvas)? Undo, redo and remote changes lay out only there.
   bool onDerivedPage(Guid id) const;
   Camera snapped(Camera c) const;
-  // The visible part of the canvas (Viewport::visible): a camera fitting r in it, its centre (screen), its world rect.
-  Camera fitVisible(const Rect& r, bool upTo100) const;
+  // The visible part of the canvas (Viewport::visible): a camera fitting r in it with `padding` px on each side (the
+  // camera as it is when the padding alone fills it), its centre (screen), its world rect.
+  Camera fitVisible(const Rect& r, double padding) const;
   Vec2 visibleCentre() const;
   Rect visibleWorld() const;
   void zoomToFit();
@@ -1501,6 +1507,10 @@ class Editor : private LayoutHost, public TextLayouts {
   Guid duplicatePage(Guid page);
   // E4 / E5 (editor/VectorCommands.cpp).
   Status booleanSelection(BooleanOperation op);
+  // The selected boolean groups still at an older vectorOperationVersion (Atlas 05 §9.2): how many, and brought to the
+  // latest as one undo step ("Update boolean").
+  size_t outdatedBooleans() const;
+  Status upgradeBooleans();
   Status flattenSelection();
   Status outlineStroke();
   Status useAsMask();

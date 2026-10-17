@@ -963,6 +963,8 @@ Overlay Editor::overlay() const {
   if (text_.node == kNoGuid && vector_.node == kNoGuid) gridGapOverlay(o);
   o.pixelGrid = (viewOptions_ & VIEW_PIXEL_GRID) != 0;
   o.outlines = (viewOptions_ & VIEW_OUTLINES) != 0;
+  o.outlineHidden = (viewOptions_ & VIEW_OUTLINE_HIDDEN) != 0;
+  o.outlineBounds = (viewOptions_ & VIEW_OUTLINE_BOUNDS) != 0;
   o.layoutGuides = (viewOptions_ & VIEW_LAYOUT_GUIDES) != 0;
   o.pixelPreview = (viewOptions_ & VIEW_PIXEL_PREVIEW_2X) ? 2 : (viewOptions_ & VIEW_PIXEL_PREVIEW) ? 1 : 0;
   // Preferences › Show dimensions on objects (round 9): no W × H badge (the angle while rotating stays).
@@ -1358,10 +1360,11 @@ void Editor::setViewportInsets(double left, double top, double right, double bot
   viewport_.insetBottom = std::max(0.0, bottom);
 }
 
-Camera Editor::fitVisible(const Rect& r, bool upTo100) const {
+Camera Editor::fitVisible(const Rect& r, double padding) const {
   // Camera::fit in the part of the canvas the panels leave visible, then moved to where that part is.
   Rect v = viewport_.visible();
-  Camera c = Camera::fit(r, v.w, v.h, upTo100);
+  if (v.w <= padding * 2 || v.h <= padding * 2) return camera_;
+  Camera c = Camera::fit(r, v.w, v.h, padding);
   return {c.x + v.x, c.y + v.y, c.zoom};
 }
 
@@ -1427,7 +1430,7 @@ void Editor::zoomToFit() {
   }
   stopCameraAnimation();
   zooming_ = false;
-  if (any) changeCamera(snapped(fitVisible(r, true)));
+  if (any) changeCamera(snapped(fitVisible(r, kFitPadding)));
 }
 
 void Editor::zoomToSelection(double animateMs) {
@@ -1439,14 +1442,18 @@ void Editor::zoomToSelection(double animateMs) {
     r = any ? r.united(b) : b;
     any = true;
   }
-  if (!any) return;
+  // Nothing selected: zoom to fit (Figma, Atlas 04 §2.3).
+  if (!any) {
+    zoomToFit();
+    return;
+  }
   if (animateMs > 0) {
-    animateCamera(snapped(fitVisible(r, false)), animateMs);
+    animateCamera(snapped(fitVisible(r, kSelectionPadding)), animateMs);
     return;
   }
   stopCameraAnimation();
   zooming_ = false;
-  changeCamera(snapped(fitVisible(r, false)));
+  changeCamera(snapped(fitVisible(r, kSelectionPadding)));
 }
 
 bool Editor::tick(double timeMs) {

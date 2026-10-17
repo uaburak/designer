@@ -51,19 +51,19 @@ describe("NumericInput", () => {
     expect(input.value).toBe("10");
   });
 
-  it("scrubs the prefix: a whole step per 4 px (⇧ ×10 from where ⇧ went down), previews, then one final change", () => {
+  it("scrubs the prefix: a whole step per 4 px (⇧ by 10 on the 10 grid from where ⇧ went down), previews, then one final change", () => {
     const { onChange, prefix } = setup();
     pointer(prefix, "pointerdown", { clientX: 100 });
     pointer(prefix, "pointermove", { clientX: 101 }); // under the 2px threshold: nothing yet
     pointer(prefix, "pointermove", { clientX: 130 }); // 30 px: 7 steps
     pointer(prefix, "pointermove", { clientX: 105, shiftKey: true }); // ⇧ down: goes on from 17
-    pointer(prefix, "pointermove", { clientX: 125, shiftKey: true }); // 20 px: 5 big steps
+    pointer(prefix, "pointermove", { clientX: 125, shiftKey: true }); // 20 px: 5 big steps, landing on 20 first
     expect(document.documentElement.getAttribute("data-cursor")).toBe("ew-resize");
     pointer(prefix, "pointerup", { clientX: 125 });
     expect(onChange.calls).toEqual([
       [17, { final: false, source: "scrub" }],
-      [67, { final: false, source: "scrub" }],
-      [67, { final: true, source: "scrub" }],
+      [60, { final: false, source: "scrub" }],
+      [60, { final: true, source: "scrub" }],
     ]);
     expect(document.documentElement.hasAttribute("data-cursor")).toBe(false);
   });
@@ -183,17 +183,35 @@ describe("NumericInput", () => {
     expect(returned).toBe(1);
   });
 
-  it("scrubs faster toward the top and slower toward the bottom (2x, 1x, 1/2, 1/4)", () => {
-    const { onChange, prefix } = setup({ value: 0 });
-    pointer(prefix, "pointerdown", { clientX: 100, clientY: 300 });
-    pointer(prefix, "pointermove", { clientX: 110, clientY: 300 }); // 1x: 10 px, 2 steps
-    pointer(prefix, "pointermove", { clientX: 110, clientY: 200 }); // up: 2x from here
-    pointer(prefix, "pointermove", { clientX: 120, clientY: 200 }); // 10 px at 2x: +5
-    pointer(prefix, "pointermove", { clientX: 120, clientY: 600 }); // far down: 1/4
-    pointer(prefix, "pointermove", { clientX: 160, clientY: 600 }); // 40 px at 1/4: +2
-    expect(document.documentElement.getAttribute("data-scrub-speed")).toBe("0.25");
-    pointer(prefix, "pointerup", { clientX: 160, clientY: 600 });
-    expect(onChange.calls.at(-1)).toEqual([9, { final: true, source: "scrub" }]);
+  it("scrubs coarser up the screen and finer down it, by Figma's bands of the screen's height", () => {
+    const height = Object.getOwnPropertyDescriptor(window.screen, "height");
+    Object.defineProperty(window.screen, "height", { value: 1000, configurable: true });
+    try {
+      const { onChange, prefix } = setup({ value: 0 });
+      pointer(prefix, "pointerdown", { clientX: 100, clientY: 600 });
+      pointer(prefix, "pointermove", { clientX: 110, clientY: 600 }); // 1x: 10 px, 2 steps
+      pointer(prefix, "pointermove", { clientX: 110, clientY: 450 }); // 15 % up: 2x from here
+      pointer(prefix, "pointermove", { clientX: 120, clientY: 450 }); // 10 px at 2x: +5
+      pointer(prefix, "pointermove", { clientX: 120, clientY: 900 }); // 30 % down: 1/4
+      pointer(prefix, "pointermove", { clientX: 160, clientY: 900 }); // 40 px at 1/4: +2
+      expect(document.documentElement.getAttribute("data-scrub-speed")).toBe("0.25");
+      expect(m!.host.querySelector("[data-scrub-speed]")?.textContent).toBe("1/4");
+      pointer(prefix, "pointermove", { clientX: 160, clientY: 0 }); // 60 % up: 8x
+      pointer(prefix, "pointermove", { clientX: 162, clientY: 0 }); // 2 px at 8x: +4
+      pointer(prefix, "pointerup", { clientX: 162, clientY: 0 });
+      expect(onChange.calls.at(-1)).toEqual([13, { final: true, source: "scrub" }]);
+    } finally {
+      if (height) Object.defineProperty(window.screen, "height", height);
+      else delete (window.screen as { height?: number }).height;
+    }
+  });
+
+  it("scrubs a percent field four times as fast (Figma's scrubMultiplier 4)", () => {
+    const { onChange, prefix } = setup({ value: 50, unit: "%" });
+    pointer(prefix, "pointerdown", { clientX: 100, clientY: 0 });
+    pointer(prefix, "pointermove", { clientX: 110, clientY: 0 });
+    pointer(prefix, "pointerup", { clientX: 110, clientY: 0 });
+    expect(onChange.calls.at(-1)).toEqual([60, { final: true, source: "scrub" }]);
   });
 
   it("scrubs the field itself while ⌥ is held", () => {

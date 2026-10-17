@@ -32,12 +32,67 @@ const over = (el: Element) =>
   });
 const tooltip = () => document.querySelector('[role="tooltip"]');
 
+const leave = (el: Element) =>
+  act(() => {
+    el.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, pointerType: "mouse", relatedTarget: document.body }));
+  });
+
+function Pair() {
+  return createElement(
+    Fragment,
+    null,
+    createElement(TooltipManager),
+    createElement("button", { "data-tooltip": "Move", id: "a" }, "a"),
+    createElement("button", { "data-tooltip": "Frame", id: "b" }, "b"),
+    createElement("button", { "data-tooltip": "Quick", "data-tooltip-delay": "150", id: "c" }, "c"),
+  );
+}
+
+describe("Figma's tooltip timing (atlas 02 §6)", () => {
+  it("shows after 1000 ms, not before", () => {
+    vi.useFakeTimers();
+    m = mount(Pair, {});
+    over(document.getElementById("a")!);
+    act(() => vi.advanceTimersByTime(900));
+    expect(tooltip()).toBeNull();
+    act(() => vi.advanceTimersByTime(100));
+    expect(tooltip()?.textContent).toBe("Move");
+  });
+
+  it("while one shows, the next target's shows at once; leaving hides it 300 ms later", () => {
+    vi.useFakeTimers();
+    m = mount(Pair, {});
+    over(document.getElementById("a")!);
+    act(() => vi.advanceTimersByTime(1000));
+    over(document.getElementById("b")!);
+    expect(tooltip()?.textContent).toBe("Frame");
+    leave(document.getElementById("b")!);
+    act(() => vi.advanceTimersByTime(299));
+    expect(tooltip()?.textContent).toBe("Frame");
+    act(() => vi.advanceTimersByTime(1));
+    expect(tooltip()).toBeNull();
+  });
+
+  it("a pending tooltip is dropped at once when the pointer leaves; a per-element delay overrides the default", () => {
+    vi.useFakeTimers();
+    m = mount(Pair, {});
+    over(document.getElementById("a")!);
+    act(() => vi.advanceTimersByTime(500));
+    leave(document.getElementById("a")!);
+    act(() => vi.advanceTimersByTime(1000));
+    expect(tooltip()).toBeNull();
+    over(document.getElementById("c")!);
+    act(() => vi.advanceTimersByTime(150));
+    expect(tooltip()?.textContent).toBe("Quick");
+  });
+});
+
 describe("tooltips and menus", () => {
   it("a hovered control's tooltip shows after the delay", () => {
     vi.useFakeTimers();
     m = mount(Host, { menu: false });
     over(document.getElementById("b")!);
-    act(() => vi.advanceTimersByTime(600));
+    act(() => vi.advanceTimersByTime(1000));
     expect(tooltip()?.textContent).toBe("Set status");
   });
 
@@ -46,7 +101,7 @@ describe("tooltips and menus", () => {
     m = mount(Host, { menu: false });
     over(document.getElementById("b")!);
     m.rerender(Host, { menu: true });
-    act(() => vi.advanceTimersByTime(600));
+    act(() => vi.advanceTimersByTime(1000));
     expect(tooltip()).toBeNull();
   });
 
@@ -57,7 +112,7 @@ describe("tooltips and menus", () => {
     const Beta = () => createElement(Fragment, null, createElement(TooltipManager), createElement("button", { id: "m", ...tooltipProps(motion.label, motion.shortcut, "top", undefined, motion.badge) }, "x"));
     m = mount(Beta, {});
     over(document.getElementById("m")!);
-    act(() => vi.advanceTimersByTime(600));
+    act(() => vi.advanceTimersByTime(1000));
     expect([...tooltip()!.children].map((c) => c.textContent)).toEqual(["Motion", "Beta"]);
   });
 });

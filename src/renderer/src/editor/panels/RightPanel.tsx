@@ -3,10 +3,11 @@
  * Present ▸ ▾, Share), the Design / Prototype tabs with the zoom menu at the
  * right (a line at 80), then the tab's sections.
  */
-import { Avatar, Button, Icon, IconButton, MenuButton, ResizeHandle, Tabs, type MenuEntry } from "@/ds";
+import { Avatar, Button, Icon, IconButton, MenuButton, ResizeHandle, Tabs, size, type MenuEntry } from "@/ds";
 import { useCamera } from "@/engine/hooks";
 import { useEditor } from "../controller";
-import { runEditorCommand } from "../commands";
+import { runEditorCommand, setViewOption } from "../commands";
+import { zoomTo } from "../actions";
 import { useUI } from "../hooks";
 import { commandItem } from "../menus";
 import { useEffect, useState } from "react";
@@ -88,7 +89,8 @@ export function RightPanel({ floating }: { floating?: boolean } = {}) {
           </div>
         </>
       )}
-      {!floating && <ResizeHandle side="left" value={width} onChange={(px) => ed.ui.set({ rightWidth: px })} />}
+      {/* Figma (atlas 02 §4.1): 241 to 500 with its line, no double-click default */}
+      {!floating && <ResizeHandle side="left" value={width} max={size["right-panel-max"]} defaultValue={null} onChange={(px) => ed.ui.set({ rightWidth: px })} />}
     </aside>
   );
 }
@@ -134,33 +136,63 @@ export function RightHeader({ compact }: { compact?: boolean }) {
   );
 }
 
-/** "100% ⌄": the zoom (re-rendered on every camera change, so kept small) and its menu. */
+/** The zoom menu's own rows (not commands): Pixel preview's three, Property labels. */
+const PIXEL_PREVIEW = ["zoom.pixel-preview-0", "zoom.pixel-preview-1", "zoom.pixel-preview-2"] as const;
+const PROPERTY_LABELS = "zoom.property-labels";
+
+/**
+ * "100% ⌄": the zoom (re-rendered on every camera change, so kept small) and its menu, in Figma's order
+ * (docs/research/atlas/02-editor-chrome.md §4.3, `zoom_menu`): the zoom as a field; Zoom in / out / to fit, to 50 /
+ * 100 / 200 % (checked at that zoom); Pixel preview ▸, Pixel grid, Snap to pixel grid, Layout guides, Rulers;
+ * Multiplayer cursors, Property labels, Comments; Outlines ▸, Annotations ▸. Each choice gives the keys back to the
+ * canvas.
+ */
 export function ZoomMenu() {
   useT();
   const ed = useEditor();
   const camera = useCamera(ed.store);
+  const preview = useUI((s) => s.pixelPreview ?? 0);
+  const labels = useUI((s) => s.propertyLabels);
+  const at = (z: number) => Math.abs(camera.zoom - z) < 1e-6;
   const entries: MenuEntry[] = [
     commandItem(ed, "view.zoom-in"),
     commandItem(ed, "view.zoom-out"),
     commandItem(ed, "view.zoom-fit"),
-    commandItem(ed, "view.zoom-selection"),
+    { ...commandItem(ed, "view.zoom-50"), checked: at(0.5) },
+    { ...commandItem(ed, "view.zoom-100"), checked: at(1) },
+    { ...commandItem(ed, "view.zoom-200"), checked: at(2) },
     "-",
-    commandItem(ed, "view.zoom-50"),
-    commandItem(ed, "view.zoom-100"),
-    commandItem(ed, "view.zoom-200"),
-    "-",
+    {
+      id: "zoom.pixel-preview",
+      label: t("Pixel preview"),
+      items: [
+        { id: PIXEL_PREVIEW[0], label: t("Disabled"), checked: preview === 0, radio: true },
+        { id: PIXEL_PREVIEW[1], label: "1x", checked: preview === 1, radio: true },
+        { id: PIXEL_PREVIEW[2], label: "2x", checked: preview === 2, radio: true },
+      ],
+    },
     commandItem(ed, "view.pixel-grid"),
     commandItem(ed, "view.snap-pixel-grid"),
     commandItem(ed, "view.layout-guides"),
     commandItem(ed, "view.rulers"),
-    commandItem(ed, "view.outlines"),
+    "-",
+    commandItem(ed, "view.multiplayer-cursors"),
+    { id: PROPERTY_LABELS, label: t("Property labels"), checked: labels },
+    commandItem(ed, "view.comments"),
+    "-",
+    { id: "zoom.outlines", label: t("Outlines"), items: [commandItem(ed, "view.outlines", "Outlines")] },
+    { id: "zoom.annotations", label: t("Annotations"), items: [commandItem(ed, "view.annotations", "Show annotations")] },
   ];
   return (
     <MenuButton
       label={t("Zoom")}
       entries={entries}
+      head={(close) => <ZoomField zoom={camera.zoom} onDone={close} />}
       onSelect={(id) => {
-        runEditorCommand(ed, id);
+        const level = PIXEL_PREVIEW.indexOf(id as (typeof PIXEL_PREVIEW)[number]);
+        if (level >= 0) setViewOption(ed, { pixelPreview: level as 0 | 1 | 2 });
+        else if (id === PROPERTY_LABELS) ed.ui.set((s) => ({ propertyLabels: !s.propertyLabels }));
+        else runEditorCommand(ed, id);
         ed.focusCanvas();
       }}
       className={styles.zoom}
@@ -168,5 +200,41 @@ export function ZoomMenu() {
       <span>{Math.round(camera.zoom * 100)}%</span>
       <Icon name="16.chevron.down" />
     </MenuButton>
+  );
+}
+
+/**
+ * The zoom menu's field (Figma's: the zoom as "300%"): a number and Enter zooms to it (n / 100, about the view's
+ * centre) and closes the menu; Esc leaves the field. Its keys stay in it (digits, %, Enter and Esc never reach the
+ * canvas's shortcuts).
+ */
+function ZoomField({ zoom, onDone }: { zoom: number; onDone: () => void }) {
+  useT();
+  const ed = useEditor();
+  const [text, setText] = useState<string | null>(null);
+  return (
+    <input
+      className={styles.zoomField}
+      aria-label={t("Zoom")}
+      value={text ?? `${Math.round(zoom * 100)}%`}
+      spellCheck={false}
+      onFocus={(e) => e.currentTarget.select()}
+      onChange={(e) => setText(e.target.value)}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") {
+          e.preventDefault();
+          const n = parseInt(e.currentTarget.value, 10);
+          if (n > 0) zoomTo(ed, n / 100);
+          setText(null);
+          onDone();
+          ed.focusCanvas();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          setText(null);
+          (e.currentTarget.closest('[data-ds="Menu"]') as HTMLElement | null)?.focus({ preventScroll: true });
+        }
+      }}
+    />
   );
 }

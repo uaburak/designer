@@ -481,6 +481,84 @@ From a read-only survey of `src/renderer/src` and `engine/` (paths are relative 
 | Image toolbar | Edit with prompt, Remove background, select area, More (Expand, upscale, Vectorize) (`editor/imageTools/ImageToolbar.tsx`) | Figma lists Upscale / Expand / Vectorize as their own buttons | Crop toolbar (slider, aspect presets, resize to fit); Visual search |
 | Rail | File, Agents, Assets, Tools, Variables, 56 px cells, tile 32 (`editor/panels/Rail.tsx`, `ds/tokens.ts:332-334`) | extra Brands item (ours); labels off by default (Figma: 9 px labels under each icon) | — |
 
+### As built (2026-10-17, wave 1)
+
+Branch `chrome` (worktree `worktree-agent-aea9139fc139ea134`), in this section's order. Paths are relative to
+`src/renderer/src`.
+
+**Built**
+
+- **Panels.** Left panel 240–500 (`ds/tokens.ts` `panel-max: 500`), double-click resets to 240. Right panel 240–499
+  inside its 1px line, so Figma's 241–500 (`right-panel-max`). It has no double-click reset (`ResizeHandle`
+  `defaultValue={null}`).
+- **Layers drag** (`editor/panels/Layers.tsx`, `editor/model/layerTree.ts`):
+  - The drag starts past 3 px (`LAYER_DRAG_THRESHOLD`).
+  - Autoscroll runs only while the pointer is past the list's top or bottom. It moves farther the farther out, at most
+    a row per move (`dragScrollStep`). The step curve is ours: Figma's `bm` was not read.
+  - Resting 1000 ms on the middle third of a closed layer with children opens it (`hoverExpandTarget`,
+    `LAYER_HOVER_EXPAND_MS`). It never opens from the pinned row. The drag's handlers read the rows as they are now,
+    so a drop after an expand lands right.
+- **Layers sticky header** (`stickyHeader`, drawn by `VirtualList`'s new `sticky` prop). The open top-level row
+  whose block holds the scroll top stays pinned there. The next top-level row pushes it up as it arrives.
+- **Scroll to the selection** (`VirtualList` `scrollAlign="figma"`). A row above the view goes to the top, or under
+  the pinned row when it is nested. A row below goes to mid-height.
+- **⌥L.** Kept as built. Figma keeps the selection's branch open too: the live probe that reads "collapses every
+  layer" had nothing selected (`live/behaviour/layers.md` #9), and help says "except for your selection". The table
+  above was wrong on this point.
+- **Pages** (`editor/panels/Pages.tsx`, `ds` `PageRow`):
+  - Figma's exact divider regex. `-*-` is no longer a divider.
+  - Titled dividers (`--- Components`, `dividerTitle`). Renaming a divider edits its title and writes `--- <title>`,
+    or `---` for none (`dividerName`).
+  - A plain divider takes 16 of the list (`pageDividerRowHeight`). A titled one keeps a page row's 32 (G).
+  - Drag-reorder uses the rows' real positions, so mixed heights work. The dragged row follows the pointer.
+- **Tooltips** (`ds/overlay/TooltipManager.tsx`):
+  - They show after 1000 ms. While one is showing, the next target's shows at once.
+  - Leaving the target hides it 300 ms later. A pending tooltip is dropped at once.
+  - Per-element overrides: `data-tooltip-delay`, `-show-immediately`, `-hide-immediately`.
+- **Toasts** (`ds/components/Toast.tsx`):
+  - One at a time, FIFO.
+  - Durations: 3 s; 6 s for a message over 25 characters; 10 s with an action; errors and `duration: 0` until
+    dismissed.
+  - The head's time is halved for each toast waiting (`timeoutType: "exact"` opts out).
+  - A repeat bumps a count pill instead of queueing. `delay` holds a toast back before it joins the queue.
+  - The × shows only on a toast that never times out, as Figma's dismiss button.
+- **Number fields** (`ds/util/evaluate.ts`, `ds/util/scrub.ts`, `ds/util/scrubLock.ts`, `ds/components/NumericInput.tsx`):
+  - Postfix `%` is a percent of the current value and `x` a multiple of it. `px` is ignored. The field's own unit
+    (`%` in an opacity field) stays a unit. On Mixed they apply per layer.
+  - Scrub bands are Figma's: share of `screen.height`, past 12.5 / 25 / 50 % gives ×2 / ×4 / ×8 up and ½ / ¼ / ⅛ down.
+  - `scrubMultiplier` (percent fields 4).
+  - ⇧ scrubs by 10 on the 10 grid (61 → 70).
+  - The pointer is locked during a scrub, with Figma's 24 × 24 cursor wrapping around the window edges. Esc, which
+    releases the lock, cancels. This was checked in Chrome: the lock holds, the cursor is drawn and the value moves.
+- **Zoom menu** (`editor/panels/RightPanel.tsx`). Figma's order:
+  - The zoom as a field: a number and Enter zooms to n / 100, Esc leaves the field, and its keys stay in it
+    (`MenuButton`'s new `head`).
+  - In / out / fit; 50 / 100 / 200 %, checked at that zoom.
+  - Pixel preview ▸ Disabled / 1x / 2x; Pixel grid, Snap to pixel grid, Layout guides, Rulers.
+  - Multiplayer cursors, Property labels, Comments.
+  - Outlines ▸; Annotations ▸.
+  - Zoom to selection is gone from this menu.
+- **Minimize UI / Show/Hide UI.** ⇧\ and ⇧. added for Minimize UI, ⌘. for Show/Hide UI (`editor/commands.ts`).
+- **File name menu.** Figma's order: the branch rows; version history, publish, analytics and Export (added); color
+  profile; Duplicate, Rename, Move.
+- **From 21 (panel-level).** Toggle toasts: "Snap to geometry / objects / pixel grid enabled / disabled", "Pixel grid
+  visible / hidden", "Layout guides visible / hidden". The English is worded from the `visual_bell.*` key names, after
+  the attested "Pixel preview enabled (1x)".
+
+**Still open**
+
+- Needs a live probe (§10): whether the live 0.24 / px scrub rate means our 4 px a step stays, or Figma's 0.5 × factor
+  applies; Figma's ⇧-scrub speed (only the snapping is built); the toast's bottom offset (still 68); the Pages / Layers
+  split range; the zoom field's and the count pill's look (G); a titled divider's row height; which nodes
+  `isNodeSticky` accepts (every open top-level layer with children is pinned here); the exact English of the toggle
+  toasts.
+- Not built: wheel scrubbing over a field (when it applies is not read); comma-list caret targeting (↑ ↓ on the value
+  under the caret); zoom-out disabled at the zoom limit; Outlines ▸ Show hidden layers / Show object bounds;
+  Annotations ▸ categories; Prototyping information (⇧E); Move to trash / Restore default thumbnail / Add to sidebar in
+  the file menu (no editor-side trash yet); the image Crop toolbar and Visual search; the Comment tool's re-click
+  returning to Move (lives in `editor/canvas/BottomToolbar.tsx`, the canvas branch's); rail labels on by default (the
+  owner's round 14 choice keeps them off); bold top-level layer names (open question); the 3-page Starter limit.
+
 ## 10. Open questions
 
 | Question | Live probe that settles it |
