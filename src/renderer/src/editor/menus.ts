@@ -235,6 +235,7 @@ export const MAIN_MENU: Spec[] = [
       "view.toggle-ui",
       "view.multiplayer-cursors",
       "view.switch-to-draw",
+      "view.switch-to-motion",
       // Live: "Switch to Dev Mode ⇧D", no check.
       (ed) => ({ ...withoutCheck(commandItem(ed, "view.dev-mode")), label: t("Switch to Dev Mode") }),
       {

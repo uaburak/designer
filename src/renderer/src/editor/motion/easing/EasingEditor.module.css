@@ -1,0 +1,24 @@
+@layer app {
+  /* The Easing popover's body (docs/motion.md §6.3): the kind switch, the list, the custom field */
+  .body { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-3); }
+  .list { margin: 0; padding: 0; list-style: none; }
+  .item {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-2);
+    border-radius: var(--ds-radius-medium);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    cursor: default;
+    user-select: none;
+  }
+  .item:hover { background: var(--figma-color-bg-hover); }
+  .item[aria-selected="true"] { background: var(--figma-color-bg-selected); }
+  .preview { flex: none; width: 24px; height: 16px; }
+  .preview path { fill: none; stroke: var(--figma-color-icon-secondary); stroke-width: 1.25; stroke-linecap: round; }
+  .item[aria-selected="true"] .preview path { stroke: var(--figma-color-icon-brand); }
+  .itemLabel { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+}

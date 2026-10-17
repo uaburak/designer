@@ -58,6 +58,7 @@ import { ImagePlacer, attachImageDrop } from "./canvas/ImagePlacer";
 import { attachViewInsets, insetsOf } from "./canvas/viewInsets";
 import { ReturnToInstance } from "./canvas/ReturnToInstance";
 import { ShortcutsPanel } from "./shortcuts/ShortcutsPanel";
+import { MotionMode } from "./motion/MotionMode";
 import { attachUsageTracking } from "./shortcuts/usage";
 import { shortcutPrefs } from "./shortcuts/prefs";
 import { VersionDialogs } from "./VersionDialogs";
@@ -466,6 +467,8 @@ function Overlays() {
       <CanvasMenu />
       {/* Docked along the bottom: the panels end over it and the toolbar sits over it (EditorApp.module.css); the canvas keeps its size. */}
       <ShortcutsPanel />
+      {/* Motion mode's timeline, docked the same way (docs/motion.md §6.2). */}
+      {!hidden && <MotionMode />}
       <ActionsPanel />
       <AiHost />
       <PluginLayer />
