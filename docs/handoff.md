@@ -4,7 +4,7 @@ First written 2026-10-06 when the first Claude session stopped and the owner mov
 
 ## Status 2026-10-17 — Social mode + Motion: plan written (docs only)
 
-`docs/social.md`: the owner asked for a **Social** mode (social-media templates from Brands, agents, Draw's tools, video through Motion, Motion built as in Figma). The plan: Motion (Round 8, `docs/motion.md`) first, then Social as a mode of a Design file (shell, templates + brand kit, agent tools, video export presets, bulk create). Waiting on the owner's answers in `docs/social.md` §7. Nothing built.
+`docs/social.md`: the owner asked for a **Social** mode (social-media templates from Brands, agents, Draw's tools, video through Motion, Motion built as in Figma). The plan: Motion (Round 8, `docs/motion.md`) first, then Social as a mode of a Design file (shell, templates + brand kit, agent tools, video export presets, bulk create). Owner answered the same day: a mode of the same document (yes), Buzz's logic as the model, **the agent plays the active role** — Social mode's interface is built around the agent (right panel = the Agent panel with the manager on, left = Brand + Posts + Templates, canvas = the board with safe areas and review pins). `docs/social.md` §3 holds the layout and the agent's tools; §9 the remaining questions. Nothing built.
 
 ## Status 2026-10-15 (evening) — canvas zoom / pan: the best version so far (owner), pushed
 
