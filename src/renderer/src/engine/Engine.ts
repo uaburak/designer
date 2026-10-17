@@ -1804,6 +1804,17 @@ export class Engine {
     return this.after(this.x.paintEditStop(this.h, index));
   }
 
+  /** A progressive blur's Start and End handles on the canvas (the node's effect `index`); endPaintEdit ends it. */
+  startBlurEdit(ref: Guid, index: number): number {
+    const [s, l] = this.ids(ref);
+    return this.after(this.x.blurEdit(this.h, s, l, index));
+  }
+
+  /** The panel's hovered Start / End field: its handle is marked (NONE: neither). */
+  setBlurEditHandle(handle: "START" | "END" | "NONE"): number {
+    return this.after(this.x.blurEditHandle(this.h, handle === "START" ? 0 : handle === "END" ? 1 : -1));
+  }
+
   // ---- Images (docs/engine.md §6.6) ------------------------------------------------------
 
   /**

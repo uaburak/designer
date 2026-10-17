@@ -317,6 +317,8 @@ export class EngineExports {
     this.fn("paint_edit")(h, sessionID, localID, paints, index);
   paintEditEnd = (h: number): void => void this.fn("paint_edit_end")(h);
   paintEditStop = (h: number, index: number): number => this.fn("paint_edit_stop")(h, index);
+  blurEdit = (h: number, sessionID: number, localID: number, index: number): number => this.fn("blur_edit")(h, sessionID, localID, index);
+  blurEditHandle = (h: number, handle: number): number => this.fn("blur_edit_handle")(h, handle);
 
   // ---- Images (module-wide) ----
   /** `hash`: 40 hex digits. The bitmap is Module.engineBitmaps[bitmapId]; `flags` IMAGE_STRAIGHT | IMAGE_DISPLAY_P3 (abi.ts). */
@@ -408,7 +410,7 @@ export const USED_EXPORTS = [
   "text_edit", "text_edit_end", "text_input", "text_composition", "text_composition_end", "text_selection", "text_layout",
   "text_range_style", "text_paragraphs", "font_info",
   "image_add_bitmap", "image_add_rgba", "image_failed",
-  "vector_edit", "vector_edit_end", "vector_edit_tool", "path_tool", "end_caps", "paint_edit", "paint_edit_end", "paint_edit_stop",
+  "vector_edit", "vector_edit_end", "vector_edit_tool", "path_tool", "end_caps", "paint_edit", "paint_edit_end", "paint_edit_stop", "blur_edit", "blur_edit_handle",
   "set_prototype_mode", "set_prototype_selection", "set_viewer_mode", "present_start", "present_stop", "present_pointer", "present_wheel", "present_key", "present_command",
   "present_set_options", "present_state", "present_media", "present_media_frame",
   "set_view_options", "set_nudge", "start_guide", "set_annotation_view", "set_edit_tracking", "set_focus", "select_measurement", "dev_info",

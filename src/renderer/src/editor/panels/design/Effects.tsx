@@ -28,12 +28,14 @@
  * columns, Top / Center / Bottom for rows), width (Auto when stretched),
  * margin or offset, gutter; the colour. Stored as `layoutGrids`.
  */
-import { useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { BLEND_LABEL, BLEND_MODES, Button, Checkbox, ColorInput, Icon, IconButton, MenuButton, NumericInput, PanelSection, Popover, SearchField, SegmentedControl, Select, cx, tooltipProps, type ChangeInfo, type IconName, type PopoverPlacement } from "@/ds";
 import { guidStr, guidVal, resolveVariable } from "../../model/variables";
 import { VariablePicker } from "../variables/VariablePicker";
 import type { BlendMode, Color, Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
+import { engineMethod } from "../../engineCompat";
+import { Status } from "@/engine/abi";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
 import { mixed, sameData } from "../../model/mixed";
 import { PANEL_MENU_GAP, fields, useKeeps, type Effect, type LayoutGrid, type PanelNode } from "./shared";
@@ -231,6 +233,24 @@ export const effectLabel = (e: Effect) => (e.type === "CUSTOM" ? (presetOf(e as 
 /** The type's glyph (a shader's: the shader icon). */
 export const effectIcon = (e: Effect): IconName => (e.type === "CUSTOM" ? "24.shader.small" : (EFFECT_TYPES.find((t) => t.value === e.type) ?? EFFECT_TYPES[1]).icon);
 
+/**
+ * A progressive blur's Start and End handles on the canvas (Figma's PROGRESSIVE_BLUR edit mode, atlas 08 §6.2): on while
+ * its settings are open on one layer; returns how the panel's Start / End fields mark their handle.
+ */
+function useBlurHandles(ed: EditorController, ref: Guid | null, index: number | null, progressive: boolean): (handle: "START" | "END" | "NONE") => void {
+  useEffect(() => {
+    if (!ref || index === null || !progressive) return;
+    const start = engineMethod<(ref: Guid, index: number) => number>(ed.engine, "startBlurEdit");
+    if (!start || start(ref, index) !== Status.OK) return;
+    return () => {
+      if (!ed.engine.destroyed) engineMethod<() => void>(ed.engine, "endPaintEdit")?.();
+    };
+  }, [ed, ref, index, progressive]);
+  return (handle) => {
+    if (ref && progressive && !ed.engine.destroyed) engineMethod<(h: string) => number>(ed.engine, "setBlurEditHandle")?.(handle);
+  };
+}
+
 function writeEffects(ed: EditorController, refs: readonly Guid[], effects: Effect[], label: string, info: ChangeInfo = { final: true, source: "pick" }) {
   ed.edit(label, info, () => void ed.engine.setProps(refs, fields({ effects })));
 }
@@ -286,6 +306,8 @@ export function EffectsSection({ nodes }: { nodes: PanelNode[] }) {
   const hasStyle = !!styled && styled !== "mixed";
   // Rows show the top effect first: display index d is effect n − 1 − d (as Fill's rows).
   const n = effects.length;
+  const openEffect = open ? effects[open.index] : undefined;
+  const markHandle = useBlurHandles(ed, refs.length === 1 ? refs[0] : null, open?.index ?? null, !!openEffect && isBlur(openEffect) && openEffect.blurOpType === "PROGRESSIVE");
   const { container: reorderRef, grip, dragging, line: dropLine } = useReorder((from, to) => writeEffects(ed, refs, moved(effects, n - 1 - from, n - 1 - to), "Reorder effects"));
   return (
     <PanelSection
@@ -337,6 +359,7 @@ export function EffectsSection({ nodes }: { nodes: PanelNode[] }) {
           full={fullTypes(effects, open.index)}
           lineOnly={nodes.length > 0 && nodes.every((x) => x.type === "LINE")}
           spreadBlocked={spreadBlocker(nodes)}
+          onHandle={markHandle}
           sliders={drawMode}
           onClose={() => setOpen(null)}
           onChange={(next, info) => writeEffects(ed, refs, effects.map((x, j) => (j === open.index ? next : x)), "Effect", info)}

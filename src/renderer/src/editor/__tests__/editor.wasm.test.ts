@@ -26,7 +26,7 @@ import { hasCommand, keepsField } from "../engineCompat";
 import { messageAt } from "../model/clipboard";
 import { hashBytes, hashHex } from "../model/paints";
 import { placeImages } from "../placeImages";
-import { defaultEffect } from "../panels/design/Effects";
+import { defaultEffect, withBlurType } from "../panels/design/Effects";
 import { isEnabled, command } from "../commands";
 import type { MenuEntry, MenuItem } from "@/ds";
 
@@ -323,6 +323,19 @@ describe("Design panel, Phase 2 (wasm, headless)", () => {
     expect(engine.readNode("2:11")!.effects).toEqual([defaultEffect()]);
     engine.undo();
     expect(engine.readNode("2:11")!.effects?.[0].type).toBe("INNER_SHADOW");
+  });
+
+  it("a progressive blur's handles: the edit mode starts on a progressive blur only, and the panel marks Start / End", async () => {
+    const { ed, engine } = await editor(PAINTS_DOCUMENT);
+    ed.setProps(["2:11"], { effects: [defaultEffect("FOREGROUND_BLUR")] }, "Add effect");
+    expect(engine.startBlurEdit("2:11", 0)).not.toBe(0);
+    ed.setProps(["2:11"], { effects: [withBlurType(defaultEffect("FOREGROUND_BLUR"), true)] }, "Effect");
+    expect(engine.startBlurEdit("2:11", 0)).toBe(0);
+    expect(engine.setBlurEditHandle("END")).toBe(0);
+    engine.endPaintEdit();
+    expect(engine.setBlurEditHandle("START")).not.toBe(0);
+    // The written line survives a round trip in Figma's fields.
+    expect(engine.readNode("2:11")!.effects?.[0]).toMatchObject({ blurOpType: "PROGRESSIVE", startOffset: { x: 0.5, y: 0 }, endOffset: { x: 0.5, y: 1 } });
   });
 
   it("places images: one paste, at their size, in the frame under the point, filled; one undo step", async () => {
