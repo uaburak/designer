@@ -200,6 +200,11 @@ export interface ColorPickerProps<P extends PickerPaint> {
   disabledTypes?: PaintType[];
   /** "On this page": the document's colours (hex or rgba()) */
   documentColors?: string[];
+  /** The swatch sets after "On this page" (Figma's "Local assets": the file's colour variables, then its fill styles) */
+  swatchSets?: { id: string; label: string; colors: string[] }[];
+  /** The set shown ("page" or a set's id; the editor remembers it); uncontrolled without it */
+  swatchSet?: string;
+  onSwatchSetChange?: (id: string) => void;
   /** The Libraries tab: the editor's variables and styles */
   libraries?: ReactNode;
   initialTab?: "custom" | "libraries";
@@ -254,10 +259,11 @@ export interface ColorPickerProps<P extends PickerPaint> {
  */
 export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
   useT();
-  const { value, onChange, onCancel, onClose, anchor, placement = "left-of-panel", paintTypes, disabledTypes, documentColors = [], libraries, initialTab = "custom", imageUrl, onChooseImage, onMakeImage, onRotateGradient, contrastBackground, imageControls, imageAction, pattern, onShaders, shader, offsetX = -1, colorModel, onColorModelChange, stop: controlledStop, onStopChange, headerActions, static: isStatic } = props;
+  const { value, onChange, onCancel, onClose, anchor, placement = "left-of-panel", paintTypes, disabledTypes, documentColors = [], swatchSets = [], swatchSet: controlledSet, onSwatchSetChange, libraries, initialTab = "custom", imageUrl, onChooseImage, onMakeImage, onRotateGradient, contrastBackground, imageControls, imageAction, pattern, onShaders, shader, offsetX = -1, colorModel, onColorModelChange, stop: controlledStop, onStopChange, headerActions, static: isStatic } = props;
   const [tab, setTab] = useState(initialTab);
   const [contrast, setContrast] = useState(false);
   const [ownModel, setOwnModel] = useState<ColorModel>("hex");
+  const [ownSet, setOwnSet] = useState("page");
   const model = colorModel ?? ownModel;
   const [ownStop, setOwnStop] = useState(0);
   const [localHsv, setLocalHsv] = useState<HSV | null>(null);
@@ -688,12 +694,25 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
           );
         })()
       : null;
+  // "On this page" first, then the editor's sets (a set it no longer has falls back to the page's).
+  const set = swatchSets.find((s) => s.id === (controlledSet ?? ownSet)) ?? null;
+  const swatchColors = set ? set.colors : documentColors;
   const swatchSection = (
     <div className={styles.swatchSection}>
-      <Select label={t("Color swatch set selector")} variant="ghost" value="page" options={[{ value: "page", label: t("On this page") }]} width={208} onChange={() => {}} />
-      {documentColors.length ? (
+      <Select
+        label={t("Color swatch set selector")}
+        variant="ghost"
+        value={set?.id ?? "page"}
+        options={[{ value: "page", label: t("On this page") }, ...swatchSets.map((s) => ({ value: s.id, label: s.label }))]}
+        width={208}
+        onChange={(id) => {
+          setOwnSet(id);
+          onSwatchSetChange?.(id);
+        }}
+      />
+      {swatchColors.length ? (
         <div className={styles.swatches}>
-          {documentColors.map((c) => {
+          {swatchColors.map((c) => {
             const rgba = parseCssColor(c);
             const hex = rgba ? hexDigits(rgbToHex(rgba)).toUpperCase() : c;
             return (
@@ -711,7 +730,7 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
           })}
         </div>
       ) : (
-        <span className={styles.empty}>{t("No colors on this page yet")}</span>
+        <span className={styles.empty}>{set ? t("No colors available") : t("No colors on this page yet")}</span>
       )}
     </div>
   );
@@ -1005,6 +1024,12 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
                 value={{ type: "SOLID", color: { ...value.stops[stopPicker].color, a: 1 }, opacity: value.stops[stopPicker].color.a }}
                 paintTypes={["SOLID"]}
                 documentColors={documentColors}
+                swatchSets={swatchSets}
+                swatchSet={controlledSet ?? ownSet}
+                onSwatchSetChange={(id) => {
+                  setOwnSet(id);
+                  onSwatchSetChange?.(id);
+                }}
                 anchor={stopPickerAt?.anchor ?? null}
                 placement="left"
                 colorModel={model}

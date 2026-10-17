@@ -259,6 +259,12 @@ describe("ColorPicker", () => {
     expect(c.opacity).toBe(1);
   });
 
+  it("shows a swatch set after On this page (Local assets) when the editor picks it", () => {
+    setup(red, { documentColors: ["#0c8ce9"], swatchSets: [{ id: "local", label: "Local assets", colors: ["#00ff00"] }], swatchSet: "local" });
+    expect($('[aria-label="Solid color hex: 00FF00"]')).not.toBeNull();
+    expect($('[aria-label="Solid color hex: 0C8CE9"]')).toBeNull();
+  });
+
   it("greys out a type the list can't take (one Pattern per list)", () => {
     setup(red, { disabledTypes: ["PATTERN"] });
     expect(($('[role="radio"][aria-label="Pattern"]') as HTMLButtonElement).disabled).toBe(true);
