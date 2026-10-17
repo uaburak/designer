@@ -363,6 +363,18 @@ Compared with `src/renderer/src/editor/panels/design/Effects.tsx`, `editor/model
 | Renderer (tent, CDF, order, clamp, glass, noise) | see prior report §2 | per [`rea/effects.md`](../rea/effects.md) |
 | Renderer cap of 8 shadows | `Renderer.cpp:1560` "up to eight" | matches the UI limit; Figma's renderer itself has no cap |
 
+**As built (2026-10-17, wave 1)** — branch "paints and effects" (`panels/design/Effects.tsx`, `editor/PaintEditing.cpp`):
+- **Counts**: `EFFECT_LIMITS` (8 / 8 / 1 / 1 / 2 / 1 / 1, shaders 10); `fullTypes` greys a full type in the settings' type menu ("Already applied", our wording for `already_applied`), the row's own type kept. The "+" (no entry-point menu here) still adds a drop shadow past eight — Figma's behaviour there is unread.
+- **Templates and type change**: new effects come from Figma's one template (`j()` then `IK(type)`: a blur carries the shadow's colour / offset / spread unseen; noise opacity 0.25; glass's white secondary at α 0) plus `UF`; a type change writes `{...effect, type, ...UF}` — every field kept, only missing / falsy ones filled (noise opacity 0.15, a glass angle of 0 → −45, …). Uniform ↔ Progressive runs the same fill-ins: both radii clamped to 100, the line top-centre → bottom-centre, or (0, −0.5) → (1, −0.5) when the selection is only lines.
+- **Field limits**: Position and Spread ±30000, shadow Blur 0–250, Start / End 0–100, uniform blur no input max; Draw's sliders ±300 / 0–100, layer blur 500, background blur 100. Not built: the noise / texture sliders' exponential scale (0.01–100).
+- **Spread**: disabled (the value kept) unless every layer is a rectangle, an ellipse, or a frame / component / instance that clips and has a visible fill (the engine's `shadowSpread`); its tooltip names the first cause — the three English sentences are ours (the keys' English is unattested).
+- **Noise / texture size**: input max 100; Y follows X while equal (it shows X as its placeholder), emptying Y links it again.
+- **Glass**: the angle field shows −180…180, writes 0…359; the dial snaps with ⇧ to 45°, otherwise onto a 45° step within 4°, ⌃ free. The dial's own orientation (Wecra's: the dot toward the light, counter-clockwise from the right) was kept — the chapter's "0° = up, clockwise" reads the pointer differently; a live probe settles it.
+- **Hidden effects**: editing any field of a hidden effect makes it visible.
+- **Row summaries** (Draw's large-preview rows): X Y B S, Uniform / Progressive start → end, Size (or Size X / Size Y) R, Mono / Duo / Multi Size D, A I.
+- **Progressive blur's canvas edit mode**: opening a progressive blur's settings on one layer starts it (`Editor::startBlurEdit`, the gradient session with `effect` set; `engine_blur_edit`, ended by `engine_paint_edit_end`), the canvas shows the line and its Start / End handles at startOffset / endOffset; a drag moves one (one undo step, "Edit progressive blur"); hovering or focusing the Start / End field marks its handle (`engine_blur_edit_handle`); `PAINT_EDIT` reports `paints: "EFFECT"`. Handles move freely past the box and without snapping (open question). Native tests: `editor.vector.test.cpp` "progressive blur handles".
+- **Not built**: the type menu's 50 ms hover preview, the shader effect section split in the list, "Show behind transparent areas"' exact knockout rule (still "not every fill opaque"), the glass callout and effect styles' glass warnings, Rotate 3D / Perspective.
+
 ## 13. Open questions
 
 | Question | Live probe that settles it |
@@ -374,3 +386,5 @@ Compared with `src/renderer/src/editor/panels/design/Effects.tsx`, `editor/model
 | Effect style editing flow (edit style popover fields, detach icon) | Create an effect style, open "Edit style". |
 | Progressive handle drag constraints (snapping, clamping outside the node) | Drag a handle past the node edge with / without Shift. |
 | Whether the light dial also accepts keyboard arrows | Focus the dial, press arrows. |
+| (wave 1) The dial's orientation: "0° = up, clockwise" (this chapter) vs Wecra's dot toward the light from the right | Drag the dial to the top; read the Angle field. |
+| (wave 1) What "+" does when the list already holds eight drop shadows | Add nine drop shadows with "+". |
