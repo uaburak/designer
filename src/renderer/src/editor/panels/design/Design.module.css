@@ -411,6 +411,11 @@
   .effectLabel { flex: 1 1 auto; min-width: 0; overflow: hidden; padding-left: var(--ds-space-1); white-space: nowrap; text-overflow: ellipsis; }
   /* Live (design/rectangle-with-effect.txt): the effect's name 11px / 400 at 41, 1 after its glyph */
   .effectName { padding-left: 1px; font: var(--ds-font-body-medium-regular); letter-spacing: var(--ds-tracking-body-medium-regular); }
+  /* Draw's large-preview rows: the effect's values after its name */
+  .effectSummary { flex: 0 1 auto; min-width: 0; overflow: hidden; padding: 0 var(--ds-space-2) 0 var(--ds-space-1); color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+  /* Spread (its tooltip says why it is off) and a progressive blur's Start / End (they mark their canvas handle): the field's cell */
+  .fxSpread, .fxHandleField { display: flex; min-width: 0; }
+  .fxSpread > *, .fxHandleField > * { flex: 1 1 auto; min-width: 0; }
   /* The effect settings header's type (live: 11px / 400, 117 wide for "Drop shadow" — 8 after the chevron) */
   .fxType { font: var(--ds-font-body-medium-regular); letter-spacing: var(--ds-tracking-body-medium-regular); }
   .fxType > button { padding-right: var(--ds-space-2); }

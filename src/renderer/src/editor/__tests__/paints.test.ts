@@ -27,7 +27,7 @@ import {
 import { collectColors, regradient, showSelectionColors } from "../model/selectionColors";
 import { hexToColor } from "../model/color";
 import { messageAt } from "../model/clipboard";
-import { EFFECT_TYPES, defaultEffect, defaultGuide, guideKind, guideLabel, hasEffectBlend, withBlurType, withEffectType } from "../panels/design/Effects";
+import { EFFECT_TYPES, defaultEffect, defaultGuide, effectSummary, fullTypes, guideKind, guideLabel, hasEffectBlend, shownLightAngle, snapLightAngle, spreadBlocker, withBlurType, withEffectType } from "../panels/design/Effects";
 import { dashOf, MITER_ANGLE_MIN, miterAngle, miterLimitOf, parseDashes, strokeSideFields, strokeSideOf, strokeStyleOf } from "../panels/design/Stroke";
 import type { PanelNode } from "../panels/design/shared";
 import { fitImageSize, imageLayerName, memoryImageStore, sha1Hex } from "../images";
@@ -229,15 +229,56 @@ describe("Selection colors with gradients", () => {
 describe("effects and layout guides", () => {
   it("Figma's new drop shadow: 0 4 4 0 #000 25%", () => {
     expect(defaultEffect()).toMatchObject({ type: "DROP_SHADOW", offset: { x: 0, y: 4 }, radius: 4, spread: 0, color: { r: 0, g: 0, b: 0, a: 0.25 }, visible: true, showShadowBehindNode: false });
-    expect(defaultEffect("FOREGROUND_BLUR")).toEqual({ type: "FOREGROUND_BLUR", radius: 4, visible: true });
+    // Every type starts from the shadow's template (Figma's j() then IK(type), atlas 08 §4.1): a blur keeps them unseen.
+    expect(defaultEffect("FOREGROUND_BLUR")).toEqual({ type: "FOREGROUND_BLUR", blendMode: "NORMAL", color: { r: 0, g: 0, b: 0, a: 0.25 }, offset: { x: 0, y: 4 }, radius: 4, spread: 0, visible: true, showShadowBehindNode: false });
   });
 
-  it("a type change keeps a shadow's numbers, a blur's radius", () => {
+  it("a type change keeps every field and fills in the new type's missing ones (Figma's UF, atlas 08 §4.2)", () => {
     const s = { ...defaultEffect(), offset: { x: 2, y: 9 }, radius: 12 };
-    const inner = withEffectType(s, "INNER_SHADOW");
-    expect(inner).toMatchObject({ type: "INNER_SHADOW", offset: { x: 2, y: 9 }, radius: 12 });
-    expect(inner.showShadowBehindNode).toBeUndefined();
-    expect(withEffectType(s, "BACKGROUND_BLUR")).toEqual({ type: "BACKGROUND_BLUR", radius: 12, visible: true });
+    expect(withEffectType(s, "INNER_SHADOW")).toMatchObject({ type: "INNER_SHADOW", offset: { x: 2, y: 9 }, radius: 12 });
+    // a shadow turned layer blur keeps its colour and offset, and has them back as a shadow again
+    const blur = withEffectType(s, "BACKGROUND_BLUR");
+    expect(blur).toMatchObject({ type: "BACKGROUND_BLUR", radius: 12, offset: { x: 2, y: 9 } });
+    expect(withEffectType(blur, "DROP_SHADOW")).toEqual({ ...s });
+    // Noise: Mono, 0.5, opacity 0.15 when it had none, density 1; Glass: an angle of 0 goes back to −45
+    expect(withEffectType(s, "NOISE")).toMatchObject({ type: "NOISE", noiseType: "MONOTONE", noiseSize: { x: 0.5, y: 0.5 }, opacity: 0.15, density: 1, radius: 12 });
+    expect(withEffectType({ ...defaultEffect("GLASS"), specularAngle: 0, type: "DROP_SHADOW" }, "GLASS")).toMatchObject({ specularAngle: -45, refractionRadius: 20 });
+  });
+
+  it("caps each type per layer (8 shadows, 1 blur of each kind, 2 noises, 1 texture, 1 glass); the row keeps its own type", () => {
+    const shadows = Array.from({ length: 8 }, () => defaultEffect());
+    expect(fullTypes(shadows).has("DROP_SHADOW")).toBe(true);
+    expect(fullTypes(shadows, 0).has("DROP_SHADOW")).toBe(false);
+    const list = [defaultEffect("NOISE"), defaultEffect("NOISE"), defaultEffect("FOREGROUND_BLUR"), defaultEffect("GLASS")];
+    expect([...fullTypes(list)].sort()).toEqual(["FOREGROUND_BLUR", "GLASS", "NOISE"]);
+    expect(fullTypes([defaultEffect("NOISE")]).has("NOISE")).toBe(false);
+  });
+
+  it("Spread draws on rectangles, ellipses and frames that clip with a visible fill; the first cause says why not", () => {
+    const fill = [{ type: "SOLID", visible: true, opacity: 1, color: { r: 1, g: 1, b: 1, a: 1 } }];
+    expect(spreadBlocker([{ guid: "1:1", type: "RECTANGLE" }, { guid: "1:2", type: "ELLIPSE" }] as PanelNode[])).toBeNull();
+    expect(spreadBlocker([{ guid: "1:1", type: "FRAME", fillPaints: fill }] as PanelNode[])).toBeNull();
+    expect(spreadBlocker([{ guid: "1:1", type: "FRAME", fillPaints: [] }] as PanelNode[])).toBe("fills");
+    expect(spreadBlocker([{ guid: "1:1", type: "FRAME", fillPaints: fill, frameMaskDisabled: true }] as PanelNode[])).toBe("clip");
+    expect(spreadBlocker([{ guid: "1:1", type: "TEXT" }] as PanelNode[])).toBe("shape");
+  });
+
+  it("glass's light: shown −180…180, written 0…359; the dial snaps to 45° (⇧ always, within 4° otherwise, ⌃ never)", () => {
+    expect(shownLightAngle(315)).toBe(-45);
+    expect(shownLightAngle(-45)).toBe(-45);
+    expect(shownLightAngle(180)).toBe(180);
+    expect(snapLightAngle(48, { shiftKey: false, ctrlKey: false })).toBe(45);
+    expect(snapLightAngle(52, { shiftKey: false, ctrlKey: false })).toBe(52);
+    expect(snapLightAngle(70, { shiftKey: true, ctrlKey: false })).toBe(90);
+    expect(snapLightAngle(48, { shiftKey: true, ctrlKey: true })).toBe(48);
+  });
+
+  it("Draw's rows sum an effect up: X Y B S, Uniform / Progressive, Size R, Mono … D, A I", () => {
+    expect(effectSummary(defaultEffect())).toBe("X 0 Y 4 B 4 S 0");
+    expect(effectSummary(withBlurType(defaultEffect("FOREGROUND_BLUR"), true))).toBe("Progressive 0 → 4");
+    expect(effectSummary({ ...defaultEffect("GRAIN"), noiseSize: { x: 2, y: 3 } })).toBe("Size X 2 Size Y 3 R 4");
+    expect(effectSummary(defaultEffect("NOISE"))).toBe("Mono Size 0.5 D 100%");
+    expect(effectSummary(defaultEffect("GLASS"))).toBe("A -45° I 80%");
   });
 
   it("the type menu's order and Figma's new Noise, Texture and Glass (live popovers)", () => {
@@ -250,7 +291,8 @@ describe("effects and layout guides", () => {
       expect(Number.isInteger(seed) && seed >= 0 && seed < 10000).toBe(true);
     }
     // Glass in Figma's fields: Depth = refractionRadius, Splay = reflectionDistance, bevelSize 1.
-    expect(defaultEffect("GLASS")).toEqual({ type: "GLASS", visible: true, specularAngle: -45, specularIntensity: 0.8, refractionIntensity: 0.8, refractionRadius: 20, bevelSize: 1, chromaticAberration: 0.5, reflectionDistance: 0, radius: 4 });
+    expect(defaultEffect("GLASS")).toMatchObject({ type: "GLASS", visible: true, specularAngle: -45, specularIntensity: 0.8, refractionIntensity: 0.8, refractionRadius: 20, bevelSize: 1, chromaticAberration: 0.5, reflectionDistance: 0, radius: 4, secondaryColor: { r: 1, g: 1, b: 1, a: 0 } });
+    expect(defaultEffect("NOISE").opacity).toBe(0.25);
     // Blend mode on shadows and noise only.
     expect(EFFECT_TYPES.filter((t) => hasEffectBlend(defaultEffect(t.value))).map((t) => t.value)).toEqual(["INNER_SHADOW", "DROP_SHADOW", "NOISE"]);
   });
@@ -261,6 +303,9 @@ describe("effects and layout guides", () => {
     expect(withEffectType(p, "BACKGROUND_BLUR")).toMatchObject({ type: "BACKGROUND_BLUR", blurOpType: "PROGRESSIVE", radius: 10 });
     expect(withBlurType(p, false).blurOpType).toBe("NORMAL");
     expect(withEffectType(p, "NOISE")).toMatchObject({ type: "NOISE", noiseType: "MONOTONE" });
+    // Progressive clamps both radii to 100; along lines the line is (0, −0.5) → (1, −0.5)
+    expect(withBlurType({ ...defaultEffect("FOREGROUND_BLUR"), radius: 300, startRadius: 150 }, true)).toMatchObject({ radius: 100, startRadius: 100 });
+    expect(withBlurType(defaultEffect("FOREGROUND_BLUR"), true, true)).toMatchObject({ startOffset: { x: 0, y: -0.5 }, endOffset: { x: 1, y: -0.5 } });
   });
 
   it("guides: Grid 10px red 10%; Columns / Rows 5 stretch, gutter 20", () => {
