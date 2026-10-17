@@ -196,6 +196,8 @@ export function SelectionColorsSection({ nodes, onPick }: { nodes: PanelNode[]; 
     <PanelSection
       title={t("Selection colors")}
       className={layout.collapsible ? styles.colorsCollapsible : undefined}
+      // Folded: the title row alone (its toggle is the only child)
+      pad={layout.peek ? "none" : "default"}
       // Collapsed: the first three colours and "+N" in the title row (atlas 07 §4).
       actions={
         layout.peek ? (
