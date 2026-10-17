@@ -1075,6 +1075,8 @@ export const panels: Record<string, string> = {
   "Section": "Bölüm",
   "See all {n} color": "{n} rengin tümünü gör",
   "See all {n} colors": "{n} rengin tümünü gör",
+  "Show selection colors": "Seçim renklerini göster",
+  "Scaling factor": "Ölçek katsayısı",
   "Select an option": "Bir seçenek belirleyin",
   "Select component": "Bileşeni seç",
   "Select instances of this component on the canvas": "Tuval üzerinde bu bileşenin örneklerini seçin",

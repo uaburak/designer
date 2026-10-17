@@ -14,7 +14,8 @@
  * transaction and commits on release.
  */
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ColorInput, ColorPicker, Icon, IconButton, isMixed, MenuButton, MIXED, PanelSection, cx, type ChangeInfo, type ColorModel, type PickerPaint } from "@/ds";
+import { ColorInput, ColorPicker, Icon, IconButton, isMixed, MenuButton, MIXED, NumericInput, PanelSection, cx, type ChangeInfo, type PickerPaint } from "@/ds";
+import { useColorFormat } from "../../colorFormat";
 import { useTextSummary } from "./useTextSummary";
 import { openMakeImage } from "../../imageTools/ImageToolbar";
 import type { Color, Guid, Paint } from "@/engine/codec";
@@ -339,7 +340,7 @@ function useGradientHandles(ed: EditorController, refs: readonly Guid[], field: 
 export function PaintPicker({ target, nodes, pageColor, onClose }: { target: PickerTarget; nodes: PanelNode[]; pageColor: Color | null; onClose: () => void }) {
   useT();
   const ed = useEditor();
-  const [model, setModel] = useState<ColorModel>("hex");
+  const [model, setModel] = useColorFormat();
   useImageUrls(ed);
   // "On this page": read once when the picker opens.
   const documentColors = useMemo(() => pageColors(ed), [ed]);
@@ -458,7 +459,29 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
               })
           : undefined
       }
-      imageAction={isImageLike(paint) ? <IconButton icon="24.rotate" label={t("Rotate 90º")} onClick={() => write(rotated90(paint), { final: true, source: "pick" }, "Rotate image")} /> : undefined}
+      // One pattern per paint list (atlas 07 §3.2): the Pattern tab is off while another paint is one.
+      disabledTypes={paints.some((p, j) => j !== index && p.type === "PATTERN") ? ["PATTERN"] : undefined}
+      imageAction={
+        isImageLike(paint) ? (
+          <span className={styles.imageActions}>
+            {/* Tile: the "Scaling factor" (Paint.scale, 0.01–100, atlas 07 §8.3) */}
+            {paint.imageScaleMode === "TILE" && (
+              <NumericInput
+                className={styles.tileScale}
+                label={t("Scaling factor")}
+                value={Math.round((paint.scale ?? 1) * 100)}
+                min={1}
+                max={10000}
+                precision={0}
+                unit="%"
+                onChange={(v, info) => write({ ...paint, scale: Math.min(100, Math.max(0.01, v / 100)) }, info, "Image scale")}
+                onCancel={() => ed.cancelEdit()}
+              />
+            )}
+            <IconButton icon="24.rotate" label={t("Rotate 90º")} onClick={() => write(rotated90(paint), { final: true, source: "pick" }, "Rotate image")} />
+          </span>
+        ) : undefined
+      }
       imageControls={
         // Live (popovers/fill-picker-image / -video): an image's adjustments; a video has none (its preview plays it).
         paint.type === "VIDEO" ? (

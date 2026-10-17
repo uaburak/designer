@@ -7,7 +7,7 @@
  * show, then "See all N colors". Rules and order: model/selectionColors.ts.
  */
 import { useMemo, useState } from "react";
-import { Button, ColorInput, IconButton, PanelSection, type ChangeInfo } from "@/ds";
+import { Button, ColorInput, IconButton, PanelSection, Swatch, type ChangeInfo } from "@/ds";
 import * as abi from "@/engine/abi";
 import type { Color, Guid, NodeChange } from "@/engine/codec";
 import type { Engine } from "@/engine/Engine";
@@ -16,7 +16,19 @@ import { engineExports } from "../../engineCompat";
 import { useSelectionColorsVersion } from "../../hooks";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
 import { paintLabel, paintSwatch } from "../../model/paints";
-import { SELECTION_COLORS_MAX_NODES, SELECTION_COLORS_SHOWN, collectColors, collectSelectionColors, recolor, showSelectionColors, type PaintUse, type SelectionColor } from "../../model/selectionColors";
+import {
+  SELECTION_COLORS_DEBOUNCE_USES,
+  SELECTION_COLORS_MAX_NODES,
+  SELECTION_COLORS_NO_LIMIT,
+  SELECTION_COLORS_PEEK,
+  collectColors,
+  collectSelectionColors,
+  recolor,
+  selectionColorsLayout,
+  showSelectionColors,
+  type PaintUse,
+  type SelectionColor,
+} from "../../model/selectionColors";
 import type { PickerTarget } from "./Paints";
 import type { PanelNode } from "./shared";
 import { t, tp, useT } from "@/i18n";
@@ -83,13 +95,17 @@ export function readInside(engine: Engine, refs: readonly Guid[], max = SELECTIO
   return readInsideGroups(engine, refs, max)?.flat() ?? null;
 }
 
-/** The colours of the selection and what's inside it (live's order: collectSelectionColors), and whether the section shows. */
-export function selectionColorsOf(engine: Engine, nodes: readonly PanelNode[]): { show: boolean; colors: SelectionColor[] } {
+/**
+ * The colours of the selection and what's inside it (live's order: collectSelectionColors), and whether the section
+ * shows; `overLimit` when more than `max` layers would be read (Figma's `emptyDueToLimitExceeded`).
+ */
+export function selectionColorsOf(engine: Engine, nodes: readonly PanelNode[], max = SELECTION_COLORS_MAX_NODES): { show: boolean; colors: SelectionColor[]; overLimit?: boolean } {
   const groups = readInsideGroups(
     engine,
-    nodes.map((n) => n.guid)
+    nodes.map((n) => n.guid),
+    max
   );
-  if (!groups) return { show: false, colors: [] };
+  if (!groups) return { show: false, colors: [], overLimit: true };
   const selected = nodes.filter((n) => n.visible !== false) as NodeChange[];
   const own = nodes.map((n, i) => (n.visible !== false ? [...groups[i], n as NodeChange] : []));
   return { show: showSelectionColors(selected, groups.flat()), colors: collectSelectionColors(own) };
@@ -118,13 +134,33 @@ export function pageColors(ed: EditorController, max = 48): string[] {
   return [...out];
 }
 
-/** Writes a colour (and/or opacity) to every paint in `uses`, as one undo step (a scrub: one open transaction). */
+/** How long a much-used colour's drag waits for a pause before it writes (ms; Figma's own delay is unread). */
+const DEBOUNCE_MS = 100;
+const debounced = new WeakMap<EditorController, ReturnType<typeof setTimeout>>();
+
+/**
+ * Writes a colour (and/or opacity) to every paint in `uses`, as one undo step (a scrub: one open transaction). A colour
+ * used more than 500 times (Figma's selection paints) writes a drag's moves only once it pauses; the release at once.
+ */
 export function writeSelectionColor(ed: EditorController, uses: readonly PaintUse[], next: { color?: Color; opacity?: number }, info: ChangeInfo) {
-  ed.edit("Selection colors", info, () => {
-    const ids = [...new Set(uses.map((u) => u.guid))];
-    const fresh = new Map(ed.engine.readNodes(ids).map((n) => [n.guid, n]));
-    for (const [guid, f] of recolor(fresh, uses, next)) ed.engine.setProps([guid], f);
-  });
+  const run = () =>
+    ed.edit("Selection colors", info, () => {
+      const ids = [...new Set(uses.map((u) => u.guid))];
+      const fresh = new Map(ed.engine.readNodes(ids).map((n) => [n.guid, n]));
+      for (const [guid, f] of recolor(fresh, uses, next)) ed.engine.setProps([guid], f);
+    });
+  if (uses.length <= SELECTION_COLORS_DEBOUNCE_USES) return run();
+  const waiting = debounced.get(ed);
+  if (waiting) clearTimeout(waiting);
+  debounced.delete(ed);
+  if (info.final) return run();
+  debounced.set(
+    ed,
+    setTimeout(() => {
+      debounced.delete(ed);
+      if (!ed.engine.destroyed) run();
+    }, DEBOUNCE_MS)
+  );
 }
 
 export function SelectionColorsSection({ nodes, onPick }: { nodes: PanelNode[]; onPick: (t: PickerTarget) => void }) {
@@ -134,14 +170,46 @@ export function SelectionColorsSection({ nodes, onPick }: { nodes: PanelNode[]; 
   // re-renders the panel each frame but leaves the colours as they were (engine.md §10.4's groups).
   const version = useSelectionColorsVersion();
   const key = nodes.map((n) => n.guid).join(",");
-  const [all, setAll] = useState<{ key: string; on: boolean }>({ key: "", on: false });
+  // Per selection (a new one starts over, as Figma resets on a selection change): the section opened, "See all"
+  // pressed, the node limit lifted ("Show selection colors").
+  const [view, setView] = useState<{ key: string; open: boolean; all: boolean; unlimited: boolean }>({ key: "", open: false, all: false, unlimited: false });
+  const state = view.key === key ? view : { key, open: false, all: false, unlimited: false };
+  const update = (patch: Partial<typeof state>) => setView({ ...state, ...patch });
   // eslint-disable-next-line react-hooks/exhaustive-deps -- re-read when a colour-bearing change happened (version) or the selection did (key)
-  const { show, colors } = useMemo(() => selectionColorsOf(ed.engine, nodes), [ed, key, version]);
+  const { show, colors, overLimit } = useMemo(() => selectionColorsOf(ed.engine, nodes, state.unlimited ? SELECTION_COLORS_NO_LIMIT : SELECTION_COLORS_MAX_NODES), [ed, key, version, state.unlimited]);
+  if (overLimit) {
+    // Too many layers to collect at once: Figma's button reads them on request.
+    return (
+      <PanelSection title={t("Selection colors")}>
+        <div className={styles.seeAll}>
+          <Button variant="link" onClick={() => update({ unlimited: true })}>
+            {t("Show selection colors")}
+          </Button>
+        </div>
+      </PanelSection>
+    );
+  }
   if (!show || !colors.length) return null;
-  const expanded = all.key === key && all.on;
-  const shown = expanded ? colors : colors.slice(0, SELECTION_COLORS_SHOWN);
+  const layout = selectionColorsLayout(colors.length, state.open, state.all);
+  const shown = colors.slice(0, layout.rows);
   return (
-    <PanelSection title={t("Selection colors")}>
+    <PanelSection
+      title={t("Selection colors")}
+      className={layout.collapsible ? styles.colorsCollapsible : undefined}
+      // Collapsed: the first three colours and "+N" in the title row (atlas 07 §4).
+      actions={
+        layout.peek ? (
+          <span className={styles.colorsPeek} aria-hidden>
+            {colors.slice(0, SELECTION_COLORS_PEEK).map((c, i) => (
+              <Swatch key={i} color={c.gradient ? paintSwatch(c.gradient) : colorToHex(c.color)} opacity={c.gradient ? 100 : toPercent(c.opacity)} />
+            ))}
+            <span className={styles.colorsMore}>+{colors.length - SELECTION_COLORS_PEEK}</span>
+          </span>
+        ) : undefined
+      }
+    >
+      {/* Four colours or more: the whole title row opens and closes the list (live: a 240 × 40 button) */}
+      {layout.collapsible && <button type="button" className={styles.colorsToggle} aria-expanded={state.open} aria-label={t("Selection colors")} onClick={() => update({ open: !state.open, all: false })} />}
       {/* Keyed by place: a scrub changes the colour's identity and must not remount its field */}
       {shown.map((c, i) => (
         <div key={i} className={`${styles.paintRow} ${styles.colorRow}`}>
@@ -161,10 +229,10 @@ export function SelectionColorsSection({ nodes, onPick }: { nodes: PanelNode[]; 
           <IconButton className={styles.colorRowAction} icon="24.select-matching.small" label={t("Select matching layers")} tone="secondary" onClick={() => ed.engine.setSelection([...new Set(c.uses.map((u) => u.guid))])} />
         </div>
       ))}
-      {colors.length > SELECTION_COLORS_SHOWN && (
+      {layout.seeAll && (
         <div className={styles.seeAll}>
-          <Button variant="link" onClick={() => setAll({ key, on: !expanded })}>
-            {expanded ? t("Show less") : tp(colors.length, "See all {n} color", "See all {n} colors")}
+          <Button variant="link" onClick={() => update({ all: true })}>
+            {tp(colors.length, "See all {n} color", "See all {n} colors")}
           </Button>
         </div>
       )}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { dropIndex, initials, thumbGeometry, visibleRange } from "../util/geometry";
-import { hexDigits, normalizeHex, parseHexInput, withOpacity } from "../util/color";
+import { hexDigits, hexDigitsToRgba, normalizeHex, parseColor, parseHexInput, withOpacity } from "../util/color";
 import { formatEdited } from "../util/time";
 
 describe("tab drag", () => {
@@ -49,8 +49,35 @@ describe("colour fields", () => {
     expect(parseHexInput("0c8ce9ff")).toEqual({ hex: "#0c8ce9", opacity: 100 });
     expect(parseHexInput("f008")).toEqual({ hex: "#ff0000", opacity: 53 });
     expect(parseHexInput("abc")).toEqual({ hex: "#aabbcc" });
-    expect(parseHexInput("12345")).toBeNull();
     expect(normalizeHex("#ggg")).toBeNull();
+  });
+  it("read 1 to 8 hex digits as Figma's fields do, the first run after any junk (atlas 07 §5.4)", () => {
+    expect(parseHexInput("8")).toEqual({ hex: "#888888" });
+    expect(parseHexInput("80")).toEqual({ hex: "#808080" });
+    expect(parseHexInput("f80")).toEqual({ hex: "#ff8800" });
+    // 5: #RGB + a two-digit alpha; 7: #RRGGBB + one alpha digit, doubled
+    expect(parseHexInput("12345")).toEqual({ hex: "#112233", opacity: 27 });
+    expect(parseHexInput("1234568")).toEqual({ hex: "#123456", opacity: 53 });
+    expect(parseHexInput("0c8ce9ff99")).toEqual({ hex: "#0c8ce9", opacity: 100 });
+    expect(parseHexInput("  #ff0000;")).toEqual({ hex: "#ff0000" });
+    expect(parseHexInput("zz")).toBeNull();
+    expect(hexDigitsToRgba("f008", false)).toEqual({ r: 1, g: 0, b: 0, a: 1 });
+    expect(parseColor("#ff0;", { strict: true })?.color).toEqual({ r: 1, g: 1, b: 0, a: 1 });
+    expect(parseColor("x ff0", { strict: true })).toBeNull();
+  });
+  it("read the 148 CSS colour names and CSS colour functions", () => {
+    expect(normalizeHex("RebeccaPurple")).toBe("#663399");
+    expect(normalizeHex("lightgoldenrodyellow")).toBe("#fafad2");
+    expect(parseHexInput("DarkSlateGrey")).toEqual({ hex: "#2f4f4f" });
+    expect(parseHexInput("rgba(255, 0, 0, 0.5)")).toEqual({ hex: "#ff0000", opacity: 50 });
+    expect(parseHexInput("rgb(100% 50% 0% / 25%)")).toEqual({ hex: "#ff8000", opacity: 25 });
+    expect(parseHexInput("hsl(120deg 100% 50%)")).toEqual({ hex: "#00ff00" });
+    expect(parseHexInput("color(srgb 0 0 1)")).toEqual({ hex: "#0000ff" });
+    // P3's own green is outside sRGB: clamped
+    expect(parseHexInput("color(display-p3 0 1 0)")).toEqual({ hex: "#00ff00" });
+    expect(parseHexInput("oklab(62.8% 0.225 0.126)")).toEqual({ hex: "#ff0000" });
+    expect(parseHexInput("oklch(0.628 0.258 29.23)")).toEqual({ hex: "#ff0000" });
+    expect(parseHexInput("lab(53.24 80.09 67.2)")).toEqual({ hex: "#ff0000" });
   });
   it("write six upper-case digits and translucent CSS", () => {
     expect(hexDigits("#0c8ce9")).toBe("0C8CE9");
