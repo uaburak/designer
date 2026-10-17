@@ -1,6 +1,8 @@
 // Figma Motion, round 8a (docs/motion.md §4.3–§4.8, §5): the decoded model, keyframe easing, interpolation, track
 // evaluation and the motion layer's preview writes — applied, restored bit-identically, put back before a transaction.
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 
 #include "Helpers.h"
 #include "doctest.h"
@@ -361,4 +363,34 @@ TEST_CASE("motion: the motion transform pivots on the anchor; rotation stored �
   CHECK(motion::clampWrite(*op, 1.5) == 1);
   CHECK(motion::fieldByPublicName("TRANSLATION_XY")->field == VariableField::MOTION_TRANSLATION_XY);
   CHECK(motion::fieldInfo(VariableField::X_POSITION) == nullptr);
+}
+
+// MOTION_SHOT_DIR=<dir>: writes the fixture's evaluated frames (every 100 ms of the 2 s loop) as JSON for a contact sheet
+// (scripts/motion-frames.mjs draws them); skipped otherwise — a look at the evaluator's output, not a check.
+TEST_CASE("motion: frames of the fixture as JSON (MOTION_SHOT_DIR)") {
+  const char* dir = std::getenv("MOTION_SHOT_DIR");
+  if (!dir) return;
+  Editor e;
+  editorWith(e);
+  const Document& doc = e.document();
+  std::string out = "[";
+  for (int64_t t = 0; t <= 2000000; t += 100000) {
+    e.setMotion(on(t));
+    const Node* r = doc.get(kRect);
+    const Node* root = doc.get(kRoot);
+    const Paint& fill = r->props.fillPaints[0];
+    char buf[512];
+    std::snprintf(buf, sizeof buf,
+                  "%s{\"t\":%lld,\"root\":{\"w\":%g,\"h\":%g},\"rect\":{\"x\":%g,\"y\":%g,\"w\":%g,\"h\":%g,\"opacity\":%g,\"fill\":[%g,%g,%g,%g]}}",
+                  t ? "," : "", static_cast<long long>(t), root->props.size.x, root->props.size.y, r->props.transform.m02, r->props.transform.m12,
+                  r->props.size.x, r->props.size.y, r->props.opacity, fill.color.r, fill.color.g, fill.color.b, fill.color.a);
+    out += buf;
+  }
+  out += "]";
+  std::string path = std::string(dir) + "/motion-frames.json";
+  FILE* f = std::fopen(path.c_str(), "wb");
+  REQUIRE(f);
+  std::fwrite(out.data(), 1, out.size(), f);
+  std::fclose(f);
+  MESSAGE("wrote " << path);
 }
