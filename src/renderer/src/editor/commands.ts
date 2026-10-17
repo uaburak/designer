@@ -310,7 +310,18 @@ const pixelGridOn = (ed: EditorController) => ed.ui.get().pixelGrid !== false;
  */
 export function setViewOption(
   ed: EditorController,
-  patch: { pixelGrid?: boolean; outlines?: boolean; layoutGuides?: boolean; rulers?: boolean; showSlices?: boolean; pixelPreview?: 0 | 1 | 2; maskOutlines?: boolean; frameOutlines?: boolean }
+  patch: {
+    pixelGrid?: boolean;
+    outlines?: boolean;
+    outlineHiddenLayers?: boolean;
+    outlineObjectBounds?: boolean;
+    layoutGuides?: boolean;
+    rulers?: boolean;
+    showSlices?: boolean;
+    pixelPreview?: 0 | 1 | 2;
+    maskOutlines?: boolean;
+    frameOutlines?: boolean;
+  }
 ): void {
   ed.ui.set(patch);
   syncViewOptions(ed);
@@ -490,6 +501,10 @@ export const COMMANDS: EditorCommand[] = [
   // Round 10, View › Comments ⇧C (on by default): comment pins shown on the canvas (editor/comments).
   ui("view.comments", "Comments", [k("KeyC", { shift: true })], (ed) => ed.ui.set((s) => ({ comments: s.comments === false })), (ed) => ed.ui.get().comments !== false),
   ui("view.outlines", "Show outlines", [k("KeyO", { mod: true, shift: true })], (ed) => setViewOption(ed, { outlines: !ed.ui.get().outlines }), (ed) => !!ed.ui.get().outlines),
+  // The zoom menu's Outlines ▸ (Figma's toggle-outline-mode-hidden-layers / -object-bounds, Atlas 04 §9.3): in outline
+  // mode, hidden layers outlined too; each layer's box drawn (the engine's VIEW_OUTLINE_HIDDEN / VIEW_OUTLINE_BOUNDS).
+  ui("view.outline-hidden-layers", "Show hidden layers", undefined, (ed) => setViewOption(ed, { outlineHiddenLayers: !ed.ui.get().outlineHiddenLayers }), (ed) => !!ed.ui.get().outlineHiddenLayers),
+  ui("view.outline-object-bounds", "Show object bounds", undefined, (ed) => setViewOption(ed, { outlineObjectBounds: !ed.ui.get().outlineObjectBounds }), (ed) => !!ed.ui.get().outlineObjectBounds),
   // Live: View › Pixel preview ⇧⌘P; ⌃P toggles it ("Pixel preview enabled (1x)" / "Pixel preview disabled").
   ui("view.pixel-preview", "Pixel preview", [k("KeyP", { mod: true, shift: true }), k("KeyP", { ctrl: true })], (ed) => setViewOption(ed, { pixelPreview: ed.ui.get().pixelPreview ? 0 : 1 }), (ed) => !!ed.ui.get().pixelPreview),
   // Round 10: the engine's thin boxes around masks / frames (VIEW_MASK_OUTLINES / VIEW_FRAME_OUTLINES).
@@ -515,10 +530,12 @@ export const COMMANDS: EditorCommand[] = [
   { id: "motion.play-pause", label: "Play/Pause", keys: [k("Space")], run: (ed) => toggleMotionPlaying(ed), enabled: (ed) => modeOf(ed) === "motion" },
   { id: "motion.toggle-auto-keyframe", label: "Toggle auto-keyframe", run: (ed) => toggleAutoKeyframe(ed), enabled: (ed) => modeOf(ed) === "motion", checked: (ed) => !!ed.ui.get().motion?.autoKeyframe },
   { id: "motion.collapse-timeline", label: "Collapse timeline", run: (ed) => ed.ui.set({ motion: { ...(ed.ui.get().motion ?? MOTION_UI_DEFAULT), collapsed: !(ed.ui.get().motion ?? MOTION_UI_DEFAULT).collapsed } }), enabled: (ed) => modeOf(ed) === "motion" },
-  engine("view.zoom-in", "Zoom in", "ZOOM_IN", [k("Equal", { mod: true }), k("Equal", { mod: true, shift: true }), k("Equal"), k("NumpadAdd")]),
-  engine("view.zoom-out", "Zoom out", "ZOOM_OUT", [k("Minus", { mod: true }), k("Minus"), k("NumpadSubtract")]),
+  // Figma's shortcut table (Atlas 04 §2.5): ⌘= ⌘+ ⌘Num+ = + Num+ / ⌘- ⌘⇧- ⌘Num- - ⇧- Num-; ⇧1 and ⇧9 fit. With
+  // Preferences › Use number keys for opacity off, 0 / 1 / 9 / 2 alone zoom (keyboard.ts).
+  engine("view.zoom-in", "Zoom in", "ZOOM_IN", [k("Equal", { mod: true }), k("Equal", { mod: true, shift: true }), k("NumpadAdd", { mod: true }), k("Equal"), k("Equal", { shift: true }), k("NumpadAdd")]),
+  engine("view.zoom-out", "Zoom out", "ZOOM_OUT", [k("Minus", { mod: true }), k("Minus", { mod: true, shift: true }), k("NumpadSubtract", { mod: true }), k("Minus"), k("Minus", { shift: true }), k("NumpadSubtract")]),
   engine("view.zoom-100", "Zoom to 100%", "ZOOM_TO_100", [k("Digit0", { mod: true }), k("Digit0", { shift: true })]),
-  engine("view.zoom-fit", "Zoom to fit", "ZOOM_TO_FIT", [k("Digit1", { shift: true })]),
+  engine("view.zoom-fit", "Zoom to fit", "ZOOM_TO_FIT", [k("Digit1", { shift: true }), k("Digit9", { shift: true })]),
   engine("view.zoom-selection", "Zoom to selection", "ZOOM_TO_SELECTION", [k("Digit2", { shift: true })]),
   ui("view.zoom-50", "Zoom to 50%", undefined, (ed) => zoomTo(ed, 0.5)),
   ui("view.zoom-200", "Zoom to 200%", undefined, (ed) => zoomTo(ed, 2)),
@@ -677,6 +694,11 @@ export const COMMANDS: EditorCommand[] = [
   // ⌥R (a forum report; not in the live menus): the rotation origin shown, dragged; rotation turns about it.
   engine("object.rotation-origin", "Show rotation origin", "SHOW_ROTATION_ORIGIN", [k("KeyR", { alt: true })], { checked: (ed) => (ed.engine.commandState("SHOW_ROTATION_ORIGIN") & 2) !== 0 }),
   engine("canvas.remove-guide", "Remove guide", "REMOVE_GUIDE"),
+  // A ruler's context menu (Figma's rulerGuideMenu, Atlas 04 §4.2): the top ruler's guides or the left one's, then
+  // Hide rulers. The English of the first two is unverified (keys remove-horizontal-guides / remove-vertical-guides).
+  engine("canvas.remove-horizontal-guides", "Remove horizontal guides", "REMOVE_HORIZONTAL_GUIDES"),
+  engine("canvas.remove-vertical-guides", "Remove vertical guides", "REMOVE_VERTICAL_GUIDES"),
+  ui("canvas.hide-rulers", "Hide rulers", undefined, (ed) => setViewOption(ed, { rulers: false })),
   // Round 10 (engine/src/editor/ArrangeCommands.cpp).
   engine("arrange.round-to-pixel", "Round to pixel", "ROUND_TO_PIXEL"),
   engine("arrange.pack-horizontal", "Pack horizontal", "PACK_HORIZONTAL"),
@@ -695,6 +717,9 @@ export const COMMANDS: EditorCommand[] = [
   pending("vector.subtract", "Subtract selection", "BOOLEAN_SUBTRACT", [k("KeyS", { alt: true, shift: true })]),
   pending("vector.intersect", "Intersect selection", "BOOLEAN_INTERSECT", [k("KeyI", { alt: true, shift: true })]),
   pending("vector.exclude", "Exclude selection", "BOOLEAN_EXCLUDE", [k("KeyE", { alt: true, shift: true })]),
+  // A boolean group made with an older version of the boolean operations brought to the latest (the Design panel's
+  // Update, panels/design/VectorOperation.tsx; Atlas 05 §9.2).
+  engine("vector.update-boolean", "Update boolean", "UPGRADE_VECTOR_OPERATION"),
   // The Figma menu › Vector (live main-vector.txt): vector edit mode's point commands.
   // Round 10 (the engine's): vector edit mode's selected points joined, straight or smooth.
   engine("vector.join", "Join selection", "VECTOR_JOIN", [k("KeyJ", { mod: true })]),

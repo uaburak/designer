@@ -276,7 +276,8 @@ export function PositionSection({ nodes }: { nodes: PanelNode[] }) {
         {!section && (
           <PropertyRow label={t("Rotation")}>
             <MotionField field="ROTATION">
-              <NumericInput label={t("Rotation")} prefix="24.rotation" unit="°" disabled={locked} className={styles.plainDisabled} value={fieldValue(rotation)} min={-360} max={360} {...rotate} />
+              {/* ⇧ ↑ ↓ by 15° (Figma's rotation field: nudges 1 / 15, Atlas 04 §7.2) */}
+              <NumericInput label={t("Rotation")} prefix="24.rotation" unit="°" disabled={locked} className={styles.plainDisabled} value={fieldValue(rotation)} min={-360} max={360} bigStep={15} {...rotate} />
             </MotionField>
             <div className={styles.buttonGroup}>
               <GroupButton id="object.rotate-90-right" icon="24.rotate" disabled={locked || editingText || undefined} />
@@ -345,6 +346,8 @@ const PLAIN_RADIUS = new Set(["TEXT", "LINE", "ELLIPSE"]);
 
 /** Figma's iOS corner smoothing preset (help 360050986854). */
 export const IOS_SMOOTHING = 60;
+/** The corner smoothing slider's ⇧ + arrow keys: which way each steps. */
+const BIG_STEP_KEYS: Record<string, number> = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 };
 
 export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
   useT();
@@ -366,6 +369,7 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
   ];
   const blendOptions = [{ value: "PASS_THROUGH", label: t("Pass through") }, ...BLEND_MODES.filter((m): m is Exclude<(typeof BLEND_MODES)[number], "-"> => m !== "-").map((m) => ({ value: m, label: t(BLEND_LABEL[m]) }))];
   const polygons = nodes.filter((n) => typeOf(n) === "REGULAR_POLYGON" || typeOf(n) === "STAR");
+  const ellipses = nodes.length > 0 && nodes.every((n) => typeOf(n) === "ELLIPSE");
   const stars = polygons.length > 0 && polygons.every((n) => typeOf(n) === "STAR");
   const countKept = useKeeps("count");
   const opacity = mixedNumber(nodes.map((n) => Math.round((n.opacity ?? 1) * 100)));
@@ -492,6 +496,7 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
           </>
         )}
         {polygons.length > 0 && countKept && <CountRow nodes={polygons} stars={stars} />}
+        {drawMode && ellipses && <ArcRow nodes={nodes} />}
       </PropertyGrid>
       {!drawMode && <ModeRows refs={refs} />}
     </PanelSection>
@@ -504,11 +509,56 @@ function CountRow({ nodes, stars }: { nodes: PanelNode[]; stars: boolean }) {
   const ed = useEditor();
   const refs = nodes.map((n) => n.guid);
   const count = perLayer(ed, "Count", refs, (n) => n.count ?? (typeOf(n) === "STAR" ? 5 : 3), (_, v) => fields({ count: Math.max(3, Math.min(60, Math.round(v))) }), (v) => Math.max(3, Math.min(60, v)));
-  const ratio = perLayer(ed, "Ratio", refs, (n) => (n.starInnerScale ?? 0.382) * 100, (_, v) => fields({ starInnerScale: Math.max(0, Math.min(100, v)) / 100 }), (v) => Math.max(0, Math.min(100, v)));
+  // Ratio from 0.1 % (Figma's field: min 0.001, resolution 0.001).
+  const ratio = perLayer(ed, "Ratio", refs, (n) => (n.starInnerScale ?? 0.382) * 100, (_, v) => fields({ starInnerScale: Math.max(0.1, Math.min(100, v)) / 100 }), (v) => Math.max(0.1, Math.min(100, v)));
   return (
     <PropertyRow labels={stars ? [t("Count"), t("Ratio")] : undefined} label={stars ? undefined : t("Count")}>
       <NumericInput label={t("Count")} prefix="24.polygon" min={3} max={60} precision={0} value={fieldValue(mixedNumber(nodes.map((n) => n.count ?? (typeOf(n) === "STAR" ? 5 : 3))))} {...count} />
-      {stars ? <NumericInput label={t("Ratio")} prefix="24.star.outline" unit="%" min={0} max={100} precision={1} value={fieldValue(mixedNumber(nodes.map((n) => Math.round((n.starInnerScale ?? 0.382) * 1000) / 10)))} {...ratio} /> : <span />}
+      {stars ? <NumericInput label={t("Ratio")} prefix="24.star.outline" unit="%" min={0.1} max={100} precision={1} value={fieldValue(mixedNumber(nodes.map((n) => Math.round((n.starInnerScale ?? 0.382) * 1000) / 10)))} {...ratio} /> : <span />}
+    </PropertyRow>
+  );
+}
+
+const TWO_PI = 2 * Math.PI;
+/** An ellipse's arc as the Arc row shows it: Start (degrees), Sweep and Ratio (%); a full ellipse is 0° / 100 % / 0 %. */
+export function arcFields(n: PanelNode): { start: number; sweep: number; ratio: number } {
+  const a = n.arcData;
+  const from = a?.startingAngle ?? 0;
+  const to = a?.endingAngle ?? TWO_PI;
+  const span = from === 0 && to === 0 ? TWO_PI : to - from;
+  return { start: (from * 180) / Math.PI, sweep: (span / TWO_PI) * 100, ratio: (a?.innerRadius ?? 0) * 100 };
+}
+
+/** The arc written back from the row's values (Start in degrees; Sweep −100…100 %, the end from the start; Ratio 0…100 %). */
+export function arcFromFields(start: number, sweep: number, ratio: number) {
+  const from = (start * Math.PI) / 180;
+  const s = Math.max(-100, Math.min(100, sweep)) / 100;
+  return { startingAngle: from, endingAngle: from + s * TWO_PI, innerRadius: Math.max(0, Math.min(100, ratio)) / 100 };
+}
+
+/**
+ * Draw's "Arc" row for ellipses (Figma's properties.label.arc, docs/draw.md §5.3 — Design's live ellipse panel has
+ * none): Start, Sweep and Ratio in one row (Figma names each by a tooltip; here by its accessible label); Sweep from
+ * −100 %, Sweep and Ratio shown to 0.1 %.
+ */
+function ArcRow({ nodes }: { nodes: PanelNode[] }) {
+  useT();
+  const ed = useEditor();
+  const refs = nodes.map((n) => n.guid);
+  const values = nodes.map(arcFields);
+  const write = (label: string, get: (f: ReturnType<typeof arcFields>) => number, set: (f: ReturnType<typeof arcFields>, v: number) => ReturnType<typeof arcFields>, clamp: (v: number) => number) =>
+    perLayer(ed, label, refs, (n) => get(arcFields(n)), (n, v) => {
+      const f = set(arcFields(n), clamp(v));
+      return fields({ arcData: arcFromFields(f.start, f.sweep, f.ratio) });
+    }, clamp);
+  const start = write("Arc", (f) => f.start, (f, v) => ({ ...f, start: v }), (v) => v);
+  const sweep = write("Arc", (f) => f.sweep, (f, v) => ({ ...f, sweep: v }), (v) => Math.max(-100, Math.min(100, v)));
+  const ratio = write("Arc", (f) => f.ratio, (f, v) => ({ ...f, ratio: v }), (v) => Math.max(0, Math.min(100, v)));
+  return (
+    <PropertyRow label={t("Arc")} columns="minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)" data-arc-row="">
+      <NumericInput label={t("Start")} prefix="24.rotation" unit="°" precision={2} value={fieldValue(mixedNumber(values.map((v) => v.start)))} {...start} />
+      <NumericInput label={t("Sweep")} unit="%" min={-100} max={100} precision={1} value={fieldValue(mixedNumber(values.map((v) => v.sweep)))} {...sweep} />
+      <NumericInput label={t("Ratio")} unit="%" min={0} max={100} precision={1} value={fieldValue(mixedNumber(values.map((v) => v.ratio)))} {...ratio} />
     </PropertyRow>
   );
 }
@@ -544,7 +594,17 @@ export function CornerSmoothingButton({ nodes }: { nodes: PanelNode[] }) {
                 style={{ ["--fill" as string]: `${slider}%` }}
                 onChange={(e) => handlers.onChange(Number(e.currentTarget.value), { final: false, source: "drag" })}
                 onPointerUp={(e) => handlers.onChange(Number(e.currentTarget.value), { final: true, source: "drag" })}
-                onKeyUp={(e) => handlers.onChange(Number(e.currentTarget.value), { final: true, source: "step" })}
+                onKeyDown={(e) => {
+                  // ⇧ + an arrow: Figma's big step, 10 % (its slider: step 0.01, big step 0.1).
+                  const dir = BIG_STEP_KEYS[e.key];
+                  if (!e.shiftKey || !dir) return;
+                  e.preventDefault();
+                  handlers.onChange(Math.max(0, Math.min(100, slider + dir * 10)), { final: true, source: "step" });
+                }}
+                onKeyUp={(e) => {
+                  if (e.shiftKey && BIG_STEP_KEYS[e.key]) return;
+                  handlers.onChange(Number(e.currentTarget.value), { final: true, source: "step" });
+                }}
               />
               <button type="button" className={cx(styles.iosMark, slider === IOS_SMOOTHING && styles.iosOn)} style={{ left: `${IOS_SMOOTHING}%` }} aria-label={t("iOS corner smoothing (60%)")} onClick={() => handlers.onChange(IOS_SMOOTHING, { final: true, source: "pick" })}>
                 iOS

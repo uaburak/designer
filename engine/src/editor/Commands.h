@@ -140,6 +140,13 @@ enum class CommandId : uint32_t {
   // Round 8 (branch r8-selection): canvas tools and views (tools/CanvasTools.cpp).
   SHOW_ROTATION_ORIGIN = 236,           // ⌥R: the selection's rotation origin shown (drag it; rotation turns about it); toggles
   REMOVE_GUIDE = 237,                   // the selected ruler guide removed ("Remove guide")
+  // Atlas wave 1 (a ruler's context menu, Atlas 04 §4.2): the guides a drag from the top / left ruler would add to
+  // (the one selected top-level frame's, else the page's) of that axis, all removed.
+  REMOVE_HORIZONTAL_GUIDES = 238,
+  REMOVE_VERTICAL_GUIDES = 239,
+  // Atlas wave 1 (Atlas 05 §9.2, Figma's upgradeToLatestVectorOperationVersion): the selected boolean groups made with
+  // an older version of the boolean operations (vectorOperationVersion 0 / absent) brought to the latest ("Update").
+  UPGRADE_VECTOR_OPERATION = 240,
   // Round 8 (branch r8-design-panel): the Grid panel (tools/GridGestures.cpp); 260-269.
   SELECT_GRID_TRACKS = 260,             // args {frame, axis: "COLUMNS" | "ROWS", tracks: number[]} — the selected grid's tracks ([] clears)
   // Round 10 (branch r10-menus-commands): the Figma menu's Object, Arrange and Vector commands live Figma has

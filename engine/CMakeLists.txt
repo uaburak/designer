@@ -163,6 +163,7 @@ else()
     tests/unit/undo.test.cpp
     tests/unit/hit.picking.test.cpp
     tests/unit/render.camera.test.cpp
+    tests/unit/atlas.canvas_shapes.test.cpp
     tests/unit/render.batching.test.cpp
     tests/unit/editor.gestures.test.cpp
     tests/unit/api.test.cpp

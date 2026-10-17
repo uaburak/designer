@@ -422,6 +422,10 @@ struct Overlay {
   // thin outline, no fills).
   bool pixelGrid = true;
   bool outlines = false;
+  // Outline mode's options (View › Outlines ▸ Show hidden layers / Show object bounds, Atlas 04 §9.3): hidden layers
+  // outlined too; each layer's box drawn (unverified look: the outline colour, the boxes fainter).
+  bool outlineHidden = false;
+  bool outlineBounds = false;
   bool layoutGuides = true;  // View › Layout guides (⇧G): frames' layout grids drawn
   // Top-level frames' names above them; one frame's left out (a grid whose track is selected: live Figma).
   bool frameTitles = true;
@@ -779,6 +783,11 @@ class Renderer {
   // Outline mode (View › Outlines, ⇧⌘O): a node as a thin outline (text: its glyphs in the outline colour), then its
   // children; no fills, strokes, effects or masks.
   void drawOutlined(const Document& doc, uint32_t i, const NodeProps& p, const Mat2x3& m);
+  // One node's own outline (no children), `m` its space → CSS px.
+  void outlineShape(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha);
+  // Outline mode's options over the page (View › Outlines ▸ Show hidden layers / Show object bounds): hidden layers
+  // outlined as the shown ones are, each layer's box.
+  void drawOutlineOptions(const Document& doc, Guid page, const Mat2x3& view, const Overlay& overlay);
   // A polyline in CSS px, `width` across: a thin rectangle per segment.
   void strokePolyline(const std::vector<Vec2>& pts, bool closed, double width, const Color& color, double alpha);
   // Glyphs of `layout` placed by `m` (layout space → CSS px), all in `color`.

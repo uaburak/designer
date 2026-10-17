@@ -9,7 +9,7 @@
  */
 import { modifiersOf } from "@/engine/CanvasController";
 import type { EditorController } from "./controller";
-import { commandForKey, isEnabled } from "./commands";
+import { commandForKey, isEnabled, runEditorCommand } from "./commands";
 import { opacityForDigit, type OpacityBuffer } from "./opacityKeys";
 import { fields } from "./panels/design/shared";
 import type { VectorTool } from "./vectorEdit";
@@ -18,6 +18,8 @@ import { pref } from "./preferences";
 const VECTOR_KEYS: Record<string, VectorTool> = { KeyV: "MOVE", KeyQ: "LASSO", KeyP: "PEN", KeyB: "PAINT_BUCKET" };
 /** With ⇧ (live's Keyboard shortcuts panel, Shape: "While editing a shape… Paint ⇧B"). */
 const VECTOR_SHIFT_KEYS: Record<string, VectorTool> = { KeyB: "PAINT_BUCKET" };
+/** Preferences › Use number keys for opacity off: the digits alone zoom (Figma's table; on, they need ⇧). */
+const ZOOM_DIGITS: Record<string, string> = { "0": "view.zoom-100", "1": "view.zoom-fit", "9": "view.zoom-fit", "2": "view.zoom-selection" };
 
 /** A text field, a contenteditable (`plaintext-only` too), or something inside one. */
 export function isEditable(target: EventTarget | null): boolean {
@@ -83,6 +85,11 @@ export function attachKeyboard(ed: EditorController, canvas: HTMLCanvasElement):
       const next = opacityForDigit(opacityBuffer, Number(digit[1]), e.timeStamp || performance.now());
       opacityBuffer = next.buffer;
       ed.setProps(ed.selection, fields({ opacity: next.opacity }), "Opacity");
+      return;
+    }
+    if (digit && ZOOM_DIGITS[digit[1]] && !pref(ed.ui.get(), "numberKeysOpacity") && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+      e.preventDefault();
+      runEditorCommand(ed, ZOOM_DIGITS[digit[1]]);
       return;
     }
     const c = commandForKey(e);

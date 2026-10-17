@@ -1,8 +1,10 @@
 // Snapping, smart guides and measurement (docs/engine.md §8.5): a moving box
 // (or a dragged edge) snaps to the edges and centres of its siblings and its
-// parent frame, or to equal spacing between them, within 6 CSS px; what it
-// snapped to is shown with red guides spanning the objects involved. ⌥ shows
-// distances from the selection to the hovered layer.
+// parent frame, or to equal spacing between them, within 6 CSS px; a moving
+// box also to the margins its siblings keep from the parent frame's sides,
+// mirrored (Figma's implied frame margins); what it snapped to is shown with
+// red guides spanning the objects involved. ⌥ shows distances from the
+// selection to the hovered layer.
 #pragma once
 
 #include <optional>

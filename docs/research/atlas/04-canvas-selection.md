@@ -448,6 +448,31 @@ The JS carries i18n **keys**. English is given where the repo attests it: `src/s
 | Measure tool ⇧M / saved measurements | yes | Dev Mode measurement exists (`DevMode.cpp`) | partial (check ⇧M in Design) |
 | Property labels in the zoom menu | `toggle-show-property-labels` | not checked | — |
 
+### As built (2026-10-17, wave 1)
+
+Branch "canvas and shapes" (`engine/src/render/Camera.h`, `editor/Editor.cpp`, `editor/Snapping.cpp`, `editor/SelectionCommands.cpp`, `render/Renderer.cpp`; native tests `engine/tests/unit/atlas.canvas_shapes.test.cpp`, chrome tests `src/renderer/src/editor/__tests__/atlas.canvasShapes.test.ts`). The wheel and pinch rates, sharp frames, LOD and caches (the owner's "best version so far", handoff 2026-10-15) are untouched; only the discrete rules changed.
+
+- **Zoom range** 1/64 … 256 (`kMinZoom = 1/64`).
+- **Zoom in / out** to the next / previous power of two (`Camera::zoomedIn` / `zoomedOut`): ⌘= / ⌘−, the menus, the zoom tool's click (⌥: out).
+- **Zoom to fit** 25 px a side, **zoom to selection** 40 px a side, both without the 100 % cap (`Camera::fit(rect, w, h, padding)`; a rect without width or height is shown at 100 %; the padding alone filling the view leaves it as it is). Zoom to selection with nothing selected zooms to fit. The other callers that frame layers — N / ⇧N, the zoom tool's area, paste's zoom out — take the selection's 40 (Figma's padding for them not read).
+- **Pan bound**: the visible part's centre stays within ±131,072 (2^17) of the origin, Figma's centre clamp (`Camera::keptOnCanvas`; the owner's ±130,000 seen at the view's edge is that bound less half a view). `agentPresence.ts` mirrors 1/64 and 131,072.
+- **Zoom keys** as Figma's table: ⇧9 fits too; + (⇧=), ⌘ Num+, ⇧- and ⌘⇧- and ⌘ Num- zoom; with Preferences › Use number keys for opacity off, 0 / 1 / 9 / 2 alone zoom (`keyboard.ts`).
+- **Implied frame margins**: a moving box snaps so its far side keeps a sibling's margin from the parent frame's near side (and the other way round), both margins measured with spacing pills; edge lines win ties (`Snapper::snapBox`, choice kind 4).
+- **Guides**: a right click on a ruler opens Figma's ruler menu (its `rulerGuideMenu`): Remove horizontal guides (top ruler) / Remove vertical guides (left ruler) — the guides of the frame or page that ruler adds to (`REMOVE_HORIZONTAL_GUIDES` 238 / `REMOVE_VERTICAL_GUIDES` 239, one undo step) — then Hide rulers (⇧R shown).
+- **Outline mode's options**: View › Outlines ▸ Show hidden layers / Show object bounds (`VIEW_OUTLINE_HIDDEN` 524288 / `VIEW_OUTLINE_BOUNDS` 1048576). Drawn over the page each frame (`Renderer::drawOutlineOptions`), not into the cached tiles: hidden layers outlined in the outline ink, each layer's box at half its alpha (look unverified).
+- **Rotation field**: ⇧↑↓ steps 15° (Figma's big nudge).
+- **Ruler units are not Design's**: the build lists the unit submenu and `toggle-ruler-unit-*` only for Figma Buzz (`flags: ["cooper"]`, feature flag `buzz_print_export`; print marks too), so Design keeps pixels. The table's "missing units" row is not a gap.
+- **Touch pinch**: Figma's `log(ratio)/log(4)` with exponent 4 zooms by the fingers' distance ratio, as ours does — the same in effect.
+- **Measure tool** ⇧M is bound in Design (`tool.measurement`); **property labels** are View › Additional labels (round 17), not in the zoom menu.
+
+Not done / open:
+- **⌥Space keyboard select** (`set-tool-keyboard-select`): the build shows a tool `KEYBOARD_SELECT` with two modes, BOX and PICK (`keyboardSelectMode`; toasts `fullscreen.accessibility.keyboard_box_selection_activated` / `keyboard_pick_selection_activated`, a cursor-focused node), but not which keys move, pick or box in it — a live probe (⌥Space, then arrows / Enter / Space, reading the selection) before building.
+- The zoom menu's own Outlines ▸ submenu: the commands exist (`view.outline-hidden-layers`, `view.outline-object-bounds`); the zoom menu (`RightPanel.tsx` `ZoomMenu`) is the chrome branch's.
+- Implied margins on resizes and draws (only moves use them); whether a sibling's margin is also offered on the other axis ("the other sides") — fn 32510 not disassembled.
+- The rotation field's −1 / −15 sign and the (−180, 180] normalisation; the Nudge amount picker's look and minimums (0.1 / 1) belong with chapter 21's dialog rules.
+- Which guides the ruler menu removes in Figma (the page's only, or frames' too) — ours takes the ruler's owner; the English of its two rows is unattested.
+- Open questions 1–8 below stand.
+
 ---
 
 ## 12. Open questions (live probes that would settle them)
