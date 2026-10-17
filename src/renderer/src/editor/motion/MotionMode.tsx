@@ -14,7 +14,7 @@ import { useEditor } from "../controller";
 import { useTopics, useUI } from "../hooks";
 import { MOTION_UI_DEFAULT } from "../uiStore";
 import { Clock } from "./clock";
-import { motionRead, motionUi, setMotionUi, setPlayhead, toggleAutoKeyframe, toggleMotionPlaying } from "./motionMode";
+import { motionRead, motionUi, setMotionUi, setPlayhead, toggleAutoKeyframe, toggleMotionPlaying } from "./motionState";
 import { Timeline } from "./timeline/Timeline";
 
 export function MotionMode() {

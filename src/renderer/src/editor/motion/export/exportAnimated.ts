@@ -9,7 +9,7 @@ import { t } from "@/i18n";
 import { ANIMATED_FORMAT_LABELS, type AnimatedExportSettings, type AnimatedFormat, type Micros, type PlaybackName } from "@shared/motion/types";
 import type { EditorController } from "../../controller";
 import { exportAllowed, saveFiles, type ExportedFile } from "../../exporting";
-import { motionRead } from "../motionMode";
+import { motionRead } from "../motionState";
 import { engineFrames, planFrames } from "./frames";
 import { encodeGif } from "./gif";
 import { VideoExportError, encodeVideo } from "./video";

@@ -15,7 +15,7 @@ import { useEditor } from "../../controller";
 import { useTopics, useUI } from "../../hooks";
 import type { PanelNode } from "../../panels/design/shared";
 import { MOTION_UI_DEFAULT } from "../../uiStore";
-import { motionRead } from "../motionMode";
+import { motionRead } from "../motionState";
 import { KeyframeDiamond } from "./KeyframeDiamond";
 import styles from "./MotionPanels.module.css";
 

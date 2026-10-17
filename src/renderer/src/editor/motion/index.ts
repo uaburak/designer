@@ -9,4 +9,4 @@ export { Clock, type ClockOptions } from "./clock";
 export { EasingEditor, EasingMenu, easingMenuTypes, easingOfType } from "./easing/EasingEditor";
 export { MotionSection, MOTION_SECTION_FIELDS, combinedState } from "./panels/MotionSection";
 export { KeyframeDiamond } from "./panels/KeyframeDiamond";
-export { motionUi, setMotionUi, pushMotion, setPlayhead, toggleMotionPlaying, toggleAutoKeyframe, motionRead } from "./motionMode";
+export { motionUi, setMotionUi, pushMotion, setPlayhead, toggleMotionPlaying, toggleAutoKeyframe, motionRead } from "./motionState";

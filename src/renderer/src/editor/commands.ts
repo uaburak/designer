@@ -17,7 +17,7 @@ import { canExport, copyAsCode, copyAsPng, copyAsSvg, copyAsText, exportAllowed,
 import { present, togglePreview } from "./present";
 import { setDevStatus, statusOfTargets, statusTargets } from "./devStatus";
 import { annotationsShown, modeOf, setMode, toggleAnnotations } from "./devmode/devMode";
-import { toggleAutoKeyframe, toggleMotionPlaying } from "./motion/motionMode";
+import { toggleAutoKeyframe, toggleMotionPlaying } from "./motion/motionState";
 import { MOTION_UI_DEFAULT } from "./uiStore";
 import { round5, setRound5 } from "./devmode/round5";
 import { textSummary, toggledBold, toggledItalic } from "./model/text";
