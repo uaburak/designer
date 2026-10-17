@@ -323,9 +323,12 @@ export const size = {
   "row-inset": 8,
   "layer-indent": 24, // live: a level moves the glyph 24
   "layer-fade": 12, // a layer name fades out over its last 12 at the cut (owner's capture of Figma, docs/research/layers-polish)
+  // Figma 126.9.13 (docs/research/atlas/02-editor-chrome.md §3.2, §4.1): the left panel 240 (min 240, max 500), the
+  // right panel's min 240 + its 1px line (241) and its max 500 with the line (499 inside it)
   panel: 240,
   "panel-min": 240,
-  "panel-max": 480, // G
+  "panel-max": 500,
+  "right-panel-max": 499,
   "panel-header": 64,
   "right-header": 80,
   rail: 56, // live: the navigation bar (a 1px line after it)
@@ -481,11 +484,15 @@ export const motion = {
   "duration-fast": "80ms",
   "duration-medium": "150ms",
   "ease-out": "cubic-bezier(0, 0, 0.2, 1)",
-  "delay-tooltip": "500ms",
-  "delay-tooltip-warm": "300ms",
+  // Figma's tooltip manager (atlas 02 §6): shows after 1000 ms, at once while another is showing, hides 300 ms after
+  // the pointer leaves
+  "delay-tooltip": "1000ms",
+  "delay-tooltip-hide": "300ms",
   "delay-submenu": "100ms",
-  "toast-duration": "4000ms",
-  "toast-duration-action": "8000ms",
+  // Figma's visual bell (atlas 02 §7): 3 s; 6 s for a message over 25 characters; 10 s with a button
+  "toast-duration": "3000ms",
+  "toast-duration-long": "6000ms",
+  "toast-duration-action": "10000ms",
   /** Agents at work: the text shimmer, the light sweep over an image being made, a placeholder fading out */
   "duration-shimmer": "1600ms",
   "duration-sweep": "1800ms",
@@ -495,7 +502,7 @@ export const motion = {
 } as const;
 
 /** The same timings as numbers (ms) for code. */
-export const timing = { tooltip: 500, tooltipWarm: 300, submenu: 100, toast: 4000, toastAction: 8000 } as const;
+export const timing = { tooltip: 1000, tooltipHide: 300, submenu: 100, toast: 3000, toastLong: 6000, toastAction: 10000 } as const;
 
 /**
  * The canvas chrome palette the engine draws with (§1.4). The ORDER IS THE

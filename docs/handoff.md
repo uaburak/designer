@@ -2,6 +2,30 @@
 
 First written 2026-10-06 when the first Claude session stopped and the owner moved the work to another Claude account through GitHub (`https://github.com/uaburak/designer`). Updated the same day by the second session, which finished every workstream's partial items and ran the integration round. Read `AGENTS.md`, `docs/architecture.md` and `docs/roadmap.md` first; the contracts in `docs/` decide everything; `docs/research/` holds the verified facts about Figma (with sources).
 
+## Status 2026-10-17 (night) — Atlas wave 1 "chrome" (chapter 02, with 21's toggle toasts): on its branch, not merged
+
+Branch `worktree-agent-aea9139fc139ea134` (from main `2d69e127`). It is not pushed and not merged.
+
+What it adds, from atlas 02's §9 list:
+- Panels go up to 500 (the right panel has no double-click reset).
+- Tooltips use Figma's 1000 ms show / 300 ms hide timing.
+- Figma's FIFO toast queue: 3 / 6 / 10 s, errors until dismissed, halved while others wait, a repeat count.
+- Field maths takes `%` and `x` of the current value.
+- Scrubbing uses Figma's screen-share bands (×8 … ×⅛) and the percent multiplier, ⇧ on the 10 grid, and a locked
+  pointer with a wrapping cursor.
+- Layers drag: 3 px start, outside-only autoscroll, 1000 ms hover-to-expand. Sticky top-level rows. Figma's
+  scroll-to-selection placement.
+- Titled page dividers and 16 px plain ones.
+- The zoom menu in Figma's order, with its field and Pixel preview ▸.
+- ⇧\ / ⇧. / ⌘. aliases, and the file menu in Figma's order with Export.
+
+The "As built (2026-10-17, wave 1)" note at the end of `docs/research/atlas/02-editor-chrome.md` §9 lists everything
+built and what is still open. `docs/design-system.md` has the new values, tagged **A**.
+
+Checks: typecheck clean, eslint clean on the touched files, `vitest` `ds/` 274 / 274. The editor tests pass 793 / 794:
+`agentsTools.wasm.test.ts` fails on Design-panel fields `phase` / `componentPropRefs`, which this branch doesn't touch.
+Check it on main before merging.
+
 ## Status 2026-10-17 (night) — Motion 8b increment 2 (engine): gestures keyed, tracks copied, anchor kept in place — merged into main
 
 Branch `worktree-agent-a5efa3b5613b8d418` (from main `396a6a8f`), merged into main the same night. In Motion mode a canvas move, resize, rotate or nudge of a layer under the root now keys TRANSLATION_XY / WIDTH / HEIGHT / ROTATION at the playhead (when the field has a track or auto-keyframe is on; the rest goes to the base, solved so the layer stays where it was dropped), drawn during the drag as motion-layer previews and written as one undo step at pointer-up — the owner's bug (a drag at ~2 s left only the 0 ms Position keyframe and the layer jumped) is fixed. Duplicate, paste (cut / other file through the clipboard) and detach copy the tracks a layer animates on; Move anchor point keeps the layer in place at the playhead. `docs/motion.md` §5.2 "As built — increment 2" (with its not-done list); resize handles key WIDTH / HEIGHT, not SCALE_XY (§4.9 updated). `engine:test` 758 / 758, wasm rebuilt. **To verify on the Mac:** Motion mode, a rectangle with a Position diamond at 0, playhead at 2 s, drag it: a second keyframe at 2 s, the rectangle stays where dropped, scrubbing to 0 brings it back; ⌘Z takes the drag back in one step.

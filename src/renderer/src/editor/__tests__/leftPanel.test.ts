@@ -2,10 +2,10 @@
 // panel order, Find's matching / filters / replace, the bulk rename, page dividers, the keyboard's panel lists.
 import { describe, expect, it } from "vitest";
 import type { NodeChange } from "@/engine/codec";
-import { collapsedLayers, dropTarget, flowOrdered, inPanelOrder, treeFromNodes, visibleRows } from "../model/layerTree";
+import { LAYER_DRAG_THRESHOLD, LAYER_HOVER_EXPAND_MS, collapsedLayers, dragScrollStep, dropTarget, flowOrdered, hoverExpandTarget, inPanelOrder, stickyHeader, treeFromNodes, visibleRows } from "../model/layerTree";
 import { countByType, filterOf, findLayers, findPattern, matchRanges, remapStyleIds, replaceText, stepIndex, type FindNode } from "../model/find";
 import { expandRename, renameAll } from "../model/rename";
-import { isDividerName } from "../panels/Pages";
+import { dividerName, dividerTitle, isDividerName } from "../panels/Pages";
 import { inOverlay } from "../keyboard";
 import { layerIcon } from "../panels/Layers";
 import { showsRailLabels } from "../panels/Rail";
@@ -68,6 +68,37 @@ describe("Layers: auto layout in flow order (live: AL_horizontal / AL_wrap list 
     expect(layerIcon(tree.nodes.get("f1")!)).toBe("16.image");
     expect(layerIcon(tree.nodes.get("f2")!)).toBe("16.mask");
     expect(layerIcon(tree.nodes.get("h1")!)).toBe("16.rectangle");
+  });
+});
+
+describe("Layers: Figma's drag and scroll rules (atlas 02 §3.6)", () => {
+  const rows = visibleRows(tree, new Set(["F", "V"])); // F f2 f1 Gr V v1 v2 H — pitch 32
+  const row = (id: string) => rows.find((r) => r.id === id);
+
+  it("opens a closed layer a drag rests on only in its row's middle third", () => {
+    expect(LAYER_DRAG_THRESHOLD).toBe(3);
+    expect(LAYER_HOVER_EXPAND_MS).toBe(1000);
+    expect(hoverExpandTarget(row("Gr"), 0.5)).toBe("Gr");
+    expect(hoverExpandTarget(row("Gr"), 0.3)).toBeNull();
+    expect(hoverExpandTarget(row("Gr"), 0.7)).toBeNull();
+    expect(hoverExpandTarget(row("F"), 0.5)).toBeNull(); // already open
+    expect(hoverExpandTarget(row("f1"), 0.5)).toBeNull(); // no children
+  });
+
+  it("scrolls a drag past the list's edge farther the farther out, at most a row a move", () => {
+    expect(dragScrollStep(0, 32)).toBe(0);
+    expect(dragScrollStep(4, 32)).toBe(2);
+    expect(dragScrollStep(200, 32)).toBe(32);
+  });
+
+  it("pins an open top-level layer's row while its layers scroll, pushed up by the next top-level row", () => {
+    expect(rows.map((r) => r.id)).toEqual(["F", "f2", "f1", "Gr", "V", "v1", "v2", "H"]);
+    expect(stickyHeader(rows, 32, 0)).toBeNull();
+    expect(stickyHeader(rows, 32, 40)).toEqual({ index: 0, top: 40 }); // F's rows under the top
+    expect(stickyHeader(rows, 32, 80)).toEqual({ index: 0, top: 64 }); // Gr (at 96) pushes F up
+    expect(stickyHeader(rows, 32, 100)).toBeNull(); // Gr is closed
+    expect(stickyHeader(rows, 32, 140)).toEqual({ index: 4, top: 140 }); // V
+    expect(stickyHeader(rows, 32, 230)).toBeNull(); // H, closed, at the top
   });
 });
 
@@ -141,6 +172,22 @@ describe("Pages and the keyboard", () => {
     expect(isDividerName("***")).toBe(true);
     expect(isDividerName("Page 1")).toBe(false);
     expect(isDividerName("")).toBe(false);
+    // Figma's regex: one character repeated (or only spaces) — not a mix.
+    expect(isDividerName("—")).toBe(true);
+    expect(isDividerName("   ")).toBe(true);
+    expect(isDividerName("-*-")).toBe(false);
+  });
+
+  it("reads titled dividers and writes a divider's rename as Figma does", () => {
+    expect(dividerTitle("--- Components")).toBe("Components");
+    expect(dividerTitle("**  Archive  ")).toBe("Archive");
+    expect(dividerTitle("–– Drafts")).toBe("Drafts");
+    expect(dividerTitle("- Archive")).toBeNull(); // one dash: a page
+    expect(dividerTitle("--- ---")).toBeNull(); // a title of dashes isn't one
+    expect(dividerTitle("---")).toBeNull();
+    expect(dividerName("Components")).toBe("--- Components");
+    expect(dividerName("** Archive")).toBe("** Archive");
+    expect(dividerName("  ")).toBe("---");
   });
 
   it("the Pages list and Find's results are no overlay: shortcuts work with a row focused", () => {
