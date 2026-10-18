@@ -127,14 +127,14 @@ export class CommentsService {
     const mentions = cleanMentions(input?.mentions);
     const threadId = typeof input?.threadId === "string" && input.threadId ? input.threadId : null;
     if (!threadId && !validAnchor(input?.anchor)) throw new StoreError("invalid", tr("A new comment needs its place"));
-    // Rich segments are kept beside the plain text (a local file's; the server keeps the text: Phase 6).
+    // Rich segments are kept beside the plain text (a shared file's on the server too: docs/multiplayer.md §18.8).
     const meta = input?.messageMeta ? cleanSegments(input.messageMeta) : null;
     const files = { ...(attachments.length ? { attachments } : {}), ...(meta?.length ? { messageMeta: meta } : {}) };
     return this.write(fileKey, {
       server: (key) => {
         // The server doesn't keep files yet (Phase 6): the composer offers them in local files only.
         if (attachments.length) throw new StoreError("invalid", tr("Files can be added to comments in local files only for now"));
-        return this.mp.call("POST", `/files/${key}/comments`, { id: this.newId(), threadId, message, mentions, anchor: input.anchor });
+        return this.mp.call("POST", `/files/${key}/comments`, { id: this.newId(), threadId, message, mentions, anchor: input.anchor, ...(meta?.length ? { messageMeta: meta } : {}) });
       },
       local: (rec, me) => {
         const now = this.host.now();
@@ -167,7 +167,7 @@ export class CommentsService {
   async edit(fileKey: FileKey, commentId: string, message: string, mentions?: string[], messageMeta?: CommentSegment[] | null): Promise<CommentsState> {
     const meta = messageMeta ? cleanSegments(messageMeta) : null;
     return this.write(fileKey, {
-      server: (key) => this.mp.call("PATCH", `/files/${key}/comments/${enc(commentId)}`, { message: cleanMessage(message), mentions: cleanMentions(mentions) }),
+      server: (key) => this.mp.call("PATCH", `/files/${key}/comments/${enc(commentId)}`, { message: cleanMessage(message), mentions: cleanMentions(mentions), ...(meta?.length ? { messageMeta: meta } : {}) }),
       local: (rec) => {
         const c = find(rec, commentId);
         const text = cleanMessage(message, !!c.attachments?.length);

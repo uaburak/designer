@@ -286,7 +286,12 @@ export class FileRoom extends DurableObject {
     this.wakeStep();
     const before = this.box.storage.lastSeq();
     this.room.receive(ws, typeof message === "string" ? message : new Uint8Array(message));
-    if (this.box.storage.lastSeq() > before) this.box.edited(this.wantsFileUpdate());
+    if (this.box.storage.lastSeq() > before) {
+      // The writer is among the next version's editors (docs/multiplayer.md §18.6)
+      const m = this.room.member(ws);
+      this.box.noteEditor(m?.userId, m?.name);
+      this.box.edited(this.wantsFileUpdate());
+    }
     this.discover(); // after edited(), which sets the alarm
   }
 

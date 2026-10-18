@@ -89,6 +89,7 @@ import { editorPresentationSource } from "./present";
 import { ShareDialog } from "./ShareDialog";
 import { SharePrototypeDialog } from "./SharePrototypeDialog";
 import { Multiplayer } from "./multiplayer/Multiplayer";
+import { RemoteApplier } from "./multiplayer/remoteApply";
 import { CommentsLayer } from "./comments/CommentsLayer";
 import { InlinePreview } from "./InlinePreview";
 import { attachDevMode } from "./devmode/devMode";
@@ -270,14 +271,15 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
           source.onChanges(message, { kind: e.kind, label: e.label, bytes });
         })
       );
-      // Changes made elsewhere (another window, sync) come in without an undo entry; a rename elsewhere shows here.
+      // Changes made elsewhere (a collaborator, another window) come in as another session's: no undo entry, the user's
+      // history yields what they wrote, and none lands inside the user's drag or step (multiplayer/remoteApply.ts).
+      const remote = new RemoteApplier(created, source.withoutLocal ? source : null, (changes) => ed.noteSourceTypes(changes));
       const external = source.onExternalChanges?.((changes, info) => {
         if (created.destroyed) return;
-        ed.noteSourceTypes(changes);
-        const bytes = (info as { bytes?: Uint8Array } | undefined)?.bytes;
-        if (!bytes || applyEngineBytes(created, bytes, "remote") === null) created.applyChanges(changes, "remote");
+        remote.push(changes, info);
       });
       if (external) cleanups.push(external);
+      cleanups.push(() => remote.stop());
       const meta = source.onMetaChanged?.((m) => ed.ui.set({ fileName: m.fileName }));
       if (meta) cleanups.push(meta);
       cleanups.push(ed.images.attach());

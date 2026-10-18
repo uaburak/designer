@@ -215,9 +215,9 @@ async function signIn(email: string) {
   return ((await r.json()) as { token: string }).token;
 }
 
-async function installation(email: string, compactEvery?: number) {
+async function installation(email: string, compactEvery?: number, deps: Partial<MultiplayerDeps> = {}) {
   const store = new FakeStore();
-  const svc = new MultiplayerService(store, { fetch: serverFetch, WebSocket: FakeSocket as any, random: Math.random, backoff: () => 5, compactEvery });
+  const svc = new MultiplayerService(store, { fetch: serverFetch, WebSocket: FakeSocket as any, random: Math.random, backoff: () => 5, compactEvery, ...deps });
   await svc.setSession({ server: SERVER, token: await signIn(email) });
   return { store, svc };
 }
@@ -232,9 +232,9 @@ afterEach(() => {
   for (const s of [...sockets]) s.close();
 });
 
-async function sharedPair() {
-  const a = await installation("a@x.co");
-  const b = await installation("b@x.co");
+async function sharedPair(deps: { a?: Partial<MultiplayerDeps>; b?: Partial<MultiplayerDeps> } = {}) {
+  const a = await installation("a@x.co", undefined, deps.a);
+  const b = await installation("b@x.co", undefined, deps.b);
   services.push(a.svc, b.svc);
   const fa = a.store.addFile("Landing", [node(0, { name: "Document" }), node(1, { name: "Page 1" })]);
   a.store.edit(fa, [node(1, { name: "Home" })]); // before sharing: in the snapshot
@@ -1015,5 +1015,185 @@ describe("MultiplayerService, images after the file opens (Wecra 1.1.1, docs/clo
     expect([...store.blobs.keys()].sort()).toEqual([...sha1s].sort());
     expect((store.saved.links[fileKey] as { images?: string[] }).images).toBeUndefined();
     expect(again.uploads().filter((u) => u.direction === "download").at(-1)).toMatchObject({ fileKey, state: "done" });
+  });
+});
+
+describe("MultiplayerService, Phase 6: concurrent editing (docs/multiplayer.md §18)", () => {
+  const S = 2 * 2 ** 20 + 1;
+  const big = (n: number, c = "x") => c.repeat(n);
+  /** The room's frames of one of A's journal frames (its batch), in order */
+  const framesOf = (key: string, batch: number) => rooms.get(key)!.storage.frames.filter((f) => f.batch === batch && f.sessionID !== 0);
+
+  it("sends a change too large for one frame in parts, each a whole Message; the other side converges", async () => {
+    const { a, b, fa, fb, key } = await sharedPair();
+    a.store.edit(fa, [node(20, { phase: "CREATED", name: big(1_200_000) }, S), node(21, { phase: "CREATED", name: big(1_200_000, "y") }, S), node(1, { name: "After the paste" })]);
+    const seq = a.store.files.get(fa)!.frames.at(-1)!.seq;
+    await settle();
+    const parts = framesOf(key, seq);
+    expect(parts.length).toBe(3);
+    for (const p of parts) expect(p.message.length).toBeLessThan(1_900_000);
+    expect(parts.flatMap((p) => decodeMessage(p.message).nodeChanges!.map((n) => n.guid!.localID))).toEqual([20, 21, 1]);
+    expect(b.store.doc(fb)).toEqual(a.store.doc(fa));
+    expect(b.store.doc(fb)["0:1"].name).toBe("After the paste");
+    expect(await a.svc.syncState(fa)).toMatchObject({ pending: 0, unsent: 0 });
+    expect((a.store.saved.links[fa] as { partial?: unknown }).partial).toBeUndefined();
+  });
+
+  it("sends only the parts the room didn't take when the connection drops part-way", async () => {
+    const { a, b, fa, fb, key } = await sharedPair();
+    const room = rooms.get(key)!.room;
+    const receive = room.receive.bind(room);
+    let binary = 0;
+    room.receive = (conn, data) => {
+      receive(conn, data);
+      // The network goes right after the room took the first part (its echo is lost with the socket)
+      if (typeof data !== "string" && ++binary === 1) queueMicrotask(() => [...sockets].forEach((s) => s.drop()));
+    };
+    a.store.edit(fa, [node(20, { phase: "CREATED", name: big(1_200_000) }, S), node(21, { phase: "CREATED", name: big(1_200_000, "y") }, S), node(1, { name: "After the paste" })]);
+    const seq = a.store.files.get(fa)!.frames.at(-1)!.seq;
+    await wait(40);
+    await wait(40);
+    // Each part once: the first from before the drop, the rest after the reconnect
+    expect(framesOf(key, seq).flatMap((p) => decodeMessage(p.message).nodeChanges!.map((n) => n.guid!.localID))).toEqual([20, 21, 1]);
+    expect(b.store.doc(fb)).toEqual(a.store.doc(fa));
+    expect(await a.svc.syncState(fa)).toMatchObject({ connection: "live", pending: 0, unsent: 0 });
+  });
+
+  it("reconnects when the room doesn't acknowledge a frame in time, and sends it again", async () => {
+    const { a, b, fa, fb, key } = await sharedPair({ a: { ackTimeoutMs: 20 } });
+    const room = rooms.get(key)!.room;
+    const receive = room.receive.bind(room);
+    let swallowed = false;
+    room.receive = (conn, data) => {
+      // Lost between the socket and the room: never sequenced, never echoed
+      if (typeof data !== "string" && !swallowed) return void (swallowed = true);
+      receive(conn, data);
+    };
+    a.store.edit(fa, [node(1, { name: "Lost on the way" })]);
+    const seq = a.store.files.get(fa)!.frames.at(-1)!.seq;
+    await wait(60);
+    await wait(20);
+    expect(swallowed).toBe(true);
+    expect(framesOf(key, seq).length).toBe(1); // the second try's
+    expect(b.store.doc(fb)["0:1"].name).toBe("Lost on the way");
+    expect(await a.svc.syncState(fa)).toMatchObject({ connection: "live", pending: 0, unsent: 0 });
+  });
+
+  it("rolls back changes the room won't take: made a viewer while offline, the copy is replaced by the room's and keeps them as a draft", async () => {
+    const { a, b, fa, fb } = await sharedPair({ b: { backoff: () => 200 } });
+    const replaced: [string, string, string][] = [];
+    b.svc.onReplaced((from, to, why) => replaced.push([from, to, why]));
+    for (const s of [...sockets]) s.drop();
+    b.store.edit(fb, [node(1, { name: "B offline" })]);
+    await a.svc.invite(fa, "b@x.co", "viewer");
+    await wait(260);
+    await wait(20);
+    expect(replaced).toEqual([[fb, expect.any(String), "read-only"]]);
+    // Nothing lost: the change stays in the old copy, unlinked; the fresh copy and the room have the server's value.
+    expect(b.store.doc(fb)["0:1"].name).toBe("B offline");
+    expect((await b.svc.fileState(fb)).shared).toBe(false);
+    expect(b.store.doc(replaced[0][1])["0:1"].name).toBe("Home");
+    expect(a.store.doc(fa)["0:1"].name).toBe("Home");
+    expect((await b.svc.fileState(replaced[0][1])).role).toBe("viewer");
+  });
+
+  it("a viewer's own local frames (never sent) are no reason to roll back", async () => {
+    const { a, b, fa, fb } = await sharedPair();
+    await a.svc.invite(fa, "b@x.co", "viewer");
+    await wait(20);
+    const replaced: string[] = [];
+    b.svc.onReplaced((from) => replaced.push(from));
+    b.store.edit(fb, [node(1, { name: "Viewer's local" })]);
+    for (const s of [...sockets]) s.drop();
+    await wait(30);
+    expect(replaced).toEqual([]);
+    expect(await b.svc.fileState(fb)).toMatchObject({ shared: true, role: "viewer" });
+  });
+
+  it("rolls back a change one field of which no frame can carry", async () => {
+    const { a, b, fa, fb } = await sharedPair();
+    const replaced: [string, string, string][] = [];
+    a.svc.onReplaced((from, to, why) => replaced.push([from, to, why]));
+    a.store.edit(fa, [node(1, { name: big(2_000_000) })]);
+    await wait(20);
+    expect(replaced).toEqual([[fa, expect.any(String), "too-large"]]);
+    expect(String(a.store.doc(fa)["0:1"].name).length).toBe(2_000_000);
+    expect(a.store.doc(replaced[0][1])["0:1"].name).toBe("Home");
+    expect(b.store.doc(fb)["0:1"].name).toBe("Home");
+    expect((await a.svc.fileState(replaced[0][1])).connection).toBe("live");
+  });
+});
+
+describe("MultiplayerService, Phase 6: convergence (docs/multiplayer.md §18.4)", () => {
+  /** The document the room's order makes: its snapshot, then every frame it holds after it */
+  async function roomDoc(key: string) {
+    const r = rooms.get(key)!;
+    const out: Record<string, Record<string, unknown>> = {};
+    const frames = [await unpackSnapshot(r.snapshot!.bytes), ...r.storage.frames.filter((f) => f.seq > r.snapshot!.seq).map((f) => f.message)];
+    for (const bytes of frames)
+      for (const nc of decodeMessage(bytes).nodeChanges ?? []) {
+        const k = `${nc.guid!.sessionID}:${nc.guid!.localID}`;
+        const { guid: _g, phase: _p, ...rest } = nc as any;
+        out[k] = { ...(nc.phase === "CREATED" ? {} : out[k]), ...rest };
+      }
+    return out;
+  }
+
+  for (const start of [7, 2024, 31337])
+    it(`three installations editing the same properties at once, with dropped connections, end on the room's order (seed ${start})`, async () => {
+      const { a, b, fa, fb, key } = await sharedPair();
+      const c = await installation("c@x.co");
+      services.push(c.svc);
+      await a.svc.invite(fa, "c@x.co", "editor");
+      const { fileKey: fc } = await c.svc.openShared(key);
+      await settle();
+      const peers = [
+        { store: a.store, svc: a.svc, f: fa },
+        { store: b.store, svc: b.svc, f: fb },
+        { store: c.store, svc: c.svc, f: fc },
+      ];
+      let seed = start;
+      const rnd = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
+      for (let step = 0; step < 80; step++) {
+        const p = peers[Math.floor(rnd() * peers.length)];
+        const id = Math.floor(rnd() * 2);
+        const field = ["name", "visible", "opacity"][Math.floor(rnd() * 3)];
+        const value = field === "name" ? `step ${step}` : field === "visible" ? rnd() < 0.5 : step / 100;
+        p.store.edit(p.f, [node(id, { [field]: value })]);
+        if (rnd() < 0.08) for (const s of [...sockets]) if (rnd() < 0.5) s.drop();
+        if (rnd() < 0.3) await settle(); // some edits land together, some apart
+      }
+      await wait(40);
+      await wait(40);
+      for (const p of peers) expect(await p.svc.syncState(p.f)).toMatchObject({ connection: "live", pending: 0, unsent: 0 });
+      const room = await roomDoc(key);
+      expect(a.store.doc(fa)).toEqual(room);
+      expect(b.store.doc(fb)).toEqual(room);
+      expect(c.store.doc(fc)).toEqual(room);
+    });
+});
+
+describe("MultiplayerService, Phase 6: Offline sync (atlas 22 §3.3)", () => {
+  it("keeps the room's state as a version before changes made away from it are sent; not for a link with nothing waiting", async () => {
+    const { a, b, fa, fb } = await sharedPair();
+    b.svc.close();
+    for (const s of [...sockets]) if (s.readyState === 1) s.close();
+    b.store.edit(fb, [node(1, { name: "Made while closed" })]);
+    const calls: string[] = [];
+    const record: typeof fetch = async (input, init) => {
+      const u = new URL(String(input));
+      if ((init?.method ?? "GET") === "POST" && u.pathname.endsWith("/versions")) calls.push(String(init?.body));
+      return serverFetch(input, init);
+    };
+    const b2 = new MultiplayerService(b.store, { fetch: record, WebSocket: FakeSocket as any, random: Math.random, backoff: () => 5 });
+    services.push(b2);
+    await b2.setSession({ server: SERVER, token: await signIn("b@x.co") });
+    await settle();
+    expect(calls.map((c) => JSON.parse(c))).toEqual([{ kind: "named", title: "Offline sync", description: "Before syncing changes" }]);
+    expect(a.store.doc(fa)["0:1"].name).toBe("Made while closed");
+    // A reconnect a moment later with nothing waiting: no savepoint
+    for (const s of [...sockets]) s.drop();
+    await wait(30);
+    expect(calls).toHaveLength(1);
   });
 });

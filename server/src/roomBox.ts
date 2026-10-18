@@ -13,6 +13,8 @@
  *   versions                               the room's version history (newest first by seq, created_at)
  *   history_snapshots (seq, idx, bytes)    snapshots versions start from, shared by the versions that use them
  *   history_frames (seq, …)                frames after such a snapshot, up to a version's seq, shared likewise
+ *   version_editors (user_id, name, at)    Phase 6 (docs/multiplayer.md §18.6): who wrote frames since the last version
+ *                                          at the head — the next version records them (`versions.editors`, JSON)
  *
  * Moving to another region (docs/multiplayer.md §15.10, policy/region.ts): `POST /room/freeze {moving: true}` marks the
  * room (meta `moving`) — writes answer 503 `{code: "moving"}` and `FileRoom` closes and refuses sockets with 4012 —
@@ -45,7 +47,7 @@ import { openJoined, pageHasPlain, plainSizeSql, sealAll, sealChunks, sealWhere 
 import { RoomObjects, type RoomObjectsHost } from "./storage/roomObjects";
 
 /** The room's tables, in the order a move copies them (docs/multiplayer.md §15.10) */
-export const ROOM_TABLES = ["meta", "frames", "snapshot", "blobs", "base_chunks", "versions", "history_snapshots", "history_frames", "checkpoints"] as const;
+export const ROOM_TABLES = ["meta", "frames", "snapshot", "blobs", "base_chunks", "versions", "history_snapshots", "history_frames", "checkpoints", "version_editors"] as const;
 
 /** SQLite values hold 2 MB; snapshots and images are stored in 1 MB rows (ekm/rows.ts sealChunks). */
 /** Frames kept before a snapshot, so a client away for a while still catches up from its own seq */
@@ -81,6 +83,8 @@ export interface RoomVersion {
   restoredFrom: string | null;
   libraryVersion: number | null;
   user: { id: string | null; name: string | null };
+  /** The people whose changes it holds (Version history's "Only yours"); absent: made before the room recorded them */
+  editors?: { id: string; name: string | null }[];
 }
 
 export interface RoomHost {
@@ -257,6 +261,19 @@ interface VersionRow {
   restored_from: string | null;
   library_version: number | null;
   size: number;
+  /** JSON `[{id, name}]`; null before Phase 6 */
+  editors?: string | null;
+}
+
+/** A row's editors (null: not recorded) */
+function editorsOf(json: string | null | undefined): { id: string; name: string | null }[] | null {
+  if (!json) return null;
+  try {
+    const v = JSON.parse(json) as unknown;
+    return Array.isArray(v) ? v.filter((e): e is { id: string; name: string | null } => !!e && typeof e.id === "string").map((e) => ({ id: e.id, name: typeof e.name === "string" ? e.name : null })) : null;
+  } catch {
+    return null;
+  }
 }
 
 const toVersion = (r: VersionRow): RoomVersion => ({
@@ -271,6 +288,7 @@ const toVersion = (r: VersionRow): RoomVersion => ({
   restoredFrom: r.restored_from,
   libraryVersion: r.library_version,
   user: { id: r.user_id, name: r.user_name },
+  ...(editorsOf(r.editors) ? { editors: editorsOf(r.editors)! } : {}),
 });
 
 class RoomError extends Error {
@@ -323,10 +341,23 @@ export class RoomBox {
       `CREATE INDEX IF NOT EXISTS versions_seq ON versions (seq)`,
       `CREATE TABLE IF NOT EXISTS history_snapshots (seq INTEGER NOT NULL, idx INTEGER NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY (seq, idx))`,
       `CREATE TABLE IF NOT EXISTS history_frames (seq INTEGER PRIMARY KEY, session INTEGER NOT NULL, batch INTEGER NOT NULL, message BLOB NOT NULL)`,
+      `CREATE TABLE IF NOT EXISTS version_editors (user_id TEXT PRIMARY KEY, name TEXT, at INTEGER NOT NULL)`,
       ...RoomObjects.TABLES,
     ])
       this.host.sql.exec(s);
+    // Phase 6: versions record their editors — a column rooms made before it don't have (their rows keep null)
+    try {
+      this.host.sql.exec(`SELECT editors FROM versions LIMIT 0`);
+    } catch {
+      this.host.sql.exec(`ALTER TABLE versions ADD COLUMN editors TEXT`);
+    }
     this.storage.reload();
+  }
+
+  /** Someone's frame was accepted (or a merge applied): the next version names them among its editors */
+  noteEditor(userId: string | null | undefined, name: string | null | undefined): void {
+    if (!userId) return;
+    this.sql.exec(`INSERT INTO version_editors (user_id, name, at) VALUES (?, ?, ?) ON CONFLICT (user_id) DO UPDATE SET name = excluded.name, at = excluded.at`, userId, name ?? null, this.host.now());
   }
 
   private get sql(): SqlLike {
@@ -708,6 +739,9 @@ export class RoomBox {
     }
     if (sealing && this.pendingFrames.size) st.setMeta("ekmDirty", 1);
     const now = this.host.now();
+    // Its editors: who wrote since the last version at the head (a version behind the head can't tell whose frames are
+    // whose and names them too)
+    const editors = this.sql.exec<{ user_id: string; name: string | null }>(`SELECT user_id, name FROM version_editors ORDER BY at`).toArray().map((e) => ({ id: e.user_id, name: e.name }));
     const row: VersionRow = {
       id: versionId(),
       kind: v.kind,
@@ -721,10 +755,11 @@ export class RoomBox {
       restored_from: v.restoredFrom ?? null,
       library_version: v.libraryVersion ?? null,
       size,
+      editors: JSON.stringify(editors),
     };
     this.sql.exec(
-      `INSERT INTO versions (id, kind, title, description, seq, snapshot_seq, created_at, user_id, user_name, restored_from, library_version, size) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      row.id, row.kind, row.title, row.description, row.seq, row.snapshot_seq, row.created_at, row.user_id, row.user_name, row.restored_from, row.library_version, row.size,
+      `INSERT INTO versions (id, kind, title, description, seq, snapshot_seq, created_at, user_id, user_name, restored_from, library_version, size, editors) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      row.id, row.kind, row.title, row.description, row.seq, row.snapshot_seq, row.created_at, row.user_id, row.user_name, row.restored_from, row.library_version, row.size, row.editors,
     );
     // Any version restarts the autosave clock.
     st.setMeta("lastVersionAt", now);
@@ -733,6 +768,7 @@ export class RoomBox {
       st.clearMeta("editedSince");
       st.clearMeta("dueSince");
       st.clearMeta("autosaveAt");
+      this.sql.exec(`DELETE FROM version_editors`);
     }
     return toVersion(row);
   }
@@ -767,6 +803,7 @@ export class RoomBox {
         if (message.length) {
           out.frame = { seq: st.lastSeq() + 1, sessionID, batch, message };
           st.append(out.frame);
+          this.noteEditor(userId, userName);
         }
         if (meta.promoteBase !== undefined) {
           this.sql.exec(`DELETE FROM base_chunks WHERE slot = 'base'`);

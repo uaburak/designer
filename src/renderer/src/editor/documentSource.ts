@@ -48,6 +48,12 @@ export interface DocumentSource {
   rename?(name: string): void | Promise<void>;
   /** Changes this editor didn't make (another window, sync): applied without an undo entry; `info.bytes`: the change as the store holds it (kiwi), for an engine that reads it. Optional. */
   onExternalChanges?(listener: (changes: Message, info?: { seq?: number; bytes?: Uint8Array }) => void): () => void;
+  /**
+   * An external change (`bytes`, the store's frame at journal `seq`) without the properties this editor changed after
+   * it — committed here before the store journaled them, so they reach the room after it and win (Figma's rule, on the
+   * editor's side of the store: docs/multiplayer.md §18.2); null when nothing is left. Optional.
+   */
+  withoutLocal?(bytes: Uint8Array, seq: number): Uint8Array | null;
   /** The file was renamed, moved, trashed or deleted elsewhere. Optional. */
   onMetaChanged?(listener: (meta: { fileName: string; location: string; trashed?: boolean; deleted?: boolean }) => void): () => void;
   /** The editor is going away: flush and end the session. Optional. */

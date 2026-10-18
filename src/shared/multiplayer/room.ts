@@ -10,6 +10,8 @@
  *   between the catch-up and `ready`.
  * - Viewers receive everything but may not send changes.
  * - Presence is relayed, remembered per member for newcomers, never stored.
+ * - Each member gets a multiplayer colour at hello (Phase 6, colors.ts): the one fewest of the others have (Figma's
+ *   server fills `UserChange.color`); it goes out in `welcome.color` and with the member in `peers` / `peer-joined`.
  * - Signals go to one session only (by its sessionID), never stored.
  * - The org's room policy (cursor chat, audio — docs/multiplayer.md §15.9) arrives with each socket's identity (the
  *   Worker's `x-policy`) and goes out in `welcome.policy`; a change (`setPolicy`) is broadcast as `{t: "policy"}`.
@@ -32,6 +34,7 @@ import {
   type ServerControl,
 } from "./protocol";
 import type { RoomPolicy } from "../org/identity";
+import { leastUsedColor } from "./colors";
 import type { RestJob, RestJobPart } from "../rest/types";
 
 export interface RoomStorage {
@@ -72,6 +75,8 @@ export interface MemberState extends Identity {
   helper?: boolean;
   /** When the member last sent a change (or said hello): the editor idle longest is asked first */
   activeAt?: number;
+  /** Its multiplayer colour (an index into MULTIPLAYER_COLORS), given at hello */
+  color?: number;
 }
 
 /** What the room captured for Discovery since the last drain (docs/governance.md §2.11) */
@@ -277,15 +282,16 @@ export class Room {
     if (since < this.storage.firstSeq() - 1 || since > this.storage.lastSeq()) return this.fail(conn, "too-old", "load the file's snapshot first");
     m.sessionID = this.storage.nextSessionID();
     m.activeAt = this.now();
+    m.color = leastUsedColor([...this.members.values()].flatMap((o) => (o !== m && o.sessionID && o.color !== undefined ? [o.color] : [])));
     if (render) m.render = true;
     if (render && helper) m.helper = true;
     this.onState(conn, m);
     const peers: PeerInfo[] = [];
     for (const [c, o] of this.members) if (c !== conn && o.sessionID) peers.push(peerOf(o));
-    this.send(conn, { t: "welcome", sessionID: m.sessionID, role: m.role, seq: this.storage.lastSeq(), peers, snapshotSeq: this.storage.snapshotSeq(), ...(m.policy ? { policy: m.policy } : {}) });
+    this.send(conn, { t: "welcome", sessionID: m.sessionID, role: m.role, seq: this.storage.lastSeq(), peers, snapshotSeq: this.storage.snapshotSeq(), color: m.color, ...(m.policy ? { policy: m.policy } : {}) });
     for (const f of this.storage.readAfter(since)) conn.send(encodeChangesDown(f));
     this.send(conn, { t: "ready", seq: this.storage.lastSeq() });
-    this.broadcast({ t: "peer-joined", peer: { sessionID: m.sessionID, userId: m.userId, name: m.name, role: m.role } }, conn);
+    this.broadcast({ t: "peer-joined", peer: { sessionID: m.sessionID, userId: m.userId, name: m.name, role: m.role, color: m.color } }, conn);
     if (m.render) this.opts.onRenderer?.(conn, m);
   }
 
@@ -312,7 +318,7 @@ function chatOf(presence: unknown): string | null {
 }
 
 function peerOf(m: MemberState): PeerInfo {
-  return { sessionID: m.sessionID, userId: m.userId, name: m.name, role: m.role, presence: m.presence };
+  return { sessionID: m.sessionID, userId: m.userId, name: m.name, role: m.role, presence: m.presence, ...(m.color !== undefined ? { color: m.color } : {}) };
 }
 
 /** A `RoomStorage` in memory — tests, and the room's reference behaviour. */

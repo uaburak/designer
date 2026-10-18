@@ -77,7 +77,55 @@ async function sharedFile() {
   return { alice, bob, a };
 }
 
+describe("a branch's link password is its main file's (docs/multiplayer.md §18.7)", () => {
+  it("a pass for main opens its branches; unlocking a branch checks main's password; a new one asks again", async () => {
+    const { alice } = await sharedFile();
+    await call("POST", "/files/main_00001/branches", alice.token, { branchKey: "brch_00001", name: "Tokens v2", baseSeq: 2 });
+    await call("PUT", "/files/brch_00001/snapshot?seq=0", alice.token, bytes("MAIN@2"));
+    await call("PATCH", "/files/main_00001", alice.token, { linkAccess: "viewer" });
+    expect((await call("PATCH", "/files/main_00001", alice.token, { linkPassword: "four random words" })).status).toBe(200);
+    const guest = await signIn("guest@x.co");
+    const get = (key: string, pass?: string) =>
+      handle(new Request(`${ORIGIN}/files/${key}`, { headers: { authorization: `Bearer ${guest.token}`, ...(pass ? { "x-file-pass": pass } : {}) } }), deps).then((r) => r.json() as Promise<Any>);
+    // Locked like main, until the guest enters main's password
+    expect(await get("brch_00001")).toMatchObject({ passwordProtected: true, needsPassword: true });
+    const { pass } = (await call("POST", "/files/main_00001/unlock", guest.token, { password: "four random words" })).body;
+    expect(await get("brch_00001", pass)).toMatchObject({ needsPassword: false, branch: { mainKey: "main_00001" } });
+    // On the branch itself: main's password, a pass that opens main and its branches alike
+    expect((await call("POST", "/files/brch_00001/unlock", guest.token, { password: "nope" })).status).toBe(403);
+    const branchPass = (await call("POST", "/files/brch_00001/unlock", guest.token, { password: "four random words" })).body.pass;
+    expect(await get("main_00001", branchPass)).toMatchObject({ needsPassword: false });
+    // A new password on main closes the branch's link-only sockets too, and the old pass stops working there
+    mem.calls.length = 0;
+    await call("PATCH", "/files/main_00001", alice.token, { linkPassword: "another one" });
+    expect(mem.calls.filter((c) => c.path === "/room/revoke-link").map((c) => c.key)).toEqual(["main_00001", "brch_00001"]);
+    expect(await get("brch_00001", pass)).toMatchObject({ needsPassword: true });
+  });
+});
+
 describe("the room's storage (roomBox.ts)", () => {
+  it("records each version's editors — who wrote since the last version at the head (docs/multiplayer.md §18.6)", async () => {
+    const { alice, bob } = await sharedFile();
+    await call("PUT", "/files/main_00001/members", alice.token, { email: "bob@x.co", role: "editor" });
+    const v1 = (await call("POST", "/files/main_00001/versions", alice.token, { kind: "named", title: "Alice's" })).body.version;
+    expect(v1.editors).toEqual([{ id: alice.user.id, name: null }]);
+    // Bob edits, then Alice: the next version holds both; one after it with no edits, nobody
+    const b = mem.join("main_00001", bob.user.id);
+    mem.send("main_00001", b, bytes("bob-edit"));
+    mem.send("main_00001", mem.join("main_00001", alice.user.id), bytes("alice-edit"));
+    const v2 = (await call("POST", "/files/main_00001/versions", bob.token, { kind: "autosave" })).body.version;
+    expect(v2.editors.map((e: Any) => e.id)).toEqual([bob.user.id, alice.user.id]);
+    expect((await call("POST", "/files/main_00001/versions", bob.token, { kind: "named", title: "Quiet" })).body.version.editors).toEqual([]);
+    // Listed with them; a version made before rooms recorded editors has none (the column was added to an old room)
+    const listed = (await call("GET", "/files/main_00001/versions", alice.token)).body.versions;
+    expect(listed.find((v: Any) => v.id === v2.id).editors).toHaveLength(2);
+    const box = mem.get("main_00001").box as Any;
+    box.host.sql.exec(`UPDATE versions SET editors = NULL WHERE id = ?`, v1.id);
+    box.reset();
+    expect((await call("GET", "/files/main_00001/versions", alice.token)).body.versions.find((v: Any) => v.id === v1.id).editors).toBeUndefined();
+  });
+
+
   it("keeps versions as a snapshot plus frames, serves them, compacts them, and autosaves after 30 minutes of edits", async () => {
     const { alice, a } = await sharedFile();
     // A named version at the head (seq 2): the snapshot at 0 and frames 1–2

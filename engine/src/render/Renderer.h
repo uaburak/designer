@@ -266,9 +266,11 @@ struct PresencePeer {
   bool hasCursor = false;
   Vec2 cursor;
   std::vector<Guid> selection;
-  // Cursor chat ("/"): the bubble instead of the name chip; an empty `chat` is open with nothing typed yet.
+  // Cursor chat ("/"): the bubble instead of the name chip; an empty `chat` is open with nothing typed yet. Phase 6:
+  // two lines at most ("\n" between them); `chatAlpha` while it fades (5–8 s after its last change).
   bool hasChat = false;
   std::string chat;
+  double chatAlpha = 1;
 };
 
 // The local user's own cursor chat: their bubble at `at` (page coordinates; by their real pointer, no arrow).
@@ -276,6 +278,7 @@ struct LocalChat {
   bool on = false;
   std::string text;
   Vec2 at;
+  double alpha = 1;  // while it fades
 };
 
 // What the editor wants drawn over the scene.

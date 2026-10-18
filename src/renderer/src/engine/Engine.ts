@@ -13,6 +13,7 @@
 import {
   APPLY_EXACT,
   APPLY_LOAD,
+  APPLY_PEER,
   APPLY_REMOTE,
   APPLY_SYSTEM,
   APPLY_USER,
@@ -177,8 +178,10 @@ export interface EngineOptions {
  * How applyChanges takes changes: "user" = undoable and emitted; "system" = emitted, not an undo step (library
  * bookkeeping: libraryMoveInfo, publishedVersion, publishing flags; E_BUSY inside an open batch); "restore" = a
  * store-computed state (Restore version's diff): undoable and emitted, written as it is — library copies included, no
- * detaching, no instance root overrides; "remote" / "load" = neither emitted nor undoable. "user" and "system" never
- * write into library copies (docs/schema.md §8.2).
+ * detaching, no instance root overrides; "remote" / "load" = neither emitted nor undoable; "peer" = another session's
+ * change (multiplayer, another window): "remote" that waits (BUSY) while a gesture, a step or an agent's write is open
+ * and makes every undo history yield what it wrote (docs/engine.md §9.5). "user" and "system" never write into library
+ * copies (docs/schema.md §8.2).
  */
 /** Round 18: another person in the file, as `Engine.setPresence` draws them (docs/engine.md §9.6). */
 export interface PresencePeer {
@@ -192,11 +195,14 @@ export interface PresencePeer {
   cursor: { x: number; y: number } | null;
   /** Node GUIDs "sessionID:localID" the peer has selected on the page currently shown. */
   selection: string[];
-  /** Cursor chat ("/"): a string draws the chat bubble instead of the name chip ("": open, nothing typed yet). */
+  /** Cursor chat ("/"): a string draws the chat bubble instead of the name chip ("": open, nothing typed yet); two lines
+   *  at most, "\n" between them. */
   chat?: string | null;
+  /** The bubble's opacity (Phase 6: it fades 5–8 s after its last change); default 1 */
+  chatOpacity?: number;
 }
 
-export type ApplyKind ="user" | "system" | "restore" | "remote" | "load";
+export type ApplyKind = "user" | "system" | "restore" | "remote" | "peer" | "load";
 
 /** Where image bytes come from (the file's image store): the image file for a SHA-1 hash, or null. */
 export type ImageSource = (hash: string) => Promise<Uint8Array | null>;
@@ -652,6 +658,7 @@ export class Engine {
       : kind === "system" ? APPLY_SYSTEM
       : kind === "restore" ? APPLY_USER | APPLY_EXACT
       : kind === "remote" ? APPLY_REMOTE
+      : kind === "peer" ? APPLY_REMOTE | APPLY_PEER
       : APPLY_LOAD;
   }
 
@@ -1079,16 +1086,16 @@ export class Engine {
    * Unknown GUIDs in `selection` are ignored.
    */
   setPresence(peers: readonly PresencePeer[]): void {
-    const payload = peers.map((p) => ({ id: p.id, name: p.name, color: p.color, cursor: p.cursor, selection: p.selection, chat: p.chat ?? null }));
+    const payload = peers.map((p) => ({ id: p.id, name: p.name, color: p.color, cursor: p.cursor, selection: p.selection, chat: p.chat ?? null, ...(p.chatOpacity !== undefined ? { chatOpacity: p.chatOpacity } : {}) }));
     this.after(this.x.setPresence(this.h, encodeText(JSON.stringify(payload))));
   }
 
   /**
    * The local user's own cursor chat: their bubble at page point `at` (by their real pointer; no arrow, no name) in the
-   * selection blue — "" shows the placeholder; a null text or point closes it.
+   * selection blue — "" shows the placeholder; a null text or point closes it; `opacity` while it fades (default 1).
    */
-  setLocalChat(text: string | null, at: { x: number; y: number } | null): void {
-    this.after(this.x.setLocalChat(this.h, encodeText(JSON.stringify({ text, at }))));
+  setLocalChat(text: string | null, at: { x: number; y: number } | null, opacity = 1): void {
+    this.after(this.x.setLocalChat(this.h, encodeText(JSON.stringify({ text, at, ...(opacity !== 1 ? { opacity } : {}) }))));
   }
 
   setTheme(theme: "LIGHT" | "DARK"): void {

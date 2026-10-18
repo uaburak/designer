@@ -48,6 +48,19 @@ describe("Room", () => {
     }
   });
 
+  it("gives each session the multiplayer colour fewest of the others have (Figma's seven), told to it and to the others", () => {
+    const room = new Room(new MemoryRoomStorage());
+    const people = Array.from({ length: 9 }, (_, i) => join(room, 0, `P${i}`));
+    // The first seven each get their own, in Figma's order; the eighth and ninth start again at the first
+    expect(people.map((c) => c.welcome.color)).toEqual([0, 1, 2, 3, 4, 5, 6, 0, 1]);
+    expect(people[8].welcome.peers.map((p) => p.color)).toEqual([0, 1, 2, 3, 4, 5, 6, 0]);
+    const joined = people[0].controls.filter((c) => c.t === "peer-joined") as Extract<ServerControl, { t: "peer-joined" }>[];
+    expect(joined.map((j) => j.peer.color)).toEqual([1, 2, 3, 4, 5, 6, 0, 1]);
+    // Blue's person leaves: the next one gets blue, the least used again
+    room.leave(people[1]);
+    expect(join(room, 0, "Q").welcome.color).toBe(1);
+  });
+
   it("catches a late or returning client up from `since`, then says ready", () => {
     const room = new Room(new MemoryRoomStorage());
     const a = join(room);
@@ -120,7 +133,7 @@ describe("Room", () => {
     const quiet = new Client();
     room.connect(quiet, { userId: "q", role: "editor" });
     const b = join(room, 0, "B");
-    expect(a.last).toEqual({ t: "peer-joined", peer: { sessionID: 2, userId: "u-B", name: "B", role: "editor" } });
+    expect(a.last).toEqual({ t: "peer-joined", peer: { sessionID: 2, userId: "u-B", name: "B", role: "editor", color: 1 } });
     expect(quiet.controls).toEqual([]);
     room.leave(b);
     expect(a.last).toEqual({ t: "peer-left", sessionID: 2 });

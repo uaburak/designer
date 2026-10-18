@@ -286,7 +286,9 @@ void Renderer::drawPresenceCursors(const Camera& camera, const Overlay& overlay,
   // Cursor chat (Figma's "/"): a bubble where the name chip goes — the name (semibold, 0.8) over the message (regular,
   // wrapped at `presenceChatWidth`, at most `presenceChatLines` lines, "…" past them); "" shows "Say something" at 0.6.
   // Its corner by the arrow's tip squarer than the others.
-  auto chatBubble = [&](Vec2 tip, const Color& fill, const std::string* name, const std::string& chat) {
+  auto chatBubble = [&](Vec2 tip, const Color& fill, const std::string* name, const std::string& chat, double alpha) {
+    alpha = std::clamp(alpha, 0.0, 1.0);
+    if (alpha <= 0) return;
     const Color ink{fill.r, fill.g, fill.b, 1};
     const Ink t = inkOn(ink);
     const double size = style.presenceLabelSize, maxW = style.presenceChatWidth;
@@ -304,20 +306,29 @@ void Renderer::drawPresenceCursors(const Camera& camera, const Overlay& overlay,
     const bool placeholder = chat.empty();
     const std::string& message = placeholder ? style.presenceChatPlaceholder : chat;
     const text::TextLayout* M = label(message, "Regular", size);
-    double mw = M ? M->size.x : 6.2 * static_cast<double>(message.size());
+    // Without the font yet: its lines ("\n" between Figma's previous and current line) by their characters
+    size_t lines = 1, longest = 0;
+    for (size_t at = 0, next; at <= message.size(); at = next + 1) {
+      next = message.find('\n', at);
+      if (next == std::string::npos) next = message.size();
+      longest = std::max(longest, next - at);
+      if (next < message.size()) lines++;
+    }
+    lines = std::min(lines, static_cast<size_t>(style.presenceChatLines));
+    double mw = M ? M->size.x : 6.2 * static_cast<double>(longest);
     if (mw > maxW) {
       M = label(message, "Regular", size, maxW, static_cast<int>(style.presenceChatLines));
       mw = maxW;
     }
-    double mh = M && !M->lines.empty() ? M->size.y : size * 1.2;
+    double mh = M && !M->lines.empty() ? M->size.y : size * 1.2 * static_cast<double>(lines);
     const double padX = style.presenceChatPadX, padY = style.presenceChatPadY, gap = N ? style.presenceChatGap : 0;
     double bw = std::round(std::max(nw, mw) + 2 * padX), bh = std::round(nh + gap + mh + 2 * padY);
     double bx = snap(tip.x + style.presenceChipX), by = snap(tip.y + style.presenceChipY);
     const double r = style.presenceChatRadius, rt = style.presenceChatTipRadius;
-    emit(makeShape(Mat2x3::translate(bx, by), {bw, bh}, ShapeKind::Rect, {rt, r, r, r}, ink, 1, ink, 0, 0, 0), Pass::Shape);
-    if (N && !N->lines.empty()) drawGlyphs(*N, Mat2x3::translate(snap(bx + padX), snap(by + padY)), t.color, t.alpha * style.presenceChatNameAlpha);
+    emit(makeShape(Mat2x3::translate(bx, by), {bw, bh}, ShapeKind::Rect, {rt, r, r, r}, ink, alpha, ink, 0, 0, 0), Pass::Shape);
+    if (N && !N->lines.empty()) drawGlyphs(*N, Mat2x3::translate(snap(bx + padX), snap(by + padY)), t.color, alpha * t.alpha * style.presenceChatNameAlpha);
     if (M && !M->lines.empty())
-      drawGlyphs(*M, Mat2x3::translate(snap(bx + padX), snap(by + padY + nh + gap)), t.color, t.alpha * (placeholder ? style.presenceChatPlaceholderAlpha : 1));
+      drawGlyphs(*M, Mat2x3::translate(snap(bx + padX), snap(by + padY + nh + gap)), t.color, alpha * t.alpha * (placeholder ? style.presenceChatPlaceholderAlpha : 1));
   };
   for (const PresencePeer& peer : overlay.presence) {
     if (!peer.hasCursor) continue;
@@ -330,7 +341,7 @@ void Renderer::drawPresenceCursors(const Camera& camera, const Overlay& overlay,
     emitPath(rimEntry, at, false, Paint::solid(white, 1), {1, 1}, 1);
     emitPath(arrowEntry, at, false, Paint::solid(ink, 1), {1, 1}, 1);
     if (peer.hasChat) {
-      chatBubble(tip, ink, &peer.name, peer.chat);
+      chatBubble(tip, ink, &peer.name, peer.chat, peer.chatAlpha);
       continue;
     }
     if (peer.name.empty()) continue;
@@ -352,7 +363,7 @@ void Renderer::drawPresenceCursors(const Camera& camera, const Overlay& overlay,
   // The local user's own cursor chat: the bubble by their real pointer (no arrow, no name), in the selection blue.
   if (overlay.localChat.on) {
     Vec2 tip = camera.toScreen(overlay.localChat.at);
-    chatBubble({snap(tip.x), snap(tip.y)}, style.presenceLocalChat, nullptr, overlay.localChat.text);
+    chatBubble({snap(tip.x), snap(tip.y)}, style.presenceLocalChat, nullptr, overlay.localChat.text, overlay.localChat.alpha);
   }
 }
 
