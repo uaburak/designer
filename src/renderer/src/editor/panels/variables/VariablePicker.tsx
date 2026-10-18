@@ -314,15 +314,17 @@ export function VariableList({
     );
   };
 
+  // One entry per group, in the order groups first appear: a group whose variables aren't kept together (`space/…`
+  // between `color/…` rows) is still listed once.
   const groups = <V extends Variable>(vars: V[]) => {
-    const out: { group: string; vars: V[] }[] = [];
+    const out = new Map<string, { group: string; vars: V[] }>();
     for (const v of vars) {
       const g = splitName(v.name).group;
-      const last = out[out.length - 1];
-      if (last && last.group === g) last.vars.push(v);
-      else out.push({ group: g, vars: [v] });
+      const entry = out.get(g);
+      if (entry) entry.vars.push(v);
+      else out.set(g, { group: g, vars: [v] });
     }
-    return out;
+    return [...out.values()];
   };
 
   const styleFolders = <S extends Style>(list: S[] = styleList as S[]) => {
