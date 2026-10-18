@@ -155,6 +155,9 @@ export class EngineExports {
   needsFrame = (h: number): boolean => (this.fn("needs_frame")(h) >>> 0) !== 0;
   glContextLost = (h: number): void => void this.fn("gl_context_lost")(h);
   glContextRestored = (h: number): void => void this.fn("gl_context_restored")(h);
+  /** The wasm heap in use, in bytes (the module's: malloc's handed-out bytes). */
+  heapUsed = (): number => this.fn("heap_used")() >>> 0;
+  purgeMemory = (h: number): void => void this.fn("purge_memory")(h);
   /** The canvas `selector` names draws with `backend` (0 WebGL2, 1 WebGPU) from now on; returns the one in use (−1 none). */
   gfxSwitch(h: number, selector: string, backend: number): number {
     const cstr = new TextEncoder().encode(`${selector}\0`);
@@ -400,7 +403,7 @@ export const USED_EXPORTS = [
   "create", "destroy", "load", "load_at", "apply_changes", "encode_document", "set_wire_format", "wire_format", "attachment", "derived_data_version",
   "set_current_page", "pages",
   "set_viewport", "set_viewport_insets", "set_camera", "get_camera", "screen_to_world", "center_on", "view_center", "set_presence", "set_local_chat", "set_theme", "pointer", "wheel", "key", "modifiers", "blur",
-  "set_tool", "set_hover", "tick", "render", "next_frame_delay", "needs_frame", "gl_context_lost", "gl_context_restored", "gfx_switch",
+  "set_tool", "set_hover", "tick", "render", "next_frame_delay", "needs_frame", "gl_context_lost", "gl_context_restored", "gfx_switch", "heap_used", "purge_memory",
   "get_selection", "set_selection", "read_nodes", "layer_tree", "layer_changes", "layer_outline", "hit_test",
   "set_props", "txn_begin", "txn_begin_run", "set_style_range", "txn_commit", "txn_cancel", "actor_begin", "actor_end", "actor_undo", "undo_export", "undo_import", "actor_info", "actor_forget", "idle", "command", "command_state",
   "move_nodes", "encode_selection", "paste", "render_thumbnail", "render_region", "render_node_thumbnail", "ref_id", "component_info",

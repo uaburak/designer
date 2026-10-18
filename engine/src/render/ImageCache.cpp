@@ -395,4 +395,17 @@ void ImageCache::endFrame() {
   frame_++;
 }
 
+void ImageCache::purge() {
+  // endFrame moved frame_ past the last frame: what it drew has lastFrame == frame_ - 1.
+  for (auto it = textures_.begin(); it != textures_.end();) {
+    if (it->second.lastFrame + 1 < frame_) {
+      bytes_ -= it->second.bytes;
+      device_.destroyTexture(it->second.texture.id);
+      it = textures_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
+
 }  // namespace eng

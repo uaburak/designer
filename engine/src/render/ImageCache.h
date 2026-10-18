@@ -115,6 +115,8 @@ class ImageCache {
                   bool* placeholder = nullptr);
   // After a frame: past the budget, textures not drawn in it are freed, oldest first.
   void endFrame();
+  // Between frames: the textures the last frame didn't draw are freed (Renderer::purgeMemory).
+  void purge();
   uint64_t bytes() const { return bytes_; }
   size_t count() const { return textures_.size(); }
 

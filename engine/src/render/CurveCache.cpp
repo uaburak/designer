@@ -20,6 +20,16 @@ void CurveCache::beginFrame() {
   generation_++;
 }
 
+void CurveCache::purge() {
+  glyphs_ = {};
+  paths_ = {};
+  std::vector<float>().swap(data_);
+  texels_ = 0;
+  uploadedRows_ = 0;
+  uploadedTexels_ = 0;
+  generation_++;
+}
+
 CurveEntry CurveCache::pack(const float* curves, size_t count, uint32_t base, std::vector<float>& out) {
   CurveEntry e;
   e.start = base;

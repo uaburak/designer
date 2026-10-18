@@ -43,6 +43,7 @@
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
+#include <malloc.h>
 
 #include "gfx/Backend.h"
 #define ENG_EXPORT extern "C" EMSCRIPTEN_KEEPALIVE
@@ -969,6 +970,28 @@ ENG_EXPORT void engine_gl_context_restored(Handle h) {
   e->editor.setViewport(e->editor.viewport().width, e->editor.viewport().height, e->editor.viewport().dpr,
                         e->editor.viewport().pixelWidth, e->editor.viewport().pixelHeight);
 #endif
+}
+
+// The wasm heap in use: the bytes malloc has handed out and not had back (Figma's getTotalUsedHeapMemory), the file
+// memory percentage's numerator (src/renderer/src/engine/memory.ts). The module's, not one engine's. 0 natively.
+ENG_EXPORT uint32_t engine_heap_used() {
+#ifdef __EMSCRIPTEN__
+  return static_cast<uint32_t>(mallinfo().uordblks);
+#else
+  return 0;
+#endif
+}
+
+// Figma's high-memory optimisations (handleHighMemoryUsageThresholdReached, atlas 20 §9.1), called when the file's
+// memory passes 90 %: every cache the engine rebuilds as it needs it goes (Renderer::purgeMemory, the shapes'
+// geometry). The next frame draws the page whole.
+ENG_EXPORT void engine_purge_memory(Handle h) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return;
+  e->renderer->purgeMemory();
+  e->editor.document().geometryCache().clear();
+  e->editor.invalidateCanvas();
 }
 
 // The canvas's backend changes (Figma's dynamic fallback: a WebGPU device lost or failing its self test moves the

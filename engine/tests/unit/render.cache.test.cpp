@@ -740,3 +740,44 @@ TEST_CASE("tiles: a tile under glass is drawn with what the glass reads past it,
     CHECK(dev.copyRects[k].h == want.h);
   }
 }
+
+TEST_CASE("memory: the high-memory purge drops what the frames rebuild; the next frame draws the page whole, the same") {
+  Document d;
+  base(d);
+  grid(d, 100);
+  NodeChange star = make({3, 1}, NodeType::STAR, kPage, "~", {10, 10, 100, 100});
+  star.props.shape().starInnerScale = 0.4;
+  d.apply(star);
+  NodeChange faded = NodeChange::changed({1, 1});  // a layer of its own: a pooled target
+  faded.mask = F_OPACITY;
+  faded.props.opacity = 0.5;
+  d.apply(faded);
+  gfx::NullDevice dev;
+  Renderer r(dev);
+  r.setContentCache(true);
+  double now = 1000;
+  r.setClock([&] { return now += 10; });  // a slow page: tiles drawn ahead at rest
+  Overlay o;
+  o.frameTitles = false;
+  Camera cam{0, 0, 1};
+  r.render(d, kPage, cam, kView, o, kDark);
+  size_t full = contentInstances(dev);
+  REQUIRE(r.poolTargets() > 0);
+  for (int i = 0; i < 20 && r.wantsFrameAt() > 0; i++) r.render(d, kPage, cam, kView, o, kDark);  // idle targets last 30
+  REQUIRE(r.tileCount() > 0);
+  REQUIRE(r.poolTargets() > 0);
+  REQUIRE(r.curveCache().texelCount() > 0);
+  CHECK(d.geometryCache().get(d, {3, 1}) != nullptr);
+
+  r.purgeMemory();
+  d.geometryCache().clear();
+  CHECK(r.tileCount() == 0);
+  CHECK(r.poolTargets() == 0);
+  CHECK(r.curveCache().texelCount() == 0);
+  CHECK(r.curveCache().data().capacity() == 0);
+  // Drawn again whole, with what a first frame draws.
+  RenderStats s = r.render(d, kPage, cam, kView, o, kDark);
+  CHECK(s.cachedRegions == 1);
+  CHECK(contentInstances(dev) == full);
+  CHECK(r.curveCache().texelCount() > 0);
+}

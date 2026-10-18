@@ -2883,6 +2883,21 @@ void Renderer::dropCache() {
   cache_ = ContentCache{};
 }
 
+void Renderer::purgeMemory() {
+  dropCache();
+  dropTiles();
+  for (auto it = pool_.begin(); it != pool_.end();) {
+    if (!it->busy) {
+      device_.destroyTarget(it->target);
+      it = pool_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  curves_.purge();
+  images_.purge();
+}
+
 RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camera, const Viewport& viewport,
                              const Overlay& overlay, const OverlayStyle& style, gfx::TargetId target, Guid only) {
   lodZoom_ = overlay.zooming;  // refined below on the cached path (only while the zoom is still changing)

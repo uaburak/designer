@@ -130,8 +130,9 @@ import type { TraceOptions, TraceResult } from "../../../shared/ai/types";
 import type { BrushArtwork, BrushType, DrawCommandArgs, DrawToolSettings, GuidString, InstallBrushInput, ScatterSettings } from "../../../shared/draw/types";
 import type { FieldStates, Micros, MotionCommandArgs, MotionSamples, MotionShapeLayer, MotionViewState, ResolvedMotion, TimelineModel } from "../../../shared/motion/types";
 import { fonts } from "./fonts";
+import { FrameTelemetry } from "./frameTelemetry";
 import { keyCodeOf } from "./keyCodes";
-import { prepareGfx, recordWebGPUFallback, type GfxBackend, type GfxPreference } from "./gfx";
+import { afterDeviceFailure, prepareGfx, recordWebGPUFallback, type GfxBackend, type GfxPreference } from "./gfx";
 import { loadEngine } from "./loadEngine";
 import { changesOf } from "./guids";
 
@@ -302,7 +303,7 @@ export class Engine {
       engine.gfxBackend = (engine.stats() as Record<string, unknown>).gfx === "webgpu" ? "webgpu" : "webgl2";
       Engine.drawing.add(engine);
       exports.module.onEngineGfxFailure ??= (selector, reason) => {
-        for (const e of Engine.drawing) if (e.canvas && `#${e.canvas.id}` === selector) e.gfxFallback(reason);
+        for (const e of Engine.drawing) if (e.canvas && `#${e.canvas.id}` === selector) e.gfxFailure(reason);
       };
     }
     return engine;
@@ -332,8 +333,35 @@ export class Engine {
   }
 
   /**
-   * Figma's dynamic fallback: the WebGPU device was lost or failed its self test, so the session continues on
-   * WebGL2. A canvas keeps the context type it first got, so a copy of it takes its place (the original stays,
+   * A WebGPU device failed (library_engine_wgpu.js). Figma's order (atlas 20 §3.6): a lost device is re-created — at
+   * once, or after 3 s when it was "destroyed" — and the engine rebuilds its device and renderer on the same canvas;
+   * a self-test failure, a device that can't be re-created, or one lost again soon after, moves to WebGL2.
+   */
+  gfxFailure(reason: string): void {
+    if (!this.h || !this.canvas || this.gfxBackend !== "webgpu" || this.gfxRecreating) return;
+    const next = afterDeviceFailure(reason, performance.now() - this.gfxRecreatedAt);
+    if (!next.recreate) return this.gfxFallback(reason);
+    console.warn(`[engine] WebGPU ${reason}: re-creating the device`);
+    this.gfxRecreating = true;
+    const recreate = async () => {
+      if (next.delayMs) await new Promise((done) => setTimeout(done, next.delayMs));
+      const backend = this.h ? await prepareGfx(this.x.module, "auto") : "webgl2";
+      this.gfxRecreating = false;
+      if (!this.h || !this.canvas || this.gfxBackend !== "webgpu") return;
+      if (backend !== "webgpu" || this.x.gfxSwitch(this.h, `#${this.canvas.id}`, 1) !== 1) return this.gfxFallback(`${reason}; not re-created`);
+      this.gfxRecreatedAt = performance.now();
+      this.schedule();
+    };
+    void recreate();
+  }
+
+  /** When this engine last re-created its WebGPU device (gfxFailure); -Infinity: never. */
+  private gfxRecreatedAt = -Infinity;
+  private gfxRecreating = false;
+
+  /**
+   * Figma's dynamic fallback: the WebGPU device was lost for good or failed its self test, so the session continues
+   * on WebGL2. A canvas keeps the context type it first got, so a copy of it takes its place (the original stays,
    * hidden, for whoever rendered it); every GPU resource is a cache the engine rebuilds.
    */
   gfxFallback(reason: string): void {
@@ -633,10 +661,18 @@ export class Engine {
     this.frameRequested = requestAnimationFrame(this.frame);
   }
 
+  /** Frame times and dropped frames in Figma's histograms (frameTelemetry.ts). */
+  readonly frameTelemetry = new FrameTelemetry();
+
   private readonly frame = (time: number): void => {
     this.frameRequested = 0;
     if (!this.h) return;
-    if (this.x.tick(this.h, time) & TICK_NEEDS_RENDER) this.x.render(this.h);
+    const start = performance.now();
+    if (this.x.tick(this.h, time) & TICK_NEEDS_RENDER) {
+      this.x.render(this.h);
+      const end = performance.now();
+      this.frameTelemetry.record(end - start, end);
+    }
     const delay = this.x.nextFrameDelay(this.h);
     if (delay === 0) this.schedule();
     else if (delay > 0) this.frameTimer = window.setTimeout(() => this.schedule(), delay);
@@ -1106,6 +1142,21 @@ export class Engine {
 
   contextRestored(): void {
     this.after(this.x.glContextRestored(this.h));
+  }
+
+  /** The canvas can't draw any more (a WebGL context that won't come back, contextLoss.ts); null while it can. */
+  gfxError: string | null = null;
+  private readonly gfxErrorListeners = new Set<(message: string) => void>();
+
+  reportGfxError(message: string): void {
+    this.gfxError = message;
+    for (const listener of [...this.gfxErrorListeners]) listener(message);
+  }
+
+  /** Called when the canvas can't draw any more (Figma's WebGL error modal); returns the unsubscribe. */
+  onGfxError(listener: (message: string) => void): () => void {
+    this.gfxErrorListeners.add(listener);
+    return () => this.gfxErrorListeners.delete(listener);
   }
 
   // ---- Selection and reads (panels) ------------------------------------------------
@@ -1924,6 +1975,16 @@ export class Engine {
   /** The engine's WebAssembly memory in bytes (View › Memory usage). */
   memoryBytes(): number {
     return this.x.module.HEAPU8.byteLength;
+  }
+
+  /** The engine's WebAssembly heap in use (malloc's bytes): the file memory percentage's numerator (memory.ts). */
+  heapUsed(): number {
+    return this.x.heapUsed();
+  }
+
+  /** Figma's high-memory optimisations: every GPU and geometry cache the engine rebuilds as it needs it is dropped. */
+  purgeMemory(): void {
+    this.after(this.x.purgeMemory(this.h));
   }
 
   /** The last frame's numbers and the node count. */

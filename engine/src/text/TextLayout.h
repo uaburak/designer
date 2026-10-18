@@ -140,6 +140,24 @@ struct TextLayout {
       return *this;
     }
   } glyphKey;
+  // What the renderer reads of the glyphs on every draw at low zoom (Renderer::drawText), worked out on first use: the
+  // largest glyph size (every draw), and each line's ink — its glyphs' outline areas at their sizes, the greeked bar's
+  // coverage (greeked draws only: the outlines are read where they were before). Every frame of a zoomed-out page
+  // walked every glyph for them (wave 8). A copy has its own.
+  struct InkCache {
+    mutable bool emKnown = false;
+    mutable float maxEm = 0;
+    mutable bool inkKnown = false;
+    mutable uint32_t fonts = 0;  // the font registry's generation the ink was worked out at (outlines come with faces)
+    mutable std::vector<double> lineInk;
+    InkCache() = default;
+    InkCache(const InkCache&) {}
+    InkCache& operator=(const InkCache&) {
+      emKnown = inkKnown = false;
+      lineInk.clear();
+      return *this;
+    }
+  } ink;
 
   // Caret geometry: the x of the caret before UTF-16 unit `index` on `line`.
   double caretX(uint32_t index, size_t line) const;

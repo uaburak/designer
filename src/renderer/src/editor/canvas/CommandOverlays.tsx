@@ -1,8 +1,9 @@
 /**
  * Round 10's pieces for the Figma menu's commands (docs/editor.md "Round 10 — Menus, commands, left side and toolbar"):
  * File › Move to folder… (a dialog of the workspace's places), Cursor chat (/ : a bubble at the pointer), View ›
- * Memory usage (a chip at the canvas's bottom left). Their looks are unverified (no live capture); they use the DS's
- * own parts. (Vector › Simplify vector / Offset vector are Figma's tools since round 17b: canvas/PathToolbar.)
+ * Memory usage (Figma's memory card, with the engine's other health notices: canvas/EngineHealth). Their looks are
+ * unverified (no live capture); they use the DS's own parts. (Vector › Simplify vector / Offset vector are Figma's
+ * tools since round 17b: canvas/PathToolbar.)
  */
 import { t, useT } from "@/i18n";
 import { presenceOf } from "../multiplayer/presence";
@@ -13,6 +14,7 @@ import { useUI } from "../hooks";
 import { lastPointer } from "../commands";
 import { fileOps } from "../objectCommands";
 import { attachSpellcheck } from "../spellcheck";
+import { EngineHealth } from "./EngineHealth";
 import styles from "./CommandOverlays.module.css";
 
 export function CommandOverlays() {
@@ -31,12 +33,11 @@ export function CommandOverlays() {
   }, [ed]);
   const move = useUI((s) => !!s.moveFileDialog);
   const chat = useUI((s) => s.cursorChat ?? null);
-  const memory = useUI((s) => !!s.memoryUsage);
   return (
     <>
       {move && <MoveFileDialog />}
       {chat && <CursorChat at={chat} />}
-      {memory && <MemoryUsage />}
+      <EngineHealth />
     </>
   );
 }
@@ -157,29 +158,5 @@ function CursorChat({ at }: { at: { x: number; y: number } }) {
         if (e.key === "Escape" || e.key === "Enter") close();
       }}
     />
-  );
-}
-
-/** View › Memory usage: the engine's memory and the page's JS heap, at the canvas's bottom left, every second. */
-function MemoryUsage() {
-  useT();
-  const ed = useEditor();
-  const read = () => {
-    const heap = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? 0;
-    return (ed.engine.destroyed ? 0 : ed.engine.memoryBytes()) + heap;
-  };
-  const [bytes, setBytes] = useState(read);
-  useEffect(() => {
-    const t = window.setInterval(() => setBytes(read()), 1000);
-    return () => window.clearInterval(t);
-    // read() reads the engine
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ed]);
-  const r = ed.canvas?.getBoundingClientRect();
-  return (
-    <div className={styles.memory} style={r ? { left: r.left + 12, top: r.bottom - 36 } : undefined} role="status" data-memory-usage="">
-      <span className={styles.memoryLabel}>{t("Memory usage")}</span>
-      <span>{Math.round(bytes / (1024 * 1024))} MB</span>
-    </div>
   );
 }
