@@ -58,8 +58,6 @@ export function installMockReach() {
   };
   window.__designerAgents = {
     ...base,
-    // The chats talk to the picked agent directly: the manager off.
-    settings: async () => ({ ...(await base.settings()), manager: { enabled: false, name: "Manager", manager: { providerId: "claude-code", model: "claude-haiku-5-5", effort: "low" }, general: { providerId: "claude-code", model: "claude-sonnet-5-5" }, image: null, allowed: [], parallel: 3 } }),
     onEvent: (cb) => (listeners.add(cb), () => listeners.delete(cb)),
     onConsent: (cb) => (consents.add(cb), () => consents.delete(cb)),
     answerConsent: (reqId, allow, remember, windowId) => {

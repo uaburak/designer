@@ -73,6 +73,11 @@ export function installMockManager() {
   };
   window.__designerAgents = {
     ...base,
+    // The manager on (the Agents section's stand-in has it off).
+    settings: async () => {
+      const s = await base.settings();
+      return { ...s, manager: { ...s.manager, enabled: true } };
+    },
     onEvent: (cb) => (listeners.add(cb), () => listeners.delete(cb)),
     onToolCall: (h) => ((toolHandler = h), () => (toolHandler = null)),
     stop: async () => {},
