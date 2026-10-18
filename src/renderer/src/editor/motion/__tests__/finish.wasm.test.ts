@@ -101,7 +101,10 @@ describe("round 8i on the engine", () => {
     expect(pasteKeyframes(ed, ed.engine.motionTimeline(RED))).toBe(true);
     expect(ed.store.undo.undoLabel).toBe("Paste keyframes");
     expect(layerOf(ed).tracks[0].keyframes.length).toBeGreaterThan(before.keyframes.length);
-    // Position keyed on X and Y tracks, then combined into one and split again.
+    // Position keyed on X and Y tracks, then combined into one and split again (the logo's XY track goes first: X / Y
+    // tracks are refused beside it, round 8j).
+    expect(ed.engine.runMotionCommand("MOTION_ADD_KEYFRAME", { nodes: [RED], field: { type: "PROPERTY", name: "TRANSLATION_X" }, timeUs: 0, value: { type: "FLOAT", value: 0 } })).not.toBe(0);
+    ed.engine.runMotionCommand("MOTION_DELETE_TRACKS", { node: RED, fields: [{ type: "PROPERTY", name: "TRANSLATION_XY" }] });
     for (const [name, us, v] of [["TRANSLATION_X", 0, 0], ["TRANSLATION_X", 400_000, 30], ["TRANSLATION_Y", 400_000, 10]] as const)
       ed.engine.runMotionCommand("MOTION_ADD_KEYFRAME", { nodes: [RED], field: { type: "PROPERTY", name }, timeUs: us, value: { type: "FLOAT", value: v } });
     expect(ed.engine.runMotionCommand("MOTION_COMBINE_TRACKS", { node: RED, kind: "POSITION" })).toBe(0);

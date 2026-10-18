@@ -22,6 +22,7 @@ import {
   MOTION_EASING_TYPES,
   TIMING_PROP_KEYS,
   fieldKey,
+  type EasingRef,
   type EffectKeyframeFieldName,
   type KeyframeField,
   type KeyframePropertyFieldName,
@@ -38,7 +39,25 @@ import {
   type TimelineTrack,
 } from "@shared/motion/types";
 import type { EditorController } from "../controller";
-import { addPreset, clipProps, editPreset, presetAllowed, presetDef, presetDurationUs, removePresets, type PresetTarget } from "./presets";
+import { presetProps } from "@shared/motion/presets";
+import {
+  PRESET_EASING,
+  addPreset,
+  applyCustomStyle,
+  clipProps,
+  createCustomStyle,
+  customStyles,
+  deleteCustomStyle,
+  editPreset,
+  presetAllowed,
+  presetDef,
+  presetDurationUs,
+  removePresets,
+  setCustomStyleTemplates,
+  type CustomStyle,
+  type PresetTarget,
+  type StyleTemplate,
+} from "./presets";
 
 export class MotionApiError extends Error {}
 
@@ -52,13 +71,21 @@ const micros = (s: number) => Math.round(s * US);
 
 // ---- Shapes ---------------------------------------------------------------------------------------------------------
 
+/** Figma's VariableAlias: an easing bound to an EASING variable (round 8j). */
+export interface VariableAlias {
+  type: "VARIABLE_ALIAS";
+  id: string;
+}
+
+export type PublicEasing = MotionEasing | VariableAlias;
+
 export interface PublicKeyframe {
   id?: string;
   /** Seconds from the timeline's start (≥ 0) */
   timelinePosition: number;
   value: KeyframeValue;
-  /** Into this keyframe (unused on the first) */
-  easing?: MotionEasing;
+  /** Into this keyframe (unused on the first); an EASING variable's alias when bound */
+  easing?: PublicEasing;
 }
 
 export interface PublicTrack {
@@ -153,10 +180,10 @@ function valueFrom(f: KeyframeField, v: unknown, at: string): KeyframeValue {
   return { type: "COLOR", value: { r: x.r as number, g: x.g as number, b: x.b as number, a: finite(x.a) ? (x.a as number) : 1 } };
 }
 
-/** A public easing; Figma's schema names only (never OUT_CUBIC, EASE_IN_OUT …). */
+/** A public easing; Figma's schema names only (never OUT_CUBIC, EASE_IN_OUT …). A variable's alias: easingRefFrom. */
 export function easingFrom(v: unknown, at = "easing"): MotionEasing {
   const e = (typeof v === "string" ? { type: v } : (v ?? {})) as Record<string, unknown>;
-  if (e.type === "VARIABLE_ALIAS") fail(`${at}: easing variables can't be bound from here yet`);
+  if (e.type === "VARIABLE_ALIAS") fail(`${at}: an easing value here, not a variable`);
   const type = String(e.type ?? "");
   if (!EASINGS.has(type)) fail(`${at}.type: one of ${MOTION_EASING_TYPES.join(", ")}${type === "EASE_IN_OUT" ? " (EASE_IN_AND_OUT, not EASE_IN_OUT)" : ""}`);
   if (type === "CUSTOM_CUBIC_BEZIER") {
@@ -171,6 +198,22 @@ export function easingFrom(v: unknown, at = "easing"): MotionEasing {
   }
   return { type: type as MotionEasing["type"] };
 }
+
+/**
+ * An easing or Figma's VariableAlias of an EASING variable (round 8j; `{type: "VARIABLE_ALIAS", id}`, as
+ * `figma.variables.createVariableAlias` makes): the alias as the engine binds it, `{variable}`.
+ */
+export function easingRefFrom(ed: EditorController, v: unknown, at = "easing"): EasingRef {
+  const e = (v ?? {}) as Record<string, unknown>;
+  if (e.type !== "VARIABLE_ALIAS") return easingFrom(v, at);
+  const id = String(e.id ?? "");
+  const variable = id ? ed.engine.variable(id) : null;
+  if (!variable) fail(`${at}.id: no variable ${JSON.stringify(id)} in this file`);
+  if (variable!.resolvedType !== "EASING") fail(`${at}: ${variable!.name} is a ${variable!.resolvedType} variable — easings bind to EASING variables`);
+  return { variable: id };
+}
+
+const aliasOf = (variable: string): VariableAlias => ({ type: "VARIABLE_ALIAS", id: variable });
 
 // ---- Nodes and timelines ----------------------------------------------------------------------------------------
 
@@ -230,7 +273,7 @@ const run = (ed: EditorController, fn: () => number, what: string) => {
 
 const publicTrack = (t: TimelineTrack): PublicTrack => ({
   id: t.id,
-  keyframes: t.keyframes.map((k) => ({ id: k.id, timelinePosition: seconds(k.timeUs), value: k.value, ...("type" in k.easing ? { easing: k.easing } : {}) })),
+  keyframes: t.keyframes.map((k) => ({ id: k.id, timelinePosition: seconds(k.timeUs), value: k.value, ...(k.easingVariable ? { easing: aliasOf(k.easingVariable) } : "type" in k.easing ? { easing: k.easing } : {}) })),
 });
 
 /** `node.manualKeyframeTracks` (a fill's opacity track, ours, isn't in Figma's object and isn't listed). */
@@ -259,8 +302,11 @@ function checkTrack(ed: EditorController, id: Guid, f: KeyframeField): void {
   if (other) fail(`keyframe tracks must be either combined or separated: the layer has a ${other} track — remove it first, or write ${other}`);
 }
 
-/** The keyframes as given, checked: times ≥ 0, values of the field's type, public easings. */
-function keyframesFrom(f: KeyframeField, list: unknown, at: string): PublicKeyframe[] {
+/** A keyframe as written: its easing a value or an EASING variable's binding. */
+type KeyframeIn = Omit<PublicKeyframe, "easing"> & { easing?: EasingRef };
+
+/** The keyframes as given, checked: times ≥ 0, values of the field's type, public easings or EASING variables' aliases. */
+function keyframesFrom(ed: EditorController, f: KeyframeField, list: unknown, at: string): KeyframeIn[] {
   if (!Array.isArray(list)) return fail(`${at}.keyframes: an array of {timelinePosition (s), value, easing?}`);
   return list.map((k, i) => {
     const o = (k ?? {}) as Record<string, unknown>;
@@ -270,7 +316,7 @@ function keyframesFrom(f: KeyframeField, list: unknown, at: string): PublicKeyfr
       ...(typeof o.id === "string" ? { id: o.id } : {}),
       timelinePosition: p as number,
       value: valueFrom(f, o.value, `${at}.keyframes[${i}].value`),
-      ...(o.easing !== undefined ? { easing: easingFrom(o.easing, `${at}.keyframes[${i}].easing`) } : {}),
+      ...(o.easing !== undefined ? { easing: easingRefFrom(ed, o.easing, `${at}.keyframes[${i}].easing`) } : {}),
     };
   });
 }
@@ -283,7 +329,7 @@ function keyframesFrom(f: KeyframeField, list: unknown, at: string): PublicKeyfr
 export function applyManualKeyframeTrack(ed: EditorController, id: Guid, field: unknown, track: unknown, opts: { merge?: boolean } = {}): PublicTrack | null {
   const f = fieldFrom(field);
   checkTrack(ed, id, f);
-  const keys = keyframesFrom(f, (track as { keyframes?: unknown } | null)?.keyframes, "track");
+  const keys = keyframesFrom(ed, f, (track as { keyframes?: unknown } | null)?.keyframes, "track");
   const existing = trackOf(ed, id, f);
   const have = new Map((existing?.keyframes ?? []).map((k) => [k.id, k]));
   if (!keys.length) {
@@ -445,13 +491,55 @@ const publicStyle = (c: TimelineClip): PublicAnimationStyle => ({
   name: c.name,
   duration: seconds(c.durationUs),
   timelineOffset: seconds(c.startUs),
-  props: { ...clipProps(c), ...("type" in c.easing ? { easing: c.easing } : {}) },
+  // An Easing bound to an EASING variable reads as its alias (round 8j).
+  props: { ...clipProps(c), ...(c.variables?.easing ? { easing: aliasOf(c.variables.easing) as unknown as PresetPropValue } : "type" in c.easing ? { easing: c.easing } : {}) },
   visible: !c.disabled,
 });
 
-/** `node.animationStyles`, in the layer's stacking order. */
-export function animationStylesOf(ed: EditorController, id: Guid): PublicAnimationStyle[] {
-  return clipsOf(ed, id).map(publicStyle);
+/**
+ * An applied custom style (Figma's custom binding, round 8j): the style entry's id, the style's id and name, and where
+ * it starts — no duration or props (the style carries its own timing).
+ */
+export interface PublicCustomBinding {
+  id: string;
+  type: "CUSTOM";
+  styleId: string;
+  name: string;
+  /** Seconds */
+  timelineOffset: number;
+}
+
+export type PublicAppliedStyle = PublicAnimationStyle | PublicCustomBinding;
+
+/**
+ * `node.animationStyles`, in the layer's stacking order: a first-party style per clip, a custom style's clips as its
+ * one binding (where its first clip is, less its first entry's place in the style).
+ */
+export function animationStylesOf(ed: EditorController, id: Guid): PublicAppliedStyle[] {
+  const custom = new Map(customStyles(ed).map((s) => [s.id, s]));
+  const out: PublicAppliedStyle[] = [];
+  const bindings = new Map<string, { entry: PublicCustomBinding; firstUs: Micros; leadUs: Micros }>();
+  for (const c of clipsOf(ed, id)) {
+    const style = c.style ? custom.get(c.style.key) : undefined;
+    if (!style || !c.style) {
+      out.push(publicStyle(c));
+      continue;
+    }
+    const had = bindings.get(c.style.id);
+    if (had) had.firstUs = Math.min(had.firstUs, c.startUs);
+    else {
+      const entry: PublicCustomBinding = { id: c.style.id, type: "CUSTOM", styleId: style.id, name: style.name, timelineOffset: 0 };
+      bindings.set(entry.id, { entry, firstUs: c.startUs, leadUs: style.templates.length ? Math.min(...style.templates.map((t) => t.offsetUs)) : 0 });
+      out.push(entry);
+    }
+  }
+  for (const b of bindings.values()) b.entry.timelineOffset = seconds(Math.max(0, b.firstUs - b.leadUs));
+  return out;
+}
+
+/** Where a layer's last clip ends (seconds; 0 without clips): the agents extend the timeline to it. */
+export function animationsEnd(ed: EditorController, id: Guid): number {
+  return seconds(Math.max(0, ...clipsOf(ed, id).map((c) => c.startUs + c.durationUs)));
 }
 
 function targetOf(ed: EditorController, id: Guid): PresetTarget {
@@ -460,6 +548,8 @@ function targetOf(ed: EditorController, id: Guid): PresetTarget {
 }
 
 export interface StyleConfig {
+  /** "FIGMA" (the default) or "CUSTOM": a custom style takes only `timelineOffset` (round 8j) */
+  type?: "FIGMA" | "CUSTOM";
   /** Seconds: the clip's length (`props.duration` wins, as Figma's) */
   duration?: number;
   /** Seconds: the clip's start; `props.delay` adds to it */
@@ -468,7 +558,8 @@ export interface StyleConfig {
   visible?: boolean;
 }
 
-function timing(config: StyleConfig, at: string): { startUs?: Micros; durationUs?: Micros; easing?: MotionEasing } {
+/** A clip's timing from a config; its Easing a value, or an EASING variable's alias (`easingVariable`, round 8j). */
+function timing(ed: EditorController, config: StyleConfig, at: string): { startUs?: Micros; durationUs?: Micros; easing?: MotionEasing; easingVariable?: string } {
   const p = config.props ?? {};
   const duration = p.duration ?? config.duration;
   if (duration !== undefined && (!finite(duration) || (duration as number) <= 0)) fail(`${at}duration: seconds, more than 0`);
@@ -477,24 +568,31 @@ function timing(config: StyleConfig, at: string): { startUs?: Micros; durationUs
   if (offset !== undefined && (!finite(offset) || offset < 0)) fail(`${at}timelineOffset: seconds, 0 or more`);
   if (delay !== undefined && (!finite(delay) || (delay as number) < 0)) fail(`${at}props.delay: seconds, 0 or more`);
   const start = offset !== undefined || delay !== undefined ? (offset ?? 0) + ((delay as number) ?? 0) : undefined;
+  const easing = p.easing !== undefined ? easingRefFrom(ed, p.easing, `${at}props.easing`) : undefined;
   return {
     ...(start !== undefined ? { startUs: micros(start) } : {}),
     ...(duration !== undefined ? { durationUs: micros(duration as number) } : {}),
-    ...(p.easing !== undefined ? { easing: easingFrom(p.easing, `${at}props.easing`) } : {}),
+    ...(easing ? ("variable" in easing ? { easingVariable: easing.variable } : { easing }) : {}),
   };
 }
 
-/** `node.applyAnimationStyle(styleId, config?)`: a new clip (from the timeline's start unless timed); returns its id. */
+/**
+ * `node.applyAnimationStyle(styleId, config?)`: a new clip (from the timeline's start unless timed); returns its id.
+ * `{type: "CUSTOM"}` applies a custom style (round 8j) and returns its binding's id.
+ */
 export function applyAnimationStyle(ed: EditorController, id: Guid, styleId: unknown, config: StyleConfig = {}): string {
+  if (config.type === "CUSTOM") return applyCustomBinding(ed, id, styleId, config);
+  if (config.type !== undefined && config.type !== "FIGMA") fail(`type: "FIGMA" or "CUSTOM"`);
+  if (customStyles(ed).some((s) => s.id === styleId)) fail(`${String(styleId)} is a custom animation style: apply it with {type: "CUSTOM", timelineOffset}`);
   const def = presetOf(styleId);
   animatable(ed, id);
   const target = targetOf(ed, id);
   if (!presetAllowed(def, [target])) fail(def.needs === "text" ? `${STYLE_IDS[def.key]} animates text layers only` : `${STYLE_IDS[def.key]} needs a layer with strokes`);
   const props = propsFromFigma(def, (config.props ?? {}) as Record<string, unknown>);
-  const t = timing(config, "");
+  const t = timing(ed, config, "");
   const [clip] = addPreset(ed, def.key, [id], target, { props, startUs: t.startUs ?? 0, durationUs: t.durationUs ?? presetDurationUs(def), easing: t.easing });
   if (!clip) fail(`${STYLE_IDS[def.key]} couldn't be applied to ${id}`);
-  if (config.visible === false) editPreset(ed, clipsOf(ed, id).find((c) => c.id === clip)!, { disabled: true }, target);
+  if (config.visible === false || t.easingVariable) editPreset(ed, clipsOf(ed, id).find((c) => c.id === clip)!, { ...(config.visible === false ? { disabled: true } : {}), ...(t.easingVariable ? { variables: { easing: t.easingVariable } } : {}) }, target);
   return clip;
 }
 
@@ -505,41 +603,186 @@ export function editAnimationStyle(ed: EditorController, id: Guid, styleEntryId:
   const def = change.styleId !== undefined ? presetOf(change.styleId) : presetDef(clip.preset)!;
   const retype = def.key !== clip.preset;
   const props = change.props ? propsFromFigma(def, change.props) : undefined;
-  const t = timing(change, "");
+  const { easingVariable, ...t } = timing(ed, change, "");
   const target = targetOf(ed, id);
+  // A value unbinds a bound Easing; an alias binds it.
+  const variables = easingVariable ? { easing: easingVariable } : t.easing && clip.variables?.easing ? { easing: null } : undefined;
   const patch = {
     ...(retype ? { preset: def.key } : {}),
     ...(props && Object.keys(props).length ? { props } : {}),
     ...t,
     ...(change.visible !== undefined ? { disabled: !change.visible } : {}),
+    ...(variables ? { variables } : {}),
   };
   if (Object.keys(patch).length && !editPreset(ed, clip, patch, target)) fail(`The animation style ${styleEntryId} couldn't be changed`);
   return publicStyle(clipsOf(ed, id).find((c) => c.id === styleEntryId)!);
 }
 
-/** `node.removeAnimationStyle(id)`. */
+/** The clips a custom binding generated on a layer. */
+const bindingClips = (ed: EditorController, id: Guid, binding: string): string[] => clipsOf(ed, id).filter((c) => c.style?.id === binding).map((c) => c.id);
+
+/** `node.removeAnimationStyle(id)`: an applied style's clip, or a custom binding's clips (round 8j). */
 export function removeAnimationStyle(ed: EditorController, id: Guid, styleEntryId: string): void {
-  if (!clipsOf(ed, id).some((c) => c.id === styleEntryId)) fail(`${id} has no animation style ${styleEntryId}`);
-  if (!removePresets(ed, [styleEntryId])) fail(`The animation style ${styleEntryId} couldn't be removed`);
+  const clips = clipsOf(ed, id).some((c) => c.id === styleEntryId) ? [styleEntryId] : bindingClips(ed, id, styleEntryId);
+  if (!clips.length) fail(`${id} has no animation style ${styleEntryId}`);
+  if (!removePresets(ed, clips)) fail(`The animation style ${styleEntryId} couldn't be removed`);
 }
 
 /** `node.animationStyles = [...]`: entries with an id it has are edited, the others applied, the ones left out removed. */
 export function setAnimationStyles(ed: EditorController, id: Guid, list: unknown): void {
-  if (!Array.isArray(list)) fail("animationStyles: an array of {styleId, name, duration, timelineOffset, props}");
+  if (!Array.isArray(list)) fail("animationStyles: an array of {styleId, name, duration, timelineOffset, props} or {type: \"CUSTOM\", styleId, timelineOffset}");
   animatable(ed, id);
-  const have = new Set(clipsOf(ed, id).map((c) => c.id));
+  const current = animationStylesOf(ed, id);
+  const have = new Map(current.map((s) => [s.id, s]));
   const entries = (list as Record<string, unknown>[]).map((e) => (e && typeof e === "object" ? e : fail("animationStyles: each entry an object")));
   const keep = new Set(entries.map((e) => String(e.id ?? "")).filter((x) => have.has(x)));
-  const gone = [...have].filter((x) => !keep.has(x));
+  const gone = current.filter((s) => !keep.has(s.id)).flatMap((s) => (s.type === "CUSTOM" ? bindingClips(ed, id, s.id) : [s.id]));
   if (gone.length && !removePresets(ed, gone)) fail("The animation styles couldn't be removed");
   for (const e of entries) {
     const config: StyleConfig & { styleId?: string } = {
+      ...(e.type === "CUSTOM" || e.type === "FIGMA" ? { type: e.type } : {}),
       ...(e.duration !== undefined ? { duration: e.duration as number } : {}),
       ...(e.timelineOffset !== undefined ? { timelineOffset: e.timelineOffset as number } : {}),
       ...(e.props ? { props: e.props as Record<string, unknown> } : {}),
       ...(typeof e.visible === "boolean" ? { visible: e.visible } : {}),
     };
-    if (keep.has(String(e.id))) editAnimationStyle(ed, id, String(e.id), { ...config, ...(e.styleId !== undefined ? { styleId: String(e.styleId) } : {}) });
+    const was = keep.has(String(e.id)) ? have.get(String(e.id))! : null;
+    if (e.type === "CUSTOM") {
+      // A kept binding with its style and start as they are is left alone; a new style or start applies it again in place.
+      if (was?.type === "CUSTOM" && (e.styleId ?? was.styleId) === was.styleId && (config.timelineOffset ?? was.timelineOffset) === was.timelineOffset) continue;
+      applyCustomBinding(ed, id, e.styleId ?? (was?.type === "CUSTOM" ? was.styleId : undefined), { ...config, timelineOffset: config.timelineOffset ?? (was ? was.timelineOffset : 0) }, was ? was.id : undefined);
+    } else if (was?.type === "CUSTOM") fail(`animationStyles: ${was.id} is a custom style's binding — write it as {type: "CUSTOM", id, styleId, timelineOffset}`);
+    else if (was) editAnimationStyle(ed, id, was.id, { ...config, ...(e.styleId !== undefined ? { styleId: String(e.styleId) } : {}) });
     else applyAnimationStyle(ed, id, e.styleId, config);
   }
+}
+
+// ---- Custom animation styles (round 8j) -------------------------------------------------------------------------
+
+/**
+ * One entry of a custom style (Figma's `CustomAnimationStyle.animationEntries`): a first-party definition with its
+ * settings — `styleId` names the entry itself (Figma: "not the source definition"); Delay, Duration and Easing are
+ * in `props`, as `addAnimationEntryAsync` takes them.
+ */
+export interface PublicAnimationEntry {
+  id: string;
+  styleId: string;
+  name: string;
+  /** Seconds */
+  duration: number;
+  props: Record<string, PresetPropValue>;
+}
+
+/** A local custom animation style (Figma's `CustomAnimationStyle`, `type` "CUSTOM_ANIMATION"). */
+export interface PublicCustomStyle {
+  id: string;
+  name: string;
+  type: "CUSTOM_ANIMATION";
+  remote: false;
+  animationEntries: PublicAnimationEntry[];
+}
+
+const publicEntry = (t: StyleTemplate): PublicAnimationEntry => ({
+  id: t.id,
+  styleId: t.id,
+  name: t.name,
+  duration: seconds(t.durationUs),
+  props: { ...presetProps(t.preset, t.props), delay: seconds(t.offsetUs), duration: seconds(t.durationUs), easing: t.easing },
+});
+
+const publicCustom = (s: CustomStyle): PublicCustomStyle => ({ id: s.id, name: s.name, type: "CUSTOM_ANIMATION", remote: false, animationEntries: s.templates.map(publicEntry) });
+
+/** `figma.getLocalCustomAnimationStylesAsync()`: the file's custom styles in their order. */
+export function customAnimationStyles(ed: EditorController): PublicCustomStyle[] {
+  return customStyles(ed).map(publicCustom);
+}
+
+/** A custom style by its id (or, for the agents, its name when that is unique). */
+function customStyleOf(ed: EditorController, styleId: unknown): CustomStyle {
+  const all = customStyles(ed);
+  const byId = all.find((s) => s.id === styleId);
+  if (byId) return byId;
+  const named = all.filter((s) => s.name === styleId);
+  if (named.length === 1) return named[0];
+  if (named.length > 1) fail(`${named.length} custom animation styles are named ${JSON.stringify(styleId)}: pass one's id (${named.map((s) => s.id).join(", ")})`);
+  return fail(`No custom animation style ${JSON.stringify(styleId)}: figma.getLocalCustomAnimationStylesAsync() lists them`);
+}
+
+/** A custom style read back by id (null once it is gone). */
+export function customAnimationStyle(ed: EditorController, styleId: string): PublicCustomStyle | null {
+  const s = customStyles(ed).find((x) => x.id === styleId);
+  return s ? publicCustom(s) : null;
+}
+
+/** `figma.createCustomAnimationStyle()`: a new, empty local style. */
+export function createCustomAnimationStyle(ed: EditorController, name = "Animation style"): PublicCustomStyle {
+  const id = createCustomStyle(ed, null, name);
+  if (!id) return fail("The custom animation style couldn't be made: Motion isn't available in this build");
+  return customAnimationStyle(ed, id)!;
+}
+
+/** `style.name = …`: slash-delimited names make folders. */
+export function renameCustomAnimationStyle(ed: EditorController, styleId: string, name: unknown): void {
+  const style = customStyleOf(ed, styleId);
+  if (typeof name !== "string" || !name.trim()) fail("name: a non-empty string");
+  if (ed.engine.setProps([style.id as Guid], { name: String(name) }) !== 0) fail(`The custom animation style ${style.id} couldn't be renamed`);
+}
+
+/**
+ * `style.addAnimationEntryAsync(definitionStyleId, props)`: a first-party definition appended — `props` its settings
+ * with Delay (its place in the style), Duration and Easing among them (seconds) — and the layers the style is applied
+ * to take the new content. Returns the entry.
+ */
+export function addAnimationEntry(ed: EditorController, styleId: string, definition: unknown, props: unknown): PublicAnimationEntry {
+  const style = customStyleOf(ed, styleId);
+  const entry = entryTemplate(ed, definition, props, "props.");
+  if (!setCustomStyleTemplates(ed, style.id, [...style.templates, entry])) fail(`${entry.name} couldn't be added to ${style.name}`);
+  return publicEntry(customStyleOf(ed, style.id).templates.at(-1)!);
+}
+
+/** A style's whole content at once, in order (the agents' save_animation_style `entries`); its layers follow. */
+export function setAnimationEntries(ed: EditorController, styleId: string, entries: { definition: unknown; props: unknown }[]): void {
+  const style = customStyleOf(ed, styleId);
+  const templates = entries.map((e, i) => entryTemplate(ed, e.definition, e.props, `entries[${i}].props.`));
+  if (!setCustomStyleTemplates(ed, style.id, templates)) fail(`${style.name}'s entries couldn't be written`);
+}
+
+/** An entry as the style keeps it: the definition, its props, Delay as its place, Duration, Easing (a value). */
+function entryTemplate(ed: EditorController, definition: unknown, props: unknown, at: string): Omit<StyleTemplate, "id"> {
+  if (customStyles(ed).some((s) => s.id === definition)) fail("Custom styles do not nest: add a first-party definition's styleId (figma.motion.figmaAnimationStyles())");
+  const def = presetOf(definition);
+  const raw = (props && typeof props === "object" ? props : {}) as Record<string, unknown>;
+  const t = timing(ed, { props: raw }, at);
+  if (t.easingVariable) fail(`${at}easing: an entry's Easing is a value (variables bind on the layers' animations)`);
+  return { preset: def.key, name: def.name, props: propsFromFigma(def, raw), offsetUs: t.startUs ?? 0, durationUs: t.durationUs ?? presetDurationUs(def), easing: t.easing ?? PRESET_EASING };
+}
+
+/** `style.removeAnimationEntry(entryId)`: the entry gone from the style and from the layers it is applied to. */
+export function removeAnimationEntry(ed: EditorController, styleId: string, entryId: unknown): void {
+  const style = customStyleOf(ed, styleId);
+  if (!style.templates.some((t) => t.id === entryId)) fail(`${style.name} has no entry ${String(entryId)} (style.animationEntries lists them)`);
+  if (!setCustomStyleTemplates(ed, style.id, style.templates.filter((t) => t.id !== entryId))) fail(`The entry ${String(entryId)} couldn't be removed`);
+}
+
+/** `style.remove()`: the style deleted; the layers it was applied to keep their animations. */
+export function removeCustomAnimationStyle(ed: EditorController, styleId: string): void {
+  deleteCustomStyle(ed, customStyleOf(ed, styleId).id);
+}
+
+/**
+ * A custom style applied to a layer at `timelineOffset` (seconds) — or, with `binding`, that binding applied again in
+ * place (a new style or start, its id kept). Figma's input is strict: no duration or props on a custom style.
+ */
+function applyCustomBinding(ed: EditorController, id: Guid, styleId: unknown, config: StyleConfig, binding?: string): string {
+  if (config.duration !== undefined || config.props !== undefined) fail("{type: \"CUSTOM\"} takes only timelineOffset: a custom style carries its own timing and props");
+  const style = customStyleOf(ed, styleId);
+  animatable(ed, id);
+  if (!style.templates.length) fail(`The custom animation style ${style.name} has no entries: add some with style.addAnimationEntryAsync()`);
+  const offset = config.timelineOffset ?? 0;
+  if (!finite(offset) || offset < 0) fail("timelineOffset: seconds, 0 or more");
+  const target = targetOf(ed, id);
+  for (const t of style.templates) if (!presetAllowed(presetDef(t.preset)!, [target])) fail(`${style.name} has ${t.name}, which ${presetDef(t.preset)!.needs === "text" ? "animates text layers only" : "needs a layer with strokes"}`);
+  const before = new Set(clipsOf(ed, id).map((c) => c.style?.id).filter(Boolean));
+  if (!applyCustomStyle(ed, style, [id], target, micros(offset), binding)) fail(`${style.name} couldn't be applied to ${id}`);
+  return binding ?? clipsOf(ed, id).find((c) => c.style?.key === style.id && !before.has(c.style.id))?.style?.id ?? fail(`${style.name} couldn't be applied to ${id}`);
 }

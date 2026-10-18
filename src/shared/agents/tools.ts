@@ -394,8 +394,16 @@ export const TOOLS: ToolDef[] = [
   {
     name: "apply_animation_style",
     title: "Apply animation style",
-    description: 'Applies a composite animation style — its presets stacked to play together — to layers at timelineOffset (seconds; default 0): fadeIn, fadeOut, slideIn, slideOut, scaleIn, scaleOut, spinIn, textEnter / textExit (text layers). One preset at a time is add_animation. ' + WRITE_IDS,
+    description: "Applies a composite animation style — its presets stacked to play together — to layers at timelineOffset (seconds; default 0): fadeIn, fadeOut, slideIn, slideOut, scaleIn, scaleOut, spinIn, textEnter / textExit (text layers), or one of the file's custom styles by id or name (get_motion's customAnimationStyles). One preset at a time is add_animation. " + WRITE_IDS,
     inputSchema: { type: "object", properties: { nodeIds: writeIds, nodeId: writeId, style: { type: "string" }, timelineOffset: { type: "number" }, extendTimeline: { type: "boolean" } }, required: ["style"] },
+    write: true,
+  },
+  {
+    name: "save_animation_style",
+    title: "Save animation style",
+    description:
+      'Makes or changes a custom animation style of the file (a reusable, named set of presets): name with fromNodeId (that layer\'s animations become the style) or entries [{style: "Opacity", props: {duration, delay, easing, …}}] (figma presets, in order; delay is the entry\'s place in the style). With styleId: its content replaced the same way (the layers it is applied to follow), name renames it, delete: true deletes it (the layers keep their animations). Apply one with apply_animation_style.',
+    inputSchema: { type: "object", properties: { styleId: { type: "string" }, name: { type: "string" }, fromNodeId: { type: "string" }, entries: { type: "array", items: { type: "object" } }, delete: { type: "boolean" } } },
     write: true,
   },
   {

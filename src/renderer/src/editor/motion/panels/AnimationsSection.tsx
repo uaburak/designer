@@ -12,7 +12,7 @@
  * **Animations** menu lists the file's custom styles after Figma's (applied the same way), "Create animation style"
  * from the selected layer's clips, and per custom style "Update from selection" and "Delete style" (presets.ts).
  *
- * Not yet: the hover preview of a style on the canvas.
+ * Round 8j: a style's row lit in the Animations menu plays it on the canvas (stylePreview.ts), never written.
  */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Checkbox, Icon, IconButton, MenuButton, NumericInput, PanelSection, PropertyGrid, PropertyRow, Select, cx, tooltipProps, type IconName, type MenuEntry } from "@/ds";
@@ -27,6 +27,7 @@ import vstyles from "../../panels/variables/Variables.module.css";
 import { EasingMenu } from "../easing/EasingEditor";
 import { motionRead, setMotionUi } from "../motionState";
 import { addPreset, applyStyle, clipProps, createCustomStyle, customStyles, deleteCustomStyle, detachStyle, editPreset, presetAllowed, presetDef, removePresets, updateCustomStyle, type CustomStyle, type PresetTarget } from "../presets";
+import { previewStyle, stopStylePreview } from "../stylePreview";
 import { hasStroke } from "./PathTrimSection";
 import styles from "./MotionPanels.module.css";
 
@@ -110,6 +111,8 @@ export function AnimationsSection({ nodes }: { nodes: PanelNode[] }) {
     void model;
     return customStyles(ed);
   }, [ed, model]);
+  // A preview never outlives the section.
+  useEffect(() => () => stopStylePreview(ed), [ed]);
   if (!nodes.length || !model) return null;
   const types: MenuEntry[] = ANIMATION_PRESETS.map((p) => ({ id: p.key, label: t(p.name), icon: PRESET_ICON[p.key], disabled: !presetAllowed(p, targets) }));
   const text = targets.every((n) => n.type === "TEXT");
@@ -125,10 +128,14 @@ export function AnimationsSection({ nodes }: { nodes: PanelNode[] }) {
       data-animations-section
       actions={
         <>
-          <MenuButton label={t("Animation styles")} tooltip={t("Animations")} entries={stylesMenu} className={styles.iconMenu} align="end" gap={PANEL_MENU_GAP} onSelect={(id) => {
+          <MenuButton label={t("Animation styles")} tooltip={t("Animations")} entries={stylesMenu} className={styles.iconMenu} align="end" gap={PANEL_MENU_GAP} onHighlight={(id) => {
+            // A style's row lit: it plays on the canvas (round 8j); the create / edit rows aren't styles.
+            previewStyle(ed, id && !id.includes("|") ? id : null, refs, targets[0]);
+          }} onSelect={(id) => {
+            stopStylePreview(ed);
             const [verb, style] = id.split("|");
             if (verb === "create") createCustomStyle(ed, refs[0], nextStyleName(custom));
-            else if (verb === "update") updateCustomStyle(ed, style, refs[0]);
+            else if (verb === "update") updateCustomStyle(ed, style, refs[0], clips);
             else if (verb === "delete") deleteCustomStyle(ed, style);
             else applyStyle(ed, id, refs, targets[0]);
           }}>

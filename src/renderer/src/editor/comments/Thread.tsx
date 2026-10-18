@@ -7,7 +7,7 @@ import { useRef, useState } from "react";
 import { Avatar, Button, ContextMenu, Dialog, Icon, timeAgo, type MenuEntry } from "@/ds";
 import { intlLocale, t, tp, useT } from "@/i18n";
 import type { Comment, CommentSegment, CommentsState, CommentThread, MentionCandidate } from "@shared/comments";
-import type { CommentsController } from "./commentsController";
+import { formatCommentTime, type CommentsController } from "./commentsController";
 import { AttachmentThumb, AttachmentViewer } from "./attachments";
 import { Composer } from "./Composer";
 import { SegmentsView } from "./richText";
@@ -97,6 +97,12 @@ export function ThreadCard({ c, data, thread, people, style }: { c: CommentsCont
     >
       <header className={styles.threadHeader}>
         <span className={styles.threadTitle}>{t("Comment")}</span>
+        {thread.anchor.timeMs !== null && thread.anchor.timeMs !== undefined && (
+          // Placed in Motion (docs/motion.md §6.8): its time; a click moves the playhead there.
+          <button type="button" className={styles.threadTime} title={t("Go to time")} onClick={() => c.goToTime(thread.id)}>
+            {formatCommentTime(thread.anchor.timeMs)}
+          </button>
+        )}
         <span className={styles.grow} />
         <button type="button" className={styles.iconButton} aria-label={t("Thread actions")} data-open={menu?.comment === null || undefined} onClick={(e) => openMenu(e, threadEntries, null)}>
           <Icon name="24.more" />

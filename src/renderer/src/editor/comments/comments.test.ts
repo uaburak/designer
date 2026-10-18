@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildThreads, checkAttachments, commentLength, mentionsIn, type Comment } from "@shared/comments";
 import { clusterClickZoom, clusterPeople, clusterPins, mergeDistance, pinAvatars, pinTabOrder, pinWidth, threadPeople } from "./clusters";
-import { listedThreads, type CommentsView } from "./commentsController";
+import { formatCommentTime, listedThreads, pinShownAt, timedThreads, type CommentsView } from "./commentsController";
 
 const user = (id: string) => ({ id, name: id === "me" ? "Me" : `User ${id}` });
 const comment = (id: string, by: string, at: number, threadId = id, message = `text ${id}`): Comment => ({
@@ -73,6 +73,26 @@ describe("comment threads", () => {
     expect(ids({ onlyPage: true })).toEqual(["a"]);
     expect(ids({ search: "FIND" })).toEqual(["b"]);
     expect(ids({ sort: "unread", showResolved: true })).toEqual(["c", "b", "a"]);
+  });
+
+  it("keeps Motion's time (docs/motion.md §6.8): ruler markers for the page, pins near the playhead, the card's 0:01.250", () => {
+    const threads = buildThreads(
+      [
+        { comment: comment("a", "me", 10), number: 1, anchor: { pageId: "0:1", x: 0, y: 0, timeMs: 1250 } },
+        { comment: comment("b", "x", 20), number: 2, anchor: { pageId: "0:1", x: 0, y: 0 } },
+        { comment: comment("c", "x", 30), number: 3, anchor: { pageId: "0:2", x: 0, y: 0, timeMs: 0 } },
+        { comment: comment("d", "x", 40), number: 4, anchor: { pageId: "0:1", x: 0, y: 0, timeMs: 61_005 }, resolvedAt: 50 },
+      ],
+      {},
+      "me",
+    );
+    const v = { data: { fileKey: "f", shared: false, me: user("me"), canResolveAny: true, canDeleteAny: true, threads }, showResolved: false } as CommentsView;
+    expect(timedThreads(v, "0:1")).toEqual([{ id: "a", number: 1, timeMs: 1250 }]);
+    expect(timedThreads({ ...v, showResolved: true }, "0:1").map((x) => x.id)).toEqual(["a", "d"]);
+    const a = threads[0].anchor;
+    expect([pinShownAt(a, false, 0), pinShownAt(a, true, 1000), pinShownAt(a, true, 1500), pinShownAt(a, true, 1501)]).toEqual([true, true, true, false]);
+    expect(pinShownAt(threads[1].anchor, true, 9999)).toBe(true);
+    expect([formatCommentTime(1250), formatCommentTime(61_005), formatCommentTime(0)]).toEqual(["0:01.250", "1:01.005", "0:00.000"]);
   });
 
   it("sorts by the first comment's time, or by the last reply's (Sort by last action), and finds threads mentioning you", () => {

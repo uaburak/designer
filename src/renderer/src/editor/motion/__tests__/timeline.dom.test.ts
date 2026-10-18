@@ -3,7 +3,7 @@
 // own): the rows, the diamonds' selection and drag, Delete, the segment's Easing menu, the header's controls; increment
 // 2's marquee, ⌘C / ⌘V and the top edge; round 8a increment 2's animated instance bar dragged in time; round 8h's
 // preset clips (selected, dragged, stretched by either handle, deleted); round 8e's audio rows; round 8i's settings
-// popover, layer bar, scrolling lanes, combine / split menu and read-only view.
+// popover, layer bar, scrolling lanes, combine / split menu and read-only view; the comments' markers on the ruler (§6.8).
 import { act } from "react";
 import { describe, expect, it } from "vitest";
 import type { TimelineModel } from "@shared/motion/types";
@@ -447,6 +447,19 @@ describe("the Motion timeline", () => {
     expect($("[data-easing-editor]")).toBeNull();
     expect($('[data-layer-bar="1:2"]', view.host).hasAttribute("data-editable")).toBe(false);
     expect($("[data-duration-handle]", view.host).hasAttribute("data-readonly")).toBe(true);
+    view.unmount();
+  });
+
+  it("comments with a time (§6.8): a marker on the ruler at each one's time; a click opens it and doesn't scrub", () => {
+    const onOpenComment = spy();
+    const { view, s, scale } = setup({ comments: [{ id: "c1", number: 3, timeMs: 1000 }], onOpenComment } as unknown as Partial<TimelineProps>);
+    const marker = $('[data-comment-marker="c1"]', view.host) as HTMLButtonElement;
+    expect(marker.getAttribute("aria-label")).toBe("Comment #3");
+    expect(parseFloat(marker.style.left)).toBeCloseTo(ORIGIN_PX + 1_000_000 * scale.pxPerUs, 1);
+    pointer(marker, "pointerdown", { clientX: 0 });
+    click(marker);
+    expect(onOpenComment.calls).toEqual([["c1"]]);
+    expect(s.onSeek.calls).toHaveLength(0);
     view.unmount();
   });
 

@@ -2,7 +2,7 @@
 // The Animations section on the real engine (the committed Wasm build, the Figma logo fixture; round 8h, docs/motion.md
 // §4.6, §6.5): + adds a preset at the playhead as one "Add animation" step, its row opens its settings, a setting
 // changed runs the preset's code again, the eye turns the clip off, remove takes it; the composite styles stack their
-// presets under one style, which Detach forgets.
+// presets under one style, which Detach forgets; round 8j: a style hovered in the menu previews on the canvas.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { act, createElement } from "react";
@@ -20,6 +20,7 @@ import MOTION_LOGO_DOCUMENT from "../fixtures/figma-logo-motion.json";
 import { motionUi, setPlayhead } from "../motionState";
 import { AnimationsSection } from "../panels/AnimationsSection";
 import { clipProps, editPreset } from "../presets";
+import { previewing, showStylePreviewAt } from "../stylePreview";
 
 const wasm = join(process.cwd(), "src/renderer/src/engine/wasm/engine.wasm");
 const RED = "1:2";
@@ -103,6 +104,39 @@ describe("the Animations section on the engine", () => {
     act(() => click($(`[data-clip-row="${clips[0].id}"] [aria-label="Detach animation style"]`, view.host)));
     expect(clipsOf(ed).map((c) => c.style)).toEqual([undefined, undefined]);
     expect(clipsOf(ed)).toHaveLength(2);
+    engine.destroy();
+  });
+
+  it("round 8j: a style's row hovered plays it on the canvas, never written; leaving the menu cancels it, a pick applies it once", async () => {
+    const { ed, engine } = await editor();
+    const view = section(ed);
+    const before = clipsOf(ed).length;
+    const undoBefore = ed.store.undo.undoLabel;
+    const hover = (label: string) =>
+      act(() => {
+        menuItem(label).dispatchEvent(new PointerEvent("pointerover", { bubbles: true, pointerId: 1, pointerType: "mouse", clientX: 5, clientY: 5 }));
+      });
+    act(() => click($('[aria-label="Animation styles"]', view.host)));
+    hover("Fade in");
+    expect(previewing(ed)).toBe(true);
+    expect(clipsOf(ed).filter((c) => c.style?.key === "fadeIn")).toHaveLength(1);
+    // At its start the layer is drawn faded out: the preview's frame, not the playhead's.
+    showStylePreviewAt(ed, 0);
+    expect((ed.engine.readNode(RED, { fields: ["opacity"] }) as { opacity?: number }).opacity ?? 1).toBeLessThan(0.01);
+    hover("Fade out");
+    expect(clipsOf(ed).filter((c) => c.style)).toHaveLength(1);
+    expect(clipsOf(ed).find((c) => c.style)?.style?.key).toBe("fadeOut");
+    // The menu closed: nothing of it stays, nor in the history.
+    act(() => click($('[aria-label="Animation styles"]', view.host)));
+    expect(previewing(ed)).toBe(false);
+    expect(clipsOf(ed)).toHaveLength(before);
+    expect(ed.store.undo.undoLabel).toBe(undoBefore);
+    act(() => click($('[aria-label="Animation styles"]', view.host)));
+    hover("Scale in");
+    act(() => click(menuItem("Scale in")));
+    expect(previewing(ed)).toBe(false);
+    expect(clipsOf(ed).filter((c) => c.style?.key === "scaleIn").map((c) => c.preset)).toEqual(["scale", "opacity"]);
+    expect(ed.store.undo.undoLabel).toBe("Apply animation style");
     engine.destroy();
   });
 });

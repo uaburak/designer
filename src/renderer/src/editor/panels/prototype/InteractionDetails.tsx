@@ -2,9 +2,10 @@
  * Interaction details (UI3, R8 §2–§4, §8): the trigger (and its delay or key), then each action — what it does, its
  * destination (a frame, a variant for Change to, a layer for Scroll to), a link, a variable — with its animation
  * (Instant, Dissolve, Smart animate, Move in / out, Push, Slide in / out; the direction; Animate matching layers;
- * easing and duration, a custom bezier's or spring's numbers), State management, and for overlays the destination
- * frame's own overlay settings (Position, Close when clicking outside, Add background behind overlay). "Add action"
- * appends one; a Conditional holds If / Else actions of its own. Videos (help.figma.com 8878274530455): on a video
+ * easing and duration, a custom bezier's or spring's graph — the Easing editor's, round 8j — and numbers), State
+ * management, and for overlays the destination frame's own overlay settings (Position, Close when clicking outside,
+ * Add background behind overlay). "Add action" appends one; a Conditional holds If / Else actions of its own.
+ * Videos (help.figma.com 8878274530455): on a video
  * the triggers add "When video hits" (a time) and "When video ends"; in a frame with videos the actions add
  * "Play/pause video", "Mute/unmute video", "Set to specific time" and "Jump forward/backward in time" (their video and
  * choice), and a Navigate to a frame with a video has "Reset video state". Scroll to has its X / Y offset.
@@ -16,6 +17,7 @@ import { useCurrentPage } from "@/engine/hooks";
 import { useEditor, type EditorController } from "../../controller";
 import { useNodes } from "../../hooks";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
+import { CurveEditor } from "../../motion/easing/CurveEditor";
 import {
   ACTION_ICON,
   ANIMATIONS,
@@ -35,10 +37,12 @@ import {
   formatMediaTime,
   isVideoAction,
   parseMediaTime,
+  prototypeCurve,
   actionOfKind,
   animates,
   animationOf,
   easingFunctionFor,
+  easingFunctionOfCurve,
   guidJson,
   guidOf,
   isDirectional,
@@ -570,6 +574,7 @@ function AnimationEditor({
     onChange({ ...action, easingFunction: next, ...(spring ? { transitionDuration: springSettleTime(next) } : {}) }, "Edit easing", info);
   };
   const springFn = springOf(easing, action.easingFunction);
+  const curve = prototypeCurve(easing, fn);
   return (
     <>
       <div className={styles.divider} />
@@ -645,6 +650,16 @@ function AnimationEditor({
               />
             )}
           </div>
+          {curve && (
+            // The Easing editor's graph (round 8j, shared with Motion): a custom bezier's handles, a custom spring's
+            // bounce; the numbers below follow it.
+            <div className={styles.curve} data-prototype-curve={easing}>
+              <CurveEditor easing={curve} editable onChange={(e, commit) => {
+                const next = easingFunctionOfCurve(e, fn);
+                onChange({ ...action, easingFunction: next, ...(spring ? { transitionDuration: springSettleTime(next) } : {}) }, "Edit easing", { final: commit, source: "drag" });
+              }} />
+            </div>
+          )}
           {easing === "CUSTOM_CUBIC" && (
             <div className={styles.quad}>
               {["X1", "Y1", "X2", "Y2"].map((p, i) => (

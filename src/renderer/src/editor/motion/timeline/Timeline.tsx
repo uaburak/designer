@@ -113,6 +113,10 @@ export interface TimelineProps {
   /** A file's waveform (PEAKS_PER_SECOND peaks, 0–1) and its length (µs); null while it isn't decoded */
   audioPeaks?(hash: string): Float32Array | null;
   audioLength?(hash: string): Micros | null;
+  /** The root's page's comments placed in Motion (docs/motion.md §6.8): a marker on the ruler at each one's time */
+  comments?: readonly { id: string; number: number; timeMs: number }[];
+  /** A comment's marker clicked: the playhead goes to its time and its thread opens */
+  onOpenComment?(id: string): void;
 }
 
 const PLAYBACK_ICON: Record<PlaybackName, IconName> = { LOOP: "24.loop", ONCE: "24.play-once", PING_PONG: "24.ping-pong" };
@@ -670,6 +674,18 @@ export function Timeline(p: TimelineProps) {
                       <span className={styles.tick} data-major={tk.label !== null || undefined} style={{ left: tk.x }} />
                       {tk.label !== null && <span className={styles.tickLabel} style={{ left: tk.x }}>{tk.label}</span>}
                     </span>
+                  ))}
+                  {p.comments?.map((cm) => (
+                    <button
+                      key={cm.id}
+                      type="button"
+                      className={styles.commentMarker}
+                      style={{ left: timeToX(cm.timeMs * 1000, scale) }}
+                      aria-label={t("Comment #{number}", { number: cm.number })}
+                      data-comment-marker={cm.id}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => p.onOpenComment?.(cm.id)}
+                    />
                   ))}
                   <div className={styles.playhead} data-auto={autoKeyframe || undefined} style={{ left: playheadX, pointerEvents: "none" }}>
                     <span className={styles.playheadHandle} />

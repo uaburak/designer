@@ -19,7 +19,7 @@ import type { CommentAnchor, CommentThread, CommentUser } from "@shared/comments
 import { loadNudge } from "../canvasTools";
 import { useEditor } from "../controller";
 import { useUI } from "../hooks";
-import { commentsOf, useComments, type CommentsController } from "./commentsController";
+import { commentsOf, pinShownAt, useComments, type CommentsController } from "./commentsController";
 import {
   ANIMATE_NEW_DELAY_MS,
   CLUSTER,
@@ -65,6 +65,8 @@ function Pins({ c }: { c: CommentsController }) {
   const page = useCurrentPage(ed.store);
   const tool = useTool(ed.store);
   const shown = useUI((s) => s.comments !== false);
+  const motion = useUI((s) => s.mode === "motion");
+  const playheadMs = useUI((s) => Math.round((s.motion?.timeUs ?? 0) / 1000));
   const layer = useRef<HTMLDivElement>(null);
   // Pins on layers follow them: any change to the page re-places them.
   const [, bump] = useState(0);
@@ -154,7 +156,8 @@ function Pins({ c }: { c: CommentsController }) {
   }, [ed, commenting]);
 
   const data = v.data;
-  const threads = (data?.threads ?? []).filter((th) => th.anchor.pageId === page && (!th.resolvedAt || v.showResolved || v.open === th.id));
+  // In Motion, a thread placed at a time shows near the playhead (docs/motion.md §6.8); the open one always.
+  const threads = (data?.threads ?? []).filter((th) => th.anchor.pageId === page && (!th.resolvedAt || v.showResolved || v.open === th.id) && (v.open === th.id || pinShownAt(th.anchor, motion, playheadMs)));
   const at = (a: CommentAnchor) => toCanvas(cam, c.pagePoint(a));
   const draftAt = v.draft && v.draft.pageId === page ? at(v.draft) : null;
   const open = data?.threads.find((th) => th.id === v.open) ?? null;

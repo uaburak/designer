@@ -88,7 +88,11 @@
   .ruler { position: relative; flex: none; height: var(--ruler); border-bottom: 1px solid var(--figma-color-border); cursor: ew-resize; }
   .tick { position: absolute; bottom: 0; width: 1px; height: 4px; background: var(--figma-color-border-strong); }
   .tick[data-major] { height: 8px; background: var(--figma-color-icon-secondary); }
-  .tickLabel { position: absolute; top: 2px; transform: translateX(-50%); color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); letter-spacing: var(--ds-tracking-body-small); white-space: nowrap; }
+  /* A comment placed in Motion (docs/motion.md §6.8): a small speech-bubble mark on the ruler at its time [look ours] */
+  .commentMarker { position: absolute; bottom: 1px; z-index: 1; width: 10px; height: 10px; margin-left: -5px; padding: 0; border: 1px solid var(--figma-color-bg); border-radius: 5px 5px 5px 0; background: var(--figma-color-bg-brand); cursor: pointer; }
+  .commentMarker:hover { background: var(--figma-color-bg-brand-hover); }
+  .commentMarker:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .tickLabel {position: absolute; top: 2px; transform: translateX(-50%); color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); letter-spacing: var(--ds-tracking-body-small); white-space: nowrap; }
   /* The lanes fill what is under the ruler; their rows follow the layer column's scroll (round 8i), the playhead and the past stay over them */
   .lanes { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
   .laneRows { will-change: transform; }

@@ -207,6 +207,10 @@
   .iconButton[data-open] { background: var(--figma-color-bg-hover); }
   .iconButton:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .resolveGlyph[data-done] { color: var(--figma-color-icon-secondary); }
+  /* A thread placed in Motion: its time beside the title (docs/motion.md §6.8) [look ours] */
+  .threadTime { height: 20px; margin-left: var(--ds-space-2); padding: 0 var(--ds-space-1); border: 0; border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); font-variant-numeric: tabular-nums; }
+  .threadTime:hover { background: var(--figma-color-bg-hover); color: var(--figma-color-text); }
+  .threadTime:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
 
   .comment { display: flex; gap: var(--ds-space-2); }
   .commentMain { display: flex; flex: 1; flex-direction: column; min-width: 0; }

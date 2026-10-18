@@ -11,7 +11,9 @@
  *
  * Round 8i: custom (user) animation styles — a STYLE node of type ANIMATION whose content (`styleAnimations`) is
  * template clips — made from a layer's clips ("Create animation style"), updated from one, applied like Figma's own
- * (their templates' code run for the layer, in one step), deleted (DELETE_STYLE: the layers keep their clips).
+ * (their templates' code run for the layer, in one step), deleted (DELETE_STYLE: the layers keep their clips). Round
+ * 8j: an update reaches the layers the style is applied to (the new content's runs go with the command), and the
+ * Plugin API writes a style's content as templates (entries added and removed).
  */
 import { ANIMATION_PRESETS, ANIMATION_STYLES, TIMING_PROP_KEYS, type GuidString, type Micros, type MotionEasing, type PresetDef, type PresetKey, type PresetOutput, type PresetPropValue, type PresetVariables, type StylePresetRun, type TimelineClip } from "@shared/motion/types";
 import { presetProps, runPreset } from "@shared/motion/presets";
@@ -167,6 +169,14 @@ export function applyStyle(ed: EditorController, styleKey: string, nodes: GuidSt
   return run(() => ed.engine.runMotionCommand("MOTION_APPLY_STYLE", { nodes, style: style.key, startUs: Math.max(0, Math.round(startUs ?? motionUi(ed).timeUs)), presets }));
 }
 
+/** How long a style plays from its start (µs): its last preset's end — a composite style's at their defaults, a custom one's templates. */
+export function styleSpanUs(ed: EditorController, styleKey: string): Micros {
+  const custom = customStyles(ed).find((s) => s.id === styleKey);
+  if (custom) return Math.max(0, ...custom.templates.map((t) => t.offsetUs + t.durationUs));
+  const style = ANIMATION_STYLES.find((s) => s.key === styleKey);
+  return Math.max(0, ...(style?.presets ?? []).map((p) => p.offsetMs * 1000 + presetDurationUs(presetDef(p.preset)!)));
+}
+
 /** Detach animation style: the style's entry forgotten, its presets kept as they are. */
 export function detachStyle(ed: EditorController, binding: GuidString): boolean {
   return run(() => ed.engine.runMotionCommand("MOTION_APPLY_STYLE", { detach: binding }));
@@ -176,6 +186,8 @@ export function detachStyle(ed: EditorController, binding: GuidString): boolean 
 
 /** A custom style's template clip: its preset, props (by key), place from the style's start, length and easing. */
 export interface StyleTemplate {
+  /** The template's node (the Plugin API's entry id) */
+  id: GuidString;
   preset: PresetKey;
   name: string;
   props: Record<string, PresetPropValue>;
@@ -231,7 +243,7 @@ export function customStyles(ed: EditorController): CustomStyle[] {
         const templates = (ids.length ? (ed.engine.readNodes(ids) as unknown as StoredNode[]) : []).flatMap((c): StyleTemplate[] => {
           const key = c.backingAnimationPresetId?.assetRef?.key as PresetKey | undefined;
           if (!key || !presetDef(key)) return [];
-          return [{ preset: key, name: c.name ?? presetDef(key)!.name, props: templateProps(key, c.componentPropAssignments), offsetUs: c.timelineOffset ?? 0, durationUs: c.timelineDuration ?? PRESET_DURATION_US, easing: c.easingData ? easingFromData(c.easingData) : PRESET_EASING }];
+          return [{ id: c.guid, preset: key, name: c.name ?? presetDef(key)!.name, props: templateProps(key, c.componentPropAssignments), offsetUs: c.timelineOffset ?? 0, durationUs: c.timelineDuration ?? PRESET_DURATION_US, easing: c.easingData ? easingFromData(c.easingData) : PRESET_EASING }];
         });
         return { id: n.guid, name: n.name ?? "", templates };
       });
@@ -240,29 +252,59 @@ export function customStyles(ed: EditorController): CustomStyle[] {
   }
 }
 
-/** A custom style on the layers: its templates' code run for the layer, each at its place from the playhead (or `startUs`). */
-export function applyCustomStyle(ed: EditorController, style: CustomStyle, nodes: GuidString[], target?: PresetTarget, startUs?: Micros): boolean {
-  if (!style.templates.length || !nodes.length) return false;
-  const presets: StylePresetRun[] = style.templates.map((p) => {
+/**
+ * Templates as the runs MOTION_APPLY_STYLE takes: each one's code run (the preset code reads only its settings, so one
+ * output serves every layer), its place from the style's start.
+ */
+export function templateRuns(templates: readonly Omit<StyleTemplate, "id">[], target?: PresetTarget): StylePresetRun[] {
+  return templates.map((p) => {
     const props = presetProps(p.preset, p.props);
     return { preset: p.preset, name: p.name, props: storedProps(props), offsetUs: p.offsetUs, durationUs: p.durationUs, easing: p.easing, output: presetOutput(p.preset, props, p.durationUs, p.easing, target) };
   });
-  return run(() => ed.engine.runMotionCommand("MOTION_APPLY_STYLE", { nodes, style: style.id, startUs: Math.max(0, Math.round(startUs ?? motionUi(ed).timeUs)), presets }));
 }
 
-/** "Create animation style": a new custom style from the layer's clips (their timing from the earliest one). */
-export function createCustomStyle(ed: EditorController, from: GuidString, name: string): GuidString | null {
+/** A layer's clips as a style's templates, timed from the earliest one (as the engine makes them from `from`). */
+export function clipTemplates(clips: readonly TimelineClip[]): Omit<StyleTemplate, "id">[] {
+  const earliest = Math.min(...clips.map((c) => c.startUs));
+  return clips.map((c) => ({ preset: c.preset, name: c.name, props: clipProps(c), offsetUs: c.startUs - earliest, durationUs: c.durationUs, easing: "type" in c.easing ? c.easing : PRESET_EASING }));
+}
+
+/**
+ * A custom style on the layers: its templates' code run for the layer, each at its place from the playhead (or
+ * `startUs`); with `binding` (round 8j), that entry of the one layer applied again in place (its id kept).
+ */
+export function applyCustomStyle(ed: EditorController, style: CustomStyle, nodes: GuidString[], target?: PresetTarget, startUs?: Micros, binding?: GuidString): boolean {
+  if (!style.templates.length || !nodes.length) return false;
+  const presets = templateRuns(style.templates, target);
+  return run(() => ed.engine.runMotionCommand("MOTION_APPLY_STYLE", { nodes, style: style.id, startUs: Math.max(0, Math.round(startUs ?? motionUi(ed).timeUs)), presets, ...(binding ? { binding } : {}) }));
+}
+
+/** "Create animation style": a new custom style from the layer's clips (their timing from the earliest one); without `from`, an empty one (the Plugin API's createCustomAnimationStyle). */
+export function createCustomStyle(ed: EditorController, from: GuidString | null, name: string): GuidString | null {
   try {
-    const r = ed.engine.runMotionCommandCreating("MOTION_APPLY_STYLE", { create: { name, from } });
+    const r = ed.engine.runMotionCommandCreating("MOTION_APPLY_STYLE", { create: from ? { name, from } : { name, templates: [] } });
     return r.status === 0 ? (r.created[0] ?? null) : null;
   } catch {
     return null;
   }
 }
 
-/** "Update animation style": the custom style's templates replaced by the layer's clips. */
-export function updateCustomStyle(ed: EditorController, style: GuidString, from: GuidString): boolean {
-  return run(() => ed.engine.runMotionCommand("MOTION_APPLY_STYLE", { create: { from, style } }));
+/**
+ * "Update animation style": the custom style's templates replaced by the layer's clips (`clips`, the layer's as the
+ * timeline shows them); round 8j: the layers the style was applied to take the new content in the same step.
+ */
+export function updateCustomStyle(ed: EditorController, style: GuidString, from: GuidString, clips: readonly TimelineClip[]): boolean {
+  return run(() => ed.engine.runMotionCommand("MOTION_APPLY_STYLE", { create: { from, style, presets: templateRuns(clipTemplates(clips)) } }));
+}
+
+/**
+ * A custom style's content written as `templates` (the Plugin API's entries added or removed), reaching its layers
+ * too; a template with its `id` is kept as it is (entries keep their ids).
+ */
+export function setCustomStyleTemplates(ed: EditorController, style: GuidString, templates: readonly (Omit<StyleTemplate, "id"> & { id?: GuidString })[]): boolean {
+  const runs = templateRuns(templates);
+  const kept = runs.map((r, i) => (templates[i].id ? { ...r, id: templates[i].id } : r));
+  return run(() => ed.engine.runMotionCommand("MOTION_APPLY_STYLE", { create: { style, templates: kept, presets: runs } }));
 }
 
 /** "Delete style": the style goes; the layers it was applied to keep their clips. */

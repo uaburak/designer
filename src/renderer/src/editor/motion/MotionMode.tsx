@@ -19,7 +19,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { showToast } from "@/ds";
 import type { Guid } from "@/engine/codec";
+import { useCurrentPage } from "@/engine/hooks";
 import type { EasingRef, GuidString, Micros, PlaybackName, TimelineAudioClip, TimelineClip, TimelineModel, TimelineTrack } from "@shared/motion/types";
+import { commentsOf, timedThreads, useComments } from "../comments/commentsController";
 import { useEditor } from "../controller";
 import { useTopics, useUI } from "../hooks";
 import { MOTION_UI_DEFAULT } from "../uiStore";
@@ -79,6 +81,10 @@ function MotionShell() {
     root.style.setProperty("--ds-size-motion-timeline", `${ui.height}px`);
     return () => void root.style.removeProperty("--ds-size-motion-timeline");
   }, [ui.height]);
+  // The page's comments placed in Motion: markers on the ruler (docs/motion.md §6.8).
+  const commentsView = useComments(ed);
+  const page = useCurrentPage(ed.store);
+  const timedComments = useMemo(() => timedThreads(commentsView, page), [commentsView, page]);
   const model = useMemo<TimelineModel | null>(() => {
     void version;
     void motionVersion;
@@ -343,6 +349,14 @@ function MotionShell() {
       audioLength={(hash) => {
         const b = library.buffer(hash);
         return b ? Math.round(b.duration * 1e6) : null;
+      }}
+      comments={timedComments}
+      onOpenComment={(id) => {
+        const at = timedComments.find((cm) => cm.id === id);
+        if (!at) return;
+        clock.seek(at.timeMs * 1000);
+        setPlayhead(ed, at.timeMs * 1000);
+        commentsOf(ed)?.openThread(id, true);
       }}
     />
   );
