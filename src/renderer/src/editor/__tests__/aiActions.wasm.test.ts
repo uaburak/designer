@@ -179,7 +179,7 @@ describe("Rename layers", () => {
     const [a, b] = await screens(t);
     t.engine.setSelection([a, b]);
     const seen: string[] = [];
-    const off = t.engine.onDocumentChanged(() => seen.push(name(t.engine, a)));
+    const off = t.engine.onDocumentChanged(() => seen.push(name(t.engine, a) ?? ""));
     const count = await t.ai.renameLayers();
     off();
     expect(count).toBeGreaterThanOrEqual(5);
