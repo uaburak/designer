@@ -63,7 +63,7 @@ describe("export access", () => {
     expect(canDuplicateFile(ed)).toBe(false);
     expect(canSaveLocalCopy(ed)).toBe(false);
     const enabled = (id: string) => COMMANDS.find((c) => c.id === id)!.enabled!(ed);
-    for (const id of ["file.export", "file.export-frames-to-pdf", "edit.copy-as-png", "edit.copy-as-svg", "edit.copy-as-code", "edit.copy", "edit.cut", "file.duplicate", "file.save-local-copy"]) expect(enabled(id), id).toBe(false);
+    for (const id of ["file.export", "file.export-frames-to-pdf", "edit.copy-as-png", "edit.copy-as-svg", "edit.copy-as-css", "edit.copy", "edit.cut", "file.duplicate", "file.save-local-copy"]) expect(enabled(id), id).toBe(false);
 
     // The canvas's ⌘C: the document's own listener never hears it
     let heard = 0;

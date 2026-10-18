@@ -68,6 +68,9 @@ function build(ed: EditorController, specs: Spec[], prefix: string, checks = fal
 /** Live View menu: 201 wide (main-view.txt); see MAIN_MENU_WIDTH for its .4. */
 const VIEW_WIDTH = 201.4;
 
+/** Copy as code ▸ (atlas 03 "Copy/Paste as": `copy-as-code` {CSS, CSS (all layers), iOS, Android}). */
+const COPY_AS_CODE: Spec[] = ["edit.copy-as-css", "edit.copy-as-css-recursive", "edit.copy-as-ios", "edit.copy-as-android"];
+
 // Atlas 09 §4: Figma's Object menu code has a submenu (multi-stack-selection-submenu) with Suggest auto layout and
 // destroy-all-auto-layout that the live menus don't show (gated); they sit here after a line until a probe names it.
 const MORE_LAYOUT: SubSpec = {
@@ -215,7 +218,7 @@ export const MAIN_MENU: Spec[] = [
       "edit.undo",
       "edit.redo",
       "-",
-      { label: "Copy as", items: ["edit.copy-as-png", "edit.copy-as-svg", "edit.copy-as-code", "edit.copy-as-text"] },
+      { label: "Copy as", items: ["edit.copy-as-png", "edit.copy-as-svg", { label: "Copy as code", items: COPY_AS_CODE }, "edit.copy-as-text"] },
       "edit.paste-over-selection",
       "edit.paste-to-replace",
       "edit.duplicate",
@@ -557,7 +560,7 @@ export function canvasMenu(ed: EditorController, layers: { id: Guid; name: strin
     // Live (context-layer-row.txt): a Layers row's menu has no Paste here.
     ...(row ? [] : ["edit.paste-here"]),
     "edit.paste-to-replace",
-    { label: "Copy/Paste as", items: ["edit.copy-as-text", "edit.copy-as-code", "edit.copy-as-svg", "edit.copy-as-png", "-", "edit.copy-properties", "edit.paste-properties"] },
+    { label: "Copy/Paste as", items: ["edit.copy-as-text", { label: "Copy as code", items: COPY_AS_CODE }, "edit.copy-as-svg", "edit.copy-as-png", "-", "edit.copy-properties", "edit.paste-properties"] },
     "canvas.send-to-make",
     ...(multi ? [] : ["canvas.find-similar"]),
     ...(allComponents ? [] : ["canvas.add-motion"]),

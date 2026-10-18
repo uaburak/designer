@@ -260,7 +260,11 @@ export class ViewerDoc {
     const node = this.engine.readNode(id);
     if (!node) return null;
     const parent = this.parentOf(id);
-    const parentStackMode = parent ? (this.engine.readNode(parent, { fields: ["stackMode"] })?.stackMode ?? null) : null;
+    const parentNode = parent ? this.engine.readNode(parent, { fields: ["type", "name", "size", "stackMode", "stackPrimarySizing"] }) : null;
+    const parentStackMode = parentNode?.stackMode ?? null;
+    // A wrapping auto layout writes `align-content` unless every child fills its counter axis (atlas 14 §5.4).
+    const kids = node.stackWrap === "WRAP" ? ((this.engine.readNode(id, { fields: ["type"], childIds: true }) as { childIds?: Guid[] } | null)?.childIds ?? []) : [];
+    const childrenFill = kids.length > 0 && kids.every((k) => this.engine.readNode(k, { fields: ["stackChildAlignSelf"] })?.stackChildAlignSelf === "STRETCH");
     const styles = this.styles();
     const name = (a: AssetId | undefined) => {
       const g = assetGuid(a);
@@ -269,6 +273,8 @@ export class ViewerDoc {
     return {
       node,
       parentStackMode,
+      parent: parentNode,
+      childrenFill,
       variables: this.variablesOf(id),
       styles: { fill: name(node.styleIdForFill), stroke: name(node.styleIdForStrokeFill), text: name(node.styleIdForText), effect: name(node.styleIdForEffect) },
     };

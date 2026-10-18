@@ -7,7 +7,7 @@
  * (`file:export-assets`: the system's Save dialog, or a folder for several) —
  * a view never writes files — or, in a browser, downloads them (a ZIP for
  * several). Also Copy as PNG (⇧⌘C, 2x as Figma's), Copy as SVG, Copy as code
- * (CSS), Copy as text, and File › Export frames to PDF….
+ * (CSS, CSS of all layers, iOS, Android: Dev Mode's generators), Copy as text, and File › Export frames to PDF….
  */
 import { t } from "@/i18n";
 import { useSyncExternalStore } from "react";
@@ -21,15 +21,10 @@ import { engineExports } from "./engineCompat";
 import { presenceOf } from "./multiplayer/presence";
 import { exportAllowedFor, type ExportAccessStore } from "../files/governance";
 import { encodePixels, renderEngineExport } from "./exportCore";
-import {
-  cssOf,
-  exportFileName,
-  exportSettingsOf,
-  readingOrder,
-  zipStored,
-  type CssNode,
-  type ExportSettings,
-} from "./model/exports";
+import { exportFileName, exportSettingsOf, readingOrder, zipStored, type ExportSettings } from "./model/exports";
+import { sectionsText } from "../../../viewer/inspect/code";
+import { codeSections } from "../../../viewer/inspect/codegen";
+import { ViewerDoc } from "../../../viewer/viewerDoc";
 
 /** Whether this engine build exports (the export ABI is there). */
 export const engineCanExport = (ed: EditorController) => !ed.engine.destroyed && engineExports(ed.engine, "export");
@@ -285,12 +280,38 @@ export async function copyAsSvg(ed: EditorController): Promise<void> {
   showToast({ message: ok ? t("Copied as SVG") : t("Couldn't copy as SVG") });
 }
 
-/** Copy as code: the selection's CSS (Figma's "Copy as code › CSS"). */
-export async function copyAsCode(ed: EditorController): Promise<void> {
-  if (!exportAllowed(ed)) return;
-  const nodes = ed.engine.readNodes(ed.selection).map(ed.withRealType);
-  if (!nodes.length) return;
-  const text = nodes.map((n) => cssOf(n as unknown as CssNode)).join("\n");
+/** What "Copy as code ▸" copies: CSS, CSS (all layers) — each layer under the selection too —, iOS (SwiftUI), Android (Compose). */
+export type CopyCodeLanguage = "css" | "css-all" | "ios" | "android";
+
+/**
+ * Copy as code ▸ (docs/research/atlas/03 "Copy/Paste as", 14 §4): Dev Mode's first-party code of each selected layer,
+ * in px, layers apart by a blank line. "CSS (all layers)" walks each one's layers depth first, each headed by its name
+ * as a comment (that heading is ours: Figma's recursive format is unread).
+ */
+export async function copyAsCode(ed: EditorController, language: CopyCodeLanguage = "css"): Promise<void> {
+  if (!exportAllowed(ed) || !ed.selection.length) return;
+  const doc = new ViewerDoc(ed.engine);
+  const lang = language === "ios" ? "swiftui" : language === "android" ? "compose" : "css";
+  const ids: Guid[] = [];
+  const walk = (id: Guid) => {
+    ids.push(id);
+    const n = ed.engine.readNode(id, { fields: ["visible"], childIds: true }) as (NodeChange & { childIds?: Guid[] }) | null;
+    for (const c of n?.childIds ?? []) if (ed.engine.readNode(c, { fields: ["visible"] })?.visible !== false) walk(c);
+  };
+  for (const id of ed.selection) {
+    if (language === "css-all") walk(id);
+    else ids.push(id);
+  }
+  const text = ids
+    .map((id) => {
+      const input = doc.inspect(id);
+      if (!input) return "";
+      const code = sectionsText(codeSections(input, lang));
+      return language === "css-all" ? `/* ${input.node.name ?? ""} */\n${code}` : code;
+    })
+    .filter(Boolean)
+    .join("\n\n");
+  if (!text) return;
   const ok = await writeClipboard({ "text/plain": new Blob([text], { type: "text/plain" }) }, text);
   showToast({ message: ok ? t("Copied to clipboard") : t("Couldn't copy") });
 }
