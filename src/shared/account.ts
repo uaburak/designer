@@ -75,6 +75,15 @@ export interface AccountPrefs {
   viewHistory?: boolean;
   /** "Answer API requests for my files while Wecra is open" (the desktop's render helper, docs/multiplayer.md §16.6): absent = on */
   restHelper?: boolean;
+  /**
+   * The editor's preferences Figma keeps on the user record (atlas 21 §2; editor/preferences.ts ROAMING): Use number
+   * keys for opacity (`use_numbers_for_opacity`), Use scroll wheel zoom (`mouse_scroll_to_zoom`), Right-click and drag
+   * to pan (`right_click_drag_to_pan`), Accessibility settings › screen reader (`screenreader_enabled`)
+   */
+  numberKeysOpacity?: boolean;
+  scrollWheelZoom?: boolean;
+  rightDragPan?: boolean;
+  screenReader?: boolean;
 }
 
 /** Settings › Community: the Community profile (help.figma.com 360038510833, 4404108672663). */

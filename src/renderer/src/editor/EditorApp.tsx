@@ -47,6 +47,7 @@ import { BottomToolbar } from "./canvas/BottomToolbar";
 import { CanvasMenu, attachCanvasMenu, attachGridTracks } from "./canvas/CanvasMenu";
 import { TitleRename, attachTitleRename } from "./canvas/TitleRename";
 import { EyedropperLoupe, InlineValueEdit, NudgeDialog } from "./canvas/CanvasTools";
+import { AccessibilityDialog } from "./AccessibilityDialog";
 import { ActionsPanel } from "./panels/ActionsPanel";
 import { AiHost } from "./ai/AiHost";
 import { PluginLayer } from "./plugins/ui/PluginLayer";
@@ -521,6 +522,7 @@ function Overlays() {
       <InlineValueEdit />
       <EyedropperLoupe />
       <NudgeDialog />
+      <AccessibilityDialog />
       <ColorProfileDialog />
       <CommandOverlays />
       <StatusMenu />

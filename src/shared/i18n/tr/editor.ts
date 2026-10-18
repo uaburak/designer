@@ -1564,4 +1564,18 @@ export const editor: Record<string, string> = {
   "We can't open that file": "Bu dosyayı açamıyoruz",
   "We're having trouble with WebGL on this device. If this problem persists, restart the app.": "Bu cihazda WebGL ile ilgili bir sorun yaşıyoruz. Sorun devam ederse uygulamayı yeniden başlatın.",
   "Hardware acceleration is turned off. Turn it on in your browser's settings for the best performance.": "Donanım hızlandırma kapalı. En iyi performans için tarayıcınızın ayarlarından açın.",
+  // ── Atlas wave 8, settings and accessibility (chapter 21): Accessibility settings… (AccessibilityDialog.tsx) ──
+  "Accessibility settings": "Erişilebilirlik ayarları",
+  "Screen reader": "Ekran okuyucu",
+  "Adapt content to screen readers": "İçeriği ekran okuyuculara uyarla",
+  "Underline links": "Bağlantıların altını çiz",
+  "Actions menu focus": "Eylemler menüsünde odak",
+  "Simplify focus navigation in the Actions menu": "Eylemler menüsünde odak gezinmesini sadeleştir",
+  "Enhanced contrast": "Artırılmış kontrast",
+  "Shortcuts in text fields": "Metin alanlarında kısayollar",
+  "Ignore Wecra-specific shortcuts in text fields": "Metin alanlarında Wecra'ya özgü kısayolları yok say",
+  "Rotation shortcuts": "Döndürme kısayolları",
+  "Use Ctrl+Alt+↑/↓ to rotate layers": "Katmanları döndürmek için Ctrl+Alt+↑/↓ kullan",
+  "Follow spotlight automatically": "Spot ışığını otomatik takip et",
+  "Automatically follow a collaborator when they turn on spotlight in a file": "Bir dosyada spot ışığını açan ortak çalışanı otomatik olarak takip et",
 };

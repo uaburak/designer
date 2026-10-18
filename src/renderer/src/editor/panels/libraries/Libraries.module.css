@@ -191,6 +191,7 @@
   /* The loading placeholders: five rows, each fainter and later (atlas 12 §6.3) */
   .skeletonRow { flex: none; height: 64px; border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); animation: skeleton var(--ds-duration-shimmer) ease-in-out infinite; }
   @keyframes skeleton { 50% { background: var(--figma-color-bg-tertiary); } }
+  @media (prefers-reduced-motion: reduce) { .skeletonRow { animation: none; } }
   /* Review updates: its own draggable window (atlas 12 §6.5) */
   .reviewWindow {
     position: fixed;

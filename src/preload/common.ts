@@ -33,13 +33,14 @@ export function send<C extends keyof IpcSend>(channel: C, ...payload: IpcSend[C]
 /** Handed over by main's additionalArguments: a sandboxed preload has no app module. */
 const arg = (name: string) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? "";
 
-/** `--designer-theme=<preference>:<resolved>[:contrast]` */
+/** `--designer-theme=<preference>:<resolved>:[contrast]:[underline]` */
 function bootTheme(): ThemeState {
-  const [preference, resolved, contrast] = arg("designer-theme").split(":");
+  const [preference, resolved, contrast, underline] = arg("designer-theme").split(":");
   return {
     preference: preference === "light" || preference === "dark" ? preference : "system",
     resolved: resolved === "dark" ? "dark" : "light",
     contrast: contrast === "contrast",
+    underlineLinks: underline === "underline",
   };
 }
 
@@ -67,6 +68,7 @@ export function common<R extends Role>(role: R) {
     theme: bootTheme(),
     setTheme: (preference: ThemePreference) => invoke("theme:set", preference),
     setContrast: (on: boolean) => invoke("theme:set-contrast", on === true),
+    setUnderlineLinks: (on: boolean) => invoke("theme:set-underline-links", on === true),
     onThemeChanged: (cb: (t: ThemeState) => void) => on("theme:changed", cb),
     locale: (arg("designer-locale") === "tr" ? "tr" : "en") as Locale,
     setLocale: (locale: Locale) => invoke("locale:set", locale === "tr" ? "tr" : "en"),

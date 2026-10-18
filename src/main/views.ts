@@ -1,5 +1,7 @@
 import { themeArg } from "./theme";
 import { localeArg } from "./locale";
+import { zoomFactor } from "./interfaceScale";
+import { backendQuery } from "./troubleshooting";
 import { app, Menu, nativeTheme, shell, WebContentsView, type MenuItemConstructorOptions, type WebContents } from "electron";
 import { join } from "node:path";
 import type { Role } from "../shared/ipc";
@@ -63,6 +65,8 @@ export function createView(role: Role, windowId: string, tabId: string | null, q
       // Prototypes' videos start by themselves, with sound when their Prototype › Video says so (a prototype tab opens
       // without a click in its own page; Figma's desktop app plays them).
       ...(role === "editor" ? { autoplayPolicy: "no-user-gesture-required" as const } : {}),
+      // View › Interface Scale (interfaceScale.ts): a new view starts at it.
+      zoomFactor: zoomFactor(),
       v8CacheOptions: "bypassHeatCheck",
       // The theme before the first paint (boot.js reads it from the preload): preference and what it resolves to.
       additionalArguments: [`--designer-role=${role}`, `--designer-version=${app.getVersion()}`, `--designer-theme=${themeArg()}`, `--designer-locale=${localeArg()}`],
@@ -76,7 +80,7 @@ export function createView(role: Role, windowId: string, tabId: string | null, q
   harden(contents);
   // Home and editors talk to the store over a port of their own, a new one on every load.
   if (role === "home" || role === "editor") connectStoreView(contents, role);
-  void contents.loadURL(pageUrl(query)).catch(() => {
+  void contents.loadURL(pageUrl(role === "editor" ? { ...query, ...backendQuery() } : query)).catch(() => {
     /* a load cut short (the view closed while loading) */
   });
   return view;

@@ -915,7 +915,8 @@ export const COMMANDS: EditorCommand[] = [
   later("prefs.color-profile", "Color profile…"),
   // help.figma.com "Select a keyboard layout": the Keyboard shortcuts panel's Layout tab.
   ui("prefs.keyboard-layout", "Keyboard layout…", undefined, (ed) => ed.ui.set({ shortcutsOpen: true, shortcutsTab: "layout" })),
-  later("prefs.accessibility", "Accessibility settings…"),
+  // Atlas 21 §4.1: the seven switches (AccessibilityDialog.tsx).
+  ui("prefs.accessibility", "Accessibility settings…", undefined, (ed) => ed.ui.set({ accessibilityDialog: true, uiHidden: false })),
   later("prefs.permissions", "Permissions and helpers…"),
   ui("prefs.nudge-amount", "Nudge amount…", undefined, (ed) => ed.ui.set({ nudgeDialog: true, uiHidden: false })),
   // The Figma menu's "Open in desktop app" (the web app's; this app has no deep links yet).

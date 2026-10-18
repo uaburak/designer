@@ -57,6 +57,8 @@ interface DesktopCommon {
   setTheme(preference: ThemePreference): Promise<ThemeState>;
   /** Settings › Account › Enhance contrast (Home and editors) */
   setContrast(on: boolean): Promise<ThemeState>;
+  /** Preferences › Accessibility settings › Underline links */
+  setUnderlineLinks(on: boolean): Promise<ThemeState>;
   onThemeChanged(cb: (t: ThemeState) => void): Unsubscribe;
   /** The UI's language when the view was made (`--designer-locale`); onLocaleChanged after (src/shared/i18n) */
   locale: Locale;

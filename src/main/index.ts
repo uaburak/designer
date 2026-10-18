@@ -22,6 +22,8 @@ import { DEV_URL, handleScheme, isAppUrl, registerScheme } from "./protocol";
 import { flushStore, retryStoreHost, startStoreHost, storeClient, storeDebug } from "./storeHost";
 import { initTheme } from "./theme";
 import { initLocale } from "./locale";
+import { initInterfaceScale } from "./interfaceScale";
+import { initTroubleshooting } from "./troubleshooting";
 import { initUpdater } from "./updater";
 import { PRODUCT_NAME } from "./identity";
 import { confirmQuit, controllers, finishQuit, lifecycle, type WindowController } from "./window";
@@ -38,6 +40,8 @@ import { initGate, openMain, whenOpen } from "./gate";
 // The dev server's page can't have the built page's CSP (Vite's hot reload is inline): Electron's warning about it is for the built app only.
 if (DEV_URL) process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "true";
 
+// Help › Troubleshooting › Disable Hardware Acceleration, kept from the last session: before ready.
+initTroubleshooting();
 registerScheme();
 app.enableSandbox();
 
@@ -117,6 +121,7 @@ if (!app.requestSingleInstanceLock()) {
     app.setAboutPanelOptions({ applicationName: PRODUCT_NAME, applicationVersion: app.getVersion(), copyright: "Burak Koç" });
     initTheme();
     initLocale();
+    initInterfaceScale();
     handleScheme();
     handlePluginScheme();
     handleAimodelScheme();

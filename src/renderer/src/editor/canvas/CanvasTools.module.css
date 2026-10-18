@@ -70,7 +70,8 @@
   .loupeRow[data-chosen] .loupeHint { color: var(--figma-color-text); }
   .loupeRow[data-chosen] .loupeKey { background: var(--figma-color-bg-brand); color: var(--figma-color-text-onbrand); }
 
-  .form { display: flex; flex-direction: column; gap: var(--ds-space-2); }
-  .row { display: grid; grid-template-columns: 96px 1fr; align-items: center; gap: var(--ds-space-2); }
   .rowLabel { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  /* The Nudge amount window (180 wide): the label, then the field */
+  .nudgeForm { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-3) var(--ds-space-4); }
+  .nudgeRow { display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: var(--ds-space-2); }
 }

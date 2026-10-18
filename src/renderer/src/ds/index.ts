@@ -18,6 +18,7 @@ export * from "./util/paint";
 export { timeAgo, formatEdited } from "./util/time";
 export { textWidth, clearTextWidths, onFontsLoaded } from "./util/textWidth";
 export { keys, IS_MAC } from "./util/keys";
+export { prefersReducedMotion, glideMs } from "./util/motion";
 export { typeahead, createTypeahead } from "./util/typeahead";
 export { selectAllOnClick } from "./util/selectAll";
 export { ReturnFocusProvider, useReturnFocus } from "./util/returnFocus";

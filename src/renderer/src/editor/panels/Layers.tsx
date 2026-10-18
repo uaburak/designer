@@ -15,7 +15,7 @@
  * pinned row; from below at mid-height). Figma's rules: docs/research/atlas/02-editor-chrome.md §3.6.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { IconButton, LAYER_ROW_LARGE, LAYER_THUMB, LayerRow, PanelSection, VirtualList, layerListWidth, onFontsLoaded, showToast, type IconName } from "@/ds";
+import { glideMs, IconButton, LAYER_ROW_LARGE, LAYER_THUMB, LayerRow, PanelSection, VirtualList, layerListWidth, onFontsLoaded, showToast, type IconName } from "@/ds";
 import { layerThumbnails } from "../draw/panels/layerThumbs";
 import { LayerThumb } from "../draw/panels/LayerThumb";
 import { useHover, useSelection } from "@/engine/hooks";
@@ -181,11 +181,11 @@ export function selectable(ed: EditorController, refs: readonly Guid[]): Guid[] 
   return out;
 }
 
-/** A layer selected and the camera on it (as ⇧2, Zoom to selection, gliding over 300 ms). */
+/** A layer selected and the camera on it (as ⇧2, Zoom to selection, gliding over 300 ms; a jump with Reduce motion on). */
 export function zoomToLayer(ed: EditorController, id: Guid): void {
   ed.engine.setSelection(selectable(ed, [id]));
   ed.ui.set({ anchor: id });
-  ed.engine.command("ZOOM_TO_SELECTION", { animate: 300 });
+  ed.engine.command("ZOOM_TO_SELECTION", { animate: glideMs(300) });
 }
 
 /** "Collapse layers" (⌥L, the Layers header): every expanded layer closes but the selection's ancestors (Figma). */
@@ -353,7 +353,7 @@ export function Layers() {
     if (!e.shiftKey && !mod && (e.target as Element | null)?.closest?.("[data-layer-icon]")) {
       select([id]);
       ed.ui.set({ anchor: id });
-      ed.engine.command("ZOOM_TO_SELECTION", { animate: 300 });
+      ed.engine.command("ZOOM_TO_SELECTION", { animate: glideMs(300) });
       return;
     }
     let deferred = false;

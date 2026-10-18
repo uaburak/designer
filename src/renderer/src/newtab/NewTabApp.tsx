@@ -5,7 +5,7 @@
  */
 import "@/ds/global.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Icon, Select, Spinner, timeAgo, TooltipManager, useThemeRoot, type SelectEntry } from "@/ds";
+import { Icon, prefersReducedMotion, Select, Spinner, timeAgo, TooltipManager, useThemeRoot, type SelectEntry } from "@/ds";
 import { t, useT } from "@/i18n";
 import type { FileListItem, Folder } from "@shared/store/types";
 import { filesBackend, type FilesBackend } from "../files/storeAccess";
@@ -67,7 +67,7 @@ export default function NewTabApp() {
     const at = rows.indexOf(document.activeElement as HTMLElement);
     const next = rows[at < 0 ? 0 : Math.max(0, Math.min(rows.length - 1, at + (e.key === "ArrowDown" ? 1 : -1)))];
     next.focus({ preventScroll: true });
-    next.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    next.scrollIntoView({ block: "nearest", behavior: prefersReducedMotion() ? "auto" : "smooth" });
   };
 
   return (

@@ -23,7 +23,8 @@ import * as sharedFonts from "./sharedFonts";
 import { isAppUrl } from "./protocol";
 import { workspaceDir } from "./storeHost";
 import { setShortcutSettings, shortcutSettings } from "./shortcuts";
-import { setContrast, setThemePreference, themeState } from "./theme";
+import { setContrast, setThemePreference, setUnderlineLinks, themeState } from "./theme";
+import { zoomFactor } from "./interfaceScale";
 import { setLocalePreference } from "./locale";
 import { parseLocale, t } from "../shared/i18n";
 import { removeUploadedFont, uploadFonts, uploadedFonts } from "./uploadedFonts";
@@ -145,7 +146,7 @@ export function registerIpc() {
     if (id && typeof p.x === "number" && typeof p.y === "number") ctl.tabs.contextMenu(id, p.x, p.y);
   });
   onSend("tabs:main-menu", ({ ctl }, p) => {
-    if (typeof p?.x === "number" && typeof p.y === "number") Menu.getApplicationMenu()?.popup({ window: ctl.win, x: Math.round(p.x), y: Math.round(p.y) });
+    if (typeof p?.x === "number" && typeof p.y === "number") Menu.getApplicationMenu()?.popup({ window: ctl.win, x: Math.round(p.x * zoomFactor()), y: Math.round(p.y * zoomFactor()) });
   });
   onSend("tabs:reopen", ({ ctl }) => void ctl.tabs.reopen());
   onSend("tabs:new-tab", ({ ctl }) => ctl.tabs.newTab());
@@ -335,6 +336,7 @@ export function registerIpc() {
     return setThemePreference(preference);
   });
   onInvoke("theme:set-contrast", (_c, on) => setContrast(on === true));
+  onInvoke("theme:set-underline-links", (_c, on) => setUnderlineLinks(on === true));
   onInvoke("locale:set", (_c, locale) => setLocalePreference(parseLocale(locale)));
   // ── The Figma connection (docs/desktop.md §13 "Images from Figma"): the token is sealed here, never sent back ──
   onInvoke("figma:status", () => figmaConnection().status());
@@ -493,10 +495,11 @@ function popupMenu(ctl: WindowController, sender: WebContents, p: { template: Na
       });
     const view = [ctl.tabbar, ...ctl.tabs.contentViews()].find((v) => v.webContents === sender);
     const origin = view?.getBounds() ?? { x: 0, y: 0 };
+    // The view's CSS px, at View › Interface Scale's zoom (interfaceScale.ts).
     Menu.buildFromTemplate(build(p?.template, 0)).popup({
       window: ctl.win,
-      x: Math.round(origin.x + (Number(p?.x) || 0)),
-      y: Math.round(origin.y + (Number(p?.y) || 0)),
+      x: Math.round(origin.x + (Number(p?.x) || 0) * zoomFactor()),
+      y: Math.round(origin.y + (Number(p?.y) || 0) * zoomFactor()),
       // The pick's click may come just after the menu closes.
       callback: () => setTimeout(() => resolve(picked), 0),
     });

@@ -42,8 +42,11 @@ export interface InitInfo {
 export interface ThemeState {
   preference: ThemePreference;
   resolved: "light" | "dark";
-  /** Settings › Account › "Enhance contrast" (docs/design-system.md §2.5): the high-contrast tokens on every view */
+  /** Settings › Account › "Enhance contrast" (docs/design-system.md §2.5): the high-contrast tokens on every view — as set,
+   *  else the system's (atlas 21 §4.1) */
   contrast: boolean;
+  /** Preferences › Accessibility settings › Underline links: `data-underline-links` on every view's body */
+  underlineLinks: boolean;
 }
 
 /** A native menu's item, as a view asks for it (`menu:popup`): plain data, built into an Electron menu by main. */
@@ -321,6 +324,8 @@ export interface IpcInvoke extends SharedFontsChannels {
   "theme:set": { args: [ThemePreference]; result: ThemeState };
   /** "Enhance contrast" on or off: main keeps it (settings.json) and tells every view (`theme:changed`) */
   "theme:set-contrast": { args: [boolean]; result: ThemeState };
+  /** Accessibility settings › Underline links on or off: kept and told the same way */
+  "theme:set-underline-links": { args: [boolean]; result: ThemeState };
   /** The UI's language (Settings › Account › Language): main keeps it (settings.json), tells every view (`locale:changed`) and rebuilds the menu bar */
   "locale:set": { args: [Locale]; result: Locale };
   /** The updater's state (docs/desktop.md §12.6), for the tab bar */
@@ -594,6 +599,7 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "file:export-preview": ["editor"],
   "theme:set": ["tabbar", "home", "editor", "welcome"],
   "theme:set-contrast": ["home", "editor"],
+  "theme:set-underline-links": ["home", "editor"],
   "locale:set": ["tabbar", "home", "editor", "welcome"],
   "updater:get": ["tabbar"],
   "shortcuts:get": ["editor"],

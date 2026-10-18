@@ -12,7 +12,7 @@ import type { Guid, NodeChange, NodeFields } from "@/engine/codec";
 import type { EditorController } from "./controller";
 import type { UIState } from "./uiStore";
 import { fields } from "./panels/design/shared";
-import { pref } from "./preferences";
+import { followOtherTabs, pref, syncRoamingPreferences } from "./preferences";
 import { attachRefusals } from "./refusals";
 import { eyedropperChoice } from "./eyedropper";
 import { colorFormat, formatColor } from "./colorFormat";
@@ -228,6 +228,9 @@ export function attachCanvasTools(ed: EditorController, canvas: HTMLCanvasElemen
   const nudge = loadNudge();
   ed.engine.setNudge(nudge.small, nudge.big);
   ed.ui.set({ nudge });
+  // Preferences: another tab's changes followed; the account's (Figma's user record, atlas 21 §2) taken in.
+  offs.push(followOtherTabs(ed));
+  void syncRoamingPreferences(ed);
   // Round 17: a canvas drag's step (padding, gap, radius, W / H, degree, a flow swap, a snap): the trackpad's tick.
   offs.push(ed.engine.on("HAPTIC", () => hapticTick()));
   // Round 17 B: what the engine refused, in Figma's words (a toast: Figma's visual bell).

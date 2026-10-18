@@ -75,7 +75,7 @@ describe("round 9: Preferences (live main-preferences.txt)", () => {
       "Right-click and drag to pan",
     ]);
     const off = PREFERENCES.filter((p) => !p.on).map((p) => p.label);
-    expect(off).toEqual(["Keep tool selected after use", "Keyboard zooms into selection", "Invert zoom direction", "Ctrl+click opens right click menus", "Use old shortcuts for outlines", "Use ⌘⌥↑/↓ to rotate layers", "Use scroll wheel zoom"]);
+    expect(off).toEqual(["Keep tool selected after use", "Keyboard zooms into selection", "Invert zoom direction", "Ctrl+click opens right click menus", "Use old shortcuts for outlines", "Use ⌘⌥↑/↓ to rotate layers", "Use scroll wheel zoom", "Right-click and drag to pan"]); // the last: Figma's code default (atlas 21 §3)
     for (const p of PREFERENCES) expect(COMMAND_BY_ID.has(p.id), p.id).toBe(true);
   });
 
@@ -92,13 +92,14 @@ describe("round 9: Preferences (live main-preferences.txt)", () => {
     const saved = g.localStorage;
     g.localStorage = { getItem: () => JSON.stringify({ invertZoom: true, snapToObjects: false, bogus: true, keepToolSelected: "yes" }), setItem: () => {} };
     try {
-      expect(loadPreferences()).toEqual({ invertZoom: true, snapToObjects: false });
+      // A store from before version 2 keeps Right-click and drag to pan on (its old default), written down.
+      expect(loadPreferences()).toEqual({ invertZoom: true, snapToObjects: false, rightDragPan: true });
     } finally {
       g.localStorage = saved;
     }
     const ui = { rulers: true } as UIState;
-    expect(viewOptionsOf(ui)).toMatchObject({ snapToGeometry: true, snapToObjects: true, showDimensions: true, flipWhileResizing: true, rightDragPan: true, keepToolSelected: false, invertZoom: false, scrollWheelZoom: false, keyboardZoomsIntoSelection: false });
-    expect(viewOptionsOf({ ...ui, invertZoom: true, rightDragPan: false } as UIState)).toMatchObject({ invertZoom: true, rightDragPan: false });
+    expect(viewOptionsOf(ui)).toMatchObject({ snapToGeometry: true, snapToObjects: true, showDimensions: true, flipWhileResizing: true, rightDragPan: false, keepToolSelected: false, invertZoom: false, scrollWheelZoom: false, keyboardZoomsIntoSelection: false });
+    expect(viewOptionsOf({ ...ui, invertZoom: true, rightDragPan: true } as UIState)).toMatchObject({ invertZoom: true, rightDragPan: true });
     expect(pref(ui, "numberKeysOpacity")).toBe(true);
   });
 });

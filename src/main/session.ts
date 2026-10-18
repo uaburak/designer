@@ -5,6 +5,7 @@ import type { ThemePreference } from "../shared/ipc";
 import type { Locale } from "../shared/i18n";
 import type { ClosedTab, TabGroup, TabRecord } from "../shared/tabs";
 import { sanitizeShortcutSettings, type ShortcutSettings } from "../shared/shortcuts";
+import { DEFAULT_ZOOM_STOP, isZoomStop } from "../shared/interfaceScale";
 
 /**
  * What the app keeps in userData between launches (docs/desktop.md §4.4):
@@ -42,10 +43,16 @@ export interface Settings {
   theme: ThemePreference;
   /** The Keyboard shortcuts panel's (src/shared/shortcuts.ts); absent until the user changes or uses one */
   shortcuts?: ShortcutSettings;
-  /** Settings › Account › Enhance contrast */
+  /** Settings › Account › Enhance contrast: absent = the system's (atlas 21 §4.1); before 2026-10-18 only `true` was kept */
   contrast?: boolean;
   /** Settings › Account › Language (src/shared/i18n): absent = English */
   locale?: Locale;
+  /** Preferences › Accessibility settings › Underline links */
+  underlineLinks?: boolean;
+  /** View › Interface scale, in percent (src/shared/interfaceScale.ts ZOOM_STOPS): absent = 100 */
+  zoomStop?: number;
+  /** Help › Troubleshooting › Disable hardware acceleration (applied at the next launch) */
+  disableHardwareAcceleration?: boolean;
 }
 
 const file = (name: string) => join(app.getPath("userData"), name);
@@ -117,9 +124,22 @@ export function flushSession() {
 
 const isTheme = (t: unknown): t is ThemePreference => t === "system" || t === "light" || t === "dark";
 
+/** What settings.json holds, each value checked (a value it doesn't know is left out: its default). */
+export function sanitizeSettings(saved: Partial<Settings> & { theme: ThemePreference }): Settings {
+  return {
+    theme: saved.theme,
+    ...(saved.shortcuts ? { shortcuts: sanitizeShortcutSettings(saved.shortcuts) } : {}),
+    ...(typeof saved.contrast === "boolean" ? { contrast: saved.contrast } : {}),
+    ...(saved.locale === "tr" ? { locale: "tr" as const } : {}),
+    ...(saved.underlineLinks === true ? { underlineLinks: true } : {}),
+    ...(isZoomStop(saved.zoomStop) && saved.zoomStop !== DEFAULT_ZOOM_STOP ? { zoomStop: saved.zoomStop } : {}),
+    ...(saved.disableHardwareAcceleration === true ? { disableHardwareAcceleration: true } : {}),
+  };
+}
+
 export function readSettings(): Settings {
   const saved = readJson("settings.json") as Partial<Settings> | null;
-  if (saved && isTheme(saved.theme)) return { theme: saved.theme, ...(saved.shortcuts ? { shortcuts: sanitizeShortcutSettings(saved.shortcuts) } : {}), ...(saved.contrast === true ? { contrast: true } : {}), ...(saved.locale === "tr" ? { locale: "tr" as const } : {}) };
+  if (saved && isTheme(saved.theme)) return sanitizeSettings(saved as Partial<Settings> & { theme: ThemePreference });
   const old = readJson("window.json") as { theme?: unknown } | null;
   return { theme: isTheme(old?.theme) ? old.theme : "system" };
 }

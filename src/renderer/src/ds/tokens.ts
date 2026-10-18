@@ -380,6 +380,7 @@ export const size = {
   tool: 32,
   ruler: 20,
   popover: 240, // K
+  "nudge-window": 180, // C: Preferences › Nudge amount…, a draggable window 180 wide (atlas 21 §3.1)
   "menu-item": 24, // K
   "menu-min": 0, // live capture: menus are as wide as their items (context menus 200: ContextMenu minWidth)
   "menu-max": 320, // K

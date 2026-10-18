@@ -107,6 +107,11 @@ export const COMMANDS = [
   { id: "view.reload-tab", label: "Reload Tab", scope: "shell" },
   { id: "view.toggle-devtools", label: "Toggle Developer Tools", accelerator: "Alt+CmdOrCtrl+I", scope: "shell" },
   { id: "view.toggle-tabbar-devtools", label: "Toggle Tab Bar Developer Tools", scope: "shell" },
+  // View › Interface Scale (atlas 21 §7: Figma desktop's, ⇧⌘⌥0 / = / -): src/main/interfaceScale.ts; the "{n}%" line above
+  // them is the menu's own (menu.ts).
+  { id: "app.interface-scale-reset", label: "Reset to Default", accelerator: "Alt+Shift+CmdOrCtrl+0", scope: "app" },
+  { id: "app.interface-scale-larger", label: "Make Larger", accelerator: "Alt+Shift+CmdOrCtrl+=", scope: "app" },
+  { id: "app.interface-scale-smaller", label: "Make Smaller", accelerator: "Alt+Shift+CmdOrCtrl+-", scope: "app" },
 
   // ── Object ──
   { id: "object.group", label: "Group selection", accelerator: "CmdOrCtrl+G", scope: "editor" },
@@ -187,6 +192,12 @@ export const COMMANDS = [
   // ── Help ──
   { id: "help.shortcuts", label: "Keyboard shortcuts", accelerator: "Ctrl+Shift+/", scope: "editor" },
   { id: "help.open-data-folder", label: "Open data folder", scope: "app" },
+  // Help › Troubleshooting (atlas 21 §7, Figma desktop's English): src/main/troubleshooting.ts
+  { id: "app.disable-hardware-acceleration", label: "Disable Hardware Acceleration", scope: "app", kind: "checkbox" },
+  { id: "app.graphics-backend-default", label: "Default", scope: "app", kind: "radio" },
+  { id: "app.graphics-backend-webgl2", label: "WebGL2", scope: "app", kind: "radio" },
+  { id: "app.graphics-backend-webgpu", label: "WebGPU", scope: "app", kind: "radio" },
+  { id: "app.reload-all-tabs", label: "Reload All Tabs", scope: "app" },
 ] as const satisfies readonly CommandSpec[];
 
 export type CommandId = (typeof COMMANDS)[number]["id"];
@@ -314,6 +325,7 @@ export const MENU_LAYOUT: Record<TopMenu, MenuEntry[]> = {
     "view.zoom-next-frame",
     "-",
     { role: "togglefullscreen" },
+    { submenu: "Interface Scale", items: ["app.interface-scale-reset", "app.interface-scale-larger", "app.interface-scale-smaller"] },
     { submenu: "Developer", items: ["view.toggle-devtools", "view.toggle-tabbar-devtools", "view.reload-tab"] },
   ],
   Object: [
@@ -393,7 +405,15 @@ export const MENU_LAYOUT: Record<TopMenu, MenuEntry[]> = {
     "-",
     { role: "front" },
   ],
-  Help: ["help.shortcuts", "-", "help.open-data-folder"],
+  Help: [
+    "help.shortcuts",
+    "-",
+    "help.open-data-folder",
+    {
+      submenu: "Troubleshooting",
+      items: ["app.disable-hardware-acceleration", { submenu: "Graphics Backend", items: ["app.graphics-backend-default", "app.graphics-backend-webgl2", "app.graphics-backend-webgpu"] }, "-", "app.reload-all-tabs"],
+    },
+  ],
 };
 
 /** Every command a layout places (each once: an Electron menu item id is unique). */

@@ -107,6 +107,9 @@ describe("profile", () => {
     expect((await call("PATCH", "/me/profile", { token: me.token, body: { role: "Astronaut" } })).status).toBe(400);
     expect((await call("PATCH", "/me/profile", { token: me.token, body: { picture: "https://evil/x.png" } })).status).toBe(400);
     expect((await call("PATCH", "/me/profile", { token: me.token, body: { prefs: { language: "fr" } } })).status).toBe(400);
+    // The editor's preferences Figma keeps on the user record (atlas 21 §2): booleans only, the others kept.
+    const roam = await call<AccountProfile>("PATCH", "/me/profile", { token: me.token, body: { prefs: { scrollWheelZoom: true, rightDragPan: false, numberKeysOpacity: "yes", screenReader: true } } });
+    expect(roam.body.prefs).toEqual({ closedCaptions: true, viewHistory: false, scrollWheelZoom: true, rightDragPan: false, screenReader: true });
     // Community: a unique handle, 15 characters; the bio 160.
     const c = await call<AccountProfile>("PATCH", "/me/profile", { token: me.token, body: { community: { handle: "burak_k", bio: "Designer", website: "burak.design" } } });
     expect(c.body.community).toEqual({ handle: "burak_k", bio: "Designer", website: "https://burak.design" });

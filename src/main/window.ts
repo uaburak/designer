@@ -1,6 +1,7 @@
 import { app, BaseWindow, nativeTheme, screen, type WebContentsView } from "electron";
 import type { WindowState } from "../shared/ipc";
 import { CAPTION_OVERLAY, DEFAULT_WINDOW_SIZE, MIN_WINDOW_SIZE, TABBAR_HEIGHT, TRAFFIC_LIGHT_POSITION } from "../shared/layout";
+import { tabbarHeight } from "./interfaceScale";
 import { emptyTabs, persistable, restoreTabs } from "../shared/tabs";
 import { flushSession, readSession, writeSession, type WindowBounds, type WindowSession } from "./session";
 import { flushStore, stopStoreHost, storeClient } from "./storeHost";
@@ -49,11 +50,13 @@ export const controllers = new Map<string, WindowController>();
 
 const windowBackground = () => (nativeTheme.shouldUseDarkColors ? "#2c2c2c" : "#ffffff");
 /** Windows: the system's caption buttons over the tab bar's right end, in its colours (no 1px line under them) */
-const captionOverlay = () => ({ ...CAPTION_OVERLAY[nativeTheme.shouldUseDarkColors ? "dark" : "light"], height: TABBAR_HEIGHT - 1 });
+const captionOverlay = () => ({ ...CAPTION_OVERLAY[nativeTheme.shouldUseDarkColors ? "dark" : "light"], height: tabbarHeight() - 1 });
+/** The traffic lights centred in the tab bar as View › Interface Scale makes it (12 down in its 38 px at 100 %). */
+const trafficLights = () => ({ x: TRAFFIC_LIGHT_POSITION.x, y: Math.round(TRAFFIC_LIGHT_POSITION.y + (tabbarHeight() - TABBAR_HEIGHT) / 2) });
 /** macOS: the traffic lights inset in the tab bar; Windows: no title bar, the caption buttons drawn over it */
 const chrome = () =>
   process.platform === "darwin"
-    ? { titleBarStyle: "hiddenInset" as const, trafficLightPosition: { ...TRAFFIC_LIGHT_POSITION } }
+    ? { titleBarStyle: "hiddenInset" as const, trafficLightPosition: trafficLights() }
     : { titleBarStyle: "hidden" as const, titleBarOverlay: captionOverlay() };
 
 /** A saved place still on one of the screens — its top edge on a display, enough of it to grab (a display may be gone since). */
@@ -150,14 +153,14 @@ export class WindowController {
   /** The content views' place: under the tab bar, the window's width. */
   contentBounds() {
     const { width, height } = this.win.getContentBounds();
-    return { x: 0, y: TABBAR_HEIGHT, width, height: Math.max(0, height - TABBAR_HEIGHT) };
+    return { x: 0, y: tabbarHeight(), width, height: Math.max(0, height - tabbarHeight()) };
   }
 
   /** Every view placed — the hidden ones too, so a switch never resizes (and re-renders) the one coming forward. */
   layout() {
     if (this.win.isDestroyed()) return;
     const { width } = this.win.getContentBounds();
-    this.tabbar.setBounds({ x: 0, y: 0, width, height: TABBAR_HEIGHT });
+    this.tabbar.setBounds({ x: 0, y: 0, width, height: tabbarHeight() });
     const content = this.contentBounds();
     for (const view of this.tabs.contentViews()) view.setBounds(content);
   }
@@ -250,6 +253,14 @@ export class WindowController {
     this.tabbar.setBackgroundColor(backgroundOf("tabbar"));
     this.tabs.home.setBackgroundColor(backgroundOf("home"));
     for (const view of this.tabs.contentViews()) if (view !== this.tabs.home) view.setBackgroundColor(backgroundOf("editor"));
+  }
+
+  /** View › Interface Scale changed (interfaceScale.ts): the tab bar's height, the traffic lights or caption buttons in it. */
+  interfaceScaleChanged() {
+    if (this.win.isDestroyed()) return;
+    if (process.platform === "darwin") this.win.setWindowButtonPosition(trafficLights());
+    else this.win.setTitleBarOverlay(captionOverlay());
+    this.layout();
   }
 
   /** Closing asked (the red button, ⌘Q): unsaved tabs settled first. */
