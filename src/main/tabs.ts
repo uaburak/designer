@@ -10,6 +10,7 @@ import { onWorkspaceEvent, readyStore, storeClient, workspaceDir } from "./store
 import { SpareEditor } from "./spare";
 import { menuSignedOut, refreshAppMenu, syncClosedMenu } from "./menu";
 import { reloadAllTabs, setGraphicsBackend, toggleHardwareAcceleration } from "./troubleshooting";
+import { saveDebugInfo, saveNetworkLog, togglePerformanceLog } from "./diagnostics";
 import { setThemePreference } from "./theme";
 import { setInterfaceScale, stepInterfaceScale, zoomFactor } from "./interfaceScale";
 import { DEFAULT_ZOOM_STOP } from "../shared/interfaceScale";
@@ -1169,6 +1170,13 @@ export class TabManager {
         return setGraphicsBackend(id === "app.graphics-backend-webgl2" ? "webgl2" : id === "app.graphics-backend-webgpu" ? "webgpu" : "default");
       case "app.reload-all-tabs":
         return reloadAllTabs();
+      case "app.save-debug-info":
+        return void saveDebugInfo(this.ctl.win).catch((err) => tellFileError(this.ctl.win, t("The debug info couldn’t be saved."), String(err)));
+      case "app.save-network-log":
+        return void saveNetworkLog(this.ctl.win).catch((err) => tellFileError(this.ctl.win, t("The network log couldn’t be saved."), String(err)));
+      case "app.performance-log":
+        // The item says "Stop Performance Logging…" while the trace runs.
+        return void togglePerformanceLog(this.ctl.win, () => refreshAppMenu()).catch((err) => tellFileError(this.ctl.win, t("The performance log couldn’t be saved."), String(err)));
       case "window.next-tab":
       case "window.next-tab-alt":
         return this.activate(neighbourTab(this.state, 1));

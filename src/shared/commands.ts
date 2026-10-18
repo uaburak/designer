@@ -198,7 +198,11 @@ export const COMMANDS = [
   // ── Help ──
   { id: "help.shortcuts", label: "Keyboard shortcuts", accelerator: "Ctrl+Shift+/", scope: "editor" },
   { id: "help.open-data-folder", label: "Open data folder", scope: "app" },
-  // Help › Troubleshooting (atlas 21 §7, Figma desktop's English): src/main/troubleshooting.ts
+  // Help › Troubleshooting (atlas 21 §7, Figma desktop's English): src/main/troubleshooting.ts, src/main/diagnostics.ts
+  { id: "app.save-debug-info", label: "Save Debug Info…", scope: "app" },
+  { id: "app.save-network-log", label: "Save Network Log…", scope: "app" },
+  // "Stop Performance Logging…" while a trace runs (src/main/menu.ts)
+  { id: "app.performance-log", label: "Save Performance Log…", scope: "app" },
   { id: "app.disable-hardware-acceleration", label: "Disable Hardware Acceleration", scope: "app", kind: "checkbox" },
   { id: "app.graphics-backend-default", label: "Default", scope: "app", kind: "radio" },
   { id: "app.graphics-backend-webgl2", label: "WebGL2", scope: "app", kind: "radio" },
@@ -425,7 +429,16 @@ export const MENU_LAYOUT: Record<TopMenu, MenuEntry[]> = {
     "help.open-data-folder",
     {
       submenu: "Troubleshooting",
-      items: ["app.disable-hardware-acceleration", { submenu: "Graphics Backend", items: ["app.graphics-backend-default", "app.graphics-backend-webgl2", "app.graphics-backend-webgpu"] }, "-", "app.reload-all-tabs"],
+      items: [
+        "app.save-debug-info",
+        "app.save-network-log",
+        "app.performance-log",
+        "-",
+        "app.disable-hardware-acceleration",
+        { submenu: "Graphics Backend", items: ["app.graphics-backend-default", "app.graphics-backend-webgl2", "app.graphics-backend-webgpu"] },
+        "-",
+        "app.reload-all-tabs",
+      ],
     },
   ],
 };

@@ -93,6 +93,15 @@ export const app: Record<string, string> = {
   "Tabs in window {windowIndex}": "{windowIndex}. penceredeki sekmeler",
   "Open in Split Tab": "Bölünmüş Sekmede Aç",
   "Separate Tabs": "Sekmeleri Ayır",
+  // Help › Troubleshooting's logs (src/main/diagnostics.ts)
+  "Save Debug Info": "Hata Ayıklama Bilgisini Kaydet",
+  "Save Network Log": "Ağ Günlüğünü Kaydet",
+  "Save Performance Log": "Performans Günlüğünü Kaydet",
+  "Recording the network log": "Ağ günlüğü kaydediliyor",
+  "You'll get a prompt after 30 seconds to save the network log file.": "30 saniye sonra ağ günlüğü dosyasını kaydetmeniz istenecek.",
+  "The debug info couldn’t be saved.": "Hata ayıklama bilgisi kaydedilemedi.",
+  "The network log couldn’t be saved.": "Ağ günlüğü kaydedilemedi.",
+  "The performance log couldn’t be saved.": "Performans günlüğü kaydedilemedi.",
   // The new-tab page (src/renderer/src/newtab)
   "Create new file in": "Yeni dosyanın yeri",
   "No recents": "Son kullanılan yok",

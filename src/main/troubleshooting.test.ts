@@ -33,9 +33,9 @@ describe("View › Interface Scale (atlas 21 §7)", () => {
 });
 
 describe("Help › Troubleshooting (atlas 21 §7)", () => {
-  it("Disable Hardware Acceleration, Graphics Backend ▸, Reload All Tabs", () => {
+  it("the logs, Disable Hardware Acceleration, Graphics Backend ▸, Reload All Tabs", () => {
     const items = submenu(MENU_LAYOUT.Help, "Troubleshooting")!;
-    expect(items[0]).toBe("app.disable-hardware-acceleration");
+    expect(items.slice(0, 5)).toEqual(["app.save-debug-info", "app.save-network-log", "app.performance-log", "-", "app.disable-hardware-acceleration"]);
     expect(submenu(items, "Graphics Backend")).toEqual(["app.graphics-backend-default", "app.graphics-backend-webgl2", "app.graphics-backend-webgpu"]);
     expect(items.at(-1)).toBe("app.reload-all-tabs");
     expect(command("app.disable-hardware-acceleration").kind).toBe("checkbox");

@@ -7,6 +7,7 @@ import { getLocale, t, tx } from "../shared/i18n";
 import { readSettings } from "./session";
 import { interfaceScale } from "./interfaceScale";
 import { graphicsBackend, hardwareAccelerationDisabled } from "./troubleshooting";
+import { performanceLogging } from "./diagnostics";
 import { checkForUpdates, onUpdaterChange, restartToUpdate, updaterStatus } from "./updater";
 import type { WindowController } from "./window";
 
@@ -36,7 +37,7 @@ export function appMenu(current: () => WindowController | null, dev: boolean, bi
     const accelerator = acceleratorFor(id, menuDefault(id, mac) ?? spec.accelerator, bindings);
     return {
       id,
-      label: t(spec.label),
+      label: id === "app.performance-log" && performanceLogging() ? t("Stop Performance Logging…") : t(spec.label),
       accelerator,
       // Keys without ⌘ or ⌃ are the page's own (a registered ⇧R would eat the R typed into a field): shown only.
       registerAccelerator: registersAccelerator(accelerator),
