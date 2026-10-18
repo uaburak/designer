@@ -163,6 +163,8 @@ export interface FileStoreDeps {
   timers?: Timers;
   /** A branch ran out of its GUID block: the next one, reserved on its main file (docs/data.md §15.2) */
   nextSessionBlock?: (fileKey: FileKey) => Promise<{ start: number; end: number } | null>;
+  /** The signed-in account, recorded as a new version's editor (null: signed out — none recorded) */
+  editor?: () => string | null;
 }
 
 export class FileStore {
@@ -1013,6 +1015,8 @@ export class FileStore {
       }
       const id: VersionId = newVersionId();
       const src = this.path(a, h.state.head.snapshot);
+      // The one person who edits a local file: the account signed in (a shared file's versions are the server's).
+      const editor = this.d.editor?.() ?? null;
       await ensureDir(this.versionsDir(a));
       await linkOrCopy(src, join(this.versionsDir(a), `${id}.kiwi`));
       const rec: VersionRecord = {
@@ -1023,6 +1027,7 @@ export class FileStore {
         sizeBytes: await fileSize(src),
         blobRefs: [...h.state.blobRefs],
         ...(h.state.head.derivedDataVersion ? { derivedDataVersion: h.state.head.derivedDataVersion } : {}),
+        ...(editor && !input.editors ? { editors: [editor] } : {}),
       };
       const records = [rec, ...(await this.readVersionIndex(a))];
       await this.writeVersionIndex(a, await this.thin(a, records));

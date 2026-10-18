@@ -229,6 +229,9 @@ export interface VersionRecord {
   libraryVersion: number | null;
   /** `Message.derivedDataVersion` of the version's snapshot (absent / 0: none) */
   derivedDataVersion?: number;
+  /** The accounts whose changes it holds (Version history's "Only yours"); absent: not recorded (before 2026-10-18,
+   *  or made signed out) — kept under "Only yours" */
+  editors?: string[];
 }
 
 // --- libraries (docs/data.md §9) ---
