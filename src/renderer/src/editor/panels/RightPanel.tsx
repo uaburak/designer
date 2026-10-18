@@ -40,10 +40,11 @@ export function RightPanel({ floating }: { floating?: boolean } = {}) {
   const viewer = usePresence(ed).role === "viewer";
   const commenting = useTool(ed.store) === "COMMENT";
   const [viewerTab, setViewerTab] = useState<"comments" | "properties">("comments");
-  // The Prototype tab shows the connections on the canvas (prototype mode).
+  // The Prototype tab shows the connections on the canvas (prototype mode); to a viewer, Prototyping information (⇧E).
+  const prototypingInfo = useUI((s) => !!s.prototypingInfo);
   useEffect(() => {
-    if (!ed.engine.destroyed && typeof ed.engine.setPrototypeMode === "function") ed.engine.setPrototypeMode(tab === "prototype");
-  }, [ed, tab]);
+    if (!ed.engine.destroyed && typeof ed.engine.setPrototypeMode === "function") ed.engine.setPrototypeMode(viewer ? prototypingInfo : tab === "prototype");
+  }, [ed, tab, viewer, prototypingInfo]);
   return (
     <aside className={floating ? `${styles.right} ${styles.rightFloating}` : styles.right} style={{ width }} aria-label={t("Properties panel")} data-panel="right" data-floating={floating || undefined}>
       <RightHeader />
@@ -178,6 +179,7 @@ export function ZoomMenu() {
         ],
       }
     : commandItem(ed, "view.annotations", "Show annotations");
+  const prototypingInfo = commandItem(ed, "view.prototyping-info");
   const entries: MenuEntry[] = [
     commandItem(ed, "view.zoom-in"),
     commandItem(ed, "view.zoom-out"),
@@ -206,6 +208,8 @@ export function ZoomMenu() {
     "-",
     { id: "zoom.outlines", label: t("Outlines"), items: [commandItem(ed, "view.outlines", "Outlines"), "-", commandItem(ed, "view.outline-hidden-layers"), commandItem(ed, "view.outline-object-bounds")] },
     annotations,
+    // Prototyping information: only to someone who can only view a design file (Figma's zoom menu).
+    ...(prototypingInfo.disabled ? [] : [prototypingInfo]),
   ];
   return (
     <MenuButton

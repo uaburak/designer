@@ -144,6 +144,8 @@ export interface UIState extends PreferenceFlags {
   actionsOpen?: boolean;
   /** Figma's "Additional labels" (View menu; was "Property labels" in the zoom menu): the Design panel's row labels, off by default (owner, round 17) */
   propertyLabels: boolean;
+  /** Prototyping information (⇧E, a view-only design file): the prototype's connections on the canvas; off by default */
+  prototypingInfo?: boolean;
   /** Position's "Constraints" toggle: the inline Constraints row shown (kept across selections, as Figma) */
   constraintsOpen?: boolean;
   /** Version history mode (Figma's HISTORY, atlas 16 §3.3): "history" — the history panel in the right panel's place */
