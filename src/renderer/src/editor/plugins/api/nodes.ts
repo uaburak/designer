@@ -11,7 +11,8 @@ import { dashPatternError, MITER_LIMIT_RANGE } from "@shared/strokeLimits";
 import { fieldsOf, readProps, PROP_NAMES, sizingOf } from "../../agents/nodeSpec";
 import { cssOf } from "../../model/exports";
 import { mainOf } from "../../components";
-import { setTrackCount, tracksOf, type GridAxis, type GridItemNode, type GridNode } from "../../model/grid";
+import { reorderTracks, setTrackCount, trackFields, tracksOf, type GridAxis, type GridItemNode, type GridNode, type TrackType } from "../../model/grid";
+import { pendingUpgrades } from "../../panels/design/TypeSettings";
 import { protoLookup } from "../../agents/prototypeTools";
 import { docInteractions, isDocShape, pluginReactionsFromDoc, reactionToDoc, type OverlayWrite } from "../../agents/prototypeSpec";
 import type { PrototypeInteraction } from "../../model/prototype";
@@ -46,6 +47,7 @@ import {
   transformModifiers,
   variableWidthStrokeProperties,
 } from "./draw";
+import { textFieldOf } from "./document";
 import { MOTION_PROPS } from "./motion";
 
 type Obj = Record<string, unknown>;
@@ -136,6 +138,111 @@ const gridCount = (axis: GridAxis, name: string): Prop => ({
   },
 });
 
+/** gridRowSizes / gridColumnSizes: Figma's GridTrackSize list ({type: FIXED | FLEX, value} or {type: HUG}). */
+const gridSizes = (axis: GridAxis, name: string): Prop => ({
+  get: (_ctx, n) => tracksOf(n as unknown as GridNode, axis).map((t) => (t.sizing.type === "HUG" ? { type: "HUG" } : { type: t.sizing.type, value: t.sizing.value })),
+  set: (ctx, n, v) => {
+    if (n.stackMode !== "GRID") throw new ApiError(`in set_${name}: Can only set ${name} on a node with layoutMode GRID`);
+    const tracks = tracksOf(n as unknown as GridNode, axis);
+    if (!Array.isArray(v) || v.length !== tracks.length) throw new ApiError(`in set_${name}: Grid track sizes must be the same length as the grid ${axis === "rows" ? "row" : "column"} count`);
+    const next = tracks.map((t, i) => {
+      const s = v[i] as { type?: string; value?: number } | null;
+      if (!s || (s.type !== "FIXED" && s.type !== "FLEX" && s.type !== "HUG")) throw new ApiError(`in set_${name}: Expected {type: "FIXED" | "FLEX" | "HUG", value?} at index ${i}`);
+      const value = s.type === "HUG" ? 1 : typeof s.value === "number" && Number.isFinite(s.value) ? s.value : 1;
+      if (s.type === "FIXED" && value < 0) throw new ApiError(`in set_${name}: Grid track size value must be non-negative for FIXED tracks`);
+      return { ...t, sizing: { type: s.type as TrackType, value } };
+    });
+    writeFields(ctx, n.guid, trackFields(axis, next) as NodeFields, name);
+  },
+});
+
+/** A grid item's anchor track as an index (gridRowAnchorIndex / gridColumnAnchorIndex). */
+const gridAnchor = (axis: GridAxis, name: string): Prop => ({
+  get: (ctx, n) => {
+    const parent = parentOf(ctx, n);
+    const anchor = (n as unknown as GridItemNode)[axis === "rows" ? "gridRowAnchor" : "gridColumnAnchor"];
+    if (!parent || parent.stackMode !== "GRID" || !anchor) return 0;
+    return Math.max(0, tracksOf(parent as unknown as GridNode, axis).findIndex((t) => t.id.sessionID === anchor.sessionID && t.id.localID === anchor.localID));
+  },
+  set: (ctx, n, v) => {
+    if (typeof v !== "number" || !Number.isInteger(v)) throw new ApiError(`in set_${name}: Expected an integer`);
+    setGridAnchors(ctx, n, axis === "rows" ? { rows: v } : { columns: v }, `set_${name}`);
+  },
+});
+
+const gridSpan = (name: "gridRowSpan" | "gridColumnSpan"): Prop => ({
+  get: (_ctx, n) => (n as unknown as GridItemNode)[name] ?? 1,
+  set: (ctx, n, v) => {
+    if (typeof v !== "number" || !Number.isInteger(v) || v < 1) throw new ApiError(`in set_${name}: Expected an integer greater than or equal to 1`);
+    writeFields(ctx, n.guid, { [name]: v } as NodeFields, name);
+  },
+});
+
+/** Places a grid item at a row and / or column (Figma's refusal inside a grid that positions its items itself). */
+function setGridAnchors(ctx: ApiContext, n: NodeChange, at: { rows?: number; columns?: number }, what: string): void {
+  const parent = parentOf(ctx, n);
+  if (!parent || parent.stackMode !== "GRID") throw new ApiError(`in ${what}: The node's parent isn't a grid (layoutMode GRID)`);
+  if ((parent as unknown as GridNode).gridReflowEnabled) throw new ApiError(`in ${what}: cannot set grid child position directly inside of a grid with automatically positioned items, use parent.insertChild() instead to change the layer index.`);
+  const fields: Obj = {};
+  for (const axis of ["rows", "columns"] as const) {
+    const index = at[axis];
+    if (index === undefined) continue;
+    const tracks = tracksOf(parent as unknown as GridNode, axis);
+    if (!Number.isInteger(index) || index < 0 || index >= tracks.length) throw new ApiError(`in ${what}: ${axis === "rows" ? "Row" : "Column"} index ${index} is out of bounds for a grid with ${tracksOf(parent as unknown as GridNode, "columns").length} columns and ${tracksOf(parent as unknown as GridNode, "rows").length} rows`);
+    fields[axis === "rows" ? "gridRowAnchor" : "gridColumnAnchor"] = tracks[index].id;
+  }
+  writeFields(ctx, n.guid, fields as NodeFields, what);
+}
+
+/** `setGridChildPosition(row, column)` on a grid item; `appendChildAt(child, row, column)` on the grid. */
+export function setGridChildPosition(ctx: ApiContext, id: Guid, row: unknown, column: unknown): void {
+  setGridAnchors(ctx, mustNode(ctx, id), { rows: row as number, columns: column as number }, "setGridChildPosition");
+}
+
+export function appendChildAt(ctx: ApiContext, gridId: Guid, child: unknown, row: unknown, column: unknown): void {
+  const grid = mustNode(ctx, gridId);
+  if (grid.stackMode !== "GRID") throw new ApiError("in appendChildAt: Can only call appendChildAt on a node with layoutMode GRID");
+  insertChild(ctx, gridId, child, -1);
+  setGridAnchors(ctx, mustNode(ctx, child), { rows: row as number, columns: column as number }, "appendChildAt");
+}
+
+/** reorderRows / reorderColumns(from, to): tracks moved, their items with them (the anchors are track ids). */
+export function reorderGridTracks(ctx: ApiContext, id: Guid, axis: GridAxis, from: unknown, to: unknown): void {
+  const n = mustNode(ctx, id);
+  if (n.stackMode !== "GRID") throw new ApiError(`in reorder${axis === "rows" ? "Rows" : "Columns"}: Can only reorder tracks on a node with layoutMode GRID`);
+  const list = (Array.isArray(from) ? from : [from]).map(Number);
+  if (list.some((i) => !Number.isInteger(i)) || typeof to !== "number") throw new ApiError(`in reorder${axis === "rows" ? "Rows" : "Columns"}: Expected track indices`);
+  writeFields(ctx, n.guid, reorderTracks(n as unknown as GridNode, axis, list, to) as NodeFields, axis === "rows" ? "reorderRows" : "reorderColumns");
+}
+
+/** paddingLeft + paddingRight (or top + bottom) as one value, figma.mixed when they differ. */
+function paddingPair(name: string, a: string, b: string): Prop {
+  return {
+    get: (ctx, n) => {
+      const v = readProps(n, parentOf(ctx, n), [a, b]);
+      return (v[a] ?? 0) === (v[b] ?? 0) ? (v[a] ?? 0) : MIXED;
+    },
+    set: (ctx, n, v) => {
+      const { fields, rejected } = fieldsOf({ [a]: v, [b]: v }, n, parentOf(ctx, n));
+      if (rejected.length) throw new ApiError(`in set_${name}: ${rejected.map((r) => r.reason).join("; ")}`);
+      writeFields(ctx, n.guid, fields, name);
+    },
+  };
+}
+
+/** Figma's explicitVariableModes: {collection id: mode id} from the node's variableModeBySetMap. */
+function explicitModes(n: NodeChange): Record<string, string> {
+  const entries = (((n as unknown as Obj).variableModeBySetMap as { entries?: Obj[] } | undefined)?.entries ?? []) as { variableSetID?: { guid?: unknown }; variableSetExtensionID?: { guid?: unknown }; variableModeID?: unknown }[];
+  const out: Record<string, string> = {};
+  for (const e of entries) {
+    // An extended collection's mode is listed under that extended collection.
+    const set = guidText(e.variableSetExtensionID?.guid) ?? guidText(e.variableSetID?.guid);
+    const mode = guidText(e.variableModeID);
+    if (set && mode) out[set] = mode;
+  }
+  return out;
+}
+
 const isText = (n: NodeChange) => n.type === "TEXT" || (n.type as string) === "TEXT_PATH";
 const transformOf = (n: NodeChange) => n.transform ?? IDENTITY;
 
@@ -179,6 +286,17 @@ function textValue(ctx: ApiContext, n: NodeChange, key: string, own: unknown): u
     if (s?.mixed.includes(key)) return MIXED;
   }
   return own;
+}
+
+/** A text property that is also a range field (document.ts): the whole text's value, mixed when its ranges differ. */
+function textWhole(name: string): Prop {
+  return {
+    get: (ctx, n) => {
+      const f = textFieldOf(name)!;
+      return textValue(ctx, n, f.field, f.toApi((n as unknown as Obj)[f.field]));
+    },
+    set: (ctx, n, v) => writeFields(ctx, n.guid, textFieldOf(name)!.fromApi!(v), name),
+  };
 }
 
 function cornerRadius(n: NodeChange): number | typeof MIXED {
@@ -380,6 +498,20 @@ const PROPS: Record<string, Prop> = {
   letterSpacing: { get: (ctx, n) => textValue(ctx, n, "letterSpacing", letterSpacingToApi(n.letterSpacing as never)), set: (ctx, n, v) => writeFields(ctx, n.guid, { letterSpacing: letterSpacingFromApi(v) }, "letterSpacing") },
   textCase: { get: (ctx, n) => textValue(ctx, n, "textCase", (n as unknown as Obj).textCase ?? "ORIGINAL"), set: (ctx, n, v) => writeFields(ctx, n.guid, { textCase: v } as NodeFields, "textCase") },
   textDecoration: { get: (ctx, n) => textValue(ctx, n, "textDecoration", (n as unknown as Obj).textDecoration ?? "NONE"), set: (ctx, n, v) => writeFields(ctx, n.guid, { textDecoration: v } as NodeFields, "textDecoration") },
+  textDecorationStyle: textWhole("textDecorationStyle"),
+  textDecorationOffset: textWhole("textDecorationOffset"),
+  textDecorationThickness: textWhole("textDecorationThickness"),
+  textDecorationColor: textWhole("textDecorationColor"),
+  textDecorationSkipInk: textWhole("textDecorationSkipInk"),
+  textWrapStyle: {
+    get: (_ctx, n) => (n as unknown as Obj).textWrapStyle ?? "AUTO",
+    set: (ctx, n, v) => {
+      if (v !== "AUTO" && v !== "BALANCE" && v !== "PRETTY") throw new ApiError(`in set_textWrapStyle: invalid enum value '${String(v)}'`);
+      writeFields(ctx, n.guid, { textWrapStyle: v } as NodeFields, "textWrapStyle");
+    },
+  },
+  // Texts laid out before the bidi layout (Type settings' "Update text rendering", panels/design/TypeSettings.tsx)
+  canUpgradeToNativeBidiSupport: { get: (_ctx, n) => pendingUpgrades(n as never).includes("bidi") },
   textAlignVertical: field("textAlignVertical", "TOP"),
   paragraphSpacing: field("paragraphSpacing", 0, needNumber("paragraphSpacing")),
   paragraphIndent: field("paragraphIndent", 0, needNumber("paragraphIndent")),
@@ -412,6 +544,7 @@ const PROPS: Record<string, Prop> = {
       ctx.ed.engine.setSelection(ids);
     },
   },
+  // A page's background; on frames and groups Figma's deprecated name for `fills` (figma.js maps it there).
   backgrounds: {
     get: (_ctx, n) => {
       const c = (n as unknown as Obj).backgroundColor as { r: number; g: number; b: number; a?: number } | undefined;
@@ -420,6 +553,15 @@ const PROPS: Record<string, Prop> = {
     set: (ctx, n, v) => {
       const p = paintsFromApi(v, "backgrounds")[0];
       if (p?.type === "SOLID") writeFields(ctx, n.guid, { backgroundColor: { ...p.color!, a: p.opacity ?? 1 } } as NodeFields, "backgrounds");
+    },
+  },
+  // Deprecated: paddingLeft and paddingRight (paddingTop and paddingBottom) together
+  horizontalPadding: paddingPair("horizontalPadding", "paddingLeft", "paddingRight"),
+  verticalPadding: paddingPair("verticalPadding", "paddingTop", "paddingBottom"),
+  targetAspectRatio: {
+    get: (_ctx, n) => {
+      const r = ((n as unknown as Obj).targetAspectRatio as { value?: { x: number; y: number } } | undefined)?.value;
+      return r ? { x: r.x, y: r.y } : null;
     },
   },
   flowStartingPoints: {
@@ -457,6 +599,7 @@ const PROPS: Record<string, Prop> = {
     },
   },
   mainComponent: { get: (ctx, n) => (n.type === "INSTANCE" ? ref(mainOf(ctx.ed, n as never) as NodeChange | null) : null) },
+  instances: { get: (ctx, n) => descendants(ctx, "0:0", { types: ["INSTANCE"] }).filter((r) => (getProp(ctx, (r as { $node: string }).$node, "mainComponent") as { $node?: string } | null)?.$node === n.guid) },
   detachedInfo: { get: (ctx, n) => detachedInfo(ctx, n) },
   overrides: { get: () => [] },
   exposedInstances: { get: () => [] },
@@ -489,8 +632,12 @@ const PROPS: Record<string, Prop> = {
   attachedConnectors: { get: () => [] },
   boundVariables: { get: (ctx, n) => boundVariables(ctx, n) },
   resolvedVariableModes: { get: () => ({}) },
-  explicitVariableModes: { get: () => ({}) },
+  explicitVariableModes: { get: (_ctx, n) => explicitModes(n) },
   inferredVariables: { get: () => ({}) },
+  availableInferredVariables: { get: () => ({}) },
+  variableConsumptionMap: { get: () => ({}) },
+  // Dev Mode's focus view (the page in focus, docs/research/atlas/14-dev-mode.md)
+  focusedNode: { get: (ctx, n) => (n.guid === ctx.ed.store.page ? refOf(ctx, ctx.ed.engine.devInfo().focus ?? undefined) : null) },
   componentPropertyReferences: { get: () => null },
   fillGeometry: { get: () => [] },
   strokeGeometry: { get: () => [] },
@@ -500,7 +647,6 @@ const PROPS: Record<string, Prop> = {
   arcData: field("arcData", { startingAngle: 0, endingAngle: 2 * Math.PI, innerRadius: 0 }),
   pointCount: viaSpec("pointCount", (v) => v ?? 3),
   innerRadius: viaSpec("innerRadius", (v) => v ?? 0.382),
-  targetAspectRatio: { get: () => null },
   sectionContentsHidden: field("sectionContentsHidden", false, needBool("sectionContentsHidden")),
   openTypeFeatures: { get: () => ({}) },
   scaleFactor: { get: () => 1 },
@@ -514,6 +660,20 @@ const PROPS: Record<string, Prop> = {
   gridColumnCount: gridCount("columns", "gridColumnCount"),
   gridRowGap: gridGap("gridRowGap"),
   gridColumnGap: gridGap("gridColumnGap"),
+  gridRowSizes: gridSizes("rows", "gridRowSizes"),
+  gridColumnSizes: gridSizes("columns", "gridColumnSizes"),
+  gridAutoTracks: {
+    get: (_ctx, n) => (n as unknown as GridNode).gridAutoTracks ?? "NONE",
+    set: (ctx, n, v) => {
+      if (n.stackMode !== "GRID") throw new ApiError("in set_gridAutoTracks: gridAutoTracks requires layoutMode === 'GRID'");
+      if (v !== "NONE" && v !== "ROWS") throw new ApiError(`in set_gridAutoTracks: invalid enum value '${String(v)}'`);
+      writeFields(ctx, n.guid, { gridAutoTracks: v } as NodeFields, "gridAutoTracks");
+    },
+  },
+  gridRowAnchorIndex: gridAnchor("rows", "gridRowAnchorIndex"),
+  gridColumnAnchorIndex: gridAnchor("columns", "gridColumnAnchorIndex"),
+  gridRowSpan: gridSpan("gridRowSpan"),
+  gridColumnSpan: gridSpan("gridColumnSpan"),
   // Draw (docs/draw.md §7, api/draw.ts)
   textPathStartData: { get: (_ctx, n) => textPathStartData(n), set: setTextPathStartData, only: ["TEXT_PATH"] },
   transformModifiers: { get: (_ctx, n) => transformModifiers(n), set: setTransformModifiers, only: ["TRANSFORM_GROUP"] },
@@ -697,7 +857,9 @@ export function rescale(ctx: ApiContext, id: Guid, scale: unknown): void {
 
 // ---- Plugin data (docs/plugins.md §8) ---------------------------------------------------------------------------------
 
+/** Figma's per-entry limit: the UTF-8 bytes of the strings given (key and value, and the namespace when shared). */
 const KEY_LIMIT = 100 * 1024;
+const utf8Length = (s: string) => new TextEncoder().encode(s).length;
 /** Ours (editor/frameStatus.ts: frame statuses): never a plugin's to read or write, whatever its manifest id. */
 const RESERVED_PLUGIN_ID = "designer.workflow";
 const ownerOf = (ctx: ApiContext, namespace: string | null): string => {
@@ -706,15 +868,23 @@ const ownerOf = (ctx: ApiContext, namespace: string | null): string => {
   return owner;
 };
 
+/** A shared plugin data namespace (Figma's three rules and texts). */
+function checkNamespace(namespace: string): void {
+  if (namespace.length < 3) throw new ApiError("The namespace must be at least 3 characters");
+  if (namespace.length > 1000) throw new ApiError("The namespace can be at most 1000 characters");
+  if (!/^[A-Za-z0-9_.]+$/.test(namespace)) throw new ApiError("The namespace can only consist of alphanumeric characters, _ or .");
+}
+
 export function getPluginData(ctx: ApiContext, id: Guid, namespace: string | null, key: string): string {
+  if (namespace !== null) checkNamespace(namespace);
   const n = mustNode(ctx, id);
   const owner = ownerOf(ctx, namespace);
   return (n.pluginData ?? []).find((e) => e.pluginID === owner && e.key === key)?.value ?? "";
 }
 
 export function setPluginData(ctx: ApiContext, id: Guid, namespace: string | null, key: string, value: string): void {
-  if (namespace !== null && !/^[\w.]{3,}$/.test(namespace)) throw new ApiError("Namespace must be at least 3 alphanumeric characters (letters, numbers, underscores or periods)");
-  if (key.length + value.length > KEY_LIMIT) throw new ApiError("Plugin data is limited to 100 kB per entry");
+  if (namespace !== null) checkNamespace(namespace);
+  if (utf8Length(key) + utf8Length(value) + (namespace === null ? 0 : utf8Length(namespace)) > KEY_LIMIT) throw new ApiError("This pluginData entry exceeds 100 kB per entry limit.");
   const n = mustNode(ctx, id);
   const owner = ownerOf(ctx, namespace);
   const rest = (n.pluginData ?? []).filter((e) => !(e.pluginID === owner && e.key === key));

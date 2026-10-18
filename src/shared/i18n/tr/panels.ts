@@ -568,7 +568,7 @@ export const panels: Record<string, string> = {
   "Image resampling": "Görsel yeniden örnekleme",
   "Images": "Görseller",
   "Import": "İçe aktar",
-  "Import a plugin from Plugins › Development › Import new plugin from manifest…": "Eklentiler › Geliştirme › Manifest'ten yeni eklenti içe aktar… ile bir eklenti içe aktarın",
+  "Import a plugin from Plugins › Development › Import plugin from manifest…": "Eklentiler › Geliştirme › Manifest'ten eklenti içe aktar… ile bir eklenti içe aktarın",
   "Import mode": "Mod içe aktar",
   "Import new plugin from manifest…": "Manifest'ten yeni eklenti içe aktar…",
   "Import variables button": "Değişkenleri içe aktar düğmesi",

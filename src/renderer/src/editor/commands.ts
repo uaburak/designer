@@ -220,10 +220,13 @@ const PLUGIN_COMMANDS: EditorCommand[] = [
   { id: "plugins.none", label: "No saved plugins", run: () => {}, enabled: () => false },
   // "New plugin…": the "Create a plugin" dialog; main writes Figma's templates into a folder the person picks.
   { id: "plugins.new", label: "New plugin…", run: (ed) => pluginsOf(ed)?.openNewPlugin(), enabled: (ed) => !!pluginsOf(ed)?.canDevelop },
-  { id: "plugins.import", label: "Import new plugin from manifest…", run: (ed) => void pluginsOf(ed)?.importManifest(), enabled: (ed) => !!pluginsOf(ed) && !!pluginDesktop() },
+  { id: "plugins.import", label: "Import plugin from manifest…", run: (ed) => void pluginsOf(ed)?.importManifest(), enabled: (ed) => !!pluginsOf(ed) && !!pluginDesktop() },
+  // Development ▸ (Figma's order, docs/research/atlas/17-plugins.md §10.1)
+  { id: "plugins.manage-development", label: "Manage plugins in development", run: (ed) => openActions(ed, "plugins"), enabled: (ed) => !!pluginsOf(ed) },
+  { id: "plugins.api-docs", label: "View API documentation", run: () => void window.open("https://www.figma.com/plugin-docs/", "_blank", "noopener") },
   { id: "plugins.hot-reload", label: "Hot reload plugin", run: (ed) => pluginsOf(ed)?.toggleHotReload(), enabled: (ed) => !!pluginsOf(ed), checked: (ed) => !!pluginsOf(ed)?.get().hotReload },
   { id: "plugins.developer-vm", label: "Use developer VM", run: (ed) => pluginsOf(ed)?.toggleDeveloperVm(), enabled: (ed) => !!pluginsOf(ed), checked: (ed) => !!pluginsOf(ed)?.get().developerVm },
-  { id: "plugins.open-console", label: "Open console", run: (ed) => pluginsOf(ed)?.openConsole(), enabled: (ed) => !!pluginsOf(ed) && !!pluginDesktop() },
+  { id: "plugins.open-console", label: "Show/Hide console", run: (ed) => pluginsOf(ed)?.openConsole(), enabled: (ed) => !!pluginsOf(ed) && !!pluginDesktop() },
 ];
 
 const later = (id: string, label: string, keys?: KeyCombo[]): EditorCommand => ({ id, label, keys, run: () => {}, enabled: () => false });

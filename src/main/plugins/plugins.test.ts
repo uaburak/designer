@@ -19,7 +19,7 @@ const { TEMPLATE_IDS, templateFiles } = await import("./templates");
 const { PluginRuns } = await import("./runs");
 const { frameMayNavigate, pluginResponse } = await import("./protocol");
 
-const base = { name: "Test", id: "123", api: "1.0.0", main: "code.js" };
+const base = { name: "Test", id: "123", api: "1.0.0", main: "code.js", editorType: ["figma"] };
 
 describe("manifest", () => {
   it("keeps Figma's fields and drops the rest", () => {
@@ -38,9 +38,10 @@ describe("manifest", () => {
     expect(errors({ ...base, main: "/etc/passwd" })).toMatch(/main/);
     expect(errors({ ...base, ui: { main: "../x.html" } })).toMatch(/ui/);
     expect(errors({ ...base, editorType: ["sketch"] })).toMatch(/editorType/);
-    expect(errors({ ...base, networkAccess: { allowedDomains: [] } })).toMatch(/at least one/);
-    expect(errors({ ...base, networkAccess: { allowedDomains: ["none", "example.com"] } })).toMatch(/only entry/);
-    expect(errors({ ...base, networkAccess: { allowedDomains: ["example.com; script-src *"] } })).toMatch(/isn't a domain/);
+    expect(errors({ ...base, networkAccess: { allowedDomains: [] } })).toMatch(/To block all network access/);
+    expect(errors({ ...base, networkAccess: { allowedDomains: ["none", "https://example.com"] } })).toMatch(/'none' must be the only value/);
+    expect(errors({ ...base, networkAccess: { allowedDomains: ["example.com; script-src *"] } })).toMatch(/must be a valid URL/);
+    expect(errors({ ...base, networkAccess: { allowedDomains: ["example.com"] } })).toMatch(/must include a scheme/);
     expect(errors({ ...base, containsWidget: true })).toBe("Widgets aren't supported in Wecra yet");
     expect(errors({ ...base, capabilities: ["codegen"], editorType: ["dev"] })).toMatch(/codegenLanguages/);
     // A development manifest may leave out its id (main names it); a published one may not.
@@ -49,9 +50,9 @@ describe("manifest", () => {
     expect(errors(noId, true)).toBe("");
   });
 
-  it("warns when * or localhost come without a reasoning", () => {
+  it("refuses * or localhost without a reasoning (Figma's validator)", () => {
     const r = parseManifest({ ...base, networkAccess: { allowedDomains: ["http://localhost:3000"] } }, { development: true });
-    expect("warnings" in r && r.warnings).toHaveLength(1);
+    expect("errors" in r && r.errors[0]).toMatch(/If you want to allow localhost/);
   });
 
   it("runs in Design or Dev Mode only", () => {
@@ -172,17 +173,17 @@ describe("clientStorage", () => {
     expect(await again.call({ op: "keys", pluginId: "dev:abc" })).toEqual([]);
   });
 
-  it("refuses past 5 MB, counting the key and the value's JSON, bytes by length", async () => {
+  it("refuses past 5 MB, counting the key and the value's JSON, strings and bytes by length", async () => {
     expect(STORAGE_QUOTA_BYTES).toBe(5 * 1024 * 1024);
     const s = new ClientStorage(dir, 1000);
     // "k1" (2) + 990 bytes = 992
     await s.call({ op: "set", pluginId: "q", key: "k1", value: new Uint8Array(990) });
     expect(await s.used("q")).toBe(992);
-    // "k2" (2) + '"abcdef"' (8) = 10 → 1002 > 1000
-    await expect(s.call({ op: "set", pluginId: "q", key: "k2", value: "abcdef" })).rejects.toThrow(QUOTA_TEXT);
+    // "k2" (2) + "abcdefgh" (8, its length) = 10 → 1002 > 1000
+    await expect(s.call({ op: "set", pluginId: "q", key: "k2", value: "abcdefgh" })).rejects.toThrow(QUOTA_TEXT);
     // Replacing a key counts the new value only.
     await s.call({ op: "set", pluginId: "q", key: "k1", value: new Uint8Array(900) });
-    await s.call({ op: "set", pluginId: "q", key: "k2", value: "abcdef" });
+    await s.call({ op: "set", pluginId: "q", key: "k2", value: "abcdefgh" });
     expect(await s.used("q")).toBe(902 + 10);
   });
 
@@ -206,7 +207,7 @@ describe("development plugins", () => {
   afterAll(() => rm(root, { recursive: true, force: true }));
 
   it("imports, reads, lists and removes", async () => {
-    await writeFile(join(root, "p", "manifest.json"), JSON.stringify({ name: "P", api: "1.0.0", main: "code.js", ui: "ui.html", build: "rm -rf ~" }));
+    await writeFile(join(root, "p", "manifest.json"), JSON.stringify({ name: "P", api: "1.0.0", main: "code.js", ui: "ui.html", editorType: ["figma"], build: "rm -rf ~" }));
     const list = new DevelopmentPlugins(join(root, "userData"));
     const { plugin, manifest } = await list.add(join(root, "p", "manifest.json"), 1);
     expect(plugin.id).toMatch(/^dev:[0-9a-f]{40}$/);
@@ -224,7 +225,7 @@ describe("development plugins", () => {
   it("reads only inside the plugin's folder, after symlinks", async () => {
     await expect(insideFolder(join(root, "p"), "escape.js")).rejects.toThrow(/isn.t inside/);
     await expect(insideFolder(join(root, "p"), "../secret.txt")).rejects.toThrow(/isn.t inside/);
-    await writeFile(join(root, "p", "manifest.json"), JSON.stringify({ name: "P", api: "1.0.0", main: "escape.js" }));
+    await writeFile(join(root, "p", "manifest.json"), JSON.stringify({ name: "P", api: "1.0.0", main: "escape.js", editorType: ["figma"] }));
     await expect(new DevelopmentPlugins(join(root, "userData2")).add(join(root, "p", "manifest.json"))).rejects.toThrow(/isn.t inside/);
   });
 });

@@ -10,9 +10,10 @@ import { newNodeGuid } from "../../variables";
 import { svgToMessage } from "../../model/svgImport";
 import { renderEngineExport } from "../../exportCore";
 import { exportAllowed } from "../../exporting";
+import { LATEST_TEXT_LAYOUT_VERSION, pendingUpgrades } from "../../panels/design/TypeSettings";
 import { ApiError, MIXED } from "./codec";
 import { mustNode, readNode, ref, refOf, type ApiContext } from "./context";
-import { apiType, effectToApi, ENGINE_TYPE, fontNameFromApi, IDENTITY, letterSpacingFromApi, letterSpacingToApi, lineHeightFromApi, lineHeightToApi, paintsFromApi, paintToApi, weightOf } from "./convert";
+import { apiType, decorationColorFromApi, decorationColorToApi, decorationMetricFromApi, decorationMetricToApi, effectToApi, ENGINE_TYPE, fontNameFromApi, IDENTITY, letterSpacingFromApi, letterSpacingToApi, lineHeightFromApi, lineHeightToApi, paintsFromApi, paintToApi, weightOf } from "./convert";
 import { positionAt, writeFields } from "./nodes";
 import { sha1 } from "./sha1";
 
@@ -225,6 +226,14 @@ export function selectionColors(ctx: ApiContext): Obj | null {
 
 // ---- Text ranges ------------------------------------------------------------------------------------------------
 
+export function decorationStyleFromApi(v: unknown): string {
+  if (v !== "SOLID" && v !== "WAVY" && v !== "DOTTED") throw new ApiError(`textDecorationStyle: invalid enum value '${String(v)}'`);
+  return v;
+}
+
+/** A text's whole value of a range field (the node's own properties of the same names, nodes.ts). */
+export const textFieldOf = (name: string) => RANGE_FIELDS[name];
+
 const RANGE_FIELDS: Record<string, { field: string; toApi: (v: unknown) => unknown; fromApi?: (v: unknown) => NodeFields }> = {
   fontName: { field: "fontName", toApi: (v) => ({ family: (v as Obj).family, style: (v as Obj).style }), fromApi: (v) => ({ fontName: fontNameFromApi(v) }) },
   fontWeight: { field: "fontName", toApi: (v) => weightOf(String((v as Obj).style ?? "Regular")) },
@@ -233,6 +242,14 @@ const RANGE_FIELDS: Record<string, { field: string; toApi: (v: unknown) => unkno
   letterSpacing: { field: "letterSpacing", toApi: (v) => letterSpacingToApi(v as never), fromApi: (v) => ({ letterSpacing: letterSpacingFromApi(v) }) },
   textCase: { field: "textCase", toApi: (v) => v ?? "ORIGINAL", fromApi: (v) => ({ textCase: v }) as NodeFields },
   textDecoration: { field: "textDecoration", toApi: (v) => v ?? "NONE", fromApi: (v) => ({ textDecoration: v }) as NodeFields },
+  // The underline's look (Figma's TextDecorationStyle / Offset / Thickness / Color / SkipInk; null = the style's default)
+  textDecorationStyle: { field: "textDecorationStyle", toApi: (v) => v ?? "SOLID", fromApi: (v) => ({ textDecorationStyle: decorationStyleFromApi(v) }) as NodeFields },
+  textDecorationOffset: { field: "textUnderlineOffset", toApi: (v) => decorationMetricToApi(v as never), fromApi: (v) => ({ textUnderlineOffset: decorationMetricFromApi(v, "textDecorationOffset") }) as NodeFields },
+  textDecorationThickness: { field: "textDecorationThickness", toApi: (v) => decorationMetricToApi(v as never), fromApi: (v) => ({ textDecorationThickness: decorationMetricFromApi(v, "textDecorationThickness") }) as NodeFields },
+  textDecorationColor: { field: "textDecorationFillPaints", toApi: (v) => decorationColorToApi(v as never), fromApi: (v) => ({ textDecorationFillPaints: decorationColorFromApi(v) }) as NodeFields },
+  textDecorationSkipInk: { field: "textDecorationSkipInk", toApi: (v) => v ?? false, fromApi: (v) => ({ textDecorationSkipInk: !!v }) as NodeFields },
+  // A whole text's (no per-range value in the document): read for any range, written on the node
+  textWrapStyle: { field: "textWrapStyle", toApi: (v) => v ?? "AUTO" },
   fills: { field: "fillPaints", toApi: (v) => ((v as Paint[] | undefined) ?? []).map(paintToApi), fromApi: (v) => ({ fillPaints: paintsFromApi(v, "fills") }) },
   hyperlink: {
     field: "hyperlink",
@@ -286,6 +303,14 @@ export function setRange(ctx: ApiContext, id: Guid, name: string, start: unknown
   } finally {
     ctx.ed.engine.setStyleRange(null);
   }
+}
+
+/** useNativeBidiSupport(): the text laid out with the bidi layout (Type settings' "Update text rendering", for bidi). */
+export function useNativeBidi(ctx: ApiContext, id: Guid): void {
+  const n = mustNode(ctx, id);
+  if (n.type !== "TEXT") throw new ApiError("in useNativeBidiSupport: Expected a text node");
+  if (!pendingUpgrades(n as never).includes("bidi")) return;
+  writeFields(ctx, id, { textBidiVersion: LATEST_TEXT_LAYOUT_VERSION } as NodeFields, "useNativeBidiSupport");
 }
 
 export function insertCharacters(ctx: ApiContext, id: Guid, start: number, chars: string): void {
@@ -396,7 +421,10 @@ export async function imageSizeOf(ctx: ApiContext, hash: string): Promise<{ widt
 // ---- Export ------------------------------------------------------------------------------------------------------
 
 export async function exportNode(ctx: ApiContext, id: Guid, settings: unknown): Promise<unknown> {
-  mustNode(ctx, id);
+  const n = mustNode(ctx, id);
+  // A page exports what is on it (PageNode.exportAsync): its top-level layers together.
+  const refs = n.type === "CANVAS" ? ((n.childIds ?? []) as Guid[]) : [id];
+  if (!refs.length) throw new ApiError("in exportAsync: the page is empty");
   // A viewer the file's export setting restricts (docs/governance.md §2.7): plugins don't export either (ours).
   if (!exportAllowed(ctx.ed)) throw new ApiError("in exportAsync: export is not allowed in this file");
   const s = (settings ?? { format: "PNG" }) as Obj;
@@ -414,7 +442,7 @@ export async function exportNode(ctx: ApiContext, id: Guid, settings: unknown): 
     contentsOnly: s.contentsOnly !== false,
     useAbsoluteBounds: !!s.useAbsoluteBounds,
   };
-  const out = await renderEngineExport(ctx.ed.engine, (hash) => ctx.ed.images.bytes(hash), [id], engineSettings as never);
+  const out = await renderEngineExport(ctx.ed.engine, (hash) => ctx.ed.images.bytes(hash), refs, engineSettings as never);
   if ("error" in out) throw new ApiError(out.error);
   if (format === "SVG_STRING") return new TextDecoder().decode(out.bytes);
   return out.bytes;
@@ -500,6 +528,14 @@ export function localVariables(ctx: ApiContext, type: string | null): Obj[] {
   return ctx.ed.engine
     .variables()
     .filter((v) => !v.remote && (!type || v.resolvedType === type))
+    .map((v) => ({ id: v.id }));
+}
+
+/** figma.variables.getSubscribedVariables: the library variables this file holds copies of (`remote`). */
+export function subscribedVariables(ctx: ApiContext, type: string | null): Obj[] {
+  return ctx.ed.engine
+    .variables()
+    .filter((v) => v.remote && (!type || v.resolvedType === type))
     .map((v) => ({ id: v.id }));
 }
 
@@ -594,8 +630,11 @@ export function bindVariable(ctx: ApiContext, id: Guid, field: string, variable:
 }
 
 export function setVariableMode(ctx: ApiContext, id: Guid, collection: unknown, mode: unknown): void {
+  const n = mustNode(ctx, id);
   ctx.write();
-  ctx.ed.engine.runCommand("SET_VARIABLE_MODE", { refs: [id], collection: String(collection), mode: mode === null ? "" : String(mode) } as never);
+  // A page's explicit mode is the page's own (the command's `page`), a layer's its `refs`.
+  const target = n.type === "CANVAS" ? { page: id } : { refs: [id] };
+  ctx.ed.engine.runCommand("SET_VARIABLE_MODE", { ...target, collection: String(collection), mode: mode === null ? "" : String(mode) } as never);
 }
 
 /** The file's own fonts and the bundled faces (figma.listAvailableFontsAsync). */
