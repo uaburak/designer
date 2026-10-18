@@ -1005,6 +1005,15 @@ files) and the mismatch toast (open question 6); the native menu bar's accelerat
 `src/shared/commands.ts`, not the table; Windows-key bindings (Figma's debug toggles) are dropped. Behaviour to note:
 Figma's other keys above now act (⌘P opens Actions, ⌘Y toggles outlines, ⌃G layout guides).
 
+**Sweep (2026-10-18)** — branch `worktree-agent-a44e0af86efbcac0b`.
+
+- **The popularity list in full**: all 320 ids (`3653.min.js` / `1540.min.js`, `let o=["ungroup-selection",…]`), so the unsearched list ranks every action Figma ranks (`panels/actionsRank.ts`).
+- **Search synonyms**: Figma's `searchSynonyms` matched like the label and never shown (`synonymsOf`): those whose action stands plain in the same definition (11 actions — Show comments' "hide comments", Dev Mode's "mode" / "open" …) and the AI actions' by their type (`eo.JT.*`: Remove background, Boost resolution, Rename layers, Replace content, Make an image, Add interactions, Shorten, Rewrite, Translate). Synonyms whose action the build names through another binding (Edit image, Expand, Find more like …) are left out rather than guessed.
+- **The native menu bar's accelerators from the table** (`src/main/menu.ts` `menuDefault`): the first binding that holds in Design on the platform, the desktop app, a U.S. keyboard and the default preferences, as menus show it (`display`: ⌘+ for zoom in); the registry's only for commands that aren't Figma's actions; the user's own bindings over both. `FIGMA_ACTION` moved to `src/shared/figmaActions.ts` for main to read. (Zoom to 100% now shows ⌘0, the table's first.)
+- File › New window ⌘⇧N, Recently closed tabs and the hidden ⌘⇧[ / ⌘⇧] (atlas 01).
+
+**Still not done:** F6 / ⇧F6 and ⌥Space (English unattested); the Timeline tab and the Essential tab's "Pick color" variant (wording unattested); desktop layout detection by input-source id and the mismatch toast (Q6; Electron has no keyboard-layout API — a native module); Windows-key bindings.
+
 ## 12. Open questions
 
 1. **Libraries** in the main menu (live, after Preferences): its builder was not in 858's `GetFullscreenMenuItems`. Probe: search the other chunks for the item that opens the library modal from the main menu, or click it live and read `recordingKey`.

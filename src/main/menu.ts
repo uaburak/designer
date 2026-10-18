@@ -1,6 +1,8 @@
 import { app, Menu, nativeTheme, webContents, type KeyboardEvent, type MenuItemConstructorOptions } from "electron";
 import { command, layoutCommands, MENU_LAYOUT, RECENTLY_CLOSED, registersAccelerator, runsFromMenuBar, type CommandId, type MenuEntry } from "../shared/commands";
 import { acceleratorFor, type KeyCombo } from "../shared/shortcuts";
+import { FIGMA_ACTION } from "../shared/figmaActions";
+import { tableAccelerator, tableBindings } from "../shared/shortcutsTable";
 import { getLocale, t, tx } from "../shared/i18n";
 import { readSettings } from "./session";
 import { interfaceScale } from "./interfaceScale";
@@ -30,7 +32,8 @@ export function appMenu(current: () => WindowController | null, dev: boolean, bi
 
   const item = (id: CommandId, extra: Partial<MenuItemConstructorOptions> = {}): MenuItemConstructorOptions => {
     const spec = command(id);
-    const accelerator = acceleratorFor(id, spec.accelerator, bindings);
+    // Figma's table first (the editor's own keys, Atlas 03 §6), then the registry's; the user's own over both.
+    const accelerator = acceleratorFor(id, menuDefault(id, mac) ?? spec.accelerator, bindings);
     return {
       id,
       label: t(spec.label),
@@ -109,6 +112,19 @@ export function appMenu(current: () => WindowController | null, dev: boolean, bi
     }),
   ];
   return Menu.buildFromTemplate(template);
+}
+
+/**
+ * A menu item's key from Figma's shortcut table (Atlas 03 §6): the first binding that holds in the Design editor on
+ * this platform, the desktop app, a U.S. keyboard and the default preferences (number keys for opacity on, the new
+ * outline keys) — what the editor's keyboard layer acts on there. Undefined for a command that isn't Figma's action
+ * or has no binding (the registry's then).
+ */
+export function menuDefault(id: CommandId, mac = process.platform === "darwin"): string | undefined {
+  const action = FIGMA_ACTION[id];
+  if (!action) return undefined;
+  const [first] = tableBindings(action, { mac, editor: "design", layout: "us_qwerty", desktop: true, numbersForOpacity: true, oldOutlineShortcuts: false, flags: [] });
+  return first ? tableAccelerator(first, mac) : undefined;
 }
 
 /** Help › Troubleshooting's check and radio set, as main keeps them (troubleshooting.ts). */

@@ -130,6 +130,24 @@ export function tableBindings(action: string, ctx: TableContext): TableBinding[]
   return out;
 }
 
+/** The table's key names that Electron's accelerators spell otherwise. */
+const ACCELERATOR_KEYS: Record<string, string> = { "+": "Plus", " ": "Space", "Page Up": "PageUp", "Page Down": "PageDown", "Num +": "numadd", "Num -": "numsub", Left: "Left", Right: "Right", Up: "Up", Down: "Down" };
+
+/**
+ * A binding as the menu bar's accelerator (src/main/menu.ts): what menus show (`display`) when the table says, ⌘ as
+ * Cmd on a Mac and Ctrl elsewhere (the table writes the platform's own modifier).
+ */
+export function tableAccelerator(binding: TableBinding, mac: boolean): string {
+  const k = binding.display ?? binding;
+  const parts: string[] = [];
+  if (k.control) parts.push("Ctrl");
+  if (k.alt) parts.push("Alt");
+  if (k.shift) parts.push("Shift");
+  if (k.meta) parts.push(mac ? "Cmd" : "Super");
+  const key = ACCELERATOR_KEYS[k.key] ?? (k.key.length === 1 ? k.key.toUpperCase() : k.key);
+  return [...parts, key].join("+");
+}
+
 /** Every binding of the table, whatever its conditions (counts and checks). */
 export function allTableBindings(): { action: string; keys: string; conditions: string[] }[] {
   const out: { action: string; keys: string; conditions: string[] }[] = [];

@@ -1,6 +1,6 @@
 // Actions' ranking (Atlas 03 §9.1, §9.2): the weighted score, frecency's buckets and cap, Figma's popularity order.
 import { describe, expect, it } from "vitest";
-import { bucketScore, frecencyKey, frecencyOf, fuzzyScore, matchScore, popularity, rankScore, RANK_WEIGHTS, substringScore, withRun, type FrecencyHistory } from "../panels/actionsRank";
+import { bucketScore, frecencyKey, frecencyOf, fuzzyScore, matchScore, popularity, rankScore, RANK_WEIGHTS, substringScore, synonymsOf, withRun, type FrecencyHistory } from "../panels/actionsRank";
 import { actionRows } from "../panels/ActionsPanel";
 import type { ActionItem } from "../menus";
 
@@ -45,12 +45,22 @@ describe("Actions' ranking", () => {
     expect(popularity("object.group")).toBe(319);
     expect(popularity("object.wrap-in-section")).toBe(318);
     expect(popularity("view.zoom-50")).toBe(0);
+    // Past the first 80: the whole list of 320.
+    expect(popularity("view.comments")).toBe(320 - 83);
+    expect(popularity("view.zoom-fit")).toBe(320 - 106);
     const items: ActionItem[] = [
       { id: "view.zoom-50", label: "Zoom to 50%", section: "View", disabled: false },
       { id: "object.group", label: "Group selection", section: "Object", disabled: false },
       { id: "object.ungroup", label: "Ungroup selection", section: "Object", disabled: false },
     ];
     expect(actionRows(items, "", [], () => true, { all: true }).map((r) => r.label)).toEqual(["Ungroup selection", "Group selection", "Zoom to 50%"]);
+  });
+
+  it("finds an action by Figma's search synonyms, never showing them", () => {
+    expect(synonymsOf("view.comments")).toEqual(["hide comments"]);
+    expect(synonymsOf("ai.remove-background")).toContain("erase background");
+    const items: ActionItem[] = [{ id: "ai.boost-resolution", label: "Boost resolution", section: "Image editing", disabled: false }];
+    expect(actionRows(items, "enlarge image", [], () => true).map((r) => r.label)).toEqual(["Boost resolution"]);
   });
 
   it("puts what can run before what can't, and what ran often and lately higher", () => {
