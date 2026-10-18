@@ -31,7 +31,6 @@
     align-items: center;
     gap: var(--ds-space-2);
     min-width: var(--ds-size-tab-min);
-    max-width: var(--ds-size-tab-max);
     padding: 0 var(--ds-space-2) 0 var(--ds-space-3);
     border: 0;
     border-right: 1px solid var(--ds-color-tabbar-separator);
@@ -54,7 +53,11 @@
   .glyph { display: flex; flex: none; }
   .tab[aria-selected="true"] .glyph { color: var(--figma-color-text-brand); }
   .home[aria-selected="true"] .glyph { color: var(--figma-color-icon); }
-  .title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Figma's title: at most 200, its end faded out over 8 instead of an ellipsis */
+  .title {
+    flex: 1 1 auto; min-width: 0; max-width: var(--ds-size-tab-title-max); overflow: hidden; white-space: nowrap;
+    mask-image: linear-gradient(to left, transparent, black var(--ds-size-tab-title-fade));
+  }
   .slot { position: relative; display: flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-control); height: var(--ds-size-control); }
   .dot { width: 8px; height: 8px; border-radius: var(--ds-radius-full); background: currentColor; opacity: 0.7; }
   .close {
@@ -73,6 +76,36 @@
   .add:hover { background: var(--ds-color-tabbar-hover); color: var(--figma-color-text); }
   .add:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: -1px; }
   .spacer { flex: 1 1 auto; min-width: var(--ds-space-6); }
+  /* A tab group (atlas 01 §2.3): its name in its colour, then its tabs as 24px pills (radius 5, 2px apart); the one in
+     front in the brand's tertiary with a brand border */
+  .group {
+    display: flex; flex: none; align-items: center; align-self: center; height: var(--ds-size-tab-pill); max-width: var(--ds-size-tab-title-max);
+    margin: 0 var(--ds-space-1); padding: 0 var(--ds-space-2); border-radius: var(--ds-radius-medium);
+    background: var(--ds-color-tabgroup-blue); color: var(--figma-color-text-onbrand); -webkit-app-region: no-drag;
+  }
+  .group[data-color="red"] { background: var(--ds-color-tabgroup-red); }
+  .group[data-color="yellow"] { background: var(--ds-color-tabgroup-yellow); color: var(--figma-color-text); }
+  .group[data-color="green"] { background: var(--ds-color-tabgroup-green); }
+  .group[data-color="purple"] { background: var(--ds-color-tabgroup-purple); }
+  .group[data-color="pink"] { background: var(--ds-color-tabgroup-pink); }
+  .group[data-color="persimmon"] { background: var(--ds-color-tabgroup-persimmon); }
+  .group[data-color="grey"] { background: var(--ds-color-tabgroup-grey); color: var(--figma-color-text); }
+  .groupName { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .groupInput {
+    min-width: 172px; height: 20px; padding: 0 var(--ds-space-1); border: 0; border-radius: var(--ds-radius-small);
+    background: var(--figma-color-bg); color: var(--figma-color-text); font: inherit; letter-spacing: inherit; outline: none;
+  }
+  .tab[data-grouped] {
+    align-self: center; height: var(--ds-size-tab-pill); margin: 0 2px; border: 1px solid transparent; border-radius: var(--ds-radius-medium);
+  }
+  .tab[data-grouped][aria-selected="true"] { background: var(--figma-color-bg-brand-tertiary); border-color: var(--figma-color-border-brand); }
+  .tab[data-grouped][aria-selected="true"]::after { content: none; }
+  .tabsMenu {
+    display: flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-tabs-menu); padding: 0; border: 0;
+    background: transparent; color: inherit; outline: none; -webkit-app-region: no-drag;
+  }
+  .tabsMenu:hover { background: var(--ds-color-tabbar-hover); color: var(--figma-color-text); }
+  .tabsMenu:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
   .notice { display: flex; flex: none; align-items: center; padding: 0 var(--ds-space-2); -webkit-app-region: no-drag; }
   .update { border-radius: var(--ds-radius-full); }
   .updateStatus { display: flex; align-items: center; gap: var(--ds-space-2); color: var(--figma-color-text-secondary); white-space: nowrap; }

@@ -38,6 +38,9 @@ export const ds: Record<string, string> = {
   "{n} months ago": "{n} ay önce",
   "{n} year ago": "{n} yıl önce",
   "{n} years ago": "{n} yıl önce",
+  "yesterday": "dün",
+  "last month": "geçen ay",
+  "last year": "geçen yıl",
   "Edited {time}": "{time} düzenlendi",
 
   // ---- Paint types, blend modes (ds/util/paint.ts)

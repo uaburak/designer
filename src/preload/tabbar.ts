@@ -15,6 +15,11 @@ const api: TabBarApi = {
     mainMenu: (x, y) => send("tabs:main-menu", { x: Number(x), y: Number(y) }),
     reopen: () => send("tabs:reopen"),
     newFile: () => void invoke("nav:new-file", { folderId: null }).catch(() => {}),
+    newTab: () => send("tabs:new-tab"),
+    groupMenu: (groupId, x, y) => send("tabs:group-menu", { groupId: String(groupId), x: Number(x), y: Number(y) }),
+    renameGroup: (groupId, name) => send("tabs:group-rename", { groupId: String(groupId), name: String(name) }),
+    listMenu: (x, y) => send("tabs:list-menu", { x: Number(x), y: Number(y) }),
+    onEditGroup: (cb) => on("tabs:edit-group", cb),
   },
   updates: {
     get: () => invoke("updater:get"),

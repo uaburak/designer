@@ -10,6 +10,8 @@ import { Emitter } from "./emitter";
 import { StoreError } from "./protocol";
 import { SerialQueue } from "./queue";
 import {
+  BROWSE_SORT_KEYS,
+  BROWSE_VIEWS,
   FOLDER_COLORS,
   isFileKey,
   MAX_FOLDER_DEPTH,
@@ -29,6 +31,15 @@ import {
 /** "local" or "org:<id>" (docs/multiplayer.md §14.6) */
 export function isSpaceId(s: unknown): s is SpaceId {
   return s === "local" || (typeof s === "string" && /^org:[A-Za-z0-9_-]{1,64}$/.test(s));
+}
+
+/** Home's per-view sorts: known views, known keys, "default" or "reversed". */
+function checkSorts(sorts: unknown): void {
+  if (!sorts || typeof sorts !== "object") throw new StoreError("invalid", "bad sorts");
+  for (const [view, s] of Object.entries(sorts)) {
+    const { key, order } = (s ?? {}) as { key?: unknown; order?: unknown };
+    if (!(BROWSE_VIEWS as readonly string[]).includes(view) || !(BROWSE_SORT_KEYS as readonly unknown[]).includes(key) || (order !== "default" && order !== "reversed")) throw new StoreError("invalid", `bad sort for ${view}`);
+  }
 }
 
 /** Case- and diacritic-insensitive form used by search. */
@@ -289,8 +300,9 @@ export class WorkspaceModel {
     if (patch.layout !== undefined && !["grid", "list"].includes(patch.layout)) throw new StoreError("invalid", `bad layout ${patch.layout}`);
     if (patch.sort !== undefined && !["last-viewed", "last-modified", "alphabetical", "date-created"].includes(patch.sort)) throw new StoreError("invalid", `bad sort ${patch.sort}`);
     if (patch.space !== undefined && !isSpaceId(patch.space)) throw new StoreError("invalid", `bad space ${String(patch.space)}`);
+    if (patch.sorts !== undefined) checkSorts(patch.sorts);
     return this.changePrefs(["browse"], (p) => {
-      p.browse = { ...p.browse, ...(patch.layout ? { layout: patch.layout } : {}), ...(patch.sort ? { sort: patch.sort } : {}), ...(patch.space ? { space: patch.space } : {}) };
+      p.browse = { ...p.browse, ...(patch.layout ? { layout: patch.layout } : {}), ...(patch.sort ? { sort: patch.sort } : {}), ...(patch.space ? { space: patch.space } : {}), ...(patch.sorts ? { sorts: { ...p.browse.sorts, ...patch.sorts } } : {}) };
     });
   }
 

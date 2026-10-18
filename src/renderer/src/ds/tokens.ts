@@ -254,6 +254,16 @@ export const appColor = {
   "folder-purple": ["#9747ff", "#8a38f5"], // = bg-component
   "folder-pink": ["#ff24bd", "#e81fae"],
   "folder-gray": ["#b3b3b3", "#8c8c8c"],
+  // Tab group colours (atlas 01 §2.3: Figma's `--ramp-pale-*-400`, grey `--ramp-grey-400`). G — Figma's palette as the
+  // folders have it until the pale ramp's values are read live; persimmon unverified
+  "tabgroup-blue": ["#0d99ff", "#0c8ce9"],
+  "tabgroup-red": ["#f24822", "#e03e1a"],
+  "tabgroup-yellow": ["#ffcd29", "#f3c11b"],
+  "tabgroup-green": ["#14ae5c", "#198f51"],
+  "tabgroup-purple": ["#9747ff", "#8a38f5"],
+  "tabgroup-pink": ["#ff24bd", "#e81fae"],
+  "tabgroup-persimmon": ["#ff7237", "#f0632b"],
+  "tabgroup-grey": ["#b3b3b3", "#8c8c8c"],
   // Agents at work (the chat's Thinking… row, an image being made — in the chat and on the canvas): Figma AI's
   // blue → purple → pink → orange sweep, from Figma's own palette (bg-brand, bg-component, the pink and orange above;
   // Figma's exact AI gradient unverified). The fill is the soft wash under it, the shine the light that crosses it.
@@ -336,8 +346,14 @@ export const size = {
   "rail-tile": 32,
   tabbar: 38,
   "tab-home": 40,
-  "tab-min": 72, // G
-  "tab-max": 240, // G
+  // Figma 126.9.13 (atlas 01 §2.1): a file tab at least 40, its title at most 200 (faded out over its last 8, not cut
+  // with an ellipsis); in a tab group, tabs are 24-high pills
+  "tab-min": 40,
+  "tab-title-max": 200,
+  "tab-title-fade": 8,
+  "tab-pill": 24,
+  // The tabs menu at the bar's right end: 40 × 38
+  "tabs-menu": 40,
   "traffic-room": 80,
   "traffic-room-fullscreen": 8,
   // Windows: the system's caption buttons (titleBarOverlay, 3 × 46) at the right, Figma's main menu button (40) at the left
@@ -376,10 +392,10 @@ export const size = {
   "home-sidebar": 240, // G
   "home-nav": 28,
   "home-nav-pitch": 32,
-  "card-width": 268,
-  "card-height": 213,
-  "card-thumb": 151,
-  "card-gap": 36,
+  // Home's tile grid (docs/research/atlas/01-app-shell-home.md §4.1): columns at least 264 wide sharing the row's
+  // width, 32 apart both ways
+  "card-width": 264,
+  "card-gap": 32,
   "list-row": 40, // the Home list view's row (§4.27)
   "list-header": 32, // G — the list view's column header
   "breadcrumb-max": 160, // G — an ancestor crumb's width before it ellipsizes
@@ -407,7 +423,7 @@ export const size = {
 } as const;
 
 /** Corner radii, `--ds-radius-<key>` (px, §1.7). */
-export const radius = { none: 0, small: 2, medium: 5, "medium-large": 9, "asset-tile": 10, large: 13, full: 9999 } as const;
+export const radius = { none: 0, small: 2, medium: 5, tile: 6, "medium-large": 9, "asset-tile": 10, large: 13, full: 9999 } as const;
 
 export const fontFamily = {
   /** "Inter Symbols" (global.css): Inter 3.19's key glyphs (⌘ ⇧ ⌥ ⌃ ⌫ ↵ arrows) — live's widths (11px: ⌫ 13, ⌘ 11, ⌃ 9) */

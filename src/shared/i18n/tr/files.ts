@@ -24,6 +24,8 @@ export const files: Record<string, string> = {
   "Date created": "Oluşturulma tarihi",
   "Last viewed": "Son görüntülenme",
   "Last modified": "Son değiştirilme",
+  "Date trashed": "Çöpe atılma tarihi",
+  "Date shared": "Paylaşılma tarihi",
   "Created": "Oluşturulma",
   "A to Z": "A'dan Z'ye",
   "Z to A": "Z'den A'ya",

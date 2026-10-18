@@ -103,6 +103,18 @@ export interface OrgImportPlace {
   projectId: string | null;
 }
 
+/** Home's sort keys (docs/research/atlas/01-app-shell-home.md §5.1) */
+export const BROWSE_SORT_KEYS = ["last-viewed", "last-modified", "alphabetical", "date-created", "date-trashed", "date-shared"] as const;
+export type BrowseSortKey = (typeof BROWSE_SORT_KEYS)[number];
+/** Home's views that keep their own sort (§5.2) */
+export const BROWSE_VIEWS = ["recents", "drafts", "folder", "folders", "starred", "search", "trash", "shared"] as const;
+export type BrowseView = (typeof BROWSE_VIEWS)[number];
+/** A view's sort: the key, and "default" (the key's own direction: newest first, A to Z) or "reversed" */
+export interface BrowseSort {
+  key: BrowseSortKey;
+  order: "default" | "reversed";
+}
+
 export interface Prefs {
   /** Newest first, ≤ 50 */
   recents: { fileKey: FileKey; viewedAt: number }[];
@@ -112,7 +124,10 @@ export interface Prefs {
   starred: { files: FileKey[]; folders: FolderId[] };
   browse: {
     layout: "grid" | "list";
+    /** The sort before each view kept its own: a view without one in `sorts` uses it when the view offers it */
     sort: "last-viewed" | "last-modified" | "alphabetical" | "date-created";
+    /** Each view's sort (Figma keeps one per view); absent: the view's default */
+    sorts?: Partial<Record<BrowseView, BrowseSort>>;
     /** The space Home shows (docs/multiplayer.md §14.6; Home's org switcher sets it, per machine). Absent: "local" */
     space?: SpaceId;
   };

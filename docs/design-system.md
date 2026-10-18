@@ -383,7 +383,7 @@ Off-grid values are allowed only where measured (marked M below, e.g. 38, 55, 67
 | `--ds-size-home-topbar` | 48 | M |
 | `--ds-size-home-sidebar` | 240 | G |
 | Home nav row | 32 pitch, 28 highlight | M |
-| `--ds-size-card` | 268 × 213 (thumbnail 268 × 151, footer 62); grid gap 36; first row 67 below the top bar | M / G (split) |
+| `--ds-size-card` | Home's tile grid (atlas 01 §4.1): columns `minmax(264, 1fr)`, gap 32 × 32, padding 24 32 32; the tile a 16:9 thumbnail, radius 6 (`--ds-radius-tile`), 1 px `--figma-color-border` ring (2 px `border-selected` selected), meta 12 below, gap 8 | A |
 | `--ds-size-list-row` | 40 (Home list view row, §4.27) | K |
 | `--ds-size-list-header` | 32 (list view column header) | G |
 | `--ds-size-breadcrumb-max` | 160 (an ancestor crumb's width before it ellipsizes) | G |

@@ -39,6 +39,8 @@ export const COMMANDS = [
 
   // ── File ──
   { id: "file.new", label: "New design file", accelerator: "CmdOrCtrl+N", scope: "shell" },
+  { id: "file.new-tab", label: "New tab", accelerator: "CmdOrCtrl+T", scope: "shell" },
+  { id: "file.open-file-browser", label: "Open file browser", accelerator: "CmdOrCtrl+O", scope: "shell" },
   { id: "file.import", label: "Import…", scope: "shell" },
   { id: "file.place-image", label: "Place image…", accelerator: "CmdOrCtrl+Shift+K", scope: "editor" },
   { id: "file.close-tab", label: "Close tab", accelerator: "CmdOrCtrl+W", scope: "shell" },
@@ -232,6 +234,8 @@ export type MenuEntry = CommandId | "-" | { role: MenuRole } | { submenu: string
 export const MENU_LAYOUT: Record<TopMenu, MenuEntry[]> = {
   File: [
     "file.new",
+    "file.new-tab",
+    "file.open-file-browser",
     "file.import",
     "-",
     "file.place-image",

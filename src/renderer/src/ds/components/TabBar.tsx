@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { cx } from "../util/cx";
 import { Icon } from "../icons/Icon";
 import { STRINGS } from "../strings";
@@ -8,7 +8,12 @@ import { Button } from "./Button";
 import { Spinner } from "./Spinner";
 import styles from "./TabBar.module.css";
 
-export type TabBarTab = { id: string; title: string; dirty?: boolean; kind?: "design" | "prototype" };
+export type TabBarTab = { id: string; title: string; dirty?: boolean; kind?: "design" | "prototype" | "new-tab"; pinned?: boolean; groupId?: string };
+
+/** Figma's tab group colours (atlas 01 §2.3) */
+export type TabBarGroupColor = "blue" | "red" | "yellow" | "green" | "purple" | "pink" | "persimmon" | "grey";
+/** A tab group as the bar shows it: its name already "Group {number}" when it has none */
+export type TabBarGroup = { id: string; name: string; color: TabBarGroupColor };
 
 export interface TabBarProps {
   tabs: TabBarTab[];
@@ -33,6 +38,16 @@ export interface TabBarProps {
   onMainMenu?: (at: { x: number; y: number }) => void;
   /** Gallery: a forced hover on this tab */
   hoverId?: string;
+  /** The tab groups its tabs name (atlas 01 §2.3) */
+  groups?: TabBarGroup[];
+  /** A group's header pressed with the right button: the shell's native group menu */
+  onGroupMenu?: (groupId: string, at: { x: number; y: number }) => void;
+  /** The group whose name is a field (Edit group name) */
+  editingGroup?: string | null;
+  /** The field left: the name typed, or null when Esc cancelled it */
+  onRenameGroup?: (groupId: string, name: string | null) => void;
+  /** The tabs menu at the right end ("Open and recently closed tabs"); the shell shows it native */
+  onTabsMenu?: (at: { x: number; y: number }) => void;
 }
 
 export { dropIndex };
@@ -43,9 +58,11 @@ export { dropIndex };
  * unsaved dot — with full-height lines after every tab. Drag sideways to
  * reorder (4px threshold; the others make room), middle click closes, the
  * free space moves the window. Titles use the native `title` attribute: no
- * DOM tooltip can leave a 38px view.
+ * DOM tooltip can leave a 38px view. Pinned tabs come first; a group's tabs
+ * follow its coloured name as 24px pills (atlas 01 §2.3); "+" opens the
+ * new-tab page; the tabs menu sits at the right end (§2.5).
  */
-export function TabBar({ tabs, active, onActivate, onClose, onMove, onContextMenu, onNew, trailing, notice, fullScreen, windows, onMainMenu, hoverId }: TabBarProps) {
+export function TabBar({ tabs, active, onActivate, onClose, onMove, onContextMenu, onNew, trailing, notice, fullScreen, windows, onMainMenu, hoverId, groups = [], onGroupMenu, editingGroup, onRenameGroup, onTabsMenu }: TabBarProps) {
   useT();
   const strip = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ id: string; dx: number; from: number; to: number; width: number } | null>(null);
@@ -127,33 +144,97 @@ export function TabBar({ tabs, active, onActivate, onClose, onMove, onContextMen
           data-hover={hoverId === "home" || undefined}
           className={cx(styles.tab, styles.home)}
           onClick={() => onActivate("home")}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            onContextMenu?.("home", { x: e.clientX, y: e.clientY });
+          }}
           onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onActivate("home")}
         >
           <span className={styles.glyph}><Icon name="24.home" /></span>
         </div>
-        {tabs.map((t, i) => (
-          <Tab
-            key={t.id}
-            tab={t}
-            active={t.id === active}
-            hover={hoverId === t.id}
-            dragging={drag?.id === t.id}
-            shift={drag ? (drag.id === t.id ? drag.dx : shift(i)) : 0}
-            onPointerDown={press(t.id, i)}
-            onActivate={() => onActivate(t.id)}
-            onClose={() => onClose(t.id)}
-            onContextMenu={onContextMenu && ((at) => onContextMenu(t.id, at))}
-          />
-        ))}
+        {tabs.map((tab, i) => {
+          const group = tab.groupId && tabs[i - 1]?.groupId !== tab.groupId ? groups.find((g) => g.id === tab.groupId) : undefined;
+          return (
+            <Fragment key={tab.id}>
+              {group && <GroupLabel group={group} editing={editingGroup === group.id} onMenu={onGroupMenu && ((at) => onGroupMenu(group.id, at))} onRename={onRenameGroup && ((name) => onRenameGroup(group.id, name))} />}
+              <Tab
+                tab={tab}
+                active={tab.id === active}
+                hover={hoverId === tab.id}
+                dragging={drag?.id === tab.id}
+                shift={drag ? (drag.id === tab.id ? drag.dx : shift(i)) : 0}
+                groupColor={tab.groupId ? groups.find((g) => g.id === tab.groupId)?.color : undefined}
+                onPointerDown={press(tab.id, i)}
+                onActivate={() => onActivate(tab.id)}
+                onClose={() => onClose(tab.id)}
+                onContextMenu={onContextMenu && ((at) => onContextMenu(tab.id, at))}
+              />
+            </Fragment>
+          );
+        })}
       </div>
       {onNew && (
-        <button type="button" aria-label={t(STRINGS.newDesignFile)} title={t(STRINGS.newDesignFile)} className={styles.add} onClick={onNew}>
+        <button type="button" aria-label={t(STRINGS.newFile)} title={t(STRINGS.newFile)} className={styles.add} onClick={onNew}>
           <Icon name="24.plus" />
         </button>
       )}
       <div className={styles.spacer} />
       {notice && <div className={styles.notice}>{notice}</div>}
       {trailing && <div className={styles.trailing}>{trailing}</div>}
+      {onTabsMenu && (
+        <button
+          type="button"
+          aria-label={t(STRINGS.tabsMenu)}
+          title={t(STRINGS.tabsMenu)}
+          className={styles.tabsMenu}
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            onTabsMenu({ x: r.left, y: r.bottom });
+          }}
+        >
+          <Icon name="24.chevron.down" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** A tab group's coloured name before its tabs; its menu on a right click, a field while it is renamed. */
+function GroupLabel({ group, editing, onMenu, onRename }: { group: TabBarGroup; editing: boolean; onMenu?: (at: { x: number; y: number }) => void; onRename?: (name: string | null) => void }) {
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (editing) input.current?.select();
+  }, [editing]);
+  return (
+    <div
+      data-ds="TabGroup"
+      data-group-id={group.id}
+      data-color={group.color}
+      className={styles.group}
+      title={group.name}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onMenu?.({ x: e.clientX, y: e.clientY });
+      }}
+    >
+      {editing ? (
+        <input
+          ref={input}
+          className={styles.groupInput}
+          aria-label={t("Group name")}
+          defaultValue={group.name}
+          onBlur={(e) => onRename?.(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+            else if (e.key === "Escape") {
+              e.preventDefault();
+              onRename?.(null);
+            }
+          }}
+        />
+      ) : (
+        <span className={styles.groupName}>{group.name}</span>
+      )}
     </div>
   );
 }
@@ -193,10 +274,12 @@ export interface TabProps {
   dragging?: boolean;
   /** Gallery: forced hover */
   hover?: boolean;
+  /** In a group: a pill with the group's colour */
+  groupColor?: TabBarGroupColor;
 }
 
 /** One file's tab (contract §4.23): glyph, title, then × — or the unsaved dot, swapped for × on hover. Middle click closes. */
-export function Tab({ tab, active, onActivate, onClose, onContextMenu, onPointerDown, shift = 0, dragging, hover }: TabProps) {
+export function Tab({ tab, active, onActivate, onClose, onContextMenu, onPointerDown, shift = 0, dragging, hover, groupColor }: TabProps) {
   useT();
   return (
     <div
@@ -204,11 +287,14 @@ export function Tab({ tab, active, onActivate, onClose, onContextMenu, onPointer
       data-tab-id={tab.id}
       role="tab"
       aria-selected={active}
+      aria-label={tab.pinned ? t("Pinned tab: {tabTitle}", { tabTitle: tab.title }) : undefined}
       tabIndex={active ? 0 : -1}
       title={tab.title}
       data-dirty={tab.dirty || undefined}
       data-dragging={dragging || undefined}
       data-hover={hover || undefined}
+      data-pinned={tab.pinned || undefined}
+      data-grouped={groupColor}
       className={styles.tab}
       style={shift ? { transform: `translateX(${shift}px)` } : undefined}
       onPointerDown={onPointerDown}
@@ -221,7 +307,7 @@ export function Tab({ tab, active, onActivate, onClose, onContextMenu, onPointer
         if (e.key === "Enter" || e.key === " ") onActivate();
       }}
     >
-      <span className={styles.glyph}><Icon name={tab.kind === "prototype" ? "16.play" : "16.design"} /></span>
+      <span className={styles.glyph}><Icon name={tab.kind === "prototype" ? "16.play" : tab.kind === "new-tab" ? "16.page" : "16.design"} /></span>
       <span className={styles.title}>{tab.title}</span>
       <span className={styles.slot}>
         {tab.dirty && <span className={styles.dot} aria-label={t(STRINGS.unsaved)} />}

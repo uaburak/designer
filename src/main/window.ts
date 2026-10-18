@@ -103,7 +103,7 @@ export class WindowController {
       if (details.reason !== "clean-exit") this.tabbar.webContents.reload();
     });
 
-    const state = restoreTabs(saved ? { tabs: saved.tabs, active: saved.activeTabId, closed: saved.closed } : null);
+    const state = restoreTabs(saved ? { tabs: saved.tabs, active: saved.activeTabId, closed: saved.closed, groups: saved.groups } : null);
     this.tabs = new TabManager(this, state);
     this.layout();
 
@@ -288,6 +288,7 @@ export class WindowController {
       tabs: kept.tabs,
       activeTabId: kept.active,
       closed: kept.closed,
+      groups: kept.groups,
     };
   }
 
@@ -300,8 +301,8 @@ export class WindowController {
 export function openWindow(bounds?: WindowBounds): WindowController {
   const saved = readSession().windows[0];
   if (!bounds) return new WindowController(saved);
-  const tabs = persistable(restoreTabs(saved ? { tabs: saved.tabs, active: saved.activeTabId, closed: saved.closed } : null));
-  return new WindowController({ id: saved?.id ?? "main", maximized: saved?.maximized ?? false, fullScreen: false, tabs: tabs.tabs, activeTabId: tabs.active, closed: tabs.closed, bounds });
+  const tabs = persistable(restoreTabs(saved ? { tabs: saved.tabs, active: saved.activeTabId, closed: saved.closed, groups: saved.groups } : null));
+  return new WindowController({ id: saved?.id ?? "main", maximized: saved?.maximized ?? false, fullScreen: false, tabs: tabs.tabs, activeTabId: tabs.active, closed: tabs.closed, groups: tabs.groups, bounds });
 }
 
 /** Where the saved session's window was (the welcome window opens there) */

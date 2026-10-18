@@ -40,6 +40,8 @@ export const shared: Record<string, string> = {
   "Use System Setting": "Sistem Ayarını Kullan",
 
   "New design file": "Yeni tasarım dosyası",
+  "New tab": "Yeni sekme",
+  "Open file browser": "Dosya tarayıcısını aç",
   "Import…": "İçe aktar…",
   "Place image…": "Görsel yerleştir…",
   "Close tab": "Sekmeyi kapat",

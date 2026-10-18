@@ -152,7 +152,7 @@ export class MemoryWorkspace implements WorkspaceRepository, MemoryExtras {
   }
 
   async setBrowsePrefs(patch: Partial<Prefs["browse"]>) {
-    this.prefs = { ...this.prefs, browse: { ...this.prefs.browse, ...patch } };
+    this.prefs = { ...this.prefs, browse: { ...this.prefs.browse, ...patch, ...(patch.sorts ? { sorts: { ...this.prefs.browse.sorts, ...patch.sorts } } : {}) } };
     this.changedPrefs();
     return structuredClone(this.prefs);
   }

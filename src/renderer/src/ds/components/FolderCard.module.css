@@ -1,21 +1,16 @@
 @layer ds {
-  /* The FileCard frame (§4.27): 268×213, radius 9, a 151 thumbnail area over the footer */
+  /* The FileCard's tile (docs/research/atlas/01-app-shell-home.md §4.1): its grid column's width, a 16:9 thumbnail with
+     radius 6 and a 1 px ring (2 px selected or as a drop target), the name and count 12 below */
   .card {
     position: relative;
     display: flex;
     flex-direction: column;
-    width: var(--ds-size-card-width);
-    height: var(--ds-size-card-height);
-    overflow: hidden;
-    border: 1px solid var(--figma-color-border);
-    border-radius: var(--ds-radius-medium-large);
-    background: var(--figma-color-bg);
+    min-width: var(--ds-size-card-width);
+    border-radius: var(--ds-radius-tile);
     color: var(--figma-color-text);
     outline: none;
     cursor: default;
   }
-  .card:hover, .card[data-hover] { border-color: var(--ds-color-card-border-hover); }
-  .card[aria-selected="true"], .card[data-drop-target] { box-shadow: inset 0 0 0 2px var(--figma-color-border-selected); border-color: var(--figma-color-border-selected); }
   .card:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
   .thumb {
     position: relative;
@@ -23,10 +18,14 @@
     flex: none;
     align-items: center;
     justify-content: center;
-    height: var(--ds-size-card-thumb);
+    aspect-ratio: 16 / 9;
     overflow: hidden;
+    border-radius: var(--ds-radius-tile);
     background: var(--figma-color-bg-secondary);
   }
+  .thumb::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px var(--figma-color-border); pointer-events: none; }
+  .card:hover .thumb::after, .card[data-hover] .thumb::after { box-shadow: inset 0 0 0 1px var(--ds-color-card-border-hover); }
+  .card[aria-selected="true"] .thumb::after, .card[data-drop-target] .thumb::after { box-shadow: inset 0 0 0 2px var(--figma-color-border-selected); }
   .glyph { color: var(--figma-color-icon-secondary); }
   /* Up to four files, 2×2, 12 in and 8 apart */
   .previews {
@@ -43,7 +42,7 @@
   .preview img { display: block; width: 100%; height: 100%; object-fit: cover; }
   .star { position: absolute; top: var(--ds-space-1); right: var(--ds-space-1); visibility: hidden; }
   .card:hover .star, .card[data-hover] .star, .star[data-on] { visibility: visible; }
-  .footer { display: flex; flex: 1 1 auto; align-items: center; gap: var(--ds-space-2); min-height: 0; padding: 0 var(--ds-space-4) 0 var(--ds-space-3); border-top: 1px solid var(--figma-color-border); }
+  .footer { display: flex; align-items: center; gap: var(--ds-space-2); margin-top: var(--ds-space-3); }
   .meta { display: flex; flex: 1 1 auto; flex-direction: column; align-items: flex-start; min-width: 0; }
   .meta > * { max-width: 100%; }
   .title { font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
