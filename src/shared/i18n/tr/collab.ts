@@ -8,6 +8,8 @@ export const collab: Record<string, string> = {
   "Sort by date": "Tarihe göre sırala",
   "Sort by unread": "Okunmamışa göre sırala",
   "Sort by last action": "Son işleme göre sırala",
+  "You will be notified about all comments in this file": "Bu dosyadaki tüm yorumlardan haberdar edileceksiniz",
+  "You will be notified about replies and @mentions": "Yanıtlardan ve @bahsetmelerden haberdar edileceksiniz",
   "{n} attachment": "{n} ek",
   "{n} attachments": "{n} ek",
   "Upload up to 5 images and GIFs": "En fazla 5 görsel ve GIF yükle",

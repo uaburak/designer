@@ -145,6 +145,13 @@ export class CommentsController {
   }
   setNotifications(notifications: CommentNotifications): void {
     this.set({ notifications });
+    // Figma's opt-in toast after a change (atlas 16 §2.8): 15 s, with Manage (the Comments panel, where the setting is).
+    if (notifications === "nothing") return;
+    showToast({
+      message: notifications === "everything" ? t("You will be notified about all comments in this file") : t("You will be notified about replies and @mentions"),
+      duration: 15_000,
+      action: { label: t("Manage"), onAction: () => this.ed.setTool("COMMENT") },
+    });
   }
 
   /** The Comment tool's click at a canvas point (CSS px): a new comment there. */
