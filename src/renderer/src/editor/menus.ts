@@ -714,14 +714,31 @@ export interface ActionItem {
   section: string;
   shortcut?: string;
   disabled: boolean;
+  /** A toggle: its check (Actions keeps itself open 300 ms after running one, the check flipping) */
+  checked?: boolean;
 }
+
+/**
+ * Actions the Figma menu hasn't that Actions finds (Figma's search-only items, Atlas 03 §9: rename-selection,
+ * create-multiple-symbols, reset-variable-modes, component-insert, toggle-library, publish-selection, auto-rename-layers),
+ * under the menu they would be in.
+ */
+const SEARCH_ONLY: [id: string, section: string][] = [
+  ["object.rename", "Object"],
+  ["object.create-multiple-components", "Object"],
+  ["object.reset-variable-modes", "Object"],
+  ["canvas.rename-layers-ai", "Object"],
+  ["view.component-search", "View"],
+  ["view.team-library", "View"],
+  ["file.publish-library", "File"],
+];
 
 /** The toolbar's tools, as the palette lists them (the bottom toolbar's order). */
 const TOOL_ACTIONS = ["tool.move", "tool.hand", "tool.scale", "tool.frame", "tool.section", "tool.slice", "tool.rectangle", "tool.line", "tool.arrow", "tool.ellipse", "tool.polygon", "tool.star", "tool.image", "tool.pen", "tool.pencil", "tool.brush", "tool.text", "tool.text-on-path", "tool.comment", "tool.annotation", "tool.measurement"];
 
 /**
  * The Actions palette's commands (⌘K; panels/ActionsPanel.tsx): every command of the Figma menu (live main-*.txt) in
- * its order, under its submenu's name, then the tools — each once, the palette itself left out.
+ * its order, under its submenu's name, then the tools and the search-only ones — each once, the palette itself left out.
  */
 export function actionItems(ed: EditorController): ActionItem[] {
   const out: ActionItem[] = [];
@@ -730,7 +747,7 @@ export function actionItems(ed: EditorController): ActionItem[] {
     if (seen.has(id) || !COMMAND_BY_ID.has(id)) return;
     seen.add(id);
     const item = commandItem(ed, id, label);
-    out.push({ id, label: item.label, section, shortcut: item.shortcut, disabled: !!item.disabled });
+    out.push({ id, label: item.label, section, shortcut: item.shortcut, disabled: !!item.disabled, ...(item.checked !== undefined ? { checked: item.checked } : {}) });
   };
   const walk = (specs: Spec[], section: string) => {
     for (const s of specs) {
@@ -749,5 +766,6 @@ export function actionItems(ed: EditorController): ActionItem[] {
   for (const id of branchMenuIds(ed)) add(id, "File");
   add("view.dev-mode", "View", "Switch to Dev Mode");
   for (const id of TOOL_ACTIONS) add(id, "Tools");
+  for (const [id, section] of SEARCH_ONLY) add(id, section);
   return out;
 }

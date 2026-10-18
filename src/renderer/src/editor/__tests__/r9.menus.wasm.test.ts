@@ -243,7 +243,8 @@ describe("round 9: the Actions palette (live toolbar/actions-panel.txt)", () => 
     expect(new Set(list.map((a) => a.id)).size).toBe(list.length);
     expect(list.find((a) => a.id === "vector.flatten")!.section).toBe("Object");
     expect(list.find((a) => a.id === "view.dev-mode")!.label).toBe("Switch to Dev Mode");
-    expect(list.at(-1)!.section).toBe("Tools");
+    expect(list.at(-1)!.id).toBe("file.publish-library");
+    expect(list.find((a) => a.id === "tool.move")!.section).toBe("Tools");
     const run = () => true;
     // Round 10 (live: Recents, then live's AI sections): an empty query lists Recents only; round 11: with none, no rows (no command list).
     const rows = actionRows(list, "", ["view.zoom-fit"], run);
