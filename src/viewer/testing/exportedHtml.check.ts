@@ -211,8 +211,8 @@ describe("the exported preview HTML (headless Chromium)", () => {
       await page.keyboard.press("Escape");
       await expect.poll(() => page.locator("[data-presentation]").count()).toBe(0);
 
-      // The second page.
-      await page.getByRole("option", { name: "Second page" }).click();
+      // The second page (a page row is a button since the editor's round 10, live's 224 × 24 rows).
+      await page.getByRole("listbox", { name: "Pages" }).getByRole("button", { name: "Second page", exact: true }).click();
       await expect.poll(() => page.locator('[data-ds="LayerRow"][data-id="1:40"]').count()).toBe(1);
       await page.screenshot({ path: join(outDir, "06-second-page.png") });
 

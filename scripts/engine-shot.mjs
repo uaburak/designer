@@ -335,12 +335,13 @@ async function e4Checks(files) {
   });
   await settle();
   await page.keyboard.press("p");
-  const penPts = [[1100, 760], [1200, 760], [1200, 860], [1150, 900]];
+  // (Clear of the playground's toolbar along the bottom.)
+  const penPts = [[1100, 700], [1200, 700], [1200, 800], [1150, 840]];
   for (const [x, y] of penPts) await page.mouse.click(...(await screenOf("50:1", x, y)));
-  await page.mouse.move(...(await screenOf("50:1", 1120, 880)));
+  await page.mouse.move(...(await screenOf("50:1", 1120, 820)));
   await settle();
   files.push(await shot("33-pen"));
-  await page.mouse.click(...(await screenOf("50:1", 1100, 760)));
+  await page.mouse.click(...(await screenOf("50:1", 1100, 700)));
   await settle();
   const pen = await engine(() => {
     const e = window.__designerEngine;
@@ -1782,7 +1783,10 @@ try {
   await settle();
   files.push(await shot("04-hover"));
 
-  // R, then draw a rectangle on empty canvas.
+  // R, then draw a rectangle on empty canvas. The sample opens zoomed to fit (126 % on this 1280 × 800 page, so the
+  // places below would be off its right): they are placed at 100 %.
+  await engine(() => window.__designerEngine.setCamera({ x: 40, y: 40, zoom: 1 }));
+  await settle();
   await page.keyboard.press("r");
   await drag(await toScreen(1060, 40), await toScreen(1180, 160));
   sel = await engine(() => window.__designerEngine.getSelection().refs);
@@ -1823,22 +1827,27 @@ try {
   await settle();
   const panned = await engine(() => window.__designerEngine.getCamera());
   const got = await page.evaluate(() => window.__wheel);
+  // Figma pans by the deltas in device pixels (the owner's trackpad, 2026-10-15; Gestures.cpp Editor::wheel): × the DPR.
+  const dpr = await page.evaluate(() => window.devicePixelRatio);
   check(
     "wheel pans",
-    Math.abs(zoomed.x - panned.x - got.dx) < 0.5 && Math.abs(zoomed.y - panned.y - got.dy) < 0.5 && got.dx > 0,
-    `moved ${(zoomed.x - panned.x).toFixed(0)}, ${(zoomed.y - panned.y).toFixed(0)} for wheel deltas ${got.dx}, ${got.dy}`
+    Math.abs(zoomed.x - panned.x - got.dx * dpr) < 0.5 && Math.abs(zoomed.y - panned.y - got.dy * dpr) < 0.5 && got.dx > 0,
+    `moved ${(zoomed.x - panned.x).toFixed(0)}, ${(zoomed.y - panned.y).toFixed(0)} for wheel deltas ${got.dx}, ${got.dy} × ${dpr}`
   );
   await page.keyboard.press("Shift+Digit1");
   await settle();
   files.push(await shot("08-fit"));
 
-  // E3 text: T, click on empty canvas, type through the hidden field (the IME path), Esc.
+  // E3 text: T, click on empty canvas, type through the hidden field (the IME path), Esc. At 100 % again (⇧1 fitted).
+  await engine(() => window.__designerEngine.setCamera({ x: 40, y: 40, zoom: 1 }));
+  await settle();
   await page.waitForFunction(() => {
     const d = window.__designerEngine.textLayout ? true : false;
     return d;
   });
   await page.keyboard.press("t");
-  const at = await toScreen(1100, 40);
+  // (Below the rectangle drawn above: a Text click on a shape makes text on its path, Draw round 7.)
+  const at = await toScreen(1100, 300);
   await page.mouse.click(...at);
   await settle();
   await page.keyboard.type("Hello Figma", { delay: 5 });
