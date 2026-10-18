@@ -1,8 +1,8 @@
 // The vector exports' keyed layers (docs/motion.md §7.5, §7.6; round 8i) on a fixed scene: a layer moved, turned and
 // faded by manual keyframes is written with those keyframes — Lottie's anchor at its anchor point, each key's curve as
 // `o` / `i`, Hold as `h`, the motion path's handles as `to` / `ti`; the SVG's individual transforms with per-segment
-// timing functions — and played back it lands on the samples; a spring, a clip, Ping-pong or samples the keys don't
-// reproduce keep the samples.
+// timing functions — and played back it lands on the samples; a spring, a clip, a Hold in Ping-pong or samples the keys
+// don't reproduce keep the samples; round 8j: Ping-pong keyed there and back.
 import { describe, expect, it } from "vitest";
 import { cubicBezierAt } from "@shared/motion/easing";
 import type { MotionSample, MotionShapeLayer, TimelineLayer, TimelineModel } from "@shared/motion/types";
@@ -64,18 +64,21 @@ function layerModel(over: Partial<TimelineLayer> = {}): TimelineModel {
   return { root: "1:1", rootName: "Root", timelineId: "1:1", durationUs: 1_000_000, playback: "LOOP", snappingFps: 60, layers: [layer], audioTracks: [], audio: [] };
 }
 
-/** The scene as the engine samples it (the same motion as the model's keys; `at` the translation at a time). */
-function scene(perturb = 0, at: (us: number) => number[] = (us) => [100 * cubicBezierAt(EASE_IN, us / 1e6), 0]) {
+/**
+ * The scene as the engine samples it (the same motion as the model's keys; `at` the translation at a time); `times`
+ * each frame's timeline time (Ping-pong's fold back after 1 s).
+ */
+function scene(perturb = 0, at: (us: number) => number[] = (us) => [100 * cubicBezierAt(EASE_IN, us / 1e6), 0], times: readonly number[] = TIMES) {
   const shapes = [shape({ node: "1:1", name: "Root" }), shape({ node: "1:2", parent: "1:1", name: "Rect", transform: BASE })];
-  const rect = TIMES.map((us) => {
+  const rect = times.map((us) => {
     const p = us / 1e6;
     const t = at(us);
     const x = motionPart([t[0] + (us === 500_000 ? perturb : 0), t[1]], -90 * p, [1, 1]);
     return sample(placed(x), us < 500_000 ? 1 : 0.5);
   });
-  const s = buildScene(shapes, [{ node: "1:1", frames: TIMES.map(() => sample([1, 0, 0, 1, 0, 0])) }, { node: "1:2", frames: rect }], 10, FPS)!;
-  s.times = TIMES;
-  s.rangeUs = 1_000_000;
+  const s = buildScene(shapes, [{ node: "1:1", frames: times.map(() => sample([1, 0, 0, 1, 0, 0])) }, { node: "1:2", frames: rect }], times.length - 1, FPS)!;
+  s.times = [...times];
+  s.rangeUs = (times.length - 1) * 100_000;
   return s;
 }
 
@@ -102,9 +105,24 @@ describe("keyed layers", () => {
     const clip = layerModel({ clips: [{ id: "c", preset: "opacity", name: "Opacity", startUs: 0, durationUs: 1, disabled: false, easing: { type: "EASE_OUT" }, props: {} }] });
     expect(keyedLayers(scene(), clip, "LOOP", anchors).has("1:2")).toBe(false);
     expect(keyedLayers(scene(), layerModel({ instance: { offsetUs: 0, durationUs: 1, mainTimeline: "9:9" } }), "LOOP", anchors).has("1:2")).toBe(false);
+    // Ping-pong with a Hold (its way back would hold the other end's value): sampled.
     expect(keyedLayers(scene(), layerModel(), "PING_PONG", anchors).size).toBe(0);
     // The layer drawn 3 px off its keys at 0.5 s (a layout move the keys don't know): its transform stays sampled.
     expect(keyedLayers(scene(3), layerModel(), "LOOP", anchors).get("1:2")?.transform).toBe(false);
+  });
+
+  it("round 8j: Ping-pong keyed there and back — the keys again at 2·D − t, each curve mirrored", () => {
+    const model = layerModel();
+    model.layers[0].tracks = model.layers[0].tracks.slice(0, 2);
+    const folded = Array.from({ length: 21 }, (_, k) => (k <= 10 ? k : 20 - k) * 100_000);
+    const keyed = keyedLayers(scene(0, undefined, folded), model, "PING_PONG", anchors).get("1:2");
+    expect(keyed?.transform).toBe(true);
+    // The key at D is the turn; the way back eases in by the ease-in curve's mirror (an ease-out).
+    expect(keyed!.translate!.keys.map((k) => [k.timeUs, k.v[0]])).toEqual([[0, 0], [1_000_000, 100], [2_000_000, 0]]);
+    expect(keyed!.translate!.keys[0].ease).toEqual(EASE_IN);
+    expect(keyed!.translate!.keys[1].ease).toEqual([0, 0, expect.closeTo(0.58, 9), 1]);
+    for (const us of [1_300_000, 1_500_000, 1_900_000]) expect(channelAt(keyed!.translate!, us)[0]).toBeCloseTo(100 * cubicBezierAt(EASE_IN, (2_000_000 - us) / 1e6), 9);
+    expect(channelAt(keyed!.rotate!, 1_750_000)[0]).toBeCloseTo(-22.5, 5);
   });
 });
 

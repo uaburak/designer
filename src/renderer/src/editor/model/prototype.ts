@@ -7,6 +7,7 @@
 import { t as tr } from "@/i18n";
 import type { Color, Guid } from "@/engine/codec";
 import type { IconName } from "@/ds";
+import type { MotionEasing } from "@shared/motion/types";
 
 export interface GuidJson {
   sessionID: number;
@@ -635,6 +636,30 @@ export function springWithEditorDuration(f: readonly number[], seconds: number):
   }
   w0 = Math.min(1000, Math.max(0.1, w0));
   return [m, w0 * w0 * m, 2 * zeta * w0 * m];
+}
+
+/**
+ * The Easing editor's graph in the Prototype panel (docs/motion.md §6.3, round 8j: easing/CurveEditor shared with
+ * Motion): a custom bezier as Motion's CUSTOM_CUBIC_BEZIER, a custom spring as its bounce clamp(1 − ζ, 0, 1) — the
+ * graph's one spring handle [ours: the prototype's ω₀ stays on its Mass / Stiffness fields and Duration].
+ */
+export function prototypeCurve(e: EasingType, fn: readonly number[]): MotionEasing | null {
+  if (e === "CUSTOM_CUBIC") return { type: "CUSTOM_CUBIC_BEZIER", easingFunctionCubicBezier: { x1: fn[0] ?? 0, y1: fn[1] ?? 0, x2: fn[2] ?? 0.58, y2: fn[3] ?? 1 } };
+  if (e === "CUSTOM_SPRING") return { type: "CUSTOM_SPRING", easingFunctionSpring: { bounce: Math.min(1, Math.max(0, 1 - springParts(springOf(e, fn)).zeta)) } };
+  return null;
+}
+
+/**
+ * The graph's edit as the action's `easingFunction`: a bezier's four numbers; a spring's damping for the dragged
+ * bounce, mass and stiffness kept (ζ = 1 − bounce, at least 0.01; damping 0.01…1000, the spring editor's limits).
+ */
+export function easingFunctionOfCurve(curve: MotionEasing, fn: readonly number[]): number[] {
+  const b = curve.easingFunctionCubicBezier;
+  if (curve.type === "CUSTOM_CUBIC_BEZIER" && b) return [b.x1, b.y1, b.x2, b.y2];
+  const [m, k] = springOf("CUSTOM_SPRING", fn);
+  const zeta = Math.max(0.01, 1 - (curve.easingFunctionSpring?.bounce ?? 0));
+  const damping = Math.min(1000, Math.max(0.01, Math.round(zeta * 2 * Math.sqrt(k * m) * 100) / 100));
+  return [m, k, damping, ...fn.slice(3)];
 }
 
 /** Custom bezier / spring defaults when picked (Figma's: its ease out curve [0, 0, 0.58, 1], a gentle spring). */

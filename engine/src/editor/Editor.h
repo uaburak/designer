@@ -1845,6 +1845,9 @@ class Editor : private LayoutHost, public TextLayouts {
   motion::MotionIndex motionIndex_;
   motion::MotionLayer motionLayer_;
   bool motionDirty_ = true;
+  // Round 8j: the layer evaluates inside the open transaction (setMotion's `inTransaction`: a style's canvas preview,
+  // whose transaction is cancelled and holds no other write); cleared when the transaction ends.
+  bool motionInTxn_ = false;
   void motionApply();
   // Round 8i: the index rebuilt with the variables resolved (EASING / TIMING bindings, in the animated layer's modes);
   // the top-level frames with animated layers (the Motion icon before their names, render/FrameTitles.h), kept with it.
@@ -1878,6 +1881,7 @@ class Editor : private LayoutHost, public TextLayouts {
   void motionBindPresetVariables(Guid preset, const json::Value& variables);
   Status motionCombineTracks(Guid node, bool scale, bool combine);
   Status motionCreateStyle(const json::Value& spec);
+  void motionReapplyStyle(Guid style, const json::Value& runs);
   void motionRemoveTrack(Guid track);
   std::vector<Guid> motionTracksOwnedBy(const std::vector<Guid>& ids);
   bool motionSlotOfTrack(Guid track, Guid& owner, motion::Slot& slot);
@@ -1929,6 +1933,7 @@ class Editor : private LayoutHost, public TextLayouts {
   // ANIMATION_PRESET parameters — and the composite styles that generated them (`styleIdsForAnimation`).
   bool motionBindingOf(const NodeProps& p, const motion::Slot& s, VariableData& base, std::vector<motion::Param>& params) const;
   Guid motionAddPreset(Guid node, Guid root, const json::Value& spec, int64_t startUs);
+  bool motionPresetProps(const json::Value& spec, Guid parent, int64_t startUs, NodeProps& out);
   bool motionEditPreset(Guid preset, const json::Value& edit);
   void motionSetPresetTracks(Guid preset, const json::Value& output);
   void motionRemovePreset(Guid preset);

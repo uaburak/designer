@@ -3,7 +3,8 @@
 // the timeline in Figma's Plugin API shapes (seconds, public units), set_keyframes writes / edits / merges a track and
 // grows the timeline, remove_keyframes, set_timeline, the presets (add / edit / remove, Figma's prop names), a composite
 // style applied and detached, the refusals Figma's API has (a top-level frame, combined vs separated tracks, WIDTH on
-// a vector, EASE_IN_OUT), audio edits, and export_animation handing back a GIF / Lottie file — each call one undo step.
+// a vector, EASE_IN_OUT), audio edits, and export_animation handing back a GIF / Lottie file — each call one undo step;
+// round 8j: save_animation_style and a custom style applied by name.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -53,7 +54,7 @@ const error = (r: ToolResult) => {
 
 describe("agents' motion tools", () => {
   it("lists every motion tool with an object schema", () => {
-    for (const name of ["get_motion", "set_keyframes", "remove_keyframes", "set_timeline", "add_animation", "edit_animation", "remove_animations", "apply_animation_style", "detach_animation_style", "add_audio", "edit_audio", "export_animation"]) {
+    for (const name of ["get_motion", "set_keyframes", "remove_keyframes", "set_timeline", "add_animation", "edit_animation", "remove_animations", "apply_animation_style", "detach_animation_style", "save_animation_style", "add_audio", "edit_audio", "export_animation"]) {
       const t = TOOL_BY_NAME.get(name);
       expect(t, name).toBeDefined();
       expect(t!.inputSchema.type).toBe("object");
@@ -164,6 +165,23 @@ describe("agents' motion tools", () => {
     expect(after.animationStyles).toBeUndefined();
     expect(after.animations).toHaveLength(2);
     expect(error(await call("apply_animation_style", { nodeIds: [GREEN], style: "textEnter" }))).toContain("text layers");
+  });
+
+  it("round 8j: save_animation_style makes a custom style from entries or a layer, apply_animation_style applies it by name, an update reaches the layer", async () => {
+    const { engine, call } = await editor();
+    const made = json(await call("save_animation_style", { name: "Pop", entries: [{ style: "Opacity", props: { duration: 0.3, timing: "in" } }, { style: "Scale", props: { duration: 0.4, delay: 0.1 } }] })).style;
+    expect(made).toMatchObject({ name: "Pop", type: "CUSTOM_ANIMATION" });
+    expect(made.animationEntries.map((e: { name: string }) => e.name)).toEqual(["Opacity", "Scale"]);
+    const applied = json(await call("apply_animation_style", { nodeIds: [GREEN], style: "Pop", timelineOffset: 0.5 }));
+    expect(applied.layers[GREEN].find((s: { type: string }) => s.type === "CUSTOM")).toMatchObject({ styleId: made.id, name: "Pop", timelineOffset: 0.5 });
+    expect(json(await call("get_motion", { nodeId: GREEN })).customAnimationStyles).toEqual([{ id: made.id, name: "Pop", entries: expect.any(Array) }]);
+    // Its content replaced: the layer's clips of it follow (one entry now, at the binding's start).
+    json(await call("save_animation_style", { styleId: made.id, name: "Pop out", entries: [{ style: "Rotation", props: { duration: 0.5 } }] }));
+    const clips = engine.motionTimeline(FRAME)!.layers.find((l) => l.node === GREEN)!.clips.filter((c) => c.style?.key === made.id);
+    expect(clips.map((c) => [c.preset, c.startUs])).toEqual([["rotation", 500_000]]);
+    expect(error(await call("save_animation_style", { name: "Nothing" }))).toContain("fromNodeId");
+    json(await call("save_animation_style", { styleId: made.id, delete: true }));
+    expect(json(await call("get_motion", { nodeId: GREEN })).customAnimationStyles).toEqual([]);
   });
 
   it("edit_audio names the timeline's clips; add_audio needs bytes", async () => {

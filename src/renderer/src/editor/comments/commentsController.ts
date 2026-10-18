@@ -11,7 +11,9 @@ import { getStoreClient } from "@/store";
 import { mentionsIn, type CommentAnchor, type CommentAttachment, type CommentSegment, type CommentsState, type CommentThread, type MentionCandidate } from "@shared/comments";
 import type { Guid, NodeChange } from "@/engine/codec";
 import type { EditorController } from "../controller";
+import { modeOf, setMode } from "../devmode/devMode";
 import type { ImageStore } from "../images";
+import { motionUi, setPlayhead } from "../motion/motionState";
 
 /** Figma's sorts: "date" the threads' creation (`creationDate`), "recent" their last reply (`recent`), "unread" unread first */
 export type CommentSort = "date" | "recent" | "unread";
@@ -230,9 +232,22 @@ export class CommentsController {
     await this.apply(getStoreClient().comments.react(this.fileKey, commentId, emoji, on));
   }
 
-  /** A pin dropped at a canvas point (CSS px) */
+  /** A pin dropped at a canvas point (CSS px); a thread placed in Motion keeps its time */
   async move(threadId: string, canvasX: number, canvasY: number): Promise<void> {
-    await this.apply(getStoreClient().comments.move(this.fileKey, threadId, this.anchorAt(canvasX, canvasY)));
+    const { timeMs: _now, ...place } = this.anchorAt(canvasX, canvasY);
+    const timeMs = this.view.data?.threads.find((x) => x.id === threadId)?.anchor.timeMs;
+    await this.apply(getStoreClient().comments.move(this.fileKey, threadId, timeMs === null || timeMs === undefined ? place : { ...place, timeMs }));
+  }
+
+  /**
+   * A thread's time (docs/motion.md §6.8): the playhead moves there, in Motion (the mode switches to it first). The
+   * ruler's marker and the thread card's time both come here.
+   */
+  goToTime(threadId: string): void {
+    const timeMs = this.view.data?.threads.find((x) => x.id === threadId)?.anchor.timeMs;
+    if (timeMs === null || timeMs === undefined) return;
+    if (modeOf(this.ed) !== "motion") setMode(this.ed, "motion");
+    setPlayhead(this.ed, timeMs * 1000);
   }
 
   /** Opens a thread's card (and reads it); `reveal`: from the list — its page, the view centred on it. */
@@ -273,30 +288,61 @@ export class CommentsController {
     return { x: a.x, y: a.y };
   }
 
-  /** The anchor for a canvas point (CSS px): the page point, and the top-level frame / component / group under it */
+  /**
+   * The anchor for a canvas point (CSS px): the page point, and the top-level frame / component / group under it; in
+   * Motion, the playhead's time too (docs/motion.md §6.8)
+   */
   anchorAt(canvasX: number, canvasY: number): CommentAnchor {
     const ed = this.ed;
     const cam = ed.engine.getCamera();
     const x = round((canvasX - cam.x) / cam.zoom);
     const y = round((canvasY - cam.y) / cam.zoom);
     const pageId = ed.store.page;
+    const time = modeOf(ed) === "motion" ? { timeMs: Math.round(motionUi(ed).timeUs / 1000) } : {};
     for (const id of ed.engine.hitTest(canvasX, canvasY)) {
       let n: NodeChange | null = ed.store.readNode(id);
       for (let depth = 0; n && depth < 256; depth++) {
         const parent = n.parentIndex?.guid;
         if (parent === pageId) {
-          if (ATTACHABLE.has(n.type ?? "") && n.transform) return { pageId, x, y, nodeId: n.guid, offset: { x: round(x - n.transform.m02), y: round(y - n.transform.m12) } };
+          if (ATTACHABLE.has(n.type ?? "") && n.transform) return { pageId, x, y, nodeId: n.guid, offset: { x: round(x - n.transform.m02), y: round(y - n.transform.m12) }, ...time };
           break;
         }
         n = parent ? ed.store.readNode(parent) : null;
       }
       break;
     }
-    return { pageId, x, y, nodeId: null, offset: null };
+    return { pageId, x, y, nodeId: null, offset: null, ...time };
   }
 }
 
 const round = (v: number) => Math.round(v * 100) / 100;
+
+/** Motion (docs/motion.md §6.8): a pin placed at a time shows while the playhead is this close to it [unverified] */
+export const COMMENT_TIME_WINDOW_MS = 250;
+
+/** Whether a thread's pin shows: always outside Motion and for threads without a time; in Motion, near the playhead */
+export function pinShownAt(a: CommentAnchor, motion: boolean, playheadMs: number): boolean {
+  if (!motion || a.timeMs === null || a.timeMs === undefined) return true;
+  return Math.abs(a.timeMs - playheadMs) <= COMMENT_TIME_WINDOW_MS;
+}
+
+/** A thread's time as its card shows it: "0:01.250" (minutes, seconds, ms) */
+export function formatCommentTime(ms: number): string {
+  const total = Math.max(0, Math.round(ms));
+  const s = Math.floor((total % 60_000) / 1000);
+  return `${Math.floor(total / 60_000)}:${String(s).padStart(2, "0")}.${String(total % 1000).padStart(3, "0")}`;
+}
+
+/** The ruler's markers (docs/motion.md §6.8): the page's threads placed in Motion, resolved ones while they're shown */
+export function timedThreads(v: CommentsView, page: string): { id: string; number: number; timeMs: number }[] {
+  const out: { id: string; number: number; timeMs: number }[] = [];
+  for (const th of v.data?.threads ?? []) {
+    const timeMs = th.anchor.timeMs;
+    if (timeMs === null || timeMs === undefined || th.anchor.pageId !== page || (th.resolvedAt && !v.showResolved)) continue;
+    out.push({ id: th.id, number: th.number, timeMs });
+  }
+  return out;
+}
 
 const registry = new WeakMap<EditorController, CommentsController>();
 

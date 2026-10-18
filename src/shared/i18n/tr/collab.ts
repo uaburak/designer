@@ -41,6 +41,9 @@ export const collab: Record<string, string> = {
   "Mark as unread": "Okunmadı olarak işaretle",
   "Copy link": "Bağlantıyı kopyala",
   "Delete thread...": "Yazışmayı sil...",
+  // Motion (docs/motion.md §6.8): a comment's time and its marker on the timeline's ruler
+  "Go to time": "Zamana git",
+  "Comment #{number}": "Yorum #{number}",
   "Select comment by {name}, {message}, {replies}": "{name} yorumunu seç, {message}, {replies}",
   "Unread": "Okunmamış",
   "More Actions": "Diğer işlemler",

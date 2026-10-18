@@ -84,6 +84,8 @@ Editor::Editor() {
 
 void Editor::begin(TxnKind kind, const std::string& label) {
   if (txn_.open) {
+    // A preview evaluated inside the transaction (motionInTxn_) goes before anything more is written in it.
+    if (motionInTxn_ && motionLayer_.active()) motionLayer_.restore(doc_);
     txn_.depth++;
     return;
   }
@@ -489,6 +491,8 @@ void Editor::removeEmptyGroups() {
 void Editor::commit(bool mergeWithLast) {
   if (!txn_.open || txn_.depth > 1) {
     if (txn_.open) txn_.depth--;
+    // A preview evaluated inside the transaction (motionInTxn_) shows again once the nested step is done.
+    if (txn_.open && txn_.depth == 1 && motionInTxn_ && motion_.on) motionApply();
     return;
   }
   if (txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE) {
@@ -507,6 +511,7 @@ void Editor::commit(bool mergeWithLast) {
   }
   txn_.depth = 0;
   txn_.open = false;
+  motionInTxn_ = false;
   motionDirty_ = true;
   if (motion_.on) motionApply();
   bool emits = txn_.kind != TxnKind::REMOTE && txn_.kind != TxnKind::LOAD;
@@ -536,6 +541,9 @@ void Editor::commit(bool mergeWithLast) {
 
 void Editor::rollback() {
   if (!txn_.open) return;
+  // A preview's values go first: the rollback puts back what the transaction read.
+  if (motionInTxn_ && motionLayer_.active()) motionLayer_.restore(doc_);
+  motionInTxn_ = false;
   txn_.open = false;
   txn_.depth = 0;
   if (txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE) {
@@ -2231,7 +2239,7 @@ void Editor::motionRebuild() {
 }
 
 void Editor::motionApply() {
-  if (txn_.open) return;  // applied when the transaction commits
+  if (txn_.open && !motionInTxn_) return;  // applied when the transaction commits
   if (motionDirty_) {
     if (motionLayer_.active()) motionLayer_.restore(doc_);
     motionRebuild();
@@ -2290,6 +2298,7 @@ Status Editor::setMotionJson(const json::Value& v) {
   if (const json::Value* t = v.get("timeUs"); t && t->isNumber()) s.timeUs = static_cast<int64_t>(std::llround(std::max(0.0, t->number)));
   if (const json::Value* a = v.get("autoKeyframe"); a && a->isBool()) s.autoKeyframe = a->boolean;
   if (const json::Value* p = v.get("showMotionPath"); p && p->isBool()) s.showMotionPath = p->boolean;
+  if (const json::Value* in = v.get("inTransaction"); in && in->isBool()) motionInTxn_ = in->boolean && txn_.open;
   setMotion(s);
   return OK;
 }

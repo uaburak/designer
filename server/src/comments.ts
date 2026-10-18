@@ -48,6 +48,7 @@ interface Row {
   node_id: string | null;
   offset_x: number | null;
   offset_y: number | null;
+  time_ms: number | null;
   created_at: number;
   edited_at: number | null;
   resolved_at: number | null;
@@ -170,10 +171,10 @@ export async function commentsRoute(req: Request, deps: Deps, ctx: CommentsConte
     const next = await d1.prepare(`SELECT COALESCE(MAX(number), 0) + 1 AS n FROM comments WHERE file_key = ?1`).bind(key).first<{ n: number }>();
     await d1
       .prepare(
-        `INSERT INTO comments (id, file_key, thread_id, user_id, message, mentions, number, page_id, x, y, node_id, offset_x, offset_y, created_at)
-         VALUES (?1, ?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
+        `INSERT INTO comments (id, file_key, thread_id, user_id, message, mentions, number, page_id, x, y, node_id, offset_x, offset_y, time_ms, created_at)
+         VALUES (?1, ?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`,
       )
-      .bind(id, key, user.id, message, JSON.stringify(mentions), next?.n ?? 1, anchor.pageId, anchor.x, anchor.y, anchor.nodeId ?? null, anchor.offset?.x ?? null, anchor.offset?.y ?? null, now)
+      .bind(id, key, user.id, message, JSON.stringify(mentions), next?.n ?? 1, anchor.pageId, anchor.x, anchor.y, anchor.nodeId ?? null, anchor.offset?.x ?? null, anchor.offset?.y ?? null, anchor.timeMs ?? null, now)
       .run();
     await markRead(id, now);
     disc.push({ text: message, action: "insert", textType: "file_comments", resourceId: id, nodeId: anchor.nodeId ?? null, userId: user.id });
@@ -260,8 +261,8 @@ export async function commentsRoute(req: Request, deps: Deps, ctx: CommentsConte
     const a = cleanAnchor(body.anchor);
     if (!a) return fail(400, "anchor");
     await d1
-      .prepare(`UPDATE comments SET page_id = ?2, x = ?3, y = ?4, node_id = ?5, offset_x = ?6, offset_y = ?7 WHERE id = ?1`)
-      .bind(id, a.pageId, a.x, a.y, a.nodeId ?? null, a.offset?.x ?? null, a.offset?.y ?? null)
+      .prepare(`UPDATE comments SET page_id = ?2, x = ?3, y = ?4, node_id = ?5, offset_x = ?6, offset_y = ?7, time_ms = ?8 WHERE id = ?1`)
+      .bind(id, a.pageId, a.x, a.y, a.nodeId ?? null, a.offset?.x ?? null, a.offset?.y ?? null, a.timeMs ?? null)
       .run();
   }
   await changed(c.thread_id);
@@ -269,7 +270,7 @@ export async function commentsRoute(req: Request, deps: Deps, ctx: CommentsConte
 }
 
 function anchorOf(r: Row): CommentAnchor {
-  return { pageId: r.page_id ?? "", x: r.x ?? 0, y: r.y ?? 0, nodeId: r.node_id, offset: r.offset_x !== null && r.offset_y !== null ? { x: r.offset_x, y: r.offset_y } : null };
+  return { pageId: r.page_id ?? "", x: r.x ?? 0, y: r.y ?? 0, nodeId: r.node_id, offset: r.offset_x !== null && r.offset_y !== null ? { x: r.offset_x, y: r.offset_y } : null, ...(r.time_ms !== null && r.time_ms !== undefined ? { timeMs: r.time_ms } : {}) };
 }
 
 async function readJson(req: Request): Promise<Record<string, unknown> | null> {
@@ -308,7 +309,9 @@ function cleanAnchor(v: unknown): CommentAnchor | null {
   const nodeId = typeof a.nodeId === "string" && a.nodeId.length <= 64 ? a.nodeId : null;
   const o = a.offset as Record<string, unknown> | null | undefined;
   const offset = nodeId && o && finite(o.x) && finite(o.y) ? { x: o.x, y: o.y } : null;
-  return { pageId: a.pageId, x: a.x, y: a.y, nodeId: offset ? nodeId : null, offset };
+  // Motion's playhead time (docs/motion.md §6.8): whole ms, at most a day.
+  const timeMs = finite(a.timeMs) && a.timeMs >= 0 && a.timeMs <= 86_400_000 ? Math.round(a.timeMs) : null;
+  return { pageId: a.pageId, x: a.x, y: a.y, nodeId: offset ? nodeId : null, offset, ...(timeMs !== null ? { timeMs } : {}) };
 }
 
 function cleanEmoji(v: unknown): string | null {

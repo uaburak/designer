@@ -195,6 +195,7 @@ else()
     tests/unit/r8.motion_audio.test.cpp
     tests/unit/r8.motion_export.test.cpp
     tests/unit/r8.motion_finish.test.cpp
+    tests/unit/r8.motion_close.test.cpp
     tests/unit/libraries.test.cpp
     tests/unit/text.layout.test.cpp
     tests/unit/text.edit.test.cpp

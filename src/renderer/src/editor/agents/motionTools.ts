@@ -1,10 +1,11 @@
 /**
  * The agents' motion tools (src/shared/agents/tools.ts: get_motion, set_keyframes, remove_keyframes, set_timeline,
  * add_animation, edit_animation, remove_animations, apply_animation_style, detach_animation_style, add_audio,
- * edit_audio, export_animation; docs/motion.md §9, round 8f). Thin: the keyframes and presets go through the Plugin
- * API's shapes (motion/publicApi.ts — Figma's `manualKeyframeTracks`, `animationStyles`), the rest through the motion
- * commands the chrome runs (MOTION_SET_TIMELINE, MOTION_APPLY_STYLE, the audio commands) and the Animated export
- * (motion/export/exportAnimated.ts). Seconds at the tools, as the Plugin API; one transaction per call.
+ * edit_audio, export_animation; docs/motion.md §9, round 8f; save_animation_style, round 8j). Thin: the keyframes and
+ * presets go through the Plugin API's shapes (motion/publicApi.ts — Figma's `manualKeyframeTracks`, `animationStyles`,
+ * custom animation styles), the rest through the motion commands the chrome runs (MOTION_SET_TIMELINE,
+ * MOTION_APPLY_STYLE, the audio commands) and the Animated export (motion/export/exportAnimated.ts). Seconds at the
+ * tools, as the Plugin API; one transaction per call.
  */
 import type { Guid } from "@/engine/codec";
 import { textResult, type ToolResult } from "@shared/agents/tools";
@@ -13,20 +14,27 @@ import { ANIMATED_FORMATS, ANIMATION_STYLES, FRAME_RATES, type AnimatedExportSet
 import type { ToolEnv } from "./mcpTools";
 import { explicitNodeIds, ToolError } from "./toolError";
 import { normId, type Spec } from "./nodeSpec";
-import { applyStyle, detachStyle, presetAllowed, presetDef, type PresetTarget } from "../motion/presets";
+import { applyStyle, createCustomStyle, detachStyle, presetAllowed, presetDef, updateCustomStyle, type PresetTarget } from "../motion/presets";
 import { audioLibrary, MAX_AUDIO_BYTES } from "../motion/audio/audio";
 import { animatedFileName, renderAnimated } from "../motion/export/exportAnimated";
 import { base64 } from "../motion/export/vectorAnim";
 import {
   animationStylesOf,
+  animationsEnd,
   applyAnimationStyle,
   applyManualKeyframeTrack,
+  createCustomAnimationStyle,
+  customAnimationStyle,
+  customAnimationStyles,
   deleteKeyframes,
   editAnimationStyle,
   fieldFrom,
   manualKeyframeTracks,
   removeAnimationStyle,
+  removeCustomAnimationStyle,
   removeManualKeyframeTrack,
+  renameCustomAnimationStyle,
+  setAnimationEntries,
   setTimeline,
   timelineOf,
   timelineRootOf,
@@ -89,6 +97,8 @@ export function getMotionTool(env: ToolEnv, args: Spec): ToolResult {
       };
     }),
     audio: model.audio.map((a) => ({ id: a.id, name: a.name, row: a.trackId, offset: sec(a.offsetUs), trimStart: sec(a.startUs), duration: sec(a.durationUs), volume: a.volume, mute: a.mute })),
+    // The file's custom styles (round 8j): apply_animation_style takes one by id or name, save_animation_style edits them.
+    customAnimationStyles: customAnimationStyles(env.ed).map((s) => ({ id: s.id, name: s.name, entries: s.animationEntries.map((e) => ({ name: e.name, props: e.props })) })),
     units: "seconds; opacity 0–1, rotation degrees (counter-clockwise +), scale multipliers, colours 0–1",
   };
   if (args.resolved === true) {
@@ -171,7 +181,7 @@ export function addAnimationTool(env: ToolEnv, args: Spec): ToolResult {
   const config = { duration: num(args.duration, "duration"), timelineOffset: num(args.timelineOffset, "timelineOffset"), props: (args.props ?? {}) as Record<string, unknown>, ...(args.visible === false ? { visible: false } : {}) };
   env.write("Add animation", () => {
     for (const id of nodes) made[id] = applyAnimationStyle(env.ed, id, args.style ?? args.styleId ?? args.preset, config);
-    const end = Math.max(0, ...nodes.flatMap((id) => animationStylesOf(env.ed, id).map((s) => s.timelineOffset + s.duration)));
+    const end = Math.max(0, ...nodes.map((id) => animationsEnd(env.ed, id)));
     if (args.extendTimeline !== false) extendTo(env, nodes[0], end);
   }, nodes);
   const r = textResult({ animations: Object.fromEntries(nodes.map((id) => [id, animationStylesOf(env.ed, id).find((s) => s.id === made[id])])), timeline: timelineSummary(env, nodes[0]) });
@@ -221,14 +231,29 @@ export function removeAnimationsTool(env: ToolEnv, args: Spec): ToolResult {
   return r;
 }
 
-/** apply_animation_style: one of the composite styles (Fade in, Slide in …), its presets stacked under one entry. */
+/**
+ * apply_animation_style: one of the composite styles (Fade in, Slide in …), its presets stacked under one entry — or
+ * one of the file's custom styles (round 8j; by id or name), as the Plugin API's `{type: "CUSTOM"}`.
+ */
 export function applyAnimationStyleTool(env: ToolEnv, args: Spec): ToolResult {
   const nodes = ids(env, args, "apply_animation_style");
   const key = String(args.style ?? "");
-  const style = ANIMATION_STYLES.find((s) => s.key === key || s.name.toLowerCase() === key.toLowerCase());
-  if (!style) throw new ToolError(`apply_animation_style: style — one of ${ANIMATION_STYLES.map((s) => `${s.key} ("${s.name}")`).join(", ")}. A single preset (Opacity, Position, TextStagger …) is add_animation.`);
   const start = num(args.timelineOffset, "timelineOffset") ?? 0;
   if (start < 0) throw new ToolError("timelineOffset: seconds, 0 or more");
+  const custom = customAnimationStyles(env.ed).filter((s) => s.id === normId(key) || s.name === key);
+  if (custom.length) {
+    if (custom.length > 1) throw new ToolError(`${custom.length} custom styles are named "${key}": pass one's id (${custom.map((s) => s.id).join(", ")}).`);
+    const made: Record<string, string> = {};
+    env.write("Apply animation style", () => {
+      for (const id of nodes) made[id] = applyAnimationStyle(env.ed, id, custom[0].id, { type: "CUSTOM", timelineOffset: start });
+      if (args.extendTimeline !== false) extendTo(env, nodes[0], Math.max(0, ...nodes.map((id) => animationsEnd(env.ed, id))));
+    }, nodes);
+    const r = textResult({ style: custom[0].id, name: custom[0].name, bindings: made, layers: Object.fromEntries(nodes.map((id) => [id, animationStylesOf(env.ed, id)])), timeline: timelineSummary(env, nodes[0]) });
+    r.touched = nodes;
+    return r;
+  }
+  const style = ANIMATION_STYLES.find((s) => s.key === key || s.name.toLowerCase() === key.toLowerCase());
+  if (!style) throw new ToolError(`apply_animation_style: style — one of ${ANIMATION_STYLES.map((s) => `${s.key} ("${s.name}")`).join(", ")}, or a custom style of the file (get_motion's customAnimationStyles). A single preset (Opacity, Position, TextStagger …) is add_animation.`);
   const targets: PresetTarget[] = nodes.map((id) => {
     const n = env.ed.engine.readNode(id, { fields: ["type", "strokePaints"] }) as { type?: string; strokePaints?: unknown[] } | null;
     return { type: n?.type ?? "FRAME", strokes: (n?.strokePaints?.length ?? 0) > 0 };
@@ -238,12 +263,49 @@ export function applyAnimationStyleTool(env: ToolEnv, args: Spec): ToolResult {
   env.write("Apply animation style", () => {
     for (const p of style.presets) if (!presetAllowed(presetDef(p.preset)!, targets)) throw new ToolError(`${style.name} can't go on these layers.`);
     if (!applyStyle(env.ed, style.key, nodes, targets[0], Math.round(start * US))) throw new ToolError(`${style.name} was refused by the engine.`);
-    const end = Math.max(0, ...nodes.flatMap((id) => animationStylesOf(env.ed, id).map((s) => s.timelineOffset + s.duration)));
+    const end = Math.max(0, ...nodes.map((id) => animationsEnd(env.ed, id)));
     if (args.extendTimeline !== false) extendTo(env, nodes[0], end);
   }, nodes);
   const r = textResult({ style: style.key, layers: Object.fromEntries(nodes.map((id) => [id, animationStylesOf(env.ed, id)])), timeline: timelineSummary(env, nodes[0]) });
   r.touched = nodes;
   return r;
+}
+
+/**
+ * save_animation_style (round 8j): a custom animation style of the file — made (`name`, from a layer's animations
+ * `fromNodeId` or from `entries`: first-party presets with their props), its content replaced (`styleId` with
+ * `fromNodeId` or `entries`; the layers it is applied to follow), renamed, or deleted (`delete`: the layers keep their
+ * animations). The Plugin API's createCustomAnimationStyle / addAnimationEntryAsync / removeAnimationEntry / remove.
+ */
+export function saveAnimationStyleTool(env: ToolEnv, args: Spec): ToolResult {
+  const styleId = args.styleId === undefined ? null : normId(args.styleId);
+  const name = typeof args.name === "string" && args.name.trim() ? args.name.trim() : null;
+  const from = args.fromNodeId === undefined ? null : normId(args.fromNodeId);
+  const entries = Array.isArray(args.entries) ? (args.entries as Spec[]) : null;
+  if (from && entries) throw new ToolError("save_animation_style: fromNodeId or entries, not both.");
+  if (styleId && !customAnimationStyle(env.ed, styleId)) throw new ToolError(`No custom animation style ${styleId} (get_motion lists customAnimationStyles).`);
+  if (args.delete === true) {
+    if (!styleId) throw new ToolError("save_animation_style: delete needs styleId.");
+    env.write("Delete style", () => removeCustomAnimationStyle(env.ed, styleId));
+    return textResult({ deleted: styleId });
+  }
+  if (!styleId && !from && !entries) throw new ToolError("save_animation_style: give fromNodeId (a layer whose animations become the style) or entries [{style: \"Opacity\", props: {duration, delay, easing, …}}], with a name.");
+  let id = styleId;
+  env.write(styleId ? "Update animation style" : "Create animation style", () => {
+    if (from) {
+      const clips = timelineOf(env.ed, from)?.layers.find((l) => l.node === from)?.clips ?? [];
+      if (!clips.length) throw new ToolError(`fromNodeId: ${from} has no animations (add_animation first).`);
+      if (id) {
+        if (!updateCustomStyle(env.ed, id, from, clips)) throw new ToolError("The style couldn't be updated.");
+      } else if (!(id = createCustomStyle(env.ed, from, name ?? "Animation style"))) throw new ToolError("The style couldn't be made.");
+    } else {
+      if (!id) id = createCustomAnimationStyle(env.ed, name ?? "Animation style").id;
+      // The content as given, in order; the layers the style is applied to follow.
+      if (entries) setAnimationEntries(env.ed, id, entries.map((e) => ({ definition: e?.style ?? e?.styleId, props: e?.props ?? {} })));
+    }
+    if (name && styleId) renameCustomAnimationStyle(env.ed, id!, name);
+  });
+  return textResult({ style: customAnimationStyle(env.ed, id!) });
 }
 
 /** detach_animation_style: a style entry forgotten, its animations kept as they are. */

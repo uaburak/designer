@@ -2,10 +2,11 @@
  * The timeline's own keyframes for the vector exports (docs/motion.md §7.5, §7.6; round 8i): where a layer's motion is
  * manual keyframes — Position (XY, or X and Y at the same times), Rotation, Scale, Opacity, eased by bezier curves or
  * Hold — Lottie and the animated SVG write those keyframes with their curves (and Lottie the motion path's tangents)
- * instead of the frames sampled at the export's rate. Everything else stays sampled: springs, presets' clips, animated
- * instances, text stagger, Ping-pong, a layer whose base transform scales or skews, and anything the keyframes don't
- * reproduce — each candidate is played back here at every exported frame and kept only when it lands where the engine
- * drew the layer (the samples), so a file never plays differently from the canvas.
+ * instead of the frames sampled at the export's rate; round 8j: Ping-pong too, its keys written there and back (the
+ * way back's curves mirrored). Everything else stays sampled: springs (no bezier holds them), presets' clips, animated
+ * instances, text stagger, Hold or motion path curves in Ping-pong, a layer whose base transform scales or skews, and
+ * anything the keyframes don't reproduce — each candidate is played back here at every exported frame and kept only
+ * when it lands where the engine drew the layer (the samples), so a file never plays differently from the canvas.
  *
  * The keyed values are the motion part of the layer's transform, M = L · T(o) · X · T(−o) with X = T(t) · R(−r) · S(s)
  * (§4.5; L the base transform, o the anchor, r Figma's counter-clockwise rotation): `translate` t, `rotate` −r in
@@ -197,20 +198,54 @@ export function keyedLayer(layer: TimelineLayer, l: AnimLayer, times: readonly M
 }
 
 /**
- * The scene's keyable layers (round 8i), by node: none for Ping-pong (its way back would need mirrored keys) or without
- * a timeline model; `anchors` each layer's anchor (% of its size) from the resolved model. A layer's inherited
- * opacity is what the Lottie writer gives it (its ancestors' within its composition; a clipping frame's content starts
- * a composition of its own).
+ * A channel played there and back (Ping-pong, round 8j): its keys, then each again at 2·D − t on the way back with
+ * the segment's curve mirrored — (x1, y1, x2, y2) → (1 − x2, 1 − y2, 1 − x1, 1 − y1), the same values in reverse.
+ * Null where the way back isn't keyable: Hold (it would hold the other end's value) and motion path handles.
+ */
+export function pingPong(c: KeyChannel, durationUs: Micros): KeyChannel | null {
+  const ks = c.keys;
+  if (ks.some((k) => k.ease === "HOLD" || k.out || k.in)) return null;
+  const linear: Bezier = [0, 0, 1, 1];
+  const mirror = (b: Bezier | null): Bezier => (b ? [1 - b[2], 1 - b[3], 1 - b[0], 1 - b[1]] : linear);
+  // The way back: key i at 2·D − tᵢ, eased into key i − 1 by the mirror of the curve from i − 1 into i.
+  const back: KeyChannel["keys"] = [];
+  for (let i = ks.length - 1; i >= 0; i--) back.push({ timeUs: 2 * durationUs - ks[i].timeUs, v: ks[i].v, ease: i > 0 ? mirror(ks[i - 1].ease as Bezier | null) : null });
+  const last = ks[ks.length - 1];
+  // A last key at D is the turn itself: it takes the first curve back; else it holds until its mirror (equal values).
+  const turn = back[0].timeUs <= last.timeUs ? back.shift()! : null;
+  const keys = [...ks.slice(0, -1), { ...last, ease: back.length ? (turn ? turn.ease : linear) : null }, ...back];
+  return { keys };
+}
+
+/** A keyed layer's channels made to play there and back (null: one of them can't). */
+function pingPongLayer(k: KeyedLayer, durationUs: Micros): KeyedLayer | null {
+  const out: KeyedLayer = { ...k };
+  for (const name of ["translate", "rotate", "scale", "opacity"] as const) {
+    const c = k[name];
+    if (!c) continue;
+    const both = pingPong(c, durationUs);
+    if (!both) return null;
+    out[name] = both;
+  }
+  return out;
+}
+
+/**
+ * The scene's keyable layers (round 8i), by node: none without a timeline model; `anchors` each layer's anchor (% of its
+ * size) from the resolved model. A layer's inherited opacity is what the Lottie writer gives it (its ancestors' within
+ * its composition; a clipping frame's content starts a composition of its own). Round 8j: Ping-pong too — the keys
+ * checked against the samples on the timeline's own times, then written there and back (pingPong).
  */
 export function keyedLayers(scene: AnimScene, model: TimelineModel | null, playback: PlaybackName, anchors: ReadonlyMap<string, { x: number; y: number }>): Map<string, KeyedLayer> {
   const out = new Map<string, KeyedLayer>();
-  if (!model || playback === "PING_PONG" || !scene.times?.length) return out;
+  if (!model || !scene.times?.length) return out;
   const byNode = new Map(model.layers.map((l) => [l.node, l]));
   const ones = scene.root.frames.map(() => 1);
   const visit = (l: AnimLayer, inherited: number[], top: boolean) => {
     const layer = byNode.get(l.shape.node);
     if (!top && layer) {
-      const k = keyedLayer(layer, l, scene.times!, anchors.get(l.shape.node) ?? { x: 50, y: 50 }, inherited);
+      const found = keyedLayer(layer, l, scene.times!, anchors.get(l.shape.node) ?? { x: 50, y: 50 }, inherited);
+      const k = found && playback === "PING_PONG" ? pingPongLayer(found, model.durationUs) : found;
       if (k) out.set(l.shape.node, k);
     }
     const own = l.frames.map((f, k) => f.o * inherited[k]);

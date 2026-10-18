@@ -10,7 +10,8 @@
  * filtered to Easing), the bound variable's pill with Detach, and "Create variable", which saves the current easing as
  * a new Easing variable and binds it (help: "Custom curves and springs can be saved as variables").
  *
- * Not here: the prototype context's physical spring fields (the Prototype panel keeps its own numeric fields).
+ * The Prototype panel (round 8j) puts the graph (CurveEditor) over its own Curve list and numbers — a custom bezier's
+ * handles, a custom spring's bounce as its damping; its physical spring fields and Duration stay there.
  */
 import { useState } from "react";
 import { Icon, IconButton, Popover, SegmentedControl, TextInput, showToast, tooltipProps } from "@/ds";

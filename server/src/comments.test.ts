@@ -80,6 +80,17 @@ describe("comments", () => {
     expect((await call("POST", base, owner.token, { message: "No place" })).status).toBe(400);
   });
 
+  it("keeps a Motion comment's playhead time (docs/motion.md §6.8), rounded, and clears it when moved outside Motion", async () => {
+    const { owner } = await setup();
+    const t = (await call("POST", base, owner.token, { message: "At 1.25 s", anchor: { ...anchor, timeMs: 1250.4 } })).body.threads[0];
+    expect(t.anchor).toMatchObject({ pageId: "0:1", timeMs: 1250 });
+    expect((await call("POST", base, owner.token, { message: "Bad time", anchor: { ...anchor, timeMs: -5 } })).body.threads[1].anchor.timeMs).toBeUndefined();
+    const moved = await call("PATCH", `${base}/${t.id}`, owner.token, { anchor: { pageId: "0:1", x: 1, y: 1, timeMs: 500 } });
+    expect(moved.body.threads[0].anchor.timeMs).toBe(500);
+    const cleared = await call("PATCH", `${base}/${t.id}`, owner.token, { anchor: { pageId: "0:1", x: 1, y: 1 } });
+    expect(cleared.body.threads[0].anchor.timeMs).toBeUndefined();
+  });
+
   it("replies, read marks, edit and delete own only; a thread goes with its first comment", async () => {
     const { owner, editor } = await setup();
     const t = (await call("POST", base, owner.token, { message: "Root", anchor })).body.threads[0];

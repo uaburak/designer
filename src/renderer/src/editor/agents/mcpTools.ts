@@ -28,7 +28,7 @@ import { codeConnectSnippets, type CodeConnectSource, type ViewSnippet } from ".
 import { editorDevData } from "../devmode/round5";
 import { addInteractionTool, getPrototypeTool, prototypeContext, prototypeField, prototypeOf, removeFlowTool, removeInteractionTool, setFlowTool, setPrototypeSettingsTool, updateInteractionTool } from "./prototypeTools";
 import { describeSchema } from "@shared/agents/schemaDescribe";
-import { addAnimationTool, addAudioTool, applyAnimationStyleTool, detachAnimationStyleTool, editAnimationTool, editAudioTool, exportAnimationTool, getMotionTool, removeAnimationsTool, removeKeyframesTool, setKeyframesTool, setTimelineTool } from "./motionTools";
+import { addAnimationTool, addAudioTool, applyAnimationStyleTool, detachAnimationStyleTool, editAnimationTool, editAudioTool, exportAnimationTool, getMotionTool, removeAnimationsTool, removeKeyframesTool, saveAnimationStyleTool, setKeyframesTool, setTimelineTool } from "./motionTools";
 import { runSocialTool } from "./socialTools";
 import { reactionsFromDoc } from "./prototypeSpec";
 import { EngineBusy } from "./turns";
@@ -1328,6 +1328,8 @@ export async function runTool(env: ToolEnv, name: string, args: Spec): Promise<T
         return applyAnimationStyleTool(env, args);
       case "detach_animation_style":
         return detachAnimationStyleTool(env, args);
+      case "save_animation_style":
+        return saveAnimationStyleTool(env, args);
       case "add_audio":
         return await addAudioTool(env, args);
       case "edit_audio":

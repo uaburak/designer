@@ -2,21 +2,30 @@
  * The Plugin API's Motion (docs/motion.md §9; round 8f): the node properties `manualKeyframeTracks` (get / set),
  * `animationStyles` (get / set), `timelines`, `animations`, the methods `applyManualKeyframeTrack`,
  * `removeManualKeyframeTrack`, `applyAnimationStyle`, `removeAnimationStyle`, `setTimelineDuration`, and `figma.motion`
- * (`figmaAnimationStyles()`, `playheadPosition`, `physicalSpringToNormalized()`). Figma's shapes and rules live in
+ * (`figmaAnimationStyles()`, `playheadPosition`, `physicalSpringToNormalized()`); round 8j: custom animation styles
+ * (`figma.getLocalCustomAnimationStylesAsync`, `createCustomAnimationStyle`, a style's name, `animationEntries`,
+ * `addAnimationEntryAsync`, `removeAnimationEntry`, `remove`) and `{type: "CUSTOM"}`. Figma's shapes and rules live in
  * motion/publicApi.ts (shared with the agents' tools); this file only adds the run's write slice and Dev Mode's
  * read-only rule (Dev Mode exposes the reads). Seconds at the API.
  */
 import type { Guid, NodeChange } from "@/engine/codec";
 import { motionUi } from "../../motion/motionState";
 import {
+  addAnimationEntry,
   animationStylesOf,
   animationsOf,
   applyAnimationStyle,
   applyManualKeyframeTrack,
+  createCustomAnimationStyle,
+  customAnimationStyle,
+  customAnimationStyles,
   figmaAnimationStyles,
   manualKeyframeTracks,
+  removeAnimationEntry,
   removeAnimationStyle,
+  removeCustomAnimationStyle,
   removeManualKeyframeTrack,
+  renameCustomAnimationStyle,
   setAnimationStyles,
   setManualKeyframeTracks,
   setTimeline,
@@ -100,5 +109,33 @@ export function motionOps(ctx: () => ApiContext): Record<string, (...a: unknown[
     },
     "motion.styles": () => figmaAnimationStyles(),
     "motion.playhead": () => motionUi(ctx().ed).timeUs / 1e6,
+    // Custom animation styles (round 8j): handles {id} whose fields the host reads (figma.js `animationStyle`).
+    "motion.localStyles": () => customAnimationStyles(ctx().ed).map((st) => ({ id: st.id })),
+    "motion.createStyle": () => {
+      writing(ctx(), "createCustomAnimationStyle");
+      return wrap("createCustomAnimationStyle", () => ({ id: createCustomAnimationStyle(ctx().ed).id }));
+    },
+    "motion.style.get": (id, field) => {
+      const st = customAnimationStyle(ctx().ed, s(id));
+      if (!st) throw new ApiError(`The custom animation style ${s(id)} does not exist`);
+      return (st as unknown as Record<string, unknown>)[s(field)] ?? null;
+    },
+    "motion.style.set": (id, field, v) => {
+      if (field !== "name") throw new ApiError(`in set_${s(field)}: a custom animation style's ${s(field)} is read-only (addAnimationEntryAsync / removeAnimationEntry change its entries)`);
+      writing(ctx(), "set_name");
+      wrap("set_name", () => renameCustomAnimationStyle(ctx().ed, s(id), v));
+    },
+    "motion.style.addEntry": (id, definition, props) => {
+      writing(ctx(), "addAnimationEntryAsync");
+      return wrap("addAnimationEntryAsync", () => addAnimationEntry(ctx().ed, s(id), definition, props));
+    },
+    "motion.style.removeEntry": (id, entry) => {
+      writing(ctx(), "removeAnimationEntry");
+      wrap("removeAnimationEntry", () => removeAnimationEntry(ctx().ed, s(id), s(entry)));
+    },
+    "motion.style.remove": (id) => {
+      writing(ctx(), "remove");
+      wrap("remove", () => removeCustomAnimationStyle(ctx().ed, s(id)));
+    },
   };
 }

@@ -22,6 +22,8 @@ import {
   deviceOf,
   presetIdentifierOf,
   easingFunctionFor,
+  easingFunctionOfCurve,
+  prototypeCurve,
   easingLabel,
   guidJson,
   mouseDelayOf,
@@ -181,5 +183,16 @@ describe("prototype model", () => {
     const faster = springWithEditorDuration(springOf("GENTLE_SPRING"), 0.4);
     expect(springEditorDuration(faster)).toBeCloseTo(0.4, 3);
     expect(faster[0]).toBe(1);
+  });
+
+  it("round 8j: the Easing editor's graph — a custom bezier's four numbers, a custom spring's bounce as its damping", () => {
+    expect(prototypeCurve("CUSTOM_CUBIC", [0.1, 0.2, 0.3, 1.2])).toEqual({ type: "CUSTOM_CUBIC_BEZIER", easingFunctionCubicBezier: { x1: 0.1, y1: 0.2, x2: 0.3, y2: 1.2 } });
+    expect(prototypeCurve("OUT_CUBIC", [])).toBeNull();
+    // Mass 1, stiffness 100, damping 10: ζ = 0.5, bounce 0.5.
+    const spring = prototypeCurve("CUSTOM_SPRING", [1, 100, 10, 0])!;
+    expect(spring.easingFunctionSpring!.bounce).toBeCloseTo(0.5, 6);
+    expect(easingFunctionOfCurve({ type: "CUSTOM_SPRING", easingFunctionSpring: { bounce: 0.8 } }, [1, 100, 10, 0])).toEqual([1, 100, 4, 0]);
+    expect(easingFunctionOfCurve({ type: "CUSTOM_SPRING", easingFunctionSpring: { bounce: 1 } }, [1, 100, 10])[2]).toBeCloseTo(0.2, 6);
+    expect(easingFunctionOfCurve({ type: "CUSTOM_CUBIC_BEZIER", easingFunctionCubicBezier: { x1: 0.4, y1: 0, x2: 0.2, y2: 1 } }, [0, 0, 0.58, 1])).toEqual([0.4, 0, 0.2, 1]);
   });
 });

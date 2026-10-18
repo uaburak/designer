@@ -653,6 +653,17 @@
       getPublishStatusAsync: function () { return Promise.resolve("UNPUBLISHED"); },
     });
   }
+  // A local custom animation style (Motion, round 8j): its name, its entries (first-party definitions in order).
+  function animationStyle(ref) {
+    return handle("motion.style", ref, ["name", "type", "remote", "animationEntries"], {
+      addAnimationEntryAsync: function (styleId, props) {
+        try { return Promise.resolve(freeze(call("motion.style.addEntry", ref.id, String(styleId), props || {}))); } catch (e) { return Promise.reject(e); }
+      },
+      removeAnimationEntry: function (entryId) { call("motion.style.removeEntry", ref.id, String(entryId)); },
+      remove: function () { call("motion.style.remove", ref.id); },
+      getStyleConsumersAsync: function () { return Promise.resolve([]); },
+    });
+  }
   var asyncOf = function (v) { return Promise.resolve(v); };
 
   // ---- figma ----------------------------------------------------------------------------------------------------------
@@ -787,6 +798,13 @@
     value("moveLocal" + k + "StyleAfter", function (target, reference) { call("styles.moveAfter", target && target.id, reference ? reference.id : null); });
     value("moveLocal" + k + "Folder" + "After", notSupported("moveLocal" + k + "FolderAfter"));
   });
+  // Custom animation styles (docs/motion.md §9, round 8j): the deprecated sync getter fails under dynamic-page, as Figma's.
+  value("getLocalCustomAnimationStylesAsync", function () { return asyncOf(call("motion.localStyles").map(animationStyle)); });
+  value("getLocalCustomAnimationStyles", function () {
+    if (dynamicPage) throw incremental("getLocalCustomAnimationStyles", "figma.getLocalCustomAnimationStylesAsync");
+    return call("motion.localStyles").map(animationStyle);
+  });
+  value("createCustomAnimationStyle", function () { return animationStyle(call("motion.createStyle")); });
   value("importStyleByKeyAsync", function (key) { return call("library.importStyle", String(key)).then(style); });
   value("importComponentByKeyAsync", function (key) { return call("library.importComponent", String(key)); });
   value("importComponentSetByKeyAsync", function (key) { return call("library.importComponent", String(key)); });

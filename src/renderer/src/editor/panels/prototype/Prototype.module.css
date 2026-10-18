@@ -154,6 +154,8 @@
     letter-spacing: var(--ds-tracking-body-medium-strong);
   }
   .duration { flex: none; width: 88px; }
+  /* A custom bezier's or spring's graph (round 8j: the Easing editor's, docs/motion.md §6.3), centred over its numbers */
+  .curve { display: flex; justify-content: center; padding: var(--ds-space-1) var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left); }
   .quad {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -225,6 +225,8 @@ export interface MotionViewState {
   timeUs?: Micros;
   autoKeyframe?: boolean;
   showMotionPath?: boolean;
+  /** Round 8j: evaluate inside the open transaction (a style's canvas preview, cancelled after; cleared when it ends) */
+  inTransaction?: boolean;
 }
 
 export interface TimelineKeyframe {
@@ -561,7 +563,19 @@ export interface MotionCommandArgs {
    * forgotten, its presets kept; or `create` (round 8i): a custom style from a layer's clips (`style`: replace that
    * one's content)
    */
-  MOTION_APPLY_STYLE: { nodes?: GuidString[]; style?: string; startUs?: Micros; presets?: StylePresetRun[]; detach?: GuidString; create?: { from: GuidString; name?: string; style?: GuidString } };
+  /**
+   * Round 8j: `binding` applies an entry of the one layer again in place; `create.templates` (runs) instead of `from`
+   * write a custom style's content; `create.presets` (runs with their output) carry an update to the style's layers
+   */
+  MOTION_APPLY_STYLE: {
+    nodes?: GuidString[];
+    style?: string;
+    startUs?: Micros;
+    presets?: StylePresetRun[];
+    binding?: GuidString;
+    detach?: GuidString;
+    create?: ({ from: GuidString } | { templates: (Omit<StylePresetRun, "output"> & { id?: GuidString })[] }) & { name?: string; style?: GuidString; presets?: StylePresetRun[] };
+  };
   MOTION_RETIME_LAYER: { node: GuidString; deltaUs?: Micros; scale?: { factor: number; pivotUs: Micros } };
   MOTION_SET_INSTANCE_OFFSET: { instance: GuidString; offsetUs: Micros };
   MOTION_SET_ANCHOR: { nodes: GuidString[]; x: number; y: number; keepInPlace?: boolean };
