@@ -15,6 +15,13 @@ export interface KeyCombo {
   alt?: boolean;
   /** ⌃ (a Mac's Control) */
   ctrl?: boolean;
+  /**
+   * Figma's default keys only (src/shared/shortcutsTable.ts; never kept): what menus show when it isn't the keys —
+   * ⇧⌘= shown "⌘+", ⌥, shown "⌥<".
+   */
+  shown?: { key: string; mod?: boolean; shift?: boolean; alt?: boolean; ctrl?: boolean };
+  /** Figma's default keys only: the edit modes the key is inert in ("VECTOR": while a vector is edited) */
+  except?: string[];
 }
 
 /** Figma's keyboard layouts (the Layout tab's "Keyboard layout:" list, its order; Generic is the default). */

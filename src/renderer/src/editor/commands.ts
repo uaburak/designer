@@ -123,6 +123,11 @@ const KEY_LABEL: Record<string, string> = {
 
 /** A combo as Figma writes it ("⇧⌘H", "⌥⌘G", "⌃⇧?"). */
 export function comboText(c: KeyCombo): string {
+  // Figma's table says what its menus show (⇧⌘= is "⌘+").
+  if (c.shown) {
+    const s = c.shown;
+    return keyText([...(s.ctrl ? ["ctrl"] : []), ...(s.alt ? ["alt"] : []), ...(s.shift ? ["shift"] : []), ...(s.mod ? ["mod"] : []), s.key]);
+  }
   let key = keyLayout?.label(c.code)?.toUpperCase() ?? KEY_LABEL[c.code] ?? c.code.replace(/^Key|^Digit/, "");
   // Live: "⌃⇧?" (Keyboard shortcuts) but "⇧/" (Remove stroke).
   if (c.code === "Slash" && c.shift && c.ctrl) key = "?";
@@ -1091,13 +1096,16 @@ export function runEditorCommand(ed: EditorController, id: string): boolean {
   return true;
 }
 
-/** The command a key press means (null: none). */
-export function commandForKey(e: Pick<KeyboardEvent, "code" | "shiftKey" | "altKey" | "ctrlKey" | "metaKey">): EditorCommand | null {
+/**
+ * The command a key press means (null: none). `mode`: the edit mode the editor is in ("VECTOR" while a vector is
+ * edited) — a key Figma's table keeps out of it is no key there (⌘] reorders layers, not points).
+ */
+export function commandForKey(e: Pick<KeyboardEvent, "code" | "shiftKey" | "altKey" | "ctrlKey" | "metaKey">, mode?: string): EditorCommand | null {
   // A layout picked in the Keyboard shortcuts panel: the key that types the binding's character.
   const code = keyLayout ? keyLayout.toBinding(e.code) : e.code;
   if (code === null) return null;
   const press = { code, shiftKey: e.shiftKey, altKey: e.altKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey };
-  for (const c of COMMANDS) if (c.keys?.some((combo) => matchesCombo(combo, press))) return c;
+  for (const c of COMMANDS) if (c.keys?.some((combo) => matchesCombo(combo, press) && !(mode && combo.except?.includes(mode)))) return c;
   return null;
 }
 

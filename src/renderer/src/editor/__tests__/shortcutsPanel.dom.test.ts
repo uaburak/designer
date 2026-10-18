@@ -510,3 +510,77 @@ describe("keyboard layouts", () => {
     expect(commandForKey({ code: "KeyZ", metaKey: true, shiftKey: false, altKey: false, ctrlKey: false })?.id).toBe("edit.undo");
   });
 });
+
+describe("Figma's own table (Atlas 03 §6, §7): the defaults per layout, editor and preference", () => {
+  const press = (code: string, mods: { meta?: boolean; shift?: boolean; alt?: boolean; ctrl?: boolean } = {}) => ({ code, metaKey: !!mods.meta, shiftKey: !!mods.shift, altKey: !!mods.alt, ctrlKey: !!mods.ctrl });
+
+  it("adds Figma's other keys: Actions ⌘/ and ⌘P, Outlines ⌘Y, Layout guides ⌃G, Bring forward ⌥⌘↑", () => {
+    shortcutPrefs.update({ bindings: {} });
+    expect(commandForKey(press("Slash", { meta: true }))?.id).toBe("tool.actions");
+    expect(commandForKey(press("KeyP", { meta: true }))?.id).toBe("tool.actions");
+    expect(commandForKey(press("KeyY", { meta: true }))?.id).toBe("view.outlines");
+    expect(commandForKey(press("KeyG", { ctrl: true }))?.id).toBe("view.layout-guides");
+    expect(commandForKey(press("ArrowUp", { meta: true, alt: true }))?.id).toBe("object.bring-forward");
+    // Menus show the first: ⌘K, and ⇧⌘= as ⌘+.
+    expect(comboText(COMMAND_BY_ID.get("tool.actions")!.keys![0])).toBe("⌘K");
+    expect(comboText(COMMAND_BY_ID.get("view.zoom-in")!.keys![0])).toBe("⌘+");
+  });
+
+  it("German QWERTZ: ⌘Ä / ⌘Ö bring forward / send backward, Ä to the front, ⌘, Actions, ⌘^ Show/Hide UI", () => {
+    shortcutPrefs.update({ layout: "de" });
+    // The German Ä and Ö keys are the U.S. ' and ; places.
+    expect(commandForKey(press("Quote", { meta: true }))?.id).toBe("object.bring-forward");
+    expect(commandForKey(press("Semicolon", { meta: true }))?.id).toBe("object.send-backward");
+    expect(commandForKey(press("Quote"))?.id).toBe("object.bring-to-front");
+    expect(commandForKey(press("Comma", { meta: true }))?.id).toBe("tool.actions");
+    // ⌘K is no German key for Actions (⌘, and ⌘P are).
+    expect(commandForKey(press("KeyK", { meta: true }))?.id).not.toBe("tool.actions");
+    expect(comboText(COMMAND_BY_ID.get("object.bring-forward")!.keys![0])).toBe("⌘Ä");
+    expect(commandForKey(press("Backquote", { meta: true }))?.id).toBe("view.toggle-ui");
+  });
+
+  it("Swedish: letter spacing ⇧⌥, / ⇧⌥. and line height ⇧⌥⌘", () => {
+    shortcutPrefs.update({ layout: "sv" });
+    expect(commandForKey(press("Comma", { alt: true, shift: true }))?.id).toBe("text.letter-spacing-down");
+    expect(commandForKey(press("Period", { alt: true, shift: true, meta: true }))?.id).toBe("text.line-height-up");
+  });
+
+  it("Turkish (ours) reads the unknown layout's keys, by the character as before", () => {
+    shortcutPrefs.update({ layout: "tr-q-mac" });
+    expect(commandForKey(press("KeyK", { meta: true }))?.id).toBe("tool.actions");
+    expect(commandForKey(press("KeyZ", { meta: true }))?.id).toBe("edit.undo");
+  });
+
+  it("Use number keys for opacity off: 1 / 9 fit, 2 selection, 0 100 %; on: with ⇧", () => {
+    shortcutPrefs.follow({ numbersForOpacity: false });
+    expect(commandForKey(press("Digit1"))?.id).toBe("view.zoom-fit");
+    expect(commandForKey(press("Digit2"))?.id).toBe("view.zoom-selection");
+    expect(commandForKey(press("Digit0"))?.id).toBe("view.zoom-100");
+    expect(commandForKey(press("Digit1", { shift: true }))).toBeNull();
+    shortcutPrefs.follow({ numbersForOpacity: true });
+    expect(commandForKey(press("Digit1"))).toBeNull();
+    expect(commandForKey(press("Digit1", { shift: true }))?.id).toBe("view.zoom-fit");
+  });
+
+  it("Use old shortcuts for outlines: Outlines ⇧O, Outline stroke ⇧⌘O", () => {
+    shortcutPrefs.follow({ oldOutlineShortcuts: true });
+    expect(commandForKey(press("KeyO", { shift: true }))?.id).toBe("view.outlines");
+    expect(commandForKey(press("KeyO", { shift: true, meta: true }))?.id).toBe("vector.outline-stroke");
+  });
+
+  it("follows the editor: Dev Mode's ⇧D back to Design and V; Draw's B Brush", () => {
+    shortcutPrefs.follow({ editor: "dev_handoff" });
+    expect(commandForKey(press("KeyD", { shift: true }))?.id).toBe("view.dev-mode");
+    expect(commandForKey(press("KeyV"))?.id).toBe("tool.move");
+    shortcutPrefs.follow({ editor: "illustration" });
+    expect(commandForKey(press("KeyB"))?.id).toBe("tool.brush");
+    shortcutPrefs.follow({ editor: "design" });
+    expect(commandForKey(press("KeyB"))?.id).not.toBe("tool.brush");
+  });
+
+  it("keeps a key out of the edit modes the table says: ⌘] reorders no points in vector edit mode", () => {
+    shortcutPrefs.update({ bindings: {} });
+    expect(commandForKey(press("BracketRight", { meta: true }))?.id).toBe("object.bring-forward");
+    expect(commandForKey(press("BracketRight", { meta: true }), "VECTOR")).toBeNull();
+  });
+});

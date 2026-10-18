@@ -72,7 +72,9 @@ export function modCaps(c: Omit<KeyCombo, "code">, mac = IS_MAC): Cap[] {
   return out;
 }
 
-export const comboCaps = (c: KeyCombo, mac = IS_MAC, legend?: LegendOf, labels?: Record<string, string>): Cap[] => [...modCaps(c, mac), ...keyCaps(c.code, mac, legend, labels)];
+export const comboCaps = (c: KeyCombo, mac = IS_MAC, legend?: LegendOf, labels?: Record<string, string>): Cap[] =>
+  // Figma's table says what it shows (⇧⌘= as "⌘ +"); a row's own labels go first.
+  c.shown && !labels?.[c.code] ? [...modCaps(c.shown, mac), { text: c.shown.key }] : [...modCaps(c, mac), ...keyCaps(c.code, mac, legend, labels)];
 
 const sameMods = (a: KeyCombo, b: KeyCombo) => sameCombo({ ...a, code: "" }, { ...b, code: "" });
 
