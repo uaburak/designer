@@ -942,7 +942,15 @@ export class LocalStore {
     await writeJsonAtomic(this.dirs.tmp, p, s);
   }
 
-  async exportLocalCopy(fileKey: FileKey, path: string): Promise<void> {
+  /** Images the file's head uses that aren't in the blob store yet (a shared file's still downloading). */
+  async missingImages(fileKey: FileKey): Promise<number> {
+    this.guard();
+    this.ws.getMeta(fileKey);
+    const refs = await this.files.headBlobRefs(fileKey);
+    return (await this.blobs.has(refs)).filter((here) => !here).length;
+  }
+
+  async exportLocalCopy(fileKey: FileKey, path: string, opts: { partial?: boolean } = {}): Promise<void> {
     this.guard();
     if (typeof path !== "string" || !path) throw new StoreError("invalid", "exportLocalCopy needs a path");
     await this.personal.ensureLocal(fileKey);
@@ -957,6 +965,7 @@ export class LocalStore {
       tmpDir: this.dirs.tmp,
       path,
       now: this.clock.now(),
+      partial: opts.partial === true,
     });
   }
 
@@ -968,10 +977,13 @@ export class LocalStore {
     return (await readJsonOrNull<PreviewRecord[]>(join(this.dirs.root, "previews.json"))) ?? [];
   }
 
-  /** Mark and sweep (§10.3): live = every file's and version's blobRefs, library payloads and thumbnails, previews. */
+  /** Mark and sweep (§10.3): live = every file's and version's blobRefs, its comments' files, library payloads and thumbnails, previews. */
   async collectGarbage(): Promise<{ live: number; deleted: number; kept: number }> {
     const live = new Set<string>();
-    for (const k of this.ws.files.keys()) for (const r of await this.files.blobRefsOf(k)) live.add(r);
+    for (const k of this.ws.files.keys()) {
+      for (const r of await this.files.blobRefsOf(k)) live.add(r);
+      for (const r of await this.comments.blobRefs(k)) live.add(r);
+    }
     for (const r of await this.libraries.blobRefs()) live.add(r);
     for (const p of await this.previewRecords()) for (const r of p.blobRefs) live.add(r);
     const { deleted, kept } = await this.blobs.sweep(live, this.clock.now());
@@ -1100,6 +1112,7 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
       s.multiplayer.thumbnailSaved(fileKey);
     },
     setUiState: (fileKey, patch) => s.files.setUiState(fileKey, patch ?? {}),
+    setUndoHistory: (fileKey, history) => s.files.setUndoHistory(fileKey, history),
     saveSnapshot: (fileKey, save) => s.files.saveSnapshot(fileKey, save, owner),
     listVersions: (fileKey) => s.files.listVersions(fileKey),
     createVersion: (fileKey, input) => s.createVersion(fileKey, input ?? {}),
@@ -1109,7 +1122,8 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     duplicateVersion: (fileKey, id) => s.duplicateVersion(fileKey, id),
     importLocalCopy: (path, folderId) => s.importLocalCopy(path, folderId ?? null),
     importFigBytes: (bytes, name, folderId, org) => s.importFigBytes(bytes, name, folderId ?? null, org),
-    exportLocalCopy: (fileKey, path) => s.exportLocalCopy(fileKey, path),
+    exportLocalCopy: (fileKey, path, opts) => s.exportLocalCopy(fileKey, path, { partial: opts?.partial === true }),
+    missingImages: (fileKey) => s.missingImages(fileKey),
   };
   const blobs: BlobStore = {
     put: (bytes, hint) => s.blobs.put(bytes, hint),

@@ -7,6 +7,7 @@
  */
 import { useCallback, useSyncExternalStore } from "react";
 import type { Camera, Guid } from "@/engine/codec";
+import type { VersionInfo } from "./documentSource";
 import type { ImportedImage } from "./images";
 import type { PreferenceKey } from "./preferences";
 import type { BrushType, BuiltinBrushName, DrawToolSettings, GuidString } from "@shared/draw/types";
@@ -140,8 +141,12 @@ export interface UIState extends PreferenceFlags {
   propertyLabels: boolean;
   /** Position's "Constraints" toggle: the inline Constraints row shown (kept across selections, as Figma) */
   constraintsOpen?: boolean;
-  /** Version history: "Save to version history" (⌥⌘S) or the list */
-  versionDialog: "save" | "history" | null;
+  /** Version history mode (Figma's HISTORY, atlas 16 §3.3): "history" — the history panel in the right panel's place */
+  versionDialog: "history" | null;
+  /** In history mode, the version shown on the canvas, read-only (null: the current version) */
+  historyVersion?: string | null;
+  /** The savepoint modal: "Add to version history" (⌥⌘S, `version` null) or "Edit version information" (a version) */
+  savepoint?: { version: VersionInfo | null } | null;
   /** The context menu over the canvas or a layer: where it opens (view px) and, on the canvas, the point it was opened at (canvas CSS px) */
   contextMenu: { x: number; y: number; canvas: { x: number; y: number } | null; layers?: Guid[]; guide?: boolean; ruler?: "X" | "Y" } | null;
   /** Images chosen with the Image tool, waiting for a click each (the first is next) */

@@ -23,7 +23,7 @@ import { valuesEqual, walkValue } from "../schema/visit";
 import { ASSET_BOOKKEEPING, isAbsentValue } from "../store/assetIdentity";
 import { ChunkSet, displayNodeOf } from "./chunks";
 import { diff, fieldEqual, keyedFields, parentOf, sortKeys, valueOf, type KeyedField } from "./diff";
-import { ABSENT, type Conflict, type ConflictKind, type DiffChunk, type MergeInput, type MergeResult, type NodeDelta, type Resolutions, type Side, type TableDiff, type Value } from "./types";
+import { ABSENT, CHUNK_DETAILS_MAX, type Conflict, type ConflictKind, type DiffChunk, type MergeInput, type MergeResult, type NodeDelta, type Resolutions, type Side, type TableDiff, type Value } from "./types";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- generic field access on decoded kiwi objects */
 
@@ -450,12 +450,27 @@ export function mergeTables(input: MergeInput, opts: MergeOptions = {}): MergeOu
     if (sets.length || keyedPlans.some((p) => p.items.length)) plans.push({ t: "fields", k, sets, keyed: keyedPlans });
   }
 
+  // --- change details (Figma's per-property list) and library updates ---------------------------------------------
+  const addDetail = (ch: DiffChunk, k: string, d: NodeDelta) => {
+    const n: any = O.nodes.get(k) ?? B.nodes.get(k);
+    if (d.phase === "updated" && ch.phase === null && copyRoot(O, ch.displayNode) === ch.displayNode && O.nodes.get(ch.displayNode)?.sourceLibraryKey) ch.libraryUpdate = true;
+    const list = (ch.details ??= []);
+    if (list.length >= CHUNK_DETAILS_MAX) return;
+    const fields = new Map<string, "added" | "changed" | "removed">();
+    if (d.phase === "updated") {
+      for (const f of d.fields) if (!EDIT_STAMPS.has(f.field)) fields.set(f.field, f.before === ABSENT ? "added" : f.after === ABSENT ? "removed" : "changed");
+      for (const i of d.items) if (!EDIT_STAMPS.has(i.field) && !fields.has(i.field)) fields.set(i.field, "changed");
+    }
+    list.push({ guid: k, name: typeof n?.name === "string" ? n.name : "", type: typeof n?.type === "string" ? n.type : "", phase: d.phase, fields: [...fields].map(([field, change]) => ({ field, change })) });
+  };
+
   // --- chunks numbered; conflicts and changes placed ------------------------------------------------------------
   const movedFrom = new Map<string, string>(); // destination display → source displays
   for (const [k, d] of dO.deltas) {
     if (stampOnly(d)) continue; // a stamp alone is no change to review
     const display = displayOf(k);
     chunks.markChanged(display, sideO);
+    addDetail(chunks.chunk(display), k, d);
     if (d.phase === "updated" && d.fields.some((f) => f.field === "parentIndex") && B.nodes.has(k)) {
       const src = displayNodeOf(B, k);
       if (src !== display) {

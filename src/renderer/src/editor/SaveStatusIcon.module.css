@@ -1,0 +1,6 @@
+/* The save status's icon in the right panel's header (atlas 22 §3.4), where the offline icon was. */
+@layer app {
+  .status { display: flex; flex: none; align-items: center; color: var(--figma-color-icon-warning); }
+  .status[data-save-status="unsaved"] { color: var(--figma-color-icon-secondary); }
+  .text { margin: 0; color: var(--figma-color-text); font: var(--ds-font-body-medium); }
+}

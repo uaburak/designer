@@ -59,6 +59,7 @@ import { isBranch } from "./branching/state";
 import { accountBridge, accountSignedIn } from "../files/account";
 import { canShowLibraryAnalytics, openLibraryAnalytics } from "./analytics/EditorAnalytics";
 import { presenceOf } from "./multiplayer/presence";
+import { saveReminder } from "./saveStatus";
 import { pluginsOf } from "./plugins/service";
 import { pluginDesktop } from "./plugins/desktop";
 import { openActions } from "./panels/actionsTab";
@@ -96,6 +97,8 @@ export interface EditorCommand {
   run(ed: EditorController): void;
   enabled?(ed: EditorController): boolean;
   checked?(ed: EditorController): boolean;
+  /** Its key pressed while it can't run (⌘S with nothing to wrap in a section: Figma's save reminder) */
+  whenDisabled?(ed: EditorController): void;
 }
 
 const KEY_LABEL: Record<string, string> = {
@@ -621,7 +624,8 @@ export const COMMANDS: EditorCommand[] = [
     enabled: (ed) => engineEnabled(ed, "UNGROUP") || engineEnabled(ed, "REMOVE_KEEP_CONTENTS"),
   },
   engine("object.frame-selection", "Frame selection", "FRAME_SELECTION", [k("KeyG", { mod: true, alt: true })]),
-  engine("object.wrap-in-section", "Wrap in new section", "WRAP_IN_SECTION", [k("KeyS", { mod: true })]),
+  // ⌘S saves nothing (Figma saves as you go): with nothing to wrap, the save reminder says so (saveStatus.ts).
+  engine("object.wrap-in-section", "Wrap in new section", "WRAP_IN_SECTION", [k("KeyS", { mod: true })], { whenDisabled: (ed) => !viewOnly(ed) && saveReminder(ed) }),
   // Round 10: in place, the engine's (same GUID, layers and look).
   engine("object.convert-to-section", "Convert to section", "CONVERT_TO_SECTION"),
   engine("object.convert-to-frame", "Convert to frame", "CONVERT_TO_FRAME"),
@@ -907,13 +911,18 @@ export const COMMANDS: EditorCommand[] = [
     id: "file.save-version",
     label: "Save to version history…",
     keys: [k("KeyS", { mod: true, alt: true })],
-    run: (ed) => ed.ui.set({ versionDialog: "save" }),
+    run: (ed) => ed.ui.set({ savepoint: { version: null } }),
     enabled: (ed) => typeof ed.source.saveVersion === "function",
   },
   {
     id: "file.version-history",
     label: "Show version history",
-    run: (ed) => ed.ui.set({ versionDialog: "history" }),
+    // Figma's toggle-version-history: enters history mode (nothing selected on the canvas), or leaves it.
+    run: (ed) => {
+      const open = ed.ui.get().versionDialog === "history";
+      if (!open) ed.engine.setSelection([]);
+      ed.ui.set({ versionDialog: open ? null : "history", historyVersion: null });
+    },
     enabled: (ed) => typeof ed.source.listVersions === "function",
   },
   {

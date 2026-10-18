@@ -577,6 +577,9 @@ export class BranchService {
       const { p, r, result } = await this.final(branchFileKey, input?.previewId, "update", input?.resolutions ?? {});
       const batch = result.batch;
       if (r.branchKey && this.host.remote) return this.applyUpdateShared(p, r, encodeMessage(batch));
+      // Savepoints on both files first (Figma's, atlas 16 §3.2: restoring the branch's takes the update back).
+      await this.host.addVersion(branchFileKey, { kind: "autosave", title: null, description: null });
+      await this.host.addVersion(r.mainFileKey, { kind: "autosave", title: null, description: null });
       if (batch.nodeChanges?.length) {
         await this.host.appendSystem(branchFileKey, encodeMessage(batch), { kind: "update", label: "Updated from main", expectSeq: p.branchHeadSeq, blobRefsAdded: [...messageImageHashes(batch)] });
       }
@@ -599,8 +602,9 @@ export class BranchService {
         const title = typeof input?.title === "string" && input.title.trim() ? input.title.trim() : r.name;
         const description = typeof input?.description === "string" && input.description.trim() ? input.description.trim() : null;
         if (r.branchKey && this.host.remote) return this.mergeShared(p, r, encodeMessage(result.batch), title, description);
-        // 4. The pre-merge checkpoint (restoring it undoes the merge).
-        await this.host.addVersion(r.mainFileKey, { kind: "autosave", title: null, description: null });
+        // 4. The pre-merge checkpoints on both files (Figma's savepoints; restoring main's undoes the merge).
+        const before = await this.host.addVersion(r.mainFileKey, { kind: "autosave", title: null, description: null });
+        await this.host.addVersion(branchFileKey, { kind: "autosave", title: null, description: null });
         // 5. One batch on main.
         const batch = result.batch;
         if (batch.nodeChanges?.length) {
@@ -611,7 +615,7 @@ export class BranchService {
         await this.host.addVersion(branchFileKey, { kind: "merge", title, description });
         const now = this.host.now();
         const me = this.host.user();
-        const next: BranchRecord = { ...r, status: "merged", mergedAt: now, mergedBy: me.id, mergeVersionId: version.id, archivedAt: r.archivedAt ?? now };
+        const next: BranchRecord = { ...r, status: "merged", mergedAt: now, mergedBy: me.id, mergeVersionId: version.id, preMergeVersionId: before.id, archivedAt: r.archivedAt ?? now };
         this.previews.delete(p.previewId);
         const saved = await this.save(next);
         this.emit({ type: "branch.merged", branch: saved });
@@ -678,6 +682,22 @@ export class BranchService {
     const saved = await this.save({ ...res.record, branchFileKey: r.branchFileKey, base: r.base });
     this.emit({ type: "branch.merged", branch: saved });
     return { branch: saved, version };
+  }
+
+  /**
+   * Undo merge: the branch as it was before its merge — active, its review and base kept — so it can be changed and
+   * merged again. Main's own going back is the editor's restore of `preMergeVersionId`. Local merges only (a shared
+   * one is the server's: Phase 6).
+   */
+  async undoMerge(branchFileKey: FileKey): Promise<BranchRecord> {
+    return this.serial(branchFileKey, async () => {
+      const r = await this.record(branchFileKey);
+      if (r.status !== "merged") throw new StoreError("invalid", tr("This branch wasn't merged"));
+      if (r.branchKey || !r.preMergeVersionId) throw new StoreError("invalid", tr("This merge can't be undone"));
+      const saved = await this.save({ ...r, status: "active", mergedAt: null, mergedBy: null, mergeVersionId: null, preMergeVersionId: null, archivedAt: null });
+      this.emit({ type: "branch.updated", branch: saved });
+      return saved;
+    });
   }
 
   // -------------------------------------------------------------------------------------------------------------------
@@ -773,6 +793,7 @@ export class BranchService {
       merge: (branchFileKey, input) => this.merge(branchFileKey, input),
       requestReview: (branchFileKey, input) => this.requestReview(branchFileKey, input),
       answerReview: (branchFileKey, input) => this.answerReview(branchFileKey, input),
+      undoMerge: (branchFileKey) => this.undoMerge(branchFileKey),
       watch: (listener) => this.onEvent(listener),
     };
   }

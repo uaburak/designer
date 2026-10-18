@@ -239,7 +239,7 @@ export const nav: NavApi = {
 
 export const files: FilesApi = {
   import: (folderId, paths) => invoke("file:import", { folderId: folderId === null || folderId === undefined ? null : String(folderId), paths: Array.isArray(paths) ? paths.map(String) : undefined }),
-  saveLocalCopy: (fileKey) => invoke("file:save-local-copy", { fileKey: String(fileKey) }),
+  saveLocalCopy: (fileKey, opts) => invoke("file:save-local-copy", { fileKey: String(fileKey), partial: opts?.partial === true }),
   exportAssets: (list) =>
     invoke("file:export-assets", {
       files: (Array.isArray(list) ? list : []).map((f) => ({ name: String(f?.name ?? ""), bytes: f?.bytes instanceof Uint8Array ? f.bytes : new Uint8Array(0) })),

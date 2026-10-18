@@ -131,7 +131,8 @@ export interface FilesApi {
   /** .fig files into a folder (null: Drafts): `paths` (dropped files, see pathFor), or the ones picked in the Open dialog */
   import(folderId: string | null, paths?: string[]): Promise<ImportResult>;
   /** The file as a .fig, where the Save dialog says */
-  saveLocalCopy(fileKey: string): Promise<{ path: string } | { cancelled: true }>;
+  /** `partial`: Figma's "Save partial file" — images still downloading left out, " - partial copy <date>" in the name */
+  saveLocalCopy(fileKey: string, opts?: { partial?: boolean }): Promise<{ path: string } | { cancelled: true }>;
   /** Exported files: one where the Save dialog says, more into the folder the Open dialog picks (editors only) */
   exportAssets(files: ExportAsset[]): Promise<{ paths: string[] } | { cancelled: true }>;
   /** A developer preview as one HTML file, where the Save dialog says (editors; docs/data.md §13) */

@@ -63,6 +63,7 @@ import { MotionMode } from "./motion/MotionMode";
 import { attachUsageTracking } from "./shortcuts/usage";
 import { shortcutPrefs } from "./shortcuts/prefs";
 import { VersionDialogs } from "./VersionDialogs";
+import { VersionHistoryPanel, VersionLinkOpener, VersionPreview } from "./VersionHistory";
 import { LocalVariables } from "./panels/variables/LocalVariables";
 import { RenameLayersDialog } from "./panels/RenameLayers";
 import { LibrariesDialog } from "./panels/libraries/LibrariesDialog";
@@ -417,6 +418,9 @@ function LeftSide() {
 function RightSide() {
   const docked = useUI((s) => !s.uiHidden && !s.uiMinimized);
   const dev = useUI((s) => s.mode === "dev");
+  // History mode (Figma's HISTORY top-level mode): the history panel in the properties panel's place.
+  const history = useUI((s) => s.versionDialog === "history");
+  if (docked && history) return <VersionHistoryPanel />;
   if (docked && dev) return <DevRightPanel />;
   return docked ? <RightPanel /> : null;
 }
@@ -432,6 +436,7 @@ function CanvasLayers() {
       {dev && <DevMeasurements />}
       <ImagePlacer />
       <CommentsLayer />
+      <VersionPreview />
     </>
   );
 }
@@ -474,6 +479,7 @@ function Overlays() {
       <AiHost />
       <PluginLayer />
       <VersionDialogs />
+      <VersionLinkOpener />
       <LibrariesDialog />
       <PublishDialog />
       <ExportDialog />

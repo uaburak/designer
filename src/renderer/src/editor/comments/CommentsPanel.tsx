@@ -30,6 +30,7 @@ export function CommentsPanel() {
   const sortFilter: MenuEntry[] = [
     { header: t("Sort") },
     { id: "sort-date", label: t("Sort by date"), checked: v.sort === "date" },
+    { id: "sort-recent", label: t("Sort by last action"), checked: v.sort === "recent" },
     { id: "sort-unread", label: t("Sort by unread"), checked: v.sort === "unread" },
     "-",
     { id: "showResolved", label: t("Show resolved comments"), checked: v.showResolved },
@@ -58,6 +59,7 @@ export function CommentsPanel() {
           align="end"
           onSelect={(id) => {
             if (id === "sort-date") c.setSort("date");
+            else if (id === "sort-recent") c.setSort("recent");
             else if (id === "sort-unread") c.setSort("unread");
             else c.toggle(id as "showResolved" | "onlyMine" | "onlyPage");
           }}
@@ -163,7 +165,7 @@ function Row({ c, thread, selected, pageName, people }: { c: CommentsController;
         <div className={styles.rowWho}>
           <span className={styles.rowName}>{first?.user.name}</span> <span className={styles.rowTime}>{last ? timeAgo(last.createdAt) : ""}</span>
         </div>
-        <p className={styles.rowText}>{first && <MessageText text={first.message} people={people} mentions={first.mentions} />}</p>
+        <p className={styles.rowText}>{first && <MessageText text={first.message} people={people} mentions={first.mentions} meta={first.messageMeta} />}</p>
         {replies > 0 && <div className={styles.rowReplies}>{tp(replies, "{n} reply", "{n} replies")}</div>}
       </div>
       {menu && (

@@ -135,6 +135,32 @@ describe("the store-backed DocumentSource", () => {
     await again.close();
   });
 
+  it("keeps the undo history at close for the next open, and says how long changes have waited for the store", async () => {
+    bed = await rpcTestbed();
+    const editor = await bed.connect("editor");
+    const f = await editor.workspace.createFile({ name: "Undo", folderId: null });
+    const src = await openStoreDocument(editor, f.fileKey, { tabId: "t1" });
+    expect(src.undoHistory).toBeNull();
+    expect(src.saveState()).toEqual({ pendingSince: null, lastSavedAt: 0 });
+    const s = src.sessionID;
+    src.onChanges(msg(s, [rect(s, 1)]), { kind: "USER", label: "Create" });
+    expect(src.saveState().pendingSince).not.toBeNull();
+    await src.flush();
+    expect(src.saveState().pendingSince).toBeNull();
+    expect(src.saveState().lastSavedAt).toBeGreaterThan(0);
+    const history = new Uint8Array([9, 8, 7]);
+    src.keepUndoHistory(history);
+    await src.close();
+    const again = await openStoreDocument(editor, f.fileKey);
+    expect(again.undoHistory).toEqual(history);
+    // A session that keeps none forgets it.
+    again.keepUndoHistory(null);
+    await again.close();
+    const third = await openStoreDocument(editor, f.fileKey);
+    expect(third.undoHistory).toBeNull();
+    await third.close();
+  });
+
   it("survives a store restart in the middle of editing (the client resends what wasn't acknowledged)", async () => {
     bed = await rpcTestbed();
     const editor = await bed.connect("editor");

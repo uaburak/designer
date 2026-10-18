@@ -79,6 +79,33 @@ describe("comments in the store", () => {
     expect(events.every((k) => k === "f1") && events.length >= 8).toBe(true);
     await expect(s.add("f1", { message: "", anchor })).rejects.toThrow();
     await expect(s.add("f1", { message: "no place" })).rejects.toThrow();
+    // Figma's 2,000 characters, as graphemes after the trailing whitespace.
+    await expect(s.add("f1", { message: "x".repeat(2001), anchor })).rejects.toThrow(/2,000/);
+    expect((await s.add("f1", { message: "👍🏽".repeat(2000) + "   ", anchor })).threads).toHaveLength(2);
+  });
+
+  it("keeps a local comment's files, which may come without text, and names their blobs for the GC", async () => {
+    const h = host();
+    const s = new CommentsService(h, fakeMp(null, {}) as unknown as MultiplayerService);
+    const sha = (c: string) => c.repeat(40);
+    const png = { id: "att_000001", name: "a.png", mime: "image/png", size: 10, sha1: sha("a"), width: 4, height: 3, lastModified: 7 };
+    const mov = { id: "att_000002", name: "b.mov", mime: "video/quicktime", size: 99_000_000, sha1: sha("b"), width: 1600, height: 900, thumb: sha("c") };
+    const st = await s.add("f1", { message: "", anchor, attachments: [png, mov] });
+    expect(st.threads[0].comments[0]).toMatchObject({ message: "", attachments: [png, mov] });
+    expect((await s.blobRefs("f1")).sort()).toEqual([sha("a"), sha("b"), sha("c")]);
+    // Emptying the text of a comment with files is fine; one without them still needs some.
+    expect((await s.edit("f1", st.threads[0].id, "  ")).threads[0].comments[0].message).toBe("");
+    await expect(s.add("f1", { message: "", anchor, attachments: [{ ...png, mime: "image/tiff" }] })).rejects.toThrow();
+    await expect(s.add("f1", { message: "", anchor, attachments: [{ ...png, size: 30_000_001 }] })).rejects.toThrow();
+    await expect(s.add("f1", { message: "", anchor, attachments: Array.from({ length: 6 }, () => png) })).rejects.toThrow(/5/);
+    // Rich segments are kept beside the text (the store's own check), and an edit without them drops them.
+    const rich = await s.add("f1", { message: "Bold", anchor, messageMeta: [{ t: "Bold", styles: ["b"], link: "javascript:x" }] });
+    const richId = rich.threads[rich.threads.length - 1].id;
+    expect(rich.threads.find((th) => th.id === richId)?.comments[0].messageMeta).toEqual([{ t: "Bold", styles: ["b"] }]);
+    expect((await s.edit("f1", richId, "Plain")).threads.find((th) => th.id === richId)?.comments[0].messageMeta).toBeUndefined();
+    // Comments written before files existed read as they were.
+    h.records.get("f1")!.comments.push({ ...h.records.get("f1")!.comments[0], id: "c_old", threadId: "c_old", attachments: undefined, number: 9 });
+    expect((await s.list("f1")).threads.find((t) => t.id === "c_old")?.comments[0].attachments).toBeUndefined();
   });
 
   it("uses the server for a shared file, as the signed-in user, and follows the room", async () => {

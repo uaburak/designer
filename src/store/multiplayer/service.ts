@@ -284,6 +284,7 @@ export class MultiplayerService {
       locked: this.locked.has(fileKey),
       policy: this.policies.get(fileKey) ?? null,
       blocked: this.blocked.get(fileKey) ?? null,
+      unacked: link ? { since: link.unackedSince, lastAckAt: link.lastAckAt } : null,
     };
   }
 
@@ -1857,6 +1858,20 @@ class Link {
   }
   /** Local frames sent and not acknowledged: local seq → the properties they touch */
   private pending = new Map<number, Touched>();
+  /** Since when local frames have waited for the room (null: none) and the last acknowledgement: the save status */
+  unackedSince: number | null = null;
+  lastAckAt = 0;
+  /** After `pending` changed: the views hear when frames start or stop waiting (not of every frame) */
+  private notePending(): void {
+    const waiting = this.pending.size > 0;
+    if (waiting === (this.unackedSince !== null)) return;
+    if (waiting) this.unackedSince = Date.now();
+    else {
+      this.unackedSince = null;
+      this.lastAckAt = Date.now();
+    }
+    this.svc.emitState(this.fileKey);
+  }
   /** Received frames are handled one at a time, in order */
   private chain: Promise<void> = Promise.resolve();
   /** Sent frames go one at a time, in journal order, each after the images it uses are in the room */
@@ -1920,6 +1935,7 @@ class Link {
 
   private send(c: FileChange): void {
     this.pending.set(c.seq, touchedBy(decodeMessage(c.message)));
+    this.notePending();
     const ws = this.ws;
     const key = this.svc.record(this.fileKey)?.key;
     const images = imagesOf(c.message);
@@ -1992,6 +2008,7 @@ class Link {
         if (!r || this.ws !== ws) return;
         this.pending.clear();
         if (r.role !== "viewer") for (const c of await this.svc.host_.backlog(this.fileKey, r.acked)) if (c.kind !== "remote") this.pending.set(c.seq, touchedBy(decodeMessage(c.message)));
+        this.notePending();
         const flags = this.svc.renderFlags(this.fileKey);
         const hello: ClientControl = { t: "hello", since: r.since, ...(flags.render ? { render: true } : {}), ...(flags.helper ? { helper: true } : {}) };
         ws.send(JSON.stringify(hello));
@@ -2112,6 +2129,7 @@ class Link {
     if (rec.sessions.includes(frame.sessionID)) {
       // Our own frame, as the room ordered it: acknowledged.
       this.pending.delete(frame.batch);
+      this.notePending();
       rec.acked = Math.max(rec.acked, frame.batch);
     } else {
       const message = withoutPending(frame.message, this.pendingTouched());

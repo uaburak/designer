@@ -439,6 +439,25 @@ describe("merge3 — §15.8 corpus", () => {
     expect(applied(r, edit(b, docUpd("L1")), edit(b, docUpd("L2"))).get("0:0")!.librarySubscriptions!.map((s) => s.libraryKey).sort()).toEqual(["L1", "L2"]);
   });
 
+  it("change details: each node's fields added / changed / removed; a library copy the other side updated is UPDATED_LIBRARY", () => {
+    const b = baseDoc();
+    const branch = edit(b, upd(11, { opacity: 0.5, name: "B" }), upd(10, { effects: [{ type: "DROP_SHADOW", visible: true } as never] }), node(13, "ELLIPSE", at(g(10), "#")));
+    const chunk = run(b, b, branch, "merge").chunks.find((c) => c.displayNode === k(10))!;
+    const byNode = Object.fromEntries((chunk.details ?? []).map((d) => [d.guid, d]));
+    expect(byNode[k(11)]).toMatchObject({ phase: "updated", name: "B", fields: expect.arrayContaining([{ field: "opacity", change: "added" }, { field: "name", change: "changed" }]) });
+    expect(byNode[k(10)].fields).toEqual([{ field: "effects", change: "added" }]);
+    expect(byNode[k(13)]).toMatchObject({ phase: "created", type: "ELLIPSE" });
+    expect(chunk.libraryUpdate).toBeUndefined();
+    const LIB = "LibraryFileKey00000000";
+    const copy = (version: string, childName: string): NodeChange[] => [
+      node(120, "SYMBOL", at(INTERNAL, "!"), { sourceLibraryKey: LIB, key: "a".repeat(40), version, publishID: g(1, 9) }),
+      node(121, "TEXT", at(g(120), "!"), { name: childName, overrideKey: g(5, 9) }),
+    ];
+    const lb = baseDoc(copy("v3", "three"));
+    const u = run(lb, edit(lb, copy("v4", "four")), lb, "update");
+    expect(u.chunks.map((c) => [c.displayNode, c.phase, c.libraryUpdate])).toEqual([[k(120), null, true]]);
+  });
+
   it("19. local asset bookkeeping is main's", () => {
     const comp = node(130, "SYMBOL", at(PAGE, "#"), { key: "c".repeat(40) });
     const b = baseDoc([comp]);

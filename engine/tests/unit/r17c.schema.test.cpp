@@ -379,6 +379,56 @@ TEST_CASE("r17c undo history: exported and imported into a fresh editor of the s
   CHECK(c.undoStack().redoCount() == 1);
 }
 
+TEST_CASE("w6 undo history: each step keeps the pages it was on (Message.undoBatchPageIds 46), through export and import") {
+  const Guid P2{9, 50}, R1{9, 1}, R2{9, 2};
+  auto nodes = baseChanges();
+  NodeProps page2 = defaultProps(NodeType::CANVAS);
+  page2.name = "Page 2";
+  page2.parentIndex = {kDoc, "\""};
+  nodes.push_back(NodeChange::created(P2, page2));
+  nodes.push_back(make(R1, NodeType::ROUNDED_RECTANGLE, kPage, "!", {0, 0, 10, 10}, "A"));
+  nodes.push_back(make(R2, NodeType::ROUNDED_RECTANGLE, P2, "!", {0, 0, 10, 10}, "B"));
+  Editor a = load(nodes);
+  auto rename = [](Editor& e, Guid id, const std::string& name) {
+    NodeChange c = NodeChange::changed(Guid{0, 0});
+    c.mask = F_NAME;
+    c.props.name = name;
+    REQUIRE(e.setProps({id}, c, 0) == OK);
+  };
+  rename(a, R2, "B1");  // on Page 2
+  rename(a, R1, "A1");  // on Page 1
+  REQUIRE(a.undoStack().undoBatches().size() == 2);
+  CHECK(a.undoStack().undoBatches()[0].pageIds == std::vector<Guid>{P2});
+  CHECK(a.undoStack().undoBatches()[1].pageIds == std::vector<Guid>{kPage});
+  // A removal notes its parent's page; a page's own change none.
+  a.setSelection({R2});
+  REQUIRE(a.command(CommandId::DELETE) == OK);
+  CHECK(a.undoStack().undoBatches().back().pageIds == std::vector<Guid>{P2});
+
+  // Through export / import (a reopened file), and an undo with nothing selected goes to the batch's page.
+  Editor b = load(a.encodeDocument());
+  REQUIRE(b.importUndoHistory(a.exportUndoHistory()));
+  REQUIRE(b.undoStack().undoBatches().size() == 3);
+  CHECK(b.undoStack().undoBatches()[0].pageIds == std::vector<Guid>{P2});
+  CHECK(b.undoStack().undoBatches()[1].pageIds == std::vector<Guid>{kPage});
+  REQUIRE(b.setCurrentPage(kPage) == OK);
+  REQUIRE(b.command(CommandId::UNDO) == OK);  // the deletion, back on Page 2
+  CHECK(b.page() == P2);
+  REQUIRE(b.command(CommandId::UNDO) == OK);  // A1 on Page 1
+  CHECK(b.page() == kPage);
+  // The redo side keeps them too.
+  CHECK(b.undoStack().redoBatches().back().pageIds == std::vector<Guid>{kPage});
+  // A history written before them still loads (its pages then come from the replayed changes).
+  NodeChange back = NodeChange::changed(R1);
+  back.mask = F_NAME;
+  back.props.name = "A";
+  Editor c = load(a.encodeDocument());
+  REQUIRE(c.importUndoHistory(codec::writeUndoHistory(1, {codec::UndoHistoryStep{{back}, {}}}, {})));
+  CHECK(c.undoStack().undoBatches().back().pageIds.empty());
+  REQUIRE(c.command(CommandId::UNDO) == OK);
+  CHECK(c.document().get(R1)->props.name == "A");
+}
+
 // ---- editScopeInfo 365: kept through load and save (canvas.md §2.9) -------------------------------------------------
 
 TEST_CASE("r17c editScopeInfo: a node's edit scopes survive load, an edit and the snapshot") {

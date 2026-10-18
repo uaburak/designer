@@ -160,6 +160,7 @@ Workspace/
     journal-<baseSeq:012>.log           journal segments (§5.2)
     thumbnail.png                       ≤ 800×600 PNG
     ui.json                             FileUiState                               (local only)
+    undo.kiwi                           the local user's undo history at the last close (local only, §5.7)
     versions/index.json                 VersionRecord[]                           (synced)
     versions/<VersionId>.kiwi           version snapshots (hard links where possible)
     clocks.bin                          per-(guid, field) HLCs; only once sync is on (§12.5)
@@ -383,6 +384,14 @@ export interface FileUiState {
   leftPanelWidth: number; rightPanelWidth: number;
 }
 ```
+
+- **Undo history** (`undo.kiwi`, local only, per device; atlas 22 §2, wave 6): the engine's export of the local user's
+  stacks (Figma's `Message.localUndoStack` 22 / `localRedoStack` 23, each step with its `undoBatchPageIds` 46) — the
+  last 100 steps, 16 MB at most — handed to the source as the editor goes and written by `files.setUndoHistory` when it
+  closes, after its last flush, at the journal seq the document then stands at: `"WUH1" | headSeq (float64 LE) |
+  bytes` (`src/store/local/undoHistory.ts`). An edit open gets it back as `OpenedFile.undoHistory` only while the head
+  is still that seq (another editor, a branch update or a sync moved it: no history); the editor imports it after the
+  load. Never in a snapshot, a version, an export or a sync; a damaged file reads as none.
 
 ### 5.8 Schema evolution
 

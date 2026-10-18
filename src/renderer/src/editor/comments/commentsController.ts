@@ -8,11 +8,13 @@ import { useSyncExternalStore } from "react";
 import { showToast } from "@/ds";
 import { t } from "@/i18n";
 import { getStoreClient } from "@/store";
-import { mentionsIn, type CommentAnchor, type CommentsState, type CommentThread, type MentionCandidate } from "@shared/comments";
+import { mentionsIn, type CommentAnchor, type CommentAttachment, type CommentSegment, type CommentsState, type CommentThread, type MentionCandidate } from "@shared/comments";
 import type { Guid, NodeChange } from "@/engine/codec";
 import type { EditorController } from "../controller";
+import type { ImageStore } from "../images";
 
-export type CommentSort = "date" | "unread";
+/** Figma's sorts: "date" the threads' creation (`creationDate`), "recent" their last reply (`recent`), "unread" unread first */
+export type CommentSort = "date" | "recent" | "unread";
 export type CommentNotifications = "everything" | "mentions" | "nothing";
 
 export interface CommentsView {
@@ -38,7 +40,7 @@ function loadPrefs(): Partial<CommentsView> {
   try {
     const raw = localStorage.getItem(PREFS_KEY);
     const p = raw ? (JSON.parse(raw) as Partial<CommentsView>) : {};
-    return { sort: p.sort === "unread" ? "unread" : "date", showResolved: p.showResolved === true, onlyMine: p.onlyMine === true, onlyPage: p.onlyPage === true, notifications: p.notifications === "mentions" || p.notifications === "nothing" ? p.notifications : "everything" };
+    return { sort: p.sort === "unread" || p.sort === "recent" ? p.sort : "date", showResolved: p.showResolved === true, onlyMine: p.onlyMine === true, onlyPage: p.onlyPage === true, notifications: p.notifications === "mentions" || p.notifications === "nothing" ? p.notifications : "everything" };
   } catch {
     return {};
   }
@@ -143,6 +145,13 @@ export class CommentsController {
   }
   setNotifications(notifications: CommentNotifications): void {
     this.set({ notifications });
+    // Figma's opt-in toast after a change (atlas 16 §2.8): 15 s, with Manage (the Comments panel, where the setting is).
+    if (notifications === "nothing") return;
+    showToast({
+      message: notifications === "everything" ? t("You will be notified about all comments in this file") : t("You will be notified about replies and @mentions"),
+      duration: 15_000,
+      action: { label: t("Manage"), onAction: () => this.ed.setTool("COMMENT") },
+    });
   }
 
   /** The Comment tool's click at a canvas point (CSS px): a new comment there. */
@@ -155,10 +164,21 @@ export class CommentsController {
     if (this.view.draft) this.set({ draft: null });
   }
 
-  async post(message: string): Promise<boolean> {
+  /** Where a comment's files go: the file's images (the store's blobs) — a local file's comments only for now */
+  attachments(): ImageStore | undefined {
+    return this.view.data && !this.view.data.shared ? this.ed.source.images : undefined;
+  }
+
+  /** The people a message mentions: those picked in the composer, and any "@Name" typed out */
+  private mentions(message: string, picked: string[]): string[] {
+    return [...new Set([...picked, ...mentionsIn(message, this.view.people)])];
+  }
+
+  async post(message: string, attachments: CommentAttachment[] = [], messageMeta: CommentSegment[] | null = null, picked: string[] = []): Promise<boolean> {
     const anchor = this.view.draft;
-    if (!anchor || !message.trim()) return false;
-    const data = await this.apply(getStoreClient().comments.add(this.fileKey, { message, mentions: mentionsIn(message, this.view.people), anchor }));
+    if (!anchor || (!message.trim() && !attachments.length)) return false;
+    const files = { ...(attachments.length ? { attachments } : {}), ...(messageMeta ? { messageMeta } : {}) };
+    const data = await this.apply(getStoreClient().comments.add(this.fileKey, { message, mentions: this.mentions(message, picked), anchor, ...files }));
     if (!data) return false;
     this.set({ draft: null });
     if (!toldAboutReplies) {
@@ -168,14 +188,21 @@ export class CommentsController {
     return true;
   }
 
-  async reply(threadId: string, message: string): Promise<boolean> {
-    if (!message.trim()) return false;
-    return !!(await this.apply(getStoreClient().comments.add(this.fileKey, { threadId, message, mentions: mentionsIn(message, this.view.people) })));
+  async reply(threadId: string, message: string, attachments: CommentAttachment[] = [], messageMeta: CommentSegment[] | null = null, picked: string[] = []): Promise<boolean> {
+    if (!message.trim() && !attachments.length) return false;
+    const files = { ...(attachments.length ? { attachments } : {}), ...(messageMeta ? { messageMeta } : {}) };
+    return !!(await this.apply(getStoreClient().comments.add(this.fileKey, { threadId, message, mentions: this.mentions(message, picked), ...files })));
   }
 
-  async edit(commentId: string, message: string): Promise<boolean> {
-    if (!message.trim()) return false;
-    return !!(await this.apply(getStoreClient().comments.edit(this.fileKey, commentId, message, mentionsIn(message, this.view.people))));
+  async edit(commentId: string, message: string, messageMeta: CommentSegment[] | null = null, picked: string[] = []): Promise<boolean> {
+    const had = this.view.data?.threads.some((th) => th.comments.some((c) => c.id === commentId && c.attachments?.length));
+    if (!message.trim() && !had) return false;
+    return !!(await this.apply(getStoreClient().comments.edit(this.fileKey, commentId, message, this.mentions(message, picked), messageMeta)));
+  }
+
+  /** Rich text in the composer: a local file's comments (a shared file's server keeps the plain text) */
+  rich(): boolean {
+    return !this.view.data?.shared;
   }
 
   async remove(commentId: string): Promise<void> {
@@ -215,6 +242,8 @@ export class CommentsController {
     const t = this.view.data?.threads.find((x) => x.id === threadId);
     if (!t) return;
     if (t.unread) void this.markRead([t.id], true);
+    // A link to a resolved thread shows resolved threads (Figma turns the filter on).
+    if (reveal && t.resolvedAt && !this.view.showResolved) this.set({ showResolved: true });
     if (reveal) {
       const ed = this.ed;
       if (t.anchor.pageId && t.anchor.pageId !== ed.store.page && ed.store.pages.some((p) => p.guid === t.anchor.pageId)) ed.engine.setCurrentPage(t.anchor.pageId as Guid);
@@ -288,19 +317,26 @@ export function useComments(ed: EditorController): CommentsView {
   return useSyncExternalStore(c ? c.subscribe : noop, () => c?.view ?? EMPTY_VIEW);
 }
 
-/** The threads the panel lists, as its search, sort and filters say (Figma's Sort/Filter menu) */
+/**
+ * The threads the panel lists, as its search, sort and filters say (Figma's Sort/Filter menu, atlas 16 §2.8): resolved
+ * threads hidden unless shown; "Only your threads" keeps those with a comment of yours or one mentioning you; a search
+ * matching a reply finds its thread. "Sort by date" orders by the first comment's time, "Sort by last action" by the
+ * last reply's, "Sort by unread" puts unread threads first, then by date — newest first in each.
+ */
 export function listedThreads(v: CommentsView, currentPage: string): CommentThread[] {
-  const me = v.data?.me.id;
+  const me = v.data?.me;
   const q = v.search.trim().toLowerCase();
+  const mentionsMe = (mentions: string[]) => !!me && (mentions.includes(me.id) || (!!me.email && mentions.includes(me.email)));
   let list = (v.data?.threads ?? []).filter((t) => {
     if (t.resolvedAt && !v.showResolved) return false;
     if (v.onlyPage && t.anchor.pageId !== currentPage) return false;
-    if (v.onlyMine && !t.comments.some((c) => c.user.id === me)) return false;
+    if (v.onlyMine && !t.comments.some((c) => c.user.id === me?.id || mentionsMe(c.mentions))) return false;
     if (q && !t.comments.some((c) => c.message.toLowerCase().includes(q) || c.user.name.toLowerCase().includes(q))) return false;
     return true;
   });
-  // Newest first by the latest activity; "Sort by unread" puts unread threads first.
-  const last = (t: CommentThread) => Math.max(...t.comments.map((c) => c.createdAt));
-  list = [...list].sort((a, b) => (v.sort === "unread" ? Number(b.unread) - Number(a.unread) : 0) || last(b) - last(a));
+  const created = (t: CommentThread) => t.comments[0]?.createdAt ?? 0;
+  const last = (t: CommentThread) => Math.max(0, ...t.comments.map((c) => c.createdAt));
+  const key = v.sort === "recent" ? last : created;
+  list = [...list].sort((a, b) => (v.sort === "unread" ? Number(b.unread) - Number(a.unread) : 0) || key(b) - key(a) || b.number - a.number);
   return list;
 }

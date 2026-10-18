@@ -21,7 +21,7 @@ constexpr uint32_t kBorderTop = 295, kBorderBottom = 296, kBorderLeft = 297, kBo
 constexpr uint32_t kFillGeometry = 51, kStrokeGeometry = 52, kDerivedSymbolData = 125, kDerivedTextData = 359;
 // Message.
 constexpr uint32_t kMsgType = 1, kMsgSession = 2, kMsgAck = 3, kMsgChanges = 4, kMsgBlobs = 6, kMsgPasteFileKey = 14,
-                   kMsgPastePage = 20, kMsgIsCut = 21, kMsgRegions = 33, kMsgDerivedVersion = 100;
+                   kMsgPastePage = 20, kMsgIsCut = 21, kMsgRegions = 33, kMsgUndoBatchPageIds = 46, kMsgDerivedVersion = 100;
 }  // namespace id
 
 // ---- Helpers ---------------------------------------------------------------------------------------------
@@ -2930,6 +2930,16 @@ bool readMessage(std::string_view bytes, KiwiMessage& out, DerivedSink* derived)
       case id::kMsgDerivedVersion:
         if (!bb.readVarUint(out.derivedDataVersion)) return false;
         break;
+      case id::kMsgUndoBatchPageIds: {
+        uint32_t n = 0;
+        if (!bb.readVarUint(n)) return false;
+        for (uint32_t i = 0; i < n; i++) {
+          Guid g;
+          if (!getGuid(bb, g)) return false;
+          out.undoBatchPageIds.push_back(g);
+        }
+        break;
+      }
       default:
         if (!skipUnknown(bb, defs().message, f)) return false;
     }
@@ -3017,15 +3027,19 @@ std::string writeOverrideStash(const std::vector<OverrideStash>& stash) {
   return o.s;
 }
 
-std::string writeUndoHistory(uint32_t sessionID, const std::vector<std::vector<NodeChange>>& undo, const std::vector<std::vector<NodeChange>>& redo) {
+std::string writeUndoHistory(uint32_t sessionID, const std::vector<UndoHistoryStep>& undo, const std::vector<UndoHistoryStep>& redo) {
   Out o;
   putUint(o, id::kMsgType, 1);  // NODE_CHANGES
   putUint(o, id::kMsgSession, sessionID);
-  auto list = [&](uint32_t field, const std::vector<std::vector<NodeChange>>& steps) {
+  auto list = [&](uint32_t field, const std::vector<UndoHistoryStep>& steps) {
     if (steps.empty()) return;
     o.varuint(field);
     o.varuint(static_cast<uint32_t>(steps.size()));
-    for (const auto& step : steps) o.raw(writeMessage(sessionID, step));
+    for (const auto& step : steps) {
+      KiwiWriteOptions opts;
+      if (!step.pageIds.empty()) opts.undoBatchPageIds = &step.pageIds;
+      o.raw(writeMessage(sessionID, step.changes, opts));
+    }
   };
   list(22, undo);  // localUndoStack
   list(23, redo);  // localRedoStack
@@ -3135,6 +3149,11 @@ std::string writeMessage(uint32_t sessionID, const std::vector<NodeChange>& chan
   if (opts.pastePageId) putGuidField(o, id::kMsgPastePage, *opts.pastePageId);
   if (opts.isCut) putBool(o, id::kMsgIsCut, true);
   if (opts.regions) putRegions(o, *opts.regions);
+  if (opts.undoBatchPageIds && !opts.undoBatchPageIds->empty()) {
+    o.varuint(id::kMsgUndoBatchPageIds);
+    o.varuint(static_cast<uint32_t>(opts.undoBatchPageIds->size()));
+    for (Guid g : *opts.undoBatchPageIds) putGuid(o, g);
+  }
   if (opts.derivedDataVersion) putUint(o, id::kMsgDerivedVersion, opts.derivedDataVersion);
   o.byte(0);
   return std::move(o.s);

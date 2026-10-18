@@ -110,6 +110,7 @@ export function attachKeyboard(ed: EditorController, canvas: HTMLCanvasElement):
     }
     e.preventDefault();
     if (isEnabled(ed, c)) c.run(ed);
+    else c.whenDisabled?.(ed);
   };
   const onKeyUp = (e: KeyboardEvent) => {
     if (e.target === canvas || isEditable(e.target) || inOverlay(e.target)) return;

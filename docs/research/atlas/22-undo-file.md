@@ -486,6 +486,48 @@ Compared with `engine/src/editor/Undo.{h,cpp}`, `schema/document.kiwi`, `src/sha
   `libraryMoveInfo` / `libraryMoveHistory`; the stackPadding legacy mapping; the trailing-space rule on positions;
   the cycle check (verify in `src/shared/fig/convert.ts`).
 
+### As built (2026-10-18, wave 6)
+
+Built from the lists above. Code: `engine/src/editor/{Undo,Editor}.cpp`, `engine/src/scene/CodecKiwi.*`,
+`schema/document.kiwi`; `src/store/local/{undoHistory,fileStore}.ts`, `src/renderer/src/store/documentSource.ts`,
+`editor/persistence.ts`; `editor/{saveStatus.ts,SaveStatusIcon.tsx}`, `src/store/multiplayer/service.ts`;
+`editor/objectCommands.ts` (Save local copy), `src/main/files.ts`, `src/store/export/fig.ts`.
+
+- **`undoBatchPageIds` 46 (§2.3).** Schema: Message's reserved 46 is `GUID[] undoBatchPageIds` again (Figma's number;
+  `npm run engine:gen`, `schemagen --check` 0 problems — **the one schema change of this round**). Each undo step keeps
+  the pages its changes were on when it was made (a removal its parent's page, a page's own change none, the internal
+  canvas never; a merged step the union), the redo step the same; an undo or redo with nothing selected goes to the
+  first of them; a step without them (an older history) falls back to the replayed changes' pages. The undo history's
+  Messages carry them (native `w6 undo history`, wasm `engine.wasm.test.ts`).
+- **The undo history across sessions (§2.1, canvas.md §2.18).** Exported as the editor goes (100 steps, 16 MB), written
+  by the store when the source closes after its last flush — `files/<key>/undo.kiwi`, `"WUH1" | headSeq | bytes`, per
+  device — and taken back after the next load while the journal head is the same (docs/data.md §5.7). Labels and
+  selections don't travel (as before).
+- **Commit modes instead of time windows (§2.2).** Nothing to remove: the engine groups by commits already (a panel
+  scrub is one step, a text session one step whatever its pauses, held-arrow nudges one step); docs/engine.md §9.4's
+  "1.5 s" was never built and now says so. The skip of invisible batches and the dangling filter were built in the
+  REA round (docs/engine.md §9.3), before this list was written.
+- **The save status (§3.4).** No "Saved" label. Polled every 500 ms: the offline icon when a shared file's link has
+  been down past 10 s; the unsaved icon when changes wait for the store (the source's unacknowledged appends) or for
+  the room (`FileShareState.unacked`, frames sent and not acknowledged) more than 10 s since they began or the last
+  acknowledgement, or 30 s in all; the tooltip says which. 60 s after changes start waiting (edits made while the
+  link is down count): "You have unsaved changes" until they're saved, Learn more; then "Changes saved" when it was
+  shown and the file is online. The icon takes the old offline dot's place. (Figma's English for these isn't read:
+  question 10.)
+- **⌘S (§3.5).** With nothing to wrap in a section: offline → the offline text; unsaved → "Your latest changes are
+  still being saved."; else one of Figma's eight prefixes, two spaces and "You don't need to save…", at most once in
+  14 days (localStorage `autosaveVisualBellLastTime`); editors only.
+- **Save local copy (§4).** A shared file whose images are still coming down: "Downloading images…" with Cancel (×
+  cancels too) while they arrive (polled each second); offline at once, else after 20 s, "Save without images", which
+  saves `"<name> - partial copy <date>"` (the locale date's / and _ as -) without the missing ones
+  (`files.missingImages`, `exportLocalCopy({partial})`). Every page is always loaded here, so Figma's other step (wait
+  for all pages) has nothing to wait for. `meta.json` already had `developer_related_links: []`.
+
+**Not done:** an offline backup beyond the journal (the store's journal is the local backup; Figma's "Offline sync" /
+"Before syncing changes" savepoints belong with Phase 6's server side); the edit-mode restore and the ignore-undo
+scope; the memory model (heap %, OOM states, Manage memory); the importer's rewrites (`convert.ts`, the import
+agent's); the desktop shell's `setSaved` per tab (our tab dot follows the flush, equivalent while local).
+
 ## 10. Open questions
 
 | # | Question | Probe that settles it |

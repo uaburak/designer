@@ -6,9 +6,11 @@
 import { useRef, useState } from "react";
 import { Avatar, Button, ContextMenu, Dialog, Icon, timeAgo, type MenuEntry } from "@/ds";
 import { intlLocale, t, tp, useT } from "@/i18n";
-import type { Comment, CommentsState, CommentThread, MentionCandidate } from "@shared/comments";
+import type { Comment, CommentSegment, CommentsState, CommentThread, MentionCandidate } from "@shared/comments";
 import type { CommentsController } from "./commentsController";
+import { AttachmentThumb, AttachmentViewer } from "./attachments";
 import { Composer } from "./Composer";
+import { SegmentsView } from "./richText";
 import { EmojiPicker } from "./EmojiPicker";
 import styles from "./Comments.module.css";
 
@@ -19,8 +21,9 @@ export const sinceCap = (at: number) => {
   return s.charAt(0).toLocaleUpperCase(intlLocale()) + s.slice(1);
 };
 
-/** Text with @mentions in the brand colour */
-export function MessageText({ text, people, mentions }: { text: string; people: MentionCandidate[]; mentions: string[] }) {
+/** Text with @mentions in the brand colour; a message with rich segments drawn from them (richText.tsx) */
+export function MessageText({ text, people, mentions, meta }: { text: string; people: MentionCandidate[]; mentions: string[]; meta?: CommentSegment[] }) {
+  if (meta?.length) return <SegmentsView segments={meta} />;
   const names = people.filter((p) => mentions.includes(p.id) || mentions.includes(p.email)).map((p) => p.name);
   if (!names.length) return <>{text}</>;
   const re = new RegExp(`(@(?:${names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).sort((a, b) => b.length - a.length).join("|")}))`, "g");
@@ -123,7 +126,7 @@ export function ThreadCard({ c, data, thread, people, style }: { c: CommentsCont
       </div>
       <div className={styles.replyRow}>
         <Avatar name={data.me.name} src={data.me.picture ?? undefined} size={24} />
-        <Composer key={thread.id} variant="reply" placeholder={t("Reply")} label={t("Reply to comment with {name}", { name: first?.user.name ?? "" })} people={people} me={data.me.id} onSubmit={(text) => c.reply(thread.id, text)} onCancel={() => c.openThread(null)} autoFocus />
+        <Composer key={thread.id} variant="reply" placeholder={t("Reply")} label={t("Reply to comment with {name}", { name: first?.user.name ?? "" })} people={people} me={data.me.id} images={c.attachments()} rich={c.rich()} onSubmit={(text, files, meta, mentions) => c.reply(thread.id, text, files, meta, mentions)} onCancel={() => c.openThread(null)} autoFocus />
       </div>
       {menu && <ContextMenu at={{ x: menu.x, y: menu.y }} entries={menu.entries} onSelect={onMenu} onClose={() => setMenu(null)} label={menu.comment ? t("Comment actions") : t("Thread actions")} />}
       <DeleteCommentDialog
@@ -175,6 +178,7 @@ export function ResolveGlyph({ done }: { done: boolean }) {
 function CommentRow({ c, comment, me, people, editing, onStopEditing, onMenu }: { c: CommentsController; comment: Comment; me: string; people: MentionCandidate[]; editing: boolean; onStopEditing(): void; onMenu?: (e: React.MouseEvent) => void }) {
   useT();
   const [picker, setPicker] = useState<HTMLElement | null>(null);
+  const [viewing, setViewing] = useState<number | null>(null);
   const reacted = (users: { id: string }[]) => users.some((u) => u.id === me);
   return (
     <article className={styles.comment} data-comment={comment.id}>
@@ -199,9 +203,11 @@ function CommentRow({ c, comment, me, people, editing, onStopEditing, onMenu }: 
             people={people}
             me={me}
             initial={comment.message}
+            initialMeta={comment.messageMeta}
+            rich={c.rich()}
             autoFocus
-            onSubmit={async (text) => {
-              const ok = await c.edit(comment.id, text);
+            onSubmit={async (text, _files, meta, mentions) => {
+              const ok = await c.edit(comment.id, text, meta, mentions);
               if (ok) onStopEditing();
               return ok;
             }}
@@ -210,7 +216,7 @@ function CommentRow({ c, comment, me, people, editing, onStopEditing, onMenu }: 
         ) : (
           <div className={styles.commentTextRow}>
             <p className={styles.commentText}>
-              <MessageText text={comment.message} people={people} mentions={comment.mentions} />
+              <MessageText text={comment.message} people={people} mentions={comment.mentions} meta={comment.messageMeta} />
               {comment.editedAt ? <span className={styles.edited}> {t("(edited)")}</span> : null}
             </p>
             {!comment.reactions.length && (
@@ -220,6 +226,14 @@ function CommentRow({ c, comment, me, people, editing, onStopEditing, onMenu }: 
             )}
           </div>
         )}
+        {!editing && !!comment.attachments?.length && (
+          <div className={styles.commentFiles}>
+            {comment.attachments.map((a, i) => (
+              <AttachmentThumb key={a.id} images={c.ed.source.images} a={a} size={comment.attachments!.length === 1 ? 200 : 96} onOpen={() => setViewing(i)} />
+            ))}
+          </div>
+        )}
+        {viewing !== null && comment.attachments && <AttachmentViewer images={c.ed.source.images} list={comment.attachments} at={viewing} onClose={() => setViewing(null)} />}
         {comment.reactions.length > 0 && (
           <div className={styles.reactions}>
             {comment.reactions.map((r) => {

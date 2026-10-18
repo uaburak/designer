@@ -80,7 +80,13 @@ export interface StoreDocumentSource extends DocumentSource {
   readonly recovery: OpenedFile["recovery"];
   /** The file's local UI state (current page, viewports, selection, panel widths) from the last session */
   readonly uiState: FileUiState | null;
-  /** Journal position the loaded document represents */
+  /** The undo history this device kept at the last close, when the file opened where it was then (docs/engine.md §9.3) */
+  readonly undoHistory: Uint8Array | null;
+  /** The undo history to keep at close (after the last flush, at the head the document then stands at); null forgets it */
+  keepUndoHistory(bytes: Uint8Array | null): void;
+  /** Since when changes have waited for the store (null: none) and when the store last took them: the save status */
+  saveState(): { pendingSince: number | null; lastSavedAt: number };
+  /** Journal position the loaded document represents
   readonly headSeq: number;
   readonly closed: boolean;
 
@@ -326,8 +332,14 @@ class Source implements StoreDocumentSource {
   readonly sessionID: number;
   readonly recovery: OpenedFile["recovery"];
   readonly uiState: FileUiState | null;
+  readonly undoHistory: Uint8Array | null;
   readonly headSeq: number;
   meta: FileMeta;
+  /** The undo history the editor handed over as it went (undefined: none to write) */
+  private undoKept: Uint8Array | null | undefined = undefined;
+  /** Since when changes have waited for the store's acknowledgement (null: none), and the last acknowledgement */
+  private pendingSince: number | null = null;
+  private lastSavedAt = 0;
   closed = false;
   private trashed = false;
   private deleted = false;
@@ -370,6 +382,7 @@ class Source implements StoreDocumentSource {
     this.sessionID = o.sessionID;
     this.recovery = o.recovery;
     this.uiState = o.ui;
+    this.undoHistory = o.undoHistory ?? null;
     this.headSeq = o.headSeq;
     this.headKnown = o.headSeq;
     this.meta = o.meta;
@@ -639,8 +652,19 @@ class Source implements StoreDocumentSource {
       },
       (e) => this.fail(e),
     );
+    const now = this.opts.now ?? Date.now;
+    if (!this.inFlight.size) this.pendingSince = now();
     this.inFlight.add(p);
-    void p.finally(() => this.inFlight.delete(p));
+    void p.finally(() => {
+      this.inFlight.delete(p);
+      if (this.inFlight.size) return;
+      this.pendingSince = null;
+      this.lastSavedAt = now();
+    });
+  }
+
+  saveState(): { pendingSince: number | null; lastSavedAt: number } {
+    return { pendingSince: this.pendingSince, lastSavedAt: this.lastSavedAt };
   }
 
   async flush(): Promise<void> {
@@ -748,11 +772,18 @@ class Source implements StoreDocumentSource {
     return this.store.files.duplicateVersion(this.fileKey, id);
   }
 
+  keepUndoHistory(bytes: Uint8Array | null): void {
+    if (!this.closed) this.undoKept = bytes;
+  }
+
   close(): Promise<void> {
     this.closing ??= (async () => {
       try {
         await this.writeUiState();
         await this.flush().catch((e) => this.opts.onError?.(e));
+        // The undo history at the head every change of this session reached (the next open on this device takes it
+        // back when the file is still there). Never in the way of closing.
+        if (this.undoKept !== undefined) await this.store.files.setUndoHistory(this.fileKey, { headSeq: this.headKnown, bytes: this.undoKept }).catch((e) => this.opts.onError?.(e));
       } finally {
         this.closed = true;
         this.opened = null;

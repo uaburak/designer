@@ -49,6 +49,131 @@ export interface Comment {
   createdAt: number;
   editedAt: number | null;
   reactions: CommentReaction[];
+  /** Images and videos posted with it (Figma's `attachments`, up to 5); absent on comments written before them */
+  attachments?: CommentAttachment[];
+  /** The message as Figma's rich segments (`message_meta`); absent: `message` is plain text */
+  messageMeta?: CommentSegment[];
+}
+
+/**
+ * Figma's `message_meta` (atlas 16 §2.6): a message as segments — text with its styles (bold, italic, strikethrough),
+ * a link, an @mention (`user_id`, its text "@Name"), a numbered or bulleted list of items. `message` stays the plain
+ * text (search, notifications, a shared file's server, which keeps no segments yet).
+ */
+export type CommentStyle = "b" | "i" | "s";
+export type CommentSegment =
+  | { t: string; styles?: CommentStyle[]; link?: string }
+  | { t: string; user_id: string }
+  | { styles: ["ol" | "ul"]; children: { children: CommentSegment[] }[] };
+
+export const isListSegment = (s: CommentSegment): s is Extract<CommentSegment, { children: unknown }> => "children" in s;
+export const isMentionSegment = (s: CommentSegment): s is Extract<CommentSegment, { user_id: string }> => "user_id" in s;
+
+/** The plain text of segments, as Figma exports it: lists one item a line, "1. " numbered, "* " bulleted */
+export function segmentsText(segments: CommentSegment[]): string {
+  let out = "";
+  for (const s of segments) {
+    if (isListSegment(s)) {
+      if (out && !out.endsWith("\n")) out += "\n";
+      s.children.forEach((item, i) => (out += `${s.styles[0] === "ol" ? `${i + 1}. ` : "* "}${segmentsText(item.children)}\n`));
+    } else out += s.t;
+  }
+  return out;
+}
+
+const SEGMENTS_MAX = 2000;
+const STYLES = new Set(["b", "i", "s"]);
+
+/** Segments as they come over the port: known shapes only, lists one level deep, http(s) / mailto links; else null */
+export function cleanSegments(v: unknown, depth = 0): CommentSegment[] | null {
+  if (!Array.isArray(v) || v.length > SEGMENTS_MAX) return null;
+  const out: CommentSegment[] = [];
+  for (const raw of v) {
+    const s = raw as Record<string, unknown>;
+    if (!s || typeof s !== "object") return null;
+    if (Array.isArray(s.children)) {
+      const kind = Array.isArray(s.styles) ? s.styles[0] : null;
+      if (depth > 0 || (kind !== "ol" && kind !== "ul")) return null;
+      const items: { children: CommentSegment[] }[] = [];
+      for (const item of s.children as { children?: unknown }[]) {
+        const children = cleanSegments(item?.children, depth + 1);
+        if (!children) return null;
+        items.push({ children });
+      }
+      out.push({ styles: [kind], children: items });
+      continue;
+    }
+    if (typeof s.t !== "string") return null;
+    if (typeof s.user_id === "string") {
+      out.push({ t: s.t, user_id: s.user_id });
+      continue;
+    }
+    const seg: { t: string; styles?: CommentStyle[]; link?: string } = { t: s.t };
+    if (Array.isArray(s.styles)) {
+      const styles = [...new Set(s.styles.filter((x): x is CommentStyle => typeof x === "string" && STYLES.has(x)))];
+      if (styles.length) seg.styles = styles;
+    }
+    if (typeof s.link === "string" && /^(https?:|mailto:)/i.test(s.link) && s.link.length <= 2048) seg.link = s.link;
+    out.push(seg);
+  }
+  return out;
+}
+
+/**
+ * A file posted with a comment (atlas 16 §2.7): its bytes in the store's blobs, as images are. A local file's comments
+ * only for now (a shared file's would need the server to keep them — Phase 6).
+ */
+export interface CommentAttachment {
+  id: string;
+  name: string;
+  /** One of ATTACHMENT_IMAGE_TYPES or ATTACHMENT_VIDEO_TYPES */
+  mime: string;
+  size: number;
+  /** The bytes' SHA-1 in the store's blobs */
+  sha1: string;
+  width: number;
+  height: number;
+  /** A video's picture (PNG, its frame 1 s in), SHA-1 */
+  thumb?: string | null;
+  /** The file's lastModified: Figma's duplicate check is name and lastModified */
+  lastModified?: number;
+}
+
+/** Figma's upload rules (the upload-validation module): 5 files, images up to 30 MB, videos up to 100 MB */
+export const MAX_ATTACHMENTS = 5;
+export const MAX_ATTACHMENT_IMAGE_BYTES = 30_000_000;
+export const MAX_ATTACHMENT_VIDEO_BYTES = 100_000_000;
+/** PNG, JPEG and GIF (whether WebP / HEIC are taken for comments is open, atlas 16 §8) */
+export const ATTACHMENT_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif"] as const;
+/** The video types are open (atlas 16 §8): the ones a browser plays */
+export const ATTACHMENT_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"] as const;
+
+/** Figma's upload error enum, in its order */
+export type AttachmentError = "INVALID_FILE_TYPE" | "DUPLICATE_FILE_UPLOAD" | "MAX_VIDEO_SIZE_EXCEEDED" | "MAX_IMAGE_SIZE_EXCEEDED" | "MAX_UPLOADS_EXCEEDED" | "FAILED_TO_UPLOAD";
+
+export const isAttachmentVideo = (mime: string) => (ATTACHMENT_VIDEO_TYPES as readonly string[]).includes(mime);
+
+/**
+ * Which of `files` may join the `attached` ones, and why the others can't: a type outside the lists, the same name and
+ * lastModified as one attached already, an image past 30 MB or a video past 100 MB, or more than 5 in all.
+ */
+export function checkAttachments<F extends { name: string; type: string; size: number; lastModified?: number }>(
+  attached: { name: string; lastModified?: number }[],
+  files: F[],
+): { ok: F[]; errors: { error: AttachmentError; names: string[] }[] } {
+  const ok: F[] = [];
+  const errors = new Map<AttachmentError, string[]>();
+  const fail = (error: AttachmentError, name: string) => errors.set(error, [...(errors.get(error) ?? []), name]);
+  for (const f of files) {
+    const video = isAttachmentVideo(f.type);
+    if (!video && !(ATTACHMENT_IMAGE_TYPES as readonly string[]).includes(f.type)) fail("INVALID_FILE_TYPE", f.name);
+    else if ([...attached, ...ok].some((a) => a.name === f.name && a.lastModified === f.lastModified)) fail("DUPLICATE_FILE_UPLOAD", f.name);
+    else if (video && f.size > MAX_ATTACHMENT_VIDEO_BYTES) fail("MAX_VIDEO_SIZE_EXCEEDED", f.name);
+    else if (!video && f.size > MAX_ATTACHMENT_IMAGE_BYTES) fail("MAX_IMAGE_SIZE_EXCEEDED", f.name);
+    else if (attached.length + ok.length >= MAX_ATTACHMENTS) fail("MAX_UPLOADS_EXCEEDED", f.name);
+    else ok.push(f);
+  }
+  return { ok, errors: [...errors].map(([error, names]) => ({ error, names })) };
 }
 
 export interface CommentThread {
@@ -87,6 +212,10 @@ export interface NewComment {
   message: string;
   mentions?: string[];
   anchor?: CommentAnchor;
+  /** Files already put in the store's blobs */
+  attachments?: CommentAttachment[];
+  /** The message's rich segments (bold, italic, strikethrough, links, lists, mentions); `message` is their plain text */
+  messageMeta?: CommentSegment[];
 }
 
 /** People who can be @mentioned: those with access to the file (members of a shared file) */
@@ -104,7 +233,7 @@ export interface CommentsEvent {
 export interface CommentsRepository {
   list(fileKey: FileKey): Promise<CommentsState>;
   add(fileKey: FileKey, input: NewComment): Promise<CommentsState>;
-  edit(fileKey: FileKey, commentId: string, message: string, mentions?: string[]): Promise<CommentsState>;
+  edit(fileKey: FileKey, commentId: string, message: string, mentions?: string[], messageMeta?: CommentSegment[] | null): Promise<CommentsState>;
   /** A thread's first comment deletes the thread; a reply only itself */
   remove(fileKey: FileKey, commentId: string): Promise<CommentsState>;
   setResolved(fileKey: FileKey, threadId: string, resolved: boolean): Promise<CommentsState>;
@@ -120,8 +249,20 @@ export interface CommentsRepository {
 /** Figma's reaction picker's quick row (inferred from the live UI; any emoji is accepted) */
 export const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🎉"] as const;
 
-export const MAX_COMMENT_LENGTH = 10_000;
+/** Figma's `maxCommentLength`: 2,000, counted in grapheme clusters after trailing whitespace is trimmed (`commentLength`) */
+export const MAX_COMMENT_LENGTH = 2_000;
 export const COMMENT_ID = /^[A-Za-z0-9_-]{6,64}$/;
+
+/** A message's length as Figma counts it: grapheme clusters (an emoji with its modifiers is one), trailing whitespace left out */
+export function commentLength(message: string): number {
+  const text = message.replace(/\s+$/u, "");
+  if (typeof Intl !== "undefined" && "Segmenter" in Intl) {
+    let n = 0;
+    for (const _ of new Intl.Segmenter().segment(text)) n++;
+    return n;
+  }
+  return [...text].length;
+}
 
 /** Threads as the caller sees them from flat comments + resolve state + their read marks (server and local store). */
 export function buildThreads(

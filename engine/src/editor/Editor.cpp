@@ -521,7 +521,7 @@ void Editor::commit(bool mergeWithLast) {
     bool userStack = undoTo_ == 0;
     size_t before = stack.undoCount();
     bool join = txn_.run && txn_.join && userStack && runMark_ != SIZE_MAX && runMark_ == before && !stack.canRedo() && stack.undoLabel() == txn_.label;
-    stack.commit(selection_, mergeWithLast || join);
+    stack.commit(selection_, mergeWithLast || join, &doc_);
     if (userStack && txn_.run) {
       bool made = stack.undoCount() != before || join;
       if (made) runMark_ = stack.undoCount();
@@ -1659,6 +1659,8 @@ bool Editor::undoStep(bool redo) {
   // after the dangling-reference filter — is applied, and the next one follows in the same press.
   for (;;) {
     std::string label = redo ? undo_.redoLabel() : undo_.undoLabel();
+    // The batch's own pages, as it noted them when made (Message.undoBatchPageIds 46), win over the replay's.
+    std::vector<Guid> stored = redo ? undo_.redoBatches().back().pageIds : undo_.undoBatches().back().pageIds;
     ReplayInfo info;
     batchPages.clear();
     auto applied = redo ? undo_.redo(doc_, sel, &txn_.changes, &info) : undo_.undo(doc_, sel, &txn_.changes, &info);
@@ -1670,6 +1672,13 @@ bool Editor::undoStep(bool redo) {
       const Node* n = doc_.get(c.guid);
       bool pageItself = n && (n->props.type == NodeType::CANVAS || n->props.type == NodeType::DOCUMENT);
       if (!pageItself) notePage(c.phase == Phase::REMOVED ? info.parentsBefore[i] : c.guid);
+    }
+    if (!stored.empty()) {
+      batchPages.clear();
+      for (Guid p : stored) {
+        const Node* pn = doc_.get(p);
+        if (pn && pn->props.type == NodeType::CANVAS && !pn->props.rare().internalOnly) batchPages.push_back(p);
+      }
     }
     if (info.visible) {
       txn_.label = label;  // the step is named by the batch that did something
@@ -2129,10 +2138,10 @@ Status Editor::setTool(Tool t) {
 std::string Editor::exportUndoHistory(size_t maxSteps, size_t maxBytes) const {
   // The newest steps first until the caps, then oldest first as the stacks keep them.
   auto take = [&](const std::vector<UndoBatch>& stack, size_t& budget) {
-    std::vector<std::vector<NodeChange>> out;
+    std::vector<codec::UndoHistoryStep> out;
     for (auto it = stack.rbegin(); it != stack.rend() && out.size() < maxSteps; ++it) {
-      std::vector<NodeChange> step(it->inverse.begin(), it->inverse.end());
-      size_t size = codec::writeMessage(sessionID_, step).size();
+      codec::UndoHistoryStep step{std::vector<NodeChange>(it->inverse.begin(), it->inverse.end()), it->pageIds};
+      size_t size = codec::writeMessage(sessionID_, step.changes).size();
       if (size > budget) break;
       budget -= size;
       out.push_back(std::move(step));
@@ -2154,6 +2163,7 @@ bool Editor::importUndoHistory(std::string_view bytes) {
     for (codec::KiwiMessage& m : list) {
       UndoBatch b;
       for (NodeChange& c : m.changes) b.inverse.push_back(std::move(c));
+      b.pageIds = std::move(m.undoBatchPageIds);
       if (!b.inverse.empty()) out.push_back(std::move(b));
     }
     return out;

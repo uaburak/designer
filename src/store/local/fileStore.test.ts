@@ -386,4 +386,33 @@ describe("version history (docs/data.md §6)", () => {
     const o = await t.api.files.open(f.fileKey, { mode: "view" });
     expect(o.ui).toMatchObject({ currentPageId: "0:1", leftPanelWidth: 300, pages: { "0:1": { selection: ["1:2"] } } });
   });
+
+  it("keeps the undo history beside the file for the next edit open, only while the head is where it was", async () => {
+    t = await openTestStore();
+    const { workspace, files } = t.api;
+    const f = await workspace.createFile({ folderId: null });
+    const o = await files.open(f.fileKey, { mode: "edit" });
+    expect(o.undoHistory).toBeUndefined();
+    const s = o.sessionID;
+    await files.append(f.fileKey, batch(s, 1, [rect(s, 1, "!")]));
+    await files.flush(f.fileKey);
+    const history = new Uint8Array([1, 2, 3, 4, 5]);
+    await files.setUndoHistory(f.fileKey, { headSeq: 1, bytes: history });
+    await files.close(f.fileKey, s);
+    expect(existsSync(join(fileDir(t, f.fileKey), "undo.kiwi"))).toBe(true);
+    // Edit opens get it; view opens never.
+    expect((await files.open(f.fileKey, { mode: "view" })).undoHistory).toBeUndefined();
+    const again = await files.open(f.fileKey, { mode: "edit" });
+    expect(again.undoHistory).toEqual(history);
+    // The head moved (another session wrote): the history is for a document that is no longer there.
+    await files.append(f.fileKey, batch(again.sessionID, 1, [rect(again.sessionID, 1, "!")]));
+    await files.flush(f.fileKey);
+    await files.close(f.fileKey, again.sessionID);
+    expect((await files.open(f.fileKey, { mode: "edit" })).undoHistory).toBeUndefined();
+    // A damaged file reads as none; null forgets it; bad input is refused.
+    writeFileSync(join(fileDir(t, f.fileKey), "undo.kiwi"), "WUH1short");
+    await expect(files.setUndoHistory(f.fileKey, { headSeq: -1, bytes: history })).rejects.toMatchObject({ code: "invalid" });
+    await files.setUndoHistory(f.fileKey, { headSeq: 2, bytes: null });
+    expect(existsSync(join(fileDir(t, f.fileKey), "undo.kiwi"))).toBe(false);
+  });
 });

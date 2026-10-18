@@ -115,6 +115,8 @@ export const store: Record<string, string> = {
   "A branch needs a name": "Dalın bir adı olmalı",
   "A branch can't have branches of its own": "Bir dalın kendi dalları olamaz",
   "A merged branch can't be restored. Duplicate it instead.": "Birleştirilmiş bir dal geri yüklenemez. Bunun yerine çoğaltın.",
+  "This branch wasn't merged": "Bu dal birleştirilmedi",
+  "This merge can't be undone": "Bu birleştirme geri alınamaz",
   "That name is too long": "Bu ad çok uzun",
   "No such branch": "Böyle bir dal yok",
   "This branch was merged": "Bu dal birleştirildi",
@@ -130,6 +132,9 @@ export const store: Record<string, string> = {
 
   // Comments
   "A comment needs some text": "Yorumun bir metni olmalı",
+  "A comment can be up to {n} characters long": "Bir yorum en fazla {n} karakter olabilir",
+  "Files can be added to comments in local files only for now": "Şimdilik yalnızca yerel dosyalardaki yorumlara dosya eklenebilir",
+  "You can add up to {n} files": "En fazla {n} dosya ekleyebilirsiniz",
   "A new comment needs its place": "Yeni yorumun bir konumu olmalı",
   "No such comment": "Böyle bir yorum yok",
   "No such thread": "Böyle bir yorum dizisi yok",

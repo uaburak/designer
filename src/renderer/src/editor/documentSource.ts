@@ -54,6 +54,18 @@ export interface DocumentSource {
   close?(): Promise<void>;
   /** The file's UI state from its last session (camera and selection per page, panel widths). Optional. */
   readonly uiState?: EditorUiState | null;
+  /**
+   * The local user's undo history from the file's last session on this device (Message.localUndoStack / localRedoStack,
+   * the engine's export), when the document opened is the one it was kept with. Optional.
+   */
+  readonly undoHistory?: Uint8Array | null;
+  /** Keeps the undo history for the next open on this device (written as the source closes). Optional. */
+  keepUndoHistory?(bytes: Uint8Array | null): void;
+  /**
+   * Since when changes have waited for the store's acknowledgement (null: none) and when it last took some — the save
+   * status's local half (Figma's autosave changes, atlas 22 §3.4). Optional: absent, changes count as saved.
+   */
+  saveState?(): { pendingSince: number | null; lastSavedAt: number };
   /** The UI state changed (the source debounces and keeps it). Optional. */
   setUiState?(patch: Partial<EditorUiState>): void;
   /** A PNG of the file's thumbnail frame or first page (≤ 800 × 600) for Home's card. Optional. */
@@ -63,6 +75,10 @@ export interface DocumentSource {
   /** Version history (docs/data.md §6). Optional: absent, the File menu's version items are disabled. */
   listVersions?(): Promise<VersionInfo[]>;
   saveVersion?(input?: { title?: string; description?: string }): Promise<VersionInfo>;
+  /** "Name this version" / "Edit version info" / "Delete version info" (empty strings clear them). Optional. */
+  updateVersion?(id: string, patch: { title?: string; description?: string }): Promise<VersionInfo>;
+  /** A version as a new file in Drafts (the history's Duplicate). Optional. */
+  duplicateVersion?(id: string): Promise<{ fileKey: string; name: string }>;
   /** A saved version as a document, read-only (Dev Mode's Compare changes loads it into an engine of its own). Optional. */
   openVersion?(id: string): Promise<Message>;
   /** Non-destructive restore: `apply` gets the diff (and its kiwi bytes when the source has them) and applies it as one undoable edit labelled "Restore version". */
@@ -290,6 +306,13 @@ export function memoryDocumentSource(
           const info: VersionInfo = { id: `v${saved.length + 1}`, kind: "named", title: input.title ?? null, description: input.description ?? null, createdAt: Date.now() };
           saved.push({ info, message: structuredClone(snapshot()) });
           return { ...info };
+        },
+        updateVersion: async (id: string, patch: { title?: string; description?: string }) => {
+          const v = saved.find((x) => x.info.id === id);
+          if (!v) throw new Error("This version doesn't exist");
+          if (patch.title !== undefined) v.info.title = patch.title.trim() || null;
+          if (patch.description !== undefined) v.info.description = patch.description.trim() || null;
+          return { ...v.info };
         },
         openVersion: async (id: string) => {
           const v = saved.find((x) => x.info.id === id);

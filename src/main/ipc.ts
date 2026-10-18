@@ -178,7 +178,7 @@ export function registerIpc() {
   onInvoke("file:import", ({ ctl }, p) => ctl.tabs.importFiles(folderOf(p?.folderId), Array.isArray(p?.paths) ? p.paths.map((x) => str(x, 4096)).filter((x): x is string => x !== null) : undefined));
   onInvoke("file:save-local-copy", ({ ctl }, p) => {
     if (!isFileKey(p?.fileKey)) throw new Error("file:save-local-copy: not a file key");
-    return ctl.tabs.saveLocalCopy(p.fileKey);
+    return ctl.tabs.saveLocalCopy(p.fileKey, { partial: p.partial === true });
   });
   onInvoke("file:export-assets", ({ ctl }, p) => {
     const list = Array.isArray(p?.files) ? p.files : null;

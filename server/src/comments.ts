@@ -17,7 +17,7 @@
  * removed — is recorded with the room notice (`changed`), after the answer; nothing for orgs without Discovery.
  */
 import type { Role } from "../../src/shared/multiplayer/protocol";
-import { buildThreads, COMMENT_ID, MAX_COMMENT_LENGTH, type Comment, type CommentAnchor, type CommentUser } from "../../src/shared/comments";
+import { buildThreads, COMMENT_ID, commentLength, MAX_COMMENT_LENGTH, type Comment, type CommentAnchor, type CommentUser } from "../../src/shared/comments";
 import type { Deps } from "./api";
 import type { User } from "./db";
 import { forgetComments, notifyComment, notifyReaction } from "./notifications";
@@ -284,7 +284,7 @@ async function readJson(req: Request): Promise<Record<string, unknown> | null> {
 function cleanMessage(v: unknown): string | null {
   if (typeof v !== "string") return null;
   const t = v.replace(/\s+$/, "").replace(/^\s+/, "");
-  return t && t.length <= MAX_COMMENT_LENGTH ? t : null;
+  return t && commentLength(t) <= MAX_COMMENT_LENGTH ? t : null;
 }
 
 function cleanMentions(v: unknown): string[] {
