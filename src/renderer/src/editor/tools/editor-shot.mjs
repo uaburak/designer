@@ -732,7 +732,7 @@ async function variablesSection(page, theme) {
 
   // Binding in the Design panel: hover "Apply variable", the picker, the pill, Detach.
   await select("2:3");
-  const radius = panel.locator('[data-bind-field="CORNER_RADIUS"]');
+  const radius = panel.locator('[data-bind-field*="CORNER_RADIUS"]').first();
   await radius.hover();
   await settle(page);
   await shot(page, `60-apply-variable-hover-${theme}`);
@@ -918,7 +918,7 @@ async function librariesSection(page, theme) {
   await drag(page, [area.x + 120, area.y + 120], [area.x + 220, area.y + 200]);
   await settle(page);
   const panel = page.locator('[data-panel="right"]');
-  const radius = panel.locator('[data-bind-field="CORNER_RADIUS"]');
+  const radius = panel.locator('[data-bind-field*="CORNER_RADIUS"]').first();
   await radius.waitFor({ timeout: 5000 }).catch(() => {});
   if (await radius.count()) {
   await radius.hover();
