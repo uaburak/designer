@@ -60,6 +60,12 @@ import { ImagePlacer, attachImageDrop } from "./canvas/ImagePlacer";
 import { attachViewInsets, insetsOf } from "./canvas/viewInsets";
 import { ShortcutsPanel } from "./shortcuts/ShortcutsPanel";
 import { MotionMode } from "./motion/MotionMode";
+import { SocialMode } from "./social/SocialMode";
+import { SocialLeftPanel } from "./social/SocialLeftPanel";
+import { SocialRightPanel } from "./social/SocialRightPanel";
+import { SafeAreaOverlay } from "./social/SafeAreaOverlay";
+import { ReviewPins } from "./social/ReviewPins";
+import { EmptyBoard } from "./social/EmptyBoard";
 import { attachUsageTracking } from "./shortcuts/usage";
 import { shortcutPrefs } from "./shortcuts/prefs";
 import { VersionDialogs } from "./VersionDialogs";
@@ -400,38 +406,48 @@ function LeftPlaceholder() {
   );
 }
 
-/** The rail and the left panel, while docked (⌘\ hides them, ⇧\ folds them into a card). */
-function LeftSide() {
+/** The rail and the left panel, while docked (⌘\ hides them, ⇧\ folds them into a card); Social's Posts tab its own panel. */
+export function LeftSide() {
   const docked = useUI((s) => !s.uiHidden && !s.uiMinimized);
   const dev = useUI((s) => s.mode === "dev");
+  const posts = useUI((s) => s.mode === "social" && s.railTab === "posts");
   // View › Minimize left navigation bar (round 10): the tabs fold into the left panel's top row (panels/Rail.tsx NavStrip).
   const navMinimized = useUI((s) => !!s.navMinimized);
   if (docked && dev) return <DevLeftPanel />;
   return docked ? (
     <>
       {!navMinimized && <Rail />}
-      <LeftPanel />
+      {posts ? <SocialLeftPanel /> : <LeftPanel />}
     </>
   ) : null;
 }
 
-function RightSide() {
+export function RightSide() {
   const docked = useUI((s) => !s.uiHidden && !s.uiMinimized);
   const dev = useUI((s) => s.mode === "dev");
+  const social = useUI((s) => s.mode === "social");
   // History mode (Figma's HISTORY top-level mode): the history panel in the properties panel's place.
   const history = useUI((s) => s.versionDialog === "history");
   if (docked && history) return <VersionHistoryPanel />;
   if (docked && dev) return <DevRightPanel />;
+  // Social (docs/social.md §6.3): the agent, with Post and Design under it.
+  if (docked && social) return <SocialRightPanel />;
   return docked ? <RightPanel /> : null;
 }
 
-/** On the canvas, in its own coordinates (under the panels): agents' image placeholders, Dev Mode's measurements, frame statuses (ours), placing images. */
-function CanvasLayers() {
+/**
+ * On the canvas, in its own coordinates (under the panels): agents' image placeholders, Dev Mode's measurements, frame
+ * statuses (ours), placing images, Social's safe areas and review pins.
+ */
+export function CanvasLayers() {
   const hidden = useUI((s) => s.uiHidden);
   const dev = useUI((s) => s.mode === "dev");
+  const social = useUI((s) => s.mode === "social");
   if (hidden) return null;
   return (
     <>
+      {social && <SafeAreaOverlay />}
+      {social && <ReviewPins />}
       <AgentImagePlaceholders />
       {dev && <DevMeasurements />}
       <ImagePlacer />
@@ -442,15 +458,17 @@ function CanvasLayers() {
 }
 
 /**
- * Over the visible part of the canvas (between the panels): the rulers, the minimized cards.
+ * Over the visible part of the canvas (between the panels): the rulers, the minimized cards, Social's empty board.
  * (Not the bottom toolbar: it is centred on the window, `Overlays`.)
  */
 function CanvasOverlays() {
   const hidden = useUI((s) => s.uiHidden);
   const minimized = useUI((s) => s.uiMinimized);
+  const social = useUI((s) => s.mode === "social");
   if (hidden) return null;
   return (
     <>
+      {social && <EmptyBoard />}
       <FocusBar />
       <ReadyForDev />
       <Rulers />
@@ -473,8 +491,9 @@ function Overlays() {
       <CanvasMenu />
       {/* Docked along the bottom: the panels end over it and the toolbar sits over it (EditorApp.module.css); the canvas keeps its size. */}
       <ShortcutsPanel />
-      {/* Motion mode's timeline, docked the same way (docs/motion.md §6.2). */}
+      {/* Motion mode's timeline, docked the same way (docs/motion.md §6.2); in Social, the selected post's (docs/social.md §6.1). */}
       {!hidden && <MotionMode />}
+      <SocialMode />
       <ActionsPanel />
       <AiHost />
       <PluginLayer />

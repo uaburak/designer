@@ -197,6 +197,16 @@ export interface UIState extends PreferenceFlags {
   socialSafeAreas?: boolean;
   socialRightWidth?: number;
   socialTable?: boolean;
+  /** Social's right panel: the agent (default) or the properties alone (docs/social.md §6.3) */
+  socialRightTab?: "agent" | "properties";
+  /** Social: the selected post's timeline shows (MotionMode), and the engine's motion layer with it */
+  socialTimeline?: boolean;
+  /** Social: text put in the agent's composer from elsewhere (Ask agent…, the empty board's prompts); `id` tells repeats apart */
+  socialDraft?: { id: number; text: string } | null;
+  /** Social: the toolbar's New post menu asked open (the command `social.new-post`); a counter */
+  socialNewPostMenu?: number;
+  /** Social: the left panel's Templates open (unset: open only while the page has no posts) */
+  socialTemplatesOpen?: boolean;
   /**
    * Motion mode (docs/motion.md §6; editor/motion/): the playhead (µs), playing, Toggle auto-keyframe, the timeline
    * collapsed to its header, the selected keyframes, the time unit. Unset: MOTION_UI_DEFAULT.

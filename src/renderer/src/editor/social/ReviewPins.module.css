@@ -1,0 +1,26 @@
+@layer app {
+  /* Review pins (docs/social.md §6.4): the comments' pin shape (32, its point the bottom-left corner), warning-coloured */
+  .layer { position: absolute; inset: 0; z-index: var(--ds-z-base); overflow: hidden; pointer-events: none; }
+  .layer[data-zooming] { visibility: hidden; }
+  .post { position: absolute; top: 0; left: 0; width: 0; height: 0; will-change: transform; }
+  .pin {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--ds-size-row);
+    height: var(--ds-size-row);
+    padding: 0;
+    border: 0;
+    border-radius: var(--ds-size-icon-16) var(--ds-size-icon-16) var(--ds-size-icon-16) 0;
+    background: var(--figma-color-bg-warning);
+    box-shadow: var(--ds-elevation-200);
+    color: var(--figma-color-icon-onwarning);
+    font: var(--ds-font-body-medium-strong);
+    transform: translateY(-100%);
+    pointer-events: auto;
+    cursor: default;
+  }
+  .pin:hover { background: var(--figma-color-bg-warning-hover); }
+  .pin:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+}

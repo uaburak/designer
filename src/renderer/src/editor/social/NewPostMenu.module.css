@@ -1,0 +1,11 @@
+@layer app {
+  /* The toolbar's New post button: a 32px tool (ds Toolbar's), its menu above it */
+  .slot { display: flex; flex: none; }
+  .button {
+    display: flex; align-items: center; justify-content: center; width: var(--ds-size-tool); height: var(--ds-size-tool); padding: 0; border: 0;
+    border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-icon); outline: none; cursor: default;
+  }
+  .button:hover, .button[data-open] { background: var(--figma-color-bg-hover); }
+  .button:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
+  .button:disabled { color: var(--figma-color-icon-disabled); background: transparent; }
+}

@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, type ReactNode } from "react";
 import { keys } from "../util/keys";
 import { t, useT } from "@/i18n";
 import { rovingTarget } from "../util/rovingFocus";
@@ -141,17 +141,19 @@ export interface EditorToolbarProps {
   offset?: number;
   /** Shortcuts the user changed (the tool's, or "actions"): shown instead of Figma's; null: the tool has none now */
   shortcuts?: Partial<Record<ToolId | "actions", string | null>>;
+  /** A mode's own slot after the tools, before Actions (Social's New post, Safe areas, Table — docs/social.md §6.6) */
+  slot?: ReactNode;
 }
 
 /**
  * Figma's bottom toolbar (presentational): Move ▾, Region ▾, Shape ▾,
- * Creation ▾, Text ▾, Comment ▾, Actions | Draw · Design · Motion · Dev Mode;
+ * Creation ▾, Text ▾, Comment ▾, (a mode's slot,) Actions | Draw · Design · Social · Motion · Dev Mode;
  * in Draw: Move ▾, Shape ▾, Pen, Pencil, Brush, Text ▾, Comment ▾ (`DRAW_TOOL_GROUPS`).
  * A slot shows the last tool chosen in it; its chevron opens the group
  * (the current tool ticked) above the toolbar. ← → move within the mode
  * switch. The keys themselves are the editor's (see `toolForKey`).
  */
-export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActive, mode, onMode, disabledModes = [], disabledTools = [], floating, offset, shortcuts }: EditorToolbarProps) {
+export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActive, mode, onMode, disabledModes = [], disabledTools = [], floating, offset, shortcuts, slot }: EditorToolbarProps) {
   useT();
   const shortcutOf = (id: ToolId | "actions", own: string | undefined) => (shortcuts && id in shortcuts ? (shortcuts[id] ?? undefined) : own);
   const modeRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -181,6 +183,13 @@ export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActi
           />
         );
       })}
+      {slot && (
+        <>
+          <ToolbarDivider />
+          {slot}
+          <ToolbarDivider />
+        </>
+      )}
       <ToolButton icon="24.actions" label={t("Actions")} shortcut={shortcutOf("actions", keys(["mod", "k"]))} active={Boolean(actionsActive)} onSelect={() => onActions?.()} />
       <ToolbarDivider />
       <div role="radiogroup" aria-label={t("Mode")} className={styles.modes} data-ds="ModeSwitch">

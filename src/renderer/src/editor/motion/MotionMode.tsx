@@ -30,10 +30,37 @@ import { copySelectedKeyframes, pasteKeyframes } from "./keyframeClipboard";
 import { motionRead, motionUi, setMotionUi, setPlayhead, toggleAutoKeyframe, toggleMotionPlaying } from "./motionState";
 import { editPreset, removePresets } from "./presets";
 import { Timeline } from "./timeline/Timeline";
+import { syncEngine } from "../devmode/devMode";
 
 export function MotionMode() {
-  const on = useUI((s) => s.mode === "motion");
-  return on ? <MotionShell /> : null;
+  const motion = useUI((s) => s.mode === "motion");
+  const social = useUI((s) => s.mode === "social");
+  if (motion) return <MotionShell />;
+  return social ? <SocialTimeline /> : null;
+}
+
+/**
+ * Social (docs/social.md §6.1): the timeline along the bottom while the selected post has one with something on it
+ * (keyframes, presets, audio), the engine's motion layer on with it (`ui.socialTimeline`, motionLayerOn).
+ */
+function SocialTimeline() {
+  const ed = useEditor();
+  const version = useTopics(ed.store, ["selection", "structure", "undo"]);
+  const shows = useMemo(() => {
+    void version;
+    const model = motionRead(() => ed.engine.motionTimeline(), null);
+    return !!model && (model.audio.length > 0 || model.layers.some((l) => l.tracks.length > 0 || l.clips.length > 0 || !!l.instance));
+  }, [ed, version]);
+  useEffect(() => {
+    ed.ui.set({ socialTimeline: shows });
+    syncEngine(ed);
+    return () => {
+      if (!ed.ui.get().socialTimeline) return;
+      ed.ui.set({ socialTimeline: false });
+      if (!ed.engine.destroyed) syncEngine(ed);
+    };
+  }, [ed, shows]);
+  return shows ? <MotionShell /> : null;
 }
 
 function MotionShell() {
