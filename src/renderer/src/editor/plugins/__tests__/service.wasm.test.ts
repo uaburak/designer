@@ -92,9 +92,10 @@ describe("the plugin service", () => {
     const { ed, s } = await setup();
     expect(s.get().development.map((e) => e.ref.name)).toEqual(["Rename layers", "Rectangles"]);
     const menu = pluginsMenu(ed, item);
-    expect(labels(menu.items)).toEqual(["plugins.run-last", "-", "Saved plugins", "-", "Development", "-", "plugins.manage"]);
+    // Figma's order (docs/research/atlas/17-plugins.md §10.1): no recents yet, so Run last plugin comes first.
+    expect(labels(menu.items)).toEqual(["plugins.run-last", "-", "Saved plugins", "Development", "-", "plugins.manage"]);
     const dev = sub(menu.items, "Development")!;
-    expect(labels(dev.items)).toEqual(["plugins.new", "plugins.import", "-", "Rename layers", "Rectangles", "-", "plugins.hot-reload", "plugins.developer-vm", "plugins.open-console"]);
+    expect(labels(dev.items)).toEqual(["Rename layers", "Rectangles", "plugins.manage-development", "-", "plugins.new", "plugins.import", "-", "plugins.api-docs", "plugins.open-console", "plugins.developer-vm", "plugins.hot-reload"]);
     expect(labels(sub(dev.items, "Rename layers")!.items)).toEqual(["Number them", "-", "Upper case"]);
   });
 
@@ -105,13 +106,13 @@ describe("the plugin service", () => {
     engine.setSelection(kids);
     const upper = sub(sub(sub(pluginsMenu(ed, item).items, "Development")!.items, "Rename layers")!.items, "Upper case")!;
     expect(runPluginMenuItem(ed, upper.id)).toBe(true);
-    await new Promise((r) => setTimeout(r, 50));
+    for (let i = 0; i < 100 && engine.readNode(kids[0])!.name === before; i++) await new Promise((r) => setTimeout(r, 10));
     expect(engine.readNode(kids[0])!.name).toBe(`${before.toUpperCase()} (first)`);
     expect(s.get().recents.map((r) => r.name)).toEqual(["Rename layers"]);
     expect(s.get().last).toMatchObject({ command: "upper" });
     expect(ran.map((r) => r.id)).toEqual(["fixture-rename-layers"]);
-    // The menu's run section lists it now.
-    expect(labels(pluginsMenu(ed, item).items)).toContain("Rename layers");
+    // Recents come first now, above Run last plugin.
+    expect(labels(pluginsMenu(ed, item).items).slice(0, 3)).toEqual(["Rename layers", "-", "plugins.run-last"]);
   });
 
   it("Actions' rows: by section, and typed into, the plugins' commands as rows of their own", async () => {

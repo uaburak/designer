@@ -4,8 +4,10 @@ import type { PluginManifest } from "./types";
  * A plugin's `networkAccess` (docs/plugins.md §1 "Network", §3.2, §3.3), Figma's rules [P-man]:
  * - `["none"]` blocks everything; `"*"` allows every `https:` / `wss:` URL (ours: the contract's `https: wss:`);
  * - `example.com` — that host (no subdomains); `*.example.com` — its subdomains (not itself), as CSP host sources;
- * - an optional scheme `http`, `https`, `ws`, `wss`; without one, `https` and `wss` (the CSP rule for a page on
- *   https, which Figma's plugin iframes are — ours sits on `plugin:`, so the sources are written with their schemes);
+ * - a scheme `http`, `https`, `ws`, `wss` — the manifest refuses an `allowedDomains` entry without one (Figma's
+ *   validator); one read without (`devAllowedDomains`, older manifests) means `https` and `wss` (the CSP rule for a
+ *   page on https — ours sits on `plugin:`, so the sources are written with their schemes); a URL's scheme is covered
+ *   as Figma's matcher has it (`http:` also https, `ws:` also wss / http / https, `wss:` also https);
  * - an optional port (else the scheme's default) and path: a path ending in `/` covers what is below it, otherwise
  *   that exact path.
  *
@@ -60,6 +62,16 @@ export function parseDomain(entry: unknown): DomainRule | null {
   return { schemes: scheme ? [scheme as Scheme] : ["https", "wss"], host, port, path };
 }
 
+/**
+ * Why the manifest refuses an entry (Figma's validator, docs/research/atlas/17-plugins.md §4.1): "invalid" (not a
+ * domain we can read), "scheme" (no `http(s)://` or `ws(s)://` — Figma asks for one; `*` needs none), or null.
+ */
+export function domainEntryError(entry: unknown): "invalid" | "scheme" | null {
+  if (!parseDomain(entry)) return "invalid";
+  const raw = (entry as string).trim();
+  return raw === "*" || /^[a-z]+:\/\//i.test(raw) ? null : "scheme";
+}
+
 /** Is the entry one Figma asks a `reasoning` for (`*`, localhost)? */
 export function needsReasoning(entry: string): boolean {
   const rule = parseDomain(entry);
@@ -79,10 +91,13 @@ function hostMatches(rule: string, host: string): boolean {
   return host === rule;
 }
 
+/** The URL schemes an entry's scheme covers (Figma's matcher, §4.3: `http:` also https, `ws:` all four, `wss:` https). */
+const COVERS: Record<Scheme, Scheme[]> = { http: ["http", "https"], https: ["https"], ws: ["ws", "wss", "http", "https"], wss: ["wss", "https"] };
+
 /** Does one rule cover the URL? */
 export function ruleAllows(rule: DomainRule, url: URL): boolean {
   const scheme = url.protocol.slice(0, -1) as Scheme;
-  if (!rule.schemes.includes(scheme)) return false;
+  if (!rule.schemes.some((s) => COVERS[s].includes(scheme))) return false;
   // URL hosts are lower case (and IPv6 in brackets) already.
   if (!hostMatches(rule.host, url.hostname)) return false;
   const port = url.port === "" ? DEFAULT_PORT[scheme] : Number(url.port);

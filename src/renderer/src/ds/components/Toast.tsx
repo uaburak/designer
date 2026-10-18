@@ -6,6 +6,7 @@ import { timing } from "../tokens";
 import { STRINGS } from "../strings";
 import { t, useT } from "@/i18n";
 import { Button, IconButton } from "./Button";
+import { Spinner } from "./Spinner";
 import styles from "./Toast.module.css";
 
 export type ToastKind = "default" | "error" | "success";
@@ -13,6 +14,8 @@ export type ToastOptions = {
   message: string;
   kind?: ToastKind;
   action?: { label: string; onAction: () => void };
+  /** The action doesn't take the toast down: its owner does (a plugin's notify button returning false keeps it) */
+  keepOnAction?: boolean;
   /** ms on screen (Figma's `timeoutOverride`); 0 or Infinity: until dismissed. Without it, `toastDuration`'s rule */
   duration?: number;
   /** ms before it joins the queue (Figma's `delay`) */
@@ -96,12 +99,14 @@ const subscribe = (l: () => void) => {
 };
 
 /** A toast's look (contract §4.22): 40px, radius 9, dark (red for errors), a repeat count, an action and ×. */
-export function Toast({ message, kind = "default", action, count, icon, onClose, static: isStatic }: ToastOptions & { count?: number; onClose?: () => void; static?: boolean }) {
+export function Toast({ message, kind = "default", action, count, icon, spinner, onClose, static: isStatic }: ToastOptions & { count?: number; onClose?: () => void; static?: boolean; spinner?: boolean }) {
   useT();
   return (
     <div role={kind === "error" ? "alert" : "status"} data-ds="Toast" data-theme="dark" data-theme-forced="" className={cx(styles.toast, kind === "error" && styles.error, isStatic && styles.static)}>
       {kind === "success" && <span className={styles.lead}><Icon name="24.check" /></span>}
       {icon && <span className={cx(styles.lead, styles.icon)}><Icon name={icon} size={24} /></span>}
+      {/* Figma's progress bell (a plugin running): a spinner before the message */}
+      {spinner && <span className={cx(styles.lead, styles.icon)}><Spinner size={24} tone="onbrand" /></span>}
       {message && <span className={styles.message}>{message}</span>}
       {count !== undefined && count > 1 && <span className={styles.count} data-toast-count={count}>{count}</span>}
       {action && (
@@ -145,7 +150,7 @@ export function ToastHost() {
           kind={toast.kind}
           count={toast.count}
           icon={toast.icon}
-          action={toast.action && { label: toast.action.label, onAction: () => { toast.action?.onAction(); dismissToast(toast.id); } }}
+          action={toast.action && { label: toast.action.label, onAction: () => { toast.action?.onAction(); if (!toast.keepOnAction) dismissToast(toast.id); } }}
           onClose={
             lasting || toast.onDismiss
               ? () => {

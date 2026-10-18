@@ -5,8 +5,8 @@ import type { PluginStorageCall } from "../../shared/ipc";
 
 /**
  * `figma.clientStorage` (docs/plugins.md §3.3): one JSON file per plugin in `userData/plugins/storage/`, at most
- * 5 MB per plugin — each key's length plus its value's JSON size, a `Uint8Array` counted by its length (Figma's rule).
- * Values are what Figma takes: JSON-like data and `Uint8Array`s (kept in the file as `{"$bytes": base64}`).
+ * 5 MB per plugin — each key's length plus its value's JSON size, strings and `Uint8Array`s counted by their length
+ * (Figma's rule). Values are what Figma takes: JSON-like data and `Uint8Array`s (kept in the file as `{"$bytes": base64}`).
  * Writes are queued per plugin and atomic (temp + rename).
  */
 
@@ -14,8 +14,8 @@ export const STORAGE_QUOTA_BYTES = 5 * 1024 * 1024;
 const MAX_KEY = 1024;
 const MAX_DEPTH = 64;
 
-/** Figma's message when a plugin's storage is full (wording ours: Figma's is unverified) */
-export const QUOTA_TEXT = "clientStorage is full: a plugin may store at most 5 MB";
+/** Figma's message when a plugin's storage is full (docs/research/atlas/17-plugins.md §8) */
+export const QUOTA_TEXT = "Client storage quota (5 MB) exceeded for this plugin ID. Please use less client storage.";
 
 type Stored = Record<string, unknown>;
 
@@ -23,7 +23,9 @@ type Stored = Record<string, unknown>;
 export function encodeValue(value: unknown, depth = 0): { json: unknown; size: number } {
   if (depth > MAX_DEPTH) throw new Error("clientStorage: the value is nested too deeply");
   if (value instanceof Uint8Array) return { json: { $bytes: Buffer.from(value.buffer, value.byteOffset, value.byteLength).toString("base64") }, size: value.byteLength };
-  if (value === null || typeof value === "boolean" || typeof value === "string") return { json: value, size: JSON.stringify(value).length };
+  // Figma counts a string by its length (not its JSON, quotes and escapes).
+  if (typeof value === "string") return { json: value, size: value.length };
+  if (value === null || typeof value === "boolean") return { json: value, size: JSON.stringify(value).length };
   if (typeof value === "number") return Number.isFinite(value) ? { json: value, size: JSON.stringify(value).length } : { json: null, size: 4 };
   if (Array.isArray(value)) {
     let size = 2;

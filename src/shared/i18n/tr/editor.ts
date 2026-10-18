@@ -336,10 +336,12 @@ export const editor: Record<string, string> = {
   "Manage plugins…": "Eklentileri yönet…",
   "No saved plugins": "Kayıtlı eklenti yok",
   "New plugin…": "Yeni eklenti…",
-  "Import new plugin from manifest…": "Manifest'ten yeni eklenti içe aktar…",
+  "Import plugin from manifest…": "Manifest'ten eklenti içe aktar…",
+  "Manage plugins in development": "Geliştirmedeki eklentileri yönet",
+  "View API documentation": "API belgelerini görüntüle",
   "Hot reload plugin": "Eklentiyi anında yeniden yükle",
   "Use developer VM": "Geliştirici VM'sini kullan",
-  "Open console": "Konsolu aç",
+  "Show/Hide console": "Konsolu göster/gizle",
 
   // Preferences (editor/preferences.ts)
   "Snap to geometry": "Geometriye yasla",

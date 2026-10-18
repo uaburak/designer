@@ -21,6 +21,7 @@ import { PluginRun, type RunSpec } from "../host";
 import { createSandbox } from "../index";
 import type { PluginDesktop } from "../desktop";
 import { PluginUiStore } from "../ui/store";
+import { QuickJsVm } from "../vm/quickjs";
 
 const wasm = join(process.cwd(), "src/renderer/src/engine/wasm/engine.wasm");
 const FIXTURES = join(process.cwd(), "src/renderer/src/editor/plugins/__tests__/fixtures");
@@ -466,20 +467,32 @@ describe("plugins: the sandbox", () => {
     const ui = new PluginUiStore();
     const runaway = new PluginRun(inline(`figma.createRectangle(); setTimeout(() => { while (true) {} }, 0);`), { ed, desktop: null, ui, console: () => {}, sliceTimeoutMs: 200 });
     await runaway.start();
-    expect(ui.get().running).toEqual([{ runId: runaway.runId, name: "Inline" }]);
     const t0 = Date.now();
     await untilEnded(runaway, 5000);
     expect(Date.now() - t0).toBeLessThan(3000);
     expect(ui.get().running).toEqual([]);
-    // A run waiting on a timer: Stop (the toast's ✕) ends it at once.
+    // A run waiting on a timer: its "Running" toast shows after 300 ms; Stop (the toast's Cancel) ends it at once,
+    // leaving the toast's check for a second (Figma's progress bell).
     const ticking = new PluginRun(inline(`setInterval(() => figma.createRectangle(), 10);`), { ed, desktop: null, ui, console: () => {} });
     await ticking.start();
-    await new Promise((r) => setTimeout(r, 40));
+    expect(ui.get().running).toEqual([]);
+    await new Promise((r) => setTimeout(r, 350));
+    expect(ui.get().running).toEqual([{ runId: ticking.runId, name: "Inline", state: "running" }]);
     ticking.stop();
     await untilEnded(ticking);
+    expect(ui.get().running).toEqual([{ runId: ticking.runId, name: "Inline", state: "done" }]);
     const count = pageChildren(ed).length;
     await new Promise((r) => setTimeout(r, 40));
     expect(pageChildren(ed).length).toBe(count);
+    await new Promise((r) => setTimeout(r, 1000));
+    expect(ui.get().running).toEqual([]);
+    // In the developer VM the name says so.
+    const dev = new PluginRun(inline(`setInterval(() => {}, 10);`, { developerVm: true }), { ed, desktop: null, ui, console: () => {}, createVm: (o) => QuickJsVm.create(o) });
+    await dev.start();
+    await new Promise((r) => setTimeout(r, 350));
+    expect(ui.get().running.map((x) => x.name)).toEqual(["Inline (Developer VM)"]);
+    dev.stop();
+    await untilEnded(dev);
   });
 
   it("exportAsync (SVG as bytes and as a string), text ranges, group / ungroup, clone and components", async () => {

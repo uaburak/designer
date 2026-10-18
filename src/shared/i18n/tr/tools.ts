@@ -331,7 +331,7 @@ export const tools: Record<string, string> = {
   "Template": "Şablon",
   "Close": "Kapat",
   "Running {name}": "{name} çalışıyor",
-  "This plugin doesn't run in Figma Design or Dev Mode": "Bu eklenti Figma Design'da veya Dev Mode'da çalışmıyor",
+  'The manifest editorType does not include "figma"': 'Manifestin editorType alanı "figma" içermiyor',
   "Developing plugins needs the desktop app": "Eklenti geliştirmek için masaüstü uygulaması gerekir",
   "Private plugins need the workspace": "Özel eklentiler için çalışma alanı gerekir",
   "Guests can't run this organization's plugins": "Konuklar bu organizasyonun eklentilerini çalıştıramaz",

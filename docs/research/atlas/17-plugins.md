@@ -721,6 +721,51 @@ Also missing outside the API:
 - the three-iframe isolation (the repo uses one sandboxed iframe on its own scheme, which is a fair equivalent);
 - the "Text review plugins" submenu.
 
+### As built (2026-10-18, wave 7)
+
+Branch "plugins", in §13's order. Tests: `plugins/__tests__/parity.wasm.test.ts` (12, new), the changed `plugins.wasm.test.ts`, `service.wasm.test.ts`, `src/shared/plugins/plugins.test.ts`, `src/main/plugins/plugins.test.ts`.
+
+**§13.2 — the differences:**
+- **D1** `toString()` is `[Node <id>]`.
+- **D2** dynamic-page: one text, Figma's — `in <name>: Cannot call with documentAccess: dynamic-page. Use <async name> instead.` (`in get_mainComponent: … Use node.getMainComponentAsync instead.`, `in getNodeById: … Use figma.getNodeByIdAsync instead.`) for every pair of §6.3: `getNodeById`, `getStyleById`, `getFileThumbnailNode`, `getLocal*Styles`, the four variables lookups, `currentPage =`, `mainComponent` (and `masterComponent`), `instances`, the `fillStyleId` / `strokeStyleId` / `effectStyleId` / `gridStyleId` / `textStyleId` / `backgroundStyleId` setters, `reactions =`, `vectorNetwork =`, `setRangeTextStyleId` / `setRangeFillStyleId`. The "in <name>: " prefix is Figma's host-call wrapper (§2.1) applied to these names [derived]. `documentchange` under dynamic-page needs `loadAllPagesAsync` first (Figma's text).
+- **D3** `notify`: 3000 ms by default, until dismissed for `error: true`, at least 100 ms (`Infinity` travels as a string, JSON can't carry it); a toast over 3000 ms (or lasting) gets ×; the button's `action()` returning `false` keeps the toast (ds `ToastOptions.keepOnAction`); `onDequeue` hears `"timeout"`, `"dismiss"` (× or `cancel()`) or `"action_button_click"` [the three names are `@figma/plugin-typings`' `NotifyDequeueReason`]. The toast's time is "exact" (not halved by the queue).
+- **D5** CSP: **kept ours** (stricter than Figma's — `default-src 'none'`, `connect-src`, `form-action 'none'`, `base-uri 'none'`, and a CSP for `*` too). The task's rule: the sandbox and CSP stay at least as strict as before.
+- **D6** `allowedDomains` with Figma's validator texts (§4.1): an entry needs its scheme (`'figma.com' must include a scheme, such as https://.`), `*` and localhost / ports without `reasoning` are errors, `reasoning` < 1000, duplicates, the empty list, `'none'` alone; `devAllowedDomains` entries must be valid URLs (a bare host there still means https + wss). URL matching takes Figma's scheme rule (§4.3): an `http:` entry also covers https, `ws:` covers wss / http / https, `wss:` covers https. Bare hosts already stored keep working at run time (the manifest refuses them on import).
+- **D7** manifest texts (§5.2): `Missing editorType in manifest.  Specify a combination of [...]` (editorType is now required), `Invalid editorType …`, `Invalid permission specified: <p>`, `Invalid capability specified: <c>`, `Capability "<c>" requires "editorType" to include "dev"`, the three codegen texts, the duplicate relaunch command, `manifest.parameters should not be specified when menu items are defined`, the parameter list rules (empty, duplicate keys, optional last, `parameterOnly`), `The manifest editorType does not include "figma"` for a plugin that runs in neither editor. `inspect` is read as `dev`; `sites` is accepted (not run). Permissions take `clipboardwrite`; Figma's internal ones are accepted and dropped with "Untrusted local plugin denied internal api permissions" (a warning); capabilities take `panel`, `linkpreview`, `lint` (accepted, nothing runs them yet).
+- **D8** `clientStorage`: a string counts by its length (not its JSON); the quota text is Figma's ("Client storage quota (5 MB) exceeded for this plugin ID. Please use less client storage.").
+- **D9** plugin data: the limit counts UTF-8 bytes of key + value (+ namespace), "This pluginData entry exceeds 100 kB per entry limit."; the namespace's three rules and texts, checked on get too.
+- **D11** `fetch` is a global only (no `figma.fetch`).
+- **D12** `documentchange` names the four stroke sides — the top one `stokeTopWeight`, Figma's typo.
+- **D13–D16** each type's prototype from Figma's mixin lists (figma.js `TYPES`): no `constraints` / `devStatus` / `annotations` on groups, boolean operations, slices and transform groups; sections have dimensions, fills, strokes, corners, `devStatus`, aspect-ratio lock and motion but no layout list, blend, reactions or export; component sets have no reactions; lines no aspect-ratio methods; slices no blend, reactions or motion; no `setRangeFontWeight` / `setRangeOpenTypeFeatures`, no `setProperties` on components, no `setBackgroundsAsync` on pages.
+- **D17** the UI window: 300 × 200, width clamped to 70 … window − 50, height to 0 … window − 48 − the title bar; no position → this plugin's last place (kept per plugin on drag and on `ui.reposition`, clamped into the window) else centred; `{windowSpace: true, x, y}` taken as is; `width` / `height` must be integers ≥ 0, `ui.resize` positive integers; "No UI to send a message to." / "No UI to resize." / "No UI to reposition." / "No UI to show." / "Cannot get the UI position." + " Did you forget to create a UI by calling showUI?".
+- **D18** the running toast: shown 300 ms after the run asks for it, a spinner, **Cancel** (= Stop), hidden while the UI shows; a run that ends under it leaves a check for 1000 ms; " (Developer VM)" after the name in the developer VM (ds `Toast` `spinner`).
+- **D19** Plugins ▸ in Figma's order, the same in the canvas menu: recents (≤ 6) and a line, Run last plugin, —, Saved plugins ▸, From ‹org› ▸, Development ▸ (the plugins, Manage plugins in development, —, New plugin…, Import plugin from manifest…, —, View API documentation, Show/Hide console, Use developer VM, Hot reload plugin), —, Manage plugins….
+- **D20** hot reload is on by default (it was) — matches.
+- **D21** the `import` check before the code runs: `possible import expression rejected around line N` (SES's pattern: `import` followed by `(`, `//` or `/*`, not `.import`).
+- **D22** `Unknown plugin api version "<v>"` outside 0.6.0 / 1.0.0, and "Code string cannot be empty".
+
+**§13.3 — members added:**
+- Every node: `clone` (the document refuses), `detachedInfo`, dev resources (`get` with `includeChildren` / `add` / `edit` / `deleteDevResourceAsync` through Dev Mode's store records, `RunEnv.devResources`), the related-link methods (Figma's "not available for local plugins" text), `availableInferredVariables` / `variableConsumptionMap` (empty, as `inferredVariables`), `explicitVariableModes` read from the node's `variableModeBySetMap` (it answered `{}`), `setDevResourcePreviewAsync` / `updateVariableConsumption` / `createCanvasControl` (not supported).
+- Frames and their kin: `backgrounds` / `backgroundStyleId` (deprecated names of `fills` / `fillStyleId`, also on groups), `horizontalPadding` / `verticalPadding`, `constrainProportions`, `targetAspectRatio` (from the document's field; it answered null), `gridAutoTracks`, `gridRowSizes` / `gridColumnSizes` (Figma's GridTrackSize, its two texts), `gridRowAnchorIndex` / `gridColumnAnchorIndex` / `gridRowSpan` / `gridColumnSpan` (they answered undefined), `setGridChildPosition` (Figma's refusal inside a grid that places its items, `gridReflowEnabled`), `appendChildAt`, `reorderRows` / `reorderColumns`.
+- COMPONENT `instances` (sync), INSTANCE `masterComponent`, GROUP / BOOLEAN_OPERATION `expanded`, SECTION corners.
+- TEXT: `textDecorationStyle` / `Offset` / `Thickness` / `Color` / `SkipInk` (node and range, Figma's shapes; "Text decoration color must be a single solid paint"), `textWrapStyle` (+ `getRangeTextWrapStyle`), `canUpgradeToNativeBidiSupport` / `useNativeBidiSupport()` (Type settings' bidi upgrade).
+- PAGE: `exportAsync` (its top-level layers together) / `exportSettings`, `explicitVariableModes` and the set / clear pair (the page's own mode), `focusedNode` (Dev Mode's focus), measurements (`getMeasurements`, `getMeasurementsForNode`, `addMeasurement`, `editMeasurement`, `deleteMeasurement` over MEASUREMENT_*; "Measurement can't point to itself", "Measurement start side X and end side Y must be on the same axis"), `on` / `once` / `off("nodechange")` (the changes grouped by page).
+- figma: `variables.getSubscribedVariables` (the file's library copies), `createVideo` (not supported), `relatedLinks` (Figma's text), `lint` (later list).
+
+**Not done (and why):**
+- Widgets (§11) — the whole widget API, `widgetId`, Widgets ▸ and the widget node: a round of its own (render, synced state, hooks, the canvas node).
+- `transform3d` / `transformOrigin` / `scene3d`, `playbackSettings` (video), `inferredAutoLayout`, `gridItemsPositioning`, `gridRowSizingCSS` / `gridColumnSizingCSS`, `createSlot` / SLOT nodes, `getFontFamilyVariationAxes`, custom animation styles, shaders, `figma.ai`, `figma.timer` / `payments` / `textreview` / `lint` behaviour, `getDisplayMetadataAsync`: gated, other editors', or not in our document yet.
+- Motion members `getTimelineOffset` / `setTimelineOffset` / `transitionOverrides` — the Motion owner's (round 8f's surface left as built).
+- `textreview` / `linkpreview` / `lint` runs and the "Text review plugins" submenu.
+- The context-menu click position for a UI opened from the canvas menu, and the `anchor` form of `position` (its `side` / `align` values are unread).
+- The three-iframe isolation (ours: one sandboxed `plugin:` iframe, a fair equivalent — §13.3).
+
+**New open questions** (to §14's list):
+- Q10 The Recents header's English (`fullscreen_actions.recents`) — the recents are listed without a header until it is read.
+- Q11 Whether the dynamic-page text for a method carries the "in <name>: " prefix (derived from the host-call wrapper).
+- Q12 `setGridChildPosition`'s out-of-bounds text ("Column index … out of bounds for grid with N columns and M rows" has an unread middle; ours: "Row / Column index N is out of bounds for a grid with C columns and R rows").
+- Q13 Whether Figma counts a nested string in a clientStorage value by its length too (D8 is read as "strings by length" at every depth).
+
 ---
 
 ## 14. Open questions

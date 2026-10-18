@@ -1,8 +1,9 @@
 /**
  * The plugins' chrome over the editor (docs/plugins.md §3.2, §6): each run's UI window — a ds floating panel holding a
- * sandboxed, opaque-origin iframe (no `allow-same-origin`) — and the "Running ‹name›" toast with ✕ = Stop. Mounting it
- * attaches the editor's plugin service (EditorApp's one line). Messages are accepted only from the window's own
- * iframe (`event.source`), `{pluginMessage}` unwrapped as Figma's; `pluginDrop` becomes figma.on("drop").
+ * sandboxed, opaque-origin iframe (no `allow-same-origin`) — and Figma's "Running ‹name›" toast (a spinner, Cancel =
+ * Stop; a check when the run ends under it). Mounting it attaches the editor's plugin service (EditorApp's one line).
+ * Messages are accepted only from the window's own iframe (`event.source`), `{pluginMessage}` unwrapped as Figma's;
+ * `pluginDrop` becomes figma.on("drop").
  */
 import { useEffect, useRef, useState } from "react";
 import { IconButton, Portal, Toast } from "@/ds";
@@ -10,31 +11,12 @@ import { t, useT } from "@/i18n";
 import { getStoreClient } from "@/store";
 import { useEditor } from "../../controller";
 import { attachPlugins, usePluginService, usePlugins, type PluginServiceOptions } from "../service";
-import { usePluginUi, type PluginUiStore, type PluginWindowState } from "./store";
+import { centred, savePosition, TITLE_BAR, usePluginUi, type PluginUiStore, type PluginWindowState } from "./store";
 import { NewPluginDialog } from "./NewPluginDialog";
 import styles from "./PluginLayer.module.css";
 
 /** Figma's iframe sandbox: scripts, forms, popups, modals, downloads — never same-origin. */
 export const PLUGIN_IFRAME_SANDBOX = "allow-scripts allow-forms allow-popups allow-modals allow-downloads";
-const TITLE_BAR = 40;
-const POSITIONS_KEY = "designer.plugins.positions";
-
-function savedPosition(pluginId: string): { x: number; y: number } | null {
-  try {
-    const all = JSON.parse(localStorage.getItem(POSITIONS_KEY) ?? "{}") as Record<string, { x: number; y: number }>;
-    return all[pluginId] ?? null;
-  } catch {
-    return null;
-  }
-}
-function savePosition(pluginId: string, at: { x: number; y: number }): void {
-  try {
-    const all = JSON.parse(localStorage.getItem(POSITIONS_KEY) ?? "{}") as Record<string, { x: number; y: number }>;
-    localStorage.setItem(POSITIONS_KEY, JSON.stringify({ ...all, [pluginId]: at }));
-  } catch {
-    // Private mode: the default place next time.
-  }
-}
 
 /** A run's iframe and its messaging: in a floating window, or docked in Dev Mode's Plugins panel. */
 export function PluginFrame({ w, ui, className }: { w: PluginWindowState; ui: PluginUiStore; className?: string }) {
@@ -80,7 +62,7 @@ export function PluginFrame({ w, ui, className }: { w: PluginWindowState; ui: Pl
 function PluginWindow({ w, ui }: { w: PluginWindowState; ui: PluginUiStore }) {
   useT();
   const [dragging, setDragging] = useState(false);
-  const at = w.position ?? savedPosition(w.pluginId) ?? { x: Math.max(8, window.innerWidth - w.width - 256), y: 56 };
+  const at = w.position ?? centred(w);
 
   const startDrag = (e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest("button")) return;
@@ -129,9 +111,13 @@ function Windows({ ui }: { ui: PluginUiStore }) {
       ))}
       {snap.running.length > 0 && (
         <div className={styles.running}>
-          {snap.running.map((r) => (
-            <Toast key={r.runId} static message={t("Running {name}", { name: r.name })} onClose={() => ui.stoppers.get(r.runId)?.()} />
-          ))}
+          {snap.running.map((r) =>
+            r.state === "done" ? (
+              <Toast key={r.runId} static icon="24.check" message={t("Running {name}", { name: r.name })} />
+            ) : (
+              <Toast key={r.runId} static spinner message={t("Running {name}", { name: r.name })} action={{ label: t("Cancel"), onAction: () => ui.stoppers.get(r.runId)?.() }} />
+            )
+          )}
         </div>
       )}
     </Portal>

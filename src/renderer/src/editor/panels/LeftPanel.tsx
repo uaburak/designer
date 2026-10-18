@@ -147,7 +147,7 @@ function ToolsList({ query, source, type }: { query: string; source: string; typ
   // Recents and Saved repeat the plugins listed by source: by source only here.
   const shown = rows.filter((r, i) => (r.section !== "Recents" && r.section !== "Saved") || !rows.some((x, j) => j !== i && x.ref.id === r.ref.id && x.section !== r.section));
   const unique = shown.filter((r, i) => shown.findIndex((x) => x.key === r.key || (x.ref.id === r.ref.id && x.command === r.command)) === i);
-  if (!unique.length) return <EmptyState icon="24.tools" title={t("No tools")} body={query ? t("No plugins match.") : t("Import a plugin from Plugins › Development › Import new plugin from manifest…")} />;
+  if (!unique.length) return <EmptyState icon="24.tools" title={t("No tools")} body={query ? t("No plugins match.") : t("Import a plugin from Plugins › Development › Import plugin from manifest…")} />;
   return (
     <div className={styles.toolsList} role="list" aria-label={t("Plugins")}>
       {unique.map((r, i) => (

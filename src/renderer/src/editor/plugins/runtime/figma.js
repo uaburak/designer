@@ -45,27 +45,39 @@
     Object.defineProperty(proto, name, {
       configurable: true,
       enumerable: true,
-      get: function () { return freeze(call("get", this.__nodeId, name)); },
+      get: function () {
+        if (opts.asyncGet && dynamicPage) throw incremental("get_" + name, opts.asyncGet);
+        return freeze(call("get", this.__nodeId, opts.as || name));
+      },
       set: opts.readonly
         ? function () { throw new Error("Cannot assign to read only property '" + name + "' of object '" + String(this) + "'"); }
-        : function (v) { call("set", this.__nodeId, name, v); },
+        : function (v) {
+          if (opts.asyncSet && dynamicPage) throw incremental("set_" + name, opts.asyncSet);
+          call("set", this.__nodeId, opts.as || name, v);
+        },
     });
   }
   function props(proto, names, opts) { names.forEach(function (n) { prop(proto, n, opts); }); }
   function method(proto, name, fn) { Object.defineProperty(proto, name, { value: fn, configurable: true, writable: false, enumerable: false }); }
+  // Figma's error for a synchronous API under documentAccess: dynamic-page (its host-call wrapper adds "in <name>: ").
+  function incremental(where, asyncName) { return new Error("in " + where + ": Cannot call with documentAccess: dynamic-page. Use " + asyncName + " instead."); }
+  function relatedLinks() { return Promise.reject(new Error("figma.relatedLinks is not available for local plugins. Please use the figma.devResources API instead.")); }
 
   var BASE = {
     id: { get: function () { return this.__nodeId; } },
     type: { get: function () { return this.__type; } },
   };
 
+  // Figma's base list (every node, the document and pages too): ids, names, plugin and relaunch data, CSS, dev
+  // resources, related links (published plugins only), detachedInfo, getTopLevelFrame, clone.
   function baseMixin(p) {
     Object.defineProperty(p, "id", { enumerable: true, get: BASE.id.get });
     Object.defineProperty(p, "type", { enumerable: true, get: BASE.type.get });
     props(p, ["name"]);
-    props(p, ["parent", "removed", "isAsset"], { readonly: true });
-    method(p, "toString", function () { return "[object " + this.__type + " " + this.__nodeId + "]"; });
+    props(p, ["parent", "removed", "isAsset", "detachedInfo"], { readonly: true });
+    method(p, "toString", function () { return "[Node " + this.__nodeId + "]"; });
     method(p, "remove", function () { call("node.remove", this.__nodeId); cache.delete(this.__nodeId); });
+    method(p, "clone", function () { return call("node.clone", this.__nodeId); });
     method(p, "getPluginData", function (key) { return call("pluginData.get", this.__nodeId, null, String(key)); });
     method(p, "setPluginData", function (key, value) { call("pluginData.set", this.__nodeId, null, String(key), String(value)); });
     method(p, "getPluginDataKeys", function () { return call("pluginData.keys", this.__nodeId, null); });
@@ -76,25 +88,44 @@
     method(p, "getRelaunchData", function () { return call("relaunch.get", this.__nodeId); });
     method(p, "getCSSAsync", function () { return call("node.css", this.__nodeId); });
     method(p, "getTopLevelFrame", function () { return call("node.topLevelFrame", this.__nodeId); });
-    method(p, "getDevResourcesAsync", notSupported("getDevResourcesAsync"));
-    method(p, "addDevResourceAsync", notSupported("addDevResourceAsync"));
-    method(p, "editDevResourceAsync", notSupported("editDevResourceAsync"));
-    method(p, "deleteDevResourceAsync", notSupported("deleteDevResourceAsync"));
+    // Dev resources: the links Dev Mode keeps per layer (the store's, docs/editor.md "Dev Mode — round 5").
+    method(p, "getDevResourcesAsync", function (options) { return call("devResources.get", this.__nodeId, !!(options && options.includeChildren)); });
+    method(p, "addDevResourceAsync", function (url, name) { return call("devResources.add", this.__nodeId, String(url), name === undefined ? null : String(name)); });
+    method(p, "editDevResourceAsync", function (url, value) { return call("devResources.edit", this.__nodeId, String(url), value || {}); });
+    method(p, "deleteDevResourceAsync", function (url) { return call("devResources.delete", this.__nodeId, String(url)); });
+    method(p, "setDevResourcePreviewAsync", notSupported("setDevResourcePreviewAsync"));
+    ["getRelatedLinksAsync", "addRelatedLinkAsync", "editRelatedLinkAsync", "deleteRelatedLinkAsync", "setRelatedLinkPreviewAsync"].forEach(function (m) { method(p, m, relatedLinks); });
+    method(p, "createCanvasControl", notSupported("createCanvasControl"));
   }
 
+  // SceneNodeMixin
   function sceneMixin(p) {
-    props(p, ["visible", "locked", "componentPropertyReferences", "explicitVariableModes", "devStatus", "annotations"]);
-    props(p, ["stuckNodes", "boundVariables", "resolvedVariableModes", "inferredVariables", "attachedConnectors"], { readonly: true });
+    props(p, ["visible", "locked"]);
+    props(p, ["stuckNodes", "attachedConnectors"], { readonly: true });
+  }
+
+  // VariablesMixin: bindings, modes and component property references
+  function variablesMixin(p) {
+    props(p, ["componentPropertyReferences"]);
+    props(p, ["boundVariables", "resolvedVariableModes", "inferredVariables", "availableInferredVariables", "explicitVariableModes", "variableConsumptionMap"], { readonly: true });
     method(p, "setBoundVariable", function (field, variable) { call("variables.bind", this.__nodeId, field, variable ? variable.id || variable : null); });
     method(p, "setExplicitVariableModeForCollection", function (collection, modeId) { call("variables.setMode", this.__nodeId, collection && collection.id ? collection.id : collection, modeId); });
     method(p, "clearExplicitVariableModeForCollection", function (collection) { call("variables.setMode", this.__nodeId, collection && collection.id ? collection.id : collection, null); });
-    // Prototyping
-    props(p, ["reactions"], { readonly: true });
-    method(p, "setReactionsAsync", function (reactions) { return Promise.resolve(call("set", this.__nodeId, "reactions", reactions)); });
-    // Export
+    method(p, "updateVariableConsumption", notSupported("updateVariableConsumption"));
+  }
+
+  function exportMixin(p) {
     props(p, ["exportSettings"]);
     method(p, "exportAsync", function (settings) { return call("node.export", this.__nodeId, settings || null); });
-    // Motion (docs/motion.md §9): seconds; the host holds Figma's rules (motion/publicApi.ts)
+  }
+
+  function reactionsMixin(p) {
+    prop(p, "reactions", { asyncSet: "node.setReactionsAsync" });
+    method(p, "setReactionsAsync", function (reactions) { return Promise.resolve(call("set", this.__nodeId, "reactions", reactions)); });
+  }
+
+  // Motion (docs/motion.md §9): seconds; the host holds Figma's rules (motion/publicApi.ts). Design and Draw only.
+  function motionMixin(p) {
     props(p, ["manualKeyframeTracks", "animationStyles"]);
     props(p, ["timelines", "animations"], { readonly: true });
     method(p, "applyManualKeyframeTrack", function (field, track) { call("motion.applyTrack", this.__nodeId, field, track); });
@@ -116,30 +147,58 @@
     method(p, "findWidgetNodesByWidgetId", function () { return []; });
   }
 
-  function layoutMixin(p) {
-    props(p, ["x", "y", "relativeTransform", "rotation", "constraints", "layoutAlign", "layoutGrow", "layoutPositioning", "layoutSizingHorizontal", "layoutSizingVertical", "minWidth", "maxWidth", "minHeight", "maxHeight", "targetAspectRatio", "gridRowAnchorIndex", "gridColumnAnchorIndex", "gridRowSpan", "gridColumnSpan", "gridChildHorizontalAlign", "gridChildVerticalAlign"]);
+  // DimensionAndPositionMixin, with resizing (sections have only this of the layout list)
+  function dimensionMixin(p) {
+    props(p, ["x", "y", "relativeTransform"]);
     props(p, ["width", "height", "absoluteTransform", "absoluteBoundingBox", "absoluteRenderBounds"], { readonly: true });
     method(p, "resize", function (w, h) { call("node.resize", this.__nodeId, w, h, true); });
     method(p, "resizeWithoutConstraints", function (w, h) { call("node.resize", this.__nodeId, w, h, false); });
-    method(p, "rescale", function (scale) { call("node.rescale", this.__nodeId, scale); });
+  }
+
+  // AspectRatioLockMixin (not on lines)
+  function aspectMixin(p) {
+    props(p, ["targetAspectRatio"], { readonly: true });
     method(p, "lockAspectRatio", function () { call("set", this.__nodeId, "constrainProportions", true); });
     method(p, "unlockAspectRatio", function () { call("set", this.__nodeId, "constrainProportions", false); });
   }
 
+  // LayoutMixin: the rest of Figma's layout list (auto layout child, grid child, min / max, rotation, rescale)
+  function layoutMixin(p) {
+    dimensionMixin(p);
+    props(p, ["rotation", "layoutAlign", "layoutGrow", "layoutPositioning", "layoutSizingHorizontal", "layoutSizingVertical", "minWidth", "maxWidth", "minHeight", "maxHeight", "gridRowAnchorIndex", "gridColumnAnchorIndex", "gridRowSpan", "gridColumnSpan", "gridChildHorizontalAlign", "gridChildVerticalAlign"]);
+    props(p, ["constrainProportions"]);  // deprecated: lockAspectRatio / unlockAspectRatio
+    method(p, "rescale", function (scale) { call("node.rescale", this.__nodeId, scale); });
+    method(p, "setGridChildPosition", function (row, column) { call("node.gridPosition", this.__nodeId, row, column); });
+  }
+
   function blendMixin(p) {
-    props(p, ["opacity", "blendMode", "isMask", "maskType", "effects", "effectStyleId"]);
+    props(p, ["opacity", "blendMode", "isMask", "maskType", "effects"]);
+    prop(p, "effectStyleId", { asyncSet: "node.setEffectStyleIdAsync" });
     method(p, "setEffectStyleIdAsync", function (id) { return Promise.resolve(call("set", this.__nodeId, "effectStyleId", id)); });
   }
 
-  function geometryMixin(p) {
-    props(p, ["fills", "strokes", "strokeWeight", "strokeAlign", "strokeCap", "strokeJoin", "strokeMiterLimit", "dashPattern", "fillStyleId", "strokeStyleId"]);
-    props(p, ["fillGeometry", "strokeGeometry"], { readonly: true });
-    method(p, "outlineStroke", function () { return call("node.outlineStroke", this.__nodeId); });
+  function fillsMixin(p) {
+    props(p, ["fills"]);
+    prop(p, "fillStyleId", { asyncSet: "node.setFillStyleIdAsync" });
     method(p, "setFillStyleIdAsync", function (id) { return Promise.resolve(call("set", this.__nodeId, "fillStyleId", id)); });
-    method(p, "setStrokeStyleIdAsync", function (id) { return Promise.resolve(call("set", this.__nodeId, "strokeStyleId", id)); });
-    // The only way to set pattern fills and strokes (Figma: the pattern's source is loaded first).
+    // The only way to set pattern fills (Figma: the pattern's source is loaded first).
     method(p, "setFillsAsync", function (paints) { return Promise.resolve(call("set", this.__nodeId, "fills", paints)); });
+  }
+
+  function strokesMixin(p) {
+    props(p, ["strokes", "strokeWeight", "strokeAlign", "strokeJoin", "dashPattern"]);
+    prop(p, "strokeStyleId", { asyncSet: "node.setStrokeStyleIdAsync" });
+    props(p, ["strokeGeometry"], { readonly: true });
+    method(p, "setStrokeStyleIdAsync", function (id) { return Promise.resolve(call("set", this.__nodeId, "strokeStyleId", id)); });
     method(p, "setStrokesAsync", function (paints) { return Promise.resolve(call("set", this.__nodeId, "strokes", paints)); });
+  }
+
+  function geometryMixin(p) {
+    fillsMixin(p);
+    strokesMixin(p);
+    props(p, ["strokeCap", "strokeMiterLimit"]);
+    props(p, ["fillGeometry"], { readonly: true });
+    method(p, "outlineStroke", function () { return call("node.outlineStroke", this.__nodeId); });
     // ComplexStrokesMixin (Draw, Update 123)
     props(p, ["complexStrokeProperties", "variableWidthStrokeProperties"]);
   }
@@ -149,67 +208,80 @@
   var STROKE_SIDES = ["strokeTopWeight", "strokeBottomWeight", "strokeLeftWeight", "strokeRightWeight"];
   var FRAME_PROPS = [
     "layoutMode", "layoutWrap", "primaryAxisSizingMode", "counterAxisSizingMode", "primaryAxisAlignItems", "counterAxisAlignItems", "counterAxisAlignContent",
-    "paddingLeft", "paddingRight", "paddingTop", "paddingBottom", "itemSpacing", "counterAxisSpacing", "itemReverseZIndex", "strokesIncludedInLayout",
-    "gridRowCount", "gridColumnCount", "gridRowGap", "gridColumnGap", "gridRowSizes", "gridColumnSizes",
-    "clipsContent", "layoutGrids", "gridStyleId", "guides", "expanded", "overflowDirection", "numberOfFixedChildren",
+    "paddingLeft", "paddingRight", "paddingTop", "paddingBottom", "horizontalPadding", "verticalPadding", "itemSpacing", "counterAxisSpacing", "itemReverseZIndex", "strokesIncludedInLayout",
+    "gridRowCount", "gridColumnCount", "gridRowGap", "gridColumnGap", "gridRowSizes", "gridColumnSizes", "gridAutoTracks",
+    "clipsContent", "layoutGrids", "guides", "expanded", "overflowDirection", "numberOfFixedChildren",
     "overlayPositionType", "overlayBackground", "overlayBackgroundInteraction",
   ];
 
+  // BaseFrameMixin's own part (auto layout, grid, clipping, guides, layout grids, the deprecated backgrounds)
   function frameMixin(p) {
     props(p, FRAME_PROPS);
     props(p, CORNERS.concat(RECT_CORNERS, STROKE_SIDES));
-    props(p, ["detachedInfo"], { readonly: true });
+    backgroundsMixin(p);
+    prop(p, "gridStyleId", { asyncSet: "node.setGridStyleIdAsync" });
     method(p, "setGridStyleIdAsync", function (id) { return Promise.resolve(call("set", this.__nodeId, "gridStyleId", id)); });
-    method(p, "setGridChildPosition", function (child, row, column) { call("node.gridPosition", this.__nodeId, child, row, column); });
+    method(p, "appendChildAt", function (child, row, column) { call("node.appendChildAt", this.__nodeId, child, row, column); });
+    method(p, "reorderRows", function (from, to) { call("node.reorderTracks", this.__nodeId, "rows", from, to); });
+    method(p, "reorderColumns", function (from, to) { call("node.reorderTracks", this.__nodeId, "columns", from, to); });
+  }
+
+  // Deprecated `backgrounds` / `backgroundStyleId`: a frame's (or group's) fills and fill style
+  function backgroundsMixin(p) {
+    prop(p, "backgrounds", { as: "fills" });
+    prop(p, "backgroundStyleId", { as: "fillStyleId", asyncSet: "node.setFillStyleIdAsync" });
   }
 
   var TEXT_PROPS = [
-    "characters", "fontName", "fontSize", "fontWeight", "textCase", "textDecoration", "letterSpacing", "lineHeight", "paragraphSpacing", "paragraphIndent",
-    "listSpacing", "textAlignHorizontal", "textAlignVertical", "textAutoResize", "textTruncation", "maxLines", "hyperlink", "textStyleId", "hangingPunctuation",
-    "hangingList", "leadingTrim", "autoRename", "openTypeFeatures",
+    "characters", "fontName", "fontSize", "fontWeight", "textCase", "textDecoration", "textDecorationStyle", "textDecorationOffset", "textDecorationThickness", "textDecorationColor",
+    "textDecorationSkipInk", "letterSpacing", "lineHeight", "paragraphSpacing", "paragraphIndent", "listSpacing", "textAlignHorizontal", "textAlignVertical", "textAutoResize",
+    "textTruncation", "maxLines", "hyperlink", "hangingPunctuation", "hangingList", "leadingTrim", "autoRename", "openTypeFeatures", "textWrapStyle",
   ];
-  var RANGE_FIELDS = ["FontName", "FontSize", "FontWeight", "Fills", "TextCase", "TextDecoration", "TextDecorationStyle", "TextDecorationOffset", "TextDecorationThickness", "TextDecorationColor", "TextDecorationSkipInk", "LetterSpacing", "LineHeight", "Hyperlink", "ListOptions", "ListSpacing", "Indentation", "ParagraphIndent", "ParagraphSpacing", "TextStyleId", "FillStyleId", "OpenTypeFeatures"];
+  var RANGE_FIELDS = ["FontName", "FontSize", "FontWeight", "Fills", "TextCase", "TextDecoration", "TextDecorationStyle", "TextDecorationOffset", "TextDecorationThickness", "TextDecorationColor", "TextDecorationSkipInk", "LetterSpacing", "LineHeight", "Hyperlink", "ListOptions", "ListSpacing", "Indentation", "ParagraphIndent", "ParagraphSpacing", "TextStyleId", "FillStyleId", "OpenTypeFeatures", "TextWrapStyle"];
+  // Figma reads these per range but has no setter for them (a weight comes with its font name).
+  var GET_ONLY_RANGES = ["FontWeight", "OpenTypeFeatures"];
+  // Set through setRange*StyleIdAsync under dynamic-page
+  var ASYNC_RANGES = { TextStyleId: "node.setRangeTextStyleIdAsync", FillStyleId: "node.setRangeFillStyleIdAsync" };
 
-  function textMixin(p) {
-    props(p, TEXT_PROPS);
-    props(p, ["hasMissingFont"], { readonly: true });
-    method(p, "insertCharacters", function (start, characters, useStyle) { call("text.insert", this.__nodeId, start, String(characters), useStyle || "BEFORE"); });
-    method(p, "deleteCharacters", function (start, end) { call("text.delete", this.__nodeId, start, end); });
-    RANGE_FIELDS.forEach(function (f) {
+  function textRanges(p, fields) {
+    fields.forEach(function (f) {
       var field = f.charAt(0).toLowerCase() + f.slice(1);
       method(p, "getRange" + f, function (start, end) { return freeze(call("text.getRange", this.__nodeId, field, start, end)); });
-      method(p, "setRange" + f, function (start, end, value) { call("text.setRange", this.__nodeId, field, start, end, value); });
+      if (GET_ONLY_RANGES.indexOf(f) >= 0) return;
+      method(p, "setRange" + f, function (start, end, value) {
+        if (ASYNC_RANGES[f] && dynamicPage) throw incremental("setRange" + f, ASYNC_RANGES[f]);
+        call("text.setRange", this.__nodeId, field, start, end, value);
+      });
     });
     method(p, "getRangeAllFontNames", function (start, end) { return call("text.allFontNames", this.__nodeId, start, end); });
     method(p, "getRangeBoundVariable", function (start, end, field) { return call("text.getRange", this.__nodeId, "boundVariable:" + field, start, end); });
     method(p, "setRangeBoundVariable", function (start, end, field, variable) { call("text.setRange", this.__nodeId, "boundVariable:" + field, start, end, variable ? variable.id || variable : null); });
     method(p, "setRangeTextStyleIdAsync", function (start, end, id) { return Promise.resolve(call("text.setRange", this.__nodeId, "textStyleId", start, end, id)); });
     method(p, "setRangeFillStyleIdAsync", function (start, end, id) { return Promise.resolve(call("text.setRange", this.__nodeId, "fillStyleId", start, end, id)); });
+    method(p, "insertCharacters", function (start, characters, useStyle) { call("text.insert", this.__nodeId, start, String(characters), useStyle || "BEFORE"); });
+    method(p, "deleteCharacters", function (start, end) { call("text.delete", this.__nodeId, start, end); });
+    prop(p, "textStyleId", { asyncSet: "node.setTextStyleIdAsync" });
     method(p, "setTextStyleIdAsync", function (id) { return Promise.resolve(call("set", this.__nodeId, "textStyleId", id)); });
     method(p, "getStyledTextSegments", function (fields, start, end) { return freeze(call("text.segments", this.__nodeId, fields, start === undefined ? 0 : start, end === undefined ? -1 : end)); });
+    props(p, ["hasMissingFont"], { readonly: true });
+  }
+
+  function textMixin(p) {
+    props(p, TEXT_PROPS);
+    textRanges(p, RANGE_FIELDS);
+    // Texts written before the bidi layout (docs/research/atlas/06-text.md): Figma's upgrade, as Type settings' button
+    props(p, ["canUpgradeToNativeBidiSupport"], { readonly: true });
+    method(p, "useNativeBidiSupport", function () { call("text.useNativeBidi", this.__nodeId); });
   }
 
   // TextPathNode's text (Figma's BaseNonResizableTextMixin: no auto resize, line height or paragraph properties).
-  var TEXT_PATH_PROPS = ["characters", "fontName", "fontSize", "textCase", "letterSpacing", "hyperlink", "textStyleId", "textAlignHorizontal", "textAlignVertical", "autoRename", "textPathStartData"];
+  var TEXT_PATH_PROPS = ["characters", "fontName", "fontSize", "textCase", "letterSpacing", "hyperlink", "textAlignHorizontal", "textAlignVertical", "autoRename", "textPathStartData"];
   var TEXT_PATH_RANGES = ["FontName", "FontSize", "FontWeight", "Fills", "TextCase", "LetterSpacing", "Hyperlink", "TextStyleId", "FillStyleId", "OpenTypeFeatures"];
 
   function textPathMixin(p) {
     props(p, TEXT_PATH_PROPS);
-    props(p, ["hasMissingFont", "fontWeight", "openTypeFeatures", "vectorPaths", "vectorNetwork", "handleMirroring"], { readonly: true });
-    method(p, "insertCharacters", function (start, characters, useStyle) { call("text.insert", this.__nodeId, start, String(characters), useStyle || "BEFORE"); });
-    method(p, "deleteCharacters", function (start, end) { call("text.delete", this.__nodeId, start, end); });
-    TEXT_PATH_RANGES.forEach(function (f) {
-      var field = f.charAt(0).toLowerCase() + f.slice(1);
-      method(p, "getRange" + f, function (start, end) { return freeze(call("text.getRange", this.__nodeId, field, start, end)); });
-      if (f !== "FontWeight" && f !== "OpenTypeFeatures") method(p, "setRange" + f, function (start, end, value) { call("text.setRange", this.__nodeId, field, start, end, value); });
-    });
-    method(p, "getRangeAllFontNames", function (start, end) { return call("text.allFontNames", this.__nodeId, start, end); });
-    method(p, "getRangeBoundVariable", function (start, end, field) { return call("text.getRange", this.__nodeId, "boundVariable:" + field, start, end); });
-    method(p, "setRangeBoundVariable", function (start, end, field, variable) { call("text.setRange", this.__nodeId, "boundVariable:" + field, start, end, variable ? variable.id || variable : null); });
-    method(p, "setRangeTextStyleIdAsync", function (start, end, id) { return Promise.resolve(call("text.setRange", this.__nodeId, "textStyleId", start, end, id)); });
-    method(p, "setRangeFillStyleIdAsync", function (start, end, id) { return Promise.resolve(call("text.setRange", this.__nodeId, "fillStyleId", start, end, id)); });
-    method(p, "setTextStyleIdAsync", function (id) { return Promise.resolve(call("set", this.__nodeId, "textStyleId", id)); });
-    method(p, "getStyledTextSegments", function (fields, start, end) { return freeze(call("text.segments", this.__nodeId, fields, start === undefined ? 0 : start, end === undefined ? -1 : end)); });
+    props(p, ["fontWeight", "openTypeFeatures", "vectorPaths", "vectorNetwork", "handleMirroring"], { readonly: true });
+    textRanges(p, TEXT_PATH_RANGES);
   }
 
   function componentMixin(p) {
@@ -221,57 +293,82 @@
     method(p, "getPublishStatusAsync", function () { return Promise.resolve("UNPUBLISHED"); });
   }
 
-  // Which mixins each type has (Figma's typings, for the types we have).
+  // The mixins of each type (Figma's prototype lists, docs/research/atlas/17-plugins.md §9.2). "constraints",
+  // "devStatus" and "annotations" are where Figma has them: not on groups, boolean operations, slices or transform
+  // groups; sections have dimensions, fills, strokes and corners but no layout list, blend, reactions or export.
+  var FRAME_LIKE = ["scene", "variables", "blend", "layout", "aspect", "constraints", "children", "export", "geometry", "frame", "annotations", "devStatus", "motion"];
+  var SHAPE = ["scene", "variables", "blend", "geometry", "layout", "aspect", "constraints", "export", "reactions", "annotations", "motion"];
   var TYPES = {
     DOCUMENT: ["children"],
-    PAGE: ["children"],
-    FRAME: ["scene", "children", "layout", "blend", "geometry", "frame"],
-    GROUP: ["scene", "children", "layout", "blend"],
-    SECTION: ["scene", "children", "layout", "geometry"],
-    COMPONENT: ["scene", "children", "layout", "blend", "geometry", "frame", "component"],
-    COMPONENT_SET: ["scene", "children", "layout", "blend", "geometry", "frame", "component"],
-    INSTANCE: ["scene", "children", "layout", "blend", "geometry", "frame"],
-    BOOLEAN_OPERATION: ["scene", "children", "layout", "blend", "geometry"],
-    RECTANGLE: ["scene", "layout", "blend", "geometry", "rect"],
-    LINE: ["scene", "layout", "blend", "geometry"],
-    ELLIPSE: ["scene", "layout", "blend", "geometry", "corner"],
-    POLYGON: ["scene", "layout", "blend", "geometry", "corner"],
-    STAR: ["scene", "layout", "blend", "geometry", "corner"],
-    VECTOR: ["scene", "layout", "blend", "geometry", "corner"],
-    TEXT: ["scene", "layout", "blend", "geometry", "text"],
-    SLICE: ["scene", "layout"],
+    PAGE: ["children", "export", "pageModes"],
+    FRAME: FRAME_LIKE.concat(["reactions"]),
+    COMPONENT: FRAME_LIKE.concat(["reactions", "component"]),
+    COMPONENT_SET: FRAME_LIKE.concat(["component"]),
+    INSTANCE: FRAME_LIKE.concat(["reactions"]),
+    GROUP: ["scene", "variables", "blend", "layout", "aspect", "children", "export", "reactions", "motion", "backgrounds"],
+    TRANSFORM_GROUP: ["scene", "variables", "blend", "layout", "aspect", "children", "export", "reactions", "motion"],
+    BOOLEAN_OPERATION: ["scene", "variables", "blend", "geometry", "layout", "aspect", "export", "corner", "children", "reactions", "motion"],
+    SECTION: ["scene", "variables", "children", "dimension", "aspect", "fills", "strokes", "corner", "rectCorners", "devStatus", "motion"],
+    SLICE: ["scene", "variables", "layout", "aspect", "export"],
+    RECTANGLE: SHAPE.concat(["corner", "rectCorners", "strokeSides"]),
+    LINE: ["scene", "variables", "blend", "geometry", "layout", "constraints", "export", "reactions", "annotations", "motion"],
+    ELLIPSE: SHAPE.concat(["corner"]),
+    POLYGON: SHAPE.concat(["corner"]),
+    STAR: SHAPE.concat(["corner"]),
+    VECTOR: SHAPE.concat(["corner"]),
+    TEXT: SHAPE.concat(["text"]),
     // Draw (Update 123)
-    TEXT_PATH: ["scene", "layout", "blend", "geometry", "textPath"],
-    TRANSFORM_GROUP: ["scene", "children", "layout", "blend"],
+    TEXT_PATH: SHAPE.concat(["corner", "textPath"]),
   };
 
   function protoFor(type) {
     if (protos[type]) return protos[type];
     var p = {};
     baseMixin(p);
-    var mix = TYPES[type] || ["scene", "layout", "blend"];
+    var mix = TYPES[type] || ["scene", "variables", "layout", "blend"];
     mix.forEach(function (m) {
       if (m === "scene") sceneMixin(p);
+      else if (m === "variables") variablesMixin(p);
       else if (m === "children") childrenMixin(p);
+      else if (m === "dimension") dimensionMixin(p);
       else if (m === "layout") layoutMixin(p);
+      else if (m === "aspect") aspectMixin(p);
+      else if (m === "constraints") props(p, ["constraints"]);
       else if (m === "blend") blendMixin(p);
       else if (m === "geometry") geometryMixin(p);
+      else if (m === "fills") fillsMixin(p);
+      else if (m === "strokes") strokesMixin(p);
+      else if (m === "export") exportMixin(p);
+      else if (m === "reactions") reactionsMixin(p);
+      else if (m === "motion") motionMixin(p);
+      else if (m === "annotations") props(p, ["annotations"]);
+      else if (m === "devStatus") props(p, ["devStatus"]);
       else if (m === "frame") frameMixin(p);
-      else if (m === "rect") props(p, CORNERS.concat(RECT_CORNERS, STROKE_SIDES));
+      else if (m === "backgrounds") backgroundsMixin(p);
       else if (m === "corner") props(p, CORNERS);
+      else if (m === "rectCorners") props(p, RECT_CORNERS);
+      else if (m === "strokeSides") props(p, STROKE_SIDES);
       else if (m === "text") textMixin(p);
       else if (m === "textPath") textPathMixin(p);
       else if (m === "component") componentMixin(p);
+      else if (m === "pageModes") {
+        props(p, ["explicitVariableModes"], { readonly: true });
+        method(p, "setExplicitVariableModeForCollection", function (collection, modeId) { call("variables.setMode", this.__nodeId, collection && collection.id ? collection.id : collection, modeId); });
+        method(p, "clearExplicitVariableModeForCollection", function (collection) { call("variables.setMode", this.__nodeId, collection && collection.id ? collection.id : collection, null); });
+      }
     });
     if (type === "COMPONENT") {
       method(p, "createInstance", function () { return call("component.createInstance", this.__nodeId); });
-      method(p, "getInstancesAsync", function () { return call("component.instances", this.__nodeId); });
+      prop(p, "instances", { readonly: true, asyncGet: "node.getInstancesAsync" });
+      method(p, "getInstancesAsync", function () { return Promise.resolve(freeze(call("get", this.__nodeId, "instances"))); });
       props(p, ["variantProperties"], { readonly: true });
-      method(p, "setProperties", function () { throw new Error("setProperties is only on instances"); });
+      method(p, "createSlot", notSupported("createSlot"));
     }
     if (type === "COMPONENT_SET") props(p, ["defaultVariant", "variantGroupProperties"], { readonly: true });
     if (type === "INSTANCE") {
-      props(p, ["componentProperties", "overrides", "exposedInstances", "variantProperties", "mainComponent"], { readonly: true });
+      props(p, ["componentProperties", "overrides", "exposedInstances", "variantProperties"], { readonly: true });
+      prop(p, "mainComponent", { readonly: true, asyncGet: "node.getMainComponentAsync" });
+      prop(p, "masterComponent", { readonly: true, as: "mainComponent", asyncGet: "node.getMainComponentAsync" });  // deprecated
       props(p, ["isExposedInstance", "scaleFactor"]);
       method(p, "getMainComponentAsync", function () { return Promise.resolve(call("instance.main", this.__nodeId)); });
       method(p, "swapComponent", function (c) { call("instance.swap", this.__nodeId, c); });
@@ -285,20 +382,27 @@
     if (type === "ELLIPSE") props(p, ["arcData"]);
     if (type === "VECTOR") {
       props(p, ["vectorPaths", "handleMirroring"]);
-      props(p, ["vectorNetwork"], { readonly: true });
+      prop(p, "vectorNetwork", { asyncSet: "node.setVectorNetworkAsync" });
       method(p, "setVectorNetworkAsync", function (n) { return Promise.resolve(call("set", this.__nodeId, "vectorNetwork", n)); });
     }
+    if (type === "BOOLEAN_OPERATION" || type === "GROUP" || type === "TRANSFORM_GROUP") props(p, ["expanded"]);
     if (type === "BOOLEAN_OPERATION") props(p, ["booleanOperation"]);
     if (type === "TRANSFORM_GROUP") props(p, ["transformModifiers"]);
     if (type === "SECTION") props(p, ["sectionContentsHidden"]);
     if (type === "PAGE") {
       props(p, ["selection", "backgrounds", "prototypeBackgrounds", "flowStartingPoints", "selectedTextRange", "prototypeStartNode", "guides"]);
+      props(p, ["isPageDivider", "focusedNode"], { readonly: true });
       method(p, "loadAsync", function () { return Promise.resolve(); });
-      method(p, "clone", function () { return call("node.clone", this.__nodeId); });
-      method(p, "setBackgroundsAsync", function (v) { return Promise.resolve(call("set", this.__nodeId, "backgrounds", v)); });
-      props(p, ["isPageDivider"], { readonly: true });
-    } else if (type !== "DOCUMENT") {
-      method(p, "clone", function () { return call("node.clone", this.__nodeId); });
+      // Dev Mode's saved measurements on the page (Figma's Measurement shape, the engine's MEASUREMENT_* commands)
+      method(p, "getMeasurements", function () { return freeze(call("measurements.list", this.__nodeId, null)); });
+      method(p, "getMeasurementsForNode", function (node) { return freeze(call("measurements.list", this.__nodeId, node)); });
+      method(p, "addMeasurement", function (start, end, options) { return freeze(call("measurements.add", this.__nodeId, start, end, options || {})); });
+      method(p, "editMeasurement", function (id, value) { return freeze(call("measurements.edit", this.__nodeId, String(id), value || {})); });
+      method(p, "deleteMeasurement", function (id) { call("measurements.delete", this.__nodeId, String(id)); });
+      // nodechange: this page's changes (Figma's per-page event)
+      method(p, "on", function (type, cb) { pageOn(this, type, cb, false); });
+      method(p, "once", function (type, cb) { pageOn(this, type, cb, true); });
+      method(p, "off", function (type, cb) { pageOff(this, type, cb); });
     }
     if (type === "DOCUMENT") props(p, ["documentColorProfile"], { readonly: true });
     protos[type] = p;
@@ -309,9 +413,11 @@
 
   var handlers = {};
   var EVENTS = ["run", "close", "selectionchange", "currentpagechange", "documentchange", "drop", "stylechange", "textreview", "slidesviewchange", "canvasviewchange", "timerstart", "timerstop", "timerpause", "timerresume", "timeradjust", "timerdone"];
+  var pagesLoaded = !dynamicPage;
   function on(type, cb, once) {
     if (EVENTS.indexOf(type) < 0) throw new Error("Invalid event type: " + type);
-    if (typeof cb !== "function") throw new TypeError("The handler must be a function");
+    if (typeof cb !== "function") throw new TypeError(type + " handler must be a function");
+    if (type === "documentchange" && !pagesLoaded) throw new Error("Cannot register documentchange handler in incremental mode without calling figma.loadAllPagesAsync first.");
     (handlers[type] = handlers[type] || []).push({ cb: cb, once: !!once });
     call("events.listen", type, true);
   }
@@ -333,10 +439,30 @@
     });
     return out;
   }
+  // PageNode.on("nodechange"): handlers per page, under the key "nodechange:<page id>"
+  function pageOn(page, type, cb, once) {
+    if (type !== "nodechange") throw new Error("Invalid event type: " + type);
+    if (typeof cb !== "function") throw new TypeError(type + " handler must be a function");
+    var key = "nodechange:" + page.id;
+    (handlers[key] = handlers[key] || []).push({ cb: cb, once: !!once });
+    call("events.listen", "nodechange", true);
+  }
+  function pageOff(page, type, cb) {
+    var key = "nodechange:" + page.id;
+    handlers[key] = (handlers[key] || []).filter(function (h) { return h.cb !== cb; });
+    var any = Object.keys(handlers).some(function (k) { return k.indexOf("nodechange:") === 0 && handlers[k].length; });
+    if (!any) call("events.listen", "nodechange", false);
+  }
+  function removedNodes(list) {
+    list.forEach(function (c) { if (c.node === undefined && c.id) c.node = { id: c.id, removed: true }; });
+  }
   g.__dispatch = function (type, json) {
     var ev = json ? B.decode(json) : undefined;
-    if (type === "documentchange" && ev) {
-      ev.documentChanges.forEach(function (c) { if (c.node === undefined && c.id) c.node = { id: c.id, removed: true }; });
+    if (type === "documentchange" && ev) removedNodes(ev.documentChanges);
+    if (type === "nodechange" && ev) {
+      removedNodes(ev.nodeChanges);
+      emit("nodechange:" + ev.pageId, { nodeChanges: ev.nodeChanges });
+      return "";
     }
     if (type === "drop" && ev) {
       ev.files = (ev.files || []).map(function (f) {
@@ -374,16 +500,17 @@
 
   // ---- Notifications, parameters, codegen ----------------------------------------------------------------------------
 
+  // The button's action returning false keeps the toast (Figma's); the host then dequeues it as "action_button_click".
   var notices = new Map();
   g.__notice = function (id, what, reason) {
     var n = notices.get(id);
-    if (!n) return;
-    if (what === "action" && n.button && typeof n.button.action === "function") {
-      if (n.button.action() !== false) notices.delete(id);
-    } else if (what === "dequeue") {
+    if (!n) return "";
+    if (what === "action") return n.button && typeof n.button.action === "function" && n.button.action() === false ? "keep" : "";
+    if (what === "dequeue") {
       notices.delete(id);
       if (typeof n.onDequeue === "function") n.onDequeue(reason);
     }
+    return "";
   };
 
   var paramHandlers = [];
@@ -543,7 +670,7 @@
   if (info.fileKey !== undefined) value("fileKey", info.fileKey);
   getter("root", function () { return call("root"); });
   getter("currentPage", function () { return call("page.current"); }, function (page) {
-    if (dynamicPage) throw new Error("Cannot set figma.currentPage with documentAccess: dynamic-page. Use figma.setCurrentPageAsync instead.");
+    if (dynamicPage) throw incremental("set_currentPage", "figma.setCurrentPageAsync");
     call("page.set", page);
   });
   getter("skipInvisibleInstanceChildren", function () { return call("flags.get", "skipInvisibleInstanceChildren"); }, function (v) { call("flags.set", "skipInvisibleInstanceChildren", !!v); });
@@ -551,11 +678,13 @@
   getter("currentUser", function () { return freeze(call("users.current")); });
   getter("activeUsers", function () { return freeze(call("users.active")); });
   value("setCurrentPageAsync", function (page) { call("page.set", page); return Promise.resolve(); });
-  value("loadAllPagesAsync", function () { return Promise.resolve(); });
+  value("loadAllPagesAsync", function () { pagesLoaded = true; return Promise.resolve(); });
   value("closePlugin", function (message) { call("close", message === undefined ? null : String(message)); });
   value("notify", function (message, options) {
     options = options || {};
-    var id = call("notify", String(message), { timeout: options.timeout, error: !!options.error, button: options.button ? String(options.button.text) : null });
+    // Infinity doesn't survive JSON: it travels as a string.
+    var timeout = options.timeout === undefined ? null : options.timeout === Infinity ? "Infinity" : options.timeout;
+    var id = call("notify", String(message), { timeout: timeout, error: !!options.error, button: options.button ? String(options.button.text) : null });
     notices.set(id, { button: options.button, onDequeue: options.onDequeue });
     return { cancel: function () { call("notify.cancel", id); } };
   });
@@ -566,17 +695,17 @@
   value("showUI", function (html, options) { call("ui.open", String(html), options || {}); });
   value("ui", ui);
   value("getNodeById", function (id) {
-    if (dynamicPage) throw new Error("Cannot call figma.getNodeById with documentAccess: dynamic-page. Use figma.getNodeByIdAsync instead.");
+    if (dynamicPage) throw incremental("getNodeById", "figma.getNodeByIdAsync");
     return call("node.byId", String(id));
   });
   value("getNodeByIdAsync", function (id) { return asyncOf(call("node.byId", String(id))); });
   value("getStyleById", function (id) {
-    if (dynamicPage) throw new Error("Cannot call figma.getStyleById with documentAccess: dynamic-page. Use figma.getStyleByIdAsync instead.");
+    if (dynamicPage) throw incremental("getStyleById", "figma.getStyleByIdAsync");
     return style(call("styles.byId", String(id)));
   });
   value("getStyleByIdAsync", function (id) { return asyncOf(style(call("styles.byId", String(id)))); });
   value("getFileThumbnailNode", function () {
-    if (dynamicPage) throw new Error("Cannot call figma.getFileThumbnailNode with documentAccess: dynamic-page. Use figma.getFileThumbnailNodeAsync instead.");
+    if (dynamicPage) throw incremental("getFileThumbnailNode", "figma.getFileThumbnailNodeAsync");
     return call("file.thumbnail");
   });
   value("getFileThumbnailNodeAsync", function () { return asyncOf(call("file.thumbnail")); });
@@ -584,7 +713,8 @@
   value("getSelectionColors", function () { return freeze(call("selection.colors")); });
   value("base64Encode", function (bytes) { return B.b64enc(bytes); });
   value("base64Decode", function (s) { return B.b64dec(s); });
-  value("fetch", function (url, init) {
+  // fetch is a global, not a member of figma (Figma's).
+  g.fetch = function fetch(url, init) {
     return call("fetch", String(url), init || null).then(function (r) {
       var body = r.body || new Uint8Array(0);
       return {
@@ -600,8 +730,7 @@
         json: function () { return Promise.resolve(JSON.parse(utf8(body))); },
       };
     });
-  });
-  g.fetch = figma.fetch;
+  };
 
   // Creating nodes
   var CREATE = { createRectangle: "RECTANGLE", createLine: "LINE", createEllipse: "ELLIPSE", createPolygon: "POLYGON", createStar: "STAR", createVector: "VECTOR", createText: "TEXT", createFrame: "FRAME", createComponent: "COMPONENT", createSection: "SECTION", createSlice: "SLICE", createBooleanOperation: "BOOLEAN_OPERATION" };
@@ -651,7 +780,7 @@
   value("getLocalGridStylesAsync", function () { return asyncOf(call("styles.local", "GRID").map(style)); });
   ["Paint", "Text", "Effect", "Grid"].forEach(function (k) {
     value("getLocal" + k + "Styles", function () {
-      if (dynamicPage) throw new Error("Cannot call figma.getLocal" + k + "Styles with documentAccess: dynamic-page. Use figma.getLocal" + k + "StylesAsync instead.");
+      if (dynamicPage) throw incremental("getLocal" + k + "Styles", "figma.getLocal" + k + "StylesAsync");
       return call("styles.local", k.toUpperCase()).map(style);
     });
     value("create" + k + "Style", function () { return style(call("styles.create", k.toUpperCase())); });
@@ -665,19 +794,27 @@
   // Variables
   value("variables", Object.freeze({
     getVariableById: function (id) {
-      if (dynamicPage) throw new Error("Cannot call figma.variables.getVariableById with documentAccess: dynamic-page. Use figma.variables.getVariableByIdAsync instead.");
+      if (dynamicPage) throw incremental("getVariableById", "figma.variables.getVariableByIdAsync");
       return variable(call("variables.byId", String(id)));
     },
     getVariableByIdAsync: function (id) { return asyncOf(variable(call("variables.byId", String(id)))); },
     getVariableCollectionById: function (id) {
-      if (dynamicPage) throw new Error("Cannot call figma.variables.getVariableCollectionById with documentAccess: dynamic-page. Use figma.variables.getVariableCollectionByIdAsync instead.");
+      if (dynamicPage) throw incremental("getVariableCollectionById", "figma.variables.getVariableCollectionByIdAsync");
       return collection(call("collections.byId", String(id)));
     },
     getVariableCollectionByIdAsync: function (id) { return asyncOf(collection(call("collections.byId", String(id)))); },
     getLocalVariablesAsync: function (type) { return asyncOf(call("variables.local", type || null).map(variable)); },
     getLocalVariableCollectionsAsync: function () { return asyncOf(call("collections.local").map(collection)); },
-    getLocalVariables: function (type) { return call("variables.local", type || null).map(variable); },
-    getLocalVariableCollections: function () { return call("collections.local").map(collection); },
+    getLocalVariables: function (type) {
+      if (dynamicPage) throw incremental("getLocalVariables", "figma.variables.getLocalVariablesAsync");
+      return call("variables.local", type || null).map(variable);
+    },
+    getLocalVariableCollections: function () {
+      if (dynamicPage) throw incremental("getLocalVariableCollections", "figma.variables.getLocalVariableCollectionsAsync");
+      return call("collections.local").map(collection);
+    },
+    // The libraries' variables this file uses (its subscribed copies)
+    getSubscribedVariables: function (type) { return call("variables.subscribed", type || null).map(variable); },
     createVariable: function (name, coll, type) { return variable(call("variables.create", String(name), coll && coll.id ? coll.id : coll, type)); },
     createVariableCollection: function (name) { return collection(call("collections.create", String(name))); },
     extendLibraryCollectionByKeyAsync: notSupported("extendLibraryCollectionByKeyAsync"),
@@ -753,10 +890,12 @@
   value("off", off);
 
   // Later (docs/plugins.md §5): each throws Figma-style when used.
-  ["payments", "timer", "buzz", "textreview", "vscode", "widget", "slides"].forEach(function (name) {
+  ["payments", "timer", "buzz", "textreview", "vscode", "widget", "slides", "lint"].forEach(function (name) {
     Object.defineProperty(figma, name, { enumerable: false, get: function () { throw new Error("figma." + name + " is not supported in Wecra yet"); } });
   });
-  ["createNodeFromJSXAsync", "createVideoAsync", "createSticky", "createConnector", "createShapeWithText", "createTable", "createCodeBlock", "createGif", "createLinkPreviewAsync", "createSlide", "createSlideRow", "createPageDivider", "createTransformGroup"].forEach(function (name) {
+  // Published plugins only (Figma's text for a local one)
+  Object.defineProperty(figma, "relatedLinks", { enumerable: false, get: function () { throw new Error("figma.relatedLinks is not available for local plugins. Please use the figma.devResources API instead."); } });
+  ["createNodeFromJSXAsync", "createVideo", "createVideoAsync", "createSticky", "createConnector", "createShapeWithText", "createTable", "createCodeBlock", "createGif", "createLinkPreviewAsync", "createSlide", "createSlideRow", "createPageDivider", "createTransformGroup"].forEach(function (name) {
     value(name, notSupported(name));
   });
 
