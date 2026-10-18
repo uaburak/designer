@@ -417,8 +417,11 @@ export function neighbourTab(state: TabsState, step: 1 | -1): string {
 
 // ── Offloading (atlas 01 §2.7) ────────────────────────────────────────────────
 
-/** Tabs loaded live at launch: the most recently viewed (Figma: 15; 6 behind a proxy). */
-export const LIVE_AT_START = 15;
+/**
+ * Tabs loaded live at launch: the most recently viewed. Figma loads 15 (6 behind a proxy); ours is 3 until the
+ * memory check before launch loading is built — one large file takes 3.2–3.6 GB here (the owner's B2C copy, 16 GB Mac).
+ */
+export const LIVE_AT_START = 3;
 /** The discard sweep: hourly, for tabs not viewed in 48 h, only with 5 tabs or more, keeping 3 live. */
 export const DISCARD_SWEEP_MS = 60 * 60_000;
 export const DISCARD_AFTER_MS = 48 * 60 * 60_000;

@@ -30,7 +30,7 @@ import { t, tp } from "../shared/i18n";
  * tabs (`file.renamed`) and close them (`file.trashed`, `file.deleted`).
  *
  * Figma's offloading (atlas 01 §2.7): at launch the most recently viewed
- * file tabs load in the background, one after another (15 in all); every
+ * file tabs load in the background, one after another (LIVE_AT_START in all); every
  * hour — and on coming back after 4 h away — loaded file tabs not viewed for
  * 48 h are offloaded, oldest first, 3 kept. An offloaded tab is flushed
  * first and stays loaded unless the flush succeeded: nothing unsaved goes.
@@ -201,7 +201,7 @@ export class TabManager {
 
   /**
    * The launch's live tabs (atlas 01 §2.7): besides the one in front, the most recently viewed file tabs load hidden,
-   * one after another as each finishes loading — 15 in all; ours leaves out those not viewed for 48 h, which the
+   * one after another as each finishes loading — LIVE_AT_START in all; ours leaves out those not viewed for 48 h, which the
    * sweep would offload at once.
    */
   private async warmUp() {
