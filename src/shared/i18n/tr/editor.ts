@@ -1311,4 +1311,15 @@ export const editor: Record<string, string> = {
   "Spin in": "Dönerek belir",
   "Text enter": "Metin girişi",
   "Text exit": "Metin çıkışı",
+  // ── Motion, round 8e (audio: motion/audio, the timeline's audio rows, the Audio section; docs/motion.md §6.6) ──
+  "Mute audio": "Sesi kapat",
+  "Unmute audio": "Sesi aç",
+  "Split audio at playhead": "Sesi oynatma kafasında böl",
+  "Add audio": "Ses ekle",
+  "Edit audio": "Sesi düzenle",
+  "Split audio": "Sesi böl",
+  "Delete audio": "Sesi sil",
+  Volume: "Ses düzeyi",
+  "Couldn't add audio": "Ses eklenemedi",
+  "Audio files can be up to 100 MB": "Ses dosyaları en fazla 100 MB olabilir",
 };

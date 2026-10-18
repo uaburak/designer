@@ -449,6 +449,10 @@ class Editor : private LayoutHost, public TextLayouts {
   void writeMotionTimeline(json::Writer& w, Guid root);
   void writeMotionFieldStates(json::Writer& w, const std::vector<Guid>& ids);
   void writeMotionResolved(json::Writer& w, Guid node);
+  // Round 8e (editor/MotionExport.cpp): what the vector exports draw — the root's layers as shapes at base values, and
+  // their evaluated transform, opacity, path trim, solid colours and stroke weight at each of `times` (µs).
+  void writeMotionShapes(json::Writer& w, Guid root);
+  void writeMotionSamples(json::Writer& w, Guid root, const std::vector<int64_t>& times);
 
   // ---- Figma Draw (docs/draw.md §4; round 7b: editor/DrawCommands.cpp, tools/DrawTools.cpp) ----
   // The Pencil's and the Brush's settings (the secondary toolbar's DrawToolSettings, src/shared/draw/types.ts).
@@ -1848,6 +1852,9 @@ class Editor : private LayoutHost, public TextLayouts {
   void motionOverlay(Overlay& o) const;
   // Round 8b (editor/MotionCommands.cpp).
   Status motionCommand(CommandId id, const CommandArgs& args);
+  Status motionAudioCommand(CommandId id, const json::Value& raw);  // round 8e: 345–348 on the root's audio
+  std::vector<std::pair<Guid, Guid>> motionExportLayers(Guid root);  // round 8e: (layer, parent) as the exports walk them
+  bool motionRasterized(Guid id) const;
   uint32_t motionCommandState(CommandId id) const;
   const VariableData* motionSlotData(const NodeProps& p, const motion::Slot& s) const;
   bool motionBaseValue(const NodeProps& p, const motion::Slot& s, motion::KeyframeValue& out) const;

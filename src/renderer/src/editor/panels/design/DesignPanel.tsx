@@ -31,6 +31,7 @@ import { usePaintTargets, useSelectedNodes, type PanelNode } from "./shared";
 import { designSections, isTypeNode } from "../../draw/panels/drawPanel";
 import { TransformSection } from "../../draw/panels/TransformSection";
 import { AnimationsSection } from "../../motion/panels/AnimationsSection";
+import { AudioSection } from "../../motion/panels/AudioSection";
 import { MotionSection } from "../../motion/panels/MotionSection";
 import { MotionFieldStates } from "../../motion/panels/MotionField";
 import { PathTrimSection } from "../../motion/panels/PathTrimSection";
@@ -158,6 +159,8 @@ function Selected({ nodes, paintNodes, onPick }: { nodes: PanelNode[]; paintNode
       {mode === "motion" && <MotionSection nodes={nodes} />}
       {/* Motion mode (docs/motion.md §4.6, §6.5): the selection's preset clips, + to add one, the composite styles (round 8h). */}
       {mode === "motion" && <AnimationsSection nodes={nodes} />}
+      {/* Motion mode (docs/motion.md §6.5, §6.6): the audio clip selected on the timeline — Volume, Mute (round 8e). */}
+      {mode === "motion" && <AudioSection />}
       {shown.has("position") && <PositionSection nodes={nodes} />}
       {shown.has("layout") && <LayoutSection nodes={nodes} />}
       {shown.has("appearance") && <AppearanceSection nodes={nodes} />}

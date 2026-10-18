@@ -113,6 +113,32 @@
   .clipHandle { position: absolute; top: 0; bottom: 0; width: 6px; cursor: ew-resize; }
   .clipHandle[data-clip-handle="start"] { left: 0; }
   .clipHandle[data-clip-handle="end"] { right: 0; }
+  /* Audio (round 8e): a row's eye at its end; a clip's bar with its waveform behind its name; muted ones dimmed [unverified] */
+  .audioRow { padding-right: var(--ds-space-1); }
+  .audioRow[data-muted] .name { color: var(--figma-color-text-tertiary); }
+  .eye { display: flex; flex: none; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--ds-radius-medium); background: none; color: var(--figma-color-icon-secondary); opacity: 0; }
+  .audioRow:hover .eye, .eye[aria-pressed="true"], .eye:focus-visible { opacity: 1; }
+  .eye:hover { background: var(--figma-color-bg-hover); }
+  .audioClip {
+    position: absolute;
+    top: 3px;
+    bottom: 3px;
+    display: flex;
+    align-items: center;
+    box-sizing: border-box;
+    min-width: 6px;
+    padding: 0 var(--ds-space-2);
+    overflow: hidden;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-success-tertiary);
+    color: var(--figma-color-text);
+    cursor: grab;
+  }
+  .audioClip[data-selected] { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected-strong); }
+  .audioClip[data-muted] { opacity: 0.4; }
+  .audioWave { position: absolute; top: 2px; right: 0; bottom: 2px; left: 0; width: 100%; height: calc(100% - 4px); pointer-events: none; }
+  .audioWave path { fill: none; stroke: var(--figma-color-icon-success); stroke-width: 1; opacity: 0.6; }
+  .audioClip .clipLabel { position: relative; }
   /* The interpolation line between two keyframes, inset 8 from each diamond; a Hold segment dashed */
   .segment { position: absolute; top: calc(50% - 1px); height: 2px; background: var(--figma-color-icon-tertiary); cursor: pointer; }
   .segment:hover { background: var(--figma-color-bg-brand); }

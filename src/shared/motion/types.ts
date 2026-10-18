@@ -522,6 +522,14 @@ export interface AudioEdit {
   trackId?: GuidString;
 }
 
+/** An audio row's edit (MOTION_SET_AUDIO `tracks`; round 8e, ours): the row's eye mutes it. */
+export interface AudioTrackEdit {
+  id: GuidString;
+  name?: string;
+  gain?: number;
+  mute?: boolean;
+}
+
 /** engine.runMotionCommand's arguments by CommandId (abi.ts 330–349). */
 export interface MotionCommandArgs {
   MOTION_ADD_KEYFRAME: { nodes: GuidString[]; field: KeyframeField; timeUs?: Micros; value?: KeyframeValue; easing?: EasingRef };
@@ -542,8 +550,8 @@ export interface MotionCommandArgs {
   MOTION_SET_ANCHOR: { nodes: GuidString[]; x: number; y: number; keepInPlace?: boolean };
   MOTION_SET_PATH_HANDLES: { keyframe: GuidString; in: { x: number; y: number }; out: { x: number; y: number } };
   MOTION_SET_TEXT_STAGGER: { node: GuidString; enabled: boolean; grouping?: "CHARACTER" | "CHARACTER_NO_WHITESPACE" | "WORD" | "LINE" | "PARAGRAPH"; delayMs?: number; order?: "LEFT_RIGHT" | "RIGHT_LEFT" | "CENTER_OUT" | "RANDOM" };
-  MOTION_ADD_AUDIO: { root: GuidString; mediaHash: string; name: string; offsetUs: Micros; durationUs: Micros };
-  MOTION_SET_AUDIO: { root: GuidString; edits: AudioEdit[] };
+  MOTION_ADD_AUDIO: { root: GuidString; mediaHash: string; name: string; offsetUs: Micros; durationUs: Micros; trackId?: GuidString };
+  MOTION_SET_AUDIO: { root: GuidString; edits?: AudioEdit[]; tracks?: AudioTrackEdit[] };
   MOTION_SPLIT_AUDIO: { root: GuidString; id: GuidString; atUs: Micros };
   MOTION_REMOVE_AUDIO: { root: GuidString; ids: GuidString[] };
   MOTION_PASTE_KEYFRAMES: { nodes: GuidString[]; atUs: Micros; clipboard: MotionClipboard };
@@ -617,23 +625,68 @@ export interface AnimatedExportProgress {
   phase: "render" | "encode" | "audio" | "mux" | "done";
 }
 
-/** engine.motionShapes(root): what the Lottie writer draws (outlines in each layer's local space, at base values). */
+/** A shape's paint: solid (the paint's opacity in its alpha), or a linear / radial gradient by its two ends in node space. */
+export type MotionShapePaint =
+  | { type: "SOLID"; color: RGBA }
+  | { type: "GRADIENT_LINEAR" | "GRADIENT_RADIAL"; stops: { position: number; color: RGBA }[]; from: { x: number; y: number }; to: { x: number; y: number } };
+
+export interface MotionShapePath {
+  /** SVG path data, absolute M / L / Q / C / Z, in the layer's space */
+  d: string;
+  windingRule: "NONZERO" | "EVENODD";
+  paint: MotionShapePaint;
+  /** The paint it draws (the samples' colours are by this index) */
+  source: { collection: "fills" | "strokes"; index: number };
+  /** A stroke on `d` as its centre line (a centred or open stroke; path trim trims it); absent: a filled area */
+  stroke?: { weight: number; cap: "NONE" | "ROUND" | "SQUARE"; join: "MITER" | "BEVEL" | "ROUND"; miterLimit: number; dashes: number[] };
+}
+
+/**
+ * engine.motionShapes(root): what the vector exports draw (round 8e; Lottie, dotLottie, animated SVG) — the root's
+ * layers at base values, the root first and each layer after its parent, back to front.
+ */
 export interface MotionShapeLayer {
   node: GuidString;
   parent: GuidString | null;
   name: string;
-  /** Local transform (2×3: a b c d e f) and size at base values */
+  /** The node type's name */
+  type: string;
+  /** Local transform (2×3: a b c d e f) at base values; the root's is the identity (drawn at the origin) */
   transform: [number, number, number, number, number, number];
   size: { width: number; height: number };
   opacity: number;
   /** Clips its children (frames with clip content) */
   clips: boolean;
-  /** SVG path data per paint: fills then strokes (strokes outlined) */
-  paths: { d: string; windingRule: "NONZERO" | "EVENODD"; paint: { type: "SOLID"; color: RGBA } | { type: "GRADIENT_LINEAR" | "GRADIENT_RADIAL"; stops: { position: number; color: RGBA }[]; from: { x: number; y: number }; to: { x: number; y: number } } }[];
-  /** An image fill's hash (the layer is drawn as that image, FILL / FIT resolved to a rect) */
-  image?: { hash: string; rect: { x: number; y: number; width: number; height: number } };
-  /** Can't be expressed as shapes (shaders, angular gradients, effects): export as a raster of the base state */
+  /** Fills (bottom first, text as its glyphs' outlines), then strokes */
+  paths: MotionShapePath[];
+  /** Can't be shapes (images, videos, shaders, angular / diamond gradients, blurs, a mask inside): a raster of its base state */
   rasterize: boolean;
+  /** Where that raster goes: its size at scale 1 and the transform from its pixels to the layer's space */
+  raster?: { width: number; height: number; transform: [number, number, number, number, number, number] };
+}
+
+/** One layer's evaluated values at one time (engine.motionSamples). */
+export interface MotionSample {
+  /** Local transform (2×3) with the motion transform composed */
+  t: [number, number, number, number, number, number];
+  /** Opacity 0–1 */
+  o: number;
+  w: number;
+  h: number;
+  /** Path trim [start, end] when it cuts anything */
+  trim?: [number, number];
+  /** Each fill's / stroke's colour with its paint's opacity (null: not a solid paint) */
+  fills: (RGBA | null)[];
+  strokes: (RGBA | null)[];
+  /** Stroke weight */
+  sw: number;
+}
+
+/** engine.motionSamples(root, times): each of motionShapes' layers at each time. */
+export interface MotionSamples {
+  root: GuidString;
+  times: Micros[];
+  layers: { node: GuidString; frames: MotionSample[] }[];
 }
 
 // ---- Dev Mode ------------------------------------------------------------------------------------------------------

@@ -166,6 +166,32 @@ struct Assignment {
   bool found = false;  // the entry is in the instance's map
 };
 
+// An audio clip on a timeline root (schema AudioFill, `audioFills 603`; docs/motion.md §4.11; round 8e): a region of a
+// stored audio file (`mediaHash`, the file's image store as videos) from `startUs` into it for `durationUs`, placed at
+// `offsetUs` in the root's time, on the row `track` (`audioTracks 605`). The engine stores and edits them; the renderer
+// plays and mixes them (Web Audio), so nothing here is evaluated.
+struct AudioClip {
+  Guid id = kNoGuid;
+  std::string mediaHash;
+  int64_t offsetUs = 0;
+  int64_t startUs = 0;
+  int64_t durationUs = 0;
+  double volume = 1;
+  bool mute = false;
+  std::string name;
+  bool loop = false;
+  int64_t playbackDurationUs = 0;
+  Guid track = kNoGuid;
+  int64_t loopPhaseUs = 0;
+};
+
+struct AudioRow {
+  Guid id = kNoGuid;
+  std::string name;
+  double gain = 1;
+  bool mute = false;
+};
+
 // The decoded model of a document, rebuilt when the document changes (MotionLayer asks).
 class MotionIndex {
  public:
@@ -210,6 +236,9 @@ LayerBase decodeLayerBase(const NodeProps& p);
 // An instance's `timelineAssignments` entry for its main's timeline `assigned` placed in `containing`'s.
 Assignment decodeAssignment(const NodeProps& instance, Guid assigned, Guid containing);
 bool isTimelineRoot(const Document& doc, Guid id);
+// A root's audio clips and rows (round 8e), in their stored order.
+std::vector<AudioClip> decodeAudioClips(const NodeProps& root);
+std::vector<AudioRow> decodeAudioRows(const NodeProps& root);
 // One of the node's `extra` fields as JSON (null when absent or unreadable).
 json::Value extraJson(const NodeProps& p, const char* key);
 

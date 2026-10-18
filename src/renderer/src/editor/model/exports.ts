@@ -163,10 +163,14 @@ export function describeSetting(s: ExportSettings): string {
   return isVectorFormat(f) ? formatLabel(f) : `${scaleLabel(s)} ${formatLabel(f)}`;
 }
 
-/** The settings of a node as the panel reads them (absent: none). */
+/** Motion's Animated tab entry (round 8e, docs/motion.md §7.1): a video, GIF, Lottie or animated SVG format. */
+export const isAnimatedSetting = (s: ExportSettings): boolean =>
+  s.imageType === "MP4" || s.imageType === "WEBM" || s.imageType === "GIF" || s.imageType === "LOTTIE" || s.imageType === "DOTLOTTIE" || (s.imageType === "SVG" && !!s.svgAnimated);
+
+/** The settings of a node as the panel reads them (absent: none; the Animated tab's entry is its own). */
 export function exportSettingsOf(node: { exportSettings?: unknown } | null | undefined): ExportSettings[] {
   const v = node?.exportSettings;
-  return Array.isArray(v) ? (v as ExportSettings[]) : [];
+  return Array.isArray(v) ? (v as ExportSettings[]).filter((s) => !isAnimatedSetting(s)) : [];
 }
 
 /** The JPEG / PDF image quality of a setting (0..1; a missing one is the format's default). */

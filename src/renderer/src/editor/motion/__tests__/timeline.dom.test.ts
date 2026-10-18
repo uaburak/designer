@@ -2,7 +2,7 @@
 // The timeline (docs/motion.md §6.2) on a fixed model (the committed wasm predates Motion, so the view is tested on its
 // own): the rows, the diamonds' selection and drag, Delete, the segment's Easing menu, the header's controls; increment
 // 2's marquee, ⌘C / ⌘V and the top edge; round 8a increment 2's animated instance bar dragged in time; round 8h's
-// preset clips (selected, dragged, stretched by either handle, deleted).
+// preset clips (selected, dragged, stretched by either handle, deleted); round 8e's audio rows.
 import { act } from "react";
 import { describe, expect, it } from "vitest";
 import type { TimelineModel } from "@shared/motion/types";
@@ -329,6 +329,45 @@ describe("the Motion timeline", () => {
     expect($('[data-clip="c1"]', view.host).hasAttribute("data-selected")).toBe(true);
     key($('[aria-label="Tracks"]', view.host), "Delete");
     expect(s.onDeleteClip.calls.at(-1)).toEqual(["c1"]);
+    view.unmount();
+  });
+
+  it("audio rows under the layers: a clip selects, moves and trims (never past the file), its row's eye mutes, Delete removes it", () => {
+    const clip = { id: "a1", trackId: "r1", name: "Beat", mediaHash: "h1", offsetUs: 500_000, startUs: 200_000, durationUs: 1_000_000, volume: 1, mute: false };
+    const withAudio: TimelineModel = { ...MODEL, audioTracks: [{ id: "r1", name: "Beat", gain: 1, mute: false }], audio: [clip] };
+    const a = { onSelectAudio: spy(), onEditAudio: spy(), onDeleteAudio: spy(), onToggleAudioRow: spy(), onAudioMenu: spy() };
+    const { view, s, scale, rerender } = setup({ model: withAudio, ...(a as unknown as Partial<TimelineProps>), audioLength: () => 1_500_000, audioPeaks: () => new Float32Array(200).fill(0.5) });
+    expect($$("[data-audio-row]", view.host).map((e) => e.textContent)).toEqual(["Beat"]);
+    const bar = $('[data-audio-clip="a1"]', view.host);
+    expect(bar.style.left).toBe(`${ORIGIN_PX + 500_000 * scale.pxPerUs}px`);
+    expect(bar.querySelector("svg path")?.getAttribute("d")).toMatch(/^M0\.5 /); // the waveform
+    // A press selects it; a drag moves it, snapped to frames, one final call.
+    pointer(bar, "pointerdown", { clientX: 200 });
+    expect(a.onSelectAudio.calls.at(-1)).toEqual(["a1"]);
+    windowPointer("pointermove", { clientX: 230 });
+    windowPointer("pointerup", { clientX: 230 });
+    const moved = Math.round(Math.round((500_000 + 30 / scale.pxPerUs) / frameUs(60)) * frameUs(60));
+    expect(a.onEditAudio.calls.at(-1)).toEqual([clip, { offsetUs: moved }, true]);
+    // The right handle stops at the file's end (1.5 s long, the region starting 0.2 s in: 1.3 s at most).
+    pointer($('[data-audio-clip="a1"] [data-audio-handle="end"]', view.host), "pointerdown", { clientX: 300 });
+    windowPointer("pointermove", { clientX: 590 });
+    windowPointer("pointerup", { clientX: 590 });
+    expect(a.onEditAudio.calls.at(-1)).toEqual([clip, { durationUs: 1_300_000 }, true]);
+    // The left handle trims the head: back no further than the file's start.
+    pointer($('[data-audio-clip="a1"] [data-audio-handle="start"]', view.host), "pointerdown", { clientX: 300 });
+    windowPointer("pointermove", { clientX: 0 });
+    windowPointer("pointerup", { clientX: 0 });
+    expect(a.onEditAudio.calls.at(-1)).toEqual([clip, { offsetUs: 300_000, startUs: 0, durationUs: 1_200_000 }, true]);
+    // The row's eye mutes the row.
+    click($('[data-audio-eye="r1"]', view.host));
+    expect(a.onToggleAudioRow.calls.at(-1)).toEqual(["r1", true]);
+    // Selected: Delete removes it; with audio, Playback skips Ping-pong (Loop → Once → Loop).
+    rerender({ model: { ...withAudio, playback: "ONCE" }, selectedAudio: "a1" });
+    expect($('[data-audio-clip="a1"]', view.host).hasAttribute("data-selected")).toBe(true);
+    key($('[aria-label="Tracks"]', view.host), "Delete");
+    expect(a.onDeleteAudio.calls.at(-1)).toEqual([["a1"]]);
+    click($('[aria-label^="Playback"]', view.host));
+    expect(s.onSetTimeline.calls.at(-1)).toEqual([{ playback: "LOOP" }, true]);
     view.unmount();
   });
 });

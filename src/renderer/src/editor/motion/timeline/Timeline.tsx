@@ -12,17 +12,24 @@
  * its start for its duration — click selects it (and opens its settings in the Animations section), drag moves it,
  * its side handles change its start or its length (snapped as keyframes are), Delete removes it.
  *
+ * Round 8e: the root's audio rows under the layers (docs/motion.md §6.2, §6.6) — each row's name and eye (its mute),
+ * its clips as bars with their file's waveform: click selects one (the Audio section shows its volume), drag moves
+ * it, its side handles trim it (never past the file's ends), Delete removes it, right-click opens its menu (Mute
+ * audio, Split audio at playhead, Delete); audio files dropped on the timeline land at the drop's time. Ping-pong is
+ * skipped by the Playback button while the timeline has audio (Figma disables it).
+ *
  * A pure view of a `TimelineModel`: every change goes out through its callbacks, so MotionMode wires it to the engine
- * and the tests mount it on a fixed model. Not yet: audio rows, the layer bar's drag and scale handles, the timeline
- * settings popover.
+ * and the tests mount it on a fixed model. Not yet: the layer bar's drag and scale handles, the timeline settings
+ * popover.
  */
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type WheelEvent as ReactWheelEvent } from "react";
-import { Icon, IconButton, Slider, TextInput, type IconName } from "@/ds";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type WheelEvent as ReactWheelEvent } from "react";
+import { ContextMenu, Icon, IconButton, Slider, TextInput, type IconName, type MenuEntry } from "@/ds";
 import { capture } from "@/ds/util/pointer";
 import { t, useT } from "@/i18n";
-import { ANIMATION_PRESETS, EASING_LABELS, PLAYBACK_CYCLE, PLAYBACK_LABELS, type EasingRef, type GuidString, type Micros, type PlaybackName, type TimelineClip, type TimelineKeyframe, type TimelineLayer, type TimelineModel, type TimelineTrack, type TimelineUnit } from "@shared/motion/types";
+import { ANIMATION_PRESETS, EASING_LABELS, PLAYBACK_CYCLE, PLAYBACK_LABELS, type EasingRef, type GuidString, type Micros, type PlaybackName, type TimelineAudioClip, type TimelineClip, type TimelineKeyframe, type TimelineLayer, type TimelineModel, type TimelineTrack, type TimelineUnit } from "@shared/motion/types";
+import { isAudioFile, waveformPath } from "../audio/audio";
 import { EasingMenu } from "../easing/EasingEditor";
-import { DIAMOND_PX, clampTimelineHeight, fitScale, formatTime, frameUs, layerExtent, marqueeBox, otherKeyframeTimes, overlaps, parseTime, rulerTicks, snapTime, snapToFrame, timeToX, xToTime, type Box, type Scale } from "./maths";
+import { DIAMOND_PX, clampTimelineHeight, fitScale, formatTime, frameUs, layerExtent, marqueeBox, otherKeyframeTimes, overlaps, parseTime, rulerTicks, snapTime, snapToFrame, timeToX, trimAudio, xToTime, type Box, type Scale } from "./maths";
 import styles from "./Timeline.module.css";
 
 export interface TimelineProps {
@@ -66,6 +73,21 @@ export interface TimelineProps {
   /** A clip dragged (its start) or a side handle (its start and length): each frame (`final` false), once more on release */
   onEditClip?(clip: TimelineClip, patch: { startUs?: Micros; durationUs?: Micros }, final: boolean): void;
   onDeleteClip?(id: GuidString): void;
+  /** The audio clip selected (round 8e; the Audio section shows its volume) */
+  selectedAudio?: GuidString | null;
+  onSelectAudio?(id: GuidString | null): void;
+  /** An audio clip dragged (its offset) or trimmed (a side handle): each frame (`final` false), once more on release */
+  onEditAudio?(clip: TimelineAudioClip, patch: { offsetUs?: Micros; startUs?: Micros; durationUs?: Micros }, final: boolean): void;
+  onDeleteAudio?(ids: GuidString[]): void;
+  /** An audio row's eye: mute or unmute the row */
+  onToggleAudioRow?(trackId: GuidString, mute: boolean): void;
+  /** An audio clip's menu picked: "mute" (Mute / Unmute audio), "split" (at the playhead), "delete" */
+  onAudioMenu?(clip: TimelineAudioClip, action: "mute" | "split" | "delete"): void;
+  /** Audio files dropped on the timeline, at the drop's time */
+  onDropAudio?(files: File[], atUs: Micros): void;
+  /** A file's waveform (PEAKS_PER_SECOND peaks, 0–1) and its length (µs); null while it isn't decoded */
+  audioPeaks?(hash: string): Float32Array | null;
+  audioLength?(hash: string): Micros | null;
 }
 
 const PLAYBACK_ICON: Record<PlaybackName, IconName> = { LOOP: "24.loop", ONCE: "24.play-once", PING_PONG: "24.ping-pong" };
@@ -88,6 +110,13 @@ interface EasingTarget {
   easing: EasingRef;
   anchor: { x: number; y: number; width: number; height: number };
 }
+
+/** One row of the layer column and its lane. */
+type Row =
+  | { kind: "layer"; layer: TimelineLayer }
+  | { kind: "clip"; layer: TimelineLayer; clip: TimelineClip }
+  | { kind: "track"; layer: TimelineLayer; track: TimelineTrack }
+  | { kind: "audio"; row: TimelineModel["audioTracks"][number]; clips: TimelineAudioClip[] };
 
 /** The Layers panel's icon name, or the frame glyph when the engine gave one the registry lacks. */
 const iconOf = (name: string): IconName => (name.startsWith("16.") ? (name as IconName) : (`16.${name}` as IconName));
@@ -122,17 +151,21 @@ export function Timeline(p: TimelineProps) {
   }, [durationUs, width, zoom]);
 
   const layers = useMemo(() => model?.layers ?? [], [model]);
-  // A row per layer, then (expanded) a row per clip and a row per track: the same list draws the layer column and the lanes.
+  // A row per layer, then (expanded) a row per clip and a row per track, then the audio rows: the same list draws the
+  // layer column and the lanes.
   const rows = useMemo(() => {
-    const out: { kind: "layer" | "clip" | "track"; layer: TimelineLayer; track?: TimelineTrack; clip?: TimelineClip }[] = [];
+    const out: Row[] = [];
     for (const l of layers) {
       out.push({ kind: "layer", layer: l });
       if (collapsedLayers.has(l.node) || l.instance) continue;
       for (const c of l.clips) out.push({ kind: "clip", layer: l, clip: c });
       for (const tr of l.tracks) out.push({ kind: "track", layer: l, track: tr });
     }
+    for (const row of model?.audioTracks ?? []) out.push({ kind: "audio", row, clips: (model?.audio ?? []).filter((c) => c.trackId === row.id) });
     return out;
-  }, [layers, collapsedLayers]);
+  }, [layers, collapsedLayers, model]);
+  const rowKey = (r: Row) => (r.kind === "layer" ? r.layer.node : r.kind === "clip" ? r.clip.id : r.kind === "track" ? r.track.id : r.row.id);
+  const [audioMenu, setAudioMenu] = useState<{ clip: TimelineAudioClip; at: { x: number; y: number } } | null>(null);
 
   const seekAt = (clientX: number) => {
     const el = tracksEl.current;
@@ -274,6 +307,64 @@ export function Timeline(p: TimelineProps) {
     window.addEventListener("pointercancel", up);
   };
 
+  // ---- An audio clip: drag moves it, its side handles trim it (frames; ⇧ the playhead and keyframes) ------------------
+  const onAudioDown = (e: ReactPointerEvent<HTMLElement>, clip: TimelineAudioClip, edge: "move" | "start" | "end") => {
+    if (e.button !== 0 || readOnly) return;
+    e.stopPropagation();
+    p.onSelectAudio?.(clip.id);
+    p.onSelectClip?.(null);
+    p.onSelectKeyframes([]);
+    setSelectedRow(null);
+    if (!p.onEditAudio) return;
+    capture(e.currentTarget, e.pointerId);
+    const startX = e.clientX;
+    const targets = [timeUs, ...otherKeyframeTimes(layers, new Set())];
+    const lengthUs = p.audioLength?.(clip.mediaHash) ?? null;
+    const from = edge === "end" ? clip.offsetUs + clip.durationUs : clip.offsetUs;
+    let moving = false;
+    const at = (clientX: number, shift: boolean) => {
+      const want = from + (clientX - startX) / scale.pxPerUs;
+      const to = shift ? snapTime(want, fps, targets, SNAP_PX / scale.pxPerUs) : snapToFrame(want, fps);
+      return trimAudio(clip, edge, to, lengthUs, frameUs(fps));
+    };
+    const move = (ev: PointerEvent) => {
+      if (!moving && Math.abs(ev.clientX - startX) < DRAG_PX) return;
+      moving = true;
+      p.onEditAudio!(clip, at(ev.clientX, ev.shiftKey), false);
+    };
+    const up = (ev: PointerEvent) => {
+      if (moving) p.onEditAudio!(clip, at(ev.clientX, ev.shiftKey), true);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
+  const audioMenuEntries = (clip: TimelineAudioClip): MenuEntry[] => [
+    { id: "mute", label: clip.mute ? t("Unmute audio") : t("Mute audio") },
+    { id: "split", label: t("Split audio at playhead"), shortcut: "⌥K", disabled: !(timeUs > clip.offsetUs && timeUs < clip.offsetUs + clip.durationUs) },
+    "-",
+    { id: "delete", label: t("Delete"), shortcut: "⌫" },
+  ];
+  // Audio files dropped on the track area land at the drop's time; on the layer column, at the playhead.
+  const onDragOver = (e: ReactDragEvent) => {
+    if (readOnly || !p.onDropAudio || !e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  };
+  const onDrop = (e: ReactDragEvent) => {
+    const files = [...e.dataTransfer.files].filter(isAudioFile);
+    if (readOnly || !p.onDropAudio || !files.length) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const el = tracksEl.current;
+    const r = el?.getBoundingClientRect();
+    const inTracks = !!r && e.clientX >= r.left;
+    p.onDropAudio(files, inTracks ? snapToFrame(xToTime(e.clientX - r!.left, scale), fps) : timeUs);
+  };
+
   // ---- The duration handle --------------------------------------------------------------------------------------------
   const onDurationDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 || readOnly) return;
@@ -364,6 +455,7 @@ export function Timeline(p: TimelineProps) {
       e.preventDefault();
       if (selectedKeyframes.size) return p.onDeleteKeyframes([...selectedKeyframes]);
       if (p.selectedClip && p.onDeleteClip) return p.onDeleteClip(p.selectedClip);
+      if (p.selectedAudio && p.onDeleteAudio) return p.onDeleteAudio([p.selectedAudio]);
       if (selectedRow) {
         const track = layers.find((l) => l.node === selectedRow.node)?.tracks.find((tr) => tr.id === selectedRow.track);
         if (track) p.onDeleteTrack(selectedRow.node, track);
@@ -381,7 +473,9 @@ export function Timeline(p: TimelineProps) {
 
   const cyclePlayback = () => {
     const cur = model?.playback ?? "LOOP";
-    p.onSetTimeline({ playback: PLAYBACK_CYCLE[(PLAYBACK_CYCLE.indexOf(cur) + 1) % PLAYBACK_CYCLE.length] }, true);
+    // Ping-pong is disabled while the timeline has audio (docs/motion.md §6.2).
+    const cycle = model?.audio.length ? PLAYBACK_CYCLE.filter((m) => m !== "PING_PONG") : PLAYBACK_CYCLE;
+    p.onSetTimeline({ playback: cycle[(cycle.indexOf(cur) + 1) % cycle.length] }, true);
   };
   const allCollapsed = layers.length > 0 && layers.every((l) => collapsedLayers.has(l.node));
   const collapseAll = () => setCollapsedLayers(allCollapsed ? new Set() : new Set(layers.map((l) => l.node)));
@@ -392,7 +486,7 @@ export function Timeline(p: TimelineProps) {
   const state = collapsed ? "collapsed" : "open";
 
   return (
-    <section ref={panelEl} data-motion-timeline={state} data-auto-keyframe={autoKeyframe || undefined} data-theme="dark" className={styles.panel} aria-label={t("Timeline")}>
+    <section ref={panelEl} data-motion-timeline={state} data-auto-keyframe={autoKeyframe || undefined} data-theme="dark" className={styles.panel} aria-label={t("Timeline")} onDragOver={onDragOver} onDrop={onDrop}>
       {!collapsed && <div className={styles.resize} role="separator" aria-orientation="horizontal" aria-label={t("Resize timeline")} data-timeline-resize onPointerDown={onResizeDown} />}
       <div className={styles.header}>
         <IconButton icon={p.playing ? "24.pause" : "24.play"} label={p.playing ? t("Pause") : t("Play")} shortcut="Space" onClick={p.onTogglePlay} />
@@ -439,20 +533,31 @@ export function Timeline(p: TimelineProps) {
                         setSelectedRow(null);
                       }} />
                     ) : r.kind === "clip" ? (
-                      <button key={r.clip!.id} type="button" role="treeitem" aria-level={r.layer.depth + 2} aria-selected={p.selectedClip === r.clip!.id} data-clip-row={r.clip!.id} className={styles.propertyRow} style={{ "--depth": r.layer.depth } as CSSProperties} onClick={() => {
+                      <button key={r.clip.id} type="button" role="treeitem" aria-level={r.layer.depth + 2} aria-selected={p.selectedClip === r.clip.id} data-clip-row={r.clip.id} className={styles.propertyRow} style={{ "--depth": r.layer.depth } as CSSProperties} onClick={() => {
                         setSelectedRow(null);
                         p.onSelectKeyframes([]);
-                        p.onSelectClip?.(r.clip!.id);
+                        p.onSelectClip?.(r.clip.id);
                       }}>
-                        <span className={styles.name}>{clipName(r.clip!)}</span>
+                        <span className={styles.name}>{clipName(r.clip)}</span>
+                      </button>
+                    ) : r.kind === "track" ? (
+                      <button key={r.track.id} type="button" role="treeitem" aria-level={r.layer.depth + 2} aria-selected={selectedRow?.track === r.track.id} data-track-row={r.track.id} className={styles.propertyRow} style={{ "--depth": r.layer.depth } as CSSProperties} onClick={() => {
+                        setSelectedRow({ node: r.layer.node, track: r.track.id });
+                        p.onSelectKeyframes(r.track.keyframes.map((k) => k.id));
+                      }}>
+                        <span className={styles.name}>{t(r.track.label)}</span>
                       </button>
                     ) : (
-                      <button key={r.track!.id} type="button" role="treeitem" aria-level={r.layer.depth + 2} aria-selected={selectedRow?.track === r.track!.id} data-track-row={r.track!.id} className={styles.propertyRow} style={{ "--depth": r.layer.depth } as CSSProperties} onClick={() => {
-                        setSelectedRow({ node: r.layer.node, track: r.track!.id });
-                        p.onSelectKeyframes(r.track!.keyframes.map((k) => k.id));
-                      }}>
-                        <span className={styles.name}>{t(r.track!.label)}</span>
-                      </button>
+                      <div key={r.row.id} role="treeitem" aria-level={1} aria-selected={r.clips.some((c) => c.id === p.selectedAudio)} data-audio-row={r.row.id} className={`${styles.layerRow} ${styles.audioRow}`} data-muted={r.row.mute || undefined}>
+                        <span className={styles.chevron} aria-hidden />
+                        <span className={styles.glyph}><Icon name="16.audio" /></span>
+                        <span className={styles.name}>{r.row.name || t("Audio")}</span>
+                        {!readOnly && (
+                          <button type="button" className={styles.eye} aria-label={r.row.mute ? t("Unmute audio") : t("Mute audio")} aria-pressed={r.row.mute} data-audio-eye={r.row.id} onClick={() => p.onToggleAudioRow?.(r.row.id, !r.row.mute)}>
+                            <Icon name={r.row.mute ? "16.hidden" : "16.visible"} />
+                          </button>
+                        )}
+                      </div>
                     )
                   )}
                 </div>
@@ -481,10 +586,17 @@ export function Timeline(p: TimelineProps) {
                 </div>
                 <div className={styles.lanes}>
                   {rows.map((r) => (
-                    <div key={r.kind === "layer" ? r.layer.node : r.kind === "clip" ? r.clip!.id : r.track!.id} className={styles.lane} aria-selected={r.kind === "track" && selectedRow?.track === r.track!.id ? true : undefined} data-lane={r.kind === "layer" ? r.layer.node : r.kind === "clip" ? r.clip!.id : r.track!.id}>
+                    <div key={rowKey(r)} className={styles.lane} aria-selected={r.kind === "track" && selectedRow?.track === r.track.id ? true : undefined} data-lane={rowKey(r)}>
                       {r.kind === "clip" ? (
-                        <ClipLane clip={r.clip!} scale={scale} selected={p.selectedClip === r.clip!.id} onDown={(e, edge) => onClipDown(e, r.clip!, edge)} />
-                      ) : r.kind === "layer" ? <LayerLane layer={r.layer} scale={scale} onInstanceDown={readOnly || !p.onMoveInstance ? undefined : (e) => onInstanceDown(e, r.layer)} /> : <TrackLane track={r.track!} scale={scale} durationUs={shownDuration} selected={selectedKeyframes} dragging={drag?.moving ? new Set(drag.items.map((i) => i.id)) : null} onDown={onDiamondDown} onDouble={(k) => {
+                        <ClipLane clip={r.clip} scale={scale} selected={p.selectedClip === r.clip.id} onDown={(e, edge) => onClipDown(e, r.clip, edge)} />
+                      ) : r.kind === "audio" ? (
+                        r.clips.map((c) => (
+                          <AudioClipLane key={c.id} clip={c} rowMuted={r.row.mute} scale={scale} selected={p.selectedAudio === c.id} peaks={p.audioPeaks?.(c.mediaHash) ?? null} onDown={(e, edge) => onAudioDown(e, c, edge)} onMenu={readOnly || !p.onAudioMenu ? undefined : (at) => {
+                            p.onSelectAudio?.(c.id);
+                            setAudioMenu({ clip: c, at });
+                          }} />
+                        ))
+                      ) : r.kind === "layer" ? <LayerLane layer={r.layer} scale={scale} onInstanceDown={readOnly || !p.onMoveInstance ? undefined : (e) => onInstanceDown(e, r.layer)} /> : <TrackLane track={r.track} scale={scale} durationUs={shownDuration} selected={selectedKeyframes} dragging={drag?.moving ? new Set(drag.items.map((i) => i.id)) : null} onDown={onDiamondDown} onDouble={(k) => {
                         p.onSeek(k.timeUs);
                         p.onSelectLayer(r.layer.node, false);
                       }} onSegment={(k, anchor) => setEasingAt({ ids: [k.id], easing: k.easing, anchor })} />}
@@ -511,6 +623,9 @@ export function Timeline(p: TimelineProps) {
           }}
           onClose={() => setEasingAt(null)}
         />
+      )}
+      {audioMenu && (
+        <ContextMenu at={audioMenu.at} context entries={audioMenuEntries(audioMenu.clip)} label={t("Audio")} onSelect={(id) => p.onAudioMenu?.(audioMenu.clip, id as "mute" | "split" | "delete")} onClose={() => setAudioMenu(null)} />
       )}
     </section>
   );
@@ -546,6 +661,36 @@ function ClipLane({ clip, scale, selected, onDown }: { clip: TimelineClip; scale
       <span className={styles.clipLabel}>{clipName(clip)}</span>
       <span className={styles.clipHandle} data-clip-handle="start" onPointerDown={(e) => onDown(e, "start")} />
       <span className={styles.clipHandle} data-clip-handle="end" onPointerDown={(e) => onDown(e, "end")} />
+    </div>
+  );
+}
+
+/** An audio clip: its bar over its region with the file's waveform and name, a handle at each side; right-click its menu. */
+function AudioClipLane({ clip, rowMuted, scale, selected, peaks, onDown, onMenu }: {
+  clip: TimelineAudioClip;
+  rowMuted: boolean;
+  scale: Scale;
+  selected: boolean;
+  peaks: Float32Array | null;
+  onDown(e: ReactPointerEvent<HTMLElement>, edge: "move" | "start" | "end"): void;
+  onMenu?(at: { x: number; y: number }): void;
+}) {
+  const width = Math.max(6, clip.durationUs * scale.pxPerUs);
+  return (
+    <div className={styles.audioClip} data-audio-clip={clip.id} data-selected={selected || undefined} data-muted={clip.mute || rowMuted || undefined} style={{ left: timeToX(clip.offsetUs, scale), width }} title={clip.name} onPointerDown={(e) => onDown(e, "move")} onContextMenu={(e) => {
+      if (!onMenu) return;
+      e.preventDefault();
+      e.stopPropagation();
+      onMenu({ x: e.clientX, y: e.clientY });
+    }}>
+      {peaks && (
+        <svg className={styles.audioWave} viewBox={`0 0 ${Math.ceil(width)} 16`} preserveAspectRatio="none" aria-hidden>
+          <path d={waveformPath(peaks, clip.startUs, clip.durationUs, width, 16)} />
+        </svg>
+      )}
+      <span className={styles.clipLabel}>{clip.name || t("Audio")}</span>
+      <span className={styles.clipHandle} data-audio-handle="start" onPointerDown={(e) => onDown(e, "start")} />
+      <span className={styles.clipHandle} data-audio-handle="end" onPointerDown={(e) => onDown(e, "end")} />
     </div>
   );
 }

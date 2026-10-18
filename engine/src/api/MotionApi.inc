@@ -67,3 +67,39 @@ ENG_EXPORT int32_t engine_motion_resolved(Handle h, Ptr refPtr, uint32_t refLen)
   e->editor.writeMotionResolved(w, id);
   return setResult(w.take());
 }
+
+// engine_motion_shapes(h, ref): the vector exports' layers of the root holding `ref` at base values (round 8e;
+// MotionShapeLayer[] in src/shared/motion/types.ts); null when there is none.
+ENG_EXPORT int32_t engine_motion_shapes(Handle h, Ptr refPtr, uint32_t refLen) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  bool ok = false;
+  Guid id = Guid::parse(bytes(refPtr, refLen), &ok);
+  if (!ok) return E_INVALID;
+  json::Writer w;
+  e->editor.writeMotionShapes(w, id);
+  return setResult(w.take());
+}
+
+// engine_motion_samples(h, json {root, times}): each of those layers' evaluated values at each time (µs) — MotionSamples
+// in src/shared/motion/types.ts; the view state is put back after.
+ENG_EXPORT int32_t engine_motion_samples(Handle h, Ptr ptr, uint32_t len) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  json::Value v;
+  if (!parse(ptr, len, v) || !v.isObject()) return E_DECODE;
+  const json::Value* rootV = v.get("root");
+  const json::Value* list = v.get("times");
+  if (!rootV || !rootV->isString() || !list || !list->isArray()) return E_INVALID;
+  bool ok = false;
+  Guid root = Guid::parse(rootV->string, &ok);
+  if (!ok) return E_INVALID;
+  std::vector<int64_t> times;
+  for (const json::Value& t : list->array)
+    if (t.isNumber()) times.push_back(static_cast<int64_t>(std::llround(t.number)));
+  json::Writer w;
+  e->editor.writeMotionSamples(w, root, times);
+  return setResult(w.take());
+}

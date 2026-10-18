@@ -1,7 +1,8 @@
 /**
  * The editor's playback clock (docs/motion.md §3.7, §6.2): requestAnimationFrame-driven, t advances by wall time × 1;
  * at the duration ONCE stops, LOOP wraps, Ping-pong reverses; pausing keeps the playhead. The engine evaluates at the
- * time it is given (`onTime`), once per frame. The frame source and the clock are injectable (tests).
+ * time it is given (`onTime`), once per frame. The frame source and the clock are injectable (tests). While audio
+ * plays, the AudioContext's clock is the master (`master`, round 8e): the frames still come from rAF, their time from it.
  */
 import type { Micros, PlaybackName } from "@shared/motion/types";
 
@@ -15,6 +16,8 @@ export interface ClockOptions {
   raf?: (cb: (nowMs: number) => void) => number;
   caf?: (handle: number) => void;
   now?: () => number;
+  /** A master clock in ms (the AudioContext's while audio plays), or null: rAF's time then */
+  master?: () => number | null;
 }
 
 export class Clock {
@@ -26,6 +29,9 @@ export class Clock {
   private readonly raf: (cb: (nowMs: number) => void) => number;
   private readonly caf: (handle: number) => void;
   private readonly now: () => number;
+  private readonly master?: () => number | null;
+  /** The last time came from the master clock (a switch starts the frame interval afresh) */
+  private onMaster = false;
   durationUs: Micros;
   playback: PlaybackName;
   private readonly onTime: (timeUs: Micros) => void;
@@ -39,6 +45,7 @@ export class Clock {
     this.raf = o.raf ?? ((cb) => requestAnimationFrame(cb));
     this.caf = o.caf ?? ((h) => cancelAnimationFrame(h));
     this.now = o.now ?? (() => performance.now());
+    this.master = o.master;
   }
 
   get playing(): boolean {
@@ -53,7 +60,7 @@ export class Clock {
     this.timeUs = Math.max(0, fromUs);
     if (this.playback === "ONCE" && this.timeUs >= this.durationUs) this.timeUs = 0;
     this.direction = 1;
-    this.lastMs = this.now();
+    this.lastMs = this.nowMs();
     if (this.running) return;
     this.running = true;
     this.schedule();
@@ -69,7 +76,7 @@ export class Clock {
   /** The playhead moved by hand (a scrub, a typed time): the clock continues from there. */
   seek(timeUs: Micros): void {
     this.timeUs = Math.max(0, timeUs);
-    this.lastMs = this.now();
+    this.lastMs = this.nowMs();
   }
 
   /** The timeline's duration or playback changed under the clock. */
@@ -79,8 +86,15 @@ export class Clock {
   }
 
   /** One frame at `nowMs` (what the frame source calls): the new playhead, or the end of a ONCE run. */
-  tick(nowMs: number): void {
+  tick(frameMs: number): void {
     if (!this.running) return;
+    const m = this.master?.() ?? null;
+    const nowMs = m ?? frameMs;
+    if ((m !== null) !== this.onMaster) {
+      // The master clock started or stopped: this frame starts the interval afresh.
+      this.onMaster = m !== null;
+      this.lastMs = nowMs;
+    }
     const dtUs = Math.max(0, nowMs - this.lastMs) * 1000;
     this.lastMs = nowMs;
     let t = this.timeUs + this.direction * dtUs;
@@ -114,6 +128,12 @@ export class Clock {
     this.timeUs = Math.round(t);
     this.onTime(this.timeUs);
     this.schedule();
+  }
+
+  private nowMs(): number {
+    const m = this.master?.() ?? null;
+    this.onMaster = m !== null;
+    return m ?? this.now();
   }
 
   private schedule(): void {

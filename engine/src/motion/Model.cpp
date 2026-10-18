@@ -292,6 +292,52 @@ Assignment decodeAssignment(const NodeProps& instance, Guid assigned, Guid conta
   return a;
 }
 
+std::vector<AudioClip> decodeAudioClips(const NodeProps& root) {
+  std::vector<AudioClip> out;
+  json::Value list = extraJson(root, "audioFills");
+  if (!list.isArray()) return out;
+  auto us = [](const json::Value& o, const char* k) {
+    const json::Value* v = o.get(k);
+    return v ? static_cast<int64_t>(std::llround(v->numberOr(0))) : int64_t{0};
+  };
+  for (const json::Value& a : list.array) {
+    if (!a.isObject()) continue;
+    AudioClip c;
+    c.id = guidOf(a.get("id"));
+    if (c.id == kNoGuid) continue;
+    if (const json::Value* h = a.get("mediaHash"); h && h->isString()) c.mediaHash = h->string;
+    c.offsetUs = us(a, "timelineOffsetUs");
+    c.startUs = us(a, "startTimeUs");
+    c.durationUs = us(a, "durationUs");
+    if (const json::Value* v = a.get("volume")) c.volume = v->numberOr(1);
+    if (const json::Value* m = a.get("mute")) c.mute = m->isBool() && m->boolean;
+    if (const json::Value* n = a.get("displayName"); n && n->isString()) c.name = n->string;
+    if (const json::Value* l = a.get("loopEnabled")) c.loop = l->isBool() && l->boolean;
+    c.playbackDurationUs = us(a, "playbackDurationUs");
+    c.track = guidOf(a.get("trackId"));
+    c.loopPhaseUs = us(a, "loopPhaseOffsetUs");
+    out.push_back(std::move(c));
+  }
+  return out;
+}
+
+std::vector<AudioRow> decodeAudioRows(const NodeProps& root) {
+  std::vector<AudioRow> out;
+  json::Value list = extraJson(root, "audioTracks");
+  if (!list.isArray()) return out;
+  for (const json::Value& a : list.array) {
+    if (!a.isObject()) continue;
+    AudioRow r;
+    r.id = guidOf(a.get("id"));
+    if (r.id == kNoGuid) continue;
+    if (const json::Value* n = a.get("name"); n && n->isString()) r.name = n->string;
+    if (const json::Value* g = a.get("gain")) r.gain = g->numberOr(1);
+    if (const json::Value* m = a.get("mute")) r.mute = m->isBool() && m->boolean;
+    out.push_back(std::move(r));
+  }
+  return out;
+}
+
 bool isTimelineRoot(const Document& doc, Guid id) {
   const Node* n = doc.get(id);
   if (!n) return false;

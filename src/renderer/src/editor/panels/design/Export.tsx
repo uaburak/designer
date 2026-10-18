@@ -40,7 +40,8 @@ import {
   type ExportFormat,
   type ExportSettings,
 } from "../../model/exports";
-import { fields, useKeeps } from "./shared";
+import { useKeeps } from "./shared";
+import { writeKeepingAnimated } from "../../motion/export/animatedSettings";
 import { ExportAnimatedTab } from "./ExportAnimated";
 import { Grip, moved, useReorder } from "./reorder";
 import styles from "./Design.module.css";
@@ -59,7 +60,8 @@ export interface ExportTarget {
 }
 
 function writeSettings(ed: EditorController, refs: readonly Guid[], list: ExportSettings[], label: string) {
-  ed.setProps(refs, fields({ exportSettings: list } as never), label);
+  // Motion's Animated tab keeps its own entry on each layer (round 8e).
+  writeKeepingAnimated(ed, refs, list, label);
 }
 
 /** Hidden for a viewer the file or the org doesn't let export (docs/governance.md §2.7: "hidden or disabled"). */

@@ -1,12 +1,15 @@
 // Animated export (docs/motion.md §7), the parts that run without a browser: the frame plan and Ping-pong folding,
 // the even padding and flattening, the GIF delays, sampling and the file itself (gifenc in node), the video codec
-// choice with its fallbacks and the muxer names, the file names and the Size → scale.
+// choice with its fallbacks and the muxer names, the file names and the Size → scale; round 8e: the Animated tab's
+// settings as the layer's exportSettings entry.
 import { describe, expect, it } from "vitest";
 import type { Pixels } from "@/engine/codec";
 import { MAX_FRAMES, flattenOnto, frameTime, padToEven, planFrames, type FrameSource } from "../export/frames";
 import { GIF_MAX_FPS, encodeGif, gifDelays, gifFrameIndices, paletteSampleIndices } from "../export/gif";
 import { animatedFileName, scaleOf } from "../export/exportAnimated";
 import { VIDEO_CODECS, bitrateOf, muxerCodecOf, pickVideoConfig } from "../export/video";
+import { entryOf, settingsOf } from "../export/animatedSettings";
+import { exportSettingsOf, isAnimatedSetting } from "../../model/exports";
 
 const solid = (w: number, h: number, rgba: [number, number, number, number]): Pixels => {
   const px = new Uint8Array(w * h * 4);
@@ -110,5 +113,19 @@ describe("the job", () => {
     expect(scaleOf({ width: 800, height: 0 }, 400, 600)).toBe(2);
     expect(scaleOf({ width: 0, height: 300 }, 400, 600)).toBe(0.5);
     expect(scaleOf({ width: 0, height: 0 }, 400, 600)).toBe(1);
+  });
+});
+
+describe("the Animated tab's settings on the layer", () => {
+  it("round-trip through an exportSettings entry with Figma's Motion fields; the Static rows leave it out", () => {
+    const gif = { format: "GIF" as const, size: { scale: 2 }, fps: 24 as const, quality: "MEDIUM" as const, loop: false };
+    expect(entryOf(gif)).toEqual({ imageType: "GIF", constraint: { type: "CONTENT_SCALE", value: 2 }, frameRate: 24, loopCount: 1, quality: 0.5 });
+    expect(settingsOf(entryOf(gif))).toEqual(gif);
+    const svg = { format: "SVG" as const, size: { width: 1080, height: 0 }, fps: 60 as const, quality: "HIGH" as const, loop: true };
+    expect(entryOf(svg).svgAnimated).toBe(true);
+    expect(settingsOf(entryOf(svg))).toEqual(svg);
+    expect(isAnimatedSetting({ imageType: "SVG" })).toBe(false);
+    expect(isAnimatedSetting(entryOf(svg))).toBe(true);
+    expect(exportSettingsOf({ exportSettings: [{ imageType: "PNG" }, entryOf(gif)] })).toEqual([{ imageType: "PNG" }]);
   });
 });
