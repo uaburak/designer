@@ -535,6 +535,8 @@ agent's); the desktop shell's `setSaved` per tab (our tab dot follows the flush,
 
 **Still not done:** text edit mode restored on undo (whether Figma re-enters text editing isn't read); the memory model (heap %, OOM states, Manage memory); the importer's rewrites; an offline backup beyond the journal and the Offline-sync savepoints (Phase 6); the shell's `setSaved`.
 
+**Phase 6 (2026-10-18, `docs/multiplayer.md` §18.1):** the "Offline sync" / "Before syncing changes" savepoint of a shared file — the room's head kept as a named version before changes made away from it are sent (a link's first connection with changes waiting, or after 60 s offline). The second savepoint after the sync isn't made.
+
 ## 10. Open questions
 
 | # | Question | Probe that settles it |

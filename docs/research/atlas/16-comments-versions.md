@@ -722,6 +722,8 @@ yet); Dev Mode's `savepoint-compare`.
 
 **Still not done:** region comments (Q: where the pin sits on the box); the server side of attachments and rich text, "Post comment and share file" and the merge-request lifecycle (requests, reviewers, approvals are the server's — Phase 6); a shared file's version editors (the server's); low-memory gates; Dev Mode's `savepoint-compare`.
 
+**Phase 6 (2026-10-18, `docs/multiplayer.md` §18.6–§18.9):** a shared file's versions record their editors (Only yours works for them); its comments keep their rich text on the server (migration 0028); the merge request's lifecycle — a verdict on an older version says so, Withdraw review (Figma's unapprove), Close request (migration 0029). Still not: attachments in shared files' comments, "Post comment and share file".
+
 ## 8. Open questions
 
 | Question | Live probe that settles it |

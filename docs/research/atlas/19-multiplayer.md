@@ -514,6 +514,8 @@ Checked against `docs/multiplayer.md` §3–§6, `src/shared/multiplayer/`, `src
 | Ask to edit | yes (requests, Deny / Approve, toast) | yes, plus file-browser request modal and view requests | matches (core) |
 | Audio | WebRTC (own) | Agora, captions, idle end after warning 20 s | out of scope |
 
+**As built (2026-10-18, Phase 6 — `docs/multiplayer.md` §18):** colours — Figma's seven with their dark shades, given by the room (least used); facepile — `min(floor(w/21)+1, 8)`, overflow `max−1`, Figma's order; cursor chat — 50 a line, two lines, fade 5 s / gone 8 s both sides; spotlight — 4 000 ms, 2 000 ms on a presenter change, the presenter's "waiting for followers" bell with its 4 s bar and Cancel, Reset zoom; idle cursors hidden after 60 s; ack timeout → reconnect (30 s + 8 s a MB, ours); the tools' search past 8. The oscillation guard has nothing to guard here (layout after a remote change is never emitted). Still open: the per-case signals' wording, Copy link's per-type toasts, Previously viewed / View profile / page names, Cancel ask, the 200-cursor / 200-editor limits.
+
 ## 10. Top gaps for Phase 6 (ordered)
 
 1. Palette: switch `PEER_COLORS` to Figma's 7 colours with the dark-theme variants and the yellow text rule; assign

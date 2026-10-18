@@ -1102,7 +1102,7 @@ t.rollback();                   // apply inverse, emit nothing
 - **A new User transaction clears the redo stack.** Undo writes are ordinary document changes that leave for storage. This follows Figma's principle that undo modifies history ("undo a lot, copy, redo back → document unchanged", R1 Undo).
 - **Budget**: 128 MB of inverse data or 1,000 batches; the oldest are dropped.
 - **Undo is blocked** during a gesture, during IME composition, and in VIEWER mode.
-- Remote changes (`APPLY_REMOTE`) aren't undoable and don't touch any history yet; with multiplayer (Phase 6) a remote session's commit yields like an actor's (§9.5).
+- Remote changes (`APPLY_REMOTE`) aren't undoable; another session's (`APPLY_REMOTE | APPLY_PEER`, Phase 6 — multiplayer, another window) yield every history like an actor's commit and wait (E_BUSY) while a gesture, a step or an actor's write is open (§9.5; docs/multiplayer.md §18.2). `APPLY_REMOTE` alone (the prototype player's writes) touches no history.
 - The user's history is actor 0's (§9.5): ⌘Z / ⇧⌘Z never take back an agent's step, and skip (drop) a step whose every change someone else overwrote since.
 
 ### 9.5 Actors: per-actor undo and view state (round 17, r17-agent-isolation)
@@ -1115,7 +1115,8 @@ The owner runs several agent chats at once and keeps working on the same canvas:
 - **Yield (last writer wins, per property)**: when any actor commits a USER / GESTURE / UNDO / REDO step, every *other* history yields the fields it wrote (`UndoStack::yield`): their CHANGED inverses (undo and redo) lose those fields — an entry left with none goes — and the node is noted as **overwritten** for that history. So an actor's undo never overwrites a newer value of someone else's; a step left empty is dropped when it comes up (`dropEmpty`). A node created or removed by an actor stays its creation / removal (Figma: the creator's undo removes it).
 - **`engine_actor_undo(h, actor, redo)`**: undo / redo the actor's last step without touching the user's selection, page or view (a removed layer leaves their selection). **`engine_actor_info(h, actor)`** → `{canUndo, canRedo, undoLabel, redoLabel, overwritten[], idle}` (the chat's "Partly edited since").
 - Native tests: `r17.actors.test.cpp` (7 cases). Wasm: `agents.wasm.test.ts` (two chats and the user at once; a write waiting for a scrub; set_selection at the turn's end).
-- Limits: an actor's undo of a frame it created removes the frame with whatever someone else put inside it since; yields are per field, not per value inside a field (two writers of one `fillPaints` list: the last one's whole list wins); `APPLY_REMOTE` doesn't yield yet (the prototype player writes through it) — Phase 6 makes a remote session an actor.
+- Limits: an actor's undo of a frame it created removes the frame with whatever someone else put inside it since; yields are per field, not per value inside a field (two writers of one `fillPaints` list: the last one's whole list wins).
+- **As built — Phase 6 (2026-10-18)**: a multiplayer session is an actor through `APPLY_PEER` (32, with `APPLY_REMOTE`): `applyChanges` answers E_BUSY unless `idle()` (the editor's `RemoteApplier` tries again in order), and the commit runs `yieldAll` — the user's history and every actor's yield the fields it wrote — then `followForeign`. `APPLY_REMOTE` alone (the prototype player) is unchanged. Native `phase6.peer.test.cpp`.
 
 ### 9.6 Presence: other people on the canvas (round 18, multiplayer)
 
