@@ -7,11 +7,15 @@
  * kept frames; the iteration from the playback (Loop and Ping-pong infinite — Ping-pong's way back is in the frames —,
  * Once played once and held).
  *
- * [Deviation from §7.5, kept: the transforms are written as matrices of the sampled frames rather than CSS individual
- * transform properties with per-segment timing functions; the result plays the same at the exported frame rate.]
+ * Round 8i: a keyed layer (keyframed.ts) — manual keyframes that reproduce its samples, without motion path curves —
+ * is written as §7.5 asks: its base transform and anchor on its group, then CSS's individual `translate`, `rotate` and
+ * `scale` (and its `opacity`) as @keyframes at the keyframes' times, each segment with its own timing function
+ * (cubic-bezier, Hold as steps). Other layers keep the sampled matrices [deviation kept: they play the same at the
+ * exported frame rate].
  */
 import type { MotionSample, MotionShapePath, PlaybackName, RGBA } from "@shared/motion/types";
-import { base64, constant, keepFrames, type AnimLayer, type AnimScene, type Matrix } from "./vectorAnim";
+import type { KeyChannel, KeyedLayer } from "./keyframed";
+import { base64, constant, keepFrames, multiply, type AnimLayer, type AnimScene, type Matrix } from "./vectorAnim";
 
 export interface SvgOptions {
   scale: number;
@@ -53,6 +57,33 @@ class Writer {
     this.css.push(`@keyframes ${name}{${steps.join("")}}`);
     const loop = this.o.playback === "ONCE" ? "1" : "infinite";
     return `${name} ${n(this.o.durationMs)}ms linear ${loop} both`;
+  }
+
+  /**
+   * A keyed channel as one CSS property's @keyframes (round 8i): a step at each key's share of the span, its value, and
+   * the segment's timing function (cubic-bezier, Hold as steps(1, end)); the first value held from 0, the last to the end.
+   */
+  keyAnimate(property: string, c: KeyChannel, css: (v: readonly number[]) => string): string {
+    const name = this.next("k");
+    const range = this.o.durationMs * 1000;
+    const steps: string[] = [];
+    const ks = c.keys;
+    if (ks[0].timeUs > 0) steps.push(`0%{${property}:${css(ks[0].v)}}`);
+    ks.forEach((k, i) => {
+      const tf = !ks[i + 1] ? "" : k.ease === "HOLD" ? ";animation-timing-function:steps(1,end)" : `;animation-timing-function:cubic-bezier(${(k.ease ?? [0, 0, 1, 1]).map(n).join(",")})`;
+      steps.push(`${n((k.timeUs / range) * 100)}%{${property}:${css(k.v)}${tf}}`);
+    });
+    if (ks[ks.length - 1].timeUs < range) steps.push(`100%{${property}:${css(ks[ks.length - 1].v)}}`);
+    this.css.push(`@keyframes ${name}{${steps.join("")}}`);
+    const loop = this.o.playback === "ONCE" ? "1" : "infinite";
+    return `${name} ${n(this.o.durationMs)}ms linear ${loop} both`;
+  }
+
+  /** Whether a keyed layer's transform goes in as keys: no motion path curve, every key within the span. */
+  keyable(k: KeyedLayer | undefined): k is KeyedLayer {
+    if (!k || !k.transform || k.curved) return false;
+    const range = this.o.durationMs * 1000;
+    return [k.translate, k.rotate, k.scale].every((c) => !c || c.keys.every((key) => key.timeUs <= range));
   }
 
   paint(path: MotionShapePath): string {
@@ -110,16 +141,46 @@ class Writer {
     const frames = l.frames;
     const attrs: string[] = [`id="${idOf(s.node)}"`, `data-name="${escape(s.name)}"`];
     const anims: string[] = [];
+    const keyed = top ? undefined : this.scene.keyed?.get(s.node);
+    // Its own opacity from its keys (the SVG's groups pass opacity down themselves).
+    const keyedOpacity = keyed?.opacity && keyed.opacity.keys.every((k) => k.timeUs <= this.o.durationMs * 1000) ? keyed.opacity : null;
+    if (this.keyable(keyed)) {
+      // Its base transform and anchor on its group, the keyed motion part inside it (round 8i), the anchor undone under it.
+      const k = keyed;
+      const place = multiply(k.base, [1, 0, 0, 1, k.anchor[0], k.anchor[1]]);
+      attrs.push(`transform="${matrix(place)}"`);
+      if (keyedOpacity) anims.push(this.keyAnimate("opacity", keyedOpacity, (v) => n(v[0])));
+      else {
+        const o = this.animate("opacity", frames.map((f) => [f.o]), 0.0005, (v) => n(v[0]));
+        if (o) anims.push(o);
+        else if (frames[0].o < 1) attrs.push(`opacity="${n(frames[0].o)}"`);
+      }
+      if (anims.length) attrs.push(`style="animation:${anims.join(",")}"`);
+      const inner: string[] = [];
+      const props: string[] = [`translate:${n(k.still.translate[0])}px ${n(k.still.translate[1])}px`, `rotate:${n(k.still.rotate)}deg`, `scale:${n(k.still.scale[0])} ${n(k.still.scale[1])}`];
+      if (k.translate) inner.push(this.keyAnimate("translate", k.translate, (v) => `${n(v[0])}px ${n(v[1])}px`));
+      if (k.rotate) inner.push(this.keyAnimate("rotate", k.rotate, (v) => `${n(v[0])}deg`));
+      if (k.scale) inner.push(this.keyAnimate("scale", k.scale, (v) => `${n(v[0])} ${n(v[1])}`));
+      const style = `transform-origin:0 0;transform-box:view-box;${props.join(";")}${inner.length ? `;animation:${inner.join(",")}` : ""}`;
+      return `<g ${attrs.join(" ")}><g style="${style}"><g transform="translate(${n(-k.anchor[0])},${n(-k.anchor[1])})">${this.content(l, top)}</g></g></g>`;
+    }
     if (!top) {
       const t = this.animate("transform", frames.map((f) => f.t), 0.001, (v) => matrix(v as Matrix));
       const first = frames[0].t as Matrix;
       if (t) anims.push(t);
       else if (first.some((v, k) => Math.abs(v - [1, 0, 0, 1, 0, 0][k]) > 1e-9)) attrs.push(`transform="${matrix(first)}"`);
-      const o = this.animate("opacity", frames.map((f) => [f.o]), 0.0005, (v) => n(v[0]));
+      const o = keyedOpacity ? this.keyAnimate("opacity", keyedOpacity, (v) => n(v[0])) : this.animate("opacity", frames.map((f) => [f.o]), 0.0005, (v) => n(v[0]));
       if (o) anims.push(o);
       else if (frames[0].o < 1) attrs.push(`opacity="${n(frames[0].o)}"`);
     }
     if (anims.length) attrs.push(`style="transform-origin:0 0;transform-box:view-box;animation:${anims.join(",")}"`);
+    return `<g ${attrs.join(" ")}>${this.content(l, top)}</g>`;
+  }
+
+  /** A layer's paths, its raster and its children (clipped when it clips them). */
+  content(l: AnimLayer, top: boolean): string {
+    const s = l.shape;
+    const frames = l.frames;
     let body = [...s.paths].map((p) => this.pathEl(p, frames)).join("");
     const raster = s.raster ? this.o.rasters.get(s.node) : undefined;
     if (raster && s.raster) {
@@ -135,7 +196,7 @@ class Writer {
         body += `<g clip-path="url(#${id})">${kids}</g>`;
       } else body += kids;
     }
-    return `<g ${attrs.join(" ")}>${body}</g>`;
+    return body;
   }
 }
 

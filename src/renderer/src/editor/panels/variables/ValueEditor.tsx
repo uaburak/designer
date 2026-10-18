@@ -1,10 +1,11 @@
 /**
  * One variable's value in one mode, edited in place (the Local variables
  * table's cells and the Edit variable modal's Values): a colour's swatch (the
- * colour picker) and hex, a number, a string, a boolean; an alias shows as the
- * aliased variable's pill (its × makes it a plain value again: the value it
- * resolves to now). "Apply variable" on hover aliases another variable of the
- * same type — never one that would make a cycle.
+ * colour picker) and hex, a number, a string, a boolean; Motion's easing (its
+ * name, the Easing editor) and timing (milliseconds; round 8i); an alias shows
+ * as the aliased variable's pill (its × makes it a plain value again: the value
+ * it resolves to now). "Apply variable" on hover aliases another variable of
+ * the same type — never one that would make a cycle.
  */
 import { useMemo, useState } from "react";
 import { Checkbox, ColorPicker, Icon, NumericInput, Swatch, TextInput, cx, tooltipProps } from "@/ds";
@@ -12,7 +13,8 @@ import type { Color, Guid } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { useLocalAssets } from "../../hooks";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
-import { aliasMakesCycle, formatLiteral, resolveVariable, valueIn, type Collection, type Literal, type Variable } from "../../model/variables";
+import { aliasMakesCycle, formatLiteral, isEasingLiteral, resolveVariable, valueIn, type Collection, type Literal, type Variable } from "../../model/variables";
+import { EasingEditor } from "../../motion/easing/EasingEditor";
 import { isOverridden, resetOverride, setVariableValue } from "../../variables";
 import { VariableGlyph, VariablePicker } from "./VariablePicker";
 import styles from "./LocalVariables.module.css";
@@ -32,6 +34,7 @@ export function ValueEditor({ variable, mode, collection, className, disabled }:
   const a = useLocalAssets();
   const [picker, setPicker] = useState<HTMLElement | null>(null);
   const [color, setColor] = useState<DOMRect | null>(null);
+  const [easing, setEasing] = useState<DOMRect | null>(null);
   const value = valueIn(variable, mode, collection);
   const resolved = value.kind === "literal" ? value.value : resolveVariable(value.id, a.lookup);
   // An extended collection: the values it overrides show in blue, with "Reset change" (Figma).
@@ -79,6 +82,18 @@ export function ValueEditor({ variable, mode, collection, className, disabled }:
         break;
       case "BOOLEAN":
         body = <Checkbox label={value.value === true ? t("true") : t("false")} checked={value.value === true} onChange={(on) => set(on)} aria-label={label} />;
+        break;
+      case "EASING":
+        // Its name (a custom curve's numbers too); the Easing editor edits it.
+        body = (
+          <button type="button" className={styles.easingValue} aria-label={`${label}: ${formatLiteral("EASING", value.value)}`} data-easing-value onClick={(e) => setEasing(e.currentTarget.getBoundingClientRect())}>
+            <Icon name="16.easing" />
+            <span className={styles.aliasText}>{formatLiteral("EASING", value.value)}</span>
+          </button>
+        );
+        break;
+      case "TIMING":
+        body = <NumericInput label={label} variant="ghost" value={Number(value.value)} unit="ms" precision={0} min={0} max={1e6} onChange={(v, info) => set(v, info)} onCancel={() => ed.cancelEdit()} scrub={false} />;
         break;
     }
   }
@@ -129,6 +144,16 @@ export function ValueEditor({ variable, mode, collection, className, disabled }:
           current={value.kind === "alias" ? value.id : null}
           onPick={(v) => setVariableValue(ed, variable.id, mode, { kind: "alias", id: v.id })}
           onClose={() => setPicker(null)}
+        />
+      )}
+      {easing && value.kind === "literal" && isEasingLiteral(value.value) && (
+        <EasingEditor
+          value={value.value}
+          anchor={{ x: easing.left, y: easing.top, width: easing.width, height: easing.height }}
+          onChange={(next, commit) => {
+            if (commit && "type" in next) set(next);
+          }}
+          onClose={() => setEasing(null)}
         />
       )}
       {color && value.kind === "literal" && (

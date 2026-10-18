@@ -39,7 +39,7 @@ import { isFrameNode, type PanelNode } from "./shared";
 import { BoundPaintRow, paintScope } from "./Variables";
 import { AppliedStyle, StylesButton, sharedStyle } from "./Styles";
 import { VariableList } from "../variables/VariablePicker";
-import { paintVariable, resolveVariable } from "../../model/variables";
+import { isEasingLiteral, paintVariable, resolveVariable } from "../../model/variables";
 import { applyStyle, bindPaint, createCollection, createVariable } from "../../variables";
 import { CreateStylePopover } from "../variables/EditStyle";
 import { t, useT } from "@/i18n";
@@ -87,7 +87,7 @@ function useSwatchSets(): { sets: { id: string; label: string; colors: string[] 
     for (const v of assets.variables) {
       if (v.type !== "COLOR") continue;
       const value = resolveVariable(v.id, assets.lookup);
-      if (value && typeof value === "object") colors.add(css(value));
+      if (value && typeof value === "object" && !isEasingLiteral(value)) colors.add(css(value));
     }
     for (const s of assets.styles) {
       if (s.kind !== "FILL") continue;

@@ -233,8 +233,12 @@ export interface TimelineKeyframe {
   value: KeyframeValue;
   /** The value bound to a variable */
   valueVariable?: GuidString;
-  /** Easing into this keyframe (unused on the first) */
+  /** Easing into this keyframe (unused on the first); bound to a variable: the variable's value in the layer's modes */
   easing: EasingRef;
+  /** The EASING variable it is bound to (round 8i) */
+  easingVariable?: GuidString;
+  /** A Position keyframe's motion path handles, relative to its value (MOTION_SET_PATH_HANDLES) */
+  pathHandles?: { in: { x: number; y: number }; out: { x: number; y: number } };
 }
 
 export interface TimelineTrack {
@@ -257,6 +261,15 @@ export interface TimelineClip {
   props: Record<string, PresetPropValue>;
   /** The composite style that generated it, if any: its entry in the layer's `styleIdsForAnimation` and the style's key */
   style?: { id: GuidString; key: string };
+  /** Delay / Duration bound to TIMING variables, Easing to an EASING one (round 8i): start, length and easing are their values */
+  variables?: PresetVariables;
+}
+
+/** A clip's Delay, Duration and Easing bound to variables (round 8i; null in an edit unbinds). */
+export interface PresetVariables {
+  delay?: GuidString;
+  duration?: GuidString;
+  easing?: GuidString;
 }
 
 export interface TimelineLayer {
@@ -540,21 +553,30 @@ export interface MotionCommandArgs {
   MOTION_SET_TIMELINE: { root: GuidString; durationUs?: Micros; playback?: PlaybackName; snappingFps?: number };
   /** `props` keyed by defID (as TimelineClip's); `output` the preset's code run (§4.6) */
   MOTION_ADD_ANIMATION: { nodes: GuidString[]; preset: PresetKey; name?: string; props?: Record<string, PresetPropValue>; startUs?: Micros; durationUs?: Micros; easing?: MotionEasing; output?: PresetOutput };
-  /** Without `output`, a new duration stretches the clip's tracks and a new easing goes on its keyframes */
-  MOTION_SET_ANIMATION: { id: GuidString; preset?: PresetKey; name?: string; props?: Record<string, PresetPropValue>; startUs?: Micros; durationUs?: Micros; easing?: MotionEasing; disabled?: boolean; output?: PresetOutput };
+  /** Without `output`, a new duration stretches the clip's tracks and a new easing goes on its keyframes; `variables` binds Delay / Duration / Easing (null unbinds) */
+  MOTION_SET_ANIMATION: { id: GuidString; preset?: PresetKey; name?: string; props?: Record<string, PresetPropValue>; startUs?: Micros; durationUs?: Micros; easing?: MotionEasing; disabled?: boolean; output?: PresetOutput; variables?: { [K in keyof PresetVariables]?: GuidString | null } };
   MOTION_REMOVE_ANIMATIONS: { ids: GuidString[] };
-  /** A style's presets on the layers; or `detach`: a style entry forgotten, its presets kept */
-  MOTION_APPLY_STYLE: { nodes?: GuidString[]; style?: string; startUs?: Micros; presets?: StylePresetRun[]; detach?: GuidString };
+  /**
+   * A style's presets on the layers (`style` a first-party key, or a custom style's GUID); or `detach`: a style entry
+   * forgotten, its presets kept; or `create` (round 8i): a custom style from a layer's clips (`style`: replace that
+   * one's content)
+   */
+  MOTION_APPLY_STYLE: { nodes?: GuidString[]; style?: string; startUs?: Micros; presets?: StylePresetRun[]; detach?: GuidString; create?: { from: GuidString; name?: string; style?: GuidString } };
   MOTION_RETIME_LAYER: { node: GuidString; deltaUs?: Micros; scale?: { factor: number; pivotUs: Micros } };
   MOTION_SET_INSTANCE_OFFSET: { instance: GuidString; offsetUs: Micros };
   MOTION_SET_ANCHOR: { nodes: GuidString[]; x: number; y: number; keepInPlace?: boolean };
   MOTION_SET_PATH_HANDLES: { keyframe: GuidString; in: { x: number; y: number }; out: { x: number; y: number } };
+  /** `node` a TEXT layer (its manual tracks staggered, round 8i) or a text preset's clip */
   MOTION_SET_TEXT_STAGGER: { node: GuidString; enabled: boolean; grouping?: "CHARACTER" | "CHARACTER_NO_WHITESPACE" | "WORD" | "LINE" | "PARAGRAPH"; delayMs?: number; order?: "LEFT_RIGHT" | "RIGHT_LEFT" | "CENTER_OUT" | "RANDOM" };
   MOTION_ADD_AUDIO: { root: GuidString; mediaHash: string; name: string; offsetUs: Micros; durationUs: Micros; trackId?: GuidString };
   MOTION_SET_AUDIO: { root: GuidString; edits?: AudioEdit[]; tracks?: AudioTrackEdit[] };
   MOTION_SPLIT_AUDIO: { root: GuidString; id: GuidString; atUs: Micros };
   MOTION_REMOVE_AUDIO: { root: GuidString; ids: GuidString[] };
   MOTION_PASTE_KEYFRAMES: { nodes: GuidString[]; atUs: Micros; clipboard: MotionClipboard };
+  /** Position or scale as one XY track (round 8i: Figma's switchVectorKeyframesToCombined) */
+  MOTION_COMBINE_TRACKS: { node: GuidString; kind: "POSITION" | "SCALE" };
+  /** An XY track as an X and a Y track (Figma's switchVectorKeyframesToSplit) */
+  MOTION_SPLIT_TRACKS: { node: GuidString; kind: "POSITION" | "SCALE" };
   MOTION_SET_PRESET_TRACKS: { id: GuidString; output: PresetOutput };
 }
 
@@ -699,6 +721,8 @@ export const MOTION_CODE_LABELS: Record<MotionCodeFormat, string> = { CSS: "CSS"
 
 export interface EasingEditorProps {
   value: EasingRef;
+  /** A bound value's easing (the variable's in the layer's modes): what the graph shows while `value` is a variable */
+  resolved?: MotionEasing;
   /** Live changes while dragging (no commit); `commit` once on release / Enter */
   onChange(value: EasingRef, commit: boolean): void;
   /** Offer the variable binding (EASING variables) */

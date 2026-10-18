@@ -8,10 +8,17 @@
  * A preset's props are the clip's `componentPropAssignments`, keyed by defID: `propId` names each prop (sessionID 0,
  * an FNV-1a hash of its key), so the engine stores them without knowing any preset. Delay, Duration and Easing are the
  * clip's own start, length and easing.
+ *
+ * Round 8i: custom (user) animation styles — a STYLE node of type ANIMATION whose content (`styleAnimations`) is
+ * template clips — made from a layer's clips ("Create animation style"), updated from one, applied like Figma's own
+ * (their templates' code run for the layer, in one step), deleted (DELETE_STYLE: the layers keep their clips).
  */
-import { ANIMATION_PRESETS, ANIMATION_STYLES, TIMING_PROP_KEYS, type GuidString, type Micros, type MotionEasing, type PresetDef, type PresetKey, type PresetOutput, type PresetPropValue, type StylePresetRun, type TimelineClip } from "@shared/motion/types";
+import { ANIMATION_PRESETS, ANIMATION_STYLES, TIMING_PROP_KEYS, type GuidString, type Micros, type MotionEasing, type PresetDef, type PresetKey, type PresetOutput, type PresetPropValue, type PresetVariables, type StylePresetRun, type TimelineClip } from "@shared/motion/types";
 import { presetProps, runPreset } from "@shared/motion/presets";
+import { easingFromData, type EasingData } from "@shared/motion/easing";
 import type { EditorController } from "../controller";
+import { guidStr, type GuidValue } from "../model/components";
+import { deleteStyle, internalCanvasOf } from "../variables";
 import { motionUi } from "./motionState";
 
 /** Figma's shared defaults: Duration 0.5 s, Easing Ease out (OUT_CUBIC). */
@@ -112,11 +119,14 @@ export function addPreset(ed: EditorController, key: PresetKey, nodes: GuidStrin
   }
 }
 
-/** A clip's settings changed: Delay (its start), Duration, Easing, its type or props (the code run again). */
+/**
+ * A clip's settings changed: Delay (its start), Duration, Easing, its type or props (the code run again); round 8i:
+ * Delay / Duration / Easing bound to TIMING / EASING variables (`variables`, null unbinds).
+ */
 export function editPreset(
   ed: EditorController,
   clip: TimelineClip,
-  patch: { preset?: PresetKey; props?: Record<string, PresetPropValue>; startUs?: Micros; durationUs?: Micros; easing?: MotionEasing; disabled?: boolean },
+  patch: { preset?: PresetKey; props?: Record<string, PresetPropValue>; startUs?: Micros; durationUs?: Micros; easing?: MotionEasing; disabled?: boolean; variables?: { [K in keyof PresetVariables]?: GuidString | null } },
   target?: PresetTarget
 ): boolean {
   const key = patch.preset ?? clip.preset;
@@ -133,6 +143,7 @@ export function editPreset(
     ...(patch.durationUs !== undefined ? { durationUs: Math.max(1, Math.round(patch.durationUs)) } : {}),
     ...(patch.easing ? { easing: patch.easing } : {}),
     ...(patch.disabled !== undefined ? { disabled: patch.disabled } : {}),
+    ...(patch.variables ? { variables: patch.variables } : {}),
   };
   return run(() => ed.engine.runMotionCommand("MOTION_SET_ANIMATION", args));
 }
@@ -141,8 +152,10 @@ export function removePresets(ed: EditorController, ids: GuidString[]): boolean 
   return ids.length > 0 && run(() => ed.engine.runMotionCommand("MOTION_REMOVE_ANIMATIONS", { ids }));
 }
 
-/** Apply animation style: its presets at their defaults (and the style's own props), each at its offset from the playhead (or `startUs`). */
+/** Apply animation style: its presets at their defaults (and the style's own props), each at its offset from the playhead (or `startUs`); a custom style's templates as they are. */
 export function applyStyle(ed: EditorController, styleKey: string, nodes: GuidString[], target?: PresetTarget, startUs?: Micros): boolean {
+  const custom = customStyles(ed).find((s) => s.id === styleKey);
+  if (custom) return applyCustomStyle(ed, custom, nodes, target, startUs);
   const style = ANIMATION_STYLES.find((s) => s.key === styleKey);
   if (!style || !nodes.length) return false;
   const presets: StylePresetRun[] = style.presets.map((p) => {
@@ -158,3 +171,102 @@ export function applyStyle(ed: EditorController, styleKey: string, nodes: GuidSt
 export function detachStyle(ed: EditorController, binding: GuidString): boolean {
   return run(() => ed.engine.runMotionCommand("MOTION_APPLY_STYLE", { detach: binding }));
 }
+
+// ---- Custom animation styles (round 8i) ------------------------------------------------------------------------------
+
+/** A custom style's template clip: its preset, props (by key), place from the style's start, length and easing. */
+export interface StyleTemplate {
+  preset: PresetKey;
+  name: string;
+  props: Record<string, PresetPropValue>;
+  offsetUs: Micros;
+  durationUs: Micros;
+  easing: MotionEasing;
+}
+
+export interface CustomStyle {
+  id: GuidString;
+  name: string;
+  templates: StyleTemplate[];
+}
+
+type StoredNode = {
+  guid: GuidString;
+  name?: string;
+  styleType?: string;
+  isSoftDeleted?: boolean;
+  childIds?: GuidString[];
+  backingAnimationPresetId?: { assetRef?: { key?: string } };
+  timelineOffset?: number;
+  timelineDuration?: number;
+  easingData?: EasingData;
+  componentPropAssignments?: { defID?: GuidValue; value?: { floatValue?: number; boolValue?: boolean; textValue?: { characters?: string } } }[];
+};
+
+/** A template clip's props by key (its preset's defIDs read back). */
+function templateProps(key: PresetKey, list: StoredNode["componentPropAssignments"]): Record<string, PresetPropValue> {
+  const byId = new Map((list ?? []).map((a) => [guidStr(a.defID), a.value]));
+  const out: Record<string, PresetPropValue> = {};
+  for (const d of presetDef(key)?.props ?? []) {
+    const v = byId.get(propId(d.key));
+    if (!v) continue;
+    if (typeof v.floatValue === "number") out[d.key] = v.floatValue;
+    else if (typeof v.boolValue === "boolean") out[d.key] = v.boolValue;
+    else if (v.textValue?.characters !== undefined) out[d.key] = v.textValue.characters;
+  }
+  return out;
+}
+
+/** The file's custom animation styles (STYLE nodes of type ANIMATION on the internal canvas) with their templates. */
+export function customStyles(ed: EditorController): CustomStyle[] {
+  try {
+    const internal = internalCanvasOf(ed);
+    if (!internal || ed.engine.destroyed) return [];
+    const kids = (ed.engine.readNodes([internal], { childIds: true })[0] as unknown as StoredNode | undefined)?.childIds ?? [];
+    const nodes = (kids.length ? ed.engine.readNodes(kids, { fields: ["name", "styleType", "isSoftDeleted"] }) : []) as unknown as StoredNode[];
+    return nodes
+      .filter((n) => n.styleType === "ANIMATION" && !n.isSoftDeleted)
+      .map((n) => {
+        const ids = (ed.engine.readNodes([n.guid], { childIds: true })[0] as unknown as StoredNode | undefined)?.childIds ?? [];
+        const templates = (ids.length ? (ed.engine.readNodes(ids) as unknown as StoredNode[]) : []).flatMap((c): StyleTemplate[] => {
+          const key = c.backingAnimationPresetId?.assetRef?.key as PresetKey | undefined;
+          if (!key || !presetDef(key)) return [];
+          return [{ preset: key, name: c.name ?? presetDef(key)!.name, props: templateProps(key, c.componentPropAssignments), offsetUs: c.timelineOffset ?? 0, durationUs: c.timelineDuration ?? PRESET_DURATION_US, easing: c.easingData ? easingFromData(c.easingData) : PRESET_EASING }];
+        });
+        return { id: n.guid, name: n.name ?? "", templates };
+      });
+  } catch {
+    return [];
+  }
+}
+
+/** A custom style on the layers: its templates' code run for the layer, each at its place from the playhead (or `startUs`). */
+export function applyCustomStyle(ed: EditorController, style: CustomStyle, nodes: GuidString[], target?: PresetTarget, startUs?: Micros): boolean {
+  if (!style.templates.length || !nodes.length) return false;
+  const presets: StylePresetRun[] = style.templates.map((p) => {
+    const props = presetProps(p.preset, p.props);
+    return { preset: p.preset, name: p.name, props: storedProps(props), offsetUs: p.offsetUs, durationUs: p.durationUs, easing: p.easing, output: presetOutput(p.preset, props, p.durationUs, p.easing, target) };
+  });
+  return run(() => ed.engine.runMotionCommand("MOTION_APPLY_STYLE", { nodes, style: style.id, startUs: Math.max(0, Math.round(startUs ?? motionUi(ed).timeUs)), presets }));
+}
+
+/** "Create animation style": a new custom style from the layer's clips (their timing from the earliest one). */
+export function createCustomStyle(ed: EditorController, from: GuidString, name: string): GuidString | null {
+  try {
+    const r = ed.engine.runMotionCommandCreating("MOTION_APPLY_STYLE", { create: { name, from } });
+    return r.status === 0 ? (r.created[0] ?? null) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** "Update animation style": the custom style's templates replaced by the layer's clips. */
+export function updateCustomStyle(ed: EditorController, style: GuidString, from: GuidString): boolean {
+  return run(() => ed.engine.runMotionCommand("MOTION_APPLY_STYLE", { create: { from, style } }));
+}
+
+/** "Delete style": the style goes; the layers it was applied to keep their clips. */
+export function deleteCustomStyle(ed: EditorController, style: GuidString): void {
+  deleteStyle(ed, style);
+}
+

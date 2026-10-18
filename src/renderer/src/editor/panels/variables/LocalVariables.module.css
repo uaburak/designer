@@ -339,4 +339,22 @@
   .sideRow[data-group-drop="into"] { background: var(--figma-color-bg-selected); }
   .sideRow[data-group-drop="before"] { box-shadow: inset 0 2px 0 var(--figma-color-border-selected-strong); }
   .sideRow[data-group-drop="after"] { box-shadow: inset 0 -2px 0 var(--figma-color-border-selected-strong); }
+
+  /* An Easing variable's value (round 8i): its name, the Easing editor on click */
+  .easingValue {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: var(--ds-space-1);
+    min-width: 0;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-1);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: none;
+    color: var(--figma-color-text);
+    font: inherit;
+    text-align: left;
+  }
+  .easingValue:hover { background: var(--figma-color-bg-hover); }
 }

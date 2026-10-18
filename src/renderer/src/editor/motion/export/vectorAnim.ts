@@ -6,7 +6,8 @@
  *
  * The animation is the samples: every animated value is read from the engine at the export's frame rate, so presets,
  * instance offsets, springs and stacked tracks come out as the canvas plays them, and the keyframes left are those the
- * simplification keeps [deviation from §7.6: the timeline's own keyframes and bezier tangents are not written yet].
+ * simplification keeps. Round 8i: a layer animated by manual keyframes that reproduce its samples is written with
+ * those keyframes, their bezier easings and the motion path's tangents instead (keyframed.ts, the scene's `keyed`).
  */
 import type { Guid } from "@/engine/codec";
 import type { Micros, MotionSample, MotionShapeLayer, PlaybackName } from "@shared/motion/types";
@@ -14,6 +15,7 @@ import type { EditorController } from "../../controller";
 import { renderEngineExport } from "../../exportCore";
 import { motionRead } from "../motionState";
 import { frameTime, type FramePlan } from "./frames";
+import { keyedLayers, type KeyedLayer } from "./keyframed";
 
 export type Matrix = [number, number, number, number, number, number];
 
@@ -29,6 +31,12 @@ export interface AnimScene {
   /** Frames 0 … count (count + 1 samples: the last one closes the span) */
   count: number;
   fps: number;
+  /** Each frame's timeline time (µs) */
+  times?: Micros[];
+  /** The span the frames cover (µs; Ping-pong's there and back) */
+  rangeUs?: Micros;
+  /** The layers written from their keyframes (round 8i), by node */
+  keyed?: ReadonlyMap<string, KeyedLayer>;
 }
 
 /** The root's shapes and samples at every frame of the plan, as a tree (null: not a root, or a wasm without them). */
@@ -38,7 +46,16 @@ export function sampleScene(ed: EditorController, root: Guid, plan: FramePlan, d
   const times = Array.from({ length: plan.frames + 1 }, (_, k) => Math.round(frameTime(Math.min(k, plan.frames), plan, durationUs, playback)));
   const samples = motionRead(() => ed.engine.motionSamples(root, times), null);
   if (!samples) return null;
-  return buildScene(shapes, samples.layers, plan.frames, plan.fps);
+  const scene = buildScene(shapes, samples.layers, plan.frames, plan.fps);
+  if (!scene) return null;
+  scene.times = times;
+  scene.rangeUs = plan.rangeUs;
+  // The manual keyframes (the timeline model's tracks) and the anchors (the resolved model's) of the keyable layers.
+  const model = motionRead(() => ed.engine.motionTimeline(root), null);
+  const resolved = motionRead(() => ed.engine.motionResolved(root), null);
+  const anchors = new Map((resolved?.layers ?? []).map((l) => [l.node, l.anchor]));
+  scene.keyed = keyedLayers(scene, model, playback, anchors);
+  return scene;
 }
 
 /** The tree of shapes with their frames (layers the samples lack keep their base values). */

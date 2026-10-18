@@ -97,7 +97,7 @@ std::vector<FrameTitle> Editor::titles() const {
   if (page_ == kNoGuid) return {};
   Rect screen{0, 0, viewport_.width, viewport_.height};
   return frameTitles(doc_, page_, camera_.matrix(), screen, OverlayStyle::of(theme_),
-                     [&](const std::string& name, bool section) { return labelWidth(name, section); }, dev_.focus);
+                     [&](const std::string& name, bool section) { return labelWidth(name, section); }, dev_.focus, motionTitleRoots_);
 }
 
 Guid Editor::titleAt(Vec2 s) const {

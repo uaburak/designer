@@ -9,7 +9,9 @@
  * Animations section opens its settings), dragged or stretched (MOTION_SET_ANIMATION, one undo step) and deleted.
  * Round 8e: the root's audio (audio/) — files dropped on the timeline added at the drop's time, clips moved, trimmed,
  * muted, split and deleted, their waveforms drawn once decoded, and played with the clock: while audio plays, the
- * AudioContext's clock drives the playhead (Clock's `master`) and the clips are scheduled again on every jump.
+ * AudioContext's clock drives the playhead (Clock's `master`) and the clips are scheduled again on every jump. Round
+ * 8i: the timeline settings (units in `ui.motion.unit`, the grid and loop on the timeline), the layer bar dragged or
+ * stretched (MOTION_RETIME_LAYER, one step), a Position / Scale row combined or split, segments' EASING variables.
  *
  * Every engine call is guarded: the loaded wasm may predate round 8 (built on another machine), in which case the
  * timeline shows its empty state and the chrome's own state still works.
@@ -133,7 +135,7 @@ function MotionShell() {
   );
   const durationDrag = useRef(false);
   const onSetTimeline = useCallback(
-    (patch: { durationUs?: Micros; playback?: PlaybackName }, final: boolean) =>
+    (patch: { durationUs?: Micros; playback?: PlaybackName; snappingFps?: number }, final: boolean) =>
       run(() => {
         if (!model) return;
         if (!final && !durationDrag.current) {
@@ -161,6 +163,24 @@ function MotionShell() {
         if (final) {
           ed.engine.txnCommit();
           instanceDrag.current = false;
+        }
+      }),
+    [ed, run]
+  );
+  // The layer bar dragged or stretched: one "Move animation" / "Change animation duration" step, each frame's change on
+  // top of the last.
+  const layerDrag = useRef(false);
+  const onRetimeLayer = useCallback(
+    (node: GuidString, change: { deltaUs: Micros } | { scale: { factor: number; pivotUs: Micros } }, final: boolean) =>
+      run(() => {
+        if (!layerDrag.current) {
+          ed.engine.txnBegin("deltaUs" in change ? "Move animation" : "Change animation duration");
+          layerDrag.current = true;
+        }
+        if ("deltaUs" in change ? change.deltaUs !== 0 : change.scale.factor !== 1) ed.engine.runMotionCommand("MOTION_RETIME_LAYER", { node, ...change });
+        if (final) {
+          ed.engine.txnCommit();
+          layerDrag.current = false;
         }
       }),
     [ed, run]
@@ -279,6 +299,10 @@ function MotionShell() {
         else removeAudio(ed, [clip.id]);
       }}
       onDropAudio={onDropAudio}
+      onSetUnit={(unit) => setMotionUi(ed, { unit })}
+      onRetimeLayer={onRetimeLayer}
+      onCombineTracks={(node, kind, combine) => run(() => void ed.engine.runMotionCommand(combine ? "MOTION_COMBINE_TRACKS" : "MOTION_SPLIT_TRACKS", { node, kind }))}
+      easingVariables
       audioPeaks={(hash) => library.peaksOf(hash)}
       audioLength={(hash) => {
         const b = library.buffer(hash);

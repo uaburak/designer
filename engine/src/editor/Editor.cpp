@@ -975,8 +975,9 @@ Overlay Editor::overlay() const {
     o.rotationOrigin = gesture_ == Gesture::Rotate ? rotateCentre_ : rotationOrigin();
   }
   if (gesture_ == Gesture::Rotate) o.badgeText = rotateBadgeText();
-  // Motion (docs/motion.md §6.4): the selected layer's motion path, the anchor point's target.
+  // Motion (docs/motion.md §6.4): the selected layer's motion path, the anchor point's target; the Motion icon's frames.
   motionOverlay(o);
+  o.motionTitles = motionTitleRoots_;
   guideOverlay(o);
   // Round 10, View › Frame outlines / Mask outlines: every frame's / mask's box on the page as a thin quiet line
   // (help.figma.com lists the toggles; the look is unverified).
@@ -1471,6 +1472,8 @@ bool Editor::tick(double timeMs) {
   }
   // Round 16: the camera gliding, the scrollbars showing / fading.
   cameraTick(timeMs);
+  // Round 8i: the Motion icon follows the document outside Motion mode too — the index rebuilt between gestures.
+  if (motionDirty_ && !txn_.open && gesture_ == Gesture::None && page_ != kNoGuid) motionIndex();
   scrollbarTick(timeMs);
   // The `</>` button's tooltip: after the tooltip delay under the pointer (DevMode.cpp devIconHoverAt).
   if (devIconHover_ != kNoGuid && !devTooltip_ && !devIconPressed_) {
@@ -2180,19 +2183,48 @@ const motion::MotionIndex& Editor::motionIndex() {
     // The index reads base values: never while the layer's writes are in the nodes.
     bool was = motionLayer_.active();
     if (was) motionLayer_.restore(doc_);
-    motionIndex_.rebuild(doc_);
-    motionDirty_ = false;
+    motionRebuild();
     if (was && motion_.on) motionApply();
   }
   return motionIndex_;
+}
+
+void Editor::motionRebuild() {
+  motion::Resolver r;
+  r.easing = [&](const VariableData& alias, Guid consumer, motion::EasingSpec& out) {
+    Resolved v;
+    if (!resolveValue(alias, consumer, v) || v.kind != Resolved::Kind::OTHER) return false;
+    // The literal EASING VariableData's members (Variables.cpp): its value's easingValue is an EasingData.
+    json::Value d;
+    if (!json::parse("{" + v.raw + "}", d)) return false;
+    const json::Value* val = d.get("value");
+    const json::Value* e = val ? val->get("easingValue") : nullptr;
+    return e && motion::decodeEasing(*e, out);
+  };
+  r.timing = [&](const VariableData& alias, Guid consumer, double& ms) {
+    Resolved v;
+    if (!resolveValue(alias, consumer, v) || v.kind != Resolved::Kind::FLOAT) return false;
+    ms = v.f;
+    return true;
+  };
+  motionIndex_.rebuild(doc_, &r);
+  motionDirty_ = false;
+  // The Motion icon's frames: the page's (and its sections') top-level frames whose timeline plays.
+  std::vector<Guid> titled;
+  doc_.forEach([&](const Node& n) {
+    if (!n.guid.isDerived() && motionIndex_.plays(n.guid) && showsTitle(doc_, n.guid)) titled.push_back(n.guid);
+  });
+  if (titled != motionTitleRoots_) {
+    motionTitleRoots_ = std::move(titled);
+    needsRender_ = true;
+  }
 }
 
 void Editor::motionApply() {
   if (txn_.open) return;  // applied when the transaction commits
   if (motionDirty_) {
     if (motionLayer_.active()) motionLayer_.restore(doc_);
-    motionIndex_.rebuild(doc_);
-    motionDirty_ = false;
+    motionRebuild();
   }
   Guid root = motionRoot();
   if (!motion_.on || root == kNoGuid) {

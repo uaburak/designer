@@ -1,9 +1,9 @@
 /**
  * ⌘C / ⌘V of keyframes in the timeline (docs/motion.md §6.2; ours, Figma's isn't documented). The copy is the
  * editor's, not the system clipboard: per layer, per track, the values and easings at their distance from the earliest
- * keyframe copied (timeline/maths.ts `copyKeyframes`). A paste puts them at the playhead with MOTION_ADD_KEYFRAME (the
- * engine's MOTION_PASTE_KEYFRAMES is not built yet), one undo step: onto the selected layers when the copy came from
- * one layer, else back onto the layers it came from.
+ * keyframe copied (timeline/maths.ts `copyKeyframes`). A paste puts them at the playhead with the engine's
+ * MOTION_PASTE_KEYFRAMES (round 8i), one undo step: onto the selected layers when the copy came from one layer, else
+ * back onto the layers it came from (a command per layer inside the step).
  */
 import type { GuidString, TimelineModel } from "@shared/motion/types";
 import type { EditorController } from "../controller";
@@ -24,13 +24,11 @@ export function copySelectedKeyframes(model: TimelineModel | null, ids: readonly
 export function pasteKeyframes(ed: EditorController, model: TimelineModel | null): boolean {
   if (!copied?.length || !model) return false;
   const selection = ed.store.selection.refs.filter((r) => r !== model.root);
-  const targets = copied.length === 1 && selection.length ? selection.map((node) => ({ node, tracks: copied![0].tracks })) : copied;
-  const at = motionUi(ed).timeUs;
+  const targets = copied.length === 1 && selection.length ? [{ nodes: selection, tracks: copied[0].tracks }] : copied.map((c) => ({ nodes: [c.node], tracks: c.tracks }));
+  const atUs = motionUi(ed).timeUs;
   ed.engine.txnBegin("Paste keyframes");
   try {
-    for (const { node, tracks } of targets)
-      for (const { field, keyframes } of tracks)
-        for (const k of keyframes) ed.engine.runMotionCommand("MOTION_ADD_KEYFRAME", { nodes: [node], field, timeUs: at + k.dtUs, value: k.value, easing: k.easing });
+    for (const { nodes, tracks } of targets) ed.engine.runMotionCommand("MOTION_PASTE_KEYFRAMES", { nodes, atUs, clipboard: { tracks } });
   } catch {
     // The engine's Motion commands not built in this wasm.
   } finally {

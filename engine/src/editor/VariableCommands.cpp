@@ -12,6 +12,7 @@
 #include "base/FractionalIndex.h"
 #include "editor/Editor.h"
 #include "scene/CodecJson.h"
+#include "scene/CodecKiwi.h"
 #include "text/TextEdit.h"
 
 namespace eng {
@@ -147,6 +148,9 @@ bool typeFromName(const std::string& s, VariableResolvedType& t) {
   if (s == "FLOAT" || s == "NUMBER") return t = VariableResolvedType::FLOAT, true;
   if (s == "STRING") return t = VariableResolvedType::STRING, true;
   if (s == "BOOLEAN") return t = VariableResolvedType::BOOLEAN, true;
+  // Motion (docs/motion.md §4.7, §6.7; round 8i): an easing curve or spring, a duration in milliseconds.
+  if (s == "EASING") return t = VariableResolvedType::EASING, true;
+  if (s == "TIMING") return t = VariableResolvedType::TIMING, true;
   return false;
 }
 
@@ -156,14 +160,42 @@ const char* defaultVariableName(VariableResolvedType t) {
     case VariableResolvedType::COLOR: return "Color";
     case VariableResolvedType::FLOAT: return "Number";
     case VariableResolvedType::STRING: return "String";
+    case VariableResolvedType::EASING: return "Easing";
+    case VariableResolvedType::TIMING: return "Timing";
     default: return "Boolean";
   }
+}
+
+// An EASING literal: `easingData` (an EasingData as JSON) in the value's easingValue (VariableAnyValue 21).
+VariableData easingValue(const json::Value& easingData) {
+  VariableData d;
+  d.hasDataType = d.hasResolvedType = true;
+  d.dataType = VariableDataType::EASING;
+  d.resolvedDataType = VariableResolvedType::EASING;
+  d.valueExtra = codec::extraFromJson("VariableAnyValue", "easingValue", easingData);
+  return d;
+}
+
+// A TIMING literal: milliseconds in floatValue (help: "Duration in milliseconds").
+VariableData timingValue(double ms) {
+  VariableData d = VariableData::number(ms);
+  d.dataType = VariableDataType::TIMING;
+  d.resolvedDataType = VariableResolvedType::TIMING;
+  return d;
 }
 VariableData defaultValue(VariableResolvedType t) {
   switch (t) {
     case VariableResolvedType::COLOR: return VariableData::color(Color{1, 1, 1, 1});
     case VariableResolvedType::FLOAT: return VariableData::number(0);
     case VariableResolvedType::STRING: return VariableData::string("");
+    case VariableResolvedType::EASING: {
+      // Ease out [ours: Figma's new Easing variable's value is unseen], Motion's preset default.
+      json::Value pub, ed;
+      json::parse(R"({"type":"EASE_OUT"})", pub);
+      Editor::motionEasingData(pub, ed);
+      return easingValue(ed);
+    }
+    case VariableResolvedType::TIMING: return timingValue(500);  // [ours] Motion's preset Duration
     default: return VariableData::boolean(false);
   }
 }
@@ -574,6 +606,17 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
         out = VariableData::composeColor(std::move(color), std::move(opacity));
         return true;
       }
+      case VariableResolvedType::EASING: {
+        // Figma's public MotionEasing ({type, easingFunctionCubicBezier | easingFunctionSpring}).
+        json::Value ed;
+        if (!motionEasingData(v, ed)) return false;
+        out = easingValue(ed);
+        return true;
+      }
+      case VariableResolvedType::TIMING:
+        if (!v.isNumber() || !std::isfinite(v.number) || v.number < 0) return false;
+        out = timingValue(v.number);
+        return true;
       default: return false;
     }
   };

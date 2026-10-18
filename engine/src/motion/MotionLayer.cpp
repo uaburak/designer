@@ -384,20 +384,22 @@ size_t MotionLayer::apply(Document& doc, const MotionIndex& index, Guid root, in
   // the canvas draws it again where its elements reach (its ink grows by them, Renderer's text ink).
   for (const Staggered& st : staggered) {
     const text::TextLayout* L = hooks.textLayout(st.id);
-    const Preset* pr = nullptr;
+    // A text preset's clip's own stagger, else the text's own (MOTION_SET_TEXT_STAGGER, round 8i).
+    const Stagger* sg = nullptr;
     for (const auto& f : st.fields)
       for (const Param& q : f.second)
-        if (!pr) pr = index.preset(q.preset);
-    if (!L || !pr) continue;
-    TextElements els = groupElements(*L, pr->stagger.grouping);
-    std::vector<uint32_t> ranks = staggerRanks(els.boxes.size(), pr->stagger.order, st.layer);
+        if (const Preset* pr = sg ? nullptr : index.preset(q.preset)) sg = &pr->stagger;
+    if (const AnimatedNode* own = sg ? nullptr : index.node(st.layer); own && own->stagger.enabled) sg = &own->stagger;
+    if (!L || !sg) continue;
+    TextElements els = groupElements(*L, sg->grouping);
+    std::vector<uint32_t> ranks = staggerRanks(els.boxes.size(), sg->order, st.layer);
     TextElementPoses out;
     out.elementOf = els.elementOf;
     out.transform.resize(els.boxes.size());
     out.alpha.resize(els.boxes.size(), 1);
     bool reached = false;
     for (size_t e = 0; e < els.boxes.size(); e++) {
-      int64_t tauE = st.tau - static_cast<int64_t>(ranks[e]) * pr->stagger.stepUs;
+      int64_t tauE = st.tau - static_cast<int64_t>(ranks[e]) * sg->stepUs;
       Vec2 t{0, 0}, sc{1, 1};
       double r = 0, op = 1;
       for (const auto& [field, params] : st.fields) {

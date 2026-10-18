@@ -443,6 +443,9 @@ struct Overlay {
   // Top-level frames' names above them; one frame's left out (a grid whose track is selected: live Figma).
   bool frameTitles = true;
   Guid hideTitle = kNoGuid;
+  // Top-level frames with animated layers: the Motion icon before their names (help: "Top-level frames with animated
+  // layers are marked with the Motion icon"; round 8i).
+  std::vector<Guid> motionTitles;
   // The camera is in a continuous zoom (the wheel, a pinch): a page that takes long to draw may show its cached
   // pixels scaled until the zoom settles (docs/engine.md §6.9).
   bool zooming = false;
