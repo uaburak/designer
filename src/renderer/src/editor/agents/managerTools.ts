@@ -58,7 +58,18 @@ export interface TaskExtra {
   prompt?: string;
   /** An image task of a post: the frame it fills */
   post?: string;
+  /** How the card runs it again with its prompt edited (§5.2); none: it can't (a review) */
+  again?: TaskAgain;
 }
+
+/**
+ * A task run again from its card (§5.2): a worker's turn with the edited prompt (its files attached again), or a picture
+ * made again — or the label fixed again on the frame's picture — into the frame of a brief's post (`nodeId`, else the
+ * post's frame as make_posts recorded it).
+ */
+export type TaskAgain =
+  | { kind: "worker"; social?: boolean; files?: { path: string; name: string; mime: string }[] }
+  | { kind: "picture"; briefId: string; frameName: string; nodeId?: string; edit?: boolean };
 
 export interface ManagerEnv {
   chatId: string;
@@ -92,6 +103,8 @@ export interface ManagerEnv {
   read(id: string): { name: string; type: string; x: number; y: number; width: number; height: number; children: string[] } | null;
   /** The picture filling a layer, as base64 (Fix label edits it) */
   pictureOf(nodeId: string): Promise<string | null>;
+  /** A template post's picture slot (its unlocked "picture" layer, docs/social.md §5): pictures and fixes go there; null when it has none */
+  pictureSlot?(nodeId: string): string | null;
   /** The view is in Social mode (docs/social.md §7): make_posts makes posts with records, in a campaign's row */
   social?(): boolean;
   /** A post's problems (its pins, docs/social.md §7.3): null when the layer isn't a post; written as one step */
@@ -171,6 +184,9 @@ function usableAgent(env: ManagerEnv, providerId: string): ProviderInfo | string
 const WORKER_NOTE =
   "[You are a worker of this chat's manager. Do exactly this task on the open file with the design tools — no questions, decide sensibly — then answer in one or two sentences what you made (names, not ids).]";
 
+/** A worker's whole prompt: the note, Social's line in Social, the task's own words. */
+const workerPrompt = (prompt: string, social: boolean) => `${WORKER_NOTE}${social ? `\n${SOCIAL_WORKER_LINE}` : ""}\n\n${prompt}`;
+
 function delegateTask(env: ManagerEnv, args: Record<string, unknown>): ToolResult {
   const title = str(args.title).trim();
   const prompt = str(args.prompt).trim();
@@ -183,8 +199,9 @@ function delegateTask(env: ManagerEnv, args: Record<string, unknown>): ToolResul
   const dependsOn = strs(args.dependsOn);
   const unknown = dependsOn.filter((id) => !env.queue.get(id));
   if (unknown.length) return textResult(`No task ${unknown.join(", ")} to depend on.`, true);
-  const task = addTask(env, "agent", title, route, dependsOn, (signal) => env.runWorker(env.queue.get(task.id)!, `${WORKER_NOTE}${env.social?.() ? `\n${SOCIAL_WORKER_LINE}` : ""}\n\n${prompt}`, signal));
-  env.noteTask(task.id, { prompt });
+  const social = !!env.social?.();
+  const task = addTask(env, "agent", title, route, dependsOn, (signal) => env.runWorker(env.queue.get(task.id)!, workerPrompt(prompt, social), signal));
+  env.noteTask(task.id, { prompt, again: { kind: "worker", social } });
   return textResult({ taskId: task.id, state: task.state, agent: routeLabel(route) });
 }
 
@@ -337,10 +354,15 @@ function findFrame(env: ManagerEnv, pageId: string | null, name: string): string
   return null;
 }
 
-/** A frame's "Picture" layer (§5.1), made at its bottom when the worker didn't. */
+/**
+ * A frame's picture layer: a template post's picture slot (docs/social.md §5) — never a second picture under the
+ * template —, else its "Picture" layer (§5.1), made at its bottom when the worker didn't.
+ */
 async function pictureLayer(env: ManagerEnv, frameId: string): Promise<string> {
   const frame = env.read(frameId);
   if (!frame) throw new Error("The frame isn't there any more.");
+  const slot = env.pictureSlot?.(frameId);
+  if (slot) return slot;
   const found = frame.children.find((id) => env.read(id)?.name === "Picture");
   if (found) return found;
   const made = await env.tool("create_nodes", { parentId: frameId, nodes: [{ type: "RECTANGLE", name: "Picture", x: 0, y: 0, width: frame.width, height: frame.height }] });
@@ -348,6 +370,19 @@ async function pictureLayer(env: ManagerEnv, frameId: string): Promise<string> {
   if (made.isError || !id) throw new Error("Couldn't make the frame's Picture layer.");
   await env.tool("reparent_nodes", { nodeIds: [id], parentId: frameId, index: 0 });
   return id;
+}
+
+/** Where a layer inside a frame starts in the frame's coordinates (its parents' places added up; null: not inside it). */
+function offsetIn(env: ManagerEnv, frameId: string, id: string): { x: number; y: number } | null {
+  if (id === frameId) return { x: 0, y: 0 };
+  for (const kid of env.read(frameId)?.children ?? []) {
+    const n = env.read(kid);
+    if (!n) continue;
+    if (kid === id) return { x: n.x, y: n.y };
+    const inner = offsetIn(env, kid, id);
+    if (inner) return { x: n.x + inner.x, y: n.y + inner.y };
+  }
+  return null;
 }
 
 /** The picture into its frame's "Picture" layer (FILL), one undo step. */
@@ -437,18 +472,20 @@ async function makePosts(env: ManagerEnv, args: Record<string, unknown>): Promis
         picture = await runPicture(env, b.imageRoute, prompt, { width: format.width, height: format.height }, signal);
         return { summary: t("A {width} × {height} picture", { width: picture.width, height: picture.height }), credits: picture.credits };
       });
-      env.noteTask(frameTask.id, { prompt: framePrompt({ brand, products, format, name, ...at, pageId, request: b.request, logo: logo?.path }) });
-      env.noteTask(imageTask.id, { prompt: prompt.prompt, post: name });
+      env.noteTask(frameTask.id, { prompt: framePrompt({ brand, products, format, name, ...at, pageId, request: b.request, logo: logo?.path }), again: { kind: "worker", ...(logo ? { files: [logo] } : {}) } });
+      env.noteTask(imageTask.id, { prompt: prompt.prompt, post: name, again: { kind: "picture", briefId: b.id, frameName: name } });
       posts.push({ frameName: name, briefId: b.id, formatId: format.id, variation: v, pageId, frameTaskId: frameTask.id, imageTaskId: imageTask.id, prompt: prompt.prompt });
       // When both are done, the picture goes into the frame (§5.4 step 2).
-      placements.push(
-        Promise.all([env.queue.ended(frameTask.id), env.queue.ended(imageTask.id)]).then(async ([f, i]) => {
-          const frameId = f.nodeIds?.[0];
-          if (f.state !== "done" || i.state !== "done" || !frameId || !picture) return;
-          const pic = await placePicture(env, frameId, picture);
-          setPost(env, name, b.id, { pictureNodeId: pic });
-        })
-      );
+      const placed = Promise.all([env.queue.ended(frameTask.id), env.queue.ended(imageTask.id)]).then(async ([f, i]) => {
+        const frameId = f.nodeIds?.[0];
+        if (f.state !== "done" || i.state !== "done" || !frameId || !picture) return;
+        const pic = await placePicture(env, frameId, picture);
+        setPost(env, name, b.id, { pictureNodeId: pic });
+      });
+      placements.push(placed);
+      // A failed placement is the review task's to report — and when another task failed first, the review never runs:
+      // never an unhandled rejection.
+      placed.catch(() => undefined);
       started.push(frameTask, imageTask);
     }
   }
@@ -574,8 +611,8 @@ async function makeBoardPosts(env: ManagerEnv, args: Record<string, unknown>, b:
         picture = await runPicture(env, b.imageRoute, prompt, { width: format.width, height: format.height }, signal);
         return { summary: t("A {width} × {height} picture", { width: picture.width, height: picture.height }), credits: picture.credits };
       });
-      env.noteTask(frameTask.id, { prompt: work });
-      env.noteTask(imageTask.id, { prompt: prompt.prompt, post: name });
+      env.noteTask(frameTask.id, { prompt: work, again: { kind: "worker", social: true, ...(logo && !fromTemplate ? { files: [logo] } : {}) } });
+      env.noteTask(imageTask.id, { prompt: prompt.prompt, post: name, again: { kind: "picture", briefId: b.id, frameName: name, nodeId } });
       posts.push({ frameName: name, briefId: b.id, formatId: base.formatId, variation: v, pageId, frameTaskId: frameTask.id, imageTaskId: imageTask.id, frameNodeId: nodeId, prompt: prompt.prompt });
       const placed = Promise.all([env.queue.ended(frameTask.id), env.queue.ended(imageTask.id)]).then(async ([f, i]) => {
         if (f.state !== "done" || i.state !== "done" || !picture) return;
@@ -600,7 +637,7 @@ async function makeBoardPosts(env: ManagerEnv, args: Record<string, unknown>, b:
           await placed;
           return { ...(await env.runWorker(env.queue.get(motionTask.id)!, `${WORKER_NOTE}\n${SOCIAL_WORKER_LINE}\n\n${motion}`, signal)), nodeIds: [nodeId] };
         });
-        env.noteTask(motionTask.id, { prompt: motion });
+        env.noteTask(motionTask.id, { prompt: motion, again: { kind: "worker", social: true } });
         started.push(motionTask);
       }
     }
@@ -736,8 +773,8 @@ async function reportReview(env: ManagerEnv, args: Record<string, unknown>): Pro
 export function relayoutTask(env: ManagerEnv, nodeId: string, name: string, problems: readonly Pick<ReviewProblem, "detail" | "box">[], brand: Brand | null): StudioTask {
   const general = env.settings().general;
   const prompt = `Fix the frame “${name}” (${nodeId}): ${problems.map((p) => `${p.detail}${p.box ? ` (around x ${Math.round(p.box.x)}, y ${Math.round(p.box.y)}, ${Math.round(p.box.width)} × ${Math.round(p.box.height)})` : ""}`).join("; ")}.${brand ? ` The brand: ${brand.name}; colours ${brand.colors.map((c) => c.hex).join(", ") || "as on the frame"}; fonts ${brand.fonts.join(", ") || "as on the frame"}.` : ""} Keep the “Picture” layer as it is; move or restyle only the text and logo, inside the format's safe area.`;
-  const task = addTask(env, "agent", t("Relayout: {name}", { name }), general, [], (signal) => env.runWorker(env.queue.get(task.id)!, `${WORKER_NOTE}\n\n${prompt}`, signal));
-  env.noteTask(task.id, { prompt });
+  const task = addTask(env, "agent", t("Relayout: {name}", { name }), general, [], (signal) => env.runWorker(env.queue.get(task.id)!, workerPrompt(prompt, false), signal));
+  env.noteTask(task.id, { prompt, again: { kind: "worker" } });
   return task;
 }
 
@@ -795,35 +832,28 @@ export async function dispatchFixes(env: ManagerEnv, report: ReviewReport, picke
     const fixLabel = by("fix-label");
     const blur = by("blur").filter((p) => p.box);
     if ((regenerate.length || fixLabel.length) && (!brief || !brand)) throw new Error("The brief of these frames isn't in this chat: make_posts again.");
-    const replace = (title: string, kind: "make-image" | "edit-image", prompt: ImagePrompt, size: { width: number; height: number }) => {
-      const task = addTask(env, "image", title, imageTaskRoute(brief!.imageRoute), [], async (signal) => {
-        const image = kind === "edit-image" ? await env.pictureOf(await pictureLayer(env, item.nodeId)) : undefined;
-        if (kind === "edit-image" && !image) throw new Error("The frame's picture isn't there to fix.");
-        const out = await runPicture(env, brief!.imageRoute, prompt, size, signal, image ?? undefined);
-        const pic = await placePicture(env, item.nodeId, out);
-        return { summary: kind === "edit-image" ? t("Fixed the label ({width} × {height})", { width: out.width, height: out.height }) : t("Made the picture again ({width} × {height})", { width: out.width, height: out.height }), credits: out.credits, nodeIds: [pic] };
-      });
-      env.noteTask(task.id, { prompt: prompt.prompt, post: name });
-      tasks.push({ task, nodeId: item.nodeId });
+    // Blur first, here and now: a Fix label after it edits the blurred picture (and keeps the rest of it unchanged), so
+    // the blur isn't lost to the edit. A picture made again has new small print: nothing to blur.
+    if (blur.length && !regenerate.length) {
+      const pic = await pictureLayer(env, item.nodeId);
+      const at = offsetIn(env, item.nodeId, pic) ?? { x: 0, y: 0 };
+      // The boxes are in the frame's coordinates; the picture layer's own start at its place in the frame.
+      await env.blur(pic, blur.map((p) => ({ x: p.box!.x - at.x, y: p.box!.y - at.y, width: p.box!.width, height: p.box!.height })));
+      blurred.push(item.nodeId);
       changed.add(item.nodeId);
-    };
+    }
     if (regenerate.length) {
       const { format, variation } = postFor(env, item.nodeId, brief!);
       const p = buildImagePrompt(brief!, brand!, products, format, variation);
       const wrong = [...regenerate, ...fixLabel].map((x) => x.detail).join("; ");
-      replace(t("Picture again: {name}", { name }), "make-image", { ...p, prompt: `${p.prompt}\n\nThe last picture went wrong: ${wrong}. Make sure that doesn't happen again.` }, { width: format.width, height: format.height });
+      const task = pictureTask(env, { title: t("Picture again: {name}", { name }), brief: brief!, nodeId: item.nodeId, frameName: name, edit: false, prompt: { ...p, prompt: `${p.prompt}\n\nThe last picture went wrong: ${wrong}. Make sure that doesn't happen again.` }, size: { width: format.width, height: format.height } });
+      tasks.push({ task, nodeId: item.nodeId });
+      changed.add(item.nodeId);
     } else if (fixLabel.length) {
       const size = { width: frame?.width ?? 1080, height: frame?.height ?? 1080 };
       // The prompt doesn't know the picture's size: the edit keeps the frame's own ratio.
       const p = { ...buildFixLabelPrompt(brand!, products, fixLabel), aspectRatio: nearestAspectRatio(size.width, size.height) };
-      replace(t("Fix label: {name}", { name }), "edit-image", p, size);
-    }
-    if (blur.length && !regenerate.length) {
-      const pic = await pictureLayer(env, item.nodeId);
-      const at = env.read(pic);
-      // The boxes are in the frame's coordinates; the Picture layer's own start at its place in the frame.
-      await env.blur(pic, blur.map((p) => ({ x: p.box!.x - (at?.x ?? 0), y: p.box!.y - (at?.y ?? 0), width: p.box!.width, height: p.box!.height })));
-      blurred.push(item.nodeId);
+      tasks.push({ task: pictureTask(env, { title: t("Fix label: {name}", { name }), brief: brief!, nodeId: item.nodeId, frameName: name, edit: true, prompt: p, size }), nodeId: item.nodeId });
       changed.add(item.nodeId);
     }
     for (const p of [...by("rewrite"), ...by("retime")]) yours.push({ id: p.id, nodeId: item.nodeId, name, detail: p.detail, fix: p.fix });
@@ -834,4 +864,55 @@ export async function dispatchFixes(env: ManagerEnv, report: ReviewReport, picke
     }
   }
   return { tasks: tasks.map(({ task: x, nodeId }) => ({ taskId: x.id, title: x.title, kind: x.kind, nodeId })), blurred, changed: [...changed], yours };
+}
+
+/**
+ * An image task that makes a frame's picture again — or edits it (`edit`: Fix label, the frame's picture sent as the
+ * image to edit) — and puts it into the frame's picture layer, one undo step: the review's fixes and a card's Run again.
+ * The frame is `nodeId`, else the brief's post as make_posts recorded it once its frame task made it.
+ */
+function pictureTask(env: ManagerEnv, o: { title: string; brief: StudioBrief; nodeId?: string; frameName: string; edit: boolean; prompt: ImagePrompt; size: { width: number; height: number } }): StudioTask {
+  const task = addTask(env, "image", o.title, imageTaskRoute(o.brief.imageRoute), [], async (signal) => {
+    const frameId = o.nodeId ?? postOf(env, o.frameName, o.brief.id)?.frameNodeId;
+    if (!frameId || !env.read(frameId)) throw new Error(`The frame “${o.frameName}” isn't on the canvas any more.`);
+    const image = o.edit ? await env.pictureOf(await pictureLayer(env, frameId)) : undefined;
+    if (o.edit && !image) throw new Error("The frame's picture isn't there to fix.");
+    const out = await runPicture(env, o.brief.imageRoute, o.prompt, o.size, signal, image ?? undefined);
+    const pic = await placePicture(env, frameId, out);
+    if (!o.nodeId) setPost(env, o.frameName, o.brief.id, { pictureNodeId: pic });
+    return { summary: o.edit ? t("Fixed the label ({width} × {height})", { width: out.width, height: out.height }) : t("Made the picture again ({width} × {height})", { width: out.width, height: out.height }), credits: out.credits, nodeIds: [pic] };
+  });
+  env.noteTask(task.id, { prompt: o.prompt.prompt, post: o.frameName, again: { kind: "picture", briefId: o.brief.id, frameName: o.frameName, ...(o.nodeId ? { nodeId: o.nodeId } : {}), ...(o.edit ? { edit: true } : {}) } });
+  return task;
+}
+
+/**
+ * A task's card runs it again with its prompt as the owner edited it (§5.2): a new task in the same answer, beside the
+ * old one — a worker's turn with the edited words (Social's line and its files as before), or the picture made again
+ * (Fix label: edited again) into its frame with the brief's references, the edited prompt in place of the built one.
+ */
+export async function runAgain(env: ManagerEnv, task: StudioTask & TaskExtra, prompt: string): Promise<StudioTask> {
+  const words = prompt.trim();
+  const again = task.again;
+  if (!words) throw new Error(t("The prompt is empty."));
+  if (!again) throw new Error(t("This task can't run again."));
+  if (again.kind === "worker") {
+    const agent = usableAgent(env, task.route.providerId);
+    if (typeof agent === "string") throw new Error(agent);
+    const next = addTask(env, "agent", task.title, task.route, [], (signal) => env.runWorker(env.queue.get(next.id)!, workerPrompt(words, !!again.social), signal, again.files));
+    env.noteTask(next.id, { prompt: words, again });
+    return next;
+  }
+  const brief = env.data().briefs?.find((b) => b.id === again.briefId);
+  const brand = brief ? await env.brands.get(brief.brandId) : null;
+  if (!brief || !brand) throw new Error(t("The brief of this picture isn't in this chat any more."));
+  const products = productsOf(brand, brief.productIds);
+  const frameId = again.nodeId ?? postOf(env, again.frameName, brief.id)?.frameNodeId;
+  const frame = frameId ? env.read(frameId) : null;
+  if (!frameId || !frame) throw new Error(t("The frame “{name}” isn't on the canvas any more.", { name: again.frameName }));
+  const { format, variation } = postFor(env, frameId, brief);
+  // An edit keeps the frame's own ratio (as Fix label does); a new picture is the format's.
+  const size = again.edit ? { width: frame.width, height: frame.height } : { width: format.width, height: format.height };
+  const built = again.edit ? { ...buildFixLabelPrompt(brand, products, []), aspectRatio: nearestAspectRatio(size.width, size.height) } : buildImagePrompt(brief, brand, products, format, variation);
+  return pictureTask(env, { title: task.title, brief, nodeId: frameId, frameName: again.frameName, edit: !!again.edit, prompt: { ...built, prompt: words }, size });
 }

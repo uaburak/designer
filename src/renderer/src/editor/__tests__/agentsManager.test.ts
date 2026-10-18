@@ -1,7 +1,8 @@
 // The manager's tools on fakes (docs/studio.md §2.2, §5.4, §6): the library, the image runs, the workers and the
 // canvas are stand-ins; the task queue is the real one. make_posts (frames named and placed in a row, the picture
 // into each frame's "Picture" layer, the review after all), the cards' answers resolving the waiting calls, the
-// image model card kept for the chat, delegate_task's agents, report_review's fixes; in Social (docs/social.md §7, round
+// image model card kept for the chat, delegate_task's agents, report_review's fixes (Blur before Fix label, a template
+// post's picture slot), a task run again from its card with its prompt edited; in Social (docs/social.md §7, round
 // 18c) make_posts on the board (a campaign, posts made at once, templates, the Motion pass), the review's pins and its
 // own fixes, the follow-up chips, make_brand_library until round 18b.
 import { describe, expect, it } from "vitest";
@@ -13,7 +14,7 @@ import { formatById } from "@shared/social/formats";
 import { SOCIAL_WORKER_LINE } from "@shared/social/managerPrompt";
 import type { PostProblem } from "@shared/social/types";
 import { TaskQueue } from "../agents/tasks";
-import { campaignName, cleanReport, frameName, runManagerTool, type CardAnswer, type ManagerEnv, type StudioChatData, type ViewCard } from "../agents/managerTools";
+import { campaignName, cleanReport, frameName, runAgain, runManagerTool, type CardAnswer, type ManagerEnv, type StudioChatData, type TaskExtra, type ViewCard } from "../agents/managerTools";
 import type { StudioImageRequest } from "../studio/images";
 
 const product: Product = {
@@ -93,6 +94,8 @@ function fakeEnv(o: { settings?: Partial<ManagerSettings>; routes?: ImageRouteIn
   const cards: ViewCard[] = [];
   const answers: ((a: CardAnswer) => void)[] = [];
   const workerPrompts: string[] = [];
+  const workerFiles: (string[] | undefined)[] = [];
+  const notes = new Map<string, TaskExtra>();
   const images: StudioImageRequest[] = [];
   const tools: { name: string; args: Record<string, unknown> }[] = [];
   const blurred: { nodeId: string; boxes: unknown[] }[] = [];
@@ -113,9 +116,10 @@ function fakeEnv(o: { settings?: Partial<ManagerSettings>; routes?: ImageRouteIn
       cards.push(card);
       return new Promise((r) => answers.push(r));
     },
-    noteTask: () => {},
-    runWorker: async (_task, prompt) => {
+    noteTask: (id, extra) => void notes.set(id, { ...notes.get(id), ...extra }),
+    runWorker: async (_task, prompt, _signal, files) => {
       workerPrompts.push(prompt);
+      workerFiles.push(files?.map((x) => x.path));
       // The worker makes the frame it was asked for (named in quotes after "FRAME named exactly"), with its Picture layer.
       const m = /FRAME named exactly “([^”]+)”, (\d+) × (\d+), at x (-?\d+), y (-?\d+)/.exec(prompt);
       if (m) {
@@ -171,7 +175,7 @@ function fakeEnv(o: { settings?: Partial<ManagerSettings>; routes?: ImageRouteIn
         }
       : {}),
   };
-  return { env, nodes, cards, answers, workerPrompts, images, tools, blurred, problems, suggested, data: () => data, queue };
+  return { env, nodes, cards, answers, workerPrompts, workerFiles, notes, images, tools, blurred, problems, suggested, data: () => data, queue };
 }
 
 describe("make_posts", () => {
@@ -304,12 +308,118 @@ describe("cards and tasks", () => {
     expect(json(await leave).answer).toBe("Leave as is");
   });
 
+  it("Blur and Fix label on one frame: the blur lands first, and the label is fixed on the blurred picture", async () => {
+    const f = fakeEnv();
+    // Blur changes the picture, taking its time (as the image tools do): the edit must be sent what it made.
+    f.env.blur = async (nodeId) => {
+      await tick();
+      f.nodes.get(nodeId)!.fill = "BLURRED";
+    };
+    const made = json(await runManagerTool(f.env, "make_posts", { brand: "b1", products: ["p1"], formats: ["post"], variations: 1 }));
+    const [rv] = await f.queue.wait([made.reviewTaskId], 5000);
+    await settle();
+    const frame = rv.nodeIds![0];
+    const report = { briefId: made.briefId, items: [{ nodeId: frame, ok: false, problems: [{ id: "a", kind: "sharp-text", detail: "LIQ HUMOS" }, { id: "b", kind: "soft-text", detail: "words", box: { x: 5, y: 5, width: 50, height: 20 } }] }] };
+    const call = runManagerTool(f.env, "report_review", { report });
+    await settle();
+    f.answers.at(-1)!({ fix: ["a", "b"] });
+    const r = json(await call);
+    await f.queue.wait(r.tasks.map((t: { taskId: string }) => t.taskId), 5000);
+    expect(f.images.at(-1)!.image).toBe("BLURRED");
+  });
+
+  it("a template post's fixes go to its picture slot — never a second picture under the template — its boxes taken to the slot's place", async () => {
+    const f = fakeEnv();
+    const made = json(await runManagerTool(f.env, "make_posts", { brand: "b1", products: ["p1"], formats: ["post"], variations: 1 }));
+    const [rv] = await f.queue.wait([made.reviewTaskId], 5000);
+    await settle();
+    const frame = rv.nodeIds![0];
+    // The frame as a template made it: a "Media" group at 40, 60 holding the picture slot at 10, 20.
+    f.nodes.set("9:2", { name: "Photo", type: "RECTANGLE", x: 10, y: 20, width: 400, height: 300, children: [], fill: "SLOT" });
+    f.nodes.set("9:1", { name: "Media", type: "FRAME", x: 40, y: 60, width: 500, height: 400, children: ["9:2"] });
+    f.nodes.get(frame)!.children.push("9:1");
+    f.env.pictureSlot = (id) => (id === frame ? "9:2" : null);
+    const kids = [...f.nodes.get(frame)!.children];
+    const report = { briefId: made.briefId, items: [{ nodeId: frame, ok: false, problems: [{ id: "a", kind: "sharp-text", detail: "LIQ HUMOS" }, { id: "b", kind: "soft-text", detail: "words", box: { x: 100, y: 100, width: 30, height: 10 } }] }] };
+    const call = runManagerTool(f.env, "report_review", { report });
+    await settle();
+    f.answers.at(-1)!({ fix: ["a", "b"] });
+    const r = json(await call);
+    await f.queue.wait(r.tasks.map((t: { taskId: string }) => t.taskId), 5000);
+    expect(f.blurred).toEqual([{ nodeId: "9:2", boxes: [{ x: 50, y: 20, width: 30, height: 10 }] }]);
+    expect(f.images.at(-1)!.image).toBe("SLOT");
+    expect(f.tools.filter((x) => x.name === "place_image").at(-1)!.args.nodeId).toBe("9:2");
+    expect(f.nodes.get(frame)!.children).toEqual(kids);
+  });
+
+  it("a picture that can't go into its frame while another task failed: the review fails, and nothing is left unhandled", async () => {
+    const f = fakeEnv();
+    const worker = f.env.runWorker;
+    f.env.runWorker = (task, prompt, signal, files) => (prompt.includes("Post v2") ? Promise.reject(new Error("The agent quit")) : worker(task, prompt, signal, files));
+    const tool = f.env.tool;
+    f.env.tool = async (name, args) => (name === "place_image" ? { content: [{ type: "text", text: "No room" }], isError: true } : tool(name, args));
+    const made = json(await runManagerTool(f.env, "make_posts", { brand: "b1", products: ["p1"], formats: ["post"], variations: 2 }));
+    const [rv] = await f.queue.wait([made.reviewTaskId], 5000);
+    await settle();
+    expect(rv).toMatchObject({ state: "failed" });
+  });
+
   it("cleanReport keeps known kinds with their §6.2 fix and unique ids", () => {
     const r = cleanReport({ items: [{ nodeId: "1:2", problems: [{ id: "x", kind: "shape", fix: "blur" }, { id: "x", kind: "extra" }, { kind: "weird" }] }] }, "brief-1");
     expect(r.briefId).toBe("brief-1");
     expect(r.items[0].problems.map((p) => p.fix)).toEqual(["regenerate", "regenerate"]);
     expect(new Set(r.items[0].problems.map((p) => p.id)).size).toBe(2);
     expect(r.items[0].ok).toBe(false);
+  });
+});
+
+describe("a task run again from its card (§5.2)", () => {
+  /** A task as its card has it: the queue's, with what the manager noted. */
+  const card = (f: ReturnType<typeof fakeEnv>, id: string) => ({ ...f.queue.get(id)!, ...f.notes.get(id) });
+
+  it("a worker's task: a new task in the same answer with the edited words, its files attached again; empty words and a review refused", async () => {
+    const f = fakeEnv();
+    const made = json(await runManagerTool(f.env, "make_posts", { brand: "b1", products: ["p1"], formats: ["post"], variations: 1 }));
+    await f.queue.wait([made.reviewTaskId], 5000);
+    const frameTask = made.tasks.find((x: { kind: string }) => x.kind === "agent").taskId as string;
+    const again = await runAgain(f.env, card(f, frameTask), "Make the headline larger, “Liq Humus” in green.");
+    expect(again).toMatchObject({ kind: "agent", title: "Frame: Liq Humus — Post v1", messageId: "msg", route: { providerId: "claude-code" } });
+    expect(again.id).not.toBe(frameTask);
+    await f.queue.wait([again.id], 5000);
+    expect(f.workerPrompts.at(-1)).toMatch(/^\[You are a worker of this chat's manager\.[^\n]*\]\n\nMake the headline larger/);
+    expect(f.workerFiles.at(-1)).toEqual(["/chat/attachments/Partner-Agro-logo.png"]);
+    expect(f.notes.get(again.id)).toMatchObject({ prompt: "Make the headline larger, “Liq Humus” in green.", again: { kind: "worker" } });
+    await expect(runAgain(f.env, card(f, frameTask), "  ")).rejects.toThrow("The prompt is empty.");
+    await expect(runAgain(f.env, card(f, made.reviewTaskId), "Again")).rejects.toThrow("This task can't run again.");
+  });
+
+  it("a picture: made again with the edited prompt and the brief's references into its frame; a Fix label edits the frame's picture again", async () => {
+    const f = fakeEnv();
+    const made = json(await runManagerTool(f.env, "make_posts", { brand: "b1", products: ["p1"], formats: ["post"], variations: 1 }));
+    const [rv] = await f.queue.wait([made.reviewTaskId], 5000);
+    await settle();
+    const frame = rv.nodeIds![0];
+    const picture = f.nodes.get(frame)!.children[0];
+    const imageTask = made.tasks.find((x: { kind: string }) => x.kind === "image").taskId as string;
+    expect(f.notes.get(imageTask)!.again).toEqual({ kind: "picture", briefId: made.briefId, frameName: "Liq Humus — Post v1" });
+    const again = await runAgain(f.env, card(f, imageTask), "The bottle on a sunny field, morning light.");
+    await f.queue.wait([again.id], 5000);
+    const req = f.images.at(-1)!;
+    expect(req).toMatchObject({ prompt: "The bottle on a sunny field, morning light.", aspectRatio: "4:5", size: { width: 1080, height: 1350 }, route: { providerId: "gemini-images", model: "pro" } });
+    expect(req.references).toEqual(f.images[0].references);
+    expect(req.image).toBeUndefined();
+    expect(f.tools.filter((x) => x.name === "place_image").at(-1)!.args.nodeId).toBe(picture);
+    // A Fix label from the review, then run again: the frame's picture as it is now is the one edited.
+    const call = runManagerTool(f.env, "report_review", { report: { briefId: made.briefId, items: [{ nodeId: frame, ok: false, problems: [{ id: "a", kind: "sharp-text", detail: "LIQ HUMOS" }] }] } });
+    await settle();
+    f.answers.at(-1)!({ fix: ["a"] });
+    const fix = json(await call).tasks[0].taskId as string;
+    await f.queue.wait([fix], 5000);
+    f.nodes.get(picture)!.fill = "NOW";
+    const edit = await runAgain(f.env, card(f, fix), "Correct only “LIQ HUMOS” to “LIQ HUMUS”.");
+    await f.queue.wait([edit.id], 5000);
+    expect(f.images.at(-1)).toMatchObject({ prompt: "Correct only “LIQ HUMOS” to “LIQ HUMUS”.", image: "NOW", aspectRatio: "4:5" });
+    expect(f.queue.get(edit.id)).toMatchObject({ state: "done", title: "Fix label: Liq Humus — Post v1" });
   });
 });
 
