@@ -14,7 +14,7 @@
 //   --json <file>       write every number as JSON
 //   --page <n|name>     the page to measure (default: the page with the most layers)
 //   --size WxH --dpr D  the canvas in CSS px and its device pixel ratio (default 1440x900 @2, a Retina editor)
-//   --only a,b          run only these scenarios (rest, slowPan, fastPan, zoom, dense, hover, select, drag, and the
+//   --only a,b          run only these scenarios (rest, lowZoom, slowPan, fastPan, zoom, dense, hover, select, drag, and the
 //                       instance ones: instSelect, instDrag, altDrag, multiDrag; variantMain (a variant dragged in its
 //                       set), flowDrag (live auto-layout reorder, nested), selectMany; menuState in --editor mode)
 //   --open              the file-open path instead: the real EditorApp mounted (panels, Layers, fonts, images,
@@ -1038,6 +1038,19 @@ function pageMain() {
         if (want("rest")) {
           // A redraw with nothing changed (what a hover change or a blink costs today), synced each frame.
           results.push(await scenario("rest (fit, redraw)", 30, () => engine.renderNow(), { sync: true }));
+        }
+        if (want("lowZoom")) {
+          // The whole page drawn at fit every frame (wave 8: the CPU at very low zoom): a discrete zoom by 0.1 % each
+          // frame, back and forth, draws everything (no cache, no tiles), synced each frame.
+          fit();
+          const cam = engine.getCamera();
+          results.push(
+            await scenario(`low zoom (fit ${(cam.zoom * 100).toFixed(1)} %, full redraw)`, 40, (i) => {
+              engine.setCamera({ ...cam, zoom: cam.zoom * (i % 2 ? 1.001 : 1) });
+              engine.renderNow();
+            }, { sync: true, frameStats: true })
+          );
+          fit();
         }
         if (want("slowPan")) {
           fit();

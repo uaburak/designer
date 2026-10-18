@@ -1,5 +1,5 @@
-/* Round 10's command pieces (canvas/CommandOverlays.tsx): Move to folder's list, cursor chat, Memory usage, the vector
-   operations' bar. Unverified looks, built from the DS's tokens. */
+/* Round 10's command pieces (canvas/CommandOverlays.tsx): Move to folder's list, cursor chat, Memory usage's card
+   (canvas/EngineHealth.tsx), the vector operations' bar. Unverified looks, built from the DS's tokens. */
 @layer app {
   .places {
     max-height: 320px;
@@ -37,21 +37,55 @@
   }
   .chatInput::placeholder { color: var(--figma-color-text-onbrand-secondary); }
 
-  .memory {
+  /* View › Memory usage: Figma's card (canvas/EngineHealth.tsx) — title, %, a bar, the warning; red at 90 % */
+  .memoryCard {
     position: fixed;
     z-index: var(--ds-z-floating);
     display: flex;
-    align-items: center;
+    flex-direction: column;
     gap: var(--ds-space-2);
-    height: var(--ds-size-control);
-    padding: 0 var(--ds-space-2);
-    border-radius: var(--ds-radius-medium);
+    width: var(--ds-size-popover);
+    padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-3) var(--ds-space-4);
+    border-radius: var(--ds-radius-large);
     background: var(--figma-color-bg);
     color: var(--figma-color-text);
-    box-shadow: var(--ds-elevation-100);
+    box-shadow: var(--ds-elevation-200);
     font: var(--ds-font-body-medium);
     letter-spacing: var(--ds-tracking-body-medium);
-    pointer-events: none;
   }
-  .memoryLabel { color: var(--figma-color-text-secondary); }
+  .memoryRow {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    min-height: var(--ds-size-control);
+  }
+  .memoryTitle {
+    flex: 1;
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+  }
+  .memoryPercent { color: var(--figma-color-text-secondary); }
+  .memoryCard[data-level="error"] .memoryPercent { color: var(--figma-color-text-danger); }
+  .memoryBar {
+    height: var(--ds-space-1);
+    margin-right: var(--ds-space-2);
+    border-radius: var(--ds-radius-full);
+    background: var(--figma-color-bg-tertiary);
+    overflow: hidden;
+  }
+  .memoryFill {
+    height: 100%;
+    background: var(--figma-color-bg-brand);
+  }
+  .memoryCard[data-level="error"] .memoryFill { background: var(--figma-color-bg-danger); }
+  .memoryHeader {
+    margin-right: var(--ds-space-2);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+  }
+  .memoryCard[data-level="error"] .memoryHeader { color: var(--figma-color-text-danger); }
+  .memoryBody {
+    margin-right: var(--ds-space-2);
+    color: var(--figma-color-text-secondary);
+  }
 }

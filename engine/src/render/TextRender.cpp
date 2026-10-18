@@ -9,6 +9,7 @@
 #include "render/shader_presets.h"
 #include "scene/Extras.h"
 #include "scene/CodecKiwi.h"
+#include "text/Fonts.h"
 
 namespace eng {
 
@@ -32,8 +33,7 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
   // dark blobs, not faint bars, in its own thumbnails); under that, each line as a bar holding the line's ink — its
   // glyphs' area spread over the bar (full colour × coverage), so the text weighs on the page as its glyphs would.
   double scale = levelScale(m);
-  float em = 0;
-  for (const text::LaidGlyph& g : L->glyphs) em = std::max(em, g.size);
+  float em = maxEmOf(*L);
   if (!L->glyphs.empty() && em * scale < (lodZoom_ ? kGlyphZoomEmPx : kGlyphMinEmPx) && !exporting_ && !L->path) {
     stats_.greeked++;
     const text::LaidGlyph& first = L->glyphs.front();
@@ -45,15 +45,13 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
     if (!paint) return;
     static const Paint kGrey = Paint::solid(Color{0.5f, 0.5f, 0.5f, 1});  // gradients and images: a neutral bar
     const Paint& bar = paint->type == PaintType::SOLID ? *paint : kGrey;
-    for (const text::LaidLine& l : L->lines) {
+    const std::vector<double>& lineInk = lineInkOf(*L);
+    for (size_t li = 0; li < L->lines.size(); li++) {
+      const text::LaidLine& l = L->lines[li];
       if (l.width <= 0 || l.glyphCount == 0) continue;
       double h = std::max(l.ascent * 0.7, 0.0);
       Rect r{l.x, l.baseline - h, l.width, h};
-      double ink = 0;
-      for (uint32_t k = l.firstGlyph; k < l.firstGlyph + l.glyphCount && k < L->glyphs.size(); k++) {
-        const text::LaidGlyph& g = L->glyphs[k];
-        ink += glyphArea(g.font, g.glyph) * static_cast<double>(g.size) * g.size;
-      }
+      double ink = lineInk[li];
       double coverage = r.w * r.h > 0 ? std::clamp(ink / (r.w * r.h), 0.0, 1.0) : 0;
       if (coverage <= 0) continue;
       Mat2x3 bm = m * Mat2x3::translate(r.x, r.y);
@@ -176,6 +174,36 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
       emit(q, Pass::Shape, state);
     }
   }
+}
+
+float Renderer::maxEmOf(const text::TextLayout& L) {
+  const text::TextLayout::InkCache& c = L.ink;  // its members are mutable
+  if (c.emKnown) return c.maxEm;
+  float em = 0;
+  for (const text::LaidGlyph& g : L.glyphs) em = std::max(em, g.size);
+  c.maxEm = em;
+  c.emKnown = true;
+  return em;
+}
+
+const std::vector<double>& Renderer::lineInkOf(const text::TextLayout& L) {
+  const text::TextLayout::InkCache& c = L.ink;
+  uint32_t fonts = text::FontRegistry::get().generation();
+  if (c.inkKnown && c.fonts == fonts) return c.lineInk;
+  c.lineInk.assign(L.lines.size(), 0);
+  for (size_t li = 0; li < L.lines.size(); li++) {
+    const text::LaidLine& l = L.lines[li];
+    if (l.width <= 0) continue;  // no bar
+    double ink = 0;
+    for (uint32_t k = l.firstGlyph; k < l.firstGlyph + l.glyphCount && k < L.glyphs.size(); k++) {
+      const text::LaidGlyph& g = L.glyphs[k];
+      ink += glyphArea(g.font, g.glyph) * static_cast<double>(g.size) * g.size;
+    }
+    c.lineInk[li] = ink;
+  }
+  c.fonts = fonts;
+  c.inkKnown = true;
+  return c.lineInk;
 }
 
 double Renderer::glyphArea(text::Font* font, uint32_t glyph) {

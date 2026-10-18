@@ -554,6 +554,10 @@ class Renderer {
     if (!on) dropCache();
   }
   bool contentCache() const { return cacheEnabled_; }
+  // Figma's high-memory optimisations (atlas 20 §9.1), between frames: every cache the next frames rebuild goes —
+  // the content cache, the tiles, idle layer targets, the curves, the images the last frame didn't draw. The pixels
+  // stay the same; the next frame draws the page whole.
+  void purgeMemory();
   // Exports (export/Export.h): the page's layers on transparent (no page colour) and text never greeked.
   void setExporting(bool on) { exporting_ = on; }
   // When the next frame is wanted (a continuous zoom settling: draw the page sharp again), in nowMs() time; 0: none.
@@ -799,6 +803,9 @@ class Renderer {
   static constexpr double kGlyphZoomEmPx = 6;  // …while a zoom goes on
   // A glyph's outline area in em² (cached): the ink of greeked lines.
   double glyphArea(text::Font* font, uint32_t glyph);
+  // The layout's largest glyph size, and its lines' ink for greeked bars (TextLayout::InkCache), worked out once.
+  float maxEmOf(const text::TextLayout& L);
+  const std::vector<double>& lineInkOf(const text::TextLayout& L);
   // Outline mode (View › Outlines, ⇧⌘O): a node as a thin outline (text: its glyphs in the outline colour), then its
   // children; no fills, strokes, effects or masks.
   void drawOutlined(const Document& doc, uint32_t i, const NodeProps& p, const Mat2x3& m);
