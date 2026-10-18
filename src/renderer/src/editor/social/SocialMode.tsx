@@ -14,8 +14,10 @@ import { t } from "@/i18n";
 import { useEditor, type EditorController } from "../controller";
 import { modeOf, setMode } from "../devmode/devMode";
 import type { PostProblem } from "@shared/social/types";
+import { STARTER_BRIEF } from "@shared/social/managerPrompt";
 import { applySelection } from "../agents/mcpTools";
-import { agentsOf } from "../agents/service";
+import { agentsOf, type AgentsService } from "../agents/service";
+import { canWritePosts, editorWriter, fixProblem } from "./actions";
 import { socialOf } from "./socialState";
 
 export const isSocial = (ed: EditorController): boolean => modeOf(ed) === "social";
@@ -70,14 +72,32 @@ export function askAgent(ed: EditorController, ids: readonly Guid[] = selectedPo
 }
 
 /**
- * A problem's Fix (the Post section, docs/social.md §6.5, §7.3): the manager's fix loop on it — a turn sent at once with
- * the post as its context, in the Agent tab. Where agents can't run (the browser), the request waits in the composer.
+ * A problem's Fix (the Post section, docs/social.md §6.5, §7.3), the cheapest way that fixes it: a mechanical fix here
+ * and now without a model (a layer moved out of a safe-area band, a hidden logo shown, the template applied again —
+ * actions.ts `fixProblem`, one undo step); else a relayout problem goes to a worker's task without the manager's turn;
+ * else (a caption to rewrite, a timeline to retime) the manager's fix loop — a turn sent at once with the post as its
+ * context, in the Agent tab. Where agents can't run (the browser), the request waits in the composer.
  */
 export function fixWithAgent(ed: EditorController, post: { id: Guid; name: string }, problem: PostProblem): void {
+  if (canWritePosts(ed) && fixProblem(ed, editorWriter(ed), post.id, problem.id)) return;
   ed.ui.set({ socialRightTab: "agent", socialProblem: { post: post.id, problem: problem.id }, uiHidden: false });
   const agents = agentsOf(ed);
   if (!agents.get().available) return draftForAgent(ed, t("Fix on {name}: {detail}", { name: post.name, detail: problem.detail }));
-  agents.fixProblem(post, problem);
+  if (problem.fix !== "relayout") return agents.fixProblem(post, problem);
+  void agents.relayoutProblem(post, problem).then((started) => started || agents.fixProblem(post, problem));
+}
+
+/**
+ * Templates › Make starter templates… (§4.2, §12.4): the starter brief sent to the manager at once — the chat shows
+ * "Make starter templates" — in the Agent tab (`agents`: the file's, tests pass theirs). Where agents can't run, the brief
+ * waits in the composer.
+ */
+export async function makeStarterTemplates(ed: EditorController, agents: AgentsService = agentsOf(ed)): Promise<void> {
+  if (!agents.get().available) return draftForAgent(ed, STARTER_BRIEF);
+  ed.ui.set({ socialRightTab: "agent", uiHidden: false });
+  // The brief is the manager's (its tools make the library and the sets): a direct pick in the composer gives way.
+  if (agents.get().socialDirect) await agents.chooseInSocial(null);
+  await agents.send(STARTER_BRIEF, [], [], [], t("Make starter templates"));
 }
 
 /** Keeps the board's brand with the file (restored on open, written when it changes). Mounted once per editor. */

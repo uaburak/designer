@@ -7,7 +7,8 @@
  * to a post is then the post frame's mode for the collection and the logo instance's variant (templates.ts
  * `applyBrand`) — no values copied.
  *
- * `writeBrandLibrary` is the update itself (idempotent, everything by name; a removed brand's mode and logo go), run
+ * `writeBrandLibrary` is the update itself (idempotent, everything by name — a renamed brand found by its id in the
+ * marker, its mode and logo variant renamed —; a removed brand's mode and logo go), run
  * inside a Writer; `updateBrandLibrary` reads the logos first (async: the store's pictures into the file's images) and
  * writes them as one undo step "Update brands library". Creating the file and opening it is the Brands panel's (and
  * the manager's `make_brand_library`, 18c) through `createBrandsLibrary`; publishing stays the owner's click.
@@ -137,21 +138,41 @@ function run(ed: EditorController, name: string, args?: Record<string, unknown>)
 
 const collectionNamed = (ed: EditorController, name: string) => ed.engine.variableCollections({}).find((c) => c.name === name && !c.remote) ?? null;
 
-/** The Brand collection with one mode per brand, named as the brand (a removed brand's mode deleted). */
-function ensureModes(ed: EditorController, brands: readonly Brand[]): { collection: Guid; modes: Record<string, Guid> } {
+/**
+ * brandId → the name it had when the library was last generated, for the brands renamed since (the marker's `names`;
+ * a name another brand now has isn't taken back).
+ */
+function renamedBrands(ed: EditorController, brands: readonly Brand[]): Map<string, string> {
+  const was = readBrandLibrary(ed)?.names ?? {};
+  const now = new Set(brands.map((b) => b.name));
+  return new Map(brands.filter((b) => typeof was[b.id] === "string" && was[b.id] !== b.name && !now.has(was[b.id])).map((b) => [b.id, was[b.id]]));
+}
+
+/**
+ * The Brand collection with one mode per brand, named as the brand (a removed brand's mode deleted). A renamed brand's
+ * mode is renamed, not made again: its mode id stays, so the posts set to it keep it.
+ */
+function ensureModes(ed: EditorController, brands: readonly Brand[], renamed: ReadonlyMap<string, string>): { collection: Guid; modes: Record<string, Guid> } {
   let c = collectionNamed(ed, BRAND_COLLECTION);
   if (!c) {
     run(ed, "CREATE_VARIABLE_COLLECTION", { name: BRAND_COLLECTION });
     c = collectionNamed(ed, BRAND_COLLECTION)!;
   }
   const id = c.id;
-  const names = new Set(brands.map((b) => b.name));
+  // A renamed brand's old mode isn't free for a new brand.
+  const names = new Set([...brands.map((b) => b.name), ...renamed.values()]);
   const modes: Record<string, Guid> = {};
   for (const b of brands) {
     const fresh = collectionNamed(ed, BRAND_COLLECTION)!;
     const have = fresh.modes.find((m) => m.name === b.name);
     if (have) {
       modes[b.id] = have.modeId;
+      continue;
+    }
+    const was = renamed.has(b.id) ? fresh.modes.find((m) => m.name === renamed.get(b.id)) : undefined;
+    if (was) {
+      run(ed, "RENAME_VARIABLE_MODE", { collection: id, mode: was.modeId, name: b.name });
+      modes[b.id] = was.modeId;
       continue;
     }
     // A new collection's "Mode 1" (or a removed brand's mode) becomes the brand's before a mode is added.
@@ -214,7 +235,7 @@ const variantValue = (name: string | undefined, property: string): string | null
  * logo as an IMAGE fill, laid out in a row; a removed brand's variant deleted. The current page and the selection
  * are put back after (the component commands work on the selection).
  */
-function ensureLogoSet(ed: EditorController, brands: readonly Brand[], logos: BrandLogos): Guid | null {
+function ensureLogoSet(ed: EditorController, brands: readonly Brand[], logos: BrandLogos, renamed: ReadonlyMap<string, string>): Guid | null {
   const back = { page: ed.store.page, selection: [...ed.engine.getSelection().refs] };
   const page = ensurePage(ed, LOGO_PAGE);
   ed.engine.setCurrentPage(page);
@@ -243,6 +264,13 @@ function ensureLogoSet(ed: EditorController, brands: readonly Brand[], logos: Br
     const prop = () => ed.engine.componentInfo(set!)?.properties.find((p) => p.type === "VARIANT");
     const variants = () => ((ed.engine.readNode(set!, { childIds: true })?.childIds ?? []) as Guid[]).map((id) => ({ id, value: variantValue(ed.engine.readNode(id, { fields: ["name"] })?.name, BRAND_PROPERTY) }));
     const names = new Set(brands.map((b) => b.name));
+    // A renamed brand's variant takes its new name (the same component: the instances showing it keep it).
+    for (const b of brands) {
+      const old = renamed.get(b.id);
+      const p = prop();
+      if (old === undefined || !p || variants().some((v) => v.value === b.name) || !variants().some((v) => v.value === old)) continue;
+      run(ed, "EDIT_COMPONENT_PROPERTY", { ref: set, prop: p.id, oldValue: old, newValue: b.name });
+    }
     // A variant per brand: a new one from the last (Figma's Add variant), its value renamed to the brand's name.
     for (const b of brands) {
       if (variants().some((v) => v.value === b.name)) continue;
@@ -288,7 +316,8 @@ function ensureLogoSet(ed: EditorController, brands: readonly Brand[], logos: Br
  * with the same brands changes nothing it made; everything is found by name.
  */
 export function writeBrandLibrary(ed: EditorController, brands: readonly Brand[], logos: BrandLogos = new Map()): BrandLibraryReport {
-  const { collection, modes } = ensureModes(ed, brands);
+  const renamed = renamedBrands(ed, brands);
+  const { collection, modes } = ensureModes(ed, brands, renamed);
   const colors = new Map(brands.map((b) => [b.id, brandColors(b)]));
   // Every colour name any brand has; a brand without one takes its Primary.
   const colorNames = [...COLOR_SLOTS, ON_PRIMARY, ...new Set(brands.flatMap((b) => Object.keys(colors.get(b.id)!).filter((k) => !(COLOR_SLOTS as readonly string[]).includes(k) && k !== ON_PRIMARY)))];
@@ -315,9 +344,9 @@ export function writeBrandLibrary(ed: EditorController, brands: readonly Brand[]
     ed.engine.runCommand("BIND_VARIABLE" as never, { refs: [id], target: "FONT_FAMILY", variable: fontVars[s.font] } as never);
     return id;
   });
-  const logoSet = ensureLogoSet(ed, brands, logos);
+  const logoSet = ensureLogoSet(ed, brands, logos, renamed);
   const n = ed.engine.readNode(DOCUMENT, { fields: ["pluginData"] }) as (NodeChange & { pluginData?: PluginDataEntry[] }) | null;
-  const marker: BrandLibraryMarker = { v: 1, generatedFrom: Object.fromEntries(brands.map((b) => [b.id, b.updated])) };
+  const marker: BrandLibraryMarker = { v: 1, generatedFrom: Object.fromEntries(brands.map((b) => [b.id, b.updated])), names: Object.fromEntries(brands.map((b) => [b.id, b.name])) };
   ed.engine.setProps([DOCUMENT], { pluginData: withSocial(n?.pluginData, "brandLibrary", marker) } as never);
   return { collection, modes, logoSet, styles: styleIds };
 }

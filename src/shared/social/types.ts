@@ -139,6 +139,8 @@ export interface BrandLibraryMarker {
   v: 1;
   /** brandId → the Brand.updated it was generated from */
   generatedFrom: Record<string, number>;
+  /** brandId → the name its mode and logo variant were generated with: a renamed brand renames them (round 18 leftovers) */
+  names?: Record<string, string>;
 }
 
 // ── The manager's Social paragraph (§7.4) and export presets (§8) ─────────────────────────────────────────────────
@@ -177,6 +179,18 @@ export function readSocial<T>(entries: readonly PluginDataEntry[] | undefined, k
   } catch {
     return null;
   }
+}
+
+/** A template's slot as `list_templates` and a library's manifest show it (§3.5, round 18 leftovers). */
+export type TemplateSlotSummary = Pick<TemplateSlotData, "role" | "property" | "locked" | "maxChars">;
+
+/** The slots tagged in a template's subtree (its rows' pluginData): one per role and property — every variant carries the same. */
+export function templateSlotsIn(rows: readonly { pluginData?: PluginDataEntry[] }[]): TemplateSlotSummary[] {
+  const slots = rows.flatMap((n) => {
+    const s = readSocial<TemplateSlotData>(n.pluginData, "slot");
+    return s && SLOT_ROLES.includes(s.role) ? [{ role: s.role, property: s.property ?? null, locked: !!s.locked, maxChars: s.maxChars ?? null }] : [];
+  });
+  return [...new Map(slots.map((s) => [`${s.role}|${s.property ?? ""}`, s])).values()];
 }
 
 /** pluginData with our entry under `key` set to `value` (or removed, with null); every other entry kept, in order. */

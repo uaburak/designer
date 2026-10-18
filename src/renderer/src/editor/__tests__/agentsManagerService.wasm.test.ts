@@ -3,7 +3,8 @@
 // is the manager's turn (its instructions, its tools); its tool calls are answered here, a worker's are refused; a
 // worker task is a turn of its own beside it; a card's answer resolves the waiting call; Stop stops its tasks. Off,
 // the chat talks to the picked agent as before. In Social (docs/social.md §7, round 18c) every turn is the manager's,
-// with the board in its instructions; its Social tools, a post's Fix and the follow-up chips.
+// with the board in its instructions; its Social tools, a post's Fix and the follow-up chips; and (the leftovers) the
+// composer's direct turns in Social, Fix without a model or as a worker's relayout task, Make starter templates.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -17,7 +18,11 @@ import { DEFAULT_MANAGER_SETTINGS, brandsUnavailable } from "@shared/studio/type
 import { EditorController } from "../controller";
 import { memoryDocumentSource } from "../documentSource";
 import { AgentsService } from "../agents/service";
-import { editorWriter, newCampaign, newPost, setCampaign } from "../social/actions";
+import { applyChecks, checkPost, editorWriter, fixProblem, newCampaign, newPost, setCampaign } from "../social/actions";
+import { createNodes } from "../agents/mcpTools";
+import { readPost, writePost } from "../social/posts";
+import { fixWithAgent, makeStarterTemplates } from "../social/SocialMode";
+import { STARTER_BRIEF } from "@shared/social/managerPrompt";
 
 const wasm = join(process.cwd(), "src/renderer/src/engine/wasm/engine.wasm");
 
@@ -191,5 +196,89 @@ describe("the manager in Social (docs/social.md §1.3, §7)", () => {
     await tick();
     expect(turns[1].prompt).toMatch(/Story's animated version\?$/);
     expect(s.currentChat()!.messages[1].cards![0].answer).toEqual({ optionId: "story", remember: false });
+  });
+});
+
+describe("Social's leftovers (docs/social.md §17)", () => {
+  it("the composer picks an agent for direct turns in Social, and the manager again", async () => {
+    const { s, ed, turns, emit } = await setup(false);
+    ed.ui.set({ mode: "social" });
+    await s.chooseInSocial({ providerId: "claude-code", model: "sonnet" });
+    expect(s.managerProvider()).toBeNull();
+    await s.send("Make the headline bigger");
+    expect(turns[0]).toMatchObject({ providerId: "claude-code", model: "sonnet", prompt: "Make the headline bigger" });
+    expect(turns[0].role).toBeUndefined();
+    emit({ turnId: turns[0].turnId, chatId: s.currentChat()!.id, event: { type: "done" } });
+    await tick();
+    await s.chooseInSocial(null);
+    await s.send("Make a story too");
+    expect(turns[1].role).toBe("manager");
+    // Outside Social the pick changes nothing: the manager's setting decides.
+    await s.chooseInSocial({ providerId: "codex" });
+    ed.ui.set({ mode: "design" });
+    expect(s.managerProvider()).toBeNull();
+  });
+
+  it("a safe-area problem is fixed without a model: the text moved inside the band, one undo step, the pin gone", async () => {
+    const { ed, turns } = await setup(false);
+    ed.ui.set({ mode: "social" });
+    const w = editorWriter(ed);
+    const post = newPost(ed, w, { formatId: "instagram.story" });
+    const cta = createNodes({ ed, write: (_l, fn) => fn() }, { parentId: post, nodes: [{ type: "TEXT", name: "CTA", characters: "Order now", fontSize: 48, x: 80, y: 1800 }] }).touched![0];
+    applyChecks(ed, w, post, checkPost(ed, post));
+    const problem = readPost(ed, post)!.problems.find((p) => p.kind === "safe-area")!;
+    expect(problem.id).toBe(`check:safe-area:${cta}`);
+    fixWithAgent(ed, { id: post, name: "Story" }, problem);
+    expect(ed.store.undo.undoLabel).toBe("Fix problem");
+    expect(readPost(ed, post)!.problems.some((p) => p.kind === "safe-area")).toBe(false);
+    const y = ed.engine.readNode(cta, { fields: ["transform", "size"] })!;
+    expect(y.transform!.m12 + y.size!.y).toBeLessThanOrEqual(1920 * 0.65 + 0.5);
+    expect(turns).toHaveLength(0);
+    // A hidden logo is shown again.
+    const logo = createNodes({ ed, write: (_l, fn) => fn() }, { parentId: post, nodes: [{ type: "RECTANGLE", name: "Logo", width: 100, height: 100, x: 400, y: 600 }] }).touched![0];
+    ed.batch("Hide", () => {
+      ed.engine.setProps([logo], { visible: false });
+      writePost(ed, post, { ...readPost(ed, post)!, brandId: "b1" });
+    });
+    applyChecks(ed, w, post, checkPost(ed, post));
+    const missing = readPost(ed, post)!.problems.find((p) => p.id === "check:logo:missing")!;
+    expect(fixProblem(ed, w, post, missing.id)).toBe(true);
+    expect(ed.engine.readNode(logo, { fields: ["visible"] })?.visible).not.toBe(false);
+    expect(readPost(ed, post)!.problems).toEqual([]);
+    expect(turns).toHaveLength(0);
+  });
+
+  it("a relayout problem nothing mechanical fixes goes to a worker's task without a manager turn; done, its pin leaves", async () => {
+    const { s, ed, turns, emit } = await setup(false);
+    ed.ui.set({ mode: "social" });
+    const w = editorWriter(ed);
+    const post = newPost(ed, w, { formatId: "instagram.story" });
+    const problem = { id: "p-1", kind: "contrast" as const, detail: "“Title” has a contrast of 1.3:1.", fix: "relayout" as const, source: "review" as const };
+    ed.batch("Pin", () => writePost(ed, post, { ...readPost(ed, post)!, problems: [problem] }));
+    expect(fixProblem(ed, w, post, problem.id)).toBe(false);
+    expect(await s.relayoutProblem({ id: post, name: "Story" }, problem)).toBe(true);
+    await tick();
+    await tick();
+    expect(turns).toHaveLength(1);
+    expect(turns[0].role).toBe("worker");
+    expect(turns[0].prompt).toContain(`Fix the frame “Story” (${post}): “Title” has a contrast of 1.3:1.`);
+    const chat = s.currentChat()!;
+    expect(chat.messages.map((m) => [m.role, m.manager ?? false])).toEqual([["user", false], ["assistant", true]]);
+    emit({ turnId: turns[0].turnId, chatId: chat.id, event: { type: "text", delta: "Moved it." } });
+    emit({ turnId: turns[0].turnId, chatId: chat.id, event: { type: "done" } });
+    await tick();
+    await tick();
+    expect(readPost(ed, post)!.problems).toEqual([]);
+  });
+
+  it("Make starter templates sends the manager its brief, the chat showing the short request", async () => {
+    const { s, ed, turns } = await setup(false);
+    ed.ui.set({ mode: "social" });
+    await s.chooseInSocial({ providerId: "codex" });
+    await makeStarterTemplates(ed, s);
+    expect(turns[0].role).toBe("manager");
+    expect(turns[0].prompt).toContain(STARTER_BRIEF);
+    expect(s.currentChat()!.messages[0].text).toBe("Make starter templates");
+    expect(ed.ui.get().socialRightTab).toBe("agent");
   });
 });

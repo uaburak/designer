@@ -4,29 +4,86 @@
  * picture, name, format, brand, the template's text slots (a column per role any post has: Headline, Body, CTA,
  * Label), Caption, Hashtags, Alt text, Status. A cell edits in place — a text slot through its TEXT property
  * (templates.ts `fillSlots`), the rest through the post's record (actions.ts `setPost`) — one undo step per cell; a
- * row's click selects the post. Import CSV… makes one post per row × format from a template as a new campaign
- * (csvImport.ts).
+ * paste of several cells from a spreadsheet fills rightwards and down from the cell, one undo step; a header's click
+ * sorts the posts within each campaign by it (ascending, descending, back to the campaign's order); a row's click
+ * selects the post. Import CSV… makes one post per row × format from a template as a new campaign (csvImport.ts).
  */
 import { Fragment, useMemo, useRef, useState } from "react";
-import { Button, Checkbox, Dialog, IconButton, Select, TextInput, showToast } from "@/ds";
-import { t, tp, useT } from "@/i18n";
+import { Button, Checkbox, Dialog, Icon, IconButton, Select, TextInput, showToast } from "@/ds";
+import { intlLocale, t, tp, useT } from "@/i18n";
 import type { Guid } from "@/engine/codec";
 import { formatById } from "@shared/social/formats";
 import { POST_STATUSES, type PostStatus, type SlotRole } from "@shared/social/types";
-import { useEditor } from "../../controller";
+import { useEditor, type EditorController } from "../../controller";
 import { useTopics, useUI } from "../../hooks";
 import { applySelection } from "../../agents/mcpTools";
 import { useBrands } from "../../studio/forms";
-import { canWritePosts, editorWriter, setPost } from "../actions";
+import { canWritePosts, editorWriter, setPost, withinWrite, type PostPatch, type Writer } from "../actions";
 import { boardBrand } from "../NewPostMenu";
 import { PostThumb, formatLabel } from "../PostsList";
 import { useSocialBoard } from "../socialState";
-import { MAX_ROWS, importCsvPosts, readCsvPosts, type CsvPost } from "./csvImport";
-import { ROLE_NAMES, TEXT_ROLES, fillSlots, postSlots, slotTexts } from "./templates";
+import { MAX_ROWS, importCsvPosts, parseCsv, readCsvPosts, type CsvPost } from "./csvImport";
+import { ROLE_NAMES, TEXT_ROLES, fillSlots, fillSlotsNow, postSlots, slotTexts } from "./templates";
 import { useTemplates } from "./TemplatesGallery";
 import styles from "./Templates.module.css";
 
 const STATUS_LABEL: Record<PostStatus, string> = { draft: "Draft", reviewed: "Reviewed", approved: "Approved", exported: "Exported" };
+
+/** A column the table sorts by: the post's name, format, brand, a text slot's role, or a field of its record. */
+export type SortColumn = "name" | "format" | "brand" | SlotRole | "caption" | "hashtags" | "alt" | "status";
+/** The cells a paste fills: the text slots' and the record's text fields. */
+export type PasteColumn = SlotRole | "caption" | "hashtags" | "alt";
+
+const collator = () => new Intl.Collator(intlLocale(), { numeric: true, sensitivity: "base" });
+
+/**
+ * Rows sorted by a column's text, ascending (1) or descending (-1), the table's order kept between equal ones; empty
+ * texts last either way [ours].
+ */
+export function sortRows<T>(rows: readonly T[], text: (row: T) => string, dir: 1 | -1): T[] {
+  const c = collator();
+  return rows
+    .map((row, i) => ({ row, i, key: text(row) }))
+    .sort((a, b) => (!a.key !== !b.key ? (a.key ? -1 : 1) : dir * c.compare(a.key, b.key) || a.i - b.i))
+    .map((x) => x.row);
+}
+
+/**
+ * A paste of several cells (tab-separated, from a spreadsheet): the cell pasted in and those right of it and below,
+ * over the paste columns and the rows as the table shows them; what falls past the table's edge is dropped.
+ */
+export function pasteTargets(text: string, at: { row: number; column: number }, rows: readonly Guid[], columns: readonly PasteColumn[]): { id: Guid; column: PasteColumn; value: string }[] {
+  const grid = parseCsv(text, "\t");
+  return grid.flatMap((cells, r) => cells.flatMap((value, k) => (rows[at.row + r] && columns[at.column + k] ? [{ id: rows[at.row + r], column: columns[at.column + k], value }] : [])));
+}
+
+/** Whether a paste is several cells (a tab or a line break inside it; a spreadsheet's last line break doesn't count). */
+export const isGridPaste = (text: string): boolean => /[\t\r\n]/.test(text.replace(/\r?\n$/, ""));
+
+/**
+ * The cells of a paste written as one undo step "Paste cells": text slots through their TEXT properties (a locked slot
+ * left as it is), the record's fields through setPost. Returns the locked roles met.
+ */
+export function pasteCells(ed: EditorController, w: Writer, cells: readonly { id: Guid; column: PasteColumn; value: string }[]): SlotRole[] {
+  const locked = new Set<SlotRole>();
+  const by = new Map<Guid, { texts: Partial<Record<SlotRole, string>>; patch: PostPatch }>();
+  for (const c of cells) {
+    const one = by.get(c.id) ?? { texts: {}, patch: {} };
+    if (c.column === "caption") one.patch.caption = c.value;
+    else if (c.column === "hashtags") one.patch.hashtags = c.value.split(/[\s,]+/);
+    else if (c.column === "alt") one.patch.altText = c.value;
+    else one.texts[c.column] = c.value;
+    by.set(c.id, one);
+  }
+  if (!by.size) return [];
+  w("Paste cells", () => {
+    for (const [id, { texts, patch }] of by) {
+      if (Object.keys(texts).length) fillSlotsNow(ed, id, texts).locked.forEach((r) => locked.add(r));
+      if (Object.keys(patch).length) setPost(ed, withinWrite, [id], patch);
+    }
+  });
+  return [...locked];
+}
 
 export function PostsTable() {
   const open = useUI((s) => s.mode === "social" && !!s.socialTable && !s.uiHidden);
@@ -44,9 +101,18 @@ function Table() {
     void version;
     return new Set(ed.store.selection.refs);
   }, [ed, version]);
+  const [sort, setSort] = useState<{ column: SortColumn; dir: 1 | -1 } | null>(null);
+  const brandName = (id: string | null) => (id ? (brands?.find((b) => b.id === id)?.name ?? "") : "");
   // The text roles any post's template has, in Figma's order of the roles.
-  const rows = useMemo(() => board.groups.map((g) => ({ group: g, posts: g.posts.map((p) => ({ post: p, texts: slotTexts(ed, p.id), slots: postSlots(ed, p.id) })) })), [ed, board]);
-  const roles = TEXT_ROLES.filter((r) => rows.some((g) => g.posts.some((p) => p.texts[r] !== undefined)));
+  const all = useMemo(() => board.groups.map((g) => ({ group: g, posts: g.posts.map((p) => ({ post: p, texts: slotTexts(ed, p.id), slots: postSlots(ed, p.id) })) })), [ed, board]);
+  const roles = TEXT_ROLES.filter((r) => all.some((g) => g.posts.some((p) => p.texts[r] !== undefined)));
+  // Sorted within each campaign (the campaigns stay in the page's order).
+  type Row = (typeof all)[number]["posts"][number];
+  const textOf = (column: SortColumn, { post, texts }: Row): string =>
+    column === "name" ? post.name : column === "format" ? formatLabel(post).name : column === "brand" ? brandName(post.data.brandId) : column === "caption" ? post.data.caption : column === "hashtags" ? post.data.hashtags.join(" ") : column === "alt" ? post.data.altText : column === "status" ? String(POST_STATUSES.indexOf(post.data.status) + 1) : (texts[column] ?? "");
+  const rows = sort ? all.map((g) => ({ ...g, posts: sortRows(g.posts, (r) => textOf(sort.column, r), sort.dir) })) : all;
+  const shown = rows.flatMap((g) => g.posts.map((p) => p.post.id));
+  const pasteColumns: PasteColumn[] = [...roles, "caption", "hashtags", "alt"];
   const w = editorWriter(ed);
   const patch = (id: Guid, p: Parameters<typeof setPost>[3]) => write && setPost(ed, w, [id], p);
   const fill = (id: Guid, role: SlotRole, value: string) => {
@@ -55,7 +121,22 @@ function Table() {
       if (r.locked.length) showToast({ message: t("{role} is locked in this template", { role: t(ROLE_NAMES[role]) }) });
     });
   };
-  const brandName = (id: string | null) => (id ? (brands?.find((b) => b.id === id)?.name ?? "") : "");
+  // A paste of several cells fills from this one rightwards and down, one undo step.
+  const paste = (id: Guid, column: PasteColumn, text: string) => {
+    if (!write) return;
+    const locked = pasteCells(ed, w, pasteTargets(text, { row: shown.indexOf(id), column: pasteColumns.indexOf(column) }, shown, pasteColumns));
+    if (locked.length) showToast({ message: t("{role} is locked in this template", { role: locked.map((r) => t(ROLE_NAMES[r])).join(", ") }) });
+  };
+  // A header's click: ascending, descending, then the campaign's own order again.
+  const sortBy = (column: SortColumn) => setSort((s) => (s?.column !== column ? { column, dir: 1 } : s.dir === 1 ? { column, dir: -1 } : null));
+  const th = (column: SortColumn, label: string) => (
+    <th key={column} className={styles.th} aria-sort={sort?.column === column ? (sort.dir === 1 ? "ascending" : "descending") : "none"}>
+      <button type="button" className={styles.sort} onClick={() => sortBy(column)} data-sort={column}>
+        {label}
+        {sort?.column === column && <Icon name={sort.dir === 1 ? "16.arrow.up" : "16.arrow.down"} className={styles.sortIcon} />}
+      </button>
+    </th>
+  );
   return (
     <section className={styles.table} data-social-table="" aria-label={t("Posts table")}>
       <header className={styles.tableHeader}>
@@ -70,18 +151,14 @@ function Table() {
           <thead>
             <tr>
               <th className={styles.th} aria-label={t("Picture")} />
-              <th className={styles.th}>{t("Name")}</th>
-              <th className={styles.th}>{t("Format")}</th>
-              <th className={styles.th}>{t("Brand")}</th>
-              {roles.map((r) => (
-                <th key={r} className={styles.th}>
-                  {t(ROLE_NAMES[r])}
-                </th>
-              ))}
-              <th className={styles.th}>{t("Caption")}</th>
-              <th className={styles.th}>{t("Hashtags")}</th>
-              <th className={styles.th}>{t("Alt text")}</th>
-              <th className={styles.th}>{t("Status")}</th>
+              {th("name", t("Name"))}
+              {th("format", t("Format"))}
+              {th("brand", t("Brand"))}
+              {roles.map((r) => th(r, t(ROLE_NAMES[r])))}
+              {th("caption", t("Caption"))}
+              {th("hashtags", t("Hashtags"))}
+              {th("alt", t("Alt text"))}
+              {th("status", t("Status"))}
             </tr>
           </thead>
           <tbody>
@@ -110,17 +187,17 @@ function Table() {
                     </td>
                     {roles.map((r) => (
                       <td key={r} className={styles.td}>
-                        {texts[r] !== undefined ? <Cell label={t(ROLE_NAMES[r])} value={texts[r] ?? ""} disabled={!write || slots.some((s) => s.data.role === r && s.data.locked)} onCommit={(v) => fill(post.id, r, v)} data-cell={r} /> : null}
+                        {texts[r] !== undefined ? <Cell label={t(ROLE_NAMES[r])} value={texts[r] ?? ""} disabled={!write || slots.some((s) => s.data.role === r && s.data.locked)} onCommit={(v) => fill(post.id, r, v)} onPasteGrid={(text) => paste(post.id, r, text)} data-cell={r} /> : null}
                       </td>
                     ))}
                     <td className={styles.td}>
-                      <Cell label={t("Caption")} value={post.data.caption} disabled={!write} onCommit={(caption) => patch(post.id, { caption })} data-cell="caption" />
+                      <Cell label={t("Caption")} value={post.data.caption} disabled={!write} onCommit={(caption) => patch(post.id, { caption })} onPasteGrid={(text) => paste(post.id, "caption", text)} data-cell="caption" />
                     </td>
                     <td className={styles.td}>
-                      <Cell label={t("Hashtags")} value={post.data.hashtags.map((h) => `#${h}`).join(" ")} disabled={!write} onCommit={(v) => patch(post.id, { hashtags: v.split(/[\s,]+/) })} data-cell="hashtags" />
+                      <Cell label={t("Hashtags")} value={post.data.hashtags.map((h) => `#${h}`).join(" ")} disabled={!write} onCommit={(v) => patch(post.id, { hashtags: v.split(/[\s,]+/) })} onPasteGrid={(text) => paste(post.id, "hashtags", text)} data-cell="hashtags" />
                     </td>
                     <td className={styles.td}>
-                      <Cell label={t("Alt text")} value={post.data.altText} disabled={!write} onCommit={(altText) => patch(post.id, { altText })} data-cell="alt" />
+                      <Cell label={t("Alt text")} value={post.data.altText} disabled={!write} onCommit={(altText) => patch(post.id, { altText })} onPasteGrid={(text) => paste(post.id, "alt", text)} data-cell="alt" />
                     </td>
                     <td className={styles.td} onClick={(e) => e.stopPropagation()}>
                       <Select label={t("Status")} variant="ghost" value={post.data.status} disabled={!write} options={POST_STATUSES.map((s) => ({ value: s, label: t(STATUS_LABEL[s]) }))} onChange={(v) => patch(post.id, { status: v as PostStatus })} />
@@ -137,10 +214,21 @@ function Table() {
   );
 }
 
-/** A cell: a ghost field written when it is left (Enter / Tab); a click in it doesn't select the row. */
-function Cell({ label, value, disabled, onCommit, ...rest }: { label: string; value: string; disabled: boolean; onCommit: (v: string) => void; "data-cell": string }) {
+/**
+ * A cell: a ghost field written when it is left (Enter / Tab); a click in it doesn't select the row; a paste of
+ * several cells (a spreadsheet's) goes to `onPasteGrid` instead of the field.
+ */
+function Cell({ label, value, disabled, onCommit, onPasteGrid, ...rest }: { label: string; value: string; disabled: boolean; onCommit: (v: string) => void; onPasteGrid: (text: string) => void; "data-cell": string }) {
   return (
-    <span onClick={(e) => e.stopPropagation()}>
+    <span
+      onClick={(e) => e.stopPropagation()}
+      onPaste={(e) => {
+        const text = e.clipboardData.getData("text/plain");
+        if (disabled || !isGridPaste(text)) return;
+        e.preventDefault();
+        onPasteGrid(text);
+      }}
+    >
       <TextInput label={label} variant="ghost" value={value} disabled={disabled} className={styles.cell} onCommit={(v) => v !== value && onCommit(v)} {...rest} />
     </span>
   );

@@ -285,11 +285,11 @@ function boxIn(t: Affine, w: number, h: number): Box {
   return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
 }
 
-/** The post's visible layers with their boxes in the post's own coordinates, parents before children. */
-function layersOf(ed: EditorController, id: Guid): { node: Layer; box: Box; parent: Guid }[] {
-  const nodes = ed.engine.readNodes([id], { subtree: true, fields: ["type", "name", "transform", "size", "visible", "pluginData", "fillPaints", "fontSize", "parentIndex"] }) as Layer[];
+/** The post's visible layers with their boxes in the post's own coordinates (and their parents' transforms), parents before children. */
+function layersOf(ed: EditorController, id: Guid): { node: Layer; box: Box; parent: Guid; base: Affine }[] {
+  const nodes = ed.engine.readNodes([id], { subtree: true, fields: ["type", "name", "transform", "size", "visible", "pluginData", "fillPaints", "fontSize", "parentIndex", "stackPositioning"] }) as Layer[];
   const world = new Map<Guid, Affine>([[id, IDENTITY as Affine]]);
-  const out: { node: Layer; box: Box; parent: Guid }[] = [];
+  const out: { node: Layer; box: Box; parent: Guid; base: Affine }[] = [];
   for (const n of nodes) {
     const parent = n.parentIndex?.guid;
     const base = parent ? world.get(parent) : undefined;
@@ -297,7 +297,7 @@ function layersOf(ed: EditorController, id: Guid): { node: Layer; box: Box; pare
     if (n.guid === id || !parent || !base || n.visible === false) continue;
     const t = mul(base, (n.transform ?? IDENTITY) as Affine);
     world.set(n.guid, t);
-    out.push({ node: ed.withRealType(n) as Layer, box: boxIn(t, n.size?.x ?? 0, n.size?.y ?? 0), parent });
+    out.push({ node: ed.withRealType(n) as Layer, box: boxIn(t, n.size?.x ?? 0, n.size?.y ?? 0), parent, base });
   }
   return out;
 }
@@ -433,5 +433,62 @@ export function applyChecks(ed: EditorController, w: Writer, id: Guid, found: re
   const next = [...data.problems.filter((p) => p.source !== "check"), ...found];
   if (JSON.stringify(next) === JSON.stringify(data.problems)) return false;
   w("Check posts", () => writePost(ed, id, { ...data, problems: next }));
+  return true;
+}
+
+// ---- Fixes without a model (§7.3, round 18 leftovers) ---------------------------------------------------------------
+
+/** A layer's move inside the safe area's inner rectangle, in the post's coordinates; null when it doesn't fit there. */
+function intoSafeArea(box: Box, safe: Insets, size: { x: number; y: number }, format: SocialFormat): { dx: number; dy: number } | null {
+  const kx = size.x / format.width;
+  const ky = size.y / format.height;
+  const inner = { left: safe.left * kx, top: safe.top * ky, right: size.x - safe.right * kx, bottom: size.y - safe.bottom * ky };
+  if (box.width > inner.right - inner.left || box.height > inner.bottom - inner.top) return null;
+  const along = (lo: number, hi: number, min: number, max: number) => (lo < min ? min - lo : hi > max ? max - hi : 0);
+  return { dx: along(box.x, box.x + box.width, inner.left, inner.right), dy: along(box.y, box.y + box.height, inner.top, inner.bottom) };
+}
+
+/**
+ * A post's problem fixed where the fix is mechanical, without a model (the Post section's Fix): a text or logo reaching
+ * into a safe-area band moved inside it — when it fits there, its parent places it freely (no auto layout, or absolute
+ * in it) with no turn or scale, and it isn't a layer inside an instance (Figma doesn't move those); a missing logo
+ * shown again (a hidden logo slot), or the post's template applied again over a frame that lost it (its logo slot back,
+ * the brand bound). One undo step "Fix problem" with the post checked again in it. Returns false when the fix needs an
+ * agent — a caption to rewrite, a timeline to retime, a relayout — and writes nothing then.
+ */
+export function fixProblem(ed: EditorController, w: Writer, id: Guid, problemId: string): boolean {
+  const data = readPost(ed, id);
+  const found = data?.problems.find((p) => p.id === problemId);
+  if (!data || !found) return false;
+  const [, kind, about] = /^check:([a-z-]+):(.+)$/.exec(found.id) ?? [];
+  // Each fix returns the post (applying a template puts an instance, carrying the record, in the frame's place).
+  let fix: (() => Guid) | null = null;
+  if (kind === "safe-area") {
+    const format = formatById(data.formatId);
+    const layer = layersOf(ed, id).find((l) => l.node.guid === about);
+    const parent = layer ? (ed.engine.readNode(layer.parent, { fields: ["stackMode"] }) as NodeChange | null) : null;
+    const free = !!layer && !about.startsWith("I") && (!parent?.stackMode || parent.stackMode === "NONE" || layer.node.stackPositioning === "ABSOLUTE");
+    const plain = !!layer && layer.base.m00 === 1 && layer.base.m11 === 1 && layer.base.m01 === 0 && layer.base.m10 === 0;
+    const size = ed.engine.readNode(id, { fields: ["size"] })?.size;
+    const move = format && layer && size && free && plain ? intoSafeArea(layer.box, format.safeArea, size, format) : null;
+    const t = layer?.node.transform;
+    if (move && t) fix = () => (ed.engine.setProps([about], { transform: { ...t, m02: t.m02 + move.dx, m12: t.m12 + move.dy } }), id);
+  } else if (kind === "logo" && about === "missing") {
+    // A hidden logo slot (or a layer named so): shown again.
+    const hidden = (ed.engine.readNodes([id], { subtree: true, fields: ["name", "visible", "pluginData"] }) as Layer[]).find((n) => n.guid !== id && n.visible === false && isLogo(n));
+    const entry = !hidden && data.template ? templates.templateByKey(ed, data.template.key) : null;
+    const instance = ed.engine.componentInfo(id)?.kind === "INSTANCE";
+    if (hidden) fix = () => (ed.engine.setProps([hidden.guid], { visible: true }), id);
+    else if (entry?.node && !instance) {
+      const brand = data.brandId ? templates.knownBrand(data.brandId) : null;
+      fix = () => templates.applyTemplateNow(ed, [id], entry.node!, entry.data, { key: entry.key, variant: data.template!.variant, brand, picture: null })[0] ?? id;
+    }
+  }
+  const run = fix;
+  if (!run) return false;
+  w("Fix problem", () => {
+    const post = run();
+    applyChecks(ed, withinWrite, post, checkPost(ed, post));
+  });
   return true;
 }

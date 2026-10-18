@@ -1,6 +1,7 @@
 @layer app {
   /* Export… (docs/social.md §8): the target, then a row per post — its thumbnail, name and preset, what it renders, its file, its warnings [metrics ours] */
   .body { display: flex; flex-direction: column; gap: var(--ds-space-2); }
+  .targetRow { display: flex; align-items: center; justify-content: space-between; gap: var(--ds-space-2); }
   .target { margin: 0; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
   .list { display: flex; flex-direction: column; gap: var(--ds-space-1); max-height: calc(var(--ds-size-row) * 12); overflow-y: auto; overscroll-behavior: contain; }
   .row { display: grid; grid-template-columns: var(--ds-size-icon-24) minmax(0, 1fr); align-items: start; gap: var(--ds-space-2); padding: var(--ds-space-1) 0; border-bottom: 1px solid var(--figma-color-border); }
@@ -9,7 +10,10 @@
   .head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 200px); align-items: center; gap: var(--ds-space-2); }
   .name { min-width: 0; overflow: hidden; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); text-overflow: ellipsis; white-space: nowrap; }
   .spec { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  /* The row's quality fields over its preset: a JPEG's quality, a video's quality and frame rate */
+  .fields { display: grid; grid-template-columns: auto minmax(0, 96px) auto minmax(0, 96px); align-items: center; justify-content: start; gap: var(--ds-space-2); }
+  .fieldLabel { color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); }
   .file { min-width: 0; overflow: hidden; color: var(--figma-color-text-tertiary); font: var(--ds-font-body-small); text-overflow: ellipsis; white-space: nowrap; }
-  .warning { color: var(--figma-color-text-danger); font: var(--ds-font-body-small); }
+  .warning { margin: 0; color: var(--figma-color-text-danger); font: var(--ds-font-body-small); }
   .progress { display: flex; flex: 1 1 auto; align-items: center; justify-content: space-between; gap: var(--ds-space-2); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
 }

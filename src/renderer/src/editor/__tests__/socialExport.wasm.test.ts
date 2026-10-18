@@ -27,7 +27,8 @@ import { canvasMenu, runMenuItem } from "../menus";
 import { animatedSettingOf, writeAnimatedSetting } from "../motion/export/animatedSettings";
 import { ExportAnimatedTab } from "../panels/design/ExportAnimated";
 import { editorWriter, newCampaign, newPost, setCampaign } from "../social/actions";
-import { ExportPostsDialog } from "../social/export/ExportPostsDialog";
+import { ExportPostsDialog, jpegQualityOf } from "../social/export/ExportPostsDialog";
+import { animatedExportRunning, takeAnimatedExport } from "../motion/export/exportAnimated";
 import { EDITOR_RENDERERS, JPEG_STEPS, autoPreset, exportPosts, fitStill, markExported, planExports, planPostExport, presetsFor, renderPlan, timelineHeader, type ExportRenderers } from "../social/export/exportPosts";
 import { readPost, writePost } from "../social/posts";
 import { campaignPosts } from "../social/SocialMode";
@@ -304,5 +305,97 @@ describe("Social export (round 18d)", () => {
     expect(isEnabled(ed, command("motion.play-pause"))).toBe(false);
     ed.ui.set({ socialTimeline: true });
     expect(isEnabled(ed, command("motion.play-pause"))).toBe(true);
+  });
+});
+
+describe("Social export, the leftovers (docs/social.md §17)", () => {
+  it("takes Motion's one-export-at-a-time lock for videos: refused while it is held, held while rendering", async () => {
+    const { ed, call } = await editor();
+    const reel = await animatedPost(call, "instagram.reel", 6);
+    const still = json(await call("new_post", { formatId: "instagram.post" })).nodeId;
+    const release = takeAnimatedExport(ed)!;
+    const { renderers, calls } = fakes();
+    const refused = await exportPosts(ed, [reel], { renderers });
+    expect(refused).toMatchObject({ files: [], exported: [], posts: [{ post: reel, error: "An animation is already being exported" }] });
+    // Stills don't need it.
+    expect((await exportPosts(ed, [still], { renderers })).files).toHaveLength(1);
+    expect(calls).toHaveLength(1);
+    release();
+    // Rendering a video holds it, and it is free again after.
+    let during: boolean | null = null;
+    const r = await exportPosts(ed, [reel], { renderers: { ...renderers, animated: async () => ((during = animatedExportRunning(ed)), { bytes: new Uint8Array(10) }) } });
+    expect(r.files).toHaveLength(1);
+    expect(during).toBe(true);
+    expect(animatedExportRunning(ed)).toBe(false);
+  });
+
+  it("the dialog's quality fields go over the preset: a JPEG's quality, a video's quality and frame rate", async () => {
+    const { ed, call } = await editor();
+    const post = json(await call("new_post", { formatId: "instagram.post" })).nodeId;
+    const reel = await animatedPost(call, "instagram.reel", 6);
+    expect(planPostExport(ed, post, "auto", { jpegQuality: 0.7 })?.still).toMatchObject({ imageType: "JPEG", quality: 0.7 });
+    const plan = planPostExport(ed, reel, "auto", { videoQuality: "LOW", fps: 60 })!;
+    expect(plan.animated).toMatchObject({ quality: "LOW", fps: 60, size: { width: 1080, height: 1920 } });
+    expect(plan.bitrate).toBeLessThan(planPostExport(ed, reel)!.bitrate!);
+    expect(plan.warnings).toEqual([]);
+    // The steps down start under the quality asked for.
+    const { renderers, calls } = fakes((s) => ((s.quality ?? 1) > 0.6 ? 9 * MB : MB));
+    await renderPlan(ed, planPostExport(ed, post, "auto", { jpegQuality: 0.7 })!, renderers);
+    expect(calls.map((c) => c.settings.quality)).toEqual([0.7, 0.6]);
+    expect(jpegQualityOf("85")).toBe(0.85);
+    expect(jpegQualityOf("140 %")).toBe(1);
+    expect(jpegQualityOf("")).toBeNull();
+  });
+
+  it("a carousel's slides export together in index order, in a folder named as its cover, videos within the Reel's limits", async () => {
+    const { ed, call } = await editor();
+    const a = json(await call("new_post", { formatId: "instagram.carousel", name: "Cover", campaign: "Spring" })).nodeId;
+    const campaignId = readPost(ed, a)!.campaignId!;
+    const b = await animatedPost(call, "instagram.carousel", 2);
+    const c = json(await call("new_post", { formatId: "instagram.carousel", name: "Field", campaignId })).nodeId;
+    ed.batch("Group", () => [a, b, c].forEach((id, i) => writePost(ed, id, { ...readPost(ed, id)!, campaignId, group: { id: "g1", index: [0, 2, 1][i] } })));
+    // Asked for one slide, the whole carousel comes.
+    const plans = planExports(ed, [b]);
+    expect(plans.map((p) => p.post)).toEqual([a, c, b]);
+    expect(plans.map((p) => p.file)).toEqual(["Spring/Cover — Instagram carousel/01 — Cover.jpg", "Spring/Cover — Instagram carousel/02 — Field.jpg", expect.stringMatching(/^Spring\/Cover — Instagram carousel\/03 — .+\.mp4$/)]);
+    // The video slide: a Reel's 3 s – 15 min.
+    expect(plans[2].warnings).toEqual([expect.stringContaining("outside Instagram carousel's 3 s – 15 min")]);
+    const { renderers } = fakes();
+    const r = await exportPosts(ed, [a, b, c], { renderers });
+    expect(unzip(r.files[0].bytes).map((e) => e.name)).toEqual(plans.map((p) => p.file));
+    expect(r.files[0].name).toBe("Spring.zip");
+    // One slide alone: the count is checked.
+    ed.batch("Ungroup", () => [b, c].forEach((id) => writePost(ed, id, { ...readPost(ed, id)!, group: null })));
+    ed.batch("Group", () => writePost(ed, a, { ...readPost(ed, a)!, group: { id: "g1", index: 0 } }));
+    expect(planExports(ed, [a])[0].warnings).toEqual(["1 slide: Instagram carousel takes 2–10"]);
+  });
+
+  it("the dialog saves one zip or the files one by one, and waits while an animation exports", async () => {
+    const { ed, call } = await editor();
+    const a = json(await call("new_post", { formatId: "instagram.post", campaign: "Launch" })).nodeId;
+    const reel = await animatedPost(call, "instagram.reel", 6);
+    ed.ui.set({ socialExport: { ids: [a, reel] } });
+    const view = mount(() => createElement(EditorContext.Provider, { value: ed }, createElement(ExportPostsDialog)), {});
+    const combo = (label: string) => $$('[role="combobox"]').filter((x) => x.getAttribute("aria-label") === label);
+    expect(document.body.textContent).toContain("One zip of 2 files, by campaign");
+    click(combo("Save as")[0]);
+    click($$('[role="option"]').find((o) => o.textContent?.trim() === "Separate files")!);
+    expect(document.body.textContent).toContain("2 files, in a folder per campaign");
+    // The rows' fields: the JPEG's quality, the video's quality and frame rate.
+    expect($$("[data-export-quality]")).toHaveLength(2);
+    expect(combo("Frame rate")).toHaveLength(1);
+    click(combo("Quality")[0]);
+    click($$('[role="option"]').find((o) => o.textContent?.trim() === "Low")!);
+    expect($$("[data-export-post]")[1].textContent).toMatch(/MP4 · H\.264 · 30 fps · \d+\.\d Mbps/);
+    expect($$("[data-export-post]")[1].textContent).not.toContain("12.4 Mbps");
+    // Another export running: Export waits.
+    const release = takeAnimatedExport(ed)!;
+    await new Promise((r) => setTimeout(r, 0));
+    expect($$("[data-export-locked]")).toHaveLength(1);
+    expect(($$("[data-export-posts]")[0] as HTMLButtonElement).disabled).toBe(true);
+    release();
+    await new Promise((r) => setTimeout(r, 0));
+    expect($$("[data-export-locked]")).toHaveLength(0);
+    view.unmount();
   });
 });

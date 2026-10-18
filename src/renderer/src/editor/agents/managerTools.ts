@@ -728,6 +728,19 @@ async function reportReview(env: ManagerEnv, args: Record<string, unknown>): Pro
   return textResult({ answer: "Fix selected", ...started, next: `${started.tasks.length ? `wait_tasks on these, then review the changed frames again: ${started.changed.join(", ")}.` : `Review the changed frames again: ${started.changed.join(", ")}.`}${yours}` });
 }
 
+/**
+ * One agent task on a frame for its relayout problems (§6.2's layout / brand, Social's safe-area / contrast / logo): the
+ * general agent moves or restyles its text and logo, the picture kept. The review's Fix selected and a post's Fix in
+ * the Post section (docs/social.md §7.3, without a manager turn) start it.
+ */
+export function relayoutTask(env: ManagerEnv, nodeId: string, name: string, problems: readonly Pick<ReviewProblem, "detail" | "box">[], brand: Brand | null): StudioTask {
+  const general = env.settings().general;
+  const prompt = `Fix the frame “${name}” (${nodeId}): ${problems.map((p) => `${p.detail}${p.box ? ` (around x ${Math.round(p.box.x)}, y ${Math.round(p.box.y)}, ${Math.round(p.box.width)} × ${Math.round(p.box.height)})` : ""}`).join("; ")}.${brand ? ` The brand: ${brand.name}; colours ${brand.colors.map((c) => c.hex).join(", ") || "as on the frame"}; fonts ${brand.fonts.join(", ") || "as on the frame"}.` : ""} Keep the “Picture” layer as it is; move or restyle only the text and logo, inside the format's safe area.`;
+  const task = addTask(env, "agent", t("Relayout: {name}", { name }), general, [], (signal) => env.runWorker(env.queue.get(task.id)!, `${WORKER_NOTE}\n\n${prompt}`, signal));
+  env.noteTask(task.id, { prompt });
+  return task;
+}
+
 /** A report's problems onto the posts it is about (their pins): each post's last review replaced, its checks kept. */
 function pinReview(env: ManagerEnv, report: ReviewReport) {
   if (!env.posts) return;
@@ -816,11 +829,7 @@ export async function dispatchFixes(env: ManagerEnv, report: ReviewReport, picke
     for (const p of [...by("rewrite"), ...by("retime")]) yours.push({ id: p.id, nodeId: item.nodeId, name, detail: p.detail, fix: p.fix });
     const relayout = by("relayout");
     if (relayout.length) {
-      const general = env.settings().general;
-      const prompt = `Fix the frame “${name}” (${item.nodeId}): ${relayout.map((p) => `${p.detail}${p.box ? ` (around x ${Math.round(p.box.x)}, y ${Math.round(p.box.y)}, ${Math.round(p.box.width)} × ${Math.round(p.box.height)})` : ""}`).join("; ")}.${brand ? ` The brand: ${brand.name}; colours ${brand.colors.map((c) => c.hex).join(", ") || "as on the frame"}; fonts ${brand.fonts.join(", ") || "as on the frame"}.` : ""} Keep the “Picture” layer as it is; move or restyle only the text and logo, inside the format's safe area.`;
-      const task = addTask(env, "agent", t("Relayout: {name}", { name }), general, [], (signal) => env.runWorker(env.queue.get(task.id)!, `${WORKER_NOTE}\n\n${prompt}`, signal));
-      env.noteTask(task.id, { prompt });
-      tasks.push({ task, nodeId: item.nodeId });
+      tasks.push({ task: relayoutTask(env, item.nodeId, name, relayout, brand), nodeId: item.nodeId });
       changed.add(item.nodeId);
     }
   }

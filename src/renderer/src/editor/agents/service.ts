@@ -38,7 +38,7 @@ import { blurRegions, runStudioImage } from "../studio/images";
 import { makeBrandLibrary } from "../social/templates/brandLibrary";
 import type { Writer } from "../social/actions";
 import { TaskQueue, isEnded, type TaskResult } from "./tasks";
-import { isManagerTool, runManagerTool, type CardAnswer, type ManagerEnv, type StudioChatData, type TaskExtra, type ViewCard } from "./managerTools";
+import { isManagerTool, relayoutTask, runManagerTool, type CardAnswer, type ManagerEnv, type StudioChatData, type TaskExtra, type ViewCard } from "./managerTools";
 import { paintImageHash } from "../model/paints";
 import { agentPresenceOf } from "../multiplayer/agentsOnCanvas";
 import { LEAVE_AFTER_MS, type AgentActor } from "../multiplayer/agentPresence";
@@ -151,6 +151,8 @@ export interface AgentsState {
   consents: ConnectorConsent[];
   /** The connectors a new chat will start with (before its first message) */
   draftConnectors: string[];
+  /** Social's composer picked an agent instead of the manager: its turns go straight to that agent (docs/social.md §1.3) */
+  socialDirect: boolean;
 }
 
 const EMPTY_SETTINGS: AgentSettings = { providerId: null, models: {}, custom: [] };
@@ -286,7 +288,7 @@ export class AgentsService implements AgentSetupHost {
     this.storageKey = `designer.agents.chats.${fileId}`;
     this.choiceKey = `designer.agents.choice.${fileId}`;
     this.choice = this.loadChoice();
-    this.state = { available: !!api, view: "list", settingsItem: null, chats: this.load(), current: null, providers: [], providersLoading: false, settings: EMPTY_SETTINGS, mcp: { running: false, url: null, connections: [] }, clients: [], running: {}, usage: {}, resolved: loadResolved(), consents: [], draftConnectors: [] };
+    this.state = { available: !!api, view: "list", settingsItem: null, chats: this.load(), current: null, providers: [], providersLoading: false, settings: EMPTY_SETTINGS, mcp: { running: false, url: null, connections: [] }, clients: [], running: {}, usage: {}, resolved: loadResolved(), consents: [], draftConnectors: [], socialDirect: false };
     if (!this.state.chats.length) this.state.view = "chat";
     this.queue.restore(this.state.chats.flatMap((c) => c.tasks ?? []));
     if (!api) return;
@@ -692,8 +694,9 @@ export class AgentsService implements AgentSetupHost {
   /**
    * Sends a message. `skills`: the user's Skills (docs/ai.md §2.10) — the first enabled one named with `/name` runs
    * (its instructions go with the turn, its token leaves the prompt), the other enabled ones are listed for get_skill.
+   * `shown`: what the chat shows for the message when the prompt is a brief (Social's Make starter templates…).
    */
-  async send(prompt: string, context: ChatMessage["context"] = this.selectionContext(), attachments: Attachment[] = [], skills: readonly AiSkill[] = []) {
+  async send(prompt: string, context: ChatMessage["context"] = this.selectionContext(), attachments: Attachment[] = [], skills: readonly AiSkill[] = [], shown?: string) {
     const files = attachments.slice(0, MAX_ATTACHMENTS);
     const text = prompt.trim();
     const invoked = invokedSkill(text, skills);
@@ -707,12 +710,12 @@ export class AgentsService implements AgentSetupHost {
       // The id its attachments were copied under.
       const id = this.draftId ?? uid();
       this.draftId = null;
-      chat = { id, title: (text || files.map((f) => f.name).join(", ")).slice(0, 60), updatedAt: Date.now(), providerId: provider?.id ?? null, model: provider ? this.modelOf(provider) : undefined, effort: provider ? this.effortOf(provider) : undefined, messages: [], ...(this.state.draftConnectors.length ? { connectors: this.state.draftConnectors } : {}) };
+      chat = { id, title: (shown ?? (text || files.map((f) => f.name).join(", "))).slice(0, 60), updatedAt: Date.now(), providerId: provider?.id ?? null, model: provider ? this.modelOf(provider) : undefined, effort: provider ? this.effortOf(provider) : undefined, messages: [], ...(this.state.draftConnectors.length ? { connectors: this.state.draftConnectors } : {}) };
       this.set({ chats: [chat, ...this.state.chats], current: chat.id, view: "chat", draftConnectors: [] });
     }
     const chatId = chat.id;
     if (this.state.running[chatId]) return;
-    const user: ChatMessage = { id: uid(), role: "user", text, context, ...(files.length ? { attachments: files } : {}), ...(invoked ? { skill: invoked.skill.name } : {}) };
+    const user: ChatMessage = { id: uid(), role: "user", text: shown ?? text, context, ...(files.length ? { attachments: files } : {}), ...(invoked ? { skill: invoked.skill.name } : {}) };
     const answer: ChatMessage = { id: uid(), role: "assistant", parts: [], state: "running", startedAt: Date.now(), provider: manager ? managerName(this.managerSettings()) : provider?.label, ...(manager ? { manager: true } : {}) };
     // A picture asked for: where it will land, in the chat and on the canvas, from now on (over the selected layer it fills).
     if (provider && !manager && asksForImage(text)) {
@@ -912,12 +915,22 @@ export class AgentsService implements AgentSetupHost {
 
   /**
    * The manager's agent when the manager is on — or the view is in Social mode, where every turn is the manager's
-   * (docs/social.md §1.3) — and that agent can run; null: messages go to the picked agent.
+   * unless the composer's picker chose an agent for direct turns (docs/social.md §1.3) — and that agent can run; null:
+   * messages go to the picked agent.
    */
   managerProvider(): ProviderInfo | null {
     const m = this.managerSettings();
-    if (!m.enabled && !this.inSocial()) return null;
+    if (this.inSocial() ? this.state.socialDirect : !m.enabled) return null;
     return this.usable().find((p) => p.id === m.manager.providerId) ?? null;
+  }
+
+  /**
+   * Social's composer picker (§1.3): an agent's model for direct turns (the agent and model chosen as anywhere), or
+   * back to the manager (`null`). Kept for this view while it stays open.
+   */
+  async chooseInSocial(pick: { providerId: string; model?: string; effort?: string } | null) {
+    if (pick) await this.choose(pick.providerId, pick.model, pick.effort);
+    this.set({ socialDirect: !!pick });
   }
 
   /** The view is in Social mode (docs/social.md §7). */
@@ -946,6 +959,36 @@ export class AgentsService implements AgentSetupHost {
     const chat = this.currentChat();
     if (chat && this.state.running[chat.id]) return;
     void this.send(`Fix on “${post.name}” (${post.id}): ${problem.kind} — ${problem.detail} (fix: ${problem.fix}).`, this.contextOf([post.id]));
+  }
+
+  /**
+   * A post's relayout problem (safe area, contrast, logo — docs/social.md §7.3) fixed by a worker without a manager turn:
+   * the Post section's Fix when nothing mechanical fixes it (`fixProblem` in social/actions.ts). The chat gets the
+   * request and the task's card under the manager's answer, as the review's Fix selected starts it; the pin leaves when
+   * the task ends done. False when nothing started (a turn running in the chat, no agent to run it).
+   */
+  async relayoutProblem(post: { id: string; name: string }, problem: { id: string; detail: string; box?: { x: number; y: number; width: number; height: number } }): Promise<boolean> {
+    if (!this.managerProvider()) return false;
+    let chat = this.currentChat();
+    if (chat && this.state.running[chat.id]) return false;
+    const text = `Fix on “${post.name}”: ${problem.detail}`;
+    if (!chat) {
+      chat = { id: uid(), title: text.slice(0, 60), updatedAt: Date.now(), providerId: null, messages: [] };
+      this.set({ chats: [chat, ...this.state.chats], current: chat.id, view: "chat" });
+    }
+    const chatId = chat.id;
+    const user: ChatMessage = { id: uid(), role: "user", text, context: this.contextOf([post.id]) };
+    const answer: ChatMessage = { id: uid(), role: "assistant", parts: [{ kind: "text", text: t("Started a relayout task for {name}.", { name: post.name }) }], state: "done", provider: managerName(this.managerSettings()), manager: true };
+    this.updateChat(chatId, (c) => ({ ...c, messages: [...c.messages, user, answer] }));
+    const env = this.managerEnv(`fix:${answer.id}`, { chat: chatId, message: answer.id });
+    const brandId = readPost(this.ed, post.id)?.brandId ?? null;
+    const brand = brandId ? await env.brands.get(brandId).catch(() => null) : null;
+    const task = relayoutTask(env, post.id, post.name, [problem], brand);
+    void this.queue.ended(task.id).then((done) => {
+      const now = done.state === "done" ? env.posts?.problems(post.id) : null;
+      if (now?.some((p) => p.id === problem.id)) env.posts!.setProblems(post.id, now.filter((p) => p.id !== problem.id));
+    });
+    return true;
   }
 
   /** A follow-up chip (ask_choice {suggestions}) picked: it is the owner's next message; the chips are answered. */

@@ -1499,7 +1499,6 @@ export const editor: Record<string, string> = {
   "No template matches these filters.": "Bu filtrelere uyan şablon yok.",
   "Save a post as a template, enable a library with templates, or ask the agent for starter templates.": "Bir gönderiyi şablon olarak kaydet, şablonlu bir kütüphaneyi etkinleştir ya da ajandan başlangıç şablonları iste.",
   "Make starter templates…": "Başlangıç şablonları yap…",
-  "Make starter templates for Instagram and LinkedIn in a new file, wired to the Brands library.": "Yeni bir dosyada, marka kütüphanesine bağlı Instagram ve LinkedIn başlangıç şablonları yap.",
   "{n} format": "{n} format",
   "{n} formats": "{n} format",
   "Save as template": "Şablon olarak kaydet",
@@ -1613,4 +1612,13 @@ export const editor: Record<string, string> = {
   "Use Ctrl+Alt+↑/↓ to rotate layers": "Katmanları döndürmek için Ctrl+Alt+↑/↓ kullan",
   "Follow spotlight automatically": "Spot ışığını otomatik takip et",
   "Automatically follow a collaborator when they turn on spotlight in a file": "Bir dosyada spot ışığını açan ortak çalışanı otomatik olarak takip et",
+  // ── Social, round 18 leftovers (docs/social.md §17: export's Save as and quality fields, carousels, the lock) ──
+  "An animation is already being exported": "Bir animasyon zaten dışa aktarılıyor",
+  "{n} files, in a folder per campaign": "Kampanya başına bir klasörde {n} dosya",
+  "One zip": "Tek zip",
+  "Separate files": "Ayrı dosyalar",
+  "Make starter templates": "Başlangıç şablonları yap",
+  "Started a relayout task for {name}.": "{name} için yeniden yerleşim görevi başlatıldı.",
+  "{n} slide: {format} takes {min}–{max}": "{n} slayt: {format} {min}–{max} slayt alır",
+  "{n} slides: {format} takes {min}–{max}": "{n} slayt: {format} {min}–{max} slayt alır",
 };

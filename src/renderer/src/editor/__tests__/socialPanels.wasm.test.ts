@@ -105,6 +105,16 @@ describe("Social mode's chrome (round 18a)", () => {
     const story = $$("[data-post]")[1];
     act(() => click(story));
     expect(ed.store.selection.refs).toEqual([story.getAttribute("data-post")]);
+    // ⇧ adds the rows from the last one clicked, across campaigns; ⌘ takes one out.
+    const ids = $$("[data-post]").map((r) => r.getAttribute("data-post"));
+    const press = (el: Element, opts: MouseEventInit) => act(() => void el.dispatchEvent(new MouseEvent("click", { bubbles: true, ...opts })));
+    press($$("[data-post]")[2], { shiftKey: true });
+    expect(ed.store.selection.refs).toEqual([ids[1], ids[2]]);
+    act(() => click($$("[data-post]")[2]));
+    press($$("[data-post]")[0], { shiftKey: true });
+    expect(ed.store.selection.refs).toEqual(ids);
+    press($$("[data-post]")[1], { metaKey: true });
+    expect(ed.store.selection.refs).toEqual([ids[0], ids[2]]);
   });
 
   it("turns the caption's counter red past the format's limit", async () => {

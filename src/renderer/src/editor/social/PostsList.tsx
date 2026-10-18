@@ -2,10 +2,11 @@
  * The Posts list (docs/social.md §6.2): the page's posts grouped by campaign (the page's campaigns in their order, then
  * "No campaign"), each group a disclosure with its name (double-click renames) and post count; a row (32) shows the
  * post's picture, name, format, platform and one state glyph — ✓ reviewed / approved, ⚠ problems (count), ● draft, ⇩
- * exported — and ▶ when it animates. A click selects the post and zooms to it, ⇧ / ⌘ add or take it out; the context
- * menu resizes, duplicates for another format, moves to a campaign, asks the agent, saves it as a template (round
- * 18b's dialog), exports (round 18d's dialog, export/ExportPostsDialog.tsx), deletes. The canvas's menu on a post frame
- * shows the same Resize to / Duplicate for / Save as template… / Export… rows (`postCanvasRows`).
+ * exported — and ▶ when it animates. A click selects the post and zooms to it, ⌘ adds or takes it out, ⇧ adds the rows
+ * from the last one clicked (a ⇧-click with none toggles, as ⌘); the context menu resizes, duplicates for another
+ * format, moves to a campaign, asks the agent, saves it as a template (round 18b's dialog), exports (round 18d's
+ * dialog, export/ExportPostsDialog.tsx), deletes. The canvas's menu on a post frame shows the same Resize to /
+ * Duplicate for / Save as template… / Export… rows (`postCanvasRows`).
  */
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { ContextMenu, EmptyState, Icon, TextInput, cx, showToast, tooltipProps, type MenuEntry } from "@/ds";
@@ -43,9 +44,22 @@ export function PostsList() {
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
   const [renaming, setRenaming] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ at: { x: number; y: number }; ids: Guid[] } | null>(null);
+  // Where a ⇧-click's range starts: the row last clicked without ⇧ (as the layers panel keeps it).
+  const anchor = useRef<Guid | null>(null);
   if (!board.posts.length && !board.campaigns.length) return <EmptyState icon="24.social" title={t("No posts yet")} body={t("Ask the agent for posts, or start one with + New post.")} />;
   const order = board.groups.flatMap((g) => g.posts.map((p) => p.id));
+  // The rows shown (a closed campaign's posts aren't in a range).
+  const shown = board.groups.filter((g) => !closed.has(g.campaign?.id ?? "")).flatMap((g) => g.posts.map((p) => p.id));
   const click = (e: MouseEvent, id: Guid) => {
+    const from = anchor.current && shown.includes(anchor.current) ? anchor.current : null;
+    if (e.shiftKey && from) {
+      // ⇧: the rows from the anchor to this one join the selection.
+      const [a, b] = [shown.indexOf(from), shown.indexOf(id)].sort((x, y) => x - y);
+      const range = new Set(shown.slice(a, b + 1));
+      ed.engine.setSelection(order.filter((x) => range.has(x) || selected.has(x)));
+      return;
+    }
+    anchor.current = id;
     if (e.shiftKey || e.metaKey || e.ctrlKey) {
       const next = selected.has(id) ? [...selected].filter((x) => x !== id) : [...selected, id];
       ed.engine.setSelection(order.filter((x) => next.includes(x)));
