@@ -78,6 +78,9 @@ export default {
     await (await import("./org/deletion")).purgeDeletedOrgs({ ...depsOf(env), now: () => controller.scheduledTime });
     // Personal drafts in the trash for more than 30 days, deleted for good (docs/cloud.md §2)
     await (await import("./personal/routes")).purgePersonalTrash({ ...depsOf(env), now: () => controller.scheduledTime });
+    // Old objects a data region move couldn't delete (docs/multiplayer.md §15.16), deleted now
+    const left = await (await import("./policy/region")).sweepRegionLeftovers(depsOf(env));
+    if (left.deleted || left.failed) console.log("region leftovers", left);
     // R2 (docs/cloud.md §1): references of deleted files dropped, objects unreferenced for 7 days deleted
     const r2 = await (await import("./storage/refs")).sweepR2({ ...depsOf(env), now: () => controller.scheduledTime });
     if (r2.dropped || r2.deleted) console.log("r2 sweep", r2);

@@ -8,16 +8,20 @@
  *   POST /orgs/:org/admin/data-region/move             moves ONE file (or library) whose jurisdiction differs from
  *                                                      the org's region; DataRegionStatus with `moving` = the key moved
  *                                                      (null when nothing was left). The Admin page calls it in a loop.
+ *                                                      One at a time per org (a lease, `orgs.region_move_until`, migration
+ *                                                      0027): another call meanwhile answers 409 `conflict`.
  *
  * Addressing: `roomsOn` (index.ts's `Rooms`) reads `files.jurisdiction` on every room call — no cache, a stale one would
  * wake an empty object in the old namespace — and `libraries/db.ts libraryFetch` reads `libraries.jurisdiction`.
  *
  * A move (one object): freeze the old one (sockets closed with 4012, writes refused 503 `moving`), copy its tables in
  * pages (`GET dump` → `POST load`, policy/dump.ts), flip the D1 row, delete the old object. A failure before the flip
- * unfreezes the old object and deletes the partial copy. Cloudflare can't relocate an object: moving is copying.
+ * unfreezes the old object and deletes the partial copy. Cloudflare can't relocate an object: moving is copying. An old
+ * object that couldn't be deleted is kept in `region_leftovers` and deleted by the daily cron (`sweepRegionLeftovers`):
+ * its content would otherwise stay at rest in the region the org left.
  */
 import { DATA_REGION_LABEL, type DataRegion, type DataRegionStatus, type RoomPolicy } from "../../../src/shared/org/identity";
-import type { Rooms } from "../api";
+import type { Deps, Rooms } from "../api";
 import { fileEntity, logActivity } from "../activity";
 import type { D1Like } from "../db";
 import { inJurisdiction, libraries, type ObjectNamespace } from "../libraries/db";
@@ -131,8 +135,29 @@ async function setDataRegion(ctx: Ctx, orgId: string, region: DataRegion): Promi
   return dataRegionStatus(ctx, orgId);
 }
 
-/** Moves the next file (then library) whose object isn't in the org's region yet. */
+/** How long a move holds its org's lease: past it (a Worker that died mid-move) the next call takes the lease again */
+export const MOVE_LEASE_MS = 5 * 60_000;
+
+/**
+ * Moves the next file (then library) whose object isn't in the org's region yet — under the org's lease: two calls at
+ * once would pick the same object, and the one failing would delete the copy the other had just made live.
+ */
 async function moveNext(ctx: Ctx, orgId: string): Promise<DataRegionStatus> {
+  const d1 = ctx.deps.db.d1;
+  const now = ctx.deps.now();
+  const lease = await d1
+    .prepare(`UPDATE orgs SET region_move_until = ?2 WHERE id = ?1 AND (region_move_until IS NULL OR region_move_until <= ?3) RETURNING id`)
+    .bind(orgId, now + MOVE_LEASE_MS, now)
+    .first<{ id: string }>();
+  if (!lease) throw new HttpError(409, "another move is running in this organization", "conflict");
+  try {
+    return await moveOne(ctx, orgId);
+  } finally {
+    await d1.prepare(`UPDATE orgs SET region_move_until = NULL WHERE id = ?1`).bind(orgId).run();
+  }
+}
+
+async function moveOne(ctx: Ctx, orgId: string): Promise<DataRegionStatus> {
   const { deps, user } = ctx;
   const d1 = deps.db.d1;
   const to = jurisdictionOf(await regionOf(d1, orgId));
@@ -140,7 +165,7 @@ async function moveNext(ctx: Ctx, orgId: string): Promise<DataRegionStatus> {
   if (file) {
     const from: Jurisdiction = file.jurisdiction === "eu" ? "eu" : null;
     const { relocateFileBlobs } = await import("../storage/relocate");
-    await moveObject(
+    const moved = await moveObject(
       regionEnv(ctx).ROOMS,
       file.key,
       from,
@@ -151,15 +176,17 @@ async function moveNext(ctx: Ctx, orgId: string): Promise<DataRegionStatus> {
       },
       () => relocateFileBlobs(deps, file.key, to),
     );
+    if (!moved.oldDeleted) await leftover(d1, "room", file.key, from, orgId, deps.now());
     await logActivity(deps, { orgId, action: "fig_file_region_move", actor: user, entity: fileEntity(file), teamId: file.team_id, details: { object: "room", from: from ?? "default", to: to ?? "default" }, req: ctx.req });
     return dataRegionStatus(ctx, orgId, file.key);
   }
   const lib = await d1.prepare(`SELECT key, name, jurisdiction FROM libraries WHERE org_id = ?1 AND status <> 'deleted' AND jurisdiction IS NOT ?2 ORDER BY key LIMIT 1`).bind(orgId, to).first<{ key: string; name: string; jurisdiction: string | null }>();
   if (lib) {
     const from: Jurisdiction = lib.jurisdiction === "eu" ? "eu" : null;
-    await moveObject(libraries(deps), lib.key, from, to, LIBRARY_PATHS, async () => {
+    const moved = await moveObject(libraries(deps), lib.key, from, to, LIBRARY_PATHS, async () => {
       await d1.prepare(`UPDATE libraries SET jurisdiction = ?2 WHERE key = ?1`).bind(lib.key, to).run();
     });
+    if (!moved.oldDeleted) await leftover(d1, "library", lib.key, from, orgId, deps.now());
     await logActivity(deps, { orgId, action: "fig_file_region_move", actor: user, entity: fileEntity({ key: lib.key, name: lib.name }), details: { object: "library", from: from ?? "default", to: to ?? "default" }, req: ctx.req });
     return dataRegionStatus(ctx, orgId, lib.key);
   }
@@ -210,16 +237,22 @@ async function call(stub: Stub, p: MovePaths, method: string, path: string, body
 }
 
 /**
- * Freeze → dump / load in pages → `flip` (the D1 row) → delete the old object. Before the flip, a failure unfreezes the
- * old object and deletes the partial copy, then answers 502; after it, a failed delete only leaves an unused object.
+ * Freeze → dump / load in pages → `flip` (the D1 row) → delete the old object. The target object is emptied first: one
+ * left there by an earlier move whose delete failed would otherwise keep its stale rows under the copy's (the load is
+ * INSERT OR REPLACE). Before the flip, a failure unfreezes the old object and deletes the partial copy, then answers 502;
+ * after it, a failed delete leaves the old object (`oldDeleted` false: the caller records it for the cron).
  */
-export async function moveObject(ns: ObjectNamespace | undefined, name: string, from: Jurisdiction, to: Jurisdiction, p: MovePaths, flip: () => Promise<void>, afterCopy?: AfterCopy): Promise<void> {
-  if (from === to) return flip();
+export async function moveObject(ns: ObjectNamespace | undefined, name: string, from: Jurisdiction, to: Jurisdiction, p: MovePaths, flip: () => Promise<void>, afterCopy?: AfterCopy): Promise<{ oldDeleted: boolean }> {
+  if (from === to) {
+    await flip();
+    return { oldDeleted: true };
+  }
   const old = stubOf(ns, from, name);
   let copy: Stub | null = null;
   let frozen = false;
   try {
     copy = stubOf(ns, to, name);
+    await call(copy, p, p.remove[0], p.remove[1]);
     await call(old, p, p.freeze[0], p.freeze[1], p.freeze[2]);
     frozen = true;
     let after: string | null = null;
@@ -255,9 +288,64 @@ export async function moveObject(ns: ObjectNamespace | undefined, name: string, 
   }
   try {
     await call(old, p, p.remove[0], p.remove[1]);
+    return { oldDeleted: true };
   } catch (e) {
     console.error("region: the old object wasn't deleted", name, e);
+    return { oldDeleted: false };
   }
 }
 
 export { ROOM_PATHS, LIBRARY_PATHS };
+
+// ---- old objects left behind ------------------------------------------------------------------------------------------
+
+type LeftoverKind = "room" | "library";
+const regionName = (j: Jurisdiction) => (j === "eu" ? "eu" : "default");
+
+async function leftover(d1: D1Like, kind: LeftoverKind, name: string, j: Jurisdiction, orgId: string, at: number): Promise<void> {
+  await d1
+    .prepare(`INSERT INTO region_leftovers (kind, name, jurisdiction, org_id, at) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT (kind, name, jurisdiction) DO UPDATE SET at = excluded.at`)
+    .bind(kind, name, regionName(j), orgId, at)
+    .run();
+}
+
+/** Leftovers deleted per cron run, and the tries after which one is only logged */
+const LEFTOVERS_PER_RUN = 25;
+const LEFTOVER_MAX_TRIES = 10;
+
+/**
+ * The daily cron: deletes the old objects moves left behind. One whose file or library lives in that jurisdiction
+ * again (moved back since) is the live object now — its row is dropped, never the object.
+ */
+export async function sweepRegionLeftovers(deps: Deps): Promise<{ deleted: number; failed: number }> {
+  const d1 = deps.db.d1;
+  const { results } = await d1
+    .prepare(`SELECT kind, name, jurisdiction FROM region_leftovers WHERE tries < ?1 ORDER BY at LIMIT ?2`)
+    .bind(LEFTOVER_MAX_TRIES, LEFTOVERS_PER_RUN)
+    .all<{ kind: LeftoverKind; name: string; jurisdiction: string }>();
+  let deleted = 0;
+  let failed = 0;
+  for (const r of results) {
+    const j: Jurisdiction = r.jurisdiction === "eu" ? "eu" : null;
+    const forget = () => d1.prepare(`DELETE FROM region_leftovers WHERE kind = ?1 AND name = ?2 AND jurisdiction = ?3`).bind(r.kind, r.name, r.jurisdiction).run();
+    const live = await d1
+      .prepare(r.kind === "room" ? `SELECT jurisdiction FROM files WHERE key = ?1` : `SELECT jurisdiction FROM libraries WHERE key = ?1 AND status <> 'deleted'`)
+      .bind(r.name)
+      .first<{ jurisdiction: string | null }>();
+    if (live && regionName(live.jurisdiction === "eu" ? "eu" : null) === r.jurisdiction) {
+      await forget();
+      continue;
+    }
+    try {
+      const p = r.kind === "room" ? ROOM_PATHS : LIBRARY_PATHS;
+      await call(stubOf(r.kind === "room" ? (deps.env as RegionEnv).ROOMS : libraries(deps), j, r.name), p, p.remove[0], p.remove[1]);
+      await forget();
+      deleted++;
+    } catch (e) {
+      console.error("region: a leftover object wasn't deleted", r.kind, r.name, r.jurisdiction, e);
+      await d1.prepare(`UPDATE region_leftovers SET tries = tries + 1 WHERE kind = ?1 AND name = ?2 AND jurisdiction = ?3`).bind(r.kind, r.name, r.jurisdiction).run();
+      failed++;
+    }
+  }
+  return { deleted, failed };
+}

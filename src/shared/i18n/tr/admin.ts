@@ -1054,6 +1054,7 @@ export const admin: Record<string, string> = {
   "A workspace's setting overrides the organization's for files in its teams.": "Bir çalışma alanının ayarı, ekiplerindeki dosyalar için organizasyonun ayarını geçersiz kılar.",
   "Files moved to {region}": "Dosyalar {region} bölgesine taşındı",
   "Some files couldn't be moved": "Bazı dosyalar taşınamadı",
+  "Another move is running in this organization. Try again in a few minutes.": "Bu organizasyonda başka bir taşıma sürüyor. Birkaç dakika sonra yeniden deneyin.",
   "Resume moving": "Taşımaya devam et",
   "The content of the organization's files and libraries — shapes, text, frames, components, images and video — is stored in this region. Comments, file names, fonts, thumbnails, activity logs and other metadata aren't localized.":
     "Organizasyonun dosyalarının ve kütüphanelerinin içeriği (şekiller, metinler, frame'ler, bileşenler, görseller ve videolar) bu bölgede depolanır. Yorumlar, dosya adları, yazı tipleri, küçük resimler, etkinlik günlükleri ve diğer meta veriler konuma göre depolanmaz.",
