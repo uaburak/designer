@@ -6,6 +6,7 @@
  * main shows the desktop ones. Types and pure helpers shared by the server, the store, main and the views.
  */
 import { getLocale, intlLocale, t, tp, tx } from "./i18n";
+import type { Seat } from "./org/types";
 
 export type NotificationKind =
   /** A new thread on a file you're in (owner, or someone who commented twice on it — Figma's rule) */
@@ -93,8 +94,8 @@ export interface NotificationItem {
   text: string | null;
   /** A single reaction's emoji */
   emoji: string | null;
-  /** An invite's role */
-  role: "editor" | "viewer" | null;
+  /** An invite's role; a seat request's seat (and its answer's) */
+  role: "editor" | "viewer" | Seat | null;
   /** Grouped like Figma: "4 comments · <file>", "2 reactions · <file>" */
   count: number;
   /** A request: waiting for an answer, or how it was answered (a branch review: its verdict) */

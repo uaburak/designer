@@ -97,7 +97,8 @@ const toItem = (r: Row): NotificationItem => ({
   commentId: r.comment_id,
   text: r.text,
   emoji: r.emoji,
-  role: r.role === "viewer" || r.role === "editor" ? r.role : null,
+  // An invite's role, or a seat request's seat
+  role: r.role === "viewer" || r.role === "editor" || r.role === "full" || r.role === "dev" || r.role === "collab" || r.role === "view" ? r.role : null,
   count: r.count,
   // A branch review's verdict may be "changes-suggested"
   state: r.state === "pending" || r.state === "approved" || r.state === "denied" || r.state === "changes-suggested" ? r.state : null,
@@ -494,7 +495,7 @@ async function resolveMentions(deps: Deps, mentions: string[]): Promise<string[]
 /** An organization's notification (§14.11): no file, the team's or folder's name, `org_id` / `team_id` set. */
 export async function notifyOrg(deps: Deps, n: { userId: string; kind: OrgNotificationKind; actorId: string; orgId: string; teamId?: string | null; name: string; text?: string | null; role?: string | null; state?: string | null }): Promise<void> {
   if (n.userId === n.actorId) return;
-  await safely(n.kind, () => deliver(deps, { userId: n.userId, kind: n.kind as NotificationKind, fileKey: null, actorId: n.actorId, text: n.text, role: n.role, state: n.state, place: { orgId: n.orgId, teamId: n.teamId ?? null, name: n.name } }));
+  await safely(n.kind, () => deliver(deps, { userId: n.userId, kind: n.kind, fileKey: null, actorId: n.actorId, text: n.text, role: n.role, state: n.state, place: { orgId: n.orgId, teamId: n.teamId ?? null, name: n.name } }));
 }
 
 /** A pending org request answered: the rows of everyone who got it show how (by kind, org, team and the asker). */
