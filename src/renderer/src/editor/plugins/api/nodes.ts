@@ -662,7 +662,7 @@ export function descendants(ctx: ApiContext, id: Guid, criteria: Obj | null): un
     const types = Array.isArray(criteria.types) ? (criteria.types as string[]) : null;
     if (types) list = list.filter((n) => types.includes(apiType(n as never)));
     const pd = Array.isArray(criteria.pluginData?.valueOf()) ? null : (criteria.pluginData as { keys?: string[] } | undefined);
-    if (pd) list = list.filter((n) => (n.pluginData ?? []).some((e) => e.pluginID === ctx.pluginId && ctx.pluginId !== RESERVED_PLUGIN_ID && e.value && (!pd.keys || pd.keys.includes(e.key ?? ""))));
+    if (pd) list = list.filter((n) => (n.pluginData ?? []).some((e) => e.pluginID === ctx.pluginId && !RESERVED_PLUGIN_IDS.has(ctx.pluginId) && e.value && (!pd.keys || pd.keys.includes(e.key ?? ""))));
     const spd = criteria.sharedPluginData as { namespace?: string; keys?: string[] } | undefined;
     if (spd?.namespace) list = list.filter((n) => (n.pluginData ?? []).some((e) => e.pluginID === `shared:${spd.namespace}` && e.value && (!spd.keys || spd.keys.includes(e.key ?? ""))));
   }
@@ -698,11 +698,14 @@ export function rescale(ctx: ApiContext, id: Guid, scale: unknown): void {
 // ---- Plugin data (docs/plugins.md §8) ---------------------------------------------------------------------------------
 
 const KEY_LIMIT = 100 * 1024;
-/** Ours (editor/frameStatus.ts: frame statuses): never a plugin's to read or write, whatever its manifest id. */
-const RESERVED_PLUGIN_ID = "designer.workflow";
+/**
+ * Ours (editor/frameStatus.ts: frame statuses; docs/social.md §3: Social's posts, campaigns, templates): never a
+ * plugin's to read or write, whatever its manifest id.
+ */
+export const RESERVED_PLUGIN_IDS: ReadonlySet<string> = new Set(["designer.workflow", "designer.social"]);
 const ownerOf = (ctx: ApiContext, namespace: string | null): string => {
   const owner = namespace === null ? ctx.pluginId : `shared:${namespace}`;
-  if (owner === RESERVED_PLUGIN_ID) throw new ApiError("This plugin ID is reserved");
+  if (RESERVED_PLUGIN_IDS.has(owner)) throw new ApiError("This plugin ID is reserved");
   return owner;
 };
 

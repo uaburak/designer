@@ -12,7 +12,7 @@ import { watchMotionLayer } from "../motion/motionState";
 import { categoriesOf, encodeCategories, encodeNotes, notesOf, type AnnotationData, type CategoriesJson, type Category, type Note } from "./annotations";
 
 /** Design, Dev Mode, or Draw (round 10, View › Switch to Draw: the Design editor with the Pencil to hand — Figma Draw's own brushes and panels aren't built). */
-export type Mode = "design" | "dev" | "draw" | "motion";
+export type Mode = "design" | "dev" | "draw" | "social" | "motion";
 
 export const modeOf = (ed: EditorController): Mode => ed.ui.get().mode ?? "design";
 export const annotationsShown = (ed: EditorController): boolean => ed.ui.get().annotations ?? true;

@@ -252,7 +252,8 @@ export interface ImagePrompt {
 
 // ── Review (§6) ───────────────────────────────────────────────────────────────────────────────────────────────────
 
-export type ProblemKind = "sharp-text" | "soft-text" | "shape" | "extra" | "missing" | "layout" | "brand";
+/** Social (docs/social.md §7.3) adds "safe-area", "caption", "contrast", "logo" and "video". */
+export type ProblemKind = "sharp-text" | "soft-text" | "shape" | "extra" | "missing" | "layout" | "brand" | "safe-area" | "caption" | "contrast" | "logo" | "video";
 
 export interface ReviewProblem {
   id: string;
@@ -261,8 +262,8 @@ export interface ReviewProblem {
   detail: string;
   /** Where, in the frame's coordinates (soft-text: the area to blur) */
   box?: { x: number; y: number; width: number; height: number };
-  /** How it gets fixed (§6.2) */
-  fix: "fix-label" | "blur" | "regenerate" | "relayout";
+  /** How it gets fixed (§6.2); Social's "rewrite" (the manager rewrites the caption) and "retime" (the timeline) */
+  fix: "fix-label" | "blur" | "regenerate" | "relayout" | "rewrite" | "retime";
 }
 
 export interface ReviewItem {

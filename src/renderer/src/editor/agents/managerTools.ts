@@ -492,7 +492,7 @@ async function review(env: ManagerEnv, args: Record<string, unknown>): Promise<T
 }
 
 const PROBLEM_KINDS: ProblemKind[] = ["sharp-text", "soft-text", "shape", "extra", "missing", "layout", "brand"];
-const FIX_OF: Record<ProblemKind, ReviewProblem["fix"]> = { "sharp-text": "fix-label", "soft-text": "blur", shape: "regenerate", extra: "regenerate", missing: "regenerate", layout: "relayout", brand: "relayout" };
+const FIX_OF: Record<ProblemKind, ReviewProblem["fix"]> = { "sharp-text": "fix-label", "soft-text": "blur", shape: "regenerate", extra: "regenerate", missing: "regenerate", layout: "relayout", brand: "relayout", "safe-area": "relayout", caption: "rewrite", contrast: "relayout", logo: "relayout", video: "retime" };
 
 /** The report as the manager sent it, checked: known kinds, each problem's fix as §6.2 says, ids unique. */
 export function cleanReport(v: unknown, fallbackBrief = ""): ReviewReport {

@@ -22,7 +22,7 @@ export type ToolId =
 
 /** Draw mode's quick-access slots ("pen", "pencil", "brush") hold one tool each (docs/draw.md §5.1). */
 export type ToolGroupId = "move" | "region" | "shape" | "creation" | "pen" | "pencil" | "brush" | "text" | "comment";
-export type EditorMode = "draw" | "design" | "motion" | "dev";
+export type EditorMode = "draw" | "design" | "social" | "motion" | "dev";
 
 export type ToolDef = {
   id: ToolId;
@@ -108,10 +108,14 @@ export function toolForKey(e: { key: string; shiftKey: boolean; metaKey?: boolea
 /** `badge`: the tag the radio's tooltip carries (Figma's "Motion  Beta", live motion/behaviour.md) */
 export type EditorModeDef = { id: EditorMode; label: string; icon: IconName; shortcut?: string; badge?: string };
 
-/** The mode switch, left to right (the owner's screenshots; Figma's Draw, Design, Motion, Dev Mode). */
+/**
+ * The mode switch, left to right (the owner's screenshots; Figma's Draw, Design, Motion, Dev Mode, and our Social between
+ * Design and Motion — docs/social.md §1.1: no shortcut, no badge).
+ */
 export const EDITOR_MODES: EditorModeDef[] = [
   { id: "draw", label: "Draw", icon: "24.draw" },
   { id: "design", label: "Design", icon: "24.design" },
+  { id: "social", label: "Social", icon: "24.social" },
   { id: "motion", label: "Motion", icon: "24.motion", badge: "Beta" },
   { id: "dev", label: "Dev Mode", icon: "24.dev-brackets", shortcut: keys(["shift", "d"]) },
 ];

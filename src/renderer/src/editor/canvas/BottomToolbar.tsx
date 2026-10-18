@@ -129,6 +129,8 @@ export function BottomToolbar() {
       onActions={() => runEditorCommand(ed, "tool.actions")}
       actionsActive={actionsOpen}
       mode={mode}
+      // Social (docs/social.md §1.1) is listed off until round 18a builds its shell.
+      disabledModes={["social"]}
       onMode={(m) => {
         if (m === "dev" || m === "design") setMode(ed, m);
         else if (m === "draw") runEditorCommand(ed, "view.switch-to-draw");

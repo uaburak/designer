@@ -21,8 +21,11 @@ export interface DrawToolsState {
   brush: { name: string; type: BrushType; builtin: BuiltinBrushName | null; guid: GuidString | null };
 }
 
-/** The navigation bar's tabs (Figma 2026: File, Agents, Assets, Tools; Variables opens the variables view instead) */
-export type RailTab = "file" | "agents" | "assets" | "brands" | "tools";
+/**
+ * The navigation bar's tabs (Figma 2026: File, Agents, Assets, Tools; Variables opens the variables view instead); ours:
+ * Brands (Studio), Posts (Social mode's, docs/social.md §6.2)
+ */
+export type RailTab = "posts" | "file" | "agents" | "assets" | "brands" | "tools";
 export type Renaming = { kind: "layer" | "page" | "file"; id: Guid } | null;
 
 /** Find and replace (⌘F, the Pages header's Find): the query, where, which layer types, and the Replace row */
@@ -188,7 +191,12 @@ export interface UIState extends PreferenceFlags {
   /** The track label editor on the canvas, over this rect (viewport px) */
   gridTrackEditor?: { x: number; y: number; width: number; height: number } | null;
   /** Dev Mode (⇧D, the toolbar's mode switch): the Inspect panel, read-only canvas, annotations as dots (devmode/) */
-  mode?: "design" | "dev" | "draw" | "motion";
+  mode?: "design" | "dev" | "draw" | "social" | "motion";
+  /** Social mode (docs/social.md §6): the board's brand (kept per file), safe areas shown (default on), the right panel's width, the posts table */
+  socialBrandId?: string | null;
+  socialSafeAreas?: boolean;
+  socialRightWidth?: number;
+  socialTable?: boolean;
   /**
    * Motion mode (docs/motion.md §6; editor/motion/): the playhead (µs), playing, Toggle auto-keyframe, the timeline
    * collapsed to its header, the selected keyframes, the time unit. Unset: MOTION_UI_DEFAULT.
