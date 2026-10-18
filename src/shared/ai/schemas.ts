@@ -40,7 +40,7 @@ export const TEXTS_SCHEMA = {
   properties: { texts: { type: "array", items: idText("characters") } },
 } as const;
 
-/** Add interactions: `{interactions: {sourceId, trigger: "ON_CLICK", action: "NAVIGATE" | "BACK", destinationId?}[]}` */
+/** Add interactions: `{interactions: {sourceId, trigger: "ON_CLICK", action: "NAVIGATE" | "OVERLAY" | "CLOSE" | "BACK", destinationId?}[]}` */
 export const INTERACTIONS_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -55,7 +55,7 @@ export const INTERACTIONS_SCHEMA = {
         properties: {
           sourceId: { type: "string" },
           trigger: { type: "string", enum: ["ON_CLICK"] },
-          action: { type: "string", enum: ["NAVIGATE", "BACK"] },
+          action: { type: "string", enum: ["NAVIGATE", "OVERLAY", "CLOSE", "BACK"] },
           destinationId: { type: "string" },
         },
       },
@@ -131,28 +131,64 @@ export function readTexts(json: unknown, ids: ReadonlySet<string>, groups: reado
   return out;
 }
 
+/**
+ * The texts of a `{texts}` answer as far as it has streamed (Figma streams `{id, delta}` into the layers, atlas 18 §5):
+ * each `{"id": …, "characters": "…` seen so far → its characters up to where the stream is (a cut escape left out).
+ * Only `ids`; nothing is checked — the complete answer is read with `readTexts`.
+ */
+export function readTextsSoFar(raw: string, ids: ReadonlySet<string>): Map<string, string> {
+  const out = new Map<string, string>();
+  const start = /\{\s*"id"\s*:\s*"((?:[^"\\]|\\.)*)"\s*,\s*"characters"\s*:\s*"/g;
+  for (let m = start.exec(raw); m; m = start.exec(raw)) {
+    let id: string;
+    try {
+      id = JSON.parse(`"${m[1]}"`) as string;
+    } catch {
+      continue;
+    }
+    if (!ids.has(id)) continue;
+    // The string up to its closing quote, else to the end without a cut escape ("\", "\u12").
+    let i = start.lastIndex;
+    while (i < raw.length && raw[i] !== '"') i += raw[i] === "\\" ? 2 : 1;
+    const body = raw.slice(start.lastIndex, Math.min(i, raw.length));
+    // A cut escape is at most 5 characters ("\u12…"): the longest start of the body that reads.
+    for (let cut = 0; cut <= (i >= raw.length ? 5 : 0) && cut <= body.length; cut++) {
+      try {
+        out.set(id, (JSON.parse(`"${body.slice(0, body.length - cut)}"`) as string).replace(/\r\n?/g, "\n"));
+        break;
+      } catch {
+        // Shorter.
+      }
+    }
+  }
+  return out;
+}
+
 export interface AiInteraction {
   sourceId: string;
   trigger: "ON_CLICK";
-  action: "NAVIGATE" | "BACK";
+  action: "NAVIGATE" | "OVERLAY" | "CLOSE" | "BACK";
   destinationId?: string;
 }
 
+const INTERACTION_ACTIONS = new Set(["NAVIGATE", "OVERLAY", "CLOSE", "BACK"]);
+
 /**
- * `{interactions}` → the ones whose source is in `sources` and whose destination (NAVIGATE) is one of `frames`, not
- * the source's own frame; one per source (the first).
+ * `{interactions}` → the ones whose source is in `sources` and whose destination (NAVIGATE, OVERLAY) is one of
+ * `frames`, not the source's own frame; one per source (the first).
  */
 export function readInteractions(json: unknown, sources: ReadonlySet<string>, frames: ReadonlySet<string>, frameOf: (id: string) => string | null): AiInteraction[] {
   const out: AiInteraction[] = [];
   const seen = new Set<string>();
   for (const x of list(json, "interactions")) {
-    if (!isObj(x) || typeof x.sourceId !== "string" || (x.action !== "NAVIGATE" && x.action !== "BACK")) return fail("Each interaction needs a sourceId and an action.");
+    if (!isObj(x) || typeof x.sourceId !== "string" || typeof x.action !== "string" || !INTERACTION_ACTIONS.has(x.action)) return fail("Each interaction needs a sourceId and an action.");
     if (!sources.has(x.sourceId) || seen.has(x.sourceId)) continue;
-    if (x.action === "NAVIGATE") {
+    const action = x.action as AiInteraction["action"];
+    if (action === "NAVIGATE" || action === "OVERLAY") {
       const dest = typeof x.destinationId === "string" ? x.destinationId : "";
       if (!frames.has(dest) || frameOf(x.sourceId) === dest) continue;
-      out.push({ sourceId: x.sourceId, trigger: "ON_CLICK", action: "NAVIGATE", destinationId: dest });
-    } else out.push({ sourceId: x.sourceId, trigger: "ON_CLICK", action: "BACK" });
+      out.push({ sourceId: x.sourceId, trigger: "ON_CLICK", action, destinationId: dest });
+    } else out.push({ sourceId: x.sourceId, trigger: "ON_CLICK", action });
     seen.add(x.sourceId);
   }
   return out;

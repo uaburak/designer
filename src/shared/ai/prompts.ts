@@ -98,9 +98,9 @@ export function replaceContentPrompt(texts: readonly { id: string; characters: s
 export function interactionsPrompt(frames: readonly { id: string; name: string }[], outline: string): PromptPair {
   return {
     system: system(
-      "Task: prototype the flow between these screens. For each layer a person would click to go somewhere (buttons, links, tabs, list rows, cards) add an interaction: NAVIGATE to the screen it leads to, or BACK for back arrows, Cancel and Close.",
-      "Only use the listed screens as destinations; never navigate a screen to itself. Layers marked [button?] are likely buttons. Leave out layers that don't lead anywhere.",
-      'Answer {"interactions": [{"sourceId", "trigger": "ON_CLICK", "action": "NAVIGATE" | "BACK", "destinationId"}]}.'
+      "Task: prototype the flow between these screens. For each layer a person would click to go somewhere (buttons, links, tabs, list rows, cards) add an interaction: NAVIGATE to the screen it leads to; OVERLAY to open a screen that shows above the current one (a menu, a dialog, a sheet); CLOSE for the close or cancel button of a screen opened as an overlay; BACK for back arrows and Cancel on full screens.",
+      "Only use the listed screens as destinations; never navigate a screen to itself. Layers marked [button?] are likely buttons; leave out layers marked [has interaction] (they are connected already) and layers that don't lead anywhere.",
+      'Answer {"interactions": [{"sourceId", "trigger": "ON_CLICK", "action": "NAVIGATE" | "OVERLAY" | "CLOSE" | "BACK", "destinationId"}]} (destinationId for NAVIGATE and OVERLAY).'
     ),
     prompt: `Screens: ${frames.map((f) => `${f.id} ${JSON.stringify(f.name)}`).join(", ")}\n\nLayers:\n${outline}`,
   };
@@ -124,35 +124,40 @@ export function firstDraftPrompt(prompt: string, kit: Kit, previous?: unknown): 
   };
 }
 
-/** Translate to…'s languages (Figma's list is [unverified]: these are ours, most used first). */
+/**
+ * Translate to…'s languages: Figma's 28, in its order (atlas 18 §5.2). The English name is what the prompt carries;
+ * the list shows `t(name)`. Figma drops Arabic and Urdu where the editor has no right-to-left text (Slides), not in
+ * Design.
+ */
 export const TRANSLATE_LANGUAGES: readonly string[] = [
-  "English",
-  "Spanish",
-  "French",
-  "German",
-  "Italian",
-  "Portuguese",
-  "Dutch",
-  "Turkish",
-  "Polish",
-  "Russian",
-  "Ukrainian",
   "Arabic",
-  "Hebrew",
-  "Hindi",
-  "Japanese",
-  "Korean",
   "Chinese (Simplified)",
   "Chinese (Traditional)",
+  "Dutch",
+  "English (United Kingdom)",
+  "English (United States)",
+  "Tagalog",
+  "French",
+  "German",
+  "Hindi",
   "Indonesian",
-  "Vietnamese",
-  "Thai",
+  "Italian",
+  "Japanese",
+  "Korean",
+  "Malay",
+  "Polish",
+  "Portuguese (Brazil)",
+  "Portuguese (Portugal)",
+  "Russian",
+  "Spanish (Latin America)",
+  "Spanish (Spain)",
   "Swedish",
-  "Norwegian",
-  "Danish",
-  "Finnish",
-  "Greek",
-  "Czech",
+  "Tamil",
+  "Thai",
+  "Turkish",
+  "Ukrainian",
+  "Urdu",
+  "Vietnamese",
 ];
 
 /** First Draft's suggestions under the prompt [ours] */

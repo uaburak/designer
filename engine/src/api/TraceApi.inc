@@ -12,8 +12,9 @@
 //   engine_vectorize_update(h, opts): traces again with `opts` (TraceOptions) into the frame — one VECTOR per colour,
 //     bottom to top, named by its hex and filled with it. Result: {layers, segments, ms, width, height, exceeded};
 //     over the budget ({exceeded: true}) the preview stays as it was.
-//   engine_vectorize_end(h, commit): commit = 1 replaces the image layer by the frame (it takes the layer's place, and
-//     is selected) as one undo step; 0 cancels (the document as it was).
+//   engine_vectorize_end(h, commit): commit = 1 keeps the frame — named "<layer name> [Vectorized]", back in the flow
+//     at the layer's place, selected — and hides the image layer (Figma's vectorize-image, atlas 18 §7.7: the original
+//     is hidden, not deleted) as one undo step; 0 cancels (the document as it was).
 // Budget: the pixels are brought to ≤ 1024 px on the long side at begin; an update stops past 1.5 s or 200,000 curve
 // segments (docs/ai.md §5 "As built").
 
@@ -245,19 +246,24 @@ ENG_EXPORT int32_t engine_vectorize_end(Handle h, uint32_t commit) {
       return st;
     }
   }
-  // The frame takes the layer's place: the layer goes (with what it held), the frame back in the flow.
+  // The frame takes the layer's place, back in the flow and named as Figma's; the layer stays, hidden.
   std::vector<NodeChange> changes;
-  if (ed.document().has(s->source)) {
-    std::function<void(Guid)> remove = [&](Guid id) {
-      for (Guid k : ed.document().children(id)) remove(k);
-      changes.push_back(NodeChange::removed(id));
-    };
-    remove(s->source);
+  if (const Node* src = ed.document().get(s->source)) {
+    NodeChange hide = NodeChange::changed(s->source);
+    hide.mask = F_VISIBLE;
+    hide.props.visible = false;
+    changes.push_back(hide);
+    NodeChange flow = NodeChange::changed(s->frame);
+    flow.mask = F_STACK_POSITIONING | F_NAME;
+    flow.props.stackPositioning = s->positioning;
+    flow.props.name = src->props.name + " [Vectorized]";
+    changes.push_back(flow);
+  } else {
+    NodeChange flow = NodeChange::changed(s->frame);
+    flow.mask = F_STACK_POSITIONING;
+    flow.props.stackPositioning = s->positioning;
+    changes.push_back(flow);
   }
-  NodeChange flow = NodeChange::changed(s->frame);
-  flow.mask = F_STACK_POSITIONING;
-  flow.props.stackPositioning = s->positioning;
-  changes.push_back(flow);
   int32_t st = ed.applyChanges(changes, APPLY_USER);
   if (st != OK) {
     ed.txnCancel();

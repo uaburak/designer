@@ -30,7 +30,7 @@ beforeAll(async () => {
   vi.spyOn(fonts, "missing").mockReturnValue([]);
 });
 
-async function setup(panel: "actions" | "prototype", answer: (req: AiRunRequest, emit: (m: AiRunEventMsg) => void) => void) {
+async function setup(panel: "actions" | "prototype", answer: (req: AiRunRequest, emit: (m: AiRunEventMsg) => void) => void, o: { enabled?: boolean; orgDisabled?: boolean; remaining?: number } = {}) {
   const source = memoryDocumentSource(PROTOTYPE_DOCUMENT, { fileName: "AI" });
   const engine = await Engine.create(null, { sessionID: 1 });
   engine.load(await source.load());
@@ -46,10 +46,11 @@ async function setup(panel: "actions" | "prototype", answer: (req: AiRunRequest,
         cancelled.push(runId);
         setTimeout(() => emit({ runId, event: { type: "done", cancelled: true } }), 1);
       },
-      settings: async () => DEFAULT_AI_SETTINGS,
+      settings: async () => ({ ...DEFAULT_AI_SETTINGS, enabled: o.enabled ?? true }),
     },
     record: async () => {},
-    policy: async () => ({ disabled: false, limit: null }),
+    policy: async () => ({ disabled: !!o.orgDisabled, limit: null }),
+    balance: async () => ({ remaining: o.remaining ?? 4250, resetsAt: Date.UTC(2026, 10, 1, 12) }),
   });
   await ai.refresh();
   // A text to act on.
@@ -77,6 +78,33 @@ describe("Actions › AI", () => {
     for (const l of ["Remove background", "Boost resolution", "Edit image with prompt", "Replace content", "Add interactions", "First Draft", "Shorten", "Rewrite this..."]) expect(rowByLabel(l), l).toBeTruthy();
     view.unmount();
     engine.destroy();
+  });
+
+  it("says why the AI rows can't run: AI turned off, an organization's switch, out of credits (only the free rows run)", async () => {
+    const notice = () => panelEl().querySelector('[role="note"]')?.textContent ?? null;
+    let s = await setup("actions", () => {});
+    expect(notice()).toBeNull();
+    s.view.unmount();
+    s.engine.destroy();
+    s = await setup("actions", () => {}, { enabled: false });
+    await tick();
+    expect(notice()).toContain("AI features are turned off");
+    expect(rowByLabel("Rename layers")!.getAttribute("aria-disabled")).toBe("true");
+    s.view.unmount();
+    s.engine.destroy();
+    s = await setup("actions", () => {}, { orgDisabled: true });
+    await tick();
+    expect(notice()).toContain("AI features are off for your organization");
+    s.view.unmount();
+    s.engine.destroy();
+    s = await setup("actions", () => {}, { remaining: 0 });
+    await tick();
+    expect(notice()).toContain("You're out of AI credits");
+    expect(notice()).toContain("November 1");
+    expect(rowByLabel("Translate to...")!.getAttribute("aria-disabled")).toBe("true");
+    expect(rowByLabel("Rename layers")!.getAttribute("aria-disabled")).toBeNull();
+    s.view.unmount();
+    s.engine.destroy();
   });
 
   it("Rewrite this…: the form, then progress with Stop; Stop goes back to the form, nothing written", async () => {

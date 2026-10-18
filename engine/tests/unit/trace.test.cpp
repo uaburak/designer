@@ -464,11 +464,14 @@ TEST_CASE("trace: engine_vectorize — begin, update, end (commit, undo, cancel)
   CHECK(f.get("childIds")->array.size() == 2);
   CHECK(has(h, "1:2"));  // the layer stays while previewing
 
-  // Commit: the frame replaces the layer, selected, as one step "Vectorize".
+  // Commit: the frame takes the layer's place as "<name> [Vectorized]", selected; the layer is hidden, kept (Figma's,
+  // atlas 18 §7.7) — one step "Vectorize".
   REQUIRE(engine_take_events(h) == 0);
   REQUIRE(engine_vectorize_end(h, 1) == 0);
-  CHECK_FALSE(has(h, "1:2"));
+  REQUIRE(has(h, "1:2"));
+  CHECK_FALSE(node(h, "1:2").get("visible")->boolean);
   CHECK(has(h, frame));
+  CHECK(node(h, frame).get("name")->string == "Photo [Vectorized]");
   REQUIRE(engine_get_selection(h) == 0);
   CHECK(resultJson().get("refs")->array.at(0).string == frame);
   REQUIRE(engine_take_events(h) == 0);
@@ -483,9 +486,9 @@ TEST_CASE("trace: engine_vectorize — begin, update, end (commit, undo, cancel)
   CHECK(steps == 1);
   CHECK(engine_vectorize_update(h, ptrOf(bw), lenOf(bw)) == -3);  // no session
 
-  // Undo restores the image layer.
+  // Undo shows the image layer again.
   REQUIRE(engine_command(h, 1, 0, 0) == 0);
-  CHECK(has(h, "1:2"));
+  CHECK(node(h, "1:2").get("visible")->boolean);
   CHECK_FALSE(has(h, frame));
   CHECK(guids(h).size() == before);
 
@@ -500,7 +503,7 @@ TEST_CASE("trace: engine_vectorize — begin, update, end (commit, undo, cancel)
   // Commit without an update traces with the defaults.
   REQUIRE(engine_vectorize_begin(h, ptrOf(refs), lenOf(refs), px, len, 80, 80) == 0);
   REQUIRE(engine_vectorize_end(h, 1) == 0);
-  CHECK_FALSE(has(h, "1:2"));
-  CHECK(guids(h).size() == before + 3);  // − the layer + the frame + 3 colours
+  CHECK(has(h, "1:2"));
+  CHECK(guids(h).size() == before + 4);  // the frame + 3 colours
   engine_destroy(h);
 }

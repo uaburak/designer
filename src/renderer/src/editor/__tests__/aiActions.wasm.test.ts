@@ -17,7 +17,7 @@ import { EditorController } from "../controller";
 import { memoryDocumentSource } from "../documentSource";
 import { runTool, type ToolEnv } from "../agents/mcpTools";
 import { AgentTurns } from "../agents/turns";
-import { setAiBackend, type AiActions } from "../ai/service";
+import { setAiBackend, TEXT_TOOLS_MAX_CHARACTERS, TEXT_TOOLS_MAX_LAYERS, type AiActions } from "../ai/service";
 import { liveInteractions, type PrototypeInteraction } from "../model/prototype";
 
 const wasm = join(process.cwd(), "src/renderer/src/engine/wasm/engine.wasm");
@@ -30,9 +30,15 @@ beforeAll(async () => {
   vi.spyOn(fonts, "missing").mockReturnValue([]);
 });
 
-type Answer = { json: unknown; usage?: { input: number; output: number; credits?: number; providerId?: string; model?: string } } | { error: { code: AiErrorCode; message: string } } | "hang";
+type Answer =
+  | { json: unknown; usage?: { input: number; output: number; credits?: number; providerId?: string; model?: string }; stream?: { chunks: number; gapMs: number; hang?: boolean } }
+  | { error: { code: AiErrorCode; message: string } }
+  | "hang";
 
-/** A fake main: each run answers with `script(request)` a tick later (or never: "hang", until cancelled). */
+/**
+ * A fake main: each run answers with `script(request)` a tick later (or never: "hang", until cancelled). `stream`: the
+ * answer's text comes first as `chunks` deltas `gapMs` apart (then hangs with `hang`).
+ */
 function fakeAi(script: (req: AiRunRequest) => Answer) {
   const listeners = new Set<(m: AiRunEventMsg) => void>();
   const requests: AiRunRequest[] = [];
@@ -47,6 +53,15 @@ function fakeAi(script: (req: AiRunRequest) => Answer) {
       requests.push(req);
       const a = script(req);
       if (a === "hang") return;
+      let wait = 1;
+      if (!("error" in a) && a.stream) {
+        const text = JSON.stringify(a.json);
+        const size = Math.ceil(text.length / a.stream.chunks);
+        setTimeout(() => emit(req.runId, { type: "status", text: "Asking Claude Code…" }), 1);
+        for (let i = 0; i < a.stream.chunks; i++) setTimeout(() => emit(req.runId, { type: "delta", text: text.slice(i * size, (i + 1) * size) }), 2 + i * a.stream.gapMs);
+        if (a.stream.hang) return;
+        wait = 3 + a.stream.chunks * a.stream.gapMs;
+      }
       setTimeout(() => {
         emit(req.runId, { type: "status", text: "Thinking" });
         if ("error" in a) {
@@ -57,7 +72,7 @@ function fakeAi(script: (req: AiRunRequest) => Answer) {
           emit(req.runId, { type: "result", text: JSON.stringify(a.json), json: a.json });
         }
         emit(req.runId, { type: "done" });
-      }, 1);
+      }, wait);
     },
     async cancel(runId: string) {
       cancelled.push(runId);
@@ -137,15 +152,16 @@ describe("Rename layers", () => {
     expect(req.system.startsWith(SYSTEM_PREFIX)).toBe(true);
     // Each top-level frame is its own screen; their card and text match across the two: asked once.
     const asked = marked(req, "rename");
-    expect(asked).toEqual(expect.arrayContaining([a, b, cardA, textA]));
+    // Figma renames rectangles with a default name, image or not (atlas 18 §4.1).
+    expect(asked).toEqual(expect.arrayContaining([a, b, cardA, textA, rectA]));
     expect(asked).not.toContain(cardB);
     expect(asked).not.toContain(textB);
-    for (const skipped of [headerA, hiddenA, ellipseA, rectA]) expect(asked).not.toContain(skipped);
+    for (const skipped of [headerA, hiddenA, ellipseA]) expect(asked).not.toContain(skipped);
     expect(count).toBeGreaterThanOrEqual(5);
     expect(name(t.engine, cardB)).toBe(name(t.engine, cardA));
     expect(name(t.engine, textB)).toBe(name(t.engine, textA));
     expect(name(t.engine, headerA)).toBe("Header");
-    expect(name(t.engine, rectA)).toBe("Rectangle 4");
+    expect(name(t.engine, rectA)).not.toBe("Rectangle 4");
     expect(t.ai.get().error).toBeNull();
 
     // One step of the user's history.
@@ -186,6 +202,80 @@ describe("Text actions", () => {
     expect(chars(t.engine, one)).toBe("Hello there");
     expect(chars(t.engine, two)).toBe("Second line");
     expect(t.ledger[0]).toMatchObject({ action: "rewrite", input: 1200, output: 300, credits: 1, ok: true });
+  });
+
+  it("streams into the layers as the answer comes, the whole run one undo step (Figma's adjust_text)", async () => {
+    const t = await editor(() => ({ json: { texts: [{ id: ids[0], characters: "A much longer greeting for you" }, { id: ids[1], characters: "Second, rewritten" }] }, stream: { chunks: 8, gapMs: 30 } }));
+    const frame = (await t.call("create_nodes", { nodes: [{ type: "FRAME", name: "Card", x: 3000, y: 0, width: 300, height: 200, children: [{ type: "TEXT", characters: "Hello there" }, { type: "TEXT", characters: "Second line" }] }] })).created[0].id;
+    const ids = kids(t.engine, frame);
+    t.engine.setSelection([frame]);
+    const seen: string[] = [];
+    const off = t.engine.onDocumentChanged(() => seen.push(chars(t.engine, ids[0]) ?? ""));
+    expect(await t.ai.editTexts({ kind: "rewrite", prompt: "Longer" })).toBe(2);
+    off();
+    // Written while it streamed: the first text grew a piece at a time.
+    expect(seen.length).toBeGreaterThan(2);
+    expect(seen.some((v) => v.length > 0 && "A much longer greeting for you".startsWith(v) && v !== "A much longer greeting for you")).toBe(true);
+    expect(chars(t.engine, ids[0])).toBe("A much longer greeting for you");
+    expect(chars(t.engine, ids[1])).toBe("Second, rewritten");
+    // One ⌘Z: both texts back.
+    t.engine.undo();
+    expect(chars(t.engine, ids[0])).toBe("Hello there");
+    expect(chars(t.engine, ids[1])).toBe("Second line");
+    t.engine.undo();
+    expect(t.engine.readNode(frame)).toBeNull();
+  });
+
+  it("Stop mid-stream puts the original texts back", async () => {
+    const t = await editor(() => ({ json: { texts: [{ id: text, characters: "Something else entirely, and long" }] }, stream: { chunks: 6, gapMs: 25, hang: true } }));
+    const text = (await t.call("create_nodes", { nodes: [{ type: "TEXT", characters: "Keep me", x: 3000, y: 0 }] })).created[0].id;
+    t.engine.setSelection([text]);
+    const run = t.ai.editTexts({ kind: "rewrite", prompt: "Change" });
+    await new Promise((r) => setTimeout(r, 200));
+    expect(chars(t.engine, text)).not.toBe("Keep me");
+    t.ai.stop();
+    expect(await run).toBeNull();
+    expect(t.ai.get().error).toBeNull();
+    expect(chars(t.engine, text)).toBe("Keep me");
+  });
+
+  it("an edit of the user's while it streams stops it (merging would join the user's step)", async () => {
+    const t = await editor(() => ({ json: { texts: [{ id: text, characters: "Streaming a long new text in" }] }, stream: { chunks: 8, gapMs: 25, hang: true } }));
+    const [text, other] = (await t.call("create_nodes", { nodes: [{ type: "TEXT", characters: "Original", x: 3000, y: 0 }, { type: "RECTANGLE", x: 3200, y: 0, width: 10, height: 10 }] })).created.map((c: { id: string }) => c.id);
+    t.engine.setSelection([text]);
+    const run = t.ai.editTexts({ kind: "rewrite", prompt: "Change" });
+    await new Promise((r) => setTimeout(r, 120));
+    expect(t.engine.setProps([other], { name: "Mine" } as never)).toBe(0);
+    expect(await run).toBeNull();
+    expect(chars(t.engine, text)).toBe("Original");
+    expect(name(t.engine, other)).toBe("Mine");
+  });
+
+  it("Figma's caps: Shorten takes one text layer; 100 text layers and 40,000 characters at most", async () => {
+    const t = await editor(() => ({ json: { texts: [] } }));
+    const two = (await t.call("create_nodes", { nodes: [{ type: "TEXT", characters: "One", x: 3000, y: 0 }, { type: "TEXT", characters: "Two", x: 3000, y: 50 }] })).created.map((c: { id: string }) => c.id);
+    t.engine.setSelection(two);
+    expect(await t.ai.editTexts({ kind: "shorten" }, { fromPanel: true })).toBeNull();
+    expect(t.ai.get().error).toMatchObject({ code: "nothing-selected", message: "Select a single text layer." });
+    const many = (await t.call("create_nodes", { nodes: [{ type: "FRAME", name: "Many", x: 4000, y: 0, width: 100, height: 100, children: Array.from({ length: TEXT_TOOLS_MAX_LAYERS + 1 }, (_, i) => ({ type: "TEXT", characters: `T${i}` })) }] })).created[0].id;
+    t.engine.setSelection([many]);
+    expect(await t.ai.editTexts({ kind: "translate", language: "French" }, { fromPanel: true })).toBeNull();
+    expect(t.ai.get().error).toMatchObject({ code: "too-large", message: "Select up to 100 text layers." });
+    const long = (await t.call("create_nodes", { nodes: [{ type: "TEXT", characters: "x".repeat(TEXT_TOOLS_MAX_CHARACTERS + 1), x: 5000, y: 0 }] })).created[0].id;
+    t.engine.setSelection([long]);
+    expect(await t.ai.editTexts({ kind: "rewrite", prompt: "Shorter" }, { fromPanel: true })).toBeNull();
+    expect(t.ai.get().error).toMatchObject({ code: "too-large", message: "Select less text: 40,001 / 40,000 characters." });
+    expect(t.requests).toHaveLength(0);
+  });
+
+  it("a range selected in a text being edited: only it is sent and replaced", async () => {
+    const t = await editor((req) => ({ json: { texts: [{ id: [...req.prompt.matchAll(/^(\d+:\d+): /gm)][0][1], characters: "WORLD" }] } }));
+    const text = (await t.call("create_nodes", { nodes: [{ type: "TEXT", characters: "Hello world, again", x: 3000, y: 0 }] })).created[0].id;
+    t.engine.setSelection([text]);
+    t.engine.textEdit = { type: "TEXT_EDIT", active: true, ref: text, caretRectCss: { x: 0, y: 0, width: 1, height: 10 }, selStart: 6, selEnd: 11 };
+    expect(await t.ai.editTexts({ kind: "rewrite", prompt: "Shout" })).toBe(1);
+    expect(t.requests[0].prompt).toContain(`${text}: "world"`);
+    expect(chars(t.engine, text)).toBe("Hello WORLD, again");
   });
 
   it("Stop mid-run cancels: nothing written, no error, the run still recorded", async () => {
@@ -290,6 +380,68 @@ describe("Add interactions", () => {
     expect(await t.ai.addInteractions({ fromPanel: true })).toBeNull();
     expect(t.ai.get().error).toMatchObject({ code: "nothing-selected", message: "Select two or more top-level frames to connect." });
     expect(t.requests).toHaveLength(0);
+    // Figma's upper bound: 10 frames.
+    const eleven = (await t.call("create_nodes", { nodes: Array.from({ length: 11 }, (_, i) => ({ type: "FRAME", name: `S${i}`, x: 4000 + i * 200, y: 0, width: 100, height: 100 })) })).created.map((c: { id: string }) => c.id);
+    t.engine.setSelection(eleven);
+    expect(await t.ai.addInteractions({ fromPanel: true })).toBeNull();
+    expect(t.ai.get().error).toMatchObject({ code: "too-large", message: "Select up to 10 top-level frames to connect." });
+    expect(t.requests).toHaveLength(0);
+  });
+
+  it("overlays and Close in Figma's order after the navigate links, one undo step; a layer already clicked is left alone (60 s for the answer)", async () => {
+    let ids: Record<string, string> = {};
+    const t = await editor(() => ({
+      json: {
+        interactions: [
+          { sourceId: ids.close, trigger: "ON_CLICK", action: "CLOSE" },
+          { sourceId: ids.menu, trigger: "ON_CLICK", action: "OVERLAY", destinationId: ids.sheet },
+          { sourceId: ids.go, trigger: "ON_CLICK", action: "NAVIGATE", destinationId: ids.sheet },
+          { sourceId: ids.linked, trigger: "ON_CLICK", action: "NAVIGATE", destinationId: ids.sheet },
+        ],
+      },
+    }));
+    const made = (await t.call("create_nodes", {
+      nodes: [
+        { type: "FRAME", name: "Home", x: 3000, y: 0, width: 390, height: 800, children: [{ type: "FRAME", name: "Menu button", width: 40, height: 40 }, { type: "FRAME", name: "Go button", y: 100, width: 40, height: 40 }, { type: "FRAME", name: "Linked button", y: 200, width: 40, height: 40 }] },
+        { type: "FRAME", name: "Sheet", x: 3500, y: 0, width: 390, height: 400, children: [{ type: "FRAME", name: "Close button", width: 40, height: 40 }] },
+      ],
+    })).created as { id: string }[];
+    const [home, sheet] = made.map((m) => m.id);
+    const [menu, go, linked] = kids(t.engine, home);
+    ids = { home, sheet, menu, go, linked, close: kids(t.engine, sheet)[0] };
+    await t.call("add_interaction", { nodeId: linked, trigger: { type: "ON_CLICK" }, actions: [{ type: "NAVIGATE", destinationId: home }] });
+    t.engine.setSelection([home, sheet]);
+    const labels: string[] = [];
+    const off = t.ai.subscribe(() => {
+      const l = t.ai.get().run?.label;
+      if (l && labels.at(-1) !== l) labels.push(l);
+    });
+    expect(await t.ai.addInteractions()).toBe(3);
+    off();
+    expect(t.requests[0].timeoutMs).toBe(60_000);
+    expect(marked(t.requests[0], "has interaction")).toEqual([linked]);
+    expect(labels).toEqual(["Adding interactions…", "Adding navigate interactions…", "Adding overlay interactions…"]);
+    const live = (id: string) => liveInteractions((t.engine.readNode(id) as { prototypeInteractions?: PrototypeInteraction[] } | null)?.prototypeInteractions);
+    expect(live(go)[0].actions?.[0]).toMatchObject({ navigationType: "NAVIGATE" });
+    expect(live(menu)[0].actions?.[0]).toMatchObject({ navigationType: "OVERLAY" });
+    expect(live(ids.close)[0].actions?.[0]).toMatchObject({ connectionType: "CLOSE" });
+    // The one it had, kept as it was.
+    expect(live(linked)).toHaveLength(1);
+    // One ⌘Z takes all three back.
+    t.engine.undo();
+    for (const id of [go, menu, ids.close]) expect(live(id)).toHaveLength(0);
+    expect(live(linked)).toHaveLength(1);
+  });
+
+  it("says when nothing was added because the layers already have interactions", async () => {
+    let ids: Record<string, string> = {};
+    const t = await editor(() => ({ json: { interactions: [{ sourceId: ids.button, trigger: "ON_CLICK", action: "NAVIGATE", destinationId: ids.b }] } }));
+    const [a, b] = ((await t.call("create_nodes", { nodes: [{ type: "FRAME", name: "A", x: 3000, y: 0, width: 100, height: 100, children: [{ type: "FRAME", name: "Next button", width: 40, height: 40 }] }, { type: "FRAME", name: "B", x: 3200, y: 0, width: 100, height: 100 }] })).created as { id: string }[]).map((c) => c.id);
+    ids = { a, b, button: kids(t.engine, a)[0] };
+    await t.call("add_interaction", { nodeId: ids.button, trigger: { type: "ON_CLICK" }, actions: [{ type: "NAVIGATE", destinationId: b }] });
+    t.engine.setSelection([a, b]);
+    expect(await t.ai.addInteractions({ fromPanel: true })).toBeNull();
+    expect(t.ai.get().error).toMatchObject({ message: "No interactions were added: these layers already have interactions." });
   });
 });
 

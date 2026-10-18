@@ -105,6 +105,7 @@ function aiRunRequest(r: AiRunRequest): AiRunRequest {
     schema = JSON.parse(text) as Record<string, unknown>;
   }
   const max = Number(r.maxOutputTokens);
+  const timeout = Number(r.timeoutMs);
   return {
     runId,
     action: r.action,
@@ -114,6 +115,7 @@ function aiRunRequest(r: AiRunRequest): AiRunRequest {
     ...(images.length ? { images } : {}),
     ...(schema ? { schema } : {}),
     ...(Number.isFinite(max) && max > 0 ? { maxOutputTokens: Math.min(200_000, Math.round(max)) } : {}),
+    ...(Number.isFinite(timeout) && timeout > 0 ? { timeoutMs: Math.max(1000, Math.round(timeout)) } : {}),
   };
 }
 const folderOf = (v: unknown) => (v === null || v === undefined ? null : str(v, 64));

@@ -37,6 +37,8 @@ export interface AiRunRequest {
   /** JSON Schema of the answer */
   schema?: Record<string, unknown>;
   maxOutputTokens?: number;
+  /** Each attempt's limit when shorter than main's (Add interactions: Figma's 60 s, atlas 18 §6) */
+  timeoutMs?: number;
 }
 
 export interface AiImageRequest {

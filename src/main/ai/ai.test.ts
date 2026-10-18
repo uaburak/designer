@@ -225,6 +225,12 @@ describe("a one-shot run on an OpenAI-compatible server", () => {
     expect(types.at(-1)).toBe("done");
   });
 
+  it("a request's own shorter limit wins (Add interactions: Figma's 60 s)", async () => {
+    handler = () => undefined;
+    const { events } = await run(deps(), req({ runId: "t2", timeoutMs: 150 }));
+    expect(events.find((e) => e.type === "error")).toMatchObject({ code: "timeout", message: "No answer in 0 s." });
+  });
+
   it("cancel ends it with done {cancelled} and nothing else", async () => {
     handler = () => undefined;
     const { events } = await run(deps(), req({ runId: "r2" }), (runs) => setTimeout(() => runs.cancel("view1", "r2"), 50));

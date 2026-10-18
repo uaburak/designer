@@ -105,6 +105,9 @@ export function showToolError(err: unknown): void {
 
 let pendingConfirm: ((yes: boolean) => void) | null = null;
 
+/** Figma's cap on images in flight across the image tools (atlas 18 §7.1, `image_ai.too_many_running_images`). */
+export const MAX_RUNNING_IMAGES = 25;
+
 export class ImageTools {
   readonly state = new Store<ImageToolsState>(INITIAL);
   hooks: tools.ToolHooks;
@@ -165,7 +168,10 @@ export class ImageTools {
       await fn({ signal: abort.signal, onProgress: (share) => this.state.set((s) => (s.busy ? { busy: { ...s.busy, progress: share } } : {})) });
       return true;
     } catch (err) {
-      if (!abort.signal.aborted) showToolError(err);
+      if (abort.signal.aborted) return false;
+      // "Already at 4×": Figma's error offers "Boost anyway" (the image 2×).
+      if (err instanceof tools.BoostAlreadyMaxError) showToast({ message: err.message, kind: "error", action: { label: t("Boost anyway"), onAction: () => void this.boostResolution(true) } });
+      else showToolError(err);
       return false;
     } finally {
       this.abort = null;
@@ -175,14 +181,24 @@ export class ImageTools {
 
   // ---- The toolbar's actions --------------------------------------------------------------------------------------
 
+  /** More than 25 images at once: Figma's toast, nothing runs. */
+  private tooManyImages(count: number): boolean {
+    if (count <= MAX_RUNNING_IMAGES) return false;
+    showToast({ message: t("You can only run AI on {count} images at a time.", { count: MAX_RUNNING_IMAGES }), kind: "error" });
+    return true;
+  }
+
   removeBackground(): Promise<boolean> {
     const targets = tools.imageTargets(this.ed);
+    if (this.tooManyImages(targets.length)) return Promise.resolve(false);
     return this.run("Removing background…", targets.map((t) => t.id), (o) => tools.removeBackground(this.env, targets, o));
   }
 
-  boostResolution(): Promise<boolean> {
+  /** `anyway`: "Boost anyway" after the already-at-4× error (the image 2×). */
+  boostResolution(anyway = false): Promise<boolean> {
     const targets = tools.imageTargets(this.ed);
-    return this.run("Boosting resolution…", targets.map((t) => t.id), (o) => tools.boostResolution(this.env, targets, o));
+    if (this.tooManyImages(targets.length)) return Promise.resolve(false);
+    return this.run("Boosting resolution…", targets.map((t) => t.id), (o) => tools.boostResolution(this.env, targets, { ...o, anyway }));
   }
 
   async editWithPrompt(prompt: string, o: { reference?: Rgba; route?: AiRoute } = {}): Promise<boolean> {
