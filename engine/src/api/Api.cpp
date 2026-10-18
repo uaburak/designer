@@ -1453,6 +1453,16 @@ ENG_EXPORT int32_t engine_actor_undo(Handle h, uint32_t actor, uint32_t redo) {
   return e->editor.actorUndo(actor, redo != 0) ? OK : E_INVALID;
 }
 
+// Figma's ignore-undo scope (open = 1 opens one, 0 closes one): writes while one is open leave no undo step.
+ENG_EXPORT int32_t engine_ignore_undo(Handle h, uint32_t open) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  if (open) e->editor.openIgnoreUndo();
+  else e->editor.closeIgnoreUndo();
+  return OK;
+}
+
 // The local user's undo history as Figma's Message.localUndoStack / localRedoStack (docs/research/rea/canvas.md §2.18):
 // a NODE_CHANGES Message, the last `maxSteps` steps of each stack within `maxBytes` (0: 100 steps / 16 MB).
 ENG_EXPORT int32_t engine_undo_export(Handle h, uint32_t maxSteps, uint32_t maxBytes) {

@@ -70,6 +70,7 @@ void UndoStack::commit(const std::vector<Guid>& selection, bool mergeWithLast, c
     UndoBatch& last = undo_.back();
     for (auto& c : open_.inverse) last.inverse.push_back(std::move(c));
     last.selectionAfter = selection;
+    if (open_.editVector != kNoGuid) last.editVector = open_.editVector;
     for (Guid p : open_.pageIds)
       if (std::find(last.pageIds.begin(), last.pageIds.end(), p) == last.pageIds.end()) last.pageIds.push_back(p);
   } else {
@@ -167,6 +168,7 @@ std::vector<NodeChange> UndoStack::replay(Document& doc, UndoBatch& batch, UndoB
   opposite.selectionBefore = batch.selectionAfter;
   opposite.selectionAfter = batch.selectionBefore;
   opposite.pageIds = batch.pageIds;  // the same pages either way
+  opposite.editVector = batch.editVector;
   size_t dangling = filterDangling(doc, batch.inverse);
   if (info) info->dangling += dangling;
   for (auto it = batch.inverse.rbegin(); it != batch.inverse.rend(); ++it) {

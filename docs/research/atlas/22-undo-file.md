@@ -528,6 +528,13 @@ Built from the lists above. Code: `engine/src/editor/{Undo,Editor}.cpp`, `engine
 scope; the memory model (heap %, OOM states, Manage memory); the importer's rewrites (`convert.ts`, the import
 agent's); the desktop shell's `setSaved` per tab (our tab dot follows the flush, equivalent while local).
 
+**Sweep (2026-10-18)** — branch `worktree-agent-a44e0af86efbcac0b`.
+
+- **The ignore-undo scope (§2.1, Figma's `openIgnoreUndoRedoScope` / `closeIgnoreUndoRedoScope`):** `Editor::openIgnoreUndo` / `closeIgnoreUndo` (nesting; one close too many does nothing): writes go into the document and the transaction's changes but leave no inverse in any history — no step of their own, and none joined to the step open around them. ABI `engine_ignore_undo(h, open)`, TS `Engine.ignoringUndo(fn)`. Native `atlas.undo_scope.test.cpp`.
+- **The edit mode restored with the step (§2.3, "update-edit-mode-for-undo"):** a user step remembers the layer vector edit mode had when it was made (`UndoBatch::editVector`, carried to the redo side and through merges); undoing or redoing it goes back into vector edit mode on that layer when it is on the current page and no text is being edited. A step made outside the mode leaves the mode as it is (Figma's exit rule isn't read). Not exported with the history (as labels and selections).
+
+**Still not done:** text edit mode restored on undo (whether Figma re-enters text editing isn't read); the memory model (heap %, OOM states, Manage memory); the importer's rewrites; an offline backup beyond the journal and the Offline-sync savepoints (Phase 6); the shell's `setSaved`.
+
 ## 10. Open questions
 
 | # | Question | Probe that settles it |

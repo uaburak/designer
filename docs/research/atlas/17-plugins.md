@@ -760,6 +760,8 @@ Branch "plugins", in §13's order. Tests: `plugins/__tests__/parity.wasm.test.ts
 - The context-menu click position for a UI opened from the canvas menu, and the `anchor` form of `position` (its `side` / `align` values are unread).
 - The three-iframe isolation (ours: one sandboxed `plugin:` iframe, a fair equivalent — §13.3).
 
+**Sweep (2026-10-18)** — branch `worktree-agent-a44e0af86efbcac0b`: nothing of this list was built. Widgets are a round of their own (the widget node, its render and synced state, the hooks, Widgets ▸); `textreview` needs the engine to draw a plugin's ranges under the text being edited (no text decorations from outside the engine yet) and the "Text review plugins" submenu goes with it; `linkpreview` and `lint` runs have no place in the editor yet to show what they return (dev resources' rich previews, a lint panel). Plugin Actions' synonyms are in atlas 03's sweep.
+
 **New open questions** (to §14's list):
 - Q10 The Recents header's English (`fullscreen_actions.recents`) — the recents are listed without a header until it is read.
 - Q11 Whether the dynamic-page text for a method carries the "in <name>: " prefix (derived from the host-call wrapper).

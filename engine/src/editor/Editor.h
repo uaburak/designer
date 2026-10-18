@@ -505,6 +505,14 @@ class Editor : private LayoutHost, public TextLayouts {
   uint32_t paste(const Clipboard& clip, bool inPlace);
   uint32_t pasteWith(const Clipboard& clip, uint32_t flags);  // PasteFlags
   bool canUndo() const { return undo_.canUndo(); }
+  // Figma's openIgnoreUndoRedoScope / closeIgnoreUndoRedoScope (docs/research/rea/canvas.md §2.4): while one is open
+  // (they nest), writes go into the document and the transaction's changes as usual but leave no inverse in any undo
+  // history — system bookkeeping that must not become, or join, a step. Closing more than were opened does nothing.
+  void openIgnoreUndo() { ignoreUndo_++; }
+  void closeIgnoreUndo() {
+    if (ignoreUndo_ > 0) ignoreUndo_--;
+  }
+  bool ignoringUndo() const { return ignoreUndo_ > 0; }
   bool canRedo() const { return undo_.canRedo(); }
   const UndoStack& undoStack() const { return undo_; }
   // The local user's undo history as Figma's Message.localUndoStack / localRedoStack (docs/research/rea/canvas.md
@@ -2562,6 +2570,8 @@ class Editor : private LayoutHost, public TextLayouts {
 
   // ---- Actors (actorBegin) ----
   UndoStack& stackOf(uint32_t actor);
+  // Open ignore-undo scopes (openIgnoreUndo)
+  int ignoreUndo_ = 0;
   UndoStack& recording() { return stackOf(undoTo_); }
   const UndoStack& recording() const {
     auto it = actorUndo_.find(undoTo_);

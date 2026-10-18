@@ -27,6 +27,9 @@ struct UndoBatch {
   // The pages its changes were on when it was made, first first (Figma's Message.undoBatchPageIds 46): an undo with
   // nothing selected goes to the first of them. Empty: computed from the replayed changes.
   std::vector<Guid> pageIds;
+  // The layer vector edit mode had when the step was made (Figma's "update-edit-mode-for-undo"): undoing or redoing
+  // it goes back into that mode on that layer. kNoGuid: made outside it. Not exported with the history.
+  Guid editVector = kNoGuid;
 };
 
 // What one undo / redo replay did, beyond the changes it applied (docs/engine.md §9.3).
@@ -57,6 +60,10 @@ class UndoStack {
   // Past kMaxBatches the oldest steps are dropped. `doc` (the document after the step): the step's pages are noted
   // (UndoBatch::pageIds).
   void commit(const std::vector<Guid>& selection, bool mergeWithLast = false, const Document* doc = nullptr);
+  // The edit mode the open transaction is made in (UndoBatch::editVector), noted before it commits.
+  void noteEditVector(Guid node) {
+    if (depth_ > 0) open_.editVector = node;
+  }
   // The pages a batch's inverses touch in `doc` as it is (pages on the internal canvas left out), first first.
   static std::vector<Guid> pagesOf(const Document& doc, const std::deque<NodeChange>& inverse);
   static constexpr size_t kMaxBatches = 1000;
