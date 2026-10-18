@@ -955,6 +955,56 @@ The build holds i18n keys. English below is attested by the live captures (`docs
 | Quick actions | `src/renderer/src/editor/panels/ActionsPanel.tsx`: prefix 3 / word 2 / substring 1 score, sections, Recents max 3 in localStorage | **Partly matches**: recents = 3 ✓. **Missing**: fuzzy matching, synonyms, the 0.4 / 0.3 / 0.2 / 0.1 weighted rank, frecency (10 timestamps, buckets 100…0, cap 5 000), the popularity order for the unsearched list, disabled-after-enabled ordering, the 172 search-only actions, ⌃N/⌃P, Tab to parameters, 300 ms close on toggles, 150-char input limit |
 | Native menu bar | `src/main/menu.ts` | interface scale (⇧⌥⌘ = / − / 0) and tab keys (⌃Tab, ⇧⌘[ / ]) worth comparing with §3.11 |
 
+### As built (2026-10-18, wave 5)
+
+Branch "menus and shortcuts" (atlas integration wave 5). Built in the list's order:
+
+- **Command registry** (Differs): every command that is one of Figma's actions names it (`editor/shortcuts/figmaKeys.ts`
+  `FIGMA_ACTION`, 157 commands; Dev Mode's V, ⇧D and ⌥8 add their Dev Mode action). The ids stay ours; the shortcut
+  table, the popularity list and the menus read Figma's through the alias.
+- **Shortcuts** (Differs): Figma's table itself is the data — the JSON at wasm offset 47 251 835, 260 actions and
+  1 183 bindings, kept as `src/shared/shortcuts.figma.json` and read by `src/shared/shortcutsTable.ts` (keys, conditions,
+  `display`, edit modes). A command's default keys are the bindings that hold for the platform, the editor (Design and
+  Motion = `design` with `flag:metronome`, Draw = `illustration`, Dev Mode = `dev_handoff`, followed by the keyboard
+  layer), the two preferences (Use number keys for opacity, Use old shortcuts for outlines) and the layout, in the
+  table's order (menus show the first, with its `display`: ⇧⌘= as ⌘+); a command the table hasn't keeps the registry's
+  keys. Keys marked `!VECTOR` don't act in vector edit mode (`commandForKey(e, "VECTOR")`); `!TEXT` needs nothing (the
+  keyboard layer never sees keys while text is edited); TEXT-only rows are the engine's. Our hand-written keys already
+  matched the U.S. table; the table added Actions ⌘/ ⌘P, Outlines ⌘Y ⌃⇧3, Layout guides ⌃G ⌃⇧4, Pixel grid ⌘′, Pixel
+  preview ⌥⌘Y, Paste to replace ⌥⇧⌘V, Bring forward / Send backward ⌥⌘↑ / ↓, the aligns' ⌃⌘ arrows, Distribute ⌃⌥⌘H / V,
+  Delete and heal ⇧⌦, auto-keyframe ⇧K (Motion), and in Draw only B for the Brush. Number keys: with the preference
+  off, 0 / 1 / 9 / 2 zoom by the table and ⇧0–⇧9 (and ⇧Num) set the opacity (`keyboard.ts`; the special case is gone).
+- **Keyboard layouts** (Differs): the per-layout bindings of §7.3 for Figma's 16 layouts — a binding's character is found
+  on the layout's keyboard (`layouts.ts characters`) and taken at the U.S. place the bindings use (German ⌘Ä / ⌘Ö
+  forward / backward, Ä / Ö front / back, ⌘, Actions, ^ Show/Hide UI; Swedish ⇧⌥, letter spacing; a character the
+  layout types only with ⌥ is no key there, as in Figma — on German ⌘K is no longer Actions). The Japanese (JIS) and
+  Korean keys Figma names (^ @ [ ] : ¥, ₩) are mapped to their places. Finnish and Chinese (no bindings, open
+  question 3) and our Turkish layouts read the table as Figma's unknown layout — by character as before.
+- **Main / context menus** (Missing): canvas and ruler menus drop the rows that can't run (`withoutDisabled`; Copy as
+  SVG / PNG stay greyed when exports are blocked; an emptied submenu goes; lines tidied) — so Send to Figma Make, Find
+  similar designs, Add motion and Widgets ▸ (not built here) are gone from them; the main menu keeps greying. Main
+  component actions counted as Figma counts them (0 / 1 inline / ≥ 2 "Main component ▸"; Publish counts for selected
+  mains); Combine as variants stays its own row. The Figma menu's view-only Edit ▸ and Dev Mode's Edit ▸; Text, Arrange,
+  Vector only for editors, Object not in Dev Mode. Select layer ▸ (> 1 layer) was already so.
+- **Shortcuts panel**: Components only when the file uses libraries; Dev Mode opens on View; a tab completed plays its
+  keys from 1 500 to 6 000 ms, each 110 ms × its distance + 100 ms later (the lift itself is ours); the Layout tab's
+  list has Detected and Other layouts (Generic last) and, once a layout is picked, the note under it.
+- **Quick actions** (Missing): the weighted score (match 0.4, can run 0.3, frecency f / (f + 1 000) 0.2, AI 0.1), then
+  those that can run first (`panels/actionsRank.ts`); Figma's frecency (label cut to 20, 10 runs, buckets 100…0, count ×
+  mean, 5 000 actions; localStorage `designer.actions.frecency`); the empty field clicked lists every action by the
+  popularity list (its first 80 ids); search-only actions (Rename, Create multiple components, Reset variable modes,
+  Rename layers, Component search, Team library, Publish); ⌃N / ⌃P; ⌘/ and ⌘P close too; a toggle keeps the palette
+  300 ms with its check shown; 150 characters, `dir=auto`. The matchers are ours in Figma's shape (a fuzzy one scoring
+  word starts and runs, normalised by the label's own perfect score, LRU 1 000; a substring one), open question 7.
+
+Not done: the popularity list's other 240 ids (only the first 80 were read); Figma's search synonyms (`searchSynonyms`
+weren't extracted); F6 / ⇧F6 focus between areas, ⌥Space keyboard select (no command yet; their English is
+unattested); the Timeline tab and the Essential tab's "Pick color" variant without libraries (their row wording is
+unattested); desktop layout detection by OS input-source id (§7.2: main's `getKeyboardLayout`, not in this branch's
+files) and the mismatch toast (open question 6); the native menu bar's accelerators still come from
+`src/shared/commands.ts`, not the table; Windows-key bindings (Figma's debug toggles) are dropped. Behaviour to note:
+Figma's other keys above now act (⌘P opens Actions, ⌘Y toggles outlines, ⌃G layout guides).
+
 ## 12. Open questions
 
 1. **Libraries** in the main menu (live, after Preferences): its builder was not in 858's `GetFullscreenMenuItems`. Probe: search the other chunks for the item that opens the library modal from the main menu, or click it live and read `recordingKey`.
