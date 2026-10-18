@@ -93,14 +93,15 @@ export const BUNDLED_URLS: Record<string, string> = { "bundled:inter": interUrl 
  * each downloaded from Google Fonts the first time a text needs it, nothing bundled). The engine tries a script's
  * own family first (text/Fonts.cpp scriptFallback: Noto Sans Thai for Thai), then the others in this order without
  * the other scripts' families. The Mac's own families after them keep text readable offline (not Figma's: whether
- * its fallback takes local fonts is an open question, §15 Q4); absent ones are skipped.
+ * its fallback takes local fonts is an open question, §15 Q4); absent ones are skipped. Noto Emoji (monochrome
+ * outlines) draws emoji until Figma's emoji images are built (§15 Q8), asked for by emoji only.
  */
 export const FALLBACK_FAMILIES = [
   "Noto Sans", "Noto Sans Symbols", "Noto Sans Symbols 2", "Noto Sans Math",
   "Noto Sans Arabic", "Noto Sans Bengali", "Noto Sans Devanagari", "Noto Sans Georgian", "Noto Sans Gujarati", "Noto Sans HK",
   "Noto Sans JP", "Noto Sans Javanese", "Noto Sans KR", "Noto Sans Kannada", "Noto Sans Khmer", "Noto Sans Lao",
   "Noto Sans Malayalam", "Noto Sans New Tai Lue", "Noto Sans SC", "Noto Sans TC", "Noto Sans Tai Le", "Noto Sans Tai Tham",
-  "Noto Sans Tai Viet", "Noto Sans Tamil", "Noto Sans Telugu", "Noto Sans Thai",
+  "Noto Sans Tai Viet", "Noto Sans Tamil", "Noto Sans Telugu", "Noto Sans Thai", "Noto Emoji",
   "PingFang SC", "Hiragino Sans", "Apple SD Gothic Neo", "Geeza Pro", "Arial Hebrew", "Thonburi", "Kohinoor Devanagari",
   "Arial Unicode MS", "Apple Symbols",
 ];

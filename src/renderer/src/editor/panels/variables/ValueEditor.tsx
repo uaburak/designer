@@ -110,6 +110,7 @@ export function ValueEditor({ variable, mode, collection, className, disabled }:
     <div
       className={cx(styles.cell, styles.value, overridden && styles.overridden, className)}
       data-value-cell={`${variable.name}|${collection.modes.find((m) => m.id === mode)?.name ?? ""}`}
+      data-value-mode={mode}
       data-overridden={overridden ? "" : undefined}
     >
       {body}

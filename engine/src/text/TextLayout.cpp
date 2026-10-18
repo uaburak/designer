@@ -741,8 +741,10 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
     line.top += L.offsetY;
     line.baseline += L.offsetY;
     const bool rtl = paras[d.paragraph].level == 1;
-    double indent = d.startX;
-    double free = L.boxWidth - indent - (d.alignWidth >= 0 ? d.alignWidth : line.width);
+    // Indents (a list's levels, the first line's paragraph indent) are taken from the paragraph's start side: the
+    // right of a right-to-left one, whose markers then sit in that indent.
+    double indent = rtl ? 0 : d.startX;
+    double free = L.boxWidth - d.startX - (d.alignWidth >= 0 ? d.alignWidth : line.width);
     double x0 = indent, extraPerSpace = 0;
     switch (p.text().textAlignHorizontal) {
       case TextAlignHorizontal::CENTER: x0 += free / 2; break;
@@ -759,7 +761,7 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
       }
       default: break;
     }
-    if (p.text().textAlignHorizontal == TextAlignHorizontal::JUSTIFIED && extraPerSpace > 0) line.width = L.boxWidth - indent;
+    if (p.text().textAlignHorizontal == TextAlignHorizontal::JUSTIFIED && extraPerSpace > 0) line.width = L.boxWidth - d.startX;
     line.x = x0;
     line.firstGlyph = static_cast<uint32_t>(L.glyphs.size());
     size_t contentEnd = d.clusters.size();

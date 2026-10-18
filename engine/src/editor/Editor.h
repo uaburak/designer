@@ -929,12 +929,16 @@ class Editor : private LayoutHost, public TextLayouts {
   // How many layers use a style.
   uint32_t styleUsage(Guid style) const;
   // The fonts the document names (text, runs, instance overrides), each with how many places name it
-  // (editor/FontCommands.cpp).
+  // (editor/FontCommands.cpp). With `roots` (the Missing fonts dialog's Current page / Current selection), only the
+  // layers in them and inside them, and each font's layers (`nodes`).
   struct DocumentFont {
     FontName font;
     uint32_t uses = 0;
+    std::vector<Guid> nodes;
   };
-  std::vector<DocumentFont> documentFonts() const;
+  std::vector<DocumentFont> documentFonts(const std::vector<Guid>& roots = {}) const;
+  // Whether `id` is one of `roots` or inside one (every node when there are none).
+  bool inScope(const std::vector<Guid>& roots, Guid id) const;
   struct BoundVariable {
     std::string target;     // BindingTarget (docs/engine-build.md)
     Guid variable = kNoGuid;  // the alias (a composed colour: its colour's alias)

@@ -649,6 +649,26 @@ Branch "text" (atlas integration wave 3). Built in the lists' order:
 - The single-upgrade banner lines, the Switch text direction icon and when Figma shows Revert are unverified (Q6).
 - Figma's Han choice among Noto Sans SC / TC / HK / JP / KR and whether local fonts take part stay Q4.
 
+**Sweep (2026-10-18).** From the not-done list above, what needs no live probe:
+- **Missing-fonts modal** (§7): Figma's scope — Current selection (with a selection), Current page, All pages — read
+  from the engine's `documentFonts(refs)` (the layers in and inside them, each font with its layers) and applied by
+  `REPLACE_FONTS {nodes}`; each row's "Select N items using this font" (selects them and closes the dialog — ours);
+  "Replace on the whole page" in the selection's scope; "Show other missing fonts" switches to All pages. It opens on
+  Current page when the page has a missing font, else All pages (Figma's opening scope isn't read). Every page is in
+  the engine, so All pages needs no "Finding missing fonts" wait.
+- **← / → in right-to-left text**: on a line holding right-to-left text the caret goes to the nearest caret place on
+  that side (visual movement, as the Mac's text views; Figma's own motion isn't readable, §11), past the line's edge
+  on logically; in a right-to-left paragraph ⌥← / ⌥→, ⌘← / ⌘→ and collapsing a selection are mirrored (← goes on
+  through the text). `editor/TextEditing.cpp visualStep`.
+- **A right-to-left list's indent** (and a first line's paragraph indent) is taken from the right, the marker in that
+  indent (`TextLayout.cpp`); alignment stays absolute (probe).
+- **Emoji by font fallback**: until Figma's emoji images (Q8), emoji code points (U+1F000 – 1FAFF) ask for Google's
+  Noto Emoji first (monochrome outlines, OFL, downloaded on first use; `Fonts.cpp scriptFallback`, last of the Noto
+  set in `FALLBACK_FAMILIES`) instead of drawing nothing; no other character asks for it.
+
+Still not done: emoji images (Q8); the modal's family rows expanded to styles, its 536 px width (the DS dialog's
+sizes) and banners; text on a path laid out right to left; "Recently installed"; Q4 and Q6.
+
 ## 15. Open questions
 
 | # | Question | Probe that settles it |

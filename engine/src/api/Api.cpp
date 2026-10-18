@@ -2771,15 +2771,30 @@ ENG_EXPORT int32_t engine_style_usage(Handle h, Ptr idPtr, uint32_t idLen) {
 
 // The fonts the document names (text, its runs, instance overrides; text styles too), each with its number of
 // uses: [{family, style, uses}] sorted by family and style. The Missing fonts dialog and the font picker's
-// "In this file" read it (docs/engine-build.md "Fonts").
-ENG_EXPORT int32_t engine_document_fonts(Handle h) {
+// "In this file" read it (docs/engine-build.md "Fonts"). `refs` (a NodeRefList; empty: the whole file): only the
+// layers in and inside them — the dialog's Current page / Current selection —, each font with its layers (`nodes`).
+ENG_EXPORT int32_t engine_document_fonts(Handle h, Ptr refsPtr, uint32_t refsLen) {
   Call call;
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
+  std::vector<Guid> refs;
+  if (refsLen) {
+    json::Value v;
+    if (!parse(refsPtr, refsLen, v)) return E_DECODE;
+    refs = readRefs(v);
+    if (refs.empty()) return setResult("[]");
+  }
   json::Writer w;
   w.beginArray();
-  for (const Editor::DocumentFont& f : e->editor.documentFonts())
-    w.beginObject().key("family").string(f.font.family).key("style").string(f.font.style).key("uses").number(f.uses).endObject();
+  for (const Editor::DocumentFont& f : e->editor.documentFonts(refs)) {
+    w.beginObject().key("family").string(f.font.family).key("style").string(f.font.style).key("uses").number(f.uses);
+    if (refsLen) {
+      w.key("nodes").beginArray();
+      for (Guid g : f.nodes) w.string(g.toString());
+      w.endArray();
+    }
+    w.endObject();
+  }
   w.endArray();
   return setResult(w.take());
 }

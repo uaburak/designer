@@ -105,3 +105,28 @@ TEST_CASE("fonts: Replace fonts rewrites nodes, runs and overrides in one undo s
   CHECK(e.command(CommandId::REPLACE_FONTS, replace(R"({"fonts":[{"from":{"family":"Matter"}}]})")) == E_INVALID);
   CHECK(e.command(CommandId::REPLACE_FONTS, replace(R"({})")) == E_INVALID);
 }
+
+TEST_CASE("fonts: the Missing fonts dialog's scopes — the fonts a selection names, with its layers, and Replace fonts on them only") {
+  Editor e = load();
+  // The selection "Hello world" (T1): its node font and its run's, each naming T1.
+  auto scoped = e.documentFonts({T1});
+  REQUIRE(scoped.size() == 2);
+  for (const auto& f : scoped) CHECK(f.nodes == std::vector<Guid>{T1});
+  // The page: every font, the main's label inside the component counted under it.
+  auto page = e.documentFonts({kPage});
+  CHECK(page.size() == 3);
+  auto medium = std::find_if(page.begin(), page.end(), [](const auto& f) { return f.font.style == "Medium"; });
+  REQUIRE(medium != page.end());
+  std::vector<Guid> layers = medium->nodes;
+  std::sort(layers.begin(), layers.end());
+  CHECK(layers == std::vector<Guid>{LABEL, T1});
+  // The whole file keeps no layer lists (the Missing fonts icon reads it on every change).
+  CHECK(e.documentFonts().front().nodes.empty());
+
+  // Replace fonts on the selection: T1 changes, the main's label (same font) doesn't.
+  CHECK(e.command(CommandId::REPLACE_FONTS, replace(R"({"fonts":[
+    {"from":{"family":"Matter","style":"Medium"},"to":{"family":"Inter","style":"Medium"}}], "nodes":["1:20"]})")) == OK);
+  CHECK(e.document().get(T1)->props.text().fontName.family == "Inter");
+  CHECK(e.document().get(LABEL)->props.text().fontName.family == "Matter");
+  CHECK(uses(e, "Matter", "Medium") == 1);
+}

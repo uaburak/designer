@@ -283,7 +283,9 @@ export class EngineExports {
   /** `type`: a StyleType value (FILL 1, TEXT 3, EFFECT 4, GRID 6), 0 for all. */
   styles = (h: number, type: number, flags: number): number => this.fn("styles")(h, type, flags);
   styleUsage = (h: number, id: Uint8Array): number => this.withBytes([id], (p) => this.fn("style_usage")(h, p[0], p[1]));
-  documentFonts = (h: number): number => this.fn("document_fonts")(h);
+  /** `refs`: a NodeRefList (the layers to look in and inside), or empty for the whole file. */
+  documentFonts = (h: number, refs: Uint8Array): number =>
+    refs.length ? this.withBytes([refs], (p) => this.fn("document_fonts")(h, p[0], p[1])) : this.fn("document_fonts")(h, 0, 0);
 
   // ---- Libraries (JSON in and out) ----
   setFileKey = (h: number, key: Uint8Array): number =>

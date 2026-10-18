@@ -1004,6 +1004,18 @@ library; the update toast's timing (§15: left as it was, an 8 s toast — Figma
 stand; "Whether Swap library swaps nested instances" is answered here by construction (a copy replaced in place
 changes every use, nested ones included), not by a probe.
 
+**Sweep (2026-10-18).**
+- **Publish failures** (§3.8): Retry on the toasts of failures retrying can help (offline, a generic error) — not on a
+  draft or a branch, a seat, a conflict, a payload too large or a permission (`PublishDialog.tsx publishRetryable`); a
+  payload too large has its own text (Figma's `publish_failed {reason: payload_too_large}`; English ours).
+- **Paste prompt for unadded libraries** (§10.2): a paste from another file whose copies come from published libraries
+  this file hasn't added names them, with Add library / Add libraries (Figma's add CTA enables each; its manage CTA,
+  the Libraries modal, has no second button in our bell; English ours) — `libraries.ts unaddedLibraries`.
+
+Still not done: the Recommended, UI kits and Storybooks tabs (no community data here); the unpublished-variables
+prompt (it needs the server's publish-state check, Phase 6); the move-validity check; per-asset undo steps; per-page
+style and variable scope; the style-version review; Community targets of Swap library; the update toast's timing.
+
 ## 15. Open questions
 
 | Question | Live probe that settles it |

@@ -556,6 +556,17 @@ Built in `engine/src/proto` (Player, Prototype, the new `Scroll.{h,cpp}`), the P
 
 Not done: overlays' own timelines (the editor's motion layer holds one root), the viewer's URL parameters, the hide-UI key per layout and the UI's 2 s fade (§10.5 – §10.6), the mobile scale default, Close overlay closing those above it (open question 3), gamepad triggers, the device list (186 presets). Open questions in §15 stay open.
 
+**Sweep (2026-10-18).** Prototype URL parameters (§10.6) in the presentation tab (`PresentationView.tsx
+presentUrlOptions`): `scaling` (min-zoom → Actual size, scale-down → Fit width and height, scale-down-width → Fit width,
+contain → Fill screen, or Responsive with `content-scaling=responsive`), `hotspot-hints=0`, `device-frame=0`,
+`hide-ui=1`, `node-id` / `starting-point-node-id` ("1-2" or "1:2"). `bg-color`, `bare-ui`,
+`disable-default-keyboard-nav`, comments, versions and popouts have nothing to set here yet. **Hide / show UI** is ⌘\
+(Ctrl+\ off the Mac) and the character on that key in the layouts §10.3 lists (^, §, `, $, ', |, º, @, ₩) —
+`isHideUiKey`. In a mobile browser the view starts at Fit width with no device frame unless the link says otherwise
+(§10.1, §10.7; `isMobileBrowser`). Still not done: overlays' own Motion timelines (the motion layer is the parallel
+Motion branch's this round), the device list (186 presets need Figma's sizes and artwork, not in this chapter), the
+hidden UI's reveal zones and 2 s fade, open question 3, gamepad triggers.
+
 ---
 
 ## 15. Open questions (with the probe that settles each)

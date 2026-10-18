@@ -396,6 +396,15 @@ Compared with `src/renderer/src/editor/model/exports.ts`, `panels/design/Export.
 
 **Not done:** image resampling (Detailed / Standard) is still stored only — the engine samples images one way; export warnings in the modal (origin not on pixels, dimensions over the maximum: Open question 1, English wording not attested); the Copy as code submenu and Copy as animated SVG / Paste animation (chapter 14 / Motion); Mermaid paste (FigJam); "Place all" and the drop grid (Open question 10); Figma's own STYLE clipboard read (a Figma ⌥⌘C pasted here) and the kiwi STYLE form; PDF/UA's XMP (`pdfuaid:part 1`), `/Lang`, `/Title` + DisplayDocTitle (Open question 4) and artifact marking of non-text content; import-time upload batching / oversized warnings and the 50 MB PDF limit (no server upload in our import); a field-by-field check of convert.ts against §14.2's defaults. New open questions: the grid a spreadsheet paste makes (name, gaps, padding, cell styling, the toast `grid_from_spreadsheet_paste_created`'s English) and which URLs count as links on paste.
 
+**Sweep (2026-10-18).** Copy properties' clipboard is Figma's form now: schema `MessageType.STYLE = 5` (`schemagen
+--check` 0 problems); the STYLE Message is a fig-kiwi archive in the `(figma)` envelope with `(figmeta)`
+(`model/clipboard.ts encodePropertiesClipboard`). ⌥⌘V reads ours synchronously and a Figma ⌥⌘C — its STYLE Message in
+Figma's schema, compressed — converted as a pasted archive is (`clipboardIO.ts propertiesOnClipboard`; the converter
+keeps a STYLE Message one, `fig/convert.ts`); ⌘V pastes neither as layers (`readClipboard` skips our archive, the paste
+refuses a STYLE Message); the interim JSON payload is still read. Still not done: image resampling (Detailed /
+Standard) — the image paint's shader belongs to the paints sweep this round; the export modal's warnings (Q1: the
+wording and the maximum aren't attested); the rest of the list above.
+
 ## 17. Open questions
 
 1. **Maximum export dimension** (the `%u` in "Maximum supported image dimension is %u pixels" and the `dimensions_exceeded_maximum` clamp). Probe: export a 1x frame of 20 000 × 20 000 px in live Figma; read the modal's warning and the PNG's size.

@@ -142,6 +142,19 @@ export function setTrackSizing(n: GridNode, axis: GridAxis, index: number | read
   return trackFields(axis, tracks);
 }
 
+/**
+ * The largest span an item can take along `axis`: from its anchor track to the grid's last (count − anchor index; Figma
+ * refuses more — "Row span exceeds grid row count", "Child spans outside of grid"). An item without an anchor (automatic
+ * positioning) may span the whole axis. Auto rows grow with the items: no limit then.
+ */
+export function spanMax(grid: GridNode, item: GridItemNode, axis: GridAxis): number {
+  if (axis === "rows" && isAutoRows(grid)) return MAX_GRID_TRACKS;
+  const tracks = tracksOf(grid, axis);
+  const anchor = item[axis === "columns" ? "gridColumnAnchor" : "gridRowAnchor"] as GuidValue | undefined;
+  const index = anchor ? tracks.findIndex((t) => sameGuid(t.id, anchor)) : -1;
+  return Math.max(1, tracks.length - Math.max(0, index));
+}
+
 /** Number of rows is Auto (`gridAutoTracks: ROWS`): rows come and go with the items. */
 export const isAutoRows = (n: GridNode): boolean => n.gridAutoTracks === "ROWS";
 

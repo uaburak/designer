@@ -158,7 +158,8 @@ export function projectMessageByName(message: any, theirs: SchemaModel, ours: Sc
   report.nodesOut = nodes.length;
   return {
     ...top,
-    type: "NODE_CHANGES",
+    // Copy properties' STYLE Message (a Figma ⌥⌘C on the clipboard) stays one; anything else is node changes.
+    type: top.type === "STYLE" ? "STYLE" : "NODE_CHANGES",
     sessionID: top.sessionID ?? 0,
     ackID: top.ackID ?? 0,
     nodeChanges: nodes,

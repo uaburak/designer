@@ -31,7 +31,9 @@ import {
   encodeClipboard,
   encodeClipboardKiwi,
   encodePropertiesClipboard,
+  isStyleMessage,
   messageAt,
+  propertiesOfMessage,
   readClipboard,
   type ClipboardPayload,
   type CopiedProperties,
@@ -46,7 +48,7 @@ import { pastableText, textToMessage } from "./model/textPaste";
 import { bringPastedFigmaImages } from "./figmaImages";
 import { viewCentre } from "./canvas/viewInsets";
 import { editorBridge } from "./desktop";
-import { movedAmong } from "./libraries";
+import { copiedLibraries, movedAmong, unaddedLibraries, unaddedLibrariesToast } from "./libraries";
 import { showToast } from "@/ds";
 
 
@@ -100,16 +102,19 @@ async function pastePayload(ed: EditorController, payload: ClipboardPayload, mod
       return decoded.message;
     },
   });
-  if (!bytes || ed.engine.destroyed) return;
+  // Copy properties' STYLE Message (Figma's ⌥⌘C) is no layers: ⌘V leaves it for ⌥⌘V.
+  if (!bytes || ed.engine.destroyed || isStyleMessage(bytes)) return;
   const pasteKiwi = engineCall<(b: Uint8Array, o: PasteOptions) => number>(ed.engine, "pasteKiwi", "set_wire_format");
   if (!pasteKiwi || mode?.mode === "point") {
     pasteMessage(ed, messageToEngine(decodeMessage(bytes)), mode);
   } else {
     const fileKey = ed.source.libraries?.libraryKey ?? null;
     const from = decodeMessage(bytes).pasteFileKey;
+    const before = copiedLibraries(ed);
     pasteKiwi(bytes, pasteOptions(mode));
     ed.focusCanvas();
     movedToast(ed, fileKey && from && from !== fileKey ? movedAmong(ed, ed.selection) : 0);
+    if (fileKey && from && from !== fileKey && ed.libraries) unaddedLibrariesToast(ed, unaddedLibraries(ed.libraries.get(), before, copiedLibraries(ed)));
   }
   if (figma.report) void figmaPasteToast(ed, figma.report);
 }
@@ -139,8 +144,10 @@ function movedToast(ed: EditorController, moved: number): void {
 function pasteMessage(ed: EditorController, message: Message, mode: EditorController["pendingPaste"]): void {
   const fileKey = ed.source.libraries?.libraryKey ?? null;
   const from = (message as Message & { pasteFileKey?: string }).pasteFileKey;
+  const before = copiedLibraries(ed);
   pasteInto(ed, message, mode);
   movedToast(ed, fileKey && from && from !== fileKey ? movedAmong(ed, ed.selection) : 0);
+  if (fileKey && from && from !== fileKey && ed.libraries) unaddedLibrariesToast(ed, unaddedLibraries(ed.libraries.get(), before, copiedLibraries(ed)));
 }
 
 function pasteInto(ed: EditorController, message: Message, mode: EditorController["pendingPaste"]): void {
@@ -271,13 +278,30 @@ export async function readPropertiesClipboard(): Promise<CopiedProperties | null
     for (const item of await navigator.clipboard.read()) {
       if (!item.types.includes("text/html")) continue;
       const html = await (await item.getType("text/html")).text();
-      const found = decodePropertiesClipboard((type) => (type === "text/html" ? html : null));
+      const found = await propertiesOnClipboard((type) => (type === "text/html" ? html : null));
       if (found) return found;
     }
     return null;
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Copied properties in clipboard formats: ours synchronously (model/clipboard.ts `decodePropertiesClipboard`), a
+ * Figma ⌥⌘C — its STYLE Message in Figma's schema, compressed — converted as a pasted archive is.
+ */
+export async function propertiesOnClipboard(read: (type: string) => string | null | undefined): Promise<CopiedProperties | null> {
+  const own = decodePropertiesClipboard(read);
+  if (own) return own;
+  const payload = readClipboard(read, { properties: true });
+  if (payload?.kind !== "archive") return null;
+  const bytes = await archiveMessage(payload.archive, {
+    inflate: typeof DecompressionStream === "function" ? inflateRaw : undefined,
+    zstd: zstdDecompress,
+    convert: (schema, message) => decodeAnySchema(schema, message, { clipboard: true }).message,
+  });
+  return bytes && isStyleMessage(bytes) ? propertiesOfMessage(decodeMessage(bytes)) : null;
 }
 
 /** An image on the system clipboard as Figma reads one: `web image/png` first, then `image/png`, as "image.png". */

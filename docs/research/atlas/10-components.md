@@ -879,6 +879,13 @@ in the swap picker (it lists this file's components only); the flyout's playgrou
 documentation link display names (Dev Mode's area); the Restore modal's moved-to-file text; Apply-property button
 rules; IMAGE properties (O10); the NUMBER property's place in the UI (open question 6).
 
+**Sweep (2026-10-18).** The Apply-property button (§5.3): "Create {type} property" when the component has no property of
+that type, "Apply {type} property" otherwise; a component's own visibility offers no Boolean unless one is bound
+already (instance sublayers never did) — `Component.tsx BindButton`. The swap picker's library sections were built by
+wave 5 (atlas 12). Still not done: IMAGE properties (O10: the value's field is unidentified), the removed-component
+banner (English), the flyout's playground / update banner / author line, documentation link names (Dev Mode), the
+Restore modal's moved-to-file text, slots blocking the button (its tooltip's English).
+
 ## 13. Open questions
 
 1. **Combine as variants layout.** The set's padding, gap, stroke (dashed purple width and dash) and corner radius,

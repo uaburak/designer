@@ -540,6 +540,22 @@ the panel's % / degrees?). 9. Does a bound rotation turn about the centre (as he
 `rotation`)? 10. A group's child: is X_POSITION relative to the group or to the frame (the panel's X)? 11. Figma's
 English for `reached_hard_mode_limit`, `variables.invalid.*`, `variables.opacity.*`. 12. A duplicated mode's name.
 
+**Sweep (2026-10-18).**
+- **Minimized window** (§8.1): 642 (+ the sidebar's 241 while it shows) × 380 at the top right, 8 in and 8 down;
+  resized down to 400 × 180 (400 × 300 with no variables) and up to the window less 8 on each side.
+- **Collections menu** (§8.2, the sidebar header's options): All collections / Created in this file — Created in this
+  file by default (Figma's default isn't read) — then Sort A to Z and Reorder collections. All collections lists the
+  libraries' collections this file uses, read-only: their values shown, not edited; a row's menu Copy only, a mode's
+  Export mode, the collection's Extend collection and Export modes.
+- **Create alias / Clear alias** (§8.3): right-clicking a value cell starts the row menu with Create alias (the
+  variable picker under that cell, cycles excluded) or, on an alias, Clear alias (the value it resolves to now).
+- **Default mode changed** (§3.2): after a library update that changes a collection's default mode, a toast says so
+  ("The default mode of {collection} is now {mode}"; English ours — `default_mode_changed`'s isn't in the cache).
+
+Still not done: the incompatible-modes bell (what triggers it after an update isn't read), opacity's INERT state (when
+it applies isn't read), child margins, the star ratio / arc binding units (Q8), FONT_VARIATIONS resolution, paint and
+unit-number variables.
+
 ## 16. Open questions
 
 1. **FONT_SIZE → PARAGRAPH_SPACING** in the field→scope map: a quirk of the analytics map or the real picker filter?

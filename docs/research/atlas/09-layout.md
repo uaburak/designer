@@ -554,6 +554,15 @@ legacy-in-selection warning popover, the January 2027 "Update" button form; Figm
 span fields' max (count − anchor); binding a variable to a Between gap first packing it; child margins (Sites); the
 Windows binding of ⌃⇧A (Ctrl+Shift+Alt+A).
 
+**Sweep (2026-10-18).** The grid picker's **Esc** puts back the grids as they were when it opened (tracks, Auto rows,
+the children's anchors: one undo step "Grid", none when nothing changed — `Grid.tsx gridSnapshot / restoreGrids`);
+**Open grid settings** opens the Grid panel with column 1 selected (`SELECT_GRID_TRACKS`); the **span** fields' maximum
+is the track count − the item's anchor index (`model/grid.ts spanMax`; an item without an anchor: the whole axis; Auto
+rows: no limit), typed values clamped to it; **binding a variable to the gap** while it is Auto (Between, Evenly,
+Around) packs it first (MIN, as the gap menu's number does) and an Auto gap between rows goes to AUTO, in the binding's
+undo step (`variables.ts gapUnpacking`). Still not done: the six shifts' count and the upgrade dialog (probe 5), the
+legacy-in-selection warning, the January 2027 "Update" button, probes 2–3, child margins, the Windows ⌃⇧A.
+
 ## 12. Open questions (with the live probe that settles each)
 
 1. **Rounding.** Does auto layout round child positions or sizes to whole pixels (or 1/2 or 1/4)? Probe: a horizontal

@@ -1337,7 +1337,9 @@ function GenericPropertyEditor({ owner, target, anchor, onClose }: { owner: CNod
 /**
  * The "Apply property" button next to a field of a layer inside a main component (Figma's purple bind icon):
  * a menu of the component's properties of the right type (the bound one ticked), Create property…, Detach.
- * Bound, it shows as the property's purple pill. Renders nothing outside components.
+ * Bound, it shows as the property's purple pill. Renders nothing outside components. As Figma's (atlas 10 §5.3): named
+ * "Apply {type} property" when the component has properties of that type, else "Create {type} property"; never on an
+ * instance's sublayer, nor on a component's own visibility (a Boolean can't hide the main itself) unless it is bound.
  */
 export function BindButton({ layer, field, type }: { layer: Pick<CNode, "guid"> & Partial<CNode>; field: BindableField; type: Exclude<ComponentPropType, "VARIANT"> }) {
   useT();
@@ -1352,11 +1354,13 @@ export function BindButton({ layer, field, type }: { layer: Pick<CNode, "guid"> 
     const owner = owningComponent(ed, node);
     if (!owner || !canBind({ type }, node.type ?? "")) return null;
     const defs = (owner.definer.componentPropDefs ?? []).filter((d) => d.type === type);
-    return { node, owner, defs, bound: boundProperty(node, field, owner.definer.componentPropDefs ?? []) };
+    const bound = boundProperty(node, field, owner.definer.componentPropDefs ?? []);
+    if (field === "VISIBLE" && isComponent(node) && !bound) return null;
+    return { node, owner, defs, bound };
   }, [ed, layer.guid, field, type, version]);
   if (!data) return null;
   const typeName = t(PROPERTY_TYPE_LABEL[type]).toLowerCase();
-  const label = t("Apply {type} property", { type: typeName });
+  const label = data.defs.length ? t("Apply {type} property", { type: typeName }) : t("Create {type} property", { type: typeName });
   const entries: MenuEntry[] = [
     { header: label },
     ...data.defs.map((d) => ({ id: guidStr(d.id), label: d.name, checked: !!data.bound && guidStr(data.bound.id) === guidStr(d.id) })),
