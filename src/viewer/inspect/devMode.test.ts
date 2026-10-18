@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import type { NodeChange } from "@/engine/codec";
 import { annotationsOf, detectAssets, editedAgo, htmlText, listRows, statusOf, STATUS_LABEL, type AssetNode } from "./devMode";
-import { composeInUnit, cssInUnit, DEFAULT_UNITS, lengthIn, swiftUIInUnit, UNITS } from "./units";
+import { composeInUnit, cssInUnit, cssValueInUnit, DEFAULT_UNITS, lengthIn, swiftUIInUnit, UNITS } from "./units";
 
 describe("Dev Mode statuses and annotations", () => {
   it("reads a design's status (BUILD = Ready for dev)", () => {
@@ -78,20 +78,27 @@ describe("the List view and units", () => {
     ]);
   });
 
-  it("writes lengths in the chosen unit", () => {
+  it("writes lengths in the chosen unit (atlas 14 §5.2, §6, §8)", () => {
     expect(UNITS.css.map((u) => u.value)).toEqual(["px", "rem"]);
+    expect(UNITS.compose.map((u) => u.value)).toEqual(["px", "dp"]);
     const rem = { ...DEFAULT_UNITS, unit: { ...DEFAULT_UNITS.unit, css: "rem" as const } };
-    expect(cssInUnit("width: 375px;\npadding: 8px 12px;\ncolor: #FFF;", rem)).toBe("width: 23.438rem;\npadding: 0.5rem 0.75rem;\ncolor: #FFF;");
-    expect(cssInUnit("width: 32px;", { ...rem, rootFontSize: 8 })).toBe("width: 4rem;");
-    expect(cssInUnit("width: 375px;", DEFAULT_UNITS)).toBe("width: 375px;");
-    const px2 = { ...DEFAULT_UNITS, scale: 2, unit: { css: "px" as const, swiftui: "px" as const, compose: "px" as const } };
-    expect(swiftUIInUnit(".frame(width: 100, height: 40, alignment: .topLeading)\n.padding(.horizontal, 8)\n.background(Color(red: 0.5, green: 0.5, blue: 0.5))", px2)).toBe(
-      ".frame(width: 200, height: 80, alignment: .topLeading)\n.padding(.horizontal, 16)\n.background(Color(red: 0.5, green: 0.5, blue: 0.5))"
+    // Only the box, spacing, radius and text properties; 5 decimals; a line's comment too.
+    expect(cssInUnit("width: 375px;\npadding: 8px 12px;\nborder: 1px solid #FFF;\nbox-shadow: 0 4px 4px 0 #000;\nline-height: 30px; /* 125% */\nfont-size: 15px;", rem)).toBe(
+      "width: 23.4375rem;\npadding: 0.5rem 0.75rem;\nborder: 1px solid #FFF;\nbox-shadow: 0 4px 4px 0 #000;\nline-height: 1.875rem; /* 125% */\nfont-size: 0.9375rem;",
     );
-    expect(composeInUnit("Modifier.width(100.dp).padding(start = 8.dp)\nfontSize = 16.sp", px2)).toBe("Modifier.width(200.px).padding(start = 16.px)\nfontSize = 32.px");
-    const sp = { ...DEFAULT_UNITS, unit: { ...DEFAULT_UNITS.unit, compose: "sp" as const } };
-    expect(composeInUnit("Modifier.width(100.dp)", sp)).toBe("Modifier.width(100.sp)");
+    expect(cssInUnit("width: 32px;\nfont-size: 16px;", { ...rem, remOnText: true })).toBe("width: 32px;\nfont-size: 1rem;");
+    expect(cssInUnit("width: 32px;", { ...rem, scale: { ...rem.scale, css: 8 } })).toBe("width: 4rem;");
+    expect(cssInUnit("width: 375px;", DEFAULT_UNITS)).toBe("width: 375px;");
+    expect(cssValueInUnit("height", "32px", rem)).toBe("2rem");
+    // iOS / Android: the scaled unit divides by the factor; Compose keeps .dp / .sp.
+    const at2x = { ...DEFAULT_UNITS, scale: { ...DEFAULT_UNITS.scale, swiftui: 2, compose: 2 } };
+    expect(swiftUIInUnit(".frame(width: 100, height: 40, alignment: .topLeading)\n.padding(.horizontal, 8)\n.background(Color(red: 0.5, green: 0.5, blue: 0.5))\nstartPoint: UnitPoint(x: 0.5, y: 0),", at2x)).toBe(
+      ".frame(width: 50, height: 20, alignment: .topLeading)\n.padding(.horizontal, 4)\n.background(Color(red: 0.5, green: 0.5, blue: 0.5))\nstartPoint: UnitPoint(x: 0.5, y: 0),",
+    );
+    expect(swiftUIInUnit(".frame(width: 100)", { ...at2x, unit: { ...at2x.unit, swiftui: "px" } })).toBe(".frame(width: 100)");
+    expect(composeInUnit("Modifier.width(100.dp).padding(start = 8.dp)\nfontSize = 16.sp", at2x)).toBe("Modifier.width(50.dp).padding(start = 4.dp)\nfontSize = 8.sp");
     expect(lengthIn(32, "css", rem)).toBe("2rem");
     expect(lengthIn(32, "swiftui", DEFAULT_UNITS)).toBe("32pt");
+    expect(lengthIn(32, "swiftui", at2x)).toBe("16pt");
   });
 });

@@ -456,7 +456,11 @@ export const COMMANDS: EditorCommand[] = [
   { id: "edit.paste-to-replace", label: "Paste to replace", keys: [k("KeyR", { mod: true, shift: true })], run: (ed) => pasteFromMenu(ed, { mode: "replace" }), enabled: hasSelection },
   { id: "edit.copy-as-png", label: "Copy as PNG", keys: [k("KeyC", { mod: true, shift: true })], run: (ed) => void copyAsPng(ed), enabled: (ed) => hasSelection(ed) && canExport(ed) },
   { id: "edit.copy-as-svg", label: "Copy as SVG", run: (ed) => void copyAsSvg(ed), enabled: (ed) => hasSelection(ed) && canExport(ed) },
-  { id: "edit.copy-as-code", label: "Copy as code", run: (ed) => void copyAsCode(ed), enabled: (ed) => hasSelection(ed) && exportAllowed(ed) },
+  // Copy as code ▸ (atlas 03 "Copy/Paste as"): Dev Mode's CSS of the selection, of every layer in it, its iOS (SwiftUI) and Android (Compose).
+  { id: "edit.copy-as-css", label: "CSS", run: (ed) => void copyAsCode(ed, "css"), enabled: (ed) => hasSelection(ed) && exportAllowed(ed) },
+  { id: "edit.copy-as-css-recursive", label: "CSS (all layers)", run: (ed) => void copyAsCode(ed, "css-all"), enabled: (ed) => hasSelection(ed) && exportAllowed(ed) },
+  { id: "edit.copy-as-ios", label: "iOS", run: (ed) => void copyAsCode(ed, "ios"), enabled: (ed) => hasSelection(ed) && exportAllowed(ed) },
+  { id: "edit.copy-as-android", label: "Android", run: (ed) => void copyAsCode(ed, "android"), enabled: (ed) => hasSelection(ed) && exportAllowed(ed) },
   { id: "edit.copy-as-text", label: "Copy as text", run: (ed) => void copyAsText(ed), enabled: (ed) => hasTextSelected(ed) },
   engine("edit.duplicate", "Duplicate", "DUPLICATE", [k("KeyD", { mod: true })]),
   engine("edit.delete", "Delete", "DELETE", [k("Backspace"), k("Delete")]),

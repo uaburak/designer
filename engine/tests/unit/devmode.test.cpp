@@ -116,6 +116,9 @@ TEST_CASE("devmode: annotations stored in Figma's fields, drawn as labels beside
   auto cats = annot::categoriesOf(&f.ed.document().get(kDoc)->props);
   REQUIRE(cats.size() == 3);
   CHECK(cats[0].label == "Development");
+  // The presets' colours (atlas 14 §12): Development green, Interaction blue.
+  CHECK(cats[0].colorName == "GREEN");
+  CHECK(cats[1].colorName == "BLUE");
   CHECK(cats[2].label == "Motion");
   CHECK(cats[2].colorName == "PINK");
   auto notes = annot::notesOf(f.ed.document().get(CHILD)->props);

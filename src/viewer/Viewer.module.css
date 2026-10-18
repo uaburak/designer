@@ -197,6 +197,15 @@
   .code { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: 0 var(--ds-space-4) var(--ds-space-2); user-select: text; }
   .codeGroup { display: flex; flex-direction: column; gap: var(--ds-space-1); }
   .codeTitle { color: var(--figma-color-text-secondary); }
+  /* A generated section (inspect/CodeSections.tsx): its lines, a hint's info icon at a line's end, Copy at the top right;
+     with ⇧ over a Copy every section is marked (it copies them all). */
+  .codeSection { position: relative; border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); }
+  .codeSection[data-marked] { background: var(--figma-color-bg-selected); }
+  .codeLines { margin: 0; padding: var(--ds-space-2); padding-right: var(--ds-space-8); color: var(--figma-color-text); font: var(--ds-font-code); letter-spacing: var(--ds-tracking-code); user-select: text; }
+  .codeLine { display: flex; align-items: flex-start; gap: var(--ds-space-1); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .codeHint { display: inline-flex; flex: none; color: var(--figma-color-icon-secondary); user-select: none; }
+  .codeSectionCopy { position: absolute; top: var(--ds-space-1); right: var(--ds-space-1); }
+  .codeMore { align-self: flex-start; padding: 0; border: 0; background: none; color: var(--figma-color-text-brand); font: inherit; cursor: default; }
   /* Long declarations wrap in the panel instead of scrolling sideways */
   .code :global([data-ds="CodeBlock"]) pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 

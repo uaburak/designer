@@ -128,7 +128,7 @@ describe("the exported preview HTML (headless Chromium)", () => {
       expect(title).toContain("Use the brand font");
       expect(title).toContain("Font size");
       // Units: CSS in rem (Settings in the language menu).
-      const settings = page.getByRole("button", { name: "Code settings" });
+      const settings = page.getByRole("button", { name: /^Code language/ });
       await settings.click();
       await page.getByRole("menuitemcheckbox", { name: "rem" }).click();
       await expect.poll(() => inspect.innerText()).toContain("font-size: 1.5rem;");
@@ -139,12 +139,14 @@ describe("the exported preview HTML (headless Chromium)", () => {
       await inspect.getByRole("radio", { name: "Code" }).click();
       await settings.click();
       await page.getByRole("menuitemcheckbox", { name: "px" }).click();
-      // SwiftUI and Compose.
+      // SwiftUI and Compose (iOS ▸, Android ▸).
       await settings.click();
-      await page.getByRole("menuitemcheckbox", { name: "iOS (SwiftUI)" }).click();
+      await page.getByRole("menuitemcheckbox", { name: "iOS" }).click();
+      await page.getByRole("menuitemcheckbox", { name: "SwiftUI" }).click();
       await expect.poll(() => inspect.innerText()).toContain('Text("Hello preview")');
       await settings.click();
-      await page.getByRole("menuitemcheckbox", { name: "Android (Compose)" }).click();
+      await page.getByRole("menuitemcheckbox", { name: "Android" }).click();
+      await page.getByRole("menuitemcheckbox", { name: "Compose" }).click();
       await expect.poll(() => inspect.innerText()).toContain("fontWeight = FontWeight(700)");
       await page.screenshot({ path: join(outDir, "03-title-compose.png") });
 

@@ -4,9 +4,10 @@
  *
  * - nothing selected: the page, the code language (CSS, iOS, Android), the file's variables ("Open variables table");
  * - a layer: its name and type; the component it comes from; the box model (size, position in its parent, padding);
- *   the code in the chosen language (CSS in Figma's groups Layout / Style / Typography, each with Copy); the colours
- *   with their variables (collection and mode) or styles; typography with its text style; effects; Export (PNG / JPG
- *   at 0.5×–4×, rendered here by the engine) when the preview allows it.
+ *   the code in the chosen language (Figma's sections — CSS: Layout / Position / Other / Typography / Style — each
+ *   with Copy, its hints and "Show N more"); the colours with their variables (collection and mode) or styles;
+ *   typography with its text style; effects; Export (PNG / JPG at 0.5×–4×, rendered here by the engine) when the
+ *   preview allows it.
  *
  * Every value is copied with a click.
  */
@@ -14,9 +15,10 @@ import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } fr
 import { Button, CodeBlock, Dialog, EmptyState, Icon, IconButton, MenuButton, PanelSection, ScrollArea, SegmentedControl, Swatch, showToast } from "@/ds";
 import { useCurrentPage, useSelection } from "@/engine/hooks";
 import type { Effect, Guid, NodeChange, Paint } from "@/engine/codec";
-import { cssLines, cssSnippet } from "./inspect/css";
+import { cssSnippet } from "./inspect/css";
+import { codeSections } from "./inspect/codegen";
+import { CodeSections } from "./inspect/CodeSections";
 import { cornersOf, cssColor, hexOf, isAutoLayout, isTextLike, num, paddingOf, rotationOf, sizingOf, typeLabel, typographyOf, visibleEffects, visiblePaints } from "./inspect/model";
-import { compose, swiftUI } from "./inspect/native";
 import { useViewer, type CodegenHost, type CodegenLanguage } from "./context";
 import { layerIcon } from "./LeftPanel";
 import type { VariableUse } from "./viewerDoc";
@@ -27,7 +29,7 @@ import { DevTimeline, MotionTab, motionOf } from "./inspect/MotionTab";
 import { t } from "@/i18n";
 import { editedAgo, listRows } from "./inspect/devMode";
 import { StatusTag } from "@/editor/devmode/StatusTag";
-import { composeInUnit, cssInUnit, storedUnits, storeUnits, swiftUIInUnit, type Language, type UnitSettings } from "./inspect/units";
+import { cssValueInUnit, storedUnits, storeUnits, UNITS, type Language, type UnitSettings } from "./inspect/units";
 import styles from "./Viewer.module.css";
 
 const LANGUAGE_KEY = "designer-viewer-language";
@@ -35,7 +37,7 @@ const LANGUAGE_KEY = "designer-viewer-language";
 function storedLanguage(): Language {
   try {
     const v = localStorage.getItem(LANGUAGE_KEY);
-    return v === "swiftui" || v === "compose" ? v : "css";
+    return v && v in UNITS ? (v as Language) : "css";
   } catch {
     return "css";
   }
@@ -455,27 +457,19 @@ function CodeSection({ input, code }: { input: NonNullable<ReturnType<ReturnType
       // this visit only
     }
   };
-  const blocks = useMemo(() => {
-    if (language === "swiftui") return [{ title: "SwiftUI", code: swiftUIInUnit(swiftUI(input), units) }];
-    if (language === "compose") return [{ title: "Compose", code: composeInUnit(compose(input), units) }];
-    const s = cssSnippet(input);
-    return [
-      { title: "Layout", code: cssInUnit(cssLines(s.layout), units) },
-      { title: "Style", code: cssInUnit(cssLines(s.style), units) },
-      { title: "Typography", code: s.typography.length ? cssInUnit(cssLines(s.typography, s.textStyle), units) : "" },
-    ].filter((b) => b.code);
-  }, [input, language, units]);
+  const sections = useMemo(() => codeSections(input, language, units), [input, language, units]);
   const rows = useMemo(() => {
     if (view !== "list") return [];
     const s = cssSnippet(input);
-    const conv = (v: string) => cssInUnit(v, units);
     return [
-      { title: "Layout", rows: listRows(s.layout) },
-      { title: "Style", rows: listRows(s.style) },
-      { title: "Typography", rows: listRows(s.typography) },
+      { title: "Layout", decls: s.layout },
+      { title: "Position", decls: s.position },
+      { title: "Other", decls: s.other },
+      { title: "Typography", decls: s.typography },
+      { title: "Style", decls: s.style },
     ]
-      .filter((g) => g.rows.length)
-      .map((g) => ({ ...g, rows: g.rows.map((r) => ({ ...r, value: conv(r.value) })) }));
+      .filter((g) => g.decls.length)
+      .map((g) => ({ title: g.title, rows: listRows(g.decls).map((r, i) => ({ ...r, value: cssValueInUnit(g.decls[i].property, r.value, units) })) }));
   }, [input, view, units]);
   const toggle = (
     <span className={styles.codeActions}>
@@ -508,12 +502,7 @@ function CodeSection({ input, code }: { input: NonNullable<ReturnType<ReturnType
     <PanelSection title="Code" actions={toggle}>
       {view === "code" ? (
         <div className={styles.code} data-language={language}>
-          {blocks.map((b) => (
-            <div key={b.title} className={styles.codeGroup}>
-              {blocks.length > 1 && <div className={styles.codeTitle}>{b.title}</div>}
-              <CodeBlock code={b.code} label="Copy" />
-            </div>
-          ))}
+          <CodeSections sections={sections} />
         </div>
       ) : (
         <div className={styles.list} data-list-view="">
