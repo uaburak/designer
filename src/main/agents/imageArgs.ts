@@ -3,7 +3,8 @@ import { basename, isAbsolute, relative, resolve } from "node:path";
 import { isImageArg, MAX_AUDIO_ARG_BYTES, MAX_IMAGE_BYTES, sniffAudio, sniffImage, type ImageArg } from "../../shared/agents/images";
 
 /**
- * Image paths in a tool call (place_image's `path`, `image.path` in create_nodes / update_nodes specs) read here in
+ * Image paths in a tool call (place_image's `path`, `image.path` in create_nodes / update_nodes specs, fill_slots'
+ * `picture.path`, docs/social.md §7.2) read here in
  * main — the editor view can't read files — and handed on as base64. A path is resolved against `root` and must stay
  * inside it after symlinks: a chat's own working folder (where its CLI may save pictures) and its
  * agent's own picture folder for that chat (Antigravity's conversation folder), or the home folder for an outside MCP
@@ -85,5 +86,6 @@ export function resolveImagePaths(tool: string, args: Record<string, unknown>, r
   if (tool === "place_image" && isImageArg(args)) return readImage(args as ImageArg, roots, fs) as Record<string, unknown>;
   if (tool === "create_nodes" || tool === "update_nodes") return walk(args, 0) as Record<string, unknown>;
   if (tool === "add_audio") return readAudio(args, roots, fs);
+  if (tool === "fill_slots" && isImageArg(args.picture)) return { ...args, picture: readImage(args.picture, roots, fs) };
   return args;
 }

@@ -1,12 +1,16 @@
 /**
  * Social's shared pieces (docs/social.md §3, §5): the catalogue as §5.2 lists it, the format lookups, characters
  * counted the platforms' ways (graphemes vs UTF-16, emoji, Turkish letters), hashtags, the caption report, and the
- * plugin-data helpers keeping other entries and surviving bad JSON.
+ * plugin-data helpers keeping other entries and surviving bad JSON; the manager's Social paragraph and the starter
+ * brief (§7.4, §4.2).
  */
 import { describe, expect, it } from "vitest";
 import { captionCount, captionReport, parseHashtags, parseMentions, publishedText } from "./caption";
 import { FIRST_PLATFORMS, SOCIAL_FORMATS, SOCIAL_SOURCES, brandFormatId, formatById, formatsFor, nearestFormat, parseBrandFormatId, resolveFormat } from "./formats";
 import { SOCIAL_EXPORT_PRESETS } from "./presets";
+import { STARTER_BRIEF, socialPrompt } from "./managerPrompt";
+import { managerPrompt, managerReminder } from "../studio/managerPrompt";
+import { DEFAULT_MANAGER_SETTINGS } from "../studio/types";
 import { SOCIAL_PLUGIN_ID, readSocial, withSocial, type SocialPostData } from "./types";
 
 describe("the formats catalogue", () => {
@@ -128,5 +132,27 @@ describe("plugin data", () => {
     expect(readSocial([{ pluginID: SOCIAL_PLUGIN_ID, key: "post", value: "{not json" }], "post")).toBeNull();
     expect(readSocial([other], "post")).toBeNull();
     expect(readSocial(undefined, "campaigns")).toBeNull();
+  });
+});
+
+describe("the manager's Social paragraph (§7.4)", () => {
+  const base = { settings: DEFAULT_MANAGER_SETTINGS, agents: [], imageRoute: null };
+  const social = { brand: { id: "b1", name: "Partner Agro" }, campaigns: [{ id: "c1", name: "Liq Humus — October", posts: 3 }], unplaced: 1 };
+
+  it("is appended only in Social, with the board's brand and campaigns (names and counts)", () => {
+    expect(managerPrompt(base)).not.toContain("Social mode");
+    const p = managerPrompt({ ...base, social });
+    expect(p).toContain(socialPrompt(social));
+    expect(p).toContain("The board's brand: Partner Agro (b1)");
+    expect(p).toContain("- Liq Humus — October (c1): 3 posts");
+    expect(p).toContain("- 1 post outside any campaign");
+    for (const rule of ["get_board in every Social turn", "never draw over a template's locked slots", "Turkish unless the owner asks otherwise", "at most the format's length", "at most three"]) expect(p).toContain(rule);
+    expect(socialPrompt({ brand: null, campaigns: [], unplaced: 0 })).toContain("none picked");
+    expect(managerReminder(base)).not.toContain("Social mode");
+    expect(managerReminder({ ...base, social })).toContain("The board's brand: Partner Agro.");
+  });
+
+  it("the starter brief names §4.2a's sets and formats and leaves publishing to the owner", () => {
+    for (const s of ["Product hero (static)", "Product hero (animated)", "Quote / statement", "Announcement", "Carousel cover + slide", "Story / Reel", "instagram.reel", "linkedin.portrait", "save_as_template", "publish nothing yourself"]) expect(STARTER_BRIEF).toContain(s);
   });
 });

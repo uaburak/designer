@@ -1453,6 +1453,8 @@ export const editor: Record<string, string> = {
   "{n} problems": "{n} sorun",
   "Problem {n}: {detail}": "Sorun {n}: {detail}",
   "Fix on {name}: {detail}": "{name} üzerinde düzelt: {detail}",
+  // The review card's Social kinds (round 18c)
+  "Safe area": "Güvenli alan",
   Fix: "Düzelt",
   "About {name}: ": "{name} hakkında: ",
   "About these {n} posts: ": "Bu {n} gönderi hakkında: ",

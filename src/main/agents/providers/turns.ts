@@ -177,7 +177,7 @@ export const modelArg = (spec: Pick<CliSpec, "models">, model: string | undefine
 export function promptWithContext(r: TurnRequest, attachHow = "Open them to see them."): string {
   const c = r.context;
   const sel = c.selection.length
-    ? c.selection.map((s) => `${s.type.toLowerCase()} "${s.name}" (id ${s.id}, ${Math.round(s.width)} × ${Math.round(s.height)})`).join(", ")
+    ? c.selection.map((s) => `${s.type.toLowerCase()} "${s.name}" (id ${s.id}, ${Math.round(s.width)} × ${Math.round(s.height)}${s.format ? `, a post: ${s.format}` : ""})`).join(", ")
     : "nothing";
   const files = attachmentsNote(r.attachments ?? [], attachHow);
   return `[Design file "${c.fileName}", page "${c.pageName}". Selected: ${sel}.]\n${files ? `${files}\n` : ""}${skillsNote(r)}\n${r.prompt}`;

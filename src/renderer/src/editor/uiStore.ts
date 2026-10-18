@@ -207,6 +207,8 @@ export interface UIState extends PreferenceFlags {
   socialNewPostMenu?: number;
   /** Social: the left panel's Templates open (unset: open only while the page has no posts) */
   socialTemplatesOpen?: boolean;
+  /** Social: the review problem a pin picked (the review card marks it, docs/social.md §6.4) */
+  socialProblem?: { post: string; problem: string } | null;
   /**
    * Motion mode (docs/motion.md §6; editor/motion/): the playhead (µs), playing, Toggle auto-keyframe, the timeline
    * collapsed to its header, the selected keyframes, the time unit. Unset: MOTION_UI_DEFAULT.

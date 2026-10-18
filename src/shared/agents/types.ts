@@ -82,7 +82,7 @@ export interface TurnRequest {
   prompt: string;
   history: ChatTurnMessage[];
   /** The selection attached as context ("Frame “Desktop” 1440 × 900", ids) */
-  context: { fileName: string; pageName: string; selection: { id: string; name: string; type: string; width: number; height: number }[] };
+  context: { fileName: string; pageName: string; selection: { id: string; name: string; type: string; width: number; height: number; /** A Social post's format name ("Instagram story") */ format?: string }[] };
   /** The CLI's own session to continue (Claude Code `--resume`) */
   resume?: string;
   /** The reasoning effort (one of the provider's `efforts`) */

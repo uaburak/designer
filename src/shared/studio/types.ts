@@ -214,7 +214,7 @@ export interface StudioTask {
 
 /** A card the manager puts in the chat and waits on (ask_choice / show_form, §2.4, §4.1). */
 export type ChatCard =
-  | { kind: "choice"; id: string; question: string; options: { id: string; label: string; detail?: string }[]; remember?: boolean; answer?: { optionId: string; remember: boolean } }
+  | { kind: "choice"; id: string; question: string; options: { id: string; label: string; detail?: string }[]; remember?: boolean; /** Social's follow-ups (docs/social.md §7.1): chips, at most three */ suggestions?: boolean; answer?: { optionId: string; remember: boolean } }
   | { kind: "brand-form"; id: string; brandId?: string; prefill?: Partial<BrandSave>; answer?: { brandId: string } | { cancelled: true } }
   | { kind: "product-form"; id: string; brandId: string; productId?: string; prefill?: Partial<ProductSave>; answer?: { productId: string } | { cancelled: true } }
   | { kind: "review"; id: string; report: ReviewReport; answer?: { fix: string[] } | { cancelled: true } };

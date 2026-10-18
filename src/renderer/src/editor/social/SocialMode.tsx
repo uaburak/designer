@@ -13,7 +13,9 @@ import type { Guid } from "@/engine/codec";
 import { t } from "@/i18n";
 import { useEditor, type EditorController } from "../controller";
 import { modeOf, setMode } from "../devmode/devMode";
+import type { PostProblem } from "@shared/social/types";
 import { applySelection } from "../agents/mcpTools";
+import { agentsOf } from "../agents/service";
 import { socialOf } from "./socialState";
 
 export const isSocial = (ed: EditorController): boolean => modeOf(ed) === "social";
@@ -52,6 +54,17 @@ export function askAgent(ed: EditorController, ids: readonly Guid[] = selectedPo
   if (posts.length) applySelection(ed, posts.map((p) => p.id), false);
   const about = posts.length === 1 ? t("About {name}: ", { name: posts[0].name }) : posts.length ? t("About these {n} posts: ", { n: String(posts.length) }) : "";
   draftForAgent(ed, about);
+}
+
+/**
+ * A problem's Fix (the Post section, docs/social.md §6.5, §7.3): the manager's fix loop on it — a turn sent at once with
+ * the post as its context, in the Agent tab. Where agents can't run (the browser), the request waits in the composer.
+ */
+export function fixWithAgent(ed: EditorController, post: { id: Guid; name: string }, problem: PostProblem): void {
+  ed.ui.set({ socialRightTab: "agent", socialProblem: { post: post.id, problem: problem.id }, uiHidden: false });
+  const agents = agentsOf(ed);
+  if (!agents.get().available) return draftForAgent(ed, t("Fix on {name}: {detail}", { name: post.name, detail: problem.detail }));
+  agents.fixProblem(post, problem);
 }
 
 /** Keeps the board's brand with the file (restored on open, written when it changes). Mounted once per editor. */

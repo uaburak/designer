@@ -3,20 +3,23 @@
  * tools. Each takes a Writer — the chrome passes the editor's batch (`editorWriter`: one click, one undo step), an
  * agent tool its `ToolEnv.write` (a chat turn stays one undo step per worker) — so both entry points run the same
  * function. Round 18a builds the posts, campaigns and resizing; templates, slots and brands (applyTemplate,
- * fillSlots, applyBrand, saveAsTemplate) are 18b's, the checks (checkPosts) 18c's — stubs here until they land.
+ * fillSlots, applyBrand, saveAsTemplate) are 18b's — stubs here until they land; the checks (checkPost, §7.3) 18c's.
  */
-import type { Guid, Message, NodeChange } from "@/engine/codec";
+import type { Guid, Message, NodeChange, Pixels } from "@/engine/codec";
 import { keyAfter, keyBetween } from "@shared/schema/fractionalIndex";
 import type { ImageArg } from "@shared/agents/images";
-import { resolveFormat } from "@shared/social/formats";
-import { withSocial, type PostProblem, type SlotRole, type SocialCampaign, type SocialPostData } from "@shared/social/types";
+import { formatById, resolveFormat } from "@shared/social/formats";
+import { captionReport } from "@shared/social/caption";
+import { readSocial, withSocial, type Insets, type PluginDataEntry, type PostProblem, type SlotRole, type SocialCampaign, type SocialPostData, type TemplateSlotData } from "@shared/social/types";
 import type { SocialFormat } from "@shared/studio/types";
+import { contrastRatio, type RGBA } from "@/ds";
 import type { EditorController } from "../controller";
 import { newNodeGuid } from "../variables";
 import { defaults, IDENTITY } from "../agents/nodeSpec";
 import { presenceOf } from "../multiplayer/presence";
 import { placePost, POST_GAP } from "./board";
 import { cleanHashtags, postRecord, readCampaigns, readPost, socialId, writeCampaigns, writePost } from "./posts";
+import { motionRead } from "../motion/motionState";
 import { readBoard, type SocialBoard } from "./socialState";
 
 /** Runs `fn` as one write labelled `label` (one undo step) and returns what it returns. */
@@ -218,8 +221,188 @@ export function saveAsTemplate(ed: EditorController, w: Writer, id: Guid, opts: 
   return notBuilt("saveAsTemplate");
 }
 
-/** The deterministic limits (§7.3): caption, hashtags, mentions, safe area, video, logo, contrast. */
+// ---- Checks (§7.3, round 18c) ---------------------------------------------------------------------------------------
+
+/** Text this size and up is "large" for contrast: 3:1 instead of 4.5:1 (WCAG's large text, at a post's 1080 px) [ours] */
+const LARGE_TEXT = 24;
+/** The post is drawn this big to sample text backdrops */
+const SAMPLE_SIZE = 512;
+
+type Layer = NodeChange & { pluginData?: PluginDataEntry[] };
+type Box = { x: number; y: number; width: number; height: number };
+type Affine = { m00: number; m01: number; m02: number; m10: number; m11: number; m12: number };
+
+const mul = (a: Affine, b: Affine): Affine => ({
+  m00: a.m00 * b.m00 + a.m01 * b.m10,
+  m01: a.m00 * b.m01 + a.m01 * b.m11,
+  m02: a.m00 * b.m02 + a.m01 * b.m12 + a.m02,
+  m10: a.m10 * b.m00 + a.m11 * b.m10,
+  m11: a.m10 * b.m01 + a.m11 * b.m11,
+  m12: a.m10 * b.m02 + a.m11 * b.m12 + a.m12,
+});
+
+/** A layer's bounds under `t` (its transform composed with its parents' up to the post). */
+function boxIn(t: Affine, w: number, h: number): Box {
+  const corners = [
+    [0, 0],
+    [w, 0],
+    [0, h],
+    [w, h],
+  ];
+  const xs = corners.map(([x, y]) => t.m00 * x + t.m01 * y + t.m02);
+  const ys = corners.map(([x, y]) => t.m10 * x + t.m11 * y + t.m12);
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
+}
+
+/** The post's visible layers with their boxes in the post's own coordinates, parents before children. */
+function layersOf(ed: EditorController, id: Guid): { node: Layer; box: Box; parent: Guid }[] {
+  const nodes = ed.engine.readNodes([id], { subtree: true, fields: ["type", "name", "transform", "size", "visible", "pluginData", "fillPaints", "fontSize", "parentIndex"] }) as Layer[];
+  const world = new Map<Guid, Affine>([[id, IDENTITY as Affine]]);
+  const out: { node: Layer; box: Box; parent: Guid }[] = [];
+  for (const n of nodes) {
+    const parent = n.parentIndex?.guid;
+    const base = parent ? world.get(parent) : undefined;
+    // A hidden layer hides its children (they never get a place).
+    if (n.guid === id || !parent || !base || n.visible === false) continue;
+    const t = mul(base, (n.transform ?? IDENTITY) as Affine);
+    world.set(n.guid, t);
+    out.push({ node: ed.withRealType(n) as Layer, box: boxIn(t, n.size?.x ?? 0, n.size?.y ?? 0), parent });
+  }
+  return out;
+}
+
+const roleOf = (n: Layer): SlotRole | null => readSocial<TemplateSlotData>(n.pluginData, "slot")?.role ?? null;
+const isLogo = (n: Layer): boolean => roleOf(n) === "logo" || /\blogo\b/i.test(n.name ?? "");
+
+/** The bands of the format's safe area a box reaches into (the insets scaled to the post's size). */
+function bandsHit(box: Box, safe: Insets, size: { x: number; y: number }, format: SocialFormat): (keyof Insets)[] {
+  const kx = size.x / format.width;
+  const ky = size.y / format.height;
+  const sides: (keyof Insets)[] = [];
+  if (safe.top > 0 && box.y < safe.top * ky) sides.push("top");
+  if (safe.bottom > 0 && box.y + box.height > size.y - safe.bottom * ky) sides.push("bottom");
+  if (safe.left > 0 && box.x < safe.left * kx) sides.push("left");
+  if (safe.right > 0 && box.x + box.width > size.x - safe.right * kx) sides.push("right");
+  return sides;
+}
+
+type SolidPaint = { type?: string; visible?: boolean; opacity?: number; color?: RGBA };
+
+/** A text's colour: its first visible solid fill. */
+function textColour(n: Layer): RGBA | null {
+  const p = ((n as { fillPaints?: SolidPaint[] }).fillPaints ?? []).find((f) => f.visible !== false && f.type === "SOLID" && f.color);
+  return p?.color ? { ...p.color, a: (p.color.a ?? 1) * (p.opacity ?? 1) } : null;
+}
+
+/**
+ * The backdrop behind a text, from the post's render (`k`: render px per post px): its box's pixels unlike the text's
+ * own colour (the glyphs) averaged, over white where the render is transparent. Null when nothing is left to sample.
+ */
+function backdropOf(px: Pixels, k: number, box: Box, fg: RGBA): RGBA | null {
+  const x0 = Math.max(0, Math.floor(box.x * k));
+  const y0 = Math.max(0, Math.floor(box.y * k));
+  const x1 = Math.min(px.width, Math.ceil((box.x + box.width) * k));
+  const y1 = Math.min(px.height, Math.ceil((box.y + box.height) * k));
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  let count = 0;
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      const i = (y * px.width + x) * 4;
+      const a = px.pixels[i + 3] / 255;
+      const c = [0, 1, 2].map((j) => (px.pixels[i + j] / 255) * a + (1 - a));
+      if (Math.abs(c[0] - fg.r) + Math.abs(c[1] - fg.g) + Math.abs(c[2] - fg.b) < 0.25) continue;
+      r += c[0];
+      g += c[1];
+      b += c[2];
+      count++;
+    }
+  }
+  return count ? { r: r / count, g: g / count, b: b / count, a: 1 } : null;
+}
+
+const CHECK_FIX: Record<"caption" | "safe-area" | "contrast" | "logo" | "video", PostProblem["fix"]> = { caption: "rewrite", "safe-area": "relayout", contrast: "relayout", logo: "relayout", video: "retime" };
+
+/** A check's problem: its id names the kind and what it is about, so the same finding keeps its pin from one check to the next. */
+function problem(kind: keyof typeof CHECK_FIX, about: string, detail: string, box?: Box): PostProblem {
+  const b = box ? { x: Math.round(box.x), y: Math.round(box.y), width: Math.round(box.width), height: Math.round(box.height) } : undefined;
+  return { id: `check:${kind}:${about}`, kind, detail, ...(b ? { box: b } : {}), fix: CHECK_FIX[kind], source: "check" };
+}
+
+/**
+ * One post's deterministic problems (§7.3): the caption's, hashtags' and mentions' counts against its format; text and
+ * logo layers reaching into the safe area; an animated post's length and frame rate against the format's video
+ * limits; a missing logo (a post with a brand) or more than one; text under its contrast minimum over what it is drawn
+ * on (sampled from the post's render — skipped where the engine can't draw). A brand's own size has no limits: only the
+ * logo and contrast are checked. Not a post: none.
+ */
+export function checkPost(ed: EditorController, id: Guid): PostProblem[] {
+  const data = readPost(ed, id);
+  if (!data) return [];
+  const format = formatById(data.formatId);
+  const size = ed.engine.readNode(id, { fields: ["size"] })?.size ?? { x: format?.width ?? 1, y: format?.height ?? 1 };
+  const out: PostProblem[] = [];
+  // The caption lives on a carousel's first slide.
+  if (format && (!data.group || data.group.index === 0)) {
+    const r = captionReport(data.caption, data.hashtags, format);
+    if (r.over) out.push(problem("caption", "count", `The caption is ${r.count} characters; ${format.name} takes ${r.max}.`));
+    if (r.hashtags.over) out.push(problem("caption", "hashtags", `${r.hashtags.count} hashtags; ${format.name} takes ${r.hashtags.max}.`));
+    if (r.mentions.over) out.push(problem("caption", "mentions", `${r.mentions.count} mentions; ${format.name} takes ${r.mentions.max}.`));
+  }
+  const layers = layersOf(ed, id);
+  // A logo is the outermost layer tagged or named so (a logo frame's own picture isn't a second one).
+  const logoIds = new Set(layers.filter((l) => isLogo(l.node)).map((l) => l.node.guid));
+  const logos = layers.filter((l) => logoIds.has(l.node.guid) && !logoIds.has(l.parent));
+  if (format) {
+    for (const l of layers) {
+      if (l.node.type !== "TEXT" && !logos.includes(l)) continue;
+      const sides = bandsHit(l.box, format.safeArea, size, format);
+      if (sides.length) out.push(problem("safe-area", l.node.guid, `“${l.node.name ?? ""}” reaches into ${format.name}'s ${sides.join(" and ")} band, which the platform's buttons cover.`, l.box));
+    }
+  }
+  if (data.brandId && !logos.length) out.push(problem("logo", "missing", "The post has no logo."));
+  if (logos.length > 1) out.push(problem("logo", "several", `The post has ${logos.length} logos.`, logos[1].box));
+  const timeline = motionRead(() => ed.engine.motionTimeline(id), null);
+  const animated = !!timeline && (timeline.audio.length > 0 || timeline.layers.some((l) => l.tracks.length > 0 || l.clips.length > 0 || !!l.instance));
+  if (format?.video && timeline && animated) {
+    const sec = Math.round(timeline.durationUs / 1e4) / 100;
+    const v = format.video;
+    if (sec < v.minSec || sec > v.maxSec) out.push(problem("video", "length", `The video is ${sec} s; ${format.name} takes ${v.minSec}–${v.maxSec} s.`));
+    if (timeline.snappingFps < v.fps[0] || timeline.snappingFps > v.fps[1]) out.push(problem("video", "fps", `The timeline runs at ${timeline.snappingFps} fps; ${format.name} takes ${v.fps[0]}–${v.fps[1]} fps.`));
+  }
+  const texts = layers.filter((l) => l.node.type === "TEXT" && l.box.width > 0 && l.box.height > 0);
+  const px = texts.length ? motionRead(() => ed.engine.renderNodeThumbnailPixels({ node: id, maxSize: SAMPLE_SIZE }), null) : null;
+  if (px) {
+    const k = px.width / Math.max(1, size.x);
+    for (const l of texts) {
+      const fg = textColour(l.node);
+      const bg = fg ? backdropOf(px, k, l.box, fg) : null;
+      if (!fg || !bg) continue;
+      const ratio = contrastRatio(fg, bg);
+      const min = ((l.node as { fontSize?: number }).fontSize ?? 0) >= LARGE_TEXT ? 3 : 4.5;
+      if (ratio < min) out.push(problem("contrast", l.node.guid, `“${l.node.name ?? ""}” has a contrast of ${ratio.toFixed(1)}:1 over its backdrop; it needs ${min}:1.`, l.box));
+    }
+  }
+  return out;
+}
+
+/** The deterministic limits (§7.3) of several posts: caption, hashtags, mentions, safe area, video, logo, contrast. */
 export function checkPosts(ed: EditorController, ids: readonly Guid[]): PostProblem[] {
-  void [ed, ids];
-  return notBuilt("checkPosts");
+  return ids.flatMap((id) => checkPost(ed, id));
+}
+
+/**
+ * A check's findings onto the post (its pins, §7.3): the last check's problems replaced by these, the review's kept —
+ * a finding no longer found leaves. No write when nothing changed; returns whether it wrote.
+ */
+export function applyChecks(ed: EditorController, w: Writer, id: Guid, found: readonly PostProblem[]): boolean {
+  const data = readPost(ed, id);
+  if (!data) return false;
+  const next = [...data.problems.filter((p) => p.source !== "check"), ...found];
+  if (JSON.stringify(next) === JSON.stringify(data.problems)) return false;
+  w("Check posts", () => writePost(ed, id, { ...data, problems: next }));
+  return true;
 }

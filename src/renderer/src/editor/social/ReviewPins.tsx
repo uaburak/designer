@@ -1,9 +1,9 @@
 /**
  * Review pins (docs/social.md §6.4): one per problem of a post's last review that has a place (`box`), at the box's
  * top left, numbered within the post, in the comments' pin shape (comments/CommentsLayer.tsx) in the warning colour.
- * Hover tells the problem; a click selects the post and shows the Agent tab (round 18c's review card selects the
- * problem there). A pin goes when its problem is cleared (fixed, no longer found, or left). Placed from the camera like
- * the safe areas, hidden while the canvas zooms.
+ * Hover tells the problem; a click selects the post, shows the Agent tab and selects the problem in the review card that
+ * has it (round 18c). A pin goes when its problem is cleared (fixed, no longer found, or left). Placed from the camera
+ * like the safe areas, hidden while the canvas zooms.
  */
 import { useMemo, useRef } from "react";
 import { tooltipProps } from "@/ds";
@@ -50,7 +50,8 @@ export function ReviewPins() {
                 {...tooltipProps(p.detail)}
                 onClick={() => {
                   applySelection(ed, [row.id], false);
-                  ed.ui.set({ socialRightTab: "agent" });
+                  // The review card that has it marks it (StudioCards' ReviewCard).
+                  ed.ui.set({ socialRightTab: "agent", socialProblem: { post: row.id, problem: p.id } });
                 }}
               >
                 {i + 1}

@@ -334,4 +334,13 @@
   .reviewThumb img { display: block; width: 100%; height: auto; }
   .reviewBox { position: absolute; border: 1px solid var(--figma-color-border-danger-strong); background: color-mix(in srgb, var(--figma-color-bg-danger) 20%, transparent); }
   .reviewText { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--ds-space-1); min-width: 0; }
+  /* Social: the problem a review pin picked (docs/social.md §6.4) */
+  .reviewProblemOn { border-radius: var(--ds-radius-small); background: var(--figma-color-bg-warning-tertiary); }
+  /* Social's follow-ups (ask_choice {suggestions}): chips under the answer */
+  .followUps { display: flex; flex-wrap: wrap; gap: var(--ds-space-1); }
+  .followUp { height: var(--ds-size-row); padding: 0 var(--ds-space-2); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-large); background: var(--figma-color-bg); color: var(--figma-color-text); font: var(--ds-font-body-medium); outline: none; cursor: default; }
+  .followUp:hover:not(:disabled) { background: var(--figma-color-bg-hover); }
+  .followUp:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .followUp:disabled { color: var(--figma-color-text-disabled); }
+  .contextFormat { flex: none; color: var(--figma-color-text-tertiary); }
 }

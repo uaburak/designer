@@ -28,7 +28,11 @@ import { MANAGER_TOOLS, type ToolDef } from "@shared/agents/tools";
 import type { ManagerToolDef } from "@shared/agents/types";
 import { DEFAULT_MANAGER_SETTINGS, IMAGE_TASKS_AT_ONCE, brandsUnavailable, type BrandsRepository, type ManagerSettings, type StudioTask } from "@shared/studio/types";
 import type { ImageRouteInfo } from "@shared/ai/types";
-import { managerPrompt, managerReminder } from "@shared/studio/managerPrompt";
+import { managerPrompt, managerReminder, type ManagerPromptContext } from "@shared/studio/managerPrompt";
+import { formatById } from "@shared/social/formats";
+import type { SocialPromptContext } from "@shared/social/types";
+import { readPost, writePost } from "../social/posts";
+import { socialOf } from "../social/socialState";
 import { LIBRARY_TOOLS, runLibraryTool } from "../studio/libraryTools";
 import { blurRegions, runStudioImage } from "../studio/images";
 import { TaskQueue, isEnded, type TaskResult } from "./tasks";
@@ -59,7 +63,7 @@ export interface ChatMessage {
   text?: string;
   parts?: MessagePart[];
   /** The selection the prompt was about */
-  context?: { id: string; name: string; type: string; width: number; height: number }[];
+  context?: { id: string; name: string; type: string; width: number; height: number; /** A Social post's format name (docs/social.md §6.3) */ format?: string }[];
   /** user: the files attached to it (copies in the chat's folder) */
   attachments?: Attachment[];
   state?: "running" | "done" | "stopped" | "error";
@@ -664,11 +668,19 @@ export class AgentsService implements AgentSetupHost {
   // ---- Turns ----
 
   selectionContext(): ChatMessage["context"] {
-    return this.ed.selection.slice(0, 20).flatMap((id) => {
+    return this.contextOf(this.ed.selection);
+  }
+
+  /** Layers as a message's context (its chips; the agent reads their ids, sizes and — posts — formats). */
+  contextOf(ids: readonly string[]): NonNullable<ChatMessage["context"]> {
+    return ids.slice(0, 20).flatMap((id) => {
       const n = this.ed.engine.readNode(id, { fields: ["name", "type", "size"] });
       if (!n) return [];
       const real = this.ed.withRealType(n);
-      return [{ id, name: n.name ?? "", type: real.type === "ROUNDED_RECTANGLE" ? "RECTANGLE" : String(real.type), width: n.size?.x ?? 0, height: n.size?.y ?? 0 }];
+      // A post carries its format (docs/social.md §6.3): the chip and the agent see "Instagram story".
+      const post = readPost(this.ed, id);
+      const format = post ? (formatById(post.formatId)?.name ?? post.formatId) : null;
+      return [{ id, name: n.name ?? "", type: real.type === "ROUNDED_RECTANGLE" ? "RECTANGLE" : String(real.type), width: n.size?.x ?? 0, height: n.size?.y ?? 0, ...(format ? { format } : {}) }];
     });
   }
 
@@ -717,6 +729,8 @@ export class AgentsService implements AgentSetupHost {
       const effort = manager ? (route.effort && provider.efforts?.includes(route.effort) ? route.effort : this.effortOf(provider)) : this.effortOf(provider);
       const sessionKey = manager ? `manager:${provider.id}` : provider.id;
       const resume = sessionOf(chat, sessionKey);
+      // In Social, the manager's instructions carry the board (docs/social.md §7.4).
+      const social = manager && this.inSocial() ? await this.socialContext() : undefined;
       const said = (invoked ? invoked.prompt || `Run the Skill /${invoked.skill.name}.` : text) || (files.length === 1 ? "Look at the attached file." : "Look at the attached files.");
       const { turnId } = await this.api.turn({
         chatId,
@@ -724,7 +738,7 @@ export class AgentsService implements AgentSetupHost {
         model,
         ...(effort ? { effort } : {}),
         // The manager's instructions open its turn (its own session keeps them: a reminder after the first).
-        prompt: manager ? `${resume ? managerReminder(this.managerContext(chat)) : managerPrompt(this.managerContext(chat))}\n\n${said}` : said,
+        prompt: manager ? `${resume ? managerReminder(this.managerContext(chat, social)) : managerPrompt(this.managerContext(chat, social))}\n\n${said}` : said,
         ...(manager ? { role: "manager" as const, managerTools: [...MANAGER_TOOLS, ...LIBRARY_TOOLS].map(managerDef) } : {}),
         ...(invoked ? { skill: { name: invoked.skill.name, instructions: invoked.skill.instructions } } : {}),
         ...(enabled.length ? { skills: enabled } : {}),
@@ -891,11 +905,54 @@ export class AgentsService implements AgentSetupHost {
     return this.state.settings.manager ?? DEFAULT_MANAGER_SETTINGS;
   }
 
-  /** The manager's agent when the manager is on and that agent can run; null: messages go to the picked agent. */
+  /**
+   * The manager's agent when the manager is on — or the view is in Social mode, where every turn is the manager's
+   * (docs/social.md §1.3) — and that agent can run; null: messages go to the picked agent.
+   */
   managerProvider(): ProviderInfo | null {
     const m = this.managerSettings();
-    if (!m.enabled) return null;
+    if (!m.enabled && !this.inSocial()) return null;
     return this.usable().find((p) => p.id === m.manager.providerId) ?? null;
+  }
+
+  /** The view is in Social mode (docs/social.md §7). */
+  inSocial(): boolean {
+    return this.ed.ui.get().mode === "social";
+  }
+
+  /** What the manager's Social paragraph says about the board (docs/social.md §7.4): its brand, campaigns and counts. */
+  private async socialContext(): Promise<SocialPromptContext> {
+    const board = socialOf(this.ed).get();
+    const id = this.ed.ui.get().socialBrandId ?? null;
+    const brand = id ? await this.studio.brands().get(id).catch(() => null) : null;
+    return {
+      brand: brand ? { id: brand.id, name: brand.name } : null,
+      campaigns: board.groups.filter((g) => g.campaign).map((g) => ({ id: g.campaign!.id, name: g.campaign!.name, posts: g.posts.length })),
+      unplaced: board.groups.find((g) => !g.campaign)?.posts.length ?? 0,
+    };
+  }
+
+  /**
+   * A post's Fix (the Post section, docs/social.md §6.5): the manager's turn on that problem, sent at once with the
+   * post as its context — it runs the fix loop (a caption rewritten, a timeline retimed, a relayout task) and checks
+   * again. Nothing is sent while the chat's turn runs.
+   */
+  fixProblem(post: { id: string; name: string }, problem: { kind: string; detail: string; fix: string }) {
+    const chat = this.currentChat();
+    if (chat && this.state.running[chat.id]) return;
+    void this.send(`Fix on “${post.name}” (${post.id}): ${problem.kind} — ${problem.detail} (fix: ${problem.fix}).`, this.contextOf([post.id]));
+  }
+
+  /** A follow-up chip (ask_choice {suggestions}) picked: it is the owner's next message; the chips are answered. */
+  pickSuggestion(cardId: string, optionId: string) {
+    const chat = this.currentChat();
+    const message = chat?.messages.find((m) => m.cards?.some((c) => c.id === cardId));
+    const card = message?.cards?.find((c) => c.id === cardId);
+    if (!chat || !message || !card || card.kind !== "choice" || card.answer || this.state.running[chat.id]) return;
+    const option = card.options.find((o) => o.id === optionId);
+    if (!option) return;
+    this.updateMessage(chat.id, message.id, (m) => ({ ...m, cards: (m.cards ?? []).map((c) => (c.id === cardId ? ({ ...c, answer: { optionId, remember: false } } as ViewCard) : c)) }));
+    void this.send(option.label, []);
   }
 
   /** Agent settings › Manager changed: kept by main; the queue's limits follow. */
@@ -909,11 +966,11 @@ export class AgentsService implements AgentSetupHost {
     this.queue.refresh();
   }
 
-  /** What the manager's instructions say about this chat: the settings, the agents it may use, the image model, its briefs. */
-  private managerContext(chat: Chat) {
+  /** What the manager's instructions say about this chat: the settings, the agents it may use, the image model, its briefs — and the board, in Social. */
+  private managerContext(chat: Chat, social?: SocialPromptContext): ManagerPromptContext {
     const settings = this.managerSettings();
     const agents = this.usable().filter((p) => !settings.allowed.length || settings.allowed.includes(p.id));
-    return { settings, agents: agents.map((p) => ({ id: p.id, label: p.label, models: p.models })), imageRoute: chat.imageRoute ?? settings.image, briefs: (chat.briefs ?? []).map((b) => ({ id: b.id, request: b.request })) };
+    return { settings, agents: agents.map((p) => ({ id: p.id, label: p.label, models: p.models })), imageRoute: chat.imageRoute ?? settings.image, briefs: (chat.briefs ?? []).map((b) => ({ id: b.id, request: b.request })), ...(social ? { social } : {}) };
   }
 
   /** A manager's turn ended (or was stopped): its cards stop waiting; stopped, its tasks stop. */
@@ -956,6 +1013,16 @@ export class AgentsService implements AgentSetupHost {
       page: () => this.ed.store.page,
       read: (id) => this.readBox(id),
       pictureOf: (id) => this.pictureOf(id),
+      social: () => this.inSocial(),
+      // A post's pins: each change one step of the owner's history, as the studio's other writes.
+      posts: {
+        problems: (id) => readPost(this.ed, id)?.problems ?? null,
+        setProblems: (id, problems) => {
+          const data = readPost(this.ed, id);
+          if (data) this.turns.writeAction("Studio: Review", () => writePost(this.ed, id, { ...data, problems }), [id]);
+        },
+      },
+      suggest: (card) => this.updateMessage(chatId, target.message, (m) => ({ ...m, cards: [...(m.cards ?? []), card] })),
     };
   }
 

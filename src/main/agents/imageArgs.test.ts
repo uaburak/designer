@@ -28,6 +28,13 @@ describe("image paths", () => {
     expect(sniffImage(base64Bytes(out.data as string)!)).toBe("image/png");
   });
 
+  it("fill_slots' picture path (docs/social.md §7.2)", () => {
+    const root = tmp();
+    writeFileSync(join(root, "pack.png"), PNG);
+    const out = resolveImagePaths("fill_slots", { nodeId: "1:2", values: { headline: "Hi" }, picture: { path: "pack.png", scaleMode: "FILL" } }, root);
+    expect(out).toEqual({ nodeId: "1:2", values: { headline: "Hi" }, picture: { name: "pack", scaleMode: "FILL", data: Buffer.from(PNG).toString("base64") } });
+  });
+
   it("`image.path` in create_nodes' nested specs and update_nodes' updates", () => {
     const root = tmp();
     writeFileSync(join(root, "a.png"), PNG);
