@@ -648,6 +648,73 @@ Compared with `src/renderer/src/editor/comments/*`, `src/shared/comments.ts`, `s
   per-property change details, merge-request lifecycle states (one open request per branch), low-memory / offline
   disabling rules.
 
+### As built (2026-10-18, wave 6)
+
+Built from the lists above, correctness first. Code: `src/shared/comments.ts`, `src/store/comments/service.ts`,
+`editor/comments/{clusters.ts,CommentsLayer,Composer,Thread,CommentsPanel,attachments,richText}`;
+`editor/{versionList.ts,VersionHistory,VersionDialogs}.tsx`; `src/shared/merge/{merge3,types,branches}.ts`,
+`src/store/branches/service.ts`, `editor/branching/*`.
+
+- **Sort and filter (§2.8).** "Sort by date" orders by the first comment's time; **Sort by last action** (new) by the
+  last reply's; "Sort by unread" puts unread first, then by date. "Only your threads" also keeps threads that mention
+  you (by id or email). A link to a resolved thread turns "Show resolved comments" on. (The English of
+  `comments.sort_by_last_action` isn't read: "Sort by last action" from its key.)
+- **Length (§2.6).** 2,000 characters counted as grapheme clusters after trailing whitespace (`commentLength`, the
+  composer, the store and the server's check); past it nothing is sent.
+- **Pins (§2.3).** As wide as their faces: the thread's author then whoever replied, 32 / 55 / 78, two faces and "+N"
+  past three. The drag: 5 px Chebyshev, a plain left press only (a modified press still opens), dropped at least 20 px
+  in from the canvas's right and top. **Clusters**: pins within `ceil(78 + max(0.76 − zoom, 0) × 64)` screen px merge
+  (nearest cluster within that distance, grid cells of that size), at the thread-weighted mean, id
+  `100·round(x/100),100·round(y/100),n`, rebuilt 50 ms after the zoom stops; the open thread stays alone; a cluster
+  shows its first five authors' faces (clamped as a pin); its click zooms to fit its farthest pin in 35 % of the
+  viewport's larger side, at least ×1.5, at most 1.26 — past 1.26 (pins merging even there) ×1.5 rather than a zoom
+  out (what Figma does then isn't read). **Tab / Shift+Tab** with the Comment tool walk the pins (nearest neighbour
+  from the smallest x + y, list order past 100; past either end back to the canvas — the key that enters focus mode is
+  §8's question, here Tab from the canvas); arrows nudge the focused pin by Preferences › Nudge amount (⇧ big), Esc
+  leaves. Others' new threads grow from 0.2 over 400 ms with their preview open 3.5 s.
+- **Attachments (§2.7).** Picked ([Upload up to 5 images and GIFs]), pasted or dropped: Figma's checks in its order
+  (type → duplicate by name + lastModified → 100 MB video / 30 MB image → 5 in all), the enum's errors as toasts; bytes
+  in the store's blobs (kept by the GC through `comments.blobRefs`), a video's picture its frame 1 s in (10 s at most,
+  else black 1600 × 900, PNG); thumbnails under the text, the first in the pin's preview with "N attachments"; a viewer
+  with Previous / Next (← →) and Download. A comment of files alone needs no text. **A local file's comments only**:
+  the server keeps no files yet (Phase 6), and the composer offers none in a shared file. Accepted types: PNG, JPEG,
+  GIF and MP4 / QuickTime / WebM (§8's question).
+- **Rich text (§2.6).** The composer is a rich field: ⌘B ⌘I ⌘⇧X, ⌘K (a link row under the field), ⌘⇧7 / ⌘⇧8 lists,
+  Shift+Enter a new line or list item, @mentions picked as one piece, paste as plain text. Kept as `messageMeta`
+  segments (Figma's shapes: `{t, styles: ["b"|"i"|"s"]}`, `{t, link}`, `{t, user_id}`, `{styles: ["ol"|"ul"],
+  children}`) beside `message`, their plain text (lists "1. " / "* "), only when they say more than the text; drawn in
+  the thread, the list and the preview. A local file's comments only (the server keeps `message`).
+- **Notifications (§2.8).** After a setting change: "You will be notified about all comments in this file" / "…replies
+  and @mentions", 15 s, Manage.
+- **Version history (§3.3).** History mode: File › Show version history toggles it, deselects, and the history panel
+  takes the right panel's place — "Version history", the filter (All / Only yours, Show autosave versions, on by
+  default; blue when on), + (Add to version history), close; "Current version"; versions newest first, 30 a page with
+  Show older; two or more autosaves in a row folded into "N autosave versions" (open while no named version exists, or
+  holding the selected one); a named version is one with a title, a restore, publish, import or any branching one. A
+  click (300 ms) shows the version on the canvas, read-only, in an engine of its own over the editor's (its own pan and
+  zoom, the editor's camera and page to start), with the "Viewing …" toast (34 characters + "…") two frames later;
+  ↑ / ↓ step, Esc leaves, a double-click names it. The row menu (••• or right-click): Name this version / Edit version
+  info, Restore this version, Duplicate (Drafts, with Open), Delete version info (off without info), Copy link
+  (`?version-id=…`, which opens the history on it) — branching versions Restore, Duplicate, Copy link; main's "Branch
+  merged" also **Undo merge**. The savepoint modal: "Add to version history" / "Edit version information", Save off
+  until the title has text, "Show full version history". "Only yours" filters nothing yet: versions don't record
+  their editors (one author locally; the server's will, Phase 6). Starter's 30-day limit: none (a personal app is
+  Enterprise).
+- **Branching (§3.2, §4.2, §4.5, §4.8).** Savepoints on both files before an update and before a merge (at apply, not
+  as the modal opens: one per change rather than per look); main's is the record's `preMergeVersionId`. **Undo merge**:
+  main restored to that savepoint (the editor's restore: one undo step and a restore version) and the branch active
+  again (`branches.undoMerge`; local merges only). **Force merge / Force update**: every conflict kept from one side
+  (Main by default) without picking them one by one (Figma's `branching_force`, its English not read). **UPDATED_LIBRARY**:
+  a library copy the incoming side updated is tagged "Updated library". **Change details**: each changed layer of a
+  chunk with its properties added / changed / removed (the panel's words for the fields it shows, the field's name
+  otherwise — Figma's 152-key vocabulary isn't read in English), the first 50 layers. Gates: Update from main only once
+  main changed; neither it nor Review and merge while a shared branch's link is down.
+
+**Not done:** region comments (`selection_box_anchor`: where the pin sits on the box isn't read); "Post comment and
+share file" and the server side of files and rich text in shared files (Phase 6); the pending spinner (no optimistic
+layer); the merge-request lifecycle (one open request per branch is the server's); low-memory gates (no memory model
+yet); Dev Mode's `savepoint-compare`.
+
 ## 8. Open questions
 
 | Question | Live probe that settles it |
