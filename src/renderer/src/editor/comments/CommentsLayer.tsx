@@ -11,7 +11,7 @@
  * show while View › Comments is on (⇧C).
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Avatar, Portal, timeAgo } from "@/ds";
+import { Avatar, Portal, Spinner, timeAgo } from "@/ds";
 import { t, tp, useT } from "@/i18n";
 import { useCamera, useCurrentPage, useTool } from "@/engine/hooks";
 import type { Camera } from "@/engine/codec";
@@ -19,7 +19,7 @@ import type { CommentAnchor, CommentThread, CommentUser } from "@shared/comments
 import { loadNudge } from "../canvasTools";
 import { useEditor } from "../controller";
 import { useUI } from "../hooks";
-import { commentsOf, useComments, type CommentsController } from "./commentsController";
+import { commentsOf, PENDING_DELAY_MS, useComments, type CommentsController } from "./commentsController";
 import {
   ANIMATE_NEW_DELAY_MS,
   CLUSTER,
@@ -291,6 +291,14 @@ function Pin({
   const replies = thread.comments.length - 1;
   const files = thread.comments.reduce((n, x) => n + (x.attachments?.length ?? 0), 0);
   const faces = threadPeople(thread);
+  // Not saved yet: a spinner on the pin, but only after 500 ms (a quick save never shows one).
+  const pending = thread.comments.some((x) => x.pending);
+  const [spinning, setSpinning] = useState(false);
+  useEffect(() => {
+    if (!pending) return setSpinning(false);
+    const timer = window.setTimeout(() => setSpinning(true), PENDING_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [pending]);
   // A drop stays inside the canvas, 20 px in from its right and top edges (Figma's drag clamp).
   const clampDrop = (px: number, py: number) => ({ x: Math.min(Math.max(px, 0), bounds.width - DRAG_INSET), y: Math.min(Math.max(py, DRAG_INSET), bounds.height) });
   const onPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
@@ -370,7 +378,7 @@ function Pin({
           <span className={styles.previewMain}>
             <span className={styles.previewHead}>
               <span className={styles.previewName}>{preview.user.name}</span>
-              <span className={styles.previewTime}>{timeAgo(preview.createdAt)}</span>
+              <span className={styles.previewTime}>{preview.pending ? t("In a moment") : timeAgo(preview.createdAt)}</span>
             </span>
             <span className={styles.previewText}>
               <MessageText text={preview.message} people={people} mentions={preview.mentions} meta={preview.messageMeta} />
@@ -380,6 +388,10 @@ function Pin({
               <span className={styles.previewReplies}>{[replies > 0 ? tp(replies, "{n} reply", "{n} replies") : "", files > 0 ? tp(files, "{n} attachment", "{n} attachments") : ""].filter(Boolean).join(" · ")}</span>
             )}
           </span>
+        </span>
+      ) : spinning ? (
+        <span className={styles.pinPending} data-pending="">
+          <Spinner size={16} />
         </span>
       ) : (
         <PinFaces people={faces} />

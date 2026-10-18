@@ -26,6 +26,8 @@
   .pin:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .pinAvatar { position: absolute; left: 4px; top: 4px; display: flex; border-radius: 50%; box-shadow: 0 0 0 2px var(--figma-color-bg); }
   .pin[data-open] .pinAvatar { box-shadow: 0 0 0 2px var(--figma-color-bg-brand); }
+  /* A comment not saved yet (atlas 16 §2.3): a spinner in the pin after 500 ms */
+  .pinPending { position: absolute; left: 4px; top: 4px; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; }
   /* Past three people: two faces and "+N" in the third place */
   .pinMore {
     position: absolute;

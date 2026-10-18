@@ -53,6 +53,8 @@ export interface Comment {
   attachments?: CommentAttachment[];
   /** The message as Figma's rich segments (`message_meta`); absent: `message` is plain text */
   messageMeta?: CommentSegment[];
+  /** Shown before the store (or the server) has it (Figma's `isPendingFromSinatra`): the editor's own, never kept */
+  pending?: true;
 }
 
 /**

@@ -8,7 +8,7 @@ import { useSyncExternalStore } from "react";
 import { showToast } from "@/ds";
 import { t } from "@/i18n";
 import { getStoreClient } from "@/store";
-import { mentionsIn, type CommentAnchor, type CommentAttachment, type CommentSegment, type CommentsState, type CommentThread, type MentionCandidate } from "@shared/comments";
+import { mentionsIn, type Comment, type CommentAnchor, type CommentAttachment, type CommentSegment, type CommentsState, type CommentThread, type MentionCandidate } from "@shared/comments";
 import type { Guid, NodeChange } from "@/engine/codec";
 import type { EditorController } from "../controller";
 import type { ImageStore } from "../images";
@@ -33,6 +33,10 @@ export interface CommentsView {
 }
 
 const PREFS_KEY = "designer.comments.prefs";
+/** A pending comment's id (and its new thread's) before the store gives it one */
+export const PENDING = "pending:";
+/** A pending comment's pin shows its spinner only after this long (Figma's `PENDING_DELAY_MS`) */
+export const PENDING_DELAY_MS = 500;
 /** Figma attaches a comment to the top-level frame, component or group under it (R14 §attachment) */
 const ATTACHABLE = new Set(["FRAME", "SYMBOL", "INSTANCE", "GROUP", "SECTION", "COMPONENT_SET"]);
 
@@ -174,12 +178,46 @@ export class CommentsController {
     return [...new Set([...picked, ...mentionsIn(message, this.view.people)])];
   }
 
+  /**
+   * A comment shown at once, before the store answers (atlas 16 §2.1: every write is optimistic) — "In a moment" for
+   * its time, its pin's spinner after 500 ms; the store's answer replaces it.
+   */
+  private pendingComment(threadId: string, message: string, mentions: string[], files: { attachments?: CommentAttachment[]; messageMeta?: CommentSegment[] }): Comment | null {
+    const me = this.view.data?.me;
+    if (!me) return null;
+    const id = threadId.startsWith(PENDING) ? threadId : `${PENDING}${Math.random().toString(36).slice(2)}`;
+    return { id, threadId, parentId: threadId.startsWith(PENDING) ? null : threadId, user: me, message, mentions, createdAt: Date.now(), editedAt: null, reactions: [], ...files, pending: true };
+  }
+
+  /** The data with a pending thread or reply in it, or without what's pending (`null`: the write failed). */
+  private withPending(change: { thread?: CommentThread; reply?: Comment } | null): void {
+    const data = this.view.data;
+    if (!data) return;
+    const threads = data.threads
+      .filter((th) => !(change === null && th.id.startsWith(PENDING)))
+      .map((th) => (change?.reply && th.id === change.reply.threadId ? { ...th, comments: [...th.comments, change.reply] } : change === null ? { ...th, comments: th.comments.filter((x) => !x.pending) } : th));
+    this.set({ data: { ...data, threads: change?.thread ? [...threads, change.thread] : threads } });
+  }
+
   async post(message: string, attachments: CommentAttachment[] = [], messageMeta: CommentSegment[] | null = null, picked: string[] = []): Promise<boolean> {
     const anchor = this.view.draft;
     if (!anchor || (!message.trim() && !attachments.length)) return false;
     const files = { ...(attachments.length ? { attachments } : {}), ...(messageMeta ? { messageMeta } : {}) };
-    const data = await this.apply(getStoreClient().comments.add(this.fileKey, { message, mentions: this.mentions(message, picked), anchor, ...files }));
-    if (!data) return false;
+    const mentions = this.mentions(message, picked);
+    const draftText = this.draftText;
+    const shown = this.pendingComment(`${PENDING}${Math.random().toString(36).slice(2)}`, message, mentions, files);
+    if (shown) {
+      this.withPending({ thread: { id: shown.threadId, number: 0, anchor, comments: [{ ...shown, id: shown.threadId }], resolvedAt: null, resolvedBy: null, unread: false, readAt: 0 } });
+      this.set({ draft: null });
+    }
+    const data = await this.apply(getStoreClient().comments.add(this.fileKey, { message, mentions, anchor, ...files }));
+    if (!data) {
+      // Not saved: the comment goes back to its composer, as it was.
+      this.withPending(null);
+      this.draftText = draftText;
+      this.set({ draft: anchor });
+      return false;
+    }
     this.set({ draft: null });
     if (!toldAboutReplies) {
       toldAboutReplies = true;
@@ -191,7 +229,12 @@ export class CommentsController {
   async reply(threadId: string, message: string, attachments: CommentAttachment[] = [], messageMeta: CommentSegment[] | null = null, picked: string[] = []): Promise<boolean> {
     if (!message.trim() && !attachments.length) return false;
     const files = { ...(attachments.length ? { attachments } : {}), ...(messageMeta ? { messageMeta } : {}) };
-    return !!(await this.apply(getStoreClient().comments.add(this.fileKey, { threadId, message, mentions: this.mentions(message, picked), ...files })));
+    const mentions = this.mentions(message, picked);
+    const shown = this.pendingComment(threadId, message, mentions, files);
+    if (shown) this.withPending({ reply: shown });
+    const data = await this.apply(getStoreClient().comments.add(this.fileKey, { threadId, message, mentions, ...files }));
+    if (!data) this.withPending(null);
+    return !!data;
   }
 
   async edit(commentId: string, message: string, messageMeta: CommentSegment[] | null = null, picked: string[] = []): Promise<boolean> {
