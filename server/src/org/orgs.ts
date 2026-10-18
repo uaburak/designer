@@ -433,7 +433,12 @@ export async function removeFromOrg(deps: Deps, orgId: string, userId: string, b
  * A file created in (or moved into, from outside any org) a folder or the caller's drafts: `POST /files {orgId,
  * projectId}`, `POST /orgs/:org/drafts`, `POST /projects/:id/files`. The room is made by the snapshot upload after it.
  */
-export async function createOrgFile(ctx: Ctx, input: { key: unknown; name: unknown; orgId: string; projectId: string | null; editorType?: unknown }) {
+/**
+ * A new org file (or a file shared outside orgs moved in). `duplicateOf`: Duplicate (Home's file menu) — the copy is made
+ * from the caller's local copy of that file and shared in here; the source must be one the caller may copy from
+ * (`canExport`: "Viewers can copy", File exporting, docs/governance.md §2.7), and it is logged `fig_file_duplicate`.
+ */
+export async function createOrgFile(ctx: Ctx, input: { key: unknown; name: unknown; orgId: string; projectId: string | null; editorType?: unknown; duplicateOf?: unknown }) {
   const { deps, user, acc } = ctx;
   const d1 = deps.db.d1;
   const key = typeof input.key === "string" ? input.key : "";
@@ -457,9 +462,17 @@ export async function createOrgFile(ctx: Ctx, input: { key: unknown; name: unkno
   if (!seatCanEdit(me.seat, editorType)) throw new HttpError(403, `your ${me.seat} seat can't create this kind of file`, "seat_required", { seat: seatNeeded(editorType), current: me.seat });
   const now = deps.now();
   const had = await acc.fileRow(key);
+  let source: FileRow | null = null;
+  if (input.duplicateOf !== undefined) {
+    if (typeof input.duplicateOf !== "string" || !FILE_KEY.test(input.duplicateOf) || had) throw new HttpError(400, "duplicateOf is the key of the file copied");
+    source = await acc.fileRow(input.duplicateOf);
+    const sa = source && (await acc.openFile(source, { viaLink: true, passOk: false }));
+    if (!source || !sa?.ok) throw new HttpError(404, "no such file");
+    if (!sa.canExport) throw new HttpError(403, "copying is turned off for you in this file", "export_restricted");
+  }
   // The `shared_files` quota (docs/multiplayer.md §17): a file moved in from outside the org is no new file
   if (had?.owner_id !== user.id) await (await import("../quota/quota")).requireFileSlot(deps, user);
-  let action: "fig_file_create" | "fig_file_move" = "fig_file_create";
+  let action: "fig_file_create" | "fig_file_move" | "fig_file_duplicate" = source ? "fig_file_duplicate" : "fig_file_create";
   if (had) {
     if (had.owner_id !== user.id || had.org_id !== null) throw new HttpError(409, "file key taken");
     // "Move to…" a file shared outside any org — a personal draft (docs/cloud.md §2) — into the org (§14.6): the file
@@ -480,7 +493,8 @@ export async function createOrgFile(ctx: Ctx, input: { key: unknown; name: unkno
   }
   acc.reset();
   const f = (await d1.prepare(`SELECT ${FILE_COLS}, u.name AS owner_name, u.email AS owner_email FROM files f LEFT JOIN users u ON u.id = f.owner_id WHERE f.key = ?1`).bind(key).first<FileRow & { owner_name: string | null; owner_email: string | null }>())!;
-  await logActivity(deps, { orgId: input.orgId, action, actor: user, entity: fileEntity(f), teamId, details: action === "fig_file_move" ? { from: null, to: input.projectId } : {}, req: ctx.req });
+  const details = action === "fig_file_move" ? { from: null, to: input.projectId } : source ? { source_file_key: source.key, source_file_name: source.name } : {};
+  await logActivity(deps, { orgId: input.orgId, action, actor: user, entity: fileEntity(f), teamId, details, req: ctx.req });
   if (action === "fig_file_move") await reauth(deps, [key]);
   await orgNotice(deps, [user.id], { what: "files", orgId: input.orgId, projectId: input.projectId });
   // Its access reads in one round trip (requestD1.ts)

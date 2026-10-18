@@ -229,12 +229,12 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   if (parts.length === 1) {
     if (m === "GET") return json({ files: await sharedFiles(deps, user.id) });
     if (m === "POST") {
-      const body = await readJson<{ key?: string; name?: string; orgId?: unknown; projectId?: unknown; editorType?: unknown }>(req);
+      const body = await readJson<{ key?: string; name?: string; orgId?: unknown; projectId?: unknown; editorType?: unknown; duplicateOf?: unknown }>(req);
       // In an org: a file in a folder (projectId) or the caller's draft (no projectId) — §14.12 "Files".
       if (typeof body.orgId === "string") {
         // What creating it reads first, in two round trips (requestD1.ts)
         if (typeof body.key === "string") await new Access(deps, user, req).prefetchNewFile(body.orgId, typeof body.projectId === "string" ? body.projectId : null, body.key, [ownedFilesQ(user.id)]);
-        const file = await (await import("./org/orgs")).createOrgFile(orgCtx(), { key: body.key, name: body.name, orgId: body.orgId, projectId: typeof body.projectId === "string" ? body.projectId : null, editorType: body.editorType });
+        const file = await (await import("./org/orgs")).createOrgFile(orgCtx(), { key: body.key, name: body.name, orgId: body.orgId, projectId: typeof body.projectId === "string" ? body.projectId : null, editorType: body.editorType, duplicateOf: body.duplicateOf });
         return json({ key: file.key, name: file.name, role: "owner", file }, 201);
       }
       const key = body.key ?? "";
