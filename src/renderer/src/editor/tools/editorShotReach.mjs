@@ -27,6 +27,7 @@ export function installMockReach() {
     { at: Date.now() - 30_000, capability: "apps", tool: "capture_app_window", target: "", outcome: "denied", agent: "Claude Code" },
   ];
   window.__reachLog = [];
+  const connectors = [{ id: "con_notion", name: "Notion", transport: { kind: "http", url: "https://mcp.notion.com/mcp", hasKey: false }, enabled: true, tools: [], state: "sign-in" }];
   const copy = () => JSON.parse(JSON.stringify(view));
   // A thumbnail of a window: a grey title bar over a coloured body.
   const thumb = (color) => {
@@ -69,6 +70,17 @@ export function installMockReach() {
       setTimeout(() => void reachTurn(turnId, req), 30);
       return { turnId };
     },
+    // A connector whose server wants a sign-in (OAuth, docs/ai.md §2.11): signed in "in the browser", then its tools.
+    connectors: async () => connectors.map((c) => ({ ...c })),
+    updateConnector: async () => connectors,
+    removeConnector: async () => connectors,
+    testConnector: async (id) => connectors.find((c) => c.id === id),
+    signInConnector: async (id) => {
+      window.__reachLog.push({ signIn: id });
+      Object.assign(connectors[0], { state: "connected", transport: { ...connectors[0].transport, signedIn: true }, tools: [{ name: "search", description: "Search pages", policy: "ask" }, { name: "create_page", description: "Create a page", policy: "ask" }] });
+      return { ...connectors[0] };
+    },
+    signOutConnector: async () => (Object.assign(connectors[0], { state: "sign-in", transport: { ...connectors[0].transport, signedIn: false }, tools: [] }), connectors),
     reach: {
       view: async () => copy(),
       set: async (p) => {
@@ -145,6 +157,20 @@ export async function reachSection(page, theme, { open, settle, shot, check }) {
   const outcomes = await page.$$eval("[data-log-outcome]", (els) => els.map((e) => e.getAttribute("data-log-outcome")));
   check("Access log: the calls newest first, with their outcomes", JSON.stringify(outcomes) === JSON.stringify(["denied", "ok", "refused", "ok"]), JSON.stringify(outcomes));
   await shot(page, `485-reach-log-${theme}`);
+  await page.getByRole("button", { name: "Back" }).first().click();
+
+  // A connector whose server wants a sign-in (OAuth): Sign in needed in the list; its page signs in, then lists its tools.
+  const notion = page.locator('[data-connector="con_notion"]');
+  await notion.scrollIntoViewIfNeeded();
+  check("Connectors: a server that wants a sign-in says Sign in needed", ((await notion.textContent()) ?? "").includes("Sign in needed"), (await notion.textContent()) ?? "");
+  await notion.click();
+  await page.waitForSelector('[data-connector-page="con_notion"]');
+  check("Connectors › Notion: Not signed in, with Sign in", (await page.locator('[data-connector-account="signed-out"]').count()) === 1 && (await page.locator("[data-connector-sign-in]").count()) === 1);
+  await shot(page, `488-reach-connector-sign-in-${theme}`);
+  await page.locator("[data-connector-sign-in]").click();
+  await page.waitForSelector('[data-connector-account="signed-in"]');
+  check("Connectors › Notion: signed in — its tools listed at Ask, Sign out offered, Sign in gone", (await page.locator("[data-connector-tool]").count()) === 2 && (await page.locator("[data-connector-sign-out]").count()) === 1 && (await page.locator("[data-connector-sign-in]").count()) === 0);
+  await shot(page, `489-reach-connector-signed-in-${theme}`);
   await page.getByRole("button", { name: "Back" }).first().click();
   await page.getByRole("button", { name: "Back" }).first().click();
 

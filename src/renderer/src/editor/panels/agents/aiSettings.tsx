@@ -9,7 +9,7 @@ import { Button, Select, Spinner, Switch, TextInput, showToast } from "@/ds";
 import { SKILL_LIMITS, type AiSkill, type Connector, type ConnectorToolPolicy } from "@shared/ai/types";
 import { parseSkillFile, skillFileText, skillNameOf, skillProblem, type SkillDraft } from "@shared/ai/skillFile";
 import type { AgentSetupHost } from "../../agents/setup";
-import { changeConnectors, removeSkill, saveSkill, testConnector, useConnectors, useSkills } from "./aiData";
+import { changeConnectors, removeSkill, saveSkill, signInConnector, testConnector, useConnectors, useSkills } from "./aiData";
 import { Block, Field, Group, Row, errorText } from "./settingsParts";
 import styles from "./Agents.module.css";
 import { t, useT } from "@/i18n";
@@ -20,7 +20,7 @@ const POLICY_OPTIONS = [
   { value: "off", label: "Off" },
 ];
 
-const connectorStatus = (c: Connector) => (!c.enabled ? t("Off") : c.state === "connected" ? t("Connected") : c.state === "error" ? t("Can’t connect") : t("Not tested"));
+const connectorStatus = (c: Connector) => (!c.enabled ? t("Off") : c.state === "connected" ? t("Connected") : c.state === "sign-in" ? t("Sign in needed") : c.state === "error" ? t("Can’t connect") : t("Not tested"));
 
 // ---- The list's groups ----
 
@@ -239,8 +239,23 @@ function ConnectorPage({ service, id }: { service: AgentSetupHost; id: string })
   const { list } = useConnectors(service.api);
   const c = list.find((x) => x.id === id);
   const [testing, setTesting] = useState(false);
+  const [signing, setSigning] = useState(false);
   const api = service.api;
   if (!c || !api?.updateConnector) return <p className={styles.pageText}>{t("This connector isn’t listed any more.")}</p>;
+  // A server that answered with a Bearer challenge is signed in to with OAuth, in the owner's browser (docs/ai.md §2.11).
+  const signedIn = c.transport.kind === "http" && !!c.transport.signedIn;
+  const canSignIn = c.transport.kind === "http" && !c.transport.hasKey && !!api.signInConnector && (c.state === "sign-in" || signedIn);
+  const signIn = async () => {
+    setSigning(true);
+    try {
+      const r = await signInConnector(api, c.id);
+      showToast(r.state === "connected" ? { message: t("{name} is connected", { name: r.name }) } : { message: r.error ?? t("Can’t connect"), kind: "error" });
+    } catch (err) {
+      showToast({ message: errorText(err), kind: "error" });
+    } finally {
+      setSigning(false);
+    }
+  };
   const update = (p: { enabled?: boolean; policies?: Record<string, ConnectorToolPolicy> }) => void changeConnectors(api.updateConnector!({ id: c.id, ...p })).catch((err) => showToast({ message: errorText(err), kind: "error" }));
   const test = async () => {
     setTesting(true);
@@ -267,11 +282,27 @@ function ConnectorPage({ service, id }: { service: AgentSetupHost; id: string })
         <Field label={t("On")}>
           <Switch label={t("Connector on")} checked={c.enabled} onChange={(on) => update({ enabled: on })} />
         </Field>
+        {canSignIn && (
+          <Field label={t("Account")} data-connector-account={signedIn && c.state !== "sign-in" ? "signed-in" : "signed-out"}>
+            {signedIn && c.state !== "sign-in" ? t("You’re signed in") : t("Not signed in")}
+          </Field>
+        )}
         <div className={styles.actions}>
-          <Button variant="secondary" disabled={testing} onClick={() => void test()} data-connector-test="">
+          {canSignIn && (!signedIn || c.state === "sign-in") && (
+            <Button variant="primary" disabled={signing} onClick={() => void signIn()} data-connector-sign-in="">
+              {signing ? t("Signing in…") : t("Sign in")}
+            </Button>
+          )}
+          <Button variant="secondary" disabled={testing || signing} onClick={() => void test()} data-connector-test="">
             {testing ? t("Testing…") : t("Test connection")}
           </Button>
+          {signedIn && api.signOutConnector && (
+            <Button variant="secondary" onClick={() => void changeConnectors(api.signOutConnector!(c.id)).catch((err) => showToast({ message: errorText(err), kind: "error" }))} data-connector-sign-out="">
+              {t("Sign out")}
+            </Button>
+          )}
         </div>
+        {signing && <p className={styles.pageText}>{t("Finish signing in in your browser, then come back here.")}</p>}
       </Block>
       <Block title={t("Tools")}>
         {!c.tools.length && <p className={styles.pageText}>{t("Test the connection to list its tools.")}</p>}

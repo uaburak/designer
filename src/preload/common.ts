@@ -147,6 +147,8 @@ export function agentSetupApi(): AgentSetupApi {
     updateConnector: (p) => invoke("agents:update-connector", plain(p)),
     removeConnector: (id) => invoke("agents:remove-connector", { id: String(id) }),
     testConnector: (id) => invoke("agents:test-connector", { id: String(id) }),
+    signInConnector: (id) => invoke("agents:sign-in-connector", { id: String(id) }),
+    signOutConnector: (id) => invoke("agents:sign-out-connector", { id: String(id) }),
     reach: {
       view: () => invoke("agents:access"),
       set: (patch) => invoke("agents:set-access", plain(patch ?? {})),

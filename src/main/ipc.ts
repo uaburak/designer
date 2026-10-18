@@ -283,6 +283,8 @@ export function registerIpc() {
   });
   onInvoke("agents:remove-connector", (_c, p) => agents.removeConnector(str(p?.id, 64) ?? ""));
   onInvoke("agents:test-connector", (_c, p) => agents.testConnector(str(p?.id, 64) ?? ""));
+  onInvoke("agents:sign-in-connector", (_c, p) => agents.signInConnector(str(p?.id, 64) ?? ""));
+  onInvoke("agents:sign-out-connector", (_c, p) => agents.signOutConnector(str(p?.id, 64) ?? ""));
   onSend("agents:consent-answer", ({ sender }, p) => {
     if (p && typeof p.reqId === "number") agents.answerConsent(sender, { reqId: p.reqId, allow: p.allow === true, remember: p.remember === true, windowId: str(p.windowId, 200) ?? undefined });
   });

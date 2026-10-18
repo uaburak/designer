@@ -301,6 +301,8 @@ function connectorHub(): ConnectorHub {
     env: () => cliEnv(),
     cwd: file("work"),
     ask: askConsent,
+    // An OAuth connector's sign-in page, in the owner's own browser (his sessions there, not Wecra's).
+    openBrowser: (url) => shell.openExternal(url),
   });
   return hub;
 }
@@ -441,6 +443,8 @@ export const addConnector = (p: { name: string; transport: { kind: "http"; url: 
 export const updateConnector = (p: { id: string; enabled?: boolean; policies?: Record<string, ConnectorToolPolicy> }) => connectorHub().update(p);
 export const removeConnector = (id: string) => connectorHub().remove(id);
 export const testConnector = (id: string) => connectorHub().test(id);
+export const signInConnector = (id: string) => connectorHub().signIn(id);
+export const signOutConnector = (id: string) => connectorHub().signOut(id);
 
 /** `agents:tool-result` from a view: only the view the call went to may answer it. */
 export function settleToolCall(sender: WebContents, r: ToolCallResult) {

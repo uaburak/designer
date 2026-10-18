@@ -262,6 +262,9 @@ export interface AgentsApi {
   updateConnector?(p: { id: string; enabled?: boolean; policies?: Record<string, ConnectorToolPolicy> }): Promise<Connector[]>;
   removeConnector?(id: string): Promise<Connector[]>;
   testConnector?(id: string): Promise<Connector>;
+  /** An OAuth connector: the sign-in in the owner's browser, then a test (its state "sign-in" says it wants one) */
+  signInConnector?(id: string): Promise<Connector>;
+  signOutConnector?(id: string): Promise<Connector[]>;
   /** A connector's tool wants to run (its policy is Ask): show the consent card, answer with answerConsent */
   onConsent?(cb: (c: ConnectorConsent) => void): () => void;
   /** `windowId`: the window the owner picked on a Local apps card (docs/agents-reach.md §9) */
@@ -291,4 +294,4 @@ export interface ReachApi {
 }
 
 /** The setup half of AgentsApi (no turns, no tools): what Settings › Agents uses — Home has it too. */
-export type AgentSetupApi = Pick<AgentsApi, "providers" | "settings" | "setSettings" | "addServer" | "removeServer" | "test" | "auth" | "signIn" | "signOut" | "install" | "mcp" | "onMcpState" | "clients" | "connect" | "disconnect" | "clientConfig" | "connectors" | "addConnector" | "updateConnector" | "removeConnector" | "testConnector" | "reach">;
+export type AgentSetupApi = Pick<AgentsApi, "providers" | "settings" | "setSettings" | "addServer" | "removeServer" | "test" | "auth" | "signIn" | "signOut" | "install" | "mcp" | "onMcpState" | "clients" | "connect" | "disconnect" | "clientConfig" | "connectors" | "addConnector" | "updateConnector" | "removeConnector" | "testConnector" | "signInConnector" | "signOutConnector" | "reach">;
