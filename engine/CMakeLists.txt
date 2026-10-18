@@ -110,6 +110,7 @@ add_library(eng_core STATIC
   src/proto/Devices.cpp
   src/proto/Prototype.cpp
   src/proto/Player.cpp
+  src/proto/Scroll.cpp
   src/editor/PrototypeEditing.cpp
   src/editor/CanvasNav.cpp
   src/render/PrototypeOverlay.cpp
@@ -212,6 +213,7 @@ else()
     tests/unit/prototype.test.cpp
     tests/unit/prototype.video.test.cpp
     tests/unit/proto.delay.test.cpp
+    tests/unit/proto.wave4.test.cpp
     tests/unit/motion.easing.test.cpp
     tests/unit/devmode.test.cpp
     tests/unit/r7.selection.test.cpp

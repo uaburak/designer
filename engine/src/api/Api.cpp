@@ -830,12 +830,12 @@ ENG_EXPORT void engine_set_theme(Handle h, uint32_t theme) {
 // type DOWN 0 / MOVE 1 / UP 2 / CANCEL 3 / ENTER 4 / LEAVE 5; x,y CSS px in the canvas.
 // Returns HANDLED (1) | CAPTURE (2: call setPointerCapture).
 ENG_EXPORT uint32_t engine_pointer(Handle h, uint32_t type, double x, double y, uint32_t button, uint32_t buttons, uint32_t mods,
-                                   double /*pressure*/, uint32_t clickCount, uint32_t /*pointerType*/, double /*timeMs*/) {
+                                   double /*pressure*/, uint32_t clickCount, uint32_t /*pointerType*/, double timeMs) {
   Call call;
   Engine* e = engineOf(h);
   if (!e || type > 5) return 0;
   // Presenting: the pointer plays the prototype (as engine_present_pointer).
-  if (e->presenting()) return e->player->pointer(static_cast<PointerEvent>(type), x, y, buttons, mods);
+  if (e->presenting()) return e->player->pointer(static_cast<PointerEvent>(type), x, y, buttons, mods, timeMs);
   return e->editor.pointer(static_cast<PointerEvent>(type), x, y, static_cast<int>(button), buttons, mods, static_cast<int>(clickCount));
 }
 
@@ -3242,7 +3242,7 @@ ENG_EXPORT int32_t engine_present_command(Handle h, uint32_t command) {
   }
 }
 
-// {"scale": "ACTUAL" | "FIT_WIDTH" | "FIT" | "FILL", "hints": bool}
+// {"scale": "ACTUAL" | "FIT_WIDTH" | "FIT" | "FILL", "hints": bool, "host": "mac" | "windows" | "linux" | "other"}
 ENG_EXPORT int32_t engine_present_set_options(Handle h, Ptr ptr, uint32_t len) {
   Call call;
   Engine* e = engineOf(h);
@@ -3260,6 +3260,12 @@ ENG_EXPORT int32_t engine_present_set_options(Handle h, Ptr ptr, uint32_t len) {
   // With a device: Responsive / Fixed size, Show device frame.
   if (auto* r = v.get("responsive"); r && r->isBool()) e->player->setResponsive(r->boolean);
   if (auto* f = v.get("deviceFrame"); f && f->isBool()) e->player->setDeviceFrame(f->boolean);
+  // The machine the prototype plays on: "mac" | "windows" | "linux" | "other" (scroll physics, ⌘ in key triggers).
+  if (auto* host = v.get("host"); host && host->isString()) {
+    const std::string& h = host->string;
+    e->player->setHost(h == "mac" ? proto::Player::Host::MAC : h == "windows" ? proto::Player::Host::WINDOWS
+                       : h == "linux" ? proto::Player::Host::LINUX : proto::Player::Host::OTHER);
+  }
   e->editor.invalidateCanvas();
   return OK;
 }

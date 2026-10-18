@@ -52,9 +52,14 @@ struct Fixture {
     REQUIRE(player.start(kPage, HOME));
     advance(16);
   }
+  // Frames of at most 16 ms (the player's frame clock caps a longer one at 1/30 s).
   void advance(double ms) {
-    t += ms;
-    player.tick(t);
+    while (ms > 0) {
+      double step = std::min(16.0, ms);
+      t += step;
+      ms -= step;
+      player.tick(t);
+    }
   }
   void move(double x, double y) { player.pointer(PointerEvent::MOVE, x, y, 0, 0); }
 };

@@ -46,7 +46,9 @@ E enumOf(const json::Value* v, const char* const (&names)[N], E fallback) {
 
 const char* const kTriggers[] = {"ON_CLICK", "AFTER_TIMEOUT", "MOUSE_IN", "MOUSE_OUT", "ON_HOVER", "MOUSE_DOWN", "MOUSE_UP", "ON_PRESS",
                                  "NONE", "DRAG", "ON_KEY_DOWN", "ON_VOICE", "ON_MEDIA_HIT", "ON_MEDIA_END", "MOUSE_ENTER", "MOUSE_LEAVE"};
-const char* const kConnections[] = {"NONE", "INTERNAL_NODE", "URL", "BACK", "CLOSE", "SET_VARIABLE", "UPDATE_MEDIA_RUNTIME", "CONDITIONAL", "SET_VARIABLE_MODE"};
+const char* const kConnections[] = {"NONE", "INTERNAL_NODE", "URL", "BACK", "CLOSE", "SET_VARIABLE", "UPDATE_MEDIA_RUNTIME", "CONDITIONAL", "SET_VARIABLE_MODE",
+                                    nullptr, "UPDATE_ANIMATION_TIMELINE_STATE"};
+const char* const kTimelineActions[] = {"PLAY", "PAUSE", "TOGGLE_PLAY_PAUSE", "SET_PLAYHEAD"};
 const char* const kNavigations[] = {"NAVIGATE", "OVERLAY", "SWAP", "SWAP_STATE", "SCROLL_TO"};
 const char* const kTransitions[] = {
     "INSTANT_TRANSITION", "DISSOLVE", "FADE", "SLIDE_FROM_LEFT", "SLIDE_FROM_RIGHT", "SLIDE_FROM_TOP", "SLIDE_FROM_BOTTOM",
@@ -90,8 +92,11 @@ Action readAction(const json::Value& v) {
   a.media = enumOf(v.get("mediaAction"), kMediaActions, MediaAction::PLAY);
   a.mediaSkipTo = num(v.get("mediaSkipToTime"), 0);
   a.mediaSkipBy = num(v.get("mediaSkipByAmount"), 0);
+  a.timeline = enumOf(v.get("animationTimelineAction"), kTimelineActions, TimelineAction::PLAY);
+  a.timelineSkipTo = num(v.get("animationSkipToTime"), 0);
+  a.timelineDef = guidOf(v.get("animationTimelineDefId"));
   a.url = str(v.get("connectionURL"));
-  a.newTab = flag(v.get("openUrlInNewTab"));
+  if (const json::Value* t = v.get("openUrlInNewTab")) a.newTab = flag(t);
   if (const json::Value* o = v.get("overlayRelativePosition"); o && o->isObject()) {
     a.hasOverlayOffset = true;
     a.overlayOffset = {num(o->get("x"), 0), num(o->get("y"), 0)};
@@ -167,6 +172,11 @@ json::Value actionJson(const Action& a) {
     if (a.media == MediaAction::SKIP_TO) put("mediaSkipToTime", numberValue(a.mediaSkipTo));
     if (a.media == MediaAction::SKIP_FORWARD || a.media == MediaAction::SKIP_BACKWARD) put("mediaSkipByAmount", numberValue(a.mediaSkipBy));
   }
+  if (a.connection == Connection::UPDATE_ANIMATION_TIMELINE_STATE) {
+    put("animationTimelineAction", stringValue(kTimelineActions[static_cast<size_t>(a.timeline) & 3]));
+    if (a.timeline == TimelineAction::SET_PLAYHEAD) put("animationSkipToTime", numberValue(a.timelineSkipTo));
+    if (a.timelineDef != kNoGuid) put("animationTimelineDefId", guidValue(a.timelineDef));
+  }
   put("transitionType", stringValue(transitionName(a.transition)));
   put("transitionDuration", numberValue(a.duration));
   if (!a.durationVar.isNull()) put("transitionDurationVar", a.durationVar);
@@ -184,7 +194,7 @@ json::Value actionJson(const Action& a) {
   if (a.resetVideo) put("transitionResetVideoPosition", boolValue(true));
   if (a.connection == Connection::URL) {
     put("connectionURL", stringValue(a.url));
-    if (a.newTab) put("openUrlInNewTab", boolValue(true));
+    put("openUrlInNewTab", boolValue(a.newTab));
   }
   if (a.hasOverlayOffset) put("overlayRelativePosition", vecValue(a.overlayOffset));
   if (a.scrollOffset.x != 0 || a.scrollOffset.y != 0) put("extraScrollOffset", vecValue(a.scrollOffset));
@@ -247,7 +257,7 @@ const char* triggerName(Trigger t) {
 }
 const char* connectionName(Connection c) {
   size_t i = static_cast<size_t>(c);
-  return i < std::size(kConnections) ? kConnections[i] : "NONE";
+  return i < std::size(kConnections) && kConnections[i] ? kConnections[i] : "NONE";
 }
 const char* navigationName(Navigation n) {
   size_t i = static_cast<size_t>(n);
@@ -551,6 +561,64 @@ double ease(const Action& a, double t) {
 double durationOf(const Action& a) {
   if (isSpring(a.easing)) return motion::springSettleTime(springOf(a));
   return std::max(0.0, a.duration);
+}
+
+namespace {
+
+Vec2 sideOf(int side) {
+  static const Vec2 sides[] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};  // LEFT, RIGHT, TOP, BOTTOM
+  return sides[side];
+}
+
+// `reversed()`: the screens swap roles, each runs its path backwards, the other one is on top.
+Geometry reversed(const Geometry& g) {
+  Geometry r = g;
+  r.inFrom = g.outTo, r.inTo = g.outFrom, r.outFrom = g.inTo, r.outTo = g.inFrom;
+  r.inAlphaFrom = g.outAlphaTo, r.inAlphaTo = g.outAlphaFrom, r.outAlphaFrom = g.inAlphaTo, r.outAlphaTo = g.inAlphaFrom;
+  r.enteringOnTop = !g.enteringOnTop;
+  return r;
+}
+
+Geometry slideFrom(int side) {
+  Geometry g;
+  g.moves = true;
+  Vec2 s = sideOf(side);
+  g.inFrom = s;
+  g.outTo = {-s.x / 4, -s.y / 4};
+  g.outAlphaTo = 0.5;
+  return g;
+}
+
+Geometry moveFrom(int side) {
+  Geometry g;
+  g.moves = true;
+  g.inFrom = sideOf(side);
+  return g;
+}
+
+Geometry pushFrom(int side) {
+  // PUSH_FROM_LEFT and _TOP are built; _RIGHT and _BOTTOM are their reverses (the exiting screen on top).
+  if (side == 1 || side == 3) return reversed(pushFrom(side - 1));
+  Geometry g;
+  g.moves = true;
+  Vec2 s = sideOf(side);
+  g.inFrom = s;
+  g.outTo = {-s.x, -s.y};
+  return g;
+}
+
+}  // namespace
+
+Geometry geometryOf(Transition t) {
+  int k = static_cast<int>(t);
+  auto in = [&](Transition first) { return k - static_cast<int>(first); };
+  if (t >= Transition::SLIDE_FROM_LEFT && t <= Transition::SLIDE_FROM_BOTTOM) return slideFrom(in(Transition::SLIDE_FROM_LEFT));
+  if (t >= Transition::PUSH_FROM_LEFT && t <= Transition::PUSH_FROM_BOTTOM) return pushFrom(in(Transition::PUSH_FROM_LEFT));
+  if (t >= Transition::MOVE_FROM_LEFT && t <= Transition::MOVE_FROM_BOTTOM) return moveFrom(in(Transition::MOVE_FROM_LEFT));
+  // LEFT ↔ RIGHT, TOP ↔ BOTTOM: the side index with its last bit flipped.
+  if (t >= Transition::SLIDE_OUT_TO_LEFT && t <= Transition::SLIDE_OUT_TO_BOTTOM) return reversed(slideFrom(in(Transition::SLIDE_OUT_TO_LEFT) ^ 1));
+  if (t >= Transition::MOVE_OUT_TO_LEFT && t <= Transition::MOVE_OUT_TO_BOTTOM) return reversed(moveFrom(in(Transition::MOVE_OUT_TO_LEFT) ^ 1));
+  return Geometry{};
 }
 
 bool hasDelay(Trigger t) {
