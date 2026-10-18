@@ -63,6 +63,7 @@ _engine_txn_cancel
 _engine_actor_begin
 _engine_actor_end
 _engine_actor_undo
+_engine_ignore_undo
 _engine_undo_export
 _engine_undo_import
 _engine_actor_info

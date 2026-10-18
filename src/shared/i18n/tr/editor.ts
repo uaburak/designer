@@ -1,5 +1,10 @@
 /** Turkish for this area (see ./index.ts): the exact English text in code → Turkish, `{var}`s kept. */
 export const editor: Record<string, string> = {
+  // The canvas's screen reader mirror (canvas/ScreenReaderMirror.tsx)
+  "Nothing selected": "Hiçbir şey seçili değil",
+  "{name}, {kind}, selected": "{name}, {kind}, seçildi",
+  "{n} layer selected": "{n} katman seçildi",
+  "{n} layers selected": "{n} katman seçildi",
   // ── Main menu, submenus and canvas menus (editor/menus.ts) ──
   File: "Dosya",
   Edit: "Düzenle",

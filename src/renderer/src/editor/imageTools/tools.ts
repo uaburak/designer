@@ -569,8 +569,11 @@ export async function expandImage(env: ToolEnv, t: ImageTarget, pad: Insets, o: 
   const img = await env.io.put(out, nameOf(t));
   const size = t.node.size ?? { x: image.width / k, y: image.height / k };
   const xf = t.node.transform ?? { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 };
+  // Figma's result paint is STRETCH (Crop) with the image fitted to the grown layer (atlas 18 §7.5): the picture here
+  // is the layer's own, re-composited at the new size, so its transform is the identity.
+  const paint = { ...fillPicture(t.paint, img), imageScaleMode: "STRETCH" } as FullPaint;
   writeStep(env.ed, "Expand", () =>
-    setFill(env.ed, t, fillPicture(t.paint, img), {
+    setFill(env.ed, t, paint, {
       size: { x: size.x + pad.left + pad.right, y: size.y + pad.top + pad.bottom },
       transform: { ...xf, m02: xf.m02 - (xf.m00 * pad.left + xf.m01 * pad.top), m12: xf.m12 - (xf.m10 * pad.left + xf.m11 * pad.top) },
     })

@@ -117,6 +117,15 @@ describe("engine (wasm, headless)", () => {
     again.destroy();
   });
 
+  it("writes inside an ignore-undo scope leave no step (atlas 22, Figma's openIgnoreUndoRedoScope)", async () => {
+    const engine = await engineWithSample();
+    engine.ignoringUndo(() => engine.setProps(["1:6"], { opacity: 0.5 }));
+    expect(engine.readNode("1:6")!.opacity).toBeCloseTo(0.5);
+    expect(engine.exportUndoHistory().length).toBeGreaterThan(0);
+    expect(decodeKiwi(engine.exportUndoHistory()).localUndoStack ?? []).toHaveLength(0);
+    engine.destroy();
+  });
+
   it("tools, commands and the camera", async () => {
     const engine = await engineWithSample();
     const tools: string[] = [];

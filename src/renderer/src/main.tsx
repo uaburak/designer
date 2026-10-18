@@ -14,7 +14,7 @@ const webSignedIn = () => currentWebSession() !== null;
  * One page, a role per view (docs/desktop-impl.md), each loading only its
  * own code. Each page brings the design system's CSS (Inter, the
  * `--figma-color-*` tokens) and follows the theme through `ds/theme.ts`.
- * - `?tabbar`: the tab bar's view
+ * - `?tabbar`: the tab bar's view; `?tabpreview`: the card under a hovered tab (a view of its own under the bar)
  * - `?welcome`: the signed-out window's view (the splash, the welcome page; docs/desktop.md §18.6)
  * - `?files` (and no query): Home, the file browser on the store
  * - `?newtab`: the desktop new-tab page (⌘T, "+": a Home view of a tab's own; atlas 01 §3)
@@ -41,6 +41,7 @@ const page = (): ComponentType => {
     return lazy(() => import("@/files/FilesApp"));
   }
   if (params.has("tabbar")) return lazy(() => import("@/app/TabBarApp"));
+  if (params.has("tabpreview")) return lazy(() => import("@/app/TabPreviewApp"));
   if (params.has("newtab")) return lazy(() => import("@/newtab/NewTabApp"));
   if (params.has("welcome")) return lazy(() => import("@/account/WelcomeApp"));
   if (params.has("gallery")) return lazy(() => import("@/ds/Gallery"));

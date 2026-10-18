@@ -5,9 +5,11 @@
  * section per styled text run. Lengths have 3 decimals and 0 is `0`; colours are uppercase hex, shortened when they
  * can be, or `rgba()` with a two-digit alpha; variables are `var(--name, fallback)` or their Web code syntax; the
  * paints are listed top first (every solid but the bottom one as a two-stop gradient) and the effects in reverse.
- * A line Figma explains carries a hint (§4.1). Not written yet: grids (`display: grid`), 3D transforms, mirroring,
- * Display P3 colours and the SVG section of vectors.
+ * A line Figma explains carries a hint (§4.1). Grids are `display: grid` with their tracks (a flexible track as Figma's
+ * `minmax(0,<n>fr)`), a grid's items placed by `grid-row` / `grid-column`; a vector gets an SVG section, its markup a
+ * tag a line. Not written yet: 3D transforms and Display P3 colours.
  */
+import { tracksOf, type GridNode, type Track } from "@/editor/model/grid";
 import type { Color, Effect, NodeChange, Paint } from "@/engine/codec";
 import { COLLAPSE_AFTER, sectionsText, type CodeSection, type Hint } from "./code";
 import {
@@ -23,6 +25,7 @@ import {
   paddingOf,
   percent,
   px,
+  rotationAndMirror,
   rotationOf,
   round,
   sizingOf,
@@ -134,7 +137,7 @@ const BLEND: Record<string, string> = {
 const NUMERIC: Record<string, string> = { LNUM: "lining-nums", ONUM: "oldstyle-nums", TNUM: "tabular-nums", PNUM: "proportional-nums", FRAC: "diagonal-fractions", ORDN: "ordinal", ZERO: "slashed-zero" };
 
 /** A vector, boolean or star / polygon: its paints are `fill` and `stroke` (atlas 14 §4 "vector class"). */
-const isVectorClass = (n: NodeChange) => n.type === "VECTOR" || n.type === "BOOLEAN_OPERATION" || n.type === "STAR" || n.type === "REGULAR_POLYGON";
+export const isVectorClass = (n: NodeChange) => n.type === "VECTOR" || n.type === "BOOLEAN_OPERATION" || n.type === "STAR" || n.type === "REGULAR_POLYGON";
 const isGroup = (n: NodeChange) => n.type === "GROUP" || (n.type === "FRAME" && !!n.resizeToFit) || isTransformGroup(n);
 
 /** Fields the snippets read that the TypeScript codec doesn't type yet (schema/document.kiwi names; the engine sends them). */
@@ -241,6 +244,25 @@ export function aspectRatio(w: number, h: number): string {
   return `${w.toFixed(2)}/${h.toFixed(2)}`;
 }
 
+/**
+ * A grid's tracks as `grid-template-rows` / `-columns`: a flexible track `minmax(0,<n>fr)` (Figma's format strings,
+ * `%d` or `%.2f` fr), every track 1fr `repeat(<count>,minmax(0,1fr))`; a fixed track in px and a hugging one `auto`
+ * (ours: Figma's strings for these two aren't in its build's text).
+ */
+export function gridTemplate(tracks: readonly Track[]): string {
+  if (!tracks.length) return "none";
+  const flex1 = (t: Track) => t.sizing.type === "FLEX" && t.sizing.value === 1;
+  if (tracks.length > 1 && tracks.every(flex1)) return `repeat(${tracks.length},minmax(0,1fr))`;
+  return tracks
+    .map((t) => {
+      const v = t.sizing.value;
+      if (t.sizing.type === "FLEX") return `minmax(0,${Number.isInteger(v) ? v : v.toFixed(2)}fr)`;
+      if (t.sizing.type === "FIXED") return px(v);
+      return "auto";
+    })
+    .join(" ");
+}
+
 /** A text's line height (`ty`): px with its percentage as a comment, a percentage with its px, or `normal`. */
 function lineHeight(n: NodeChange, v: (target: string, value: string) => string): Pick<CssDecl, "value" | "comment"> {
   const t = typographyOf(n);
@@ -341,8 +363,23 @@ function collect(input: InspectInput): Decls {
   const vector = isVectorClass(n);
   const parentMode = input.parentStackMode ?? input.parent?.stackMode ?? null;
   const parentAuto = parentMode === "HORIZONTAL" || parentMode === "VERTICAL";
-  const absolute = parentAuto && n.stackPositioning === "ABSOLUTE";
+  const parentGrid = parentMode === "GRID";
+  const absolute = (parentAuto || parentGrid) && n.stackPositioning === "ABSOLUTE";
   const rot = rotationOf(n);
+  const grid = n.stackMode === "GRID";
+  // A container's padding (`ta`): 1 / 2 / 4 values, or the one side that has any alone.
+  const padding = () => {
+    const p = paddingOf(n);
+    const sides = [
+      ["top", p.top, v("STACK_PADDING_TOP", px(p.top))],
+      ["right", p.right, v("STACK_PADDING_RIGHT", px(p.right))],
+      ["bottom", p.bottom, v("STACK_PADDING_BOTTOM", px(p.bottom))],
+      ["left", p.left, v("STACK_PADDING_LEFT", px(p.left))],
+    ] as const;
+    const some = sides.filter(([, value]) => value !== 0);
+    if (some.length === 1) set({ property: `padding-${some[0][0]}`, value: some[0][2] });
+    else set({ property: "padding", value: shorthand(sides[0][2], sides[1][2], sides[2][2], sides[3][2]) });
+  };
 
   set({ property: "box-sizing", value: "border-box" });
 
@@ -384,16 +421,7 @@ function collect(input: InspectInput): Decls {
   if (auto) {
     const horizontal = n.stackMode === "HORIZONTAL";
     set({ property: "display", value: !parentAuto && sizing.width === "Hug" ? "inline-flex" : "flex" });
-    const p = paddingOf(n);
-    const sides = [
-      ["top", p.top, v("STACK_PADDING_TOP", px(p.top))],
-      ["right", p.right, v("STACK_PADDING_RIGHT", px(p.right))],
-      ["bottom", p.bottom, v("STACK_PADDING_BOTTOM", px(p.bottom))],
-      ["left", p.left, v("STACK_PADDING_LEFT", px(p.left))],
-    ] as const;
-    const set_ = sides.filter(([, value]) => value !== 0);
-    if (set_.length === 1) set({ property: `padding-${set_[0][0]}`, value: set_[0][2] });
-    else set({ property: "padding", value: shorthand(sides[0][2], sides[1][2], sides[2][2], sides[3][2]) });
+    padding();
     set({ property: "flex-direction", value: horizontal ? "row" : "column" });
     const justify = JUSTIFY[n.stackPrimaryAlignItems ?? "MIN"] ?? "flex-start";
     set({ property: "justify-content", value: justify });
@@ -411,7 +439,43 @@ function collect(input: InspectInput): Decls {
     else set({ property: "gap", value: horizontal ? `${counter} ${item}` : `${item} ${counter}` });
   }
 
-  if (rot) set({ property: "transform", value: `rotate(${round(-rot, 3)}deg)` });
+  // A grid (`isGrid`): its tracks, gaps, automatic flow, then its padding.
+  if (grid) {
+    const g = n as unknown as GridNode;
+    const hugs = n.stackPrimarySizing !== "FIXED" || n.stackCounterSizing === "RESIZE_TO_FIT" || n.stackCounterSizing === "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE";
+    set({ property: "display", value: hugs ? "inline-grid" : "grid" });
+    set({ property: "grid-template-rows", value: gridTemplate(tracksOf(g, "rows")) });
+    set({ property: "grid-template-columns", value: gridTemplate(tracksOf(g, "columns")) });
+    set({ property: "row-gap", value: v("GRID_ROW_GAP", px(g.gridRowGap ?? 0)) });
+    set({ property: "column-gap", value: v("GRID_COLUMN_GAP", px(g.gridColumnGap ?? 0)) });
+    if (g.gridReflowEnabled) set({ property: "grid-auto-flow", value: "row" });
+    padding();
+  }
+
+  // An item of a grid: its rows and columns — spans alone when the grid places its items — and its own alignment.
+  if (parentGrid && !absolute && input.parent) {
+    const parent = input.parent as unknown as GridNode;
+    const item = n as unknown as { gridRowAnchor?: Track["id"]; gridColumnAnchor?: Track["id"]; gridRowSpan?: number; gridColumnSpan?: number; gridChildHorizontalAlign?: string; gridChildVerticalAlign?: string };
+    const rowSpan = item.gridRowSpan || 1;
+    const columnSpan = item.gridColumnSpan || 1;
+    if (parent.gridReflowEnabled) {
+      set({ property: "grid-row", value: `span ${rowSpan}` });
+      set({ property: "grid-column", value: `span ${columnSpan}` });
+    } else {
+      const index = (axis: "rows" | "columns", id?: Track["id"]) => Math.max(0, tracksOf(parent, axis).findIndex((t) => !!id && t.id.sessionID === id.sessionID && t.id.localID === id.localID));
+      set({ property: "grid-row", value: `${index("rows", item.gridRowAnchor) + 1} / span ${rowSpan}` });
+      set({ property: "grid-column", value: `${index("columns", item.gridColumnAnchor) + 1} / span ${columnSpan}` });
+    }
+    const SELF: Record<string, string> = { AUTO: "auto", MIN: "start", MAX: "end", CENTER: "center" };
+    // Only a layer that doesn't fill (`layoutGrow` 0) aligns itself.
+    if (!n.stackChildPrimaryGrow && item.gridChildHorizontalAlign && item.gridChildHorizontalAlign !== "AUTO") set({ property: "justify-self", value: SELF[item.gridChildHorizontalAlign] ?? "auto" });
+    if (n.stackChildAlignSelf !== "STRETCH" && item.gridChildVerticalAlign && item.gridChildVerticalAlign !== "AUTO") set({ property: "align-self", value: SELF[item.gridChildVerticalAlign] ?? "auto" });
+  }
+
+  // Rotation, then the flip of a mirrored layer (`scaleX(-1)` / `scaleY(-1)`).
+  const turn = rotationAndMirror(n);
+  const transforms = [...(turn.rotate ? [`rotate(${turn.rotate}deg)`] : []), ...(turn.mirror ? [`scale${turn.mirror}(-1)`] : [])];
+  if (transforms.length) set({ property: "transform", value: transforms.join(" ") });
 
   // A text's vertical alignment in a box taller than it, and its truncation.
   if (text) {
@@ -522,11 +586,34 @@ function collect(input: InspectInput): Decls {
     } else if (e.type === "FOREGROUND_BLUR") filters.unshift(blur(e, i));
     else if (e.type === "BACKGROUND_BLUR") backdrop.unshift(blur(e, i));
   });
+  // A vector's effects are in its SVG too (hint 19).
+  const inSvg = vector ? { hint: { id: "effects_in_svg" } as Hint } : {};
   if (textShadows.length) set({ property: "text-shadow", value: textShadows.join(", "), part: "shadow" });
-  if (shadows.length) set({ property: "box-shadow", value: shadows.join(", "), part: "effect" });
-  if (filters.length) set({ property: "filter", value: filters.join(" "), part: "effect" });
+  if (shadows.length) set({ property: "box-shadow", value: shadows.join(", "), part: "effect", ...inSvg });
+  if (filters.length) set({ property: "filter", value: filters.join(" "), part: "effect", ...inSvg });
   if (backdrop.length) set({ property: "backdrop-filter", value: backdrop.join(" "), part: "effect" });
   return out;
+}
+
+/**
+ * The SVG section (atlas 14 §5.3): a vector's markup a tag a line, indented by its nesting — a closing tag one level
+ * out, an opening one that doesn't close itself one level in after it — hint 20 on the first line when the layer or a
+ * parent is rotated or mirrored. Not for a file that blocks exports (the caller leaves `svg` out).
+ */
+export function svgSection(markup: string, transformed: boolean): CodeSection {
+  let depth = 0;
+  const lines = markup
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((code, i) => {
+      const hint: Hint | undefined = i === 0 && transformed ? { id: "transform_included_in_svg" } : undefined;
+      if (code.startsWith("</")) depth = Math.max(0, depth - 1);
+      const line = { code, indent: depth, ...(hint ? { hint } : {}) };
+      if (code.startsWith("<") && !code.startsWith("</") && !code.endsWith("/>") && !/<\/[^>]+>$/.test(code)) depth++;
+      return line;
+    });
+  return { name: "SVG", language: "html", lines, collapseAfterIndex: COLLAPSE_AFTER };
 }
 
 /** A text's runs styled apart from it (§5.3 "6+"): named by their first 10 characters; blank runs and repeats skipped. */
@@ -619,7 +706,9 @@ export function cssSections(input: InspectInput): CodeSection[] {
     { name: "Style", language: "css", lines: groupLines(s.style, styles) },
     ...s.runs.map((r) => ({ name: r.name, language: "css" as const, lines: groupLines(r.decls, styles) })),
   ];
-  return sections.filter((x) => x.lines.length).map((x) => ({ ...x, collapseAfterIndex: COLLAPSE_AFTER }));
+  const out: CodeSection[] = sections.filter((x) => x.lines.length).map((x) => ({ ...x, collapseAfterIndex: COLLAPSE_AFTER }));
+  if (input.svg?.markup && isVectorClass(input.node)) out.push(svgSection(input.svg.markup, input.svg.transformed));
+  return out;
 }
 
 /** One group as Dev Mode prints it. */

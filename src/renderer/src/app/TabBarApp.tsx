@@ -55,6 +55,7 @@ export default function TabBarApp() {
           title: tab.kind === "new-tab" ? t("New tab") : tab.status === "crashed" ? t("{title} — crashed", { title: tab.title }) : tab.status === "unresponsive" ? t("{title} — not responding", { title: tab.title }) : tab.title,
           ...(tab.pinned ? { pinned: true } : {}),
           ...(tab.groupId ? { groupId: tab.groupId } : {}),
+          ...(tab.splitWith ? { splitWith: tab.splitWith } : {}),
         })),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the titles follow the language
     [snapshot, locale]
@@ -81,6 +82,8 @@ export default function TabBarApp() {
     [api]
   );
   const onContextMenu = useCallback((id: string, at: { x: number; y: number }) => api?.tabs.contextMenu(id, at.x, at.y), [api]);
+  // The card under a hovered tab: main's own view under the bar (atlas 01 §2.2).
+  const onHover = useCallback((id: string | null, at: { x: number; keyboard?: boolean }) => api?.tabs.hover(id, at.x, at.keyboard), [api]);
   const onMainMenu = useCallback((at: { x: number; y: number }) => api?.tabs.mainMenu(at.x, at.y), [api]);
   const windows = api?.platform === "win32";
   const onRestart = useCallback(() => api?.updates.restart(), [api]);
@@ -102,6 +105,7 @@ export default function TabBarApp() {
       editingGroup={editingGroup}
       onRenameGroup={onRenameGroup}
       onTabsMenu={api ? onTabsMenu : undefined}
+      onHover={api ? onHover : undefined}
       windows={windows}
       onMainMenu={onMainMenu}
       notice={notice && <TabBarUpdate state={notice} onRestart={onRestart} />}

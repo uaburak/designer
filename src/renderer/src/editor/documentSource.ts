@@ -210,6 +210,8 @@ export interface VersionInfo {
   title: string | null;
   description: string | null;
   createdAt: number;
+  /** The accounts whose changes it holds ("Only yours"); absent: not recorded */
+  editors?: string[];
 }
 
 /** What the editor knows about a change besides its Message. */

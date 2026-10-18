@@ -17,6 +17,7 @@ import { attachViewerCanvas } from "../../../viewer/ViewerCanvas";
 import { ViewerDoc } from "../../../viewer/viewerDoc";
 import type { BranchRecord } from "../../../shared/merge/branches";
 import { openFile } from "../files/desktop";
+import { useAccount } from "../files/account";
 import { backendOf } from "./branching/access";
 import { refreshBranch } from "./branching/state";
 import { useEditor, type EditorController } from "./controller";
@@ -123,9 +124,10 @@ export function VersionHistoryPanel() {
     if (!isBranchingVersion(v) && ed.source.updateVersion) ed.ui.set({ savepoint: { version: v } });
   };
 
-  const filter = { showAutosaves };
-  // Only yours keeps every version: a file's history doesn't record its editors yet (one author locally; Phase 6's
-  // server will name them), so every version is yours.
+  // Only yours: the versions that record this account among their editors — and those made before versions recorded
+  // them (or signed out), which can only be this person's on a local file.
+  const me = useAccount().state?.user?.id ?? null;
+  const filter = { showAutosaves, ...(onlyYours ? { onlyYours: me } : {}) };
   const all = versions ?? [];
   const rows = historyRows(all, filter, opened, selected, shown);
   const order = steppable(all, filter, shown);

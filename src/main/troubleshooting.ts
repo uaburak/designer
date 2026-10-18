@@ -11,8 +11,9 @@ import { controllers } from "./window";
  *   again with the engine's `?force-webgl2=1` / `?force-webgpu=1` (engine/gfx.ts), and new ones open with it. Figma's
  *   WebGL1 isn't offered: this renderer has no WebGL1 path.
  * - Reload All Tabs.
- * Not here: Save Debug Info / Network Log / Performance Log, Reset and Restart (it would wipe local data that, unlike
- * Figma's, includes the workspace's own files), Prefer High-Performance GPU (Windows only).
+ * The logs (Save Debug Info…, Save Network Log…, Save Performance Log…) are diagnostics.ts's. Not here: Reset and
+ * Restart (it would wipe local data that, unlike Figma's, includes the workspace's own files), Prefer High-Performance
+ * GPU (Windows only).
  */
 
 export type GraphicsBackend = "default" | "webgl2" | "webgpu";

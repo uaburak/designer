@@ -8,6 +8,7 @@ export const ds: Record<string, string> = {
   "No results": "Sonuç yok",
   Untitled: "Adsız",
   Home: "Ana sayfa",
+  "Split tab group: {tab1}, {tab2}": "Bölünmüş sekme grubu: {tab1}, {tab2}",
   "New design file": "Yeni tasarım dosyası",
   "Main menu": "Ana menü",
   Collapse: "Daralt",
@@ -42,6 +43,14 @@ export const ds: Record<string, string> = {
   "last month": "geçen ay",
   "last year": "geçen yıl",
   "Edited {time}": "{time} düzenlendi",
+  // The tab preview card (app/TabPreviewApp.tsx, atlas 01 §2.2)
+  "{n} second ago": "{n} saniye önce",
+  "{n} seconds ago": "{n} saniye önce",
+  "Last viewed {time}": "Son görüntüleme {time}",
+  "Memory usage: {memory}MB": "Bellek kullanımı: {memory} MB",
+  "Memory usage: {memory}GB": "Bellek kullanımı: {memory} GB",
+  "Offloaded tab: {memory}MB freed up": "Boşaltılan sekme: {memory} MB serbest bırakıldı",
+  "Offloaded tab: {memory}GB freed up": "Boşaltılan sekme: {memory} GB serbest bırakıldı",
 
   // ---- Paint types, blend modes (ds/util/paint.ts)
   Solid: "Düz",

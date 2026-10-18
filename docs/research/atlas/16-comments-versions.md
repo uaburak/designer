@@ -715,6 +715,13 @@ share file" and the server side of files and rich text in shared files (Phase 6)
 layer); the merge-request lifecycle (one open request per branch is the server's); low-memory gates (no memory model
 yet); Dev Mode's `savepoint-compare`.
 
+**Sweep (2026-10-18)** — branch `worktree-agent-a44e0af86efbcac0b`.
+
+- **Pending comments (§2.1, §2.3):** a new comment or a reply shows at once, before the store (or a shared file's server) answers — the composer closes, the thread or reply is there with "In a moment" for its time (`comments.in_a_moment`; the English is ours from the key), its pin shows a spinner only after 500 ms (`PENDING_DELAY_MS`); the store's answer replaces it; a failed write takes it away and gives the new comment back to its composer with its text (`commentsController.ts` `pendingComment` / `withPending`; `Comment.pending` is never kept). Edits, resolves, reactions and moves still wait for the store (they take milliseconds locally).
+- **"Only yours" (§3.3):** versions record their editors (`VersionRecord.editors`, the account signed in when the version is made); Only yours keeps the versions that name this account and — **data safety** — every version made before they were recorded (or signed out), which on a local file can only be this person's. Nothing is migrated or rewritten.
+
+**Still not done:** region comments (Q: where the pin sits on the box); the server side of attachments and rich text, "Post comment and share file" and the merge-request lifecycle (requests, reviewers, approvals are the server's — Phase 6); a shared file's version editors (the server's); low-memory gates; Dev Mode's `savepoint-compare`.
+
 ## 8. Open questions
 
 | Question | Live probe that settles it |

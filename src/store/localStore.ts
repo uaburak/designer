@@ -696,7 +696,7 @@ export class LocalStore {
       const compactor = opts.compactor ?? inlineCompactor;
       // A branch at the end of its GUID block asks its main file for the next (docs/data.md §15.2).
       const late: { store: LocalStore | null } = { store: null };
-      const files = new FileStore({ dirs, workspace: ws, schemas, hlc, clock, deviceOrdinal, compactor, log, timers, nextSessionBlock: (k) => late.store?.branches.nextSessionBlock(k) ?? Promise.resolve(null) });
+      const files = new FileStore({ dirs, workspace: ws, schemas, hlc, clock, deviceOrdinal, compactor, log, timers, nextSessionBlock: (k) => late.store?.branches.nextSessionBlock(k) ?? Promise.resolve(null), editor: () => late.store?.multiplayer.userId ?? null });
       const libraries = new LocalLibraries({ dirs, workspace: ws, files, blobs, hlc, clock, log });
       await libraries.load();
       ws.sizeOf = (k) => files.cachedSize(k);

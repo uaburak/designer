@@ -87,6 +87,7 @@ export const collab: Record<string, string> = {
   "{users} reacted with [\"{emoji}\"], clicking will add your reaction": "{users} [\"{emoji}\"] ile tepki verdi, tıklarsanız tepkiniz eklenir",
   "You will be notified about replies": "Yanıtlardan haberdar edileceksiniz",
   "Comment resolved": "Yorum çözümlendi",
+  "In a moment": "Birazdan",
   "Undo": "Geri al",
   "Copied link to clipboard": "Bağlantı panoya kopyalandı",
   "Couldn't save the comment": "Yorum kaydedilemedi",

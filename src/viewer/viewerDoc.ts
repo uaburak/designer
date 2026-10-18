@@ -260,7 +260,7 @@ export class ViewerDoc {
     const node = this.engine.readNode(id);
     if (!node) return null;
     const parent = this.parentOf(id);
-    const parentNode = parent ? this.engine.readNode(parent, { fields: ["type", "name", "size", "stackMode", "stackPrimarySizing"] }) : null;
+    const parentNode = parent ? this.engine.readNode(parent, { fields: ["type", "name", "size", "stackMode", "stackPrimarySizing", "gridRows", "gridColumns", "gridReflowEnabled"] }) : null;
     const parentStackMode = parentNode?.stackMode ?? null;
     // A wrapping auto layout writes `align-content` unless every child fills its counter axis (atlas 14 §5.4).
     const kids = node.stackWrap === "WRAP" ? ((this.engine.readNode(id, { fields: ["type"], childIds: true }) as { childIds?: Guid[] } | null)?.childIds ?? []) : [];

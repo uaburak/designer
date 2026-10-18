@@ -370,9 +370,10 @@ void Editor::write(const NodeChange& change) {
   if (userEdit && txn_.kind == TxnKind::USER && c->phase == Phase::CHANGED && (c->mask & (F_SIZE | F_TRANSFORM))) userGeometry_.insert(c->guid);
   NodeType typeBefore = existing ? existing->props.type : NodeType::NONE;
   Guid parentBefore = existing ? existing->props.parentIndex.guid : kNoGuid;
-  bool record = txn_.open && (txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE);
+  // An ignore-undo scope keeps the write out of every history (openIgnoreUndo).
+  bool record = txn_.open && (txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE) && ignoreUndo_ == 0;
   // An undo / redo's own writes (layout, groups, bindings after the replay) keep their inverses for its batch.
-  bool replayWrite = txn_.open && (txn_.kind == TxnKind::UNDO || txn_.kind == TxnKind::REDO);
+  bool replayWrite = txn_.open && (txn_.kind == TxnKind::UNDO || txn_.kind == TxnKind::REDO) && ignoreUndo_ == 0;
   // An instance's bindings as they were (its root override records only what changed).
   std::vector<ParamBinding> mapBefore;
   bool rootOverride = userEdit && c->phase == Phase::CHANGED && typeBefore == NodeType::INSTANCE;
@@ -526,6 +527,8 @@ void Editor::commit(bool mergeWithLast) {
     bool userStack = undoTo_ == 0;
     size_t before = stack.undoCount();
     bool join = txn_.run && txn_.join && userStack && runMark_ != SIZE_MAX && runMark_ == before && !stack.canRedo() && stack.undoLabel() == txn_.label;
+    // The user's step remembers the vector edit mode it was made in (undo goes back into it).
+    if (userStack) stack.noteEditVector(vector_.node);
     stack.commit(selection_, mergeWithLast || join, &doc_);
     if (userStack && txn_.run) {
       bool made = stack.undoCount() != before || join;
@@ -1665,10 +1668,13 @@ bool Editor::undoStep(bool redo) {
   // One press always does something the user can see (Figma: "%d batch(es) would be skipped before applying one"):
   // a batch with no visible effect — only hidden layers' values, values equal to the current ones, or nothing left
   // after the dangling-reference filter — is applied, and the next one follows in the same press.
+  // The vector edit mode the step that did something was made in (Figma's update-edit-mode-for-undo).
+  Guid editIn = kNoGuid;
   for (;;) {
     std::string label = redo ? undo_.redoLabel() : undo_.undoLabel();
     // The batch's own pages, as it noted them when made (Message.undoBatchPageIds 46), win over the replay's.
     std::vector<Guid> stored = redo ? undo_.redoBatches().back().pageIds : undo_.undoBatches().back().pageIds;
+    Guid batchEdit = redo ? undo_.redoBatches().back().editVector : undo_.undoBatches().back().editVector;
     ReplayInfo info;
     batchPages.clear();
     auto applied = redo ? undo_.redo(doc_, sel, &txn_.changes, &info) : undo_.undo(doc_, sel, &txn_.changes, &info);
@@ -1691,6 +1697,7 @@ bool Editor::undoStep(bool redo) {
     if (info.visible) {
       txn_.label = label;  // the step is named by the batch that did something
       touchedPages = batchPages;
+      editIn = batchEdit;
       break;
     }
     for (Guid page : batchPages)
@@ -1712,6 +1719,8 @@ bool Editor::undoStep(bool redo) {
   changeSelection(sel);
   pruneSelection();
   if (vector_.node != kNoGuid) reloadVector();
+  // A step made in vector edit mode takes the editor back into it on its layer (left since, or another layer's).
+  if (editIn != kNoGuid && vector_.node != editIn && text_.node == kNoGuid && doc_.has(editIn) && doc_.pageOf(editIn) == page_) startVectorEdit(editIn);
   if (paint_.node != kNoGuid && !paintSessionLive()) endPaintEdit();
   return true;
 }

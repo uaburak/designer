@@ -27,14 +27,22 @@ export type HistoryRow = { type: "version"; version: VersionInfo } | { type: "gr
 export interface HistoryFilter {
   /** "Show autosave versions" (on by default) */
   showAutosaves: boolean;
+  /** "Only yours": the versions this account edited (its id) — those that don't record their editors kept */
+  onlyYours?: string | null;
 }
+
+/** Whether "Only yours" keeps a version: it records this account among its editors, or records none. */
+export const isYours = (v: VersionInfo, me: string | null | undefined) => !me || !v.editors?.length || v.editors.includes(me);
 
 /**
  * The panel's rows: the first `shown` versions, newest first, autosaves hidden or — two or more in a row — folded into a
  * group, open when the user opened it, when it holds the selected version, or while no named version exists at all.
  */
 export function historyRows(versions: VersionInfo[], filter: HistoryFilter, opened: ReadonlySet<string>, selected: string | null, shown = VERSIONS_PAGE): HistoryRow[] {
-  const list = [...versions].sort((a, b) => b.createdAt - a.createdAt).slice(0, shown);
+  const list = [...versions]
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, shown)
+    .filter((v) => filter.onlyYours === undefined || isYours(v, filter.onlyYours));
   const anyNamed = list.some((v) => !isAutosave(v));
   const rows: HistoryRow[] = [];
   let run: VersionInfo[] = [];
@@ -63,7 +71,7 @@ export function steppable(versions: VersionInfo[], filter: HistoryFilter, shown 
   return [...versions]
     .sort((a, b) => b.createdAt - a.createdAt)
     .slice(0, shown)
-    .filter((v) => filter.showAutosaves || !isAutosave(v));
+    .filter((v) => (filter.showAutosaves || !isAutosave(v)) && (filter.onlyYours === undefined || isYours(v, filter.onlyYours)));
 }
 
 /** A row's time: "3:41 PM" today, "Oct 12, 3:41 PM" this year, "Oct 12, 2025, 3:41 PM" before */

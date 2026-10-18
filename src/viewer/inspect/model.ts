@@ -27,6 +27,8 @@ export interface InspectInput {
   variables?: Readonly<Record<string, BoundName>>;
   /** Style names by kind */
   styles?: { fill?: string; stroke?: string; text?: string; effect?: string };
+  /** A vector's SVG markup for CSS's SVG section (atlas 14 §5.3), and whether it or a parent is rotated or mirrored */
+  svg?: { markup: string; transformed: boolean } | null;
 }
 
 // ---- Numbers and colours -------------------------------------------------------------------------------------
@@ -130,6 +132,26 @@ export const visiblePaints = (paints: readonly Paint[] | undefined): Paint[] => 
 export const visibleEffects = (effects: readonly Effect[] | undefined): Effect[] => (effects ?? []).filter((e) => e.visible !== false);
 
 /** Rotation in degrees as Figma shows it (counter-clockwise positive). */
+/** Mirrored: the transform flips the layer (its determinant is negative). */
+export const isMirrored = (node: NodeChange): boolean => {
+  const t = node.transform;
+  return !!t && t.m00 * t.m11 - t.m01 * t.m10 < 0;
+};
+
+/**
+ * CSS's 2D transform (atlas 14 §5.1, Figma's `rotationAndMirror`): the rotation, and for a mirrored layer the flip
+ * that leaves the smaller story — `scaleY(-1)` when the layer flipped on its own Y needs no rotation, else the rotation
+ * without the X flip and `scaleX(-1)`. Degrees as CSS's `rotate()` takes them (3 decimals).
+ */
+export function rotationAndMirror(node: NodeChange): { rotate: number; mirror?: "X" | "Y" } {
+  const t = node.transform;
+  if (!t) return { rotate: 0 };
+  const deg = (y: number, x: number) => Number(round((Math.atan2(y, x) * 180) / Math.PI, 3)) || 0;
+  if (!isMirrored(node)) return { rotate: deg(t.m10, t.m00) };
+  const withoutY = deg(t.m10, t.m00);
+  return withoutY === 0 ? { rotate: 0, mirror: "Y" } : { rotate: deg(-t.m10, -t.m00), mirror: "X" };
+}
+
 export function rotationOf(node: NodeChange): number {
   const t = node.transform;
   if (!t) return 0;

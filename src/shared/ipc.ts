@@ -69,6 +69,25 @@ export interface TabInfo {
   status: TabStatus;
   pinned?: boolean;
   groupId?: string;
+  /** A split tab (atlas 01 §2.3): the tab shown beside it */
+  splitWith?: string;
+}
+
+/**
+ * The card under a hovered tab (atlas 01 §2.2), drawn by the window's preview view (`?tabpreview`): the file's
+ * thumbnail, its name, when it was edited (or last viewed) and its memory — or what offloading it freed.
+ */
+export interface TabPreview {
+  tabId: string;
+  title: string;
+  kind: "design" | "prototype";
+  /** The thumbnail's address (app://designer/_thumb/…), when the file has one */
+  image: string | null;
+  time: { kind: "edited" | "viewed"; at: number } | null;
+  /** Its renderer's working set, or what offloading it freed, in MB */
+  memory: { kind: "usage" | "freed"; mb: number } | null;
+  /** Shown at once (the bar has keyboard focus, or a card was showing already) instead of after the hover delay */
+  immediate: boolean;
 }
 
 export interface TabsSnapshot {
@@ -514,6 +533,8 @@ export interface IpcSend {
   "tabs:group-rename": { groupId: string; name: string };
   /** The tabs menu at the bar's right end ("Open and recently closed tabs"), popped up at (x, y) */
   "tabs:list-menu": { x: number; y: number };
+  /** The pointer (or the keyboard's focus) on a tab: its preview card under the bar from x; null: none */
+  "tabs:hover": { tabId: string | null; x: number; keyboard?: boolean };
   /** "Check for Updates…" from the tab bar (docs/desktop.md §12.6) */
   "updater:check": void;
   /** "Restart to update": the app's normal quit (every file flushed, the store shut down), then the update installs and the app opens again */
@@ -539,6 +560,8 @@ export interface IpcEvents {
   "tabs:state": TabsSnapshot;
   /** To the tab bar: Edit group name was chosen — the group's name becomes a field */
   "tabs:edit-group": { groupId: string };
+  /** To the window's tab preview view: the card to draw, or none */
+  "tabs:preview": TabPreview | null;
   /** To the tab bar: the updater's state changed (docs/desktop.md §12.6) */
   "updater:state": UpdaterStatus;
   "window:state": WindowState;
@@ -703,6 +726,7 @@ export const SEND_ROLES: { [C in keyof IpcSend]: readonly Role[] } = {
   "tabs:group-menu": ["tabbar"],
   "tabs:group-rename": ["tabbar"],
   "tabs:list-menu": ["tabbar"],
+  "tabs:hover": ["tabbar"],
   "updater:check": ["tabbar"],
   "updater:restart": ["tabbar"],
   "nav:go-home": ["editor"],

@@ -132,6 +132,8 @@ export const tools: Record<string, string> = {
   "No layers need renaming": "Yeniden adlandırılması gereken katman yok",
   "Rename anyway": "Yine de yeniden adlandır",
   "This image already has the highest resolution for its size.": "Bu görsel, boyutu için zaten en yüksek çözünürlükte.",
+  "This layer is too large to vectorize.": "Bu katman vektörleştirmek için çok büyük.",
+  "This layer is too small to vectorize.": "Bu katman vektörleştirmek için çok küçük.",
   "This image is too large to boost. Its sides can be up to {n} px.": "Bu görsel çözünürlüğü artırmak için çok büyük. Kenarları en fazla {n} px olabilir.",
   "This image is too small to boost. Its sides need to be at least {n} px.": "Bu görsel çözünürlüğü artırmak için çok küçük. Kenarları en az {n} px olmalı.",
   "Isolate doesn't work on instances. Detach the instance first.": "Ayır, örneklerde çalışmaz. Önce örneği ayırın.",

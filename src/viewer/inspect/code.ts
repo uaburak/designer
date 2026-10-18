@@ -23,6 +23,8 @@ export type HintId =
   | "compose_separate_border_width"
   | "compose_shadow_incompatibility"
   | "compose_blur_tip"
+  | "effects_in_svg"
+  | "transform_included_in_svg"
   | "swift_ui_background_blur";
 
 export interface Hint {
@@ -73,8 +75,29 @@ export const HINT_TEXT: Record<HintId, string> = {
   compose_separate_border_width: "Compose can't set a border width per side, so the widest is used",
   compose_shadow_incompatibility: "Compose shadows are drawn from an elevation, so they won't match exactly",
   compose_blur_tip: "Modifier.blur works on Android 12 and later",
+  effects_in_svg: "These effects are also in the layer's SVG",
+  transform_included_in_svg: "The SVG includes this layer's rotation and mirroring",
   swift_ui_background_blur: "SwiftUI has no background blur, so the layer is blurred",
 };
+
+/**
+ * A line's bound variables, for the panel's pills (atlas 14 §4.2: Figma wraps them in markers for the code panel and
+ * strips them from copies): CSS's `--name` inside `var(…)` — of a code syntax too, only the `--name` —, SwiftUI's
+ * `Constants.<id>`, Compose's `Variables.<id>`. Each part of the line, a variable's marked; the text is the line's.
+ */
+export function variableParts(code: string, language: CodeHighlight): { text: string; variable?: true }[] {
+  const pattern = language === "css" ? /(?<=var\()--[A-Za-z0-9_-]+/g : language === "swift" ? /\bConstants\.[A-Za-z_][A-Za-z0-9_]*/g : language === "kotlin" ? /\bVariables\.[A-Za-z_][A-Za-z0-9_]*/g : null;
+  if (!pattern) return [{ text: code }];
+  const parts: { text: string; variable?: true }[] = [];
+  let at = 0;
+  for (const m of code.matchAll(pattern)) {
+    if (m.index > at) parts.push({ text: code.slice(at, m.index) });
+    parts.push({ text: m[0], variable: true });
+    at = m.index + m[0].length;
+  }
+  if (at < code.length || !parts.length) parts.push({ text: code.slice(at) });
+  return parts;
+}
 
 /** One line as copied: its indent as spaces. */
 export const lineText = (l: CodeLine) => `${"  ".repeat(l.indent)}${l.code}`;

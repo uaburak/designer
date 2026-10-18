@@ -17,7 +17,7 @@ vi.mock("./updater", () => ({
   checkForUpdates: () => updater.checks++,
   restartToUpdate: () => updater.restarts++,
 }));
-const { appMenu, enabledSignedOut, menuSignedOut, setMenuSignedOut } = await import("./menu");
+const { appMenu, enabledSignedOut, menuDefault, menuSignedOut, setMenuSignedOut } = await import("./menu");
 
 const platform = process.platform;
 afterEach(() => Object.defineProperty(process, "platform", { value: platform }));
@@ -100,5 +100,25 @@ describe("signed out (docs/desktop.md §18.6)", () => {
     expect(menuSignedOut()).toBe(false);
     const file = fileMenu(menu("darwin", { enabled: false }));
     expect(byId(file, "file.new")?.enabled).toBe(true);
+  });
+});
+
+describe("the menu bar's keys from Figma's table (Atlas 03 §6)", () => {
+  it("shows the table's first binding for the platform, what menus show when it says", () => {
+    expect(menuDefault("view.zoom-in", true)).toBe("Cmd+Plus");
+    expect(menuDefault("edit.redo", true)).toBe("Shift+Cmd+Z");
+    expect(menuDefault("edit.redo", false)).toBe("Ctrl+Y");
+    expect(menuDefault("arrange.distribute-vertical", true)).toBe("Ctrl+Alt+V");
+    expect(menuDefault("object.bring-to-front", true)).toBe("]");
+    // Not one of Figma's actions: the registry's.
+    expect(menuDefault("help.open-data-folder", true)).toBeUndefined();
+  });
+
+  it("has New window, the hidden tab keys and Recently closed tabs", () => {
+    const file = sub(menu("darwin", null).find((m) => m.label === "File"));
+    expect(file.find((m) => m.id === "file.new-window")?.accelerator).toBe("CmdOrCtrl+Shift+N");
+    expect(file.find((m) => m.label === "Recently closed tabs")?.enabled).toBe(false);
+    const win = sub(menu("darwin", null).find((m) => m.label === "Window"));
+    expect(win.find((m) => m.id === "window.next-tab-alt")).toMatchObject({ visible: false, acceleratorWorksWhenHidden: true, accelerator: "CmdOrCtrl+}" });
   });
 });

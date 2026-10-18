@@ -24,7 +24,7 @@ import { pluginDesktop } from "../plugins/desktop";
 import { pluginRows, suggestionsOf, type PluginRow, type Suggestion } from "../plugins/actions";
 import type { PluginRun } from "../plugins/host";
 import { allTabEmptyNote, takeRequestedTab } from "./actionsTab";
-import { frecencyOf, loadFrecency, matchScore, popularity, rankScore, rememberRun, type FrecencyHistory } from "./actionsRank";
+import { frecencyOf, loadFrecency, matchScore, popularity, rankScore, rememberRun, synonymsOf, type FrecencyHistory } from "./actionsRank";
 import { commandForKey } from "../commands";
 import { pref } from "../preferences";
 import { useEditor, type EditorController } from "../controller";
@@ -144,7 +144,7 @@ export function actionRows(items: readonly ActionItem[], query: string, recents:
   const scored = items
     .map((a) => {
       const label = t(a.label);
-      const match = matchScore(label, q, label === a.label ? [] : [a.label]);
+      const match = matchScore(label, q, [...(label === a.label ? [] : [a.label]), ...synonymsOf(a.id)]);
       return { a, match, s: rankScore({ match, enabled: !a.disabled, frecency: frecencyOf(history, a.label, now), ai: isAi(a.id) }) };
     })
     .filter((x) => x.match > 0);

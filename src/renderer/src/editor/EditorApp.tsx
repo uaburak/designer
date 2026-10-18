@@ -83,6 +83,7 @@ import { ExportDialog } from "./ExportDialog";
 import { FigmaImagesHost } from "../figma/FigmaImagesHost";
 import { VisualSearchHost } from "./search";
 import { LinkEditor } from "./canvas/LinkEditor";
+import { ScreenReaderMirror } from "./canvas/ScreenReaderMirror";
 import { PresentationView } from "@/present/PresentationView";
 import { editorPresentationSource } from "./present";
 import { ShareDialog } from "./ShareDialog";
@@ -448,9 +449,11 @@ export function CanvasLayers() {
   const hidden = useUI((s) => s.uiHidden);
   const dev = useUI((s) => s.mode === "dev");
   const social = useUI((s) => s.mode === "social");
-  if (hidden) return null;
+  // The screen reader's mirror of the canvas stays with the UI hidden too.
+  if (hidden) return <ScreenReaderMirror />;
   return (
     <>
+      <ScreenReaderMirror />
       {social && <SafeAreaOverlay />}
       {social && <ReviewPins />}
       <AgentImagePlaceholders />

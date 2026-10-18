@@ -352,6 +352,8 @@ describe("each tool is one undo step", () => {
     expect(px(mask, 25, 5)[3]).toBe(255);
     const after = s.engine.readNode("1:5")!;
     expect(after.size).toEqual({ x: 340, y: 170 });
+    // Figma's STRETCH (Crop) paint, fitted to the grown layer.
+    expect(s.target().paint.imageScaleMode).toBe("STRETCH");
     expect(after.transform!.m02).toBe(before.transform!.m02 - 20);
     expect(after.transform!.m12).toBe(before.transform!.m12);
     const out = s.pixels.get(s.target().hash)!;

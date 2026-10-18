@@ -40,6 +40,11 @@ export const shared: Record<string, string> = {
   "Use System Setting": "Sistem Ayarını Kullan",
 
   "New design file": "Yeni tasarım dosyası",
+  "New window": "Yeni pencere",
+  "Save Debug Info…": "Hata Ayıklama Bilgisini Kaydet…",
+  "Save Network Log…": "Ağ Günlüğünü Kaydet…",
+  "Save Performance Log…": "Performans Günlüğünü Kaydet…",
+  "Stop Performance Logging…": "Performans Günlüğünü Durdur…",
   "New tab": "Yeni sekme",
   "Open file browser": "Dosya tarayıcısını aç",
   "Import…": "İçe aktar…",

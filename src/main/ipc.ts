@@ -124,7 +124,12 @@ const folderOf = (v: unknown) => (v === null || v === undefined ? null : str(v, 
 export function registerIpc() {
   // ── Init and window ──
   onInvoke("desktop:init", ({ info }) => ({ version: app.getVersion(), platform: process.platform, role: info.role, tabId: info.tabId, fileKey: info.fileKey, windowId: info.windowId, theme: themeState() }));
-  onSend("shell:ready", ({ info, ctl }) => (info.role === "welcome" ? welcomeReady() : ctl.markReady(info.role === "tabbar" ? "tabbar" : "content")));
+  onSend("shell:ready", ({ info, ctl, sender }) => {
+    if (info.role === "welcome") return welcomeReady();
+    // The tab preview card's page (a tab bar page of its own): ready for the card.
+    if (info.role === "tabbar" && sender !== ctl.tabbar.webContents) return ctl.preview.pageReady(sender);
+    ctl.markReady(info.role === "tabbar" ? "tabbar" : "content");
+  });
 
   // ── Tabs ──
   onInvoke("tabs:get", ({ ctl }) => ctl.tabs.snapshot());
@@ -160,6 +165,12 @@ export function registerIpc() {
   });
   onSend("tabs:list-menu", ({ ctl }, p) => {
     if (typeof p?.x === "number" && typeof p.y === "number") ctl.tabs.listMenu(p.x, p.y);
+  });
+  // Only the bar's own view hovers (the preview view is a tab bar page too).
+  onSend("tabs:hover", ({ ctl, sender }, p) => {
+    if (sender !== ctl.tabbar.webContents || typeof p?.x !== "number" || !Number.isFinite(p.x)) return;
+    const id = p.tabId === null ? null : str(p.tabId, 64);
+    void ctl.preview.hover(id || null, p.x, p.keyboard === true);
   });
 
   // ── Updates (docs/desktop.md §12.6): the tab bar's pill and a manual check's progress ──

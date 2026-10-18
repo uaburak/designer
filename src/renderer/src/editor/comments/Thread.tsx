@@ -193,7 +193,7 @@ function CommentRow({ c, comment, me, people, editing, onStopEditing, onMenu }: 
         <div className={styles.commentHead}>
           <span className={styles.commentName}>{comment.user.name}</span>
           <time className={styles.commentTime} dateTime={new Date(comment.createdAt).toISOString()} title={fullDate(comment.createdAt)} aria-label={fullDate(comment.createdAt)}>
-            {sinceCap(comment.createdAt)}
+            {comment.pending ? t("In a moment") : sinceCap(comment.createdAt)}
           </time>
           <span className={styles.grow} />
           {onMenu && (

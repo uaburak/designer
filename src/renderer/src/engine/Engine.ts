@@ -1367,6 +1367,19 @@ export class Engine {
     return this.x.result();
   }
 
+  /**
+   * `fn`'s writes kept out of every undo history (Figma's openIgnoreUndoRedoScope): system bookkeeping that must not
+   * become, or join, a step. Its writes still reach the document and its listeners as usual.
+   */
+  ignoringUndo<T>(fn: () => T): T {
+    this.x.ignoreUndo(this.h, 1);
+    try {
+      return fn();
+    } finally {
+      this.x.ignoreUndo(this.h, 0);
+    }
+  }
+
   /** Takes an exported history back into this document (the one it came from); false on bad bytes. */
   importUndoHistory(history: Uint8Array): boolean {
     return this.after(this.x.undoImport(this.h, history)) === Status.OK;

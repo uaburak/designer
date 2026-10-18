@@ -20,6 +20,8 @@ const api: TabBarApi = {
     renameGroup: (groupId, name) => send("tabs:group-rename", { groupId: String(groupId), name: String(name) }),
     listMenu: (x, y) => send("tabs:list-menu", { x: Number(x), y: Number(y) }),
     onEditGroup: (cb) => on("tabs:edit-group", cb),
+    hover: (tabId, x, keyboard) => send("tabs:hover", { tabId: tabId === null ? null : String(tabId), x: Number(x), keyboard: Boolean(keyboard) }),
+    onPreview: (cb) => on("tabs:preview", cb),
   },
   updates: {
     get: () => invoke("updater:get"),

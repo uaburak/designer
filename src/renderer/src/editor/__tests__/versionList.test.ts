@@ -35,4 +35,17 @@ describe("version history", () => {
     expect(link).toBe("http://localhost/?editor=&file=f1&version-id=v_9");
     expect(linkedVersion(new URL(link).search)).toBe("v_9");
   });
+
+  it("Only yours keeps the versions this account edited, and those that record no editors", () => {
+    const mine = { ...v("a", 4, "named", "Mine"), editors: ["u1"] };
+    const theirs = { ...v("b", 3, "named", "Theirs"), editors: ["u2"] };
+    const both = { ...v("c", 2, "named", "Both"), editors: ["u2", "u1"] };
+    const old = v("d", 1, "named", "Before editors were recorded");
+    const all = [mine, theirs, both, old];
+    expect(shape(historyRows(all, { showAutosaves: true, onlyYours: "u1" }, new Set(), null))).toEqual(["a", "c", "d"]);
+    expect(steppable(all, { showAutosaves: true, onlyYours: "u1" }).map((x) => x.id)).toEqual(["a", "c", "d"]);
+    // Signed out: nobody to filter by.
+    expect(shape(historyRows(all, { showAutosaves: true, onlyYours: null }, new Set(), null))).toEqual(["a", "b", "c", "d"]);
+    expect(shape(historyRows(all, { showAutosaves: true }, new Set(), null))).toEqual(["a", "b", "c", "d"]);
+  });
 });

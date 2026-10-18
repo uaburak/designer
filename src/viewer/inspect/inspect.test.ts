@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Color, NodeChange } from "@/engine/codec";
-import { sectionText } from "./code";
+import { sectionText, variableParts } from "./code";
 import { codeSections } from "./codegen";
 import { aspectRatio, cssSections, cssSnippet, cssText } from "./css";
 import { redlines } from "./measure";
@@ -334,5 +334,87 @@ describe("measurements", () => {
     const lines = redlines(s, { x: 300, y: 300, width: 10, height: 10 });
     expect(lines.filter((l) => !l.guide).map((l) => l.value)).toEqual([100, 150]);
     expect(lines.some((l) => l.guide)).toBe(true);
+  });
+});
+
+describe("Dev Mode CSS: transforms, grids, the SVG section (atlas 14 §5.1, §5.3, §5.4)", () => {
+  const box = (transform: NodeChange["transform"], extra: Partial<NodeChange> = {}): NodeChange => ({ guid: "2:1", type: "RECTANGLE", name: "Box", size: { x: 10, y: 10 }, transform, ...extra });
+  const lines = (input: Parameters<typeof cssSections>[0]) => cssSections(input).flatMap((s) => s.lines.map((l) => l.code));
+  const transform = (input: Parameters<typeof cssSections>[0]) => lines(input).find((c) => c.startsWith("transform:"));
+  const c = Math.SQRT1_2;
+
+  it("writes a mirror after the rotation, as Figma's rotationAndMirror picks it", () => {
+    expect(transform({ node: box({ m00: c, m01: -c, m02: 0, m10: c, m11: c, m12: 0 }) })).toBe("transform: rotate(45deg);");
+    // Flipped vertically: no rotation beside scaleY(-1).
+    expect(transform({ node: box({ m00: 1, m01: 0, m02: 0, m10: 0, m11: -1, m12: 10 }) })).toBe("transform: scaleY(-1);");
+    // Flipped horizontally: the rotation without the X flip (none), then scaleX(-1).
+    expect(transform({ node: box({ m00: -1, m01: 0, m02: 10, m10: 0, m11: 1, m12: 0 }) })).toBe("transform: scaleX(-1);");
+    // Rotated 45° and flipped horizontally.
+    expect(transform({ node: box({ m00: -c, m01: -c, m02: 0, m10: -c, m11: c, m12: 0 }) })).toBe("transform: rotate(45deg) scaleX(-1);");
+  });
+
+  const track = (localID: number, position: string, type: "FLEX" | "FIXED" | "HUG", value = 1) => ({
+    list: { id: { sessionID: 1, localID }, position },
+    sizing: { id: { sessionID: 1, localID }, trackSize: { minSizing: { type, value }, maxSizing: { type, value } } },
+  });
+  const rows = [track(1, "a", "FLEX"), track(2, "b", "FLEX")];
+  const columns = [track(3, "a", "FIXED", 120), track(4, "b", "FLEX", 2), track(5, "c", "HUG")];
+  const grid = {
+    guid: "3:1",
+    type: "FRAME",
+    name: "Grid",
+    size: { x: 400, y: 300 },
+    stackMode: "GRID",
+    stackPrimarySizing: "FIXED",
+    stackCounterSizing: "FIXED",
+    gridRows: { entries: rows.map((t) => t.list) },
+    gridRowsSizing: { entries: rows.map((t) => t.sizing) },
+    gridColumns: { entries: columns.map((t) => t.list) },
+    gridColumnsSizing: { entries: columns.map((t) => t.sizing) },
+    gridRowGap: 8,
+    gridColumnGap: 16,
+    stackHorizontalPadding: 12,
+    stackVerticalPadding: 12,
+    stackPaddingRight: 12,
+    stackPaddingBottom: 12,
+  } as unknown as NodeChange;
+
+  it("writes a grid's tracks, gaps and padding, and its items' places", () => {
+    expect(lines({ node: grid })).toEqual(["display: grid;", "width: 400px;", "height: 300px;", "padding: 12px;", "row-gap: 8px;", "column-gap: 16px;", "grid-template-rows: repeat(2,minmax(0,1fr));", "grid-template-columns: 120px minmax(0,2fr) auto;"]);
+    const item = { guid: "3:2", type: "RECTANGLE", name: "Cell", size: { x: 10, y: 10 }, gridRowAnchor: { sessionID: 1, localID: 2 }, gridColumnAnchor: { sessionID: 1, localID: 4 }, gridRowSpan: 1, gridColumnSpan: 2, gridChildHorizontalAlign: "CENTER" } as unknown as NodeChange;
+    const parent = grid as unknown as NonNullable<Parameters<typeof cssSections>[0]["parent"]>;
+    expect(lines({ node: item, parent, parentStackMode: "GRID" }).filter((l) => l.startsWith("grid-") || l.startsWith("justify"))).toEqual(["grid-row: 2 / span 1;", "grid-column: 2 / span 2;", "justify-self: center;"]);
+    const flowing = { ...grid, gridReflowEnabled: true } as unknown as typeof parent;
+    expect(lines({ node: item, parent: flowing, parentStackMode: "GRID" }).filter((l) => l.startsWith("grid-"))).toEqual(["grid-row: span 1;", "grid-column: span 2;"]);
+  });
+
+  it("marks bound variables for the panel's pills, the text unchanged", () => {
+    const parts = variableParts("background: var(--Colors-Primary, #0D99FF);", "css");
+    expect(parts).toEqual([{ text: "background: var(" }, { text: "--Colors-Primary", variable: true }, { text: ", #0D99FF);" }]);
+    expect(parts.map((p) => p.text).join("")).toBe("background: var(--Colors-Primary, #0D99FF);");
+    expect(variableParts(".padding(Constants.spaceM)", "swift").filter((p) => p.variable)).toEqual([{ text: "Constants.spaceM", variable: true }]);
+    expect(variableParts("width: 12px;", "css")).toEqual([{ text: "width: 12px;" }]);
+  });
+
+  it("gives a vector an SVG section, a tag a line, and its effects hint 19", () => {
+    const vector = box(undefined, { type: "VECTOR", effects: [{ type: "FOREGROUND_BLUR", radius: 4, visible: true }] } as Partial<NodeChange>);
+    const svg = '<svg width="10" height="10">\n<g filter="url(#f)">\n<path d="M0 0"/>\n</g>\n<defs>\n<filter id="f"></filter>\n</defs>\n</svg>';
+    const sections = cssSections({ node: vector, svg: { markup: svg, transformed: true } });
+    const last = sections[sections.length - 1];
+    expect(last.name).toBe("SVG");
+    expect(last.lines.map((l) => [l.indent, l.code])).toEqual([
+      [0, '<svg width="10" height="10">'],
+      [1, '<g filter="url(#f)">'],
+      [2, '<path d="M0 0"/>'],
+      [1, "</g>"],
+      [1, "<defs>"],
+      [2, '<filter id="f"></filter>'],
+      [1, "</defs>"],
+      [0, "</svg>"],
+    ]);
+    expect(last.lines[0].hint?.id).toBe("transform_included_in_svg");
+    expect(sections.flatMap((s) => s.lines).find((l) => l.code.startsWith("filter:"))?.hint?.id).toBe("effects_in_svg");
+    // A frame gets none.
+    expect(cssSections({ node: card, svg: { markup: svg, transformed: false } }).some((s) => s.name === "SVG")).toBe(false);
   });
 });

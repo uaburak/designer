@@ -49,6 +49,7 @@ import {
 } from "../model/layerTree";
 import styles from "./Panels.module.css";
 import { t, useT } from "@/i18n";
+import { useRenameAnimations } from "../ai/renameAnimation";
 
 /** The live capture's pitch (rows 32 apart, a 24 highlight). */
 const ROW = 32;
@@ -229,6 +230,8 @@ export function Layers() {
   const nameLeft = NAME_LEFT + (drawMode ? LAYER_THUMB - 16 : 0);
 
   const rows = useMemo(() => visibleRows(tree, expanded), [tree, expanded]);
+  // Rename layers' rows as their new names are typed in (atlas 18 §4.3)
+  const typing = useRenameAnimations();
   // The rows and tree as now, for a drag's handlers (set up at its press, they outlive the render a hover-expand redraws).
   const live = useRef({ rows, tree });
   useLayoutEffect(() => {
@@ -527,7 +530,7 @@ export function Layers() {
               <LayerRow
                 id={row.id}
                 depth={row.depth}
-                name={node.name}
+                name={typing.get(row.id) ?? node.name}
                 icon={icon}
                 thumbnail={thumbs ? <LayerThumb thumbs={thumbs} node={row.id} icon={icon} /> : undefined}
                 iconLabel={t(layerKind(node, node.parent ? tree.nodes.get(node.parent) : null))}

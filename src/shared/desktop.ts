@@ -27,6 +27,7 @@ import type {
   OpenWorkspaceFile,
   Role,
   TabAttach,
+  TabPreview,
   TabsSnapshot,
   ThemePreference,
   ThemeState,
@@ -114,6 +115,10 @@ export interface TabBarApi extends DesktopCommon {
     listMenu(x: number, y: number): void;
     /** Edit group name chosen in the group's menu */
     onEditGroup(cb: (e: { groupId: string }) => void): Unsubscribe;
+    /** A tab hovered (or focused with the keyboard) from x in the bar, or none: its preview card (atlas 01 §2.2) */
+    hover(tabId: string | null, x: number, keyboard?: boolean): void;
+    /** The preview view's own: the card to draw */
+    onPreview(cb: (p: TabPreview | null) => void): Unsubscribe;
   };
   /** The app's updates (docs/desktop.md §12.6): the "Restart to update" pill and a manual check's progress */
   updates: {
