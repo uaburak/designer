@@ -39,7 +39,7 @@ export async function captureExisting(deps: Deps, orgId: string, actor: User, re
       if (done === "kept") continue;
       n++;
       // "You were added to ‹org›" (wording ours, §15.7)
-      await notifyOrg(deps, { userId: user.id, kind: "org_domain_captured" as OrgNotificationKind, actorId: actor.id, orgId, name: org?.name ?? "", text: `You were added to ${org?.name ?? "the organization"}` });
+      await notifyOrg(deps, { userId: user.id, kind: "org_domain_captured", actorId: actor.id, orgId, name: org?.name ?? "", text: `You were added to ${org?.name ?? "the organization"}` });
     }
   }
   return n;

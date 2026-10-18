@@ -5,7 +5,7 @@
  * tells the person's inbox (a per-user Durable Object) at once; the store's `notifications` repository reads them, and
  * main shows the desktop ones. Types and pure helpers shared by the server, the store, main and the views.
  */
-import { getLocale, intlLocale, t, tp } from "./i18n";
+import { getLocale, intlLocale, t, tp, tx } from "./i18n";
 
 export type NotificationKind =
   /** A new thread on a file you're in (owner, or someone who commented twice on it — Figma's rule) */
@@ -45,7 +45,32 @@ export type NotificationKind =
   | "capacity_warning"
   /** An admin deleted an organization you're in (docs/multiplayer.md §14.17): `fileName` is the org's name, `text` the
    *  ISO date it is deleted for good */
-  | "org_deleted";
+  | "org_deleted"
+  /**
+   * Phase 7's organization kinds (docs/multiplayer.md §14.15, §15.17; data.md §16.14): no file — `fileName` is the team,
+   * folder, library or org named, `placeIconUrl` its icon. An invite to a team / folder (`role`); a request to join a
+   * team (its admins), for a seat (`role` the seat, `text` the note; org admins, `state` pending → answered) and its
+   * answer; a request to share with someone outside the org (`text` "‹email› · ‹resource›"); a library turned off by
+   * default where it's approved above (`fileName` the library, `text` the workspace or team); an account captured by
+   * the org's domain.
+   */
+  | "team_invite"
+  | "project_invite"
+  | "team_join_request"
+  | "seat_request"
+  | "seat_request_approved"
+  | "seat_request_denied"
+  | "guest_request"
+  | "library_default_override"
+  | "org_domain_captured"
+  /**
+   * Branches of shared files (docs/data.md §15.7.1): a review asked of you (`text` the description, `state` pending →
+   * the verdict), a verdict on your request (`state` approved | changes-suggested, `text` the comment), a branch you
+   * made or reviewed merged. `fileKey` is the branch's.
+   */
+  | "branch_review_request"
+  | "branch_review"
+  | "branch_merged";
 
 export interface NotificationActor {
   id: string;
@@ -72,8 +97,8 @@ export interface NotificationItem {
   role: "editor" | "viewer" | null;
   /** Grouped like Figma: "4 comments · <file>", "2 reactions · <file>" */
   count: number;
-  /** A request: waiting for an answer, or how it was answered */
-  state: "pending" | "approved" | "denied" | null;
+  /** A request: waiting for an answer, or how it was answered (a branch review: its verdict) */
+  state: "pending" | "approved" | "denied" | "changes-suggested" | null;
   createdAt: number;
   /** The latest event folded into it (the list is newest first by this) */
   updatedAt: number;
@@ -162,6 +187,14 @@ export function cleanPrefs(v: unknown): NotificationPrefs {
 
 export const isCommentKind = (k: NotificationKind): boolean => k === "comment" || k === "reply" || k === "mention" || k === "reaction";
 export const isDevStatusKind = (k: NotificationKind): boolean => k === "dev_ready" || k === "dev_completed" || k === "dev_changed";
+/** Requests an org admin answers in Admin (the Requests tab counts them with requests to edit) */
+export const isAdminRequestKind = (k: NotificationKind): boolean => k === "seat_request" || k === "guest_request";
+/** Kinds whose `text` is said in the action itself, not on a line of its own */
+const OWN_TEXT: readonly NotificationKind[] = ["plugin_request", "plugin_request_answer", "org_deleted", "seat_request_approved", "seat_request_denied", "library_default_override", "org_domain_captured"];
+export const textInAction = (k: NotificationKind): boolean => isDevStatusKind(k) || OWN_TEXT.includes(k);
+
+/** A seat's name as Admin says it (admin/labels.ts SEAT_LABEL) */
+const seatName = (seat: string | null): string => tx("seat", seat === "dev" ? "Dev" : seat === "collab" ? "Collab" : seat === "view" ? "View" : "Full");
 
 /** Kinds whose rows fold within `DEV_STATUS_FOLD_MS` (one person, one kind, one file) — docs/editor.md D-4 */
 export const DEV_STATUS_FOLD_MS = 60 * 60_000;
@@ -231,15 +264,39 @@ export function notificationAction(n: Pick<NotificationItem, "kind" | "count" | 
       return t("Usage warning");
     case "org_deleted":
       return t("Deleted the organization");
+    // Phase 7's kinds. Figma's bell text for them isn't published: the actions in the past tense, as above.
+    case "team_invite":
+      return n.role === "viewer" ? t("Invited you to view a team") : t("Invited you to a team");
+    case "project_invite":
+      return n.role === "viewer" ? t("Invited you to view a folder") : t("Invited you to edit a folder");
+    case "team_join_request":
+      return t("Asked to join the team");
+    case "seat_request":
+      return t("Asked for a {seat} seat", { seat: seatName(n.role) });
+    case "seat_request_approved":
+      return t("Approved your request for a {seat} seat", { seat: seatName(n.role) });
+    case "seat_request_denied":
+      return t("Declined your request for a {seat} seat", { seat: seatName(n.role) });
+    case "guest_request":
+      return t("Asked to share with someone outside the organization");
+    case "library_default_override":
+      return t("Turned off a library approved for everyone in {place}", { place: n.text || t("a team") });
+    case "org_domain_captured":
+      return t("Added you to the organization");
+    case "branch_review_request":
+      return t("Requested your review of a branch");
+    case "branch_review":
+      return n.state === "changes-suggested" ? t("Suggested changes to your branch") : t("Approved your branch");
+    case "branch_merged":
+      return t("Merged a branch");
   }
 }
 
 /** A desktop notification's title and body (macOS shows the app's name above them). */
 export function desktopText(n: NotificationItem): { title: string; body: string } {
   const action = `${notificationAction(n)} · ${n.fileName}`;
-  // Dev Mode and plugin rows carry their text in the action already
-  const own = isDevStatusKind(n.kind) || n.kind === "plugin_request" || n.kind === "plugin_request_answer" || n.kind === "org_deleted";
-  return { title: n.actor.name, body: n.text && n.count === 1 && !own ? `${action}\n${n.text}` : action };
+  // Dev Mode, plugin and some org rows carry their text in the action already
+  return { title: n.actor.name, body: n.text && n.count === 1 && !textInAction(n.kind) ? `${action}\n${n.text}` : action };
 }
 
 /** The link a desktop notification's click opens (designer://open, as the server's /f/<key> page hands it over; Home

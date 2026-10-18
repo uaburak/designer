@@ -23,18 +23,18 @@ import { randomToken } from "./tokens";
 
 /**
  * Organizations' kinds (docs/multiplayer.md §14.11; wording to be read from Figma's bell when the UI is built): stored
- * with no file (`file_key` null, `file_name` the team's or folder's name), `org_id` / `team_id` set. Kept here, outside
- * `src/shared/notifications.ts`'s `NotificationKind`, until the client renders them (round 1b/1c).
+ * with no file (`file_key` null, `file_name` the team's or folder's name), `org_id` / `team_id` set. In the shared
+ * `NotificationKind` (and worded by the bell) since 2026-10-18.
  */
-export type OrgNotificationKind = "team_invite" | "project_invite" | "team_join_request" | "seat_request" | "seat_request_approved" | "seat_request_denied" | "guest_request" | "library_default_override";
+export type OrgNotificationKind = Extract<NotificationKind, "team_invite" | "project_invite" | "team_join_request" | "seat_request" | "seat_request_approved" | "seat_request_denied" | "guest_request" | "library_default_override" | "org_domain_captured">;
 
 /**
  * Branches' kinds (docs/data.md §15.5, docs/multiplayer.md §14.11; wording to be read from Figma's bell when the UI is
  * built), on the branch's file: `branch_review_request` (to each reviewer; `text` the description),
  * `branch_review` (to the person who asked; `state` the verdict — "approved" | "changes-suggested" —, `text` the
- * comment), `branch_merged` (to the branch's creator and reviewers). Server-side only, as `OrgNotificationKind`.
+ * comment), `branch_merged` (to the branch's creator and reviewers). In the shared `NotificationKind` since 2026-10-18.
  */
-export type BranchNotificationKind = "branch_review_request" | "branch_review" | "branch_merged";
+export type BranchNotificationKind = Extract<NotificationKind, "branch_review_request" | "branch_review" | "branch_merged">;
 
 /** Kinds answered with Approve / Deny: the Requests tab and the pending count (the org's are answered on their own routes) */
 const REQUEST_KINDS = `('edit-request', 'team_join_request', 'seat_request', 'guest_request', 'plugin_request')`;
@@ -99,8 +99,8 @@ const toItem = (r: Row): NotificationItem => ({
   emoji: r.emoji,
   role: r.role === "viewer" || r.role === "editor" ? r.role : null,
   count: r.count,
-  // A branch review's verdict ("changes-suggested" is outside NotificationItem's union until the client learns it).
-  state: r.state === "pending" || r.state === "approved" || r.state === "denied" ? r.state : r.kind === ("branch_review" as NotificationKind) && r.state ? (r.state as NotificationItem["state"]) : null,
+  // A branch review's verdict may be "changes-suggested"
+  state: r.state === "pending" || r.state === "approved" || r.state === "denied" || r.state === "changes-suggested" ? r.state : null,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
   read: r.read_at !== null,
@@ -418,7 +418,7 @@ export async function notifyBranchReview(deps: Deps, r: { key: string; by: User;
   await safely("a branch review request", async () => {
     for (const userId of await withAccess(deps, r.key, r.reviewerIds)) {
       if (userId === r.by.id) continue;
-      await deliver(deps, { userId, kind: "branch_review_request" as NotificationKind, fileKey: r.key, actorId: r.by.id, text: r.description || null, state: "pending" });
+      await deliver(deps, { userId, kind: "branch_review_request", fileKey: r.key, actorId: r.by.id, text: r.description || null, state: "pending" });
     }
   });
 }
@@ -427,7 +427,7 @@ export async function notifyBranchReview(deps: Deps, r: { key: string; by: User;
 export async function notifyBranchVerdict(deps: Deps, v: { key: string; by: User; toId: string; verdict: "approved" | "changes-suggested"; comment: string }): Promise<void> {
   await safely("a branch review", async () => {
     await deps.db.d1.prepare(`UPDATE notifications SET state = ?3 WHERE file_key = ?1 AND user_id = ?2 AND kind = 'branch_review_request' AND state = 'pending'`).bind(v.key, v.by.id, v.verdict).run();
-    if (v.toId !== v.by.id) await deliver(deps, { userId: v.toId, kind: "branch_review" as NotificationKind, fileKey: v.key, actorId: v.by.id, text: v.comment || null, state: v.verdict });
+    if (v.toId !== v.by.id) await deliver(deps, { userId: v.toId, kind: "branch_review", fileKey: v.key, actorId: v.by.id, text: v.comment || null, state: v.verdict });
   });
 }
 
@@ -435,7 +435,7 @@ export async function notifyBranchVerdict(deps: Deps, v: { key: string; by: User
 export async function notifyBranchMerged(deps: Deps, m: { key: string; by: User; userIds: string[] }): Promise<void> {
   await safely("a branch merge", async () => {
     for (const userId of await withAccess(deps, m.key, m.userIds)) {
-      if (userId !== m.by.id) await deliver(deps, { userId, kind: "branch_merged" as NotificationKind, fileKey: m.key, actorId: m.by.id });
+      if (userId !== m.by.id) await deliver(deps, { userId, kind: "branch_merged", fileKey: m.key, actorId: m.by.id });
     }
   });
 }

@@ -79,3 +79,24 @@ describe("round 5's kinds (docs/editor.md D-4, docs/plugins.md §10.3)", () => {
     expect(notificationLink(item({ kind: "dev_ready", fileKey: "file_abc123" }))).toBe("designer://open?key=file_abc123&m=dev&dev=ready");
   });
 });
+
+describe("Phase 7's kinds (organizations, branches, libraries; leftovers 2026-10-18)", () => {
+  it("every kind the server sends has words; org texts said in the action stay off the desktop body", () => {
+    const org = (over: Partial<NotificationItem>) => item({ fileKey: null, threadId: null, commentId: null, text: null, ...over });
+    expect(notificationAction(org({ kind: "team_invite", role: "editor" }))).toBe("Invited you to a team");
+    expect(notificationAction(org({ kind: "project_invite", role: "viewer" }))).toBe("Invited you to view a folder");
+    expect(notificationAction(org({ kind: "team_join_request", state: "pending" }))).toBe("Asked to join the team");
+    expect(notificationAction(org({ kind: "seat_request", role: "dev", state: "pending" }))).toBe("Asked for a Dev seat");
+    expect(notificationAction(org({ kind: "seat_request_denied", role: "full" }))).toBe("Declined your request for a Full seat");
+    expect(notificationAction(org({ kind: "guest_request", text: "out@else.co · Web" }))).toBe("Asked to share with someone outside the organization");
+    expect(desktopText(org({ kind: "guest_request", fileName: "Acme", text: "out@else.co · Web" })).body).toBe("Asked to share with someone outside the organization · Acme\nout@else.co · Web");
+    const off = org({ kind: "library_default_override", fileName: "Design System", text: "Marketing" });
+    expect(desktopText(off).body).toBe("Turned off a library approved for everyone in Marketing · Design System");
+    expect(notificationAction(org({ kind: "org_domain_captured", text: "You were added to Acme" }))).toBe("Added you to the organization");
+    expect(notificationAction(item({ kind: "branch_review_request", state: "pending" }))).toBe("Requested your review of a branch");
+    expect(notificationAction(item({ kind: "branch_review", state: "changes-suggested" }))).toBe("Suggested changes to your branch");
+    expect(notificationAction(item({ kind: "branch_review", state: "approved" }))).toBe("Approved your branch");
+    expect(notificationAction(item({ kind: "branch_merged", text: null }))).toBe("Merged a branch");
+    expect(notificationLink(item({ kind: "branch_merged" }))).toBe("designer://open?key=file_abc123");
+  });
+});
