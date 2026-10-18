@@ -526,6 +526,8 @@ export function canvasMenu(ed: EditorController, layers: { id: Guid; name: strin
     "canvas.send-to-make",
     ...(multi ? [] : ["canvas.find-similar"]),
     ...(allComponents ? [] : ["canvas.add-motion"]),
+    // Motion (docs/motion.md §6.9, round 8e): Mute audio while the timeline's root has audio (help: right-click › Mute audio).
+    ...(ed.ui.get().mode === "motion" && isEnabled(ed, command("motion.mute-audio")) ? ["motion.mute-audio"] : []),
     "-",
     ...(layers.length > 1 && !row ? [() => selectLayerSubmenu(ed, layers)] : []),
     moveToPage,

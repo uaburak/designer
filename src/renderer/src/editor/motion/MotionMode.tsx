@@ -7,16 +7,22 @@
  * as --ds-size-motion-timeline so the panels and the toolbar lift with it). Round 8a increment 2: an animated
  * instance's bar dragged (MOTION_SET_INSTANCE_OFFSET, one undo step). Round 8h: a preset's clip selected (the
  * Animations section opens its settings), dragged or stretched (MOTION_SET_ANIMATION, one undo step) and deleted.
+ * Round 8e: the root's audio (audio/) — files dropped on the timeline added at the drop's time, clips moved, trimmed,
+ * muted, split and deleted, their waveforms drawn once decoded, and played with the clock: while audio plays, the
+ * AudioContext's clock drives the playhead (Clock's `master`) and the clips are scheduled again on every jump.
  *
  * Every engine call is guarded: the loaded wasm may predate round 8 (built on another machine), in which case the
  * timeline shows its empty state and the chrome's own state still works.
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { showToast } from "@/ds";
 import type { Guid } from "@/engine/codec";
-import type { EasingRef, GuidString, Micros, PlaybackName, TimelineClip, TimelineModel, TimelineTrack } from "@shared/motion/types";
+import type { EasingRef, GuidString, Micros, PlaybackName, TimelineAudioClip, TimelineClip, TimelineModel, TimelineTrack } from "@shared/motion/types";
 import { useEditor } from "../controller";
 import { useTopics, useUI } from "../hooks";
 import { MOTION_UI_DEFAULT } from "../uiStore";
+import { AudioPlayer, audioLibrary, importAudioFiles } from "./audio/audio";
+import { removeAudio, splitAudioAtPlayhead, toggleAudioMute } from "./audio/audioEdits";
 import { Clock } from "./clock";
 import { copySelectedKeyframes, pasteKeyframes } from "./keyframeClipboard";
 import { motionRead, motionUi, setMotionUi, setPlayhead, toggleAutoKeyframe, toggleMotionPlaying } from "./motionState";
@@ -52,14 +58,28 @@ function MotionShell() {
     return new Set<GuidString>(ed.store.selection.refs);
   }, [ed, version]);
 
-  // The clock: playing starts it from the playhead, pausing keeps the playhead; ONCE's end pauses the UI too.
+  // The root's audio: decoded once per file (the waveforms draw when they arrive), played with the clock.
+  const library = audioLibrary(ed);
+  useSyncExternalStore(library.subscribe, library.getVersion);
+  const [player] = useState(() => new AudioPlayer(library));
+  useEffect(() => player.setModel(model), [player, model]);
+
+  // The clock: playing starts it from the playhead, pausing keeps the playhead; ONCE's end pauses the UI too. While
+  // audio plays, its context's clock is the clock's master and the sound follows every jump of the playhead.
   const [clock] = useState(
     () =>
       new Clock({
         durationUs: 2_000_000,
         playback: "LOOP",
-        onTime: (t) => setPlayhead(ed, t),
-        onEnd: () => setMotionUi(ed, { playing: false }),
+        onTime: (t) => {
+          setPlayhead(ed, t);
+          player.follow(t);
+        },
+        onEnd: () => {
+          player.stop();
+          setMotionUi(ed, { playing: false });
+        },
+        master: player.masterMs,
       })
   );
   useEffect(() => {
@@ -67,10 +87,22 @@ function MotionShell() {
   }, [clock, model?.durationUs, model?.playback]);
   useEffect(() => {
     if (ui.playing) {
-      if (!clock.playing) clock.play(ui.timeUs);
-    } else clock.pause();
-  }, [clock, ui.playing, ui.timeUs]);
-  useEffect(() => () => clock.pause(), [clock]);
+      if (!clock.playing) {
+        player.start(ui.timeUs);
+        clock.play(ui.timeUs);
+      }
+    } else {
+      clock.pause();
+      player.stop();
+    }
+  }, [clock, player, ui.playing, ui.timeUs]);
+  useEffect(
+    () => () => {
+      clock.pause();
+      player.stop();
+    },
+    [clock, player]
+  );
 
   // A keyframe drag is one undo step: txnBegin on its first move, the edits inside it, txnCommit on release.
   const dragging = useRef(false);
@@ -167,6 +199,34 @@ function MotionShell() {
     },
     [ed]
   );
+  // An audio clip dragged or trimmed: one "Edit audio" step, as a keyframe drag.
+  const audioDrag = useRef(false);
+  const onEditAudio = useCallback(
+    (clip: TimelineAudioClip, patch: { offsetUs?: Micros; startUs?: Micros; durationUs?: Micros }, final: boolean) =>
+      run(() => {
+        if (!model) return;
+        if (!audioDrag.current) {
+          ed.engine.txnBegin("Edit audio");
+          audioDrag.current = true;
+        }
+        ed.engine.runMotionCommand("MOTION_SET_AUDIO", { root: model.root, edits: [{ id: clip.id, ...patch }] });
+        if (final) {
+          ed.engine.txnCommit();
+          audioDrag.current = false;
+        }
+      }),
+    [ed, model, run]
+  );
+  const onDropAudio = useCallback(
+    (files: File[], atUs: Micros) => {
+      if (!model) return;
+      void importAudioFiles(ed, files, model.root, atUs).then((r) => {
+        if (r.error) showToast({ message: r.error, kind: "error" });
+        if (r.added.length) setMotionUi(ed, { selectedAudio: r.added[r.added.length - 1] });
+      });
+    },
+    [ed, model]
+  );
   const selectedKeyframes = useMemo(() => new Set(ui.selectedKeyframes), [ui.selectedKeyframes]);
 
   return (
@@ -201,9 +261,29 @@ function MotionShell() {
       onResize={(height) => setMotionUi(ed, { height })}
       onMoveInstance={onMoveInstance}
       selectedClip={ui.selectedClip ?? null}
-      onSelectClip={(id) => setMotionUi(ed, { selectedClip: id })}
+      onSelectClip={(id) => setMotionUi(ed, id ? { selectedClip: id, selectedAudio: null } : { selectedClip: null })}
       onEditClip={onEditClip}
       onDeleteClip={onDeleteClip}
+      selectedAudio={ui.selectedAudio ?? null}
+      onSelectAudio={(id) => {
+        setMotionUi(ed, { selectedAudio: id, selectedClip: null });
+        // The audio is the root's: selecting a clip selects the frame (its Audio section shows in the right panel).
+        if (id && model && !ed.store.selection.refs.includes(model.root)) ed.engine.setSelection([model.root]);
+      }}
+      onEditAudio={onEditAudio}
+      onDeleteAudio={(ids) => removeAudio(ed, ids)}
+      onToggleAudioRow={(trackId, mute) => run(() => model && void ed.engine.runMotionCommand("MOTION_SET_AUDIO", { root: model.root, tracks: [{ id: trackId, mute }] }))}
+      onAudioMenu={(clip, action) => {
+        if (action === "mute") toggleAudioMute(ed, clip);
+        else if (action === "split") splitAudioAtPlayhead(ed, clip);
+        else removeAudio(ed, [clip.id]);
+      }}
+      onDropAudio={onDropAudio}
+      audioPeaks={(hash) => library.peaksOf(hash)}
+      audioLength={(hash) => {
+        const b = library.buffer(hash);
+        return b ? Math.round(b.duration * 1e6) : null;
+      }}
     />
   );
 }

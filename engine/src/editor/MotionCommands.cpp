@@ -7,9 +7,10 @@
 // path trim's panel write routed, the layout of what the motion layer resized (its previews), the motion path and the
 // anchor point tool on the canvas. Round 8h: animation presets (336–338, 352) and composite styles (339) — clips whose
 // materialised tracks (the TypeScript runtime's output) are their own children, bound through ANIMATION_PRESET
-// parameters — copied and removed with their layers, a text preset's stagger timed to the text's elements.
+// parameters — copied and removed with their layers, a text preset's stagger timed to the text's elements. Round 8e:
+// audio clips and their rows on a timeline root (345–348) and in the timeline model.
 //
-// Not yet (the contract's later increments): audio (345–348), paste (349), combine / split (350–351), text stagger by
+// Not yet (the contract's later increments): paste (349), combine / split (350–351), text stagger by
 // hand (344), keyframe values, easings and preset timings bound to variables, the corner radius / shape handles and
 // the Scale tool routed, the motion path's squares and handles dragged on the canvas.
 #include <algorithm>
@@ -950,8 +951,12 @@ uint32_t Editor::motionCommandState(CommandId id) const {
     case CommandId::MOTION_SET_EASING:
     case CommandId::MOTION_SET_TIMELINE:
     case CommandId::MOTION_SET_PATH_HANDLES:
-    case CommandId::MOTION_SET_INSTANCE_OFFSET: return motion_.on ? CMD_ENABLED : 0;
-    default: return 0;  // audio, paste, combine / split, text stagger by hand: later increments
+    case CommandId::MOTION_SET_INSTANCE_OFFSET:
+    case CommandId::MOTION_ADD_AUDIO:
+    case CommandId::MOTION_SET_AUDIO:
+    case CommandId::MOTION_SPLIT_AUDIO:
+    case CommandId::MOTION_REMOVE_AUDIO: return motion_.on ? CMD_ENABLED : 0;
+    default: return 0;  // paste, combine / split, text stagger by hand: later increments
   }
 }
 
@@ -1461,7 +1466,176 @@ Status Editor::motionCommand(CommandId id, const CommandArgs& args) {
       commit();
       return OK;
     }
+    case CommandId::MOTION_ADD_AUDIO:
+    case CommandId::MOTION_SET_AUDIO:
+    case CommandId::MOTION_SPLIT_AUDIO:
+    case CommandId::MOTION_REMOVE_AUDIO: return motionAudioCommand(id, raw);
     default: return E_UNSUPPORTED;  // the later increments (docs/motion.md §4.9's table)
+  }
+}
+
+// ---- Audio (round 8e; docs/motion.md §4.11, §6.6) --------------------------------------------------------------------
+
+namespace {
+
+// A clip and a row as the schema's AudioFill / AudioTrack JSON (GUIDs as "s:l", times in µs).
+json::Value audioClipJson(const motion::AudioClip& c) {
+  json::Value o = jobj();
+  put(o, "id", jstr(c.id.toString()));
+  put(o, "mediaHash", jstr(c.mediaHash));
+  put(o, "timelineOffsetUs", jnum(static_cast<double>(c.offsetUs)));
+  put(o, "startTimeUs", jnum(static_cast<double>(c.startUs)));
+  put(o, "durationUs", jnum(static_cast<double>(c.durationUs)));
+  put(o, "volume", jnum(c.volume));
+  put(o, "mute", jbool(c.mute));
+  put(o, "displayName", jstr(c.name));
+  put(o, "loopEnabled", jbool(c.loop));
+  put(o, "playbackDurationUs", jnum(static_cast<double>(c.playbackDurationUs)));
+  put(o, "trackId", jstr(c.track.toString()));
+  put(o, "loopPhaseOffsetUs", jnum(static_cast<double>(c.loopPhaseUs)));
+  return o;
+}
+
+json::Value audioRowJson(const motion::AudioRow& r) {
+  json::Value o = jobj();
+  put(o, "id", jstr(r.id.toString()));
+  put(o, "name", jstr(r.name));
+  put(o, "gain", jnum(r.gain));
+  put(o, "mute", jbool(r.mute));
+  return o;
+}
+
+}  // namespace
+
+// MOTION_ADD_AUDIO / SET_AUDIO / SPLIT_AUDIO / REMOVE_AUDIO on a timeline root's `audioFills` and `audioTracks`: each
+// one undo step with §4.9's name. A new clip gets a row of its own (one row per dropped file) unless it names one; a
+// row left without clips goes with its last one. Volume is 0–1 (§4.11), a region at least 1 µs long.
+Status Editor::motionAudioCommand(CommandId id, const json::Value& raw) {
+  Guid root;
+  if (!guidOf(member(raw, "root"), root)) root = motionRoot();
+  if (root == kNoGuid || root.isDerived() || isLibraryCopy(root) || !motion::isTimelineRoot(doc_, root)) return E_INVALID;
+  const NodeProps& rp = doc_.get(root)->props;
+  std::vector<motion::AudioClip> clips = motion::decodeAudioClips(rp);
+  std::vector<motion::AudioRow> rows = motion::decodeAudioRows(rp);
+  auto clipAt = [&](Guid g) {
+    for (size_t i = 0; i < clips.size(); i++)
+      if (clips[i].id == g) return static_cast<int>(i);
+    return -1;
+  };
+  auto hasRow = [&](Guid g) { return std::any_of(rows.begin(), rows.end(), [&](const motion::AudioRow& r) { return r.id == g; }); };
+  auto num = [&](const json::Value* o, const char* k, double& out) {
+    const json::Value* v = member(o, k);
+    if (!v || !v->isNumber() || !std::isfinite(v->number)) return false;
+    out = v->number;
+    return true;
+  };
+  // The rows that still hold a clip stay (in their order); the clips and the rows written in one change.
+  auto store = [&](const char* label) {
+    rows.erase(std::remove_if(rows.begin(), rows.end(), [&](const motion::AudioRow& r) {
+      return std::none_of(clips.begin(), clips.end(), [&](const motion::AudioClip& c) { return c.track == r.id; });
+    }), rows.end());
+    json::Value fills, tracks;
+    fills.kind = tracks.kind = json::Value::Kind::Array;
+    for (const motion::AudioClip& c : clips) fills.array.push_back(audioClipJson(c));
+    for (const motion::AudioRow& r : rows) tracks.array.push_back(audioRowJson(r));
+    begin(TxnKind::USER, label);
+    NodeChange c = NodeChange::changed(root);
+    putExtra(c, "audioFills", encodeExtra("audioFills", fills));
+    putExtra(c, "audioTracks", encodeExtra("audioTracks", tracks));
+    write(c);
+    motionDirty_ = true;
+    commit();
+    return OK;
+  };
+  switch (id) {
+    case CommandId::MOTION_ADD_AUDIO: {
+      const json::Value* hash = member(raw, "mediaHash");
+      double offset = 0, duration = 0;
+      if (!hash || !hash->isString() || hash->string.empty() || !num(&raw, "durationUs", duration) || duration < 1) return E_INVALID;
+      num(&raw, "offsetUs", offset);
+      const json::Value* name = member(raw, "name");
+      motion::AudioClip c;
+      c.id = newGuid();
+      c.mediaHash = hash->string;
+      c.offsetUs = roundUs(offset);
+      c.durationUs = c.playbackDurationUs = roundUs(duration);
+      c.name = name && name->isString() ? name->string : "";
+      if (Guid t; guidOf(member(raw, "trackId"), t) && hasRow(t)) c.track = t;
+      else {
+        motion::AudioRow r;
+        r.id = newGuid();
+        r.name = c.name;
+        rows.push_back(r);
+        c.track = r.id;
+      }
+      clips.push_back(c);
+      Status st = store("Add audio");
+      created_.push_back(c.id);
+      return st;
+    }
+    case CommandId::MOTION_SET_AUDIO: {
+      // Clip edits (offset, trim, length, volume, mute, row) and row edits (`tracks`: name, gain, mute — the row's eye; ours).
+      size_t done = 0;
+      if (const json::Value* edits = member(raw, "edits"); edits && edits->isArray())
+        for (const json::Value& e : edits->array) {
+          Guid g;
+          int i = guidOf(member(e, "id"), g) ? clipAt(g) : -1;
+          if (i < 0) continue;
+          motion::AudioClip& c = clips[i];
+          double v;
+          if (num(&e, "offsetUs", v)) c.offsetUs = roundUs(v);
+          if (num(&e, "startUs", v)) c.startUs = roundUs(v);
+          if (num(&e, "durationUs", v)) c.durationUs = c.playbackDurationUs = std::max<int64_t>(1, roundUs(v));
+          if (num(&e, "volume", v)) c.volume = std::clamp(v, 0.0, 1.0);
+          if (const json::Value* m = member(e, "mute"); m && m->isBool()) c.mute = m->boolean;
+          if (Guid t; guidOf(member(e, "trackId"), t) && hasRow(t)) c.track = t;
+          done++;
+        }
+      if (const json::Value* list = member(raw, "tracks"); list && list->isArray())
+        for (const json::Value& e : list->array) {
+          Guid g;
+          if (!guidOf(member(e, "id"), g)) continue;
+          for (motion::AudioRow& r : rows) {
+            if (r.id != g) continue;
+            double v;
+            if (num(&e, "gain", v)) r.gain = std::clamp(v, 0.0, 1.0);
+            if (const json::Value* m = member(e, "mute"); m && m->isBool()) r.mute = m->boolean;
+            if (const json::Value* n = member(e, "name"); n && n->isString()) r.name = n->string;
+            done++;
+          }
+        }
+      return done ? store("Edit audio") : E_INVALID;
+    }
+    case CommandId::MOTION_SPLIT_AUDIO: {
+      // ⌥K: the clip under the playhead becomes two regions of the same file on the same row, the second one new.
+      Guid g;
+      double at = 0;
+      int i = guidOf(member(raw, "id"), g) ? clipAt(g) : -1;
+      if (i < 0 || !num(&raw, "atUs", at)) return E_INVALID;
+      int64_t cut = roundUs(at);
+      const motion::AudioClip first = clips[i];
+      if (cut <= first.offsetUs || cut >= first.offsetUs + first.durationUs) return E_INVALID;
+      motion::AudioClip second = first;
+      second.id = newGuid();
+      second.offsetUs = cut;
+      second.startUs = first.startUs + (cut - first.offsetUs);
+      second.durationUs = second.playbackDurationUs = first.offsetUs + first.durationUs - cut;
+      clips[i].durationUs = clips[i].playbackDurationUs = cut - first.offsetUs;
+      clips.insert(clips.begin() + i + 1, second);
+      Status st = store("Split audio");
+      created_.push_back(second.id);
+      return st;
+    }
+    case CommandId::MOTION_REMOVE_AUDIO: {
+      const json::Value* ids = member(raw, "ids");
+      if (!ids || !ids->isArray()) return E_INVALID;
+      size_t before = clips.size();
+      for (const json::Value& v : ids->array)
+        if (Guid g; guidOf(&v, g))
+          if (int i = clipAt(g); i >= 0) clips.erase(clips.begin() + i);
+      return clips.size() < before ? store("Delete audio") : E_INVALID;
+    }
+    default: return E_UNSUPPORTED;
   }
 }
 
@@ -2605,8 +2779,19 @@ void Editor::writeMotionTimeline(json::Writer& w, Guid rootIn) {
     w.endObject();
   }
   w.endArray();
-  w.key("audioTracks").beginArray().endArray();  // audio: a later increment (docs/motion.md §4.11)
-  w.key("audio").beginArray().endArray();
+  // Audio (round 8e): the rows in their order, then the clips in theirs (docs/motion.md §4.11).
+  const NodeProps& rp = doc_.get(root)->props;
+  w.key("audioTracks").beginArray();
+  for (const motion::AudioRow& r : motion::decodeAudioRows(rp))
+    w.beginObject().key("id").string(r.id.toString()).key("name").string(r.name).key("gain").number(r.gain).key("mute").boolean(r.mute).endObject();
+  w.endArray();
+  w.key("audio").beginArray();
+  for (const motion::AudioClip& c : motion::decodeAudioClips(rp)) {
+    w.beginObject().key("id").string(c.id.toString()).key("trackId").string(c.track.toString()).key("name").string(c.name).key("mediaHash").string(c.mediaHash);
+    w.key("offsetUs").number(static_cast<double>(c.offsetUs)).key("startUs").number(static_cast<double>(c.startUs)).key("durationUs").number(static_cast<double>(c.durationUs));
+    w.key("volume").number(c.volume).key("mute").boolean(c.mute).endObject();
+  }
+  w.endArray();
   w.endObject();
 }
 

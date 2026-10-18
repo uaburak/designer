@@ -1848,6 +1848,7 @@ class Editor : private LayoutHost, public TextLayouts {
   void motionOverlay(Overlay& o) const;
   // Round 8b (editor/MotionCommands.cpp).
   Status motionCommand(CommandId id, const CommandArgs& args);
+  Status motionAudioCommand(CommandId id, const json::Value& raw);  // round 8e: 345–348 on the root's audio
   uint32_t motionCommandState(CommandId id) const;
   const VariableData* motionSlotData(const NodeProps& p, const motion::Slot& s) const;
   bool motionBaseValue(const NodeProps& p, const motion::Slot& s, motion::KeyframeValue& out) const;

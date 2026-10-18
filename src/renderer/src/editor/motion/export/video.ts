@@ -2,11 +2,13 @@
  * MP4 / WebM export (docs/motion.md §7.3) with WebCodecs: a VideoEncoder per export — H.264 High 5.1 (`avc1.640033`,
  * fallback Baseline `avc1.42E033`) muxed by mp4-muxer, VP9 (`vp09.00.41.08`, fallback VP8) by webm-muxer —, variable
  * bitrate from the Quality setting (0.05 / 0.1 / 0.2 bits per pixel per frame), a key frame every 2 s, hardware
- * preferred, back-pressure on the encode queue. Audio tracks come with the audio increment (§7.3's AudioEncoder part).
+ * preferred, back-pressure on the encode queue. Round 8e: the timeline's audio, mixed and encoded by audioTrack.ts (AAC
+ * or Opus in MP4, Opus in WebM), muxed as the file's audio track.
  */
 import { ArrayBufferTarget as Mp4Target, Muxer as Mp4Muxer } from "mp4-muxer";
 import { ArrayBufferTarget as WebmTarget, Muxer as WebmMuxer } from "webm-muxer";
 import type { AnimatedExportSettings } from "@shared/motion/types";
+import { encodeAudio, pickAudioConfig, type AudioConfigSupport, type AudioTrackSource } from "./audioTrack";
 import { flattenOnto, padToEven, type FrameSource } from "./frames";
 
 export type VideoFormat = "MP4" | "WEBM";
@@ -29,6 +31,8 @@ export interface VideoOptions {
   format: VideoFormat;
   fps: number;
   quality: AnimatedExportSettings["quality"];
+  /** The mixed soundtrack (round 8e); absent or null: no audio track */
+  audio?: AudioTrackSource | null;
 }
 
 export type ConfigSupport = (config: VideoEncoderConfig) => Promise<boolean>;
@@ -76,17 +80,22 @@ export class VideoExportError extends Error {
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /** Encodes every frame of `source` (padded to even sides, flattened on white) to an MP4 or WebM file. */
-export async function encodeVideo(source: FrameSource, opts: VideoOptions, onProgress?: (done: number, total: number) => void, signal?: AbortSignal, support?: ConfigSupport): Promise<Uint8Array> {
+export async function encodeVideo(source: FrameSource, opts: VideoOptions, onProgress?: (done: number, total: number) => void, signal?: AbortSignal, support?: ConfigSupport, audioSupport?: AudioConfigSupport): Promise<Uint8Array> {
   const width = Math.min(MAX_VIDEO_SIDE, source.width + (source.width % 2));
   const height = Math.min(MAX_VIDEO_SIDE, source.height + (source.height % 2));
   const config = await pickVideoConfig(opts, width, height, support);
   if (!config) throw new VideoExportError("This format isn't supported on this device", "unsupported");
   const codec = muxerCodecOf(config.codec);
+  // The soundtrack's codec first: the muxer declares its tracks up front.
+  const audio = opts.audio?.channels.length ? await pickAudioConfig(opts.format, opts.audio, audioSupport) : null;
   const mp4 = opts.format === "MP4";
   const mp4Target = mp4 ? new Mp4Target() : null;
   const webmTarget = mp4 ? null : new WebmTarget();
-  const mp4Muxer = mp4Target ? new Mp4Muxer({ target: mp4Target, video: { codec: "avc", width, height, frameRate: opts.fps }, fastStart: "in-memory" }) : null;
-  const webmMuxer = webmTarget ? new WebmMuxer({ target: webmTarget, video: { codec: codec === "avc" ? "V_VP9" : codec, width, height, frameRate: opts.fps } }) : null;
+  const audioTrack = audio && opts.audio ? { numberOfChannels: opts.audio.channels.length, sampleRate: opts.audio.sampleRate } : null;
+  const mp4Muxer = mp4Target
+    ? new Mp4Muxer({ target: mp4Target, video: { codec: "avc", width, height, frameRate: opts.fps }, ...(audioTrack ? { audio: { codec: audio!.muxer as "aac" | "opus", ...audioTrack } } : {}), fastStart: "in-memory" })
+    : null;
+  const webmMuxer = webmTarget ? new WebmMuxer({ target: webmTarget, video: { codec: codec === "avc" ? "V_VP9" : codec, width, height, frameRate: opts.fps }, ...(audioTrack ? { audio: { codec: audio!.muxer, ...audioTrack } } : {}) }) : null;
   let failure: Error | null = null;
   const encoder = new VideoEncoder({
     output: (chunk, meta) => {
@@ -115,6 +124,13 @@ export async function encodeVideo(source: FrameSource, opts: VideoOptions, onPro
     }
     await encoder.flush();
     if (failure) throw new VideoExportError(String((failure as Error).message), "encoder");
+    if (audio && opts.audio) {
+      onProgress?.(source.count, source.count);
+      await encodeAudio(opts.audio, audio.config, (chunk, meta) => (mp4Muxer ? mp4Muxer.addAudioChunk(chunk, meta) : webmMuxer!.addAudioChunk(chunk, meta)), signal).catch((e: unknown) => {
+        throw new VideoExportError(e instanceof Error ? e.message : String(e), "encoder");
+      });
+      if (signal?.aborted) throw new VideoExportError("Cancelled", "cancelled");
+    }
   } finally {
     if (encoder.state !== "closed") encoder.close();
   }

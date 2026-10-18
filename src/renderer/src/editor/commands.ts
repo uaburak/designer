@@ -17,6 +17,7 @@ import { canExport, copyAsCode, copyAsPng, copyAsSvg, copyAsText, exportAllowed,
 import { present, togglePreview } from "./present";
 import { setDevStatus, statusOfTargets, statusTargets } from "./devStatus";
 import { annotationsShown, modeOf, setMode, toggleAnnotations } from "./devmode/devMode";
+import { audioMuted, hasAudio, splitAudioAtPlayhead, splitTargets, toggleAudioMute } from "./motion/audio/audioEdits";
 import { toggleAutoKeyframe, toggleMotionPlaying } from "./motion/motionState";
 import { MOTION_UI_DEFAULT } from "./uiStore";
 import { round5, setRound5 } from "./devmode/round5";
@@ -554,6 +555,10 @@ export const COMMANDS: EditorCommand[] = [
     enabled: (ed) => modeOf(ed) === "motion" && ed.store.selection.refs.length === 1,
     checked: (ed) => ed.store.tool === "ANCHOR_POINT",
   },
+  // Audio (docs/motion.md §6.6, §6.9; round 8e): help's "Split audio at playhead (⌥K / Alt K)" and right-click › "Mute
+  // audio" — the selected clip, else the clips under the playhead / every clip of the timeline's root.
+  { id: "motion.split-audio", label: "Split audio at playhead", keys: [k("KeyK", { alt: true })], run: (ed) => splitAudioAtPlayhead(ed), enabled: (ed) => modeOf(ed) === "motion" && splitTargets(ed).length > 0 },
+  { id: "motion.mute-audio", label: "Mute audio", run: (ed) => toggleAudioMute(ed), enabled: (ed) => modeOf(ed) === "motion" && hasAudio(ed), checked: (ed) => modeOf(ed) === "motion" && audioMuted(ed) },
   { id: "motion.collapse-timeline", label: "Collapse timeline", run: (ed) => ed.ui.set({ motion: { ...(ed.ui.get().motion ?? MOTION_UI_DEFAULT), collapsed: !(ed.ui.get().motion ?? MOTION_UI_DEFAULT).collapsed } }), enabled: (ed) => modeOf(ed) === "motion" },
   // Figma's shortcut table (Atlas 04 §2.5): ⌘= ⌘+ ⌘Num+ = + Num+ / ⌘- ⌘⇧- ⌘Num- - ⇧- Num-; ⇧1 and ⇧9 fit. With
   // Preferences › Use number keys for opacity off, 0 / 1 / 9 / 2 alone zoom (keyboard.ts).

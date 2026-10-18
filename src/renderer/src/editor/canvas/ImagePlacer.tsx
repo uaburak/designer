@@ -11,6 +11,7 @@ import { showToast } from "@/ds";
 import type { Paint } from "@/engine/codec";
 import { useEditor, type EditorController } from "../controller";
 import { isMediaFile, VIDEO_ACCEPT, type ImportedImage } from "../images";
+import { dropAudioOnCanvas } from "../motion/audio/audio";
 import { DEFAULT_VIDEO_PLAYBACK, mediaPaint } from "../model/paints";
 import { placeImages } from "../placeImages";
 import styles from "./ImagePlacer.module.css";
@@ -73,11 +74,13 @@ export function attachImageDrop(ed: EditorController, area: HTMLElement): () => 
     e.dataTransfer.dropEffect = "copy";
   };
   const drop = (e: DragEvent) => {
+    const r = (ed.canvas ?? area).getBoundingClientRect();
+    const at = { x: e.clientX - r.left, y: e.clientY - r.top };
+    // Motion (docs/motion.md §6.6): audio files go to the timeline of the frame they're dropped on.
+    if (dropAudioOnCanvas(ed, [...(e.dataTransfer?.files ?? [])], at)) return e.preventDefault();
     const files = [...(e.dataTransfer?.files ?? [])].filter(isMediaFile);
     if (!files.length) return;
     e.preventDefault();
-    const r = (ed.canvas ?? area).getBoundingClientRect();
-    const at = { x: e.clientX - r.left, y: e.clientY - r.top };
     void ed.images.import(files).then((images) => {
       if (images.length && !ed.engine.destroyed) placeImages(ed, images, at);
       ed.focusCanvas();

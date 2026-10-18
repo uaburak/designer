@@ -9,7 +9,9 @@ import { t } from "@/i18n";
 import { ANIMATED_FORMAT_LABELS, type AnimatedExportSettings, type AnimatedFormat, type Micros, type PlaybackName } from "@shared/motion/types";
 import type { EditorController } from "../../controller";
 import { exportAllowed, saveFiles, type ExportedFile } from "../../exporting";
+import { mixAudio } from "../audio/audio";
 import { motionRead } from "../motionState";
+import { audioBufferSource } from "./audioTrack";
 import { engineFrames, planFrames } from "./frames";
 import { encodeGif } from "./gif";
 import { VideoExportError, encodeVideo } from "./video";
@@ -69,7 +71,10 @@ export async function renderAnimated(ed: EditorController, job: AnimatedExportJo
       return bytes ? { bytes } : { error: signal?.aborted ? t("Export cancelled") : t("Couldn't draw the animation") };
     }
     if (settings.format !== "MP4" && settings.format !== "WEBM") return { error: t("{format} export isn't built yet", { format: ANIMATED_FORMAT_LABELS[settings.format] }) };
-    const bytes = await encodeVideo(source, { format: settings.format, fps: settings.fps, quality: settings.quality }, progress, signal);
+    // The timeline's audio over the exported span, mixed (§7.3; none: no audio track).
+    const model = motionRead(() => ed.engine.motionTimeline(job.root), null);
+    const mix = model?.audio.length ? await mixAudio(ed, model, plan.rangeUs).catch(() => null) : null;
+    const bytes = await encodeVideo(source, { format: settings.format, fps: settings.fps, quality: settings.quality, audio: mix ? audioBufferSource(mix) : null }, progress, signal);
     return { bytes };
   } catch (e) {
     if (e instanceof VideoExportError) return { error: e.code === "cancelled" ? t("Export cancelled") : e.code === "unsupported" ? t("This format isn't supported on this device") : e.message };

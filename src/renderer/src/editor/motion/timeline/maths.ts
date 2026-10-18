@@ -1,10 +1,11 @@
 /**
  * The timeline's geometry (docs/motion.md §6.2): time ↔ x, the ruler's labels, snapping to the timeline's frames
  * (`keyframeSnappingFps`) and, with ⇧ held, to the playhead and the other keyframes; the layer bar's extent; the
- * marquee, the height dragged by the top edge and the keyframes copied (increment 2). Figma's
+ * marquee, the height dragged by the top edge and the keyframes copied (increment 2); an audio clip moved and trimmed
+ * (round 8e). Figma's
  * timeline worker draws the origin at x = 18 px and 16 × 16 diamonds (docs/research/rea/motion.md).
  */
-import type { GuidString, Micros, MotionClipboard, TimelineLayer } from "@shared/motion/types";
+import type { GuidString, Micros, MotionClipboard, TimelineAudioClip, TimelineLayer } from "@shared/motion/types";
 
 /** Where t = 0 sits in the track area (px from its left edge). */
 export const ORIGIN_PX = 18;
@@ -154,4 +155,21 @@ export function copyKeyframes(layers: readonly TimelineLayer[], ids: ReadonlySet
     if (tracks.length) out.push({ node: l.node, tracks });
   }
   return out;
+}
+
+/**
+ * An audio clip dragged (round 8e, docs/motion.md §6.6): "move" shifts it in time; "start" trims its head (the region
+ * starts later in the file and on the timeline), "end" its tail; never before the file's start or past its end
+ * (`lengthUs`, null while the file isn't decoded), never shorter than `minUs`. `toUs` is the dragged edge's new time.
+ */
+export function trimAudio(clip: TimelineAudioClip, edge: "move" | "start" | "end", toUs: Micros, lengthUs: Micros | null, minUs: Micros): { offsetUs?: Micros; startUs?: Micros; durationUs?: Micros } {
+  const end = clip.offsetUs + clip.durationUs;
+  if (edge === "move") return { offsetUs: Math.max(0, Math.round(toUs)) };
+  if (edge === "end") {
+    const most = lengthUs === null ? Infinity : lengthUs - clip.startUs;
+    return { durationUs: Math.round(Math.max(minUs, Math.min(most, toUs - clip.offsetUs))) };
+  }
+  // The head: back as far as the file's start (and the timeline's), on as far as the tail less minUs.
+  const offset = Math.round(Math.min(end - minUs, Math.max(0, clip.offsetUs - clip.startUs, toUs)));
+  return { offsetUs: offset, startUs: clip.startUs + (offset - clip.offsetUs), durationUs: end - offset };
 }

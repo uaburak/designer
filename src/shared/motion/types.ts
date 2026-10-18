@@ -522,6 +522,14 @@ export interface AudioEdit {
   trackId?: GuidString;
 }
 
+/** An audio row's edit (MOTION_SET_AUDIO `tracks`; round 8e, ours): the row's eye mutes it. */
+export interface AudioTrackEdit {
+  id: GuidString;
+  name?: string;
+  gain?: number;
+  mute?: boolean;
+}
+
 /** engine.runMotionCommand's arguments by CommandId (abi.ts 330–349). */
 export interface MotionCommandArgs {
   MOTION_ADD_KEYFRAME: { nodes: GuidString[]; field: KeyframeField; timeUs?: Micros; value?: KeyframeValue; easing?: EasingRef };
@@ -542,8 +550,8 @@ export interface MotionCommandArgs {
   MOTION_SET_ANCHOR: { nodes: GuidString[]; x: number; y: number; keepInPlace?: boolean };
   MOTION_SET_PATH_HANDLES: { keyframe: GuidString; in: { x: number; y: number }; out: { x: number; y: number } };
   MOTION_SET_TEXT_STAGGER: { node: GuidString; enabled: boolean; grouping?: "CHARACTER" | "CHARACTER_NO_WHITESPACE" | "WORD" | "LINE" | "PARAGRAPH"; delayMs?: number; order?: "LEFT_RIGHT" | "RIGHT_LEFT" | "CENTER_OUT" | "RANDOM" };
-  MOTION_ADD_AUDIO: { root: GuidString; mediaHash: string; name: string; offsetUs: Micros; durationUs: Micros };
-  MOTION_SET_AUDIO: { root: GuidString; edits: AudioEdit[] };
+  MOTION_ADD_AUDIO: { root: GuidString; mediaHash: string; name: string; offsetUs: Micros; durationUs: Micros; trackId?: GuidString };
+  MOTION_SET_AUDIO: { root: GuidString; edits?: AudioEdit[]; tracks?: AudioTrackEdit[] };
   MOTION_SPLIT_AUDIO: { root: GuidString; id: GuidString; atUs: Micros };
   MOTION_REMOVE_AUDIO: { root: GuidString; ids: GuidString[] };
   MOTION_PASTE_KEYFRAMES: { nodes: GuidString[]; atUs: Micros; clipboard: MotionClipboard };
