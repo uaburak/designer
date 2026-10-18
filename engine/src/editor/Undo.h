@@ -24,6 +24,9 @@ struct UndoBatch {
   std::deque<NodeChange> inverse;  // in the order they were recorded; applied backwards (a deque: never relocated)
   std::vector<Guid> selectionBefore;
   std::vector<Guid> selectionAfter;
+  // The pages its changes were on when it was made, first first (Figma's Message.undoBatchPageIds 46): an undo with
+  // nothing selected goes to the first of them. Empty: computed from the replayed changes.
+  std::vector<Guid> pageIds;
 };
 
 // What one undo / redo replay did, beyond the changes it applied (docs/engine.md §9.3).
@@ -51,8 +54,11 @@ class UndoStack {
   void record(NodeChange&& inverse);
   // Closes the transaction; a non-empty one becomes an undo step and clears redo.
   // `mergeWithLast` joins it to the previous step instead (key-repeat nudges).
-  // Past kMaxBatches the oldest steps are dropped.
-  void commit(const std::vector<Guid>& selection, bool mergeWithLast = false);
+  // Past kMaxBatches the oldest steps are dropped. `doc` (the document after the step): the step's pages are noted
+  // (UndoBatch::pageIds).
+  void commit(const std::vector<Guid>& selection, bool mergeWithLast = false, const Document* doc = nullptr);
+  // The pages a batch's inverses touch in `doc` as it is (pages on the internal canvas left out), first first.
+  static std::vector<Guid> pagesOf(const Document& doc, const std::deque<NodeChange>& inverse);
   static constexpr size_t kMaxBatches = 1000;
   // Drops the open transaction, applying its inverses to `doc` (a cancelled gesture).
   // Returns the changes that were applied (for listeners).

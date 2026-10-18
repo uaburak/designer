@@ -19,7 +19,8 @@ import { designPanelTab } from "./design/tabOrder";
 import { rightPanelTabs } from "../draw/panels/drawPanel";
 import { present } from "../present";
 import { useAccount } from "../../files/account";
-import { AgentFaces, ConnectionDot, Facepile, useFacepile } from "../multiplayer/Multiplayer";
+import { AgentFaces, Facepile, useFacepile } from "../multiplayer/Multiplayer";
+import { SaveStatusIcon } from "../SaveStatusIcon";
 import { usePresence } from "../multiplayer/presence";
 import { t, useT } from "@/i18n";
 import styles from "./Panels.module.css";
@@ -122,7 +123,7 @@ export function RightHeader({ compact }: { compact?: boolean }) {
         </MenuButton>
       )}
       <span className={styles.grow} />
-      <ConnectionDot />
+      <SaveStatusIcon />
       <span className={styles.present}>
         <IconButton icon="24.play" label={t("Present")} shortcut="⌥⌘↩" size="large" onClick={() => present(ed)} />
         <MenuButton label={t("Present options")} entries={presentEntries} onSelect={(id) => runEditorCommand(ed, id)} className={`${styles.chip} ${styles.presentChevron}`}>

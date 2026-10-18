@@ -98,6 +98,25 @@ describe("engine (wasm, headless)", () => {
     engine.destroy();
   });
 
+  it("the undo history leaves with its pages (undoBatchPageIds 46) and comes back in a fresh engine of the same document", async () => {
+    const engine = await engineWithSample();
+    engine.txnBegin("Opacity");
+    engine.setProps(["1:6"], { opacity: 0.5 });
+    engine.txnCommit();
+    const history = engine.exportUndoHistory();
+    const kiwi = decodeKiwi(history);
+    expect(kiwi.localUndoStack).toHaveLength(1);
+    expect(kiwi.localUndoStack![0].undoBatchPageIds).toEqual([{ sessionID: 0, localID: 1 }]);
+    const again = await Engine.create(null, { sessionID: 10 });
+    again.load(engine.encodeDocument());
+    expect(again.importUndoHistory(history)).toBe(true);
+    again.undo();
+    expect(again.readNode("1:6")!.opacity ?? 1).toBe(1);
+    expect(again.importUndoHistory(new Uint8Array([22, 5]))).toBe(false);
+    engine.destroy();
+    again.destroy();
+  });
+
   it("tools, commands and the camera", async () => {
     const engine = await engineWithSample();
     const tools: string[] = [];

@@ -66,6 +66,11 @@ export interface FileShareState {
    *  to do first), the network restriction, or the org's encryption key unavailable. The link waits; it tries again when
    *  the person agrees to a policy or turns on two-factor authentication, and every few minutes. */
   blocked?: { code: GovernanceErrorCode; gate?: OrgGate } | null;
+  /**
+   * This copy's frames sent and not acknowledged by the room yet: since when (null: none waiting) and when the room
+   * last acknowledged one — the save status's server half (Figma's multiplayer changes, atlas 22 §3.4)
+   */
+  unacked?: { since: number | null; lastAckAt: number } | null;
 }
 
 /** Someone with access to a team file through its team (the Share dialog's "People in <team>"): the person sharing it

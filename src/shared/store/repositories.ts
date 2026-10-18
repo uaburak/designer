@@ -120,6 +120,8 @@ export interface OpenedFile {
   headSeq: number;
   ui: FileUiState | null;
   recovery: null | { truncatedBytes: number; droppedFrames: number; fellBackTo: "previous-snapshot" | "version" | null };
+  /** Edit mode: the undo history this device kept at the last close (`setUndoHistory`), when it stands at `headSeq` */
+  undoHistory?: Uint8Array | null;
 }
 
 export interface FileChange {
@@ -141,6 +143,11 @@ export interface FileRepository {
 
   saveThumbnail(fileKey: FileKey, png: Uint8Array, size: { width: number; height: number }): Promise<void>;
   setUiState(fileKey: FileKey, patch: Partial<FileUiState>): Promise<void>;
+  /**
+   * The local user's undo history as the engine exports it (Message.localUndoStack / localRedoStack) at the journal's
+   * `headSeq`, kept on this device for the next open (docs/engine.md §9.3); `bytes` null forgets it.
+   */
+  setUndoHistory(fileKey: FileKey, history: { headSeq: number; bytes: Uint8Array | null }): Promise<void>;
   /**
    * The engine's own snapshot of the whole document, derived fields included, to replace snapshot + journal at the
    * head (docs/data.md §5.5): adopted when the store's head is exactly `save.headSeq`, else declined.

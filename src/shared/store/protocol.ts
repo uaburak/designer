@@ -90,6 +90,7 @@ export const STORE_METHODS = {
     "unsubscribe",
     "saveThumbnail",
     "setUiState",
+    "setUndoHistory",
     "saveSnapshot",
     "listVersions",
     "createVersion",

@@ -125,14 +125,15 @@ message Message {
   uint derivedDataVersion = 100;   // @ours engine version of the derived fields in this Message (0/absent = none)
   Message[] localUndoStack = 22;   // the editor's undo batches (oldest first), each a NODE_CHANGES Message; per-device UI state, never in a snapshot
   Message[] localRedoStack = 23;   // the redo batches, likewise
+  GUID[] undoBatchPageIds = 46;    // in an undo batch (a localUndoStack / localRedoStack element): the pages its changes were on, first first
   EncodedOffsetsIndex encodedOffsetsIndex = 34;  // where each node change starts in this Message's encoding (partial decode)
-  // Reserved field numbers (83): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  // Reserved field numbers (82): Figma fields not kept, or reserved for future Figma fields. Never reuse.
   byte _r5 = 5 [deprecated]; byte _r7 = 7 [deprecated]; byte _r8 = 8 [deprecated]; byte _r9 = 9 [deprecated]; byte _r10 = 10 [deprecated]; byte _r11 = 11 [deprecated];
   byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated]; byte _r17 = 17 [deprecated]; byte _r18 = 18 [deprecated];
   byte _r24 = 24 [deprecated]; byte _r25 = 25 [deprecated]; byte _r26 = 26 [deprecated]; byte _r27 = 27 [deprecated]; byte _r28 = 28 [deprecated]; byte _r29 = 29 [deprecated];
   byte _r30 = 30 [deprecated]; byte _r31 = 31 [deprecated]; byte _r32 = 32 [deprecated]; byte _r35 = 35 [deprecated]; byte _r36 = 36 [deprecated];
   byte _r37 = 37 [deprecated]; byte _r39 = 39 [deprecated]; byte _r40 = 40 [deprecated]; byte _r41 = 41 [deprecated]; byte _r42 = 42 [deprecated]; byte _r43 = 43 [deprecated];
-  byte _r44 = 44 [deprecated]; byte _r45 = 45 [deprecated]; byte _r46 = 46 [deprecated]; byte _r47 = 47 [deprecated]; byte _r48 = 48 [deprecated]; byte _r49 = 49 [deprecated];
+  byte _r44 = 44 [deprecated]; byte _r45 = 45 [deprecated]; byte _r47 = 47 [deprecated]; byte _r48 = 48 [deprecated]; byte _r49 = 49 [deprecated];
   byte _r50 = 50 [deprecated]; byte _r51 = 51 [deprecated]; byte _r52 = 52 [deprecated]; byte _r53 = 53 [deprecated]; byte _r54 = 54 [deprecated]; byte _r55 = 55 [deprecated];
   byte _r56 = 56 [deprecated]; byte _r57 = 57 [deprecated]; byte _r58 = 58 [deprecated]; byte _r59 = 59 [deprecated]; byte _r60 = 60 [deprecated]; byte _r61 = 61 [deprecated];
   byte _r62 = 62 [deprecated]; byte _r63 = 63 [deprecated]; byte _r64 = 64 [deprecated]; byte _r65 = 65 [deprecated]; byte _r66 = 66 [deprecated]; byte _r67 = 67 [deprecated];

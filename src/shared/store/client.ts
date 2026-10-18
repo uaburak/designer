@@ -395,6 +395,7 @@ export class StoreClient implements StoreApi {
     },
     saveThumbnail: (fileKey, png, size) => this.call("files.saveThumbnail", [fileKey, png, size]),
     setUiState: (fileKey, patch) => this.call("files.setUiState", [fileKey, patch]),
+    setUndoHistory: (fileKey, history) => this.call("files.setUndoHistory", [fileKey, history]),
     saveSnapshot: (fileKey, save) => this.call("files.saveSnapshot", [fileKey, save]),
     listVersions: (fileKey) => this.call("files.listVersions", [fileKey]),
     createVersion: (fileKey, input) => this.call("files.createVersion", [fileKey, input]),

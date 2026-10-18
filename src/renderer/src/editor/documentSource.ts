@@ -54,6 +54,18 @@ export interface DocumentSource {
   close?(): Promise<void>;
   /** The file's UI state from its last session (camera and selection per page, panel widths). Optional. */
   readonly uiState?: EditorUiState | null;
+  /**
+   * The local user's undo history from the file's last session on this device (Message.localUndoStack / localRedoStack,
+   * the engine's export), when the document opened is the one it was kept with. Optional.
+   */
+  readonly undoHistory?: Uint8Array | null;
+  /** Keeps the undo history for the next open on this device (written as the source closes). Optional. */
+  keepUndoHistory?(bytes: Uint8Array | null): void;
+  /**
+   * Since when changes have waited for the store's acknowledgement (null: none) and when it last took some — the save
+   * status's local half (Figma's autosave changes, atlas 22 §3.4). Optional: absent, changes count as saved.
+   */
+  saveState?(): { pendingSince: number | null; lastSavedAt: number };
   /** The UI state changed (the source debounces and keeps it). Optional. */
   setUiState?(patch: Partial<EditorUiState>): void;
   /** A PNG of the file's thumbnail frame or first page (≤ 800 × 600) for Home's card. Optional. */

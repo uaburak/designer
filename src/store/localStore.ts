@@ -1103,6 +1103,7 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
       s.multiplayer.thumbnailSaved(fileKey);
     },
     setUiState: (fileKey, patch) => s.files.setUiState(fileKey, patch ?? {}),
+    setUndoHistory: (fileKey, history) => s.files.setUndoHistory(fileKey, history),
     saveSnapshot: (fileKey, save) => s.files.saveSnapshot(fileKey, save, owner),
     listVersions: (fileKey) => s.files.listVersions(fileKey),
     createVersion: (fileKey, input) => s.createVersion(fileKey, input ?? {}),
