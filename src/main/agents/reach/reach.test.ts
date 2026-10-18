@@ -1,6 +1,6 @@
-// Agents' reach (docs/agents-reach.md) without Electron: the address rules (SSRF), the path rules, the untrusted-data
-// wrapper, the gate's policy / consent / org switch / budget / time limit / log, the store, and the MCP server keeping
-// the reach tools from outside clients.
+// Agents' reach (docs/agents-reach.md) without Electron: the address rules (SSRF), a page's dialogs and bytes, the path
+// rules, the untrusted-data wrapper, the gate's policy / consent / org switch / budget / time limit / log, the store,
+// and the MCP server keeping the reach tools from outside clients.
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +9,7 @@ import { DEFAULT_REACH_SETTINGS, REACH_LIMITS, cleanReachSettings, forcedOffOf, 
 import { checkWebUrl, displayUrl, isPublicAddress, normalizeAllowedHost } from "../../../shared/agents/reachNet";
 import { ReachHub, boundResult, type ReachConsentRequest, type ReachHubOptions } from "./hub";
 import { OFF_LIMITS, grantProblem, isDeniedPath, resolveGrantedPath } from "./paths";
+import { NO_DIALOGS, pageEvent } from "./pageEvents";
 import { ReachStore } from "./store";
 import { McpServer } from "../mcpServer";
 
@@ -84,6 +85,26 @@ describe("web addresses (SSRF)", () => {
 
   it("shows URLs without their query, fragment or user info", () => {
     expect(displayUrl("https://u:p@example.com/a/b?token=secret#x")).toBe("https://example.com/a/b");
+  });
+});
+
+describe("a web call's page", () => {
+  it("dismisses its dialogs and counts its bytes as they arrive, chunked answers too, until the limit", () => {
+    const st = { bytes: 0 };
+    expect(pageEvent(st, "Page.javascriptDialogOpening", { type: "alert", message: "Hi" }, 100)).toEqual({ dismiss: true });
+    expect(pageEvent(st, "Network.dataReceived", { dataLength: 60, encodedDataLength: 40 }, 100)).toBeNull();
+    // A chunk whose wire size isn't reported counts by its decoded size.
+    expect(pageEvent(st, "Network.dataReceived", { dataLength: 30, encodedDataLength: 0 }, 100)).toBeNull();
+    expect(st.bytes).toBe(70);
+    expect(pageEvent(st, "Network.dataReceived", { dataLength: 31, encodedDataLength: 31 }, 100)).toEqual({ over: "the page is larger than 0 MB" });
+    expect(pageEvent(st, "Network.responseReceived", {}, 100)).toBeNull();
+    expect(pageEvent({ bytes: REACH_LIMITS.web.bytes }, "Network.dataReceived", { encodedDataLength: 1 }, REACH_LIMITS.web.bytes)).toEqual({ over: "the page is larger than 25 MB" });
+  });
+
+  it("answers a page's alert, confirm and prompt itself, before its own scripts", () => {
+    const win: Record<string, unknown> = {};
+    new Function("window", NO_DIALOGS)(win);
+    expect([(win.alert as () => unknown)(), (win.confirm as () => unknown)(), (win.prompt as () => unknown)(), (win.print as () => unknown)()]).toEqual([undefined, false, null, undefined]);
   });
 });
 
