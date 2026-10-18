@@ -178,7 +178,10 @@ export async function projectsRoute(ctx: Ctx): Promise<Response> {
       needWrite();
       await acc.d1.prepare(`UPDATE projects SET trashed_at = ?2, trashed_by = ?3, updated_at = ?2 WHERE id = ?1`).bind(p.id, now, user.id).run();
       await log("project_trash");
-      await reauth(deps, await subtreeFileKeys(acc.d1, p.id));
+      const keys = await subtreeFileKeys(acc.d1, p.id);
+      // The libraries in it are listed nowhere while it's in the trash (docs/data.md §16.6)
+      await (await import("../libraries/db")).libraryContainerStatus(deps, keys);
+      await reauth(deps, keys);
       await tell();
       return noContent();
     }
@@ -188,6 +191,7 @@ export async function projectsRoute(ctx: Ctx): Promise<Response> {
       needWrite();
       await acc.d1.prepare(`UPDATE projects SET trashed_at = NULL, trashed_by = NULL, updated_at = ?2 WHERE id = ?1`).bind(p.id, now).run();
       await log("project_restore");
+      await (await import("../libraries/db")).libraryContainerStatus(deps, await subtreeFileKeys(acc.d1, p.id));
       acc.reset();
       await tell();
       return json({ project: await projectInfo(acc, (await acc.project(p.id))!) });

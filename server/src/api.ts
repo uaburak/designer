@@ -607,7 +607,9 @@ async function route(req: Request, deps: Deps): Promise<Response> {
       if (trash === (f.trashed_at !== null)) throw new HttpError(409, trash ? "the file is already in the trash" : "the file isn't in the trash");
       await deps.db.d1.prepare(`UPDATE files SET trashed_at = ?2, trashed_by = ?3, updated_at = ?4 WHERE key = ?1`).bind(key, trash ? deps.now() : null, trash ? user.id : null, deps.now()).run();
       await log(trash ? "fig_file_trash" : "fig_file_restore");
-      await (await import("./libraries/db")).libraryFileStatus(deps, key, trash ? "trash" : "restore");
+      // A library file back from the trash is published again only when its folder and team aren't in the trash too
+      const libs = await import("./libraries/db");
+      await (trash ? libs.libraryFileStatus(deps, key, "trash") : libs.libraryContainerStatus(deps, [key]));
       // The branches resolve through main: their people reconnect too (read-only while main is in the trash)
       const { results: branches } = await deps.db.d1.prepare(`SELECT key FROM branches WHERE main_key = ?1`).bind(key).all<{ key: string }>();
       await reauth(deps, [key, ...branches.map((b) => b.key)]);

@@ -180,7 +180,10 @@ export async function teamsRoute(ctx: Ctx): Promise<Response> {
       if (!rights.owner && !rights.teamAdmin && !rights.orgAdmin) throw new HttpError(403, "only the team's owner and admins can delete it");
       await acc.d1.prepare(`UPDATE teams SET deleted_at = ?2, deleted_by = ?3, updated_at = ?2 WHERE id = ?1`).bind(team.id, now, user.id).run();
       await log("team_delete");
-      await reauth(deps, await teamFileKeys(acc.d1, team.id));
+      const keys = await teamFileKeys(acc.d1, team.id);
+      // Its libraries are listed nowhere while it's deleted (docs/data.md §16.6)
+      await (await import("../libraries/db")).libraryContainerStatus(deps, keys);
+      await reauth(deps, keys);
       await tell();
       await orgNotice(deps, await teamUserIds(ctx, team), { what: "teams", orgId });
       return noContent();
@@ -201,6 +204,7 @@ export async function teamsRoute(ctx: Ctx): Promise<Response> {
       if (!rights.orgAdmin && !rights.owner) throw new HttpError(403, "only organization admins and the team's owner can restore it");
       await acc.d1.prepare(`UPDATE teams SET deleted_at = NULL, deleted_by = NULL, updated_at = ?2 WHERE id = ?1`).bind(team.id, now).run();
       await log("team_restore");
+      await (await import("../libraries/db")).libraryContainerStatus(deps, await teamFileKeys(acc.d1, team.id));
       acc.reset();
       await orgNotice(deps, await teamUserIds(ctx, team), { what: "teams", orgId });
       return json({ team: await teamInfo(ctx, (await acc.team(team.id))!) });

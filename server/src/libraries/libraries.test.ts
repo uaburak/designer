@@ -305,4 +305,38 @@ describe("notices and status (§16.6, §16.7)", () => {
     expect(await w.rows(`SELECT * FROM library_subscriptions`)).toEqual([]);
     expect(libraryMsgs(w.people.carol.id).at(-1)).toEqual({ t: "library", libraryKey: LIB, status: "deleted" });
   });
+
+  it("a library in a folder or team gone to the trash is listed nowhere until it comes back; trashed on its own, it stays (leftovers 2026-10-18)", async () => {
+    await publish(w, LIB, w.people.alice.token, [BUTTON], { scope: "org" });
+    const status = async () => (await w.rows(`SELECT status FROM libraries`))[0].status;
+    const listed = async () => (await get(`/libraries?file=${WEB}`, "carol")).body.libraries.map((l: Any) => l.libraryFileKey);
+    expect(await listed()).toEqual([LIB]);
+
+    expect((await w.call("POST", `/projects/${P1}/trash`, w.people.alice.token)).status).toBe(204);
+    expect(await status()).toBe("trashed");
+    expect(await listed()).toEqual([]);
+    expect(libraryMsgs(w.people.carol.id).at(-1)).toEqual({ t: "library", libraryKey: LIB, status: "trashed" });
+    await w.call("POST", `/projects/${P1}/restore`, w.people.alice.token);
+    expect(await status()).toBe("published");
+    expect(await listed()).toEqual([LIB]);
+
+    // The file trashed, then its folder: restoring the folder leaves the file's library in the trash; the file back, it's listed
+    await w.call("POST", `/files/${LIB}/trash`, w.people.alice.token);
+    await w.call("POST", `/projects/${P1}/trash`, w.people.alice.token);
+    await w.call("POST", `/projects/${P1}/restore`, w.people.alice.token);
+    expect(await status()).toBe("trashed");
+    // …and a file restored inside a folder still in the trash isn't published either
+    await w.call("POST", `/projects/${P1}/trash`, w.people.alice.token);
+    await w.call("POST", `/files/${LIB}/restore`, w.people.alice.token);
+    expect(await status()).toBe("trashed");
+    await w.call("POST", `/projects/${P1}/restore`, w.people.alice.token);
+    expect(await status()).toBe("published");
+
+    // A deleted team takes its libraries off the lists; restored, they're back
+    expect((await w.call("DELETE", `/teams/${T1}`, w.people.alice.token)).status).toBe(204);
+    expect(await status()).toBe("trashed");
+    await w.call("POST", `/teams/${T1}/restore`, w.people.alice.token);
+    expect(await status()).toBe("published");
+    expect(await listed()).toEqual([LIB]);
+  });
 });
