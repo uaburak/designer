@@ -12,6 +12,7 @@ import { isWebApp } from "@/app/webApp";
 import type { Guid, NodeChange } from "@/engine/codec";
 import type { EditorController } from "./controller";
 import { exportAllowed } from "./exporting";
+import { readPropertiesClipboard, writePropertiesClipboard } from "./clipboardIO";
 import { fields } from "./panels/design/shared";
 import { gridDefaults, type GridNode } from "./model/grid";
 import { viewCentre } from "./canvas/viewInsets";
@@ -53,30 +54,46 @@ const SHAPE_PROPERTIES = [
 const TEXT_PROPERTIES = ["fontName", "fontSize", "lineHeight", "letterSpacing", "paragraphSpacing", "paragraphIndent", "textAlignHorizontal", "textAlignVertical", "textCase", "textDecoration"] as const;
 
 type Copied = { fields: Record<string, unknown>; text: Record<string, unknown> | null };
+/** The last copy, for when the system clipboard can't be read (a browser without the permission). */
 const copied = new WeakMap<EditorController, Copied>();
+
+const pickFrom = (n: Record<string, unknown>, keys: readonly string[]) => Object.fromEntries(keys.filter((k) => n[k] !== undefined).map((k) => [k, n[k]]));
 
 export function canCopyProperties(ed: EditorController): boolean {
   return ed.selection.length === 1;
 }
 
+/** ⌥⌘C: the layer's look onto the system clipboard (Figma's STYLE Message, clipboardIO.ts), so it pastes in any file. */
 export function copyProperties(ed: EditorController): void {
   const [ref] = ed.selection;
   if (!ref || ed.selection.length !== 1) return;
   const n = ed.engine.readNode(ref, { fields: [...SHAPE_PROPERTIES, ...TEXT_PROPERTIES, "type"] }) as (NodeChange & Record<string, unknown>) | null;
   if (!n) return;
-  const pick = (keys: readonly string[]) => Object.fromEntries(keys.filter((k) => n[k] !== undefined).map((k) => [k, n[k]]));
-  copied.set(ed, { fields: pick(SHAPE_PROPERTIES), text: n.type === "TEXT" ? pick(TEXT_PROPERTIES) : null });
+  const c: Copied = { fields: pickFrom(n, SHAPE_PROPERTIES), text: n.type === "TEXT" ? pickFrom(n, TEXT_PROPERTIES) : null };
+  copied.set(ed, c);
+  void writePropertiesClipboard(ed, { type: n.type, ...c.fields, ...c.text } as unknown as NodeChange);
   showToast({ message: t("Properties copied") });
 }
 
+/** Paste properties needs a selection; what the clipboard holds is only known once it is read. */
 export function canPasteProperties(ed: EditorController): boolean {
-  return copied.has(ed) && ed.selection.length > 0;
+  return ed.selection.length > 0;
 }
 
-/** ⌥⌘V: the copied look onto every selected layer (a text's type settings onto texts only); one undo step. */
-export function pasteProperties(ed: EditorController): void {
-  const c = copied.get(ed);
-  if (!c || !ed.selection.length) return;
+/**
+ * ⌥⌘V: the copied look onto every selected layer (a text's type settings onto texts only); one undo step. From the
+ * system clipboard (copied here or in another file); this window's last copy when the clipboard can't be read.
+ */
+export async function pasteProperties(ed: EditorController): Promise<void> {
+  if (!ed.selection.length) return;
+  const read = await readPropertiesClipboard();
+  const c: Copied | undefined =
+    read === undefined
+      ? copied.get(ed)
+      : read
+        ? { fields: pickFrom(read.node as unknown as Record<string, unknown>, SHAPE_PROPERTIES), text: read.node.type === "TEXT" ? pickFrom(read.node as unknown as Record<string, unknown>, TEXT_PROPERTIES) : null }
+        : undefined;
+  if (!c || !ed.selection.length || ed.engine.destroyed) return;
   const nodes = ed.selectedNodes();
   ed.batch("Paste properties", () => {
     for (const n of nodes) {

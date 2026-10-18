@@ -91,6 +91,9 @@ class Font {
   void setOutline(uint32_t glyph, GlyphOutline outline) { outlines_[glyph] = std::move(outline); }
   // The SHA-1 of the font file the face came from (derivedTextData's FontMetaData.fontDigest); zeros without a face.
   const std::array<uint8_t, 20>& digest() const;
+  // The face when this font draws its glyf outlines as they are (TrueType, a variable font at its default instance):
+  // the PDF export embeds it as TrueType (export/TrueType.h). Null for CFF outlines, other instances, outline-only fonts.
+  hb_face_t* trueTypeFace() const;
 
   // This font with axis values set on top of its own (fontVariations): itself when they change nothing, else a
   // variant it keeps (the same face, its own id, outlines and metrics).

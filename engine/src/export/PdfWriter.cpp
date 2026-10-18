@@ -4,11 +4,15 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <map>
+#include <set>
 #include <unordered_map>
 
 #include "export/Deflate.h"
 #include "export/Scene.h"
+#include "export/TrueType.h"
 #include "geometry/Shapes.h"
 #include "text/Fonts.h"
 #include "text/Unicode.h"
@@ -100,6 +104,36 @@ struct Type3 {
   double bbox[4] = {0, 0, 0, 0};
 };
 
+// A TrueType face embedded as a CID font (Type 0 over CIDFontType2, Identity-H: the codes are glyph ids), subset to
+// the glyphs the file uses.
+struct TrueTypeFont {
+  int obj = 0;
+  std::string name;
+  hb_face_t* face = nullptr;
+  std::set<uint32_t> glyphs;
+  std::map<uint32_t, double> widths;           // glyph → advance, 1000 per em
+  std::map<uint32_t, std::u16string> unicode;  // glyph → what it stands for (its first use)
+};
+
+// A text layer's place in the structure tree (a tagged PDF): a /P element over one marked-content sequence.
+struct TextTag {
+  int page = 0;  // the page's index
+  int mcid = 0;
+  int form = 0;  // the form XObject holding the sequence (0: the page's own content)
+  std::u16string text;
+};
+
+// "<FEFF…>": a PDF text string in UTF-16BE.
+std::string utf16Hex(const std::u16string& s) {
+  std::string out = "<FEFF";
+  char u[8];
+  for (char16_t c : s) {
+    std::snprintf(u, sizeof u, "%04X", static_cast<unsigned>(c));
+    out += u;
+  }
+  return out + ">";
+}
+
 class Writer {
  public:
   Writer(const Document& doc, TextLayouts* texts, const Rasterize& raster) : doc_(doc), texts_(texts), raster_(raster) {
@@ -109,7 +143,11 @@ class Writer {
   std::string run(const std::vector<Target>& targets) {
     int pagesId = file_.alloc();
     std::string kids;
+    nextParentKey_ = static_cast<int>(targets.size());  // the pages' StructParents are their indexes; forms' come after
     for (const Target& t : targets) {
+      page_ = static_cast<int>(pageIds_.size());
+      pageIds_.push_back(file_.alloc());
+      mcid_ = 0;
       t_ = &t;
       H_ = t.bounds.h;
       W_ = t.bounds.w;
@@ -128,8 +166,10 @@ class Writer {
         siblings(content, roots, 0, 1);
       }
       int contents = file_.add(File::stream("", content, true));
-      int page = file_.add("<< /Type /Page /Parent " + ref(pagesId) + " /MediaBox [0 0 " + n(W_) + " " + n(H_) + "] /Resources " + ref(resources_) +
-                           " /Contents " + ref(contents) + " /Group << /Type /Group /S /Transparency /CS /DeviceRGB >> >>");
+      int page = pageIds_.back();
+      file_.set(page, "<< /Type /Page /Parent " + ref(pagesId) + " /MediaBox [0 0 " + n(W_) + " " + n(H_) + "] /Resources " + ref(resources_) +
+                          " /Contents " + ref(contents) + " /Group << /Type /Group /S /Transparency /CS /DeviceRGB >> /StructParents " +
+                          std::to_string(page_) + " /Tabs /S >>");
       kids += ref(page) + " ";
     }
     file_.set(pagesId, "<< /Type /Pages /Kids [" + kids + "] /Count " + std::to_string(targets.size()) + " >>");
@@ -146,10 +186,12 @@ class Writer {
     dict("XObject", xobjects_);
     std::vector<std::pair<std::string, int>> fonts;
     for (auto& f : fonts_) fonts.push_back({f.name, f.obj});
+    for (auto& f : trueType_) fonts.push_back({f.name, f.obj});
     dict("Font", fonts);
     res += " >>";
     file_.set(resources_, res);
-    int catalog = file_.add("<< /Type /Catalog /Pages " + ref(pagesId) + " >>");
+    int structRoot = writeStructure();
+    int catalog = file_.add("<< /Type /Catalog /Pages " + ref(pagesId) + " /MarkInfo << /Marked true >> /StructTreeRoot " + ref(structRoot) + " >>");
     int info = file_.add("<< /Producer (DesignerV2) >>");
     return file_.finish(catalog, info);
   }
@@ -307,11 +349,24 @@ class Writer {
     return name;
   }
 
-  // A form XObject (a transparency group) holding `content`.
+  // A form XObject (a transparency group) holding `content`. Text tagged in it (a layer drawn as a group) belongs to the
+  // form: the form gets a StructParents key of its own and those tags point at it.
   int form(const std::string& content, bool gray = false) {
-    return file_.add(File::stream("/Type /XObject /Subtype /Form /BBox [0 0 " + n(W_) + " " + n(H_) + "] /Group << /Type /Group /S /Transparency /CS " +
-                                      (gray ? "/DeviceGray" : "/DeviceRGB") + " >> /Resources " + ref(resources_),
-                                  content, true));
+    int id = file_.alloc();
+    std::string dict = "/Type /XObject /Subtype /Form /BBox [0 0 " + n(W_) + " " + n(H_) + "] /Group << /Type /Group /S /Transparency /CS " +
+                       (gray ? "/DeviceGray" : "/DeviceRGB") + " >> /Resources " + ref(resources_);
+    bool tagged = false;
+    for (size_t at = content.find("/MCID "); at != std::string::npos; at = content.find("/MCID ", at + 6)) {
+      int mcid = std::atoi(content.c_str() + at + 6);
+      for (TextTag& tag : tags_)
+        if (tag.page == page_ && tag.mcid == mcid && !tag.form) tag.form = id, tagged = true;
+    }
+    if (tagged) {
+      formKeys_.push_back({nextParentKey_, id});
+      dict += " /StructParents " + std::to_string(nextParentKey_++);
+    }
+    file_.set(id, File::stream(dict, content, true));
+    return id;
   }
   std::string xobject(int id) {
     std::string name = "X" + std::to_string(xobjects_.size());
@@ -470,6 +525,41 @@ class Writer {
 
   // ---- Text ----
 
+  // Font indexes in a text run: Type 3 fonts from 0, TrueType ones from here.
+  static constexpr size_t kTrueTypeFonts = size_t{1} << 30;
+
+  // The TrueType font of a glyph whose font draws its face's own glyf outlines (made on first use, the glyph noted
+  // for the subset), or SIZE_MAX: the glyph goes in a Type 3 font.
+  size_t trueTypeGlyph(const text::LaidGlyph& g, const std::u16string& unicode) {
+    hb_face_t* face = g.font ? g.font->trueTypeFace() : nullptr;
+    if (!face) return SIZE_MAX;
+    auto it = trueTypeByFace_.find(face);
+    size_t ti;
+    if (it != trueTypeByFace_.end()) {
+      ti = it->second;
+      if (ti == SIZE_MAX) return SIZE_MAX;
+    } else if (!canSubsetTrueType(face)) {
+      trueTypeByFace_[face] = SIZE_MAX;
+      return SIZE_MAX;
+    } else {
+      ti = trueType_.size();
+      TrueTypeFont f;
+      f.obj = file_.alloc();
+      f.name = "T" + std::to_string(ti);
+      f.face = face;
+      trueType_.push_back(std::move(f));
+      trueTypeByFace_[face] = ti;
+    }
+    TrueTypeFont& f = trueType_[ti];
+    if (f.glyphs.insert(g.glyph).second) {
+      f.widths[g.glyph] = g.font->advance(g.glyph) * 1000;
+      if (!unicode.empty()) f.unicode[g.glyph] = unicode;
+    } else if (!unicode.empty() && !f.unicode.count(g.glyph)) {
+      f.unicode[g.glyph] = unicode;
+    }
+    return ti;
+  }
+
   // The (font, code) of a glyph in the Type 3 fonts, made on first use.
   std::pair<size_t, int> glyphCode(const text::LaidGlyph& g, const std::u16string& unicode) {
     uint64_t key = (static_cast<uint64_t>(g.font ? g.font->id() : 0) << 32) | g.glyph;
@@ -511,49 +601,130 @@ class Writer {
     return r;
   }
 
+  // ToUnicode: what each code stands for (selecting and copying the text); codes of one byte (Type 3) or two (CID).
+  int toUnicode(const std::vector<std::pair<uint32_t, const std::u16string*>>& codes, bool twoBytes) {
+    std::string cmap =
+        "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> "
+        "def\n/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n1 begincodespacerange\n" +
+        std::string(twoBytes ? "<0000> <FFFF>" : "<00> <FF>") + "\nendcodespacerange\n";
+    std::vector<std::string> entries;
+    for (auto& [c, text] : codes) {
+      if (text->empty()) continue;
+      char code[8];
+      std::snprintf(code, sizeof code, twoBytes ? "<%04X>" : "<%02X>", static_cast<unsigned>(c));
+      std::string hex = "<";
+      for (char16_t ch : *text) {
+        char u[8];
+        std::snprintf(u, sizeof u, "%04X", static_cast<unsigned>(ch));
+        hex += u;
+      }
+      entries.push_back(std::string(code) + " " + hex + ">");
+    }
+    for (size_t i = 0; i < entries.size(); i += 100) {
+      size_t end = std::min(entries.size(), i + 100);
+      cmap += std::to_string(end - i) + " beginbfchar\n";
+      for (size_t k = i; k < end; k++) cmap += entries[k] + "\n";
+      cmap += "endbfchar\n";
+    }
+    cmap += "endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n";
+    return file_.add(File::stream("", cmap, true));
+  }
+
   void writeFonts() {
     for (Type3& f : fonts_) {
       std::string procs, diffs, widths;
+      std::vector<std::pair<uint32_t, const std::u16string*>> codes;
       for (size_t i = 0; i < f.procs.size(); i++) {
         procs += "/g" + std::to_string(i) + " " + ref(f.procs[i]) + " ";
         diffs += "/g" + std::to_string(i) + " ";
         widths += n(f.widths[i]) + " ";
+        codes.push_back({static_cast<uint32_t>(i), &f.unicode[i]});
       }
-      // ToUnicode: what each code stands for (selecting and copying the text).
-      std::string cmap =
-          "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> "
-          "def\n/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n1 begincodespacerange\n<00> <FF>\nendcodespacerange\n";
-      std::vector<std::string> entries;
-      for (size_t i = 0; i < f.unicode.size(); i++) {
-        if (f.unicode[i].empty()) continue;
-        char code[8];
-        std::snprintf(code, sizeof code, "<%02X>", static_cast<unsigned>(i));
-        std::string hex = "<";
-        for (char16_t c : f.unicode[i]) {
-          char u[8];
-          std::snprintf(u, sizeof u, "%04X", static_cast<unsigned>(c));
-          hex += u;
-        }
-        entries.push_back(std::string(code) + " " + hex + ">");
-      }
-      for (size_t i = 0; i < entries.size(); i += 100) {
-        size_t end = std::min(entries.size(), i + 100);
-        cmap += std::to_string(end - i) + " beginbfchar\n";
-        for (size_t k = i; k < end; k++) cmap += entries[k] + "\n";
-        cmap += "endbfchar\n";
-      }
-      cmap += "endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n";
-      int toUnicode = file_.add(File::stream("", cmap, true));
+      int cmap = toUnicode(codes, false);
       file_.set(f.obj, "<< /Type /Font /Subtype /Type3 /FontBBox [" + n(f.bbox[0]) + " " + n(f.bbox[1]) + " " + n(f.bbox[2]) + " " + n(f.bbox[3]) +
                            "] /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs << " + procs + ">> /Encoding << /Type /Encoding /Differences [0 " + diffs +
                            "] >> /FirstChar 0 /LastChar " + std::to_string(f.procs.size() - 1) + " /Widths [" + widths + "] /Resources << >> /ToUnicode " +
-                           ref(toUnicode) + " >>");
+                           ref(cmap) + " >>");
     }
+    // TrueType: the subset file (FontFile2), its descriptor, the CIDFontType2 (Figma's "FigmaPDF" ordering, glyph ids
+    // as CIDs) and the Type 0 font over it, with the subset tag ("AAAAAB+Inter-Regular") PDF asks of a subset.
+    for (size_t i = 0; i < trueType_.size(); i++) {
+      TrueTypeFont& f = trueType_[i];
+      TrueTypeInfo info;
+      std::string file = subsetTrueType(f.face, f.glyphs, info);
+      std::string ps;
+      for (char c : info.postScriptName)
+        if (c > 32 && c < 127 && !std::strchr("()<>[]{}/%#", c)) ps += c;
+      std::string tag = "AAAAAA";
+      for (size_t k = 0, v = i; k < 6 && v; k++, v /= 26) tag[5 - k] = static_cast<char>('A' + v % 26);
+      std::string base = "/" + tag + "+" + (ps.empty() ? "Font" + std::to_string(i) : ps);
+      double em = 1000.0 / info.unitsPerEm;
+      int fontFile = file_.add(File::stream("/Length1 " + std::to_string(file.size()), file, true));
+      int descriptor = file_.add("<< /Type /FontDescriptor /FontName " + base + " /Flags " + (info.italicAngle != 0 ? "68" : "4") + " /FontBBox [" +
+                                 n(info.bbox[0] * em) + " " + n(info.bbox[1] * em) + " " + n(info.bbox[2] * em) + " " + n(info.bbox[3] * em) +
+                                 "] /ItalicAngle " + n(info.italicAngle) + " /Ascent " + n(info.ascent * em) + " /Descent " + n(info.descent * em) +
+                                 " /CapHeight " + n(info.capHeight * em) + " /StemV 80 /FontFile2 " + ref(fontFile) + " >>");
+      std::string widths;
+      for (auto& [glyph, w] : f.widths) widths += std::to_string(glyph) + " [" + n(w) + "] ";
+      int cid = file_.add("<< /Type /Font /Subtype /CIDFontType2 /BaseFont " + base +
+                          " /CIDSystemInfo << /Registry (FigmaPDF) /Ordering (FigmaPDF) /Supplement 0 >> /FontDescriptor " + ref(descriptor) +
+                          " /CIDToGIDMap /Identity /W [" + widths + "] >>");
+      std::vector<std::pair<uint32_t, const std::u16string*>> codes;
+      for (auto& [glyph, text] : f.unicode) codes.push_back({glyph, &text});
+      int cmap = toUnicode(codes, true);
+      file_.set(f.obj, "<< /Type /Font /Subtype /Type0 /BaseFont " + base + " /Encoding /Identity-H /DescendantFonts [" + ref(cid) + "] /ToUnicode " +
+                           ref(cmap) + " >>");
+    }
+  }
+
+  // ---- Structure (a tagged PDF) ----
+
+  // Opens a text layer's marked-content sequence on the current page: "/P <</MCID n>> BDC" (closed with EMC).
+  void beginTag(std::string& o, const std::u16string& text) {
+    int mcid = mcid_++;
+    tags_.push_back({page_, mcid, 0, text});
+    o += "/P <</MCID " + std::to_string(mcid) + ">> BDC\n";
+  }
+
+  // The structure tree: a Document element with one P per text layer (its characters as ActualText), each over its
+  // marked content, and the parent tree from the pages' and forms' StructParents keys back to the elements.
+  int writeStructure() {
+    int root = file_.alloc(), document = file_.alloc();
+    std::vector<int> elems;
+    std::map<int, std::map<int, int>> byKey;  // StructParents key → MCID → element
+    for (const TextTag& tag : tags_) {
+      int pg = pageIds_[static_cast<size_t>(tag.page)];
+      std::string k = tag.form ? "<< /Type /MCR /MCID " + std::to_string(tag.mcid) + " /Pg " + ref(pg) + " /Stm " + ref(tag.form) + " >>"
+                               : std::to_string(tag.mcid);
+      int e = file_.add("<< /Type /StructElem /S /P /P " + ref(document) + " /Pg " + ref(pg) + " /K " + k + " /ActualText " + utf16Hex(tag.text) + " >>");
+      elems.push_back(e);
+      int key = tag.page;
+      for (auto& [formKey, formId] : formKeys_)
+        if (formId == tag.form) key = formKey;
+      byKey[key][tag.mcid] = e;
+    }
+    std::string kids, nums;
+    for (int e : elems) kids += ref(e) + " ";
+    for (auto& [key, list] : byKey) {
+      std::string arr;
+      int next = 0;
+      for (auto& [mcid, e] : list) {
+        for (; next < mcid; next++) arr += "null ";
+        arr += ref(e) + " ";
+        next = mcid + 1;
+      }
+      nums += std::to_string(key) + " [" + arr + "] ";
+    }
+    file_.set(document, "<< /Type /StructElem /S /Document /P " + ref(root) + " /K [" + kids + "] >>");
+    file_.set(root, "<< /Type /StructTreeRoot /K " + ref(document) + " /ParentTree << /Nums [" + nums + "] >> /ParentTreeNextKey " +
+                        std::to_string(nextParentKey_) + " >>");
+    return root;
   }
 
   void textNode(std::string& o, Guid id, const NodeProps& p, const Mat2x3& E, double alpha) {
     const text::TextLayout* L = texts_ ? texts_->textLayout(id) : nullptr;
     if (!L) return;
+    beginTag(o, text::applyCase(L->text, L->styles.empty() ? TextCase::ORIGINAL : L->styles[0].textCase));
     // What each glyph stands for: its cluster's characters (up to the next cluster on its line).
     std::vector<std::u16string> unicode(L->glyphs.size());
     std::u16string_view text16(L->text);
@@ -611,14 +782,23 @@ class Writer {
           flush();
           current = &paint;
         }
-        auto [fi, code] = glyphCode(g, unicode[i]);
-        if (fi != font) {
-          run += "/" + fonts_[fi].name + " 1 Tf\n";
-          font = fi;
-        }
         Mat2x3 T = M * text::glyphMatrix(g) * Mat2x3{1, 0, 0, 0, -1, 0};  // a glyph on a text path is turned
         char hex[8];
-        std::snprintf(hex, sizeof hex, "<%02X>", static_cast<unsigned>(code));
+        if (size_t ti = trueTypeGlyph(g, unicode[i]); ti != SIZE_MAX) {
+          // TrueType: the glyph id is the code (Identity-H).
+          if (font != kTrueTypeFonts + ti) {
+            run += "/" + trueType_[ti].name + " 1 Tf\n";
+            font = kTrueTypeFonts + ti;
+          }
+          std::snprintf(hex, sizeof hex, "<%04X>", static_cast<unsigned>(g.glyph));
+        } else {
+          auto [fi, code] = glyphCode(g, unicode[i]);
+          if (fi != font) {
+            run += "/" + fonts_[fi].name + " 1 Tf\n";
+            font = fi;
+          }
+          std::snprintf(hex, sizeof hex, "<%02X>", static_cast<unsigned>(code));
+        }
         run += matrixOps(T) + " Tm " + hex + " Tj\n";
       }
       flush();
@@ -630,6 +810,7 @@ class Writer {
         fillWith(o, r, false, (*fills)[f], p.size, E, alpha);
       }
     }
+    o += "EMC\n";
   }
 
   // ---- Layers ----
@@ -791,6 +972,13 @@ class Writer {
   std::unordered_map<std::string, std::string> images_;
   std::vector<Type3> fonts_;
   std::unordered_map<uint64_t, std::pair<size_t, int>> glyphs_;
+  std::vector<TrueTypeFont> trueType_;
+  std::unordered_map<hb_face_t*, size_t> trueTypeByFace_;
+  // The structure tree: the page being written, its next MCID, every text layer's tag, forms' StructParents keys.
+  std::vector<int> pageIds_;
+  int page_ = 0, mcid_ = 0, nextParentKey_ = 0;
+  std::vector<TextTag> tags_;
+  std::vector<std::pair<int, int>> formKeys_;  // key, form
 };
 
 }  // namespace

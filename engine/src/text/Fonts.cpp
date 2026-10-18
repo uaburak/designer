@@ -107,6 +107,19 @@ const std::array<uint8_t, 20>& Font::digest() const {
   return face_ ? face_->digest() : kNone;
 }
 
+hb_face_t* Font::trueTypeFace() const {
+  if (!face_ || !font_) return nullptr;
+  hb_blob_t* glyf = hb_face_reference_table(face_->hb(), HB_TAG('g', 'l', 'y', 'f'));
+  bool outlines = hb_blob_get_length(glyf) > 0;
+  hb_blob_destroy(glyf);
+  if (!outlines) return nullptr;
+  unsigned n = 0;
+  const int* coords = hb_font_get_var_coords_normalized(font_, &n);
+  for (unsigned i = 0; i < n; i++)
+    if (coords[i] != 0) return nullptr;
+  return face_->hb();
+}
+
 uint32_t Font::glyphFor(uint32_t cp) const {
   hb_codepoint_t g = 0;
   return font_ && hb_font_get_nominal_glyph(font_, cp, &g) ? g : 0;

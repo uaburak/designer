@@ -1,11 +1,14 @@
 /**
  * The Design panel's Export section (UI3; help.figma.com 360040028114,
- * 13402894554519). "+" adds an export setting — 1x, then 2x "@2x", then 3x
- * "@3x" (Figma's defaults) — each row: the scale ("1x", typed or picked:
- * 0.5x … 4x, 512w, 512h; SVG and PDF are 1x only), the format (PNG, JPG,
- * SVG, PDF), "…" for the setting's details (Suffix; Color profile, Image
- * quality, Image resampling; Ignore overlapping layers, Include bounding box,
- * Include "id" attribute, Outline text, Simplify stroke — by format), minus.
+ * 13402894554519; atlas 15 §3–4). "+" adds an export setting — 1x, then 2x
+ * "@2x", then 3x "@3x", then 1x again (Figma's defaults) — each row: the
+ * scale ("1x", typed or picked: 0.5x … 4x, 512w, 512h, up to 1024x and
+ * 32768 px, ↑ / ↓ by 0.5, ⇧ by 1; SVG and PDF are 1x only; an "@2x" the
+ * scale gave follows it), the format (PNG, JPG, SVG, PDF), "…" for the
+ * setting's details (Suffix, Color profile; Quality, Image resampling;
+ * Ignore overlapping layers; Include bounding box and Outline text when the
+ * layers hold text, Include "id" attribute, Simplify stroke when a stroke is
+ * inside or outside — by format), minus.
  * Under the rows, "Export Frame 1" (one layer) / "Export 3 layers", and the
  * Preview of the first setting (one layer only). With nothing selected the
  * settings are the page's: its canvas exports. Stored as `exportSettings`
@@ -13,7 +16,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { Button, Checkbox, Icon, IconButton, MenuButton, PanelSection, Popover, Select, Tabs, TextInput, cx } from "@/ds";
-import type { Guid } from "@/engine/codec";
+import type { Guid, NodeChange } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { canExport, exportItems, renderExport, useExportAllowed, type ExportItem } from "../../exporting";
 import { useDocumentVersion } from "../../hooks";
@@ -26,10 +29,14 @@ import {
   formatOf,
   isVectorFormat,
   nextExportSetting,
+  nudgeConstraint,
   parseScale,
-  qualityOf,
+  qualityFor,
+  qualityLevel,
   scaleLabel,
+  withConstraint,
   withFormat,
+  type QualityLevel,
   type ExportFormat,
   type ExportSettings,
 } from "../../model/exports";
@@ -117,7 +124,12 @@ function ExportSectionBody({ targets, page }: { targets: ExportTarget[]; page: b
                   disabled={vector}
                   onCommit={(v) => {
                     const c = parseScale(v);
-                    if (c) set(i, { ...s, constraint: c }, "Export scale");
+                    if (c) set(i, withConstraint(s, c), "Export scale");
+                  }}
+                  onKeyDownCapture={(e) => {
+                    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+                    e.preventDefault();
+                    set(i, withConstraint(s, nudgeConstraint(s.constraint, e.key === "ArrowUp", e.shiftKey)), "Export scale");
                   }}
                 />
                 <MenuButton
@@ -126,7 +138,7 @@ function ExportSectionBody({ targets, page }: { targets: ExportTarget[]; page: b
                   entries={SCALE_PRESETS.map((p) => ({ id: p, label: p, checked: p === scaleLabel(s) }))}
                   onSelect={(p) => {
                     const c = parseScale(p);
-                    if (c) set(i, { ...s, constraint: c }, "Export scale");
+                    if (c) set(i, withConstraint(s, c), "Export scale");
                   }}
                   className={own.scaleMenu}
                 >
@@ -178,19 +190,36 @@ function ExportSectionBody({ targets, page }: { targets: ExportTarget[]; page: b
         </>
       )}
       {open && list[open.index] && (
-        <ExportSettingsPopover setting={list[open.index]} anchor={open.anchor} onClose={() => setOpen(null)} onChange={(next) => set(open.index, next)} />
+        <ExportSettingsPopover setting={list[open.index]} refs={page ? [] : refs} anchor={open.anchor} onClose={() => setOpen(null)} onChange={(next) => set(open.index, next)} />
       )}
     </PanelSection>
   );
 }
 
-/** The "…" popover: the setting's details, by format. */
-export function ExportSettingsPopover({ setting, anchor, onChange, onClose }: { setting: ExportSettings; anchor: HTMLElement; onChange: (s: ExportSettings) => void; onClose: () => void }) {
+/**
+ * What the layers hold that some rows depend on (the page: everything): text (Figma's text-node export options —
+ * Include bounding box, Outline text) and a stroke SVG can only draw as a mask, inside or outside (Simplify stroke).
+ */
+function useExportContent(refs: readonly Guid[]): { text: boolean; maskableStroke: boolean } {
+  const ed = useEditor();
+  const version = useDocumentVersion();
+  const key = refs.join(",");
+  return useMemo(() => {
+    if (!key) return { text: true, maskableStroke: true };
+    const nodes = ed.engine.readNodes(key.split(","), { fields: ["type", "strokePaints", "strokeWeight", "strokeAlign"], subtree: true, visibleOnly: true, limit: 5000 });
+    const stroked = (n: NodeChange) => (n.strokeWeight ?? 1) > 0 && (n.strokePaints ?? []).some((p) => p.visible !== false) && (n.strokeAlign === "INSIDE" || n.strokeAlign === "OUTSIDE");
+    return { text: nodes.some((n) => n.type === "TEXT"), maskableStroke: nodes.some(stroked) };
+    // The document's version re-reads the layers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ed, key, version]);
+}
+
+/** The "…" popover: the setting's details, by format (Figma's ExportSettings, 240 wide; atlas 15 §4). */
+export function ExportSettingsPopover({ setting, refs, anchor, onChange, onClose }: { setting: ExportSettings; refs: readonly Guid[]; anchor: HTMLElement; onChange: (s: ExportSettings) => void; onClose: () => void }) {
   useT();
   const ed = useEditor();
+  const content = useExportContent(refs);
   const format = formatOf(setting);
-  const raster = format === "PNG" || format === "JPEG";
-  const quality = QUALITY_LEVELS.reduce((best, q) => (Math.abs(q.quality - qualityOf(setting)) < Math.abs(best.quality - qualityOf(setting)) ? q : best));
   const check = (label: string, value: boolean, next: (v: boolean) => ExportSettings) => (
     <div className={styles.settingsWide} data-export-check="">
       <Checkbox label={t(label)} checked={value} onChange={(v) => onChange(next(v))} />
@@ -203,27 +232,31 @@ export function ExportSettingsPopover({ setting, anchor, onChange, onClose }: { 
       <div className={cx(styles.settings, own.exportSettings)} data-export-settings="">
         <span className={styles.settingsLabel}>{t("Suffix")}</span>
         <TextInput label={t("Suffix")} placeholder={t("None")} value={setting.suffix ?? ""} onCommit={(v) => onChange({ ...setting, suffix: v })} />
-        {raster && (
-          <>
-            <span className={styles.settingsLabel}>{t("Color profile")}</span>
-            <Select
-              label={t("Color profile")}
-              variant="ghost"
-              value={setting.colorProfile ?? "DOCUMENT"}
-              options={[
-                // "Document": the file's own profile, named (atlas 07 §16: not always sRGB)
-                { value: "DOCUMENT", label: ed.engine.colorProfile === "DISPLAY_P3" ? t("Display P3 (same as file)") : t("sRGB (same as file)") },
-                { value: "SRGB", label: "sRGB" },
-                { value: "DISPLAY_P3_V4", label: "Display P3" },
-              ]}
-              onChange={(v) => onChange({ ...setting, colorProfile: v as ExportSettings["colorProfile"] })}
-            />
-          </>
-        )}
+        {/* Every format (CMYK is Buzz's print only) */}
+        <span className={styles.settingsLabel}>{t("Color profile")}</span>
+        <Select
+          label={t("Color profile")}
+          variant="ghost"
+          value={setting.colorProfile ?? "DOCUMENT"}
+          options={[
+            // "Same as file": the file's own profile, named (atlas 07 §16: not always sRGB)
+            { value: "DOCUMENT", label: ed.engine.colorProfile === "DISPLAY_P3" ? t("Display P3 (same as file)") : t("sRGB (same as file)") },
+            { value: "SRGB", label: "sRGB" },
+            { value: "DISPLAY_P3_V4", label: "Display P3" },
+          ]}
+          onChange={(v) => onChange({ ...setting, colorProfile: v as ExportSettings["colorProfile"] })}
+        />
         {(format === "JPEG" || format === "PDF") && (
           <>
+            {/* High, Medium, Low: JPEG 1 / 0.8 / 0.75, PDF 1 / 0.76 / 0.5 */}
             <span className={styles.settingsLabel}>{t("Image quality")}</span>
-            <Select label={t("Image quality")} variant="ghost" value={quality.value} options={QUALITY_LEVELS.map((q) => ({ value: q.value, label: t(q.label) }))} onChange={(v) => onChange({ ...setting, quality: QUALITY_LEVELS.find((q) => q.value === v)?.quality })} />
+            <Select
+              label={t("Image quality")}
+              variant="ghost"
+              value={qualityLevel(setting)}
+              options={QUALITY_LEVELS.map((q) => ({ value: q.value, label: t(q.label) }))}
+              onChange={(v) => onChange({ ...setting, quality: qualityFor(setting, v as QualityLevel) })}
+            />
           </>
         )}
         {format !== "SVG" && (
@@ -232,21 +265,20 @@ export function ExportSettingsPopover({ setting, anchor, onChange, onClose }: { 
             <Select
               label={t("Image resampling")}
               variant="ghost"
-              value={setting.useBicubicSampler === false ? "basic" : "detailed"}
+              value={setting.useBicubicSampler === false ? "standard" : "detailed"}
               options={[
                 { value: "detailed", label: t("Detailed") },
-                { value: "basic", label: t("Basic") },
+                { value: "standard", label: t("Standard") },
               ]}
-              onChange={(v) => onChange({ ...setting, useBicubicSampler: v !== "basic" })}
+              onChange={(v) => onChange({ ...setting, useBicubicSampler: v !== "standard" })}
             />
           </>
         )}
         {format !== "PDF" && check("Ignore overlapping layers", setting.contentsOnly !== false, (v) => ({ ...setting, contentsOnly: v }))}
-        {/* Not in the live PNG settings; kept for SVG (unverified there) */}
-        {format === "SVG" && check("Include bounding box", setting.useAbsoluteBounds === true, (v) => ({ ...setting, useAbsoluteBounds: v }))}
+        {content.text && check("Include bounding box", setting.useAbsoluteBounds === true, (v) => ({ ...setting, useAbsoluteBounds: v }))}
         {format === "SVG" && check('Include "id" attribute', setting.svgIDMode === "ALWAYS", (v) => ({ ...setting, svgIDMode: v ? "ALWAYS" : "IF_NEEDED" }))}
-        {format === "SVG" && check("Outline text", setting.svgOutlineText !== false, (v) => ({ ...setting, svgOutlineText: v }))}
-        {format === "SVG" && check("Simplify stroke", setting.svgForceStrokeMasks !== true, (v) => ({ ...setting, svgForceStrokeMasks: !v }))}
+        {format === "SVG" && content.text && check("Outline text", setting.svgOutlineText !== false, (v) => ({ ...setting, svgOutlineText: v }))}
+        {format === "SVG" && content.maskableStroke && check("Simplify stroke", setting.svgForceStrokeMasks !== true, (v) => ({ ...setting, svgForceStrokeMasks: !v }))}
       </div>
     </Popover>
   );

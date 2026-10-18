@@ -81,7 +81,7 @@ const FORMATS: Record<string, string> = { "image/png": "PNG", "image/jpeg": "JPG
 /**
  * Exported files (Figma's desktop app: "you're prompted to rename the file and choose a location"): one through the
  * Save dialog; more into a folder picked in the Open dialog, each at its planned path (folders for "/" in names,
- * "name 2.png" for a name already there).
+ * "name1.png" for a name already there, as Figma numbers names in its archive).
  */
 export async function exportAssets(win: BaseWindow | null, files: ExportAsset[]): Promise<{ paths: string[] } | { cancelled: true }> {
   const parent = win && !win.isDestroyed() ? win : null;

@@ -53,6 +53,8 @@ export interface CanvasControllerOptions {
   shortcuts?: readonly Shortcut[];
   /** A key the engine didn't use while a text is edited (true: it was taken). */
   onTextKey?: (e: KeyboardEvent) => boolean;
+  /** Text pasted while a text is edited, before it goes in (true: it was taken — a link onto selected characters). */
+  onTextPaste?: (text: string) => boolean;
 }
 
 export class CanvasController {
@@ -60,6 +62,7 @@ export class CanvasController {
   private readonly engine: Engine;
   private readonly shortcuts: readonly Shortcut[];
   private readonly onTextKey?: (e: KeyboardEvent) => boolean;
+  private readonly onTextPaste?: (text: string) => boolean;
   private readonly cleanups: (() => void)[] = [];
   private textarea: HTMLTextAreaElement | null = null;
   private readonly wheelInput = new WheelNormalizer({ mac: IS_MAC, windows: IS_WINDOWS });
@@ -70,6 +73,7 @@ export class CanvasController {
     this.engine = engine;
     this.shortcuts = options.shortcuts ?? DEFAULT_SHORTCUTS;
     this.onTextKey = options.onTextKey;
+    this.onTextPaste = options.onTextPaste;
   }
 
   /** Starts listening; returns the detach. */
@@ -286,7 +290,7 @@ export class CanvasController {
       e.preventDefault();
       e.stopPropagation();
       const text = e.clipboardData?.getData("text/plain") ?? "";
-      if (text) this.engine.textInput(text.replace(/\r\n?/g, "\n"));
+      if (text && !this.onTextPaste?.(text)) this.engine.textInput(text.replace(/\r\n?/g, "\n"));
     });
     document.body.appendChild(t);
     this.textarea = t;

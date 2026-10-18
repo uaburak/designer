@@ -15,7 +15,7 @@
  * interim JSON payload (`(designerv2)` markers) is still read and, with an
  * engine without kiwi, written.
  */
-import type { Guid, Message, Vector } from "@/engine/codec";
+import type { Guid, Message, NodeChange, Vector } from "@/engine/codec";
 import { deflateRawStored, isZstd, inflateRawStored, type FigCodecs } from "../../../../shared/fig/compression";
 import { figmaMetaOf, type FigmaClipboardMeta } from "../../../../shared/fig/figmaClipboard";
 import { decodeCanvas, figContainer, readCanvasChunks } from "../../../../shared/fig/container";
@@ -100,6 +100,40 @@ export function decodeClipboard(read: (type: string) => string | null | undefine
     if (payload) {
       const m = decodePayload(payload);
       if (m) return m;
+    }
+  }
+  return null;
+}
+
+// ---- Copy / Paste properties ----------------------------------------------------------------------------------------
+
+/** What Copy properties put on the clipboard: the copied fields (and the layer's type), and the file they came from. */
+export interface CopiedProperties {
+  node: NodeChange;
+  fileKey?: string;
+}
+
+/**
+ * Copy properties' formats (atlas 15 §10): Figma's STYLE Message — one CREATED node at GUID 0:0 holding the copied
+ * fields, and `pasteFileKey` — in the clipboard's HTML, so ⌥⌘V works in another file or window. Written as our JSON
+ * payload in the `(designerv2)` envelope (and our type): the kiwi archive needs MessageType STYLE = 5 in
+ * schema/document.kiwi, which it doesn't have yet. ⌘V never pastes it as layers (`decodeClipboard` takes NODE_CHANGES).
+ */
+export function encodePropertiesClipboard(node: NodeChange, fileKey: string | null): Record<string, string> {
+  const message = { type: "STYLE", sessionID: 0, nodeChanges: [{ ...node, guid: "0:0", phase: "CREATED" }], ...(fileKey ? { pasteFileKey: fileKey } : {}) };
+  return encodeClipboard(message as unknown as Message, "");
+}
+
+/** The copied properties on a clipboard, from whichever format holds them; null when it holds none. */
+export function decodePropertiesClipboard(read: (type: string) => string | null | undefined): CopiedProperties | null {
+  for (const b64 of [read(CLIPBOARD_TYPE), envelopeOf(read("text/html")), envelopeOf(read("text/plain"))]) {
+    if (!b64) continue;
+    try {
+      const value = JSON.parse(base64ToUtf8(b64.trim())) as { type?: string; nodeChanges?: NodeChange[]; pasteFileKey?: string };
+      const node = value?.type === "STYLE" ? value.nodeChanges?.[0] : undefined;
+      if (node) return { node, ...(value.pasteFileKey ? { fileKey: value.pasteFileKey } : {}) };
+    } catch {
+      /* not ours */
     }
   }
   return null;

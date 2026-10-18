@@ -33,7 +33,7 @@ import { decodeMessage as decodeKiwiMessage } from "../../../shared/schema/codec
 import { applyEngineBytes, changeBytesOf, engineDerivedDataVersion, engineMethod, engineWireFormat, loadEngineBytes } from "./engineCompat";
 import { applyFontScope, planFonts, requestFonts } from "./openFonts";
 import { attachKeyboard, runTextKey } from "./keyboard";
-import { attachClipboard } from "./clipboardIO";
+import { attachClipboard, pasteLinkOnText } from "./clipboardIO";
 import { attachDesktop } from "./desktop";
 import { attachPersistence, noteOpenInfo, restoreUiState } from "./persistence";
 import { runEditorCommand } from "./commands";
@@ -232,7 +232,7 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
       }
       controller.canvas = canvas;
       const ed = controller;
-      cleanups.push(new CanvasController(canvas, engine, { shortcuts: [], onTextKey: (e) => runTextKey(ed, e) }).attach());
+      cleanups.push(new CanvasController(canvas, engine, { shortcuts: [], onTextKey: (e) => runTextKey(ed, e), onTextPaste: (text) => pasteLinkOnText(ed, text) }).attach());
       cleanups.push(ed.attachGestureTracking(canvas));
       // The change as the engine wrote it (kiwi, when the engine speaks it) goes to the store as it is.
       cleanups.push(

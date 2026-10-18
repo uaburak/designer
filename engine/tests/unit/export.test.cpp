@@ -1,8 +1,11 @@
 // Export (E7): the zlib writer, export bounds and sizes, the SVG writer (well formed, and its shapes cover what the
-// document's do: the SVG re-rendered by point sampling), the PDF writer (structure, xref, streams, Type 3 text), and
-// the C ABI (engine_export / _info / _list).
+// document's do: the SVG re-rendered by point sampling; Figma's data-figma-* round-trip attributes), the PDF writer
+// (structure, xref, streams, TrueType and Type 3 text, the structure tree), the TrueType subset, and the C ABI
+// (engine_export / _info / _list).
+#include <hb.h>
 #include <zlib.h>
 
+#include <cstdlib>
 #include <cstring>
 #include <map>
 #include <string>
@@ -16,6 +19,7 @@
 #include "export/PdfWriter.h"
 #include "export/Scene.h"
 #include "export/SvgWriter.h"
+#include "export/TrueType.h"
 #include "geometry/Shapes.h"
 #include "Helpers.h"
 #include "render/ImageCache.h"
@@ -601,7 +605,7 @@ TEST_CASE("export: SVG text as outlines or as <text>") {
   CHECK(texts[0]->kids[0].text == "Hello &amp; &lt;you&gt;");
 }
 
-TEST_CASE("export: PDF structure, streams and text as Type 3 glyphs") {
+TEST_CASE("export: PDF structure, streams, text as TrueType and Type 3 glyphs, the structure tree") {
   Fonts fonts;
   auto nodes = sheet();
   NodeChange t = make({3, 1}, NodeType::TEXT, {1, 1}, "%", {10, 120, 100, 20}, "Label");
@@ -609,6 +613,14 @@ TEST_CASE("export: PDF structure, streams and text as Type 3 glyphs") {
   t.props.text().textAutoResize = TextAutoResize::WIDTH_AND_HEIGHT;
   t.props.fillPaints = {Paint::solid(Color{0, 0, 0, 1})};
   nodes.push_back(t);
+  // Inter Bold is the variable font away from its default instance: its outlines aren't the file's glyf, so Type 3.
+  NodeChange bold = make({3, 2}, NodeType::TEXT, {1, 1}, "&", {10, 140, 100, 20}, "Bold");
+  bold.props.text().textData.characters = "Hi";
+  bold.props.text().fontName = {"Inter", "Bold", "Inter-Bold"};
+  bold.props.text().textAutoResize = TextAutoResize::WIDTH_AND_HEIGHT;
+  bold.props.fillPaints = {Paint::solid(Color{0, 0, 0, 1})};
+  bold.props.opacity = 0.5;  // a group: its text tagged inside a form XObject
+  nodes.push_back(bold);
   NodeChange second = make({4, 1}, NodeType::FRAME, kPage, "\"", {400, 0, 120, 90}, "Second");
   Paint g;
   g.type = PaintType::GRADIENT_ANGULAR;
@@ -644,6 +656,22 @@ TEST_CASE("export: PDF structure, streams and text as Type 3 glyphs") {
   CHECK(pdf.find("/MediaBox [0 0 200 160]") != std::string::npos);
   CHECK(pdf.find("/MediaBox [0 0 120 90]") != std::string::npos);
   CHECK(pdf.find("/Subtype /Type3") != std::string::npos);
+  // Inter Regular (the default instance): a subset TrueType under a Type 0 font, Figma's registry.
+  CHECK(pdf.find("/Subtype /Type0 /BaseFont /AAAAAA+Inter /Encoding /Identity-H") != std::string::npos);
+  CHECK(pdf.find("/Subtype /CIDFontType2") != std::string::npos);
+  CHECK(pdf.find("/CIDSystemInfo << /Registry (FigmaPDF) /Ordering (FigmaPDF) /Supplement 0 >>") != std::string::npos);
+  CHECK(pdf.find("/CIDToGIDMap /Identity") != std::string::npos);
+  CHECK(pdf.find("/FontFile2 ") != std::string::npos);
+  // Tagged: a structure tree with a P per text (ActualText "Hi"), the parent tree, marked content.
+  CHECK(pdf.find("/MarkInfo << /Marked true >> /StructTreeRoot ") != std::string::npos);
+  CHECK(pdf.find("/S /Document") != std::string::npos);
+  CHECK(pdf.find("/S /P ") != std::string::npos);
+  CHECK(pdf.find("/ActualText <FEFF00480069>") != std::string::npos);
+  CHECK(pdf.find("/StructParents 0 /Tabs /S") != std::string::npos);
+  CHECK(pdf.find("/StructParents 2") != std::string::npos);  // the bold text's form, after the two pages' keys
+  CHECK(pdf.find("/Type /MCR /MCID 1") != std::string::npos);
+  CHECK(pdf.find("/ParentTree << /Nums [0 [") != std::string::npos);
+  CHECK(pdf.find("/ParentTreeNextKey 3") != std::string::npos);
   CHECK(pdf.find("/ShadingType 1") != std::string::npos);  // the angular gradient: a function shading
   CHECK(pdf.find("/FunctionType 4") != std::string::npos);
   // Every stream inflates; the first page draws the red rect, the text with Tj, and its ToUnicode maps H and i.
@@ -669,10 +697,102 @@ TEST_CASE("export: PDF structure, streams and text as Type 3 glyphs") {
   CHECK(all.find("1 0 0 rg") != std::string::npos);
   CHECK(all.find(" Tj") != std::string::npos);
   CHECK(all.find("/F0 1 Tf") != std::string::npos);
+  CHECK(all.find("/T0 1 Tf") != std::string::npos);
   CHECK(all.find("<00> <0048>") != std::string::npos);
   CHECK(all.find("<01> <0069>") != std::string::npos);
   CHECK(all.find(" d1\n") != std::string::npos);
   CHECK(all.find("atan") != std::string::npos);
+  CHECK(all.find("/P <</MCID 0>> BDC\n") != std::string::npos);
+  CHECK(all.find("EMC\n") != std::string::npos);
+  // The TrueType's ToUnicode has two-byte codes: Inter's glyph ids for H and i.
+  text::Font* inter = text::FontRegistry::get().find(FontName{"Inter", "Regular", ""});
+  REQUIRE(inter);
+  char code[16];
+  std::snprintf(code, sizeof code, "<%04X> <0048>", inter->glyphFor('H'));
+  CHECK(all.find(code) != std::string::npos);
+  std::snprintf(code, sizeof code, "<%04X> Tj", inter->glyphFor('i'));
+  CHECK(all.find(code) != std::string::npos);
+}
+
+TEST_CASE("export: the PDF's TrueType subset is a font file HarfBuzz reads, with the used glyphs and empty others") {
+  Fonts fonts;
+  text::Font* inter = text::FontRegistry::get().find(FontName{"Inter", "Regular", ""});
+  REQUIRE(inter);
+  REQUIRE(inter->trueTypeFace());
+  CHECK(text::FontRegistry::get().find(FontName{"Inter", "Bold", ""})->trueTypeFace() == nullptr);  // not the default instance
+  REQUIRE(exporter::canSubsetTrueType(inter->trueTypeFace()));
+  uint32_t h = inter->glyphFor('H'), a = inter->glyphFor(0xC5);  // Å: a composite in Inter (A and the ring)
+  exporter::TrueTypeInfo info;
+  std::string file = exporter::subsetTrueType(inter->trueTypeFace(), {h, a}, info);
+  REQUIRE(file.size() > 100);
+  CHECK(info.unitsPerEm == 2816);
+  CHECK(info.postScriptName == "Inter");  // the variable font's own name
+  CHECK(info.ascent > 0);
+  CHECK(info.descent < 0);
+  // The whole file's checksum is Apple's magic once head's adjustment is in.
+  uint32_t sum = 0;
+  for (size_t i = 0; i < file.size(); i += 4) sum += static_cast<uint32_t>(static_cast<uint8_t>(file[i])) << 24 |
+                                                    static_cast<uint32_t>(static_cast<uint8_t>(file[i + 1])) << 16 |
+                                                    static_cast<uint32_t>(static_cast<uint8_t>(file[i + 2])) << 8 | static_cast<uint8_t>(file[i + 3]);
+  CHECK(sum == 0xB1B0AFBA);
+  // HarfBuzz reads it back: H and Å have outlines (Å's parts kept with it), another glyph is empty.
+  char* bytes = static_cast<char*>(std::malloc(file.size()));
+  std::memcpy(bytes, file.data(), file.size());
+  hb_blob_t* blob = hb_blob_create(bytes, static_cast<unsigned>(file.size()), HB_MEMORY_MODE_READONLY, bytes, std::free);
+  hb_face_t* face = hb_face_create(blob, 0);
+  hb_font_t* font = hb_font_create(face);
+  CHECK(hb_face_get_glyph_count(face) == hb_face_get_glyph_count(inter->trueTypeFace()));
+  hb_glyph_extents_t ext{};
+  CHECK(hb_font_get_glyph_extents(font, h, &ext));
+  CHECK(ext.width > 0);
+  ext = {};
+  CHECK(hb_font_get_glyph_extents(font, a, &ext));
+  CHECK(ext.height != 0);
+  ext = {};
+  hb_font_get_glyph_extents(font, inter->glyphFor('Z'), &ext);
+  CHECK(ext.width == 0);
+  hb_font_destroy(font);
+  hb_face_destroy(face);
+  hb_blob_destroy(blob);
+}
+
+TEST_CASE("export: SVG marks angular / diamond gradients and background blurs for an import (data-figma-*)") {
+  auto nodes = baseChanges();
+  NodeChange r = make({5, 1}, NodeType::ROUNDED_RECTANGLE, kPage, "!", {0, 0, 100, 50}, "Conic");
+  Paint g;
+  g.type = PaintType::GRADIENT_ANGULAR;
+  g.stops = {{Color{1, 0, 0, 1}, 0}, {Color{0, 0, 1, 1}, 1}};
+  g.transform = Mat2x3{1, 0, 0, 0, 1, 0};
+  r.props.fillPaints = {g};
+  Effect blur;
+  blur.type = EffectType::BACKGROUND_BLUR;
+  blur.radius = 8;
+  NodeChange glass = make({5, 2}, NodeType::ROUNDED_RECTANGLE, kPage, "\"", {200, 0, 100, 50}, "Glass");
+  glass.props.fillPaints = {Paint::solid(Color{1, 1, 1, 0.2f})};
+  glass.props.effects = {blur};
+  nodes.push_back(r);
+  nodes.push_back(glass);
+  Editor e;
+  e.loadDocument(nodes, kNoGuid);
+  exporter::Settings s;
+  s.format = exporter::Format::SVG;
+  exporter::Target t;
+  REQUIRE(exporter::resolveTarget(e.document(), &e, kNoGuid, {5, 1}, s, t));
+  std::string svg = exporter::writeSvg(e.document(), &e, t, s);
+  El root;
+  INFO(svg);
+  REQUIRE(parseXml(svg, root));
+  CHECK(svg.find("<g clip-path=\"url(#paint0_angular_5_1_clip_path)\" data-figma-skip-parse=\"true\">") != std::string::npos);
+  CHECK(svg.find("<rect width=\"100\" height=\"50\" data-figma-gradient-fill=\"{&#34;type&#34;:&#34;GRADIENT_ANGULAR&#34;,&#34;stops&#34;:[{&#34;color&#34;:"
+                 "{&#34;r&#34;:1,&#34;g&#34;:0,&#34;b&#34;:0,&#34;a&#34;:1},&#34;position&#34;:0},") != std::string::npos);
+  CHECK(svg.find("&#34;transform&#34;:{&#34;m00&#34;:1,&#34;m01&#34;:0,&#34;m02&#34;:0,&#34;m10&#34;:0,&#34;m11&#34;:1,&#34;m12&#34;:0},&#34;opacity&#34;:1,"
+                 "&#34;blendMode&#34;:&#34;NORMAL&#34;,&#34;visible&#34;:true}\"/>") != std::string::npos);
+  REQUIRE(exporter::resolveTarget(e.document(), &e, kNoGuid, {5, 2}, s, t));
+  svg = exporter::writeSvg(e.document(), &e, t, s);
+  INFO(svg);
+  REQUIRE(parseXml(svg, root));
+  CHECK(svg.find("backdrop-filter:blur(4px)") != std::string::npos);
+  CHECK(svg.find("<rect width=\"100\" height=\"50\" fill=\"white\" fill-opacity=\"0.2\" data-figma-bg-blur-radius=\"8\"/>") != std::string::npos);
 }
 
 TEST_CASE("export: the C ABI — PNG / JPEG pixels, SVG, PDF, info, images, the export list") {

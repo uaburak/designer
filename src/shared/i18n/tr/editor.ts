@@ -508,6 +508,8 @@ export const editor: Record<string, string> = {
   "Couldn't export {n} files": "{n} dosya dışa aktarılamadı",
   "Couldn't copy as PNG": "PNG olarak kopyalanamadı",
   "Copied as PNG": "PNG olarak kopyalandı",
+  "Export completed": "Dışa aktarma tamamlandı",
+  "Copy to clipboard": "Panoya kopyala",
   "Couldn't copy as SVG": "SVG olarak kopyalanamadı",
   "Copied as SVG": "SVG olarak kopyalandı",
   "Copied to clipboard": "Panoya kopyalandı",
