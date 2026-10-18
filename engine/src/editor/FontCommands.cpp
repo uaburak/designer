@@ -41,13 +41,18 @@ void forRunFonts(const TextData& td, F&& f) {
 
 }  // namespace
 
-std::vector<Editor::DocumentFont> Editor::documentFonts() const {
-  std::map<std::pair<std::string, std::string>, uint32_t> counts;
+std::vector<Editor::DocumentFont> Editor::documentFonts(const std::vector<Guid>& roots) const {
+  std::map<std::pair<std::string, std::string>, DocumentFont> fonts;
+  Guid current = kNoGuid;
   auto add = [&](const FontName& f) {
-    if (!f.family.empty()) counts[{f.family, f.style}]++;
+    if (f.family.empty()) return;
+    DocumentFont& d = fonts[{f.family, f.style}];
+    d.uses++;
+    if (!roots.empty() && (d.nodes.empty() || d.nodes.back() != current)) d.nodes.push_back(current);
   };
   doc_.forEach([&](const Node& n) {
-    if (n.guid.isDerived()) return;
+    if (n.guid.isDerived() || !inScope(roots, n.guid)) return;
+    current = n.guid;
     const NodeProps& p = n.props;
     if (p.type == NodeType::TEXT) {
       if (nodeFontUsed(p.text().textData)) add(p.text().fontName);
@@ -60,9 +65,19 @@ std::vector<Editor::DocumentFont> Editor::documentFonts() const {
     }
   });
   std::vector<DocumentFont> out;
-  out.reserve(counts.size());
-  for (auto& [k, n] : counts) out.push_back({FontName{k.first, k.second, ""}, n});
+  out.reserve(fonts.size());
+  for (auto& [k, d] : fonts) {
+    d.font = FontName{k.first, k.second, ""};
+    out.push_back(std::move(d));
+  }
   return out;
+}
+
+bool Editor::inScope(const std::vector<Guid>& roots, Guid id) const {
+  if (roots.empty()) return true;
+  for (Guid r : roots)
+    if (r == id || doc_.isAncestor(r, id)) return true;
+  return false;
 }
 
 Status Editor::replaceFonts(const CommandArgs& args) {
@@ -83,6 +98,14 @@ Status Editor::replaceFonts(const CommandArgs& args) {
     map.emplace_back(from, to);
   }
   if (map.empty()) return E_INVALID;
+  // The dialog's scope: these layers and what is inside them (none: the whole file).
+  std::vector<Guid> roots;
+  if (const json::Value* nodes = args.raw.get("nodes"); nodes && nodes->isArray())
+    for (const json::Value& v : nodes->array) {
+      bool ok = false;
+      Guid g = v.isString() ? Guid::parse(v.string, &ok) : Guid{};
+      if (ok && doc_.get(g)) roots.push_back(g);
+    }
   auto replaced = [&](const FontName& f, FontName& out) {
     for (auto& [from, to] : map)
       if (f.family == from.family && f.style == from.style) {
@@ -102,7 +125,8 @@ Status Editor::replaceFonts(const CommandArgs& args) {
 
   std::vector<Guid> ids;
   doc_.forEach([&](const Node& n) {
-    if (!n.guid.isDerived() && (n.props.type == NodeType::TEXT || n.props.type == NodeType::INSTANCE)) ids.push_back(n.guid);
+    if (!n.guid.isDerived() && (n.props.type == NodeType::TEXT || n.props.type == NodeType::INSTANCE) && inScope(roots, n.guid))
+      ids.push_back(n.guid);
   });
   std::sort(ids.begin(), ids.end());
   bool open = false;

@@ -59,7 +59,20 @@ export function publishErrorText(e: unknown): string {
   if (detail === "seat_required") return t("You need a Full seat to publish a library");
   if (code === "conflict") return t("Someone else published this library. Review the changes and publish again");
   if (code === "offline") return t("You're offline. Publish again when you're back online");
+  // Figma's `publish_failed {reason: payload_too_large}` (HTTP 413).
+  if (code === "too-large") return t("The library couldn't be published: it's too large");
   return t("The library couldn't be published");
+}
+
+/**
+ * Which failures offer Retry (atlas 12 §3.8: Figma's offline `cant_publish` and its generic and partial errors do; a
+ * file that can't publish, a seat, a conflict or a payload too large don't — retrying wouldn't change them).
+ */
+export function publishRetryable(e: unknown): boolean {
+  const code = (e as { code?: string }).code;
+  const detail = ((e as { detail?: { code?: string } }).detail ?? {}).code;
+  if (detail === "draft_cannot_publish" || detail === "branch_cannot_publish" || detail === "seat_required") return false;
+  return !["draft-cannot-publish", "branch-cannot-publish", "conflict", "too-large", "forbidden", "read-only"].includes(code ?? "");
 }
 
 export function PublishDialog() {
@@ -184,7 +197,7 @@ function Publish() {
       close();
     } catch (e) {
       setProgress(null);
-      showToast({ message: publishErrorText(e), kind: "error" });
+      showToast({ message: publishErrorText(e), kind: "error", ...(publishRetryable(e) ? { action: { label: t("Retry"), onAction: () => void publish() } } : {}) });
       // Someone published meanwhile (an org library, docs/data.md §16.6): the changes are looked for again.
       if ((e as { code?: string }).code === "conflict") setReload((n) => n + 1);
     }

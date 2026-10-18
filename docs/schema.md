@@ -627,7 +627,7 @@ Dropped fields keep their numbers reserved (§1.2); dropped enum values are list
 
 | Category | Examples |
 |---|---|
-| Multiplayer and server | `MessageType` other than `NODE_CHANGES`; `UserChange`, cursors, `SceneGraphQuery`, `DiffPayload`, broadcasts; `*Tag` fields (`guidTag`, `nameTag`…); `editInfo`, `userFacingVersion`, `overrideLevel`, `MultiplayerFieldVersion`, `editScopeInfo`; `Message.localUndoStack`, `stableSessionID`, `originFileKey` |
+| Multiplayer and server | `MessageType` other than `NODE_CHANGES` and `STYLE` (Copy properties on the clipboard, atlas sweep 2026-10-18); `UserChange`, cursors, `SceneGraphQuery`, `DiffPayload`, broadcasts; `*Tag` fields (`guidTag`, `nameTag`…); `editInfo`, `userFacingVersion`, `overrideLevel`, `MultiplayerFieldVersion`, `editScopeInfo`; `Message.localUndoStack`, `stableSessionID`, `originFileKey` |
 | FigJam, Slides, Buzz, Sites, Make, code, CMS, AI | node types STICKY…ANIMATION_PRESET_INSTANCE (§`NodeType` comment); connectors, tables, widgets, stamps, slide themes, responsive sets, code components/libraries, CMS bindings, managed strings, chat/AI threads, cookie banners, behaviors, keyframes/timelines, illustration modifiers (BRUSH nodes and brush strokes are kept since the text round: `BRUSH = 46` and the brush fields, drawn by the engine) |
 | Plugins (plugin-free) | `WidgetMetadata` and the widget fields (`pluginData` = 204 and `pluginRelaunchData` = 219 are kept since Phase 7 round 5d, §15.1) |
 | Legacy duplicates of kept concepts | `variableConsumptionMap` (→ `parameterConsumptionMap`), `componentPropRefs` (→ `PROP_REF`), `inherit*StyleID` (→ `styleIdFor*`), `symbolDescription`/`styleDescription` (→ `description`), `sharedSymbolReference`/`sharedStyleReference`/`componentKey`/`sharedSymbolVersion` (→ §8.2), `stackJustify/stackAlign/stackWidth/stackHeight/stackPadding` (→ current `stack*`), `maskIsOutline` (→ `maskType`), `RECTANGLE`/`GROUP` writing, `rectangleCornerToolIndependent`, `containerSupportsFillStrokeAndCorners` |
@@ -674,7 +674,7 @@ Phase 7 (docs/roadmap.md) builds Figma's other products. Each one starts by brin
 **What is not yet reserved**:
 - **Enum values** (kiwi enums need no placeholders, but our enums omit Figma's dropped values):
   - `NodeType` 17–24, 26, 27, 29, 30, 32–34, 36–45, 47–64 (Figma's 59–64 are new since version 106: `CODE_EMBED`, `BINARY_FILE`, `SPEC_BLOCK`, `TOOL_INSTANCE`, `CUSTOM_EFFECT_INSTANCE`, `NATIVE_CODE_LAYER_INSTANCE`);
-  - `MessageType` other than 1;
+  - `MessageType` other than 1 and 5 (`STYLE`, Copy properties' clipboard Message: one CREATED node at 0:0 with the copied fields, `pasteFileKey` — atlas 15 §10, 2026-10-18);
   - `EditorType` 8 (`FIGSPEC`; 0–7 came with `EditScope`, round 17 batch C).
 - **Whole messages and enums** we dropped.
 

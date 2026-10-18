@@ -9,7 +9,7 @@ import { ContextMenu, Icon, IconButton, MIXED, MenuButton, NumericInput, Popover
 import type { Guid, NodeFields } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
-import { MAX_GRID_TRACKS, isAutoRows, parseRowCount, parseTrackInput, removeTrackAt, rowCountLabel, setTrackCount, setTrackSizing, spanOf, trackLabel, tracksLabel, tracksOf, type GridAxis, type GridItemNode, type GridNode, type TrackType } from "../../model/grid";
+import { MAX_GRID_TRACKS, isAutoRows, parseRowCount, parseTrackInput, removeTrackAt, rowCountLabel, setTrackCount, setTrackSizing, spanMax, spanOf, trackLabel, tracksLabel, tracksOf, type GridAxis, type GridItemNode, type GridNode, type TrackType } from "../../model/grid";
 import { useUI } from "../../hooks";
 import styles from "./Grid.module.css";
 import { VariableField } from "./Variables";
@@ -206,6 +206,40 @@ const PICKER_COLUMNS = GRID_PICKER.columns;
 const PICKER_ROWS = GRID_PICKER.rows;
 const PICKER_WIDTH = GRID_PICKER.width;
 
+/** The fields the picker's edits change: each grid's tracks and Auto rows, its children's anchors. */
+const GRID_FIELDS = ["gridColumns", "gridRows", "gridColumnsSizing", "gridRowsSizing", "gridAutoTracks"] as const;
+const ITEM_FIELDS = ["gridColumnAnchor", "gridRowAnchor"] as const;
+type GridSnapshot = { guid: Guid; fields: Record<string, unknown> }[];
+
+/** The grids in `refs` and their children as the picker found them (what Esc puts back). */
+export function gridSnapshot(ed: EditorController, refs: readonly Guid[]): GridSnapshot {
+  const out: GridSnapshot = [];
+  const pick = (n: Record<string, unknown>, keys: readonly string[]) => Object.fromEntries(keys.map((k) => [k, n[k]]));
+  for (const n of ed.engine.readNodes(refs, { childIds: true }) as (PanelNode & { childIds?: Guid[] })[]) {
+    out.push({ guid: n.guid, fields: { ...pick(n as Record<string, unknown>, GRID_FIELDS), gridAutoTracks: (n as GridNode).gridAutoTracks ?? "NONE" } });
+    const kids = n.childIds ?? [];
+    for (const k of kids.length ? ed.engine.readNodes(kids) : []) out.push({ guid: k.guid, fields: pick(k as unknown as Record<string, unknown>, ITEM_FIELDS) });
+  }
+  return out;
+}
+
+/** Writes a snapshot back when something in it changed: one undo step "Grid"; nothing (no step) otherwise. */
+export function restoreGrids(ed: EditorController, snapshot: GridSnapshot): boolean {
+  const now = new Map(ed.engine.readNodes(snapshot.map((s) => s.guid)).map((n) => [n.guid, n as unknown as Record<string, unknown>]));
+  const changed = snapshot.filter((s) => {
+    const n = now.get(s.guid);
+    return n && Object.entries(s.fields).some(([k, v]) => JSON.stringify(n[k] ?? (k === "gridAutoTracks" ? "NONE" : undefined)) !== JSON.stringify(v));
+  });
+  if (!changed.length) return false;
+  ed.batch("Grid", () => {
+    for (const s of changed) {
+      const fields = Object.fromEntries(Object.entries(s.fields).filter(([, v]) => v !== undefined));
+      if (Object.keys(fields).length) ed.engine.setProps([s.guid], asFields(fields));
+    }
+  });
+  return true;
+}
+
 /** Where the picker opens (live: 12 left of the grid's button and 58 above it — 1204,427 for a button at 1216,485 (live grid/grid-dimensions-picker.txt, design/autolayout-grid.txt)). */
 export function gridPickerOrigin(button: { left: number; top: number }): { x: number; y: number } {
   return { x: button.left - 12, y: button.top - 58 };
@@ -214,13 +248,15 @@ export function gridPickerOrigin(button: { left: number; top: number }): { x: nu
 /**
  * The grid dimensions picker (live grid/grid-dimensions-picker.txt: 210 × 204, no header): the counts, then a board
  * of 16 × 16 cells (a 14 × 14 square in each; the grid's own on #4a5878, the hovered size on #394360, the rest
- * #383838) with "C × R" on hover, and "Open grid settings" (the Grid panel). A click on a cell sets that many columns ×
- * rows (rows no longer Auto).
+ * #383838) with "C × R" on hover, and "Open grid settings" (the Grid panel, column 1 selected — Figma's
+ * `setGridTrackSelection([{index: 0, axis: X}])`). A click on a cell sets that many columns × rows (rows no longer Auto).
+ * Esc puts back the grids as they were when it opened (Figma's `grid-panel-revert-on-escape`), one undo step.
  */
 function GridPicker({ anchor, refs, grids, onClose }: { anchor: HTMLElement; refs: Guid[]; grids: (PanelNode & GridNode)[]; onClose: () => void }) {
   useT();
   const ed = useEditor();
   const [hover, setHover] = useState<{ c: number; r: number } | null>(null);
+  const [opened] = useState(() => gridSnapshot(ed, refs));
   const first = grids[0];
   const cols = first ? tracksOf(first, "columns").length : 1;
   const rows = first ? (isAutoRows(first) ? Math.max(1, tracksOf(first, "rows").length) : tracksOf(first, "rows").length) : 1;
@@ -256,7 +292,15 @@ function GridPicker({ anchor, refs, grids, onClose }: { anchor: HTMLElement; ref
     }
   return (
     <Popover anchor={at} placement="left" width={PICKER_WIDTH} onClose={onClose} label={t("Grid dimensions picker")}>
-      <div className={styles.picker} data-grid-picker="" data-hover={hover ? `${hover.c}x${hover.r}` : undefined}>
+      <div
+        className={styles.picker}
+        data-grid-picker=""
+        data-hover={hover ? `${hover.c}x${hover.r}` : undefined}
+        onKeyDown={(e) => {
+          // Before the popover closes on it.
+          if (e.key === "Escape") restoreGrids(ed, opened);
+        }}
+      >
         <CountFields refs={refs} grids={grids} />
         <div role="radiogroup" aria-label={t("Grid dimensions")} className={styles.board} onPointerLeave={() => setHover(null)}>
           {/* Live: the board's legend, kept for assistive tech and clipped from view */}
@@ -268,7 +312,9 @@ function GridPicker({ anchor, refs, grids, onClose }: { anchor: HTMLElement; ref
           className={styles.pickerSettings}
           onClick={() => {
             onClose();
-            if (first) ed.ui.set({ gridSettings: first.guid });
+            if (!first) return;
+            ed.ui.set({ gridSettings: first.guid });
+            ed.engine.command("SELECT_GRID_TRACKS", { frame: first.guid, axis: "COLUMNS", tracks: [0] });
           }}
         >
           {t("Open grid settings")}
@@ -377,13 +423,28 @@ export function GridSpanRow({ nodes }: { nodes: PanelNode[] }) {
   const items = nodes as (PanelNode & GridItemNode)[];
   const colSpan = mixedNumber(items.map((n) => spanOf(n, "columns")));
   const rowSpan = mixedNumber(items.map((n) => spanOf(n, "rows")));
-  const set = (key: "gridColumnSpan" | "gridRowSpan", v: number, info: ChangeInfo) => editGrids(ed, key === "gridColumnSpan" ? "Column span" : "Row span", info, refs, () => ({ [key]: Math.max(1, Math.round(v)) }));
+  // A span reaches at most the grid's last track from the item's anchor (Figma's "Row span exceeds grid row count").
+  const parents = new Map(
+    ed.engine.readNodes([...new Set(items.map((n) => n.parentIndex?.guid).filter((g): g is Guid => !!g))]).map((p) => [p.guid, p as unknown as GridNode]),
+  );
+  const maxOf = (n: PanelNode & GridItemNode, axis: GridAxis) => {
+    const grid = n.parentIndex ? parents.get(n.parentIndex.guid) : undefined;
+    return grid ? spanMax(grid, n, axis) : MAX_GRID_TRACKS;
+  };
+  const colMax = Math.min(...items.map((n) => maxOf(n, "columns")));
+  const rowMax = Math.min(...items.map((n) => maxOf(n, "rows")));
+  const set = (key: "gridColumnSpan" | "gridRowSpan", v: number, info: ChangeInfo) =>
+    editGrids(ed, key === "gridColumnSpan" ? "Column span" : "Row span", info, refs, (n) => {
+      const grid = n.parentIndex ? (ed.engine.readNodes([n.parentIndex.guid])[0] as unknown as GridNode | undefined) : undefined;
+      const max = grid ? spanMax(grid, n as unknown as GridItemNode, key === "gridColumnSpan" ? "columns" : "rows") : MAX_GRID_TRACKS;
+      return { [key]: Math.max(1, Math.min(max, Math.round(v))) };
+    });
   return (
     // Live (design/grid-child.txt): "Column span" (16,340) and "Row span" (112,340) over the fields at 356 — 2 lower
     // than a plain row under Dimensions (a row with a label per column).
     <PropertyRow labels={[t("Column span"), t("Row span")]}>
-      <NumericInput label={t("Column span")} prefix="24.grid-column" value={fieldValue(colSpan)} min={1} max={1000} precision={0} onChange={(v, info) => set("gridColumnSpan", v, info)} onCancel={() => ed.cancelEdit()} />
-      <NumericInput label={t("Row span")} prefix="24.grid-row" value={fieldValue(rowSpan)} min={1} max={1000} precision={0} onChange={(v, info) => set("gridRowSpan", v, info)} onCancel={() => ed.cancelEdit()} />
+      <NumericInput label={t("Column span")} prefix="24.grid-column" value={fieldValue(colSpan)} min={1} max={colMax} precision={0} onChange={(v, info) => set("gridColumnSpan", v, info)} onCancel={() => ed.cancelEdit()} />
+      <NumericInput label={t("Row span")} prefix="24.grid-row" value={fieldValue(rowSpan)} min={1} max={rowMax} precision={0} onChange={(v, info) => set("gridRowSpan", v, info)} onCancel={() => ed.cancelEdit()} />
     </PropertyRow>
   );
 }

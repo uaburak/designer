@@ -46,8 +46,9 @@
 
 enum MessageType {
   // Dropped (multiplayer/server only): JOIN_START=0, USER_CHANGES=2, JOIN_END=3, SIGNAL=4,
-  // STYLE=5, STYLE_SET=6, ..., CLIENT_RENDERED=23.
+  // STYLE_SET=6, ..., CLIENT_RENDERED=23.
   NODE_CHANGES = 1;
+  STYLE = 5;               // Copy properties on the clipboard (atlas 15 §10): one CREATED node at 0:0, pasteFileKey
 }
 
 enum NodePhase {

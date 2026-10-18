@@ -1,10 +1,18 @@
 // Atlas 15 (wave 4) — the clipboard as Figma's: a spreadsheet's HTML table → a grid of texts (model/tablePaste.ts),
 // a URL or e-mail pasted onto selected characters → a link (clipboardIO.ts `pastedLink`), Copy properties' STYLE
-// Message in the clipboard's HTML (model/clipboard.ts) that ⌘V never pastes as layers.
+// Message in the clipboard's HTML (model/clipboard.ts) — a fig-kiwi archive with MessageType.STYLE, as Figma writes it,
+// and Figma's own read back — that ⌘V never pastes as layers.
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { deflateRawSync, inflateRawSync } from "node:zlib";
+import { decodeBinarySchema } from "kiwi-schema";
 import { describe, expect, it } from "vitest";
 import type { NodeChange } from "@/engine/codec";
-import { pastedLink } from "../clipboardIO";
-import { decodePropertiesClipboard, encodePropertiesClipboard, readClipboard } from "../model/clipboard";
+import { propertiesOnClipboard, pastedLink } from "../clipboardIO";
+import { bytesToB64, decodePropertiesClipboard, encodePropertiesClipboard, readClipboard } from "../model/clipboard";
+import { figContainer, readCanvasChunks } from "../../../../shared/fig/container";
+import { readFigFile } from "../../../../shared/fig/figFile";
+import { interpretSchema } from "../../../../shared/schema/dynamic";
 import { isSpreadsheetHtml, spreadsheetCells, spreadsheetToMessage } from "../model/tablePaste";
 
 const SHEETS =
@@ -60,14 +68,34 @@ describe("a link pasted onto selected text", () => {
 });
 
 describe("Copy properties through the clipboard", () => {
-  it("writes Figma's STYLE Message (one node at 0:0, the file it came from) and reads it back", () => {
+  it("writes Figma's STYLE Message (one node at 0:0, the file it came from) as a fig-kiwi archive and reads it back", () => {
     const formats = encodePropertiesClipboard({ type: "ROUNDED_RECTANGLE", opacity: 0.5, cornerRadius: 8 } as unknown as NodeChange, "lib-1");
+    expect(formats["text/html"]).toContain("(figma)");
     const read = (type: string) => formats[type];
     const props = decodePropertiesClipboard(read);
     expect(props).toEqual({ node: { type: "ROUNDED_RECTANGLE", opacity: 0.5, cornerRadius: 8, guid: "0:0", phase: "CREATED" }, fileKey: "lib-1" });
     // From the HTML alone (another window's copy), and never as layers.
     expect(decodePropertiesClipboard((type) => (type === "text/html" ? formats["text/html"] : null))?.node.opacity).toBe(0.5);
     expect(readClipboard(read)).toBeNull();
+    expect(readClipboard((type) => (type === "text/html" ? formats["text/html"] : null))).toBeNull();
     expect(decodePropertiesClipboard(() => "<p>hi</p>")).toBeNull();
+  });
+
+  it("reads a Figma ⌥⌘C: its STYLE Message in Figma's schema, compressed", async () => {
+    // Figma's binary schema, as embedded in the owner's sample (docs/research/figma/samples/sections.fig).
+    const sample = readFigFile(new Uint8Array(readFileSync(join(__dirname, "../../../../../docs/research/figma/samples/sections.fig"))), { inflateRaw: (b) => new Uint8Array(inflateRawSync(b)) });
+    const schema = new Uint8Array(inflateRawSync(readCanvasChunks(sample.canvas).chunks[0]));
+    const message = interpretSchema(decodeBinarySchema(schema)).encode("Message", {
+      type: "STYLE",
+      sessionID: 0,
+      pasteFileKey: "AbCdEf",
+      nodeChanges: [{ guid: { sessionID: 0, localID: 0 }, phase: "CREATED", type: "ROUNDED_RECTANGLE", opacity: 0.25, cornerRadius: 4 }],
+    });
+    const archive = bytesToB64(figContainer(schema, message, 106, { deflateRaw: (b) => new Uint8Array(deflateRawSync(b)), inflateRaw: (b) => new Uint8Array(inflateRawSync(b)) }));
+    const html = `<meta charset="utf-8"><div><span data-metadata="<!--(figmeta)e30=(/figmeta)-->"></span><span data-buffer="<!--(figma)${archive}(/figma)-->"></span></div>`;
+    const read = (type: string) => (type === "text/html" ? html : null);
+    const props = await propertiesOnClipboard(read);
+    expect(props?.node).toMatchObject({ type: "ROUNDED_RECTANGLE", opacity: 0.25, cornerRadius: 4 });
+    expect(props?.fileKey).toBe("AbCdEf");
   });
 });

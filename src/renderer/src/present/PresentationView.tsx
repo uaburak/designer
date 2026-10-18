@@ -62,6 +62,40 @@ export interface PresentationViewProps {
   onReady?: (engine: Engine) => void;
   /** Share prototype (the toolbar's; docs/editor.md D-6): with the screen shown; default, the presentation's link copied */
   onShare?: (screen: Guid | null) => void;
+  /** Figma's prototype URL parameters (`presentUrlOptions`): the scale, hints, device frame and UI to start with */
+  urlOptions?: PresentUrlOptions;
+}
+
+/** What a prototype link's parameters ask for (atlas 13 §10.6). */
+export interface PresentUrlOptions {
+  scale?: PresentScale;
+  hints?: boolean;
+  deviceFrame?: boolean;
+  hideUi?: boolean;
+  /** The frame to show (`node-id`), else the flow to start (`starting-point-node-id`) */
+  node?: Guid;
+}
+
+/**
+ * Figma's prototype URL parameters (atlas 13 §10.6, `pathToSelectedView`) as the view's options: `scaling` (min-zoom →
+ * Actual size, scale-down → Fit width and height, scale-down-width → Fit width, contain → Fill screen, or Responsive with
+ * `content-scaling=responsive`), `hotspot-hints=0`, `device-frame=0`, `hide-ui=1`, `node-id` / `starting-point-node-id`
+ * ("1-2" or "1:2"). The others (`bg-color`, `bare-ui`, `disable-default-keyboard-nav`, comments, versions, popouts) have
+ * nothing to set here yet.
+ */
+export function presentUrlOptions(params: URLSearchParams): PresentUrlOptions {
+  const out: PresentUrlOptions = {};
+  const scaling = params.get("scaling");
+  const responsive = params.get("content-scaling") === "responsive";
+  const scale: PresentScale | undefined =
+    scaling === "min-zoom" ? "ACTUAL" : scaling === "scale-down" ? "FIT" : scaling === "scale-down-width" ? "FIT_WIDTH" : scaling === "contain" ? (responsive ? "RESPONSIVE" : "FILL") : undefined;
+  if (scale) out.scale = scale;
+  if (params.get("hotspot-hints") === "0") out.hints = false;
+  if (params.get("device-frame") === "0") out.deviceFrame = false;
+  if (params.get("hide-ui") === "1") out.hideUi = true;
+  const id = (params.get("node-id") ?? params.get("starting-point-node-id") ?? "").replace("-", ":");
+  if (/^\d+:\d+$/.test(id)) out.node = id;
+  return out;
 }
 
 /** The scale options in Figma's menu order, without a device and with one. */
@@ -97,6 +131,11 @@ export function recommendedScales(state: PresentState | null): PresentScale[] {
   return scaleOrder(state).slice(0, 2);
 }
 
+/** A phone's or a tablet's browser (Figma's mobile viewer: Fit width, no device frame — atlas 13 §10.1, §10.7). */
+export function isMobileBrowser(ua: string = typeof navigator !== "undefined" ? navigator.userAgent : ""): boolean {
+  return /Mobi|Android|iPhone|iPad|iPod/i.test(ua);
+}
+
 /** The machine the prototype plays on (the player's scroll physics, ⌘ in key triggers). */
 export function presentHost(platform: string = typeof navigator !== "undefined" ? navigator.platform || navigator.userAgent : ""): "mac" | "windows" | "linux" | "other" {
   const p = platform.toLowerCase();
@@ -104,6 +143,19 @@ export function presentHost(platform: string = typeof navigator !== "undefined" 
   if (p.includes("win")) return "windows";
   if (p.includes("linux") || p.includes("android")) return "linux";
   return "other";
+}
+
+/**
+ * Hide / show UI's key with ⌘ (Ctrl off the Mac), atlas 13 §10.3: \ — the character on that key in each keyboard
+ * layout Figma adapts it to (German ^, Swedish / Finnish / UK-Mac §, UK-PC `, Danish $, Norwegian ' or |, Spanish º,
+ * French AZERTY and Japanese kana @, Korean ₩); the physical Backslash key too.
+ */
+export const HIDE_UI_KEYS: readonly string[] = ["\\", "^", "§", "`", "$", "'", "|", "º", "@", "₩"];
+
+/** Whether a keydown is Hide / show UI (⌘ on the Mac, Ctrl elsewhere, no other modifier). */
+export function isHideUiKey(e: { key: string; code: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean }, mac = presentHost() === "mac"): boolean {
+  if ((mac ? !e.metaKey || e.ctrlKey : !e.ctrlKey || e.metaKey) || e.altKey) return false;
+  return e.code === "Backslash" || HIDE_UI_KEYS.includes(e.key);
 }
 
 /** The view's own options (not the engine's): Figma's shortcuts, the sidebar, the UI. */
@@ -210,7 +262,7 @@ const readSidebar = (): boolean => {
   }
 };
 
-export function PresentationView({ source, page, node, onClose, onReady, onShare, canvasId = "present-canvas", variant = "full", extraOptions, onExtraOption, onRestart, onOpenFull, onState }: PresentationViewProps) {
+export function PresentationView({ source, page, node, onClose, onReady, onShare, canvasId = "present-canvas", variant = "full", extraOptions, onExtraOption, onRestart, onOpenFull, onState, urlOptions }: PresentationViewProps) {
   useT();
   const inline = variant === "inline";
   const onStateRef = useRef(onState);
@@ -225,7 +277,16 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
   const videoHost = useRef<HTMLDivElement>(null);
   // The view's own options: the flows sidebar (remembered), the UI hidden, the keyboard shortcuts dialog.
   const [sidebar, setSidebarState] = useState(readSidebar);
-  const [hideUi, setHideUi] = useState(false);
+  const [hideUi, setHideUi] = useState(!!urlOptions?.hideUi);
+  const hideUiRef = useRef(hideUi);
+  hideUiRef.current = hideUi;
+  const toggleHideUi = () => {
+    const next = !hideUiRef.current;
+    hideUiRef.current = next;
+    setHideUi(next);
+    // Figma: "Remind you how to restore the toolbar and footer."
+    if (next) showToast({ message: t("UI hidden. Use the options button in the corner, or {key}, to show it again.", { key: presentHost() === "mac" ? "⌘\\" : "Ctrl+\\" }) });
+  };
   const [keysOpen, setKeysOpen] = useState(false);
   const setSidebar = useCallback((on: boolean) => {
     setSidebarState(on);
@@ -282,11 +343,17 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       const dpr = window.devicePixelRatio || 1;
       engine.setViewport(Math.max(1, r.width), Math.max(1, r.height), dpr, Math.max(1, Math.round(r.width * dpr)), Math.max(1, Math.round(r.height * dpr)));
       engine.presentSetOptions({ host: presentHost() });
-      const status = engine.presentStart({ ...(page ? { page } : {}), ...(node ? { node } : {}) });
+      const start = node ?? urlOptions?.node;
+      const status = engine.presentStart({ ...(page ? { page } : {}), ...(start ? { node: start } : {}) });
       if (status !== Status.OK) {
         setError(t("This page has no frames to present"));
         return;
       }
+      // A prototype link's parameters, over the file's own settings; in a mobile browser Fit width and no device frame
+      // unless the link says otherwise.
+      const mobile = !inline && isMobileBrowser();
+      const { scale = mobile ? "FIT_WIDTH" : undefined, hints, deviceFrame = mobile ? false : undefined } = urlOptions ?? {};
+      if (scale || hints !== undefined || deviceFrame !== undefined) engine.presentSetOptions({ ...(scale ? { scale } : {}), ...(hints !== undefined ? { hints } : {}), ...(deviceFrame !== undefined ? { deviceFrame } : {}) });
       if (source.subscribe) cleanups.push(source.subscribe((bytes) => engine && !engine.destroyed && engine.applyChangesKiwi(bytes, "remote")));
       // The videos: played by the browser, decided by the player.
       const videos = new PresentationVideos(engine, source.images, videoHost.current);
@@ -331,6 +398,11 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       if (engine.presentKey("down", e.keyCode, modsOf(e))) {
         e.preventDefault();
         readState();
+        return;
+      }
+      if (!inline && isHideUiKey(e)) {
+        e.preventDefault();
+        toggleHideUi();
         return;
       }
       if (e.metaKey || e.ctrlKey || e.altKey || inline) return;
@@ -407,12 +479,8 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     if (!engine) return;
     if (inline) onExtraOption?.(id);
     else if (id === "sidebar") setSidebar(!sidebar);
-    else if (id === "hide-ui") {
-      const next = !hideUi;
-      setHideUi(next);
-      // Figma: "Remind you how to restore the toolbar and footer."
-      if (next) showToast({ message: t("UI hidden. Use the options button in the corner to show it again.") });
-    } else if (id === "keys") setKeysOpen(true);
+    else if (id === "hide-ui") toggleHideUi();
+    else if (id === "keys") setKeysOpen(true);
     else applyPresentOption(engine, state, id);
     readState();
     canvasRef.current?.focus({ preventScroll: true });

@@ -547,7 +547,14 @@ constexpr ScriptFamily kScriptFamilies[] = {
     {HB_SCRIPT_TELUGU, "Noto Sans Telugu"},       {HB_SCRIPT_THAI, "Noto Sans Thai"},
 };
 
+// Emoji: Figma draws them as images from its Apple or Noto set by emojiId (Atlas 06 §10; the host and sizes are §15 Q8).
+// Until that is built, Noto Emoji's outlines (Google Fonts, OFL; monochrome) draw them — asked for first for an emoji's
+// code points (the pictographs from U+1F000, which no Noto Sans family has), never for other characters.
+constexpr const char* kEmojiFamily = "Noto Emoji";
+bool isEmojiCodePoint(uint32_t cp) { return cp >= 0x1F000 && cp <= 0x1FAFF; }
+
 bool scriptSpecific(const std::string& family) {
+  if (family == kEmojiFamily) return true;
   for (const ScriptFamily& s : kScriptFamilies)
     if (family == s.family) return true;
   return false;
@@ -556,6 +563,7 @@ bool scriptSpecific(const std::string& family) {
 }  // namespace
 
 const char* scriptFallback(uint32_t cp) {
+  if (isEmojiCodePoint(cp)) return kEmojiFamily;
   hb_script_t script = hb_unicode_script(hb_unicode_funcs_get_default(), cp);
   for (const ScriptFamily& s : kScriptFamilies)
     if (s.script == script) return s.family;

@@ -30,7 +30,7 @@ import { copiesHave, guidText, type LibraryCopy, type LNode, type LocalAsset, ty
 import { viewCentre } from "./canvas/viewInsets";
 import { attachLibraryUsage, gid } from "./libraryUsage";
 import { setExplicitMode } from "./variables";
-import { LIMITS } from "./model/variables";
+import { LIMITS, readCollection, type VNode } from "./model/variables";
 import type { DefaultMode } from "../../../shared/libraries/orgTypes";
 import { readSocial, templateSlotsIn, type PluginDataEntry, type SocialTemplateData, type TemplateSlotSummary } from "../../../shared/social/types";
 
@@ -1126,11 +1126,13 @@ export async function acceptUpdates(ed: EditorController, items: readonly Update
     return r;
   };
   const list = [...calls.values()];
+  const defaultsBefore = collectionDefaults(ed, items);
   let next = 0;
   ed.batch("Update library assets", () => {
     for (; next < list.length; next++) if (run(list[next]).status === Status.E_BUSY) return; // an engine that can't join the open step: one step per call below
   });
   for (; next < list.length; next++) run(list[next]);
+  defaultModeToast(defaultsBefore, collectionDefaults(ed, items));
   // A moved asset whose new library is this file: its copies are gone, their users relinked to the main here.
   const relinked = (u: UpdateItem) => u.copies.every((c) => {
     const n = ed.engine.readNode(c.guid) as LNode | null;
@@ -1143,6 +1145,34 @@ export async function acceptUpdates(ed: EditorController, items: readonly Update
   }
   await ed.libraries.refresh();
   return updated.size;
+}
+
+/** The default mode (the first by position) of each library collection copy the items touch, by copy. */
+export function collectionDefaults(ed: EditorController, items: readonly UpdateItem[]): Map<Guid, { collection: string; mode: string; modeName: string }> {
+  const out = new Map<Guid, { collection: string; mode: string; modeName: string }>();
+  const guids = items.flatMap((u) => u.copies.map((c) => c.guid));
+  for (const n of guids.length ? ed.engine.readNodes(guids) : []) {
+    if (n.type !== "VARIABLE_SET") continue;
+    const c = readCollection(n as unknown as VNode);
+    const first = c.modes[0];
+    if (first) out.set(n.guid, { collection: c.name, mode: first.id, modeName: first.name });
+  }
+  return out;
+}
+
+/**
+ * After an update: a library collection whose default mode changed tells it (Figma's
+ * `variables.authoring_modal.default_mode_changed`, atlas 11 §3.2 — its English isn't in the build's cache: ours).
+ */
+export function defaultModeToast(before: ReadonlyMap<Guid, { mode: string }>, after: ReadonlyMap<Guid, { collection: string; mode: string; modeName: string }>): void {
+  const changed = [...after].filter(([guid, a]) => before.has(guid) && before.get(guid)!.mode !== a.mode).map(([, a]) => a);
+  if (!changed.length) return;
+  showToast({
+    message:
+      changed.length === 1
+        ? t("The default mode of {collection} is now {mode}", { collection: changed[0].collection, mode: changed[0].modeName })
+        : tp(changed.length, "The default mode of {n} collection changed", "The default modes of {n} collections changed"),
+  });
 }
 
 /**
@@ -1460,6 +1490,45 @@ export function missingLibraries(state: LibraryState, copies: readonly LibraryCo
 }
 
 // ---- Paste between files: Move to this file -------------------------------------------------------------------------------
+
+/** The libraries copies here come from (the set a paste is compared against). */
+export function copiedLibraries(ed: EditorController): Set<string> {
+  // (an editor without libraries — a test's, the viewer's — has none)
+  return ed.libraries?.get().on ? new Set(ed.libraries.copies().map((c) => c.library)) : new Set();
+}
+
+/**
+ * After a paste: the published libraries its copies brought from that this file hasn't added (atlas 12 §10.2, Figma's
+ * `proto.paste_unadded_libraries`) — not this file's own, not one already enabled — with their names.
+ */
+export function unaddedLibraries(state: Pick<LibraryState, "on" | "own" | "available" | "enabled" | "names">, before: ReadonlySet<string>, after: ReadonlySet<string>): { library: string; name: string }[] {
+  if (!state.on) return [];
+  const out: { library: string; name: string }[] = [];
+  for (const lib of after) {
+    if (before.has(lib) || state.enabled.includes(lib) || lib === state.own?.libraryFileKey) continue;
+    const entry = state.available.find((e) => e.fileKey === lib);
+    if (entry) out.push({ library: lib, name: entry.name || state.names.get(lib) || t("Untitled") });
+  }
+  return out;
+}
+
+/**
+ * The paste prompt for them (Figma's add CTA enables each; its manage CTA, the Libraries modal, is the toast's text
+ * here — the bell has one button). English ours: Figma's isn't in the build's cache.
+ */
+export function unaddedLibrariesToast(ed: EditorController, libs: readonly { library: string; name: string }[]): void {
+  if (!libs.length) return;
+  showToast({
+    message:
+      libs.length === 1
+        ? t("Pasted from {name}, a library this file hasn't added", { name: libs[0].name })
+        : tp(libs.length, "Pasted from {n} library this file hasn't added", "Pasted from {n} libraries this file hasn't added"),
+    action: {
+      label: libs.length === 1 ? t("Add library") : t("Add libraries"),
+      onAction: () => void Promise.all(libs.map((l) => setLibraryEnabled(ed, l.library, true).catch(() => {}))),
+    },
+  });
+}
 
 /** How many of `refs` (pasted layers) are components moved from another library. */
 export function movedAmong(ed: EditorController, refs: readonly Guid[]): number {

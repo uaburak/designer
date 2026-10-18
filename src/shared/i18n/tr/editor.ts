@@ -1026,7 +1026,6 @@ export const editor: Record<string, string> = {
   Flow: "Akış",
   Flows: "Akışlar",
   "No flows on this page": "Bu sayfada akış yok",
-  "UI hidden. Use the options button in the corner to show it again.": "Arayüz gizlendi. Yeniden göstermek için köşedeki seçenekler düğmesini kullanın.",
   "Link copied to clipboard": "Bağlantı panoya kopyalandı",
   "The link couldn't be copied": "Bağlantı kopyalanamadı",
   Prototype: "Prototip",
@@ -1621,4 +1620,5 @@ export const editor: Record<string, string> = {
   "Started a relayout task for {name}.": "{name} için yeniden yerleşim görevi başlatıldı.",
   "{n} slide: {format} takes {min}–{max}": "{n} slayt: {format} {min}–{max} slayt alır",
   "{n} slides: {format} takes {min}–{max}": "{n} slayt: {format} {min}–{max} slayt alır",
+  "UI hidden. Use the options button in the corner, or {key}, to show it again.": "Arayüz gizlendi. Yeniden göstermek için köşedeki seçenekler düğmesini veya {key} kısayolunu kullanın.",
 };

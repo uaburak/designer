@@ -301,6 +301,8 @@
   .missingName > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .missingStyle { color: var(--figma-color-text-secondary); }
   .missingPick { display: grid; grid-template-columns: 1fr 1fr; gap: var(--ds-space-2); min-width: 0; }
+  .missingSelect, .missingScope { align-self: flex-start; }
+  .missingWholePage { margin-right: auto; }
 }
 /* Tools: the plugins by source (docs/plugins.md §6) — a section header, then 32px rows with the plugin glyph */
 .toolsList { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-bottom: var(--ds-space-2); }

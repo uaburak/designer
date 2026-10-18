@@ -3,11 +3,18 @@
  * family not installed nor served (Figma's Inter, Google Fonts), a style the family lacks, or a Google family that
  * can't be downloaded now — the left panel shows the missing font icon; it opens the "Missing fonts" dialog, which
  * lists each missing font with its layers and a Replacement (family and style, from the fonts available), and
- * "Replace fonts" swaps them everywhere in the file (one undo step; every text, run, text style and instance
- * override naming it).
+ * "Replace fonts" swaps them (one undo step; every text, run, text style and instance override naming it).
+ *
+ * Its scope is Figma's (atlas 06 §7): Current selection (when something is selected), Current page or All pages —
+ * the engine reads the fonts the layers in and inside them name (`documentFonts(refs)`), each row offers "Select N
+ * items using this font" there, and the selection's scope has "Replace on the whole page". Every page is in the
+ * engine already, so All pages needs no "Finding missing fonts" wait. Which scope it opens on isn't read: here the
+ * current page when it has a missing font, else All pages.
  */
 import { useMemo, useState, useSyncExternalStore } from "react";
-import { Button, Dialog, RailItem, Select } from "@/ds";
+import { Button, Checkbox, Dialog, RailItem, Select } from "@/ds";
+import type { Guid } from "@/engine/codec";
+import { useCurrentPage, useSelection } from "@/engine/hooks";
 import { closestStyle, fonts, type FontFamily } from "@/engine/fonts";
 import { useEditor } from "../controller";
 import { missingFonts, useDocumentFonts, useFontFamilies, type DocumentFontUse } from "../fontList";
@@ -66,21 +73,68 @@ function defaultReplacement(list: readonly FontFamily[] | null, m: DocumentFontU
   return { family: "Inter", style: inter ? closestStyle(inter.styles, m.style) : "Regular" };
 }
 
+/** The dialog's scope (Figma's `missing_fonts_modal` scope menu). */
+export type MissingFontsScope = "selection" | "page" | "all";
+
+/** A missing font as a scope sees it: its uses there and, in a page or selection scope, the layers naming it. */
+export interface ScopedMissingFont extends DocumentFontUse {
+  nodes?: Guid[];
+}
+
+/**
+ * The file's missing fonts within a scope: those the scope's layers name (`scoped`, the engine's `documentFonts(refs)`),
+ * with the scope's counts and layers; all of them for the whole file (`scoped` null).
+ */
+export function missingInScope(missing: readonly DocumentFontUse[], scoped: readonly (DocumentFontUse & { nodes?: Guid[] })[] | null): ScopedMissingFont[] {
+  if (!scoped) return [...missing];
+  const k = (f: { family: string; style: string }) => `${f.family}\n${f.style}`.toLowerCase();
+  const byKey = new Map(scoped.map((f) => [k(f), f]));
+  const out: ScopedMissingFont[] = [];
+  for (const m of missing) {
+    const s = byKey.get(k(m));
+    if (s) out.push({ ...m, uses: s.uses, nodes: s.nodes });
+  }
+  return out;
+}
+
 export function MissingFontsDialog({ missing, onClose }: { missing: DocumentFontUse[]; onClose: () => void }) {
   useT();
   const ed = useEditor();
   const list = useFontFamilies();
+  const page = useCurrentPage(ed.store);
+  const selection = useSelection(ed.store).refs;
+  const pageMissing = useMemo(() => missingInScope(missing, ed.engine.documentFonts([page])), [ed, missing, page]);
+  const [scope, setScope] = useState<MissingFontsScope>(() => (pageMissing.length ? "page" : "all"));
+  const [wholePage, setWholePage] = useState(false);
   const [choice, setChoice] = useState<Record<string, Replacement>>({});
+  const effective: MissingFontsScope = scope === "selection" && !selection.length ? "page" : scope;
+  const roots: Guid[] | null = effective === "all" ? null : effective === "page" || wholePage ? [page] : selection;
+  const shown = useMemo(
+    () => (effective === "page" ? pageMissing : missingInScope(missing, roots ? ed.engine.documentFonts(roots) : null)),
+    // `roots` is derived from the values listed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ed, missing, effective, pageMissing, wholePage, selection, page]
+  );
+  const others = missing.length - shown.length;
   const key = (m: DocumentFontUse) => `${m.family}\n${m.style}`;
   const replacementOf = (m: DocumentFontUse) => choice[key(m)] ?? defaultReplacement(list, m);
   const replace = () => {
-    const pairs = missing.map((m) => {
+    const pairs = shown.map((m) => {
       const to = replacementOf(m);
       return { from: { family: m.family, style: m.style }, to: { family: to.family, style: to.style } };
     });
-    ed.engine.command("REPLACE_FONTS", { fonts: pairs });
+    if (pairs.length) ed.engine.command("REPLACE_FONTS", { fonts: pairs, ...(roots ? { nodes: roots } : {}) });
     onClose();
   };
+  const selectUses = (nodes: Guid[]) => {
+    ed.engine.setSelection(nodes);
+    onClose();
+  };
+  const scopes = [
+    ...(selection.length ? [{ value: "selection", label: t("Current selection") }] : []),
+    { value: "page", label: t("Current page") },
+    { value: "all", label: t("All pages") },
+  ];
   return (
     <Dialog
       title={t("Missing fonts")}
@@ -88,18 +142,24 @@ export function MissingFontsDialog({ missing, onClose }: { missing: DocumentFont
       open
       onClose={onClose}
       footer={
-        <Button variant="primary" size="large" onClick={replace} data-replace-fonts="">
-          {t("Replace fonts")}
-        </Button>
+        <>
+          {effective === "selection" && (
+            <Checkbox label={t("Replace on the whole page")} checked={wholePage} onChange={setWholePage} className={styles.missingWholePage} data-whole-page="" />
+          )}
+          <Button variant="primary" size="large" onClick={replace} disabled={!shown.length} data-replace-fonts="">
+            {t("Replace fonts")}
+          </Button>
+        </>
       }
     >
-      <div className={styles.missingFonts} data-missing-fonts-dialog="">
-        <p className={styles.missingIntro}>{t("Some fonts used in this file aren’t available. Replace them with fonts you have; every layer in the file that uses them changes.")}</p>
+      <div className={styles.missingFonts} data-missing-fonts-dialog="" data-scope={effective}>
+        <p className={styles.missingIntro}>{t("Some fonts used in this file aren’t available. Replace them with fonts you have; the layers in the scope below that use them change.")}</p>
+        <Select label={t("Scope")} value={effective} options={scopes} onChange={(v) => setScope(v as MissingFontsScope)} width="hug" className={styles.missingScope} data-missing-scope="" />
         <div className={styles.missingHead}>
           <span>{t("Missing font")}</span>
           <span>{t("Replacement")}</span>
         </div>
-        {missing.map((m) => {
+        {shown.map((m) => {
           const r = replacementOf(m);
           const fam = list?.find((f) => f.family === r.family);
           return (
@@ -109,6 +169,11 @@ export function MissingFontsDialog({ missing, onClose }: { missing: DocumentFont
                 <span className={styles.missingStyle}>
                   {m.style} · {tp(m.uses, "{n} layer", "{n} layers")}
                 </span>
+                {m.nodes?.length ? (
+                  <Button variant="link" className={styles.missingSelect} onClick={() => selectUses(m.nodes!)} data-select-uses="">
+                    {tp(m.nodes.length, "Select {n} item using this font", "Select {n} items using this font")}
+                  </Button>
+                ) : null}
               </div>
               <div className={styles.missingPick}>
                 <FontField
@@ -128,6 +193,12 @@ export function MissingFontsDialog({ missing, onClose }: { missing: DocumentFont
             </div>
           );
         })}
+        {!shown.length && <p className={styles.missingIntro}>{effective === "selection" ? t("No missing fonts in the selection.") : t("No missing fonts on this page.")}</p>}
+        {others > 0 && (
+          <Button variant="link" className={styles.missingSelect} onClick={() => setScope("all")} data-show-other-missing="">
+            {t("Show other missing fonts")}
+          </Button>
+        )}
       </div>
     </Dialog>
   );

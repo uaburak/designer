@@ -22,6 +22,7 @@ import type { Color, Guid, Message, NodeChange, NodeFields, Paint } from "@/engi
 import type { EditorController } from "./controller";
 import { engineMethod, hasCommand, runEngineCommand, type CommandArgs, changesOf } from "./engineCompat";
 import { sameData } from "./model/mixed";
+import { isSpaceBetween } from "./model/sizing";
 import { deferredListener } from "./deferred";
 import {
   aliasMakesCycle,
@@ -912,12 +913,38 @@ export function pasteVariables(ed: EditorController, ids: readonly Guid[], colle
 
 // ---- Binding ---------------------------------------------------------------------------------------------------------
 
+/**
+ * What binding the gap fields changes first (atlas 09 §3.3 – §3.4): a gap that is Auto (Between, Evenly, Around) is
+ * packed — Figma's `PACKED`, our MIN as the gap menu's number does — and an Auto gap between rows becomes AUTO, so the
+ * variable's number is the gap. Empty when nothing needs it.
+ */
+export function gapUnpacking(nodes: readonly NodeChange[], fields: readonly string[]): { guid: Guid; fields: Record<string, unknown> }[] {
+  const out: { guid: Guid; fields: Record<string, unknown> }[] = [];
+  for (const n of nodes) {
+    const f: Record<string, unknown> = {};
+    const primary = n.stackPrimaryAlignItems as string | undefined;
+    if (fields.includes("STACK_SPACING") && (isSpaceBetween(primary) || primary === "SPACE_EVENLY_CSS" || primary === "SPACE_AROUND")) f.stackPrimaryAlignItems = "MIN";
+    if (fields.includes("STACK_COUNTER_SPACING") && (n as { stackCounterAlignContent?: string }).stackCounterAlignContent === "SPACE_BETWEEN") f.stackCounterAlignContent = "AUTO";
+    if (Object.keys(f).length) out.push({ guid: n.guid, fields: f });
+  }
+  return out;
+}
+
 /** Binds a node field (VariableField) on every ref to `variable` (null: "Detach variable" — the value stays). */
 export function bindVariable(ed: EditorController, refs: readonly Guid[], field: string | readonly string[], variable: Guid | null): void {
   const a = assets(ed);
   const v = variable ? a.lookup.variable(variable) : null;
   if (variable && !v) return;
   const fields = typeof field === "string" ? [field] : [...field];
+  const unpack = v && fields.some((f) => f === "STACK_SPACING" || f === "STACK_COUNTER_SPACING") ? gapUnpacking(ed.engine.readNodes(refs), fields) : [];
+  if (unpack.length) {
+    // One undo step: the engine's bind joins the open transaction.
+    ed.batch("Apply variable", () => {
+      for (const u of unpack) ed.engine.setProps([u.guid], asFields(u.fields));
+      bindVariable(ed, refs, fields, variable);
+    });
+    return;
+  }
   if (engineResolves(ed)) {
     let ok = true;
     for (const target of fields) ok = (v ? engineDid(ed, VARIABLE_COMMAND.bind, { refs: [...refs], target, variable: v.id }) : engineDid(ed, VARIABLE_COMMAND.detach, { refs: [...refs], target })) && ok;

@@ -1,5 +1,5 @@
 /**
- * `?present&file=<fileKey>[&page=<id>][&node=<id>]`: the presentation view in a tab of its own (Figma's desktop app
+ * `?present&file=<fileKey>[&page=<id>][&node=<id>]` (and Figma's prototype parameters: `presentUrlOptions`): the presentation view in a tab of its own (Figma's desktop app
  * opens Present in a new tab; R8 §9). The file is opened read-only (`mode: "view"`, alongside its editor's session),
  * loaded from its snapshot and journal, and kept current through the store's change feed — an edit in the editor
  * shows in the prototype. Nothing is ever written from here.
@@ -10,7 +10,7 @@ import { useMemo, useState } from "react";
 import { ToastHost, TooltipManager, useThemeRoot } from "@/ds";
 import { getStoreClient } from "@/store";
 import { SharePrototypeDialog } from "@/editor/SharePrototypeDialog";
-import { PresentationView, type PresentationSource } from "./PresentationView";
+import { PresentationView, presentUrlOptions, type PresentationSource } from "./PresentationView";
 
 const params = new URLSearchParams(location.search);
 
@@ -52,7 +52,7 @@ export default function PresentRoute() {
   const [sharing, setSharing] = useState<{ node: string | null } | null>(null);
   return (
     <>
-      {source ? <PresentationView source={source} page={params.get("page")} node={params.get("node")} onShare={(screen) => setSharing({ node: screen })} /> : <p>{t("No file to present.")}</p>}
+      {source ? <PresentationView source={source} page={params.get("page")} node={params.get("node")} urlOptions={presentUrlOptions(params)} onShare={(screen) => setSharing({ node: screen })} /> : <p>{t("No file to present.")}</p>}
       {sharing && fileKey && <SharePrototypeDialog fileKey={fileKey} nodeId={sharing.node} onClose={() => setSharing(null)} />}
       <TooltipManager />
       <ToastHost />
