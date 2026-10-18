@@ -81,6 +81,16 @@ void Renderer::drawTitleIcon(TitleIcon icon, const Rect& box, const Color& color
   }
   if (icon == TitleIcon::Instance) {
     diamond(c, box.w - 1, false);
+  } else if (icon == TitleIcon::Motion) {
+    // The Motion mode's glyph (the toolbar's): a diamond outline, a play mark in it — three 1 px columns shortening to
+    // the right, a triangle at this size.
+    diamond(c, box.w - 1, false);
+    const double h = std::round(box.w * 0.36);
+    for (int i = 0; i < 3; i++) {
+      double ch = std::max(1.0, h - 2.0 * i * h / 3.0);
+      emit(makeShape(place * Mat2x3::translate(c.x - 1.5 + i, c.y - ch / 2), {1, ch}, ShapeKind::Rect, {0, 0, 0, 0}, color, color.a, color, 0, 0, 0),
+           Pass::Shape);
+    }
   } else {
     double q = box.w / 4;
     diamond({c.x, c.y - q}, box.w / 2 - 0.5, true);
@@ -550,7 +560,7 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       return L ? L->size.x : 6.2 * static_cast<double>(name.size()) * size / 11;
     };
     auto has = [](const std::vector<Guid>& ids, Guid id) { return std::find(ids.begin(), ids.end(), id) != ids.end(); };
-    for (const FrameTitle& t : frameTitles(doc, page, view, screen_, style, measure, overlay.dev.focus)) {
+    for (const FrameTitle& t : frameTitles(doc, page, view, screen_, style, measure, overlay.dev.focus, overlay.motionTitles)) {
       const Node* n = doc.get(t.id);
       if (!n) continue;
       bool isSelected = has(overlay.selection, t.id), hovered = has(overlay.hover, t.id);

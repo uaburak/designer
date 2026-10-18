@@ -8,11 +8,12 @@
 // anchor point tool on the canvas. Round 8h: animation presets (336–338, 352) and composite styles (339) — clips whose
 // materialised tracks (the TypeScript runtime's output) are their own children, bound through ANIMATION_PRESET
 // parameters — copied and removed with their layers, a text preset's stagger timed to the text's elements. Round 8e:
-// audio clips and their rows on a timeline root (345–348) and in the timeline model.
+// audio clips and their rows on a timeline root (345–348) and in the timeline model. Round 8i: easings bound to EASING
+// variables (a keyframe's EASING_DATA alias; a clip's Easing) and a clip's Delay / Duration to TIMING ones, a text's
+// own stagger (344), keyframes pasted (349), X / Y tracks combined into XY and split back (350–351).
 //
-// Not yet (the contract's later increments): paste (349), combine / split (350–351), text stagger by
-// hand (344), keyframe values, easings and preset timings bound to variables, the corner radius / shape handles and
-// the Scale tool routed, the motion path's squares and handles dragged on the canvas.
+// Not yet: keyframe values bound to variables, the corner radius / shape handles and the Scale tool routed, the
+// motion path's squares and handles dragged on the canvas.
 #include <algorithm>
 #include <cmath>
 
@@ -47,6 +48,9 @@ bool guidOf(const json::Value* v, Guid& out) {
   out = Guid::parse(v->string, &ok);
   return ok;
 }
+
+// An easing bound to a variable ({"variable": "s:l"}, src/shared/motion/types.ts EasingRef; round 8i): its GUID.
+bool easingVariableOf(const json::Value* v, Guid& out) { return guidOf(member(v, "variable"), out); }
 
 std::string encodeExtra(const char* key, const json::Value& v) { return codec::extraFromJson("NodeChange", key, v); }
 
@@ -608,12 +612,26 @@ std::vector<ComponentPropAssignment> propAssignments(const json::Value* props) {
 void writePropAssignments(json::Writer& w, const std::vector<ComponentPropAssignment>& list) {
   w.beginObject();
   for (const ComponentPropAssignment& a : list) {
+    // A prop bound to a variable without a value of its own (Delay / Duration / Easing, round 8i) is the clip's
+    // `variables`, not a prop.
+    if (!a.value.hasFloat && !a.value.hasBool && !a.value.hasText) continue;
     w.key(a.defID.toString());
     if (a.value.hasFloat) w.number(a.value.floatValue);
     else if (a.value.hasBool) w.boolean(a.value.boolValue);
-    else if (a.value.hasText) w.string(a.value.textValue.characters);
-    else w.null();
+    else w.string(a.value.textValue.characters);
   }
+  w.endObject();
+}
+
+// The clip's Delay / Duration / Easing bindings (round 8i) as its `variables` ({delay, duration, easing}: GUIDs).
+void writePresetVariables(json::Writer& w, const motion::Preset& p) {
+  w.beginObject();
+  auto one = [&](const char* key, const VariableData& d) {
+    if (d.kind == VariableData::Kind::ALIAS && d.alias.guid != kNoGuid) w.key(key).string(d.alias.guid.toString());
+  };
+  one("delay", p.delayVar);
+  one("duration", p.durationVar);
+  one("easing", p.easingVar);
   w.endObject();
 }
 
@@ -848,7 +866,9 @@ Guid Editor::motionUpsertKeyframe(Guid track, int64_t timeUs, const motion::Keyf
   }
   putExtra(c, "timelinePosition", encodeExtra("timelinePosition", jnum(static_cast<double>(timeUs))));
   putExtra(c, "keyframeValue", encodeExtra("keyframeValue", keyframeValueJson(value)));
-  if (easing) {
+  Guid var;
+  bool variable = easing && easingVariableOf(easing, var);
+  if (easing && !variable) {
     json::Value ed;
     EasingSpec spec;
     if (easingFromPublic(*easing, ed, &spec)) {
@@ -857,6 +877,7 @@ Guid Editor::motionUpsertKeyframe(Guid track, int64_t timeUs, const motion::Keyf
     }
   }
   write(c);
+  if (easing) motionBindEasing(id, variable ? var : kNoGuid);
   motionDirty_ = true;
   return id;
 }
@@ -946,6 +967,10 @@ uint32_t Editor::motionCommandState(CommandId id) const {
     case CommandId::MOTION_SET_ANIMATION:
     case CommandId::MOTION_REMOVE_ANIMATIONS:
     case CommandId::MOTION_SET_PRESET_TRACKS:
+    case CommandId::MOTION_SET_TEXT_STAGGER:
+    case CommandId::MOTION_PASTE_KEYFRAMES:
+    case CommandId::MOTION_COMBINE_TRACKS:
+    case CommandId::MOTION_SPLIT_TRACKS:
     case CommandId::MOTION_SET_KEYFRAMES:
     case CommandId::MOTION_DELETE_KEYFRAMES:
     case CommandId::MOTION_SET_EASING:
@@ -956,7 +981,7 @@ uint32_t Editor::motionCommandState(CommandId id) const {
     case CommandId::MOTION_SET_AUDIO:
     case CommandId::MOTION_SPLIT_AUDIO:
     case CommandId::MOTION_REMOVE_AUDIO: return motion_.on ? CMD_ENABLED : 0;
-    default: return 0;  // paste, combine / split, text stagger by hand: later increments
+    default: return 0;
   }
 }
 
@@ -1068,12 +1093,18 @@ Status Editor::motionCommand(CommandId id, const CommandArgs& args) {
           }
           if (ok) putExtra(c, "keyframeValue", encodeExtra("keyframeValue", keyframeValueJson(value)));
         }
+        bool bound = false;
         if (const json::Value* es = member(e, "easing")) {
           json::Value ed;
           EasingSpec spec;
-          if (easingFromPublic(*es, ed, &spec)) {
+          Guid var;
+          if (easingVariableOf(es, var)) {
+            motionBindEasing(kid, var);
+            bound = true;
+          } else if (easingFromPublic(*es, ed, &spec)) {
             putExtra(c, "easingData", encodeExtra("easingData", ed));
             putExtra(c, "interpolationType", encodeExtra("interpolationType", jstr(interpolationTypeOf(spec.type))));
+            motionBindEasing(kid, kNoGuid);
           }
         }
         if (const json::Value* h = member(e, "pathHandles"); h && h->isObject()) {
@@ -1086,10 +1117,8 @@ Status Editor::motionCommand(CommandId id, const CommandArgs& args) {
           put(handles, "p2y", jnum(member(out, "y") ? member(out, "y")->numberOr(0) : 0));
           putExtra(c, "motionPathBezierHandles", encodeExtra("motionPathBezierHandles", handles));
         }
-        if (c.mask) {
-          write(c);
-          done++;
-        }
+        if (c.mask) write(c);
+        if (c.mask || bound) done++;
       }
       motionDirty_ = true;
       commit();
@@ -1146,7 +1175,10 @@ Status Editor::motionCommand(CommandId id, const CommandArgs& args) {
       if (!ids || !ids->isArray() || !easing) return E_INVALID;
       json::Value ed;
       EasingSpec spec;
-      if (!easingFromPublic(*easing, ed, &spec)) return E_INVALID;
+      // An EASING variable (round 8i, docs/motion.md §4.7): the keyframe's EASING_DATA alias, a clip's Easing prop.
+      Guid var;
+      bool variable = easingVariableOf(easing, var);
+      if (!variable && !easingFromPublic(*easing, ed, &spec)) return E_INVALID;
       begin(TxnKind::USER, "Change easing");
       size_t done = 0;
       for (const json::Value& v : ids->array) {
@@ -1155,15 +1187,27 @@ Status Editor::motionCommand(CommandId id, const CommandArgs& args) {
         NodeType t = doc_.get(g)->props.type;
         if (t != NodeType::KEYFRAME && t != NodeType::ANIMATION_PRESET_INSTANCE) continue;
         if (t == NodeType::ANIMATION_PRESET_INSTANCE) {
-          // A clip's easing is its tweens' (round 8h): its keyframes take it too.
-          motionEditPreset(g, raw);
+          // A clip's easing is its tweens' (round 8h): its keyframes take it too; a variable binds its Easing prop.
+          if (variable) {
+            json::Value vars = jobj();
+            put(vars, "easing", jstr(var.toString()));
+            motionBindPresetVariables(g, vars);
+          } else {
+            motionEditPreset(g, raw);
+            json::Value vars = jobj();
+            put(vars, "easing", json::Value());
+            motionBindPresetVariables(g, vars);
+          }
           done++;
           continue;
         }
-        NodeChange c = NodeChange::changed(g);
-        putExtra(c, "easingData", encodeExtra("easingData", ed));
-        putExtra(c, "interpolationType", encodeExtra("interpolationType", jstr(interpolationTypeOf(spec.type))));
-        write(c);
+        motionBindEasing(g, variable ? var : kNoGuid);
+        if (!variable) {
+          NodeChange c = NodeChange::changed(g);
+          putExtra(c, "easingData", encodeExtra("easingData", ed));
+          putExtra(c, "interpolationType", encodeExtra("interpolationType", jstr(interpolationTypeOf(spec.type))));
+          write(c);
+        }
         done++;
       }
       motionDirty_ = true;
@@ -1386,7 +1430,10 @@ Status Editor::motionCommand(CommandId id, const CommandArgs& args) {
     case CommandId::MOTION_APPLY_STYLE: {
       // A composite style (docs/motion.md §4.6): its presets — expanded by the TypeScript side, each with its offset from
       // the style's start and its output — on each layer, and one `styleIdsForAnimation` entry naming what it generated.
-      // `detach` instead forgets a style entry wherever it is; its presets stay as they are.
+      // `detach` instead forgets a style entry wherever it is; its presets stay as they are. Round 8i: `create` makes a
+      // custom (user) animation style from a layer's clips, or (with its `style`) replaces a custom style's content;
+      // `style` naming a custom style's node binds it by GUID instead of a first-party key.
+      if (const json::Value* create = member(raw, "create"); create && create->isObject()) return motionCreateStyle(*create);
       if (Guid binding; guidOf(member(raw, "detach"), binding)) {
         std::vector<Guid> holders;
         doc_.forEach([&](const Node& n) {
@@ -1438,8 +1485,15 @@ Status Editor::motionCommand(CommandId id, const CommandArgs& args) {
         json::Value list = motion::extraJson(doc_.get(n)->props, "styleIdsForAnimation");
         if (!list.isArray()) list.kind = json::Value::Kind::Array;
         json::Value entry = jobj(), styleId = jobj(), ref = jobj();
-        put(ref, "key", jstr(style->string));
-        put(styleId, "assetRef", ref);
+        Guid custom;
+        bool ok = false;
+        custom = Guid::parse(style->string, &ok);
+        if (ok && doc_.has(custom) && doc_.get(custom)->props.asset().styleType == StyleType::ANIMATION) {
+          put(styleId, "guid", jstr(custom.toString()));
+        } else {
+          put(ref, "key", jstr(style->string));
+          put(styleId, "assetRef", ref);
+        }
         put(entry, "id", jstr(newGuid().toString()));
         put(entry, "timelineDefId", jstr(root.toString()));
         put(entry, "animationStyleId", styleId);
@@ -1466,12 +1520,259 @@ Status Editor::motionCommand(CommandId id, const CommandArgs& args) {
       commit();
       return OK;
     }
+    case CommandId::MOTION_SET_TEXT_STAGGER: {
+      // A text animated by hand per element (round 8i, docs/motion.md §4.10): the TEXT layer's own
+      // `textElementDelayBehaviour` — its manual tracks then play per character / word / line / paragraph, `delayMs`
+      // apart in `order` — or a text preset's clip's (its step edited by hand). Grouping, order and delay keep what
+      // isn't given.
+      Guid node;
+      if (!guidOf(member(raw, "node"), node) || !doc_.has(node) || node.isDerived() || isLibraryCopy(node)) return E_INVALID;
+      const NodeProps& p = doc_.get(node)->props;
+      if (p.type != NodeType::TEXT && p.type != NodeType::ANIMATION_PRESET_INSTANCE) return E_INVALID;
+      json::Value b = motion::extraJson(p, "textElementDelayBehaviour");
+      if (!b.isObject()) b = jobj();
+      const json::Value* enabled = member(raw, "enabled");
+      if (!enabled || !enabled->isBool()) return E_INVALID;
+      put(b, "enabled", jbool(enabled->boolean));
+      if (const json::Value* g = member(raw, "grouping"); g && g->isString()) {
+        constexpr const char* kGroupings[] = {"CHARACTER", "CHARACTER_NO_WHITESPACE", "WORD", "LINE", "PARAGRAPH"};
+        if (std::none_of(std::begin(kGroupings), std::end(kGroupings), [&](const char* k) { return g->string == k; })) return E_INVALID;
+        put(b, "grouping", jstr(g->string));
+      }
+      if (const json::Value* o = member(raw, "order"); o && o->isString()) {
+        constexpr const char* kOrders[] = {"LEFT_RIGHT", "RIGHT_LEFT", "CENTER_OUT", "RANDOM"};
+        if (std::none_of(std::begin(kOrders), std::end(kOrders), [&](const char* k) { return o->string == k; })) return E_INVALID;
+        put(b, "order", jstr(o->string));
+      }
+      if (const json::Value* d = member(raw, "delayMs"); d && d->isNumber()) put(b, "delayMs", jnum(std::max(0.0, d->number)));  // ≥ 0 (Figma's)
+      begin(TxnKind::USER, "Edit text animation");
+      NodeChange c = NodeChange::changed(node);
+      putExtra(c, "textElementDelayBehaviour", encodeExtra("textElementDelayBehaviour", b));
+      write(c);
+      motionDirty_ = true;
+      commit();
+      return OK;
+    }
+    case CommandId::MOTION_PASTE_KEYFRAMES: {
+      // Keyframes copied from the timeline (docs/motion.md §6.2) at `atUs` on each layer's same fields: per track of the
+      // copy, its keyframes at atUs + their distance from the earliest copied, with their values and easings (upserted
+      // by position, so a paste over keyframes replaces them). One "Paste keyframes" step.
+      std::vector<Guid> nodes = nodesOf();
+      const json::Value* tracks = member(member(raw, "clipboard"), "tracks");
+      if (nodes.empty() || !tracks || !tracks->isArray()) return E_INVALID;
+      int64_t at = timeArg("atUs", motion_.timeUs);
+      begin(TxnKind::USER, "Paste keyframes");
+      size_t made = 0;
+      for (Guid n : nodes) {
+        Guid root = rootFor(n);
+        const Node* node = doc_.get(n);
+        if (root == kNoGuid || !node) continue;
+        for (const json::Value& tr : tracks->array) {
+          Slot slot;
+          const json::Value* keys = member(tr, "keyframes");
+          if (!slotFromPublic(member(tr, "field"), slot) || !keys || !keys->isArray()) continue;
+          KeyframeValue probe;
+          if (!motionSlotData(doc_.get(n)->props, slot) && !motionBaseValue(doc_.get(n)->props, slot, probe)) continue;
+          Guid track = kNoGuid;
+          for (const json::Value& k : keys->array) {
+            KeyframeValue value;
+            const json::Value* dt = member(k, "dtUs");
+            if (!valueFromPublic(member(k, "value"), slot, value)) continue;
+            if (track == kNoGuid) track = motionEnsureTrack(n, slot, root);
+            if (track == kNoGuid) break;
+            created_.push_back(motionUpsertKeyframe(track, at + (dt && dt->isNumber() ? roundUs(dt->number) : 0), value, member(k, "easing")));
+            made++;
+          }
+        }
+      }
+      commit();
+      return made ? OK : E_INVALID;
+    }
+    case CommandId::MOTION_COMBINE_TRACKS:
+    case CommandId::MOTION_SPLIT_TRACKS: {
+      // Position or scale as one XY track or as an X and a Y track (Figma's switchVectorKeyframesToCombined / ToSplit;
+      // "keyframe tracks must be either combined or separated", docs/motion.md §4.5).
+      Guid node;
+      const json::Value* kind = member(raw, "kind");
+      if (!guidOf(member(raw, "node"), node) || !doc_.has(node) || !kind || !kind->isString()) return E_INVALID;
+      if (kind->string != "POSITION" && kind->string != "SCALE") return E_INVALID;
+      return motionCombineTracks(node, kind->string == "SCALE", id == CommandId::MOTION_COMBINE_TRACKS);
+    }
     case CommandId::MOTION_ADD_AUDIO:
     case CommandId::MOTION_SET_AUDIO:
     case CommandId::MOTION_SPLIT_AUDIO:
     case CommandId::MOTION_REMOVE_AUDIO: return motionAudioCommand(id, raw);
-    default: return E_UNSUPPORTED;  // the later increments (docs/motion.md §4.9's table)
+    default: return E_UNSUPPORTED;
   }
+}
+
+// A custom (user) animation style (round 8i; docs/motion.md §4.6: "custom (user) animation styles need only the style
+// node"): a STYLE node of StyleType ANIMATION on the internal canvas (a FRAME [ours: Figma's node type for it unseen]),
+// its content `styleAnimations 580` — template ANIMATION_PRESET_INSTANCE children, each a copy of one of `from`'s clips
+// without its tracks (type, name, props, easing, length, and its start less the earliest clip's: the style plays from
+// its own start). With `style`, that custom style's content is replaced ("Update animation style"); else a new style
+// named `name` ("Create animation style"). The TypeScript side runs the templates' code when the style is applied.
+Status Editor::motionCreateStyle(const json::Value& spec) {
+  Guid from;
+  if (!guidOf(member(spec, "from"), from) || !doc_.has(from)) return E_INVALID;
+  std::vector<Guid> presets = motion::decodePresetList(doc_.get(from)->props);
+  if (presets.empty()) return E_INVALID;
+  Guid style;
+  bool update = guidOf(member(spec, "style"), style) && doc_.has(style) && doc_.get(style)->props.asset().styleType == StyleType::ANIMATION;
+  if (member(spec, "style") && !update) return E_INVALID;
+  int64_t earliest = INT64_MAX;
+  for (Guid p : presets)
+    if (const Node* n = doc_.get(p)) {
+      motion::Preset pr;
+      if (motion::decodePreset(n->props, p, pr)) earliest = std::min(earliest, pr.offsetUs);
+    }
+  if (earliest == INT64_MAX) return E_INVALID;
+  begin(TxnKind::USER, update ? "Update animation style" : "Create animation style");
+  if (update) {
+    for (Guid c : std::vector<Guid>(doc_.children(style))) write(NodeChange::removed(c));
+  } else {
+    Guid internal = internalCanvas(true);
+    if (internal == kNoGuid) {
+      rollback();
+      return E_INVALID;
+    }
+    NodeProps sp = defaultProps(NodeType::FRAME);
+    sp.type = NodeType::FRAME;
+    const json::Value* name = member(spec, "name");
+    sp.name = name && name->isString() && !name->string.empty() ? name->string : "Animation style";
+    sp.parentIndex = {internal, doc_.positionAtEnd(internal)};
+    sp.visible = false;
+    sp.asset().styleType = StyleType::ANIMATION;
+    style = newGuid();
+    write(NodeChange::created(style, sp));
+  }
+  json::Value list;
+  list.kind = json::Value::Kind::Array;
+  for (Guid p : presets) {
+    const Node* n = doc_.get(p);
+    motion::Preset pr;
+    if (!n || !motion::decodePreset(n->props, p, pr)) continue;
+    NodeProps tp = n->props;
+    tp.parentIndex = {style, doc_.positionAtEnd(style)};
+    tp.extra["timelineOffset"] = encodeExtra("timelineOffset", jnum(static_cast<double>(pr.offsetUs - earliest)));
+    tp.extra.erase("textElementDelayBehaviour");  // the stagger is the code's output, made again when applied
+    Guid id = newGuid();
+    write(NodeChange::created(id, tp));
+    json::Value e = jobj();
+    put(e, "animationPresetId", idJson(id));
+    list.array.push_back(e);
+  }
+  NodeChange c = NodeChange::changed(style);
+  putExtra(c, "styleAnimations", encodeExtra("styleAnimations", list));
+  write(c);
+  created_.push_back(style);
+  motionDirty_ = true;
+  commit();
+  return OK;
+}
+
+// X / Y ↔ XY (MOTION_COMBINE_TRACKS / MOTION_SPLIT_TRACKS; round 8i). Combined: one keyframe at every time either track
+// has one, its x and y the two tracks' values there (a missing track: the layer's motionTransform), its easing the X
+// keyframe's there, else the Y's. Split: each XY keyframe as an X and a Y keyframe at its time with its easing (motion
+// path handles have no place on a split pair: they go). Manual tracks only; one step.
+Status Editor::motionCombineTracks(Guid node, bool scale, bool combine) {
+  const motion::MotionIndex& ix = motionIndex();
+  const motion::AnimatedNode* an = ix.node(node);
+  Guid root = ix.rootOf(doc_, node);
+  if (!an || root == kNoGuid || root == node) return E_INVALID;
+  VariableField fx = scale ? VariableField::MOTION_SCALE_X : VariableField::MOTION_TRANSLATION_X;
+  VariableField fy = scale ? VariableField::MOTION_SCALE_Y : VariableField::MOTION_TRANSLATION_Y;
+  VariableField fxy = scale ? VariableField::MOTION_SCALE_XY : VariableField::MOTION_TRANSLATION_XY;
+  auto manual = [&](VariableField f) -> const motion::Track* {
+    for (const motion::Binding& b : an->bindings) {
+      if (b.slot.kind != Slot::Kind::NODE || b.slot.field != f) continue;
+      for (const motion::Param& q : b.params)
+        if (q.kind == motion::Param::Kind::MANUAL) return ix.track(q.track);
+    }
+    return nullptr;
+  };
+  motion::LayerBase base = an->base;
+  Vec2 rest = scale ? base.scale : base.translation;
+  // Copies: the index is rebuilt by the writes below.
+  struct Key {
+    int64_t timeUs;
+    KeyframeValue value;
+    motion::EasingSpec easing;
+    VariableData easingVar;
+  };
+  auto keysOf = [](const motion::Track* t) {
+    std::vector<Key> out;
+    if (t)
+      for (const motion::Keyframe& k : t->keyframes) out.push_back({k.timeUs, k.value, k.easing, k.easingVar});
+    return out;
+  };
+  auto easingJson = [](const Key& k) {
+    // The keyframe's easing as the public shape motionUpsertKeyframe takes (a variable's alias, else its value).
+    json::Writer w;
+    if (k.easingVar.kind == VariableData::Kind::ALIAS && k.easingVar.alias.guid != kNoGuid)
+      w.beginObject().key("variable").string(k.easingVar.alias.guid.toString()).endObject();
+    else
+      writePublicEasing(w, k.easing);
+    json::Value v;
+    json::parse(w.str(), v);
+    return v;
+  };
+  Slot sx = nodeSlot(fx), sy = nodeSlot(fy), sxy = nodeSlot(fxy);
+  const motion::Track* tx = manual(fx);
+  const motion::Track* ty = manual(fy);
+  const motion::Track* txy = manual(fxy);
+  if (combine) {
+    if (!tx && !ty) return E_INVALID;
+    std::vector<Key> xs = keysOf(tx), ys = keysOf(ty);
+    motion::Track cx, cy;
+    if (tx) cx = *tx;
+    if (ty) cy = *ty;
+    std::vector<int64_t> times;
+    for (const Key& k : xs) times.push_back(k.timeUs);
+    for (const Key& k : ys) times.push_back(k.timeUs);
+    std::sort(times.begin(), times.end());
+    times.erase(std::unique(times.begin(), times.end()), times.end());
+    Guid txId = tx ? tx->id : kNoGuid, tyId = ty ? ty->id : kNoGuid, txyId = txy ? txy->id : kNoGuid;
+    begin(TxnKind::USER, "Combine tracks");
+    if (txId != kNoGuid) motionRemoveTrack(txId);
+    if (tyId != kNoGuid) motionRemoveTrack(tyId);
+    if (txyId != kNoGuid) motionRemoveTrack(txyId);
+    Guid track = motionEnsureTrack(node, sxy, root);
+    for (int64_t t : times) {
+      KeyframeValue vx = KeyframeValue::number(rest.x), vy = KeyframeValue::number(rest.y);
+      if (!xs.empty()) motion::trackValue(cx, t, vx);
+      if (!ys.empty()) motion::trackValue(cy, t, vy);
+      const Key* from = nullptr;
+      for (const Key& k : xs)
+        if (k.timeUs == t) from = &k;
+      if (!from)
+        for (const Key& k : ys)
+          if (k.timeUs == t) from = &k;
+      json::Value e = easingJson(*from);
+      if (track != kNoGuid) motionUpsertKeyframe(track, t, KeyframeValue::vector({vx.f, vy.f}), &e);
+    }
+    motionDirty_ = true;
+    commit();
+    return OK;
+  }
+  if (!txy) return E_INVALID;
+  std::vector<Key> keys = keysOf(txy);
+  Guid txyId = txy->id;
+  begin(TxnKind::USER, "Split tracks");
+  motionRemoveTrack(txyId);
+  if (tx) motionRemoveTrack(tx->id);
+  if (ty) motionRemoveTrack(ty->id);
+  Guid gx = motionEnsureTrack(node, sx, root);
+  Guid gy = motionEnsureTrack(node, sy, root);
+  for (const Key& k : keys) {
+    Vec2 v = k.value.kind == ValueKind::VECTOR ? k.value.v : Vec2{k.value.f, k.value.f};
+    json::Value e = easingJson(k);
+    if (gx != kNoGuid) motionUpsertKeyframe(gx, k.timeUs, KeyframeValue::number(v.x), &e);
+    if (gy != kNoGuid) motionUpsertKeyframe(gy, k.timeUs, KeyframeValue::number(v.y), &e);
+  }
+  motionDirty_ = true;
+  commit();
+  return OK;
 }
 
 // ---- Audio (round 8e; docs/motion.md §4.11, §6.6) --------------------------------------------------------------------
@@ -1749,10 +2050,16 @@ bool Editor::motionEditPreset(Guid preset, const json::Value& edit) {
   if (const json::Value* props = member(edit, "props"); props && props->isObject()) {
     c.mask |= F_COMPONENT_PROP_ASSIGNMENTS;
     c.props.comp().componentPropAssignments = propAssignments(props);
+    // Delay / Duration / Easing bound to variables (round 8i) aren't props: they stay.
+    for (const ComponentPropAssignment& a : n->props.comp().componentPropAssignments)
+      if (a.boundValue.kind == VariableData::Kind::ALIAS && !a.value.hasFloat && !a.value.hasBool && !a.value.hasText)
+        c.props.comp().componentPropAssignments.push_back(a);
   }
   const json::Value* output = member(edit, "output");
-  if (!c.mask && !output) return false;
+  const json::Value* variables = member(edit, "variables");
+  if (!c.mask && !output && !(variables && variables->isObject())) return false;
   if (c.mask) write(c);
+  if (variables && variables->isObject()) motionBindPresetVariables(preset, *variables);
   if (output) {
     motionSetPresetTracks(preset, *output);
   } else {
@@ -1768,6 +2075,64 @@ bool Editor::motionEditPreset(Guid preset, const json::Value& edit) {
   }
   motionDirty_ = true;
   return true;
+}
+
+bool Editor::motionEasingData(const json::Value& pub, json::Value& out) { return easingFromPublic(pub, out); }
+
+// A keyframe's easing bound to an EASING variable — its own `parameterConsumptionMap` EASING_DATA alias (Figma's, docs/
+// research/rea/motion.md §2.9) — or unbound (kNoGuid); its easingData stays what it was written (round 8i). A
+// transaction is open.
+void Editor::motionBindEasing(Guid keyframe, Guid variable) {
+  const Node* n = doc_.get(keyframe);
+  if (!n) return;
+  std::vector<ParamBinding> map;
+  bool had = false;
+  for (const ParamBinding& b : n->props.parameterConsumptionMap)
+    if (b.field == VariableField::EASING_DATA) had = true;
+    else map.push_back(b);
+  if (variable == kNoGuid && !had) return;
+  if (variable != kNoGuid) {
+    ParamBinding b;
+    b.field = VariableField::EASING_DATA;
+    b.data = VariableData::aliasOf(variable, VariableResolvedType::EASING);
+    map.push_back(b);
+  }
+  NodeChange c = NodeChange::changed(keyframe);
+  c.mask = F_PARAM_MAP;
+  c.props.parameterConsumptionMap = std::move(map);
+  write(c);
+  motionDirty_ = true;
+}
+
+// A clip's Delay, Duration and Easing bound to TIMING / EASING variables (round 8i; docs/motion.md §4.6: "values in
+// ComponentPropValue or bound in varValue"): `variables` {delay, duration, easing} each a variable's GUID, or null to
+// unbind — the assignment on that prop's defID (presetPropId) holding only the alias. A transaction is open.
+void Editor::motionBindPresetVariables(Guid preset, const json::Value& variables) {
+  const Node* n = doc_.get(preset);
+  if (!n || !variables.isObject()) return;
+  std::vector<ComponentPropAssignment> list = n->props.comp().componentPropAssignments;
+  bool changed = false;
+  for (const char* key : {"delay", "duration", "easing"}) {
+    const json::Value* v = variables.get(key);
+    if (!v) continue;
+    Guid def = motion::presetPropId(key);
+    size_t before = list.size();
+    list.erase(std::remove_if(list.begin(), list.end(), [&](const ComponentPropAssignment& a) { return a.defID == def; }), list.end());
+    changed |= list.size() != before;
+    Guid var;
+    if (!guidOf(v, var)) continue;
+    ComponentPropAssignment a;
+    a.defID = def;
+    a.boundValue = VariableData::aliasOf(var, std::string(key) == "easing" ? VariableResolvedType::EASING : VariableResolvedType::TIMING);
+    list.push_back(std::move(a));
+    changed = true;
+  }
+  if (!changed) return;
+  NodeChange c = NodeChange::changed(preset);
+  c.mask = F_COMPONENT_PROP_ASSIGNMENTS;
+  c.props.comp().componentPropAssignments = std::move(list);
+  write(c);
+  motionDirty_ = true;
 }
 
 // A clip's tracks stretched by `factor` about its start (its keyframes' positions in the clip's own time), and a text
@@ -2738,6 +3103,7 @@ void Editor::writeMotionTimeline(json::Writer& w, Guid rootIn) {
           writePublicValue(w, b.slot, k.value);
           w.key("easing");
           writePublicEasing(w, k.easing);
+          if (k.easingVar.kind == VariableData::Kind::ALIAS && k.easingVar.alias.guid != kNoGuid) w.key("easingVariable").string(k.easingVar.alias.guid.toString());
           if (k.hasPathHandles)
             w.key("pathHandles").beginObject().key("in").beginObject().key("x").number(k.pathIn.x).key("y").number(k.pathIn.y).endObject().key("out").beginObject().key("x").number(k.pathOut.x).key("y").number(k.pathOut.y).endObject().endObject();
           w.endObject();
@@ -2752,12 +3118,14 @@ void Editor::writeMotionTimeline(json::Writer& w, Guid rootIn) {
     json::Value styles = motion::extraJson(n->props, "styleIdsForAnimation");
     if (styles.isArray())
       for (const json::Value& e : styles.array) {
-        Guid binding;
+        Guid binding, custom;
         const json::Value* key = member(member(member(e, "animationStyleId"), "assetRef"), "key");
         if (!guidOf(member(e, "id"), binding)) continue;
+        // A first-party style by its key; a custom one (round 8i) by its node's GUID.
+        std::string name = key && key->isString() ? key->string : guidOf(member(member(e, "animationStyleId"), "guid"), custom) ? custom.toString() : "";
         if (const json::Value* g = member(e, "generatedAnimationPresets"); g && g->isArray())
           for (const json::Value& x : g->array)
-            if (Guid id; guidOf(member(member(x, "animationPresetId"), "guid"), id)) styleOf[id] = {binding, key && key->isString() ? key->string : ""};
+            if (Guid id; guidOf(member(member(x, "animationPresetId"), "guid"), id)) styleOf[id] = {binding, name};
       }
     for (Guid preset : an ? an->presets : std::vector<Guid>{}) {
       const motion::Preset* pr = ix.preset(preset);
@@ -2771,6 +3139,8 @@ void Editor::writeMotionTimeline(json::Writer& w, Guid rootIn) {
       writePublicEasing(w, pr->easing);
       w.key("props");
       writePropAssignments(w, pn->props.comp().componentPropAssignments);
+      w.key("variables");
+      writePresetVariables(w, *pr);
       if (auto it = styleOf.find(preset); it != styleOf.end()) w.key("style").beginObject().key("id").string(it->second.first.toString()).key("key").string(it->second.second).endObject();
       w.endObject();
     }

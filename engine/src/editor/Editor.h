@@ -1846,6 +1846,10 @@ class Editor : private LayoutHost, public TextLayouts {
   motion::MotionLayer motionLayer_;
   bool motionDirty_ = true;
   void motionApply();
+  // Round 8i: the index rebuilt with the variables resolved (EASING / TIMING bindings, in the animated layer's modes);
+  // the top-level frames with animated layers (the Motion icon before their names, render/FrameTitles.h), kept with it.
+  void motionRebuild();
+  std::vector<Guid> motionTitleRoots_;
   // Round 8a, increment 2: lays out what the motion layer's layout-changing fields touched, its writes previews; the
   // motion path and the anchor point's target of the selected layer on the canvas.
   void motionRelayout(const std::vector<Guid>& dirty);
@@ -1864,6 +1868,16 @@ class Editor : private LayoutHost, public TextLayouts {
   Guid motionEnsureTrack(Guid id, const motion::Slot& s, Guid root);
   Guid motionKeyframeAt(Guid track, int64_t timeUs) const;
   Guid motionUpsertKeyframe(Guid track, int64_t timeUs, const motion::KeyframeValue& value, const json::Value* easing);
+  // Round 8i: easings and a clip's timing bound to EASING / TIMING variables; X / Y tracks combined and split.
+  void motionBindEasing(Guid keyframe, Guid variable);
+ public:
+  // A public MotionEasing as an EasingData (JSON), for keyframes, clips and EASING variables (VariableCommands.cpp).
+  static bool motionEasingData(const json::Value& pub, json::Value& out);
+
+ private:
+  void motionBindPresetVariables(Guid preset, const json::Value& variables);
+  Status motionCombineTracks(Guid node, bool scale, bool combine);
+  Status motionCreateStyle(const json::Value& spec);
   void motionRemoveTrack(Guid track);
   std::vector<Guid> motionTracksOwnedBy(const std::vector<Guid>& ids);
   bool motionSlotOfTrack(Guid track, Guid& owner, motion::Slot& slot);

@@ -256,8 +256,9 @@ enum class VariableScope : uint8_t {
   TRANSFORM = 22, COLOR_OPACITY = 23
 };
 enum class CodeSyntaxPlatform : uint8_t { WEB = 0, ANDROID = 1, iOS = 2 };
-// schema StyleType: FILL = "Color style", GRID = "Layout guide style".
-enum class StyleType : uint8_t { NONE = 0, FILL = 1, TEXT = 3, EFFECT = 4, GRID = 6 };
+// schema StyleType: FILL = "Color style", GRID = "Layout guide style", ANIMATION a custom animation style (Motion,
+// round 8i: its content `styleAnimations`).
+enum class StyleType : uint8_t { NONE = 0, FILL = 1, TEXT = 3, EFFECT = 4, GRID = 6, ANIMATION = 7 };
 
 #define ENG_ENUM_NAMES(E, ...)                                        \
   template <>                                                         \
@@ -277,7 +278,7 @@ ENG_ENUM_NAMES(VariableScope, "ALL_SCOPES", "TEXT_CONTENT", "CORNER_RADIUS", "WI
                "FONT_FAMILY", "FONT_SIZE", "LINE_HEIGHT", "LETTER_SPACING", "PARAGRAPH_SPACING", "PARAGRAPH_INDENT",
                "FONT_VARIATIONS", "TRANSFORM", "COLOR_OPACITY")
 ENG_ENUM_NAMES(CodeSyntaxPlatform, "WEB", "ANDROID", "iOS")
-ENG_ENUM_NAMES(StyleType, "NONE", "FILL", "", "TEXT", "EFFECT", "", "GRID")
+ENG_ENUM_NAMES(StyleType, "NONE", "FILL", "", "TEXT", "EFFECT", "", "GRID", "ANIMATION")
 #undef ENG_ENUM_NAMES
 
 // A reference to an asset (schema VariableID / VariableSetID / StyleId): DesignerV2 writes the GUID; an imported

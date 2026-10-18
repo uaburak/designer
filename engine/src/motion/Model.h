@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -77,6 +78,10 @@ struct Keyframe {
   HueMethod hueMethod = HueMethod::SHORTER;
   bool hasPathHandles = false;
   Vec2 pathIn, pathOut;  // motionPathBezierHandles: (p1x, p1y) in, (p2x, p2y) out, relative to the value
+  // Its easing bound to an EASING variable (the KEYFRAME's own `parameterConsumptionMap` EASING_DATA alias, docs/
+  // motion.md §4.7; round 8i): `easing` then holds the variable's value in the animated layer's modes once the index is
+  // resolved (MotionIndex::rebuild's Resolver), the stored easingData until then.
+  VariableData easingVar;
 };
 
 struct Track {
@@ -149,13 +154,33 @@ struct Preset {
   bool disabled = false;
   EasingSpec easing;
   Stagger stagger;  // its own textElementDelayBehaviour (a text preset's, TextStagger.h)
+  // Delay, Duration and Easing bound to TIMING / EASING variables (round 8i): its `componentPropAssignments`' varValue
+  // on those props' defIDs (presetPropId). Resolved, the clip plays at the variables' values — its tracks stretched
+  // from `storedDurationUs`, their keyframes eased by the variable — in the index's decoded copy only.
+  VariableData delayVar, durationVar, easingVar;
+  int64_t storedDurationUs = 500000;
 };
+
+// A preset prop's defID on its clip (src/renderer/src/editor/motion/presets.ts `propId`): sessionID 0, the FNV-1a 32
+// hash of the prop's key ("delay", "duration", "easing").
+Guid presetPropId(const char* key);
 
 struct AnimatedNode {
   Guid id = kNoGuid;
   std::vector<Binding> bindings;
   LayerBase base;
   std::vector<Guid> presets;  // animationPresets, in stacking order (a preset with no tracks yet animates nothing)
+  // A TEXT layer's own textElementDelayBehaviour (MOTION_SET_TEXT_STAGGER, round 8i): its manual tracks play per
+  // element (§4.10); a text preset's clips keep their own.
+  Stagger stagger;
+};
+
+// What the index asks of the editor to resolve variable bindings (round 8i): an EASING variable's value, a TIMING
+// variable's (ms), for a consumer — the animated layer, whose modes decide (Figma: "switching a page's mode updates
+// every animation that references them").
+struct Resolver {
+  std::function<bool(const VariableData& alias, Guid consumer, EasingSpec& out)> easing;
+  std::function<bool(const VariableData& alias, Guid consumer, double& ms)> timing;
 };
 
 // An animated instance's place in its container's time (docs/motion.md §4.3): its `timelineAssignments` entry for
@@ -195,7 +220,9 @@ struct AudioRow {
 // The decoded model of a document, rebuilt when the document changes (MotionLayer asks).
 class MotionIndex {
  public:
-  void rebuild(const Document& doc);
+  // `resolve` (nullptr: variable bindings play their stored values) resolves easing and timing variables once per
+  // rebuild — every commit rebuilds, so a mode switched or a variable edited plays at once.
+  void rebuild(const Document& doc, const Resolver* resolve = nullptr);
   void clear();
 
   const Track* track(Guid id) const;
@@ -226,6 +253,8 @@ class MotionIndex {
 bool decodeKeyframe(const NodeProps& p, Guid id, Keyframe& out);
 bool decodeTrack(const NodeProps& p, Guid id, Track& out);  // without its keyframes
 bool decodePreset(const NodeProps& p, Guid id, Preset& out);
+// A textElementDelayBehaviour (610) as JSON (a TEXT layer's or a text preset's own; round 8i).
+Stagger decodeStagger(const json::Value& behaviour);
 // A layer's `animationPresets` (521): the instances in stacking order.
 std::vector<Guid> decodePresetList(const NodeProps& p);
 bool decodeEasing(const json::Value& easingData, EasingSpec& out);

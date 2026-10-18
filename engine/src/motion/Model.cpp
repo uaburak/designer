@@ -145,6 +145,8 @@ bool decodeKeyframe(const NodeProps& p, Guid id, Keyframe& out) {
   if (out.timeUs < 0) out.timeUs = 0;
   decodeKeyframeValue(extraJson(p, "keyframeValue"), out.value);
   decodeEasing(extraJson(p, "easingData"), out.easing);
+  for (const ParamBinding& b : p.parameterConsumptionMap)
+    if (b.field == VariableField::EASING_DATA && b.isVariable() && b.data.kind == VariableData::Kind::ALIAS) out.easingVar = b.data;
   json::Value cs = extraJson(p, "interpolationColorSpace");
   out.colorSpace = enumOf(&cs, kColorSpaces, 5, ColorSpace::DEFAULT);
   json::Value hm = extraJson(p, "interpolationHueMethod");
@@ -188,17 +190,39 @@ bool decodePreset(const NodeProps& p, Guid id, Preset& out) {
   json::Value dis = extraJson(p, "timelineDisabled");
   out.disabled = dis.isBool() && dis.boolean;
   decodeEasing(extraJson(p, "easingData"), out.easing);
-  json::Value tb = extraJson(p, "textElementDelayBehaviour");
-  if (tb.isObject()) {
-    constexpr const char* kGroupings[] = {"CHARACTER", "CHARACTER_NO_WHITESPACE", "WORD", "LINE", "PARAGRAPH"};
-    constexpr const char* kOrders[] = {"LEFT_RIGHT", "RIGHT_LEFT", "CENTER_OUT", "RANDOM"};
-    const json::Value* en = tb.get("enabled");
-    out.stagger.enabled = en && en->isBool() && en->boolean;
-    out.stagger.grouping = enumOf(tb.get("grouping"), kGroupings, 5, Grouping::CHARACTER);
-    out.stagger.order = enumOf(tb.get("order"), kOrders, 4, StaggerOrder::LEFT_RIGHT);
-    if (const json::Value* d = tb.get("delayMs")) out.stagger.stepUs = static_cast<int64_t>(std::llround(std::max(0.0, d->numberOr(0)) * 1000));
+  out.stagger = decodeStagger(extraJson(p, "textElementDelayBehaviour"));
+  out.storedDurationUs = out.durationUs;
+  // Delay, Duration and Easing bound to variables (round 8i): the assignments' varValue on their defIDs.
+  static const Guid kDelay = presetPropId("delay"), kDuration = presetPropId("duration"), kEasing = presetPropId("easing");
+  for (const ComponentPropAssignment& a : p.comp().componentPropAssignments) {
+    if (a.boundValue.kind != VariableData::Kind::ALIAS) continue;
+    if (a.defID == kDelay) out.delayVar = a.boundValue;
+    else if (a.defID == kDuration) out.durationVar = a.boundValue;
+    else if (a.defID == kEasing) out.easingVar = a.boundValue;
   }
   return true;
+}
+
+Stagger decodeStagger(const json::Value& tb) {
+  Stagger out;
+  if (!tb.isObject()) return out;
+  constexpr const char* kGroupings[] = {"CHARACTER", "CHARACTER_NO_WHITESPACE", "WORD", "LINE", "PARAGRAPH"};
+  constexpr const char* kOrders[] = {"LEFT_RIGHT", "RIGHT_LEFT", "CENTER_OUT", "RANDOM"};
+  const json::Value* en = tb.get("enabled");
+  out.enabled = en && en->isBool() && en->boolean;
+  out.grouping = enumOf(tb.get("grouping"), kGroupings, 5, Grouping::CHARACTER);
+  out.order = enumOf(tb.get("order"), kOrders, 4, StaggerOrder::LEFT_RIGHT);
+  if (const json::Value* d = tb.get("delayMs")) out.stepUs = static_cast<int64_t>(std::llround(std::max(0.0, d->numberOr(0)) * 1000));
+  return out;
+}
+
+Guid presetPropId(const char* key) {
+  uint32_t h = 0x811c9dc5u;
+  for (const char* c = key; *c; c++) {
+    h ^= static_cast<uint8_t>(*c);
+    h *= 0x01000193u;
+  }
+  return Guid{0, h};
 }
 
 std::vector<Guid> decodePresetList(const NodeProps& p) {
@@ -362,7 +386,7 @@ void MotionIndex::clear() {
   playing_.clear();
 }
 
-void MotionIndex::rebuild(const Document& doc) {
+void MotionIndex::rebuild(const Document& doc, const Resolver* resolve) {
   clear();
   // 1. Tracks and their keyframes.
   doc.forEach([&](const Node& n) {
@@ -454,8 +478,67 @@ void MotionIndex::rebuild(const Document& doc) {
     if (an.bindings.empty() && an.presets.empty()) return;
     an.id = n.guid;
     an.base = decodeLayerBase(p);
+    if (p.type == NodeType::TEXT) {
+      // Its own stagger (round 8i): its manual tracks play per element.
+      an.stagger = decodeStagger(extraJson(p, "textElementDelayBehaviour"));
+      if (an.stagger.enabled)
+        for (Binding& b : an.bindings)
+          for (Param& q : b.params)
+            if (q.kind == Param::Kind::MANUAL) q.staggered = true;
+    }
     nodes_[n.guid] = std::move(an);
   });
+  // 2b. Variables (round 8i): a keyframe's easing bound to an EASING variable takes its value for the layer it
+  // animates; a clip's Delay, Duration and Easing bound to TIMING / EASING variables move it, stretch its tracks about
+  // its start and ease their keyframes — in this decoded copy only (the document keeps what was written).
+  if (resolve) {
+    std::unordered_set<Guid, GuidHash> done;
+    for (auto& [id, an] : nodes_)
+      for (Binding& b : an.bindings)
+        for (Param& q : b.params) {
+          auto tr = tracks_.find(q.track);
+          if (q.kind == Param::Kind::MANUAL) {
+            if (tr == tracks_.end() || !resolve->easing || !done.insert(q.track).second) continue;
+            for (Keyframe& k : tr->second.keyframes)
+              if (k.easingVar.kind == VariableData::Kind::ALIAS) {
+                EasingSpec e;
+                if (resolve->easing(k.easingVar, id, e)) k.easing = e;
+              }
+            continue;
+          }
+          if (q.kind != Param::Kind::ANIMATION_PRESET) continue;
+          auto pr = presets_.find(q.preset);
+          if (pr == presets_.end()) continue;
+          Preset& c = pr->second;
+          if (done.insert(c.id).second) {
+            double ms = 0;
+            if (c.delayVar.kind == VariableData::Kind::ALIAS && resolve->timing && resolve->timing(c.delayVar, id, ms))
+              c.offsetUs = static_cast<int64_t>(std::llround(std::max(0.0, ms) * 1000));
+            if (c.durationVar.kind == VariableData::Kind::ALIAS && resolve->timing && resolve->timing(c.durationVar, id, ms) && ms > 0)
+              c.durationUs = std::max<int64_t>(1, static_cast<int64_t>(std::llround(ms * 1000)));
+            EasingSpec e;
+            if (c.easingVar.kind == VariableData::Kind::ALIAS && resolve->easing && resolve->easing(c.easingVar, id, e)) c.easing = e;
+            else e.present = false;
+            double scale = c.storedDurationUs > 0 ? static_cast<double>(c.durationUs) / static_cast<double>(c.storedDurationUs) : 1;
+            if (scale != 1 || e.present) {
+              // Its own tracks (the ANIMATION_PRESET parameters naming this clip), each once.
+              for (auto& [tid, t] : tracks_) {
+                (void)tid;
+                bool mine = false;
+                for (const Binding& ob : an.bindings)
+                  for (const Param& op : ob.params)
+                    if (op.preset == c.id && op.track == t.id) mine = true;
+                if (!mine) continue;
+                for (Keyframe& k : t.keyframes) {
+                  k.timeUs = static_cast<int64_t>(std::llround(static_cast<double>(k.timeUs) * scale));
+                  if (e.present) k.easing = e;
+                }
+              }
+            }
+          }
+          q.offsetUs = c.offsetUs;
+        }
+  }
   // 3. The roots that play: those with animated layers, then those holding an instance of one (a main nested in
   // another main's timeline plays there too), until nothing more is reached.
   std::vector<std::pair<Guid, Guid>> instances;  // (instance, its main)
