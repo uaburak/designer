@@ -9,7 +9,9 @@ import { intlLocale, t } from "@/i18n";
 import { CMD_ENABLED, Status } from "@/engine/abi";
 import type { Guid } from "@/engine/codec";
 import type { EditorController } from "./controller";
-import { COMMAND_BY_ID, command, isEnabled, runEditorCommand, shortcutOf } from "./commands";
+import { COMMAND_BY_ID, command, isEnabled, runEditorCommand, shortcutOf, viewOnly } from "./commands";
+import { modeOf } from "./devmode/devMode";
+import { exportAllowed } from "./exporting";
 import { changedProperties, instanceChanges, resetChanges, resetPropertyValue, selectedInstance, selectionNodes } from "./components";
 import { PROPERTY_ICON, RESET_MENU_KINDS, isComponent, isComponentSet, isInstance, type ResetKind } from "./model/components";
 import { branchMenuIds } from "./branching/commands";
@@ -130,32 +132,45 @@ export function runMenuItem(ed: EditorController, id: string): boolean {
   return runEditorCommand(ed, id);
 }
 
+/**
+ * Figma's main component actions (Atlas 03 §4.2 `getMainComponentActionsMenu`): Go to main component, Push changes to
+ * main, Restore main component, Add variant, Publish — counted by those that can run: none, no row; one, that row
+ * alone; two or more, "Main component ▸" with all five. Publish is the selected main components' (the library's
+ * publish dialog).
+ */
+const MAIN_ACTIONS = ["object.go-to-main-component", "object.push-changes", "object.restore-component", "object.add-variant", "file.publish-library"];
+
+function mainComponentActions(ed: EditorController): Spec[] {
+  const nodes = selectionNodes(ed);
+  const can = (id: string) => isEnabled(ed, command(id)) && (id !== "file.publish-library" || (nodes.length > 0 && nodes.every((n) => isComponent(n) || isComponentSet(n))));
+  const on = MAIN_ACTIONS.filter(can);
+  if (on.length < 2) return on;
+  return [{ label: "Main component", items: MAIN_ACTIONS }];
+}
+
 /** The component items a selection gets in the canvas menu (Figma's): instance actions, or create / combine / add variant. */
 function componentEntries(ed: EditorController): Spec[] {
   const nodes = selectionNodes(ed);
   // An instance (live Figma): Create component, Reset instance, Detach instance, Go to main component.
   if (nodes.some(isInstance))
-    return ["object.create-component", (e) => { const r = resetSubmenu(e); return r ? { ...r, label: t("Reset instance") } : null; }, "object.detach-instance", "object.go-to-main-component"];
+    return ["object.create-component", (e) => { const r = resetSubmenu(e); return r ? { ...r, label: t("Reset instance") } : null; }, "object.detach-instance", ...mainComponentActions(ed)];
   const out: Spec[] = [];
   const mains = nodes.length > 0 && nodes.every((n) => isComponent(n) || isComponentSet(n));
   // Live (context-multi.txt): a multi-selection gets Create component only (no "Create multiple components").
   if (!mains) out.push("object.create-component");
-  // A main component (live Figma): its actions under "Main component ▸".
-  else
-    out.push({
-      label: "Main component",
-      items: [
-        ...(nodes.length > 1 && nodes.every(isComponent) ? ["object.combine-as-variants"] : []),
-        ...(nodes.length === 1 ? ["object.add-variant"] : []),
-        "object.restore-component",
-      ],
-    });
-  if (!mains && nodes.some((n) => n.isSoftDeleted)) out.push("object.restore-component");
+  else if (nodes.length > 1 && nodes.every(isComponent)) out.push("object.combine-as-variants");
+  out.push(...mainComponentActions(ed));
   // Inside a main: a nested frame converts to a slot, other layers are wrapped in a new one (help "Create and use slots").
   if (isEnabled(ed, command("object.convert-to-slot"))) out.push("object.convert-to-slot");
   else if (isEnabled(ed, command("object.wrap-in-new-slot"))) out.push("object.wrap-in-new-slot");
   return out;
 }
+
+/** Edit › Select all with ▸ (SELECT_MATCHING's modes). */
+const SELECT_ALL_WITH: SubSpec = {
+  label: "Select all with",
+  items: ["edit.select-same-fill", "edit.select-same-stroke", "edit.select-same-effect", "edit.select-same-text", "edit.select-same-font", "edit.select-same-instance"],
+};
 
 /**
  * Figma's menus, in Figma's order: the Figma menu as the live app shows it (docs/research/figma/live/menus:
@@ -221,10 +236,7 @@ export const MAIN_MENU: Spec[] = [
       "edit.select-matching",
       "edit.select-none",
       "edit.select-inverse",
-      {
-        label: "Select all with",
-        items: ["edit.select-same-fill", "edit.select-same-stroke", "edit.select-same-effect", "edit.select-same-text", "edit.select-same-font", "edit.select-same-instance"],
-      },
+      SELECT_ALL_WITH,
     ],
   },
   {
@@ -468,8 +480,31 @@ export const MAIN_MENU: Spec[] = [
  */
 export const MAIN_MENU_WIDTH = 194.4;
 
+/**
+ * Edit ▸ for someone who can't edit (Atlas 03 §3.2, Figma's `!edit !dev_handoff`): Find, Find next / previous, Pick
+ * color, Copy properties, Select all / matching / none / inverse, Select all with ▸ (the lines between are ours).
+ */
+const EDIT_VIEW_ONLY: Spec[] = ["edit.find", "edit.find-next", "edit.find-previous", "-", "edit.copy-properties", "-", "edit.pick-color", "-", "edit.select-all", "edit.select-matching", "edit.select-none", "edit.select-inverse", SELECT_ALL_WITH];
+
+/** Edit ▸ in Dev Mode (§3.2 `!edit dev_handoff`): Copy as ▸, Find ×3, Select all, Select none. */
+const EDIT_DEV_MODE: Spec[] = [{ label: "Copy as", items: ["edit.copy-as-text", "edit.copy-as-svg", "edit.copy-as-png"] }, "-", "edit.find", "edit.find-next", "edit.find-previous", "-", "edit.select-all", "edit.select-none"];
+
+/** Submenus Figma shows only to someone who can edit (Text, Arrange, Vector: `edit`), and Object not in Dev Mode. */
+const EDITING_ONLY = new Set(["Text", "Arrange", "Vector"]);
+
+/**
+ * The Figma menu as this person sees it (§3): an editor's; for a viewer, Edit ▸ is the view-only one and Text, Arrange
+ * and Vector are gone; in Dev Mode Edit ▸ is Dev Mode's and Object is gone too.
+ */
 export function mainMenu(ed: EditorController): MenuEntry[] {
-  return build(ed, MAIN_MENU, "main.");
+  const dev = modeOf(ed) === "dev";
+  if (!dev && !viewOnly(ed)) return build(ed, MAIN_MENU, "main.");
+  const specs = MAIN_MENU.flatMap((s): Spec[] => {
+    if (typeof s !== "object" || "id" in s) return [s];
+    if (s.label === "Edit") return [{ ...s, items: dev ? EDIT_DEV_MODE : EDIT_VIEW_ONLY }];
+    return EDITING_ONLY.has(s.label) || (dev && s.label === "Object") ? [] : [s];
+  });
+  return build(ed, specs, "main.");
 }
 
 /** The page items of "Move to page ▸": every other page. */
@@ -495,13 +530,13 @@ const CREATE_BRUSH: SubSpec = { label: "Create brush", items: ["object.create-br
  */
 export function canvasMenu(ed: EditorController, layers: { id: Guid; name: string; locked?: boolean; icon?: IconName }[], options: { row?: boolean } = {}): MenuEntry[] {
   if (!ed.selection.length) {
-    return [
+    return withoutDisabled(ed, [
       ...build(ed, ["edit.paste-here", "-"], "canvas."),
       withoutCheck(commandItem(ed, "view.toggle-ui")),
       withoutCheck(commandItem(ed, "view.comments", "Show/Hide comments")),
       "-",
       ...build(ed, ["canvas.cursor-chat", "tool.actions", PLUGINS, WIDGETS], "canvas."),
-    ];
+    ]);
   }
   const nodes = selectionNodes(ed);
   const single = nodes.length === 1 ? nodes[0] : null;
@@ -565,7 +600,37 @@ export function canvasMenu(ed: EditorController, layers: { id: Guid; name: strin
     "object.flip-horizontal",
     "object.flip-vertical",
   ];
-  return build(ed, specs, "canvas.");
+  return withoutDisabled(ed, build(ed, specs, "canvas."));
+}
+
+/** Copy as SVG / PNG stay, greyed, when the file's owner blocks exports (Figma's `disabledAndForceVisible`). */
+const FORCE_VISIBLE = new Set(["edit.copy-as-svg", "edit.copy-as-png"]);
+
+/**
+ * A canvas menu without the rows that can't run (Atlas 03 §4: Figma's canvas menus `removeDisabledItems`), but the
+ * ones it forces visible; a submenu left empty goes too, and the lines are tidied (none first, last or twice).
+ */
+export function withoutDisabled(ed: EditorController, entries: MenuEntry[]): MenuEntry[] {
+  const blocked = ed.selection.length > 0 && !exportAllowed(ed);
+  const out: MenuEntry[] = [];
+  for (const e of entries) {
+    if (e === "-") {
+      if (out.length && out[out.length - 1] !== "-") out.push(e);
+      continue;
+    }
+    if (!("id" in e)) {
+      out.push(e);
+      continue;
+    }
+    if (e.items) {
+      const items = withoutDisabled(ed, e.items);
+      if (!e.disabled && items.some((i) => i !== "-")) out.push({ ...e, items });
+      continue;
+    }
+    if (!e.disabled || (blocked && FORCE_VISIBLE.has(e.id))) out.push(e);
+  }
+  while (out[out.length - 1] === "-") out.pop();
+  return out;
 }
 
 /**

@@ -10,7 +10,7 @@ import { ContextMenu } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../controller";
 import { useUI } from "../hooks";
-import { canvasMenu, canvasMenuWidth, commandItem, runMenuItem } from "../menus";
+import { canvasMenu, canvasMenuWidth, commandItem, runMenuItem, withoutDisabled } from "../menus";
 import { command, shortcutOf } from "../commands";
 import { layerIcon } from "../panels/Layers";
 import { detailsOf, DETAIL_FIELDS, type TreeNode } from "../model/layerTree";
@@ -86,7 +86,7 @@ export function CanvasMenu() {
     };
     return { id, name: n?.name ?? "", locked: !!n?.locked, icon: layerIcon(row) };
   });
-  const entries = at.ruler ? rulerMenu(ed, at.ruler) : at.guide ? [commandItem(ed, "canvas.remove-guide")] : canvasMenu(ed, layers, { row: !at.canvas });
+  const entries = at.ruler ? withoutDisabled(ed, rulerMenu(ed, at.ruler)) : at.guide ? [commandItem(ed, "canvas.remove-guide")] : canvasMenu(ed, layers, { row: !at.canvas });
   return (
     <ContextMenu
       at={{ x: at.x, y: at.y }}

@@ -191,6 +191,29 @@ describe("round 9: the Figma menu (live menus/main-*.txt)", () => {
     expect(items(canvasMenu(ed, [])).some((i) => i.checked !== undefined)).toBe(false);
   });
 
+  it("the canvas menu drops the rows that can't run (Atlas 03 §4), with no line first, last or twice", async () => {
+    const { ed, engine } = await editor();
+    engine.setSelection(["1:2"]);
+    const menu = canvasMenu(ed, []);
+    expect(items(menu).every((i) => !i.disabled)).toBe(true);
+    expect(menu[0]).not.toBe("-");
+    expect(menu.at(-1)).not.toBe("-");
+    expect(menu.some((e, i) => e === "-" && menu[i + 1] === "-")).toBe(false);
+    // Not built here: Send to Figma Make, Widgets ▸.
+    expect(labels(menu)).not.toContain("Send to Figma Make");
+    expect(labels(menu)).not.toContain("Widgets");
+  });
+
+  it("Dev Mode's Figma menu (Atlas 03 §3.2): Edit ▸ Copy as, Find ×3, Select all / none; no Object, Text, Arrange, Vector", async () => {
+    const { ed } = await editor();
+    runEditorCommand(ed, "view.dev-mode");
+    const main = mainMenu(ed);
+    for (const l of ["Object", "Text", "Arrange", "Vector"]) expect(labels(main)).not.toContain(l);
+    expect(labels(subOf(main, "Edit"))).toEqual(["Copy as", "Find", "Find next", "Find previous", "Select all", "Select none"]);
+    runEditorCommand(ed, "view.dev-mode");
+    expect(labels(mainMenu(ed))).toContain("Object");
+  });
+
   it("a page row's menu: Copy link to page │ Rename page, Duplicate page │ Move up / down │ Delete page", async () => {
     const { ed, engine } = await editor();
     expect(engine.command("CREATE_PAGE")).toBe(0);

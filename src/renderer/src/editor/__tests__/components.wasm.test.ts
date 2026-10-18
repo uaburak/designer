@@ -274,13 +274,19 @@ describe("components on the engine (wasm, headless)", () => {
   it("menus and commands: the canvas menu's component items; structural ones follow the engine", async () => {
     const { ed } = await editor();
     ed.engine.setSelection(["2:2"]);
-    // Live Figma's instance items: Create component, Reset instance, Detach instance, Go to main component.
-    expect(labels(canvasMenu(ed, []))).toEqual(expect.arrayContaining(["Create component", "Reset instance", "Detach instance", "Go to main component"]));
+    // Live Figma's instance items: Create component, Reset instance, Detach instance, then Go to main component — alone
+    // when it is the one main component action that can run, else under "Main component ▸" with the others (Atlas 03
+    // §4.2: here Push changes to main can run too).
+    const menu = canvasMenu(ed, []);
+    expect(labels(menu)).toEqual(expect.arrayContaining(["Create component", "Reset instance", "Detach instance"]));
+    const mainActions = ["object.go-to-main-component", "object.push-changes", "object.restore-component", "object.add-variant"].filter((id) => isEnabled(ed, command(id)));
+    if (mainActions.length < 2) expect(labels(menu)).toContain("Go to main component");
+    // (the canvas menu drops the rows of the five that can't run)
+    else expect(labels(items(menu).find((i) => i.label === "Main component")!.items!)).toEqual(mainActions.map((id) => command(id).label));
     ed.engine.setCurrentPage("0:3");
     ed.engine.setSelection(["1:20", "1:21"]);
-    // Mains: their actions under "Main component ▸" (live Figma).
-    const main = items(canvasMenu(ed, [])).find((i) => i.label === "Main component");
-    expect(labels(main?.items ?? [])).toContain("Combine as variants");
+    // Mains: Combine as variants, then their main component actions.
+    expect(labels(canvasMenu(ed, []))).toContain("Combine as variants");
     for (const [id, name] of [
       ["object.create-component", COMPONENT_COMMAND.create],
       ["object.detach-instance", COMPONENT_COMMAND.detach],

@@ -231,7 +231,10 @@ describe("round 10: context menus (live menus/context-*.txt)", () => {
     expect(l).toContain("Select layer");
     expect(l).not.toContain("Convert to section");
     expect(l).not.toContain("Set as thumbnail");
-    expect(l.slice(-11, -4)).toEqual(["Add auto layout", "Create component", "Reset instance", "Detach instance", "Go to main component", "Plugins", "Widgets"]);
+    // Rows that can't run are gone (Atlas 03 §4: Plugins and Widgets have nothing to run here).
+    const at = l.indexOf("Add auto layout");
+    expect(l.slice(at, at + 5)).toEqual(["Add auto layout", "Create component", "Reset instance", "Detach instance", "Go to main component"]);
+    expect(l).not.toContain("Widgets");
   });
 
   it("a main component: Set as thumbnail, More layout options, no Convert to section; a frame: Convert to section", async () => {
