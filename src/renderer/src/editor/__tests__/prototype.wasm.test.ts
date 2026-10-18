@@ -118,10 +118,11 @@ describe("prototyping on the engine (wasm, headless)", () => {
     // Its Back button (24, 384, 100 × 40).
     click(60, 400);
     expect(engine.presentState().screen).toBe("2:1");
-    // No device: Actual size (100%) first (Figma's default); Z goes on to Responsive; R restarts.
+    // No device: Actual size (100%) first (Figma's default); Z goes on in the file's order (small frames: Fit width and
+    // height next, atlas 13 §10.1); R restarts.
     expect(engine.presentState().scale).toBe("ACTUAL");
     engine.presentCommand("scale");
-    expect(engine.presentState().scale).toBe("RESPONSIVE");
+    expect(engine.presentState().scale).toBe("FIT");
     engine.presentSetOptions({ scale: "FIT" });
     click(100, 740);
     expect(engine.presentKey("down", 82, 0)).toBe(true);

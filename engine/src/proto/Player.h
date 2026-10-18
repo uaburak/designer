@@ -19,6 +19,7 @@
 
 #include "editor/Editor.h"
 #include "proto/Prototype.h"
+#include "proto/Scroll.h"
 #include "render/PresentScene.h"
 
 namespace eng::proto {
@@ -41,8 +42,9 @@ class Player {
   void stop();
   bool active() const { return base_ != kNoGuid; }
 
-  // Input, CSS px in the canvas (the editor's viewport). Return P_HANDLED-like bits (1: handled).
-  uint32_t pointer(PointerEvent type, double x, double y, uint32_t buttons, uint32_t mods);
+  // Input, CSS px in the canvas (the editor's viewport). Return P_HANDLED-like bits (1: handled). `timeMs`: the event's
+  // time on tick()'s clock (0: the last tick's) — a drag's release speed is measured with it.
+  uint32_t pointer(PointerEvent type, double x, double y, uint32_t buttons, uint32_t mods, double timeMs = 0);
   uint32_t wheel(double x, double y, double dx, double dy);
   // A key (JS keyCode); `down` false for a release. Interactions first, then the presentation's shortcuts
   // (R restart, → / Space / N next frame, ← previous, Z scale).
@@ -55,6 +57,15 @@ class Player {
   void setScale(ScaleMode m);
   ScaleMode scale() const { return scale_; }
   void cycleScale();
+  // The scale options in Figma's order for this file (atlas 13 §10.1): its class's five without a device (the first two
+  // "Recommended"), the device's three with one; Z goes to the next, the first is the default.
+  std::vector<ScaleMode> scaleOrder() const;
+  // The machine the prototype plays on (the viewer's host): its scroll physics when the page has no device (iOS / macOS
+  // bounce, Android / Windows / Linux clamp), and Key / Gamepad triggers read ⌘ as Ctrl off the Mac.
+  enum class Host : uint8_t { MAC, WINDOWS, LINUX, OTHER };
+  void setHost(Host h) { host_ = h; }
+  Host host() const { return host_; }
+  scroll::Physics scrollPhysics() const;
   void setHints(bool on) { hints_ = on; }
   bool hints() const { return hints_; }
   // "Enable Figma shortcuts" (help "Play your prototypes"): off, only the prototype's own Key / Gamepad triggers take keys.
@@ -185,6 +196,7 @@ class Player {
     bool scrubbing = false;
     double scrubP = 0;
     double p0 = 0, p1 = 1;
+    uint64_t serial = 0;  // what an action queue waits for
   };
   // An interactive component changing state (Change to) with Smart animate / Dissolve.
   struct InstanceAnim {
@@ -200,6 +212,7 @@ class Player {
     bool scrubbing = false;
     double scrubP = 0;
     double p0 = 0, p1 = 1;
+    uint64_t serial = 0;
   };
   struct ScrollAnim {
     Guid frame = kNoGuid;
@@ -207,12 +220,33 @@ class Player {
     Action action;
     double start = 0, duration = 0;
     bool started = false;
+    uint64_t serial = 0;
   };
+  // A frame flung after a drag (scroll::Simulation per axis, in CSS px of scroll), on the animation clock.
+  struct Fling {
+    Guid frame = kNoGuid;
+    bool top = false;  // a top-level frame (else a nested scrolling one)
+    scroll::Simulation x, y;
+    double start = 0;
+    bool started = false;
+  };
+  // A drag scrolling a frame (it reacted to no On drag): the scroll follows the pointer; past an end it resists
+  // (bouncing) or stops (clamping); let go, it flings.
+  struct ScrollDrag {
+    bool active = false;
+    Guid frame = kNoGuid;
+    bool top = false;
+    Vec2 last;  // the pointer's last place (CSS px)
+  };
+  // After delay (atlas 13 §3.5): a timer started when its screen's transition ends (`at` < 0 until then), fired only if
+  // no prototype action ran meanwhile; due ones run in order of time, then of creation.
   struct Timer {
     Guid node = kNoGuid;
     size_t interaction = 0;
-    double at = 0;  // ms; < 0: not armed yet (armed at the next tick)
+    double at = 0;  // ms; < 0: not started yet
     double delayMs = 0;
+    uint64_t order = 0;
+    uint64_t actions = 0;  // actionCounter_ when it started
   };
   struct Hit {
     Guid id = kNoGuid;
@@ -228,6 +262,7 @@ class Player {
     double at = -1;  // ms; < 0: armed at the next tick
     double delayMs = 0;
     Hit hotspot;
+    uint64_t actions = 0;  // actionCounter_ when it was triggered: another action meanwhile drops it
   };
   // A hit chain: the deepest layer first, its ancestors up to the shown frame; `layer` −1 for the base screen,
   // else the overlay's index.
@@ -239,6 +274,18 @@ class Player {
   struct Held {
     Guid anchor = kNoGuid;  // what must stay under the pointer (the swapped instance, or the hotspot)
     std::vector<std::function<void()>> revert;
+    uint64_t id = 0;
+  };
+  // The ordered action queue (atlas 13 §4.4, viewer `runSequentialAction`): an interaction's actions run in order; one
+  // that starts a screen change or a Change to holds the rest until its animation ends; a Conditional puts its chosen
+  // block's actions in its place.
+  struct Pending {
+    Guid source = kNoGuid;
+    std::deque<Action> actions;
+    bool hasHotspot = false;
+    Hit hotspot;
+    uint64_t held = 0;  // the Held the actions add their undo to (0: none); gone (released, left): the rest is dropped
+    uint64_t wait = 0;  // the animation they wait for
   };
   struct View {
     Vec2 screen;   // design units
@@ -251,12 +298,19 @@ class Player {
   };
   // On drag (R8 §12, help "Prototype triggers": "Drag allows you to move back and forward through the transition"):
   // the transition the drag started follows the pointer along its axis.
+  // Figma's drag (atlas 13 §5.6): progress = clamp(dot(pointer − start, v) / ‖v‖², 0, 1) along the transition's vector
+  // v; let go, the pointer's speed along v decides where it settles.
   struct Scrub {
     bool active = false;
     Vec2 axis;           // the drag direction that advances (unit, CSS px)
-    double extent = 1;   // CSS px for the whole transition
+    double extent = 1;   // CSS px for the whole transition (‖v‖)
     Vec2 from;           // where the drag started
     Guid instance = kNoGuid;  // a Change to being scrubbed (else the screen's transition)
+  };
+  // The pointer's recent places (ms, CSS px) while it is down: drags' release speeds.
+  struct Sample {
+    double t;
+    Vec2 at;
   };
 
   const Document& doc() const { return ed_.document(); }
@@ -279,6 +333,11 @@ class Player {
   // Running interactions.
   bool fire(Guid node, Trigger t, const Hit* hotspot, Held* held = nullptr);
   void run(Guid source, const std::vector<Action>& actions, const Hit* hotspot, Held* held);
+  void drain(Pending&& q, Held* now = nullptr);
+  Held* heldById(uint64_t id);
+  bool running(uint64_t serial) const;
+  void resumePending();
+  const Branch* chosenBranch(const Action& a, Guid source) const;
   void runAction(Guid source, const Action& a, const Hit* hotspot, Held* held);
   void navigate(Guid dest, const Action& a, bool record = true);
   void openOverlay(Guid dest, const Action& a, const Hit* hotspot, Held* held);
@@ -326,7 +385,7 @@ class Player {
   void addFrame(const Side& s, Vec2 offset, double alpha, PropsOverrides&& overrides, double fixedAlpha = -1);
   void addSlot(const Side* x, const Side* y, const Anim* a);
   // Move / Push / Slide with "Animate matching layers": the screens move, matching layers smart-animate in place.
-  void addMatching(const Side& x, const Side& y, const Anim& a, double p, Vec2 offX, Vec2 offY);
+  void addMatching(const Side& x, const Side& y, const Anim& a, double p);
   // Fixed children of a top-level frame drawn on their own (unscrolled), each with the alpha `alphaOf` gives (0: none).
   void addFixed(const Side& s, Vec2 offset, const std::function<double(Guid, const std::string&)>& alphaOf);
   // The keys of `from`'s layers that `to`'s layers match and can animate (Smart animate falls back to Dissolve for a
@@ -339,9 +398,23 @@ class Player {
   void fitResponsive();
   void restoreResponsive();
   // Drag scrubbing.
-  void beginScrub(Vec2 at);
+  void beginScrub(Vec2 at, Guid hotspot);
   void beginInstanceScrub(Vec2 at, InstanceAnim& ia);
-  void endScrub();
+  void endScrub(double timeMs);
+  // The pointer's speed (CSS px / s) over its last 100 ms, at `timeMs` (0 when it stopped 40 ms before).
+  Vec2 pointerVelocity(double timeMs) const;
+  // Drag scrolling.
+  bool beginScrollDrag(Vec2 at);
+  void moveScrollDrag(Vec2 at);
+  void endScrollDrag(double timeMs);
+  void stopFlings(Guid frame);
+  Vec2 scrollRange(Guid frame, bool top) const;
+  // Sticky layers under a scrolling frame scrolled by `scrollY` (atlas 13 §8.2): their offsets, added to `out`.
+  void stick(Guid scroller, double scrollY, PropsOverrides& out) const;
+  // Motion timelines (docs/motion.md §4.12): the shown screen's timeline plays from when its transition ends.
+  void startTimeline();
+  void stopTimeline();
+  void timelineAction(const Action& a);
   double instanceProgress(const InstanceAnim& ia) const;
   InstanceAnim* instanceAnim(Guid instance);
   void silentBack();
@@ -381,6 +454,27 @@ class Player {
   bool fitting_ = false;
   std::unordered_map<Guid, Vec2, GuidHash> responsiveSizes_;  // frames resized for Responsive: their own size
   Scrub scrub_;
+  std::deque<Sample> samples_;
+  ScrollDrag scrollDrag_;
+  std::vector<Fling> flings_;
+  Guid wheelFrame_ = kNoGuid;  // the frame the last wheel events scrolled, and when
+  double wheelAt_ = -1e9;
+  Host host_ = Host::MAC;
+  // The animation clock (atlas 13 §5.4): each tick adds the time since the last, at most 1/30 s — a long frame slows the
+  // animations down instead of skipping them. Timers run on the wall clock (now_).
+  double clock_ = 0, lastTick_ = -1;
+  std::vector<Pending> pending_;
+  uint64_t motionSerial_ = 0;   // bumped by every animation started (Anim, InstanceAnim, ScrollAnim)
+  uint64_t actionCounter_ = 0;  // bumped by every action run
+  uint64_t heldSerial_ = 0;
+  uint64_t timerOrder_ = 0;
+  bool arrowReached_ = false;  // the screen was reached with ← / → (its After delays wait at least 500 ms)
+  // Motion: the shown screen's timeline (kNoGuid: none), its time and whether it runs; it starts when the screen's
+  // transition ends.
+  Guid timelineRoot_ = kNoGuid;
+  double timelineMs_ = 0;
+  bool timelinePlaying_ = false;
+  bool timelineWaits_ = false;
   uint64_t animSerial_ = 0;  // bumped by every startAnim (a drag knows whether its trigger started one)
   uint64_t instanceSerial_ = 0;  // bumped by every animated Change to (the same, for instances)
   Guid lastInstanceAnim_ = kNoGuid;

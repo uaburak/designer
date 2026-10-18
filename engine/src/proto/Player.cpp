@@ -6,6 +6,7 @@
 #include <optional>
 
 #include "base/FractionalIndex.h"
+#include "motion/Easing.h"
 #include "proto/Devices.h"
 #include "render/ImageCache.h"
 #include "scene/CodecJson.h"
@@ -14,9 +15,13 @@ namespace eng::proto {
 
 namespace {
 
-constexpr double kDragThreshold = 4;  // CSS px before a press becomes a drag
-constexpr double kHintsMs = 600;      // hotspot hints flash
-constexpr double kSlideOffset = 0.3;  // Slide in / out: how far the other screen moves (of the screen)
+// Figma's viewer (atlas 13 §3.5, §5.4, §5.6, §8.2, §10.4).
+constexpr double kDragThreshold = 5;      // CSS px a press moves past before it is a drag (`SQ = 5`)
+constexpr double kHintsMs = 700;          // hotspot hints: one 0.7 s fade
+constexpr double kMaxFrameMs = 1000.0 / 30;  // a frame advances the animations by at most 1/30 s
+constexpr double kReleaseSpeed = 0.15;    // On drag: the release speed (progress per duration) that flips the end
+constexpr double kArrowDelayMs = 500;     // After delay on a screen reached with ← / →: at least this long
+constexpr double kWheelLatchMs = 200;     // wheel events this close keep scrolling the same frame
 
 double lerp(double a, double b, double t) { return a + (b - a) * t; }
 
@@ -70,25 +75,6 @@ std::vector<Paint> lerpPaints(const std::vector<Paint>& a, const std::vector<Pai
   return out;
 }
 
-// Transition directions: where the incoming screen comes from (FROM_*) or where the outgoing one goes (OUT_TO_*).
-Vec2 directionOf(Transition t) {
-  switch (t) {
-    case Transition::SLIDE_FROM_LEFT: case Transition::PUSH_FROM_LEFT: case Transition::MOVE_FROM_LEFT:
-    case Transition::SLIDE_OUT_TO_LEFT: case Transition::MOVE_OUT_TO_LEFT: return {-1, 0};
-    case Transition::SLIDE_FROM_RIGHT: case Transition::PUSH_FROM_RIGHT: case Transition::MOVE_FROM_RIGHT:
-    case Transition::SLIDE_OUT_TO_RIGHT: case Transition::MOVE_OUT_TO_RIGHT: return {1, 0};
-    case Transition::SLIDE_FROM_TOP: case Transition::PUSH_FROM_TOP: case Transition::MOVE_FROM_TOP:
-    case Transition::SLIDE_OUT_TO_TOP: case Transition::MOVE_OUT_TO_TOP: return {0, -1};
-    case Transition::SLIDE_FROM_BOTTOM: case Transition::PUSH_FROM_BOTTOM: case Transition::MOVE_FROM_BOTTOM:
-    case Transition::SLIDE_OUT_TO_BOTTOM: case Transition::MOVE_OUT_TO_BOTTOM: return {0, 1};
-    default: return {0, 0};
-  }
-}
-bool isMoveIn(Transition t) { return t >= Transition::MOVE_FROM_LEFT && t <= Transition::MOVE_FROM_BOTTOM; }
-bool isMoveOut(Transition t) { return t >= Transition::MOVE_OUT_TO_LEFT && t <= Transition::MOVE_OUT_TO_BOTTOM; }
-bool isPush(Transition t) { return t >= Transition::PUSH_FROM_LEFT && t <= Transition::PUSH_FROM_BOTTOM; }
-bool isSlideIn(Transition t) { return t >= Transition::SLIDE_FROM_LEFT && t <= Transition::SLIDE_FROM_BOTTOM; }
-bool isSlideOut(Transition t) { return t >= Transition::SLIDE_OUT_TO_LEFT && t <= Transition::SLIDE_OUT_TO_BOTTOM; }
 bool isSmart(const Action& a) { return a.transition == Transition::SMART_ANIMATE || a.transition == Transition::MAGIC_MOVE; }
 
 // A TEXT layer's content and font: Smart animate dissolves a text whose content changed (and animates one that only
@@ -243,21 +229,10 @@ bool Player::start(Guid page, Guid start) {
   if (frame == kNoGuid || !frameExists(frame)) return false;
   restoreResponsive();
   if (!scaleChosen_) {
-    // Figma's default scale (help "Play your prototypes", "Recommended"): Fill screen when the device is Presentation
-    // or every frame is 16:9; Fit width and height for a custom device; Fit device on screen with a preset
-    // (unverified); otherwise Actual size (100%).
-    Device dev = device(*pg);
-    bool wide = true;
-    int frames = 0;
-    for (Guid c : doc().children(page)) {
-      const NodeProps* cp = props(c);
-      if (!cp || !cp->visible || !cp->isFrameLike() || cp->type == NodeType::SECTION || cp->size.y <= 0) continue;
-      frames++;
-      wide &= std::fabs(cp->size.x / cp->size.y - 16.0 / 9.0) < 0.01;
-    }
-    scale_ = dev.type == Device::Type::PRESENTATION || (frames > 0 && wide) ? ScaleMode::FILL
-             : dev.type == Device::Type::CUSTOM || dev.type == Device::Type::PRESET ? ScaleMode::FIT
-                                                                                     : ScaleMode::ACTUAL;
+    // Figma's default scale: the first of the file's order (Fill screen for a presentation, Fit device on screen with a
+    // device, otherwise Actual size (100%)).
+    startFrame_ = frame;
+    scale_ = scaleOrder().front();
   }
   scrub_ = Scrub{};
   // The flow the frame starts (or the first flow that reaches it).
@@ -273,6 +248,9 @@ bool Player::start(Guid page, Guid start) {
   dropGhosts();
   instanceAnims_.clear();
   scrollAnims_.clear();
+  flings_.clear();
+  scrollDrag_ = ScrollDrag{};
+  pending_.clear();
   timers_.clear();
   delayed_.clear();
   held_.clear();
@@ -283,6 +261,7 @@ bool Player::start(Guid page, Guid start) {
   clearMedia();
   armTimers(base_);
   layout();
+  startTimeline();
   changed();
   return true;
 }
@@ -290,6 +269,7 @@ bool Player::start(Guid page, Guid start) {
 void Player::stop() {
   // The file is as it was before presenting: Set variable / Set variable mode / Change to are the prototype's runtime
   // state, never the document's (Figma's prototypes don't edit the file).
+  stopTimeline();
   restoreOriginals();
   restoreResponsive();
   dropGhosts();
@@ -298,6 +278,9 @@ void Player::stop() {
   overlays_.clear();
   timers_.clear();
   delayed_.clear();
+  pending_.clear();
+  flings_.clear();
+  scrollDrag_ = ScrollDrag{};
   scene_ = PresentScene{};
   store_.clear();
   clearMedia();
@@ -366,7 +349,9 @@ bool Player::next() {
   auto seq = sequence();
   auto it = std::find(seq.begin(), seq.end(), base_);
   if (it == seq.end() || it + 1 == seq.end()) return false;
+  arrowReached_ = true;
   navigate(*(it + 1), Action{});
+  arrowReached_ = false;
   return true;
 }
 
@@ -374,7 +359,9 @@ bool Player::previous() {
   auto seq = sequence();
   auto it = std::find(seq.begin(), seq.end(), base_);
   if (it == seq.end() || it == seq.begin()) return false;
+  arrowReached_ = true;
   navigate(*(it - 1), Action{});
+  arrowReached_ = false;
   return true;
 }
 
@@ -386,17 +373,40 @@ void Player::setScale(ScaleMode m) {
   events_.push_back(Event{});
 }
 
+std::vector<ScaleMode> Player::scaleOrder() const {
+  // Figma's file classes (atlas 13 §10.1; the thresholds are the help's, Figma computes them in its C++): a device —
+  // Fit device on screen, Zoom device to fill screen, Show device at 100%; PRESENTATION (a Presentation device or every
+  // frame 16:9), LARGE (the first frame wider than 1024), SMALL (narrower), each with its order of the five.
+  using S = ScaleMode;
+  const NodeProps* pg = page_ != kNoGuid ? props(page_) : nullptr;
+  Device dev = pg ? device(*pg) : Device{};
+  if (!dev.none) return {S::FIT, S::FILL, S::ACTUAL};
+  bool wide = true;
+  int frames = 0;
+  if (pg)
+    for (Guid c : doc().children(page_)) {
+      const NodeProps* cp = props(c);
+      if (!cp || !cp->visible || !cp->isFrameLike() || cp->type == NodeType::SECTION || cp->size.y <= 0) continue;
+      frames++;
+      wide &= std::fabs(cp->size.x / cp->size.y - 16.0 / 9.0) < 0.01;
+    }
+  if (dev.type == Device::Type::PRESENTATION || (frames > 0 && wide)) return {S::FILL, S::ACTUAL, S::FIT, S::FIT_WIDTH, S::RESPONSIVE};
+  double first = 0;
+  std::vector<Guid> seq = active() ? sequence() : std::vector<Guid>{};
+  Guid firstFrame = !seq.empty() ? seq.front() : startFrame_;
+  if (const NodeProps* fp = props(firstFrame)) first = fp->size.x;
+  if (auto own = responsiveSizes_.find(firstFrame); own != responsiveSizes_.end()) first = own->second.x;
+  if (first > 1024) return {S::ACTUAL, S::RESPONSIVE, S::FIT_WIDTH, S::FIT, S::FILL};
+  return {S::ACTUAL, S::FIT, S::FIT_WIDTH, S::RESPONSIVE, S::FILL};
+}
+
 void Player::cycleScale() {
-  // The options in the menu's order: Actual size, Responsive, Fit width, Fit width and height, Fill screen; with a
-  // device: Fit device on screen, Zoom device to fill screen, Show device at 100%.
-  bool dev = page_ != kNoGuid && props(page_) && !device(*props(page_)).none;
-  static const ScaleMode plain[] = {ScaleMode::ACTUAL, ScaleMode::RESPONSIVE, ScaleMode::FIT_WIDTH, ScaleMode::FIT, ScaleMode::FILL};
-  static const ScaleMode withDevice[] = {ScaleMode::FIT, ScaleMode::FILL, ScaleMode::ACTUAL};
-  const ScaleMode* list = dev ? withDevice : plain;
-  size_t n = dev ? 3 : 5, at = 0;
-  for (size_t i = 0; i < n; i++)
+  // Z: the next option in the file's order.
+  std::vector<ScaleMode> list = scaleOrder();
+  size_t at = 0;
+  for (size_t i = 0; i < list.size(); i++)
     if (list[i] == scale_) at = i;
-  setScale(list[(at + 1) % n]);
+  setScale(list[(at + 1) % list.size()]);
 }
 
 void Player::setResponsive(bool on) {
@@ -757,6 +767,7 @@ bool Player::fire(Guid node, Trigger t, const Hit* hotspot, Held* held) {
       d.trigger = t;
       d.delayMs = i.delay * 1000;
       if (hotspot) d.hotspot = *hotspot;
+      d.actions = actionCounter_;
       delayed_.push_back(d);
       continue;
     }
@@ -805,6 +816,7 @@ void Player::hover(const Chain& c) {
       if (i.trigger != Trigger::ON_HOVER) continue;
       Held held;
       held.anchor = h.id;
+      held.id = ++heldSerial_;
       run(h.id, i.actions, &h, &held);
       held_.push_back(std::move(held));
     }
@@ -850,17 +862,26 @@ void Player::follow(const text::LinkBox& link) {
   if (dest != kNoGuid && frameExists(dest) && dest != base_) navigate(dest, Action{}, true);
 }
 
-uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*buttons*/, uint32_t /*mods*/) {
+uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*buttons*/, uint32_t /*mods*/, double timeMs) {
   if (!active()) return 0;
   layout();
   Vec2 css{x, y};
   hoverCss_ = css;
+  double t = timeMs > 0 ? timeMs : now_;
+  if (down_ && (type == PointerEvent::MOVE || type == PointerEvent::UP)) {
+    samples_.push_back({t, css});
+    while (samples_.size() > 2 && samples_.front().t < t - 100) samples_.pop_front();
+  }
   switch (type) {
     case PointerEvent::MOVE: {
+      if (scrollDrag_.active) {
+        moveScrollDrag(css);
+        return 1;
+      }
       Chain c = hitTest(css);
       hover(c);
       if (scrub_.active) {
-        // On drag: the transition follows the pointer along its axis.
+        // On drag: the transition follows the pointer along its vector.
         double p = std::clamp(((css.x - scrub_.from.x) * scrub_.axis.x + (css.y - scrub_.from.y) * scrub_.axis.y) / scrub_.extent, 0.0, 1.0);
         if (scrub_.instance != kNoGuid) {
           if (InstanceAnim* ia = instanceAnim(scrub_.instance); ia && ia->scrubbing && p != ia->scrubP) {
@@ -875,14 +896,22 @@ uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*butto
         }
         return 1;
       }
-      if (down_ && !dragFired_ && (css - downCss_).length() >= kDragThreshold) {
+      if (down_ && !dragFired_ && (css - downCss_).length() > kDragThreshold) {
         dragFired_ = true;
         uint64_t before = animSerial_, beforeInstance = instanceSerial_;
+        Guid hotspot = kNoGuid;
         for (auto& h : downChain_.hits)
-          if (doc().has(h.id) && fire(h.id, Trigger::DRAG, &h)) break;
-        if (animSerial_ != before && anim_.active) beginScrub(css);
-        else if (instanceSerial_ != beforeInstance)
+          if (doc().has(h.id) && fire(h.id, Trigger::DRAG, &h)) {
+            hotspot = h.id;
+            break;
+          }
+        if (animSerial_ != before && anim_.active) beginScrub(css, hotspot);
+        else if (instanceSerial_ != beforeInstance) {
           if (InstanceAnim* ia = instanceAnim(lastInstanceAnim_)) beginInstanceScrub(css, *ia);
+        } else if (hotspot == kNoGuid) {
+          // No On drag: the drag scrolls what it started on.
+          beginScrollDrag(css);
+        }
       }
       return 1;
     }
@@ -893,6 +922,11 @@ uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*butto
       dragFired_ = false;
       downCss_ = css;
       downChain_ = c;
+      samples_.clear();
+      samples_.push_back({t, css});
+      // A press stops what it lands on from flinging.
+      for (auto& h : c.hits) stopFlings(h.id);
+      if (c.layer == -1) stopFlings(base_);
       cancelDelayed(Trigger::MOUSE_UP);  // pressed again before a delayed Mouse up ran
       for (auto& h : c.hits)
         if (fire(h.id, Trigger::MOUSE_DOWN, &h)) break;
@@ -901,8 +935,11 @@ uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*butto
         bool any = false;
         for (const Interaction& i : ix(h.id)) {
           if (i.trigger != Trigger::ON_PRESS) continue;
-          pressed_ = Held{};
-          pressed_.anchor = h.id;
+          if (!any) {
+            pressed_ = Held{};
+            pressed_.anchor = h.id;
+            pressed_.id = ++heldSerial_;
+          }
           run(h.id, i.actions, &h, &pressed_);
           any = true;
         }
@@ -913,7 +950,12 @@ uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*butto
     case PointerEvent::UP: {
       if (!down_) return 0;
       down_ = false;
-      if (scrub_.active) endScrub();
+      if (scrub_.active) endScrub(t);
+      if (scrollDrag_.active) {
+        endScrollDrag(t);
+        downChain_ = Chain{};
+        return 1;
+      }
       Held p = std::move(pressed_);
       pressed_ = Held{};
       for (auto it = p.revert.rbegin(); it != p.revert.rend(); ++it) (*it)();
@@ -962,7 +1004,8 @@ uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*butto
     case PointerEvent::LEAVE: hover(Chain{}); return 1;
     case PointerEvent::CANCEL:
       down_ = false;
-      if (scrub_.active) endScrub();
+      if (scrub_.active) endScrub(t);
+      if (scrollDrag_.active) endScrollDrag(t);
       return 1;
     default: return 0;
   }
@@ -971,17 +1014,34 @@ uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*butto
 uint32_t Player::wheel(double x, double y, double dx, double dy) {
   if (!active()) return 0;
   layout();
-  Chain c = hitTest({x, y});
   double s = view_.s > 0 ? view_.s : 1;
   Vec2 d{dx / s, dy / s};
   auto apply = [&](Guid frame, Vec2 range) {
     Vec2 cur = scrollOf(frame);
     Vec2 next{std::clamp(cur.x + d.x, 0.0, range.x), std::clamp(cur.y + d.y, 0.0, range.y)};
     if (next.x == cur.x && next.y == cur.y) return false;
+    stopFlings(frame);
     scroll_[frame] = next;
+    wheelFrame_ = frame;
+    wheelAt_ = now_;
     dirty_ = true;
     return true;
   };
+  // Wheel events 0.2 s apart or less keep scrolling the frame they scrolled (Figma's viewer).
+  if (wheelFrame_ != kNoGuid && now_ - wheelAt_ <= kWheelLatchMs && doc().has(wheelFrame_)) {
+    bool top = wheelFrame_ == base_;
+    bool shown = top;
+    for (Guid cur = wheelFrame_; !shown && cur != kNoGuid; cur = doc().parentOf(cur)) {
+      shown = cur == base_;
+      for (auto& o : overlays_) shown |= cur == o.frame;
+    }
+    if (shown) {
+      wheelAt_ = now_;
+      apply(wheelFrame_, top ? topScrollRange(base_) : nestedScrollRange(wheelFrame_));
+      return 1;
+    }
+  }
+  Chain c = hitTest({x, y});
   for (auto& h : c.hits) {
     bool rootOfBase = h.id == base_ && c.layer == -1;
     if (rootOfBase) break;
@@ -995,17 +1055,18 @@ uint32_t Player::key(bool down, int keyCode, uint32_t mods) {
   if (!active()) return 0;
   if (!down) return 0;
   layout();
-  // Key / Gamepad interactions: the topmost overlay's first, then the screen's.
-  std::vector<int> pressed{keyCode};
+  // Key / Gamepad interactions (atlas 13 §3.5): on the topmost screen only (the top overlay, else the base screen); the
+  // keys held — the modifiers as their own codes, then the key — must be exactly a trigger's; off the Mac ⌘ reads as
+  // Ctrl; the first hotspot that matches takes the key.
+  auto code = [&](int k) { return host_ != Host::MAC && (k == kMeta || k == 93) ? kCtrl : k; };
+  std::vector<int> pressed{code(keyCode)};
   if (mods & MOD_SHIFT) pressed.push_back(kShift);
   if (mods & MOD_CTRL) pressed.push_back(kCtrl);
   if (mods & MOD_ALT) pressed.push_back(kAlt);
-  if (mods & MOD_META) pressed.push_back(kMeta);
+  if (mods & MOD_META) pressed.push_back(code(kMeta));
   std::sort(pressed.begin(), pressed.end());
   pressed.erase(std::unique(pressed.begin(), pressed.end()), pressed.end());
-  std::vector<Guid> roots;
-  for (auto it = overlays_.rbegin(); it != overlays_.rend(); ++it) roots.push_back(it->frame);
-  roots.push_back(base_);
+  std::vector<Guid> roots{overlays_.empty() ? base_ : overlays_.back().frame};
   for (Guid root : roots) {
     bool handled = false;
     std::function<void(Guid)> walk = [&](Guid id) {
@@ -1018,7 +1079,8 @@ uint32_t Player::key(bool down, int keyCode, uint32_t mods) {
       if (handled || !hasIx(id)) return;
       for (const Interaction& i : ix(id)) {
         if (i.trigger != Trigger::ON_KEY_DOWN || i.keyCodes.empty()) continue;
-        std::vector<int> want = i.keyCodes;
+        std::vector<int> want;
+        for (int k : i.keyCodes) want.push_back(code(k));
         std::sort(want.begin(), want.end());
         want.erase(std::unique(want.begin(), want.end()), want.end());
         if (want != pressed) continue;
@@ -1036,7 +1098,7 @@ uint32_t Player::key(bool down, int keyCode, uint32_t mods) {
   switch (keyCode) {
     case 82: restart(); return 1;             // R
     case 39: case 32: case 78: next(); return 1;  // → Space N
-    case 37: previous(); return 1;            // ←
+    case 37: previous(); return 1;                // ←
     case 90: cycleScale(); return 1;          // Z
     default: return 0;
   }
@@ -1045,10 +1107,93 @@ uint32_t Player::key(bool down, int keyCode, uint32_t mods) {
 // ---- Actions ---------------------------------------------------------------------------------------------
 
 void Player::run(Guid source, const std::vector<Action>& actions, const Hit* hotspot, Held* held) {
-  for (const Action& a : actions) runAction(source, a, hotspot, held);
+  Pending q;
+  q.source = source;
+  q.actions.assign(actions.begin(), actions.end());
+  if (hotspot) {
+    q.hasHotspot = true;
+    q.hotspot = *hotspot;
+  }
+  q.held = held ? held->id : 0;
+  drain(std::move(q), held);
+}
+
+void Player::drain(Pending&& q, Held* now) {
+  while (!q.actions.empty()) {
+    Action a = std::move(q.actions.front());
+    q.actions.pop_front();
+    if (a.connection == Connection::CONDITIONAL) {
+      // The first block whose condition holds: its actions go into the queue here.
+      if (const Branch* b = chosenBranch(a, q.source)) q.actions.insert(q.actions.begin(), b->actions.begin(), b->actions.end());
+      continue;
+    }
+    // The Held the actions undo through: the caller's while it runs them, later found by its id (a While hovering's is
+    // stored once its first actions ran).
+    Held* held = now ? now : q.held != 0 ? heldById(q.held) : nullptr;
+    if (q.held != 0 && !held) return;  // released or left: the rest of the queue is dropped
+    uint64_t before = motionSerial_;
+    runAction(q.source, a, q.hasHotspot ? &q.hotspot : nullptr, held);
+    // A screen change, a Change to or an animated Scroll to holds the rest until its animation ends.
+    if (motionSerial_ != before && !q.actions.empty() && running(motionSerial_)) {
+      q.wait = motionSerial_;
+      pending_.push_back(std::move(q));
+      return;
+    }
+  }
+}
+
+Player::Held* Player::heldById(uint64_t id) {
+  if (pressed_.id == id) return &pressed_;
+  for (auto& h : held_)
+    if (h.id == id) return &h;
+  return nullptr;
+}
+
+bool Player::running(uint64_t serial) const {
+  if (anim_.active && anim_.serial == serial) return true;
+  for (auto& ia : instanceAnims_)
+    if (ia.serial == serial) return true;
+  for (auto& sa : scrollAnims_)
+    if (sa.serial == serial) return true;
+  return false;
+}
+
+void Player::resumePending() {
+  for (size_t i = 0; i < pending_.size();) {
+    if (running(pending_[i].wait)) {
+      i++;
+      continue;
+    }
+    Pending q = std::move(pending_[i]);
+    pending_.erase(pending_.begin() + static_cast<long>(i));
+    drain(std::move(q));
+    i = 0;  // what it ran may have finished others' waits
+  }
+}
+
+const Branch* Player::chosenBranch(const Action& a, Guid source) const {
+  for (const Branch& b : a.branches) {
+    if (b.hasCondition) {
+      Editor::Resolved r;
+      if (!evaluate(b.condition, source, r)) continue;
+      bool truthy = r.kind == Editor::Resolved::Kind::BOOL ? r.b
+                    : r.kind == Editor::Resolved::Kind::FLOAT ? r.f != 0
+                    : r.kind == Editor::Resolved::Kind::STRING ? !r.s.empty() && r.s != "false"
+                                                               : false;
+      if (!truthy) continue;
+    }
+    return &b;
+  }
+  return nullptr;
 }
 
 void Player::runAction(Guid source, const Action& a, const Hit* hotspot, Held* held) {
+  // An action that changes the prototype's state drops the delayed mouse triggers and After delays waiting meanwhile
+  // (Figma's actionCounter; which actions count is inferred: screens, overlays, Change to, Back, Close, variables — not
+  // Scroll to, Open link or the video actions).
+  bool changesState = (a.connection == Connection::INTERNAL_NODE && a.navigation != Navigation::SCROLL_TO) || a.connection == Connection::BACK ||
+                      a.connection == Connection::CLOSE || a.connection == Connection::SET_VARIABLE || a.connection == Connection::SET_VARIABLE_MODE;
+  if (changesState) actionCounter_++;
   // "Reset video state": the videos the step shows start again as they were set on the canvas.
   if (a.resetVideo && a.connection == Connection::INTERNAL_NODE) videoReset_ = true;
   switch (a.connection) {
@@ -1092,22 +1237,10 @@ void Player::runAction(Guid source, const Action& a, const Hit* hotspot, Held* h
     case Connection::SET_VARIABLE: setVariable(a, source); return;
     case Connection::SET_VARIABLE_MODE: setVariableMode(a); return;
     case Connection::UPDATE_MEDIA_RUNTIME: mediaAction(a); return;
-    case Connection::CONDITIONAL: {
-      for (const Branch& b : a.branches) {
-        if (b.hasCondition) {
-          Editor::Resolved r;
-          if (!evaluate(b.condition, source, r)) continue;
-          bool truthy = r.kind == Editor::Resolved::Kind::BOOL ? r.b
-                        : r.kind == Editor::Resolved::Kind::FLOAT ? r.f != 0
-                        : r.kind == Editor::Resolved::Kind::STRING ? !r.s.empty() && r.s != "false"
-                                                                   : false;
-          if (!truthy) continue;
-        }
-        run(source, b.actions, hotspot, held);
-        return;
-      }
+    case Connection::CONDITIONAL:
+      if (const Branch* b = chosenBranch(a, source)) run(source, b->actions, hotspot, held);
       return;
-    }
+    case Connection::UPDATE_ANIMATION_TIMELINE_STATE: timelineAction(a); return;
     default: return;
   }
 }
@@ -1145,6 +1278,7 @@ void Player::navigate(Guid dest, const Action& a, bool record) {
     startAnim(std::move(an));
   }
   armTimers(base_);
+  startTimeline();
   changed();
 }
 
@@ -1198,6 +1332,7 @@ bool Player::back() {
   }
   armTimers(base_);
   for (auto& o : overlays_) armTimers(o.frame);
+  startTimeline();
   changed();
   return true;
 }
@@ -1252,7 +1387,8 @@ void Player::swapOverlay(Guid source, Guid dest, const Action& a) {
   if (frame == kNoGuid || !frameExists(frame)) return;
   layout();
   if (overlays_.empty()) {
-    openOverlay(dest, a, nullptr, nullptr);
+    // No overlay to swap: Navigate to (Figma's `SWAP && !hasOverlay`).
+    if (frame != base_) navigate(frame, a);
     return;
   }
   // The overlay holding the hotspot, else the topmost; it keeps its place and settings (not recorded in history).
@@ -1372,6 +1508,7 @@ void Player::swapInstance(Guid instance, Guid main, const Action& a) {
     ia.action = a;
     ia.duration = durationOf(a) * 1000;
     ia.fromMain = fromMain;
+    ia.serial = ++motionSerial_;
     instanceAnims_.push_back(std::move(ia));
     instanceSerial_++;
     lastInstanceAnim_ = instance;
@@ -1452,6 +1589,8 @@ void Player::scrollTo(Guid dest, const Action& a) {
     s.to = to;
     s.action = a;
     s.duration = durationOf(a) * 1000;
+    s.serial = ++motionSerial_;
+    stopFlings(frame);
     scrollAnims_.push_back(s);
   }
   dirty_ = true;
@@ -1560,8 +1699,9 @@ void Player::startAnim(Anim&& a) {
   animSerial_++;
   a.active = true;
   a.duration = durationOf(a.action) * 1000;
-  a.start = now_;
+  a.start = clock_;
   a.started = false;
+  a.serial = ++motionSerial_;
   anim_ = std::move(a);
   dirty_ = true;
 }
@@ -1579,7 +1719,8 @@ void Player::finishAnim() {
 
 bool Player::animating() const {
   bool instances = std::any_of(instanceAnims_.begin(), instanceAnims_.end(), [](const InstanceAnim& ia) { return !ia.scrubbing; });
-  return (anim_.active && !anim_.scrubbing) || instances || !scrollAnims_.empty() || hintsPending_ || now_ - hintsAt_ < kHintsMs;
+  return (anim_.active && !anim_.scrubbing) || instances || !scrollAnims_.empty() || !flings_.empty() || timelinePlaying_ ||
+         hintsPending_ || now_ - hintsAt_ < kHintsMs;
 }
 
 Player::InstanceAnim* Player::instanceAnim(Guid instance) {
@@ -1591,20 +1732,33 @@ Player::InstanceAnim* Player::instanceAnim(Guid instance) {
 
 double Player::instanceProgress(const InstanceAnim& ia) const {
   if (ia.scrubbing) return ia.scrubP;
-  double t = ia.duration > 0 ? std::clamp((now_ - ia.start) / ia.duration, 0.0, 1.0) : 1;
+  double t = ia.duration > 0 ? std::clamp((clock_ - ia.start) / ia.duration, 0.0, 1.0) : 1;
   if (!ia.started) t = 0;
   return ia.p0 + (ia.p1 - ia.p0) * ease(ia.action, t);
 }
 
 void Player::armTimers(Guid root) {
+  // Every After delay in the screen (the outermost hotspot's, not those inside it); their clocks start when the
+  // screen's transition ends. Reached with ← / →: at least 500 ms (Figma's `Math.max(500, …)`).
   std::function<void(Guid)> walk = [&](Guid id) {
     const NodeProps* p = props(id);
     if (!p || !p->visible) return;
+    bool armed = false;
     if (hasIx(id)) {
       auto list = ix(id);
-      for (size_t i = 0; i < list.size(); i++)
-        if (list[i].trigger == Trigger::AFTER_TIMEOUT) timers_.push_back({id, i, -1, list[i].timeout * 1000});
+      for (size_t i = 0; i < list.size(); i++) {
+        if (list[i].trigger != Trigger::AFTER_TIMEOUT) continue;
+        Timer t;
+        t.node = id;
+        t.interaction = i;
+        t.at = -1;
+        t.delayMs = arrowReached_ ? std::max(kArrowDelayMs, list[i].timeout * 1000) : list[i].timeout * 1000;
+        t.order = ++timerOrder_;
+        timers_.push_back(t);
+        armed = true;
+      }
     }
+    if (armed) return;
     for (Guid c : doc().children(id)) walk(c);
   };
   walk(root);
@@ -1624,7 +1778,8 @@ double Player::progress(const Anim& a) const {
   if (a.scrubbing) {
     v = a.scrubP;
   } else {
-    double t = a.duration > 0 ? std::clamp((now_ - a.start) / a.duration, 0.0, 1.0) : 1;
+    double t = a.duration > 0 ? std::clamp((clock_ - a.start) / a.duration, 0.0, 1.0) : 1;
+    if (!a.started) t = 0;
     v = a.p0 + (a.p1 - a.p0) * ease(a.action, t);
   }
   return a.reverse ? 1 - v : v;
@@ -1632,23 +1787,45 @@ double Player::progress(const Anim& a) const {
 
 // ---- On drag ---------------------------------------------------------------------------------------------
 
-void Player::beginScrub(Vec2 at) {
+void Player::beginScrub(Vec2 at, Guid hotspot) {
+  // The transition's vector (atlas 13 §5.6): Move / Push / Slide — the path of the screen drawn on top times the larger
+  // of the two screens (an overlay's: its own size); Smart animate — the dragged layer's match, from its centre in the
+  // source to its centre in the destination. Dissolve and Instant have none: the way the drag started, a screen long.
   Transition t = anim_.action.transition;
-  Vec2 dir = directionOf(t);
+  Geometry g = geometryOf(t);
+  Vec2 v;
+  if (g.moves) {
+    Vec2 path = g.enteringOnTop ? g.inTo - g.inFrom : g.outTo - g.outFrom;
+    const NodeProps* xp = props(anim_.x.frame);
+    const NodeProps* yp = props(anim_.y.frame);
+    Vec2 size = yp ? yp->size : view_.screen;
+    if (!anim_.y.overlay && xp) size = {std::max(size.x, xp->size.x), std::max(size.y, xp->size.y)};
+    v = {path.x * size.x, path.y * size.y};
+  } else if (anim_.smart && hotspot != kNoGuid && anim_.x.frame != kNoGuid && anim_.y.frame != kNoGuid) {
+    std::string key = matchKey(doc(), anim_.x.frame, hotspot);
+    auto from = anim_.fromSnap.byKey.find(key);
+    Snapshot dest = snapshot(anim_.y.frame, false);
+    auto to = dest.byKey.find(key);
+    if (!key.empty() && from != anim_.fromSnap.byKey.end() && to != dest.byKey.end()) {
+      Vec2 a = from->second.rel.apply({from->second.size.x / 2, from->second.size.y / 2});
+      Vec2 b = to->second.rel.apply({to->second.size.x / 2, to->second.size.y / 2});
+      v = b - a;
+    }
+  }
   Vec2 axis;
-  if (dir.x != 0 || dir.y != 0) {
-    // The incoming screen comes from `dir` (dragging the other way pulls it in); an outgoing one leaves towards it.
-    bool out = isMoveOut(t) || isSlideOut(t);
-    axis = out ? dir : Vec2{-dir.x, -dir.y};
+  double extent = 1;
+  if (v.length() > 1e-6) {
+    axis = {v.x / v.length(), v.y / v.length()};
+    extent = v.length() * view_.s;
   } else {
-    // Dissolve, Smart animate: the way the drag started, on its main axis.
     Vec2 d = at - downCss_;
     axis = std::fabs(d.x) >= std::fabs(d.y) ? Vec2{d.x >= 0 ? 1.0 : -1.0, 0} : Vec2{0, d.y >= 0 ? 1.0 : -1.0};
+    extent = (axis.x != 0 ? view_.screen.x : view_.screen.y) * view_.s;
   }
   scrub_.active = true;
   scrub_.axis = axis;
   scrub_.from = downCss_;
-  scrub_.extent = std::max(1.0, (axis.x != 0 ? view_.screen.x : view_.screen.y) * view_.s);
+  scrub_.extent = std::max(1.0, extent);
   anim_.scrubbing = true;
   anim_.scrubP = std::clamp(((at.x - downCss_.x) * axis.x + (at.y - downCss_.y) * axis.y) / scrub_.extent, 0.0, 1.0);
   dirty_ = true;
@@ -1670,37 +1847,56 @@ void Player::beginInstanceScrub(Vec2 at, InstanceAnim& ia) {
   dirty_ = true;
 }
 
-void Player::endScrub() {
+Vec2 Player::pointerVelocity(double timeMs) const {
+  if (samples_.size() < 2) return {};
+  const Sample& last = samples_.back();
+  // Still before letting go: no speed (Flutter's and Figma's trackers assume the pointer stopped after 40 ms).
+  if (timeMs - last.t > 40) return {};
+  const Sample* first = nullptr;
+  for (const Sample& s : samples_)
+    if (s.t >= last.t - 100 && s.t < last.t) {
+      first = &s;
+      break;
+    }
+  if (!first) return {};
+  double dt = (last.t - first->t) / 1000;
+  return dt > 0 ? Vec2{(last.at.x - first->at.x) / dt, (last.at.y - first->at.y) / dt} : Vec2{};
+}
+
+void Player::endScrub(double timeMs) {
+  // Let go (atlas 13 §5.6): the pointer's speed along the vector, s (progress per second), against r = 0.15 per the
+  // transition's duration — past half way it goes back only when s ≤ −r, before half way it completes only when s ≥ r —
+  // then runs there in |target − progress| × the duration.
+  Vec2 vel = pointerVelocity(timeMs);
+  double speed = (vel.x * scrub_.axis.x + vel.y * scrub_.axis.y) / std::max(1.0, scrub_.extent);
+  auto target = [&](double p, double durationMs) {
+    double r = kReleaseSpeed / std::max(1e-6, durationMs / 1000);
+    return p >= 0.5 ? (speed <= -r ? 0.0 : 1.0) : (speed >= r ? 1.0 : 0.0);
+  };
   if (scrub_.instance != kNoGuid) {
     Guid inst = scrub_.instance;
     scrub_ = Scrub{};
     InstanceAnim* ia = instanceAnim(inst);
     if (!ia || !ia->scrubbing) return;
-    // Released: on to the new state past half way, else back to the old one.
     double p = ia->scrubP, full = ia->duration;
     ia->scrubbing = false;
     ia->p0 = p;
     ia->started = false;
-    ia->p1 = p >= 0.5 ? 1 : 0;
-    ia->duration = full * (p >= 0.5 ? 1 - p : p);
+    ia->p1 = target(p, full);
+    ia->duration = std::max(0.001, full * std::fabs(ia->p1 - p));
     dirty_ = true;
     return;
   }
   scrub_ = Scrub{};
   if (!anim_.active || !anim_.scrubbing) return;
-  // Released: on to the end past half way, else back to where it started (and the step undone).
   double p = anim_.scrubP, full = anim_.duration;
   anim_.scrubbing = false;
   anim_.p0 = p;
   anim_.started = false;
-  if (p >= 0.5) {
-    anim_.p1 = 1;
-    anim_.duration = full * (1 - p);
-  } else {
-    anim_.p1 = 0;
-    anim_.duration = full * p;
-    anim_.done = [this] { silentBack(); };
-  }
+  anim_.p1 = target(p, full);
+  anim_.duration = std::max(0.001, full * std::fabs(anim_.p1 - p));
+  // Back to where it started: the step is undone.
+  if (anim_.p1 < 0.5) anim_.done = [this] { silentBack(); };
   dirty_ = true;
 }
 
@@ -1710,16 +1906,190 @@ void Player::silentBack() {
   noAnim_ = false;
 }
 
+// ---- Scrolling -------------------------------------------------------------------------------------------
+
+scroll::Physics Player::scrollPhysics() const {
+  // The device's platform, else the host's (atlas 13 §8.2): iOS / macOS bounce, Android / Windows / Linux clamp.
+  if (page_ != kNoGuid && props(page_)) {
+    Device dev = device(*props(page_));
+    if (dev.type == Device::Type::PRESET) {
+      const DeviceSpec* spec = nullptr;
+      const DeviceModel* model = nullptr;
+      if (findDevice(dev.preset, spec, model)) return spec->kind == DeviceKind::ANDROID ? scroll::Physics::CLAMPING : scroll::Physics::BOUNCING;
+    }
+  }
+  switch (host_) {
+    case Host::MAC: return scroll::Physics::BOUNCING;
+    case Host::WINDOWS:
+    case Host::LINUX: return scroll::Physics::CLAMPING;
+    case Host::OTHER: break;
+  }
+  return scroll::Physics::NONE;
+}
+
+Vec2 Player::scrollRange(Guid frame, bool top) const { return top ? topScrollRange(frame) : nestedScrollRange(frame); }
+
+bool Player::beginScrollDrag(Vec2 at) {
+  // What the drag started on that scrolls along it: the deepest nested scrolling frame, else the screen.
+  Vec2 d = at - downCss_;
+  auto along = [&](Vec2 range) { return (std::fabs(d.x) > 0 && range.x > 0) || (std::fabs(d.y) > 0 && range.y > 0); };
+  Guid frame = kNoGuid;
+  bool top = false;
+  for (auto& h : downChain_.hits) {
+    if (h.id == base_ && downChain_.layer == -1) break;
+    if (scrollsNested(h.id) && along(nestedScrollRange(h.id))) {
+      frame = h.id;
+      break;
+    }
+  }
+  if (frame == kNoGuid && downChain_.layer == -1 && along(topScrollRange(base_))) {
+    frame = base_;
+    top = true;
+  }
+  if (frame == kNoGuid) return false;
+  stopFlings(frame);
+  scrollDrag_.active = true;
+  scrollDrag_.frame = frame;
+  scrollDrag_.top = top;
+  scrollDrag_.last = downCss_;
+  moveScrollDrag(at);
+  return true;
+}
+
+void Player::moveScrollDrag(Vec2 at) {
+  if (!doc().has(scrollDrag_.frame)) {
+    scrollDrag_ = ScrollDrag{};
+    return;
+  }
+  double s = view_.s > 0 ? view_.s : 1;
+  Vec2 range = scrollRange(scrollDrag_.frame, scrollDrag_.top);
+  Vec2 cur = scrollOf(scrollDrag_.frame);
+  Vec2 delta{(scrollDrag_.last.x - at.x) / s, (scrollDrag_.last.y - at.y) / s};
+  scrollDrag_.last = at;
+  const NodeProps* fp = props(scrollDrag_.frame);
+  Vec2 viewport = scrollDrag_.top ? view_.screen : fp ? fp->size : view_.screen;
+  bool bounce = scrollPhysics() == scroll::Physics::BOUNCING;
+  auto axis = [&](double pos, double d, double max, double length) {
+    if (max <= 0) return pos;
+    // Bouncing: past an end the content resists (in CSS px, as Figma's).
+    if (bounce) return pos + scroll::applyDrag(pos * s, d * s, 0, max * s, length * s) / s;
+    return std::clamp(pos + d, 0.0, max);
+  };
+  Vec2 next{axis(cur.x, delta.x, range.x, viewport.x), axis(cur.y, delta.y, range.y, viewport.y)};
+  if (next.x != cur.x || next.y != cur.y) {
+    scroll_[scrollDrag_.frame] = next;
+    dirty_ = true;
+  }
+}
+
+void Player::endScrollDrag(double timeMs) {
+  ScrollDrag d = scrollDrag_;
+  scrollDrag_ = ScrollDrag{};
+  if (!doc().has(d.frame)) return;
+  scroll::Physics physics = scrollPhysics();
+  double s = view_.s > 0 ? view_.s : 1;
+  Vec2 range = scrollRange(d.frame, d.top);
+  Vec2 pos = scrollOf(d.frame);
+  Vec2 vel = pointerVelocity(timeMs);
+  vel = {-vel.x, -vel.y};  // the content goes the pointer's way: its scroll the other
+  scroll::Tolerance tol = scroll::toleranceFor(ed_.viewport().dpr);
+  Fling f;
+  f.frame = d.frame;
+  f.top = d.top;
+  if (physics == scroll::Physics::NONE) {
+    scroll_[d.frame] = {std::clamp(pos.x, 0.0, range.x), std::clamp(pos.y, 0.0, range.y)};
+    dirty_ = true;
+    return;
+  }
+  // Clamping: the faster axis's fling sets the length of both.
+  double main = std::fabs(vel.x) >= std::fabs(vel.y) ? vel.x : vel.y;
+  double shared = scroll::Simulation::clampingDuration(main);
+  auto sim = [&](double p, double v, double max) {
+    if (max <= 0) return scroll::Simulation{};
+    if (physics == scroll::Physics::BOUNCING) return scroll::Simulation::bouncing(p * s, v, 0, max * s, tol);
+    return scroll::Simulation::clamping(p * s, v, 0, max * s, tol, shared);
+  };
+  f.x = sim(pos.x, vel.x, range.x);
+  f.y = sim(pos.y, vel.y, range.y);
+  if (!f.x.active() && !f.y.active()) return;
+  if ((!f.x.active() || f.x.done(0)) && (!f.y.active() || f.y.done(0))) return;
+  flings_.push_back(std::move(f));
+  dirty_ = true;
+}
+
+void Player::stopFlings(Guid frame) {
+  flings_.erase(std::remove_if(flings_.begin(), flings_.end(), [&](const Fling& f) { return f.frame == frame; }), flings_.end());
+}
+
+// ---- Motion timelines ------------------------------------------------------------------------------------
+
+void Player::startTimeline() {
+  // The shown screen's own timeline, if it plays anything (docs/motion.md §4.12): from 0 when its transition ends.
+  Guid root = base_ != kNoGuid && ed_.motionIndex().plays(base_) ? base_ : kNoGuid;
+  if (root == timelineRoot_ && root != kNoGuid) {
+    timelineMs_ = 0;
+    timelinePlaying_ = false;
+    timelineWaits_ = true;
+    return;
+  }
+  stopTimeline();
+  if (root == kNoGuid) return;
+  timelineRoot_ = root;
+  timelineMs_ = 0;
+  timelineWaits_ = true;
+  motion::State st;
+  st.on = true;
+  st.root = root;
+  st.timeUs = 0;
+  st.showMotionPath = false;
+  ed_.setMotion(st);
+}
+
+void Player::stopTimeline() {
+  if (timelineRoot_ == kNoGuid) return;
+  timelineRoot_ = kNoGuid;
+  timelinePlaying_ = timelineWaits_ = false;
+  timelineMs_ = 0;
+  motion::State st = ed_.motion();
+  st.on = false;
+  st.root = kNoGuid;
+  ed_.setMotion(st);
+}
+
+void Player::timelineAction(const Action& a) {
+  // Play / Pause / Toggle / Set playhead on the timeline's root (animationTimelineDefId; none: the screen's).
+  Guid root = a.timelineDef != kNoGuid ? ed_.motionIndex().rootOf(doc(), a.timelineDef) : base_;
+  if (root == kNoGuid || root != timelineRoot_) return;
+  timelineWaits_ = false;
+  switch (a.timeline) {
+    case TimelineAction::PLAY: timelinePlaying_ = true; break;
+    case TimelineAction::PAUSE: timelinePlaying_ = false; break;
+    case TimelineAction::TOGGLE_PLAY_PAUSE: timelinePlaying_ = !timelinePlaying_; break;
+    case TimelineAction::SET_PLAYHEAD: {
+      timelineMs_ = std::max(0.0, a.timelineSkipTo * 1000);
+      motion::State st = ed_.motion();
+      st.timeUs = static_cast<int64_t>(std::llround(timelineMs_ * 1000));
+      ed_.setMotion(st);
+      break;
+    }
+  }
+  dirty_ = true;
+}
+
 bool Player::tick(double nowMs) {
   now_ = nowMs;
+  // The animation clock: at most 1/30 s per frame.
+  double step = lastTick_ < 0 ? 0 : std::clamp(nowMs - lastTick_, 0.0, kMaxFrameMs);
+  lastTick_ = nowMs;
+  clock_ += step;
   bool draw = dirty_;
   if (anim_.active && !anim_.scrubbing) {
     if (!anim_.started) {
-      anim_.start = now_;
+      anim_.start = clock_;
       anim_.started = true;
     }
     draw = true;
-    if (now_ - anim_.start >= anim_.duration) finishAnim();
+    if (clock_ - anim_.start >= anim_.duration) finishAnim();
   }
   for (size_t i = 0; i < instanceAnims_.size();) {
     auto& ia = instanceAnims_[i];
@@ -1728,15 +2098,15 @@ bool Player::tick(double nowMs) {
       continue;
     }
     if (!ia.started) {
-      ia.start = now_;
+      ia.start = clock_;
       ia.started = true;
     }
     draw = true;
-    if (now_ - ia.start >= ia.duration || !doc().has(ia.instance)) {
+    if (clock_ - ia.start >= ia.duration || !doc().has(ia.instance)) {
       Guid g = ia.ghost, inst = ia.instance, back = ia.p1 < 0.5 ? ia.fromMain : kNoGuid;
       instanceAnims_.erase(instanceAnims_.begin() + static_cast<long>(i));
       dropGhost(g);
-      // A Change to dragged less than half way: back to the state it came from.
+      // A Change to dragged back: to the state it came from.
       if (back != kNoGuid && doc().has(inst) && ed_.mainOf(inst) != back) swapInstance(inst, back, Action{});
     } else {
       i++;
@@ -1745,37 +2115,96 @@ bool Player::tick(double nowMs) {
   for (size_t i = 0; i < scrollAnims_.size();) {
     auto& s = scrollAnims_[i];
     if (!s.started) {
-      s.start = now_;
+      s.start = clock_;
       s.started = true;
     }
-    double t = s.duration > 0 ? std::clamp((now_ - s.start) / s.duration, 0.0, 1.0) : 1;
+    double t = s.duration > 0 ? std::clamp((clock_ - s.start) / s.duration, 0.0, 1.0) : 1;
     double e = ease(s.action, t);
     scroll_[s.frame] = {lerp(s.from.x, s.to.x, e), lerp(s.from.y, s.to.y, e)};
     draw = true;
     if (t >= 1) scrollAnims_.erase(scrollAnims_.begin() + static_cast<long>(i));
     else i++;
   }
+  // Flings.
+  double sc = view_.s > 0 ? view_.s : 1;
+  for (size_t i = 0; i < flings_.size();) {
+    Fling& f = flings_[i];
+    if (!f.started) {
+      f.start = clock_;
+      f.started = true;
+    }
+    double t = (clock_ - f.start) / 1000;
+    Vec2 cur = scrollOf(f.frame);
+    Vec2 next{f.x.active() ? f.x.x(t) / sc : cur.x, f.y.active() ? f.y.x(t) / sc : cur.y};
+    scroll_[f.frame] = next;
+    draw = true;
+    bool done = (!f.x.active() || f.x.done(t)) && (!f.y.active() || f.y.done(t));
+    if (done || !doc().has(f.frame)) {
+      // At rest within the range.
+      Vec2 range = scrollRange(f.frame, f.top);
+      scroll_[f.frame] = {std::clamp(next.x, 0.0, range.x), std::clamp(next.y, 0.0, range.y)};
+      flings_.erase(flings_.begin() + static_cast<long>(i));
+    } else {
+      i++;
+    }
+  }
+  // The action queues waiting for an animation that ended.
+  if (!pending_.empty()) {
+    resumePending();
+    draw = true;
+  }
+  // The screen's Motion timeline.
+  if (timelineRoot_ != kNoGuid) {
+    if (timelineWaits_ && !anim_.active) {
+      timelineWaits_ = false;
+      timelinePlaying_ = true;
+      timelineMs_ = 0;
+      step = 0;
+    }
+    if (timelinePlaying_ && doc().has(timelineRoot_)) {
+      timelineMs_ += step;
+      motion::Timeline tl = ed_.motionIndex().timeline(doc(), timelineRoot_);
+      double length = static_cast<double>(tl.durationUs) / 1000;
+      // Once: it stops at its end; Loop and Boomerang run until the screen goes (the motion layer folds the time).
+      if (tl.playback == motion::Playback::ONCE && timelineMs_ >= length) {
+        timelineMs_ = length;
+        timelinePlaying_ = false;
+      }
+      motion::State st = ed_.motion();
+      st.timeUs = static_cast<int64_t>(std::llround(timelineMs_ * 1000));
+      ed_.setMotion(st);
+      draw = true;
+    }
+  }
   if (hintsPending_) {
     hintsPending_ = false;
     hintsAt_ = now_;
   }
   if (now_ - hintsAt_ < kHintsMs + 50) draw = true;
-  // After delay.
+  // After delay: started once the screen's transition ended, fired in order of time then of creation, dropped when
+  // another action ran meanwhile.
   std::vector<Timer> due;
   for (auto& t : timers_) {
-    if (t.at < 0) t.at = now_ + t.delayMs;
-    else if (now_ >= t.at) due.push_back(t);
+    if (t.at < 0) {
+      if (anim_.active) continue;
+      t.at = now_ + t.delayMs;
+      t.actions = actionCounter_;
+    } else if (now_ >= t.at) {
+      due.push_back(t);
+    }
   }
   if (!due.empty()) {
     timers_.erase(std::remove_if(timers_.begin(), timers_.end(), [&](const Timer& t) { return t.at >= 0 && now_ >= t.at; }), timers_.end());
+    std::sort(due.begin(), due.end(), [](const Timer& a, const Timer& b) { return a.at != b.at ? a.at < b.at : a.order < b.order; });
+    uint64_t counter = actionCounter_;
     for (auto& t : due) {
-      if (!props(t.node)) continue;
+      if (!props(t.node) || t.actions != counter || actionCounter_ != counter) continue;
       auto list = ix(t.node);
       if (t.interaction < list.size()) run(t.node, list[t.interaction].actions, nullptr, nullptr);
     }
     draw = true;
   }
-  // Mouse triggers' delays.
+  // Mouse triggers' delays: run only if no other action ran since their trigger.
   std::vector<Delayed> ready;
   for (auto& d : delayed_) {
     if (d.at < 0) d.at = now_ + d.delayMs;
@@ -1785,7 +2214,7 @@ bool Player::tick(double nowMs) {
     delayed_.erase(std::remove_if(delayed_.begin(), delayed_.end(), [&](const Delayed& d) { return d.at >= 0 && now_ >= d.at; }),
                    delayed_.end());
     for (auto& d : ready) {
-      if (!props(d.node) || !doc().has(d.node)) continue;
+      if (!props(d.node) || !doc().has(d.node) || d.actions != actionCounter_) continue;
       auto list = ix(d.node);
       if (d.interaction < list.size()) run(d.node, list[d.interaction].actions, &d.hotspot, nullptr);
     }
@@ -1961,46 +2390,56 @@ void Player::smartSource(Guid id, const std::unordered_set<std::string>& keys, d
 
 // ---- The scene -------------------------------------------------------------------------------------------
 
-void Player::scrollOverrides(Guid frame, PropsOverrides& out, bool topLevel, Vec2 topScroll) const {
-  auto shift = [&](Guid child, Vec2 sc, bool sticky) {
-    const NodeProps* cp = props(child);
-    if (!cp) return;
-    auto it = out.find(child);
-    NodeProps q = it != out.end() ? it->second : *cp;
-    if (sticky) {
-      // Scrolls until its top reaches the frame's top, then stays there.
-      double y0 = q.transform.m12;
-      q.transform = Mat2x3::translate(-sc.x, -sc.y + std::max(0.0, sc.y - y0)) * q.transform;
-    } else {
-      q.transform = Mat2x3::translate(-sc.x, -sc.y) * q.transform;
+void Player::stick(Guid scroller, double scrollY, PropsOverrides& out) const {
+  // Vertical only (atlas 13 §8.2). s = the layer's top in the scroller's content. A child of the scroller scrolls until
+  // its top meets the scroller's top, then stays (pushed down by scrollY − s); one inside a non-scrolling parent stays
+  // only while its parent shows, pushed down by at most o = the room under it in that parent; under a Fixed one, not.
+  if (scrollY == 0) return;
+  std::function<void(Guid, double, bool)> walk = [&](Guid parent, double parentTop, bool direct) {
+    const NodeProps* pp = props(parent);
+    for (Guid c : doc().children(parent)) {
+      const NodeProps* cp = props(c);
+      if (!cp || !cp->visible) continue;
+      ScrollBehavior b = scrollBehavior(*cp);
+      if (b == ScrollBehavior::FIXED) continue;
+      double top = parentTop + cp->transform.m12;
+      if (b == ScrollBehavior::STICKY) {
+        double push = scrollY - top;
+        if (!direct && pp) push = std::min(push, std::max(0.0, pp->size.y - (cp->transform.m12 + cp->size.y)));
+        if (push > 0) {
+          auto it = out.find(c);
+          NodeProps q = it != out.end() ? it->second : *cp;
+          q.transform = Mat2x3::translate(0, push) * q.transform;
+          out[c] = std::move(q);
+        }
+      }
+      // Into its children, unless it scrolls on its own.
+      if (!scrollsNested(c)) walk(c, top, false);
     }
-    out[child] = std::move(q);
   };
+  walk(scroller, 0, true);
+}
+
+void Player::scrollOverrides(Guid frame, PropsOverrides& out, bool topLevel, Vec2 topScroll) const {
   std::function<void(Guid, bool)> walk = [&](Guid id, bool root) {
     const NodeProps* p = props(id);
     if (!p || !p->visible) return;
     if (root && topLevel) {
-      // A top-level frame scrolls as a whole (the scene's matrix); sticky children pin to the screen's top.
-      if (topScroll.y > 0)
-        for (Guid c : doc().children(id)) {
-          const NodeProps* cp = props(c);
-          if (!cp || scrollBehavior(*cp) != ScrollBehavior::STICKY) continue;
-          auto it = out.find(c);
-          NodeProps q = it != out.end() ? it->second : *cp;
-          double y0 = q.transform.m12;
-          q.transform = Mat2x3::translate(0, std::max(0.0, topScroll.y - y0)) * q.transform;
-          out[c] = std::move(q);
-        }
+      // A top-level frame scrolls as a whole (the scene's matrix); its sticky layers stay.
+      stick(id, topScroll.y, out);
     } else if (scrollsNested(id)) {
       Vec2 sc = scrollOf(id);
-      if (sc.x != 0 || sc.y != 0)
+      if (sc.x != 0 || sc.y != 0) {
         for (Guid c : doc().children(id)) {
           const NodeProps* cp = props(c);
-          if (!cp) continue;
-          ScrollBehavior b = scrollBehavior(*cp);
-          if (b == ScrollBehavior::FIXED) continue;
-          shift(c, sc, b == ScrollBehavior::STICKY);
+          if (!cp || scrollBehavior(*cp) == ScrollBehavior::FIXED) continue;
+          auto it = out.find(c);
+          NodeProps q = it != out.end() ? it->second : *cp;
+          q.transform = Mat2x3::translate(-sc.x, -sc.y) * q.transform;
+          out[c] = std::move(q);
         }
+        stick(id, sc.y, out);
+      }
     }
     for (Guid c : doc().children(id)) walk(c, false);
   };
@@ -2162,10 +2601,7 @@ void Player::addSlot(const Side* x, const Side* y, const Anim* a) {
     return;
   }
   double p = progress(*a);
-  Transition t = a->action.transition;
-  Vec2 dir = directionOf(t);
-  Vec2 S = view_.screen;
-  Vec2 d{dir.x * S.x, dir.y * S.y};
+  Geometry g = geometryOf(a->action.transition);
   bool hasX = x && x->frame != kNoGuid && doc().has(x->frame), hasY = y && y->frame != kNoGuid && doc().has(y->frame);
   // Overlay backgrounds fade with their overlay.
   if (a->smart && hasX && hasY) {
@@ -2197,50 +2633,41 @@ void Player::addSlot(const Side* x, const Side* y, const Anim* a) {
     return;
   }
   // Move / Push / Slide with "Animate matching layers".
-  if (!a->smart && a->action.smartAnimate && hasX && hasY && !x->overlay && !y->overlay && (dir.x != 0 || dir.y != 0)) {
-    Vec2 offX, offY;
-    if (isMoveIn(t)) offY = {d.x * (1 - p), d.y * (1 - p)};
-    else if (isMoveOut(t)) offX = {d.x * p, d.y * p};
-    else if (isPush(t)) offX = {-d.x * p, -d.y * p}, offY = {d.x * (1 - p), d.y * (1 - p)};
-    else if (isSlideIn(t)) offX = {-d.x * p * kSlideOffset, -d.y * p * kSlideOffset}, offY = {d.x * (1 - p), d.y * (1 - p)};
-    else if (isSlideOut(t)) offY = {-d.x * (1 - p) * kSlideOffset, -d.y * (1 - p) * kSlideOffset}, offX = {d.x * p, d.y * p};
-    addMatching(*x, *y, *a, p, offX, offY);
+  if (!a->smart && a->action.smartAnimate && hasX && hasY && !x->overlay && !y->overlay && g.moves) {
+    addMatching(*x, *y, *a, p);
     return;
   }
-  auto drawX = [&](Vec2 off, double alpha) {
-    if (!hasX) return;
-    background(*x, alpha);
-    addFrame(*x, off, alpha, {});
+  if (g.moves) {
+    // The screens along their paths (in units of the screen), the exiting one fading where the type says.
+    Vec2 S = view_.screen;
+    auto at = [&](Vec2 from, Vec2 to) { return Vec2{lerp(from.x, to.x, p) * S.x, lerp(from.y, to.y, p) * S.y}; };
+    auto drawX = [&] {
+      if (!hasX) return;
+      double alpha = lerp(g.outAlphaFrom, g.outAlphaTo, p);
+      background(*x, alpha);
+      addFrame(*x, at(g.outFrom, g.outTo), alpha, {});
+    };
+    auto drawY = [&] {
+      if (!hasY) return;
+      double alpha = lerp(g.inAlphaFrom, g.inAlphaTo, p);
+      background(*y, alpha);
+      addFrame(*y, at(g.inFrom, g.inTo), alpha, {});
+    };
+    if (g.enteringOnTop) drawX(), drawY();
+    else drawY(), drawX();
+    return;
+  }
+  // Dissolve (and Smart animate with nothing to match): the new one fades in over the old.
+  auto draw = [&](const Side& s, double alpha) {
+    background(s, alpha);
+    addFrame(s, {}, alpha, {});
   };
-  auto drawY = [&](Vec2 off, double alpha) {
-    if (!hasY) return;
-    background(*y, alpha);
-    addFrame(*y, off, alpha, {});
-  };
-  if (isMoveIn(t)) {
-    drawX({}, 1);
-    drawY({d.x * (1 - p), d.y * (1 - p)}, 1);
-  } else if (isMoveOut(t)) {
-    drawY({}, 1);
-    drawX({d.x * p, d.y * p}, 1);
-  } else if (isPush(t)) {
-    drawX({-d.x * p, -d.y * p}, 1);
-    drawY({d.x * (1 - p), d.y * (1 - p)}, 1);
-  } else if (isSlideIn(t)) {
-    drawX({-d.x * p * kSlideOffset, -d.y * p * kSlideOffset}, 1);
-    drawY({d.x * (1 - p), d.y * (1 - p)}, 1);
-  } else if (isSlideOut(t)) {
-    drawY({-d.x * (1 - p) * kSlideOffset, -d.y * (1 - p) * kSlideOffset}, 1);
-    drawX({d.x * p, d.y * p}, 1);
+  if (hasX && hasY) {
+    draw(*x, 1);
+    draw(*y, p);
   } else {
-    // Dissolve (and Smart animate with nothing to match): the new one fades in over the old.
-    if (hasX && hasY) {
-      drawX({}, 1);
-      drawY({}, p);
-    } else {
-      drawX({}, 1 - p);
-      drawY({}, p);
-    }
+    if (hasX) draw(*x, 1 - p);
+    if (hasY) draw(*y, p);
   }
 }
 
@@ -2275,7 +2702,7 @@ void Player::addFixed(const Side& s, Vec2 offset, const std::function<double(Gui
   }
 }
 
-void Player::addMatching(const Side& x, const Side& y, const Anim& a, double p, Vec2 offX, Vec2 offY) {
+void Player::addMatching(const Side& x, const Side& y, const Anim& a, double p) {
   // help.figma.com 360039818874: "Layers that don't match: Figma will use the main transition you select. Layers that
   // do match: Figma will Smart animate any differences … Fixed layers that do match: Figma won't apply any
   // transition. Fixed layers that don't match: Figma will apply a dissolve transition" — and the frames' fills move
@@ -2314,10 +2741,12 @@ void Player::addMatching(const Side& x, const Side& y, const Anim& a, double p, 
     walk(root, std::string(), true, false);
     return out;
   };
-  bool xOnTop = isMoveOut(a.action.transition) || isSlideOut(a.action.transition);
-  auto drawX = [&] { addFrame(x, offX, 1, moving(x.frame, 1 - p), 0); };
-  auto drawY = [&] { addFrame(y, offY, 1, moving(y.frame, 0), 0); };
-  if (xOnTop) {
+  Geometry g = geometryOf(a.action.transition);
+  Vec2 S = view_.screen;
+  auto at = [&](Vec2 from, Vec2 to) { return Vec2{lerp(from.x, to.x, p) * S.x, lerp(from.y, to.y, p) * S.y}; };
+  auto drawX = [&] { addFrame(x, at(g.outFrom, g.outTo), lerp(g.outAlphaFrom, g.outAlphaTo, p), moving(x.frame, 1 - p), 0); };
+  auto drawY = [&] { addFrame(y, at(g.inFrom, g.inTo), lerp(g.inAlphaFrom, g.inAlphaTo, p), moving(y.frame, 0), 0); };
+  if (!g.enteringOnTop) {
     drawY();
     drawX();
   } else {
@@ -2404,10 +2833,12 @@ const PresentScene& Player::scene() {
     s.overlay = true;
     addSlot(nullptr, &s, nullptr);
   }
-  // Hotspot hints: every layer that reacts, flashed in blue.
+  // Hotspot hints (atlas 13 §10.4): every layer that reacts, in #30C2FF — the fill at half the opacity, a 2-device-pixel
+  // border at full — clipped as the layer is; one 0.7 s fade from full, opacity 1 − ease-out (cubic-bezier(0, 0, 0.58, 1)).
   double since = now_ - hintsAt_;
   if (since >= 0 && since < kHintsMs) {
-    double alpha = since < kHintsMs * 0.6 ? 1 : 1 - (since - kHintsMs * 0.6) / (kHintsMs * 0.4);
+    double alpha = 1 - motion::cubicBezier(0, 0, 0.58, 1, since / kHintsMs);
+    double dpr = ed_.viewport().dpr > 0 ? ed_.viewport().dpr : 1;
     std::vector<std::pair<Guid, Mat2x3>> roots{{base_, frameCss(base)}};
     for (auto& o : overlays_) {
       Side s;
@@ -2416,29 +2847,35 @@ const PresentScene& Player::scene() {
       s.overlay = true;
       roots.emplace_back(o.frame, frameCss(s));
     }
+    auto intersect = [](const Rect& a, const Rect& b) {
+      double x0 = std::max(a.x, b.x), y0 = std::max(a.y, b.y);
+      return Rect{x0, y0, std::max(0.0, std::min(a.right(), b.right()) - x0), std::max(0.0, std::min(a.bottom(), b.bottom()) - y0)};
+    };
     for (auto& [root, m] : roots) {
-      std::function<void(Guid, const Mat2x3&, bool)> walk = [&](Guid id, const Mat2x3& parent, bool isRoot) {
+      std::function<void(Guid, const Mat2x3&, bool, const Rect&)> walk = [&](Guid id, const Mat2x3& parent, bool isRoot, const Rect& clip) {
         const NodeProps* p = props(id);
         if (!p || !p->visible) return;
         Mat2x3 mm = isRoot ? parent : parent * p->transform;
-        if (!isRoot && hasIx(id)) {
-          Rect r = transformedBounds(mm, p->size.x, p->size.y);
+        Rect r = transformedBounds(mm, p->size.x, p->size.y);
+        if (!isRoot && hasIx(id) && clip.w > 0 && clip.h > 0) {
           PresentItem h;
           h.kind = PresentItem::Kind::Rect;
           h.rect = r;
-          h.color = Color::hex(0x0D99FF);
-          h.alpha = 0.25 * alpha;
-          h.border = 1;
-          h.borderColor = Color::hex(0x0D99FF);
-          h.radius = 2;
+          h.color = Color::hex(0x30C2FF);
+          h.alpha = 0.5 * alpha;
+          h.border = 2 / dpr;
+          h.borderColor = Color::hex(0x30C2FF);
+          h.borderAlpha = alpha;
           h.clip = true;
-          h.clipCss = view_.css;
+          h.clipCss = clip;
           scene_.items.push_back(h);
         }
+        Rect inner = p->clipsContent() ? intersect(clip, r) : clip;
         Vec2 sc = scrollsNested(id) && !isRoot ? scrollOf(id) : Vec2{};
-        for (Guid c : doc().children(id)) walk(c, sc.x != 0 || sc.y != 0 ? mm * Mat2x3::translate(-sc.x, -sc.y) : mm, false);
+        for (Guid c : doc().children(id))
+          walk(c, sc.x != 0 || sc.y != 0 ? mm * Mat2x3::translate(-sc.x, -sc.y) : mm, false, inner);
       };
-      walk(root, m, true);
+      walk(root, m, true, view_.css);
     }
   }
   // The screen's rounded corners, and the device's camera over it.
@@ -2740,6 +3177,10 @@ std::string Player::stateJson() const {
   w.key("canNext").boolean(it != seq.end() && it + 1 != seq.end());
   w.key("canPrevious").boolean(it != seq.end() && it != seq.begin());
   w.key("scale").string(scaleName(scale_));
+  w.key("scaleOrder").beginArray();
+  if (active())
+    for (ScaleMode m : scaleOrder()) w.string(scaleName(m));
+  w.endArray();
   w.key("hints").boolean(hints_);
   w.key("shortcuts").boolean(shortcuts_);
   {

@@ -105,7 +105,7 @@ function easingFromDoc(a: PrototypeAction): unknown {
 
 // The Plugin API direction ↔ the document's side. Figma's Plugin writer swaps LEFT ↔ RIGHT and TOP ↔ BOTTOM for every
 // directional type (docs/research/rea/motion.md §2.1): {MOVE_IN, LEFT} → MOVE_FROM_RIGHT, {MOVE_OUT, LEFT} →
-// MOVE_OUT_TO_RIGHT; its reader swaps back. (The Prototype panel keeps its own arrows, model/prototype.ts transitionOf.)
+// MOVE_OUT_TO_RIGHT; its reader swaps back. (The Prototype panel's arrows store the same, model/prototype.ts transitionOf.)
 const PLUGIN_DIR: Record<string, Side> = { LEFT: "LEFT", RIGHT: "RIGHT", TOP: "TOP", BOTTOM: "BOTTOM", UP: "TOP", DOWN: "BOTTOM" };
 const SWAP: Record<Side, Side> = { LEFT: "RIGHT", RIGHT: "LEFT", TOP: "BOTTOM", BOTTOM: "TOP" };
 const PLUGIN_PREFIX: Record<string, string> = { MOVE_IN: "MOVE_FROM_", MOVE_OUT: "MOVE_OUT_TO_", PUSH: "PUSH_FROM_", SLIDE_IN: "SLIDE_FROM_", SLIDE_OUT: "SLIDE_OUT_TO_" };

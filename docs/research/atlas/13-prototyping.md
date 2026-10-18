@@ -535,6 +535,27 @@ English text where R8 / help verified it; otherwise the i18n key (the English di
 | Viewer URL params, hide-UI key per layout, UI fade 2 s | §10 | not built | missing |
 | Devices | 186 presets / 54 names | `engine/src/proto/Devices.cpp` (217 lines) | partial |
 
+
+### As built (2026-10-18, wave 4)
+
+Built in `engine/src/proto` (Player, Prototype, the new `Scroll.{h,cpp}`), the Prototype panel and the presentation view; native tests `engine/tests/unit/proto.wave4.test.cpp` (15 cases), vitest in `editor/__tests__/prototype.test.ts`.
+
+- **Transition geometry** (§5.3) as Figma's `cN`: `proto::geometryOf` — Slide in moves the other screen ¼ and fades it 1 → 0.5; the _OUT_TO_ types are the reversed _FROM_ ones of the other side (MOVE_OUT_TO_RIGHT leaves to the left); Push from right / bottom draw the leaving screen on top. The panel's arrows store Figma's side for every type (Move out ← = MOVE_OUT_TO_RIGHT; no direction = RIGHT), matching the agents' Plugin mapping. Files Wecra wrote earlier with Move out / Slide out now play mirrored, as Figma would play them.
+- **Hotspot hints** (§10.4): 0.7 s, opacity 1 − cubic-bezier(0, 0, 0.58, 1), #30C2FF, fill at 50 %, a 2-device-pixel border at 100 % (`PresentItem.borderAlpha`, a small hook in `render/PresentScene.h` / `PresentRender.cpp`), clipped by each layer's clipping ancestors.
+- **Drag** (§3.5, §5.6): a drag past 5 px; the vector of the screen drawn on top × the larger screen (an overlay: its own), Smart animate's matched hotspot centre to centre; let go, the pointer's speed (last 100 ms, 0 after 40 ms still) against 0.15 / duration decides, then |target − p| × duration. `engine_pointer` now passes the event's time to the player.
+- **Frame clock** (§5.4): transitions, Change to, Scroll to, flings and timelines advance by at most 1/30 s a frame (timers stay on the wall clock).
+- **Action queue** (§4.4): actions run in order; a screen change, Change to or animated Scroll to holds the rest until its animation ends; a Conditional's chosen block is inserted in place; a While hovering / pressing queue is dropped when it is undone.
+- **Swap overlay** with no overlay open navigates (§4.4).
+- **After delay** (§3.5): timers start when the screen's transition ends, outermost hotspots only, in order of time then creation, ≥ 500 ms when reached with ← / →; panel max 20 s. Timers and delayed mouse triggers are dropped when another action ran meanwhile — counted: screens, overlays, Change to, Back, Close, Set variable (mode); not Scroll to, Open link or video (INFERRED, which actions bump Figma's counter is not read).
+- **Key triggers** (§3.5): the topmost screen only, the exact key set, ⌘ read as Ctrl off the Mac (the view passes its host, `engine_present_set_options {host}`).
+- **Scrolling** (§8.2): a drag that fires no On drag scrolls the frame under it; let go, it flings — iOS / macOS bouncing (friction 0.135, resistance 0.52·(1 − f)², spring 0.5 / 100 / ratio 1.1, 5000 px/s cap, tolerances by dpr), Android / Windows / Linux clamping (OverScroller curve); the device's platform first (Android presets clamp), else the host. Wheel events within 0.2 s keep scrolling the same frame. Sticky layers inside a non-scrolling parent are released at its bottom; under a Fixed parent not moved.
+- **Panel** (§3.2, §5.1, §5.4, §6.1): the Trigger list disables a trigger another interaction uses (Figma's identity: mouse + delay, key + codes, delay + time), Open link → On click / Mouse up only, video actions → no hover / press / drag, a lone Back → no hover / press; each action's animations (Overlay: Instant, Dissolve, Move in; Swap: + Smart animate; Change to: Instant, Dissolve, Smart animate; On drag: no Instant / Dissolve); Animate matching layers for Navigate to only; a spring's Duration is 6 / (ζω₀) and typing it rescales it to a custom spring; the stored duration is reset to 0.3 s / the spring's T when the curve changes kind; Close when clicking outside hidden for While hovering / pressing.
+- **Open link** opens a new tab unless the file stores false (written explicitly now).
+- **Scale options** (§10.1): Figma's per-class order (`Player::scaleOrder`, `stateJson.scaleOrder`), the first two "Recommended", Z goes to the next, the first is the default. The class thresholds are the help's (C++ in Figma, not read).
+- **Motion timelines** (docs/motion.md §4.12): `UPDATE_ANIMATION_TIMELINE_STATE` read / written (Play, Pause, Toggle, Set playhead); the base screen's timeline plays through `Editor::setMotion` from when its transition ends (Once stops at its end, Loop / Boomerang run on), restarts with the screen, stops with it.
+
+Not done: overlays' own timelines (the editor's motion layer holds one root), the viewer's URL parameters, the hide-UI key per layout and the UI's 2 s fade (§10.5 – §10.6), the mobile scale default, Close overlay closing those above it (open question 3), gamepad triggers, the device list (186 presets). Open questions in §15 stay open.
+
 ---
 
 ## 15. Open questions (with the probe that settles each)
