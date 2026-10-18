@@ -292,6 +292,11 @@
   .codeUnit { color: var(--figma-color-text-secondary); }
   .unitScale { display: flex; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-2) 0; }
   .list { padding: 0 var(--ds-space-2) var(--ds-space-2); }
+  /* The Motion tab (docs/motion.md §8.2): a property's row — its name, its span, its easing and values under it. */
+  .motionRow { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 var(--ds-space-2); padding: var(--ds-space-1) var(--ds-space-2); }
+  .motionRow > .valueSub { flex: 1 0 100%; }
+  /* Its timeline view: Motion's timeline (it docks itself to this box's bottom) along the canvas, left of the panel. */
+  .devTimeline { position: fixed; bottom: 0; left: 0; z-index: var(--ds-z-panel); height: var(--ds-size-motion-timeline); }
   .annotation {
     margin: 0 var(--ds-space-4) var(--ds-space-2);
     padding: var(--ds-space-2);

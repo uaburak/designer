@@ -1322,4 +1322,9 @@ export const editor: Record<string, string> = {
   Volume: "Ses düzeyi",
   "Couldn't add audio": "Ses eklenemedi",
   "Audio files can be up to 100 MB": "Ses dosyaları en fazla 100 MB olabilir",
+  // ── Motion, round 8f (Dev Mode's Motion tab) ──
+  "Nothing here is animated": "Burada animasyonlu bir şey yok",
+  "Show in timeline view": "Zaman çizelgesi görünümünde göster",
+  Timing: "Zamanlama",
+  "Code format": "Kod biçimi",
 };
