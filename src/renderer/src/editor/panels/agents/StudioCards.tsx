@@ -1,12 +1,12 @@
 /**
  * The manager's cards in its answer (docs/studio.md §2.3, §2.4, §4.1, §6.1): one task card per task it started (title,
- * who runs it, its state and time, its credits, Stop, and a disclosure with the prompt and the worker's words and
- * steps), and the cards it waits on — a choice (the image model card with "Use this for this chat"), the brand and
+ * who runs it, its state and time, its credits, Stop, and a disclosure with the worker's words and steps and its prompt,
+ * which the owner can edit and run again once the task has ended, §5.2), and the cards it waits on — a choice (the image model card with "Use this for this chat"), the brand and
  * product forms (editor/studio/forms.tsx), and the review (each frame ✓ or its problems, boxes on its thumbnail, "Fix
  * selected" / "Leave as is").
  */
 import { useEffect, useRef, useState } from "react";
-import { Button, Checkbox, Icon, IconButton, Spinner, cx, tooltipProps } from "@/ds";
+import { Button, Checkbox, Icon, IconButton, Spinner, TextArea, cx, tooltipProps } from "@/ds";
 import type { ProviderInfo } from "@shared/agents/types";
 import type { ImageRouteInfo } from "@shared/ai/types";
 import { useImageRoutes } from "./ManagerSettings";
@@ -57,6 +57,9 @@ function useNow(on: boolean): number {
 export function TaskCard({ task, service }: { task: ChatTask; service: AgentsService }) {
   useT();
   const [open, setOpen] = useState(false);
+  // The prompt as the owner edits it to run the task again (§5.2); null: not editing
+  const [editing, setEditing] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
   const images = useImageRoutes();
   const running = task.state === "running";
   const now = useNow(running);
@@ -64,6 +67,14 @@ export function TaskCard({ task, service }: { task: ChatTask; service: AgentsSer
   const ended = task.state === "done" || task.state === "failed" || task.state === "stopped";
   const log = task.worker;
   const segs = log ? segmentsOf({ state: log.state === "running" ? "running" : "done", parts: log.parts }) : [];
+  // A new task in the same answer, beside this one; this card goes back to its prompt.
+  const runAgain = () => {
+    if (editing === null) return;
+    void service.runTaskAgain(task.id, editing).then((why) => {
+      setProblem(why);
+      if (!why) setEditing(null);
+    });
+  };
   return (
     <div className={styles.task} data-task={task.id} data-task-state={task.state} data-task-kind={task.kind}>
       <div className={styles.taskHead}>
@@ -72,7 +83,7 @@ export function TaskCard({ task, service }: { task: ChatTask; service: AgentsSer
             {running ? <Spinner size={16} /> : task.state === "done" ? <Icon name="16.check" /> : task.state === "queued" ? <Icon name="24.recent" /> : <Icon name="16.warning" />}
           </span>
           <span className={styles.taskText}>
-            <span className={styles.taskTitle}>{task.title}</span>
+            <span className={styles.taskName}>{task.title}</span>
             <span className={styles.taskMeta}>
               {routeText(task, service.get().providers, images, service.managerSettings())} · <span data-task-state-label="">{t(STATE_LABEL[task.state])}</span>
               {time && ` ${time}`}
@@ -88,7 +99,8 @@ export function TaskCard({ task, service }: { task: ChatTask; service: AgentsSer
       {task.error && <div className={styles.taskError}>{task.error}</div>}
       {open && (
         <div className={styles.taskBody} data-task-body="">
-          {task.summary && <p className={styles.taskSummary}>{task.summary}</p>}
+          {/* Its summary is the worker's last words: shown when its words aren't (an image task, a log not kept) */}
+          {task.summary && !segs.some((s) => s.kind === "text") && <p className={styles.taskSummary}>{task.summary}</p>}
           {segs.map((s) =>
             s.kind === "text" ? (
               <p key={s.key} className={styles.taskSummary}>{s.text}</p>
@@ -103,9 +115,28 @@ export function TaskCard({ task, service }: { task: ChatTask; service: AgentsSer
           )}
           {log?.error && <div className={styles.taskError}>{log.error}</div>}
           {task.prompt && (
-            <details className={styles.taskPrompt}>
+            <details className={styles.taskPrompt} open={editing !== null || undefined}>
               <summary>{t("Prompt")}</summary>
-              <pre className={styles.consentArgs}>{task.prompt}</pre>
+              {editing === null ? <pre className={styles.consentArgs}>{task.prompt}</pre> : <TextArea label={t("Prompt")} value={editing} onChange={setEditing} minRows={4} maxRows={12} data-task-prompt-edit="" />}
+              {ended && task.again && (
+                <div className={styles.actions}>
+                  {editing === null ? (
+                    <Button variant="secondary" onClick={() => setEditing(task.prompt!)} data-task-edit="">
+                      {t("Edit")}
+                    </Button>
+                  ) : (
+                    <>
+                      <Button variant="primary" disabled={!editing.trim()} onClick={runAgain} data-task-again="">
+                        {t("Run again")}
+                      </Button>
+                      <Button variant="secondary" onClick={() => setEditing(null)} data-task-edit-cancel="">
+                        {t("Cancel")}
+                      </Button>
+                    </>
+                  )}
+                </div>
+              )}
+              {problem && <div className={styles.taskError} role="alert">{problem}</div>}
             </details>
           )}
         </div>
@@ -124,8 +155,8 @@ export function ManagerCard({ card, service }: { card: ViewCard; service: Agents
   return (
     <div className={styles.consent} data-card={card.kind} data-card-open={open || undefined}>
       <p className={styles.consentTitle}>{card.kind === "brand-form" ? (card.brandId ? t("Edit brand") : t("New brand")) : card.productId ? t("Edit product") : t("New product")}</p>
-      {open && card.kind === "brand-form" && <BrandForm brandId={card.brandId} prefill={card.prefill} onDone={(brandId) => service.answerCard(card.id, { brandId })} onCancel={() => service.answerCard(card.id, { cancelled: true })} />}
-      {open && card.kind === "product-form" && <ProductForm brandId={card.brandId} productId={card.productId} prefill={card.prefill} onDone={(productId) => service.answerCard(card.id, { productId })} onCancel={() => service.answerCard(card.id, { cancelled: true })} />}
+      {open && card.kind === "brand-form" && <BrandForm inCard brandId={card.brandId} prefill={card.prefill} onDone={(brandId) => service.answerCard(card.id, { brandId })} onCancel={() => service.answerCard(card.id, { cancelled: true })} />}
+      {open && card.kind === "product-form" && <ProductForm inCard brandId={card.brandId} productId={card.productId} prefill={card.prefill} onDone={(productId) => service.answerCard(card.id, { productId })} onCancel={() => service.answerCard(card.id, { cancelled: true })} />}
       {answered && <span className={styles.cardAnswer}>{answered}</span>}
     </div>
   );

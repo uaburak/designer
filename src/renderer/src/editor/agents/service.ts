@@ -36,9 +36,10 @@ import { socialOf } from "../social/socialState";
 import { LIBRARY_TOOLS, runLibraryTool } from "../studio/libraryTools";
 import { blurRegions, runStudioImage } from "../studio/images";
 import { makeBrandLibrary } from "../social/templates/brandLibrary";
+import { postSlots } from "../social/templates/templates";
 import type { Writer } from "../social/actions";
 import { TaskQueue, isEnded, type TaskResult } from "./tasks";
-import { isManagerTool, relayoutTask, runManagerTool, type CardAnswer, type ManagerEnv, type StudioChatData, type TaskExtra, type ViewCard } from "./managerTools";
+import { isManagerTool, relayoutTask, runAgain, runManagerTool, type CardAnswer, type ManagerEnv, type StudioChatData, type TaskExtra, type ViewCard } from "./managerTools";
 import { paintImageHash } from "../model/paints";
 import { agentPresenceOf } from "../multiplayer/agentsOnCanvas";
 import { LEAVE_AFTER_MS, type AgentActor } from "../multiplayer/agentPresence";
@@ -1061,6 +1062,7 @@ export class AgentsService implements AgentSetupHost {
       page: () => this.ed.store.page,
       read: (id) => this.readBox(id),
       pictureOf: (id) => this.pictureOf(id),
+      pictureSlot: (id) => postSlots(this.ed, id).find((s) => s.data.role === "picture" && !s.data.locked)?.nodeId ?? null,
       social: () => this.inSocial(),
       // A post's pins: each change one step of the owner's history, as the studio's other writes.
       posts: {
@@ -1154,6 +1156,23 @@ export class AgentsService implements AgentSetupHost {
 
   stopTask(taskId: string) {
     this.queue.stop(taskId);
+  }
+
+  /**
+   * A task's card ran it again with its prompt edited (docs/studio.md §5.2): a new task in the same manager's answer,
+   * the old one kept. Resolves with why it couldn't start (null: started).
+   */
+  async runTaskAgain(taskId: string, prompt: string): Promise<string | null> {
+    const chat = this.state.chats.find((c) => c.tasks?.some((x) => x.id === taskId));
+    const task = chat?.tasks?.find((x) => x.id === taskId);
+    if (!chat || !task || !isEnded(task)) return t("This task can't run again.");
+    const env = this.managerEnv(`again:${task.messageId}`, { chat: chat.id, message: task.messageId });
+    try {
+      await runAgain(env, task, prompt);
+      return null;
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err);
+    }
   }
 
   private taskChanged(t: StudioTask) {

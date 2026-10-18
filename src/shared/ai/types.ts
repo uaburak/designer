@@ -135,10 +135,12 @@ export type ConnectorToolPolicy = "allow" | "ask" | "off";
 export interface Connector {
   id: string;
   name: string;
-  transport: { kind: "http"; url: string; hasKey: boolean } | { kind: "stdio"; command: string; args: string[] };
+  /** `signedIn`: an HTTP server the owner signed in to with OAuth (its tokens kept by main, docs/ai.md §2.11) */
+  transport: { kind: "http"; url: string; hasKey: boolean; signedIn?: boolean } | { kind: "stdio"; command: string; args: string[] };
   enabled: boolean;
   tools: { name: string; description?: string; policy: ConnectorToolPolicy }[];
-  state: "connected" | "error" | "unknown";
+  /** "sign-in": the server wants its user signed in (OAuth) before it answers */
+  state: "connected" | "error" | "unknown" | "sign-in";
   error?: string;
 }
 export interface ConnectorConsent {

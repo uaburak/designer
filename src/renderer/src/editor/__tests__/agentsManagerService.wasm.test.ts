@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // The manager in the Agents tab (docs/studio.md §2) on the real engine, main a stand-in: with the manager on, a message
 // is the manager's turn (its instructions, its tools); its tool calls are answered here, a worker's are refused; a
-// worker task is a turn of its own beside it; a card's answer resolves the waiting call; Stop stops its tasks. Off,
+// worker task is a turn of its own beside it, and its card runs it again with the prompt edited; a card's answer resolves the waiting call; Stop stops its tasks. Off,
 // the chat talks to the picked agent as before. In Social (docs/social.md §7, round 18c) every turn is the manager's,
 // with the board in its instructions; its Social tools, a post's Fix and the follow-up chips; and (the leftovers) the
 // composer's direct turns in Social, Fix without a model or as a worker's relayout task, Make starter templates.
@@ -112,6 +112,29 @@ describe("the manager in a chat", () => {
     const card = s.currentChat()!.tasks![0];
     expect(card).toMatchObject({ title: "Rename layers", state: "done", credits: 2, worker: { state: "done" } });
     expect(card.worker!.parts.map((p) => p.kind)).toEqual(["tool", "text"]);
+  });
+
+  it("a task card's Run again (docs/studio.md §5.2): only once it has ended, a worker's turn with the edited prompt, its card in the same answer", async () => {
+    const { s, turns, emit, tool } = await setup(true);
+    await s.send("Rename the layers");
+    const chatId = s.currentChat()!.id;
+    const d = JSON.parse(text(await tool({ reqId: 1, turnId: "T1", client: "Claude Code", name: "delegate_task", args: { title: "Rename layers", prompt: "Rename the card's layers" } })));
+    await tick();
+    await tick();
+    expect(await s.runTaskAgain(d.taskId, "Rename only the texts")).toBe("This task can't run again.");
+    emit({ turnId: "T2", chatId, event: { type: "done" } });
+    await tick();
+    expect(s.currentChat()!.tasks![0]).toMatchObject({ state: "done", prompt: "Rename the card's layers", again: { kind: "worker" } });
+    expect(await s.runTaskAgain(d.taskId, "Rename only the texts")).toBeNull();
+    await tick();
+    await tick();
+    expect(turns[2]).toMatchObject({ role: "worker", chatId });
+    expect(turns[2].prompt).toMatch(/Rename only the texts$/);
+    const tasks = s.currentChat()!.tasks!;
+    expect(tasks.map((x) => [x.title, x.messageId, x.state])).toEqual([
+      ["Rename layers", tasks[0].messageId, "done"],
+      ["Rename layers", tasks[0].messageId, "running"],
+    ]);
   });
 
   it("a choice card's click resolves the manager's waiting call; Stop on the manager stops its tasks and ends its cards", async () => {

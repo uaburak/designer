@@ -37,6 +37,8 @@
 //   EDITOR_ONLY=grid12 node …                                      (round 12 at 1440 × 900, only on its own: a grid's gap boxes and gap drag, the row pill's click and its chevron's field and sizing list against the live captures)
 //   EDITOR_ONLY=overlays11 node …                                  (round 11 at 1440 × 900, only on its own: the component set's "3 Variants" pill, "+" and gap boxes, no instance title, the text's baseline underline, smart selection dots)
 //   EDITOR_ONLY=agents node …                                      (the Agents tab and the MCP section with a stand-in agent: "Make the mobile version of this", Undo / Apply, Agent settings)
+//   EDITOR_ONLY=studio node …                                      (Studio, run on its own: the manager's task cards, the choice card, the brand form, the review with its boxes, a task's prompt edited and run again; the Brands tab)
+//   EDITOR_ONLY=reach node …                                       (agents' reach, run on its own: Agent settings › Access — the policies, Web's allowed addresses, GitHub off by the org, folders, Screen Recording, the log — and a chat's web card and window picker)
 //   EDITOR_ONLY=input node …                                       (keys typed into fields never reach the canvas; a panel resize never blanks or stretches it, frame by frame)
 //   EDITOR_ONLY=layers14 node …                                    (round 14, Layers polish: names fade at the dynamic cut, rows 32 in every state, the list as wide as its widest row, nothing moves when it overflows, icon-only rail)
 //   EDITOR_ONLY=chrome15 node …                                    (round 15: a turned frame's name and badge along its edges, its press; turned resize / rotate cursors, the cursor sheet; the eyedropper's card, sample, Esc)
@@ -65,6 +67,8 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
 import { agentsSection } from "./editorShotAgents.mjs";
+import { studioSection } from "./editorShotStudio.mjs";
+import { reachSection } from "./editorShotReach.mjs";
 import { autoLayoutDragSection } from "./editorShotAutoLayoutDrag.mjs";
 import { chromeSection } from "./editorShotChrome.mjs";
 import { components15Section } from "./editorShotComponents.mjs";
@@ -4964,6 +4968,18 @@ try {
       });
       page.on("pageerror", (e) => problems.push(`${theme} pageerror: ${e.message}`));
       await agentsSection(page, theme, { open, settle, shot, check });
+      await context.close();
+    }
+  }
+  if (only === "studio" || only === "reach") {
+    for (const theme of ["dark", "light"]) {
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: theme });
+      const page = await context.newPage();
+      page.on("console", (m) => {
+        if (m.type() === "error") problems.push(`${theme} console: ${m.text()}`);
+      });
+      page.on("pageerror", (e) => problems.push(`${theme} pageerror: ${e.message}`));
+      await (only === "studio" ? studioSection : reachSection)(page, theme, { open, settle, shot, check });
       await context.close();
     }
   }

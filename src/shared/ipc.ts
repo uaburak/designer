@@ -479,6 +479,9 @@ export interface IpcInvoke extends SharedFontsChannels {
   "agents:update-connector": { args: [{ id: string; enabled?: boolean; policies?: Record<string, ConnectorToolPolicy> }]; result: Connector[] };
   "agents:remove-connector": { args: [{ id: string }]; result: Connector[] };
   "agents:test-connector": { args: [{ id: string }]; result: Connector };
+  /** An OAuth connector (a server answering with a Bearer challenge): the sign-in in the owner's browser, then a test */
+  "agents:sign-in-connector": { args: [{ id: string }]; result: Connector };
+  "agents:sign-out-connector": { args: [{ id: string }]; result: Connector[] };
   // ── Agents' reach (docs/agents-reach.md): Agent settings › Access ──
   "agents:access": { args: []; result: ReachView };
   "agents:set-access": { args: [ReachPatch]; result: ReachView };
@@ -701,6 +704,8 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "agents:update-connector": ["home", "editor"],
   "agents:remove-connector": ["home", "editor"],
   "agents:test-connector": ["home", "editor"],
+  "agents:sign-in-connector": ["home", "editor"],
+  "agents:sign-out-connector": ["home", "editor"],
   "agents:access": ["home", "editor"],
   "agents:set-access": ["home", "editor"],
   "agents:access-add-folder": ["home", "editor"],

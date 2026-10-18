@@ -185,12 +185,16 @@ export class TaskQueue {
   async wait(ids: readonly string[], timeoutMs: number, signal?: AbortSignal): Promise<StudioTask[]> {
     const known = ids.filter((id) => this.entries.has(id));
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let onAbort = () => {};
     const stop = new Promise<void>((r) => {
       timer = setTimeout(r, Math.max(0, timeoutMs));
-      signal?.addEventListener("abort", () => r(), { once: true });
+      onAbort = () => r();
+      signal?.addEventListener("abort", onAbort, { once: true });
     });
     await Promise.race([Promise.all(known.map((id) => this.entries.get(id)!.ended)), stop]);
     clearTimeout(timer);
+    // The manager's turn signal outlives many waits: none of them stays listening.
+    signal?.removeEventListener("abort", onAbort);
     return known.map((id) => this.entries.get(id)!.task);
   }
 }

@@ -112,3 +112,10 @@ export async function testConnector(api: AgentSetupApi, id: string): Promise<Con
   connectorsBox.set({ list: connectorsBox.get().list.map((x) => (x.id === id ? c : x)) });
   return c;
 }
+
+/** Sign in (an OAuth connector): the owner's browser, then the connector as main tested it with its new tokens. */
+export async function signInConnector(api: AgentSetupApi, id: string): Promise<Connector> {
+  const c = await api.signInConnector!(id);
+  connectorsBox.set({ list: connectorsBox.get().list.map((x) => (x.id === id ? c : x)) });
+  return c;
+}
