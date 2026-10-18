@@ -7,7 +7,7 @@
 import type { Color } from "@/engine/codec";
 import type { EditorController } from "./controller";
 import type { LocalAssets } from "./variables";
-import { resolveVariable } from "./model/variables";
+import { isEasingLiteral, resolveVariable } from "./model/variables";
 
 export type EyedropperMatch = { kind: "variable" | "style"; id: string; name: string };
 
@@ -22,7 +22,7 @@ export function matchColor(assets: Pick<LocalAssets, "variables" | "styles" | "l
   for (const v of assets.variables) {
     if (v.type !== "COLOR") continue;
     const value = resolveVariable(v.id, assets.lookup);
-    if (value && typeof value === "object" && (value.a ?? 1) >= 1 && same(value, color)) return { kind: "variable", id: v.id, name: v.name };
+    if (value && typeof value === "object" && !isEasingLiteral(value) && (value.a ?? 1) >= 1 && same(value, color)) return { kind: "variable", id: v.id, name: v.name };
   }
   for (const s of assets.styles) {
     if (s.kind !== "FILL") continue;

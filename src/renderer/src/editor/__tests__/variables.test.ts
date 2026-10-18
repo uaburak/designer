@@ -261,3 +261,23 @@ describe("variables (atlas 11, wave 3)", () => {
     expect(bindingWarning("TEXT_DATA", "x", null)).toBeNull();
   });
 });
+
+describe("Motion's variable types (round 8i, docs/motion.md §6.7)", () => {
+  it("Easing and Timing: their values as EasingData and milliseconds, read back; formatted as the table shows them", () => {
+    const bezier = { type: "CUSTOM_CUBIC_BEZIER" as const, easingFunctionCubicBezier: { x1: 0.2, y1: 0, x2: 0.4, y2: 1 } };
+    const easing = toData("EASING", { kind: "literal", value: bezier });
+    expect(easing).toEqual({ dataType: "EASING", resolvedDataType: "EASING", value: { easingValue: { easingType: "CUSTOM_CUBIC", easingValue: { bezierEasing: { p1x: 0.2, p1y: 0, p2x: 0.4, p2y: 1 } } } } });
+    expect(fromData(easing)).toEqual({ kind: "literal", value: bezier });
+    const timing = toData("TIMING", { kind: "literal", value: 250 });
+    expect(timing).toEqual({ dataType: "TIMING", resolvedDataType: "TIMING", value: { floatValue: 250 } });
+    expect(fromData(timing)).toEqual({ kind: "literal", value: 250 });
+    expect(formatLiteral("EASING", { type: "EASE_OUT" })).toBe("Ease out");
+    expect(formatLiteral("EASING", bezier)).toBe("Custom bezier (0.2, 0, 0.4, 1)");
+    expect(formatLiteral("TIMING", 250)).toBe("250ms");
+    // An alias keeps its type; neither type offers scopes.
+    expect(toData("TIMING", { kind: "alias", id: "1:9" }).resolvedDataType).toBe("TIMING");
+    expect(SCOPE_OPTIONS.EASING).toEqual([]);
+    expect(SCOPE_OPTIONS.TIMING).toEqual([]);
+  });
+});
+

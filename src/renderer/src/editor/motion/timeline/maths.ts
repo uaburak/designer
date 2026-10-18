@@ -2,7 +2,7 @@
  * The timeline's geometry (docs/motion.md §6.2): time ↔ x, the ruler's labels, snapping to the timeline's frames
  * (`keyframeSnappingFps`) and, with ⇧ held, to the playhead and the other keyframes; the layer bar's extent; the
  * marquee, the height dragged by the top edge and the keyframes copied (increment 2); an audio clip moved and trimmed
- * (round 8e). Figma's
+ * (round 8e); the layer bar moved or stretched, the snapping grids of the timeline settings (round 8i). Figma's
  * timeline worker draws the origin at x = 18 px and 16 × 16 diamonds (docs/research/rea/motion.md).
  */
 import type { GuidString, Micros, MotionClipboard, TimelineAudioClip, TimelineLayer } from "@shared/motion/types";
@@ -101,6 +101,40 @@ export function layerExtent(layer: TimelineLayer): { startUs: Micros; endUs: Mic
     end = Math.max(end, c.startUs + c.durationUs);
   }
   return start === Infinity ? null : { startUs: start, endUs: end };
+}
+
+/**
+ * The layer bar dragged by `dUs` (round 8i, docs/motion.md §6.2): "move" shifts the whole span (never before 0), "end"
+ * stretches it from its start, "start" from its end; never shorter than `minUs`. `snap` places the dragged edge.
+ */
+export function retimeLayer(ext: { startUs: Micros; endUs: Micros }, edge: "move" | "start" | "end", dUs: number, snap: (us: number) => Micros, minUs: Micros): { startUs: Micros; endUs: Micros } {
+  const length = ext.endUs - ext.startUs;
+  if (edge === "move") {
+    const start = Math.max(0, snap(ext.startUs + dUs));
+    return { startUs: start, endUs: start + length };
+  }
+  if (edge === "end") return { startUs: ext.startUs, endUs: Math.max(ext.startUs + minUs, snap(ext.endUs + dUs)) };
+  return { startUs: Math.min(ext.endUs - minUs, Math.max(0, snap(ext.startUs + dUs))), endUs: ext.endUs };
+}
+
+/**
+ * The timeline settings' snapping grid (Figma's, docs/motion.md §6.2): its presets per unit — in ms the grid's step
+ * (100 / 50 / 10 ms, i.e. 10 / 20 / 100 fps), in frames the frame rates — and a typed one: a step in ms becomes
+ * 1000 / ms fps clamped 1–1000, a frame rate is rounded and clamped 1–120. Off (ms) snaps to the millisecond [ours].
+ */
+export const GRID_OFF_FPS = 1000;
+export function gridFromMs(ms: number): number | null {
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  return Math.min(1000, Math.max(1, 1000 / ms));
+}
+export function gridFromFps(fps: number): number | null {
+  if (!Number.isFinite(fps) || fps <= 0) return null;
+  return Math.min(120, Math.max(1, Math.round(fps)));
+}
+/** A grid's label in a unit: "100 ms", "Off"; "29.97 fps". */
+export function gridLabel(fps: number, unit: "ms" | "frames"): string {
+  if (unit === "ms") return fps >= GRID_OFF_FPS ? "Off" : `${Math.round((1000 / fps) * 100) / 100} ms`;
+  return `${Math.round(fps * 1000) / 1000} fps`;
 }
 
 /** Every keyframe time of the model but the given ones (⇧-snap targets). */

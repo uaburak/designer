@@ -10,19 +10,26 @@
  * nearest explicit one up to the page (else the collection's default).
  */
 import type { Color, Guid, NodeChange, Paint } from "@/engine/codec";
+import { t } from "@/i18n";
+import { easingFromData, easingNumbers, easingToData, type EasingData } from "@shared/motion/easing";
+import { EASING_LABELS, type MotionEasing } from "@shared/motion/types";
 import { guidStr, guidVal, type GuidValue } from "./components";
 
 export { guidStr, guidVal, type GuidValue };
 
 // ---- Schema shapes --------------------------------------------------------------------------------------------
 
-/** The four types Design shows (EASING / TIMING come with Motion). */
-export type VarType = "COLOR" | "FLOAT" | "STRING" | "BOOLEAN";
-export const VAR_TYPES: readonly VarType[] = ["COLOR", "FLOAT", "STRING", "BOOLEAN"];
+/**
+ * Design's four types, and Motion's two (docs/motion.md §4.7, §6.7; round 8i): EASING — "Easing curve or spring
+ * animation", applied to animation presets and keyframes — and TIMING — "Duration in milliseconds", applied to a
+ * preset's Delay and Duration.
+ */
+export type VarType = "COLOR" | "FLOAT" | "STRING" | "BOOLEAN" | "EASING" | "TIMING";
+export const VAR_TYPES: readonly VarType[] = ["COLOR", "FLOAT", "STRING", "BOOLEAN", "EASING", "TIMING"];
 /** Figma's names for them ("+ Create variable" menu, the Edit variable header). */
-export const VAR_TYPE_LABEL: Record<VarType, string> = { COLOR: "Color", FLOAT: "Number", STRING: "String", BOOLEAN: "Boolean" };
+export const VAR_TYPE_LABEL: Record<VarType, string> = { COLOR: "Color", FLOAT: "Number", STRING: "String", BOOLEAN: "Boolean", EASING: "Easing", TIMING: "Timing" };
 /** The 16px glyph of each type (the table's name column, the pickers). */
-export const VAR_TYPE_ICON = { COLOR: "16.variable.color", FLOAT: "16.number", STRING: "16.text", BOOLEAN: "16.variable.boolean" } as const;
+export const VAR_TYPE_ICON = { COLOR: "16.variable.color", FLOAT: "16.number", STRING: "16.text", BOOLEAN: "16.variable.boolean", EASING: "16.easing", TIMING: "16.timing" } as const;
 
 export interface AliasRef {
   guid: GuidValue;
@@ -34,6 +41,8 @@ export interface VariableAnyValue {
   floatValue?: number;
   colorValue?: Color;
   alias?: AliasRef;
+  /** EASING (Motion): an EasingData */
+  easingValue?: EasingData;
   [other: string]: unknown;
 }
 
@@ -121,7 +130,11 @@ export interface Variable {
 
 /** A value in a mode: a literal of the variable's type, or an alias to another variable. */
 export type VarValue = { kind: "alias"; id: Guid } | { kind: "literal"; value: Literal };
-export type Literal = boolean | number | string | Color;
+/** An EASING literal is Motion's public easing; a TIMING one a number of milliseconds. */
+export type Literal = boolean | number | string | Color | MotionEasing;
+
+/** An EASING literal (a MotionEasing has a `type`; a colour hasn't). */
+export const isEasingLiteral = (v: Literal | null | undefined): v is MotionEasing => typeof v === "object" && v !== null && "type" in v;
 
 // ---- Reading ---------------------------------------------------------------------------------------------------
 
@@ -155,12 +168,13 @@ export function fromData(d: VariableData | undefined): VarValue | null {
   const v = d?.value;
   if (!d || !v) return null;
   if (d.dataType === "ALIAS" && v.alias?.guid) return { kind: "alias", id: guidStr(v.alias.guid) };
+  if (v.easingValue || d.dataType === "EASING") return { kind: "literal", value: easingFromData(v.easingValue) };
   if (v.colorValue) return { kind: "literal", value: v.colorValue };
   if (typeof v.floatValue === "number") return { kind: "literal", value: v.floatValue };
   if (typeof v.textValue === "string") return { kind: "literal", value: v.textValue };
   if (typeof v.boolValue === "boolean") return { kind: "literal", value: v.boolValue };
   // Absent fields are kiwi's defaults: a FLOAT 0, a BOOLEAN false, a STRING "".
-  if (d.dataType === "FLOAT") return { kind: "literal", value: 0 };
+  if (d.dataType === "FLOAT" || d.dataType === "TIMING") return { kind: "literal", value: 0 };
   if (d.dataType === "BOOLEAN") return { kind: "literal", value: false };
   if (d.dataType === "STRING") return { kind: "literal", value: "" };
   return null;
@@ -179,8 +193,16 @@ export function toData(type: VarType, value: VarValue): VariableData {
       return { dataType: "STRING", resolvedDataType: "STRING", value: { textValue: String(v) } };
     case "BOOLEAN":
       return { dataType: "BOOLEAN", resolvedDataType: "BOOLEAN", value: { boolValue: v === true } };
+    case "EASING":
+      return { dataType: "EASING", resolvedDataType: "EASING", value: { easingValue: easingToData(isEasingLiteral(v) ? v : DEFAULT_EASING_VALUE) } };
+    case "TIMING":
+      return { dataType: "TIMING", resolvedDataType: "TIMING", value: { floatValue: Math.max(0, Number(v)) } };
   }
 }
+
+/** A new Easing variable's value (Motion's preset default, Ease out) and a new Timing's (Motion's preset Duration) [ours]. */
+export const DEFAULT_EASING_VALUE: MotionEasing = { type: "EASE_OUT" };
+export const DEFAULT_TIMING_MS = 500;
 
 export function readVariable(n: VNode): Variable {
   const values = new Map<Guid, VarValue>();
@@ -231,6 +253,10 @@ export function defaultLiteral(type: VarType): Literal {
       return "";
     case "BOOLEAN":
       return false;
+    case "EASING":
+      return DEFAULT_EASING_VALUE;
+    case "TIMING":
+      return DEFAULT_TIMING_MS;
   }
 }
 
@@ -534,6 +560,9 @@ export const SCOPE_OPTIONS: Record<VarType, ScopeOption[]> = {
     { scope: "FONT_STYLE", label: "Font weight or style" },
   ],
   BOOLEAN: [],
+  // Motion's types bind one kind of field each (easings; delays and durations) [unverified: Figma's scopes for them].
+  EASING: [],
+  TIMING: [],
 };
 
 /** Every scope a type's checkboxes can set (flattened). */
@@ -898,6 +927,13 @@ export function formatLiteral(type: VarType, value: Literal | null): string {
       return String(value);
     case "BOOLEAN":
       return value === true ? "true" : "false";
+    case "EASING": {
+      if (!isEasingLiteral(value)) return "";
+      const numbers = easingNumbers(value);
+      return numbers ? `${t(EASING_LABELS[value.type])} (${numbers})` : t(EASING_LABELS[value.type]);
+    }
+    case "TIMING":
+      return `${Math.round(Number(value))}ms`;
   }
 }
 

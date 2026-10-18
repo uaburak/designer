@@ -79,17 +79,25 @@
   .instanceRow .name { color: var(--figma-color-text-component); }
 
   /* The track area: the ruler, then one lane per row, the same heights as the layer column */
-  .tracks { position: relative; flex: 1 1 auto; min-width: 0; overflow: hidden; outline: none; }
+  .tracks { position: relative; display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; overflow: hidden; outline: none; }
   .tracks:focus-visible { box-shadow: inset 0 0 0 var(--ds-focus-width) var(--ds-focus-color); }
-  .ruler { position: relative; height: var(--ruler); border-bottom: 1px solid var(--figma-color-border); cursor: ew-resize; }
+  .ruler { position: relative; flex: none; height: var(--ruler); border-bottom: 1px solid var(--figma-color-border); cursor: ew-resize; }
   .tick { position: absolute; bottom: 0; width: 1px; height: 4px; background: var(--figma-color-border-strong); }
   .tick[data-major] { height: 8px; background: var(--figma-color-icon-secondary); }
   .tickLabel { position: absolute; top: 2px; transform: translateX(-50%); color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); letter-spacing: var(--ds-tracking-body-small); white-space: nowrap; }
-  .lanes { position: relative; overflow: hidden; }
+  /* The lanes fill what is under the ruler; their rows follow the layer column's scroll (round 8i), the playhead and the past stay over them */
+  .lanes { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+  .laneRows { will-change: transform; }
   .lane { position: relative; box-sizing: border-box; height: var(--row); border-bottom: 1px solid var(--figma-color-bg-secondary); }
   .lane[aria-selected="true"] { background: var(--figma-color-bg-selected-tertiary); }
   /* The layer bar: from the first to the last keyframe of the layer */
-  .layerBar { position: absolute; top: calc(50% - 3px); height: 6px; border-radius: 3px; background: var(--figma-color-bg-brand-tertiary); opacity: 0.7; cursor: grab; }
+  .layerBar { position: absolute; top: calc(50% - 3px); height: 6px; border-radius: 3px; background: var(--figma-color-bg-brand-tertiary); opacity: 0.7; }
+  .layerBar[data-editable] { cursor: grab; }
+  .layerBar[data-editable]:hover { opacity: 1; }
+  /* Its side handles (round 8i): wider than the bar, at its ends */
+  .barHandle { position: absolute; top: -4px; bottom: -4px; width: 6px; cursor: ew-resize; }
+  .barHandle[data-bar-handle="start"] { left: -3px; }
+  .barHandle[data-bar-handle="end"] { right: -3px; }
   .instanceBar { position: absolute; top: calc(50% - 6px); height: 12px; border-radius: 3px; background: var(--figma-color-bg-component-tertiary); cursor: grab; }
   /* A preset's clip (round 8h): its type's name in a bar over its span, a handle at each side; blue outline when selected [unverified] */
   .clip {
@@ -143,6 +151,9 @@
   .segment { position: absolute; top: calc(50% - 1px); height: 2px; background: var(--figma-color-icon-tertiary); cursor: pointer; }
   .segment:hover { background: var(--figma-color-bg-brand); }
   .segment[data-hold] { background: repeating-linear-gradient(90deg, var(--figma-color-icon-tertiary) 0 3px, transparent 3px 6px); }
+  .segment[data-variable] { background: var(--figma-color-icon-brand-tertiary); }
+  .segment:disabled { cursor: default; }
+  .segment:disabled:hover { background: var(--figma-color-icon-tertiary); }
   .segment::before { position: absolute; top: -6px; right: 0; bottom: -6px; left: 0; content: ""; }
   /* The diamonds: 16 × 16, blue outline / blue filled when selected */
   .diamond {
@@ -172,6 +183,7 @@
   .playhead[data-auto] .playheadHandle { background: var(--figma-color-bg-danger); }
   /* The duration handle at the timeline's end; past it dimmed */
   .duration { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--figma-color-border-strong); cursor: ew-resize; }
+  .duration[data-readonly] { cursor: default; }
   .duration::before { position: absolute; top: 0; bottom: 0; left: -4px; width: 9px; content: ""; }
   .durationHandle { position: absolute; top: 0; left: -4px; width: 9px; height: 12px; border-radius: 0 0 2px 2px; background: var(--figma-color-icon-secondary); }
   .past { position: absolute; top: 0; right: 0; bottom: 0; background: var(--figma-color-bg-secondary); opacity: 0.25; pointer-events: none; }

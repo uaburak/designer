@@ -1,20 +1,31 @@
 /**
- * The Easing menu and editor of Motion mode (docs/motion.md §6.3), increment 1: a popover anchored to the clicked
- * segment or field with Figma's easing list — Hold first, then the bezier curves and the springs, no dividers; when
- * the current easing is a spring only the springs are listed — a Bezier | Spring switch (CUSTOM_CUBIC / CUSTOM_SPRING),
- * each row with a small curve preview; Custom bezier takes "x1, y1, x2, y2" in a field, Custom spring its Bounce (0–1).
+ * The Easing menu and editor of Motion mode (docs/motion.md §6.3): a popover anchored to the clicked segment, clip or
+ * field with Figma's easing list — Hold first, then the bezier curves and the springs, no dividers; when the current
+ * easing is a spring only the springs are listed — a Bezier | Spring switch (CUSTOM_CUBIC / CUSTOM_SPRING), each row
+ * with a small curve preview; Custom bezier also takes "x1, y1, x2, y2" in a field, Custom spring its Bounce (0–1).
  *
- * Not in this increment: the 200 × 200 curve editor and the spring's response-curve handle, the hover preview dot, the
- * EASING variable binding (`allowVariable` is accepted and ignored), the prototype context's physical fields.
+ * Round 8i: the 200 × 200 graph above the list (CurveEditor.tsx) — the current curve, a custom bezier's handles and
+ * corner points, a custom spring's bounce handle; hovering a row shows its curve there and runs a dot along a track
+ * with it (the hover preview [ours]); with `allowVariable`, the EASING variable binding — "Apply variable" (the picker
+ * filtered to Easing), the bound variable's pill with Detach, and "Create variable", which saves the current easing as
+ * a new Easing variable and binds it (help: "Custom curves and springs can be saved as variables").
+ *
+ * Not here: the prototype context's physical spring fields (the Prototype panel keeps its own numeric fields).
  */
 import { useState } from "react";
-import { Popover, SegmentedControl, TextInput } from "@/ds";
+import { Icon, IconButton, Popover, SegmentedControl, TextInput, showToast, tooltipProps } from "@/ds";
 import { t, useT } from "@/i18n";
+import { easingCss, isSpringEasing } from "@shared/motion/easing";
 import { BEZIER_PRESETS, DEFAULT_KEYFRAME_EASING, EASING_LABELS, MOTION_EASING_TYPES, type EasingEditorProps, type EasingRef, type MotionEasing, type MotionEasingType } from "@shared/motion/types";
+import { useEditor } from "../../controller";
+import { useLocalAssets } from "../../hooks";
+import { VariablePicker } from "../../panels/variables/VariablePicker";
+import { createCollection, createVariable } from "../../variables";
+import { CurveEditor } from "./CurveEditor";
 import styles from "./EasingEditor.module.css";
 
 const SPRINGS: readonly MotionEasingType[] = ["GENTLE", "QUICK", "BOUNCY", "SLOW", "CUSTOM_SPRING"];
-const isSpring = (type: MotionEasingType) => SPRINGS.includes(type);
+const isSpring = isSpringEasing;
 /** The spring presets' bounce as shown (clamp(1 − ζ, 0, 1) of SPRING_PRESETS). */
 const PRESET_BOUNCE: Partial<Record<MotionEasingType, number>> = { GENTLE: 0.25, QUICK: 0.42, BOUNCY: 0.69, SLOW: 0 };
 
@@ -68,18 +79,23 @@ const parseBezier = (text: string): MotionEasing["easingFunctionCubicBezier"] | 
   return { x1: clamp01(parts[0]), y1: clampY(parts[1]), x2: clamp01(parts[2]), y2: clampY(parts[3]) };
 };
 
-const asMotion = (v: EasingRef): MotionEasing => ("variable" in v ? DEFAULT_KEYFRAME_EASING : v);
+const asMotion = (v: EasingRef, resolved?: MotionEasing): MotionEasing => ("variable" in v ? resolved ?? DEFAULT_KEYFRAME_EASING : v);
 
-/** The Easing popover: the list, the Bezier | Spring switch and the custom fields. */
-export function EasingEditor({ value, onChange, anchor, onClose }: EasingEditorProps) {
+/** The Easing popover: the graph, the list, the Bezier | Spring switch, the custom fields and (allowVariable) the binding. */
+export function EasingEditor({ value, resolved, onChange, anchor, onClose, allowVariable }: EasingEditorProps) {
   useT();
-  const [current, setCurrent] = useState<MotionEasing>(() => asMotion(value));
-  const choose = (e: MotionEasing) => {
+  const [current, setCurrent] = useState<MotionEasing>(() => asMotion(value, resolved));
+  const [bound, setBound] = useState<string | null>("variable" in value ? value.variable : null);
+  const [hovered, setHovered] = useState<MotionEasing | null>(null);
+  const choose = (e: MotionEasing, commit = true) => {
     setCurrent(e);
-    onChange(e, true);
+    setBound(null);
+    onChange(e, commit);
   };
   const rect = typeof DOMRect !== "undefined" ? new DOMRect(anchor.x, anchor.y, anchor.width, anchor.height) : null;
   const bezierText = current.easingFunctionCubicBezier ? [current.easingFunctionCubicBezier.x1, current.easingFunctionCubicBezier.y1, current.easingFunctionCubicBezier.x2, current.easingFunctionCubicBezier.y2].map((v) => String(Math.round(v * 100) / 100)).join(", ") : "";
+  const shown = hovered ?? current;
+  const custom = !hovered && !bound && (current.type === "CUSTOM_CUBIC_BEZIER" || current.type === "CUSTOM_SPRING");
   return (
     <Popover anchor={rect} placement="top" title={t("Easing")} onClose={onClose} width={240}>
       <div className={styles.body} data-easing-editor>
@@ -87,32 +103,92 @@ export function EasingEditor({ value, onChange, anchor, onClose }: EasingEditorP
           if (v === "spring" && !isSpring(current.type)) choose(easingOfType("CUSTOM_SPRING", current));
           if (v === "bezier" && isSpring(current.type)) choose(easingOfType("CUSTOM_CUBIC_BEZIER", current));
         }} />
-        <ul className={styles.list} role="listbox" aria-label={t("Easing")}>
+        <div className={styles.graphBox}>
+          <CurveEditor easing={shown} editable={custom} onChange={(e, commit) => choose(e, commit)} />
+          {/* The hover preview: a dot running across with the hovered curve [ours]. */}
+          <div className={styles.track} aria-hidden data-easing-preview={hovered ? hovered.type : undefined}>
+            {hovered && <span key={hovered.type} className={styles.dot} style={{ animationTimingFunction: easingCss(hovered) }} />}
+          </div>
+        </div>
+        <ul className={styles.list} role="listbox" aria-label={t("Easing")} onMouseLeave={() => setHovered(null)}>
           {easingMenuTypes(current.type).map((type) => (
-            <li key={type} role="option" aria-selected={current.type === type} data-easing={type} className={styles.item} onClick={() => choose(easingOfType(type, current))}>
+            <li key={type} role="option" aria-selected={!bound && current.type === type} data-easing={type} className={styles.item} onMouseEnter={() => setHovered(easingOfType(type, current))} onClick={() => {
+              setHovered(null);
+              choose(easingOfType(type, current));
+            }}>
               <svg className={styles.preview} viewBox="0 0 24 16" aria-hidden><path d={previewPath(type, current)} /></svg>
               <span className={styles.itemLabel}>{t(EASING_LABELS[type])}</span>
             </li>
           ))}
         </ul>
-        {current.type === "CUSTOM_CUBIC_BEZIER" && (
+        {current.type === "CUSTOM_CUBIC_BEZIER" && !bound && (
           <TextInput label={t("Cubic bezier")} value={bezierText} placeholder="x1, y1, x2, y2" onCommit={(v) => {
             const b = parseBezier(v);
             if (b) choose({ type: "CUSTOM_CUBIC_BEZIER", easingFunctionCubicBezier: b });
           }} />
         )}
-        {current.type === "CUSTOM_SPRING" && (
+        {current.type === "CUSTOM_SPRING" && !bound && (
           <TextInput label={t("Bounce")} value={String(current.easingFunctionSpring?.bounce ?? 0.3)} onCommit={(v) => {
             const n = Number(v);
             if (Number.isFinite(n)) choose({ type: "CUSTOM_SPRING", easingFunctionSpring: { bounce: Math.min(1, Math.max(0, n)) } });
           }} />
+        )}
+        {allowVariable && (
+          <EasingVariable bound={bound} current={current} onBind={(id) => {
+            setBound(id);
+            onChange({ variable: id }, true);
+          }} onDetach={() => choose(current)} />
         )}
       </div>
     </Popover>
   );
 }
 
-/** The dropdown alone (a segment's or clip's easing): in this increment the same popover. */
+/**
+ * The EASING variable binding: the bound variable's pill (its name, Detach) or "Apply variable" (the picker, Easing
+ * variables only) and "Create variable" (a new Easing variable holding the current easing, bound at once — in the
+ * file's first collection, or a new one when it has none).
+ */
+function EasingVariable({ bound, current, onBind, onDetach }: { bound: string | null; current: MotionEasing; onBind(id: string): void; onDetach(): void }) {
+  useT();
+  const ed = useEditor();
+  const a = useLocalAssets();
+  const [picker, setPicker] = useState<HTMLElement | null>(null);
+  const variable = bound ? a.lookup.variable(bound) : undefined;
+  const create = () => {
+    const collection = a.collections[0]?.id ?? createCollection(ed);
+    const id = collection ? createVariable(ed, collection, "EASING", "", { kind: "literal", value: current }) : null;
+    if (id) onBind(id);
+    else showToast({ message: t("Couldn't create the variable"), kind: "error" });
+  };
+  return (
+    <div className={styles.variableRow} data-easing-variable={bound ?? ""}>
+      {bound ? (
+        <>
+          <span className={styles.variablePill}>
+            <Icon name="16.easing" />
+            <span className={styles.itemLabel}>{variable?.name ?? t("Missing variable")}</span>
+          </span>
+          <IconButton icon="24.detach.small" label={t("Detach variable")} tone="secondary" onClick={onDetach} />
+        </>
+      ) : (
+        <>
+          <button type="button" className={styles.variableButton} {...tooltipProps(t("Apply variable"))} aria-expanded={!!picker} onClick={(e) => setPicker(e.currentTarget)}>
+            <Icon name="24.variable.small" />
+            <span>{t("Apply variable")}</span>
+          </button>
+          <button type="button" className={styles.variableButton} data-create-easing-variable onClick={create}>
+            <Icon name="24.plus.small" />
+            <span>{t("Create variable")}</span>
+          </button>
+        </>
+      )}
+      {picker && <VariablePicker anchor={picker} placement="bottom-start" types={["EASING"]} current={bound} onPick={(v) => onBind(v.id)} onClose={() => setPicker(null)} />}
+    </div>
+  );
+}
+
+/** The dropdown alone (a segment's or clip's easing): the same popover. */
 export function EasingMenu(props: EasingEditorProps) {
   return <EasingEditor {...props} />;
 }

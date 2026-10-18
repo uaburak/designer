@@ -12,9 +12,12 @@
  *
  * Transforms, opacity, solid colours, stroke widths and path trim are written from the samples, thinned to the frames
  * a straight line doesn't reproduce; everything else is static at base values (a WIDTH / HEIGHT animation doesn't
- * reshape the paths yet).
+ * reshape the paths yet). Round 8i: a keyed layer (../keyframed.ts) has its anchor at its anchor point and its
+ * position, rotation, scale and opacity written from the timeline's keyframes — each key's bezier easing as its `o` /
+ * `i`, Hold as `h`, the motion path's handles as `to` / `ti`.
  */
 import type { MotionSample, MotionShapePaint, MotionShapePath, RGBA } from "@shared/motion/types";
+import type { KeyChannel, KeyedLayer } from "../keyframed";
 import { constant, contoursOf, decompose, keepFrames, unwrapDegrees, type AnimLayer, type AnimScene, type Matrix } from "../vectorAnim";
 
 /** A Lottie value: static `{a: 0, k}` or keyframed `{a: 1, k: [...]}`. */
@@ -24,6 +27,11 @@ export interface LottieKeyframe {
   s: number[];
   i?: { x: number[]; y: number[] };
   o?: { x: number[]; y: number[] };
+  /** Hold until the next key */
+  h?: 1;
+  /** A position key's spatial tangents: out of it, into the next */
+  to?: number[];
+  ti?: number[];
 }
 type Json = Record<string, unknown>;
 
@@ -74,6 +82,52 @@ export function transformOf(transforms: readonly Matrix[], opacity: readonly num
     sk: lottieValue(parts.map((p) => [round(p.sk)]), TOL.rotation, true),
     sa: { a: 0, k: 0 },
     o: lottieValue(opacity.map((o) => [round(o * 100)]), TOL.opacity, true),
+  };
+}
+
+/**
+ * A keyed channel (round 8i) as Lottie's keyframes: each key at its frame (fractional), its value mapped by `value`, the
+ * segment's curve as its `o` / `i` (one per dimension), Hold as `h`; `tangent` maps a motion path handle into the
+ * value's space (position: the base transform's turn).
+ */
+export function keyedValue(c: KeyChannel, fps: number, value: (v: number[]) => number[], tangent?: (h: [number, number]) => number[]): LottieValue {
+  const ks = c.keys;
+  return {
+    a: 1,
+    k: ks.map((key, n) => {
+      const out: LottieKeyframe = { t: round((key.timeUs * fps) / 1e6), s: value(key.v).map(round) };
+      const next = ks[n + 1];
+      if (!next) return out;
+      if (key.ease === "HOLD") return { ...out, h: 1 };
+      const b = key.ease ?? [0, 0, 1, 1];
+      const dims = out.s.length;
+      out.o = { x: Array(dims).fill(round(b[0])), y: Array(dims).fill(round(b[1])) };
+      out.i = { x: Array(dims).fill(round(b[2])), y: Array(dims).fill(round(b[3])) };
+      if (tangent && (key.out || next.in)) {
+        out.to = tangent(key.out ?? [0, 0]).map(round);
+        out.ti = tangent(next.in ?? [0, 0]).map(round);
+      }
+      return out;
+    }),
+  };
+}
+
+/**
+ * A keyed layer's transform: its anchor at its anchor point o, its position L(o + t), its rotation the base's turn plus
+ * the keyed one, its scale the keyed one (×100); what isn't keyed static at rest. `opacity` the per-frame fallback.
+ */
+export function keyedTransformOf(k: KeyedLayer, fps: number, opacity: Json): Json {
+  const [a, b, c, d, e, f] = k.base;
+  const place = (v: number[]) => [a * (k.anchor[0] + v[0]) + c * (k.anchor[1] + v[1]) + e, b * (k.anchor[0] + v[0]) + d * (k.anchor[1] + v[1]) + f];
+  const turn = decompose(k.base).r;
+  return {
+    a: { a: 0, k: k.anchor.map(round) },
+    p: k.translate ? keyedValue(k.translate, fps, place, (h) => [a * h[0] + c * h[1], b * h[0] + d * h[1]]) : { a: 0, k: place(k.still.translate).map(round) },
+    r: k.rotate ? keyedValue(k.rotate, fps, (v) => [turn + v[0]]) : { a: 0, k: round(turn + k.still.rotate) },
+    s: k.scale ? keyedValue(k.scale, fps, (v) => [v[0] * 100, v[1] * 100]) : { a: 0, k: k.still.scale.map((v) => round(v * 100)) },
+    sk: { a: 0, k: 0 },
+    sa: { a: 0, k: 0 },
+    o: opacity,
   };
 }
 
@@ -153,9 +207,20 @@ const boxMask = (w: number, h: number): Json => ({
 interface Builder {
   ind: number;
   op: number;
+  fps: number;
   assets: Json[];
   rasters: ReadonlyMap<string, LottieAsset>;
   comps: number;
+  keyed: ReadonlyMap<string, KeyedLayer>;
+}
+
+/** A layer's `ks`: from its keys when it is keyed (round 8i), else from its samples. */
+function layerTransform(b: Builder, l: AnimLayer, transforms: readonly Matrix[], own: readonly number[]): Json {
+  const k = b.keyed.get(l.shape.node);
+  const sampled = transformOf(transforms, own);
+  if (!k) return sampled;
+  const opacity = k.opacity && k.inheritedOpacity !== null ? keyedValue(k.opacity, b.fps, (v) => [v[0] * k.inheritedOpacity! * 100]) : (sampled.o as Json);
+  return k.transform ? keyedTransformOf(k, b.fps, opacity) : { ...sampled, o: opacity };
 }
 
 /**
@@ -176,14 +241,14 @@ function emit(b: Builder, l: AnimLayer, parent: number | null, inherited: number
     const self: AnimLayer = { shape: { ...s, clips: false }, frames: frames.map((f, k) => ({ ...f, t: still[k], o: 1 })), children: l.children };
     emit(b, self, null, frames.map(() => 1), inner, true);
     b.assets.push({ id, nm: s.name, layers: inner.reverse() });
-    out.push({ ...base, ty: 0, ind: b.ind++, refId: id, w: Math.ceil(s.size.width), h: Math.ceil(s.size.height), hasMask: true, masksProperties: [boxMask(s.size.width, s.size.height)], ks: transformOf(transforms, own) });
+    out.push({ ...base, ty: 0, ind: b.ind++, refId: id, w: Math.ceil(s.size.width), h: Math.ceil(s.size.height), hasMask: true, masksProperties: [boxMask(s.size.width, s.size.height)], ks: layerTransform(b, l, transforms, own) });
     return;
   }
   const ind = b.ind++;
   if (s.paths.length) {
-    out.push({ ...base, ty: 4, ind, ks: transformOf(transforms, own), shapes: s.paths.map((p, k) => groupOf(p, frames, k + 1)).reverse() });
+    out.push({ ...base, ty: 4, ind, ks: layerTransform(b, l, transforms, own), shapes: s.paths.map((p, k) => groupOf(p, frames, k + 1)).reverse() });
   } else {
-    out.push({ ...base, ty: 3, ind, ks: transformOf(transforms, frames.map(() => 1)) });
+    out.push({ ...base, ty: 3, ind, ks: layerTransform(b, l, transforms, frames.map(() => 1)) });
   }
   const asset = s.raster ? b.rasters.get(s.node) : undefined;
   if (asset && s.raster) {
@@ -191,6 +256,8 @@ function emit(b: Builder, l: AnimLayer, parent: number | null, inherited: number
     const k = s.raster.width > 0 ? s.raster.width / asset.w : 1;
     const place = s.raster.transform;
     const m: Matrix = [place[0] * k, place[1] * k, place[2] * k, place[3] * k, place[4], place[5]];
+    // A keyed parent's anchor is its anchor point: its children's places are in its own space all the same (Lottie
+    // parents by the full matrix), so the image's placement is unchanged.
     out.push({ ...base, nm: `${s.name} (image)`, ty: 2, ind: b.ind++, parent: ind, refId: asset.id, ks: transformOf(frames.map(() => m), own) });
   }
   for (const c of l.children) emit(b, c, ind, own, out, false);
@@ -199,7 +266,7 @@ function emit(b: Builder, l: AnimLayer, parent: number | null, inherited: number
 /** The scene as a Lottie animation (JSON object): one root composition, the root scaled by the export's Size. */
 export function writeLottie(scene: AnimScene, o: LottieOptions): Json {
   const root = scene.root;
-  const b: Builder = { ind: 1, op: scene.count, assets: [], rasters: o.rasters, comps: 0 };
+  const b: Builder = { ind: 1, op: scene.count, fps: scene.fps, assets: [], rasters: o.rasters, comps: 0, keyed: scene.keyed ?? new Map() };
   const layers: Json[] = [];
   // The Size: a null scaling everything (the root's own layer hangs from it).
   const scaleInd = b.ind++;

@@ -28,6 +28,8 @@ import {
   boundPaint,
   byPosition,
   cleanName,
+  DEFAULT_EASING_VALUE,
+  DEFAULT_TIMING_MS,
   detachedPaint,
   explicitModes,
   fromData,
@@ -605,6 +607,10 @@ function newValue(type: VarType): Literal {
       return "";
     case "BOOLEAN":
       return false;
+    case "EASING":
+      return DEFAULT_EASING_VALUE;
+    case "TIMING":
+      return DEFAULT_TIMING_MS;
   }
 }
 

@@ -18,18 +18,27 @@
  * audio, Split audio at playhead, Delete); audio files dropped on the timeline land at the drop's time. Ping-pong is
  * skipped by the Playback button while the timeline has audio (Figma disables it).
  *
+ * Round 8i: the **Timeline settings** popover (units ms / frames, the snapping grid — Figma's presets per unit, Off, or
+ * a typed one — and Once / Loop / Ping pong; TimelineSettings.tsx); the **layer bar** dragged moves all its layer's
+ * keyframes and clips, its side handles scale them about the other end (MOTION_RETIME_LAYER); the lanes **scroll with
+ * the layer column** (one scroll position: the column's, the lanes translated by it, the playhead and the past over
+ * them; a plain wheel over the lanes scrolls the column); a segment bound to an EASING variable says so and its menu
+ * offers the binding (`easingVariables`); a Position / Scale row's context menu combines or splits its X / Y tracks.
+ * `readOnly` (Dev Mode's timeline view) leaves play, scrub and zoom: no resize edge, settings, segment menus, layer
+ * bar or duration drags.
+ *
  * A pure view of a `TimelineModel`: every change goes out through its callbacks, so MotionMode wires it to the engine
- * and the tests mount it on a fixed model. Not yet: the layer bar's drag and scale handles, the timeline settings
- * popover.
+ * and the tests mount it on a fixed model.
  */
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type WheelEvent as ReactWheelEvent } from "react";
 import { ContextMenu, Icon, IconButton, Slider, TextInput, type IconName, type MenuEntry } from "@/ds";
 import { capture } from "@/ds/util/pointer";
 import { t, useT } from "@/i18n";
-import { ANIMATION_PRESETS, EASING_LABELS, PLAYBACK_CYCLE, PLAYBACK_LABELS, type EasingRef, type GuidString, type Micros, type PlaybackName, type TimelineAudioClip, type TimelineClip, type TimelineKeyframe, type TimelineLayer, type TimelineModel, type TimelineTrack, type TimelineUnit } from "@shared/motion/types";
+import { ANIMATION_PRESETS, EASING_LABELS, PLAYBACK_CYCLE, PLAYBACK_LABELS, type EasingRef, type GuidString, type Micros, type MotionEasing, type PlaybackName, type TimelineAudioClip, type TimelineClip, type TimelineKeyframe, type TimelineLayer, type TimelineModel, type TimelineTrack, type TimelineUnit } from "@shared/motion/types";
 import { isAudioFile, waveformPath } from "../audio/audio";
 import { EasingMenu } from "../easing/EasingEditor";
-import { DIAMOND_PX, clampTimelineHeight, fitScale, formatTime, frameUs, layerExtent, marqueeBox, otherKeyframeTimes, overlaps, parseTime, rulerTicks, snapTime, snapToFrame, timeToX, trimAudio, xToTime, type Box, type Scale } from "./maths";
+import { DIAMOND_PX, clampTimelineHeight, fitScale, formatTime, frameUs, layerExtent, marqueeBox, otherKeyframeTimes, overlaps, parseTime, retimeLayer, rulerTicks, snapTime, snapToFrame, timeToX, trimAudio, xToTime, type Box, type Scale } from "./maths";
+import { TimelineSettings } from "./TimelineSettings";
 import styles from "./Timeline.module.css";
 
 export interface TimelineProps {
@@ -49,8 +58,19 @@ export interface TimelineProps {
   onTogglePlay(): void;
   onToggleAutoKeyframe(): void;
   onToggleCollapse(): void;
-  /** The duration field or handle (`final` false while the handle drags), the Playback button */
-  onSetTimeline(patch: { durationUs?: Micros; playback?: PlaybackName }, final: boolean): void;
+  /** The duration field or handle (`final` false while the handle drags), the Playback button, the settings' grid */
+  onSetTimeline(patch: { durationUs?: Micros; playback?: PlaybackName; snappingFps?: number }, final: boolean): void;
+  /** The settings' units (round 8i) */
+  onSetUnit?(unit: TimelineUnit): void;
+  /**
+   * The layer bar dragged (round 8i): each frame the change since the last one — a move by `deltaUs`, or a scale by
+   * `factor` about `pivotUs` (the other end) — and once more on release (`final`, possibly no change)
+   */
+  onRetimeLayer?(node: GuidString, change: { deltaUs: Micros } | { scale: { factor: number; pivotUs: Micros } }, final: boolean): void;
+  /** A Position / Scale row's menu: its X / Y tracks combined into one, or its XY track split (round 8i) */
+  onCombineTracks?(node: GuidString, kind: "POSITION" | "SCALE", combine: boolean): void;
+  /** Segments' Easing menus offer the EASING variable binding (needs the editor; off in the tests' bare mount) */
+  easingVariables?: boolean;
   onSelectKeyframes(ids: GuidString[]): void;
   /** A keyframe drag: the moved keyframes' new times each frame (`final` false), once more with `final` true */
   onMoveKeyframes(edits: { id: GuidString; timeUs: Micros }[], final: boolean): void;
@@ -108,6 +128,8 @@ interface Drag {
 interface EasingTarget {
   ids: GuidString[];
   easing: EasingRef;
+  /** A bound one's value (what the graph shows) */
+  resolved?: MotionEasing;
   anchor: { x: number; y: number; width: number; height: number };
 }
 
@@ -135,6 +157,11 @@ export function Timeline(p: TimelineProps) {
   const [easingAt, setEasingAt] = useState<EasingTarget | null>(null);
   const [durationDrag, setDurationDrag] = useState<number | null>(null);
   const [marquee, setMarquee] = useState<Box | null>(null);
+  // The layer column's scroll position: the lanes follow it (round 8i).
+  const rowsEl = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [settingsAt, setSettingsAt] = useState<HTMLElement | null>(null);
+  const [rowMenu, setRowMenu] = useState<{ node: GuidString; kind: "POSITION" | "SCALE"; combine: boolean; at: { x: number; y: number } } | null>(null);
 
   // The track area's width decides the scale (fit the duration, then the zoom factor).
   useEffect(() => {
@@ -365,6 +392,49 @@ export function Timeline(p: TimelineProps) {
     p.onDropAudio(files, inTracks ? snapToFrame(xToTime(e.clientX - r!.left, scale), fps) : timeUs);
   };
 
+  // ---- The layer bar: drag moves the layer's keyframes and clips, its side handles scale them about the other end ------
+  const onLayerBarDown = (e: ReactPointerEvent<HTMLElement>, layer: TimelineLayer, edge: "move" | "start" | "end") => {
+    const ext = layerExtent(layer);
+    if (e.button !== 0 || readOnly || !ext || !p.onRetimeLayer) return;
+    e.stopPropagation();
+    p.onSelectLayer(layer.node, false);
+    capture(e.currentTarget, e.pointerId);
+    const startX = e.clientX;
+    const targets = [timeUs, ...otherKeyframeTimes(layers.filter((l) => l.node !== layer.node), new Set())];
+    // What has been sent so far (the engine applies each change on top of the last).
+    let sent = { start: ext.startUs, end: ext.endUs };
+    let moving = false;
+    const send = (clientX: number, shift: boolean, final: boolean) => {
+      const want = retimeLayer(ext, edge, (clientX - startX) / scale.pxPerUs, (us) => (shift ? snapTime(us, fps, targets, SNAP_PX / scale.pxPerUs) : snapToFrame(us, fps)), frameUs(fps));
+      if (edge === "move") {
+        const deltaUs = Math.round(want.startUs - sent.start);
+        if (deltaUs || final) p.onRetimeLayer!(layer.node, { deltaUs }, final);
+      } else {
+        // Scaled about the other end: the factor from what was sent to what is wanted.
+        const pivotUs = edge === "end" ? ext.startUs : ext.endUs;
+        const from = sent.end - sent.start;
+        const to = want.endUs - want.startUs;
+        const factor = from > 0 ? to / from : 1;
+        if (factor !== 1 || final) p.onRetimeLayer!(layer.node, { scale: { factor, pivotUs } }, final);
+      }
+      sent = { start: want.startUs, end: want.endUs };
+    };
+    const move = (ev: PointerEvent) => {
+      if (!moving && Math.abs(ev.clientX - startX) < DRAG_PX) return;
+      moving = true;
+      send(ev.clientX, ev.shiftKey, false);
+    };
+    const up = (ev: PointerEvent) => {
+      if (moving) send(ev.clientX, ev.shiftKey, true);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
+
   // ---- The duration handle --------------------------------------------------------------------------------------------
   const onDurationDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 || readOnly) return;
@@ -464,9 +534,12 @@ export function Timeline(p: TimelineProps) {
     }
   };
 
-  // ⌘ / Ctrl + wheel zooms the time axis; a plain wheel scrolls the rows (the browser's).
+  // ⌘ / Ctrl + wheel zooms the time axis; a plain wheel over the lanes scrolls the layer column (the lanes follow it).
   const onWheel = (e: ReactWheelEvent) => {
-    if (!(e.metaKey || e.ctrlKey)) return;
+    if (!(e.metaKey || e.ctrlKey)) {
+      if (rowsEl.current && e.deltaY) rowsEl.current.scrollTop += e.deltaY;
+      return;
+    }
     e.preventDefault();
     setZoom((z) => Math.min(16, Math.max(1, z * (e.deltaY < 0 ? 1.1 : 1 / 1.1))));
   };
@@ -487,7 +560,7 @@ export function Timeline(p: TimelineProps) {
 
   return (
     <section ref={panelEl} data-motion-timeline={state} data-auto-keyframe={autoKeyframe || undefined} data-theme="dark" className={styles.panel} aria-label={t("Timeline")} onDragOver={onDragOver} onDrop={onDrop}>
-      {!collapsed && <div className={styles.resize} role="separator" aria-orientation="horizontal" aria-label={t("Resize timeline")} data-timeline-resize onPointerDown={onResizeDown} />}
+      {!collapsed && !readOnly && <div className={styles.resize} role="separator" aria-orientation="horizontal" aria-label={t("Resize timeline")} data-timeline-resize onPointerDown={onResizeDown} />}
       <div className={styles.header}>
         <IconButton icon={p.playing ? "24.pause" : "24.play"} label={p.playing ? t("Pause") : t("Play")} shortcut="Space" onClick={p.onTogglePlay} />
         {!readOnly && <IconButton icon="24.auto-keyframe" label={t("Toggle auto-keyframe")} aria-pressed={autoKeyframe} className={autoKeyframe ? styles.autoOn : undefined} onClick={p.onToggleAutoKeyframe} />}
@@ -502,6 +575,7 @@ export function Timeline(p: TimelineProps) {
             if (us !== null && us > 0) p.onSetTimeline({ durationUs: us }, true);
           }} />
         </div>
+        {!readOnly && <IconButton icon="24.settings.small" label={t("Timeline settings")} aria-expanded={!!settingsAt} disabled={!model} data-timeline-settings onClick={(e) => setSettingsAt(settingsAt ? null : e.currentTarget)} />}
         {!readOnly && <IconButton icon={PLAYBACK_ICON[model?.playback ?? "LOOP"]} label={t("Playback: {mode}", { mode: t(PLAYBACK_LABELS[model?.playback ?? "LOOP"]) })} disabled={!model} onClick={cyclePlayback} />}
         <IconButton icon="24.collapse-layers" label={allCollapsed ? t("Expand layers") : t("Collapse layers")} disabled={!layers.length} onClick={collapseAll} />
         {model && <span className={styles.rootName}>{model.rootName}</span>}
@@ -518,7 +592,7 @@ export function Timeline(p: TimelineProps) {
             <>
               <div className={styles.layers}>
                 <div className={styles.layersHead}>{t("Layers")}</div>
-                <div className={styles.rows} role="tree" aria-label={t("Animated layers")}>
+                <div ref={rowsEl} className={styles.rows} role="tree" aria-label={t("Animated layers")} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
                   {rows.map((r) =>
                     r.kind === "layer" ? (
                       <LayerRowView key={r.layer.node} layer={r.layer} expanded={!collapsedLayers.has(r.layer.node)} selected={p.selectedNodes.has(r.layer.node)} onToggle={() => setCollapsedLayers((s) => {
@@ -544,6 +618,11 @@ export function Timeline(p: TimelineProps) {
                       <button key={r.track.id} type="button" role="treeitem" aria-level={r.layer.depth + 2} aria-selected={selectedRow?.track === r.track.id} data-track-row={r.track.id} className={styles.propertyRow} style={{ "--depth": r.layer.depth } as CSSProperties} onClick={() => {
                         setSelectedRow({ node: r.layer.node, track: r.track.id });
                         p.onSelectKeyframes(r.track.keyframes.map((k) => k.id));
+                      }} onContextMenu={(e) => {
+                        const v = vectorKind(r.track);
+                        if (!v || readOnly || !p.onCombineTracks) return;
+                        e.preventDefault();
+                        setRowMenu({ node: r.layer.node, kind: v.kind, combine: !v.combined, at: { x: e.clientX, y: e.clientY } });
                       }}>
                         <span className={styles.name}>{t(r.track.label)}</span>
                       </button>
@@ -585,6 +664,7 @@ export function Timeline(p: TimelineProps) {
                   </div>
                 </div>
                 <div className={styles.lanes}>
+                  <div className={styles.laneRows} style={{ transform: `translateY(${-scrollTop}px)` }}>
                   {rows.map((r) => (
                     <div key={rowKey(r)} className={styles.lane} aria-selected={r.kind === "track" && selectedRow?.track === r.track.id ? true : undefined} data-lane={rowKey(r)}>
                       {r.kind === "clip" ? (
@@ -596,17 +676,18 @@ export function Timeline(p: TimelineProps) {
                             setAudioMenu({ clip: c, at });
                           }} />
                         ))
-                      ) : r.kind === "layer" ? <LayerLane layer={r.layer} scale={scale} onInstanceDown={readOnly || !p.onMoveInstance ? undefined : (e) => onInstanceDown(e, r.layer)} /> : <TrackLane track={r.track} scale={scale} durationUs={shownDuration} selected={selectedKeyframes} dragging={drag?.moving ? new Set(drag.items.map((i) => i.id)) : null} onDown={onDiamondDown} onDouble={(k) => {
+                      ) : r.kind === "layer" ? <LayerLane layer={r.layer} scale={scale} onInstanceDown={readOnly || !p.onMoveInstance ? undefined : (e) => onInstanceDown(e, r.layer)} onBarDown={readOnly || !p.onRetimeLayer ? undefined : (e, edge) => onLayerBarDown(e, r.layer, edge)} /> : <TrackLane track={r.track} scale={scale} durationUs={shownDuration} selected={selectedKeyframes} dragging={drag?.moving ? new Set(drag.items.map((i) => i.id)) : null} onDown={onDiamondDown} onDouble={(k) => {
                         p.onSeek(k.timeUs);
                         p.onSelectLayer(r.layer.node, false);
-                      }} onSegment={(k, anchor) => setEasingAt({ ids: [k.id], easing: k.easing, anchor })} />}
+                      }} onSegment={readOnly ? undefined : (k, anchor) => setEasingAt({ ids: [k.id], easing: k.easingVariable ? { variable: k.easingVariable } : k.easing, resolved: "type" in k.easing ? k.easing : undefined, anchor })} />}
                     </div>
                   ))}
+                  </div>
                   <div className={styles.past} style={{ left: timeToX(shownDuration, scale) }} />
                   <div className={styles.playhead} data-auto={autoKeyframe || undefined} style={{ left: playheadX }} />
                 </div>
                 {marquee && <div className={styles.marquee} data-marquee style={{ left: marquee.left, top: marquee.top, width: marquee.width, height: marquee.height }} />}
-                <div className={styles.duration} data-duration-handle style={{ left: timeToX(shownDuration, scale) }} onPointerDown={onDurationDown} role="slider" aria-label={t("Duration")} aria-valuenow={Math.round(shownDuration / 1000)} aria-valuemin={0} aria-valuemax={Math.round(xToTime(width, scale) / 1000)}>
+                <div className={styles.duration} data-duration-handle data-readonly={readOnly || undefined} style={{ left: timeToX(shownDuration, scale) }} onPointerDown={onDurationDown} role="slider" aria-label={t("Duration")} aria-valuenow={Math.round(shownDuration / 1000)} aria-valuemin={0} aria-valuemax={Math.round(xToTime(width, scale) / 1000)}>
                   <span className={styles.durationHandle} />
                 </div>
               </div>
@@ -617,6 +698,8 @@ export function Timeline(p: TimelineProps) {
       {easingAt && (
         <EasingMenu
           value={easingAt.easing}
+          resolved={easingAt.resolved}
+          allowVariable={p.easingVariables}
           anchor={easingAt.anchor}
           onChange={(easing, commit) => {
             if (commit) p.onSetEasing(easingAt.ids, easing);
@@ -626,6 +709,22 @@ export function Timeline(p: TimelineProps) {
       )}
       {audioMenu && (
         <ContextMenu at={audioMenu.at} context entries={audioMenuEntries(audioMenu.clip)} label={t("Audio")} onSelect={(id) => p.onAudioMenu?.(audioMenu.clip, id as "mute" | "split" | "delete")} onClose={() => setAudioMenu(null)} />
+      )}
+      {rowMenu && (
+        <ContextMenu at={rowMenu.at} context entries={[{ id: "toggle", label: rowMenu.combine ? t("Combine tracks") : t("Split tracks") }]} label={t("Tracks")} onSelect={() => p.onCombineTracks?.(rowMenu.node, rowMenu.kind, rowMenu.combine)} onClose={() => setRowMenu(null)} />
+      )}
+      {settingsAt && model && (
+        <TimelineSettings
+          anchor={settingsAt}
+          unit={unit}
+          fps={fps}
+          playback={model.playback}
+          hasAudio={model.audio.length > 0}
+          onUnit={(u) => p.onSetUnit?.(u)}
+          onFps={(f) => p.onSetTimeline({ snappingFps: f }, true)}
+          onPlayback={(m) => p.onSetTimeline({ playback: m }, true)}
+          onClose={() => setSettingsAt(null)}
+        />
       )}
     </section>
   );
@@ -695,8 +794,11 @@ function AudioClipLane({ clip, rowMuted, scale, selected, peaks, onDown, onMenu 
   );
 }
 
-/** The layer's lane: its bar from the first to the last keyframe (an instance: the purple clip bar, dragged in time). */
-function LayerLane({ layer, scale, onInstanceDown }: { layer: TimelineLayer; scale: Scale; onInstanceDown?(e: ReactPointerEvent<HTMLDivElement>): void }) {
+/**
+ * The layer's lane: its bar from the first to the last keyframe or clip — dragged to move them all, its side handles to
+ * scale them about the other end (round 8i) — or an instance's purple clip bar, dragged in time.
+ */
+function LayerLane({ layer, scale, onInstanceDown, onBarDown }: { layer: TimelineLayer; scale: Scale; onInstanceDown?(e: ReactPointerEvent<HTMLDivElement>): void; onBarDown?(e: ReactPointerEvent<HTMLElement>, edge: "move" | "start" | "end"): void }) {
   if (layer.instance) {
     const x0 = timeToX(layer.instance.offsetUs, scale);
     return <div className={styles.instanceBar} data-instance-bar={layer.node} style={{ left: x0, width: Math.max(4, layer.instance.durationUs * scale.pxPerUs) }} title={layer.name} onPointerDown={onInstanceDown} />;
@@ -704,7 +806,36 @@ function LayerLane({ layer, scale, onInstanceDown }: { layer: TimelineLayer; sca
   const ext = layerExtent(layer);
   if (!ext) return null;
   const x0 = timeToX(ext.startUs, scale);
-  return <div className={styles.layerBar} data-layer-bar style={{ left: x0, width: Math.max(2, (ext.endUs - ext.startUs) * scale.pxPerUs) }} />;
+  const span = ext.endUs > ext.startUs;
+  return (
+    <div className={styles.layerBar} data-layer-bar={layer.node} data-editable={onBarDown ? "" : undefined} style={{ left: x0, width: Math.max(2, (ext.endUs - ext.startUs) * scale.pxPerUs) }} onPointerDown={onBarDown ? (e) => onBarDown(e, "move") : undefined}>
+      {onBarDown && span && (
+        <>
+          <span className={styles.barHandle} data-bar-handle="start" onPointerDown={(e) => onBarDown(e, "start")} />
+          <span className={styles.barHandle} data-bar-handle="end" onPointerDown={(e) => onBarDown(e, "end")} />
+        </>
+      )}
+    </div>
+  );
+}
+
+/** A Position / Scale row's X / Y / XY kind: what its menu combines or splits (null: another field). */
+function vectorKind(track: TimelineTrack): { kind: "POSITION" | "SCALE"; combined: boolean } | null {
+  if (track.field.type !== "PROPERTY") return null;
+  switch (track.field.name) {
+    case "TRANSLATION_X":
+    case "TRANSLATION_Y":
+      return { kind: "POSITION", combined: false };
+    case "TRANSLATION_XY":
+      return { kind: "POSITION", combined: true };
+    case "SCALE_X":
+    case "SCALE_Y":
+      return { kind: "SCALE", combined: false };
+    case "SCALE_XY":
+      return { kind: "SCALE", combined: true };
+    default:
+      return null;
+  }
 }
 
 function TrackLane({ track, scale, durationUs, selected, dragging, onDown, onDouble, onSegment }: {
@@ -715,7 +846,8 @@ function TrackLane({ track, scale, durationUs, selected, dragging, onDown, onDou
   dragging: ReadonlySet<GuidString> | null;
   onDown(e: ReactPointerEvent<HTMLButtonElement>, k: TimelineKeyframe): void;
   onDouble(k: TimelineKeyframe): void;
-  onSegment(end: TimelineKeyframe, anchor: { x: number; y: number; width: number; height: number }): void;
+  /** Absent (read-only): the segments are drawn, not opened */
+  onSegment?(end: TimelineKeyframe, anchor: { x: number; y: number; width: number; height: number }): void;
 }) {
   const out: ReactNode[] = [];
   const ks = track.keyframes;
@@ -725,13 +857,13 @@ function TrackLane({ track, scale, durationUs, selected, dragging, onDown, onDou
       const a = timeToX(ks[i - 1].timeUs, scale) + DIAMOND_PX / 2;
       const b = timeToX(k.timeUs, scale) - DIAMOND_PX / 2;
       const hold = "type" in k.easing && k.easing.type === "HOLD";
-      const label = "type" in k.easing ? t(EASING_LABELS[k.easing.type]) : t("Easing variable");
+      const label = k.easingVariable || !("type" in k.easing) ? t("Easing variable") : t(EASING_LABELS[k.easing.type]);
       if (b > a)
         out.push(
-          <button key={`s${k.id}`} type="button" className={styles.segment} data-hold={hold || undefined} data-segment={k.id} aria-label={t("Easing: {name}", { name: label })} style={{ left: a, width: b - a }} onClick={(e) => {
+          <button key={`s${k.id}`} type="button" className={styles.segment} data-hold={hold || undefined} data-variable={k.easingVariable ? "" : undefined} data-segment={k.id} aria-label={t("Easing: {name}", { name: label })} disabled={!onSegment} style={{ left: a, width: b - a }} onClick={(e) => {
             e.stopPropagation();
             const r = e.currentTarget.getBoundingClientRect();
-            onSegment(k, { x: r.left, y: r.top, width: r.width, height: r.height });
+            onSegment?.(k, { x: r.left, y: r.top, width: r.width, height: r.height });
           }} />
         );
     }

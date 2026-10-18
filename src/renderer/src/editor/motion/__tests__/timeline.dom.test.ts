@@ -2,7 +2,8 @@
 // The timeline (docs/motion.md §6.2) on a fixed model (the committed wasm predates Motion, so the view is tested on its
 // own): the rows, the diamonds' selection and drag, Delete, the segment's Easing menu, the header's controls; increment
 // 2's marquee, ⌘C / ⌘V and the top edge; round 8a increment 2's animated instance bar dragged in time; round 8h's
-// preset clips (selected, dragged, stretched by either handle, deleted); round 8e's audio rows.
+// preset clips (selected, dragged, stretched by either handle, deleted); round 8e's audio rows; round 8i's settings
+// popover, layer bar, scrolling lanes, combine / split menu and read-only view.
 import { act } from "react";
 import { describe, expect, it } from "vitest";
 import type { TimelineModel } from "@shared/motion/types";
@@ -368,6 +369,84 @@ describe("the Motion timeline", () => {
     expect(a.onDeleteAudio.calls.at(-1)).toEqual([["a1"]]);
     click($('[aria-label^="Playback"]', view.host));
     expect(s.onSetTimeline.calls.at(-1)).toEqual([{ playback: "LOOP" }, true]);
+    view.unmount();
+  });
+
+  it("round 8i: the settings popover sets the units, the grid and the loop; Ping pong is off with audio", () => {
+    const onSetUnit = spy();
+    const { view, s, rerender } = setup({ onSetUnit } as unknown as Partial<TimelineProps>);
+    click($("[data-timeline-settings]", view.host));
+    const pop = $("[data-timeline-settings-popover]");
+    expect(pop).not.toBeNull();
+    click($$('[role="radio"]', pop).find((r) => r.textContent === "Frames")!);
+    expect(onSetUnit.calls.at(-1)).toEqual(["frames"]);
+    // A typed grid step (ms): 50 ms is 20 fps.
+    const grid = $('input[aria-label="Grid (ms)"]', pop) as HTMLInputElement;
+    focus(grid);
+    type(grid, "50");
+    key(grid, "Enter");
+    expect(s.onSetTimeline.calls.at(-1)).toEqual([{ snappingFps: 20 }, true]);
+    click($$('[role="radio"]', pop).find((r) => r.textContent === "Once")!);
+    expect(s.onSetTimeline.calls.at(-1)).toEqual([{ playback: "ONCE" }, true]);
+    click($("[data-timeline-settings]", view.host));
+    const clip = { id: "a1", trackId: "r1", name: "Beat", mediaHash: "h1", offsetUs: 0, startUs: 0, durationUs: 1, volume: 1, mute: false };
+    rerender({ model: { ...MODEL, audioTracks: [{ id: "r1", name: "Beat", gain: 1, mute: false }], audio: [clip] } });
+    click($("[data-timeline-settings]", view.host));
+    const ping = $$('[role="radio"]', $("[data-timeline-settings-popover]")).find((r) => r.textContent === "Ping-pong") as HTMLButtonElement;
+    expect(ping.disabled).toBe(true);
+    view.unmount();
+  });
+
+  it("round 8i: the layer bar moves its layer by each frame's change, its end handle scales about its start", () => {
+    const onRetimeLayer = spy();
+    const { view, scale } = setup({ onRetimeLayer } as unknown as Partial<TimelineProps>);
+    const bar = $('[data-layer-bar="1:2"]', view.host);
+    expect(bar.hasAttribute("data-editable")).toBe(true);
+    pointer(bar, "pointerdown", { clientX: 100 });
+    windowPointer("pointermove", { clientX: 101 }); // under the drag threshold
+    expect(onRetimeLayer.calls).toHaveLength(0);
+    windowPointer("pointermove", { clientX: 130 });
+    windowPointer("pointermove", { clientX: 160 });
+    windowPointer("pointerup", { clientX: 160 });
+    const snapped = Math.round(Math.round((60 / scale.pxPerUs) / frameUs(60)) * frameUs(60));
+    const moves = onRetimeLayer.calls.map((c) => (c[1] as { deltaUs: number }).deltaUs);
+    expect(moves.reduce((a, b) => a + b, 0)).toBe(snapped);
+    expect(onRetimeLayer.calls.at(-1)![2]).toBe(true);
+    // The end handle: a scale about the bar's start (0), from its 1 s to the new length.
+    onRetimeLayer.calls.length = 0;
+    pointer($('[data-layer-bar="1:2"] [data-bar-handle="end"]', view.host), "pointerdown", { clientX: 300 });
+    windowPointer("pointermove", { clientX: 300 + 1_000_000 * scale.pxPerUs });
+    windowPointer("pointerup", { clientX: 300 + 1_000_000 * scale.pxPerUs });
+    const scales = onRetimeLayer.calls.map((c) => (c[1] as { scale: { factor: number; pivotUs: number } }).scale);
+    expect(scales[0].pivotUs).toBe(0);
+    expect(scales.reduce((a, b) => a * b.factor, 1)).toBeCloseTo(2, 2);
+    view.unmount();
+  });
+
+  it("round 8i: the lanes follow the layer column's scroll; a Position row's menu splits its track", () => {
+    const onCombineTracks = spy();
+    const { view } = setup({ onCombineTracks } as unknown as Partial<TimelineProps>);
+    const rows = $('[aria-label="Animated layers"]', view.host);
+    rows.scrollTop = 30;
+    act(() => void rows.dispatchEvent(new Event("scroll")));
+    expect(($('[aria-label="Tracks"]', view.host).querySelector("[data-lane]")!.parentElement as HTMLElement).style.transform).toBe("translateY(-30px)");
+    act(() => void $('[data-track-row="t2"]', view.host).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 10, clientY: 10 })));
+    click($$('[role="menuitem"]').find((r) => r.textContent?.includes("Split tracks"))!);
+    expect(onCombineTracks.calls.at(-1)).toEqual(["1:2", "POSITION", false]);
+    view.unmount();
+  });
+
+  it("round 8i: read-only (Dev Mode's timeline view) plays and scrubs, nothing else: no resize, settings, easing menu or bar drag", () => {
+    const onRetimeLayer = spy();
+    const { view } = setup({ readOnly: true, onRetimeLayer } as unknown as Partial<TimelineProps>);
+    expect($("[data-timeline-resize]", view.host)).toBeNull();
+    expect($("[data-timeline-settings]", view.host)).toBeNull();
+    const segment = $("[data-segment]", view.host) as HTMLButtonElement;
+    expect(segment.disabled).toBe(true);
+    click(segment);
+    expect($("[data-easing-editor]")).toBeNull();
+    expect($('[data-layer-bar="1:2"]', view.host).hasAttribute("data-editable")).toBe(false);
+    expect($("[data-duration-handle]", view.host).hasAttribute("data-readonly")).toBe(true);
     view.unmount();
   });
 });
