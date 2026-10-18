@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { dropIndex, initials, thumbGeometry, visibleRange } from "../util/geometry";
-import { hexDigits, hexDigitsToRgba, normalizeHex, parseColor, parseHexInput, withOpacity } from "../util/color";
+import { hexDigits, hexDigitsToRgba, hexSelection, hexTargets, normalizeHex, parseColor, parseHexInput, stepHex, withOpacity } from "../util/color";
 import { formatEdited, refreshDelay, timeAgo } from "../util/time";
 
 describe("tab drag", () => {
@@ -83,6 +83,14 @@ describe("colour fields", () => {
     expect(hexDigits("#0c8ce9")).toBe("0C8CE9");
     expect(withOpacity("#ff0000", 50)).toBe("rgba(255, 0, 0, 0.5)");
     expect(withOpacity("#ff0000", 150)).toBe("rgba(255, 0, 0, 1)");
+  });
+  it("step the hex channel under the caret with ↑ ↓ (Figma's getIncrementTargets) and select it", () => {
+    const of = (start: number, end = start) => [...hexTargets(start, end)];
+    expect([of(0), of(2), of(3), of(4), of(5), of(6), of(0, 6), of(1, 3)]).toEqual([["r"], ["r"], ["g"], ["g"], ["b"], ["b"], ["r", "g", "b"], ["r", "g"]]);
+    expect(stepHex("#0c8ce9", new Set(["g"]), 1)).toBe("#0c8de9");
+    expect(stepHex("#0c8ce9", new Set(["r", "b"]), -20)).toBe("#008cd5");
+    expect(stepHex("#fffffe", new Set(["r", "g", "b"]), 10)).toBe("#ffffff");
+    expect([hexSelection(new Set(["g"])), hexSelection(new Set(["r", "g"])), hexSelection(new Set(["b"]))]).toEqual([{ start: 2, end: 4 }, { start: 0, end: 4 }, { start: 4, end: 6 }]);
   });
 });
 

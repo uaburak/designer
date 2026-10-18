@@ -181,7 +181,7 @@ export function ZoomMenu() {
     { id: PROPERTY_LABELS, label: t("Property labels"), checked: labels },
     commandItem(ed, "view.comments"),
     "-",
-    { id: "zoom.outlines", label: t("Outlines"), items: [commandItem(ed, "view.outlines", "Outlines")] },
+    { id: "zoom.outlines", label: t("Outlines"), items: [commandItem(ed, "view.outlines", "Outlines"), "-", commandItem(ed, "view.outline-hidden-layers"), commandItem(ed, "view.outline-object-bounds")] },
     { id: "zoom.annotations", label: t("Annotations"), items: [commandItem(ed, "view.annotations", "Show annotations")] },
   ];
   return (

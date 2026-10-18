@@ -27,6 +27,7 @@ import {
   removeStop,
   snapStop,
   targetColor,
+  withInterpolation,
   withTargetColor,
   type ImageScaleMode,
   type InterpolationColorSpace,
@@ -200,8 +201,11 @@ export interface ColorPickerProps<P extends PickerPaint> {
   disabledTypes?: PaintType[];
   /** "On this page": the document's colours (hex or rgba()) */
   documentColors?: string[];
-  /** The swatch sets after "On this page" (Figma's "Local assets": the file's colour variables, then its fill styles) */
-  swatchSets?: { id: string; label: string; colors: string[] }[];
+  /**
+   * The swatch sets after "On this page" (Figma's "Local assets": the file's colour variables, then its fill styles;
+   * then one per enabled library); `separated`: a line above it in the menu
+   */
+  swatchSets?: { id: string; label: string; colors: string[]; separated?: boolean }[];
   /** The set shown ("page" or a set's id; the editor remembers it); uncontrolled without it */
   swatchSet?: string;
   onSwatchSetChange?: (id: string) => void;
@@ -278,6 +282,8 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
     latest.current = { value, onChange, onCancel };
   });
   const gesture = useRef<{ start: P; last: P } | null>(null);
+  // The paint before the interpolation menu's hover preview: previews and the pick start from it.
+  const unpreviewed = useRef<P | null>(null);
 
   const gradient = isGradient(value.type);
   const stopCount = value.stops?.length ?? 0;
@@ -703,7 +709,7 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
         label={t("Color swatch set selector")}
         variant="ghost"
         value={set?.id ?? "page"}
-        options={[{ value: "page", label: t("On this page") }, ...swatchSets.map((s) => ({ value: s.id, label: s.label }))]}
+        options={[{ value: "page", label: t("On this page") }, ...swatchSets.flatMap((s) => [...(s.separated ? ["-" as const] : []), { value: s.id, label: s.label }])]}
         width={208}
         onChange={(id) => {
           setOwnSet(id);
@@ -885,14 +891,25 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
           value={value.interpolationColorSpace ?? "DEFAULT"}
           options={INTERPOLATION_SPACES.map((o) => ({ ...o, label: t(o.label) }))}
           onChange={(v) => {
-            const space = v as InterpolationColorSpace;
-            const next: P = { ...value, interpolationColorSpace: space };
-            // A hue space starts Increasing (the UI's default); the others carry no hue method.
-            if (hasHue(space)) next.interpolationHueMethod = value.interpolationHueMethod === "DECREASING" ? "DECREASING" : "INCREASING";
-            else delete next.interpolationHueMethod;
-            if (space === "DEFAULT") delete next.interpolationColorSpace;
-            onChange(next, { final: true, source: "pick" });
+            const from = unpreviewed.current ?? value;
+            onChange(withInterpolation(from, v as InterpolationColorSpace), { final: true, source: "pick" });
           }}
+          // Hovering a space shows the gradient in it (Figma: "Hovering an option previews it", atlas 07 §7); leaving the
+          // menu or picking puts back what it started from. Only where a change can be rolled back (`onCancel`).
+          onPreview={
+            onCancel
+              ? (v) => {
+                  if (v === null) {
+                    if (!unpreviewed.current) return;
+                    onCancel();
+                    queueMicrotask(() => (unpreviewed.current = null));
+                    return;
+                  }
+                  unpreviewed.current ??= value;
+                  onChange(withInterpolation(unpreviewed.current, v as InterpolationColorSpace), { final: false, source: "pick" });
+                }
+              : undefined
+          }
         />
         {hasHue(value.interpolationColorSpace) && (
           <Select

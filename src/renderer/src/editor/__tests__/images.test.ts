@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Message, NodeChange } from "@/engine/codec";
 import { IMAGE_DISPLAY_P3, IMAGE_STRAIGHT, Status } from "@/engine/abi";
-import { deriveProgressive, ImageService, importImage, importSize, memoryImageStore, sha1Hex, shouldDownscale, sniffImageMime, tierMime, tierSize, type ImageStore } from "../images";
+import { deriveProgressive, ImageService, importImage, importSize, isImageFile, memoryImageStore, sha1Hex, shouldDownscale, sniffImageMime, tierMime, tierSize, type ImageStore } from "../images";
 import { hashBytes, hashHex, imagePaint, paintThumbHash, paintThumbnailHash } from "../model/paints";
 import { rgbaToThumbHash, thumbHashToApproximateAspectRatio } from "../thumbHash";
 
@@ -521,6 +521,18 @@ describe("importImage", () => {
     expect(big).toMatchObject({ width: 4096, height: 4096 });
     const small = await importImage(file(3000, 3000, "image/png", "small.png"), store, { maxTextureSize: 2048 });
     expect(small).toMatchObject({ width: 2048, height: 2048 });
+  });
+
+  it("avif, bmp, tiff and heic are taken where they decode and kept as PNG (Figma re-encodes what it doesn't store)", async () => {
+    expect(["image/avif", "image/bmp", "image/tiff", "image/heic"].every((type) => isImageFile({ type }))).toBe(true);
+    expect(isImageFile({ type: "", name: "IMG_0001.HEIC" })).toBe(true);
+    expect(isImageFile({ type: "image/svg+xml" })).toBe(false);
+    const store = memoryImageStore();
+    const img = await importImage(file(300, 200, "image/avif", "photo.avif"), store);
+    expect(img).toMatchObject({ width: 300, height: 200, name: "photo", mime: "image/png" });
+    expect(await store.get(img.hash)).not.toEqual(imageBytes(300, 200));
+    const png = await importImage(file(300, 200, "image/png", "same.png"), store);
+    expect(await store.get(png.hash)).toEqual(imageBytes(300, 200));
   });
 
   it("an image of 512 px or less is its own thumbnail (as in Figma's files): no extra blob", async () => {

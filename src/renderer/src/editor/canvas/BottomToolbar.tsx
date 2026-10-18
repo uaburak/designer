@@ -65,6 +65,12 @@ export function toolIdOf(engineTool: string): ToolId {
   return "move";
 }
 
+/**
+ * The tool a toolbar click picks: Comment chosen again while it is the tool goes back to Move (Figma's comment group:
+ * COMMENTS on COMMENTS → SELECT, atlas 02 §2); the C key keeps the tool.
+ */
+export const toolbarChoice = (chosen: ToolId, current: ToolId): ToolId => (chosen === "comment" && current === "comment" ? "move" : chosen);
+
 /** Does the engine implement the toolbar's tool? (The Image tool is the editor's: a file picker, then clicks.) */
 const isAvailable = (ed: ReturnType<typeof useEditor>, t: ToolId) => {
   if (t === "image") return !!ed.images.store;
@@ -107,7 +113,8 @@ export function BottomToolbar() {
   }, [bindings]);
   // The Brush is Draw's alone (docs/draw.md §5.1).
   const disabledTools = useMemo(() => (Object.keys(ENGINE_TOOL) as ToolId[]).filter((t) => !isAvailable(ed, t) || (dev && !DEV_TOOLS.has(t)) || (t === "brush" && !draw)), [ed, dev, draw]);
-  const pick = (t: ToolId) => {
+  const pick = (chosen: ToolId) => {
+    const t = toolbarChoice(chosen, tool);
     if (t === "image") {
       setGroups((g) => ({ ...g, shape: "image" }));
       runEditorCommand(ed, "tool.image");

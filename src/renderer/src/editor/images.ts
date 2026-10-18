@@ -152,8 +152,18 @@ export interface ImportedImage {
   duration?: number;
 }
 
-const IMAGE_TYPES = /^image\/(png|jpeg|gif|webp)$/;
-export const isImageFile = (f: { type: string }) => IMAGE_TYPES.test(f.type);
+/**
+ * The images Figma takes (atlas 07 §8.6): png, jpeg, gif, webp, avif, tiff, bmp, heic. Here each is read wherever the
+ * platform decodes it (Chromium: avif and bmp; tiff and heic only where the system does — the others are skipped as
+ * files that can't be read); the ones that aren't png / jpeg / gif / webp are kept re-encoded as PNG (Figma re-encodes
+ * the types it doesn't store, `imageTypeToEncode`), so the file's blobs stay in formats every reader sniffs.
+ */
+const IMAGE_TYPES = /^image\/(png|jpeg|gif|webp|avif|tiff|bmp|x-ms-bmp|heic|heif)$/;
+const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|avif|tiff?|bmp|heic|heif)$/i;
+const STORED_TYPES = /^image\/(png|jpeg|gif|webp)$/;
+export const isImageFile = (f: { type: string; name?: string }) => IMAGE_TYPES.test(f.type) || (!f.type && IMAGE_EXTENSIONS.test(f.name ?? ""));
+/** The image file pickers' `accept`. */
+export const IMAGE_ACCEPT = "image/png,image/jpeg,image/gif,image/webp,image/avif,image/tiff,image/bmp,image/heic,image/heif,.heic,.heif";
 
 /**
  * Videos Figma takes (help.figma.com 8878274530455): .mp4 and .mov (H.264), .webm (VP8), up to 300 MB. They are fills,
@@ -269,12 +279,15 @@ export async function deriveProgressive(bitmap: ImageBitmap, image: { hash: stri
  * re-encoding only then), hashes and stores one image, with its ThumbHash and low-res tier.
  */
 export async function importImage(file: Blob & { name?: string }, store: ImageStore, opts: { maxTextureSize?: number } = {}): Promise<ImportedImage> {
-  const mime = file.type || "image/png";
+  const typed = file.type || (sniffImageMime(new Uint8Array(await file.slice(0, 12).arrayBuffer())) ?? "");
   let bytes: Uint8Array = new Uint8Array(await file.arrayBuffer());
   const bitmap = await createImageBitmap(file);
   let { width, height } = bitmap;
   const fit = importSize(width, height, opts.maxTextureSize);
-  if ((fit.width !== width || fit.height !== height) && typeof OffscreenCanvas !== "undefined") {
+  // avif, bmp, tiff, heic: kept as PNG (see IMAGE_TYPES).
+  const reencode = !STORED_TYPES.test(typed);
+  const mime = reencode ? "image/png" : typed;
+  if ((reencode || fit.width !== width || fit.height !== height) && typeof OffscreenCanvas !== "undefined") {
     const canvas = new OffscreenCanvas(fit.width, fit.height);
     canvas.getContext("2d")?.drawImage(bitmap, 0, 0, fit.width, fit.height);
     const blob = await canvas.convertToBlob({ type: mime === "image/jpeg" || mime === "image/webp" ? mime : "image/png", quality: 0.92 });

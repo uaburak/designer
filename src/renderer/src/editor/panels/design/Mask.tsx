@@ -2,14 +2,14 @@
  * The mask type (Figma's mask panel, atlas 07 §12): when every selected layer is a mask, "Mask" with Alpha, Vector
  * (the schema's OUTLINE: the mask's shape, its fills' alpha ignored) or Luminance (the mask's brightness); Mixed —
  * shown, not pickable — when they differ. Stored as `maskType` (schema MaskType); the renderer draws all three.
- * Unverified: where UI3 shows the row, and the options' extended descriptions (`mask_panel.*_extended`, English
- * unattested) — Figma also previews a hovered option (50 ms debounce), which the DS Select doesn't offer.
+ * A hovered option is previewed on the canvas after 50 ms, as Figma's. Unverified: where UI3 shows the row, and the
+ * options' extended descriptions (`mask_panel.*_extended`, English unattested).
  */
 import { PanelSection, Select, isMixed } from "@/ds";
-import type { MaskType } from "@/engine/codec";
+import type { MaskType, NodeFields } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { mixed } from "../../model/mixed";
-import type { PanelNode } from "./shared";
+import { previewProps, type PanelNode } from "./shared";
 import { t, useT } from "@/i18n";
 import styles from "./Design.module.css";
 
@@ -36,6 +36,7 @@ export function MaskSection({ nodes }: { nodes: PanelNode[] }) {
           value={isMixed(value) || value === undefined ? "MIXED" : value}
           options={options}
           onChange={(v) => ed.setProps(nodes.map((n) => n.guid), { maskType: v as MaskType }, "Mask type")}
+          onPreview={previewProps(ed, nodes.map((n) => n.guid), "Mask type", (v) => ({ maskType: v as MaskType }) as NodeFields)}
         />
       </div>
     </PanelSection>

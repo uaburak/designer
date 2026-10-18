@@ -37,9 +37,10 @@ import { StrokeRows, firstStrokeFields } from "./Stroke";
 import { Grip, moved, useReorder } from "./reorder";
 import { isFrameNode, type PanelNode } from "./shared";
 import { BoundPaintRow, paintScope } from "./Variables";
+import { remoteDefaultValue, useRemoteAssets } from "../libraries/remoteAssets";
 import { AppliedStyle, StylesButton, sharedStyle } from "./Styles";
 import { VariableList } from "../variables/VariablePicker";
-import { isEasingLiteral, paintVariable, resolveVariable } from "../../model/variables";
+import { paintVariable, resolveVariable } from "../../model/variables";
 import { applyStyle, bindPaint, createCollection, createVariable } from "../../variables";
 import { CreateStylePopover } from "../variables/EditStyle";
 import { t, useT } from "@/i18n";
@@ -71,31 +72,51 @@ export function newPaint(field: PaintField, nodes: readonly { type?: string; res
 const SWATCH_SET_KEY = "library-color-swatch-selected-swatch-set-id";
 
 /**
- * The picker's swatch sets after "On this page" (atlas 07 §5.6): "Local assets" — the file's colour variables in their
- * order, then its fill styles (each style's top visible solid paint) — when it has any; the set picked last is
- * remembered. Unbuilt: a set per enabled library (their colours aren't in the file until used).
+ * A swatch set's colours (atlas 07 §5.6): the COLOR variables in their order (`valueOf`: each one's colour), then the
+ * fill styles (each style's top visible solid paint), as hex or rgba(); each colour once.
  */
-function useSwatchSets(): { sets: { id: string; label: string; colors: string[] }[]; set: string; onSet: (id: string) => void } {
+export function swatchColors(variables: readonly { id: string; type: string }[], styles: readonly { kind: string; node: unknown }[], valueOf: (id: string) => unknown): string[] {
+  const css = (c: Color, opacity = 1) => {
+    const a = (c.a ?? 1) * opacity;
+    return a >= 1 ? colorToHex(c) : `rgba(${Math.round(c.r * 255)}, ${Math.round(c.g * 255)}, ${Math.round(c.b * 255)}, ${Math.round(a * 100) / 100})`;
+  };
+  const colors = new Set<string>();
+  for (const v of variables) {
+    if (v.type !== "COLOR") continue;
+    const value = valueOf(v.id);
+    if (value && typeof value === "object" && "r" in value) colors.add(css(value as Color));
+  }
+  for (const s of styles) {
+    if (s.kind !== "FILL") continue;
+    const top = [...((s.node as { fillPaints?: Paint[] }).fillPaints ?? [])].reverse().find((p) => p.visible !== false && p.type === "SOLID" && p.color);
+    if (top?.color) colors.add(css(top.color, top.opacity ?? 1));
+  }
+  return [...colors];
+}
+
+/**
+ * The picker's swatch sets after "On this page" (atlas 07 §5.6): "Local assets" — the file's colour variables in their
+ * order, then its fill styles — when it has any; then, past a line, each enabled library by name with its published
+ * colour variables (their default mode's value) and fill styles (a swatch applies the colour, unbound, as Figma's);
+ * the set picked last is remembered.
+ */
+function useSwatchSets(): { sets: { id: string; label: string; colors: string[]; separated?: boolean }[]; set: string; onSet: (id: string) => void } {
   useT();
   const assets = useLocalAssets();
+  const remote = useRemoteAssets();
   const sets = useMemo(() => {
-    const css = (c: Color, opacity = 1) => {
-      const a = (c.a ?? 1) * opacity;
-      return a >= 1 ? colorToHex(c) : `rgba(${Math.round(c.r * 255)}, ${Math.round(c.g * 255)}, ${Math.round(c.b * 255)}, ${Math.round(a * 100) / 100})`;
-    };
-    const colors = new Set<string>();
-    for (const v of assets.variables) {
-      if (v.type !== "COLOR") continue;
-      const value = resolveVariable(v.id, assets.lookup);
-      if (value && typeof value === "object" && !isEasingLiteral(value)) colors.add(css(value));
+    const local = swatchColors(assets.variables, assets.styles, (id) => resolveVariable(id, assets.lookup));
+    const out: { id: string; label: string; colors: string[]; separated?: boolean }[] = local.length ? [{ id: "local", label: t("Local assets"), colors: local }] : [];
+    const libraries = [...remote].sort((a, b) => a.name.localeCompare(b.name));
+    for (const lib of libraries) {
+      const colors = swatchColors(lib.variables, lib.styles, (id) => {
+        const v = lib.variables.find((x) => x.id === id);
+        return !v ? null : v.remote.imported ? resolveVariable(id, assets.lookup) : remoteDefaultValue(v, lib.collections);
+      });
+      if (colors.length) out.push({ id: `library:${lib.library}`, label: lib.name, colors, separated: !out.some((s) => s.separated) });
     }
-    for (const s of assets.styles) {
-      if (s.kind !== "FILL") continue;
-      const top = [...((s.node as { fillPaints?: Paint[] }).fillPaints ?? [])].reverse().find((p) => p.visible !== false && p.type === "SOLID" && p.color);
-      if (top?.color) colors.add(css(top.color, top.opacity ?? 1));
-    }
-    return colors.size ? [{ id: "local", label: t("Local assets"), colors: [...colors] }] : [];
-  }, [assets]);
+    return out;
+  }, [assets, remote]);
   const [set, setSet] = useState(() => {
     try {
       return localStorage.getItem(SWATCH_SET_KEY) ?? "page";

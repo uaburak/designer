@@ -1,6 +1,6 @@
 import { useRef, useState, type HTMLAttributes, type ReactNode } from "react";
 import { cx } from "../util/cx";
-import { hexDigits, parseHexInput } from "../util/color";
+import { hexDigits, hexSelection, hexTargets, parseHexInput, stepHex } from "../util/color";
 import { selectAllOnClick } from "../util/selectAll";
 import { useReturnFocus } from "../util/returnFocus";
 import { isMixed, type ChangeInfo, type Mixed } from "../types";
@@ -37,7 +37,8 @@ export interface ColorInputProps extends Omit<HTMLAttributes<HTMLDivElement>, "c
 /**
  * Figma's fill row (contract §4.6): the swatch cell, the hex as six upper-case
  * digits (3 or 6 typed, with or without #, or a CSS colour name; anything
- * else reverts), a line in the panel colour, the opacity with its %.
+ * else reverts), a line in the panel colour, the opacity with its %. ↑ ↓ in the
+ * hex step the channel under the caret (⇧ by 10).
  */
 export function ColorInput({ label, color, opacity, onColor, onOpacity, onSwatchClick, swatchLabel, swatch, valueLabel, disabled, className, ...rest }: ColorInputProps) {
   useT();
@@ -86,6 +87,22 @@ export function ColorInput({ label, color, opacity, onColor, onOpacity, onSwatch
         onBlur={(e) => commit(e.currentTarget.value)}
         onKeyDown={(e) => {
           e.stopPropagation();
+          // ↑ ↓ step the channel under the caret (or those selected) by 1, ⇧ 10, and select it (atlas 07 §5.4).
+          if ((e.key === "ArrowUp" || e.key === "ArrowDown") && !mixedColor) {
+            e.preventDefault();
+            const el = e.currentTarget;
+            const parsed = parseHexInput(el.value);
+            const targets = hexTargets(el.selectionStart ?? 0, el.selectionEnd ?? 0);
+            if (!parsed || !targets.size) return;
+            const next = stepHex(parsed.hex, targets, (e.key === "ArrowUp" ? 1 : -1) * (e.shiftKey ? 10 : 1));
+            setDraft(null);
+            if (next !== color.toLowerCase()) onColor(next, { final: true, source: "step" });
+            requestAnimationFrame(() => {
+              const at = hexSelection(targets);
+              el.setSelectionRange(at.start, at.end);
+            });
+            return;
+          }
           // As the number fields (live/behaviour/fields.md): Enter commits and gives focus back; the first Esc puts
           // the hex back and stays, the second leaves.
           if (e.key === "Escape" && draft !== null) {

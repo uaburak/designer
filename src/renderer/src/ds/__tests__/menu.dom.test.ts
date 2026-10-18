@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ContextMenu, type ContextMenuProps, type MenuEntry } from "../components/Menu";
 import { Select, type SelectProps } from "../components/Select";
 import { MIXED } from "../types";
+import { act } from "react";
 import { $, $$, click, key, mount, spy, type Mounted } from "./dom";
 
 let m: Mounted | null = null;
@@ -109,6 +110,28 @@ describe("Select", () => {
     expect(onChange.calls).toEqual([["bold"]]);
     expect($('#ds-overlays [role="listbox"]')).toBeNull();
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it("previews a hovered option after 50 ms, puts it back on leaving the list and before a pick (Figma's hover preview)", async () => {
+    const onPreview = spy<[string | null]>();
+    const { onChange, trigger } = setup({ onPreview });
+    click(trigger);
+    const option = (label: string) => [...document.querySelectorAll('#ds-overlays [role="option"]')].find((o) => o.textContent === label)!;
+    // (React makes enter / leave from "out" to the element on the other side; "over" only coming from outside it.)
+    const enter = (el: Element) => act(() => void el.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body })));
+    const move = (from: Element, to: Element) => act(() => void from.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, relatedTarget: to })));
+    enter(option("Regular"));
+    move(option("Regular"), option("Bold"));
+    expect(onPreview.calls).toEqual([]);
+    await new Promise((r) => setTimeout(r, 70));
+    expect(onPreview.calls).toEqual([["bold"]]);
+    move(option("Bold"), document.body);
+    enter(option("Medium")); // the value's own option: nothing to preview
+    move(option("Medium"), option("Regular"));
+    await new Promise((r) => setTimeout(r, 70));
+    click(option("Regular"));
+    expect(onPreview.calls).toEqual([["bold"], [null], ["regular"], [null]]);
+    expect(onChange.calls).toEqual([["regular"]]);
   });
 
   it("types ahead and closes on Esc without a change", () => {

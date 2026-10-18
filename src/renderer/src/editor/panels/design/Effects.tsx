@@ -444,6 +444,8 @@ export function EffectSettings({
   useT();
   // A glass Wecra wrote before round 17 shows (and is written back) in Figma's fields.
   const effect = figmaGlass(given);
+  // The effect as it was before the type menu's hover preview: previews and the pick start from it.
+  const unpreviewed = useRef<Effect | null>(null);
   // Editing any field of a hidden effect shows it again (Figma's onChange sets visible, atlas 08 §5.1).
   const onChange = (next: Effect, info: ChangeInfo) => write(next.visible === false ? { ...next, visible: true } : next, info);
   const title = t(effectLabel(effect));
@@ -468,10 +470,23 @@ export function EffectSettings({
       value={effect.type}
       options={typeOptions}
       onChange={(v) => {
+        const from = unpreviewed.current ?? effect;
         // Shader: the browser picks the preset (the effect becomes it).
         if (v === "CUSTOM") {
-          if (effect.type !== "CUSTOM") onShaders?.(anchor);
-        } else onChange(withEffectType(effect, v as Effect["type"], lineOnly), pick);
+          if (from.type !== "CUSTOM") onShaders?.(anchor);
+        } else onChange(withEffectType(from, v as Effect["type"], lineOnly), pick);
+      }}
+      // Hovering a type shows it on the layers after 50 ms (Figma's type menu, atlas 08 §5.3); the pick, or leaving the
+      // menu, puts back the effect it started from (a shader isn't previewed: picking it opens the browser).
+      onPreview={(v) => {
+        if (v === null || v === "CUSTOM") {
+          if (!unpreviewed.current) return;
+          onCancel();
+          queueMicrotask(() => (unpreviewed.current = null));
+          return;
+        }
+        unpreviewed.current ??= effect;
+        onChange(withEffectType(unpreviewed.current, v as Effect["type"], lineOnly), { final: false, source: "pick" });
       }}
     />
   );
@@ -480,11 +495,11 @@ export function EffectSettings({
   const vec = (key: string, fallback: V2) => (effect[key] as V2 | undefined) ?? fallback;
   const num = (key: string, fallback: number) => (effect[key] as number | undefined) ?? fallback;
   // Draw's slider under a field (an empty label cell keeps the grid's pairs).
-  const slide = (label: string, value: number, [min, max]: readonly [number, number], write: (v: number, info: ChangeInfo) => void) =>
+  const slide = (label: string, value: number, [min, max]: readonly [number, number], write: (v: number, info: ChangeInfo) => void, scale?: "exponential") =>
     sliders ? (
       <>
         <span />
-        <DrawSlider spec={{ label: t(label), value, min, max, onChange: write, onCancel }} />
+        <DrawSlider spec={{ label: t(label), value, min, max, onChange: write, onCancel, scale }} />
       </>
     ) : null;
   const colorRow = (label: string, key: "color" | "secondaryColor", value: Color, aria = "Color") => (
@@ -509,6 +524,8 @@ export function EffectSettings({
       <>
         <span className={styles.settingsLabel}>{t(label)}</span>
         <NumericInput label={t("{name} X", { name: t(aria) })} prefix="X" min={0} max={NOISE_SIZE_MAX} value={v.x} onChange={(x, info) => set({ [key]: { x, y: linked ? x : v.y } }, info)} onCancel={onCancel} />
+        {/* Draw: each size its own exponential slider, 0.01–100 (Figma's EXPONENTIAL transform) */}
+        {slide(t("{name} X", { name: t(aria) }), v.x, SLIDER_RANGE.noiseSize, (x, info) => set({ [key]: { x, y: linked ? x : v.y } }, info), "exponential")}
         <span />
         <NumericInput
           label={t("{name} Y", { name: t(aria) })}
@@ -521,6 +538,7 @@ export function EffectSettings({
           onClear={() => set({ [key]: { x: v.x, y: v.x } }, pick)}
           onCancel={onCancel}
         />
+        {slide(t("{name} Y", { name: t(aria) }), v.y, SLIDER_RANGE.noiseSize, (y, info) => set({ [key]: { x: v.x, y } }, info), "exponential")}
       </>
     );
   };
@@ -634,7 +652,7 @@ export function EffectSettings({
         {xy("Size", "noiseSize", "Size", NO_SIZE)}
         <span className={styles.settingsLabel}>{t("Radius")}</span>
         <NumericInput label={t("Radius")} min={0} value={effect.radius ?? 0} onChange={(v, info) => set({ radius: v }, info)} onCancel={onCancel} />
-        {slide("Radius", effect.radius ?? 0, SLIDER_RANGE.blur, (v, info) => set({ radius: v }, info))}
+        {slide("Radius", effect.radius ?? 0, SLIDER_RANGE.noiseSize, (v, info) => set({ radius: v }, info), "exponential")}
         <div className={cx(styles.fxWide, styles.fxCheck)}>
           <Checkbox label={t("Clip to shape")} checked={effect.clipToShape === true} onChange={(on) => set({ clipToShape: on }, pick)} />
         </div>

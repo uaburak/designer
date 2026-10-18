@@ -2,7 +2,7 @@ import { capture, release } from "../util/pointer";
 import { useEffect, useRef, useState, type HTMLAttributes, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { cx } from "../util/cx";
 import { commitTyped, formatNumber } from "../util/evaluate";
-import { scrubRate, scrubSpeedLabel, scrubValue, stepValue, SCRUB_THRESHOLD } from "../util/scrub";
+import { listSelection, listTargets, scrubRate, scrubSpeedLabel, scrubValue, stepList, stepValue, wheelDelta, wheelValue, SCRUB_THRESHOLD, WHEEL_BATCH_MS } from "../util/scrub";
 import { ScrubLock } from "../util/scrubLock";
 import { hapticTick } from "../util/haptics";
 import { exitKey, selectAllOnClick } from "../util/selectAll";
@@ -63,6 +63,8 @@ export interface NumericInputProps extends Omit<HTMLAttributes<HTMLDivElement>, 
   scrub?: boolean;
   /** How fast a scrub moves the value (Figma's `scrubMultiplier`: 1; 4 for a percent field; a corner radius 0.1) */
   scrubMultiplier?: number;
+  /** How far the wheel (⌥ held over the field) moves it (Figma's `wheelMultiplier`: 1; 2 for a percent field) */
+  wheelMultiplier?: number;
   /**
    * A label elsewhere that scrubs this field as its prefix would (Figma: a settings popover's "Blur", "Spread",
    * "Gap" scrub): its id, or "previous" — the element just before the field (a settings grid's label cell)
@@ -108,9 +110,11 @@ export interface NumericInputProps extends Omit<HTMLAttributes<HTMLDivElement>, 
  * util/scrub.ts), coarser up the screen and finer down it (Figma's bands, ×8 … ×⅛), with the pointer locked and
  * Figma's own cursor wrapping around the window (util/scrubLock.ts), a haptic tick on each step (util/haptics.ts):
  * `final: false` each step, one `final: true` on release, Esc cancels; a press without movement focuses the field.
- * "50%" and "2x" typed are a percent and a multiple of the value (util/evaluate.ts).
+ * "50%" and "2x" typed are a percent and a multiple of the value (util/evaluate.ts). The wheel with ⌥ held over the
+ * field scrubs it as well, its events batched into one change ending 200 ms after the last (Figma's ScrubManager). In a
+ * list ("19, 22") ↑ ↓ change the value under the caret, or those selected, and select them (`onText` takes the list).
  */
-export function NumericInput({ label, prefix, prefixTone, value, onChange, onCancel, onClear, onStep, onExpression, onScrubBy, keywords, onKeyword, onText, min = -1e6, max = 1e6, step = 1, bigStep = 10, precision = 2, unit, scrub = true, scrubMultiplier = unit === "%" ? 4 : 1, scrubHandle, placeholder, suffix, disabled, variant = "filled", onExit, onFocusChange, bare, valueLabel, displayText, modeLabel, dimValue, boxLabel, className, ...rest }: NumericInputProps) {
+export function NumericInput({ label, prefix, prefixTone, value, onChange, onCancel, onClear, onStep, onExpression, onScrubBy, keywords, onKeyword, onText, min = -1e6, max = 1e6, step = 1, bigStep = 10, precision = 2, unit, scrub = true, scrubMultiplier = unit === "%" ? 4 : 1, wheelMultiplier = unit === "%" ? 2 : 1, scrubHandle, placeholder, suffix, disabled, variant = "filled", onExit, onFocusChange, bare, valueLabel, displayText, modeLabel, dimValue, boxLabel, className, ...rest }: NumericInputProps) {
   useT();
   const mixed = isMixed(value);
   const current = mixed ? null : value;
@@ -125,6 +129,8 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
   const root = useRef<HTMLDivElement>(null);
   // x / y: where this rate's drag started (the pointer as `lock` reads it, past the window's edges once locked)
   const drag = useRef<{ x: number; y: number; start: number; last: number; moved: boolean; rate: number; shift: boolean; relative: boolean; id: number; el: HTMLElement; lock: ScrubLock } | null>(null);
+  // A wheel scrub: where it started and how far it has gone (Figma's distance, px), until 200 ms after the last event.
+  const wheel = useRef<{ start: number; distance: number; last: number; relative: boolean; timer: number } | null>(null);
   const [focused, setFocused] = useState(false);
   const returnFocus = useReturnFocus();
   // Figma writes the unit in the field's text ("100%", "0°"); a bare field (the colour row's opacity) puts it after the number.
@@ -215,6 +221,30 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
     else onChange(d.last, { final: true, source: "scrub" });
   };
 
+  const endWheel = () => {
+    const w = wheel.current;
+    if (!w) return;
+    wheel.current = null;
+    clearTimeout(w.timer);
+    if (w.last === w.start) return;
+    if (w.relative) onScrubBy?.(w.last, { final: true, source: "scrub" });
+    else onChange(w.last, { final: true, source: "scrub" });
+  };
+  const wheelBy = (e: WheelEvent) => {
+    let w = wheel.current;
+    if (w) clearTimeout(w.timer);
+    else w = wheel.current = { start: mixed ? 0 : base, distance: 0, last: mixed ? 0 : base, relative: mixed, timer: 0 };
+    w.distance += wheelDelta(e, wheelMultiplier);
+    const next = wheelValue(w.start, w.distance, { step, bigStep, shift: e.shiftKey, min: w.relative ? -Infinity : min, max: w.relative ? Infinity : max, precision, rate: scrubMultiplier });
+    if (next !== w.last) {
+      w.last = next;
+      hapticTick();
+      if (w.relative) onScrubBy?.(next, { final: false, source: "scrub" });
+      else onChange(next, { final: false, source: "scrub" });
+    }
+    w.timer = window.setTimeout(() => handle.current.endWheel(), WHEEL_BATCH_MS);
+  };
+
   // Esc during a scrub cancels it.
   useEffect(() => {
     if (!scrubbing) return;
@@ -229,10 +259,26 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
 
   const canScrub = scrub && !disabled && (!mixed || !!onScrubBy);
   // A label elsewhere scrubs too: native listeners on it, calling this render's handlers.
-  const handle = useRef({ startScrubOn, moveScrub, endScrub, canScrub });
+  const handle = useRef({ startScrubOn, moveScrub, endScrub, wheelBy, endWheel, canScrub });
   useEffect(() => {
-    handle.current = { startScrubOn, moveScrub, endScrub, canScrub };
+    handle.current = { startScrubOn, moveScrub, endScrub, wheelBy, endWheel, canScrub };
   });
+  // The wheel scrubs while ⌥ is held over the field (Figma takes the wheel only then: the panel scrolls otherwise).
+  useEffect(() => {
+    const el = root.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey || !handle.current.canScrub) return;
+      e.preventDefault();
+      e.stopPropagation();
+      handle.current.wheelBy(e);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      handle.current.endWheel();
+    };
+  }, []);
   useEffect(() => {
     const el = scrubHandle === "previous" ? (root.current?.previousElementSibling as HTMLElement | null) : scrubHandle ? document.getElementById(scrubHandle) : null;
     if (!el) return;
@@ -368,14 +414,24 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
           if (e.key === "ArrowUp" || e.key === "ArrowDown") {
             e.preventDefault();
             const dir = e.key === "ArrowUp" ? 1 : -1;
+            const el = e.currentTarget;
             typing.current = false;
             setDraft(null);
+            // A list ("19, 22"): the values under the caret or selection change (Figma's `getIncrementTargets`), selected after.
+            const targets = onText && el.value.includes(",") ? listTargets(el.value, el.selectionStart ?? 0, el.selectionEnd ?? 0) : null;
+            if (targets) {
+              onText?.(stepList(el.value, targets, dir * (e.shiftKey ? bigStep : step), { min, max, precision }));
+              requestAnimationFrame(() => {
+                const at = listSelection(el.value, targets);
+                el.setSelectionRange(at.start, at.end);
+              });
+              return;
+            }
             if (mixed) onStep?.(dir * (e.shiftKey ? bigStep : step));
             else {
               const next = stepValue(base, dir, { step, bigStep, shift: e.shiftKey, min, max, precision });
               if (next !== current) onChange(next, { final: true, source: "step" });
             }
-            const el = e.currentTarget;
             requestAnimationFrame(() => el.select());
             return;
           }

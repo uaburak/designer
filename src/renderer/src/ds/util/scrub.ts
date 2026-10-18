@@ -6,7 +6,8 @@ import { clampRound } from "./evaluate";
  * (docs/research/atlas/02-editor-chrome.md §4.5, `3187`): the distance from where the drag started as a share of the
  * screen's height, past 12.5 % ×2 (½ below), past 25 % ×4 (¼), past 50 % ×8 (⅛) (`scrubRate`). The field's own
  * multiplier scales it (Figma's `scrubMultiplier`: percent fields 4). Shift: the big nudge, on its grid (61 → 70, 80 …).
- * ↑ ↓ step by `step` (1), Shift by `bigStep` (10).
+ * ↑ ↓ step by `step` (1), Shift by `bigStep` (10); in a list ("19, 22") only the value under the caret (`listTargets`).
+ * The wheel over a field with ⌥ held scrubs it too (`wheelDelta`, `wheelValue`).
  *
  * A scrub moves in whole steps (round 16, the owner's report: "61.05" scrubbed to 62.05, 63.05 … — Figma's go
  * 62, 63 …): `SCRUB_PX_PER_STEP` px of drag at 1x is one step, and a fractional value lands on the step grid at the
@@ -76,3 +77,87 @@ export function stepValue(value: number, dir: 1 | -1, { step = 1, bigStep = 10, 
 
 /** A press that moved less than this is a click (it focuses the field). */
 export const SCRUB_THRESHOLD = 2;
+
+/**
+ * The wheel over a field (Figma's ScrubManager, atlas 02 §4.5, `3187`): taken only while ⌥ is held over it; its deltas
+ * batch into one change that ends this long after the last wheel event.
+ */
+export const WHEEL_BATCH_MS = 200;
+
+/**
+ * One wheel event's share of a field's wheel scrub, in px of Figma's distance: the larger axis (`wheelSingleAxis: "x"`,
+ * right and down adding), lines ×10 and pages ×100, Shift ×10 (Figma's big increment), times the field's
+ * `wheelMultiplier` (percent fields 2).
+ */
+export function wheelDelta(e: Pick<WheelEvent, "deltaX" | "deltaY" | "deltaMode" | "shiftKey">, wheelMultiplier = 1): number {
+  const unit = e.deltaMode === 1 ? 10 : e.deltaMode === 2 ? 100 : 1;
+  const x = -e.deltaX * unit, y = e.deltaY * unit;
+  return (Math.abs(y) > Math.abs(x) ? y : x) * (e.shiftKey ? 10 : 1) * wheelMultiplier;
+}
+
+/**
+ * The value a wheel scrub `distance` px (summed `wheelDelta`s) from `start` gives: Figma's scrub without its speed bands
+ * (a wheel is "unbounded": ×1), `distance × scrubMultiplier × 0.5`, snapped to the step (Shift: the big step).
+ */
+export function wheelValue(start: number, distance: number, { step = 1, bigStep = 10, shift = false, min = -Infinity, max = Infinity, precision = 2, rate = 1 }: ScrubOptions = {}): number {
+  const by = shift ? bigStep : step;
+  const unit = by > 0 ? by : 1;
+  return clampRound(Math.round((start + distance * rate * 0.5) / unit) * unit, min, max, precision);
+}
+
+/**
+ * The values of a comma list ("19, 22", "18, 22, 17, 19") ↑ ↓ change for a caret or selection from `start` to `end`
+ * (Figma's `getIncrementTargets`, atlas 02 §4.5): a caret, the value it is in (a comma counts with the value before it;
+ * at the end, the last); a selection, every value it touches; everything selected, null (all of them).
+ */
+export function listTargets(text: string, start: number, end: number): Set<number> | null {
+  if (start === 0 && end >= text.length) return null;
+  const caret = start === end;
+  if (caret && start >= text.length) return new Set([text.split(",").length - 1]);
+  const out = new Set<number>();
+  let k = 0;
+  for (let i = 0; i < text.length; i++) {
+    const comma = text[i] === ",";
+    if (caret) {
+      if (i === start) return new Set([k]);
+      if (comma) k++;
+    } else {
+      if (comma) k++;
+      if (start <= i && i < end) out.add(k);
+      if (i >= end) break;
+    }
+  }
+  return out;
+}
+
+/** Where the selection goes after a list step (Figma's `getSelection`): from the first target value's first character to the last one's end. */
+export function listSelection(text: string, targets: Set<number> | null): { start: number; end: number } {
+  if (!targets) return { start: 0, end: text.length };
+  let start: number | null = null, end = text.length, k = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === ",") {
+      k++;
+      continue;
+    }
+    if (!targets.has(k)) continue;
+    if (start === null) {
+      if (/\s/.test(text[i])) continue;
+      start = i;
+    }
+    while (i < text.length && text[i] !== ",") i++;
+    end = i;
+    i--;
+  }
+  return { start: start ?? 0, end };
+}
+
+/** The list with `delta` added to its `targets` (null: all), each clamped and rounded as the field's value; the rest as typed. */
+export function stepList(text: string, targets: Set<number> | null, delta: number, { min = -Infinity, max = Infinity, precision = 2 }: ScrubOptions = {}): string {
+  return text
+    .split(",")
+    .map((part, i) => {
+      const n = parseFloat(part);
+      return Number.isFinite(n) && (!targets || targets.has(i)) ? String(clampRound(n + delta, min, max, precision)) : part.trim();
+    })
+    .join(", ");
+}

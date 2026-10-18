@@ -2,7 +2,7 @@
 import type { BlendMode, Color, Effect, Guid, NodeChange, NodeFields } from "@/engine/codec";
 import { useEffect, useState } from "react";
 import { useSelection } from "@/engine/hooks";
-import { useEditor } from "../../controller";
+import { useEditor, type EditorController } from "../../controller";
 import { keepsField, supportsField } from "../../engineCompat";
 import { useNodes } from "../../hooks";
 
@@ -94,6 +94,13 @@ export type PanelNode = Omit<NodeChange, "type"> & ExtraFields & { type?: string
 
 /** Fields for setProps, including ones the facade's type doesn't list yet. */
 export const fields = (f: Omit<NodeFields, "type"> & ExtraFields): NodeFields => f as NodeFields;
+
+/**
+ * A menu's hover preview of a property (the DS Select's `onPreview`: Figma's blend mode and mask type menus): the
+ * hovered option written as an open edit, rolled back with null — a pick then commits as its own step.
+ */
+export const previewProps = (ed: EditorController, refs: readonly Guid[], label: string, fieldsOf: (v: string) => NodeFields) => (v: string | null) =>
+  v === null ? ed.cancelEdit() : ed.edit(label, { final: false, source: "pick" }, () => void ed.engine.setProps(refs, fieldsOf(v)));
 
 /** The selected nodes (re-read when a change touches one), without the missing ones, with their real types. */
 export function useSelectedNodes(): { refs: Guid[]; nodes: PanelNode[] } {
