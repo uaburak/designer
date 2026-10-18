@@ -84,7 +84,7 @@ describe("Dev Mode's Motion code", () => {
   it("JSON is the resolved model; the timing rows list each property's span", () => {
     expect(JSON.parse(motionCode("json", { resolved: RESOLVED }))).toEqual(RESOLVED);
     const rows = timingRows(RESOLVED);
-    expect(rows[0]).toMatchObject({ layer: "Red dot", property: "OPACITY", startMs: 500, endMs: 1000, easing: { type: "EASE_OUT" }, from: F(0), to: F(1), keyframes: 2 });
+    expect(rows[0]).toMatchObject({ layer: "Red dot", property: "OPACITY", startMs: 500, endMs: 1000, easing: { type: "EASE_OUT" }, values: [F(0), F(1)] });
     expect(slug("Ürün kartı 2")).toBe("urun-kart-2");
     expect(slug("1 up")).toBe("layer-1-up");
   });

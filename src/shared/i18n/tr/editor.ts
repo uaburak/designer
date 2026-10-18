@@ -1327,4 +1327,7 @@ export const editor: Record<string, string> = {
   "Show in timeline view": "Zaman çizelgesi görünümünde göster",
   Timing: "Zamanlama",
   "Code format": "Kod biçimi",
+  "Fill {n}": "Dolgu {n}",
+  "Stroke {n}": "Kontur {n}",
+  "Effect {n}": "Efekt {n}",
 };

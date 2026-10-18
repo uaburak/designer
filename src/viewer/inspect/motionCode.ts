@@ -327,14 +327,13 @@ export interface TimingRow {
   property: string;
   startMs: number;
   endMs: number;
-  /** The easing into the last keyframe (the first segment's when there are more) */
+  /** The easing into the second keyframe (the first segment's) */
   easing: MotionEasing;
-  from: KeyframeValue;
-  to: KeyframeValue;
-  keyframes: number;
+  /** Every keyframe's value, in time order */
+  values: KeyframeValue[];
 }
 
-/** Per layer and property: start, end, easing and the values it runs between. */
+/** Per layer and property (its field's name, "fills[0]" for a paint): start, end, easing and its values. */
 export function timingRows(resolved: ResolvedMotion): TimingRow[] {
   const rows: TimingRow[] = [];
   for (const l of resolved.layers)
@@ -342,7 +341,7 @@ export function timingRows(resolved: ResolvedMotion): TimingRow[] {
       if (!p.keyframes.length) continue;
       const first = p.keyframes[0];
       const last = p.keyframes[p.keyframes.length - 1];
-      rows.push({ layer: l.name, property: fieldName(p.field), startMs: r3(first.timeUs / 1000), endMs: r3(last.timeUs / 1000), easing: (p.keyframes[1] ?? last).easing, from: first.value, to: last.value, keyframes: p.keyframes.length });
+      rows.push({ layer: l.name, property: fieldName(p.field), startMs: r3(first.timeUs / 1000), endMs: r3(last.timeUs / 1000), easing: (p.keyframes[1] ?? last).easing, values: p.keyframes.map((k) => k.value) });
     }
   return rows;
 }

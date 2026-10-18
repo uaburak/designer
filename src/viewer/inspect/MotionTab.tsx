@@ -15,7 +15,7 @@ import type { Engine } from "@/engine/Engine";
 import { t, useT } from "@/i18n";
 import { Clock } from "@/editor/motion/clock";
 import { Timeline } from "@/editor/motion/timeline/Timeline";
-import { EASING_LABELS, PLAYBACK_LABELS, type KeyframeValue, type Micros, type MotionEasing, type ResolvedMotion, type TimelineModel } from "@shared/motion/types";
+import { EASING_LABELS, KEYFRAME_FIELDS, PLAYBACK_LABELS, type KeyframeValue, type Micros, type MotionEasing, type ResolvedMotion, type TimelineModel } from "@shared/motion/types";
 import { motionCode, timingRows, type MotionCodeFormat } from "./motionCode";
 import { cssInUnit, type UnitSettings } from "./units";
 import styles from "../Viewer.module.css";
@@ -58,6 +58,16 @@ function valueText(v: KeyframeValue): string {
   }
 }
 
+/** A property's name as the timeline's rows say it ("Position", "Opacity"; a paint: "Fill 1", "Stroke 1"). */
+function propertyLabel(key: string): string {
+  const info = KEYFRAME_FIELDS[key as keyof typeof KEYFRAME_FIELDS];
+  if (info) return t(info.label);
+  const paint = /^(fills|strokes|effects)\[(\d+)\]$/.exec(key);
+  if (!paint) return key;
+  const n = Number(paint[2]) + 1;
+  return paint[1] === "fills" ? t("Fill {n}", { n }) : paint[1] === "strokes" ? t("Stroke {n}", { n }) : t("Effect {n}", { n });
+}
+
 function easingText(e: MotionEasing): string {
   const name = t(EASING_LABELS[e.type]);
   const b = e.easingFunctionCubicBezier;
@@ -94,10 +104,10 @@ export function MotionTab({ engine, id, units, onTimeline }: { engine: Engine; i
           </div>
           {rows.map((r, i) => (
             <div key={`${r.layer}${r.property}${i}`} className={styles.motionRow} data-motion-property={r.property}>
-              <span className={styles.valueLabel}>{`${r.layer} · ${r.property}`}</span>
+              <span className={styles.valueLabel}>{`${r.layer} · ${propertyLabel(r.property)}`}</span>
               <span>{r.startMs === r.endMs ? `${r.startMs} ms` : `${r.startMs}–${r.endMs} ms`}</span>
               <span className={styles.valueSub}>{easingText(r.easing)}</span>
-              <span className={styles.valueSub}>{`${valueText(r.from)} → ${valueText(r.to)}`}</span>
+              <span className={styles.valueSub}>{r.values.length > 6 ? `${r.values.slice(0, 5).map(valueText).join(" → ")} → … → ${valueText(r.values[r.values.length - 1])}` : r.values.map(valueText).join(" → ")}</span>
             </div>
           ))}
         </div>
