@@ -903,13 +903,18 @@ export const COMMANDS: EditorCommand[] = [
     id: "file.save-version",
     label: "Save to version history…",
     keys: [k("KeyS", { mod: true, alt: true })],
-    run: (ed) => ed.ui.set({ versionDialog: "save" }),
+    run: (ed) => ed.ui.set({ savepoint: { version: null } }),
     enabled: (ed) => typeof ed.source.saveVersion === "function",
   },
   {
     id: "file.version-history",
     label: "Show version history",
-    run: (ed) => ed.ui.set({ versionDialog: "history" }),
+    // Figma's toggle-version-history: enters history mode (nothing selected on the canvas), or leaves it.
+    run: (ed) => {
+      const open = ed.ui.get().versionDialog === "history";
+      if (!open) ed.engine.setSelection([]);
+      ed.ui.set({ versionDialog: open ? null : "history", historyVersion: null });
+    },
     enabled: (ed) => typeof ed.source.listVersions === "function",
   },
   {

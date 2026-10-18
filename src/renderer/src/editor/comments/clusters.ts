@@ -146,7 +146,10 @@ export function clusterPeople(threads: CommentThread[]): { user: CommentUser; un
  */
 export function clusterClickZoom(spread: number, zoom: number, viewport: { width: number; height: number }): number {
   const fit = spread > 0 ? (CLUSTER.clickViewportFraction * Math.max(viewport.width, viewport.height)) / spread : Infinity;
-  return Math.min(Math.max(fit, zoom * 1.5), CLUSTER.minZoom + 0.5);
+  const to = Math.min(Math.max(fit, zoom * 1.5), CLUSTER.minZoom + 0.5);
+  // Already past 1.26 (pins close enough to merge even there): never a zoom out — 1.5 × until they part. (What Figma
+  // does in this case isn't read.)
+  return to > zoom ? to : zoom * 1.5;
 }
 
 /** The Tab order of pins: a nearest-neighbour walk from the one with the smallest x + y (list order past 100 pins) */
