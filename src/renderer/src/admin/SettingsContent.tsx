@@ -243,7 +243,9 @@ export function DataRegionDialog({ onClose }: { onClose: () => void }) {
       changed();
       showToast({ message: left(s) === 0 ? t("Files moved to {region}", { region: t(DATA_REGION_LABEL[s.region]) }) : t("Some files couldn't be moved") });
     } catch (e) {
-      if (alive.current) showToast({ message: errorParts(e).message, kind: "error" });
+      // 409 conflict: another admin's move holds the org (one at a time, docs/multiplayer.md §15.16)
+      const err = errorParts(e);
+      if (alive.current) showToast({ message: err.code === "conflict" ? t("Another move is running in this organization. Try again in a few minutes.") : err.message, kind: "error" });
     } finally {
       if (alive.current) {
         setMoving(false);

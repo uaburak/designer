@@ -119,7 +119,7 @@ The owner wants every feature of Figma's Enterprise plan. R18 lists them all: th
 - **Notifications** (`docs/multiplayer.md` §12: migration 0008, `Inbox`, the bell). Old item 5d is reduced to email.
 - **Sessions and personal access tokens** (§13: migration 0009 — a row per sign-in, `sid` in tokens, last active, Sign out per session, scoped tokens). They come off round 1's server list and round 4's client list.
 
-Migrations continue from **0010** (round 1) and **0011** (round 2); round 3 used **0012**, round 4 **0013** (`multiplayer.md` §15.14) and **0014** (4e, idle sessions), round 5 **0015** (§16.12).
+Migrations continue from **0010** (round 1) and **0011** (round 2); round 3 used **0012**, round 4 **0013** (`multiplayer.md` §15.14) and **0014** (4e, idle sessions), round 5 **0015** (§16.12). The Enterprise leftovers of 2026-10-18 added **0027** (`0027_region_moves.sql`, `multiplayer.md` §15.16).
 
 ### Open questions for the owner (Phase 7)
 **Answered by the owner, 2026-10-11:** (1) friends are **members** — an admin adds anyone as a member by hand, and "Import shared files" (§14.8) imports the people the owner shared with as members, not guests; (2) the default seat stays Figma's **View** (with "Ask to upgrade"); (3) org admins **edit everything implicitly** (keep §14.2 rule 4); (4) not asked — default: keep per-file sharing outside orgs (Figma keeps sharing drafts); (5) open; (6) **several orgs** — the org switcher in the account menu, "Create organization" as many times as wanted, the name asked at creation.

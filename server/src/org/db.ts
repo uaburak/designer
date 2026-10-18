@@ -183,7 +183,8 @@ export const Q = {
   }),
   /** A folder's tile counts (projects.ts projectSummaries) */
   projectCounts: (projectId: string): Query => ({
-    sql: `SELECT (SELECT COUNT(*) FROM files WHERE project_id = ?1 AND trashed_at IS NULL) AS files, (SELECT COUNT(*) FROM projects WHERE parent_id = ?1 AND trashed_at IS NULL) AS folders`,
+    // Branches sit in their main file's folder (docs/data.md §15.7.1) but aren't counted: Home lists them under main
+    sql: `SELECT (SELECT COUNT(*) FROM files f WHERE f.project_id = ?1 AND f.trashed_at IS NULL AND NOT EXISTS (SELECT 1 FROM branches b WHERE b.key = f.key)) AS files, (SELECT COUNT(*) FROM projects WHERE parent_id = ?1 AND trashed_at IS NULL) AS folders`,
     args: [projectId],
   }),
   // Home's lists (teams.ts, projects.ts, pages.ts): the page routes prefetch them with the reads above

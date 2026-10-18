@@ -80,6 +80,9 @@ export interface OrgMainProps {
   serverUrl?: string | null;
   /** Rename an org file through its local copy (the store renames it on the server too); absent: no Rename */
   renameFile?: (fileKey: FileKey, name: string) => Promise<unknown>;
+  /** Duplicate an org file through its local copy: the local "‹name› (Copy)" (`workspace.duplicateFile`), and the copy
+   *  dropped again when the server refuses it (`deleteForever`); absent: no Duplicate */
+  duplicate?: { make: (fileKey: FileKey) => Promise<{ fileKey: FileKey }>; discard: (fileKey: FileKey) => Promise<unknown> };
   /** When this installation last opened a file (its local copy's Recents time), for All projects' order; absent: never */
   viewedAt?: (fileKey: FileKey) => number | null;
   /** Starred (Home's Starred, by the file's local copy); absent: no star on the cards */
@@ -160,7 +163,7 @@ const pageKey = (loc: Location) => JSON.stringify(loc);
 
 export function OrgMain(props: OrgMainProps) {
   useT();
-  const { org, orgId, info, location, page, reload, go, nav, openFile, onBranches, toast, now, noCreate = false, blocked, banner, onImport, onImportFiles, serverUrl, renameFile, viewedAt, isStarred, setStarred, localThumbnail, browse, onBrowse, filter = "all", onFilter, creator = "anyone", onCreator, me = null } = props;
+  const { org, orgId, info, location, page, reload, go, nav, openFile, onBranches, toast, now, noCreate = false, blocked, banner, onImport, onImportFiles, serverUrl, renameFile, duplicate, viewedAt, isStarred, setStarred, localThumbnail, browse, onBrowse, filter = "all", onFilter, creator = "anyone", onCreator, me = null } = props;
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -340,6 +343,8 @@ export function OrgMain(props: OrgMainProps) {
             ...(serverUrl ? ["-" as const, { id: "copy-link", label: tr("Copy link") }] : []),
             ...(hasAnalytics && libraryKeys.has(f.key) ? ["-" as const, { id: "library-analytics", label: tr("Library analytics") }] : []),
             "-",
+            // Duplicate copies the file: not where its viewers may not copy (docs/governance.md §2.7) or prototypes only
+            ...(duplicate ? [{ id: "duplicate", label: tr("Duplicate"), disabled: !f.access.canExport || f.access.prototypeOnly }] : []),
             ...(renameFile ? [{ id: "rename", label: tr("Rename"), disabled: !may }] : []),
             { id: "move", label: tr("Move to…"), disabled: !may },
             "-",
@@ -350,6 +355,7 @@ export function OrgMain(props: OrgMainProps) {
         if (id === "open-new-tab") void openOrgFile(f, true);
         if (id === "copy-link") copyLink(f);
         if (id === "library-analytics") setDialog({ kind: "library-analytics", key: f.key, name: f.name });
+        if (id === "duplicate") void duplicateFile(f);
         if (id === "rename") setDialog({ kind: "rename-file", file: f });
         if (id === "move") void moveFiles([f]);
         if (id === "trash") void write(() => org.projects.trashFiles([f.key]), tr("File moved to trash"));
@@ -377,6 +383,31 @@ export function OrgMain(props: OrgMainProps) {
         if (id === "restore") void write(() => org.projects.restore(p.id), tr("Folder restored"));
         if (id === "delete-forever") setDialog({ kind: "delete-folder", project: p });
       },
+    });
+  };
+
+  /**
+   * Duplicate (Figma's file menu; help.figma.com: the copy goes where the original is, else to the person's drafts):
+   * "‹name› (Copy)" made from the file's local copy (made first when there is none) and shared into the same folder as
+   * Move to… shares a local file, the server checking the person may copy from the original (`fig_file_duplicate`).
+   * A draft's copy, or one the folder won't take, stays in this computer's Drafts; one the original refuses is dropped.
+   */
+  const duplicateFile = async (f: O.OrgFile) => {
+    if (!duplicate) return;
+    await write(async () => {
+      const fileKey = f.fileKey ?? (await org.openShared(f.key)).fileKey;
+      const copy = await duplicate.make(fileKey);
+      if (!f.projectId) return toast({ message: tr("Duplicated to Drafts") });
+      try {
+        await org.projects.moveLocalFile(copy.fileKey, f.projectId, { ...(await org.snapshotOf(copy.fileKey)), duplicateOf: f.key });
+        toast({ message: tr("File duplicated") });
+      } catch (e) {
+        if ((e as { detail?: { code?: unknown } }).detail?.code === "export_restricted") {
+          await duplicate.discard(copy.fileKey).catch(() => undefined);
+          throw e;
+        }
+        toast({ message: tr("Duplicated to Drafts: {error}", { error: orgErrorText(e) }) });
+      }
     });
   };
 

@@ -46,7 +46,7 @@ import type { ActivityAction } from "../../src/shared/org/types";
 import { logActivity, repoEntity } from "./activity";
 import type { Deps } from "./api";
 import type { BranchRow } from "./branchAccess";
-import { normalizeEmail } from "./db";
+import { normalizeEmail, type D1Like } from "./db";
 import { prefetch, type Query } from "./requestD1";
 import { guardedUpload, requireFileSlot } from "./quota/quota";
 import { canOpen, type FileRow } from "./org/db";
@@ -502,6 +502,7 @@ async function applyMerge(ctx: Ctx, r: Resolved) {
   const { deps, user } = ctx;
   const { b, main } = r;
   if (b.status !== "active") throw new HttpError(409, b.status === "merged" ? "the branch is already merged" : "the branch is archived");
+  if (r.am.ok && r.am.trashed) throw new HttpError(409, "the main file is in the trash; restore it first");
   if (!r.canEditMain || !r.am.ok) throw new HttpError(403, "only people who can edit the main file can merge; request a review");
   const { meta, message } = envelopeOf<{ mainSeq?: unknown; branchSeq?: unknown; title?: unknown; description?: unknown; sessionID?: unknown; batch?: unknown }>(await ctx.req.arrayBuffer());
   const mainSeq = seqOf(meta.mainSeq, "mainSeq");
@@ -530,6 +531,8 @@ async function applyMerge(ctx: Ctx, r: Resolved) {
     .prepare(`UPDATE branches SET status = 'merged', merged_at = ?2, merged_by = ?3, merge_version = ?4, archived_at = ?2, archived_by = ?3 WHERE key = ?1`)
     .bind(b.key, now, user.id, res.versionId)
     .run();
+  // Its review is over (§15.5): closed, so a merged branch shows no review waiting
+  await deps.db.d1.prepare(`UPDATE branch_reviews SET state = 'closed', updated_at = ?2 WHERE branch_key = ?1 AND state <> 'closed'`).bind(b.key, now).run();
   await deps.db.d1.prepare(`UPDATE files SET updated_at = ?2 WHERE key = ?1`).bind(main.key, now).run();
   await logBranch(ctx, main, "repo_merge_to_source", { branch_key: b.key, branch_name: b.name, main_seq: res.seq, version_id: res.versionId });
   const { results: reviewers } = await deps.db.d1.prepare(`SELECT DISTINCT r.user_id FROM branch_reviewers r JOIN branch_reviews v ON v.id = r.review_id WHERE v.branch_key = ?1`).bind(b.key).all<{ user_id: string }>();
@@ -622,6 +625,22 @@ export async function branchMembers(ctx: Ctx, b: BranchRow): Promise<Response> {
     return json({ ok: true });
   }
   throw new HttpError(404, "not found");
+}
+
+/**
+ * A main file moved (to another folder, into drafts, into an org) takes its branches' rows along: they sit where main
+ * does (§15.7.1). Left behind, deleting the old folder for good deleted the live branches with it. Answers the
+ * branches' keys (their people reconnect: access is main's).
+ */
+export async function placeBranchesWith(d1: D1Like, mainKey: string): Promise<string[]> {
+  const { results } = await d1
+    .prepare(
+      `UPDATE files SET org_id = (SELECT org_id FROM files WHERE key = ?1), team_id = (SELECT team_id FROM files WHERE key = ?1),
+         project_id = (SELECT project_id FROM files WHERE key = ?1) WHERE key IN (SELECT key FROM branches WHERE main_key = ?1) RETURNING key`,
+    )
+    .bind(mainKey)
+    .all<{ key: string }>();
+  return results.map((r) => r.key);
 }
 
 /** A main file deleted for good takes its branches (their rooms and rows) with it. */

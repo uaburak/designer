@@ -79,6 +79,7 @@ export const files: Record<string, string> = {
   "{n} item deleted forever": "{n} öğe kalıcı olarak silindi",
   "{n} items deleted forever": "{n} öğe kalıcı olarak silindi",
   "File duplicated": "Dosya çoğaltıldı",
+  "Duplicated to Drafts: {error}": "Taslaklara çoğaltıldı: {error}",
   "{n} files duplicated": "{n} dosya çoğaltıldı",
   "Trash emptied": "Çöp kutusu boşaltıldı",
   "Something went wrong": "Bir sorun oluştu",

@@ -11,6 +11,7 @@ export const store: Record<string, string> = {
   "Not found": "Bulunamadı",
   "That folder is in Trash": "Bu klasör çöp kutusunda",
   "This file is in Trash": "Bu dosya çöp kutusunda",
+  "The main file is in Trash. Restore it first.": "Ana dosya çöp kutusunda. Önce geri yükleyin.",
   "The file couldn't be read: {reason}": "Dosya okunamadı: {reason}",
   "The file has no document": "Dosyada belge yok",
   "The shared file couldn't be read: {reason}": "Paylaşılan dosya okunamadı: {reason}",

@@ -310,6 +310,32 @@ export async function syncLibraryScope(deps: Deps, fileKey: string, orgLinkAcces
   if (r) await librarySettingsNotice(deps, r.org_id);
 }
 
+/** Whether a file is in the trash: itself, a folder above it, or its team deleted (org/db.ts reads it the same way) */
+const IN_TRASH = `WITH RECURSIVE up(id, n) AS (SELECT project_id, 0 FROM files WHERE key = ?1
+    UNION ALL SELECT p.parent_id, up.n + 1 FROM projects p JOIN up ON p.id = up.id WHERE up.id IS NOT NULL AND up.n < 12)
+  SELECT EXISTS (SELECT 1 FROM files WHERE key = ?1 AND trashed_at IS NOT NULL)
+    OR EXISTS (SELECT 1 FROM projects p JOIN up ON p.id = up.id WHERE p.trashed_at IS NOT NULL)
+    OR EXISTS (SELECT 1 FROM files f JOIN teams t ON t.id = f.team_id WHERE f.key = ?1 AND t.deleted_at IS NOT NULL) AS gone`;
+
+/**
+ * A folder went to the trash or came back, a team was deleted or restored, or a file came back (§16.6): the libraries
+ * among `fileKeys` follow where their files stand — listed nowhere while the file, a folder above it or its team is
+ * in the trash; published again once none is (a library file trashed on its own stays trashed with its folder back).
+ */
+export async function libraryContainerStatus(deps: Deps, fileKeys: string[]): Promise<void> {
+  if (!fileKeys.length) return;
+  const d1 = deps.db.d1;
+  const { results } = await d1
+    .prepare(`SELECT key, status FROM libraries WHERE status IN ('published', 'trashed') AND key IN (SELECT value FROM json_each(?1))`)
+    .bind(JSON.stringify(fileKeys))
+    .all<{ key: string; status: "published" | "trashed" }>();
+  for (const lib of results) {
+    const gone = !!(await d1.prepare(IN_TRASH).bind(lib.key).first<{ gone: number }>())?.gone;
+    if (gone && lib.status === "published") await libraryFileStatus(deps, lib.key, "trash");
+    if (!gone && lib.status === "trashed") await libraryFileStatus(deps, lib.key, "restore");
+  }
+}
+
 /**
  * The library file went to the trash, came back, or was deleted forever (§16.6): trashed libraries list nowhere,
  * restored ones are published again, a deleted one keeps its row ("Missing library") and loses its bytes and its
