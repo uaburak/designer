@@ -6,7 +6,7 @@
 import { emailDomain } from "../../../src/shared/org/identity";
 import type { Deps } from "../api";
 import type { User } from "../db";
-import { notifyOrg, type OrgNotificationKind } from "../notifications";
+import { notifyOrg } from "../notifications";
 import { ensureMember, verifiedDomainOrg } from "./people";
 
 /** At sign-in: the email's domain verified, with capture on, in an org → a member there. Returns that org's id. */
