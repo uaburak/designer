@@ -30,6 +30,7 @@ export function CommentsPanel() {
   const sortFilter: MenuEntry[] = [
     { header: t("Sort") },
     { id: "sort-date", label: t("Sort by date"), checked: v.sort === "date" },
+    { id: "sort-recent", label: t("Sort by last action"), checked: v.sort === "recent" },
     { id: "sort-unread", label: t("Sort by unread"), checked: v.sort === "unread" },
     "-",
     { id: "showResolved", label: t("Show resolved comments"), checked: v.showResolved },
@@ -58,6 +59,7 @@ export function CommentsPanel() {
           align="end"
           onSelect={(id) => {
             if (id === "sort-date") c.setSort("date");
+            else if (id === "sort-recent") c.setSort("recent");
             else if (id === "sort-unread") c.setSort("unread");
             else c.toggle(id as "showResolved" | "onlyMine" | "onlyPage");
           }}

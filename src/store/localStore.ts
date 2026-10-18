@@ -968,10 +968,13 @@ export class LocalStore {
     return (await readJsonOrNull<PreviewRecord[]>(join(this.dirs.root, "previews.json"))) ?? [];
   }
 
-  /** Mark and sweep (§10.3): live = every file's and version's blobRefs, library payloads and thumbnails, previews. */
+  /** Mark and sweep (§10.3): live = every file's and version's blobRefs, its comments' files, library payloads and thumbnails, previews. */
   async collectGarbage(): Promise<{ live: number; deleted: number; kept: number }> {
     const live = new Set<string>();
-    for (const k of this.ws.files.keys()) for (const r of await this.files.blobRefsOf(k)) live.add(r);
+    for (const k of this.ws.files.keys()) {
+      for (const r of await this.files.blobRefsOf(k)) live.add(r);
+      for (const r of await this.comments.blobRefs(k)) live.add(r);
+    }
     for (const r of await this.libraries.blobRefs()) live.add(r);
     for (const p of await this.previewRecords()) for (const r of p.blobRefs) live.add(r);
     const { deleted, kept } = await this.blobs.sweep(live, this.clock.now());

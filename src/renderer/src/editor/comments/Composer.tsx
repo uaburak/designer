@@ -1,13 +1,16 @@
 /**
  * The comment composer (live: docs/research/figma/live/multiplayer/comments.md "The Comment tool"): a text field that
  * wraps and grows, [Send] ↑ at the right (grey while empty, blue with text); with text a bottom row — [Add emoji],
- * [Add mention] "@". Enter posts, Shift+Enter adds a line, Esc cancels. Typing "@" lists the people who can be mentioned.
- * (Figma's [Upload up to 5 images and GIFs] is left out: images in comments aren't built.)
+ * [Add mention] "@", [Upload up to 5 images and GIFs] (a local file's comments: atlas 16 §2.7 — pasted or dropped files
+ * join too, shown above the row with a remove ×). Enter posts, Shift+Enter adds a line, Esc cancels. Typing "@" lists
+ * the people who can be mentioned. Past 2,000 characters nothing is sent.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Avatar, cx, Icon } from "@/ds";
 import { t, useT } from "@/i18n";
-import type { MentionCandidate } from "@shared/comments";
+import { ATTACHMENT_IMAGE_TYPES, ATTACHMENT_VIDEO_TYPES, commentLength, MAX_COMMENT_LENGTH, type CommentAttachment, type MentionCandidate } from "@shared/comments";
+import type { ImageStore } from "../images";
+import { addAttachments, AttachGlyph, AttachmentThumb } from "./attachments";
 import { EmojiPicker } from "./EmojiPicker";
 import styles from "./Comments.module.css";
 
@@ -21,14 +24,16 @@ export interface ComposerProps {
   initial?: string;
   autoFocus?: boolean;
   /** Resolves true when posted (the field empties) */
-  onSubmit(text: string): Promise<boolean> | boolean;
+  onSubmit(text: string, attachments: CommentAttachment[]): Promise<boolean> | boolean;
+  /** Where files go: absent, none can be added (a shared file's comments, an edit) */
+  images?: ImageStore;
   onCancel?(): void;
   onChange?(text: string): void;
   /** "reply": the thread's reply field (bg secondary); "edit": Cancel / Save under it */
   variant?: "new" | "reply" | "edit";
 }
 
-export function Composer({ placeholder, label, people: everyone, me, initial = "", autoFocus, onSubmit, onCancel, onChange, variant = "new" }: ComposerProps) {
+export function Composer({ placeholder, label, people: everyone, me, initial = "", autoFocus, onSubmit, onCancel, onChange, variant = "new", images }: ComposerProps) {
   useT();
   const people = everyone.filter((p) => p.id !== me);
   const [text, setText] = useState(initial);
@@ -37,6 +42,9 @@ export function Composer({ placeholder, label, people: everyone, me, initial = "
   const [pick, setPick] = useState(0);
   const [emoji, setEmoji] = useState<HTMLElement | null>(null);
   const field = useRef<HTMLTextAreaElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
+  const [files, setFiles] = useState<CommentAttachment[]>([]);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     if (autoFocus) field.current?.focus({ preventScroll: true });
@@ -70,13 +78,26 @@ export function Composer({ placeholder, label, people: everyone, me, initial = "
   };
   const mention = (p: MentionCandidate) => insert(`@${p.name} `, query ? query[0].length : 0);
 
+  // Figma's limit: 2,000 characters (graphemes), past which nothing is sent.
+  const over = commentLength(text) > MAX_COMMENT_LENGTH;
   const submit = async () => {
-    if (!text.trim() || busy) return;
+    if ((!text.trim() && !files.length) || busy || over || uploading) return;
     setBusy(true);
-    const ok = await onSubmit(text);
+    const ok = await onSubmit(text, files);
     setBusy(false);
-    if (ok && variant !== "edit") update("");
+    if (ok && variant !== "edit") {
+      update("");
+      setFiles([]);
+    }
   };
+  const attach = async (list: File[]) => {
+    if (!images || !list.length) return;
+    setUploading(true);
+    const added = await addAttachments(images, files, list);
+    setUploading(false);
+    setFiles((f) => [...f, ...added]);
+  };
+  const filesIn = (data: DataTransfer | null) => [...(data?.files ?? [])];
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     e.stopPropagation();
@@ -101,10 +122,21 @@ export function Composer({ placeholder, label, people: everyone, me, initial = "
     }
   };
 
-  const empty = !text.trim();
+  const empty = !text.trim() && !files.length;
   const expanded = !empty || variant === "edit";
+  const unsendable = empty || over || uploading;
   return (
-    <div className={cx(styles.composer, styles[`composer-${variant}`])} data-expanded={expanded || undefined}>
+    <div
+      className={cx(styles.composer, styles[`composer-${variant}`])}
+      data-expanded={expanded || undefined}
+      onDragOver={(e) => images && e.dataTransfer.types.includes("Files") && e.preventDefault()}
+      onDrop={(e) => {
+        if (!images || !e.dataTransfer.files.length) return;
+        e.preventDefault();
+        e.stopPropagation();
+        void attach(filesIn(e.dataTransfer));
+      }}
+    >
       <div className={styles.composerRow}>
         <textarea
           ref={field}
@@ -116,13 +148,27 @@ export function Composer({ placeholder, label, people: everyone, me, initial = "
           role="combobox"
           aria-expanded={matches.length > 0}
           aria-autocomplete="list"
+          aria-invalid={over || undefined}
           onChange={(e) => update(e.target.value, e.target.selectionStart ?? e.target.value.length)}
           onSelect={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
           onKeyDown={onKeyDown}
+          onPaste={(e) => {
+            const pasted = filesIn(e.clipboardData);
+            if (!images || !pasted.length) return;
+            e.preventDefault();
+            void attach(pasted);
+          }}
           onPointerDown={(e) => e.stopPropagation()}
         />
-        {!expanded && <SendButton disabled={empty || busy} onClick={submit} />}
+        {!expanded && <SendButton disabled={unsendable || busy} onClick={submit} />}
       </div>
+      {files.length > 0 && (
+        <div className={styles.composerFiles}>
+          {files.map((a) => (
+            <AttachmentThumb key={a.id} images={images} a={a} size={48} onRemove={() => setFiles((f) => f.filter((x) => x !== a))} />
+          ))}
+        </div>
+      )}
       {expanded && (
         <div className={styles.composerTools}>
           <button type="button" className={styles.toolButton} aria-label={t("Add emoji")} onClick={(e) => setEmoji(emoji ? null : e.currentTarget)}>
@@ -131,18 +177,37 @@ export function Composer({ placeholder, label, people: everyone, me, initial = "
           <button type="button" className={styles.toolButton} aria-label={t("Add mention")} disabled={!people.length} onClick={() => insert("@")}>
             <span aria-hidden>@</span>
           </button>
+          {images && variant !== "edit" && (
+            <>
+              <button type="button" className={styles.toolButton} aria-label={t("Upload up to 5 images and GIFs")} disabled={uploading} onClick={() => picker.current?.click()}>
+                <AttachGlyph />
+              </button>
+              <input
+                ref={picker}
+                type="file"
+                hidden
+                multiple
+                accept={[...ATTACHMENT_IMAGE_TYPES, ...ATTACHMENT_VIDEO_TYPES].join(",")}
+                onChange={(e) => {
+                  const picked = [...(e.target.files ?? [])];
+                  e.target.value = "";
+                  void attach(picked);
+                }}
+              />
+            </>
+          )}
           <span className={styles.grow} />
           {variant === "edit" ? (
             <>
               <button type="button" className={styles.textButton} onClick={() => onCancel?.()}>
                 {t("Cancel")}
               </button>
-              <button type="button" className={styles.saveButton} disabled={empty || busy} onClick={() => void submit()}>
+              <button type="button" className={styles.saveButton} disabled={unsendable || busy} onClick={() => void submit()}>
                 {t("Save")}
               </button>
             </>
           ) : (
-            <SendButton disabled={empty || busy} onClick={submit} />
+            <SendButton disabled={unsendable || busy} onClick={submit} />
           )}
         </div>
       )}

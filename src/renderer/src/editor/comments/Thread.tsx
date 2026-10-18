@@ -8,6 +8,7 @@ import { Avatar, Button, ContextMenu, Dialog, Icon, timeAgo, type MenuEntry } fr
 import { intlLocale, t, tp, useT } from "@/i18n";
 import type { Comment, CommentsState, CommentThread, MentionCandidate } from "@shared/comments";
 import type { CommentsController } from "./commentsController";
+import { AttachmentThumb, AttachmentViewer } from "./attachments";
 import { Composer } from "./Composer";
 import { EmojiPicker } from "./EmojiPicker";
 import styles from "./Comments.module.css";
@@ -123,7 +124,7 @@ export function ThreadCard({ c, data, thread, people, style }: { c: CommentsCont
       </div>
       <div className={styles.replyRow}>
         <Avatar name={data.me.name} src={data.me.picture ?? undefined} size={24} />
-        <Composer key={thread.id} variant="reply" placeholder={t("Reply")} label={t("Reply to comment with {name}", { name: first?.user.name ?? "" })} people={people} me={data.me.id} onSubmit={(text) => c.reply(thread.id, text)} onCancel={() => c.openThread(null)} autoFocus />
+        <Composer key={thread.id} variant="reply" placeholder={t("Reply")} label={t("Reply to comment with {name}", { name: first?.user.name ?? "" })} people={people} me={data.me.id} images={c.attachments()} onSubmit={(text, files) => c.reply(thread.id, text, files)} onCancel={() => c.openThread(null)} autoFocus />
       </div>
       {menu && <ContextMenu at={{ x: menu.x, y: menu.y }} entries={menu.entries} onSelect={onMenu} onClose={() => setMenu(null)} label={menu.comment ? t("Comment actions") : t("Thread actions")} />}
       <DeleteCommentDialog
@@ -175,6 +176,7 @@ export function ResolveGlyph({ done }: { done: boolean }) {
 function CommentRow({ c, comment, me, people, editing, onStopEditing, onMenu }: { c: CommentsController; comment: Comment; me: string; people: MentionCandidate[]; editing: boolean; onStopEditing(): void; onMenu?: (e: React.MouseEvent) => void }) {
   useT();
   const [picker, setPicker] = useState<HTMLElement | null>(null);
+  const [viewing, setViewing] = useState<number | null>(null);
   const reacted = (users: { id: string }[]) => users.some((u) => u.id === me);
   return (
     <article className={styles.comment} data-comment={comment.id}>
@@ -220,6 +222,14 @@ function CommentRow({ c, comment, me, people, editing, onStopEditing, onMenu }: 
             )}
           </div>
         )}
+        {!editing && !!comment.attachments?.length && (
+          <div className={styles.commentFiles}>
+            {comment.attachments.map((a, i) => (
+              <AttachmentThumb key={a.id} images={c.ed.source.images} a={a} size={comment.attachments!.length === 1 ? 200 : 96} onOpen={() => setViewing(i)} />
+            ))}
+          </div>
+        )}
+        {viewing !== null && comment.attachments && <AttachmentViewer images={c.ed.source.images} list={comment.attachments} at={viewing} onClose={() => setViewing(null)} />}
         {comment.reactions.length > 0 && (
           <div className={styles.reactions}>
             {comment.reactions.map((r) => {

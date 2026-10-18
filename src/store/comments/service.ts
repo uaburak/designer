@@ -5,9 +5,17 @@
  * store and the browser's dev store both run it.
  */
 import {
+  ATTACHMENT_IMAGE_TYPES,
   buildThreads,
+  COMMENT_ID,
+  commentLength,
+  isAttachmentVideo,
+  MAX_ATTACHMENT_IMAGE_BYTES,
+  MAX_ATTACHMENT_VIDEO_BYTES,
+  MAX_ATTACHMENTS,
   MAX_COMMENT_LENGTH,
   type Comment,
+  type CommentAttachment,
   type CommentAnchor,
   type CommentsRepository,
   type CommentsState,
@@ -17,7 +25,7 @@ import {
 } from "../../shared/comments";
 import { StoreError } from "../../shared/store/protocol";
 import type { Unsubscribe } from "../../shared/store/repositories";
-import type { FileKey } from "../../shared/store/types";
+import { isSha1, type FileKey } from "../../shared/store/types";
 import type { MultiplayerService } from "../multiplayer/service";
 import { t as tr } from "../../shared/i18n";
 
@@ -111,34 +119,53 @@ export class CommentsService {
   }
 
   async add(fileKey: FileKey, input: NewComment): Promise<CommentsState> {
-    const message = cleanMessage(input?.message);
+    const attachments = cleanAttachments(input?.attachments);
+    // A comment of files alone needs no text (Figma sends it with an empty message).
+    const message = cleanMessage(input?.message, attachments.length > 0);
     const mentions = cleanMentions(input?.mentions);
     const threadId = typeof input?.threadId === "string" && input.threadId ? input.threadId : null;
     if (!threadId && !validAnchor(input?.anchor)) throw new StoreError("invalid", tr("A new comment needs its place"));
+    const files = attachments.length ? { attachments } : {};
     return this.write(fileKey, {
-      server: (key) => this.mp.call("POST", `/files/${key}/comments`, { id: this.newId(), threadId, message, mentions, anchor: input.anchor }),
+      server: (key) => {
+        // The server doesn't keep files yet (Phase 6): the composer offers them in local files only.
+        if (attachments.length) throw new StoreError("invalid", tr("Files can be added to comments in local files only for now"));
+        return this.mp.call("POST", `/files/${key}/comments`, { id: this.newId(), threadId, message, mentions, anchor: input.anchor });
+      },
       local: (rec, me) => {
         const now = this.host.now();
         const id = this.newId();
         if (threadId) {
           if (!rec.comments.some((c) => c.id === threadId && c.parentId === null)) throw new StoreError("not-found", tr("No such thread"));
-          rec.comments.push({ id, threadId, parentId: threadId, user: me, message, mentions, createdAt: now, editedAt: null, reactions: [] });
+          rec.comments.push({ id, threadId, parentId: threadId, user: me, message, mentions, createdAt: now, editedAt: null, reactions: [], ...files });
           rec.reads[threadId] = now;
         } else {
           const number = Math.max(0, ...rec.comments.map((c) => c.number ?? 0)) + 1;
-          rec.comments.push({ id, threadId: id, parentId: null, user: me, message, mentions, createdAt: now, editedAt: null, reactions: [], anchor: input.anchor, number, resolvedAt: null });
+          rec.comments.push({ id, threadId: id, parentId: null, user: me, message, mentions, createdAt: now, editedAt: null, reactions: [], ...files, anchor: input.anchor, number, resolvedAt: null });
           rec.reads[id] = now;
         }
       },
     });
   }
 
+  /** The blobs a local file's comments hold (their files and videos' pictures): kept by the store's GC */
+  async blobRefs(fileKey: FileKey): Promise<string[]> {
+    const rec = await this.loadLocal(fileKey).catch(() => null);
+    const out = new Set<string>();
+    for (const c of rec?.comments ?? [])
+      for (const a of c.attachments ?? []) {
+        out.add(a.sha1);
+        if (a.thumb) out.add(a.thumb);
+      }
+    return [...out];
+  }
+
   async edit(fileKey: FileKey, commentId: string, message: string, mentions?: string[]): Promise<CommentsState> {
-    const text = cleanMessage(message);
     return this.write(fileKey, {
-      server: (key) => this.mp.call("PATCH", `/files/${key}/comments/${enc(commentId)}`, { message: text, mentions: cleanMentions(mentions) }),
+      server: (key) => this.mp.call("PATCH", `/files/${key}/comments/${enc(commentId)}`, { message: cleanMessage(message), mentions: cleanMentions(mentions) }),
       local: (rec) => {
         const c = find(rec, commentId);
+        const text = cleanMessage(message, !!c.attachments?.length);
         c.message = text;
         c.mentions = cleanMentions(mentions);
         c.editedAt = this.host.now();
@@ -325,10 +352,38 @@ function find(rec: LocalComments, id: string): StoredComment {
   return c;
 }
 
-function cleanMessage(v: unknown): string {
+function cleanMessage(v: unknown, mayBeEmpty = false): string {
   const t = typeof v === "string" ? v.trim() : "";
-  if (!t || t.length > MAX_COMMENT_LENGTH) throw new StoreError("invalid", tr("A comment needs some text"));
+  if (!t && mayBeEmpty) return "";
+  if (!t) throw new StoreError("invalid", tr("A comment needs some text"));
+  if (commentLength(t) > MAX_COMMENT_LENGTH) throw new StoreError("invalid", tr("A comment can be up to {n} characters long", { n: MAX_COMMENT_LENGTH.toLocaleString("en-US") }));
   return t;
+}
+
+/** Attachments as they come over the port: at most 5, each a known type within its size, its bytes named by SHA-1 */
+function cleanAttachments(v: unknown): CommentAttachment[] {
+  if (v === undefined || v === null) return [];
+  if (!Array.isArray(v) || v.length > MAX_ATTACHMENTS) throw new StoreError("invalid", tr("You can add up to {n} files", { n: MAX_ATTACHMENTS }));
+  return v.map((x: Partial<CommentAttachment>) => {
+    const mime = String(x?.mime ?? "");
+    const video = isAttachmentVideo(mime);
+    const size = Number(x?.size);
+    if (!video && !(ATTACHMENT_IMAGE_TYPES as readonly string[]).includes(mime)) throw new StoreError("invalid", "attachment type");
+    if (!Number.isFinite(size) || size < 0 || size > (video ? MAX_ATTACHMENT_VIDEO_BYTES : MAX_ATTACHMENT_IMAGE_BYTES)) throw new StoreError("invalid", "attachment size");
+    if (!isSha1(x?.sha1) || (x.thumb != null && !isSha1(x.thumb))) throw new StoreError("invalid", "attachment bytes");
+    const a: CommentAttachment = {
+      id: typeof x.id === "string" && COMMENT_ID.test(x.id) ? x.id : x.sha1,
+      name: String(x.name ?? "").slice(0, 255),
+      mime,
+      size,
+      sha1: x.sha1,
+      width: Math.max(0, Math.round(Number(x.width) || 0)),
+      height: Math.max(0, Math.round(Number(x.height) || 0)),
+    };
+    if (x.thumb) a.thumb = x.thumb;
+    if (Number.isFinite(x.lastModified)) a.lastModified = Number(x.lastModified);
+    return a;
+  });
 }
 
 function cleanMentions(v: unknown): string[] {
