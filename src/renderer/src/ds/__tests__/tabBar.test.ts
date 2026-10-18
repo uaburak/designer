@@ -116,3 +116,47 @@ describe("TabBar drag", () => {
     expect($('[data-tab-id="a"] [aria-label="Unsaved changes"]')).toBeNull();
   });
 });
+
+describe("TabBar pins, groups and the tabs menu (atlas 01 §2.3–2.5)", () => {
+  it("says a pinned tab is pinned, puts a group's name before its tabs as pills, and renames it in place", () => {
+    const onGroupMenu = spy<[string, { x: number; y: number }]>();
+    const onRenameGroup = spy<[string, string | null]>();
+    const tabs = [
+      { id: "p", title: "Pinned", pinned: true },
+      { id: "a", title: "Alpha", groupId: "g" },
+      { id: "b", title: "Beta", groupId: "g" },
+      { id: "c", title: "Gamma" },
+    ];
+    const props = { tabs, groups: [{ id: "g", name: "Work", color: "green" as const }], active: "a", onActivate: spy<[string]>(), onClose: spy<[string]>(), onGroupMenu, onRenameGroup };
+    m = mount(TabBar, props);
+    expect(tab("p").getAttribute("aria-label")).toBe("Pinned tab: Pinned");
+    const labels = $$('[data-group-id="g"]');
+    expect(labels).toHaveLength(1);
+    expect(labels[0].textContent).toBe("Work");
+    expect(labels[0].dataset.color).toBe("green");
+    // The name sits right before the group's first tab.
+    expect(labels[0].nextElementSibling).toBe(tab("a"));
+    expect(tab("a").dataset.grouped).toBe("green");
+    expect(tab("c").dataset.grouped).toBeUndefined();
+    act(() => {
+      labels[0].dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 5, clientY: 6 }));
+    });
+    expect(onGroupMenu.calls).toEqual([["g", { x: 5, y: 6 }]]);
+    m.rerender(TabBar, { ...props, editingGroup: "g" });
+    const input = $('[data-group-id="g"] input') as HTMLInputElement;
+    focus(input);
+    input.value = "Later";
+    key(input, "Escape");
+    expect(onRenameGroup.calls).toEqual([["g", null]]);
+  });
+
+  it("has the tabs menu at the right end, and the + says New file", () => {
+    const onTabsMenu = spy<[{ x: number; y: number }]>();
+    const onNew = spy<[]>();
+    m = mount(TabBar, { tabs: TABS, active: "a", onActivate: spy<[string]>(), onClose: spy<[string]>(), onTabsMenu, onNew });
+    click($('[aria-label="Open and recently closed tabs"]'));
+    expect(onTabsMenu.calls).toHaveLength(1);
+    click($('[aria-label="New file"]'));
+    expect(onNew.calls).toHaveLength(1);
+  });
+});

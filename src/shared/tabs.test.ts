@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { emptyTabs, HOME, neighbourTab, persistable, restoreTabs, tabAtShortcut, tabsReducer, type TabsState } from "./tabs";
+import { discardable, emptyTabs, HOME, liveAtStart, MAX_CLOSED, neighbourTab, NEW_TAB, persistable, restoreTabs, tabAtShortcut, tabsReducer, type TabsState } from "./tabs";
 
 const open = (state: TabsState, fileKey: string, extra: object = {}) => tabsReducer(state, { type: "open", fileKey, id: fileKey.toUpperCase(), ...extra });
 const keys = (s: TabsState) => s.tabs.map((t) => t.fileKey);
@@ -154,5 +154,131 @@ describe("another account (docs/desktop.md §18.7)", () => {
     s = tabsReducer(s, { type: "reset" });
     expect(s).toEqual({ tabs: [], active: HOME, closed: [] });
     expect(tabsReducer(s, { type: "reset" })).toBe(s);
+  });
+});
+
+describe("Figma's tab rules (atlas 01 §2.3–2.7)", () => {
+  const four = () => open(open(open(open(emptyTabs(), "a"), "b"), "c"), "d");
+  const ids = (s: TabsState) => s.tabs.map((t) => t.id);
+
+  it("keeps 100 closed tabs, never the new-tab page", () => {
+    let s = emptyTabs();
+    for (let i = 0; i < 105; i++) s = open(s, `k${i}`);
+    s = tabsReducer(s, { type: "close", ids: ids(s) });
+    expect(s.closed).toHaveLength(MAX_CLOSED);
+    expect(MAX_CLOSED).toBe(100);
+    s = tabsReducer(s, { type: "open", kind: "new-tab", fileKey: "", id: "N1" });
+    s = tabsReducer(s, { type: "open", kind: "new-tab", fileKey: "", id: "N2" });
+    expect(s.tabs.map((t) => [t.id, t.title])).toEqual([
+      ["N1", NEW_TAB],
+      ["N2", NEW_TAB],
+    ]);
+    const before = s.closed;
+    s = tabsReducer(s, { type: "close", ids: ["N1"] });
+    expect(s.closed).toEqual(before);
+  });
+
+  it("a file picked on the new-tab page takes its place, or brings its open tab forward", () => {
+    let s = open(open(emptyTabs(), "a"), "b");
+    s = tabsReducer(s, { type: "activate", id: "A" });
+    s = tabsReducer(s, { type: "open", kind: "new-tab", fileKey: "", id: "N" });
+    expect(ids(s)).toEqual(["A", "N", "B"]);
+    s = tabsReducer(s, { type: "open", fileKey: "c", id: "C", replace: "N" });
+    expect(ids(s)).toEqual(["A", "C", "B"]);
+    expect(s.active).toBe("C");
+    s = tabsReducer(s, { type: "open", kind: "new-tab", fileKey: "", id: "N2" });
+    s = tabsReducer(s, { type: "open", fileKey: "a", replace: "N2", at: 5 });
+    expect(ids(s)).toEqual(["A", "C", "B"]);
+    expect(s.active).toBe("A");
+    expect(s.tabs[0].viewedAt).toBe(5);
+  });
+
+  it("pins: first, out of any group, moving only among the pinned", () => {
+    let s = four();
+    s = tabsReducer(s, { type: "group-add", ids: ["C"], groupId: "g1" });
+    s = tabsReducer(s, { type: "pin", id: "C", pinned: true });
+    expect(ids(s)).toEqual(["C", "A", "B", "D"]);
+    expect(s.tabs[0].groupId).toBeUndefined();
+    expect(s.groups).toBeUndefined();
+    s = tabsReducer(s, { type: "pin", id: "D", pinned: true });
+    expect(ids(s)).toEqual(["C", "D", "A", "B"]);
+    // Neither out of the pinned run nor into it.
+    expect(ids(tabsReducer(s, { type: "move", id: "C", to: 3 }))).toEqual(["D", "C", "A", "B"]);
+    expect(ids(tabsReducer(s, { type: "move", id: "B", to: 0 }))).toEqual(["C", "D", "B", "A"]);
+    // Pinned tabs never join a group.
+    expect(tabsReducer(s, { type: "group-add", ids: ["C"], groupId: "g2" })).toBe(s);
+    s = tabsReducer(s, { type: "pin", id: "C", pinned: false });
+    expect(ids(s)).toEqual(["D", "C", "A", "B"]);
+    expect(s.tabs[1].pinned).toBeUndefined();
+  });
+
+  it("groups: Group {number} in Figma's colours, kept together, gone when empty", () => {
+    let s = four();
+    s = tabsReducer(s, { type: "group-add", ids: ["B", "D"], groupId: "g1" });
+    expect(ids(s)).toEqual(["A", "B", "D", "C"]);
+    expect(s.groups).toEqual([{ id: "g1", number: 1, name: "", color: "blue" }]);
+    s = tabsReducer(s, { type: "group-add", ids: ["C"], groupId: "g2" });
+    expect(s.groups?.[1]).toMatchObject({ number: 2, color: "red" });
+    s = tabsReducer(s, { type: "group-set", groupId: "g1", name: "  Work  ", color: "green" });
+    expect(s.groups?.[0]).toMatchObject({ name: "Work", color: "green" });
+    expect(tabsReducer(s, { type: "group-set", groupId: "g1", name: "Work" })).toBe(s);
+    // A file opened from a grouped tab joins its group.
+    s = tabsReducer(s, { type: "activate", id: "B" });
+    s = open(s, "e");
+    expect(ids(s)).toEqual(["A", "B", "E", "D", "C"]);
+    expect(s.tabs[2].groupId).toBe("g1");
+    // Dragged out of the group's run: out of it; between two of its tabs: in it.
+    s = tabsReducer(s, { type: "move", id: "E", to: 0 });
+    expect(s.tabs[0]).not.toHaveProperty("groupId");
+    s = tabsReducer(s, { type: "move", id: "A", to: 2 });
+    expect(ids(s)).toEqual(["E", "B", "A", "D", "C"]);
+    expect(s.tabs[2].groupId).toBe("g1");
+    s = tabsReducer(s, { type: "group-remove", ids: ["B"] });
+    expect(ids(s)).toEqual(["E", "A", "D", "B", "C"]);
+    s = tabsReducer(s, { type: "ungroup", groupId: "g1" });
+    expect(s.groups?.map((g) => g.id)).toEqual(["g2"]);
+    // The last tab of a group closed: the group goes; its number is free again.
+    s = tabsReducer(s, { type: "close", ids: ["C"] });
+    expect(s.groups).toBeUndefined();
+    s = tabsReducer(s, { type: "group-add", ids: ["E"], groupId: "g3" });
+    expect(s.groups?.[0]).toMatchObject({ number: 1, color: "blue" });
+  });
+
+  it("keeps pins, groups and when each was viewed between launches", () => {
+    let s = four();
+    s = tabsReducer(s, { type: "pin", id: "D", pinned: true });
+    s = tabsReducer(s, { type: "group-add", ids: ["A", "B"], groupId: "g1" });
+    s = tabsReducer(s, { type: "activate", id: "C", at: 1234 });
+    s = tabsReducer(s, { type: "open", kind: "new-tab", fileKey: "", id: "N" });
+    const back = restoreTabs(JSON.parse(JSON.stringify(persistable(s))));
+    expect(back.tabs.map((t) => [t.id, t.pinned ?? false, t.groupId ?? null])).toEqual([
+      ["D", true, null],
+      ["A", false, "g1"],
+      ["B", false, "g1"],
+      ["C", false, null],
+      ["N", false, null],
+    ]);
+    expect(back.tabs[3].viewedAt).toBe(1234);
+    expect(back.groups).toEqual(s.groups);
+    // A group that isn't kept: its tabs restored without it.
+    const orphan = restoreTabs({ tabs: [{ id: "X", kind: "file", fileKey: "x", groupId: "gone" }], groups: [{ id: "../" }] });
+    expect(orphan.tabs[0]).not.toHaveProperty("groupId");
+    expect(orphan.groups).toBeUndefined();
+  });
+
+  it("offloads loaded file tabs unseen for 48 h, oldest first, keeping 3 live and never with fewer than 5 tabs", () => {
+    const H = 3_600_000;
+    const now = 100 * 24 * H;
+    let s = emptyTabs();
+    for (const [k, ago] of [["a", 50], ["b", 60], ["c", 1], ["d", 70], ["e", 80], ["f", 90]] as const) s = open(s, k, { at: now - ago * H });
+    s = tabsReducer(s, { type: "pin", id: "F", pinned: true });
+    s = tabsReducer(s, { type: "activate", id: "C" });
+    const loaded = new Set(ids(s));
+    // F pinned, C in front; then by age E, D, B, A — six loaded, three kept.
+    expect(discardable(s, loaded, now)).toEqual(["E", "D", "B"]);
+    expect(discardable(s, new Set(["A", "C"]), now)).toEqual([]);
+    expect(discardable(tabsReducer(s, { type: "close", ids: ["F", "E"] }), loaded, now)).toEqual([]);
+    // At launch: the most recently viewed, the one in front counted.
+    expect(liveAtStart(s, 3)).toEqual(["A", "B"]);
   });
 });

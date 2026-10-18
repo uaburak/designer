@@ -3,7 +3,7 @@ import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, wr
 import { dirname, join } from "node:path";
 import type { ThemePreference } from "../shared/ipc";
 import type { Locale } from "../shared/i18n";
-import type { ClosedTab, TabRecord } from "../shared/tabs";
+import type { ClosedTab, TabGroup, TabRecord } from "../shared/tabs";
 import { sanitizeShortcutSettings, type ShortcutSettings } from "../shared/shortcuts";
 
 /**
@@ -29,6 +29,8 @@ export interface WindowSession {
   tabs: TabRecord[];
   activeTabId: string;
   closed: ClosedTab[];
+  /** Its tab groups (atlas 01 §2.3); absent before wave 8 */
+  groups?: TabGroup[];
 }
 
 export interface SessionFile {

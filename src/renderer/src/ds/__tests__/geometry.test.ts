@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { dropIndex, initials, thumbGeometry, visibleRange } from "../util/geometry";
 import { hexDigits, hexDigitsToRgba, normalizeHex, parseColor, parseHexInput, withOpacity } from "../util/color";
-import { formatEdited } from "../util/time";
+import { formatEdited, refreshDelay, timeAgo } from "../util/time";
 
 describe("tab drag", () => {
   it("drops before the first tab whose middle is past the dragged middle", () => {
@@ -88,16 +88,50 @@ describe("colour fields", () => {
 
 describe("relative times (Figma's wording)", () => {
   const now = Date.UTC(2026, 9, 6, 15, 5);
+  const S = 1000;
+  const MIN = 60 * S;
+  const H = 60 * MIN;
+  const D = 24 * H;
   const ago = (ms: number) => formatEdited(now - ms, now);
   it("says just now, then minutes, hours, days, months, years — singular when one", () => {
     expect(ago(10_000)).toBe("Edited just now");
     expect(ago(60_000)).toBe("Edited 1 minute ago");
     expect(ago(34 * 60_000)).toBe("Edited 34 minutes ago");
     expect(ago(3_600_000)).toBe("Edited 1 hour ago");
-    expect(ago(86_400_000)).toBe("Edited 1 day ago");
+    expect(ago(86_400_000)).toBe("Edited yesterday");
     expect(ago(3 * 86_400_000)).toBe("Edited 3 days ago");
-    expect(ago(31 * 86_400_000)).toBe("Edited 1 month ago");
+    expect(ago(31 * 86_400_000)).toBe("Edited last month");
     expect(ago(70 * 86_400_000)).toBe("Edited 2 months ago");
-    expect(ago(400 * 86_400_000)).toBe("Edited 1 year ago");
+    expect(ago(400 * 86_400_000)).toBe("Edited last year");
+  });
+  it("rounds within moment's buckets: 45 s, 90 s, 45 min, 90 min, 22 h, 36 h, 26 days, 45 days, 320 days", () => {
+    expect(timeAgo(now - 44 * S, now)).toBe("just now");
+    expect(timeAgo(now - 45 * S, now)).toBe("1 minute ago");
+    expect(timeAgo(now - 89 * S, now)).toBe("1 minute ago");
+    expect(timeAgo(now - 90 * S, now)).toBe("2 minutes ago");
+    expect(timeAgo(now - (2 * MIN + 30 * S), now)).toBe("3 minutes ago");
+    expect(timeAgo(now - 44 * MIN, now)).toBe("44 minutes ago");
+    expect(timeAgo(now - 45 * MIN, now)).toBe("1 hour ago");
+    expect(timeAgo(now - 89 * MIN, now)).toBe("1 hour ago");
+    expect(timeAgo(now - 90 * MIN, now)).toBe("2 hours ago");
+    expect(timeAgo(now - 21 * H, now)).toBe("21 hours ago");
+    expect(timeAgo(now - 22 * H, now)).toBe("yesterday");
+    expect(timeAgo(now - 35 * H, now)).toBe("yesterday");
+    expect(timeAgo(now - 36 * H, now)).toBe("2 days ago");
+    expect(timeAgo(now - 25 * D, now)).toBe("25 days ago");
+    expect(timeAgo(now - 26 * D, now)).toBe("last month");
+    expect(timeAgo(now - 44 * D, now)).toBe("last month");
+    expect(timeAgo(now - 45 * D, now)).toBe("2 months ago");
+    expect(timeAgo(now - 319 * D, now)).toBe("11 months ago");
+    expect(timeAgo(now - 320 * D, now)).toBe("last year");
+    expect(timeAgo(now - 600 * D, now)).toBe("2 years ago");
+    expect(timeAgo(now + 5 * MIN, now)).toBe("just now");
+  });
+  it("refreshes every 30 s under an hour, every 30 min under a day, else every 6 h", () => {
+    expect(refreshDelay(0)).toBe(30 * S);
+    expect(refreshDelay(59 * MIN)).toBe(30 * S);
+    expect(refreshDelay(H)).toBe(30 * MIN);
+    expect(refreshDelay(23 * H)).toBe(30 * MIN);
+    expect(refreshDelay(D)).toBe(6 * H);
   });
 });

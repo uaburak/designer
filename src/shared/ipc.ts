@@ -16,7 +16,7 @@ import type { CommandId, MenuStatePatch } from "./commands";
 import type { SharedFontFace, SharedFontsChannels } from "./fonts/sharedTypes";
 import type { PluginBundle, PluginManifest } from "./plugins/types";
 import type { ShortcutSettings } from "./shortcuts";
-import type { TabKind, TabReport, TabStatus } from "./tabs";
+import type { TabGroup, TabKind, TabReport, TabStatus } from "./tabs";
 import type { Locale } from "./i18n";
 import type { FigmaImage, FigmaResult, FigmaUser } from "./figmaApi";
 
@@ -64,6 +64,8 @@ export interface TabInfo {
   fileKey?: string;
   title: string;
   status: TabStatus;
+  pinned?: boolean;
+  groupId?: string;
 }
 
 export interface TabsSnapshot {
@@ -72,6 +74,8 @@ export interface TabsSnapshot {
   activeTabId: string;
   canReopen: boolean;
   fullScreen: boolean;
+  /** The tab groups (atlas 01 §2.3), in the bar's order of their tabs */
+  groups: TabGroup[];
 }
 
 export interface WindowState {
@@ -497,6 +501,14 @@ export interface IpcSend {
   /** Windows: the tab bar's main menu button — the app's menu, popped up at (x, y) in the bar */
   "tabs:main-menu": { x: number; y: number };
   "tabs:reopen": void;
+  /** "+" (⌘T): the new-tab page in a new tab (atlas 01 §3) */
+  "tabs:new-tab": void;
+  /** A tab group's header pressed with the right button: its native menu (Edit group name, Group color, Ungroup, Delete group) */
+  "tabs:group-menu": { groupId: string; x: number; y: number };
+  /** The group's name typed in the bar (after Edit group name) */
+  "tabs:group-rename": { groupId: string; name: string };
+  /** The tabs menu at the bar's right end ("Open and recently closed tabs"), popped up at (x, y) */
+  "tabs:list-menu": { x: number; y: number };
   /** "Check for Updates…" from the tab bar (docs/desktop.md §12.6) */
   "updater:check": void;
   /** "Restart to update": the app's normal quit (every file flushed, the store shut down), then the update installs and the app opens again */
@@ -520,6 +532,8 @@ export interface IpcSend {
 
 export interface IpcEvents {
   "tabs:state": TabsSnapshot;
+  /** To the tab bar: Edit group name was chosen — the group's name becomes a field */
+  "tabs:edit-group": { groupId: string };
   /** To the tab bar: the updater's state changed (docs/desktop.md §12.6) */
   "updater:state": UpdaterStatus;
   "window:state": WindowState;
@@ -679,6 +693,10 @@ export const SEND_ROLES: { [C in keyof IpcSend]: readonly Role[] } = {
   "tabs:context-menu": ["tabbar"],
   "tabs:main-menu": ["tabbar"],
   "tabs:reopen": ["tabbar", "home"],
+  "tabs:new-tab": ["tabbar"],
+  "tabs:group-menu": ["tabbar"],
+  "tabs:group-rename": ["tabbar"],
+  "tabs:list-menu": ["tabbar"],
   "updater:check": ["tabbar"],
   "updater:restart": ["tabbar"],
   "nav:go-home": ["editor"],

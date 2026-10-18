@@ -102,6 +102,16 @@ export interface TabBarApi extends DesktopCommon {
     reopen(): void;
     /** "+": a new design file in Drafts, opened */
     newFile(): void;
+    /** "+" (⌘T): the new-tab page (atlas 01 §3) */
+    newTab(): void;
+    /** A group header's native menu */
+    groupMenu(groupId: string, x: number, y: number): void;
+    /** Edit group name done */
+    renameGroup(groupId: string, name: string): void;
+    /** The bar's tabs menu ("Open and recently closed tabs") */
+    listMenu(x: number, y: number): void;
+    /** Edit group name chosen in the group's menu */
+    onEditGroup(cb: (e: { groupId: string }) => void): Unsubscribe;
   };
   /** The app's updates (docs/desktop.md §12.6): the "Restart to update" pill and a manual check's progress */
   updates: {

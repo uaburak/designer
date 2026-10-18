@@ -1,7 +1,7 @@
 import { Menu, shell, type MenuItemConstructorOptions, type WebContents, type WebContentsView } from "electron";
 import { command as commandSpec, isCommandId, layoutCommands, type CommandId, type MenuStatePatch } from "../shared/commands";
 import type { FlushReason, HomeState, ImportResult, IpcEvents, NewFileResult, OpenFileResult, OpenWorkspaceFile, TabFlushed, TabsSnapshot } from "../shared/ipc";
-import { HOME, neighbourTab, tabAtShortcut, tabsReducer, type Tab, type TabReport, type TabsAction, type TabsState } from "../shared/tabs";
+import { DISCARD_AFTER_MS, DISCARD_IDLE_MS, DISCARD_SWEEP_MS, discardable, GROUP_COLORS, groupsOf, HOME, liveAtStart, neighbourTab, newTabId, tabAtShortcut, tabsReducer, type GroupColor, type Tab, type TabGroup, type TabReport, type TabsAction, type TabsState } from "../shared/tabs";
 import { isStoreError } from "../shared/store/protocol";
 import type { WorkspaceEvent } from "../shared/store/repositories";
 import { askCrashed, askFlushFailed, askFlushTimeout, askUnresponsive, tellFileError } from "./dialogs";
@@ -28,9 +28,23 @@ import { t, tp } from "../shared/i18n";
  * handshake (`tab:flush` → `tab:flushed`, 3 s), and a native question comes
  * only when a flush fails or times out. The store's events retitle their
  * tabs (`file.renamed`) and close them (`file.trashed`, `file.deleted`).
+ *
+ * Figma's offloading (atlas 01 §2.7): at launch the most recently viewed
+ * file tabs load in the background, one after another (15 in all); every
+ * hour — and on coming back after 4 h away — loaded file tabs not viewed for
+ * 48 h are offloaded, oldest first, 3 kept. An offloaded tab is flushed
+ * first and stays loaded unless the flush succeeded: nothing unsaved goes.
+ * A new-tab page (⌘T, "+") is a Home view of its own; a file picked there
+ * takes its tab's place.
  */
 
 export const FLUSH_TIMEOUT_MS = 3000;
+
+/** Figma's group colour names (its Group color menu) */
+const GROUP_COLOR_NAMES: Record<GroupColor, string> = { blue: "Blue", red: "Red", yellow: "Yellow", green: "Green", purple: "Purple", pink: "Pink", persimmon: "Persimmon", grey: "Grey" };
+
+/** A group's name as the bar and the menus show it: its own, or "Group {number}". */
+export const groupName = (g: TabGroup) => g.name || t("Group {number}", { number: g.number });
 
 interface Runtime {
   view: WebContentsView;
@@ -111,6 +125,13 @@ export class TabManager {
   private openRequest: { at: number; fileKey: string } | null = null;
   /** The last file opens: when main was asked, which view the tab got (scripts/drive.mjs `open-timing`). */
   private opens: { at: number; fileKey: string; tabId: string; adopted: boolean; webContentsId: number }[] = [];
+  /** The hourly discard sweep */
+  private sweepTimer: ReturnType<typeof setInterval> | null = null;
+  /** When the window last lost the focus (null: it has it) — 4 h away, a sweep when it comes back */
+  private awaySince: number | null = null;
+  private offFocus: () => void = () => {};
+  /** The launch's background loads are going on */
+  private warming = false;
 
   constructor(
     private readonly ctl: WindowController,
@@ -158,7 +179,82 @@ export class TabManager {
   start() {
     this.show();
     this.push();
-    void this.dropMissingFiles();
+    void this.dropMissingFiles().then(() => this.warmUp());
+    this.sweepTimer = setInterval(() => {
+      // Away for 4 h: the sweep waits for the window to come back.
+      if (this.awaySince === null || Date.now() - this.awaySince < DISCARD_IDLE_MS) void this.sweep();
+    }, DISCARD_SWEEP_MS);
+    this.sweepTimer.unref?.();
+    const blur = () => (this.awaySince ??= Date.now());
+    const focus = () => {
+      const away = this.awaySince;
+      this.awaySince = null;
+      if (away !== null && Date.now() - away >= DISCARD_IDLE_MS) void this.sweep();
+    };
+    this.ctl.win.on("blur", blur);
+    this.ctl.win.on("focus", focus);
+    this.offFocus = () => {
+      this.ctl.win.removeListener("blur", blur);
+      this.ctl.win.removeListener("focus", focus);
+    };
+  }
+
+  /**
+   * The launch's live tabs (atlas 01 §2.7): besides the one in front, the most recently viewed file tabs load hidden,
+   * one after another as each finishes loading — 15 in all; ours leaves out those not viewed for 48 h, which the
+   * sweep would offload at once.
+   */
+  private async warmUp() {
+    if (this.warming) return;
+    this.warming = true;
+    try {
+      const now = Date.now();
+      for (const id of liveAtStart(this.state)) {
+        const tab = this.tab(id);
+        if (this.ctl.win.isDestroyed() || !tab || this.runtime.has(id) || now - (tab.viewedAt ?? 0) > DISCARD_AFTER_MS) continue;
+        const rt = this.ensure(tab, { background: true });
+        this.push();
+        await new Promise<void>((resolve) => {
+          const contents = rt.view.webContents;
+          if (contents.isDestroyed() || !contents.isLoading()) return resolve();
+          const done = () => resolve();
+          contents.once("did-finish-load", done);
+          contents.once("did-fail-load", done);
+          contents.once("destroyed", done);
+        });
+      }
+    } finally {
+      this.warming = false;
+    }
+  }
+
+  // ── Offloading (atlas 01 §2.7) ──
+
+  /** The hourly sweep: loaded file tabs not viewed for 48 h offloaded, oldest first, 3 kept. */
+  async sweep(now = Date.now()) {
+    for (const id of discardable(this.state, new Set(this.runtime.keys()), now)) await this.discard(id);
+  }
+
+  /**
+   * A tab offloaded: its page flushed, then its view and process closed, the tab "discarded" (it loads again when
+   * shown). Never the one in front or a pinned one; kept loaded when the flush fails or times out — nothing unsaved is
+   * lost. True when it was offloaded.
+   */
+  async discard(id: string): Promise<boolean> {
+    const rt = this.runtime.get(id);
+    const tab = this.tab(id);
+    if (!rt || !tab || tab.pinned || tab.kind === "new-tab" || id === this.state.active || rt.crashed || tab.status === "unresponsive") return false;
+    const viewedAt = tab.viewedAt;
+    const outcome = await askFlush(rt.view.webContents, "discard");
+    if (!("ok" in outcome) || !outcome.ok) return false;
+    // Brought forward, pinned or closed meanwhile: it stays.
+    const after = this.tab(id);
+    if (this.runtime.get(id) !== rt || !after || id === this.state.active || after.viewedAt !== viewedAt || after.pinned) return false;
+    this.runtime.delete(id);
+    this.menuStates.delete(id);
+    this.drop(rt);
+    this.dispatch({ type: "status", id, status: "discarded" });
+    return true;
   }
 
   // ── Views ──
@@ -183,16 +279,18 @@ export class TabManager {
    * The tab's view, made now if it has none: the spare editor when there is one (told its file: `tab:attach`), else
    * a new view with the file in its URL, `?editor&file=<fileKey>&tab=<id>`.
    */
-  private ensure(tab: Tab): Runtime {
+  private ensure(tab: Tab, { background = false } = {}): Runtime {
     const there = this.runtime.get(tab.id);
     if (there) return there;
-    // A prototype tab: the presentation view (`?present&file=…`), a view of its own (never the spare editor).
-    const adopted = tab.kind === "prototype" ? null : this.spare.adopt({ tabId: tab.id, fileKey: tab.fileKey, mode: "edit" });
+    // A prototype tab: the presentation view (`?present&file=…`), a view of its own (never the spare editor); a
+    // launch's background load leaves the spare for the next open.
+    const adopted = tab.kind !== "file" || background ? null : this.spare.adopt({ tabId: tab.id, fileKey: tab.fileKey, mode: "edit" });
     const query: Record<string, string> =
       tab.kind === "prototype"
         ? { present: "", file: tab.fileKey, tab: tab.id, ...(tab.pageId ? { page: tab.pageId } : {}), ...(tab.startNodeId ? { node: tab.startNodeId } : {}) }
         : { editor: "", file: tab.fileKey, tab: tab.id };
-    const view = adopted ?? this.addView("editor", tab.id, query, tab.fileKey);
+    // The new-tab page: Home's page in a view of its own, for this tab.
+    const view = adopted ?? (tab.kind === "new-tab" ? this.addView("home", tab.id, { newtab: "" }) : this.addView("editor", tab.id, query, tab.fileKey));
     const request = this.openRequest;
     this.openRequest = null;
     this.opens = [...this.opens.slice(-9), { at: request?.fileKey === tab.fileKey ? request.at : Date.now(), fileKey: tab.fileKey, tabId: tab.id, adopted: Boolean(adopted), webContentsId: view.webContents.id }];
@@ -279,6 +377,7 @@ export class TabManager {
   reload(id: string) {
     const rt = this.runtime.get(id);
     if (!rt) return;
+    if (this.tab(id)?.kind === "new-tab") return void rt.view.webContents.reload();
     const again = () => {
       if (this.runtime.get(id) !== rt) return;
       rt.crashed = false;
@@ -343,15 +442,15 @@ export class TabManager {
     const before = this.shown;
     this.shown = tab ? tab.id : HOME;
     if (before !== this.shown) {
-      const was = before && before !== HOME ? this.runtime.get(before) : undefined;
+      const was = before && before !== HOME && this.tab(before)?.kind !== "new-tab" ? this.runtime.get(before) : undefined;
       if (was) {
         emit(was.view.webContents, "tab:visibility", { visible: false });
         // Hidden: what it holds goes to the store now (nobody waits for the answer).
         if (!was.crashed) void askFlush(was.view.webContents, "hide");
       }
-      if (tab) emit(target.webContents, "tab:visibility", { visible: true });
+      if (tab && tab.kind !== "new-tab") emit(target.webContents, "tab:visibility", { visible: true });
       // Recents (docs/desktop.md §5 step 6).
-      if (tab) void storeClient()?.workspace.recordViewed(tab.fileKey).catch(() => {});
+      if (tab?.fileKey) void storeClient()?.workspace.recordViewed(tab.fileKey).catch(() => {});
     }
     target.webContents.focus();
     this.ctl.contentShown(target);
@@ -367,11 +466,12 @@ export class TabManager {
       activeTabId: this.state.active,
       canReopen: this.state.closed.length > 0,
       fullScreen: this.ctl.win.isFullScreen(),
+      groups: groupsOf(this.state),
     };
   }
 
   homeState(): HomeState {
-    return { visible: this.shown === HOME, openFileKeys: this.state.tabs.map((t) => t.fileKey) };
+    return { visible: this.shown === HOME, openFileKeys: this.state.tabs.filter((t) => t.fileKey).map((t) => t.fileKey) };
   }
 
   /** The tab bar and Home told; the menu's shell items follow. */
@@ -387,7 +487,12 @@ export class TabManager {
 
   activate(id: string) {
     if (id === this.state.active) this.viewOf(id)?.webContents.focus();
-    else this.dispatch({ type: "activate", id });
+    else this.dispatch({ type: "activate", id, at: Date.now() });
+  }
+
+  /** "+" and ⌘T: the new-tab page in a new tab, beside the one in front (atlas 01 §3). */
+  newTab() {
+    this.dispatch({ type: "open", kind: "new-tab", fileKey: "", at: Date.now() });
   }
 
   /** A shared file's link opened from the system: Home in front, which opens it (docs/multiplayer.md §3). */
@@ -408,11 +513,12 @@ export class TabManager {
    * A workspace file in a tab: its tab in front if it has one, else a new one at the end (from Home) or after the one
    * in front. `requestedAt`: when the open was asked for (a new file's creation came first), for the timing record.
    */
-  openFile(file: OpenWorkspaceFile, requestedAt = Date.now()): OpenFileResult {
+  openFile(file: OpenWorkspaceFile, requestedAt = Date.now(), replace?: string): OpenFileResult {
     const find = () => this.state.tabs.find((t) => t.kind === "file" && t.fileKey === file.fileKey);
     const existing = Boolean(find());
     this.openRequest = { at: requestedAt, fileKey: file.fileKey };
-    this.dispatch({ type: "open", fileKey: file.fileKey, title: file.title, background: file.background });
+    // Picked on a new-tab page (`replace`): the file takes that tab's place — opened in the background, it leaves it.
+    this.dispatch({ type: "open", fileKey: file.fileKey, title: file.title, background: file.background, replace: file.background ? undefined : replace, at: Date.now() });
     const tab = find();
     if (!tab) return { tabId: HOME, existing };
     // A name to show: the store's (Home usually hands it over), and a file that isn't there any more closes again.
@@ -425,7 +531,7 @@ export class TabManager {
     const find = () => this.state.tabs.find((t) => t.kind === "prototype" && t.fileKey === p.fileKey && (t.startNodeId ?? "") === (p.startNodeId ?? ""));
     const existing = Boolean(find());
     const fileTitle = p.title ?? this.state.tabs.find((t) => t.kind === "file" && t.fileKey === p.fileKey)?.title;
-    this.dispatch({ type: "open", kind: "prototype", fileKey: p.fileKey, pageId: p.pageId, startNodeId: p.startNodeId, title: fileTitle });
+    this.dispatch({ type: "open", kind: "prototype", fileKey: p.fileKey, pageId: p.pageId, startNodeId: p.startNodeId, title: fileTitle, at: Date.now() });
     const tab = find();
     return { tabId: tab?.id ?? HOME, existing };
   }
@@ -444,16 +550,22 @@ export class TabManager {
         this.dispatch({ type: "drop-file", fileKey: last.fileKey });
         continue;
       }
-      return this.dispatch({ type: "reopen" });
+      return this.dispatch({ type: "reopen", at: Date.now() });
     }
   }
 
-  /** A new design file (Drafts unless a folder is given), created by the store and opened ("+", ⌘N, Home's New design file). */
-  async newFile(request: { folderId?: string | null; name?: string } = {}): Promise<NewFileResult> {
+  /** A closed tab picked in the tabs menu: opened again (it leaves the history if its file is gone). */
+  private async reopenClosed(entry: TabsState["closed"][number]) {
+    if ((await this.fileState(entry.fileKey)) === "gone") return this.dispatch({ type: "drop-file", fileKey: entry.fileKey });
+    this.dispatch({ type: "open", kind: entry.kind, fileKey: entry.fileKey, title: entry.title, pageId: entry.pageId, startNodeId: entry.startNodeId, at: Date.now() });
+  }
+
+  /** A new design file (Drafts unless a folder is given), created by the store and opened (⌘N, Home's New design file, the new-tab page's Design). */
+  async newFile(request: { folderId?: string | null; name?: string; replace?: string } = {}): Promise<NewFileResult> {
     const requestedAt = Date.now();
     const store = await readyStore();
     const meta = await store.workspace.createFile({ name: request.name, folderId: request.folderId ?? null });
-    const { tabId } = this.openFile({ fileKey: meta.fileKey, title: meta.name }, requestedAt);
+    const { tabId } = this.openFile({ fileKey: meta.fileKey, title: meta.name }, requestedAt, request.replace);
     return { fileKey: meta.fileKey, tabId };
   }
 
@@ -474,6 +586,7 @@ export class TabManager {
 
   /** A file trashed or deleted: its tabs flush and close without asking, and it leaves the closed history. */
   private async dropFile(fileKey: string) {
+    if (!fileKey) return;
     const loaded = this.state.tabs.filter((t) => t.fileKey === fileKey && this.runtime.has(t.id));
     await Promise.all(loaded.map((t) => askFlush(this.runtime.get(t.id)!.view.webContents, "close")));
     this.dispatch({ type: "drop-file", fileKey });
@@ -504,7 +617,7 @@ export class TabManager {
 
   /** At launch (docs/desktop.md §4.4): kept file tabs and closed entries whose file is gone or in the trash are dropped; names refreshed. */
   private async dropMissingFiles() {
-    const keys = new Set([...this.state.tabs.map((t) => t.fileKey), ...this.state.closed.map((c) => c.fileKey)]);
+    const keys = new Set([...this.state.tabs.map((t) => t.fileKey), ...this.state.closed.map((c) => c.fileKey)].filter(Boolean));
     await Promise.all([...keys].map((k) => this.checkFile(k)));
   }
 
@@ -553,7 +666,7 @@ export class TabManager {
     for (;;) {
       const rt = this.runtime.get(id);
       const tab = this.tab(id);
-      if (!rt || !tab || rt.crashed) return true;
+      if (!rt || !tab || rt.crashed || tab.kind === "new-tab") return true;
       const outcome = await askFlush(rt.view.webContents, action === "quit" ? "quit" : "close");
       if ("ok" in outcome && outcome.ok) return true;
       if ("timeout" in outcome) {
@@ -568,7 +681,7 @@ export class TabManager {
 
   /** Every loaded file tab flushed together, without questions (the Mac sleeps or locks). */
   async flushQuietly() {
-    await Promise.all(this.state.tabs.filter((t) => this.runtime.has(t.id) && !this.runtime.get(t.id)!.crashed).map((t) => askFlush(this.runtime.get(t.id)!.view.webContents, "hide")));
+    await Promise.all(this.state.tabs.filter((t) => t.kind !== "new-tab" && this.runtime.has(t.id) && !this.runtime.get(t.id)!.crashed).map((t) => askFlush(this.runtime.get(t.id)!.view.webContents, "hide")));
   }
 
   /** Tabs closed, each flushed first: false when the person kept one (a failed flush, Cancel). */
@@ -597,7 +710,7 @@ export class TabManager {
     if (this.busy) return false;
     this.busy = true;
     try {
-      const loaded = this.state.tabs.filter((t) => this.runtime.has(t.id));
+      const loaded = this.state.tabs.filter((t) => t.kind !== "new-tab" && this.runtime.has(t.id));
       // All at once; a question only for one that failed or timed out.
       const flushAction = action;
       const outcomes = await Promise.all(loaded.map(async (t) => ({ t, outcome: this.runtime.get(t.id)!.crashed ? ({ ok: true } as const) : await askFlush(this.runtime.get(t.id)!.view.webContents, flushAction) })));
@@ -618,25 +731,98 @@ export class TabManager {
     }
   }
 
-  /** The tab's native context menu, at the tab bar's point. */
+  /**
+   * The tab's native context menu, at the tab bar's point — Figma's (atlas 01 §2.4): Pin / Unpin, Copy Link, Rename
+   * File, Reload, —, Add to / Remove from Tab Group, —, Close, Close Other Tabs, Close All Tabs. The new-tab page's:
+   * Reload, —, Close; Home's: Copy Link, —, Reload. Not here yet: Move to (Another / New) Window (one window), Open in
+   * Split Tab, Open in Browser (a local file has no web address).
+   */
   contextMenu(id: string, x: number, y: number) {
-    const { tabs, closed } = this.state;
-    const at = tabs.findIndex((t) => t.id === id);
-    const tab = tabs[at];
-    const reopen = { label: t("Reopen closed tab"), accelerator: "CmdOrCtrl+Shift+T", enabled: closed.length > 0, click: () => void this.reopen() };
-    const items: MenuItemConstructorOptions[] = !tab
-      ? [reopen]
-      : [
-          { label: t("Close tab"), accelerator: "CmdOrCtrl+W", click: () => void this.close([id]) },
-          { label: t("Close other tabs"), enabled: tabs.length > 1, click: () => void this.close(tabs.filter((t) => t.id !== id).map((t) => t.id)) },
-          { label: t("Close tabs to the right"), enabled: at < tabs.length - 1, click: () => void this.close(tabs.slice(at + 1).map((t) => t.id)) },
-          { type: "separator" },
-          // A file's link needs deep links (docs/desktop.md §15), not built yet.
-          { label: t("Copy link"), enabled: false },
-          { label: t("Show in file browser"), click: () => this.goHome(tab.fileKey) },
-          { type: "separator" },
-          reopen,
-        ];
+    const { tabs } = this.state;
+    const tab = tabs.find((o) => o.id === id);
+    const loaded = this.runtime.has(id);
+    const reload: MenuItemConstructorOptions = { label: t("Reload"), enabled: id === HOME || loaded, click: () => (id === HOME ? this.reloadHome() : this.reload(id)) };
+    // A file's link needs deep links (docs/desktop.md §15), not built yet.
+    const copyLink: MenuItemConstructorOptions = { label: t("Copy Link"), accelerator: "CmdOrCtrl+L", enabled: false };
+    const close: MenuItemConstructorOptions = { label: t("Close"), click: () => void this.close([id]) };
+    let items: MenuItemConstructorOptions[];
+    if (id === HOME) items = [copyLink, { type: "separator" }, reload];
+    else if (!tab) return;
+    else if (tab.kind === "new-tab") items = [reload, { type: "separator" }, close];
+    else {
+      const groups = groupsOf(this.state);
+      const group: MenuItemConstructorOptions[] = tab.pinned
+        ? []
+        : tab.groupId
+          ? [{ label: t("Remove from Tab Group"), click: () => this.dispatch({ type: "group-remove", ids: [id] }) }]
+          : [
+              {
+                label: t("Add to Tab Group"),
+                submenu: [
+                  { label: t("New Tab Group"), click: () => this.dispatch({ type: "group-add", ids: [id], groupId: newTabId() }) },
+                  ...(groups.length ? [{ type: "separator" as const }, ...groups.map((g) => ({ label: groupName(g), click: () => this.dispatch({ type: "group-add", ids: [id], groupId: g.id }) }))] : []),
+                ],
+              },
+            ];
+      items = [
+        { label: tab.pinned ? t("Unpin") : t("Pin"), click: () => this.dispatch({ type: "pin", id, pinned: !tab.pinned }) },
+        copyLink,
+        // The editor renames in place (its title field), once it is there.
+        ...(tab.kind === "file" ? [{ label: t("Rename File"), enabled: loaded && tab.status === "ready", click: () => this.renameInPlace(id) }] : []),
+        reload,
+        { type: "separator" },
+        ...group,
+        ...(group.length ? [{ type: "separator" as const }] : []),
+        close,
+        { label: t("Close Other Tabs"), enabled: tabs.length > 1, click: () => void this.close(tabs.filter((o) => o.id !== id).map((o) => o.id)) },
+        { label: t("Close All Tabs"), click: () => void this.close(tabs.map((o) => o.id)) },
+      ];
+    }
+    Menu.buildFromTemplate(items).popup({ window: this.ctl.win, x: Math.round(x), y: Math.round(y) });
+  }
+
+  /** Rename File: the tab in front, then its editor's own rename (the title field). */
+  private renameInPlace(id: string) {
+    this.activate(id);
+    const rt = this.runtime.get(id);
+    if (rt) emit(rt.view.webContents, "menu:command", { id: "file.rename", source: "menu" });
+  }
+
+  /** A tab group's native menu (atlas 01 §2.3): Edit group name, Group color, Ungroup, Delete group. */
+  groupMenu(groupId: string, x: number, y: number) {
+    const group = groupsOf(this.state).find((g) => g.id === groupId);
+    if (!group) return;
+    const items: MenuItemConstructorOptions[] = [
+      { label: t("Edit group name"), click: () => emit(this.ctl.tabbar.webContents, "tabs:edit-group", { groupId }) },
+      {
+        label: t("Group color"),
+        submenu: GROUP_COLORS.map((color) => ({ label: t(GROUP_COLOR_NAMES[color]), type: "radio" as const, checked: group.color === color, click: () => this.dispatch({ type: "group-set", groupId, color }) })),
+      },
+      { type: "separator" },
+      { label: t("Ungroup"), click: () => this.dispatch({ type: "ungroup", groupId }) },
+      // Its tabs closed, each flushed first as any close.
+      { label: t("Delete group"), click: () => void this.close(this.state.tabs.filter((tab) => tab.groupId === groupId).map((tab) => tab.id)) },
+    ];
+    Menu.buildFromTemplate(items).popup({ window: this.ctl.win, x: Math.round(x), y: Math.round(y) });
+  }
+
+  /**
+   * "Open and recently closed tabs" at the bar's right end (atlas 01 §2.5): the window's tabs, then the recently closed
+   * ones, newest first. Ours is a native menu — the tab bar's view can't draw past its 38px — so it has no search field.
+   */
+  listMenu(x: number, y: number) {
+    const { tabs, closed, active } = this.state;
+    const items: MenuItemConstructorOptions[] = [];
+    if (!tabs.length && !closed.length) items.push({ label: t("Your open tabs and recently closed tabs will appear here"), enabled: false });
+    if (tabs.length) {
+      items.push({ label: t("Tabs in this window"), enabled: false });
+      for (const tab of tabs) items.push({ label: tab.kind === "new-tab" ? t("New tab") : tab.title, type: "checkbox", checked: tab.id === active, click: () => this.activate(tab.id) });
+    }
+    if (closed.length) {
+      if (tabs.length) items.push({ type: "separator" });
+      items.push({ label: t("Recently closed tabs"), enabled: false });
+      for (const entry of closed) items.push({ label: entry.title, click: () => void this.reopenClosed(entry) });
+    }
     Menu.buildFromTemplate(items).popup({ window: this.ctl.win, x: Math.round(x), y: Math.round(y) });
   }
 
@@ -645,7 +831,8 @@ export class TabManager {
   /** A view's `menu:state`, merged into what it said before; applied at once if it is in front. */
   setMenuState(sender: WebContents, patch: MenuStatePatch) {
     const info = viewOf(sender);
-    const id = info?.role === "home" ? HOME : info?.tabId;
+    // A new-tab page is a Home view of its tab's own.
+    const id = info?.role === "home" ? (info.tabId ?? HOME) : info?.tabId;
     if (!id || (id !== HOME && !this.runtime.has(id))) return;
     const state = this.menuStates.get(id) ?? { enabled: {}, checked: {} };
     for (const [key, value] of Object.entries(patch?.enabled ?? {})) if (isCommandId(key) && typeof value === "boolean") state.enabled[key] = value;
@@ -701,6 +888,10 @@ export class TabManager {
     switch (id) {
       case "file.new":
         return void this.newFile({}).catch((err) => console.warn("[tabs] new file:", err));
+      case "file.new-tab":
+        return this.newTab();
+      case "file.open-file-browser":
+        return this.goHome();
       case "file.import":
         return void this.importFiles(null).then((r) => {
           // From the menu: Home shows the first one.
@@ -784,6 +975,8 @@ export class TabManager {
   /** Every view's webContents closed (the window is gone). */
   destroy() {
     this.offWorkspace();
+    this.offFocus();
+    if (this.sweepTimer) clearInterval(this.sweepTimer);
     this.spare.destroy();
     for (const rt of this.runtime.values()) destroyView(rt.view);
     this.runtime.clear();
@@ -799,7 +992,7 @@ export class TabManager {
       state: this.state,
       views: [
         { id: HOME, role: "home", webContentsId: this.home.webContents.id, pid: pidOf(this.home), visible: this.shown === HOME, url: this.home.webContents.getURL() },
-        ...[...this.runtime.entries()].map(([id, rt]) => ({ id, role: "editor", webContentsId: rt.view.webContents.id, pid: pidOf(rt.view), visible: this.shown === id, url: rt.view.webContents.getURL(), crashed: rt.crashed })),
+        ...[...this.runtime.entries()].map(([id, rt]) => ({ id, role: this.tab(id)?.kind === "new-tab" ? "new-tab" : "editor", webContentsId: rt.view.webContents.id, pid: pidOf(rt.view), visible: this.shown === id, url: rt.view.webContents.getURL(), crashed: rt.crashed })),
         ...(spare ? [{ id: "spare", role: "editor", spare: true, webContentsId: spare.webContents.id, pid: pidOf(spare), visible: false, url: spare.webContents.getURL(), loading: spare.webContents.isLoading(), since: this.spare.since() }] : []),
       ],
       spareEnabled: this.spare.enabled,

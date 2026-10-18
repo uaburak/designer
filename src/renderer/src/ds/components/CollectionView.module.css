@@ -1,9 +1,9 @@
 @layer ds {
   .root { position: relative; min-width: 0; outline: none; user-select: none; }
-  /* Fixed 268 cards, 36 apart (measured); as many columns as fit */
+  /* Figma's tile grid: as many columns of at least 264 as fit, sharing the width, 32 apart both ways */
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, var(--ds-size-card-width));
+    grid-template-columns: repeat(auto-fill, minmax(var(--ds-size-card-width), 1fr));
     gap: var(--ds-size-card-gap);
     align-content: start;
   }

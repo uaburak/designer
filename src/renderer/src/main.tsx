@@ -17,6 +17,7 @@ const webSignedIn = () => currentWebSession() !== null;
  * - `?tabbar`: the tab bar's view
  * - `?welcome`: the signed-out window's view (the splash, the welcome page; docs/desktop.md §18.6)
  * - `?files` (and no query): Home, the file browser on the store
+ * - `?newtab`: the desktop new-tab page (⌘T, "+": a Home view of a tab's own; atlas 01 §3)
  * - `?editor&file=<fileKey>`: a file's editor (`?editor` alone: a sample, in a browser)
  * - `?present&file=<fileKey>[&page=…][&node=…]`: the presentation view (a prototype tab)
  * - `?gallery`: the design system's gallery; `?engine`: the engine's playground; `?admin`: the Admin app on its fake
@@ -40,6 +41,7 @@ const page = (): ComponentType => {
     return lazy(() => import("@/files/FilesApp"));
   }
   if (params.has("tabbar")) return lazy(() => import("@/app/TabBarApp"));
+  if (params.has("newtab")) return lazy(() => import("@/newtab/NewTabApp"));
   if (params.has("welcome")) return lazy(() => import("@/account/WelcomeApp"));
   if (params.has("gallery")) return lazy(() => import("@/ds/Gallery"));
   if (params.has("engine")) return lazy(() => import("@/engine/Playground"));

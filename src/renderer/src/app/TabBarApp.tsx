@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { TabsSnapshot, UpdaterStatus, WindowState } from "@shared/ipc";
-import { TabBar, TabBarUpdate, useThemeRoot, type TabBarUpdateState } from "@/ds";
+import { TabBar, TabBarUpdate, useThemeRoot, type TabBarGroup, type TabBarUpdateState } from "@/ds";
 import { desktopAs } from "./native";
 import { t, useLocale } from "@/i18n";
 
@@ -8,7 +8,8 @@ import { t, useLocale } from "@/i18n";
  * The tab bar's own view (`?tabbar`, 38px at the window's top): the design
  * system's TabBar (docs/design-system.md §4.23) over the tabs as main keeps
  * them (`tabs:state`); every click is a message to main. Its menus are
- * native (main's), since nothing it draws may leave its 38px.
+ * native (main's), since nothing it draws may leave its 38px — the tab's, a
+ * group's and the tabs menu at the right end (atlas 01 §2.3–2.5).
  */
 export default function TabBarApp() {
   useThemeRoot();
@@ -17,6 +18,8 @@ export default function TabBarApp() {
   const [snapshot, setSnapshot] = useState<TabsSnapshot | null>(null);
   const [win, setWin] = useState<WindowState>({ fullScreen: false, focused: true });
   const [update, setUpdate] = useState<UpdaterStatus | null>(null);
+  /** The group being renamed (its menu's Edit group name) */
+  const [editingGroup, setEditingGroup] = useState<string | null>(null);
 
   useEffect(() => {
     if (!api) return;
@@ -26,11 +29,13 @@ export default function TabBarApp() {
     const offWin = api.onWindowState(setWin);
     void api.updates.get().then((s) => live && setUpdate(s));
     const offUpdate = api.updates.onState(setUpdate);
+    const offEdit = api.tabs.onEditGroup((e) => setEditingGroup(e.groupId));
     return () => {
       live = false;
       offState();
       offWin();
       offUpdate();
+      offEdit();
     };
   }, [api]);
 
@@ -44,8 +49,19 @@ export default function TabBarApp() {
     () =>
       (snapshot?.tabs ?? [])
         .filter((tab) => tab.kind !== "home")
-        .map((tab) => ({ id: tab.id, kind: tab.kind === "prototype" ? ("prototype" as const) : ("design" as const), title: tab.status === "crashed" ? t("{title} — crashed", { title: tab.title }) : tab.status === "unresponsive" ? t("{title} — not responding", { title: tab.title }) : tab.title })),
+        .map((tab) => ({
+          id: tab.id,
+          kind: tab.kind === "prototype" ? ("prototype" as const) : tab.kind === "new-tab" ? ("new-tab" as const) : ("design" as const),
+          title: tab.kind === "new-tab" ? t("New tab") : tab.status === "crashed" ? t("{title} — crashed", { title: tab.title }) : tab.status === "unresponsive" ? t("{title} — not responding", { title: tab.title }) : tab.title,
+          ...(tab.pinned ? { pinned: true } : {}),
+          ...(tab.groupId ? { groupId: tab.groupId } : {}),
+        })),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the titles follow the language
+    [snapshot, locale]
+  );
+  const groups = useMemo<TabBarGroup[]>(
+    () => (snapshot?.groups ?? []).map((g) => ({ id: g.id, color: g.color, name: g.name || t("Group {number}", { number: g.number }) })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the default names follow the language
     [snapshot, locale]
   );
 
@@ -53,7 +69,17 @@ export default function TabBarApp() {
   const onClose = useCallback((id: string) => api?.tabs.close(id), [api]);
   // The bar counts the file tabs from 0; main counts Home as 0.
   const onMove = useCallback((id: string, to: number) => api?.tabs.move(id, to + 1), [api]);
-  const onNew = useCallback(() => api?.tabs.newFile(), [api]);
+  // "+" opens the new-tab page, as Figma's (⌘N still makes a design file).
+  const onNew = useCallback(() => api?.tabs.newTab(), [api]);
+  const onTabsMenu = useCallback((at: { x: number; y: number }) => api?.tabs.listMenu(at.x, at.y), [api]);
+  const onGroupMenu = useCallback((id: string, at: { x: number; y: number }) => api?.tabs.groupMenu(id, at.x, at.y), [api]);
+  const onRenameGroup = useCallback(
+    (id: string, name: string | null) => {
+      setEditingGroup(null);
+      if (name !== null) api?.tabs.renameGroup(id, name);
+    },
+    [api]
+  );
   const onContextMenu = useCallback((id: string, at: { x: number; y: number }) => api?.tabs.contextMenu(id, at.x, at.y), [api]);
   const onMainMenu = useCallback((at: { x: number; y: number }) => api?.tabs.mainMenu(at.x, at.y), [api]);
   const windows = api?.platform === "win32";
@@ -61,7 +87,26 @@ export default function TabBarApp() {
   const notice = updateNotice(update);
 
   // In a browser (no main): an empty bar, to look at.
-  return <TabBar tabs={tabs} active={snapshot?.activeTabId ?? "home"} fullScreen={Boolean(snapshot?.fullScreen || win.fullScreen)} onActivate={onActivate} onClose={onClose} onMove={onMove} onNew={onNew} onContextMenu={onContextMenu} windows={windows} onMainMenu={onMainMenu} notice={notice && <TabBarUpdate state={notice} onRestart={onRestart} />} />;
+  return (
+    <TabBar
+      tabs={tabs}
+      groups={groups}
+      active={snapshot?.activeTabId ?? "home"}
+      fullScreen={Boolean(snapshot?.fullScreen || win.fullScreen)}
+      onActivate={onActivate}
+      onClose={onClose}
+      onMove={onMove}
+      onNew={onNew}
+      onContextMenu={onContextMenu}
+      onGroupMenu={onGroupMenu}
+      editingGroup={editingGroup}
+      onRenameGroup={onRenameGroup}
+      onTabsMenu={api ? onTabsMenu : undefined}
+      windows={windows}
+      onMainMenu={onMainMenu}
+      notice={notice && <TabBarUpdate state={notice} onRestart={onRestart} />}
+    />
+  );
 }
 
 /** What the tab bar shows of the updater (docs/desktop.md §12.6): "Restart to update" once an update is in; a manual check's progress; nothing for the daily check. */

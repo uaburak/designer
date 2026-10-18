@@ -58,6 +58,26 @@ describe("FileBrowser", () => {
     expect($('[data-ds="Breadcrumb"]').textContent).toContain("Drafts");
   });
 
+  it("each view keeps its own sort: Drafts by name or dates; Trash by date trashed, the order alone", async () => {
+    const { ws } = await setup();
+    const sortMenu = () => {
+      click($$("button").find((el) => el.getAttribute("aria-label") === "Sort")!);
+      return $$('#ds-overlays [role^="menuitem"]').map((el) => el.textContent?.trim());
+    };
+    expect(sortMenu()).toEqual(["Alphabetical", "Date created", "Last modified", "A to Z", "Z to A"]);
+    click($$('#ds-overlays [role^="menuitem"]').find((el) => el.textContent?.trim() === "Z to A")!);
+    await settle();
+    expect(cards()).toEqual(["Gamma", "Beta", "Alpha"]);
+    expect((await ws.getPrefs()).browse.sorts).toEqual({ drafts: { key: "alphabetical", order: "reversed" } });
+    click(sidebar("Trash"));
+    await settle();
+    expect(sortMenu()).toEqual(["Newest first", "Oldest first"]);
+    key(document.body, "Escape");
+    click($$("button").find((el) => el.getAttribute("aria-label") === "Back")!);
+    await settle();
+    expect(cards()).toEqual(["Gamma", "Beta", "Alpha"]);
+  });
+
   it("click selects, ⌘-click adds, ⇧-click selects the range, ⌘A selects all, Esc clears", async () => {
     await setup();
     click(card("Alpha"));

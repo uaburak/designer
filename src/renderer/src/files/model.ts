@@ -5,7 +5,7 @@
 import { timeAgo } from "@/ds/util/time";
 import { t, tp } from "@/i18n";
 import type { FileQuery } from "@shared/store/repositories";
-import type { FileKey, FileListItem, Folder, FolderId, Prefs } from "@shared/store/types";
+import type { BrowseSortKey, BrowseView, FileKey, FileListItem, Folder, FolderId, Prefs } from "@shared/store/types";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Where Home is
@@ -210,21 +210,87 @@ export const searchKey = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, ""
 // Items, sorting, filtering
 // ---------------------------------------------------------------------------------------------------------------------
 
-export type SortKey = Prefs["browse"]["sort"];
+export type SortKey = BrowseSortKey;
+/** The sort every view shared before each kept its own (the org pages still use it) */
+export type SharedSortKey = Prefs["browse"]["sort"];
 export type Layout = Prefs["browse"]["layout"];
-/** "default": newest first (dates), A to Z (alphabetical) */
+/** "default": the key's own direction — newest first (dates), A to Z (alphabetical) */
 export type SortOrder = "default" | "reversed";
-export type FileFilter = "all" | "design";
+export interface ViewSort {
+  key: SortKey;
+  order: SortOrder;
+}
+/** What the type filter keeps: everything, folders only (where a view lists folders), design files only */
+export type FileFilter = "all" | "folders" | "design";
+/** Who made the files shown (where files have a creator: an org's) */
+export type CreatorFilter = "anyone" | "you" | "others";
 
 export const SORT_LABEL: Record<SortKey, string> = {
   alphabetical: "Alphabetical",
   "date-created": "Date created",
   "last-viewed": "Last viewed",
   "last-modified": "Last modified",
+  "date-trashed": "Date trashed",
+  "date-shared": "Date shared",
 };
-export const SORT_KEYS: SortKey[] = ["alphabetical", "date-created", "last-viewed", "last-modified"];
+/** The org pages' keys (OrgMain) */
+export const SORT_KEYS: SharedSortKey[] = ["alphabetical", "date-created", "last-viewed", "last-modified"];
+
+/**
+ * Each view's sort keys, in the menu's order, and its default (docs/research/atlas/01-app-shell-home.md §5.2): a folder
+ * and Drafts (and All folders, the team page's folders) by name, date created or last modified, last modified first;
+ * Recents by last viewed; Shared with you by date shared; Trash by date trashed. Starred and Search are pages of ours:
+ * Drafts' keys and Last viewed.
+ */
+export const VIEW_SORTS: Record<BrowseView, { keys: SortKey[]; default: SortKey }> = {
+  drafts: { keys: ["alphabetical", "date-created", "last-modified"], default: "last-modified" },
+  folder: { keys: ["alphabetical", "date-created", "last-modified"], default: "last-modified" },
+  folders: { keys: ["alphabetical", "date-created", "last-modified"], default: "last-modified" },
+  recents: { keys: ["last-viewed"], default: "last-viewed" },
+  shared: { keys: ["date-shared"], default: "date-shared" },
+  trash: { keys: ["date-trashed"], default: "date-trashed" },
+  starred: { keys: ["alphabetical", "date-created", "last-modified", "last-viewed"], default: "last-modified" },
+  search: { keys: ["alphabetical", "date-created", "last-modified", "last-viewed"], default: "last-modified" },
+};
+
+/** The view whose sort a location uses (null: an org page). */
+export function sortView(loc: Location): BrowseView | null {
+  switch (loc.kind) {
+    case "recents":
+    case "drafts":
+    case "folder":
+    case "folders":
+    case "starred":
+    case "search":
+    case "trash":
+      return loc.kind;
+    default:
+      return null;
+  }
+}
+
+/**
+ * A view's sort: the one chosen there, else the sort chosen before views kept their own (when the view offers it),
+ * else the view's default. A key the view doesn't offer gives the default.
+ */
+export function viewSort(view: BrowseView, browse: Pick<Prefs["browse"], "sort" | "sorts">): ViewSort {
+  const { keys, default: key } = VIEW_SORTS[view];
+  const chosen = browse.sorts?.[view];
+  if (chosen) return keys.includes(chosen.key) ? chosen : { key, order: "default" };
+  return { key: keys.includes(browse.sort) ? browse.sort : key, order: "default" };
+}
+
+/** Time keys read newest / oldest first; the alphabetical one A to Z / Z to A. */
 export const orderLabels = (sort: SortKey): Record<SortOrder, string> => (sort === "alphabetical" ? { default: "A to Z", reversed: "Z to A" } : { default: "Newest first", reversed: "Oldest first" });
-export const FILTER_LABEL: Record<FileFilter, string> = { all: "All files", design: "Design files" };
+
+export const FILTER_LABEL: Record<FileFilter, string> = { all: "All files", folders: "Folders", design: "Design files" };
+/** The type filter's choices here: Folders too where the view lists folders among its files */
+export const fileFilters = (loc: Location): FileFilter[] => (loc.kind === "folder" || loc.kind === "starred" || loc.kind === "search" || loc.kind === "trash" ? ["all", "folders", "design"] : ["all", "design"]);
+
+export const CREATOR_LABEL: Record<CreatorFilter, string> = { anyone: "Anyone", you: "You", others: "Others" };
+export const CREATOR_FILTERS: CreatorFilter[] = ["anyone", "you", "others"];
+/** Files by who made them (`mine`: the user made it). */
+export const filterByCreator = <T>(files: readonly T[], filter: CreatorFilter, mine: (f: T) => boolean): T[] => (filter === "anyone" ? [...files] : files.filter((f) => mine(f) === (filter === "you")));
 
 export type FileItem = { kind: "file"; id: string; file: FileListItem };
 export type FolderItem = { kind: "folder"; id: string; folder: Folder; fileCount: number | null };
@@ -244,11 +310,13 @@ const fileTime = (f: FileListItem, sort: SortKey): number => {
       return f.lastViewedAt ?? 0;
     case "date-created":
       return f.createdAt;
+    case "date-trashed":
+      return f.trashedAt ?? 0;
     default:
       return f.updatedAt;
   }
 };
-const folderTime = (f: Folder, sort: SortKey): number => (sort === "date-created" ? f.createdAt : f.updatedAt);
+const folderTime = (f: Folder, sort: SortKey): number => (sort === "date-created" ? f.createdAt : sort === "date-trashed" ? (f.trashedAt ?? 0) : f.updatedAt);
 
 /** Files in the chosen order; ties fall back to last modified, then name, then key (stable). */
 export function sortFiles(files: readonly FileListItem[], sort: SortKey, order: SortOrder = "default"): FileListItem[] {
@@ -269,16 +337,10 @@ export function sortFolders(folders: readonly Folder[], sort: SortKey, order: So
   });
 }
 
-/** Trash lists what was deleted last first, whatever the sort. */
-export function sortTrash(files: readonly FileListItem[], folders: readonly Folder[]): { files: FileListItem[]; folders: Folder[] } {
-  return {
-    files: [...files].sort((a, b) => (b.trashedAt ?? 0) - (a.trashedAt ?? 0) || byName(a, b)),
-    folders: [...folders].sort((a, b) => (b.trashedAt ?? 0) - (a.trashedAt ?? 0) || byName(a, b)),
-  };
-}
-
-/** Every file is a design file here; the filter is Figma's (FigJam/Slides don't exist in this app). */
-export const filterFiles = (files: readonly FileListItem[], filter: FileFilter): FileListItem[] => (filter === "design" ? files.filter((f) => f.editorType === "design") : [...files]);
+/** Every file is a design file here; the filter is Figma's (FigJam/Slides don't exist in this app). Folders: none. */
+export const filterFiles = (files: readonly FileListItem[], filter: FileFilter): FileListItem[] => (filter === "folders" ? [] : filter === "design" ? files.filter((f) => f.editorType === "design") : [...files]);
+/** Folders show unless a file type is picked. */
+const filterFolders = (folders: readonly Folder[], filter: FileFilter): Folder[] => (filter === "design" ? [] : [...folders]);
 
 export interface ListInput {
   location: Location;
@@ -309,13 +371,11 @@ export function listItems({ location, folders, files, counts = {}, starredFolder
     case "search":
       shownFolders = folders.search(location.text);
       break;
-    case "trash": {
-      const t = sortTrash(files, folders.trashed());
-      return [...t.folders.map(folderItem), ...filterFiles(t.files, filter).map(fileItem)];
-    }
+    case "trash":
+      shownFolders = folders.trashed();
+      break;
   }
-  // Recents keeps the order files were viewed in unless another sort is chosen (Figma's Recents is by last viewed).
-  return [...sortFolders(shownFolders, sort, order).map(folderItem), ...sortFiles(filterFiles(files, filter), sort, order).map(fileItem)];
+  return [...sortFolders(filterFolders(shownFolders, filter), sort, order).map(folderItem), ...sortFiles(filterFiles(files, filter), sort, order).map(fileItem)];
 }
 
 /** A card's second line: "Edited 3 hours ago" ("Deleted 2 days ago" in Trash). */
@@ -337,6 +397,8 @@ export function dateColumn(sort: SortKey): { label: string; value: (f: FileListI
       return { label: "Last viewed", value: (f) => f.lastViewedAt };
     case "date-created":
       return { label: "Created", value: (f) => f.createdAt };
+    case "date-trashed":
+      return { label: "Deleted", value: (f) => f.trashedAt };
     default:
       return { label: "Last modified", value: (f) => f.updatedAt };
   }

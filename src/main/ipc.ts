@@ -148,6 +148,18 @@ export function registerIpc() {
     if (typeof p?.x === "number" && typeof p.y === "number") Menu.getApplicationMenu()?.popup({ window: ctl.win, x: Math.round(p.x), y: Math.round(p.y) });
   });
   onSend("tabs:reopen", ({ ctl }) => void ctl.tabs.reopen());
+  onSend("tabs:new-tab", ({ ctl }) => ctl.tabs.newTab());
+  onSend("tabs:group-menu", ({ ctl }, p) => {
+    const id = str(p?.groupId, 64);
+    if (id && typeof p.x === "number" && typeof p.y === "number") ctl.tabs.groupMenu(id, p.x, p.y);
+  });
+  onSend("tabs:group-rename", ({ ctl }, p) => {
+    const id = str(p?.groupId, 64);
+    if (id && typeof p.name === "string") ctl.tabs.dispatch({ type: "group-set", groupId: id, name: p.name.slice(0, 300) });
+  });
+  onSend("tabs:list-menu", ({ ctl }, p) => {
+    if (typeof p?.x === "number" && typeof p.y === "number") ctl.tabs.listMenu(p.x, p.y);
+  });
 
   // ── Updates (docs/desktop.md §12.6): the tab bar's pill and a manual check's progress ──
   onInvoke("updater:get", () => updaterStatus());
@@ -158,9 +170,11 @@ export function registerIpc() {
   });
 
   // ── Navigation ──
-  onInvoke("nav:open-file", ({ ctl }, file) => {
+  // From a new-tab page (a Home view of a tab's own): the file takes that tab's place (atlas 01 §3).
+  const newTabOf = (info: { role: string; tabId: string | null }) => (info.role === "home" && info.tabId ? info.tabId : undefined);
+  onInvoke("nav:open-file", ({ ctl, info }, file) => {
     if (!isFileKey(file?.fileKey)) throw new Error("nav:open-file: not a file key");
-    return ctl.tabs.openFile({ fileKey: file.fileKey, title: str(file.title, 300) ?? undefined, background: file.background === true, pageId: str(file.pageId, 64) ?? undefined, nodeId: str(file.nodeId, 64) ?? undefined });
+    return ctl.tabs.openFile({ fileKey: file.fileKey, title: str(file.title, 300) ?? undefined, background: file.background === true, pageId: str(file.pageId, 64) ?? undefined, nodeId: str(file.nodeId, 64) ?? undefined }, Date.now(), newTabOf(info));
   });
   onInvoke("nav:open-prototype", ({ ctl }, p) => {
     if (!isFileKey(p?.fileKey)) throw new Error("nav:open-prototype: not a file key");
@@ -169,7 +183,7 @@ export function registerIpc() {
     if (!pageId) throw new Error("nav:open-prototype: not a page");
     return ctl.tabs.openPrototype({ fileKey: p.fileKey, pageId, startNodeId: guid(p.startNodeId), title: str(p.title, 300) ?? undefined });
   });
-  onInvoke("nav:new-file", ({ ctl }, p) => ctl.tabs.newFile({ folderId: folderOf(p?.folderId), name: str(p?.name, 300) ?? undefined }));
+  onInvoke("nav:new-file", ({ ctl, info }, p) => ctl.tabs.newFile({ folderId: folderOf(p?.folderId), name: str(p?.name, 300) ?? undefined, replace: newTabOf(info) }));
   onSend("nav:go-home", ({ ctl, info }, p) => {
     // "Back to files": Home shows the file it came from, unless told another.
     const reveal = str(p?.revealFileKey, 64);
