@@ -18,7 +18,8 @@ import { AiRunError, runOnce, type AiApi } from "@shared/ai/api";
 import { AI_ACTION_LABEL } from "@shared/ai/labels";
 import { policyOf, type OrgAiPolicy } from "@shared/ai/orgPolicy";
 import { firstDraftPrompt, formatOutline, interactionsPrompt, renamePrompt, replaceContentPrompt, textPrompt, type OutlineNode, type PromptPair, type TextTask } from "@shared/ai/prompts";
-import { AnswerError, draftSchema, INTERACTIONS_SCHEMA, readDraft, readInteractions, readRename, readTexts, readTextsSoFar, RENAME_SCHEMA, TEXTS_SCHEMA, type DraftPlan } from "@shared/ai/schemas";
+import { AnswerError, draftSchema, INTERACTIONS_SCHEMA, readDraft, readInteractions, readNamesSoFar, readRename, readTexts, readTextsSoFar, RENAME_SCHEMA, TEXTS_SCHEMA, type DraftPlan } from "@shared/ai/schemas";
+import { animateRename, clearRenameAnimations } from "./renameAnimation";
 import { creditsFor, DEFAULT_AI_SETTINGS, type AiAction, type AiRunEvent, type AiRunRequest, type AiSettings, type AiUsage, type AiUsageEntry } from "@shared/ai/types";
 import { kitById, kitFor, type KitId, type LibraryChoice } from "@shared/ai/kits";
 import type { EditorController } from "../controller";
@@ -445,25 +446,29 @@ export class AiActions {
     return this.execute("rename-layers", !!o.fromPanel, async (signal) => {
       const groups = matchGroups(candidates);
       const asked = new Set(groups.map((g) => g[0].id));
-      const names = new Map<string, string>();
       const images = await layerImages(this.ed, roots.slice(0, 8));
-      for (const batch of outlineBatches(roots, (l) => (asked.has(l.id) ? "rename" : undefined))) {
-        const ids = idsMarked(batch, "rename");
-        if (!ids.size) continue;
-        const json = await this.ask("rename-layers", renamePrompt(formatOutline(batch)), RENAME_SCHEMA as unknown as Record<string, unknown>, signal, { images });
-        readRename(json, ids).forEach((v, k) => names.set(k, v));
-      }
-      let count = 0;
-      this.apply("Rename layers", () => {
-        for (const g of groups) {
-          const name = names.get(g[0].id);
-          if (!name) continue;
-          for (const l of g) {
-            if (this.ed.engine.setProps([l.id], (l.type === "TEXT" ? { name, autoRename: false } : { name }) as never) === 0) count++;
-          }
-        }
+      // Each name goes into its layers as it streams in (Figma: one line a layer), all of them one undo step; Stop or a
+      // failure puts back every name already written.
+      const stream = new NameStream(this.ed, (fn, merge) => this.apply("Rename layers", fn, [], merge), new Map(groups.map((g) => [g[0].id, g])));
+      const off = this.ed.engine.onDocumentChanged((_c, ev) => {
+        if (ev.kind === "SYSTEM" || ev.actor) return;
+        stream.foreign = true;
+        this.stop();
       });
-      return count;
+      try {
+        for (const batch of outlineBatches(roots, (l) => (asked.has(l.id) ? "rename" : undefined))) {
+          const ids = idsMarked(batch, "rename");
+          if (!ids.size) continue;
+          const json = await this.ask("rename-layers", renamePrompt(formatOutline(batch)), RENAME_SCHEMA as unknown as Record<string, unknown>, signal, { images, onText: (raw) => stream.update(readNamesSoFar(raw, ids)) });
+          stream.update(readRename(json, ids), true);
+        }
+        return stream.count;
+      } catch (err) {
+        stream.restore();
+        throw err;
+      } finally {
+        off();
+      }
     });
   }
 
@@ -805,6 +810,72 @@ class TextStream {
       }, merge);
     } catch {
       // The originals stay in the history: ⌘Z brings them back.
+    }
+  }
+}
+
+/**
+ * Rename layers' writes as its names stream in (atlas 18 §4.3): each group's name into its layers — the first write a
+ * step of the user's history, each later one merged into it (one undo step for the run) — and its Layers row typed
+ * over (renameAnimation.ts). `restore` puts every name written back (with its `autoRename`), the animations dropped.
+ */
+class NameStream {
+  /** Someone else wrote to the user's history since the first write */
+  foreign = false;
+  /** Layers renamed */
+  count = 0;
+  private steps = 0;
+  private written = new Map<string, string>();
+  private waiting = new Map<string, string>();
+  private originals = new Map<Guid, { name: string; autoRename?: boolean }>();
+
+  constructor(
+    private ed: EditorController,
+    private write: (fn: () => void, merge: boolean) => void,
+    private groups: ReadonlyMap<string, readonly Layer[]>
+  ) {}
+
+  /** Names so far (`last`: a batch's complete answer — a write the user's open gesture holds up fails then). */
+  update(names: ReadonlyMap<string, string>, last = false) {
+    if (this.foreign) return;
+    for (const [id, name] of names) if (this.written.get(id) !== name) this.waiting.set(id, name);
+    if (!this.waiting.size) return;
+    const values = new Map(this.waiting);
+    const renamed: { id: Guid; from: string; to: string }[] = [];
+    try {
+      this.write(() => {
+        for (const [leader, name] of values)
+          for (const l of this.groups.get(leader) ?? []) {
+            const node = this.ed.engine.readNode(l.id, { fields: ["name", "autoRename"] }) as { name?: string; autoRename?: boolean } | null;
+            if (!node) continue;
+            if (!this.originals.has(l.id)) this.originals.set(l.id, { name: node.name ?? "", ...(l.type === "TEXT" ? { autoRename: node.autoRename } : {}) });
+            if (this.ed.engine.setProps([l.id], (l.type === "TEXT" ? { name, autoRename: false } : { name }) as never) === 0) renamed.push({ id: l.id, from: node.name ?? "", to: name });
+          }
+      }, this.steps > 0);
+    } catch (err) {
+      // The user's gesture is open: the next names (or the complete answer) try again.
+      if (err instanceof EngineBusy && !last) return;
+      throw err;
+    }
+    this.steps++;
+    for (const [id, name] of values) {
+      if (!this.written.has(id)) this.count += this.groups.get(id)?.length ?? 0;
+      this.written.set(id, name);
+      this.waiting.delete(id);
+    }
+    for (const r of renamed) animateRename(r.id, r.from, r.to);
+  }
+
+  /** Back to the names as they were (nothing written: nothing to do). */
+  restore() {
+    clearRenameAnimations();
+    if (!this.steps) return;
+    try {
+      this.write(() => {
+        for (const [id, o] of this.originals) this.ed.engine.setProps([id], ("autoRename" in o ? { name: o.name, autoRename: o.autoRename ?? true } : { name: o.name }) as never);
+      }, !this.foreign);
+    } catch {
+      // The names stay in the history: ⌘Z brings them back.
     }
   }
 }

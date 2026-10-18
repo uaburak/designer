@@ -173,6 +173,33 @@ describe("Rename layers", () => {
     expect(t.ledger).toEqual([expect.objectContaining({ action: "rename-layers", credits: 0, ok: true, providerId: "claude-code", model: "sonnet", orgId: null })]);
   });
 
+  it("writes each name as it streams in, one undo step; Stop puts every name back (atlas 18 §4.3)", async () => {
+    const answer = (req: AiRunRequest) => ({ json: { names: marked(req, "rename").map((id, i) => ({ id, name: `Streamed ${i}` })) } });
+    const t = await editor((req) => ({ ...answer(req), stream: { chunks: 12, gapMs: 25 } }));
+    const [a, b] = await screens(t);
+    t.engine.setSelection([a, b]);
+    const seen: string[] = [];
+    const off = t.engine.onDocumentChanged(() => seen.push(name(t.engine, a)));
+    const count = await t.ai.renameLayers();
+    off();
+    expect(count).toBeGreaterThanOrEqual(5);
+    expect(name(t.engine, a)).toMatch(/^Streamed \d$/);
+    // Written while it streamed (several writes, merged into one step).
+    expect(seen.filter((s) => s.startsWith("Streamed")).length).toBeGreaterThan(0);
+    t.engine.undo();
+    expect(name(t.engine, a)).toBe("Frame 1");
+
+    // Stopped part way: what was written goes back.
+    const h = await editor((req) => ({ ...answer(req), stream: { chunks: 12, gapMs: 25, hang: true } }));
+    const [c, d] = await screens(h);
+    h.engine.setSelection([c, d]);
+    const run = h.ai.renameLayers();
+    await vi.waitFor(() => expect(name(h.engine, c)).toMatch(/^Streamed/), { timeout: 2000 });
+    h.ai.stop();
+    await run;
+    expect(name(h.engine, c)).toBe("Frame 1");
+  });
+
   it("with nothing to rename asks nothing; Rename anyway renames renamed layers", async () => {
     const t = await editor((req) => ({ json: { names: marked(req, "rename").map((id) => ({ id, name: "Renamed" })) } }));
     const header = (await t.call("create_nodes", { nodes: [{ type: "FRAME", name: "Header", x: 3000, y: 0, width: 200, height: 100 }] })).created[0].id;

@@ -164,6 +164,25 @@ export function readTextsSoFar(raw: string, ids: ReadonlySet<string>): Map<strin
   return out;
 }
 
+/**
+ * The names of a `{names}` answer that have streamed in whole (Figma's stream gives a layer's name as one line, atlas 18
+ * §4.3): each `{"id": …, "name": "…"` whose string has closed, cleaned as `readRename` cleans it. Only `ids`.
+ */
+export function readNamesSoFar(raw: string, ids: ReadonlySet<string>): Map<string, string> {
+  const out = new Map<string, string>();
+  const whole = /\{\s*"id"\s*:\s*"((?:[^"\\]|\\.)*)"\s*,\s*"name"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+  for (let m = whole.exec(raw); m; m = whole.exec(raw)) {
+    try {
+      const id = JSON.parse(`"${m[1]}"`) as string;
+      const name = (JSON.parse(`"${m[2]}"`) as string).replace(/\s+/g, " ").trim().slice(0, MAX_LAYER_NAME).trim();
+      if (ids.has(id) && name) out.set(id, name);
+    } catch {
+      // Not a name yet.
+    }
+  }
+  return out;
+}
+
 export interface AiInteraction {
   sourceId: string;
   trigger: "ON_CLICK";

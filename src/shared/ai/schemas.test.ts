@@ -1,6 +1,6 @@
 // Round 6a: the actions' answers (schemas.ts), prompts and kits.
 import { describe, expect, it } from "vitest";
-import { AnswerError, draftSchema, readDraft, readInteractions, readRename, readTexts, readTextsSoFar, RENAME_SCHEMA } from "./schemas";
+import { AnswerError, draftSchema, readDraft, readInteractions, readNamesSoFar, readRename, readTexts, readTextsSoFar, RENAME_SCHEMA } from "./schemas";
 import { formatOutline, OUTLINE_MAX_DEPTH, SYSTEM_PREFIX, firstDraftPrompt, renamePrompt, textPrompt, type OutlineNode } from "./prompts";
 import { autoKit, KITS, kitFor, LIBRARY_CHOICES } from "./kits";
 
@@ -71,5 +71,14 @@ describe("kits", () => {
     expect(autoKit("A landing page for a bakery").id).toBe("web-design");
     expect(autoKit("wireframe of a fitness app").id).toBe("app-wireframe");
     expect(kitFor("web-wireframe", "an app").id).toBe("web-wireframe");
+  });
+});
+
+describe("Rename layers' stream (atlas 18 §4.3)", () => {
+  it("reads the names that have come in whole, cleaned, only for the layers asked about", () => {
+    const ids = new Set(["1:2", "1:3"]);
+    const raw = '{"names":[{"id":"1:2","name":"Login   screen"},{"id":"9:9","name":"No"},{"id":"1:3","name":"Gree';
+    expect(readNamesSoFar(raw, ids)).toEqual(new Map([["1:2", "Login screen"]]));
+    expect(readNamesSoFar(raw + 'ting"}]}', ids)).toEqual(new Map([["1:2", "Login screen"], ["1:3", "Greeting"]]));
   });
 });

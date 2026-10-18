@@ -37,6 +37,25 @@ export const VECTORIZE_DEFAULTS: VectorizeSettings = { mode: "FULL_COLOR", color
 export const VECTORIZE_DEBOUNCE_MS = 120;
 export const VECTORIZE_MAX_SIDE = 1024;
 
+/** Figma's render limits (atlas 18 §7.7, 3187 `m` / `T`): the layer scaled into 256…4096 px a side, 5 MP at most. */
+export const VECTORIZE_RENDER = { max: 4096, min: 256, area: 5_242_880 } as const;
+
+/**
+ * Figma's check before tracing: the layer's size scaled down so its long side is 4096 (or up so its short side is 256);
+ * still past 4096 or under 256 on a side, or over 5 MP → too large / too small. Ours traces its own ≤ 1024 px copy.
+ */
+export function vectorizeRenderSize(size: { x: number; y: number }): { width: number; height: number } {
+  const long = Math.max(size.x, size.y);
+  const short = Math.min(size.x, size.y);
+  const r = long > VECTORIZE_RENDER.max ? VECTORIZE_RENDER.max / long : short < VECTORIZE_RENDER.min ? VECTORIZE_RENDER.min / short : 1;
+  const width = size.x * r;
+  const height = size.y * r;
+  if (width > VECTORIZE_RENDER.max || height > VECTORIZE_RENDER.max) throw new AiRunError("unsupported", t("This layer is too large to vectorize."));
+  if (width < VECTORIZE_RENDER.min || height < VECTORIZE_RENDER.min) throw new AiRunError("unsupported", t("This layer is too small to vectorize."));
+  if (width * height > VECTORIZE_RENDER.area) throw new AiRunError("unsupported", t("This layer is too large to vectorize."));
+  return { width, height };
+}
+
 export const traceOptions = (s: VectorizeSettings): TraceOptions =>
   s.mode === "FULL_COLOR" ? { mode: s.mode, colors: s.colors } : s.mode === "GRAYSCALE" ? { mode: s.mode, grays: s.grays } : { mode: s.mode, threshold: Math.round(s.threshold * 10000) / 100 };
 
@@ -73,6 +92,8 @@ export class VectorizeSession {
 
   /** Starts on one image layer: the credits checked, the preview frame put up and traced with the defaults. */
   static async begin(ed: EditorController, hooks: Pick<ToolHooks, "checkCredits" | "record">, layer: Guid, o: { debounceMs?: number; pixels?: Pixels } = {}): Promise<VectorizeSession> {
+    const size = ed.engine.readNode(layer, { fields: ["size"] })?.size;
+    if (size) vectorizeRenderSize(size);
     await hooks.checkCredits("vectorize");
     const pixels = o.pixels ?? (await contentsPixels(ed, layer));
     const begun = ed.engine.vectorizeBegin(layer, pixels);
