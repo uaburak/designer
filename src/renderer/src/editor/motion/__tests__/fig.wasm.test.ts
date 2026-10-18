@@ -16,6 +16,7 @@ import { decodeCanvas } from "@shared/fig/container";
 import { encodeFigmaCanvas } from "@shared/fig/figmaExport";
 import { decodeAnySchema } from "@shared/fig/importFig";
 import { decodeMessage } from "@shared/schema/codec";
+import { messageToEngine } from "@/store/engineMessage";
 import { EditorController } from "../../controller";
 import { memoryDocumentSource } from "../../documentSource";
 import MOTION_LOGO_DOCUMENT from "../fixtures/figma-logo-motion.json";
@@ -61,7 +62,7 @@ describe("Motion through a .fig", () => {
     expect(report?.droppedNodeTypes ?? {}).toEqual({});
     for (const f of ["animationPresets", "styleIdsForAnimation", "audioFills", "audioTracks", "timelineOffset", "timelineDuration", "backingAnimationPresetId", "componentPropAssignments", "transformOrigin"])
       expect(Object.keys(report?.droppedFields ?? {}).filter((k) => k.endsWith(`.${f}`)), f).toEqual([]);
-    const again = await engineWith(back);
+    const again = await engineWith(messageToEngine(back));
     expect(again.engine.motionTimeline("1:1")).toEqual(timeline);
     expect(again.engine.motionResolved("1:1")).toEqual(resolved);
   });
