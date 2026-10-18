@@ -32,10 +32,11 @@ import { useUI } from "../hooks";
 import { actionItems, runMenuItem, type ActionItem } from "../menus";
 import { assetLabel, searchAssets } from "../model/components";
 import { useComponentAssets } from "./design/ComponentPicker";
-import { aiOf } from "../ai/service";
+import { aiOf, costsCredits, type AiState } from "../ai/service";
 import { AI_ROW_BY_ID, AI_ROWS, imageRowHandler, type AiRowDef } from "../ai/actionRows";
 import { AiBadge, AiPanelView, showsAiView, useAiState } from "../ai/AiPanel";
 import { openVisualSearch } from "../search";
+import { openAiBalance, resetDate } from "@/settings/AiBalance";
 import styles from "./ActionsPanel.module.css";
 import { t, tp, useT } from "@/i18n";
 
@@ -176,13 +177,41 @@ function close(ed: EditorController) {
   ed.focusCanvas();
 }
 
-/** The AI rows as palette items: disabled while AI is off (Settings › AI, an organization), image rows until their tools register. */
-function aiItems(ed: EditorController, enabled: boolean): ActionItem[] {
+/**
+ * The AI rows as palette items: disabled while AI is off (Settings › AI, an organization) and, out of credits, the
+ * ones that cost credits (Figma's out-of-credits rows, atlas 18 §9.2); image rows until their tools register.
+ */
+function aiItems(ed: EditorController, enabled: boolean, outOfCredits: boolean): ActionItem[] {
   return AI_ROWS.map((r) => {
     const image = r.section === "Image editing";
     const h = image ? imageRowHandler(r.action) : undefined;
-    return { id: r.id, label: r.label, section: r.section, disabled: !enabled || (image && !(h && (h.enabled?.(ed) ?? true))) };
+    return { id: r.id, label: r.label, section: r.section, disabled: !enabled || (outOfCredits && costsCredits(r.action)) || (image && !(h && (h.enabled?.(ed) ?? true))) };
   });
+}
+
+/** Above the AI sections when they can't run: why, in a line, with what to do (Figma's `qa.no_ai.*` / out-of-credits banners). */
+function AiNotice({ state }: { state: AiState }) {
+  useT();
+  const [title, body] =
+    state.unavailable === "org-disabled"
+      ? [t("AI features are off for your organization"), t("An admin turned them off in the organization's settings.")]
+      : state.unavailable === "turned-off"
+        ? [t("AI features are turned off"), t("Turn them on in Settings › AI.")]
+        : state.outOfCredits
+          ? [t("You're out of AI credits"), t("They reset on {date}. Rename layers still works.", { date: resetDate(state.outOfCredits.resetsAt) })]
+          : [null, null];
+  if (!title) return null;
+  return (
+    <div role="note" className={styles.aiNotice}>
+      <span className={styles.aiNoticeTitle}>{title}</span>
+      <span>{body}</span>
+      {state.outOfCredits && !state.unavailable && (
+        <button type="button" className={styles.aiNoticeLink} onClick={openAiBalance}>
+          {t("AI balance")}
+        </button>
+      )}
+    </div>
+  );
 }
 
 function Actions() {
@@ -212,7 +241,7 @@ function Actions() {
   const ai = aiOf(ed);
   const aiState = useAiState(ai);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- `toggled`: read again after a toggle ran
-  const items = useMemo(() => [...actionItems(ed), ...aiItems(ed, aiState.enabled)], [ed, aiState.enabled, toggled]);
+  const items = useMemo(() => [...actionItems(ed), ...aiItems(ed, aiState.enabled, !!aiState.outOfCredits)], [ed, aiState.enabled, aiState.outOfCredits, toggled]);
   useEffect(() => {
     void ai.refresh();
     return () => ai.panelClosed();
@@ -468,6 +497,7 @@ function Actions() {
           )}
           {rows.map((r, i) => (
             <div key={r.key} style={{ display: "contents" }}>
+              {r.ai && !prompt && !rows.slice(0, i).some((x) => x.ai) && <AiNotice state={aiState} />}
               {r.section && (i === 0 || rows[i - 1].section !== r.section) && (
                 <div role="presentation" className={styles.header}>
                   {tab === "assets" || prompt ? r.section : t(r.section)}

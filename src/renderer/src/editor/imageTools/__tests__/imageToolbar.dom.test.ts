@@ -69,7 +69,7 @@ describe("the image toolbar", () => {
     engine.destroy();
   });
 
-  it("Vectorize: More › Vectorize previews, a mode and its setting update after 120 ms, ✓ is one undo step", async () => {
+  it("Vectorize: More › Vectorize previews, a mode and its setting update after 120 ms, Enter (✓) is one undo step that hides the image", async () => {
     const { engine, tools, view, labels, recorded } = await setup();
     act(() => void engine.setSelection(["1:5"]));
     const update = vi.spyOn(engine, "vectorizeUpdate");
@@ -84,14 +84,18 @@ describe("the image toolbar", () => {
     click(button("Grayscale"));
     const range = toolbar()!.querySelector<HTMLInputElement>('input[type="range"]')!;
     expect(range.getAttribute("aria-label")).toBe("Number of grays");
-    await vi.waitFor(() => expect(update).toHaveBeenLastCalledWith({ mode: "GRAYSCALE", grays: 4 }));
-    click(button("Apply"));
+    // Number of grays: 1 … the colours the first trace came back with, at that.
+    const detected = tools.state.get().vectorize!.detected;
+    expect(range.max).toBe(String(Math.min(16, detected)));
+    expect(range.min).toBe("1");
+    await vi.waitFor(() => expect(update).toHaveBeenLastCalledWith({ mode: "GRAYSCALE", grays: Math.min(16, detected) }));
+    act(() => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" })));
     expect(labels).toEqual(["Vectorize"]);
-    expect(engine.readNode("1:5")).toBeNull();
+    expect(engine.readNode("1:5")!.visible).toBe(false);
     expect(recorded).toEqual(["vectorize"]);
     expect(tools.state.get().mode).toBeNull();
     act(() => void engine.undo());
-    expect(engine.readNode("1:5")).not.toBeNull();
+    expect(engine.readNode("1:5")!.visible).not.toBe(false);
     view.unmount();
     engine.destroy();
   });

@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 // The image tools on the real engine (docs/ai.md §2.6, §4, §5): each tool's result applied as one undo step with the
-// tool's name and undone in one ⌘Z — Remove background, Boost resolution, Erase, Isolate (a new layer above), Expand
+// tool's name and undone in one ⌘Z — Remove background, Boost resolution and Edit with prompt as Figma's APPEND (the
+// original paint hidden under the new one; atlas 18 §7.2), Boost's sizes and limits (§7.4), Erase, Isolate (a new
+// layer above, the original its "Background"), Expand (refusing transparent pictures)
 // (the layer grows, the original re-composited untouched), Edit with prompt, Make an image (fill or new layer) — on
 // small fixture pictures, with the models replaced by a fake runner (the real ones are 23–115 MB) and main's image
 // route by a fake `ai:image`; every run in the ledger; the download confirmation; Vectorize's flow (begin, debounced
@@ -203,14 +205,19 @@ describe("image layers", () => {
 });
 
 describe("each tool is one undo step", () => {
-  it("Remove background swaps the picture, keeps the paint, records the run; ⌘Z brings it back", async () => {
+  it("Remove background puts the new picture above the original paint, hidden and kept (APPEND), records the run; ⌘Z brings it back", async () => {
     const s = await setup();
     const calls: string[] = [];
     fakeModels(calls);
     expect(await tools.removeBackground(s.env, [s.target()])).toBe(1);
     const t = s.target();
     expect(t.hash).not.toBe(s.original.hash);
+    expect(t.index).toBe(1);
     expect(t.paint.imageScaleMode).toBe("FILL");
+    const fills = s.engine.readNode("1:5")!.fillPaints as { visible?: boolean }[];
+    expect(fills).toHaveLength(2);
+    expect(paintImageHash(fills[0] as never)).toBe(s.original.hash);
+    expect(fills[0].visible).toBe(false);
     const out = s.pixels.get(t.hash)!;
     expect(px(out, 2, 16)).toEqual([255, 0, 0, 255]);
     expect(px(out, 50, 16)[3]).toBe(0);
@@ -218,21 +225,44 @@ describe("each tool is one undo step", () => {
     expect(s.recorded).toEqual([{ action: "remove-background", providerId: "local", model: "isnet", images: 1, credits: 1, local: true, ok: true }]);
     undo(s.engine);
     expect(s.target().hash).toBe(s.original.hash);
+    expect(s.engine.readNode("1:5")!.fillPaints).toHaveLength(1);
   });
 
-  it("Boost resolution makes the picture ×4", async () => {
+  it("Boost resolution makes the picture 2× the layer (below 2× now): ×4 twice, resized to it", async () => {
     const s = await setup();
-    fakeModels([]);
+    const calls: string[] = [];
+    fakeModels(calls);
     const progress: number[] = [];
     await tools.boostResolution(s.env, [s.target()], { onProgress: (p) => progress.push(p) });
     const t = s.target();
-    expect(t.paint.originalImageWidth).toBe(224);
-    expect(s.pixels.get(t.hash)!.width).toBe(224);
-    expect(px(s.pixels.get(t.hash)!, 200, 60)).toEqual([0, 255, 0, 255]);
+    // 56 × 32 on a 280 × 160 layer: 2 × 280 / 56 = 10×.
+    expect(t.paint.originalImageWidth).toBe(560);
+    expect(s.pixels.get(t.hash)!.height).toBe(320);
+    expect(px(s.pixels.get(t.hash)!, 500, 160)).toEqual([0, 255, 0, 255]);
+    expect(calls.filter((c) => c === "swin2sr-x4").length).toBeGreaterThan(1);
     expect(progress.at(-1)).toBe(1);
     expect(s.labels.at(-1)).toBe("Boost resolution");
     undo(s.engine);
     expect(s.target().paint.originalImageWidth).toBe(56);
+  });
+
+  it("Boost resolution's sizes and limits (Figma's upscale-image)", () => {
+    const paint = { type: "IMAGE", imageScaleMode: "FILL" } as never;
+    const at = (w: number, h: number, img: [number, number], o: { rotation?: number; mode?: string; anyway?: boolean } = {}) =>
+      tools.boostSize({ paint: { ...(paint as object), ...(o.rotation ? { rotation: o.rotation } : {}), ...(o.mode ? { imageScaleMode: o.mode } : {}) } as never, node: { size: { x: w, y: h } } as never }, { width: img[0], height: img[1] }, o.anyway);
+    // Below 2× on an axis: 2× the layer; at 2× or more: 4×; the larger of the two axes' scales.
+    expect(at(100, 100, [150, 300])).toEqual({ width: 200, height: 400 });
+    expect(at(100, 100, [250, 300])).toEqual({ width: 400, height: 480 });
+    // Turned 90°: the layer's sides swap.
+    expect(at(200, 100, [300, 150], { rotation: 90 })).toEqual({ width: 800, height: 400 });
+    // Tile mode and "Boost anyway": 2× the image.
+    expect(at(10, 10, [100, 50], { mode: "TILE" })).toEqual({ width: 200, height: 100 });
+    expect(at(10, 10, [100, 50], { anyway: true })).toEqual({ width: 200, height: 100 });
+    // At 4× already: the error with "Boost anyway"; the answer never over 4096; the input 16…2048.
+    expect(() => at(10, 10, [100, 50])).toThrow(tools.BoostAlreadyMaxError);
+    expect(at(3000, 1500, [1000, 500])).toEqual({ width: 4096, height: 2048 });
+    expect(() => at(100, 100, [2049, 100])).toThrow(/too large/);
+    expect(() => at(100, 100, [15, 100])).toThrow(/too small/);
   });
 
   it("asks before the first download; declining runs nothing", async () => {
@@ -278,7 +308,7 @@ describe("each tool is one undo step", () => {
     expect(s.recorded.at(-1)).toMatchObject({ action: "erase-object", providerId: "antigravity", model: "gemini-image-test", credits: 8, local: false, ok: true });
   });
 
-  it("Isolate makes a new image layer just above, the original kept; ⌘Z removes it", async () => {
+  it("Isolate makes a new image layer just above; the original is its Background (object erased, proportions locked, Scale constraints); ⌘Z takes it back", async () => {
     const s = await setup();
     fakeModels([]);
     const id = await tools.isolateArea(s.env, s.target(), [{ x: 100, y: 40 }, { x: 180, y: 40 }, { x: 180, y: 120 }, { x: 100, y: 120 }]);
@@ -288,11 +318,24 @@ describe("each tool is one undo step", () => {
     expect(n.parentIndex!.position < s.engine.readNode("1:6")!.parentIndex!.position).toBe(true);
     expect(n.size!.x).toBeCloseTo(84, 0);
     expect(n.transform!.m02).toBeCloseTo(24 + 98, 0);
-    expect(s.target().hash).toBe(s.original.hash);
+    const bg = s.engine.readNode("1:5", { fields: ["name", "proportionsConstrained", "horizontalConstraint", "verticalConstraint"] }) as unknown as Record<string, unknown>;
+    expect(bg).toMatchObject({ name: "Background", proportionsConstrained: true, horizontalConstraint: "SCALE", verticalConstraint: "SCALE" });
+    // LaMa is on this computer: the object is erased from the background.
+    expect(px(s.pixels.get(s.target().hash)!, 140, 80)).toEqual([128, 128, 128, 255]);
     expect(s.labels.at(-1)).toBe("Isolate");
     expect(s.ed.selection).toEqual([id]);
     undo(s.engine);
     expect(s.engine.readNode(id)).toBeNull();
+    expect(s.target().hash).toBe(s.original.hash);
+    expect(s.engine.readNode("1:5")!.name).not.toBe("Background");
+  });
+
+  it("Expand refuses a picture with transparent pixels", async () => {
+    const s = await setup();
+    const clear = await s.io.put(fill(56, 32, (x) => [255, 0, 0, x < 4 ? 0 : 255]), "Clear");
+    const t = { ...s.target(), hash: clear.hash };
+    await expect(tools.expandImage(s.env, t, { left: 10, top: 0, right: 0, bottom: 0 })).rejects.toThrow(/transparent/);
+    expect(s.fake.requests).toEqual([]);
   });
 
   it("Expand grows the layer, sends the padded canvas with its mask, re-composites the original untouched", async () => {
@@ -326,6 +369,7 @@ describe("each tool is one undo step", () => {
     await tools.editWithPrompt(s.env, s.target(), "make it night");
     expect(s.fake.requests[0]).toMatchObject({ action: "edit-image", prompt: "make it night", size: { width: 56, height: 32 } });
     expect(px(s.pixels.get(s.target().hash)!, 0, 0)).toEqual([1, 2, 3, 255]);
+    expect(s.engine.readNode("1:5")!.fillPaints).toHaveLength(2);
     expect(s.labels.at(-1)).toBe("Edit image");
     undo(s.engine);
     expect(s.target().hash).toBe(s.original.hash);
@@ -437,14 +481,20 @@ describe("Studio's pictures (docs/studio.md §5.3, §6.2)", () => {
 describe("Vectorize's flow", () => {
   const picture = fill(64, 64, (x, y) => (Math.hypot(x - 32, y - 32) < 20 ? [200, 30, 30, 255] : [255, 255, 255, 255]));
 
-  it("begins with a preview, updates 120 ms after the last change, applies one step", async () => {
+  it("begins with a preview (its colours the sliders' maximum), updates 120 ms after the last change, applies one step: the image hidden, the frame \"<name> [Vectorized]\"", async () => {
     vi.useFakeTimers();
     try {
       const s = await setup();
+      const name = s.engine.readNode("1:5")!.name;
       const update = vi.spyOn(s.engine, "vectorizeUpdate");
       const session = await VectorizeSession.begin(s.ed, s.env.hooks, "1:5", { pixels: { width: 64, height: 64, pixels: picture.data } });
       expect(update).toHaveBeenCalledTimes(1);
-      expect(session.stats!.layers).toBeGreaterThan(0);
+      expect(update).toHaveBeenLastCalledWith({ mode: "FULL_COLOR", colors: 16 });
+      // Two colours in the picture: Number of colors 1…2, at 2; the threshold 0–1 at 0.5.
+      expect(session.detected).toBe(2);
+      expect(session.settings).toMatchObject({ colors: 2, grays: 2, threshold: 0.5 });
+      expect(session.range("FULL_COLOR")).toMatchObject({ min: 1, max: 2 });
+      expect(session.range("BLACK_AND_WHITE")).toEqual({ min: 0, max: 1, step: 0.01, bigStep: 0.1 });
       session.set({ colors: 3 });
       session.set({ colors: 2 });
       vi.advanceTimersByTime(119);
@@ -452,15 +502,16 @@ describe("Vectorize's flow", () => {
       vi.advanceTimersByTime(1);
       expect(update).toHaveBeenCalledTimes(2);
       expect(update).toHaveBeenLastCalledWith({ mode: "FULL_COLOR", colors: 2 });
-      session.set({ mode: "BLACK_AND_WHITE", threshold: 70 });
+      session.set({ mode: "BLACK_AND_WHITE", threshold: 0.7 });
       const frame = session.apply()!;
       expect(update).toHaveBeenLastCalledWith({ mode: "BLACK_AND_WHITE", threshold: 70 });
       expect(s.labels).toEqual(["Vectorize"]);
-      expect(s.engine.readNode("1:5")).toBeNull();
-      expect(s.engine.readNode(frame)!.type).toBe("FRAME");
+      expect(s.engine.readNode("1:5")!.visible).toBe(false);
+      expect(s.engine.readNode(frame)).toMatchObject({ type: "FRAME", name: `${name} [Vectorized]` });
       expect(s.recorded).toEqual([{ action: "vectorize", providerId: "local", model: "engine-trace", images: 1, credits: 2, local: true, ok: true }]);
       undo(s.engine);
-      expect(s.engine.readNode("1:5")).not.toBeNull();
+      expect(s.engine.readNode("1:5")!.visible).not.toBe(false);
+      expect(s.engine.readNode(frame)).toBeNull();
     } finally {
       vi.useRealTimers();
     }

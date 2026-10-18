@@ -1,34 +1,42 @@
 /**
- * Rename layers' rules (help.figma.com 24004711129879, docs/ai.md §1): only layers with default names are renamed —
- * frames ("Frame 12"), groups ("Group 3"), rectangles with an image fill ("Rectangle 5", "Image 2"), texts still named
- * by their text, and instances still named as their main (the instance alone, nothing inside it). Renamed, hidden and
- * locked layers are skipped (with what is in them), as are layers inside instances and plain vector shapes. Matching
- * layers across top-level frames — the same place in each — get the same name: one of them is asked about and the
- * name goes to all. "Rename anyway" lifts the default-name rule (nothing else).
+ * Rename layers' rules (atlas 18 §4.1, Figma's auto-rename-layers): rectangles, texts, frames, groups and instances are
+ * renamed when their name is still a default one — the type's base and a number ("Frame 12", "Rectangle 3 (2)";
+ * "Frame" alone is not), a text whose name still follows its characters (`autoRename`), an instance still named as its
+ * main (the instance alone, nothing inside it). Hidden layers, layers at opacity 0, locked layers (with what is in
+ * them) and layers inside instances are skipped. Layers at the same place in other selected top-level frames — the
+ * same names and same-named-sibling indices up to the frame — get the same name: one of them is asked about and the
+ * name goes to all. "Rename anyway" lifts the default-name rule (nothing else). At most 500 layers are sent.
  */
 import type { Layer } from "./layers";
 
-const DEFAULT: Record<string, RegExp> = {
-  FRAME: /^Frame( \d+)?$/,
-  GROUP: /^Group( \d+)?$/,
-  RECTANGLE: /^(Rectangle|Image)( \d+)?$/,
+/** Figma's cap on the layers in the selection's trees. */
+export const RENAME_MAX_LAYERS = 500;
+
+/** Each type's default-name bases (Figma's table). */
+const BASES: Record<string, string[]> = {
+  RECTANGLE: ["Rectangle", "Image"],
+  TEXT: ["Text"],
+  FRAME: ["Frame", "Group"],
+  GROUP: ["Group"],
+  POLYGON: ["Polygon", "Vector"],
+  STAR: ["Star"],
+  LINE: ["Line"],
+  ELLIPSE: ["Ellipse"],
+  VECTOR: ["Vector"],
+  INSTANCE: ["Instance"],
 };
 
-/** Kinds Rename layers renames at all (a rectangle only with an image fill). */
+const DEFAULT = Object.fromEntries(Object.entries(BASES).map(([type, bases]) => [type, new RegExp(`^(${bases.join("|")}) [()\\d]+[ ()\\d]*$`, "i")]));
+
+/** Kinds Rename layers renames (components only from Create component, which we don't run). */
 export function renamable(l: Layer): boolean {
-  if (l.type === "FRAME" || l.type === "GROUP" || l.type === "TEXT" || l.type === "INSTANCE") return true;
-  return l.type === "RECTANGLE" && l.imageFill;
+  return l.type === "FRAME" || l.type === "GROUP" || l.type === "TEXT" || l.type === "INSTANCE" || l.type === "RECTANGLE";
 }
 
 /** The layer still has the name Figma gave it. */
 export function hasDefaultName(l: Layer): boolean {
-  if (l.type === "TEXT") {
-    // Named by its text: the whole text, or its start where a long text's name was cut.
-    const text = (l.text ?? "").replace(/\s+/g, " ").trim();
-    const name = l.name.replace(/\s+/g, " ").trim();
-    return !!l.autoRename || name === text || name === "Text" || (name.length >= Math.min(text.length, 40) && name.length > 0 && text.startsWith(name.replace(/…$/, "")));
-  }
-  if (l.type === "INSTANCE") return l.mainName !== undefined && l.name === l.mainName;
+  if (l.type === "TEXT" && l.autoRename) return true;
+  if (l.type === "INSTANCE" && l.mainName !== undefined && l.name === l.mainName) return true;
   return DEFAULT[l.type]?.test(l.name.trim()) ?? false;
 }
 
@@ -36,7 +44,7 @@ export function hasDefaultName(l: Layer): boolean {
 export function renameCandidates(roots: readonly Layer[], anyway = false): Layer[] {
   const out: Layer[] = [];
   const walk = (l: Layer) => {
-    if (l.hidden || l.locked || l.inInstance) return;
+    if (l.hidden || l.transparent || l.locked || l.inInstance) return;
     if (renamable(l) && (anyway || hasDefaultName(l))) out.push(l);
     if (l.type === "INSTANCE") return;
     l.children.forEach(walk);
@@ -46,8 +54,9 @@ export function renameCandidates(roots: readonly Layer[], anyway = false): Layer
 }
 
 /**
- * Candidates grouped by their place in their top-level frame: each group's first layer is asked about, the others
- * take its name. Top-level frames themselves (and layers whose frame isn't known) stay alone.
+ * Candidates grouped by their place in their top-level frame (`path`: names and same-named-sibling indices): each
+ * group's first layer is asked about, the others take its name. Top-level frames themselves (and layers whose frame
+ * isn't known) stay alone.
  */
 export function matchGroups(candidates: readonly Layer[]): Layer[][] {
   const groups = new Map<string, Layer[]>();

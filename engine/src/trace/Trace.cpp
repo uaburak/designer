@@ -21,8 +21,8 @@ bool readOptions(const json::Value& v, Options& out) {
     const json::Value* x = v.get(k);
     return x && x->isNumber() && std::isfinite(x->number) ? x->number : def;
   };
-  out.colors = static_cast<int>(std::clamp(std::round(num("colors", out.colors)), 2.0, 32.0));
-  out.grays = static_cast<int>(std::clamp(std::round(num("grays", out.grays)), 2.0, 16.0));
+  out.colors = static_cast<int>(std::clamp(std::round(num("colors", out.colors)), 1.0, 32.0));
+  out.grays = static_cast<int>(std::clamp(std::round(num("grays", out.grays)), 1.0, 16.0));
   out.threshold = std::clamp(num("threshold", out.threshold), 0.0, 100.0);
   out.speckle = static_cast<int>(std::clamp(std::round(num("speckle", out.speckle)), 0.0, 1000.0));
   out.alphaMax = std::clamp(num("alphaMax", out.alphaMax), 0.0, 4.0 / 3.0);

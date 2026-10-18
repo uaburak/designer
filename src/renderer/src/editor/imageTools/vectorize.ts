@@ -1,9 +1,11 @@
 /**
  * Vectorize's live preview on the engine's tracer (docs/ai.md §5, 6e's API): begin with the layer's contents as drawn
  * (`exportNodes` contents only, the long side ≤ 1024) → updates debounced by 120 ms as the mode and its setting change
- * → ✓ commits one undo step "Vectorize" (the traced frame replaces the image layer and is selected) or ✕ cancels
- * (nothing in the history). Figma's modes and settings: "Full color" (Number of colors), "Grayscale" (Number of
- * grays), "Black and white" (Threshold) — ranges and defaults are ours [unverified].
+ * → ✓ or Enter commits one undo step "Vectorize" (the traced frame, "<name> [Vectorized]", takes the image layer's
+ * place and is selected; the image layer is hidden, kept) or ✕ cancels (nothing in the history). Figma's Recolor
+ * (atlas 18 §7.7): "Full color" (Number of colors: 1 … the colours the vector came back with), "Grayscale" (Number of
+ * grays: the same rule), "Black and white" (Threshold 0–1, step 0.01, big step 0.1, default 0.5). Figma's server
+ * answers the vector at once; here the first trace asks for up to 16 colours and its count is the sliders' maximum.
  */
 import { t } from "@/i18n";
 import type { Guid, Pixels } from "@/engine/codec";
@@ -15,25 +17,28 @@ import type { ToolHooks } from "./tools";
 
 export type VectorizeMode = TraceOptions["mode"];
 
-export const VECTORIZE_MODES: { id: VectorizeMode; label: string; setting: "colors" | "grays" | "threshold"; settingLabel: string; min: number; max: number }[] = [
-  { id: "FULL_COLOR", label: "Full color", setting: "colors", settingLabel: "Number of colors", min: 2, max: 32 },
-  { id: "GRAYSCALE", label: "Grayscale", setting: "grays", settingLabel: "Number of grays", min: 2, max: 16 },
-  { id: "BLACK_AND_WHITE", label: "Black and white", setting: "threshold", settingLabel: "Threshold", min: 0, max: 100 },
+export const VECTORIZE_MODES: { id: VectorizeMode; label: string; setting: "colors" | "grays" | "threshold"; settingLabel: string; min: number; max: number; step: number; bigStep: number }[] = [
+  { id: "FULL_COLOR", label: "Full color", setting: "colors", settingLabel: "Number of colors", min: 1, max: 32, step: 1, bigStep: 10 },
+  { id: "GRAYSCALE", label: "Grayscale", setting: "grays", settingLabel: "Number of grays", min: 1, max: 16, step: 1, bigStep: 10 },
+  { id: "BLACK_AND_WHITE", label: "Black and white", setting: "threshold", settingLabel: "Threshold", min: 0, max: 1, step: 0.01, bigStep: 0.1 },
 ];
 
 export interface VectorizeSettings {
   mode: VectorizeMode;
   colors: number;
   grays: number;
+  /** 0–1 (the engine's 0–100) */
   threshold: number;
 }
 
-export const VECTORIZE_DEFAULTS: VectorizeSettings = { mode: "FULL_COLOR", colors: 8, grays: 4, threshold: 50 };
+/** The first trace's colours [ours: Figma's server decides how many it answers]. */
+export const VECTORIZE_DETECT_COLORS = 16;
+export const VECTORIZE_DEFAULTS: VectorizeSettings = { mode: "FULL_COLOR", colors: VECTORIZE_DETECT_COLORS, grays: VECTORIZE_DETECT_COLORS, threshold: 0.5 };
 export const VECTORIZE_DEBOUNCE_MS = 120;
 export const VECTORIZE_MAX_SIDE = 1024;
 
 export const traceOptions = (s: VectorizeSettings): TraceOptions =>
-  s.mode === "FULL_COLOR" ? { mode: s.mode, colors: s.colors } : s.mode === "GRAYSCALE" ? { mode: s.mode, grays: s.grays } : { mode: s.mode, threshold: s.threshold };
+  s.mode === "FULL_COLOR" ? { mode: s.mode, colors: s.colors } : s.mode === "GRAYSCALE" ? { mode: s.mode, grays: s.grays } : { mode: s.mode, threshold: Math.round(s.threshold * 10000) / 100 };
 
 /** The layer's contents as drawn, the long side ≤ 1024 (tries again while its images load). */
 export async function contentsPixels(ed: EditorController, id: Guid, tries = 20): Promise<Pixels> {
@@ -52,6 +57,8 @@ export async function contentsPixels(ed: EditorController, id: Guid, tries = 20)
 export class VectorizeSession {
   settings: VectorizeSettings = { ...VECTORIZE_DEFAULTS };
   stats: VectorizeStats | null = null;
+  /** The colours the first trace came back with: the colour and gray sliders' maximum */
+  detected = VECTORIZE_DETECT_COLORS;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private open = true;
   private readonly listeners = new Set<() => void>();
@@ -73,7 +80,15 @@ export class VectorizeSession {
     if (begun.status !== "ok") throw new AiRunError("unsupported", t("This layer can't be vectorized."));
     const s = new VectorizeSession(ed, hooks, layer, begun.frame, o.debounceMs ?? VECTORIZE_DEBOUNCE_MS);
     s.trace();
+    s.detected = Math.max(1, s.stats?.exceeded ? VECTORIZE_DETECT_COLORS : (s.stats?.layers ?? 1));
+    s.settings = { ...s.settings, colors: s.detected, grays: Math.min(16, s.detected) };
     return s;
+  }
+
+  /** A mode's setting's range (Figma's: the colours and grays from 1 to what the vector came back with). */
+  range(mode: VectorizeMode): { min: number; max: number; step: number; bigStep: number } {
+    const m = VECTORIZE_MODES.find((x) => x.id === mode)!;
+    return { min: m.min, max: m.setting === "threshold" ? m.max : Math.min(m.max, this.detected), step: m.step, bigStep: m.bigStep };
   }
 
   get active(): boolean {
@@ -111,7 +126,7 @@ export class VectorizeSession {
     return this.timer !== null;
   }
 
-  /** ✓: one undo step "Vectorize"; the frame (selected) answered. */
+  /** ✓ / Enter: one undo step "Vectorize"; the frame (selected) answered. */
   apply(): Guid | null {
     if (!this.open) return null;
     if (this.timer) this.trace();
