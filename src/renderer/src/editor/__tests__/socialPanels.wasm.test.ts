@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 // Social's chrome (docs/social.md §6, round 18a) on the real engine: the mode switch mounts the Posts tab and the agent's
 // right panel and gives Design's back; the Posts list groups by campaign; the Post section's caption counter turns red
-// past the format's limit; the safe areas' bands follow the camera's zoom.
+// past the format's limit; the safe areas' bands follow the camera's zoom. Round 18c: a review pin picks its problem in
+// the review card; a post goes to the agent with its format.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { act, createElement } from "react";
@@ -17,6 +18,11 @@ import { CanvasLayers, LeftSide, RightSide } from "../EditorApp";
 import { runEditorCommand } from "../commands";
 import { editorWriter, newCampaign, newPost, setCampaign, setPost } from "../social/actions";
 import { PostSection } from "../social/PostSection";
+import { readPost, writePost } from "../social/posts";
+import { ManagerCard } from "../panels/agents/StudioCards";
+import { agentsOf } from "../agents/service";
+import type { ViewCard } from "../agents/managerTools";
+import { useUI } from "../hooks";
 
 const wasm = join(process.cwd(), "src/renderer/src/engine/wasm/engine.wasm");
 
@@ -149,5 +155,44 @@ describe("Social mode's chrome (round 18a)", () => {
     // Safe areas off: gone.
     act(() => runEditorCommand(ed, "social.toggle-safe-areas"));
     expect($("[data-safe-areas]")).toBeNull();
+  });
+});
+
+describe("Social's agent pieces (round 18c)", () => {
+  it("a review pin selects its post, shows the Agent tab and marks its problem in the review card", async () => {
+    let card: ViewCard | null = null;
+    // The card re-renders when the ui changes (as the chat does).
+    function Card() {
+      useUI((s) => s.socialProblem);
+      return card ? createElement(ManagerCard, { card, service: agentsOf(ed) }) : null;
+    }
+    const { ed } = await setup(() => createElement("div", null, createElement(CanvasLayers), createElement(Card)));
+    let id = "";
+    act(() => {
+      ed.ui.set({ mode: "social" });
+      id = newPost(ed, editorWriter(ed), { formatId: "instagram.story", at: { x: 0, y: 0 } });
+    });
+    const problem = { id: "s1", kind: "safe-area" as const, detail: "“CTA” reaches into the bottom band", box: { x: 100, y: 1700, width: 300, height: 80 }, fix: "relayout" as const };
+    act(() => ed.batch("Pins", () => writePost(ed, id, { ...readPost(ed, id)!, problems: [{ ...problem, source: "review" }] })));
+    card = { kind: "review", id: "card-r", report: { briefId: "b", items: [{ nodeId: id, name: "Story", ok: false, problems: [problem] }] } };
+    const pin = $('[data-review-pins] [data-problem="s1"]')!;
+    expect(pin.textContent).toBe("1");
+    act(() => click(pin));
+    expect(ed.store.selection.refs).toEqual([id]);
+    expect(ed.ui.get()).toMatchObject({ socialRightTab: "agent", socialProblem: { post: id, problem: "s1" } });
+    const row = $('[data-card="review"] [data-review-problem="s1"]')!;
+    expect(row.hasAttribute("data-pinned")).toBe(true);
+    expect(row.textContent).toContain("Safe area: “CTA” reaches into the bottom band");
+  });
+
+  it("a selected post goes to the agent as context with its format (its chip shows it)", async () => {
+    const { ed } = await setup(() => createElement(RightSide));
+    let id = "";
+    act(() => {
+      runEditorCommand(ed, "view.mode-social");
+      id = newPost(ed, editorWriter(ed), { formatId: "linkedin.landscape" });
+      ed.engine.setSelection([id]);
+    });
+    expect(agentsOf(ed).selectionContext()).toEqual([expect.objectContaining({ id, format: "LinkedIn landscape" })]);
   });
 });

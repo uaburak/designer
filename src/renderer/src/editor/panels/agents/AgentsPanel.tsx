@@ -244,9 +244,11 @@ const TYPE_ICON: Record<string, IconName> = { FRAME: "16.frame", TEXT: "16.text"
 function ContextChip({ item, onRemove }: { item: NonNullable<ChatMessage["context"]>[number]; onRemove?: () => void }) {
   useT();
   return (
-    <span className={styles.chip} data-context-chip="" {...tooltipProps(`${Math.round(item.width)} × ${Math.round(item.height)}`)}>
+    <span className={styles.chip} data-context-chip="" {...tooltipProps(`${item.format ? `${t(item.format)} · ` : ""}${Math.round(item.width)} × ${Math.round(item.height)}`)}>
       <Icon name={TYPE_ICON[item.type] ?? "16.frame"} />
       <span className={styles.chipName}>{item.name || item.type.toLowerCase()}</span>
+      {/* A Social post shows its format (docs/social.md §6.3) */}
+      {item.format && <span className={styles.contextFormat} data-context-format="">{t(item.format)}</span>}
       {onRemove && (
         <button type="button" className={styles.chipRemove} aria-label={t("Remove from context")} onClick={onRemove}>
           <Icon name="16.close" />

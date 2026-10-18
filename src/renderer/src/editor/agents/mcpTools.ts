@@ -29,6 +29,7 @@ import { editorDevData } from "../devmode/round5";
 import { addInteractionTool, getPrototypeTool, prototypeContext, prototypeField, prototypeOf, removeFlowTool, removeInteractionTool, setFlowTool, setPrototypeSettingsTool, updateInteractionTool } from "./prototypeTools";
 import { describeSchema } from "@shared/agents/schemaDescribe";
 import { addAnimationTool, addAudioTool, applyAnimationStyleTool, detachAnimationStyleTool, editAnimationTool, editAudioTool, exportAnimationTool, getMotionTool, removeAnimationsTool, removeKeyframesTool, setKeyframesTool, setTimelineTool } from "./motionTools";
+import { runSocialTool } from "./socialTools";
 import { reactionsFromDoc } from "./prototypeSpec";
 import { EngineBusy } from "./turns";
 
@@ -1231,6 +1232,9 @@ export async function runTool(env: ToolEnv, name: string, args: Spec): Promise<T
   if (!TOOL_BY_NAME.has(name)) return textResult(`Unknown tool ${name}`, true);
   if (env.ed.engine.destroyed) return textResult("The file is closing.", true);
   try {
+    // Social's tools (docs/social.md §7.2): their own file, as Motion's are.
+    const social = await runSocialTool(env, name, args);
+    if (social) return social;
     switch (name) {
       case "get_selection":
         return getSelection(env);

@@ -344,6 +344,7 @@ export const tools: Record<string, string> = {
   "Picture again: {name}": "Yeniden görsel: {name}",
   "Fix label: {name}": "Etiketi düzelt: {name}",
   "Relayout: {name}": "Yeniden yerleşim: {name}",
+  "Animate: {name}": "Canlandır: {name}",
   "No saved plugins": "Kayıtlı eklenti yok",
   "Saved plugins": "Kayıtlı eklentiler",
   "Development": "Geliştirme",

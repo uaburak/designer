@@ -5,7 +5,7 @@
  * product forms (editor/studio/forms.tsx), and the review (each frame ✓ or its problems, boxes on its thumbnail, "Fix
  * selected" / "Leave as is").
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Checkbox, Icon, IconButton, Spinner, cx, tooltipProps } from "@/ds";
 import type { ProviderInfo } from "@shared/agents/types";
 import type { ImageRouteInfo } from "@shared/ai/types";
@@ -17,6 +17,7 @@ import { modelLabel } from "../../agents/setup";
 import { toolLabel, type AgentsService, type ChatTask } from "../../agents/service";
 import type { ViewCard } from "../../agents/managerTools";
 import { BrandForm, ProductForm } from "../../studio/forms";
+import { useUI } from "../../hooks";
 import styles from "./Agents.module.css";
 import { t, tp, useT } from "@/i18n";
 
@@ -130,10 +131,31 @@ export function ManagerCard({ card, service }: { card: ViewCard; service: Agents
   );
 }
 
+/**
+ * Social's follow-ups (docs/social.md §7.1, ask_choice {suggestions}): at most three chips under the manager's answer,
+ * nothing waiting on them; a click is the owner's next message, and the chips are answered.
+ */
+function FollowUps({ card, service }: { card: Extract<ViewCard, { kind: "choice" }>; service: AgentsService }) {
+  useT();
+  const picked = card.answer && "optionId" in card.answer ? card.answer.optionId : null;
+  const chat = service.currentChat();
+  const busy = !!chat && !!service.get().running[chat.id];
+  return (
+    <div className={styles.followUps} role="group" aria-label={card.question} data-card="follow-ups">
+      {card.options.map((o) => (
+        <button key={o.id} type="button" className={cx(styles.followUp, picked === o.id && styles.choiceOn)} disabled={!!picked || busy} {...(o.detail ? tooltipProps(o.detail) : {})} onClick={() => service.pickSuggestion(card.id, o.id)} data-follow-up={o.id}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function ChoiceCard({ card, open, service }: { card: Extract<ViewCard, { kind: "choice" }>; open: boolean; service: AgentsService }) {
   useT();
   const [remember, setRemember] = useState(!!card.remember);
   const picked = card.answer && "optionId" in card.answer ? card.answer.optionId : null;
+  if (card.suggestions) return <FollowUps card={card} service={service} />;
   return (
     <div className={styles.consent} role="group" aria-label={card.question} data-card="choice" data-card-open={open || undefined}>
       <p className={styles.consentTitle}>{card.question}</p>
@@ -176,7 +198,7 @@ function Thumb({ nodeId, size, boxes, service }: { nodeId: string; size: { width
   );
 }
 
-const KIND_LABEL: Record<string, string> = { "sharp-text": "Label text", "soft-text": "Small print", shape: "Shape", extra: "Extra", missing: "Missing", layout: "Layout", brand: "Brand" };
+const KIND_LABEL: Record<string, string> = { "sharp-text": "Label text", "soft-text": "Small print", shape: "Shape", extra: "Extra", missing: "Missing", layout: "Layout", brand: "Brand", "safe-area": "Safe area", caption: "Caption", contrast: "Contrast", logo: "Logo", video: "Video" };
 
 function ReviewCard({ card, open, service }: { card: Extract<ViewCard, { kind: "review" }>; open: boolean; service: AgentsService }) {
   useT();
@@ -184,8 +206,16 @@ function ReviewCard({ card, open, service }: { card: Extract<ViewCard, { kind: "
   const all = report.items.flatMap((i) => i.problems.map((p) => p.id));
   const [checked, setChecked] = useState<string[]>(all);
   const answer = card.answer;
+  // A review pin on the canvas picked one of this card's problems (docs/social.md §6.4): marked and scrolled into view.
+  const pinned = useUI((s) => s.socialProblem ?? null);
+  const mine = pinned && report.items.some((i) => i.nodeId === pinned.post && i.problems.some((p) => p.id === pinned.problem)) ? pinned.problem : null;
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!mine) return;
+    root.current?.querySelector(`[data-review-problem="${CSS.escape(mine)}"]`)?.scrollIntoView?.({ block: "nearest" });
+  }, [mine]);
   return (
-    <div className={styles.consent} data-card="review" data-card-open={open || undefined}>
+    <div ref={root} className={styles.consent} data-card="review" data-card-open={open || undefined}>
       <p className={styles.consentTitle}>{t("Review")}</p>
       {report.items.map((it) => {
         const size = service.frameSize(it.nodeId);
@@ -196,13 +226,15 @@ function ReviewCard({ card, open, service }: { card: Extract<ViewCard, { kind: "
               <span className={styles.taskTitle}>
                 {it.ok && <Icon name="16.check" />} {it.name}
               </span>
-              {it.problems.map((p) =>
-                open ? (
-                  <Checkbox key={p.id} label={`${t(KIND_LABEL[p.kind] ?? p.kind)}: ${p.detail}`} checked={checked.includes(p.id)} onChange={(on) => setChecked(on ? [...checked, p.id] : checked.filter((x) => x !== p.id))} data-problem={p.id} />
-                ) : (
-                  <span key={p.id} className={styles.taskMeta}>{`${t(KIND_LABEL[p.kind] ?? p.kind)}: ${p.detail}`}</span>
-                )
-              )}
+              {it.problems.map((p) => (
+                <div key={p.id} className={cx(mine === p.id && styles.reviewProblemOn)} data-review-problem={p.id} data-pinned={mine === p.id || undefined}>
+                  {open ? (
+                    <Checkbox label={`${t(KIND_LABEL[p.kind] ?? p.kind)}: ${p.detail}`} checked={checked.includes(p.id)} onChange={(on) => setChecked(on ? [...checked, p.id] : checked.filter((x) => x !== p.id))} data-problem={p.id} />
+                  ) : (
+                    <span className={styles.taskMeta}>{`${t(KIND_LABEL[p.kind] ?? p.kind)}: ${p.detail}`}</span>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         );

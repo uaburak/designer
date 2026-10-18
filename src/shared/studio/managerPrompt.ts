@@ -5,6 +5,8 @@
  */
 import type { AiRoute } from "../ai/types";
 import type { ManagerSettings } from "./types";
+import type { SocialPromptContext } from "../social/types";
+import { socialPrompt } from "../social/managerPrompt";
 
 export interface ManagerPromptContext {
   settings: ManagerSettings;
@@ -14,6 +16,8 @@ export interface ManagerPromptContext {
   imageRoute: AiRoute | null;
   /** The chat's briefs so far (their ids and requests), newest last */
   briefs?: { id: string; request: string }[];
+  /** Set when the view is in Social mode (docs/social.md §7.4): the board's brand and campaigns; its paragraph follows */
+  social?: SocialPromptContext;
 }
 
 export function managerPrompt(ctx: ManagerPromptContext): string {
@@ -41,11 +45,11 @@ Other work (a frame to change, a layout, copy): delegate_task {title, prompt, ag
 General work goes to ${general.providerId}${general.model ? ` · ${general.model}` : ""} unless the owner names another agent. Agents you may hand work to:
 ${agents}${briefs}
 
-Never make up label texts, product names or brand details: they come from the library or from the owner.]`;
+Never make up label texts, product names or brand details: they come from the library or from the owner.]${ctx.social ? `\n\n${socialPrompt(ctx.social)}` : ""}`;
 }
 
 /** What a resumed manager session is reminded of each turn (its first turn had the whole instructions). */
 export function managerReminder(ctx: ManagerPromptContext): string {
   const image = ctx.imageRoute ? `${ctx.imageRoute.providerId}${ctx.imageRoute.model ? ` · ${ctx.imageRoute.model}` : ""}` : "not chosen (ask_choice {imageRoute: true})";
-  return `[You are still this chat's manager: library first, ask for what is missing, make_posts / delegate_task, wait_tasks, review, report_review. Image model: ${image}. Answer in the owner's language.]`;
+  return `[You are still this chat's manager: library first, ask for what is missing, make_posts / delegate_task, wait_tasks, review, report_review. Image model: ${image}. Answer in the owner's language.]${ctx.social ? `\n[Social mode: get_board first; templates when one fits; captions with set_post within the format's limits; check_posts after changes.${ctx.social.brand ? ` The board's brand: ${ctx.social.brand.name}.` : ""}]` : ""}`;
 }

@@ -1,14 +1,19 @@
 // The manager's tools on fakes (docs/studio.md §2.2, §5.4, §6): the library, the image runs, the workers and the
 // canvas are stand-ins; the task queue is the real one. make_posts (frames named and placed in a row, the picture
 // into each frame's "Picture" layer, the review after all), the cards' answers resolving the waiting calls, the
-// image model card kept for the chat, delegate_task's agents, report_review's fixes.
+// image model card kept for the chat, delegate_task's agents, report_review's fixes; in Social (docs/social.md §7, round
+// 18c) make_posts on the board (a campaign, posts made at once, templates, the Motion pass), the review's pins and its
+// own fixes, the follow-up chips, make_brand_library until round 18b.
 import { describe, expect, it } from "vitest";
 import type { ToolResult } from "@shared/agents/tools";
 import type { ProviderInfo } from "@shared/agents/types";
 import type { ImageRouteInfo } from "@shared/ai/types";
 import { DEFAULT_MANAGER_SETTINGS, brandsUnavailable, type Brand, type BrandsRepository, type ManagerSettings, type Product } from "@shared/studio/types";
+import { formatById } from "@shared/social/formats";
+import { SOCIAL_WORKER_LINE } from "@shared/social/managerPrompt";
+import type { PostProblem } from "@shared/social/types";
 import { TaskQueue } from "../agents/tasks";
-import { cleanReport, frameName, runManagerTool, type CardAnswer, type ManagerEnv, type StudioChatData, type ViewCard } from "../agents/managerTools";
+import { campaignName, cleanReport, frameName, runManagerTool, type CardAnswer, type ManagerEnv, type StudioChatData, type ViewCard } from "../agents/managerTools";
 import type { StudioImageRequest } from "../studio/images";
 
 const product: Product = {
@@ -69,7 +74,11 @@ interface Node {
 }
 
 /** A manager's environment of fakes: a page with one frame on it, workers that make the frames they're asked for. */
-function fakeEnv(o: { settings?: Partial<ManagerSettings>; routes?: ImageRouteInfo[]; withBrand?: Brand } = {}) {
+/**
+ * `social`: the view is in Social mode — new_post makes a post node (a record with its problems), set_campaign a campaign;
+ * `templates`: new_post takes a templateKey (round 18b built), else it refuses it as the view does until then.
+ */
+function fakeEnv(o: { settings?: Partial<ManagerSettings>; routes?: ImageRouteInfo[]; withBrand?: Brand; social?: boolean; templates?: boolean } = {}) {
   const nodes = new Map<string, Node>([
     ["0:1", { name: "Page 1", type: "CANVAS", x: 0, y: 0, width: 0, height: 0, children: ["1:1"] }],
     ["1:1", { name: "Existing", type: "FRAME", x: 0, y: 0, width: 500, height: 400, children: [] }],
@@ -87,6 +96,8 @@ function fakeEnv(o: { settings?: Partial<ManagerSettings>; routes?: ImageRouteIn
   const images: StudioImageRequest[] = [];
   const tools: { name: string; args: Record<string, unknown> }[] = [];
   const blurred: { nodeId: string; boxes: unknown[] }[] = [];
+  const problems = new Map<string, PostProblem[]>();
+  const suggested: ViewCard[] = [];
   const brands: BrandsRepository = { ...brandsUnavailable(), get: async (id) => (id === (o.withBrand ?? brand).id ? (o.withBrand ?? brand) : null), image: async () => ({ data: "AAAA", mime: "image/png" }) };
   const queue = new TaskQueue({ limits: () => ({ cli: settings.parallel, image: 4 }), onChange: () => {} });
   const env: ManagerEnv = {
@@ -114,6 +125,13 @@ function fakeEnv(o: { settings?: Partial<ManagerSettings>; routes?: ImageRouteIn
         nodes.set(id, { name: m[1], type: "FRAME", x: +m[4], y: +m[5], width: +m[2], height: +m[3], children: [pic] });
         nodes.get("0:1")!.children.push(id);
       }
+      // Social: the worker draws in the post made for it (its id in brackets), its Picture layer at the bottom.
+      const post = /Finish one social post .*?\((\d+:\d+)\)/.exec(prompt);
+      if (post && !prompt.includes("fill_slots {")) {
+        const pic = `2:${next++}`;
+        nodes.set(pic, { name: "Picture", type: "RECTANGLE", x: 0, y: 0, width: 100, height: 100, children: [] });
+        nodes.get(post[1])!.children.unshift(pic);
+      }
       return { summary: "Made it" };
     },
     brands,
@@ -129,13 +147,31 @@ function fakeEnv(o: { settings?: Partial<ManagerSettings>; routes?: ImageRouteIn
       tools.push({ name, args });
       if (name === "place_image") nodes.get(String(args.nodeId))!.fill = String(args.data);
       if (name === "get_screenshot") return { content: [{ type: "image", data: "PNG", mimeType: "image/png" }] };
+      if (name === "set_campaign") return { content: [{ type: "text", text: JSON.stringify({ campaignId: "camp-1", name: args.name }) }] };
+      if (name === "new_post") {
+        if (args.templateKey && !o.templates) return { content: [{ type: "text", text: "new_post from a template isn't available yet" }], isError: true };
+        const f = formatById(String(args.formatId))!;
+        const id = `3:${next++}`;
+        const page = nodes.get("0:1")!;
+        nodes.set(id, { name: String(args.name), type: "FRAME", x: 600 + page.children.length * 1200, y: 0, width: f.width, height: f.height, children: [] });
+        page.children.push(id);
+        problems.set(id, []);
+        return { content: [{ type: "text", text: JSON.stringify({ nodeId: id, campaignId: args.campaignId, slots: [] }) }] };
+      }
       return { content: [{ type: "text", text: "{}" }] };
     },
     page: () => "0:1",
     read: (id) => nodes.get(id) ?? null,
     pictureOf: async (id) => nodes.get(id)?.fill ?? null,
+    ...(o.social
+      ? {
+          social: () => true,
+          posts: { problems: (id: string) => problems.get(id) ?? null, setProblems: (id: string, list: PostProblem[]) => void problems.set(id, list) },
+          suggest: (card: ViewCard) => void suggested.push(card),
+        }
+      : {}),
   };
-  return { env, nodes, cards, answers, workerPrompts, images, tools, blurred, data: () => data, queue };
+  return { env, nodes, cards, answers, workerPrompts, images, tools, blurred, problems, suggested, data: () => data, queue };
 }
 
 describe("make_posts", () => {
@@ -274,5 +310,99 @@ describe("cards and tasks", () => {
     expect(r.items[0].problems.map((p) => p.fix)).toEqual(["regenerate", "regenerate"]);
     expect(new Set(r.items[0].problems.map((p) => p.id)).size).toBe(2);
     expect(r.items[0].ok).toBe(false);
+  });
+});
+
+describe("the manager in Social (docs/social.md §7)", () => {
+  it("make_posts makes the posts on the board at once — a campaign, catalogue formats, Social's worker line — then the frame and image tasks, the Motion pass on video formats, and the review", async () => {
+    const f = fakeEnv({ social: true });
+    const r = json(await runManagerTool(f.env, "make_posts", { brand: "b1", products: ["p1"], formats: ["instagram.post", "instagram.story"], variations: 1, request: "Liq Humus için post + story", animate: { seconds: 6 } }));
+    // The campaign by its default name; one post per format, made before any task runs.
+    expect(f.tools.find((x) => x.name === "set_campaign")!.args).toEqual({ name: campaignName([product]), brandId: "b1" });
+    expect(campaignName([product], new Date(2026, 9, 18))).toBe("Liq Humus — October");
+    const made = f.tools.filter((x) => x.name === "new_post").map((x) => x.args);
+    expect(made).toEqual([
+      { formatId: "instagram.post", name: "Liq Humus — Instagram post v1", brandId: "b1", productId: "p1", campaignId: "camp-1" },
+      { formatId: "instagram.story", name: "Liq Humus — Instagram story v1", brandId: "b1", productId: "p1", campaignId: "camp-1" },
+    ]);
+    expect(r.campaignId).toBe("camp-1");
+    expect(r.posts.map((p: { formatId: string }) => p.formatId)).toEqual(["instagram.post", "instagram.story"]);
+    // A Motion pass on the story only (it has video limits; the post doesn't), within its length.
+    expect(r.tasks.map((t: { title: string }) => t.title)).toEqual(["Frame: Liq Humus — Instagram post v1", "Picture: Liq Humus — Instagram post v1", "Frame: Liq Humus — Instagram story v1", "Picture: Liq Humus — Instagram story v1", "Animate: Liq Humus — Instagram story v1", "Review: Liq Humus"]);
+    expect(r.next).toContain("set_post");
+    const [done] = await f.queue.wait([r.reviewTaskId], 5000);
+    await settle();
+    expect(done).toMatchObject({ state: "done", summary: "2 posts ready for review", nodeIds: r.posts.map((p: { nodeId: string }) => p.nodeId) });
+    // The workers draw in the posts made for them, with Social's line; the story's safe area is named.
+    const story = r.posts[1].nodeId;
+    const prompt = f.workerPrompts.find((p) => p.includes(`(${story})`) && p.includes("Finish one social post"))!;
+    expect(prompt).toContain(SOCIAL_WORKER_LINE);
+    expect(prompt).toContain("269 px at the top, 672 px at the bottom");
+    expect(f.workerPrompts.find((p) => p.includes("Animate the post"))).toContain("duration: 6");
+    // Each picture went into its post's Picture layer.
+    for (const p of r.posts) expect(f.nodes.get(f.nodes.get(p.nodeId)!.children[0])!.fill).toBe("AQID");
+  });
+
+  it("a template that can't be applied yet: the posts are drawn instead, and the answer says so; one that can: fill_slots takes the words and the picture", async () => {
+    const f = fakeEnv({ social: true });
+    const r = json(await runManagerTool(f.env, "make_posts", { brand: "b1", products: ["p1"], formats: ["instagram.square"], variations: 1, template: "tpl-1" }));
+    expect(r.template).toContain("not used");
+    expect(f.tools.filter((x) => x.name === "new_post")).toHaveLength(2);
+    const t = fakeEnv({ social: true, templates: true });
+    const r2 = json(await runManagerTool(t.env, "make_posts", { brand: "b1", products: ["p1"], formats: ["instagram.square"], variations: 1, template: "tpl-1" }));
+    expect(r2.template).toBe("tpl-1");
+    expect(t.tools.filter((x) => x.name === "new_post")[0].args.templateKey).toBe("tpl-1");
+    await t.queue.wait([r2.reviewTaskId], 5000);
+    await settle();
+    expect(t.workerPrompts[0]).toContain("fill_slots");
+    expect(t.tools.find((x) => x.name === "fill_slots")!.args).toMatchObject({ nodeId: r2.posts[0].nodeId, picture: { data: "AQID", scaleMode: "FILL" } });
+  });
+
+  it("report_review on posts: the problems become pins; Fix selected hands back the caption as the manager's own, starts the relayout and unpins it when done; Leave as is unpins all", async () => {
+    const f = fakeEnv({ social: true });
+    const made = json(await runManagerTool(f.env, "make_posts", { brand: "b1", products: ["p1"], formats: ["instagram.story"], variations: 1 }));
+    await f.queue.wait([made.reviewTaskId], 5000);
+    await settle();
+    const post = made.posts[0].nodeId;
+    f.problems.set(post, [{ id: "check:caption:count", kind: "caption", detail: "too long", fix: "rewrite", source: "check" }]);
+    const report = { briefId: made.briefId, items: [{ nodeId: post, ok: false, problems: [{ id: "s", kind: "safe-area", detail: "CTA in the bottom band", box: { x: 10, y: 1700, width: 200, height: 60 } }, { id: "c", kind: "caption", detail: "Caption too long" }, { id: "v", kind: "video", detail: "70 s" }] }] };
+    const call = runManagerTool(f.env, "report_review", { report });
+    await settle();
+    // Pins: the review's beside the check's.
+    expect(f.problems.get(post)!.map((p) => [p.id, p.source, p.fix])).toEqual([["check:caption:count", "check", "rewrite"], ["s", "review", "relayout"], ["c", "review", "rewrite"], ["v", "review", "retime"]]);
+    f.answers.at(-1)!({ fix: ["s", "c"] });
+    const r = json(await call);
+    expect(r.yours.map((y: { id: string; fix: string }) => [y.id, y.fix])).toEqual([["c", "rewrite"]]);
+    expect(r.next).toContain("set_post");
+    expect(r.tasks.map((t: { title: string; nodeId: string }) => [t.title, t.nodeId])).toEqual([["Relayout: Liq Humus — Instagram story v1", post]]);
+    // The one left (v) and the manager's own (c) leave at once; the relayout's (s) when its task is done.
+    await f.queue.wait([r.tasks[0].taskId], 5000);
+    await settle();
+    expect(f.problems.get(post)!.map((p) => p.id)).toEqual(["check:caption:count"]);
+    const leave = runManagerTool(f.env, "report_review", { report });
+    await settle();
+    expect(f.problems.get(post)!).toHaveLength(4);
+    f.answers.at(-1)!({ cancelled: true });
+    await leave;
+    expect(f.problems.get(post)!.map((p) => p.id)).toEqual(["check:caption:count"]);
+  });
+
+  it("follow-ups: ask_choice {suggestions} shows at most three chips and returns at once; make_brand_library isn't available until round 18b", async () => {
+    const f = fakeEnv({ social: true });
+    const r = json(await runManagerTool(f.env, "ask_choice", { question: "Next?", suggestions: true, options: ["a", "b", "c", "d"].map((id) => ({ id, label: `Option ${id}` })) }));
+    expect(r.shown).toEqual(["Option a", "Option b", "Option c"]);
+    expect(f.suggested[0]).toMatchObject({ kind: "choice", suggestions: true, options: [{ id: "a" }, { id: "b" }, { id: "c" }] });
+    expect(f.cards).toEqual([]);
+    const lib = await runManagerTool(f.env, "make_brand_library", {});
+    expect(lib.isError).toBe(true);
+    expect(json(lib)).toContain("isn't available yet");
+    const withLib = fakeEnv({ social: true });
+    withLib.env.brandLibrary = async () => ({ fileKey: "file-brands", brands: ["b1"] });
+    expect(json(await runManagerTool(withLib.env, "make_brand_library", {}))).toMatchObject({ fileKey: "file-brands", brands: ["b1"] });
+  });
+
+  it("cleanReport keeps Social's kinds with their fixes (§7.3)", () => {
+    const r = cleanReport({ items: [{ nodeId: "1:2", problems: ["safe-area", "caption", "contrast", "logo", "video"].map((kind, i) => ({ id: `p${i}`, kind })) }] });
+    expect(r.items[0].problems.map((p) => p.fix)).toEqual(["relayout", "rewrite", "relayout", "relayout", "retime"]);
   });
 });

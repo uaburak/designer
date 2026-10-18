@@ -2,8 +2,8 @@
  * The Post section (docs/social.md §6.5): the selected post's record, edited directly — Platform and Format (a change
  * resizes it, actions.ts `resizePost`), Brand, Product, Template (round 18b's), Caption with its counter in the
  * format's unit (red past the limit, a dashed mark at the feed's fold), Hashtags as chips (typing "#", a space or Enter
- * makes one; counted against the format's limit), Alt text, Status, Campaign, the review's Problems (Fix asks the agent,
- * Leave clears it) and Ask agent…. Several posts: the fields they share, "Mixed" where they differ; caption, hashtags
+ * makes one; counted against the format's limit), Alt text, Status, Campaign, the review's Problems (Fix runs the manager's
+ * fix loop on it, Leave clears it) and Ask agent…. Several posts: the fields they share, "Mixed" where they differ; caption, hashtags
  * and alt text are a single post's. A slot layer selected inside a post shows its role (round 18b's slots). Every field
  * writes through actions.ts, one undo step each; a viewer reads them all, changes none.
  */
@@ -19,7 +19,7 @@ import { useEditor, type EditorController } from "../controller";
 import { useTopics } from "../hooks";
 import { useBrands } from "../studio/forms";
 import { canWritePosts, editorWriter, leaveProblems, resizePost, setPost, type PostPatch } from "./actions";
-import { askAgent, draftForAgent } from "./SocialMode";
+import { askAgent, fixWithAgent } from "./SocialMode";
 import { useSocialBoard, type PostRow } from "./socialState";
 import styles from "./PostSection.module.css";
 
@@ -262,7 +262,7 @@ function Problems({ post, disabled }: { post: PostRow; disabled: boolean }) {
       {post.data.problems.map((p) => (
         <div key={p.id} className={styles.problem} data-problem={p.id}>
           <span className={styles.problemText}>{p.detail}</span>
-          <Button variant="secondary" disabled={disabled} onClick={() => draftForAgent(ed, t("Fix on {name}: {detail}", { name: post.name, detail: p.detail }))}>
+          <Button variant="secondary" disabled={disabled} onClick={() => fixWithAgent(ed, post, p)} data-problem-fix="">
             {t("Fix")}
           </Button>
           <Button variant="ghost" disabled={disabled} onClick={() => leaveProblems(ed, editorWriter(ed), post.id, [p.id])}>

@@ -79,7 +79,7 @@ describe("manager-only tools", () => {
   });
 
   it("the waiting tools get the long timeout", () => {
-    expect([...WAITING_TOOLS].sort()).toEqual(["ask_choice", "export_animation", "library_read_labels", "make_posts", "report_review", "show_form", "wait_tasks"]);
+    expect([...WAITING_TOOLS].sort()).toEqual(["ask_choice", "export_animation", "export_posts", "library_read_labels", "make_brand_library", "make_posts", "report_review", "show_form", "wait_tasks"]);
   });
 });
 
