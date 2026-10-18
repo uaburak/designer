@@ -11,7 +11,8 @@
   .name { min-width: 0; overflow: hidden; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); text-overflow: ellipsis; white-space: nowrap; }
   .spec { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
   /* The row's quality fields over its preset: a JPEG's quality, a video's quality and frame rate */
-  .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 120px)); gap: var(--ds-space-2); }
+  .fields { display: grid; grid-template-columns: auto minmax(0, 96px) auto minmax(0, 96px); align-items: center; justify-content: start; gap: var(--ds-space-2); }
+  .fieldLabel { color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); }
   .file { min-width: 0; overflow: hidden; color: var(--figma-color-text-tertiary); font: var(--ds-font-body-small); text-overflow: ellipsis; white-space: nowrap; }
   .warning { margin: 0; color: var(--figma-color-text-danger); font: var(--ds-font-body-small); }
   .progress { display: flex; flex: 1 1 auto; align-items: center; justify-content: space-between; gap: var(--ds-space-2); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }

@@ -198,9 +198,9 @@ function QualityFields({ plan, onChange, disabled }: { plan: PostExportPlan; onC
   if (plan.still?.imageType === "JPEG")
     return (
       <div className={styles.fields} data-export-quality="">
+        <span className={styles.fieldLabel}>{t("Quality")}</span>
         <TextInput
           label={t("Quality")}
-          prefix={t("Quality")}
           suffix="%"
           value={String(Math.round((plan.still.quality ?? 0) * 100))}
           onCommit={(v) => {
@@ -214,7 +214,9 @@ function QualityFields({ plan, onChange, disabled }: { plan: PostExportPlan; onC
   if (!plan.animated) return null;
   return (
     <div className={styles.fields} data-export-quality="">
+      <span className={styles.fieldLabel}>{t("Quality")}</span>
       <Select label={t("Quality")} value={plan.animated.quality} options={QUALITIES.map((q) => ({ value: q, label: t(QUALITY_LABEL[q]) }))} onChange={(v) => onChange({ videoQuality: v as AnimatedExportSettings["quality"] })} disabled={disabled} />
+      <span className={styles.fieldLabel}>{t("Frame rate")}</span>
       <Select label={t("Frame rate")} value={String(plan.animated.fps)} options={FRAME_RATES.map((f) => ({ value: String(f), label: `${f} fps` }))} onChange={(v) => onChange({ fps: Number(v) as AnimatedExportSettings["fps"] })} disabled={disabled} />
     </div>
   );
