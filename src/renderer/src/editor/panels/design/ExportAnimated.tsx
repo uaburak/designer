@@ -4,7 +4,8 @@
  * then Export with a progress row and Cancel. Round 8e: the settings are stored on the layer (an `exportSettings`
  * entry with Figma's Motion fields, motion/export/animatedSettings.ts; the first frame's shown, a change written to
  * every selected frame, one undo step), and Export waits while another animated export of the file runs. Other
- * selections show "Select a top-level frame to export animations".
+ * selections show "Select a top-level frame to export animations". Round 18d: a Social post gets a Preset menu above the
+ * fields (docs/social.md §8), the platforms' video presets filling them.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Checkbox, Select, TextInput } from "@/ds";
@@ -14,7 +15,9 @@ import { useEditor } from "../../controller";
 import { canExport } from "../../exporting";
 import { useDocumentVersion } from "../../hooks";
 import { animatedSettingOf, writeAnimatedSetting } from "../../motion/export/animatedSettings";
-import { ANIMATED_FORMATS_BUILT, animatedExportRunning, exportAnimated, onAnimatedExportLock, timelineOf, type AnimatedExportJob, type AnimatedProgress } from "../../motion/export/exportAnimated";
+import { ANIMATED_FORMATS_BUILT, animatedExportRunning, exportAnimated, onAnimatedExportLock, scaleOf, timelineOf, type AnimatedExportJob, type AnimatedProgress } from "../../motion/export/exportAnimated";
+import { presetsFor } from "../../social/export/exportPosts";
+import { readPost } from "../../social/posts";
 import type { ExportTarget } from "./Export";
 import styles from "./Design.module.css";
 import own from "./Export.module.css";
@@ -23,7 +26,10 @@ const SIZE_PRESETS = [0.5, 1, 2, 3, 4] as const;
 const QUALITIES: AnimatedExportSettings["quality"][] = ["LOW", "MEDIUM", "HIGH"];
 const QUALITY_LABEL: Record<AnimatedExportSettings["quality"], string> = { LOW: "Low", MEDIUM: "Medium", HIGH: "High" };
 
-const sizeValue = (s: AnimatedExportSettings["size"]): string => ("scale" in s ? `${s.scale}x` : "custom");
+/** The Preset menu's value when the fields match no preset. */
+const CUSTOM_PRESET = "custom";
+
+const sizeValue =(s: AnimatedExportSettings["size"]): string => ("scale" in s ? `${s.scale}x` : "custom");
 
 export function ExportAnimatedTab({ targets, page }: { targets: ExportTarget[]; page: boolean }) {
   useT();
@@ -49,6 +55,19 @@ export function ExportAnimatedTab({ targets, page }: { targets: ExportTarget[]; 
     return (roots.length ? animatedSettingOf(ed, roots[0].root) : null) ?? DEFAULT_ANIMATED_EXPORT;
   }, [ed, roots, version]);
   const jobs = useMemo<AnimatedExportJob[]>(() => roots.map((r) => ({ ...r, settings })), [roots, settings]);
+  // A Social post (docs/social.md §8): the Preset menu above the fields, its format's video presets; the one the fields
+  // match is shown (Custom when none), and picking one fills the fields, which stay editable.
+  const presets = useMemo(() => {
+    void version;
+    const post = roots.length ? readPost(ed, roots[0].root) : null;
+    return post ? presetsFor(post.formatId, true).filter((p) => !!p.animated) : [];
+  }, [ed, roots, version]);
+  const presetValue = useMemo(() => {
+    const tl = roots.length ? timelineOf(ed, roots[0].root) : null;
+    const scale = (s: AnimatedExportSettings["size"]) => (tl ? scaleOf(s, tl.width, tl.height) : 0);
+    const a = presets.find((p) => p.animated!.format === settings.format && p.animated!.fps === settings.fps && p.animated!.quality === settings.quality && Math.abs(scale(p.animated!.size) - scale(settings.size)) < 1e-3);
+    return a?.id ?? CUSTOM_PRESET;
+  }, [ed, roots, presets, settings]);
   const video = settings.format === "MP4" || settings.format === "WEBM";
   const busy = progress !== null && progress.phase !== "done";
   const set = (patch: Partial<AnimatedExportSettings>) => writeAnimatedSetting(ed, roots.map((r) => r.root), { ...settings, ...patch });
@@ -75,6 +94,19 @@ export function ExportAnimatedTab({ targets, page }: { targets: ExportTarget[]; 
     );
   return (
     <div className={own.animated} data-animated-export>
+      {presets.length > 0 && (
+        <Select
+          label={t("Preset")}
+          value={presetValue}
+          options={[...presets.map((p) => ({ value: p.id, label: t(p.label) })), "-", { value: CUSTOM_PRESET, label: t("Custom"), disabled: true }]}
+          onChange={(v) => {
+            const p = presets.find((x) => x.id === v);
+            if (p?.animated) set({ ...p.animated });
+          }}
+          disabled={busy}
+          data-animated-preset=""
+        />
+      )}
       <div className={own.animatedRow}>
         <Select
           label={t("Format")}

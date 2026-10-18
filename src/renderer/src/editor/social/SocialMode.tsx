@@ -40,6 +40,19 @@ export function selectedPosts(ed: EditorController): Guid[] {
   return ed.selection.filter((id) => posts.has(id));
 }
 
+/** Export… (docs/social.md §8): the dialog for these posts (export/ExportPostsDialog.tsx). */
+export function exportPostsDialog(ed: EditorController, ids: readonly Guid[]): void {
+  if (ids.length) ed.ui.set({ socialExport: { ids: [...ids] }, uiHidden: false });
+}
+
+/** Export campaign…'s posts: every post of the selected posts' campaigns; nothing selected, every post by campaign. */
+export function campaignPosts(ed: EditorController): Guid[] {
+  const board = socialOf(ed).get();
+  const picked = new Set(selectedPosts(ed));
+  const groups = picked.size ? board.groups.filter((g) => g.posts.some((p) => picked.has(p.id))) : board.groups;
+  return groups.flatMap((g) => g.posts.map((p) => p.id));
+}
+
 /**
  * Puts text in the agent's composer and shows the Agent tab (the right panel's default): the composer takes focus and
  * the selection is the message's context (as anywhere in the Agents panel).

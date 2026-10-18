@@ -31,6 +31,7 @@ import { motionRead, motionUi, setMotionUi, setPlayhead, toggleAutoKeyframe, tog
 import { editPreset, removePresets } from "./presets";
 import { Timeline } from "./timeline/Timeline";
 import { syncEngine } from "../devmode/devMode";
+import { timelineHeader } from "../social/export/exportPosts";
 
 export function MotionMode() {
   const motion = useUI((s) => s.mode === "motion");
@@ -41,7 +42,8 @@ export function MotionMode() {
 
 /**
  * Social (docs/social.md §6.1): the timeline along the bottom while the selected post has one with something on it
- * (keyframes, presets, audio), the engine's motion layer on with it (`ui.socialTimeline`, motionLayerOn).
+ * (keyframes, presets, audio), the engine's motion layer on with it (`ui.socialTimeline`, motionLayerOn); its header
+ * shows the post's format and video limits (round 18d), and Space plays it (`motion.play-pause`).
  */
 function SocialTimeline() {
   const ed = useEditor();
@@ -275,10 +277,17 @@ function MotionShell() {
     [ed, model]
   );
   const selectedKeyframes = useMemo(() => new Set(ui.selectedKeyframes), [ui.selectedKeyframes]);
+  // Social (docs/social.md §8): the post's format and video limits next to Duration, Duration red outside them.
+  const social = useUI((s) => s.mode === "social");
+  const header = useMemo(() => {
+    const h = social && model ? timelineHeader(ed, model.root) : null;
+    return h ? { content: h.text, minUs: h.minUs, maxUs: h.maxUs } : undefined;
+  }, [ed, social, model]);
 
   return (
     <Timeline
       model={model}
+      header={header}
       timeUs={ui.timeUs}
       playing={ui.playing}
       autoKeyframe={ui.autoKeyframe}

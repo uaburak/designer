@@ -4,7 +4,8 @@
  * post's picture, name, format, platform and one state glyph — ✓ reviewed / approved, ⚠ problems (count), ● draft, ⇩
  * exported — and ▶ when it animates. A click selects the post and zooms to it, ⇧ / ⌘ add or take it out; the context
  * menu resizes, duplicates for another format, moves to a campaign, asks the agent, saves it as a template (round
- * 18b's dialog), deletes. Export… is round 18d's (shown, off).
+ * 18b's dialog), exports (round 18d's dialog, export/ExportPostsDialog.tsx), deletes. The canvas's menu on a post frame
+ * shows the same Resize to / Duplicate for / Save as template… / Export… rows (`postCanvasRows`).
  */
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { ContextMenu, EmptyState, Icon, TextInput, cx, showToast, tooltipProps, type MenuEntry } from "@/ds";
@@ -16,7 +17,8 @@ import { useEditor, type EditorController } from "../controller";
 import { useTopics } from "../hooks";
 import { applySelection } from "../agents/mcpTools";
 import { canWritePosts, editorWriter, newCampaign, resizePost, setCampaign, setPost, withinWrite } from "./actions";
-import { askAgent } from "./SocialMode";
+import { askAgent, exportPostsDialog } from "./SocialMode";
+import { canExport } from "../exporting";
 import { useSocialBoard, type CampaignGroup, type PostRow } from "./socialState";
 import styles from "./SocialLeftPanel.module.css";
 
@@ -212,10 +214,21 @@ export function postMenu(ed: EditorController, ids: readonly Guid[], campaigns: 
     "-",
     { id: "ask", label: t("Ask agent…") },
     { id: "template", label: t("Save as template…"), disabled: !write || ids.length !== 1 },
-    { id: "export", label: t("Export…"), disabled: true },
+    { id: "export", label: t("Export…"), disabled: !ids.length || !canExport(ed) },
     "-",
     { id: "delete", label: t("Delete"), disabled: !write || !ids.length },
   ];
+}
+
+/** The canvas menu's post rows' ids: the post menu's under this prefix (menus.ts runs them on the selected posts). */
+export const POST_ROW = "post:";
+const CANVAS_ROWS = new Set(["resize", "duplicate", "template", "export"]);
+
+const prefixed = (entries: readonly MenuEntry[]): MenuEntry[] => entries.map((e) => (e === "-" || !("id" in e) ? e : { ...e, id: `${POST_ROW}${e.id}`, ...(e.items ? { items: prefixed(e.items) } : {}) }));
+
+/** The canvas's menu over post frames (docs/social.md §6.6): Resize to ›, Duplicate for ›, Save as template…, Export…. */
+export function postCanvasRows(ed: EditorController, ids: readonly Guid[]): MenuEntry[] {
+  return prefixed(postMenu(ed, ids, []).filter((e) => e !== "-" && "id" in e && CANVAS_ROWS.has(e.id)));
 }
 
 /** Runs a post menu's pick; a new campaign's id when one was made (its name is edited next). */
@@ -236,6 +249,7 @@ export function runPostMenu(ed: EditorController, id: string, ids: readonly Guid
     } else if (id.startsWith(MOVE)) setPost(ed, w, ids, { campaignId: id.slice(MOVE.length) || null });
     else if (id === "ask") askAgent(ed, ids);
     else if (id === "template") ed.ui.set({ socialSaveTemplate: ids[0] ?? null });
+    else if (id === "export") exportPostsDialog(ed, ids);
     else if (id === "delete") {
       ed.engine.setSelection([...ids]);
       ed.engine.command("DELETE");

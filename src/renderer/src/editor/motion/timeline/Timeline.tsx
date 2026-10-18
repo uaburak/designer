@@ -54,6 +54,11 @@ export interface TimelineProps {
   selectedNodes: ReadonlySet<GuidString>;
   /** Dev Mode's timeline view (§8): the playhead, play and zoom only */
   readOnly?: boolean;
+  /**
+   * Social's header (docs/social.md §8): what the mount puts next to Duration (the post's format and its video limits),
+   * and the length Duration must keep within — outside it, Duration reads in the danger colour
+   */
+  header?: { content: ReactNode; minUs?: Micros; maxUs?: Micros };
   onSeek(timeUs: Micros): void;
   onTogglePlay(): void;
   onToggleAutoKeyframe(): void;
@@ -554,6 +559,8 @@ export function Timeline(p: TimelineProps) {
   const collapseAll = () => setCollapsedLayers(allCollapsed ? new Set() : new Set(layers.map((l) => l.node)));
 
   const shownDuration = durationDrag ?? durationUs;
+  // Social: the length outside the format's video limits (the header's).
+  const outside = !!model && !!p.header && ((p.header.minUs !== undefined && shownDuration < p.header.minUs) || (p.header.maxUs !== undefined && shownDuration > p.header.maxUs));
   const playheadX = timeToX(timeUs, scale);
   const ticks = rulerTicks(Math.max(shownDuration, xToTime(width, scale)), scale, unit, fps);
   const state = collapsed ? "collapsed" : "open";
@@ -570,11 +577,16 @@ export function Timeline(p: TimelineProps) {
             if (us !== null) p.onSeek(Math.min(durationUs, us));
           }} />
           <span aria-hidden>/</span>
-          <TextInput label={t("Duration")} value={formatTime(shownDuration, unit, fps)} disabled={readOnly || !model} onCommit={(v) => {
+          <TextInput label={t("Duration")} className={outside ? styles.over : undefined} data-duration-outside={outside || undefined} value={formatTime(shownDuration, unit, fps)} disabled={readOnly || !model} onCommit={(v) => {
             const us = parseTime(v, unit, fps);
             if (us !== null && us > 0) p.onSetTimeline({ durationUs: us }, true);
           }} />
         </div>
+        {p.header && (
+          <span className={styles.social} data-timeline-social="">
+            {p.header.content}
+          </span>
+        )}
         {!readOnly && <IconButton icon="24.settings.small" label={t("Timeline settings")} aria-expanded={!!settingsAt} disabled={!model} data-timeline-settings onClick={(e) => setSettingsAt(settingsAt ? null : e.currentTarget)} />}
         {!readOnly && <IconButton icon={PLAYBACK_ICON[model?.playback ?? "LOOP"]} label={t("Playback: {mode}", { mode: t(PLAYBACK_LABELS[model?.playback ?? "LOOP"]) })} disabled={!model} onClick={cyclePlayback} />}
         <IconButton icon="24.collapse-layers" label={allCollapsed ? t("Expand layers") : t("Collapse layers")} disabled={!layers.length} onClick={collapseAll} />

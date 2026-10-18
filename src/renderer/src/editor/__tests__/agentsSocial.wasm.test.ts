@@ -115,7 +115,8 @@ describe("agents' Social tools", () => {
     expect(readBoard(ed, ed.store.page).posts).toEqual([]);
     expect(readBoard(ed, ed.store.page).campaigns).toEqual([]);
     expect(json(await call("list_templates", {})).templates).toEqual([]);
-    expect(error(await call("export_posts", {}))).toContain("isn't available yet");
+    // export_posts is round 18d's (socialExport.wasm.test.ts): it names the posts or a campaign.
+    expect(error(await call("export_posts", {}))).toContain("export_posts: no nodes given");
   });
 
   it("save_as_template, new_post from it, fill_slots and apply_template work through 18b's templates", async () => {

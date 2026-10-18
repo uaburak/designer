@@ -43,6 +43,9 @@
   /* The time fields: "1250 ms / 2000 ms" */
   .time { display: flex; align-items: center; gap: var(--ds-space-1); margin-left: var(--ds-space-2); color: var(--figma-color-text-secondary); }
   .time > [data-ds="TextInput"] { width: 72px; }
+  /* Social's header (docs/social.md §8): the format and its video limits after the time fields; Duration red outside them */
+  .time > .over input { color: var(--figma-color-text-danger); }
+  .social { margin-left: var(--ds-space-2); overflow: hidden; color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
   .rootName { margin-left: var(--ds-space-3); overflow: hidden; color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
   .zoom { width: 96px; }
 

@@ -210,6 +210,8 @@ export interface UIState extends PreferenceFlags {
   /** Social: Save as template… open for this post (docs/social.md §4.4); the table's Import CSV… open (§4.5) */
   socialSaveTemplate?: string | null;
   socialCsvImport?: boolean;
+  /** Social: Export… open for these posts (docs/social.md §8; a post's menu, Export campaign…) */
+  socialExport?: { ids: string[] } | null;
   /** Social: the review problem a pin picked (the review card marks it, docs/social.md §6.4) */
   socialProblem?: { post: string; problem: string } | null;
   /**

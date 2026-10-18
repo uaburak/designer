@@ -17,6 +17,8 @@ import { PROPERTY_ICON, RESET_MENU_KINDS, isComponent, isComponentSet, isInstanc
 import { branchMenuIds } from "./branching/commands";
 import { canvasPluginsMenu, pluginsMenu, runPluginMenuItem } from "./plugins/menus";
 import { isBrushSource } from "./draw/drawTools";
+import { POST_ROW, postCanvasRows, runPostMenu } from "./social/PostsList";
+import { selectedPosts } from "./social/SocialMode";
 
 /** A frame-like layer: a frame, component, set, instance or section (not a group). */
 const isFrameLike = (n: { type?: string; resizeToFit?: boolean }) => ["FRAME", "SYMBOL", "INSTANCE", "SECTION"].includes(String(n.type)) && !n.resizeToFit;
@@ -118,6 +120,10 @@ export function runMenuItem(ed: EditorController, id: string): boolean {
     const inst = selectedInstance(ed);
     if (!inst) return false;
     resetPropertyValue(ed, inst, id.slice(RESET_PROPERTY_PREFIX.length));
+    return true;
+  }
+  if (id.startsWith(POST_ROW)) {
+    runPostMenu(ed, id.slice(POST_ROW.length), selectedPosts(ed), ed.store.page);
     return true;
   }
   if (id.startsWith("select-layer:")) {
@@ -606,7 +612,10 @@ export function canvasMenu(ed: EditorController, layers: { id: Guid; name: strin
     "object.flip-horizontal",
     "object.flip-vertical",
   ];
-  return withoutDisabled(ed, build(ed, specs, "canvas."));
+  // Social (docs/social.md §6.6, ours): over post frames alone, the posts' own rows first.
+  const posts = modeOf(ed) === "social" ? selectedPosts(ed) : [];
+  const social: MenuEntry[] = posts.length && posts.length === ed.selection.length ? [...postCanvasRows(ed, posts), "-"] : [];
+  return withoutDisabled(ed, [...social, ...build(ed, specs, "canvas.")]);
 }
 
 /** Copy as SVG / PNG stay, greyed, when the file's owner blocks exports (Figma's `disabledAndForceVisible`). */
