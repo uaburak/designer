@@ -46,6 +46,7 @@ import {
   transformModifiers,
   variableWidthStrokeProperties,
 } from "./draw";
+import { MOTION_PROPS } from "./motion";
 
 type Obj = Record<string, unknown>;
 type Getter = (ctx: ApiContext, n: NodeChange) => unknown;
@@ -518,6 +519,8 @@ const PROPS: Record<string, Prop> = {
   transformModifiers: { get: (_ctx, n) => transformModifiers(n), set: setTransformModifiers, only: ["TRANSFORM_GROUP"] },
   complexStrokeProperties: { get: complexStrokeProperties, set: setComplexStrokeProperties },
   variableWidthStrokeProperties: { get: variableWidthStrokeProperties, set: setVariableWidthStrokeProperties },
+  // Motion (docs/motion.md §9, api/motion.ts)
+  ...MOTION_PROPS,
 };
 
 /** `setReactionsAsync`: Reactions (or the document's PrototypeInteraction[]) → the document's, Figma's tombstones kept. */

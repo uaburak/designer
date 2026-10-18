@@ -94,6 +94,14 @@
     // Export
     props(p, ["exportSettings"]);
     method(p, "exportAsync", function (settings) { return call("node.export", this.__nodeId, settings || null); });
+    // Motion (docs/motion.md §9): seconds; the host holds Figma's rules (motion/publicApi.ts)
+    props(p, ["manualKeyframeTracks", "animationStyles"]);
+    props(p, ["timelines", "animations"], { readonly: true });
+    method(p, "applyManualKeyframeTrack", function (field, track) { call("motion.applyTrack", this.__nodeId, field, track); });
+    method(p, "removeManualKeyframeTrack", function (field) { call("motion.removeTrack", this.__nodeId, field); });
+    method(p, "applyAnimationStyle", function (styleId, config) { return call("motion.applyStyle", this.__nodeId, String(styleId), config || null); });
+    method(p, "removeAnimationStyle", function (id) { call("motion.removeStyle", this.__nodeId, String(id)); });
+    method(p, "setTimelineDuration", function (id, seconds) { call("motion.setDuration", this.__nodeId, String(id), seconds); });
   }
 
   function childrenMixin(p) {
@@ -729,12 +737,23 @@
     on: notSupported("figma.devResources"),
     off: notSupported("figma.devResources"),
   }));
+  // Motion (docs/motion.md §9): Figma's first-party styles, the Motion timeline's playhead (seconds), its spring rule.
+  value("motion", Object.freeze({
+    figmaAnimationStyles: function () { return freeze(call("motion.styles")); },
+    get playheadPosition() { return call("motion.playhead"); },
+    physicalSpringToNormalized: function (s) {
+      var o = s || {};
+      if (![o.mass, o.stiffness, o.damping].every(function (x) { return typeof x === "number" && isFinite(x) && x > 0; })) throw new Error("physicalSpringToNormalized: mass, stiffness and damping must be positive numbers");
+      var zeta = o.damping / (2 * Math.sqrt(o.stiffness * o.mass));
+      return Math.min(1, Math.max(0, 1 - zeta));
+    },
+  }));
   value("on", function (type, cb) { on(type, cb, false); });
   value("once", function (type, cb) { on(type, cb, true); });
   value("off", off);
 
   // Later (docs/plugins.md §5): each throws Figma-style when used.
-  ["payments", "timer", "buzz", "textreview", "vscode", "motion", "widget", "slides"].forEach(function (name) {
+  ["payments", "timer", "buzz", "textreview", "vscode", "widget", "slides"].forEach(function (name) {
     Object.defineProperty(figma, name, { enumerable: false, get: function () { throw new Error("figma." + name + " is not supported in Wecra yet"); } });
   });
   ["createNodeFromJSXAsync", "createVideoAsync", "createSticky", "createConnector", "createShapeWithText", "createTable", "createCodeBlock", "createGif", "createLinkPreviewAsync", "createSlide", "createSlideRow", "createPageDivider", "createTransformGroup"].forEach(function (name) {
