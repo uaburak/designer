@@ -15,7 +15,10 @@ export const RANK_WEIGHTS = { match: 0.4, enabled: 0.3, frecency: 0.2, ai: 0.1 }
 
 const wordStart = (s: string, i: number) => i === 0 || /[\s/(▸\-_.…]/.test(s[i - 1]);
 
-/** The fuzzy matcher: each of the query's letters found in order 1, at a word's start +2, right after the last +3. */
+/**
+ * The fuzzy matcher: the query's letters found in order — one at a word's start 3, right after the last matched 4, any
+ * other 0 (found, but no evidence: "sel" in "Same fill" is barely a match).
+ */
 function fuzzyRaw(text: string, query: string): number {
   const s = text.toLowerCase();
   const q = query.toLowerCase();
@@ -25,7 +28,7 @@ function fuzzyRaw(text: string, query: string): number {
     if (ch === " ") continue;
     const i = s.indexOf(ch, at + 1);
     if (i < 0) return 0;
-    score += 1 + (wordStart(s, i) ? 2 : 0) + (i === at + 1 && at >= 0 ? 3 : 0);
+    score += i === at + 1 && at >= 0 ? 4 : wordStart(s, i) ? 3 : 0;
     at = i;
   }
   return score;
