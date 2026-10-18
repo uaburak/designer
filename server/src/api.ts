@@ -260,7 +260,11 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   const f = await acc.fileRow(key);
   if (!f) throw new HttpError(404, "no such file");
   if (!(await acc.branch(key))) await acc.prefetchFile(f);
-  const passOk = f.link_password !== null && (await validPass(req, url, deps, key, user.id, f.link_password_version));
+  // A branch's link password is its main file's (docs/data.md §15.7: anyone with access to main opens its branches;
+  // docs/multiplayer.md §18.7): a pass for main opens them, and unlocking a branch checks main's password.
+  const branchOf = await acc.branch(key);
+  const guard = branchOf ? ((await acc.fileRow(branchOf.main_key)) ?? f) : f;
+  const passOk = guard.link_password !== null && (await validPass(req, url, deps, guard.key, user.id, guard.link_password_version));
   const access = await acc.file(f, { viaLink: true, passOk });
   // Governance+ gates (docs/governance.md §2.5) on every route of an org file, its socket upgrade included: 403
   // {error, code, gate} for the org's people (link visitors from outside aren't gated). No query without the add-on.
@@ -306,7 +310,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
         role: a ? role : access.ok ? role : (access.role ?? "viewer"),
         linkAccess: linkExpired ? "none" : f.link_access,
         viewersCanCopy: f.viewers_can_copy !== 0,
-        passwordProtected: f.link_password !== null,
+        passwordProtected: guard.link_password !== null,
         needsPassword,
         link: `${url.origin}/f/${key}`,
         editorType: f.editor_type,
@@ -337,6 +341,9 @@ async function route(req: Request, deps: Deps): Promise<Response> {
         if (body.linkPassword !== null && (typeof body.linkPassword !== "string" || body.linkPassword.length < 1 || body.linkPassword.length > 128)) throw new HttpError(400, "linkPassword is 1–128 characters, or null");
         await deps.db.setLinkPassword(key, body.linkPassword === null ? null : await hashPassword(body.linkPassword), deps.now());
         await deps.rooms.fetch(key, "/room/revoke-link", { method: "POST" });
+        // Its branches go by main's password: their link-only people enter the new one too
+        const { results: guarded } = await deps.db.d1.prepare(`SELECT key FROM branches WHERE main_key = ?1`).bind(key).all<{ key: string }>();
+        for (const b of guarded) await deps.rooms.fetch(b.key, "/room/revoke-link", { method: "POST" });
         await log(body.linkPassword === null ? "fig_file_unset_password" : "fig_file_set_password");
       }
       if (body.viewersCanCopy !== undefined) {
@@ -392,9 +399,9 @@ async function route(req: Request, deps: Deps): Promise<Response> {
     case "unlock": {
       if (parts.length !== 3 || m !== "POST") break;
       const { password } = await readJson<{ password?: unknown }>(req);
-      if (!f.link_password) return json({ pass: null });
-      if (typeof password !== "string" || !(await checkPassword(password, f.link_password))) throw new HttpError(403, "wrong password");
-      const pass = await signToken({ k: key, u: user.id, v: f.link_password_version, exp: seconds(deps) + SESSION_DAYS * 86400 }, secret(deps));
+      if (!guard.link_password) return json({ pass: null });
+      if (typeof password !== "string" || !(await checkPassword(password, guard.link_password))) throw new HttpError(403, "wrong password");
+      const pass = await signToken({ k: guard.key, u: user.id, v: guard.link_password_version, exp: seconds(deps) + SESSION_DAYS * 86400 }, secret(deps));
       return json({ pass });
     }
     case "transfer": {

@@ -91,6 +91,24 @@ describe("comments", () => {
     expect(cleared.body.threads[0].anchor.timeMs).toBeUndefined();
   });
 
+  it("keeps a comment's rich text (Figma's message_meta) beside its plain text; an edit without it goes back to plain", async () => {
+    const { owner, editor } = await setup();
+    const meta = [{ t: "Bold", styles: ["b"] }, { t: " and " }, { t: "a link", link: "https://wecra.app" }, { styles: ["ul"], children: [{ children: [{ t: "one" }] }, { children: [{ t: "two" }] }] }];
+    const t = (await call("POST", base, owner.token, { message: "Bold and a link\n* one\n* two", anchor, messageMeta: meta })).body.threads[0];
+    expect(t.comments[0].messageMeta).toEqual(meta);
+    const r = await call("POST", base, editor.token, { threadId: t.id, message: "plain", messageMeta: [{ t: "@owner", user_id: owner.user.id }] });
+    expect(r.body.threads[0].comments[1].messageMeta).toEqual([{ t: "@owner", user_id: owner.user.id }]);
+    // What isn't segments is refused; a script link is dropped from its segment; an empty list is plain text
+    expect((await call("POST", base, owner.token, { message: "x", anchor, messageMeta: [{ nope: 1 }] })).status).toBe(400);
+    const js = await call("POST", base, owner.token, { message: "x", anchor, messageMeta: [{ t: "x", link: "javascript:alert(1)" }] });
+    expect(js.body.threads[1].comments[0].messageMeta).toEqual([{ t: "x" }]);
+    expect((await call("POST", base, owner.token, { message: "y", anchor, messageMeta: [] })).body.threads[2].comments[0].messageMeta).toBeUndefined();
+    const edited = await call("PATCH", `${base}/${t.id}`, owner.token, { message: "Now plain" });
+    expect(edited.body.threads[0].comments[0].messageMeta).toBeUndefined();
+    const again = await call("PATCH", `${base}/${t.id}`, owner.token, { message: "Italic", messageMeta: [{ t: "Italic", styles: ["i"] }] });
+    expect(again.body.threads[0].comments[0].messageMeta).toEqual([{ t: "Italic", styles: ["i"] }]);
+  });
+
   it("replies, read marks, edit and delete own only; a thread goes with its first comment", async () => {
     const { owner, editor } = await setup();
     const t = (await call("POST", base, owner.token, { message: "Root", anchor })).body.threads[0];

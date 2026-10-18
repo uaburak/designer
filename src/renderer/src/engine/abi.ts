@@ -345,6 +345,8 @@ export const APPLY_LOAD = 4;
 export const APPLY_SYSTEM = 8;
 /** A store-computed document state (Restore version): library copies written too, none of the user-edit rules. */
 export const APPLY_EXACT = 16;
+/** With APPLY_REMOTE: another session's change (docs/engine.md §9.5) — E_BUSY unless the engine is idle, every history yields what it wrote. */
+export const APPLY_PEER = 32;
 /** engine_read_nodes flags. */
 export const INCLUDE_CHILD_IDS = 1;
 /** Each ref followed by its descendants (pre-order, children back to front: paint order). */

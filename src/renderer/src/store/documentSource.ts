@@ -22,6 +22,7 @@ import type { FileOps } from "@/editor/objectCommands";
 import type { Message as EngineMessage } from "@/engine/codec";
 import { decodeMessage, encodeMessage } from "../../../shared/schema/codec";
 import { messageImageHashes } from "../../../shared/schema/patch";
+import { touchedBy, withoutPending, type Touched } from "../../../shared/multiplayer/conflict";
 import type { FileChange, OpenedFile, StoreApi, Unsubscribe, WorkspaceEvent } from "../../../shared/store/repositories";
 import type { BatchKind, ChangeBatch, FileKey, FileMeta, FileUiState, Folder, FolderId, VersionId, VersionRecord } from "../../../shared/store/types";
 import { messageToEngine, messageToKiwi } from "./engineMessage";
@@ -29,6 +30,9 @@ import { storeLibraryAccess } from "./libraryAccess";
 import { noteLibraryUsage } from "@/editor/libraryUsage";
 import { engineDocumentFromTable, prepareEngineDocument, tableOf, type DocumentFacts, type EngineWireFormat, type OpenedDocument, type PreparedDocument } from "./loadDocument";
 import type { LoadWorkerReply, LoadWorkerRequest } from "./loadWorker";
+
+/** This editor's batches kept for `withoutLocal` at most */
+const LOCAL_TOUCHED_MAX = 1000;
 
 /** The engine's transaction kinds (DOCUMENT_CHANGED's `kind`, engine.md §9.2). */
 export type EngineChangeKind = "USER" | "UNDO" | "REDO" | "SYSTEM";
@@ -108,6 +112,8 @@ export interface StoreDocumentSource extends DocumentSource {
 
   /** Changes to this file that this source did not make (sync pulls, kind "remote"), to apply without an undo entry; `bytes`: the frame as the store holds it. */
   onExternalChanges(listener: (changes: EngineMessage, info: { seq: number; kind: BatchKind; bytes: Uint8Array }) => void): Unsubscribe;
+  /** An external frame without the properties this session changed after it (docs/multiplayer.md §18.2); null: nothing left */
+  withoutLocal(bytes: Uint8Array, seq: number): Uint8Array | null;
   /** The file was renamed, moved, trashed, restored or deleted (from Home, the menu or another window). */
   onMetaChanged(listener: (meta: DocumentMeta) => void): Unsubscribe;
   onError(listener: (e: unknown) => void): Unsubscribe;
@@ -370,6 +376,11 @@ class Source implements StoreDocumentSource {
   private headKnown: number;
   /** The journal seq each of this session's batches got (by batchSeq), for `saveSnapshot` */
   private readonly ackSeqs = new Map<number, number>();
+  /**
+   * This session's batches still able to lose to an external frame (`withoutLocal`): their properties, and their
+   * journal seq once the store acknowledged them (null before). One the external frames have passed is dropped.
+   */
+  private readonly localTouched: { batchSeq: number; touched: Touched; seq: number | null }[] = [];
 
   constructor(
     private readonly store: StoreApi,
@@ -638,6 +649,13 @@ class Source implements StoreDocumentSource {
         wallClock: (this.opts.now ?? Date.now)(),
       };
       noteLibraryUsage(this, batch.kind, kiwi.nodeChanges, batch.label); // library analytics (docs/data.md §17.3)
+      this.localTouched.push({ batchSeq: batch.batchSeq, touched: touchedBy(kiwi), seq: null });
+      // Without external frames nothing prunes them: the oldest journaled ones go past LOCAL_TOUCHED_MAX (an external
+      // frame older than that many of this editor's batches doesn't wait anywhere)
+      if (this.localTouched.length > LOCAL_TOUCHED_MAX) {
+        const i = this.localTouched.findIndex((l) => l.seq !== null);
+        if (i >= 0) this.localTouched.splice(i, 1);
+      }
     } catch (e) {
       this.fail(e);
       return;
@@ -645,7 +663,13 @@ class Source implements StoreDocumentSource {
     const seqOf = batch.batchSeq;
     const p = this.store.files.append(this.fileKey, batch).then(
       (ack) => {
-        if (!ack) return;
+        const mine = this.localTouched.find((l) => l.batchSeq === seqOf);
+        if (!ack) {
+          // Nothing journaled (an empty batch): nothing of it can win over anything
+          if (mine) this.localTouched.splice(this.localTouched.indexOf(mine), 1);
+          return;
+        }
+        if (mine) mine.seq = ack.seq;
         this.ackSeqs.set(seqOf, ack.seq);
         if (this.ackSeqs.size > 256) this.ackSeqs.delete(this.ackSeqs.keys().next().value!);
         if (ack.seq > this.headKnown) this.headKnown = ack.seq;
@@ -681,6 +705,23 @@ class Source implements StoreDocumentSource {
       this.meta = { ...this.meta, name: meta.name };
       this.metaListeners.emit(this.snapshotMeta());
     }
+  }
+
+  withoutLocal(bytes: Uint8Array, seq: number): Uint8Array | null {
+    // Journaled before `seq`: the store's own rule (unacknowledged frames: multiplayer/conflict.ts) already took them into
+    // account, and no later frame can be older than it.
+    for (let i = this.localTouched.length - 1; i >= 0; i--) {
+      const l = this.localTouched[i];
+      if (l.seq !== null && l.seq < seq) this.localTouched.splice(i, 1);
+    }
+    if (!this.localTouched.length) return bytes;
+    const mine: Touched = new Map();
+    for (const l of this.localTouched) for (const [k, fields] of l.touched) {
+      let set = mine.get(k);
+      if (!set) mine.set(k, (set = new Set()));
+      for (const f of fields) set.add(f);
+    }
+    return withoutPending(bytes, mine);
   }
 
   onExternalChanges(listener: (changes: EngineMessage, info: { seq: number; kind: BatchKind; bytes: Uint8Array }) => void): Unsubscribe {

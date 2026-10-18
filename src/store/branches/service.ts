@@ -761,6 +761,36 @@ export class BranchService {
     });
   }
 
+  async withdrawReview(branchFileKey: FileKey): Promise<BranchReview> {
+    return this.serial(branchFileKey, async () => {
+      const r = await this.record(branchFileKey);
+      if (!r.review || r.review.state === "closed") throw new StoreError("invalid", tr("No review was requested"));
+      let review: BranchReview;
+      if (r.branchKey && this.host.remote) review = await this.host.remote.withdrawReview(r);
+      else {
+        const id = this.host.user().id ?? "local";
+        const reviewers = r.review.reviewers.map((x) => (x.userId === id ? { ...x, verdict: "pending" as const, comment: "", at: null } : x));
+        // The review's state: the latest verdict left, else in review
+        const last = reviewers.filter((x) => x.verdict !== "pending").sort((a, b) => (b.at ?? 0) - (a.at ?? 0))[0];
+        review = { ...r.review, state: last ? (last.verdict as "approved" | "changes-suggested") : "in-review", reviewers };
+      }
+      const saved = await this.save({ ...r, review });
+      this.emit({ type: "branch.updated", branch: saved });
+      return structuredClone(review);
+    });
+  }
+
+  async closeReview(branchFileKey: FileKey): Promise<BranchReview> {
+    return this.serial(branchFileKey, async () => {
+      const r = await this.record(branchFileKey);
+      if (!r.review) throw new StoreError("invalid", tr("No review was requested"));
+      const review: BranchReview = r.branchKey && this.host.remote ? await this.host.remote.closeReview(r) : { ...r.review, state: "closed" };
+      const saved = await this.save({ ...r, review });
+      this.emit({ type: "branch.updated", branch: saved });
+      return structuredClone(review);
+    });
+  }
+
   /** The next GUID block of a branch that ran out of its own (FileStore asks; docs/data.md §15.2). */
   async nextSessionBlock(branchFileKey: FileKey): Promise<{ start: number; end: number } | null> {
     await this.load();
@@ -797,6 +827,8 @@ export class BranchService {
       merge: (branchFileKey, input) => this.merge(branchFileKey, input),
       requestReview: (branchFileKey, input) => this.requestReview(branchFileKey, input),
       answerReview: (branchFileKey, input) => this.answerReview(branchFileKey, input),
+      withdrawReview: (branchFileKey) => this.withdrawReview(branchFileKey),
+      closeReview: (branchFileKey) => this.closeReview(branchFileKey),
       undoMerge: (branchFileKey) => this.undoMerge(branchFileKey),
       watch: (listener) => this.onEvent(listener),
     };

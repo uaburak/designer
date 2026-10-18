@@ -10,6 +10,7 @@
 import { useSyncExternalStore } from "react";
 import { t } from "@/i18n";
 import { getStoreClient } from "@/store";
+import { currentTheme } from "@/ds/theme";
 import { peerColor } from "@shared/multiplayer/colors";
 import type { PeerInfo, Role } from "@shared/multiplayer/protocol";
 import type { FileShareState, PresenceData } from "@shared/multiplayer/types";
@@ -20,8 +21,8 @@ import { presenceSink } from "./presenceSink";
 
 /** What the engine offers for presence (docs/engine.md "Presence"); absent on an engine built before it */
 interface PresenceEngine {
-  setPresence?(peers: { id: number; name: string; color: string; cursor: { x: number; y: number } | null; selection: string[]; chat?: string | null }[]): void;
-  setLocalChat?(text: string | null, at: { x: number; y: number } | null): void;
+  setPresence?(peers: { id: number; name: string; color: string; cursor: { x: number; y: number } | null; selection: string[]; chat?: string | null; chatOpacity?: number }[]): void;
+  setLocalChat?(text: string | null, at: { x: number; y: number } | null, opacity?: number): void;
   screenToWorld?(x: number, y: number): { x: number; y: number };
   centerOn?(x: number, y: number, zoom: number): void;
   viewCenter?(): { x: number; y: number; zoom: number };
@@ -34,6 +35,8 @@ export interface Peer {
   role: Role;
   color: string;
   presence: PresenceData | null;
+  /** Not signed in (a link visitor without a name): listed last */
+  anonymous: boolean;
 }
 
 export interface PresenceState {
@@ -47,10 +50,19 @@ export interface PresenceState {
   spotlighting: boolean;
   /** This copy was replaced by a fresh one (it fell behind the room's history) */
   replacedBy: string | null;
+  /** Why it was replaced (docs/multiplayer.md §18.3) */
+  replacedWhy: "too-old" | "read-only" | "too-large" | null;
   /** "Ask to edit" requests waiting (editors): a badge on Share */
   requests: number;
   /** Someone started spotlighting: followed in a few seconds unless "Not now" (R13 §1) */
   spotlightOffer: number | null;
+  /** The offer replaces the presenter this editor followed ("Switching to <name>", SPOTLIGHT_SWITCH_MS) */
+  spotlightSwitch: boolean;
+  /** When the offer is followed (Date.now ms): the bell's progress bar */
+  spotlightAt: number | null;
+  /** This editor spotlights: since when (the presenter's "Waiting for followers" bar), and who follows it now */
+  spotlightSince: number | null;
+  followers: number;
   /** This editor's session in the room (0 when not live) */
   me: number;
   /** Someone asked this editor to spotlight (Multiplayer tools › More options › Ask to spotlight) */
@@ -69,13 +81,40 @@ export interface PresenceState {
 const sameBlocked = (a: PresenceState["blocked"], b: PresenceState["blocked"]) => a === b || JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
 const SEND_EVERY_MS = 100;
-/** A spotlight is followed after this long unless declined (Figma: "a few seconds"; unverified) */
-const SPOTLIGHT_WAIT_MS = 3000;
+/** A spotlight is followed after this long unless declined (Figma's `pending_auto_follow`, atlas 19 §4.8) … */
+export const SPOTLIGHT_WAIT_MS = 4000;
+/** … and this long when it replaces the presenter followed ("switching to <new presenter>") */
+export const SPOTLIGHT_SWITCH_MS = 2000;
+/** The presenter's "Waiting for followers" bar runs this long (Figma's 4 000 ms) */
+export const SPOTLIGHT_WAITING_MS = 4000;
+/** Others' cursors not moved for this long aren't drawn (Figma: `> 6e4`), unless followed */
+export const CURSOR_IDLE_MS = 60_000;
+/** Cursor chat (atlas 19 §4.3): 50 characters a line, two lines (Enter starts the second); a bubble starts fading 5 s
+ *  after its last change and is gone at 8 s — the sender's and the others' alike */
+export const CHAT_LINE_MAX = 50;
+export const CHAT_FADE_MS = 5000;
+export const CHAT_GONE_MS = 8000;
+
+/** A chat's text as it travels: at most two lines of CHAT_LINE_MAX */
+export function chatText(text: string): string {
+  return text
+    .split("\n")
+    .slice(-2)
+    .map((l) => l.slice(0, CHAT_LINE_MAX))
+    .join("\n");
+}
+
+/** A chat bubble's opacity `ms` after its last change: 1, fading from CHAT_FADE_MS, 0 (gone) at CHAT_GONE_MS */
+export function chatOpacity(ms: number): number {
+  if (ms <= CHAT_FADE_MS) return 1;
+  if (ms >= CHAT_GONE_MS) return 0;
+  return 1 - (ms - CHAT_FADE_MS) / (CHAT_GONE_MS - CHAT_FADE_MS);
+}
 /** Share of the way a drawn cursor moves towards its target each frame (≈ 60 fps): smooth at 10 updates a second */
 const EASE = 0.3;
 
 const NO_AUDIO: AudioState = { inCall: false, muted: false, noMic: false, speaking: [] };
-const EMPTY: PresenceState = { shared: false, role: null, connection: "offline", peers: [], following: null, spotlighting: false, replacedBy: null, requests: 0, spotlightOffer: null, me: 0, askedBy: null, locked: false, audio: NO_AUDIO, policy: null, blocked: null };
+const EMPTY: PresenceState = { shared: false, role: null, connection: "offline", peers: [], following: null, spotlighting: false, replacedBy: null, replacedWhy: null, requests: 0, spotlightOffer: null, spotlightSwitch: false, spotlightAt: null, spotlightSince: null, followers: 0, me: 0, askedBy: null, locked: false, audio: NO_AUDIO, policy: null, blocked: null };
 /** A request to spotlight shows this long (Figma's bell stays until answered; ours goes after a while) */
 const ASK_SHOWS_MS = 30_000;
 
@@ -88,6 +127,12 @@ export class Presence {
   private sendTimer: ReturnType<typeof setTimeout> | null = null;
   private lastSendAt = 0;
   private drawn = new Map<number, { x: number; y: number }>();
+  /** Each peer's last cursor position and when it moved there (idle cursors go after CURSOR_IDLE_MS) */
+  private moved = new Map<number, { x: number; y: number; at: number }>();
+  /** Each peer's last chat text and when it changed (bubbles fade after CHAT_FADE_MS) */
+  private chats = new Map<number, { text: string; at: number }>();
+  /** The presenter this editor followed because of their spotlight (a new presenter after them is a switch) */
+  private followedPresenter: number | null = null;
   private raf = 0;
   private lastEngineKey = "";
   /** A spotlight this editor stopped following stays declined until it ends */
@@ -126,7 +171,7 @@ export class Presence {
     this.offs.push(
       mp.watch((e) => {
         if (e.fileKey !== this.fileKey) return;
-        if (e.replacedBy) this.set({ replacedBy: e.replacedBy });
+        if (e.replacedBy) this.set({ replacedBy: e.replacedBy, replacedWhy: e.replacedWhy ?? "too-old" });
         if (e.signal) this.signalled(e.signal.from, e.signal.data);
         this.apply(e.state);
       }),
@@ -185,8 +230,26 @@ export class Presence {
 
   follow(id: number): void {
     this.declined.delete(id);
-    this.set({ following: id, spotlightOffer: null });
+    if (this.offerTimer) clearTimeout(this.offerTimer);
+    this.offerTimer = null;
+    const presenter = this.state.peers.find((p) => p.id === id)?.presence?.spotlight === true;
+    this.followedPresenter = presenter ? id : null;
+    this.set({ following: id, spotlightOffer: null, spotlightSwitch: false, spotlightAt: null });
+    this.lastSent = "";
+    this.schedule();
     this.followNow();
+  }
+
+  /** "Reset zoom" while following: the followed person's zoom again (Figma's `spotlight_zoom_override`) */
+  resetZoom(): void {
+    this.followNow();
+  }
+
+  /** Following, at another zoom than the followed person's (the bell then offers Reset zoom) */
+  zoomDiffers(): boolean {
+    const view = this.state.peers.find((x) => x.id === this.state.following)?.presence?.view;
+    const mine = this.engine.viewCenter?.call(this.ed.engine);
+    return !!view && !!mine && Math.abs(mine.zoom - view.zoom) > 1e-3;
   }
 
   /** "Not now" on a spotlight: this one isn't followed (until it ends and starts again). */
@@ -196,7 +259,7 @@ export class Presence {
     this.declined.add(id);
     if (this.offerTimer) clearTimeout(this.offerTimer);
     this.offerTimer = null;
-    this.set({ spotlightOffer: null });
+    this.set({ spotlightOffer: null, spotlightSwitch: false, spotlightAt: null });
   }
 
   stopFollowing(): void {
@@ -204,7 +267,10 @@ export class Presence {
     if (id === null) return;
     const p = this.state.peers.find((x) => x.id === id);
     if (p?.presence?.spotlight) this.declined.add(id);
+    this.followedPresenter = null;
     this.set({ following: null });
+    this.lastSent = "";
+    this.schedule();
   }
 
   /** Cursor chat is allowed in this file (the org's Cursor chat setting, §15.6) */
@@ -225,7 +291,7 @@ export class Presence {
   /** Cursor chat (R13 §1): the bubble's text while open (null closes it), sent to the others live. */
   setChat(text: string | null): void {
     if (text !== null && !this.chatAllowed) return;
-    this.chat = text === null ? null : text.slice(0, 52);
+    this.chat = text === null ? null : chatText(text);
     this.lastSent = "";
     this.schedule();
   }
@@ -263,7 +329,8 @@ export class Presence {
 
   spotlight(on: boolean): void {
     if (on) this.dismissAsk();
-    this.set({ spotlighting: on, following: on ? null : this.state.following });
+    if (on) this.followedPresenter = null;
+    this.set({ spotlighting: on, following: on ? null : this.state.following, spotlightSince: on ? Date.now() : null });
     this.lastSent = "";
     this.schedule();
   }
@@ -274,27 +341,55 @@ export class Presence {
   }
 
   private apply(s: FileShareState): void {
-    const peers: Peer[] = s.peers.map((p: PeerInfo) => ({ id: p.sessionID, userId: p.userId, name: p.name || t("Anonymous"), role: p.role, color: peerColor(p.sessionID), presence: (p.presence as PresenceData | undefined) ?? null }));
+    const theme = currentTheme().resolved;
+    const now = Date.now();
+    const peers: Peer[] = s.peers.map((p: PeerInfo) => ({ id: p.sessionID, userId: p.userId, name: p.name || t("Anonymous"), anonymous: !p.name, role: p.role, color: peerColor(p.sessionID, p.color, theme), presence: (p.presence as PresenceData | undefined) ?? null }));
+    // When each cursor last moved and each chat last changed (idle cursors and fading bubbles: draw)
+    for (const p of peers) {
+      const c = p.presence?.cursor;
+      const m = this.moved.get(p.id);
+      if (c && (!m || m.x !== c.x || m.y !== c.y)) this.moved.set(p.id, { x: c.x, y: c.y, at: now });
+      const chat = p.presence?.chat;
+      if (typeof chat !== "string") this.chats.delete(p.id);
+      else if (this.chats.get(p.id)?.text !== chat) this.chats.set(p.id, { text: chat, at: now });
+    }
+    for (const id of [...this.moved.keys()]) if (!peers.some((p) => p.id === id)) this.moved.delete(id);
+    for (const id of [...this.chats.keys()]) if (!peers.some((p) => p.id === id)) this.chats.delete(id);
     let following = this.state.following;
     if (following !== null && !peers.some((p) => p.id === following)) following = null;
+    // The presenter followed stopped: a presenter after them is offered as a switch (2 s), not a new spotlight (4 s).
+    const switching = this.followedPresenter !== null && following === this.followedPresenter && !peers.find((p) => p.id === following)?.presence?.spotlight;
+    if (switching && peers.some((p) => p.presence?.spotlight && p.id !== following && !this.declined.has(p.id))) following = null;
     // Someone spotlighting: follow them (unless this editor stopped following that spotlight, or is spotlighting itself).
     for (const id of this.declined) if (!peers.find((p) => p.id === id)?.presence?.spotlight) this.declined.delete(id);
     const spot = peers.find((p) => p.presence?.spotlight && !this.declined.has(p.id));
     let offer = this.state.spotlightOffer;
+    let offerSwitch = this.state.spotlightSwitch;
+    let offerAt = this.state.spotlightAt;
     if (offer !== null && !peers.some((p) => p.id === offer && p.presence?.spotlight)) offer = null;
     if (spot && !this.state.spotlighting && following === null && offer === null) {
       offer = spot.id;
+      offerSwitch = switching;
+      const wait = switching ? SPOTLIGHT_SWITCH_MS : SPOTLIGHT_WAIT_MS;
+      offerAt = now + wait;
       if (this.offerTimer) clearTimeout(this.offerTimer);
       this.offerTimer = setTimeout(() => {
         this.offerTimer = null;
         if (this.state.spotlightOffer === spot.id) this.follow(spot.id);
-      }, SPOTLIGHT_WAIT_MS);
+      }, wait);
     }
+    if (switching && following === null) this.followedPresenter = null;
+    if (offer === null) {
+      offerSwitch = false;
+      offerAt = null;
+    }
+    const me = s.me ?? 0;
+    const followers = me ? peers.filter((p) => p.presence?.observing === me).length : 0;
     const wasShared = this.state.shared;
     const askedBy = this.state.askedBy !== null && peers.some((p) => p.id === this.state.askedBy) ? this.state.askedBy : null;
     const policy = s.policy ?? null;
     const samePolicy = policy?.cursorChat === this.state.policy?.cursorChat && policy?.audio === this.state.policy?.audio && policy?.discovery === this.state.policy?.discovery;
-    this.set({ shared: s.shared, role: s.role, connection: s.connection, peers, following, requests: s.requests ?? 0, spotlightOffer: following !== null ? null : offer, me: s.me ?? 0, locked: s.locked === true, blocked: sameBlocked(s.blocked ?? null, this.state.blocked) ? this.state.blocked : (s.blocked ?? null), askedBy, ...(samePolicy ? {} : { policy }) });
+    this.set({ shared: s.shared, role: s.role, connection: s.connection, peers, following, requests: s.requests ?? 0, spotlightOffer: following !== null ? null : offer, spotlightSwitch: following !== null ? false : offerSwitch, spotlightAt: following !== null ? null : offerAt, followers, me, locked: s.locked === true, blocked: sameBlocked(s.blocked ?? null, this.state.blocked) ? this.state.blocked : (s.blocked ?? null), askedBy, ...(samePolicy ? {} : { policy }) });
     // The org turned a switch off while the file is open (§15.9): an open chat closes, an ongoing call is left.
     if (policy?.cursorChat === false && this.chat !== null) this.setChat(null);
     if (policy?.audio === false && this.state.audio.inCall) this.audio.leave();
@@ -322,6 +417,7 @@ export class Presence {
       selection: this.ed.store.selection.refs.slice(0, 200),
       view: view ? { x: round(view.x), y: round(view.y), zoom: round(view.zoom * 1000) / 1000 } : null,
       ...(this.state.spotlighting ? { spotlight: true } : {}),
+      ...(this.state.following !== null ? { observing: this.state.following } : {}),
       ...(this.chat !== null && this.chatAllowed ? { chat: this.chat } : {}),
       ...(this.state.audio.inCall ? { audio: { muted: this.state.audio.muted } } : {}),
     };
@@ -350,20 +446,27 @@ export class Presence {
     const cursors = this.ed.ui.get().multiplayerCursors !== false;
     const out: Parameters<NonNullable<PresenceEngine["setPresence"]>>[0] = [];
     const seen = new Set<number>();
+    const now = Date.now();
     for (const p of this.state.peers) {
       const pres = p.presence;
       if (!pres || pres.page !== page) continue;
       seen.add(p.id);
       let cursor: { x: number; y: number } | null = null;
-      if (pres.cursor) {
+      // A cursor that hasn't moved for a minute isn't drawn (Figma), the followed person's always is.
+      const idle = p.id !== this.state.following && now - (this.moved.get(p.id)?.at ?? now) > CURSOR_IDLE_MS;
+      if (pres.cursor && !idle) {
         const d = this.drawn.get(p.id);
         const next = d ? { x: d.x + (pres.cursor.x - d.x) * EASE, y: d.y + (pres.cursor.y - d.y) * EASE } : { ...pres.cursor };
         if (Math.abs(next.x - pres.cursor.x) < 0.05 && Math.abs(next.y - pres.cursor.y) < 0.05) Object.assign(next, pres.cursor);
         this.drawn.set(p.id, next);
         cursor = next;
       } else this.drawn.delete(p.id);
-      // Cursor chat off for the org: others' bubbles aren't drawn either (§15.6).
-      out.push({ id: p.id, name: p.name, color: p.color, cursor: cursors ? cursor : null, selection: pres.selection, chat: cursors && cursor && this.chatAllowed && typeof pres.chat === "string" ? pres.chat : null });
+      // Cursor chat off for the org: others' bubbles aren't drawn either (§15.6). A bubble fades 5 s after its last
+      // change and is gone at 8 s, as Figma's remote bubbles.
+      const since = now - (this.chats.get(p.id)?.at ?? now);
+      const opacity = chatOpacity(since);
+      const chat = cursors && cursor && this.chatAllowed && typeof pres.chat === "string" && opacity > 0 ? pres.chat : null;
+      out.push({ id: p.id, name: p.name, color: p.color, cursor: cursors ? cursor : null, selection: pres.selection, chat, ...(chat !== null && opacity < 1 ? { chatOpacity: Math.round(opacity * 100) / 100 } : {}) });
     }
     for (const id of [...this.drawn.keys()]) if (!seen.has(id)) this.drawn.delete(id);
     const key = JSON.stringify(out);

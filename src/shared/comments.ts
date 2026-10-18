@@ -60,7 +60,7 @@ export interface Comment {
 /**
  * Figma's `message_meta` (atlas 16 §2.6): a message as segments — text with its styles (bold, italic, strikethrough),
  * a link, an @mention (`user_id`, its text "@Name"), a numbered or bulleted list of items. `message` stays the plain
- * text (search, notifications, a shared file's server, which keeps no segments yet).
+ * text (search, notifications); a shared file's server keeps the segments beside it (migration 0028).
  */
 export type CommentStyle = "b" | "i" | "s";
 export type CommentSegment =

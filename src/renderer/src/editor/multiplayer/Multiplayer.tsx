@@ -15,8 +15,8 @@
  * - a link's landing (node-id, Dev Mode, prototype) and a changed link password (entered again).
  */
 import { useEffect, useRef, useState } from "react";
-import { Avatar, Button, Icon, IconButton, MenuButton, Popover, initials, showToast, tooltipProps } from "@/ds";
-import { t, useT } from "@/i18n";
+import { Avatar, Button, Icon, IconButton, MenuButton, Popover, TextInput, initials, showToast, tooltipProps } from "@/ds";
+import { t, tp, useT } from "@/i18n";
 import { getStoreClient } from "@/store";
 import { useAccount } from "../../files/account";
 import { withLinkPassword } from "../../files/LinkPassword";
@@ -24,7 +24,8 @@ import { useCurrentPage } from "@/engine/hooks";
 import { useEditor } from "../controller";
 import { editorBridge } from "../desktop";
 import { applyIntent, openIntent } from "./links";
-import { presenceOf, usePresence, type Peer } from "./presence";
+import { SPOTLIGHT_SWITCH_MS, SPOTLIGHT_WAIT_MS, SPOTLIGHT_WAITING_MS, presenceOf, usePresence, type Peer } from "./presence";
+import { SEARCH_PAST, maxFaces, shownFaces, sortFaces } from "./facepile";
 import { FileBlocked } from "./FileBlocked";
 import { useAgentPresence, type AgentPeer } from "./agentPresence";
 import { agentPresenceOf, startAgentPresence } from "./agentsOnCanvas";
@@ -74,7 +75,8 @@ export function Multiplayer() {
     <>
       {followed && <ObservationFrame peer={followed} />}
       {!followed && <AgentObservationFrame />}
-      {offer && !followed && <SpotlightOffer peer={offer} />}
+      {offer && !followed && <SpotlightOffer peer={offer} switching={state.spotlightSwitch} at={state.spotlightAt} />}
+      {state.spotlighting && !followed && <PresenterBell since={state.spotlightSince} followers={state.followers} />}
       {asking && !followed && !offer && <AskSpotlight peer={asking} />}
       {state.audio.inCall && <AudioWidget />}
       {viewer && <ViewerBanner />}
@@ -215,13 +217,63 @@ function AudioWidget() {
 function ObservationFrame({ peer }: { peer: Peer }) {
   useT();
   const ed = useEditor();
+  const p = presenceOf(ed);
+  // Zoomed on one's own while following: "Reset zoom" takes theirs again (Figma's `spotlight_zoom_override`)
+  const [zoomed, setZoomed] = useState(false);
+  useEffect(() => {
+    if (!p) return;
+    const check = () => setZoomed(p.zoomDiffers());
+    check();
+    return ed.engine.on("CAMERA_CHANGED", check);
+  }, [ed, p, peer.presence?.view?.zoom]);
   return (
     <div className={styles.frame} style={{ "--peer": peer.color } as React.CSSProperties} data-following={peer.name}>
       <div className={styles.bell}>
         <span className={styles.bellMessage}>{peer.presence?.spotlight ? t("{name} is spotlighting", { name: peer.name }) : t("Following {name}", { name: peer.name })}</span>
-        <button type="button" className={styles.bellButton} onClick={() => presenceOf(ed)?.stopFollowing()}>
+        {zoomed && (
+          <button type="button" className={styles.bellButton} data-secondary="" onClick={() => p?.resetZoom()}>
+            {t("Reset zoom")}
+          </button>
+        )}
+        <button type="button" className={styles.bellButton} onClick={() => p?.stopFollowing()}>
           {t("Stop")}
         </button>
+      </div>
+    </div>
+  );
+}
+
+/** A bell's countdown: a bar along its bottom that runs out in `ms` (one per `at`, the time it runs out) */
+function BellCountdown({ at, ms }: { at: number | null; ms: number }) {
+  if (at === null) return null;
+  return <span key={at} className={styles.countdown} style={{ "--ms": `${ms}ms` } as React.CSSProperties} aria-hidden="true" />;
+}
+
+/**
+ * The presenter's bell (atlas 19 §4.8): "Waiting for followers" with a 4 s bar and Cancel until someone follows, then
+ * how many follow with Stop. In the brand colour. The words are the keys' (Figma's English isn't read).
+ */
+function PresenterBell({ since, followers }: { since: number | null; followers: number }) {
+  useT();
+  const ed = useEditor();
+  const p = presenceOf(ed);
+  // The spotlight (by its start) whose wait ran out
+  const [waited, setWaited] = useState<number | null>(null);
+  useEffect(() => {
+    if (since === null) return;
+    const timer = setTimeout(() => setWaited(since), Math.max(0, since + SPOTLIGHT_WAITING_MS - Date.now()));
+    return () => clearTimeout(timer);
+  }, [since]);
+  const waiting = since !== null && waited !== since;
+  if (!followers && !waiting) return null;
+  return (
+    <div className={styles.offer} style={{ "--peer": "var(--figma-color-bg-brand)" } as React.CSSProperties} data-presenter={followers}>
+      <div className={styles.bell}>
+        <span className={styles.bellMessage}>{followers ? tp(followers, "{n} follower", "{n} followers") : t("Waiting for followers")}</span>
+        <button type="button" className={styles.bellButton} onClick={() => p?.spotlight(false)}>
+          {followers ? t("Stop") : t("Cancel")}
+        </button>
+        {!followers && <BellCountdown at={since === null ? null : since + SPOTLIGHT_WAITING_MS} ms={SPOTLIGHT_WAITING_MS} />}
       </div>
     </div>
   );
@@ -247,14 +299,16 @@ function AgentObservationFrame() {
   );
 }
 
-/** Someone started spotlighting: the bell in their colour, followed in a moment unless "Not now". */
-function SpotlightOffer({ peer }: { peer: Peer }) {
+/** Someone started spotlighting: the bell in their colour with its countdown, followed after 4 s (2 s when they take
+ *  over from the presenter followed: "Switching to <name>") unless "Not now". */
+function SpotlightOffer({ peer, switching, at }: { peer: Peer; switching: boolean; at: number | null }) {
   useT();
   const ed = useEditor();
   return (
-    <div className={styles.offer} style={{ "--peer": peer.color } as React.CSSProperties} data-spotlight-offer={peer.name}>
+    <div className={styles.offer} style={{ "--peer": peer.color } as React.CSSProperties} data-spotlight-offer={peer.name} data-switching={switching || undefined}>
       <div className={styles.bell}>
-        <span className={styles.bellMessage}>{t("{name} is spotlighting", { name: peer.name })}</span>
+        <span className={styles.bellMessage}>{switching ? t("Switching to {name}", { name: peer.name }) : t("{name} is spotlighting", { name: peer.name })}</span>
+        <BellCountdown at={at} ms={switching ? SPOTLIGHT_SWITCH_MS : SPOTLIGHT_WAIT_MS} />
         <button type="button" className={styles.bellButton} onClick={() => presenceOf(ed)?.declineSpotlight()}>
           {t("Not now")}
         </button>
@@ -349,8 +403,15 @@ function useNotices() {
     const to = state.replacedBy;
     if (!to || shownReplaced.current === to) return;
     shownReplaced.current = to;
+    // Rolled back (§18.3): the changes the file couldn't take stay in this copy, a draft of its own
+    const message =
+      state.replacedWhy === "read-only"
+        ? t("Your changes couldn’t be saved: you can only view this file now. They’re kept in this copy, in your drafts; the latest version is in your files.")
+        : state.replacedWhy === "too-large"
+          ? t("A change was too large to save to this file. It’s kept in this copy, in your drafts; the latest version is in your files.")
+          : t("This file changed a lot while you were away. The latest version is in your files; this copy is no longer shared.");
     showToast({
-      message: t("This file changed a lot while you were away. The latest version is in your files; this copy is no longer shared."),
+      message,
       duration: 0,
       action: {
         label: t("Open latest"),
@@ -361,15 +422,35 @@ function useNotices() {
         },
       },
     });
-  }, [state.replacedBy]);
+  }, [state.replacedBy, state.replacedWhy]);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
 // The header's facepile and Multiplayer tools
 // ---------------------------------------------------------------------------------------------------------------------
 
-/** Others shown before the count takes over (live showed two others with three people; more is unverified). */
-const MAX_SHOWN = 3;
+/** The width the others' avatars may take — theirs now and the header's free space after them; null: not measured (the
+ *  panel's compact header), Figma's 3 then */
+function useFaceRoom(ref: React.RefObject<HTMLElement | null>, shown: boolean): number | null {
+  const [room, setRoom] = useState<number | null>(null);
+  // Measured once the facepile is there (it isn't while nobody else is in the file)
+  useEffect(() => {
+    const el = ref.current;
+    const parent = el?.parentElement;
+    if (!el || !parent || typeof ResizeObserver === "undefined") return;
+    const measure = () => {
+      const grow = el.nextElementSibling as HTMLElement | null;
+      const tools = el.querySelector<HTMLElement>("[data-tools]");
+      if (!grow || getComputedStyle(grow).flexGrow === "0") return setRoom(null);
+      setRoom(Math.max(0, el.clientWidth - (tools?.offsetWidth ?? 0) + grow.clientWidth));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(parent);
+    return () => ro.disconnect();
+  }, [ref, shown]);
+  return room;
+}
 
 /** True when the header shows the facepile instead of the account avatar. */
 export function useFacepile(): boolean {
@@ -387,13 +468,20 @@ export function Facepile() {
   const open = anchor !== null;
   const setOpen = (on: boolean) => !on && setAnchor(null);
   const pictures = usePeerPictures(state.peers.map((x) => x.userId));
+  const root = useRef<HTMLSpanElement>(null);
+  const room = useFaceRoom(root, state.shared && state.peers.length > 0);
+  const [query, setQuery] = useState("");
   if (!state.shared || !state.peers.length) return null;
-  const shown = state.peers.slice(0, MAX_SHOWN);
+  // Figma's order and count (facepile.ts): the presenter, the person followed, the file's owner, the speaker, others
+  const people = sortFaces(state.peers, { presenter: state.peers.find((x) => x.presence?.spotlight)?.id ?? null, following: state.following, creator: (x) => x.role === "owner", speaker: state.audio.speaking[0] ?? null });
+  const shown = shownFaces(people, maxFaces(room));
+  const searching = state.peers.length + 1 > SEARCH_PAST;
+  const listed = searching && query.trim() ? people.filter((x) => x.name.toLowerCase().includes(query.trim().toLowerCase())) : people;
   const myName = me?.name || me?.email || t("You");
   const myPicture = me?.picture ?? undefined;
   const p = presenceOf(ed);
   return (
-    <span className={styles.facepile} data-peers={state.peers.length}>
+    <span ref={root} className={styles.facepile} data-peers={state.peers.length} data-shown={shown.length}>
       {shown.map((peer) => {
         const following = state.following === peer.id;
         return (
@@ -414,7 +502,7 @@ export function Facepile() {
           </button>
         );
       })}
-      <button type="button" className={styles.tools} aria-label={t("Multiplayer tools")} aria-expanded={open} data-open={open || undefined} onClick={(e) => setAnchor(open ? null : e.currentTarget)} style={{ "--peer": "var(--figma-color-bg-brand)" } as React.CSSProperties}>
+      <button type="button" data-tools="" className={styles.tools} aria-label={t("Multiplayer tools")} aria-expanded={open} data-open={open || undefined} onClick={(e) => setAnchor(open ? null : e.currentTarget)} style={{ "--peer": "var(--figma-color-bg-brand)" } as React.CSSProperties}>
         <span className={styles.face} data-me="">
           <span className={styles.bar} />
           <span className={styles.ring} data-spotlight={state.spotlighting || undefined}>
@@ -463,7 +551,13 @@ export function Facepile() {
               )}
             </div>
             <div className={styles.toolsDivider} />
-            {state.peers.map((peer) => (
+            {searching && (
+              <div className={styles.toolsSearch}>
+                <TextInput label={t("Search people in this file")} value={query} onChange={setQuery} placeholder={t("Search")} prefix="24.search" />
+              </div>
+            )}
+            {searching && query.trim() && !listed.length && <div className={styles.noUser}>{t("No user found")}</div>}
+            {listed.map((peer) => (
               <div key={peer.id} className={styles.person} data-person={peer.name}>
                 <button
                   type="button"

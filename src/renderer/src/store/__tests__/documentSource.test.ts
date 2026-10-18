@@ -238,6 +238,30 @@ describe("the store-backed DocumentSource", () => {
     await src.close();
   });
 
+  it("drops from an external frame the properties this editor changed after it (they reach the room later and win)", async () => {
+    bed = await rpcTestbed();
+    const editor = await bed.connect("editor");
+    const f = await editor.workspace.createFile({ name: "Race", folderId: null });
+    const src = await openStoreDocument(editor, f.fileKey);
+    const s = src.sessionID;
+    src.onChanges(msg(s, [rect(s, 1)]));
+    await src.flush();
+    // A collaborator's frame lands in the journal; this editor renamed the layer before the store passed it on.
+    const remote = encodeMessage(messageToKiwi(msg(0, [{ guid: `${s}:1`, name: "Theirs", visible: false }])));
+    const { seq } = await bed.t.store.files.appendRemote(f.fileKey, remote);
+    src.onChanges(msg(s, [{ guid: `${s}:1`, name: "Mine" }]));
+    const kept = src.withoutLocal(remote, seq);
+    expect(messageToEngine(decodeMessage(kept!)).nodeChanges).toEqual([{ guid: `${s}:1`, visible: false }]);
+    await src.flush();
+    // Journaled after it still: the rename wins over the frame however late the frame is applied.
+    expect(messageToEngine(decodeMessage(src.withoutLocal(remote, seq)!)).nodeChanges).toEqual([{ guid: `${s}:1`, visible: false }]);
+    // A later frame: the rename was journaled before it — the store's own rule covers it, the frame applies whole.
+    const later = encodeMessage(messageToKiwi(msg(0, [{ guid: `${s}:1`, name: "Theirs again" }])));
+    const at = await bed.t.store.files.appendRemote(f.fileKey, later);
+    expect(src.withoutLocal(later, at.seq)).toBe(later);
+    await src.close();
+  });
+
   it("saves named versions, restores one as a single `restore` batch, keeps UI state and thumbnails", async () => {
     bed = await rpcTestbed();
     const editor = await bed.connect("editor");

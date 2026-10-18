@@ -789,6 +789,7 @@ ENG_EXPORT int32_t engine_set_presence(Handle h, Ptr ptr, uint32_t len) {
     if (auto* chat = p.get("chat"); chat && chat->isString()) {
       peer.hasChat = true;
       peer.chat = chat->string;
+      if (auto* a = p.get("chatOpacity"); a && a->isNumber() && std::isfinite(a->number)) peer.chatAlpha = std::clamp(a->number, 0.0, 1.0);
     }
     peers.push_back(std::move(peer));
   }
@@ -816,6 +817,7 @@ ENG_EXPORT int32_t engine_set_local_chat(Handle h, Ptr ptr, uint32_t len) {
       chat.on = true;
       chat.text = text->string;
       chat.at = {x->number, y->number};
+      if (auto* a = v.get("opacity"); a && a->isNumber() && std::isfinite(a->number)) chat.alpha = std::clamp(a->number, 0.0, 1.0);
     }
   }
   e->editor.setLocalChat(chat);

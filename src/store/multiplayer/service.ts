@@ -22,7 +22,8 @@ import { isQuotaRefusal } from "../../shared/quota";
 import { accountSuspendedMessage, quotaMessage } from "../i18n";
 import type { FileChange, Unsubscribe } from "../../shared/store/repositories";
 import type { FileKey, FileMeta, FileSpace } from "../../shared/store/types";
-import { touchedBy, withoutPending, type Touched } from "./conflict";
+import { touchedBy, withoutPending, type Touched } from "../../shared/multiplayer/conflict";
+import { splitFrame } from "../../shared/multiplayer/split";
 import { busyError, fetchWithRetry, isErrorPage, READ_RETRY_DELAYS, STILL_UPLOADING_TEXT, UPLOAD_RETRY_DELAYS, withRetry } from "./http";
 import { countingBody, pool, sendBlobs, UploadTracker, BLOB_CONCURRENCY, type BlobSender, type MultipartStart, type UploadClock } from "./uploads";
 import { BlobDownloads, DOWNLOAD_CONCURRENCY, imageDownloadOrder, type BlobSource } from "./downloads";
@@ -97,6 +98,8 @@ export interface MultiplayerDeps {
   backoff?(attempt: number): number;
   /** Frames past the room's snapshot before a client compacts (default COMPACT_EVERY) */
   compactEvery?: number;
+  /** Milliseconds a sent frame waits for its echo before the socket is closed and the link reconnects (default ACK_TIMEOUT_MS) */
+  ackTimeoutMs?: number;
   /** Milliseconds between a read's tries when the server is busy or unreachable (default READ_RETRY_DELAYS; [] never) */
   retryDelays?: readonly number[];
   /** Milliseconds between a share's upload tries — its images and snapshot (default UPLOAD_RETRY_DELAYS) */
@@ -143,7 +146,14 @@ interface LinkRecord {
   /** The account (server user id) the link was made with (docs/cloud.md §2): another account signed in leaves it idle
    *  rather than joining with a session that can't open it. Absent on links made before 1.1: joined by any account. */
   uid?: string;
+  /** Phase 6 (docs/multiplayer.md §18.1): a journal frame too large for one room frame, sent as `parts`; `echoed` of them
+   *  came back so far (a reconnect sends the rest). Gone once all did. */
+  partial?: { batch: number; parts: number; echoed: number };
 }
+
+/** Why a linked copy was replaced by a fresh one (docs/multiplayer.md §18.3): it fell behind the room's history; its
+ *  unsaved changes can't reach the room any more (this person can only view it now); one of them is too large to send */
+export type ReplacedWhy = "too-old" | "read-only" | "too-large";
 
 interface State {
   installationId: string;
@@ -161,6 +171,22 @@ const CLOSE_ACCESS = 4003;
 export const MOVING_RETRY_MS = 2000;
 /** A client uploads a new snapshot when the room holds this many frames past the last one (the room keeps a tail) */
 export const COMPACT_EVERY = 1000;
+/**
+ * A frame the room hasn't echoed this long after it went closes the socket, and the reconnect sends it again (Figma:
+ * "Disconnecting multiplayer session after not receiving ack for %fs"; its value isn't read — ours), plus ACK_PER_MB_MS
+ * for each MB the frame carries (a large change on a slow connection is still going out).
+ */
+export const ACK_TIMEOUT_MS = 30_000;
+export const ACK_PER_MB_MS = 8_000;
+/**
+ * Figma's "Offline sync" savepoint (atlas 22 §3.3): before changes made away from the room are sent, the room's state is
+ * kept as a version — on the link's first connection with changes waiting (edits restored at start), or after it was
+ * offline this long (ours: Figma's own trigger is a restored session).
+ */
+export const OFFLINE_SYNC_AFTER_MS = 60_000;
+/** The savepoint's words — Figma's, literal in its code (a version's title, kept on the server as data) */
+export const OFFLINE_SYNC_TITLE = "Offline sync";
+export const OFFLINE_SYNC_DESCRIPTION = "Before syncing changes";
 /** A read of a file's members or access requests answers the reads asked for within this long after it */
 export const READ_FRESH_MS = 2000;
 /** A shared file's thumbnail goes to the server at most this often (docs/multiplayer.md §16.7: `thumbnailUrl`) */
@@ -808,6 +834,14 @@ export class MultiplayerService {
     const remote = await this.api<SharedFileInfo>("GET", `/files/${key}`).catch((e: unknown) => {
       throw e instanceof StoreError && e.code === "not-found" ? new StoreError("not-found", tr("This file isn't shared with you, or the link is off")) : e;
     });
+    // A branch goes by its main file's link password (docs/multiplayer.md §18.7): main's pass, when this person has it
+    const mainKey = (remote as { branch?: { mainKey?: unknown } | null }).branch?.mainKey;
+    if (remote.needsPassword && typeof mainKey === "string" && this.passes.has(mainKey) && !password) {
+      this.passes.set(key, this.passes.get(mainKey)!);
+      const again = await this.api<SharedFileInfo>("GET", `/files/${key}`).catch(() => null);
+      if (again && !again.needsPassword) remote.needsPassword = false;
+      else this.passes.delete(key);
+    }
     if (remote.needsPassword) await this.unlock(key, password);
     // The copy is made under a key known now: an early open hands it back at once, so the file's tab opens and shows
     // the document coming down (Figma's progress bar) while `files.open` waits for it (`whenCopied`)
@@ -1092,7 +1126,7 @@ export class MultiplayerService {
 
   /** @internal This copy fell behind what the room still holds (away too long): a fresh copy replaces it as the
    *  linked one; the old copy stays, unlinked, so nothing in it is lost. */
-  async recover(fileKey: FileKey): Promise<void> {
+  async recover(fileKey: FileKey, why: ReplacedWhy = "too-old"): Promise<void> {
     const rec = this.state?.links[fileKey];
     if (!rec) return;
     const name = this.host.getMeta(fileKey)?.name ?? "Untitled";
@@ -1101,18 +1135,33 @@ export class MultiplayerService {
     this.live.delete(fileKey);
     delete this.state!.links[fileKey];
     await this.persist(fileKey);
+    // Changes the room never took stay in the old copy — a local draft from now on (an org copy's `space` would hide it:
+    // org files are listed from the server), so nothing made here is lost.
+    const unsent = (await this.host.backlog(fileKey, rec.acked).catch(() => [])).some((c) => c.kind !== "remote");
+    if (unsent && space) await this.host.setFileSpace?.(fileKey, null).catch((e) => this.host.log("warn", `multiplayer: ${name} kept in the org's space`, e));
     try {
       const fresh = await this.copyFromRoom(rec.key, name, rec.role, space);
-      for (const l of this.replaced) l(fileKey, fresh);
+      for (const l of this.replaced) l(fileKey, fresh, why);
     } catch (e) {
       this.host.log("error", `multiplayer: couldn't get a fresh copy of ${name}`, e);
     }
     this.emitState(fileKey);
   }
 
-  private replaced = new Set<(from: FileKey, to: FileKey) => void>();
-  /** A linked copy was replaced by a fresh one (recover) */
-  onReplaced(listener: (from: FileKey, to: FileKey) => void): Unsubscribe {
+  /**
+   * Figma's rollback (docs/multiplayer.md §18.3): local changes the room will never take — this person can only view the
+   * file now, or a change no frame can carry — leave this copy behind the file's. It is replaced by a fresh copy of the
+   * room's state (the server's values win, as Figma's client rolls back what the server didn't accept) and keeps the
+   * changes as a local draft.
+   */
+  rollBack(fileKey: FileKey, why: Exclude<ReplacedWhy, "too-old">): Promise<void> {
+    this.host.log("warn", `multiplayer ${fileKey}: local changes the room won't take (${why}) — a fresh copy replaces it`);
+    return this.recover(fileKey, why);
+  }
+
+  private replaced = new Set<(from: FileKey, to: FileKey, why: ReplacedWhy) => void>();
+  /** A linked copy was replaced by a fresh one (recover, rollBack) */
+  onReplaced(listener: (from: FileKey, to: FileKey, why: ReplacedWhy) => void): Unsubscribe {
     this.replaced.add(listener);
     return () => this.replaced.delete(listener);
   }
@@ -1134,12 +1183,15 @@ export class MultiplayerService {
   /**
    * @internal Images the store doesn't have yet, downloaded from the room before the frame that uses them lands (a
    * version's, a collaborator's new image), DOWNLOAD_CONCURRENCY at a time; one coming down in the background already
-   * is moved to the front and waited for rather than fetched twice.
+   * is moved to the front and waited for rather than fetched twice. `fileKey` (a link's frame, Phase 6): one that
+   * couldn't come now goes to the background downloads — tried again with their backoff, kept with the link for the next
+   * start, the editor told when it lands (`onBlobsArrived`) — instead of leaving its layer on a placeholder for good.
    */
-  async downloadBlobs(key: string, sha1s: string[]): Promise<void> {
+  async downloadBlobs(key: string, sha1s: string[], fileKey?: FileKey): Promise<void> {
     if (!sha1s.length) return;
     const have = await this.host.hasBlobs(sha1s);
     const missing = sha1s.filter((_, i) => !have[i]);
+    const failed: string[] = [];
     await pool(missing, this.deps.downloadConcurrency ?? DOWNLOAD_CONCURRENCY, async (sha1) => {
       try {
         const queued = this.downloads.want(sha1);
@@ -1149,8 +1201,29 @@ export class MultiplayerService {
       } catch (e) {
         // An image the uploader never had: the layer shows its placeholder, as with a missing image anywhere.
         this.host.log("warn", `multiplayer: image ${sha1} isn't in the room`, e);
+        failed.push(sha1);
       }
     });
+    if (fileKey && failed.length) await this.retryImages(fileKey, key, failed);
+  }
+
+  /** A frame's images that didn't come down: queued in the background and kept with the link (`images`) */
+  private async retryImages(fileKey: FileKey, key: string, sha1s: string[]): Promise<void> {
+    const rec = this.state?.links[fileKey];
+    if (!rec) return;
+    try {
+      const queued = await this.downloads.add({ fileKey, key, name: this.host.getMeta(fileKey)?.name ?? "Untitled", rest: sha1s });
+      if (!queued.length) return;
+      rec.images = [...new Set([...(rec.images ?? []), ...queued])];
+      await this.persist(fileKey);
+    } catch (e) {
+      this.host.log("warn", `multiplayer ${fileKey}: couldn't queue its images`, e);
+    }
+  }
+
+  /** @internal The "Offline sync" savepoint (OFFLINE_SYNC_AFTER_MS): a named version of the room's head; a failure doesn't stop the sync */
+  async offlineSavepoint(key: string): Promise<void> {
+    await this.api("POST", `/files/${key}/versions`, { kind: "named", title: OFFLINE_SYNC_TITLE, description: OFFLINE_SYNC_DESCRIPTION }).catch((e) => this.host.log("warn", "multiplayer: the offline sync savepoint wasn't made", e));
   }
 
   /** @internal The room's history compacted at `seq` from this copy's head. */
@@ -1622,6 +1695,8 @@ export class MultiplayerService {
       links[k] = { key: r.key, since: Number(r.since) || 0, acked: Number(r.acked) || 0, sessions: Array.isArray(r.sessions) ? r.sessions.filter(Number.isInteger) : [], role: r.role === "owner" || r.role === "viewer" ? r.role : "editor" };
       if (r.pendingUpload === true) links[k].pendingUpload = true;
       if (typeof r.uid === "string" && r.uid) links[k].uid = r.uid;
+      const part = r.partial;
+      if (part && Number.isInteger(part.batch) && Number.isInteger(part.parts) && Number.isInteger(part.echoed) && part.echoed < part.parts) links[k].partial = { batch: part.batch, parts: part.parts, echoed: part.echoed };
       if (Array.isArray(r.images)) {
         const images = r.images.filter((s): s is string => typeof s === "string" && /^[0-9a-f]{40}$/.test(s));
         if (images.length) links[k].images = images;
@@ -1879,6 +1954,50 @@ class Link {
   /** The room's latest snapshot seq (welcome), and whether this client is uploading a new one */
   private snapshotSeq = 0;
   private compacting = false;
+  /** welcome made this link a viewer's (it was an editor's): unsent local changes are rolled back at `ready` */
+  private demoted = false;
+  /** `ready` is sending the backlog: frames journaled meanwhile go with it, in order (never ahead of older ones) */
+  private flushing = false;
+  /** Local frames sent on this socket (the backlog's flush sends each once) */
+  private sentHere = new Set<number>();
+  /** Was this link live before (the first connection's waiting changes were made before this start), and since when
+   *  it has been offline — the Offline sync savepoint */
+  private wasLive = false;
+  private offlineSince: number | null = null;
+  /** Sent frames waiting for their echo: local seq → when the link gives up on this socket (ACK_TIMEOUT_MS) */
+  private deadlines = new Map<number, number>();
+  private watchdog: ReturnType<typeof setTimeout> | null = null;
+
+  /** `batch` went out on `ws` (`bytes` of it): its echo is awaited, else the socket closes and the reconnect resends it */
+  private awaitAck(ws: WebSocketLike, batch: number, bytes: number): void {
+    const ms = (this.svc.deps_.ackTimeoutMs ?? ACK_TIMEOUT_MS) + Math.floor(bytes / 1_000_000) * ACK_PER_MB_MS;
+    this.deadlines.set(batch, Date.now() + ms);
+    this.arm(ws);
+  }
+
+  private arm(ws: WebSocketLike): void {
+    if (this.watchdog || !this.deadlines.size) return;
+    const next = Math.min(...this.deadlines.values());
+    this.watchdog = setTimeout(() => {
+      this.watchdog = null;
+      if (this.ws !== ws) return;
+      const now = Date.now();
+      for (const batch of [...this.deadlines.keys()]) if (!this.pending.has(batch)) this.deadlines.delete(batch);
+      if ([...this.deadlines.values()].some((at) => at <= now)) {
+        this.svc.host_.log("warn", `multiplayer ${this.fileKey}: no acknowledgement from the room — reconnecting`);
+        this.disarm();
+        ws.close(4000, "no ack");
+        return;
+      }
+      this.arm(ws);
+    }, Math.max(0, next - Date.now()));
+  }
+
+  private disarm(): void {
+    if (this.watchdog) clearTimeout(this.watchdog);
+    this.watchdog = null;
+    this.deadlines.clear();
+  }
 
   constructor(
     private svc: MultiplayerService,
@@ -1892,13 +2011,15 @@ class Link {
   stop(): void {
     this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
+    this.disarm();
     this.ws?.close(1000, "closing");
     this.ws = null;
   }
 
   /** A frame the store just journaled. */
   local(c: FileChange): void {
-    if (c.kind === "remote" || !this.ready || this.pending.has(c.seq)) return;
+    // While the backlog goes out (`ready`) a new frame waits its turn: it is sent in journal order with it
+    if (c.kind === "remote" || !this.ready || this.flushing || this.pending.has(c.seq)) return;
     const rec = this.svc.record(this.fileKey);
     if (!rec || c.seq <= rec.acked || rec.role === "viewer") return;
     this.send(c);
@@ -1934,15 +2055,39 @@ class Link {
   }
 
   private send(c: FileChange): void {
+    // Too large for one frame: its parts (split.ts); a field too large for any frame can't reach the room at all.
+    const parts = splitFrame(c.message);
+    if (!parts) {
+      this.stopped = true;
+      void this.svc.rollBack(this.fileKey, "too-large");
+      return;
+    }
     this.pending.set(c.seq, touchedBy(decodeMessage(c.message)));
     this.notePending();
+    this.sentHere.add(c.seq);
     const ws = this.ws;
-    const key = this.svc.record(this.fileKey)?.key;
+    const rec = this.svc.record(this.fileKey);
+    const key = rec?.key;
+    // Parts the room already took (before a reconnect or a restart) aren't sent again.
+    let from = 0;
+    if (parts.length > 1 && rec) {
+      if (rec.partial?.batch === c.seq && rec.partial.parts === parts.length) from = rec.partial.echoed;
+      else {
+        rec.partial = { batch: c.seq, parts: parts.length, echoed: 0 };
+        void this.svc.persist(this.fileKey);
+      }
+    }
     const images = imagesOf(c.message);
     this.sending = this.sending
       .then(async () => {
         if (images.length && key) await this.svc.uploadBlobs(key, images);
-        if (this.ws === ws) ws?.send(encodeChangesUp(c.seq, c.message));
+        let bytes = 0;
+        for (const part of parts.slice(from)) {
+          if (this.ws !== ws || !ws) return;
+          ws.send(encodeChangesUp(c.seq, part));
+          bytes += part.length;
+        }
+        if (this.pending.has(c.seq)) this.awaitAck(ws!, c.seq, bytes);
       })
       .catch((e) => {
         // Not sent: it goes again from the backlog after the next reconnect.
@@ -2001,6 +2146,7 @@ class Link {
     const ws = new this.svc.deps_.WebSocket(url);
     ws.binaryType = "arraybuffer";
     this.ws = ws;
+    this.sentHere = new Set();
     ws.onopen = () => {
       // Unacknowledged local frames (offline edits, or sent before a drop): their properties win over the catch-up.
       this.chain = this.chain.then(async () => {
@@ -2039,6 +2185,8 @@ class Link {
     };
     ws.onclose = (e) => {
       if (this.ws !== ws) return;
+      this.disarm();
+      if (this.ready) this.offlineSince = Date.now();
       this.ws = null;
       this.ready = false;
       this.connection = "offline";
@@ -2078,6 +2226,9 @@ class Link {
       switch (msg.t) {
         case "welcome":
           this.session = msg.sessionID;
+          // Lost the right to edit (made a viewer, a merged branch) with changes the room hasn't taken: rolled back at
+          // `ready`, once the catch-up has acknowledged whatever of them it had.
+          this.demoted = rec.role !== "viewer" && msg.role === "viewer";
           rec.role = msg.role;
           if (!rec.sessions.includes(msg.sessionID)) rec.sessions = [...rec.sessions.slice(-63), msg.sessionID];
           this.peers = new Map(msg.peers.map((p) => [p.sessionID, p]));
@@ -2086,12 +2237,39 @@ class Link {
           await this.svc.persist(this.fileKey);
           return;
         case "ready": {
-          this.ready = true;
           if (rec.role !== "viewer") void this.svc.requests(this.fileKey).catch(() => {});
           this.attempt = 0;
           this.connection = "live";
-          // What the room hasn't acknowledged goes (again) now, in journal order.
-          if (rec.role !== "viewer") for (const c of await this.svc.host_.backlog(this.fileKey, rec.acked)) if (c.kind !== "remote") this.send(c);
+          const unsent = (await this.svc.host_.backlog(this.fileKey, rec.acked)).some((c) => c.kind !== "remote");
+          if (this.ws !== ws) return;
+          if (this.demoted && unsent) {
+            this.stopped = true;
+            ws.close(1000, "rolled back");
+            void this.svc.rollBack(this.fileKey, "read-only");
+            return;
+          }
+          this.demoted = false;
+          // Changes made away from the room: its state is kept as a version before they land (Figma's Offline sync).
+          const away = !this.wasLive || (this.offlineSince !== null && Date.now() - this.offlineSince >= OFFLINE_SYNC_AFTER_MS);
+          if (unsent && away && rec.role !== "viewer") await this.svc.offlineSavepoint(rec.key);
+          if (this.ws !== ws) return;
+          this.wasLive = true;
+          this.offlineSince = null;
+          this.ready = true;
+          // What the room hasn't acknowledged goes (again) now, in journal order — frames journaled meanwhile with it,
+          // never ahead of an older one (a later read finds them; nothing new between the last read and the end).
+          if (rec.role !== "viewer") {
+            this.flushing = true;
+            try {
+              for (;;) {
+                const todo = (await this.svc.host_.backlog(this.fileKey, rec.acked)).filter((c) => c.kind !== "remote" && !this.sentHere.has(c.seq));
+                if (!todo.length || this.ws !== ws) break;
+                for (const c of todo) this.send(c);
+              }
+            } finally {
+              this.flushing = false;
+            }
+          }
           this.svc.emitState(this.fileKey);
           return;
         }
@@ -2127,14 +2305,21 @@ class Link {
     const frame = decodeChangesDown(new Uint8Array(data as ArrayBuffer));
     if (!frame || frame.seq <= rec.since) return;
     if (rec.sessions.includes(frame.sessionID)) {
-      // Our own frame, as the room ordered it: acknowledged.
-      this.pending.delete(frame.batch);
-      this.notePending();
-      rec.acked = Math.max(rec.acked, frame.batch);
+      // Our own frame, as the room ordered it: acknowledged — a frame sent in parts once the room took its last.
+      const part = rec.partial?.batch === frame.batch ? rec.partial : null;
+      if (part && ++part.echoed < part.parts) {
+        // more parts of it to come
+      } else {
+        if (part) delete rec.partial;
+        this.deadlines.delete(frame.batch);
+        this.pending.delete(frame.batch);
+        this.notePending();
+        rec.acked = Math.max(rec.acked, frame.batch);
+      }
     } else {
       const message = withoutPending(frame.message, this.pendingTouched());
       if (message) {
-        await this.svc.downloadBlobs(rec.key, imagesOf(message));
+        await this.svc.downloadBlobs(rec.key, imagesOf(message), this.fileKey);
         await this.svc.host_.appendRemote(this.fileKey, message);
       }
     }

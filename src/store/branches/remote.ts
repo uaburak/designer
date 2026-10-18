@@ -254,6 +254,18 @@ export class RemoteBranches {
     const { review } = await this.d.call<{ review: BranchReview }>("POST", `/branches/${seg(r.branchKey!)}/reviews/${seg(r.review.id)}/verdict`, { verdict, ...(comment ? { comment } : {}) });
     return review;
   }
+
+  async withdrawReview(r: BranchRecord): Promise<BranchReview> {
+    if (!r.review) throw new StoreError("invalid", tr("No review was requested"));
+    const { review } = await this.d.call<{ review: BranchReview }>("DELETE", `/branches/${seg(r.branchKey!)}/reviews/${seg(r.review.id)}/verdict`);
+    return review;
+  }
+
+  async closeReview(r: BranchRecord): Promise<BranchReview> {
+    if (!r.review) throw new StoreError("invalid", tr("No review was requested"));
+    const { review } = await this.d.call<{ review: BranchReview }>("POST", `/branches/${seg(r.branchKey!)}/reviews/${seg(r.review.id)}/close`);
+    return review;
+  }
 }
 
 /** A server `branch` as the store's record (the local copy's key and main's) */

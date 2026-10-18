@@ -97,6 +97,7 @@ void Editor::begin(TxnKind kind, const std::string& label) {
   txn_.label = label;
   txn_.run = false;
   txn_.join = false;
+  txn_.peer = false;
   txn_.changes.clear();
   layoutDirty_.clear();
   groupsTouched_.clear();
@@ -538,6 +539,8 @@ void Editor::commit(bool mergeWithLast) {
     events_.undo = true;
   }
   if (txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE || txn_.kind == TxnKind::UNDO || txn_.kind == TxnKind::REDO) yieldOthers();
+  else if (txn_.peer) yieldAll();
+  txn_.peer = false;
   txn_.changes.clear();
   layoutDirty_.clear();
 }
@@ -1179,6 +1182,10 @@ void Editor::setSessionID(uint32_t sessionID) {
 
 Status Editor::applyChanges(const std::vector<NodeChange>& changes, uint32_t flags) {
   if (busy()) return E_BUSY;
+  // Another session's change waits for the user's step, gesture or an actor's write to end (the caller tries again):
+  // inside it, it would become part of the user's undo step and be emitted as theirs.
+  bool peer = (flags & APPLY_PEER) && !(flags & (APPLY_USER | APPLY_SYSTEM | APPLY_LOAD));
+  if (peer && !idle()) return E_BUSY;
   TxnKind kind = (flags & APPLY_USER)     ? TxnKind::USER
                  : (flags & APPLY_SYSTEM) ? TxnKind::SYSTEM
                  : (flags & APPLY_LOAD)   ? TxnKind::LOAD
@@ -1186,6 +1193,7 @@ Status Editor::applyChanges(const std::vector<NodeChange>& changes, uint32_t fla
   // A system change inside an open user step would become part of that undo step.
   if (kind == TxnKind::SYSTEM && txn_.open && txn_.kind != TxnKind::SYSTEM) return E_BUSY;
   begin(kind, "Edit");
+  txn_.peer = peer;
   // APPLY_EXACT (Restore version): a whole document state computed elsewhere — written as it is, library copies too.
   bool exact = (flags & APPLY_EXACT) != 0;
   bool libraryWriteBefore = libraryWrite_, guardBefore = applyGuard_;
@@ -1201,7 +1209,11 @@ Status Editor::applyChanges(const std::vector<NodeChange>& changes, uint32_t fla
   }
   libraryWrite_ = libraryWriteBefore;
   applyGuard_ = guardBefore;
+  std::vector<Guid> touched;
+  if (peer) touched = txn_.changes.touched();
   commit();
+  // The user's edit sessions follow what the other session changed under them (a caret kept inside a rewritten text).
+  if (peer) followForeign(touched);
   pruneSelection();
   if (!doc_.has(page_)) {
     auto all = pages();
@@ -1745,6 +1757,12 @@ void Editor::yieldOthers() {
   if (undoTo_ != 0) undo_.yield(txn_.changes);
   for (auto& [id, stack] : actorUndo_)
     if (id != undoTo_) stack.yield(txn_.changes);
+}
+
+void Editor::yieldAll() {
+  if (txn_.changes.empty()) return;
+  undo_.yield(txn_.changes);
+  for (auto& [id, stack] : actorUndo_) stack.yield(txn_.changes);
 }
 
 void Editor::followForeign(const std::vector<Guid>& touched) {

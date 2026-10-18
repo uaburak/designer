@@ -81,8 +81,11 @@ enum class DeltaMode : uint8_t { PIXEL = 0, LINE = 1, PAGE = 2 };
 
 // APPLY_SYSTEM: journaled and emitted, not an undo step (library bookkeeping); APPLY_EXACT (with APPLY_USER: Restore
 // version): the changes are a whole document state computed elsewhere — written as they are, library copies included,
-// none of the user-edit rules (no read-only refusal, no detaching, no instance root overrides).
-enum ApplyFlags : uint32_t { APPLY_USER = 1, APPLY_REMOTE = 2, APPLY_LOAD = 4, APPLY_SYSTEM = 8, APPLY_EXACT = 16 };
+// none of the user-edit rules (no read-only refusal, no detaching, no instance root overrides). APPLY_PEER (with
+// APPLY_REMOTE: another session's change — multiplayer, another window): a remote session is an actor (docs/engine.md
+// §9.5) — E_BUSY while anything is open (a gesture, a step, an actor's write), so it never joins the user's step, and
+// its commit makes every history yield the fields it wrote, the user's too.
+enum ApplyFlags : uint32_t { APPLY_USER = 1, APPLY_REMOTE = 2, APPLY_LOAD = 4, APPLY_SYSTEM = 8, APPLY_EXACT = 16, APPLY_PEER = 32 };
 enum SetPropsFlags : uint32_t { NO_UNDO_MERGE = 1 };
 // PASTE_OVER (⇧⌘V "Paste over selection"): in place, just above the selection (not into it); PASTE_REPLACE (⇧⌘R
 // "Paste to replace"): a copy at each selected layer's place, which goes.
@@ -264,8 +267,9 @@ class Editor : private LayoutHost, public TextLayouts {
   void setSessionID(uint32_t sessionID);
   uint32_t sessionID() const { return sessionID_; }
   // Changes from outside. APPLY_USER: undoable and emitted (one step); APPLY_SYSTEM: emitted, not undoable
-  // (E_BUSY inside an open user step); APPLY_REMOTE / APPLY_LOAD: neither. User and system changes never write into
-  // library copies, unless APPLY_EXACT (a store-computed state: Restore version).
+  // (E_BUSY inside an open user step); APPLY_REMOTE / APPLY_LOAD: neither (APPLY_REMOTE | APPLY_PEER: E_BUSY unless
+  // idle, every history yields). User and system changes never write into library copies, unless APPLY_EXACT (a
+  // store-computed state: Restore version).
   Status applyChanges(const std::vector<NodeChange>& changes, uint32_t flags);
   // Every node, parents before children (a full snapshot).
   std::vector<NodeChange> encodeDocument() const;
@@ -2281,6 +2285,7 @@ class Editor : private LayoutHost, public TextLayouts {
     ChangeSet changes;
     bool run = false;   // txnBeginRun: the step is marked for the next run slice
     bool join = false;  // txnBeginRun(join): folds into the marked step
+    bool peer = false;  // APPLY_PEER: another session's change — every history yields what it wrote
   } txn_;
   // The user's undo count right after the last run slice committed (SIZE_MAX: none, or something else since).
   size_t runMark_ = SIZE_MAX;
@@ -2589,6 +2594,8 @@ class Editor : private LayoutHost, public TextLayouts {
   }
   // A step of `undoTo_` committed: every other history yields the fields it wrote.
   void yieldOthers();
+  // Another session's change committed (APPLY_PEER): every history yields the fields it wrote, the user's too.
+  void yieldAll();
   // After another actor's write or undo: the user's text / vector / gradient edit follows what changed under it.
   void followForeign(const std::vector<Guid>& touched);
   uint32_t actor_ = 0;   // who is writing (DOCUMENT_CHANGED.actor)

@@ -101,6 +101,10 @@ export interface MultiplayerEvent {
   state: FileShareState;
   /** This copy fell behind the room's history and a fresh copy replaced it as the linked one (the old one stays) */
   replacedBy?: FileKey;
+  /** Why (docs/multiplayer.md §18.3): "too-old" (behind the room's history), "read-only" (its unsaved changes can't be
+   *  sent: this person can only view the file now) or "too-large" (a change no frame can carry); both latter keep the
+   *  changes in the old copy, a local draft */
+  replacedWhy?: "too-old" | "read-only" | "too-large";
   notice?: MultiplayerNotice;
   /** A message from one session of the room to this one ("Ask to spotlight", audio's WebRTC signalling) */
   signal?: { from: number; data: unknown };
@@ -162,8 +166,11 @@ export interface PresenceData {
   view: { x: number; y: number; zoom: number } | null;
   /** "Spotlight me": everyone in the file follows them */
   spotlight?: boolean;
-  /** Cursor chat: what they are typing ("" = the bubble is open, nothing typed yet); absent = no bubble */
+  /** Cursor chat: what they are typing ("" = the bubble is open, nothing typed yet); absent = no bubble. Two lines at
+   *  most, "\n" between them (Figma's `ChatMessage{previousText, text}`), 50 characters each */
   chat?: string;
+  /** The session they follow (Figma's `UserChange.observing`): a presenter counts their followers */
+  observing?: number;
   /** In the file's audio conversation (Figma: one per file); `muted` their microphone */
   audio?: { muted: boolean };
 }

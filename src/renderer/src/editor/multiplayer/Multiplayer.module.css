@@ -105,6 +105,21 @@
     cursor: default;
   }
   .bellButton:focus-visible { border-color: var(--figma-color-text-onbrand); outline: none; }
+  /* "Reset zoom": the secondary button (Figma's darker shade of the colour) */
+  .bellButton[data-secondary] { background: color-mix(in srgb, var(--peer) 60%, black); }
+  /* A bell's countdown (the spotlight's auto-follow, the presenter's wait): a bar along its bottom running out */
+  .countdown {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    height: 2px;
+    background: color-mix(in srgb, var(--figma-color-text-onbrand) 70%, transparent);
+    animation: countdown var(--ms) linear forwards;
+  }
+  @keyframes countdown { to { width: 0; } }
+  .toolsSearch { margin: 0 var(--ds-space-2) var(--ds-space-2); }
+  .noUser { padding: var(--ds-space-2); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
 
   /* "can view": 527×40 at the bottom centre, 8 above the toolbar */
   .viewer {

@@ -4,9 +4,9 @@
  * applying it would only make the property flicker and, once the echo arrives (applied nowhere), leave this client on
  * the wrong value. A remote REMOVED always applies (a deleted node stays deleted).
  */
-import { decodeMessage, encodeMessage, type Message, type NodeChange } from "../../shared/schema/codec";
-import { guidKey } from "../../shared/schema/guid";
-import { nodeFieldName } from "../../shared/schema/patch";
+import { decodeMessage, encodeMessage, type Message, type NodeChange } from "../schema/codec";
+import { guidKey } from "../schema/guid";
+import { nodeFieldName } from "../schema/patch";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- generic field access */
 
