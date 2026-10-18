@@ -154,6 +154,34 @@ describe("svgToMessage", () => {
     expect(sp.segs.length).toBeGreaterThan(1); // the large arc: three quarters
   });
 
+  it("reads Figma's round-trip attributes: a marked angular gradient and a background blur", () => {
+    const paint = '{&#34;type&#34;:&#34;GRADIENT_ANGULAR&#34;,&#34;stops&#34;:[{&#34;color&#34;:{&#34;r&#34;:1,&#34;g&#34;:0,&#34;b&#34;:0,&#34;a&#34;:1},&#34;position&#34;:0},{&#34;color&#34;:{&#34;r&#34;:0,&#34;g&#34;:0,&#34;b&#34;:1,&#34;a&#34;:1},&#34;position&#34;:1}],&#34;transform&#34;:{&#34;m00&#34;:1,&#34;m01&#34;:0,&#34;m02&#34;:0,&#34;m10&#34;:0,&#34;m11&#34;:1,&#34;m12&#34;:0},&#34;opacity&#34;:1,&#34;blendMode&#34;:&#34;NORMAL&#34;,&#34;visible&#34;:true}';
+    const svg = `<svg width="300" height="50" viewBox="0 0 300 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#paint0_angular_5_1_clip_path)" data-figma-skip-parse="true"><g transform="matrix(1 0 0 1 0 0)"><foreignObject x="-100" y="-100" width="300" height="300"><div xmlns="http://www.w3.org/1999/xhtml" style="background:conic-gradient(from 90deg at 50% 50%,rgba(255,0,0,1) 0deg,rgba(0,0,255,1) 360deg);height:100%;width:100%"></div></foreignObject></g></g>
+<rect width="100" height="50" data-figma-gradient-fill="${paint}"/>
+<rect x="200" width="100" height="50" fill="white" fill-opacity="0.2" data-figma-bg-blur-radius="8"/>
+<defs><clipPath id="paint0_angular_5_1_clip_path"><rect width="100" height="50"/></clipPath></defs>
+</svg>`;
+    const m = svgToMessage(svg).message!;
+    const rects = m.nodeChanges.filter((n) => n.type === "ROUNDED_RECTANGLE");
+    expect(rects).toHaveLength(2);
+    expect(rects[0].fillPaints).toEqual([
+      {
+        type: "GRADIENT_ANGULAR",
+        stops: [
+          { color: { r: 1, g: 0, b: 0, a: 1 }, position: 0 },
+          { color: { r: 0, g: 0, b: 1, a: 1 }, position: 1 },
+        ],
+        transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 },
+        opacity: 1,
+        visible: true,
+        blendMode: "NORMAL",
+      },
+    ]);
+    expect(rects[1].effects).toEqual([{ type: "BACKGROUND_BLUR", radius: 8, visible: true }]);
+    expect(rects[1].fillPaints![0]).toMatchObject({ type: "SOLID", opacity: 0.2 });
+  });
+
   it("recognises SVG text", () => {
     expect(looksLikeSvg('<?xml version="1.0"?>\n<!-- Generator: Adobe Illustrator -->\n<svg viewBox="0 0 1 1"/>')).toBe(true);
     expect(looksLikeSvg("hello <svg>")).toBe(false);

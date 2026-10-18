@@ -10,9 +10,14 @@
  * Vector artwork from other apps (§13 "Vector paste"): SVG text on the clipboard, else what main finds on the
  * pasteboard — Illustrator's SVG, or its PDF converted to SVG — becomes editable layers (model/svgImport.ts) in
  * the middle of the view; only when there is none does a picture on the clipboard become an image.
+ *
+ * Also as Figma (atlas 15 §10–12): a spreadsheet's HTML table pastes as a grid of texts (model/tablePaste.ts); a
+ * URL or e-mail address pasted onto selected characters links them; Copy / Paste properties go through the system
+ * clipboard (Figma's STYLE Message), so they work across files and windows; a menu paste with no layers on the
+ * clipboard takes its picture (`web image/png`, then `image/png`) before its text.
  */
 import { t, tp } from "@/i18n";
-import type { Message } from "@/engine/codec";
+import type { Message, NodeChange } from "@/engine/codec";
 import type { PasteOptions } from "@/engine/Engine";
 import { messageToEngine } from "@/store/engineMessage";
 import { decodeAnySchema } from "../../../shared/fig/importFig";
@@ -20,7 +25,19 @@ import { decodeFigmaClipboard, isOwnMeta, type FigmaPasteReport } from "../../..
 import { decodeMessage } from "../../../shared/schema/codec";
 import type { EditorController } from "./controller";
 import { engineCall } from "./engineCompat";
-import { archiveMessage, encodeClipboard, encodeClipboardKiwi, messageAt, readClipboard, type ClipboardPayload } from "./model/clipboard";
+import {
+  archiveMessage,
+  decodePropertiesClipboard,
+  encodeClipboard,
+  encodeClipboardKiwi,
+  encodePropertiesClipboard,
+  messageAt,
+  readClipboard,
+  type ClipboardPayload,
+  type CopiedProperties,
+} from "./model/clipboard";
+import { isSpreadsheetHtml, spreadsheetCells, spreadsheetToMessage } from "./model/tablePaste";
+import { fields } from "./panels/design/shared";
 import { isEditable } from "./keyboard";
 import { isMediaFile } from "./images";
 import { frameAt, placeImages, toPage } from "./placeImages";
@@ -192,6 +209,90 @@ export function pasteText(ed: EditorController, text: string, mode: EditorContro
   return true;
 }
 
+/**
+ * A spreadsheet's copy (Google Sheets, Excel, or HTML that is one table) pasted as a grid of text layers
+ * (model/tablePaste.ts), placed as any paste. False when the HTML holds no table.
+ */
+export function pasteSpreadsheet(ed: EditorController, html: string, mode: EditorController["pendingPaste"]): boolean {
+  const rows = spreadsheetCells(html);
+  if (!rows || ed.engine.destroyed) return false;
+  const message = spreadsheetToMessage(rows);
+  if (mode?.mode !== "point") {
+    const top = message.nodeChanges[0];
+    const centre = toPage(ed, viewCentre(ed.canvas).x, viewCentre(ed.canvas).y);
+    top.transform = { m00: 1, m01: 0, m02: Math.round(centre.x), m10: 0, m11: 1, m12: Math.round(centre.y) };
+  }
+  pasteInto(ed, message, mode);
+  return true;
+}
+
+/** A URL or an e-mail address as a link's target ("https://…", "www.…" → https, "a@b.co" → mailto:), or null. */
+export function pastedLink(text: string): string | null {
+  const s = text.trim();
+  if (/\s/.test(s) || !s) return null;
+  if (/^https?:\/\/[^/\s]+\.[^\s]+$/i.test(s)) return s;
+  if (/^www\.[\w-]+(\.[\w-]+)+([/?#]\S*)?$/i.test(s)) return `https://${s}`;
+  if (/^mailto:[^@\s]+@[\w-]+(\.[\w-]+)+$/i.test(s)) return s;
+  if (/^[^@\s:/]+@[\w-]+(\.[\w-]+)+$/.test(s)) return `mailto:${s}`;
+  return null;
+}
+
+/**
+ * Text pasted while characters of a text layer are selected: a URL or an e-mail address links them (Figma's
+ * `url_pasted_on_selected_text`, `paste_hyperlink_into_text_range`) — underlined, as Create link does — instead of
+ * replacing them. False (the text goes in as typed) otherwise.
+ */
+export function pasteLinkOnText(ed: EditorController, text: string): boolean {
+  const ref = ed.engine.textEdit?.ref;
+  const url = pastedLink(text);
+  if (!ref || !url || !ed.engine.textSelection()) return false;
+  ed.setProps([ref], fields({ hyperlink: { url }, textDecoration: "UNDERLINE" }), "Create link");
+  return true;
+}
+
+// ---- Copy / Paste properties through the system clipboard ----
+
+/** Copy properties' clipboard write (model/clipboard.ts `encodePropertiesClipboard`); false when the browser refused it. */
+export async function writePropertiesClipboard(ed: EditorController, node: NodeChange): Promise<boolean> {
+  const formats = encodePropertiesClipboard(node, ed.source.libraries?.libraryKey ?? null);
+  ed.lastCopy = formats;
+  try {
+    const item = new ClipboardItem({ "text/html": new Blob([formats["text/html"]], { type: "text/html" }), "text/plain": new Blob([formats["text/plain"]], { type: "text/plain" }) });
+    await navigator.clipboard.write([item]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The copied properties on the system clipboard: null when it holds none, undefined when it can't be read. */
+export async function readPropertiesClipboard(): Promise<CopiedProperties | null | undefined> {
+  try {
+    for (const item of await navigator.clipboard.read()) {
+      if (!item.types.includes("text/html")) continue;
+      const html = await (await item.getType("text/html")).text();
+      const found = decodePropertiesClipboard((type) => (type === "text/html" ? html : null));
+      if (found) return found;
+    }
+    return null;
+  } catch {
+    return undefined;
+  }
+}
+
+/** An image on the system clipboard as Figma reads one: `web image/png` first, then `image/png`, as "image.png". */
+async function readClipboardImage(): Promise<File | null> {
+  try {
+    for (const item of await navigator.clipboard.read()) {
+      const type = ["web image/png", "image/png"].find((x) => item.types.includes(x));
+      if (type) return new File([await item.getType(type)], "image.png", { type: "image/png" });
+    }
+  } catch {
+    /* no permission, or nothing readable */
+  }
+  return null;
+}
+
 /** SVG markup in a DataTransfer (another app's "Copy as SVG", an SVG file's text), or null. */
 function svgInTransfer(data: DataTransfer): string | null {
   const svg = data.getData("image/svg+xml");
@@ -204,8 +305,9 @@ function svgInTransfer(data: DataTransfer): string | null {
  * Not our own payload: SVG text, else main's vector flavours (Illustrator), else the clipboard's pictures. `files`
  * are taken from the event before it ends (the DataTransfer empties afterwards).
  */
-async function pasteForeign(ed: EditorController, svgText: string | null, files: File[], mode: EditorController["pendingPaste"], text: string | null = null): Promise<void> {
+async function pasteForeign(ed: EditorController, svgText: string | null, files: File[], mode: EditorController["pendingPaste"], text: string | null = null, html: string | null = null): Promise<void> {
   if (svgText && pasteSvg(ed, svgText, mode)) return;
+  if (html && pasteSpreadsheet(ed, html, mode)) return;
   const vector = await editorBridge()?.clipboard?.readVector().catch(() => null);
   if (ed.engine.destroyed) return;
   if (vector && pasteSvg(ed, vector.svg, mode, vector.skipped)) return;
@@ -241,12 +343,15 @@ export function attachClipboard(ed: EditorController): () => void {
     if (!message) {
       // Vector artwork (SVG text; Illustrator's flavours, read by main), else an image on the clipboard (a
       // screenshot, a copied file) placed like a paste (desktop.md §13 steps 3–4).
+      // A spreadsheet's cells come as an HTML table (before their text, which is tab-separated).
       const files = [...data.files].filter(isMediaFile);
       const svg = svgInTransfer(data);
+      const html = data.getData("text/html");
+      const table = !svg && isSpreadsheetHtml(html) ? html : null;
       const text = svg ? null : pastableText(data.getData("text/plain"));
-      if (!svg && !files.length && !text && !editorBridge()) return;
+      if (!svg && !table && !files.length && !text && !editorBridge()) return;
       e.preventDefault();
-      void pasteForeign(ed, svg, files, mode, text);
+      void pasteForeign(ed, svg, files, mode, text, table);
       return;
     }
     e.preventDefault();
@@ -282,11 +387,13 @@ export function pasteFromMenu(ed: EditorController, mode: EditorController["pend
   ed.pendingPaste = null;
   void readSystemClipboard().then((payload) => {
     const m = payload ?? (ed.lastCopy ? readClipboard((t) => ed.lastCopy?.[t]) : null);
-    if (m) void pastePayload(ed, m, mode);
-    else
-      void (navigator.clipboard?.readText() ?? Promise.resolve(""))
-        .catch(() => "")
-        .then((text) => pasteForeign(ed, null, [], mode, pastableText(text)));
+    if (m) return void pastePayload(ed, m, mode);
+    // No layers: a picture (Figma reads `web image/png`, then `image/png`), else the text.
+    void readClipboardImage().then(async (image) => {
+      if (image) return pasteForeign(ed, null, [image], mode);
+      const text = await (navigator.clipboard?.readText() ?? Promise.resolve("")).catch(() => "");
+      return pasteForeign(ed, null, [], mode, pastableText(text));
+    });
   });
 }
 

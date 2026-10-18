@@ -8,14 +8,17 @@
 // exported layer's GUID):
 // - paints: solid (`#RRGGBB`, black / white by name, `fill-opacity`), linear
 //   and radial gradients (userSpaceOnUse), angular and diamond gradients as
-//   CSS gradients in a `<foreignObject>` clipped to the shape (as Figma does),
-//   images as patterns with the file inlined as a data URI;
+//   CSS gradients in a `<foreignObject>` clipped to the shape (as Figma does;
+//   the group `data-figma-skip-parse`, then the shape with the paint's JSON in
+//   `data-figma-gradient-fill` / `-stroke` for an import to read back), images
+//   as patterns with the file inlined as a data URI;
 // - strokes: centre strokes as `stroke` attributes; INSIDE / OUTSIDE ones as
 //   an inset / outset shape ("Simplify stroke", plain shapes), as their
 //   outlined area (simplify, other shapes), or at twice the weight under a
 //   mask of the fill (simplify off: Figma's `path-1-inside-1` masks);
 // - effects as filters (drop / inner shadows with spread, layer blur) and
-//   background blur as a `backdrop-filter` in a `<foreignObject>`;
+//   background blur as a `backdrop-filter` in a `<foreignObject>` (the layer's
+//   fills carry `data-figma-bg-blur-radius`);
 // - masks as `<mask>` (alpha, luminance; "Vector" masks by their outline);
 // - text as glyph outlines ("Outline text") or as `<text>` / `<tspan>` per line.
 #pragma once

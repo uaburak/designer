@@ -8,11 +8,15 @@ import {
   describeSetting,
   exportFileName,
   nextExportSetting,
+  nudgeConstraint,
   parseScale,
   pngWithDpi,
+  qualityFor,
+  qualityLevel,
   qualityOf,
   readingOrder,
   scaleLabel,
+  withConstraint,
   withFormat,
   zipStored,
   type ExportSettings,
@@ -31,27 +35,67 @@ describe("export settings", () => {
     expect(parseScale(".5x")).toEqual({ type: "CONTENT_SCALE", value: 0.5 });
     expect(parseScale("512W")).toEqual({ type: "CONTENT_WIDTH", value: 512 });
     expect(parseScale("300h")).toEqual({ type: "CONTENT_HEIGHT", value: 300 });
-    expect(parseScale("0x")).toBeNull();
     expect(parseScale("abc")).toBeNull();
-    expect(parseScale("-2x")).toBeNull();
+    // Figma's parser: a "w" anywhere is a width, else an "h" a height; the rest is an expression; ≤ 0 is 1.
+    expect(parseScale("1.5*2x")).toEqual({ type: "CONTENT_SCALE", value: 3 });
+    expect(parseScale("w100")).toEqual({ type: "CONTENT_WIDTH", value: 100 });
+    expect(parseScale("0x")).toEqual({ type: "CONTENT_SCALE", value: 1 });
+    expect(parseScale("-2x")).toEqual({ type: "CONTENT_SCALE", value: 1 });
+    expect(scaleLabel({ constraint: { type: "CONTENT_SCALE", value: 1 / 3 } })).toBe("0.33x");
   });
 
-  it("'+' adds 1x, then 2x @2x, then 3x @3x (Figma's defaults), PNG", () => {
+  it("clamps the constraint at 1024x and 32768 px and nudges it by 0.5 (⇧ 1)", () => {
+    expect(parseScale("2000x")).toEqual({ type: "CONTENT_SCALE", value: 1024 });
+    expect(parseScale("40000w")).toEqual({ type: "CONTENT_WIDTH", value: 32768 });
+    expect(parseScale("20000h")).toEqual({ type: "CONTENT_HEIGHT", value: 20000 });
+    expect(nudgeConstraint({ type: "CONTENT_SCALE", value: 1 }, true, false)).toEqual({ type: "CONTENT_SCALE", value: 1.5 });
+    expect(nudgeConstraint({ type: "CONTENT_WIDTH", value: 512 }, false, true)).toEqual({ type: "CONTENT_WIDTH", value: 511 });
+    expect(nudgeConstraint({ type: "CONTENT_SCALE", value: 0.5 }, false, false)).toEqual({ type: "CONTENT_SCALE", value: 1 });
+    expect(nudgeConstraint({ type: "CONTENT_SCALE", value: 1024 }, true, true).value).toBe(1024);
+  });
+
+  it("'+' adds 1x, then 2x @2x, then 3x @3x, then 1x again — never 4x (Figma's defaults), PNG", () => {
     const list: ExportSettings[] = [];
-    for (let i = 0; i < 3; i++) list.push(nextExportSetting(list));
+    for (let i = 0; i < 4; i++) list.push(nextExportSetting(list));
     expect(list.map((s) => [scaleLabel(s), s.suffix, s.imageType])).toEqual([
       ["1x", "", "PNG"],
       ["2x", "@2x", "PNG"],
       ["3x", "@3x", "PNG"],
+      ["1x", "", "PNG"],
     ]);
-    expect(list[0].contentsOnly).toBe(true);
+    expect(list[0]).toMatchObject({ contentsOnly: true, useAbsoluteBounds: false, useBicubicSampler: true, colorProfile: "DOCUMENT" });
+    // A size row counts as 1x.
+    expect(nextExportSetting([{ constraint: { type: "CONTENT_WIDTH", value: 512 } }]).constraint).toEqual({ type: "CONTENT_SCALE", value: 2 });
   });
 
-  it("a format change keeps the suffix (as Figma does) and makes SVG / PDF 1x", () => {
+  it("a suffix the scale gave follows it; a typed one stays", () => {
+    const two: ExportSettings = { suffix: "@2x", constraint: { type: "CONTENT_SCALE", value: 2 } };
+    expect(withConstraint(two, { type: "CONTENT_SCALE", value: 3 }).suffix).toBe("@3x");
+    expect(withConstraint(two, { type: "CONTENT_SCALE", value: 1.5 }).suffix).toBe("");
+    expect(withConstraint(two, { type: "CONTENT_WIDTH", value: 512 }).suffix).toBe("");
+    expect(withConstraint({ ...two, suffix: "-big" }, { type: "CONTENT_SCALE", value: 3 }).suffix).toBe("-big");
+    expect(withConstraint({ ...two, suffix: "" }, { type: "CONTENT_SCALE", value: 3 }).suffix).toBe("");
+  });
+
+  it("a format change: SVG / PDF at 1x drop an auto suffix; JPEG High, PDF Medium; SVG's defaults", () => {
     const s = withFormat({ suffix: "@3x", imageType: "PNG", constraint: { type: "CONTENT_SCALE", value: 3 } }, "SVG");
-    expect(s.suffix).toBe("@3x");
+    expect(s.suffix).toBe("");
     expect(s.constraint).toEqual({ type: "CONTENT_SCALE", value: 1 });
-    expect(withFormat({ constraint: { type: "CONTENT_WIDTH", value: 512 } }, "JPEG").constraint).toEqual({ type: "CONTENT_WIDTH", value: 512 });
+    expect(s).toMatchObject({ svgIDMode: "IF_NEEDED", svgOutlineText: true, svgForceStrokeMasks: false, svgAnimated: false });
+    expect(withFormat({ suffix: "-print", constraint: { type: "CONTENT_SCALE", value: 2 } }, "PDF")).toMatchObject({ suffix: "-print", quality: 0.76 });
+    expect(withFormat({ constraint: { type: "CONTENT_WIDTH", value: 512 } }, "JPEG")).toMatchObject({ constraint: { type: "CONTENT_WIDTH", value: 512 }, quality: 1 });
+    expect(withFormat({ imageType: "JPEG", quality: 0.8, svgIDMode: "ALWAYS" }, "PNG")).toEqual({ imageType: "PNG" });
+  });
+
+  it("image quality: Figma's numbers per format, shown as the level they equal (else High)", () => {
+    expect(qualityFor({ imageType: "JPEG" }, "low")).toBe(0.75);
+    expect(qualityFor({ imageType: "JPEG" }, "medium")).toBe(0.8);
+    expect(qualityFor({ imageType: "PDF" }, "low")).toBe(0.5);
+    expect(qualityFor({ imageType: "PDF" }, "medium")).toBe(0.76);
+    expect(qualityLevel({ imageType: "PDF" })).toBe("medium");
+    expect(qualityLevel({ imageType: "JPEG" })).toBe("high");
+    expect(qualityLevel({ imageType: "JPEG", quality: 0.75 })).toBe("low");
+    expect(qualityLevel({ imageType: "JPEG", quality: 0.92 })).toBe("high");
   });
 
   it("names files after the layer and suffix; describes settings; image quality defaults", () => {
@@ -60,21 +104,21 @@ describe("export settings", () => {
     expect(exportFileName("  ", { imageType: "PDF" })).toBe("Untitled.pdf");
     expect(describeSetting({ imageType: "PNG", constraint: { type: "CONTENT_SCALE", value: 2 } })).toBe("2x PNG");
     expect(describeSetting({ imageType: "SVG" })).toBe("SVG");
-    expect(qualityOf({ imageType: "JPEG" })).toBeCloseTo(0.92);
-    expect(qualityOf({ imageType: "PDF" })).toBeCloseTo(0.8);
+    expect(qualityOf({ imageType: "JPEG" })).toBe(1);
+    expect(qualityOf({ imageType: "PDF" })).toBe(0.76);
   });
 });
 
 describe("export files", () => {
-  it("plans paths: slashes make folders, unsafe characters go, taken names get ' 2'", () => {
+  it("plans paths: slashes make folders, unsafe characters go, taken names get Figma's number (Frame1.png)", () => {
     expect(safeParts("button/pill/default.png")).toEqual(["button", "pill", "default.png"]);
     expect(safeParts("../a:b/..")).toEqual(["a-b"]);
     expect(safeParts("")).toEqual(["Untitled"]);
     expect(planExportPaths(["Frame 1.png", "Frame 1.png", "frame 1.png", "icons/a.svg"], (p) => p === "icons/a.svg")).toEqual([
       "Frame 1.png",
-      "Frame 1 2.png",
-      "frame 1 3.png",
-      "icons/a 2.svg",
+      "Frame 11.png",
+      "frame 12.png",
+      "icons/a1.svg",
     ]);
     expect(exportMime("x.jpg")).toBe("image/jpeg");
     expect(exportMime("x.pdf")).toBe("application/pdf");

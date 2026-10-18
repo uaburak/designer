@@ -233,14 +233,45 @@ async function writeClipboard(items: Record<string, Blob>, text?: string): Promi
   return false;
 }
 
-/** Copy as PNG (⇧⌘C): the selection as one image at 2x. */
+/**
+ * A PNG onto the clipboard as Figma writes it: `image/png` and the web custom format `web image/png` in one item (the
+ * custom one dropped where the browser refuses it). Throws what the write threw.
+ */
+async function writePng(bytes: Uint8Array): Promise<void> {
+  const blob = () => new Blob([bytes as BlobPart], { type: "image/png" });
+  try {
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": blob(), "web image/png": blob() })]);
+  } catch (e) {
+    if ((e as Error).name === "NotAllowedError" || (e as Error).name === "SecurityError") throw e;
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": blob() })]);
+  }
+}
+
+/**
+ * Copy as PNG (⇧⌘C): the selection as one image at 2x (atlas 15 §10). When the browser refuses the write because the
+ * render took too long to count as the person's gesture (NotAllowedError / SecurityError), the toast says the export
+ * is done and its button writes it once more; any other failure offers Retry.
+ */
 export async function copyAsPng(ed: EditorController): Promise<void> {
   const refs = ed.selection;
   if (!refs.length || !exportAllowed(ed)) return;
   const r = await renderExport(ed, refs, { imageType: "PNG", constraint: { type: "CONTENT_SCALE", value: 2 }, contentsOnly: true });
-  if ("error" in r) return void showToast({ message: t("Couldn't copy as PNG") });
-  const ok = await writeClipboard({ "image/png": new Blob([r.bytes as BlobPart], { type: "image/png" }) });
-  showToast({ message: ok ? t("Copied as PNG") : t("Couldn't copy as PNG") });
+  const retry = { label: t("Retry"), onAction: () => void copyAsPng(ed) };
+  if ("error" in r) return void showToast({ message: t("Couldn't copy as PNG"), action: retry });
+  try {
+    await writePng(r.bytes);
+    showToast({ message: t("Copied as PNG") });
+  } catch (e) {
+    const late = (e as Error).name === "NotAllowedError" || (e as Error).name === "SecurityError";
+    if (!late) return void showToast({ message: t("Couldn't copy as PNG"), action: retry });
+    showToast({
+      message: t("Export completed"),
+      action: {
+        label: t("Copy to clipboard"),
+        onAction: () => void writePng(r.bytes).then(() => showToast({ message: t("Copied as PNG") }), () => showToast({ message: t("Couldn't copy as PNG") })),
+      },
+    });
+  }
 }
 
 /** Copy as SVG: the selection's SVG markup, as text. */

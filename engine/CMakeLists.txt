@@ -99,6 +99,7 @@ add_library(eng_core STATIC
   src/export/Scene.cpp
   src/export/SvgWriter.cpp
   src/export/PdfWriter.cpp
+  src/export/TrueType.cpp
   src/export/Deflate.cpp
   src/motion/Easing.cpp
   src/motion/Fields.cpp
@@ -138,7 +139,7 @@ if(EMSCRIPTEN)
     target_compile_options(eng_core PRIVATE -O3 -flto -DNDEBUG)
     # The exporters run once per export, not per frame: built for size.
     set_source_files_properties(src/export/Export.cpp src/export/Scene.cpp src/export/SvgWriter.cpp src/export/PdfWriter.cpp
-      PROPERTIES COMPILE_OPTIONS "-Os")
+      src/export/TrueType.cpp PROPERTIES COMPILE_OPTIONS "-Os")
   else()
     target_compile_options(eng_core PRIVATE -O1 -g)
   endif()

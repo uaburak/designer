@@ -187,6 +187,8 @@ describe("round 10: the commands do what they say", () => {
     runEditorCommand(ed, "edit.copy-properties");
     engine.setSelection(["7:60"]);
     runEditorCommand(ed, "edit.paste-properties");
+    // Read from the system clipboard first (none here: the window's last copy).
+    await new Promise((r) => setTimeout(r, 0));
     expect((engine.readNode("7:60", { fields: ["opacity"] }) as { opacity: number }).opacity).toBeCloseTo(0.5);
     runEditorCommand(ed, "object.hide-other-layers");
     expect((engine.readNode("7:61", { fields: ["visible"] }) as { visible?: boolean }).visible).toBe(false);

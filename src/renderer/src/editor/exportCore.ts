@@ -4,7 +4,7 @@
  * and encoded here (PNG with Figma's 72 × scale DPI); SVG / PDF are written by the engine with the images they inline
  * handed to it first. No editor state: this module only needs an Engine.
  */
-import type { Engine } from "@/engine/Engine";
+import type { ColorProfile, Engine } from "@/engine/Engine";
 import type { ExportOutput, Guid, Pixels } from "@/engine/codec";
 import { formatOf, isVectorFormat, pngWithDpi, qualityOf, type ExportSettings } from "./model/exports";
 
@@ -38,12 +38,54 @@ async function exportWhenReady(engine: Engine, refs: readonly Guid[], settings: 
   return out;
 }
 
-/** Straight RGBA → a PNG or JPEG file. */
-export async function encodePixels(p: Pixels, type: "image/png" | "image/jpeg", quality?: number): Promise<Uint8Array> {
+/**
+ * The profile an export's pixels are written in (atlas 15 §4, Color profile): sRGB or Display P3 as the setting says,
+ * "Same as file" (DOCUMENT) the document's own.
+ */
+export function exportProfile(settings: ExportSettings, document: ColorProfile): ColorProfile {
+  return settings.colorProfile === "SRGB" ? "SRGB" : settings.colorProfile === "DISPLAY_P3_V4" ? "DISPLAY_P3" : document;
+}
+
+// The linear-light matrices between the two profiles (ds/util/color.ts p3ToSrgb / srgbToP3); both use the sRGB curve.
+const P3_TO_SRGB = [1.2249401, -0.2249404, 0, -0.0420569, 1.0420571, 0, -0.0196376, -0.0786361, 1.0982735];
+const SRGB_TO_P3 = [0.8224621, 0.177538, 0, 0.0331941, 0.9668058, 0, 0.0170827, 0.0723974, 0.9105199];
+
+/**
+ * Straight RGBA pixels from one profile's numbers to the other's, so they look the same (into sRGB, P3 colours outside
+ * it clamp): each byte through the sRGB curve (a 256-entry table), the matrix, and back (a 4096-entry table).
+ */
+export function convertPixels(pixels: Uint8Array, from: ColorProfile, to: ColorProfile): Uint8Array {
+  if (from === to) return pixels;
+  const m = from === "DISPLAY_P3" ? P3_TO_SRGB : SRGB_TO_P3;
+  const lin = new Float32Array(256);
+  for (let i = 0; i < 256; i++) {
+    const v = i / 255;
+    lin[i] = v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  }
+  const back = new Uint8Array(4096);
+  for (let i = 0; i < 4096; i++) {
+    const v = i / 4095;
+    back[i] = Math.round(255 * (v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055));
+  }
+  const enc = (v: number) => back[v <= 0 ? 0 : v >= 1 ? 4095 : Math.round(v * 4095)];
+  const out = new Uint8Array(pixels.length);
+  for (let i = 0; i < pixels.length; i += 4) {
+    const r = lin[pixels[i]], g = lin[pixels[i + 1]], b = lin[pixels[i + 2]];
+    out[i] = enc(m[0] * r + m[1] * g + m[2] * b);
+    out[i + 1] = enc(m[3] * r + m[4] * g + m[5] * b);
+    out[i + 2] = enc(m[6] * r + m[7] * g + m[8] * b);
+    out[i + 3] = pixels[i + 3];
+  }
+  return out;
+}
+
+/** Straight RGBA → a PNG or JPEG file, tagged with its profile (a Display P3 file carries the P3 profile). */
+export async function encodePixels(p: Pixels, type: "image/png" | "image/jpeg", quality?: number, profile: ColorProfile = "SRGB"): Promise<Uint8Array> {
+  const colorSpace: PredefinedColorSpace = profile === "DISPLAY_P3" ? "display-p3" : "srgb";
   const canvas = new OffscreenCanvas(p.width, p.height);
-  const ctx = canvas.getContext("2d");
+  const ctx = canvas.getContext("2d", { colorSpace });
   if (!ctx) throw new Error("no 2D canvas");
-  ctx.putImageData(new ImageData(new Uint8ClampedArray(p.pixels), p.width, p.height), 0, 0);
+  ctx.putImageData(new ImageData(new Uint8ClampedArray(p.pixels), p.width, p.height, { colorSpace }), 0, 0);
   const blob = await canvas.convertToBlob({ type, quality });
   return new Uint8Array(await blob.arrayBuffer());
 }
@@ -106,9 +148,12 @@ export async function renderEngineExport(engine: Engine, images: ImageBytes | nu
     if (out.status === "error") return { error: out.message || "Nothing to export" };
     if (out.status !== "ok") return { error: "Export failed" };
     if ("bytes" in out) return { bytes: out.bytes };
-    if (format === "JPEG") return { bytes: await encodePixels(out.pixels, "image/jpeg", qualityOf(settings)) };
+    // The engine draws in the document's profile: the pixels converted to the setting's, and tagged with it.
+    const profile = exportProfile(settings, engine.colorProfile);
+    const pixels = { ...out.pixels, pixels: convertPixels(out.pixels.pixels, engine.colorProfile, profile) };
+    if (format === "JPEG") return { bytes: await encodePixels(pixels, "image/jpeg", qualityOf(settings), profile) };
     const scale = settings.constraint?.type === "CONTENT_SCALE" || !settings.constraint ? (settings.constraint?.value ?? 1) : 1;
-    return { bytes: pngWithDpi(await encodePixels(out.pixels, "image/png"), 72 * scale) };
+    return { bytes: pngWithDpi(await encodePixels(pixels, "image/png", undefined, profile), 72 * scale) };
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) };
   } finally {
