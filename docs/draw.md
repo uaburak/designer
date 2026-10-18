@@ -966,3 +966,15 @@ export function splitTValue(tValue: number): { segment: number; position: number
 - **Clipboard**: copy appends the BRUSH nodes strokes use; paste maps each to this file's brush with the same name, type, size and network bytes, else copies it onto the Internal Only Canvas, and remaps `strokeBrushGuid`.
 - **Multi-edit** (`VectorEditing.cpp`): other held layers' selections in `VectorSession::others`; their points drawn, hit, marquee / lasso-selected, dragged / nudged by the same world delta, deleted-and-healed per layer, one step; Shift-click adds a layer, ⌘-click edits one alone.
 - **Open**: see docs/handoff.md 2026-10-12 7b entry.
+
+### Sweep (2026-10-18)
+
+The Atlas sweep (branch `worktree-agent-ac2399b6b638fb5ab`) went through the open items of 7a, 7b and 7c:
+- **Closed**: in SVG, a transform group's copies no longer repeat ids — each copy's ids (its layers', its inline
+  masks') are made unique as layer ids are ("Star" → "Star_3"), the `url(#…)` / `href` references inside it following
+  (`SvgWriter::uniqueIds`; `r7.draw.test.cpp`). Draw's noise and texture sliders are exponential (atlas 08's sweep).
+- **Stays open**: SVG / PDF still leave PATTERN paints out (PNG / JPG draw them; a vector tile is its own piece of work); the brush a
+  chrome installs on tool select is a SYSTEM write (undoing a stroke leaves it, as an unused brush stays — [unverified]
+  either way); Bend / Cut / Paint / Erase across held layers and the panel's X / Y Mixed across them (the engine's
+  point writes are the edited layer's); Text on path on a shape inside a transform group (Figma's placement unread);
+  every [unverified] constant (§11).

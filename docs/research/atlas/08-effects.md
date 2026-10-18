@@ -375,6 +375,17 @@ Compared with `src/renderer/src/editor/panels/design/Effects.tsx`, `editor/model
 - **Progressive blur's canvas edit mode**: opening a progressive blur's settings on one layer starts it (`Editor::startBlurEdit`, the gradient session with `effect` set; `engine_blur_edit`, ended by `engine_paint_edit_end`), the canvas shows the line and its Start / End handles at startOffset / endOffset; a drag moves one (one undo step, "Edit progressive blur"); hovering or focusing the Start / End field marks its handle (`engine_blur_edit_handle`); `PAINT_EDIT` reports `paints: "EFFECT"`. Handles move freely past the box and without snapping (open question). Native tests: `editor.vector.test.cpp` "progressive blur handles".
 - **Not built**: the type menu's 50 ms hover preview, the shader effect section split in the list, "Show behind transparent areas"' exact knockout rule (still "not every fill opaque"), the glass callout and effect styles' glass warnings, Rotate 3D / Perspective.
 
+**Sweep (2026-10-18)** — branch `worktree-agent-ac2399b6b638fb5ab`:
+- **Exponential sliders** (`draw/panels/DrawSliders.tsx` `exponentialSlider`): Figma's EXPONENTIAL transform (module
+  `606730` `Bk`): position p over [min, max] gives min + (max − min) · 10^(3 (f − 1)), rounded to 2 decimals, and back
+  with log10. Draw's noise size X / Y and texture size X / Y now each have one (0.01–100), the texture radius too
+  (it was a linear 0–100).
+- **The type menu's hover preview**: hovering a type shows it after 50 ms (the DS Select's `onPreview`); previews and
+  the pick start from the effect as it was; a shader isn't previewed.
+- **Stays open**: the shader section split (its rules live with the code-component chooser); the knockout rule and
+  which layers glass is allowed on (`disallowedForGlassType` comes from the wasm), so the glass warnings and the
+  callout (English unattested) wait; Rotate 3D / Perspective.
+
 ## 13. Open questions
 
 | Question | Live probe that settles it |

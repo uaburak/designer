@@ -328,6 +328,10 @@ Not done / open:
 - **Preset recognition** (exact W × H, else swapped): what it drives in UI3 — the header's title or a check in the presets menu — needs a live look at a preset-sized frame; the live `frame.txt` header says "Frame".
 - The note's English for the boolean update is unverified (only `vector_operation.update_text` / `update_button` are shipped); corner smoothing on polygons / stars / vectors stays Open Q4.
 
+**Sweep (2026-10-18)**: nothing on this list can be built without Figma itself — the arc pills' format, the paint
+bucket's chip, the section paste fallback, the presets' recognition and corner smoothing beyond rectangles each wait on
+the live probe named above. Draw's own open items are in `docs/draw.md` ("Sweep (2026-10-18)").
+
 ## 15. Open questions (and the probe that settles each)
 
 1. Arc handle snapping (which angles, with / without ⇧) and how the start handle is reached — live: drag the sweep
