@@ -12,10 +12,15 @@
   }
   var root = document.documentElement;
   root.setAttribute("data-theme", dark ? "dark" : "light");
-  // Settings › Enhance contrast (ds/theme.ts): main's in the desktop app, the page's own in a browser.
+  // Settings › Enhance contrast (ds/theme.ts): main's in the desktop app, the page's own in a browser ("more" / "off"
+  // once set, else the system's prefers-contrast).
   var contrast = false;
   if (desktop) contrast = desktop.contrast === true;
-  else try { contrast = localStorage.getItem("designer-contrast") === "more"; } catch (e) { /* off */ }
+  else {
+    var saved = null;
+    try { saved = localStorage.getItem("designer-contrast"); } catch (e) { /* the system's */ }
+    contrast = saved === "more" || (saved !== "off" && window.matchMedia("(prefers-contrast: more)").matches);
+  }
   if (contrast) root.setAttribute("data-contrast", "more");
   root.style.colorScheme = dark ? "dark" : "light";
   // The page's background until the app's CSS is there: the tab bar's grey in its view, the page's white or dark elsewhere.

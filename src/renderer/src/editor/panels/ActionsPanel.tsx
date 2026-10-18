@@ -26,6 +26,7 @@ import type { PluginRun } from "../plugins/host";
 import { allTabEmptyNote, takeRequestedTab } from "./actionsTab";
 import { frecencyOf, loadFrecency, matchScore, popularity, rankScore, rememberRun, type FrecencyHistory } from "./actionsRank";
 import { commandForKey } from "../commands";
+import { pref } from "../preferences";
 import { useEditor, type EditorController } from "../controller";
 import { insertInstance } from "../components";
 import { useUI } from "../hooks";
@@ -408,6 +409,11 @@ function Actions() {
           } else if (e.key === "Tab" && prompt) {
             e.preventDefault();
             pick(active);
+          } else if (e.key === "Tab" && pref(ed.ui.get(), "actionsTabFocus")) {
+            // Accessibility settings' simpler focus navigation (atlas 21 §4.1 row 3): Tab / ⇧Tab go through the
+            // results as ↓ / ↑ do, the focus staying in the search field.
+            e.preventDefault();
+            step(e.shiftKey ? -1 : 1);
           } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
             e.preventDefault();
             step(e.key === "ArrowDown" ? 1 : -1);

@@ -8,8 +8,11 @@ import { askCrashed, askFlushFailed, askFlushTimeout, askUnresponsive, tellFileE
 import { exportPreview, importFiles, saveLocalCopy } from "./files";
 import { onWorkspaceEvent, readyStore, storeClient, workspaceDir } from "./storeHost";
 import { SpareEditor } from "./spare";
-import { menuSignedOut } from "./menu";
+import { menuSignedOut, refreshAppMenu } from "./menu";
+import { reloadAllTabs, setGraphicsBackend, toggleHardwareAcceleration } from "./troubleshooting";
 import { setThemePreference } from "./theme";
+import { setInterfaceScale, stepInterfaceScale, zoomFactor } from "./interfaceScale";
+import { DEFAULT_ZOOM_STOP } from "../shared/interfaceScale";
 import { adoptView, createView, destroyView, viewOf } from "./views";
 import type { WindowController } from "./window";
 import { t, tp } from "../shared/i18n";
@@ -386,6 +389,26 @@ export class TabManager {
     };
     if (!rt.crashed) void askFlush(rt.view.webContents, "reload").then(again);
     else again();
+  }
+
+  /**
+   * Help › Troubleshooting › Reload All Tabs (atlas 21 §7), and Graphics Backend's reload: every loaded tab again — each
+   * file's changes flushed first, as `reload` does — its page's address rewritten by `rewrite` when given (the backend's
+   * `?force-…` switch, troubleshooting.ts).
+   */
+  reloadAll(rewrite?: (url: string) => string) {
+    for (const [id, rt] of this.runtime) {
+      const go = () => {
+        if (this.runtime.get(id) !== rt || rt.view.webContents.isDestroyed()) return;
+        rt.crashed = false;
+        if (this.tab(id)?.kind !== "new-tab") this.dispatch({ type: "status", id, status: "loading" });
+        const url = rt.view.webContents.getURL();
+        if (rewrite && url && rewrite(url) !== url) void rt.view.webContents.loadURL(rewrite(url)).catch(() => {});
+        else rt.view.webContents.reload();
+      };
+      if (!rt.crashed && this.tab(id)?.kind !== "new-tab") void askFlush(rt.view.webContents, "reload").then(go);
+      else go();
+    }
   }
 
   /** Home's page again (another account is current, docs/desktop.md §18.7): its lists, spaces and orgs are the new account's. */
@@ -778,7 +801,7 @@ export class TabManager {
         { label: t("Close All Tabs"), click: () => void this.close(tabs.map((o) => o.id)) },
       ];
     }
-    Menu.buildFromTemplate(items).popup({ window: this.ctl.win, x: Math.round(x), y: Math.round(y) });
+    Menu.buildFromTemplate(items).popup({ window: this.ctl.win, x: Math.round(x * zoomFactor()), y: Math.round(y * zoomFactor()) });
   }
 
   /** Rename File: the tab in front, then its editor's own rename (the title field). */
@@ -803,7 +826,7 @@ export class TabManager {
       // Its tabs closed, each flushed first as any close.
       { label: t("Delete group"), click: () => void this.close(this.state.tabs.filter((tab) => tab.groupId === groupId).map((tab) => tab.id)) },
     ];
-    Menu.buildFromTemplate(items).popup({ window: this.ctl.win, x: Math.round(x), y: Math.round(y) });
+    Menu.buildFromTemplate(items).popup({ window: this.ctl.win, x: Math.round(x * zoomFactor()), y: Math.round(y * zoomFactor()) });
   }
 
   /**
@@ -823,7 +846,7 @@ export class TabManager {
       items.push({ label: t("Recently closed tabs"), enabled: false });
       for (const entry of closed) items.push({ label: entry.title, click: () => void this.reopenClosed(entry) });
     }
-    Menu.buildFromTemplate(items).popup({ window: this.ctl.win, x: Math.round(x), y: Math.round(y) });
+    Menu.buildFromTemplate(items).popup({ window: this.ctl.win, x: Math.round(x * zoomFactor()), y: Math.round(y * zoomFactor()) });
   }
 
   // ── The menu bar (src/shared/commands.ts; docs/desktop.md §8) ──
@@ -876,7 +899,8 @@ export class TabManager {
       if (!item) continue;
       const enabled = this.menuEnabled(id);
       if (item.enabled !== enabled) item.enabled = enabled;
-      if (commandSpec(id).kind === "checkbox") {
+      // An app item's check is main's own (Disable Hardware Acceleration, menu.ts); the rest are the view's.
+      if (commandSpec(id).kind === "checkbox" && commandSpec(id).scope !== "app") {
         const on = checked[id] === true;
         if (item.checked !== on) item.checked = on;
       }
@@ -917,6 +941,21 @@ export class TabManager {
         return;
       case "help.open-data-folder":
         return void shell.openPath(workspaceDir());
+      case "app.interface-scale-reset":
+        return void setInterfaceScale(DEFAULT_ZOOM_STOP);
+      case "app.interface-scale-larger":
+        return void stepInterfaceScale(1);
+      case "app.interface-scale-smaller":
+        return void stepInterfaceScale(-1);
+      case "app.disable-hardware-acceleration":
+        // Cancelled, the check goes back to what is kept.
+        return void toggleHardwareAcceleration(this.ctl.win).then(() => refreshAppMenu());
+      case "app.graphics-backend-default":
+      case "app.graphics-backend-webgl2":
+      case "app.graphics-backend-webgpu":
+        return setGraphicsBackend(id === "app.graphics-backend-webgl2" ? "webgl2" : id === "app.graphics-backend-webgpu" ? "webgpu" : "default");
+      case "app.reload-all-tabs":
+        return reloadAllTabs();
       case "window.next-tab":
         return this.activate(neighbourTab(this.state, 1));
       case "window.previous-tab":

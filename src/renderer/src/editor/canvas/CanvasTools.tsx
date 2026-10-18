@@ -5,7 +5,7 @@
  */
 import { t, useT } from "@/i18n";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Dialog, evaluate, Icon, Swatch, TextInput } from "@/ds";
+import { evaluate, FloatingPanel, Icon, NumericInput, size, Swatch, TextInput } from "@/ds";
 import { useTool } from "@/engine/hooks";
 import { useEditor } from "../controller";
 import { useLocalAssets, useUI } from "../hooks";
@@ -175,57 +175,54 @@ function Loupe() {
   );
 }
 
-/** Preferences › Nudge amount…: Small nudge (the arrows) and Big nudge (⇧ arrows), page units (unverified wording). */
+/**
+ * Figma's Nudge amount fields (atlas 21 §3.1, `NudgeAmountPicker`): Small nudge at least 0.1, Big nudge at least 1, no
+ * upper bound; each field's own ↑ ↓ by 1, ⇧ by 10.
+ */
+export const NUDGE_FIELDS = [
+  { key: "small", label: "Small nudge", min: 0.1 },
+  { key: "big", label: "Big nudge", min: 1 },
+] as const;
+
+/**
+ * Preferences › Nudge amount… (atlas 21 §3.1): Figma's draggable window, not a modal — 180 wide, opened at the window's
+ * middle a third of the way down. Each committed value is kept at once (no Save); Enter in either field, Esc or × close
+ * it.
+ */
 export function NudgeDialog() {
   const open = useUI((s) => !!s.nudgeDialog);
-  return open ? <NudgeForm /> : null;
+  return open ? <NudgeWindow /> : null;
 }
 
-function NudgeForm() {
+function NudgeWindow() {
   useT();
   const ed = useEditor();
   const current = useUI((s) => s.nudge) ?? DEFAULT_NUDGE;
-  const [small, setSmall] = useState(String(current.small));
-  const [big, setBig] = useState(String(current.big));
+  const at = useMemo(() => new DOMRect(window.innerWidth / 2 - size["nudge-window"] / 2, window.innerHeight / 3, 0, 0), []);
   const close = () => {
     ed.ui.set({ nudgeDialog: false });
     ed.focusCanvas();
   };
-  const s = evaluate(small), b = evaluate(big);
-  const valid = Number.isFinite(s) && s > 0 && Number.isFinite(b) && b > 0;
   return (
-    <Dialog
-      title={t("Nudge amount")}
-      open
-      onClose={close}
-      footer={
-        <>
-          <Button variant="secondary" onClick={close}>
-            {t("Cancel")}
-          </Button>
-          <Button
-            variant="primary"
-            disabled={!valid}
-            onClick={() => {
-              setNudge(ed, { small: s, big: b });
-              close();
-            }}
-          >
-            {t("Save")}
-          </Button>
-        </>
-      }
-    >
-      <div className={styles.form}>
-        <div className={styles.row}>
-          <span className={styles.rowLabel}>{t("Small nudge")}</span>
-          <TextInput label={t("Small nudge")} value={small} onChange={setSmall} autoFocus />
-        </div>
-        <div className={styles.row}>
-          <span className={styles.rowLabel}>{t("Big nudge")}</span>
-          <TextInput label={t("Big nudge")} value={big} onChange={setBig} />
-        </div>
+    <FloatingPanel title={t("Nudge amount")} anchor={at} placement="bottom-start" gap={0} width={size["nudge-window"]} onClose={close}>
+      <div className={styles.nudgeForm} data-nudge-window="">
+        {NUDGE_FIELDS.map((f) => (
+          <div key={f.key} className={styles.nudgeRow}>
+            <span className={styles.rowLabel}>{t(f.label)}</span>
+            <NumericInput
+              data-nudge-input={f.key}
+              label={t(f.label)}
+              value={current[f.key]}
+              min={f.min}
+              step={1}
+              bigStep={10}
+              scrub={false}
+              onChange={(v) => setNudge(ed, { ...current, [f.key]: Math.max(f.min, v) })}
+              onExit={(r) => r === "enter" && close()}
+            />
+          </div>
+        ))}
       </div>
-    </Dialog>
+    </FloatingPanel>
   );
 }

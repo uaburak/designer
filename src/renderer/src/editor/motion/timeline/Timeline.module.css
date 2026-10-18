@@ -75,6 +75,7 @@
   .layerRow[aria-selected="true"], .propertyRow[aria-selected="true"] { background: var(--figma-color-bg-selected); }
   .layerRow:focus-visible, .propertyRow:focus-visible { box-shadow: inset 0 0 0 var(--ds-focus-width) var(--ds-focus-color); }
   .chevron { display: flex; flex: none; width: 16px; height: 16px; color: var(--figma-color-icon-secondary); transition: transform 0.1s; }
+  @media (prefers-reduced-motion: reduce) { .chevron { transition: none; } }
   .chevron[data-open] { transform: rotate(90deg); }
   .glyph { display: flex; flex: none; color: var(--figma-color-icon-secondary); }
   .name { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }

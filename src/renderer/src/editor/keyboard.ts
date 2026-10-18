@@ -59,9 +59,11 @@ const isControl = (target: EventTarget | null) =>
 
 /**
  * A key the engine didn't use while a text is being edited (the hidden field has the focus, so the shortcut layer
- * doesn't see it): the Text commands that act on the selected characters through the panel's path — ⇧⌘U Create link.
+ * doesn't see it): the Text commands that act on the selected characters through the panel's path — ⇧⌘U Create link;
+ * none with Accessibility settings' "Ignore shortcuts in text fields" on (atlas 21 §4.1).
  */
 export function runTextKey(ed: EditorController, e: KeyboardEvent): boolean {
+  if (pref(ed.ui.get(), "textInputShortcutBlocking")) return false;
   const c = commandForKey(e);
   if (!c || c.id !== "text.create-link") return false;
   if (isEnabled(ed, c)) c.run(ed);

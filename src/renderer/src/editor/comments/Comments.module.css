@@ -46,6 +46,7 @@
     from { transform: scale(0.2); }
     to { transform: scale(1); }
   }
+  @media (prefers-reduced-motion: reduce) { .pin[data-fresh] { animation: none; } }
   .pin[data-hover] { z-index: 1; width: auto; height: auto; }
 
   /* Hover: the pin grows into a preview card from the same bottom-left point (240 wide) */

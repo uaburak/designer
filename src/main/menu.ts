@@ -3,6 +3,8 @@ import { command, layoutCommands, MENU_LAYOUT, registersAccelerator, runsFromMen
 import { acceleratorFor, type KeyCombo } from "../shared/shortcuts";
 import { getLocale, t, tx } from "../shared/i18n";
 import { readSettings } from "./session";
+import { interfaceScale } from "./interfaceScale";
+import { graphicsBackend, hardwareAccelerationDisabled } from "./troubleshooting";
 import { checkForUpdates, onUpdaterChange, restartToUpdate, updaterStatus } from "./updater";
 import type { WindowController } from "./window";
 
@@ -38,6 +40,8 @@ export function appMenu(current: () => WindowController | null, dev: boolean, bi
       type: spec.kind === "checkbox" ? "checkbox" : spec.kind === "radio" ? "radio" : "normal",
       // Disabled until the view in front says otherwise (TabManager.applyMenu runs once the window is up).
       enabled: signedOut ? enabledSignedOut(id) : spec.scope === "app" || spec.scope === "shell",
+      // Help › Troubleshooting's checks are main's (troubleshooting.ts).
+      ...appChecked(id),
       ...extra,
       click: (_item, _win, event: KeyboardEvent) => {
         // A plain key (N, [, ⇧V…) a page left unhandled is typing in a text field, never this command (runsFromMenuBar).
@@ -57,6 +61,8 @@ export function appMenu(current: () => WindowController | null, dev: boolean, bi
       if (e === "-") return { type: "separator" };
       if (typeof e === "string") return e === "view.reload-tab" && dev ? item(e, { accelerator: "CmdOrCtrl+Shift+R", registerAccelerator: true }) : item(e);
       if ("role" in e) return roleItem(e.role);
+      // View › Interface Scale: the scale now as a line of its own above its items (Figma desktop's "{n}%").
+      if (e.submenu === "Interface Scale") return { label: t(e.submenu), submenu: [{ id: "app.interface-scale-current", label: `${interfaceScale()}%`, enabled: false }, ...entries(e.items)] };
       return { label: t(e.submenu), submenu: entries(e.items) };
     });
 
@@ -94,6 +100,13 @@ export function appMenu(current: () => WindowController | null, dev: boolean, bi
     }),
   ];
   return Menu.buildFromTemplate(template);
+}
+
+/** Help › Troubleshooting's check and radio set, as main keeps them (troubleshooting.ts). */
+function appChecked(id: CommandId): Partial<MenuItemConstructorOptions> {
+  if (id === "app.disable-hardware-acceleration") return { checked: hardwareAccelerationDisabled() };
+  if (id.startsWith("app.graphics-backend-")) return { checked: graphicsBackend() === id.slice("app.graphics-backend-".length) };
+  return {};
 }
 
 /** A role's item: Electron's own English label, or the language's (src/shared/i18n) when the UI isn't in English. */
