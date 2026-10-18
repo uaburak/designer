@@ -8,23 +8,24 @@
 import type { Guid, NodeFields } from "@/engine/codec";
 import type { EditorController } from "../controller";
 import { MOTION_UI_DEFAULT } from "../uiStore";
-import { watchMotionLayer } from "../motion/motionState";
+import { motionLayerOn, watchMotionLayer } from "../motion/motionState";
 import { categoriesOf, encodeCategories, encodeNotes, notesOf, type AnnotationData, type CategoriesJson, type Category, type Note } from "./annotations";
 
 /** Design, Dev Mode, or Draw (round 10, View › Switch to Draw: the Design editor with the Pencil to hand — Figma Draw's own brushes and panels aren't built). */
-export type Mode = "design" | "dev" | "draw" | "motion";
+export type Mode = "design" | "dev" | "draw" | "social" | "motion";
 
 export const modeOf = (ed: EditorController): Mode => ed.ui.get().mode ?? "design";
 export const annotationsShown = (ed: EditorController): boolean => ed.ui.get().annotations ?? true;
 
 /** The engine's view of the mode and of View › Annotations. */
-function syncEngine(ed: EditorController): void {
+export function syncEngine(ed: EditorController): void {
   if (ed.engine.destroyed) return;
   const dev = modeOf(ed) === "dev";
   ed.engine.setViewerMode(dev, { devEdits: true });
   ed.engine.setAnnotationView(annotationsShown(ed), dev);
   // Motion (docs/motion.md §6.1): on, the focused root plays at the playhead (the engine's motion layer); off, base values.
-  const motion = modeOf(ed) === "motion";
+  // Social turns it on while the selected post's timeline shows (docs/social.md §6.1).
+  const motion = motionLayerOn(ed);
   const m = ed.ui.get().motion ?? MOTION_UI_DEFAULT;
   try {
     ed.engine.setMotion({ on: motion, root: null, timeUs: m.timeUs, autoKeyframe: m.autoKeyframe });
@@ -37,13 +38,18 @@ function syncEngine(ed: EditorController): void {
   watchMotionLayer(ed, motion);
 }
 
-/** Design ⇄ Dev Mode (⇧D, the toolbar's switch) ⇄ Draw. Leaving Dev Mode leaves focus view. */
+/**
+ * Design ⇄ Dev Mode (⇧D, the toolbar's switch) ⇄ Draw ⇄ Social ⇄ Motion. Leaving Dev Mode leaves focus view. Social
+ * opens on its Posts tab (its agent is the right panel, docs/social.md §6.2); leaving it, Posts gives way to File.
+ */
 export function setMode(ed: EditorController, mode: Mode): void {
   if (modeOf(ed) === mode) return;
   if (mode !== "dev" && ed.ui.get().focus) closeFocus(ed);
   // Leaving Motion stops the clock; entering it starts from the playhead as it was.
   const motion = mode === "motion" ? (ed.ui.get().motion ?? MOTION_UI_DEFAULT) : { ...(ed.ui.get().motion ?? MOTION_UI_DEFAULT), playing: false };
-  ed.ui.set({ mode, motion, statusMenu: null, annotationEditor: null, measurementEditor: null });
+  const tab = ed.ui.get().railTab;
+  const railTab = mode === "social" ? "posts" : tab === "posts" ? "file" : tab;
+  ed.ui.set({ mode, motion, railTab, socialTimeline: false, statusMenu: null, annotationEditor: null, measurementEditor: null });
   syncEngine(ed);
   ed.focusCanvas();
 }

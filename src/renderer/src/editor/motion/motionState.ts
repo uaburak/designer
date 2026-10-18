@@ -16,15 +16,18 @@ export function setMotionUi(ed: EditorController, patch: Partial<MotionUIState>)
   ed.ui.set({ motion: { ...motionUi(ed), ...patch } });
 }
 
+/** The engine's motion layer is on in Motion mode, and in Social while the selected post's timeline shows (docs/social.md §6.1). */
+export const motionLayerOn = (ed: EditorController): boolean => modeOf(ed) === "motion" || (modeOf(ed) === "social" && !!ed.ui.get().socialTimeline);
+
 /**
- * The engine's view state from the UI's (on only in Motion mode). The motion layer's preview writes send no node event,
+ * The engine's view state from the UI's (on in Motion mode, and under Social's timeline: motionLayerOn). The motion layer's preview writes send no node event,
  * so the store is told to read the nodes again: the panels show the values at the playhead (docs/motion.md §6.5).
  */
 export function pushMotion(ed: EditorController): boolean {
   if (ed.engine.destroyed) return false;
   const m = motionUi(ed);
   try {
-    ed.engine.setMotion({ on: modeOf(ed) === "motion", root: null, timeUs: m.timeUs, autoKeyframe: m.autoKeyframe });
+    ed.engine.setMotion({ on: motionLayerOn(ed), root: null, timeUs: m.timeUs, autoKeyframe: m.autoKeyframe });
   } catch {
     return false;
   }

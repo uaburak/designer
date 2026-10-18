@@ -5,7 +5,7 @@
  * `Overlays`, not the view between the panels): nothing about the panels or
  * the canvas moves it, so a panel drag neither moves nor re-renders it. A slot shows the last
  * tool chosen in it; tools the engine doesn't implement yet are disabled.
- * The mode switch: Draw, Design, Motion, Dev Mode. In vector edit
+ * The mode switch: Draw, Design, Social, Motion, Dev Mode; Social adds its slot (docs/social.md §6.6). In vector edit
  * mode Figma's secondary toolbar opens 8 over it (live toolbar/vector-edit-toolbar.txt): Move, Lasso │ Paint, Bend,
  * Cut, Erase │ More ▾ (Vector editing tools: Shape builder, Variable width) │ Close.
  * Draw mode (docs/draw.md §5.1, §5.2; round 7c): the toolbar's Draw tool set (Move ▾, Shape ▾, Pen, Pencil, Brush,
@@ -29,6 +29,7 @@ import { ImageToolbar } from "../imageTools/ImageToolbar";
 import { DrawToolSettings, isDrawTool } from "../draw/DrawToolSettings";
 import { attachDrawTools } from "../draw/drawTools";
 import { PathToolbar, usePathTool } from "./PathToolbar";
+import { SocialToolbarSlot } from "../social/NewPostMenu";
 
 /** The toolbar's tools → the engine's (null: a tool the engine has no id for). */
 export const ENGINE_TOOL: Record<ToolId, ToolName | null> = {
@@ -85,7 +86,8 @@ export function BottomToolbar() {
   const dev = useUI((s) => s.mode === "dev");
   const draw = useUI((s) => s.mode === "draw");
   const motion = useUI((s) => s.mode === "motion");
-  const mode = dev ? "dev" : draw ? "draw" : motion ? "motion" : "design";
+  const social = useUI((s) => s.mode === "social");
+  const mode = dev ? "dev" : draw ? "draw" : motion ? "motion" : social ? "social" : "design";
   const [groups, setGroups] = useState<Partial<Record<ToolGroupId, ToolId>>>({});
   // A tool chosen by key is remembered in its slot too.
   if (groups[groupOf(tool, mode)] !== tool) setGroups({ ...groups, [groupOf(tool, mode)]: tool });
@@ -132,9 +134,11 @@ export function BottomToolbar() {
       onMode={(m) => {
         if (m === "dev" || m === "design") setMode(ed, m);
         else if (m === "draw") runEditorCommand(ed, "view.switch-to-draw");
+        else if (m === "social") runEditorCommand(ed, "view.mode-social");
         else runEditorCommand(ed, "view.switch-to-motion");
       }}
       shortcuts={shortcuts}
+      slot={social ? <SocialToolbarSlot /> : undefined}
       />
     </>
   );

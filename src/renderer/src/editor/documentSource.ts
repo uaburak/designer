@@ -198,6 +198,8 @@ export interface EditorUiState {
   pages: Record<string, { viewport: { x: number; y: number; zoom: number }; selection: string[] }>;
   leftPanelWidth: number;
   rightPanelWidth: number;
+  /** Social mode's current brand (docs/social.md §6.2) */
+  socialBrandId?: string | null;
 }
 
 /** A saved version, as the version history lists it. */

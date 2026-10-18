@@ -44,7 +44,7 @@ describe("EditorToolbar", () => {
     const tools = $$('[data-ds="ToolButton"] > button[aria-pressed]', m!.host);
     expect(tools.map((t) => t.getAttribute("aria-label"))).toEqual(["Move", "Section", "Ellipse", "Pen", "Text", "Comment", "Actions"]);
     expect(tools.filter((t) => t.getAttribute("aria-pressed") === "true").map((t) => t.getAttribute("aria-label"))).toEqual(["Ellipse"]);
-    expect($$('[data-ds="ModeSwitch"] [role="radio"]', m!.host).map((b) => `${b.getAttribute("aria-label")}:${b.getAttribute("aria-checked")}`)).toEqual(["Draw:false", "Design:true", "Motion:false", "Dev Mode:false"]);
+    expect($$('[data-ds="ModeSwitch"] [role="radio"]', m!.host).map((b) => `${b.getAttribute("aria-label")}:${b.getAttribute("aria-checked")}`)).toEqual(["Draw:false", "Design:true", "Social:false", "Motion:false", "Dev Mode:false"]);
   });
 
   it("chooses a slot's shown tool, a tool from its menu, and a mode", () => {

@@ -4,7 +4,7 @@
  * selection they were about, the agent's answer streamed with its steps, the turn's changes with Undo / Apply,
  * Stop while it runs, the agent and model under the message box), and Agent settings (AgentSettings.tsx).
  */
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ClipboardEvent, type CSSProperties, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
+import { Fragment, createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ClipboardEvent, type CSSProperties, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { NO_FILTER, filterChats, matchSnippet, splitMatches, type ChatFilter, type ChatSort } from "../../agents/chatList";
 import { Button, Dialog, EmptyState, Icon, IconButton, MenuButton, Portal, SearchField, Select, Spinner, cx, place, timeAgo, tooltipProps, useDismiss, type IconName } from "@/ds";
 import { readableError } from "@shared/agents/errors";
@@ -42,9 +42,18 @@ function useSelectionContext(service: AgentsService) {
   return useMemo(() => service.selectionContext() ?? [], [service, version]);
 }
 
-export function AgentsPanel() {
+/** Text put in the composer from outside the panel (Social's Ask agent…, docs/social.md §6.3), and its taking. */
+type ComposerDraft = { draft: { id: number; text: string } | null; taken: () => void };
+const DraftContext = createContext<ComposerDraft>({ draft: null, taken: () => {} });
+
+/**
+ * `placement`: the left panel's Agents tab (Design), or Social's right panel (docs/social.md §6.3) — one instance mounts
+ * at a time. `draft` / `onDraftTaken`: text the composer takes once, with the focus.
+ */
+export function AgentsPanel({ placement = "left", draft = null, onDraftTaken }: { placement?: "left" | "right"; draft?: { id: number; text: string } | null; onDraftTaken?: () => void } = {}) {
   useT();
   const [service, state] = useAgents();
+  const composerDraft = useMemo<ComposerDraft>(() => ({ draft, taken: () => onDraftTaken?.() }), [draft, onDraftTaken]);
   useEffect(() => {
     if (state.available && !state.providers.length && !state.providersLoading) void service.refreshProviders();
     // Once per panel: providers are refreshed from settings after that.
@@ -57,18 +66,20 @@ export function AgentsPanel() {
     </>
   );
   return (
-    <div className={styles.panel} data-agents="" data-view={state.view}>
-      <TabHeader title={t("Agents")} actions={actions} />
-      {!state.available ? (
-        <EmptyState icon="24.agents" title={t("Agents run in the desktop app")} body={t("Open this file in Wecra to chat with the AI tools on your computer.")} />
-      ) : state.view === "settings" ? (
-        <AgentSettings service={service} />
-      ) : state.view === "list" && state.chats.length ? (
-        <ChatList service={service} chats={state.chats} />
-      ) : (
-        <ChatView service={service} chat={service.currentChat()} />
-      )}
-    </div>
+    <DraftContext.Provider value={composerDraft}>
+      <div className={styles.panel} data-agents="" data-view={state.view} data-placement={placement}>
+        <TabHeader title={t("Agents")} actions={actions} />
+        {!state.available ? (
+          <EmptyState icon="24.agents" title={t("Agents run in the desktop app")} body={t("Open this file in Wecra to chat with the AI tools on your computer.")} />
+        ) : state.view === "settings" ? (
+          <AgentSettings service={service} />
+        ) : state.view === "list" && state.chats.length ? (
+          <ChatList service={service} chats={state.chats} />
+        ) : (
+          <ChatView service={service} chat={service.currentChat()} />
+        )}
+      </div>
+    </DraftContext.Provider>
   );
 }
 
@@ -649,6 +660,27 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
   const { list: allConnectors } = useConnectors(service.api);
   const input = useRef<HTMLTextAreaElement>(null);
   const [caret, setCaret] = useState(0);
+  // Text from outside (Social's Ask agent…): taken once, the caret at its end; an empty one only focuses the field.
+  const outside = useContext(DraftContext);
+  const [draftSeen, setDraftSeen] = useState<number | null>(null);
+  if (outside.draft && outside.draft.id !== draftSeen) {
+    setDraftSeen(outside.draft.id);
+    if (outside.draft.text) {
+      setText(outside.draft.text);
+      setCaret(outside.draft.text.length);
+    }
+  }
+  useEffect(() => {
+    if (!outside.draft) return;
+    outside.taken();
+    requestAnimationFrame(() => {
+      const end = input.current?.value.length ?? 0;
+      input.current?.focus();
+      input.current?.setSelectionRange(end, end);
+    });
+    // Once per draft.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [outside.draft?.id]);
   const [slashActive, setSlashActive] = useState(0);
   const [slashClosed, setSlashClosed] = useState<string | null>(null);
   const slash = slashQuery(text, caret);

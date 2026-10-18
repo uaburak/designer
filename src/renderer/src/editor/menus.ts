@@ -266,6 +266,9 @@ export const MAIN_MENU: Spec[] = [
       "view.multiplayer-cursors",
       "view.switch-to-draw",
       "view.switch-to-motion",
+      // Social (ours, docs/social.md §6.6): the mode, and its safe areas while in it
+      "view.mode-social",
+      (ed) => (modeOf(ed) === "social" ? commandItem(ed, "social.toggle-safe-areas") : null),
       // Live: "Switch to Dev Mode ⇧D", no check.
       (ed) => ({ ...withoutCheck(commandItem(ed, "view.dev-mode")), label: t("Switch to Dev Mode") }),
       {

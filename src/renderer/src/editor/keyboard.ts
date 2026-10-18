@@ -20,8 +20,8 @@ import { shortcutPrefs } from "./shortcuts/prefs";
 const VECTOR_KEYS: Record<string, VectorTool> = { KeyV: "MOVE", KeyQ: "LASSO", KeyP: "PEN", KeyB: "PAINT_BUCKET" };
 /** With ⇧ (live's Keyboard shortcuts panel, Shape: "While editing a shape… Paint ⇧B"). */
 const VECTOR_SHIFT_KEYS: Record<string, VectorTool> = { KeyB: "PAINT_BUCKET" };
-/** The editor as Figma's shortcut table names it (Design and Motion are Figma's Design, Draw its illustration). */
-const EDITOR = { design: "design", motion: "design", draw: "illustration", dev: "dev_handoff" } as const;
+/** The editor as Figma's shortcut table names it (Design, Motion and our Social are Figma's Design, Draw its illustration). */
+const EDITOR = { design: "design", social: "design", motion: "design", draw: "illustration", dev: "dev_handoff" } as const;
 
 /**
  * Figma's keys follow the editor (Dev Mode's V and ⇧D, Draw's B) and two preferences: Use number keys for opacity

@@ -25,7 +25,9 @@ type Open = { at: { x: number; y: number }; entries: MenuEntry[] } | null;
 /** The tabs' names under their icons: off unless View › Additional labels turned them on. */
 export const showsRailLabels = (s: { railLabels?: boolean }): boolean => s.railLabels === true;
 
-const TABS: { tab: RailTab; icon: "24.page" | "24.agents" | "24.assets" | "24.library" | "24.tools"; label: string; command?: string }[] = [
+const TABS: { tab: RailTab; icon: "24.social" | "24.page" | "24.agents" | "24.assets" | "24.library" | "24.tools"; label: string; command?: string }[] = [
+  // Social mode's own (docs/social.md §6.2) [ours]: the posts by campaign; shown only in Social
+  { tab: "posts", icon: "24.social", label: "Posts" },
   { tab: "file", icon: "24.page", label: "File", command: "view.layers" },
   { tab: "agents", icon: "24.agents", label: "Agents", command: "view.agents" },
   { tab: "assets", icon: "24.assets", label: "Assets", command: "view.assets" },
@@ -34,8 +36,11 @@ const TABS: { tab: RailTab; icon: "24.page" | "24.agents" | "24.assets" | "24.li
   { tab: "tools", icon: "24.tools", label: "Tools", command: "view.tools" },
 ];
 
-/** The tabs shown: the web app has no Agents (they run on the computer: CLI agents, the MCP server — docs/cloud.md §7) */
-const railTabs = () => (isWebApp() ? TABS.filter((x) => x.tab !== "agents") : TABS);
+/**
+ * The tabs shown: the web app has no Agents (they run on the computer: CLI agents, the MCP server — docs/cloud.md §7);
+ * Posts only in Social, which has no Agents tab (its agent is the right panel, docs/social.md §6.2)
+ */
+const railTabs = (social: boolean) => TABS.filter((x) => (x.tab === "posts" ? social : x.tab !== "agents" || (!social && !isWebApp())));
 
 /**
  * View › Minimize left navigation bar (round 10; unverified look — help "Navigate the left sidebar" names the option
@@ -46,6 +51,7 @@ export function NavStrip() {
   useT();
   const ed = useEditor();
   const tab = useUI((s) => s.railTab);
+  const social = useUI((s) => s.mode === "social");
   const variables = useUI((s) => s.variablesOpen);
   const [menu, setMenu] = useState<Open>(null);
   const figma = useRef<HTMLDivElement>(null);
@@ -63,7 +69,7 @@ export function NavStrip() {
           }}
         />
       </div>
-      {railTabs().map((item) => (
+      {railTabs(social).map((item) => (
         <IconButton
           key={item.tab}
           icon={item.icon}
@@ -97,6 +103,7 @@ export function Rail() {
   useT();
   const ed = useEditor();
   const tab = useUI((s) => s.railTab);
+  const social = useUI((s) => s.mode === "social");
   const labels = useUI(showsRailLabels);
   const variables = useUI((s) => s.variablesOpen);
   const libs = useLibraries();
@@ -115,7 +122,7 @@ export function Rail() {
           <RailItem compact icon="24.figma" label={t("Main menu")} active={!!menu} onClick={openMain} />
         </div>
         <RailSeparator />
-        {railTabs().map((item) => (
+        {railTabs(social).map((item) => (
           <RailItem
             key={item.tab}
             icon={item.icon}

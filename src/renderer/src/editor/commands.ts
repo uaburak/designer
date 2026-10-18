@@ -19,6 +19,7 @@ import { setDevStatus, statusOfTargets, statusTargets } from "./devStatus";
 import { annotationsShown, modeOf, setMode, toggleAnnotations } from "./devmode/devMode";
 import { audioMuted, hasAudio, splitAudioAtPlayhead, splitTargets, toggleAudioMute } from "./motion/audio/audioEdits";
 import { toggleAutoKeyframe, toggleMotionPlaying } from "./motion/motionState";
+import { askAgent, safeAreasShown, toggleSafeAreas, toggleSocialMode } from "./social/SocialMode";
 import { MOTION_UI_DEFAULT } from "./uiStore";
 import { round5, setRound5 } from "./devmode/round5";
 import { textSummary, toggledBold, toggledItalic } from "./model/text";
@@ -558,6 +559,15 @@ export const COMMANDS: EditorCommand[] = [
     setMode(ed, "motion");
     ed.setTool("MOVE");
   }, (ed) => modeOf(ed) === "motion"),
+  // Social (docs/social.md §6.6, ours): the mode switch's Social segment and View › Social (no key: Figma's ⇧D stays Dev
+  // Mode's); New post opens the toolbar's menu; Table, Save as template and Export campaign come with rounds 18b / 18d.
+  ui("view.mode-social", "Social", undefined, (ed) => toggleSocialMode(ed), (ed) => modeOf(ed) === "social"),
+  { id: "social.new-post", label: "New post…", run: (ed) => ed.ui.set((s) => ({ socialNewPostMenu: (s.socialNewPostMenu ?? 0) + 1, uiHidden: false })), enabled: (ed) => modeOf(ed) === "social" },
+  { id: "social.toggle-safe-areas", label: "Safe areas", run: (ed) => toggleSafeAreas(ed), enabled: (ed) => modeOf(ed) === "social", checked: (ed) => modeOf(ed) === "social" && safeAreasShown(ed) },
+  { id: "social.table", label: "Table", run: (ed) => ed.ui.set((s) => ({ socialTable: !s.socialTable })), enabled: () => false, checked: (ed) => !!ed.ui.get().socialTable },
+  { id: "social.save-as-template", label: "Save as template…", run: () => {}, enabled: () => false },
+  { id: "social.export-campaign", label: "Export campaign…", run: () => {}, enabled: () => false },
+  { id: "social.ask-agent", label: "Ask agent…", run: (ed) => askAgent(ed), enabled: (ed) => modeOf(ed) === "social" },
   // Space plays and pauses while Motion is on (help: "Spacebar plays, again pauses"); elsewhere Space is the Hand tool's.
   { id: "motion.play-pause", label: "Play/Pause", keys: [k("Space")], run: (ed) => toggleMotionPlaying(ed), enabled: (ed) => modeOf(ed) === "motion" },
   { id: "motion.toggle-auto-keyframe", label: "Toggle auto-keyframe", run: (ed) => toggleAutoKeyframe(ed), enabled: (ed) => modeOf(ed) === "motion", checked: (ed) => !!ed.ui.get().motion?.autoKeyframe },
@@ -1086,6 +1096,8 @@ const VIEWER_EDITS = new Set([
   "object.mark-completed",
   "object.remove-dev-status",
   "canvas.rename-layers-ai",
+  "social.new-post",
+  "social.save-as-template",
 ]);
 const viewerEdits = (id: string) => VIEWER_EDITS.has(id) || id.startsWith("object.add-layout-") || (id.startsWith("text.") && id !== "text.spell-check");
 for (const c of COMMANDS) {
