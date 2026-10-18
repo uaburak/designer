@@ -1,0 +1,61 @@
+MISSING  180,12 24x24 input =unchecked [mask-selection]
+MISSING  192,25 67x13 "Use as mask" 11px/450 #ffffff
+MISSING  220,70 95x13 "Ignore auto layout" 11px/450 #ffffff
+MISSING  16,109 29x24 input =align-left [align-left]
+MISSING  30,110 46x13 "Align left" 11px/400 #ffffff
+MISSING  46,109 29x24 input =align-horizontal-center [align-horizontal-center]
+MISSING  60,110 123x13 "Align horizontal centers" 11px/400 #ffffff
+MISSING  75,109 29x24 input =align-right [align-right]
+MISSING  89,110 53x13 "Align right" 11px/400 #ffffff
+MISSING  112,109 29x24 input =align-top [align-top]
+MISSING  126,110 46x13 "Align top" 11px/400 #ffffff
+MISSING  142,109 29x24 input =align-vertical-center [align-vertical-center]
+MISSING  156,110 110x13 "Align vertical centers" 11px/400 #ffffff
+MISSING  171,109 29x24 input =align-bottom [align-bottom]
+MISSING  185,110 66x13 "Align bottom" 11px/400 #ffffff
+DIFF     [X-position]  live 16,157 88x24  ours 40,157 64x24
+MISSING  40,157 64x24 input =12 [X-position] r=5px DISABLED
+DIFF     [Y-position]  live 112,157 88x24  ours 136,157 64x24
+MISSING  136,157 64x24 input =12 [Y-position] r=5px DISABLED
+DIFF     [Rotation]  live 16,205 88x24  ours 40,205 64x24
+MISSING  40,205 64x24 input =0° [Rotation] r=5px
+MISSING  40,312 86x13 "Fixed width (60)" 11px/450 #ffffff
+DIFF     [Width]  live 16,306 88x24  ours 40,306 15x24
+MISSING  39,306 48x24 input =60 [Width] r=2px
+MISSING  136,312 90x13 "Fixed height (40)" 11px/450 #ffffff
+DIFF     [Height]  live 112,306 88x24  ours 136,306 15x24
+MISSING  135,306 48x24 input =40 [Height] r=2px
+MISSING  220,319 91x13 "Lock aspect ratio" 11px/450 #ffffff
+DIFF     [Column span]  live 16,356 88x24  ours 40,356 64x24
+MISSING  40,356 64x24 input =1 [Column span] r=5px
+DIFF     [Row span]  live 112,356 88x24  ours 136,356 64x24
+MISSING  136,356 64x24 input =1 [Row span] r=5px
+MISSING  191,418 24x13 "Hide" 11px/450 #ffffff
+MISSING  39,557 28x13 "Color" 11px/450 #ffffff
+MISSING  39,557 225x13 "Autofill available. Type to see suggestions." 11px/450 #ffffff
+DIFF     "%" 11px/450  live 156,550 9x13  ours 156,549 11x14
+MISSING  192,557 82x13 "Toggle visibility" 11px/450 #ffffff
+EXTRA    180,12 24x24 button [Use as mask] r=5px
+EXTRA    0,49 240x197 section [Position]
+EXTRA    16,109 88x24 radiogroup [Horizontal alignment in cell] bg=#383838 r=5px
+EXTRA    16,109 29x24 radio [Align left] CHECKED bg=#2c2c2c r=5px
+EXTRA    45,109 29x24 radio [Align horizontal centers] r=5px
+EXTRA    75,109 29x24 radio [Align right] r=5px
+EXTRA    112,109 88x24 radiogroup [Vertical alignment in cell] bg=#383838 r=5px
+EXTRA    112,109 29x24 radio [Align top] CHECKED bg=#2c2c2c r=5px
+EXTRA    141,109 29x24 radio [Align vertical centers] r=5px
+EXTRA    171,109 29x24 radio [Align bottom] r=5px
+EXTRA    0,246 240x151 section [Layout]
+EXTRA    79,306 24x24 button [Width sizing]
+EXTRA    175,306 24x24 button [Height sizing]
+EXTRA    0,397 240x103 section [Appearance]
+EXTRA    40,459 64x24 input =100% [Opacity]
+EXTRA    136,459 64x24 input =0 [Corner radius]
+EXTRA    0,500 240x85 section [Fill]
+EXTRA    118,544 38x24 input =100 [Color opacity]
+EXTRA    0,585 240x41 section [Stroke]
+EXTRA    0,626 240x41 section [Effects]
+EXTRA    0,667 240x69 section [Export]
+EXTRA    16,707 216x24 tablist [Export kind]
+EXTRA    24,712 31x14 "Static" 11px/550 #ffffff
+EXTRA    75,712 50x14 "Animated" 11px/450 #ffffffb2

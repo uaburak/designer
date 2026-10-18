@@ -1,0 +1,15 @@
+MISSING  208,8 24x24 button [Apply variable mode] r=5px
+MISSING  39,57 28x13 "Color" 11px/450 #ffffff
+DIFF     "%" 11px/450  live 184,50 9x13  ours 184,49 11x14
+MISSING  220,57 82x13 "Toggle visibility" 11px/450 #ffffff
+MISSING  16,181 25x13 "MCP" 11px/550 #ffffff
+MISSING  45,179 75x16 span [Figma MCP in Claude]
+MISSING  49,181 67x13 "1 connection" 11px/450 #ffffff
+MISSING  208,175 24x24 button [Set up agents for Figma MCP] r=5px
+EXTRA    0,0 240x85 section [Page]
+EXTRA    146,44 38x24 input =100 [Color opacity]
+EXTRA    0,85 240x41 section [Styles]
+EXTRA    0,126 240x69 section [Export]
+EXTRA    16,166 216x24 tablist [Export kind]
+EXTRA    24,171 31x14 "Static" 11px/550 #ffffff
+EXTRA    75,171 50x14 "Animated" 11px/450 #ffffffb2

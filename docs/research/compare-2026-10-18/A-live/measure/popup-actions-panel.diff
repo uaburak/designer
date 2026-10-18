@@ -1,0 +1,51 @@
+DIFF     popup live @456,478 529x354  ours @441,550 529x282
+MISSING  44,8 431x32 input = [Search] bg=#383838
+MISSING  491,12 24x24 button [Visual search (AI beta)] r=5px
+MISSING  -1,3 193x16 "Results will update as you type." 13px/400 #ffffff
+MISSING  -1,27 118x16 "11 results available." 13px/400 #ffffff
+MISSING  16,54 14x13 "All" 11px/550 #ffffff
+MISSING  54,54 36x13 "Assets" 11px/450 #ffffffb2
+MISSING  113,54 93x13 "Plugins & widgets" 11px/450 #ffffffb2
+MISSING  16,86 43x13 "Recents" 11px/450 #ffffffb2
+DIFF     "Translate to..." 13px/400  live 44,112 84x16  ours 44,456 83x16
+DIFF     [AI, Learn more]  live 493,112 20x16  ours 486,104 19x16
+DIFF     "AI" 11px/400  live 498,114 10x13  ours 490,105 11x14
+MISSING  44,144 184x16 "Lorem Ipsum — by ‹div›RIOTS" 13px/400 #ffffff
+MISSING  473,146 17x13 "tab" 11px/500 #ffffff66
+DIFF     "Rewrite this..." 13px/400  live 44,176 83x16  ours 44,424 82x16
+DIFF     "Image editing" 11px/450  live 16,214 72x13  ours 16,13 71x14
+DIFF     "Make an image" 13px/400  live 44,240 93x16  ours 44,40 93x16
+DIFF     "Remove background" 13px/400  live 44,272 126x16  ours 44,72 126x16
+DIFF     "Boost resolution" 13px/400  live 44,304 100x16  ours 44,104 99x16
+DIFF     "Edit image with prompt" 13px/400  live 44,336 142x16  ours 44,136 141x16
+DIFF     "Design tools" 11px/450  live 16,374 65x13  ours 16,205 65x14
+DIFF     "Rename layers" 13px/400  live 44,400 90x16  ours 44,232 90x16
+DIFF     "Replace content" 13px/400  live 44,432 100x16  ours 44,264 99x16
+DIFF     "Add interactions" 13px/400  live 44,464 101x16  ours 44,296 100x16
+DIFF     "Riffing and writing" 11px/450  live 16,502 96x13  ours 16,365 96x14
+DIFF     "Shorten" 13px/400  live 44,528 49x16  ours 44,392 48x16
+EXTRA    0,0 529x282 listbox [Results]
+EXTRA    486,40 19x16 a [AI, Learn more] r=5px
+EXTRA    490,41 11x14 "AI" 11px/400 #ffffffb2
+EXTRA    486,72 19x16 a [AI, Learn more] r=5px
+EXTRA    490,73 11x14 "AI" 11px/400 #ffffffb2
+EXTRA    486,136 19x16 a [AI, Learn more] r=5px
+EXTRA    490,137 11x14 "AI" 11px/400 #ffffffb2
+EXTRA    44,168 85x16 "Find more like" 13px/400 #ffffff66
+EXTRA    486,168 19x16 a [AI, Learn more] r=5px
+EXTRA    490,169 11x14 "AI" 11px/400 #ffffffb2
+EXTRA    486,232 19x16 a [AI, Learn more] r=5px
+EXTRA    490,233 11x14 "AI" 11px/400 #ffffffb2
+EXTRA    486,264 19x16 a [AI, Learn more] r=5px
+EXTRA    490,265 11x14 "AI" 11px/400 #ffffffb2
+EXTRA    486,296 19x16 a [AI, Learn more] r=5px
+EXTRA    490,297 11x14 "AI" 11px/400 #ffffffb2
+EXTRA    44,328 60x16 "First Draft" 13px/400 #ffffff66
+EXTRA    486,328 19x16 a [AI, Learn more] r=5px
+EXTRA    490,329 11x14 "AI" 11px/400 #ffffffb2
+EXTRA    486,392 19x16 a [AI, Learn more] r=5px
+EXTRA    490,393 11x14 "AI" 11px/400 #ffffffb2
+EXTRA    486,424 19x16 a [AI, Learn more] r=5px
+EXTRA    490,425 11x14 "AI" 11px/400 #ffffffb2
+EXTRA    486,456 19x16 a [AI, Learn more] r=5px
+EXTRA    490,457 11x14 "AI" 11px/400 #ffffffb2
