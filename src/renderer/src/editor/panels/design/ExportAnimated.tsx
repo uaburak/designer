@@ -1,17 +1,20 @@
 /**
  * The Export section's Animated tab (docs/motion.md §7.1): for top-level frames with a timeline — Format (MP4, WebM,
- * GIF; SVG, Lottie and dotLottie listed but not built yet), Size (0.5x … 4x or a custom W × H), Frame rate, Quality
- * (MP4 / WebM), Loop (GIF), then Export with a progress row and Cancel. The settings are the panel's for the session
- * (not stored on the layer [unverified]). Other selections show "Select a top-level frame to export animations".
+ * GIF, SVG, Lottie, dotLottie), Size (0.5x … 4x or a custom W × H), Frame rate, Quality (MP4 / WebM), Loop (GIF),
+ * then Export with a progress row and Cancel. Round 8e: the settings are stored on the layer (an `exportSettings`
+ * entry with Figma's Motion fields, motion/export/animatedSettings.ts; the first frame's shown, a change written to
+ * every selected frame, one undo step), and Export waits while another animated export of the file runs. Other
+ * selections show "Select a top-level frame to export animations".
  */
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Checkbox, Select, TextInput } from "@/ds";
 import { t, tp, useT } from "@/i18n";
 import { ANIMATED_FORMATS, ANIMATED_FORMAT_LABELS, DEFAULT_ANIMATED_EXPORT, FRAME_RATES, type AnimatedExportSettings, type AnimatedFormat } from "@shared/motion/types";
 import { useEditor } from "../../controller";
 import { canExport } from "../../exporting";
 import { useDocumentVersion } from "../../hooks";
-import { ANIMATED_FORMATS_BUILT, exportAnimated, timelineOf, type AnimatedExportJob, type AnimatedProgress } from "../../motion/export/exportAnimated";
+import { animatedSettingOf, writeAnimatedSetting } from "../../motion/export/animatedSettings";
+import { ANIMATED_FORMATS_BUILT, animatedExportRunning, exportAnimated, onAnimatedExportLock, timelineOf, type AnimatedExportJob, type AnimatedProgress } from "../../motion/export/exportAnimated";
 import type { ExportTarget } from "./Export";
 import styles from "./Design.module.css";
 import own from "./Export.module.css";
@@ -26,22 +29,29 @@ export function ExportAnimatedTab({ targets, page }: { targets: ExportTarget[]; 
   useT();
   const ed = useEditor();
   const version = useDocumentVersion();
-  const [settings, setSettings] = useState<AnimatedExportSettings>(DEFAULT_ANIMATED_EXPORT);
   const [progress, setProgress] = useState<AnimatedProgress | null>(null);
+  // Another animated export of this file running (one at a time, §7.7).
+  const [locked, setLocked] = useState(() => animatedExportRunning(ed));
+  useEffect(() => onAnimatedExportLock(() => setLocked(animatedExportRunning(ed))), [ed]);
   const [errors, setErrors] = useState<string[]>([]);
   const controller = useRef<AbortController | null>(null);
-  // The roots among the targets: top-level frames with a timeline (the engine says).
-  const jobs = useMemo<AnimatedExportJob[]>(() => {
+  // The roots among the targets: top-level frames with a timeline (the engine says); the settings stored on the first.
+  const roots = useMemo(() => {
     void version;
     if (page) return [];
     return targets.flatMap((tg) => {
       const tl = timelineOf(ed, tg.guid);
-      return tl ? [{ root: tg.guid, name: tl.name || tg.name || "", settings }] : [];
+      return tl ? [{ root: tg.guid, name: tl.name || tg.name || "" }] : [];
     });
-  }, [ed, targets, page, settings, version]);
+  }, [ed, targets, page, version]);
+  const settings = useMemo<AnimatedExportSettings>(() => {
+    void version;
+    return (roots.length ? animatedSettingOf(ed, roots[0].root) : null) ?? DEFAULT_ANIMATED_EXPORT;
+  }, [ed, roots, version]);
+  const jobs = useMemo<AnimatedExportJob[]>(() => roots.map((r) => ({ ...r, settings })), [roots, settings]);
   const video = settings.format === "MP4" || settings.format === "WEBM";
   const busy = progress !== null && progress.phase !== "done";
-  const set = (patch: Partial<AnimatedExportSettings>) => setSettings((s) => ({ ...s, ...patch }));
+  const set = (patch: Partial<AnimatedExportSettings>) => writeAnimatedSetting(ed, roots.map((r) => r.root), { ...settings, ...patch });
 
   const run = async () => {
     const ctl = new AbortController();
@@ -106,7 +116,7 @@ export function ExportAnimatedTab({ targets, page }: { targets: ExportTarget[]; 
             </Button>
           </div>
         ) : (
-          <Button variant="secondary" fullWidth disabled={!canExport(ed)} onClick={() => void run()} data-export-animated-button="">
+          <Button variant="secondary" fullWidth disabled={!canExport(ed) || locked} onClick={() => void run()} data-export-animated-button="">
             {jobs.length === 1 ? t("Export animation") : tp(jobs.length, "Export {n} animation", "Export {n} animations")}
           </Button>
         )}
