@@ -66,6 +66,9 @@ import { SocialRightPanel } from "./social/SocialRightPanel";
 import { SafeAreaOverlay } from "./social/SafeAreaOverlay";
 import { ReviewPins } from "./social/ReviewPins";
 import { EmptyBoard } from "./social/EmptyBoard";
+import { BrandLibraryBanner } from "./social/templates/BrandLibraryBanner";
+import { PostsTable } from "./social/templates/PostsTable";
+import { SaveAsTemplateDialog } from "./social/templates/SaveAsTemplateDialog";
 import { attachUsageTracking } from "./shortcuts/usage";
 import { shortcutPrefs } from "./shortcuts/prefs";
 import { VersionDialogs } from "./VersionDialogs";
@@ -469,6 +472,7 @@ function CanvasOverlays() {
   return (
     <>
       {social && <EmptyBoard />}
+      <BrandLibraryBanner />
       <FocusBar />
       <ReadyForDev />
       <Rulers />
@@ -493,7 +497,10 @@ function Overlays() {
       <ShortcutsPanel />
       {/* Motion mode's timeline, docked the same way (docs/motion.md §6.2); in Social, the selected post's (docs/social.md §6.1). */}
       {!hidden && <MotionMode />}
+      {/* Social's posts table, docked the same way (docs/social.md §4.5). */}
+      <PostsTable />
       <SocialMode />
+      <SaveAsTemplateDialog />
       <ActionsPanel />
       <AiHost />
       <PluginLayer />

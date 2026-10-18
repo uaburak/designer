@@ -207,6 +207,9 @@ export interface UIState extends PreferenceFlags {
   socialNewPostMenu?: number;
   /** Social: the left panel's Templates open (unset: open only while the page has no posts) */
   socialTemplatesOpen?: boolean;
+  /** Social: Save as template… open for this post (docs/social.md §4.4); the table's Import CSV… open (§4.5) */
+  socialSaveTemplate?: string | null;
+  socialCsvImport?: boolean;
   /** Social: the review problem a pin picked (the review card marks it, docs/social.md §6.4) */
   socialProblem?: { post: string; problem: string } | null;
   /**

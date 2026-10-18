@@ -367,6 +367,8 @@ export const size = {
   // Motion's timeline along the editor's bottom (docs/motion.md §6.2 [unverified]): 240 high, a 40 header (Collapse timeline leaves it).
   "motion-timeline": 240,
   "motion-timeline-header": 40,
+  // Social's posts table, docked the same way (docs/social.md §4.5 [ours]): 240 high.
+  "social-table": 240,
   "shortcuts-panel": 240,
   "shortcuts-tabs": 38,
   "shortcuts-column": 300,

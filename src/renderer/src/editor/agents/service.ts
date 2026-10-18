@@ -35,6 +35,8 @@ import { readPost, writePost } from "../social/posts";
 import { socialOf } from "../social/socialState";
 import { LIBRARY_TOOLS, runLibraryTool } from "../studio/libraryTools";
 import { blurRegions, runStudioImage } from "../studio/images";
+import { makeBrandLibrary } from "../social/templates/brandLibrary";
+import type { Writer } from "../social/actions";
 import { TaskQueue, isEnded, type TaskResult } from "./tasks";
 import { isManagerTool, runManagerTool, type CardAnswer, type ManagerEnv, type StudioChatData, type TaskExtra, type ViewCard } from "./managerTools";
 import { paintImageHash } from "../model/paints";
@@ -208,6 +210,8 @@ export interface StudioDeps {
   runImage: typeof runStudioImage;
   blur: typeof blurRegions;
   imageRoutes(): Promise<ImageRouteInfo[]>;
+  /** make_brand_library (docs/social.md §4.1, round 18b): the Brands library made or updated, its writes through `w` */
+  brandLibrary(ed: EditorController, w: Writer): Promise<{ fileKey: string; brands: string[] }>;
   record(e: { action: "agent"; providerId: string; model?: string; input: number; output: number; images: number; credits: number; local: boolean; ok: boolean }, fileKey: string | null): void;
 }
 
@@ -220,6 +224,7 @@ const studioDefaults = (): StudioDeps => ({
     }
   },
   library: runLibraryTool,
+  brandLibrary: (ed, w) => makeBrandLibrary(ed, w),
   runImage: runStudioImage,
   blur: blurRegions,
   imageRoutes: async () => (await editorBridge()?.ai?.imageRoutes?.()) ?? [],
@@ -1023,6 +1028,8 @@ export class AgentsService implements AgentSetupHost {
         },
       },
       suggest: (card) => this.updateMessage(chatId, target.message, (m) => ({ ...m, cards: [...(m.cards ?? []), card] })),
+      // The Brands library (round 18b): its update one step of the owner's history, as the studio's other writes.
+      brandLibrary: () => this.studio.brandLibrary(this.ed, (label, fn) => this.turns.writeAction(`Studio: ${label}`, fn)),
     };
   }
 

@@ -3,7 +3,9 @@
  * tools. Each takes a Writer — the chrome passes the editor's batch (`editorWriter`: one click, one undo step), an
  * agent tool its `ToolEnv.write` (a chat turn stays one undo step per worker) — so both entry points run the same
  * function. Round 18a builds the posts, campaigns and resizing; templates, slots and brands (applyTemplate,
- * fillSlots, applyBrand, saveAsTemplate) are 18b's — stubs here until they land; the checks (checkPost, §7.3) 18c's.
+ * fillSlots, applyBrand, saveAsTemplate) are 18b's, in templates/templates.ts — the ones here hand over to them (those
+ * needing a library copy, a picture or a brand from the store are async: they fetch, then write once); the checks
+ * (checkPost, §7.3) 18c's.
  */
 import type { Guid, Message, NodeChange, Pixels } from "@/engine/codec";
 import { keyAfter, keyBetween } from "@shared/schema/fractionalIndex";
@@ -21,6 +23,9 @@ import { placePost, POST_GAP } from "./board";
 import { cleanHashtags, postRecord, readCampaigns, readPost, socialId, writeCampaigns, writePost } from "./posts";
 import { motionRead } from "../motion/motionState";
 import { readBoard, type SocialBoard } from "./socialState";
+import * as templates from "./templates/templates";
+import type { FillReport } from "./templates/templates";
+import type { ImportedImage } from "../images";
 
 /** Runs `fn` as one write labelled `label` (one undo step) and returns what it returns. */
 export type Writer = <T>(label: string, fn: () => T) => T;
@@ -53,22 +58,15 @@ export interface NewPostOptions {
   brandId?: string | null;
   campaignId?: string | null;
   template?: { key: string; variant?: string };
+  /** With a template: the brand to bind it to (the Brand mode's and the logo variant's name) */
+  brand?: { id: string; name: string } | null;
   productId?: string;
   at?: { x: number; y: number };
 }
 
 export type PostPatch = Partial<Pick<SocialPostData, "brandId" | "productIds" | "campaignId" | "caption" | "hashtags" | "altText" | "status">>;
 
-export interface SaveAsTemplateOptions {
-  name: string;
-  platforms?: string[];
-  formats?: string[];
-  slots?: { nodeId: Guid; role: SlotRole; locked?: boolean; maxChars?: number }[];
-}
-
-const notBuilt = (name: string): never => {
-  throw new Error(`${name}: not built (docs/social.md §10)`);
-};
+export type SaveAsTemplateOptions = templates.SaveTemplateOptions;
 
 function formatOf(formatId: string, given?: SocialFormat): SocialFormat {
   const f = given ?? resolveFormat(formatId);
@@ -92,11 +90,30 @@ function topKey(ed: EditorController, page: Guid): string {
 
 /**
  * A new post on the current page: a white frame of the format's size named after it, carrying its record (a draft,
- * the brand, product and campaign given), placed on the board (§6.4) unless `at` says where. Templates are 18b's.
+ * the brand, product and campaign given), placed on the board (§6.4) unless `at` says where. With a template (one
+ * this file has: a local one or a library copy already brought in — `templates.insertTemplate` brings one in first):
+ * an instance of its variant for the format, bound to `brand` when given.
  */
 export function newPost(ed: EditorController, w: Writer, opts: NewPostOptions): Guid {
-  if (opts.template) return notBuilt("newPost from a template");
   const format = formatOf(opts.formatId, opts.format);
+  if (opts.template) {
+    const entry = templates.templateByKey(ed, opts.template.key);
+    if (!entry?.node) throw new Error(`The template ${opts.template.key} isn't in this file yet`);
+    const page = ed.store.page;
+    const campaignId = opts.campaignId ?? null;
+    const at = opts.at ?? spotFor(readBoard(ed, page), campaignId);
+    const record = postRecord(opts.formatId, { brandId: opts.brandId ?? opts.brand?.id ?? null, campaignId, productIds: opts.productId ? [opts.productId] : [] });
+    const tpl = opts.template;
+    // The brand and the product's packshot as last read (templates.prepareTemplate fetches them first).
+    const brand = opts.brand ?? (record.brandId ? templates.knownBrand(record.brandId) : null);
+    const picture = opts.productId ? templates.knownPicture(ed, opts.productId) : null;
+    return w("New post", () => {
+      const id = templates.newTemplatePostNow(ed, page, { key: tpl.key, node: entry.node!, data: entry.data, formatId: opts.formatId, variant: tpl.variant, at, record, name: opts.name ?? format.name });
+      if (brand) templates.applyBrandNow(ed, [id], brand);
+      if (picture) templates.fillSlotsNow(ed, id, {}, picture);
+      return id;
+    });
+  }
   const page = ed.store.page;
   const campaignId = opts.campaignId ?? null;
   const at = opts.at ?? spotFor(readBoard(ed, page), campaignId);
@@ -200,25 +217,37 @@ export function newCampaign(name: string, brandId: string | null): SocialCampaig
   return { id: socialId(), name, brandId, created: Date.now() };
 }
 
+/*
+ * Templates, slots and brands, synchronously (the agents' tools call these inside their own write, which can't wait):
+ * what comes from outside the document — a library template's copy, a brand, a product's packshot, a picture's bytes
+ * — is fetched first (`templates.prepareTemplate`, `templates.importPicture`); the chrome uses templates.ts's async
+ * versions, which fetch and then write.
+ */
+
+/** Swaps an instance post's component, or replaces a plain frame by an instance at its place (its texts carried by role). */
 export function applyTemplate(ed: EditorController, w: Writer, ids: readonly Guid[], opts: { key: string; variant?: string; brandId?: string; productId?: string }): Guid[] {
-  void [ed, w, ids, opts];
-  return notBuilt("applyTemplate");
+  return templates.applyTemplateSync(ed, w, ids, opts);
 }
 
-export function fillSlots(ed: EditorController, w: Writer, id: Guid, values: Partial<Record<SlotRole, string>>, picture?: ImageArg): void {
-  void [ed, w, id, values, picture];
-  notBuilt("fillSlots");
+/**
+ * Text slots through their TEXT properties, the picture as an image fill (imported first: an ImageArg's bytes are
+ * refused here); a locked slot refused, an overrun reported.
+ */
+export function fillSlots(ed: EditorController, w: Writer, id: Guid, values: Partial<Record<SlotRole, string>>, picture?: ImageArg | ImportedImage): FillReport {
+  if (picture && !("hash" in picture)) throw new Error("fill_slots: the picture must be imported first (templates.importPicture)");
+  return w("Fill slots", () => templates.fillSlotsNow(ed, id, values, (picture as ImportedImage | undefined) ?? null));
 }
 
-/** The Brand collection's mode and the logo's Brand variant. */
+/** The Brand collection's mode and the logo's Brand variant (the brand as last read: `templates.primeBrands`). */
 export function applyBrand(ed: EditorController, w: Writer, ids: readonly Guid[], brandId: string): void {
-  void [ed, w, ids, brandId];
-  notBuilt("applyBrand");
+  const brand = templates.knownBrand(brandId);
+  if (!brand) throw new Error(`No brand ${brandId}`);
+  w("Apply brand", () => templates.applyBrandNow(ed, ids, brand));
 }
 
+/** The frame made a template (a component set with a Format variant, its slots tagged and wired), or what's missing. */
 export function saveAsTemplate(ed: EditorController, w: Writer, id: Guid, opts: SaveAsTemplateOptions): { key: string } | { error: string } {
-  void [ed, w, id, opts];
-  return notBuilt("saveAsTemplate");
+  return templates.saveAsTemplate(ed, w, id, opts);
 }
 
 // ---- Checks (§7.3, round 18c) ---------------------------------------------------------------------------------------

@@ -19,7 +19,7 @@ import { setDevStatus, statusOfTargets, statusTargets } from "./devStatus";
 import { annotationsShown, modeOf, setMode, toggleAnnotations } from "./devmode/devMode";
 import { audioMuted, hasAudio, splitAudioAtPlayhead, splitTargets, toggleAudioMute } from "./motion/audio/audioEdits";
 import { toggleAutoKeyframe, toggleMotionPlaying } from "./motion/motionState";
-import { askAgent, safeAreasShown, toggleSafeAreas, toggleSocialMode } from "./social/SocialMode";
+import { askAgent, safeAreasShown, selectedPosts, toggleSafeAreas, toggleSocialMode } from "./social/SocialMode";
 import { MOTION_UI_DEFAULT } from "./uiStore";
 import { round5, setRound5 } from "./devmode/round5";
 import { textSummary, toggledBold, toggledItalic } from "./model/text";
@@ -564,8 +564,8 @@ export const COMMANDS: EditorCommand[] = [
   ui("view.mode-social", "Social", undefined, (ed) => toggleSocialMode(ed), (ed) => modeOf(ed) === "social"),
   { id: "social.new-post", label: "New post…", run: (ed) => ed.ui.set((s) => ({ socialNewPostMenu: (s.socialNewPostMenu ?? 0) + 1, uiHidden: false })), enabled: (ed) => modeOf(ed) === "social" },
   { id: "social.toggle-safe-areas", label: "Safe areas", run: (ed) => toggleSafeAreas(ed), enabled: (ed) => modeOf(ed) === "social", checked: (ed) => modeOf(ed) === "social" && safeAreasShown(ed) },
-  { id: "social.table", label: "Table", run: (ed) => ed.ui.set((s) => ({ socialTable: !s.socialTable })), enabled: () => false, checked: (ed) => !!ed.ui.get().socialTable },
-  { id: "social.save-as-template", label: "Save as template…", run: () => {}, enabled: () => false },
+  { id: "social.table", label: "Table", run: (ed) => ed.ui.set((s) => ({ socialTable: !s.socialTable })), enabled: (ed) => modeOf(ed) === "social", checked: (ed) => modeOf(ed) === "social" && !!ed.ui.get().socialTable },
+  { id: "social.save-as-template", label: "Save as template…", run: (ed) => ed.ui.set({ socialSaveTemplate: selectedPosts(ed)[0] ?? null }), enabled: (ed) => modeOf(ed) === "social" && selectedPosts(ed).length === 1 },
   { id: "social.export-campaign", label: "Export campaign…", run: () => {}, enabled: () => false },
   { id: "social.ask-agent", label: "Ask agent…", run: (ed) => askAgent(ed), enabled: (ed) => modeOf(ed) === "social" },
   // Space plays and pauses while Motion is on (help: "Spacebar plays, again pauses"); elsewhere Space is the Hand tool's.

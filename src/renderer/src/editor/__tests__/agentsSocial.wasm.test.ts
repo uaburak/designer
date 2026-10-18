@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 // The agents' Social tools (round 18c, docs/social.md §7.2) on the real engine: every tool listed with an object schema;
-// get_board by campaign; list_formats with a brand's sizes; new_post with and without a template (18b's templates not
-// built yet: "not available yet", nothing left behind); set_post's caption counts and marking a frame as a post;
+// get_board by campaign; list_formats with a brand's sizes; new_post with and without a template (18b's: one this file
+// can't use refused, nothing left behind; save_as_template, fill_slots and apply_template through them); set_post's caption counts and marking a frame as a post;
 // resize_post's duplicate; fill_slots refusing a locked slot; check_posts finding a caption overrun, a text in a story's
 // bottom band and a video longer than its format, then clearing what was fixed; logos; a turn's writes one undo step.
 import { readFileSync } from "node:fs";
+import { slotTexts } from "../social/templates/templates";
 import { join } from "node:path";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Engine } from "@/engine/Engine";
@@ -108,13 +109,29 @@ describe("agents' Social tools", () => {
     expect(error(await call("new_post", { formatId: "myspace.post" }))).toContain("Unknown format");
   });
 
-  it("new_post from a template answers that templates aren't available yet, leaving nothing behind; list_templates says there are none", async () => {
+  it("new_post from a template this file can't use is refused, leaving nothing behind; list_templates says there are none", async () => {
     const { ed, call } = await editor();
-    expect(error(await call("new_post", { formatId: "instagram.post", templateKey: "abc", campaign: "Nope" }))).toContain("isn't available yet");
+    expect(error(await call("new_post", { formatId: "instagram.post", templateKey: "abc", campaign: "Nope" }))).toContain("The template abc isn't in this file yet");
     expect(readBoard(ed, ed.store.page).posts).toEqual([]);
     expect(readBoard(ed, ed.store.page).campaigns).toEqual([]);
     expect(json(await call("list_templates", {})).templates).toEqual([]);
     expect(error(await call("export_posts", {}))).toContain("isn't available yet");
+  });
+
+  it("save_as_template, new_post from it, fill_slots and apply_template work through 18b's templates", async () => {
+    const { ed, call } = await editor();
+    const post = json(await call("new_post", { formatId: "instagram.post" })).nodeId;
+    json(await call("create_nodes", { parentId: post, nodes: [{ type: "TEXT", name: "Title", characters: "Hello", fontSize: 72 }, { type: "TEXT", name: "Copy", characters: "World", fontSize: 30, y: 300 }] }));
+    const { templateKey } = json(await call("save_as_template", { nodeId: post, name: "Hero" }));
+    expect(templateKey).toMatch(/^[0-9a-f]{40}$/);
+    const made = json(await call("new_post", { formatId: "instagram.post", templateKey, brandId: "b1" })).nodeId;
+    expect(readPost(ed, made)).toMatchObject({ brandId: "b1", template: { key: templateKey, variant: "Instagram post" } });
+    json(await call("fill_slots", { nodeId: made, values: { headline: "Merhaba", body: "Dünya" } }));
+    expect(slotTexts(ed, made)).toEqual({ headline: "Merhaba", body: "Dünya" });
+    const plain = json(await call("new_post", { formatId: "instagram.post" })).nodeId;
+    const applied = json(await call("apply_template", { nodeId: plain, templateKey })).posts;
+    expect(applied).toHaveLength(1);
+    expect(readPost(ed, applied[0].nodeId)?.template?.key).toBe(templateKey);
   });
 
   it("set_post returns the caption count against the format; formatId marks a frame as a post", async () => {

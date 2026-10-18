@@ -1,9 +1,9 @@
 /**
  * Social's left panel (docs/social.md §6.2), the navigation bar's Posts tab: the board's brand, the page's posts by
- * campaign with "+" (New post's menu), and the Templates gallery's place — round 18b's (collapsed by default when the
- * page has posts). Same width and resize handle as Design's left panel.
+ * campaign with "+" (New post's menu), and the Templates gallery (round 18b, templates/TemplatesGallery.tsx; collapsed
+ * by default when the page has posts). Same width and resize handle as Design's left panel.
  */
-import { EmptyState, Icon, MenuButton, PanelSection, ResizeHandle } from "@/ds";
+import { Icon, MenuButton, PanelSection, ResizeHandle } from "@/ds";
 import { t, useT } from "@/i18n";
 import { useEditor } from "../controller";
 import { useUI } from "../hooks";
@@ -14,6 +14,7 @@ import { canWritePosts } from "./actions";
 import { BrandPicker } from "./BrandPicker";
 import { boardBrand, newPostEntries, pickNewPost } from "./NewPostMenu";
 import { PostsList } from "./PostsList";
+import { TemplatesGallery } from "./templates/TemplatesGallery";
 import { useSocialBoard } from "./socialState";
 import panelStyles from "../panels/Panels.module.css";
 import styles from "./SocialLeftPanel.module.css";
@@ -46,7 +47,7 @@ export function SocialLeftPanel() {
         <PostsList />
       </div>
       <PanelSection title={t("Templates")} collapsible open={templates} onOpenChange={(open) => ed.ui.set({ socialTemplatesOpen: open })} className={styles.templates} data-social-templates="">
-        <EmptyState icon="24.component" title={t("No templates yet")} body={t("Templates saved from posts, and the agent's starter templates, show here.")} />
+        <TemplatesGallery />
       </PanelSection>
       <ResizeHandle side="right" value={width} onChange={(px) => ed.ui.set({ leftWidth: px })} />
     </aside>
