@@ -10,7 +10,7 @@ import { useState } from "react";
 import { Icon, SidebarDivider, SidebarItem, Tabs, type IconName } from "@/ds";
 import { ActivityTab, DeveloperLogsTab } from "./Activity";
 import { BillingGroupsTab, BillingOverview } from "./Billing";
-import { TeamsTab, UnassignedDraftsTab, WorkspacesTab } from "./Content";
+import { TeamsTab, UnassignedDraftsTab, WorkspaceSettings, WorkspacesTab } from "./Content";
 import { Dashboard, GuestRequestsPage, SeatRequestsPage } from "./Dashboard";
 import { PeopleTab, UserGroupsTab } from "./People";
 import { FontsTab, LibrariesTab } from "./Resources";
@@ -24,7 +24,7 @@ import { TeamIcon } from "@/files/parts";
 import { t, useT } from "@/i18n";
 
 
-export type AdminSection = "dashboard" | "people" | "content" | "resources" | "activity" | "billing" | "settings" | "libraries" | "plugins";
+export type AdminSection = "dashboard" | "people" | "content" | "resources" | "activity" | "billing" | "settings" | "workspace" | "libraries" | "plugins";
 
 const SECTIONS: { id: AdminSection; label: string; icon: IconName; tabs?: { value: string; label: string }[] }[] = [
   { id: "dashboard", label: "Dashboard", icon: "24.grid" },
@@ -42,6 +42,8 @@ const WORKSPACE_SECTIONS: typeof SECTIONS = [
   { id: "libraries", label: "Libraries", icon: "24.library" },
   // Enterprise: a workspace admin approves plugins and widgets for the workspace (docs/plugins.md §10.2)
   { id: "plugins", label: "Plugins", icon: "24.plugin", tabs: [{ value: "plugins", label: "Plugins" }, { value: "widgets", label: "Widgets" }] },
+  // The workspace itself: its name, members and default teams (what the server lets a workspace admin change)
+  { id: "workspace", label: "Workspace", icon: "24.settings.small" },
 ];
 
 export interface AdminAppProps {
@@ -126,6 +128,7 @@ function AdminLayout({ onBack, initial }: { onBack?: () => void; initial?: Admin
           {section === "resources" && tab === "libraries" && <LibrariesTab />}
           {section === "resources" && tab === "fonts" && <FontsTab />}
           {section === "resources" && (tab === "plugins" || tab === "widgets") && <PluginsTab key={tab} kind={tab === "widgets" ? "widget" : "plugin"} />}
+          {section === "workspace" && workspace && <WorkspaceSettings workspaceId={workspace.id} />}
           {section === "libraries" && workspace && <LibrariesTab workspaceId={workspace.id} />}
           {section === "plugins" && workspace && <PluginsTab key={tab} kind={tab === "widgets" ? "widget" : "plugin"} workspaceId={workspace.id} />}
           {section === "activity" && tab !== "developer" && <ActivityTab />}

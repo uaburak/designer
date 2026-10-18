@@ -190,6 +190,7 @@ export const admin: Record<string, string> = {
   "All time": "Tüm zamanlar",
   "Billing groups": "Fatura grupları",
   Workspace: "Çalışma alanı",
+  "This workspace isn't available.": "Bu çalışma alanı kullanılamıyor.",
   "User type: {value}": "Kullanıcı türü: {value}",
   "Last active: {value}": "Son etkinlik: {value}",
   "Billing group: {value}": "Fatura grubu: {value}",

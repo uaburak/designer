@@ -606,6 +606,8 @@ async function workspaces(ctx: Ctx, orgId: string, scope: Scope, rest: string[])
       for (const id of strings(b.members.add)) {
         const r = await d1.prepare(`SELECT m.*, u.name FROM org_members m LEFT JOIN users u ON u.id = m.user_id WHERE m.org_id = ?1 AND m.user_id = ?2`).bind(orgId, id).first<MemberRow & { name: string | null }>();
         if (!r) throw new HttpError(400, `${id} isn't in the organization`);
+        // A workspace admin adds people no workspace has; moving someone out of another workspace is the org admins'
+        if (!scope.org && r.workspace_id !== null && r.workspace_id !== w.id) throw new HttpError(403, "only organization admins move people between workspaces", "not_admin");
         if (r.workspace_id !== w.id) await setWorkspace(ctx, orgId, r, w);
       }
       for (const id of strings(b.members.remove)) {
