@@ -572,6 +572,8 @@ async function route(req: Request, deps: Deps): Promise<Response> {
       // Within the org: into a folder the caller can edit, or (projectId null) into the owner's drafts (§14.12).
       if (parts.length !== 3 || m !== "POST") break;
       if (!inOrg) throw new HttpError(400, "only files in an organization move between folders");
+      // A branch sits where its main file does (docs/data.md §15.7.1): it moves with main, never on its own
+      if (await acc.branch(key)) throw new HttpError(400, "a branch moves with its main file");
       need(writer && !a?.trashed, "only people who can edit the file can move it");
       const { projectId } = await readJson<{ projectId?: unknown }>(req);
       let teamId: string | null = null;
@@ -587,7 +589,8 @@ async function route(req: Request, deps: Deps): Promise<Response> {
       } else throw new HttpError(400, "projectId is a folder id or null");
       await deps.db.d1.prepare(`UPDATE files SET project_id = ?2, team_id = ?3, updated_at = ?4 WHERE key = ?1`).bind(key, projectId, teamId, deps.now()).run();
       await logActivity(deps, { orgId: f.org_id!, action: "fig_file_move", actor: user, entity: fileEntity(f), teamId: teamId ?? f.team_id, details: { from: f.project_id, to: projectId }, req });
-      await reauth(deps, [key]);
+      const { placeBranchesWith } = await import("./branches");
+      await reauth(deps, [key, ...(await placeBranchesWith(deps.db.d1, key))]);
       return json({ ok: true });
     }
     case "trash":
@@ -599,11 +602,15 @@ async function route(req: Request, deps: Deps): Promise<Response> {
       if (personal) need(a?.role === "owner", "only the owner can do that");
       else need(writer, "only people who can edit the file can do that");
       const trash = parts[2] === "trash";
+      // A branch is archived, not trashed (§15.5); it goes to the trash with its main file
+      if (await acc.branch(key)) throw new HttpError(400, "archive the branch instead");
       if (trash === (f.trashed_at !== null)) throw new HttpError(409, trash ? "the file is already in the trash" : "the file isn't in the trash");
       await deps.db.d1.prepare(`UPDATE files SET trashed_at = ?2, trashed_by = ?3, updated_at = ?4 WHERE key = ?1`).bind(key, trash ? deps.now() : null, trash ? user.id : null, deps.now()).run();
       await log(trash ? "fig_file_trash" : "fig_file_restore");
       await (await import("./libraries/db")).libraryFileStatus(deps, key, trash ? "trash" : "restore");
-      await reauth(deps, [key]);
+      // The branches resolve through main: their people reconnect too (read-only while main is in the trash)
+      const { results: branches } = await deps.db.d1.prepare(`SELECT key FROM branches WHERE main_key = ?1`).bind(key).all<{ key: string }>();
+      await reauth(deps, [key, ...branches.map((b) => b.key)]);
       return json({ ok: true });
     }
     case "activity": {

@@ -465,6 +465,8 @@ export async function createOrgFile(ctx: Ctx, input: { key: unknown; name: unkno
     // "Move to…" a file shared outside any org — a personal draft (docs/cloud.md §2) — into the org (§14.6): the file
     // keeps its room, members and link, and leaves its owner's Drafts.
     await d1.prepare(`UPDATE files SET org_id = ?2, team_id = ?3, project_id = ?4, editor_type = ?5, name = ?6, updated_at = ?7, space = NULL WHERE key = ?1`).bind(key, input.orgId, teamId, input.projectId, editorType, name, now).run();
+    // Its branches come along (docs/data.md §15.7.1)
+    await (await import("../branches")).placeBranchesWith(d1, key);
     action = "fig_file_move";
   } else {
     await d1

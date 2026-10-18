@@ -598,6 +598,8 @@ export class BranchService {
     const r0 = await this.record(branchFileKey);
     return this.serial(r0.mainFileKey, () =>
       this.serial(branchFileKey, () => this.caughtUp(branchFileKey, async () => {
+        // Main in the Trash takes no merge until it's restored (the server refuses a shared one the same way)
+        if (this.mainMeta(r0.mainFileKey).trashedAt !== null) throw new StoreError("trashed", tr("The main file is in Trash. Restore it first."));
         const { p, r, result } = await this.final(branchFileKey, input?.previewId, "merge", input?.resolutions ?? {});
         const title = typeof input?.title === "string" && input.title.trim() ? input.title.trim() : r.name;
         const description = typeof input?.description === "string" && input.description.trim() ? input.description.trim() : null;
@@ -615,7 +617,9 @@ export class BranchService {
         await this.host.addVersion(branchFileKey, { kind: "merge", title, description });
         const now = this.host.now();
         const me = this.host.user();
-        const next: BranchRecord = { ...r, status: "merged", mergedAt: now, mergedBy: me.id, mergeVersionId: version.id, preMergeVersionId: before.id, archivedAt: r.archivedAt ?? now };
+        // Its review is over: closed, as the server closes a shared branch's
+        const review = r.review && r.review.state !== "closed" ? { ...r.review, state: "closed" as const } : r.review;
+        const next: BranchRecord = { ...r, status: "merged", mergedAt: now, mergedBy: me.id, mergeVersionId: version.id, preMergeVersionId: before.id, archivedAt: r.archivedAt ?? now, review };
         this.previews.delete(p.previewId);
         const saved = await this.save(next);
         this.emit({ type: "branch.merged", branch: saved });

@@ -164,4 +164,13 @@ export async function scenario(api: StoreApi, idle: () => Promise<void>): Promis
   expect(again.state).toBe("in-review");
   expect(again.reviewers.every((r) => r.verdict === "pending")).toBe(true);
   expect((await branches.get(b2.branchFileKey))?.review?.state).toBe("in-review");
+
+  // Main in the Trash takes no merge; restored, the merge closes the open review (leftovers 2026-10-18).
+  const p3 = await branches.preview(b2.branchFileKey, "merge");
+  await workspace.trash({ files: [main.fileKey] });
+  await expect(branches.merge(b2.branchFileKey, { previewId: p3.previewId, resolutions: {} })).rejects.toMatchObject({ code: "trashed" });
+  await workspace.restore({ files: [main.fileKey] });
+  const resolutions = Object.fromEntries(p3.conflicts.map((c) => [c.id, "branch" as const]));
+  const second = await branches.merge(b2.branchFileKey, { previewId: p3.previewId, resolutions });
+  expect(second.branch.review?.state).toBe("closed");
 }

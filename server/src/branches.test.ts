@@ -301,6 +301,51 @@ describe("branches (docs/data.md §15.7)", () => {
   });
 });
 
+describe("branches follow their main file (leftovers 2026-10-18)", () => {
+  it("move with main, never alone; aren't counted as a folder's files; a merge into a trashed main is refused; a merge closes the review", async () => {
+    const alice = await signIn("alice@x.co");
+    const bob = await signIn("bob@x.co");
+    const org = (await call("POST", "/orgs", alice.token, { name: "Acme" })).body.org;
+    await call("POST", `/orgs/${org.id}/admin/people`, alice.token, { emails: ["bob@x.co"], role: "member" });
+    const team = (await call("POST", `/orgs/${org.id}/teams`, alice.token, { name: "Design" })).body.team;
+    const web = (await call("POST", `/teams/${team.id}/projects`, alice.token, { name: "Web" })).body.project;
+    const app = (await call("POST", `/teams/${team.id}/projects`, alice.token, { name: "App" })).body.project;
+    await call("POST", `/projects/${web.id}/files`, alice.token, { key: "file_web001", name: "Home" });
+    await call("PUT", "/files/file_web001/snapshot?seq=0", alice.token, bytes("HOME@0"));
+    await call("PUT", "/files/file_web001/members", alice.token, { email: "bob@x.co", role: "viewer" });
+    expect((await call("POST", "/files/file_web001/branches", alice.token, { branchKey: "brch_web001", name: "Hero", baseSeq: 0 })).status).toBe(201);
+    await call("PUT", "/files/brch_web001/snapshot?seq=0", alice.token, bytes("HOME@0"));
+    await call("PUT", "/branches/brch_web001/base?seq=0", alice.token, bytes("HOME@0"));
+    const where = async (key: string) => deps.db.d1.prepare(`SELECT org_id, team_id, project_id FROM files WHERE key = ?1`).bind(key).first();
+
+    // The folder's tile counts main only
+    const folders = (await call("GET", `/teams/${team.id}/projects`, alice.token)).body.projects;
+    expect(folders.find((p: Any) => p.id === web.id).fileCount).toBe(1);
+    // A branch is neither moved nor trashed on its own
+    expect((await call("POST", "/files/brch_web001/move", alice.token, { projectId: app.id })).status).toBe(400);
+    expect((await call("POST", "/files/brch_web001/trash", alice.token)).status).toBe(400);
+    // Main moved: its branch goes with it, so deleting the old folder for good leaves the branch alive
+    expect((await call("POST", "/files/file_web001/move", alice.token, { projectId: app.id })).status).toBe(200);
+    expect(await where("brch_web001")).toEqual({ org_id: org.id, team_id: team.id, project_id: app.id });
+    await call("POST", `/projects/${web.id}/trash`, alice.token);
+    expect((await call("DELETE", `/projects/${web.id}`, alice.token)).status).toBe(204);
+    expect((await call("GET", "/branches/brch_web001", alice.token)).body.branch).toMatchObject({ name: "Hero", status: "active" });
+    expect(str((await call("GET", "/files/brch_web001/snapshot", alice.token)).body)).toBe("HOME@0");
+
+    // A review, then main in the trash: no merge until it's back
+    const review = (await call("POST", "/branches/brch_web001/reviews", alice.token, { reviewerIds: [bob.user.id], description: "Look" })).body.review;
+    expect(review.state).toBe("in-review");
+    await call("POST", "/files/file_web001/trash", alice.token);
+    const refused = await call("POST", "/branches/brch_web001/merge", alice.token, encodeEnvelope({ mainSeq: 0, branchSeq: 0 }, bytes("m")));
+    expect([refused.status, refused.body.error]).toEqual([409, "the main file is in the trash; restore it first"]);
+    await call("POST", "/files/file_web001/restore", alice.token);
+    expect((await call("POST", "/branches/brch_web001/merge", alice.token, encodeEnvelope({ mainSeq: 0, branchSeq: 0 }, bytes("m")))).status).toBe(200);
+    const merged = (await call("GET", "/branches/brch_web001", alice.token)).body.branch;
+    expect([merged.status, merged.review.state]).toEqual(["merged", "closed"]);
+    expect((await call("POST", `/branches/brch_web001/reviews/${review.id}/verdict`, bob.token, { verdict: "approved" })).status).toBe(409);
+  });
+});
+
 /** GET …/frames' body: [u32 length][changes-down frame]… */
 function unpack(b: Uint8Array) {
   const out: { seq: number; message: Uint8Array }[] = [];

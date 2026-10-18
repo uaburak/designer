@@ -492,7 +492,7 @@ async function teams(ctx: Ctx, orgId: string, scope: Scope): Promise<Response> {
       `SELECT t.*, u.name AS owner_name, u.email AS owner_email,
               (SELECT COUNT(*) FROM team_members WHERE team_id = t.id) AS members, (SELECT COUNT(*) FROM team_members WHERE team_id = t.id AND admin = 1) AS admins,
               (SELECT COUNT(*) FROM projects WHERE team_id = t.id AND parent_id IS NULL AND trashed_at IS NULL) AS projects,
-              (SELECT COUNT(*) FROM files WHERE team_id = t.id AND trashed_at IS NULL) AS files, (SELECT MAX(updated_at) FROM files WHERE team_id = t.id) AS last_edit
+              (SELECT COUNT(*) FROM files f WHERE f.team_id = t.id AND f.trashed_at IS NULL AND NOT EXISTS (SELECT 1 FROM branches b WHERE b.key = f.key)) AS files, (SELECT MAX(updated_at) FROM files WHERE team_id = t.id) AS last_edit
        FROM teams t LEFT JOIN users u ON u.id = t.owner_id WHERE ${where.join(" AND ")} ORDER BY t.name`,
     )
     .bind(...args)
@@ -926,7 +926,8 @@ async function unassignedFiles(ctx: Ctx, orgId: string, by: { fileKeys?: string[
   const { results } = await ctx.acc.d1
     .prepare(
       `SELECT ${FILE_COLS}, u.name AS owner_name, u.email AS owner_email FROM files f LEFT JOIN users u ON u.id = f.owner_id
-       WHERE f.org_id = ?1 AND f.project_id IS NULL AND f.trashed_at IS NULL AND NOT EXISTS (SELECT 1 FROM org_members m WHERE m.org_id = ?1 AND m.user_id = f.owner_id) ${extra}
+       WHERE f.org_id = ?1 AND f.project_id IS NULL AND f.trashed_at IS NULL AND NOT EXISTS (SELECT 1 FROM org_members m WHERE m.org_id = ?1 AND m.user_id = f.owner_id)
+         AND NOT EXISTS (SELECT 1 FROM branches b WHERE b.key = f.key) ${extra}
        ORDER BY f.updated_at DESC`,
     )
     .bind(...args)
@@ -988,6 +989,10 @@ async function moveDrafts(ctx: Ctx, orgId: string, b: Record<string, unknown>): 
     await d1.prepare(`UPDATE files SET project_id = ?2, team_id = ?3, owner_id = ?4, updated_at = ?5 WHERE key = ?1`).bind(f.key, dest.projectId, dest.teamId, user.id, now).run();
     await logActivity(deps, { orgId, action: "fig_file_move", actor: user, entity: fileEntity(f), teamId: dest.teamId, details: { unassigned_draft: true, previous_owner: f.owner_id, to: dest.projectId }, req: ctx.req });
   }
-  await reauth(deps, files.map((f) => f.key));
+  // Their branches move with them (docs/data.md §15.7.1)
+  const { placeBranchesWith } = await import("../branches");
+  const branches: string[] = [];
+  for (const f of files) branches.push(...(await placeBranchesWith(d1, f.key)));
+  await reauth(deps, [...files.map((f) => f.key), ...branches]);
 }
 
