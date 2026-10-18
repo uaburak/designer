@@ -98,6 +98,11 @@ describe("comments in the store", () => {
     await expect(s.add("f1", { message: "", anchor, attachments: [{ ...png, mime: "image/tiff" }] })).rejects.toThrow();
     await expect(s.add("f1", { message: "", anchor, attachments: [{ ...png, size: 30_000_001 }] })).rejects.toThrow();
     await expect(s.add("f1", { message: "", anchor, attachments: Array.from({ length: 6 }, () => png) })).rejects.toThrow(/5/);
+    // Rich segments are kept beside the text (the store's own check), and an edit without them drops them.
+    const rich = await s.add("f1", { message: "Bold", anchor, messageMeta: [{ t: "Bold", styles: ["b"], link: "javascript:x" }] });
+    const richId = rich.threads[rich.threads.length - 1].id;
+    expect(rich.threads.find((th) => th.id === richId)?.comments[0].messageMeta).toEqual([{ t: "Bold", styles: ["b"] }]);
+    expect((await s.edit("f1", richId, "Plain")).threads.find((th) => th.id === richId)?.comments[0].messageMeta).toBeUndefined();
     // Comments written before files existed read as they were.
     h.records.get("f1")!.comments.push({ ...h.records.get("f1")!.comments[0], id: "c_old", threadId: "c_old", attachments: undefined, number: 9 });
     expect((await s.list("f1")).threads.find((t) => t.id === "c_old")?.comments[0].attachments).toBeUndefined();

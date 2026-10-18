@@ -51,6 +51,72 @@ export interface Comment {
   reactions: CommentReaction[];
   /** Images and videos posted with it (Figma's `attachments`, up to 5); absent on comments written before them */
   attachments?: CommentAttachment[];
+  /** The message as Figma's rich segments (`message_meta`); absent: `message` is plain text */
+  messageMeta?: CommentSegment[];
+}
+
+/**
+ * Figma's `message_meta` (atlas 16 §2.6): a message as segments — text with its styles (bold, italic, strikethrough),
+ * a link, an @mention (`user_id`, its text "@Name"), a numbered or bulleted list of items. `message` stays the plain
+ * text (search, notifications, a shared file's server, which keeps no segments yet).
+ */
+export type CommentStyle = "b" | "i" | "s";
+export type CommentSegment =
+  | { t: string; styles?: CommentStyle[]; link?: string }
+  | { t: string; user_id: string }
+  | { styles: ["ol" | "ul"]; children: { children: CommentSegment[] }[] };
+
+export const isListSegment = (s: CommentSegment): s is Extract<CommentSegment, { children: unknown }> => "children" in s;
+export const isMentionSegment = (s: CommentSegment): s is Extract<CommentSegment, { user_id: string }> => "user_id" in s;
+
+/** The plain text of segments, as Figma exports it: lists one item a line, "1. " numbered, "* " bulleted */
+export function segmentsText(segments: CommentSegment[]): string {
+  let out = "";
+  for (const s of segments) {
+    if (isListSegment(s)) {
+      if (out && !out.endsWith("\n")) out += "\n";
+      s.children.forEach((item, i) => (out += `${s.styles[0] === "ol" ? `${i + 1}. ` : "* "}${segmentsText(item.children)}\n`));
+    } else out += s.t;
+  }
+  return out;
+}
+
+const SEGMENTS_MAX = 2000;
+const STYLES = new Set(["b", "i", "s"]);
+
+/** Segments as they come over the port: known shapes only, lists one level deep, http(s) / mailto links; else null */
+export function cleanSegments(v: unknown, depth = 0): CommentSegment[] | null {
+  if (!Array.isArray(v) || v.length > SEGMENTS_MAX) return null;
+  const out: CommentSegment[] = [];
+  for (const raw of v) {
+    const s = raw as Record<string, unknown>;
+    if (!s || typeof s !== "object") return null;
+    if (Array.isArray(s.children)) {
+      const kind = Array.isArray(s.styles) ? s.styles[0] : null;
+      if (depth > 0 || (kind !== "ol" && kind !== "ul")) return null;
+      const items: { children: CommentSegment[] }[] = [];
+      for (const item of s.children as { children?: unknown }[]) {
+        const children = cleanSegments(item?.children, depth + 1);
+        if (!children) return null;
+        items.push({ children });
+      }
+      out.push({ styles: [kind], children: items });
+      continue;
+    }
+    if (typeof s.t !== "string") return null;
+    if (typeof s.user_id === "string") {
+      out.push({ t: s.t, user_id: s.user_id });
+      continue;
+    }
+    const seg: { t: string; styles?: CommentStyle[]; link?: string } = { t: s.t };
+    if (Array.isArray(s.styles)) {
+      const styles = [...new Set(s.styles.filter((x): x is CommentStyle => typeof x === "string" && STYLES.has(x)))];
+      if (styles.length) seg.styles = styles;
+    }
+    if (typeof s.link === "string" && /^(https?:|mailto:)/i.test(s.link) && s.link.length <= 2048) seg.link = s.link;
+    out.push(seg);
+  }
+  return out;
 }
 
 /**
@@ -148,6 +214,8 @@ export interface NewComment {
   anchor?: CommentAnchor;
   /** Files already put in the store's blobs */
   attachments?: CommentAttachment[];
+  /** The message's rich segments (bold, italic, strikethrough, links, lists, mentions); `message` is their plain text */
+  messageMeta?: CommentSegment[];
 }
 
 /** People who can be @mentioned: those with access to the file (members of a shared file) */
@@ -165,7 +233,7 @@ export interface CommentsEvent {
 export interface CommentsRepository {
   list(fileKey: FileKey): Promise<CommentsState>;
   add(fileKey: FileKey, input: NewComment): Promise<CommentsState>;
-  edit(fileKey: FileKey, commentId: string, message: string, mentions?: string[]): Promise<CommentsState>;
+  edit(fileKey: FileKey, commentId: string, message: string, mentions?: string[], messageMeta?: CommentSegment[] | null): Promise<CommentsState>;
   /** A thread's first comment deletes the thread; a reply only itself */
   remove(fileKey: FileKey, commentId: string): Promise<CommentsState>;
   setResolved(fileKey: FileKey, threadId: string, resolved: boolean): Promise<CommentsState>;

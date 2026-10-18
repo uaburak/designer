@@ -449,7 +449,7 @@ export class StoreClient implements StoreApi {
   readonly comments: CommentsRepository = {
     list: (fileKey) => this.call("comments.list", [fileKey]),
     add: (fileKey, input) => this.call("comments.add", [fileKey, input]),
-    edit: (fileKey, id, message, mentions) => this.call("comments.edit", [fileKey, id, message, mentions]),
+    edit: (fileKey, id, message, mentions, messageMeta) => this.call("comments.edit", [fileKey, id, message, mentions, messageMeta]),
     remove: (fileKey, id) => this.call("comments.remove", [fileKey, id]),
     setResolved: (fileKey, id, resolved) => this.call("comments.setResolved", [fileKey, id, resolved]),
     setRead: (fileKey, ids, read) => this.call("comments.setRead", [fileKey, ids, read]),

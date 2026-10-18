@@ -194,9 +194,10 @@ function Pins({ c }: { c: CommentsController }) {
                   me={data.me.id}
                   autoFocus
                   images={c.attachments()}
+                  rich={c.rich()}
                   onChange={(text) => (c.draftText = text)}
-                  onSubmit={async (text, files) => {
-                    const ok = await c.post(text, files);
+                  onSubmit={async (text, files, meta, mentions) => {
+                    const ok = await c.post(text, files, meta, mentions);
                     if (ok) c.draftText = "";
                     return ok;
                   }}
@@ -372,7 +373,7 @@ function Pin({
               <span className={styles.previewTime}>{timeAgo(preview.createdAt)}</span>
             </span>
             <span className={styles.previewText}>
-              <MessageText text={preview.message} people={people} mentions={preview.mentions} />
+              <MessageText text={preview.message} people={people} mentions={preview.mentions} meta={preview.messageMeta} />
             </span>
             {preview.attachments?.[0] && <AttachmentThumb images={c.attachments() ?? ed.source.images} a={preview.attachments[0]} size={48} />}
             {(replies > 0 || files > 0) && (

@@ -7,6 +7,7 @@
 import {
   ATTACHMENT_IMAGE_TYPES,
   buildThreads,
+  cleanSegments,
   COMMENT_ID,
   commentLength,
   isAttachmentVideo,
@@ -16,6 +17,7 @@ import {
   MAX_COMMENT_LENGTH,
   type Comment,
   type CommentAttachment,
+  type CommentSegment,
   type CommentAnchor,
   type CommentsRepository,
   type CommentsState,
@@ -125,7 +127,9 @@ export class CommentsService {
     const mentions = cleanMentions(input?.mentions);
     const threadId = typeof input?.threadId === "string" && input.threadId ? input.threadId : null;
     if (!threadId && !validAnchor(input?.anchor)) throw new StoreError("invalid", tr("A new comment needs its place"));
-    const files = attachments.length ? { attachments } : {};
+    // Rich segments are kept beside the plain text (a local file's; the server keeps the text: Phase 6).
+    const meta = input?.messageMeta ? cleanSegments(input.messageMeta) : null;
+    const files = { ...(attachments.length ? { attachments } : {}), ...(meta?.length ? { messageMeta: meta } : {}) };
     return this.write(fileKey, {
       server: (key) => {
         // The server doesn't keep files yet (Phase 6): the composer offers them in local files only.
@@ -160,13 +164,16 @@ export class CommentsService {
     return [...out];
   }
 
-  async edit(fileKey: FileKey, commentId: string, message: string, mentions?: string[]): Promise<CommentsState> {
+  async edit(fileKey: FileKey, commentId: string, message: string, mentions?: string[], messageMeta?: CommentSegment[] | null): Promise<CommentsState> {
+    const meta = messageMeta ? cleanSegments(messageMeta) : null;
     return this.write(fileKey, {
       server: (key) => this.mp.call("PATCH", `/files/${key}/comments/${enc(commentId)}`, { message: cleanMessage(message), mentions: cleanMentions(mentions) }),
       local: (rec) => {
         const c = find(rec, commentId);
         const text = cleanMessage(message, !!c.attachments?.length);
         c.message = text;
+        if (meta?.length) c.messageMeta = meta;
+        else delete c.messageMeta;
         c.mentions = cleanMentions(mentions);
         c.editedAt = this.host.now();
       },
@@ -328,7 +335,7 @@ export function commentsApi(s: CommentsService): CommentsRepository {
   return {
     list: (fileKey) => s.list(fileKey),
     add: (fileKey, input) => s.add(fileKey, input),
-    edit: (fileKey, id, message, mentions) => s.edit(fileKey, String(id), message, mentions),
+    edit: (fileKey, id, message, mentions, messageMeta) => s.edit(fileKey, String(id), message, mentions, messageMeta),
     remove: (fileKey, id) => s.remove(fileKey, String(id)),
     setResolved: (fileKey, id, resolved) => s.setResolved(fileKey, String(id), resolved === true),
     setRead: (fileKey, ids, read) => s.setRead(fileKey, ids, read !== false),

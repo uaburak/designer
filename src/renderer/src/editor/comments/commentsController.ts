@@ -8,7 +8,7 @@ import { useSyncExternalStore } from "react";
 import { showToast } from "@/ds";
 import { t } from "@/i18n";
 import { getStoreClient } from "@/store";
-import { mentionsIn, type CommentAnchor, type CommentAttachment, type CommentsState, type CommentThread, type MentionCandidate } from "@shared/comments";
+import { mentionsIn, type CommentAnchor, type CommentAttachment, type CommentSegment, type CommentsState, type CommentThread, type MentionCandidate } from "@shared/comments";
 import type { Guid, NodeChange } from "@/engine/codec";
 import type { EditorController } from "../controller";
 import type { ImageStore } from "../images";
@@ -162,11 +162,16 @@ export class CommentsController {
     return this.view.data && !this.view.data.shared ? this.ed.source.images : undefined;
   }
 
-  async post(message: string, attachments: CommentAttachment[] = []): Promise<boolean> {
+  /** The people a message mentions: those picked in the composer, and any "@Name" typed out */
+  private mentions(message: string, picked: string[]): string[] {
+    return [...new Set([...picked, ...mentionsIn(message, this.view.people)])];
+  }
+
+  async post(message: string, attachments: CommentAttachment[] = [], messageMeta: CommentSegment[] | null = null, picked: string[] = []): Promise<boolean> {
     const anchor = this.view.draft;
     if (!anchor || (!message.trim() && !attachments.length)) return false;
-    const files = attachments.length ? { attachments } : {};
-    const data = await this.apply(getStoreClient().comments.add(this.fileKey, { message, mentions: mentionsIn(message, this.view.people), anchor, ...files }));
+    const files = { ...(attachments.length ? { attachments } : {}), ...(messageMeta ? { messageMeta } : {}) };
+    const data = await this.apply(getStoreClient().comments.add(this.fileKey, { message, mentions: this.mentions(message, picked), anchor, ...files }));
     if (!data) return false;
     this.set({ draft: null });
     if (!toldAboutReplies) {
@@ -176,15 +181,21 @@ export class CommentsController {
     return true;
   }
 
-  async reply(threadId: string, message: string, attachments: CommentAttachment[] = []): Promise<boolean> {
+  async reply(threadId: string, message: string, attachments: CommentAttachment[] = [], messageMeta: CommentSegment[] | null = null, picked: string[] = []): Promise<boolean> {
     if (!message.trim() && !attachments.length) return false;
-    const files = attachments.length ? { attachments } : {};
-    return !!(await this.apply(getStoreClient().comments.add(this.fileKey, { threadId, message, mentions: mentionsIn(message, this.view.people), ...files })));
+    const files = { ...(attachments.length ? { attachments } : {}), ...(messageMeta ? { messageMeta } : {}) };
+    return !!(await this.apply(getStoreClient().comments.add(this.fileKey, { threadId, message, mentions: this.mentions(message, picked), ...files })));
   }
 
-  async edit(commentId: string, message: string): Promise<boolean> {
-    if (!message.trim()) return false;
-    return !!(await this.apply(getStoreClient().comments.edit(this.fileKey, commentId, message, mentionsIn(message, this.view.people))));
+  async edit(commentId: string, message: string, messageMeta: CommentSegment[] | null = null, picked: string[] = []): Promise<boolean> {
+    const had = this.view.data?.threads.some((th) => th.comments.some((c) => c.id === commentId && c.attachments?.length));
+    if (!message.trim() && !had) return false;
+    return !!(await this.apply(getStoreClient().comments.edit(this.fileKey, commentId, message, this.mentions(message, picked), messageMeta)));
+  }
+
+  /** Rich text in the composer: a local file's comments (a shared file's server keeps the plain text) */
+  rich(): boolean {
+    return !this.view.data?.shared;
   }
 
   async remove(commentId: string): Promise<void> {
