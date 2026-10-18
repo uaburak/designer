@@ -1544,14 +1544,26 @@ export function libraryOfMain(ed: EditorController, main: Guid): string | null {
   return parent?.sourceLibraryKey ?? null;
 }
 
-/** Opens a library file (Go to main component on a library instance): its tab in the app, a new browser tab else. */
+/**
+ * Opens a library file (Go to main component on a library instance): its tab in the app, a new browser tab else. An
+ * org library is named by its room key (docs/data.md §16.1), not a file on this computer: its local copy is opened
+ * (made first when there is none), as Home opens org files.
+ */
 export async function openLibraryFile(lib: string, title?: string): Promise<void> {
+  const fileKey = await libraryFileKeyHere(lib);
   const nav = typeof window === "undefined" ? null : (window as unknown as { designer?: { nav?: { openFile?: (fileKey: string, options?: { title?: string }) => Promise<unknown> } } }).designer?.nav;
   if (nav?.openFile) {
-    await nav.openFile(lib, title ? { title } : undefined);
+    await nav.openFile(fileKey, title ? { title } : undefined);
     return;
   }
-  if (typeof window !== "undefined") window.open(editorUrl(lib), "_blank", "noopener");
+  if (typeof window !== "undefined") window.open(editorUrl(fileKey), "_blank", "noopener");
+}
+
+/** The local file a library's key names: the file itself, else (an org library's room key) its local copy */
+async function libraryFileKeyHere(lib: string): Promise<string> {
+  const store = (await import("@/store")).getStoreClient();
+  if (await store.workspace.getFile(lib).then(() => true, () => false)) return lib;
+  return (await store.multiplayer.openShared(lib, undefined, undefined, { early: true })).fileKey;
 }
 
 /** The asset key of a library copy's local GUID (for pickers listing "used" assets). */
