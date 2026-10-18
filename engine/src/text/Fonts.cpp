@@ -377,8 +377,10 @@ hb_draw_funcs_t* drawFuncs() {
 const GlyphOutline& Font::outline(uint32_t glyph) {
   auto it = outlines_.find(glyph);
   if (it != outlines_.end()) return it->second;
+  // An outline-only font: what it was given (a glyph it wasn't, empty, nothing kept for it).
+  static const GlyphOutline kNone;
+  if (!font_) return kNone;
   GlyphOutline& o = outlines_[glyph];
-  if (!font_) return o;  // an outline-only font: what it was given
   OutlineBuilder b{&o};
   hb_font_draw_glyph(font_, glyph, drawFuncs(), &b);
   b.close();
