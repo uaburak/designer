@@ -292,13 +292,14 @@ function Pin({
   const files = thread.comments.reduce((n, x) => n + (x.attachments?.length ?? 0), 0);
   const faces = threadPeople(thread);
   // Not saved yet: a spinner on the pin, but only after 500 ms (a quick save never shows one).
-  const pending = thread.comments.some((x) => x.pending);
-  const [spinning, setSpinning] = useState(false);
+  const pending = thread.comments.find((x) => x.pending)?.id ?? null;
+  const [due, setDue] = useState<string | null>(null);
   useEffect(() => {
-    if (!pending) return setSpinning(false);
-    const timer = window.setTimeout(() => setSpinning(true), PENDING_DELAY_MS);
+    if (!pending) return;
+    const timer = window.setTimeout(() => setDue(pending), PENDING_DELAY_MS);
     return () => window.clearTimeout(timer);
   }, [pending]);
+  const spinning = pending !== null && due === pending;
   // A drop stays inside the canvas, 20 px in from its right and top edges (Figma's drag clamp).
   const clampDrop = (px: number, py: number) => ({ x: Math.min(Math.max(px, 0), bounds.width - DRAG_INSET), y: Math.min(Math.max(py, DRAG_INSET), bounds.height) });
   const onPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
