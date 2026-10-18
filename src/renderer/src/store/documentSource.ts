@@ -31,6 +31,9 @@ import { noteLibraryUsage } from "@/editor/libraryUsage";
 import { engineDocumentFromTable, prepareEngineDocument, tableOf, type DocumentFacts, type EngineWireFormat, type OpenedDocument, type PreparedDocument } from "./loadDocument";
 import type { LoadWorkerReply, LoadWorkerRequest } from "./loadWorker";
 
+/** This editor's batches kept for `withoutLocal` at most */
+const LOCAL_TOUCHED_MAX = 1000;
+
 /** The engine's transaction kinds (DOCUMENT_CHANGED's `kind`, engine.md §9.2). */
 export type EngineChangeKind = "USER" | "UNDO" | "REDO" | "SYSTEM";
 
@@ -647,6 +650,12 @@ class Source implements StoreDocumentSource {
       };
       noteLibraryUsage(this, batch.kind, kiwi.nodeChanges, batch.label); // library analytics (docs/data.md §17.3)
       this.localTouched.push({ batchSeq: batch.batchSeq, touched: touchedBy(kiwi), seq: null });
+      // Without external frames nothing prunes them: the oldest journaled ones go past LOCAL_TOUCHED_MAX (an external
+      // frame older than that many of this editor's batches doesn't wait anywhere)
+      if (this.localTouched.length > LOCAL_TOUCHED_MAX) {
+        const i = this.localTouched.findIndex((l) => l.seq !== null);
+        if (i >= 0) this.localTouched.splice(i, 1);
+      }
     } catch (e) {
       this.fail(e);
       return;

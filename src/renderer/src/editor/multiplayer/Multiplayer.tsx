@@ -431,8 +431,9 @@ function useNotices() {
 
 /** The width the others' avatars may take — theirs now and the header's free space after them; null: not measured (the
  *  panel's compact header), Figma's 3 then */
-function useFaceRoom(ref: React.RefObject<HTMLElement | null>): number | null {
+function useFaceRoom(ref: React.RefObject<HTMLElement | null>, shown: boolean): number | null {
   const [room, setRoom] = useState<number | null>(null);
+  // Measured once the facepile is there (it isn't while nobody else is in the file)
   useEffect(() => {
     const el = ref.current;
     const parent = el?.parentElement;
@@ -447,7 +448,7 @@ function useFaceRoom(ref: React.RefObject<HTMLElement | null>): number | null {
     const ro = new ResizeObserver(measure);
     ro.observe(parent);
     return () => ro.disconnect();
-  }, [ref]);
+  }, [ref, shown]);
   return room;
 }
 
@@ -468,7 +469,7 @@ export function Facepile() {
   const setOpen = (on: boolean) => !on && setAnchor(null);
   const pictures = usePeerPictures(state.peers.map((x) => x.userId));
   const root = useRef<HTMLSpanElement>(null);
-  const room = useFaceRoom(root);
+  const room = useFaceRoom(root, state.shared && state.peers.length > 0);
   const [query, setQuery] = useState("");
   if (!state.shared || !state.peers.length) return null;
   // Figma's order and count (facepile.ts): the presenter, the person followed, the file's owner, the speaker, others
