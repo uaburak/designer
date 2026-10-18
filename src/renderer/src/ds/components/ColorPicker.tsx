@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cx } from "../util/cx";
-import { contrastRatio, hexDigits, hexToRgba, hslToRgb, hsvToRgb, parseColor, parseCssColor, rgbToHex, rgbToHsl, rgbToHsv, rgbaToCss, sameRgba, type HSV, type RGBA } from "../util/color";
+import { hexDigits, hexToRgba, hslToRgb, hsvToRgb, parseColor, parseCssColor, rgbToHex, rgbToHsl, rgbToHsv, rgbaToCss, sameRgba, type HSV, type RGBA } from "../util/color";
 import {
   addStop,
   BLEND_LABEL,
@@ -36,6 +36,7 @@ import {
   type PatternAlignment,
   type PickerPaint,
 } from "../util/paint";
+import { autoCorrect, contrastLines, contrastOf, CONTRAST_RATIOS, type ContrastCategory, type ContrastLevel } from "../util/contrast";
 import { rovingTarget } from "../util/rovingFocus";
 import { tooltipProps } from "../overlay/TooltipManager";
 import type { ChangeInfo } from "../types";
@@ -73,6 +74,23 @@ const SCALE_MODES: { value: ImageScaleMode; label: string }[] = [
 ];
 
 const HUE_TRACK = "linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)";
+/** Figma's user settings for the contrast check (on or off, the level), kept per machine. */
+const CONTRAST_SHOWN_KEY = "color_picker_show_color_contrast";
+const CONTRAST_LEVEL_KEY = "color_picker_color_contrast_level";
+const readSetting = (key: string): string | null => {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+};
+const writeSetting = (key: string, value: string) => {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // no storage: this session only
+  }
+};
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 const byte = (n: number) => Math.round(clamp01(n) * 255);
 const pct = (n: number) => Math.round(clamp01(n) * 100);
@@ -219,6 +237,8 @@ export interface ColorPickerProps<P extends PickerPaint> {
   onMakeImage?: () => void;
   /** "Check color contrast": what's behind the layer (a solid colour); the button shows only with it */
   contrastBackground?: RGBA | null;
+  /** What the layers are read as for the contrast standard (their text sizes; null: mixed with normal text — none applies) */
+  contrastCategory?: ContrastCategory | null;
   /** A gradient's "Rotate gradient" (its handles turn 90° about the middle — the editor owns the paint's transform) */
   onRotateGradient?: () => void;
   /** IMAGE: more controls under the scale mode (the editor's rotate and adjustment sliders) */
@@ -263,9 +283,22 @@ export interface ColorPickerProps<P extends PickerPaint> {
  */
 export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
   useT();
-  const { value, onChange, onCancel, onClose, anchor, placement = "left-of-panel", paintTypes, disabledTypes, documentColors = [], swatchSets = [], swatchSet: controlledSet, onSwatchSetChange, libraries, initialTab = "custom", imageUrl, onChooseImage, onMakeImage, onRotateGradient, contrastBackground, imageControls, imageAction, pattern, onShaders, shader, offsetX = -1, colorModel, onColorModelChange, stop: controlledStop, onStopChange, headerActions, static: isStatic } = props;
+  const { value, onChange, onCancel, onClose, anchor, placement = "left-of-panel", paintTypes, disabledTypes, documentColors = [], swatchSets = [], swatchSet: controlledSet, onSwatchSetChange, libraries, initialTab = "custom", imageUrl, onChooseImage, onMakeImage, onRotateGradient, contrastBackground, contrastCategory = "graphics", imageControls, imageAction, pattern, onShaders, shader, offsetX = -1, colorModel, onColorModelChange, stop: controlledStop, onStopChange, headerActions, static: isStatic } = props;
   const [tab, setTab] = useState(initialTab);
-  const [contrast, setContrast] = useState(false);
+  // "Check color contrast" on or off and the level asked for: kept, as Figma's user settings
+  // (`color_picker_show_color_contrast`, `color_picker_color_contrast_level`); the category is chosen per picker.
+  const [contrast, setContrastState] = useState(() => readSetting(CONTRAST_SHOWN_KEY) === "1");
+  const [contrastLevel, setContrastLevelState] = useState<ContrastLevel>(() => (readSetting(CONTRAST_LEVEL_KEY) === "AAA" ? "AAA" : "AA"));
+  const [categoryChoice, setCategoryChoice] = useState<ContrastCategory | "auto">("auto");
+  const [fixPreview, setFixPreview] = useState(false);
+  const setContrast = (on: boolean) => {
+    setContrastState(on);
+    writeSetting(CONTRAST_SHOWN_KEY, on ? "1" : "0");
+  };
+  const setContrastLevel = (level: ContrastLevel) => {
+    setContrastLevelState(level);
+    writeSetting(CONTRAST_LEVEL_KEY, level);
+  };
   const [ownModel, setOwnModel] = useState<ColorModel>("hex");
   const [ownSet, setOwnSet] = useState("page");
   const model = colorModel ?? ownModel;
@@ -570,6 +603,30 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
   const opaque = rgbToHex(hsvToRgb(hsv));
   const tab0 = paintTab(value.type);
   const showContrast = !!contrastBackground && value.type === "SOLID";
+  // The contrast check (atlas 07 §5.7): the standard the layers' category asks for at the chosen level (graphics: AA
+  // only), the ratio, the square's lines where it is met exactly, and — short of it — Figma's auto-correct: the nearest
+  // colour of this hue and alpha that meets it.
+  const contrastCategoryShown = categoryChoice === "auto" ? contrastCategory : categoryChoice;
+  const contrastLevelShown: ContrastLevel = contrastCategoryShown === "graphics" ? "AA" : contrastLevel;
+  const contrastNeed = contrastCategoryShown ? CONTRAST_RATIOS[contrastCategoryShown][contrastLevelShown] : null;
+  const contrastOn = contrast && showContrast;
+  const hsvH = hsv.h;
+  const { r: fr, g: fg, b: fb, a: fa } = target;
+  const bgKey = contrastBackground ? rgbaToCss(contrastBackground) : "";
+  const contrastCheck = useMemo(() => {
+    if (!contrastOn || !contrastBackground) return null;
+    const fgc = { r: fr, g: fg, b: fb, a: fa };
+    const ratio = contrastOf(fgc, contrastBackground);
+    const met = contrastNeed !== null && ratio >= contrastNeed;
+    const hue = hsvH / 360;
+    return {
+      ratio,
+      met,
+      lines: contrastNeed !== null ? contrastLines(contrastNeed, hue, fa, contrastBackground) : null,
+      fix: contrastNeed !== null && !met ? autoCorrect({ ratio: contrastNeed, hue, alpha: fa, fg: fgc, bg: contrastBackground }) : null,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the background by value (bgKey)
+  }, [contrastOn, bgKey, contrastNeed, fr, fg, fb, fa, hsvH]);
   const pickerBox = useRef<HTMLDivElement>(null);
   // A stop's swatch opens a Solid picker for that stop beside this one (unverified: the live capture has no stop picker).
   const [stopPickerAt, setStopPickerAt] = useState<{ index: number; anchor: HTMLElement | null } | null>(null);
@@ -629,7 +686,19 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
         keyStep(e, (dx, dy) => apply({ h: hsv.h, s: clamp01(hsv.s + dx), v: clamp01(hsv.v + dy) }));
       }}
     >
+      {contrastCheck?.lines && (
+        // Where the contrast is exactly the standard's (Figma's lighter / darker luminance lines, white at 80 %).
+        <svg className={styles.contrastLines} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden>
+          {[contrastCheck.lines.lighter, contrastCheck.lines.darker].map((line, i) =>
+            line ? <polyline key={i} points={line.map((p) => `${p.s},${1 - p.v}`).join(" ")} vectorEffect="non-scaling-stroke" /> : null
+          )}
+        </svg>
+      )}
       <span className={styles.thumb} style={{ left: `${hsv.s * 100}%`, top: `${(1 - hsv.v) * 100}%`, background: opaque }} />
+      {fixPreview && contrastCheck?.fix && (() => {
+        const at = rgbToHsv(contrastCheck.fix);
+        return <span className={cx(styles.thumb, styles.contrastFix)} style={{ left: `${at.s * 100}%`, top: `${(1 - at.v) * 100}%`, background: rgbToHex(contrastCheck.fix) }} />;
+      })()}
     </div>
   );
   const sliders = (
@@ -684,22 +753,63 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
       <div className={cx(field.field, styles.joined)}>{modelFields}</div>
     </div>
   );
-  const contrastRow =
-    contrast && showContrast
-      ? (() => {
-          // WCAG 2: AA 4.5 (3 for large text), AAA 7 (4.5 for large text).
-          const ratio = contrastRatio(target, contrastBackground!);
-          const shown = Math.floor(ratio * 100) / 100;
-          return (
-            <div className={styles.contrastRow} role="status" aria-label={t("Contrast")}>
-              <span>{t("Contrast")}</span>
-              <span className={styles.contrastValue}>{shown}:1</span>
-              <span className={styles.contrastBadge} data-pass={ratio >= 4.5 || undefined}>AA</span>
-              <span className={styles.contrastBadge} data-pass={ratio >= 7 || undefined}>AAA</span>
-            </div>
-          );
-        })()
-      : null;
+  // The check's settings (Figma's COLOR_CONTRAST_SETTINGS_DROPDOWN): the category — Auto (what the layers are read
+  // as), or one chosen — and the level, each with its ratio.
+  const categoryName = (c: ContrastCategory | null | undefined) => (c === "largeText" ? t("Large text") : c === "normalText" ? t("Normal text") : c === "graphics" ? t("Graphics") : t("Mixed"));
+  const ratioText = (level: ContrastLevel) => {
+    const r = contrastCategoryShown ? CONTRAST_RATIOS[contrastCategoryShown][level] : null;
+    return r === null ? level : `${level} (${r}:1)`;
+  };
+  const contrastSettings: MenuEntry[] = [
+    { header: t("Category") },
+    { id: "category.auto", label: t("Auto ({category})", { category: categoryName(contrastCategory) }), checked: categoryChoice === "auto", radio: true },
+    ...(["largeText", "normalText", "graphics"] as const).map((c) => ({ id: `category.${c}`, label: categoryName(c), checked: categoryChoice === c, radio: true })),
+    "-",
+    { header: t("Level") },
+    ...(["AA", "AAA"] as const).map((l) => ({ id: `level.${l}`, label: ratioText(l), checked: contrastLevelShown === l, radio: true, disabled: contrastCategoryShown === "graphics" && l === "AAA" })),
+  ];
+  const contrastRow = contrastCheck ? (
+    <>
+      <div className={styles.contrastRow} role="status" aria-label={t("Contrast")}>
+        <span>{t("Contrast")}</span>
+        <span className={styles.contrastValue}>{contrastCheck.ratio}:1</span>
+        {contrastNeed !== null && (
+          <span className={styles.contrastBadge} data-pass={contrastCheck.met || undefined}>
+            {contrastLevelShown}
+          </span>
+        )}
+        <MenuButton
+          label={t("Contrast settings")}
+          className={buttons.icon}
+          entries={contrastSettings}
+          onSelect={(id) => {
+            if (id.startsWith("category.")) setCategoryChoice(id.slice(9) as ContrastCategory | "auto");
+            else if (id.startsWith("level.")) setContrastLevel(id.slice(6) as ContrastLevel);
+          }}
+        >
+          <Icon name="24.adjust.small" />
+        </MenuButton>
+      </div>
+      {contrastNeed !== null && (
+        <div className={styles.contrastNote}>
+          <span>{contrastCheck.met ? t("Meets {standard}", { standard: contrastLevelShown }) : t("Doesn't meet {standard}", { standard: contrastLevelShown })}</span>
+          {contrastCheck.fix && (
+            <Button
+              variant="link"
+              onPointerEnter={() => setFixPreview(true)}
+              onPointerLeave={() => setFixPreview(false)}
+              onClick={() => {
+                setFixPreview(false);
+                setColor({ ...contrastCheck.fix!, a: target.a }, { final: true, source: "pick" });
+              }}
+            >
+              {t("Auto-correct")}
+            </Button>
+          )}
+        </div>
+      )}
+    </>
+  ) : null;
   // "On this page" first, then the editor's sets (a set it no longer has falls back to the page's).
   const set = swatchSets.find((s) => s.id === (controlledSet ?? ownSet)) ?? null;
   const swatchColors = set ? set.colors : documentColors;

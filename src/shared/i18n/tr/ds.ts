@@ -151,6 +151,16 @@ export const ds: Record<string, string> = {
   "Shader (Beta)": "Gölgelendirici (Beta)",
   "Blend mode": "Karışım modu",
   "Check color contrast": "Renk kontrastını denetle",
+  // The contrast check's settings and verdict (atlas 07 §5.7; the English is ours: keys only in Figma's build)
+  "Contrast settings": "Kontrast ayarları",
+  Level: "Düzey",
+  "Auto ({category})": "Otomatik ({category})",
+  "Large text": "Büyük metin",
+  "Normal text": "Normal metin",
+  Graphics: "Grafikler",
+  "Meets {standard}": "{standard} düzeyini karşılıyor",
+  "Doesn't meet {standard}": "{standard} düzeyini karşılamıyor",
+  "Auto-correct": "Otomatik düzelt",
 
   // ---- Alignment matrix (Auto layout)
   "Align top left": "Sol üste hizala",

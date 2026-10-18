@@ -14,7 +14,7 @@
  * transaction and commits on release.
  */
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Banner, ColorInput, ColorPicker, Icon, IconButton, isMixed, MenuButton, MIXED, NumericInput, PanelSection, Slider, cx, type ChangeInfo, type PickerPaint } from "@/ds";
+import { Banner, ColorInput, ColorPicker, contrastCategoryOf, Icon, IconButton, isMixed, MenuButton, MIXED, NumericInput, PanelSection, selectionCategory, Slider, cx, type ChangeInfo, type ContrastCategory, type PickerPaint } from "@/ds";
 import { useColorFormat } from "../../colorFormat";
 import { useTextSummary } from "./useTextSummary";
 import { openMakeImage } from "../../imageTools/ImageToolbar";
@@ -36,7 +36,8 @@ import { ShaderParams } from "./ShaderSettings";
 import { SHADER_FILLS, shaderPaint, type ShaderFields } from "../../model/shaders";
 import { StrokeRows, firstStrokeFields } from "./Stroke";
 import { Grip, moved, useReorder } from "./reorder";
-import { isFrameNode, type PanelNode } from "./shared";
+import { isFrameNode, typeOf, type PanelNode } from "./shared";
+import { styleWeight } from "../../model/text";
 import { BoundPaintRow, paintScope } from "./Variables";
 import { remoteDefaultValue, useRemoteAssets } from "../libraries/remoteAssets";
 import { AppliedStyle, StylesButton, sharedStyle } from "./Styles";
@@ -717,6 +718,7 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
         ) : undefined
       }
       contrastBackground={paint.type === "SOLID" && nodes.length === 1 ? backgroundBehind(ed, refs[0], pageColor) : null}
+      contrastCategory={contrastCategoryOfNodes(nodes)}
       onRotateGradient={isGradientType(paint.type) ? () => write(gradientRotated90(paint), { final: true, source: "pick" }, "Rotate gradient") : undefined}
       onChange={(next: PickerPaint, info) => {
         let out = fromPicker(paint, next);
@@ -837,6 +839,22 @@ export function topLevelAt(ed: EditorController, x: number, y: number, not: read
  * What's behind a layer for "Check color contrast": the nearest parent's top visible solid fill, else the page's
  * colour (white when it has none).
  */
+/**
+ * What the contrast check reads the layers as (atlas 07 §5.7, Figma's `J3`): a text by its runs' sizes and weights
+ * (the base style and its overrides), anything else a graphic; null when normal text is mixed with other kinds.
+ */
+export function contrastCategoryOfNodes(nodes: readonly PanelNode[]): ContrastCategory | null {
+  type Run = { fontSize?: number; fontName?: { style?: string } };
+  const kinds = new Set(
+    nodes.map((n) => {
+      const base = n as PanelNode & Run & { styleOverrideTable?: Run[] };
+      const runs = [base, ...(base.styleOverrideTable ?? [])].map((r) => ({ fontSize: r.fontSize ?? base.fontSize, fontWeight: styleWeight((r.fontName ?? base.fontName)?.style ?? "Regular").weight }));
+      return contrastCategoryOf(typeOf(n), runs);
+    })
+  );
+  return selectionCategory(kinds);
+}
+
 function backgroundBehind(ed: EditorController, ref: Guid | undefined, pageColor: Color | null): Color {
   let id = ref ? ed.engine.readNode(ref)?.parentIndex?.guid : undefined;
   for (let i = 0; id && i < 64; i++) {
