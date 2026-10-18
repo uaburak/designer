@@ -32,6 +32,7 @@ import { attachLibraryUsage, gid } from "./libraryUsage";
 import { setExplicitMode } from "./variables";
 import { LIMITS } from "./model/variables";
 import type { DefaultMode } from "../../../shared/libraries/orgTypes";
+import { readSocial, type PluginDataEntry, type SocialTemplateData } from "../../../shared/social/types";
 
 const THUMB = 256;
 
@@ -587,6 +588,8 @@ export interface PublishItem {
   collectionKey?: string;
   /** A variant's set's key */
   componentSetKey?: string;
+  /** A Social template's marker (docs/social.md §3.5): the manifest lists it so the gallery needn't fetch payloads */
+  social?: { template: SocialTemplateData };
 }
 
 export interface PublishDraft {
@@ -670,10 +673,19 @@ function draftItems(ed: EditorController): { items: PublishItem[]; hiddenCount: 
       status: "unchanged",
       ...(a.collectionKey ? { collectionKey: a.collectionKey } : {}),
       ...(a.componentSetKey ? { componentSetKey: a.componentSetKey } : {}),
+      ...socialOf(ed, a),
     })
   );
   const hidden = top.filter((a) => a.hiddenFromPublishing).map((a) => fromEngineAsset(ed, a));
   return { items, hiddenCount: hidden.length, hidden };
+}
+
+/** A component set's (or lone component's) Social template marker, as the manifest carries it (docs/social.md §3.5). */
+function socialOf(ed: EditorController, a: { kind: string; id: Guid; componentSetId?: Guid }): Pick<PublishItem, "social"> {
+  if (a.kind !== "COMPONENT_SET" && !(a.kind === "COMPONENT" && !a.componentSetId)) return {};
+  const n = ed.engine.readNode(a.id, { fields: ["pluginData"] }) as { pluginData?: PluginDataEntry[] } | null;
+  const template = readSocial<SocialTemplateData>(n?.pluginData, "template");
+  return template && typeof template === "object" && template.formats && Object.keys(template.formats).length ? { social: { template } } : {};
 }
 
 /** Why an asset can't be published (atlas 12 §3.5, §3.10): too many modes (the plan's limit) or variables in a collection. */
@@ -793,6 +805,7 @@ function toPublishAsset(i: PublishItem, withPayload: boolean, thumbnailPng?: Uin
     ...(a.containingFrame ? { containingFrame: a.containingFrame } : {}),
     ...(i.collectionKey ? { collectionKey: i.collectionKey } : {}),
     ...(i.componentSetKey ? { componentSetKey: i.componentSetKey } : {}),
+    ...(i.social ? { social: i.social } : {}),
     ...(withPayload ? (i.payloadBytes ? { payloadBytes: i.payloadBytes } : { payload: i.payload }) : {}),
     ...(thumbnailPng ? { thumbnailPng } : {}),
   };

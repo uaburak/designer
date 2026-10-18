@@ -1,7 +1,6 @@
 /**
  * New post (docs/social.md §6.6) and the toolbar's Social slot [ours]: New post's menu — platform › format, each with
- * its size, then the board's brand's own sizes — Safe areas (a toggle) and Table (round 18b's posts table; off until
- * it lands). The same menu opens from the Posts list's "+" and from the command `social.new-post` (⌘K). A pick makes a
+ * its size, then the board's brand's own sizes — Safe areas (a toggle) and Table (round 18b's posts table, a toggle). The same menu opens from the Posts list's "+" and from the command `social.new-post` (⌘K). A pick makes a
  * post of that format on the board (actions.ts `newPost`, one undo step), with the board's brand, then selects it and
  * zooms to it.
  */
@@ -62,6 +61,7 @@ export function SocialToolbarSlot() {
   const ed = useEditor();
   const { brands } = useBrands();
   const safeAreas = useUI((s) => s.socialSafeAreas !== false);
+  const table = useUI((s) => !!s.socialTable);
   const asked = useUI((s) => s.socialNewPostMenu ?? 0);
   const wrap = useRef<HTMLSpanElement>(null);
   const first = useRef(asked);
@@ -78,8 +78,8 @@ export function SocialToolbarSlot() {
         </MenuButton>
       </span>
       <ToolButton icon="24.safe-area" label={t("Safe areas")} active={safeAreas} onSelect={() => toggleSafeAreas(ed)} />
-      {/* The posts table is round 18b's (docs/social.md §4.5) */}
-      <ToolButton icon="24.table" label={t("Table")} active={false} disabled onSelect={() => {}} />
+      {/* The posts table (docs/social.md §4.5, templates/PostsTable.tsx) */}
+      <ToolButton icon="24.table" label={t("Table")} active={table} onSelect={() => ed.ui.set((s) => ({ socialTable: !s.socialTable }))} />
     </>
   );
 }

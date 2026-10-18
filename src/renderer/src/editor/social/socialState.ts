@@ -85,7 +85,7 @@ export function readBoard(ed: EditorController, page: Guid): SocialBoard {
 }
 
 /** A post with a timeline that has something on it: keyframes or presets on a layer, or audio. */
-function isAnimated(ed: EditorController, id: Guid): boolean {
+export function isAnimated(ed: EditorController, id: Guid): boolean {
   const model = motionRead(() => ed.engine.motionTimeline(id), null);
   return !!model && (model.audio.length > 0 || model.layers.some((l) => l.tracks.length > 0 || l.clips.length > 0 || !!l.instance));
 }

@@ -1,6 +1,7 @@
 /**
  * The Post section (docs/social.md §6.5): the selected post's record, edited directly — Platform and Format (a change
- * resizes it, actions.ts `resizePost`), Brand, Product, Template (round 18b's), Caption with its counter in the
+ * resizes it, actions.ts `resizePost`), Brand (its mode and logo variant), Product (its packshot in the picture slot),
+ * Template (swaps to another template's variant for the format; round 18b's templates.ts), Caption with its counter in the
  * format's unit (red past the limit, a dashed mark at the feed's fold), Hashtags as chips (typing "#", a space or Enter
  * makes one; counted against the format's limit), Alt text, Status, Campaign, the review's Problems (Fix runs the manager's
  * fix loop on it, Leave clears it) and Ask agent…. Several posts: the fields they share, "Mixed" where they differ; caption, hashtags
@@ -8,7 +9,7 @@
  * writes through actions.ts, one undo step each; a viewer reads them all, changes none.
  */
 import { useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { Button, IconButton, MIXED, Select, cx, type Mixed } from "@/ds";
+import { Button, IconButton, MIXED, Select, cx, showToast, type Mixed } from "@/ds";
 import { intlLocale, t, tp, useT } from "@/i18n";
 import type { Guid, NodeChange } from "@/engine/codec";
 import { captionReport } from "@shared/social/caption";
@@ -19,6 +20,8 @@ import { useEditor, type EditorController } from "../controller";
 import { useTopics } from "../hooks";
 import { useBrands } from "../studio/forms";
 import { canWritePosts, editorWriter, leaveProblems, resizePost, setPost, type PostPatch } from "./actions";
+import { applyBrand, applyTemplate, setProduct } from "./templates/templates";
+import { templateOptionsFor, useTemplates } from "./templates/TemplatesGallery";
 import { askAgent, fixWithAgent } from "./SocialMode";
 import { useSocialBoard, type PostRow } from "./socialState";
 import styles from "./PostSection.module.css";
@@ -50,6 +53,7 @@ export function PostSection() {
 function PostFields({ posts, brands, campaigns }: { posts: PostRow[]; brands: Brand[] | null; campaigns: { id: string; name: string }[] }) {
   useT();
   const ed = useEditor();
+  const templates = useTemplates();
   const write = canWritePosts(ed);
   const ids = posts.map((p) => p.id);
   const run = (fn: () => void) => {
@@ -66,6 +70,9 @@ function PostFields({ posts, brands, campaigns }: { posts: PostRow[]; brands: Br
   const status = shared(posts.map((p) => p.data.status));
   const campaignId = shared(posts.map((p) => p.data.campaignId ?? NONE));
   const one = posts.length === 1 ? posts[0] : null;
+  const templateKey = shared(posts.map((p) => p.data.template?.key ?? NONE));
+  const templateOptions = templateOptionsFor(templates, typeof formatId === "string" ? formatId : null);
+  const failed = (e: unknown) => showToast({ message: e instanceof Error ? e.message : String(e), kind: "error" });
   // Format options: the platform's formats, or the brand's own sizes.
   const formatOptions =
     platform === "brand"
@@ -102,15 +109,37 @@ function PostFields({ posts, brands, campaigns }: { posts: PostRow[]; brands: Br
       </div>
       <div className={styles.pair}>
         <Field label={t("Brand")}>
-          <Select label={t("Brand")} value={brandId} disabled={!write} options={[...(brands ?? []).map((b) => ({ value: b.id, label: b.name })), { value: NONE, label: t("No brand") }]} onChange={(v) => patch({ brandId: v === NONE ? null : v, ...(v !== brandId ? { productIds: [] } : {}) })} data-post-field="brand" />
+          <Select
+            label={t("Brand")}
+            value={brandId}
+            disabled={!write}
+            options={[...(brands ?? []).map((b) => ({ value: b.id, label: b.name })), { value: NONE, label: t("No brand") }]}
+            // A brand: its mode on the Brand collection and its logo variant (templates.ts applyBrand), the product cleared.
+            onChange={(v) => (v === NONE ? patch({ brandId: null, productIds: [] }) : run(() => void applyBrand(ed, editorWriter(ed), ids, v).catch(failed)))}
+            data-post-field="brand"
+          />
         </Field>
         <Field label={t("Product")}>
-          <Select label={t("Product")} value={productId} disabled={!write || !brand} options={[...(brand?.products ?? []).map((p) => ({ value: p.id, label: p.name })), { value: NONE, label: t("No product") }]} onChange={(v) => patch({ productIds: v === NONE ? [] : [v] })} data-post-field="product" />
+          <Select
+            label={t("Product")}
+            value={productId}
+            disabled={!write || !brand}
+            options={[...(brand?.products ?? []).map((p) => ({ value: p.id, label: p.name })), { value: NONE, label: t("No product") }]}
+            // A product: its first packshot in the picture slot too, in the same step.
+            onChange={(v) => run(() => void setProduct(ed, editorWriter(ed), ids, brand?.id ?? null, v === NONE ? null : v).catch(failed))}
+            data-post-field="product"
+          />
         </Field>
       </div>
-      {/* Templates are round 18b's (docs/social.md §4) */}
       <Field label={t("Template")}>
-        <Select label={t("Template")} value={NONE} disabled options={[{ value: NONE, label: t("None") }]} onChange={() => {}} data-post-field="template" />
+        <Select
+          label={t("Template")}
+          value={templateKey === NONE || templateOptions.some((o) => o.value === templateKey) ? templateKey : NONE}
+          disabled={!write || !templateOptions.length}
+          options={[...templateOptions, ...(templateOptions.length ? (["-"] as const) : []), { value: NONE, label: t("None"), disabled: templateKey !== NONE }]}
+          onChange={(key) => key !== NONE && run(() => void applyTemplate(ed, editorWriter(ed), ids, { key, ...(typeof brandId === "string" && brandId !== NONE ? { brandId } : {}) }).catch(failed))}
+          data-post-field="template"
+        />
       </Field>
       {one ? (
         <>

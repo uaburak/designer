@@ -3,8 +3,8 @@
  * "No campaign"), each group a disclosure with its name (double-click renames) and post count; a row (32) shows the
  * post's picture, name, format, platform and one state glyph — ✓ reviewed / approved, ⚠ problems (count), ● draft, ⇩
  * exported — and ▶ when it animates. A click selects the post and zooms to it, ⇧ / ⌘ add or take it out; the context
- * menu resizes, duplicates for another format, moves to a campaign, asks the agent, deletes. Save as template… and
- * Export… are rounds 18b / 18d's (shown, off).
+ * menu resizes, duplicates for another format, moves to a campaign, asks the agent, saves it as a template (round
+ * 18b's dialog), deletes. Export… is round 18d's (shown, off).
  */
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { ContextMenu, EmptyState, Icon, TextInput, cx, showToast, tooltipProps, type MenuEntry } from "@/ds";
@@ -24,7 +24,7 @@ import styles from "./SocialLeftPanel.module.css";
 const PLATFORM_MARK: Record<string, string> = { instagram: "IG", linkedin: "in", facebook: "FB", x: "X", tiktok: "TT", youtube: "YT", pinterest: "P" };
 
 /** A post's format name and platform (a brand's own size: its id's format, no platform). */
-function formatLabel(row: PostRow): { name: string; platform: string | null } {
+export function formatLabel(row: PostRow): { name: string; platform: string | null } {
   const f = formatById(row.data.formatId);
   if (f) return { name: t(f.name), platform: f.platform };
   const own = parseBrandFormatId(row.data.formatId);
@@ -165,7 +165,7 @@ function PostItem({ row, selected, onClick, onMenu }: { row: PostRow; selected: 
 }
 
 /** The post's picture, 24 px (rendered at 2× by the engine), drawn again when the board changes. */
-function PostThumb({ row }: { row: PostRow }) {
+export function PostThumb({ row }: { row: PostRow }) {
   const ed = useEditor();
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -211,7 +211,7 @@ export function postMenu(ed: EditorController, ids: readonly Guid[], campaigns: 
     },
     "-",
     { id: "ask", label: t("Ask agent…") },
-    { id: "template", label: t("Save as template…"), disabled: true },
+    { id: "template", label: t("Save as template…"), disabled: !write || ids.length !== 1 },
     { id: "export", label: t("Export…"), disabled: true },
     "-",
     { id: "delete", label: t("Delete"), disabled: !write || !ids.length },
@@ -235,6 +235,7 @@ export function runPostMenu(ed: EditorController, id: string, ids: readonly Guid
       return campaign.id;
     } else if (id.startsWith(MOVE)) setPost(ed, w, ids, { campaignId: id.slice(MOVE.length) || null });
     else if (id === "ask") askAgent(ed, ids);
+    else if (id === "template") ed.ui.set({ socialSaveTemplate: ids[0] ?? null });
     else if (id === "delete") {
       ed.engine.setSelection([...ids]);
       ed.engine.command("DELETE");

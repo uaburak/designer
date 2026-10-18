@@ -16,6 +16,7 @@ import type { Brand, SocialFormat } from "@shared/studio/types";
 import type { EditorController } from "../controller";
 import { motionRead } from "../motion/motionState";
 import { brandsRepo } from "../studio/forms";
+import { importPicture, prepareTemplate } from "../social/templates/templates";
 import { applyChecks, applyTemplate, canWritePosts, checkPost, fillSlots, newCampaign, newPost, resizePost, saveAsTemplate, setCampaign, setPost, withinWrite, type PostPatch } from "../social/actions";
 import { postRecord, readCampaigns, readPost, writePost } from "../social/posts";
 import { readBoard, type PostRow } from "../social/socialState";
@@ -219,6 +220,7 @@ async function newPostTool(env: ToolEnv, args: Spec): Promise<ToolResult> {
   if (given && !readCampaigns(env.ed, page).some((c) => c.id === given)) throw new ToolError(`new_post: no campaign ${given} on this page (get_board lists them; campaign: "‹name›" makes one).`);
   const campaign = !given && name ? newCampaign(name, str(args.brandId) || null) : null;
   const templateKey = str(args.templateKey);
+  if (templateKey) await prepareTemplate(env.ed, { key: templateKey, brandId: str(args.brandId) || null, productId: str(args.productId) || null }).catch(() => {});
   const at = typeof args.x === "number" && typeof args.y === "number" ? { x: args.x, y: args.y } : undefined;
   const id = env.write("New post", () => {
     const made = whenBuilt("new_post from a template", TEMPLATES_ROUND, () =>
@@ -242,17 +244,19 @@ async function newPostTool(env: ToolEnv, args: Spec): Promise<ToolResult> {
   return r;
 }
 
-function applyTemplateTool(env: ToolEnv, args: Spec): ToolResult {
+async function applyTemplateTool(env: ToolEnv, args: Spec): Promise<ToolResult> {
   const nodes = postIds(env, args, "apply_template");
   const key = str(args.templateKey);
   if (!key) throw new ToolError("apply_template: templateKey (list_templates lists them).");
+  // A library template's copy, the brand and the product's packshot first (round 18b): the write can't wait for them.
+  await prepareTemplate(env.ed, { key, brandId: str(args.brandId) || null, productId: str(args.productId) || null });
   const out = env.write("Apply template", () => whenBuilt("apply_template", TEMPLATES_ROUND, () => applyTemplate(env.ed, withinWrite, nodes, { key, ...(str(args.variant) ? { variant: str(args.variant) } : {}), ...(str(args.brandId) ? { brandId: str(args.brandId) } : {}), ...(str(args.productId) ? { productId: str(args.productId) } : {}) })), nodes);
   const r = textResult({ posts: out.map((id) => ({ nodeId: id, slots: slotsOf(env.ed, id) })) });
   r.touched = out;
   return r;
 }
 
-function fillSlotsTool(env: ToolEnv, args: Spec): ToolResult {
+async function fillSlotsTool(env: ToolEnv, args: Spec): Promise<ToolResult> {
   const [id] = postIds(env, { nodeId: args.nodeId }, "fill_slots");
   const raw = args.values && typeof args.values === "object" && !Array.isArray(args.values) ? (args.values as Record<string, unknown>) : {};
   const values: Partial<Record<SlotRole, string>> = {};
@@ -266,7 +270,9 @@ function fillSlotsTool(env: ToolEnv, args: Spec): ToolResult {
   });
   const locked = slots.filter((s) => s.locked && (s.role in values || (s.role === "picture" && picture))).map((s) => s.role);
   if (locked.length) throw new ToolError(locked.map((r) => `${r} is locked in this template`).join("; "));
-  env.write("Fill slots", () => whenBuilt("fill_slots", TEMPLATES_ROUND, () => fillSlots(env.ed, withinWrite, id, values, picture)), [id]);
+  // The picture's bytes imported first (round 18b): the write can't wait for them.
+  const image = picture ? await importPicture(env.ed, picture) : undefined;
+  env.write("Fill slots", () => whenBuilt("fill_slots", TEMPLATES_ROUND, () => fillSlots(env.ed, withinWrite, id, values, image)), [id]);
   const over = slots.flatMap((s) => (s.maxChars !== null && values[s.role] !== undefined && [...values[s.role]!].length > s.maxChars ? [{ role: s.role, characters: [...values[s.role]!].length, maxChars: s.maxChars }] : []));
   const r = textResult({ nodeId: id, filled: Object.keys(values), ...(picture ? { picture: true } : {}), ...(over.length ? { overMaxChars: over, note: "Written as asked; shorten these so they fit." } : {}) });
   r.touched = [id];
@@ -391,9 +397,9 @@ export async function runSocialTool(env: ToolEnv, name: string, args: Spec): Pro
     case "new_post":
       return await newPostTool(env, args);
     case "apply_template":
-      return applyTemplateTool(env, args);
+      return await applyTemplateTool(env, args);
     case "fill_slots":
-      return fillSlotsTool(env, args);
+      return await fillSlotsTool(env, args);
     case "set_post":
       return await setPostTool(env, args);
     case "resize_post":
