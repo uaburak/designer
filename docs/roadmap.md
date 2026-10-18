@@ -515,9 +515,9 @@ The manager agent (default Claude Code Haiku 5.5) that hands one chat's work to 
 
 Components, vector / Draw, effects, motion and canvas core read out of Figma desktop's cached editor build with REA and probed live; each report ends in an ordered plan. Batches A (correctness, small) → B (Figma's rules) → C (one schema round) → D (performance, gated by `engine-bench` on the owner's B2C file; the threaded renderer needs the owner's go-ahead). Motion keyframes stay with round 8. Order and status: `docs/research/rea/README.md`.
 
-### Round 18 — Social [ours] — **plan written 2026-10-17** (`docs/social.md`)
+### Round 18 — Social [ours] — **contract written 2026-10-18** (`docs/social.md`; plan 2026-10-17)
 
-A **Social** mode next to Design and Dev Mode: platform templates (Instagram, LinkedIn, …) fed from the Brands library, the agents and Draw's tools working there, and videos built with Motion. Depends on Round 8 (Motion), which the owner unpaused for it (2026-10-17). Plan only; the contract and the owner's answers (`docs/social.md` §7) come first.
+A **Social** mode next to Design and Dev Mode: platform templates (Instagram, LinkedIn, …) fed from the Brands library, the agents and Draw's tools working there, and videos built with Motion. Depends on Round 8 (Motion), built (`docs/motion.md` "Motion status", 2026-10-18). **Status:** the contract is written (decisions, the `designer.social` plugin-data model, templates as component sets with role-tagged slots, one generated Brands library, the formats catalogue checked against the platforms' pages, the chrome, the agents' Social tools, export presets); no engine or schema change. Next: the owner confirms the four proposed answers of `docs/social.md` §12 (or building starts on them), then the main session's pre-round commit (§9), then 18a → 18b ∥ 18c → 18d (§10).
 
 ## Legacy removed (2026-10-06)
 
