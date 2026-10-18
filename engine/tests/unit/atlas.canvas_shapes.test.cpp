@@ -59,6 +59,19 @@ TEST_CASE("atlas zoom: ⌘= / ⌘− step to the next / previous power of two, d
   CHECK(e.camera().zoom == doctest::Approx(0.015625));
 }
 
+TEST_CASE("atlas zoom: zoom in / out are disabled at the zoom's limits (the zoom menu)") {
+  Editor e = makeEditor();
+  CHECK(e.commandState(CommandId::ZOOM_IN) == CMD_ENABLED);
+  CHECK(e.commandState(CommandId::ZOOM_OUT) == CMD_ENABLED);
+  e.setCamera({0, 0, kMinZoom});
+  CHECK(e.commandState(CommandId::ZOOM_OUT) == 0);
+  CHECK(e.commandState(CommandId::ZOOM_IN) == CMD_ENABLED);
+  e.setCamera({0, 0, kMaxZoom});
+  CHECK(e.commandState(CommandId::ZOOM_IN) == 0);
+  CHECK(e.commandState(CommandId::ZOOM_OUT) == CMD_ENABLED);
+  CHECK(e.commandState(CommandId::SELECT_ALL) == CMD_ENABLED);
+}
+
 TEST_CASE("atlas zoom: zoom to selection with 40 px a side; nothing selected, zoom to fit (25 px a side, past 100 %)") {
   Editor e = makeEditor();
   e.setSelection({R1});

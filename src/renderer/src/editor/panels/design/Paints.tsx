@@ -14,7 +14,7 @@
  * transaction and commits on release.
  */
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ColorInput, ColorPicker, Icon, IconButton, isMixed, MenuButton, MIXED, NumericInput, PanelSection, cx, type ChangeInfo, type PickerPaint } from "@/ds";
+import { Banner, ColorInput, ColorPicker, Icon, IconButton, isMixed, MenuButton, MIXED, NumericInput, PanelSection, Slider, cx, type ChangeInfo, type PickerPaint } from "@/ds";
 import { useColorFormat } from "../../colorFormat";
 import { useTextSummary } from "./useTextSummary";
 import { openMakeImage } from "../../imageTools/ImageToolbar";
@@ -22,11 +22,12 @@ import type { Color, Guid, Paint } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
 import { mixedPaints } from "../../model/mixed";
-import { adjustmentValue, fromPicker, gradientRotated90, hashBytes, IMAGE_ADJUSTMENTS, isGradientType, isImageLike, paintImageHash, paintLabel, paintSwatch, paintVideoHash, rotated90, toPicker, withAdjustment, type FullPaint } from "../../model/paints";
+import { adjustmentValue, fromPicker, gradientRotated90, hashBytes, IMAGE_ADJUSTMENTS, isGradientType, isImageLike, paintGifHash, paintImageHash, paintLabel, paintSwatch, paintVideoHash, progressivePaintFields, rotated90, toPicker, withAdjustment, type FullPaint } from "../../model/paints";
 import { formatMediaTime } from "../../model/prototype";
 import { sniffVideoMime } from "@/present/presentationVideos";
 import { regradient, type PaintUse } from "../../model/selectionColors";
 import { pickImageFiles } from "../../canvas/ImagePlacer";
+import { gifFrames, gifStill, type GifFrames } from "../../images";
 import { startGradientEdit } from "../../vectorEdit";
 import { useDocumentVersion, useLocalAssets, useUI } from "../../hooks";
 import { pageColors, writeSelectionColor } from "./SelectionColors";
@@ -254,16 +255,19 @@ export function PaintsSection({ title, field, nodes, onPick, className }: { titl
 
 /**
  * "Choose image…": a new image into the paint (its scale mode and adjustments kept) — or a video (help: "Use the video
- * importer from the fill color picker"), which makes it a VIDEO paint over the video's poster frame.
+ * importer from the fill color picker"), which makes it a VIDEO paint over the video's poster frame; an animated GIF
+ * keeps the GIF beside its first frame. `drop`: the fields the new kind doesn't keep.
  */
-async function chooseImageFor(ed: EditorController, apply: (p: Partial<FullPaint>, drop?: "video") => void): Promise<void> {
+async function chooseImageFor(ed: EditorController, apply: (p: Partial<FullPaint>, drop: string[]) => void): Promise<void> {
   const files = await pickImageFiles(false);
   if (!files.length || ed.engine.destroyed) return;
   const [img] = await ed.images.import(files);
   if (!img) return;
   const image = { image: { hash: hashBytes(img.hash), name: img.name }, originalImageWidth: img.width, originalImageHeight: img.height };
-  if (img.video) apply({ ...image, type: "VIDEO", video: { hash: hashBytes(img.video) } } as Partial<FullPaint>);
-  else apply({ ...image, type: "IMAGE" }, "video");
+  const gif = ["animatedImage", "animationFrame"];
+  if (img.video) apply({ ...image, type: "VIDEO", video: { hash: hashBytes(img.video) } } as Partial<FullPaint>, gif);
+  else if (img.animated) apply({ ...image, type: "IMAGE", animatedImage: { hash: hashBytes(img.animated) }, animationFrame: 0 } as Partial<FullPaint>, ["video"]);
+  else apply({ ...image, type: "IMAGE" }, ["video", ...gif]);
 }
 
 /**
@@ -333,6 +337,112 @@ function VideoPreview({ hash }: { hash: string }) {
         />
         <span className={styles.videoPreviewTime}>{`${formatMediaTime(Math.floor(time))} / ${formatMediaTime(Math.round(duration))}`}</span>
       </div>
+    </div>
+  );
+}
+
+/** Figma's one-time hint under a GIF's frame picker (its user flag `dismissed_gifs_cover_frame_hint`), kept per machine. */
+const GIF_HINT_KEY = "dismissed_gifs_cover_frame_hint";
+
+/**
+ * A GIF fill's controls in the picker, in place of the adjustments (atlas 07 §8.5, Figma's GIF frame picker): Play /
+ * Stop runs the GIF; the "GIF frame" slider (0 … frames − 1, ⇧ by 10, off while playing) shows a frame and, let go,
+ * makes it the cover frame — `onCover` stores its still as the paint's image with `animationFrame`. Then the one-time
+ * hint (its English worded from the keys `gifs_in_figma_prototypes` / `choose_which_frame_displayed`). Frames are read
+ * with the platform's ImageDecoder; without one the GIF only plays.
+ */
+function GifPreview({ hash, frame: cover, onCover }: { hash: string; frame: number; onCover: (frame: number, still: Blob) => void }) {
+  useT();
+  const ed = useEditor();
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const [url, setUrl] = useState<string | null>(null);
+  const [frames, setFrames] = useState<GifFrames | null>(null);
+  const [frame, setFrame] = useState(cover);
+  const [playing, setPlaying] = useState(false);
+  const [hint, setHint] = useState(() => {
+    try {
+      return localStorage.getItem(GIF_HINT_KEY) === null;
+    } catch {
+      return true;
+    }
+  });
+  useEffect(() => {
+    let made: string | null = null;
+    let read: GifFrames | null = null;
+    let live = true;
+    void ed.images.bytes(hash).then(async (bytes) => {
+      if (!live || !bytes) return;
+      made = URL.createObjectURL(new Blob([bytes as BlobPart], { type: "image/gif" }));
+      setUrl(made);
+      read = await gifFrames(bytes);
+      if (live) setFrames(read);
+      else read?.close();
+    });
+    return () => {
+      live = false;
+      if (made) URL.revokeObjectURL(made);
+      read?.close();
+    };
+  }, [ed, hash]);
+  // The frame shown while not playing.
+  useEffect(() => {
+    if (!frames || playing) return;
+    let live = true;
+    void frames.frame(frame).then((f) => {
+      const el = canvas.current;
+      if (!f) return;
+      if (live && el) {
+        el.width = f.bitmap.width;
+        el.height = f.bitmap.height;
+        el.getContext("2d")?.drawImage(f.bitmap, 0, 0);
+      }
+      f.bitmap.close();
+    });
+    return () => {
+      live = false;
+    };
+  }, [frames, frame, playing]);
+  const setCover = (k: number) => {
+    if (!frames) return;
+    void frames.frame(k).then(async (f) => {
+      if (!f) return;
+      const still = await gifStill(f.bitmap);
+      f.bitmap.close();
+      onCover(k, still);
+    });
+  };
+  return (
+    <div className={styles.videoPreview} data-gif-preview>
+      {playing || !frames ? url && <img className={styles.videoPreviewMedia} src={url} alt="" /> : <canvas ref={canvas} className={styles.videoPreviewMedia} />}
+      <div className={styles.videoPreviewBar}>
+        <IconButton icon={playing ? "24.pause" : "24.play"} label={playing ? t("Stop") : t("Play")} onClick={() => setPlaying(!playing)} disabled={!url} />
+        <Slider
+          label={t("GIF frame")}
+          value={frame}
+          min={0}
+          max={Math.max(1, (frames?.count ?? 1) - 1)}
+          step={1}
+          disabled={!frames || playing}
+          onChange={(k, info) => {
+            setFrame(k);
+            if (info.final && k !== cover) setCover(k);
+          }}
+        />
+      </div>
+      {hint && (
+        <Banner
+          onDismiss={() => {
+            setHint(false);
+            try {
+              localStorage.setItem(GIF_HINT_KEY, "1");
+            } catch {
+              // no storage: this session only
+            }
+          }}
+        >
+          <strong>{t("GIFs in prototypes")}</strong> {t("Choose which frame is displayed")}
+        </Banner>
+      )}
     </div>
   );
 }
@@ -535,7 +645,7 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
           ? () =>
               void chooseImageFor(ed, (img, drop) => {
                 const next = { ...paint, ...img } as FullPaint;
-                if (drop === "video") delete (next as { video?: unknown }).video;
+                for (const key of drop) delete (next as Record<string, unknown>)[key];
                 write(next, { final: true, source: "pick" }, img.type === "VIDEO" ? "Choose video" : "Choose image");
               })
           : undefined
@@ -567,6 +677,19 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
         // Live (popovers/fill-picker-image / -video): an image's adjustments; a video has none (its preview plays it).
         paint.type === "VIDEO" ? (
           paintVideoHash(paint) ? <VideoPreview hash={paintVideoHash(paint)!} /> : undefined
+        ) : paintGifHash(paint) ? (
+          <GifPreview
+            hash={paintGifHash(paint)!}
+            frame={(paint as { animationFrame?: number }).animationFrame ?? 0}
+            onCover={(frame, still) =>
+              void ed.images.import([Object.assign(still, { name: (paint.image as { name?: string } | undefined)?.name ?? "Image" })]).then(([img]) => {
+                if (!img || ed.engine.destroyed) return;
+                const name = (paint.image as { name?: string } | undefined)?.name;
+                const next = { ...paint, image: { hash: hashBytes(img.hash), ...(name ? { name } : {}) }, animationFrame: frame, ...progressivePaintFields(img) } as FullPaint;
+                write(next, { final: true, source: "pick" }, "GIF cover frame");
+              })
+            }
+          />
         ) : isImageLike(paint) ? (
           <ImageControls paint={paint} onChange={(next, info) => write(next, info, "Image adjustments")} />
         ) : undefined

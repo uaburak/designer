@@ -102,6 +102,10 @@ export const paintThumbnailHash = (p: FullPaint): string | null => hashHex((p.im
 export const paintVideoHash = (p: FullPaint): string | null =>
   p.type === "VIDEO" ? hashHex((p as { video?: { hash?: ImageHash } }).video?.hash) : null;
 
+/** A GIF fill's GIF (Paint.animatedImage.hash: an IMAGE paint whose `image` is the still at `animationFrame`), as hex. */
+export const paintGifHash = (p: FullPaint): string | null =>
+  p.type === "IMAGE" ? hashHex((p as { animatedImage?: { hash?: ImageHash } }).animatedImage?.hash) : null;
+
 /** An IMAGE paint with an image but without a ThumbHash or a low-res copy: a candidate for the write-back. */
 export const paintLacksProgressive = (p: FullPaint): boolean => isImageLike(p) && !!paintImageHash(p) && (!paintThumbHash(p) || !paintThumbnailHash(p));
 
@@ -141,8 +145,12 @@ export function videoPaint(videoHex: string, poster: { hash: string; width: numb
   return { ...imagePaint(poster.hash, poster, name), type: "VIDEO", video: { hash: hashBytes(videoHex) } } as FullPaint;
 }
 
-/** The paint for an import: a video's VIDEO paint, else an IMAGE paint. */
-export function mediaPaint(img: { hash: string; width: number; height: number; name?: string; video?: string } & Partial<ProgressiveImage>): FullPaint {
+/**
+ * The paint for an import: a video's VIDEO paint; an animated GIF's IMAGE paint over its first frame, the GIF in
+ * `animatedImage` (atlas 07 §8.5); else an IMAGE paint.
+ */
+export function mediaPaint(img: { hash: string; width: number; height: number; name?: string; video?: string; animated?: string } & Partial<ProgressiveImage>): FullPaint {
+  if (img.animated) return { ...imagePaint(img.hash, img, img.name), animatedImage: { hash: hashBytes(img.animated) }, animationFrame: 0 } as FullPaint;
   return img.video ? videoPaint(img.video, img, img.name) : imagePaint(img.hash, img, img.name);
 }
 
@@ -266,9 +274,10 @@ const TYPE_LABEL: Record<string, string> = {
   VIDEO: "Video",
 };
 
-/** The row's text: the hex for a solid, Figma's type name otherwise ("Linear", "Image"), a shader's name ("Nebula"). */
+/** The row's text: the hex for a solid, Figma's type name otherwise ("Linear", "Image", "GIF"), a shader's name ("Nebula"). */
 export function paintLabel(p: FullPaint): string {
   if (p.type === "CUSTOM") return presetOf(p as ShaderFields)?.name ?? "Shader";
+  if (paintGifHash(p)) return "GIF";
   return p.type === "SOLID" ? colorToHex(p.color ?? { r: 0, g: 0, b: 0 }) : TYPE_LABEL[p.type] ?? "Paint";
 }
 

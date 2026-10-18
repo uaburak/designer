@@ -158,6 +158,9 @@ Color background(const NodeProps& page);  // prototypeBackgroundColor (absent: F
 VideoSettings videoSettings(const NodeProps& p);
 // The layer's first visible VIDEO fill (its index in fillPaints), −1 when it has none.
 int videoFill(const NodeProps& p);
+// The layer's first visible GIF fill (an IMAGE paint with an animatedImage: "GIFs in prototypes" play, atlas 07 §8.5),
+// −1 when it has none.
+int gifFill(const NodeProps& p);
 // The page's flows in their order (prototypeStartingPoint.position), top-level frames only.
 std::vector<Flow> flows(const Document& doc, Guid page);
 

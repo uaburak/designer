@@ -404,8 +404,10 @@ message Paint {
   AuthoredColorStop[] authoredStops = 45;  // gradients: the stops as picked; `stops` draw
   InterpolationColorSpace interpolationColorSpace = 41;  // gradients: the space the stops are blended in
   InterpolationHueMethod interpolationHueMethod = 42;    // gradients in OKLCH / HSL: the way round the hue circle
-  // Reserved field numbers (10): Figma fields not kept, or reserved for future Figma fields. Never reuse.
-  byte _r13 = 13 [deprecated]; byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated]; byte _r17 = 17 [deprecated]; byte _r22 = 22 [deprecated];
+  Image animatedImage = 16;              // IMAGE, a GIF: the animated file (`image` is its still at `animationFrame`)
+  uint animationFrame = 17;              // IMAGE, a GIF: the cover frame (the still drawn on the canvas)
+  // Reserved field numbers (8): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  byte _r13 = 13 [deprecated]; byte _r15 = 15 [deprecated]; byte _r22 = 22 [deprecated];
   byte _r24 = 24 [deprecated]; byte _r31 = 31 [deprecated]; byte _r32 = 32 [deprecated]; byte _r33 = 33 [deprecated];
   byte _r43 = 43 [deprecated];
 }

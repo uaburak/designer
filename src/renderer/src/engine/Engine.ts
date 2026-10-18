@@ -213,8 +213,10 @@ export type PresentScale = "ACTUAL" | "FIT_WIDTH" | "FIT" | "FILL" | "RESPONSIVE
  */
 export interface PresentVideo {
   id: Guid;
-  /** The video file's SHA-1 (the image store holds it) */
+  /** The video file's SHA-1 (the image store holds it); a GIF's GIF */
   hash: string;
+  /** A GIF fill ("GIFs in prototypes" play, looping and silent): its frames come from a <canvas>, not a <video> */
+  gif?: boolean;
   playing: boolean;
   muted: boolean;
   loop: boolean;
@@ -270,8 +272,8 @@ export interface PresentState {
 }
 
 let nextBitmapId = 1;
-/** A presentation's <video> elements and their ids in Module.engineBitmaps (one per element, reused per frame). */
-const videoBitmapIds = new WeakMap<HTMLVideoElement, number>();
+/** A presentation's <video> (and GIF <canvas>) elements and their ids in Module.engineBitmaps (one per element, reused per frame). */
+const videoBitmapIds = new WeakMap<HTMLVideoElement | HTMLCanvasElement, number>();
 
 type Handler = (event: EngineEvent) => void;
 
@@ -895,18 +897,20 @@ export class Engine {
 
   /**
    * A video's report: its time and length (seconds), whether it ended, the last seek it made, and — with `element` —
-   * a new frame to draw in place of the poster (uploaded from the <video> straight into a texture).
+   * a new frame to draw in place of the poster (uploaded from the <video> straight into a texture; a GIF's <canvas>
+   * holding its current frame).
    */
   presentMediaFrame(
     id: Guid,
-    report: { element?: HTMLVideoElement | null; time: number; duration: number; ended: boolean; seekSerial: number },
+    report: { element?: HTMLVideoElement | HTMLCanvasElement | null; time: number; duration: number; ended: boolean; seekSerial: number },
   ): number {
     const [s, l] = this.ids(id);
     let bitmapId = 0;
     let width = 0;
     let height = 0;
     const el = report.element;
-    if (el && el.videoWidth > 0 && el.videoHeight > 0) {
+    const [w, h] = !el ? [0, 0] : "videoWidth" in el ? [el.videoWidth, el.videoHeight] : [el.width, el.height];
+    if (el && w > 0 && h > 0) {
       const module = this.x.module;
       module.engineBitmaps ??= {};
       let known = videoBitmapIds.get(el);
@@ -917,15 +921,15 @@ export class Engine {
       // The engine uploads from it while it draws (the frame shown at that moment).
       (module.engineBitmaps as Record<number, unknown>)[known] = el;
       bitmapId = known;
-      width = el.videoWidth;
-      height = el.videoHeight;
+      width = w;
+      height = h;
     }
     const status = this.x.presentMediaFrame(this.h, s, l, bitmapId, width, height, report.time, report.duration, report.ended ? 1 : 0, report.seekSerial);
     return this.after(status);
   }
 
-  /** A video element the presentation no longer plays: its slot in the module's bitmaps goes. */
-  forgetVideo(element: HTMLVideoElement): void {
+  /** A video element (or a GIF's canvas) the presentation no longer plays: its slot in the module's bitmaps goes. */
+  forgetVideo(element: HTMLVideoElement | HTMLCanvasElement): void {
     const id = videoBitmapIds.get(element);
     if (id === undefined) return;
     videoBitmapIds.delete(element);

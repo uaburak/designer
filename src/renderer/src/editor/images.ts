@@ -150,6 +150,8 @@ export interface ImportedImage {
   /** A video: the video file's hash (the rest describes its poster frame) and its length in seconds */
   video?: string;
   duration?: number;
+  /** An animated GIF: the GIF file's hash (Paint.animatedImage; the rest describes its still at frame 0) */
+  animated?: string;
 }
 
 /**
@@ -221,6 +223,60 @@ export async function importVideo(file: Blob & { name?: string }, store: ImageSt
   return { ...image, width: poster.width, height: poster.height, name: imageLayerName(file.name), video, duration: poster.duration };
 }
 
+// ── GIFs (atlas 07 §8.5) ─────────────────────────────────────────────────────
+
+/** WebCodecs' ImageDecoder, as much of it as the GIF fill uses (Chromium has it; tests and other browsers may not). */
+type FrameDecoder = {
+  tracks: { ready: Promise<void>; selectedTrack: { frameCount: number } | null };
+  completed: Promise<void>;
+  decode(o: { frameIndex: number }): Promise<{ image: CanvasImageSource & { duration: number | null; close(): void } }>;
+  close(): void;
+};
+const frameDecoder = () => (globalThis as { ImageDecoder?: new (init: { data: BufferSource; type: string }) => FrameDecoder }).ImageDecoder;
+
+/** A GIF's frames: how many, frame `i` as a bitmap and its length (ms, Figma's GIF frame picker); `close` when done. */
+export interface GifFrames {
+  count: number;
+  frame(i: number): Promise<{ bitmap: ImageBitmap; durationMs: number } | null>;
+  close(): void;
+}
+
+/** A GIF read frame by frame with the platform's ImageDecoder; null where there is none, or the bytes don't decode. */
+export async function gifFrames(bytes: Uint8Array): Promise<GifFrames | null> {
+  const Decoder = frameDecoder();
+  if (!Decoder) return null;
+  try {
+    const decoder = new Decoder({ data: bytes as Uint8Array<ArrayBuffer>, type: "image/gif" });
+    await decoder.tracks.ready;
+    await decoder.completed;
+    const count = decoder.tracks.selectedTrack?.frameCount ?? 0;
+    return {
+      count,
+      frame: async (i) => {
+        try {
+          const { image } = await decoder.decode({ frameIndex: Math.max(0, Math.min(count - 1, i)) });
+          const bitmap = await createImageBitmap(image);
+          const durationMs = (image.duration ?? 100_000) / 1000;
+          image.close();
+          return { bitmap, durationMs };
+        } catch {
+          return null;
+        }
+      },
+      close: () => decoder.close(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** A GIF frame as a PNG (the still a GIF fill draws: Figma's `updateStillImageAndSelectionPropertiesForGIF`). */
+export async function gifStill(bitmap: ImageBitmap): Promise<Blob> {
+  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+  canvas.getContext("2d")?.drawImage(bitmap, 0, 0);
+  return canvas.convertToBlob({ type: "image/png" });
+}
+
 /** Draws `bitmap` scaled to w × h on a fresh OffscreenCanvas (a high-quality resize when the browser offers one). */
 async function drawScaled(bitmap: ImageBitmap, width: number, height: number): Promise<OffscreenCanvas> {
   const canvas = new OffscreenCanvas(width, height);
@@ -281,6 +337,17 @@ export async function deriveProgressive(bitmap: ImageBitmap, image: { hash: stri
 export async function importImage(file: Blob & { name?: string }, store: ImageStore, opts: { maxTextureSize?: number } = {}): Promise<ImportedImage> {
   const typed = file.type || (sniffImageMime(new Uint8Array(await file.slice(0, 12).arrayBuffer())) ?? "");
   let bytes: Uint8Array = new Uint8Array(await file.arrayBuffer());
+  // An animated GIF: the GIF kept as it is (the paint's animatedImage), its first frame as the still the paint draws.
+  if (typed === "image/gif") {
+    const frames = await gifFrames(bytes);
+    const first = frames && frames.count > 1 ? await frames.frame(0) : null;
+    frames?.close();
+    if (first) {
+      const still = await importImage(Object.assign(await gifStill(first.bitmap), { name: file.name }), store, opts);
+      first.bitmap.close();
+      return { ...still, name: imageLayerName(file.name), animated: await store.put(bytes, "image/gif") };
+    }
+  }
   const bitmap = await createImageBitmap(file);
   let { width, height } = bitmap;
   const fit = importSize(width, height, opts.maxTextureSize);
