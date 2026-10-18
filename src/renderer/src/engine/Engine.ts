@@ -247,6 +247,8 @@ export interface PresentState {
   /** The first frame's width (Figma's recommended scales) and whether every frame is 16:9 */
   firstFrameWidth?: number;
   allWide?: boolean;
+  /** The scale options in Figma's order for the file (the first two "Recommended"; Z goes to the next) */
+  scaleOrder?: PresentScale[];
   device?: boolean;
   /** The page's prototype device type */
   deviceType?: "NONE" | "PRESET" | "CUSTOM" | "PRESENTATION";
@@ -834,7 +836,15 @@ export class Engine {
     return this.after(status);
   }
 
-  presentSetOptions(options: { scale?: PresentScale; hints?: boolean; shortcuts?: boolean; responsive?: boolean; deviceFrame?: boolean }): void {
+  presentSetOptions(options: {
+    scale?: PresentScale;
+    hints?: boolean;
+    shortcuts?: boolean;
+    responsive?: boolean;
+    deviceFrame?: boolean;
+    /** The machine it plays on: its scroll physics, ⌘ in key triggers */
+    host?: "mac" | "windows" | "linux" | "other";
+  }): void {
     this.x.presentSetOptions(this.h, encodeText(JSON.stringify(options)));
     this.schedule();
     this.after(undefined);

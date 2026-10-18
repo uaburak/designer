@@ -16,7 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MenuEntry } from "@/ds";
 import type { Engine, PresentState } from "@/engine/Engine";
 import type { Guid } from "@/engine/codec";
-import { PresentationView } from "@/present/PresentationView";
+import { PresentationView, presentHost } from "@/present/PresentationView";
 import { useEditor, type EditorController } from "./controller";
 import { useUI } from "./hooks";
 import { editorPresentationSource, present, presentStart } from "./present";
@@ -69,7 +69,7 @@ function PreviewWindow({ page, node }: { page: Guid; node: Guid | null }) {
     engineRef.current = engine;
     window.__designerPreview = engine;
     // The window fits its frame (Figma's preview shows the whole frame; Fit width when chosen).
-    engine.presentSetOptions({ scale: "FIT" });
+    engine.presentSetOptions({ scale: "FIT", host: presentHost() });
   }, []);
   // Respect aspect ratio: the window takes the frame's proportions (now, and whenever the frame shown changes).
   const aspectRef = useRef(false);

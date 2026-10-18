@@ -79,15 +79,31 @@ const DEVICE_SCALES: { value: PresentScale; label: string }[] = [
 ];
 
 /**
- * The scale options Figma recommends for the file (help "Play your prototypes", the table under "Fill screen"): the
- * default first. First frame wider than 1024 px: Actual size, Responsive; narrower: Actual size, Fit width and height;
- * every frame 16:9 or a Presentation device: Fill screen, Actual size; a Custom device: Fit width and height, Fill
- * screen, Actual size.
+ * The scale options in Figma's order for the file (atlas 13 §10.1; the player's `scaleOrder`, else its classes here):
+ * every frame 16:9 or a Presentation device — Fill screen, Actual size, Fit width and height, Fit width, Responsive; a
+ * Custom device — Fit width and height, Fill screen, Actual size, Responsive, Fit width; a first frame wider than
+ * 1024 px — Actual size, Responsive, Fit width, Fit width and height, Fill screen; narrower — Actual size, Fit width
+ * and height, Fit width, Responsive, Fill screen.
  */
+export function scaleOrder(state: PresentState | null): PresentScale[] {
+  if (state?.scaleOrder?.length && !state.device) return state.scaleOrder;
+  if (state?.deviceType === "PRESENTATION" || state?.allWide) return ["FILL", "ACTUAL", "FIT", "FIT_WIDTH", "RESPONSIVE"];
+  if (state?.deviceType === "CUSTOM") return ["FIT", "FILL", "ACTUAL", "RESPONSIVE", "FIT_WIDTH"];
+  return (state?.firstFrameWidth ?? 0) > 1024 ? ["ACTUAL", "RESPONSIVE", "FIT_WIDTH", "FIT", "FILL"] : ["ACTUAL", "FIT", "FIT_WIDTH", "RESPONSIVE", "FILL"];
+}
+
+/** The options Figma recommends for the file (help "Play your prototypes"): the first two of its order, the default first. */
 export function recommendedScales(state: PresentState | null): PresentScale[] {
-  if (state?.deviceType === "PRESENTATION" || state?.allWide) return ["FILL", "ACTUAL"];
-  if (state?.deviceType === "CUSTOM") return ["FIT", "FILL", "ACTUAL"];
-  return (state?.firstFrameWidth ?? 0) > 1024 ? ["ACTUAL", "RESPONSIVE"] : ["ACTUAL", "FIT"];
+  return scaleOrder(state).slice(0, 2);
+}
+
+/** The machine the prototype plays on (the player's scroll physics, ⌘ in key triggers). */
+export function presentHost(platform: string = typeof navigator !== "undefined" ? navigator.platform || navigator.userAgent : ""): "mac" | "windows" | "linux" | "other" {
+  const p = platform.toLowerCase();
+  if (p.includes("mac") || p.includes("iphone") || p.includes("ipad")) return "mac";
+  if (p.includes("win")) return "windows";
+  if (p.includes("linux") || p.includes("android")) return "linux";
+  return "other";
 }
 
 /** The view's own options (not the engine's): Figma's shortcuts, the sidebar, the UI. */
@@ -115,7 +131,7 @@ export function presentOptions(state: PresentState | null, view: ViewOptions = {
           { header: t("Recommended") },
           ...recommended.map(scaleEntry),
           { header: t("Other") },
-          ...SCALES.filter((s) => !recommended.includes(s.value)).map((s) => scaleEntry(s.value)),
+          ...scaleOrder(state).slice(2).map(scaleEntry),
         ]),
     "-",
     { id: "keys", label: t("Keyboard shortcuts"), shortcut: "?" },
@@ -265,6 +281,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       const r = canvas.getBoundingClientRect();
       const dpr = window.devicePixelRatio || 1;
       engine.setViewport(Math.max(1, r.width), Math.max(1, r.height), dpr, Math.max(1, Math.round(r.width * dpr)), Math.max(1, Math.round(r.height * dpr)));
+      engine.presentSetOptions({ host: presentHost() });
       const status = engine.presentStart({ ...(page ? { page } : {}), ...(node ? { node } : {}) });
       if (status !== Status.OK) {
         setError(t("This page has no frames to present"));

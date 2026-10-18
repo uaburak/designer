@@ -20,6 +20,12 @@ import {
   ACTION_ICON,
   ANIMATIONS,
   DIRECTIONS,
+  animationsFor,
+  disabledTriggers,
+  springEditorDuration,
+  springOf,
+  springSettleTime,
+  springWithEditorDuration,
   EASINGS,
   OVERLAY_POSITIONS,
   MEDIA_CHOICES,
@@ -148,12 +154,13 @@ export function InteractionDetails({
       }
     >
       <div className={styles.details} data-interaction-details>
-        <TriggerRow interaction={interaction} video={hasVideoFill(n as never)} onChange={write} />
+        <TriggerRow interaction={interaction} others={list} video={hasVideoFill(n as never)} onChange={write} />
         {actions.map((a, k) => (
           <ActionEditor
             key={k}
             source={node}
             action={a}
+            trigger={interaction.event?.interactionType}
             depth={0}
             onChange={(next, label, info) => setAction(k, next, label, info)}
             onRemove={actions.length > 1 ? () => write({ ...interaction, actions: actions.filter((_, j) => j !== k) }, "Remove action") : undefined}
@@ -180,7 +187,18 @@ export function InteractionDetails({
   );
 }
 
-function TriggerRow({ interaction, video, onChange }: { interaction: PrototypeInteraction; video: boolean; onChange: (i: PrototypeInteraction, label?: string, info?: ChangeInfo) => void }) {
+function TriggerRow({
+  interaction,
+  others,
+  video,
+  onChange,
+}: {
+  interaction: PrototypeInteraction;
+  /** The layer's interactions (a trigger another one uses is disabled, atlas 13 §3.2) */
+  others: readonly PrototypeInteraction[];
+  video: boolean;
+  onChange: (i: PrototypeInteraction, label?: string, info?: ChangeInfo) => void;
+}) {
   useT();
   const type = interaction.event?.interactionType ?? "ON_CLICK";
   const recorder = useRef<HTMLButtonElement>(null);
@@ -194,7 +212,7 @@ function TriggerRow({ interaction, video, onChange }: { interaction: PrototypeIn
           className={styles.iconField}
           prefix={TRIGGER_ICON[type]}
           value={type === "MOUSE_IN" ? "MOUSE_ENTER" : type === "MOUSE_OUT" ? "MOUSE_LEAVE" : type}
-          options={translated(triggerMenu(video || videoTrigger))}
+          options={translated(triggerMenu(video || videoTrigger, disabledTriggers(interaction, others)))}
           onChange={(v) => onChange(withTrigger(interaction, v as InteractionType), "Edit trigger")}
         />
       </Labelled>
@@ -218,7 +236,7 @@ function TriggerRow({ interaction, video, onChange }: { interaction: PrototypeIn
             value={Math.round((interaction.event?.transitionTimeout || 0.8) * 1000)}
             unit="ms"
             min={1}
-            max={10000}
+            max={20000}
             precision={0}
             onChange={(v, info) => onChange({ ...interaction, event: { ...interaction.event, transitionTimeout: v / 1000 } }, "Edit delay", info)}
           />
@@ -315,12 +333,15 @@ function variantsFor(ed: EditorController, source: Guid): { value: string; label
 function ActionEditor({
   source,
   action,
+  trigger,
   depth,
   onChange,
   onRemove,
 }: {
   source: Guid;
   action: PrototypeAction;
+  /** The interaction's trigger (which animations and overlay settings apply) */
+  trigger: InteractionType | undefined;
   depth: number;
   onChange: (a: PrototypeAction, label?: string, info?: ChangeInfo) => void;
   onRemove?: () => void;
@@ -449,7 +470,7 @@ function ActionEditor({
           />
         </div>
       )}
-      {(kind === "OVERLAY" || kind === "SWAP") && dest && <OverlaySettings frame={dest} />}
+      {(kind === "OVERLAY" || kind === "SWAP") && dest && <OverlaySettings frame={dest} trigger={trigger} />}
       {kind === "URL" && (
         <>
           <div className={styles.row}>
@@ -462,8 +483,8 @@ function ActionEditor({
       )}
       {kind === "SET_VARIABLE" && <SetVariable action={action} onChange={onChange} />}
       {kind === "SET_VARIABLE_MODE" && <SetVariableMode action={action} onChange={onChange} />}
-      {kind === "CONDITIONAL" && <Conditional source={source} action={action} depth={depth} onChange={onChange} />}
-      {animates(kind) && <AnimationEditor action={action} kind={kind} onChange={onChange} />}
+      {kind === "CONDITIONAL" && <Conditional source={source} action={action} trigger={trigger} depth={depth} onChange={onChange} />}
+      {animates(kind) && <AnimationEditor action={action} kind={kind} trigger={trigger} onChange={onChange} />}
       {(kind === "NAVIGATE" || kind === "CHANGE_TO") && (
         // Live 2026-10-10: a collapsed "State" (chevron, then the title 16 in, 32 high) holding Reset scroll position
         // (Navigate to and Change to alike). Reset component state shows while it is on (live shows it no more); Reset
@@ -518,13 +539,23 @@ function StateSection({ children }: { children: ReactNode }) {
 // The spring editor's upper limits (Figma's): mass 100, stiffness 10000, damping 1000; each at least 0.01.
 const SPRING_MAX = [100, 10000, 1000];
 
-function AnimationEditor({ action, kind, onChange }: { action: PrototypeAction; kind: ActionKind; onChange: (a: PrototypeAction, label?: string, info?: ChangeInfo) => void }) {
+function AnimationEditor({
+  action,
+  kind,
+  trigger,
+  onChange,
+}: {
+  action: PrototypeAction;
+  kind: ActionKind;
+  trigger: InteractionType | undefined;
+  onChange: (a: PrototypeAction, label?: string, info?: ChangeInfo) => void;
+}) {
   useT();
   const { animation, direction } = animationOf(action.transitionType);
   const easing = action.easingType ?? "OUT_CUBIC";
   const spring = isSpring(easing);
-  // Open overlay never smart-animates (R8 §5); Scroll to only animates or not.
-  const options = kind === "OVERLAY" ? ANIMATIONS.filter((a) => a.value !== "SMART_ANIMATE") : kind === "SCROLL_TO" ? ANIMATIONS.filter((a) => a.value === "INSTANT" || a.value === "SMART_ANIMATE") : ANIMATIONS;
+  // Each action's animations (atlas 13 §5.1); Scroll to only animates or not.
+  const options = kind === "SCROLL_TO" ? ANIMATIONS.filter((a) => a.value === "INSTANT" || a.value === "SMART_ANIMATE") : animationsFor(kind, trigger);
   const label = (a: { value: Animation; label: string }) => (kind === "SCROLL_TO" && a.value === "SMART_ANIMATE" ? { ...a, label: "Animate" } : a);
   const setAnimation = (a: Animation, d: Direction = direction) => {
     const transitionType = kind === "SCROLL_TO" && a === "SMART_ANIMATE" ? "SCROLL_ANIMATE" : transitionOf(a, d);
@@ -535,8 +566,10 @@ function AnimationEditor({ action, kind, onChange }: { action: PrototypeAction; 
   const setFn = (i: number, v: number, info: ChangeInfo) => {
     const next = [...fn];
     next[i] = v;
-    onChange({ ...action, easingFunction: next }, "Edit easing", info);
+    // A spring's stored duration is its settle time (atlas 13 §5.4).
+    onChange({ ...action, easingFunction: next, ...(spring ? { transitionDuration: springSettleTime(next) } : {}) }, "Edit easing", info);
   };
+  const springFn = springOf(easing, action.easingFunction);
   return (
     <>
       <div className={styles.divider} />
@@ -554,9 +587,12 @@ function AnimationEditor({ action, kind, onChange }: { action: PrototypeAction; 
               onChange={(v) => setAnimation(animation, v as Direction)}
             />
           </div>
-          <div className={styles.checkRow}>
-            <Checkbox label={t("Animate matching layers")} checked={!!action.transitionShouldSmartAnimate} onChange={(c) => onChange({ ...action, transitionShouldSmartAnimate: c }, "Edit animation")} />
-          </div>
+          {kind === "NAVIGATE" && (
+            // Navigate to only (atlas 13 §5.1).
+            <div className={styles.checkRow}>
+              <Checkbox label={t("Animate matching layers")} checked={!!action.transitionShouldSmartAnimate} onChange={(c) => onChange({ ...action, transitionShouldSmartAnimate: c }, "Edit animation")} />
+            </div>
+          )}
         </>
       )}
       {shown !== "INSTANT" && (
@@ -574,10 +610,29 @@ function AnimationEditor({ action, kind, onChange }: { action: PrototypeAction; 
                 const f = easingFunctionFor(e);
                 if (f) next.easingFunction = f;
                 else delete next.easingFunction;
+                // Figma resets the duration when the curve changes kind: 0.3 s for a bezier, a spring's settle time.
+                if (isSpring(e)) next.transitionDuration = springSettleTime(springOf(e, f));
+                else if (spring) next.transitionDuration = 0.3;
                 onChange(next, "Edit easing");
               }}
             />
-            {!spring && (
+            {spring ? (
+              // A spring's Duration is its editor duration 6 / (ζω₀); typing one rescales it (a custom spring) and stores
+              // the new settle time.
+              <NumericInput
+                label={t("Duration")}
+                className={styles.duration}
+                value={Math.round(springEditorDuration(springFn) * 1000)}
+                unit="ms"
+                min={1}
+                max={10000}
+                precision={0}
+                onChange={(v, info) => {
+                  const f = springWithEditorDuration(springFn, v / 1000);
+                  onChange({ ...action, easingType: "CUSTOM_SPRING", easingFunction: [...f, 0], transitionDuration: springSettleTime(f) }, "Edit duration", info);
+                }}
+              />
+            ) : (
               <NumericInput
                 label={t("Duration")}
                 className={styles.duration}
@@ -611,7 +666,7 @@ function AnimationEditor({ action, kind, onChange }: { action: PrototypeAction; 
 }
 
 /** Open / Swap overlay: the destination frame's own overlay settings (shared by every interaction that opens it). */
-function OverlaySettings({ frame }: { frame: Guid }) {
+function OverlaySettings({ frame, trigger }: { frame: Guid; trigger: InteractionType | undefined }) {
   useT();
   const ed = useEditor();
   const [n] = useNodes([frame]) as (ProtoNode | null)[];
@@ -632,6 +687,8 @@ function OverlaySettings({ frame }: { frame: Guid }) {
           onChange={(v) => ed.setProps([frame], protoFields({ overlayPositionType: v as OverlayPositionType }), "Overlay position")}
         />
       </div>
+      {trigger !== "ON_HOVER" && trigger !== "ON_PRESS" && (
+      // Not for While hovering / While pressing: the overlay goes with the pointer (atlas 13 §6.1).
       <div className={styles.checkRow}>
         <Checkbox
           label={t("Close when clicking outside")}
@@ -639,6 +696,7 @@ function OverlaySettings({ frame }: { frame: Guid }) {
           onChange={(c) => ed.setProps([frame], protoFields({ overlayBackgroundInteraction: c ? "CLOSE_ON_CLICK_OUTSIDE" : null }), "Overlay settings")}
         />
       </div>
+      )}
       <div className={styles.checkRow}>
         <Checkbox
           label={t("Add background behind overlay")}
@@ -783,7 +841,19 @@ function SetVariableMode({ action, onChange }: { action: PrototypeAction; onChan
  * then its actions; "Complete the Else condition … Alternatively, leave the Else action blank." Branches with a
  * condition after the first (else-if blocks a file may hold) show as "Else if".
  */
-function Conditional({ source, action, depth, onChange }: { source: Guid; action: PrototypeAction; depth: number; onChange: (a: PrototypeAction, label?: string, info?: ChangeInfo) => void }) {
+function Conditional({
+  source,
+  action,
+  trigger,
+  depth,
+  onChange,
+}: {
+  source: Guid;
+  action: PrototypeAction;
+  trigger: InteractionType | undefined;
+  depth: number;
+  onChange: (a: PrototypeAction, label?: string, info?: ChangeInfo) => void;
+}) {
   useT();
   const ed = useEditor();
   const vars = useMemo(() => (ed.engine.destroyed ? [] : ed.engine.variables()), [ed]);
@@ -812,6 +882,7 @@ function Conditional({ source, action, depth, onChange }: { source: Guid; action
               key={j}
               source={source}
               action={a}
+              trigger={trigger}
               depth={depth + 1}
               onChange={(next) => {
                 const acts = [...(b.actions ?? [])];
