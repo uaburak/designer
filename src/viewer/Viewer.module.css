@@ -205,6 +205,11 @@
   .codeLine { display: flex; align-items: flex-start; gap: var(--ds-space-1); white-space: pre-wrap; overflow-wrap: anywhere; }
   .codeHint { display: inline-flex; flex: none; color: var(--figma-color-icon-secondary); user-select: none; }
   .codeSectionCopy { position: absolute; top: var(--ds-space-1); right: var(--ds-space-1); }
+  /* A bound variable in the code (atlas 14 §4.2): a pill around its name */
+  .codeVariable {
+    padding: 0 var(--ds-space-half); border-radius: var(--ds-radius-small);
+    background: var(--figma-color-bg-component-tertiary); color: var(--figma-color-text-component);
+  }
   .codeMore { align-self: flex-start; padding: 0; border: 0; background: none; color: var(--figma-color-text-brand); font: inherit; cursor: default; }
   /* Long declarations wrap in the panel instead of scrolling sideways */
   .code :global([data-ds="CodeBlock"]) pre { white-space: pre-wrap; overflow-wrap: anywhere; }

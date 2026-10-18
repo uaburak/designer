@@ -1,13 +1,13 @@
 /**
  * Dev Mode's code sections (docs/research/atlas/14-dev-mode.md §4, §10): each section's name and Copy — with ⇧ held
  * Copy takes every section, and hovering it with ⇧ marks them all — its lines indented 2 spaces a level, an info icon
- * on a line Figma explains (its hint as the tooltip), and a section longer than 15 lines collapsed behind
- * "Show {count} more".
+ * on a line Figma explains (its hint as the tooltip), a bound variable as a pill (§4.2; the text copied is the line's),
+ * and a section longer than 15 lines collapsed behind "Show {count} more".
  */
 import { useEffect, useState } from "react";
 import { Icon, IconButton, showToast, tooltipProps } from "@/ds";
 import { t, useT } from "@/i18n";
-import { HINT_TEXT, lineText, sectionsText, sectionText, type CodeSection } from "./code";
+import { HINT_TEXT, sectionsText, sectionText, variableParts, type CodeSection } from "./code";
 import styles from "../Viewer.module.css";
 
 /** Names Figma gives its sections (the rest — a view, a text run's characters — stay as written). */
@@ -51,7 +51,20 @@ function Section({ section, all, shift, hovered, onHover }: { section: CodeSecti
         <pre className={styles.codeLines} data-language={section.language}>
           {shown.map((l, i) => (
             <div key={i} className={styles.codeLine}>
-              <span>{lineText(l) || " "}</span>
+              <span>
+                {"  ".repeat(l.indent)}
+                {l.code
+                  ? variableParts(l.code, section.language).map((p, k) =>
+                      p.variable ? (
+                        <span key={k} className={styles.codeVariable} data-variable={p.text}>
+                          {p.text}
+                        </span>
+                      ) : (
+                        p.text
+                      )
+                    )
+                  : " "}
+              </span>
               {l.hint && (
                 <span className={styles.codeHint} data-hint={l.hint.id} {...tooltipProps(t(HINT_TEXT[l.hint.id], l.hint.params))}>
                   <Icon name="16.info" />

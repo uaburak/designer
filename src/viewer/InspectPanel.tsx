@@ -15,10 +15,11 @@ import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } fr
 import { Button, CodeBlock, Dialog, EmptyState, Icon, IconButton, MenuButton, PanelSection, ScrollArea, SegmentedControl, Swatch, showToast } from "@/ds";
 import { useCurrentPage, useSelection } from "@/engine/hooks";
 import type { Effect, Guid, NodeChange, Paint } from "@/engine/codec";
-import { cssSnippet } from "./inspect/css";
+import { cssSnippet, isVectorClass } from "./inspect/css";
+import { renderEngineExport } from "@/editor/exportCore";
 import { codeSections } from "./inspect/codegen";
 import { CodeSections } from "./inspect/CodeSections";
-import { cornersOf, cssColor, hexOf, isAutoLayout, isTextLike, num, paddingOf, rotationOf, sizingOf, typeLabel, typographyOf, visibleEffects, visiblePaints } from "./inspect/model";
+import { cornersOf, cssColor, hexOf, isAutoLayout, isMirrored, isTextLike, num, paddingOf, rotationOf, sizingOf, typeLabel, typographyOf, visibleEffects, visiblePaints } from "./inspect/model";
 import { useViewer, type CodegenHost, type CodegenLanguage } from "./context";
 import { layerIcon } from "./LeftPanel";
 import type { VariableUse } from "./viewerDoc";
@@ -457,7 +458,8 @@ function CodeSection({ input, code }: { input: NonNullable<ReturnType<ReturnType
       // this visit only
     }
   };
-  const sections = useMemo(() => codeSections(input, language, units), [input, language, units]);
+  const svg = useVectorSvg(input.node, language === "css");
+  const sections = useMemo(() => codeSections(svg ? { ...input, svg } : input, language, units), [input, svg, language, units]);
   const rows = useMemo(() => {
     if (view !== "list") return [];
     const s = cssSnippet(input);
@@ -518,6 +520,34 @@ function CodeSection({ input, code }: { input: NonNullable<ReturnType<ReturnType
       )}
     </PanelSection>
   );
+}
+
+/**
+ * A vector's SVG for CSS's SVG section (atlas 14 §5.3): the engine's SVG export of the layer, as Copy as SVG writes it,
+ * and whether the layer or a parent is rotated or mirrored (hint 20). None when the file blocks exports.
+ */
+function useVectorSvg(node: NodeChange, css: boolean): { markup: string; transformed: boolean } | null {
+  const { engine, preview, doc } = useViewer();
+  const [svg, setSvg] = useState<{ id: Guid; markup: string; transformed: boolean } | null>(null);
+  const id = node.guid;
+  const wanted = css && !!id && isVectorClass(node) && !!preview.manifest.options.export;
+  useEffect(() => {
+    if (!wanted || !id) return;
+    let live = true;
+    void renderEngineExport(engine, (h) => preview.image(h), [id], { imageType: "SVG", constraint: { type: "CONTENT_SCALE", value: 1 }, contentsOnly: true, svgOutlineText: true }).then((r) => {
+      if (!live || "error" in r) return;
+      let transformed = false;
+      for (let at: Guid | null = id; at && !transformed; at = doc.parentOf(at)) {
+        const n = engine.readNode(at, { fields: ["transform"] });
+        transformed = !!n && (rotationOf(n) !== 0 || isMirrored(n));
+      }
+      setSvg({ id, markup: new TextDecoder().decode(r.bytes), transformed });
+    });
+    return () => {
+      live = false;
+    };
+  }, [engine, preview, doc, id, wanted, node]);
+  return wanted && svg?.id === id ? { markup: svg.markup, transformed: svg.transformed } : null;
 }
 
 function paintRow(p: Paint, i: number, list: "fillPaints" | "strokePaints", variables: Record<string, VariableUse>, styleName: string | undefined) {
