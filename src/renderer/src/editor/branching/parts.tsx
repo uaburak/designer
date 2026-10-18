@@ -3,13 +3,13 @@
  * grouped by page and top-level layer, and Resolve conflicts (main left, branch right, a pick per chunk, Resolve all
  * › Pick main file / Pick branch, Next) — R21.
  */
-import type { ReactNode } from "react";
-import { Badge, Button, FocusTrap, IconButton, MenuButton, Portal, ScrollArea, Icon } from "@/ds";
+import { useState, type ReactNode } from "react";
+import { Badge, Button, Dialog, FocusTrap, IconButton, MenuButton, Portal, RadioGroup, ScrollArea, Icon } from "@/ds";
 import { t, useT } from "@/i18n";
 import type { MergePreview } from "../../../../shared/merge/branches";
 import type { DiffChunk, Resolutions, Side } from "../../../../shared/merge/types";
 import { ChunkCompare, type SideDocs } from "./ChunkCompare";
-import { badgeTone, changeTag, conflictChunks, groupChunks, pickAll, pickOf, withPick, allPicked, type BadgeKind } from "./model";
+import { badgeTone, changeTag, conflictChunks, detailLines, groupChunks, pickAll, pickOf, withPick, allPicked, type BadgeKind } from "./model";
 import styles from "./Branching.module.css";
 
 export function BranchBadge({ kind }: { kind: BadgeKind | null }) {
@@ -80,6 +80,24 @@ export function ChangeList({ chunks, selected, onSelect }: { chunks: readonly Di
         </div>
       ))}
     </div>
+  );
+}
+
+/** Figma's change details (`branching_chunk.change_details`): each changed layer of a chunk and what changed on it. */
+export function ChangeDetails({ chunk }: { chunk: DiffChunk }) {
+  useT();
+  const details = (chunk.details ?? []).filter((d) => d.phase !== "updated" || d.fields.length);
+  if (!details.length) return null;
+  return (
+    <section className={styles.details} data-change-details={chunk.index}>
+      <div className={styles.sectionTitle}>{t("Change details")}</div>
+      {details.map((d) => (
+        <div key={d.guid} className={styles.detail} data-detail={d.guid}>
+          <span className={styles.rowName}>{d.name || d.type}</span>
+          <span className={styles.hint}>{detailLines(d).join(" · ")}</span>
+        </div>
+      ))}
+    </section>
   );
 }
 
@@ -159,6 +177,57 @@ export function Conflicts({ preview, picks, onPicks, docs, selected, onSelect, o
         )}
       </section>
     </div>
+  );
+}
+
+/**
+ * Force merge (Figma's `branching_force`, atlas 16 §4.8 — its English isn't read): every conflict kept from one side
+ * at once, Main by default, without picking them one by one; to main ("Merge") or from main ("Apply changes").
+ */
+export function ForceDialog({ direction, onClose, onConfirm }: { direction: "merge" | "update"; onClose(): void; onConfirm(side: Side): Promise<void> }) {
+  useT();
+  const [side, setSide] = useState<Side>("main");
+  const [busy, setBusy] = useState(false);
+  return (
+    <Dialog
+      title={direction === "merge" ? t("Force merge") : t("Force update from main")}
+      open
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            {t("Cancel")}
+          </Button>
+          <Button
+            variant="destructive"
+            loading={busy}
+            data-force={direction}
+            onClick={async () => {
+              setBusy(true);
+              await onConfirm(side);
+              setBusy(false);
+            }}
+          >
+            {direction === "merge" ? t("Merge") : t("Apply changes")}
+          </Button>
+        </>
+      }
+    >
+      <div className={styles.force}>
+        <p className={styles.description}>
+          {direction === "merge" ? t("Merge the branch into the main file without reviewing its conflicts one by one.") : t("Bring the main file’s changes into the branch without reviewing its conflicts one by one.")}
+        </p>
+        <RadioGroup
+          label={t("On conflicts, keep")}
+          value={side}
+          options={[
+            { value: "main", label: t("Main file") },
+            { value: "branch", label: t("Branch") },
+          ]}
+          onChange={(v) => setSide(v as Side)}
+        />
+      </div>
+    </Dialog>
   );
 }
 

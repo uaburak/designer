@@ -618,6 +618,7 @@ export class StoreClient implements StoreApi {
     merge: (branchFileKey, input) => this.call("branches.merge", [branchFileKey, input]),
     requestReview: (branchFileKey, input) => this.call("branches.requestReview", [branchFileKey, input]),
     answerReview: (branchFileKey, input) => this.call("branches.answerReview", [branchFileKey, input]),
+    undoMerge: (branchFileKey) => this.call("branches.undoMerge", [branchFileKey]),
     watch: (listener) => this.branchEvents.add(listener),
   };
 

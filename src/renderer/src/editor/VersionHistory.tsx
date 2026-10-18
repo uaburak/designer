@@ -9,13 +9,16 @@
  * Restore, Duplicate, Copy link (and Undo merge on main's "Branch merged").
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ContextMenu, currentTheme, Icon, IconButton, MenuButton, Spinner, showToast, type MenuEntry } from "@/ds";
+import { Button, ContextMenu, currentTheme, Dialog, Icon, IconButton, MenuButton, Spinner, showToast, type MenuEntry } from "@/ds";
 import { Engine } from "@/engine/Engine";
 import type { Guid, Message } from "@/engine/codec";
 import { t, tp, useT } from "@/i18n";
 import { attachViewerCanvas } from "../../../viewer/ViewerCanvas";
 import { ViewerDoc } from "../../../viewer/viewerDoc";
+import type { BranchRecord } from "../../../shared/merge/branches";
 import { openFile } from "../files/desktop";
+import { backendOf } from "./branching/access";
+import { refreshBranch } from "./branching/state";
 import { useEditor, type EditorController } from "./controller";
 import type { VersionInfo } from "./documentSource";
 import { applyEngineBytes } from "./engineCompat";
@@ -79,13 +82,21 @@ export function VersionHistoryPanel() {
   const [menu, setMenu] = useState<{ x: number; y: number; v: VersionInfo } | null>(null);
   const clickTimer = useRef<number | null>(null);
   const list = useRef<HTMLDivElement>(null);
+  // Main's "Branch merged" versions whose merge can be undone (a local merge with its savepoint): version → branch.
+  const [merges, setMerges] = useState<ReadonlyMap<string, BranchRecord>>(new Map());
+  const [undoing, setUndoing] = useState<{ v: VersionInfo; branch: BranchRecord } | null>(null);
 
   const load = useCallback(() => {
     void ed.source
       .listVersions?.()
-      .then((l) => {
+      .then(async (l) => {
         setVersions(l);
         setError(false);
+        const fileKey = (ed.source as unknown as { fileKey?: unknown }).fileKey;
+        const backend = l.some((v) => v.kind === "merge") && typeof fileKey === "string" ? backendOf(ed) : null;
+        if (!backend) return;
+        const merged = await backend.branches.list(fileKey as string, "archived").catch(() => []);
+        setMerges(new Map(merged.filter((b) => b.mainFileKey === fileKey && b.status === "merged" && b.mergeVersionId && b.preMergeVersionId).map((b) => [b.mergeVersionId!, b])));
       })
       .catch(() => setError(true));
   }, [ed]);
@@ -141,6 +152,8 @@ export function VersionHistoryPanel() {
       { id: "duplicate", label: t("Duplicate"), disabled: !ed.source.duplicateVersion },
       ...(!branching && ed.source.updateVersion ? [{ id: "clear", label: t("Delete version info"), disabled: !named && !v.description }] : []),
       { id: "link", label: t("Copy link") },
+      // Figma's Undo merge: editors, on main's "Branch merged" (a local merge whose savepoint is known).
+      ...(merges.has(v.id) && ed.source.restoreVersion ? ["-" as const, { id: "undo-merge", label: t("Undo merge") }] : []),
     ];
   };
   const onMenu = async (id: string, v: VersionInfo) => {
@@ -157,6 +170,9 @@ export function VersionHistoryPanel() {
       }
     } else if (id === "clear") {
       await ed.source.updateVersion?.(v.id, { title: "", description: "" }).then(load, () => showToast({ message: t("The version couldn't be saved"), kind: "error" }));
+    } else if (id === "undo-merge") {
+      const branch = merges.get(v.id);
+      if (branch) setUndoing({ v, branch });
     } else if (id === "link") {
       void navigator.clipboard?.writeText(versionLink(location.href, v.id)).then(
         () => showToast({ message: t("Copied link to clipboard") }),
@@ -250,7 +266,53 @@ export function VersionHistoryPanel() {
         )}
       </div>
       {menu && <ContextMenu at={{ x: menu.x, y: menu.y }} entries={entriesFor(menu.v)} label={t("More options")} onClose={() => setMenu(null)} onSelect={(id) => void onMenu(id, menu.v)} />}
+      {undoing && <UndoMerge ed={ed} branch={undoing.branch} versions={versions ?? []} onDone={() => (setUndoing(null), load())} />}
     </aside>
+  );
+}
+
+/**
+ * Undo merge (atlas 16 §4.8; Figma's English isn't read): main back to its savepoint from just before the merge — a
+ * restore, one undoable step and a restore version — and the branch active again, to change and merge once more.
+ */
+function UndoMerge({ ed, branch, versions, onDone }: { ed: EditorController; branch: BranchRecord; versions: VersionInfo[]; onDone(): void }) {
+  useT();
+  const [busy, setBusy] = useState(false);
+  const before = versions.find((x) => x.id === branch.preMergeVersionId);
+  const run = async () => {
+    const backend = backendOf(ed);
+    if (!before || !backend) return onDone();
+    setBusy(true);
+    if (await restoreVersion(ed, before)) {
+      try {
+        await backend.branches.undoMerge(branch.branchFileKey);
+        await refreshBranch(ed);
+        showToast({ message: t("Merge undone") });
+      } catch {
+        showToast({ message: t("Unable to undo merge"), kind: "error" });
+      }
+    }
+    ed.ui.set({ historyVersion: null });
+    onDone();
+  };
+  return (
+    <Dialog
+      title={t("Undo merge")}
+      open
+      onClose={onDone}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onDone}>
+            {t("Cancel")}
+          </Button>
+          <Button variant="destructive" loading={busy} disabled={!before} onClick={() => void run()} data-undo-merge="">
+            {t("Undo merge")}
+          </Button>
+        </>
+      }
+    >
+      <p className={styles.dialogText}>{t("The main file goes back to how it was before “{name}” was merged, and the branch becomes active again.", { name: branch.name })}</p>
+    </Dialog>
   );
 }
 

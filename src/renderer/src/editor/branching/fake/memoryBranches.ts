@@ -155,7 +155,7 @@ export class MemoryBranches implements BranchesRepository {
   async merge(branchFileKey: FileKey, input: { previewId: string; resolutions: Resolutions; title?: string; description?: string }) {
     this.log("merge", branchFileKey, input);
     const r = this.check(branchFileKey, "merge", input.resolutions);
-    const branch = { ...r, status: "merged" as const, mergedAt: Date.now(), mergedBy: this.opts.me?.id ?? null, mergeVersionId: "v-merge" };
+    const branch = { ...r, status: "merged" as const, mergedAt: Date.now(), mergedBy: this.opts.me?.id ?? null, mergeVersionId: "v-merge", preMergeVersionId: "v-before-merge" };
     this.records.set(branchFileKey, branch);
     this.emit({ type: "branch.merged", branch });
     return { branch, version: { id: "v-merge", fileKey: r.mainFileKey, kind: "merge", title: input.title ?? r.name, description: input.description ?? null, createdAt: Date.now() } as never };
@@ -187,6 +187,12 @@ export class MemoryBranches implements BranchesRepository {
     };
     this.put({ ...r, review });
     return review;
+  }
+  async undoMerge(branchFileKey: FileKey) {
+    this.log("undoMerge", branchFileKey);
+    const r = this.must(branchFileKey);
+    if (r.status !== "merged") throw new Error("invalid");
+    return this.put({ ...r, status: "active", mergedAt: null, mergedBy: null, mergeVersionId: null, preMergeVersionId: null, archivedAt: null });
   }
   watch(listener: (e: BranchEvent) => void) {
     this.listeners.add(listener);

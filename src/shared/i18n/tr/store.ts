@@ -115,6 +115,8 @@ export const store: Record<string, string> = {
   "A branch needs a name": "Dalın bir adı olmalı",
   "A branch can't have branches of its own": "Bir dalın kendi dalları olamaz",
   "A merged branch can't be restored. Duplicate it instead.": "Birleştirilmiş bir dal geri yüklenemez. Bunun yerine çoğaltın.",
+  "This branch wasn't merged": "Bu dal birleştirilmedi",
+  "This merge can't be undone": "Bu birleştirme geri alınamaz",
   "That name is too long": "Bu ad çok uzun",
   "No such branch": "Böyle bir dal yok",
   "This branch was merged": "Bu dal birleştirildi",

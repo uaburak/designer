@@ -5,13 +5,88 @@
  */
 import { t, tp } from "@/i18n";
 import type { BranchRecord, BranchReview, MergePreview } from "../../../../shared/merge/branches";
-import type { DiffChunk, Resolutions, Side } from "../../../../shared/merge/types";
+import type { ChunkDetail, DiffChunk, Resolutions, Side } from "../../../../shared/merge/types";
 
-export type ChangeTag = "Added" | "Edited" | "Removed";
+export type ChangeTag = "Added" | "Edited" | "Removed" | "Updated library";
 
-/** A chunk's tag: its display node created, removed, or changed inside ([logrocket]: Added / Edited / Removed). */
-export function changeTag(c: Pick<DiffChunk, "phase">): ChangeTag {
-  return c.phase === "CREATED" ? "Added" : c.phase === "REMOVED" ? "Removed" : "Edited";
+/**
+ * A chunk's tag (Figma's DiffChunk phases, atlas 16 §4.5): its display node created, removed, a library copy the other
+ * side updated (UPDATED_LIBRARY — its English isn't read: "Updated library"), or changed inside.
+ */
+export function changeTag(c: Pick<DiffChunk, "phase" | "libraryUpdate">): ChangeTag {
+  return c.phase === "CREATED" ? "Added" : c.phase === "REMOVED" ? "Removed" : c.libraryUpdate ? "Updated library" : "Edited";
+}
+
+/**
+ * A field's name as the change details say it. Figma's own vocabulary (`branching_node_treatments.property.*`, 152
+ * keys) isn't read in English: the panel's words for the fields it shows, else the field's name in words.
+ */
+const PROPERTY_NAMES: Record<string, string> = {
+  name: "Name",
+  visible: "Visibility",
+  locked: "Lock",
+  opacity: "Opacity",
+  blendMode: "Blend mode",
+  transform: "Position",
+  size: "Size",
+  parentIndex: "Layer order",
+  fillPaints: "Fill",
+  strokePaints: "Stroke",
+  strokeWeight: "Stroke weight",
+  strokeAlign: "Stroke position",
+  effects: "Effects",
+  cornerRadius: "Corner radius",
+  rectangleTopLeftCornerRadius: "Corner radius",
+  rectangleTopRightCornerRadius: "Corner radius",
+  rectangleBottomLeftCornerRadius: "Corner radius",
+  rectangleBottomRightCornerRadius: "Corner radius",
+  textData: "Text",
+  fontName: "Font",
+  fontSize: "Font size",
+  lineHeight: "Line height",
+  letterSpacing: "Letter spacing",
+  stackMode: "Auto layout",
+  stackSpacing: "Gap",
+  stackHorizontalPadding: "Padding",
+  stackVerticalPadding: "Padding",
+  stackPaddingRight: "Padding",
+  stackPaddingBottom: "Padding",
+  componentPropDefs: "Component properties",
+  symbolData: "Overrides",
+  prototypeInteractions: "Interactions",
+  exportSettings: "Export",
+  layoutGrids: "Layout guides",
+  horizontalConstraint: "Constraints",
+  verticalConstraint: "Constraints",
+  mask: "Mask",
+  vectorData: "Vector",
+  styleIdForFill: "Fill style",
+  styleIdForStrokeFill: "Stroke style",
+  styleIdForEffect: "Effect style",
+  styleIdForText: "Text style",
+  variableConsumptionMap: "Variables",
+};
+
+export function propertyName(field: string): string {
+  const known = PROPERTY_NAMES[field];
+  if (known) return t(known);
+  const words = field.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** A node's change details as lines: "Fill changed", "Effects added" … (one per property name); created / removed whole */
+export function detailLines(d: Pick<ChunkDetail, "phase" | "fields">): string[] {
+  if (d.phase === "created") return [t("Added")];
+  if (d.phase === "removed") return [t("Removed")];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const f of d.fields) {
+    const name = propertyName(f.field);
+    if (seen.has(name)) continue;
+    seen.add(name);
+    out.push(f.change === "added" ? t("{property} added", { property: name }) : f.change === "removed" ? t("{property} removed", { property: name }) : t("{property} changed", { property: name }));
+  }
+  return out;
 }
 
 export interface ChunkGroup {

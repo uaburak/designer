@@ -115,6 +115,8 @@ describe("branching on the real store (MemoryStore)", () => {
     expect((await api.branches.get(made.branchFileKey))?.status).toBe("merged");
     expect(opened.at(-1)).toBe(main.fileKey);
     expect((await api.files.listVersions(main.fileKey)).map((v) => v.kind)).toEqual(["merge", "autosave", "branch"]);
+    // The branch's savepoint before the merge too.
+    expect((await api.files.listVersions(made.branchFileKey)).map((v) => v.kind)).toEqual(["merge", "autosave", "branch"]);
     expect($("[data-branch-title] [data-branch-badge]")?.textContent).toBe("Merged");
   });
 
@@ -185,7 +187,7 @@ describe("branching on the real store (MemoryStore)", () => {
     const t = await head(api, b.branchFileKey);
     expect(t.get(`${sm}:1`)).toBeDefined();
     expect(t.get(`${s0}:1`)?.name).toBe("Branch's");
-    expect((await api.files.listVersions(b.branchFileKey)).map((v) => v.kind)).toEqual(["update", "branch"]);
+    expect((await api.files.listVersions(b.branchFileKey)).map((v) => v.kind)).toEqual(["update", "autosave", "branch"]);
     expect((await api.branches.mainStatus(b.branchFileKey)).changed).toBe(false);
   });
 });
