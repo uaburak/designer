@@ -3,7 +3,7 @@
  * and the MCP server that gives them — and any MCP client the user connects — the open file. Shared by main
  * (src/main/agents) and the editor (src/renderer/src/editor/agents); the IPC channels are in src/shared/ipc.ts.
  */
-import type { ToolContent } from "./tools";
+import type { ToolContent, ToolFile } from "./tools";
 import type { AttachResult, TurnAttachment } from "./attachments";
 import type { Connector, ConnectorConsent, ConnectorToolPolicy } from "../ai/types";
 import type { AccessLogEntry, ReachPatch, ReachView } from "./reach";
@@ -175,6 +175,8 @@ export interface ToolCallResult {
   content: ToolContent[];
   isError?: boolean;
   touched?: string[];
+  /** Files the tool made (export_animation): main saves them in the agent's working folder */
+  files?: ToolFile[];
 }
 
 /** One MCP connection as the right panel's "MCP" section counts it. */

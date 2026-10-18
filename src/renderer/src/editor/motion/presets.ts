@@ -74,22 +74,37 @@ const run = (fn: () => number): boolean => {
   }
 };
 
-/** Add animation (the + menu): the preset at its defaults on the layers, starting at the playhead. Returns the clips made. */
-export function addPreset(ed: EditorController, key: PresetKey, nodes: GuidString[], target?: PresetTarget): GuidString[] {
+/** What Add animation may set besides the preset's defaults (the plugin API's and the agents' applyAnimationStyle, round 8f). */
+export interface PresetSettings {
+  props?: Record<string, PresetPropValue>;
+  startUs?: Micros;
+  durationUs?: Micros;
+  easing?: MotionEasing;
+}
+
+/** The preset's default Duration. */
+export const presetDurationUs = (def: PresetDef): Micros => Math.round(Number(def.props.find((p) => p.key === "duration")?.default ?? 0.5) * 1e6);
+
+/**
+ * Add animation (the + menu): the preset at its defaults on the layers, starting at the playhead — or with `settings`'
+ * start, length, easing and props. Returns the clips made.
+ */
+export function addPreset(ed: EditorController, key: PresetKey, nodes: GuidString[], target?: PresetTarget, settings: PresetSettings = {}): GuidString[] {
   const def = presetDef(key);
   if (!def || !nodes.length) return [];
-  const durationUs = Math.round(Number(def.props.find((p) => p.key === "duration")?.default ?? 0.5) * 1e6);
-  const props = presetProps(key);
+  const durationUs = Math.max(1, Math.round(settings.durationUs ?? presetDurationUs(def)));
+  const easing = settings.easing ?? PRESET_EASING;
+  const props = presetProps(key, settings.props);
   try {
     const r = ed.engine.runMotionCommandCreating("MOTION_ADD_ANIMATION", {
       nodes,
       preset: key,
       name: def.name,
       props: storedProps(props),
-      startUs: motionUi(ed).timeUs,
+      startUs: Math.max(0, Math.round(settings.startUs ?? motionUi(ed).timeUs)),
       durationUs,
-      easing: PRESET_EASING,
-      output: presetOutput(key, props, durationUs, PRESET_EASING, target),
+      easing,
+      output: presetOutput(key, props, durationUs, easing, target),
     });
     return r.status === 0 ? [...r.created] : [];
   } catch {
@@ -126,17 +141,17 @@ export function removePresets(ed: EditorController, ids: GuidString[]): boolean 
   return ids.length > 0 && run(() => ed.engine.runMotionCommand("MOTION_REMOVE_ANIMATIONS", { ids }));
 }
 
-/** Apply animation style: its presets at their defaults (and the style's own props), each at its offset from the playhead. */
-export function applyStyle(ed: EditorController, styleKey: string, nodes: GuidString[], target?: PresetTarget): boolean {
+/** Apply animation style: its presets at their defaults (and the style's own props), each at its offset from the playhead (or `startUs`). */
+export function applyStyle(ed: EditorController, styleKey: string, nodes: GuidString[], target?: PresetTarget, startUs?: Micros): boolean {
   const style = ANIMATION_STYLES.find((s) => s.key === styleKey);
   if (!style || !nodes.length) return false;
   const presets: StylePresetRun[] = style.presets.map((p) => {
     const def = presetDef(p.preset);
     const props = presetProps(p.preset, p.props);
-    const durationUs = Math.round(Number(def?.props.find((d) => d.key === "duration")?.default ?? 0.5) * 1e6);
+    const durationUs = def ? presetDurationUs(def) : PRESET_DURATION_US;
     return { preset: p.preset, name: def?.name ?? p.preset, props: storedProps(props), offsetUs: p.offsetMs * 1000, durationUs, easing: PRESET_EASING, output: presetOutput(p.preset, props, durationUs, PRESET_EASING, target) };
   });
-  return run(() => ed.engine.runMotionCommand("MOTION_APPLY_STYLE", { nodes, style: style.key, startUs: motionUi(ed).timeUs, presets }));
+  return run(() => ed.engine.runMotionCommand("MOTION_APPLY_STYLE", { nodes, style: style.key, startUs: Math.max(0, Math.round(startUs ?? motionUi(ed).timeUs)), presets }));
 }
 
 /** Detach animation style: the style's entry forgotten, its presets kept as they are. */

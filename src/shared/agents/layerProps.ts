@@ -87,6 +87,10 @@ export const NAMED_PROPS: Record<string, LayerPropInfo> = {
     fields: ["effects"],
   },
   layoutGrids: { schema: { type: "array", items: structSchema("LayoutGrid", 1), description: 'Layout guides: [{pattern: "STRIPES", axis: "X", type: "STRETCH", numSections: 12, gutterSize: 20, offset: 40, color}] or {pattern: "GRID", sectionSize: 8}' }, fields: ["layoutGrids"] },
+  pathTrim: {
+    schema: { type: "object", properties: { start: num("0–1"), end: num("0–1") }, additionalProperties: false, description: "The stroke drawn from start to end of its path's length (0–1; start > end wraps a closed path) — center strokes only (Motion's Path trim; animate it with set_keyframes PATH_TRIM_START / PATH_TRIM_END)" },
+    fields: ["pathTrim"],
+  },
   // Corners.
   cornerRadius: { schema: { anyOf: [{ type: "number" }, { type: "array", items: { type: "number" }, minItems: 4, maxItems: 4, description: "top-left, top-right, bottom-right, bottom-left" }] }, fields: ["cornerRadius", "rectangleCornerRadiiIndependent", "rectangleTopLeftCornerRadius", "rectangleTopRightCornerRadius", "rectangleBottomRightCornerRadius", "rectangleBottomLeftCornerRadius"] },
   cornerSmoothing: { schema: num("0–1 (iOS-like: 0.6)"), fields: ["cornerSmoothing"] },
