@@ -11,7 +11,9 @@
  *
  * Figma's tab rules (atlas 01 §2.3–2.7): pinned tabs come first, are never
  * discarded and never join a group; a group's tabs stay together and a group
- * with no tab left goes; 100 closed tabs are kept (the menu shows 8).
+ * with no tab left goes; 100 closed tabs are kept (the menu shows 8). A split
+ * tab (§2.3) is two tabs shown side by side, kept next to each other — the
+ * first on the left — in the first one's group; neither pinned.
  */
 
 export const HOME = "home";
@@ -58,10 +60,12 @@ export interface Tab {
   groupId?: string;
   /** When it was last in front (or opened), ms — what the discard sweep and the launch's live tabs go by */
   viewedAt?: number;
+  /** A split tab (atlas 01 §2.3): the tab shown beside it, each pointing at the other */
+  splitWith?: string;
 }
 
 /** A tab as it is kept between launches. */
-export type TabRecord = Pick<Tab, "id" | "kind" | "fileKey" | "title" | "pageId" | "startNodeId" | "pinned" | "groupId" | "viewedAt">;
+export type TabRecord = Pick<Tab, "id" | "kind" | "fileKey" | "title" | "pageId" | "startNodeId" | "pinned" | "groupId" | "viewedAt" | "splitWith">;
 export type ClosedTab = Pick<Tab, "kind" | "fileKey" | "title" | "pageId" | "startNodeId">;
 
 export interface TabsState {
@@ -98,7 +102,17 @@ export type TabsAction =
   /** Edit group name, Group color */
   | { type: "group-set"; groupId: string; name?: string; color?: GroupColor }
   /** Ungroup: the tabs stay, the group goes */
-  | { type: "ungroup"; groupId: string };
+  | { type: "ungroup"; groupId: string }
+  /** Open in Split Tab: `id` shown beside `with` (on its right), and in front */
+  | { type: "split"; id: string; with: string }
+  /** Separate Tabs: the two are tabs of their own again, side by side in the bar */
+  | { type: "unsplit"; id: string }
+  /** Moved to another window (Move to New / Another Window): gone from this one without going into the closed history */
+  | { type: "detach"; ids: string[] }
+  /** Moved here from another window: at the end, out of any group (theirs stays there), the first in front */
+  | { type: "adopt"; tabs: Tab[]; at?: number }
+  /** A file's closed entries leave the history (it is open in another window) */
+  | { type: "forget-closed"; fileKey: string };
 
 /** Closed tabs kept (Figma's `MAX_RECENTLY_CLOSED_TABS_RETAINED`); File › Recently Closed Tabs shows the last `MENU_CLOSED`. */
 export const MAX_CLOSED = 100;
@@ -131,6 +145,14 @@ const sameTab = (a: { kind: TabKind; fileKey: string; startNodeId?: string }, b:
 const viewed = (tabs: Tab[], id: string, at?: number) => (at ? tabs.map((t) => (t.id === id ? { ...t, viewedAt: at } : t)) : tabs);
 
 const withoutGroup = ({ groupId: _gone, ...tab }: Tab): Tab => tab;
+const withoutSplit = ({ splitWith: _gone, ...tab }: Tab): Tab => tab;
+
+/** The tab shown beside this one, when it is half of a split tab. */
+export const splitPartner = (state: TabsState, id: string): Tab | undefined => {
+  const tab = state.tabs.find((t) => t.id === id);
+  const other = tab?.splitWith ? state.tabs.find((t) => t.id === tab.splitWith) : undefined;
+  return other?.splitWith === id ? other : undefined;
+};
 
 /**
  * Figma's order: the pinned tabs first, then the others with each group's tabs together where its first one is; a
@@ -138,14 +160,34 @@ const withoutGroup = ({ groupId: _gone, ...tab }: Tab): Tab => tab;
  */
 export function arrange(state: TabsState): TabsState {
   const known = new Set(groupsOf(state).map((g) => g.id));
-  const tabs = state.tabs.map((t) => (t.groupId && (t.pinned || !known.has(t.groupId)) ? withoutGroup(t) : t));
+  // A split tab's halves point at each other, neither pinned; the second takes the first's group.
+  const paired = (t: Tab) => {
+    const other = t.splitWith ? state.tabs.find((o) => o.id === t.splitWith) : undefined;
+    return other?.splitWith === t.id && !t.pinned && !other.pinned ? other : undefined;
+  };
+  let tabs = state.tabs.map((t) => (t.splitWith && !paired(t) ? withoutSplit(t) : t));
+  tabs = tabs.map((t) => (t.groupId && (t.pinned || !known.has(t.groupId)) ? withoutGroup(t) : t));
+  tabs = tabs.map((t) => {
+    const other = t.splitWith ? tabs.find((o) => o.id === t.splitWith) : undefined;
+    if (!other || tabs.indexOf(other) > tabs.indexOf(t) || other.groupId === t.groupId) return t;
+    return other.groupId ? { ...t, groupId: other.groupId } : withoutGroup(t);
+  });
   const ordered = tabs.filter((t) => t.pinned);
   const placed = new Set<string>();
   for (const t of tabs) {
     if (t.pinned || placed.has(t.id)) continue;
     const members = t.groupId ? tabs.filter((o) => !o.pinned && o.groupId === t.groupId) : [t];
-    for (const m of members) placed.add(m.id);
-    ordered.push(...members);
+    for (const m of members) {
+      if (placed.has(m.id)) continue;
+      placed.add(m.id);
+      ordered.push(m);
+      // The split tab's other half right after it.
+      const other = m.splitWith ? tabs.find((o) => o.id === m.splitWith) : undefined;
+      if (other && !placed.has(other.id)) {
+        placed.add(other.id);
+        ordered.push(other);
+      }
+    }
   }
   const groups = groupsOf(state).filter((g) => ordered.some((t) => t.groupId === g.id));
   const sameTabs = ordered.length === state.tabs.length && ordered.every((t, i) => t === state.tabs[i]);
@@ -236,18 +278,23 @@ export function tabsReducer(state: TabsState, action: TabsAction): TabsState {
       // Pinned tabs move among the pinned ones, the others after them.
       const pinned = state.tabs.filter((t) => t.pinned).length;
       const [lo, hi] = state.tabs[from].pinned ? [0, pinned - 1] : [pinned, state.tabs.length - 1];
-      const to = Math.max(lo, Math.min(hi, action.to));
-      if (from === to) return state;
-      const tabs = [...state.tabs];
-      let [tab] = tabs.splice(from, 1);
-      if (!tab.pinned) {
+      // A split tab's halves move together, in their order.
+      const other = splitPartner(state, action.id);
+      const moving = other ? state.tabs.filter((t) => t.id === action.id || t.id === other.id) : [state.tabs[from]];
+      const to = Math.max(lo, Math.min(hi - (moving.length - 1), action.to));
+      if (from === to && !other) return state;
+      const tabs = state.tabs.filter((t) => !moving.includes(t));
+      let group: string | null | undefined;
+      if (!moving[0].pinned) {
         // Dropped between two tabs of a group: in it; dropped away from its own group: out of it.
-        const before = tabs[to - 1], after = tabs[to];
+        const before = tabs[to - 1], after = tabs[to], own = moving[0].groupId;
         const inside = before?.groupId && before.groupId === after?.groupId ? before.groupId : undefined;
-        if (inside) tab = { ...tab, groupId: inside };
-        else if (tab.groupId && before?.groupId !== tab.groupId && after?.groupId !== tab.groupId) tab = withoutGroup(tab);
+        if (inside) group = inside;
+        else if (own && before?.groupId !== own && after?.groupId !== own) group = null;
       }
-      tabs.splice(to, 0, tab);
+      const placed = moving.map((t) => (group ? { ...t, groupId: group } : group === null ? withoutGroup(t) : t));
+      if (state.tabs.indexOf(moving[0]) === to && placed.every((t, i) => t === moving[i])) return state;
+      tabs.splice(to, 0, ...placed);
       return arrange({ ...state, tabs });
     }
     case "reopen": {
@@ -322,7 +369,50 @@ export function tabsReducer(state: TabsState, action: TabsAction): TabsState {
       if (!groupsOf(state).some((g) => g.id === action.groupId)) return state;
       return arrange({ ...state, tabs: state.tabs.map((t) => (t.groupId === action.groupId ? withoutGroup(t) : t)), groups: groupsOf(state).filter((g) => g.id !== action.groupId) });
     }
+    case "split": {
+      const tab = state.tabs.find((t) => t.id === action.id);
+      const host = state.tabs.find((t) => t.id === action.with);
+      if (!tab || !host || !canSplit(tab, host)) return state;
+      // Beside its host, on the right.
+      const rest = state.tabs.filter((t) => t.id !== tab.id).map((t) => (t.id === host.id ? { ...t, splitWith: tab.id } : t));
+      const at = rest.findIndex((t) => t.id === host.id) + 1;
+      const joining = { ...tab, splitWith: host.id };
+      return arrange({ ...state, tabs: [...rest.slice(0, at), joining, ...rest.slice(at)], active: tab.id });
+    }
+    case "unsplit": {
+      const other = splitPartner(state, action.id);
+      if (!other) return state;
+      return arrange({ ...state, tabs: state.tabs.map((t) => (t.id === action.id || t.id === other.id ? withoutSplit(t) : t)) });
+    }
+    case "detach": {
+      const ids = action.ids.filter((id) => state.tabs.some((t) => t.id === id));
+      if (!ids.length) return state;
+      const active = ids.includes(state.active) ? nextActive(state, ids) : state.active;
+      return arrange({ ...state, tabs: state.tabs.filter((t) => !ids.includes(t.id)), active });
+    }
+    case "adopt": {
+      const arriving = action.tabs.filter((t) => !state.tabs.some((o) => o.id === t.id || sameTab(o, t)));
+      if (!arriving.length) return state;
+      const ids = new Set(arriving.map((t) => t.id));
+      const tabs = arriving.map((t) => {
+        let tab = withoutGroup(t);
+        if (tab.splitWith && !ids.has(tab.splitWith)) tab = withoutSplit(tab);
+        return action.at && tab.id === arriving[0].id ? { ...tab, viewedAt: action.at } : tab;
+      });
+      const closed = state.closed.filter((c) => !arriving.some((t) => sameTab(t, c)));
+      return arrange({ ...state, tabs: [...state.tabs, ...tabs], closed, active: tabs[0].id });
+    }
+    case "forget-closed": {
+      const closed = state.closed.filter((c) => !(c.kind === "file" && c.fileKey === action.fileKey));
+      return closed.length === state.closed.length ? state : { ...state, closed };
+    }
   }
+}
+
+/** Whether `tab` may be shown beside `host` (Open in Split Tab): two files or prototypes, neither pinned nor split already. */
+export function canSplit(tab: Tab, host: Tab): boolean {
+  const kindOk = (t: Tab) => t.kind === "file" || t.kind === "prototype";
+  return tab.id !== host.id && kindOk(tab) && kindOk(host) && !tab.pinned && !host.pinned && !tab.splitWith && !host.splitWith;
 }
 
 /** The one in front closed: the tab after it comes forward (before it at the end), Home when none is left. */
@@ -351,7 +441,7 @@ const titleOf = (t: { title?: unknown }) => (typeof t.title === "string" && t.ti
 /** What is kept of the tabs: no status (a launch starts with every tab not loaded yet). */
 export function persistable(state: TabsState): { tabs: TabRecord[]; active: string; closed: ClosedTab[]; groups: TabGroup[] } {
   return {
-    tabs: state.tabs.map(({ id, kind, fileKey, title, pageId, startNodeId, pinned, groupId, viewedAt }) => ({
+    tabs: state.tabs.map(({ id, kind, fileKey, title, pageId, startNodeId, pinned, groupId, viewedAt, splitWith }) => ({
       id,
       kind,
       fileKey,
@@ -360,6 +450,7 @@ export function persistable(state: TabsState): { tabs: TabRecord[]; active: stri
       ...(pinned ? { pinned } : {}),
       ...(groupId ? { groupId } : {}),
       ...(viewedAt ? { viewedAt } : {}),
+      ...(splitWith ? { splitWith } : {}),
     })),
     active: state.active,
     closed: state.closed,
@@ -392,6 +483,8 @@ export function restoreTabs(saved: unknown): TabsState {
     if (t.pinned === true) tab.pinned = true;
     if (typeof t.groupId === "string" && groups.some((g) => g.id === t.groupId)) tab.groupId = t.groupId;
     if (typeof t.viewedAt === "number" && Number.isFinite(t.viewedAt) && t.viewedAt > 0) tab.viewedAt = t.viewedAt;
+    // Kept as it was saved; `arrange` drops a half whose other half didn't come back.
+    if (idOk(t.splitWith) && t.splitWith !== id) tab.splitWith = t.splitWith;
     tabs.push(tab);
   }
   const active = typeof s.active === "string" && tabs.some((t) => t.id === s.active) ? s.active : HOME;
@@ -436,8 +529,9 @@ export const DISCARD_IDLE_MS = 4 * 60 * 60_000;
  */
 export function discardable(state: TabsState, loaded: ReadonlySet<string>, now: number): string[] {
   if (state.tabs.length < DISCARD_MIN_TABS) return [];
+  const beside = splitPartner(state, state.active)?.id;
   const candidates = state.tabs
-    .filter((t) => t.id !== state.active && !t.pinned && t.kind === "file" && loaded.has(t.id) && now - (t.viewedAt ?? 0) > DISCARD_AFTER_MS)
+    .filter((t) => t.id !== state.active && t.id !== beside && !t.pinned && t.kind === "file" && loaded.has(t.id) && now - (t.viewedAt ?? 0) > DISCARD_AFTER_MS)
     .sort((a, b) => (a.viewedAt ?? 0) - (b.viewedAt ?? 0));
   const live = state.tabs.filter((t) => loaded.has(t.id)).length;
   return candidates.slice(0, Math.max(0, live - DISCARD_KEEP_LIVE)).map((t) => t.id);

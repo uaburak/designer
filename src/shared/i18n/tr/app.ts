@@ -84,6 +84,15 @@ export const app: Record<string, string> = {
   "Pinned tab: {tabTitle}": "Sabitlenmiş sekme: {tabTitle}",
   "Group name": "Grup adı",
   "New file": "Yeni dosya",
+  // Windows and split tabs (atlas 01 §2.3–2.5)
+  "Move to New Window": "Yeni Pencereye Taşı",
+  "Move to Another Window": "Başka Pencereye Taşı",
+  "New Window": "Yeni Pencere",
+  "{tabName} and {n} Other Tab": "{tabName} ve {n} Diğer Sekme",
+  "{tabName} and {n} Other Tabs": "{tabName} ve {n} Diğer Sekme",
+  "Tabs in window {windowIndex}": "{windowIndex}. penceredeki sekmeler",
+  "Open in Split Tab": "Bölünmüş Sekmede Aç",
+  "Separate Tabs": "Sekmeleri Ayır",
   // The new-tab page (src/renderer/src/newtab)
   "Create new file in": "Yeni dosyanın yeri",
   "No recents": "Son kullanılan yok",

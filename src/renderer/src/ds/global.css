@@ -39,6 +39,8 @@
     -webkit-font-smoothing: antialiased;
     user-select: none;
   }
+  /* A transparent view's page (the tab preview card, app/TabPreviewApp.tsx) */
+  html[data-transparent], html[data-transparent] body { background: transparent; }
   input, textarea, [contenteditable] { user-select: text; }
   ::selection { background: var(--ds-color-text-selection); }
   /* Figma's chrome is instant: motion only where a component opts in */

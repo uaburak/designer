@@ -1,5 +1,5 @@
 import { app, Menu, nativeTheme, webContents, type KeyboardEvent, type MenuItemConstructorOptions } from "electron";
-import { command, layoutCommands, MENU_LAYOUT, registersAccelerator, runsFromMenuBar, type CommandId, type MenuEntry } from "../shared/commands";
+import { command, layoutCommands, MENU_LAYOUT, RECENTLY_CLOSED, registersAccelerator, runsFromMenuBar, type CommandId, type MenuEntry } from "../shared/commands";
 import { acceleratorFor, type KeyCombo } from "../shared/shortcuts";
 import { getLocale, t, tx } from "../shared/i18n";
 import { readSettings } from "./session";
@@ -38,6 +38,8 @@ export function appMenu(current: () => WindowController | null, dev: boolean, bi
       // Keys without ⌘ or ⌃ are the page's own (a registered ⇧R would eat the R typed into a field): shown only.
       registerAccelerator: registersAccelerator(accelerator),
       type: spec.kind === "checkbox" ? "checkbox" : spec.kind === "radio" ? "radio" : "normal",
+      // Hidden items keep their keys (macOS; Windows and Linux register them as any other).
+      ...(spec.hidden ? { visible: false, acceleratorWorksWhenHidden: true } : {}),
       // Disabled until the view in front says otherwise (TabManager.applyMenu runs once the window is up).
       enabled: signedOut ? enabledSignedOut(id) : spec.scope === "app" || spec.scope === "shell",
       // Help › Troubleshooting's checks are main's (troubleshooting.ts).
@@ -63,6 +65,13 @@ export function appMenu(current: () => WindowController | null, dev: boolean, bi
       if ("role" in e) return roleItem(e.role);
       // View › Interface Scale: the scale now as a line of its own above its items (Figma desktop's "{n}%").
       if (e.submenu === "Interface Scale") return { label: t(e.submenu), submenu: [{ id: "app.interface-scale-current", label: `${interfaceScale()}%`, enabled: false }, ...entries(e.items)] };
+      // File › Recently closed tabs: the window in front's (rebuilt when they change, syncClosedMenu).
+      if (e.submenu === RECENTLY_CLOSED) {
+        const ctl = signedOut ? null : current();
+        closedKey = ctl?.tabs.recentlyClosedKey() ?? "";
+        const recent = ctl?.tabs.recentlyClosedItems() ?? [];
+        return { label: t(e.submenu), enabled: recent.length > 0, submenu: recent.length ? recent : [{ label: t(e.submenu), enabled: false }] };
+      }
       return { label: t(e.submenu), submenu: entries(e.items) };
     });
 
@@ -132,6 +141,14 @@ function roleItem(role: NonNullable<MenuItemConstructorOptions["role"]>): MenuIt
 }
 
 let built: { current: () => WindowController | null; dev: boolean } | null = null;
+/** What File › Recently closed tabs was built with (the window in front's last 8) */
+let closedKey = "";
+
+/** The window in front changed, or its closed tabs did: the menu bar again when File › Recently closed tabs would differ. */
+export function syncClosedMenu(): void {
+  if (!built || (built.current()?.tabs.recentlyClosedKey() ?? "") === closedKey) return;
+  refreshAppMenu();
+}
 
 /** The menu bar set at launch, with the user's shortcuts. */
 export function installAppMenu(current: () => WindowController | null, dev: boolean): void {

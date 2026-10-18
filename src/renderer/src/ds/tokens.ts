@@ -426,7 +426,7 @@ export const size = {
 } as const;
 
 /** Corner radii, `--ds-radius-<key>` (px, §1.7). */
-export const radius = { none: 0, small: 2, medium: 5, tile: 6, "medium-large": 9, "asset-tile": 10, large: 13, full: 9999 } as const;
+export const radius = { none: 0, small: 2, medium: 5, tile: 6, "tab-preview-thumb": 8, "medium-large": 9, "asset-tile": 10, large: 13, full: 9999 } as const;
 
 export const fontFamily = {
   /** "Inter Symbols" (global.css): Inter 3.19's key glyphs (⌘ ⇧ ⌥ ⌃ ⌫ ↵ arrows) — live's widths (11px: ⌫ 13, ⌘ 11, ⌃ 9) */

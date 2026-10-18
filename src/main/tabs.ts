@@ -1,20 +1,20 @@
-import { Menu, shell, type MenuItemConstructorOptions, type WebContents, type WebContentsView } from "electron";
+import { app, Menu, shell, type MenuItemConstructorOptions, type WebContents, type WebContentsView } from "electron";
 import { command as commandSpec, isCommandId, layoutCommands, type CommandId, type MenuStatePatch } from "../shared/commands";
-import type { FlushReason, HomeState, ImportResult, IpcEvents, NewFileResult, OpenFileResult, OpenWorkspaceFile, TabFlushed, TabsSnapshot } from "../shared/ipc";
-import { DISCARD_AFTER_MS, DISCARD_IDLE_MS, DISCARD_SWEEP_MS, discardable, GROUP_COLORS, groupsOf, HOME, liveAtStart, neighbourTab, newTabId, tabAtShortcut, tabsReducer, type GroupColor, type Tab, type TabGroup, type TabReport, type TabsAction, type TabsState } from "../shared/tabs";
+import type { FlushReason, HomeState, ImportResult, IpcEvents, NewFileResult, OpenFileResult, OpenWorkspaceFile, TabFlushed, TabPreview, TabsSnapshot } from "../shared/ipc";
+import { canSplit, DISCARD_AFTER_MS, DISCARD_IDLE_MS, DISCARD_SWEEP_MS, discardable, GROUP_COLORS, groupsOf, HOME, liveAtStart, MENU_CLOSED, neighbourTab, newTabId, splitPartner, tabAtShortcut, tabsReducer, type GroupColor, type Tab, type TabGroup, type TabReport, type TabsAction, type TabsState } from "../shared/tabs";
 import { isStoreError } from "../shared/store/protocol";
 import type { WorkspaceEvent } from "../shared/store/repositories";
 import { askCrashed, askFlushFailed, askFlushTimeout, askUnresponsive, tellFileError } from "./dialogs";
 import { exportPreview, importFiles, saveLocalCopy } from "./files";
 import { onWorkspaceEvent, readyStore, storeClient, workspaceDir } from "./storeHost";
 import { SpareEditor } from "./spare";
-import { menuSignedOut, refreshAppMenu } from "./menu";
+import { menuSignedOut, refreshAppMenu, syncClosedMenu } from "./menu";
 import { reloadAllTabs, setGraphicsBackend, toggleHardwareAcceleration } from "./troubleshooting";
 import { setThemePreference } from "./theme";
 import { setInterfaceScale, stepInterfaceScale, zoomFactor } from "./interfaceScale";
 import { DEFAULT_ZOOM_STOP } from "../shared/interfaceScale";
-import { adoptView, createView, destroyView, viewOf } from "./views";
-import type { WindowController } from "./window";
+import { adoptView, createView, destroyView, moveView, viewOf } from "./views";
+import { controllers, frontWindow, newWindow, type WindowController } from "./window";
 import { t, tp } from "../shared/i18n";
 
 /**
@@ -39,12 +39,30 @@ import { t, tp } from "../shared/i18n";
  * first and stays loaded unless the flush succeeded: nothing unsaved goes.
  * A new-tab page (⌘T, "+") is a Home view of its own; a file picked there
  * takes its tab's place.
+ *
+ * A split tab (atlas 01 §2.3, Open in Split Tab / Separate Tabs) shows its two
+ * halves side by side, each its own view at half the width (1px apart, the
+ * window's colour between); the half that takes the focus is the one in front.
+ * A tab moves to another window (Move to New / Another Window) with its view
+ * and process: nothing reloads, nothing is flushed. A file is open in one
+ * window at most — opening it again brings its tab forward where it is.
  */
 
 export const FLUSH_TIMEOUT_MS = 3000;
 
 /** Figma's group colour names (its Group color menu) */
 const GROUP_COLOR_NAMES: Record<GroupColor, string> = { blue: "Blue", red: "Red", yellow: "Yellow", green: "Green", purple: "Purple", pink: "Pink", persimmon: "Persimmon", grey: "Grey" };
+
+/** A view's renderer's working set in MB, when Electron knows its process. */
+function processMb(view: WebContentsView): number | null {
+  if (view.webContents.isDestroyed()) return null;
+  const pid = view.webContents.getOSProcessId();
+  const metric = app.getAppMetrics().find((m) => m.pid === pid);
+  return metric ? metric.memory.workingSetSize / 1024 : null;
+}
+
+/** The window's colour between a split tab's two halves (px). */
+export const SPLIT_GAP = 1;
 
 /** A group's name as the bar and the menus show it: its own, or "Group {number}". */
 export const groupName = (g: TabGroup) => g.name || t("Group {number}", { number: g.number });
@@ -136,11 +154,20 @@ export class TabManager {
   /** The launch's background loads are going on */
   private warming = false;
 
+  /** The window that keeps the spare editor and loads tabs in the background at launch (window.ts) */
+  private readonly primary: boolean;
+  /** The tabs whose views are shown (the one in front and, for a split tab, the one beside it) */
+  private visible: string[] = [];
+  /** What offloading each offloaded tab freed (MB), for its preview card */
+  private freed = new Map<string, number>();
+
   constructor(
     private readonly ctl: WindowController,
-    restored: TabsState
+    restored: TabsState,
+    { primary = true }: { primary?: boolean } = {}
   ) {
     this.state = restored;
+    this.primary = primary;
     // Home: the file browser on the store.
     this.home = this.addView("home", null, { files: "" });
     // Home's renderer gone: it comes back at once (nothing unsaved lives there).
@@ -160,6 +187,8 @@ export class TabManager {
         adoptView(view.webContents, attach.tabId, attach.fileKey);
         emit(view.webContents, "tab:attach", attach);
       },
+      // Only the first window keeps one (memory).
+      ...(primary ? {} : { env: { DESIGNER_DISABLE_SPARE: "1" } }),
       onGone: (view, cb) => {
         const contents = view.webContents;
         const handler = (_e: unknown, details: { reason: string }) => {
@@ -208,7 +237,7 @@ export class TabManager {
    * sweep would offload at once.
    */
   private async warmUp() {
-    if (this.warming) return;
+    if (this.warming || !this.primary) return;
     this.warming = true;
     try {
       const now = Date.now();
@@ -246,18 +275,43 @@ export class TabManager {
   async discard(id: string): Promise<boolean> {
     const rt = this.runtime.get(id);
     const tab = this.tab(id);
-    if (!rt || !tab || tab.pinned || tab.kind === "new-tab" || id === this.state.active || rt.crashed || tab.status === "unresponsive") return false;
+    if (!rt || !tab || tab.pinned || tab.kind === "new-tab" || this.visible.includes(id) || rt.crashed || tab.status === "unresponsive") return false;
     const viewedAt = tab.viewedAt;
     const outcome = await askFlush(rt.view.webContents, "discard");
     if (!("ok" in outcome) || !outcome.ok) return false;
     // Brought forward, pinned or closed meanwhile: it stays.
     const after = this.tab(id);
-    if (this.runtime.get(id) !== rt || !after || id === this.state.active || after.viewedAt !== viewedAt || after.pinned) return false;
+    if (this.runtime.get(id) !== rt || !after || this.visible.includes(id) || after.viewedAt !== viewedAt || after.pinned) return false;
+    const mb = processMb(rt.view);
+    if (mb) this.freed.set(id, mb);
     this.runtime.delete(id);
     this.menuStates.delete(id);
     this.drop(rt);
     this.dispatch({ type: "status", id, status: "discarded" });
     return true;
+  }
+
+  /**
+   * A tab's preview card (atlas 01 §2.2): its thumbnail, name, when the file was edited (a prototype tab: when it was
+   * last viewed), and its renderer's memory — an offloaded tab, what offloading it freed. None for a new-tab page.
+   */
+  async previewOf(id: string, immediate: boolean): Promise<TabPreview | null> {
+    const tab = this.tab(id);
+    if (!tab || tab.kind === "new-tab") return null;
+    let image: string | null = null;
+    let time: TabPreview["time"] = tab.viewedAt ? { kind: "viewed", at: tab.viewedAt } : null;
+    if (tab.kind === "file") {
+      const file = await storeClient()
+        ?.workspace.getFile(tab.fileKey)
+        .catch(() => null);
+      if (file?.thumbnail) image = `app://designer/_thumb/${file.fileKey}.png?v=${file.thumbnail.version}`;
+      if (file) time = { kind: "edited", at: file.updatedAt };
+    }
+    const rt = this.runtime.get(id);
+    const usage = rt && !rt.crashed ? processMb(rt.view) : null;
+    const freed = this.freed.get(id);
+    const memory: TabPreview["memory"] = usage ? { kind: "usage", mb: usage } : !rt && freed ? { kind: "freed", mb: freed } : null;
+    return { tabId: id, title: tab.title, kind: tab.kind === "prototype" ? "prototype" : "design", image, time, memory, immediate };
   }
 
   // ── Views ──
@@ -266,7 +320,7 @@ export class TabManager {
   private addView(role: "home" | "editor", tabId: string | null, query: Record<string, string>, fileKey: string | null = null) {
     const view = createView(role, this.ctl.id, tabId, query, fileKey);
     view.setVisible(false);
-    view.setBounds(this.ctl.contentBounds());
+    view.setBounds(tabId ? this.slot(tabId, this.ctl.contentBounds()) : this.ctl.contentBounds());
     this.ctl.win.contentView.addChildView(view);
     return view;
   }
@@ -329,6 +383,10 @@ export class TabManager {
       rt.hung?.abort();
       rt.hung = null;
       if (this.tab(id)?.status === "unresponsive") this.dispatch({ type: "status", id, status: "ready" });
+    });
+    // A split tab's other half clicked: it is the one in front now.
+    contents.on("focus", () => {
+      if (this.runtime.get(id) === rt && id !== this.state.active && splitPartner(this.state, id)?.id === this.state.active) this.dispatch({ type: "activate", id, at: Date.now() });
     });
     // A reload starts its menu state over.
     contents.on("did-start-navigation", (details) => {
@@ -436,6 +494,30 @@ export class TabManager {
     return this.state.tabs.find((t) => t.id === id);
   }
 
+  /** A tab's view's place in the content: all of it, or its half for a split tab (the first half on the left). */
+  private slot(id: string, content: { x: number; y: number; width: number; height: number }) {
+    const other = splitPartner(this.state, id);
+    if (!other) return content;
+    const left = Math.floor((content.width - SPLIT_GAP) / 2);
+    const first = this.state.tabs.findIndex((t) => t.id === id) < this.state.tabs.findIndex((t) => t.id === other.id);
+    return first ? { ...content, width: left } : { ...content, x: content.x + left + SPLIT_GAP, width: content.width - left - SPLIT_GAP };
+  }
+
+  /** Every content view at its place (WindowController.layout, a split made or undone). */
+  place(content = this.ctl.contentBounds()) {
+    this.home.setBounds(content);
+    for (const [id, rt] of this.runtime) rt.view.setBounds(this.slot(id, content));
+    this.spare.view()?.setBounds(content);
+  }
+
+  /** Which tabs are split with which: a change places the views again. */
+  private splitKey(state: TabsState) {
+    return state.tabs
+      .filter((t) => t.splitWith)
+      .map((t) => `${t.id}>${t.splitWith}`)
+      .join();
+  }
+
   // ── State ──
 
   dispatch(action: TabsAction) {
@@ -443,6 +525,8 @@ export class TabManager {
     const next = tabsReducer(prev, action);
     if (next === prev) return;
     this.state = next;
+    if (this.splitKey(prev) !== this.splitKey(next)) this.place();
+    for (const id of this.freed.keys()) if (!next.tabs.some((t) => t.id === id && t.status === "discarded")) this.freed.delete(id);
     // Tabs gone: their views and processes too.
     for (const [id, rt] of this.runtime) {
       if (next.tabs.some((t) => t.id === id)) continue;
@@ -450,31 +534,41 @@ export class TabManager {
       this.menuStates.delete(id);
       this.drop(rt);
     }
-    if (prev.active !== next.active || (this.shown !== null && this.shown !== HOME && !this.runtime.has(this.shown))) this.show();
+    if (prev.active !== next.active || splitPartner(prev, prev.active)?.id !== splitPartner(next, next.active)?.id || (this.shown !== null && this.shown !== HOME && !this.runtime.has(this.shown))) this.show();
     this.push();
     this.ctl.persist();
   }
 
-  /** The one in front shown, the others hidden (kept: their process, their state); the one in front takes the keys. */
+  /**
+   * The one in front shown — with the other half of a split tab beside it — the others hidden (kept: their process,
+   * their state); the one in front takes the keys.
+   */
   private show() {
     const id = this.state.active;
     const tab = id === HOME ? undefined : this.tab(id);
     const target = tab ? this.ensure(tab).view : this.home;
+    const beside = tab ? splitPartner(this.state, tab.id) : undefined;
+    const besideView = beside ? this.ensure(beside).view : undefined;
     target.setVisible(true);
-    for (const view of this.contentViews()) if (view !== target) view.setVisible(false);
+    besideView?.setVisible(true);
+    for (const view of this.contentViews()) if (view !== target && view !== besideView) view.setVisible(false);
     const before = this.shown;
     this.shown = tab ? tab.id : HOME;
-    if (before !== this.shown) {
-      const was = before && before !== HOME && this.tab(before)?.kind !== "new-tab" ? this.runtime.get(before) : undefined;
-      if (was) {
-        emit(was.view.webContents, "tab:visibility", { visible: false });
-        // Hidden: what it holds goes to the store now (nobody waits for the answer).
-        if (!was.crashed) void askFlush(was.view.webContents, "hide");
-      }
-      if (tab && tab.kind !== "new-tab") emit(target.webContents, "tab:visibility", { visible: true });
-      // Recents (docs/desktop.md §5 step 6).
-      if (tab?.fileKey) void storeClient()?.workspace.recordViewed(tab.fileKey).catch(() => {});
+    const wasVisible = this.visible;
+    this.visible = [tab?.id, beside?.id].filter((v): v is string => Boolean(v));
+    for (const gone of wasVisible.filter((v) => !this.visible.includes(v))) {
+      const was = this.tab(gone)?.kind !== "new-tab" ? this.runtime.get(gone) : undefined;
+      if (!was) continue;
+      emit(was.view.webContents, "tab:visibility", { visible: false });
+      // Hidden: what it holds goes to the store now (nobody waits for the answer).
+      if (!was.crashed) void askFlush(was.view.webContents, "hide");
     }
+    for (const come of this.visible.filter((v) => !wasVisible.includes(v))) {
+      const rt = this.tab(come)?.kind !== "new-tab" ? this.runtime.get(come) : undefined;
+      if (rt) emit(rt.view.webContents, "tab:visibility", { visible: true });
+    }
+    // Recents (docs/desktop.md §5 step 6).
+    if (before !== this.shown && tab?.fileKey) void storeClient()?.workspace.recordViewed(tab.fileKey).catch(() => {});
     target.webContents.focus();
     this.ctl.contentShown(target);
     this.applyMenu();
@@ -497,13 +591,84 @@ export class TabManager {
     return { visible: this.shown === HOME, openFileKeys: this.state.tabs.filter((t) => t.fileKey).map((t) => t.fileKey) };
   }
 
-  /** The tab bar and Home told; the menu's shell items follow. */
+  /** The tab bar and Home told; the menu's shell items follow (File › Recently closed tabs too). */
   push() {
     const snapshot = this.snapshot();
     emit(this.ctl.tabbar.webContents, "tabs:state", snapshot);
     emit(this.home.webContents, "tabs:state", snapshot);
     emit(this.home.webContents, "home:state", this.homeState());
+    if (frontWindow() === this.ctl) syncClosedMenu();
     this.applyMenu();
+  }
+
+  /** File › Recently closed tabs (atlas 01 §2.6): the last 8, newest first. */
+  recentlyClosedItems(): MenuItemConstructorOptions[] {
+    return this.state.closed.slice(0, MENU_CLOSED).map((entry) => ({ label: entry.title, click: () => void this.reopenClosed(entry) }));
+  }
+
+  /** What File › Recently closed tabs shows, to know when the menu bar needs building again. */
+  recentlyClosedKey(): string {
+    return JSON.stringify(this.state.closed.slice(0, MENU_CLOSED).map((c) => [c.kind, c.fileKey, c.title, c.startNodeId ?? ""]));
+  }
+
+  /** How another window's menus name this one: "{tabName} and # Other Tab(s)" (atlas 01 §2.4). */
+  windowLabel(): string {
+    const front = this.tab(this.state.active);
+    const tabName = front ? (front.kind === "new-tab" ? t("New tab") : front.title) : t("Home");
+    const others = this.state.tabs.length - (front ? 1 : 0);
+    return tp(others, "{tabName} and {n} Other Tab", "{tabName} and {n} Other Tabs", { tabName });
+  }
+
+  // ── Windows (atlas 01 §2.4, §2.9) ──
+
+  /** Another window where this file has its tab, and that tab. */
+  private elsewhere(fileKey: string): { ctl: WindowController; tabId: string } | null {
+    for (const ctl of controllers.values()) {
+      if (ctl === this.ctl || ctl.win.isDestroyed()) continue;
+      const tab = ctl.tabs.state.tabs.find((t) => t.kind === "file" && t.fileKey === fileKey);
+      if (tab) return { ctl, tabId: tab.id };
+    }
+    return null;
+  }
+
+  /** A tab in front in this window, the window in front. */
+  focusTab(id: string) {
+    this.activate(id);
+    if (this.ctl.win.isMinimized()) this.ctl.win.restore();
+    this.ctl.win.focus();
+  }
+
+  /**
+   * Move to New Window / Move to Another Window: the tab leaves with its view and process (nothing reloads); a split
+   * tab doesn't move (Figma hides the items for it). `target` null: a new window.
+   */
+  moveToWindow(id: string, target: WindowController | null) {
+    const tab = this.tab(id);
+    if (!tab || splitPartner(this.state, id) || (target && (target === this.ctl || target.win.isDestroyed()))) return;
+    const to = target ?? newWindow(this.ctl);
+    const rt = this.runtime.get(id);
+    if (rt) {
+      this.runtime.delete(id);
+      this.menuStates.delete(id);
+      if (!this.ctl.win.isDestroyed()) this.ctl.win.contentView.removeChildView(rt.view);
+    }
+    this.visible = this.visible.filter((v) => v !== id);
+    this.dispatch({ type: "detach", ids: [id] });
+    to.tabs.adopt(tab, rt);
+    to.win.focus();
+  }
+
+  /** A tab moved here from another window, with its view when it had one loaded. */
+  adopt(tab: Tab, rt?: Runtime) {
+    if (rt && !rt.view.webContents.isDestroyed()) {
+      moveView(rt.view.webContents, this.ctl.id);
+      rt.view.setVisible(false);
+      rt.view.setBounds(this.ctl.contentBounds());
+      this.ctl.win.contentView.addChildView(rt.view);
+      this.runtime.set(tab.id, rt);
+      this.wire(tab.id, rt);
+    }
+    this.dispatch({ type: "adopt", tabs: [rt ? tab : { ...tab, status: "discarded" }], at: Date.now() });
   }
 
   // ── What views and the menu ask ──
@@ -537,6 +702,13 @@ export class TabManager {
    * in front. `requestedAt`: when the open was asked for (a new file's creation came first), for the timing record.
    */
   openFile(file: OpenWorkspaceFile, requestedAt = Date.now(), replace?: string): OpenFileResult {
+    // Open in another window: its tab comes forward there (a new-tab page it was picked on closes).
+    const there = this.elsewhere(file.fileKey);
+    if (there) {
+      if (replace && this.tab(replace)?.kind === "new-tab") this.dispatch({ type: "close", ids: [replace] });
+      if (!file.background) there.ctl.tabs.focusTab(there.tabId);
+      return { tabId: there.tabId, existing: true };
+    }
     const find = () => this.state.tabs.find((t) => t.kind === "file" && t.fileKey === file.fileKey);
     const existing = Boolean(find());
     this.openRequest = { at: requestedAt, fileKey: file.fileKey };
@@ -573,13 +745,24 @@ export class TabManager {
         this.dispatch({ type: "drop-file", fileKey: last.fileKey });
         continue;
       }
+      // Open in another window meanwhile: it comes forward there, and leaves this history.
+      const there = last.kind === "file" ? this.elsewhere(last.fileKey) : null;
+      if (there) {
+        this.dispatch({ type: "forget-closed", fileKey: last.fileKey });
+        return there.ctl.tabs.focusTab(there.tabId);
+      }
       return this.dispatch({ type: "reopen", at: Date.now() });
     }
   }
 
-  /** A closed tab picked in the tabs menu: opened again (it leaves the history if its file is gone). */
+  /** A closed tab picked in the tabs menu or File › Recently closed tabs: opened again (it leaves the history if its file is gone). */
   private async reopenClosed(entry: TabsState["closed"][number]) {
     if ((await this.fileState(entry.fileKey)) === "gone") return this.dispatch({ type: "drop-file", fileKey: entry.fileKey });
+    const there = entry.kind === "file" ? this.elsewhere(entry.fileKey) : null;
+    if (there) {
+      this.dispatch({ type: "forget-closed", fileKey: entry.fileKey });
+      return there.ctl.tabs.focusTab(there.tabId);
+    }
     this.dispatch({ type: "open", kind: entry.kind, fileKey: entry.fileKey, title: entry.title, pageId: entry.pageId, startNodeId: entry.startNodeId, at: Date.now() });
   }
 
@@ -757,8 +940,9 @@ export class TabManager {
   /**
    * The tab's native context menu, at the tab bar's point — Figma's (atlas 01 §2.4): Pin / Unpin, Copy Link, Rename
    * File, Reload, —, Add to / Remove from Tab Group, —, Close, Close Other Tabs, Close All Tabs. The new-tab page's:
-   * Reload, —, Close; Home's: Copy Link, —, Reload. Not here yet: Move to (Another / New) Window (one window), Open in
-   * Split Tab, Open in Browser (a local file has no web address).
+   * Reload, —, Close; Home's: Copy Link, —, Reload. With the groups: Move to New Window (one window) or Move to Another
+   * Window ▸ (New Window, —, each other window), and Open in Split Tab / Separate Tabs. Not here yet: Open in Browser (a
+   * local file has no web address).
    */
   contextMenu(id: string, x: number, y: number) {
     const { tabs } = this.state;
@@ -787,6 +971,20 @@ export class TabManager {
                 ],
               },
             ];
+      const partner = splitPartner(this.state, id);
+      const others = [...controllers.values()].filter((c) => c !== this.ctl && !c.win.isDestroyed());
+      // Hidden for a split tab.
+      const windows: MenuItemConstructorOptions[] = partner
+        ? []
+        : others.length
+          ? [{ label: t("Move to Another Window"), submenu: [{ label: t("New Window"), click: () => this.moveToWindow(id, null) }, { type: "separator" }, ...others.map((c) => ({ label: c.tabs.windowLabel(), click: () => this.moveToWindow(id, c) }))] }]
+          : [{ label: t("Move to New Window"), click: () => this.moveToWindow(id, null) }];
+      const front = this.tab(this.state.active);
+      const split: MenuItemConstructorOptions[] = partner
+        ? [{ label: t("Separate Tabs"), click: () => this.dispatch({ type: "unsplit", id }) }]
+        : front && canSplit(tab, front)
+          ? [{ label: t("Open in Split Tab"), click: () => this.dispatch({ type: "split", id, with: front.id }) }]
+          : [];
       items = [
         { label: tab.pinned ? t("Unpin") : t("Pin"), click: () => this.dispatch({ type: "pin", id, pinned: !tab.pinned }) },
         copyLink,
@@ -795,7 +993,9 @@ export class TabManager {
         reload,
         { type: "separator" },
         ...group,
-        ...(group.length ? [{ type: "separator" as const }] : []),
+        ...windows,
+        ...split,
+        ...(group.length || windows.length || split.length ? [{ type: "separator" as const }] : []),
         close,
         { label: t("Close Other Tabs"), enabled: tabs.length > 1, click: () => void this.close(tabs.filter((o) => o.id !== id).map((o) => o.id)) },
         { label: t("Close All Tabs"), click: () => void this.close(tabs.map((o) => o.id)) },
@@ -841,6 +1041,13 @@ export class TabManager {
       items.push({ label: t("Tabs in this window"), enabled: false });
       for (const tab of tabs) items.push({ label: tab.kind === "new-tab" ? t("New tab") : tab.title, type: "checkbox", checked: tab.id === active, click: () => this.activate(tab.id) });
     }
+    // The other windows' tabs, each window by its number (atlas 01 §2.5).
+    [...controllers.values()].forEach((ctl, i) => {
+      if (ctl === this.ctl || ctl.win.isDestroyed() || !ctl.tabs.state.tabs.length) return;
+      if (items.length) items.push({ type: "separator" });
+      items.push({ label: t("Tabs in window {windowIndex}", { windowIndex: i + 1 }), enabled: false });
+      for (const tab of ctl.tabs.state.tabs) items.push({ label: tab.kind === "new-tab" ? t("New tab") : tab.title, click: () => ctl.tabs.focusTab(tab.id) });
+    });
     if (closed.length) {
       if (tabs.length) items.push({ type: "separator" });
       items.push({ label: t("Recently closed tabs"), enabled: false });
@@ -874,7 +1081,8 @@ export class TabManager {
       case "app":
         return true;
       case "shell":
-        if (id === "file.close-tab") return Boolean(tab);
+        // With no tabs ⌘W closes the window (atlas 01 §2.9).
+        if (id === "file.close-tab") return Boolean(tab) || !this.state.tabs.length;
         if (id === "file.reopen-closed-tab") return this.snapshot().canReopen;
         return true;
       case "view":
@@ -891,8 +1099,9 @@ export class TabManager {
   /** The menu bar's items set for the view in front: enabled and checked (mutated in place, never rebuilt). */
   applyMenu() {
     const menu = Menu.getApplicationMenu();
-    // Signed out (the window closing for Log out): the menu stays as the gate set it (docs/desktop.md §18.6).
-    if (!menu || this.ctl.win.isDestroyed() || menuSignedOut()) return;
+    // Signed out (the window closing for Log out): the menu stays as the gate set it (docs/desktop.md §18.6). Another
+    // window in front: the menu is that one's.
+    if (!menu || this.ctl.win.isDestroyed() || menuSignedOut() || frontWindow() !== this.ctl) return;
     const checked = this.menuStates.get(this.shown ?? HOME)?.checked ?? {};
     for (const id of layoutCommands()) {
       const item = menu.getMenuItemById(id);
@@ -914,6 +1123,8 @@ export class TabManager {
         return void this.newFile({}).catch((err) => console.warn("[tabs] new file:", err));
       case "file.new-tab":
         return this.newTab();
+      case "file.new-window":
+        return void newWindow(this.ctl);
       case "file.open-file-browser":
         return this.goHome();
       case "file.import":
@@ -923,6 +1134,8 @@ export class TabManager {
         });
       case "file.close-tab":
         if (active !== HOME) void this.close([active]);
+        // A window with no tabs: ⌘W closes the window (atlas 01 §2.9).
+        else if (!this.state.tabs.length) this.ctl.win.close();
         return;
       case "file.reopen-closed-tab":
         return void this.reopen();
@@ -957,8 +1170,10 @@ export class TabManager {
       case "app.reload-all-tabs":
         return reloadAllTabs();
       case "window.next-tab":
+      case "window.next-tab-alt":
         return this.activate(neighbourTab(this.state, 1));
       case "window.previous-tab":
+      case "window.previous-tab-alt":
         return this.activate(neighbourTab(this.state, -1));
       case "view.reload-tab": {
         const target = this.target(focused);
@@ -1031,7 +1246,7 @@ export class TabManager {
       state: this.state,
       views: [
         { id: HOME, role: "home", webContentsId: this.home.webContents.id, pid: pidOf(this.home), visible: this.shown === HOME, url: this.home.webContents.getURL() },
-        ...[...this.runtime.entries()].map(([id, rt]) => ({ id, role: this.tab(id)?.kind === "new-tab" ? "new-tab" : "editor", webContentsId: rt.view.webContents.id, pid: pidOf(rt.view), visible: this.shown === id, url: rt.view.webContents.getURL(), crashed: rt.crashed })),
+        ...[...this.runtime.entries()].map(([id, rt]) => ({ id, role: this.tab(id)?.kind === "new-tab" ? "new-tab" : "editor", webContentsId: rt.view.webContents.id, pid: pidOf(rt.view), visible: this.visible.includes(id), url: rt.view.webContents.getURL(), crashed: rt.crashed })),
         ...(spare ? [{ id: "spare", role: "editor", spare: true, webContentsId: spare.webContents.id, pid: pidOf(spare), visible: false, url: spare.webContents.getURL(), loading: spare.webContents.isLoading(), since: this.spare.since() }] : []),
       ],
       spareEnabled: this.spare.enabled,

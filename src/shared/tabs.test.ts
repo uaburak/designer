@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { discardable, emptyTabs, HOME, liveAtStart, MAX_CLOSED, neighbourTab, NEW_TAB, persistable, restoreTabs, tabAtShortcut, tabsReducer, type TabsState } from "./tabs";
+import { discardable, emptyTabs, HOME, liveAtStart, MAX_CLOSED, neighbourTab, NEW_TAB, persistable, restoreTabs, splitPartner, tabAtShortcut, tabsReducer, type TabsState } from "./tabs";
 
 const open = (state: TabsState, fileKey: string, extra: object = {}) => tabsReducer(state, { type: "open", fileKey, id: fileKey.toUpperCase(), ...extra });
 const keys = (s: TabsState) => s.tabs.map((t) => t.fileKey);
@@ -280,5 +280,54 @@ describe("Figma's tab rules (atlas 01 §2.3–2.7)", () => {
     expect(discardable(tabsReducer(s, { type: "close", ids: ["F", "E"] }), loaded, now)).toEqual([]);
     // At launch: the most recently viewed, the one in front counted.
     expect(liveAtStart(s, 3)).toEqual(["A", "B"]);
+  });
+
+  it("split tabs: the tab opened beside the one in front, kept next to it in its group, separated again", () => {
+    let s = four();
+    s = tabsReducer(s, { type: "group-add", ids: ["A"], groupId: "g1" });
+    s = tabsReducer(s, { type: "activate", id: "A" });
+    s = tabsReducer(s, { type: "split", id: "D", with: "A" });
+    expect(ids(s)).toEqual(["A", "D", "B", "C"]);
+    expect(s.active).toBe("D");
+    expect(splitPartner(s, "A")?.id).toBe("D");
+    expect(s.tabs[1].groupId).toBe("g1");
+    // Neither half splits again; pinned tabs don't split.
+    expect(tabsReducer(s, { type: "split", id: "B", with: "A" })).toBe(s);
+    const pinned = tabsReducer(tabsReducer(four(), { type: "pin", id: "B", pinned: true }), { type: "split", id: "B", with: "A" });
+    expect(splitPartner(pinned, "B")).toBeUndefined();
+    // Dragged away, the other half follows; a file opened from it lands after the pair.
+    let moved = tabsReducer(s, { type: "move", id: "A", to: 3 });
+    expect(ids(moved).join()).toMatch(/A,D/);
+    moved = tabsReducer(tabsReducer(s, { type: "activate", id: "A" }), { type: "open", fileKey: "e", id: "E" });
+    expect(ids(moved)).toEqual(["A", "D", "E", "B", "C"]);
+    // Pinning one half, closing it or Separate Tabs leaves the other a tab of its own.
+    expect(splitPartner(tabsReducer(s, { type: "pin", id: "D", pinned: true }), "A")).toBeUndefined();
+    expect(tabsReducer(s, { type: "close", ids: ["D"] }).tabs[0]).not.toHaveProperty("splitWith");
+    const apart = tabsReducer(s, { type: "unsplit", id: "A" });
+    expect(apart.tabs.some((t) => t.splitWith)).toBe(false);
+    expect(ids(apart)).toEqual(["A", "D", "B", "C"]);
+    // Kept between launches.
+    expect(splitPartner(restoreTabs(persistable(s)), "D")?.id).toBe("A");
+    // The half beside the one in front is never offloaded.
+    const H = 3_600_000;
+    expect(discardable({ ...s, tabs: s.tabs.map((t) => ({ ...t, viewedAt: 1 })), active: "D" }, new Set(ids(s)), 100 * H)).not.toContain("A");
+  });
+
+  it("moves tabs between windows without the closed history", () => {
+    let s = four();
+    s = tabsReducer(s, { type: "activate", id: "B" });
+    const moving = s.tabs.filter((t) => t.id === "B");
+    const left = tabsReducer(s, { type: "detach", ids: ["B"] });
+    expect(ids(left)).toEqual(["A", "C", "D"]);
+    expect(left.active).toBe("C");
+    expect(left.closed).toEqual(s.closed);
+    let other = tabsReducer(open(emptyTabs(), "x"), { type: "group-add", ids: ["X"], groupId: "g9" });
+    other = tabsReducer(other, { type: "adopt", tabs: [{ ...moving[0], groupId: "g1" }], at: 7 });
+    expect(ids(other)).toEqual(["X", "B"]);
+    expect(other.active).toBe("B");
+    expect(other.tabs[1]).not.toHaveProperty("groupId");
+    expect(other.tabs[1].viewedAt).toBe(7);
+    // A file already open there isn't opened twice.
+    expect(tabsReducer(other, { type: "adopt", tabs: [{ ...moving[0], id: "Q" }] })).toBe(other);
   });
 });

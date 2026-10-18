@@ -8,7 +8,8 @@ import { Button } from "./Button";
 import { Spinner } from "./Spinner";
 import styles from "./TabBar.module.css";
 
-export type TabBarTab = { id: string; title: string; dirty?: boolean; kind?: "design" | "prototype" | "new-tab"; pinned?: boolean; groupId?: string };
+/** `splitWith`: a split tab's other half (atlas 01 §2.3), the tab right after or before it */
+export type TabBarTab = { id: string; title: string; dirty?: boolean; kind?: "design" | "prototype" | "new-tab"; pinned?: boolean; groupId?: string; splitWith?: string };
 
 /** Figma's tab group colours (atlas 01 §2.3) */
 export type TabBarGroupColor = "blue" | "red" | "yellow" | "green" | "purple" | "pink" | "persimmon" | "grey";
@@ -48,6 +49,11 @@ export interface TabBarProps {
   onRenameGroup?: (groupId: string, name: string | null) => void;
   /** The tabs menu at the right end ("Open and recently closed tabs"); the shell shows it native */
   onTabsMenu?: (at: { x: number; y: number }) => void;
+  /**
+   * The pointer on a file's tab (or the keyboard's focus, `keyboard`), from `x` in the bar, or on none (null): the
+   * shell's preview card under it (atlas 01 §2.2). A press hides it until the pointer is on another tab.
+   */
+  onHover?: (id: string | null, at: { x: number; keyboard?: boolean }) => void;
 }
 
 export { dropIndex };
@@ -60,12 +66,23 @@ export { dropIndex };
  * free space moves the window. Titles use the native `title` attribute: no
  * DOM tooltip can leave a 38px view. Pinned tabs come first; a group's tabs
  * follow its coloured name as 24px pills (atlas 01 §2.3); "+" opens the
- * new-tab page; the tabs menu sits at the right end (§2.5).
+ * new-tab page; the tabs menu sits at the right end (§2.5). A split tab's two
+ * halves stand together in one group ("Split tab group: {tab1}, {tab2}"),
+ * no line between them, both lit while either is in front.
  */
-export function TabBar({ tabs, active, onActivate, onClose, onMove, onContextMenu, onNew, trailing, notice, fullScreen, windows, onMainMenu, hoverId, groups = [], onGroupMenu, editingGroup, onRenameGroup, onTabsMenu }: TabBarProps) {
+export function TabBar({ tabs, active, onActivate, onClose, onMove, onContextMenu, onNew, trailing, notice, fullScreen, windows, onMainMenu, hoverId, groups = [], onGroupMenu, editingGroup, onRenameGroup, onTabsMenu, onHover }: TabBarProps) {
   useT();
   const strip = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ id: string; dx: number; from: number; to: number; width: number } | null>(null);
+  /** The tab the preview card was asked for last (or pressed: none until another) */
+  const hovered = useRef<string | null>(null);
+  const hover = (el: HTMLElement | null, keyboard = false) => {
+    const id = el?.dataset.tabId ?? null;
+    if (!onHover || (id === hovered.current && !keyboard)) return;
+    hovered.current = id;
+    onHover(id, { x: el ? el.getBoundingClientRect().left : 0, keyboard });
+  };
+  const tabUnder = (target: EventTarget) => (target instanceof Element ? target.closest<HTMLElement>("[data-tab-id]") : null);
 
   const press = (id: string, index: number) => (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 || (e.target as Element).closest("button")) return;
@@ -123,6 +140,16 @@ export function TabBar({ tabs, active, onActivate, onClose, onMove, onContextMen
         role="tablist"
         aria-label={t("Tabs")}
         className={styles.strip}
+        onPointerMove={(e) => !drag && e.buttons === 0 && hover(tabUnder(e.target))}
+        onPointerLeave={() => hover(null)}
+        onPointerDownCapture={(e) => {
+          if (!onHover || hovered.current === null) return;
+          onHover(null, { x: 0 });
+          // Pressed: no card again until the pointer is on another tab.
+          hovered.current = tabUnder(e.target)?.dataset.tabId ?? null;
+        }}
+        onFocus={(e) => e.target.matches(":focus-visible") && hover(tabUnder(e.target), true)}
+        onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && hover(null)}
         onKeyDown={(e) => {
           // ← → move between Home and the tabs, bringing each forward
           if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
@@ -154,21 +181,37 @@ export function TabBar({ tabs, active, onActivate, onClose, onMove, onContextMen
         </div>
         {tabs.map((tab, i) => {
           const group = tab.groupId && tabs[i - 1]?.groupId !== tab.groupId ? groups.find((g) => g.id === tab.groupId) : undefined;
+          // A split tab: drawn with its other half (the first of the two draws both).
+          const second = tab.splitWith && tabs[i + 1]?.id === tab.splitWith ? tabs[i + 1] : undefined;
+          if (tab.splitWith && tabs[i - 1]?.id === tab.splitWith) return null;
+          const one = (t: TabBarTab, at: number, split?: "start" | "end") => (
+            <Tab
+              key={t.id}
+              tab={t}
+              active={t.id === active}
+              split={split}
+              splitFront={split && (t.splitWith === active || t.id === active)}
+              hover={hoverId === t.id}
+              dragging={drag?.id === t.id}
+              shift={drag ? (drag.id === t.id ? drag.dx : shift(at)) : 0}
+              groupColor={t.groupId ? groups.find((g) => g.id === t.groupId)?.color : undefined}
+              onPointerDown={press(t.id, at)}
+              onActivate={() => onActivate(t.id)}
+              onClose={() => onClose(t.id)}
+              onContextMenu={onContextMenu && ((at) => onContextMenu(t.id, at))}
+            />
+          );
           return (
             <Fragment key={tab.id}>
               {group && <GroupLabel group={group} editing={editingGroup === group.id} onMenu={onGroupMenu && ((at) => onGroupMenu(group.id, at))} onRename={onRenameGroup && ((name) => onRenameGroup(group.id, name))} />}
-              <Tab
-                tab={tab}
-                active={tab.id === active}
-                hover={hoverId === tab.id}
-                dragging={drag?.id === tab.id}
-                shift={drag ? (drag.id === tab.id ? drag.dx : shift(i)) : 0}
-                groupColor={tab.groupId ? groups.find((g) => g.id === tab.groupId)?.color : undefined}
-                onPointerDown={press(tab.id, i)}
-                onActivate={() => onActivate(tab.id)}
-                onClose={() => onClose(tab.id)}
-                onContextMenu={onContextMenu && ((at) => onContextMenu(tab.id, at))}
-              />
+              {second ? (
+                <div role="group" aria-label={t("Split tab group: {tab1}, {tab2}", { tab1: tab.title, tab2: second.title })} className={styles.split}>
+                  {one(tab, i, "start")}
+                  {one(second, i + 1, "end")}
+                </div>
+              ) : (
+                one(tab, i)
+              )}
             </Fragment>
           );
         })}
@@ -276,10 +319,14 @@ export interface TabProps {
   hover?: boolean;
   /** In a group: a pill with the group's colour */
   groupColor?: TabBarGroupColor;
+  /** Half of a split tab: the left or right one */
+  split?: "start" | "end";
+  /** Half of a split tab in front (either half): lit with it */
+  splitFront?: boolean;
 }
 
 /** One file's tab (contract §4.23): glyph, title, then × — or the unsaved dot, swapped for × on hover. Middle click closes. */
-export function Tab({ tab, active, onActivate, onClose, onContextMenu, onPointerDown, shift = 0, dragging, hover, groupColor }: TabProps) {
+export function Tab({ tab, active, onActivate, onClose, onContextMenu, onPointerDown, shift = 0, dragging, hover, groupColor, split, splitFront }: TabProps) {
   useT();
   return (
     <div
@@ -295,6 +342,8 @@ export function Tab({ tab, active, onActivate, onClose, onContextMenu, onPointer
       data-hover={hover || undefined}
       data-pinned={tab.pinned || undefined}
       data-grouped={groupColor}
+      data-split={split}
+      data-split-front={splitFront || undefined}
       className={styles.tab}
       style={shift ? { transform: `translateX(${shift}px)` } : undefined}
       onPointerDown={onPointerDown}

@@ -47,6 +47,12 @@ export function adoptView(contents: WebContents, tabId: string, fileKey: string)
   registry.set(contents.id, { ...info, tabId, fileKey });
 }
 
+/** A tab's view moved to another window (Move to New / Another Window): its IPC is that window's from now on. */
+export function moveView(contents: WebContents, windowId: string): void {
+  const info = registry.get(contents.id);
+  if (info) registry.set(contents.id, { ...info, windowId });
+}
+
 export const backgroundOf = (role: Role) => VIEW_BACKGROUND[role][nativeTheme.shouldUseDarkColors ? "dark" : "light"];
 
 export function createView(role: Role, windowId: string, tabId: string | null, query: Record<string, string>, fileKey: string | null = null): WebContentsView {
