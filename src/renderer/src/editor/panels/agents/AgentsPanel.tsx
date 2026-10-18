@@ -304,8 +304,9 @@ function AgentMessage({ m, service }: { m: ChatMessage; service: AgentsService }
       {/* The manager's answers carry its name as it is now (Agent settings › Manager › Name) */}
       {(m.manager || m.provider) && <span className={styles.agentName}>{m.manager ? managerName(service.managerSettings()) : m.provider}</span>}
       {segments.map((s) => (s.kind === "text" ? <div key={s.key} className={styles.agentText} data-agent-text="">{renderText(s.text)}</div> : <StepGroup key={s.key} seg={s} since={m.startedAt} />))}
-      {m.cards?.map((c) => <ManagerCard key={c.id} card={c} service={service} />)}
+      {/* The tasks first, the cards under them: a card waits on the owner, nearest the composer */}
       {m.manager && <ManagerTasks messageId={m.id} service={service} />}
+      {m.cards?.map((c) => <ManagerCard key={c.id} card={c} service={service} />)}
       {m.error && <div className={styles.error} role="alert">{m.error}</div>}
       {m.state === "stopped" && <div className={styles.stopped}>{t("Stopped")}</div>}
       {m.changes && m.turnId && <Changes turnId={m.turnId} changes={m.changes} service={service} />}

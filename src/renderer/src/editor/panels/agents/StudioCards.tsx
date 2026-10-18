@@ -83,7 +83,7 @@ export function TaskCard({ task, service }: { task: ChatTask; service: AgentsSer
             {running ? <Spinner size={16} /> : task.state === "done" ? <Icon name="16.check" /> : task.state === "queued" ? <Icon name="24.recent" /> : <Icon name="16.warning" />}
           </span>
           <span className={styles.taskText}>
-            <span className={styles.taskTitle}>{task.title}</span>
+            <span className={styles.taskName}>{task.title}</span>
             <span className={styles.taskMeta}>
               {routeText(task, service.get().providers, images, service.managerSettings())} · <span data-task-state-label="">{t(STATE_LABEL[task.state])}</span>
               {time && ` ${time}`}
@@ -99,7 +99,8 @@ export function TaskCard({ task, service }: { task: ChatTask; service: AgentsSer
       {task.error && <div className={styles.taskError}>{task.error}</div>}
       {open && (
         <div className={styles.taskBody} data-task-body="">
-          {task.summary && <p className={styles.taskSummary}>{task.summary}</p>}
+          {/* Its summary is the worker's last words: shown when its words aren't (an image task, a log not kept) */}
+          {task.summary && !segs.some((s) => s.kind === "text") && <p className={styles.taskSummary}>{task.summary}</p>}
           {segs.map((s) =>
             s.kind === "text" ? (
               <p key={s.key} className={styles.taskSummary}>{s.text}</p>
@@ -154,8 +155,8 @@ export function ManagerCard({ card, service }: { card: ViewCard; service: Agents
   return (
     <div className={styles.consent} data-card={card.kind} data-card-open={open || undefined}>
       <p className={styles.consentTitle}>{card.kind === "brand-form" ? (card.brandId ? t("Edit brand") : t("New brand")) : card.productId ? t("Edit product") : t("New product")}</p>
-      {open && card.kind === "brand-form" && <BrandForm brandId={card.brandId} prefill={card.prefill} onDone={(brandId) => service.answerCard(card.id, { brandId })} onCancel={() => service.answerCard(card.id, { cancelled: true })} />}
-      {open && card.kind === "product-form" && <ProductForm brandId={card.brandId} productId={card.productId} prefill={card.prefill} onDone={(productId) => service.answerCard(card.id, { productId })} onCancel={() => service.answerCard(card.id, { cancelled: true })} />}
+      {open && card.kind === "brand-form" && <BrandForm inCard brandId={card.brandId} prefill={card.prefill} onDone={(brandId) => service.answerCard(card.id, { brandId })} onCancel={() => service.answerCard(card.id, { cancelled: true })} />}
+      {open && card.kind === "product-form" && <ProductForm inCard brandId={card.brandId} productId={card.productId} prefill={card.prefill} onDone={(productId) => service.answerCard(card.id, { productId })} onCancel={() => service.answerCard(card.id, { cancelled: true })} />}
       {answered && <span className={styles.cardAnswer}>{answered}</span>}
     </div>
   );

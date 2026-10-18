@@ -313,7 +313,10 @@
   .task_failed { color: var(--figma-color-icon-danger); }
   .taskText { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
   .taskTitle { display: inline-flex; align-items: center; gap: var(--ds-space-1); overflow: hidden; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); text-overflow: ellipsis; white-space: nowrap; }
-  .taskMeta { overflow: hidden; color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); text-overflow: ellipsis; white-space: nowrap; }
+  /* A task's title on two lines at most and its agent, model and state wrapping: the panel is narrow, and the state
+     (Running 5s, Done) is the part the owner reads */
+  .taskName { display: -webkit-box; overflow: hidden; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+  .taskMeta { color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); overflow-wrap: anywhere; }
   .taskError { color: var(--figma-color-text-danger); font: var(--ds-font-body-small); overflow-wrap: anywhere; user-select: text; }
   .taskBody { display: flex; flex-direction: column; gap: var(--ds-space-1); margin-left: calc(var(--ds-space-2) - 1px); padding-left: var(--ds-space-3); border-left: 1px solid var(--figma-color-border); }
   .taskSummary { margin: 0; color: var(--figma-color-text); font: var(--ds-font-body-medium); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
@@ -325,7 +328,8 @@
   .choice:hover:not(:disabled) { background: var(--figma-color-bg-hover); }
   .choice:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .choice:disabled { color: var(--figma-color-text-disabled); }
-  .choiceOn { border-color: var(--figma-color-border-selected); background: var(--figma-color-bg-selected); }
+  /* The option picked keeps its text once the card is answered */
+  .choiceOn, .choiceOn:disabled { border-color: var(--figma-color-border-selected); background: var(--figma-color-bg-selected); color: var(--figma-color-text); }
   .choiceLabel { font: var(--ds-font-body-medium-strong); }
   .choiceDetail { color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); }
   .cardAnswer { color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); }

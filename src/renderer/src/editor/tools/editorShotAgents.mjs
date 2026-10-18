@@ -216,8 +216,8 @@ export function installMockAgents() {
   };
 }
 
-/** A desktop landing page as NODE_CHANGES: a nav, a hero, three cards in a row, an image. */
-function desktopFrame() {
+/** A desktop landing page as NODE_CHANGES: a nav, a hero, three cards in a row, an image (the Studio section's too). */
+export function desktopFrame() {
   const at = (x, y) => ({ m00: 1, m01: 0, m02: x, m10: 0, m11: 1, m12: y });
   const fill = (hex) => [{ type: "SOLID", color: { r: ((hex >> 16) & 255) / 255, g: ((hex >> 8) & 255) / 255, b: (hex & 255) / 255, a: 1 }, opacity: 1, visible: true, blendMode: "NORMAL" }];
   const text = (guid, parent, pos, name, chars, size, x, y, w, color = 0x111111) => ({ guid, phase: "CREATED", type: "TEXT", name, parentIndex: { guid: parent, position: pos }, size: { x: w, y: Math.round(size * 1.3) }, transform: at(x, y), fillPaints: fill(color), textData: { characters: chars }, fontSize: size, fontName: { family: "Inter", style: size > 40 ? "Bold" : "Regular", postscript: "" }, textAutoResize: "HEIGHT" });
