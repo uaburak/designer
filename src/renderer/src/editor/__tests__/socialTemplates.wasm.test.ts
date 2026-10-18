@@ -27,6 +27,10 @@ import { importCsvPosts, readCsvPosts } from "../social/templates/csvImport";
 import { setBrandsRepository } from "../studio/forms";
 import { AgentsService } from "../agents/service";
 import { runTool } from "../agents/mcpTools";
+import { act, createElement } from "react";
+import { $$, click, mount } from "@/ds/__tests__/dom";
+import { EditorContext } from "../controller";
+import { PostsTable } from "../social/templates/PostsTable";
 import { brandsUnavailable } from "@shared/studio/types";
 import { applyChecks, checkPost, editorWriter, fixProblem, newPost } from "../social/actions";
 import { readPost } from "../social/posts";
@@ -353,6 +357,37 @@ describe("CSV import (round 18b)", () => {
     engine.command("UNDO");
     expect(readBoard(ed, ed.store.page).posts.length).toBe(before);
     expect(readBoard(ed, ed.store.page).campaigns.map((c) => c.name)).not.toContain("October");
+  });
+
+  it("the table sorts a campaign's posts by a column and pastes a spreadsheet's cells as one step (docs/social.md §17)", async () => {
+    const { ed, engine, w } = await setup();
+    setBrandsRepository(repo([ACME]));
+    const { key } = saveAsTemplate(ed, w, drawnPost(ed, w), { name: "Hero" }) as { key: string };
+    const read = readCsvPosts("headline,caption\nWinter,c1\nautumn,c2\nSpring,c3\n");
+    if ("error" in read) throw new Error(read.error);
+    const made = await importCsvPosts(ed, w, read.posts, { key, formatIds: ["instagram.post"], campaign: "Season", brandId: "b1", brands: [ACME] });
+    ed.ui.set({ mode: "social", socialTable: true });
+    const view = mount(() => createElement(EditorContext.Provider, { value: ed }, createElement(PostsTable)), {});
+    const season = () => $$("[data-table-post]").map((r) => r.getAttribute("data-table-post")).filter((id) => made.includes(id!));
+    expect(season()).toEqual(made);
+    click($$('[data-sort="headline"]')[0]);
+    expect(season()).toEqual([made[1], made[2], made[0]]);
+    click($$('[data-sort="headline"]')[0]);
+    expect(season()).toEqual([made[0], made[2], made[1]]);
+    click($$('[data-sort="headline"]')[0]);
+    expect(season()).toEqual(made);
+    // Two rows × two cells pasted into the first headline: headline and body of two posts, one undo step.
+    const cell = $$(`[data-table-post="${made[0]}"] [data-cell="headline"]`)[0].parentElement!;
+    const paste = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, "clipboardData", { value: { getData: () => "Fresh\tOrganic\nSecond\tWarm\n" } });
+    act(() => void cell.dispatchEvent(paste));
+    expect(undoLabel(ed)).toBe("Paste cells");
+    expect(slotTexts(ed, made[0])).toMatchObject({ headline: "Fresh", body: "Organic" });
+    expect(slotTexts(ed, made[1])).toMatchObject({ headline: "Second", body: "Warm" });
+    engine.command("UNDO");
+    expect(slotTexts(ed, made[0]).headline).toBe("Winter");
+    expect(slotTexts(ed, made[1]).headline).toBe("autumn");
+    view.unmount();
   });
 });
 

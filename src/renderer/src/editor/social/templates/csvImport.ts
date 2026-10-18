@@ -26,12 +26,13 @@ export type CsvColumn = (typeof CSV_COLUMNS)[number];
 /**
  * RFC 4180 rows: fields separated by the delimiter, a field in double quotes may hold the delimiter, line breaks and
  * doubled quotes (""); CRLF, LF or CR end a record; a leading BOM is dropped; blank lines are skipped. The delimiter is
- * the header line's comma or — when it has more of them — semicolon (spreadsheets in Turkish write ";") [ours].
+ * the header line's comma or — when it has more of them — semicolon (spreadsheets in Turkish write ";") [ours], or the one
+ * given (a tab: cells copied from a spreadsheet, the posts table's paste).
  */
-export function parseCsv(text: string): string[][] {
+export function parseCsv(text: string, delimiter?: string): string[][] {
   const src = text.replace(/^\uFEFF/, "");
   const firstLine = src.slice(0, src.search(/\r|\n/) >= 0 ? src.search(/\r|\n/) : src.length);
-  const delim = (firstLine.match(/;/g)?.length ?? 0) > (firstLine.match(/,/g)?.length ?? 0) ? ";" : ",";
+  const delim = delimiter ?? ((firstLine.match(/;/g)?.length ?? 0) > (firstLine.match(/,/g)?.length ?? 0) ? ";" : ",");
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";

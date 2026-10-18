@@ -2,12 +2,16 @@
 // Social's CSV import and the Templates gallery's filters (docs/social.md §4.3, §4.5, round 18b): RFC 4180 rows —
 // quotes, doubled quotes, commas and line breaks inside a cell, a BOM, CRLF, a semicolon file — the columns by name in
 // any case, at most 500 rows; the gallery's platform / format / Static-Animated / brand filters over this file's
-// templates and a library's manifest.
+// templates and a library's manifest; the posts table's sorting and multi-cell paste, the gallery's drop preview.
 import { describe, expect, it } from "vitest";
 import type { LibraryAsset, LibraryVersion } from "@shared/store/types";
 import type { SocialTemplateData } from "@shared/social/types";
 import { MAX_ROWS, parseCsv, readCsvPosts } from "../social/templates/csvImport";
 import { filterTemplates, libraryTemplates, normalizeSlot, normalizeTemplate, type TemplateEntry } from "../social/templates/templates";
+import { isGridPaste, pasteTargets, sortRows } from "../social/templates/PostsTable";
+import { dropPreview } from "../social/templates/TemplatesGallery";
+import { formatById } from "@shared/social/formats";
+import type { EditorController } from "../controller";
 
 describe("CSV (RFC 4180, ours)", () => {
   it("parses quotes, commas, line breaks in cells, a BOM and CRLF", () => {
@@ -85,5 +89,38 @@ describe("Templates gallery's filters", () => {
     expect(normalizeSlot({ role: "logo" })).toEqual({ v: 1, role: "logo", property: null, locked: false, maxChars: null });
     expect(normalizeSlot({ role: "sticker" })).toBeNull();
     expect(normalizeSlot(null)).toBeNull();
+  });
+});
+
+describe("The table's sorting and paste, the gallery's drop preview (docs/social.md §17)", () => {
+  it("sorts by a column's text — numbers as numbers, Turkish letters by the locale, empty last, ties in order", () => {
+    const rows = ["Post 10", "", "post 2", "Çiftçi", "Ceviz", "Post 2"];
+    expect(sortRows(rows, (r) => r, 1)).toEqual(["Ceviz", "Çiftçi", "post 2", "Post 2", "Post 10", ""]);
+    expect(sortRows(rows, (r) => r, -1)).toEqual(["Post 10", "post 2", "Post 2", "Çiftçi", "Ceviz", ""]);
+  });
+
+  it("spreads a spreadsheet's cells rightwards and down from the cell, dropping what falls past the table", () => {
+    const text = "Fresh\tOrganic\tOrder\nSecond\t\"Two\nlines\"\n";
+    expect(isGridPaste(text)).toBe(true);
+    expect(isGridPaste("One cell\n")).toBe(false);
+    expect(isGridPaste("Just text")).toBe(false);
+    expect(pasteTargets(text, { row: 1, column: 0 }, ["a", "b", "c"], ["headline", "body"])).toEqual([
+      { id: "b", column: "headline", value: "Fresh" },
+      { id: "b", column: "body", value: "Organic" },
+      { id: "c", column: "headline", value: "Second" },
+      { id: "c", column: "body", value: "Two\nlines" },
+    ]);
+    expect(pasteTargets(text, { row: 2, column: 1 }, ["a", "b", "c"], ["headline", "body", "caption"])).toEqual([
+      { id: "c", column: "body", value: "Fresh" },
+      { id: "c", column: "caption", value: "Organic" },
+    ]);
+  });
+
+  it("previews a drop over the canvas as the post's outline at the zoom, centred on the pointer; none off the canvas", () => {
+    const ed = { canvas: { getBoundingClientRect: () => ({ left: 240, top: 48, right: 1040, bottom: 848 }) }, engine: { getCamera: () => ({ x: 0, y: 0, zoom: 0.25 }) } } as unknown as EditorController;
+    const post = formatById("instagram.post")!;
+    expect(dropPreview(ed, post, 600, 400)).toEqual({ left: 600 - 135, top: 400 - 168.75, width: 270, height: 337.5, label: "Instagram post · 1080 × 1350" });
+    expect(dropPreview(ed, post, 100, 400)).toBeNull();
+    expect(dropPreview(ed, null, 600, 400)).toBeNull();
   });
 });

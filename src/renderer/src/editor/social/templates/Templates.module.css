@@ -22,6 +22,10 @@
     background: var(--ds-color-menu-bg); box-shadow: var(--ds-elevation-menu); color: var(--ds-color-menu-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); pointer-events: none; transform: translate(8px, 8px);
   }
 
+  /* Over the canvas, where the drop puts the post: its outline at the canvas's zoom, its format above it [ours] */
+  .drop { position: fixed; z-index: var(--ds-z-drag); box-sizing: border-box; border: 1px dashed var(--figma-color-border-selected); background: color-mix(in srgb, var(--figma-color-bg-selected) 40%, transparent); pointer-events: none; }
+  .dropLabel { position: absolute; bottom: 100%; left: 0; padding-bottom: var(--ds-space-half); color: var(--figma-color-text-brand); font: var(--ds-font-body-small); letter-spacing: var(--ds-tracking-body-small); white-space: nowrap; }
+
   /* Save as template and Import CSV: labelled fields, the slots as rows (layer, role, locked, characters) */
   .form { display: flex; flex-direction: column; gap: var(--ds-space-3); }
   .field { display: flex; flex-direction: column; gap: var(--ds-space-1); min-width: 0; }
@@ -46,6 +50,11 @@
     position: sticky; top: 0; z-index: 1; height: var(--ds-size-row); padding: 0 var(--ds-space-2); border-bottom: 1px solid var(--figma-color-border); background: var(--figma-color-bg);
     color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); text-align: left; white-space: nowrap;
   }
+  /* A header sorts its column: its label a button, the direction's arrow after it */
+  .sort { display: inline-flex; align-items: center; gap: var(--ds-space-half); height: var(--ds-size-row); padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: default; }
+  .sort:hover { color: var(--figma-color-text); }
+  .sort:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .sortIcon { color: var(--figma-color-icon-secondary); }
   .row { height: var(--ds-size-row); }
   .row:hover { background: var(--figma-color-bg-hover); }
   .row[aria-selected="true"] { background: var(--figma-color-bg-selected); }
