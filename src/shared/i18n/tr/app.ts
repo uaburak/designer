@@ -209,6 +209,7 @@ export const app: Record<string, string> = {
   "The sign-in took too long.": "Giriş çok uzun sürdü.",
   "Signing in works in the desktop app.": "Giriş masaüstü uygulamasında yapılır.",
   "Finish signing in in your browser, then come back here.": "Girişi tarayıcında tamamla, sonra buraya dön.",
+  "A server you sign in to (Notion, Linear, Asana) needs no key: add it, then Sign in on its page.": "Giriş yaptığın bir sunucu (Notion, Linear, Asana) anahtar istemez: ekle, sonra sayfasında Giriş yap'a bas.",
   "No answer in {s} s.": "{s} sn içinde yanıt yok.",
   "A connector needs a name.": "Bağlayıcının bir adı olmalı.",
   "A server URL like {example}": "{example} gibi bir sunucu URL'si",

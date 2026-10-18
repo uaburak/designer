@@ -195,6 +195,7 @@ function AddConnector({ service }: { service: AgentSetupHost }) {
           <>
             <TextInput label={t("Server URL")} placeholder="https://example.com/mcp" value={url} onChange={setUrl} data-connector-url="" />
             <TextInput label={t("API key (optional)")} placeholder={t("API key (optional)")} secret value={key} onChange={setKey} />
+            <p className={styles.pageText}>{t("A server you sign in to (Notion, Linear, Asana) needs no key: add it, then Sign in on its page.")}</p>
           </>
         ) : (
           <TextInput label={t("Command")} placeholder="npx -y @example/mcp-server" value={command} onChange={setCommand} data-connector-command="" />
