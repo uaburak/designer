@@ -111,7 +111,7 @@ export const ENGINE_COMMAND_DOCS: Record<string, string> = {
  "GROUP_STYLES": "args {styles, name}",
  "RENAME_STYLE_GROUP": "args {type, group, name}",
  "UNGROUP_STYLES": "args {type, group}",
- "REPLACE_FONTS": "args {fonts: [{from: {family, style}, to: {family, style}}]} (Missing fonts' \"Replace fonts\")",
+ "REPLACE_FONTS": "args {fonts: [{from: {family, style}, to: {family, style}}], nodes?: [ref]} (Missing fonts' \"Replace fonts\"; nodes: its scope)",
  "CONVERT_TO_SLOT": "args {ref?: Guid | Guid[]} (\"Convert to slot\", ⌘⇧S): nested frames of a main",
  "WRAP_IN_NEW_SLOT": "the selection framed, the frame made a slot (\"Wrap in new slot\")",
  "CLEAR_SLOT": "args {ref?}: a slot (an instance's slot row, or a main's slot frame) emptied (\"Delete contents\")",
