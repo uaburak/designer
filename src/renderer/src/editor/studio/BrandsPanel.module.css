@@ -43,8 +43,11 @@
 
   /* Forms */
   .form { display: flex; flex-direction: column; gap: var(--ds-space-3); padding: var(--ds-space-2) var(--ds-size-panel-pad-right) var(--ds-space-4) var(--ds-size-panel-pad-left); }
-  /* In the chat's form card, which has its own padding */
+  /* In the chat's form card, which has its own padding; too narrow for a row's name beside its fields, so the name
+     takes its own line (a colour's, a format's, a label text's) and the fields go under it */
   .formInCard { padding: 0; }
+  .formInCard .listRow { flex-wrap: wrap; }
+  .formInCard .listRow > :first-child { flex-basis: 100%; }
   .field { display: flex; flex-direction: column; gap: var(--ds-space-1); }
   .fieldLabel { color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); }
   .textArea { width: 100%; min-height: calc(var(--ds-space-4) * 4); padding: var(--ds-space-1-5) var(--ds-space-2); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg); color: var(--figma-color-text); font: var(--ds-font-body-medium); resize: vertical; outline: none; }

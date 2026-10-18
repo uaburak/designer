@@ -37,7 +37,7 @@
 //   EDITOR_ONLY=grid12 node …                                      (round 12 at 1440 × 900, only on its own: a grid's gap boxes and gap drag, the row pill's click and its chevron's field and sizing list against the live captures)
 //   EDITOR_ONLY=overlays11 node …                                  (round 11 at 1440 × 900, only on its own: the component set's "3 Variants" pill, "+" and gap boxes, no instance title, the text's baseline underline, smart selection dots)
 //   EDITOR_ONLY=agents node …                                      (the Agents tab and the MCP section with a stand-in agent: "Make the mobile version of this", Undo / Apply, Agent settings)
-//   EDITOR_ONLY=studio node …                                      (Studio, run on its own: the manager's task cards, the choice card, the brand form, the review with its boxes, a task's prompt edited and run again)
+//   EDITOR_ONLY=studio node …                                      (Studio, run on its own: the manager's task cards, the choice card, the brand form, the review with its boxes, a task's prompt edited and run again; the Brands tab)
 //   EDITOR_ONLY=input node …                                       (keys typed into fields never reach the canvas; a panel resize never blanks or stretches it, frame by frame)
 //   EDITOR_ONLY=layers14 node …                                    (round 14, Layers polish: names fade at the dynamic cut, rows 32 in every state, the list as wide as its widest row, nothing moves when it overflows, icon-only rail)
 //   EDITOR_ONLY=chrome15 node …                                    (round 15: a turned frame's name and badge along its edges, its press; turned resize / rotate cursors, the cursor sheet; the eyedropper's card, sample, Esc)

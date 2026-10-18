@@ -2,8 +2,9 @@
 // the Agents tab, with a stand-in for main (`window.__designerAgents`, installed before the page loads) whose manager
 // turn calls the manager's real tools, answered by the page — two worker tasks (one running, one queued on it), the
 // choice card, the brand form, the review with its boxes on the frame's thumbnail — and whose worker turns finish when
-// the shot opens their gate. Then a task card's prompt edited and run again: a new task in the same answer. No real
-// agent or model is involved.
+// the shot opens their gate. Then a task card's prompt edited and run again: a new task in the same answer; and the
+// Brands tab (docs/studio.md §3.2): the brand the chat's form saved, its page, a product added with its label texts.
+// No real agent or model is involved.
 /* global window, document, setTimeout */
 import { desktopFrame, installMockAgents } from "./editorShotAgents.mjs";
 
@@ -113,8 +114,13 @@ export async function studioSection(page, theme, { open, settle, shot, check }) 
   // The brand form in the chat, prefilled.
   await page.waitForSelector('[data-card="brand-form"][data-card-open]');
   check("Studio: the brand form opens in the chat, its name prefilled", (await page.locator('[data-card="brand-form"] input[aria-label="Brand name"]').inputValue()) === "Partner Agro");
+  await page.locator('[data-card="brand-form"]').getByRole("button", { name: "Add colour" }).click();
+  await page.locator('[data-card="brand-form"] input[aria-label="Colour 1 name"]').fill("Leaf");
+  await page.locator('[data-card="brand-form"] input[aria-label="Colour 1 hex"]').fill("#1BA37A");
+  await page.locator('[data-card="brand-form"] input[aria-label="Colour 1 hex"]').press("Enter");
   await shot(page, `471-studio-brand-form-${theme}`);
-  await page.locator('[data-card="brand-form"]').getByRole("button", { name: "Cancel" }).click();
+  await page.locator('[data-card="brand-form"] [data-save]').click();
+  await page.waitForFunction(() => window.__studioLog.some((e) => e.form && e.form.includes("brandId")));
 
   // The workers finish: both cards done, with their credits; the review card with its boxes on the thumbnail.
   await page.evaluate(() => window.__studioOpen("worker"));
@@ -146,4 +152,29 @@ export async function studioSection(page, theme, { open, settle, shot, check }) 
   await page.evaluate(() => window.__studioOpen("worker-3"));
   await page.waitForFunction(() => document.querySelectorAll('[data-task][data-task-state="done"]').length === 3);
   await shot(page, `474-studio-run-again-${theme}`);
+
+  // The Brands tab: the brand the chat's form saved, its page, a product added with its label texts, the product's page.
+  await page.locator('[data-rail-tab="brands"]').click();
+  await page.waitForSelector("[data-brand]");
+  check("Brands: the brand saved from the chat's form is listed", ((await page.locator("[data-brand]").textContent()) ?? "").includes("Partner Agro"));
+  await shot(page, `475-studio-brands-list-${theme}`);
+  await page.locator("[data-brand]").click();
+  await page.waitForSelector("[data-brand-page]");
+  const brandPage = (await page.locator("[data-brand-page]").textContent()) ?? "";
+  check("Brands: the brand's page shows its colour and formats", brandPage.includes("#1BA37A") && brandPage.includes("1080 × 1350"), brandPage.slice(0, 120));
+  await shot(page, `476-studio-brand-page-${theme}`);
+  await page.getByRole("button", { name: "Add product" }).click();
+  const form = page.locator("[data-product-form]");
+  await form.locator('input[aria-label="Product name"]').fill("Liq Humus");
+  await form.locator('textarea[aria-label="Shape"]').fill("20 L white jerrycan, handle top left");
+  await form.getByRole("button", { name: "Add text" }).click();
+  await form.locator('input[aria-label="Label text 1"]').fill("LIQ HUMUS");
+  await form.getByRole("button", { name: "Add text" }).click();
+  await form.locator('input[aria-label="Label text 2"]').fill("İçindekiler: hümik asit %12");
+  await shot(page, `477-studio-product-form-${theme}`);
+  await form.locator("[data-save]").click();
+  await page.waitForSelector("[data-product-page]");
+  const productPage = (await page.locator("[data-product-page]").textContent()) ?? "";
+  check("Brands: the product's page shows its shape, its label texts and Read label off without a photo", productPage.includes("20 L white jerrycan") && (await page.locator('[data-product-page] input[aria-label="Label text"]').count()) === 2 && (await page.locator("[data-read-labels]").isDisabled()), productPage.slice(0, 120));
+  await shot(page, `478-studio-product-page-${theme}`);
 }
