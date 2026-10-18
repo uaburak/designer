@@ -192,3 +192,21 @@ export function rowLabelOf(command: string): string | null {
   const e = ESSENTIALS.find((x) => x.command === command);
   return e ? e.title : null;
 }
+
+/**
+ * A tab completed while the panel is open (Atlas 03 §8, Figma's `calculateAnimationDelays`): 1 500 ms later its keys
+ * play, each 110 ms × its distance from the key just used + 100 ms after the start, until 6 000 ms.
+ */
+export const CELEBRATE_START_MS = 1500;
+export const CELEBRATE_END_MS = 6000;
+export const celebrateDelay = (position: number, from: number) => 110 * Math.abs(position - from) + 100;
+
+/** The tab a newly used shortcut completed, and that shortcut's place among the tab's (null: none completed). */
+export function completedTab(before: ReadonlySet<string>, after: ReadonlySet<string>, tabs: readonly ShortcutTab[]): { tab: string; from: number } | null {
+  for (const tab of tabs) {
+    const ids = tabUsageIds(tab);
+    if (!ids.length || !ids.every((u) => after.has(u)) || ids.every((u) => before.has(u))) continue;
+    return { tab: tab.id, from: Math.max(0, ids.findIndex((u) => !before.has(u))) };
+  }
+  return null;
+}

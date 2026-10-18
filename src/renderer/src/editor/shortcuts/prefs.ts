@@ -58,6 +58,9 @@ class ShortcutPrefs {
 
   get = (): ShortcutSettings => this.state;
 
+  /** The system's layout, when it is one of the Layout tab's (its "Detected" group) */
+  detectedLayout = (): KeyboardLayoutId | null => this.detected;
+
   subscribe = (cb: () => void): (() => void) => {
     this.listeners.add(cb);
     return () => this.listeners.delete(cb);

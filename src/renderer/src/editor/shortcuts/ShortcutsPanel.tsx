@@ -11,17 +11,17 @@
  * refused; "Reset to default" per row, "Reset all" in the tab row. The keys work at once in the editor, the menu bar
  * and the tooltips (keymap.ts, prefs.ts; main rebuilds the menu bar).
  */
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
-import { Button, IS_MAC, Icon, IconButton, KeyCap, Popover, Select, Tabs, radius, size, space } from "@/ds";
+import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Button, IS_MAC, Icon, IconButton, KeyCap, Popover, Select, Tabs, radius, size, space, type SelectEntry } from "@/ds";
 import { t, useT } from "@/i18n";
 import { KEYBOARD_LAYOUTS, type KeyCombo, type KeyboardLayoutId } from "@shared/shortcuts";
 import { useEditor } from "../controller";
-import { useUI } from "../hooks";
+import { useLibraries, useUI } from "../hooks";
 import { bindingCode, comboText } from "../commands";
 import { comboCaps, fixedCaps, rowCaps, type Cap } from "./caps";
 import { comboOfPress, commandName, conflictsOf, isCustom, keysOf, withBinding, withoutBinding, type Conflict } from "./keymap";
 import { drawnKeyboard, layoutMap } from "./layouts";
-import { ESSENTIALS, SHORTCUT_TABS, tabUsageIds, usageIds, type ShortcutRow, type ShortcutTab } from "./panelData";
+import { CELEBRATE_END_MS, CELEBRATE_START_MS, ESSENTIALS, SHORTCUT_TABS, celebrateDelay, completedTab, tabUsageIds, usageIds, type ShortcutRow, type ShortcutTab } from "./panelData";
 import { shortcutPrefs, useShortcutSettings } from "./prefs";
 import styles from "./ShortcutsPanel.module.css";
 
@@ -53,12 +53,32 @@ export function ShortcutsPanel() {
 function Panel() {
   useT();
   const ed = useEditor();
-  const tabId = useUI((s) => s.shortcutsTab ?? "essential");
+  // Dev Mode opens on View, Design on Essential (Atlas 03 §8).
+  const tabId = useUI((s) => s.shortcutsTab ?? (s.mode === "dev" ? "view" : "essential"));
+  // Components only when the file uses libraries (§8).
+  const libraries = useLibraries().enabled.length > 0;
+  const shownTabs = SHORTCUT_TABS.filter((x) => x.id !== "components" || libraries);
   const settings = useShortcutSettings();
   const [recording, setRecording] = useState<Recording | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const [held, setHeld] = useState<Omit<KeyCombo, "code"> | null>(null);
   const anchors = useRef(new Map<string, HTMLElement>());
+  // A tab just completed: its keys play (`playing`) from 1 500 to 6 000 ms after the shortcut that completed it.
+  const [celebration, setCelebration] = useState<{ tab: string; from: number; playing: boolean } | null>(null);
+  const usedBefore = useRef(new Set(settings.used));
+  useEffect(() => {
+    const after = new Set(settings.used);
+    const done = completedTab(usedBefore.current, after, SHORTCUT_TABS);
+    usedBefore.current = after;
+    if (!done) return;
+    setCelebration({ ...done, playing: false });
+    const start = setTimeout(() => setCelebration((c) => (c && c.tab === done.tab ? { ...c, playing: true } : c)), CELEBRATE_START_MS);
+    const end = setTimeout(() => setCelebration((c) => (c && c.tab === done.tab ? null : c)), CELEBRATE_END_MS);
+    return () => {
+      clearTimeout(start);
+      clearTimeout(end);
+    };
+  }, [settings.used]);
 
   // Recording: the next key press (not a modifier alone) is the command's — nothing else sees it.
   useEffect(() => {
@@ -110,7 +130,7 @@ function Panel() {
     };
   }, [recording]);
 
-  const tab = SHORTCUT_TABS.find((x) => x.id === tabId) ?? SHORTCUT_TABS[0];
+  const tab = shownTabs.find((x) => x.id === tabId) ?? shownTabs[0];
   const used = new Set(settings.used);
   const legend = layoutMap(settings.layout).label;
   const identity = settings.layout === "generic" || settings.layout === "us";
@@ -176,6 +196,13 @@ function Panel() {
       />
     ) : null;
 
+  /** A row of the tab being celebrated: its keys play after their delay. */
+  const celebrating = (row: Exclude<ShortcutRow, { kind: "heading" }>) => {
+    if (!celebration?.playing || celebration.tab !== tab.id) return {};
+    const at = tabUsageIds(tab).indexOf(usageIds(row)[0]);
+    return { "data-celebrate": "", style: { "--celebrate-delay": `${celebrateDelay(Math.max(0, at), celebration.from)}ms` } as CSSProperties };
+  };
+
   const renderRow = (row: ShortcutRow, i: number): ReactNode => {
     if (row.kind === "heading") return <div key={i} className={row.tone === "strong" ? styles.heading : styles.hint}>{t(row.text)}</div>;
     const lit = usageIds(row).some((u) => used.has(u));
@@ -205,7 +232,7 @@ function Panel() {
       );
     }
     return (
-      <div key={i} className={styles.row} data-shortcut-row={row.id} data-lit={lit ? "" : undefined}>
+      <div key={i} className={styles.row} data-shortcut-row={row.id} data-lit={lit ? "" : undefined} {...celebrating(row)}>
         {row.icon && <Icon name={row.icon} className={styles.icon} />}
         <span className={styles.label}>{t(row.label)}</span>
         {keys}
@@ -213,7 +240,7 @@ function Panel() {
     );
   };
 
-  const tabs = SHORTCUT_TABS.map((tb: ShortcutTab) => {
+  const tabs = shownTabs.map((tb: ShortcutTab) => {
     const ids = tabUsageIds(tb);
     return { value: tb.id, label: t(tb.label), lit: ids.length > 0 && ids.every((u) => used.has(u)) };
   });
@@ -329,10 +356,22 @@ function TallKeyShape({ top, lower }: { top: number; lower: number }) {
   );
 }
 
+/**
+ * The Layout tab's list (Atlas 03 §8): the system's layout under "Detected", then "Other layouts" by name with Generic
+ * (Figma's "default / unknown") last; without one detected, the list alone.
+ */
+export function layoutOptions(detected: KeyboardLayoutId | null): SelectEntry[] {
+  const option = (l: (typeof KEYBOARD_LAYOUTS)[number]): SelectEntry => ({ value: l.id, label: t(l.label) });
+  const others = [...KEYBOARD_LAYOUTS.slice(1), KEYBOARD_LAYOUTS[0]].filter((l) => l.id !== detected);
+  const found = KEYBOARD_LAYOUTS.find((l) => l.id === detected);
+  return found ? [{ header: t("Detected") }, option(found), { header: t("Other layouts") }, ...others.map(option)] : others.map(option);
+}
+
 /** The Layout tab: "Keyboard layout:" and the keyboard drawn with the layout's legends. */
 function LayoutTab({ layout }: { layout: KeyboardLayoutId }) {
   useT();
   const shown = layout;
+  const settings = useShortcutSettings();
   return (
     <div className={styles.layout}>
       <div className={styles.layoutSide}>
@@ -342,10 +381,12 @@ function LayoutTab({ layout }: { layout: KeyboardLayoutId }) {
             label={t("Keyboard layout")}
             value={layout}
             width={179}
-            options={[...KEYBOARD_LAYOUTS.slice(1), KEYBOARD_LAYOUTS[0]].map((l) => ({ value: l.id, label: t(l.label) }))}
+            options={layoutOptions(shortcutPrefs.detectedLayout())}
             onChange={(v) => shortcutPrefs.update({ layout: v as KeyboardLayoutId })}
           />
         </label>
+        {/* Figma's note under the list (hidden for its unknown layout); here once a layout is picked — until then the system's is followed. */}
+        {settings.layoutPicked && layout !== "generic" && <p className={styles.layoutNote}>{t("Keyboard shortcuts won’t automatically change if you change your system keyboard layout")}</p>}
         <Button variant="link" className={styles.learnMore} onClick={() => window.open(LAYOUT_HELP, "_blank", "noopener")}>
           {t("Learn more")}
         </Button>

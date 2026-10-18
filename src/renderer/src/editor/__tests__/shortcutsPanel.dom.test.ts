@@ -13,7 +13,8 @@ import { applyBindings, comboOfPress, conflictsOf, defaultKeys, isCustom, keysOf
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { characters, detectLayout, drawnKeyboard, layoutMap, legends } from "../shortcuts/layouts";
-import { allRows, ESSENTIALS, SHORTCUT_TABS, tabUsageIds, usageIds } from "../shortcuts/panelData";
+import { allRows, CELEBRATE_END_MS, CELEBRATE_START_MS, celebrateDelay, completedTab, ESSENTIALS, SHORTCUT_TABS, tabUsageIds, usageIds } from "../shortcuts/panelData";
+import { layoutOptions } from "../shortcuts/ShortcutsPanel";
 import { shortcutPrefs } from "../shortcuts/prefs";
 import { canvasKeyUsage, opacityUsage } from "../shortcuts/usage";
 
@@ -576,6 +577,24 @@ describe("Figma's own table (Atlas 03 §6, §7): the defaults per layout, editor
     expect(commandForKey(press("KeyB"))?.id).toBe("tool.brush");
     shortcutPrefs.follow({ editor: "design" });
     expect(commandForKey(press("KeyB"))?.id).not.toBe("tool.brush");
+  });
+
+  it("a tab completed plays its keys 1 500 – 6 000 ms after, each 110 ms × its distance + 100 ms later (Atlas 03 §8)", () => {
+    const tools = SHORTCUT_TABS.find((x) => x.id === "tools")!;
+    const ids = tabUsageIds(tools);
+    const before = new Set(ids.filter((_, i) => i !== 3));
+    expect(completedTab(before, new Set(ids), SHORTCUT_TABS)).toEqual({ tab: "tools", from: 3 });
+    expect(completedTab(new Set(ids), new Set(ids), SHORTCUT_TABS)).toBeNull();
+    expect([0, 3, 5].map((p) => celebrateDelay(p, 3))).toEqual([430, 100, 320]);
+    expect([CELEBRATE_START_MS, CELEBRATE_END_MS]).toEqual([1500, 6000]);
+  });
+
+  it("the Layout tab's list: Detected, then Other layouts by name, Generic last", () => {
+    const entries = layoutOptions("de");
+    expect(entries.slice(0, 3)).toEqual([{ header: "Detected" }, { value: "de", label: "German QWERTZ" }, { header: "Other layouts" }]);
+    expect(entries.at(-1)).toEqual({ value: "generic", label: "Generic" });
+    expect(entries.filter((e) => typeof e === "object" && "value" in e && e.value === "de")).toHaveLength(1);
+    expect(layoutOptions(null)[0]).toEqual({ value: "zh", label: "Chinese" });
   });
 
   it("keeps a key out of the edit modes the table says: ⌘] reorders no points in vector edit mode", () => {
