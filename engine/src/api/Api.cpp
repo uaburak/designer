@@ -3099,6 +3099,13 @@ ENG_EXPORT void engine_set_annotation_view(Handle h, uint32_t show, uint32_t dot
   if (e) e->editor.setAnnotationView(show != 0, dots != 0);
 }
 
+// The zoom menu's Annotations ▸ filter: only that category's annotations ((0xffffffff, 0xffffffff): all of them).
+ENG_EXPORT void engine_set_annotation_filter(Handle h, uint32_t sessionID, uint32_t localID) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (e) e->editor.setAnnotationFilter(Guid{sessionID, localID});
+}
+
 // editInfo stamped on every user edit (the editor turns it on).
 ENG_EXPORT void engine_set_edit_tracking(Handle h, uint32_t on) {
   Call call;

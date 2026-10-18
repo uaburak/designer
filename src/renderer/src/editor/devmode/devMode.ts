@@ -23,6 +23,7 @@ export function syncEngine(ed: EditorController): void {
   const dev = modeOf(ed) === "dev";
   ed.engine.setViewerMode(dev, { devEdits: true });
   ed.engine.setAnnotationView(annotationsShown(ed), dev);
+  ed.engine.setAnnotationFilter(ed.ui.get().annotationCategory ?? null);
   // Motion (docs/motion.md §6.1): on, the focused root plays at the playhead (the engine's motion layer); off, base values.
   // Social turns it on while the selected post's timeline shows (docs/social.md §6.1).
   const motion = motionLayerOn(ed);

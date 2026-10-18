@@ -133,6 +133,13 @@ TEST_CASE("devmode: annotations stored in Figma's fields, drawn as labels beside
   CHECK(o.dev.cards[0].lines[0].text == "Use the brand card");
   REQUIRE(o.dev.cards[0].properties.size() == 2);
   CHECK(o.dev.cards[0].properties[0] == std::pair<std::string, std::string>{"Width", "60"});
+  // The zoom menu's Annotations ▸ <category>: only that category's annotations; "Show all categories" again.
+  f.ed.setAnnotationFilter({2, 1});
+  CHECK(f.ed.overlay().dev.cards.empty());
+  f.ed.setAnnotationFilter({2, 5});
+  CHECK(f.ed.overlay().dev.cards.size() == 1);
+  f.ed.setAnnotationFilter(kNoGuid);
+  CHECK(f.ed.overlay().dev.cards.size() == 1);
   // Drawn beside design A (the layer is in A's left half: on its left), recorded for clicks.
   f.frame();
   REQUIRE(f.r.canvasHits().annotations.size() == 1);

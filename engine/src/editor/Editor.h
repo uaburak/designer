@@ -821,6 +821,10 @@ class Editor : private LayoutHost, public TextLayouts {
   // View › Annotations (labels, dots and saved measurements); `dots`: Dev Mode's dots (a click opens one's label).
   void setAnnotationView(bool show, bool dots);
   bool annotationsShown() const { return dev_.show; }
+  // The zoom menu's Annotations ▸ <category> (Figma's filterAnnotationCategoryId): only that category's annotations
+  // show; kNoGuid ("Show all categories"): every one.
+  void setAnnotationFilter(Guid category);
+  Guid annotationFilter() const { return dev_.category; }
   // Every user edit stamps editInfo {lastEditedAt, createdAt} (unix seconds) on the edited nodes and their ancestors,
   // as Figma's files do — a design marked ready whose lastEditedAt is later than its status shows "Changed". Edits of
   // annotations, measurements and statuses don't count.
@@ -2044,6 +2048,7 @@ class Editor : private LayoutHost, public TextLayouts {
   // ---- Dev Mode (editor/DevMode.cpp) ----
   struct DevSession {
     bool show = true, dots = false;
+    Guid category = kNoGuid;  // the zoom menu's Annotations ▸ filter: only this category's notes (none: all)
     Guid focus = kNoGuid;
     Guid selectedMeasurement = kNoGuid;
     Guid openNode = kNoGuid;  // dots: the annotation whose label is open

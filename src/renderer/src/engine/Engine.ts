@@ -799,6 +799,12 @@ export class Engine {
     this.after(this.x.setAnnotationView(this.h, show, dots));
   }
 
+  /** The zoom menu's Annotations ▸ <category>: only that category's annotations show (null: all). */
+  setAnnotationFilter(category: Guid | null): void {
+    const [s, l] = category ? this.ids(category) : [0xffffffff, 0xffffffff];
+    this.after(this.x.setAnnotationFilter(this.h, s, l));
+  }
+
   /** editInfo {lastEditedAt, createdAt} stamped on every user edit and its ancestors (Dev Mode's "Changed"). */
   setEditTracking(on: boolean): void {
     this.after(this.x.setEditTracking(this.h, on));

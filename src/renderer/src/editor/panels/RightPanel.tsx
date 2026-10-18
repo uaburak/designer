@@ -5,6 +5,9 @@
  */
 import { Avatar, Button, Icon, IconButton, MenuButton, ResizeHandle, Tabs, size, type MenuEntry } from "@/ds";
 import { useCamera } from "@/engine/hooks";
+import type { Guid } from "@/engine/codec";
+import { readCategories, syncEngine } from "../devmode/devMode";
+import { CATEGORY_HEX, type Category } from "../devmode/annotations";
 import { useEditor } from "../controller";
 import { runEditorCommand, setViewOption } from "../commands";
 import { zoomTo } from "../actions";
@@ -140,13 +143,16 @@ export function RightHeader({ compact }: { compact?: boolean }) {
 /** The zoom menu's own rows (not commands): Pixel preview's three, Property labels. */
 const PIXEL_PREVIEW = ["zoom.pixel-preview-0", "zoom.pixel-preview-1", "zoom.pixel-preview-2"] as const;
 const PROPERTY_LABELS = "zoom.property-labels";
+/** Annotations ▸ Show all categories, and a category's row (its id after the prefix). */
+const ALL_CATEGORIES = "zoom.annotation-categories";
+const CATEGORY = "zoom.annotation-category:";
 
 /**
  * "100% ⌄": the zoom (re-rendered on every camera change, so kept small) and its menu, in Figma's order
- * (docs/research/atlas/02-editor-chrome.md §4.3, `zoom_menu`): the zoom as a field; Zoom in / out / to fit, to 50 /
- * 100 / 200 % (checked at that zoom); Pixel preview ▸, Pixel grid, Snap to pixel grid, Layout guides, Rulers;
- * Multiplayer cursors, Property labels, Comments; Outlines ▸, Annotations ▸. Each choice gives the keys back to the
- * canvas.
+ * (docs/research/atlas/02-editor-chrome.md §4.3, `zoom_menu`): the zoom as a field; Zoom in / out (off at the zoom's
+ * limits) / to fit, to 50 / 100 / 200 % (checked at that zoom); Pixel preview ▸, Pixel grid, Snap to pixel grid, Layout
+ * guides, Rulers; Multiplayer cursors, Property labels, Comments; Outlines ▸ (Show hidden layers, Show object bounds),
+ * Annotations (▸ its categories in Dev Mode). Each choice gives the keys back to the canvas.
  */
 export function ZoomMenu() {
   useT();
@@ -154,7 +160,24 @@ export function ZoomMenu() {
   const camera = useCamera(ed.store);
   const preview = useUI((s) => s.pixelPreview ?? 0);
   const labels = useUI((s) => s.propertyLabels);
+  const dev = useUI((s) => s.mode === "dev");
+  const filter = useUI((s) => s.annotationCategory ?? null);
   const at = (z: number) => Math.abs(camera.zoom - z) < 1e-6;
+  // Figma's Annotations: in Dev Mode with the file's categories, a submenu — Show annotations; Show all categories and a
+  // row per category, each showing only its own (`filterAnnotationCategoryId`); otherwise the one toggle.
+  const categories = dev ? readCategories(ed).filter((c): c is Category & { id: Guid } => c.id !== null) : [];
+  const annotations: MenuEntry = categories.length
+    ? {
+        id: "zoom.annotations",
+        label: t("Annotations"),
+        items: [
+          commandItem(ed, "view.annotations", "Show annotations"),
+          "-",
+          { id: ALL_CATEGORIES, label: t("Show all categories"), checked: !filter },
+          ...categories.map((c) => ({ id: CATEGORY + c.id, label: c.label, swatch: CATEGORY_HEX[c.color], checked: c.id === filter })),
+        ],
+      }
+    : commandItem(ed, "view.annotations", "Show annotations");
   const entries: MenuEntry[] = [
     commandItem(ed, "view.zoom-in"),
     commandItem(ed, "view.zoom-out"),
@@ -182,7 +205,7 @@ export function ZoomMenu() {
     commandItem(ed, "view.comments"),
     "-",
     { id: "zoom.outlines", label: t("Outlines"), items: [commandItem(ed, "view.outlines", "Outlines"), "-", commandItem(ed, "view.outline-hidden-layers"), commandItem(ed, "view.outline-object-bounds")] },
-    { id: "zoom.annotations", label: t("Annotations"), items: [commandItem(ed, "view.annotations", "Show annotations")] },
+    annotations,
   ];
   return (
     <MenuButton
@@ -193,6 +216,10 @@ export function ZoomMenu() {
         const level = PIXEL_PREVIEW.indexOf(id as (typeof PIXEL_PREVIEW)[number]);
         if (level >= 0) setViewOption(ed, { pixelPreview: level as 0 | 1 | 2 });
         else if (id === PROPERTY_LABELS) ed.ui.set((s) => ({ propertyLabels: !s.propertyLabels }));
+        else if (id === ALL_CATEGORIES || id.startsWith(CATEGORY)) {
+          ed.ui.set({ annotationCategory: id === ALL_CATEGORIES ? null : id.slice(CATEGORY.length) });
+          syncEngine(ed);
+        }
         else runEditorCommand(ed, id);
         ed.focusCanvas();
       }}

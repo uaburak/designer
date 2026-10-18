@@ -228,6 +228,8 @@ export interface UIState extends PreferenceFlags {
   drawTools?: DrawToolsState;
   /** View › Annotations (labels, dots and saved measurements); default on */
   annotations?: boolean;
+  /** The zoom menu's Annotations ▸ filter (Figma's filterAnnotationCategoryId): only this category's annotations; unset: all */
+  annotationCategory?: Guid | null;
   /** The note editor: the layer, which note (−1: a new one), where (viewport px) */
   annotationEditor?: { ref: Guid; index: number; x: number; y: number; width: number; height: number } | null;
   /** A frame's or section's name edited in place over its title on the canvas (viewport px: the title) */
