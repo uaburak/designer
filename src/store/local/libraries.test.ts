@@ -98,6 +98,50 @@ describe("libraries (docs/data.md §9)", () => {
     await expect(libraries.publish({ libraryFileKey: lib.fileKey, description: "", assets: [asset("new", "New", "new@1", { payload: undefined })], moves: [] })).rejects.toMatchObject({ code: "invalid" });
   });
 
+  it("stamps user-facing versions and flags updates by Figma's rule, grouped by the publishes they come from (atlas 12 §6.1, §6.3)", async () => {
+    t = await openTestStore();
+    const { workspace, libraries } = t.api;
+    const folder = await workspace.createFolder({ name: "Team", parentId: null });
+    const lib = await workspace.createFile({ name: "Design System", folderId: folder.id });
+    const button = asset("button", "Button", "button@1");
+    const chip = asset("chip", "Chip", "chip@1");
+    const v1 = await libraries.publish({ libraryFileKey: lib.fileKey, description: "First", assets: [button, chip], moves: [] });
+    expect(v1.assets.map((a) => a.userFacingVersion)).toEqual(["1", "1"]);
+    const button2 = asset("button", "Button", "button@2");
+    const v2 = await libraries.publish({ libraryFileKey: lib.fileKey, description: "Rounder button", assets: [button2, { ...chip, payload: undefined }], moves: [] });
+    expect(v2.assets.map((a) => a.userFacingVersion)).toEqual(["2", "1"]); // the chip's content is v1's
+    const chip3 = asset("chip", "Chip", "chip@3");
+    await libraries.publish({ libraryFileKey: lib.fileKey, description: "New chip", assets: [{ ...button2, payload: undefined }, chip3], moves: [] });
+    const d = await libraries.diff(lib.fileKey, [
+      { key: button.key, versionHash: button.versionHash },
+      { key: chip.key, versionHash: chip.versionHash },
+    ]);
+    expect(d.updated.map((a) => [a.name, a.userFacingVersion])).toEqual([
+      ["Button", "2"],
+      ["Chip", "3"],
+    ]);
+    expect(d.publishes!.map((p) => [p.version, p.description])).toEqual([
+      [3, "New chip"],
+      [2, "Rounder button"],
+    ]);
+    // Up to date: nothing; used at two versions (one of them the latest): always outdated.
+    expect((await libraries.diff(lib.fileKey, [{ key: button.key, versionHash: button2.versionHash }])).updated).toEqual([]);
+    const two = await libraries.diff(lib.fileKey, [
+      { key: chip.key, versionHash: chip3.versionHash },
+      { key: chip.key, versionHash: chip.versionHash },
+    ]);
+    expect(two.updated.map((a) => a.name)).toEqual(["Chip"]);
+  });
+
+  it("offers no update when only the content differs, not the user-facing version (atlas 12 §6.1)", async () => {
+    const { diffAgainst, usedVersionKey } = await import("../../shared/store/libraryRules");
+    const latest = { libraryFileKey: "lib", version: 2, publishedAt: 2, description: "", changes: { created: [], modified: [], removed: [], moved: [] }, assets: [{ key: hex("a"), kind: "COMPONENT" as const, name: "A", description: "", guid: "1:1", versionHash: hex("a@2"), dependencyOnly: false, dependencies: [], thumbnail: null, userFacingVersion: "AB12" }] };
+    const have = [{ key: hex("a"), versionHash: hex("a@1") }];
+    expect(diffAgainst(latest, 2, have, [], new Map([[usedVersionKey(hex("a"), hex("a@1")), "ab12"]])).updated).toEqual([]);
+    expect(diffAgainst(latest, 2, have, [], new Map([[usedVersionKey(hex("a"), hex("a@1")), "ab11"]])).updated).toHaveLength(1);
+    expect(diffAgainst(latest, 2, have, []).updated).toHaveLength(1); // a version it doesn't know: different
+  });
+
   it("records 'Move to this file' redirects; 'Publish as a copy' does not", async () => {
     t = await openTestStore();
     const { workspace, libraries } = t.api;

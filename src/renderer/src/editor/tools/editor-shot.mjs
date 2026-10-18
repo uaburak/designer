@@ -919,6 +919,8 @@ async function librariesSection(page, theme) {
   await settle(page);
   const panel = page.locator('[data-panel="right"]');
   const radius = panel.locator('[data-bind-field="CORNER_RADIUS"]');
+  await radius.waitFor({ timeout: 5000 }).catch(() => {});
+  if (await radius.count()) {
   await radius.hover();
   await radius.getByRole("button", { name: "Apply variable" }).click();
   await page.locator('[data-variable-picker] [data-picker-library="Tokens"]').waitFor({ timeout: 10000 }).catch(() => {});
@@ -932,6 +934,7 @@ async function librariesSection(page, theme) {
     check("a library variable binds through its copy (the pill shows its name)", (await radius.locator("[data-bound-variable]").count()) === 1);
     await shot(page, `78-bound-pill-library-${theme}`);
   } else check("a library variable binds through its copy (the pill shows its name)", false, "radius/lg not listed under Tokens");
+  } else check("a library variable binds through its copy (the pill shows its name)", false, "no Corner radius field on the drawn rectangle");
   await page.evaluate(() => window.__designerEditor.source.flush());
 
   // ---- The Kit changes its Button and publishes v2 (the modal lists it as modified).
@@ -961,7 +964,7 @@ async function librariesSection(page, theme) {
   await page.locator("[data-review-update]").getByText("Overlay", { exact: true }).click();
   await settle(page);
   await shot(page, `83-review-overlay-${theme}`);
-  await page.locator("[data-review-update]").getByRole("button", { name: "Update", exact: true }).click();
+  await page.locator("[data-review-update]").getByRole("button", { name: "Update instance", exact: true }).click();
   await page.waitForFunction(() => window.__designerEditor.libraries.pendingCount() === 0, null, { timeout: 10000 }).catch(() => {});
   const fill = await ed((id) => {
     const c = window.__designerEditor.engine.readNode(id)?.fillPaints?.[0]?.color;
@@ -1045,7 +1048,16 @@ async function librariesSection(page, theme) {
   await page.locator('[data-update="Button"]').click();
   await page.locator("[data-review-update]").waitFor({ timeout: 5000 });
   const layersBefore = await ed((id) => window.__designerEditor.engine.readNode(id, { childIds: true })?.childIds?.length ?? 0, second);
-  await page.locator("[data-review-update]").getByRole("button", { name: "Update selected instance" }).click();
+  // The review goes instance by instance (atlas 12 §6.5): to the first one, then Update instance.
+  const firstShown = await ed(async () => {
+    const e = window.__designerEditor;
+    const { instancesOfUpdate } = await import("/src/editor/libraries.ts");
+    return instancesOfUpdate(e, e.libraries.updates().find((u) => u.copy.name === "Button"), "current")[0]?.id;
+  });
+  check("Review: ◀ ▶ and i/N with two instances", (await page.locator("[data-review-update]").getByText("1/2", { exact: true }).count()) === 1);
+  await shot(page, `87-review-instances-${theme}`);
+  if (firstShown !== inserted.id) await page.locator("[data-review-update]").getByRole("button", { name: "Next instance" }).click();
+  await page.locator("[data-review-update]").getByRole("button", { name: "Update instance" }).click();
   await page.waitForFunction(() => window.__designerEditor.libraries.copies().filter((c) => c.name === "Button").length === 2, null, { timeout: 10000 }).catch(() => {});
   await settle(page);
   const after = await ed(
@@ -1057,7 +1069,7 @@ async function librariesSection(page, theme) {
     },
     [inserted.id, second]
   );
-  check("Update selected instance: a complete second copy, the selected instance on it with its layers, the other unchanged", after.copies === 2 && after.a === layersBefore && after.ga === 173 && after.gb !== 173, JSON.stringify(after));
+  check("Update instance: a complete second copy, the instance on it with its layers, the other unchanged", after.copies === 2 && after.a === layersBefore && after.ga === 173 && after.gb !== 173, JSON.stringify(after));
   await shot(page, `88-update-selected-instance-${theme}`);
   await page.locator("[data-review-update]").getByRole("button", { name: "Back to updates" }).click().catch(() => {});
   await page.getByRole("button", { name: "Update all" }).click();
@@ -1069,6 +1081,18 @@ async function librariesSection(page, theme) {
   check("Update all: every copy of every asset updated, one undo step", all.pending === 0 && all.undo === "Update library assets", JSON.stringify(all));
   await settle(page);
   await shot(page, `89-updated-all-${theme}`);
+
+  // ---- Swap library (atlas 12 §7.1): Kit's view › Swap library › to Tokens — the used assets, "None found".
+  await ed(() => window.__designerEditor.ui.set({ librariesDialog: { tab: "libraries" } }));
+  await page.getByRole("button", { name: "Preview Kit", exact: true }).click();
+  await page.locator("[data-library-footer]").getByRole("button", { name: "Swap library" }).click();
+  await page.locator("[data-swap-library]").getByRole("combobox", { name: "Swap to" }).click();
+  await page.getByRole("option", { name: "Tokens" }).click();
+  await page.locator("[data-swap-row]").first().waitFor({ timeout: 10000 }).catch(() => {});
+  await settle(page);
+  check("Swap library: Kit's used components listed, none found in Tokens", (await page.locator("[data-swap-row]").count()) >= 1 && (await page.locator("[data-swap-library]").getByText("None found").count()) >= 1);
+  await shot(page, `90-swap-library-${theme}`);
+  await page.keyboard.press("Escape");
 }
 
 

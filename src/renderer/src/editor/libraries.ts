@@ -18,7 +18,8 @@ import { t, tp } from "@/i18n";
 import { showToast } from "@/ds";
 import { Status } from "@/engine/abi";
 import type { EncodedAsset, Guid, LibraryAssetUsage, LocalAssetInfo, Message, Pixels } from "@/engine/codec";
-import type { LibraryDiff, LibraryRecord, LibraryVersion, PublishPreview, Redirect, LibraryAsset } from "../../../shared/store/types";
+import type { LibraryDiff, LibraryPublish, LibraryRecord, LibraryVersion, PublishPreview, Redirect, LibraryAsset } from "../../../shared/store/types";
+import { publishOf } from "../../../shared/store/libraryRules";
 import type { Engine } from "@/engine/Engine";
 import type { EditorController } from "./controller";
 import type { EditorPublishAsset, LibraryAccess, LibraryEntry, OrgPublishContext } from "./documentSource";
@@ -29,6 +30,7 @@ import { copiesHave, guidText, type LibraryCopy, type LNode, type LocalAsset, ty
 import { viewCentre } from "./canvas/viewInsets";
 import { attachLibraryUsage, gid } from "./libraryUsage";
 import { setExplicitMode } from "./variables";
+import { LIMITS } from "./model/variables";
 import type { DefaultMode } from "../../../shared/libraries/orgTypes";
 
 const THUMB = 256;
@@ -124,10 +126,42 @@ export interface UpdateItem {
   /** The new version (modified) */
   asset?: LibraryAsset;
   redirect?: Redirect;
+  /** The publish its new content comes from (modified; atlas 12 §6.3 groups the Updates tab by it) */
+  publish?: LibraryPublish;
 }
 
 /** A row's id in the Updates list (the asset). */
 export const updateId = (u: Pick<UpdateItem, "library" | "key">): string => `${u.library}/${u.key}`;
+
+/** Figma's update order (atlas 12 §6.3, §6.4): components, state groups, styles, variable sets, other library assets. */
+const UPDATE_ORDER: Partial<Record<LibraryCopy["kind"], number>> = { COMPONENT: 0, COMPONENT_SET: 1, STYLE: 2, VARIABLE_COLLECTION: 3, VARIABLE: 3 };
+export const updateOrder = (u: Pick<UpdateItem, "copy">): number => UPDATE_ORDER[u.copy.kind] ?? 4;
+
+/** One group of the Updates tab: the updates one publish of a library brought (moved and removed ones: no publish). */
+export interface UpdateGroup {
+  id: string;
+  library: string;
+  libraryName: string;
+  publish: LibraryPublish | null;
+  items: UpdateItem[];
+}
+
+/**
+ * The Updates tab's groups (atlas 12 §6.3): by publish, newest first, each in Figma's order (`updateOrder`); a
+ * library's moved and removed assets last, in a group of their own.
+ */
+export function updateGroups(items: readonly UpdateItem[]): UpdateGroup[] {
+  const groups = new Map<string, UpdateGroup>();
+  for (const u of items) {
+    const publish = u.kind === "modified" ? (u.publish ?? null) : null;
+    const id = `${u.library}#${publish?.version ?? "-"}`;
+    let g = groups.get(id);
+    if (!g) groups.set(id, (g = { id, library: u.library, libraryName: u.libraryName, publish, items: [] }));
+    g.items.push(u);
+  }
+  for (const g of groups.values()) g.items.sort((a, b) => updateOrder(a) - updateOrder(b));
+  return [...groups.values()].sort((a, b) => (b.publish?.publishedAt ?? -1) - (a.publish?.publishedAt ?? -1) || (b.publish?.version ?? 0) - (a.publish?.version ?? 0));
+}
 
 export class LibraryIndex {
   private state: LibraryState = OFF;
@@ -227,7 +261,7 @@ export class LibraryIndex {
 
   /** The library copies in this file. */
   copies(): LibraryCopy[] {
-    return this.libraryUsage().map((u) => ({ guid: u.id, library: u.libraryKey, key: u.key, version: u.version, publishID: u.publishID ?? "", kind: u.kind, name: u.name }));
+    return this.libraryUsage().map((u) => ({ guid: u.id, library: u.libraryKey, key: u.key, version: u.version, publishID: u.publishID ?? "", kind: u.kind, name: u.name, ...(u.styleType ? { styleType: u.styleType } : {}), ...(u.collectionKey ? { collectionKey: u.collectionKey } : {}) }));
   }
 
   /** How many layers here use each copy (instances; style users; bound layers and aliases). */
@@ -385,13 +419,19 @@ export class LibraryIndex {
       const byKey = new Map<string, LibraryCopy[]>();
       for (const c of copies) if (c.library === lib) byKey.set(c.key, [...(byKey.get(c.key) ?? []), c]);
       const seen = new Set<string>();
-      const add = (key: string, list: LibraryCopy[], item: Pick<UpdateItem, "kind" | "asset" | "redirect">) => {
+      const latest = this.state.manifests.get(lib);
+      const publishes = d.publishes ?? (latest ? [{ version: latest.version, publishedAt: latest.publishedAt, description: latest.description }] : []);
+      const publishFor = (a: LibraryAsset) => publishes.find((p) => p.version === publishOf(a, d.latestVersion)) ?? (d.publishes ? undefined : publishes[0]);
+      const add = (key: string, list: LibraryCopy[], item: Pick<UpdateItem, "kind" | "asset" | "redirect" | "publish">) => {
         if (seen.has(key) || !list.length) return;
         seen.add(key);
         out.push({ library: lib, libraryName, key, copy: list[0], copies: list, ...item });
       };
       for (const r of d.moved) add(r.fromKey, byKey.get(r.fromKey) ?? [], { kind: "moved", redirect: r });
-      for (const a of d.updated) add(a.key, (byKey.get(a.key) ?? []).filter((c) => c.version !== a.versionHash), { kind: "modified", asset: a });
+      for (const a of d.updated) {
+        const publish = publishFor(a);
+        add(a.key, (byKey.get(a.key) ?? []).filter((c) => c.version !== a.versionHash), { kind: "modified", asset: a, ...(publish ? { publish } : {}) });
+      }
       for (const key of d.removed) add(key, byKey.get(key) ?? [], { kind: "removed" });
     }
     return out;
@@ -400,6 +440,23 @@ export class LibraryIndex {
   /** Updates that can be accepted (modified and moved assets; a removed one only says so). */
   pendingCount(): number {
     return this.updates().filter((u) => u.kind !== "removed").length;
+  }
+
+  /**
+   * The updates of the Updates tab's scope (atlas 12 §6.3): "current" — the current page's: a component's when an
+   * instance on the page (nested in another one too) uses one of its copies (styles and variables are listed on every
+   * page: which layers of a page use them isn't read); "all" — every update.
+   */
+  updatesIn(scope: "current" | "all"): UpdateItem[] {
+    const all = this.updates();
+    if (scope === "all") return all;
+    const page = this.ed.store.page;
+    if (!page || this.ed.engine.destroyed) return all;
+    const used = new Set(instancesOn(this.ed, [page], { nested: true }).map((i) => i.main));
+    return all.filter((u) => {
+      if (u.copy.kind !== "COMPONENT" && u.copy.kind !== "COMPONENT_SET") return true;
+      return u.copies.some((c) => used.has(c.guid) || mainsOf(this.ed, c.guid).some((m) => used.has(m)));
+    });
   }
 
   /** "Library updates available" once per session, when the file opens with updates waiting. */
@@ -544,6 +601,8 @@ export interface PublishDraft {
   previous: LibraryVersion | null;
   /** Hidden when publishing on purpose (Hide when publishing, `_` / `.` names, hidden collections) */
   hiddenCount: number;
+  /** Those assets (the modal's Hidden section, atlas 12 §3.4) */
+  hidden: LocalAsset[];
 }
 
 const RESOLVED = new Set(["COLOR", "FLOAT", "STRING", "BOOLEAN"]);
@@ -585,7 +644,7 @@ function fromEngineAsset(ed: EditorController, e: LocalAssetInfo): LocalAsset {
 }
 
 /** Keys given to every asset that lacks one, then the publishable ones encoded with what they need (closures). */
-function draftItems(ed: EditorController): { items: PublishItem[]; hiddenCount: number } {
+function draftItems(ed: EditorController): { items: PublishItem[]; hiddenCount: number; hidden: LocalAsset[] } {
   ed.engine.ensureAssetKeys();
   // A publish hashes every main: on an engine with lazy per-page derivation the mains' pages are derived first, so
   // `localAssets`' versionHash and `encodeAssets`' agree (a main hashed before its page was derived came out as
@@ -613,14 +672,35 @@ function draftItems(ed: EditorController): { items: PublishItem[]; hiddenCount: 
       ...(a.componentSetKey ? { componentSetKey: a.componentSetKey } : {}),
     })
   );
-  return { items, hiddenCount: top.filter((a) => a.hiddenFromPublishing).length };
+  const hidden = top.filter((a) => a.hiddenFromPublishing).map((a) => fromEngineAsset(ed, a));
+  return { items, hiddenCount: hidden.length, hidden };
+}
+
+/** Why an asset can't be published (atlas 12 §3.5, §3.10): too many modes (the plan's limit) or variables in a collection. */
+export type PublishLimitError = "TOO_MANY_MODES_ERROR" | "TOO_MANY_VARIABLES_ERROR";
+
+/**
+ * The publish modal's mode-limit check (atlas 12 §3.3): each collection's modes against the plan's limit (a personal
+ * app is Enterprise: 40, `LIMITS.modes`) and its variables against Figma's 5,000. Asset key → its error.
+ */
+export function publishLimitErrors(ed: EditorController, draft: Pick<PublishDraft, "items">): Map<string, PublishLimitError> {
+  const out = new Map<string, PublishLimitError>();
+  const collections = draft.items.filter((i) => i.asset.kind === "VARIABLE_COLLECTION" && i.status !== "dependency");
+  if (!collections.length || ed.engine.destroyed) return out;
+  const variables = ed.engine.localAssets().filter((a) => a.kind === "VARIABLE" && !a.softDeleted);
+  for (const c of collections) {
+    const modes = (ed.engine.readNode(c.asset.guid, { fields: ["variableSetModes"] } as never) as { variableSetModes?: unknown[] } | null)?.variableSetModes?.length ?? 0;
+    if (modes > LIMITS.modes) out.set(c.key, "TOO_MANY_MODES_ERROR");
+    else if (variables.filter((v) => v.collectionId === c.asset.guid).length > LIMITS.variables) out.set(c.key, "TOO_MANY_VARIABLES_ERROR");
+  }
+  return out;
 }
 
 /** What publishing would change (the Publish library modal's lists). */
 export async function draftPublish(ed: EditorController): Promise<PublishDraft> {
   const access = ed.source.libraries;
   if (!access || !libraryEngine(ed)) throw new Error(t("Libraries aren't available here"));
-  const { items, hiddenCount } = draftItems(ed);
+  const { items, hiddenCount, hidden } = draftItems(ed);
   const previous = await access.version(access.libraryKey).catch(() => null);
   const preview = await access.previewPublish(items.map((i) => toPublishAsset(i, false)));
   const created = new Set(preview.created.map((a) => a.key));
@@ -637,7 +717,7 @@ export async function draftPublish(ed: EditorController): Promise<PublishDraft> 
     const asset = previous?.assets.find((a) => a.key === r.fromKey) ?? null;
     movedOut.push({ key: r.fromKey, name: asset?.name ?? "Component", kind: asset?.kind ?? "COMPONENT", asset, toLibraryFileKey: r.toLibraryFileKey, toName: (await access.fileName(r.toLibraryFileKey).catch(() => null)) ?? "another file" });
   }
-  return { items, preview, removed: preview.removed, moves, movedOut, previous, hiddenCount };
+  return { items, preview, removed: preview.removed, moves, movedOut, previous, hiddenCount, hidden };
 }
 
 /** Is there anything to publish (a change, a move here, an asset moved out)? */
@@ -959,37 +1039,39 @@ function outdatedHiddenDependencies(ed: EditorController, lib: string, manifest:
   return out;
 }
 
+/** Figma's update batches (atlas 12 §6.4): the payloads of five assets per round trip, the progress bell after each. */
+export const UPDATE_BATCH = 5;
+
 /**
  * "Update all" (or the items given): every copy of each asset replaced by its library's latest version in place —
  * instances keep their overrides — and a moved asset's copies re-pointed at its new library (enabled here for it)
- * and updated from there; all of it **one undo step** "Update library assets" (docs/data.md §9.4). Returns how many
- * assets were updated.
+ * and updated from there. In Figma's order (atlas 12 §6.4: components, state groups, styles, variable sets, other
+ * assets); the payloads fetched five assets at a time (`onProgress` after each batch: Figma's progress bell); then
+ * all of it written as **one undo step** "Update library assets" (docs/data.md §9.4 — Figma makes a step per asset).
+ * Returns how many assets were updated.
  */
-export async function acceptUpdates(ed: EditorController, items: readonly UpdateItem[]): Promise<number> {
+export async function acceptUpdates(ed: EditorController, items: readonly UpdateItem[], onProgress?: (done: number, total: number) => void): Promise<number> {
   const access = ed.source.libraries;
   if (!access) return 0;
-  type Call = { lib: string; payloads: PayloadIn[]; keys: string[]; redirects: { fromKey: string; toKey: string; fromLibraryKey: string }[]; items: UpdateItem[] };
+  type Call = { lib: string; keys: string[]; redirects: { fromKey: string; toKey: string; fromLibraryKey: string }[]; items: UpdateItem[] };
+  // One call per kind and library, in Figma's order.
   const calls = new Map<string, Call>();
-  const call = (lib: string): Call => {
-    let c = calls.get(lib);
-    if (!c) calls.set(lib, (c = { lib, payloads: [], keys: [], redirects: [], items: [] }));
+  const call = (lib: string, u: UpdateItem): Call => {
+    const id = `${updateOrder(u)}#${lib}`;
+    let c = calls.get(id);
+    if (!c) calls.set(id, (c = { lib, keys: [], redirects: [], items: [] }));
     return c;
   };
-  const wants = new Map<string, Map<string, { key: string; versionHash: string }>>();
-  const want = (lib: string, key: string, versionHash: string) => {
-    const m = wants.get(lib) ?? new Map<string, { key: string; versionHash: string }>();
-    m.set(key, { key, versionHash });
-    wants.set(lib, m);
-  };
+  const sorted = [...items].sort((a, b) => updateOrder(a) - updateOrder(b));
+  const wants: { lib: string; key: string; versionHash: string }[][] = [];
   const enable = new Set<string>();
-  for (const u of items) {
+  for (const u of sorted) {
     if (u.kind === "modified" && u.asset) {
-      const c = call(u.library);
+      const c = call(u.library, u);
       // The asset, and the hidden assets it uses that are behind (an item accepted on its own).
-      for (const w of [{ key: u.key, versionHash: u.asset.versionHash }, ...outdatedHiddenDependencies(ed, u.library, ed.libraries.get().manifests.get(u.library), u.key)]) {
-        if (!c.keys.includes(w.key)) c.keys.push(w.key);
-        want(u.library, w.key, w.versionHash);
-      }
+      const ws = [{ key: u.key, versionHash: u.asset.versionHash }, ...outdatedHiddenDependencies(ed, u.library, ed.libraries.get().manifests.get(u.library), u.key)];
+      for (const w of ws) if (!c.keys.includes(w.key)) c.keys.push(w.key);
+      wants.push(ws.map((w) => ({ lib: u.library, ...w })));
       c.items.push(u);
     } else if (u.kind === "moved" && u.redirect) {
       const r = u.redirect;
@@ -997,28 +1079,41 @@ export async function acceptUpdates(ed: EditorController, items: readonly Update
       const a = v?.assets.find((x) => x.key === r.toKey);
       if (!a) continue;
       if (!access.enabled().includes(r.toLibraryFileKey)) enable.add(r.toLibraryFileKey);
-      const c = call(r.toLibraryFileKey);
+      const c = call(r.toLibraryFileKey, u);
       if (!c.keys.includes(r.toKey)) c.keys.push(r.toKey);
       c.redirects.push({ fromKey: r.fromKey, toKey: r.toKey, fromLibraryKey: u.library });
       c.items.push(u);
-      want(r.toLibraryFileKey, a.key, a.versionHash);
+      wants.push([{ lib: r.toLibraryFileKey, key: a.key, versionHash: a.versionHash }]);
     }
   }
-  for (const [lib, m] of wants) call(lib).payloads = await access.payloads(lib, [...m.values()], { withDependencies: true });
+  // The payloads, five assets at a time; each library's kept once per key (an asset asked for wins over the same key
+  // brought as another's dependency).
+  const payloads = new Map<string, Map<string, PayloadIn>>();
+  onProgress?.(0, wants.length);
+  for (let i = 0; i < wants.length; i += UPDATE_BATCH) {
+    const byLib = new Map<string, Map<string, { key: string; versionHash: string }>>();
+    for (const w of wants.slice(i, i + UPDATE_BATCH).flat()) byLib.set(w.lib, (byLib.get(w.lib) ?? new Map<string, { key: string; versionHash: string }>()).set(w.key, { key: w.key, versionHash: w.versionHash }));
+    for (const [lib, m] of byLib) {
+      const have = payloads.get(lib) ?? new Map<string, PayloadIn>();
+      for (const p of await access.payloads(lib, [...m.values()], { withDependencies: true })) if (!have.has(p.key) || m.has(p.key)) have.set(p.key, p);
+      payloads.set(lib, have);
+    }
+    onProgress?.(Math.min(wants.length, i + UPDATE_BATCH), wants.length);
+  }
   // A moved asset's new library is added to the file (Figma) — bookkeeping, not part of the step.
   for (const lib of enable) await setLibraryEnabled(ed, lib, true, { refresh: false }).catch(() => {});
   if (ed.engine.destroyed || !calls.size) return 0;
   // The copies the engine actually wrote ("library/key"): a copy already at that version is reused, not written.
   const written = new Set<string>();
   const run = (c: Call) => {
-    const r = updateAssets(ed, c.payloads, { libraryKey: c.lib, keys: c.keys, ...(c.redirects.length ? { redirects: c.redirects } : {}) });
+    const r = updateAssets(ed, [...(payloads.get(c.lib)?.values() ?? [])], { libraryKey: c.lib, keys: c.keys, ...(c.redirects.length ? { redirects: c.redirects } : {}) });
     if (r.status === Status.OK) for (const a of r.assets) if (a.updated) written.add(`${a.libraryKey}/${a.key}`);
     return r;
   };
   const list = [...calls.values()];
   let next = 0;
   ed.batch("Update library assets", () => {
-    for (; next < list.length; next++) if (run(list[next]).status === Status.E_BUSY) return; // an engine that can't join the open step: one step per library below
+    for (; next < list.length; next++) if (run(list[next]).status === Status.E_BUSY) return; // an engine that can't join the open step: one step per call below
   });
   for (; next < list.length; next++) run(list[next]);
   // A moved asset whose new library is this file: its copies are gone, their users relinked to the main here.
@@ -1041,10 +1136,17 @@ export async function acceptUpdates(ed: EditorController, items: readonly Update
  * step (overrides follow by key); the others keep their copy (and the update stays listed for them). Returns how
  * many instances moved.
  */
-export async function updateSelectedInstances(ed: EditorController, item: UpdateItem): Promise<number> {
+export function updateSelectedInstances(ed: EditorController, item: UpdateItem): Promise<number> {
+  return updateInstances(ed, item, selectedInstancesOf(ed, item.copies.map((c) => c.guid)));
+}
+
+/**
+ * `instances` of the asset to the new version (the review's "Update instance", atlas 12 §6.5; Update selected
+ * instance): as `updateSelectedInstances` says. Returns how many moved.
+ */
+export async function updateInstances(ed: EditorController, item: UpdateItem, instances: readonly Guid[]): Promise<number> {
   const access = ed.source.libraries;
   if (!access || item.kind !== "modified" || !item.asset) return 0;
-  const instances = selectedInstancesOf(ed, item.copies.map((c) => c.guid));
   if (!instances.length) return 0;
   // The hidden assets it uses that are behind get new copies with it (the other instances keep the old ones).
   const hidden = outdatedHiddenDependencies(ed, item.library, await ed.libraries.manifest(item.library), item.key);
@@ -1075,6 +1177,39 @@ function variantMatch(ed: EditorController, instance: Guid, set: Guid): Guid | n
   const kids = ed.engine.readNode(set, { childIds: true })?.childIds ?? [];
   const variants = kids.length ? (ed.engine.readNodes(kids) as LNode[]) : [];
   return (variants.find((v) => v.name === current?.name) ?? variants.find((v) => v.type === "SYMBOL"))?.guid ?? null;
+}
+
+/** A copy's mains: itself, and a set's variants. */
+export function mainsOf(ed: EditorController, copy: Guid): Guid[] {
+  return [copy, ...(ed.engine.readNode(copy, { childIds: true })?.childIds ?? [])];
+}
+
+/**
+ * The real instances on `pages` (with `nested`, the instances inside other instances' sublayers too), each with its
+ * main and page — one subtree read per page (a page not derived yet is derived by the read: callers ask for the
+ * current page, or for all pages when the person chose them).
+ */
+export function instancesOn(ed: EditorController, pages: readonly Guid[], opts: { nested?: boolean } = {}): { id: Guid; main: Guid; page: Guid }[] {
+  const out: { id: Guid; main: Guid; page: Guid }[] = [];
+  for (const page of pages) {
+    for (const n of ed.engine.readNodes([page], { subtree: true, fields: ["type", "symbolData", "overriddenSymbolID"] }) as { guid: Guid; type?: string; symbolData?: { symbolID?: unknown }; overriddenSymbolID?: unknown }[]) {
+      if (n.type !== "INSTANCE" || (!opts.nested && n.guid.startsWith("I"))) continue;
+      const main = n.overriddenSymbolID ?? n.symbolData?.symbolID;
+      if (main) out.push({ id: n.guid, main: guidText(main as never), page });
+    }
+  }
+  return out;
+}
+
+/**
+ * The instances an update concerns (the review's ◀ ▶, atlas 12 §6.5): those whose main is one of its copies (or a
+ * variant of one), on the current page or on every page.
+ */
+export function instancesOfUpdate(ed: EditorController, item: Pick<UpdateItem, "copies">, scope: "current" | "all"): { id: Guid; page: Guid }[] {
+  if (ed.engine.destroyed) return [];
+  const mains = new Set(item.copies.flatMap((c) => mainsOf(ed, c.guid)));
+  const pages = scope === "current" ? (ed.store.page ? [ed.store.page] : []) : ed.engine.pages().map((p) => p.guid);
+  return instancesOn(ed, pages).filter((i) => mains.has(i.main));
 }
 
 /** The selected instances (top-level, real) whose main is one of `copies` or one of their variants. */
@@ -1117,6 +1252,196 @@ export function restoreRemovedComponent(ed: EditorController, copy: Guid): Guid 
   if (!restored) return null;
   ed.engine.setSelection([copy]);
   return copy;
+}
+
+// ---- Swap library (atlas 12 §7.1) ----------------------------------------------------------------------------------------
+
+/** Figma's name match for Swap library: names equal once every whitespace character is taken out (case kept). */
+export const swapName = (name: string): string => name.replace(/\s+/g, "");
+
+/** One row of the Swap library view: a used asset of the library swapped from, and its match in the target. */
+export interface SwapRow {
+  copy: LibraryCopy;
+  /** Layers here that use it */
+  usage: number;
+  /** Its match in the target (null: "None found") */
+  match: LibraryAsset | null;
+}
+
+export interface SwapPlan {
+  from: string;
+  to: string;
+  /** Components and component sets, then styles, then variable collections (each with its target's collections) */
+  rows: SwapRow[];
+  /** The target's collections (a collection row's dropdown) */
+  collections: LibraryAsset[];
+  /** The target's latest manifest */
+  target: LibraryVersion;
+}
+
+/**
+ * A used asset's match among a target library's listed assets (figma_app's Qp, atlas 12 §7.1): same name ignoring
+ * whitespace; a style of the same style type; a component among components first, then among sets, and a set among
+ * sets first, then components; a collection by name. Variables aren't rows: they follow their collection
+ * (`swapVariables`).
+ */
+export function swapMatch(copy: Pick<LibraryCopy, "kind" | "name" | "styleType">, target: readonly LibraryAsset[]): LibraryAsset | null {
+  const name = swapName(copy.name);
+  const listed = target.filter((a) => !a.dependencyOnly && swapName(a.name) === name);
+  const of = (kind: LibraryAsset["kind"]) => listed.find((a) => a.kind === kind) ?? null;
+  switch (copy.kind) {
+    case "COMPONENT":
+      return of("COMPONENT") ?? of("COMPONENT_SET");
+    case "COMPONENT_SET":
+      return of("COMPONENT_SET") ?? of("COMPONENT");
+    case "STYLE":
+      return listed.find((a) => a.kind === "STYLE" && a.styleType === copy.styleType) ?? null;
+    case "VARIABLE_COLLECTION":
+      return of("VARIABLE_COLLECTION");
+    default:
+      return null;
+  }
+}
+
+/**
+ * The Swap library view's rows for swapping `from` (an added library, or a missing one) to `to`: the assets of `from`
+ * used here — components and sets, styles used by a layer (Figma skips a style nobody uses), variable collections —
+ * each with its match in `to`'s latest version. Null when `to` has no published version.
+ */
+export async function swapPlan(ed: EditorController, from: string, to: string): Promise<SwapPlan | null> {
+  const target = await ed.libraries.manifest(to);
+  if (!target) return null;
+  const usage = ed.libraries.usage();
+  const order = (c: LibraryCopy) => (c.kind === "COMPONENT" || c.kind === "COMPONENT_SET" ? 0 : c.kind === "STYLE" ? 1 : 2);
+  // One row per asset: its copies here (Update instance leaves several) are swapped together.
+  const byKey = new Map<string, SwapRow>();
+  for (const c of ed.libraries.copies()) {
+    if (c.library !== from || c.kind === "VARIABLE") continue;
+    const row = byKey.get(c.key);
+    if (row) row.usage += usage.get(c.guid) ?? 0;
+    else byKey.set(c.key, { copy: c, usage: usage.get(c.guid) ?? 0, match: swapMatch(c, target.assets) });
+  }
+  const rows = [...byKey.values()]
+    .filter((r) => r.copy.kind !== "STYLE" || r.usage > 0)
+    .sort((a, b) => order(a.copy) - order(b.copy) || a.copy.name.localeCompare(b.copy.name));
+  return { from, to, rows, collections: target.assets.filter((a) => a.kind === "VARIABLE_COLLECTION" && !a.dependencyOnly), target };
+}
+
+/** A collection's variables matched by name in the target collection (Figma's swapVariableSetVariablesByName). */
+function swapVariables(ed: EditorController, from: string, collection: LibraryCopy, to: LibraryAsset, target: LibraryVersion): { copy: LibraryCopy; match: LibraryAsset }[] {
+  const theirs = target.assets.filter((a) => a.kind === "VARIABLE" && a.collectionKey === to.key);
+  const out: { copy: LibraryCopy; match: LibraryAsset }[] = [];
+  for (const v of ed.libraries.copies()) {
+    if (v.library !== from || v.kind !== "VARIABLE" || v.collectionKey !== collection.key) continue;
+    const match = theirs.find((a) => swapName(a.name) === swapName(v.name));
+    if (match) out.push({ copy: v, match });
+  }
+  return out;
+}
+
+export interface SwapChoices {
+  /** Row keys (the used asset's key) to swap — the checked `swap_asset` boxes */
+  keys: ReadonlySet<string>;
+  /** A collection row's chosen target collection (its key), when not its match */
+  collections?: ReadonlyMap<string, string>;
+  /**
+   * "Swap default styles and collections in instances" (Figma's createOverridesOnSwap, on by default). Off: a style or
+   * collection that a component of the library left unswapped uses inside it stays (a copy here is replaced in place,
+   * so its users can't be told apart).
+   */
+  swapDefaults: boolean;
+}
+
+/**
+ * Swap library (atlas 12 §7.1; the undo step Figma calls replace-libraries): each chosen asset's copy here becomes its
+ * match in the target library — replaced in place by the target's latest version (the engine's redirect, as Move to
+ * this file's: every user stays linked, overrides kept by key), its collection's variables matched by name with it —
+ * and a component matched to a set (or a set to a component) has its instances swapped onto the set's variant of the
+ * same name (else its first) or the component. One undo step "Swap library"; the target library is added to the file
+ * when it isn't. Returns what was swapped (assets, and of them variables).
+ */
+export async function swapLibrary(ed: EditorController, plan: SwapPlan, choices: SwapChoices): Promise<{ assets: number; variables: number }> {
+  const access = ed.source.libraries;
+  if (!access) return { assets: 0, variables: 0 };
+  const byKey = new Map(plan.target.assets.map((a) => [a.key, a]));
+  const chosen = plan.rows.filter((r) => choices.keys.has(r.copy.key)).map((r) => ({ ...r, match: r.copy.kind === "VARIABLE_COLLECTION" && choices.collections?.has(r.copy.key) ? (byKey.get(choices.collections.get(r.copy.key)!) ?? null) : r.match })).filter((r): r is SwapRow & { match: LibraryAsset } => !!r.match);
+  // Off: what the source library's unswapped components use inside them stays.
+  const keptInside = new Set<string>();
+  if (!choices.swapDefaults) {
+    const source = await ed.libraries.manifest(plan.from);
+    const swappedMains = new Set(chosen.filter((r) => r.copy.kind === "COMPONENT" || r.copy.kind === "COMPONENT_SET").map((r) => r.copy.key));
+    for (const a of source?.assets ?? []) if ((a.kind === "COMPONENT" || a.kind === "COMPONENT_SET") && !swappedMains.has(a.key)) for (const d of a.dependencies) keptInside.add(d);
+  }
+  const redirects: { fromKey: string; toKey: string; fromLibraryKey: string }[] = [];
+  const crossKind: { copy: LibraryCopy; match: LibraryAsset }[] = [];
+  let variables = 0;
+  for (const r of chosen) {
+    if ((r.copy.kind === "STYLE" || r.copy.kind === "VARIABLE_COLLECTION") && keptInside.has(r.copy.key)) continue;
+    if (r.copy.kind !== r.match.kind) {
+      crossKind.push({ copy: r.copy, match: r.match });
+      continue;
+    }
+    redirects.push({ fromKey: r.copy.key, toKey: r.match.key, fromLibraryKey: plan.from });
+    if (r.copy.kind !== "VARIABLE_COLLECTION") continue;
+    for (const v of swapVariables(ed, plan.from, r.copy, r.match, plan.target)) {
+      redirects.push({ fromKey: v.copy.key, toKey: v.match.key, fromLibraryKey: plan.from });
+      variables++;
+    }
+  }
+  const keys = [...new Set([...redirects.map((r) => r.toKey), ...crossKind.map((c) => c.match.key)])];
+  if (!keys.length) return { assets: 0, variables: 0 };
+  const payloads = await access.payloads(plan.to, keys.map((key) => ({ key, versionHash: byKey.get(key)!.versionHash })), { withDependencies: true });
+  if (!access.enabled().includes(plan.to)) await setLibraryEnabled(ed, plan.to, true, { refresh: false }).catch(() => {});
+  if (ed.engine.destroyed) return { assets: 0, variables: 0 };
+  // The instances a cross-kind swap moves (every page: the swap is the whole file's).
+  const instances = crossKind.length ? instancesOn(ed, ed.engine.pages().map((p) => p.guid)) : [];
+  let swapped = 0;
+  const run = () => {
+    if (redirects.length) {
+      const r = updateAssets(ed, payloads, { libraryKey: plan.to, keys: redirects.map((x) => x.toKey), redirects });
+      if (r.status !== Status.OK) return r.status;
+      swapped += new Set(r.assets.filter((a) => a.updated && a.libraryKey === plan.to).map((a) => a.key)).size;
+    }
+    if (!crossKind.length) return Status.OK;
+    const r = importAssets(ed, payloads, { libraryKey: plan.to });
+    if (r.status !== Status.OK) return r.status;
+    for (const c of crossKind) {
+      const target = r.assets.find((a) => a.key === c.match.key && a.libraryKey === plan.to)?.id;
+      if (!target) continue;
+      const mains = new Set(ed.libraries.copies().filter((x) => x.library === plan.from && x.key === c.copy.key).flatMap((x) => mainsOf(ed, x.guid)));
+      let moved = 0;
+      for (const inst of instances) {
+        if (!mains.has(inst.main)) continue;
+        const to = c.match.kind === "COMPONENT_SET" ? variantMatch(ed, inst.id, target) : target;
+        if (to && runEngineCommand(ed.engine, "SWAP_INSTANCE", { main: to, ref: inst.id }) === Status.OK) moved++;
+      }
+      if (moved) swapped++;
+    }
+    return Status.OK;
+  };
+  let status: number = Status.OK;
+  ed.batch("Swap library", () => {
+    status = run();
+  });
+  if (status === Status.E_BUSY) run(); // an engine that can't join the open step
+  await ed.libraries.refresh();
+  return { assets: swapped, variables };
+}
+
+/**
+ * The libraries copies here come from that aren't published any more (atlas 12 §7.2: "View missing libraries"):
+ * deleted, unpublished or unknown — each with how many of its assets are used here.
+ */
+export function missingLibraries(state: LibraryState, copies: readonly LibraryCopy[], own: string | undefined): { library: string; name: string; assets: number }[] {
+  const available = new Set(state.available.map((e) => e.fileKey));
+  const out = new Map<string, { library: string; name: string; assets: number }>();
+  for (const c of copies) {
+    if (c.library === own || available.has(c.library) || state.manifests.has(c.library)) continue;
+    const m = out.get(c.library) ?? { library: c.library, name: state.names.get(c.library) ?? t("Missing library"), assets: 0 };
+    m.assets++;
+    out.set(c.library, m);
+  }
+  return [...out.values()];
 }
 
 // ---- Paste between files: Move to this file -------------------------------------------------------------------------------

@@ -165,6 +165,8 @@ export interface LibraryAccess {
   /** `scope`: an org file's "Allow any member of ‹org› to access the file" (absent: the library's current scope) */
   publish(input: { description: string; assets: EditorPublishAsset[]; moves: { key: string; fromLibraryFileKey: string; fromKey: string; mode: "move" | "copy" }[]; scope?: LibraryScope }): Promise<LibraryVersion>;
   setEnabled(lib: string, enabled: boolean): Promise<void>;
+  /** Remove library (atlas 12 §3.9): this file's library unpublished — consumers keep their copies. Optional. */
+  unpublish?(): Promise<void>;
   /** Payloads as the store holds them (`bytes`, kiwi) and as the engine's Message (`message`, decoded lazily) */
   payloads(lib: string, wants: { key: string; versionHash: string }[], opts: { withDependencies: boolean }): Promise<{ key: string; versionHash: string; message: Message; bytes?: Uint8Array }[]>;
   diff(lib: string, have: { key: string; versionHash: string }[]): Promise<LibraryDiff>;

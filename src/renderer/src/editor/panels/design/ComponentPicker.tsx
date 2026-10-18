@@ -7,6 +7,9 @@
  * for Icon/Heart, Icon/Star). It opens at the current component's level. The library field picks Figma's section (atlas 10
  * §7.1): Preferred (a property's preferred components), Recently used, the library — opening on Preferred when there
  * are any, else the library, else Recently used. A search lists the section's matches flat, best first, one per name.
+ * The libraries added to the file follow as sections of their own (their published components, by name; a pick brings
+ * the copy in first), and "Browse libraries" opens the Libraries modal (atlas 12 §5.4's "Instance swap > Browse
+ * libraries link").
  */
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Icon, MenuButton, Popover, cx, type MenuEntry } from "@/ds";
@@ -15,6 +18,10 @@ import { useEditor } from "../../controller";
 import { engineMethod } from "../../engineCompat";
 import { addRecentComponent, recentComponents } from "../../recentComponents";
 import { assetLabel, isPreferred, searchAssets, type ComponentAsset } from "../../model/components";
+import { useLibraries } from "../../hooks";
+import { ensureCopy } from "../../libraries";
+import type { LibraryAsset } from "../../../../../shared/store/types";
+import { RemoteThumb } from "../libraries/Thumbs";
 import { t, useT } from "@/i18n";
 import styles from "./ComponentPicker.module.css";
 
@@ -81,8 +88,14 @@ export function startLevel(assets: readonly ComponentAsset[], current: Component
   return pages.length === 1 ? { page: pages[0], path: [] } : { page: null, path: [] };
 }
 
-/** Figma's sections of the swap picker (atlas 10 §7.1): Preferred, Recently used, a library (this file's here). */
-export type PickerSection = "preferred" | "recent" | "file";
+/** Figma's sections of the swap picker (atlas 10 §7.1): Preferred, Recently used, this file's library, an added library. */
+export type PickerSection = "preferred" | "recent" | "file" | `lib:${string}`;
+
+/** An added library's components the picker lists (published, listed, not a set's variants), by name. */
+export function libraryComponents(assets: readonly LibraryAsset[]): LibraryAsset[] {
+  const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
+  return assets.filter((a) => (a.kind === "COMPONENT" || a.kind === "COMPONENT_SET") && !a.dependencyOnly && !a.componentSetKey).sort((a, b) => collator.compare(a.name, b.name));
+}
 
 /**
  * Figma's starting section: Preferred when the property has preferred values; else the library of the current
@@ -156,6 +169,7 @@ export function ComponentPicker({ anchor, title: titleProp, current, preferredKe
   const title = titleProp ?? t("Swap instance");
   const ed = useEditor();
   const assets = useComponentAssets();
+  const libraries = useLibraries();
   const [place] = useState(() => placeOf(anchor));
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState(view);
@@ -207,8 +221,27 @@ export function ComponentPicker({ anchor, title: titleProp, current, preferredKe
     { id: "list", label: t("List"), checked: mode === "list" },
     { id: "grid", label: t("Grid"), checked: mode === "grid" },
   ];
-  const sectionLabel: Record<PickerSection, string> = { preferred: t("Preferred"), recent: t("Recently used"), file: t("Created in this file") };
-  const library: MenuEntry[] = [...(preferred.length ? (["preferred"] as const) : []), "recent" as const, "file" as const].map((id) => ({ id, label: sectionLabel[id], checked: section === id }));
+  const added = libraries.enabled.filter((lib) => libraries.manifests.has(lib));
+  const sectionLabel = (id: PickerSection): string => (id === "preferred" ? t("Preferred") : id === "recent" ? t("Recently used") : id === "file" ? t("Created in this file") : (libraries.names.get(id.slice(4)) ?? t("Library")));
+  const library: MenuEntry[] = [...(preferred.length ? (["preferred"] as const) : []), "recent" as const, "file" as const, ...added.map((lib) => `lib:${lib}` as const)].map((id) => ({ id, label: sectionLabel(id), checked: section === id }));
+  // An added library's components; a pick brings its copy in (a system change), then the caller's step uses it.
+  const libKey = section.startsWith("lib:") ? section.slice(4) : null;
+  const remote = libKey ? libraryComponents(libraries.manifests.get(libKey)?.assets ?? []) : [];
+  const remoteFound = libKey && query.trim() ? remote.filter((a) => a.name.toLowerCase().includes(query.trim().toLowerCase())) : remote;
+  const pickRemote = async (lib: string, a: LibraryAsset) => {
+    const id = await ensureCopy(ed, lib, a.key);
+    if (!id) return;
+    const set = a.kind === "COMPONENT_SET";
+    const target = set ? (ed.engine.readNode(id, { childIds: true })?.childIds?.[0] ?? id) : id;
+    onPick({ id, name: a.name, kind: set ? "set" : "component", target, page: "", pageName: "", frame: null, frameName: null, description: a.description, key: a.key });
+    onClose();
+  };
+  const remoteItem = (lib: string, a: LibraryAsset) => (
+    <button key={a.key} type="button" role="menuitem" aria-label={mode === "grid" ? assetLabel(a.name) : undefined} data-library-asset={a.name} className={cx(styles.item, mode === "grid" && styles.tile)} onClick={() => void pickRemote(lib, a)}>
+      <RemoteThumb asset={a} size={mode === "grid" ? 64 : 40} />
+      {mode === "list" && <span className={styles.name}>{assetLabel(a.name)}</span>}
+    </button>
+  );
   const placeholder = section === "preferred" ? t("Search preferred") : section === "recent" ? t("Search all libraries") : t("Search in this library");
   const list = (items: ComponentAsset[]) => <div className={cx(mode === "grid" && styles.grid)}>{items.map(item)}</div>;
   return (
@@ -242,7 +275,7 @@ export function ComponentPicker({ anchor, title: titleProp, current, preferredKe
               if (id === "file") setLevel(startLevel(offered, null));
             }}
           >
-            <span className={styles.libraryName}>{sectionLabel[section]}</span>
+            <span className={styles.libraryName}>{sectionLabel(section)}</span>
             <Icon name="16.chevron.down" />
           </MenuButton>
           <MenuButton
@@ -259,7 +292,9 @@ export function ComponentPicker({ anchor, title: titleProp, current, preferredKe
           </MenuButton>
         </div>
         <div className={styles.list} role="menu">
-          {found ? (
+          {libKey ? (
+            remoteFound.length ? <div className={cx(mode === "grid" && styles.grid)}>{remoteFound.map((a) => remoteItem(libKey, a))}</div> : <div className={styles.empty}>{query.trim() ? t("No results for “{query}”", { query: query.trim() }) : t("No components in this library")}</div>
+          ) : found ? (
             found.length ? list(found) : <div className={styles.empty}>{t("No results for “{query}”", { query: query.trim() })}</div>
           ) : section === "preferred" ? (
             list(preferred)
@@ -280,6 +315,19 @@ export function ComponentPicker({ anchor, title: titleProp, current, preferredKe
             </>
           )}
         </div>
+        {libraries.on && (
+          <button
+            type="button"
+            className={styles.browse}
+            data-browse-libraries=""
+            onClick={() => {
+              onClose();
+              ed.ui.set({ librariesDialog: { tab: "libraries" } });
+            }}
+          >
+            {t("Browse libraries")}
+          </button>
+        )}
       </div>
     </Popover>
   );

@@ -639,6 +639,7 @@ export interface LibraryAsset {
   componentSetKey?: string; collectionKey?: string;
   containingFrame?: { pageName: string; frameName?: string };   // Assets panel grouping: file › page › frame
   thumbnail: { sha1: string; width: number; height: number } | null;   // ≤ 256 px, 2×
+  userFacingVersion?: string;        // Figma's: the version (as text) that published this content, kept while it doesn't change (atlas 12 §6.1; 2026-10-18)
 }
 ```
 
@@ -722,6 +723,8 @@ export interface AssetPayload { key: string; versionHash: string; message: Uint8
   ```
 
   A non-empty diff shows Figma's blue badge on Assets/Libraries and the toast "Library updates available".
+
+  The rule (atlas 12 §6.1, 2026-10-18): an asset used at two or more versions is always outdated; at one, only when both its `versionHash` and its `userFacingVersion` (the store looks it up in the library's history) differ from the latest. The diff also names the publishes the updated content comes from (`publishes`: version, date, description) — the Updates tab's groups.
 - **Review and accept**: the Updates modal lists the changed components, styles and variables, comparing old (rendered from the copy) with new (manifest thumbnail or payload). "Update all" or a per-asset update fetches the payloads, and the engine replaces the copies in **one undo batch**. Accepting one asset also brings the hidden (`dependencyOnly`) assets it uses whose copies are behind, so it shows them as published. Instances re-materialise. Updates never apply automatically.
 
 ### 9.5 Move to this file, Publish as a copy

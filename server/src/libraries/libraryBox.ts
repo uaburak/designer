@@ -17,7 +17,7 @@
  *   POST /commit {baseVersion, publishedAt, libraryFileKey, description, changes, assets}
  *                                        → 201 {version}; 409 {code: "conflict", latest}; 400 {code: "invalid", missing}
  *   GET  /version/:n | /version/latest   → LibraryVersion
- *   POST /diff {have, movedOut}          → LibraryDiff (libraryRules.diffAgainst)
+ *   POST /diff {have, movedOut}          → LibraryDiff (libraryRules.diffWithHistory)
  *   POST /payloads {wants, withDependencies}
  *                                        → [u32 n] then n × [u32 jsonLen][{key, versionHash, size}][bytes] (u32 LE)
  *   POST /delete                         everything dropped (the file was deleted forever)
@@ -31,7 +31,7 @@
  * and images `l/<libKey>/b/<sha1>` in the library's region's bucket (the Worker's `x-region`, kept in meta `region`);
  * the rows above are what it stored before, read until moved.
  */
-import { diffAgainst, withDependencies } from "../../../src/shared/store/libraryRules";
+import { diffWithHistory, stampUserFacingVersions, withDependencies } from "../../../src/shared/store/libraryRules";
 import type { LibraryAsset, LibraryVersion, Redirect } from "../../../src/shared/store/types";
 import type { SqlLike } from "../previews";
 import { dumpPage, loadPage } from "../policy/dump";
@@ -185,7 +185,19 @@ export class LibraryBox {
     if (path === "/diff" && m === "POST") {
       const b = (await req.json()) as { have?: { key: string; versionHash: string }[]; movedOut?: Redirect[] };
       const latest = this.latest();
-      return json(diffAgainst(latest ? this.manifest(latest) : null, latest, b.have ?? [], b.movedOut ?? []));
+      const cache = new Map<number, LibraryVersion | null>();
+      const load = (n: number) => {
+        if (!cache.has(n)) cache.set(n, this.manifest(n));
+        return cache.get(n)!;
+      };
+      const entry = (key: string, hash: string) => {
+        for (let n = latest; n >= 1; n--) {
+          const a = load(n)?.assets.find((x) => x.key === key && x.versionHash === hash);
+          if (a) return a;
+        }
+        return null;
+      };
+      return json(await diffWithHistory(latest ? load(latest) : null, latest, b.have ?? [], b.movedOut ?? [], { entry, version: load }));
     }
     if (path === "/payloads" && m === "POST") {
       const b = (await req.json()) as { wants?: { key: string; versionHash: string }[]; withDependencies?: boolean };
@@ -220,7 +232,8 @@ export class LibraryBox {
       publishedAt: input.publishedAt,
       description: input.description,
       changes: input.changes,
-      assets: input.assets,
+      // Figma's userFacingVersion (atlas 12 §6.1), stamped here against the latest manifest the commit builds on.
+      assets: stampUserFacingVersions(input.assets, latest ? this.manifest(latest) : null, latest + 1),
     };
     const text = JSON.stringify(version);
     this.host.transaction(() => {
