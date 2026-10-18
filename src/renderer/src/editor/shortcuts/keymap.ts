@@ -2,21 +2,46 @@
  * The user's own keys (the owner's addition to Figma's Keyboard shortcuts panel): a binding replaces a command's keys
  * (src/shared/shortcuts.ts ShortcutSettings.bindings — only the commands changed; an empty list clears one). Pure
  * functions on the bindings, and `applyBindings`, which writes the keys in force into the command registry (the
- * keyboard layer, menus and tooltips read `command.keys`); the registry's defaults are Figma's, kept here.
+ * keyboard layer, menus and tooltips read `command.keys`). The defaults are Figma's own table's for the platform, the
+ * editor, the layout and the preferences in force (figmaKeys.ts; the registry's own keys for a command the table hasn't).
  */
 import { IS_MAC } from "@/ds";
 import { sameCombo, type KeyCombo } from "@shared/shortcuts";
 import { COMMAND_BY_ID, COMMANDS, comboText } from "../commands";
 import { allRows } from "./panelData";
+import { figmaKeys, type ShortcutContext } from "./figmaKeys";
 
 export type Bindings = Record<string, KeyCombo[]>;
 
-// Taken on first use, before any binding is applied (the registry and this module import each other's neighbours).
+// The registry's own keys, taken on first use, before any binding is applied (the registry and this module import
+// each other's neighbours).
+let own: Map<string, KeyCombo[]> | null = null;
+const OWN = () => (own ??= new Map<string, KeyCombo[]>(COMMANDS.map((c) => [c.id, c.keys ? [...c.keys] : []])));
+
+const isDesktop = () => (globalThis as unknown as { designer?: { role?: string } }).designer?.role === "editor";
+
+/** What Figma's table is read for: prefs.ts sets the layout, the keyboard layer the editor and the preferences. */
+let context: ShortcutContext = { mac: IS_MAC, editor: "design", layout: "generic", desktop: isDesktop(), numbersForOpacity: true, oldOutlineShortcuts: false };
 let defaults: Map<string, KeyCombo[]> | null = null;
-const DEFAULTS = () => (defaults ??= new Map<string, KeyCombo[]>(COMMANDS.map((c) => [c.id, c.keys ? [...c.keys] : []])));
+const DEFAULTS = () => (defaults ??= new Map<string, KeyCombo[]>(COMMANDS.map((c) => [c.id, figmaKeys(c.id, context) ?? OWN().get(c.id) ?? []])));
+
+export const shortcutContext = (): ShortcutContext => context;
+
+/** The table read for another editor, layout or preference; true when that is a change (bindings to apply again). */
+export function setShortcutContext(patch: Partial<ShortcutContext>): boolean {
+  const next = { ...context, ...patch };
+  if ((Object.keys(next) as (keyof ShortcutContext)[]).every((k) => next[k] === context[k])) return false;
+  OWN();
+  context = next;
+  defaults = null;
+  return true;
+}
 
 /** A command's default (Figma's) keys. */
 export const defaultKeys = (id: string): KeyCombo[] => DEFAULTS().get(id) ?? [];
+
+/** A key as a binding keeps it: no table-only fields (what menus show, the modes it is inert in). */
+const bare = ({ shown: _shown, except: _except, ...c }: KeyCombo): KeyCombo => c;
 
 /**
  * Commands that are one action under two names: the toolbar's "Image/video…" and File › Place image… (⇧⌘K both). A
@@ -109,7 +134,7 @@ export function withBinding(bindings: Bindings, id: string, combo: KeyCombo | nu
   if (combo) {
     const conflicts = conflictsOf(combo, id, bindings);
     if (conflicts.some((c) => c.id === null)) throw new Error(`${comboText(combo)} is kept for ${conflicts[0].label}`);
-    if (replace) for (const c of conflicts) for (const other of withAliases(c.id!)) next[other] = keysOf(other, bindings).filter((k) => !sameCombo(k, combo));
+    if (replace) for (const c of conflicts) for (const other of withAliases(c.id!)) next[other] = keysOf(other, bindings).filter((k) => !sameCombo(k, combo)).map(bare);
   }
   for (const target of withAliases(id)) next[target] = combo ? [combo] : [];
   return normalized(next);

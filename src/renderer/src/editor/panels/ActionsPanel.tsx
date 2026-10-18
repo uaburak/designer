@@ -12,16 +12,20 @@
  * (a pick inserts an instance in the middle of the view). Plugins & widgets (docs/plugins.md §6) lists the plugins by
  * section — Recents, Saved, Development, From ‹org› — and, typed into, their menu commands too (also in All's search);
  * a plugin with parameters prompts for them in the palette (suggestions from figma.parameters.on("input"), Tab / Enter
- * to the next, Enter on the last runs). ↑ ↓ move, Enter runs, Esc (or a press outside, or ⌘K) closes.
+ * to the next, Enter on the last runs). Results rank as Figma ranks them (actionsRank.ts: match, can run, frecency, AI);
+ * the empty field clicked lists every action by popularity; a toggle run keeps the palette 300 ms, its check flipping.
+ * ↑ ↓ (a Mac's ⌃N ⌃P too) move, Enter runs, Esc (or a press outside, or ⌘K ⌘/ ⌘P) closes; the query holds 150 characters.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Icon, IconButton, MenuButton, Portal, Tabs, TOOLS, useDismiss, type IconName, type MenuEntry, type ToolId } from "@/ds";
+import { IS_MAC, Icon, IconButton, MenuButton, Portal, Tabs, TOOLS, useDismiss, type IconName, type MenuEntry, type ToolId } from "@/ds";
 import type { PluginParameter, PluginRef } from "@shared/plugins/types";
 import { pluginsOf, usePlugins, type PluginService } from "../plugins/service";
 import { pluginDesktop } from "../plugins/desktop";
 import { pluginRows, suggestionsOf, type PluginRow, type Suggestion } from "../plugins/actions";
 import type { PluginRun } from "../plugins/host";
 import { allTabEmptyNote, takeRequestedTab } from "./actionsTab";
+import { frecencyOf, loadFrecency, matchScore, popularity, rankScore, rememberRun, type FrecencyHistory } from "./actionsRank";
+import { commandForKey } from "../commands";
 import { useEditor, type EditorController } from "../controller";
 import { insertInstance } from "../components";
 import { useUI } from "../hooks";
@@ -62,7 +66,15 @@ interface Row {
   plugin?: PluginRow;
   /** An AI row: the "AI" badge; the panel stays open for its form or progress */
   ai?: boolean;
+  /** A toggle: the palette stays open 300 ms after it runs, its check flipping (Atlas 03 §9) */
+  checkable?: boolean;
 }
+
+/** The keys that open Actions close it too (⌘K, ⌘/, ⌘P: Figma's toggle-menu). */
+const isToggleKey = (e: React.KeyboardEvent) => commandForKey(e)?.id === "tool.actions";
+
+/** Live (Figma's): a toggle run from the palette shows its check flip this long before the palette closes. */
+const TOGGLE_CLOSE_MS = 300;
 
 function loadRecents(): string[] {
   try {
@@ -88,37 +100,60 @@ const toolIcon = (id: string): IconName | undefined => {
   return tool && tool in TOOLS ? TOOLS[tool].icon : undefined;
 };
 
-/** How well `label` answers `query`: 0 none, 3 it starts with it, 2 a word does, 1 it holds it. */
-function score(label: string, query: string): number {
-  const l = label.toLowerCase();
-  const q = query.toLowerCase();
-  if (l.startsWith(q)) return 3;
-  if (l.split(/[\s/(▸-]+/).some((w) => w.startsWith(q))) return 2;
-  return l.includes(q) ? 1 : 0;
+/** An AI action (Atlas 03 §9.1's isAI): the AI rows and Rename layers. */
+const isAi = (id: string) => AI_ROW_BY_ID.has(id) || id === "canvas.rename-layers-ai";
+
+/** The ranking's inputs besides the query: how often and lately each action ran, every action unsearched, the time. */
+export interface RankOptions {
+  frecency?: FrecencyHistory;
+  /** The field clicked with nothing typed: every action, by Figma's popularity (Atlas 03 §9) */
+  all?: boolean;
+  now?: number;
 }
 
 /**
- * The All tab's rows: with an empty query, Recents (live) — none when nothing was run yet —; else the
- * matches, best first, by section.
+ * The All tab's rows: with an empty query, Recents (live) — none when nothing was run yet —, or every action by
+ * popularity once the empty field is clicked; else the matches by Figma's weighted score (actionsRank.ts), those that
+ * can run before those that can't, by section in the order of their best.
  */
-export function actionRows(items: readonly ActionItem[], query: string, recents: readonly string[], run: (id: string) => boolean): Row[] {
-  const row = (a: ActionItem, section = a.section): Row => ({ key: `${section}:${a.id}`, label: t(a.label), section, shortcut: a.shortcut, icon: AI_ROW_BY_ID.get(a.id)?.icon ?? toolIcon(a.id), disabled: a.disabled, run: () => run(a.id), ...(AI_ROW_BY_ID.has(a.id) ? { ai: true } : {}) });
+export function actionRows(items: readonly ActionItem[], query: string, recents: readonly string[], run: (id: string) => boolean, opts: RankOptions = {}): Row[] {
+  const row = (a: ActionItem, section = a.section): Row => ({
+    key: `${section}:${a.id}`,
+    label: t(a.label),
+    section,
+    shortcut: a.shortcut,
+    icon: AI_ROW_BY_ID.get(a.id)?.icon ?? toolIcon(a.id) ?? (a.checked ? "16.check" : undefined),
+    disabled: a.disabled,
+    run: () => run(a.id),
+    ...(isAi(a.id) ? { ai: true } : {}),
+    ...(a.checked !== undefined ? { checkable: true } : {}),
+  });
   const q = query.trim();
   if (!q) {
+    // Every action, the most popular first (the menus' order after): one list, no sections.
+    if (opts.all) return items.map((a, i) => ({ a, i, p: popularity(a.id) })).sort((x, y) => y.p - x.p || x.i - y.i).map((x) => row(x.a, ""));
     const byId = new Map(items.map((a) => [a.id, a]));
     const recent = recents.map((id) => byId.get(id)).filter((a): a is ActionItem => !!a);
     // (live: Recents, then the AI sections — no list of every command)
     return [...recent.map((a) => row(a, "Recents")), ...items.filter((a) => AI_ROW_BY_ID.has(a.id)).map((a) => row(a))];
   }
-  const scored = items.map((a) => ({ a, s: Math.max(score(t(a.label), q), score(a.label, q)) })).filter((x) => x.s > 0);
-  // Sections in the order of their best match; within one, best first (the menu's order breaks ties).
+  const now = opts.now ?? Date.now();
+  const history = opts.frecency ?? {};
+  const scored = items
+    .map((a) => {
+      const label = t(a.label);
+      const match = matchScore(label, q, label === a.label ? [] : [a.label]);
+      return { a, match, s: rankScore({ match, enabled: !a.disabled, frecency: frecencyOf(history, a.label, now), ai: isAi(a.id) }) };
+    })
+    .filter((x) => x.match > 0);
+  // Sections in the order of their best; within one, those that can run first, then the best (the menu's order breaks ties).
   const best = new Map<string, number>();
   for (const { a, s } of scored) best.set(a.section, Math.max(best.get(a.section) ?? 0, s));
   const order = [...best.keys()].sort((x, y) => best.get(y)! - best.get(x)!);
   return order.flatMap((section) =>
     scored
       .filter((x) => x.a.section === section)
-      .sort((x, y) => y.s - x.s)
+      .sort((x, y) => Number(x.a.disabled) - Number(y.a.disabled) || y.s - x.s)
       .map((x) => row(x.a))
   );
 }
@@ -168,10 +203,16 @@ function Actions() {
   const [at] = useState(placement);
   const assets = useComponentAssets();
   const [recents] = useState(loadRecents);
+  const [frecency] = useState(loadFrecency);
+  // The empty field clicked: every action, by popularity.
+  const [listAll, setListAll] = useState(false);
+  // A toggle ran (its check is read again while the palette stays open).
+  const [toggled, setToggled] = useState(0);
   // The commands as they stand when the palette opens (enabled or not for this selection).
   const ai = aiOf(ed);
   const aiState = useAiState(ai);
-  const items = useMemo(() => [...actionItems(ed), ...aiItems(ed, aiState.enabled)], [ed, aiState.enabled]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `toggled`: read again after a toggle ran
+  const items = useMemo(() => [...actionItems(ed), ...aiItems(ed, aiState.enabled)], [ed, aiState.enabled, toggled]);
   useEffect(() => {
     void ai.refresh();
     return () => ai.panelClosed();
@@ -209,14 +250,17 @@ function Actions() {
     const commands = actionRows(items, query, recents, (id) => {
       const def = AI_ROW_BY_ID.get(id);
       const ran = def ? runAi(def) : runMenuItem(ed, id);
-      if (ran) remember(id);
+      if (ran) {
+        remember(id);
+        rememberRun(items.find((a) => a.id === id)?.label ?? id);
+      }
       return ran;
-    });
+    }, { frecency, all: listAll });
     // All's search finds plugins and their commands too.
     const found = query.trim() && plugins ? pluginRows(plugins, query).map((r) => pluginRow(r, "Plugins")) : [];
     return [...commands, ...found];
     // eslint-disable-next-line react-hooks/exhaustive-deps -- pluginRow / startPlugin read the latest service and prompt
-  }, [tab, assets, query, items, recents, ed, prompt, plugins, pluginsSnap]);
+  }, [tab, assets, query, items, recents, frecency, listAll, ed, prompt, plugins, pluginsSnap]);
 
   /** An AI row: its form, or its run in the panel (closed when it succeeds); an image tool's row runs it. */
   const runAi = (def: AiRowDef): boolean => {
@@ -278,6 +322,11 @@ function Actions() {
     if (prompt) return acceptParameter(prompt.suggestions[i] ?? null);
     const r = rows[i];
     if (!r || r.disabled) return;
+    if (r.checkable) {
+      if (r.run()) setToggled((n) => n + 1);
+      setTimeout(() => close(ed), TOGGLE_CLOSE_MS);
+      return;
+    }
     const asks = !!r.plugin?.parameters?.length || !!r.ai;
     if (!asks) close(ed);
     else {
@@ -313,7 +362,7 @@ function Actions() {
               e.preventDefault();
               if (aiState.run) ai.stop();
               else ai.openForm(null);
-            } else if (e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey)) {
+            } else if (isToggleKey(e)) {
               e.preventDefault();
               close(ed);
             }
@@ -333,10 +382,14 @@ function Actions() {
           } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
             e.preventDefault();
             step(e.key === "ArrowDown" ? 1 : -1);
+          } else if (IS_MAC && e.ctrlKey && !e.metaKey && !e.altKey && (e.code === "KeyN" || e.code === "KeyP")) {
+            // ⌃N / ⌃P move too (a Mac's).
+            e.preventDefault();
+            step(e.code === "KeyN" ? 1 : -1);
           } else if (e.key === "Enter") {
             e.preventDefault();
             pick(active);
-          } else if (e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey)) {
+          } else if (isToggleKey(e)) {
             e.preventDefault();
             close(ed);
           }
@@ -356,6 +409,8 @@ function Actions() {
             aria-label={t("Search")}
             placeholder={prompt ? (prompt.defs[prompt.index].description ?? prompt.defs[prompt.index].name) : t("Search actions")}
             spellCheck={false}
+            maxLength={150}
+            dir="auto"
             autoComplete="off"
             value={query}
             className={styles.input}
@@ -363,8 +418,12 @@ function Actions() {
             aria-expanded="true"
             aria-controls="actions-results"
             aria-activedescendant={active >= 0 ? `actions-row-${active}` : undefined}
+            onClick={() => {
+              if (!query && !prompt && tab === "all") setListAll(true);
+            }}
             onChange={(e) => {
               setQuery(e.target.value);
+              setListAll(false);
               setActiveKey(undefined);
               if (prompt) askSuggestions(prompt, e.target.value);
             }}
@@ -409,7 +468,7 @@ function Actions() {
           )}
           {rows.map((r, i) => (
             <div key={r.key} style={{ display: "contents" }}>
-              {(i === 0 || rows[i - 1].section !== r.section) && (
+              {r.section && (i === 0 || rows[i - 1].section !== r.section) && (
                 <div role="presentation" className={styles.header}>
                   {tab === "assets" || prompt ? r.section : t(r.section)}
                 </div>

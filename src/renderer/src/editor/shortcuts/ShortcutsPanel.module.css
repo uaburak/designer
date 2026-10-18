@@ -114,6 +114,11 @@
   .layoutField { display: flex; align-items: center; gap: var(--ds-space-2); }
   .layoutLabel { white-space: nowrap; }
   .learnMore { margin-bottom: var(--ds-space-1); }
+  /* A tab just completed: its keys lift once, each after its delay (Atlas 03 §8 timings; the look is ours, unverified). */
+  [data-celebrate] [data-ds="KeyCap"] { animation: celebrate var(--ds-duration-reveal) var(--ds-ease-out) var(--celebrate-delay) both; }
+  @keyframes celebrate { 50% { transform: translateY(calc(-1 * var(--ds-space-1))); } }
+  @media (prefers-reduced-motion: reduce) { [data-celebrate] [data-ds="KeyCap"] { animation: none; } }
+  .layoutNote { width: min-content; min-width: 100%; margin: var(--ds-space-2) 0 auto; color: var(--figma-color-text-secondary); line-height: var(--ds-space-4); }
   .keyboard { display: flex; flex: none; flex-direction: column; gap: var(--ds-space-2); }
   .keyboardRow { display: flex; gap: var(--ds-space-1-5); }
   /* An ISO keyboard's tall Return: the cap's own border hidden, its L outlined over this row and the next. */

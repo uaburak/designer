@@ -44,7 +44,8 @@ describe("round 7c: Draw's chrome on the engine", () => {
     runEditorCommand(ed, "view.switch-to-draw");
     const menu = items(canvasMenu(ed, []));
     const at = menu.findIndex((i) => i.label === "Create brush");
-    expect(menu[at - 1].label).toBe("Outline stroke");
+    // After Flatten and Outline stroke (a row that can't run is gone: Atlas 03 §4).
+    expect(["Flatten", "Outline stroke"]).toContain(menu[at - 1].label);
     expect(menu[at].items!.map((i) => (i as MenuItem).label)).toEqual(["Stretch brush", "Scatter brush"]);
     // The engine's CREATE_BRUSH comes with round 7b: listed, disabled until then.
     expect((menu[at].items as MenuItem[]).every((i) => i.disabled === !(engine.commandState("CREATE_BRUSH") & 1))).toBe(true);

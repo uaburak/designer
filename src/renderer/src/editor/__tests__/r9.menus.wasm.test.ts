@@ -191,6 +191,29 @@ describe("round 9: the Figma menu (live menus/main-*.txt)", () => {
     expect(items(canvasMenu(ed, [])).some((i) => i.checked !== undefined)).toBe(false);
   });
 
+  it("the canvas menu drops the rows that can't run (Atlas 03 §4), with no line first, last or twice", async () => {
+    const { ed, engine } = await editor();
+    engine.setSelection(["1:2"]);
+    const menu = canvasMenu(ed, []);
+    expect(items(menu).every((i) => !i.disabled)).toBe(true);
+    expect(menu[0]).not.toBe("-");
+    expect(menu.at(-1)).not.toBe("-");
+    expect(menu.some((e, i) => e === "-" && menu[i + 1] === "-")).toBe(false);
+    // Not built here: Send to Figma Make, Widgets ▸.
+    expect(labels(menu)).not.toContain("Send to Figma Make");
+    expect(labels(menu)).not.toContain("Widgets");
+  });
+
+  it("Dev Mode's Figma menu (Atlas 03 §3.2): Edit ▸ Copy as, Find ×3, Select all / none; no Object, Text, Arrange, Vector", async () => {
+    const { ed } = await editor();
+    runEditorCommand(ed, "view.dev-mode");
+    const main = mainMenu(ed);
+    for (const l of ["Object", "Text", "Arrange", "Vector"]) expect(labels(main)).not.toContain(l);
+    expect(labels(subOf(main, "Edit"))).toEqual(["Copy as", "Find", "Find next", "Find previous", "Select all", "Select none"]);
+    runEditorCommand(ed, "view.dev-mode");
+    expect(labels(mainMenu(ed))).toContain("Object");
+  });
+
   it("a page row's menu: Copy link to page │ Rename page, Duplicate page │ Move up / down │ Delete page", async () => {
     const { ed, engine } = await editor();
     expect(engine.command("CREATE_PAGE")).toBe(0);
@@ -220,7 +243,8 @@ describe("round 9: the Actions palette (live toolbar/actions-panel.txt)", () => 
     expect(new Set(list.map((a) => a.id)).size).toBe(list.length);
     expect(list.find((a) => a.id === "vector.flatten")!.section).toBe("Object");
     expect(list.find((a) => a.id === "view.dev-mode")!.label).toBe("Switch to Dev Mode");
-    expect(list.at(-1)!.section).toBe("Tools");
+    expect(list.at(-1)!.id).toBe("file.publish-library");
+    expect(list.find((a) => a.id === "tool.move")!.section).toBe("Tools");
     const run = () => true;
     // Round 10 (live: Recents, then live's AI sections): an empty query lists Recents only; round 11: with none, no rows (no command list).
     const rows = actionRows(list, "", ["view.zoom-fit"], run);
