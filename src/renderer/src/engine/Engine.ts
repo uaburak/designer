@@ -128,7 +128,7 @@ import { FACET_DECODERS, FACET_IDS, FACET_SLOTS, type FacetName } from "./facets
 import type { ExportSettings } from "../../../shared/schema/document.generated";
 import type { TraceOptions, TraceResult } from "../../../shared/ai/types";
 import type { BrushArtwork, BrushType, DrawCommandArgs, DrawToolSettings, GuidString, InstallBrushInput, ScatterSettings } from "../../../shared/draw/types";
-import type { FieldStates, Micros, MotionCommandArgs, MotionShapeLayer, MotionViewState, ResolvedMotion, TimelineModel } from "../../../shared/motion/types";
+import type { FieldStates, Micros, MotionCommandArgs, MotionSamples, MotionShapeLayer, MotionViewState, ResolvedMotion, TimelineModel } from "../../../shared/motion/types";
 import { fonts } from "./fonts";
 import { keyCodeOf } from "./keyCodes";
 import { prepareGfx, recordWebGPUFallback, type GfxBackend, type GfxPreference } from "./gfx";
@@ -2008,9 +2008,14 @@ export class Engine {
     return this.after(status === Status.OK ? decodePixels(this.x.result()) : null);
   }
 
-  /** What the Lottie writer draws: each layer's outlines in its local space at base values (docs/motion.md §7.6). */
-  motionShapes(_root: GuidString): MotionShapeLayer[] {
-    throw notBuilt("motionShapes");
+  /** What the vector exports draw: the root's layers as shapes at base values (docs/motion.md §7.5, §7.6; round 8e). */
+  motionShapes(root: GuidString): MotionShapeLayer[] | null {
+    return this.json<MotionShapeLayer[] | null>(this.x.motionShapes(this.h, encodeText(root)), null);
+  }
+
+  /** Those layers' evaluated values at each time (µs); the view state is put back after (round 8e). */
+  motionSamples(root: GuidString, times: readonly Micros[]): MotionSamples | null {
+    return this.json<MotionSamples | null>(this.x.motionSamples(this.h, encodeText(JSON.stringify({ root, times }))), null);
   }
 
   /** A Motion command (CommandId 330–352) with its typed args; one undo step with Figma's name (docs/motion.md §4.9). */
@@ -2027,9 +2032,4 @@ export class Engine {
 /** An export's settings as the engine reads them: the schema's ExportSettings, and `motionTimeUs` (ours) when asked. */
 function exportSettingsJson(settings: ExportSettings, motionTimeUs: Micros | undefined): string {
   return JSON.stringify(motionTimeUs === undefined ? settings : { ...settings, motionTimeUs });
-}
-
-/** A Motion binding whose engine side is not built yet (frames at a time and the Lottie shapes: the export increment); the chrome reads the throw as "nothing yet". */
-function notBuilt(name: string): Error {
-  return new Error(`Engine.${name}: not built (round 8, export increment)`);
 }

@@ -251,6 +251,10 @@ export class EngineExports {
   motionResolved = (h: number, ref: Uint8Array): number => this.withBytes([ref], (p) => this.fn("motion_resolved")(h, p[0], p[1]));
   /** `json`: {root, timeUs, scale, allowPending} → u32 width, u32 height, straight RGBA8 in the result slot (E_BUSY: fonts / images loading). */
   motionRenderFrame = (h: number, json: Uint8Array): number => this.withBytes([json], (p) => this.fn("motion_render_frame")(h, p[0], p[1]));
+  /** `ref`: "s:l" of a root or a layer → MotionShapeLayer[] | null in the result slot (round 8e; an older wasm throws). */
+  motionShapes = (h: number, ref: Uint8Array): number => this.withBytes([ref], (p) => this.fn("motion_shapes")(h, p[0], p[1]));
+  /** `json`: {root, times} → MotionSamples | null in the result slot (round 8e; an older wasm throws). */
+  motionSamples = (h: number, json: Uint8Array): number => this.withBytes([json], (p) => this.fn("motion_samples")(h, p[0], p[1]));
 
   // ---- Components ----
   /** A derived ref ("I…;…") → its localID in the derived session (0xFFFFFFFE); 0 for anything else. */
@@ -416,5 +420,5 @@ export const USED_EXPORTS = [
   "set_view_options", "set_nudge", "start_guide", "set_annotation_view", "set_edit_tracking", "set_focus", "select_measurement", "dev_info",
   "trace", "vectorize_begin", "vectorize_update", "vectorize_end",
   "install_brush", "list_brushes", "brush_preview", "set_draw_tool_settings",
-  "set_motion", "motion_timeline", "motion_field_states", "motion_resolved", "motion_render_frame",
+  "set_motion", "motion_timeline", "motion_field_states", "motion_resolved", "motion_render_frame", "motion_shapes", "motion_samples",
 ].map((name) => `engine_${name}`);

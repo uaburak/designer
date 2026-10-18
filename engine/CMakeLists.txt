@@ -107,6 +107,7 @@ add_library(eng_core STATIC
   src/motion/MotionLayer.cpp
   src/motion/TextStagger.cpp
   src/editor/MotionCommands.cpp
+  src/editor/MotionExport.cpp
   src/proto/Devices.cpp
   src/proto/Prototype.cpp
   src/proto/Player.cpp
@@ -190,6 +191,7 @@ else()
     tests/unit/r8.motion_layer.test.cpp
     tests/unit/r8.motion_presets.test.cpp
     tests/unit/r8.motion_audio.test.cpp
+    tests/unit/r8.motion_export.test.cpp
     tests/unit/libraries.test.cpp
     tests/unit/text.layout.test.cpp
     tests/unit/text.edit.test.cpp
