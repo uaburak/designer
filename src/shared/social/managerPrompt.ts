@@ -43,5 +43,5 @@ export const STARTER_BRIEF = `Make the starter templates for Social mode (docs/s
    - Carousel cover + slide (static).
    - Story / Reel (animated, 9:16 only: instagram.story and instagram.reel): picture, headline, CTA.
 3. Wire every slot (docs/social.md §3.3): texts to TEXT component properties with their font family bound to Font/Heading or Font/Body; the logo an instance of the Brands library's Logo set; colours bound to the Brand collection's Color/* variables; the picture an image fill (scale mode FILL). Keep text and logo out of each format's safe area (list_formats).
-4. Animated sets: Motion presets as listed (add_animation / apply_animation_style), each within its format's length.
+4. Animated sets: Motion presets as listed (add_animation / apply_animation_style), each within its format's length — Product hero (animated) 6 s, Story / Reel 8 s, on a 30 fps grid (the Instagram reel preset's rate); the logo's fade ends on the last frame. Then export_posts {preset: "auto"} on a post made from each animated set, to see the MP4 within its format's limits (no warnings in the answer).
 5. save_as_template on each set (name, slots with role, locked where the layout depends on it, maxChars for texts), then check_posts on a post made from each, and tell the owner to review them and press Publish.`;

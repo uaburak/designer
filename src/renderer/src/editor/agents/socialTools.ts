@@ -3,13 +3,16 @@
  * fill_slots, set_post, resize_post, set_campaign, check_posts, save_as_template, export_posts), dispatched from
  * `runTool` in mcpTools.ts as motionTools.ts is. Thin over editor/social/actions.ts — the functions the chrome's
  * controls call — each write one `env.write` transaction (the actions run inside it with `withinWrite`). Templates,
- * slots and brands (applyTemplate, fillSlots, saveAsTemplate) are round 18b's and the export (export_posts) 18d's:
- * until they land, their tools answer that they aren't available yet instead of failing deep in the engine.
+ * slots and brands (applyTemplate, fillSlots, saveAsTemplate) are round 18b's and the export (export_posts,
+ * social/export/exportPosts.ts) 18d's; a function still a stub answers that it isn't available yet instead of failing
+ * deep in the engine.
  */
 import type { Guid, NodeChange } from "@/engine/codec";
 import { textResult, type ToolResult } from "@shared/agents/tools";
 import { isImageArg } from "@shared/agents/images";
 import { captionReport } from "@shared/social/caption";
+import { exportMime } from "@shared/exportFiles";
+import { presetById, SOCIAL_EXPORT_PRESETS } from "@shared/social/presets";
 import { formatById, PLATFORMS, resolveFormat, SOCIAL_FORMATS, brandFormatId } from "@shared/social/formats";
 import { POST_STATUSES, readSocial, SLOT_ROLES, type PlatformFormat, type PluginDataEntry, type PostStatus, type SlotRole, type SocialTemplateData, type TemplateSlotData } from "@shared/social/types";
 import type { Brand, SocialFormat } from "@shared/studio/types";
@@ -20,6 +23,10 @@ import { importPicture, prepareTemplate } from "../social/templates/templates";
 import { applyChecks, applyTemplate, canWritePosts, checkPost, fillSlots, newCampaign, newPost, resizePost, saveAsTemplate, setCampaign, setPost, withinWrite, type PostPatch } from "../social/actions";
 import { postRecord, readCampaigns, readPost, writePost } from "../social/posts";
 import { readBoard, type PostRow } from "../social/socialState";
+import { AUTO_PRESET, exportPosts, markExported } from "../social/export/exportPosts";
+import { exportAllowed } from "../exporting";
+import { base64 } from "../motion/export/vectorAnim";
+import { MAX_EXPORT_BYTES } from "./motionTools";
 import type { ToolEnv } from "./mcpTools";
 import { explicitNodeIds, ToolError } from "./toolError";
 import { normId, type Spec } from "./nodeSpec";
@@ -383,6 +390,46 @@ function saveAsTemplateTool(env: ToolEnv, args: Spec): ToolResult {
   return textResult({ templateKey: out.key, name });
 }
 
+// ---- Export -----------------------------------------------------------------------------------------------------
+
+/** The most files main keeps from one call (main/agents/toolFiles.ts); more go in a zip. */
+const MAX_TOOL_FILES = 10;
+
+/**
+ * export_posts (§8): the posts (or a campaign's) with their presets into files handed back through `ToolResult.files`
+ * (main saves them in the agent's working folder, as export_animation's), one zip by default when more than one; the
+ * posts are marked exported in the same turn's step.
+ */
+async function exportPostsTool(env: ToolEnv, args: Spec): Promise<ToolResult> {
+  const campaignId = str(args.campaignId);
+  let nodes: Guid[];
+  if (campaignId) {
+    const group = readBoard(env.ed, env.ed.store.page).groups.find((g) => g.campaign?.id === campaignId);
+    if (!group) throw new ToolError(`export_posts: no campaign ${campaignId} on this page (get_board lists them).`);
+    nodes = group.posts.map((p) => p.id);
+    if (!nodes.length) throw new ToolError(`export_posts: the campaign ${group.campaign!.name || campaignId} has no posts.`);
+  } else nodes = postIds(env, args, "export_posts");
+  const preset = str(args.preset) || AUTO_PRESET;
+  if (preset !== AUTO_PRESET && !presetById(preset)) throw new ToolError(`export_posts: preset is "auto" or one of ${SOCIAL_EXPORT_PRESETS.map((p) => p.id).join(", ")}.`);
+  if (!exportAllowed(env.ed)) throw new ToolError("export_posts: this file's owner doesn't let you export from it.");
+  const zip = typeof args.zip === "boolean" ? args.zip : undefined;
+  const r = await exportPosts(env.ed, nodes, { preset, ...(zip !== undefined ? { zip } : {}) });
+  const failed = r.posts.filter((p) => p.error);
+  if (!r.files.length) throw new ToolError(`export_posts: nothing exported — ${failed.map((p) => `${p.name}: ${p.error}`).join("; ") || "no posts"}`);
+  if (r.files.length > MAX_TOOL_FILES) throw new ToolError(`export_posts: ${r.files.length} files — at most ${MAX_TOOL_FILES} come back one by one; leave zip on.`);
+  const big = r.files.find((f) => f.bytes.length > MAX_EXPORT_BYTES);
+  if (big) throw new ToolError(`export_posts: ${big.name} is larger than 200 MB — export fewer posts at once, or a lower preset.`);
+  if (canWritePosts(env.ed) && r.exported.length) env.write("Export posts", () => markExported(env.ed, withinWrite, r.exported), r.exported);
+  const out = textResult({
+    files: r.files.map((f) => ({ file: f.name.split("/").pop(), bytes: f.bytes.length })),
+    posts: r.posts.map((p) => ({ nodeId: p.post, name: p.name, preset: p.preset, ...(p.file ? { file: p.file, bytes: p.bytes } : {}), ...(p.warnings.length ? { warnings: p.warnings } : {}), ...(p.error ? { error: p.error } : {}) })),
+    ...(failed.length ? { note: `${failed.length} post(s) failed; the others are in the files.` } : {}),
+  });
+  out.files = r.files.map((f) => ({ name: f.name.split("/").pop()!, data: base64(f.bytes), mimeType: f.name.endsWith(".zip") ? "application/zip" : exportMime(f.name) }));
+  out.touched = r.exported;
+  return out;
+}
+
 // ---- The table --------------------------------------------------------------------------------------------------
 
 /** A Social tool's answer, or null when `name` isn't one of them. */
@@ -411,7 +458,7 @@ export async function runSocialTool(env: ToolEnv, name: string, args: Spec): Pro
     case "save_as_template":
       return saveAsTemplateTool(env, args);
     case "export_posts":
-      throw new ToolError("export_posts isn't available yet: the platforms' export presets come with round 18d (docs/social.md §10). export_animation exports one animated post meanwhile.");
+      return await exportPostsTool(env, args);
   }
   return null;
 }

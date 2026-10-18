@@ -449,4 +449,20 @@ describe("the Motion timeline", () => {
     expect($("[data-duration-handle]", view.host).hasAttribute("data-readonly")).toBe(true);
     view.unmount();
   });
+
+  it("round 18d: Social's header sits next to Duration; Duration turns red outside its limits", () => {
+    const duration = (host: HTMLElement) => $$('[data-ds="TextInput"]', host).find((e) => e.querySelector('input[aria-label="Duration"]'))!;
+    const { view, rerender } = setup({ header: { content: "Instagram reel · 3 s – 15 min · 30 fps", minUs: 3_000_000, maxUs: 900_000_000 } });
+    expect($("[data-timeline-social]", view.host).textContent).toBe("Instagram reel · 3 s – 15 min · 30 fps");
+    // 2 s is under the reel's 3 s.
+    expect(duration(view.host).hasAttribute("data-duration-outside")).toBe(true);
+    rerender({ model: { ...MODEL, durationUs: 6_000_000 } });
+    expect(duration(view.host).hasAttribute("data-duration-outside")).toBe(false);
+    // No limits (a format without video): the name only, never red; no header outside Social.
+    rerender({ header: { content: "Instagram post" } });
+    expect(duration(view.host).hasAttribute("data-duration-outside")).toBe(false);
+    rerender({ header: undefined });
+    expect(view.host.querySelector("[data-timeline-social]")).toBeNull();
+    view.unmount();
+  });
 });

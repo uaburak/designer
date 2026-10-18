@@ -19,7 +19,7 @@ import { setDevStatus, statusOfTargets, statusTargets } from "./devStatus";
 import { annotationsShown, modeOf, setMode, toggleAnnotations } from "./devmode/devMode";
 import { audioMuted, hasAudio, splitAudioAtPlayhead, splitTargets, toggleAudioMute } from "./motion/audio/audioEdits";
 import { toggleAutoKeyframe, toggleMotionPlaying } from "./motion/motionState";
-import { askAgent, safeAreasShown, selectedPosts, toggleSafeAreas, toggleSocialMode } from "./social/SocialMode";
+import { askAgent, campaignPosts, exportPostsDialog, safeAreasShown, selectedPosts, toggleSafeAreas, toggleSocialMode } from "./social/SocialMode";
 import { MOTION_UI_DEFAULT } from "./uiStore";
 import { round5, setRound5 } from "./devmode/round5";
 import { textSummary, toggledBold, toggledItalic } from "./model/text";
@@ -560,16 +560,18 @@ export const COMMANDS: EditorCommand[] = [
     ed.setTool("MOVE");
   }, (ed) => modeOf(ed) === "motion"),
   // Social (docs/social.md §6.6, ours): the mode switch's Social segment and View › Social (no key: Figma's ⇧D stays Dev
-  // Mode's); New post opens the toolbar's menu; Table, Save as template and Export campaign come with rounds 18b / 18d.
+  // Mode's); New post opens the toolbar's menu; Export campaign… opens Export… for the selected posts' campaigns (nothing
+  // selected: every post on the page, by campaign; docs/social.md §8).
   ui("view.mode-social", "Social", undefined, (ed) => toggleSocialMode(ed), (ed) => modeOf(ed) === "social"),
   { id: "social.new-post", label: "New post…", run: (ed) => ed.ui.set((s) => ({ socialNewPostMenu: (s.socialNewPostMenu ?? 0) + 1, uiHidden: false })), enabled: (ed) => modeOf(ed) === "social" },
   { id: "social.toggle-safe-areas", label: "Safe areas", run: (ed) => toggleSafeAreas(ed), enabled: (ed) => modeOf(ed) === "social", checked: (ed) => modeOf(ed) === "social" && safeAreasShown(ed) },
   { id: "social.table", label: "Table", run: (ed) => ed.ui.set((s) => ({ socialTable: !s.socialTable })), enabled: (ed) => modeOf(ed) === "social", checked: (ed) => modeOf(ed) === "social" && !!ed.ui.get().socialTable },
   { id: "social.save-as-template", label: "Save as template…", run: (ed) => ed.ui.set({ socialSaveTemplate: selectedPosts(ed)[0] ?? null }), enabled: (ed) => modeOf(ed) === "social" && selectedPosts(ed).length === 1 },
-  { id: "social.export-campaign", label: "Export campaign…", run: () => {}, enabled: () => false },
+  { id: "social.export-campaign", label: "Export campaign…", run: (ed) => exportPostsDialog(ed, campaignPosts(ed)), enabled: (ed) => modeOf(ed) === "social" && canExport(ed) && campaignPosts(ed).length > 0 },
   { id: "social.ask-agent", label: "Ask agent…", run: (ed) => askAgent(ed), enabled: (ed) => modeOf(ed) === "social" },
-  // Space plays and pauses while Motion is on (help: "Spacebar plays, again pauses"); elsewhere Space is the Hand tool's.
-  { id: "motion.play-pause", label: "Play/Pause", keys: [k("Space")], run: (ed) => toggleMotionPlaying(ed), enabled: (ed) => modeOf(ed) === "motion" },
+  // Space plays and pauses while Motion is on (help: "Spacebar plays, again pauses"), and in Social while the selected
+  // post's timeline shows (docs/social.md §6.1); elsewhere Space is the Hand tool's.
+  { id: "motion.play-pause", label: "Play/Pause", keys: [k("Space")], run: (ed) => toggleMotionPlaying(ed), enabled: (ed) => modeOf(ed) === "motion" || (modeOf(ed) === "social" && !!ed.ui.get().socialTimeline) },
   { id: "motion.toggle-auto-keyframe", label: "Toggle auto-keyframe", run: (ed) => toggleAutoKeyframe(ed), enabled: (ed) => modeOf(ed) === "motion", checked: (ed) => !!ed.ui.get().motion?.autoKeyframe },
   // Edit anchor point (help: "in the Transform section, or ⌥R"): Motion's anchor point tool, on and off again. ⌥R is the
   // rotation origin's key in Design (object.rotation-origin hands it here in Motion).

@@ -1,7 +1,7 @@
 /**
  * Social's export presets (docs/social.md §8): per format, the still or animated export a post leaves as. Data only —
  * the renderer side (picking "auto", the JPEG quality steps, the size checks, the campaign zip) is round 18d's
- * (editor/social/export/). The animated settings are Motion's Animated export as built (shared/motion/types.ts).
+ * editor/social/export/exportPosts.ts. The animated settings are Motion's Animated export as built (shared/motion/types.ts).
  */
 import type { SocialExportPreset } from "./types";
 

@@ -69,6 +69,7 @@ import { EmptyBoard } from "./social/EmptyBoard";
 import { BrandLibraryBanner } from "./social/templates/BrandLibraryBanner";
 import { PostsTable } from "./social/templates/PostsTable";
 import { SaveAsTemplateDialog } from "./social/templates/SaveAsTemplateDialog";
+import { ExportPostsDialog } from "./social/export/ExportPostsDialog";
 import { attachUsageTracking } from "./shortcuts/usage";
 import { shortcutPrefs } from "./shortcuts/prefs";
 import { VersionDialogs } from "./VersionDialogs";
@@ -501,6 +502,7 @@ function Overlays() {
       <PostsTable />
       <SocialMode />
       <SaveAsTemplateDialog />
+      <ExportPostsDialog />
       <ActionsPanel />
       <AiHost />
       <PluginLayer />

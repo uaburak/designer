@@ -1,0 +1,15 @@
+@layer app {
+  /* Export… (docs/social.md §8): the target, then a row per post — its thumbnail, name and preset, what it renders, its file, its warnings [metrics ours] */
+  .body { display: flex; flex-direction: column; gap: var(--ds-space-2); }
+  .target { margin: 0; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .list { display: flex; flex-direction: column; gap: var(--ds-space-1); max-height: calc(var(--ds-size-row) * 12); overflow-y: auto; overscroll-behavior: contain; }
+  .row { display: grid; grid-template-columns: var(--ds-size-icon-24) minmax(0, 1fr); align-items: start; gap: var(--ds-space-2); padding: var(--ds-space-1) 0; border-bottom: 1px solid var(--figma-color-border); }
+  .row > canvas { width: var(--ds-size-icon-24); height: var(--ds-size-icon-24); margin-top: var(--ds-space-1); border-radius: var(--ds-radius-small); background: var(--figma-color-bg-secondary); object-fit: contain; }
+  .main { display: flex; flex-direction: column; gap: var(--ds-space-half); min-width: 0; }
+  .head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 200px); align-items: center; gap: var(--ds-space-2); }
+  .name { min-width: 0; overflow: hidden; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); text-overflow: ellipsis; white-space: nowrap; }
+  .spec { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .file { min-width: 0; overflow: hidden; color: var(--figma-color-text-tertiary); font: var(--ds-font-body-small); text-overflow: ellipsis; white-space: nowrap; }
+  .warning { color: var(--figma-color-text-danger); font: var(--ds-font-body-small); }
+  .progress { display: flex; flex: 1 1 auto; align-items: center; justify-content: space-between; gap: var(--ds-space-2); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+}
