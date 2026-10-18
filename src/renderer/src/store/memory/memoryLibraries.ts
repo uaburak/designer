@@ -11,7 +11,7 @@
  */
 import { decodeMessage } from "../../../../shared/schema/codec";
 import { Emitter } from "../../../../shared/store/emitter";
-import { diffAgainst, libraryCounts, movedOutOf, movesOf, previewAgainst, toLibraryAsset, validatePublishAssets, withDependencies } from "../../../../shared/store/libraryRules";
+import { diffWithHistory, libraryCounts, movedOutOf, movesOf, previewAgainst, stampUserFacingVersions, toLibraryAsset, validatePublishAssets, withDependencies } from "../../../../shared/store/libraryRules";
 import { StoreError } from "../../../../shared/store/protocol";
 import type { LibraryEvent, LibraryRegistry } from "../../../../shared/store/repositories";
 import { isAssetKey, type AssetPayload, type FileKey, type FileMeta, type Hlc, type LibraryAsset, type LibraryRecord, type LibraryVersion, type PublishRequest, type VersionRecord } from "../../../../shared/store/types";
@@ -155,7 +155,7 @@ export class MemoryLibraries {
         const r = this.record(lib);
         const latestVersion = r?.latestVersion ?? 0;
         if (!r || this.status(r) !== "published") return { latestVersion, updated: [], removed: [], moved: [] };
-        return diffAgainst(this.latest(lib), latestVersion, have ?? [], movedOutOf(this.records(), lib));
+        return diffWithHistory(this.latest(lib), latestVersion, have ?? [], movedOutOf(this.records(), lib), { entry: (key, hash) => this.findEntry(lib, key, hash)?.asset ?? null, version: (n) => this.version(lib, n) });
       },
       watch: (listener) => this.events.on(listener),
     };
@@ -220,7 +220,7 @@ export class MemoryLibraries {
           publishedAt: now,
           description: typeof req.description === "string" ? req.description : "",
           changes: { created: preview.created.map((a) => a.key), modified: preview.modified.map((a) => a.key), removed: preview.removed.map((a) => a.key), moved: [...preview.moved, ...moves] },
-          assets,
+          assets: stampUserFacingVersions(assets, prev, n),
         };
         this.write(LIB_KEYS.version(lib, n), version);
         written.push(LIB_KEYS.version(lib, n));
@@ -231,7 +231,7 @@ export class MemoryLibraries {
         next.status = "published";
         next.latestVersion = n;
         next.lastPublishedAt = now;
-        next.counts = libraryCounts(assets);
+        next.counts = libraryCounts(version.assets);
         for (const f of ["status", "latestVersion", "lastPublishedAt", "counts", ...(moves.length ? ["movedIn"] : [])]) next._clk[f] = h;
         this.write(LIB_KEYS.record(lib), next);
         written.length = 0; // published: nothing to take back

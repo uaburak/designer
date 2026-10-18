@@ -239,6 +239,12 @@ export interface LibraryAsset {
   containingFrame?: { pageName: string; frameName?: string };
   /** ≤ 256 px, 2× */
   thumbnail: { sha1: string; width: number; height: number } | null;
+  /**
+   * Figma's userFacingVersion (atlas 12 §6.1, §9): the library version (as text) that published this content — a new
+   * one when the asset is created or its content changes, the previous one kept while it doesn't. The store stamps it
+   * (`stampUserFacingVersions`); manifests written before 2026-10-18 have none.
+   */
+  userFacingVersion?: string;
 }
 
 export interface Redirect {
@@ -311,6 +317,18 @@ export interface LibraryDiff {
   updated: LibraryAsset[];
   removed: string[];
   moved: Redirect[];
+  /**
+   * The publishes the updated assets' content comes from (their `userFacingVersion`s), newest first — the Updates
+   * tab's groups with each publish's description (atlas 12 §6.3). Absent from a store that doesn't know them.
+   */
+  publishes?: LibraryPublish[];
+}
+
+/** One publish of a library, as the Updates tab heads its group */
+export interface LibraryPublish {
+  version: number;
+  publishedAt: number;
+  description: string;
 }
 
 // --- previews (docs/data.md §13) ---
