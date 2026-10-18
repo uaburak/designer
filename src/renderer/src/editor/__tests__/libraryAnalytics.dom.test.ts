@@ -14,7 +14,7 @@ import { encodeMessage, newDocumentMessage } from "@shared/schema/codec";
 import { $, $$, click, mount, type Mounted } from "@/ds/__tests__/dom";
 import { MemoryStore } from "@/store/memory/memoryStore";
 import { LibraryAnalyticsModal } from "../analytics";
-import { canDownloadCsv, COLUMNS, graphWeeks, parseCsv, sortRows, variantsFromCsv, weekOf } from "../analytics/model";
+import { canDownloadCsv, topTeamsOf, COLUMNS, graphWeeks, parseCsv, sortRows, variantsFromCsv, weekOf } from "../analytics/model";
 
 const SERVER = "https://lib.test";
 const ORG = "Org0000000000001";
@@ -142,14 +142,14 @@ describe("Library analytics (docs/data.md §17)", () => {
     expect(dialog.textContent).toContain("Updated daily");
   });
 
-  it("Analytics: graph, Compare with, Top teams, the sortable table; no Download CSV with five teams or fewer", async () => {
+  it("Analytics: graph, Compare with, Top teams, the sortable table; Download CSV as soon as a team is listed (atlas 12 §8.3)", async () => {
     await open(2);
     click(tab("Analytics"));
     await settleLong();
     expect($("[data-insertions-graph]")).toBeTruthy();
     expect($$("[data-legend]").map((e) => e.getAttribute("data-legend"))).toEqual(["current"]); // data through Saturday Oct 10: the week is complete
     expect($$("path[data-line]").length).toBeGreaterThan(0);
-    expect($("[data-download-csv]")).toBeNull();
+    expect($("[data-download-csv]")).toBeTruthy();
     // Top teams: insertions and share
     const teams = $$("section[aria-label='Top teams'] [data-team]");
     expect(teams).toHaveLength(2);
@@ -240,8 +240,9 @@ describe("Library analytics' pure parts", () => {
     expect(graphWeeks("component", [{ week: "2024-09-29", insertions: 0, detachments: 0 }], null, "2024-10-05", "2024-10-05")[0].unavailable).toBe(false);
   });
 
-  it("CSV above five teams; sorting by a column, ties by name; the CSV parsed into variants", () => {
-    expect([5, 6].map(canDownloadCsv)).toEqual([false, true]);
+  it("CSV whenever a team is listed; sorting by a column, ties by name; the CSV parsed into variants", () => {
+    expect([0, 1, 6].map(canDownloadCsv)).toEqual([false, true, true]);
+    expect(topTeamsOf([0, 3, 9, 1, 4, 2, 7, 5].map((insertions, i) => ({ teamId: String(i), insertions }))).map((r) => r.insertions)).toEqual([9, 7, 5, 4, 3, 2]);
     const rows = [
       { key: "a", name: "B", type: "component" as const, description: "", instances: 1, insertions: 2, detachments: 0, teamsUsing: 0, filesUsing: 0 },
       { key: "b", name: "A", type: "component" as const, description: "", instances: 1, insertions: 2, detachments: 0, teamsUsing: 0, filesUsing: 0 },

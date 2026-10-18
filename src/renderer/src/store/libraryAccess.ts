@@ -79,6 +79,7 @@ export function storeLibraryAccess(store: StoreApi, meta: () => FileMeta, onMeta
     version: (lib, version) => store.libraries.getVersion(lib, version),
     previewPublish: (assets) => store.libraries.previewPublish(libraryKey(), encode(assets)),
     publish: (input) => store.libraries.publish({ libraryFileKey: libraryKey(), description: input.description, assets: encode(input.assets), moves: input.moves, ...(input.scope ? { scope: input.scope } : {}) }),
+    unpublish: () => store.libraries.unpublish(libraryKey()),
     org: async (): Promise<OrgPublishContext | null> => {
       const space = meta().space;
       if (!space) return null;

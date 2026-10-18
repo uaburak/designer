@@ -158,8 +158,12 @@ export interface UIState extends PreferenceFlags {
   variablesOpen: boolean;
   /** Styles list (nothing selected): the closed folders ("KIND:path") */
   stylesClosed: ReadonlySet<string>;
-  /** The Libraries modal: its tab, and the library previewed (null: the list) */
-  librariesDialog: { tab: "libraries" | "updates"; library?: string | null; update?: string | null } | null;
+  /**
+   * The Libraries modal (atlas 12 §5–§7): its tab (This file, Updates, Teams, the organization), the library viewed
+   * (null: the tab), the update reviewed (its own window), the Updates tab's scope (the current page by default), the
+   * library Swap library swaps from, the missing libraries view
+   */
+  librariesDialog: { tab: "libraries" | "updates" | "teams" | "org"; library?: string | null; update?: string | null; scope?: "current" | "all"; swap?: string | null; missing?: boolean } | null;
   /** The Publish library modal */
   publishOpen: boolean;
   /** File › Export… (⇧⌘E): the page's layers with export settings */

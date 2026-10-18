@@ -933,6 +933,77 @@ Evidence from a survey of `src/renderer/src/editor/panels/libraries/{PublishDial
 - **The paste prompt** for unadded libraries and unpublished variables (localize).
 - The move-validity check after paste (DesignerV2 offers "Publish…" itself).
 
+### As built (2026-10-18, wave 5)
+
+Built from the lists above, in their order. Code: `src/shared/store/libraryRules.ts`, the three registries
+(`src/store/local/libraries.ts`, `src/renderer/src/store/memory/memoryLibraries.ts`, `src/store/libraries/org.ts`)
+and `server/src/libraries/libraryBox.ts`; `src/renderer/src/editor/libraries.ts`; the chrome in
+`editor/panels/libraries/{LibrariesDialog,PublishDialog}.tsx` and `editor/panels/design/ComponentPicker.tsx`.
+
+- **The update rule (§6.1).** Manifests carry Figma's `userFacingVersion` (`LibraryAsset.userFacingVersion`): the
+  store stamps it at publish (`stampUserFacingVersions`: an asset whose content the previous version had keeps that
+  version's; a new or changed one gets this version's number as text; the server re-stamps on commit). `diffAgainst`
+  now flags an asset used at two or more versions always, and one used at a single version only when its hash **and**
+  its user-facing version (looked up in the library's history, `diffWithHistory`, case-insensitive) both differ from
+  the latest. Manifests written before have none: their assets count as different, as before. Which edits Figma lets
+  through without a new user-facing version stays open (§15): here every content change is one.
+- **Updates grouped by publish (§6.3).** The diff names the publishes the updated content comes from
+  (`LibraryDiff.publishes`: version, date, description); the Updates tab shows one group per publish, newest first —
+  "Updates from ‹file›", the date, the description — each in Figma's order (components, sets, styles, variable
+  collections); moved and removed assets in a group of their own. Rows: a 64 thumbnail, "Moved from ‹file›", the
+  outdated-instance count in the all-pages scope, an Update button.
+- **Scope (§6.3).** The current page by default, "Show updates for all pages" switches (the list one frame + 250 ms
+  later): a component's update is on the page when an instance there uses one of its copies, nested instances too;
+  styles and variables are listed on every page (which layers of a page use them isn't read). Empty states for the
+  page ("No updates available on this page", View all pages) and the file. Loading: five placeholder rows (opacity
+  1 − 0.2·i, shimmer 1.5·i s later), "Updates are taking longer than expected" after 5 s (our timer).
+- **Update all (§6.4).** Closes the modal, then Figma's order (components → sets → styles → variables → other), the
+  payloads fetched five assets at a time with the progress bell ("Updating assets… n/N"), then "Updated N assets" or
+  "An error occurred while updating the instances of this component.". Still one undo step "Update library assets"
+  (docs/data.md §9.4's contract; Figma makes one per asset).
+- **The review window (§6.5).** Its own draggable window, 800 × 580 (min 600 × 580), 12 under the toolbar, centred;
+  a click outside doesn't close it; Back returns to the Updates tab with its scope. Side by side / Overlay with an
+  opacity slider (0.5), zoom presets 25–400 %, ◀ ▶ (← →; ↑ ↓ swallowed), "i/N", Go to current instance; Update
+  instance (primary when it is the only one — then the copy is updated in place; one of several gets a copy of its
+  own), Update all, then a disabled "Updated" and Next component. Styles: Update style.
+- **The Libraries modal (§5).** min(760, w) × min(640, 0.8h); a sidebar — search first ("/" focuses it), This file,
+  Updates (count), Browse libraries: Teams ("Your teams" in an org; three cards per team and See more), the
+  organization. A library's view: `maxShownItems` 28 then "See all", its origin ("Added by ‹group› admin", "Added by
+  a file editor" from the org listing's `via`), the footer's "N assets used in this file" and Swap library. Search
+  lists every library by name.
+- **Swap library (§7.1).** `swapPlan` / `swapLibrary`: the used components, sets, styles (used by a layer) and
+  collections of the library, one row per asset; matched by name with every whitespace removed (case kept), styles of
+  the same type, a component among components then sets (and back), a collection by name with a dropdown of the
+  target's; a collection's variables by name. The copies are replaced in place by the target's latest version (the
+  engine's redirect, as Move to this file's): users stay linked, overrides kept by key; a component matched to a set
+  (or back) has its instances swapped onto the variant of the same name. One undo step "Swap library"; the target is
+  added to the file; "Swapped N variables". "Swap default styles and collections in instances" (on): off leaves the
+  styles and collections the library's unswapped components use inside them (a copy replaced in place can't tell an
+  instance's default from a direct use).
+- **Missing libraries (§7.2).** "This file uses N missing libraries" with View missing libraries: each library a copy
+  here comes from that is no longer published or readable, its count, Swap library.
+- **The publish modal (§3.2–§3.5, §3.9).** A search (the description only while it is empty); Invalid (property
+  errors; a collection over 40 modes — the Enterprise limit, atlas 11 — or 5,000 variables; can't be checked),
+  Changes (variable collections, styles, components; the header checkbox toggles only the rows a search shows),
+  Unchanged and Hidden (collapsed; "These won't be published"; Include in publish takes Hide when publishing off; a
+  `_` / `.` name can't be included) — 32 px headers, 46 px rows, a 22 px caption; ⇧-click ranges (Shift tracked on
+  the document); ⌘Enter / Ctrl+Enter publishes; "Assembling components, styles and variables…" while publishing; in
+  an org, "Publish to" (Everyone at ‹org› / Everyone on this file's team) and the warning when it widens who sees
+  the file. Unpublish in This file with the 400-wide "Remove library" confirm (`LibraryAccess.unpublish`).
+- **Analytics (§8.3).** Top teams: six (two columns of three), teams without insertions dropped; Download CSV as
+  soon as one is listed.
+- **The swap picker (atlas 10 §7.1).** Each added library is a section of its own (its published components by name;
+  a pick brings the copy in, then the swap), and "Browse libraries" under the list opens the Libraries modal.
+
+**Not done:** the Recommended, UI kits and Storybooks tabs, code connect; the workspace option of Publish to (no
+workspaces in our org model) and the team's name in it; the virtualised publish list and its variable-collection
+drill-down; publish toasts per failure kind (§3.8) and the timed-out reopen; the paste prompts for unadded libraries
+and unpublished variables (§10.2) and the move-validity check (§10.3); per-asset undo steps for Update all; per-page
+style and variable scope; the style-version review (a style used at several versions); Community targets of Swap
+library; the update toast's timing (§15: left as it was, an 8 s toast — Figma's is unknown). Open questions in §15
+stand; "Whether Swap library swaps nested instances" is answered here by construction (a copy replaced in place
+changes every use, nested ones included), not by a probe.
+
 ## 15. Open questions
 
 | Question | Live probe that settles it |
