@@ -40,7 +40,9 @@ export interface BranchReview {
   requestedBy: string | null;
   description: string;
   createdAt: number;
-  reviewers: { userId: string; name: string | null; verdict: "pending" | "approved" | "changes-suggested"; comment: string; at: number | null }[];
+  /** `outdated`: the verdict was given before the branch's last change (docs/multiplayer.md §18.9; a shared branch's
+   *  server says, absent locally) */
+  reviewers: { userId: string; name: string | null; verdict: "pending" | "approved" | "changes-suggested"; comment: string; at: number | null; seq?: number | null; outdated?: boolean }[];
 }
 
 
@@ -78,6 +80,10 @@ export interface BranchesRepository {
   merge(branchFileKey: FileKey, input: { previewId: string; resolutions: Resolutions; title?: string; description?: string }): Promise<{ branch: BranchRecord; version: VersionRecord }>;
   requestReview(branchFileKey: FileKey, input: { reviewerIds: string[]; description: string }): Promise<BranchReview>;
   answerReview(branchFileKey: FileKey, input: { verdict: "approved" | "changes-suggested"; comment?: string }): Promise<BranchReview>;
+  /** The caller's verdict taken back (Figma's unapprove): pending again */
+  withdrawReview(branchFileKey: FileKey): Promise<BranchReview>;
+  /** The review request closed (by whoever asked, or an editor of main) */
+  closeReview(branchFileKey: FileKey): Promise<BranchReview>;
   /**
    * Undo merge (main's "Branch merged" version, atlas 16 §4.8): the merged branch active again, as before the merge.
    * Main itself goes back by restoring `preMergeVersionId` (the editor's restore: one undoable step and a restore

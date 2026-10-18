@@ -1183,12 +1183,15 @@ export class MultiplayerService {
   /**
    * @internal Images the store doesn't have yet, downloaded from the room before the frame that uses them lands (a
    * version's, a collaborator's new image), DOWNLOAD_CONCURRENCY at a time; one coming down in the background already
-   * is moved to the front and waited for rather than fetched twice.
+   * is moved to the front and waited for rather than fetched twice. `fileKey` (a link's frame, Phase 6): one that
+   * couldn't come now goes to the background downloads — tried again with their backoff, kept with the link for the next
+   * start, the editor told when it lands (`onBlobsArrived`) — instead of leaving its layer on a placeholder for good.
    */
-  async downloadBlobs(key: string, sha1s: string[]): Promise<void> {
+  async downloadBlobs(key: string, sha1s: string[], fileKey?: FileKey): Promise<void> {
     if (!sha1s.length) return;
     const have = await this.host.hasBlobs(sha1s);
     const missing = sha1s.filter((_, i) => !have[i]);
+    const failed: string[] = [];
     await pool(missing, this.deps.downloadConcurrency ?? DOWNLOAD_CONCURRENCY, async (sha1) => {
       try {
         const queued = this.downloads.want(sha1);
@@ -1198,8 +1201,24 @@ export class MultiplayerService {
       } catch (e) {
         // An image the uploader never had: the layer shows its placeholder, as with a missing image anywhere.
         this.host.log("warn", `multiplayer: image ${sha1} isn't in the room`, e);
+        failed.push(sha1);
       }
     });
+    if (fileKey && failed.length) await this.retryImages(fileKey, key, failed);
+  }
+
+  /** A frame's images that didn't come down: queued in the background and kept with the link (`images`) */
+  private async retryImages(fileKey: FileKey, key: string, sha1s: string[]): Promise<void> {
+    const rec = this.state?.links[fileKey];
+    if (!rec) return;
+    try {
+      const queued = await this.downloads.add({ fileKey, key, name: this.host.getMeta(fileKey)?.name ?? "Untitled", rest: sha1s });
+      if (!queued.length) return;
+      rec.images = [...new Set([...(rec.images ?? []), ...queued])];
+      await this.persist(fileKey);
+    } catch (e) {
+      this.host.log("warn", `multiplayer ${fileKey}: couldn't queue its images`, e);
+    }
   }
 
   /** @internal The "Offline sync" savepoint (OFFLINE_SYNC_AFTER_MS): a named version of the room's head; a failure doesn't stop the sync */
@@ -2300,7 +2319,7 @@ class Link {
     } else {
       const message = withoutPending(frame.message, this.pendingTouched());
       if (message) {
-        await this.svc.downloadBlobs(rec.key, imagesOf(message));
+        await this.svc.downloadBlobs(rec.key, imagesOf(message), this.fileKey);
         await this.svc.host_.appendRemote(this.fileKey, message);
       }
     }

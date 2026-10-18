@@ -168,7 +168,7 @@ export const STORE_METHODS = {
     "revokePlanToken",
   ],
   // Branches (docs/data.md §15.6); `watch` is the `branches` event topic
-  branches: ["create", "list", "get", "rename", "archive", "restore", "mainStatus", "preview", "openSide", "applyUpdate", "merge", "requestReview", "answerReview", "undoMerge"],
+  branches: ["create", "list", "get", "rename", "archive", "restore", "mainStatus", "preview", "openSide", "applyUpdate", "merge", "requestReview", "answerReview", "withdrawReview", "closeReview", "undoMerge"],
   // Org libraries' settings (docs/data.md §16.3, §16.5) and library analytics (§17)
   orgLibraries: ["list", "get", "updateSettings", "setScope", "teamLibraries"],
   analytics: ["record", "orgOverview", "overview", "actions", "usage", "modes", "csv"],

@@ -282,6 +282,28 @@ describe("branches (docs/data.md §15.7)", () => {
     expect((await call("POST", "/branches/brch_00001/merge", alice.token, mrg({ mainSeq: 4, branchSeq: 2 }))).status).toBe(409);
   });
 
+  it("the merge request's lifecycle: a verdict on an older version says so, a reviewer withdraws it, the asker closes the request", async () => {
+    const { alice, bob } = await sharedFile();
+    await call("POST", "/files/main_00001/branches", alice.token, { branchKey: "brch_rev001", name: "Review me", baseSeq: 2 });
+    await call("PUT", "/files/brch_rev001/snapshot?seq=0", alice.token, bytes("MAIN@2"));
+    const review = (await call("POST", "/branches/brch_rev001/reviews", alice.token, { reviewerIds: [bob.user.id], description: "Look" })).body.review;
+    const approved = (await call("POST", `/branches/brch_rev001/reviews/${review.id}/verdict`, bob.token, { verdict: "approved" })).body.review;
+    expect(approved.reviewers[0]).toMatchObject({ verdict: "approved", seq: 0, outdated: false });
+    // Alice changes the branch: Bob's approval is of an older version now
+    mem.send("brch_rev001", mem.join("brch_rev001", alice.user.id), bytes("after-review"));
+    expect((await call("GET", "/branches/brch_rev001/reviews", bob.token)).body.reviews[0].reviewers[0]).toMatchObject({ verdict: "approved", outdated: true });
+    // Withdrawn (Figma's unapprove): pending again, the review back in review; only reviewers can
+    expect((await call("DELETE", `/branches/brch_rev001/reviews/${review.id}/verdict`, alice.token)).status).toBe(403);
+    const withdrawn = (await call("DELETE", `/branches/brch_rev001/reviews/${review.id}/verdict`, bob.token)).body.review;
+    expect(withdrawn).toMatchObject({ state: "in-review", reviewers: [{ verdict: "pending", seq: null, outdated: false }] });
+    // Closed by the asker (a reviewer who can't edit main can't); then no verdicts
+    expect((await call("POST", `/branches/brch_rev001/reviews/${review.id}/close`, bob.token)).status).toBe(403);
+    expect((await call("POST", `/branches/brch_rev001/reviews/${review.id}/close`, alice.token)).body.review.state).toBe("closed");
+    expect((await call("POST", `/branches/brch_rev001/reviews/${review.id}/verdict`, bob.token, { verdict: "approved" })).status).toBe(409);
+    // A new request opens a new review
+    expect((await call("POST", "/branches/brch_rev001/reviews", alice.token, { reviewerIds: [bob.user.id], description: "Again" })).body.review.id).not.toBe(review.id);
+  });
+
   it("archives, restores, renames and deletes; viewers branch only when they may copy; the creator edits their branch", async () => {
     const { alice, bob } = await sharedFile();
     await call("PATCH", "/files/main_00001", alice.token, { viewersCanCopy: false });

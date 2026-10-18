@@ -106,6 +106,22 @@ export function BranchReview({ backend, branchFileKey }: { backend: BranchingBac
     }
   };
   const role = reviewRole(record, me);
+  const withdraw = async () => {
+    try {
+      await backend.branches.withdrawReview(branchFileKey);
+      setRecord(await backend.branches.get(branchFileKey));
+    } catch (e) {
+      showToast({ kind: "error", message: t("Couldn’t withdraw the review: {error}", { error: errorText(e) }) });
+    }
+  };
+  const closeRequest = async () => {
+    try {
+      await backend.branches.closeReview(branchFileKey);
+      setRecord(await backend.branches.get(branchFileKey));
+    } catch (e) {
+      showToast({ kind: "error", message: t("Couldn’t close the request: {error}", { error: errorText(e) }) });
+    }
+  };
   const review = record.review;
   const conflicts = preview ? preview.conflicts.length > 0 : false;
   const picked = !!preview && (!conflicts || allPicked(picks, preview));
@@ -115,6 +131,13 @@ export function BranchReview({ backend, branchFileKey }: { backend: BranchingBac
   const footer = () => {
     if (step !== "summary") return undefined;
     const out: ReactNode[] = [<span key="grow" className={styles.grow} />];
+    // A verdict given can be taken back (Figma's unapprove; the words are ours)
+    if (role === "reviewer" && mine && mine.verdict !== "pending" && review && review.state !== "closed")
+      out.push(
+        <Button key="withdraw" variant="secondary" onClick={() => void withdraw()} data-withdraw-review="">
+          {t("Withdraw review")}
+        </Button>
+      );
     if (role === "reviewer")
       out.push(
         <Button key="review" variant="primary" onClick={() => setFinishing(true)} data-add-review="">
@@ -132,6 +155,12 @@ export function BranchReview({ backend, branchFileKey }: { backend: BranchingBac
         out.push(
           <Button key="again" variant="secondary" onClick={() => setStep("reviewers")}>
             {t("Request another review")}
+          </Button>
+        );
+      if (review && review.state !== "closed")
+        out.push(
+          <Button key="close" variant="secondary" onClick={() => void closeRequest()} data-close-review="">
+            {t("Close request")}
           </Button>
         );
     }
@@ -191,6 +220,7 @@ export function BranchReview({ backend, branchFileKey }: { backend: BranchingBac
                     <span className={styles.grow}>
                       <span className={styles.rowName}>{r.name ?? r.userId}</span>
                       {r.comment && <span className={styles.hint}>{r.comment}</span>}
+                      {r.outdated && <span className={styles.hint} data-outdated="">{t("Reviewed an older version of the branch")}</span>}
                     </span>
                     <span className={styles.hint} data-verdict={r.verdict}>
                       {r.verdict === "approved" ? t("Approved") : r.verdict === "changes-suggested" ? t("Changes suggested") : t("Pending")}

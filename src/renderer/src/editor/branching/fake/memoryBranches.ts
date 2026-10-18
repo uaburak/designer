@@ -188,6 +188,25 @@ export class MemoryBranches implements BranchesRepository {
     this.put({ ...r, review });
     return review;
   }
+  async withdrawReview(branchFileKey: FileKey) {
+    this.log("withdrawReview", branchFileKey);
+    const r = this.must(branchFileKey);
+    if (!r.review) throw new Error("invalid");
+    const me = this.opts.me?.id ?? null;
+    const reviewers = r.review.reviewers.map((x) => (x.userId === me ? { ...x, verdict: "pending" as const, comment: "", at: null } : x));
+    const last = reviewers.filter((x) => x.verdict !== "pending").sort((a, b) => (b.at ?? 0) - (a.at ?? 0))[0];
+    const review: BranchReview = { ...r.review, state: last ? (last.verdict as "approved" | "changes-suggested") : "in-review", reviewers };
+    this.put({ ...r, review });
+    return review;
+  }
+  async closeReview(branchFileKey: FileKey) {
+    this.log("closeReview", branchFileKey);
+    const r = this.must(branchFileKey);
+    if (!r.review) throw new Error("invalid");
+    const review: BranchReview = { ...r.review, state: "closed" };
+    this.put({ ...r, review });
+    return review;
+  }
   async undoMerge(branchFileKey: FileKey) {
     this.log("undoMerge", branchFileKey);
     const r = this.must(branchFileKey);

@@ -1197,3 +1197,26 @@ describe("MultiplayerService, Phase 6: Offline sync (atlas 22 §3.3)", () => {
     expect(calls).toHaveLength(1);
   });
 });
+
+describe("MultiplayerService, Phase 6: a frame's images (docs/multiplayer.md §18.1)", () => {
+  it("an image that couldn't come down with its frame comes later in the background, not a placeholder for good", async () => {
+    let fail = 1;
+    const flaky: typeof fetch = async (input, init) => {
+      const u = new URL(String(input));
+      if ((init?.method ?? "GET") === "GET" && /\/blobs\/[0-9a-f]{40}$/.test(u.pathname) && fail-- > 0) throw new TypeError("network down");
+      return serverFetch(input, init);
+    };
+    const { a, b, fa, fb } = await sharedPair({ b: { fetch: flaky, retryDelays: [], downloadRetryDelays: [0, 0], sleep: async () => {} } });
+    const png = new TextEncoder().encode("an image made after the share");
+    await a.store.putBlob(png);
+    const sha1 = [...a.store.blobs.keys()][0];
+    const hash = Uint8Array.from(sha1.match(/../g)!.map((h) => parseInt(h, 16)));
+    a.store.edit(fa, [node(9, { phase: "CREATED", name: "Photo", fillPaints: [{ type: "IMAGE", image: { hash } }] } as any, 2 * 2 ** 20 + 1)]);
+    const arrived: string[] = [];
+    b.svc.onBlobsArrived((e) => arrived.push(...e.arrived));
+    await vi.waitFor(() => expect(b.store.blobs.get(sha1)).toEqual(png), { timeout: 5000 });
+    expect(b.store.doc(fb)[`${2 * 2 ** 20 + 1}:9`].name).toBe("Photo");
+    expect(arrived).toContain(sha1);
+    await vi.waitFor(() => expect((b.store.saved.links[fb] as { images?: string[] }).images).toBeUndefined(), { timeout: 5000 });
+  });
+});

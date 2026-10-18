@@ -117,6 +117,9 @@ describe("RemoteBranches against the server (docs/data.md §15.7.1)", () => {
     // Reviews.
     const review = await remote.requestReview(up.record, [bob.user.id], "New tokens");
     expect(review).toMatchObject({ state: "in-review", description: "New tokens" });
+    // The request closed by its asker (docs/multiplayer.md §18.9); a new one opens again
+    expect(await remote.closeReview({ ...up.record, review })).toMatchObject({ id: review.id, state: "closed" });
+    expect((await remote.requestReview(up.record, [bob.user.id], "Again")).id).not.toBe(review.id);
 
     // Merge: a moved main is stale; then one frame on main, received by every client as remote.
     await expect(remote.merge(up.record, { mainSeq: 2, branchSeq: 2, batch: bytes("merge-batch") })).rejects.toMatchObject({ code: "stale" });
