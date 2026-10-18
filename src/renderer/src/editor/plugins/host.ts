@@ -16,6 +16,7 @@ import { ApiError, decodeValue, encodeValue, MIXED } from "./api/codec";
 import { readNode, ref, refOf, type ApiContext } from "./api/context";
 import * as doc from "./api/document";
 import * as draw from "./api/draw";
+import { motionOps } from "./api/motion";
 import { childrenOf, descendants, getPluginData, getProp, getRelaunchData, insertChild, nodeCss, pluginDataKeys, removeNode, rescale, resize, setPluginData, setProp, setRelaunchData, topLevelFrame } from "./api/nodes";
 import type { PluginDesktop } from "./desktop";
 import bridgeSource from "./runtime/bridge.js?raw";
@@ -594,6 +595,8 @@ export class PluginRun {
       createTextPath: (id, segment, position) => draw.createTextPath(ctx(), id, segment, position),
       transformGroup: (nodes, parent, index, modifiers) => draw.transformGroup(ctx(), nodes, parent, n(index), modifiers),
       "brushes.load": (type) => Promise.resolve().then(() => draw.loadBrushes(ctx(), type)),
+      // Motion (docs/motion.md §9)
+      ...motionOps(ctx),
       "selection.colors": () => doc.selectionColors(ctx()),
       "viewport.get": () => doc.viewport(ctx()),
       "viewport.set": (v) => doc.setViewport(ctx(), (v ?? {}) as Obj),

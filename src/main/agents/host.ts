@@ -31,6 +31,7 @@ import type { AgentSettings, ChatEvent, ManagerToolDef, McpClientId, McpConnecti
 import { cliSpec, type CliSpec } from "./providers";
 import { runCliProcess, loginUrl, type AuthEnv, type CliModels, type RunResult } from "./providers/turns";
 import { ImagePathError, resolveImagePaths } from "./imageArgs";
+import { saveToolFiles } from "./toolFiles";
 import { attachmentsDirOf, clipboardPaths, readFiles, saveAttachments, turnAttachments } from "./attachments";
 import type { AttachResult } from "../../shared/agents/attachments";
 import { configText, connectClient, disconnectClient, listClients, CLIENTS, type ClientEnv } from "./clients";
@@ -157,7 +158,7 @@ const cliModels = new Map<string, CliModels>();
 /** A chat's grant (its MCP token), kept across its turns: `${fileKey}/${chatId}` → token */
 const chatTokens = new Map<string, string>();
 let reqSeq = 0;
-const pending = new Map<number, { resolve: (r: ToolResult) => void; sender: number; timer: ReturnType<typeof setTimeout> }>();
+const pending = new Map<number, { resolve: (r: ToolResult) => void; sender: number; timer: ReturnType<typeof setTimeout>; saveDir: string }>();
 
 /** The editor view showing `fileKey` (its edit view; a prototype tab can't run tools). */
 function viewFor(fileKey: string): WebContents | null {
@@ -220,7 +221,9 @@ function runToolInView(fileKey: string, call0: Omit<ToolCall, "reqId">): Promise
       pending.delete(reqId);
       resolve({ content: [{ type: "text", text: `The tool took too long (${ms >= 60_000 ? `${ms / 60_000} min` : `${ms / 1000} s`}).` }], isError: true });
     }, ms);
-    pending.set(reqId, { resolve, sender: wc.id, timer });
+    // Files the call makes (export_animation) go to the chat's folder, an outside client's to Downloads.
+    const t = call.turnId ? turns.get(call.turnId) : undefined;
+    pending.set(reqId, { resolve, sender: wc.id, timer, saveDir: t ? chatDir(t.chatId) : app.getPath("downloads") });
     wc.send("agents:tool-call", { reqId, ...call });
   });
 }
@@ -446,6 +449,15 @@ export function settleToolCall(sender: WebContents, r: ToolCallResult) {
   clearTimeout(p.timer);
   pending.delete(r.reqId);
   const content = Array.isArray(r.content) ? r.content.filter((c) => c && (c.type === "text" ? typeof c.text === "string" : c.type === "image" && typeof c.data === "string")).slice(0, 20) : [];
+  // A tool's files (export_animation) are written here and the agent told where.
+  if (Array.isArray(r.files) && r.files.length && r.isError !== true) {
+    try {
+      const saved = saveToolFiles(p.saveDir, r.files);
+      content.push({ type: "text", text: saved.length ? `Saved: ${saved.join(", ")}` : "The file couldn't be saved." });
+    } catch (err) {
+      content.push({ type: "text", text: `The file couldn't be saved: ${err instanceof Error ? err.message : String(err)}` });
+    }
+  }
   p.resolve({ content: content.length ? content : [{ type: "text", text: "(no result)" }], isError: r.isError === true });
 }
 

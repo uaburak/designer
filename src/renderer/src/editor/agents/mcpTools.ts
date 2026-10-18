@@ -28,6 +28,7 @@ import { codeConnectSnippets, type CodeConnectSource, type ViewSnippet } from ".
 import { editorDevData } from "../devmode/round5";
 import { addInteractionTool, getPrototypeTool, prototypeContext, prototypeField, prototypeOf, removeFlowTool, removeInteractionTool, setFlowTool, setPrototypeSettingsTool, updateInteractionTool } from "./prototypeTools";
 import { describeSchema } from "@shared/agents/schemaDescribe";
+import { addAnimationTool, addAudioTool, applyAnimationStyleTool, detachAnimationStyleTool, editAnimationTool, editAudioTool, exportAnimationTool, getMotionTool, removeAnimationsTool, removeKeyframesTool, setKeyframesTool, setTimelineTool } from "./motionTools";
 import { reactionsFromDoc } from "./prototypeSpec";
 import { EngineBusy } from "./turns";
 
@@ -1305,6 +1306,30 @@ export async function runTool(env: ToolEnv, name: string, args: Spec): Promise<T
         return removeFlowTool(env, args);
       case "set_prototype_settings":
         return setPrototypeSettingsTool(env, args);
+      case "get_motion":
+        return getMotionTool(env, args);
+      case "set_keyframes":
+        return setKeyframesTool(env, args);
+      case "remove_keyframes":
+        return removeKeyframesTool(env, args);
+      case "set_timeline":
+        return setTimelineTool(env, args);
+      case "add_animation":
+        return addAnimationTool(env, args);
+      case "edit_animation":
+        return editAnimationTool(env, args);
+      case "remove_animations":
+        return removeAnimationsTool(env, args);
+      case "apply_animation_style":
+        return applyAnimationStyleTool(env, args);
+      case "detach_animation_style":
+        return detachAnimationStyleTool(env, args);
+      case "add_audio":
+        return await addAudioTool(env, args);
+      case "edit_audio":
+        return editAudioTool(env, args);
+      case "export_animation":
+        return await exportAnimationTool(env, args);
       case "describe_schema": {
         const r = describeSchema(String(args.field ?? args.name ?? ""));
         return r.ok ? textResult(r.value) : textResult(r.error, true);

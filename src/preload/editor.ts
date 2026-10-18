@@ -149,7 +149,7 @@ function agentsApi(): AgentsApi {
     on("agents:tool-call", (call) => {
       void handler(call)
         .catch((err: unknown): Omit<ToolCallResult, "reqId"> => ({ content: [{ type: "text", text: err instanceof Error ? err.message : String(err) }], isError: true }))
-        .then((r) => send("agents:tool-result", { reqId: call.reqId, content: r.content, isError: r.isError, touched: r.touched }));
+        .then((r) => send("agents:tool-result", { reqId: call.reqId, content: r.content, isError: r.isError, touched: r.touched, ...(r.files?.length ? { files: r.files } : {}) }));
     }),
   onConsent: (cb) => on("agents:consent", cb),
   answerConsent: (reqId, allow, remember, windowId) => send("agents:consent-answer", { reqId: Number(reqId), allow: allow === true, remember: remember === true, ...(typeof windowId === "string" ? { windowId: windowId.slice(0, 200) } : {}) }),

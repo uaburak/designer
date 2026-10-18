@@ -23,6 +23,8 @@ import type { VariableUse } from "./viewerDoc";
 import { AnnotationsSection, AssetsSection, CodeSettings, ExportSection, type PluginLanguages } from "./DevSections";
 import { CodeConnectSection } from "./inspect/CodeConnectSection";
 import { DevResourcesSection } from "./inspect/DevResources";
+import { DevTimeline, MotionTab, motionOf } from "./inspect/MotionTab";
+import { t } from "@/i18n";
 import { editedAgo, listRows } from "./inspect/devMode";
 import { StatusTag } from "@/editor/devmode/StatusTag";
 import { composeInUnit, cssInUnit, storedUnits, storeUnits, swiftUIInUnit, type Language, type UnitSettings } from "./inspect/units";
@@ -91,8 +93,10 @@ export interface ExtraTab {
 }
 
 export function InspectPanel({ onPresent, extraTab }: { onPresent?: () => void; extraTab?: ExtraTab }) {
-  const { store, preview, host } = useViewer();
-  const [tab, setTab] = useState<"inspect" | "extra">("inspect");
+  const { engine, store, preview, host } = useViewer();
+  const [tab, setTab] = useState<"inspect" | "extra" | "motion">("inspect");
+  const [aside, setAside] = useState<HTMLElement | null>(null);
+  const [timeline, setTimeline] = useState<string | null>(null);
   const plugins = usePluginLanguages(host?.dev?.codegen);
   const selection = useSelection(store);
   const [language, setLanguage] = useState<Language>(storedLanguage);
@@ -110,17 +114,30 @@ export function InspectPanel({ onPresent, extraTab }: { onPresent?: () => void; 
     }
   };
   const inspect = preview.manifest.options.inspect;
+  // The Motion tab: one layer selected that is, or holds, an animated layer (docs/motion.md §8.2).
+  const one = selection.refs.length === 1 ? selection.refs[0] : null;
+  const motion = useMemo(() => (inspect && one ? motionOf(engine, one) : null), [engine, inspect, one]);
+  const shown = tab === "motion" && !motion ? "inspect" : tab;
+  // The timeline view stays open while the selection is in its root.
+  const timelineRoot = motion && timeline === motion.root ? timeline : null;
   return (
-    <aside className={styles.right} aria-label="Inspect panel" data-panel="inspect">
+    <aside ref={setAside} className={styles.right} aria-label="Inspect panel" data-panel="inspect">
       <div className={styles.rightHeader}>
-        {extraTab ? (
+        {extraTab || motion ? (
           <>
-            <button type="button" className={tab === "inspect" ? styles.rightTab : styles.rightTabOff} aria-current={tab === "inspect" ? "page" : undefined} onClick={() => setTab("inspect")}>
+            <button type="button" className={shown === "inspect" ? styles.rightTab : styles.rightTabOff} aria-current={shown === "inspect" ? "page" : undefined} onClick={() => setTab("inspect")}>
               Inspect
             </button>
-            <button type="button" className={tab === "extra" ? styles.rightTab : styles.rightTabOff} aria-current={tab === "extra" ? "page" : undefined} onClick={() => setTab("extra")} data-tab={extraTab.label}>
-              {extraTab.label}
-            </button>
+            {motion && (
+              <button type="button" className={shown === "motion" ? styles.rightTab : styles.rightTabOff} aria-current={shown === "motion" ? "page" : undefined} onClick={() => setTab("motion")} data-tab="Motion">
+                {t("Motion")}
+              </button>
+            )}
+            {extraTab && (
+              <button type="button" className={shown === "extra" ? styles.rightTab : styles.rightTabOff} aria-current={shown === "extra" ? "page" : undefined} onClick={() => setTab("extra")} data-tab={extraTab.label}>
+                {extraTab.label}
+              </button>
+            )}
           </>
         ) : (
           <span className={styles.rightTab} aria-current="page">
@@ -131,8 +148,10 @@ export function InspectPanel({ onPresent, extraTab }: { onPresent?: () => void; 
         {onPresent && <IconButton icon="24.play" label="Present" shortcut="⌥⌘↩" onClick={onPresent} />}
       </div>
       <ScrollArea className={styles.rightBody}>
-        {extraTab && tab === "extra" ? (
+        {extraTab && shown === "extra" ? (
           extraTab.render()
+        ) : motion && one && shown === "motion" ? (
+          <MotionTab key={one} engine={engine} id={one} units={units} onTimeline={(open) => setTimeline(open ? motion.root : null)} />
         ) : !inspect ? (
           <EmptyState icon="24.info" title="Inspect is off" body="The person who shared this preview turned off Inspect." />
         ) : selection.refs.length === 0 ? (
@@ -143,6 +162,7 @@ export function InspectPanel({ onPresent, extraTab }: { onPresent?: () => void; 
           <LayerInspect key={selection.refs[0]} id={selection.refs[0]} code={{ language, units, onLanguage: choose, onUnits, plugins }} />
         )}
       </ScrollArea>
+      {timelineRoot && <DevTimeline engine={engine} root={timelineRoot} panel={aside} onClose={() => setTimeline(null)} />}
     </aside>
   );
 }

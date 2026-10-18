@@ -327,6 +327,106 @@ export const TOOLS: ToolDef[] = [
     },
     write: true,
   },
+  // Motion (docs/motion.md §9, round 8f): Figma's Plugin API shapes — seconds, public field names and units.
+  {
+    name: "get_motion",
+    title: "Get motion",
+    description:
+      "The Motion timeline of a top-level frame (nodeId: the frame or any layer in it; default: the selection's): its duration (seconds), playback (LOOP, ONCE, PING_PONG) and snapping fps; each animated layer's manualKeyframeTracks (Figma's Plugin API object: {OPACITY: {id, keyframes: [{id, timelinePosition, value, easing}]}, fills: {0: track}, effects: {0: {RADIUS: track}}}), its animations (applied presets: {id, styleId, name, duration, timelineOffset, props, visible}) and the composite animation styles they came from; the audio clips. `resolved: true` adds the resolved model (every property's keyframes in timeline time, presets materialised — what Dev Mode's code is written from). Read it before changing motion.",
+    inputSchema: { type: "object", properties: { nodeId, resolved: { type: "boolean" } } },
+    write: false,
+  },
+  {
+    name: "set_keyframes",
+    title: "Set keyframes",
+    description:
+      'Writes one field\'s keyframe track on layers (Figma\'s applyManualKeyframeTrack): keyframes [{id?, timelinePosition (seconds ≥ 0), value: {type: "FLOAT" | "VECTOR" | "COLOR", value}, easing?: {type: EASE_OUT | EASE_IN | EASE_IN_AND_OUT | LINEAR | EASE_IN_BACK | EASE_OUT_BACK | EASE_IN_AND_OUT_BACK | GENTLE | QUICK | BOUNCY | SLOW | HOLD | CUSTOM_CUBIC_BEZIER (easingFunctionCubicBezier {x1, y1, x2, y2}) | CUSTOM_SPRING (easingFunctionSpring {bounce})}}]. The track becomes this list: keyframes with an id it has are edited, the others added, the ones left out deleted (an empty list removes the track); `merge: true` only adds and edits. field: OPACITY (0–1), TRANSLATION_X / TRANSLATION_Y (px, added to the resting position), TRANSLATION_XY (VECTOR px), ROTATION (degrees, counter-clockwise +, added), SCALE_X / SCALE_Y / SCALE_XY (multipliers, 1 = unchanged), WIDTH, HEIGHT, CORNER_RADIUS, RECTANGLE_*_CORNER_RADIUS, STROKE_WEIGHT, BORDER_*_WEIGHT, STACK_SPACING, STACK_COUNTER_SPACING, STACK_PADDING_*, GRID_ROW_GAP, GRID_COLUMN_GAP, PATH_TRIM_START / PATH_TRIM_END (0–1); or {type: "INDEXED_ITEM", collection: "fills" | "strokes", index} (a SOLID paint\'s COLOR {r, g, b, a} 0–1) or {type: "INDEXED_ITEM", collection: "effects", index, field: RADIUS | SPREAD | OFFSET_X | OFFSET_Y | COLOR …}. The first keyframe\'s value holds back to 0 and the last one\'s to the end; the easing is into the keyframe. Never on a top-level frame (it is the timeline): animate its descendants. X / Y and XY tracks are exclusive. The timeline grows to hold the last keyframe unless extendTimeline is false. ' + WRITE_IDS,
+    inputSchema: {
+      type: "object",
+      properties: {
+        nodeIds: writeIds,
+        nodeId: writeId,
+        field: { description: 'A field name ("OPACITY") or {type: "PROPERTY", name} | {type: "INDEXED_ITEM", collection, index[, field]}' },
+        keyframes: { type: "array", items: { type: "object", properties: { id: { type: "string" }, timelinePosition: { type: "number" }, value: {}, easing: { type: "object" } }, required: ["timelinePosition", "value"] } },
+        merge: { type: "boolean" },
+        extendTimeline: { type: "boolean" },
+      },
+      required: ["field", "keyframes"],
+    },
+    write: true,
+  },
+  {
+    name: "remove_keyframes",
+    title: "Remove keyframes",
+    description: "Deletes keyframes by `keyframeIds` (get_motion lists them; a track left empty goes), and / or whole tracks: `fields` on nodeIds (Figma's removeManualKeyframeTrack).",
+    inputSchema: { type: "object", properties: { keyframeIds: ids, nodeIds: writeIds, nodeId: writeId, fields: { type: "array", items: {} } } },
+    write: true,
+  },
+  {
+    name: "set_timeline",
+    title: "Set timeline",
+    description: "A top-level frame's timeline (nodeId: the frame or any layer in it): duration in seconds (≤ 600), playback LOOP | ONCE | PING_PONG (not PING_PONG with audio), fps — the keyframes' snapping rate.",
+    inputSchema: { type: "object", properties: { nodeId: { type: "string" }, duration: { type: "number" }, playback: { enum: ["LOOP", "ONCE", "PING_PONG"] }, fps: { type: "number" } }, required: ["nodeId"] },
+    write: true,
+  },
+  {
+    name: "add_animation",
+    title: "Add animation",
+    description:
+      'Adds an animation preset to layers (Figma\'s applyAnimationStyle): style Opacity | Position | Scale | Rotation | Size | CornerRadius | Path (stroked layers) | TextStagger (text layers: characters, words, lines appear in turn) | New; timelineOffset (its start, seconds; default 0), duration (seconds; default 0.5), props — the preset\'s settings (e.g. Opacity {type: "fadeIn" | "fadeOut" | "custom", amount}, Position {type: "slide_in" | "slide_out" | "custom", direction: left | right | top | bottom | top_left …, distance}, Scale {type: "scaleIn" | "scaleOut", amount %}, TextStagger {animationDirection: "in" | "out", textDelayGrouping: CHARACTER | WORD | LINE | PARAGRAPH, textDelayOrder: LEFT_RIGHT | RIGHT_LEFT | CENTER_OUT | RANDOM, presetStaggerOverlap 0–100, positionEnabled, direction, distance, opacityEnabled, opacityAmount, scaleEnabled, scaleAmount, rotationEnabled, rotationAmount}; easing {type}). get_motion shows each preset\'s props as stored. Returns each layer\'s new animation (its id edits or removes it). ' + WRITE_IDS,
+    inputSchema: { type: "object", properties: { nodeIds: writeIds, nodeId: writeId, style: { type: "string" }, timelineOffset: { type: "number" }, duration: { type: "number" }, props: { type: "object" }, visible: { type: "boolean" }, extendTimeline: { type: "boolean" } }, required: ["style"] },
+    write: true,
+  },
+  {
+    name: "edit_animation",
+    title: "Edit animation",
+    description: "Changes one animation (animationId from get_motion / add_animation; nodeId: its layer): props (merged over its own; its preset's code runs again), timelineOffset, duration (seconds), style (another preset type), visible (its eye).",
+    inputSchema: { type: "object", properties: { nodeId: { type: "string" }, animationId: { type: "string" }, style: { type: "string" }, timelineOffset: { type: "number" }, duration: { type: "number" }, props: { type: "object" }, visible: { type: "boolean" } }, required: ["animationId"] },
+    write: true,
+  },
+  {
+    name: "remove_animations",
+    title: "Remove animations",
+    description: "Removes animations (presets) by id, with their keyframes (nodeId: their layer, when they are all on one).",
+    inputSchema: { type: "object", properties: { nodeId: { type: "string" }, animationIds: ids }, required: ["animationIds"] },
+    write: true,
+  },
+  {
+    name: "apply_animation_style",
+    title: "Apply animation style",
+    description: 'Applies a composite animation style — its presets stacked to play together — to layers at timelineOffset (seconds; default 0): fadeIn, fadeOut, slideIn, slideOut, scaleIn, scaleOut, spinIn, textEnter / textExit (text layers). One preset at a time is add_animation. ' + WRITE_IDS,
+    inputSchema: { type: "object", properties: { nodeIds: writeIds, nodeId: writeId, style: { type: "string" }, timelineOffset: { type: "number" }, extendTimeline: { type: "boolean" } }, required: ["style"] },
+    write: true,
+  },
+  {
+    name: "detach_animation_style",
+    title: "Detach animation style",
+    description: "Detaches an applied composite style (styleEntryId: get_motion's animationStyles[].id): its animations stay, editable one by one.",
+    inputSchema: { type: "object", properties: { styleEntryId: { type: "string" } }, required: ["styleEntryId"] },
+    write: true,
+  },
+  {
+    name: "add_audio",
+    title: "Add audio",
+    description: "Puts a sound on a top-level frame's timeline (nodeId: the frame or a layer in it) at `offset` seconds: `path` — an AAC, MP3, WAV or M4A file in your working folder — or `data`, its bytes as base64; `name`. Exported MP4 / WebM carry it.",
+    inputSchema: { type: "object", properties: { nodeId: { type: "string" }, path: { type: "string" }, data: { type: "string" }, name: { type: "string" }, offset: { type: "number" } }, required: ["nodeId"] },
+    write: true,
+  },
+  {
+    name: "edit_audio",
+    title: "Edit audio",
+    description: "Changes an audio clip of a timeline (nodeId: its frame; audioId from get_motion): offset (its start on the timeline, s), trimStart (where in the file it starts, s), duration (s), volume 0–1, mute; splitAt (timeline seconds: cut in two); remove: true deletes it.",
+    inputSchema: { type: "object", properties: { nodeId: { type: "string" }, audioId: { type: "string" }, offset: { type: "number" }, trimStart: { type: "number" }, duration: { type: "number" }, volume: { type: "number" }, mute: { type: "boolean" }, splitAt: { type: "number" }, remove: { type: "boolean" } }, required: ["nodeId", "audioId"] },
+    write: true,
+  },
+  {
+    name: "export_animation",
+    title: "Export animation",
+    description:
+      "Exports a top-level frame's animation (nodeId: the frame or a layer in it) as a file saved in your working folder (the result gives its path): format MP4 (default, with the timeline's audio), WEBM, GIF (loop: true by default), SVG (animated), LOTTIE (JSON) or DOTLOTTIE; scale 0.5–4 (default 1) or width / height in px; fps 24, 25, 30 (default), 50 or 60; quality LOW | MEDIUM | HIGH (video); name (the file's). The whole timeline once (Ping-pong: there and back). To check motion, export a small GIF and look at its frames — get_screenshot shows the design at rest.",
+    inputSchema: { type: "object", properties: { nodeId: { type: "string" }, format: { enum: ["MP4", "WEBM", "GIF", "SVG", "LOTTIE", "DOTLOTTIE"] }, scale: { type: "number" }, width: { type: "number" }, height: { type: "number" }, fps: { type: "number" }, quality: { enum: ["LOW", "MEDIUM", "HIGH"] }, loop: { type: "boolean" }, name: { type: "string" } }, required: ["nodeId"] },
+    write: false,
+  },
   {
     name: "describe_schema",
     title: "Describe schema",
@@ -475,8 +575,8 @@ export const MANAGER_TOOLS: ToolDef[] = [
 
 export const MANAGER_TOOL_NAMES: ReadonlySet<string> = new Set(MANAGER_TOOLS.map((t) => t.name));
 
-/** Tools that wait for the owner or for tasks: main gives them 30 minutes instead of 120 s (docs/studio.md §2.2). */
-export const WAITING_TOOLS: ReadonlySet<string> = new Set(["wait_tasks", "ask_choice", "show_form", "report_review", "make_posts", "library_read_labels"]);
+/** Tools that wait for the owner, for tasks or for a long render: main gives them 30 minutes instead of 120 s (docs/studio.md §2.2; export_animation, docs/motion.md §9). */
+export const WAITING_TOOLS: ReadonlySet<string> = new Set(["wait_tasks", "ask_choice", "show_form", "report_review", "make_posts", "library_read_labels", "export_animation"]);
 export const WAITING_TOOL_MS = 30 * 60_000;
 
 /** Tools main answers itself (never sent to the editor view): `get_skill` (docs/ai.md §2.10). */
@@ -497,6 +597,15 @@ export interface ToolResult {
   isError?: boolean;
   /** The layers the call created or changed (the panel's "Changes" row; not sent to the agent). */
   touched?: string[];
+  /** Files the call made (export_animation): main saves them in the agent's working folder and tells it where (not sent as such). */
+  files?: ToolFile[];
+}
+
+/** A file a tool made, its bytes as base64. */
+export interface ToolFile {
+  name: string;
+  data: string;
+  mimeType: string;
 }
 
 export const textResult = (value: unknown, isError = false): ToolResult => ({ content: [{ type: "text", text: typeof value === "string" ? value : JSON.stringify(value, null, 1) }], isError: isError || undefined });

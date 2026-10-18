@@ -413,10 +413,11 @@ Figma's fields [P-man], parsed and checked by `parseManifest(json, {development}
 - **Events**: `figma.on` / `once` / `off` for `run`, `close`, `selectionchange`, `currentpagechange`, `documentchange`, `drop`, `stylechange`.
 - **Parameters**: `figma.parameters.on('input', ({query, key, parameters, result}) => result.setSuggestions(...) | setError | setLoadingMessage)`.
 - **Codegen**: `figma.codegen.on('generate' | 'preferenceschange')`, `preferences`, `refresh` (§7).
+- **Motion** (round 8f, docs/motion.md §9; `editor/plugins/api/motion.ts` over `editor/motion/publicApi.ts`, shared with the agents' motion tools): the node properties `manualKeyframeTracks` (get / set), `animationStyles` (get / set), `timelines`, `animations` and the methods `applyManualKeyframeTrack`, `removeManualKeyframeTrack`, `applyAnimationStyle`, `removeAnimationStyle`, `setTimelineDuration`; `figma.motion.figmaAnimationStyles()`, `playheadPosition`, `physicalSpringToNormalized()`. Seconds, Figma's public units and refusals; Dev Mode reads only.
 - **Dev resources**: `figma.devResources` (private API) and the node methods `getDevResourcesAsync`, `addDevResourceAsync`, `editDevResourceAsync`, `deleteDevResourceAsync` (docs/editor.md D-3).
 
 **Later (not round 5; each throws `"‹name› is not supported in DesignerV2 yet"`):**
-- `figma.payments`, `figma.timer`, `figma.buzz`, `figma.textreview`, `figma.vscode`, `figma.motion`.
+- `figma.payments`, `figma.timer`, `figma.buzz`, `figma.textreview`, `figma.vscode`. (`figma.motion`: round 8f, below.)
 - `createNodeFromJSXAsync`, `createVideoAsync`. (`createTextPath`, `transformGroup`, `loadBrushesAsync`: §5b, round 7e.)
 - FigJam and Slides creators (`createSticky`, `createConnector`, `createShapeWithText`, `createTable`, `createSlide` …).
 - `figma.widget`.
