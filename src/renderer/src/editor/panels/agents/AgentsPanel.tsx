@@ -891,7 +891,9 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
         </MenuButton>
         </span>
         <span className={styles.barGap} />
-        {service.managerProvider() ? (
+        {service.inSocial() && state.providers.some((p) => p.available) ? (
+          <SocialAgentMenu service={service} provider={provider} />
+        ) : service.managerProvider() ? (
           <button type="button" className={styles.noProvider} {...tooltipProps(t("Messages go to the manager (Agent settings › Manager)"))} onClick={() => { service.setView("settings"); service.openSetting("manager"); }} data-manager-chip="">
             {managerName(service.managerSettings())}
           </button>
@@ -919,6 +921,39 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
 
 /** A paste that carries files or a picture (a screenshot, a copied image, files copied in Finder). */
 const hasFiles = (d: DataTransfer) => d.types.includes("Files") || [...d.items].some((i) => i.kind === "file");
+
+/** Social's agent menu's value for the manager. */
+const MANAGER_VALUE = "manager";
+
+/**
+ * Social's composer (docs/social.md §1.3): the manager by default — every turn its — or an agent's model (the agents as
+ * headings, as the model menu lists them) for direct turns, until the manager is picked again.
+ */
+function SocialAgentMenu({ service, provider }: { service: AgentsService; provider: ProviderInfo | null }) {
+  useT();
+  const state = service.get();
+  const effort = provider ? service.current(provider).effort : undefined;
+  const value = state.socialDirect && provider ? `${provider.id}${MODEL_SEP}${service.current(provider).option?.key ?? ""}` : MANAGER_VALUE;
+  return (
+    <Select
+      label={t("Agent")}
+      variant="ghost"
+      width="hug"
+      value={value}
+      options={[{ value: MANAGER_VALUE, label: managerName(service.managerSettings()) }, "-", ...modelMenu(state.providers, state.resolved)]}
+      onChange={(v) => {
+        if (v === MANAGER_VALUE) return void service.chooseInSocial(null);
+        const [id, key] = v.split(MODEL_SEP);
+        const p = state.providers.find((x) => x.id === id);
+        if (!p) return;
+        const next = pickModel(p, key, effort?.id, state.resolved);
+        void service.chooseInSocial({ providerId: id, model: next.model || undefined, effort: p.efforts?.length ? next.effort : undefined });
+      }}
+      className={cx(styles.menu, styles.modelMenu)}
+      data-social-agent-menu=""
+    />
+  );
+}
 
 /** The model by its short name (the agents as headings in its menu) and, when the agent has one, its effort. */
 function ModelMenus({ service, provider }: { service: AgentsService; provider: ProviderInfo }) {

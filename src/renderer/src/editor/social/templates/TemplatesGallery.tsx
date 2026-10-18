@@ -5,7 +5,7 @@
  * is enabled here). A click inserts the template as a post — the variant for the picked format (default: its first),
  * bound to the board's brand, a product's packshot in the picture slot when the Post section has one picked — and a
  * drag inserts it where it is let go (templates.ts `insertTemplate`, one undo step). Empty: Make starter templates…
- * asks the agent (the manager's starter brief is round 18c's).
+ * sends the manager its starter brief (SocialMode.tsx `makeStarterTemplates`).
  */
 import { useMemo, useState } from "react";
 import { EmptyState, Icon, Select, showToast } from "@/ds";
@@ -22,7 +22,7 @@ import { toPage } from "../../placeImages";
 import { useBrands } from "../../studio/forms";
 import { canWritePosts, editorWriter } from "../actions";
 import { boardBrand } from "../NewPostMenu";
-import { draftForAgent, selectedPosts } from "../SocialMode";
+import { makeStarterTemplates, selectedPosts } from "../SocialMode";
 import { readPost } from "../posts";
 import { useSocialBoard } from "../socialState";
 import { filterTemplates, insertTemplate, localTemplates, libraryTemplates, type TemplateEntry } from "./templates";
@@ -109,7 +109,7 @@ export function TemplatesGallery() {
         icon="24.component"
         title={t("No templates yet")}
         body={t("Save a post as a template, enable a library with templates, or ask the agent for starter templates.")}
-        action={{ label: t("Make starter templates…"), onClick: () => draftForAgent(ed, t("Make starter templates for Instagram and LinkedIn in a new file, wired to the Brands library.")) }}
+        action={{ label: t("Make starter templates…"), onClick: () => void makeStarterTemplates(ed) }}
       />
     );
   return (

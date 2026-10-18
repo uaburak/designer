@@ -32,7 +32,7 @@ import { attachLibraryUsage, gid } from "./libraryUsage";
 import { setExplicitMode } from "./variables";
 import { LIMITS } from "./model/variables";
 import type { DefaultMode } from "../../../shared/libraries/orgTypes";
-import { readSocial, type PluginDataEntry, type SocialTemplateData } from "../../../shared/social/types";
+import { readSocial, templateSlotsIn, type PluginDataEntry, type SocialTemplateData, type TemplateSlotSummary } from "../../../shared/social/types";
 
 const THUMB = 256;
 
@@ -588,8 +588,8 @@ export interface PublishItem {
   collectionKey?: string;
   /** A variant's set's key */
   componentSetKey?: string;
-  /** A Social template's marker (docs/social.md §3.5): the manifest lists it so the gallery needn't fetch payloads */
-  social?: { template: SocialTemplateData };
+  /** A Social template's marker and slots (docs/social.md §3.5): the manifest lists them so the gallery and list_templates needn't fetch payloads */
+  social?: { template: SocialTemplateData; slots?: TemplateSlotSummary[] };
 }
 
 export interface PublishDraft {
@@ -680,12 +680,14 @@ function draftItems(ed: EditorController): { items: PublishItem[]; hiddenCount: 
   return { items, hiddenCount: hidden.length, hidden };
 }
 
-/** A component set's (or lone component's) Social template marker, as the manifest carries it (docs/social.md §3.5). */
+/** A component set's (or lone component's) Social template marker and its slots, as the manifest carries them (docs/social.md §3.5). */
 function socialOf(ed: EditorController, a: { kind: string; id: Guid; componentSetId?: Guid }): Pick<PublishItem, "social"> {
   if (a.kind !== "COMPONENT_SET" && !(a.kind === "COMPONENT" && !a.componentSetId)) return {};
   const n = ed.engine.readNode(a.id, { fields: ["pluginData"] }) as { pluginData?: PluginDataEntry[] } | null;
   const template = readSocial<SocialTemplateData>(n?.pluginData, "template");
-  return template && typeof template === "object" && template.formats && Object.keys(template.formats).length ? { social: { template } } : {};
+  if (!template || typeof template !== "object" || !template.formats || !Object.keys(template.formats).length) return {};
+  const slots = templateSlotsIn(ed.engine.readNodes([a.id], { subtree: true, fields: ["pluginData"] }) as { pluginData?: PluginDataEntry[] }[]);
+  return { social: { template, slots } };
 }
 
 /** Why an asset can't be published (atlas 12 §3.5, §3.10): too many modes (the plan's limit) or variables in a collection. */

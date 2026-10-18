@@ -3,20 +3,33 @@
  * Each post with its preset ("Auto" — its format's own, §8 — or another that fits it), what the preset renders (size,
  * frame rate, codec, bitrate, length or quality, the limit) and the file it makes ("‹Campaign› / ‹post name› —
  * ‹format›.‹ext›"), with its format's limits checked before anything is drawn; Export renders them (a progress row
- * with Cancel), saves one file or a zip of them all, and marks the posts exported (one undo step). What the files
- * showed afterwards — over a size limit, a JPEG made smaller — is listed before the dialog closes.
+ * with Cancel), saves one file, a zip of them all or the files one by one (Save as), and marks the posts exported (one
+ * undo step). Each row's quality fields — a JPEG's quality, a video's quality and frame rate — go over its preset. What
+ * the files showed afterwards — over a size limit, a JPEG made smaller — is listed before the dialog closes. Videos wait
+ * while another animated export of the file runs (Motion's one at a time).
  */
-import { useMemo, useRef, useState } from "react";
-import { Button, Dialog, Select, showToast } from "@/ds";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Button, Dialog, Select, showToast, TextInput } from "@/ds";
 import { t, tp, useT } from "@/i18n";
 import type { Guid } from "@/engine/codec";
+import { FRAME_RATES, type AnimatedExportSettings } from "@shared/motion/types";
 import { useEditor } from "../../controller";
 import { canExport } from "../../exporting";
 import { useUI } from "../../hooks";
+import { animatedExportRunning, onAnimatedExportLock } from "../../motion/export/exportAnimated";
 import { PostThumb } from "../PostsList";
 import { socialOf } from "../socialState";
-import { AUTO_PRESET, autoPreset, exportAndSavePosts, planExports, presetsFor, secondsLabel, type PostExportPlan, type PostExportResult, type PostsProgress } from "./exportPosts";
+import { AUTO_PRESET, autoPreset, exportAndSavePosts, planExports, presetsFor, secondsLabel, type PlanOverrides, type PostExportPlan, type PostExportResult, type PostsProgress } from "./exportPosts";
 import styles from "./ExportPostsDialog.module.css";
+
+const QUALITIES: AnimatedExportSettings["quality"][] = ["LOW", "MEDIUM", "HIGH"];
+const QUALITY_LABEL: Record<AnimatedExportSettings["quality"], string> = { LOW: "Low", MEDIUM: "Medium", HIGH: "High" };
+
+/** "92" → 0.92: a JPEG's quality typed as a percentage, 1–100; null when it isn't a number. */
+export function jpegQualityOf(text: string): number | null {
+  const n = Math.round(Number(text.replace("%", "").trim()));
+  return Number.isFinite(n) && text.trim() ? Math.min(100, Math.max(1, n)) / 100 : null;
+}
 
 export function ExportPostsDialog() {
   const req = useUI((s) => s.socialExport ?? null);
@@ -42,19 +55,26 @@ function ExportPosts({ ids }: { ids: Guid[] }) {
   const ed = useEditor();
   const close = () => ed.ui.set({ socialExport: null });
   const [presets, setPresets] = useState<Record<Guid, string>>({});
+  const [overrides, setOverrides] = useState<Record<Guid, PlanOverrides>>({});
+  const [zip, setZip] = useState(true);
   const [progress, setProgress] = useState<PostsProgress | null>(null);
   const [done, setDone] = useState<PostExportResult[] | null>(null);
   const controller = useRef<AbortController | null>(null);
-  const plans = useMemo(() => planExports(ed, ids, presets), [ed, ids, presets]);
+  const plans = useMemo(() => planExports(ed, ids, presets, overrides), [ed, ids, presets, overrides]);
   const rows = useMemo(() => new Map(socialOf(ed).get().posts.map((p) => [p.id, p])), [ed]);
   const busy = progress !== null;
+  // Another animated export of this file running: the videos wait for it (Motion's one at a time).
+  const [locked, setLocked] = useState(() => animatedExportRunning(ed));
+  useEffect(() => onAnimatedExportLock(() => setLocked(animatedExportRunning(ed))), [ed]);
+  const waits = locked && !busy && plans.some((p) => p.animated);
+  const over = (post: Guid, patch: PlanOverrides) => setOverrides((s) => ({ ...s, [post]: { ...s[post], ...patch } }));
 
   const run = async () => {
     const ctl = new AbortController();
     controller.current = ctl;
     setProgress({ index: 0, total: plans.length, name: plans[0]?.name ?? "", frame: 0, frames: 0 });
     try {
-      const { saved, result } = await exportAndSavePosts(ed, plans.map((p) => p.post), { preset: presets, onProgress: setProgress, signal: ctl.signal });
+      const { saved, result } = await exportAndSavePosts(ed, plans.map((p) => p.post), { preset: presets, overrides, zip: plans.length > 1 && zip, onProgress: setProgress, signal: ctl.signal });
       const failed = result.posts.filter((p) => p.error);
       // What rendering found beyond the warnings already shown (an error, a size over its limit, a smaller JPEG).
       const shown = new Map(plans.map((p) => [p.post, p.warnings.length]));
@@ -100,7 +120,7 @@ function ExportPosts({ ids }: { ids: Guid[] }) {
             <Button variant="secondary" onClick={close}>
               {t("Cancel")}
             </Button>
-            <Button variant="primary" disabled={!plans.length || !canExport(ed)} onClick={() => void run()} data-export-posts="">
+            <Button variant="primary" disabled={!plans.length || !canExport(ed) || waits} onClick={() => void run()} data-export-posts="">
               {t("Export")}
             </Button>
           </>
@@ -108,7 +128,30 @@ function ExportPosts({ ids }: { ids: Guid[] }) {
       }
     >
       <div className={styles.body} data-export-posts-dialog="">
-        <p className={styles.target}>{file ? file : plans.length > 1 ? t("One zip of {n} files, by campaign", { n: String(plans.length) }) : t("No posts to export")}</p>
+        <div className={styles.targetRow}>
+          <p className={styles.target}>
+            {file ? file : plans.length > 1 ? zip ? t("One zip of {n} files, by campaign", { n: String(plans.length) }) : t("{n} files, in a folder per campaign", { n: String(plans.length) }) : t("No posts to export")}
+          </p>
+          {plans.length > 1 && (
+            <Select
+              label={t("Save as")}
+              value={zip ? "zip" : "files"}
+              options={[
+                { value: "zip", label: t("One zip") },
+                { value: "files", label: t("Separate files") },
+              ]}
+              onChange={(v) => setZip(v === "zip")}
+              disabled={busy || !!done}
+              width="hug"
+              data-export-zip=""
+            />
+          )}
+        </div>
+        {waits && (
+          <p className={styles.warning} role="status" data-export-locked="">
+            {t("An animation is already being exported")}
+          </p>
+        )}
         <div className={styles.list}>
           {plans.map((plan) => {
             const row = rows.get(plan.post);
@@ -130,6 +173,7 @@ function ExportPosts({ ids }: { ids: Guid[] }) {
                     />
                   </div>
                   <span className={styles.spec}>{planSummary(plan)}</span>
+                  <QualityFields plan={plan} onChange={(patch) => over(plan.post, patch)} disabled={busy || !!done} />
                   <span className={styles.file}>{plan.file}</span>
                   {notes.map((n) => (
                     <span key={n} className={styles.warning} data-export-warning="">
@@ -143,5 +187,35 @@ function ExportPosts({ ids }: { ids: Guid[] }) {
         </div>
       </div>
     </Dialog>
+  );
+}
+
+/**
+ * A row's quality fields over its preset (round 18 leftovers): a JPEG's Quality (%), a video's Quality and Frame rate
+ * (Motion's Animated tab's fields); a PNG and a PDF have none.
+ */
+function QualityFields({ plan, onChange, disabled }: { plan: PostExportPlan; onChange: (patch: PlanOverrides) => void; disabled: boolean }) {
+  if (plan.still?.imageType === "JPEG")
+    return (
+      <div className={styles.fields} data-export-quality="">
+        <TextInput
+          label={t("Quality")}
+          prefix={t("Quality")}
+          suffix="%"
+          value={String(Math.round((plan.still.quality ?? 0) * 100))}
+          onCommit={(v) => {
+            const q = jpegQualityOf(v);
+            if (q !== null) onChange({ jpegQuality: q });
+          }}
+          disabled={disabled}
+        />
+      </div>
+    );
+  if (!plan.animated) return null;
+  return (
+    <div className={styles.fields} data-export-quality="">
+      <Select label={t("Quality")} value={plan.animated.quality} options={QUALITIES.map((q) => ({ value: q, label: t(QUALITY_LABEL[q]) }))} onChange={(v) => onChange({ videoQuality: v as AnimatedExportSettings["quality"] })} disabled={disabled} />
+      <Select label={t("Frame rate")} value={String(plan.animated.fps)} options={FRAME_RATES.map((f) => ({ value: String(f), label: `${f} fps` }))} onChange={(v) => onChange({ fps: Number(v) as AnimatedExportSettings["fps"] })} disabled={disabled} />
+    </div>
   );
 }

@@ -5,7 +5,7 @@
 import type { SpaceId } from "../org/repositories";
 import type { BranchStatus } from "../merge/branches";
 import type { CloudFile } from "./cloud";
-import type { SocialTemplateData } from "../social/types";
+import type { SocialTemplateData, TemplateSlotSummary } from "../social/types";
 
 export type FileKey = string;
 export type FolderId = string;
@@ -263,8 +263,8 @@ export interface LibraryAsset {
    * (`stampUserFacingVersions`); manifests written before 2026-10-18 have none.
    */
   userFacingVersion?: string;
-  /** Social (docs/social.md §3.5): a component set (or component) carrying the template marker, filled at publish */
-  social?: { template: SocialTemplateData };
+  /** Social (docs/social.md §3.5): a component set (or component) carrying the template marker, and its slots, filled at publish */
+  social?: { template: SocialTemplateData; slots?: TemplateSlotSummary[] };
 }
 
 export interface Redirect {

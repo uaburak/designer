@@ -2,7 +2,7 @@
 // Social's templates and the Brands library (docs/social.md §10, round 18b) on the real engine: the library generated
 // for two brands (the Brand collection's modes, colour variables by name and by order, On primary's contrast pick,
 // fonts, text styles, the Logo set's variants and the marker), the same again changing nothing, a removed brand's
-// mode and logo gone; Save as template's refusals per missing wiring and the set it makes; a plain frame's texts
+// mode and logo gone, a renamed brand's renamed (its mode id kept); Save as template's refusals per missing wiring and the set it makes; a plain frame's texts
 // carried to the template's slots by role; a brand switching only the mode and the logo variant; fill_slots refusing
 // a locked slot; each action one undo step.
 import { readFileSync } from "node:fs";
@@ -26,8 +26,9 @@ import { draftPublish, publishLibrary, setLibraryEnabled } from "../libraries";
 import { importCsvPosts, readCsvPosts } from "../social/templates/csvImport";
 import { setBrandsRepository } from "../studio/forms";
 import { AgentsService } from "../agents/service";
+import { runTool } from "../agents/mcpTools";
 import { brandsUnavailable } from "@shared/studio/types";
-import { editorWriter, newPost } from "../social/actions";
+import { applyChecks, checkPost, editorWriter, fixProblem, newPost } from "../social/actions";
 import { readPost } from "../social/posts";
 import { readBoard } from "../social/socialState";
 import { brandColors, changedBrands, createBrandsLibrary, onPrimary, readBrandLibrary, writeBrandLibrary } from "../social/templates/brandLibrary";
@@ -118,7 +119,7 @@ describe("Brands library (round 18b)", () => {
     expect(engine.readNode(report.logoSet!, { fields: ["name", "parentIndex"] })).toMatchObject({ name: "Logo", parentIndex: { guid: logos.guid } });
     expect(logoVariants(engine, report.logoSet!)).toEqual(["Brand=Acme", "Brand=Beta"]);
     expect(ed.store.page).not.toBe(logos.guid);
-    expect(readBrandLibrary(ed)).toEqual({ v: 1, generatedFrom: { b1: 1, b2: 1 } });
+    expect(readBrandLibrary(ed)).toEqual({ v: 1, generatedFrom: { b1: 1, b2: 1 }, names: { b1: "Acme", b2: "Beta" } });
     expect(changedBrands(readBrandLibrary(ed), [ACME, { ...BETA, updated: 2 }])).toBe(1);
 
     // Again: nothing new.
@@ -135,6 +136,21 @@ describe("Brands library (round 18b)", () => {
     expect(readBrandLibrary(ed)?.generatedFrom).toEqual({ b1: 1, b3: 1 });
     engine.command("UNDO");
     expect(collection(engine).modes.map((m) => m.name)).toEqual(["Acme", "Beta"]);
+  });
+
+  it("renames a renamed brand's mode and logo variant (matched by its id), the mode id and variant kept", async () => {
+    const { ed, engine, w } = await setup();
+    const report = w("Update brands library", () => writeBrandLibrary(ed, [ACME, BETA]));
+    const variants = engine.readNode(report.logoSet!, { childIds: true })?.childIds;
+    // Acme renamed, a new brand before it: it gets a mode of its own, not Acme's.
+    const GAMMA = brand("b3", "Gamma");
+    const again = w("Update brands library", () => writeBrandLibrary(ed, [GAMMA, { ...ACME, name: "Acme Agro", updated: 2 }, BETA]));
+    expect(again.modes.b1).toBe(report.modes.b1);
+    expect(again.modes.b3).not.toBe(report.modes.b1);
+    expect(collection(engine).modes.map((m) => m.name)).toEqual(["Gamma", "Acme Agro", "Beta"]);
+    expect(logoVariants(engine, report.logoSet!)).toEqual(["Brand=Acme Agro", "Brand=Beta", "Brand=Gamma"]);
+    expect(engine.readNode(report.logoSet!, { childIds: true })?.childIds?.slice(0, 2)).toEqual(variants);
+    expect(readBrandLibrary(ed)?.names).toEqual({ b3: "Gamma", b1: "Acme Agro", b2: "Beta" });
   });
 
   it("creates the file in the first folder and points every brand at it; an existing one is only opened", async () => {
@@ -283,6 +299,36 @@ describe("Templates (round 18b)", () => {
     expect(mode()).toBe(lib.modes.b1);
     expect(engine.componentInfo(logo)?.variantProperties).toEqual({ Brand: "Acme" });
   });
+
+  it("gives a detached template post that lost its logo the template again (Fix without a model), one step", async () => {
+    const { ed, engine, w } = await setup();
+    setBrandsRepository(repo([ACME]));
+    const lib = w("Update brands library", () => writeBrandLibrary(ed, [ACME]));
+    const id = newPost(ed, w, { formatId: "instagram.square" });
+    const variants = engine.readNode(lib.logoSet!, { childIds: true })!.childIds as string[];
+    ed.batch("Draw", () => {
+      engine.runCommand("BIND_VARIABLE", { refs: [id], target: "fillPaints[0].color", variable: varNamed(engine, "Color/Primary").id } as never);
+      engine.runCommand("INSERT_INSTANCE", { main: variants[0], parent: id, x: 200, y: 200 } as never);
+      createNodes({ ed, write: (_l, fn) => fn() }, { parentId: id, nodes: [{ type: "TEXT", name: "Title", characters: "Hello", fontSize: 64, y: 600 }] });
+    });
+    const { key } = saveAsTemplate(ed, w, id, { name: "Brand card" }) as { key: string };
+    const made = await insertTemplate(ed, w, { key, brandId: "b1" });
+    // Detached, its logo deleted: the check finds it missing.
+    engine.setSelection([made]);
+    engine.command("DETACH_INSTANCE");
+    const frame = readBoard(ed, ed.store.page).posts.find((p) => p.data.template?.key === key && engine.componentInfo(p.id)?.kind !== "INSTANCE")!.id;
+    const logo = (engine.readNodes([frame], { subtree: true, fields: ["name"] }) as { guid: string; name?: string }[]).find((n) => n.name === "Logo")!.guid;
+    engine.setSelection([logo]);
+    engine.command("DELETE");
+    applyChecks(ed, w, frame, checkPost(ed, frame));
+    expect(readPost(ed, frame)?.problems.map((p) => p.id)).toContain("check:logo:missing");
+    expect(fixProblem(ed, w, frame, "check:logo:missing")).toBe(true);
+    expect(undoLabel(ed)).toBe("Fix problem");
+    const again = readBoard(ed, ed.store.page).posts.find((p) => p.data.template?.key === key && p.id !== made)!;
+    expect(engine.componentInfo(again.id)?.kind).toBe("INSTANCE");
+    expect(postSlots(ed, again.id).some((s) => s.data.role === "logo")).toBe(true);
+    expect(again.data.problems.map((p) => p.id)).not.toContain("check:logo:missing");
+  });
 });
 
 describe("CSV import (round 18b)", () => {
@@ -350,6 +396,7 @@ describe("Templates through a library (round 18b)", () => {
     const draft = await draftPublish(lib.ed);
     const item = draft.items.find((i) => i.key === saved.key)!;
     expect(item.social?.template).toMatchObject({ name: "Brand card", platforms: ["instagram", "linkedin"] });
+    expect(item.social?.slots?.find((s) => s.role === "headline")).toMatchObject({ property: expect.stringMatching(/^Headline#/), locked: false });
     const v = await publishLibrary(lib.ed, draft, { description: "", selected: new Set(draft.items.map((i) => i.key)), moveModes: new Map() });
     expect(v.assets.find((a) => a.key === saved.key)?.social?.template.name).toBe("Brand card");
 
@@ -357,6 +404,9 @@ describe("Templates through a library (round 18b)", () => {
     const app = await ws.open(await ws.file("Campaign"));
     await setLibraryEnabled(app.ed, libKey, true);
     expect(templateIndex(app.ed).map((e) => [e.name, e.library, e.node])).toEqual([["Brand card", libKey, null]]);
+    // Its slots come with the manifest: list_templates shows them before the template is first used.
+    const listed = JSON.parse((await runTool({ ed: app.ed, write: app.w }, "list_templates", {})).content.map((c) => (c.type === "text" ? c.text : "")).join("")) as { source: string; slots: { role: string }[] }[];
+    expect(listed.map((x) => [x.source, x.slots.map((s) => s.role).sort()])).toEqual([[expect.any(String), ["background", "headline", "logo"]]]);
     const made = await insertTemplate(app.ed, app.w, { key: saved.key, formatId: "linkedin.square", brandId: "b1" });
     expect(app.engine.readNode(made, { fields: ["size"] })?.size).toEqual({ x: 1200, y: 1200 });
     expect(readPost(app.ed, made)).toMatchObject({ formatId: "linkedin.square", brandId: "b1", template: { key: saved.key, variant: "LinkedIn square" } });

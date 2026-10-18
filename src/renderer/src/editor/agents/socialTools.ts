@@ -14,7 +14,7 @@ import { captionReport } from "@shared/social/caption";
 import { exportMime } from "@shared/exportFiles";
 import { presetById, SOCIAL_EXPORT_PRESETS } from "@shared/social/presets";
 import { formatById, PLATFORMS, resolveFormat, SOCIAL_FORMATS, brandFormatId } from "@shared/social/formats";
-import { POST_STATUSES, readSocial, SLOT_ROLES, type PlatformFormat, type PluginDataEntry, type PostStatus, type SlotRole, type SocialTemplateData, type TemplateSlotData } from "@shared/social/types";
+import { POST_STATUSES, readSocial, SLOT_ROLES, templateSlotsIn, type PlatformFormat, type PluginDataEntry, type PostStatus, type SlotRole, type SocialTemplateData, type TemplateSlotData, type TemplateSlotSummary } from "@shared/social/types";
 import type { Brand, SocialFormat } from "@shared/studio/types";
 import type { EditorController } from "../controller";
 import { motionRead } from "../motion/motionState";
@@ -157,7 +157,7 @@ interface TemplateView {
   source: string;
   formats: Record<string, string>;
   animated: boolean;
-  slots: { role: SlotRole; property: string | null; locked: boolean; maxChars: number | null }[];
+  slots: TemplateSlotSummary[];
 }
 
 type Marked = NodeChange & { pluginData?: PluginDataEntry[]; key?: string };
@@ -171,25 +171,20 @@ function localTemplates(ed: EditorController): TemplateView[] {
     for (const r of rows) {
       const data = readSocial<SocialTemplateData>(r.pluginData, "template");
       if (!data) continue;
-      const slots = (ed.engine.readNodes([r.guid], { subtree: true, fields: ["pluginData"] }) as Marked[]).flatMap((n) => {
-        const s = readSocial<TemplateSlotData>(n.pluginData, "slot");
-        return s && SLOT_ROLES.includes(s.role) ? [{ role: s.role, property: s.property ?? null, locked: !!s.locked, maxChars: s.maxChars ?? null }] : [];
-      });
-      // One entry per role and property: every variant carries the same slots.
-      const unique = [...new Map(slots.map((s) => [`${s.role}|${s.property ?? ""}`, s])).values()];
-      out.push({ key: r.key || r.guid, name: data.name || r.name || "", source: "local", formats: data.formats ?? {}, animated: !!data.animated, slots: unique });
+      const slots = templateSlotsIn(ed.engine.readNodes([r.guid], { subtree: true, fields: ["pluginData"] }) as Marked[]);
+      out.push({ key: r.key || r.guid, name: data.name || r.name || "", source: "local", formats: data.formats ?? {}, animated: !!data.animated, slots });
     }
   }
   return out;
 }
 
-/** The enabled libraries' templates, from their manifests (LibraryAsset.social; slots show once imported). */
+/** The enabled libraries' templates, from their manifests (LibraryAsset.social; a manifest published before 2026-10-18's leftovers has no slots). */
 function libraryTemplates(ed: EditorController): TemplateView[] {
   const state = ed.libraries.get();
   return state.enabled.flatMap((lib) =>
     (state.manifests.get(lib)?.assets ?? []).flatMap((a) => {
       const data = a.social?.template;
-      return data ? [{ key: a.key, name: data.name || a.name, source: state.names.get(lib) ?? lib, formats: data.formats ?? {}, animated: !!data.animated, slots: [] }] : [];
+      return data ? [{ key: a.key, name: data.name || a.name, source: state.names.get(lib) ?? lib, formats: data.formats ?? {}, animated: !!data.animated, slots: a.social?.slots ?? [] }] : [];
     })
   );
 }

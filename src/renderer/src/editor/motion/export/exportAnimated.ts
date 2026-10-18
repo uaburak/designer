@@ -43,6 +43,16 @@ function setRunning(ed: EditorController, on: boolean): void {
   lockListeners.forEach((l) => l());
 }
 
+/**
+ * Takes the file's one animated export (this tab's, and Social's export of posts with videos, docs/social.md §8): its
+ * release, or null while another export holds it.
+ */
+export function takeAnimatedExport(ed: EditorController): (() => void) | null {
+  if (running.has(ed)) return null;
+  setRunning(ed, true);
+  return () => setRunning(ed, false);
+}
+
 export interface AnimatedExportJob {
   root: Guid;
   name: string;
@@ -154,12 +164,12 @@ async function vectorOf(ed: EditorController, job: AnimatedExportJob, mode: "svg
 /** Renders every job and saves the files; the errors, per job, for the caller to toast. */
 export async function exportAnimated(ed: EditorController, jobs: readonly AnimatedExportJob[], onProgress?: (p: AnimatedProgress) => void, signal?: AbortSignal): Promise<{ saved: boolean; errors: string[] }> {
   if (!exportAllowed(ed)) return { saved: false, errors: [] };
-  if (running.has(ed)) return { saved: false, errors: [t("An animation is already being exported")] };
-  setRunning(ed, true);
+  const release = takeAnimatedExport(ed);
+  if (!release) return { saved: false, errors: [t("An animation is already being exported")] };
   try {
     return await exportJobs(ed, jobs, onProgress, signal);
   } finally {
-    setRunning(ed, false);
+    release();
   }
 }
 

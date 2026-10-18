@@ -13,7 +13,7 @@
  * exported (`markExported`, one undo step). The chrome (ExportPostsDialog) and the agents' `export_posts` call these.
  */
 import type { Guid } from "@/engine/codec";
-import { t } from "@/i18n";
+import { t, tp } from "@/i18n";
 import { presetById, SOCIAL_EXPORT_PRESETS } from "@shared/social/presets";
 import { resolveFormat } from "@shared/social/formats";
 import type { AnimatedExportSettings } from "@shared/motion/types";
@@ -23,7 +23,7 @@ import type { SocialFormat } from "@shared/studio/types";
 import type { EditorController } from "../../controller";
 import { exportAllowed, renderExport, saveFiles, type ExportedFile } from "../../exporting";
 import { zipStored } from "../../model/exports";
-import { renderAnimated, scaleOf, timelineOf, type AnimatedExportJob } from "../../motion/export/exportAnimated";
+import { renderAnimated, scaleOf, takeAnimatedExport, timelineOf, type AnimatedExportJob } from "../../motion/export/exportAnimated";
 import { planFrames } from "../../motion/export/frames";
 import { bitrateOf, MAX_VIDEO_SIDE } from "../../motion/export/video";
 import { canWritePosts, editorWriter, type Writer } from "../actions";
@@ -67,11 +67,20 @@ export function presetsFor(formatId: string, animated: boolean): SocialExportPre
   return [...own, ...generic].sort((a, b) => order(a) - order(b));
 }
 
+const clean = (s: string) => s.replace(/[/\\]+/g, "-").trim();
+
 /** "Spring sale / Hero — Instagram post.jpg": the campaign as a folder (none: no folder), "/" in the names kept out. */
 export function postFileName(campaign: string | null, post: string, format: string, ext: string): string {
-  const clean = (s: string) => s.replace(/[/\\]+/g, "-").trim();
   const base = `${clean(post) || t("Untitled")} — ${clean(format)}.${ext}`;
   return campaign && clean(campaign) ? `${clean(campaign)}/${base}` : base;
+}
+
+/**
+ * A carousel's slide (§5.2: "slides may be videos"): "Spring sale / Hero — Instagram carousel / 02 — Field.mp4" — a
+ * folder named as its cover's file, the slides numbered in `index` order so the files sort as the carousel goes.
+ */
+export function carouselFileName(coverFile: string, n: number, slide: string, ext: string): string {
+  return `${coverFile.replace(/\.[^./]+$/, "")}/${String(n).padStart(2, "0")} — ${clean(slide) || t("Untitled")}.${ext}`;
 }
 
 /** "3 s", "15 min", "1 min 30 s". */
@@ -154,8 +163,19 @@ function groupSlides(ed: EditorController, id: Guid, data: SocialPostData): Guid
   return posts.length ? posts.sort((a, b) => a.data.group!.index - b.data.group!.index).map((p) => p.id) : [id];
 }
 
+/**
+ * The Export dialog's fields over a post's preset (round 18 leftovers): a JPEG's quality, a video's quality and frame
+ * rate. A PNG and a PDF have none; the size stays the preset's (the format's).
+ */
+export interface PlanOverrides {
+  /** 0–1; the steps down from it when the file is over its limit */
+  jpegQuality?: number;
+  videoQuality?: AnimatedExportSettings["quality"];
+  fps?: AnimatedExportSettings["fps"];
+}
+
 /** The settings a preset gives a post, the file's name and the checks before rendering; null: not a post. */
-export function planPostExport(ed: EditorController, id: Guid, presetId: string = AUTO_PRESET): PostExportPlan | null {
+export function planPostExport(ed: EditorController, id: Guid, presetId: string = AUTO_PRESET, over: PlanOverrides = {}): PostExportPlan | null {
   const data = readPost(ed, id);
   if (!data) return null;
   const node = ed.engine.readNode(id, { fields: ["name", "size"] }) as { name?: string; size?: { x: number; y: number } } | null;
@@ -174,7 +194,7 @@ export function planPostExport(ed: EditorController, id: Guid, presetId: string 
   if (preset.still) {
     const s = preset.still;
     const ext = s.format === "JPEG" ? "jpg" : s.format.toLowerCase();
-    plan.still = { imageType: s.format, constraint: { type: "CONTENT_SCALE", value: s.scale }, colorProfile: "SRGB", ...(s.format === "JPEG" ? { quality: s.quality ?? JPEG_STEPS[0] } : {}), ...(s.format === "PDF" ? { contentsOnly: true } : {}) };
+    plan.still = { imageType: s.format, constraint: { type: "CONTENT_SCALE", value: s.scale }, colorProfile: "SRGB", ...(s.format === "JPEG" ? { quality: over.jpegQuality ?? s.quality ?? JPEG_STEPS[0] } : {}), ...(s.format === "PDF" ? { contentsOnly: true } : {}) };
     plan.width = Math.round(w * s.scale);
     plan.height = Math.round(h * s.scale);
     if (s.format === "PDF") {
@@ -184,7 +204,7 @@ export function planPostExport(ed: EditorController, id: Guid, presetId: string 
     }
     return { ...plan, file: postFileName(campaign, name, formatName, ext) };
   }
-  const a = preset.animated!;
+  const a: AnimatedExportSettings = { ...preset.animated!, ...(over.videoQuality ? { quality: over.videoQuality } : {}), ...(over.fps ? { fps: over.fps } : {}) };
   const codec = VIDEO_CODEC[a.format === "WEBM" ? "WEBM" : "MP4"];
   const scale = scaleOf(a.size, w, h);
   // Even sides, as the encoder pads them (motion/export/frames.ts padToEven).
@@ -210,21 +230,47 @@ export function planPostExport(ed: EditorController, id: Guid, presetId: string 
 }
 
 /**
- * The plans of `ids` (a preset per post: one for all, or by post id; missing: "auto"): posts only, in the order given;
- * a document's slides make one plan (its first slide's), the others folded into it.
+ * A carousel's slides (§5.2), one plan each in `index` order — a still slide its picture, an animated one its video
+ * within the format's video limits (Instagram's: a Reel's) — their files in one folder named as the cover's, numbered;
+ * the slides' count checked against the format's `items` on the cover. Null when `id` isn't a grouped carousel slide.
  */
-export function planExports(ed: EditorController, ids: readonly Guid[], preset: string | Readonly<Record<Guid, string>> = AUTO_PRESET): PostExportPlan[] {
+function planCarousel(ed: EditorController, id: Guid, presetOf: (id: Guid) => string, overOf: (id: Guid) => PlanOverrides): PostExportPlan[] | null {
+  const data = readPost(ed, id);
+  const format = data ? resolveFormat(data.formatId) : null;
+  if (!data?.group || !isPlatformFormat(format) || format.kind !== "carousel") return null;
+  const plans = groupSlides(ed, id, data).flatMap((s) => planPostExport(ed, s, presetOf(s), overOf(s)) ?? []);
+  const cover = plans[0]?.file ?? "";
+  plans.forEach((p, i) => (p.file = carouselFileName(cover, i + 1, p.name, p.file.slice(p.file.lastIndexOf(".") + 1))));
+  const items = format.items;
+  if (plans[0] && items && (plans.length < items.min || plans.length > items.max)) plans[0].warnings.push(tp(plans.length, "{n} slide: {format} takes {min}–{max}", "{n} slides: {format} takes {min}–{max}", { format: t(format.name), min: String(items.min), max: String(items.max) }));
+  return plans;
+}
+
+/**
+ * The plans of `ids` (a preset per post: one for all, or by post id; missing: "auto"; the dialog's fields by post id):
+ * posts only, in the order given; a document's slides make one plan (its first slide's), the others folded into it; a
+ * carousel's slides come together, in `index` order, in one folder.
+ */
+export function planExports(ed: EditorController, ids: readonly Guid[], preset: string | Readonly<Record<Guid, string>> = AUTO_PRESET, overrides: Readonly<Record<Guid, PlanOverrides>> = {}): PostExportPlan[] {
   const out: PostExportPlan[] = [];
   const folded = new Set<Guid>();
+  const presetOf = (id: Guid) => (typeof preset === "string" ? preset : (preset[id] ?? AUTO_PRESET));
+  const overOf = (id: Guid) => overrides[id] ?? {};
   for (const id of ids) {
     if (folded.has(id)) continue;
-    const plan = planPostExport(ed, id, typeof preset === "string" ? preset : (preset[id] ?? AUTO_PRESET));
+    const carousel = planCarousel(ed, id, presetOf, overOf);
+    if (carousel) {
+      carousel.forEach((p) => folded.add(p.post));
+      out.push(...carousel);
+      continue;
+    }
+    const plan = planPostExport(ed, id, presetOf(id), overOf(id));
     if (!plan) continue;
     if (plan.slides.length > 1) {
       const first = plan.slides[0];
       plan.slides.forEach((s) => folded.add(s));
       if (first !== id) {
-        const again = planPostExport(ed, first, plan.auto ? AUTO_PRESET : plan.preset.id);
+        const again = planPostExport(ed, first, plan.auto ? AUTO_PRESET : plan.preset.id, overOf(first));
         if (again) {
           out.push(again);
           continue;
@@ -315,6 +361,8 @@ export interface PostsProgress {
 export interface ExportPostsOptions {
   /** A preset for every post, or by post id; missing: "auto" */
   preset?: string | Readonly<Record<Guid, string>>;
+  /** The dialog's fields over the presets, by post id */
+  overrides?: Readonly<Record<Guid, PlanOverrides>>;
   /** One zip of every file (default: when more than one) */
   zip?: boolean;
   /** The zip's name without ".zip" (default: the campaign's when every post is in one, else the design file's) */
@@ -339,9 +387,26 @@ function zipNameOf(ed: EditorController, plans: readonly PostExportPlan[]): stri
   return one || ed.ui.get().fileName || t("Posts");
 }
 
-/** Renders `ids` with their presets into files (one zip when several); nothing is saved or written to the document. */
+/**
+ * Renders `ids` with their presets into files (one zip when several); nothing is saved or written to the document.
+ * Videos take the file's one animated export (Motion's lock, docs/motion.md §7.7) for the whole run: while the
+ * Animated tab (or another Export) holds it, every post answers so and nothing renders.
+ */
 export async function exportPosts(ed: EditorController, ids: readonly Guid[], opts: ExportPostsOptions = {}): Promise<ExportPostsResult> {
-  const plans = planExports(ed, ids, opts.preset);
+  const plans = planExports(ed, ids, opts.preset, opts.overrides);
+  const release = plans.some((p) => p.animated) ? takeAnimatedExport(ed) : () => {};
+  if (!release) {
+    const error = t("An animation is already being exported");
+    return { files: [], posts: plans.map((p) => ({ post: p.post, name: p.name, preset: p.preset.id, file: null, bytes: 0, warnings: p.warnings, error })), exported: [] };
+  }
+  try {
+    return await renderPlans(ed, plans, opts);
+  } finally {
+    release();
+  }
+}
+
+async function renderPlans(ed: EditorController, plans: readonly PostExportPlan[], opts: ExportPostsOptions): Promise<ExportPostsResult> {
   const renderers = opts.renderers ?? EDITOR_RENDERERS;
   const made: ExportedFile[] = [];
   const posts: PostExportResult[] = [];
