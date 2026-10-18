@@ -37,6 +37,7 @@ export const app: Record<string, string> = {
   "Export preview as HTML": "Önizlemeyi HTML olarak dışa aktar",
   "Web page": "Web sayfası",
   "Save local copy": "Yerel kopya kaydet",
+  "partial copy {date}": "kısmi kopya {date}",
   Export: "Dışa aktar",
   "The owner has turned off copying and exporting for viewers of this file.": "Sahip, bu dosyanın görüntüleyicileri için kopyalamayı ve dışa aktarmayı kapattı.",
   "The file": "Dosya",

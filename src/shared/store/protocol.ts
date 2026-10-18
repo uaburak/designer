@@ -100,6 +100,7 @@ export const STORE_METHODS = {
     "duplicateVersion",
     "importLocalCopy",
     "exportLocalCopy",
+    "missingImages",
     "importFigBytes",
     "exportFigBytes",
   ],

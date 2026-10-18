@@ -173,8 +173,13 @@ export interface FileRepository {
    * src/store/multiplayer/orgImport.ts) — `folderId` is then ignored.
    */
   importFigBytes(bytes: Uint8Array, name: string, folderId?: FolderId | null, org?: OrgImportPlace | null): Promise<FileMeta>;
-  /** Main only */
-  exportLocalCopy(fileKey: FileKey, path: string): Promise<void>;
+  /**
+   * Main only. `partial` (Figma's "Save partial file", atlas 22 §4): images not on this computer yet (a shared file's
+   * still coming down) are left out instead of waited for.
+   */
+  exportLocalCopy(fileKey: FileKey, path: string, opts?: { partial?: boolean }): Promise<void>;
+  /** How many of the images the file uses aren't on this computer yet (a shared file's still coming down) */
+  missingImages(fileKey: FileKey): Promise<number>;
   /**
    * The file as `.fig` bytes (the web app's Save local copy…, which the page downloads — no path; docs/cloud.md §7).
    * Only the browser's store answers it; the desktop store writes the file itself (`exportLocalCopy`).

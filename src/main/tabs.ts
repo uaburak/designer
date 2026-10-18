@@ -531,11 +531,11 @@ export class TabManager {
   }
 
   /** A file as a .fig (`file:save-local-copy`); its open tab flushes first so the copy has its last changes. */
-  async saveLocalCopy(fileKey: string): Promise<{ path: string } | { cancelled: true }> {
+  async saveLocalCopy(fileKey: string, opts: { partial?: boolean } = {}): Promise<{ path: string } | { cancelled: true }> {
     const open = this.state.tabs.find((t) => t.kind === "file" && t.fileKey === fileKey && this.runtime.has(t.id));
     if (open) await askFlush(this.runtime.get(open.id)!.view.webContents, "hide");
     try {
-      return await saveLocalCopy(this.ctl.win, fileKey);
+      return await saveLocalCopy(this.ctl.win, fileKey, opts);
     } catch (err) {
       await tellFileError(this.ctl.win, t("The local copy couldn’t be saved."), err instanceof Error ? err.message : String(err));
       throw err;

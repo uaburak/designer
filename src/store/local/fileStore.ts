@@ -1133,6 +1133,15 @@ export class FileStore {
     return codec.encodeMessage(restoreDiff(table, target));
   }
 
+  /** The images the head uses (no flush, no compaction): Save local copy's check for ones still downloading. */
+  async headBlobRefs(fileKey: FileKey): Promise<string[]> {
+    const a = this.actor(fileKey);
+    return a.queue.run(async () => {
+      const h = await this.loaded(a);
+      return [...new Set([...h.state.blobRefs, ...h.pendingRefs])];
+    });
+  }
+
   /** The head snapshot file after a flush and a compaction (Save Local Copy, duplicate). */
   async compactedHead(fileKey: FileKey): Promise<{ path: string; seq: number; blobRefs: string[]; derivedDataVersion: number }> {
     const a = this.actor(fileKey);

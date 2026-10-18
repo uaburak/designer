@@ -1596,6 +1596,8 @@ export class MemoryStore {
       exportLocalCopy: async () => {
         throw new StoreError("forbidden", "Saving a local copy needs the desktop app");
       },
+      // Every image of a file in this page's store is here
+      missingImages: async (fileKey) => (this.ws.getMeta(fileKey), 0),
       // The web app's Save local copy…: the .fig's bytes, which the page downloads
       exportFigBytes: (fileKey) => this.exportFigBytes(fileKey),
     };

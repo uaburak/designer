@@ -405,7 +405,8 @@ export class StoreClient implements StoreApi {
     duplicateVersion: (fileKey, id) => this.call("files.duplicateVersion", [fileKey, id]),
     importLocalCopy: (path, folderId) => this.call("files.importLocalCopy", [path, folderId]),
     importFigBytes: (bytes, name, folderId, org) => this.call("files.importFigBytes", [bytes, name, folderId ?? null, org ?? null]),
-    exportLocalCopy: (fileKey, path) => this.call("files.exportLocalCopy", [fileKey, path]),
+    exportLocalCopy: (fileKey, path, opts) => this.call("files.exportLocalCopy", [fileKey, path, opts]),
+    missingImages: (fileKey) => this.call("files.missingImages", [fileKey]),
     exportFigBytes: (fileKey) => this.call("files.exportFigBytes", [fileKey]),
   };
 

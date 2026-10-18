@@ -32,6 +32,8 @@ export async function writeLocalCopy(input: {
   tmpDir: string;
   path: string;
   now: number;
+  /** Figma's "Save partial file": images not on this computer are left out, not waited for */
+  partial?: boolean;
 }): Promise<{ bytes: number; images: number }> {
   const snap = await readSnapshotFile(input.snapshotPath);
   const message = currentMessage(snap);
@@ -52,7 +54,10 @@ export async function writeLocalCopy(input: {
     exported_at: new Date(input.now).toISOString(),
   };
   const images: [string, Uint8Array][] = [];
-  for (const sha1 of [...input.blobRefs].sort()) {
+  const refs = [...input.blobRefs].sort();
+  const here = input.partial ? await input.blobs.has(refs) : null;
+  for (const [i, sha1] of refs.entries()) {
+    if (here && !here[i]) continue;
     try {
       images.push([sha1, await input.blobs.get(sha1)]);
     } catch {

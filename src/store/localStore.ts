@@ -942,7 +942,15 @@ export class LocalStore {
     await writeJsonAtomic(this.dirs.tmp, p, s);
   }
 
-  async exportLocalCopy(fileKey: FileKey, path: string): Promise<void> {
+  /** Images the file's head uses that aren't in the blob store yet (a shared file's still downloading). */
+  async missingImages(fileKey: FileKey): Promise<number> {
+    this.guard();
+    this.ws.getMeta(fileKey);
+    const refs = await this.files.headBlobRefs(fileKey);
+    return (await this.blobs.has(refs)).filter((here) => !here).length;
+  }
+
+  async exportLocalCopy(fileKey: FileKey, path: string, opts: { partial?: boolean } = {}): Promise<void> {
     this.guard();
     if (typeof path !== "string" || !path) throw new StoreError("invalid", "exportLocalCopy needs a path");
     await this.personal.ensureLocal(fileKey);
@@ -957,6 +965,7 @@ export class LocalStore {
       tmpDir: this.dirs.tmp,
       path,
       now: this.clock.now(),
+      partial: opts.partial === true,
     });
   }
 
@@ -1113,7 +1122,8 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     duplicateVersion: (fileKey, id) => s.duplicateVersion(fileKey, id),
     importLocalCopy: (path, folderId) => s.importLocalCopy(path, folderId ?? null),
     importFigBytes: (bytes, name, folderId, org) => s.importFigBytes(bytes, name, folderId ?? null, org),
-    exportLocalCopy: (fileKey, path) => s.exportLocalCopy(fileKey, path),
+    exportLocalCopy: (fileKey, path, opts) => s.exportLocalCopy(fileKey, path, { partial: opts?.partial === true }),
+    missingImages: (fileKey) => s.missingImages(fileKey),
   };
   const blobs: BlobStore = {
     put: (bytes, hint) => s.blobs.put(bytes, hint),

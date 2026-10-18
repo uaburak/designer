@@ -301,7 +301,7 @@ export interface IpcInvoke extends SharedFontsChannels {
   /** .fig files into a folder (null: Drafts): the given paths, or the ones picked in the system's Open dialog */
   "file:import": { args: [{ folderId: string | null; paths?: string[] }]; result: ImportResult };
   /** A file written out as a .fig where the system's Save dialog says */
-  "file:save-local-copy": { args: [{ fileKey: string }]; result: { path: string } | { cancelled: true } };
+  "file:save-local-copy": { args: [{ fileKey: string; partial?: boolean }]; result: { path: string } | { cancelled: true } };
   /**
    * Exported files (File › Export…, the Design panel's Export section, Export frames to PDF): one through the system's
    * Save dialog, more into a folder picked in its Open dialog; names with "/" make folders, a name already taken
