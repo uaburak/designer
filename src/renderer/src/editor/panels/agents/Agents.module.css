@@ -228,8 +228,11 @@
   .row:hover { background: var(--figma-color-bg-hover); }
   .row:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .rowIcon { display: inline-flex; flex: none; color: var(--figma-color-icon); }
+  /* The name whole up to two thirds of the row; a long status ("Turned off by your organization") gives way first */
   .rowLabel { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .rowStatus { display: inline-flex; flex: none; align-items: center; gap: var(--ds-space-1); color: var(--figma-color-text-secondary); white-space: nowrap; }
+  .rowLabel:has(+ .rowStatus) { flex-shrink: 0; max-width: 66%; }
+  .rowStatus { display: inline-flex; flex: 0 1 auto; align-items: center; gap: var(--ds-space-1); min-width: 0; margin-left: auto; color: var(--figma-color-text-secondary); white-space: nowrap; }
+  .rowStatus > span:last-child { overflow: hidden; text-overflow: ellipsis; }
   .rowChevron { display: inline-flex; flex: none; color: var(--figma-color-icon-tertiary); }
   .rowDim .rowLabel, .rowDim .rowStatus { color: var(--figma-color-text-tertiary); }
   .rowDim .rowIcon { color: var(--figma-color-icon-tertiary); }
