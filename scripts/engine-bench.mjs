@@ -1223,9 +1223,17 @@ function pageMain() {
         }
         return out;
       },
-      showPage(guid) {
+      // A page at fit, once the fonts and images its first frame asked for are in (a font or image arriving after
+      // the screenshot made two dumps of one build differ).
+      async showPage(guid) {
         engine.setCurrentPage(guid);
         engine.command("ZOOM_TO_FIT");
+        engine.pump();
+        engine.renderNow();
+        await fonts.settled();
+        engine.pump();
+        engine.renderNow();
+        await engine.imagesSettled();
         engine.pump();
         engine.renderNow();
         return engine.pages().map((p) => p.guid);
