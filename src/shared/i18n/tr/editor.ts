@@ -385,6 +385,8 @@ export const editor: Record<string, string> = {
   "Snap to pixel grid disabled": "Piksel ızgarasına yaslama kapalı",
   // The zoom menu (panels/RightPanel.tsx ZoomMenu)
   "Show annotations": "Ek açıklamaları göster",
+  "Show all categories": "Tüm kategorileri göster",
+  "Prototyping information": "Prototip bilgileri",
   "Default properties set": "Varsayılan özellikler ayarlandı",
   "Files open in the desktop app's Home": "Dosyalar masaüstü uygulamasının Ana sayfasında açılır",
   "Copied {color} to clipboard": "{color} panoya kopyalandı",

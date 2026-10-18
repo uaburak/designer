@@ -117,6 +117,15 @@ export const HUE_METHODS: { value: InterpolationHueMethod; label: string }[] = [
 /** Whether a space blends round the hue circle (its hue method select shows). */
 export const hasHue = (space: InterpolationColorSpace | undefined) => space === "OKLCH" || space === "HSL";
 
+/** A gradient blended in `space`: a hue space starts Increasing (the UI's default), the others carry no hue method; Default is the field's absence. */
+export function withInterpolation<P extends Pick<PickerPaint, "interpolationColorSpace" | "interpolationHueMethod">>(paint: P, space: InterpolationColorSpace): P {
+  const next: P = { ...paint, interpolationColorSpace: space };
+  if (hasHue(space)) next.interpolationHueMethod = paint.interpolationHueMethod === "DECREASING" ? "DECREASING" : "INCREASING";
+  else delete next.interpolationHueMethod;
+  if (space === "DEFAULT") delete next.interpolationColorSpace;
+  return next;
+}
+
 /** The fewest stops a gradient keeps (Figma's GradientControl `minStops`, default 1 in the fill picker). */
 export const MIN_STOPS = 1;
 

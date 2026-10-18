@@ -144,6 +144,8 @@ export interface UIState extends PreferenceFlags {
   actionsOpen?: boolean;
   /** Figma's "Additional labels" (View menu; was "Property labels" in the zoom menu): the Design panel's row labels, off by default (owner, round 17) */
   propertyLabels: boolean;
+  /** Prototyping information (⇧E, a view-only design file): the prototype's connections on the canvas; off by default */
+  prototypingInfo?: boolean;
   /** Position's "Constraints" toggle: the inline Constraints row shown (kept across selections, as Figma) */
   constraintsOpen?: boolean;
   /** Version history mode (Figma's HISTORY, atlas 16 §3.3): "history" — the history panel in the right panel's place */
@@ -228,6 +230,8 @@ export interface UIState extends PreferenceFlags {
   drawTools?: DrawToolsState;
   /** View › Annotations (labels, dots and saved measurements); default on */
   annotations?: boolean;
+  /** The zoom menu's Annotations ▸ filter (Figma's filterAnnotationCategoryId): only this category's annotations; unset: all */
+  annotationCategory?: Guid | null;
   /** The note editor: the layer, which note (−1: a new one), where (viewport px) */
   annotationEditor?: { ref: Guid; index: number; x: number; y: number; width: number; height: number } | null;
   /** A frame's or section's name edited in place over its title on the canvas (viewport px: the title) */

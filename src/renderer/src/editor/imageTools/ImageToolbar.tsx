@@ -345,13 +345,15 @@ export function ImageToolbar() {
             flush
             label={t("More image tools")}
             width={189}
-            entries={MORE.map((m) => ({ ...m, label: t(m.label), disabled: m.id !== "boost" && !one }))}
+            // Then, past a line, Visual search (Figma's More menu, atlas 02 §2: the selection's images as the query).
+            entries={[...MORE.map((m) => ({ ...m, label: t(m.label), disabled: m.id !== "boost" && !one })), "-", { id: "visual-search", label: t("Visual search") }]}
             ignore={more}
             onSelect={(id) => {
               setMenuAt(null);
               if (id === "expand") tools.open("expand");
               else if (id === "boost") void tools.boostResolution();
               else if (id === "vectorize") void tools.startVectorize();
+              else if (id === "visual-search") findMoreLike();
             }}
             onClose={() => setMenuAt(null)}
           />

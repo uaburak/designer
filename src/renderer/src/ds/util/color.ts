@@ -87,6 +87,42 @@ export function parseHexInput(raw: string): { hex: string; opacity?: number } | 
 /** A hex colour's 6 digits, upper case, without "#" (Figma's fill row). */
 export const hexDigits = (color: string) => color.replace("#", "").slice(0, 6).toUpperCase();
 
+export type HexChannel = "r" | "g" | "b";
+
+/**
+ * The channels ↑ ↓ step in a 6-digit hex field ("RRGGBB", no "#") for a caret or selection from `start` to `end`
+ * (Figma's panel hex formatter, `getIncrementTargets`, atlas 07 §5.4): a caret steps the pair it is in or ends (0–2 R,
+ * 3–4 G, 5–6 B); a selection every pair it touches.
+ */
+export function hexTargets(start: number, end: number): Set<HexChannel> {
+  const caret = start === end;
+  const out = new Set<HexChannel>();
+  if (start <= 1 || (caret && start === 2)) out.add("r");
+  if ((start <= 3 && end > 2) || (caret && start === 4)) out.add("g");
+  if ((start <= 5 && end > 4) || (caret && start === 6)) out.add("b");
+  return out;
+}
+
+/** "#rrggbb" with `delta` (0–255 units: Figma's nudge 1, ⇧ 10) added to the `targets` channels, each clamped. */
+export function stepHex(hex: string, targets: Set<HexChannel>, delta: number): string {
+  const h = normalizeHex(hex) ?? "#000000";
+  const at = { r: 1, g: 3, b: 5 } as const;
+  return (
+    "#" +
+    (["r", "g", "b"] as const)
+      .map((c) => {
+        const v = parseInt(h.slice(at[c], at[c] + 2), 16);
+        return Math.max(0, Math.min(255, targets.has(c) ? v + delta : v)).toString(16).padStart(2, "0");
+      })
+      .join("")
+  );
+}
+
+/** The digits selected after a step (Figma's `getSelection`): from the first stepped pair to the last. */
+export function hexSelection(targets: Set<HexChannel>): { start: number; end: number } {
+  return { start: targets.has("r") ? 0 : targets.has("g") ? 2 : 4, end: targets.has("b") ? 6 : targets.has("g") ? 4 : 2 };
+}
+
 /** "#rrggbb" + opacity 0–100 → rgba() for CSS. */
 export function withOpacity(hex: string, opacity: number): string {
   const h = normalizeHex(hex) ?? "#000000";

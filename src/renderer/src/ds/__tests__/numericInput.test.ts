@@ -30,6 +30,40 @@ describe("NumericInput", () => {
     ]);
   });
 
+  it("in a list, ↑ ↓ step the value under the caret and hand the list to onText", () => {
+    const onText = spy<[string]>();
+    const { onChange, input } = setup({ value: MIXED, displayText: "19, 22", onText: (raw: string) => (onText(raw), true) });
+    focus(input);
+    input.setSelectionRange(5, 5);
+    key(input, "ArrowUp");
+    input.setSelectionRange(0, 0);
+    key(input, "ArrowDown", { shiftKey: true });
+    expect(onText.calls).toEqual([["19, 23"], ["9, 22"]]);
+    expect(onChange.calls).toEqual([]);
+  });
+
+  it("the wheel with ⌥ held over the field scrubs it, one final change 200 ms after the last event; without ⌥ it scrolls", async () => {
+    const { onChange } = setup({ value: 10 });
+    const field = $('[data-ds="NumericInput"]', m!.host);
+    const wheel = (init: WheelEventInit) => {
+      const e = new WheelEvent("wheel", { bubbles: true, cancelable: true, ...init });
+      // (happy-dom's WheelEvent drops the modifier keys.)
+      Object.defineProperty(e, "altKey", { value: !!init.altKey });
+      field.dispatchEvent(e);
+      return e;
+    };
+    expect(wheel({ deltaY: 6 }).defaultPrevented).toBe(false);
+    expect(onChange.calls).toEqual([]);
+    expect(wheel({ deltaY: 6, altKey: true }).defaultPrevented).toBe(true);
+    wheel({ deltaY: 4, altKey: true });
+    expect(onChange.calls).toEqual([
+      [13, { final: false, source: "scrub" }],
+      [15, { final: false, source: "scrub" }],
+    ]);
+    await new Promise((r) => setTimeout(r, 250));
+    expect(onChange.calls.at(-1)).toEqual([15, { final: true, source: "scrub" }]);
+  });
+
   it("takes arithmetic on Enter, ignoring a typed unit; invalid text reverts", () => {
     const { onChange, input } = setup({ unit: "%" });
     focus(input);

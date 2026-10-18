@@ -239,10 +239,11 @@ uint32_t Editor::commandState(CommandId id) const {
   switch (id) {
     case CommandId::UNDO: return undo_.canUndo() ? CMD_ENABLED : 0;
     case CommandId::REDO: return undo_.canRedo() ? CMD_ENABLED : 0;
+    // Zoom in / out: disabled at the zoom's limits (Figma's zoom menu, atlas 02 §4.3).
+    case CommandId::ZOOM_IN: return camera_.zoom < kMaxZoom ? CMD_ENABLED : 0;
+    case CommandId::ZOOM_OUT: return camera_.zoom > kMinZoom ? CMD_ENABLED : 0;
     case CommandId::SELECT_ALL:
     case CommandId::SELECT_INVERSE:
-    case CommandId::ZOOM_IN:
-    case CommandId::ZOOM_OUT:
     case CommandId::ZOOM_TO_100:
     case CommandId::ZOOM_TO_FIT: return CMD_ENABLED;
     case CommandId::TOGGLE_LOCK:

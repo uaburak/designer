@@ -14,7 +14,7 @@
  * transaction and commits on release.
  */
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ColorInput, ColorPicker, Icon, IconButton, isMixed, MenuButton, MIXED, NumericInput, PanelSection, cx, type ChangeInfo, type PickerPaint } from "@/ds";
+import { Banner, ColorInput, ColorPicker, contrastCategoryOf, Icon, IconButton, isMixed, MenuButton, MIXED, NumericInput, PanelSection, selectionCategory, Slider, cx, type ChangeInfo, type ContrastCategory, type PickerPaint } from "@/ds";
 import { useColorFormat } from "../../colorFormat";
 import { useTextSummary } from "./useTextSummary";
 import { openMakeImage } from "../../imageTools/ImageToolbar";
@@ -22,11 +22,12 @@ import type { Color, Guid, Paint } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
 import { mixedPaints } from "../../model/mixed";
-import { adjustmentValue, fromPicker, gradientRotated90, hashBytes, IMAGE_ADJUSTMENTS, isGradientType, isImageLike, paintImageHash, paintLabel, paintSwatch, paintVideoHash, rotated90, toPicker, withAdjustment, type FullPaint } from "../../model/paints";
+import { adjustmentValue, fromPicker, gradientRotated90, hashBytes, IMAGE_ADJUSTMENTS, isGradientType, isImageLike, paintGifHash, paintImageHash, paintLabel, paintSwatch, paintVideoHash, progressivePaintFields, rotated90, toPicker, withAdjustment, type FullPaint } from "../../model/paints";
 import { formatMediaTime } from "../../model/prototype";
 import { sniffVideoMime } from "@/present/presentationVideos";
 import { regradient, type PaintUse } from "../../model/selectionColors";
 import { pickImageFiles } from "../../canvas/ImagePlacer";
+import { gifFrames, gifStill, type GifFrames } from "../../images";
 import { startGradientEdit } from "../../vectorEdit";
 import { useDocumentVersion, useLocalAssets, useUI } from "../../hooks";
 import { pageColors, writeSelectionColor } from "./SelectionColors";
@@ -35,11 +36,13 @@ import { ShaderParams } from "./ShaderSettings";
 import { SHADER_FILLS, shaderPaint, type ShaderFields } from "../../model/shaders";
 import { StrokeRows, firstStrokeFields } from "./Stroke";
 import { Grip, moved, useReorder } from "./reorder";
-import { isFrameNode, type PanelNode } from "./shared";
+import { isFrameNode, typeOf, type PanelNode } from "./shared";
+import { styleWeight } from "../../model/text";
 import { BoundPaintRow, paintScope } from "./Variables";
+import { remoteDefaultValue, useRemoteAssets } from "../libraries/remoteAssets";
 import { AppliedStyle, StylesButton, sharedStyle } from "./Styles";
 import { VariableList } from "../variables/VariablePicker";
-import { isEasingLiteral, paintVariable, resolveVariable } from "../../model/variables";
+import { paintVariable, resolveVariable } from "../../model/variables";
 import { applyStyle, bindPaint, createCollection, createVariable } from "../../variables";
 import { CreateStylePopover } from "../variables/EditStyle";
 import { t, useT } from "@/i18n";
@@ -71,31 +74,51 @@ export function newPaint(field: PaintField, nodes: readonly { type?: string; res
 const SWATCH_SET_KEY = "library-color-swatch-selected-swatch-set-id";
 
 /**
- * The picker's swatch sets after "On this page" (atlas 07 §5.6): "Local assets" — the file's colour variables in their
- * order, then its fill styles (each style's top visible solid paint) — when it has any; the set picked last is
- * remembered. Unbuilt: a set per enabled library (their colours aren't in the file until used).
+ * A swatch set's colours (atlas 07 §5.6): the COLOR variables in their order (`valueOf`: each one's colour), then the
+ * fill styles (each style's top visible solid paint), as hex or rgba(); each colour once.
  */
-function useSwatchSets(): { sets: { id: string; label: string; colors: string[] }[]; set: string; onSet: (id: string) => void } {
+export function swatchColors(variables: readonly { id: string; type: string }[], styles: readonly { kind: string; node: unknown }[], valueOf: (id: string) => unknown): string[] {
+  const css = (c: Color, opacity = 1) => {
+    const a = (c.a ?? 1) * opacity;
+    return a >= 1 ? colorToHex(c) : `rgba(${Math.round(c.r * 255)}, ${Math.round(c.g * 255)}, ${Math.round(c.b * 255)}, ${Math.round(a * 100) / 100})`;
+  };
+  const colors = new Set<string>();
+  for (const v of variables) {
+    if (v.type !== "COLOR") continue;
+    const value = valueOf(v.id);
+    if (value && typeof value === "object" && "r" in value) colors.add(css(value as Color));
+  }
+  for (const s of styles) {
+    if (s.kind !== "FILL") continue;
+    const top = [...((s.node as { fillPaints?: Paint[] }).fillPaints ?? [])].reverse().find((p) => p.visible !== false && p.type === "SOLID" && p.color);
+    if (top?.color) colors.add(css(top.color, top.opacity ?? 1));
+  }
+  return [...colors];
+}
+
+/**
+ * The picker's swatch sets after "On this page" (atlas 07 §5.6): "Local assets" — the file's colour variables in their
+ * order, then its fill styles — when it has any; then, past a line, each enabled library by name with its published
+ * colour variables (their default mode's value) and fill styles (a swatch applies the colour, unbound, as Figma's);
+ * the set picked last is remembered.
+ */
+function useSwatchSets(): { sets: { id: string; label: string; colors: string[]; separated?: boolean }[]; set: string; onSet: (id: string) => void } {
   useT();
   const assets = useLocalAssets();
+  const remote = useRemoteAssets();
   const sets = useMemo(() => {
-    const css = (c: Color, opacity = 1) => {
-      const a = (c.a ?? 1) * opacity;
-      return a >= 1 ? colorToHex(c) : `rgba(${Math.round(c.r * 255)}, ${Math.round(c.g * 255)}, ${Math.round(c.b * 255)}, ${Math.round(a * 100) / 100})`;
-    };
-    const colors = new Set<string>();
-    for (const v of assets.variables) {
-      if (v.type !== "COLOR") continue;
-      const value = resolveVariable(v.id, assets.lookup);
-      if (value && typeof value === "object" && !isEasingLiteral(value)) colors.add(css(value));
+    const local = swatchColors(assets.variables, assets.styles, (id) => resolveVariable(id, assets.lookup));
+    const out: { id: string; label: string; colors: string[]; separated?: boolean }[] = local.length ? [{ id: "local", label: t("Local assets"), colors: local }] : [];
+    const libraries = [...remote].sort((a, b) => a.name.localeCompare(b.name));
+    for (const lib of libraries) {
+      const colors = swatchColors(lib.variables, lib.styles, (id) => {
+        const v = lib.variables.find((x) => x.id === id);
+        return !v ? null : v.remote.imported ? resolveVariable(id, assets.lookup) : remoteDefaultValue(v, lib.collections);
+      });
+      if (colors.length) out.push({ id: `library:${lib.library}`, label: lib.name, colors, separated: !out.some((s) => s.separated) });
     }
-    for (const s of assets.styles) {
-      if (s.kind !== "FILL") continue;
-      const top = [...((s.node as { fillPaints?: Paint[] }).fillPaints ?? [])].reverse().find((p) => p.visible !== false && p.type === "SOLID" && p.color);
-      if (top?.color) colors.add(css(top.color, top.opacity ?? 1));
-    }
-    return colors.size ? [{ id: "local", label: t("Local assets"), colors: [...colors] }] : [];
-  }, [assets]);
+    return out;
+  }, [assets, remote]);
   const [set, setSet] = useState(() => {
     try {
       return localStorage.getItem(SWATCH_SET_KEY) ?? "page";
@@ -233,16 +256,19 @@ export function PaintsSection({ title, field, nodes, onPick, className }: { titl
 
 /**
  * "Choose image…": a new image into the paint (its scale mode and adjustments kept) — or a video (help: "Use the video
- * importer from the fill color picker"), which makes it a VIDEO paint over the video's poster frame.
+ * importer from the fill color picker"), which makes it a VIDEO paint over the video's poster frame; an animated GIF
+ * keeps the GIF beside its first frame. `drop`: the fields the new kind doesn't keep.
  */
-async function chooseImageFor(ed: EditorController, apply: (p: Partial<FullPaint>, drop?: "video") => void): Promise<void> {
+async function chooseImageFor(ed: EditorController, apply: (p: Partial<FullPaint>, drop: string[]) => void): Promise<void> {
   const files = await pickImageFiles(false);
   if (!files.length || ed.engine.destroyed) return;
   const [img] = await ed.images.import(files);
   if (!img) return;
   const image = { image: { hash: hashBytes(img.hash), name: img.name }, originalImageWidth: img.width, originalImageHeight: img.height };
-  if (img.video) apply({ ...image, type: "VIDEO", video: { hash: hashBytes(img.video) } } as Partial<FullPaint>);
-  else apply({ ...image, type: "IMAGE" }, "video");
+  const gif = ["animatedImage", "animationFrame"];
+  if (img.video) apply({ ...image, type: "VIDEO", video: { hash: hashBytes(img.video) } } as Partial<FullPaint>, gif);
+  else if (img.animated) apply({ ...image, type: "IMAGE", animatedImage: { hash: hashBytes(img.animated) }, animationFrame: 0 } as Partial<FullPaint>, ["video"]);
+  else apply({ ...image, type: "IMAGE" }, ["video", ...gif]);
 }
 
 /**
@@ -312,6 +338,112 @@ function VideoPreview({ hash }: { hash: string }) {
         />
         <span className={styles.videoPreviewTime}>{`${formatMediaTime(Math.floor(time))} / ${formatMediaTime(Math.round(duration))}`}</span>
       </div>
+    </div>
+  );
+}
+
+/** Figma's one-time hint under a GIF's frame picker (its user flag `dismissed_gifs_cover_frame_hint`), kept per machine. */
+const GIF_HINT_KEY = "dismissed_gifs_cover_frame_hint";
+
+/**
+ * A GIF fill's controls in the picker, in place of the adjustments (atlas 07 §8.5, Figma's GIF frame picker): Play /
+ * Stop runs the GIF; the "GIF frame" slider (0 … frames − 1, ⇧ by 10, off while playing) shows a frame and, let go,
+ * makes it the cover frame — `onCover` stores its still as the paint's image with `animationFrame`. Then the one-time
+ * hint (its English worded from the keys `gifs_in_figma_prototypes` / `choose_which_frame_displayed`). Frames are read
+ * with the platform's ImageDecoder; without one the GIF only plays.
+ */
+function GifPreview({ hash, frame: cover, onCover }: { hash: string; frame: number; onCover: (frame: number, still: Blob) => void }) {
+  useT();
+  const ed = useEditor();
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const [url, setUrl] = useState<string | null>(null);
+  const [frames, setFrames] = useState<GifFrames | null>(null);
+  const [frame, setFrame] = useState(cover);
+  const [playing, setPlaying] = useState(false);
+  const [hint, setHint] = useState(() => {
+    try {
+      return localStorage.getItem(GIF_HINT_KEY) === null;
+    } catch {
+      return true;
+    }
+  });
+  useEffect(() => {
+    let made: string | null = null;
+    let read: GifFrames | null = null;
+    let live = true;
+    void ed.images.bytes(hash).then(async (bytes) => {
+      if (!live || !bytes) return;
+      made = URL.createObjectURL(new Blob([bytes as BlobPart], { type: "image/gif" }));
+      setUrl(made);
+      read = await gifFrames(bytes);
+      if (live) setFrames(read);
+      else read?.close();
+    });
+    return () => {
+      live = false;
+      if (made) URL.revokeObjectURL(made);
+      read?.close();
+    };
+  }, [ed, hash]);
+  // The frame shown while not playing.
+  useEffect(() => {
+    if (!frames || playing) return;
+    let live = true;
+    void frames.frame(frame).then((f) => {
+      const el = canvas.current;
+      if (!f) return;
+      if (live && el) {
+        el.width = f.bitmap.width;
+        el.height = f.bitmap.height;
+        el.getContext("2d")?.drawImage(f.bitmap, 0, 0);
+      }
+      f.bitmap.close();
+    });
+    return () => {
+      live = false;
+    };
+  }, [frames, frame, playing]);
+  const setCover = (k: number) => {
+    if (!frames) return;
+    void frames.frame(k).then(async (f) => {
+      if (!f) return;
+      const still = await gifStill(f.bitmap);
+      f.bitmap.close();
+      onCover(k, still);
+    });
+  };
+  return (
+    <div className={styles.videoPreview} data-gif-preview>
+      {playing || !frames ? url && <img className={styles.videoPreviewMedia} src={url} alt="" /> : <canvas ref={canvas} className={styles.videoPreviewMedia} />}
+      <div className={styles.videoPreviewBar}>
+        <IconButton icon={playing ? "24.pause" : "24.play"} label={playing ? t("Stop") : t("Play")} onClick={() => setPlaying(!playing)} disabled={!url} />
+        <Slider
+          label={t("GIF frame")}
+          value={frame}
+          min={0}
+          max={Math.max(1, (frames?.count ?? 1) - 1)}
+          step={1}
+          disabled={!frames || playing}
+          onChange={(k, info) => {
+            setFrame(k);
+            if (info.final && k !== cover) setCover(k);
+          }}
+        />
+      </div>
+      {hint && (
+        <Banner
+          onDismiss={() => {
+            setHint(false);
+            try {
+              localStorage.setItem(GIF_HINT_KEY, "1");
+            } catch {
+              // no storage: this session only
+            }
+          }}
+        >
+          <strong>{t("GIFs in prototypes")}</strong> {t("Choose which frame is displayed")}
+        </Banner>
+      )}
     </div>
   );
 }
@@ -514,7 +646,7 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
           ? () =>
               void chooseImageFor(ed, (img, drop) => {
                 const next = { ...paint, ...img } as FullPaint;
-                if (drop === "video") delete (next as { video?: unknown }).video;
+                for (const key of drop) delete (next as Record<string, unknown>)[key];
                 write(next, { final: true, source: "pick" }, img.type === "VIDEO" ? "Choose video" : "Choose image");
               })
           : undefined
@@ -546,6 +678,19 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
         // Live (popovers/fill-picker-image / -video): an image's adjustments; a video has none (its preview plays it).
         paint.type === "VIDEO" ? (
           paintVideoHash(paint) ? <VideoPreview hash={paintVideoHash(paint)!} /> : undefined
+        ) : paintGifHash(paint) ? (
+          <GifPreview
+            hash={paintGifHash(paint)!}
+            frame={(paint as { animationFrame?: number }).animationFrame ?? 0}
+            onCover={(frame, still) =>
+              void ed.images.import([Object.assign(still, { name: (paint.image as { name?: string } | undefined)?.name ?? "Image" })]).then(([img]) => {
+                if (!img || ed.engine.destroyed) return;
+                const name = (paint.image as { name?: string } | undefined)?.name;
+                const next = { ...paint, image: { hash: hashBytes(img.hash), ...(name ? { name } : {}) }, animationFrame: frame, ...progressivePaintFields(img) } as FullPaint;
+                write(next, { final: true, source: "pick" }, "GIF cover frame");
+              })
+            }
+          />
         ) : isImageLike(paint) ? (
           <ImageControls paint={paint} onChange={(next, info) => write(next, info, "Image adjustments")} />
         ) : undefined
@@ -573,6 +718,7 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
         ) : undefined
       }
       contrastBackground={paint.type === "SOLID" && nodes.length === 1 ? backgroundBehind(ed, refs[0], pageColor) : null}
+      contrastCategory={contrastCategoryOfNodes(nodes)}
       onRotateGradient={isGradientType(paint.type) ? () => write(gradientRotated90(paint), { final: true, source: "pick" }, "Rotate gradient") : undefined}
       onChange={(next: PickerPaint, info) => {
         let out = fromPicker(paint, next);
@@ -693,6 +839,22 @@ export function topLevelAt(ed: EditorController, x: number, y: number, not: read
  * What's behind a layer for "Check color contrast": the nearest parent's top visible solid fill, else the page's
  * colour (white when it has none).
  */
+/**
+ * What the contrast check reads the layers as (atlas 07 §5.7, Figma's `J3`): a text by its runs' sizes and weights
+ * (the base style and its overrides), anything else a graphic; null when normal text is mixed with other kinds.
+ */
+export function contrastCategoryOfNodes(nodes: readonly PanelNode[]): ContrastCategory | null {
+  type Run = { fontSize?: number; fontName?: { style?: string } };
+  const kinds = new Set(
+    nodes.map((n) => {
+      const base = n as PanelNode & Run & { styleOverrideTable?: Run[] };
+      const runs = [base, ...(base.styleOverrideTable ?? [])].map((r) => ({ fontSize: r.fontSize ?? base.fontSize, fontWeight: styleWeight((r.fontName ?? base.fontName)?.style ?? "Regular").weight }));
+      return contrastCategoryOf(typeOf(n), runs);
+    })
+  );
+  return selectionCategory(kinds);
+}
+
 function backgroundBehind(ed: EditorController, ref: Guid | undefined, pageColor: Color | null): Color {
   let id = ref ? ed.engine.readNode(ref)?.parentIndex?.guid : undefined;
   for (let i = 0; id && i < 64; i++) {

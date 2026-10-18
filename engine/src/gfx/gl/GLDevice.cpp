@@ -23,9 +23,11 @@ EM_JS(int, eng_upload_bitmap, (unsigned texture, unsigned bitmapId, int straight
   var bitmap = bitmaps && bitmaps[bitmapId];
   if (!bitmap || !GLctx || !GL.textures[texture]) return 0;
   GLctx.bindTexture(GLctx.TEXTURE_2D, GL.textures[texture]);
-  // A <video> (a presentation's playing video) is uploaded as it is, so premultiplied here; an ImageBitmap was
-  // decoded premultiplied or straight as it should be (the pixel-store flags don't apply to it).
-  var video = typeof HTMLVideoElement !== "undefined" && bitmap instanceof HTMLVideoElement;
+  // A <video> (a presentation's playing video) or a <canvas> (its GIF's current frame) is uploaded as it is, so
+  // premultiplied here; an ImageBitmap was decoded premultiplied or straight as it should be (the pixel-store flags
+  // don't apply to it).
+  var video = (typeof HTMLVideoElement !== "undefined" && bitmap instanceof HTMLVideoElement) ||
+              (typeof HTMLCanvasElement !== "undefined" && bitmap instanceof HTMLCanvasElement);
   if (video) GLctx.pixelStorei(GLctx.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
   var space = straight && "unpackColorSpace" in GLctx ? GLctx.unpackColorSpace : null;
   if (space && space !== "srgb") GLctx.unpackColorSpace = "srgb";

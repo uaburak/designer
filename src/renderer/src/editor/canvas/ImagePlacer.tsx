@@ -10,14 +10,14 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { showToast } from "@/ds";
 import type { Paint } from "@/engine/codec";
 import { useEditor, type EditorController } from "../controller";
-import { isMediaFile, VIDEO_ACCEPT, type ImportedImage } from "../images";
+import { IMAGE_ACCEPT, isMediaFile, VIDEO_ACCEPT, type ImportedImage } from "../images";
 import { dropAudioOnCanvas } from "../motion/audio/audio";
 import { DEFAULT_VIDEO_PLAYBACK, mediaPaint } from "../model/paints";
 import { placeImages } from "../placeImages";
 import styles from "./ImagePlacer.module.css";
 
 // "Place image/video" (help: "Use the Place image/video tool to add videos in bulk").
-const ACCEPT = `image/png,image/jpeg,image/gif,image/webp,${VIDEO_ACCEPT}`;
+const ACCEPT = `${IMAGE_ACCEPT},${VIDEO_ACCEPT}`;
 
 /** Opens the system's file picker for images (resolves with what was chosen; nothing when cancelled). */
 export function pickImageFiles(multiple = true): Promise<File[]> {

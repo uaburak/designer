@@ -5,8 +5,30 @@
  * file's image store (videos are stored as images are, by SHA-1). Each new frame goes back to the engine with the
  * video's time (engine_present_media_frame): the engine draws it in place of the poster (uploaded from the <video>
  * straight into a texture, on WebGL2 and WebGPU alike) and fires "When video hits" / "When video ends".
+ *
+ * GIF fills play too ("GIFs in prototypes", atlas 07 §8.5): always, looping, each frame read with the platform's
+ * ImageDecoder onto a hidden <canvas> the engine draws in place of the cover frame.
  */
 import type { Engine, ImageSource, PresentVideo } from "@/engine/Engine";
+import { gifFrames, type GifFrames } from "@/editor/images";
+
+/** A GIF the presentation plays: its frames, the one shown and when the next is due. */
+interface GifPlaying {
+  canvas: HTMLCanvasElement;
+  hash: string;
+  frames: GifFrames | null;
+  index: number;
+  /** performance.now() when the next frame is due */
+  dueAt: number;
+  /** Seconds played (the engine's report) */
+  time: number;
+  /** A frame is being read */
+  busy: boolean;
+  drawn: boolean;
+}
+
+/** A GIF frame's length: browsers show the ones of 10 ms or less for 100 ms (as every viewer of the GIF sees it). */
+export const gifFrameMs = (ms: number): number => (ms <= 10 ? 100 : ms);
 
 interface Playing {
   el: HTMLVideoElement;
@@ -41,6 +63,7 @@ type FrameCallbackVideo = HTMLVideoElement & {
 
 export class PresentationVideos {
   private readonly playing = new Map<string, Playing>();
+  private readonly gifs = new Map<string, GifPlaying>();
   private readonly urls = new Map<string, Promise<string | null>>();
   private raf = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -66,6 +89,8 @@ export class PresentationVideos {
     if (this.timer) clearTimeout(this.timer);
     for (const p of this.playing.values()) this.drop(p);
     this.playing.clear();
+    for (const g of this.gifs.values()) this.dropGif(g);
+    this.gifs.clear();
     for (const u of this.urls.values()) void u.then((url) => url && URL.revokeObjectURL(url));
     this.urls.clear();
   }
@@ -144,10 +169,75 @@ export class PresentationVideos {
     this.engine.forgetVideo(el);
   }
 
+  private createGif(v: PresentVideo): GifPlaying {
+    const canvas = document.createElement("canvas");
+    canvas.setAttribute("aria-hidden", "true");
+    canvas.dataset.gif = v.id;
+    Object.assign(canvas.style, { position: "absolute", left: "0", top: "0", width: "2px", height: "2px", opacity: "0.01", pointerEvents: "none" });
+    this.host?.appendChild(canvas);
+    const g: GifPlaying = { canvas, hash: v.hash, frames: null, index: 0, dueAt: 0, time: 0, busy: false, drawn: false };
+    const load = this.load;
+    void (load ? load(v.hash) : Promise.resolve(null))
+      .then((bytes) => (bytes ? gifFrames(bytes) : null))
+      .then((frames) => {
+        if (this.disposed || !this.gifs.has(v.id)) frames?.close();
+        else g.frames = frames;
+      })
+      .catch(() => {});
+    return g;
+  }
+
+  private dropGif(g: GifPlaying): void {
+    g.frames?.close();
+    g.canvas.remove();
+    this.engine.forgetVideo(g.canvas);
+  }
+
+  /** A GIF shown: its first frame at once, then the next whenever the one shown has had its time, while it plays. */
+  private syncGif(v: PresentVideo): void {
+    let g = this.gifs.get(v.id);
+    if (g && g.hash !== v.hash) {
+      this.dropGif(g);
+      this.gifs.delete(v.id);
+      g = undefined;
+    }
+    if (!g) {
+      g = this.createGif(v);
+      this.gifs.set(v.id, g);
+    }
+    const frames = g.frames;
+    if (!frames || !frames.count || g.busy || (g.drawn && (!v.playing || performance.now() < g.dueAt))) return;
+    const gif = g;
+    const index = gif.drawn ? (gif.index + 1) % frames.count : 0;
+    gif.busy = true;
+    void frames.frame(index).then((f) => {
+      gif.busy = false;
+      if (!f || this.disposed) return;
+      if (gif.canvas.width !== f.bitmap.width || gif.canvas.height !== f.bitmap.height) {
+        gif.canvas.width = f.bitmap.width;
+        gif.canvas.height = f.bitmap.height;
+      }
+      const ctx = gif.canvas.getContext("2d");
+      ctx?.clearRect(0, 0, gif.canvas.width, gif.canvas.height);
+      ctx?.drawImage(f.bitmap, 0, 0);
+      f.bitmap.close();
+      const ms = gifFrameMs(f.durationMs);
+      if (gif.drawn) gif.time += ms / 1000;
+      gif.index = index;
+      gif.dueAt = performance.now() + ms;
+      gif.drawn = true;
+      this.engine.presentMediaFrame(v.id, { element: gif.canvas, time: gif.time, duration: 0, ended: false, seekSerial: v.seekSerial });
+    });
+  }
+
   private sync(list: PresentVideo[]): void {
     const shown = new Set<string>();
     for (const v of list) {
       shown.add(v.id);
+      if (v.gif) {
+        this.syncGif(v);
+        continue;
+      }
       let p = this.playing.get(v.id);
       if (p && p.hash !== v.hash) {
         this.drop(p);

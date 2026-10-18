@@ -139,6 +139,7 @@ _engine_set_view_options
 _engine_set_nudge
 _engine_start_guide
 _engine_set_annotation_view
+_engine_set_annotation_filter
 _engine_set_edit_tracking
 _engine_set_focus
 _engine_select_measurement

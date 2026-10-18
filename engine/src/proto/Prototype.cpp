@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "motion/Easing.h"
+#include "render/ImageCache.h"
 #include "scene/CodecKiwi.h"
 
 namespace eng::proto {
@@ -391,6 +392,12 @@ VideoSettings videoSettings(const NodeProps& p) {
 int videoFill(const NodeProps& p) {
   for (size_t i = 0; i < p.fillPaints.size(); i++)
     if (p.fillPaints[i].type == PaintType::VIDEO && p.fillPaints[i].visible) return static_cast<int>(i);
+  return -1;
+}
+
+int gifFill(const NodeProps& p) {
+  for (size_t i = 0; i < p.fillPaints.size(); i++)
+    if (p.fillPaints[i].visible && paintGifHash(p.fillPaints[i]).present) return static_cast<int>(i);
   return -1;
 }
 

@@ -43,6 +43,8 @@ struct ImageHints {
 ImageHints imageHints(const Paint& paint);
 // A VIDEO paint's video file (Paint.video.hash, kept in Paint.extra); absent for other paints.
 ImageHash paintVideoHash(const Paint& paint);
+// A GIF fill's GIF (an IMAGE paint's Paint.animatedImage.hash, kept in Paint.extra; `image` is its cover frame).
+ImageHash paintGifHash(const Paint& paint);
 
 class ImageRegistry {
  public:

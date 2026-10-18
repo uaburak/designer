@@ -127,9 +127,11 @@ class Player {
   // loop and sound from Prototype › Video, the video actions, state memorised per layer, shared between matching
   // layers, reset by "Reset video state" — and hears back each video's time and frames (the triggers "When video
   // hits" / "When video ends"; the frames drawn in place of the poster).
+  // A GIF fill plays as a video does, always and looping, without sound ("GIFs in prototypes", atlas 07 §8.5).
   struct Media {
     Guid node = kNoGuid;
-    ImageHash video;         // the file (Paint.video.hash)
+    ImageHash video;         // the file (Paint.video.hash; a GIF's Paint.animatedImage.hash)
+    bool gif = false;        // a GIF fill, not a video
     VideoSettings settings;
     std::string key;         // matching across frames (state sharing): the top-level frame's name (before " /") + the layer's place
     bool playing = false, muted = false;
@@ -141,7 +143,8 @@ class Player {
     bool shown = false;      // in a frame shown now
     bool frame = false;      // a frame of it arrived (drawn in place of the poster)
   };
-  // {"videos": [{id, hash, playing, muted, loop, seek, seekSerial}]}: the videos shown now and what they should do.
+  // {"videos": [{id, hash, gif?, playing, muted, loop, seek, seekSerial}]}: the videos (and GIFs) shown now and what
+  // they should do.
   std::string mediaJson();
   // The page's report for a video: its current time, length and whether it ended (`seekSerial`: the last seek it made),
   // and a new frame — Module.engineBitmaps[bitmapId] is its <video> (0: no frame; `rgba`: pixels, tests).

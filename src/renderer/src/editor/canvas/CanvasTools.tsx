@@ -9,7 +9,7 @@ import { evaluate, FloatingPanel, Icon, NumericInput, size, Swatch, TextInput } 
 import { useTool } from "@/engine/hooks";
 import { useEditor } from "../controller";
 import { useLocalAssets, useUI } from "../hooks";
-import { canvasPixelsAround, commitInlineValue, DEFAULT_NUDGE, setNudge } from "../canvasTools";
+import { applyPickedColor, canvasColorAt, canvasPixelsAround, commitInlineValue, DEFAULT_NUDGE, setNudge } from "../canvasTools";
 import { colorFormat, formatColor, nextEyedropperFormat, useColorFormat } from "../colorFormat";
 import { matchColor, setEyedropperChoice } from "../eyedropper";
 import styles from "./CanvasTools.module.css";
@@ -50,8 +50,8 @@ const CARD_W = 260, CARD_H = 64, CARD_OFFSET = 16, CARD_MARGIN = 4;
 /**
  * The eyedropper's card (Pick color, ⌃C / I), as live Figma's (docs/research/chrome-cursors/figma-eyedropper.png): a
  * 260 × 64 card following the pointer with the canvas's pixels under it magnified (the middle one framed), the colour
- * there as a swatch and its hex, and "Click to sample". A click samples it (canvasTools.ts COLOR_PICK); Esc cancels
- * (the engine's tool goes back to Move).
+ * there as a swatch and its hex, and "Click to sample". A click samples it (canvasTools.ts COLOR_PICK), Enter too
+ * (Figma's eyedropper keys, atlas 07 §6); Esc cancels (the engine's tool goes back to Move).
  */
 export function EyedropperLoupe() {
   const ed = useEditor();
@@ -78,9 +78,18 @@ function Loupe() {
     setEyedropperChoice(ed, choice);
     return () => setEyedropperChoice(ed, null);
   }, [ed, choice]);
+  // The pointer over the canvas (canvas CSS px): Enter picks there, as a click would.
+  const pointerAt = useRef<{ x: number; y: number } | null>(null);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (e.key === "Shift") setShift(e.type === "keydown");
+      if (e.key === "Enter" && e.type === "keydown" && pointerAt.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        const color = canvasColorAt(ed, pointerAt.current.x, pointerAt.current.y);
+        if (color) applyPickedColor(ed, color);
+        ed.setTool("MOVE");
+      }
       if (e.key === "Tab" && e.type === "keydown") {
         e.preventDefault();
         e.stopPropagation();
@@ -93,7 +102,7 @@ function Loupe() {
       window.removeEventListener("keydown", key, true);
       window.removeEventListener("keyup", key, true);
     };
-  }, [setFormat]);
+  }, [ed, setFormat]);
   useEffect(() => {
     const target = ed.canvas;
     if (!target) return;
@@ -105,6 +114,7 @@ function Loupe() {
       const out = canvasRef.current;
       if (!e || !out) return;
       const r = target.getBoundingClientRect();
+      pointerAt.current = { x: e.clientX - r.left, y: e.clientY - r.top };
       const px = canvasPixelsAround(ed, e.clientX - r.left, e.clientY - r.top, LOUPE_CELLS);
       if (!px) return;
       const ctx = out.getContext("2d");
@@ -126,6 +136,7 @@ function Loupe() {
     };
     const onLeave = () => {
       last = null;
+      pointerAt.current = null;
       setAt(null);
     };
     target.addEventListener("pointermove", onMove);

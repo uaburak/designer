@@ -521,6 +521,39 @@ Note: DesignerV2's new-fill defaults (frame #FFFFFF, shape #D9D9D9, any later pa
 - **Colour profile** (`editor/colorProfile.ts`, `ColorProfileDialog.tsx`, File › Color profile…): sRGB / Display P3; Convert (the default, remembered under `preferred-document-color-profile-change-option`; every `{r, g, b, a}` in every node — paints, stops, effects, guides, variables, styles, pages — through the P3 ↔ sRGB matrices, into sRGB clamped) or Assign; "Convert to …" / "Assign …"; one undo step; the canvas switches its colour space at once and on undo / redo (`Engine.refreshColorProfile`). The modal's English is ours (keys only in the build). Not built: the version-history entry, the per-user display profile modal (Preferences › Color profile… stays a placeholder), re-uploading images already decoded in the old space. The export's "Document" profile now names the file's (sRGB / Display P3).
 - **Still missing from the lists above**: image formats avif / tiff / bmp / heic in the importer, GIF playback and cover frame, the video volume / controls, the digits-zoom setting (Preferences' "Use number keys for opacity" exists), Ctrl+Alt+M on Windows (the shortcut table, wave 4), the EMOJI paint type, the contrast checker's auto-correct.
 
+**Sweep (2026-10-18)** — branch `worktree-agent-ac2399b6b638fb5ab`:
+- **Hex field arrows** (`ds/util/color.ts` `hexTargets` / `stepHex` / `hexSelection`, `ColorInput`): now CONFIRMED from
+  the panel's hex formatter (`2108` module 822500, class `l`): caret 0–2 steps R, 3–4 G, 5–6 B (a caret at a pair's end
+  steps that pair), a selection every pair it touches; by 1 / ⇧ 10 in 0–255 units (the base formatter's
+  `incrementBy` and nudges), clamped; the stepped pairs selected after.
+- **Eyedropper**: Enter picks where the pointer is, as a click (then Move).
+- **Swatch sets per library**: each enabled library, by name, after a line, with its published COLOR variables (their
+  default mode's value) and FILL styles (`useRemoteAssets`, no copy made); a swatch applies the colour, unbound.
+- **avif / bmp / tiff / heic** (`editor/images.ts`): taken wherever the platform decodes them (Chromium: avif, bmp;
+  tiff / heic only where the system does — the others are skipped as unreadable files), stored re-encoded as PNG
+  (Figma's `imageTypeToEncode`). The pickers' `accept` lists them.
+- **GIF fills**: `Paint.animatedImage = 16` / `animationFrame = 17` adopted (docs/schema.md). An animated GIF is stored
+  as it is, its first frame as the paint's `image` (the still the canvas draws); the row reads "GIF". The picker's
+  Image tab has Figma's GIF controls in place of the adjustments: Play / Stop and the "GIF frame" slider (0 … frames −
+  1, ⇧ 10, off while playing) — a frame shown while dragging, the cover frame set on release (its still re-imported,
+  `animationFrame` written) — and the one-time hint (`dismissed_gifs_cover_frame_hint`, English worded from the keys).
+  Frames are read with WebCodecs' ImageDecoder. **In prototypes** GIFs play, always and looping (the player's media
+  path: `gif` in `engine_present_media`, a canvas frame uploaded in place of the cover frame; native test in
+  `prototype.video.test.cpp`).
+- **Contrast check** (`ds/util/contrast.ts`, read from `5519` / `2108` / `3187`): the ratio cut to 2 decimals (culori's
+  WCAG maths); the standard by category — normal text 4.5 / 7, large text (24 px, or 19 px at 700) 3 / 4.5, graphics 3
+  (AA only), mixed 3 / 4.5, none when normal text is mixed in — Auto or chosen, and the level, in a settings menu (the
+  check and the level kept under Figma's setting names); the square's two lines where the ratio is met exactly (white
+  at 80 %); the auto-correct — Figma's walk along each line (saturation steps of 0.02, a 150-step bisection to 0.0002),
+  the in-gamut point nearest the fill by its ΔE (kept as Figma's, `rgb / 255` included) — previewed on the square while
+  the button is hovered. The English of the verdict, the button and the menu is ours (keys only).
+- **Hover previews** of the colour interpolation (and the layer blend mode, the mask type): see 02's sweep.
+- **Already built**: the digits-zoom setting (Use number keys for opacity off: digits zoom, ⇧ digits set opacity,
+  `keyboard.ts`); Ctrl+Alt+M comes with the shortcut table.
+- **Stays open**: the video volume (Figma's behind the `metronome_video` gate, and `Paint.videoFillPlayback 47` is not
+  adopted until its schema text is in docs/research); the EMOJI paint type (FigJam's); the crop mode (02's sweep); the
+  creation flow on the eyedropper (`dropperData.creationFlow` is set by the wasm); the global eyedropper.
+
 ## 17. Open questions
 
 | # | Question | Probe that settles it |

@@ -79,6 +79,13 @@ void Editor::setAnnotationView(bool show, bool dots) {
   needsRender_ = true;
 }
 
+void Editor::setAnnotationFilter(Guid category) {
+  if (dev_.category == category) return;
+  dev_.category = category;
+  dev_.openNode = kNoGuid;
+  needsRender_ = true;
+}
+
 Status Editor::setFocus(Guid id) {
   if (id != kNoGuid && !doc_.has(id)) return E_NOT_FOUND;
   if (dev_.focus == id) return OK;
@@ -315,6 +322,7 @@ void Editor::devOverlay(Overlay& o) const {
     std::vector<annot::Note> notes = annot::notesOf(n->props);
     for (size_t i = 0; i < notes.size(); i++) {
       const annot::Note& note = notes[i];
+      if (dev_.category != kNoGuid && note.category != dev_.category) continue;
       AnnotationCard c;
       c.node = id;
       c.index = static_cast<uint32_t>(i);

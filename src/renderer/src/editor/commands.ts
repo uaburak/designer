@@ -533,6 +533,13 @@ export const COMMANDS: EditorCommand[] = [
   ui("view.show-slices", "Show slices", undefined, (ed) => setViewOption(ed, { showSlices: ed.ui.get().showSlices === false }), (ed) => ed.ui.get().showSlices !== false),
   // Round 10, View › Comments ⇧C (on by default): comment pins shown on the canvas (editor/comments).
   ui("view.comments", "Comments", [k("KeyC", { shift: true })], (ed) => ed.ui.set((s) => ({ comments: s.comments === false })), (ed) => ed.ui.get().comments !== false),
+  // ⇧E, the zoom menu's last row for someone who can only view a design file (Figma's toggle-prototyping-info,
+  // `prototypeCanvasUiVisible`, atlas 02 §4.3): the prototype's connections on the canvas, as the Prototype tab shows
+  // them to an editor (RightPanel's prototype mode).
+  {
+    ...ui("view.prototyping-info", "Prototyping information", [k("KeyE", { shift: true })], (ed) => ed.ui.set((s) => ({ prototypingInfo: !s.prototypingInfo })), (ed) => !!ed.ui.get().prototypingInfo),
+    enabled: (ed) => viewOnly(ed) && modeOf(ed) === "design",
+  },
   ui("view.outlines", "Show outlines", [k("KeyO", { mod: true, shift: true })], (ed) => setViewOption(ed, { outlines: !ed.ui.get().outlines }), (ed) => !!ed.ui.get().outlines),
   // The zoom menu's Outlines ▸ (Figma's toggle-outline-mode-hidden-layers / -object-bounds, Atlas 04 §9.3): in outline
   // mode, hidden layers outlined too; each layer's box drawn (the engine's VIEW_OUTLINE_HIDDEN / VIEW_OUTLINE_BOUNDS).

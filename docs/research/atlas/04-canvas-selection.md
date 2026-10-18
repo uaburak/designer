@@ -473,6 +473,15 @@ Not done / open:
 - Which guides the ruler menu removes in Figma (the page's only, or frames' too) — ours takes the ruler's owner; the English of its two rows is unattested.
 - Open questions 1–8 below stand.
 
+**Sweep (2026-10-18)** — branch `worktree-agent-ac2399b6b638fb5ab`:
+- **Closed**: the zoom menu's own Outlines ▸ (Outlines, Show hidden layers, Show object bounds); zoom in / out disabled
+  at 1/64 and 256 (the engine's `commandState`, native test in `atlas.canvas_shapes.test.cpp`).
+- **Already matched**: the rotation field's (−180, 180] (`rotationOf`; Figma's angle formatter only normalises the
+  display).
+- **Stays open**: ⌥Space keyboard select (a live probe); implied margins on resizes and draws (fn 32510 unread); the
+  rotation field's −1 / −15 nudge sign — the formatter shows the value as it is, so whether ↑ lowers the shown angle
+  depends on the value the panel hands it (unread); the ruler menu's removal scope.
+
 ---
 
 ## 12. Open questions (live probes that would settle them)

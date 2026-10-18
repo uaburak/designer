@@ -19,13 +19,33 @@ export interface SliderSpec {
   onChange: (v: number, info: ChangeInfo) => void;
   onCancel?: () => void;
   disabled?: boolean;
+  /** The track's scale: even (default), or Figma's EXPONENTIAL (noise and texture sizes, the texture radius) */
+  scale?: "linear" | "exponential";
+}
+
+const round2 = (v: number) => Math.round(v * 100) / 100;
+
+/**
+ * Figma's EXPONENTIAL slider (atlas 08 §6.3–6.4; its slider transform `Bk`): the track's position p over [min, max]
+ * gives min + (max − min) · 10^(3 (f − 1)), f = (p − min) / (max − min) — a thousandth of the range at the left end,
+ * a tenth at 2/3, all of it at the right — rounded to 2 decimals (`toValue`); `fromValue` puts a value back on the track.
+ */
+export function exponentialSlider(min: number, max: number): { toValue: (p: number) => number; fromValue: (v: number) => number } {
+  const span = max - min;
+  return {
+    toValue: (p) => (p < min ? min : p > max ? max : round2(min + span * 10 ** (3 * ((p - min) / span - 1)))),
+    fromValue: (v) => (v <= min ? min : v > max ? max : Math.max(min, round2(min + span * (Math.log10((v - min) / span) / 3 + 1)))),
+  };
 }
 
 /** A slider bound to a number field's value (undefined = the field's absence value: shown as `min`). */
 export function DrawSlider({ spec }: { spec: SliderSpec }) {
   useT();
   const value = spec.value === undefined ? spec.min : spec.value;
-  return <Slider label={t("{name} slider", { name: t(spec.label) })} value={value === MIXED ? MIXED : value} min={spec.min} max={spec.max} step={spec.step} disabled={spec.disabled} onChange={spec.onChange} onCancel={spec.onCancel} data-draw-slider={spec.label} />;
+  const exp = spec.scale === "exponential" ? exponentialSlider(spec.min, spec.max) : null;
+  const shown = value === MIXED ? MIXED : value === null || !exp ? value : exp.fromValue(value);
+  const onChange = exp ? (p: number, info: ChangeInfo) => spec.onChange(exp.toValue(p), info) : spec.onChange;
+  return <Slider label={t("{name} slider", { name: t(spec.label) })} value={shown} min={spec.min} max={spec.max} step={exp ? 0.01 : spec.step} disabled={spec.disabled} onChange={onChange} onCancel={spec.onCancel} data-draw-slider={spec.label} />;
 }
 
 /** A row of sliders, one per field column of the row above (null: an empty column). */
@@ -45,5 +65,6 @@ export const SLIDER_RANGE = {
   blur: [0, 100],
   spread: [-100, 100],
   percent: [0, 100],
-  noiseSize: [0, 10],
+  /** Figma's: noise / texture sizes and the texture's radius, 0.01–100 on an exponential track (atlas 08 §6.3–6.4) */
+  noiseSize: [0.01, 100],
 } as const;

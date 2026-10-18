@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { clampRound, commitTyped, evaluate, evaluateWith, formatNumber, parseExpression, stripUnit } from "../util/evaluate";
-import { scrubFrom, scrubRate, scrubSpeedLabel, scrubSteps, scrubValue, stepValue, SCRUB_PX_PER_STEP } from "../util/scrub";
+import { listSelection, listTargets, scrubFrom, scrubRate, scrubSpeedLabel, scrubSteps, scrubValue, stepList, stepValue, wheelDelta, wheelValue, SCRUB_PX_PER_STEP } from "../util/scrub";
 
 describe("a numeric field's arithmetic (ported from figma/ui.tsx)", () => {
   it("reads numbers and decimal commas", () => {
@@ -104,6 +104,39 @@ describe("stepping and scrubbing (contract §4.5)", () => {
     const at = (dy: number) => scrubRate(dy, 1000);
     expect([at(-2000), at(-501), at(-500), at(-251), at(-126), at(-125), at(0), at(125), at(126), at(251), at(501), at(2000)]).toEqual([8, 8, 4, 4, 2, 1, 1, 1, 0.5, 0.25, 0.125, 0.125]);
     expect([scrubSpeedLabel(8), scrubSpeedLabel(2), scrubSpeedLabel(0.5), scrubSpeedLabel(0.125)]).toEqual(["8x", "2x", "1/2", "1/8"]);
+  });
+  it("the wheel: the larger axis (right and down add), lines ×10, pages ×100, Shift ×10, the field's multiplier", () => {
+    const w = (deltaX: number, deltaY: number, deltaMode = 0, shiftKey = false) => ({ deltaX, deltaY, deltaMode, shiftKey });
+    expect(wheelDelta(w(0, 6))).toBe(6);
+    expect(wheelDelta(w(-4, 1))).toBe(4);
+    expect(wheelDelta(w(3, -1))).toBe(-3);
+    expect(wheelDelta(w(0, 1, 1))).toBe(10);
+    expect(wheelDelta(w(0, 1, 2))).toBe(100);
+    expect(wheelDelta(w(0, 2, 0, true))).toBe(20);
+    expect(wheelDelta(w(0, 2), 2)).toBe(4);
+  });
+  it("a wheel scrub moves 0.5 a px × the scrub multiplier, snapped to the step (Shift: the big step), no speed bands", () => {
+    expect(wheelValue(10, 6)).toBe(13);
+    expect(wheelValue(10, 3)).toBe(12);
+    expect(wheelValue(10, -40)).toBe(-10);
+    expect(wheelValue(10, 6, { rate: 4 })).toBe(22);
+    expect(wheelValue(61, 20, { shift: true })).toBe(70);
+    expect(wheelValue(0, 1000, { max: 100 })).toBe(100);
+  });
+  it("in a comma list, ↑ ↓ change the value under the caret or the selection (Figma's getIncrementTargets)", () => {
+    const list = "18, 22, 17, 19";
+    expect(listTargets(list, 0, list.length)).toBeNull();
+    expect([...listTargets(list, 0, 0)!]).toEqual([0]);
+    expect([...listTargets(list, 2, 2)!]).toEqual([0]); // on the comma: the value before it
+    expect([...listTargets(list, 3, 3)!]).toEqual([1]);
+    expect([...listTargets(list, list.length, list.length)!]).toEqual([3]);
+    expect([...listTargets(list, 4, 9)!]).toEqual([1, 2]);
+    expect(stepList(list, new Set([1]), 1)).toBe("18, 23, 17, 19");
+    expect(stepList("8,16", new Set([0, 1]), -10, { min: 0 })).toBe("0, 6");
+    expect(stepList("8, auto", null, 1)).toBe("9, auto");
+    expect(listSelection(list, new Set([1]))).toEqual({ start: 4, end: 6 });
+    expect(listSelection(list, new Set([2, 3]))).toEqual({ start: 8, end: 14 });
+    expect(listSelection(list, null)).toEqual({ start: 0, end: 14 });
   });
 });
 

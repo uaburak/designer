@@ -231,6 +231,30 @@ class Writer {
     return " id=\"" + escape(n == 1 ? base : base + "_" + std::to_string(n)) + "\"";
   }
 
+  // A transform group's copy of its children's elements: every id defined in it (its layers', its inline masks')
+  // made unique as idAttr makes them ("Star" → "Star_3"), the references inside it (url(#…), href="#…") following —
+  // an SVG with an id twice is invalid, and the copies' masks would point at the source's.
+  std::string uniqueIds(const std::string& body) {
+    std::vector<std::string> defined;
+    for (size_t at = body.find(" id=\""); at != std::string::npos; at = body.find(" id=\"", at + 1)) {
+      size_t from = at + 5, to = body.find('"', from);
+      if (to != std::string::npos) defined.push_back(body.substr(from, to - from));
+    }
+    std::string out = body;
+    auto replaceAll = [&](const std::string& from, const std::string& to) {
+      for (size_t at = out.find(from); at != std::string::npos; at = out.find(from, at + to.size())) out.replace(at, from.size(), to);
+    };
+    for (const std::string& v : defined) {
+      int& n = ids_[v];
+      n = std::max(n, 1) + 1;
+      std::string fresh = v + "_" + std::to_string(n);
+      replaceAll(" id=\"" + v + "\"", " id=\"" + fresh + "\"");
+      replaceAll("url(#" + v + ")", "url(#" + fresh + ")");
+      replaceAll("href=\"#" + v + "\"", "href=\"#" + fresh + "\"");
+    }
+    return out;
+  }
+
   double tolerance(const Mat2x3& E) const { return 0.05 / std::max(scaleOf(E), 1e-9); }
 
   // ---- Geometry ----
@@ -837,7 +861,7 @@ class Writer {
               copies.push_back(body);
               continue;
             }
-            copies.push_back("<g transform=\"" + matrixText(E * inst * Ei) + "\">\n" + body + "</g>\n");
+            copies.push_back("<g transform=\"" + matrixText(E * inst * Ei) + "\">\n" + uniqueIds(body) + "</g>\n");
           }
           els = {"<g>\n" + join(copies) + "</g>\n"};
         }

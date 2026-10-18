@@ -15,6 +15,7 @@ export { evaluate, evaluateWith, parseExpression, usesMixed, usesCurrent, stripU
 export { scrubFrom, scrubSteps, scrubValue, scrubRate, scrubSpeedLabel, stepValue, SCRUB_PX_PER_STEP, SCRUB_THRESHOLD, SCRUB_SPEEDS } from "./util/scrub";
 export { normalizeHex, namedColor, parseHexInput, parseColor, hexDigitsToRgba, p3ToSrgb, srgbToP3, contrastRatio, hexDigits, withOpacity, rgbToHsv, hsvToRgb, rgbToHsl, hslToRgb, rgbToHex, hexToRgba, rgbaToCss, parseCssColor, mixRgba, sameRgba, type RGBA, type HSV, type HSL } from "./util/color";
 export * from "./util/paint";
+export { autoCorrect, contrastCategoryOf, contrastLines, contrastOf, CONTRAST_RATIOS, isoLuminanceLine, selectionCategory, wcagLuminance, type ContrastCategory, type ContrastLevel } from "./util/contrast";
 export { timeAgo, formatEdited } from "./util/time";
 export { textWidth, clearTextWidths, onFontsLoaded } from "./util/textWidth";
 export { keys, IS_MAC } from "./util/keys";

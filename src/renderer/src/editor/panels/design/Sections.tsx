@@ -26,7 +26,7 @@ import { isGrid } from "../../model/grid";
 import { ApplyModeButton, ModeRows, VariableField } from "./Variables";
 import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
 import { IDENTITY, panelPosition, roundPanel, rotateTo, rotationOf, withPanelPosition } from "../../model/geometry";
-import { PANEL_MENU_GAP, fields, hasCorners, isFrameNode, isGroupNode, isInstanceSublayer, typeOf, useKeeps, useParents, useSupports, useTextEditRef, type BlendModeName, type PanelNode } from "./shared";
+import { PANEL_MENU_GAP, fields, hasCorners, isFrameNode, isGroupNode, isInstanceSublayer, previewProps, typeOf, useKeeps, useParents, useSupports, useTextEditRef, type BlendModeName, type PanelNode } from "./shared";
 import { SLIDER_RANGE, SliderRow, useDrawMode } from "../../draw/panels/DrawSliders";
 import { MotionField } from "../../motion/panels/MotionField";
 import { motionPerLayer } from "../../motion/panels/motionWrites";
@@ -456,7 +456,7 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
             span={2}
             action={<IconButton icon="24.minus.small" label={t("Remove blend mode")} tone="secondary" onClick={() => ed.setProps(refs, fields({ blendMode: "PASS_THROUGH" }), "Blend mode")} />}
           >
-            <Select label={t("Blend mode")} value={blend ?? MIXED} placeholder={blendLabel(blend)} options={blendOptions} onChange={(v) => ed.setProps(refs, fields({ blendMode: v as BlendModeName }), "Blend mode")} />
+            <Select label={t("Blend mode")} value={blend ?? MIXED} placeholder={blendLabel(blend)} options={blendOptions} onChange={(v) => ed.setProps(refs, fields({ blendMode: v as BlendModeName }), "Blend mode")} onPreview={previewProps(ed, refs, "Blend mode", (v) => fields({ blendMode: v as BlendModeName }))} />
           </PropertyRow>
         )}
         <PropertyRow

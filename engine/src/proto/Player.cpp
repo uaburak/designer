@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 #include <optional>
+#include <tuple>
 
 #include "base/FractionalIndex.h"
 #include "motion/Easing.h"
@@ -2920,8 +2921,14 @@ Player::Media Player::freshMedia(Guid node) const {
   m.node = node;
   if (const NodeProps* p = props(node)) {
     int k = videoFill(*p);
-    if (k >= 0) m.video = paintVideoHash(p->fillPaints[static_cast<size_t>(k)]);
-    m.settings = videoSettings(*p);
+    if (k >= 0) {
+      m.video = paintVideoHash(p->fillPaints[static_cast<size_t>(k)]);
+      m.settings = videoSettings(*p);
+    } else if (int g = gifFill(*p); g >= 0) {
+      m.video = paintGifHash(p->fillPaints[static_cast<size_t>(g)]);
+      m.gif = true;
+      m.settings.autoplay = m.settings.loop = m.settings.muted = true;
+    }
   }
   m.playing = m.settings.autoplay;
   m.muted = m.settings.muted;
@@ -2933,7 +2940,7 @@ Player::Media* Player::mediaEntry(Guid node) {
   auto it = media_.find(node);
   if (it != media_.end()) return &it->second;
   const NodeProps* p = props(node);
-  if (!p || videoFill(*p) < 0) return nullptr;
+  if (!p || (videoFill(*p) < 0 && gifFill(*p) < 0)) return nullptr;
   return &media_.emplace(node, freshMedia(node)).first->second;
 }
 
@@ -2980,7 +2987,7 @@ void Player::syncMedia() {
   std::function<void(Guid)> walk = [&](Guid id) {
     const NodeProps* p = props(id);
     if (!p || !p->visible || ghosts_.count(id)) return;
-    if (videoFill(*p) >= 0 && seen.insert(id).second) shown.push_back(id);
+    if ((videoFill(*p) >= 0 || gifFill(*p) >= 0) && seen.insert(id).second) shown.push_back(id);
     for (Guid c : doc().children(id)) walk(c);
   };
   for (Guid r : roots)
@@ -3068,6 +3075,7 @@ std::string Player::mediaJson() {
   });
   for (const Media* m : list) {
     w.beginObject().key("id").string(m->node.toString()).key("hash").string(m->video.present ? m->video.hex() : std::string());
+    if (m->gif) w.key("gif").boolean(true);
     w.key("playing").boolean(m->playing).key("muted").boolean(m->muted).key("loop").boolean(m->settings.loop);
     w.key("time").number(m->time).key("duration").number(m->duration).key("ended").boolean(m->ended);
     w.key("seek");
@@ -3120,17 +3128,18 @@ void Player::mediaFrame(Guid node, uint32_t bitmapId, uint32_t width, uint32_t h
 }
 
 void Player::applyMediaFrames() {
-  // A video with a frame: its VIDEO fills draw that frame (the live source) instead of the poster, in every item.
-  std::vector<std::pair<Guid, ImageHash>> live;
+  // A video with a frame: its VIDEO fills draw that frame (the live source) instead of the poster, in every item; a
+  // GIF's GIF fills instead of their cover frame.
+  std::vector<std::tuple<Guid, ImageHash, bool>> live;
   for (auto& [id, m] : media_)
-    if (m.shown && m.frame && doc().has(id)) live.emplace_back(id, frameHash(id));
+    if (m.shown && m.frame && doc().has(id)) live.emplace_back(id, frameHash(id), m.gif);
   if (live.empty()) return;
   for (PropsOverrides& map : store_)
-    for (auto& [id, hash] : live) {
+    for (auto& [id, hash, gif] : live) {
       auto it = map.find(id);
       if (it == map.end()) it = map.emplace(id, *props(id)).first;
       for (Paint& p : it->second.fillPaints)
-        if (p.type == PaintType::VIDEO && p.visible) p.image = hash;
+        if (p.visible && (gif ? paintGifHash(p).present : p.type == PaintType::VIDEO)) p.image = hash;
     }
 }
 

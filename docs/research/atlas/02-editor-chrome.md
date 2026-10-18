@@ -559,6 +559,46 @@ Branch `chrome` (worktree `worktree-agent-aea9139fc139ea134`), in this section's
   returning to Move (lives in `editor/canvas/BottomToolbar.tsx`, the canvas branch's); rail labels on by default (the
   owner's round 14 choice keeps them off); bold top-level layer names (open question); the 3-page Starter limit.
 
+### Sweep (2026-10-18)
+
+Branch `worktree-agent-ac2399b6b638fb5ab`, read from the cached build where the list left a rule unread.
+
+**Closed**
+
+- **Wheel scrubbing** (`ds/util/scrub.ts` `wheelDelta` / `wheelValue`, `NumericInput`). When it applies is now read
+  (`3187` ScrubManager `updateCaptureWheelEvents`): only while ⌥ is held over the field; without ⌥ the panel scrolls.
+  Figma's maths: the larger axis (`wheelSingleAxis: "x"`, −deltaX / deltaY), lines ×10, pages ×100, ⇧ ×10 and the big
+  step's grid, × `wheelMultiplier` (percent fields 2), then the scrub's `0.5 × scrubMultiplier` without speed bands
+  (`isUnbounded`). The events batch into one change, final 200 ms after the last.
+- **Comma lists** (`listTargets`, `listSelection`, `stepList`; Figma's `getIncrementTargets` / `getSelection`, module
+  `674742`). In a list field ("19, 22", the one padding field) ↑ ↓ step the value under the caret (a comma counts
+  with the value before it, the end with the last) or every value the selection touches, then select them; all
+  selected steps all.
+- **Zoom in / out disabled at the zoom's limits** (the engine's `commandState`, 1/64 and 256).
+- **Outlines ▸** in the zoom menu: Outlines, then Show hidden layers / Show object bounds (the View menu's commands).
+- **Annotations** (`5904`'s zoom menu, read): in Dev Mode with the file's categories, a submenu — Show annotations;
+  Show all categories and a row per category (its colour as a dot). A row shows only that category's annotations
+  (Figma's single `filterAnnotationCategoryId`, `engine_set_annotation_filter`); Show all categories clears it.
+  Elsewhere the one toggle. The filter lives for the session (Figma's uiState).
+- **Prototyping information (⇧E)**. The atlas had it backwards: the row shows for someone who can **only view** a
+  Design file (`e!==Design || !isReadOnly || push`). It toggles `prototypeCanvasUiVisible`: the prototype's
+  connections on the canvas, as the Prototype tab shows them to an editor.
+- **Comment chosen again returns to Move** (`toolbarChoice`, the toolbar's comment group only; the C key keeps the
+  tool, as Figma's `onActivateTool`).
+- **Visual search** in the image toolbar's More menu, after a line (Figma's `eO`).
+- **Hover previews** (the DS Select's `onPreview`, 50 ms): the layer blend mode, the mask type, the effect type and the
+  colour interpolation menus show the hovered option and put the value back on leaving or before the pick.
+
+**Stays open**
+
+- The image **Crop toolbar**. The JS is read (Crop label; a scale slider from `minScale` to `maxScale`, step 0.01 /
+  0.1; the aspect ratio menu Custom / Original / Square 1:1 / Circle 1:1 / Landscape ▸ 16:9 4:3 3:2 / Portrait ▸ 9:16
+  3:4 2:3; Resize to fit = `resizeNodeToFitImage`; Done / Cancel = `undoCropModeChanges`). The crop mode itself is the
+  wasm's (`setDefaultEditMode`, the canvas drawing and dragging); it needs a live look or the wasm read.
+- Move to trash / Restore default thumbnail / Add to sidebar in the file menu: the view can reach the store's trash
+  and stars, but Figma's confirm and toasts in the editor are unread.
+- The live-probe items above.
+
 ## 10. Open questions
 
 | Question | Live probe that settles it |
