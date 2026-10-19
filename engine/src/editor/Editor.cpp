@@ -100,6 +100,7 @@ void Editor::begin(TxnKind kind, const std::string& label) {
   txn_.peer = false;
   txn_.changes.clear();
   layoutDirty_.clear();
+  instanceRefit_.clear();  // the rollback's restored sizes derive those instances again (not layout writes)
   groupsTouched_.clear();
   edited_.clear();
   userGeometry_.clear();
@@ -201,6 +202,11 @@ void Editor::noteChange(const NodeChange& c, NodeType typeBefore) {
   if (!applyingStored_ && (!storedText_.empty() || !storedSymbols_.empty())) invalidateStored(c, typeBefore);
   indexChange(c);
   noteAnnotated(c);
+  motionDocTouched_ = true;
+  if (!motionTouched_ && !c.guid.isDerived()) {
+    const Node* mn = c.phase == Phase::REMOVED ? nullptr : doc_.get(c.guid);
+    if (mn && motion::MotionIndex::mayAnimate(mn->props)) motionTouched_ = true;
+  }
   markInstanceDirty(c);
   noteBindings(c, typeBefore);
   FieldMask mask = c.phase == Phase::CHANGED ? c.mask : F_ALL;
@@ -471,9 +477,9 @@ void Editor::flushLayout() {
         layoutDirty_.clear();
       }
     }
-    if (instanceDirty_.empty() && bindingsDirty_.empty()) break;
+    if (instanceDirty_.empty() && instanceRefit_.empty() && bindingsDirty_.empty()) break;
     flushInstances();
-    if (layoutDirty_.empty() && bindingsDirty_.empty() && instanceDirty_.empty()) break;
+    if (layoutDirty_.empty() && bindingsDirty_.empty() && instanceDirty_.empty() && instanceRefit_.empty()) break;
   }
 }
 
@@ -518,7 +524,8 @@ void Editor::commit(bool mergeWithLast) {
   txn_.depth = 0;
   txn_.open = false;
   motionInTxn_ = false;
-  motionDirty_ = true;
+  if (motionTouched_ || (motionDocTouched_ && !motionIndex_.empty())) motionDirty_ = true;
+  motionTouched_ = motionDocTouched_ = false;
   if (motion_.on) motionApply();
   bool emits = txn_.kind != TxnKind::REMOTE && txn_.kind != TxnKind::LOAD;
   if (emits && !txn_.changes.empty()) {
@@ -2255,6 +2262,7 @@ const motion::MotionIndex& Editor::motionIndex() {
 }
 
 void Editor::motionRebuild() {
+  motionRebuilds_++;
   motion::Resolver r;
   r.easing = [&](const VariableData& alias, Guid consumer, motion::EasingSpec& out) {
     Resolved v;

@@ -387,6 +387,20 @@ void MotionIndex::clear() {
   playing_.clear();
 }
 
+bool MotionIndex::mayAnimate(const NodeProps& p) {
+  if (p.type == NodeType::KEYFRAME || p.type == NodeType::KEYFRAME_TRACK || p.type == NodeType::ANIMATION_PRESET_INSTANCE) return true;
+  auto keyframe = [](const VariableData& d) { return d.kind == VariableData::Kind::EXPRESSION && d.function == ExpressionFunction::KEYFRAME; };
+  for (const ParamBinding& pb : p.parameterConsumptionMap)
+    if (pb.isVariable() && keyframe(pb.data)) return true;
+  for (const std::vector<Paint>* list : {&p.fillPaints, &p.strokePaints})
+    for (const Paint& paint : *list)
+      if ((paint.colorVar.present() && keyframe(paint.colorVar)) || (paint.opacityVar.present() && keyframe(paint.opacityVar))) return true;
+  for (const Effect& e : p.effects)
+    for (const VarBox* box : {&e.radiusVar, &e.colorVar, &e.spreadVar, &e.xVar, &e.yVar})
+      if (box->present() && keyframe(*box)) return true;
+  return p.extra.count("animationPresets") != 0;
+}
+
 void MotionIndex::rebuild(const Document& doc, const Resolver* resolve) {
   clear();
   // 1. Tracks and their keyframes.
