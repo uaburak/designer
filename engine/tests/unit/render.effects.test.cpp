@@ -183,11 +183,12 @@ TEST_CASE("renderer: a progressive background blur draws the shape once per inte
     if (c.pipeline.shader == gfx::ShaderId::Shape && c.call.uniforms[6][0] == doctest::Approx(20)) {
       params = true;
       CHECK(c.call.uniforms[6][1] == doctest::Approx(0.8));  // Refraction 80
+      CHECK(c.call.uniforms[6][2] == doctest::Approx(0.1));  // Dispersion 50 × 0.2 (Figma's CHROMATIC_EXPANSION_FACTOR)
       CHECK(c.call.uniforms[6][3] == doctest::Approx(0));    // Splay 0
-      CHECK(c.call.uniforms[8][2] == doctest::Approx(0.8));  // Intensity 80 %
-      // Light angle −45°: the light up and to the left (canvas y down).
-      CHECK(c.call.uniforms[8][0] < 0);
-      CHECK(c.call.uniforms[8][1] < 0);
+      CHECK(c.call.uniforms[8][1] == doctest::Approx(0.8));  // Intensity 80 %
+      CHECK(c.call.uniforms[8][2] == doctest::Approx(1));    // Bevel 1
+      // Figma's light in the node's space: −45° − the frame's rotation (none) + 90° = 45°.
+      CHECK(c.call.uniforms[8][0] == doctest::Approx(0.785398));
     }
   CHECK(params);
 }

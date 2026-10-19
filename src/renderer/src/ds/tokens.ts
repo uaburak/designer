@@ -489,6 +489,8 @@ export const elevation = {
   "400-menu-panel": ["0 0 0.5px #0000001f, 0 10px 16px #0000001f, 0 2px 5px #00000026", "0 10px 16px #00000059, 0 2px 5px #00000059, inset 0 0.5px 0 #ffffff14, inset 0 0.75px 0 #ffffff1a"],
   "500-modal-window": ["0 0 0.5px #00000014, 0 10px 24px #0000002e, 0 2px 5px #00000026", "0 10px 24px #00000073, 0 3px 5px #00000059, inset 0 0.75px 0 #ffffff1a"],
   menu: ["0 0 0.5px #0000004d, 0 5px 17px #00000040, 0 2px 7px #00000026", "0 0 0.5px #0000004d, 0 5px 17px #00000040, 0 2px 7px #00000026"],
+  // A slider's 12 px thumb (live 2026-10-18 slider.txt, dark; light: the same without the inner light rims)
+  "slider-thumb": ["0 1px 3px #00000040, 0 0 0.5px #0000004d, 0 3px 8px #00000026", "0 1px 3px #00000080, inset 0 0 0.5px #ffffff4d, 0 3px 8px #00000059, inset 0 0.5px 0 #ffffff14"],
 } as const satisfies Record<string, Pair>;
 
 /** Focus (§1.10): fields turn their border blue; everything else gets a 1px outline 1px out. */

@@ -34,8 +34,9 @@ export function sliderValue(v: number, min: number, max: number, step = 1): numb
 export const sliderFraction = (v: number, min: number, max: number): number => (max > min ? Math.min(1, Math.max(0, (v - min) / (max - min))) : 0);
 
 /**
- * A horizontal slider (docs/design-system.md §4.38; Draw's sidebar, docs/draw.md §5.3): a 24 high hit area holding a
- * 2 px track — the part up to the value in the icon colour — and a 10 px round thumb. A press anywhere on it jumps the
+ * A horizontal slider (docs/design-system.md §4.38; Draw's sidebar, docs/draw.md §5.3; live 2026-10-18 slider.txt): a
+ * 24 high hit area holding Figma's 6 px pill track — the part up to the value in the brand blue — and a 12 px white
+ * round thumb with its shadow. A press anywhere on it jumps the
  * thumb there and drags: one gesture, `final: false` per move and `final: true` on release (one undo step); Esc while
  * dragging cancels. ← ↓ / → ↑ step, ⇧ ten steps, Home / End the ends. `role="slider"`; disabled at 40 %.
  */

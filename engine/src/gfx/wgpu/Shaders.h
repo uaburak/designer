@@ -279,8 +279,11 @@ var<private> v_radii: vec4f;
 var<private> fragCoord: vec2f;
 var<private> o_color: vec4f;
 var<private> g_dp: vec2f;
-var<private> g_sdf: f32 = -1e9;
-var<private> g_normal: vec2f = vec2f(0.0);
+// For glass (gl/Shaders.h): the shape (-1 a path, 0 a rounded rectangle, 1 an ellipse), its signed distance in its own
+// units, the map from its own units to fragCoord px.
+var<private> g_glassShape: i32 = -1;
+var<private> g_dist: f32 = 0.0;
+var<private> g_toFrag: mat2x2f = mat2x2f(1.0, 0.0, 0.0, 1.0);
 
 fn stencilPass() -> bool { return u.v[20].z > 0.5; }
 
@@ -350,25 +353,60 @@ fn adjust(c0: vec3f) -> vec3f {
   return pow(clamp(c, vec3f(0.0), vec3f(1.0)), vec3f(1.0 / 2.2));
 }
 
+// Glass as Figma draws it (gl/Shaders.h glassAt): slots 6 = (depth, refraction, dispersion × 0.2, splay), 8 = (the
+// light's angle in the node's space, intensity, bevel size, 0), in the node's own units.
+fn glassRamp(lo: f32, hi: f32, x: f32) -> f32 { return clamp((x - lo) / max(0.00001, hi - lo), 0.0, 1.0); }
+fn glassUnit(v: vec2f) -> vec2f {
+  let l = dot(v, v);
+  return select(vec2f(0.0), v / sqrt(l), l > 1.0e-10);
+}
+fn glassNormal(p: vec2f, b: vec2f, r: f32, bevel: f32) -> vec2f {
+  if (g_glassShape == 1) { return glassUnit(p / max(b * b, vec2f(1e-6))); }
+  let k = min(min(b.x, b.y), r);
+  let q = abs(p) - (b - k);
+  if (max(q.x, q.y) <= -bevel * step(r, bevel)) { return vec2f(0.0); }
+  return glassUnit(q + max(-min(q.x, q.y), 0.0)) * sign(p);
+}
+fn glassFetch(off: vec2f) -> vec4f {
+  return textureSampleLevel(t2, s2, (fragCoord - u.v[4].xy + g_toFrag * off) / u.v[4].zw, 0.0);
+}
 fn glassAt() -> vec4f {
+  if (g_glassShape < 0) { return glassFetch(vec2f(0.0)); }
   let G = u.v[6];
   let L = u.v[8];
-  let sz = u.v[4].zw;
-  let base = fragCoord - u.v[4].xy;
-  let depth = max(G.x, 1e-3);
-  let e = clamp(1.0 + g_sdf / depth, 0.0, 1.0);
-  let bend = e * e * G.y * depth;
-  let o = vec2f(g_normal.x, -g_normal.y) * bend;
-  let k = G.z * 0.5;
-  let mid = textureSampleLevel(t2, s2, (base + o) / sz, 0.0);
-  let r = textureSampleLevel(t2, s2, (base + o * (1.0 + k)) / sz, 0.0).r;
-  let b = textureSampleLevel(t2, s2, (base + o * (1.0 - k)) / sz, 0.0).b;
-  let facing = dot(g_normal, L.xy);
-  let sharp = mix(6.0, 1.5, clamp(G.w, 0.0, 1.0));
-  let rim = pow(clamp(1.0 + g_sdf / max(depth * 0.25, 1.0), 0.0, 1.0), 2.0);
-  let spec = L.z * (pow(max(facing, 0.0), sharp) + 0.4 * pow(max(-facing, 0.0), sharp)) * rim;
-  let rgb = min(vec3f(r, mid.g, b), vec3f(mid.a));
-  return vec4f(rgb + (mid.a - rgb) * clamp(spec, 0.0, 1.0), mid.a);
+  let hs = v_origin.zw * 0.5;
+  let p = v_local - hs;
+  let corner = select(select(v_box.x, v_box.w, p.y > 0.0), select(v_box.y, v_box.z, p.y > 0.0), p.x > 0.0);
+  let rd = min(min(hs.x, hs.y), G.x);
+  let bevel = L.z;
+  let eh = g_dist;
+  let lim = 0.999 * rd;
+  let bend = clamp(pow(glassRamp(-rd - bevel, -bevel, eh), 3.5) * rd * G.y, -lim, lim);
+  let rim = glassRamp(-bevel - 0.0001, -bevel * 0.3, eh);
+  let dir = mix(glassNormal(p, hs, max(corner, max(bevel, rd)), bevel), glassUnit(p), G.w);
+  let dg = -dir * mix(bend, G.y * 0.2 * lim, rim);
+  var c = vec4f(0.0);
+  if (G.z < 0.001) {
+    c = glassFetch(dg);
+  } else {
+    var total = 0.0;
+    for (var i = 0; i < 8; i++) {
+      let t = f32(i) / 7.0 - 0.5;
+      let w = 1.0 - abs(t * 2.0);
+      let r = glassFetch(dg * (1.0 + (t + 0.5) * G.z));
+      let g = glassFetch(dg * (1.0 + t * G.z));
+      let b = glassFetch(dg * (1.0 + (t - 0.5) * G.z));
+      c += vec4f(r.r, g.g, b.b, max(max(r.a, g.a), b.a)) * w;
+      total += w;
+    }
+    c /= total;
+  }
+  let light = vec2f(cos(L.x), sin(L.x));
+  let n = glassNormal(p, hs, corner, bevel);
+  let lit = smoothstep(-bevel - 0.001, -bevel * 0.2, eh) * L.y;
+  var rgb = c.rgb + smoothstep(0.35, 1.0, dot(n, -light)) * lit + smoothstep(0.35, 1.0, dot(n, light)) * lit * 0.6;
+  rgb += dot(dir, light) * pow(glassRamp(-rd, -bevel + 0.0001, eh), 2.0) * 0.05 * L.y;
+  return vec4f(clamp(rgb, vec3f(0.0), vec3f(c.a)), c.a);
 }
 
 // Figma's dither (gl/Shaders.h figDither): ±1/255 on every channel; transparent untouched, opaque keeps its alpha.
@@ -496,10 +534,14 @@ fn shapeMain() -> bool {
   }
   let d = select(sdRoundedBox(p, halfSize, v_box), sdEllipse(p, halfSize), kind == 1);
   let fillCoverage = clamp(0.5 - d / px, 0.0, 1.0);
-  g_sdf = d / px;
-  // The outward normal in canvas device px (y down): WebGPU's dpdy runs down the framebuffer, which is up the canvas
-  // on offscreen targets (drawn with y negated, see the header).
-  g_normal = normalize(vec2f(dpdx(d), dpdy(d) * select(-1.0, 1.0, u.v[20].x > 0.0)) + vec2f(1e-12, 0.0));
+  g_glassShape = select(0, 1, kind == 1);
+  g_dist = d;
+  // fragCoord (GL's) runs up where WebGPU's dpdy runs down on the canvas (y sign +1), the same way offscreen.
+  let lx = dpdx(v_local);
+  let ly = dpdy(v_local) * select(1.0, -1.0, u.v[20].x > 0.0);
+  let det = lx.x * ly.y - ly.x * lx.y;
+  let inv = select(0.0, 1.0 / det, abs(det) > 1e-12);
+  g_toFrag = mat2x2f(ly.y * inv, -lx.y * inv, -ly.x * inv, lx.x * inv);
   if (stencilPass()) {
     if (fillCoverage < 0.5) { return false; }
     o_color = vec4f(0.0);

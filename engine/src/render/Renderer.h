@@ -732,6 +732,7 @@ class Renderer {
     float fx[3][4] = {};                                   // progressive: slots 16–18 (the node's box, start / end)
     double start = 0, end = 0;                             // progressive: the radius at the start and at the end (device px)
     float glass[2][4] = {};                                // glass: slots 6 and 8
+    double glassReach = 0;                                 // glass: how far past its pixels it reads (device px)
     // Where the layer it was recorded in cut its region (left, bottom, right, top): the atlas repeats the edge there.
     bool cut[4] = {false, false, false, false};
     // A uniform background blur: clamped to the node's box (Layer::clamped).

@@ -18,6 +18,21 @@
   }
   .field { display: flex; min-width: 0; }
   .field > * { flex: 1 1 auto; min-width: 0; }
+  /* A ranged number (the owner's capture figma-shader-pixelate-panel): the slider's box joined to its 56 value field */
+  .slider { display: flex; align-items: center; height: var(--ds-size-control); }
+  .track {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    min-width: 0;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-2);
+    border-radius: var(--ds-radius-medium) 0 0 var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+    box-sizing: border-box;
+  }
+  .value { flex: none; width: calc(var(--ds-space-12) + var(--ds-space-2)); margin-left: 1px; border-radius: 0 var(--ds-radius-medium) var(--ds-radius-medium) 0; }
+  .field > [data-ds="Switch"] { flex: none; }
   .wide { display: flex; grid-column: 1 / -1; align-items: center; min-width: 0; height: var(--ds-size-control); }
   .preset {
     display: flex;

@@ -386,6 +386,28 @@ Compared with `src/renderer/src/editor/panels/design/Effects.tsx`, `editor/model
   which layers glass is allowed on (`disallowedForGlassType` comes from the wasm), so the glass warnings and the
   callout (English unattested) wait; Rotate 3D / Perspective.
 
+**Owner's parity round (2026-10-19)** — from the owner's captures (`../figma/live/owner-2026-10-18/`) and the live
+DOM measurements (`../figma/live/2026-10-18/`); side by side in `owner-2026-10-18/after/`:
+- **"+"** (live, confirmed): adds an **Inner shadow** at the top of the list at once and opens the new row's type menu
+  under "+" (Inner shadow lit; hovering previews; a pick turns the new effect into that type; Esc / outside keeps the
+  Inner shadow); Glass greyed when the layer has one; a line, then **Shader** with a "Beta" chip (picking it opens the
+  shader browser for the new effect). "+" never opens the shader browser itself any more. Our §4.1 "+ adds a drop
+  shadow" was the no-entry-point-menu build; the shipped UI has the menu.
+- **Icons**: Figma's own SVGs for Inner / Drop shadow, Layer / Background blur, Noise, Texture, Glass, Shader (DS
+  `24.effect.inner.shadow.small`, `24.effect.drop.shadow.small`, `24.layer.blur.small`, `24.background.blur.small`,
+  `24.noise.small`, `24.texture.small`, `24.glass.small`, `24.effect.shader.small`); rows use the type's icon (Figma's
+  nine shadow-offset variants are not drawn). The row whose settings are open is `bg-selected` (#394360) with its name in
+  `text-brand` (#7CC4F8).
+- **Glass popover**: the sliders are the DS Slider in Figma's look (6 px track #444, fill #0C8CE9, 12 px white thumb with
+  its shadows) on the 80 × 24 box joined to the 56 value field; a full-width line between the light and the sliders.
+- **Light dial**: Figma's (`light-angle-control`): the dial turns to the angle as shown, **0° up, clockwise** (Figma's
+  `atan2(x, −y)`; the renderer lights the top at 0° — this settles the §13 orientation question: ours was wrong), its
+  glow (the intensity indicator's rounded diamond, strength (0.1 + 0.9·I^0.6) × 0.2 dark / 1 light), the spotlight glyph,
+  the fixed 8 × 8 handle.
+- **Boolean menu**: Figma's Union / Subtract / Intersect / Exclude / Flatten / Edit object icons (24 px,
+  `24.boolean.*.small`, `24.flatten.small`, `24.edit.object.small`); a shape's ⋯ menu ends with Edit object under a line,
+  without a shortcut (the owner's capture).
+
 ## 13. Open questions
 
 | Question | Live probe that settles it |

@@ -174,15 +174,15 @@ export function frameMenu(kind: FrameKind, offered: Record<FrameKind, boolean> =
 
 /** Figma's boolean group menu: the four operations, then Flatten — each with its glyph (live: labels at 44). */
 const BOOLEAN_ITEMS: { id: string; op: "UNION" | "SUBTRACT" | "INTERSECT" | "XOR"; icon: IconName }[] = [
-  { id: "vector.union", op: "UNION", icon: "16.boolean.union" },
-  { id: "vector.subtract", op: "SUBTRACT", icon: "16.boolean.subtract" },
-  { id: "vector.intersect", op: "INTERSECT", icon: "16.boolean.intersect" },
-  { id: "vector.exclude", op: "XOR", icon: "16.boolean.exclude" },
+  { id: "vector.union", op: "UNION", icon: "24.boolean.union.small" },
+  { id: "vector.subtract", op: "SUBTRACT", icon: "24.boolean.subtract.small" },
+  { id: "vector.intersect", op: "INTERSECT", icon: "24.boolean.intersect.small" },
+  { id: "vector.exclude", op: "XOR", icon: "24.boolean.exclude.small" },
 ];
 
 /** The glyph each action carries in the header's menus (every item has one: the label column stays at 44). */
 export const ACTION_ICON: Record<string, IconName> = {
-  "edit-object": "24.pen",
+  "edit-object": "24.edit.object.small",
   "ready-for-dev": "24.dev-brackets",
   "object.create-component": "24.component.small",
   "object.create-multiple-components": "24.component.small",
@@ -192,11 +192,11 @@ export const ACTION_ICON: Record<string, IconName> = {
   "object.push-changes": "24.go.to.main.component.small",
   "object.use-as-mask": "24.mask",
   "object.hide-when-publishing": "24.hidden.small",
-  "vector.union": "16.boolean.union",
-  "vector.subtract": "16.boolean.subtract",
-  "vector.intersect": "16.boolean.intersect",
-  "vector.exclude": "16.boolean.exclude",
-  "vector.flatten": "16.vector",
+  "vector.union": "24.boolean.union.small",
+  "vector.subtract": "24.boolean.subtract.small",
+  "vector.intersect": "24.boolean.intersect.small",
+  "vector.exclude": "24.boolean.exclude.small",
+  "vector.flatten": "24.flatten.small",
 };
 
 /** A command as a header-menu item: its glyph, never a check column (live labels at 44). */
@@ -360,7 +360,7 @@ function HeaderActions({ nodes, kind }: { nodes: PanelNode[]; kind: HeaderKind }
       case "boolean":
         return <BooleanGroup key={a} nodes={nodes} />;
       case "edit":
-        return <IconButton key={a} icon="24.pen" label={t("Edit object")} shortcut={keys(["enter"])} tone="secondary" disabled={!editable} onClick={() => ed.vector.start(nodes[0].guid)} />;
+        return <IconButton key={a} icon="24.edit.object.small" label={t("Edit object")} shortcut={keys(["enter"])} tone="secondary" disabled={!editable} onClick={() => ed.vector.start(nodes[0].guid)} />;
       case "matching":
         // Several shapes alone have nothing to match (live multi-two-shapes): the row starts at Use as mask.
         return kind === "multi" && shapesOnly ? null : (
@@ -502,17 +502,19 @@ function pickBoolean(ed: EditorController, nodes: PanelNode[], id: string, boole
 
 /**
  * "More actions": what the header row leaves out, in the order of Figma's live menu (popovers/instance-more-actions-
- * menu.txt): Edit object · Create component · Use as mask · Union, Subtract, Intersect, Exclude, Flatten — each
+ * menu.txt, owner-2026-10-18): Create component · Use as mask · Union, Subtract, Intersect, Exclude, Flatten · Edit object — each
  * group apart by a line, what the row already shows left out, what can't run hidden (a shape's own menu is not
  * captured: unverified beyond that order).
  */
 export function moreActionsMenu(ed: EditorController, nodes: readonly PanelNode[], omit: readonly string[]): MenuEntry[] {
   const editable = nodes.length === 1 && EDITABLE.has(typeOf(nodes[0])) && ed.vector.available;
+  // A shape's narrow header (the owner's capture figma-boolean-menu.png, 2026-10-18): the boolean group, then Edit
+  // object under a line, last.
   const groups: MenuItem[][] = [
-    editable ? [{ id: "edit-object", label: t("Edit object"), shortcut: keys(["enter"]), icon: ACTION_ICON["edit-object"] }] : [],
     [actionItem(ed, "object.create-component"), actionItem(ed, "object.create-multiple-components")],
     [actionItem(ed, "object.use-as-mask")],
     booleanActions(ed),
+    editable ? [{ id: "edit-object", label: t("Edit object"), icon: ACTION_ICON["edit-object"] }] : [],
   ];
   return groups.flatMap((g): MenuEntry[] => {
     const shown = g.filter((e) => !omit.includes(e.id) && !e.disabled);
