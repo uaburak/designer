@@ -194,3 +194,74 @@ describe("Room", () => {
     expect(states.at(-1)?.policy).toEqual({ cursorChat: true, audio: false });
   });
 });
+
+describe("Room: Figma's limits and signals (docs/multiplayer.md §18.13)", () => {
+  const small = (limits: Partial<{ editors: number; cursors: number; participants: number; extraEditors: number }>, more: { minProtocol?: number; now?: () => number } = {}) => new Room(new MemoryRoomStorage(), () => {}, { limits, ...more });
+
+  it("past the editors' limit an editor joins as a viewer for the session: told so, seen so, its frames refused", () => {
+    const room = small({ editors: 2 });
+    const a = join(room, 0, "A");
+    join(room, 0, "B");
+    const c = join(room, 0, "C");
+    expect(c.welcome).toMatchObject({ role: "viewer", limited: "editors" });
+    expect((a.last as Extract<ServerControl, { t: "peer-joined" }>).peer.role).toBe("viewer");
+    room.receive(c, encodeChangesUp(1, bytes(1)));
+    expect(c.closed).toBe(1008);
+    expect(a.frames).toEqual([]);
+    // Viewers don't count: a viewer past the limit is just a viewer
+    expect(join(room, 0, "V", "viewer").welcome.limited).toBeUndefined();
+  });
+
+  it("a full file refuses newcomers with too-many-connections — but up to the extra editors", () => {
+    const room = small({ participants: 2, extraEditors: 1 });
+    join(room, 0, "A");
+    join(room, 0, "B", "viewer");
+    const viewer = join(room, 0, "V", "viewer");
+    expect(viewer.controls).toEqual([{ t: "mp-signal", name: "too-many-connections" }]);
+    expect(viewer.closed).toBe(4029);
+    const editor = join(room, 0, "E");
+    expect(editor.welcome.sessionID).toBeGreaterThan(0);
+    const another = join(room, 0, "F");
+    expect(another.closed).toBe(4029);
+  });
+
+  it("past the cursors' limit a newcomer's cursor isn't relayed until someone follows it or a place frees up", () => {
+    const room = small({ cursors: 1 });
+    const a = join(room, 0, "A");
+    const b = join(room, 0, "B");
+    const c = join(room, 0, "C");
+    expect(b.welcome.cursorHidden).toBe(true);
+    room.receive(b, JSON.stringify({ t: "presence", data: { cursor: { x: 1, y: 2 }, page: "0:1" } }));
+    expect(a.last).toEqual({ t: "presence", sessionID: b.welcome.sessionID, data: { cursor: null, page: "0:1" } });
+    // C follows B: B is told, its cursor goes out
+    room.receive(c, JSON.stringify({ t: "presence", data: { cursor: null, page: "0:1", observing: b.welcome.sessionID } }));
+    expect(b.last).toEqual({ t: "cursor", hidden: false, why: "observed" });
+    expect(a.last).toEqual({ t: "presence", sessionID: b.welcome.sessionID, data: { cursor: { x: 1, y: 2 }, page: "0:1" } });
+    // A (shown) leaves: the longest hidden cursor (B's) is shown again
+    room.leave(a);
+    expect(b.controls.filter((x) => x.t === "cursor").at(-1)).toEqual({ t: "cursor", hidden: false, why: "left" });
+  });
+
+  it("drops presence past its size and rate", () => {
+    const room = small({}, { now: () => 5000 });
+    const a = join(room, 0, "A");
+    const b = join(room, 0, "B");
+    room.receive(b, JSON.stringify({ t: "presence", data: { cursor: null, page: "x".repeat(20_000) } }));
+    expect(a.controls.filter((x) => x.t === "presence")).toHaveLength(0);
+    for (let i = 0; i < 40; i++) room.receive(b, JSON.stringify({ t: "presence", data: { cursor: { x: i, y: 0 }, page: "0:1" } }));
+    expect(a.controls.filter((x) => x.t === "presence")).toHaveLength(30);
+  });
+
+  it("refuses an app older than the room takes with client-too-old; tells a user whose access went with invalid-permissions", () => {
+    const room = small({}, { minProtocol: 1 });
+    const old = join(room, 0, "Old");
+    expect(old.controls).toEqual([{ t: "mp-signal", name: "client-too-old" }]);
+    expect(old.closed).toBe(4026);
+    const c = new Client();
+    room.connect(c, { userId: "u-New", name: "New", role: "editor" });
+    room.receive(c, JSON.stringify({ t: "hello", since: 0, v: 1 }));
+    expect(c.welcome.sessionID).toBeGreaterThan(0);
+    room.signalUser("u-New", "invalid-permissions");
+    expect(c.last).toEqual({ t: "mp-signal", name: "invalid-permissions" });
+  });
+});

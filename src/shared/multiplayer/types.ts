@@ -6,7 +6,7 @@ import type { FilePolicy, RoomPolicy } from "../org/identity";
 import type { GovernanceErrorCode, OrgGate } from "../org/governance";
 import type { FileKey } from "../store/types";
 import type { RestJob } from "../rest/types";
-import type { PeerInfo, Role } from "./protocol";
+import type { MultiplayerSignalName, PeerInfo, Role } from "./protocol";
 import type { UploadEvent, UploadProgress } from "./uploads";
 
 export interface MultiplayerSession {
@@ -51,6 +51,8 @@ export interface FileShareState {
   /** The room's file key */
   key: string | null;
   role: Role | null;
+  /** Joined past the room's editors' limit (docs/multiplayer.md §18.13): `role` says viewer for this session */
+  limited?: "editors";
   connection: "offline" | "connecting" | "live";
   peers: PeerInfo[];
   /** "Ask to edit" requests waiting (editors only; the Share button's badge) */
@@ -94,7 +96,17 @@ export interface AccessRequest {
   createdAt: number;
 }
 
-export type MultiplayerNotice = { kind: "access-request" | "access-granted" | "access-denied"; name?: string };
+/**
+ * Figma's multiplayer signals and limit notices (docs/multiplayer.md §18.13, atlas 19 §2.3): the room's signals
+ * (`MultiplayerSignalName`) and what the room said at welcome or later — joined past the editors' limit as a viewer,
+ * the cursor hidden past the cursors' limit, then shown again.
+ */
+export type MultiplayerSignal = MultiplayerSignalName | "converted-to-viewer" | "cursor-hidden" | "cursor-visible-observed" | "cursor-visible-left";
+
+export type MultiplayerNotice =
+  | { kind: "access-request" | "access-granted" | "access-denied"; name?: string }
+  /** `unsaved`: this copy has changes the room hasn't taken (Figma's words differ then: they say the changes wait) */
+  | { kind: "signal"; signal: MultiplayerSignal; unsaved: boolean };
 
 export interface MultiplayerEvent {
   fileKey: FileKey;

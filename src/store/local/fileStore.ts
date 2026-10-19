@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { codec, DOCUMENT_FORMAT_VERSION, SCHEMA_BINARY, SCHEMA_SHA1 } from "../../shared/schema/document.generated";
 import { RESERVED_SESSION_LIMIT, sessionIdFor, splitSessionId } from "../../shared/schema/guid";
 import { messageImageHashes, NodeTable } from "../../shared/schema/patch";
+import { applyStructure, structureOf, type Structure } from "../../shared/multiplayer/structure";
 import { restoreDiff } from "../../shared/store/assetIdentity";
 import { snapshotLosses } from "../../shared/store/snapshotCheck";
 import { StoreError } from "../../shared/store/protocol";
@@ -807,7 +808,7 @@ export class FileStore {
    * `stale` unless the head is still there (a merge computed against it). A merge or update is an edit for the autosave
    * checkpoint and the shared file's link (it is sent to the room); a remote frame is neither.
    */
-  async appendSystem(fileKey: FileKey, message: Uint8Array, opts: { kind: "remote" | "merge" | "update"; label?: string; expectSeq?: number; blobRefsAdded?: string[] }): Promise<AppendAck> {
+  async appendSystem(fileKey: FileKey, message: Uint8Array, opts: { kind: "remote" | "merge" | "update" | "system"; label?: string; expectSeq?: number; blobRefsAdded?: string[] }): Promise<AppendAck> {
     if (this.closing) throw new StoreError("shutting-down", tr("The store is shutting down"));
     if (message.length > MAX_BATCH_BYTES) throw new StoreError("too-large", tr("This change is too large to save"));
     const a = this.actor(fileKey);
@@ -1116,6 +1117,24 @@ export class FileStore {
   }
 
   /** The head as a node table: snapshot + every frame after it. */
+  /**
+   * The file's tree (docs/multiplayer.md §18.12) from its snapshot and every journaled frame but those `skip` lists (a
+   * shared file's changes still waiting for its room: what is left is the room's tree); null when one of them is
+   * already folded into the snapshot.
+   */
+  async structureAt(fileKey: FileKey, skip: readonly number[]): Promise<Structure | null> {
+    const a = this.actor(fileKey);
+    return a.queue.run(async () => {
+      const h = await this.loaded(a);
+      const from = h.state.head.snapshotSeq;
+      if (skip.some((seq) => seq <= from)) return null;
+      const s = structureOf(currentMessage(await readSnapshotFile(this.path(a, h.state.head.snapshot))));
+      const skipped = new Set(skip);
+      for (const f of await this.readFrames(a, h, from)) if (!skipped.has(f.seq)) applyStructure(s, codec.decodeMessage(f.message));
+      return s;
+    });
+  }
+
   async headTable(fileKey: FileKey): Promise<{ table: NodeTable; seq: number }> {
     const a = this.actor(fileKey);
     return a.queue.run(async () => {

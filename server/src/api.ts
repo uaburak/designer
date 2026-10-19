@@ -463,7 +463,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
           return json({ ok: true });
         }
         const memberId = await deps.db.removeMember(key, parts[3]);
-        if (memberId) await deps.rooms.fetch(key, "/room/revoke", { method: "POST", body: JSON.stringify({ userId: memberId }) });
+        if (memberId) await deps.rooms.fetch(key, "/room/revoke", { method: "POST", body: JSON.stringify({ userId: memberId, removed: true }) });
         await log("fig_file_member_remove", { email: normalizeEmail(parts[3]), user_id: memberId });
         return json({ ok: true });
       }
@@ -512,7 +512,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
         if (userId === f.owner_id) throw new HttpError(400, "the file's owner keeps their access");
         await deps.db.d1.prepare(`INSERT INTO file_exclusions (file_key, user_id, created_by, created_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING`).bind(key, userId, user.id, deps.now()).run();
         // Their open sessions on the file reconnect without it
-        await deps.rooms.fetch(key, "/room/revoke", { method: "POST", body: JSON.stringify({ userId }) });
+        await deps.rooms.fetch(key, "/room/revoke", { method: "POST", body: JSON.stringify({ userId, removed: true }) });
         await log("fig_file_member_remove", { user_id: userId, inherited: true });
         return json({ ok: true });
       }

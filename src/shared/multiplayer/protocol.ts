@@ -22,7 +22,7 @@ export const CHANGES_DOWN_HEADER = 13;
 export type ClientControl =
   /** First message. `since`: the last seq this client holds (its snapshot's seq, or the last frame it applied). Who
    *  the client is comes from the Worker (the session token on the socket's URL), not from here. */
-  | { t: "hello"; since: number; /** This client can answer REST render jobs (docs/multiplayer.md §16.6): an editor view with the file's engine loaded */ render?: boolean; /** With `render`: the desktop app's hidden render helper (docs/multiplayer.md §16.6), asked after editors and viewers */ helper?: boolean }
+  | { t: "hello"; since: number; /** This client can answer REST render jobs (docs/multiplayer.md §16.6): an editor view with the file's engine loaded */ render?: boolean; /** With `render`: the desktop app's hidden render helper (docs/multiplayer.md §16.6), asked after editors and viewers */ helper?: boolean; /** The client's PROTOCOL_VERSION (absent: 0) — a room that needs a newer one answers `client-too-old` (§18.13) */ v?: number }
   /** Ephemeral (never stored): cursor, selection, viewport … opaque to the server. */
   | { t: "presence"; data: unknown }
   /** Ephemeral, to one session of the file (never stored): "Ask to spotlight", audio's WebRTC offers / answers / ICE. */
@@ -34,9 +34,54 @@ export type ClientControl =
 /** The largest signal the room relays (a WebRTC offer with its candidates fits easily) */
 export const MAX_SIGNAL_BYTES = 32_000;
 
+/**
+ * Figma's multiplayer limits (docs/multiplayer.md §18.13; R13 §4, atlas 19 §2.3): 200 people editing at a time (past
+ * it a newcomer who can edit joins as a viewer with a hidden cursor, for that session), 200 cursors shown (past it a
+ * newcomer's cursor is hidden — shown again when someone follows them or a place frees up), 500 people in a file (past
+ * it nobody else joins, but up to 20 more editors). A frame is at most MAX_FRAME_BYTES (an SQLite value), a signal
+ * MAX_SIGNAL_BYTES; presence is at most MAX_PRESENCE_BYTES and PRESENCE_PER_SECOND a session (ours: Figma's rate isn't
+ * read — the client sends ~10 a second, the room drops what goes past).
+ */
+export const MAX_EDITORS = 200;
+export const MAX_CURSORS = 200;
+export const MAX_PARTICIPANTS = 500;
+export const EXTRA_EDITORS_WHEN_FULL = 20;
+export const MAX_PRESENCE_BYTES = 16_000;
+export const PRESENCE_PER_SECOND = 30;
+/** This client's protocol (hello.v); a room refuses clients older than its minimum with `client-too-old` */
+export const PROTOCOL_VERSION = 1;
+
+/**
+ * Figma's multiplayer signals (atlas 19 §2.3, `handleMultiplayerSignal`), as this room says them (`{t: "mp-signal"}`):
+ * the room is full, access was taken away while the file was open, the app is too old for the room, a frame it couldn't
+ * read. Each has its own words in the editor, which also say whether unsaved changes are kept (§18.13).
+ */
+export type MultiplayerSignalName = "too-many-connections" | "invalid-permissions" | "client-too-old" | "message-decode-failure";
+
+/** Close codes: the room is full (too-many-connections) — try again later; the app is too old — don't */
+export const CLOSE_FULL = 4029;
+export const CLOSE_TOO_OLD = 4026;
+
 export type ServerControl =
   /** The session this connection is. `sessionID` is unique for the file: use it in new nodes' GUIDs. `seq`: the last accepted frame. */
-  | { t: "welcome"; sessionID: number; role: Role; seq: number; peers: PeerInfo[]; snapshotSeq: number; policy?: RoomPolicy; /** This session's multiplayer colour (colors.ts; absent from a room before Phase 6) */ color?: number }
+  | {
+      t: "welcome";
+      sessionID: number;
+      role: Role;
+      seq: number;
+      peers: PeerInfo[];
+      snapshotSeq: number;
+      policy?: RoomPolicy;
+      /** This session's multiplayer colour (colors.ts; absent from a room before Phase 6) */ color?: number;
+      /** Past MAX_EDITORS: this person can edit the file but joins as a viewer for this session (`role` says viewer) */
+      limited?: "editors";
+      /** Past MAX_CURSORS: others don't see this session's cursor (until `{t: "cursor", hidden: false}`) */
+      cursorHidden?: boolean;
+    }
+  /** One of Figma's signals (above), right before the room closes the socket or as a bell */
+  | { t: "mp-signal"; name: MultiplayerSignalName }
+  /** This session's cursor became visible to others again: someone follows it, or people left (MAX_CURSORS) */
+  | { t: "cursor"; hidden: false; why: "observed" | "left" }
   /** The catch-up after `since` is complete (the frames before it were sent as binary frames). */
   | { t: "ready"; seq: number }
   | { t: "peer-joined"; peer: PeerInfo }

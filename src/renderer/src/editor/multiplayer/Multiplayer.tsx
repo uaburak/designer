@@ -27,6 +27,7 @@ import { applyIntent, openIntent } from "./links";
 import { SPOTLIGHT_SWITCH_MS, SPOTLIGHT_WAIT_MS, SPOTLIGHT_WAITING_MS, presenceOf, usePresence, type Peer } from "./presence";
 import { SEARCH_PAST, maxFaces, shownFaces, sortFaces } from "./facepile";
 import { FileBlocked } from "./FileBlocked";
+import { signalToast } from "./signals";
 import { useAgentPresence, type AgentPeer } from "./agentPresence";
 import { agentPresenceOf, startAgentPresence } from "./agentsOnCanvas";
 import styles from "./Multiplayer.module.css";
@@ -394,7 +395,11 @@ function useNotices() {
     return getStoreClient().multiplayer.watch((e) => {
       if (e.fileKey !== fileKey || !e.notice) return;
       const n = e.notice;
-      if (n.kind === "access-request") showToast({ message: t("{name} asked to edit this file", { name: n.name ?? t("Someone") }), action: { label: t("Review"), onAction: () => ed.ui.set({ shareOpen: true }) } });
+      // Figma's multiplayer signals and limit notices, in their words (§18.13)
+      if (n.kind === "signal") {
+        const s = signalToast(n.signal, n.unsaved);
+        showToast({ message: s.message, ...(s.error ? { kind: "error" as const } : {}), ...(s.sticky ? { duration: 0 } : {}) });
+      } else if (n.kind === "access-request") showToast({ message: t("{name} asked to edit this file", { name: n.name ?? t("Someone") }), action: { label: t("Review"), onAction: () => ed.ui.set({ shareOpen: true }) } });
       else if (n.kind === "access-granted") showToast({ message: t("You can now edit this file") });
       else showToast({ message: t("Your request to edit wasn’t approved") });
     });
