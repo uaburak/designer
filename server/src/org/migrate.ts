@@ -42,14 +42,17 @@ export async function createOrg(ctx: Ctx, name: string, importSharedFiles: boole
     .run();
   await logActivity(deps, { orgId, action: "project_create", actor: user, entity: projectEntity({ id: projectId, name: "Shared files" }), teamId, details: migrated, req });
 
+  const { placeBranchesWith: placeBranch } = await import("../branches");
   const { results: files } = await d1
-    .prepare(`SELECT key, name, editor_type, link_access, proto_link_access FROM files WHERE owner_id = ?1 AND org_id IS NULL`)
+    .prepare(`SELECT key, name, editor_type, link_access, proto_link_access FROM files WHERE owner_id = ?1 AND org_id IS NULL AND NOT EXISTS (SELECT 1 FROM branches b WHERE b.key = files.key)`)
     .bind(user.id)
     .all<{ key: string; name: string; editor_type: string; link_access: string; proto_link_access: string }>();
   // Seats by the best grant each person had on the files moved.
   const people = new Map<string, { userId: string | null; editor: boolean }>();
   for (const f of files) {
     await d1.prepare(`UPDATE files SET org_id = ?2, team_id = ?3, project_id = ?4 WHERE key = ?1`).bind(f.key, orgId, teamId, projectId).run();
+    // Its branches come along (docs/data.md §15.7.1); they aren't files of their own here
+    await placeBranch(d1, f.key);
     await logActivity(deps, { orgId, action: "fig_file_move", actor: user, entity: fileEntity(f), teamId, details: { ...migrated, to: projectId }, req });
     const { results: grants } = await d1.prepare(`SELECT email, user_id, role FROM members WHERE file_key = ?1`).bind(f.key).all<{ email: string; user_id: string | null; role: string }>();
     for (const g of grants) {

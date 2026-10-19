@@ -13,9 +13,15 @@
 // - opacity on layers that need a group, blend modes, alpha / luminance masks
 //   (soft masks), and — PDF having no blur — layers with shadows or blurs drawn
 //   as an image of the layer rendered by the engine (as Figma does);
-// - text as glyphs: Type 3 fonts whose glyph procedures are the outlines, with
-//   a ToUnicode map, so the text is not editable but can be selected and copied
-//   (Figma: "text is exported as glyphs").
+// - text as glyphs (Figma: "text is exported as glyphs"), with ToUnicode maps
+//   so it can be selected and copied: a font that draws its file's own glyf
+//   outlines (TrueType; a variable font at its default instance) embedded as a
+//   subset TrueType (Type 0 over CIDFontType2, Identity-H, Figma's
+//   `/Registry (FigmaPDF)`; export/TrueType.h), any other as Type 3 fonts whose
+//   glyph procedures are the outlines (atlas 15 §9);
+// - tagged (atlas 15 §9: Figma's StructTreeRoot, MarkInfo, ActualText): a
+//   Document element with a P per text layer over its marked content (on the
+//   page or in a group's form XObject), the parent tree, /Tabs /S.
 #pragma once
 
 #include <functional>

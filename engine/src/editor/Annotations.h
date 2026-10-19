@@ -54,7 +54,7 @@ struct Measurement {
 
 // The colours of AnnotationCategoryColor (unverified hexes; Figma's palette names).
 Color categoryColor(const std::string& colorName);
-// The default colour of a preset category (unverified: Figma's files store presets without colours).
+// The colour of a preset category (Figma's files store presets without colours; the app gives them these, atlas 14 §12).
 std::string presetColorName(const std::string& preset);
 // "Development", "Interaction", …
 std::string presetLabel(const std::string& preset);

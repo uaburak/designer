@@ -78,14 +78,15 @@ describe("vectorize (wasm, headless)", () => {
     expect(labels).toEqual([]);  // nothing leaves the engine while previewing
     expect(engine.vectorizeEnd(true)).toBe(begun.frame);
     expect(labels).toEqual(["Vectorize"]);
-    expect(engine.readNode(layer)).toBeNull();
+    // Figma's: the image layer hidden, kept; the frame "<name> [Vectorized]" (atlas 18 §7.7).
+    expect(engine.readNode(layer)!.visible).toBe(false);
     const frame = engine.readNode(begun.frame, { childIds: true })!;
     expect(frame.type).toBe("FRAME");
-    expect(frame.name).toBe(name);
+    expect(frame.name).toBe(`${name} [Vectorized]`);
     expect(frame.childIds).toHaveLength(2);
     expect(engine.readNode(frame.childIds![0])!.type).toBe("VECTOR");
     engine.command("UNDO");
-    expect(engine.readNode(layer)).not.toBeNull();
+    expect(engine.readNode(layer)!.visible).not.toBe(false);
     expect(engine.readNode(begun.frame)).toBeNull();
 
     const again = engine.vectorizeBegin(layer, target);

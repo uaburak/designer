@@ -14,6 +14,7 @@
 #include "geometry/Brush.h"
 #include "geometry/DynamicStroke.h"
 #include "geometry/VariableWidth.h"
+#include "kiwi.h"
 
 namespace eng {
 
@@ -98,6 +99,57 @@ void Editor::fillPathsOf(Guid id, const Mat2x3& toSpace, geom::Path& out, Windin
   }
 }
 
+namespace {
+
+// NodeChange.vectorOperationVersion (schema/document.kiwi 425): which version of Figma's boolean operations a boolean
+// group was made with. Figma's new booleans carry 1 (the owner's Figma files, 2026-10: the ones made lately 1, older
+// ones without it); 0 or absent shows the Design panel's Update note (Atlas 05 §9.2). The engine computes every
+// version alike, so an update only stamps the field.
+constexpr uint32_t kVectorOperationVersionField = 425;
+constexpr uint32_t kLatestVectorOperationVersion = 1;
+
+std::string vectorOperationVersionField(uint32_t version) {
+  kiwi::ByteBuffer bb;
+  bb.writeVarUint(kVectorOperationVersionField);
+  bb.writeVarUint(version);
+  return std::string(reinterpret_cast<const char*>(bb.data()), bb.size());
+}
+
+uint32_t vectorOperationVersionOf(const NodeProps& p) {
+  auto it = p.extra.find("vectorOperationVersion");
+  if (it == p.extra.end() || it->second.empty()) return 0;
+  kiwi::ByteBuffer bb(reinterpret_cast<const uint8_t*>(it->second.data()), it->second.size());
+  uint32_t field = 0, version = 0;
+  if (!bb.readVarUint(field) || field != kVectorOperationVersionField || !bb.readVarUint(version)) return 0;
+  return version;
+}
+
+}  // namespace
+
+size_t Editor::outdatedBooleans() const {
+  size_t n = 0;
+  for (Guid id : selection_)
+    if (const Node* node = doc_.get(id); node && node->props.isBoolean() && vectorOperationVersionOf(node->props) < kLatestVectorOperationVersion) n++;
+  return n;
+}
+
+Status Editor::upgradeBooleans() {
+  std::vector<Guid> outdated;
+  for (Guid id : selection_)
+    if (const Node* node = doc_.get(id); node && !id.isDerived() && node->props.isBoolean() && vectorOperationVersionOf(node->props) < kLatestVectorOperationVersion)
+      outdated.push_back(id);
+  if (outdated.empty()) return E_INVALID;
+  begin(TxnKind::USER, "Update boolean");
+  for (Guid id : outdated) {
+    NodeChange c = NodeChange::changed(id);
+    c.mask = F_EXTRA;
+    c.props.extra["vectorOperationVersion"] = vectorOperationVersionField(kLatestVectorOperationVersion);
+    write(c);
+  }
+  commit();
+  return OK;
+}
+
 Status Editor::booleanSelection(BooleanOperation op) {
   std::vector<Guid> top = topSelectionInPaintOrder();
   if (top.empty()) return E_INVALID;
@@ -145,6 +197,7 @@ Status Editor::booleanSelection(BooleanOperation op) {
   NodeProps p = defaultProps(NodeType::BOOLEAN_OPERATION);
   p.name = booleanName(op);
   p.shape().booleanOperation = op;
+  p.extra["vectorOperationVersion"] = vectorOperationVersionField(kLatestVectorOperationVersion);
   p.fillPaints = sp.fillPaints;
   p.strokePaints = sp.strokePaints;
   p.strokeWeight = sp.strokeWeight;

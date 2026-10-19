@@ -24,7 +24,31 @@
   .pin[data-unread] { box-shadow: var(--ds-elevation-200), 0 0 0 2px var(--figma-color-border-brand-strong); }
   .pin[data-resolved] { opacity: 0.5; }
   .pin:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
-  .pinAvatar { position: absolute; left: 4px; top: 4px; display: flex; border-radius: 50%; }
+  .pinAvatar { position: absolute; left: 4px; top: 4px; display: flex; border-radius: 50%; box-shadow: 0 0 0 2px var(--figma-color-bg); }
+  .pin[data-open] .pinAvatar { box-shadow: 0 0 0 2px var(--figma-color-bg-brand); }
+  /* A comment not saved yet (atlas 16 §2.3): a spinner in the pin after 500 ms */
+  .pinPending { position: absolute; left: 4px; top: 4px; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; }
+  /* Past three people: two faces and "+N" in the third place */
+  .pinMore {
+    position: absolute;
+    top: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--figma-color-bg-secondary);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium-strong);
+  }
+  /* A thread someone else just posted grows from 0.2 over 400 ms (Figma's ANIMATE_NEW_DURATION) */
+  .pin[data-fresh] { transform-origin: 0 100%; animation: pinNew 400ms ease-out; }
+  @keyframes pinNew {
+    from { transform: scale(0.2); }
+    to { transform: scale(1); }
+  }
+  @media (prefers-reduced-motion: reduce) { .pin[data-fresh] { animation: none; } }
   .pin[data-hover] { z-index: 1; width: auto; height: auto; }
 
   /* Hover: the pin grows into a preview card from the same bottom-left point (240 wide) */
@@ -81,6 +105,22 @@
     overflow-wrap: anywhere;
   }
   .composerField::placeholder { color: var(--figma-color-text-tertiary); }
+  /* The rich field (a contenteditable): grows to 240, its placeholder while empty */
+  .composerField { max-height: 240px; overflow-y: auto; white-space: pre-wrap; cursor: text; }
+  .composerField[data-empty]::before { content: attr(data-placeholder); color: var(--figma-color-text-tertiary); pointer-events: none; }
+  .composerField ol,
+  .composerField ul { margin: 0; padding-left: var(--ds-space-5); }
+  .msgList { margin: 0; padding-left: var(--ds-space-5); white-space: normal; }
+  ol.msgList,
+  .composerField ol { list-style: decimal; }
+  ul.msgList,
+  .composerField ul { list-style: disc; }
+  .composerField a,
+  .link { color: var(--figma-color-text-brand); font-weight: 500; text-decoration: none; }
+  .bold { font-weight: 600; }
+  .linkRow { display: flex; padding: 0 var(--ds-space-2) var(--ds-space-2) var(--ds-space-4); }
+  .linkField { flex: 1; height: 24px; padding: 0 var(--ds-space-2); border: 0; border-radius: var(--ds-radius-medium); outline: none; background: var(--figma-color-bg-secondary); color: var(--figma-color-text); font: var(--ds-font-body-medium); }
+  .linkField:focus { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
   .composerTools { display: flex; align-items: center; gap: 0; padding: 0 var(--ds-space-2) var(--ds-space-2); }
   .composer-reply { border-radius: 13px; background: var(--figma-color-bg-secondary); }
   .composer-edit { border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); margin-top: var(--ds-space-1); }
@@ -169,6 +209,10 @@
   .iconButton[data-open] { background: var(--figma-color-bg-hover); }
   .iconButton:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .resolveGlyph[data-done] { color: var(--figma-color-icon-secondary); }
+  /* A thread placed in Motion: its time beside the title (docs/motion.md §6.8) [look ours] */
+  .threadTime { height: 20px; margin-left: var(--ds-space-2); padding: 0 var(--ds-space-1); border: 0; border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); font-variant-numeric: tabular-nums; }
+  .threadTime:hover { background: var(--figma-color-bg-hover); color: var(--figma-color-text); }
+  .threadTime:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
 
   .comment { display: flex; gap: var(--ds-space-2); }
   .commentMain { display: flex; flex: 1; flex-direction: column; min-width: 0; }
@@ -273,4 +317,36 @@
     overflow-wrap: anywhere;
   }
   .rowReplies { margin-top: var(--ds-space-1); color: var(--figma-color-text-brand); font: var(--ds-font-body-medium); font-weight: 400; }
+
+  /* --- files in comments (atlas 16 §2.7) --- */
+  .composerFiles { display: flex; flex-wrap: wrap; gap: var(--ds-space-2); padding: 0 var(--ds-space-2) var(--ds-space-2) var(--ds-space-4); }
+  .commentFiles { display: flex; flex-wrap: wrap; gap: var(--ds-space-2); margin-top: var(--ds-space-2); }
+  .attachment { position: relative; display: inline-flex; flex: none; }
+  .attachmentOpen {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid var(--figma-color-border);
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+  }
+  .attachmentOpen img { width: 100%; height: 100%; object-fit: cover; }
+  .attachmentPlay { position: absolute; color: var(--figma-color-text-onbrand); font-size: 18px; text-shadow: 0 0 4px var(--ds-color-scrim); }
+  .attachmentRemove { position: absolute; top: -8px; right: -8px; border-radius: 50%; background: var(--figma-color-bg); box-shadow: var(--ds-elevation-200); }
+  .previewMain .attachment { margin-top: var(--ds-space-1); }
+
+  .viewer { position: fixed; inset: 0; z-index: var(--ds-z-scrim); display: flex; flex-direction: column; background: var(--ds-color-scrim); }
+  .viewerBar { display: flex; align-items: center; gap: var(--ds-space-2); height: 48px; padding: 0 var(--ds-space-4); background: var(--figma-color-bg); }
+  .viewerName { overflow: hidden; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); text-overflow: ellipsis; white-space: nowrap; }
+  .viewerCount { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .viewerBody { display: flex; flex: 1; align-items: center; justify-content: space-between; min-height: 0; padding: var(--ds-space-4); }
+  .viewerBody > [data-ds="IconButton"] { background: var(--figma-color-bg); }
+  .viewerMedia { display: flex; align-items: center; justify-content: center; }
+  .viewerMedia img,
+  .viewerMedia video { object-fit: contain; }
 }

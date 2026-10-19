@@ -183,3 +183,123 @@ describe("convertFigMessage: Figma fields kept for round-trip (import polish)", 
       expect(Object.keys(report.droppedFields).some((f) => f.endsWith(`.${k}`))).toBe(false);
   });
 });
+
+describe("convertFigMessage: the schema round's fields (R17 batch C)", () => {
+  it("keeps gradient interpolation, override levels and edit scopes; drops the encoding index and Figma's undo", () => {
+    const scope = { editScopeStacks: [{ stack: [{ type: "PLUGIN", label: "Rename", editorType: "DESIGN" }] }] };
+    const f = {
+      type: "NODE_CHANGES",
+      sessionID: 0,
+      ackID: 0,
+      encodedOffsetsIndex: { nodeChangesFieldOffset: 4, nodeChangesFieldLength: 100, blobsFieldOffset: 0, nodeChangeOffsets: [{ guid: g(0, 0), offset: 4 }] },
+      localUndoStack: [{ type: "NODE_CHANGES", sessionID: 0, ackID: 0, nodeChanges: [] }],
+      nodeChanges: [
+        { guid: g(0, 0), phase: "CREATED", type: "DOCUMENT" },
+        node(g(0, 1), "CANVAS", g(0, 0), "!"),
+        node(g(1, 1), "SYMBOL", g(0, 1), "!", { size: { x: 100, y: 100 }, transform: T(0, 0) }),
+        node(g(1, 2), "RECTANGLE", g(1, 1), "!", {
+          size: { x: 100, y: 100 },
+          transform: T(0, 0),
+          editScopeInfo: scope,
+          fillPaints: [
+            {
+              type: "GRADIENT_LINEAR",
+              visible: true,
+              opacity: 1,
+              interpolationColorSpace: "OKLCH",
+              interpolationHueMethod: "LONGER",
+              stops: [
+                { color: { r: 1, g: 0, b: 0, a: 1 }, position: 0 },
+                { color: { r: 0, g: 0, b: 1, a: 1 }, position: 1 },
+              ],
+            },
+          ],
+        }),
+        node(g(2, 1), "INSTANCE", g(0, 1), "\"", {
+          size: { x: 100, y: 100 },
+          transform: T(0, 200),
+          symbolData: { symbolID: g(1, 1), symbolOverrides: [{ guidPath: { guids: [g(1, 2)] }, overrideLevel: 1, opacity: 0.5 }] },
+        }),
+      ],
+    };
+    const { message, report } = convertFigMessage(f, MODEL);
+    const back = codec.decodeMessage(codec.encodeMessage(message));
+    expect(back.encodedOffsetsIndex).toBeUndefined();
+    expect(back.localUndoStack).toBeUndefined();
+    expect(report.droppedFields["Message.encodedOffsetsIndex"]).toBe(1);
+    const rect = back.nodeChanges!.find((n) => n.type === "ROUNDED_RECTANGLE")!;
+    expect(rect.fillPaints![0].interpolationColorSpace).toBe("OKLCH");
+    expect(rect.fillPaints![0].interpolationHueMethod).toBe("LONGER");
+    expect(rect.editScopeInfo?.editScopeStacks?.[0].stack?.[0]).toEqual({ type: "PLUGIN", label: "Rename", editorType: "DESIGN" });
+    const inst = back.nodeChanges!.find((n) => n.type === "INSTANCE")!;
+    expect(inst.symbolData!.symbolOverrides![0].overrideLevel).toBe(1);
+  });
+});
+
+describe("convertFigMessage: Motion nodes and fields (docs/motion.md §4.1, round 8 pre-commit)", () => {
+  function file() {
+    // A top-level frame with a 2 s default timeline whose child's opacity binds a KEYFRAME expression to a track
+    // (KEYFRAME_TRACK on the internal canvas, two KEYFRAME children), as Figma's current build stores it (§4.2).
+    const trackId = g(7, 1);
+    const binding = {
+      variableField: "OPACITY",
+      variableData: {
+        dataType: "EXPRESSION",
+        resolvedDataType: "FLOAT",
+        value: {
+          expressionValue: {
+            expressionFunction: "KEYFRAME",
+            expressionArguments: [
+              { dataType: "FLOAT", resolvedDataType: "FLOAT", value: { floatValue: 100 } },
+              { dataType: "KEYFRAME_TRACK_PARAMETER_DATA", resolvedDataType: "KEYFRAME_TRACK_PARAMETER_DATA", value: { keyframeTrackParameterValue: { parameters: [{ type: "MANUAL", value: { manual: { keyframeTrackId: { guid: trackId }, timelineDefId: g(1, 1) } } }] } } },
+            ],
+          },
+        },
+      },
+    };
+    const keyframe = (guid: any, position: string, timelinePosition: bigint, value: number, easingType: string) =>
+      node(guid, "KEYFRAME", trackId, position, { timelinePosition, keyframeValue: { value: { floatValue: value }, valueType: "FLOAT" }, easingData: { easingType }, interpolationType: "BEZIER" });
+    return {
+      type: "NODE_CHANGES",
+      sessionID: 0,
+      ackID: 0,
+      nodeChanges: [
+        { guid: g(0, 0), phase: "CREATED", type: "DOCUMENT" },
+        node(g(0, 1), "CANVAS", g(0, 0), "!"),
+        node(g(0, 2), "CANVAS", g(0, 0), "~", { internalOnly: true }),
+        node(g(1, 1), "FRAME", g(0, 1), "!", { size: { x: 400, y: 300 }, transform: T(0, 0), timelineDuration: 2_000_000n, playbackStyle: "LOOP", timelineKeyframeSnappingFps: { numerator: 60, denominator: 1 } }),
+        node(g(1, 2), "ROUNDED_RECTANGLE", g(1, 1), "!", { size: { x: 100, y: 100 }, transform: T(20, 20), opacity: 1, parameterConsumptionMap: { entries: [binding] }, transformOrigin: { x: { value: 50, units: "PERCENT" }, y: { value: 50, units: "PERCENT" } }, motionTransform: { translation: { x: 0, y: 0 }, rotation: 0, scale: { x: 1, y: 1 }, shearX: 0 } }),
+        node(trackId, "KEYFRAME_TRACK", g(0, 2), "!", { name: "OPACITY", keyframeOperation: "SET", trackLoopMode: "NONE" }),
+        keyframe(g(7, 2), "!", 0n, 0, "IN_CUBIC"),
+        keyframe(g(7, 3), "\"", 500_000n, 100, "OUT_CUBIC"),
+      ],
+    };
+  }
+
+  it("keeps KEYFRAME_TRACK / KEYFRAME nodes, the timeline's fields and the KEYFRAME expression through encode / decode", () => {
+    const { message, report } = convertFigMessage(file(), MODEL);
+    expect(report.droppedNodeTypes).toEqual({});
+    expect(report.droppedOrphans).toBe(0);
+    for (const k of ["timelineDuration", "playbackStyle", "timelineKeyframeSnappingFps", "timelinePosition", "keyframeValue", "easingData", "keyframeOperation", "transformOrigin", "motionTransform"])
+      expect(Object.keys(report.droppedFields).some((f) => f.endsWith(`.${k}`))).toBe(false);
+    const back = codec.decodeMessage(codec.encodeMessage(message));
+    const types = back.nodeChanges!.map((n) => n.type);
+    expect(types).toContain("KEYFRAME_TRACK");
+    expect(types.filter((t) => t === "KEYFRAME")).toHaveLength(2);
+    const root = back.nodeChanges!.find((n) => n.type === "FRAME")!;
+    expect(root.timelineDuration).toBe(2_000_000n);
+    expect(root.playbackStyle).toBe("LOOP");
+    expect(root.timelineKeyframeSnappingFps).toEqual({ numerator: 60, denominator: 1 });
+    const rect = back.nodeChanges!.find((n) => n.type === "ROUNDED_RECTANGLE")!;
+    const expr = rect.parameterConsumptionMap!.entries![0].variableData!.value!.expressionValue!;
+    expect(expr.expressionFunction).toBe("KEYFRAME");
+    expect(expr.expressionArguments![0].value?.floatValue).toBe(100);
+    expect(expr.expressionArguments![1].value?.keyframeTrackParameterValue?.parameters![0].value?.manual?.keyframeTrackId?.guid).toEqual(g(7, 1));
+    const keys = back.nodeChanges!.filter((n) => n.type === "KEYFRAME");
+    expect(keys.map((k) => k.timelinePosition)).toEqual([0n, 500_000n]);
+    expect(keys[1].keyframeValue).toEqual({ value: { floatValue: 100 }, valueType: "FLOAT" });
+    expect(keys[1].easingData?.easingType).toBe("OUT_CUBIC");
+    expect(rect.transformOrigin?.x).toEqual({ value: 50, units: "PERCENT" });
+    expect(rect.motionTransform?.scale).toEqual({ x: 1, y: 1 });
+  });
+});

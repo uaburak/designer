@@ -159,7 +159,22 @@ function NewWorkspaceDialog({ onClose, onCreated }: { onClose: () => void; onCre
   );
 }
 
-function WorkspaceDetail({ workspace: w, onBack }: { workspace: OrgWorkspace; onBack: () => void }) {
+/**
+ * A workspace admin's own Admin › Workspace (docs/multiplayer.md §15.19's leftover): the workspace's page with what the
+ * server lets them change — its name, its members (removing; adding is the org admins' from People), default teams.
+ */
+export function WorkspaceSettings({ workspaceId }: { workspaceId: string }) {
+  useT();
+  const { orgId, store } = useAdmin();
+  const { data } = useLoad(() => store.admin.workspaces(orgId), [orgId]);
+  const w = data?.find((x) => x.id === workspaceId);
+  if (!data) return null;
+  if (!w) return <p className={styles.muted}>{t("This workspace isn't available.")}</p>;
+  return <WorkspaceDetail workspace={w} limited />;
+}
+
+/** `limited`: a workspace admin's view — no hiding, deleting, admins, adding teams or people, no way back to the list */
+function WorkspaceDetail({ workspace: w, onBack, limited = false }: { workspace: OrgWorkspace; onBack?: () => void; limited?: boolean }) {
   useT();
   const { orgId, store, run } = useAdmin();
   const [tab, setTab] = useState("members");
@@ -182,26 +197,29 @@ function WorkspaceDetail({ workspace: w, onBack }: { workspace: OrgWorkspace; on
       id: "default", label: "Default team", width: 110,
       render: (tm) => <Checkbox label={t("{name} is a default team", { name: tm.name })} hideLabel checked={w.defaultTeamIds.includes(tm.id)} onChange={(on) => patch({ defaultTeamIds: on ? [...w.defaultTeamIds, tm.id] : w.defaultTeamIds.filter((d) => d !== tm.id) }, on ? t("{name} is now a default team", { name: tm.name }) : undefined)} />,
     },
-    { id: "remove", label: "", width: 90, align: "end", render: (tm) => <Button variant="ghost" onClick={() => patch({ teams: { remove: [tm.id] } }, "Removed from workspace")}>{t("Remove")}</Button> },
+    ...(limited ? [] : [{ id: "remove", label: "", width: 90, align: "end" as const, render: (tm: AdminTeam) => <Button variant="ghost" onClick={() => patch({ teams: { remove: [tm.id] } }, "Removed from workspace")}>{t("Remove")}</Button> }]),
   ];
   const adminColumns: Column<OrgWorkspace["admins"][number]>[] = [{ id: "name", label: "Name", compare: byText((p) => p.name ?? p.email), render: (p) => <Who person={p} /> }];
   return (
     <>
-      <div className={styles.toolbar}>
-        <button type="button" className={`${styles.link} ${styles.back}`} onClick={onBack}><Icon name="24.arrow.left" /> {t("Workspaces")}</button>
-      </div>
+      {onBack && (
+        <div className={styles.toolbar}>
+          <button type="button" className={`${styles.link} ${styles.back}`} onClick={onBack}><Icon name="24.arrow.left" /> {t("Workspaces")}</button>
+        </div>
+      )}
       <div className={styles.sectionHeader}>
         <h2 className={styles.sectionTitle}>{w.name}{w.hidden && <> <Badge>{t("Hidden")}</Badge></>}</h2>
         <Button variant="secondary" onClick={() => setDialog("rename")}>{t("Rename")}</Button>
-        <Button variant="secondary" onClick={() => patch({ hidden: !w.hidden }, w.hidden ? "Workspace is visible" : "Workspace is hidden")}>{w.hidden ? t("Make it visible") : t("Make it hidden")}</Button>
-        <Button variant="destructive-secondary" onClick={() => setDialog("delete")}>{t("Delete workspace")}</Button>
+        {!limited && <Button variant="secondary" onClick={() => patch({ hidden: !w.hidden }, w.hidden ? "Workspace is visible" : "Workspace is hidden")}>{w.hidden ? t("Make it visible") : t("Make it hidden")}</Button>}
+        {!limited && <Button variant="destructive-secondary" onClick={() => setDialog("delete")}>{t("Delete workspace")}</Button>}
       </div>
       <div className={styles.toolbar}>
-        <Tabs label={t("Workspace")} value={tab} onChange={setTab} tabs={[{ value: "members", label: t("Members ({n})", { n: members.length }) }, { value: "teams", label: t("Teams ({n})", { n: wsTeams.length }) }, { value: "admins", label: t("Workspace admins ({n})", { n: w.admins.length }) }, ...(store.orgLibraries ? [{ value: "libraries", label: t("Libraries") }] : [])]} />
+        {/* A workspace admin has Libraries in the sidebar already */}
+        <Tabs label={t("Workspace")} value={tab} onChange={setTab} tabs={[{ value: "members", label: t("Members ({n})", { n: members.length }) }, { value: "teams", label: t("Teams ({n})", { n: wsTeams.length }) }, { value: "admins", label: t("Workspace admins ({n})", { n: w.admins.length }) }, ...(store.orgLibraries && !limited ? [{ value: "libraries", label: t("Libraries") }] : [])]} />
         <span className={styles.spacer} />
-        {tab === "members" && <Button variant="primary" onClick={() => setDialog("addMembers")}>{t("Add members")}</Button>}
-        {tab === "teams" && <Button variant="primary" onClick={() => setDialog("addTeams")}>{t("Add teams")}</Button>}
-        {tab === "admins" && <Button variant="primary" onClick={() => setDialog("admins")}>{t("Edit workspace admins")}</Button>}
+        {tab === "members" && !limited && <Button variant="primary" onClick={() => setDialog("addMembers")}>{t("Add members")}</Button>}
+        {tab === "teams" && !limited && <Button variant="primary" onClick={() => setDialog("addTeams")}>{t("Add teams")}</Button>}
+        {tab === "admins" && !limited && <Button variant="primary" onClick={() => setDialog("admins")}>{t("Edit workspace admins")}</Button>}
       </div>
       {tab === "members" && <Table label={t("Workspace members")} rows={members} columns={memberColumns} rowKey={(p) => p.id} initialSort={{ column: "name", direction: "ascending" }} empty="No members in this workspace" />}
       {tab === "teams" && (

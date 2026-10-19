@@ -102,8 +102,14 @@ struct Editor::OverrideStack {
   std::map<std::vector<Guid>, std::vector<const SymbolOverride*>> byPath;
   std::deque<SymbolOverride> owned;  // entries carried to another main (carryNestedOverrides)
   // `rootKey`: the main's own key — Figma's files also address the instance's root by it ([key] = the root).
+  // Within one list, level 0 (the usage site's own entries) before Figma's deeper levels (overrideLevel).
   void add(const std::vector<SymbolOverride>& list, const std::vector<Guid>& prefix, Guid rootKey) {
-    for (const SymbolOverride& o : list) {
+    std::vector<const SymbolOverride*> ordered;
+    ordered.reserve(list.size());
+    for (const SymbolOverride& o : list) ordered.push_back(&o);
+    std::stable_sort(ordered.begin(), ordered.end(), [](const SymbolOverride* a, const SymbolOverride* b) { return a->level < b->level; });
+    for (const SymbolOverride* e : ordered) {
+      const SymbolOverride& o = *e;
       std::vector<Guid> p = prefix;
       bool root = rootKey != kNoGuid && !o.path.empty() && o.path.front() == rootKey;
       p.insert(p.end(), o.path.begin() + (root ? 1 : 0), o.path.end());
@@ -458,6 +464,13 @@ void Editor::applyBindings(const NodeProps& source, NodeProps& p, Guid symbol, c
         v.hasText = true;
         v.textValue = t;
       }
+      if (def->type == ComponentPropType::NUMBER && r.kind == Resolved::Kind::FLOAT) v.hasFloat = true, v.floatValue = static_cast<float>(r.f);
+    }
+    // A NUMBER drives a text layer as its text (Figma's display: 2 decimals at most, no trailing zeros).
+    if (def->type == ComponentPropType::NUMBER && v.hasFloat) {
+      v.hasText = true;
+      v.textValue = TextData{};
+      v.textValue.characters = formatPropNumber(v.floatValue);
     }
     switch (b.field) {
       case VariableField::VISIBLE:
@@ -710,7 +723,7 @@ void normalizeOverridePaths(std::vector<NodeChange>& nodes) {
     // Two entries may now name one sublayer: merged (the later one's fields win).
     std::vector<SymbolOverride> merged;
     for (SymbolOverride& o : list) {
-      auto same = std::find_if(merged.begin(), merged.end(), [&](const SymbolOverride& m) { return m.path == o.path; });
+      auto same = std::find_if(merged.begin(), merged.end(), [&](const SymbolOverride& m) { return m.path == o.path && m.level == o.level; });
       if (same == merged.end()) {
         merged.push_back(std::move(o));
       } else {
@@ -1152,7 +1165,8 @@ void Editor::writeOverride(Guid instance, const std::vector<Guid>& path, FieldMa
     if (p == path) return true;
     return rootKey != kNoGuid && !p.empty() && p.front() == rootKey && std::equal(p.begin() + 1, p.end(), path.begin(), path.end());
   };
-  auto it = std::find_if(sd.overrides.begin(), sd.overrides.end(), [&](const SymbolOverride& o) { return samePath(o.path); });
+  // This engine writes level 0 only (an imported deeper level stays as it came).
+  auto it = std::find_if(sd.overrides.begin(), sd.overrides.end(), [&](const SymbolOverride& o) { return o.level == 0 && samePath(o.path); });
   if (it == sd.overrides.end()) {
     sd.overrides.push_back({path, 0, {}});
     it = sd.overrides.end() - 1;
@@ -1285,9 +1299,9 @@ void Editor::composedOverrides(Guid nested, std::vector<SymbolOverride>& out, st
       full.insert(full.end(), o.path.begin(), o.path.end());
       if (full.size() < d.path.size() || !std::equal(d.path.begin(), d.path.end(), full.begin())) continue;
       std::vector<Guid> rel(full.begin() + static_cast<long>(d.path.size()), full.end());
-      auto it = std::find_if(out.begin(), out.end(), [&](const SymbolOverride& q) { return q.path == rel; });
+      auto it = std::find_if(out.begin(), out.end(), [&](const SymbolOverride& q) { return q.path == rel && q.level == o.level; });
       if (it == out.end()) {
-        out.push_back({rel, o.mask, o.props});
+        out.push_back({rel, o.mask, o.props, o.level});
       } else if (over) {
         mergeInto(it->props, o.props, o.mask);
         it->mask |= o.mask;

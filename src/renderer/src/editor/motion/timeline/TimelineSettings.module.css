@@ -1,0 +1,8 @@
+@layer app {
+  /* The timeline settings popover (docs/motion.md §6.2; round 8i): a label over each full-width control [unverified] */
+  .body { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-3); }
+  .field { display: flex; flex-direction: column; gap: var(--ds-space-1); }
+  .label { color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); letter-spacing: var(--ds-tracking-body-small); }
+  .pair { display: flex; gap: var(--ds-space-2); }
+  .pair > * { flex: 1 1 0; min-width: 0; }
+}

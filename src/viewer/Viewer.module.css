@@ -70,7 +70,8 @@
   }
   .fileMenu:hover, .fileMenu[data-open] { background: var(--figma-color-bg-hover); }
   .pages { flex: none; }
-  .pageList { max-height: 30vh; overflow-y: auto; padding-bottom: var(--ds-space-2); }
+  /* Dev Mode (the owner's capture): the pages 24 high, 8 apart (a 32 pitch) */
+  .pageList { display: flex; flex-direction: column; gap: var(--ds-space-2); max-height: 30vh; overflow-y: auto; padding-bottom: var(--ds-space-3); }
   .layers { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
   .sectionTitle {
     display: flex;
@@ -82,6 +83,19 @@
     letter-spacing: var(--ds-tracking-body-medium-strong);
   }
   .layerScroll { flex: 1 1 auto; min-height: 0; }
+  /* Dev Mode's left panel (the owner's capture owner-2026-10-18/figma-devmode-inspect): the pages' search field;
+     "Mark as ready for dev" under its title; the layers full-width, 32 a row, the selected row and the rows inside it
+     in Dev Mode's green (their content where the inset rows have it). */
+  .pageSearch { padding: 0 var(--ds-space-4) var(--ds-space-2); }
+  .markReady { display: flex; padding: 0 var(--ds-space-4) var(--ds-space-3); }
+  .devLayers :global([data-ds="LayerRow"]) { padding: 0; }
+  .devLayers :global([data-ds="LayerRow"]) > div { margin: 0; padding-left: calc(var(--ds-size-row-inset) + var(--ds-space-1)); }
+  .devLayers :global([data-ds="LayerRow"]) > div::before { border-radius: 0; }
+  /* On the row itself, not its highlight: a run of rows is one block at any zoom (no hairline between them) */
+  .devLayers :global([data-ds="LayerRow"][aria-selected="true"]) { background: var(--ds-color-devmode-selected); }
+  .devLayers :global([data-ds="LayerRow"][data-selected-ancestor]) { background: var(--ds-color-devmode-selected-secondary); }
+  .devLayers :global([data-ds="LayerRow"][aria-selected="true"]) > div::before,
+  .devLayers :global([data-ds="LayerRow"][data-selected-ancestor]) > div::before { background: none; }
 
   /* ---- Inspect ---- */
   .rightHeader {
@@ -110,6 +124,68 @@
   }
   .rightTabOff:hover { color: var(--figma-color-text); }
   .rightBody { flex: 1 1 auto; min-height: 0; }
+  /* The tabs row (live devmode-inspect-right.txt: Inspect | Plugins, the zoom at the right), as the Design panel's */
+  .rightTabs {
+    display: flex;
+    flex: none;
+    align-items: flex-start;
+    gap: var(--ds-space-1);
+    height: calc(var(--ds-size-control-large) + 1px);
+    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-space-2);
+    border-bottom: 1px solid var(--figma-color-border);
+  }
+  /* The selection header (the owner's capture): the name 13 / 550 with Copy link, `</>` and ⋯ at its right; its type
+     under it with the type's glyph */
+  .selection { display: flex; flex-direction: column; gap: var(--ds-space-1); padding: var(--ds-space-3) var(--ds-size-panel-pad-right) var(--ds-space-3) var(--ds-space-4); border-bottom: 1px solid var(--figma-color-border); }
+  .selectionTop { display: flex; align-items: center; gap: 0; min-height: var(--ds-size-control); }
+  .selectionTop > .layerName { flex: 1 1 auto; min-width: 0; }
+  .selectionMore {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--ds-size-control);
+    height: var(--ds-size-control);
+    padding: 0;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-icon);
+  }
+  .selectionMore:hover, .selectionMore[data-open] { background: var(--figma-color-bg-hover); }
+  .selectionType { display: flex; align-items: center; gap: var(--ds-space-2); min-height: var(--ds-size-control); }
+  .selectionType > svg { flex: none; color: var(--figma-color-icon-secondary); }
+  /* MCP (the owner's capture): "Selection details", two label / value rows, the prompt in code type on a ring, the
+     link in the brand blue, Copy example prompt across the panel */
+  .mcpTitle { padding: 0 var(--ds-space-4); line-height: var(--ds-size-control); }
+  .mcpRow { display: grid; grid-template-columns: 1fr 1fr; align-items: center; min-height: var(--ds-size-control); padding: 0 var(--ds-space-4); }
+  .mcpLabel { color: var(--figma-color-text-secondary); }
+  .mcpPrompt {
+    margin: var(--ds-space-2) var(--ds-space-4);
+    padding: var(--ds-space-2) var(--ds-space-3);
+    border: 1px solid var(--figma-color-border);
+    border-radius: var(--ds-radius-medium);
+    font: var(--ds-font-code);
+    letter-spacing: var(--ds-tracking-code);
+    user-select: text;
+  }
+  .mcpPrompt > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: var(--ds-size-control); }
+  .mcpLink { color: var(--figma-color-text-brand); }
+  .mcpCopy { padding: 0 var(--ds-space-4); }
+  .right .mcpCopy [data-ds="Button"][data-variant="secondary"] { width: 100%; margin: 0; }
+  /* Code Connect before anything is mapped: the status chip (a 1px ring), the hint, "Learn more" in Dev Mode's green */
+  .connectStatus {
+    padding: 0 var(--ds-space-1);
+    border: 1px solid var(--figma-color-border);
+    border-radius: var(--ds-radius-medium);
+    color: var(--figma-color-text-secondary);
+    line-height: calc(var(--ds-space-4) + var(--ds-space-half));
+  }
+  .connectHint { padding: 0 var(--ds-space-4) var(--ds-space-1); color: var(--figma-color-text-secondary); }
+  .devLink { color: var(--figma-color-text-success); text-decoration: none; }
+  .devLink:hover { text-decoration: underline; }
+  /* List | Code at the left, the language at the right (live: 17,448; the select 56 × 24 with a 1px ring) */
+  .codeBar { display: flex; align-items: center; gap: var(--ds-space-2); padding: 0 var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-space-4); }
   .multi { padding: var(--ds-space-4); color: var(--figma-color-text-secondary); }
   .layerHeader {
     display: flex;
@@ -158,45 +234,100 @@
   .valueSub { min-width: 0; overflow: hidden; color: var(--figma-color-text-secondary); text-overflow: ellipsis; white-space: nowrap; }
   .content { white-space: pre-wrap; }
 
+  /* The box model (live devmode-inspect-right.txt: 287 × 190 on bg-secondary, r 5; the border box 223 × 120 on bg with
+     a 1px ring, "Border" 40 in; the padding box 159 × 72, "Padding" 8 in; the size 95 × 26, dashed in the owner's
+     capture; ticks to the parent with a 19 × 16 pill each; "border-box" at the bottom right). */
   .boxModel {
     position: relative;
+    margin: 0 var(--ds-space-4) var(--ds-space-3);
+    padding: calc(var(--ds-space-8) + var(--ds-space-1)) var(--ds-space-8);
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+    color: var(--figma-color-text-secondary);
+    text-align: center;
+  }
+  .bmBorder, .bmPadding {
+    position: relative;
     display: grid;
-    grid-template-areas: ". top ." "left size right" ". bottom .";
-    grid-template-columns: var(--ds-space-10) 1fr var(--ds-space-10);
+    grid-template-columns: var(--ds-space-8) 1fr var(--ds-space-8);
+    grid-template-rows: var(--ds-space-6) auto var(--ds-space-6);
     align-items: center;
     justify-items: center;
-    margin: 0 var(--ds-space-4) var(--ds-space-2);
-    padding: var(--ds-space-1);
-    border: 1px dashed var(--figma-color-border-strong);
-    border-radius: var(--ds-radius-medium);
-    color: var(--figma-color-text-secondary);
+    border-radius: var(--ds-radius-small);
+    box-shadow: inset 0 0 0 1px var(--figma-color-border);
   }
-  .boxModelLabel { position: absolute; top: var(--ds-space-1); left: var(--ds-space-2); font: var(--ds-font-body-small); }
-  .boxTop, .boxRight, .boxBottom, .boxLeft, .boxSize {
-    padding: var(--ds-space-half) var(--ds-space-1);
+  .bmBorder { background: var(--figma-color-bg); }
+  .bmPadding { grid-area: 2 / 2; justify-self: stretch; background: var(--figma-color-bg-secondary); }
+  /* A layer with padding: its box in the selection's blue with a light ring (the owner's capture) */
+  .bmPadding[data-padded] { background: var(--figma-color-bg-selected); box-shadow: inset 0 0 0 1px var(--figma-color-border-onselected-strong); }
+  .bmLabel { position: absolute; top: calc(var(--ds-space-1) + var(--ds-space-half)); left: var(--ds-space-10); pointer-events: none; }
+  .bmPadding > .bmLabel { left: var(--ds-space-2); }
+  .bmTopLeft { grid-area: 1 / 1; }
+  .bmTop { grid-area: 1 / 2; }
+  .bmTopRight { grid-area: 1 / 3; }
+  .bmLeft { grid-area: 2 / 1; }
+  .bmRight { grid-area: 2 / 3; }
+  .bmBottomLeft { grid-area: 3 / 1; }
+  .bmBottom { grid-area: 3 / 2; }
+  .bmBottomRight { grid-area: 3 / 3; }
+  button.bmTopLeft, button.bmTop, button.bmTopRight, button.bmLeft, button.bmRight, button.bmBottomLeft, button.bmBottom, button.bmBottomRight, .bmPill, .bmSize {
+    padding: 0 var(--ds-space-1);
     border: 0;
     border-radius: var(--ds-radius-small);
     background: transparent;
-    color: inherit;
+    color: var(--figma-color-text);
     font: inherit;
   }
-  .boxTop { grid-area: top; }
-  .boxRight { grid-area: right; }
-  .boxBottom { grid-area: bottom; }
-  .boxLeft { grid-area: left; }
-  .boxSize {
-    grid-area: size;
+  .bmSize {
+    grid-area: 2 / 2;
     justify-self: stretch;
-    padding: var(--ds-space-2);
-    border: 1px solid var(--figma-color-border);
-    background: var(--figma-color-bg-secondary);
-    color: var(--figma-color-text);
+    padding: var(--ds-space-1);
+    border: 1px dashed var(--figma-color-border-strong);
+    background: var(--figma-color-bg);
   }
-  .boxTop:hover, .boxRight:hover, .boxBottom:hover, .boxLeft:hover, .boxSize:hover { background: var(--figma-color-bg-hover); }
+  .bmTop:hover, .bmLeft:hover, .bmRight:hover, .bmBottom:hover, .bmTopLeft:hover, .bmTopRight:hover, .bmBottomLeft:hover, .bmBottomRight:hover, .bmSize:hover { background: var(--figma-color-bg-hover); }
+  .bmCaption { position: absolute; right: var(--ds-space-2); bottom: var(--ds-space-1); color: var(--figma-color-text-tertiary); }
+  /* The distance to the parent on each side: a tick from the edge to the border box, its pill on it */
+  .bmTick { position: absolute; display: flex; align-items: center; justify-content: center; }
+  .bmTick[data-side="top"], .bmTick[data-side="bottom"] { left: 50%; width: 1px; height: calc(var(--ds-space-8) + var(--ds-space-1)); background: var(--figma-color-border-strong); }
+  .bmTick[data-side="top"] { top: 0; }
+  .bmTick[data-side="bottom"] { bottom: 0; }
+  .bmTick[data-side="left"], .bmTick[data-side="right"] { top: 50%; width: var(--ds-space-8); height: 1px; background: var(--figma-color-border-strong); }
+  .bmTick[data-side="left"] { left: 0; }
+  .bmTick[data-side="right"] { right: 0; }
+  .bmPill { position: relative; z-index: 1; min-width: calc(var(--ds-space-4) + var(--ds-space-1)); background: var(--figma-color-bg-tertiary); }
 
   .code { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: 0 var(--ds-space-4) var(--ds-space-2); user-select: text; }
   .codeGroup { display: flex; flex-direction: column; gap: var(--ds-space-1); }
   .codeTitle { color: var(--figma-color-text-secondary); }
+  /* A generated section (inspect/CodeSections.tsx): its lines, a hint's info icon at a line's end, Copy at the top right;
+     with ⇧ over a Copy every section is marked (it copies them all). */
+  /* live: the title bar 32 high, its name 11 / 400 and Copy at the right; the body a 1px ring (white 10 %), r 5, the
+     numbers in a gutter (white 40 %, a line after them), the lines 18 apart */
+  .codeHead { display: flex; align-items: center; justify-content: space-between; height: var(--ds-size-control-large); }
+  .codeHead > .codeTitle { color: var(--figma-color-text); }
+  .codeSection { position: relative; border-radius: var(--ds-radius-medium); box-shadow: inset 0 0 0 1px var(--ds-color-border-translucent); }
+  .codeSection[data-marked] { background: var(--figma-color-bg-selected); }
+  .codeLines { margin: 0; padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) 0; color: var(--figma-color-text); font: var(--ds-font-code); letter-spacing: var(--ds-tracking-code); line-height: calc(var(--ds-space-4) + var(--ds-space-half)); user-select: text; }
+  .codeLine { display: flex; align-items: flex-start; gap: var(--ds-space-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .codeNumber {
+    flex: none;
+    width: calc(var(--ds-space-6) + var(--ds-space-half));
+    padding-right: var(--ds-space-2);
+    border-right: 1px solid var(--ds-color-border-translucent);
+    color: var(--figma-color-text-tertiary);
+    text-align: right;
+    user-select: none;
+  }
+  .codeText { min-width: 0; }
+  .codeValue { color: var(--ds-color-code-value); }
+  .codeHint { display: inline-flex; flex: none; color: var(--figma-color-icon-secondary); user-select: none; }
+  /* A bound variable in the code (atlas 14 §4.2): a pill around its name */
+  .codeVariable {
+    padding: 0 var(--ds-space-half); border-radius: var(--ds-radius-small);
+    background: var(--figma-color-bg-component-tertiary); color: var(--figma-color-text-component);
+  }
+  .codeMore { align-self: flex-start; padding: 0; border: 0; background: none; color: var(--figma-color-text-brand); font: inherit; cursor: default; }
   /* Long declarations wrap in the panel instead of scrolling sideways */
   .code :global([data-ds="CodeBlock"]) pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 
@@ -287,11 +418,17 @@
     font: inherit;
     white-space: nowrap;
   }
+  .codeBar .codeSettings { box-shadow: inset 0 0 0 1px var(--figma-color-border); }
   .codeSettings:hover, .codeSettings[data-open] { background: var(--figma-color-bg-hover); }
   .codeSettings svg { color: var(--figma-color-icon-secondary); }
   .codeUnit { color: var(--figma-color-text-secondary); }
   .unitScale { display: flex; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-2) 0; }
   .list { padding: 0 var(--ds-space-2) var(--ds-space-2); }
+  /* The Motion tab (docs/motion.md §8.2): a property's row — its name, its span, its easing and values under it. */
+  .motionRow { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 var(--ds-space-2); padding: var(--ds-space-1) var(--ds-space-2); }
+  .motionRow > .valueSub { flex: 1 0 100%; }
+  /* Its timeline view: Motion's timeline (it docks itself to this box's bottom) along the canvas, left of the panel. */
+  .devTimeline { position: fixed; bottom: 0; left: 0; z-index: var(--ds-z-panel); height: var(--ds-size-motion-timeline); }
   .annotation {
     margin: 0 var(--ds-space-4) var(--ds-space-2);
     padding: var(--ds-space-2);

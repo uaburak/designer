@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { Connector, ConnectorConsent, ConnectorToolPolicy } from "../../shared/ai/types";
 import { CONNECTOR_TOOL_SEP, type ToolResult } from "../../shared/agents/tools";
 import type { SpawnFn } from "./providers/turns";
+import { SignInNeeded, expiresSoon, refreshTokens, signIn, type OAuthTokens } from "./connectorAuth";
 import { t as tr } from "../../shared/i18n";
 
 /**
@@ -13,8 +14,10 @@ import { t as tr } from "../../shared/i18n";
  * Allow once / Always allow / Deny — Always allow makes it Allow) or Off (not listed, refused). New tools start at Ask.
  *
  * The MCP client is hand-written (as mcpServer.ts): initialize → notifications/initialized → tools/list, tools/call;
- * JSON or an SSE answer over HTTP, newline-delimited JSON-RPC over stdio. No OAuth this round. Electron-free: storage,
- * secrets, spawn, fetch and the consent prompt are injected (host.ts wires the app's; the tests use a local server).
+ * JSON or an SSE answer over HTTP, newline-delimited JSON-RPC over stdio. An HTTP server that answers with a Bearer
+ * challenge is signed in to with OAuth (connectorAuth.ts, Figma's connectors' way): its tokens are sealed beside the
+ * keys (`‹id›:oauth`) and refreshed when they run out. Electron-free: storage, secrets, spawn, fetch, the browser and
+ * the consent prompt are injected (host.ts wires the app's; the tests use a local server).
  */
 
 export const MCP_CLIENT_PROTOCOL = "2025-06-18";
@@ -69,6 +72,12 @@ export interface McpClient {
   close(): void;
 }
 
+/** A signed-in connector's access token (connectorAuth.ts): the current one, and a new one when the server refuses it. */
+export interface TokenSource {
+  token(): Promise<string | null>;
+  refresh(): Promise<string | null>;
+}
+
 /** Streamable HTTP (MCP 2025-06-18): POST each message; a JSON or SSE answer; the session id kept. */
 export class HttpMcpClient implements McpClient {
   private seq = 0;
@@ -78,14 +87,20 @@ export class HttpMcpClient implements McpClient {
   constructor(
     private url: string,
     private key: string | null,
-    private doFetch: typeof fetch = fetch
+    private doFetch: typeof fetch = fetch,
+    private auth?: TokenSource
   ) {}
 
-  private headers(): Record<string, string> {
+  /** The signed-in token the last message went with (a notification and the session's DELETE carry it too) */
+  private lastToken: string | null = null;
+
+  private headers(token: string | null = this.lastToken): Record<string, string> {
+    if (token) this.lastToken = token;
+    const bearer = token ?? this.key;
     return {
       "Content-Type": "application/json",
       Accept: "application/json, text/event-stream",
-      ...(this.key ? { Authorization: `Bearer ${this.key}` } : {}),
+      ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
       ...(this.session ? { "Mcp-Session-Id": this.session } : {}),
       ...(this.protocol ? { "MCP-Protocol-Version": this.protocol } : {}),
     };
@@ -96,9 +111,16 @@ export class HttpMcpClient implements McpClient {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), timeoutMs);
     try {
-      const res = await this.doFetch(this.url, { method: "POST", headers: this.headers(), body: JSON.stringify({ jsonrpc: "2.0", id, method, params }), signal: ctl.signal });
+      const body = JSON.stringify({ jsonrpc: "2.0", id, method, params });
+      let token = this.auth ? await this.auth.token() : null;
+      let res = await this.doFetch(this.url, { method: "POST", headers: this.headers(token), body, signal: ctl.signal });
+      // A signed-in connector's token refused (expired, revoked): refreshed once, the message sent again.
+      if (res.status === 401 && token && this.auth && (token = await this.auth.refresh())) res = await this.doFetch(this.url, { method: "POST", headers: this.headers(token), body, signal: ctl.signal });
       const sid = res.headers.get("mcp-session-id");
       if (sid) this.session = sid;
+      // Without a key of the owner's, a Bearer challenge asks for a sign-in (MCP's authorization: its header names where).
+      const challenge = res.headers.get("www-authenticate");
+      if (res.status === 401 && !this.key && /^\s*Bearer\b/i.test(challenge ?? "")) throw new SignInNeeded(challenge);
       if (!res.ok) throw new Error(res.status === 401 || res.status === 403 ? tr("{status}: the server wants a key (or this one isn’t valid)", { status: res.status }) : `${res.status} ${res.statusText}`);
       const type = res.headers.get("content-type") ?? "";
       const text = await res.text();
@@ -237,11 +259,19 @@ export interface HubOptions {
   ask(consent: Omit<ConnectorConsent, "reqId">): Promise<ConsentAnswer>;
   /** The list changed (Settings and the composer refresh) */
   onChange?(list: Connector[]): void;
+  /** Opens the system's browser on a sign-in page (OAuth connectors) */
+  openBrowser?(url: string): void | Promise<void>;
 }
+
+/** Where a signed-in connector's tokens are kept: beside its key, sealed the same way. */
+const tokensKey = (id: string) => `${id}:oauth`;
 
 export class ConnectorHub {
   private clients = new Map<string, { client: McpClient; ready: Promise<void> }>();
   private state = new Map<string, { state: Connector["state"]; error?: string }>();
+  /** The last Bearer challenge of a server that wants a sign-in (where its metadata is) */
+  private challenges = new Map<string, string | null>();
+  private refreshing = new Map<string, Promise<OAuthTokens | null>>();
 
   constructor(private o: HubOptions) {}
 
@@ -254,7 +284,7 @@ export class ConnectorHub {
     return {
       id: c.id,
       name: c.name,
-      transport: c.transport.kind === "http" ? { kind: "http", url: c.transport.url, hasKey: !!this.o.storage.key(c.id) } : { ...c.transport, args: [...c.transport.args] },
+      transport: c.transport.kind === "http" ? { kind: "http", url: c.transport.url, hasKey: !!this.o.storage.key(c.id), ...(this.tokens(c.id) ? { signedIn: true } : {}) } : { ...c.transport, args: [...c.transport.args] },
       enabled: c.enabled,
       tools: c.tools.map((t) => ({ name: t.name, ...(t.description ? { description: t.description } : {}), policy: c.policies[t.name] ?? "ask" })),
       state: s?.state ?? "unknown",
@@ -304,7 +334,87 @@ export class ConnectorHub {
     this.disconnect(id);
     this.state.delete(id);
     this.o.storage.setKey(id, null);
+    if (this.tokens(id)) this.o.storage.setKey(tokensKey(id), null);
     return this.save(this.o.storage.read().filter((c) => c.id !== id));
+  }
+
+  // ── Signing in (OAuth, connectorAuth.ts) ──
+
+  private tokens(id: string): OAuthTokens | null {
+    try {
+      const raw = this.o.storage.key(tokensKey(id));
+      const t = raw ? (JSON.parse(raw) as OAuthTokens) : null;
+      return t && typeof t.accessToken === "string" ? t : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** New tokens from the refresh token, kept; null when they can't be had (the server then asks for a sign-in again). One refresh at a time. */
+  private renew(id: string): Promise<OAuthTokens | null> {
+    let p = this.refreshing.get(id);
+    if (!p) {
+      const t = this.tokens(id);
+      p = (t ? refreshTokens(t, this.o.fetch) : Promise.resolve(null)).then(
+        (next) => {
+          if (next) this.o.storage.setKey(tokensKey(id), JSON.stringify(next));
+          return next;
+        },
+        () => null
+      );
+      p.finally(() => this.refreshing.delete(id)).catch(() => undefined);
+      this.refreshing.set(id, p);
+    }
+    return p;
+  }
+
+  private tokenSource(id: string): TokenSource | undefined {
+    if (!this.tokens(id)) return undefined;
+    return {
+      token: async () => {
+        const t = this.tokens(id);
+        if (!t) return null;
+        return expiresSoon(t) ? ((await this.renew(id))?.accessToken ?? t.accessToken) : t.accessToken;
+      },
+      refresh: async () => (await this.renew(id))?.accessToken ?? null,
+    };
+  }
+
+  /**
+   * Sign in (a server that answered with a Bearer challenge): the owner signs in in his browser, the tokens are kept,
+   * and the connector is tested again with them.
+   */
+  async signIn(id: string): Promise<Connector> {
+    const c = this.o.storage.read().find((x) => x.id === id);
+    if (!c || c.transport.kind !== "http") throw new Error(tr("No such connector."));
+    if (!this.o.openBrowser) throw new Error(tr("Signing in works in the desktop app."));
+    const url = c.transport.url;
+    let challenge = this.challenges.get(id) ?? null;
+    if (!challenge) {
+      // Asked again: its answer to a first message names where to sign in.
+      const res = await (this.o.fetch ?? fetch)(url, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: MCP_CLIENT_PROTOCOL, capabilities: {}, clientInfo: { name: "designer-connectors", title: "Wecra", version: "1" } } }), signal: AbortSignal.timeout(20_000) }).catch(() => null);
+      challenge = res?.headers.get("www-authenticate") ?? null;
+    }
+    const tokens = await signIn({ serverUrl: url, wwwAuthenticate: challenge, fetch: this.o.fetch, openBrowser: this.o.openBrowser });
+    this.o.storage.setKey(tokensKey(id), JSON.stringify(tokens));
+    this.challenges.delete(id);
+    return this.test(id);
+  }
+
+  /** Sign out: the tokens forgotten (the server's own session is the owner's to end on its site). */
+  signOut(id: string): Connector[] {
+    this.disconnect(id);
+    this.o.storage.setKey(tokensKey(id), null);
+    this.state.delete(id);
+    return this.save(this.o.storage.read());
+  }
+
+  /** A failure's state: a sign-in wanted, or an error. */
+  private failed(id: string, err: unknown) {
+    if (err instanceof SignInNeeded) {
+      this.challenges.set(id, err.wwwAuthenticate);
+      this.state.set(id, { state: "sign-in" });
+    } else this.state.set(id, { state: "error", error: err instanceof Error ? err.message : String(err) });
   }
 
   /** Connects (again) and reads its tools: new ones start at Ask. */
@@ -325,7 +435,7 @@ export class ConnectorHub {
     const live = this.clients.get(c.id);
     if (live) return live.ready.then(() => live.client);
     const client: McpClient =
-      c.transport.kind === "http" ? new HttpMcpClient(c.transport.url, this.o.storage.key(c.id), this.o.fetch) : new StdioMcpClient(c.transport.command, c.transport.args, this.o.spawn, this.o.env(), this.o.cwd);
+      c.transport.kind === "http" ? new HttpMcpClient(c.transport.url, this.o.storage.key(c.id), this.o.fetch, this.tokenSource(c.id)) : new StdioMcpClient(c.transport.command, c.transport.args, this.o.spawn, this.o.env(), this.o.cwd);
     const ready = (async () => {
       await client.request("initialize", { protocolVersion: MCP_CLIENT_PROTOCOL, capabilities: {}, clientInfo: { name: "designer-connectors", title: "Wecra", version: "1" } });
       await client.notify("notifications/initialized");
@@ -357,7 +467,7 @@ export class ConnectorHub {
       this.state.set(id, { state: "connected" });
       this.save(list);
     } catch (err) {
-      this.state.set(id, { state: "error", error: err instanceof Error ? err.message : String(err) });
+      this.failed(id, err);
       this.o.onChange?.(this.list());
     }
   }
@@ -418,7 +528,7 @@ export class ConnectorHub {
       this.state.set(c.id, { state: "connected" });
       return { content: content.length ? content : [{ type: "text", text: "(no result)" }], isError: r?.isError === true || undefined };
     } catch (err) {
-      this.state.set(c.id, { state: "error", error: err instanceof Error ? err.message : String(err) });
+      this.failed(c.id, err);
       return errorResult(`${c.name}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }

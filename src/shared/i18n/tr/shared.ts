@@ -40,6 +40,13 @@ export const shared: Record<string, string> = {
   "Use System Setting": "Sistem Ayarını Kullan",
 
   "New design file": "Yeni tasarım dosyası",
+  "New window": "Yeni pencere",
+  "Save Debug Info…": "Hata Ayıklama Bilgisini Kaydet…",
+  "Save Network Log…": "Ağ Günlüğünü Kaydet…",
+  "Save Performance Log…": "Performans Günlüğünü Kaydet…",
+  "Stop Performance Logging…": "Performans Günlüğünü Durdur…",
+  "New tab": "Yeni sekme",
+  "Open file browser": "Dosya tarayıcısını aç",
   "Import…": "İçe aktar…",
   "Place image…": "Görsel yerleştir…",
   "Close tab": "Sekmeyi kapat",
@@ -177,4 +184,19 @@ export const shared: Record<string, string> = {
   "Keyboard shortcuts": "Klavye kısayolları",
   "Open data folder": "Veri klasörünü aç",
   "role|Zoom": "Pencereyi Büyüt",
+
+  // View › Interface Scale, Help › Troubleshooting (atlas 21 §7; src/main/interfaceScale.ts, troubleshooting.ts)
+  "Interface Scale": "Arayüz Ölçeği",
+  "Reset to Default": "Varsayılana Sıfırla",
+  "Make Larger": "Büyüt",
+  "Make Smaller": "Küçült",
+  Troubleshooting: "Sorun Giderme",
+  "Disable Hardware Acceleration": "Donanım Hızlandırmayı Kapat",
+  "Graphics Backend": "Grafik Arka Ucu",
+  WebGL2: "WebGL2",
+  WebGPU: "WebGPU",
+  "Reload All Tabs": "Tüm Sekmeleri Yeniden Yükle",
+  "Restart required": "Yeniden başlatma gerekiyor",
+  "The change takes effect when the app restarts. Your files are saved first.": "Değişiklik uygulama yeniden başladığında geçerli olur. Önce dosyalarınız kaydedilir.",
+  Restart: "Yeniden Başlat",
 };

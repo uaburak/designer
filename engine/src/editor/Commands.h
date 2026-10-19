@@ -67,10 +67,10 @@ enum class CommandId : uint32_t {
   COMBINE_AS_VARIANTS = 121,
   ADD_VARIANT = 122,
   DETACH_INSTANCE = 123,            // args {ref?}
-  RESET_OVERRIDES = 124,            // args {ref?, kind? | kinds? (Figma's reset kinds) | field? | fields?, keepAssignments?}
+  RESET_OVERRIDES = 124,            // args {ref?, kind? | kinds? (Figma's reset kinds) | field? | fields?, keepAssignments?, prop? | props? (with PROPERTY_ASSIGNMENTS)}
   PUSH_CHANGES_TO_MAIN = 125,
-  GO_TO_MAIN_COMPONENT = 126,
-  RETURN_TO_INSTANCE = 127,
+  GO_TO_MAIN_COMPONENT = 126,       // args {ref?: Guid | Guid[]} (instances sharing one main; the selection by default)
+  RETURN_TO_INSTANCE = 127,         // every ref GO_TO_MAIN_COMPONENT came from, selected and in view
   SWAP_INSTANCE = 128,              // args {main, ref?}
   SET_COMPONENT_PROPERTY = 129,     // args {ref?, prop, value}
   ADD_COMPONENT_PROPERTY = 130,     // args {ref?, name?, type, defaultValue?, bind?, preferredValues?, plugin?}
@@ -121,7 +121,7 @@ enum class CommandId : uint32_t {
   GROUP_STYLES = 175,                   // args {styles, name}
   RENAME_STYLE_GROUP = 176,             // args {type, group, name}
   UNGROUP_STYLES = 177,                 // args {type, group}
-  REPLACE_FONTS = 190,                  // args {fonts: [{from: {family, style}, to: {family, style}}]} (Missing fonts' "Replace fonts")
+  REPLACE_FONTS = 190,                  // args {fonts: [{from: {family, style}, to: {family, style}}], nodes?: [ref]} (Missing fonts' "Replace fonts"; nodes: its scope)
   // Round 6 (branch r6-components-grid; 210-219 kept clear of parallel rounds): slots.
   CONVERT_TO_SLOT = 210,                // args {ref?: Guid | Guid[]} ("Convert to slot", ⌘⇧S): nested frames of a main
   WRAP_IN_NEW_SLOT = 211,               // the selection framed, the frame made a slot ("Wrap in new slot")
@@ -140,6 +140,17 @@ enum class CommandId : uint32_t {
   // Round 8 (branch r8-selection): canvas tools and views (tools/CanvasTools.cpp).
   SHOW_ROTATION_ORIGIN = 236,           // ⌥R: the selection's rotation origin shown (drag it; rotation turns about it); toggles
   REMOVE_GUIDE = 237,                   // the selected ruler guide removed ("Remove guide")
+  // Atlas wave 1 (a ruler's context menu, Atlas 04 §4.2): the guides a drag from the top / left ruler would add to
+  // (the one selected top-level frame's, else the page's) of that axis, all removed.
+  REMOVE_HORIZONTAL_GUIDES = 238,
+  REMOVE_VERTICAL_GUIDES = 239,
+  // Atlas wave 1 (Atlas 05 §9.2, Figma's upgradeToLatestVectorOperationVersion): the selected boolean groups made with
+  // an older version of the boolean operations (vectorOperationVersion 0 / absent) brought to the latest ("Update").
+  UPGRADE_VECTOR_OPERATION = 240,
+  // Atlas wave 2, layout (Atlas 09 §3.2, §4; editor/AutoLayoutCommands.cpp); 250-259.
+  SUGGEST_AUTO_LAYOUT = 250,            // ⌃⇧A: the selection stacked into nested auto-layout frames; created: the new frames
+  REMOVE_ALL_AUTO_LAYOUT = 251,         // Figma's destroy-all-auto-layout: the selection and every layer in it; created: those frames
+  SET_STACK_LAYOUT_VERSION = 252,       // args {version?: 0 Legacy | 1 Updated (default), deep?, page?}: stacks' layout version
   // Round 8 (branch r8-design-panel): the Grid panel (tools/GridGestures.cpp); 260-269.
   SELECT_GRID_TRACKS = 260,             // args {frame, axis: "COLUMNS" | "ROWS", tracks: number[]} — the selected grid's tracks ([] clears)
   // Round 10 (branch r10-menus-commands): the Figma menu's Object, Arrange and Vector commands live Figma has
@@ -177,6 +188,30 @@ enum class CommandId : uint32_t {
   CREATE_TEXT_PATH = 319,
   FLIP_TEXT_PATH = 320,
   SET_TEXT_PATH_START = 321,
+  // Phase 7 round 8, Motion (docs/motion.md §4.9; round 8b builds them: until then they report E_UNSUPPORTED).
+  MOTION_ADD_KEYFRAME = 330,
+  MOTION_SET_KEYFRAMES = 331,
+  MOTION_DELETE_KEYFRAMES = 332,
+  MOTION_DELETE_TRACKS = 333,
+  MOTION_SET_EASING = 334,
+  MOTION_SET_TIMELINE = 335,
+  MOTION_ADD_ANIMATION = 336,
+  MOTION_SET_ANIMATION = 337,
+  MOTION_REMOVE_ANIMATIONS = 338,
+  MOTION_APPLY_STYLE = 339,
+  MOTION_RETIME_LAYER = 340,
+  MOTION_SET_INSTANCE_OFFSET = 341,
+  MOTION_SET_ANCHOR = 342,
+  MOTION_SET_PATH_HANDLES = 343,
+  MOTION_SET_TEXT_STAGGER = 344,
+  MOTION_ADD_AUDIO = 345,
+  MOTION_SET_AUDIO = 346,
+  MOTION_SPLIT_AUDIO = 347,
+  MOTION_REMOVE_AUDIO = 348,
+  MOTION_PASTE_KEYFRAMES = 349,
+  MOTION_COMBINE_TRACKS = 350,
+  MOTION_SPLIT_TRACKS = 351,
+  MOTION_SET_PRESET_TRACKS = 352,
 };
 
 // engine_command_state bits.

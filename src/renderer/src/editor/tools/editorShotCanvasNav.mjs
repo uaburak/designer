@@ -120,7 +120,9 @@ export async function canvasNavSection(page, theme, { open, settle, check, outDi
   check(`Canvasnav16 ${theme}: the pointer on a bar's place shows a bar along the visible canvas's bottom…`, bottom.length > 200, `${bottom.length} px`);
   check(`Canvasnav16 ${theme}: …and its right, clear of the panel's resize handle (content past the view right and down)`, right.length > 200 && Math.max(...right.map(([x]) => x)) < view.right - 6, `${right.length} px`);
   const others = bars.length - bottom.length - right.length;
-  check(`Canvasnav16 ${theme}: …nothing else changes`, others < 40, `${others} px elsewhere`);
+  const elsewhere = bars.filter(([x, y]) => !(y > view.bottom - 14) && !(x > view.right - 20 && y <= view.bottom - 14));
+  const span = elsewhere.length ? [Math.min(...elsewhere.map(([x]) => x)), Math.min(...elsewhere.map(([, y]) => y)), Math.max(...elsewhere.map(([x]) => x)), Math.max(...elsewhere.map(([, y]) => y))] : [];
+  check(`Canvasnav16 ${theme}: …nothing else changes`, others < 40, `${others} px elsewhere${span.length ? ` (${span.join(", ")})` : ""}`);
   // The vertical thumb dragged 40 px down → the view goes down.
   const ys = right.map(([, y]) => y);
   const xs = right.map(([x]) => x);

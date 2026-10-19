@@ -176,7 +176,8 @@ const ADMIN_ONLY_SCOPES: ReadonlySet<TokenScope> = new Set<TokenScope>(["org:act
 export function GenerateTokenDialog({ onClose, onMade }: { onClose: () => void; onMade: (info: AccessTokenInfo) => void }) {
   useT();
   const [name, setName] = useState("");
-  const [days, setDays] = useState("30");
+  // Figma's default: 1 day (atlas 21 §6.3, `nQ=[1,7,30,90]`).
+  const [days, setDays] = useState("1");
   const [scopes, setScopes] = useState<Set<TokenScope>>(new Set(["file_content:read"]));
   const [token, setToken] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

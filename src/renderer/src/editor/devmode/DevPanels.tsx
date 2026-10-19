@@ -1,10 +1,15 @@
 /**
  * Dev Mode's panels in the editor: the developer preview viewer's own (src/viewer — Pages, "Ready for development" and
- * Layers on the left; Inspect on the right: Compare changes, the box model, Code / List, colours, typography, assets,
- * export; hover measurements on the canvas), on the editor's engine. The viewer reads a read-only document and caches
- * every read; here the document changes, so its reader is made again after each committed change.
+ * Layers on the left; Inspect on the right: the selection header, MCP, Code Connect, Layer properties with the box
+ * model, List | Code and the code, colours, typography, assets, export; hover measurements on the canvas), on the
+ * editor's engine, in the editor's chrome laid out as Figma's Dev Mode (the owner's capture
+ * docs/research/figma/live/owner-2026-10-18/figma-devmode-inspect; live 2026-10-18/devmode-inspect-right.txt): the
+ * navigation bar (File, Plugins), the file header; the right panel 320 wide under the account, Present and Share (in
+ * Dev Mode's green), Inspect | Plugins with the zoom. The viewer reads a read-only document and caches every read;
+ * here the document changes, so its reader is made again after each committed change.
  */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { ResizeHandle, showToast, size, type MenuEntry } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import { PREVIEW_FORMAT, PREVIEW_DOC_NAME } from "@shared/preview/format";
 import { DOCUMENT_FORMAT_VERSION } from "@shared/schema/codec";
@@ -15,11 +20,18 @@ import { InspectPanel } from "../../../../viewer/InspectPanel";
 import { Measurements } from "../../../../viewer/Measurements";
 import type { LoadedPreview } from "../../../../viewer/source";
 import { useEditor, type EditorController } from "../controller";
+import { Rail } from "../panels/Rail";
+import { FileHeader } from "../panels/LeftPanel";
+import { RightHeader, ZoomMenu } from "../panels/RightPanel";
+import { agentsOf } from "../agents/service";
+import { runTool } from "../agents/mcpTools";
+import { fileKeyOf } from "./round5";
+import { setMode } from "./devMode";
 import { useUI } from "../hooks";
 import { openFocus } from "./devMode";
 import { editorDevData, setRound5, useRound5 } from "./round5";
 import { DevPluginsPanel } from "./PluginsPanel";
-import { t, useLocale } from "@/i18n";
+import { t, useLocale, useT } from "@/i18n";
 import { commandItem } from "../menus";
 import { runEditorCommand } from "../commands";
 import { useExportAllowed } from "../exporting";
@@ -61,6 +73,45 @@ export function previewOf(ed: EditorController, fileName: string, canExport: boo
 }
 
 const selectCanEdit = (s: { canEdit: boolean }) => s.canEdit;
+
+/** Dev Mode's file name menu (docs/editor.md D-1: Library ▸ Connect components to code). */
+const devFileMenu = (ed: EditorController): MenuEntry[] => [
+  commandItem(ed, "file.save-version"),
+  commandItem(ed, "file.version-history"),
+  "-",
+  { id: "library", label: t("Library"), items: [commandItem(ed, "dev.connect-components"), commandItem(ed, "file.library-analytics")] },
+];
+
+/** A layer's link (the one the agents' tools and Copy link name): the file's deep link with the layer's node id. */
+export function layerLink(ed: EditorController, id: string): string {
+  const u = new URL("designer://open");
+  const key = fileKeyOf(ed);
+  if (key) u.searchParams.set("key", key);
+  u.searchParams.set("node-id", id.replace(":", "-"));
+  u.searchParams.set("m", "dev");
+  return u.toString();
+}
+
+/** Inspect's MCP section on this app's MCP server: get_design_context's answer, its size in tokens (4 characters each). */
+function mcpHost(ed: EditorController) {
+  return {
+    async tokens(nodeId: string) {
+      const r = await runTool({ ed, write: (_label, fn) => fn() }, "get_design_context", { nodeId });
+      const text = r.content.map((c) => ("text" in c && typeof c.text === "string" ? c.text : "")).join("");
+      return Math.ceil(text.length / 4);
+    },
+    link: (nodeId: string) => layerLink(ed, nodeId),
+    // "?" and "+": Agent settings, where the server's address and the clients are (Design mode's Agents tab).
+    onHelp: () => openAgentSettings(ed),
+    onSetup: () => openAgentSettings(ed),
+  };
+}
+
+function openAgentSettings(ed: EditorController) {
+  setMode(ed, "design");
+  ed.ui.set({ railTab: "agents", uiHidden: false, uiMinimized: false });
+  agentsOf(ed).setView("settings");
+}
 
 /**
  * Calls `changed` (debounced, 120 ms) after the document changes: this copy's own transactions (DOCUMENT_CHANGED) and
@@ -114,11 +165,13 @@ function DevContext({ children }: { children: ReactNode }) {
         onFocus: (id) => openFocus(ed, id),
         onStatus: (id, r) => ed.ui.set({ statusMenu: { ref: id, x: r.left, y: r.top, width: r.width, height: r.height } }),
         onReadyView: () => setRound5(ed, { ready: true }),
-        // Dev Mode's file name menu (docs/editor.md D-1: Library ▸ Connect components to code)
-        fileMenu: {
-          entries: () => [commandItem(ed, "file.save-version"), commandItem(ed, "file.version-history"), "-", { id: "library", label: t("Library"), items: [commandItem(ed, "dev.connect-components"), commandItem(ed, "file.library-analytics")] }],
-          onSelect: (id) => runEditorCommand(ed, id),
-        },
+        fileMenu: { entries: () => devFileMenu(ed), onSelect: (id) => runEditorCommand(ed, id) },
+        mcp: mcpHost(ed),
+        onCopyLink: (id) =>
+          void navigator.clipboard?.writeText(layerLink(ed, id)).then(
+            () => showToast({ message: t("Copied link to clipboard") }),
+            () => showToast({ message: t("Couldn't copy") })
+          ),
         ...(dev ? { dev } : {}),
       },
     }),
@@ -129,21 +182,44 @@ function DevContext({ children }: { children: ReactNode }) {
   return <ViewerContext.Provider value={state}>{children}</ViewerContext.Provider>;
 }
 
+/** The navigation bar (File, Plugins) and the left panel: the file header, Pages, Ready for development, Layers. */
 export function DevLeftPanel() {
+  useT();
+  const ed = useEditor();
+  const width = useUI((s) => s.leftWidth);
+  const navMinimized = useUI((s) => !!s.navMinimized);
   return (
-    <DevContext>
-      <ViewerLeft />
-    </DevContext>
+    <>
+      {!navMinimized && <Rail />}
+      <DevContext>
+        <ViewerLeft header={<FileHeader menu={() => devFileMenu(ed)} />} style={{ width: width + 1 /* live: 240 and the 1px line */ }}>
+          <ResizeHandle side="right" value={width} onChange={(px) => ed.ui.set({ leftWidth: px })} />
+        </ViewerLeft>
+      </DevContext>
+    </>
   );
 }
 
+/** The right panel: the account, Present and Share; Inspect | Plugins (⌥8 / ⌥9) with the zoom; 320 wide (live). */
 export function DevRightPanel() {
   const locale = useLocale();
+  const ed = useEditor();
+  const width = useUI((s) => s.devRightWidth ?? size["dev-panel"]);
+  const tab = useUI((s) => (s.devTab === "plugins" ? "extra" : "inspect"));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const pluginsTab = useMemo(() => ({ label: t("Plugins"), render: renderPlugins }), [locale]);
   return (
     <DevContext>
-      <InspectPanel extraTab={pluginsTab} />
+      <InspectPanel
+        extraTab={pluginsTab}
+        header={<RightHeader />}
+        tabsEnd={<ZoomMenu />}
+        tab={tab}
+        onTab={(next) => ed.ui.set({ devTab: next === "extra" ? "plugins" : "inspect" })}
+        style={{ width }}
+      >
+        <ResizeHandle side="left" value={width} max={size["right-panel-max"]} defaultValue={size["dev-panel"]} onChange={(px) => ed.ui.set({ devRightWidth: px })} />
+      </InspectPanel>
     </DevContext>
   );
 }

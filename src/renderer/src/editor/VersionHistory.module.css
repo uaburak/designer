@@ -1,0 +1,72 @@
+/* Version history mode (atlas 16 §3.3): the panel in the right panel's place, the version's canvas over the editor's. */
+@layer app {
+  .panel {
+    box-sizing: content-box;
+    position: relative;
+    z-index: var(--ds-z-panel);
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    width: var(--ds-size-panel);
+    min-height: 0;
+    border-left: 1px solid var(--figma-color-border);
+    background: var(--figma-color-bg);
+  }
+  .header { display: flex; flex: none; align-items: center; gap: var(--ds-space-1); height: var(--ds-space-12); padding: 0 var(--ds-space-2) 0 var(--ds-space-4); border-bottom: 1px solid var(--figma-color-border); }
+  .heading { margin: 0; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); }
+  .grow { flex: 1 1 auto; }
+  .headerButton { display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--ds-radius-medium); background: none; color: var(--figma-color-icon); }
+  .headerButton:hover,
+  .headerButton[data-open] { background: var(--figma-color-bg-hover); }
+  .headerButton:has(.headerGlyph[data-on]) { background: var(--figma-color-bg-brand-tertiary); }
+  .headerGlyph { display: flex; }
+  .headerGlyph[data-on] { color: var(--figma-color-icon-brand); }
+
+  .list { flex: 1 1 auto; min-height: 0; padding: var(--ds-space-2) 0; overflow-y: auto; outline: none; }
+  .row {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: var(--ds-space-2);
+    width: 100%;
+    padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-4);
+    border: 0;
+    background: none;
+    color: var(--figma-color-text);
+    text-align: left;
+    cursor: default;
+  }
+  .row:hover { background: var(--figma-color-bg-hover); }
+  .row[data-selected] { background: var(--figma-color-bg-selected); }
+  .dot { flex: none; width: 8px; height: 8px; margin-top: 4px; border: 1px solid var(--figma-color-border-strong); border-radius: 50%; background: var(--figma-color-bg); }
+  .row[data-selected] .dot,
+  .dot[data-current] { border-color: var(--figma-color-border-selected); background: var(--figma-color-bg-brand); }
+  .row[data-autosave] .dot { width: 6px; height: 6px; margin: 5px 1px 0; }
+  .rowMain { display: flex; flex: 1 1 auto; flex-direction: column; gap: 2px; min-width: 0; }
+  .title { overflow: hidden; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); text-overflow: ellipsis; white-space: nowrap; }
+  .row[data-autosave] .title { font: var(--ds-font-body-medium); }
+  .time { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .description { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .description[data-clamped] { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+  .more { align-self: flex-start; padding: 0; border: 0; background: none; color: var(--figma-color-text-brand); font: var(--ds-font-body-medium); }
+  .rowMenu { visibility: hidden; flex: none; }
+  .row:hover .rowMenu,
+  .row[data-selected] .rowMenu,
+  .rowMenu[data-open] { visibility: visible; }
+
+  .group { display: flex; flex-direction: column; }
+  .groupHead { display: flex; align-items: center; gap: var(--ds-space-1); height: 32px; padding: 0 var(--ds-space-2) 0 var(--ds-space-2); border: 0; background: none; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); text-align: left; }
+  .groupHead:hover { background: var(--figma-color-bg-hover); }
+  .disclosure { display: flex; color: var(--figma-color-icon-secondary); }
+  .group[data-open] .row { padding-left: var(--ds-space-6); }
+
+  .older { margin: var(--ds-space-2) var(--ds-space-4); padding: 0; border: 0; background: none; color: var(--figma-color-text-brand); font: var(--ds-font-body-medium); text-align: left; }
+  .loading { display: flex; justify-content: center; padding: var(--ds-space-6); }
+  .error { margin: var(--ds-space-2) var(--ds-space-4); color: var(--figma-color-text-danger); font: var(--ds-font-body-medium); }
+
+  .dialogText { margin: 0; color: var(--figma-color-text); font: var(--ds-font-body-medium); }
+
+  .preview { position: absolute; inset: 0; z-index: 1; background: var(--ds-color-canvas-default); }
+  .previewCanvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+  .previewState { position: absolute; top: 50%; left: 50%; margin: 0; transform: translate(-50%, -50%); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+}

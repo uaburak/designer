@@ -46,8 +46,9 @@
 
 enum MessageType {
   // Dropped (multiplayer/server only): JOIN_START=0, USER_CHANGES=2, JOIN_END=3, SIGNAL=4,
-  // STYLE=5, STYLE_SET=6, ..., CLIENT_RENDERED=23.
+  // STYLE_SET=6, ..., CLIENT_RENDERED=23.
   NODE_CHANGES = 1;
+  STYLE = 5;               // Copy properties on the clipboard (atlas 15 §10): one CREATED node at 0:0, pasteFileKey
 }
 
 enum NodePhase {
@@ -80,13 +81,16 @@ enum NodeType {
   TEXT_PATH = 41;          // Figma Draw: text laid along its own path (vectorData; textPathStart), docs/draw.md §4.4
   BRUSH = 46;              // Figma Draw: a brush's artwork (vectorData, fill), kept on the internal canvas 0:2
   TRANSFORM = 48;          // Figma Draw: a transform group; its transformModifiers repeat its children (docs/draw.md §4.2)
+  KEYFRAME = 56;           // Figma Motion (docs/motion.md §4.2): a keyframe, a KEYFRAME_TRACK's child
+  KEYFRAME_TRACK = 57;     // Figma Motion: a field's keyframes, on the internal canvas 0:2; bound through a KEYFRAME expression
+  ANIMATION_PRESET_INSTANCE = 58; // Figma Motion: an animation preset applied to a layer (its tracks are materialised)
   // Dropped: STICKY=17, SHAPE_WITH_TEXT=18, CONNECTOR=19, CODE_BLOCK=20, WIDGET=21, STAMP=22,
   // MEDIA=23, HIGHLIGHT=24, SECTION_OVERLAY=26, WASHI_TAPE=27, TABLE=29, TABLE_CELL=30, SLIDE=32,
   // ASSISTED_LAYOUT=33, INTERACTIVE_SLIDE_ELEMENT=34, MODULE=36,
   // SLIDE_GRID=37, SLIDE_ROW=38, RESPONSIVE_SET=39, CODE_COMPONENT=40,
   // CODE_INSTANCE=42, CODE_LIBRARY=43, CODE_FILE=44, CODE_LAYER=45, MANAGED_STRING=47,
   // CMS_RICH_TEXT=49, REPEATER=50, JSX=51, EMBEDDED_PROTOTYPE=52, REACT_FIBER=53,
-  // RESPONSIVE_NODE_SET=54, WEBPAGE=55, KEYFRAME=56, KEYFRAME_TRACK=57, ANIMATION_PRESET_INSTANCE=58,
+  // RESPONSIVE_NODE_SET=54, WEBPAGE=55,
   // CODE_EMBED=59, BINARY_FILE=60, SPEC_BLOCK=61, TOOL_INSTANCE=62, CUSTOM_EFFECT_INSTANCE=63,
   // NATIVE_CODE_LAYER_INSTANCE=64.
 }
@@ -120,13 +124,17 @@ message Message {
   ClipboardSelectionRegion[] clipboardSelectionRegions = 33;
   uint64 sentTimestamp = 38;       // optional: ms since Unix epoch when committed
   uint derivedDataVersion = 100;   // @ours engine version of the derived fields in this Message (0/absent = none)
-  // Reserved field numbers (86): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  Message[] localUndoStack = 22;   // the editor's undo batches (oldest first), each a NODE_CHANGES Message; per-device UI state, never in a snapshot
+  Message[] localRedoStack = 23;   // the redo batches, likewise
+  GUID[] undoBatchPageIds = 46;    // in an undo batch (a localUndoStack / localRedoStack element): the pages its changes were on, first first
+  EncodedOffsetsIndex encodedOffsetsIndex = 34;  // where each node change starts in this Message's encoding (partial decode)
+  // Reserved field numbers (82): Figma fields not kept, or reserved for future Figma fields. Never reuse.
   byte _r5 = 5 [deprecated]; byte _r7 = 7 [deprecated]; byte _r8 = 8 [deprecated]; byte _r9 = 9 [deprecated]; byte _r10 = 10 [deprecated]; byte _r11 = 11 [deprecated];
-  byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated]; byte _r17 = 17 [deprecated]; byte _r18 = 18 [deprecated]; byte _r22 = 22 [deprecated]; byte _r23 = 23 [deprecated];
+  byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated]; byte _r17 = 17 [deprecated]; byte _r18 = 18 [deprecated];
   byte _r24 = 24 [deprecated]; byte _r25 = 25 [deprecated]; byte _r26 = 26 [deprecated]; byte _r27 = 27 [deprecated]; byte _r28 = 28 [deprecated]; byte _r29 = 29 [deprecated];
-  byte _r30 = 30 [deprecated]; byte _r31 = 31 [deprecated]; byte _r32 = 32 [deprecated]; byte _r34 = 34 [deprecated]; byte _r35 = 35 [deprecated]; byte _r36 = 36 [deprecated];
+  byte _r30 = 30 [deprecated]; byte _r31 = 31 [deprecated]; byte _r32 = 32 [deprecated]; byte _r35 = 35 [deprecated]; byte _r36 = 36 [deprecated];
   byte _r37 = 37 [deprecated]; byte _r39 = 39 [deprecated]; byte _r40 = 40 [deprecated]; byte _r41 = 41 [deprecated]; byte _r42 = 42 [deprecated]; byte _r43 = 43 [deprecated];
-  byte _r44 = 44 [deprecated]; byte _r45 = 45 [deprecated]; byte _r46 = 46 [deprecated]; byte _r47 = 47 [deprecated]; byte _r48 = 48 [deprecated]; byte _r49 = 49 [deprecated];
+  byte _r44 = 44 [deprecated]; byte _r45 = 45 [deprecated]; byte _r47 = 47 [deprecated]; byte _r48 = 48 [deprecated]; byte _r49 = 49 [deprecated];
   byte _r50 = 50 [deprecated]; byte _r51 = 51 [deprecated]; byte _r52 = 52 [deprecated]; byte _r53 = 53 [deprecated]; byte _r54 = 54 [deprecated]; byte _r55 = 55 [deprecated];
   byte _r56 = 56 [deprecated]; byte _r57 = 57 [deprecated]; byte _r58 = 58 [deprecated]; byte _r59 = 59 [deprecated]; byte _r60 = 60 [deprecated]; byte _r61 = 61 [deprecated];
   byte _r62 = 62 [deprecated]; byte _r63 = 63 [deprecated]; byte _r64 = 64 [deprecated]; byte _r65 = 65 [deprecated]; byte _r66 = 66 [deprecated]; byte _r67 = 67 [deprecated];
@@ -136,6 +144,18 @@ message Message {
   byte _r86 = 86 [deprecated]; byte _r87 = 87 [deprecated]; byte _r88 = 88 [deprecated]; byte _r89 = 89 [deprecated]; byte _r90 = 90 [deprecated]; byte _r91 = 91 [deprecated];
   byte _r92 = 92 [deprecated]; byte _r93 = 93 [deprecated]; byte _r94 = 94 [deprecated]; byte _r95 = 95 [deprecated]; byte _r96 = 96 [deprecated]; byte _r97 = 97 [deprecated];
   byte _r98 = 98 [deprecated]; byte _r99 = 99 [deprecated];
+}
+
+message EncodedOffsetsIndex {   // Message.encodedOffsetsIndex: byte offsets into the Message's own encoding
+  uint nodeChangesFieldOffset = 1;
+  uint nodeChangesFieldLength = 2;
+  uint blobsFieldOffset = 3;
+  GUIDAndEncodedOffset[] nodeChangeOffsets = 4;
+}
+
+struct GUIDAndEncodedOffset {
+  GUID guid;
+  uint offset;
 }
 
 message ClipboardSelectionRegion {
@@ -383,10 +403,14 @@ message Paint {
   ComponentPropAssignment[] componentPropAssignments = 40;  // CUSTOM: the shader's parameters (defID → value / varValue)
   AuthoredColor authoredColor = 44;      // SOLID: the colour as picked in its own space (HSL, OKLCH…); `color` draws
   AuthoredColorStop[] authoredStops = 45;  // gradients: the stops as picked; `stops` draw
-  // Reserved field numbers (12): Figma fields not kept, or reserved for future Figma fields. Never reuse.
-  byte _r13 = 13 [deprecated]; byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated]; byte _r17 = 17 [deprecated]; byte _r22 = 22 [deprecated];
+  InterpolationColorSpace interpolationColorSpace = 41;  // gradients: the space the stops are blended in
+  InterpolationHueMethod interpolationHueMethod = 42;    // gradients in OKLCH / HSL: the way round the hue circle
+  Image animatedImage = 16;              // IMAGE, a GIF: the animated file (`image` is its still at `animationFrame`)
+  uint animationFrame = 17;              // IMAGE, a GIF: the cover frame (the still drawn on the canvas)
+  // Reserved field numbers (8): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  byte _r13 = 13 [deprecated]; byte _r15 = 15 [deprecated]; byte _r22 = 22 [deprecated];
   byte _r24 = 24 [deprecated]; byte _r31 = 31 [deprecated]; byte _r32 = 32 [deprecated]; byte _r33 = 33 [deprecated];
-  byte _r41 = 41 [deprecated]; byte _r42 = 42 [deprecated]; byte _r43 = 43 [deprecated];
+  byte _r43 = 43 [deprecated];
 }
 
 enum PatternTileType {
@@ -442,6 +466,21 @@ enum BlurOpType {
   PROGRESSIVE = 1;
 }
 
+enum InterpolationColorSpace {   // Paint.interpolationColorSpace; a colour KEYFRAME's segment into it (docs/motion.md §4.8)
+  DEFAULT = 0;             // the document's profile (sRGB or Display P3)
+  OKLAB = 1;
+  OKLCH = 2;
+  HSL = 3;
+  SRGB_LINEAR = 4;
+}
+
+enum InterpolationHueMethod {    // Paint.interpolationHueMethod and a colour KEYFRAME's (OKLCH, HSL)
+  SHORTER = 0;
+  LONGER = 1;
+  INCREASING = 2;          // the UI's default
+  DECREASING = 3;
+}
+
 enum NoiseType {           // "Multi" / "Mono" / "Duo"
   MULTITONE = 0;
   MONOTONE = 1;
@@ -484,11 +523,26 @@ message Effect {
   ComponentPropAssignment[] componentPropAssignments = 44;  // CUSTOM: the shader's parameters (defID → value / varValue)
   AuthoredColor authoredColor = 56;          // `color` as picked in its own space; `color` draws
   AuthoredColor secondaryAuthoredColor = 57; // the second colour as picked
-  // Reserved field numbers (22): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  // Motion (docs/motion.md §4.2): an effect field's binding slot — a KEYFRAME expression, or a variable alias.
+  VariableData refractionRadiusVar = 37;
+  VariableData specularAngleVar = 38;
+  VariableData specularIntensityVar = 39;
+  VariableData chromaticAberrationVar = 40;
+  VariableData splayVar = 41;
+  VariableData refractionIntensityVar = 42;
+  VariableData startRadiusVar = 45;
+  VariableData startOffsetXVar = 46;
+  VariableData startOffsetYVar = 47;
+  VariableData endOffsetXVar = 48;
+  VariableData endOffsetYVar = 49;
+  VariableData noiseSizeXVar = 50;
+  VariableData noiseSizeYVar = 51;
+  VariableData densityVar = 52;
+  VariableData effectOpacityVar = 53;
+  VariableData secondaryColorVar = 54;
+  // Reserved field numbers (6): Figma fields not kept, or reserved for future Figma fields. Never reuse.
   byte _r14 = 14 [deprecated]; byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated]; byte _r17 = 17 [deprecated]; byte _r18 = 18 [deprecated];
-  byte _r37 = 37 [deprecated]; byte _r38 = 38 [deprecated]; byte _r39 = 39 [deprecated]; byte _r40 = 40 [deprecated]; byte _r41 = 41 [deprecated];
-  byte _r42 = 42 [deprecated];
-  byte _r45 = 45 [deprecated]; byte _r46 = 46 [deprecated]; byte _r47 = 47 [deprecated]; byte _r48 = 48 [deprecated]; byte _r49 = 49 [deprecated]; byte _r50 = 50 [deprecated]; byte _r51 = 51 [deprecated]; byte _r52 = 52 [deprecated]; byte _r53 = 53 [deprecated]; byte _r54 = 54 [deprecated]; byte _r55 = 55 [deprecated];
+  byte _r55 = 55 [deprecated];
 }
 
 enum MaskType {
@@ -550,7 +604,16 @@ enum ImageType {
   JPEG = 1;
   SVG = 2;
   PDF = 3;
-  // Dropped: MP4=4, GIF=5, WEBM=6, LOTTIE=7, DOTLOTTIE=8.
+  MP4 = 4;                 // Motion's animated exports (docs/motion.md §7)
+  GIF = 5;
+  WEBM = 6;
+  LOTTIE = 7;
+  DOTLOTTIE = 8;
+}
+enum ExportBackgroundType {
+  SOLID = 0;
+  TRANSPARENT = 1;
+  GRID = 2;
 }
 
 enum ExportConstraintType {
@@ -589,6 +652,12 @@ message ExportSettings {
   ExportColorProfile colorProfile = 10;
   float quality = 11;
   bool useBicubicSampler = 12;
+  // Motion's Animated export (docs/motion.md §7): MP4 / WEBM / GIF / LOTTIE / DOTLOTTIE, or an animated SVG.
+  int frameRate = 13;
+  int loopCount = 14;
+  ExportBackgroundType backgroundType = 15;
+  float duration = 16;                   // seconds
+  bool svgAnimated = 17;
 }
 
 // ----------------------------------------------------------------------------
@@ -997,6 +1066,7 @@ enum ConnectionType {
   UPDATE_MEDIA_RUNTIME = 6; // the video actions (PrototypeAction.mediaAction on the video `transitionNodeID`)
   CONDITIONAL = 7;
   SET_VARIABLE_MODE = 8;
+  UPDATE_ANIMATION_TIMELINE_STATE = 10; // Motion (docs/motion.md §4.12): PrototypeAction.animationTimelineAction on animationTimelineDefId's root
   // Dropped: OBJECT_ANIMATION=9.
 }
 
@@ -1200,9 +1270,13 @@ message PrototypeAction {
   bool enableJitSmartAnimate = 43;
   VariableData transitionDurationVar = 46;       // transitionDuration bound to a number variable (seconds)
   VariableData easingVar = 47;                   // the easing bound to a variable
-  // Reserved field numbers (15): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  // Motion (docs/motion.md §4.12): UPDATE_ANIMATION_TIMELINE_STATE's action, time (seconds) and timeline.
+  AnimationTimelineAction animationTimelineAction = 39;
+  float animationSkipToTime = 40;
+  GUID animationTimelineDefId = 41;
+  // Reserved field numbers (12): Figma fields not kept, or reserved for future Figma fields. Never reuse.
   byte _r14 = 14 [deprecated]; byte _r15 = 15 [deprecated]; byte _r23 = 23 [deprecated];
-  byte _r30 = 30 [deprecated]; byte _r31 = 31 [deprecated]; byte _r32 = 32 [deprecated]; byte _r33 = 33 [deprecated]; byte _r34 = 34 [deprecated]; byte _r35 = 35 [deprecated]; byte _r36 = 36 [deprecated]; byte _r39 = 39 [deprecated]; byte _r40 = 40 [deprecated]; byte _r41 = 41 [deprecated]; byte _r44 = 44 [deprecated]; byte _r45 = 45 [deprecated];
+  byte _r30 = 30 [deprecated]; byte _r31 = 31 [deprecated]; byte _r32 = 32 [deprecated]; byte _r33 = 33 [deprecated]; byte _r34 = 34 [deprecated]; byte _r35 = 35 [deprecated]; byte _r36 = 36 [deprecated]; byte _r44 = 44 [deprecated]; byte _r45 = 45 [deprecated];
 }
 
 message PrototypeInteraction {
@@ -1260,11 +1334,13 @@ enum VariableDataType {
   TEXT_DATA = 9;           // text property values
   PROP_REF = 13;           // propRefValue: the field is bound to a component property
   SLOT_CONTENT_ID = 18;    // slotContentIdValue: a SLOT property's value (an instance's slot content FRAME)
-  EASING = 22;             // @later Motion
-  TIMING = 23;             // @later Motion (floatValue, seconds)
+  KEYFRAME_TRACK_ID = 20;  // keyframeTrackIdValue (Motion)
+  KEYFRAME_TRACK_PARAMETER_DATA = 21; // keyframeTrackParameterValue: a KEYFRAME expression's second argument (docs/motion.md §4.2)
+  EASING = 22;             // Motion: easingValue
+  TIMING = 23;             // Motion: floatValue in milliseconds (help: "Duration in milliseconds")
   // Dropped: INVALID=10, NODE_FIELD_ALIAS=11, CMS_ALIAS=12,
   // IMAGE=14, MANAGED_STRING_ALIAS=15, LINK=16, JS_RUNTIME_ALIAS=17, DATE=19,
-  // KEYFRAME_*=20..21, VECTOR=24 .. TRANSITION_PARAMETER_DATA=35.
+  // VECTOR=24 .. TRANSITION_PARAMETER_DATA=35.
 }
 
 enum VariableResolvedDataType {
@@ -1277,9 +1353,11 @@ enum VariableResolvedDataType {
   FONT_STYLE = 7;
   TEXT_DATA = 8;
   SLOT_CONTENT_ID = 12;    // resolved type of a PROP_REF to a SLOT property
-  EASING = 15;             // @later
-  TIMING = 16;             // @later
-  // Dropped: IMAGE=9, LINK=10, JS_RUNTIME_ALIAS=11, KEYFRAME_*=13..14, VECTOR=17 .. TRANSITION_PARAMETER_DATA=28.
+  KEYFRAME_TRACK_ID = 13;  // Motion
+  KEYFRAME_TRACK_PARAMETER_DATA = 14; // Motion
+  EASING = 15;             // Motion
+  TIMING = 16;             // Motion (milliseconds)
+  // Dropped: IMAGE=9, LINK=10, JS_RUNTIME_ALIAS=11, VECTOR=17 .. TRANSITION_PARAMETER_DATA=28.
 }
 
 enum ExpressionFunction {
@@ -1302,8 +1380,9 @@ enum ExpressionFunction {
   VAR_MODE_LOOKUP = 16;
   NEGATE = 17;
   IS_TRUTHY = 18;
+  KEYFRAME = 19;           // Motion (docs/motion.md §4.2): [base value, KEYFRAME_TRACK_PARAMETER_DATA] -> the folded track value at the playhead; the base when Motion is off
   COMPOSE_COLOR = 20;      // [color: COLOR value or alias, opacity: FLOAT value or alias] -> COLOR
-  // Dropped: KEYFRAME=19, PAINT_TO_COLOR=21, RESOLVE_LENGTH=22, TRANSITION=23.
+  // Dropped: PAINT_TO_COLOR=21, RESOLVE_LENGTH=22, TRANSITION=23.
 }
 
 message Expression {
@@ -1324,10 +1403,12 @@ message VariableAnyValue { // exactly one field is set, matching VariableData.da
   TextData textDataValue = 10;
   PropRefValue propRefValue = 13;
   SlotContentId slotContentIdValue = 18;  // SLOT_CONTENT_ID: the slot content an instance assigns to a SLOT property
-  EasingData easingValue = 21;     // @later
-  // Reserved field numbers (8): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  EasingData easingValue = 21;     // EASING
+  // Reserved field numbers (6): Figma fields not kept, or reserved for future Figma fields. Never reuse.
   byte _r11 = 11 [deprecated]; byte _r12 = 12 [deprecated]; byte _r14 = 14 [deprecated]; byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated];
-  byte _r17 = 17 [deprecated]; byte _r19 = 19 [deprecated]; byte _r20 = 20 [deprecated];
+  byte _r17 = 17 [deprecated];
+  KeyframeTrackId keyframeTrackIdValue = 19;              // KEYFRAME_TRACK_ID (Motion)
+  KeyframeTrackParameterValue keyframeTrackParameterValue = 20; // KEYFRAME_TRACK_PARAMETER_DATA (Motion, docs/motion.md §4.2)
 }
 
 message VariableMap {              // MAP: a variant bound to variables (RESOLVE_VARIANT's one argument)
@@ -1360,27 +1441,304 @@ message VariableData {
   VariableResolvedDataType resolvedDataType = 3;
 }
 
-message SpringParams {     // @later
+message SpringParams {     // physical [mass, stiffness, damping]; prototypes and Motion keyframes (docs/motion.md §4.7)
   float stiffness = 1;
   float damping = 2;
   float mass = 3;
+  SpringType springType = 4; // NORMALIZED: played over a segment, settling exactly at its end (Motion); PHYSICAL: real time
 }
 
-message BezierHandles {    // @later
+message BezierHandles {    // a cubic bezier's two inner points (x1, y1, x2, y2), or a motion path's in / out handles
   float p1x = 1;
   float p1y = 2;
   float p2x = 3;
   float p2y = 4;
 }
 
-message TransitionEasingAnyValue { // @later
+message TransitionEasingAnyValue { // exactly one set, by EasingData.easingType
   SpringParams springEasing = 1;
   BezierHandles bezierEasing = 2;
 }
 
-message EasingData {       // @later EASING variable values
+message EasingData {       // a transition's or keyframe's easing; also an EASING variable's value
   EasingType easingType = 1;
   TransitionEasingAnyValue easingValue = 2;
+}
+
+// ---- Motion (docs/motion.md §4.1; Figma's names and numbers from figma-schema-106.kiwi) --------------------------
+// What the current Figma build adds beyond the 106 dump (TimelineData.durationUsVar 8, StyleIdForAnimation.timelineOffsetVar 7,
+// TextElementDelayBehaviour 5-7, AudioFill 13-20, KeyframeValueType.ROTATION_3D 12, NodeContentsKeyframeBindingLocation 5,
+// NodeChange.audioBeatAnalyses 613, Paint.videoFillPlayback 47) stays out until that schema text is in docs/research (the
+// parity check reads the 106 dump); a .fig import drops those fields and reports them.
+
+enum InterpolationType {   // KEYFRAME.interpolationType mirrors easingData (HOLD / BEZIER / SPRING) for round trips
+  HOLD = 0;
+  BEZIER = 1;
+  SPRING = 2;
+}
+enum KeyframeOperation {   // how a track's value combines with the base (docs/motion.md §4.4)
+  SET = 0;                 // replace
+  SCALE = 1;               // multiply
+  OFFSET = 2;              // add
+}
+enum TimelinePositionType { // deprecated at Figma: round trip only
+  ABSOLUTE = 0;
+  RELATIVE = 1;
+}
+enum TrackLoopMode {
+  NONE = 0;
+  LOOP = 1;
+}
+enum PlaybackStyle {       // the UI's Once / Loop / Ping-pong
+  ONCE = 0;
+  LOOP = 1;
+  BOOMERANG = 2;
+}
+enum KeyframeValueType {
+  FLOAT = 0;
+  INVALID = 1;
+  COLOR = 2;
+  TEXT_DATA = 3;
+  VECTOR = 4;
+  BOOL = 5;
+  CIRCLE = 6;
+  LINE = 7;
+  CIRCLE_POINT = 8;
+  COLOR_POINT = 9;
+  GRADIENT_PAINT = 10;
+  PAINT = 11;
+}
+enum KeyframeTrackParameterType {
+  INVALID = 0;
+  MANUAL = 1;
+  ANIMATION_PRESET = 2;
+}
+enum TextElementGrouping { // text animation elements (docs/motion.md §4.10)
+  CHARACTER = 0;
+  CHARACTER_NO_WHITESPACE = 1;
+  WORD = 2;
+  LINE = 3;
+  PARAGRAPH = 4;
+}
+enum TextElementDelayOrder {
+  LEFT_RIGHT = 0;
+  RIGHT_LEFT = 1;
+  CENTER_OUT = 2;
+  RANDOM = 3;
+}
+enum SpringType {
+  NORMALIZED = 0;
+  PHYSICAL = 1;
+}
+enum VariableTimingDisplayUnit { // a TIMING variable's display (its value is milliseconds)
+  MILLISECONDS = 0;
+  SECONDS = 1;
+}
+enum AnimationTimelineAction { // PrototypeAction.animationTimelineAction (UPDATE_ANIMATION_TIMELINE_STATE)
+  PLAY = 0;
+  PAUSE = 1;
+  TOGGLE_PLAY_PAUSE = 2;
+  SET_PLAYHEAD = 3;        // to animationSkipToTime
+}
+enum KeyframeBindingEffectParametrizedField { // which effect field a NodeContentsKeyframeBindingLocation names (round trip)
+  MISSING = 0;
+  OFFSET_X = 1;
+  OFFSET_Y = 2;
+  RADIUS = 3;
+  SPREAD = 4;
+  COLOR = 5;
+  REFRACTION_RADIUS = 6;
+  SPECULAR_ANGLE = 7;
+  SPECULAR_INTENSITY = 8;
+  CHROMATIC_ABERRATION = 9;
+  SPLAY = 10;
+  REFRACTION_INTENSITY = 11;
+  START_RADIUS = 12;
+  START_OFFSET_X = 13;
+  START_OFFSET_Y = 14;
+  END_OFFSET_X = 15;
+  END_OFFSET_Y = 16;
+  NOISE_SIZE_X = 17;
+  NOISE_SIZE_Y = 18;
+  DENSITY = 19;
+  EFFECT_OPACITY = 20;
+  SECONDARY_COLOR = 21;
+}
+enum TransitionOverrideBindingTopLevelField { // where a bound field lives (round trip; transition overrides are a later round)
+  MISSING = 0;
+  PARAMETER_CONSUMPTION_MAP = 1;
+  EFFECT_DATA = 2;
+  FILL_PAINT_DATA = 3;
+  STROKE_PAINT_DATA = 4;
+}
+
+message FrameRate {        // a snapping grid: numerator / denominator frames per second (60/1, 30000/1001, …)
+  uint numerator = 1;
+  uint denominator = 2;
+}
+message TRSSTransform2D {  // the motion transform's base (NodeChange.motionTransform): absent = identity (scale 1, 1)
+  Vector translation = 1;
+  float rotation = 2;
+  Vector scale = 3;
+  float shearX = 4;
+}
+message TransformOrigin {  // the anchor point (NodeChange.transformOrigin): absent = 50 % / 50 %
+  Number x = 1;
+  Number y = 2;
+}
+message Circle {           // shader property values that keyframes carry
+  Vector center = 1;
+  float radius = 2;
+}
+message Line {
+  Vector a = 1;
+  Vector b = 2;
+}
+message CirclePoint {
+  Vector center = 1;
+  float radius = 2;
+  float angle = 3;
+}
+message ColorPoint {
+  Vector point = 1;
+  VariableData color = 2;
+}
+message GradientParameterValue {
+  ColorStop[] stops = 1;
+  Matrix transform = 2;
+  float opacity = 3;
+}
+message KeyframeAnyValue { // exactly one set, by KeyframeValueData.valueType
+  float floatValue = 1;
+  Color colorValue = 2;
+  TextData textDataValue = 3;
+  Vector vectorValue = 4;
+  bool boolValue = 5;
+  Circle circleValue = 6;
+  Line lineValue = 7;
+  CirclePoint circlePointValue = 8;
+  ColorPoint colorPointValue = 9;
+  GradientParameterValue gradientParameterValue = 10;
+  Paint paintValue = 11;
+}
+message KeyframeValueData { // a KEYFRAME's value, in Figma's stored units (opacity x100, rotation -radians: docs/motion.md §4.5)
+  KeyframeAnyValue value = 1;
+  KeyframeValueType valueType = 2;
+}
+message KeyframeTrackId {  // a KEYFRAME_TRACK node ("KeyframeTrackId:<guid>"); assetRef on a library copy
+  GUID guid = 1;
+  AssetRef assetRef = 2;
+}
+message AnimationPresetId { // an ANIMATION_PRESET_INSTANCE node; assetRef on a library copy
+  GUID guid = 1;
+  AssetRef assetRef = 2;
+}
+message ManualKeyframeTrackParameter {
+  KeyframeTrackId keyframeTrackId = 1;
+  GUID timelineDefId = 2;  // the timeline root's GUID (its default timeline), or a timelineDefinitions key
+}
+message AnimationPresetKeyframeTrackParameter {
+  AnimationPresetId animationPresetId = 1;
+  KeyframeTrackId keyframeTrackId = 2;
+  GUID timelineDefId = 3;
+}
+message KeyframeTrackAnyParameter { // exactly one set, by KeyframeTrackParameter.type
+  ManualKeyframeTrackParameter manual = 1;
+  AnimationPresetKeyframeTrackParameter animationPreset = 2;
+  GUID animationStyleBindingId = 3;
+}
+message KeyframeTrackParameter {
+  KeyframeTrackAnyParameter value = 1;
+  KeyframeTrackParameterType type = 2;
+}
+message KeyframeTrackParameterValue { // the KEYFRAME expression's second argument: the tracks folded in list order
+  KeyframeTrackParameter[] parameters = 1;
+}
+message TimelineData {     // a nested or main-component timeline (timelineDefinitions); the default timeline is the root frame's own fields
+  uint64 durationUs = 1;
+  bool defaultTimeline = 2;
+  GUID parentTimelineDefId = 3;
+  PlaybackStyle playbackStyle = 4;
+  bool autoplay = 5;
+  FrameRate keyframeSnappingFps = 6;
+  bool quantizePlayback = 7;
+}
+message TimelineDefinitionsMapEntry {
+  GUID id = 1;
+  TimelineData data = 2;
+}
+message TimelineDefinitionsMap {
+  TimelineDefinitionsMapEntry[] entries = 1;
+}
+message TimelineAssignmentKey { // an instance's main timeline placed in its container's (docs/motion.md §4.3)
+  GUID assignedTimelineId = 1;
+  GUID containingTimelineId = 2;
+}
+message TimelineBindingData {
+  int64 offsetUs = 1;
+  bool disabled = 2;
+  bool autoplay = 3;
+}
+message TimelineAssignmentsMapEntry {
+  TimelineAssignmentKey key = 1;
+  TimelineBindingData value = 2;
+}
+message TimelineAssignmentsMap {
+  TimelineAssignmentsMapEntry[] entries = 1;
+}
+message AnimationPresetData { // one of a layer's presets (NodeChange.animationPresets), in stacking order
+  AnimationPresetId animationPresetId = 1;
+  GUID timelineDefId = 2;
+  string sortPosition = 3;
+}
+message AnimationPresets {
+  AnimationPresetData[] presets = 1;
+}
+message StyleAnimation {   // an ANIMATION style's content (NodeChange.styleAnimations)
+  AnimationPresetId animationPresetId = 1;
+}
+message GeneratedAnimationPreset {
+  AnimationPresetId animationPresetId = 1;
+}
+message StyleIdForAnimation { // a composite style applied to a layer and the presets it generated (NodeChange.styleIdsForAnimation)
+  GUID id = 1;
+  GUID timelineDefId = 2;
+  StyleId animationStyleId = 3;
+  int64 timelineOffset = 4; // µs
+  GeneratedAnimationPreset[] generatedAnimationPresets = 5;
+  string sortPosition = 6;
+}
+message TextElementDelayBehaviour { // text stagger (NodeChange.textElementDelayBehaviour, docs/motion.md §4.10)
+  bool enabled = 1;
+  TextElementGrouping grouping = 2;
+  float delayMs = 3;
+  TextElementDelayOrder order = 4;
+}
+message AudioFill {        // an audio clip on a timeline root (docs/motion.md §4.11); mediaHash as videos' (the file's image store)
+  GUID id = 1;
+  string mediaHash = 2;
+  int64 timelineOffsetUs = 3;
+  int64 startTimeUs = 4;   // trim into the file
+  int64 durationUs = 5;    // the region's length
+  float volume = 6;        // 0..1
+  bool mute = 7;
+  string displayName = 8;
+  bool loopEnabled = 9;
+  int64 playbackDurationUs = 10;
+  GUID trackId = 11;
+  int64 loopPhaseOffsetUs = 12;
+}
+message AudioTrack {       // an audio row (NodeChange.audioTracks)
+  GUID id = 1;
+  string name = 2;
+  float gain = 3;
+  bool mute = 4;
+}
+message NodeContentsKeyframeBindingLocation { // where a keyframe binding sits inside a node's contents (round trip)
+  TransitionOverrideBindingTopLevelField topLevelField = 1;
+  VariableField parameterFieldValue = 2;
+  int index = 3;
+  KeyframeBindingEffectParametrizedField effectParametrizedFieldValue = 4;
 }
 
 enum VariableField {       // which node field a parameterConsumptionMap entry binds
@@ -1424,7 +1782,42 @@ enum VariableField {       // which node field a parameterConsumptionMap entry b
   SLOT_CONTENT_ID = 40;
   GRID_ROW_GAP = 41;
   GRID_COLUMN_GAP = 42;
-  // Dropped: CMS_SERIALIZED_RICH_TEXT_DATA=39, X_POSITION=43 .. TEXT_ELEMENT_DELAY=76 (Sites/Motion).
+  // Motion (docs/motion.md §4.5): the KEYFRAME expression's keys. 43-45, 52-53, 56, 58-63, 71 are Figma's, never evaluated here (round trip).
+  X_POSITION = 43;
+  Y_POSITION = 44;
+  ROTATION = 45;
+  MOTION_TRANSLATION_X = 46;
+  MOTION_TRANSLATION_Y = 47;
+  MOTION_ROTATION = 48;    // stored -radians (the plugin's degrees, CCW positive)
+  MOTION_SCALE_X = 49;
+  MOTION_SCALE_Y = 50;
+  MOTION_SHEAR = 51;
+  SCROLL_OFFSET_X = 52;
+  SCROLL_OFFSET_Y = 53;
+  PATH_TRIM_START = 54;
+  PATH_TRIM_END = 55;
+  DISSOLVE_PROGRESS = 56;
+  EASING_DATA = 57;        // on a KEYFRAME: its easing bound to an EASING variable
+  MEDIA_CURRENT_TIME = 58;
+  TRANSFORM_3D_PERSPECTIVE = 59;
+  TRANSFORM_3D_TRANSLATION_Z = 60;
+  TRANSFORM_3D_ROTATION_X = 61;
+  TRANSFORM_3D_ROTATION_Y = 62;
+  TRANSFORM_3D_ROTATION_Z = 63;
+  POLYGON_COUNT = 64;
+  ARC_DATA_STARTING_ANGLE = 65;
+  ARC_DATA_ENDING_ANGLE = 66;
+  ARC_DATA_INNER_RADIUS = 67;
+  KEYFRAME_VALUE = 68;     // on a KEYFRAME: its value bound to a variable
+  MOTION_TRANSLATION_XY = 69;
+  MOTION_SCALE_XY = 70;
+  SCENE_3D_PERSPECTIVE = 71;
+  STAR_INNER_SCALE = 72;
+  MOTION_TRANSFORM_ORIGIN_XY = 73;
+  MOTION_TRANSFORM_ORIGIN_X = 74;
+  MOTION_TRANSFORM_ORIGIN_Y = 75;
+  TEXT_ELEMENT_DELAY = 76;
+  // Dropped: CMS_SERIALIZED_RICH_TEXT_DATA=39.
 }
 
 message VariableDataMap {  // a node's parameter bindings: variables and component properties
@@ -1517,6 +1910,7 @@ enum StyleType {
   TEXT = 3;                // "Text style" (TEXT node, font fields)
   EFFECT = 4;              // "Effect style" (ROUNDED_RECTANGLE node, effects)
   GRID = 6;                // "Layout guide style" (ROUNDED_RECTANGLE node, layoutGrids)
+  ANIMATION = 7;           // Motion: an animation style (styleAnimations; Figma's first-party presets, docs/motion.md §4.6)
   // Dropped: STROKE=2, EXPORT=5.
 }
 
@@ -1531,15 +1925,18 @@ enum ComponentPropType {
   TEXT = 1;
   INSTANCE_SWAP = 3;
   VARIANT = 4;
+  NUMBER = 5;              // atlas 10 §5.2: a number (2 decimals) that drives a text layer (TEXT_DATA), FLOAT variables
   SLOT = 7;
-  // Dropped: COLOR=2, NUMBER=5, IMAGE=6, EASING=8, COLOR_ARRAY=9 .. (code/Sites parameters).
+  EASING = 8;              // Motion: an animation preset's Easing prop (ComponentPropValue.easingData)
+  // Dropped: COLOR=2, IMAGE=6 (its value encoding is unverified), COLOR_ARRAY=9 .. (code/Sites parameters).
 }
 
 message ComponentPropValue {
   bool boolValue = 1;
   TextData textValue = 2;
   GUID guidValue = 3;      // INSTANCE_SWAP: a SYMBOL; SLOT: the slot content FRAME (isSlotContent)
-  float floatValue = 4;    // a shader's NUMBER parameter (its COLOR ones are the assignment's varValue)
+  float floatValue = 4;    // NUMBER; a shader's NUMBER parameter (its COLOR ones are the assignment's varValue)
+  EasingData easingData = 5; // EASING: an animation preset's easing prop (Motion)
 }
 
 message ComponentPropDef {
@@ -1552,8 +1949,31 @@ message ComponentPropDef {
   VariableData varValue = 9;             // default bound to a variable / VARIANT value type
   string description = 11;
   SlotPropConfig slotPropConfig = 12;
-  // Reserved field numbers (3): Figma fields not kept, or reserved for future Figma fields. Never reuse.
-  byte _r5 = 5 [deprecated]; byte _r7 = 7 [deprecated]; byte _r10 = 10 [deprecated];
+  GUID parentPropDefId = 5;              // a variant's implicit def: the set's explicit def (written by .fig export only)
+  // Reserved field numbers (2): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  byte _r7 = 7 [deprecated]; byte _r10 = 10 [deprecated];
+}
+
+message ComponentPropRef {       // Figma's older binding of a node field to a component property (NodeChange.componentPropRefs)
+  uint nodeField = 1;
+  GUID defID = 2;
+  string zombieFallbackName = 3;
+  ComponentPropNodeField componentPropNodeField = 4;
+  bool isDeleted = 5;
+}
+
+enum ComponentPropNodeField {
+  VISIBLE = 0;
+  TEXT_DATA = 1;
+  OVERRIDDEN_SYMBOL_ID = 2;
+  INHERIT_FILL_STYLE_ID = 3;
+  SLOT_CONTENT_ID = 4;
+}
+
+message InstanceOverrideStash {  // NodeChange.overrideStash: a swapped-away nested instance's overrides
+  GUIDPath overridePathOfSwappedInstance = 1;  // the nested instance's path from the instance
+  string componentKey = 2;                     // the component swapped away (its key; local: its guid as "s:l")
+  NodeChange[] overrides = 3;                  // its overrides that did not carry over, paths relative to it
 }
 
 message ComponentPropAssignment {  // an instance's value for a component property
@@ -1643,6 +2063,49 @@ enum SectionStatus {
   NONE = 0;
   BUILD = 1;               // "Ready for dev"
   COMPLETED = 2;           // "Completed"
+}
+
+message EditScopeInfo {         // NodeChange.editScopeInfo: who made a change
+  EditScopeStack[] editScopeStacks = 1;
+  EditScopeSnapshot[] snapshots = 2;
+}
+
+message EditScopeSnapshot {
+  EditScopeStack[] frames = 1;
+  uint[] nodeChangeFieldNumbers = 2;
+}
+
+message EditScopeStack {
+  EditScope[] stack = 1;
+}
+
+message EditScope {
+  EditScopeType type = 1;
+  string label = 2;
+  EditorType editorType = 3;
+}
+
+enum EditScopeType {
+  INVALID = 0;
+  TEST_SETUP = 1;
+  USER = 2;
+  PLUGIN = 3;
+  SYSTEM = 4;
+  REST_API = 5;
+  ONBOARDING = 6;
+  AUTOSAVE = 7;
+  AI = 8;
+}
+
+enum EditorType {
+  DESIGN = 0;
+  WHITEBOARD = 1;
+  SLIDES = 2;
+  DEV_HANDOFF = 3;
+  SITES = 4;
+  COOPER = 5;
+  ILLUSTRATION = 6;
+  FIGMAKE = 7;
 }
 
 message EditInfo {         // when a node (or something inside it) was last edited; Dev Mode's "Changed"
@@ -2060,6 +2523,12 @@ message NodeChange {
   bool isSlotContent = 495;                       // @nooverride FRAME holding an instance's slot content
   SymbolId detachedSymbolId = 342;                // @nooverride frame was detached from this component
   SymbolLink[] symbolLinks = 237;                 // @nooverride
+  int overrideLevel = 321;                        // a symbolOverrides / derivedSymbolData entry's nesting level (0: the instance's own; entries are keyed by guidPath + level)
+  InstanceOverrideStash[] overrideStash = 248;    // @nooverride INSTANCE: overrides of nested instances swapped away, restored on a swap back
+  ComponentPropRef[] componentPropRefs = 267;     // @nooverride @later Figma's older binding list; .fig export writes it beside the PROP_REF entries, import turns it into them
+  string componentKey = 216;                      // @nooverride @later SYMBOL's asset key as Figma stores it: .fig export only (we keep `key`)
+  string sharedSymbolVersion = 126;               // @nooverride @later library SYMBOL copy's version as Figma stores it: .fig export only (we keep `version`)
+  EditScopeInfo editScopeInfo = 365;              // @nooverride @later who made the change (user, plugin, REST API, AI …): edit scope stacks
 
   // --- library and publishing (assets: SYMBOL, state group, style, VARIABLE_SET, VARIABLE) ---
   bool isPublishable = 174;                       // @default(true) @nooverride false = "Hide when publishing"
@@ -2109,7 +2578,45 @@ message NodeChange {
   uint textBidiVersion = 279;
   int derivedSymbolDataLayoutVersion = 196;
   uint stackLayoutVersion = 574;
-  // Reserved field numbers (787): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  // --- Motion (Phase 7 round 8, docs/motion.md §4.1; Figma's declarations). Times are µs. The document keeps base
+  // values; the evaluated values are the engine's preview writes (motion.md §5), never stored. 510 / 545 / 586 are
+  // deprecated in Figma's current build: round trip only, never written.
+  InterpolationType interpolationType = 505;      // KEYFRAME: mirrors easingData
+  int64 timelinePosition = 506;                   // KEYFRAME: µs from the timeline's start; unique per track
+  KeyframeValueData keyframeValue = 507;          // KEYFRAME: the value in stored units (the base value is the KEYFRAME expression's first argument)
+  BezierHandles bezierHandles = 508;              // KEYFRAME: mirrors easingData's bezier
+  KeyframeOperation keyframeOperation = 509;      // KEYFRAME_TRACK: SET / SCALE / OFFSET
+  TimelinePositionType timelinePositionType = 510; // deprecated: round trip only
+  GUID clipId = 511;                              // round trip only
+  uint64 timelineDuration = 512;                  // top-level frame: the default timeline's length; ANIMATION_PRESET_INSTANCE: the clip's
+  int64 timelineOffset = 513;                     // top-level frame, ANIMATION_PRESET_INSTANCE
+  PlaybackStyle playbackStyle = 514;              // top-level frame: the default timeline's playback
+  AnimationPresets animationPresets = 521;        // animated layer: its presets, in stacking order
+  TRSSTransform2D motionTransform = 523;          // animated layer: the motion transform's base; absent = identity
+  EasingData easingData = 535;                    // KEYFRAME: the easing into it (IN_CUBIC / absent = CUSTOM_CUBIC 0.5, 0, 0.5, 1); ANIMATION_PRESET_INSTANCE: the clip's
+  OptionalVector pathTrim = 542;                  // vector-like layers: x = start, y = end (0..1); absent = no trim
+  bool timelineDisabled = 543;                    // top-level frame, ANIMATION_PRESET_INSTANCE
+  bool useLegacySmartAnimate = 544;               // round trip only (the player's snapshot Smart animate is the legacy path)
+  bool isClip = 545;                              // deprecated: round trip only
+  TimelineDefinitionsMap timelineDefinitions = 552; // @nooverride main component / frame: nested timelines only (the default one is the frame's own fields)
+  TimelineAssignmentsMap timelineAssignments = 553; // @own INSTANCE: its main's timeline placed in the container's
+  VariableTimingDisplayUnit timingDisplayUnit = 566; // VARIABLE (TIMING): shown in ms or s
+  StyleAnimation[] styleAnimations = 580;         // style node (ANIMATION)
+  StyleIdForAnimation[] styleIdsForAnimation = 582; // animated layer: composite styles applied and the presets each generated
+  AnimationPresetId backingAnimationPresetId = 583; // ANIMATION_PRESET_INSTANCE: the preset type (assetRef.key)
+  VariableData keyframeValueRef = 586;            // deprecated: round trip only (a keyframe's value binds through its own parameterConsumptionMap, KEYFRAME_VALUE)
+  TransformOrigin transformOrigin = 587;          // animated layer: the anchor point; absent = 50 % / 50 %
+  TrackLoopMode trackLoopMode = 591;              // KEYFRAME_TRACK
+  bool linkMotionScaleAspectRatio = 597;          // animated layer: Scale's link toggle
+  BezierHandles motionPathBezierHandles = 598;    // KEYFRAME (position): the motion path's in (p1) / out (p2) handles, relative to the value
+  InterpolationColorSpace interpolationColorSpace = 599; // KEYFRAME (colour)
+  InterpolationHueMethod interpolationHueMethod = 600;   // KEYFRAME (colour, OKLCH / HSL)
+  FrameRate timelineKeyframeSnappingFps = 601;    // top-level frame: the default timeline's snapping grid
+  bool quantizeTimelinePlayback = 602;            // top-level frame: round trip
+  AudioFill[] audioFills = 603;                   // @nooverride timeline root: audio clips
+  AudioTrack[] audioTracks = 605;                 // @nooverride timeline root: audio rows
+  TextElementDelayBehaviour textElementDelayBehaviour = 610; // TEXT: text stagger
+  // Reserved field numbers (740): Figma fields not kept, or reserved for future Figma fields. Never reuse.
   byte _r17 = 17 [deprecated]; byte _r18 = 18 [deprecated]; byte _r53 = 53 [deprecated]; byte _r54 = 54 [deprecated]; byte _r55 = 55 [deprecated];
   byte _r56 = 56 [deprecated]; byte _r57 = 57 [deprecated]; byte _r58 = 58 [deprecated]; byte _r59 = 59 [deprecated]; byte _r60 = 60 [deprecated]; byte _r61 = 61 [deprecated];
   byte _r62 = 62 [deprecated]; byte _r63 = 63 [deprecated]; byte _r64 = 64 [deprecated]; byte _r65 = 65 [deprecated]; byte _r66 = 66 [deprecated]; byte _r67 = 67 [deprecated];
@@ -2121,7 +2628,7 @@ message NodeChange {
   byte _r98 = 98 [deprecated]; byte _r99 = 99 [deprecated]; byte _r100 = 100 [deprecated]; byte _r101 = 101 [deprecated]; byte _r102 = 102 [deprecated]; byte _r103 = 103 [deprecated];
   byte _r104 = 104 [deprecated]; byte _r106 = 106 [deprecated]; byte _r108 = 108 [deprecated]; byte _r109 = 109 [deprecated]; byte _r110 = 110 [deprecated]; byte _r112 = 112 [deprecated];
   byte _r114 = 114 [deprecated]; byte _r116 = 116 [deprecated]; byte _r118 = 118 [deprecated]; byte _r119 = 119 [deprecated]; byte _r120 = 120 [deprecated]; byte _r121 = 121 [deprecated];
-  byte _r122 = 122 [deprecated]; byte _r124 = 124 [deprecated]; byte _r126 = 126 [deprecated]; byte _r139 = 139 [deprecated]; byte _r140 = 140 [deprecated]; byte _r144 = 144 [deprecated];
+  byte _r122 = 122 [deprecated]; byte _r124 = 124 [deprecated]; byte _r139 = 139 [deprecated]; byte _r140 = 140 [deprecated]; byte _r144 = 144 [deprecated];
   byte _r150 = 150 [deprecated]; byte _r152 = 152 [deprecated]; byte _r153 = 153 [deprecated]; byte _r154 = 154 [deprecated]; byte _r155 = 155 [deprecated]; byte _r156 = 156 [deprecated];
   byte _r157 = 157 [deprecated]; byte _r158 = 158 [deprecated]; byte _r161 = 161 [deprecated]; byte _r162 = 162 [deprecated]; byte _r164 = 164 [deprecated]; byte _r166 = 166 [deprecated];
   byte _r167 = 167 [deprecated]; byte _r168 = 168 [deprecated]; byte _r169 = 169 [deprecated]; byte _r170 = 170 [deprecated]; byte _r172 = 172 [deprecated]; byte _r173 = 173 [deprecated];
@@ -2129,22 +2636,22 @@ message NodeChange {
   byte _r181 = 181 [deprecated]; byte _r182 = 182 [deprecated]; byte _r183 = 183 [deprecated]; byte _r185 = 185 [deprecated]; byte _r187 = 187 [deprecated]; byte _r188 = 188 [deprecated];
   byte _r189 = 189 [deprecated]; byte _r190 = 190 [deprecated]; byte _r191 = 191 [deprecated]; byte _r192 = 192 [deprecated]; byte _r193 = 193 [deprecated]; byte _r194 = 194 [deprecated];
   byte _r197 = 197 [deprecated]; byte _r207 = 207 [deprecated];
-  byte _r208 = 208 [deprecated]; byte _r211 = 211 [deprecated]; byte _r212 = 212 [deprecated]; byte _r214 = 214 [deprecated]; byte _r216 = 216 [deprecated]; byte _r217 = 217 [deprecated];
+  byte _r208 = 208 [deprecated]; byte _r211 = 211 [deprecated]; byte _r212 = 212 [deprecated]; byte _r214 = 214 [deprecated]; byte _r217 = 217 [deprecated];
   byte _r220 = 220 [deprecated]; byte _r222 = 222 [deprecated]; byte _r224 = 224 [deprecated]; byte _r227 = 227 [deprecated]; byte _r228 = 228 [deprecated];
   byte _r239 = 239 [deprecated]; byte _r240 = 240 [deprecated]; byte _r241 = 241 [deprecated]; byte _r242 = 242 [deprecated]; byte _r243 = 243 [deprecated]; byte _r244 = 244 [deprecated];
-  byte _r245 = 245 [deprecated]; byte _r246 = 246 [deprecated]; byte _r247 = 247 [deprecated]; byte _r248 = 248 [deprecated]; byte _r250 = 250 [deprecated]; byte _r251 = 251 [deprecated];
+  byte _r245 = 245 [deprecated]; byte _r246 = 246 [deprecated]; byte _r247 = 247 [deprecated]; byte _r250 = 250 [deprecated]; byte _r251 = 251 [deprecated];
   byte _r252 = 252 [deprecated]; byte _r253 = 253 [deprecated]; byte _r254 = 254 [deprecated]; byte _r255 = 255 [deprecated]; byte _r257 = 257 [deprecated]; byte _r258 = 258 [deprecated];
-  byte _r259 = 259 [deprecated]; byte _r262 = 262 [deprecated]; byte _r263 = 263 [deprecated]; byte _r265 = 265 [deprecated]; byte _r267 = 267 [deprecated]; byte _r270 = 270 [deprecated];
+  byte _r259 = 259 [deprecated]; byte _r262 = 262 [deprecated]; byte _r263 = 263 [deprecated]; byte _r265 = 265 [deprecated]; byte _r270 = 270 [deprecated];
   byte _r272 = 272 [deprecated]; byte _r273 = 273 [deprecated]; byte _r274 = 274 [deprecated]; byte _r275 = 275 [deprecated]; byte _r276 = 276 [deprecated]; byte _r277 = 277 [deprecated];
   byte _r278 = 278 [deprecated]; byte _r281 = 281 [deprecated]; byte _r282 = 282 [deprecated]; byte _r284 = 284 [deprecated]; byte _r285 = 285 [deprecated];
   byte _r286 = 286 [deprecated]; byte _r287 = 287 [deprecated]; byte _r288 = 288 [deprecated]; byte _r289 = 289 [deprecated]; byte _r290 = 290 [deprecated]; byte _r291 = 291 [deprecated];
   byte _r292 = 292 [deprecated]; byte _r293 = 293 [deprecated]; byte _r301 = 301 [deprecated]; byte _r302 = 302 [deprecated]; byte _r303 = 303 [deprecated];
   byte _r304 = 304 [deprecated]; byte _r306 = 306 [deprecated]; byte _r307 = 307 [deprecated]; byte _r308 = 308 [deprecated]; byte _r309 = 309 [deprecated]; byte _r310 = 310 [deprecated];
-  byte _r311 = 311 [deprecated]; byte _r321 = 321 [deprecated]; byte _r327 = 327 [deprecated]; byte _r328 = 328 [deprecated]; byte _r329 = 329 [deprecated];
+  byte _r311 = 311 [deprecated]; byte _r327 = 327 [deprecated]; byte _r328 = 328 [deprecated]; byte _r329 = 329 [deprecated];
   byte _r338 = 338 [deprecated]; byte _r340 = 340 [deprecated]; byte _r341 = 341 [deprecated]; byte _r344 = 344 [deprecated]; byte _r345 = 345 [deprecated]; byte _r346 = 346 [deprecated];
   byte _r347 = 347 [deprecated]; byte _r348 = 348 [deprecated]; byte _r350 = 350 [deprecated]; byte _r352 = 352 [deprecated]; byte _r354 = 354 [deprecated]; byte _r356 = 356 [deprecated];
   byte _r357 = 357 [deprecated]; byte _r360 = 360 [deprecated]; byte _r361 = 361 [deprecated]; byte _r362 = 362 [deprecated]; byte _r363 = 363 [deprecated]; byte _r364 = 364 [deprecated];
-  byte _r365 = 365 [deprecated]; byte _r366 = 366 [deprecated]; byte _r367 = 367 [deprecated]; byte _r368 = 368 [deprecated]; byte _r370 = 370 [deprecated]; byte _r371 = 371 [deprecated];
+  byte _r366 = 366 [deprecated]; byte _r367 = 367 [deprecated]; byte _r368 = 368 [deprecated]; byte _r370 = 370 [deprecated]; byte _r371 = 371 [deprecated];
   byte _r372 = 372 [deprecated]; byte _r373 = 373 [deprecated]; byte _r377 = 377 [deprecated]; byte _r378 = 378 [deprecated]; byte _r379 = 379 [deprecated]; byte _r381 = 381 [deprecated];
   byte _r382 = 382 [deprecated]; byte _r383 = 383 [deprecated]; byte _r385 = 385 [deprecated]; byte _r386 = 386 [deprecated]; byte _r387 = 387 [deprecated]; byte _r388 = 388 [deprecated];
   byte _r389 = 389 [deprecated]; byte _r390 = 390 [deprecated]; byte _r391 = 391 [deprecated]; byte _r392 = 392 [deprecated]; byte _r393 = 393 [deprecated]; byte _r394 = 394 [deprecated];
@@ -2161,24 +2668,24 @@ message NodeChange {
   byte _r484 = 484 [deprecated]; byte _r485 = 485 [deprecated]; byte _r486 = 486 [deprecated]; byte _r487 = 487 [deprecated]; byte _r489 = 489 [deprecated];
   byte _r490 = 490 [deprecated]; byte _r491 = 491 [deprecated]; byte _r492 = 492 [deprecated]; byte _r493 = 493 [deprecated]; byte _r494 = 494 [deprecated]; byte _r496 = 496 [deprecated];
   byte _r497 = 497 [deprecated]; byte _r498 = 498 [deprecated]; byte _r499 = 499 [deprecated]; byte _r500 = 500 [deprecated]; byte _r501 = 501 [deprecated]; byte _r502 = 502 [deprecated];
-  byte _r503 = 503 [deprecated]; byte _r504 = 504 [deprecated]; byte _r505 = 505 [deprecated]; byte _r506 = 506 [deprecated]; byte _r507 = 507 [deprecated]; byte _r508 = 508 [deprecated];
-  byte _r509 = 509 [deprecated]; byte _r510 = 510 [deprecated]; byte _r511 = 511 [deprecated]; byte _r512 = 512 [deprecated]; byte _r513 = 513 [deprecated]; byte _r514 = 514 [deprecated];
+  byte _r503 = 503 [deprecated]; byte _r504 = 504 [deprecated];
+
   byte _r515 = 515 [deprecated]; byte _r516 = 516 [deprecated]; byte _r517 = 517 [deprecated]; byte _r518 = 518 [deprecated]; byte _r519 = 519 [deprecated]; byte _r520 = 520 [deprecated];
-  byte _r521 = 521 [deprecated]; byte _r522 = 522 [deprecated]; byte _r523 = 523 [deprecated]; byte _r524 = 524 [deprecated]; byte _r525 = 525 [deprecated]; byte _r526 = 526 [deprecated];
+  byte _r522 = 522 [deprecated]; byte _r524 = 524 [deprecated]; byte _r525 = 525 [deprecated]; byte _r526 = 526 [deprecated];
   byte _r527 = 527 [deprecated]; byte _r528 = 528 [deprecated]; byte _r529 = 529 [deprecated]; byte _r530 = 530 [deprecated]; byte _r531 = 531 [deprecated]; byte _r532 = 532 [deprecated];
-  byte _r533 = 533 [deprecated]; byte _r534 = 534 [deprecated]; byte _r535 = 535 [deprecated]; byte _r536 = 536 [deprecated]; byte _r537 = 537 [deprecated]; byte _r538 = 538 [deprecated];
-  byte _r539 = 539 [deprecated]; byte _r540 = 540 [deprecated]; byte _r541 = 541 [deprecated]; byte _r542 = 542 [deprecated]; byte _r543 = 543 [deprecated]; byte _r544 = 544 [deprecated];
-  byte _r545 = 545 [deprecated]; byte _r546 = 546 [deprecated]; byte _r547 = 547 [deprecated]; byte _r548 = 548 [deprecated]; byte _r549 = 549 [deprecated]; byte _r550 = 550 [deprecated];
-  byte _r551 = 551 [deprecated]; byte _r552 = 552 [deprecated]; byte _r553 = 553 [deprecated]; byte _r554 = 554 [deprecated]; byte _r557 = 557 [deprecated];
+  byte _r533 = 533 [deprecated]; byte _r534 = 534 [deprecated]; byte _r536 = 536 [deprecated]; byte _r537 = 537 [deprecated]; byte _r538 = 538 [deprecated];
+  byte _r539 = 539 [deprecated]; byte _r540 = 540 [deprecated]; byte _r541 = 541 [deprecated];
+  byte _r546 = 546 [deprecated]; byte _r547 = 547 [deprecated]; byte _r548 = 548 [deprecated]; byte _r549 = 549 [deprecated]; byte _r550 = 550 [deprecated];
+  byte _r551 = 551 [deprecated]; byte _r554 = 554 [deprecated]; byte _r557 = 557 [deprecated];
   byte _r558 = 558 [deprecated]; byte _r559 = 559 [deprecated]; byte _r560 = 560 [deprecated]; byte _r561 = 561 [deprecated]; byte _r562 = 562 [deprecated]; byte _r563 = 563 [deprecated];
-  byte _r564 = 564 [deprecated]; byte _r565 = 565 [deprecated]; byte _r566 = 566 [deprecated]; byte _r567 = 567 [deprecated]; byte _r568 = 568 [deprecated]; byte _r569 = 569 [deprecated];
+  byte _r564 = 564 [deprecated]; byte _r565 = 565 [deprecated]; byte _r567 = 567 [deprecated]; byte _r568 = 568 [deprecated]; byte _r569 = 569 [deprecated];
   byte _r570 = 570 [deprecated]; byte _r571 = 571 [deprecated]; byte _r572 = 572 [deprecated]; byte _r573 = 573 [deprecated]; byte _r575 = 575 [deprecated];
-  byte _r576 = 576 [deprecated]; byte _r577 = 577 [deprecated]; byte _r578 = 578 [deprecated]; byte _r579 = 579 [deprecated]; byte _r580 = 580 [deprecated]; byte _r581 = 581 [deprecated];
-  byte _r582 = 582 [deprecated]; byte _r583 = 583 [deprecated]; byte _r584 = 584 [deprecated]; byte _r585 = 585 [deprecated]; byte _r586 = 586 [deprecated]; byte _r587 = 587 [deprecated];
-  byte _r588 = 588 [deprecated]; byte _r589 = 589 [deprecated]; byte _r590 = 590 [deprecated]; byte _r591 = 591 [deprecated]; byte _r592 = 592 [deprecated]; byte _r593 = 593 [deprecated];
-  byte _r595 = 595 [deprecated]; byte _r596 = 596 [deprecated]; byte _r597 = 597 [deprecated]; byte _r598 = 598 [deprecated]; byte _r599 = 599 [deprecated]; byte _r600 = 600 [deprecated];
-  byte _r601 = 601 [deprecated]; byte _r602 = 602 [deprecated]; byte _r603 = 603 [deprecated]; byte _r604 = 604 [deprecated]; byte _r605 = 605 [deprecated]; byte _r606 = 606 [deprecated];
-  byte _r607 = 607 [deprecated]; byte _r608 = 608 [deprecated]; byte _r609 = 609 [deprecated]; byte _r610 = 610 [deprecated]; byte _r611 = 611 [deprecated]; byte _r612 = 612 [deprecated];
+  byte _r576 = 576 [deprecated]; byte _r577 = 577 [deprecated]; byte _r578 = 578 [deprecated]; byte _r579 = 579 [deprecated]; byte _r581 = 581 [deprecated];
+  byte _r584 = 584 [deprecated]; byte _r585 = 585 [deprecated];
+  byte _r588 = 588 [deprecated]; byte _r589 = 589 [deprecated]; byte _r590 = 590 [deprecated]; byte _r592 = 592 [deprecated]; byte _r593 = 593 [deprecated];
+  byte _r595 = 595 [deprecated]; byte _r596 = 596 [deprecated];
+  byte _r604 = 604 [deprecated]; byte _r606 = 606 [deprecated];
+  byte _r607 = 607 [deprecated]; byte _r608 = 608 [deprecated]; byte _r609 = 609 [deprecated]; byte _r611 = 611 [deprecated]; byte _r612 = 612 [deprecated];
   byte _r613 = 613 [deprecated]; byte _r614 = 614 [deprecated]; byte _r615 = 615 [deprecated]; byte _r616 = 616 [deprecated]; byte _r617 = 617 [deprecated]; byte _r618 = 618 [deprecated];
   byte _r619 = 619 [deprecated]; byte _r620 = 620 [deprecated]; byte _r621 = 621 [deprecated]; byte _r622 = 622 [deprecated]; byte _r623 = 623 [deprecated]; byte _r624 = 624 [deprecated];
   byte _r625 = 625 [deprecated]; byte _r626 = 626 [deprecated]; byte _r627 = 627 [deprecated]; byte _r628 = 628 [deprecated]; byte _r629 = 629 [deprecated]; byte _r630 = 630 [deprecated];

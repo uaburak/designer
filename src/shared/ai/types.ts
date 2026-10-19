@@ -37,6 +37,8 @@ export interface AiRunRequest {
   /** JSON Schema of the answer */
   schema?: Record<string, unknown>;
   maxOutputTokens?: number;
+  /** Each attempt's limit when shorter than main's (Add interactions: Figma's 60 s, atlas 18 §6) */
+  timeoutMs?: number;
 }
 
 export interface AiImageRequest {
@@ -133,10 +135,12 @@ export type ConnectorToolPolicy = "allow" | "ask" | "off";
 export interface Connector {
   id: string;
   name: string;
-  transport: { kind: "http"; url: string; hasKey: boolean } | { kind: "stdio"; command: string; args: string[] };
+  /** `signedIn`: an HTTP server the owner signed in to with OAuth (its tokens kept by main, docs/ai.md §2.11) */
+  transport: { kind: "http"; url: string; hasKey: boolean; signedIn?: boolean } | { kind: "stdio"; command: string; args: string[] };
   enabled: boolean;
   tools: { name: string; description?: string; policy: ConnectorToolPolicy }[];
-  state: "connected" | "error" | "unknown";
+  /** "sign-in": the server wants its user signed in (OAuth) before it answers */
+  state: "connected" | "error" | "unknown" | "sign-in";
   error?: string;
 }
 export interface ConnectorConsent {

@@ -17,8 +17,9 @@ Every value in the tables below has one of these tags:
 | **F** | figui3 (`@rogieking/figui3@10.0.5` `components.css`), a UI3 web-component kit by Rogie King of Figma. Used to corroborate values and to fill gaps. It is not authoritative on its own. |
 | **K** | The owner's existing kit-derived code: `figma/ui.tsx`, `components/admin/ContextMenu.tsx`, `/Users/burak/Desktop/Burak/Code/Designer/Designer/DesignSystem/Theme.swift`. |
 | **G** | Our decision without a primary source. Verify it in the Gallery (section 5) and correct it in `tokens.ts` only. |
+| **A** | Figma desktop 126.9.13's own build, read with REA (`docs/research/atlas/`, 2026-10-16): CONFIRMED values from its code; above M where they differ (a live probe settles the rest, as each chapter's open questions list). |
 
-Rule for resolving conflicts: **M > D > K > F > G**, with one exception. When M contradicts a D value, the whole D token family moves together, using F's values where F agrees with M (see 1.2).
+Rule for resolving conflicts: **A > M > D > K > F > G**, with one exception. When M contradicts a D value, the whole D token family moves together, using F's values where F agrees with M (see 1.2).
 
 ---
 
@@ -278,6 +279,10 @@ These are colours Figma does not publish. Components use `--figma-color-*` whene
 | `--ds-color-file-design` | #0c8ce9 | #0c8ce9 | K | Design-file glyph (Home, tab) |
 | `--ds-color-canvas-default` | #f5f5f5 | #1e1e1e | K | Gallery canvas stand-in; mirrors the engine's `canvasDefault` |
 | `--ds-color-folder-{red, orange, yellow, green, teal, blue, purple, pink, gray}` | #f24822 #ffa629 #ffcd29 #14ae5c #0fa8a8 #0d99ff #9747ff #ff24bd #b3b3b3 | #e03e1a #f0941d #f3c11b #198f51 #119a9a #0c8ce9 #8a38f5 #e81fae #8c8c8c | G (red/yellow/green/blue/purple = Figma's danger/warning/success/brand/component) | folder glyphs; ids = the store's `FolderColor` ("none" = icon-secondary) |
+| `--ds-color-devmode-selected` / `-selected-secondary` | #cff7d3 / #e5f9e8 | #4f7460 / #486557 | K dark (the owner's Dev Mode capture 2026-10-18), G light | Dev Mode: the selected layer row and the rows inside it, the rail's active tab |
+| `--ds-color-devmode-ruler-band` | #14ae5c33 | #507360 | K dark, G light | Dev Mode: the rulers' selection band |
+| `--ds-color-devmode-text` | #009951 | #79d297 | K dark, G light | Dev Mode: the rulers' edge labels, the rail's active glyph |
+| `--ds-color-code-value` | #b5338a | #d88fcd | K dark, G light | Dev Mode's code: a CSS value |
 | `--ds-color-marquee-fill` | #0d99ff1a | #0c8ce926 | G | drag-select rectangle in Home's grid and list (`CollectionView`); its border is `--figma-color-border-selected` |
 | `--ds-checkerboard` | `repeating-conic-gradient(#e6e6e6 0% 25%, #ffffff 0% 50%) 0 0 / 8px 8px` | same | G | alpha behind chits and swatches |
 
@@ -364,7 +369,7 @@ Off-grid values are allowed only where measured (marked M below, e.g. 38, 55, 67
 | `--ds-size-field` | 88 (one half-width field) | M |
 | Panel padding | left 16, right 8 | M |
 | Property grid | `16 + 88 + 8 + 88 + 8 + 24 + 8 = 240` (two fields, 8 gap, 8 gap, 24 icon column, right pad) | M |
-| `--ds-size-panel` | 240 default; resizable to min 240, max 480; double-click on the handle resets | M / G |
+| `--ds-size-panel` | 240 default; the left panel resizable 240–500 (`panel-max`), double-click on the handle resets; the right panel 240–499 inside its 1px line (Figma's 241–500, `right-panel-max`), no double-click reset (atlas 02 §3.2, §4.1) | A |
 | `--ds-size-panel-header` | 64 (left panel: file name 13/22 550, ink top ≈ 19; location 11/16 below) | M |
 | `--ds-size-right-header` | 80 = 48 (avatar · Present · Share) + 32 (Design/Prototype tabs · zoom %); divider at 80 | M |
 | Share button | 55 × 32 (hug: 12 + label + 12) | M |
@@ -382,7 +387,7 @@ Off-grid values are allowed only where measured (marked M below, e.g. 38, 55, 67
 | `--ds-size-home-topbar` | 48 | M |
 | `--ds-size-home-sidebar` | 240 | G |
 | Home nav row | 32 pitch, 28 highlight | M |
-| `--ds-size-card` | 268 × 213 (thumbnail 268 × 151, footer 62); grid gap 36; first row 67 below the top bar | M / G (split) |
+| `--ds-size-card` | Home's tile grid (atlas 01 §4.1): columns `minmax(264, 1fr)`, gap 32 × 32, padding 24 32 32; the tile a 16:9 thumbnail, radius 6 (`--ds-radius-tile`), 1 px `--figma-color-border` ring (2 px `border-selected` selected), meta 12 below, gap 8 | A |
 | `--ds-size-list-row` | 40 (Home list view row, §4.27) | K |
 | `--ds-size-list-header` | 32 (list view column header) | G |
 | `--ds-size-breadcrumb-max` | 160 (an ancestor crumb's width before it ellipsizes) | G |
@@ -472,10 +477,10 @@ Figma's chrome is **instant**: hover, press, selection, panel show/hide, menu op
 | `--ds-duration-fast` | 80ms | Switch knob, collapse chevron rotation | F |
 | `--ds-duration-medium` | 150ms | Toast enter/exit (translateY 8px + opacity) | G |
 | `--ds-ease-out` | `cubic-bezier(0, 0, 0.2, 1)` | the above | F (ease-out) |
-| `--ds-delay-tooltip` | 500ms | first tooltip | K |
-| `--ds-delay-tooltip-warm` | 300ms | another tooltip within this window after one hides shows at once | G |
+| `--ds-delay-tooltip` | 1000ms | a tooltip shows (at once while another is showing) (atlas 02 §6) | A |
+| `--ds-delay-tooltip-hide` | 300ms | a showing tooltip hides this long after the pointer leaves its target (atlas 02 §6) | A |
 | `--ds-delay-submenu` | 100ms | hover intent before a submenu opens (switching to a sibling submenu is immediate) | G |
-| `--ds-toast-duration` | 4000ms; 8000ms with an action | Toast auto-dismiss (paused while hovered) | G |
+| `--ds-toast-duration` (`-long`, `-action`) | 3000ms; 6000ms for a message over 25 characters; 10000ms with an action; an error until dismissed; halved for each toast waiting (atlas 02 §7) | Toast auto-dismiss (paused while hovered) | A |
 
 Under `prefers-reduced-motion: reduce`, fast and medium become 0ms. During a theme switch, `<html data-theme-switching>` disables every transition for two frames.
 
@@ -810,12 +815,12 @@ export type ExitReason = "enter" | "escape" | "tab" | "shift-tab" | "blur";
     onScrubBy?: (delta: number, info: ChangeInfo) => void; // a Mixed / list field's scrub: whole steps from each value
   }
   ```
-- **Typing**: accepts a number or arithmetic, `+ − × ÷ * / ( )`, with `,` as a decimal point. Parsing is `evaluate()`, ported from `figma/ui.tsx` with its test; it is a hand parser and never `eval`. A typed unit suffix is ignored (`50%` → 50). The result is clamped and rounded to `precision`. Invalid input reverts. Enter, Tab or blur commits (`final: true`, source `"type"`).
+- **Typing**: accepts a number or arithmetic, `+ − × ÷ * / ( )`, with `,` as a decimal point. Parsing is `evaluate()`, ported from `figma/ui.tsx` with its test; it is a hand parser and never `eval`. The field's own unit typed along is ignored (`50%` in an opacity field → 50); elsewhere Figma's postfix operators apply (atlas 02 §4.5): `%` is a percent of the current value (`50%` of W 200 → 100), `x` a multiple of it (`2x`), `px` nothing; on a Mixed field they apply to each layer's own value. The result is clamped and rounded to `precision`. Invalid input reverts. Enter, Tab or blur commits (`final: true`, source `"type"`).
 - **Arrow keys**: ↑/↓ `±step`, Shift `±bigStep` (`source: "step"`, final), with the text selected after the step. On MIXED, the arrows call `onStep(delta)` instead, and the editor applies the delta to each node.
 - **Scrubbing** (pointer on the prefix):
   - cursor `ew-resize`, forced globally while dragging (`html[data-cursor="ew-resize"]`);
   - uses `setPointerCapture`;
-  - **whole steps, one per 4 CSS px** at 1x (round 16: live Figma's X label dragged 90 px moved 22 — live/behaviour/fields.md §14; 1 px a step read as far too fast to the owner); ×10 with Shift (re-based where ⇧ goes down or up); the speed bands (2x / 1x / 1/2 / 1/4 by how far above / below the start); a fractional value lands on the step grid at the first step the way the drag goes (61.05 → 62 / 61), never a fraction after (`util/scrub.ts`);
+  - **whole steps, one per 4 CSS px** at 1x (round 16: live Figma's X label dragged 90 px moved 22 — live/behaviour/fields.md §14; 1 px a step read as far too fast to the owner); by 10 with Shift, on the 10 grid (61 → 70, 80; re-based where ⇧ goes down or up); Figma's speed bands (`3187`): the vertical distance from the start as a share of `screen.height`, past 12.5 % ×2 / ½, past 25 % ×4 / ¼, past 50 % ×8 / ⅛ (up coarser, down finer); a field's `scrubMultiplier` (percent fields 4, Figma's); the pointer locked once the scrub starts, with Figma's own 24 × 24 cursor wrapping around the window (`util/scrubLock.ts`; Esc, which unlocks it, cancels); a fractional value lands on the step grid at the first step the way the drag goes (61.05 → 62 / 61), never a fraction after (`util/scrub.ts`);
   - a **Mixed** field (or a list such as a padding pair's "19, 22") scrubs too when it has `onScrubBy`: the delta from the start, each layer moving from its own value (`scrubFrom`);
   - each step plays a **haptic tick** on the Mac's trackpad (`util/haptics.ts` → `haptics:tick`, docs/desktop.md §10.2 "Haptics");
   - emits `final: false` per frame, then `final: true` on release;
@@ -955,7 +960,7 @@ Port `components/admin/ContextMenu.tsx` (MenuPanel, `tidy`, `keys`) into `ds/com
   - rail: right;
   - toolbar: top;
   - section/header icon columns: aligned to the button's right edge (K `.f-icons`).
-- **Timing**: shows after 500ms. A warm window lets the next tooltip within 300ms show immediately. It hides on pointerleave, pointerdown, keydown, wheel and blur. It never shows while a mouse button is down or a menu is open.
+- **Timing** (Figma's tooltip manager, atlas 02 §6): shows after 1000ms (`data-tooltip-delay` overrides it, `data-tooltip-show-immediately` skips it); while one is showing, the next target's shows at once; leaving the target hides it 300ms later (`data-tooltip-hide-immediately`: at once), a pending one is dropped at once. Pointerdown, keydown, wheel and blur hide it at once. It never shows while a mouse button is down or a menu is open.
 - **Keyboard**: focus-visible on a target shows it after the same delay; Esc hides it.
 - **Tags**: K / G.
 
@@ -1097,14 +1102,14 @@ Port `components/admin/ContextMenu.tsx` (MenuPanel, `tidy`, `keys`) into `ds/com
 ### 4.18 PageRow
 
 - **Anatomy**: pitch 32, a highlight of 24 inset 4 vertical and 8 horizontal, radius 5. Inside: padding-left 8 (16 from the panel edge) and the name in `body-medium`. A trailing 24 slot holds a "check" for the current page only in the page *menu*, not in this list.
-- **Props**: `{ id; name: string; current: boolean; renaming?: boolean; divider?: boolean /* names made of dashes render as a 1px --figma-color-border line */; onRename; onSelect; onContextMenu }`.
+- **Props**: `{ id; name: string; current: boolean; renaming?: boolean; divider?: boolean /* an empty page named by Figma's rule (`^(-+|–+|—+|\*+|\s+)$`) renders as a 1px --figma-color-border line on a 16 pitch */; dividerTitle?: string /* "--- Components": the title, secondary, then the line; its rename field holds the title */; onRename; onSelect; onContextMenu }`.
 - **States**: current is bg `--figma-color-bg-secondary` (M #373737); hover is bg `--figma-color-bg-hover`. Double-click renames (as LayerRow).
 - **Tags**: M.
 
 ### 4.19 ResizeHandle
 
 - **Anatomy**: an invisible 8px hit area centred on a panel's 1px border, cursor `col-resize`, at `--ds-z-resize`.
-- **Props**: `{ side: "left" | "right"; value: number; min?: number /* default 240 */; max?: number /* default 480 */; defaultValue?: number /* default 240 */; onChange: (px: number, info: ChangeInfo) => void }`.
+- **Props**: `{ side: "left" | "right"; value: number; min?: number /* default 240 */; max?: number /* default 500 */; defaultValue?: number | null /* default 240; null: no double-click reset */; onChange: (px: number, info: ChangeInfo) => void }`.
 - **Behaviour**: drag with pointer capture (cursor forced globally); double-click resets to `defaultValue`. There is no visual change on hover (G).
 - **Keyboard**: none (Figma).
 - **Tags**: G.
@@ -1147,7 +1152,7 @@ Port `components/admin/ContextMenu.tsx` (MenuPanel, `tidy`, `keys`) into `ds/com
   - height 40, padding 0 8 0 16, radius 9, shadow `--ds-elevation-menu`;
   - optional action as a ghost Button (dark scope), then a close IconButton 24;
   - `success` adds a leading `24.check` in `--figma-color-icon-success`.
-- **Behaviour**: one visible at a time; a new toast replaces the current one. Durations follow 1.12 and pause on hover. It enters and exits over `--ds-duration-medium`. `aria-live="polite"`.
+- **Behaviour** (Figma's visual bell, atlas 02 §7): one visible at a time, the rest queued first in, first out; the same message again while queued counts up on it (a count pill after the message); `delay` holds a toast back before it queues; `timeoutType: "exact"` keeps its time from being halved. The × shows only on a toast without a time (an error, `duration: 0`). Durations follow 1.12 and pause on hover. It enters and exits over `--ds-duration-medium`. `aria-live="polite"`.
 - **Tags**: K / G.
 
 ### 4.22a Upload panel (src/renderer/src/uploads/UploadPanel.tsx)
@@ -1378,9 +1383,9 @@ Figma's Admin location (`src/renderer/src/admin/`; research `docs/research/figma
 
 ### 4.38 Slider (2026-10-12, Phase 7 round 7d)
 
-Draw's sidebar sliders (`docs/draw.md` §5.3: "a streamlined set of illustration-related properties with slider controls"). `ds/components/Slider.tsx` + `Slider.module.css`; Gallery `Slider/*` (default, hover, focus-visible, mixed, disabled, live). Figma's own slider was not captured (Draw needs a signed-in session): the look is ours, in the house tokens.
+Draw's sidebar sliders (`docs/draw.md` §5.3: "a streamlined set of illustration-related properties with slider controls"). `ds/components/Slider.tsx` + `Slider.module.css`; Gallery `Slider/*` (default, hover, focus-visible, mixed, disabled, live). Since 2026-10-19 Figma's own slider, measured live (`docs/research/figma/live/2026-10-18/slider.txt`, the effect popover's `slider_combo_input`).
 - **Props**: `{ label; value: Mixed<number> | null; min; max; step? = 1; onChange(v, ChangeInfo); onCancel?; disabled? }` plus any `data-*` / `aria-*`. `sliderValue(v, min, max, step)` (clamp, snap from `min`, the step's decimals) and `sliderFraction` are exported.
-- **Look**: a 24 high (`--ds-size-control`) hit area, 5 in at each end so the thumb's centre reaches both; a 2 px track in `--figma-color-border-strong`, the part up to the value in `--figma-color-icon`; a 10 px round thumb (`--ds-color-picker-thumb`, 1 px `--figma-color-border-strong`, `--ds-elevation-100`), its border `icon-secondary` on hover; the focus ring on the thumb. The value's place is `--slider-fraction` (set inline). Mixed: no fill, no thumb, read out "Mixed". Disabled: 40 %.
+- **Look**: a 24 high (`--ds-size-control`) hit area over which the thumb's centre travels end to end, 6 in (`--ds-space-1-5`) from the space it is given; a 6 px pill track 3 px past both ends in `--figma-color-bg-tertiary` (#444 dark), the part up to the value (and 3 past it, under the thumb) in `--figma-color-bg-brand` (#0C8CE9); a 12 px round white thumb (`--ds-color-picker-thumb`, `--ds-elevation-slider-thumb`: Figma's two drop shadows and two inner light rims); the focus ring on the thumb. The value's place is `--slider-fraction` (set inline). Mixed: no fill, no thumb, read out "Mixed". Disabled: 40 %. In the effect popovers (Glass) it sits 8 in on an 80 × 24 `bg-secondary` box joined to its 56 × 24 value field (thumb centre 14…66). The panels' native range inputs (image adjustments, Corner smoothing — its `--fill` in the brand blue) take the same track and thumb.
 - **Gestures** (§4.0): a press jumps the thumb under the pointer and drags (pointer capture): `final: false` per move, one `final: true` on release — the editor's `ed.edit` makes it one undo step; Esc or a pointer cancel calls `onCancel`. ← ↓ / → ↑ step, ⇧ ten steps, Home / End: each `final: true, source: "step"`.
 - **A11y**: `role="slider"` with `aria-valuemin / max / now`, `aria-valuetext` "Mixed", `aria-disabled`; focusable unless disabled.
 - **Uses**: the editor's `draw/panels/DrawSliders.tsx` (`SliderRow`: a PropertyRow of sliders under the fields they belong to — Opacity, Corner radius, Stroke weight; `DrawSlider` in popovers — Dynamic and Scatter fields, effect blur / spread / colour opacity / density / radius), Draw's secondary toolbar's weight popover.
@@ -1495,7 +1500,7 @@ engine/src/overlay/ChromePalette.generated.h   # GENERATED (path per engine cont
 
 ### As built 2026-10-19 — Variables, Prototype, Comments, Home, Settings against live Figma
 
-Source: `docs/research/figma/live/2026-10-18/{variables,prototype,comments,home,settings}.txt` (live DOM, 2026-10-19). Tokens changed: `home-sidebar` 241, `card-*` 356 × 260 / thumb 199 / gap 32, `settings-modal-height` 720, `account-menu` 224 / `account-row` 24 / `account-photo` 40 / `account-profile` 120, radii `home-row` 4 and `home-search` 8. New icons: `24.variable.type.{string,boolean,color,number}`, `24.variable.edit`, `24/16.filter.circle`, `24.comment.empty`, `24.arrow.up`, `24.proto.{easing,duration,tip.remove}`, `16.proto.tip.play` (Figma's paths). The tinted button (Home's pills) has the 1px #444 ring; SidebarItem labels are 11 / 400; FileCard radius 13, star 16 in, no ring.
+Source: `docs/research/figma/live/2026-10-18/{variables,prototype,comments,home,settings}.txt` (live DOM, 2026-10-19). Tokens changed: `home-sidebar` 241, `card-footer` 59 (cards come out 356 × 260 at 1440 on the minmax(264) grid), `settings-modal-height` 720, `account-menu` 224 / `account-row` 24 / `account-photo` 40 / `account-profile` 120, radii `home-row` 4 and `home-search` 8. New icons: `24.variable.type.{string,boolean,color,number}`, `24.variable.edit`, `24/16.filter.circle`, `24.comment.empty`, `24.arrow.up`, `24.proto.{easing,duration,tip.remove}`, `16.proto.tip.play` (Figma's paths). The tinted button (Home's pills) has the 1px #444 ring; SidebarItem labels are 11 / 400; FileCard is framed (1px ring, radius 13, the footer a 59 bar under a line, star 16 in, no ring on it).
 
 Still different, on purpose or for lack of data:
 - Home keeps **All projects** in Recents' place (the owner's 2026-10-14 decision): no Recents row / Recently viewed · Shared files · Shared folders tabs on the local or org pages, no Community row or banner (no Community in Wecra), no plan card ("See what's included" — no plans page), no FigJam / Slides / Make / More pills (Wecra has Design only; Import stays), the star shown always (owner, 2026-10-14) rather than on hover, Back / Forward kept.

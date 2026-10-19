@@ -11,7 +11,8 @@ import { useSyncExternalStore } from "react";
 import { DEFAULT_SHORTCUT_SETTINGS, sanitizeShortcutSettings, type KeyboardLayoutId, type ShortcutSettings } from "@shared/shortcuts";
 import type { EditorApi } from "@shared/desktop";
 import { setKeyLayout } from "../commands";
-import { applyBindings } from "./keymap";
+import { applyBindings, setShortcutContext } from "./keymap";
+import type { ShortcutContext } from "./figmaKeys";
 import { detectLayout, layoutMap } from "./layouts";
 
 const STORAGE_KEY = "designer.shortcuts";
@@ -56,6 +57,9 @@ class ShortcutPrefs {
   private started = false;
 
   get = (): ShortcutSettings => this.state;
+
+  /** The system's layout, when it is one of the Layout tab's (its "Detected" group) */
+  detectedLayout = (): KeyboardLayoutId | null => this.detected;
 
   subscribe = (cb: () => void): (() => void) => {
     this.listeners.add(cb);
@@ -133,11 +137,21 @@ class ShortcutPrefs {
     this.detected = null;
     if (typeof window !== "undefined") window.removeEventListener("focus", this.onFocus);
     this.kept = DEFAULT_SHORTCUT_SETTINGS;
+    setShortcutContext({ editor: "design", numbersForOpacity: true, oldOutlineShortcuts: false });
     this.apply();
+  }
+
+  /**
+   * The editor (Design, Draw, Dev Mode) or a preference that changes Figma's keys (Use number keys for opacity, Use
+   * old shortcuts for outlines) changed: the defaults read again.
+   */
+  follow(patch: Partial<Pick<ShortcutContext, "editor" | "numbersForOpacity" | "oldOutlineShortcuts">>): void {
+    if (setShortcutContext(patch)) this.apply();
   }
 
   private apply(): void {
     this.state = this.kept.layoutPicked || !this.detected ? this.kept : { ...this.kept, layout: this.detected };
+    setShortcutContext({ layout: this.state.layout });
     applyBindings(this.state.bindings);
     setKeyLayout(IDENTITY.has(this.state.layout) ? null : layoutMap(this.state.layout));
     this.emit();

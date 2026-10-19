@@ -15,7 +15,8 @@
  * slash names; two tokens with one name: the first wins.
  */
 import type { Color, Guid } from "@/engine/codec";
-import { valueIn, type Collection, type Literal, type VarType, type VarValue, type Variable, type VariableLookup } from "./variables";
+import { bezierOf } from "@shared/motion/easing";
+import { isEasingLiteral, valueIn, type Collection, type Literal, type VarType, type VarValue, type Variable, type VariableLookup } from "./variables";
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type JsonObject = { [key: string]: Json };
@@ -38,10 +39,14 @@ export function dtcgColor(c: Color): JsonObject {
   return { colorSpace: "srgb", components: [c.r, c.g, c.b], alpha: c.a ?? 1, hex: `#${hex2(c.r)}${hex2(c.g)}${hex2(c.b)}` };
 }
 
-const dtcgType = (t: VarType): string => (t === "COLOR" ? "color" : t === "STRING" ? "string" : "number");
+// Motion's types as DTCG's own (round 8i) [ours: Figma's export of them is unseen]: a Timing a `duration` in ms, an
+// Easing a `cubicBezier` (a spring or Hold as the nearest curve DTCG has: linear).
+const dtcgType = (t: VarType): string => (t === "COLOR" ? "color" : t === "STRING" ? "string" : t === "TIMING" ? "duration" : t === "EASING" ? "cubicBezier" : "number");
 
 function literalJson(type: VarType, value: Literal): Json {
   if (type === "COLOR") return dtcgColor(value as Color);
+  if (type === "TIMING") return { value: Number(value) || 0, unit: "ms" };
+  if (type === "EASING") return isEasingLiteral(value) ? (bezierOf(value) ?? [0, 0, 1, 1]) : [0, 0, 1, 1];
   if (type === "BOOLEAN") return value === true ? 1 : 0;
   if (type === "FLOAT") return typeof value === "number" ? value : Number(value) || 0;
   return String(value);

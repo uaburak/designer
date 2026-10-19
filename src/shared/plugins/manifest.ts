@@ -1,28 +1,43 @@
 import type { CodegenPreference, PluginEditorType, PluginManifest, PluginMenuItem, PluginParameter } from "./types";
-import { needsReasoning, parseDomain } from "./network";
+import { domainEntryError, needsReasoning } from "./network";
 
 /**
  * Figma's manifest.json (docs/plugins.md §4), checked by main before anything of a development plugin is read and
  * by the editor before a run. Pure: main's `manifests.ts` reads the file, this decides. Only Figma's fields are kept,
  * each of its type; anything else is dropped. The editor may pass the JSON text, and a development manifest's `path`
- * (a manifest without an `id` then gets `dev:<hash of the path>`).
+ * (a manifest without an `id` then gets `dev:<hash of the path>`). Figma's validator texts where it has one
+ * (docs/research/atlas/17-plugins.md §4.1, §5.2).
  */
 
 export type ManifestResult = { manifest: PluginManifest; warnings: string[] } | { errors: string[] };
 
 const EDITOR_TYPES: readonly PluginEditorType[] = ["figma", "figjam", "dev", "slides", "buzz"];
-const PERMISSIONS = ["currentuser", "activeusers", "fileusers", "payments", "teamlibrary"] as const;
-const CAPABILITIES = ["textreview", "codegen", "inspect", "vscode"] as const;
+/** Figma's hint lists these (not `inspect`, the legacy name of `dev`; nor `sites`, which we don't list as a type) */
+const EDITOR_HINT = 'Specify a combination of ["figma", "figjam", "dev", "sites", "slides", "buzz"]';
+const PERMISSIONS = ["currentuser", "activeusers", "fileusers", "payments", "teamlibrary", "clipboardwrite"] as const;
+/** Figma's internal permissions: accepted in a manifest, never granted to a plugin of ours */
+const INTERNAL_PERMISSIONS = ["openexternal", "analytics", "cortex", "debug", "framejudge", "filekey", "hidecursors", "ai-assistant", "camera", "microphone", "displaycapture"] as const;
+const CAPABILITIES = ["textreview", "codegen", "inspect", "vscode", "panel", "linkpreview", "lint"] as const;
+/** Capabilities that need `dev` in `editorType` (Figma's validator) */
+const DEV_CAPABILITIES = ["panel", "inspect", "codegen", "linkpreview", "vscode"];
 /** A file named by the manifest: relative, inside the plugin's folder (main checks again after symlinks) */
 const isRelPath = (p: unknown): p is string => typeof p === "string" && p.length > 0 && p.length <= 1024 && !p.startsWith("/") && !p.startsWith("\\") && !/^[a-z]:/i.test(p) && !p.split(/[\\/]/).includes("..") && !p.includes("\0");
 const isStr = (v: unknown, max = 1000): v is string => typeof v === "string" && v.length <= max;
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 
+/** A parameter list with Figma's rules (non-empty, unique keys, optional ones last); `at` is Figma's path text. */
 function parameters(v: unknown, at: string, errors: string[]): PluginParameter[] | undefined {
   if (v === undefined) return undefined;
-  if (!Array.isArray(v)) return void errors.push(`${at} must be a list`), undefined;
+  if (!Array.isArray(v)) return void errors.push(`${at}.parameters must be a list`), undefined;
+  if (!v.length) return void errors.push(`Expected "${at}.parameters" to have non-empty parameter list.`), undefined;
+  const keys = new Set<string>();
+  let optional = false;
   return v.flatMap((p, i) => {
-    if (!isObj(p) || !isStr(p.name) || !p.name || !isStr(p.key, 200) || !p.key) return errors.push(`${at}[${i}] needs a name and a key`), [];
+    if (!isObj(p) || !isStr(p.name) || !p.name || !isStr(p.key, 200) || !p.key) return errors.push(`${at}.parameters[${i}] needs a name and a key`), [];
+    if (keys.has(p.key)) errors.push(`Expected "${at}.parameters" to have unique keys, but got more than one parameter with key: "${p.key}"`);
+    keys.add(p.key);
+    if (p.optional === true) optional = true;
+    else if (optional) errors.push(`Optional parameters must be listed last in the parameter list. ${p.key} not marked as optional.`);
     const out: PluginParameter = { name: p.name, key: p.key };
     if (isStr(p.description)) out.description = p.description;
     if (typeof p.allowFreeform === "boolean") out.allowFreeform = p.allowFreeform;
@@ -42,21 +57,29 @@ function menu(v: unknown, at: string, errors: string[], depth = 0): PluginMenuIt
     if (item.menu !== undefined) return [{ name: item.name, menu: menu(item.menu, `${here}.menu`, errors, depth + 1) ?? [] }];
     if (!isStr(item.command, 200)) return errors.push(`${here} needs a command or a menu`), [];
     const out: PluginMenuItem = { name: item.name, command: item.command };
-    const params = parameters(item.parameters, `${here}.parameters`, errors);
+    const params = parameters(item.parameters, here, errors);
     if (params) out.parameters = params;
     if (typeof item.parameterOnly === "boolean") out.parameterOnly = item.parameterOnly;
+    if (item.parameterOnly === true && !params?.length) errors.push(`Expected parameters to be defined for "${here}" marked as parameterOnly.`);
     return [out];
   });
 }
 
-function domains(v: unknown, at: string, errors: string[]): string[] | undefined {
+/** `allowedDomains` / `devAllowedDomains` with Figma's texts (§4.1): each a URL with its scheme, no duplicates. */
+function domains(v: unknown, field: "allowedDomains" | "devAllowedDomains", errors: string[]): string[] | undefined {
   if (v === undefined) return undefined;
-  if (!Array.isArray(v)) return void errors.push(`${at} must be a list`), undefined;
+  if (!Array.isArray(v)) return void errors.push(`Invalid value for ${field}. It must be a list.`), undefined;
   const out: string[] = [];
   for (const d of v) {
-    if (d === "none") out.push(d);
-    else if (parseDomain(d)) out.push((d as string).trim());
-    else errors.push(`${at}: "${String(d).slice(0, 200)}" isn't a domain`);
+    const entry = typeof d === "string" ? d.trim() : String(d).slice(0, 200);
+    if (out.includes(entry)) {
+      errors.push(`Invalid value for ${field}. '${entry}' is duplicated.`);
+      continue;
+    }
+    const problem = entry === "none" && field === "allowedDomains" ? null : domainEntryError(d);
+    if (problem === "scheme" && field === "allowedDomains") errors.push(`Invalid value for allowedDomains. '${entry}' must include a scheme, such as https://.`);
+    else if (problem) errors.push(`Invalid value for ${field}. '${entry}' must be a valid URL.`);
+    else out.push(entry);
   }
   return out;
 }
@@ -88,9 +111,12 @@ export function parseManifest(input: unknown, opts: { development?: boolean; pat
     else if (isObj(json.ui) && Object.keys(json.ui).length > 0 && Object.keys(json.ui).length <= 50 && Object.entries(json.ui).every(([k, p]) => /^[A-Za-z0-9_.-]{1,64}$/.test(k) && isRelPath(p))) m.ui = { ...(json.ui as Record<string, string>) };
     else errors.push('"ui" must be a file inside the plugin\'s folder, or a map of them');
   }
-  if (json.editorType !== undefined) {
-    if (!Array.isArray(json.editorType) || !json.editorType.length || !json.editorType.every((t) => EDITOR_TYPES.includes(t as PluginEditorType))) errors.push('"editorType" must list figma, figjam, dev, slides or buzz');
-    else m.editorType = [...new Set(json.editorType as PluginEditorType[])];
+  // Figma: a manifest names its editors ("inspect" is the legacy name of "dev"; "sites" is Figma Sites, not run here).
+  if (json.editorType === undefined) errors.push(`Missing editorType in manifest.  ${EDITOR_HINT}`);
+  else if (!Array.isArray(json.editorType) || !json.editorType.length || !json.editorType.every((t) => EDITOR_TYPES.includes(t as PluginEditorType) || t === "inspect" || t === "sites")) errors.push(`Invalid editorType in manifest.  ${EDITOR_HINT}`);
+  else {
+    const types = (json.editorType as string[]).map((t) => (t === "inspect" ? "dev" : t)).filter((t): t is PluginEditorType => EDITOR_TYPES.includes(t as PluginEditorType));
+    m.editorType = [...new Set(types)];
   }
   if (json.documentAccess !== undefined) {
     if (json.documentAccess !== "dynamic-page") errors.push('"documentAccess" must be "dynamic-page"');
@@ -100,54 +126,85 @@ export function parseManifest(input: unknown, opts: { development?: boolean; pat
     const n = json.networkAccess;
     if (!isObj(n)) errors.push('"networkAccess" must be an object');
     else {
-      const allowed = domains(n.allowedDomains, "networkAccess.allowedDomains", errors);
-      if (!allowed?.length) errors.push('"networkAccess.allowedDomains" needs at least one entry');
-      else if (allowed.includes("none") && allowed.length > 1) errors.push('"none" must be the only entry of networkAccess.allowedDomains');
-      const dev = domains(n.devAllowedDomains, "networkAccess.devAllowedDomains", errors);
-      const reasoning = isStr(n.reasoning, 2000) ? n.reasoning : undefined;
-      if (n.reasoning !== undefined && reasoning === undefined) errors.push('"networkAccess.reasoning" must be a string');
+      const listed = Array.isArray(n.allowedDomains) && n.allowedDomains.length > 0;
+      const allowed = listed ? domains(n.allowedDomains, "allowedDomains", errors) : undefined;
+      if (!listed) errors.push('Invalid value for allowedDomains. To block all network access, set allowedDomains: ["none"]');
+      else if (allowed?.includes("none") && (n.allowedDomains as unknown[]).length > 1) errors.push("Invalid value for allowedDomains. 'none' must be the only value in the array.");
+      const dev = domains(n.devAllowedDomains, "devAllowedDomains", errors);
+      const reasoning = typeof n.reasoning === "string" ? n.reasoning : undefined;
+      if (n.reasoning !== undefined && reasoning === undefined) errors.push('Invalid value for networkAccess. The "reasoning" field must be a string.');
+      if (reasoning !== undefined && reasoning.length >= 1000) errors.push('Invalid value for networkAccess. The "reasoning" field must be less than 1000 characters.');
       m.networkAccess = { allowedDomains: allowed ?? [] };
       if (reasoning !== undefined) m.networkAccess.reasoning = reasoning;
       if (dev) m.networkAccess.devAllowedDomains = dev;
-      // Figma asks for a reasoning with "*" and localhost; ours is a warning in the console, not an error (§4).
-      if (!reasoning && (allowed ?? []).some((d) => d !== "none" && needsReasoning(d))) warnings.push('networkAccess: "*" and localhost need a "reasoning"');
+      // Figma: "*" and localhost are errors without a reasoning (localhost for development belongs in devAllowedDomains).
+      if (!reasoning?.trim()) {
+        if ((allowed ?? []).includes("*")) errors.push('Invalid value for networkAccess. If you want to allow all domains, please add a "reasoning" field to the networkAccess object.');
+        else if ((allowed ?? []).some((d) => d !== "none" && needsReasoning(d))) errors.push('Invalid value for networkAccess. If you want to allow localhost, please add a "reasoning" field to the networkAccess object. If you only need to access localhost for development, please add a "devAllowedDomains" field instead.');
+      }
     }
   }
-  const params = parameters(json.parameters, "parameters", errors);
+  if (json.menu !== undefined && json.parameters !== undefined) errors.push("manifest.parameters should not be specified when menu items are defined");
+  const params = parameters(json.parameters, "manifest", errors);
   if (params) m.parameters = params;
   if (typeof json.parameterOnly === "boolean") m.parameterOnly = json.parameterOnly;
-  const items = menu(json.menu, "menu", errors);
+  if (json.parameterOnly === true && json.menu === undefined && !params?.length) errors.push('Expected parameters to be defined for "manifest" marked as parameterOnly.');
+  const items = menu(json.menu, "manifest.menu", errors);
   if (items) m.menu = items;
   if (json.relaunchButtons !== undefined) {
     if (!Array.isArray(json.relaunchButtons)) errors.push('"relaunchButtons" must be a list');
-    else
+    else {
+      const seen = new Set<string>();
       m.relaunchButtons = json.relaunchButtons.flatMap((b, i) => {
         if (!isObj(b) || !isStr(b.command, 200) || !isStr(b.name) || !b.name) return errors.push(`relaunchButtons[${i}] needs a command and a name`), [];
+        if (seen.has(b.command)) errors.push(`Expected "manifest.relaunchButtons" to have unique commands, but got more than one button with command: "${b.command}"`);
+        seen.add(b.command);
         return [{ command: b.command, name: b.name, ...(typeof b.multipleSelection === "boolean" ? { multipleSelection: b.multipleSelection } : {}) }];
       });
+    }
   }
   if (typeof json.enableProposedApi === "boolean") m.enableProposedApi = json.enableProposedApi;
   if (typeof json.enablePrivatePluginApi === "boolean") m.enablePrivatePluginApi = json.enablePrivatePluginApi;
   // Kept and shown, never run (§3.3): running a manifest's shell command is refused.
   if (isStr(json.build, 2000)) m.build = json.build;
   if (json.permissions !== undefined) {
-    if (!Array.isArray(json.permissions) || !json.permissions.every((p) => (PERMISSIONS as readonly unknown[]).includes(p))) errors.push('"permissions" must list currentuser, activeusers, fileusers, payments or teamlibrary');
-    else m.permissions = [...new Set(json.permissions as NonNullable<PluginManifest["permissions"]>)];
+    if (!Array.isArray(json.permissions)) errors.push('"permissions" must be a list');
+    else {
+      for (const p of json.permissions) if (!(PERMISSIONS as readonly unknown[]).includes(p) && !(INTERNAL_PERMISSIONS as readonly unknown[]).includes(p)) errors.push(`Invalid permission specified: ${String(p)}`);
+      // Figma strips its internal permissions from untrusted local and installed plugins (all of ours are such).
+      if (json.permissions.some((p) => (INTERNAL_PERMISSIONS as readonly unknown[]).includes(p))) warnings.push("Untrusted local plugin denied internal api permissions");
+      m.permissions = [...new Set(json.permissions.filter((p): p is (typeof PERMISSIONS)[number] => (PERMISSIONS as readonly unknown[]).includes(p)))];
+    }
   }
   if (json.capabilities !== undefined) {
-    if (!Array.isArray(json.capabilities) || !json.capabilities.every((c) => (CAPABILITIES as readonly unknown[]).includes(c))) errors.push('"capabilities" must list codegen, inspect, textreview or vscode');
-    else m.capabilities = [...new Set(json.capabilities as NonNullable<PluginManifest["capabilities"]>)];
+    if (!Array.isArray(json.capabilities)) errors.push('"capabilities" must be a list');
+    else {
+      for (const c of json.capabilities) {
+        if (!(CAPABILITIES as readonly unknown[]).includes(c)) errors.push(`Invalid capability specified: ${String(c)}`);
+        else if (DEV_CAPABILITIES.includes(c as string) && m.editorType && !m.editorType.includes("dev")) errors.push(`Capability "${String(c)}" requires "editorType" to include "dev"`);
+      }
+      m.capabilities = [...new Set(json.capabilities.filter((c): c is (typeof CAPABILITIES)[number] => (CAPABILITIES as readonly unknown[]).includes(c)))];
+    }
   }
+  const codegen = !!m.capabilities?.includes("codegen");
   if (json.codegenLanguages !== undefined) {
     if (!Array.isArray(json.codegenLanguages) || !json.codegenLanguages.every((l) => isObj(l) && isStr(l.label, 200) && isStr(l.value, 200))) errors.push('"codegenLanguages" must be a list of {label, value}');
+    else if (!codegen) errors.push("codegenLanguages only supported for codegen plugins");
     else m.codegenLanguages = (json.codegenLanguages as { label: string; value: string }[]).map((l) => ({ label: l.label, value: l.value }));
   }
   if (json.codegenPreferences !== undefined) {
     if (!Array.isArray(json.codegenPreferences) || !json.codegenPreferences.every((p) => isObj(p) && (p.itemType === "unit" || p.itemType === "select" || p.itemType === "action"))) errors.push('"codegenPreferences" items need an itemType of unit, select or action');
-    // A plain-data copy: JSON in, JSON out.
-    else m.codegenPreferences = JSON.parse(JSON.stringify(json.codegenPreferences)) as CodegenPreference[];
+    else {
+      // A plain-data copy: JSON in, JSON out.
+      const prefs = JSON.parse(JSON.stringify(json.codegenPreferences)) as CodegenPreference[];
+      const actions = prefs.filter((p) => p.itemType === "action").map((p) => p.propertyName);
+      if (new Set(actions).size !== actions.length) errors.push('codegenPreferences "action" itemType settings must have unique propertyName values');
+      if (prefs.some((p) => p.itemType === "select" && (p.options ?? []).filter((o) => o.isDefault).length !== 1)) errors.push('codegenPreferences itemType: "select" should have exactly one default option');
+      if (prefs.filter((p) => p.itemType === "unit").length > 1) errors.push('codegenPreferences should have at most one itemType: "unit"');
+      m.codegenPreferences = prefs;
+    }
   }
-  if (m.capabilities?.includes("codegen") && !m.codegenLanguages?.length) errors.push('A codegen plugin needs "codegenLanguages"');
+  if (codegen && !(Array.isArray(json.codegenLanguages) && json.codegenLanguages.length)) errors.push("codegen plugins must define at least one language in codegenLanguages");
   return errors.length ? { errors } : { manifest: m, warnings };
 }
 
@@ -175,5 +232,5 @@ export function runnableIn(manifest: Pick<PluginManifest, "editorType">): ("figm
 
 /** Why a manifest can't run in this app, or null. */
 export function notRunnableReason(manifest: Pick<PluginManifest, "editorType">): string | null {
-  return runnableIn(manifest).length ? null : "This plugin doesn't run in Figma Design or Dev Mode";
+  return runnableIn(manifest).length ? null : 'The manifest editorType does not include "figma"';
 }

@@ -42,6 +42,8 @@ class CurveCache {
 
   // Starts a frame: past the budget, everything is dropped (entries handed out before are invalid).
   void beginFrame();
+  // Between frames: everything dropped and its memory given back (the high-memory optimisations, Renderer::purgeMemory).
+  void purge();
   // A glyph's curves (added on first use); nullptr for a glyph with no outline (a space).
   const CurveEntry* glyph(text::Font* font, uint32_t glyph);
   // A path's curves under `key` (6 floats per quadratic), made by `make` the first time; nullptr when empty.

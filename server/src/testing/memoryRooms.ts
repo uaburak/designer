@@ -143,7 +143,10 @@ export function memoryRooms(now: () => number, opts: RoomStorageOptions = {}): M
     const r = get(key);
     const before = r.box.storage.lastSeq();
     r.room.receive(member, encodeChangesUp(batch, message));
-    if (r.box.storage.lastSeq() > before) r.box.edited();
+    if (r.box.storage.lastSeq() > before) {
+      r.box.noteEditor(member.userId, null);
+      r.box.edited();
+    }
   };
   const rooms: Rooms = {
     async fetch(key, path, init) {

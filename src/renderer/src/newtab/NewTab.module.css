@@ -1,0 +1,55 @@
+/* The desktop new-tab page (atlas 01 §3): a centred column at most 800 wide, 97 from the top; the recent files as 58px
+   rows 16 apart, their thumbnails 48 high at 16:9 with a 14px type badge. */
+@layer app {
+  .page {
+    height: 100vh;
+    overflow: auto;
+    background: var(--figma-color-bg);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+  }
+  .column { width: min(800px, calc(100vw - 2rem)); margin: 0 auto; padding: 97px 0 var(--ds-space-8); }
+  /* The file types and the place stay at the top as the recents scroll */
+  .top {
+    position: sticky; top: 0; z-index: 1; display: flex; flex-direction: column; gap: var(--ds-space-4);
+    padding: var(--ds-space-4) 0; background: var(--figma-color-bg);
+  }
+  .types { display: flex; flex-wrap: wrap; gap: var(--ds-space-2); }
+  .type {
+    display: flex; align-items: center; gap: var(--ds-space-2); height: 32px; padding: 0 var(--ds-space-3) 0 var(--ds-space-2);
+    border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg);
+    color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: inherit; outline: none;
+  }
+  .type:hover { background: var(--figma-color-bg-hover); }
+  .type:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: -1px; }
+  .typeIcon { display: flex; color: var(--ds-color-file-design); }
+  .place { display: flex; align-items: center; gap: var(--ds-space-1); min-height: 27px; color: var(--figma-color-text-secondary); }
+  .heading { margin: var(--ds-space-4) 0 var(--ds-space-2); font: var(--ds-font-body-large-strong); letter-spacing: var(--ds-tracking-body-large); }
+  .loading { display: flex; justify-content: center; padding: var(--ds-space-6); }
+  .list { display: flex; flex-direction: column; gap: 16px; }
+  .row {
+    display: flex; align-items: center; gap: var(--ds-space-3); height: 58px; padding: 0 var(--ds-space-2);
+    border-radius: var(--ds-radius-medium); outline: none; cursor: default;
+  }
+  .row:hover { background: var(--figma-color-bg-hover); }
+  .row:focus-visible { background: var(--figma-color-bg-selected); }
+  .thumb {
+    position: relative; flex: none; width: calc(48px * 16 / 9); height: 48px; overflow: hidden;
+    border-radius: var(--ds-radius-small); box-shadow: inset 0 0 0 1px var(--figma-color-border); background: var(--ds-color-canvas-default);
+  }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+  .badge {
+    position: absolute; right: 2px; bottom: 2px; display: flex; align-items: center; justify-content: center; width: 14px; height: 14px;
+    border-radius: var(--ds-radius-small); background: var(--ds-color-file-design); color: var(--figma-color-icon-onbrand);
+  }
+  .badge svg { width: 12px; height: 12px; }
+  .meta { display: flex; flex-direction: column; min-width: 0; }
+  .name { max-width: 375px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .time { color: var(--figma-color-text-secondary); }
+  .more {
+    margin-top: var(--ds-space-4); padding: 0; border: 0; background: transparent;
+    color: var(--figma-color-text-brand); font: inherit; letter-spacing: inherit; cursor: pointer;
+  }
+  .more:hover { text-decoration: underline; }
+}

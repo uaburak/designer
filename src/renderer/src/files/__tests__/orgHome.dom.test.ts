@@ -222,6 +222,21 @@ describe("Home in an organization", () => {
     expect(sidebarItem("Admin")).toBeTruthy();
   });
 
+  it("Duplicate on an org file's menu: ‹name› (Copy) in the same folder, made from its local copy (leftovers 2026-10-18)", async () => {
+    const ctx = await setup();
+    const { folder } = await acme(ctx);
+    await act(async () => ctx.a.api.projects.createFile(folder.id, { name: "Hero" }));
+    click(sidebarItem("All projects")!);
+    await settleLong();
+    contextMenu($('[data-ds="FileCard"][aria-label="Hero"]')!);
+    click(menuItem("Duplicate")!);
+    await settleLong();
+    expect(ctx.toasts.map((t) => t.message)).toContain("File duplicated");
+    expect((await ctx.a.api.projects.files(folder.id)).map((f) => f.name).sort()).toEqual(["Hero", "Hero (Copy)"]);
+    // The copy isn't left in this computer's Drafts as well
+    expect((await ctx.a.api.workspace.listFiles({ in: "drafts" })).map((f) => f.name)).not.toContain("Hero (Copy)");
+  });
+
   it("Move to… takes a local file into a team folder; All projects lists it", async () => {
     const ctx = await setup();
     const { folder } = await acme(ctx);

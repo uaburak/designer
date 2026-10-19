@@ -4,7 +4,7 @@
  * Cancel leaves the library as it was.
  */
 import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
-import { Button, Checkbox, Icon, IconButton, Select, Swatch, TextInput, normalizeHex } from "@/ds";
+import { Button, Checkbox, Icon, IconButton, Select, Swatch, TextInput, cx, normalizeHex } from "@/ds";
 import { t, useT } from "@/i18n";
 import { getStoreClient } from "@/store";
 import { DEFAULT_FORMATS, type Brand, type BrandColor, type BrandImage, type BrandImageRole, type BrandSave, type BrandsRepository, type LabelTier, type Product, type ProductSave, type SocialFormat } from "../../../../shared/studio/types";
@@ -226,11 +226,13 @@ export interface BrandFormProps {
   prefill?: Partial<BrandSave>;
   onDone(brandId: string): void;
   onCancel(): void;
+  /** In the chat's form card (its padding, not the panel's) */
+  inCard?: boolean;
 }
 
 const newColor = (): BrandColor => ({ name: "", hex: "#" });
 
-export function BrandForm({ brandId, prefill, onDone, onCancel }: BrandFormProps) {
+export function BrandForm({ brandId, prefill, onDone, onCancel, inCard }: BrandFormProps) {
   useT();
   const [loaded, setLoaded] = useState<Brand | null>(null);
   const [ready, setReady] = useState(!brandId);
@@ -294,7 +296,7 @@ export function BrandForm({ brandId, prefill, onDone, onCancel }: BrandFormProps
   const setFormat = (i: number, f: Partial<SocialFormat>) => setFormats((fs) => fs.map((x, k) => (k === i ? { ...x, ...f } : x)));
   return (
     <form
-      className={styles.form}
+      className={cx(styles.form, inCard && styles.formInCard)}
       data-brand-form={brandId ?? "new"}
       onSubmit={(e) => {
         e.preventDefault();
@@ -394,6 +396,8 @@ export interface ProductFormProps {
   prefill?: Partial<ProductSave>;
   onDone(productId: string): void;
   onCancel(): void;
+  /** In the chat's form card (its padding, not the panel's) */
+  inCard?: boolean;
 }
 
 interface LabelRow {
@@ -407,7 +411,7 @@ const TIERS = [
   { value: "soft", label: "Soft" },
 ];
 
-export function ProductForm({ brandId, productId, prefill, onDone, onCancel }: ProductFormProps) {
+export function ProductForm({ brandId, productId, prefill, onDone, onCancel, inCard }: ProductFormProps) {
   useT();
   const [loaded, setLoaded] = useState<Product | null>(null);
   const [ready, setReady] = useState(!productId);
@@ -476,7 +480,7 @@ export function ProductForm({ brandId, productId, prefill, onDone, onCancel }: P
   });
   return (
     <form
-      className={styles.form}
+      className={cx(styles.form, inCard && styles.formInCard)}
       data-product-form={productId ?? "new"}
       onSubmit={(e) => {
         e.preventDefault();

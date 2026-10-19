@@ -3,8 +3,9 @@
 //
 // 1. No per-row labels (Flow, Resizing / Dimensions, Alignment, Gap, Padding) — only "Auto layout"; rows 32 apart.
 // 2. W Fixed: its number, the 5 × 3 chevron centred 75 in from the field's left (74.png), hovered or not.
-// 3. H Hug: the number grey (text-secondary), "Hug" ending 9 short of the field's right edge, no chevron — hovered too.
-// 4. A layer filling both ways: "Fill" in both fields (76.png); W hovered keeps "Fill" (77.png's H).
+// 3. H Hug: the number grey (text-secondary), "Hug" ending 9 short of the field's right edge, no chevron; hovered, the
+//    chevron in the word's place (the owner's correction, 2026-10-10).
+// 4. A layer filling both ways: "Fill" in both fields (76.png); W hovered shows the chevron instead.
 // 5. Tab from W goes to H, then the gap (no chevron, no Apply variable, no toggle on the way); ⌥↓ in W opens its list.
 /* global window, document, getComputedStyle */
 import path from "node:path";
@@ -55,15 +56,18 @@ export async function panel17Section(page, theme, { open, settle, check, outDir,
       const box = input.closest('[data-ds="NumericInput"]');
       const r = box.getBoundingClientRect();
       const menu = box.querySelector("[data-field-menu]");
-      const svg = menu?.querySelector("svg path");
+      // Hug / Fill: the word, and the chevron kept in its place (display: none) until the field is hovered.
+      const shown = (el) => !!el && el.getBoundingClientRect().width > 0 && getComputedStyle(el).visibility !== "hidden";
+      const svg = [...(menu?.querySelectorAll("svg path") ?? [])].find(shown);
       const g = svg?.getBoundingClientRect();
+      const wordEl = menu?.querySelector('[class*="sizeModeWord"]');
       const range = document.createRange();
-      if (menu && !svg) range.selectNodeContents(menu);
-      const word = menu && !svg ? range.getBoundingClientRect() : null;
+      if (shown(wordEl)) range.selectNodeContents(wordEl);
+      const word = shown(wordEl) ? range.getBoundingClientRect() : null;
       return {
         left: r.left, top: r.top, width: r.width, right: r.right, height: r.height,
         chevron: g ? { cx: g.left + g.width / 2 - r.left, cy: g.top + g.height / 2 - r.top, w: g.width, h: g.height, opacity: getComputedStyle(menu).opacity, visibility: getComputedStyle(menu).visibility } : null,
-        word: word ? { text: menu.textContent, right: r.right - word.right, color: getComputedStyle(menu).color } : null,
+        word: word ? { text: wordEl.textContent, right: r.right - word.right, color: getComputedStyle(menu).color } : null,
         number: { color: getComputedStyle(input).color, left: input.getBoundingClientRect().left - r.left },
         tabIndex: menu?.tabIndex ?? null,
       };
@@ -112,7 +116,9 @@ export async function panel17Section(page, theme, { open, settle, check, outDir,
   check(`${P} H Hug: the number grey, "Hug" ending 9 short of the right edge, no chevron (75.png)`, hugOk(h, "Hug"), JSON.stringify(h));
   await page.mouse.move(h.left + 50, h.top + 12);
   const hHover = await field("Vertical resizing");
-  check(`${P} H Hug hovered: "Hug" stays, no chevron comes`, hugOk(hHover, "Hug"), JSON.stringify(hHover?.word));
+  // The owner's correction (2026-10-10, after 75.png): hovered, the chevron in the word's place.
+  const modeHoverOk = (f) => !!f?.chevron && !f.word && Math.abs(f.chevron.w - 5) <= 0.6 && f.chevron.cx > f.width - 24 && f.number.color === tokens.secondary;
+  check(`${P} H Hug hovered: the chevron in the word's place`, modeHoverOk(hHover), JSON.stringify([hHover?.word, hHover?.chevron]));
   await crop("panel17-h-hug-hover", { x: Math.floor(w.left - 16), y: Math.floor(w.top - 8), width: 240, height: 40 });
   await page.mouse.move(10, 880);
 
@@ -147,7 +153,7 @@ export async function panel17Section(page, theme, { open, settle, check, outDir,
   check(`${P} a layer filling both ways: "Fill" in W and H, numbers grey, no chevrons (76.png)`, hugOk(fw, "Fill") && hugOk(fh, "Fill"), JSON.stringify([fw?.word, fh?.word, fw?.chevron]));
   await page.mouse.move(fw.left + 50, fw.top + 12);
   const fwHover = await field("Horizontal resizing");
-  check(`${P} …W hovered keeps "Fill" (77.png's H)`, hugOk(fwHover, "Fill"), JSON.stringify(fwHover?.word));
+  check(`${P} …W hovered: the chevron in "Fill"'s place`, modeHoverOk(fwHover), JSON.stringify([fwHover?.word, fwHover?.chevron]));
   await crop("panel17-fill-hover", { x: Math.floor(fw.left - 16), y: Math.floor(fw.top - 8), width: 240, height: 40 });
   await page.mouse.move(10, 880);
   const fs = await section("Layout");

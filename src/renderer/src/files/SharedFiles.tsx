@@ -22,7 +22,7 @@ export function openSharedFile(key: string, intent: OpenIntent = {}): Promise<{ 
   return withLinkPassword((password) => getStoreClient().multiplayer.openShared(key, password, intent, { early: true }));
 }
 
-export function SharedFilesView({ layout, onOpen, onError }: { layout: "grid" | "list"; onOpen: (fileKey: string, name: string, intent?: OpenIntent) => void; onError: (message: string) => void }) {
+export function SharedFilesView({ layout, order = "default", onOpen, onError }: { layout: "grid" | "list"; /** By date shared: "default" newest first */ order?: "default" | "reversed"; onOpen: (fileKey: string, name: string, intent?: OpenIntent) => void; onError: (message: string) => void }) {
   useT();
   const [rows, setRows] = useState<Row[] | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
@@ -72,7 +72,7 @@ export function SharedFilesView({ layout, onOpen, onError }: { layout: "grid" | 
   if (!rows.length) return <EmptyState size="page" icon="24.person" title={t("No shared files")} body={t("Files people share with you show up here.")} />;
   return (
     <div className={layout === "grid" ? styles.sharedGrid : styles.sharedListView} role="list" aria-label={t("Shared files")} data-shared-files="">
-      {rows.map((f) => (
+      {[...rows].sort((a, b) => (order === "default" ? b.sharedAt - a.sharedAt : a.sharedAt - b.sharedAt)).map((f) => (
         <div key={f.key} role="listitem" data-shared-file={f.key} aria-busy={opening === f.key || undefined}>
           <FileCard id={f.key} title={f.name} subtitle={f.ownerName ? t("From {name}", { name: f.ownerName }) : t("Shared with you")} thumbnail={f.thumb ?? undefined} selected={selected === f.key} onSelect={() => setSelected(f.key)} onOpen={() => void open(f)} />
         </div>

@@ -249,7 +249,10 @@ VariableData readVariableData(const json::Value& v) {
         if (auto* args = x.get("expressionArguments"); args && args->isArray())
           for (auto& a : args->array) {
             VariableData arg = readVariableData(a);
-            if (arg.kind == K::OTHER) return other();
+            // A KEYFRAME expression's second argument (KEYFRAME_TRACK_PARAMETER_DATA) is kept whole as its kiwi bytes —
+            // the motion model reads it (motion/Model.cpp decodeParams), as the kiwi reader keeps it; any other
+            // expression with an argument the engine doesn't model is kept whole itself.
+            if (arg.kind == K::OTHER && d.function != ExpressionFunction::KEYFRAME) return other();
             d.args.push_back(std::move(arg));
           }
       } else if (k == "fontStyleValue" && x.isObject()) {
@@ -509,6 +512,7 @@ void writePropValue(json::Writer& out, const ComponentPropValue& v) {
     w.key("guidValue");
     writeGuidObject(w, v.guidValue);
   }
+  if (v.hasFloat) w.key("floatValue").number(v.floatValue);
   w.endObject();
   out.raw(withExtra(w, "ComponentPropValue", v.extra));
 }
@@ -538,6 +542,7 @@ void writeComponentFields(json::Writer& w, const NodeProps& p, FieldMask mask, b
         w.key("guidPath").beginObject().key("guids").beginArray();
         for (Guid g : o.path) writeGuidObject(w, g);
         w.endArray().endObject();
+        if (o.level) w.key("overrideLevel").number(o.level);
         writeFields(w, o.props, o.mask & ~static_cast<FieldMask>(F_PARENT_INDEX | F_TYPE), false, blobs);
         w.endObject();
       }
@@ -1264,6 +1269,7 @@ ComponentPropValue readPropValue(const json::Value& v) {
     if (k == "boolValue" && x.isBool()) out.hasBool = true, out.boolValue = x.boolean;
     else if (k == "textValue" && x.isObject()) out.hasText = true, out.textValue = readTextData(x);
     else if (k == "guidValue") readGuid(x, out.guidValue);
+    else if (k == "floatValue" && x.isNumber()) out.hasFloat = true, out.floatValue = static_cast<float>(x.number);
     else appendExtra(out.extra, "ComponentPropValue", k, x);
   }
   return out;
@@ -1292,19 +1298,9 @@ void readComponentFields(const json::Value& v, NodeProps& p, FieldMask& m, const
               Guid key;
               if (readGuid(g, key)) o.path.push_back(key);
             }
-        // Figma writes the root's entry as [symbolID]: the empty path here (docs/schema.md §5.1).
-        if (o.path.size() == 1 && o.path[0] == d.symbolID) o.path.clear();
         readFields(e, o.props, o.mask, false, blobs);
         o.mask &= ~static_cast<FieldMask>(F_PARENT_INDEX | F_TYPE);
-        // Entries for the same path merge (later fields win).
-        auto same = std::find_if(d.overrides.begin(), d.overrides.end(), [&](const SymbolOverride& q) { return q.path == o.path; });
-        if (same != d.overrides.end()) {
-          copyFields(same->props, o.props, o.mask & ~static_cast<FieldMask>(F_EXTRA));
-          for (auto& [k, val] : o.props.extra) same->props.extra[k] = val;
-          same->mask |= o.mask;
-        } else {
-          d.overrides.push_back(std::move(o));
-        }
+        addOverrideEntry(d.overrides, std::move(o), d.symbolID);
       }
     }
     p.comp().symbolData = std::move(d);

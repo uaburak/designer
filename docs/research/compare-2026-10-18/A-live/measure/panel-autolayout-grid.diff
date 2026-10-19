@@ -1,0 +1,64 @@
+MISSING  152,12 24x24 input =unchecked [toggle-ready-for-dev-status]
+MISSING  164,25 145x13 "Toggle ready for dev status" 11px/450 #ffffff
+DIFF     [X-position]  live 16,157 88x24  ours 40,157 64x24
+MISSING  40,157 64x24 input =900 [X-position] r=5px
+DIFF     [Y-position]  live 112,157 88x24  ours 136,157 64x24
+MISSING  136,157 64x24 input =0 [Y-position] r=5px
+DIFF     [Rotation]  live 16,205 88x24  ours 40,205 64x24
+MISSING  40,205 64x24 input =0° [Rotation] r=5px
+MISSING  220,267 97x13 "Toggle auto layout" 11px/450 #ffffff
+MISSING  15,299 35x13 "Layout" 11px/400 #ffffff
+MISSING  15,323 47x13 "Freeform" 11px/400 #ffffff
+MISSING  61,323 39x13 "Vertical" 11px/400 #ffffff
+MISSING  107,323 53x13 "Horizontal" 11px/400 #ffffff
+MISSING  153,323 22x13 "Grid" 11px/400 #ffffff
+MISSING  220,319 153x13 "Toggle automatic positioning" 11px/450 #ffffff
+MISSING  40,360 93x13 "Fixed width (320)" 11px/450 #ffffff
+DIFF     [Width]  live 16,354 88x24  ours 40,354 22x24
+MISSING  39,354 48x24 input =320 [Width] r=2px
+MISSING  136,360 97x13 "Fixed height (200)" 11px/450 #ffffff
+DIFF     [Height]  live 112,354 88x24  ours 136,354 22x24
+MISSING  135,354 48x24 input =200 [Height] r=2px
+MISSING  220,367 91x13 "Lock aspect ratio" 11px/450 #ffffff
+DIFF     [Gap between columns]  live 112,404 88x24  ours 136,404 64x24
+MISSING  136,404 63x24 input =8 [Gap between columns] r=2px
+DIFF     [Gap between rows]  live 112,436 88x24  ours 136,436 64x24
+MISSING  136,436 63x24 input =8 [Gap between rows] r=2px
+DIFF     [Horizontal padding]  live 16,486 88x24  ours 40,486 64x24
+MISSING  40,486 63x24 input =12 [Horizontal padding] r=2px
+DIFF     [Vertical padding]  live 112,486 88x24  ours 136,486 64x24
+MISSING  136,486 63x24 input =12 [Vertical padding] r=2px
+MISSING  191,580 24x13 "Hide" 11px/450 #ffffff
+MISSING  39,719 28x13 "Color" 11px/450 #ffffff
+MISSING  39,719 225x13 "Autofill available. Type to see suggestions." 11px/450 #ffffff
+DIFF     "%" 11px/450  live 156,712 9x13  ours 156,711 11x14
+MISSING  192,719 82x13 "Toggle visibility" 11px/450 #ffffff
+MISSING  39,886 28x13 "Color" 11px/450 #ffffff
+MISSING  39,886 225x13 "Autofill available. Type to see suggestions." 11px/450 #ffffff
+DIFF     "%" 11px/450  live 156,879 9x13  ours 156,878 11x14
+MISSING  39,918 28x13 "Color" 11px/450 #ffffff
+MISSING  39,918 225x13 "Autofill available. Type to see suggestions." 11px/450 #ffffff
+DIFF     "%" 11px/450  live 156,911 9x13  ours 156,910 11x14
+EXTRA    97,16 51x16 button [Status]
+EXTRA    113,18 27x11 "Status" 9px/450 #ffffffb2
+EXTRA    152,12 24x24 button [Toggle ready for dev status] r=5px
+EXTRA    0,49 240x197 section [Position]
+EXTRA    0,246 240x313 section [Auto layout]
+EXTRA    16,306 184x24 radiogroup [Layout] bg=#383838 r=5px
+EXTRA    79,354 24x24 button [Width sizing]
+EXTRA    175,354 24x24 button [Height sizing]
+EXTRA    0,559 240x103 section [Appearance]
+EXTRA    40,621 64x24 input =100% [Opacity]
+EXTRA    136,621 64x24 input =0 [Corner radius]
+EXTRA    0,662 240x85 section [Fill]
+EXTRA    118,706 38x24 input =100 [Color opacity]
+EXTRA    0,747 240x41 section [Stroke]
+EXTRA    0,788 240x41 section [Effects]
+EXTRA    0,829 240x117 section [Selection colors]
+EXTRA    118,873 38x24 input =100 [Color opacity]
+EXTRA    118,905 38x24 input =100 [Color opacity]
+EXTRA    0,946 240x41 section [Layout guide]
+EXTRA    0,987 240x69 section [Export]
+EXTRA    16,1027 216x24 tablist [Export kind]
+EXTRA    24,1032 31x14 "Static" 11px/550 #ffffff
+EXTRA    75,1032 50x14 "Animated" 11px/450 #ffffffb2

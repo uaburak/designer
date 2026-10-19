@@ -286,6 +286,8 @@ export class MemoryStore {
   private readonly hlc: HlcClock;
   private readonly data = new Map<FileKey, FileData>();
   private readonly runtime = new Map<FileKey, Runtime>();
+  /** Each file's undo history at its last close (`files.setUndoHistory`): this page's memory only, as the store's per-device file */
+  private readonly undoHistories = new Map<FileKey, { headSeq: number; bytes: Uint8Array }>();
   private readonly offWatch: (() => void) | null;
   /** Bumped whenever a file's thumbnail changes (devStore turns it into object URLs) */
   readonly thumbnails = new Emitter<FileKey>();
@@ -1256,6 +1258,7 @@ export class MemoryStore {
       headSeq: this.headSeq(d),
       ui: d.ui,
       recovery: null,
+      ...(mode === "edit" && this.undoHistories.get(fileKey)?.headSeq === this.headSeq(d) ? { undoHistory: this.undoHistories.get(fileKey)!.bytes } : {}),
     };
   }
 
@@ -1574,6 +1577,11 @@ export class MemoryStore {
       },
       saveThumbnail: (fileKey, png, size) => this.saveThumbnail(fileKey, png, size),
       setUiState: async (fileKey, patch) => this.setUiState(fileKey, patch),
+      setUndoHistory: async (fileKey, history) => {
+        this.ws.getMeta(fileKey);
+        if (history?.bytes?.length) this.undoHistories.set(fileKey, { headSeq: history.headSeq, bytes: history.bytes.slice() });
+        else this.undoHistories.delete(fileKey);
+      },
       saveSnapshot: async (fileKey, save) => this.saveSnapshot(fileKey, save, owner),
       listVersions: async (fileKey) => this.fileData(fileKey).versions.map((v) => ({ ...v.record })),
       createVersion: async (fileKey, input) => this.createVersion(fileKey, input ?? {}),
@@ -1588,6 +1596,8 @@ export class MemoryStore {
       exportLocalCopy: async () => {
         throw new StoreError("forbidden", "Saving a local copy needs the desktop app");
       },
+      // Every image of a file in this page's store is here
+      missingImages: async (fileKey) => (this.ws.getMeta(fileKey), 0),
       // The web app's Save local copy…: the .fig's bytes, which the page downloads
       exportFigBytes: (fileKey) => this.exportFigBytes(fileKey),
     };

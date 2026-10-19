@@ -19,8 +19,15 @@ export const RANGE_OPTIONS: { value: AnalyticsRange; label: string }[] = [
   { value: 365, label: "Last year" },
 ];
 
-/** "Download CSV" appears only when more than five teams use the library (otherwise the data is copied from the modal). */
-export const canDownloadCsv = (teamsUsing: number): boolean => teamsUsing > 5;
+/**
+ * "Download CSV" appears whenever the top-teams list has a team (atlas 12 §8.3: Figma's link sits next to "N teams
+ * total" as soon as the list is non-empty — R22's "more than five" was wrong).
+ */
+export const canDownloadCsv = (teams: number): boolean => teams > 0;
+
+/** Top teams: the six with the most insertions (two columns of three, atlas 12 §8.3), teams without any dropped. */
+export const TOP_TEAMS = 6;
+export const topTeamsOf = <T extends { insertions: number }>(rows: readonly T[]): T[] => rows.filter((r) => r.insertions > 0).sort((a, b) => b.insertions - a.insertions).slice(0, TOP_TEAMS);
 
 /** Styles and variables are tracked since 2024-10-10 (Figma): earlier weeks are "unavailable" (grey). */
 export const TRACKED_SINCE: Record<AnalyticsAssetType, string | null> = { component: null, style: "2024-10-10", variable: "2024-10-10" };

@@ -1,8 +1,10 @@
 // @vitest-environment happy-dom
 // The manager in the Agents tab (docs/studio.md §2) on the real engine, main a stand-in: with the manager on, a message
 // is the manager's turn (its instructions, its tools); its tool calls are answered here, a worker's are refused; a
-// worker task is a turn of its own beside it; a card's answer resolves the waiting call; Stop stops its tasks. Off,
-// the chat talks to the picked agent as before.
+// worker task is a turn of its own beside it, and its card runs it again with the prompt edited; a card's answer resolves the waiting call; Stop stops its tasks. Off,
+// the chat talks to the picked agent as before. In Social (docs/social.md §7, round 18c) every turn is the manager's,
+// with the board in its instructions; its Social tools, a post's Fix and the follow-up chips; and (the leftovers) the
+// composer's direct turns in Social, Fix without a model or as a worker's relayout task, Make starter templates.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -16,6 +18,11 @@ import { DEFAULT_MANAGER_SETTINGS, brandsUnavailable } from "@shared/studio/type
 import { EditorController } from "../controller";
 import { memoryDocumentSource } from "../documentSource";
 import { AgentsService } from "../agents/service";
+import { applyChecks, checkPost, editorWriter, fixProblem, newCampaign, newPost, setCampaign } from "../social/actions";
+import { createNodes } from "../agents/mcpTools";
+import { readPost, writePost } from "../social/posts";
+import { fixWithAgent, makeStarterTemplates } from "../social/SocialMode";
+import { STARTER_BRIEF } from "@shared/social/managerPrompt";
 
 const wasm = join(process.cwd(), "src/renderer/src/engine/wasm/engine.wasm");
 
@@ -107,6 +114,29 @@ describe("the manager in a chat", () => {
     expect(card.worker!.parts.map((p) => p.kind)).toEqual(["tool", "text"]);
   });
 
+  it("a task card's Run again (docs/studio.md §5.2): only once it has ended, a worker's turn with the edited prompt, its card in the same answer", async () => {
+    const { s, turns, emit, tool } = await setup(true);
+    await s.send("Rename the layers");
+    const chatId = s.currentChat()!.id;
+    const d = JSON.parse(text(await tool({ reqId: 1, turnId: "T1", client: "Claude Code", name: "delegate_task", args: { title: "Rename layers", prompt: "Rename the card's layers" } })));
+    await tick();
+    await tick();
+    expect(await s.runTaskAgain(d.taskId, "Rename only the texts")).toBe("This task can't run again.");
+    emit({ turnId: "T2", chatId, event: { type: "done" } });
+    await tick();
+    expect(s.currentChat()!.tasks![0]).toMatchObject({ state: "done", prompt: "Rename the card's layers", again: { kind: "worker" } });
+    expect(await s.runTaskAgain(d.taskId, "Rename only the texts")).toBeNull();
+    await tick();
+    await tick();
+    expect(turns[2]).toMatchObject({ role: "worker", chatId });
+    expect(turns[2].prompt).toMatch(/Rename only the texts$/);
+    const tasks = s.currentChat()!.tasks!;
+    expect(tasks.map((x) => [x.title, x.messageId, x.state])).toEqual([
+      ["Rename layers", tasks[0].messageId, "done"],
+      ["Rename layers", tasks[0].messageId, "running"],
+    ]);
+  });
+
   it("a choice card's click resolves the manager's waiting call; Stop on the manager stops its tasks and ends its cards", async () => {
     const { s, turns, stopped, tool } = await setup(true);
     await s.send("Labels?");
@@ -129,5 +159,149 @@ describe("the manager in a chat", () => {
     expect(text(await pending)).toBe("cancelled");
     expect(s.queue.get(d.taskId)!.state).toBe("stopped");
     expect(stopped).toEqual(expect.arrayContaining(["T1", turns[1].turnId]));
+  });
+});
+
+describe("the manager in Social (docs/social.md §1.3, §7)", () => {
+  it("in Social every turn is the manager's, even with the manager off, and its instructions carry the board; in Design they don't", async () => {
+    const { s, ed, turns } = await setup(false);
+    const post = newPost(ed, editorWriter(ed), { formatId: "instagram.story" });
+    const campaign = newCampaign("Liq Humus — October", null);
+    setCampaign(ed, editorWriter(ed), ed.store.page, campaign);
+    ed.ui.set({ mode: "social" });
+    expect(s.managerProvider()?.id).toBe("claude-code");
+    await s.send("Liq Humus için bu hafta Instagram post + story, LinkedIn de olsun", s.contextOf([post]));
+    expect(turns[0]).toMatchObject({ role: "manager", providerId: "claude-code" });
+    expect(turns[0].prompt).toContain("[Social mode.");
+    expect(turns[0].prompt).toContain("- Liq Humus — October (");
+    expect(turns[0].prompt).toContain("1 post outside any campaign");
+    expect(turns[0].managerTools!.map((t) => t.name)).toContain("make_brand_library");
+    // The post goes as context with its format (the chip shows it too).
+    expect(turns[0].context.selection[0]).toMatchObject({ id: post, format: "Instagram story" });
+    // Back in Design, with the manager off: the picked agent, no Social paragraph.
+    s.newChat();
+    ed.ui.set({ mode: "design" });
+    await s.send("Hello");
+    expect(turns[1].role).toBeUndefined();
+    expect(turns[1].prompt).not.toContain("Social mode");
+  });
+
+  it("the manager's Social tool calls are answered on the canvas; a worker can't call make_brand_library", async () => {
+    const { s, ed, turns, tool } = await setup(true);
+    ed.ui.set({ mode: "social" });
+    await s.send("Make a post");
+    const made = JSON.parse(text(await tool({ reqId: 1, turnId: "T1", client: "Claude Code", name: "new_post", args: { formatId: "instagram.post", campaign: "Spring" } })));
+    const board = JSON.parse(text(await tool({ reqId: 2, turnId: "T1", client: "Claude Code", name: "get_board", args: {} })));
+    expect(board.campaigns[0].posts[0].nodeId).toBe(made.nodeId);
+    await tool({ reqId: 3, turnId: "T1", client: "Claude Code", name: "delegate_task", args: { title: "Draw", prompt: "Draw it" } });
+    await tick();
+    await tick();
+    expect(turns[1].prompt).toContain("[Social mode: posts are top-level frames");
+    const refused = await tool({ reqId: 4, turnId: "T2", client: "Claude Code", name: "make_brand_library", args: {} });
+    expect(refused.isError).toBe(true);
+    expect(text(refused)).toMatch(/manager's tool/);
+  });
+
+  it("a post's Fix sends the manager that problem with the post as context; a follow-up chip is the owner's next message", async () => {
+    const { s, ed, turns, emit } = await setup(false);
+    ed.ui.set({ mode: "social" });
+    const post = newPost(ed, editorWriter(ed), { formatId: "linkedin.landscape" });
+    s.fixProblem({ id: post, name: "LinkedIn landscape" }, { kind: "caption", detail: "The caption is 3100 characters; LinkedIn landscape takes 3000.", fix: "rewrite" });
+    await tick();
+    expect(turns[0].prompt).toContain(`Fix on “LinkedIn landscape” (${post}): caption — The caption is 3100 characters`);
+    expect(turns[0].context.selection).toEqual([expect.objectContaining({ id: post, format: "LinkedIn landscape" })]);
+    // The manager suggests follow-ups as chips and ends its turn.
+    const chatId = s.currentChat()!.id;
+    s.managerEnv("T1", { chat: chatId, message: s.currentChat()!.messages[1].id }).suggest!({ kind: "choice", id: "card-f", question: "Next?", options: [{ id: "story", label: "Story's animated version?" }], suggestions: true });
+    emit({ turnId: "T1", chatId, event: { type: "done" } });
+    await tick();
+    s.pickSuggestion("card-f", "story");
+    await tick();
+    expect(turns[1].prompt).toMatch(/Story's animated version\?$/);
+    expect(s.currentChat()!.messages[1].cards![0].answer).toEqual({ optionId: "story", remember: false });
+  });
+});
+
+describe("Social's leftovers (docs/social.md §17)", () => {
+  it("the composer picks an agent for direct turns in Social, and the manager again", async () => {
+    const { s, ed, turns, emit } = await setup(false);
+    ed.ui.set({ mode: "social" });
+    await s.chooseInSocial({ providerId: "claude-code", model: "sonnet" });
+    expect(s.managerProvider()).toBeNull();
+    await s.send("Make the headline bigger");
+    expect(turns[0]).toMatchObject({ providerId: "claude-code", model: "sonnet", prompt: "Make the headline bigger" });
+    expect(turns[0].role).toBeUndefined();
+    emit({ turnId: turns[0].turnId, chatId: s.currentChat()!.id, event: { type: "done" } });
+    await tick();
+    await s.chooseInSocial(null);
+    await s.send("Make a story too");
+    expect(turns[1].role).toBe("manager");
+    // Outside Social the pick changes nothing: the manager's setting decides.
+    await s.chooseInSocial({ providerId: "codex" });
+    ed.ui.set({ mode: "design" });
+    expect(s.managerProvider()).toBeNull();
+  });
+
+  it("a safe-area problem is fixed without a model: the text moved inside the band, one undo step, the pin gone", async () => {
+    const { ed, turns } = await setup(false);
+    ed.ui.set({ mode: "social" });
+    const w = editorWriter(ed);
+    const post = newPost(ed, w, { formatId: "instagram.story" });
+    const cta = createNodes({ ed, write: (_l, fn) => fn() }, { parentId: post, nodes: [{ type: "TEXT", name: "CTA", characters: "Order now", fontSize: 48, x: 80, y: 1800 }] }).touched![0];
+    applyChecks(ed, w, post, checkPost(ed, post));
+    const problem = readPost(ed, post)!.problems.find((p) => p.kind === "safe-area")!;
+    expect(problem.id).toBe(`check:safe-area:${cta}`);
+    fixWithAgent(ed, { id: post, name: "Story" }, problem);
+    expect(ed.store.undo.undoLabel).toBe("Fix problem");
+    expect(readPost(ed, post)!.problems.some((p) => p.kind === "safe-area")).toBe(false);
+    const y = ed.engine.readNode(cta, { fields: ["transform", "size"] })!;
+    expect(y.transform!.m12 + y.size!.y).toBeLessThanOrEqual(1920 * 0.65 + 0.5);
+    expect(turns).toHaveLength(0);
+    // A hidden logo is shown again.
+    const logo = createNodes({ ed, write: (_l, fn) => fn() }, { parentId: post, nodes: [{ type: "RECTANGLE", name: "Logo", width: 100, height: 100, x: 400, y: 600 }] }).touched![0];
+    ed.batch("Hide", () => {
+      ed.engine.setProps([logo], { visible: false });
+      writePost(ed, post, { ...readPost(ed, post)!, brandId: "b1" });
+    });
+    applyChecks(ed, w, post, checkPost(ed, post));
+    const missing = readPost(ed, post)!.problems.find((p) => p.id === "check:logo:missing")!;
+    expect(fixProblem(ed, w, post, missing.id)).toBe(true);
+    expect(ed.engine.readNode(logo, { fields: ["visible"] })?.visible).not.toBe(false);
+    expect(readPost(ed, post)!.problems).toEqual([]);
+    expect(turns).toHaveLength(0);
+  });
+
+  it("a relayout problem nothing mechanical fixes goes to a worker's task without a manager turn; done, its pin leaves", async () => {
+    const { s, ed, turns, emit } = await setup(false);
+    ed.ui.set({ mode: "social" });
+    const w = editorWriter(ed);
+    const post = newPost(ed, w, { formatId: "instagram.story" });
+    const problem = { id: "p-1", kind: "contrast" as const, detail: "“Title” has a contrast of 1.3:1.", fix: "relayout" as const, source: "review" as const };
+    ed.batch("Pin", () => writePost(ed, post, { ...readPost(ed, post)!, problems: [problem] }));
+    expect(fixProblem(ed, w, post, problem.id)).toBe(false);
+    expect(await s.relayoutProblem({ id: post, name: "Story" }, problem)).toBe(true);
+    await tick();
+    await tick();
+    expect(turns).toHaveLength(1);
+    expect(turns[0].role).toBe("worker");
+    expect(turns[0].prompt).toContain(`Fix the frame “Story” (${post}): “Title” has a contrast of 1.3:1.`);
+    const chat = s.currentChat()!;
+    expect(chat.messages.map((m) => [m.role, m.manager ?? false])).toEqual([["user", false], ["assistant", true]]);
+    emit({ turnId: turns[0].turnId, chatId: chat.id, event: { type: "text", delta: "Moved it." } });
+    emit({ turnId: turns[0].turnId, chatId: chat.id, event: { type: "done" } });
+    await tick();
+    await tick();
+    expect(readPost(ed, post)!.problems).toEqual([]);
+  });
+
+  it("Make starter templates sends the manager its brief, the chat showing the short request", async () => {
+    const { s, ed, turns } = await setup(false);
+    ed.ui.set({ mode: "social" });
+    await s.chooseInSocial({ providerId: "codex" });
+    await makeStarterTemplates(ed, s);
+    expect(turns[0].role).toBe("manager");
+    expect(turns[0].prompt).toContain(STARTER_BRIEF);
+    expect(s.currentChat()!.messages[0].text).toBe("Make starter templates");
+    expect(ed.ui.get().socialRightTab).toBe("agent");
   });
 });

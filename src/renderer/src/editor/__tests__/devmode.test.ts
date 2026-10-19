@@ -53,12 +53,12 @@ describe("annotations", () => {
     // The owner's file form: presets with ids, no colours.
     const read = categoriesOf({ version: 3, items: [{ id: { sessionID: 2, localID: 0 }, preset: "DEVELOPMENT" }, ...json.items!.slice(4)] });
     expect(read).toEqual([
-      { id: "2:0", preset: "DEVELOPMENT", label: "Development", color: "BLUE", custom: false },
+      { id: "2:0", preset: "DEVELOPMENT", label: "Development", color: "GREEN", custom: false },
       { id: "9:5", preset: null, label: "Motion", color: "PINK", custom: true },
     ]);
     // A renamed preset keeps its preset and writes its label.
     const renamed = encodeCategories([{ ...read[0], label: "Dev notes", custom: true }], () => "9:9").json;
-    expect(renamed.items?.[0]).toEqual({ id: { sessionID: 2, localID: 0 }, preset: "DEVELOPMENT", custom: { color: "BLUE", label: "Dev notes" } });
+    expect(renamed.items?.[0]).toEqual({ id: { sessionID: 2, localID: 0 }, preset: "DEVELOPMENT", custom: { color: "GREEN", label: "Dev notes" } });
   });
 });
 

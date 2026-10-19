@@ -71,42 +71,7 @@ void Renderer::drawSpacing(const Mat2x3& view, const Overlay& overlay, const Ove
       continue;
     }
     if (size.x <= 0 || size.y <= 0) continue;
-    emit(makeShape(box, size, ShapeKind::Rect, kSquare, color, style.hatchWash, color, 0, 0, 0), Pass::Shape);
-    // The stripes: lines n·p = c, `period / √2` apart across them (`period` along a row), each clipped to the quad.
-    const double k = std::sqrt(0.5);
-    const Vec2 u{k, -k}, n{k, k};
-    const double sp = style.hatchPeriod * k, w = style.hatchWidth;
-    double cMin = 1e300, cMax = -1e300;
-    Vec2 mid{0, 0};
-    for (const Vec2& p : q) {
-      cMin = std::min(cMin, dot(n, p)), cMax = std::max(cMax, dot(n, p));
-      mid = {mid.x + p.x / 4, mid.y + p.y / 4};
-    }
-    // The pattern's phase: from the quad's first corner (it moves with the frame, not with the screen).
-    const double c0 = dot(n, q[0]);
-    double first = c0 + std::ceil((cMin - c0) / sp) * sp;
-    for (double c = first; c <= cMax; c += sp) {
-      double t0 = -1e300, t1 = 1e300;
-      bool empty = false;
-      for (int i = 0; i < 4 && !empty; i++) {
-        Vec2 a = q[i], b = q[(i + 1) % 4];
-        Vec2 d = b - a;
-        Vec2 m{-d.y, d.x};
-        if (dot(m, mid - a) < 0) m = {-m.x, -m.y};  // inward
-        // m·(n c + u t − a) ≥ 0
-        double mu = dot(m, u), rhs = dot(m, Vec2{a.x - n.x * c, a.y - n.y * c});
-        if (std::fabs(mu) < 1e-12) {
-          if (rhs > 0) empty = true;
-        } else if (mu > 0) {
-          t0 = std::max(t0, rhs / mu);
-        } else {
-          t1 = std::min(t1, rhs / mu);
-        }
-      }
-      if (empty || t1 - t0 < 1e-6) continue;
-      Vec2 o{n.x * c + u.x * t0 - n.x * w / 2, n.y * c + u.y * t0 - n.y * w / 2};
-      emit(makeShape(Mat2x3{u.x, n.x, o.x, u.y, n.y, o.y}, {t1 - t0, w}, ShapeKind::Rect, kSquare, color, style.hatchInk, color, 0, 0, 0), Pass::Shape);
-    }
+    hatchQuad(q, color, style.hatchWash, style.hatchInk, style.hatchPeriod, style.hatchWidth);
   }
 
   // The bars: 12 px along, 1 across, on a white edge (live 49.png at 2×: a 1 px white rim round the pink line).
@@ -149,6 +114,50 @@ void Renderer::drawSpacing(const Mat2x3& view, const Overlay& overlay, const Ove
     double px = snap(p.x + 10), py = snap(p.y - 10 - ph);
     emit(makeShape(Mat2x3::translate(px, py), {pw, ph}, ShapeKind::Rect, {rr, rr, rr, rr}, color, 1, color, 0, 0, 0), Pass::Shape);
     if (L && !L->lines.empty()) drawGlyphs(*L, Mat2x3::translate(px + (pw - tw) / 2, snap(py + (ph - L->lines[0].height) / 2)), white, 1);
+  }
+}
+
+void Renderer::hatchQuad(const Vec2 quad[4], const Color& color, double wash, double ink, double period, double width) {
+  Vec2 q[4] = {quad[0], quad[1], quad[2], quad[3]};
+  Vec2 e1 = q[1] - q[0], e2 = q[3] - q[0];
+  double l1 = e1.length(), l2 = e2.length();
+  if (l1 <= 0 || l2 <= 0) return;
+  Vec2 a{e1.x / l1, e1.y / l1}, b{e2.x / l2, e2.y / l2};
+  emit(makeShape(Mat2x3{a.x, b.x, q[0].x, a.y, b.y, q[0].y}, {l1, l2}, ShapeKind::Rect, kSquare, color, wash, color, 0, 0, 0), Pass::Shape);
+  // The stripes: lines n·p = c, `period / √2` apart across them (`period` along a row), each clipped to the quad.
+  const double k = std::sqrt(0.5);
+  const Vec2 u{k, -k}, n{k, k};
+  const double sp = period * k, w = width;
+  double cMin = 1e300, cMax = -1e300;
+  Vec2 mid{0, 0};
+  for (const Vec2& p : q) {
+    cMin = std::min(cMin, dot(n, p)), cMax = std::max(cMax, dot(n, p));
+    mid = {mid.x + p.x / 4, mid.y + p.y / 4};
+  }
+  // The pattern's phase: from the quad's first corner (it moves with the frame, not with the screen).
+  const double c0 = dot(n, q[0]);
+  double first = c0 + std::ceil((cMin - c0) / sp) * sp;
+  for (double c = first; c <= cMax; c += sp) {
+    double t0 = -1e300, t1 = 1e300;
+    bool empty = false;
+    for (int i = 0; i < 4 && !empty; i++) {
+      Vec2 pa = q[i], pb = q[(i + 1) % 4];
+      Vec2 d = pb - pa;
+      Vec2 m{-d.y, d.x};
+      if (dot(m, mid - pa) < 0) m = {-m.x, -m.y};  // inward
+      // m·(n c + u t − a) ≥ 0
+      double mu = dot(m, u), rhs = dot(m, Vec2{pa.x - n.x * c, pa.y - n.y * c});
+      if (std::fabs(mu) < 1e-12) {
+        if (rhs > 0) empty = true;
+      } else if (mu > 0) {
+        t0 = std::max(t0, rhs / mu);
+      } else {
+        t1 = std::min(t1, rhs / mu);
+      }
+    }
+    if (empty || t1 - t0 < 1e-6) continue;
+    Vec2 o{n.x * c + u.x * t0 - n.x * w / 2, n.y * c + u.y * t0 - n.y * w / 2};
+    emit(makeShape(Mat2x3{u.x, n.x, o.x, u.y, n.y, o.y}, {t1 - t0, w}, ShapeKind::Rect, kSquare, color, ink, color, 0, 0, 0), Pass::Shape);
   }
 }
 

@@ -85,6 +85,16 @@ interface PanelProps {
    * 1208,125 in a 900-high window); the wheel and the arrow keys move it up and down to bring its rows in
    */
   extend?: boolean;
+  /**
+   * Content above the rows, keys kept to itself (the zoom menu's field, Figma's `zoom_menu`: a separator follows it).
+   * The rows' keys still work when the menu itself has focus.
+   */
+  head?: ReactNode;
+  /**
+   * The lit row as the pointer or the keys move it — not the row lit when it opens — its id, or null for one with a
+   * submenu or disabled (Motion's Animations menu previews the hovered style on the canvas, docs/motion.md §6.5)
+   */
+  onHighlight?: (id: string | null) => void;
 }
 
 export type MenuOver = { rect: DOMRect; align?: "left" | "right"; dy?: number };
@@ -92,7 +102,7 @@ export type MenuOver = { rect: DOMRect; align?: "left" | "right"; dy?: number };
 /** Live (menus/main-view.txt: 105 + 787 in a 900-high window): 8 below; main-preferences.txt measured 5 (`edgeBottom`). */
 const SUBMENU_EDGES = { top: 6, bottom: 8 };
 
-function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlighted, onPick, onBack, onClose, label, context, keepTop, over, dropdown, minWidth, width: fixedWidth, submenu, edgeBottom, flush, className, flipY, extend: extendProp }: PanelProps) {
+function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlighted, onPick, onBack, onClose, label, context, keepTop, over, dropdown, minWidth, width: fixedWidth, submenu, edgeBottom, flush, className, flipY, extend: extendProp, head, onHighlight }: PanelProps) {
   useT();
   const panel = useRef<HTMLDivElement>(null);
   // Live (menus/main-object.txt): a submenu taller than the window isn't clamped to it — 185 × 1050 at 210, 6 in a 900 high
@@ -108,6 +118,21 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
   // stroke-individual-strokes-menu, frame-presets-menu, width-sizing-menu, gap-menu).
   const checkedRow = list.findIndex((e) => isItem(e) && e.checked && !e.disabled);
   const [active, setActive] = useState(highlighted ?? (dropdown || over ? checkedRow : flush ? (checkedRow >= 0 ? checkedRow : nextItem(list, -1, 1)) : -1));
+  // The lit row told (`onHighlight`) as the keys move it or the pointer enters one — the row lit on open too, once the
+  // pointer is on it — never merely for opening.
+  const told = useRef(active);
+  const tell = (i: number) => {
+    if (!onHighlight || told.current === i) return;
+    told.current = i;
+    const entry = list[i];
+    onHighlight(entry && isItem(entry) && !entry.items && !entry.disabled ? entry.id : null);
+  };
+  const hovered = useRef(false);
+  useEffect(() => {
+    if (told.current !== active) tell(active);
+    // `tell` reads the list of this render; only the lit row's move matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
   // Live (toolbar/*-tools-menu.txt, popovers/stroke-individual-strokes-menu.txt): a menu of radio items is named by a
   // hidden label ("Move tools", "Individual strokes").
   const named = !!label && (dropdown || (flush && list.some((e) => isItem(e) && e.radio)));
@@ -245,6 +270,12 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
   const enter = (i: number, e: React.PointerEvent) => {
     const entry = list[i];
     if (!isItem(entry)) return;
+    // The first row the pointer enters is told even when it was lit on open.
+    if (!hovered.current) {
+      hovered.current = true;
+      told.current = -2;
+    }
+    tell(i);
     window.clearTimeout(intent.current);
     const p = { x: e.clientX, y: e.clientY };
     const go = () => {
@@ -309,6 +340,14 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
             {label}
           </span>
         )}
+        {head && (
+          <>
+            <div className={styles.head} onKeyDown={(e) => e.stopPropagation()}>
+              {head}
+            </div>
+            <div role="separator" className={styles.separator} />
+          </>
+        )}
         {list.map((entry, i) => {
           if (entry === "-") return <div key={`line-${i}`} role="separator" className={styles.separator} />;
           if (!isItem(entry)) return <div key={`header-${i}`} role="presentation" className={styles.header}>{entry.header}</div>;
@@ -358,7 +397,10 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
                   {entry.spaceAvatar.src && <img src={entry.spaceAvatar.src} alt="" />}
                 </span>
               )}
-              <span className={styles.label}>{entry.label}</span>
+              <span className={styles.label}>
+                {entry.label}
+                {entry.chip && <span className={styles.chip}>{entry.chip}</span>}
+              </span>
               {entry.trailingIcon && <span className={styles.icon}><MenuIcon name={entry.trailingIcon} /></span>}
               {entry.hint && <span className={styles.hint}>{hintParts(entry.hint)}</span>}
               {entry.badge && (
@@ -483,10 +525,14 @@ export interface ContextMenuProps {
   flipY?: number;
   /** Runs past the window's bottom, moved by the wheel (see MenuPanel) */
   extend?: boolean;
+  /** Content above the rows (see MenuPanel), given the menu's close */
+  head?: (close: () => void) => ReactNode;
+  /** The lit row as the pointer or keys move it (see MenuPanel) */
+  onHighlight?: (id: string | null) => void;
 }
 
 /** A menu at a point (contract §4.8): picking anything, a press outside, the wheel, Esc, blur or resize closes it. */
-export function ContextMenu({ at, entries, onSelect, onClose, renderer = "dom", above, static: isStatic, highlighted, ignore, label, context, keepTop, over, dropdown, minWidth, width, flipX, flush, className, flipY, extend }: ContextMenuProps) {
+export function ContextMenu({ at, entries, onSelect, onClose, renderer = "dom", above, static: isStatic, highlighted, ignore, label, context, keepTop, over, dropdown, minWidth, width, flipX, flush, className, flipY, extend, head, onHighlight }: ContextMenuProps) {
   const root = useRef<HTMLDivElement>(null);
   const popup = renderer === "native" ? (window as unknown as DesignerMenuBridge).designer?.menu?.popup : undefined;
   useDismiss(root, onClose, { enabled: !isStatic && !popup, ignore, wheel: true, blur: true, resize: true, escape: false });
@@ -526,6 +572,8 @@ export function ContextMenu({ at, entries, onSelect, onClose, renderer = "dom", 
       flush={flush}
       minWidth={minWidth}
       width={width}
+      head={head?.(onClose)}
+      onHighlight={onHighlight}
       onPick={(id) => {
         onSelect(id);
         onClose();
@@ -592,10 +640,14 @@ export interface MenuButtonProps {
    * goes from field to field (round 17) — and is marked `data-field-menu`, so ⌥↓ in its field opens it (NumericInput)
    */
   tabIndex?: number;
+  /** Content above the rows, given the menu's close (the zoom menu's field) */
+  head?: (close: () => void) => ReactNode;
+  /** The lit row as the pointer or keys move it (see MenuPanel); null once the menu closes */
+  onHighlight?: (id: string | null) => void;
 }
 
 /** A trigger opening a menu under (or above) it; ↓ / Enter / Space open it; focus returns on close. */
-export function MenuButton({ entries, onSelect, children, label, placement = "bottom", className, disabled, tooltip, shortcut, overField, overAlign, overOffset, align = "start", gap = 4, flip, extend, named, flush, menuClassName, menuWidth, alignOffset = 0, tabIndex }: MenuButtonProps) {
+export function MenuButton({ entries, onSelect, children, label, placement = "bottom", className, disabled, tooltip, shortcut, overField, overAlign, overOffset, align = "start", gap = 4, flip, extend, named, flush, menuClassName, menuWidth, alignOffset = 0, tabIndex, head, onHighlight }: MenuButtonProps) {
   const button = useRef<HTMLButtonElement>(null);
   const [at, setAt] = useState<{ x: number; y: number; over?: MenuOver; flipX?: number; flipY?: number } | null>(null);
   const open = () => {
@@ -605,6 +657,7 @@ export function MenuButton({ entries, onSelect, children, label, placement = "bo
   };
   const close = () => {
     setAt(null);
+    onHighlight?.(null);
     button.current?.focus({ preventScroll: true });
   };
   return (
@@ -622,7 +675,11 @@ export function MenuButton({ entries, onSelect, children, label, placement = "bo
         disabled={disabled}
         className={className ?? styles.trigger}
         {...(tooltip && !at ? tooltipProps(typeof tooltip === "string" ? tooltip : label, shortcut) : {})}
-        onClick={() => (at ? setAt(null) : open())}
+        onClick={() => {
+          if (!at) return open();
+          setAt(null);
+          onHighlight?.(null);
+        }}
         onKeyDown={(e) => {
           if (e.key === "ArrowDown" && placement === "bottom") {
             e.preventDefault();
@@ -632,7 +689,7 @@ export function MenuButton({ entries, onSelect, children, label, placement = "bo
       >
         {children}
       </button>
-      {at && <ContextMenu at={at} above={placement === "top"} keepTop flush={flush} over={at.over} flipX={at.flipX} flipY={at.flipY} extend={extend} dropdown={named} label={named || flush ? label : undefined} className={menuClassName} width={menuWidth} entries={typeof entries === "function" ? entries() : entries} onSelect={onSelect} onClose={close} ignore={button} />}
+      {at && <ContextMenu at={at} above={placement === "top"} keepTop flush={flush} over={at.over} flipX={at.flipX} flipY={at.flipY} extend={extend} dropdown={named} label={named || flush ? label : undefined} className={menuClassName} width={menuWidth} head={head} onHighlight={onHighlight} entries={typeof entries === "function" ? entries() : entries} onSelect={onSelect} onClose={close} ignore={button} />}
     </>
   );
 }

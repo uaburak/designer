@@ -1,0 +1,52 @@
+DIFF     popup live @455,155 200x677  ours @708,311 200x581
+MISSING  16,110 106x13 "Send to Figma Make" 11px/400 #ffffff
+MISSING  16,134 102x13 "Find similar designs" 11px/400 #ffffff
+DIFF     "Move to page" 11px/400  live 16,175 71x13  ours 16,126 72x14
+DIFF     "Bring to front" 11px/400  live 16,199 69x13  ours 16,150 69x14
+DIFF     "]" 12px/400  live 180,198 4x15  ours 180,150 4x15
+DIFF     "Send to back" 11px/400  live 16,223 69x13  ours 16,174 69x14
+DIFF     "[" 12px/400  live 180,222 4x15  ours 180,174 4x15
+DIFF     "Group selection" 11px/400  live 16,264 82x13  ours 16,215 83x14
+DIFF     "⌘" 12px/400  live 162,263 13x15  ours 163,239 12x15
+DIFF     "G" 12px/400  live 175,263 9x15  ours 175,239 9x15
+DIFF     "Frame selection" 11px/400  live 16,288 83x13  ours 16,239 83x14
+DIFF     "⌥" 12px/400  live 149,287 13x15  ours 151,263 12x15
+DIFF     "⌘" 12px/400  live 162,287 13x15  ours 161,311 12x15
+DIFF     "G" 12px/400  live 175,287 9x15  ours 175,215 9x15
+DIFF     "Flatten" 11px/400  live 16,312 36x13  ours 16,263 36x14
+DIFF     "⌥" 12px/400  live 150,311 13x15  ours 150,352 12x15
+DIFF     "⇧" 12px/400  live 164,311 13x15  ours 163,352 12x15
+DIFF     "F" 12px/400  live 177,311 7x15  ours 177,263 7x15
+MISSING  16,336 72x13 "Outline stroke" 11px/400 #ffffff
+DIFF     "⌥" 12px/400  live 149,335 13x15  ours 149,239 12x15
+DIFF     "⌘" 12px/400  live 162,335 13x15  ours 163,215 12x15
+MISSING  175,335 9x15 "O" 12px/400 #ffffffb2
+DIFF     "Set as thumbnail" 11px/400  live 16,360 87x13  ours 16,287 87x14
+DIFF     "Use as mask" 11px/400  live 16,384 66x13  ours 16,311 67x14
+DIFF     "⌃" 12px/400  live 150,383 11x15  ours 150,311 10x15
+DIFF     "⌘" 12px/400  live 160,383 13x15  ours 163,465 12x15
+DIFF     "M" 12px/400  live 173,383 11x15  ours 173,311 11x15
+DIFF     "Remove auto layout" 11px/400  live 16,425 102x13  ours 16,352 103x14
+MISSING  149,424 13x15 "⌥" 12px/400 #ffffffb2
+DIFF     "⇧" 12px/400  live 163,424 13x15  ours 149,465 12x15
+DIFF     "A" 12px/400  live 176,424 8x15  ours 176,352 8x15
+DIFF     "More layout options" 11px/400  live 16,449 103x13  ours 16,376 104x14
+MISSING  16,473 87x13 "Main component" 11px/400 #ffffff
+DIFF     "Plugins" 11px/400  live 16,497 37x13  ours 16,424 38x14
+MISSING  16,521 43x13 "Widgets" 11px/400 #ffffff
+DIFF     "Show/Hide" 11px/400  live 16,562 57x13  ours 16,465 57x14
+DIFF     "⇧" 12px/400  live 149,561 13x15  ours 163,554 12x15
+DIFF     "⌘" 12px/400  live 162,561 13x15  ours 165,489 12x15
+DIFF     "H" 12px/400  live 175,561 9x15  ours 175,530 9x15
+DIFF     "Lock/Unlock" 11px/400  live 16,586 65x13  ours 16,489 66x14
+DIFF     "⇧" 12px/400  live 151,585 13x15  ours 162,530 12x15
+MISSING  164,585 13x15 "⌘" 12px/400 #ffffffb2
+DIFF     "L" 12px/400  live 177,585 7x15  ours 177,489 7x15
+DIFF     "Flip horizontal" 11px/400  live 16,627 73x13  ours 16,530 74x14
+DIFF     "⇧" 12px/400  live 162,626 13x15  ours 152,489 12x15
+DIFF     "H" 12px/400  live 175,626 9x15  ours 175,465 9x15
+DIFF     "Flip vertical" 11px/400  live 16,651 60x13  ours 16,554 61x14
+DIFF     "⇧" 12px/400  live 163,650 13x15  ours 164,263 12x15
+DIFF     "V" 12px/400  live 176,650 8x15  ours 176,554 8x15
+EXTRA    0,0 200x581 menu [Canvas] bg=#1e1e1e r=13px
+EXTRA    16,400 60x14 "Add variant" 11px/400 #ffffff

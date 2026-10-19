@@ -1,0 +1,33 @@
+DIFF     popup live @12,44 194x444  ours @12,44 194x468
+DIFF     "Open in desktop app" 11px/450  live 16,394 110x13  ours 16,417 109x14
+DIFF     "Help and account" 11px/450  live 16,418 93x13  ours 16,441 93x14
+EXTRA    0,0 194x468 menu [Main menu] bg=#1e1e1e r=13px
+EXTRA    16,376 56x14 "AI balance" 11px/450 #ffffff
+DIFF     popup live @210,105 201x787  ours @210,57 201x835
+DIFF     "Switch to Dev Mode" 11px/450  live 32,439 106x13  ours 32,486 106x14
+DIFF     "⇧D" 11px/450  live 166,439 19x13  ours 166,486 19x14
+DIFF     "Panels" 11px/450  live 32,463 35x13  ours 32,510 35x14
+DIFF     "Zoom in" 11px/450  live 32,504 42x13  ours 32,551 43x14
+DIFF     "⌘+" 11px/450  live 167,504 18x13  ours 167,551 18x14
+DIFF     "Zoom out" 11px/450  live 32,528 50x13  ours 32,575 50x14
+DIFF     "⌘–" 11px/450  live 169,528 17x13  ours 169,575 17x14
+DIFF     "Zoom to 100%" 11px/450  live 32,552 75x13  ours 32,599 76x14
+DIFF     "⌘0" 11px/450  live 167,552 18x13  ours 167,599 18x14
+DIFF     "Zoom to fit" 11px/450  live 32,576 58x13  ours 32,623 57x14
+DIFF     "⇧1" 11px/450  live 167,576 19x13  ours 167,623 19x14
+DIFF     "Zoom to selection" 11px/450  live 32,600 95x13  ours 32,647 94x14
+DIFF     "⇧2" 11px/450  live 167,600 19x13  ours 167,647 19x14
+DIFF     "Previous page" 11px/450  live 32,641 75x13  ours 32,688 75x14
+DIFF     "🌐↑" 11px/450  live 163,641 22x13  ours 161,688 25x14
+DIFF     "Next page" 11px/450  live 32,665 54x13  ours 32,712 54x14
+DIFF     "🌐↓" 11px/450  live 163,665 22x13  ours 161,712 25x14
+DIFF     "Zoom to previous frame" 11px/450  live 32,689 126x13  ours 32,736 126x14
+DIFF     "⇧N" 11px/450  live 166,689 20x13  ours 166,736 20x14
+DIFF     "Zoom to next frame" 11px/450  live 32,713 104x13  ours 32,760 103x14
+DIFF     "N" 11px/450  live 177,713 8x13  ours 177,760 8x14
+DIFF     "Find previous frame" 11px/450  live 32,737 105x13  ours 32,784 105x14
+DIFF     "Home" 11px/450  live 154,737 31x13  ours 154,784 31x14
+DIFF     "Find next frame" 11px/450  live 32,761 83x13  ours 32,808 83x14
+DIFF     "End" 11px/450  live 165,761 20x13  ours 165,808 20x14
+EXTRA    32,438 89x14 "Switch to Motion" 11px/450 #ffffff
+EXTRA    32,462 32x14 "Social" 11px/450 #ffffff

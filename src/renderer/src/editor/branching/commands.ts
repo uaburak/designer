@@ -1,6 +1,8 @@
 /**
  * The branch items of the Figma menu's File submenu and the file name menu (R21 "Where the items live"): Create
  * branch… on main; Update from main…, Review and merge changes…, Archive on an active branch; See all branches on both.
+ * Figma's gates (atlas 16 §4.2): Update from main only when main has changed; neither it nor Review and merge while a
+ * shared branch's link is down.
  */
 import type { MenuEntry } from "@/ds";
 import { showToast } from "@/ds";
@@ -8,10 +10,13 @@ import { t } from "@/i18n";
 import type { EditorCommand } from "../commands";
 import type { EditorController } from "../controller";
 import { fileOps } from "../objectCommands";
+import { saveStatusOf } from "../saveStatus";
 import { backendOf } from "./access";
 import { branching, isActiveBranch, isBranch, openBranchWindow, refreshBranch } from "./state";
 
 const hasBackend = (ed: EditorController) => !!backendOf(ed) && branching(ed).fileKey !== null;
+/** A shared branch needs its rooms to update or merge (a local one never waits) */
+const reachable = (ed: EditorController) => !branching(ed).record?.branchKey || saveStatusOf(ed).state.online;
 
 export const BRANCH_COMMANDS: EditorCommand[] = [
   // Round 10's dialog flag (ui.branchDialog); the dialog is branching/CreateBranch.tsx. Not on a branch (no branches of
@@ -25,7 +30,7 @@ export const BRANCH_COMMANDS: EditorCommand[] = [
       const b = branching(ed).record;
       if (b) openBranchWindow(ed, { kind: "update", branchFileKey: b.branchFileKey });
     },
-    enabled: isActiveBranch,
+    enabled: (ed) => isActiveBranch(ed) && branching(ed).mainChanged && reachable(ed),
   },
   {
     id: "file.review-and-merge",
@@ -34,7 +39,7 @@ export const BRANCH_COMMANDS: EditorCommand[] = [
       const b = branching(ed).record;
       if (b) openBranchWindow(ed, { kind: "review", branchFileKey: b.branchFileKey });
     },
-    enabled: isActiveBranch,
+    enabled: (ed) => isActiveBranch(ed) && reachable(ed),
   },
   { id: "file.archive-branch", label: "Archive", run: (ed) => void archiveThisBranch(ed), enabled: isActiveBranch },
 ];

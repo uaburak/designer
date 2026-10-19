@@ -15,12 +15,13 @@
  * interim JSON payload (`(designerv2)` markers) is still read and, with an
  * engine without kiwi, written.
  */
-import type { Guid, Message, Vector } from "@/engine/codec";
+import type { Guid, Message, NodeChange, Vector } from "@/engine/codec";
 import { deflateRawStored, isZstd, inflateRawStored, type FigCodecs } from "../../../../shared/fig/compression";
 import { figmaMetaOf, type FigmaClipboardMeta } from "../../../../shared/fig/figmaClipboard";
 import { decodeCanvas, figContainer, readCanvasChunks } from "../../../../shared/fig/container";
 import { decodeMessage, DOCUMENT_FORMAT_VERSION, encodeMessage, SCHEMA_BINARY, type Message as KiwiMessage } from "../../../../shared/schema/codec";
 import { guidKey } from "../../../../shared/schema/guid";
+import { nodeToEngine, nodeToKiwi } from "../../store/engineMessage";
 import { boundsOf, IDENTITY, unionBoxes } from "./geometry";
 
 export const CLIPBOARD_TYPE = "application/x-designerv2-kiwi";
@@ -100,6 +101,78 @@ export function decodeClipboard(read: (type: string) => string | null | undefine
     if (payload) {
       const m = decodePayload(payload);
       if (m) return m;
+    }
+  }
+  return null;
+}
+
+// ---- Copy / Paste properties ----------------------------------------------------------------------------------------
+
+/** What Copy properties put on the clipboard: the copied fields (and the layer's type), and the file they came from. */
+export interface CopiedProperties {
+  node: NodeChange;
+  fileKey?: string;
+}
+
+/**
+ * Copy properties' formats (atlas 15 §10): Figma's STYLE Message (`MessageType.STYLE` 5) — one CREATED node at GUID
+ * 0:0 holding the copied fields (and the layer's type), and `pasteFileKey` — as a fig-kiwi archive in the clipboard's
+ * `(figma)` envelope, as Figma writes it, so ⌥⌘V works in another file or window. ⌘V never pastes it as layers
+ * (`readClipboard` skips it, the paste refuses a STYLE Message).
+ */
+export function encodePropertiesClipboard(node: NodeChange, fileKey: string | null): Record<string, string> {
+  const message: KiwiMessage = {
+    type: "STYLE",
+    sessionID: 0,
+    nodeChanges: [nodeToKiwi({ ...node, guid: "0:0", phase: "CREATED" })],
+    ...(fileKey ? { pasteFileKey: fileKey } : {}),
+  };
+  return encodeClipboardKiwi(encodeMessage(message), { fileKey });
+}
+
+/** A clipboard Message's copied properties: a STYLE Message's node (the engine's form), or null for anything else. */
+export function propertiesOfMessage(message: KiwiMessage): CopiedProperties | null {
+  const node = message.type === "STYLE" ? message.nodeChanges?.[0] : undefined;
+  return node ? { node: nodeToEngine(node), ...(message.pasteFileKey ? { fileKey: message.pasteFileKey } : {}) } : null;
+}
+
+/** An archive written with our schema and stored deflate (ours): its Message bytes, synchronously; else null. */
+function ownArchiveMessage(archive: Uint8Array): Uint8Array | null {
+  try {
+    const canvas = decodeCanvas(archive, STORED);
+    return canvas.schema.length === SCHEMA_BINARY.length && canvas.schema.every((b, i) => b === SCHEMA_BINARY[i]) ? canvas.message : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether kiwi Message bytes are a STYLE Message (Copy properties), read from the first field without decoding the
+ * rest: kiwi writes a message's fields in their schema order, and `type` is field 1 (an enum, a varuint).
+ */
+export function isStyleMessage(bytes: Uint8Array): boolean {
+  return bytes.length > 1 && bytes[0] === 1 && bytes[1] === 5;
+}
+
+/**
+ * The copied properties on a clipboard, from whichever format holds them — an archive of ours, or the interim JSON
+ * payload an older build wrote; null when it holds none. Figma's own archives (another schema, compressed) are read
+ * asynchronously by the caller (clipboardIO.ts `readPropertiesClipboard`).
+ */
+export function decodePropertiesClipboard(read: (type: string) => string | null | undefined): CopiedProperties | null {
+  const payload = readClipboard(read, { properties: true });
+  if (payload?.kind === "archive") {
+    const message = ownArchiveMessage(payload.archive);
+    return message ? propertiesOfMessage(decodeMessage(message)) : null;
+  }
+  for (const b64 of [read(CLIPBOARD_TYPE), envelopeOf(read("text/html")), envelopeOf(read("text/plain"))]) {
+    if (!b64) continue;
+    try {
+      const value = JSON.parse(base64ToUtf8(b64.trim())) as { type?: string; nodeChanges?: NodeChange[]; pasteFileKey?: string };
+      const node = value?.type === "STYLE" ? value.nodeChanges?.[0] : undefined;
+      if (node) return { node, ...(value.pasteFileKey ? { fileKey: value.pasteFileKey } : {}) };
+    } catch {
+      /* not ours */
     }
   }
   return null;
@@ -186,13 +259,18 @@ export function encodeClipboardKiwi(bytes: Uint8Array, meta: { fileKey?: string 
  */
 export type ClipboardPayload = { kind: "json"; message: Message } | { kind: "archive"; archive: Uint8Array; meta: FigmaClipboardMeta | null };
 
-/** The clipboard's payload, from whichever format decodes first (an archive before the JSON); null when none is there. */
-export function readClipboard(read: (type: string) => string | null | undefined): ClipboardPayload | null {
+/**
+ * The clipboard's payload, from whichever format decodes first (an archive before the JSON); null when none is there.
+ * An archive of ours holding Copy properties' STYLE Message isn't layers: skipped unless `properties` asks for it.
+ */
+export function readClipboard(read: (type: string) => string | null | undefined, options: { properties?: boolean } = {}): ClipboardPayload | null {
   const archiveOf = (b64: string | null | undefined): Uint8Array | null => {
     if (!b64) return null;
     try {
       const bytes = b64ToBytes(b64.trim());
-      return bytes.length > 12 && String.fromCharCode(...bytes.subarray(0, 4)) === "fig-" ? bytes : null;
+      if (bytes.length <= 12 || String.fromCharCode(...bytes.subarray(0, 4)) !== "fig-") return null;
+      const own = options.properties ? null : ownArchiveMessage(bytes);
+      return own && isStyleMessage(own) ? null : bytes;
     } catch {
       return null;
     }

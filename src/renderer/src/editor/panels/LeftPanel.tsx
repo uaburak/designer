@@ -5,7 +5,7 @@
  * here, docs/plugins.md §6: by Source — Development, Your organization — and type; a row runs it).
  */
 import { useCallback, useState, useSyncExternalStore } from "react";
-import { EmptyState, Icon, IconButton, MenuButton, ResizeHandle, SearchField, Select, TextInput, showToast } from "@/ds";
+import { EmptyState, Icon, IconButton, MenuButton, ResizeHandle, SearchField, Select, TextInput, showToast, type MenuEntry } from "@/ds";
 import { useEditor } from "../controller";
 import { command, runEditorCommand, shortcutOf } from "../commands";
 import { useUI } from "../hooks";
@@ -147,7 +147,7 @@ function ToolsList({ query, source, type }: { query: string; source: string; typ
   // Recents and Saved repeat the plugins listed by source: by source only here.
   const shown = rows.filter((r, i) => (r.section !== "Recents" && r.section !== "Saved") || !rows.some((x, j) => j !== i && x.ref.id === r.ref.id && x.section !== r.section));
   const unique = shown.filter((r, i) => shown.findIndex((x) => x.key === r.key || (x.ref.id === r.ref.id && x.command === r.command)) === i);
-  if (!unique.length) return <EmptyState icon="24.tools" title={t("No tools")} body={query ? t("No plugins match.") : t("Import a plugin from Plugins › Development › Import new plugin from manifest…")} />;
+  if (!unique.length) return <EmptyState icon="24.tools" title={t("No tools")} body={query ? t("No plugins match.") : t("Import a plugin from Plugins › Development › Import plugin from manifest…")} />;
   return (
     <div className={styles.toolsList} role="list" aria-label={t("Plugins")}>
       {unique.map((r, i) => (
@@ -163,7 +163,8 @@ function ToolsList({ query, source, type }: { query: string; source: string; typ
   );
 }
 
-function FileHeader() {
+/** `menu`: the name's menu in place of Edit file's (Dev Mode's: version history, Library ▸ …). */
+export function FileHeader({ menu }: { menu?: () => MenuEntry[] } = {}) {
   useT();
   const ed = useEditor();
   const name = useUI((s) => s.fileName);
@@ -173,21 +174,23 @@ function FileHeader() {
     useCallback((changed: () => void) => ed.source.onMetaChanged?.(changed) ?? (() => {}), [ed]),
     () => ed.source.location
   );
-  // The Edit file menu (help "Navigate the left sidebar": rename, version history, color profile, move).
-  // Built when the menu opens (the branch rows follow the file's branch state).
+  // The Edit file menu in Figma's order (docs/research/atlas/02-editor-chrome.md §3.3, EDITOR_FILENAME_DROPDOWN): the
+  // branch rows; version history, the library's, analytics, Export; the color profile; Duplicate, Rename, Move. Built
+  // when the menu opens (the branch rows follow the file's branch state).
   const entries = () => [
-    commandItem(ed, "file.rename"),
-    commandItem(ed, "file.duplicate"),
-    commandItem(ed, "file.move"),
+    ...branchMenuEntries(ed, commandItem).slice(1),
     "-" as const,
-    commandItem(ed, "file.save-version"),
     commandItem(ed, "file.version-history"),
-    "-" as const,
+    commandItem(ed, "file.save-version"),
     commandItem(ed, "file.publish-library"),
     commandItem(ed, "file.library-analytics"),
-    ...branchMenuEntries(ed, commandItem),
+    commandItem(ed, "file.export"),
     "-" as const,
     commandItem(ed, "file.color-profile"),
+    "-" as const,
+    commandItem(ed, "file.duplicate"),
+    commandItem(ed, "file.rename"),
+    commandItem(ed, "file.move"),
   ];
   return (
     <div className={styles.fileHeader}>
@@ -195,7 +198,7 @@ function FileHeader() {
         {renaming ? (
           <RenameFile name={name} />
         ) : (
-          <MenuButton label={t("Edit file")} entries={entries} onSelect={(id) => runEditorCommand(ed, id)} className={styles.fileButton}>
+          <MenuButton label={t("Edit file")} entries={menu ?? entries}onSelect={(id) => runEditorCommand(ed, id)} className={styles.fileButton}>
             <BranchTitle name={name} />
             <Icon name="16.chevron.down" />
           </MenuButton>

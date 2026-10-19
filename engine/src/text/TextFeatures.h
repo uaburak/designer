@@ -60,6 +60,10 @@ struct TextFeatures {
   bool hangingList = false;
   bool hangingPunctuation = false;
   WrapStyle wrapStyle = WrapStyle::AUTO;
+  // Figma's text layout versions (Atlas 06 §2.4; -1 absent): textUserLayoutVersion 0 keeps fractional line heights,
+  // textBidiVersion 0 lays out left to right only (an older text, before bidi); absent counts as the latest (texts
+  // made here before the fields were written). textExplicitLayoutVersion is kept for the Update / Revert banner.
+  int32_t userLayoutVersion = -1, explicitLayoutVersion = -1, bidiVersion = -1;
 
   // The OpenType feature list HarfBuzz shapes with (tag, on), `textCase` adding small caps.
   std::vector<std::pair<uint32_t, bool>> shapingFeatures(TextCase textCase) const;
@@ -68,6 +72,12 @@ struct TextFeatures {
 
 // The node's own (NodeProps::extra).
 TextFeatures nodeFeatures(const std::map<std::string, std::string>& extra);
+
+// Figma's current text layout versions (Atlas 06 §2.4: textUserLayoutVersion, textExplicitLayoutVersion and
+// textBidiVersion are all 1): what a new text is stamped with (stampLayoutVersions, the fields it lacks) and what
+// Type settings' Update writes.
+inline constexpr int32_t kLatestTextLayoutVersion = 1;
+void stampLayoutVersions(std::map<std::string, std::string>& extra);
 // A run's fields on top of `base` (TextStyle::extra: a raw NodeChange field sequence).
 TextFeatures runFeatures(const TextFeatures& base, std::string_view runExtra);
 // Whether a run's raw fields hold any of the fields above.
@@ -87,8 +97,8 @@ struct LineInfo {
   int32_t indentationLevel = 0;
   int32_t listStartOffset = 0;
   bool isFirstLineOfList = false;
-  // Text › Text direction (round 10): sourceDirectionality — 0 AUTO, 1 LTR, 2 RTL. Kept and written; the layout is
-  // left to right until bidi (E3.2).
+  // Text › Text direction (round 10): sourceDirectionality — 0 AUTO (the paragraph's first strong character), 1 LTR,
+  // 2 RTL: the paragraph's bidi level (text/Bidi.h, Atlas wave 3).
   uint8_t direction = 0;
 };
 LineInfo readLine(std::string_view bytes);

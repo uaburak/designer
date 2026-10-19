@@ -138,14 +138,18 @@ ImageHints imageHints(const Paint& paint) {
   return h;
 }
 
-ImageHash paintVideoHash(const Paint& paint) {
+namespace {
+
+// The hash of the message in field `field` of a paint's kept members — a Video {hash = 1, s3Url = 2} or an Image
+// {hash = 1, name = 2, …}: both carry the 20-byte SHA-1 first.
+ImageHash extraHash(const Paint& paint, uint32_t field, const char* message) {
   ImageHash h;
-  if (paint.type != PaintType::VIDEO || paint.extra.empty()) return h;
+  if (paint.extra.empty()) return h;
   static const schema::Def* def = schema::SchemaTable::get().def("Paint");
-  static const schema::Def* video = schema::SchemaTable::get().def("Video");
-  if (!def || !video) return h;
+  const schema::Def* inner = schema::SchemaTable::get().def(message);
+  if (!def || !inner) return h;
   schema::SchemaTable::get().forEachField(*def, paint.extra, [&](const schema::FieldDef& f, std::string_view v) {
-    if (f.value != 18) return;  // video: Video {hash = 1, s3Url = 2}
+    if (f.value != field) return;
     kiwi::ByteBuffer bb(reinterpret_cast<const uint8_t*>(v.data()), v.size());
     for (;;) {
       uint32_t g = 0;
@@ -159,11 +163,21 @@ ImageHash paintVideoHash(const Paint& paint) {
         }
         return;
       }
-      const schema::FieldDef* fd = video->byId(g);
+      const schema::FieldDef* fd = inner->byId(g);
       if (!fd || !schema::SchemaTable::get().skipValue(bb, *fd)) return;
     }
   });
   return h;
+}
+
+}  // namespace
+
+ImageHash paintVideoHash(const Paint& paint) {
+  return paint.type == PaintType::VIDEO ? extraHash(paint, 18, "Video") : ImageHash{};  // video
+}
+
+ImageHash paintGifHash(const Paint& paint) {
+  return paint.type == PaintType::IMAGE ? extraHash(paint, 16, "Image") : ImageHash{};  // animatedImage
 }
 
 ImageRegistry& ImageRegistry::get() {
@@ -393,6 +407,19 @@ void ImageCache::endFrame() {
     }
   }
   frame_++;
+}
+
+void ImageCache::purge() {
+  // endFrame moved frame_ past the last frame: what it drew has lastFrame == frame_ - 1.
+  for (auto it = textures_.begin(); it != textures_.end();) {
+    if (it->second.lastFrame + 1 < frame_) {
+      bytes_ -= it->second.bytes;
+      device_.destroyTexture(it->second.texture.id);
+      it = textures_.erase(it);
+    } else {
+      ++it;
+    }
+  }
 }
 
 }  // namespace eng

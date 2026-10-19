@@ -388,3 +388,52 @@ TEST_CASE("r18 cursor chat through the C ABI") {
   CHECK(send("[1]", false) != 0);
   engine_destroy(h);
 }
+
+TEST_CASE("phase 6 cursor chat: two lines; a fading bubble drawn at its opacity, nothing at 0 (atlas 19 §4.3)") {
+  Scene s;
+  PresencePeer a = peer(7, "Alice", kAlice, true, {350, 40}, {});
+  a.hasChat = true;
+  a.chat = "first line";
+  s.e.setPresence({a});
+  auto one = bubbles(s.draw(), kAlice, s.style);
+  REQUIRE(one.size() == 1);
+  a.chat = "first line\nsecond";
+  s.e.setPresence({a});
+  auto two = bubbles(s.draw(), kAlice, s.style);
+  REQUIRE(two.size() == 1);
+  CHECK(two[0].origin[3] > one[0].origin[3] + s.style.presenceLabelSize * 0.8);  // a line taller
+  // Fading: the bubble's fill at the opacity (premultiplied), the chip not drawn instead
+  a.chatAlpha = 0.5;
+  s.e.setPresence({a});
+  auto all = s.draw();
+  size_t faded = 0;
+  for (const DrawInstance& q : all)
+    if (std::fabs(q.color[3] - 0.5f) < 0.01 && std::fabs(q.color[0] - kAlice.r * 0.5f) < 0.01 && std::fabs(q.box[1] - s.style.presenceChatRadius) < 1e-6) faded++;
+  CHECK(faded == 1);
+  CHECK(chips(all, kAlice, s.style) == 0);
+  a.chatAlpha = 0;
+  s.e.setPresence({a});
+  all = s.draw();
+  CHECK(bubbles(all, kAlice, s.style).empty());
+  CHECK(chips(all, kAlice, s.style) == 0);
+  // The local bubble likewise
+  LocalChat mine;
+  mine.on = true;
+  mine.text = "hey";
+  mine.at = {200, 100};
+  mine.alpha = 0;
+  s.e.setLocalChat(mine);
+  CHECK(bubbles(s.draw(), s.style.presenceLocalChat, s.style).empty());
+}
+
+TEST_CASE("phase 6 cursor chat's opacity through the C ABI") {
+  Handle h = engine_create(nullptr, 0, 0);
+  REQUIRE(h != 0);
+  std::string doc = codec::writeMessage(0, nodes());
+  REQUIRE(engine_load(h, reinterpret_cast<Ptr>(doc.data()), static_cast<uint32_t>(doc.size())) == 0);
+  std::string p = R"([{"id":7,"name":"Alice","color":"#f24822","cursor":{"x":1,"y":2},"selection":[],"chat":"hi","chatOpacity":0.25}])";
+  CHECK(engine_set_presence(h, reinterpret_cast<Ptr>(p.data()), static_cast<uint32_t>(p.size())) == 0);
+  std::string l = R"({"text":"hey","at":{"x":10,"y":20},"opacity":0.5})";
+  CHECK(engine_set_local_chat(h, reinterpret_cast<Ptr>(l.data()), static_cast<uint32_t>(l.size())) == 0);
+  engine_destroy(h);
+}

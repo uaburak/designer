@@ -1,8 +1,10 @@
 import { app, BaseWindow, nativeTheme, screen, type WebContentsView } from "electron";
 import type { WindowState } from "../shared/ipc";
 import { CAPTION_OVERLAY, DEFAULT_WINDOW_SIZE, MIN_WINDOW_SIZE, TABBAR_HEIGHT, TRAFFIC_LIGHT_POSITION } from "../shared/layout";
-import { emptyTabs, persistable, restoreTabs } from "../shared/tabs";
+import { tabbarHeight } from "./interfaceScale";
+import { emptyTabs, HOME, newTabId, persistable, restoreTabs } from "../shared/tabs";
 import { flushSession, readSession, writeSession, type WindowBounds, type WindowSession } from "./session";
+import { syncClosedMenu } from "./menu";
 import { flushStore, stopStoreHost, storeClient } from "./storeHost";
 import { askQuitWithUploads } from "./dialogs";
 import { confirmQuitWithUploads } from "./uploadsQuit";
@@ -10,12 +12,23 @@ import { drainGovernanceReportsWithin } from "./account/governanceReports";
 import { emit, TabManager } from "./tabs";
 import { exitForUpdate } from "./updater";
 import { backgroundOf, createView, destroyView } from "./views";
+import { TabPreviewView } from "./tabPreview";
 
 /**
  * A window (docs/desktop.md §2): a BaseWindow — no page of its own under the
  * views — with the tab bar's view on top (38px; the traffic lights in its
  * left 80px) and the content views under it (Home, each open file), all the
- * window's width. Its place and its tabs are kept in session.json.
+ * window's width (a split tab's two halves side by side). Its place and its
+ * tabs are kept in session.json.
+ *
+ * Several windows (atlas 01 §2.4, §2.9: New Window ⌘⇧N, Move to New / Another
+ * Window): each its own tab bar, Home and tabs; a file is open in one window
+ * at most (its tab comes forward there). The menu bar acts on the window last
+ * in front. Only the first window keeps a spare editor and loads tabs in the
+ * background at launch — every other window loads its tab in front only
+ * (memory: a spare editor and its Wasm are a few hundred MB). A window closed
+ * while others stay open leaves session.json; the last one is kept for the
+ * next launch, and quitting keeps them all.
  */
 
 export const lifecycle = { quitting: false };
@@ -47,13 +60,42 @@ export function confirmQuit(win: BaseWindow | null): Promise<boolean> {
 
 export const controllers = new Map<string, WindowController>();
 
+/** The windows' ids, the one last in front first. */
+const focusOrder: string[] = [];
+
+/** The window the menu bar and the app's commands act on: the one last in front (the first one before any had the focus). */
+export function frontWindow(): WindowController | null {
+  for (const id of focusOrder) {
+    const ctl = controllers.get(id);
+    if (ctl && !ctl.win.isDestroyed()) return ctl;
+  }
+  return [...controllers.values()][0] ?? null;
+}
+
+/** Where a new window opens: this far down and right of the one in front (ours; macOS cascades by about as much). */
+const NEW_WINDOW_OFFSET = 24;
+
+/** Quitting: every window's files settled once (each window gets its own close; they share this). */
+let quitSettling: Promise<boolean> | null = null;
+function settleForQuit(win: BaseWindow): Promise<boolean> {
+  quitSettling ??= (async () => {
+    // Uploads in flight: asked first (once per quit); they continue at the next start
+    if (!(await confirmQuit(win))) return false;
+    for (const ctl of [...controllers.values()]) if (!(await ctl.tabs.settleAll("quit"))) return false;
+    return true;
+  })().finally(() => (quitSettling = null));
+  return quitSettling;
+}
+
 const windowBackground = () => (nativeTheme.shouldUseDarkColors ? "#2c2c2c" : "#ffffff");
 /** Windows: the system's caption buttons over the tab bar's right end, in its colours (no 1px line under them) */
-const captionOverlay = () => ({ ...CAPTION_OVERLAY[nativeTheme.shouldUseDarkColors ? "dark" : "light"], height: TABBAR_HEIGHT - 1 });
+const captionOverlay = () => ({ ...CAPTION_OVERLAY[nativeTheme.shouldUseDarkColors ? "dark" : "light"], height: tabbarHeight() - 1 });
+/** The traffic lights centred in the tab bar as View › Interface Scale makes it (12 down in its 38 px at 100 %). */
+const trafficLights = () => ({ x: TRAFFIC_LIGHT_POSITION.x, y: Math.round(TRAFFIC_LIGHT_POSITION.y + (tabbarHeight() - TABBAR_HEIGHT) / 2) });
 /** macOS: the traffic lights inset in the tab bar; Windows: no title bar, the caption buttons drawn over it */
 const chrome = () =>
   process.platform === "darwin"
-    ? { titleBarStyle: "hiddenInset" as const, trafficLightPosition: { ...TRAFFIC_LIGHT_POSITION } }
+    ? { titleBarStyle: "hiddenInset" as const, trafficLightPosition: trafficLights() }
     : { titleBarStyle: "hidden" as const, titleBarOverlay: captionOverlay() };
 
 /** A saved place still on one of the screens — its top edge on a display, enough of it to grab (a display may be gone since). */
@@ -67,6 +109,8 @@ export class WindowController {
   readonly win: BaseWindow;
   readonly tabbar: WebContentsView;
   readonly tabs: TabManager;
+  /** The card under a hovered tab (atlas 01 §2.2), a view of its own made at the first hover */
+  readonly preview: TabPreviewView;
   private bounds: WindowBounds;
   private closeAllowed = false;
   private closing = false;
@@ -76,7 +120,8 @@ export class WindowController {
   private signedOut = false;
   private ready = { tabbar: false, content: false };
 
-  constructor(saved?: WindowSession) {
+  /** `primary`: the window that keeps the spare editor and loads tabs in the background at launch (the first one). */
+  constructor(saved?: WindowSession, { primary = true }: { primary?: boolean } = {}) {
     this.id = saved?.id ?? "main";
     const bounds: WindowBounds = saved?.bounds && typeof saved.bounds.width === "number" ? saved.bounds : { ...DEFAULT_WINDOW_SIZE };
     const placed = onScreen(bounds);
@@ -103,8 +148,9 @@ export class WindowController {
       if (details.reason !== "clean-exit") this.tabbar.webContents.reload();
     });
 
-    const state = restoreTabs(saved ? { tabs: saved.tabs, active: saved.activeTabId, closed: saved.closed } : null);
-    this.tabs = new TabManager(this, state);
+    const state = restoreTabs(saved ? { tabs: saved.tabs, active: saved.activeTabId, closed: saved.closed, groups: saved.groups } : null);
+    this.tabs = new TabManager(this, state, { primary });
+    this.preview = new TabPreviewView(this);
     this.layout();
 
     // Live, as the window is dragged larger (macOS sends resize all along); maximize and full screen send it too.
@@ -117,8 +163,19 @@ export class WindowController {
     };
     this.win.on("enter-full-screen", changed);
     this.win.on("leave-full-screen", changed);
-    this.win.on("focus", () => this.sendWindowState());
-    this.win.on("blur", () => this.sendWindowState());
+    this.win.on("focus", () => {
+      const at = focusOrder.indexOf(this.id);
+      if (at >= 0) focusOrder.splice(at, 1);
+      focusOrder.unshift(this.id);
+      this.sendWindowState();
+      // The menu bar follows the window in front: its items' state, its recently closed tabs.
+      syncClosedMenu();
+      this.tabs.applyMenu();
+    });
+    this.win.on("blur", () => {
+      this.sendWindowState();
+      this.preview.hide();
+    });
     const remember = () => {
       if (this.win.isDestroyed() || this.win.isFullScreen() || this.win.isMinimized() || this.win.isMaximized()) return this.persist();
       this.bounds = this.win.getBounds();
@@ -136,10 +193,17 @@ export class WindowController {
       void this.requestClose();
     });
     this.win.on("closed", () => {
-      flushSession();
+      this.preview.destroy();
       this.tabs.destroy();
       destroyView(this.tabbar);
       controllers.delete(this.id);
+      const at = focusOrder.indexOf(this.id);
+      if (at >= 0) focusOrder.splice(at, 1);
+      // Closed while other windows stay: it leaves the session (the last one is kept for the next launch).
+      const rest = [...controllers.values()];
+      if (rest.length && !lifecycle.quitting) rest[0].persist();
+      flushSession();
+      syncClosedMenu();
     });
 
     // Shown once the tab bar and the content in front have painted — or after 1.5s whatever they do.
@@ -150,16 +214,15 @@ export class WindowController {
   /** The content views' place: under the tab bar, the window's width. */
   contentBounds() {
     const { width, height } = this.win.getContentBounds();
-    return { x: 0, y: TABBAR_HEIGHT, width, height: Math.max(0, height - TABBAR_HEIGHT) };
+    return { x: 0, y: tabbarHeight(), width, height: Math.max(0, height - tabbarHeight()) };
   }
 
   /** Every view placed — the hidden ones too, so a switch never resizes (and re-renders) the one coming forward. */
   layout() {
     if (this.win.isDestroyed()) return;
     const { width } = this.win.getContentBounds();
-    this.tabbar.setBounds({ x: 0, y: 0, width, height: TABBAR_HEIGHT });
-    const content = this.contentBounds();
-    for (const view of this.tabs.contentViews()) view.setBounds(content);
+    this.tabbar.setBounds({ x: 0, y: 0, width, height: tabbarHeight() });
+    this.tabs.place(this.contentBounds());
   }
 
   windowState(): WindowState {
@@ -252,27 +315,35 @@ export class WindowController {
     for (const view of this.tabs.contentViews()) if (view !== this.tabs.home) view.setBackgroundColor(backgroundOf("editor"));
   }
 
-  /** Closing asked (the red button, ⌘Q): unsaved tabs settled first. */
+  /** View › Interface Scale changed (interfaceScale.ts): the tab bar's height, the traffic lights or caption buttons in it. */
+  interfaceScaleChanged() {
+    if (this.win.isDestroyed()) return;
+    if (process.platform === "darwin") this.win.setWindowButtonPosition(trafficLights());
+    else this.win.setTitleBarOverlay(captionOverlay());
+    this.layout();
+  }
+
+  /** Closing asked (the red button, ⌘Q): unsaved tabs settled first — quitting, every window's. */
   async requestClose() {
     if (this.closing) return;
     this.closing = true;
     try {
-      // Quitting while files upload: asked first (once per quit); they continue at the next start
-      if (lifecycle.quitting && !(await confirmQuit(this.win))) {
-        lifecycle.quitting = false;
-        return;
+      if (lifecycle.quitting) {
+        if (!(await settleForQuit(this.win))) {
+          lifecycle.quitting = false;
+          return;
+        }
+        // Every window kept as it is for the next launch; they close with the app.
+        for (const ctl of controllers.values()) ctl.closeAllowed = true;
+        this.persist();
+        flushSession();
+        return void finishQuit();
       }
-      const ok = await this.tabs.settleAll(lifecycle.quitting ? "quit" : "close");
-      if (!ok) {
-        lifecycle.quitting = false;
-        return;
-      }
+      if (!(await this.tabs.settleAll("close"))) return;
       this.closeAllowed = true;
       this.persist();
       flushSession();
-      // Quitting: the other windows (v1 has none) close with the app.
-      if (lifecycle.quitting) void finishQuit();
-      else this.win.close();
+      this.win.close();
     } finally {
       this.closing = false;
     }
@@ -288,6 +359,7 @@ export class WindowController {
       tabs: kept.tabs,
       activeTabId: kept.active,
       closed: kept.closed,
+      groups: kept.groups,
     };
   }
 
@@ -296,12 +368,29 @@ export class WindowController {
   }
 }
 
-/** The first window of the saved session (v1 opens one); `bounds`: where the welcome window it replaces was. */
+/**
+ * The saved session's windows, the first one primary; `bounds`: where the welcome window the first one replaces was.
+ * A window whose id repeats an earlier one's (a hand-edited session.json) is left out.
+ */
 export function openWindow(bounds?: WindowBounds): WindowController {
-  const saved = readSession().windows[0];
-  if (!bounds) return new WindowController(saved);
-  const tabs = persistable(restoreTabs(saved ? { tabs: saved.tabs, active: saved.activeTabId, closed: saved.closed } : null));
-  return new WindowController({ id: saved?.id ?? "main", maximized: saved?.maximized ?? false, fullScreen: false, tabs: tabs.tabs, activeTabId: tabs.active, closed: tabs.closed, bounds });
+  const [saved, ...others] = readSession().windows;
+  let first: WindowController;
+  if (!bounds) first = new WindowController(saved);
+  else {
+    const tabs = persistable(restoreTabs(saved ? { tabs: saved.tabs, active: saved.activeTabId, closed: saved.closed, groups: saved.groups } : null));
+    first = new WindowController({ id: saved?.id ?? "main", maximized: saved?.maximized ?? false, fullScreen: false, tabs: tabs.tabs, activeTabId: tabs.active, closed: tabs.closed, groups: tabs.groups, bounds });
+  }
+  for (const w of others) if (typeof w.id === "string" && w.id && !controllers.has(w.id)) new WindowController(w, { primary: false });
+  return first;
+}
+
+/** File › New window (⌘⇧N), Move to New Window: a window with Home in front, a little down and right of `from`. */
+export function newWindow(from?: WindowController | null): WindowController {
+  const at = from && !from.win.isDestroyed() ? from.win.getBounds() : null;
+  const bounds: WindowBounds = at ? { x: at.x + NEW_WINDOW_OFFSET, y: at.y + NEW_WINDOW_OFFSET, width: at.width, height: at.height } : { ...DEFAULT_WINDOW_SIZE };
+  const ctl = new WindowController({ id: `w${newTabId()}`, bounds, maximized: false, fullScreen: false, tabs: [], activeTabId: HOME, closed: [] }, { primary: false });
+  ctl.persist();
+  return ctl;
 }
 
 /** Where the saved session's window was (the welcome window opens there) */

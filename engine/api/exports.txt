@@ -44,6 +44,8 @@ _engine_needs_frame
 _engine_gl_context_lost
 _engine_gl_context_restored
 _engine_gfx_switch
+_engine_heap_used
+_engine_purge_memory
 _engine_get_selection
 _engine_set_selection
 _engine_read_nodes
@@ -61,6 +63,9 @@ _engine_txn_cancel
 _engine_actor_begin
 _engine_actor_end
 _engine_actor_undo
+_engine_ignore_undo
+_engine_undo_export
+_engine_undo_import
 _engine_actor_info
 _engine_actor_forget
 _engine_idle
@@ -100,6 +105,8 @@ _engine_end_caps
 _engine_paint_edit
 _engine_paint_edit_end
 _engine_paint_edit_stop
+_engine_blur_edit
+_engine_blur_edit_handle
 _engine_ref_id
 _engine_component_info
 _engine_render_node_thumbnail
@@ -133,6 +140,7 @@ _engine_set_view_options
 _engine_set_nudge
 _engine_start_guide
 _engine_set_annotation_view
+_engine_set_annotation_filter
 _engine_set_edit_tracking
 _engine_set_focus
 _engine_select_measurement
@@ -155,3 +163,10 @@ _engine_install_brush
 _engine_list_brushes
 _engine_brush_preview
 _engine_set_draw_tool_settings
+_engine_set_motion
+_engine_motion_timeline
+_engine_motion_field_states
+_engine_motion_resolved
+_engine_motion_render_frame
+_engine_motion_shapes
+_engine_motion_samples

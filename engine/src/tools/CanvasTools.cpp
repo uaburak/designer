@@ -34,9 +34,8 @@ void layoutGridEdges(const LayoutGrid& g, double len, std::vector<double>& out) 
     return;
   }
   double gutter = g.gutterSize, size = g.sectionSize;
-  int n = g.numSections;
+  int n = layoutGridCount(g, len);
   if (g.type == LayoutGridType::STRETCH) {
-    if (n <= 0) n = 1;
     double w = (len - 2 * g.offset - gutter * (n - 1)) / n;
     for (int i = 0; i < n && i < 2048; i++) {
       out.push_back(g.offset + i * (w + gutter));
@@ -44,7 +43,6 @@ void layoutGridEdges(const LayoutGrid& g, double len, std::vector<double>& out) 
     }
     return;
   }
-  if (n <= 0) n = std::max(1, static_cast<int>(std::floor((len - 2 * g.offset + gutter) / std::max(size + gutter, 1e-9))));
   double total = n * size + (n - 1) * gutter;
   double start = g.type == LayoutGridType::MIN ? g.offset : g.type == LayoutGridType::MAX ? len - g.offset - total : (len - total) / 2;
   for (int i = 0; i < n && i < 2048; i++) {
@@ -441,19 +439,22 @@ bool Editor::guideAt(Vec2 s, RulerGuide& out) const {
   return found;
 }
 
-Status Editor::startGuideDrag(int axis, Vec2 s, double rulerSize) {
-  if (!rulersOn() || viewer_ || page_ == kNoGuid || gesture_ != Gesture::None || txn_.open) return E_INVALID;
-  // On the one selected top-level frame (it takes the guide, in its own space; the rulers count from its corner),
-  // else on the page (unverified: help.figma.com has canvas and frame guides, not which a drag makes).
-  Guid owner = page_;
+Guid Editor::guideOwner() const {
+  // The one selected top-level frame (it takes the guide, in its own space; the rulers count from its corner), else
+  // the page (unverified: help.figma.com has canvas and frame guides, not which a drag makes).
   if (selection_.size() == 1) {
     const Node* n = doc_.get(selection_[0]);
     const Node* p = n ? doc_.get(n->props.parentIndex.guid) : nullptr;
     if (n && !selection_[0].isDerived() && n->props.isFrameLike() && n->props.type != NodeType::SECTION && p &&
         (p->props.type == NodeType::CANVAS || p->props.type == NodeType::SECTION) && axisAligned(doc_.worldTransform(selection_[0])))
-      owner = selection_[0];
+      return selection_[0];
   }
-  guideDrag_ = {owner, axis == 1 ? 1 : 0, 0, newGuid()};
+  return page_;
+}
+
+Status Editor::startGuideDrag(int axis, Vec2 s, double rulerSize) {
+  if (!rulersOn() || viewer_ || page_ == kNoGuid || gesture_ != Gesture::None || txn_.open) return E_INVALID;
+  guideDrag_ = {guideOwner(), axis == 1 ? 1 : 0, 0, newGuid()};
   guideFrom_ = {};
   guideNew_ = true;
   guideMoved_ = false;
@@ -622,7 +623,7 @@ void Editor::revealPasted(const Rect& r) {
   if (view.containsRect(r)) return;
   zooming_ = false;
   if (r.w > view.w || r.h > view.h) {
-    changeCamera(snapped(fitVisible(r, false)));
+    changeCamera(snapped(fitVisible(r, kSelectionPadding)));
     return;
   }
   double dx = 0, dy = 0;

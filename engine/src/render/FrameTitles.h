@@ -29,7 +29,8 @@ LabelFrame labelFrame(const Mat2x3& toScreen, Vec2 size);
 
 // Figma's icon before a component's (and a component set's) or an instance's title; Thumbnail: the frame that is the
 // file's thumbnail (the document's thumbnailInfo, "Set as thumbnail"): a small card with a bar along its bottom.
-enum class TitleIcon : uint8_t { None, Component, Instance, Thumbnail };
+// Motion (round 8i): a top-level frame with animated layers — the Motion mode's glyph, a diamond with a play mark.
+enum class TitleIcon : uint8_t { None, Component, Instance, Thumbnail, Motion };
 
 // The rects and the baseline below are label-local (`place` maps them to the screen; the identity for an upright frame,
 // so they are screen CSS px then).
@@ -61,8 +62,9 @@ bool showsTitle(const Document& doc, Guid id);
 // The titles on `page` whose frames are near `screen` (CSS px), in paint order — every titled frame's but an
 // instance's (live Figma draws no name over a top-level instance, selected or not). `view` maps world to screen;
 // `measure(name, section)` is the name's width in CSS px at the title's size. `focus` (Dev Mode's focus view): only
-// that frame's.
+// that frame's. `motion`: the frames that wear the Motion icon (a thumbnail's or a component's own glyph wins).
 std::vector<FrameTitle> frameTitles(const Document& doc, Guid page, const Mat2x3& view, const Rect& screen, const OverlayStyle& style,
-                                    const std::function<double(const std::string&, bool)>& measure, Guid focus = kNoGuid);
+                                    const std::function<double(const std::string&, bool)>& measure, Guid focus = kNoGuid,
+                                    const std::vector<Guid>& motion = {});
 
 }  // namespace eng

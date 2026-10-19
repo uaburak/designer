@@ -29,6 +29,8 @@ export interface CommandSpec {
   scope: CommandScope;
   /** View toggles: a check the view reports (`menu:state` checked) */
   kind?: "checkbox" | "radio";
+  /** Not shown, its keys still act (Figma's hidden ⌘⇧[ / ⌘⇧] tab keys, atlas 01 §2.9) */
+  hidden?: boolean;
 }
 
 export const COMMANDS = [
@@ -39,6 +41,9 @@ export const COMMANDS = [
 
   // ── File ──
   { id: "file.new", label: "New design file", accelerator: "CmdOrCtrl+N", scope: "shell" },
+  { id: "file.new-window", label: "New window", accelerator: "CmdOrCtrl+Shift+N", scope: "shell" },
+  { id: "file.new-tab", label: "New tab", accelerator: "CmdOrCtrl+T", scope: "shell" },
+  { id: "file.open-file-browser", label: "Open file browser", accelerator: "CmdOrCtrl+O", scope: "shell" },
   { id: "file.import", label: "Import…", scope: "shell" },
   { id: "file.place-image", label: "Place image…", accelerator: "CmdOrCtrl+Shift+K", scope: "editor" },
   { id: "file.close-tab", label: "Close tab", accelerator: "CmdOrCtrl+W", scope: "shell" },
@@ -105,6 +110,11 @@ export const COMMANDS = [
   { id: "view.reload-tab", label: "Reload Tab", scope: "shell" },
   { id: "view.toggle-devtools", label: "Toggle Developer Tools", accelerator: "Alt+CmdOrCtrl+I", scope: "shell" },
   { id: "view.toggle-tabbar-devtools", label: "Toggle Tab Bar Developer Tools", scope: "shell" },
+  // View › Interface Scale (atlas 21 §7: Figma desktop's, ⇧⌘⌥0 / = / -): src/main/interfaceScale.ts; the "{n}%" line above
+  // them is the menu's own (menu.ts).
+  { id: "app.interface-scale-reset", label: "Reset to Default", accelerator: "Alt+Shift+CmdOrCtrl+0", scope: "app" },
+  { id: "app.interface-scale-larger", label: "Make Larger", accelerator: "Alt+Shift+CmdOrCtrl+=", scope: "app" },
+  { id: "app.interface-scale-smaller", label: "Make Smaller", accelerator: "Alt+Shift+CmdOrCtrl+-", scope: "app" },
 
   // ── Object ──
   { id: "object.group", label: "Group selection", accelerator: "CmdOrCtrl+G", scope: "editor" },
@@ -172,6 +182,9 @@ export const COMMANDS = [
   // ── Window ──
   { id: "window.next-tab", label: "Show Next Tab", accelerator: "Ctrl+Tab", scope: "shell" },
   { id: "window.previous-tab", label: "Show Previous Tab", accelerator: "Ctrl+Shift+Tab", scope: "shell" },
+  // Figma's hidden second keys for the same (⌘⇧{ / ⌘⇧}: ⌘⇧[ / ⌘⇧] on a U.S. keyboard).
+  { id: "window.next-tab-alt", label: "Show Next Tab", accelerator: "CmdOrCtrl+}", scope: "shell", hidden: true },
+  { id: "window.previous-tab-alt", label: "Show Previous Tab", accelerator: "CmdOrCtrl+{", scope: "shell", hidden: true },
   { id: "window.tab-1", label: "Home", accelerator: "CmdOrCtrl+1", scope: "shell" },
   { id: "window.tab-2", label: "Tab 2", accelerator: "CmdOrCtrl+2", scope: "shell" },
   { id: "window.tab-3", label: "Tab 3", accelerator: "CmdOrCtrl+3", scope: "shell" },
@@ -185,6 +198,16 @@ export const COMMANDS = [
   // ── Help ──
   { id: "help.shortcuts", label: "Keyboard shortcuts", accelerator: "Ctrl+Shift+/", scope: "editor" },
   { id: "help.open-data-folder", label: "Open data folder", scope: "app" },
+  // Help › Troubleshooting (atlas 21 §7, Figma desktop's English): src/main/troubleshooting.ts, src/main/diagnostics.ts
+  { id: "app.save-debug-info", label: "Save Debug Info…", scope: "app" },
+  { id: "app.save-network-log", label: "Save Network Log…", scope: "app" },
+  // "Stop Performance Logging…" while a trace runs (src/main/menu.ts)
+  { id: "app.performance-log", label: "Save Performance Log…", scope: "app" },
+  { id: "app.disable-hardware-acceleration", label: "Disable Hardware Acceleration", scope: "app", kind: "checkbox" },
+  { id: "app.graphics-backend-default", label: "Default", scope: "app", kind: "radio" },
+  { id: "app.graphics-backend-webgl2", label: "WebGL2", scope: "app", kind: "radio" },
+  { id: "app.graphics-backend-webgpu", label: "WebGPU", scope: "app", kind: "radio" },
+  { id: "app.reload-all-tabs", label: "Reload All Tabs", scope: "app" },
 ] as const satisfies readonly CommandSpec[];
 
 export type CommandId = (typeof COMMANDS)[number]["id"];
@@ -225,6 +248,9 @@ export type MenuRole = "copy" | "cut" | "paste" | "togglefullscreen" | "minimize
 
 export type MenuEntry = CommandId | "-" | { role: MenuRole } | { submenu: string; items: MenuEntry[] };
 
+/** File › Recently closed tabs (atlas 01 §2.6): main fills it with the last 8 closed tabs of the window in front. */
+export const RECENTLY_CLOSED = "Recently closed tabs";
+
 /**
  * Figma's menu bar (docs/desktop.md §8.2) without Plugins and Widgets. The
  * app menu (About, Theme, Services, Hide, Quit) is main's (src/main/menu.ts).
@@ -232,6 +258,9 @@ export type MenuEntry = CommandId | "-" | { role: MenuRole } | { submenu: string
 export const MENU_LAYOUT: Record<TopMenu, MenuEntry[]> = {
   File: [
     "file.new",
+    "file.new-window",
+    "file.new-tab",
+    "file.open-file-browser",
     "file.import",
     "-",
     "file.place-image",
@@ -239,6 +268,8 @@ export const MENU_LAYOUT: Record<TopMenu, MenuEntry[]> = {
     "file.close-tab",
     "file.close-window",
     "file.reopen-closed-tab",
+    // Filled from the window in front's closed tabs (src/main/menu.ts)
+    { submenu: RECENTLY_CLOSED, items: [] },
     "-",
     "file.save-version",
     "file.version-history",
@@ -310,6 +341,7 @@ export const MENU_LAYOUT: Record<TopMenu, MenuEntry[]> = {
     "view.zoom-next-frame",
     "-",
     { role: "togglefullscreen" },
+    { submenu: "Interface Scale", items: ["app.interface-scale-reset", "app.interface-scale-larger", "app.interface-scale-smaller"] },
     { submenu: "Developer", items: ["view.toggle-devtools", "view.toggle-tabbar-devtools", "view.reload-tab"] },
   ],
   Object: [
@@ -376,6 +408,8 @@ export const MENU_LAYOUT: Record<TopMenu, MenuEntry[]> = {
     "-",
     "window.next-tab",
     "window.previous-tab",
+    "window.next-tab-alt",
+    "window.previous-tab-alt",
     "-",
     "window.tab-1",
     "window.tab-2",
@@ -389,7 +423,24 @@ export const MENU_LAYOUT: Record<TopMenu, MenuEntry[]> = {
     "-",
     { role: "front" },
   ],
-  Help: ["help.shortcuts", "-", "help.open-data-folder"],
+  Help: [
+    "help.shortcuts",
+    "-",
+    "help.open-data-folder",
+    {
+      submenu: "Troubleshooting",
+      items: [
+        "app.save-debug-info",
+        "app.save-network-log",
+        "app.performance-log",
+        "-",
+        "app.disable-hardware-acceleration",
+        { submenu: "Graphics Backend", items: ["app.graphics-backend-default", "app.graphics-backend-webgl2", "app.graphics-backend-webgpu"] },
+        "-",
+        "app.reload-all-tabs",
+      ],
+    },
+  ],
 };
 
 /** Every command a layout places (each once: an Electron menu item id is unique). */

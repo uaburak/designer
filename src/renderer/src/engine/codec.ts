@@ -573,11 +573,13 @@ export interface GuidValue {
   sessionID: number;
   localID: number;
 }
-export type ComponentPropType = "BOOL" | "TEXT" | "INSTANCE_SWAP" | "VARIANT" | "SLOT";
+export type ComponentPropType = "BOOL" | "TEXT" | "INSTANCE_SWAP" | "VARIANT" | "NUMBER" | "SLOT";
 export interface ComponentPropValue {
   boolValue?: boolean;
   textValue?: { characters: string } & Record<string, unknown>;
   guidValue?: GuidValue;
+  /** NUMBER */
+  floatValue?: number;
 }
 export interface ComponentPropDef {
   id: GuidValue;
@@ -614,9 +616,9 @@ export interface ComponentProperty {
   /** Figma's `Name#id` (a VARIANT property: its name). */
   apiName: string;
   type: ComponentPropType;
-  /** BOOL: boolean; TEXT and VARIANT: string; INSTANCE_SWAP and SLOT: a GUID; null when none. */
-  defaultValue: boolean | string | null;
-  value: boolean | string | null;
+  /** BOOL: boolean; TEXT and VARIANT: string; NUMBER: a number; INSTANCE_SWAP and SLOT: a GUID; null when none. */
+  defaultValue: boolean | string | number | null;
+  value: boolean | string | number | null;
   /** The instance set it itself (not the default). */
   overridden: boolean;
   preferredValues: Guid[];
@@ -635,6 +637,8 @@ export interface ComponentInfo {
     page: Guid | null;
     set: Guid | null;
     softDeleted: boolean;
+    /** The main is a deleted variant of this set, which is still there (Figma's missing variant). */
+    missingVariantSet?: Guid | null;
     /** A library copy's main: its library, key and the version copied. */
     remote: { libraryKey: string; key: string; version: string } | null;
     /** A main copied in from another file (unpublished there), kept on the internal canvas. */
@@ -657,9 +661,9 @@ export interface ComponentInfo {
   /** A primary instance inside a main that can expose its properties (Figma's preconditions; older builds: absent). */
   canExpose?: boolean;
   instanceCount: number;
-  /** Round 17 B, Figma's conflicting variants: this variant's name isn't its values or repeats another's; a set's own. */
-  variantConflict?: boolean;
-  conflictingVariants?: Guid[];
+  /** Figma's variant errors (atlas 10 §4.2): a variant's own, or a set's worst, with the variants that have it. */
+  variantError?: "NONE" | "TOO_MANY_STATES_ERROR" | "MISSING_PROPERTIES_ERROR" | "DUPLICATE_STATE_ERROR" | "PARSE_ERROR";
+  errorVariants?: Guid[];
 }
 
 /**
@@ -935,8 +939,8 @@ export type EngineEvent =
   | { type: "PAINT_EDIT"; active: boolean; ref: Guid | null; paints: "FILL" | "STROKE"; index: number; stop: number }
   /** Instances re-derived (and the mains they come from) after a change reached them. */
   | { type: "COMPONENTS_CHANGED"; refs: Guid[] }
-  /** After GO_TO_MAIN_COMPONENT / RETURN_TO_INSTANCE: where it went, and the instance "Return to instance" goes back to. */
-  | { type: "INSTANCE_NAVIGATION"; main: Guid | null; returnTo: Guid | null }
+  /** After GO_TO_MAIN_COMPONENT / RETURN_TO_INSTANCE: where it went, and the instances "Return to instance" goes back to (the first, and all). */
+  | { type: "INSTANCE_NAVIGATION"; main: Guid | null; returnTo: Guid | null; returnToAll?: Guid[] }
   /** Collections or variables changed (any commit, undo, redo, remote change or load). */
   | { type: "VARIABLES_CHANGED"; collections: Guid[]; variables: Guid[] }
   /** Styles changed, or how many layers use them. */
@@ -990,7 +994,9 @@ export type EngineEvent =
   /** Dev Mode: the selected saved measurement changed. */
   | { type: "MEASUREMENT_SELECTED"; id: Guid | null }
   /** Dev Mode: a design's status chip ("menu") or the `</>` at a selected design's top right ("mark": toggle Ready for dev) was clicked. */
-  | { type: "DEV_STATUS"; ref: Guid; action: "menu" | "mark"; x: number; y: number; width: number; height: number };
+  | { type: "DEV_STATUS"; ref: Guid; action: "menu" | "mark"; x: number; y: number; width: number; height: number }
+  /** Motion (docs/motion.md §5): the root's motion model changed (a commit touching a motion node, a binding, the timeline, audio, or the selection's root); the timeline refetches. */
+  | { type: "MOTION_CHANGED"; root: Guid | null };
 
 /** engine_dev_info (Engine.devInfo). */
 export interface DevInfo {
@@ -1145,8 +1151,12 @@ export const decodeTextRangeStyle = (bytes: Uint8Array): TextRangeStyle => decod
 
 /** engine_font_info: a font's variable axes (fvar) and OpenType features (GSUB / GPOS), for Type settings. */
 export interface FontInfo {
-  axes: { tag: string; name: string; min: number; default: number; max: number; value: number; hidden: boolean }[];
+  /** `instances`: the named instances' values on the axis (ascending), the Variable tab's slider hints */
+  axes: { tag: string; name: string; min: number; default: number; max: number; value: number; hidden: boolean; instances?: number[] }[];
   features: { tag: string; name?: string }[];
+  /** The font's own underline thickness and offset (em): the Underline panel's Auto */
+  underlineThickness?: number;
+  underlineOffset?: number;
 }
 
 /** engine_export's result (docs/engine-build.md "E7 export"). */

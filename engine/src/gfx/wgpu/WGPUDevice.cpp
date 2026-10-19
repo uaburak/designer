@@ -423,6 +423,75 @@ class WebGPUDevice final : public Device {
     if (view != dst.view) wgpuTextureViewRelease(view);
   }
 
+  // Inside a pass: the render pass ends (once), then the regions are drawn into the texture in one render pass (cleared
+  // by its load op): flipCopy reads the canvas (rows top first) or this pass's target, clamped to the region when it
+  // grows.
+  void copyRegionsToTexture(TextureId texture, std::span<const CopyRegion> regions, bool clear) override {
+    if (!inPass_ || !texture || texture >= textures_.size() || !textures_[texture].gpu) return;
+    if (!onCanvas() && texture == targets_[pass_desc_.target].texture) {
+      reportSampledAttachment("WebGPU", pass_desc_.target, texture, -1);
+      return;
+    }
+    Texture& dst = textures_[texture];
+    const int DW = static_cast<int>(dst.width), DH = static_cast<int>(dst.height);
+    const bool canvas = onCanvas();
+    closePass();
+    ensureEncoder();
+    WGPUTextureView srcView = nullptr;
+    int SW = 0, SH = 0;
+    if (canvas) {
+      if (!acquireCanvas()) return;
+      srcView = canvasView_, SW = canvasW_, SH = canvasH_;
+    } else {
+      const Texture& st = textures_[targets_[pass_desc_.target].texture];
+      srcView = st.view, SW = static_cast<int>(st.width), SH = static_cast<int>(st.height);
+    }
+    WGPUTextureView view = levelView(dst, 0);
+    WGPUBindGroup group = utilityGroup(srcView, samplers_[0]);
+    WGPURenderPassColorAttachment ca = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
+    ca.view = view;
+    ca.loadOp = clear ? WGPULoadOp_Clear : WGPULoadOp_Load;
+    ca.storeOp = WGPUStoreOp_Store;
+    ca.clearValue = {0, 0, 0, 0};
+    WGPURenderPassDescriptor rp = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
+    rp.colorAttachmentCount = 1;
+    rp.colorAttachments = &ca;
+    WGPURenderPassEncoder enc = wgpuCommandEncoderBeginRenderPass(encoder_, &rp);
+    wgpuRenderPassEncoderSetPipeline(enc, utilityPipelines_[1]);
+    wgpuRenderPassEncoderSetBindGroup(enc, 1, group, 0, nullptr);
+    for (const CopyRegion& c : regions) {
+      if (c.src.w <= 0 || c.src.h <= 0) continue;
+      int x0 = std::max(0, c.x - c.grow[0]), y0 = std::max(0, c.y - c.grow[1]);
+      int x1 = std::min(DW, c.x + c.src.w + c.grow[2]), y1 = std::min(DH, c.y + c.src.h + c.grow[3]);
+      if (x1 <= x0 || y1 <= y0) continue;
+      int glY = passH() - c.src.y - c.src.h;  // the region's bottom row, counted from the bottom
+      float u[kDeviceSlots][4] = {};
+      u[0][0] = static_cast<float>(c.src.x - c.x);
+      int sx0 = std::clamp(c.src.x, 0, SW - 1), sx1 = std::clamp(c.src.x + c.src.w - 1, 0, SW - 1), sy0, sy1;
+      if (canvas) {
+        u[0][1] = static_cast<float>(canvasH_ - 1 - glY + c.y);
+        sy1 = canvasH_ - 1 - glY, sy0 = sy1 - (c.src.h - 1);
+      } else {
+        u[0][1] = static_cast<float>(glY - c.y);
+        u[0][2] = 1;
+        sy0 = glY, sy1 = glY + c.src.h - 1;
+      }
+      sy0 = std::clamp(sy0, 0, SH - 1), sy1 = std::clamp(sy1, 0, SH - 1);
+      u[0][3] = 1;
+      u[1][0] = static_cast<float>(sx0), u[1][1] = static_cast<float>(sy0), u[1][2] = static_cast<float>(sx1), u[1][3] = static_cast<float>(sy1);
+      uint32_t offset = 0;
+      Chunk& chunk = uniformSlot(u, offset);
+      wgpuRenderPassEncoderSetBindGroup(enc, 0, chunk.group, 1, &offset);
+      wgpuRenderPassEncoderSetScissorRect(enc, static_cast<uint32_t>(x0), static_cast<uint32_t>(y0), static_cast<uint32_t>(x1 - x0),
+                                          static_cast<uint32_t>(y1 - y0));
+      wgpuRenderPassEncoderDraw(enc, 6, 1, 0, 0);
+    }
+    wgpuRenderPassEncoderEnd(enc);
+    wgpuRenderPassEncoderRelease(enc);
+    wgpuBindGroupRelease(group);
+    if (view != dst.view) wgpuTextureViewRelease(view);
+  }
+
   // ---- Textures ----
 
   TextureId createTexture(const TextureDesc& desc) override {

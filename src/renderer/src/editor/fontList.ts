@@ -102,51 +102,112 @@ export function fontFilterMenu(orgName: string | null = null, opts: { local?: bo
 /** The menu outside an organization (a local file). */
 export const FONT_FILTER_MENU = fontFilterMenu(null);
 
-/** How many of the most used Google families "Popular" lists (Figma curates its own; Google's ranking stands in). */
-export const POPULAR_COUNT = 50;
+/**
+ * Figma's "Popular fonts" (Atlas 06 §6.2, `3187` 119712): fifteen slots, each the first of its names the list has
+ * (the system UI fonts by their names on Windows and on a Mac).
+ */
+export const POPULAR_FONTS: readonly (readonly string[])[] = [
+  ["Inter"], ["Roboto"], ["Segoe", "Segoe UI"], ["SF Pro Text", "SF UI Text"], ["Serif"], ["Crimson Text"], ["New York"],
+  ["Playfair Display"], ["Source Serif Pro"], ["Caveat"], ["Figma Hand"], ["Pacifico"], ["Anonymous Pro"], ["IBM Plex Mono"],
+  ["Roboto Mono"],
+];
+
+/** The families "Popular fonts" lists from `list` (lower case). */
+export function popularFamilies(list: readonly FontFamily[]): Set<string> {
+  const have = new Set(list.map((f) => f.family.toLowerCase()));
+  const out = new Set<string>();
+  for (const slot of POPULAR_FONTS) {
+    const name = slot.find((n) => have.has(n.toLowerCase()));
+    if (name) out.add(name.toLowerCase());
+  }
+  return out;
+}
+
+/**
+ * Google families Figma never lists (§6.3): the "…charted" ones, Playwrite's but two, test and placeholder families,
+ * and the colour fonts its renderer can't draw.
+ */
+const HIDDEN_GOOGLE = new Set(
+  ["Noto Color Emoji Compat Test", "?????", "Decovar Alpha", "Blaka Ink", "Bungee Color", "Bungee Spice", "Cairo Play", "Foldit", "Honk", "Kalnia Glaze", "Noto Color Emoji", "Noto Znamenny Musical Notation"].map((n) => n.toLowerCase())
+);
+/** And not under "Google fonts" (§6.2: families Figma serves itself, icon fonts, the system ones). */
+const NOT_GOOGLE_SET = new Set(
+  ["Ested-VF", "Figma Hand", "Font Awesome 5", "Font Awesome 6", "KyivType", "Material Icons", "SF Pro", "SF Pro Rounded", "SF Compact", "SF Compact Rounded", "Sudo Var", "Wavefont"].map((n) => n.toLowerCase())
+);
+
+/** Whether the picker lists a family at all (§6.3): families with no styles and the hidden Google families aren't. */
+export function listedFamily(f: FontFamily): boolean {
+  if (!f.styles.length) return false;
+  if (f.source !== "google") return true;
+  const name = f.family.toLowerCase();
+  if (HIDDEN_GOOGLE.has(name) || name.endsWith("charted")) return false;
+  return !name.startsWith("playwrite ") || name === "playwrite us modern" || name === "playwrite us trad";
+}
 
 const fold = (s: string) => s.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
 /**
- * The families a filter and a search leave, in the list's order (by name). `inFile`: the families the document uses
- * (lower case). A search matches anywhere in the name, case and accents ignored, words in any order.
+ * A search's words (Figma's, §6.3): lower case, split at spaces and punctuation ("helvetica-neue" is two), accents
+ * ignored.
  */
-export function filterFamilies(list: readonly FontFamily[], filter: FontFilter, query: string, inFile: ReadonlySet<string> = new Set()): FontFamily[] {
-  let out: readonly FontFamily[] = list;
+export function searchTokens(query: string): string[] {
+  return fold(query)
+    .split(/[\s\p{P}\p{S}]+/u)
+    .filter(Boolean);
+}
+
+/**
+ * The families a filter and a search leave, in the list's order (by name; "In this file" by use, most used first,
+ * when `inFile` counts them). `inFile`: the families the document uses (lower case). A search (Figma's, §6.3) keeps
+ * the families holding every word, case and accents ignored, those starting with the first word first; names that
+ * start with "." are hidden from it.
+ */
+export function filterFamilies(
+  list: readonly FontFamily[],
+  filter: FontFilter,
+  query: string,
+  inFile: ReadonlySet<string> | ReadonlyMap<string, number> = new Set()
+): FontFamily[] {
+  let out: readonly FontFamily[] = list.filter(listedFamily);
   switch (filter) {
     case "file":
-      out = list.filter((f) => inFile.has(f.family.toLowerCase()));
+      out = out.filter((f) => inFile.has(f.family.toLowerCase()));
+      if (inFile instanceof Map) {
+        const uses = inFile as ReadonlyMap<string, number>;
+        out = [...out].sort((a, b) => (uses.get(b.family.toLowerCase()) ?? 0) - (uses.get(a.family.toLowerCase()) ?? 0));
+      }
       break;
     case "popular": {
-      const ranked = list.filter((f) => f.source === "google" && f.popularity !== undefined).sort((a, b) => a.popularity! - b.popularity!);
-      const top = new Set(ranked.slice(0, POPULAR_COUNT).map((f) => f.family));
-      // Figma's Inter, its default, is one of its popular fonts.
-      top.add("Inter");
-      out = list.filter((f) => top.has(f.family));
+      const top = popularFamilies(out);
+      out = out.filter((f) => top.has(f.family.toLowerCase()));
       break;
     }
     case "installed":
-      out = list.filter((f) => f.source === "local");
+      out = out.filter((f) => f.source === "local");
       break;
     case "google":
-      out = list.filter((f) => f.source === "google");
+      out = out.filter((f) => f.source === "google" && !NOT_GOOGLE_SET.has(f.family.toLowerCase()));
       break;
     case "variable":
-      out = list.filter((f) => f.variable);
+      // Every face a variable font (§6.2).
+      out = out.filter((f) => f.faces.length > 0 && f.faces.every((x) => x.variable));
       break;
     case "org":
-      out = list.filter((f) => f.source === "shared");
+      out = out.filter((f) => f.source === "shared");
       break;
     case "uploaded":
       out = [];
       break;
   }
-  const words = fold(query).split(/\s+/).filter(Boolean);
+  const words = searchTokens(query);
   if (!words.length) return [...out];
-  return out.filter((f) => {
+  const found = out.filter((f) => {
+    if (f.family.startsWith(".")) return false;
     const name = fold(f.family);
     return words.every((w) => name.includes(w));
   });
+  const first = (f: FontFamily) => (fold(f.family).startsWith(words[0]) ? 0 : 1);
+  return found.map((f, i) => ({ f, i })).sort((a, b) => first(a.f) - first(b.f) || a.i - b.i).map((x) => x.f);
 }
 
 // ---- The document's fonts ---------------------------------------------------------------------

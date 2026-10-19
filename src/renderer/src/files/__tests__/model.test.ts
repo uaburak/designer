@@ -18,8 +18,13 @@ import {
   searchKey,
   selectAll,
   selectedTargets,
+  fileFilters,
+  filterByCreator,
   sortFiles,
   sortFolders,
+  sortView,
+  VIEW_SORTS,
+  viewSort,
 } from "../model";
 
 const DAY = 86_400_000;
@@ -76,6 +81,32 @@ describe("sorting", () => {
   it("order labels follow Figma: A to Z for names, Newest first for dates", () => {
     expect(orderLabels("alphabetical")).toEqual({ default: "A to Z", reversed: "Z to A" });
     expect(orderLabels("last-viewed").reversed).toBe("Oldest first");
+    expect(orderLabels("date-trashed")).toEqual({ default: "Newest first", reversed: "Oldest first" });
+  });
+  it("each view has its own keys and default (Figma's §5.2)", () => {
+    expect(VIEW_SORTS.drafts).toEqual({ keys: ["alphabetical", "date-created", "last-modified"], default: "last-modified" });
+    expect(VIEW_SORTS.folder).toEqual(VIEW_SORTS.drafts);
+    expect(VIEW_SORTS.recents).toEqual({ keys: ["last-viewed"], default: "last-viewed" });
+    expect(VIEW_SORTS.trash).toEqual({ keys: ["date-trashed"], default: "date-trashed" });
+    expect(VIEW_SORTS.shared).toEqual({ keys: ["date-shared"], default: "date-shared" });
+    expect(sortView({ kind: "folder", folderId: "x" })).toBe("folder");
+    expect(sortView({ kind: "org-trash" })).toBeNull();
+  });
+  it("a view's sort: its own choice, else the old shared one when offered, else its default", () => {
+    expect(viewSort("drafts", { sort: "last-viewed" })).toEqual({ key: "last-modified", order: "default" });
+    expect(viewSort("drafts", { sort: "alphabetical" })).toEqual({ key: "alphabetical", order: "default" });
+    expect(viewSort("recents", { sort: "alphabetical" })).toEqual({ key: "last-viewed", order: "default" });
+    expect(viewSort("trash", { sort: "last-modified" })).toEqual({ key: "date-trashed", order: "default" });
+    const sorts = { drafts: { key: "date-created", order: "reversed" }, recents: { key: "alphabetical", order: "reversed" } } as const;
+    expect(viewSort("drafts", { sort: "alphabetical", sorts })).toEqual({ key: "date-created", order: "reversed" });
+    expect(viewSort("folder", { sort: "last-viewed", sorts })).toEqual({ key: "last-modified", order: "default" });
+    expect(viewSort("recents", { sort: "last-viewed", sorts })).toEqual({ key: "last-viewed", order: "default" });
+  });
+  it("Created by: anyone, you or others", () => {
+    const fs = [{ by: "me" }, { by: "ana" }, { by: "me" }];
+    expect(filterByCreator(fs, "anyone", (f) => f.by === "me")).toHaveLength(3);
+    expect(filterByCreator(fs, "you", (f) => f.by === "me")).toEqual([{ by: "me" }, { by: "me" }]);
+    expect(filterByCreator(fs, "others", (f) => f.by === "me")).toEqual([{ by: "ana" }]);
   });
 });
 
@@ -132,10 +163,21 @@ describe("locations and items", () => {
     const withTrash = new FolderIndex([f1, folder("t", "Gone", { trashedAt: NOW })]);
     expect(listItems({ location: { kind: "starred" }, folders: withTrash, files: [], starredFolders: ["t", "f1"], sort: "last-viewed", order: "default", filter: "all" }).map((i) => i.id)).toEqual(["folder:f1"]);
   });
-  it("Trash: last deleted first, whatever the sort", () => {
-    const t = [file("Old", { trashedAt: NOW - 3 * DAY }), file("New", { trashedAt: NOW - DAY })];
-    const items = listItems({ location: { kind: "trash" }, folders: new FolderIndex([folder("x", "Gone", { trashedAt: NOW - 2 * DAY })]), files: t, sort: "alphabetical", order: "default", filter: "all" });
-    expect(items.map((i) => (i.kind === "file" ? i.file.name : i.folder.name))).toEqual(["Gone", "New", "Old"]);
+  it("Trash: by date trashed, last deleted first (Oldest first turns it round)", () => {
+    const t = [file("A old", { trashedAt: NOW - 3 * DAY }), file("Z new", { trashedAt: NOW - DAY })];
+    const gone = new FolderIndex([folder("x", "Gone", { trashedAt: NOW - 2 * DAY }), folder("y", "Gone too", { trashedAt: NOW - DAY })]);
+    const names = (order: "default" | "reversed") => listItems({ location: { kind: "trash" }, folders: gone, files: t, sort: "date-trashed", order, filter: "all" }).map((i) => (i.kind === "file" ? i.file.name : i.folder.name));
+    expect(names("default")).toEqual(["Gone too", "Gone", "Z new", "A old"]);
+    expect(names("reversed")).toEqual(["Gone", "Gone too", "A old", "Z new"]);
+  });
+  it("the type filter: Folders keeps folders only, Design files the files only", () => {
+    const at = (filter: "all" | "folders" | "design") => listItems({ location: { kind: "folder", folderId: "f1" }, folders: idx, files, sort: "alphabetical", order: "default", filter }).map((i) => i.kind);
+    expect(at("all")).toEqual(["folder", "file", "file"]);
+    expect(at("folders")).toEqual(["folder"]);
+    expect(at("design")).toEqual(["file", "file"]);
+    expect(fileFilters({ kind: "folder", folderId: "f1" })).toEqual(["all", "folders", "design"]);
+    expect(fileFilters({ kind: "drafts" })).toEqual(["all", "design"]);
+    expect(fileFilters({ kind: "recents" })).toEqual(["all", "design"]);
   });
   it("subtitles in Figma's words", () => {
     expect(fileSubtitle(file("A", { updatedAt: NOW - 34 * 60_000 }), NOW)).toBe("Edited 34 minutes ago");

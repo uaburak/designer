@@ -6,6 +6,7 @@
  * legitimately rewrites geometry and bound values (stale stored geometry corrected in memory, values a variable
  * resolves) — so they are not losses. Shared by the local store and the browser's dev store.
  */
+import { guidKey, type GUID } from "../schema/guid";
 import { DERIVED_FIELDS, type NodeTable } from "../schema/patch";
 import { isAbsentValue } from "./assetIdentity";
 
@@ -45,11 +46,34 @@ function emptyish(v: unknown): boolean {
 
 const absent = (name: string, v: unknown) => emptyish(v) || isAbsentValue(name, v);
 
+/** A deleted main the engine lets go at load (docs/schema.md §5.7): soft-deleted, a component or set, never published. */
+function purgeableMain(n: Record<string, unknown> | undefined): boolean {
+  if (!n || n.isSoftDeleted !== true) return false;
+  if (n.type !== "SYMBOL" && !(n.type === "FRAME" && n.isStateGroup === true)) return false;
+  const published = n.publishedVersion;
+  return published === undefined || published === null || published === "";
+}
+
+/** The node or one of its ancestors (in `head`) is a deleted main the engine lets go when nothing uses it. */
+function underPurgeableMain(head: NodeTable, key: string): boolean {
+  let n = head.nodes.get(key) as Record<string, unknown> | undefined;
+  for (let depth = 0; n && depth < 256; depth++) {
+    if (purgeableMain(n)) return true;
+    const parent = (n.parentIndex as { guid?: GUID } | undefined)?.guid;
+    if (!parent) return false;
+    n = head.nodes.get(guidKey(parent)) as Record<string, unknown> | undefined;
+  }
+  return false;
+}
+
 /** What the snapshot `snap` loses against the head `head` (both tables of the same file). */
 export function snapshotLosses(head: NodeTable, snap: NodeTable): SnapshotLosses {
   const out: SnapshotLosses = { missingNodes: 0, droppedFields: {}, total: 0, examples: [] };
   for (const [key, n] of head.nodes) {
     const s = snap.nodes.get(key) as Record<string, unknown> | undefined;
+    // A deleted main nothing uses (and what is inside it) goes at the engine's load — Figma's rule, not a loss (the
+    // owner's Wecra UI had every snapshot refused for 1969 such nodes, so its journal only grew).
+    if (!s && underPurgeableMain(head, key)) continue;
     if (!s) {
       out.missingNodes++;
       out.total++;

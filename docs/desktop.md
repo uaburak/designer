@@ -278,9 +278,9 @@ interface SessionFile {
 ### 4.5 Lazy loading and discarding
 
 - A discarded tab is shown in the tab bar like any other (Figma does the same). Activating it creates or adopts a view and loads it.
-- `MAX_LOADED_FILE_TABS = 12`. When a 13th loads, the least recently active non-active file tab is discarded.
-- Main checks every 30 min and discards any non-active file tab that has been inactive for more than 24 h.
-- Discarding means: flush handshake (`reason: "discard"`), then `view.webContents.close()`, then `status: "discarded"`. The undo history goes, as in Figma after a reload. The viewport, page and selection are persisted per file (`ui.json`, `docs/data.md` §5) and come back.
+- Figma's values (atlas 01 §2.7, built in wave 8): at launch the 15 most recently viewed file tabs load (`LIVE_AT_START`), hidden, one after another as each finishes loading — ours skips those not viewed for 48 h. Each tab keeps `viewedAt` (set when it comes in front or opens; kept in session.json).
+- Every hour, and when the window is focused again after 4 h away (no sweep while away), main offloads loaded file tabs not in front, not pinned and not viewed for 48 h, oldest first — only with 5 tabs or more, and keeping 3 loaded (`discardable()` in `src/shared/tabs.ts`).
+- Discarding means: flush handshake (`reason: "discard"`); only when it answers ok (a failure or a 3 s timeout keeps the tab loaded, and so does the tab coming in front meanwhile) `view.webContents.close()`, then `status: "discarded"`. The undo history fares as at a tab close (the same flush, then the same `webContents.close()`). The viewport, page and selection are persisted per file (`ui.json`, `docs/data.md` §5) and come back.
 
 ---
 
@@ -549,7 +549,7 @@ export interface NativeMenuItem { id?: string; label?: string; type?: "normal" |
 | `file:import` | invoke | H, E | `{ folderId: string \| null; paths?: string[] } → ImportResult { files: { fileKey; name }[]; failed: { path; error }[] }`. Without `paths`, main shows `showOpenDialog({filters: [{name: "Figma files", extensions: ["fig"]}], properties: ["openFile", "multiSelections"]})`. Main then calls the store's `files.importLocalCopy(path, folderId)` for each path. |
 | `file:save-local-copy` | invoke | H, E | `{ fileKey } → { path } \| { cancelled: true }`. `showSaveDialog({defaultPath: "<name>.fig"})`, then the store's `files.exportLocalCopy(fileKey, path)`. |
 | `file:export-preview` | invoke | E | `{ fileKey; snapshot: Uint8Array; options: { pageIds: string[] \| "all"; inspect; export } } → { path; bytes } \| { cancelled: true }`. A developer preview as one HTML file (docs/data.md §13.1): `showSaveDialog({title: "Export preview as HTML", defaultPath: "<name>.html"})`, then the store's main-only `previews.exportHtml(fileKey, {snapshot, options}, path)`. |
-| `file:export-assets` | invoke | E | `{ files: { name: string; bytes: Uint8Array }[] } → { paths: string[] } \| { cancelled: true }`. For one file, `showSaveDialog`. For more, `showOpenDialog({properties: ["openDirectory", "createDirectory"]})`, writing every file into the folder; a name collision becomes `name 2.png`, Finder-style. Built (E7): names with "/" make folders (Figma's layer-name folders), `shared/exportFiles.ts` plans the paths. |
+| `file:export-assets` | invoke | E | `{ files: { name: string; bytes: Uint8Array }[] } → { paths: string[] } \| { cancelled: true }`. For one file, `showSaveDialog`. For more, `showOpenDialog({properties: ["openDirectory", "createDirectory"]})`, writing every file into the folder; a name collision becomes `name1.png`, as Figma numbers names in its archive (atlas 15 §7). Built (E7): names with "/" make folders (Figma's layer-name folders), `shared/exportFiles.ts` plans the paths. |
 | `file:pick-images` | invoke | E | `{ multiple: boolean } → { files: { name; mime; bytes: Uint8Array }[] } \| { cancelled: true }` (Place image ⇧⌘K; PNG, JPEG, GIF, WebP, SVG; at most 50 MB each) |
 | `file:path-for-dropped` | — | H, E | not a channel: the preload exposes `webUtils.getPathForFile(file)` as `designer.files.pathFor(file)` for `.fig` drops onto Home or the canvas |
 | `file:reveal-data-folder` | send | H, E | `void` (`shell.openPath(workspaceDir)`) |

@@ -12,8 +12,8 @@ import type { FileKey } from "../../../../shared/store/types";
 import { useEditor } from "../controller";
 import type { BranchingBackend } from "./access";
 import { ChunkCompare, useSideDocs } from "./ChunkCompare";
-import { allPicked } from "./model";
-import { BranchWindow, ChangeList, codeOf, Conflicts, errorText } from "./parts";
+import { allPicked, pickAll } from "./model";
+import { BranchWindow, ChangeDetails, ChangeList, codeOf, Conflicts, errorText, ForceDialog } from "./parts";
 import { openBranchWindow, refreshBranch, setBranching } from "./state";
 import styles from "./Branching.module.css";
 
@@ -52,13 +52,14 @@ export function UpdateFromMain({ backend, branchFileKey }: { backend: BranchingB
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per window
   }, [branchFileKey]);
 
-  const apply = async () => {
+  const [forcing, setForcing] = useState(false);
+  const apply = async (chosen: Resolutions = picks) => {
     if (!preview) return;
     setBusy(true);
     try {
       // The picks go in with a fresh preview, so its batch is the one applied.
-      const p = Object.keys(picks).length ? await backend.branches.preview(branchFileKey, "update", picks) : preview;
-      await backend.branches.applyUpdate(branchFileKey, { previewId: p.previewId, resolutions: picks });
+      const p = Object.keys(chosen).length ? await backend.branches.preview(branchFileKey, "update", chosen) : preview;
+      await backend.branches.applyUpdate(branchFileKey, { previewId: p.previewId, resolutions: chosen });
       setBranching(ed, { mainChanged: false, noticeDismissed: false });
       await refreshBranch(ed);
       showToast({ message: t("Updated from main") });
@@ -84,6 +85,11 @@ export function UpdateFromMain({ backend, branchFileKey }: { backend: BranchingB
       footer={
         step === "changes" ? (
           <>
+            {conflicts && (
+              <Button variant="secondary" disabled={busy} onClick={() => setForcing(true)} data-force-open="">
+                {t("Force update…")}
+              </Button>
+            )}
             <span className={styles.grow} />
             <Button variant="secondary" onClick={close}>
               {t("Cancel")}
@@ -118,12 +124,25 @@ export function UpdateFromMain({ backend, branchFileKey }: { backend: BranchingB
           </nav>
           <section className={styles.main}>
             {chunk ? (
-              <ChunkCompare docs={docs} previewId={preview.previewId} chunk={chunk} sides={[{ side: "main", caption: t("Main file") }]} modes={false} />
+              <>
+                <ChunkCompare docs={docs} previewId={preview.previewId} chunk={chunk} sides={[{ side: "main", caption: t("Main file") }]} modes={false} />
+                <ChangeDetails chunk={chunk} />
+              </>
             ) : (
               <EmptyState icon="24.check" title={t("No updates")} body={t("The branch has every change from the main file.")} />
             )}
           </section>
         </div>
+      )}
+      {forcing && (
+        <ForceDialog
+          direction="update"
+          onClose={() => setForcing(false)}
+          onConfirm={async (side) => {
+            setForcing(false);
+            await apply(pickAll(side));
+          }}
+        />
       )}
     </BranchWindow>
   );

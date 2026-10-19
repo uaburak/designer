@@ -13,7 +13,7 @@ import { setBranchingBackend } from "../access";
 import { Branching, BranchTitle } from "../Branching";
 import { branchMenuIds } from "../commands";
 import { fakeChunk, fakeConflict, MemoryBranches, type FakeOptions } from "../fake/memoryBranches";
-import { branching } from "../state";
+import { branching, setBranching } from "../state";
 
 let view: Mounted | null = null;
 afterEach(() => {
@@ -142,6 +142,9 @@ describe("branching on a branch", () => {
     expect($("[data-branch-title]")?.textContent).toBe("Design system/Explore nav");
     expect(branching(ed).record?.name).toBe("Explore nav");
     expect(enabled(ed, "file.create-branch")).toBe(false);
+    // Figma's gate (atlas 16 §4.2): Update from main only once main has changed.
+    expect(enabled(ed, "file.update-from-main")).toBe(false);
+    setBranching(ed, { mainChanged: true });
     expect(enabled(ed, "file.update-from-main")).toBe(true);
     expect(enabled(ed, "file.review-and-merge")).toBe(true);
     expect(branchMenuIds(ed)).toEqual(["file.update-from-main", "file.review-and-merge", "file.see-all-branches", "file.archive-branch"]);

@@ -13,7 +13,8 @@ import { applyBindings, comboOfPress, conflictsOf, defaultKeys, isCustom, keysOf
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { characters, detectLayout, drawnKeyboard, layoutMap, legends } from "../shortcuts/layouts";
-import { allRows, ESSENTIALS, SHORTCUT_TABS, tabUsageIds, usageIds } from "../shortcuts/panelData";
+import { allRows, CELEBRATE_END_MS, CELEBRATE_START_MS, celebrateDelay, completedTab, ESSENTIALS, SHORTCUT_TABS, tabUsageIds, usageIds } from "../shortcuts/panelData";
+import { layoutOptions } from "../shortcuts/ShortcutsPanel";
 import { shortcutPrefs } from "../shortcuts/prefs";
 import { canvasKeyUsage, opacityUsage } from "../shortcuts/usage";
 
@@ -508,5 +509,97 @@ describe("keyboard layouts", () => {
     expect(comboText({ code: "KeyZ", mod: true })).toMatch(/Z$/);
     shortcutPrefs.update({ layout: "generic" });
     expect(commandForKey({ code: "KeyZ", metaKey: true, shiftKey: false, altKey: false, ctrlKey: false })?.id).toBe("edit.undo");
+  });
+});
+
+describe("Figma's own table (Atlas 03 §6, §7): the defaults per layout, editor and preference", () => {
+  const press = (code: string, mods: { meta?: boolean; shift?: boolean; alt?: boolean; ctrl?: boolean } = {}) => ({ code, metaKey: !!mods.meta, shiftKey: !!mods.shift, altKey: !!mods.alt, ctrlKey: !!mods.ctrl });
+
+  it("adds Figma's other keys: Actions ⌘/ and ⌘P, Outlines ⌘Y, Layout guides ⌃G, Bring forward ⌥⌘↑", () => {
+    shortcutPrefs.update({ bindings: {} });
+    expect(commandForKey(press("Slash", { meta: true }))?.id).toBe("tool.actions");
+    expect(commandForKey(press("KeyP", { meta: true }))?.id).toBe("tool.actions");
+    expect(commandForKey(press("KeyY", { meta: true }))?.id).toBe("view.outlines");
+    expect(commandForKey(press("KeyG", { ctrl: true }))?.id).toBe("view.layout-guides");
+    expect(commandForKey(press("ArrowUp", { meta: true, alt: true }))?.id).toBe("object.bring-forward");
+    // Menus show the first: ⌘K, and ⇧⌘= as ⌘+.
+    expect(comboText(COMMAND_BY_ID.get("tool.actions")!.keys![0])).toBe("⌘K");
+    expect(comboText(COMMAND_BY_ID.get("view.zoom-in")!.keys![0])).toBe("⌘+");
+  });
+
+  it("German QWERTZ: ⌘Ä / ⌘Ö bring forward / send backward, Ä to the front, ⌘, Actions, ⌘^ Show/Hide UI", () => {
+    shortcutPrefs.update({ layout: "de" });
+    // The German Ä and Ö keys are the U.S. ' and ; places.
+    expect(commandForKey(press("Quote", { meta: true }))?.id).toBe("object.bring-forward");
+    expect(commandForKey(press("Semicolon", { meta: true }))?.id).toBe("object.send-backward");
+    expect(commandForKey(press("Quote"))?.id).toBe("object.bring-to-front");
+    expect(commandForKey(press("Comma", { meta: true }))?.id).toBe("tool.actions");
+    // ⌘K is no German key for Actions (⌘, and ⌘P are).
+    expect(commandForKey(press("KeyK", { meta: true }))?.id).not.toBe("tool.actions");
+    expect(comboText(COMMAND_BY_ID.get("object.bring-forward")!.keys![0])).toBe("⌘Ä");
+    expect(commandForKey(press("Backquote", { meta: true }))?.id).toBe("view.toggle-ui");
+  });
+
+  it("Swedish: letter spacing ⇧⌥, / ⇧⌥. and line height ⇧⌥⌘", () => {
+    shortcutPrefs.update({ layout: "sv" });
+    expect(commandForKey(press("Comma", { alt: true, shift: true }))?.id).toBe("text.letter-spacing-down");
+    expect(commandForKey(press("Period", { alt: true, shift: true, meta: true }))?.id).toBe("text.line-height-up");
+  });
+
+  it("Turkish (ours) reads the unknown layout's keys, by the character as before", () => {
+    shortcutPrefs.update({ layout: "tr-q-mac" });
+    expect(commandForKey(press("KeyK", { meta: true }))?.id).toBe("tool.actions");
+    expect(commandForKey(press("KeyZ", { meta: true }))?.id).toBe("edit.undo");
+  });
+
+  it("Use number keys for opacity off: 1 / 9 fit, 2 selection, 0 100 %; on: with ⇧", () => {
+    shortcutPrefs.follow({ numbersForOpacity: false });
+    expect(commandForKey(press("Digit1"))?.id).toBe("view.zoom-fit");
+    expect(commandForKey(press("Digit2"))?.id).toBe("view.zoom-selection");
+    expect(commandForKey(press("Digit0"))?.id).toBe("view.zoom-100");
+    expect(commandForKey(press("Digit1", { shift: true }))).toBeNull();
+    shortcutPrefs.follow({ numbersForOpacity: true });
+    expect(commandForKey(press("Digit1"))).toBeNull();
+    expect(commandForKey(press("Digit1", { shift: true }))?.id).toBe("view.zoom-fit");
+  });
+
+  it("Use old shortcuts for outlines: Outlines ⇧O, Outline stroke ⇧⌘O", () => {
+    shortcutPrefs.follow({ oldOutlineShortcuts: true });
+    expect(commandForKey(press("KeyO", { shift: true }))?.id).toBe("view.outlines");
+    expect(commandForKey(press("KeyO", { shift: true, meta: true }))?.id).toBe("vector.outline-stroke");
+  });
+
+  it("follows the editor: Dev Mode's ⇧D back to Design and V; Draw's B Brush", () => {
+    shortcutPrefs.follow({ editor: "dev_handoff" });
+    expect(commandForKey(press("KeyD", { shift: true }))?.id).toBe("view.dev-mode");
+    expect(commandForKey(press("KeyV"))?.id).toBe("tool.move");
+    shortcutPrefs.follow({ editor: "illustration" });
+    expect(commandForKey(press("KeyB"))?.id).toBe("tool.brush");
+    shortcutPrefs.follow({ editor: "design" });
+    expect(commandForKey(press("KeyB"))?.id).not.toBe("tool.brush");
+  });
+
+  it("a tab completed plays its keys 1 500 – 6 000 ms after, each 110 ms × its distance + 100 ms later (Atlas 03 §8)", () => {
+    const tools = SHORTCUT_TABS.find((x) => x.id === "tools")!;
+    const ids = tabUsageIds(tools);
+    const before = new Set(ids.filter((_, i) => i !== 3));
+    expect(completedTab(before, new Set(ids), SHORTCUT_TABS)).toEqual({ tab: "tools", from: 3 });
+    expect(completedTab(new Set(ids), new Set(ids), SHORTCUT_TABS)).toBeNull();
+    expect([0, 3, 5].map((p) => celebrateDelay(p, 3))).toEqual([430, 100, 320]);
+    expect([CELEBRATE_START_MS, CELEBRATE_END_MS]).toEqual([1500, 6000]);
+  });
+
+  it("the Layout tab's list: Detected, then Other layouts by name, Generic last", () => {
+    const entries = layoutOptions("de");
+    expect(entries.slice(0, 3)).toEqual([{ header: "Detected" }, { value: "de", label: "German QWERTZ" }, { header: "Other layouts" }]);
+    expect(entries.at(-1)).toEqual({ value: "generic", label: "Generic" });
+    expect(entries.filter((e) => typeof e === "object" && "value" in e && e.value === "de")).toHaveLength(1);
+    expect(layoutOptions(null)[0]).toEqual({ value: "zh", label: "Chinese" });
+  });
+
+  it("keeps a key out of the edit modes the table says: ⌘] reorders no points in vector edit mode", () => {
+    shortcutPrefs.update({ bindings: {} });
+    expect(commandForKey(press("BracketRight", { meta: true }))?.id).toBe("object.bring-forward");
+    expect(commandForKey(press("BracketRight", { meta: true }), "VECTOR")).toBeNull();
   });
 });

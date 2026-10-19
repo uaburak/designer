@@ -150,10 +150,22 @@ export interface ImportedImage {
   /** A video: the video file's hash (the rest describes its poster frame) and its length in seconds */
   video?: string;
   duration?: number;
+  /** An animated GIF: the GIF file's hash (Paint.animatedImage; the rest describes its still at frame 0) */
+  animated?: string;
 }
 
-const IMAGE_TYPES = /^image\/(png|jpeg|gif|webp)$/;
-export const isImageFile = (f: { type: string }) => IMAGE_TYPES.test(f.type);
+/**
+ * The images Figma takes (atlas 07 §8.6): png, jpeg, gif, webp, avif, tiff, bmp, heic. Here each is read wherever the
+ * platform decodes it (Chromium: avif and bmp; tiff and heic only where the system does — the others are skipped as
+ * files that can't be read); the ones that aren't png / jpeg / gif / webp are kept re-encoded as PNG (Figma re-encodes
+ * the types it doesn't store, `imageTypeToEncode`), so the file's blobs stay in formats every reader sniffs.
+ */
+const IMAGE_TYPES = /^image\/(png|jpeg|gif|webp|avif|tiff|bmp|x-ms-bmp|heic|heif)$/;
+const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|avif|tiff?|bmp|heic|heif)$/i;
+const STORED_TYPES = /^image\/(png|jpeg|gif|webp)$/;
+export const isImageFile = (f: { type: string; name?: string }) => IMAGE_TYPES.test(f.type) || (!f.type && IMAGE_EXTENSIONS.test(f.name ?? ""));
+/** The image file pickers' `accept`. */
+export const IMAGE_ACCEPT = "image/png,image/jpeg,image/gif,image/webp,image/avif,image/tiff,image/bmp,image/heic,image/heif,.heic,.heif";
 
 /**
  * Videos Figma takes (help.figma.com 8878274530455): .mp4 and .mov (H.264), .webm (VP8), up to 300 MB. They are fills,
@@ -209,6 +221,60 @@ export async function importVideo(file: Blob & { name?: string }, store: ImageSt
   const image = await importImage(Object.assign(poster.blob, { name: file.name }), store, opts);
   const video = await store.put(bytes, file.type || "video/mp4");
   return { ...image, width: poster.width, height: poster.height, name: imageLayerName(file.name), video, duration: poster.duration };
+}
+
+// ── GIFs (atlas 07 §8.5) ─────────────────────────────────────────────────────
+
+/** WebCodecs' ImageDecoder, as much of it as the GIF fill uses (Chromium has it; tests and other browsers may not). */
+type FrameDecoder = {
+  tracks: { ready: Promise<void>; selectedTrack: { frameCount: number } | null };
+  completed: Promise<void>;
+  decode(o: { frameIndex: number }): Promise<{ image: CanvasImageSource & { duration: number | null; close(): void } }>;
+  close(): void;
+};
+const frameDecoder = () => (globalThis as { ImageDecoder?: new (init: { data: BufferSource; type: string }) => FrameDecoder }).ImageDecoder;
+
+/** A GIF's frames: how many, frame `i` as a bitmap and its length (ms, Figma's GIF frame picker); `close` when done. */
+export interface GifFrames {
+  count: number;
+  frame(i: number): Promise<{ bitmap: ImageBitmap; durationMs: number } | null>;
+  close(): void;
+}
+
+/** A GIF read frame by frame with the platform's ImageDecoder; null where there is none, or the bytes don't decode. */
+export async function gifFrames(bytes: Uint8Array): Promise<GifFrames | null> {
+  const Decoder = frameDecoder();
+  if (!Decoder) return null;
+  try {
+    const decoder = new Decoder({ data: bytes as Uint8Array<ArrayBuffer>, type: "image/gif" });
+    await decoder.tracks.ready;
+    await decoder.completed;
+    const count = decoder.tracks.selectedTrack?.frameCount ?? 0;
+    return {
+      count,
+      frame: async (i) => {
+        try {
+          const { image } = await decoder.decode({ frameIndex: Math.max(0, Math.min(count - 1, i)) });
+          const bitmap = await createImageBitmap(image);
+          const durationMs = (image.duration ?? 100_000) / 1000;
+          image.close();
+          return { bitmap, durationMs };
+        } catch {
+          return null;
+        }
+      },
+      close: () => decoder.close(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** A GIF frame as a PNG (the still a GIF fill draws: Figma's `updateStillImageAndSelectionPropertiesForGIF`). */
+export async function gifStill(bitmap: ImageBitmap): Promise<Blob> {
+  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+  canvas.getContext("2d")?.drawImage(bitmap, 0, 0);
+  return canvas.convertToBlob({ type: "image/png" });
 }
 
 /** Draws `bitmap` scaled to w × h on a fresh OffscreenCanvas (a high-quality resize when the browser offers one). */
@@ -269,12 +335,26 @@ export async function deriveProgressive(bitmap: ImageBitmap, image: { hash: stri
  * re-encoding only then), hashes and stores one image, with its ThumbHash and low-res tier.
  */
 export async function importImage(file: Blob & { name?: string }, store: ImageStore, opts: { maxTextureSize?: number } = {}): Promise<ImportedImage> {
-  const mime = file.type || "image/png";
+  const typed = file.type || (sniffImageMime(new Uint8Array(await file.slice(0, 12).arrayBuffer())) ?? "");
   let bytes: Uint8Array = new Uint8Array(await file.arrayBuffer());
+  // An animated GIF: the GIF kept as it is (the paint's animatedImage), its first frame as the still the paint draws.
+  if (typed === "image/gif") {
+    const frames = await gifFrames(bytes);
+    const first = frames && frames.count > 1 ? await frames.frame(0) : null;
+    frames?.close();
+    if (first) {
+      const still = await importImage(Object.assign(await gifStill(first.bitmap), { name: file.name }), store, opts);
+      first.bitmap.close();
+      return { ...still, name: imageLayerName(file.name), animated: await store.put(bytes, "image/gif") };
+    }
+  }
   const bitmap = await createImageBitmap(file);
   let { width, height } = bitmap;
   const fit = importSize(width, height, opts.maxTextureSize);
-  if ((fit.width !== width || fit.height !== height) && typeof OffscreenCanvas !== "undefined") {
+  // avif, bmp, tiff, heic: kept as PNG (see IMAGE_TYPES).
+  const reencode = !STORED_TYPES.test(typed);
+  const mime = reencode ? "image/png" : typed;
+  if ((reencode || fit.width !== width || fit.height !== height) && typeof OffscreenCanvas !== "undefined") {
     const canvas = new OffscreenCanvas(fit.width, fit.height);
     canvas.getContext("2d")?.drawImage(bitmap, 0, 0, fit.width, fit.height);
     const blob = await canvas.convertToBlob({ type: mime === "image/jpeg" || mime === "image/webp" ? mime : "image/png", quality: 0.92 });

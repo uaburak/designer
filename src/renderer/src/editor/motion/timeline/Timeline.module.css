@@ -1,0 +1,288 @@
+@layer app {
+  /*
+   * Motion mode's timeline (docs/motion.md §6.2), drawn after Figma's (the owner's captures, 2026-10-18,
+   * docs/research/figma/live/owner-2026-10-18/figma-motion-*.webp, 1.32 px per CSS px): docked along the editor's bottom,
+   * dark in both themes (the subtree is data-theme="dark"), the panel's grey with a line on top. One 48 header row: the
+   * controls over the layer column (296), the ruler over the lanes, the zoom box (160) at its right end; 24 rows under it.
+   */
+  .panel {
+    --layer-column: 296px;
+    --ruler: var(--ds-size-motion-timeline-header);
+    --row: var(--ds-size-control);
+    --zoom-box: 160px;
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: var(--ds-z-panel);
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    height: var(--ds-size-motion-timeline);
+    border-top: 1px solid var(--figma-color-border);
+    background: var(--figma-color-bg);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    user-select: none;
+  }
+  .panel[data-motion-timeline="collapsed"] { height: calc(var(--ds-size-motion-timeline-header) + 1px); }
+  /* Auto-keyframe on: "a red bar appears across the top of the timeline" (Figma's capture: 2 px, over the top line) */
+  .panel[data-auto-keyframe]::before { position: absolute; top: -1px; right: 0; left: 0; z-index: 4; height: 2px; background: var(--figma-color-bg-danger); content: ""; }
+
+  .body { position: relative; display: flex; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+  .layers { display: flex; flex: none; flex-direction: column; width: var(--layer-column); border-right: 1px solid var(--figma-color-border); }
+
+  /* The controls: Play, the keyframe button, the time group, the layers toggle at the right (capture: 12 from the left) */
+  .controls {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--ds-space-1);
+    box-sizing: border-box;
+    height: var(--ruler);
+    padding: 0 var(--ds-space-2);
+    border-bottom: 1px solid var(--figma-color-border);
+  }
+  .grow { flex: 1 1 auto; }
+  .controls .autoOn, .controls .autoOn:hover { background: transparent; color: var(--figma-color-text-danger); }
+  /* "1855 | 2000 | ms | ⟲": one grey group 24 high, its parts 1 px apart (the panel's grey between them) */
+  .time { display: flex; flex: none; align-items: stretch; gap: 1px; height: var(--ds-size-control); margin-left: var(--ds-space-1); overflow: hidden; border-radius: var(--ds-radius-medium); }
+  .time > * { border-radius: 0; }
+  .time > .timeField { flex: none; width: 42px; padding: 0; font-variant-numeric: tabular-nums; }
+  .time > .timeField input { margin: 0; padding: 0 var(--ds-space-1); text-align: center; }
+  .time > .timeField > span:first-child { width: auto; min-width: 0; margin: 0 -2px 0 var(--ds-space-2); color: var(--figma-color-text-tertiary); }
+  .time > .timeField > span:first-child + input { padding-left: 0; text-align: left; }
+  .unit {
+    display: flex;
+    align-items: center;
+    padding: 0 var(--ds-space-2);
+    border: 0;
+    background: var(--figma-color-bg-secondary);
+    color: var(--figma-color-text-secondary);
+    font: inherit;
+    outline: none;
+  }
+  .unit:hover:not(:disabled) { color: var(--figma-color-text); }
+  .unit[aria-expanded="true"] { color: var(--figma-color-text); }
+  .unit:focus-visible { box-shadow: inset 0 0 0 var(--ds-focus-width) var(--ds-focus-color); }
+  .loop { background: var(--figma-color-bg-secondary); }
+  /* Social's header (docs/social.md §8): the format and its video limits after the time fields; Duration red outside them */
+  .over input { color: var(--figma-color-text-danger); }
+  .social { margin-left: var(--ds-space-2); overflow: hidden; color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
+
+  .rows { flex: 1 1 auto; min-height: 0; overflow: hidden auto; }
+
+  /* A layer row (Figma's: the chevron at 8, the type's glyph at 32, the name at 56); the chevron shows on hover */
+  .layerRow, .propertyRow {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    box-sizing: border-box;
+    width: 100%;
+    height: var(--row);
+    padding: 0 var(--ds-space-2) 0 calc(var(--ds-space-2) + var(--depth, 0) * var(--ds-space-4));
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    outline: none;
+    cursor: default;
+  }
+  .layerRow[aria-selected="true"] { background: var(--figma-color-bg-selected); }
+  .propertyRow[data-lit] { background: var(--figma-color-bg-selected-secondary); }
+  .propertyRow[aria-selected="true"] { background: var(--figma-color-bg-selected); }
+  .layerRow:focus-visible, .propertyRow:focus-visible { box-shadow: inset 0 0 0 var(--ds-focus-width) var(--ds-focus-color); }
+  .chevron { display: flex; flex: none; width: 16px; height: 16px; color: var(--figma-color-icon-secondary); opacity: 0; transition: transform 0.1s; }
+  .layerRow:hover .chevron { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { .chevron { transition: none; } }
+  .chevron[data-open] { transform: rotate(90deg); }
+  .glyph { display: flex; flex: none; color: var(--figma-color-icon-secondary); }
+  .layerRow[aria-selected="true"] .glyph { color: var(--figma-color-icon); }
+  .name { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+  /* A property row: the tree's line from its layer's glyph, the name at 56, ‹ ◇ › at 128, the value at 196 */
+  .propertyRow { padding-left: calc(var(--ds-space-4) + var(--ds-size-control) + var(--ds-space-4) + var(--depth, 0) * var(--ds-space-4)); color: var(--figma-color-text-secondary); }
+  .propertyRow::before { position: absolute; top: 0; bottom: 0; left: calc(var(--ds-space-4) + var(--ds-space-6) + var(--depth, 0) * var(--ds-space-4)); width: 8px; border-left: 1px solid var(--figma-color-border); content: ""; }
+  .propertyRow[data-last]::before { bottom: 50%; border-bottom: 1px solid var(--figma-color-border); }
+  .propertyRow:not([data-last])::after { position: absolute; top: 50%; left: calc(var(--ds-space-4) + var(--ds-space-6) + var(--depth, 0) * var(--ds-space-4)); width: 8px; border-top: 1px solid var(--figma-color-border); content: ""; }
+  .propertyRow .name { flex: 0 0 70px; }
+  .instanceRow .name { color: var(--figma-color-text-component); }
+  .keyNav { display: flex; flex: none; align-items: center; }
+  .navButton {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--ds-radius-small);
+    background: none;
+    color: var(--figma-color-icon-secondary);
+    outline: none;
+  }
+  .navButton:hover:not(:disabled) { background: var(--figma-color-bg-hover); color: var(--figma-color-icon); }
+  .navButton:disabled { color: var(--figma-color-icon-tertiary); }
+  .navButton:focus-visible { box-shadow: inset 0 0 0 var(--ds-focus-width) var(--ds-focus-color); }
+  .navButton svg { width: 16px; height: 16px; }
+  .navButton path { fill: none; stroke: currentColor; stroke-width: 1; stroke-linejoin: round; }
+  .navButton[aria-pressed="true"] path { fill: currentColor; }
+  .navButton > [data-ds="Icon"] { margin: -2px; }
+  .value { flex: 1 1 auto; min-width: 0; margin-left: var(--ds-space-3); overflow: hidden; color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+
+  /* The track area: the ruler, the zoom box at its right, then one lane per row, the same heights as the layer column */
+  .tracks { position: relative; display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; overflow: hidden; outline: none; }
+  .tracks:focus-visible { box-shadow: inset 0 0 0 var(--ds-focus-width) var(--ds-focus-color); }
+  /* The ruler: a 14 strip on top (its ticks, the playhead's handle), the labels under it (capture: "0s 500ms 1s 500ms 2s") */
+  .ruler { position: relative; flex: none; box-sizing: border-box; height: var(--ruler); margin-right: var(--zoom-box); border-bottom: 1px solid var(--figma-color-border); cursor: ew-resize; }
+  .ruler::before { position: absolute; top: 14px; right: 0; left: 0; height: 1px; background: var(--figma-color-border); content: ""; }
+  .tick { position: absolute; top: 4px; width: 1px; height: 10px; background: var(--figma-color-border); }
+  .tickLabel { position: absolute; top: 22px; margin-left: -1px; color: var(--figma-color-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); white-space: nowrap; }
+  /* A comment placed in Motion (docs/motion.md §6.8): a small speech-bubble mark on the ruler at its time [look ours] */
+  .commentMarker { position: absolute; top: 2px; z-index: 1; width: 10px; height: 10px; margin-left: -5px; padding: 0; border: 1px solid var(--figma-color-bg); border-radius: 5px 5px 5px 0; background: var(--figma-color-bg-brand); cursor: pointer; }
+  .commentMarker:hover { background: var(--figma-color-bg-brand-hover); }
+  .commentMarker:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .zoomBox {
+    position: absolute;
+    top: 0;
+    right: 0;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    box-sizing: border-box;
+    width: var(--zoom-box);
+    height: var(--ruler);
+    padding: 0 var(--ds-space-1) 0 var(--ds-space-4);
+    border-bottom: 1px solid var(--figma-color-border);
+    border-left: 1px solid var(--figma-color-border);
+    background: var(--figma-color-bg);
+  }
+  .zoom { flex: 1 1 auto; min-width: 0; }
+
+  /* The lanes fill what is under the ruler; their rows follow the layer column's scroll (round 8i) */
+  .lanes { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+  .laneRows { position: relative; will-change: transform; }
+  .lane { position: relative; box-sizing: border-box; height: var(--row); }
+  .lane[data-lit="layer"] { background: var(--figma-color-bg-selected); }
+  .lane[data-lit="child"] { background: var(--figma-color-bg-selected-secondary); }
+  .lane[aria-selected="true"] { background: var(--figma-color-bg-selected); }
+  /* The layer bar (capture: 18 high, corners 4, a grip near each end): grey, the pressed blue when its layer is selected */
+  .layerBar { position: absolute; top: calc(50% - 9px); box-sizing: border-box; height: 18px; border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-tertiary); }
+  .layerBar[data-selected] { background: var(--figma-color-bg-brand-pressed); }
+  .layerBar[data-editable] { cursor: grab; }
+  /* Its side handles (round 8i), each drawn as Figma's grip: a 1.5 × 8 line 6 in from the end */
+  .barHandle { position: absolute; top: 0; bottom: 0; width: 12px; cursor: ew-resize; }
+  .barHandle::after { position: absolute; top: 5px; bottom: 5px; width: 1.5px; border-radius: 1px; background: var(--figma-color-icon-tertiary); content: ""; }
+  .layerBar[data-selected] .barHandle::after { background: var(--figma-color-icon-onbrand); }
+  .barHandle[data-bar-handle="start"] { left: 0; }
+  .barHandle[data-bar-handle="start"]::after { left: 6px; }
+  .barHandle[data-bar-handle="end"] { right: 0; }
+  .barHandle[data-bar-handle="end"]::after { right: 6px; }
+  .instanceBar { position: absolute; top: calc(50% - 9px); height: 18px; border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-component-tertiary); cursor: grab; }
+  /* A preset's clip (round 8h): its type's name in a bar over its span, a handle at each side; blue outline when selected [unverified] */
+  .clip {
+    position: absolute;
+    top: 3px;
+    bottom: 3px;
+    display: flex;
+    align-items: center;
+    box-sizing: border-box;
+    min-width: 6px;
+    padding: 0 var(--ds-space-2);
+    overflow: hidden;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-brand-tertiary);
+    color: var(--figma-color-text);
+    cursor: grab;
+  }
+  .clip[data-selected] { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected-strong); }
+  .clip[data-disabled] { opacity: 0.4; }
+  .clipLabel { min-width: 0; overflow: hidden; font: var(--ds-font-body-small); letter-spacing: var(--ds-tracking-body-small); white-space: nowrap; text-overflow: ellipsis; pointer-events: none; }
+  .clipHandle { position: absolute; top: 0; bottom: 0; width: 6px; cursor: ew-resize; }
+  .clipHandle[data-clip-handle="start"] { left: 0; }
+  .clipHandle[data-clip-handle="end"] { right: 0; }
+  /* Audio (round 8e): a row's eye at its end; a clip's bar with its waveform behind its name; muted ones dimmed [unverified] */
+  .audioRow { padding-right: var(--ds-space-1); }
+  .audioRow[data-muted] .name { color: var(--figma-color-text-tertiary); }
+  .eye { display: flex; flex: none; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--ds-radius-medium); background: none; color: var(--figma-color-icon-secondary); opacity: 0; }
+  .audioRow:hover .eye, .eye[aria-pressed="true"], .eye:focus-visible { opacity: 1; }
+  .eye:hover { background: var(--figma-color-bg-hover); }
+  .audioClip {
+    position: absolute;
+    top: 3px;
+    bottom: 3px;
+    display: flex;
+    align-items: center;
+    box-sizing: border-box;
+    min-width: 6px;
+    padding: 0 var(--ds-space-2);
+    overflow: hidden;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-success-tertiary);
+    color: var(--figma-color-text);
+    cursor: grab;
+  }
+  .audioClip[data-selected] { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected-strong); }
+  .audioClip[data-muted] { opacity: 0.4; }
+  .audioWave { position: absolute; top: 2px; right: 0; bottom: 2px; left: 0; width: 100%; height: calc(100% - 4px); pointer-events: none; }
+  .audioWave path { fill: none; stroke: var(--figma-color-icon-success); stroke-width: 1; opacity: 0.6; }
+  .audioClip .clipLabel { position: relative; }
+  /* The interpolation line between two keyframes (capture: 1 px, 3 px clear of each diamond): grey, blue between selected ones; Hold dashed */
+  .segment { position: absolute; top: calc(50% - 0.5px); height: 1px; padding: 0; border: 0; background: var(--figma-color-text-disabled); cursor: pointer; }
+  .segment[data-selected] { background: var(--figma-color-border-selected); }
+  .segment:hover { background: var(--figma-color-text-brand); }
+  .segment[data-hold] { background: repeating-linear-gradient(90deg, var(--figma-color-text-disabled) 0 3px, transparent 3px 6px); }
+  .segment[data-hold][data-selected] { background: repeating-linear-gradient(90deg, var(--figma-color-border-selected) 0 3px, transparent 3px 6px); }
+  .segment[data-variable] { background: var(--figma-color-icon-brand-secondary); }
+  .segment:disabled { cursor: default; }
+  .segment::before { position: absolute; top: -6px; right: 0; bottom: -6px; left: 0; content: ""; }
+  /* The diamonds (capture: 10 across): a light outline, filled in the brand's light blue when selected */
+  .diamond {
+    position: absolute;
+    top: calc(50% - 8px);
+    display: flex;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--figma-color-icon-secondary);
+    outline: none;
+    transform: translateX(-8px);
+    cursor: pointer;
+  }
+  .diamond:hover { color: var(--figma-color-icon); }
+  .diamond:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); border-radius: var(--ds-radius-medium); }
+  .diamond[data-past] { opacity: 0.4; }
+  .diamond svg { display: block; width: 16px; height: 16px; }
+  .diamond path { fill: none; stroke: currentColor; stroke-width: 1.25; stroke-linejoin: round; }
+  .diamond[data-selected], .diamond[data-lit] { color: var(--figma-color-text-brand); }
+  .diamond[data-lit] path { fill: currentColor; }
+  .diamond[data-selected] path { fill: currentColor; }
+  .diamond[data-dragging] { cursor: grabbing; }
+
+  /* The playhead (Figma's, 2026-10-18/motion.txt): a 1 px line over the lanes, the 17 × 14 scrub head (its own path) in
+     the ruler's strip; red with auto-keyframe */
+  .playhead { position: absolute; top: 0; bottom: 0; z-index: 2; width: 1px; margin-left: -0.5px; background: var(--figma-color-bg-brand); pointer-events: none; }
+  .playheadHandle { position: absolute; top: 0; left: -8px; width: 17px; height: 14px; background: var(--figma-color-bg-brand); clip-path: path("M0 2C0 0.895 0.895 0 2 0H15C16.105 0 17 0.895 17 2V7.716C17 8.415 16.635 9.064 16.038 9.426L9.538 13.37C8.9 13.757 8.1 13.757 7.462 13.37L0.962 9.426C0.365 9.064 0 8.415 0 7.716V2Z"); }
+  .playhead[data-auto] { background: var(--figma-color-bg-danger); }
+  .playhead[data-auto] .playheadHandle { background: var(--figma-color-bg-danger); }
+  /* The duration at the timeline's end: a quiet line, dragged; past it the lanes darker (capture: the menus' grey) */
+  .duration { position: absolute; top: 0; bottom: 0; z-index: 1; width: 1px; background: var(--figma-color-border); cursor: ew-resize; }
+  .duration[data-readonly] { cursor: default; }
+  .duration::before { position: absolute; top: 0; bottom: 0; left: -4px; width: 9px; content: ""; }
+  .durationHandle { position: absolute; top: 0; left: -1px; width: 3px; height: 14px; border-radius: 0 0 1px 1px; background: var(--figma-color-border-strong); opacity: 0; }
+  .duration:hover .durationHandle { opacity: 1; }
+  .past { position: absolute; top: 0; right: 0; bottom: 0; background: var(--ds-color-menu-bg); pointer-events: none; }
+
+  /* The marquee over the track area (the file browser's look): what it touches is selected */
+  .marquee { position: absolute; z-index: 2; border: 1px solid var(--figma-color-border-selected); background: var(--ds-color-marquee-fill); pointer-events: none; }
+  /* The top edge: an 8 strip over the border line, dragged to resize (min 120, max 60 % of the window) [unverified] */
+  .resize { position: absolute; top: calc(var(--ds-space-1) * -1); right: 0; left: 0; z-index: 5; height: var(--ds-space-2); cursor: ns-resize; }
+
+  .empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: var(--ds-space-4); color: var(--figma-color-text-secondary); text-align: center; }
+}

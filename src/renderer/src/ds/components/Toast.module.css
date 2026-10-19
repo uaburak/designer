@@ -27,7 +27,27 @@
   }
   .error { background: var(--figma-color-bg-danger); color: var(--figma-color-text-ondanger); }
   .lead { display: flex; flex: none; margin-left: calc(var(--ds-space-2) * -1); color: var(--figma-color-icon-success); }
+  /* A bell's own icon (Figma's visual bell icons, Return to instance's): in the toast's text colour */
+  .icon { color: var(--ds-color-menu-text); }
   .message { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  /* A repeated toast's count (Figma's `count`; its look is not captured: a 16 pill as Badge's count, G) */
+  .count {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 var(--ds-space-1);
+    border-radius: var(--ds-radius-full);
+    background: var(--figma-color-bg-tertiary);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-small);
+    letter-spacing: var(--ds-tracking-body-small);
+    font-variant-numeric: tabular-nums;
+  }
+  /* Without a button after it the message ends 16 from the edge (Figma's horizontal padding 16) */
+  .toast:not(:has(> button)) { padding-right: var(--ds-space-4); }
   .static { animation: none; }
   @keyframes enter { from { opacity: 0; transform: translateY(8px); } }
 }

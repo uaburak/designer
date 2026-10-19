@@ -4,12 +4,14 @@
  * and hex, "Click to sample"), and Preferences › Nudge amount….
  */
 import { t, useT } from "@/i18n";
-import { useEffect, useRef, useState } from "react";
-import { Button, Dialog, evaluate, Icon, Swatch, TextInput } from "@/ds";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { evaluate, FloatingPanel, Icon, NumericInput, size, Swatch, TextInput } from "@/ds";
 import { useTool } from "@/engine/hooks";
 import { useEditor } from "../controller";
-import { useUI } from "../hooks";
-import { canvasPixelsAround, commitInlineValue, DEFAULT_NUDGE, setNudge } from "../canvasTools";
+import { useLocalAssets, useUI } from "../hooks";
+import { applyPickedColor, canvasColorAt, canvasPixelsAround, commitInlineValue, DEFAULT_NUDGE, setNudge } from "../canvasTools";
+import { colorFormat, formatColor, nextEyedropperFormat, useColorFormat } from "../colorFormat";
+import { matchColor, setEyedropperChoice } from "../eyedropper";
 import styles from "./CanvasTools.module.css";
 
 /** The padding or gap value typed over its pill (Enter or leaving keeps it, Esc puts it back). */
@@ -48,8 +50,8 @@ const CARD_W = 260, CARD_H = 64, CARD_OFFSET = 16, CARD_MARGIN = 4;
 /**
  * The eyedropper's card (Pick color, ⌃C / I), as live Figma's (docs/research/chrome-cursors/figma-eyedropper.png): a
  * 260 × 64 card following the pointer with the canvas's pixels under it magnified (the middle one framed), the colour
- * there as a swatch and its hex, and "Click to sample". A click samples it (canvasTools.ts COLOR_PICK); Esc cancels
- * (the engine's tool goes back to Move).
+ * there as a swatch and its hex, and "Click to sample". A click samples it (canvasTools.ts COLOR_PICK), Enter too
+ * (Figma's eyedropper keys, atlas 07 §6); Esc cancels (the engine's tool goes back to Move).
  */
 export function EyedropperLoupe() {
   const ed = useEditor();
@@ -62,6 +64,45 @@ function Loupe() {
   const ed = useEditor();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [at, setAt] = useState<{ left: number; top: number; hex: string } | null>(null);
+  // Figma's card (atlas 07 §6): the colour in the colour format (Tab cycles it, CSS skipped); the second row names a
+  // colour variable or fill style of that colour (⇧ applies it bound) or says what a click does.
+  const [format, setFormat] = useColorFormat();
+  const [shift, setShift] = useState(false);
+  const assets = useLocalAssets();
+  const hex = at?.hex ?? null;
+  const rgb = useMemo(() => (hex ? { r: parseInt(hex.slice(0, 2), 16) / 255, g: parseInt(hex.slice(2, 4), 16) / 255, b: parseInt(hex.slice(4, 6), 16) / 255 } : null), [hex]);
+  // (Read once per colour under the pointer, not per pointer move.)
+  const match = useMemo(() => (rgb ? matchColor(assets, rgb) : null), [assets, rgb]);
+  const choice = shift ? match : null;
+  useEffect(() => {
+    setEyedropperChoice(ed, choice);
+    return () => setEyedropperChoice(ed, null);
+  }, [ed, choice]);
+  // The pointer over the canvas (canvas CSS px): Enter picks there, as a click would.
+  const pointerAt = useRef<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Shift") setShift(e.type === "keydown");
+      if (e.key === "Enter" && e.type === "keydown" && pointerAt.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        const color = canvasColorAt(ed, pointerAt.current.x, pointerAt.current.y);
+        if (color) applyPickedColor(ed, color);
+        ed.setTool("MOVE");
+      }
+      if (e.key === "Tab" && e.type === "keydown") {
+        e.preventDefault();
+        e.stopPropagation();
+        setFormat(nextEyedropperFormat(colorFormat()));
+      }
+    };
+    window.addEventListener("keydown", key, true);
+    window.addEventListener("keyup", key, true);
+    return () => {
+      window.removeEventListener("keydown", key, true);
+      window.removeEventListener("keyup", key, true);
+    };
+  }, [ed, setFormat]);
   useEffect(() => {
     const target = ed.canvas;
     if (!target) return;
@@ -73,6 +114,7 @@ function Loupe() {
       const out = canvasRef.current;
       if (!e || !out) return;
       const r = target.getBoundingClientRect();
+      pointerAt.current = { x: e.clientX - r.left, y: e.clientY - r.top };
       const px = canvasPixelsAround(ed, e.clientX - r.left, e.clientY - r.top, LOUPE_CELLS);
       if (!px) return;
       const ctx = out.getContext("2d");
@@ -94,6 +136,7 @@ function Loupe() {
     };
     const onLeave = () => {
       last = null;
+      pointerAt.current = null;
       setAt(null);
     };
     target.addEventListener("pointermove", onMove);
@@ -123,70 +166,74 @@ function Loupe() {
           <span className={styles.loupeLead}>
             <Swatch color={at ? `#${at.hex}` : "#000000"} size={16} className={styles.loupeSwatch} />
           </span>
-          <span className={styles.loupeHex}>#{at?.hex ?? "000000"}</span>
+          <span className={styles.loupeHex} data-format={format}>{rgb ? formatColor(rgb, format) : "#000000"}</span>
         </div>
-        <div className={styles.loupeRow}>
+        <div className={styles.loupeRow} data-chosen={choice ? "" : undefined}>
           <span className={styles.loupeLead}>
             <Icon name="24.interaction.click.small" className={styles.loupeIcon} />
           </span>
-          <span className={styles.loupeHint}>{t("Click to sample")}</span>
+          {match ? (
+            <>
+              <span className={styles.loupeHint}>{match.name}</span>
+              <span className={styles.loupeKey}>⇧</span>
+            </>
+          ) : (
+            <span className={styles.loupeHint}>{ed.selectedNodes().length ? t("Click to sample") : t("Click to copy")}</span>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-/** Preferences › Nudge amount…: Small nudge (the arrows) and Big nudge (⇧ arrows), page units (unverified wording). */
+/**
+ * Figma's Nudge amount fields (atlas 21 §3.1, `NudgeAmountPicker`): Small nudge at least 0.1, Big nudge at least 1, no
+ * upper bound; each field's own ↑ ↓ by 1, ⇧ by 10.
+ */
+export const NUDGE_FIELDS = [
+  { key: "small", label: "Small nudge", min: 0.1 },
+  { key: "big", label: "Big nudge", min: 1 },
+] as const;
+
+/**
+ * Preferences › Nudge amount… (atlas 21 §3.1): Figma's draggable window, not a modal — 180 wide, opened at the window's
+ * middle a third of the way down. Each committed value is kept at once (no Save); Enter in either field, Esc or × close
+ * it.
+ */
 export function NudgeDialog() {
   const open = useUI((s) => !!s.nudgeDialog);
-  return open ? <NudgeForm /> : null;
+  return open ? <NudgeWindow /> : null;
 }
 
-function NudgeForm() {
+function NudgeWindow() {
   useT();
   const ed = useEditor();
   const current = useUI((s) => s.nudge) ?? DEFAULT_NUDGE;
-  const [small, setSmall] = useState(String(current.small));
-  const [big, setBig] = useState(String(current.big));
+  const at = useMemo(() => new DOMRect(window.innerWidth / 2 - size["nudge-window"] / 2, window.innerHeight / 3, 0, 0), []);
   const close = () => {
     ed.ui.set({ nudgeDialog: false });
     ed.focusCanvas();
   };
-  const s = evaluate(small), b = evaluate(big);
-  const valid = Number.isFinite(s) && s > 0 && Number.isFinite(b) && b > 0;
   return (
-    <Dialog
-      title={t("Nudge amount")}
-      open
-      onClose={close}
-      footer={
-        <>
-          <Button variant="secondary" onClick={close}>
-            {t("Cancel")}
-          </Button>
-          <Button
-            variant="primary"
-            disabled={!valid}
-            onClick={() => {
-              setNudge(ed, { small: s, big: b });
-              close();
-            }}
-          >
-            {t("Save")}
-          </Button>
-        </>
-      }
-    >
-      <div className={styles.form}>
-        <div className={styles.row}>
-          <span className={styles.rowLabel}>{t("Small nudge")}</span>
-          <TextInput label={t("Small nudge")} value={small} onChange={setSmall} autoFocus />
-        </div>
-        <div className={styles.row}>
-          <span className={styles.rowLabel}>{t("Big nudge")}</span>
-          <TextInput label={t("Big nudge")} value={big} onChange={setBig} />
-        </div>
+    <FloatingPanel title={t("Nudge amount")} anchor={at} placement="bottom-start" gap={0} width={size["nudge-window"]} onClose={close}>
+      <div className={styles.nudgeForm} data-nudge-window="">
+        {NUDGE_FIELDS.map((f) => (
+          <div key={f.key} className={styles.nudgeRow}>
+            <span className={styles.rowLabel}>{t(f.label)}</span>
+            <NumericInput
+              data-nudge-input={f.key}
+              label={t(f.label)}
+              value={current[f.key]}
+              min={f.min}
+              step={1}
+              bigStep={10}
+              scrub={false}
+              onChange={(v) => setNudge(ed, { ...current, [f.key]: Math.max(f.min, v) })}
+              onExit={(r) => r === "enter" && close()}
+            />
+          </div>
+        ))}
       </div>
-    </Dialog>
+    </FloatingPanel>
   );
 }

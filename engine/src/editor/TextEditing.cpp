@@ -15,6 +15,7 @@
 #include "base/Json.h"
 #include "scene/CodecJson.h"
 #include "scene/CodecKiwi.h"
+#include "text/Bidi.h"
 #include "text/TextEdit.h"
 #include "text/TextPathLayout.h"
 #include "text/Unicode.h"
@@ -360,6 +361,7 @@ void Editor::createTextAt(Vec2 world, double width) {
     }
   NodeProps p = toolProps(NodeType::TEXT);
   p.name = "Text";
+  text::stampLayoutVersions(p.extra);  // laid out by today's rules, as Figma's new texts are
   if (width > 0) {
     p.text().textAutoResize = TextAutoResize::HEIGHT;
     p.size = {width, 0};
@@ -467,6 +469,42 @@ void Editor::textDrag(Vec2 s) {
 
 // ---- Keys -------------------------------------------------------------------------
 
+namespace {
+
+// ← / → on a line holding right-to-left text (bidi): the caret goes to the nearest caret place on that side, its
+// grapheme boundaries compared by their carets' x (as the Mac's text views move it), ties to the one nearest in the
+// text. Past the line's edge it goes on logically (nothing found: false, the caller's step). False on a plain
+// left-to-right line too, which moves logically.
+bool visualStep(const text::TextLayout& L, uint32_t focus, bool upstream, bool left, uint32_t& target, bool& targetUpstream) {
+  const size_t li = L.lineOf(focus, upstream);
+  const text::LaidLine& l = L.lines[li];
+  if (!l.rtl && l.boxCount == 0) return false;
+  const std::u16string& str = L.text;
+  const uint32_t last = l.hardEnd ? l.end - 1 : std::min<uint32_t>(l.end, static_cast<uint32_t>(str.size()));
+  const double x0 = L.caretX(focus, li);
+  bool found = false;
+  double bestX = 0;
+  uint32_t best = focus;
+  for (uint32_t i = l.start; i <= last;) {
+    if (i != focus) {
+      double x = L.caretX(i, li);
+      bool side = left ? x < x0 - 0.01 : x > x0 + 0.01;
+      auto dist = [&](uint32_t k) { return k > focus ? k - focus : focus - k; };
+      if (side && (!found || (left ? x > bestX + 0.01 : x < bestX - 0.01) || (std::fabs(x - bestX) <= 0.01 && dist(i) < dist(best)))) {
+        found = true, bestX = x, best = i;
+      }
+    }
+    if (i >= last) break;
+    i = static_cast<uint32_t>(text::nextGrapheme(str, i));
+  }
+  if (!found) return false;
+  target = best;
+  targetUpstream = best == l.end && !l.hardEnd && li + 1 < L.lines.size();
+  return true;
+}
+
+}  // namespace
+
 
 uint32_t Editor::textKey(KeyCode code, uint32_t mods) {
   const text::TextLayout* L = textLayout(text_.node);
@@ -499,17 +537,22 @@ uint32_t Editor::textKey(KeyCode code, uint32_t mods) {
     case KeyCode::ArrowLeft:
     case KeyCode::ArrowRight: {
       bool left = code == KeyCode::ArrowLeft;
+      // In a right-to-left paragraph ← goes on through the text and → back (its start is on the right).
+      const bool back = left != L->lines[L->lineOf(focus, text_.upstream)].rtl;
       if (!shift && !collapsed && !alt && !primary) {
-        moveTo(left ? textSelStart() : textSelEnd());
+        moveTo(back ? textSelStart() : textSelEnd());
         return K_HANDLED;
       }
       if (primary) {
-        if (left) moveTo(lineStart(focus));
+        if (back) moveTo(lineStart(focus));
         else moveTo(lineEnd(focus), !L->lines[L->lineOf(focus, text_.upstream)].hardEnd);
       } else if (alt) {
-        moveTo(static_cast<uint32_t>(left ? text::prevWordStart(str, focus) : text::nextWordEnd(str, focus)));
+        moveTo(static_cast<uint32_t>(back ? text::prevWordStart(str, focus) : text::nextWordEnd(str, focus)));
       } else {
-        moveTo(static_cast<uint32_t>(left ? text::prevGrapheme(str, focus) : text::nextGrapheme(str, focus)));
+        uint32_t target;
+        bool upstream;
+        if (visualStep(*L, focus, text_.upstream, left, target, upstream)) moveTo(target, upstream);
+        else moveTo(static_cast<uint32_t>(back ? text::prevGrapheme(str, focus) : text::nextGrapheme(str, focus)));
       }
       return K_HANDLED;
     }
@@ -855,12 +898,24 @@ std::string Editor::textRangeStyle(Guid id, uint32_t from, uint32_t to, bool use
   text::paragraphsOf(p.text().textData, from, to, first, last);
   static const char* const kTypes[] = {"PLAIN", "ORDERED_LIST", "UNORDERED_LIST"};
   static const char* const kDirections[] = {"AUTO", "LTR", "RTL"};
+  // Each paragraph's direction as laid out too (Auto: its first strong character's), and whether the text has any
+  // right-to-left character: the Typography section's Switch text direction (Atlas 06 §4.1).
+  std::vector<std::u16string_view> paragraphs;
+  for (size_t at = 0;;) {
+    size_t nl = L->text.find(u'\n', at);
+    paragraphs.push_back(std::u16string_view(L->text).substr(at, nl == std::u16string::npos ? std::u16string::npos : nl - at));
+    if (nl == std::u16string::npos) break;
+    at = nl + 1;
+  }
   for (size_t i = first; i <= last; i++) {
     text::LineInfo info = i < p.text().textData.lines.size() ? text::readLine(p.text().textData.lines[i]) : text::LineInfo{};
     put("lineType", quoted(kTypes[static_cast<int>(info.type)]));
     put("indentationLevel", std::to_string(info.indentationLevel));
     put("sourceDirectionality", quoted(kDirections[std::min<int>(info.direction, 2)]));
+    bool rtl = info.direction == 2 || (info.direction == 0 && i < paragraphs.size() && text::paragraphLevel(paragraphs[i]) == 1);
+    put("direction", quoted(rtl ? "RTL" : "LTR"));
   }
+  put("hasRtlText", text::hasRtl(L->text) ? "true" : "false");
   json::Writer w;
   w.beginObject().key("from").number(from).key("to").number(to).key("values").beginObject();
   for (auto& [k, list] : values) w.key(k).raw(list.front());

@@ -9,12 +9,21 @@ import {
   actionKind,
   actionOfKind,
   animationOf,
+  animationsFor,
+  disabledTriggers,
+  springEditorDuration,
+  springOf,
+  springSettleTime,
+  springWithEditorDuration,
+  triggerMenu,
   DEVICE_MODELS,
   DEVICE_PRESETS,
   deviceLabel,
   deviceOf,
   presetIdentifierOf,
   easingFunctionFor,
+  easingFunctionOfCurve,
+  prototypeCurve,
   easingLabel,
   guidJson,
   mouseDelayOf,
@@ -44,11 +53,13 @@ describe("prototype model", () => {
   });
 
   it("maps an animation and its direction to the schema's TransitionType and back", () => {
-    // The arrows say where the layers move: Move in ← comes from the right; Move out ← goes to the left.
+    // The arrows say where the layers move, the stored type the other side (atlas 13 §5.2): Move in ← comes from the
+    // right; Move out ← is MOVE_OUT_TO_RIGHT (MOVE_FROM_LEFT reversed: the old screen leaves to the left).
     expect(transitionOf("MOVE_IN", "LEFT")).toBe("MOVE_FROM_RIGHT");
-    expect(transitionOf("MOVE_OUT", "LEFT")).toBe("MOVE_OUT_TO_LEFT");
+    expect(transitionOf("MOVE_OUT", "LEFT")).toBe("MOVE_OUT_TO_RIGHT");
     expect(transitionOf("PUSH", "UP")).toBe("PUSH_FROM_BOTTOM");
-    expect(transitionOf("SLIDE_OUT", "DOWN")).toBe("SLIDE_OUT_TO_BOTTOM");
+    expect(transitionOf("SLIDE_OUT", "DOWN")).toBe("SLIDE_OUT_TO_TOP");
+    expect(transitionOf("MOVE_OUT")).toBe("MOVE_OUT_TO_RIGHT");  // no direction: Figma's RIGHT
     expect(transitionOf("INSTANT")).toBe("INSTANT_TRANSITION");
     for (const a of ANIMATIONS)
       for (const d of isDirectional(a.value) ? DIRECTIONS : [DIRECTIONS[0]]) expect(animationOf(transitionOf(a.value, d.value))).toEqual({ animation: a.value, direction: d.value });
@@ -131,5 +142,57 @@ describe("prototype model", () => {
     expect(nextFlowName([])).toBe("Flow 1");
     expect(nextFlowName(["Flow 1", "Flow 2"])).toBe("Flow 3");
     expect(nextFlowName(["Flow 2"])).toBe("Flow 3");
+  });
+
+  it("disables the triggers Figma's list does (atlas 13 §3.2)", () => {
+    const click = { event: { interactionType: "ON_CLICK" as const }, actions: [{ connectionType: "BACK" as const }] };
+    const hover = { event: { interactionType: "ON_HOVER" as const }, actions: [{ connectionType: "INTERNAL_NODE" as const }] };
+    const key = { event: { interactionType: "ON_KEY_DOWN" as const }, actions: [] };
+    // Another interaction's trigger (key triggers may repeat); a lone Back: no While hovering / While pressing.
+    const off = disabledTriggers(click, [click, hover, key]);
+    expect([...off].sort()).toEqual(["ON_HOVER", "ON_PRESS"]);
+    expect(disabledTriggers(key, [click, key]).has("ON_KEY_DOWN")).toBe(false);
+    // Open link: On click and Mouse up only.
+    const link = { event: { interactionType: "ON_CLICK" as const }, actions: [{ connectionType: "URL" as const }] };
+    const linkOff = disabledTriggers(link, [link]);
+    expect(linkOff.has("MOUSE_UP")).toBe(false);
+    expect(linkOff.has("DRAG")).toBe(true);
+    expect(linkOff.has("AFTER_TIMEOUT")).toBe(false);
+    // Mouse enter with and without a delay are different triggers.
+    const enter = { event: { interactionType: "MOUSE_ENTER" as const }, actions: [] };
+    const late = { event: { interactionType: "MOUSE_LEAVE" as const, interactionMaintained: true, interactionDuration: 0.5 }, actions: [] };
+    expect(disabledTriggers(late, [enter, late]).has("MOUSE_ENTER")).toBe(false);
+    expect(triggerMenu(false, off).find((e) => e !== "-" && e.value === "ON_HOVER")).toMatchObject({ disabled: true });
+  });
+
+  it("offers each action Figma's animations (atlas 13 §5.1)", () => {
+    const enabled = (k: Parameters<typeof animationsFor>[0], t?: Parameters<typeof animationsFor>[1]) => animationsFor(k, t).filter((a) => !a.disabled).map((a) => a.value);
+    expect(enabled("OVERLAY")).toEqual(["INSTANT", "DISSOLVE", "MOVE_IN"]);
+    expect(enabled("SWAP")).toEqual(["INSTANT", "DISSOLVE", "SMART_ANIMATE", "MOVE_IN"]);
+    expect(enabled("CHANGE_TO")).toEqual(["INSTANT", "DISSOLVE", "SMART_ANIMATE"]);
+    expect(enabled("NAVIGATE")).toHaveLength(8);
+    expect(enabled("NAVIGATE", "DRAG")).not.toContain("DISSOLVE");
+  });
+
+  it("stores a spring's settle time as its duration; its Duration field is 6 / (ζω₀) (atlas 13 §5.4)", () => {
+    expect(springSettleTime(springOf("GENTLE_SPRING"))).toBeCloseTo(1.022, 3);
+    expect(springSettleTime(springOf("SPRING_PRESET_ONE"))).toBeCloseTo(0.744, 3);
+    expect(springSettleTime(springOf("SPRING_PRESET_TWO"))).toBeCloseTo(0.958, 3);
+    expect(springSettleTime(springOf("SPRING_PRESET_THREE"))).toBeCloseTo(1.25, 3);
+    expect(springEditorDuration(springOf("GENTLE_SPRING"))).toBeCloseTo(0.8, 6);
+    const faster = springWithEditorDuration(springOf("GENTLE_SPRING"), 0.4);
+    expect(springEditorDuration(faster)).toBeCloseTo(0.4, 3);
+    expect(faster[0]).toBe(1);
+  });
+
+  it("round 8j: the Easing editor's graph — a custom bezier's four numbers, a custom spring's bounce as its damping", () => {
+    expect(prototypeCurve("CUSTOM_CUBIC", [0.1, 0.2, 0.3, 1.2])).toEqual({ type: "CUSTOM_CUBIC_BEZIER", easingFunctionCubicBezier: { x1: 0.1, y1: 0.2, x2: 0.3, y2: 1.2 } });
+    expect(prototypeCurve("OUT_CUBIC", [])).toBeNull();
+    // Mass 1, stiffness 100, damping 10: ζ = 0.5, bounce 0.5.
+    const spring = prototypeCurve("CUSTOM_SPRING", [1, 100, 10, 0])!;
+    expect(spring.easingFunctionSpring!.bounce).toBeCloseTo(0.5, 6);
+    expect(easingFunctionOfCurve({ type: "CUSTOM_SPRING", easingFunctionSpring: { bounce: 0.8 } }, [1, 100, 10, 0])).toEqual([1, 100, 4, 0]);
+    expect(easingFunctionOfCurve({ type: "CUSTOM_SPRING", easingFunctionSpring: { bounce: 1 } }, [1, 100, 10])[2]).toBeCloseTo(0.2, 6);
+    expect(easingFunctionOfCurve({ type: "CUSTOM_CUBIC_BEZIER", easingFunctionCubicBezier: { x1: 0.4, y1: 0, x2: 0.2, y2: 1 } }, [0, 0, 0.58, 1])).toEqual([0.4, 0, 0.2, 1]);
   });
 });

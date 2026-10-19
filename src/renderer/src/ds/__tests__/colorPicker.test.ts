@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it } from "vitest";
-import { ColorPicker, type ColorPickerProps } from "../components/ColorPicker";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act } from "react";
+import { ColorPicker, wheelAlpha, wheelHue, type ColorPickerProps } from "../components/ColorPicker";
 import { convertPaint, type PickerPaint } from "../util/paint";
 import type { ChangeInfo } from "../types";
 import { $, $$, box, click, focus, key, mount, pointer, spy, type, type Mounted } from "./dom";
@@ -129,23 +130,144 @@ describe("ColorPicker", () => {
     pointer(bar, "pointerup", { clientX: 150, clientY: 12 });
     const done = finals(onChange.calls);
     expect(done).toHaveLength(1);
+    // the stops in order of position (Figma re-sorts after every change)
     const stops = done[0][0].stops!;
-    expect(stops).toHaveLength(3);
-    expect(stops[2].position).toBeCloseTo(0.75);
+    expect(stops.map((s) => s.position)).toEqual([0, 0.75, 1]);
     // its colour: the gradient's at 50% (where it was added)
+    expect(byte(stops[1].color.r)).toBe(128);
+  });
+
+  // Figma's GradientControl (atlas 07 §7.2)
+  const three: Paint = { type: "GRADIENT_LINEAR", opacity: 1, stops: [0, 0.5, 1].map((p) => ({ color: { r: p, g: p, b: p, a: 1 }, position: p })) };
+  const stopAt = (i: number) => $$('[data-ds="GradientBar"] [role="slider"]')[i];
+  const dragStopTo = (i: number, clientX: number, init: { shiftKey?: boolean; altKey?: boolean } = {}) => {
+    box($('[data-ds="GradientBar"]'), { left: 0, top: 0, width: 200, height: 24 });
+    const handle = stopAt(i);
+    pointer(handle, "pointerdown", { clientX: 100, clientY: 12, ...init });
+    pointer(handle, "pointermove", { clientX, clientY: 12, ...init });
+    pointer(handle, "pointerup", { clientX, clientY: 12, ...init });
+  };
+
+  it("moves a stop only past 5 px, in 5 % steps with ⇧; dragging it off the bar removes nothing", () => {
+    let { onChange } = setup(three);
+    dragStopTo(1, 104);
+    expect(finals(onChange.calls)[0][0].stops!.map((s) => s.position)).toEqual([0, 0.5, 1]);
+    m!.unmount();
+    ({ onChange } = setup(three));
+    dragStopTo(1, 147, { shiftKey: true }); // 0.735 → 0.75
+    expect(finals(onChange.calls)[0][0].stops!.map((s) => s.position)).toEqual([0, 0.75, 1]);
+    m!.unmount();
+    ({ onChange } = setup(three));
+    box($('[data-ds="GradientBar"]'), { left: 0, top: 0, width: 200, height: 24 });
+    pointer(stopAt(1), "pointerdown", { clientX: 100, clientY: 12 });
+    pointer(stopAt(1), "pointermove", { clientX: 100, clientY: 80 });
+    pointer(stopAt(1), "pointerup", { clientX: 100, clientY: 80 });
+    expect(finals(onChange.calls)[0][0].stops).toHaveLength(3);
+  });
+
+  it("pulls a stop dropped within 2 % onto its neighbour (just inside it), unless ⌥", () => {
+    let { onChange } = setup(three);
+    dragStopTo(1, 197); // 0.985: within 2 % of 1
+    expect(finals(onChange.calls)[0][0].stops!.map((s) => s.position)).toEqual([0, 0.9999, 1]);
+    m!.unmount();
+    ({ onChange } = setup({ ...three, stops: [three.stops![0], { ...three.stops![1], position: 0.3 }, three.stops![2]] }));
+    box($('[data-ds="GradientBar"]'), { left: 0, top: 0, width: 200, height: 24 });
+    // a ⌥-press copies the stop at the pointer; dropped with ⌥ held it stays where it is
+    pointer(stopAt(1), "pointerdown", { clientX: 100, clientY: 12, altKey: true });
+    pointer(stopAt(1), "pointerup", { clientX: 197, clientY: 12, altKey: true });
+    const stops = finals(onChange.calls)[0][0].stops!;
+    expect(stops.map((s) => s.position)).toEqual([0, 0.3, 0.5, 1]);
     expect(byte(stops[2].color.r)).toBe(128);
   });
 
-  it("removes a stop dragged off the bar, never below two", () => {
-    const three: Paint = { type: "GRADIENT_LINEAR", opacity: 1, stops: [0, 0.5, 1].map((p) => ({ color: { r: p, g: p, b: p, a: 1 }, position: p })) };
+  it("double-click redistributes the stops; the arrows move one 1 % (⇧ 5 %); Delete goes down to one stop", () => {
+    const { onChange } = setup({ ...three, stops: [three.stops![0], { ...three.stops![1], position: 0.2 }, three.stops![2]] });
+    act(() => void stopAt(1).dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    expect(onChange.calls.at(-1)![0].stops!.map((s) => s.position)).toEqual([0, 0.5, 1]);
+    key(stopAt(1), "ArrowRight");
+    expect(onChange.calls.at(-1)![0].stops![1].position).toBeCloseTo(0.21);
+    key(stopAt(1), "ArrowLeft", { shiftKey: true });
+    expect(onChange.calls.at(-1)![0].stops![1].position).toBeCloseTo(0.15);
+    m!.unmount();
+    const two = setup({ ...three, stops: three.stops!.slice(0, 2) });
+    key(stopAt(0), "Delete");
+    expect(two.onChange.calls.at(-1)![0].stops).toHaveLength(1);
+  });
+
+  it("adds a stop with + halfway to the next one, or at the far end of a lone stop", () => {
+    let { onChange } = setup(three);
+    click($('[aria-label="Add gradient stop"]'));
+    expect(onChange.calls.at(-1)![0].stops!.map((s) => s.position)).toEqual([0, 0.25, 0.5, 1]);
+    m!.unmount();
+    ({ onChange } = setup({ ...three, stops: [{ color: { r: 1, g: 0, b: 0, a: 1 }, position: 0.2 }] }));
+    // a lone stop: no "Delete gradient stop", and + puts the copy at 1
+    expect($('[aria-label="Delete gradient stop"]')).toBeNull();
+    click($('[aria-label="Add gradient stop"]'));
+    expect(onChange.calls.at(-1)![0].stops!.map((s) => s.position)).toEqual([0.2, 1]);
+  });
+
+  it("Color interpolation: OKLCH writes the space and Increasing; Flip makes it Decreasing", () => {
     const { onChange } = setup(three);
-    const bar = $('[data-ds="GradientBar"]');
-    box(bar, { left: 0, top: 0, width: 200, height: 24 });
-    const handle = $$('[data-ds="GradientBar"] [role="slider"]')[1];
-    pointer(handle, "pointerdown", { clientX: 100, clientY: 12 });
-    pointer(handle, "pointermove", { clientX: 100, clientY: 80 });
-    pointer(handle, "pointerup", { clientX: 100, clientY: 80 });
-    expect(finals(onChange.calls)[0][0].stops).toHaveLength(2);
+    expect($('[aria-label="Interpolation hue method"]')).toBeNull();
+    m!.rerender(ColorPicker<Paint>, { value: { ...three, interpolationColorSpace: "OKLCH", interpolationHueMethod: "INCREASING" }, onChange, onClose: () => {}, anchor: null, static: true } as ColorPickerProps<Paint>);
+    expect($('[aria-label="Interpolation hue method"]')).not.toBeNull();
+    click($('[aria-label="Flip gradient"]'));
+    const [flipped] = onChange.calls.at(-1)!;
+    expect(flipped.interpolationHueMethod).toBe("DECREASING");
+    expect(flipped.stops!.map((s) => s.position)).toEqual([1, 0.5, 0]);
+  });
+
+  it("the wheel over the square turns the hue, ⌥-wheel the opacity (snapped to 10 %), as one undo step", () => {
+    vi.useFakeTimers();
+    try {
+      const { onChange } = setup({ ...red, opacity: 0.5 });
+      const sv = $('[aria-label="Color picker reticle"]');
+      const wheel = (init: WheelEventInit) => {
+        const ev = new WheelEvent("wheel", { bubbles: true, cancelable: true, ...init });
+        // (happy-dom's WheelEvent drops the modifier keys)
+        Object.defineProperty(ev, "altKey", { value: !!init.altKey });
+        act(() => void sv.dispatchEvent(ev));
+      };
+      wheel({ deltaY: 200 }); // 0.1 of the circle: 36°
+      wheel({ deltaY: 200, altKey: true }); // opacity .5 → .6
+      expect(finals(onChange.calls)).toHaveLength(0);
+      act(() => void vi.advanceTimersByTime(400));
+      const done = finals(onChange.calls);
+      expect(done).toHaveLength(1);
+      const [paint] = done[0];
+      expect([byte(paint.color!.r), byte(paint.color!.g), byte(paint.color!.b)]).toEqual([255, 153, 0]);
+      expect(paint.opacity).toBeCloseTo(0.6);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(wheelAlpha(0.498, 0.003)).toBe(0.5);
+    expect(wheelAlpha(0.45, 0.001)).toBe(0.451);
+    expect(wheelHue(350, 0.1)).toBeCloseTo(26);
+  });
+
+  it("steps the hue 1° (⇧ 10°) round the circle, and reads any colour string in the hex field", () => {
+    const { onChange } = setup();
+    key($('[aria-label="Hue"]'), "ArrowLeft");
+    const h = onChange.calls.at(-1)![0].color!;
+    expect([byte(h.r), byte(h.g), byte(h.b)]).toEqual([255, 0, 4]); // 359°
+    const hex = $('input[aria-label="Color"]') as HTMLInputElement;
+    focus(hex);
+    type(hex, "rebeccapurple");
+    key(hex, "Enter");
+    const c = onChange.calls.at(-1)![0];
+    expect([byte(c.color!.r), byte(c.color!.g), byte(c.color!.b)]).toEqual([102, 51, 153]);
+    expect(c.opacity).toBe(1);
+  });
+
+  it("shows a swatch set after On this page (Local assets) when the editor picks it", () => {
+    setup(red, { documentColors: ["#0c8ce9"], swatchSets: [{ id: "local", label: "Local assets", colors: ["#00ff00"] }], swatchSet: "local" });
+    expect($('[aria-label="Solid color hex: 00FF00"]')).not.toBeNull();
+    expect($('[aria-label="Solid color hex: 0C8CE9"]')).toBeNull();
+  });
+
+  it("greys out a type the list can't take (one Pattern per list)", () => {
+    setup(red, { disabledTypes: ["PATTERN"] });
+    expect(($('[role="radio"][aria-label="Pattern"]') as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("lists the document's colours under On this page", () => {

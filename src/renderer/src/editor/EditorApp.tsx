@@ -33,7 +33,7 @@ import { decodeMessage as decodeKiwiMessage } from "../../../shared/schema/codec
 import { applyEngineBytes, changeBytesOf, engineDerivedDataVersion, engineMethod, engineWireFormat, loadEngineBytes } from "./engineCompat";
 import { applyFontScope, planFonts, requestFonts } from "./openFonts";
 import { attachKeyboard, runTextKey } from "./keyboard";
-import { attachClipboard } from "./clipboardIO";
+import { attachClipboard, pasteLinkOnText } from "./clipboardIO";
 import { attachDesktop } from "./desktop";
 import { attachPersistence, noteOpenInfo, restoreUiState } from "./persistence";
 import { runEditorCommand } from "./commands";
@@ -47,20 +47,34 @@ import { BottomToolbar } from "./canvas/BottomToolbar";
 import { CanvasMenu, attachCanvasMenu, attachGridTracks } from "./canvas/CanvasMenu";
 import { TitleRename, attachTitleRename } from "./canvas/TitleRename";
 import { EyedropperLoupe, InlineValueEdit, NudgeDialog } from "./canvas/CanvasTools";
+import { AccessibilityDialog } from "./AccessibilityDialog";
 import { ActionsPanel } from "./panels/ActionsPanel";
 import { AiHost } from "./ai/AiHost";
 import { PluginLayer } from "./plugins/ui/PluginLayer";
 import { CommandOverlays } from "./canvas/CommandOverlays";
 import { AgentImagePlaceholders } from "./canvas/AgentImagePlaceholders";
 import { attachCanvasTools } from "./canvasTools";
+import { attachColorProfile } from "./colorProfile";
+import { ColorProfileDialog } from "./ColorProfileDialog";
 import { GridTrackEditor } from "./panels/design/Grid";
 import { ImagePlacer, attachImageDrop } from "./canvas/ImagePlacer";
 import { attachViewInsets, insetsOf } from "./canvas/viewInsets";
-import { ReturnToInstance } from "./canvas/ReturnToInstance";
 import { ShortcutsPanel } from "./shortcuts/ShortcutsPanel";
+import { MotionMode } from "./motion/MotionMode";
+import { SocialMode } from "./social/SocialMode";
+import { SocialLeftPanel } from "./social/SocialLeftPanel";
+import { SocialRightPanel } from "./social/SocialRightPanel";
+import { SafeAreaOverlay } from "./social/SafeAreaOverlay";
+import { ReviewPins } from "./social/ReviewPins";
+import { EmptyBoard } from "./social/EmptyBoard";
+import { BrandLibraryBanner } from "./social/templates/BrandLibraryBanner";
+import { PostsTable } from "./social/templates/PostsTable";
+import { SaveAsTemplateDialog } from "./social/templates/SaveAsTemplateDialog";
+import { ExportPostsDialog } from "./social/export/ExportPostsDialog";
 import { attachUsageTracking } from "./shortcuts/usage";
 import { shortcutPrefs } from "./shortcuts/prefs";
 import { VersionDialogs } from "./VersionDialogs";
+import { VersionHistoryPanel, VersionLinkOpener, VersionPreview } from "./VersionHistory";
 import { LocalVariables } from "./panels/variables/LocalVariables";
 import { RenameLayersDialog } from "./panels/RenameLayers";
 import { LibrariesDialog } from "./panels/libraries/LibrariesDialog";
@@ -69,11 +83,13 @@ import { ExportDialog } from "./ExportDialog";
 import { FigmaImagesHost } from "../figma/FigmaImagesHost";
 import { VisualSearchHost } from "./search";
 import { LinkEditor } from "./canvas/LinkEditor";
+import { ScreenReaderMirror } from "./canvas/ScreenReaderMirror";
 import { PresentationView } from "@/present/PresentationView";
 import { editorPresentationSource } from "./present";
 import { ShareDialog } from "./ShareDialog";
 import { SharePrototypeDialog } from "./SharePrototypeDialog";
 import { Multiplayer } from "./multiplayer/Multiplayer";
+import { RemoteApplier } from "./multiplayer/remoteApply";
 import { CommentsLayer } from "./comments/CommentsLayer";
 import { InlinePreview } from "./InlinePreview";
 import { attachDevMode } from "./devmode/devMode";
@@ -230,7 +246,7 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
       }
       controller.canvas = canvas;
       const ed = controller;
-      cleanups.push(new CanvasController(canvas, engine, { shortcuts: [], onTextKey: (e) => runTextKey(ed, e) }).attach());
+      cleanups.push(new CanvasController(canvas, engine, { shortcuts: [], onTextKey: (e) => runTextKey(ed, e), onTextPaste: (text) => pasteLinkOnText(ed, text) }).attach());
       cleanups.push(ed.attachGestureTracking(canvas));
       // The change as the engine wrote it (kiwi, when the engine speaks it) goes to the store as it is.
       cleanups.push(
@@ -255,14 +271,15 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
           source.onChanges(message, { kind: e.kind, label: e.label, bytes });
         })
       );
-      // Changes made elsewhere (another window, sync) come in without an undo entry; a rename elsewhere shows here.
+      // Changes made elsewhere (a collaborator, another window) come in as another session's: no undo entry, the user's
+      // history yields what they wrote, and none lands inside the user's drag or step (multiplayer/remoteApply.ts).
+      const remote = new RemoteApplier(created, source.withoutLocal ? source : null, (changes) => ed.noteSourceTypes(changes));
       const external = source.onExternalChanges?.((changes, info) => {
         if (created.destroyed) return;
-        ed.noteSourceTypes(changes);
-        const bytes = (info as { bytes?: Uint8Array } | undefined)?.bytes;
-        if (!bytes || applyEngineBytes(created, bytes, "remote") === null) created.applyChanges(changes, "remote");
+        remote.push(changes, info);
       });
       if (external) cleanups.push(external);
+      cleanups.push(() => remote.stop());
       const meta = source.onMetaChanged?.((m) => ed.ui.set({ fileName: m.fileName }));
       if (meta) cleanups.push(meta);
       cleanups.push(ed.images.attach());
@@ -276,6 +293,7 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
       cleanups.push(attachGridTracks(ed, canvas));
       cleanups.push(attachTitleRename(ed, canvas));
       cleanups.push(attachCanvasTools(ed, canvas));
+      cleanups.push(attachColorProfile(ed));
       cleanups.push(attachDesktop(ed));
       // Dev Mode: every edit stamps editInfo (a design marked ready shows "Changed"); the engine's Dev Mode events.
       engine.setEditTracking(true);
@@ -396,57 +414,75 @@ function LeftPlaceholder() {
   );
 }
 
-/** The rail and the left panel, while docked (⌘\ hides them, ⇧\ folds them into a card). */
-function LeftSide() {
+/** The rail and the left panel, while docked (⌘\ hides them, ⇧\ folds them into a card); Social's Posts tab its own panel. */
+export function LeftSide() {
   const docked = useUI((s) => !s.uiHidden && !s.uiMinimized);
   const dev = useUI((s) => s.mode === "dev");
+  const posts = useUI((s) => s.mode === "social" && s.railTab === "posts");
   // View › Minimize left navigation bar (round 10): the tabs fold into the left panel's top row (panels/Rail.tsx NavStrip).
   const navMinimized = useUI((s) => !!s.navMinimized);
   if (docked && dev) return <DevLeftPanel />;
   return docked ? (
     <>
       {!navMinimized && <Rail />}
-      <LeftPanel />
+      {posts ? <SocialLeftPanel /> : <LeftPanel />}
     </>
   ) : null;
 }
 
-function RightSide() {
+export function RightSide() {
   const docked = useUI((s) => !s.uiHidden && !s.uiMinimized);
   const dev = useUI((s) => s.mode === "dev");
+  const social = useUI((s) => s.mode === "social");
+  // History mode (Figma's HISTORY top-level mode): the history panel in the properties panel's place.
+  const history = useUI((s) => s.versionDialog === "history");
+  if (docked && history) return <VersionHistoryPanel />;
   if (docked && dev) return <DevRightPanel />;
+  // Social (docs/social.md §6.3): the agent, with Post and Design under it.
+  if (docked && social) return <SocialRightPanel />;
   return docked ? <RightPanel /> : null;
 }
 
-/** On the canvas, in its own coordinates (under the panels): agents' image placeholders, Dev Mode's measurements, frame statuses (ours), placing images. */
-function CanvasLayers() {
+/**
+ * On the canvas, in its own coordinates (under the panels): agents' image placeholders, Dev Mode's measurements, frame
+ * statuses (ours), placing images, Social's safe areas and review pins.
+ */
+export function CanvasLayers() {
   const hidden = useUI((s) => s.uiHidden);
   const dev = useUI((s) => s.mode === "dev");
-  if (hidden) return null;
+  const social = useUI((s) => s.mode === "social");
+  // The screen reader's mirror of the canvas stays with the UI hidden too.
+  if (hidden) return <ScreenReaderMirror />;
   return (
     <>
+      <ScreenReaderMirror />
+      {social && <SafeAreaOverlay />}
+      {social && <ReviewPins />}
       <AgentImagePlaceholders />
       {dev && <DevMeasurements />}
       <ImagePlacer />
       <CommentsLayer />
+      <VersionPreview />
     </>
   );
 }
 
 /**
- * Over the visible part of the canvas (between the panels): the rulers, "Return to instance", the minimized cards.
+ * Over the visible part of the canvas (between the panels): the rulers, the minimized cards, Social's empty board.
  * (Not the bottom toolbar: it is centred on the window, `Overlays`.)
  */
 function CanvasOverlays() {
   const hidden = useUI((s) => s.uiHidden);
   const minimized = useUI((s) => s.uiMinimized);
+  const social = useUI((s) => s.mode === "social");
   if (hidden) return null;
   return (
     <>
+      {social && <EmptyBoard />}
+      <BrandLibraryBanner />
       <FocusBar />
       <ReadyForDev />
       <Rulers />
-      <ReturnToInstance />
       {minimized && <MinimizedPanels />}
     </>
   );
@@ -466,10 +502,18 @@ function Overlays() {
       <CanvasMenu />
       {/* Docked along the bottom: the panels end over it and the toolbar sits over it (EditorApp.module.css); the canvas keeps its size. */}
       <ShortcutsPanel />
+      {/* Motion mode's timeline, docked the same way (docs/motion.md §6.2); in Social, the selected post's (docs/social.md §6.1). */}
+      {!hidden && <MotionMode />}
+      {/* Social's posts table, docked the same way (docs/social.md §4.5). */}
+      <PostsTable />
+      <SocialMode />
+      <SaveAsTemplateDialog />
+      <ExportPostsDialog />
       <ActionsPanel />
       <AiHost />
       <PluginLayer />
       <VersionDialogs />
+      <VersionLinkOpener />
       <LibrariesDialog />
       <PublishDialog />
       <ExportDialog />
@@ -485,6 +529,8 @@ function Overlays() {
       <InlineValueEdit />
       <EyedropperLoupe />
       <NudgeDialog />
+      <AccessibilityDialog />
+      <ColorProfileDialog />
       <CommandOverlays />
       <StatusMenu />
       <CategoriesDialog />

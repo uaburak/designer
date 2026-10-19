@@ -155,6 +155,9 @@ export class EngineExports {
   needsFrame = (h: number): boolean => (this.fn("needs_frame")(h) >>> 0) !== 0;
   glContextLost = (h: number): void => void this.fn("gl_context_lost")(h);
   glContextRestored = (h: number): void => void this.fn("gl_context_restored")(h);
+  /** The wasm heap in use, in bytes (the module's: malloc's handed-out bytes). */
+  heapUsed = (): number => this.fn("heap_used")() >>> 0;
+  purgeMemory = (h: number): void => void this.fn("purge_memory")(h);
   /** The canvas `selector` names draws with `backend` (0 WebGL2, 1 WebGPU) from now on; returns the one in use (−1 none). */
   gfxSwitch(h: number, selector: string, backend: number): number {
     const cstr = new TextEncoder().encode(`${selector}\0`);
@@ -185,6 +188,9 @@ export class EngineExports {
   actorBegin = (h: number, args: Uint8Array): number => this.withBytes([args], (p) => this.fn("actor_begin")(h, p[0], p[1]));
   actorEnd = (h: number, cancel: boolean): number => this.fn("actor_end")(h, cancel ? 1 : 0);
   actorUndo = (h: number, actor: number, redo: boolean): number => this.fn("actor_undo")(h, actor, redo ? 1 : 0);
+  ignoreUndo = (h: number, open: number): number => this.fn("ignore_undo")(h, open);
+  undoExport = (h: number, maxSteps: number, maxBytes: number): number => this.fn("undo_export")(h, maxSteps, maxBytes);
+  undoImport = (h: number, history: Uint8Array): number => this.withBytes([history], (p) => this.fn("undo_import")(h, p[0], p[1]));
   actorInfo = (h: number, actor: number): number => this.fn("actor_info")(h, actor);
   actorForget = (h: number, actor: number): void => void this.fn("actor_forget")(h, actor);
   idle = (h: number): boolean => this.fn("idle")(h) !== 0;
@@ -238,6 +244,22 @@ export class EngineExports {
   /** `settings`: DrawToolSettings (JSON). */
   setDrawToolSettings = (h: number, settings: Uint8Array): number => this.withBytes([settings], (p) => this.fn("set_draw_tool_settings")(h, p[0], p[1]));
 
+  // ---- Motion (docs/motion.md §4.9, §5, §10; rounds 8a–8b, engine/src/api/MotionApi.inc) ----
+  /** `state`: MotionViewState (JSON); omitted keys keep their value. */
+  setMotion = (h: number, state: Uint8Array): number => this.withBytes([state], (p) => this.fn("set_motion")(h, p[0], p[1]));
+  /** `ref`: "s:l" of the root or a layer in it (empty: the selection's root) → TimelineModel | null in the result slot. */
+  motionTimeline = (h: number, ref: Uint8Array): number => this.withBytes([ref], (p) => this.fn("motion_timeline")(h, p[0], p[1]));
+  /** `refs`: JSON array of "s:l" → FieldStates in the result slot. */
+  motionFieldStates = (h: number, refs: Uint8Array): number => this.withBytes([refs], (p) => this.fn("motion_field_states")(h, p[0], p[1]));
+  /** `ref`: "s:l" of a root or a layer → ResolvedMotion | null in the result slot. */
+  motionResolved = (h: number, ref: Uint8Array): number => this.withBytes([ref], (p) => this.fn("motion_resolved")(h, p[0], p[1]));
+  /** `json`: {root, timeUs, scale, allowPending} → u32 width, u32 height, straight RGBA8 in the result slot (E_BUSY: fonts / images loading). */
+  motionRenderFrame = (h: number, json: Uint8Array): number => this.withBytes([json], (p) => this.fn("motion_render_frame")(h, p[0], p[1]));
+  /** `ref`: "s:l" of a root or a layer → MotionShapeLayer[] | null in the result slot (round 8e; an older wasm throws). */
+  motionShapes = (h: number, ref: Uint8Array): number => this.withBytes([ref], (p) => this.fn("motion_shapes")(h, p[0], p[1]));
+  /** `json`: {root, times} → MotionSamples | null in the result slot (round 8e; an older wasm throws). */
+  motionSamples = (h: number, json: Uint8Array): number => this.withBytes([json], (p) => this.fn("motion_samples")(h, p[0], p[1]));
+
   // ---- Components ----
   /** A derived ref ("I…;…") → its localID in the derived session (0xFFFFFFFE); 0 for anything else. */
   refId = (ref: Uint8Array): number => this.withBytes([ref], (p) => this.fn("ref_id")(p[0], p[1]) >>> 0);
@@ -262,7 +284,9 @@ export class EngineExports {
   /** `type`: a StyleType value (FILL 1, TEXT 3, EFFECT 4, GRID 6), 0 for all. */
   styles = (h: number, type: number, flags: number): number => this.fn("styles")(h, type, flags);
   styleUsage = (h: number, id: Uint8Array): number => this.withBytes([id], (p) => this.fn("style_usage")(h, p[0], p[1]));
-  documentFonts = (h: number): number => this.fn("document_fonts")(h);
+  /** `refs`: a NodeRefList (the layers to look in and inside), or empty for the whole file. */
+  documentFonts = (h: number, refs: Uint8Array): number =>
+    refs.length ? this.withBytes([refs], (p) => this.fn("document_fonts")(h, p[0], p[1])) : this.fn("document_fonts")(h, 0, 0);
 
   // ---- Libraries (JSON in and out) ----
   setFileKey = (h: number, key: Uint8Array): number =>
@@ -303,6 +327,8 @@ export class EngineExports {
     this.fn("paint_edit")(h, sessionID, localID, paints, index);
   paintEditEnd = (h: number): void => void this.fn("paint_edit_end")(h);
   paintEditStop = (h: number, index: number): number => this.fn("paint_edit_stop")(h, index);
+  blurEdit = (h: number, sessionID: number, localID: number, index: number): number => this.fn("blur_edit")(h, sessionID, localID, index);
+  blurEditHandle = (h: number, handle: number): number => this.fn("blur_edit_handle")(h, handle);
 
   // ---- Images (module-wide) ----
   /** `hash`: 40 hex digits. The bitmap is Module.engineBitmaps[bitmapId]; `flags` IMAGE_STRAIGHT | IMAGE_DISPLAY_P3 (abi.ts). */
@@ -350,6 +376,7 @@ export class EngineExports {
   setEditTracking = (h: number, on: boolean): void => void this.fn("set_edit_tracking")(h, on ? 1 : 0);
   setFocus = (h: number, sessionID: number, localID: number): number => this.fn("set_focus")(h, sessionID, localID);
   selectMeasurement = (h: number, sessionID: number, localID: number): number => this.fn("select_measurement")(h, sessionID, localID);
+  setAnnotationFilter = (h: number, sessionID: number, localID: number): void => void this.fn("set_annotation_filter")(h, sessionID, localID);
   devInfo = (h: number, pageSessionID: number, pageLocalID: number): number => this.fn("dev_info")(h, pageSessionID, pageLocalID);
   presentStart = (h: number, pageSess: number, pageLocal: number, nodeSess: number, nodeLocal: number): number =>
     this.fn("present_start")(h, pageSess, pageLocal, nodeSess, nodeLocal);
@@ -380,9 +407,9 @@ export const USED_EXPORTS = [
   "create", "destroy", "load", "load_at", "apply_changes", "encode_document", "set_wire_format", "wire_format", "attachment", "derived_data_version",
   "set_current_page", "pages",
   "set_viewport", "set_viewport_insets", "set_camera", "get_camera", "screen_to_world", "center_on", "view_center", "set_presence", "set_local_chat", "set_theme", "pointer", "wheel", "key", "modifiers", "blur",
-  "set_tool", "set_hover", "tick", "render", "next_frame_delay", "needs_frame", "gl_context_lost", "gl_context_restored", "gfx_switch",
+  "set_tool", "set_hover", "tick", "render", "next_frame_delay", "needs_frame", "gl_context_lost", "gl_context_restored", "gfx_switch", "heap_used", "purge_memory",
   "get_selection", "set_selection", "read_nodes", "layer_tree", "layer_changes", "layer_outline", "hit_test",
-  "set_props", "txn_begin", "txn_begin_run", "set_style_range", "txn_commit", "txn_cancel", "actor_begin", "actor_end", "actor_undo", "actor_info", "actor_forget", "idle", "command", "command_state",
+  "set_props", "txn_begin", "txn_begin_run", "set_style_range", "txn_commit", "txn_cancel", "actor_begin", "actor_end", "actor_undo", "ignore_undo", "undo_export", "undo_import", "actor_info", "actor_forget", "idle", "command", "command_state",
   "move_nodes", "encode_selection", "paste", "render_thumbnail", "render_region", "render_node_thumbnail", "ref_id", "component_info",
   "export", "export_info", "export_image", "export_clear_images", "export_list",
   "variable_collections", "variables", "variable", "resolve_variable", "bound_variables", "resolved_value", "variable_modes",
@@ -394,10 +421,11 @@ export const USED_EXPORTS = [
   "text_edit", "text_edit_end", "text_input", "text_composition", "text_composition_end", "text_selection", "text_layout",
   "text_range_style", "text_paragraphs", "font_info",
   "image_add_bitmap", "image_add_rgba", "image_failed",
-  "vector_edit", "vector_edit_end", "vector_edit_tool", "path_tool", "end_caps", "paint_edit", "paint_edit_end", "paint_edit_stop",
+  "vector_edit", "vector_edit_end", "vector_edit_tool", "path_tool", "end_caps", "paint_edit", "paint_edit_end", "paint_edit_stop", "blur_edit", "blur_edit_handle",
   "set_prototype_mode", "set_prototype_selection", "set_viewer_mode", "present_start", "present_stop", "present_pointer", "present_wheel", "present_key", "present_command",
   "present_set_options", "present_state", "present_media", "present_media_frame",
-  "set_view_options", "set_nudge", "start_guide", "set_annotation_view", "set_edit_tracking", "set_focus", "select_measurement", "dev_info",
+  "set_view_options", "set_nudge", "start_guide", "set_annotation_view", "set_annotation_filter", "set_edit_tracking", "set_focus", "select_measurement", "dev_info",
   "trace", "vectorize_begin", "vectorize_update", "vectorize_end",
   "install_brush", "list_brushes", "brush_preview", "set_draw_tool_settings",
+  "set_motion", "motion_timeline", "motion_field_states", "motion_resolved", "motion_render_frame", "motion_shapes", "motion_samples",
 ].map((name) => `engine_${name}`);

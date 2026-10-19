@@ -13,7 +13,8 @@ import { notRunnableReason, parseManifest, runnableIn } from "@shared/plugins/ma
 import type { PluginBundle, PluginManifest, PluginMenuItem, PluginRef, PluginsRepository, PrivatePlugin } from "@shared/plugins/types";
 import type { EditorController } from "../controller";
 import { pluginDesktop, type PluginDesktop } from "./desktop";
-import { PluginRun, type RunEnv, type RunSpec } from "./host";
+import { editorDevData } from "../devmode/round5";
+import { PluginRun, type DevResourcesAccess, type RunEnv, type RunSpec } from "./host";
 import { PluginUiStore } from "./ui/store";
 
 /** A plugin the person can run here, with its manifest when known. */
@@ -59,6 +60,14 @@ function writeJson(key: string, value: unknown): void {
 }
 
 const sameRef = (a: PluginRef, b: PluginRef) => a.id === b.id && a.source.type === b.source.type;
+
+/** The file's dev resources as Dev Mode reads and writes them (devmode/round5.ts), for node.*DevResourceAsync. */
+function devResourcesOf(ed: EditorController): DevResourcesAccess | null {
+  const data = editorDevData(ed);
+  if (!data) return null;
+  const fileKey = data.fileKey ?? "";
+  return { list: (nodeIds) => data.devResources(fileKey, nodeIds), add: data.addDevResource, edit: data.editDevResource, remove: data.removeDevResource };
+}
 
 export interface PluginServiceOptions {
   desktop?: PluginDesktop | null;
@@ -282,6 +291,7 @@ export class PluginService {
       ed: this.ed,
       desktop: this.desktop,
       ui: this.ui,
+      devResources: devResourcesOf(this.ed),
       onEnd: (r) => {
         this.runs.delete(r.runId);
         this.set({ running: this.snap.running.filter((x) => x.runId !== r.runId) });

@@ -21,8 +21,8 @@ export interface PluginManifest {
   relaunchButtons?: { command: string; name: string; multipleSelection?: boolean }[];
   enableProposedApi?: boolean; enablePrivatePluginApi?: boolean;
   build?: string;
-  permissions?: ("currentuser" | "activeusers" | "fileusers" | "payments" | "teamlibrary")[];
-  capabilities?: ("textreview" | "codegen" | "inspect" | "vscode")[];
+  permissions?: ("currentuser" | "activeusers" | "fileusers" | "payments" | "teamlibrary" | "clipboardwrite")[];
+  capabilities?: ("textreview" | "codegen" | "inspect" | "vscode" | "panel" | "linkpreview" | "lint")[];
   codegenLanguages?: { label: string; value: string }[];
   codegenPreferences?: CodegenPreference[];
   containsWidget?: boolean; widgetApi?: string;

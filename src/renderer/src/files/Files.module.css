@@ -159,7 +159,7 @@
     align-items: center;
     gap: var(--ds-space-2);
     height: var(--ds-space-16);
-    margin: 0 var(--ds-space-8) var(--ds-space-8);
+    margin: 0 var(--ds-space-8);
     border-bottom: 1px solid var(--figma-color-border);
   }
   .grow { flex: 1 1 auto; }
@@ -178,11 +178,13 @@
   }
   .tab[aria-selected="true"] { background: var(--figma-color-bg-secondary); color: var(--figma-color-text); }
   .tab:hover { color: var(--figma-color-text); }
-  .sharedGrid { display: grid; grid-template-columns: repeat(auto-fill, var(--ds-size-card-width)); gap: var(--ds-size-card-gap); align-content: start; padding: 0 var(--ds-space-8) var(--ds-space-8); overflow-y: auto; }
-  .sharedListView { display: grid; grid-template-columns: repeat(auto-fill, var(--ds-size-card-width)); gap: var(--ds-size-card-gap); align-content: start; padding: 0 var(--ds-space-8) var(--ds-space-8); overflow-y: auto; }
+  .sharedGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--ds-size-card-width), 1fr)); gap: var(--ds-size-card-gap); align-content: start; padding: var(--ds-space-6) var(--ds-space-8) var(--ds-space-8); overflow-y: auto; }
+  .sharedListView { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--ds-size-card-width), 1fr)); gap: var(--ds-size-card-gap); align-content: start; padding: var(--ds-space-4) var(--ds-space-8) var(--ds-space-8); overflow-y: auto; }
   .sortLabel { display: inline-flex; align-items: center; gap: var(--ds-space-half); }
 
-  .content { position: relative; flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 var(--ds-space-8) var(--ds-space-12); outline: none; user-select: none; }
+  .content { position: relative; flex: 1 1 auto; min-height: 0; overflow: auto; padding: var(--ds-space-4) var(--ds-space-8) var(--ds-space-12); outline: none; user-select: none; }
+  /* Figma's tile grid: 24 below the view bar, 32 in at the sides and the bottom */
+  .content[data-layout="grid"] { padding: var(--ds-space-6) var(--ds-space-8) var(--ds-space-8); }
   .content:focus-visible { outline: none; }
   .collection { min-height: 100%; }
   .dragWrap { display: block; min-width: 0; }
@@ -276,7 +278,7 @@
   .teamIcon[data-initial]::before { content: attr(data-initial); }
 
   .orgContent { flex: 1 1 auto; min-height: 0; overflow: auto; padding: var(--ds-space-6) var(--ds-space-8) var(--ds-space-12); }
-  .orgGrid { display: grid; grid-template-columns: repeat(auto-fill, var(--ds-size-card-width)); gap: var(--ds-size-card-gap); align-content: start; padding-bottom: var(--ds-space-6); }
+  .orgGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--ds-size-card-width), 1fr)); gap: var(--ds-size-card-gap); align-content: start; padding-bottom: var(--ds-space-6); }
   .orgBanner { margin-bottom: var(--ds-space-4); }
   .orgTabs { margin-bottom: var(--ds-space-4); }
   .orgSections { display: flex; flex-direction: column; gap: var(--ds-space-4); }

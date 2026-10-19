@@ -212,6 +212,7 @@ describe("round 7c: Draw's commands", () => {
     store.tool = "PENCIL";
     (ed.engine as unknown as Record<string, unknown>).setViewerMode = () => {};
     (ed.engine as unknown as Record<string, unknown>).setAnnotationView = () => {};
+    (ed.engine as unknown as Record<string, unknown>).setAnnotationFilter = () => {};
     COMMAND_BY_ID.get("view.switch-to-draw")!.run(ed);
     expect(ed.ui.get().mode).toBe("draw");
     expect(store.tool).toBe("MOVE");

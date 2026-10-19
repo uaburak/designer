@@ -176,6 +176,10 @@ const PaintExtras& paintExtras(const Paint& p) {
     else if (k == "noiseType") x.noiseType = named(m, kNoiseTypes, NoiseType::MONOTONE);
     else if (k == "density") x.density = m.numberOr(1);
     else if (k == "noiseSize") x.noiseSize = vec(m, x.noiseSize);
+    else if (k == "interpolationColorSpace")
+      x.interpolationColorSpace = named(m, {"DEFAULT", "OKLAB", "OKLCH", "HSL", "SRGB_LINEAR"}, InterpolationColorSpace::DEFAULT);
+    else if (k == "interpolationHueMethod")
+      x.interpolationHueMethod = named(m, {"SHORTER", "LONGER", "INCREASING", "DECREASING"}, InterpolationHueMethod::SHORTER);
   }
   return cache.map.emplace(p.extra, x).first->second;
 }

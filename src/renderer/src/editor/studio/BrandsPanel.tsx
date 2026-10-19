@@ -2,6 +2,7 @@
  * Brands (the navigation bar's Brands tab, docs/studio.md §3.2): the brands of the library; a brand's page shows its
  * logos, colours, fonts, tone, formats and products; a product's page its pictures by role, its shape and the label
  * texts table (Sharp / Soft), with "Read label from photos". Add and edit use the forms the chat's form cards use.
+ * Under the list: Create / Update brands library (Social's Brands library, docs/social.md §4.1).
  */
 import { useState } from "react";
 import { Button, Checkbox, Dialog, EmptyState, IconButton, SearchField, Select, Swatch, TextInput, showToast } from "@/ds";
@@ -12,6 +13,7 @@ import { useEditor } from "../controller";
 import { TabHeader } from "../panels/TabHeader";
 import { BrandForm, ProductForm, StoredPicture, brandsRepo, useBrands, useImageUrl } from "./forms";
 import { runLibraryTool } from "./libraryTools";
+import { createBrandsLibrary, storeBrandsLibraryDeps } from "../social/templates/brandLibrary";
 import styles from "./BrandsPanel.module.css";
 
 type View =
@@ -34,7 +36,10 @@ export function BrandsPanel() {
     <div className={styles.panel} data-brands="">
       {view.page === "list" && <TabHeader title={t("Brands")} actions={<button type="button" className={styles.create} onClick={() => setView({ page: "brand-form" })}>{t("New brand")}</button>} />}
       {view.page === "list" ? (
-        <BrandList brands={brands} error={error} onOpen={(id) => setView(toBrand(id))} onNew={() => setView({ page: "brand-form" })} />
+        <>
+          <BrandList brands={brands} error={error} onOpen={(id) => setView(toBrand(id))} onNew={() => setView({ page: "brand-form" })} />
+          {!!brands?.length && <BrandsLibraryButton brands={brands} />}
+        </>
       ) : view.page === "brand-form" ? (
         <>
           <Bar title={view.brandId ? t("Edit brand") : t("New brand")} onBack={() => setView(view.brandId ? toBrand(view.brandId) : { page: "list" })} />
@@ -65,6 +70,34 @@ export function BrandsPanel() {
       ) : (
         <Gone what="brand" loading={!brands} onBack={() => setView({ page: "list" })} />
       )}
+    </div>
+  );
+}
+
+/**
+ * Create brands library / Update brands library (docs/social.md §4.1, round 18b): the file "Brands" made and every
+ * brand pointed at it, or the existing one opened — its banner runs the update; publishing stays the owner's click.
+ */
+function BrandsLibraryButton({ brands }: { brands: Brand[] }) {
+  useT();
+  const [busy, setBusy] = useState(false);
+  const exists = brands.some((b) => b.libraryFileKey);
+  const run = async () => {
+    setBusy(true);
+    try {
+      await createBrandsLibrary(brands, storeBrandsLibraryDeps());
+    } catch (e) {
+      showToast({ message: messageOf(e), kind: "error" });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className={styles.section} data-brands-library="">
+      <p className={styles.muted}>{exists ? t("The brands library holds every brand's colours, fonts, text styles and logo for templates.") : t("Make one library with every brand's colours, fonts, text styles and logo, for Social's templates.")}</p>
+      <Button variant="secondary" disabled={busy} onClick={() => void run()}>
+        {exists ? t("Update brands library") : t("Create brands library")}
+      </Button>
     </div>
   );
 }

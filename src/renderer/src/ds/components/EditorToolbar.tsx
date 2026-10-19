@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, type ReactNode } from "react";
 import { keys } from "../util/keys";
 import { t, useT } from "@/i18n";
 import { rovingTarget } from "../util/rovingFocus";
@@ -21,8 +21,8 @@ export type ToolId =
   | "comment" | "annotation" | "measurement";
 
 /** Draw mode's quick-access slots ("pen", "pencil", "brush") hold one tool each (docs/draw.md §5.1). */
-export type ToolGroupId = "move" | "region" | "shape" | "creation" | "pen" | "pencil" | "brush" | "text" | "comment";
-export type EditorMode = "draw" | "design" | "motion" | "dev";
+export type ToolGroupId = "move" | "region" | "shape" | "creation" | "pen" | "pencil" | "brush" | "text" | "comment" | "measurement" | "annotation";
+export type EditorMode = "draw" | "design" | "social" | "motion" | "dev";
 
 export type ToolDef = {
   id: ToolId;
@@ -86,8 +86,20 @@ export const DRAW_TOOL_GROUPS: ToolGroupDef[] = [
   TOOL_GROUPS[5],
 ];
 
-/** A mode's tool slots (Dev Mode and Motion keep Design's; the editor disables what they can't use). */
-export const toolGroups = (mode: EditorMode = "design"): ToolGroupDef[] => (mode === "draw" ? DRAW_TOOL_GROUPS : TOOL_GROUPS);
+/**
+ * Dev Mode's toolbar (the owner's capture docs/research/figma/live/owner-2026-10-18/figma-devmode-inspect): Move,
+ * Measurement, Annotation and Comment, each a slot of its own (no menus), no Actions; the active one in Dev Mode's green.
+ * (Figma's eyedropper slot — it copies a colour in Dev Mode — isn't built: ours fills the selection, an edit.)
+ */
+export const DEV_TOOL_GROUPS: ToolGroupDef[] = [
+  { id: "move", label: "Move", tools: ["move"], menuWidth: 0 },
+  { id: "measurement", label: "Measurement", tools: ["measurement"], menuWidth: 0 },
+  { id: "annotation", label: "Annotation", tools: ["annotation"], menuWidth: 0 },
+  { id: "comment", label: "Comment", tools: ["comment"], menuWidth: 0 },
+];
+
+/** A mode's tool slots (Motion keeps Design's; the editor disables what a mode can't use). */
+export const toolGroups = (mode: EditorMode = "design"): ToolGroupDef[] => (mode === "draw" ? DRAW_TOOL_GROUPS : mode === "dev" ? DEV_TOOL_GROUPS : TOOL_GROUPS);
 
 /**
  * The slot a tool belongs to in a mode. A tool the mode has no slot for (Frame in Draw, Brush in Design) answers its
@@ -105,13 +117,18 @@ export function toolForKey(e: { key: string; shiftKey: boolean; metaKey?: boolea
   return ({ v: "move", h: "hand", k: "scale", f: "frame", s: "slice", r: "rectangle", l: "line", o: "ellipse", p: "pen", b: "brush", t: "text", c: "comment", y: "annotation" } as Record<string, ToolId>)[k] ?? null;
 }
 
-export type EditorModeDef = { id: EditorMode; label: string; icon: IconName; shortcut?: string };
+/** `badge`: the tag the radio's tooltip carries (Figma's "Motion  Beta", live motion/behaviour.md) */
+export type EditorModeDef = { id: EditorMode; label: string; icon: IconName; shortcut?: string; badge?: string };
 
-/** The mode switch, left to right (the owner's screenshots; Figma's Draw, Design, Motion, Dev Mode). */
+/**
+ * The mode switch, left to right (the owner's screenshots; Figma's Draw, Design, Motion, Dev Mode, and our Social between
+ * Design and Motion — docs/social.md §1.1: no shortcut, no badge).
+ */
 export const EDITOR_MODES: EditorModeDef[] = [
   { id: "draw", label: "Draw", icon: "24.draw" },
   { id: "design", label: "Design", icon: "24.design" },
-  { id: "motion", label: "Motion", icon: "24.motion" },
+  { id: "social", label: "Social", icon: "24.social" },
+  { id: "motion", label: "Motion", icon: "24.motion", badge: "Beta" },
   { id: "dev", label: "Dev Mode", icon: "24.dev-brackets", shortcut: keys(["shift", "d"]) },
 ];
 
@@ -136,17 +153,19 @@ export interface EditorToolbarProps {
   offset?: number;
   /** Shortcuts the user changed (the tool's, or "actions"): shown instead of Figma's; null: the tool has none now */
   shortcuts?: Partial<Record<ToolId | "actions", string | null>>;
+  /** A mode's own slot after the tools, before Actions (Social's New post, Safe areas, Table — docs/social.md §6.6) */
+  slot?: ReactNode;
 }
 
 /**
  * Figma's bottom toolbar (presentational): Move ▾, Region ▾, Shape ▾,
- * Creation ▾, Text ▾, Comment ▾, Actions | Draw · Design · Motion · Dev Mode;
+ * Creation ▾, Text ▾, Comment ▾, (a mode's slot,) Actions | Draw · Design · Social · Motion · Dev Mode;
  * in Draw: Move ▾, Shape ▾, Pen, Pencil, Brush, Text ▾, Comment ▾ (`DRAW_TOOL_GROUPS`).
  * A slot shows the last tool chosen in it; its chevron opens the group
  * (the current tool ticked) above the toolbar. ← → move within the mode
  * switch. The keys themselves are the editor's (see `toolForKey`).
  */
-export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActive, mode, onMode, disabledModes = [], disabledTools = [], floating, offset, shortcuts }: EditorToolbarProps) {
+export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActive, mode, onMode, disabledModes = [], disabledTools = [], floating, offset, shortcuts, slot }: EditorToolbarProps) {
   useT();
   const shortcutOf = (id: ToolId | "actions", own: string | undefined) => (shortcuts && id in shortcuts ? (shortcuts[id] ?? undefined) : own);
   const modeRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -176,7 +195,14 @@ export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActi
           />
         );
       })}
-      <ToolButton icon="24.actions" label={t("Actions")} shortcut={shortcutOf("actions", keys(["mod", "k"]))} active={Boolean(actionsActive)} onSelect={() => onActions?.()} />
+      {slot && (
+        <>
+          <ToolbarDivider />
+          {slot}
+          <ToolbarDivider />
+        </>
+      )}
+      {mode !== "dev" && <ToolButton icon="24.actions" label={t("Actions")} shortcut={shortcutOf("actions", keys(["mod", "k"]))} active={Boolean(actionsActive)} onSelect={() => onActions?.()} />}
       <ToolbarDivider />
       <div role="radiogroup" aria-label={t("Mode")} className={styles.modes} data-ds="ModeSwitch">
         {EDITOR_MODES.map((m, i) => {
@@ -202,7 +228,7 @@ export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActi
                 modeRefs.current[next]?.focus();
                 onMode(EDITOR_MODES[next].id);
               }}
-              {...tooltipProps(t(m.label), m.shortcut, "top")}
+              {...tooltipProps(t(m.label), m.shortcut, "top", undefined, m.badge && t(m.badge))}
             >
               <Icon name={m.icon} />
             </button>

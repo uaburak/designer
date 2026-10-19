@@ -9,6 +9,7 @@
 #include "render/shader_presets.h"
 #include "scene/Extras.h"
 #include "scene/CodecKiwi.h"
+#include "text/Fonts.h"
 
 namespace eng {
 
@@ -24,6 +25,7 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
   const text::TextLayout* L = texts_->textLayout(id);
   if (!L) return;
   Rect ink = L->inkBounds;
+  if (const motion::TextElementPoses* st = texts_->textElements(id); st && !st->reach.empty()) ink = ink.united(st->reach);  // Motion's text stagger
   Rect onScreen = transformedBounds(m * Mat2x3::translate(ink.x, ink.y), ink.w, ink.h);
   Rect padded{onScreen.x - 2, onScreen.y - 2, onScreen.w + 4, onScreen.h + 4};
   if (!padded.intersects(screen_)) return;
@@ -31,8 +33,7 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
   // dark blobs, not faint bars, in its own thumbnails); under that, each line as a bar holding the line's ink — its
   // glyphs' area spread over the bar (full colour × coverage), so the text weighs on the page as its glyphs would.
   double scale = levelScale(m);
-  float em = 0;
-  for (const text::LaidGlyph& g : L->glyphs) em = std::max(em, g.size);
+  float em = maxEmOf(*L);
   if (!L->glyphs.empty() && em * scale < (lodZoom_ ? kGlyphZoomEmPx : kGlyphMinEmPx) && !exporting_ && !L->path) {
     stats_.greeked++;
     const text::LaidGlyph& first = L->glyphs.front();
@@ -44,15 +45,13 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
     if (!paint) return;
     static const Paint kGrey = Paint::solid(Color{0.5f, 0.5f, 0.5f, 1});  // gradients and images: a neutral bar
     const Paint& bar = paint->type == PaintType::SOLID ? *paint : kGrey;
-    for (const text::LaidLine& l : L->lines) {
+    const std::vector<double>& lineInk = lineInkOf(*L);
+    for (size_t li = 0; li < L->lines.size(); li++) {
+      const text::LaidLine& l = L->lines[li];
       if (l.width <= 0 || l.glyphCount == 0) continue;
       double h = std::max(l.ascent * 0.7, 0.0);
       Rect r{l.x, l.baseline - h, l.width, h};
-      double ink = 0;
-      for (uint32_t k = l.firstGlyph; k < l.firstGlyph + l.glyphCount && k < L->glyphs.size(); k++) {
-        const text::LaidGlyph& g = L->glyphs[k];
-        ink += glyphArea(g.font, g.glyph) * static_cast<double>(g.size) * g.size;
-      }
+      double ink = lineInk[li];
       double coverage = r.w * r.h > 0 ? std::clamp(ink / (r.w * r.h), 0.0, 1.0) : 0;
       if (coverage <= 0) continue;
       Mat2x3 bm = m * Mat2x3::translate(r.x, r.y);
@@ -63,6 +62,18 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
     }
     return;
   }
+  // Motion's text stagger (docs/motion.md §4.10; round 8h): a glyph of an element drawn with the element's transform
+  // (node space, before its own) and opacity; a glyph in no element, as laid out.
+  const motion::TextElementPoses* staggered = texts_->textElements(id);
+  auto glyphAt = [&](size_t k, Mat2x3& em, double& a) {
+    em = text::glyphMatrix(L->glyphs[k]);
+    a = alpha;
+    if (!staggered || k >= staggered->elementOf.size() || staggered->elementOf[k] < 0) return a > 0;
+    size_t e = static_cast<size_t>(staggered->elementOf[k]);
+    em = staggered->transform[e] * em;
+    a = alpha * staggered->alpha[e];
+    return a > 0;
+  };
   // Fill by fill (bottom first), each glyph in its run's fills.
   size_t layers = 0;
   for (const auto& s : L->styles) layers = std::max(layers, s.fills ? s.fills->size() : 0);
@@ -87,11 +98,14 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
         int saved = beginLayer(r);
         int M = current_;
         static const Paint kWhite = Paint::solid(Color{1, 1, 1, 1});
-        for (const text::LaidGlyph& g : L->glyphs) {
+        for (size_t k = 0; k < L->glyphs.size(); k++) {
+          const text::LaidGlyph& g = L->glyphs[k];
           if (!shaderAt(g, f)) continue;
           const CurveEntry* e = curves_.glyph(g.font, g.glyph);
           if (!e) continue;
-          Mat2x3 em = text::glyphMatrix(g);
+          Mat2x3 em;
+          double ga = alpha;
+          if (!glyphAt(k, em, ga)) continue;
           Mat2x3 gm = m * em;
           DrawInstance q{};
           q.linear[0] = static_cast<float>(gm.m00);
@@ -105,7 +119,7 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
           for (int i = 0; i < 4; i++) q.box[i] = e->bounds[i];
           q.geom[2] = static_cast<float>(ShapeKind::Path);
           DrawState state;
-          if (setPaint(q, state, kWhite, em, p.size, 1)) emit(q, Pass::Path, state);
+          if (setPaint(q, state, kWhite, em, p.size, alpha > 0 ? ga / alpha : 0)) emit(q, Pass::Path, state);
         }
         endLayer(saved);
         stats_.layers++;
@@ -113,15 +127,18 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
                        shader->blendMode == BlendMode::PASS_THROUGH ? BlendMode::NORMAL : shader->blendMode, Color{}, {}, false, r);
       }
     }
-    for (const text::LaidGlyph& g : L->glyphs) {
+    for (size_t k = 0; k < L->glyphs.size(); k++) {
+      const text::LaidGlyph& g = L->glyphs[k];
       const auto* fills = L->styles[g.style].fills;
       if (!fills || f >= fills->size()) continue;
       const Paint& paint = (*fills)[f];
       if (!paint.visible) continue;
       const CurveEntry* e = curves_.glyph(g.font, g.glyph);
       if (!e) continue;
-      // em → node space: scale by the font size, then to the glyph's origin.
-      Mat2x3 em = text::glyphMatrix(g);
+      // em → node space: scale by the font size, then to the glyph's origin (and its element's pose).
+      Mat2x3 em;
+      double ga = alpha;
+      if (!glyphAt(k, em, ga)) continue;
       DrawInstance q{};
       Mat2x3 gm = m * em;
       q.linear[0] = static_cast<float>(gm.m00);
@@ -135,7 +152,7 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
       for (int i = 0; i < 4; i++) q.box[i] = e->bounds[i];
       q.geom[2] = static_cast<float>(ShapeKind::Path);
       DrawState state;
-      if (!setPaint(q, state, paint, em, p.size, alpha)) continue;
+      if (!setPaint(q, state, paint, em, p.size, ga)) continue;
       emit(q, Pass::Path, state);
       stats_.glyphs++;
     }
@@ -157,6 +174,36 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
       emit(q, Pass::Shape, state);
     }
   }
+}
+
+float Renderer::maxEmOf(const text::TextLayout& L) {
+  const text::TextLayout::InkCache& c = L.ink;  // its members are mutable
+  if (c.emKnown) return c.maxEm;
+  float em = 0;
+  for (const text::LaidGlyph& g : L.glyphs) em = std::max(em, g.size);
+  c.maxEm = em;
+  c.emKnown = true;
+  return em;
+}
+
+const std::vector<double>& Renderer::lineInkOf(const text::TextLayout& L) {
+  const text::TextLayout::InkCache& c = L.ink;
+  uint32_t fonts = text::FontRegistry::get().generation();
+  if (c.inkKnown && c.fonts == fonts) return c.lineInk;
+  c.lineInk.assign(L.lines.size(), 0);
+  for (size_t li = 0; li < L.lines.size(); li++) {
+    const text::LaidLine& l = L.lines[li];
+    if (l.width <= 0) continue;  // no bar
+    double ink = 0;
+    for (uint32_t k = l.firstGlyph; k < l.firstGlyph + l.glyphCount && k < L.glyphs.size(); k++) {
+      const text::LaidGlyph& g = L.glyphs[k];
+      ink += glyphArea(g.font, g.glyph) * static_cast<double>(g.size) * g.size;
+    }
+    c.lineInk[li] = ink;
+  }
+  c.fonts = fonts;
+  c.inkKnown = true;
+  return c.lineInk;
 }
 
 double Renderer::glyphArea(text::Font* font, uint32_t glyph) {

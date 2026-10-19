@@ -1390,6 +1390,7 @@ export class OrgService {
         const meta = this.host.getMeta(String(fileKey));
         if (!meta) throw new StoreError("not-found", tr("No such file"));
         if (meta.space) throw new StoreError("invalid", tr("This file is in an organization already"));
+        const duplicateOf = input.duplicateOf === undefined ? undefined : String(input.duplicateOf);
         const id = String(projectId);
         const teamId = await this.teamOfProject(id);
         const orgId = await this.orgOfTeam(teamId);
@@ -1404,7 +1405,7 @@ export class OrgService {
         } else {
           key = this.mp.newRoomKey(meta.fileKey);
           try {
-            answer = await this.mp.shareTo(meta.fileKey, input, (k, name) => this.call("POST", "/files", { key: k, name, orgId, projectId: id }), key);
+            answer = await this.mp.shareTo(meta.fileKey, input, (k, name) => this.call("POST", "/files", { key: k, name, orgId, projectId: id, ...(duplicateOf ? { duplicateOf } : {}) }), key);
           } catch (e) {
             // In the folder on the server already, its content still uploading: the copy says where it lives now
             if (pendingUpload(e)) {

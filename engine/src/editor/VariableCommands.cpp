@@ -12,13 +12,18 @@
 #include "base/FractionalIndex.h"
 #include "editor/Editor.h"
 #include "scene/CodecJson.h"
+#include "scene/CodecKiwi.h"
 #include "text/TextEdit.h"
 
 namespace eng {
 
 namespace {
 
-constexpr size_t kMaxModes = 40;           // Figma's REST limit (R3-07)
+// Modes per collection: Figma's limit by plan is Starter 1, Pro 10, Organization 20, Enterprise 40 (atlas 11 §3.1); a
+// personal app is on the top plan. A file with more (a library from a plan with more, Figma's `ds_100_modes`) keeps
+// them, but the modes past the limit are read-only: no rename, move, values or default (Figma's disabled columns).
+constexpr size_t kMaxModes = 40;
+constexpr int kMaxExtensionChain = 10;     // sets in an extension chain, the root included (atlas 11 §3.1)
 constexpr size_t kMaxModeNameLength = 40;
 constexpr size_t kMaxVariables = 5000;     // per collection
 
@@ -109,14 +114,33 @@ bool underGroup(const std::string& name, const std::string& group) {
   return name.size() > group.size() && name.compare(0, group.size(), group) == 0 && name[group.size()] == '/';
 }
 
-// `base`, else "base 2", "base 3"… — the first that `taken` doesn't hold.
-template <typename Taken>
-std::string uniqueName(const std::string& base, Taken taken) {
-  if (!taken(base)) return base;
-  for (int i = 2;; i++) {
-    std::string s = base + " " + std::to_string(i);
-    if (!taken(s)) return s;
+// The number at the end of "base N" (0: none).
+long trailingNumber(const std::string& name, const std::string& base) {
+  if (name.size() < base.size() + 2 || name.compare(0, base.size(), base) != 0 || name[base.size()] != ' ') return 0;
+  long n = 0;
+  for (size_t i = base.size() + 1; i < name.size(); i++) {
+    if (name[i] < '0' || name[i] > '9' || n > 100000000) return 0;
+    n = n * 10 + (name[i] - '0');
   }
+  return n;
+}
+
+// Figma's unique name (atlas 11 §3.4): `base` when free, else "base N" with N one past the largest number already
+// after it (at least 2) — the second "Color" is "Color 2", and after "Color 7" comes "Color 8" even with gaps.
+// `names` lists every name taken.
+std::string uniqueName(const std::string& base, const std::vector<std::string>& names) {
+  if (std::find(names.begin(), names.end(), base) == names.end()) return base;
+  long most = 1;
+  for (const std::string& n : names) most = std::max(most, trailingNumber(n, base));
+  return base + " " + std::to_string(most + 1);
+}
+
+// A name without its trailing " N" ("Color 3" → "Color"): what a duplicate is numbered from.
+std::string stripNumber(const std::string& name) {
+  size_t end = name.size();
+  while (end > 0 && name[end - 1] >= '0' && name[end - 1] <= '9') end--;
+  if (end == name.size() || end < 2 || name[end - 1] != ' ') return name;
+  return name.substr(0, end - 1);
 }
 
 bool typeFromName(const std::string& s, VariableResolvedType& t) {
@@ -124,6 +148,9 @@ bool typeFromName(const std::string& s, VariableResolvedType& t) {
   if (s == "FLOAT" || s == "NUMBER") return t = VariableResolvedType::FLOAT, true;
   if (s == "STRING") return t = VariableResolvedType::STRING, true;
   if (s == "BOOLEAN") return t = VariableResolvedType::BOOLEAN, true;
+  // Motion (docs/motion.md §4.7, §6.7; round 8i): an easing curve or spring, a duration in milliseconds.
+  if (s == "EASING") return t = VariableResolvedType::EASING, true;
+  if (s == "TIMING") return t = VariableResolvedType::TIMING, true;
   return false;
 }
 
@@ -133,14 +160,42 @@ const char* defaultVariableName(VariableResolvedType t) {
     case VariableResolvedType::COLOR: return "Color";
     case VariableResolvedType::FLOAT: return "Number";
     case VariableResolvedType::STRING: return "String";
+    case VariableResolvedType::EASING: return "Easing";
+    case VariableResolvedType::TIMING: return "Timing";
     default: return "Boolean";
   }
+}
+
+// An EASING literal: `easingData` (an EasingData as JSON) in the value's easingValue (VariableAnyValue 21).
+VariableData easingValue(const json::Value& easingData) {
+  VariableData d;
+  d.hasDataType = d.hasResolvedType = true;
+  d.dataType = VariableDataType::EASING;
+  d.resolvedDataType = VariableResolvedType::EASING;
+  d.valueExtra = codec::extraFromJson("VariableAnyValue", "easingValue", easingData);
+  return d;
+}
+
+// A TIMING literal: milliseconds in floatValue (help: "Duration in milliseconds").
+VariableData timingValue(double ms) {
+  VariableData d = VariableData::number(ms);
+  d.dataType = VariableDataType::TIMING;
+  d.resolvedDataType = VariableResolvedType::TIMING;
+  return d;
 }
 VariableData defaultValue(VariableResolvedType t) {
   switch (t) {
     case VariableResolvedType::COLOR: return VariableData::color(Color{1, 1, 1, 1});
     case VariableResolvedType::FLOAT: return VariableData::number(0);
     case VariableResolvedType::STRING: return VariableData::string("");
+    case VariableResolvedType::EASING: {
+      // Ease out [ours: Figma's new Easing variable's value is unseen], Motion's preset default.
+      json::Value pub, ed;
+      json::parse(R"({"type":"EASE_OUT"})", pub);
+      Editor::motionEasingData(pub, ed);
+      return easingValue(ed);
+    }
+    case VariableResolvedType::TIMING: return timingValue(500);  // [ours] Motion's preset Duration
     default: return VariableData::boolean(false);
   }
 }
@@ -149,6 +204,32 @@ bool scopeFromName(const std::string& s, VariableScope& out) {
   if (s == "STROKE_COLOR") return out = VariableScope::STROKE, true;  // the plugin API's names
   if (s == "FONT_WEIGHT") return out = VariableScope::FONT_STYLE, true;
   return enumFromName(s, out);
+}
+
+// The scopes a type takes (atlas 11 §5.1–5.2): numbers the number fields' scopes (text content, font weight, font
+// variations and transforms among them), colours the paints' and effects', strings text content, font family and
+// style; booleans none (only "all", the default).
+bool scopesFit(VariableResolvedType type, const std::vector<VariableScope>& scopes) {
+  using S = VariableScope;
+  for (VariableScope s : scopes) {
+    if (s == S::ALL_SCOPES) continue;
+    bool ok = false;
+    switch (type) {
+      case VariableResolvedType::FLOAT:
+        ok = s == S::TEXT_CONTENT || s == S::CORNER_RADIUS || s == S::WIDTH_HEIGHT || s == S::GAP || s == S::STROKE_FLOAT ||
+             s == S::EFFECT_FLOAT || s == S::OPACITY || s == S::COLOR_OPACITY || s == S::FONT_STYLE || s == S::FONT_SIZE ||
+             s == S::LINE_HEIGHT || s == S::LETTER_SPACING || s == S::PARAGRAPH_SPACING || s == S::PARAGRAPH_INDENT ||
+             s == S::FONT_VARIATIONS || s == S::TRANSFORM;
+        break;
+      case VariableResolvedType::COLOR:
+        ok = s == S::ALL_FILLS || s == S::FRAME_FILL || s == S::SHAPE_FILL || s == S::TEXT_FILL || s == S::STROKE || s == S::EFFECT_COLOR;
+        break;
+      case VariableResolvedType::STRING: ok = s == S::TEXT_CONTENT || s == S::FONT_FAMILY || s == S::FONT_STYLE; break;
+      default: break;
+    }
+    if (!ok) return false;
+  }
+  return true;
 }
 
 bool styleTypeFromName(const std::string& s, StyleType& t) {
@@ -236,7 +317,8 @@ bool accepts(const BindTarget& t, VariableResolvedType type) {
   if (t.kind == BindTarget::Kind::FIELD) {
     switch (t.field) {
       case VariableField::VISIBLE: return type == VariableResolvedType::BOOLEAN;
-      case VariableField::TEXT_DATA:
+      // A number shows as text too (atlas 11 §5.2: numbers have the Text content scope).
+      case VariableField::TEXT_DATA: return type == VariableResolvedType::STRING || type == VariableResolvedType::FLOAT;
       case VariableField::FONT_FAMILY:
       case VariableField::HYPERLINK: return type == VariableResolvedType::STRING;
       case VariableField::FONT_STYLE: return type == VariableResolvedType::STRING || type == VariableResolvedType::FLOAT;
@@ -346,6 +428,16 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
     for (Guid v : variablesOf(collection))
       if (!except.count(v) && doc_.get(v)->props.name == name) return true;
     return false;
+  };
+  auto variableNames = [&](Guid collection) {
+    std::vector<std::string> out;
+    for (Guid v : variablesOf(collection)) out.push_back(doc_.get(v)->props.name);
+    return out;
+  };
+  auto collectionNames = [&]() {
+    std::vector<std::string> out;
+    for (Guid c : collections(true)) out.push_back(doc_.get(c)->props.name);
+    return out;
   };
   // A variable name: a slash path without `.`, `{`, `}` (Figma's rule).
   auto validName = [&](const std::string& raw, std::string& out) {
@@ -514,6 +606,17 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
         out = VariableData::composeColor(std::move(color), std::move(opacity));
         return true;
       }
+      case VariableResolvedType::EASING: {
+        // Figma's public MotionEasing ({type, easingFunctionCubicBezier | easingFunctionSpring}).
+        json::Value ed;
+        if (!motionEasingData(v, ed)) return false;
+        out = easingValue(ed);
+        return true;
+      }
+      case VariableResolvedType::TIMING:
+        if (!v.isNumber() || !std::isfinite(v.number) || v.number < 0) return false;
+        out = timingValue(v.number);
+        return true;
       default: return false;
     }
   };
@@ -627,6 +730,13 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
     return made;
   };
   auto modesOf = [&](Guid collection) { return collectionNode(collection)->orderedModes(); };
+  // A mode past the plan's limit (its column disabled): read-only.
+  auto beyondLimit = [&](Guid collection, Guid mode) {
+    auto modes = modesOf(collection);
+    for (size_t i = 0; i < modes.size(); i++)
+      if (modes[i].id == mode) return i >= kMaxModes;
+    return false;
+  };
   // Mode keys for `modes` in this order (only where needed).
   auto orderModes = [&](std::vector<VariableSetMode>& modes, Guid moved) {
     for (size_t i = 0; i < modes.size(); i++) {
@@ -659,11 +769,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
         name = trim(name);
         if (name.empty()) return E_INVALID;
       } else {
-        name = uniqueName("Collection", [&](const std::string& s) {
-          for (Guid c : collections())
-            if (doc_.get(c)->props.name == s) return true;
-          return false;
-        });
+        name = uniqueName("Collection", collectionNames());
       }
       begin(TxnKind::USER, "Create collection");
       Guid canvas = internalCanvas(true);
@@ -740,7 +846,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       Guid canvas = internalCanvas(true);
       NodeProps p;
       p.type = NodeType::VARIABLE_SET;
-      p.name = src.name + " copy";
+      p.name = uniqueName(stripNumber(src.name), collectionNames());  // "Theme" → "Theme 2" (Figma, atlas 11 §3.4)
       std::unordered_map<Guid, Guid, GuidHash> modeMap;
       for (const VariableSetMode& m : src.asset().variableSetModes) {
         Guid nm = newGuid();
@@ -776,11 +882,12 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
         name = trim(name);
         if (name.empty() || name.size() > kMaxModeNameLength) return E_INVALID;
       } else {
-        name = uniqueName("Mode " + std::to_string(modes.size() + 1), [&](const std::string& s) {
+        auto taken = [&](const std::string& s) {
           for (auto& m : modes)
             if (m.name == s) return true;
           return false;
-        });
+        };
+        for (size_t i = modes.size() + 1; name.empty() || taken(name); i++) name = "Mode " + std::to_string(i);
       }
       Guid def = sp->defaultMode();
       begin(TxnKind::USER, "Add mode");
@@ -809,7 +916,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       if (extensionParent(argGuid(args, "collection")) != kNoGuid) return E_INVALID;  // an extended collection inherits its modes
       Guid g = argGuid(args, "collection"), mode = argGuid(args, "mode");
       std::string name;
-      if (!collectionNode(g) || !argString(args, "name", name)) return E_INVALID;
+      if (!collectionNode(g) || !argString(args, "name", name) || beyondLimit(g, mode)) return E_INVALID;
       name = trim(name);
       if (name.empty() || name.size() > kMaxModeNameLength) return E_INVALID;
       auto modes = collectionNode(g)->asset().variableSetModes;
@@ -846,10 +953,12 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       if (extensionParent(argGuid(args, "collection")) != kNoGuid) return E_INVALID;  // an extended collection inherits its modes
       Guid g = argGuid(args, "collection"), mode = argGuid(args, "mode");
       double index = 0;
-      if (!collectionNode(g) || !argNumber(args, "index", index)) return E_INVALID;
+      if (!collectionNode(g) || !argNumber(args, "index", index) || beyondLimit(g, mode)) return E_INVALID;
       auto modes = modesOf(g);
       auto it = std::find_if(modes.begin(), modes.end(), [&](const VariableSetMode& m) { return m.id == mode; });
       if (it == modes.end()) return E_INVALID;
+      // Not into the disabled columns; no new default while the collection holds more modes than allowed (Figma).
+      if (index >= static_cast<double>(kMaxModes) || (index < 1 && modes.size() > kMaxModes)) return E_INVALID;
       VariableSetMode m = *it;
       modes.erase(it);
       size_t at = static_cast<size_t>(std::clamp(index, 0.0, static_cast<double>(modes.size())));
@@ -868,11 +977,9 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       auto it = std::find_if(modes.begin(), modes.end(), [&](const VariableSetMode& m) { return m.id == mode; });
       if (it == modes.end()) return E_INVALID;
       size_t at = static_cast<size_t>(it - modes.begin()) + 1;
-      std::string name = uniqueName(it->name + " copy", [&](const std::string& s) {
-        for (auto& m : modes)
-          if (m.name == s) return true;
-        return false;
-      });
+      std::vector<std::string> modeNames;
+      for (auto& m : modes) modeNames.push_back(m.name);
+      std::string name = uniqueName(it->name + " copy", modeNames);
       if (name.size() > kMaxModeNameLength) name = name.substr(0, kMaxModeNameLength);
       begin(TxnKind::USER, "Duplicate mode");
       Guid copy = newGuid();
@@ -908,7 +1015,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       if (argString(args, "name", name)) {
         if (!validName(joinPath(group, name), name) || nameTaken(g, name, {})) return E_INVALID;
       } else {
-        name = uniqueName(joinPath(group, defaultVariableName(type)), [&](const std::string& s) { return nameTaken(g, s, {}); });
+        name = uniqueName(joinPath(group, defaultVariableName(type)), variableNames(g));
       }
       VariableData value = defaultValue(type);
       if (const json::Value* v = arg(args, "value"); v && !parseValue(*v, type, kNoGuid, value)) return E_INVALID;
@@ -979,12 +1086,13 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       for (Guid v : vars)
         if (!variableNode(v) || collectionOfVar(v) != g) return E_INVALID;
       begin(TxnKind::USER, vars.size() == 1 ? "Duplicate variable" : "Duplicate variables");
-      std::set<std::string> fresh;
+      // "Color" → "Color 2", "Color 2" → "Color 3": numbered from the name without its number (Figma, atlas 11 §3.4).
+      std::vector<std::string> taken = variableNames(g);
       copyVariables(
           vars, g, nullptr,
           [&](const std::string& n) {
-            std::string name = uniqueName(n + " copy", [&](const std::string& s) { return fresh.count(s) || nameTaken(g, s, {}); });
-            fresh.insert(name);
+            std::string name = uniqueName(stripNumber(n), taken);
+            taken.push_back(name);
             return name;
           },
           false);
@@ -1031,7 +1139,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
         commit();
         return OK;
       }
-      if (!known || !parseValue(*value, vp->asset().variableResolvedType, v, data)) return E_INVALID;
+      if (!known || beyondLimit(g, mode) || !parseValue(*value, vp->asset().variableResolvedType, v, data)) return E_INVALID;
       std::vector<VariableModeValue> values = vp->asset().variableDataValues;
       auto it = std::find_if(values.begin(), values.end(), [&](const VariableModeValue& mv) { return mv.modeID == mode; });
       if (it != values.end()) it->data = data;
@@ -1061,8 +1169,9 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
                        return s == VariableScope::FRAME_FILL || s == VariableScope::SHAPE_FILL || s == VariableScope::TEXT_FILL;
                      }),
                      scopes.end());
+      // "Invalid scope for this variable type", "Cannot set scopes on this variable type" (Figma's checks).
       for (Guid v : vars)
-        if (!variableNode(v)) return E_INVALID;
+        if (!variableNode(v) || !scopesFit(variableNode(v)->asset().variableResolvedType, scopes)) return E_INVALID;
       begin(TxnKind::USER, "Edit variable scopes");
       for (Guid v : vars) {
         NodeChange c = NodeChange::changed(v);
@@ -1178,11 +1287,17 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       } else if (id == CommandId::UNGROUP_VARIABLES) {
         newGroup = groupOf(group);
       } else {
-        newGroup = uniqueName(group + " copy", [&](const std::string& s) {
-          for (Guid v : variablesOf(g))
-            if (underGroup(doc_.get(v)->props.name, s)) return true;
-          return false;
-        });
+        // Its sibling groups (the groups at its depth under the same parent); the copy is numbered among them.
+        std::vector<std::string> siblings;
+        std::string parentGroup = groupOf(group);
+        for (Guid v : variablesOf(g)) {
+          const std::string& n = doc_.get(v)->props.name;
+          if (!parentGroup.empty() && !underGroup(n, parentGroup)) continue;
+          std::string rest = parentGroup.empty() ? n : n.substr(parentGroup.size() + 1);
+          size_t slash = rest.find('/');
+          if (slash != std::string::npos) siblings.push_back(joinPath(parentGroup, rest.substr(0, slash)));
+        }
+        newGroup = uniqueName(stripNumber(group), siblings);
       }
       std::unordered_set<Guid, GuidHash> moving;
       if (id != CommandId::DUPLICATE_VARIABLE_GROUP) moving.insert(vars.begin(), vars.end());
@@ -1344,7 +1459,8 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
             const ComponentPropDef* def = owner != kNoGuid ? findDef(owner, t.member) : nullptr;
             if (!def) continue;
             if (var != kNoGuid && !((def->type == ComponentPropType::BOOL && type == VariableResolvedType::BOOLEAN) ||
-                                    (def->type == ComponentPropType::TEXT && type == VariableResolvedType::STRING)))
+                                    (def->type == ComponentPropType::TEXT && type == VariableResolvedType::STRING) ||
+                                    (def->type == ComponentPropType::NUMBER && type == VariableResolvedType::FLOAT)))
               continue;
             Guid defId = def->id;
             NodeChange d = NodeChange::changed(owner);
@@ -1362,6 +1478,8 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
                   e.initialValue.textValue = TextData{};
                   e.initialValue.textValue.characters = rv.s;
                 }
+                if (e.type == ComponentPropType::NUMBER && rv.kind == Resolved::Kind::FLOAT)
+                  e.initialValue.hasFloat = true, e.initialValue.floatValue = static_cast<float>(std::round(rv.f * 100) / 100);
               }
             }
             write(d);
@@ -1421,17 +1539,17 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       Guid g = argGuid(args, "collection");
       const NodeProps* sp = collectionNode(g);
       if (!sp) return E_INVALID;
+      // "Cannot create a variable set extension chain longer than 10 sets" (Figma): the new one would be the chain's next.
+      int sets = 1;
+      for (Guid up = extensionParent(g); up != kNoGuid && sets <= kMaxExtensionChain; up = extensionParent(up)) sets++;
+      if (sets + 1 > kMaxExtensionChain) return E_INVALID;
       const NodeProps src = *sp;
       std::string name;
       if (argString(args, "name", name)) {
         name = trim(name);
         if (name.empty()) return E_INVALID;
       } else {
-        name = uniqueName(src.name + " extended", [&](const std::string& n) {
-          for (Guid c : collections(true))
-            if (doc_.get(c)->props.name == n) return true;
-          return false;
-        });
+        name = uniqueName(src.name + " extended", collectionNames());
       }
       begin(TxnKind::USER, "Extend collection");
       Guid canvas = internalCanvas(true);

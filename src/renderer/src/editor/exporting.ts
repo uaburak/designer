@@ -7,7 +7,7 @@
  * (`file:export-assets`: the system's Save dialog, or a folder for several) —
  * a view never writes files — or, in a browser, downloads them (a ZIP for
  * several). Also Copy as PNG (⇧⌘C, 2x as Figma's), Copy as SVG, Copy as code
- * (CSS), Copy as text, and File › Export frames to PDF….
+ * (CSS, CSS of all layers, iOS, Android: Dev Mode's generators), Copy as text, and File › Export frames to PDF….
  */
 import { t } from "@/i18n";
 import { useSyncExternalStore } from "react";
@@ -21,15 +21,10 @@ import { engineExports } from "./engineCompat";
 import { presenceOf } from "./multiplayer/presence";
 import { exportAllowedFor, type ExportAccessStore } from "../files/governance";
 import { encodePixels, renderEngineExport } from "./exportCore";
-import {
-  cssOf,
-  exportFileName,
-  exportSettingsOf,
-  readingOrder,
-  zipStored,
-  type CssNode,
-  type ExportSettings,
-} from "./model/exports";
+import { exportFileName, exportSettingsOf, readingOrder, zipStored, type ExportSettings } from "./model/exports";
+import { sectionsText } from "../../../viewer/inspect/code";
+import { codeSections } from "../../../viewer/inspect/codegen";
+import { ViewerDoc } from "../../../viewer/viewerDoc";
 
 /** Whether this engine build exports (the export ABI is there). */
 export const engineCanExport = (ed: EditorController) => !ed.engine.destroyed && engineExports(ed.engine, "export");
@@ -233,14 +228,45 @@ async function writeClipboard(items: Record<string, Blob>, text?: string): Promi
   return false;
 }
 
-/** Copy as PNG (⇧⌘C): the selection as one image at 2x. */
+/**
+ * A PNG onto the clipboard as Figma writes it: `image/png` and the web custom format `web image/png` in one item (the
+ * custom one dropped where the browser refuses it). Throws what the write threw.
+ */
+async function writePng(bytes: Uint8Array): Promise<void> {
+  const blob = () => new Blob([bytes as BlobPart], { type: "image/png" });
+  try {
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": blob(), "web image/png": blob() })]);
+  } catch (e) {
+    if ((e as Error).name === "NotAllowedError" || (e as Error).name === "SecurityError") throw e;
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": blob() })]);
+  }
+}
+
+/**
+ * Copy as PNG (⇧⌘C): the selection as one image at 2x (atlas 15 §10). When the browser refuses the write because the
+ * render took too long to count as the person's gesture (NotAllowedError / SecurityError), the toast says the export
+ * is done and its button writes it once more; any other failure offers Retry.
+ */
 export async function copyAsPng(ed: EditorController): Promise<void> {
   const refs = ed.selection;
   if (!refs.length || !exportAllowed(ed)) return;
   const r = await renderExport(ed, refs, { imageType: "PNG", constraint: { type: "CONTENT_SCALE", value: 2 }, contentsOnly: true });
-  if ("error" in r) return void showToast({ message: t("Couldn't copy as PNG") });
-  const ok = await writeClipboard({ "image/png": new Blob([r.bytes as BlobPart], { type: "image/png" }) });
-  showToast({ message: ok ? t("Copied as PNG") : t("Couldn't copy as PNG") });
+  const retry = { label: t("Retry"), onAction: () => void copyAsPng(ed) };
+  if ("error" in r) return void showToast({ message: t("Couldn't copy as PNG"), action: retry });
+  try {
+    await writePng(r.bytes);
+    showToast({ message: t("Copied as PNG") });
+  } catch (e) {
+    const late = (e as Error).name === "NotAllowedError" || (e as Error).name === "SecurityError";
+    if (!late) return void showToast({ message: t("Couldn't copy as PNG"), action: retry });
+    showToast({
+      message: t("Export completed"),
+      action: {
+        label: t("Copy to clipboard"),
+        onAction: () => void writePng(r.bytes).then(() => showToast({ message: t("Copied as PNG") }), () => showToast({ message: t("Couldn't copy as PNG") })),
+      },
+    });
+  }
 }
 
 /** Copy as SVG: the selection's SVG markup, as text. */
@@ -254,12 +280,38 @@ export async function copyAsSvg(ed: EditorController): Promise<void> {
   showToast({ message: ok ? t("Copied as SVG") : t("Couldn't copy as SVG") });
 }
 
-/** Copy as code: the selection's CSS (Figma's "Copy as code › CSS"). */
-export async function copyAsCode(ed: EditorController): Promise<void> {
-  if (!exportAllowed(ed)) return;
-  const nodes = ed.engine.readNodes(ed.selection).map(ed.withRealType);
-  if (!nodes.length) return;
-  const text = nodes.map((n) => cssOf(n as unknown as CssNode)).join("\n");
+/** What "Copy as code ▸" copies: CSS, CSS (all layers) — each layer under the selection too —, iOS (SwiftUI), Android (Compose). */
+export type CopyCodeLanguage = "css" | "css-all" | "ios" | "android";
+
+/**
+ * Copy as code ▸ (docs/research/atlas/03 "Copy/Paste as", 14 §4): Dev Mode's first-party code of each selected layer,
+ * in px, layers apart by a blank line. "CSS (all layers)" walks each one's layers depth first, each headed by its name
+ * as a comment (that heading is ours: Figma's recursive format is unread).
+ */
+export async function copyAsCode(ed: EditorController, language: CopyCodeLanguage = "css"): Promise<void> {
+  if (!exportAllowed(ed) || !ed.selection.length) return;
+  const doc = new ViewerDoc(ed.engine);
+  const lang = language === "ios" ? "swiftui" : language === "android" ? "compose" : "css";
+  const ids: Guid[] = [];
+  const walk = (id: Guid) => {
+    ids.push(id);
+    const n = ed.engine.readNode(id, { fields: ["visible"], childIds: true }) as (NodeChange & { childIds?: Guid[] }) | null;
+    for (const c of n?.childIds ?? []) if (ed.engine.readNode(c, { fields: ["visible"] })?.visible !== false) walk(c);
+  };
+  for (const id of ed.selection) {
+    if (language === "css-all") walk(id);
+    else ids.push(id);
+  }
+  const text = ids
+    .map((id) => {
+      const input = doc.inspect(id);
+      if (!input) return "";
+      const code = sectionsText(codeSections(input, lang));
+      return language === "css-all" ? `/* ${input.node.name ?? ""} */\n${code}` : code;
+    })
+    .filter(Boolean)
+    .join("\n\n");
+  if (!text) return;
   const ok = await writeClipboard({ "text/plain": new Blob([text], { type: "text/plain" }) }, text);
   showToast({ message: ok ? t("Copied to clipboard") : t("Couldn't copy") });
 }

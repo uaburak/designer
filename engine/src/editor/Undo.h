@@ -24,6 +24,12 @@ struct UndoBatch {
   std::deque<NodeChange> inverse;  // in the order they were recorded; applied backwards (a deque: never relocated)
   std::vector<Guid> selectionBefore;
   std::vector<Guid> selectionAfter;
+  // The pages its changes were on when it was made, first first (Figma's Message.undoBatchPageIds 46): an undo with
+  // nothing selected goes to the first of them. Empty: computed from the replayed changes.
+  std::vector<Guid> pageIds;
+  // The layer vector edit mode had when the step was made (Figma's "update-edit-mode-for-undo"): undoing or redoing
+  // it goes back into that mode on that layer. kNoGuid: made outside it. Not exported with the history.
+  Guid editVector = kNoGuid;
 };
 
 // What one undo / redo replay did, beyond the changes it applied (docs/engine.md §9.3).
@@ -51,8 +57,15 @@ class UndoStack {
   void record(NodeChange&& inverse);
   // Closes the transaction; a non-empty one becomes an undo step and clears redo.
   // `mergeWithLast` joins it to the previous step instead (key-repeat nudges).
-  // Past kMaxBatches the oldest steps are dropped.
-  void commit(const std::vector<Guid>& selection, bool mergeWithLast = false);
+  // Past kMaxBatches the oldest steps are dropped. `doc` (the document after the step): the step's pages are noted
+  // (UndoBatch::pageIds).
+  void commit(const std::vector<Guid>& selection, bool mergeWithLast = false, const Document* doc = nullptr);
+  // The edit mode the open transaction is made in (UndoBatch::editVector), noted before it commits.
+  void noteEditVector(Guid node) {
+    if (depth_ > 0) open_.editVector = node;
+  }
+  // The pages a batch's inverses touch in `doc` as it is (pages on the internal canvas left out), first first.
+  static std::vector<Guid> pagesOf(const Document& doc, const std::deque<NodeChange>& inverse);
   static constexpr size_t kMaxBatches = 1000;
   // Drops the open transaction, applying its inverses to `doc` (a cancelled gesture).
   // Returns the changes that were applied (for listeners).
@@ -95,6 +108,12 @@ class UndoStack {
 
   size_t undoCount() const { return undo_.size(); }
   size_t redoCount() const { return redo_.size(); }
+  // The steps, oldest first (an export of the history, docs/research/rea/canvas.md §2.18).
+  const std::vector<UndoBatch>& undoBatches() const { return undo_; }
+  const std::vector<UndoBatch>& redoBatches() const { return redo_; }
+  // Replaces the history with `undo` / `redo` (oldest first; an import of an exported one). Not while a
+  // transaction is open.
+  bool restore(std::vector<UndoBatch>&& undo, std::vector<UndoBatch>&& redo);
 
  private:
   static std::vector<NodeChange> replay(Document& doc, UndoBatch& batch, UndoBatch& opposite, ChangeSet* changes, ReplayInfo* info);

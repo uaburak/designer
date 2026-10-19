@@ -123,7 +123,9 @@ describe("the presentation view's options", () => {
     expect(recommendedScales(state({ firstFrameWidth: 1440 }))).toEqual(["ACTUAL", "RESPONSIVE"]);
     expect(recommendedScales(state({ firstFrameWidth: 375 }))).toEqual(["ACTUAL", "FIT"]);
     expect(recommendedScales(state({ allWide: true }))).toEqual(["FILL", "ACTUAL"]);
-    expect(recommendedScales(state({ deviceType: "CUSTOM" }))).toEqual(["FIT", "FILL", "ACTUAL"]);
+    expect(recommendedScales(state({ deviceType: "CUSTOM" }))).toEqual(["FIT", "FILL"]);
+    // The player's own order wins (atlas 13 §10.1).
+    expect(recommendedScales(state({ firstFrameWidth: 375, scaleOrder: ["FILL", "ACTUAL", "FIT", "FIT_WIDTH", "RESPONSIVE"] }))).toEqual(["FILL", "ACTUAL"]);
     expect(labels(presentOptions(state({ firstFrameWidth: 375, scale: "ACTUAL" })))).toEqual([
       "Enable Figma shortcuts",
       "Show hints on click",
@@ -134,8 +136,8 @@ describe("the presentation view's options", () => {
       "Actual size (100%)",
       "Fit width and height",
       "# Other",
-      "Responsive",
       "Fit width",
+      "Responsive",
       "Fill screen",
       "-",
       "Keyboard shortcuts",

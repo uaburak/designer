@@ -214,7 +214,7 @@ export interface StudioTask {
 
 /** A card the manager puts in the chat and waits on (ask_choice / show_form, §2.4, §4.1). */
 export type ChatCard =
-  | { kind: "choice"; id: string; question: string; options: { id: string; label: string; detail?: string }[]; remember?: boolean; answer?: { optionId: string; remember: boolean } }
+  | { kind: "choice"; id: string; question: string; options: { id: string; label: string; detail?: string }[]; remember?: boolean; /** Social's follow-ups (docs/social.md §7.1): chips, at most three */ suggestions?: boolean; answer?: { optionId: string; remember: boolean } }
   | { kind: "brand-form"; id: string; brandId?: string; prefill?: Partial<BrandSave>; answer?: { brandId: string } | { cancelled: true } }
   | { kind: "product-form"; id: string; brandId: string; productId?: string; prefill?: Partial<ProductSave>; answer?: { productId: string } | { cancelled: true } }
   | { kind: "review"; id: string; report: ReviewReport; answer?: { fix: string[] } | { cancelled: true } };
@@ -252,7 +252,8 @@ export interface ImagePrompt {
 
 // ── Review (§6) ───────────────────────────────────────────────────────────────────────────────────────────────────
 
-export type ProblemKind = "sharp-text" | "soft-text" | "shape" | "extra" | "missing" | "layout" | "brand";
+/** Social (docs/social.md §7.3) adds "safe-area", "caption", "contrast", "logo" and "video". */
+export type ProblemKind = "sharp-text" | "soft-text" | "shape" | "extra" | "missing" | "layout" | "brand" | "safe-area" | "caption" | "contrast" | "logo" | "video";
 
 export interface ReviewProblem {
   id: string;
@@ -261,8 +262,8 @@ export interface ReviewProblem {
   detail: string;
   /** Where, in the frame's coordinates (soft-text: the area to blur) */
   box?: { x: number; y: number; width: number; height: number };
-  /** How it gets fixed (§6.2) */
-  fix: "fix-label" | "blur" | "regenerate" | "relayout";
+  /** How it gets fixed (§6.2); Social's "rewrite" (the manager rewrites the caption) and "retime" (the timeline) */
+  fix: "fix-label" | "blur" | "regenerate" | "relayout" | "rewrite" | "retime";
 }
 
 export interface ReviewItem {

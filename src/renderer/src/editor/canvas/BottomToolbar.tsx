@@ -5,7 +5,7 @@
  * `Overlays`, not the view between the panels): nothing about the panels or
  * the canvas moves it, so a panel drag neither moves nor re-renders it. A slot shows the last
  * tool chosen in it; tools the engine doesn't implement yet are disabled.
- * The mode switch: Draw, Design, Dev Mode (Motion comes later). In vector edit
+ * The mode switch: Draw, Design, Social, Motion, Dev Mode; Social adds its slot (docs/social.md §6.6). In vector edit
  * mode Figma's secondary toolbar opens 8 over it (live toolbar/vector-edit-toolbar.txt): Move, Lasso │ Paint, Bend,
  * Cut, Erase │ More ▾ (Vector editing tools: Shape builder, Variable width) │ Close.
  * Draw mode (docs/draw.md §5.1, §5.2; round 7c): the toolbar's Draw tool set (Move ▾, Shape ▾, Pen, Pencil, Brush,
@@ -14,7 +14,7 @@
  */
 import { getLocale, t, useT } from "@/i18n";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ContextMenu, EditorToolbar, groupOf, IconButton, showToast, Toolbar, ToolbarDivider, ToolTextButton, type IconName, type MenuEntry, type ToolGroupId, type ToolId } from "@/ds";
+import { ContextMenu, EditorToolbar, groupOf, IconButton, Toolbar, ToolbarDivider, ToolTextButton, type IconName, type MenuEntry, type ToolGroupId, type ToolId } from "@/ds";
 import type { ToolName } from "@/engine/abi";
 import { useTool } from "@/engine/hooks";
 import { useEditor } from "../controller";
@@ -24,11 +24,13 @@ import { useShortcutSettings } from "../shortcuts/prefs";
 import { useUI } from "../hooks";
 import { useStoreSlice } from "../uiStore";
 import { setMode } from "../devmode/devMode";
+import { FrameStepper } from "../devmode/FrameStepper";
 import type { VectorTool } from "../vectorEdit";
 import { ImageToolbar } from "../imageTools/ImageToolbar";
 import { DrawToolSettings, isDrawTool } from "../draw/DrawToolSettings";
 import { attachDrawTools } from "../draw/drawTools";
 import { PathToolbar, usePathTool } from "./PathToolbar";
+import { SocialToolbarSlot } from "../social/NewPostMenu";
 
 /** The toolbar's tools → the engine's (null: a tool the engine has no id for). */
 export const ENGINE_TOOL: Record<ToolId, ToolName | null> = {
@@ -64,6 +66,12 @@ export function toolIdOf(engineTool: string): ToolId {
   return "move";
 }
 
+/**
+ * The tool a toolbar click picks: Comment chosen again while it is the tool goes back to Move (Figma's comment group:
+ * COMMENTS on COMMENTS → SELECT, atlas 02 §2); the C key keeps the tool.
+ */
+export const toolbarChoice = (chosen: ToolId, current: ToolId): ToolId => (chosen === "comment" && current === "comment" ? "move" : chosen);
+
 /** Does the engine implement the toolbar's tool? (The Image tool is the editor's: a file picker, then clicks.) */
 const isAvailable = (ed: ReturnType<typeof useEditor>, t: ToolId) => {
   if (t === "image") return !!ed.images.store;
@@ -84,7 +92,9 @@ export function BottomToolbar() {
   const actionsOpen = useUI((s) => !!s.actionsOpen);
   const dev = useUI((s) => s.mode === "dev");
   const draw = useUI((s) => s.mode === "draw");
-  const mode = dev ? "dev" : draw ? "draw" : "design";
+  const motion = useUI((s) => s.mode === "motion");
+  const social = useUI((s) => s.mode === "social");
+  const mode = dev ? "dev" : draw ? "draw" : motion ? "motion" : social ? "social" : "design";
   const [groups, setGroups] = useState<Partial<Record<ToolGroupId, ToolId>>>({});
   // A tool chosen by key is remembered in its slot too.
   if (groups[groupOf(tool, mode)] !== tool) setGroups({ ...groups, [groupOf(tool, mode)]: tool });
@@ -104,7 +114,8 @@ export function BottomToolbar() {
   }, [bindings]);
   // The Brush is Draw's alone (docs/draw.md §5.1).
   const disabledTools = useMemo(() => (Object.keys(ENGINE_TOOL) as ToolId[]).filter((t) => !isAvailable(ed, t) || (dev && !DEV_TOOLS.has(t)) || (t === "brush" && !draw)), [ed, dev, draw]);
-  const pick = (t: ToolId) => {
+  const pick = (chosen: ToolId) => {
+    const t = toolbarChoice(chosen, tool);
     if (t === "image") {
       setGroups((g) => ({ ...g, shape: "image" }));
       runEditorCommand(ed, "tool.image");
@@ -118,7 +129,7 @@ export function BottomToolbar() {
   };
   return (
     <>
-      {pathTool ? <PathToolbar state={pathTool} /> : vectorEditing ? <VectorEditToolbar /> : draw && isDrawTool(ENGINE_TOOL[tool] ?? "") ? <DrawToolSettings tool={ENGINE_TOOL[tool] as "PENCIL" | "BRUSH"} /> : !dev && <ImageToolbar />}
+      {pathTool ? <PathToolbar state={pathTool} /> : vectorEditing ? <VectorEditToolbar /> : draw && isDrawTool(ENGINE_TOOL[tool] ?? "") ? <DrawToolSettings tool={ENGINE_TOOL[tool] as "PENCIL" | "BRUSH"} /> : dev ? <FrameStepper /> : <ImageToolbar />}
       <EditorToolbar
       floating
       tool={tool}
@@ -131,10 +142,11 @@ export function BottomToolbar() {
       onMode={(m) => {
         if (m === "dev" || m === "design") setMode(ed, m);
         else if (m === "draw") runEditorCommand(ed, "view.switch-to-draw");
-        else showToast({ message: t("Motion comes later") });
+        else if (m === "social") runEditorCommand(ed, "view.mode-social");
+        else runEditorCommand(ed, "view.switch-to-motion");
       }}
-      disabledModes={["motion"]}
       shortcuts={shortcuts}
+      slot={social ? <SocialToolbarSlot /> : undefined}
       />
     </>
   );

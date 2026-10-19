@@ -80,6 +80,33 @@ bool axisAligned(const Mat2x3& m) { return std::fabs(m.m01) < 1e-9 && std::fabs(
 bool translationOnly(const Mat2x3& m) { return axisAligned(m) && std::fabs(m.m00 - 1) < 1e-9 && std::fabs(m.m11 - 1) < 1e-9; }
 double scaleOf(const Mat2x3& m) { return std::sqrt(std::fabs(m.determinant())); }
 
+// A paint as Figma's round-trip attributes carry it (`data-figma-gradient-fill` / `-stroke`): its JSON — type, stops,
+// transform (the layer's unit square → paint space), opacity, blend mode, visible — with the quotes as `&#34;`, so an
+// SVG import (ours: model/svgImport.ts) restores the angular or diamond gradient a CSS gradient only draws.
+std::string figmaPaintAttr(const Paint& p) {
+  json::Writer w;
+  w.beginObject().key("type").string(p.type == PaintType::GRADIENT_ANGULAR ? "GRADIENT_ANGULAR" : "GRADIENT_DIAMOND");
+  w.key("stops").beginArray();
+  for (const ColorStop& s : p.stops) {
+    w.beginObject().key("color").beginObject();
+    w.key("r").number(s.color.r).key("g").number(s.color.g).key("b").number(s.color.b).key("a").number(s.color.a);
+    w.endObject().key("position").number(s.position).endObject();
+  }
+  w.endArray().key("transform").beginObject();
+  w.key("m00").number(p.transform.m00).key("m01").number(p.transform.m01).key("m02").number(p.transform.m02);
+  w.key("m10").number(p.transform.m10).key("m11").number(p.transform.m11).key("m12").number(p.transform.m12);
+  w.endObject().key("opacity").number(p.opacity).key("blendMode").string(enumName(p.blendMode)).key("visible").boolean(p.visible);
+  w.endObject();
+  std::string out;
+  for (char c : w.take()) {
+    if (c == '"') out += "&#34;";
+    else if (c == '&') out += "&amp;";
+    else if (c == '<') out += "&lt;";
+    else out += c;
+  }
+  return out;
+}
+
 // Path data in Figma's style: absolute commands, H / V for axis lines, numbers separated by spaces.
 std::string pathData(const geom::Path& path, const Mat2x3& m) {
   std::string d;
@@ -202,6 +229,30 @@ class Writer {
     int& n = ids_[base];
     n++;
     return " id=\"" + escape(n == 1 ? base : base + "_" + std::to_string(n)) + "\"";
+  }
+
+  // A transform group's copy of its children's elements: every id defined in it (its layers', its inline masks')
+  // made unique as idAttr makes them ("Star" → "Star_3"), the references inside it (url(#…), href="#…") following —
+  // an SVG with an id twice is invalid, and the copies' masks would point at the source's.
+  std::string uniqueIds(const std::string& body) {
+    std::vector<std::string> defined;
+    for (size_t at = body.find(" id=\""); at != std::string::npos; at = body.find(" id=\"", at + 1)) {
+      size_t from = at + 5, to = body.find('"', from);
+      if (to != std::string::npos) defined.push_back(body.substr(from, to - from));
+    }
+    std::string out = body;
+    auto replaceAll = [&](const std::string& from, const std::string& to) {
+      for (size_t at = out.find(from); at != std::string::npos; at = out.find(from, at + to.size())) out.replace(at, from.size(), to);
+    };
+    for (const std::string& v : defined) {
+      int& n = ids_[v];
+      n = std::max(n, 1) + 1;
+      std::string fresh = v + "_" + std::to_string(n);
+      replaceAll(" id=\"" + v + "\"", " id=\"" + fresh + "\"");
+      replaceAll("url(#" + v + ")", "url(#" + fresh + ")");
+      replaceAll("href=\"#" + v + "\"", "href=\"#" + fresh + "\"");
+    }
+    return out;
   }
 
   double tolerance(const Mat2x3& E) const { return 0.05 / std::max(scaleOf(E), 1e-9); }
@@ -346,8 +397,11 @@ class Writer {
     return css ? std::string(" style=\"mix-blend-mode:") + css + "\"" : "";
   }
 
-  // Angular and diamond gradients: CSS gradients in a foreignObject, clipped to the shape (as Figma writes them).
-  std::string cssGradientEl(const Paint& paint, Vec2 size, const Mat2x3& E, const std::string& clipGeometry) {
+  // Angular and diamond gradients: CSS gradients in a foreignObject, clipped to the shape (as Figma writes them), the
+  // group marked `data-figma-skip-parse` and followed by the shape itself (no paint of its own) carrying the paint as
+  // `data-figma-gradient-fill` or `-stroke` (`role`), for an import to read back.
+  std::string cssGradientEl(const Paint& paint, Vec2 size, const Mat2x3& E, const std::string& clipGeometry, const Shape& sh, const char* role,
+                            const std::string& extra) {
     if (paint.stops.empty()) return "";
     Mat2x3 G = gradientMatrix(paint, size);
     if (G.determinant() == 0) return "";
@@ -375,17 +429,19 @@ class Writer {
     if (paint.opacity < 1) style += ";opacity:" + num(paint.opacity);
     std::string inner = "<div xmlns=\"http://www.w3.org/1999/xhtml\" style=\"" + style + "\"></div>";
     if (!angular) inner += "</div>";
-    return "<g clip-path=\"url(#" + id + ")\"" + blendAttr(paint.blendMode) + "><g transform=\"" + matrixText(A) +
-           "\"><foreignObject x=\"-100\" y=\"-100\" width=\"300\" height=\"300\">" + inner + "</foreignObject></g></g>\n";
+    return "<g clip-path=\"url(#" + id + ")\" data-figma-skip-parse=\"true\"" + blendAttr(paint.blendMode) + "><g transform=\"" +
+           matrixText(A) + "\"><foreignObject x=\"-100\" y=\"-100\" width=\"300\" height=\"300\">" + inner + "</foreignObject></g></g>\n" +
+           shapeEl(sh, E, extra + " data-figma-gradient-" + role + "=\"" + figmaPaintAttr(paint) + "\"");
   }
 
-  // One element per visible fill, bottom first.
-  void fillEls(const Shape& sh, const std::vector<Paint>& paints, Vec2 size, const Mat2x3& E, Els& out, const std::string& extra = "") {
+  // One element per visible fill, bottom first (`role` "stroke": a stroke's outlined area).
+  void fillEls(const Shape& sh, const std::vector<Paint>& paints, Vec2 size, const Mat2x3& E, Els& out, const std::string& extra = "",
+               const char* role = "fill") {
     if (sh.empty()) return;
     for (const Paint& paint : paints) {
       if (!drawable(paint)) continue;
       if (paint.type == PaintType::GRADIENT_ANGULAR || paint.type == PaintType::GRADIENT_DIAMOND) {
-        out.push_back(cssGradientEl(paint, size, E, shapeEl(sh, E, "")));
+        out.push_back(cssGradientEl(paint, size, E, shapeEl(sh, E, ""), sh, role, extra));
         continue;
       }
       std::string a = paintAttr("fill", paint, size, E);
@@ -394,12 +450,12 @@ class Writer {
     }
   }
 
-  // A layer's fills: per region when a vector's regions have their own fills or rules.
-  void nodeFills(const Shape& sh, const NodeProps& p, const Mat2x3& E, Els& out) {
+  // A layer's fills: per region when a vector's regions have their own fills or rules; `extra` on each element.
+  void nodeFills(const Shape& sh, const NodeProps& p, const Mat2x3& E, Els& out, const std::string& extra = "") {
     if (sh.kind != Shape::Kind::Path || sh.regions.size() <= 1) {
       bool overrides = sh.kind == Shape::Kind::Path && sh.regions.size() == 1 && sh.regions[0].styleID &&
                        p.shape().vectorData.style(sh.regions[0].styleID) && (p.shape().vectorData.style(sh.regions[0].styleID)->mask & VS_FILLS);
-      fillEls(sh, overrides ? p.shape().vectorData.style(sh.regions[0].styleID)->fillPaints : p.fillPaints, p.size, E, out);
+      fillEls(sh, overrides ? p.shape().vectorData.style(sh.regions[0].styleID)->fillPaints : p.fillPaints, p.size, E, out, extra);
       return;
     }
     bool same = true;
@@ -414,7 +470,7 @@ class Writer {
       all.windingRule = sh.regions[0].windingRule;
       for (auto& r : sh.regions) all.path.append(r.path);
       one.regions.push_back(std::move(all));
-      fillEls(one, p.fillPaints, p.size, E, out);
+      fillEls(one, p.fillPaints, p.size, E, out, extra);
       return;
     }
     for (auto& r : sh.regions) {
@@ -423,7 +479,7 @@ class Writer {
       one.size = sh.size;
       one.regions.push_back(r);
       const VectorStyle* st = r.styleID ? p.shape().vectorData.style(r.styleID) : nullptr;
-      fillEls(one, st && (st->mask & VS_FILLS) ? st->fillPaints : p.fillPaints, p.size, E, out);
+      fillEls(one, st && (st->mask & VS_FILLS) ? st->fillPaints : p.fillPaints, p.size, E, out, extra);
     }
   }
 
@@ -470,7 +526,7 @@ class Writer {
         sh.size = size;
         sh.regions.push_back({std::move(a), WindingRule::NONZERO, 0});
         std::vector<Paint> one{*paint};
-        fillEls(sh, one, size, E, out);
+        fillEls(sh, one, size, E, out, "", "stroke");
       };
       if (st.outlineOnly || css) {
         area();
@@ -712,10 +768,13 @@ class Writer {
     return id;
   }
 
-  // Background blur: the backdrop blurred within the layer's shape (a CSS backdrop-filter, as Figma writes it).
-  void backgroundBlur(const NodeProps& p, const Shape& sh, const Mat2x3& E, Els& out) {
+  // Background blur: the backdrop blurred within the layer's shape (a CSS backdrop-filter, as Figma writes it). Returns
+  // the attribute the layer's fills carry for an import (`data-figma-bg-blur-radius`, the effect's radius), or "".
+  std::string backgroundBlur(const NodeProps& p, const Shape& sh, const Mat2x3& E, Els& out) {
+    std::string attr;
     for (const Effect& e : p.effects) {
       if (!visibleForRendering(e) || e.type != EffectType::BACKGROUND_BLUR || e.radius <= 0 || sh.empty()) continue;
+      attr = " data-figma-bg-blur-radius=\"" + num(e.radius) + "\"";
       geom::Path path = sh.path().transformed(E);
       Rect b = path.bounds();
       std::string id = "bgblur_" + std::to_string(bgBlurN_++) + suffix_ + "_clip_path";
@@ -725,6 +784,7 @@ class Writer {
                     "\"><div xmlns=\"http://www.w3.org/1999/xhtml\" style=\"backdrop-filter:blur(" + num(e.radius / 2 * scaleOf(E)) +
                     "px);clip-path:url(#" + id + ");height:100%;width:100%\"></div></foreignObject>\n");
     }
+    return attr;
   }
 
   // ---- Layers ----
@@ -775,7 +835,7 @@ class Writer {
     Els before;
     Shape sh = fillShape(doc_, id, p);
     Stroke st = strokeOf(doc_, id, p);
-    backgroundBlur(p, sh, E, before);
+    std::string blurAttr = backgroundBlur(p, sh, E, before);
     if (p.isTextLike()) {
       textEls(id, p, E, els);
       if (st.present()) {
@@ -801,7 +861,7 @@ class Writer {
               copies.push_back(body);
               continue;
             }
-            copies.push_back("<g transform=\"" + matrixText(E * inst * Ei) + "\">\n" + body + "</g>\n");
+            copies.push_back("<g transform=\"" + matrixText(E * inst * Ei) + "\">\n" + uniqueIds(body) + "</g>\n");
           }
           els = {"<g>\n" + join(copies) + "</g>\n"};
         }
@@ -821,10 +881,10 @@ class Writer {
           st.paints[0]->type != PaintType::GRADIENT_ANGULAR && st.paints[0]->type != PaintType::GRADIENT_DIAMOND) {
         std::string a = paintAttr("fill", *fill, p.size, E) + paintAttr("stroke", *st.paints[0], p.size, E) +
                         strokeStyleAttrs(st, st.weight * scaleOf(E), true);
-        els.push_back(shapeEl(sh, E, a));
+        els.push_back(shapeEl(sh, E, blurAttr + a));
       } else {
         Els body;
-        nodeFills(sh, p, E, body);
+        nodeFills(sh, p, E, body, blurAttr);
         if (!kids.empty() && p.clipsContent()) {
           std::string cid = "clip" + std::to_string(clipN_++) + suffix_;
           Shape clip = sh;

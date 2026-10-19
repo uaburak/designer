@@ -19,7 +19,7 @@ function editor() {
   const ed = {
     engineKey: () => false, // the engine has no use for "/"
     vector: { state: { get: () => ({ active: false }) } },
-    ui: { get: () => ui, set: (p: Record<string, unknown>) => void (ui = { ...ui, ...p }) },
+    ui: { get: () => ui, set: (p: Record<string, unknown>) => void (ui = { ...ui, ...p }), subscribe: () => () => {} },
     selection: [],
     source: {},
     canvas,

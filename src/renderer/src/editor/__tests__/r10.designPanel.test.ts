@@ -4,7 +4,7 @@
 // against the live dumps in docs/research/figma/live/.
 import { describe, expect, it } from "vitest";
 import { setTrackCount, setTrackSizing, type GridNode } from "../model/grid";
-import { collectSelectionColors, SELECTION_COLORS_SHOWN } from "../model/selectionColors";
+import { collectSelectionColors, selectionColorsLayout } from "../model/selectionColors";
 import { FONT_FILTER_MENU } from "../fontList";
 import { NO_VECTOR_EDIT, pointsSummary, readVectorEdit } from "../vectorEdit";
 import { isInstanceSublayer } from "../panels/design/shared";
@@ -33,7 +33,15 @@ describe("Selection colors (live design/mixed-multi.txt: D9D9D9, 000000, 3380FF,
     const rows = collectSelectionColors([[layer("7:60", [0xd9d9d9])], [layer("7:61", [0xd9d9d9])], [layer("7:90", [0x000000])], [layer("7:2", [0x3380ff]), layer("7:1", [0xffffff])]]);
     expect(rows.map((c) => c.key.slice(0, 7).toUpperCase())).toEqual(["#D9D9D9", "#000000", "#3380FF", "#FFFFFF"]);
   });
-  it("four rows show before a See all link", () => expect(SELECTION_COLORS_SHOWN).toBe(4));
+  it("folds from four colours (three and +N), shows eleven and See all past twelve (atlas 07 §4)", () => {
+    expect(selectionColorsLayout(3, false, false)).toEqual({ collapsible: false, peek: false, rows: 3, seeAll: false });
+    expect(selectionColorsLayout(4, false, false)).toEqual({ collapsible: true, peek: true, rows: 0, seeAll: false });
+    // live's four rows: the section opened
+    expect(selectionColorsLayout(4, true, false)).toEqual({ collapsible: true, peek: false, rows: 4, seeAll: false });
+    expect(selectionColorsLayout(12, true, false).rows).toBe(12);
+    expect(selectionColorsLayout(13, true, false)).toEqual({ collapsible: true, peek: false, rows: 11, seeAll: true });
+    expect(selectionColorsLayout(13, true, true)).toEqual({ collapsible: true, peek: false, rows: 13, seeAll: false });
+  });
 });
 
 describe("Font filter (live popovers/font-picker-filter-menu.txt: 240 × 229)", () => {
@@ -65,9 +73,10 @@ describe("Type settings › Variable (live popovers/type-settings-variable.txt: 
   it("the axes by name", () => {
     expect(axisOrder([{ tag: "wght", name: "Weight" }, { tag: "slnt", name: "Slant" }]).map((a) => a.tag)).toEqual(["slnt", "wght"]);
   });
-  it("Weight marks every 100 (nine for 100…900), another axis its default", () => {
-    expect(axisStops({ tag: "wght", min: 100, max: 900, default: 400 })).toEqual([100, 200, 300, 400, 500, 600, 700, 800, 900]);
-    expect(axisStops({ tag: "slnt", min: -10, max: 0, default: 0 })).toEqual([0]);
+  it("hints at the named instances and the default (Weight's nine for 100…900), an axis without instances its default", () => {
+    const weights = [100, 200, 300, 400, 500, 600, 700, 800, 900];
+    expect(axisStops({ min: 100, max: 900, default: 400, instances: weights })).toEqual(weights);
+    expect(axisStops({ min: -10, max: 0, default: 0 })).toEqual([0]);
   });
 });
 

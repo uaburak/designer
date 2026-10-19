@@ -28,6 +28,8 @@ import { codeConnectSnippets, type CodeConnectSource, type ViewSnippet } from ".
 import { editorDevData } from "../devmode/round5";
 import { addInteractionTool, getPrototypeTool, prototypeContext, prototypeField, prototypeOf, removeFlowTool, removeInteractionTool, setFlowTool, setPrototypeSettingsTool, updateInteractionTool } from "./prototypeTools";
 import { describeSchema } from "@shared/agents/schemaDescribe";
+import { addAnimationTool, addAudioTool, applyAnimationStyleTool, detachAnimationStyleTool, editAnimationTool, editAudioTool, exportAnimationTool, getMotionTool, removeAnimationsTool, removeKeyframesTool, saveAnimationStyleTool, setKeyframesTool, setTimelineTool } from "./motionTools";
+import { runSocialTool } from "./socialTools";
 import { reactionsFromDoc } from "./prototypeSpec";
 import { EngineBusy } from "./turns";
 
@@ -1230,6 +1232,9 @@ export async function runTool(env: ToolEnv, name: string, args: Spec): Promise<T
   if (!TOOL_BY_NAME.has(name)) return textResult(`Unknown tool ${name}`, true);
   if (env.ed.engine.destroyed) return textResult("The file is closing.", true);
   try {
+    // Social's tools (docs/social.md §7.2): their own file, as Motion's are.
+    const social = await runSocialTool(env, name, args);
+    if (social) return social;
     switch (name) {
       case "get_selection":
         return getSelection(env);
@@ -1305,6 +1310,32 @@ export async function runTool(env: ToolEnv, name: string, args: Spec): Promise<T
         return removeFlowTool(env, args);
       case "set_prototype_settings":
         return setPrototypeSettingsTool(env, args);
+      case "get_motion":
+        return getMotionTool(env, args);
+      case "set_keyframes":
+        return setKeyframesTool(env, args);
+      case "remove_keyframes":
+        return removeKeyframesTool(env, args);
+      case "set_timeline":
+        return setTimelineTool(env, args);
+      case "add_animation":
+        return addAnimationTool(env, args);
+      case "edit_animation":
+        return editAnimationTool(env, args);
+      case "remove_animations":
+        return removeAnimationsTool(env, args);
+      case "apply_animation_style":
+        return applyAnimationStyleTool(env, args);
+      case "detach_animation_style":
+        return detachAnimationStyleTool(env, args);
+      case "save_animation_style":
+        return saveAnimationStyleTool(env, args);
+      case "add_audio":
+        return await addAudioTool(env, args);
+      case "edit_audio":
+        return editAudioTool(env, args);
+      case "export_animation":
+        return await exportAnimationTool(env, args);
       case "describe_schema": {
         const r = describeSchema(String(args.field ?? args.name ?? ""));
         return r.ok ? textResult(r.value) : textResult(r.error, true);

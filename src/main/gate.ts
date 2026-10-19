@@ -3,7 +3,7 @@ import { loadSession, onSessionChanged, sessionKnown, sessionToStore, setAccount
 import { loginBypassed, OpenQueue } from "./gateRules";
 import { setMenuSignedOut } from "./menu";
 import { WelcomeWindow } from "./welcome";
-import { controllers, openWindow, savedBounds, type WindowController } from "./window";
+import { controllers, frontWindow, openWindow, savedBounds, type WindowController } from "./window";
 
 /**
  * The login gate (docs/desktop.md §18.6): signed out, the whole app is the welcome window — no tab bar, no Home, no
@@ -25,7 +25,7 @@ let welcome: WelcomeWindow | null = null;
 let opening = false;
 const queue = new OpenQueue(() => appOpen() && controllers.size > 0 && !opening);
 
-const current = (): WindowController | null => [...controllers.values()][0] ?? null;
+const current = (): WindowController | null => frontWindow();
 
 /** Run now in the app window when it's open, else after the next sign-in (`key`: the same link once). */
 export function whenOpen(key: string, run: (ctl: WindowController) => void): "ran" | "queued" {

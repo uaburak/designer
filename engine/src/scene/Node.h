@@ -52,6 +52,11 @@ enum class NodeType : uint8_t {
   TEXT_PATH = 41,  // Figma Draw: text laid along its own path (vectorData + TEXT's fields; textPathStart), docs/draw.md §4.4
   BRUSH = 46,  // Figma Draw: a brush's artwork (a vector on the internal canvas)
   TRANSFORM = 48,  // Figma Draw: a transform group — a group whose transformModifiers repeat its children (docs/draw.md §4.2)
+  // Figma Motion (docs/motion.md §4.2): a keyframe, a field's track of keyframes (on the internal canvas 0:2) and an
+  // applied animation preset. Round 8's pre-commit keeps them as nodes with their fields (NodeProps::extra); 8a evaluates them.
+  KEYFRAME = 56,
+  KEYFRAME_TRACK = 57,
+  ANIMATION_PRESET_INSTANCE = 58,
 };
 
 enum class StrokeAlign : uint8_t { CENTER = 0, INSIDE = 1, OUTSIDE = 2 };
@@ -109,7 +114,7 @@ enum class TextCase : uint8_t { ORIGINAL = 0, UPPER = 1, LOWER = 2, TITLE = 3, S
 enum class TextDecoration : uint8_t { NONE = 0, UNDERLINE = 1, STRIKETHROUGH = 2 };
 
 // Components (docs/schema.md §5.5).
-enum class ComponentPropType : uint8_t { BOOL = 0, TEXT = 1, INSTANCE_SWAP = 3, VARIANT = 4, SLOT = 7 };
+enum class ComponentPropType : uint8_t { BOOL = 0, TEXT = 1, INSTANCE_SWAP = 3, VARIANT = 4, NUMBER = 5, SLOT = 7 };
 // schema VariableField: which node field a parameterConsumptionMap entry binds.
 enum class VariableField : uint8_t {
   MISSING = 0, CORNER_RADIUS = 1, PARAGRAPH_SPACING = 2, PARAGRAPH_INDENT = 3, STROKE_WEIGHT = 4, STACK_SPACING = 5,
@@ -119,7 +124,15 @@ enum class VariableField : uint8_t {
   BORDER_BOTTOM_WEIGHT = 19, BORDER_LEFT_WEIGHT = 20, BORDER_RIGHT_WEIGHT = 21, VARIANT_PROPERTIES = 22, STACK_COUNTER_SPACING = 23,
   MIN_WIDTH = 24, MAX_WIDTH = 25, MIN_HEIGHT = 26, MAX_HEIGHT = 27, FONT_FAMILY = 28, FONT_STYLE = 29, FONT_VARIATIONS = 30,
   OPACITY = 31, FONT_SIZE = 32, LETTER_SPACING = 34, LINE_HEIGHT = 36, OVERRIDDEN_SYMBOL_ID = 37, HYPERLINK = 38,
-  SLOT_CONTENT_ID = 40, GRID_ROW_GAP = 41, GRID_COLUMN_GAP = 42
+  SLOT_CONTENT_ID = 40, GRID_ROW_GAP = 41, GRID_COLUMN_GAP = 42,
+  // Motion (docs/motion.md §4.5): the KEYFRAME expression's keys. 43–45, 52–53, 56, 58–63, 71 are Figma's, never evaluated.
+  X_POSITION = 43, Y_POSITION = 44, ROTATION = 45, MOTION_TRANSLATION_X = 46, MOTION_TRANSLATION_Y = 47, MOTION_ROTATION = 48,
+  MOTION_SCALE_X = 49, MOTION_SCALE_Y = 50, MOTION_SHEAR = 51, SCROLL_OFFSET_X = 52, SCROLL_OFFSET_Y = 53, PATH_TRIM_START = 54,
+  PATH_TRIM_END = 55, DISSOLVE_PROGRESS = 56, EASING_DATA = 57, MEDIA_CURRENT_TIME = 58, TRANSFORM_3D_PERSPECTIVE = 59,
+  TRANSFORM_3D_TRANSLATION_Z = 60, TRANSFORM_3D_ROTATION_X = 61, TRANSFORM_3D_ROTATION_Y = 62, TRANSFORM_3D_ROTATION_Z = 63,
+  POLYGON_COUNT = 64, ARC_DATA_STARTING_ANGLE = 65, ARC_DATA_ENDING_ANGLE = 66, ARC_DATA_INNER_RADIUS = 67, KEYFRAME_VALUE = 68,
+  MOTION_TRANSLATION_XY = 69, MOTION_SCALE_XY = 70, SCENE_3D_PERSPECTIVE = 71, STAR_INNER_SCALE = 72, MOTION_TRANSFORM_ORIGIN_XY = 73,
+  MOTION_TRANSFORM_ORIGIN_X = 74, MOTION_TRANSFORM_ORIGIN_Y = 75, TEXT_ELEMENT_DELAY = 76
 };
 
 const char* nodeTypeName(NodeType t);
@@ -180,7 +193,7 @@ ENG_ENUM_NAMES(TextAutoResize, "NONE", "WIDTH_AND_HEIGHT", "HEIGHT")
 ENG_ENUM_NAMES(TextTruncation, "DISABLED", "ENDING")
 ENG_ENUM_NAMES(TextCase, "ORIGINAL", "UPPER", "LOWER", "TITLE", "SMALL_CAPS", "SMALL_CAPS_FORCED")
 ENG_ENUM_NAMES(TextDecoration, "NONE", "UNDERLINE", "STRIKETHROUGH")
-ENG_ENUM_NAMES(ComponentPropType, "BOOL", "TEXT", "", "INSTANCE_SWAP", "VARIANT", "", "", "SLOT")
+ENG_ENUM_NAMES(ComponentPropType, "BOOL", "TEXT", "", "INSTANCE_SWAP", "VARIANT", "NUMBER", "", "SLOT")
 ENG_ENUM_NAMES(VariableField, "MISSING", "CORNER_RADIUS", "PARAGRAPH_SPACING", "PARAGRAPH_INDENT", "STROKE_WEIGHT", "STACK_SPACING",
                "STACK_PADDING_LEFT", "STACK_PADDING_TOP", "STACK_PADDING_RIGHT", "STACK_PADDING_BOTTOM", "VISIBLE", "TEXT_DATA",
                "WIDTH", "HEIGHT", "RECTANGLE_TOP_LEFT_CORNER_RADIUS", "RECTANGLE_TOP_RIGHT_CORNER_RADIUS",
@@ -188,7 +201,13 @@ ENG_ENUM_NAMES(VariableField, "MISSING", "CORNER_RADIUS", "PARAGRAPH_SPACING", "
                "BORDER_BOTTOM_WEIGHT", "BORDER_LEFT_WEIGHT", "BORDER_RIGHT_WEIGHT", "VARIANT_PROPERTIES", "STACK_COUNTER_SPACING",
                "MIN_WIDTH", "MAX_WIDTH", "MIN_HEIGHT", "MAX_HEIGHT", "FONT_FAMILY", "FONT_STYLE", "FONT_VARIATIONS", "OPACITY",
                "FONT_SIZE", "", "LETTER_SPACING", "", "LINE_HEIGHT", "OVERRIDDEN_SYMBOL_ID", "HYPERLINK", "", "SLOT_CONTENT_ID",
-               "GRID_ROW_GAP", "GRID_COLUMN_GAP")
+               "GRID_ROW_GAP", "GRID_COLUMN_GAP", "X_POSITION", "Y_POSITION", "ROTATION", "MOTION_TRANSLATION_X",
+               "MOTION_TRANSLATION_Y", "MOTION_ROTATION", "MOTION_SCALE_X", "MOTION_SCALE_Y", "MOTION_SHEAR", "SCROLL_OFFSET_X",
+               "SCROLL_OFFSET_Y", "PATH_TRIM_START", "PATH_TRIM_END", "DISSOLVE_PROGRESS", "EASING_DATA", "MEDIA_CURRENT_TIME",
+               "TRANSFORM_3D_PERSPECTIVE", "TRANSFORM_3D_TRANSLATION_Z", "TRANSFORM_3D_ROTATION_X", "TRANSFORM_3D_ROTATION_Y",
+               "TRANSFORM_3D_ROTATION_Z", "POLYGON_COUNT", "ARC_DATA_STARTING_ANGLE", "ARC_DATA_ENDING_ANGLE", "ARC_DATA_INNER_RADIUS",
+               "KEYFRAME_VALUE", "MOTION_TRANSLATION_XY", "MOTION_SCALE_XY", "SCENE_3D_PERSPECTIVE", "STAR_INNER_SCALE",
+               "MOTION_TRANSFORM_ORIGIN_XY", "MOTION_TRANSFORM_ORIGIN_X", "MOTION_TRANSFORM_ORIGIN_Y", "TEXT_ELEMENT_DELAY")
 #undef ENG_ENUM_NAMES
 
 inline const char* strokeAlignName(StrokeAlign a) { return enumName(a); }
@@ -226,7 +245,9 @@ enum class VariableResolvedType : uint8_t {
 enum class ExpressionFunction : uint8_t {
   ADDITION = 0, SUBTRACTION = 1, RESOLVE_VARIANT = 2, MULTIPLY = 3, DIVIDE = 4, EQUALS = 5, NOT_EQUAL = 6, LESS_THAN = 7,
   LESS_THAN_OR_EQUAL = 8, GREATER_THAN = 9, GREATER_THAN_OR_EQUAL = 10, AND = 11, OR = 12, NOT = 13, STRINGIFY = 14, TERNARY = 15,
-  VAR_MODE_LOOKUP = 16, NEGATE = 17, IS_TRUTHY = 18, COMPOSE_COLOR = 20
+  VAR_MODE_LOOKUP = 16, NEGATE = 17, IS_TRUTHY = 18,
+  KEYFRAME = 19,  // Motion (docs/motion.md §4.2): [base, KEYFRAME_TRACK_PARAMETER_DATA]; the base when Motion is off
+  COMPOSE_COLOR = 20
 };
 enum class VariableScope : uint8_t {
   ALL_SCOPES = 0, TEXT_CONTENT = 1, CORNER_RADIUS = 2, WIDTH_HEIGHT = 3, GAP = 4, ALL_FILLS = 5, FRAME_FILL = 6, SHAPE_FILL = 7,
@@ -235,8 +256,9 @@ enum class VariableScope : uint8_t {
   TRANSFORM = 22, COLOR_OPACITY = 23
 };
 enum class CodeSyntaxPlatform : uint8_t { WEB = 0, ANDROID = 1, iOS = 2 };
-// schema StyleType: FILL = "Color style", GRID = "Layout guide style".
-enum class StyleType : uint8_t { NONE = 0, FILL = 1, TEXT = 3, EFFECT = 4, GRID = 6 };
+// schema StyleType: FILL = "Color style", GRID = "Layout guide style", ANIMATION a custom animation style (Motion,
+// round 8i: its content `styleAnimations`).
+enum class StyleType : uint8_t { NONE = 0, FILL = 1, TEXT = 3, EFFECT = 4, GRID = 6, ANIMATION = 7 };
 
 #define ENG_ENUM_NAMES(E, ...)                                        \
   template <>                                                         \
@@ -250,13 +272,13 @@ ENG_ENUM_NAMES(VariableResolvedType, "BOOLEAN", "FLOAT", "STRING", "", "COLOR", 
                "", "SLOT_CONTENT_ID", "", "", "EASING", "TIMING")
 ENG_ENUM_NAMES(ExpressionFunction, "ADDITION", "SUBTRACTION", "RESOLVE_VARIANT", "MULTIPLY", "DIVIDE", "EQUALS", "NOT_EQUAL",
                "LESS_THAN", "LESS_THAN_OR_EQUAL", "GREATER_THAN", "GREATER_THAN_OR_EQUAL", "AND", "OR", "NOT", "STRINGIFY", "TERNARY",
-               "VAR_MODE_LOOKUP", "NEGATE", "IS_TRUTHY", "", "COMPOSE_COLOR")
+               "VAR_MODE_LOOKUP", "NEGATE", "IS_TRUTHY", "KEYFRAME", "COMPOSE_COLOR")
 ENG_ENUM_NAMES(VariableScope, "ALL_SCOPES", "TEXT_CONTENT", "CORNER_RADIUS", "WIDTH_HEIGHT", "GAP", "ALL_FILLS", "FRAME_FILL",
                "SHAPE_FILL", "TEXT_FILL", "STROKE", "STROKE_FLOAT", "EFFECT_FLOAT", "EFFECT_COLOR", "OPACITY", "FONT_STYLE",
                "FONT_FAMILY", "FONT_SIZE", "LINE_HEIGHT", "LETTER_SPACING", "PARAGRAPH_SPACING", "PARAGRAPH_INDENT",
                "FONT_VARIATIONS", "TRANSFORM", "COLOR_OPACITY")
 ENG_ENUM_NAMES(CodeSyntaxPlatform, "WEB", "ANDROID", "iOS")
-ENG_ENUM_NAMES(StyleType, "NONE", "FILL", "", "TEXT", "EFFECT", "", "GRID")
+ENG_ENUM_NAMES(StyleType, "NONE", "FILL", "", "TEXT", "EFFECT", "", "GRID", "ANIMATION")
 #undef ENG_ENUM_NAMES
 
 // A reference to an asset (schema VariableID / VariableSetID / StyleId): DesignerV2 writes the GUID; an imported
@@ -627,18 +649,21 @@ struct TextData {
 
 // ---- Components (docs/schema.md §5) ----
 
-// schema ComponentPropValue: a BOOL, TEXT (TextData), or GUID (INSTANCE_SWAP: a SYMBOL; SLOT: a content FRAME) value.
+// schema ComponentPropValue: a BOOL, TEXT (TextData), NUMBER (floatValue) or GUID (INSTANCE_SWAP: a SYMBOL; SLOT: a
+// content FRAME) value.
 struct ComponentPropValue {
   bool hasBool = false, boolValue = false;
   bool hasText = false;
   TextData textValue;
   Guid guidValue = kNoGuid;
+  bool hasFloat = false;
+  float floatValue = 0;
   std::string extra;  // other members, kiwi bytes
   bool operator==(const ComponentPropValue& o) const {
     return hasBool == o.hasBool && boolValue == o.boolValue && hasText == o.hasText && textValue == o.textValue &&
-           guidValue == o.guidValue && extra == o.extra;
+           guidValue == o.guidValue && hasFloat == o.hasFloat && floatValue == o.floatValue && extra == o.extra;
   }
-  bool empty() const { return !hasBool && !hasText && guidValue == kNoGuid && extra.empty(); }
+  bool empty() const { return !hasBool && !hasText && guidValue == kNoGuid && !hasFloat && extra.empty(); }
 };
 // schema InstanceSwapPreferredValue.
 struct PreferredValue {
@@ -1224,12 +1249,25 @@ struct NodeProps {
   friend FieldMask differingFields(const NodeProps& a, const NodeProps& b, FieldMask mask);
 };
 
-// One symbolOverrides entry: the overridden fields (`mask`) of the sublayer at `path` (empty = the root).
+// One symbolOverrides entry: the overridden fields (`mask`) of the sublayer at `path` (empty = the root). Entries are
+// keyed by (path, level): Figma's overrideLevel (321), the nesting level of the component that wrote the entry; level 0
+// (the usage site's own, all this engine writes) wins over the others at one path (docs/schema.md §5.1).
 struct SymbolOverride {
   std::vector<Guid> path;
   FieldMask mask = 0;
   NodeProps props;
+  int32_t level = 0;
   bool operator==(const SymbolOverride& o) const;
+};
+
+// schema InstanceOverrideStash (NodeChange.overrideStash 248, on an instance): the overrides of a nested instance at
+// `path` that did not carry over when it was swapped away from the component `componentKey` (its asset key, else its
+// guid "s:l"), their paths relative to the nested instance. A swap back restores them. Kept in the instance's `extra`
+// (codec::readOverrideStash / writeOverrideStash).
+struct OverrideStash {
+  std::vector<Guid> path;
+  std::string componentKey;
+  std::vector<SymbolOverride> overrides;
 };
 
 // Copies the fields in `mask` from `from` to `to`.

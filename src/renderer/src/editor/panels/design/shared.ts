@@ -2,7 +2,7 @@
 import type { BlendMode, Color, Effect, Guid, NodeChange, NodeFields } from "@/engine/codec";
 import { useEffect, useState } from "react";
 import { useSelection } from "@/engine/hooks";
-import { useEditor } from "../../controller";
+import { useEditor, type EditorController } from "../../controller";
 import { keepsField, supportsField } from "../../engineCompat";
 import { useNodes } from "../../hooks";
 
@@ -39,6 +39,8 @@ export type ExtraFields = {
   // Round 12: a variable-width stroke's points (schema VariableWidthPoint; editor/widthProfile.ts), a dynamic stroke
   variableWidthPoints?: { position?: number; ascent?: number; descent?: number; segmentId?: number }[] | null;
   dynamicStrokeSettings?: Record<string, number> | null;
+  // Motion (docs/motion.md §4.13): the stroke's path trim, x = start, y = end (0–1; absent: the whole path)
+  pathTrim?: { value?: { x: number; y: number } } | null;
   // Kept by the engine as it came (not typed by the facade yet)
   layoutGrids?: LayoutGrid[];
   // Text (E3)
@@ -67,6 +69,11 @@ export type ExtraFields = {
   textUnderlineOffset?: NumberValue | null;
   hyperlink?: { url?: string; guid?: { sessionID: number; localID: number }; openInNewTab?: boolean } | null;
   fontVariations?: { axisTag: number; axisName?: string; value: number }[] | null;
+  detachOpticalSizeFromFontSize?: boolean | null;
+  // Text layout versions (Atlas 06 §2.4; Type settings' Update / Revert)
+  textUserLayoutVersion?: number;
+  textExplicitLayoutVersion?: number;
+  textBidiVersion?: number;
   toggledOnOTFeatures?: string[] | null;
   toggledOffOTFeatures?: string[] | null;
   fontVariantCommonLigatures?: boolean | null;
@@ -87,6 +94,13 @@ export type PanelNode = Omit<NodeChange, "type"> & ExtraFields & { type?: string
 
 /** Fields for setProps, including ones the facade's type doesn't list yet. */
 export const fields = (f: Omit<NodeFields, "type"> & ExtraFields): NodeFields => f as NodeFields;
+
+/**
+ * A menu's hover preview of a property (the DS Select's `onPreview`: Figma's blend mode and mask type menus): the
+ * hovered option written as an open edit, rolled back with null — a pick then commits as its own step.
+ */
+export const previewProps = (ed: EditorController, refs: readonly Guid[], label: string, fieldsOf: (v: string) => NodeFields) => (v: string | null) =>
+  v === null ? ed.cancelEdit() : ed.edit(label, { final: false, source: "pick" }, () => void ed.engine.setProps(refs, fieldsOf(v)));
 
 /** The selected nodes (re-read when a change touches one), without the missing ones, with their real types. */
 export function useSelectedNodes(): { refs: Guid[]; nodes: PanelNode[] } {

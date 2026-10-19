@@ -12,6 +12,7 @@ import type { MenuCommandEvent, MenuStatePatch } from "@shared/ipc";
 import type { EditorController } from "./controller";
 import { COMMAND_BY_ID, COMMANDS, isEnabled, runEditorCommand } from "./commands";
 import { isEditable } from "./keyboard";
+import { pref } from "./preferences";
 import { attachAgents } from "./agents/service";
 import { shortcutPrefs } from "./shortcuts/prefs";
 
@@ -29,12 +30,14 @@ const TEXT_FIELD_COMMANDS: Record<string, string> = { "edit.undo": "undo", "edit
  * and Delete act on the field; any other key that came through the menu bar (`accelerator`) is ignored — a shortcut
  * never fires from a text field; a command clicked in the menu runs. The canvas's own text field (text being edited on
  * the canvas) keeps its ⌘ / ⌃ shortcuts; a plain key (N, [, ⇧V…) is typing there too. Main drops plain keys already
- * (src/shared/commands.ts runsFromMenuBar: macOS hands the menu bar the letters a field leaves unhandled).
+ * (src/shared/commands.ts runsFromMenuBar: macOS hands the menu bar the letters a field leaves unhandled). With
+ * Accessibility settings' "Ignore shortcuts in text fields" on (`blockShortcuts`, atlas 21 §4.1 row 5), the canvas's
+ * text field drops them too.
  */
-export function menuCommandInField(id: string, source: MenuCommandEvent["source"], field: "dom" | "canvas-text" = "dom"): "native" | "drop" | "run" {
+export function menuCommandInField(id: string, source: MenuCommandEvent["source"], field: "dom" | "canvas-text" = "dom", blockShortcuts = false): "native" | "drop" | "run" {
   if (TEXT_FIELD_COMMANDS[id]) return "native";
   if (source !== "accelerator") return "run";
-  if (field === "dom") return "drop";
+  if (field === "dom" || blockShortcuts) return "drop";
   // The key the menu shows (its accelerator) is the command's first.
   const shown = COMMAND_BY_ID.get(id)?.keys?.[0];
   return shown && !shown.mod && !shown.ctrl ? "drop" : "run";
@@ -95,7 +98,7 @@ export function attachDesktop(ed: EditorController): () => void {
       }
       const focused = document.activeElement;
       if (isEditable(focused)) {
-        const action = menuCommandInField(id, c.source, focused?.closest("[data-canvas-text]") ? "canvas-text" : "dom");
+        const action = menuCommandInField(id, c.source, focused?.closest("[data-canvas-text]") ? "canvas-text" : "dom", pref(ed.ui.get(), "textInputShortcutBlocking"));
         if (action === "native") return void document.execCommand(TEXT_FIELD_COMMANDS[id]);
         if (action === "drop") return;
       }

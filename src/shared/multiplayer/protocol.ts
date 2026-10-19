@@ -36,7 +36,7 @@ export const MAX_SIGNAL_BYTES = 32_000;
 
 export type ServerControl =
   /** The session this connection is. `sessionID` is unique for the file: use it in new nodes' GUIDs. `seq`: the last accepted frame. */
-  | { t: "welcome"; sessionID: number; role: Role; seq: number; peers: PeerInfo[]; snapshotSeq: number; policy?: RoomPolicy }
+  | { t: "welcome"; sessionID: number; role: Role; seq: number; peers: PeerInfo[]; snapshotSeq: number; policy?: RoomPolicy; /** This session's multiplayer colour (colors.ts; absent from a room before Phase 6) */ color?: number }
   /** The catch-up after `since` is complete (the frames before it were sent as binary frames). */
   | { t: "ready"; seq: number }
   | { t: "peer-joined"; peer: PeerInfo }
@@ -71,6 +71,8 @@ export interface PeerInfo {
   name?: string;
   role: Role;
   presence?: unknown;
+  /** Its multiplayer colour, an index into MULTIPLAYER_COLORS (absent from a room before Phase 6: by session) */
+  color?: number;
 }
 
 /** The largest change batch the room accepts: an SQLite value holds 2 MB. Images travel as blobs (R2), not here. */

@@ -2,12 +2,15 @@
  * The AI actions (docs/ai.md §3, round 6a): Rename layers, Rewrite this… / Shorten / Translate to…, Replace content,
  * Add interactions and First Draft. Each one reads the selection, asks main for one structured answer (`runOnce` over
  * `window.designer.ai`, src/shared/ai/api.ts), checks it (src/shared/ai/schemas.ts) and applies it as **one step of
- * the user's history** (`AgentTurns.writeAction`). Nothing is written before the answer is complete, so Stop, Esc and
- * closing Actions cancel with nothing to roll back. Every run is recorded in the usage ledger (`store.ai.record`, the
- * store taking the org from the file). One run at a time per file.
+ * the user's history** (`AgentTurns.writeAction`). The text tools (Rewrite, Shorten, Translate, Replace content) write
+ * as the answer streams, as Figma's adjust_text does (atlas 18 §5): each text's characters so far go into the layer,
+ * every later write merged into the first one's step, and Stop, Esc, closing Actions or a failure put the originals
+ * back; the other actions write nothing before the answer is complete, so they cancel with nothing to roll back.
+ * Every run is recorded in the usage ledger (`store.ai.record`, the store taking the org from the file). One run at a
+ * time per file.
  */
 import { showToast } from "@/ds";
-import { t } from "@/i18n";
+import { intlLocale, t } from "@/i18n";
 import type { Guid, NodeChange } from "@/engine/codec";
 import { fonts } from "@/engine/fonts";
 import { getStoreClient } from "@/store";
@@ -15,8 +18,9 @@ import { AiRunError, runOnce, type AiApi } from "@shared/ai/api";
 import { AI_ACTION_LABEL } from "@shared/ai/labels";
 import { policyOf, type OrgAiPolicy } from "@shared/ai/orgPolicy";
 import { firstDraftPrompt, formatOutline, interactionsPrompt, renamePrompt, replaceContentPrompt, textPrompt, type OutlineNode, type PromptPair, type TextTask } from "@shared/ai/prompts";
-import { AnswerError, draftSchema, INTERACTIONS_SCHEMA, readDraft, readInteractions, readRename, readTexts, RENAME_SCHEMA, TEXTS_SCHEMA, type DraftPlan } from "@shared/ai/schemas";
-import { creditsFor, type AiAction, type AiSettings, type AiUsage, type AiUsageEntry } from "@shared/ai/types";
+import { AnswerError, draftSchema, INTERACTIONS_SCHEMA, readDraft, readInteractions, readNamesSoFar, readRename, readTexts, readTextsSoFar, RENAME_SCHEMA, TEXTS_SCHEMA, type DraftPlan } from "@shared/ai/schemas";
+import { animateRename, clearRenameAnimations } from "./renameAnimation";
+import { creditsFor, DEFAULT_AI_SETTINGS, type AiAction, type AiRunEvent, type AiRunRequest, type AiSettings, type AiUsage, type AiUsageEntry } from "@shared/ai/types";
 import { kitById, kitFor, type KitId, type LibraryChoice } from "@shared/ai/kits";
 import type { EditorController } from "../controller";
 import { editorBridge } from "../desktop";
@@ -24,11 +28,13 @@ import { agentsOf } from "../agents/service";
 import { EngineBusy } from "../agents/turns";
 import { applySelection, createNodes, type ToolEnv } from "../agents/mcpTools";
 import { addInteractionTool } from "../agents/prototypeTools";
-import { openAiBalance } from "../../settings/AiBalance";
+import { loadAiBalance, openAiBalance } from "../../settings/AiBalance";
 import { buildDraft, DEFAULT_STYLE, type DraftStyle } from "./draft/build";
 import { flatten, outlineBatches, readLayers, type Layer } from "./layers";
 import { aiMessage, type AiProblem } from "./messages";
-import { matchGroups, renameCandidates } from "./rename";
+import { matchGroups, RENAME_MAX_LAYERS, renameCandidates } from "./rename";
+import { encodePng } from "../agents/png";
+import { liveInteractions, type PrototypeInteraction } from "../model/prototype";
 
 /** What the actions need of main (tests pass a fake). */
 export type AiRunApi = Pick<AiApi, "run" | "cancel" | "onEvent"> & Partial<Pick<AiApi, "settings">>;
@@ -39,7 +45,12 @@ export interface AiBackend {
   record?: (e: Omit<AiUsageEntry, "id" | "at">) => Promise<unknown>;
   /** The organizations' AI policy (default: the store's orgs) */
   policy?: () => Promise<OrgAiPolicy>;
+  /** The month's credits left and when they reset (default: the ledger's, AI balance's); null when it can't say */
+  balance?: (monthly: number) => Promise<{ remaining: number; resetsAt: number } | null>;
 }
+
+/** Why Actions' AI rows can't run (Figma's "AI not available" banners, atlas 18 §2.2, §9.2). */
+export type AiUnavailable = "turned-off" | "org-disabled";
 
 /** The text actions' Actions-panel forms, and First Draft's. */
 export type AiForm = "rewrite" | "translate" | "replace-content" | "first-draft";
@@ -77,6 +88,10 @@ export interface AiState {
   available: boolean;
   /** Settings › AI is on and no organization turned AI off */
   enabled: boolean;
+  /** Why not (null: enabled, or no backend) */
+  unavailable: AiUnavailable | null;
+  /** The credits stop is on and the month's credits are used: when they reset (the actions that cost credits are off) */
+  outOfCredits: { resetsAt: number } | null;
   /** The Actions panel shows this form instead of its list */
   form: AiForm | null;
   run: AiRun | null;
@@ -120,18 +135,52 @@ async function storePolicy(): Promise<OrgAiPolicy> {
   return policyOf(infos.filter((x): x is NonNullable<typeof x> => x !== null));
 }
 
+async function storeBalance(monthly: number): Promise<{ remaining: number; resetsAt: number } | null> {
+  return (await loadAiBalance(monthly)).balance;
+}
+
 async function storeRecord(e: Omit<AiUsageEntry, "id" | "at">): Promise<unknown> {
   return getStoreClient().ai.record(e);
 }
 
-/** Texts are written whole: the characters, every character in the first run's style (a single style keeps it). */
-export function textDataFor(old: Record<string, unknown> | undefined, characters: string): Record<string, unknown> {
-  const td = { ...(old ?? {}) } as { characterStyleIDs?: number[]; lines?: unknown[]; [k: string]: unknown };
-  const first = td.characterStyleIDs?.[0] ?? 0;
-  const out: Record<string, unknown> = { ...td, characters, characterStyleIDs: first ? new Array(characters.length).fill(first) : [] };
-  const paragraphs = characters.split("\n").length;
+/**
+ * Texts are written whole: the characters, every character in the first run's style (a single style keeps it). With
+ * `range` (the text-edit selection, atlas 18 §5: only the selected range is replaced) `characters` replace that range
+ * alone, in the style of its first character, and the rest keeps its runs.
+ */
+export function textDataFor(old: Record<string, unknown> | undefined, characters: string, range?: readonly [number, number]): Record<string, unknown> {
+  const td = { ...(old ?? {}) } as { characters?: string; characterStyleIDs?: number[]; lines?: unknown[]; [k: string]: unknown };
+  let full = characters;
+  let ids: number[];
+  if (range) {
+    const was = td.characters ?? "";
+    const styles = was.length ? Array.from({ length: was.length }, (_, i) => td.characterStyleIDs?.[i] ?? 0) : [];
+    const id = styles[range[0]] ?? styles[0] ?? 0;
+    full = was.slice(0, range[0]) + characters + was.slice(range[1]);
+    ids = [...styles.slice(0, range[0]), ...new Array<number>(characters.length).fill(id), ...styles.slice(range[1])];
+    if (ids.every((x) => !x)) ids = [];
+  } else {
+    const first = td.characterStyleIDs?.[0] ?? 0;
+    ids = first ? new Array<number>(characters.length).fill(first) : [];
+  }
+  const out: Record<string, unknown> = { ...td, characters: full, characterStyleIDs: ids };
+  const paragraphs = full.split("\n").length;
   if (Array.isArray(td.lines) && td.lines.length) out.lines = Array.from({ length: paragraphs }, (_, i) => td.lines![Math.min(i, td.lines!.length - 1)]);
   return out;
+}
+
+/** Figma's caps on the text tools (atlas 18 §5): text layers, and characters in all of them. */
+export const TEXT_TOOLS_MAX_LAYERS = 100;
+export const TEXT_TOOLS_MAX_CHARACTERS = 40_000;
+/** How often streamed texts are written (ms) [ours: Figma writes each delta]. */
+export const TEXT_STREAM_MS = 50;
+
+/** A text the text tools change: the layer, and the range of it (the text-edit selection) when only that changes. */
+export interface TextTarget {
+  layer: Layer;
+  /** The characters sent (the range's, or the whole text) */
+  text: string;
+  range?: [number, number];
 }
 
 /** Repeated siblings (same shape: types and names all the way down) → for each place inside them, their texts' ids. */
@@ -182,7 +231,7 @@ export class AiActions {
     private ed: EditorController,
     private backend: AiBackend = defaultBackend()
   ) {
-    this.state = { available: !!backend.api, enabled: !!backend.api, form: null, run: null, error: null, banner: null, draft: null };
+    this.state = { available: !!backend.api, enabled: !!backend.api, unavailable: null, outOfCredits: null, form: null, run: null, error: null, banner: null, draft: null };
     // A frame duplicated with text in it: the banner suggests Replace content [unverified when Figma shows it].
     this.offs.push(
       ed.engine.onDocumentChanged((changes, ev) => {
@@ -214,14 +263,20 @@ export class AiActions {
     this.listeners.forEach((l) => l());
   }
 
-  /** Settings › AI and the organizations' policy, read again (the Actions panel calls it when it opens). */
+  /** Settings › AI, the organizations' policy and the month's credits, read again (the Actions panel calls it when it opens). */
   async refresh(): Promise<void> {
     const api = this.backend.api;
-    if (!api) return this.set({ available: false, enabled: false });
+    if (!api) return this.set({ available: false, enabled: false, unavailable: null, outOfCredits: null });
     const settings = api.settings ? await api.settings().catch(() => null) : null;
     this.settings = settings;
     const policy = await (this.backend.policy ?? storePolicy)().catch(() => ({ disabled: false, limit: null }));
-    this.set({ available: true, enabled: (settings?.enabled ?? true) && !policy.disabled });
+    const unavailable: AiUnavailable | null = !(settings?.enabled ?? true) ? "turned-off" : policy.disabled ? "org-disabled" : null;
+    let outOfCredits: AiState["outOfCredits"] = null;
+    if (!unavailable && (settings?.stopAtLimit ?? true)) {
+      const b = await (this.backend.balance ?? storeBalance)(settings?.monthlyCredits ?? DEFAULT_AI_SETTINGS.monthlyCredits).catch(() => null);
+      if (b && b.remaining <= 0) outOfCredits = { resetsAt: b.resetsAt };
+    }
+    this.set({ available: true, enabled: !unavailable, unavailable, outOfCredits });
   }
 
   openForm(form: AiForm | null) {
@@ -293,14 +348,24 @@ export class AiActions {
     return { action, code: "apply", message: err instanceof Error && err.message ? err.message : aiMessage("apply") };
   }
 
-  /** One structured run; its usage goes to the ledger whatever the outcome. */
-  private async ask(action: AiAction, pair: PromptPair, schema: Record<string, unknown>, signal: AbortSignal): Promise<unknown> {
+  /**
+   * One structured run; its usage goes to the ledger whatever the outcome. `onText` sees the answer's text as it
+   * streams (from the start again when main asks a second time to repair it).
+   */
+  private async ask(action: AiAction, pair: PromptPair, schema: Record<string, unknown>, signal: AbortSignal, o: { onText?: (raw: string) => void; timeoutMs?: number; images?: AiRunRequest["images"] } = {}): Promise<unknown> {
+    const { onText, timeoutMs, images } = o;
     const api = this.backend.api!;
     const runId = uid();
     let usage: AiUsage | undefined;
     let ok = false;
+    let raw = "";
+    const onEvent = (e: AiRunEvent) => {
+      if (e.type === "usage") usage = e.usage;
+      else if (e.type === "status") raw = "";
+      else if (e.type === "delta" && onText) onText((raw += e.text));
+    };
     try {
-      const out = await runOnce(api, { runId, action, system: pair.system, prompt: pair.prompt, schema }, { signal, onEvent: (e) => e.type === "usage" && (usage = e.usage) });
+      const out = await runOnce(api, { runId, action, system: pair.system, prompt: pair.prompt, schema, ...(timeoutMs ? { timeoutMs } : {}), ...(images?.length ? { images } : {}) }, { signal, onEvent });
       usage = out.usage ?? usage;
       let json = out.json;
       if (json === undefined) {
@@ -341,11 +406,11 @@ export class AiActions {
     }
   }
 
-  /** `fn` as one step of the user's history. */
-  private apply<T>(label: string, fn: (env: ToolEnv) => T, refs: readonly Guid[] = []): T {
+  /** `fn` as one step of the user's history (`merge`: joined to its last step). */
+  private apply<T>(label: string, fn: (env: ToolEnv) => T, refs: readonly Guid[] = [], merge = false): T {
     const turns = agentsOf(this.ed).turns;
     const env: ToolEnv = { ed: this.ed, write: (_l, f) => f() };
-    return turns.writeAction(label, () => fn(env), refs);
+    return turns.writeAction(label, () => fn(env), refs, merge);
   }
 
   private selectionOrPage(): Guid[] {
@@ -359,11 +424,20 @@ export class AiActions {
 
   /**
    * Rename layers (free). `refs`: the layers (default: the selection, else the page). With none to rename: the toast
-   * "No layers need renaming" with "Rename anyway". Resolves to how many were renamed (0: none, null: failed).
+   * "No layers need renaming" with "Rename anyway". Figma's cap: 500 visible layers in the trees. Each selected
+   * top-level layer goes along as a picture (≤ 1024 px, for routes that read images). Resolves to how many were
+   * renamed (0: none, null: failed).
    */
   renameLayers(o: { refs?: Guid[]; anyway?: boolean; fromPanel?: boolean } = {}): Promise<number | null> {
     const refs = o.refs ?? this.selectionOrPage();
     const roots = readLayers(this.ed, refs);
+    const sent = flatten(roots).filter((l) => !l.hidden && !l.transparent).length;
+    if (sent > RENAME_MAX_LAYERS) {
+      const message = t("Too many layers selected: {count} / {max}. Select fewer layers to rename.", { count: sent.toLocaleString(intlLocale()), max: RENAME_MAX_LAYERS });
+      if (o.fromPanel) this.set({ error: { action: "rename-layers", code: "too-large", message } });
+      else showToast({ message, kind: "error" });
+      return Promise.resolve(null);
+    }
     const candidates = renameCandidates(roots, !!o.anyway);
     if (!candidates.length) {
       showToast({ message: t("No layers need renaming"), action: { label: t("Rename anyway"), onAction: () => void this.renameLayers({ refs, anyway: true }) } });
@@ -372,33 +446,44 @@ export class AiActions {
     return this.execute("rename-layers", !!o.fromPanel, async (signal) => {
       const groups = matchGroups(candidates);
       const asked = new Set(groups.map((g) => g[0].id));
-      const names = new Map<string, string>();
-      for (const batch of outlineBatches(roots, (l) => (asked.has(l.id) ? "rename" : undefined))) {
-        const ids = idsMarked(batch, "rename");
-        if (!ids.size) continue;
-        const json = await this.ask("rename-layers", renamePrompt(formatOutline(batch)), RENAME_SCHEMA as unknown as Record<string, unknown>, signal);
-        readRename(json, ids).forEach((v, k) => names.set(k, v));
-      }
-      let count = 0;
-      this.apply("Rename layers", () => {
-        for (const g of groups) {
-          const name = names.get(g[0].id);
-          if (!name) continue;
-          for (const l of g) {
-            if (this.ed.engine.setProps([l.id], (l.type === "TEXT" ? { name, autoRename: false } : { name }) as never) === 0) count++;
-          }
-        }
+      const images = await layerImages(this.ed, roots.slice(0, 8));
+      // Each name goes into its layers as it streams in (Figma: one line a layer), all of them one undo step; Stop or a
+      // failure puts back every name already written.
+      const stream = new NameStream(this.ed, (fn, merge) => this.apply("Rename layers", fn, [], merge), new Map(groups.map((g) => [g[0].id, g])));
+      const off = this.ed.engine.onDocumentChanged((_c, ev) => {
+        if (ev.kind === "SYSTEM" || ev.actor) return;
+        stream.foreign = true;
+        this.stop();
       });
-      return count;
+      try {
+        for (const batch of outlineBatches(roots, (l) => (asked.has(l.id) ? "rename" : undefined))) {
+          const ids = idsMarked(batch, "rename");
+          if (!ids.size) continue;
+          const json = await this.ask("rename-layers", renamePrompt(formatOutline(batch)), RENAME_SCHEMA as unknown as Record<string, unknown>, signal, { images, onText: (raw) => stream.update(readNamesSoFar(raw, ids)) });
+          stream.update(readRename(json, ids), true);
+        }
+        return stream.count;
+      } catch (err) {
+        stream.restore();
+        throw err;
+      } finally {
+        off();
+      }
     });
   }
 
   // ---- Texts --------------------------------------------------------------------------------------------------------
 
-  /** The texts the text actions change: selected texts and texts in selected layers (visible, unlocked). */
-  private textTargets(): { roots: Layer[]; texts: Layer[] } {
-    if (!this.ed.selection.length) throw new AiActionError("nothing-selected", "Select text layers, or frames with text in them.");
-    const roots = readLayers(this.ed, this.ed.selection);
+  /**
+   * The texts the text actions change: selected texts and texts in selected layers (visible, unlocked) — or, while a
+   * text is being edited with a range selected (`range`: Rewrite, Shorten, Translate), that range alone. Figma's caps
+   * (atlas 18 §5): 100 text layers and 40,000 characters; `single` (Shorten): exactly one text layer.
+   */
+  private textTargets(o: { range?: boolean; single?: boolean } = {}): { roots: Layer[]; targets: TextTarget[] } {
+    const edit = o.range ? this.ed.engine.textEdit : null;
+    const selection = edit?.ref && edit.selEnd > edit.selStart ? [edit.ref] : this.ed.selection;
+    if (!selection.length) throw new AiActionError("nothing-selected", "Select text layers, or frames with text in them.");
+    const roots = readLayers(this.ed, selection);
     const texts: Layer[] = [];
     const walk = (l: Layer) => {
       if (l.hidden || l.locked) return;
@@ -407,39 +492,62 @@ export class AiActions {
     };
     roots.forEach(walk);
     if (!texts.length) throw new AiActionError("nothing-selected", "Select text layers, or frames with text in them.");
-    const missing = new Set(fonts.missing().map((m) => `${m.family}\n${m.style}`.toLowerCase()));
-    const isMissing = (f?: { family: string; style: string }) => !!f && missing.has(`${f.family}\n${f.style}`.toLowerCase());
+    if (o.single && texts.length > 1) throw new AiActionError("nothing-selected", "Select a single text layer.");
+    if (texts.length > TEXT_TOOLS_MAX_LAYERS) throw new AiActionError("too-large", t("Select up to {n} text layers.", { n: TEXT_TOOLS_MAX_LAYERS }));
+    const missing = new Set(fonts.missing().map((m) => `${m.family}
+${m.style}`.toLowerCase()));
+    const isMissing = (f?: { family: string; style: string }) => !!f && missing.has(`${f.family}
+${f.style}`.toLowerCase());
     if (texts.some((t) => isMissing(t.font) || t.runFonts?.some(isMissing))) throw new AiActionError("missing-fonts");
-    return { roots, texts };
-  }
-
-  private writeTexts(label: string, values: Map<string, string>): number {
-    let count = 0;
-    this.apply(label, () => {
-      for (const [id, characters] of values) {
-        const old = this.ed.engine.readNode(id, { fields: ["textData"] }) as (NodeChange & { textData?: Record<string, unknown> }) | null;
-        if (!old || (old.textData as { characters?: string } | undefined)?.characters === characters) continue;
-        if (this.ed.engine.setProps([id], { textData: textDataFor(old.textData, characters) } as never) === 0) count++;
-      }
+    const targets: TextTarget[] = texts.map((l) => {
+      const all = l.text ?? "";
+      if (!edit?.ref || edit.ref !== l.id || edit.selEnd <= edit.selStart) return { layer: l, text: all };
+      const range: [number, number] = [Math.max(0, Math.min(edit.selStart, all.length)), Math.max(0, Math.min(edit.selEnd, all.length))];
+      return { layer: l, text: all.slice(range[0], range[1]), range };
     });
-    return count;
+    const characters = targets.reduce((n, x) => n + x.text.length, 0);
+    if (characters > TEXT_TOOLS_MAX_CHARACTERS) throw new AiActionError("too-large", t("Select less text: {count} / {max} characters.", { count: characters.toLocaleString(intlLocale()), max: TEXT_TOOLS_MAX_CHARACTERS.toLocaleString(intlLocale()) }));
+    return { roots, targets };
   }
 
-  /** Rewrite this… (`prompt`), Shorten, Translate to… (`language`). */
+  /**
+   * One text tool's run over `targets`, batch by batch (`pairOf` each batch's prompt): each batch's answer streamed
+   * into its layers (`TextStream`), the complete answer read with `readTexts` (`groupsOf`: Replace content's groups
+   * that must differ) and written last. Answers how many layers changed.
+   */
+  private async streamTexts(action: AiAction, label: string, roots: Layer[], targets: TextTarget[], signal: AbortSignal, pairOf: (list: { id: string; characters: string }[], outline: string, inBatch: Set<string>) => PromptPair, groupsOf: (inBatch: Set<string>) => string[][] = () => []): Promise<number> {
+    const byId = new Map(targets.map((x) => [x.layer.id, x]));
+    const stream = new TextStream(this.ed, (fn, merge) => this.apply(label, fn, [], merge), byId);
+    // Someone else's step in the user's history while it streams: merging would join it — the run stops (Figma stops
+    // when the user edits the layer).
+    const off = this.ed.engine.onDocumentChanged((_c, ev) => {
+      if (ev.kind === "SYSTEM" || ev.actor) return;
+      stream.foreign = true;
+      this.stop();
+    });
+    try {
+      for (const batch of outlineBatches(roots, (l) => (byId.has(l.id) ? "text" : undefined))) {
+        const inBatch = idsMarked(batch, "text");
+        if (!inBatch.size) continue;
+        const list = targets.filter((x) => inBatch.has(x.layer.id)).map((x) => ({ id: x.layer.id, characters: x.text }));
+        const json = await this.ask(action, pairOf(list, formatOutline(batch), inBatch), TEXTS_SCHEMA as unknown as Record<string, unknown>, signal, { onText: (raw) => stream.update(readTextsSoFar(raw, inBatch)) });
+        stream.done(readTexts(json, inBatch, groupsOf(inBatch)));
+      }
+      return stream.finish();
+    } catch (err) {
+      stream.restore();
+      throw err;
+    } finally {
+      off();
+    }
+  }
+
+  /** Rewrite this… (`prompt`), Shorten (one text layer), Translate to… (`language`). */
   editTexts(task: TextTask, o: { fromPanel?: boolean } = {}): Promise<number | null> {
     const action: AiAction = task.kind;
     return this.execute(action, !!o.fromPanel, async (signal) => {
-      const { roots, texts } = this.textTargets();
-      const ids = new Set(texts.map((t) => t.id));
-      const values = new Map<string, string>();
-      for (const batch of outlineBatches(roots, (l) => (ids.has(l.id) ? "text" : undefined))) {
-        const inBatch = idsMarked(batch, "text");
-        if (!inBatch.size) continue;
-        const list = texts.filter((t) => inBatch.has(t.id)).map((t) => ({ id: t.id, characters: t.text ?? "" }));
-        const json = await this.ask(action, textPrompt(task, list, formatOutline(batch)), TEXTS_SCHEMA as unknown as Record<string, unknown>, signal);
-        readTexts(json, inBatch).forEach((v, k) => values.set(k, v));
-      }
-      return this.writeTexts(AI_ACTION_LABEL[action].replace(/\.\.\.$/, ""), values);
+      const { roots, targets } = this.textTargets({ range: true, single: task.kind === "shorten" });
+      return this.streamTexts(action, AI_ACTION_LABEL[action].replace(/\.\.\.$/, ""), roots, targets, signal, (list, outline) => textPrompt(task, list, outline));
     });
   }
 
@@ -447,25 +555,23 @@ export class AiActions {
   replaceContent(prompt = "", o: { fromPanel?: boolean; refs?: Guid[] } = {}): Promise<number | null> {
     return this.execute("replace-content", !!o.fromPanel, async (signal) => {
       if (o.refs) applySelection(this.ed, o.refs, false);
-      const { roots, texts } = this.textTargets();
-      const ids = new Set(texts.map((t) => t.id));
+      const { roots, targets } = this.textTargets();
+      const ids = new Set(targets.map((x) => x.layer.id));
       const groups = repeatGroups(roots).map((g) => g.filter((id) => ids.has(id))).filter((g) => g.length > 1);
-      const values = new Map<string, string>();
-      for (const batch of outlineBatches(roots, (l) => (ids.has(l.id) ? "text" : undefined))) {
-        const inBatch = idsMarked(batch, "text");
-        if (!inBatch.size) continue;
-        const list = texts.filter((t) => inBatch.has(t.id)).map((t) => ({ id: t.id, characters: t.text ?? "" }));
-        const bg = groups.filter((g) => g.every((id) => inBatch.has(id)));
-        const json = await this.ask("replace-content", replaceContentPrompt(list, bg, formatOutline(batch), prompt), TEXTS_SCHEMA as unknown as Record<string, unknown>, signal);
-        readTexts(json, inBatch, bg).forEach((v, k) => values.set(k, v));
-      }
-      return this.writeTexts("Replace content", values);
+      const groupsIn = (inBatch: Set<string>) => groups.filter((g) => g.every((id) => inBatch.has(id)));
+      return this.streamTexts("replace-content", "Replace content", roots, targets, signal, (list, outline, inBatch) => replaceContentPrompt(list, groupsIn(inBatch), outline, prompt), groupsIn);
     });
   }
 
   // ---- Add interactions ---------------------------------------------------------------------------------------------
 
-  /** The selected top-level frames, connected (20 credits). The banner then offers Preview and Keep it. */
+  /**
+   * The selected top-level frames, connected (20 credits) — Figma's magic-link (atlas 18 §6): 2 to 10 top-level
+   * frames; a layer that already has an On click interaction is left alone; NAVIGATE, OVERLAY (SWAP from a frame an
+   * overlay opens), CLOSE and BACK, each On click and Instant; written in Figma's order — navigate, then overlays and
+   * close, then back, 200 ms apart, the status saying which — as one undo step; 60 s for the answer. The banner then
+   * offers Preview and Keep it.
+   */
   addInteractions(o: { fromPanel?: boolean } = {}): Promise<number | null> {
     return this.execute("add-interactions", !!o.fromPanel, async (signal) => {
       const page = this.ed.store.page;
@@ -474,27 +580,60 @@ export class AiActions {
         return n?.parentIndex?.guid === page && ["FRAME", "SYMBOL", "INSTANCE"].includes(String(n.type)) && !(n as { resizeToFit?: boolean }).resizeToFit;
       });
       if (frames.length < 2) throw new AiActionError("nothing-selected", "Select two or more top-level frames to connect.");
+      if (frames.length > INTERACTIONS_MAX_FRAMES) throw new AiActionError("too-large", t("Select up to {n} top-level frames to connect.", { n: INTERACTIONS_MAX_FRAMES }));
       const roots = readLayers(this.ed, frames);
       const all = flatten(roots).filter((l) => !frames.includes(l.id) && !l.hidden);
-      const sources = new Set(all.map((l) => l.id));
+      const linked = new Set(all.filter((l) => hasClick(this.ed, l.id)).map((l) => l.id));
+      const sources = new Set(all.filter((l) => !linked.has(l.id)).map((l) => l.id));
       const topOf = new Map(all.map((l) => [l.id, l.top]));
       const found: ReturnType<typeof readInteractions> = [];
-      for (const batch of outlineBatches(roots, (l) => (frames.includes(l.id) ? "screen" : likelyButton(l) ? "button?" : undefined))) {
-        const json = await this.ask("add-interactions", interactionsPrompt(roots.map((r) => ({ id: r.id, name: r.name })), formatOutline(batch)), INTERACTIONS_SCHEMA as unknown as Record<string, unknown>, signal);
+      for (const batch of outlineBatches(roots, (l) => (frames.includes(l.id) ? "screen" : linked.has(l.id) ? "has interaction" : likelyButton(l) ? "button?" : undefined))) {
+        const json = await this.ask("add-interactions", interactionsPrompt(roots.map((r) => ({ id: r.id, name: r.name })), formatOutline(batch)), INTERACTIONS_SCHEMA as unknown as Record<string, unknown>, signal, { timeoutMs: INTERACTIONS_TIMEOUT_MS });
         found.push(...readInteractions(json, sources, new Set(frames), (id) => topOf.get(id) ?? null).filter((x) => !found.some((f) => f.sourceId === x.sourceId)));
       }
-      if (!found.length) throw new AiActionError("nothing-selected", "Couldn't find anything to connect in these frames.");
+      if (!found.length) throw new AiActionError("nothing-selected", linked.size ? "No interactions were added: these layers already have interactions." : "Couldn't find anything to connect in these frames.");
+      // Opened as overlays here: an overlay opened from one of them swaps it.
+      const overlays = new Set(found.filter((x) => x.action === "OVERLAY").map((x) => x.destinationId));
+      const actionOf = (x: (typeof found)[number]): Record<string, unknown> =>
+        x.action === "BACK" ? { type: "BACK" } : x.action === "CLOSE" ? { type: "CLOSE" } : x.action === "OVERLAY" ? { type: overlays.has(topOf.get(x.sourceId) ?? "") ? "SWAP_OVERLAY" : "OPEN_OVERLAY", destinationId: x.destinationId, transition: { type: "INSTANT" } } : { type: "NAVIGATE", destinationId: x.destinationId, transition: { type: "INSTANT" } };
+      const stages: { label: string; list: typeof found }[] = [
+        { label: "Adding navigate interactions…", list: found.filter((x) => x.action === "NAVIGATE") },
+        { label: "Adding overlay interactions…", list: found.filter((x) => x.action === "OVERLAY" || x.action === "CLOSE") },
+        { label: "Adding back interactions…", list: found.filter((x) => x.action === "BACK") },
+      ].filter((st) => st.list.length);
       let count = 0;
-      this.apply("Add interactions", (env) => {
-        for (const x of found) {
-          try {
-            addInteractionTool(env, { nodeId: x.sourceId, trigger: { type: "ON_CLICK" }, actions: [x.action === "BACK" ? { type: "BACK" } : { type: "NAVIGATE", destinationId: x.destinationId, transition: { type: "INSTANT" } }] });
-            count++;
-          } catch {
-            // One the tool refuses is left out.
-          }
-        }
+      let steps = 0;
+      let foreign = false;
+      const off = this.ed.engine.onDocumentChanged((_c, ev) => {
+        if (ev.kind !== "SYSTEM" && !ev.actor) foreign = true;
       });
+      try {
+        for (const [i, st] of stages.entries()) {
+          if (i > 0) await new Promise((r) => setTimeout(r, INTERACTIONS_STAGE_MS));
+          if (signal.aborted) break;
+          if (this.state.run) this.set({ run: { ...this.state.run, label: st.label } });
+          let wrote = 0;
+          this.apply(
+            "Add interactions",
+            (env) => {
+              for (const x of st.list) {
+                try {
+                  addInteractionTool(env, { nodeId: x.sourceId, trigger: { type: "ON_CLICK" }, actions: [actionOf(x)] });
+                  wrote++;
+                } catch {
+                  // One the tool refuses is left out.
+                }
+              }
+            },
+            [],
+            steps > 0 && !foreign
+          );
+          count += wrote;
+          if (wrote) steps++;
+        }
+      } finally {
+        off();
+      }
       this.set({ banner: { kind: "interactions", count, start: frames[0] } });
       return count;
     });
@@ -566,6 +705,213 @@ export class AiActions {
     return frame;
   }
 }
+
+/**
+ * A text tool's writes as its answer streams (atlas 18 §5, Figma's adjust_text): every `TEXT_STREAM_MS` the texts'
+ * characters so far go into their layers — the first write a step of the user's history, each later one merged into
+ * it (Figma's AI_TEXT_MANIPULATION_START / _DELTA), so the whole run is one undo step. `restore` puts the originals
+ * back (Stop, a failure), merged too unless someone else's step came in between.
+ */
+class TextStream {
+  /** Someone else wrote to the user's history since the first write */
+  foreign = false;
+  private steps = 0;
+  private pending = new Map<string, string>();
+  private final = new Map<string, string>();
+  private written = new Map<string, string>();
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private originals = new Map<string, Record<string, unknown> | undefined>();
+
+  constructor(
+    private ed: EditorController,
+    private write: (fn: () => void, merge: boolean) => void,
+    private targets: ReadonlyMap<string, TextTarget>
+  ) {}
+
+  /** Characters so far (a text's first delta replaces its text, or its range). */
+  update(values: ReadonlyMap<string, string>) {
+    for (const [id, v] of values) if (!this.final.has(id) && this.written.get(id) !== v) this.pending.set(id, v);
+    if (this.pending.size && !this.timer && !this.foreign) this.timer = setTimeout(() => this.streamed(), TEXT_STREAM_MS);
+  }
+
+  /** A batch's complete, checked texts (written with the next flush or `finish`). */
+  done(values: ReadonlyMap<string, string>) {
+    for (const [id, v] of values) {
+      this.final.set(id, v);
+      this.pending.set(id, v);
+    }
+  }
+
+  /** A timed write while it streams (a failure here is left to the last write, which reports it). */
+  private streamed() {
+    try {
+      this.flush();
+    } catch {
+      this.timer = null;
+    }
+  }
+
+  private flush(last = false): boolean {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    if (!this.pending.size || this.foreign) return false;
+    const values = new Map(this.pending);
+    try {
+      this.write(() => {
+        for (const [id, characters] of values) {
+          const target = this.targets.get(id);
+          if (!target) continue;
+          const node = this.ed.engine.readNode(id, { fields: ["textData"] }) as (NodeChange & { textData?: Record<string, unknown> }) | null;
+          if (!node) continue;
+          if (!this.originals.has(id)) this.originals.set(id, node.textData);
+          // A range is replaced within the text as it was (its first write's).
+          const base = this.originals.get(id);
+          this.ed.engine.setProps([id], { textData: textDataFor(target.range ? base : node.textData, characters, target.range) } as never);
+        }
+      }, this.steps > 0);
+    } catch (err) {
+      // The user's gesture is open: the next flush tries again (the last one fails as "busy").
+      if (err instanceof EngineBusy && !last) {
+        this.timer = setTimeout(() => this.streamed(), TEXT_STREAM_MS);
+        return false;
+      }
+      throw err;
+    }
+    for (const [id, v] of values) {
+      this.written.set(id, v);
+      this.pending.delete(id);
+    }
+    this.steps++;
+    return true;
+  }
+
+  /** The complete answer written (merged into the streamed step); how many layers changed. */
+  finish(): number {
+    this.flush(true);
+    let count = 0;
+    for (const [id, v] of this.final) {
+      const was = (this.originals.get(id) as { characters?: string } | undefined)?.characters;
+      const t = this.targets.get(id);
+      if (this.originals.has(id) && (t?.range ? t.text !== v : was !== v)) count++;
+    }
+    return count;
+  }
+
+  /** Back to the originals (nothing streamed: nothing to do). */
+  restore() {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    this.pending.clear();
+    if (!this.steps) return;
+    const merge = !this.foreign;
+    try {
+      this.write(() => {
+        for (const [id, td] of this.originals) if (td) this.ed.engine.setProps([id], { textData: td } as never);
+      }, merge);
+    } catch {
+      // The originals stay in the history: ⌘Z brings them back.
+    }
+  }
+}
+
+/**
+ * Rename layers' writes as its names stream in (atlas 18 §4.3): each group's name into its layers — the first write a
+ * step of the user's history, each later one merged into it (one undo step for the run) — and its Layers row typed
+ * over (renameAnimation.ts). `restore` puts every name written back (with its `autoRename`), the animations dropped.
+ */
+class NameStream {
+  /** Someone else wrote to the user's history since the first write */
+  foreign = false;
+  /** Layers renamed */
+  count = 0;
+  private steps = 0;
+  private written = new Map<string, string>();
+  private waiting = new Map<string, string>();
+  private originals = new Map<Guid, { name: string; autoRename?: boolean }>();
+
+  constructor(
+    private ed: EditorController,
+    private write: (fn: () => void, merge: boolean) => void,
+    private groups: ReadonlyMap<string, readonly Layer[]>
+  ) {}
+
+  /** Names so far (`last`: a batch's complete answer — a write the user's open gesture holds up fails then). */
+  update(names: ReadonlyMap<string, string>, last = false) {
+    if (this.foreign) return;
+    for (const [id, name] of names) if (this.written.get(id) !== name) this.waiting.set(id, name);
+    if (!this.waiting.size) return;
+    const values = new Map(this.waiting);
+    const renamed: { id: Guid; from: string; to: string }[] = [];
+    try {
+      this.write(() => {
+        for (const [leader, name] of values)
+          for (const l of this.groups.get(leader) ?? []) {
+            const node = this.ed.engine.readNode(l.id, { fields: ["name", "autoRename"] }) as { name?: string; autoRename?: boolean } | null;
+            if (!node) continue;
+            if (!this.originals.has(l.id)) this.originals.set(l.id, { name: node.name ?? "", ...(l.type === "TEXT" ? { autoRename: node.autoRename } : {}) });
+            if (this.ed.engine.setProps([l.id], (l.type === "TEXT" ? { name, autoRename: false } : { name }) as never) === 0) renamed.push({ id: l.id, from: node.name ?? "", to: name });
+          }
+      }, this.steps > 0);
+    } catch (err) {
+      // The user's gesture is open: the next names (or the complete answer) try again.
+      if (err instanceof EngineBusy && !last) return;
+      throw err;
+    }
+    this.steps++;
+    for (const [id, name] of values) {
+      if (!this.written.has(id)) this.count += this.groups.get(id)?.length ?? 0;
+      this.written.set(id, name);
+      this.waiting.delete(id);
+    }
+    for (const r of renamed) animateRename(r.id, r.from, r.to);
+  }
+
+  /** Back to the names as they were (nothing written: nothing to do). */
+  restore() {
+    clearRenameAnimations();
+    if (!this.steps) return;
+    try {
+      this.write(() => {
+        for (const [id, o] of this.originals) this.ed.engine.setProps([id], ("autoRename" in o ? { name: o.name, autoRename: o.autoRename ?? true } : { name: o.name }) as never);
+      }, !this.foreign);
+    } catch {
+      // The names stay in the history: ⌘Z brings them back.
+    }
+  }
+}
+
+/** Figma's Add interactions (atlas 18 §6): 2–10 top-level frames, 60 s for the answer, 200 ms between its stages. */
+export const INTERACTIONS_MAX_FRAMES = 10;
+export const INTERACTIONS_TIMEOUT_MS = 60_000;
+export const INTERACTIONS_STAGE_MS = 200;
+
+/** The layer has an On click interaction with a real action (Add interactions leaves it alone). */
+function hasClick(ed: EditorController, id: Guid): boolean {
+  const list = liveInteractions((ed.engine.readNode(id, { fields: ["prototypeInteractions"] }) as { prototypeInteractions?: PrototypeInteraction[] } | null)?.prototypeInteractions);
+  return list.some((i) => i.event?.interactionType === "ON_CLICK" && (i.actions ?? []).some((a) => !!a.connectionType && a.connectionType !== "NONE" && (a.connectionType !== "INTERNAL_NODE" || !!a.transitionNodeID)));
+}
+
+/** Each layer as a PNG (base64), the long side ≤ 1024 (Rename layers sends its top-level layers so). */
+async function layerImages(ed: EditorController, layers: readonly Layer[]): Promise<{ name: string; data: string }[]> {
+  const out: { name: string; data: string }[] = [];
+  for (const l of layers) {
+    const scale = Math.min(1, 1024 / Math.max(1, l.width, l.height));
+    try {
+      const r = ed.engine.exportNodes([l.id], { imageType: "PNG", constraint: { type: "CONTENT_SCALE", value: scale } }, { allowPending: true });
+      if (r.status !== "ok" || !("pixels" in r)) continue;
+      const png = await encodePng(r.pixels.width, r.pixels.height, r.pixels.pixels);
+      let bin = "";
+      for (let i = 0; i < png.length; i += 0x8000) bin += String.fromCharCode(...png.subarray(i, i + 0x8000));
+      out.push({ name: `${l.name || "Layer"}.png`, data: btoa(bin) });
+    } catch {
+      // A layer that can't be drawn goes without its picture.
+    }
+  }
+  return out;
+}
+
+/** The action costs credits (the credits stop turns it off when they're used; Rename layers and search are free). */
+export const costsCredits = (action: AiAction): boolean => creditsFor(action, { input: 1, output: 1, megapixels: 1, colors: 2 }) > 0;
 
 /** The ids an outline batch marks with `mark`. */
 function idsMarked(batch: readonly OutlineNode[], mark: string): Set<string> {

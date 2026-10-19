@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { FRAME_PRESETS, HEADER_ACTIONS, frameMenu, headerKind } from "../panels/design/Header";
 import { ADD_TYPES, COMPONENT_HEADER_ACTIONS, applyLabel } from "../panels/design/Component";
-import { assetPath, levelContents, startLevel } from "../panels/design/ComponentPicker";
+import { assetPath, levelContents, startLevel, startSection, uniqueByName } from "../panels/design/ComponentPicker";
 import { DESCRIPTION_TOOLS } from "../panels/design/ComponentConfiguration";
 import { markdownToHtml, plainDescription } from "../panels/design/richText";
 import type { ComponentAsset } from "../model/components";
@@ -87,6 +87,13 @@ describe("the swap menu's levels (live popovers/instance-header-swap-menu.txt)",
     const two = [...assets, a("6:1", "Other", null, "0:2")];
     expect(startLevel(two, null)).toEqual({ page: null, path: [] });
     expect(levelContents(two, { page: null, path: [] }, pages).folders.map((f) => f.name)).toEqual(["Capture", "Page 3"]);
+  });
+
+  it("opens on Figma's section: Preferred, else the library when it has components, else Recently used; one result per name", () => {
+    expect(startSection(2, 10)).toBe("preferred");
+    expect(startSection(0, 10)).toBe("file");
+    expect(startSection(0, 0)).toBe("recent");
+    expect(uniqueByName([a("7:1", "Icon", null, "0:1"), a("7:2", "Icon", null, "0:2"), a("7:3", "Star", null, "0:1")]).map((x) => x.id)).toEqual(["7:1", "7:3"]);
   });
 });
 

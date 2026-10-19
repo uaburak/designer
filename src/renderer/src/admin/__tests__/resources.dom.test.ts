@@ -143,7 +143,7 @@ describe("Admin › Resources › Libraries", () => {
   it("a workspace admin: Admin › ‹workspace› › Libraries — can't unapprove an org approval, approves for the workspace", async () => {
     const fake = createFakeAdminStore({ now: NOW, me: "u13" });
     await open(fake, { workspace: { id: "ws-eng", name: "Engineering" } });
-    expect($$('nav [data-ds="SidebarItem"]').map((b) => b.textContent)).toEqual(["Libraries", "Plugins"]);
+    expect($$('nav [data-ds="SidebarItem"]').map((b) => b.textContent)).toEqual(["Libraries", "Plugins", "Workspace"]);
     expect($("nav").textContent).toContain("Engineering");
     expect(rows("Libraries").map((r) => r.getAttribute("data-row")).sort()).toEqual(["lib_brand1", "lib_core01", "lib_dataviz", "lib_icons1", "lib_webui1"]);
     click(row("Libraries", "Core Design System"));
@@ -160,6 +160,23 @@ describe("Admin › Resources › Libraries", () => {
     expect(setting(fake, "lib_webui1", "workspace", "ws-eng")!.approved).toBe(true);
     expect(fake.state.activity[0].action.type).toBe("workspace_library_approve");
     expect(fake.state.activity[0].action.details).toMatchObject({ workspace_id: "ws-eng" });
+  });
+
+  it("a workspace admin: Admin › ‹workspace› › Workspace — rename, members and default teams; nothing only org admins do (leftovers 2026-10-18)", async () => {
+    const fake = createFakeAdminStore({ now: NOW, me: "u13" });
+    await open(fake, { workspace: { id: "ws-eng", name: "Engineering" } });
+    await go("Workspace");
+    expect($("h2")?.textContent).toContain("Engineering");
+    const labels = $$("main button").map((b) => b.textContent?.trim());
+    expect(labels).toContain("Rename");
+    for (const only of ["Make it hidden", "Make it visible", "Delete workspace", "Add members", "Workspaces"]) expect(labels).not.toContain(only);
+    click(tab("Teams (3)"));
+    await settle();
+    expect($$("main button").map((b) => b.textContent?.trim())).not.toContain("Add teams");
+    expect($$("main button").map((b) => b.textContent?.trim())).not.toContain("Remove");
+    click(tab("Workspace admins (1)"));
+    await settle();
+    expect($$("main button").map((b) => b.textContent?.trim())).not.toContain("Edit workspace admins");
   });
 
   it("an org admin reaches a workspace's Libraries from Content › Workspaces", async () => {

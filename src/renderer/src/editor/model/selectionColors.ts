@@ -34,14 +34,32 @@ export interface SelectionColor {
   uses: PaintUse[];
 }
 
-/**
- * How many rows show before "See all N colors". Live lists four colours with no link (design/mixed-multi.txt); where
- * the link starts is unverified.
- */
-export const SELECTION_COLORS_SHOWN = 4;
+/** How many colours a collapsed section shows in its title row, before "+N" (atlas 07 §4). */
+export const SELECTION_COLORS_PEEK = 3;
 
-/** Past this many layers the subtree isn't read (Figma also stops listing colours on huge selections). */
+/**
+ * How the section lays out `count` colours (Figma, atlas 07 §4): under four it is always open, not collapsible; from
+ * four it folds and starts folded (the title row shows the first three and "+N"); open, more than twelve show eleven
+ * rows and "See all N colors", which shows them all. (Live's design/mixed-multi.txt shows four rows open, its title row
+ * a 240 × 40 button — consistent with a section opened by a click.)
+ */
+export function selectionColorsLayout(count: number, open: boolean, all: boolean): { collapsible: boolean; peek: boolean; rows: number; seeAll: boolean } {
+  const collapsible = count >= 4;
+  if (collapsible && !open) return { collapsible, peek: true, rows: 0, seeAll: false };
+  const cut = count > 12 && !all;
+  return { collapsible, peek: false, rows: cut ? 11 : count, seeAll: cut };
+}
+
+/**
+ * Past this many layers the subtree isn't read until asked ("Show selection colors"): Figma also stops collecting on
+ * huge selections; its own limit lives in its C++ and is unread (atlas 07 open question 2).
+ */
 export const SELECTION_COLORS_MAX_NODES = 5000;
+/** The read once the limit is lifted. */
+export const SELECTION_COLORS_NO_LIMIT = 1_000_000_000;
+
+/** A colour used more than this many times edits through a debounce (Figma's selection paints, atlas 07 §4). */
+export const SELECTION_COLORS_DEBOUNCE_USES = 500;
 
 export const colorKey = (color: Pick<Color, "r" | "g" | "b">, opacity: number) => `${colorToHex(color)}/${Math.round(opacity * 100)}`;
 

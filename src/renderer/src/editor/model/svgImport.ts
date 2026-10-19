@@ -7,7 +7,11 @@
  * `<style>` rules by class / id / type, `style`, inheritance), solid colours and linear / radial gradients; stroke
  * width, caps, joins, miter limit and dashes; opacity. Transforms are baked into the geometry (scaled strokes), so
  * every layer comes unrotated, as Figma's own SVG import does with skews. Text (`<text>`) and bitmaps (`<image>`)
- * are counted and skipped — Illustrator's own SVG flavour has its text as outlines already.
+ * are counted and skipped — Illustrator's own SVG flavour has its text as outlines already. Figma's round-trip
+ * attributes (atlas 15 §8, as our SVG export writes them too): an element marked `data-figma-skip-parse` (the CSS
+ * drawing of an angular / diamond gradient) is left out, the shape after it takes the paint of its
+ * `data-figma-gradient-fill` / `-stroke` (the paint's JSON), and `data-figma-bg-blur-radius` gives a layer its
+ * background blur back.
  *
  * The Message's layers are in page px with the whole artwork's top-left at `origin`; pasting it is the engine's
  * paste (fresh ids, one undo step).
@@ -47,7 +51,9 @@ export interface SvgImport {
 
 type PaintSpec =
   | { kind: "solid"; color: Color; opacity: number }
-  | { kind: "linear" | "radial"; stops: { color: Color; position: number }[]; A: Mat; opacity: number };
+  | { kind: "linear" | "radial"; stops: { color: Color; position: number }[]; A: Mat; opacity: number }
+  // A paint as Figma wrote it into data-figma-gradient-fill (its transform already the layer's).
+  | { kind: "figma"; paint: Paint };
 
 interface ShapeItem {
   kind: "shape";
@@ -66,6 +72,8 @@ interface ShapeItem {
   evenOdd: boolean;
   opacity: number;
   mask?: boolean;
+  /** data-figma-bg-blur-radius: the layer's background blur. */
+  backgroundBlur?: number;
 }
 interface GroupItem {
   kind: "group";
@@ -244,7 +252,8 @@ class Importer {
     const w = num(this.root.attrs.width, vb[2] ?? 0), h = num(this.root.attrs.height, vb[3] ?? 0);
     this.viewport = { w: vb.length === 4 ? vb[2] : w, h: vb.length === 4 ? vb[3] : h };
     const ctm = vb.length === 4 && vb[2] > 0 && vb[3] > 0 && this.root.attrs.width && this.root.attrs.height ? viewBoxMatrix(vb, w, h, this.root.attrs.preserveAspectRatio) : IDENTITY;
-    return this.children(this.root, ctm, INITIAL);
+    // The root's own presentation attributes are inherited too (Figma's exports: `fill="none"` on <svg>).
+    return this.children(this.root, ctm, this.styleOf(this.declared(this.root), INITIAL));
   }
 
   private children(el: XmlElement, ctm: Mat, style: Style): Item[] {
@@ -254,7 +263,7 @@ class Importer {
   }
 
   private element(el: XmlElement, parentCtm: Mat, parentStyle: Style): Item[] {
-    if (SKIPPED_CONTAINERS.has(el.name)) return [];
+    if (SKIPPED_CONTAINERS.has(el.name) || el.attrs["data-figma-skip-parse"] === "true") return [];
     const d = this.declared(el);
     if (d.display === "none") return [];
     if (el.name === "text") {
@@ -432,6 +441,11 @@ class Importer {
     const fills = this.paint(style.fill, style.fillOpacity, style, ctm, own);
     const strokeScale = meanScale(ctm);
     const strokes = style.strokeWidth > 0 ? this.paint(style.stroke, style.strokeOpacity, style, ctm, own) : [];
+    // Figma's marked gradients: the shape drawn by the skipped CSS gradient before it (a stroke's is its outlined area,
+    // so it fills).
+    const marked = figmaPaint(el.attrs["data-figma-gradient-fill"]) ?? figmaPaint(el.attrs["data-figma-gradient-stroke"]);
+    if (marked) fills.push(marked);
+    const blur = Number(el.attrs["data-figma-bg-blur-radius"]);
     const paths = transformSubpaths(g.paths, ctm);
     const axisAligned = Math.abs(ctm[1]) < 1e-9 && Math.abs(ctm[2]) < 1e-9 && ctm[0] > 0 && ctm[3] > 0;
     let type: ShapeItem["type"] = "VECTOR";
@@ -460,6 +474,7 @@ class Importer {
       dash,
       evenOdd: style.fillRule === "evenodd",
       opacity,
+      ...(blur > 0 ? { backgroundBlur: blur } : {}),
     };
   }
 
@@ -640,7 +655,21 @@ function encodeNetwork(verts: Pt[], segs: { a: number; ts: Pt; b: number; te: Pt
 
 const toMatrix = (m: Mat): Matrix => ({ m00: m[0], m01: m[2], m02: m[4], m10: m[1], m11: m[3], m12: m[5] });
 
+/** A paint from Figma's data-figma-gradient-fill / -stroke JSON (only angular and diamond gradients are written so). */
+function figmaPaint(json: string | undefined): PaintSpec | null {
+  if (!json) return null;
+  try {
+    const p = JSON.parse(json) as Paint;
+    if (p.type !== "GRADIENT_ANGULAR" && p.type !== "GRADIENT_DIAMOND" && p.type !== "GRADIENT_LINEAR" && p.type !== "GRADIENT_RADIAL") return null;
+    if (!Array.isArray(p.stops) || !p.transform) return null;
+    return { kind: "figma", paint: { type: p.type, stops: p.stops, transform: p.transform, opacity: p.opacity ?? 1, visible: p.visible !== false, blendMode: p.blendMode ?? "NORMAL" } };
+  } catch {
+    return null;
+  }
+}
+
 function toPaint(p: PaintSpec, box: Box): Paint {
+  if (p.kind === "figma") return p.paint;
   if (p.kind === "solid") return { type: "SOLID", color: p.color, opacity: p.opacity, visible: true, blendMode: "NORMAL" };
   const local = mul(translate(-box.x, -box.y), p.A);
   const G = invert(local) ?? IDENTITY;
@@ -698,6 +727,7 @@ export function svgToMessage(svg: string, origin: Vector = { x: 0, y: 0 }): SvgI
       miterLimit: item.miter,
       ...(item.dash.length ? { dashPattern: item.dash } : {}),
       ...(item.mask ? { mask: true, maskType: "OUTLINE" as const } : {}),
+      ...(item.backgroundBlur ? { effects: [{ type: "BACKGROUND_BLUR" as const, radius: item.backgroundBlur, visible: true }] } : {}),
     };
     if (item.type === "ROUNDED_RECTANGLE") {
       if (item.cornerRadius) node.cornerRadius = item.cornerRadius;

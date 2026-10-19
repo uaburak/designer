@@ -1,0 +1,19 @@
+@layer app {
+  /* The empty board's card (docs/social.md §6.4), centred in the visible canvas [metrics ours] */
+  .wrap { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: var(--ds-space-6); pointer-events: none; }
+  .card {
+    display: flex; flex-direction: column; gap: var(--ds-space-3); width: min(100%, var(--ds-size-dialog-small)); padding: var(--ds-space-5);
+    border-radius: var(--ds-radius-large); background: var(--figma-color-bg); box-shadow: var(--ds-elevation-500-modal-window); pointer-events: auto;
+  }
+  .title { margin: 0; color: var(--figma-color-text); font: var(--ds-font-heading-medium); }
+  .body { margin: 0; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .prompts { display: flex; flex-direction: column; gap: var(--ds-space-1-5); }
+  .prompt {
+    padding: var(--ds-space-2) var(--ds-space-3); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg); color: var(--figma-color-text); font: var(--ds-font-body-medium); text-align: left; outline: none; cursor: default;
+  }
+  .prompt:hover { background: var(--figma-color-bg-hover); }
+  .prompt:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .row { display: flex; align-items: center; gap: var(--ds-space-2); }
+  .brand { flex: 1 1 auto; min-width: 0; }
+}

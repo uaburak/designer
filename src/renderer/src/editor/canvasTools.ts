@@ -12,8 +12,11 @@ import type { Guid, NodeChange, NodeFields } from "@/engine/codec";
 import type { EditorController } from "./controller";
 import type { UIState } from "./uiStore";
 import { fields } from "./panels/design/shared";
-import { pref } from "./preferences";
+import { followOtherTabs, pref, syncRoamingPreferences } from "./preferences";
 import { attachRefusals } from "./refusals";
+import { eyedropperChoice } from "./eyedropper";
+import { colorFormat, formatColor } from "./colorFormat";
+import { applyStyle, bindPaint } from "./variables";
 
 /**
  * The engine's view options as the UI holds them (defaults: pixel grid, layout guides, snap to pixel grid, slices on;
@@ -39,6 +42,8 @@ export function viewOptionsOf(ui: UIState) {
     rightDragPan: pref(ui, "rightDragPan"),
     frameOutlines: !!ui.frameOutlines,
     maskOutlines: !!ui.maskOutlines,
+    outlineHiddenLayers: !!ui.outlineHiddenLayers,
+    outlineObjectBounds: !!ui.outlineObjectBounds,
   };
 }
 
@@ -102,13 +107,32 @@ export function canvasPixelsAround(ed: EditorController, x: number, y: number, s
   return ed.engine.renderRegionPixels({ x: wx, y: wy, w: unit * size, h: unit * size, width: size, height: size });
 }
 
-/** The eyedropper's pick: the selected layers' fill becomes the colour (their first solid fill's, else a new fill). */
+/**
+ * The eyedropper's pick: the selected layers' fill becomes the colour (their first solid fill's, else a new fill) — with
+ * ⇧ over a colour variable's or a fill style's colour, bound to it (eyedropper.ts); with nothing selected the colour
+ * is copied to the clipboard in the colour format (Figma's "Click to copy", atlas 07 §6).
+ */
 export function applyPickedColor(ed: EditorController, color: { r: number; g: number; b: number }): void {
   const nodes = ed.selectedNodes();
-  const hex = `#${[color.r, color.g, color.b].map((c) => Math.round(c * 255).toString(16).padStart(2, "0")).join("").toUpperCase()}`;
+  const match = eyedropperChoice(ed);
   if (!nodes.length) {
-    // Nothing selected: the colour is noted (Figma shows it in the picker; here a toast with its hex).
-    showToast({ message: t("Picked {hex}", { hex }) });
+    const text = formatColor(color, colorFormat());
+    void navigator.clipboard?.writeText(text).catch(() => {});
+    showToast({ message: t("Copied {color} to clipboard", { color: text }) });
+    return;
+  }
+  const refs = nodes.map((n) => n.guid);
+  if (match?.kind === "style") return applyStyle(ed, refs, "fill", match.id);
+  if (match?.kind === "variable") {
+    // Bound where the colour would go: each layer's first solid fill, else a new one (one step per such place).
+    const at = new Map<number, string[]>();
+    for (const n of nodes) {
+      const paints = ((n as NodeChange & { fillPaints?: { type?: string }[] }).fillPaints ?? []);
+      const i = paints.findIndex((p) => p.type === "SOLID");
+      const index = i >= 0 ? i : paints.length;
+      at.set(index, [...(at.get(index) ?? []), n.guid]);
+    }
+    for (const [index, group] of at) bindPaint(ed, group, "fillPaints", index, match.id);
     return;
   }
   ed.batch("Pick color", () => {
@@ -204,6 +228,9 @@ export function attachCanvasTools(ed: EditorController, canvas: HTMLCanvasElemen
   const nudge = loadNudge();
   ed.engine.setNudge(nudge.small, nudge.big);
   ed.ui.set({ nudge });
+  // Preferences: another tab's changes followed; the account's (Figma's user record, atlas 21 §2) taken in.
+  offs.push(followOtherTabs(ed));
+  void syncRoamingPreferences(ed);
   // Round 17: a canvas drag's step (padding, gap, radius, W / H, degree, a flow swap, a snap): the trackpad's tick.
   offs.push(ed.engine.on("HAPTIC", () => hapticTick()));
   // Round 17 B: what the engine refused, in Figma's words (a toast: Figma's visual bell).

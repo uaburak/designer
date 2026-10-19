@@ -158,7 +158,8 @@ export function projectMessageByName(message: any, theirs: SchemaModel, ours: Sc
   report.nodesOut = nodes.length;
   return {
     ...top,
-    type: "NODE_CHANGES",
+    // Copy properties' STYLE Message (a Figma ⌥⌘C on the clipboard) stays one; anything else is node changes.
+    type: top.type === "STYLE" ? "STYLE" : "NODE_CHANGES",
     sessionID: top.sessionID ?? 0,
     ackID: top.ackID ?? 0,
     nodeChanges: nodes,
@@ -476,6 +477,13 @@ export function convertFigMessage(message: any, theirs: SchemaModel, ours: Schem
     }),
   };
   const projected = projectMessageByName(fixed, theirs, ours, report);
+  // A Message's index of its own encoding is stale once re-encoded, and Figma's undo history is Figma's session's (ours
+  // is kept per device beside the file, docs/schema.md §15.2): neither comes in.
+  for (const f of ["encodedOffsetsIndex", "localUndoStack", "localRedoStack"] as const) {
+    if (projected[f] === undefined) continue;
+    delete projected[f];
+    inc(report.droppedFields, `Message.${f}`);
+  }
   let nodes = projected.nodeChanges ?? [];
 
   // Keys of local assets and library copies, for assetRef references.

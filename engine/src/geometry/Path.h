@@ -126,6 +126,18 @@ bool contains(const std::vector<Polyline>& polys, Vec2 p, bool evenOdd);
 // The distance from `p` to the polylines' edges.
 double distanceTo(const std::vector<Polyline>& polys, Vec2 p);
 
+// Figma's path trim (docs/motion.md §4.13): each contour cut to the part between `start` and `end` (0–1) of its arc
+// length, the curves split exactly (they keep their kind; a quad's piece comes back as a cubic). A closed contour
+// wraps through its start when start > end and stays whole (closed) for [0, 1]; an open one keeps [min, max]. An empty
+// piece drops the contour. `kept` (when given): per contour of the result, the contour of `path` it came from and
+// whether its start / end are that contour's own ends (an open contour trimmed nowhere there).
+struct TrimmedContour {
+  size_t source = 0;
+  bool closed = false;
+  bool ownStart = false, ownEnd = false;
+};
+Path trimPath(const Path& path, double start, double end, std::vector<TrimmedContour>* kept = nullptr);
+
 // Cubic Bézier evaluation and splitting.
 Vec2 cubicAt(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, double t);
 Vec2 quadAt(Vec2 p0, Vec2 p1, Vec2 p2, double t);

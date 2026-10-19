@@ -354,3 +354,54 @@ TEST_CASE("text: structure.fig's text node, decoded from Figma's file, lays out 
   }
   CHECK(texts == 1);
 }
+
+TEST_CASE("text: reading one text's glyph outlines early changes nothing in another text (wave 8's ink cache)") {
+  // Wave 8 saw a heading on "User Guide" (AnexEUI - B2C.fig) draw differently once outlines were read for texts that
+  // aren't greeked. Not an outline's doing: a font that page's first frame asked for arrived before one dump's
+  // screenshot and after the other's (engine-bench --dump now waits for them; with that, every glyph area read early
+  // gives the same pixels on all 62 pages). Kept as a guard: the two instances share their face (HarfBuzz's glyf /
+  // gvar accelerators and scratch live on it); the second text's glyphs, places, outlines and ink, with and without
+  // the first's outlines read before it.
+  auto& fonts = FontRegistry::get();
+  for (const std::string file : {interPath(), std::string(ENG_FONTS_DIR) + "/InterVariable.ttf"}) {
+    CAPTURE(file);
+    int32_t face = addFontFile(file);
+    REQUIRE(face >= 0);
+    // Each pass binds its own family: fresh fonts (their HarfBuzz fonts and outline caches) on the one face.
+    auto pass = [&](const std::string& family, bool readFirst) {
+      for (const char* style : {"Regular", "Bold Italic"}) fonts.bind(family, style, face);
+      NodeProps first = textProps("Getting Started — Avatars & Flags 0123", 24);
+      first.text().fontName = {family, "Regular", ""};
+      NodeProps second = textProps("User Guide Heading QWERTY gjpqy 4567", 9);
+      second.text().fontName = {family, "Bold Italic", ""};
+      if (readFirst) {
+        auto F = lay(first);
+        for (const LaidGlyph& g : F->glyphs) g.font->outline(g.glyph);
+      }
+      auto L = lay(second);
+      std::vector<float> out;
+      for (const LaidGlyph& g : L->glyphs) {
+        const GlyphOutline& o = g.font->outline(g.glyph);
+        out.insert(out.end(), {static_cast<float>(g.glyph), g.x, g.y, g.advance});
+        out.insert(out.end(), o.bounds, o.bounds + 4);
+        out.insert(out.end(), o.curves.begin(), o.curves.end());
+      }
+      out.insert(out.end(), {static_cast<float>(L->size.x), static_cast<float>(L->size.y), static_cast<float>(L->inkBounds.x),
+                             static_cast<float>(L->inkBounds.w)});
+      return out;
+    };
+    std::string tag = std::to_string(face);
+    std::vector<float> without = pass("Outline reads " + tag + "a", false);
+    std::vector<float> with = pass("Outline reads " + tag + "b", true);
+    REQUIRE(without.size() > 100);
+    CHECK(with == without);
+  }
+  fonts.takeRequests();
+  // An outline-only font (stored glyphs) answers a glyph it wasn't given with an empty outline, without keeping one.
+  Font stored;
+  CHECK(stored.outline(7).empty());
+  GlyphOutline square;
+  square.curves = {0, 0, 0.5f, 0, 1, 0, 1, 0, 1, 0.5f, 1, 1};
+  stored.setOutline(7, square);
+  CHECK(stored.outline(7).curveCount() == 2);
+}

@@ -4,8 +4,8 @@
 // holds with the engine's E6 commands (when the build has them) and with the editor's fallbacks.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { beforeAll, describe, expect, it } from "vitest";
-import type { MenuEntry, MenuItem } from "@/ds";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { currentToast, dismissToast, type MenuEntry, type MenuItem } from "@/ds";
 import { Engine } from "@/engine/Engine";
 import { EngineStore } from "@/engine/EngineStore";
 import { loadEngine } from "@/engine/loadEngine";
@@ -13,16 +13,18 @@ import { EditorController } from "../controller";
 import { memoryDocumentSource } from "../documentSource";
 import { COMPONENTS_DOCUMENT } from "../fixtures";
 import { command, isEnabled, runEditorCommand } from "../commands";
-import { canvasMenu, mainMenu, runMenuItem } from "../menus";
+import { RESET_PROPERTY_PREFIX, canvasMenu, mainMenu, resetSubmenu, runMenuItem } from "../menus";
 import { layerIcon } from "../panels/Layers";
 import { visibleRows } from "../model/layerTree";
 import { hasCommand, runEngineCommand } from "../engineCompat";
 import { refusalMessage } from "../refusals";
 import {
   COMPONENT_COMMAND,
+  RETURN_TO_INSTANCE_MEMORY_MS,
   addProperty,
   bindLayer,
   boundProperty,
+  changedProperties,
   deleteProperty,
   goToMainComponent,
   insertInstance,
@@ -31,11 +33,13 @@ import {
   readC,
   resetChanges,
   returnToInstance,
+  selectVariants,
   setOf,
   setPropertyValue,
   setVariant,
   swapInstance,
   updateProperty,
+  variantErrorOf,
 } from "../components";
 import { guidStr, type CNode } from "../model/components";
 
@@ -136,6 +140,33 @@ describe("components on the engine (wasm, headless)", () => {
     expect(instanceChanges(ed, node(ed, "2:2")).length).toBeGreaterThan(0);
   });
 
+  it("Reset ▸ ends with one item per changed property value, which resets only that one (Figma's per-assignment reset)", async () => {
+    const { ed, engine } = await editor();
+    engine.setSelection(["2:2"]);
+    const sub = resetSubmenu(ed)!;
+    const props = changedProperties(ed, node(ed, "2:2"));
+    expect(props.length).toBeGreaterThan(0);
+    const first = props[0];
+    const item = items(sub.items!).find((i) => i.id === `${RESET_PROPERTY_PREFIX}${first.id}`);
+    expect(item?.label).toBe(`Reset ${first.name}`);
+    expect(labels(sub.items!)).not.toContain("Reset variable modes");
+    expect(runMenuItem(ed, item!.id)).toBe(true);
+    expect(changedProperties(ed, node(ed, "2:2")).map((p) => p.id)).not.toContain(first.id);
+    expect(instanceChanges(ed, node(ed, "2:2")).map((g) => g.label)).toContain("Fill");
+  });
+
+  it("a set's variant errors: an invalid name, then Select invalid variants", async () => {
+    const { ed } = await editor();
+    expect(variantErrorOf(ed, { kind: "set", ref: "1:40" })).toBeNull();
+    ed.setProps(["1:41"], { name: "Broken" }, "Rename");
+    const err = variantErrorOf(ed, { kind: "set", ref: "1:40" });
+    expect(err?.error).toBe("PARSE_ERROR");
+    expect(err?.variants).toEqual(["1:41"]);
+    selectVariants(ed, err!.variants);
+    expect(ed.selection).toEqual(["1:41"]);
+    expect(variantErrorOf(ed, { kind: "variant", ref: "1:41" })?.error).toBe("PARSE_ERROR");
+  });
+
   it("a main's properties: add (bound), rename a variant property, delete, bind and detach", async () => {
     const { ed } = await editor();
     const made = addProperty(ed, node(ed, "1:1"), "BOOL", { name: "Show label", value: { boolValue: true }, bind: { layer: node(ed, "1:3"), field: "VISIBLE" } });
@@ -165,11 +196,46 @@ describe("components on the engine (wasm, headless)", () => {
     expect(goToMainComponent(ed)).toBe(true);
     expect(ed.store.page).toBe("0:3");
     expect(ed.selection).toEqual(["1:1"]);
-    expect(ed.ui.get().returnToInstance?.instance).toBe("2:2");
+    expect(ed.ui.get().returnToInstance?.instances).toEqual(["2:2"]);
     returnToInstance(ed);
     expect(ed.store.page).toBe("0:1");
     expect(ed.selection).toEqual(["2:2"]);
     expect(ed.ui.get().returnToInstance).toBeNull();
+  });
+
+  it("Return to instance is Figma's bell: up while the main is selected, remembered 2 min after leaving it", async () => {
+    vi.useFakeTimers();
+    try {
+      const { ed } = await editor();
+      const bell = () => currentToast()?.action?.label === "Return to instance";
+      ed.engine.setSelection(["2:2"]);
+      expect(goToMainComponent(ed)).toBe(true);
+      expect(ed.ui.get().returnToInstance?.main).toBe("1:1");
+      expect(bell()).toBe(true);
+      expect(currentToast()?.icon).toBe("24.instance.small");
+      // Leaving the main takes the bell down and keeps the memory; coming back within 2 min shows it again.
+      ed.engine.setSelection([]);
+      expect(bell()).toBe(false);
+      vi.advanceTimersByTime(RETURN_TO_INSTANCE_MEMORY_MS - 1000);
+      ed.engine.setSelection(["1:1"]);
+      expect(bell()).toBe(true);
+      // Past 2 min away it is forgotten.
+      ed.engine.setSelection([]);
+      vi.advanceTimersByTime(RETURN_TO_INSTANCE_MEMORY_MS);
+      expect(ed.ui.get().returnToInstance).toBeNull();
+      ed.engine.setSelection(["1:1"]);
+      expect(bell()).toBe(false);
+      // The bell's ×: forgotten at once.
+      ed.engine.setCurrentPage("0:1");
+      ed.engine.setSelection(["2:2"]);
+      goToMainComponent(ed);
+      expect(bell()).toBe(true);
+      currentToast()?.onDismiss?.();
+      expect(ed.ui.get().returnToInstance).toBeNull();
+    } finally {
+      dismissToast();
+      vi.useRealTimers();
+    }
   });
 
   it("inserting an instance from Assets: one step, selected, linked to the main", async () => {
@@ -208,13 +274,19 @@ describe("components on the engine (wasm, headless)", () => {
   it("menus and commands: the canvas menu's component items; structural ones follow the engine", async () => {
     const { ed } = await editor();
     ed.engine.setSelection(["2:2"]);
-    // Live Figma's instance items: Create component, Reset instance, Detach instance, Go to main component.
-    expect(labels(canvasMenu(ed, []))).toEqual(expect.arrayContaining(["Create component", "Reset instance", "Detach instance", "Go to main component"]));
+    // Live Figma's instance items: Create component, Reset instance, Detach instance, then Go to main component — alone
+    // when it is the one main component action that can run, else under "Main component ▸" with the others (Atlas 03
+    // §4.2: here Push changes to main can run too).
+    const menu = canvasMenu(ed, []);
+    expect(labels(menu)).toEqual(expect.arrayContaining(["Create component", "Reset instance", "Detach instance"]));
+    const mainActions = ["object.go-to-main-component", "object.push-changes", "object.restore-component", "object.add-variant"].filter((id) => isEnabled(ed, command(id)));
+    if (mainActions.length < 2) expect(labels(menu)).toContain("Go to main component");
+    // (the canvas menu drops the rows of the five that can't run)
+    else expect(labels(items(menu).find((i) => i.label === "Main component")!.items!)).toEqual(mainActions.map((id) => command(id).label));
     ed.engine.setCurrentPage("0:3");
     ed.engine.setSelection(["1:20", "1:21"]);
-    // Mains: their actions under "Main component ▸" (live Figma).
-    const main = items(canvasMenu(ed, [])).find((i) => i.label === "Main component");
-    expect(labels(main?.items ?? [])).toContain("Combine as variants");
+    // Mains: Combine as variants, then their main component actions.
+    expect(labels(canvasMenu(ed, []))).toContain("Combine as variants");
     for (const [id, name] of [
       ["object.create-component", COMPONENT_COMMAND.create],
       ["object.detach-instance", COMPONENT_COMMAND.detach],

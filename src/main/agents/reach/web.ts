@@ -6,14 +6,16 @@ import type { ToolResult } from "../../../shared/agents/tools";
 import type { WNode } from "../../../shared/agents/web/convert";
 import WALKER from "../../../shared/agents/web/walker.js?raw";
 import type { ReachRunner, RunContext } from "./hub";
+import { NO_DIALOGS, pageEvent } from "./pageEvents";
 import { designFromCapture, withoutImages } from "./webSpec";
 
 /**
  * Web (docs/agents-reach.md §5): each call opens its own hidden, offscreen window in one in-memory session of its own
  * (no cookies, storage or cache of the owner's; cleared after every call), sandboxed, context-isolated, no Node, no
  * preload, no permissions, no downloads, no popups. Every request the page makes is checked by reachNet.ts's rules and
- * its host's DNS answers (private addresses refused unless the owner allowed that host), counted and sized. Our scripts
- * run in an isolated world the page can't reach.
+ * its host's DNS answers (private addresses refused unless the owner allowed that host), counted and sized (the bytes
+ * as they arrive, through the page's debugger); its dialogs are dismissed (pageEvents.ts). Our scripts run in an
+ * isolated world the page can't reach.
  */
 
 const PARTITION = "reach-web"; // no "persist:": in memory only
@@ -25,6 +27,8 @@ interface CallState {
   dns: Map<string, Promise<boolean>>;
   requests: number;
   bytes: number;
+  /** The page's debugger counts the bytes as they arrive (chunked answers too); else each answer's Content-Length */
+  counting: boolean;
   /** Why the main frame was refused (ends the call) */
   refused: string | null;
   /** A limit reached */
@@ -92,9 +96,11 @@ function webSession(): Session {
   s.webRequest.onHeadersReceived((details, cb) => {
     const st = details.webContentsId !== undefined ? calls.get(details.webContentsId) : undefined;
     if (!st) return cb({ cancel: true });
-    const len = Number(Object.entries(details.responseHeaders ?? {}).find(([k]) => k.toLowerCase() === "content-length")?.[1]?.[0] ?? 0);
-    st.bytes += Number.isFinite(len) ? len : 0;
-    if (st.bytes > REACH_LIMITS.web.bytes) {
+    const header = Number(Object.entries(details.responseHeaders ?? {}).find(([k]) => k.toLowerCase() === "content-length")?.[1]?.[0] ?? 0);
+    const len = Number.isFinite(header) ? header : 0;
+    // Counted as they arrive: an answer that says it would go over is refused before its body; else counted here.
+    if (!st.counting) st.bytes += len;
+    if (st.bytes + (st.counting ? len : 0) > REACH_LIMITS.web.bytes) {
       st.over ??= `the page is larger than ${Math.round(REACH_LIMITS.web.bytes / 1024 / 1024)} MB`;
       return cb({ cancel: true });
     }
@@ -119,7 +125,7 @@ async function openPage(url: string, ctx: RunContext, width: number, height: num
   const allowed = ctx.settings.web.allowedHosts;
   const first = checkWebUrl(url, allowed);
   if (!first.ok) throw new Error(first.reason);
-  const st: CallState = { allowed, dns: new Map(), requests: 0, bytes: 0, refused: null, over: null };
+  const st: CallState = { allowed, dns: new Map(), requests: 0, bytes: 0, counting: false, refused: null, over: null };
   if (!first.allowedLocal && !first.literal && !(await publicHost(st, first.host))) throw new Error(`${first.hostPort} resolves to a local or private address (or doesn't resolve)`);
   const win = new BrowserWindow({
     show: false,
@@ -146,12 +152,29 @@ async function openPage(url: string, ctx: RunContext, width: number, height: num
   wc.setAudioMuted(true);
   wc.setFrameRate(15);
   try {
-    // The page in light mode unless asked (the owner's Mac may be dark): emulated for this page only.
+    // Through the page's debugger, before it loads: light mode unless asked (the owner's Mac may be dark), for this page
+    // only; no dialog (alert, confirm, prompt, print) ever waits on an answer nobody gives; the bytes counted as they
+    // arrive. Each one alone: what fails leaves the page's own default (and the bytes to Content-Length).
     try {
       wc.debugger.attach("1.3");
-      await within(wc.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: scheme }] }), 1000, null);
+      // The debugger's commands wait for a renderer, which a new window has only once it loads something: an empty page
+      // first, so they are in place before the page's own document (found running it: without it they ran late or not).
+      await within(wc.loadURL("about:blank").catch(() => undefined), 3000, undefined);
+      const cdp = (method: string, params?: object) => within(wc.debugger.sendCommand(method, params).then(() => true, () => false), 1000, false);
+      wc.debugger.on("message", (_e, method: string, params: Record<string, unknown>) => {
+        const act = pageEvent(st, method, params ?? {}, REACH_LIMITS.web.bytes);
+        if (!act) return;
+        if ("dismiss" in act) return void cdp("Page.handleJavaScriptDialog", { accept: false });
+        // Over the limit: nothing more comes in (requests from here on are refused at their headers too).
+        st.over ??= act.over;
+        if (!wc.isDestroyed()) wc.stop();
+      });
+      await cdp("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: scheme }] });
+      await cdp("Page.enable");
+      await cdp("Page.addScriptToEvaluateOnNewDocument", { source: NO_DIALOGS });
+      st.counting = await cdp("Network.enable");
     } catch {
-      /* the page's own default */
+      /* the page's own defaults */
     }
     const loaded = new Promise<string | null>((resolve) => {
       wc.once("did-finish-load", () => resolve(null));

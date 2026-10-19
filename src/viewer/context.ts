@@ -33,6 +33,26 @@ export interface ViewerHost {
   onReadyView?(): void;
   /** Dev Mode's round 5 data (dev resources, Code Connect, codegen plugins); the viewer gives its preview's */
   dev?: DevData;
+  /** Inspect's MCP section (the editor's: this app's MCP server; absent in the viewer) */
+  mcp?: McpHost;
+  /** The selection header's link button: copies a link to the layer */
+  onCopyLink?(id: string): void;
+}
+
+/**
+ * Inspect's MCP section (Figma's Dev Mode, the owner's capture owner-2026-10-18/figma-devmode-inspect): the selection
+ * as an agent reads it through this app's MCP server (`get_design_context`) — its size in tokens, an example prompt
+ * naming the layer's link.
+ */
+export interface McpHost {
+  /** get_design_context's answer for the layer, in tokens (about 4 characters a token) */
+  tokens(nodeId: string): Promise<number>;
+  /** The link the example prompt names (the agents' tools take it, or its node id) */
+  link(nodeId: string): string;
+  /** "?": what the MCP server is and how to connect to it */
+  onHelp?(): void;
+  /** "+": set up agents (Agent settings) */
+  onSetup?(): void;
 }
 
 /** What Inspect reads and changes beyond the document (docs/editor.md D-1, D-3; docs/plugins.md §7). */

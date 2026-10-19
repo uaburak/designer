@@ -14,7 +14,7 @@ import { intlLocale, t as tr, tp, useT } from "@/i18n";
 import type * as O from "@shared/org/types";
 import type { FileKey } from "@shared/store/types";
 import { ConfirmDialog } from "./dialogs";
-import { FILTER_LABEL, SORT_KEYS, SORT_LABEL, type FileFilter, type Location, type SortKey } from "./model";
+import { CREATOR_FILTERS, CREATOR_LABEL, FILTER_LABEL, SORT_KEYS, SORT_LABEL, filterByCreator, type CreatorFilter, type FileFilter, type Location, type SharedSortKey } from "./model";
 import {
   GRANT_LABEL,
   INHERIT_LABEL,
@@ -80,6 +80,9 @@ export interface OrgMainProps {
   serverUrl?: string | null;
   /** Rename an org file through its local copy (the store renames it on the server too); absent: no Rename */
   renameFile?: (fileKey: FileKey, name: string) => Promise<unknown>;
+  /** Duplicate an org file through its local copy: the local "‹name› (Copy)" (`workspace.duplicateFile`), and the copy
+   *  dropped again when the server refuses it (`deleteForever`); absent: no Duplicate */
+  duplicate?: { make: (fileKey: FileKey) => Promise<{ fileKey: FileKey }>; discard: (fileKey: FileKey) => Promise<unknown> };
   /** When this installation last opened a file (its local copy's Recents time), for All projects' order; absent: never */
   viewedAt?: (fileKey: FileKey) => number | null;
   /** Starred (Home's Starred, by the file's local copy); absent: no star on the cards */
@@ -88,10 +91,14 @@ export interface OrgMainProps {
   /** A local copy's card picture (the editor's thumbnail, as on local cards); absent or null: the server's, if any */
   localThumbnail?: (fileKey: FileKey) => Promise<string | null>;
   /** Home's filter, sort and view (the same prefs as the local pages): the controls at each page's header right */
-  browse?: { layout: "grid" | "list"; sort: SortKey };
-  onBrowse?: (patch: { layout?: "grid" | "list"; sort?: SortKey }) => void;
+  browse?: { layout: "grid" | "list"; sort: SharedSortKey };
+  onBrowse?: (patch: { layout?: "grid" | "list"; sort?: SharedSortKey }) => void;
   filter?: FileFilter;
   onFilter?: (f: FileFilter) => void;
+  /** Figma's "Created by" (org files have their creator): anyone, the signed-in user (`me`), or others */
+  creator?: CreatorFilter;
+  onCreator?: (c: CreatorFilter) => void;
+  me?: string | null;
 }
 
 /** Where files can be added in an org: its Drafts or a folder (a team holds folders only) */
@@ -156,7 +163,7 @@ const pageKey = (loc: Location) => JSON.stringify(loc);
 
 export function OrgMain(props: OrgMainProps) {
   useT();
-  const { org, orgId, info, location, page, reload, go, nav, openFile, onBranches, toast, now, noCreate = false, blocked, banner, onImport, onImportFiles, serverUrl, renameFile, viewedAt, isStarred, setStarred, localThumbnail, browse, onBrowse, filter = "all", onFilter } = props;
+  const { org, orgId, info, location, page, reload, go, nav, openFile, onBranches, toast, now, noCreate = false, blocked, banner, onImport, onImportFiles, serverUrl, renameFile, duplicate, viewedAt, isStarred, setStarred, localThumbnail, browse, onBrowse, filter = "all", onFilter, creator = "anyone", onCreator, me = null } = props;
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -336,6 +343,8 @@ export function OrgMain(props: OrgMainProps) {
             ...(serverUrl ? ["-" as const, { id: "copy-link", label: tr("Copy link") }] : []),
             ...(hasAnalytics && libraryKeys.has(f.key) ? ["-" as const, { id: "library-analytics", label: tr("Library analytics") }] : []),
             "-",
+            // Duplicate copies the file: not where its viewers may not copy (docs/governance.md §2.7) or prototypes only
+            ...(duplicate ? [{ id: "duplicate", label: tr("Duplicate"), disabled: !f.access.canExport || f.access.prototypeOnly }] : []),
             ...(renameFile ? [{ id: "rename", label: tr("Rename"), disabled: !may }] : []),
             { id: "move", label: tr("Move to…"), disabled: !may },
             "-",
@@ -346,6 +355,7 @@ export function OrgMain(props: OrgMainProps) {
         if (id === "open-new-tab") void openOrgFile(f, true);
         if (id === "copy-link") copyLink(f);
         if (id === "library-analytics") setDialog({ kind: "library-analytics", key: f.key, name: f.name });
+        if (id === "duplicate") void duplicateFile(f);
         if (id === "rename") setDialog({ kind: "rename-file", file: f });
         if (id === "move") void moveFiles([f]);
         if (id === "trash") void write(() => org.projects.trashFiles([f.key]), tr("File moved to trash"));
@@ -376,6 +386,31 @@ export function OrgMain(props: OrgMainProps) {
     });
   };
 
+  /**
+   * Duplicate (Figma's file menu; help.figma.com: the copy goes where the original is, else to the person's drafts):
+   * "‹name› (Copy)" made from the file's local copy (made first when there is none) and shared into the same folder as
+   * Move to… shares a local file, the server checking the person may copy from the original (`fig_file_duplicate`).
+   * A draft's copy, or one the folder won't take, stays in this computer's Drafts; one the original refuses is dropped.
+   */
+  const duplicateFile = async (f: O.OrgFile) => {
+    if (!duplicate) return;
+    await write(async () => {
+      const fileKey = f.fileKey ?? (await org.openShared(f.key)).fileKey;
+      const copy = await duplicate.make(fileKey);
+      if (!f.projectId) return toast({ message: tr("Duplicated to Drafts") });
+      try {
+        await org.projects.moveLocalFile(copy.fileKey, f.projectId, { ...(await org.snapshotOf(copy.fileKey)), duplicateOf: f.key });
+        toast({ message: tr("File duplicated") });
+      } catch (e) {
+        if ((e as { detail?: { code?: unknown } }).detail?.code === "export_restricted") {
+          await duplicate.discard(copy.fileKey).catch(() => undefined);
+          throw e;
+        }
+        toast({ message: tr("Duplicated to Drafts: {error}", { error: orgErrorText(e) }) });
+      }
+    });
+  };
+
   const join = async (t: O.TeamSummary) => {
     const r = await write(() => org.teams.join(t.id));
     if (r) toast({ message: r.status === "joined" ? tr("You joined {name}", { name: t.name }) : tr("Asked to join {name}", { name: t.name }) });
@@ -403,13 +438,16 @@ export function OrgMain(props: OrgMainProps) {
     const viewed = (f: O.OrgFile) => Math.max(f.createdAt, (f.fileKey && viewedAt?.(f.fileKey)) || 0);
     const by: (a: O.OrgFile, b: O.OrgFile) => number =
       sortKey === "alphabetical" ? (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }) : sortKey === "date-created" ? (a, b) => b.createdAt - a.createdAt : sortKey === "last-modified" ? (a, b) => b.updatedAt - a.updatedAt : (a, b) => viewed(b) - viewed(a);
-    return files.filter((f) => filter === "all" || f.editorType === filter).sort(by);
+    return filterByCreator(files, me ? creator : "anyone", (f) => f.ownerId === me)
+      .filter((f) => filter === "all" || f.editorType === filter)
+      .sort(by);
   };
   const controls = (withFiles = true) => (
     <div className={styles.pageControls}>
+      {withFiles && onCreator && me && <Select label={tr("Created by")} variant="outlined" width="hug" value={creator} options={CREATOR_FILTERS.map((c) => ({ value: c, label: tr(CREATOR_LABEL[c]) }))} onChange={(v) => onCreator(v as CreatorFilter)} />}
       {withFiles && onFilter && <Select label={tr("Files shown")} variant="outlined" width="hug" value={filter} options={(["all", "design"] as FileFilter[]).map((f) => ({ value: f, label: tr(FILTER_LABEL[f]) }))} onChange={(v) => onFilter(v as FileFilter)} />}
       {withFiles && onBrowse && (
-        <MenuButton label={tr("Sort")} entries={[{ header: tr("Sort by") }, ...SORT_KEYS.map((k) => ({ id: k, label: tr(SORT_LABEL[k]), checked: sortKey === k }))]} onSelect={(id) => onBrowse({ sort: id as SortKey })}>
+        <MenuButton label={tr("Sort")} entries={[{ header: tr("Sort by") }, ...SORT_KEYS.map((k) => ({ id: k, label: tr(SORT_LABEL[k]), checked: sortKey === k }))]} onSelect={(id) => onBrowse({ sort: id as SharedSortKey })}>
           <span className={styles.sortLabel}>
             {tr(SORT_LABEL[sortKey])}
             <Icon name="16.chevron.down" />

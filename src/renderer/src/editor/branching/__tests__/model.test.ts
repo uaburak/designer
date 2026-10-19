@@ -2,7 +2,7 @@
 // and Resolve all as Resolutions, review badges and roles, links.
 import { describe, expect, it } from "vitest";
 import { fakeChunk as chunk } from "../fake/memoryBranches";
-import { allPicked, branchBadge, branchLink, changeTag, groupChunks, pickAll, pickOf, reviewRole, sendLabel, withPick } from "../model";
+import { allPicked, branchBadge, branchLink, changeTag, detailLines, groupChunks, pickAll, pickOf, propertyName, reviewRole, sendLabel, withPick } from "../model";
 
 describe("branching model", () => {
   it("groups chunks by page in order, the internal page's last as Assets", () => {
@@ -16,6 +16,25 @@ describe("branching model", () => {
 
   it("tags chunks Added / Edited / Removed by their display node's phase", () => {
     expect([changeTag({ phase: "CREATED" }), changeTag({ phase: null }), changeTag({ phase: "REMOVED" })]).toEqual(["Added", "Edited", "Removed"]);
+    // Figma's UPDATED_LIBRARY: a library copy the other side updated
+    expect(changeTag({ phase: null, libraryUpdate: true })).toBe("Updated library");
+  });
+
+  it("says each property's change once, in the panel's words", () => {
+    expect(propertyName("fillPaints")).toBe("Fill");
+    expect(propertyName("stackPrimarySizing")).toBe("Stack primary sizing");
+    expect(detailLines({ phase: "created", fields: [] })).toEqual(["Added"]);
+    expect(
+      detailLines({
+        phase: "updated",
+        fields: [
+          { field: "fillPaints", change: "changed" },
+          { field: "rectangleTopLeftCornerRadius", change: "added" },
+          { field: "rectangleTopRightCornerRadius", change: "added" },
+          { field: "effects", change: "removed" },
+        ],
+      }),
+    ).toEqual(["Fill changed", "Corner radius added", "Effects removed"]);
   });
 
   it("picks per chunk, Resolve all, and single conflict picks", () => {

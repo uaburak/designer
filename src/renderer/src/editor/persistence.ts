@@ -372,7 +372,26 @@ function trackSnapshot(ed: EditorController): () => void {
   };
 }
 
+/**
+ * The undo history across sessions (docs/engine.md §9.3; Figma's localUndoStack / localRedoStack, kept per device): the
+ * last session's taken back as the file opens where it was left, this one's handed to the source as the editor goes
+ * (the last 100 steps, 16 MB at most), written when it closes.
+ */
+function trackUndoHistory(ed: EditorController): () => void {
+  const kept = ed.source.undoHistory;
+  if (kept && !ed.engine.importUndoHistory(kept)) console.warn("undo history: the last session's couldn't be read");
+  return () => {
+    if (!ed.source.keepUndoHistory || ed.engine.destroyed) return;
+    try {
+      const bytes = ed.engine.exportUndoHistory();
+      ed.source.keepUndoHistory(bytes.length ? bytes : null);
+    } catch (e) {
+      console.warn("undo history: couldn't keep it", e);
+    }
+  };
+}
+
 export function attachPersistence(ed: EditorController): () => void {
-  const offs = [trackUiState(ed), trackThumbnail(ed), trackSnapshot(ed)];
+  const offs = [trackUiState(ed), trackThumbnail(ed), trackSnapshot(ed), trackUndoHistory(ed)];
   return () => offs.forEach((off) => off());
 }

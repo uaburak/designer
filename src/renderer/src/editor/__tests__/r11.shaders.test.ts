@@ -89,7 +89,7 @@ describe("shader presets (round 11)", () => {
   it("names a shader effect's row by its preset, with the shader glyph", () => {
     const e = shaderEffect(null, shaderPreset("shader.bloom")!) as Parameters<typeof effectLabel>[0];
     expect(effectLabel(e)).toBe("Bloom");
-    expect(effectIcon(e)).toBe("24.shader.small");
+    expect(effectIcon(e)).toBe("24.effect.shader.small");
     expect(effectLabel({ type: "DROP_SHADOW" })).toBe("Drop shadow");
   });
 });

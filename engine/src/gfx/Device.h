@@ -174,6 +174,17 @@ class Device {
   // Inside a pass: copies `rect` of the bound target (origin top left, its content height being the
   // pass viewport's) into `texture` at (0, 0), rows flipped as rendering stores them.
   virtual void copyToTexture(TextureId texture, IRect rect) = 0;
+  // Inside a pass: copies each region's `src` (as copyToTexture's rect) into `texture` with its bottom-left texel at
+  // (x, y) (texels, rows from the bottom as rendering stores them), the whole texture cleared to transparent first
+  // when `clear` — one step for many regions (WebGPU: one render pass on the texture). `grow` repeats the region's
+  // edge texels that far past it (left, bottom, right, top; texels): a backdrop the canvas's edge cuts reads on as
+  // a texture clamped at its edge would. Background blurs' backdrops into one atlas (round 18).
+  struct CopyRegion {
+    IRect src;
+    int x = 0, y = 0;
+    int grow[4] = {0, 0, 0, 0};
+  };
+  virtual void copyRegionsToTexture(TextureId texture, std::span<const CopyRegion> regions, bool clear) = 0;
   // A texture (contents undefined); 0 when it can't be made.
   virtual TextureId createTexture(const TextureDesc& desc) = 0;
   TextureId createTexture(TextureFormat format, uint32_t width, uint32_t height) {

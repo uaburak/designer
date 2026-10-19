@@ -4,11 +4,19 @@
 // along the line. Dragging a handle rewrites the paint's transform, dragging a
 // stop its position, a click on the line adds a stop, ⌫ deletes the selected
 // one. Each drag is one undo step.
+//
+// The same session edits a progressive blur's line (Figma's PROGRESSIVE_BLUR edit mode, atlas 08 §6.2): its Start
+// and End handles at the effect's startOffset / endOffset (the node's box, 0..1); dragging one moves it, one undo
+// step; the panel's hovered Start / End field marks its handle.
 
 #include <algorithm>
 #include <cmath>
 
+#include "base/Json.h"
 #include "editor/Editor.h"
+#include "render/GradientRamp.h"
+#include "scene/CodecKiwi.h"
+#include "scene/Extras.h"
 
 namespace eng {
 
@@ -36,10 +44,60 @@ Mat2x3 transformFromHandles(bool linear, const Vec2 h[3]) {
   return inv.inverse();
 }
 
+bool progressiveBlur(const Effect& e) {
+  return (e.type == EffectType::FOREGROUND_BLUR || e.type == EffectType::BACKGROUND_BLUR) && effectExtras(e).blurOpType == BlurOpType::PROGRESSIVE;
+}
+
+// The effect with its Start (`end` false) or End point moved to `at` (the node's box, 0..1).
+Effect withBlurPoint(const Effect& e, bool end, Vec2 at) {
+  const char* key = end ? "endOffset" : "startOffset";
+  json::Value v;
+  v.kind = json::Value::Kind::Object;
+  json::Value x, y;
+  x.kind = y.kind = json::Value::Kind::Number;
+  x.number = at.x, y.number = at.y;
+  v.object = {{"x", x}, {"y", y}};
+  Effect out = e;
+  out.extra = codec::withoutField("Effect", out.extra, codec::fieldIdOf("Effect", key)) + codec::extraFromJson("Effect", key, v);
+  return out;
+}
+
 }  // namespace
 
+const Effect* Editor::editedBlur() const {
+  const Node* n = paint_.node != kNoGuid && paint_.effect ? doc_.get(paint_.node) : nullptr;
+  if (!n || paint_.index >= n->props.effects.size() || !progressiveBlur(n->props.effects[paint_.index])) return nullptr;
+  return &n->props.effects[paint_.index];
+}
+
+Status Editor::startBlurEdit(Guid id, uint32_t index) {
+  const Node* n = doc_.get(id);
+  if (!n) return E_NOT_FOUND;
+  if (index >= n->props.effects.size() || !progressiveBlur(n->props.effects[index])) return E_INVALID;
+  if (vector_.node != kNoGuid) endVectorEdit();
+  if (text_.node != kNoGuid) endTextEdit();
+  paint_ = PaintSession{};
+  paint_.node = id;
+  paint_.effect = true;
+  paint_.index = index;
+  paint_.stop = -1;
+  if (std::find(selection_.begin(), selection_.end(), id) == selection_.end()) changeSelection({id});
+  paintChanged();
+  return OK;
+}
+
+void Editor::writeBlur(const Effect& e) {
+  const Node* n = doc_.get(paint_.node);
+  if (!n || paint_.index >= n->props.effects.size()) return;
+  NodeChange c = NodeChange::changed(paint_.node);
+  c.mask = F_EFFECTS;
+  c.props.effects = n->props.effects;
+  c.props.effects[paint_.index] = e;
+  write(c);
+}
+
 const Paint* Editor::editedPaint() const {
-  const Node* n = paint_.node != kNoGuid ? doc_.get(paint_.node) : nullptr;
+  const Node* n = paint_.node != kNoGuid && !paint_.effect ? doc_.get(paint_.node) : nullptr;
   if (!n) return nullptr;
   const auto& list = paint_.strokes ? n->props.strokePaints : n->props.fillPaints;
   if (paint_.index >= list.size() || !list[paint_.index].isGradient()) return nullptr;
@@ -81,6 +139,13 @@ void Editor::endPaintEdit() {
 }
 
 Status Editor::setPaintStop(int stop) {
+  if (paint_.effect) {
+    // A progressive blur: the handle the panel's hovered field names (0 Start, 1 End, −1 none).
+    if (!editedBlur() || stop < -1 || stop > 1) return E_INVALID;
+    paint_.stop = stop;
+    paintChanged();
+    return OK;
+  }
   const Paint* p = editedPaint();
   if (!p || stop < 0 || static_cast<size_t>(stop) >= p->stops.size()) return E_INVALID;
   paint_.stop = stop;
@@ -106,6 +171,28 @@ void Editor::writePaint(const Paint& p) {
 }
 
 uint32_t Editor::paintPointerDown(Vec2 s, uint32_t mods) {
+  if (paint_.effect) {
+    // A progressive blur: grab its Start or End handle (the nearer one wins).
+    const Effect* e = editedBlur();
+    if (!e) {
+      endPaintEdit();
+      return 0;
+    }
+    const Node* n = doc_.get(paint_.node);
+    Mat2x3 toScreen = camera_.matrix() * doc_.worldTransform(paint_.node) * Mat2x3{n->props.size.x, 0, 0, 0, n->props.size.y, 0};
+    const EffectExtras& x = effectExtras(*e);
+    double d0 = (toScreen.apply(x.startOffset) - s).length(), d1 = (toScreen.apply(x.endOffset) - s).length();
+    if (std::min(d0, d1) > kHandleReach) return 0;
+    paint_.handle = d1 < d0 ? 1 : 0;
+    paint_.stop = paint_.handle;
+    paint_.effectStart = *e;
+    paint_.dragged = false;
+    paint_.drag = PaintSession::Drag::Handle;
+    begin(TxnKind::GESTURE, "Edit progressive blur");
+    gesture_ = Gesture::Paint;
+    paintChanged();
+    return P_HANDLED | P_CAPTURE;
+  }
   const Paint* p = editedPaint();
   if (!p) {
     endPaintEdit();
@@ -152,12 +239,15 @@ uint32_t Editor::paintPointerDown(Vec2 s, uint32_t mods) {
     std::vector<ColorStop> sorted = q.stops;
     std::sort(sorted.begin(), sorted.end(), [](auto& x, auto& y) { return x.position < y.position; });
     Color c = sorted.empty() ? Color{} : sorted.front().color;
+    // The colour there as the gradient draws it: blended in its interpolation space (Paint 41 / 42, the ramp's own).
+    const PaintExtras& px = paintExtras(q);
     for (size_t i = 1; i < sorted.size(); i++)
       if (sorted[i].position >= t) {
         const ColorStop &x = sorted[i - 1], &y = sorted[i];
         double f = y.position > x.position ? (t - x.position) / (y.position - x.position) : 0;
-        c = {static_cast<float>(x.color.r + (y.color.r - x.color.r) * f), static_cast<float>(x.color.g + (y.color.g - x.color.g) * f),
-             static_cast<float>(x.color.b + (y.color.b - x.color.b) * f), static_cast<float>(x.color.a + (y.color.a - x.color.a) * f)};
+        RampColor m = interpolateColor(x.color, y.color, f, px.interpolationColorSpace, px.interpolationHueMethod);
+        auto ch = [](double v) { return static_cast<float>(std::clamp(v, 0.0, 1.0)); };
+        c = {ch(m.r), ch(m.g), ch(m.b), ch(m.a)};
         break;
       }
     q.stops.push_back({c, t});
@@ -180,6 +270,12 @@ void Editor::paintPointerMove(Vec2 s, uint32_t mods) {
   if (!n) return;
   Mat2x3 toUnit = (camera_.matrix() * doc_.worldTransform(paint_.node) * Mat2x3{n->props.size.x, 0, 0, 0, n->props.size.y, 0}).inverse();
   Vec2 u = toUnit.apply(s);
+  if (paint_.effect) {
+    // The handle follows the pointer, past the layer's box too (Figma's clamping there is unread: atlas 08 open questions).
+    writeBlur(withBlurPoint(paint_.effectStart, paint_.handle == 1, u));
+    paintChanged();
+    return;
+  }
   Paint q = paint_.start;
   Vec2 h[3];
   paintHandles(paint_.start, h);
@@ -233,6 +329,25 @@ void Editor::paintPointerUp() {
 }
 
 void Editor::paintOverlay(Overlay& o) const {
+  if (paint_.effect) {
+    // A progressive blur: the line from Start to End and its two handles (the marked or dragged one selected).
+    const Effect* e = editedBlur();
+    const Node* n = e ? doc_.get(paint_.node) : nullptr;
+    if (!n) return;
+    Mat2x3 toWorld = doc_.worldTransform(paint_.node) * Mat2x3{n->props.size.x, 0, 0, 0, n->props.size.y, 0};
+    const EffectExtras& x = effectExtras(*e);
+    Vec2 a = toWorld.apply(x.startOffset), b = toWorld.apply(x.endOffset);
+    o.lines.push_back({a, b, false, true});
+    OverlayMark m;
+    m.shape = OverlayMark::Shape::GradientHandle;
+    m.world = a;
+    m.selected = paint_.stop == 0;
+    o.marks.push_back(m);
+    m.world = b;
+    m.selected = paint_.stop == 1;
+    o.marks.push_back(m);
+    return;
+  }
   const Paint* p = editedPaint();
   const Node* n = paint_.node != kNoGuid ? doc_.get(paint_.node) : nullptr;
   if (!p || !n) return;

@@ -84,6 +84,8 @@
     border-bottom: 1px solid var(--figma-color-border);
   }
   .navStripOn { background: var(--figma-color-bg-selected); }
+  /* Dev Mode's navigation bar: the active tab in Dev Mode's green (the owner's capture owner-2026-10-18) */
+  .devRail { --figma-color-bg-selected: var(--ds-color-devmode-selected); --figma-color-icon-brand: var(--ds-color-devmode-text); }
   /* A tab's header (Assets, Tools, Agents; live): 48 and its line, the title 13 / 550 at 16, actions 12 from the edge */
   .tabHeader {
     display: flex;
@@ -199,6 +201,11 @@
   }
   /* Share: live 55 × 32 (held: the label alone comes out a fraction wider and would move the Present group off its pixel) */
   .share { flex: none; width: 55px; }
+  .devShare {
+    --figma-color-bg-brand: var(--figma-color-bg-success);
+    --figma-color-bg-brand-hover: var(--figma-color-bg-success-hover);
+    --figma-color-bg-brand-pressed: var(--figma-color-bg-success-pressed);
+  }
   /* An "Ask to edit" request waiting (R13 §2: a red badge on Share) */
   .share[data-requests] { position: relative; overflow: visible; }
   .share[data-requests]::after { position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; border: 2px solid var(--figma-color-bg); border-radius: 50%; background: var(--figma-color-bg-danger); content: ""; }
@@ -228,6 +235,10 @@
     font: var(--ds-font-body-medium-strong);
     letter-spacing: var(--ds-tracking-body-medium-strong);
   }
+  /* Motion mode (the owner's capture, 2026-10-18): "Motion" 11/550 at 16 with a "Beta" chip — 1 px border, corners 4 — in place of the tabs */
+  .motionHeader { padding-left: var(--ds-size-panel-pad-left); }
+  .motionTitle { display: flex; align-items: center; height: var(--ds-size-control); gap: var(--ds-space-1); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium); }
+  .betaChip { display: inline-flex; align-items: center; box-sizing: border-box; height: 16px; padding: 0 var(--ds-space-1); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium); color: var(--figma-color-text); font: var(--ds-font-body-medium); }
   /* The zoom (live: 62 × 24 at 300%, its text 12 from the left edge, the chevron 16 with 4 after it) */
   .zoom {
     display: flex;
@@ -248,6 +259,22 @@
   .zoom:hover, .zoom[data-open] { background: var(--figma-color-bg-hover); }
   .zoom:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .zoom svg { color: var(--figma-color-icon-secondary); }
+  /* The zoom menu's field (Figma's `zoom_menu` input; its look isn't captured: a 24 field across the menu, G) */
+  .zoomField {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-2);
+    border: 1px solid var(--ds-color-menu-separator);
+    border-radius: var(--ds-radius-medium);
+    outline: none;
+    background: transparent;
+    color: var(--ds-color-menu-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    font-variant-numeric: tabular-nums;
+  }
+  .zoomField:focus { border-color: var(--figma-color-border-selected); }
   .rightBody { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; }
 
   /* ---- Minimized UI (⇧⌘\): the panels as two floating cards ---- */
@@ -297,6 +324,8 @@
   .missingName > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .missingStyle { color: var(--figma-color-text-secondary); }
   .missingPick { display: grid; grid-template-columns: 1fr 1fr; gap: var(--ds-space-2); min-width: 0; }
+  .missingSelect, .missingScope { align-self: flex-start; }
+  .missingWholePage { margin-right: auto; }
 }
 /* Tools: the plugins by source (docs/plugins.md §6) — a section header, then 32px rows with the plugin glyph */
 .toolsList { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-bottom: var(--ds-space-2); }

@@ -3,8 +3,10 @@
  * names a file after its layer plus the setting's suffix ("HomePage" +
  * "@2x" → "HomePage@2x.png"), and a layer name with slashes makes folders
  * ("button/pill/default" → button/pill/default.png). Names are made safe for
- * a file system and kept apart Finder-style ("Frame 1 2.png") when two files
- * — or a file already in the folder — would share one.
+ * a file system and kept apart as Figma's archive does (`_uniqueArchiveFilename`,
+ * atlas 15 §7): the first keeps its name, the next get the base and a number
+ * from 1 with no space ("Frame.png", "Frame1.png", "Frame2.png") — also when a
+ * file already in the folder has the name.
  */
 
 /** One name's path parts, each safe for macOS, Windows and Linux; empty parts and "."/".." dropped. */
@@ -37,7 +39,7 @@ export function planExportPaths(names: readonly string[], taken: (path: string) 
     const [base, ext] = splitExt(parts[parts.length - 1]);
     const at = (file: string) => (dir ? `${dir}/${file}` : file);
     let path = at(base + ext);
-    for (let n = 2; !free(path); n++) path = at(`${base} ${n}${ext}`);
+    for (let n = 1; !free(path); n++) path = at(`${base}${n}${ext}`);
     used.add(path.toLowerCase());
     return path;
   });

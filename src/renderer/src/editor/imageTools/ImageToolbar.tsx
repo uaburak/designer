@@ -146,14 +146,30 @@ function VectorizeControls({ tools }: { tools: ImageTools }) {
     );
   const s = session.settings;
   const mode = VECTORIZE_MODES.find((m) => m.id === s.mode)!;
+  const range = session.range(s.mode);
   return (
     <>
       <SegmentedControl label={t("Mode")} tone="toolbar" value={s.mode} options={VECTORIZE_MODES.map((m) => ({ value: m.id, label: t(m.label) }))} onChange={(v) => session.set({ mode: v as VectorizeMode })} />
       <ToolbarDivider />
       <label className={styles.setting}>
         {t(mode.settingLabel)}
-        <input type="range" min={mode.min} max={mode.max} step={1} value={s[mode.setting]} aria-label={t(mode.settingLabel)} onChange={(e) => session.set({ [mode.setting]: Number(e.currentTarget.value) })} />
-        <span className={styles.value}>{s[mode.setting]}</span>
+        <input
+          type="range"
+          min={range.min}
+          max={range.max}
+          step={range.step}
+          value={s[mode.setting]}
+          aria-label={t(mode.settingLabel)}
+          onChange={(e) => session.set({ [mode.setting]: Number(e.currentTarget.value) })}
+          onKeyDown={(e) => {
+            // Figma's big step with Shift (10 colours / grays, 0.1 of the threshold).
+            if (!e.shiftKey || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
+            e.preventDefault();
+            const sign = e.key === "ArrowLeft" || e.key === "ArrowDown" ? -1 : 1;
+            session.set({ [mode.setting]: Math.min(range.max, Math.max(range.min, Math.round((s[mode.setting] + sign * range.bigStep) * 100) / 100)) });
+          }}
+        />
+        <span className={styles.value}>{mode.setting === "threshold" ? s.threshold.toFixed(2) : s[mode.setting]}</span>
       </label>
       {session.stats?.exceeded && <span className={styles.stats}>{t("Too detailed to preview")}</span>}
       <ToolbarDivider />
@@ -232,6 +248,13 @@ export function ImageToolbar() {
   useEffect(() => {
     if (!mode) return;
     const onKey = (e: KeyboardEvent) => {
+      // Enter applies Vectorize's Recolor (Figma's ✓).
+      if (e.key === "Enter" && mode === "vectorize" && tools.state.get().vectorize) {
+        e.stopPropagation();
+        e.preventDefault();
+        tools.applyVectorize();
+        return;
+      }
       if (e.key !== "Escape") return;
       e.stopPropagation();
       if (tools.running) tools.cancel();
@@ -322,13 +345,15 @@ export function ImageToolbar() {
             flush
             label={t("More image tools")}
             width={189}
-            entries={MORE.map((m) => ({ ...m, label: t(m.label), disabled: m.id !== "boost" && !one }))}
+            // Then, past a line, Visual search (Figma's More menu, atlas 02 §2: the selection's images as the query).
+            entries={[...MORE.map((m) => ({ ...m, label: t(m.label), disabled: m.id !== "boost" && !one })), "-", { id: "visual-search", label: t("Visual search") }]}
             ignore={more}
             onSelect={(id) => {
               setMenuAt(null);
               if (id === "expand") tools.open("expand");
               else if (id === "boost") void tools.boostResolution();
               else if (id === "vectorize") void tools.startVectorize();
+              else if (id === "visual-search") findMoreLike();
             }}
             onClose={() => setMenuAt(null)}
           />

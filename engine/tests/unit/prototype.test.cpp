@@ -76,9 +76,14 @@ struct Fixture {
     player.pointer(PointerEvent::DOWN, x, y, 1, 0);
     player.pointer(PointerEvent::UP, x, y, 0, 0);
   }
+  // Frames of at most 16 ms (the player's frame clock caps a longer one at 1/30 s).
   void advance(double ms) {
-    t += ms;
-    player.tick(t);
+    while (ms > 0) {
+      double step = std::min(16.0, ms);
+      t += step;
+      ms -= step;
+      player.tick(t);
+    }
   }
 };
 
@@ -223,16 +228,17 @@ TEST_CASE("prototype.player: transitions draw both screens, then the new one") {
   CHECK(f.player.animating());
   f.advance(200);  // half way, linear
   const PresentScene& s = f.player.scene();
-  // A and B both drawn: A pushed left by half the screen, B coming from the right.
+  // A and B both drawn: A pushed left by half the screen, B coming from the right — Push from right is Figma's Push
+  // from left reversed, so the leaving screen is drawn on top (atlas 13 §5.3).
   std::vector<std::pair<Guid, double>> placed;
   for (auto& item : s.items)
     if (item.kind == PresentItem::Kind::Node && (item.node == A || item.node == B)) placed.emplace_back(item.node, item.parentCss.m02);
   REQUIRE(placed.size() == 2);
-  CHECK(placed[0].first == A);
-  CHECK(placed[1].first == B);
+  CHECK(placed[0].first == B);
+  CHECK(placed[1].first == A);
   // parentCss maps the page to CSS: A's origin lands at −187.5 and B's at +187.5.
-  CHECK(placed[0].second + 0 == doctest::Approx(-187.5).epsilon(0.02));
-  CHECK(placed[1].second + 500 == doctest::Approx(187.5).epsilon(0.02));
+  CHECK(placed[1].second + 0 == doctest::Approx(-187.5).epsilon(0.02));
+  CHECK(placed[0].second + 500 == doctest::Approx(187.5).epsilon(0.02));
   f.advance(300);
   CHECK(!f.player.animating());
   const PresentScene& end = f.player.scene();
@@ -406,7 +412,9 @@ TEST_CASE("prototype.player: overflow scrolling, fixed layers, Scroll to, After 
   CHECK(f.player.scrollOf(TALL).y == doctest::Approx(2000 - 812));
   f.player.wheel(200, 500, 0, -5000);
   CHECK(f.player.scrollOf(TALL).y == 0);
-  // The horizontal list scrolls on its own, within its content (620 − 375).
+  // The horizontal list scrolls on its own, within its content (620 − 375) — once the page's wheel events are 0.2 s
+  // past (they keep scrolling the page until then).
+  f.advance(250);
   f.player.wheel(100, 200, 1000, 0);
   CHECK(f.player.scrollOf(LIST).x == doctest::Approx(245));
   CHECK(f.player.scrollOf(TALL).y == 0);
@@ -613,9 +621,9 @@ TEST_CASE("prototype.player: the device frame around the screen, Show device fra
   Fixture h(wide, 1200, 1000);
   REQUIRE(h.player.start(kPage, A));
   CHECK(h.player.scale() == proto::ScaleMode::FILL);
-  // Z goes through the options in the menu's order: Actual size → Responsive → …
+  // Z goes through the options in the file's order (small frames): Actual size → Fit width and height → …
   g.player.key(true, 90, 0);
-  CHECK(g.player.scale() == proto::ScaleMode::RESPONSIVE);
+  CHECK(g.player.scale() == proto::ScaleMode::FIT);
 }
 
 TEST_CASE("prototype.player: Responsive resizes the frame to the window and lays it out by its constraints") {
@@ -940,7 +948,7 @@ TEST_CASE("prototype.player: On drag scrubs Change to; released before half way 
   f.advance(16);
   // Dragged 30 px right of 100: 30 % of the switch's width.
   f.player.pointer(PointerEvent::DOWN, 110, 110, 1, 0);
-  f.player.pointer(PointerEvent::MOVE, 115, 110, 1, 0);
+  f.player.pointer(PointerEvent::MOVE, 116, 110, 1, 0);  // past 5 px: a drag
   CHECK(f.ed.mainOf(INST) == ON);
   CHECK(f.player.stateJson().find("\"scrubbing\":true") == std::string::npos);  // the screen's transition isn't scrubbing
   f.player.pointer(PointerEvent::MOVE, 140, 110, 1, 0);

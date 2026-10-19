@@ -35,6 +35,8 @@ export interface RoomVersion {
   restoredFrom?: string | null;
   libraryVersion?: number | null;
   user?: { id: string | null; name: string | null } | null;
+  /** The people whose changes it holds (docs/multiplayer.md §18.6); absent from a room before Phase 6 */
+  editors?: { id: string; name: string | null }[];
 }
 
 export interface RoomVersionDeps {
@@ -78,6 +80,8 @@ export function versionRecordOf(v: RoomVersion): VersionRecord {
     blobRefs: [],
     restoredFrom: v.restoredFrom ?? null,
     libraryVersion: v.libraryVersion ?? null,
+    // "Only yours" (docs/multiplayer.md §18.6): the room's editors; not recorded, the version is kept under it
+    ...(Array.isArray(v.editors) ? { editors: v.editors.map((e) => e.id) } : {}),
   };
 }
 

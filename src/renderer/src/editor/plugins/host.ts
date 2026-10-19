@@ -8,19 +8,22 @@ import type { Guid, NodeChange } from "@/engine/codec";
 import { dismissToast, showToast } from "@/ds";
 import { t } from "@/i18n";
 import { Status } from "@/engine/abi";
+import type { DevResourceRecord } from "@shared/devmode/types";
 import type { PluginManifest } from "@shared/plugins/types";
 import { allowedUrl, refusedMessage, uiCsp } from "@shared/plugins/network";
 import type { EditorController } from "../controller";
 import { refusalEnglish } from "../refusals";
 import { ApiError, decodeValue, encodeValue, MIXED } from "./api/codec";
-import { readNode, ref, refOf, type ApiContext } from "./api/context";
+import { mustNode, readNode, ref, refOf, type ApiContext } from "./api/context";
 import * as doc from "./api/document";
 import * as draw from "./api/draw";
-import { childrenOf, descendants, getPluginData, getProp, getRelaunchData, insertChild, nodeCss, pluginDataKeys, removeNode, rescale, resize, setPluginData, setProp, setRelaunchData, topLevelFrame } from "./api/nodes";
+import * as measurements from "./api/measurements";
+import { motionOps } from "./api/motion";
+import { appendChildAt, childrenOf, descendants, getPluginData, getProp, getRelaunchData, insertChild, nodeCss, pageOf, pluginDataKeys, removeNode, reorderGridTracks, rescale, resize, setGridChildPosition, setPluginData, setProp, setRelaunchData, topLevelFrame } from "./api/nodes";
 import type { PluginDesktop } from "./desktop";
 import bridgeSource from "./runtime/bridge.js?raw";
 import figmaSource from "./runtime/figma.js?raw";
-import type { PluginUiStore } from "./ui/store";
+import { centred, clampPosition, clampSize, savedPosition, savePosition, type PluginUiStore } from "./ui/store";
 import { DevWorkerVm } from "./vm/devWorker";
 import { QuickJsVm } from "./vm/quickjs";
 import { VmError, type PluginVm, type VmOptions } from "./vm/types";
@@ -52,12 +55,22 @@ export interface RunEnv {
   currentUser?(): { id: string | null; name: string; photoUrl: string | null } | null;
   saveVersion?(title: string, description: string): Promise<unknown>;
   openExternal?(url: string): void;
+  /** Dev Mode's dev resources of this file (the store's repository, devmode/round5.ts); null: none (no file key) */
+  devResources?: DevResourcesAccess | null;
   /** A VM factory (tests); default: QuickJS, or the developer VM */
   createVm?(options: VmOptions, developer: boolean): Promise<PluginVm>;
   /** Called once when the run has ended */
   onEnd?(run: PluginRun): void;
   /** One synchronous slice's limit (the main thread can't take Stop while plugin code runs); default 20 s */
   sliceTimeoutMs?: number;
+}
+
+/** What a run reads and writes of the file's dev resources (Figma's node.get / add / edit / deleteDevResourceAsync). */
+export interface DevResourcesAccess {
+  list(nodeIds: string[]): Promise<DevResourceRecord[]>;
+  add?(nodeId: string, input: { name: string; url: string }): Promise<DevResourceRecord>;
+  edit?(id: string, patch: { name?: string; url?: string }): Promise<DevResourceRecord>;
+  remove?(id: string): Promise<void>;
 }
 
 type Op = (...args: unknown[]) => unknown;
@@ -72,6 +85,11 @@ const IDLE_POLL_MS = 30;
 const SLICE_TIMEOUT_MS = 20_000;
 /** Figma's close handlers get a moment (ours: 500 ms) before the VM goes. */
 const CLOSE_GRACE_MS = 500;
+/** figma.notify's default time on screen, and the least it is given (Figma's ShowVisualBellOptions) */
+const NOTIFY_TIMEOUT_MS = 3000;
+const NOTIFY_MIN_TIMEOUT_MS = 100;
+/** Figma's plugin api versions (`Unknown plugin api version "<v>"` otherwise) */
+const API_VERSIONS = ["0.6.0", "1.0.0"];
 
 export class PluginRun {
   readonly runId: string;
@@ -86,6 +104,8 @@ export class PluginRun {
   private readonly listening = new Set<string>();
   private readonly offs: (() => void)[] = [];
   private pendingChanges: Obj[] = [];
+  /** node → the page it was last seen on (nodechange's removed nodes) */
+  private readonly seenOn = new Map<string, string>();
   private flushScheduled = false;
   private uiOpen = false;
   private uiQueue: unknown[] = [];
@@ -225,9 +245,11 @@ export class PluginRun {
     const access = this.spec.manifest.networkAccess;
     await this.env.desktop?.beginRun({ runId: this.runId, allowedDomains: access?.allowedDomains ?? ["none"], ...(access?.devAllowedDomains ? { devAllowedDomains: access.devAllowedDomains } : {}), dev: this.spec.development }).catch((e: unknown) => this.log("warn", [`plugins:begin-run failed: ${e instanceof Error ? e.message : String(e)}`]));
     this.env.ui.stoppers.set(this.runId, () => this.stop());
-    if (!this.spec.awaitParameters && !this.headless()) this.env.ui.setRunning(this.runId, this.spec.name, true);
+    if (!this.spec.awaitParameters && !this.headless()) this.env.ui.setRunning(this.runId, this.runningName(), true);
     await this.waitIdle();
     try {
+      const refused = codeRefusal(this.spec);
+      if (refused) throw refused;
       await this.vm.evaluate(this.spec.code, this.spec.manifest.main || "code.js");
     } catch (e) {
       this.commit();
@@ -257,7 +279,7 @@ export class PluginRun {
       engine.on("SELECTION_CHANGED", () => this.listening.has("selectionchange") && this.later("selectionchange")),
       engine.on("CURRENT_PAGE_CHANGED", () => this.listening.has("currentpagechange") && this.later("currentpagechange")),
       engine.onDocumentChanged((changes, e) => {
-        if (!this.listening.has("documentchange")) return;
+        if (!this.listening.has("documentchange") && !this.listening.has("nodechange")) return;
         this.collect(changes, e.kind);
       })
     );
@@ -284,17 +306,47 @@ export class PluginRun {
       this.flushScheduled = false;
       const documentChanges = this.pendingChanges;
       this.pendingChanges = [];
-      if (documentChanges.length) void this.enter("__dispatch", "documentchange", encodeValue({ documentChanges }));
+      if (!documentChanges.length) return;
+      if (this.listening.has("documentchange")) void this.enter("__dispatch", "documentchange", encodeValue({ documentChanges }));
+      if (this.listening.has("nodechange")) for (const [pageId, nodeChanges] of this.byPage(documentChanges)) void this.enter("__dispatch", "nodechange", encodeValue({ pageId, nodeChanges }));
     }, 0);
+  }
+
+  /**
+   * PageNode.on("nodechange"): the changes grouped by page (Figma's). A removed node's page is the one it was last seen
+   * on (its node is gone from the document), else the current page.
+   */
+  private byPage(changes: Obj[]): Map<string, Obj[]> {
+    const out = new Map<string, Obj[]>();
+    for (const c of changes) {
+      const id = String(c.id);
+      const page = c.type === "DELETE" ? (this.seenOn.get(id) ?? this.env.ed.store.page) : (pageOf(this.ctx, id) ?? this.env.ed.store.page);
+      if (c.type === "DELETE") this.seenOn.delete(id);
+      else this.seenOn.set(id, page);
+      out.set(page, [...(out.get(page) ?? []), c]);
+    }
+    return out;
   }
 
   // ---- The UI ------------------------------------------------------------------------------------------------------
 
+  /**
+   * figma.showUI (docs/research/atlas/17-plugins.md §3.3): 300 × 200 by default, clamped to the window; placed where
+   * `position` says (canvas coordinates, or `{windowSpace: true, x, y}`), else where this plugin's window was last left
+   * (clamped), else centred.
+   */
   private openUi(html: string, opts: Obj): void {
     if (this.uiOpen) throw new ApiError("showUI can only be called once per plugin run");
+    const dimension = (name: "width" | "height", fallback: number) => {
+      const v = opts[name];
+      if (v === undefined || v === null) return fallback;
+      if (typeof v !== "number" || !Number.isInteger(v) || v < 0) throw new ApiError(`in showUI: Expected "${name}" to be an integer greater than or equal to 0`);
+      return v;
+    };
+    const size = clampSize(dimension("width", 300), dimension("height", 200));
+    const position = this.uiPosition(opts.position, size);
     this.uiOpen = true;
     const themed = opts.themeColors === true ? themeHtml(html) : html;
-    const position = opts.position && typeof opts.position === "object" ? (opts.position as { x: number; y: number }) : null;
     this.env.ui.putWindow({
       runId: this.runId,
       pluginId: this.spec.pluginId,
@@ -302,9 +354,8 @@ export class PluginRun {
       title: typeof opts.title === "string" ? opts.title : this.spec.name,
       src: null,
       visible: opts.visible !== false,
-      width: Math.max(70, Math.round(Number(opts.width) || 300)),
-      height: Math.max(0, Math.round(Number(opts.height) || 200)),
-      position: position ? canvasToView(this.env.ed, position) : null,
+      ...size,
+      position,
       // Dev Mode's inspect plugins show their UI in the Plugins panel (docs/plugins.md §7)
       ...(this.spec.mode === "inspect" ? { docked: true } : {}),
     });
@@ -335,8 +386,24 @@ export class PluginRun {
     this.updateRunning();
   }
 
+  /** showUI's `position`: canvas coordinates, `{windowSpace: true, x, y}`, or none — this plugin's last place, else centred. */
+  private uiPosition(v: unknown, size: { width: number; height: number }): { x: number; y: number } {
+    const p = v as { x?: unknown; y?: unknown; windowSpace?: unknown } | null | undefined;
+    if (p && typeof p === "object") {
+      if (typeof p.x !== "number" || typeof p.y !== "number" || !Number.isFinite(p.x) || !Number.isFinite(p.y)) throw new ApiError('in showUI: Expected "position" to be {x, y} with finite numbers');
+      return p.windowSpace === true ? { x: Math.round(p.x), y: Math.round(p.y) } : canvasToView(this.env.ed, { x: p.x, y: p.y });
+    }
+    const last = savedPosition(this.spec.pluginId);
+    return last ? clampPosition(last, size) : centred(size);
+  }
+
+  /** Figma's text when a UI call comes before showUI. */
+  private needUi(what: string): void {
+    if (!this.uiOpen) throw new ApiError(`${what} Did you forget to create a UI by calling showUI?`);
+  }
+
   private postToUi(message: unknown): void {
-    if (!this.uiOpen) throw new ApiError("No UI to post to: call figma.showUI first");
+    this.needUi("No UI to send a message to.");
     const data = { pluginMessage: structuredClone(message), pluginId: this.spec.pluginId };
     if (this.uiLoaded && this.env.ui.frames.get(this.runId)) this.env.ui.frames.get(this.runId)!.post(data);
     else this.uiQueue.push(data);
@@ -356,7 +423,12 @@ export class PluginRun {
   private updateRunning(): void {
     const w = this.env.ui.window(this.runId);
     // Figma: the "Running ‹name›" toast while a run is open and its UI is hidden or absent.
-    this.env.ui.setRunning(this.runId, this.spec.name, this.running && !this.spec.awaitParameters && !this.headless() && (!w || !w.visible));
+    this.env.ui.setRunning(this.runId, this.runningName(), this.running && !this.spec.awaitParameters && !this.headless() && (!w || !w.visible));
+  }
+
+  /** The name in the "Running ‹name›" toast: Figma adds " (Developer VM)" for a run in the developer VM. */
+  private runningName(): string {
+    return this.spec.developerVm && this.spec.development ? `${this.spec.name} (Developer VM)` : this.spec.name;
   }
 
   /** Codegen runs headless and inspect runs live in Dev Mode's Plugins panel: no "Running" toast (docs/plugins.md §7). */
@@ -403,7 +475,7 @@ export class PluginRun {
     for (const n of this.notices.values()) if (n.timer) clearTimeout(n.timer);
     this.offs.splice(0).forEach((off) => off());
     this.closeUi();
-    this.env.ui.setRunning(this.runId, this.spec.name, false);
+    this.env.ui.setRunning(this.runId, this.runningName(), false, true);
     this.env.ui.stoppers.delete(this.runId);
     void this.env.desktop?.endRun(this.runId).catch(() => {});
     this.vm?.dispose();
@@ -498,7 +570,10 @@ export class PluginRun {
       "node.descendants": (id, criteria) => descendants(ctx(), s(id), (criteria as Obj | null) ?? null),
       "node.resize": (id, w, h, constraints) => resize(ctx(), s(id), w, h, !!constraints),
       "node.rescale": (id, k) => rescale(ctx(), s(id), k),
-      "node.clone": (id) => doc.cloneNode(ctx(), s(id)),
+      "node.clone": (id) => {
+        if (s(id) === "0:0") throw new ApiError("in clone: The document can't be cloned");
+        return doc.cloneNode(ctx(), s(id));
+      },
       "node.css": (id) => Promise.resolve(nodeCss(ctx(), s(id))),
       "node.topLevelFrame": (id) => topLevelFrame(ctx(), s(id)),
       "node.export": (id, settings) => doc.exportNode(ctx(), s(id), settings),
@@ -506,9 +581,19 @@ export class PluginRun {
         const [made] = [doc.flatten(ctx(), [s(id)], null, -1)];
         return made;
       },
-      "node.gridPosition": () => {
-        throw new ApiError("setGridChildPosition is not supported in Wecra yet");
-      },
+      // Grids (docs/research/atlas/09-layout.md): an item's cell, a child appended at a cell, tracks reordered
+      "node.gridPosition": (id, row, column) => setGridChildPosition(ctx(), s(id), row, column),
+      "node.appendChildAt": (id, child, row, column) => appendChildAt(ctx(), s(id), child, row, column),
+      "node.reorderTracks": (id, axis, from, to) => reorderGridTracks(ctx(), s(id), axis === "rows" ? "rows" : "columns", from, to),
+      // Dev Mode's dev resources (the store's links per layer) and saved measurements (the page's)
+      "devResources.get": (id, children) => this.devResources(s(id), !!children),
+      "devResources.add": (id, url, name) => this.addDevResource(s(id), s(url), name === null ? null : s(name)),
+      "devResources.edit": (id, url, value) => this.editDevResource(s(id), s(url), (value ?? {}) as Obj),
+      "devResources.delete": (id, url) => this.deleteDevResource(s(id), s(url)),
+      "measurements.list": (page, node) => measurements.list(ctx(), s(page), node === null ? null : s(node)),
+      "measurements.add": (page, start, end, options) => measurements.add(ctx(), s(page), start, end, (options ?? {}) as Obj),
+      "measurements.edit": (page, id, value) => measurements.edit(ctx(), s(page), s(id), (value ?? {}) as Obj),
+      "measurements.delete": (page, id) => measurements.remove(ctx(), s(page), s(id)),
       "pluginData.get": (id, ns, key) => getPluginData(ctx(), s(id), ns === null ? null : s(ns), s(key)),
       "pluginData.set": (id, ns, key, value) => setPluginData(ctx(), s(id), ns === null ? null : s(ns), s(key), s(value)),
       "pluginData.keys": (id, ns) => pluginDataKeys(ctx(), s(id), ns === null ? null : s(ns)),
@@ -578,6 +663,7 @@ export class PluginRun {
       "text.delete": (id, a, b) => doc.deleteCharacters(ctx(), s(id), n(a), n(b)),
       "text.segments": (id, fields, a, b) => doc.styledSegments(ctx(), s(id), fields, n(a), n(b)),
       "text.allFontNames": (id, a, b) => doc.allFontNames(ctx(), s(id), n(a), n(b)),
+      "text.useNativeBidi": (id) => doc.useNativeBidi(ctx(), s(id)),
       // The document
       root: () => ({ $node: "0:0", $type: "DOCUMENT" }),
       "page.current": () => node(this.env.ed.store.page),
@@ -594,6 +680,8 @@ export class PluginRun {
       createTextPath: (id, segment, position) => draw.createTextPath(ctx(), id, segment, position),
       transformGroup: (nodes, parent, index, modifiers) => draw.transformGroup(ctx(), nodes, parent, n(index), modifiers),
       "brushes.load": (type) => Promise.resolve().then(() => draw.loadBrushes(ctx(), type)),
+      // Motion (docs/motion.md §9)
+      ...motionOps(ctx),
       "selection.colors": () => doc.selectionColors(ctx()),
       "viewport.get": () => doc.viewport(ctx()),
       "viewport.set": (v) => doc.setViewport(ctx(), (v ?? {}) as Obj),
@@ -637,6 +725,7 @@ export class PluginRun {
         this.env.ed.engine.runCommand("DELETE_STYLE", { style: s(id) });
       },
       "variables.local": (type) => doc.localVariables(ctx(), type === null ? null : s(type)),
+      "variables.subscribed": (type) => doc.subscribedVariables(ctx(), type === null ? null : s(type)),
       "variables.byId": (id) => (this.env.ed.engine.variable(s(id)) ? { id: s(id) } : null),
       "variables.create": (name, coll, type) => doc.createVariable(ctx(), s(name), coll, type),
       "variables.bind": (id, field, variable) => doc.bindVariable(ctx(), s(id), s(field), variable),
@@ -717,6 +806,7 @@ export class PluginRun {
       // UI
       "ui.open": (html, opts) => this.openUi(s(html), (opts ?? {}) as Obj),
       "ui.show": () => {
+        this.needUi("No UI to show.");
         this.env.ui.patchWindow(this.runId, { visible: true });
         this.updateRunning();
       },
@@ -724,11 +814,22 @@ export class PluginRun {
         this.env.ui.patchWindow(this.runId, { visible: false });
         this.updateRunning();
       },
-      "ui.resize": (w, h) => this.env.ui.patchWindow(this.runId, { width: Math.max(70, Math.round(n(w))), height: Math.max(0, Math.round(n(h))) }),
-      "ui.reposition": (x, y) => this.env.ui.patchWindow(this.runId, { position: canvasToView(this.env.ed, { x: n(x), y: n(y) }) }),
+      "ui.resize": (w, h) => {
+        this.needUi("No UI to resize.");
+        if (![w, h].every((v) => typeof v === "number" && Number.isInteger(v) && v > 0)) throw new ApiError("in resize: Expected width and height to be positive integers");
+        this.env.ui.patchWindow(this.runId, clampSize(n(w), n(h)));
+      },
+      "ui.reposition": (x, y) => {
+        this.needUi("No UI to reposition.");
+        if (![x, y].every((v) => typeof v === "number" && Number.isFinite(v))) throw new ApiError("in reposition: Expected x and y to be finite numbers");
+        const at = canvasToView(this.env.ed, { x: n(x), y: n(y) });
+        this.env.ui.patchWindow(this.runId, { position: at });
+        savePosition(this.spec.pluginId, at);
+      },
       "ui.getPosition": () => {
+        this.needUi("Cannot get the UI position.");
         const w = this.env.ui.window(this.runId);
-        if (!w) throw new ApiError("No UI is open");
+        if (!w) throw new ApiError("Cannot get the UI position. Did you forget to create a UI by calling showUI?");
         const at = w.position ?? { x: 0, y: 0 };
         const world = this.env.ed.engine.screenToWorld(at.x, at.y);
         return { windowSpace: at, canvasSpace: world };
@@ -763,33 +864,89 @@ export class PluginRun {
     return { ...r, url };
   }
 
+  // ---- Dev resources ---------------------------------------------------------------------------------------------
+
+  private devAccess(write: boolean): DevResourcesAccess {
+    const access = this.env.devResources;
+    if (!access) throw new ApiError("Dev resources need a saved file");
+    if (write && (!access.add || !access.edit || !access.remove)) throw new ApiError("You can't edit this file's dev resources");
+    return access;
+  }
+
+  /** `getDevResourcesAsync({includeChildren})`: Figma's `{name, url, nodeId}` list, the layer's own first. */
+  private async devResources(id: string, includeChildren: boolean): Promise<{ name: string; url: string; nodeId: string }[]> {
+    const access = this.devAccess(false);
+    const ids = [id, ...(includeChildren ? descendants(this.ctx, id, null).map((r) => (r as { $node: string }).$node) : [])];
+    const records = await access.list(ids);
+    return ids.flatMap((nodeId) => records.filter((r) => r.nodeId === nodeId).map((r) => ({ name: r.name, url: r.url, nodeId: r.nodeId })));
+  }
+
+  private async findResource(id: string, url: string, what: string): Promise<DevResourceRecord> {
+    const found = (await this.devAccess(true).list([id])).find((r) => r.url === url);
+    if (!found) throw new ApiError(`in ${what}: No dev resource with url ${url} on node ${id}`);
+    return found;
+  }
+
+  private async addDevResource(id: string, url: string, name: string | null): Promise<void> {
+    if (!/^https?:\/\//i.test(url)) throw new ApiError("in addDevResourceAsync: A dev resource's url must be a URL");
+    mustNode(this.ctx, id);
+    await this.devAccess(true).add!(id, { url, name: name ?? url });
+  }
+
+  private async editDevResource(id: string, url: string, value: Obj): Promise<void> {
+    const found = await this.findResource(id, url, "editDevResourceAsync");
+    const patch: { name?: string; url?: string } = {};
+    if (value.name !== undefined) patch.name = String(value.name);
+    if (value.url !== undefined) patch.url = String(value.url);
+    await this.devAccess(true).edit!(found.id, patch);
+  }
+
+  private async deleteDevResource(id: string, url: string): Promise<void> {
+    const found = await this.findResource(id, url, "deleteDevResourceAsync");
+    await this.devAccess(true).remove!(found.id);
+  }
+
   private async storage(op: "get" | "set" | "delete" | "keys", key: string | undefined, value: unknown): Promise<unknown> {
     const desktop = this.env.desktop;
     if (!desktop) return memoryStorage(this.spec.pluginId, op, key, value);
     return desktop.storage({ op, pluginId: this.spec.pluginId, ...(key !== undefined ? { key } : {}), ...(op === "set" ? { value } : {}) });
   }
 
+  /**
+   * figma.notify (docs/research/atlas/17-plugins.md §6.4): 3000 ms by default, until dismissed for an error, at least
+   * 100 ms; a toast over 3000 ms (or lasting) gets ×; the button's action returning false keeps it. `onDequeue` hears
+   * "timeout", "dismiss" (×, cancel()) or "action_button_click".
+   */
   private notify(message: string, options: Obj): number {
     const id = ++this.noticeSeq;
-    const timeout = typeof options.timeout === "number" ? options.timeout : options.timeout === Infinity ? Infinity : 4000;
+    const asked = options.timeout === "Infinity" ? Infinity : typeof options.timeout === "number" && !Number.isNaN(options.timeout) ? options.timeout : null;
+    const timeout = asked === null ? (options.error ? Infinity : NOTIFY_TIMEOUT_MS) : Math.max(NOTIFY_MIN_TIMEOUT_MS, asked);
     const button = typeof options.button === "string" ? options.button : null;
     const toast = showToast({
       message,
       kind: options.error ? "error" : "default",
       duration: Number.isFinite(timeout) ? timeout : 0,
-      ...(button ? { action: { label: button, onAction: () => void this.enter("__notice", id, "action", "") } } : {}),
+      timeoutType: "exact",
+      ...(timeout > NOTIFY_TIMEOUT_MS ? { onDismiss: () => this.cancelNotice(id, "dismiss", false) } : {}),
+      ...(button ? { action: { label: button, onAction: () => void this.noticeAction(id) }, keepOnAction: true } : {}),
     });
-    const timer = Number.isFinite(timeout) ? setTimeout(() => this.cancelNotice(id, "timeout"), timeout) : null;
+    const timer = Number.isFinite(timeout) ? setTimeout(() => this.cancelNotice(id, "timeout", false), timeout) : null;
     this.notices.set(id, { toast, timer });
     return id;
   }
 
-  private cancelNotice(id: number, reason: string): void {
+  private async noticeAction(id: number): Promise<void> {
+    const keep = (await this.enter("__notice", id, "action", "")) === "keep";
+    if (!keep) this.cancelNotice(id, "action_button_click");
+  }
+
+  /** The notice leaves (`takeDown`: this side takes its toast down; the toast's own time or × already did). */
+  private cancelNotice(id: number, reason: string, takeDown = true): void {
     const n = this.notices.get(id);
     if (!n) return;
     this.notices.delete(id);
     if (n.timer) clearTimeout(n.timer);
-    if (reason !== "timeout") dismissToast(n.toast);
+    if (takeDown) dismissToast(n.toast);
     void this.enter("__notice", id, "dequeue", reason);
   }
 }
@@ -808,6 +965,11 @@ const PROPERTY_NAMES: Record<string, string> = {
   pluginData: "pluginData",
   pluginRelaunchData: "relaunchData",
   parentIndex: "parent",
+  // Figma reports the top stroke weight as "stokeTopWeight" (its typo, kept: plugins test for it)
+  borderTopWeight: "stokeTopWeight",
+  borderBottomWeight: "strokeBottomWeight",
+  borderLeftWeight: "strokeLeftWeight",
+  borderRightWeight: "strokeRightWeight",
   // Draw (docs/draw.md §7)
   textPathStart: "textPathStartData",
   transformModifiers: "transformModifiers",
@@ -820,6 +982,18 @@ const PROPERTY_NAMES: Record<string, string> = {
 const apiProperty = (k: string) => PROPERTY_NAMES[k] ?? k;
 
 const firstLine = (s: string) => s.split("\n")[0].slice(0, 200);
+
+/** `import` followed by `(`, `//` or `/*` (not a member `.import`): Figma's check before the code runs (SES's pattern). */
+const IMPORT_EXPRESSION = /(^|[^.]|\.\.\.)\bimport(\s*(?:\(|\/[/*]))/m;
+
+/** Why a run's code is refused before it runs (Figma's checks and texts, docs/research/atlas/17-plugins.md §2.1), or null. */
+export function codeRefusal(spec: Pick<RunSpec, "code" | "manifest">): Error | null {
+  if (!API_VERSIONS.includes(spec.manifest.api)) return new Error(`Unknown plugin api version "${spec.manifest.api}"`);
+  if (!spec.code) return new Error("Code string cannot be empty");
+  const m = IMPORT_EXPRESSION.exec(spec.code);
+  if (m) return new SyntaxError(`possible import expression rejected around line ${spec.code.slice(0, m.index + m[1].length).split("\n").length}`);
+  return null;
+}
 
 /** A point in canvas coordinates → the editor view's (for showUI's `position`). */
 function canvasToView(ed: EditorController, p: { x: number; y: number }): { x: number; y: number } {

@@ -22,9 +22,11 @@ import { DEV_URL, handleScheme, isAppUrl, registerScheme } from "./protocol";
 import { flushStore, retryStoreHost, startStoreHost, storeClient, storeDebug } from "./storeHost";
 import { initTheme } from "./theme";
 import { initLocale } from "./locale";
+import { initInterfaceScale } from "./interfaceScale";
+import { initTroubleshooting } from "./troubleshooting";
 import { initUpdater } from "./updater";
 import { PRODUCT_NAME } from "./identity";
-import { confirmQuit, controllers, finishQuit, lifecycle, type WindowController } from "./window";
+import { confirmQuit, controllers, finishQuit, frontWindow, lifecycle, type WindowController } from "./window";
 import { initGate, openMain, whenOpen } from "./gate";
 
 /**
@@ -38,6 +40,8 @@ import { initGate, openMain, whenOpen } from "./gate";
 // The dev server's page can't have the built page's CSP (Vite's hot reload is inline): Electron's warning about it is for the built app only.
 if (DEV_URL) process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "true";
 
+// Help › Troubleshooting › Disable Hardware Acceleration, kept from the last session: before ready.
+initTroubleshooting();
 registerScheme();
 app.enableSandbox();
 
@@ -52,8 +56,8 @@ app.enableSandbox();
   if (ignored) console.warn(`[policy] DESIGNER_SERVER ${ignored} isn't in AllowedOriginHosts: using ${serverUrl()}`);
 }
 
-/** The window in front (v1 has one). */
-const current = (): WindowController | null => [...controllers.values()][0] ?? null;
+/** The window in front (the one last focused). */
+const current = (): WindowController | null => frontWindow();
 
 /** designer://open?key=…[&node-id=…&m=dev] — a shared file's link (the server's /f/<key> page hands it over, with the
  *  frame and mode it names; docs/multiplayer.md §3). Signed out, it waits for the next sign-in (docs/desktop.md §18.6). */
@@ -117,6 +121,7 @@ if (!app.requestSingleInstanceLock()) {
     app.setAboutPanelOptions({ applicationName: PRODUCT_NAME, applicationVersion: app.getVersion(), copyright: "Burak Koç" });
     initTheme();
     initLocale();
+    initInterfaceScale();
     handleScheme();
     handlePluginScheme();
     handleAimodelScheme();
@@ -209,6 +214,8 @@ if (process.env.DESIGNER_TEST === "1") {
   Object.assign(globalThis, {
     __designer: {
       current,
+      // Every window, the first one first (Move to New Window, New window).
+      windows: () => [...controllers.values()],
       debug: () => current()?.tabs.debug() ?? null,
       command: (id: string) => {
         if (!isCommandId(id)) return `unknown command ${id}`;

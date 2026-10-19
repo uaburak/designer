@@ -18,7 +18,7 @@ import styles from "./Select.module.css";
  * An option; `image` is drawn in place of the label, in the field and in the list (live Stroke settings' "Width
  * profile": the profile as a 62 × 4 image named "Uniform"), the label staying its accessible name.
  */
-export type SelectOption = { value: string; label: string; icon?: IconName; hint?: string; disabled?: boolean; image?: ReactNode; /** What the field shows when it is chosen (default: its label; e.g. the agent and its model under the agent's heading) */ valueLabel?: string };
+export type SelectOption = { value: string; label: string; icon?: IconName; hint?: string; /** A chip after the label (Menu's `chip`: Shader's "Beta") */ chip?: string; disabled?: boolean; image?: ReactNode; /** What the field shows when it is chosen (default: its label; e.g. the agent and its model under the agent's heading) */ valueLabel?: string };
 /** A list entry: an option, a line ("-"), or a group's heading (Menu's header — e.g. the agent above its models) */
 export type SelectEntry = SelectOption | "-" | { header: string };
 const isOption = (o: SelectEntry | undefined): o is SelectOption => !!o && typeof o === "object" && "value" in o;
@@ -51,7 +51,18 @@ export interface SelectProps extends Omit<HTMLAttributes<HTMLDivElement>, "onCha
    * two in text width, so a list whose labels alone come out other than live's is held to it (Menu's `width`).
    */
   menuWidth?: number;
+  /**
+   * Hovering an option shows it on the canvas before it is picked (Figma's blend mode, effect type, mask type and
+   * colour interpolation menus): the option `previewDelay` ms after the pointer reaches it (default 50, Figma's
+   * debounce), null to put the value back — when the pointer leaves the list, on the value's own option, when the
+   * list closes, and just before a pick (which then commits as usual). The field keeps the value it opened with.
+   */
+  onPreview?: (v: string | null) => void;
+  previewDelay?: number;
 }
+
+/** Figma's hover preview debounce (the mask type menu's 50 ms; the effect type menu's too). */
+export const PREVIEW_DELAY = 50;
 
 /**
  * Figma's dropdown (contract §4.7): the value and a chevron in a field;
@@ -60,10 +71,17 @@ export interface SelectProps extends Omit<HTMLAttributes<HTMLDivElement>, "onCha
  * in the list ↑ ↓ Home End, typeahead, Enter picks, Esc closes (focus stays
  * on the trigger). Never a native <select>.
  */
-export function Select({ label, value, options, onChange, variant = "filled", size = "default", prefix, width, disabled, placeholder = "", static: isStatic, noCheck, below, menuWidth, className, style, ...rest }: SelectProps) {
+export function Select({ label, value: valueProp, options, onChange, variant = "filled", size = "default", prefix, width, disabled, placeholder = "", static: isStatic, noCheck, below, menuWidth, onPreview, previewDelay = PREVIEW_DELAY, className, style, ...rest }: SelectProps) {
   useT();
   const trigger = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
+  const [open, setOpenState] = useState(false);
+  // While a preview may be showing, the field and the list keep the value they opened with.
+  const [opened, setOpened] = useState(valueProp);
+  const setOpen = (on: boolean) => {
+    if (on) setOpened(valueProp);
+    setOpenState(on);
+  };
+  const value = onPreview && open ? opened : valueProp;
   const id = useId();
   const mixed = isMixed(value);
   const current = mixed ? undefined : options.find((o): o is SelectOption => isOption(o) && o.value === value);
@@ -111,13 +129,41 @@ export function Select({ label, value, options, onChange, variant = "filled", si
         )}
         <Icon name="16.chevron.down" className={styles.chevron} />
       </button>
-      {showList && <Listbox id={id} anchor={trigger} options={options} value={mixed ? null : value} isStatic={isStatic} noCheck={noCheck} below={below} width={menuWidth} onPick={(v) => { close(); if (v !== value) onChange(v); }} onClose={close} />}
+      {showList && <Listbox id={id} anchor={trigger} options={options} value={mixed ? null : value} isStatic={isStatic} noCheck={noCheck} below={below} width={menuWidth} onPreview={onPreview} previewDelay={previewDelay} onPick={(v) => { close(); if (v !== value) onChange(v); }} onClose={close} />}
     </div>
   );
 }
 
-function Listbox({ id, anchor, options, value, isStatic, noCheck, below, width, onPick, onClose }: { width?: number; id: string; anchor: React.RefObject<HTMLButtonElement | null>; options: SelectEntry[]; value: string | null; isStatic?: boolean; noCheck?: boolean; below?: boolean; onPick: (v: string) => void; onClose: (focus?: boolean) => void }) {
+function Listbox({ id, anchor, options, value, isStatic, noCheck, below, width, onPreview, previewDelay = PREVIEW_DELAY, onPick: pick, onClose }: { width?: number; id: string; anchor: React.RefObject<HTMLButtonElement | null>; options: SelectEntry[]; value: string | null; isStatic?: boolean; noCheck?: boolean; below?: boolean; onPreview?: (v: string | null) => void; previewDelay?: number; onPick: (v: string) => void; onClose: (focus?: boolean) => void }) {
   const panel = useRef<HTMLDivElement>(null);
+  // The hover preview: the option shown (null: none), its pending timer; put back before a pick and when the list goes.
+  const preview = useRef<{ shown: string | null; timer: number; onPreview?: (v: string | null) => void }>({ shown: null, timer: 0 });
+  useEffect(() => {
+    preview.current.onPreview = onPreview;
+  });
+  const previewTo = (v: string | null) => {
+    const p = preview.current;
+    if (!p.onPreview) return;
+    clearTimeout(p.timer);
+    const show = (next: string | null) => {
+      if (p.shown === next) return;
+      p.shown = next;
+      p.onPreview?.(next);
+    };
+    if (v === null || v === value) show(null);
+    else p.timer = window.setTimeout(() => show(v), previewDelay);
+  };
+  useEffect(() => {
+    const p = preview.current;
+    return () => {
+      clearTimeout(p.timer);
+      if (p.shown !== null) p.onPreview?.(null);
+    };
+  }, []);
+  const onPick = (v: string) => {
+    previewTo(null);
+    pick(v);
+  };
   const selected = options.findIndex((o) => isOption(o) && o.value === value);
   const usable = options.map((o, i) => (isOption(o) && !o.disabled ? i : -1)).filter((i) => i >= 0);
   const [active, setActive] = useState(selected >= 0 ? selected : usable[0] ?? -1);
@@ -177,6 +223,7 @@ function Listbox({ id, anchor, options, value, isStatic, noCheck, below, width, 
       aria-activedescendant={active >= 0 ? `${id}-${active}` : undefined}
       className={cx(menu.panel, isStatic && menu.static, noCheck && styles.compactList, noCheck && menu.inset)}
       style={isStatic ? { position: "absolute", top: "100%", left: 0, marginTop: 4 } : { left: 0, top: 0, visibility: "hidden" }}
+      onPointerLeave={() => previewTo(null)}
       onKeyDown={(e) => {
         e.stopPropagation();
         const k = e.key;
@@ -213,7 +260,11 @@ function Listbox({ id, anchor, options, value, isStatic, noCheck, below, width, 
             data-index={i}
             data-highlighted={(active === i && !o.disabled) || undefined}
             className={cx(menu.item, !noCheck && menu.listItem)}
-            onPointerEnter={() => !o.disabled && setActive(i)}
+            onPointerEnter={() => {
+              if (o.disabled) return;
+              setActive(i);
+              previewTo(o.value);
+            }}
             onClick={() => !o.disabled && onPick(o.value)}
           >
             {!noCheck && <span className={menu.check}>{o.value === value && <Icon name="16.check" />}</span>}
@@ -225,7 +276,10 @@ function Listbox({ id, anchor, options, value, isStatic, noCheck, below, width, 
                 </span>
               </span>
             ) : (
-              <span className={menu.label}>{o.label}</span>
+              <span className={menu.label}>
+                {o.label}
+                {o.chip && <span className={menu.chip}>{o.chip}</span>}
+              </span>
             )}
             {o.hint && <span className={menu.hint}>{o.hint}</span>}
           </div>

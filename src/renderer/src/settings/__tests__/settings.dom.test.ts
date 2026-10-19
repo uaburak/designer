@@ -185,7 +185,7 @@ describe("Settings", () => {
     await click($$("label", dialog).find((l) => l.textContent?.trim() === "webhooks:read")!.querySelector("input")!);
     await click($("[data-generate-token]", dialog)!);
     await settle();
-    expect(fake.requests).toContainEqual({ method: "POST", path: "/me/tokens", body: { description: "CI", expiresInDays: 30, scopes: ["file_content:read", "webhooks:read"] } });
+    expect(fake.requests).toContainEqual({ method: "POST", path: "/me/tokens", body: { description: "CI", expiresInDays: 1, scopes: ["file_content:read", "webhooks:read"] } });
   });
 
   it("Notifications › Dev Mode: Status changes / Nothing, under the desktop notifications", async () => {

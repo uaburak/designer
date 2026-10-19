@@ -4,9 +4,12 @@
  *   where they are on the page;
  * - a group's W / H: what is in it scales (as the resize handles do: aligned layers grow along their axes, turned
  *   ones follow with their centre), anchored at the group's top left;
- * - "Spacing": the gap between several layers (or a group's children) along the axis they line up on.
+ * - "Spacing": the gap between several layers (or a group's children) along the axis they line up on;
+ * - Suggest auto layout and Remove all auto layout (the engine's, with their toasts).
  */
-import type { ChangeInfo } from "@/ds";
+import { showToast, type ChangeInfo } from "@/ds";
+import { Status } from "@/engine/abi";
+import { tp } from "@/i18n";
 import type { Guid, Matrix, NodeChange as EngineNode } from "@/engine/codec";
 
 /** A node as the panel reads it (its real type as a string). */
@@ -116,4 +119,26 @@ export function writeSpacing(ed: EditorController, nodes: readonly NodeChange[],
       ed.engine.setProps([id], { transform: { ...t, m02: t.m02 + inv.m00 * dx + inv.m01 * dy, m12: t.m12 + inv.m10 * dx + inv.m11 * dy } });
     }
   });
+}
+
+/**
+ * Suggest auto layout (⌃⇧A, Atlas 09 §4; the engine's SUGGEST_AUTO_LAYOUT): the selection stacked into nested
+ * auto-layout frames, then the count of the frames made (Figma's key `msal_crated_frames_count`; the English is ours
+ * until a live probe). Nothing to stack: nothing happens.
+ */
+export function suggestAutoLayout(ed: EditorController): void {
+  const r = ed.engine.runCommand("SUGGEST_AUTO_LAYOUT");
+  if (r.status !== Status.OK || !r.created.length) return;
+  showToast({ message: tp(r.created.length, "{n} frame created", "{n} frames created") });
+}
+
+/**
+ * Remove all auto layout (Figma's destroy-all-auto-layout, beside Suggest auto layout in the Object menu): auto layout
+ * off on the selection and every layer in it, the layers staying where they are; the toast counts the frames (Figma's
+ * `destroy-all-auto-layout-result-visual-bell-toast`; the English is ours).
+ */
+export function removeAllAutoLayout(ed: EditorController): void {
+  const r = ed.engine.runCommand("REMOVE_ALL_AUTO_LAYOUT");
+  if (r.status !== Status.OK) return;
+  showToast({ message: tp(r.created.length, "Removed auto layout from {n} frame", "Removed auto layout from {n} frames") });
 }

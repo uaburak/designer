@@ -43,7 +43,7 @@ void clearRunExtras(TextData& t, const std::vector<std::string>& keys);
 // Whether a NodeChange field (schema name) can be a run's: links, variable axes, OpenType switches, decoration details.
 bool isRunExtraKey(std::string_view key);
 // Whether a change's kept-as-data fields (NodeProps::extra) include one text layout reads (run keys, leadingTrim,
-// listSpacing, hangingList, hangingPunctuation, textWrapStyle).
+// listSpacing, hangingList, hangingPunctuation, textWrapStyle, the layout versions).
 bool changesTextLayout(const std::map<std::string, std::string>& extra);
 
 // A run's fields kept as data, read as a NodeChange's (its styleIdForText, parameterConsumptionMap…).

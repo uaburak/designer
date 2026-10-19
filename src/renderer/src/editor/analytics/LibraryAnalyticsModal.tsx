@@ -20,7 +20,7 @@ import type { AnalyticsAssetType, AnalyticsRange, AssetStatsRow, AssetUsage, Lib
 import type { LibraryRecord } from "../../../../shared/store/types";
 import { intlLocale, t, tp, useT } from "@/i18n";
 import { InsertionsGraph } from "./InsertionsGraph";
-import { COLUMNS, MODE_COLUMNS, RANGE_OPTIONS, TYPE_OPTIONS, canDownloadCsv, count, csvFileName, percent, shortDate, sortRows, variantsFromCsv, type Column, type SortDir } from "./model";
+import { COLUMNS, MODE_COLUMNS, RANGE_OPTIONS, TYPE_OPTIONS, canDownloadCsv, count, topTeamsOf, csvFileName, percent, shortDate, sortRows, variantsFromCsv, type Column, type SortDir } from "./model";
 import styles from "./Analytics.module.css";
 
 /** What the modal reads: the store's analytics views; with `orgLibraries` (and the org) it offers "Compare with". */
@@ -257,7 +257,7 @@ function AnalyticsTab({ store, libraryKey, libraryName, orgId, onOpen, today }: 
           onChange={setCompareWith}
         />
         <span className={styles.spacer} />
-        {data && canDownloadCsv(data.teamsUsing) && (
+        {data && canDownloadCsv(data.topTeams.filter((r) => r.insertions > 0).length) && (
           <Button variant="secondary" onClick={() => void download()} data-download-csv="">
             {t("Download CSV")}
           </Button>
@@ -309,18 +309,21 @@ function saveText(fileName: string, text: string): void {
 
 function TopTeams({ rows }: { rows: LibraryActions["topTeams"] }) {
   useT();
+  const top = topTeamsOf(rows);
   return (
     <section aria-label={t("Top teams")} className={styles.section}>
       <div className={styles.sectionTitle}>{t("Top teams")}</div>
-      {!rows.length && <div className={styles.none}>{t("No insertions in this period")}</div>}
-      {rows.slice(0, 5).map((team, i) => (
-        <div key={`${team.teamId ?? "hidden"}-${i}`} className={styles.listRow} data-team={team.teamName}>
-          <span className={styles.name}>{team.teamName}</span>
-          <span className={styles.meta}>
-            {tp(team.insertions, "{count} insertion", "{count} insertions", { count: count(team.insertions) })} · {percent(team.share)}
-          </span>
-        </div>
-      ))}
+      {!top.length && <div className={styles.none}>{t("No insertions in this period")}</div>}
+      <div className={styles.topTeams}>
+        {top.map((team, i) => (
+          <div key={`${team.teamId ?? "hidden"}-${i}`} className={styles.listRow} data-team={team.teamName}>
+            <span className={styles.name}>{team.teamName}</span>
+            <span className={styles.meta}>
+              {tp(team.insertions, "{count} insertion", "{count} insertions", { count: count(team.insertions) })} · {percent(team.share)}
+            </span>
+          </div>
+        ))}
+      </div>
     </section>
   );
 }

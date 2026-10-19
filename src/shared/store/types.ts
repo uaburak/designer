@@ -5,6 +5,7 @@
 import type { SpaceId } from "../org/repositories";
 import type { BranchStatus } from "../merge/branches";
 import type { CloudFile } from "./cloud";
+import type { SocialTemplateData, TemplateSlotSummary } from "../social/types";
 
 export type FileKey = string;
 export type FolderId = string;
@@ -103,6 +104,18 @@ export interface OrgImportPlace {
   projectId: string | null;
 }
 
+/** Home's sort keys (docs/research/atlas/01-app-shell-home.md §5.1) */
+export const BROWSE_SORT_KEYS = ["last-viewed", "last-modified", "alphabetical", "date-created", "date-trashed", "date-shared"] as const;
+export type BrowseSortKey = (typeof BROWSE_SORT_KEYS)[number];
+/** Home's views that keep their own sort (§5.2) */
+export const BROWSE_VIEWS = ["recents", "drafts", "folder", "folders", "starred", "search", "trash", "shared"] as const;
+export type BrowseView = (typeof BROWSE_VIEWS)[number];
+/** A view's sort: the key, and "default" (the key's own direction: newest first, A to Z) or "reversed" */
+export interface BrowseSort {
+  key: BrowseSortKey;
+  order: "default" | "reversed";
+}
+
 export interface Prefs {
   /** Newest first, ≤ 50 */
   recents: { fileKey: FileKey; viewedAt: number }[];
@@ -112,7 +125,10 @@ export interface Prefs {
   starred: { files: FileKey[]; folders: FolderId[] };
   browse: {
     layout: "grid" | "list";
+    /** The sort before each view kept its own: a view without one in `sorts` uses it when the view offers it */
     sort: "last-viewed" | "last-modified" | "alphabetical" | "date-created";
+    /** Each view's sort (Figma keeps one per view); absent: the view's default */
+    sorts?: Partial<Record<BrowseView, BrowseSort>>;
     /** The space Home shows (docs/multiplayer.md §14.6; Home's org switcher sets it, per machine). Absent: "local" */
     space?: SpaceId;
   };
@@ -129,6 +145,8 @@ export interface FileUiState {
   pages: Record<string, { viewport: { x: number; y: number; zoom: number }; selection: string[] }>;
   leftPanelWidth: number;
   rightPanelWidth: number;
+  /** Social mode's current brand (docs/social.md §6.2); unset: none picked */
+  socialBrandId?: string | null;
 }
 
 // --- writes (docs/data.md §5.4) ---
@@ -211,6 +229,9 @@ export interface VersionRecord {
   libraryVersion: number | null;
   /** `Message.derivedDataVersion` of the version's snapshot (absent / 0: none) */
   derivedDataVersion?: number;
+  /** The accounts whose changes it holds (Version history's "Only yours"); absent: not recorded (before 2026-10-18,
+   *  or made signed out) — kept under "Only yours" */
+  editors?: string[];
 }
 
 // --- libraries (docs/data.md §9) ---
@@ -239,6 +260,14 @@ export interface LibraryAsset {
   containingFrame?: { pageName: string; frameName?: string };
   /** ≤ 256 px, 2× */
   thumbnail: { sha1: string; width: number; height: number } | null;
+  /**
+   * Figma's userFacingVersion (atlas 12 §6.1, §9): the library version (as text) that published this content — a new
+   * one when the asset is created or its content changes, the previous one kept while it doesn't. The store stamps it
+   * (`stampUserFacingVersions`); manifests written before 2026-10-18 have none.
+   */
+  userFacingVersion?: string;
+  /** Social (docs/social.md §3.5): a component set (or component) carrying the template marker, and its slots, filled at publish */
+  social?: { template: SocialTemplateData; slots?: TemplateSlotSummary[] };
 }
 
 export interface Redirect {
@@ -311,6 +340,18 @@ export interface LibraryDiff {
   updated: LibraryAsset[];
   removed: string[];
   moved: Redirect[];
+  /**
+   * The publishes the updated assets' content comes from (their `userFacingVersion`s), newest first — the Updates
+   * tab's groups with each publish's description (atlas 12 §6.3). Absent from a store that doesn't know them.
+   */
+  publishes?: LibraryPublish[];
+}
+
+/** One publish of a library, as the Updates tab heads its group */
+export interface LibraryPublish {
+  version: number;
+  publishedAt: number;
+  description: string;
 }
 
 // --- previews (docs/data.md §13) ---

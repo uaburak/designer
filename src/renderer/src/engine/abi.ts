@@ -15,6 +15,8 @@ export const TOOLS = [
   "EYEDROPPER",
   // Phase 7 round 7, Draw (docs/draw.md §4.7): the Brush (a stroke with the chosen brush) and Text on path.
   "BRUSH", "TEXT_PATH",
+  // Phase 7 round 8, Motion (docs/motion.md §4.9): the anchor point target (⌥R in Motion).
+  "ANCHOR_POINT",
 ] as const;
 export type ToolName = (typeof TOOLS)[number];
 export const toolId = (tool: ToolName): number => TOOLS.indexOf(tool);
@@ -230,6 +232,18 @@ export const CommandId = {
   SHOW_ROTATION_ORIGIN: 236,
   /** The selected ruler guide removed ("Remove guide"; ⌫ on a selected guide does it in the engine). */
   REMOVE_GUIDE: 237,
+  /** A ruler's context menu (Atlas wave 1): the top / left ruler's guides of the frame or page it adds to, all removed. */
+  REMOVE_HORIZONTAL_GUIDES: 238,
+  REMOVE_VERTICAL_GUIDES: 239,
+  /** The selected boolean groups at an older vectorOperationVersion brought to the latest (the Design panel's Update). */
+  UPGRADE_VECTOR_OPERATION: 240,
+  // Atlas wave 2, layout (engine/src/editor/AutoLayoutCommands.cpp); 250-259.
+  /** ⌃⇧A: the selection stacked into nested auto-layout frames (a frame: its layers, the frame the outer stack); created: the new frames. */
+  SUGGEST_AUTO_LAYOUT: 250,
+  /** Figma's destroy-all-auto-layout: auto layout off on the selection and every layer in it; created: those frames. */
+  REMOVE_ALL_AUTO_LAYOUT: 251,
+  /** args { version?: 0 (Legacy) | 1 (Updated, the default), deep?, page? }: the stacks' layout version (stackLayoutVersion). CMD_CHECKED: every selected stack Updated. */
+  SET_STACK_LAYOUT_VERSION: 252,
   // Round 8 (r8-design-panel): the Grid panel (engine/src/tools/GridGestures.cpp); 260-269.
   /** args { frame, axis: "COLUMNS" | "ROWS", tracks: number[] }: the selected grid's tracks, as a pill click ([] clears). */
   SELECT_GRID_TRACKS: 260,
@@ -270,6 +284,32 @@ export const CommandId = {
   CREATE_TEXT_PATH: 319,
   FLIP_TEXT_PATH: 320,
   SET_TEXT_PATH_START: 321,
+  // Phase 7 round 8 — Motion (docs/motion.md §4.9; args: MotionCommandArgs in src/shared/motion/types.ts); 330-359.
+  MOTION_ADD_KEYFRAME: 330,
+  MOTION_SET_KEYFRAMES: 331,
+  MOTION_DELETE_KEYFRAMES: 332,
+  MOTION_DELETE_TRACKS: 333,
+  MOTION_SET_EASING: 334,
+  MOTION_SET_TIMELINE: 335,
+  MOTION_ADD_ANIMATION: 336,
+  MOTION_SET_ANIMATION: 337,
+  MOTION_REMOVE_ANIMATIONS: 338,
+  MOTION_APPLY_STYLE: 339,
+  MOTION_RETIME_LAYER: 340,
+  MOTION_SET_INSTANCE_OFFSET: 341,
+  MOTION_SET_ANCHOR: 342,
+  MOTION_SET_PATH_HANDLES: 343,
+  MOTION_SET_TEXT_STAGGER: 344,
+  MOTION_ADD_AUDIO: 345,
+  MOTION_SET_AUDIO: 346,
+  MOTION_SPLIT_AUDIO: 347,
+  MOTION_REMOVE_AUDIO: 348,
+  MOTION_PASTE_KEYFRAMES: 349,
+  /** X / Y tracks → one XY track (position or scale; keyframe times merged) and back (docs/motion.md §4.5). */
+  MOTION_COMBINE_TRACKS: 350,
+  MOTION_SPLIT_TRACKS: 351,
+  /** A preset instance's materialised tracks (the `figma:motion` code's output, §4.6); inside the applying step. */
+  MOTION_SET_PRESET_TRACKS: 352,
 } as const;
 export type CommandName = keyof typeof CommandId;
 
@@ -305,6 +345,8 @@ export const APPLY_LOAD = 4;
 export const APPLY_SYSTEM = 8;
 /** A store-computed document state (Restore version): library copies written too, none of the user-edit rules. */
 export const APPLY_EXACT = 16;
+/** With APPLY_REMOTE: another session's change (docs/engine.md §9.5) — E_BUSY unless the engine is idle, every history yields what it wrote. */
+export const APPLY_PEER = 32;
 /** engine_read_nodes flags. */
 export const INCLUDE_CHILD_IDS = 1;
 /** Each ref followed by its descendants (pre-order, children back to front: paint order). */
@@ -345,6 +387,9 @@ export const VIEW_RIGHT_DRAG_PAN = 65536;
 /** Round 10, View › Frame outlines / Mask outlines: every frame's / mask's box drawn as a thin line (unverified look). */
 export const VIEW_FRAME_OUTLINES = 131072;
 export const VIEW_MASK_OUTLINES = 262144;
+/** View › Outlines ▸ Show hidden layers / Show object bounds (Atlas wave 1): outline mode's options. */
+export const VIEW_OUTLINE_HIDDEN = 524288;
+export const VIEW_OUTLINE_BOUNDS = 1048576;
 /** engine_encode_selection flags. */
 export const ENCODE_SELECTION_CUT = 1;
 /** engine_encode_document flags: the derived data (derivedSymbolData, derivedTextData, derivedDataVersion) too — kiwi only. */

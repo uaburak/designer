@@ -18,6 +18,7 @@ import { VariableField } from "./Variables";
 import { scaleGroupTo } from "./layoutActions";
 import { isGroupNode, type PanelNode } from "./shared";
 import { t, useT } from "@/i18n";
+import { MotionField } from "../../motion/panels/MotionField";
 import styles from "./Design.module.css";
 
 const AXIS_WORD: Record<Axis, string> = { x: "width", y: "height" };
@@ -127,45 +128,47 @@ export function SizeField({ axis, nodes, parents, onAddLimit, disabled }: { axis
   const mode = sizing === "HUG" ? t("Hug") : sizing === "FILL" ? t("Fill") : undefined;
   const label = t(axis === "x" ? names.x : names.y);
   return (
-    <div ref={field} style={{ display: "contents" }}>
-      <VariableField nodes={nodes} fields={[axis === "x" ? "WIDTH" : "HEIGHT"]} prefix={axis === "x" ? "W" : "H"} button={false} open={picker} onOpenChange={setPicker}>
-        <NumericInput
-          label={label}
-          prefix={axis === "x" ? "W" : "H"}
-          className={menu ? styles.sizeField : undefined}
-          disabled={disabled}
-          value={fieldValue(value)}
-          // The number hugs its digits; what is right of it focuses the field (a Fixed field), or is the mode's word.
-          modeLabel={menu ? " " : undefined}
-          dimValue={!!mode}
-          min={0.01}
-          onChange={setSize}
-          onStep={stepSize}
-          onExpression={eachSize}
-          onCancel={() => ed.cancelEdit()}
-          onExit={exitToCanvas(ed)}
-          suffix={
-            menu ? (
-              // The owner's live Figma (docs/research/panel17): Fixed → the chevron, hovered or not; Hug / Fill → the mode's
-              // word in its place, the number grey, and the chevron instead of the word while the field is hovered (the
-              // owner's correction). Either opens the sizing list.
-              <MenuButton label={t("{label} sizing", { label })} entries={entries} onSelect={onMenu} className={mode ? styles.sizeMode : styles.sizeMenu} overField='[data-ds="NumericInput"]' overAlign="right" overOffset={hug ? SIZING_LIST_DY : SIZING_LIST_DY_CHILD}>
-                {mode ? (
-                  <>
-                    <span className={styles.sizeModeWord}>{mode}</span>
-                    <span className={styles.sizeModeChevron}>
-                      <Icon name="24.chevron.down" />
-                    </span>
-                  </>
-                ) : (
-                  <Icon name="24.chevron.down" />
-                )}
-              </MenuButton>
-            ) : undefined
-          }
-        />
-      </VariableField>
-    </div>
+    <MotionField field={axis === "x" ? "WIDTH" : "HEIGHT"} disabled={disabled}>
+      <div ref={field} style={{ display: "contents" }}>
+        <VariableField nodes={nodes} fields={[axis === "x" ? "WIDTH" : "HEIGHT"]} prefix={axis === "x" ? "W" : "H"} button={false} open={picker} onOpenChange={setPicker}>
+          <NumericInput
+            label={label}
+            prefix={axis === "x" ? "W" : "H"}
+            className={menu ? styles.sizeField : undefined}
+            disabled={disabled}
+            value={fieldValue(value)}
+            // The number hugs its digits; what is right of it focuses the field (a Fixed field), or is the mode's word.
+            modeLabel={menu ? " " : undefined}
+            dimValue={!!mode}
+            min={0.01}
+            onChange={setSize}
+            onStep={stepSize}
+            onExpression={eachSize}
+            onCancel={() => ed.cancelEdit()}
+            onExit={exitToCanvas(ed)}
+            suffix={
+              menu ? (
+                // The owner's live Figma (docs/research/panel17): Fixed → the chevron, hovered or not; Hug / Fill → the mode's
+                // word in its place, the number grey, and the chevron instead of the word while the field is hovered (the
+                // owner's correction). Either opens the sizing list.
+                <MenuButton label={t("{label} sizing", { label })} entries={entries} onSelect={onMenu} className={mode ? styles.sizeMode : styles.sizeMenu} overField='[data-ds="NumericInput"]' overAlign="right" overOffset={hug ? SIZING_LIST_DY : SIZING_LIST_DY_CHILD}>
+                  {mode ? (
+                    <>
+                      <span className={styles.sizeModeWord}>{mode}</span>
+                      <span className={styles.sizeModeChevron}>
+                        <Icon name="24.chevron.down" />
+                      </span>
+                    </>
+                  ) : (
+                    <Icon name="24.chevron.down" />
+                  )}
+                </MenuButton>
+              ) : undefined
+            }
+          />
+        </VariableField>
+      </div>
+    </MotionField>
   );
 }
 

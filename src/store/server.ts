@@ -30,7 +30,7 @@ export interface ServableStore {
   /** Shared files' connection and people (docs/multiplayer.md §5) */
   readonly multiplayer?: {
     onFileState(listener: (fileKey: FileKey, state: FileShareState) => void): Unsubscribe;
-    onReplaced(listener: (from: FileKey, to: FileKey) => void): Unsubscribe;
+    onReplaced(listener: (from: FileKey, to: FileKey, why: "too-old" | "read-only" | "too-large") => void): Unsubscribe;
     onNotice(listener: (fileKey: FileKey, notice: MultiplayerNotice) => void): Unsubscribe;
     onSignal(listener: (fileKey: FileKey, from: number, data: unknown) => void): Unsubscribe;
     onPolicy(listener: (fileKey: FileKey, policy: RoomPolicy) => void): Unsubscribe;
@@ -171,7 +171,7 @@ export class StoreServer {
     if (store.multiplayer) {
       const mp = store.multiplayer;
       this.offs.push(mp.onFileState((fileKey, state) => this.broadcast({ t: "evt", topic: "multiplayer", d: { fileKey, state } })));
-      this.offs.push(mp.onReplaced((from, to) => this.broadcast({ t: "evt", topic: "multiplayer", d: { fileKey: from, state: { shared: false, key: null, role: null, connection: "offline", peers: [], requests: 0 }, replacedBy: to } })));
+      this.offs.push(mp.onReplaced((from, to, why) => this.broadcast({ t: "evt", topic: "multiplayer", d: { fileKey: from, state: { shared: false, key: null, role: null, connection: "offline", peers: [], requests: 0 }, replacedBy: to, replacedWhy: why } })));
       this.offs.push(mp.onNotice((fileKey, notice) => void mp.fileState(fileKey).then((state) => this.broadcast({ t: "evt", topic: "multiplayer", d: { fileKey, state, notice } }))));
       this.offs.push(mp.onSignal((fileKey, from, data) => void mp.fileState(fileKey).then((state) => this.broadcast({ t: "evt", topic: "multiplayer", d: { fileKey, state, signal: { from, data } } }))));
       // The org changed cursor chat or audio (docs/multiplayer.md §15.9); the server ended the session (§15.8)

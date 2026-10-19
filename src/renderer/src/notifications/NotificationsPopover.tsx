@@ -9,7 +9,7 @@ import { Button, ContextMenu, Icon, IconButton, Portal, useDismiss, useFocusScop
 import { t, useT } from "@/i18n";
 import { getStoreClient } from "@/store";
 import { PEER_COLORS } from "@shared/multiplayer/colors";
-import { isCommentKind, isDevStatusKind, notificationAction, notificationDate, type NotificationFilter, type NotificationItem, type NotificationPage } from "@shared/notifications";
+import { isAdminRequestKind, isCommentKind, isDevStatusKind, notificationAction, notificationDate, textInAction, type NotificationFilter, type NotificationItem, type NotificationPage } from "@shared/notifications";
 import styles from "./Notifications.module.css";
 import { TeamIcon } from "@/files/parts";
 
@@ -218,7 +218,7 @@ function Row({ n, now, busy, onOpen, onAnswer }: { n: NotificationItem; now: num
         <span className={styles.action}>
           {notificationAction(n)} · {n.fileName || t("Untitled")}
         </span>
-        {n.text && n.count === 1 && !dev && !plugin && <span className={styles.text}>{n.text}</span>}
+        {n.text && n.count === 1 && !textInAction(n.kind) && <span className={styles.text}>{n.text}</span>}
         {/* Figma's status emails link "Inspect in Dev Mode" to the file's ready-for-dev view (help.figma.com 26781702258583) */}
         {dev && n.fileKey && (
           <span className={styles.actions}>
@@ -228,6 +228,8 @@ function Row({ n, now, busy, onOpen, onAnswer }: { n: NotificationItem; now: num
           </span>
         )}
         {n.kind === "plugin_request" && n.state && <span className={styles.answered} data-notification="plugin-request">{n.state === "pending" ? t("Review it in Admin › Resources") : n.state === "approved" ? t("Approved") : t("Declined")}</span>}
+        {/* Seat and guest requests are answered on Admin's Dashboard (docs/multiplayer.md §14.12) */}
+        {isAdminRequestKind(n.kind) && n.state && <span className={styles.answered} data-notification="admin-request">{n.state === "pending" ? t("Review it in Admin › Dashboard") : n.state === "approved" ? t("Approved") : t("Declined")}</span>}
         {request &&
           (n.state === "pending" ? (
             <span className={styles.actions}>

@@ -211,6 +211,8 @@
   .tipBody { display: flex; align-items: flex-start; gap: var(--ds-space-2); padding: 0 var(--ds-space-4) 0 calc(var(--ds-size-panel-pad-left) - 4px); }
   .tipGlyph { display: flex; flex: none; justify-content: center; width: var(--ds-size-control); color: var(--figma-color-icon); }
   .tipText { margin: 0; color: var(--figma-color-text); }
+  /* A custom bezier's or spring's graph (round 8j: the Easing editor's, docs/motion.md §6.3), centred over its numbers */
+  .curve { display: flex; justify-content: center; padding: var(--ds-space-1) var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left); }
   .quad {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

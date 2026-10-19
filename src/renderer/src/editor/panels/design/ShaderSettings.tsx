@@ -5,7 +5,7 @@
  * field columns. Live has no capture of a shader's settings: the layout follows the other effect popovers
  * (popovers/effect-settings-*.txt), the rest is unverified.
  */
-import { Checkbox, ColorInput, Icon, NumericInput, Select, cx, type ChangeInfo } from "@/ds";
+import { ColorInput, Icon, NumericInput, Select, Slider, Switch, cx, type ChangeInfo } from "@/ds";
 import type { Color } from "@/engine/codec";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
 import { presetOf, shaderValue, withShaderValue, type ShaderFields, type ShaderParam, type ShaderValue } from "../../model/shaders";
@@ -31,12 +31,16 @@ export function ShaderParams<T extends ShaderFields>({
   const set = (p: ShaderParam, v: ShaderValue, info: ChangeInfo) => onChange(withShaderValue(target, p, v), info);
   const row = (p: ShaderParam) => {
     const v = shaderValue(target, p);
+    // A toggle: its label, then a switch (the owner's capture figma-shader-pixelate-panel: "Knockout").
     if (p.type === "toggle")
-      return (
-        <div key={p.id} className={styles.wide}>
-          <Checkbox tone="panel" label={p.name} checked={v === true} onChange={(on) => set(p, on, pick)} />
-        </div>
-      );
+      return [
+        <span key={`${p.id}-label`} className={styles.label}>
+          {p.name}
+        </span>,
+        <div key={`${p.id}-field`} className={styles.field} data-shader-param={p.name}>
+          <Switch label={p.name} checked={v === true} onChange={(on) => set(p, on, pick)} />
+        </div>,
+      ];
     let control;
     if (p.type === "color") {
       const c = v as Color;
@@ -52,6 +56,18 @@ export function ShaderParams<T extends ShaderFields>({
       );
     } else if (p.type === "choice") {
       control = <Select label={p.name} value={String(v)} options={(p.options ?? []).map((o, i) => ({ value: String(i), label: o }))} onChange={(i) => set(p, Number(i), pick)} />;
+    } else if (p.min !== undefined && p.max !== undefined) {
+      // A ranged number: Figma's slider joined to its value (the capture's Size, Stretch, Gap… rows), as Glass's.
+      const whole = p.step === 1;
+      const write = (n: number, info: ChangeInfo) => set(p, whole ? Math.round(n) : n, info);
+      control = (
+        <div className={styles.slider}>
+          <span className={styles.track}>
+            <Slider label={p.name} min={p.min} max={p.max} step={p.step ?? (whole ? 1 : 0.01)} value={v as number} onChange={write} onCancel={onCancel} />
+          </span>
+          <NumericInput className={styles.value} label={p.name} value={v as number} min={p.min} max={p.max} precision={whole ? 0 : 2} unit={p.unit === "px" ? undefined : p.unit} onChange={write} onCancel={onCancel} />
+        </div>
+      );
     } else {
       const whole = p.step === 1;
       control = (
@@ -81,7 +97,7 @@ export function ShaderParams<T extends ShaderFields>({
     <div className={styles.grid} data-shader-settings={preset?.key ?? ""}>
       <span className={styles.label}>{t("Shader")}</span>
       <button type="button" className={cx(styles.preset, !onChoose && styles.presetStatic)} aria-label={t("Shader: {name}", { name: preset?.name ?? t("Unknown") })} disabled={!onChoose} onClick={(e) => onChoose?.(e.currentTarget)}>
-        <Icon name="24.shader.small" />
+        <Icon name="24.effect.shader.small" />
         <span className={styles.presetName}>{preset?.name ?? t("Unknown shader")}</span>
         {onChoose && <Icon name="16.chevron.down" className={styles.chevron} />}
       </button>

@@ -577,6 +577,9 @@ export class BranchService {
       const { p, r, result } = await this.final(branchFileKey, input?.previewId, "update", input?.resolutions ?? {});
       const batch = result.batch;
       if (r.branchKey && this.host.remote) return this.applyUpdateShared(p, r, encodeMessage(batch));
+      // Savepoints on both files first (Figma's, atlas 16 §3.2: restoring the branch's takes the update back).
+      await this.host.addVersion(branchFileKey, { kind: "autosave", title: null, description: null });
+      await this.host.addVersion(r.mainFileKey, { kind: "autosave", title: null, description: null });
       if (batch.nodeChanges?.length) {
         await this.host.appendSystem(branchFileKey, encodeMessage(batch), { kind: "update", label: "Updated from main", expectSeq: p.branchHeadSeq, blobRefsAdded: [...messageImageHashes(batch)] });
       }
@@ -595,12 +598,15 @@ export class BranchService {
     const r0 = await this.record(branchFileKey);
     return this.serial(r0.mainFileKey, () =>
       this.serial(branchFileKey, () => this.caughtUp(branchFileKey, async () => {
+        // Main in the Trash takes no merge until it's restored (the server refuses a shared one the same way)
+        if (this.mainMeta(r0.mainFileKey).trashedAt !== null) throw new StoreError("trashed", tr("The main file is in Trash. Restore it first."));
         const { p, r, result } = await this.final(branchFileKey, input?.previewId, "merge", input?.resolutions ?? {});
         const title = typeof input?.title === "string" && input.title.trim() ? input.title.trim() : r.name;
         const description = typeof input?.description === "string" && input.description.trim() ? input.description.trim() : null;
         if (r.branchKey && this.host.remote) return this.mergeShared(p, r, encodeMessage(result.batch), title, description);
-        // 4. The pre-merge checkpoint (restoring it undoes the merge).
-        await this.host.addVersion(r.mainFileKey, { kind: "autosave", title: null, description: null });
+        // 4. The pre-merge checkpoints on both files (Figma's savepoints; restoring main's undoes the merge).
+        const before = await this.host.addVersion(r.mainFileKey, { kind: "autosave", title: null, description: null });
+        await this.host.addVersion(branchFileKey, { kind: "autosave", title: null, description: null });
         // 5. One batch on main.
         const batch = result.batch;
         if (batch.nodeChanges?.length) {
@@ -611,7 +617,9 @@ export class BranchService {
         await this.host.addVersion(branchFileKey, { kind: "merge", title, description });
         const now = this.host.now();
         const me = this.host.user();
-        const next: BranchRecord = { ...r, status: "merged", mergedAt: now, mergedBy: me.id, mergeVersionId: version.id, archivedAt: r.archivedAt ?? now };
+        // Its review is over: closed, as the server closes a shared branch's
+        const review = r.review && r.review.state !== "closed" ? { ...r.review, state: "closed" as const } : r.review;
+        const next: BranchRecord = { ...r, status: "merged", mergedAt: now, mergedBy: me.id, mergeVersionId: version.id, preMergeVersionId: before.id, archivedAt: r.archivedAt ?? now, review };
         this.previews.delete(p.previewId);
         const saved = await this.save(next);
         this.emit({ type: "branch.merged", branch: saved });
@@ -680,6 +688,22 @@ export class BranchService {
     return { branch: saved, version };
   }
 
+  /**
+   * Undo merge: the branch as it was before its merge — active, its review and base kept — so it can be changed and
+   * merged again. Main's own going back is the editor's restore of `preMergeVersionId`. Local merges only (a shared
+   * one is the server's: Phase 6).
+   */
+  async undoMerge(branchFileKey: FileKey): Promise<BranchRecord> {
+    return this.serial(branchFileKey, async () => {
+      const r = await this.record(branchFileKey);
+      if (r.status !== "merged") throw new StoreError("invalid", tr("This branch wasn't merged"));
+      if (r.branchKey || !r.preMergeVersionId) throw new StoreError("invalid", tr("This merge can't be undone"));
+      const saved = await this.save({ ...r, status: "active", mergedAt: null, mergedBy: null, mergeVersionId: null, preMergeVersionId: null, archivedAt: null });
+      this.emit({ type: "branch.updated", branch: saved });
+      return saved;
+    });
+  }
+
   // -------------------------------------------------------------------------------------------------------------------
   // Reviews
   // -------------------------------------------------------------------------------------------------------------------
@@ -737,6 +761,36 @@ export class BranchService {
     });
   }
 
+  async withdrawReview(branchFileKey: FileKey): Promise<BranchReview> {
+    return this.serial(branchFileKey, async () => {
+      const r = await this.record(branchFileKey);
+      if (!r.review || r.review.state === "closed") throw new StoreError("invalid", tr("No review was requested"));
+      let review: BranchReview;
+      if (r.branchKey && this.host.remote) review = await this.host.remote.withdrawReview(r);
+      else {
+        const id = this.host.user().id ?? "local";
+        const reviewers = r.review.reviewers.map((x) => (x.userId === id ? { ...x, verdict: "pending" as const, comment: "", at: null } : x));
+        // The review's state: the latest verdict left, else in review
+        const last = reviewers.filter((x) => x.verdict !== "pending").sort((a, b) => (b.at ?? 0) - (a.at ?? 0))[0];
+        review = { ...r.review, state: last ? (last.verdict as "approved" | "changes-suggested") : "in-review", reviewers };
+      }
+      const saved = await this.save({ ...r, review });
+      this.emit({ type: "branch.updated", branch: saved });
+      return structuredClone(review);
+    });
+  }
+
+  async closeReview(branchFileKey: FileKey): Promise<BranchReview> {
+    return this.serial(branchFileKey, async () => {
+      const r = await this.record(branchFileKey);
+      if (!r.review) throw new StoreError("invalid", tr("No review was requested"));
+      const review: BranchReview = r.branchKey && this.host.remote ? await this.host.remote.closeReview(r) : { ...r.review, state: "closed" };
+      const saved = await this.save({ ...r, review });
+      this.emit({ type: "branch.updated", branch: saved });
+      return structuredClone(review);
+    });
+  }
+
   /** The next GUID block of a branch that ran out of its own (FileStore asks; docs/data.md §15.2). */
   async nextSessionBlock(branchFileKey: FileKey): Promise<{ start: number; end: number } | null> {
     await this.load();
@@ -773,6 +827,9 @@ export class BranchService {
       merge: (branchFileKey, input) => this.merge(branchFileKey, input),
       requestReview: (branchFileKey, input) => this.requestReview(branchFileKey, input),
       answerReview: (branchFileKey, input) => this.answerReview(branchFileKey, input),
+      withdrawReview: (branchFileKey) => this.withdrawReview(branchFileKey),
+      closeReview: (branchFileKey) => this.closeReview(branchFileKey),
+      undoMerge: (branchFileKey) => this.undoMerge(branchFileKey),
       watch: (listener) => this.onEvent(listener),
     };
   }

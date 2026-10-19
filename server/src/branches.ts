@@ -37,6 +37,12 @@
  *   GET    /branches/:key/reviews                can view branch   → {reviews}
  *   POST   /branches/:key/reviews                can view branch   {reviewerIds, description} → {review}
  *   POST   /branches/:key/reviews/:id/verdict    a reviewer        {verdict, comment?} → {review}
+ *   DELETE /branches/:key/reviews/:id/verdict    a reviewer        → {review}: their verdict withdrawn (Figma's
+ *                                               unapprove), pending again
+ *   POST   /branches/:key/reviews/:id/close      the requester or an editor of main → {review}: closed
+ *
+ * A verdict keeps the branch's head it was given at (migration 0029): `outdated` once the branch changed since
+ * (docs/multiplayer.md §18.9).
  *
  * The envelope is roomBox.ts `encodeEnvelope`: `[u32 BE json length][JSON][kiwi Message]`.
  */
@@ -46,7 +52,7 @@ import type { ActivityAction } from "../../src/shared/org/types";
 import { logActivity, repoEntity } from "./activity";
 import type { Deps } from "./api";
 import type { BranchRow } from "./branchAccess";
-import { normalizeEmail } from "./db";
+import { normalizeEmail, type D1Like } from "./db";
 import { prefetch, type Query } from "./requestD1";
 import { guardedUpload, requireFileSlot } from "./quota/quota";
 import { canOpen, type FileRow } from "./org/db";
@@ -72,7 +78,7 @@ export interface BranchReviewJson {
   description: string;
   createdAt: number;
   updatedAt: number;
-  reviewers: { userId: string; name: string | null; verdict: "pending" | "approved" | "changes-suggested"; comment: string; at: number | null }[];
+  reviewers: { userId: string; name: string | null; verdict: "pending" | "approved" | "changes-suggested"; comment: string; at: number | null; seq: number | null; outdated: boolean }[];
 }
 
 /** A branch as the routes answer it: data.md §15.2's `BranchRecord` with the room's fields (the store maps it) */
@@ -101,7 +107,8 @@ const SELECT = `SELECT b.*, u.name AS creator_name, u.email AS creator_email FRO
 /** A branch's reviews, newest first (prefetched for a list of branches: requestD1.ts) */
 const reviewsQ = (branchKey: string, latestOnly: boolean): Query => ({ sql: `SELECT * FROM branch_reviews WHERE branch_key = ?1 ORDER BY created_at DESC, id DESC ${latestOnly ? "LIMIT 1" : ""}`, args: [branchKey] });
 
-async function reviewsOf(deps: Deps, branchKey: string, latestOnly: boolean): Promise<BranchReviewJson[]> {
+/** `headSeq`: the branch's head now (its verdicts given before it are `outdated`); unknown, none is */
+async function reviewsOf(deps: Deps, branchKey: string, latestOnly: boolean, headSeq: number | null = null): Promise<BranchReviewJson[]> {
   const d1 = deps.db.d1;
   const q = reviewsQ(branchKey, latestOnly);
   const { results } = await d1
@@ -111,9 +118,9 @@ async function reviewsOf(deps: Deps, branchKey: string, latestOnly: boolean): Pr
   const out: BranchReviewJson[] = [];
   for (const r of results) {
     const { results: people } = await d1
-      .prepare(`SELECT r.user_id, r.verdict, r.comment, r.at, u.name, u.email FROM branch_reviewers r LEFT JOIN users u ON u.id = r.user_id WHERE r.review_id = ?1 ORDER BY u.email`)
+      .prepare(`SELECT r.user_id, r.verdict, r.comment, r.at, r.seq, u.name, u.email FROM branch_reviewers r LEFT JOIN users u ON u.id = r.user_id WHERE r.review_id = ?1 ORDER BY u.email`)
       .bind(r.id)
-      .all<{ user_id: string; verdict: BranchReviewJson["reviewers"][number]["verdict"]; comment: string; at: number | null; name: string | null; email: string | null }>();
+      .all<{ user_id: string; verdict: BranchReviewJson["reviewers"][number]["verdict"]; comment: string; at: number | null; seq: number | null; name: string | null; email: string | null }>();
     out.push({
       id: r.id,
       state: r.state,
@@ -121,7 +128,7 @@ async function reviewsOf(deps: Deps, branchKey: string, latestOnly: boolean): Pr
       description: r.description,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
-      reviewers: people.map((p) => ({ userId: p.user_id, name: p.name || p.email, verdict: p.verdict, comment: p.comment, at: p.at })),
+      reviewers: people.map((p) => ({ userId: p.user_id, name: p.name || p.email, verdict: p.verdict, comment: p.comment, at: p.at, seq: p.seq ?? null, outdated: p.verdict !== "pending" && p.seq != null && headSeq !== null && p.seq < headSeq })),
     });
   }
   return out;
@@ -419,12 +426,14 @@ export async function branchesRoute(ctx: Ctx): Promise<Response> {
       case "POST merge":
         return json(await applyMerge(ctx, r));
       case "GET reviews":
-        return json({ reviews: await reviewsOf(deps, key, false) });
+        return json({ reviews: await reviewsOf(deps, key, false, await branchHead(deps, key)) });
       case "POST reviews":
         return json({ review: await requestReview(ctx, r) }, 201);
     }
   }
   if (parts.length === 5 && sub === "reviews" && parts[4] === "verdict" && m === "POST") return json({ review: await answerReview(ctx, r, parts[3]) });
+  if (parts.length === 5 && sub === "reviews" && parts[4] === "verdict" && m === "DELETE") return json({ review: await withdrawReview(ctx, r, parts[3]) });
+  if (parts.length === 5 && sub === "reviews" && parts[4] === "close" && m === "POST") return json({ review: await closeReview(ctx, r, parts[3]) });
   throw new HttpError(404, "not found");
 }
 
@@ -502,6 +511,7 @@ async function applyMerge(ctx: Ctx, r: Resolved) {
   const { deps, user } = ctx;
   const { b, main } = r;
   if (b.status !== "active") throw new HttpError(409, b.status === "merged" ? "the branch is already merged" : "the branch is archived");
+  if (r.am.ok && r.am.trashed) throw new HttpError(409, "the main file is in the trash; restore it first");
   if (!r.canEditMain || !r.am.ok) throw new HttpError(403, "only people who can edit the main file can merge; request a review");
   const { meta, message } = envelopeOf<{ mainSeq?: unknown; branchSeq?: unknown; title?: unknown; description?: unknown; sessionID?: unknown; batch?: unknown }>(await ctx.req.arrayBuffer());
   const mainSeq = seqOf(meta.mainSeq, "mainSeq");
@@ -530,6 +540,8 @@ async function applyMerge(ctx: Ctx, r: Resolved) {
     .prepare(`UPDATE branches SET status = 'merged', merged_at = ?2, merged_by = ?3, merge_version = ?4, archived_at = ?2, archived_by = ?3 WHERE key = ?1`)
     .bind(b.key, now, user.id, res.versionId)
     .run();
+  // Its review is over (§15.5): closed, so a merged branch shows no review waiting
+  await deps.db.d1.prepare(`UPDATE branch_reviews SET state = 'closed', updated_at = ?2 WHERE branch_key = ?1 AND state <> 'closed'`).bind(b.key, now).run();
   await deps.db.d1.prepare(`UPDATE files SET updated_at = ?2 WHERE key = ?1`).bind(main.key, now).run();
   await logBranch(ctx, main, "repo_merge_to_source", { branch_key: b.key, branch_name: b.name, main_seq: res.seq, version_id: res.versionId });
   const { results: reviewers } = await deps.db.d1.prepare(`SELECT DISTINCT r.user_id FROM branch_reviewers r JOIN branch_reviews v ON v.id = r.review_id WHERE v.branch_key = ?1`).bind(b.key).all<{ user_id: string }>();
@@ -577,10 +589,52 @@ async function answerReview(ctx: Ctx, r: Resolved, reviewId: string): Promise<Br
   if (p.verdict !== "approved" && p.verdict !== "changes-suggested") throw new HttpError(400, "verdict is approved or changes-suggested");
   const comment = typeof p.comment === "string" ? p.comment.trim().slice(0, 5000) : "";
   const now = deps.now();
-  await d1.prepare(`UPDATE branch_reviewers SET verdict = ?3, comment = ?4, at = ?5 WHERE review_id = ?1 AND user_id = ?2`).bind(review.id, user.id, p.verdict, comment, now).run();
+  // The branch as reviewed: a change after it makes the verdict one of an older version
+  const seq = await branchHead(deps, r.b.key);
+  await d1.prepare(`UPDATE branch_reviewers SET verdict = ?3, comment = ?4, at = ?5, seq = ?6 WHERE review_id = ?1 AND user_id = ?2`).bind(review.id, user.id, p.verdict, comment, now, seq).run();
   await d1.prepare(`UPDATE branch_reviews SET state = ?2, updated_at = ?3 WHERE id = ?1`).bind(review.id, p.verdict, now).run();
   await notifyBranchVerdict(deps, { key: r.b.key, by: user, toId: review.requested_by, verdict: p.verdict, comment });
-  return (await reviewsOf(deps, r.b.key, true)).find((x) => x.id === review.id) ?? (await reviewsOf(deps, r.b.key, false)).find((x) => x.id === review.id)!;
+  return reviewById(deps, r.b.key, review.id, seq);
+}
+
+/** A review by id, as the routes answer it */
+async function reviewById(deps: Deps, branchKey: string, id: string, headSeq: number | null): Promise<BranchReviewJson> {
+  return (await reviewsOf(deps, branchKey, false, headSeq)).find((x) => x.id === id)!;
+}
+
+/** The branch room's head (null when the room can't say) */
+async function branchHead(deps: Deps, key: string): Promise<number | null> {
+  return headOf(deps, key).then(
+    (h) => h.lastSeq,
+    () => null,
+  );
+}
+
+/** A reviewer takes their verdict back (Figma's unapprove): pending again; the review's state is the latest verdict left. */
+async function withdrawReview(ctx: Ctx, r: Resolved, reviewId: string): Promise<BranchReviewJson> {
+  const { deps, user } = ctx;
+  const d1 = deps.db.d1;
+  const review = await d1.prepare(`SELECT id, state FROM branch_reviews WHERE id = ?1 AND branch_key = ?2`).bind(reviewId, r.b.key).first<{ id: string; state: string }>();
+  if (!review) throw new HttpError(404, "no such review");
+  if (review.state === "closed") throw new HttpError(409, "the review is closed");
+  const mine = await d1.prepare(`SELECT 1 AS x FROM branch_reviewers WHERE review_id = ?1 AND user_id = ?2`).bind(review.id, user.id).first();
+  if (!mine) throw new HttpError(403, "only the reviewers asked can review");
+  const now = deps.now();
+  await d1.prepare(`UPDATE branch_reviewers SET verdict = 'pending', comment = '', at = NULL, seq = NULL WHERE review_id = ?1 AND user_id = ?2`).bind(review.id, user.id).run();
+  const last = await d1.prepare(`SELECT verdict FROM branch_reviewers WHERE review_id = ?1 AND verdict <> 'pending' ORDER BY at DESC LIMIT 1`).bind(review.id).first<{ verdict: string }>();
+  await d1.prepare(`UPDATE branch_reviews SET state = ?2, updated_at = ?3 WHERE id = ?1`).bind(review.id, last?.verdict ?? "in-review", now).run();
+  return reviewById(deps, r.b.key, review.id, await branchHead(deps, r.b.key));
+}
+
+/** The request withdrawn — by whoever asked, or someone who can edit main: closed, as a merge closes it. */
+async function closeReview(ctx: Ctx, r: Resolved, reviewId: string): Promise<BranchReviewJson> {
+  const { deps, user } = ctx;
+  const d1 = deps.db.d1;
+  const review = await d1.prepare(`SELECT id, requested_by, state FROM branch_reviews WHERE id = ?1 AND branch_key = ?2`).bind(reviewId, r.b.key).first<{ id: string; requested_by: string; state: string }>();
+  if (!review) throw new HttpError(404, "no such review");
+  if (review.requested_by !== user.id && !r.canEditMain) throw new HttpError(403, "only the person who asked, or an editor of the main file, can close it");
+  if (review.state !== "closed") await d1.prepare(`UPDATE branch_reviews SET state = 'closed', updated_at = ?2 WHERE id = ?1`).bind(review.id, deps.now()).run();
+  return reviewById(deps, r.b.key, review.id, null);
 }
 
 // --- Elsewhere --------------------------------------------------------------------------------------------------------------
@@ -622,6 +676,22 @@ export async function branchMembers(ctx: Ctx, b: BranchRow): Promise<Response> {
     return json({ ok: true });
   }
   throw new HttpError(404, "not found");
+}
+
+/**
+ * A main file moved (to another folder, into drafts, into an org) takes its branches' rows along: they sit where main
+ * does (§15.7.1). Left behind, deleting the old folder for good deleted the live branches with it. Answers the
+ * branches' keys (their people reconnect: access is main's).
+ */
+export async function placeBranchesWith(d1: D1Like, mainKey: string): Promise<string[]> {
+  const { results } = await d1
+    .prepare(
+      `UPDATE files SET org_id = (SELECT org_id FROM files WHERE key = ?1), team_id = (SELECT team_id FROM files WHERE key = ?1),
+         project_id = (SELECT project_id FROM files WHERE key = ?1) WHERE key IN (SELECT key FROM branches WHERE main_key = ?1) RETURNING key`,
+    )
+    .bind(mainKey)
+    .all<{ key: string }>();
+  return results.map((r) => r.key);
 }
 
 /** A main file deleted for good takes its branches (their rooms and rows) with it. */

@@ -10,6 +10,7 @@ import {
   combineNames,
   defaultVariant,
   derivedId,
+  formatPropertyNumber,
   formatVariantName,
   groupChanges,
   groupAssets,
@@ -21,6 +22,7 @@ import {
   nextDefId,
   overrideAt,
   parseDerivedId,
+  parsePropertyNumber,
   parseVariantName,
   propertyApiName,
   propertyBaseName,
@@ -28,6 +30,8 @@ import {
   resetKindFields,
   searchAssets,
   sortedDefs,
+  tileGrid,
+  tileLayoutOf,
   unbindAll,
   variantFor,
   variantProperties,
@@ -36,7 +40,9 @@ import {
   withBinding,
   withOverride,
   withoutOverrides,
+  worstVariantError,
   DEF_ID_BASE,
+  RESET_MENU_KINDS,
   type CNode,
   type ComponentAsset,
   type ComponentPropDef,
@@ -180,6 +186,33 @@ describe("overrides", () => {
     expect(groups.find((g) => g.kind === "LAYER")?.fields).toEqual(["opacity", "cornerRadius", "stackSpacing", "layoutGrids"]);
     expect(resetKindFields("LAYER", fields)).toEqual(["opacity", "cornerRadius", "stackSpacing", "layoutGrids"]);
     expect(resetKindFields("OVERLAY")).toContain("overlayPositionType");
+    // Figma's "Reset specific changes" lists its twelve kinds only: a swap and variable modes are reset elsewhere.
+    expect(groups.filter((g) => RESET_MENU_KINDS.has(g.kind)).map((g) => g.kind)).toEqual(["EXPORTS", "LAYER", "VISIBLE", "NAME", "FILL", "PROTOTYPE_INTERACTIONS"]);
+    expect(RESET_MENU_KINDS.size).toBe(12);
+  });
+
+  it("Figma's variant errors: the worst wins (an invalid name, then the same values, then a missing property)", () => {
+    expect(worstVariantError([])).toBe("NONE");
+    expect(worstVariantError(["MISSING_PROPERTIES_ERROR", "NONE", "DUPLICATE_STATE_ERROR"])).toBe("DUPLICATE_STATE_ERROR");
+    expect(worstVariantError(["PARSE_ERROR", "DUPLICATE_STATE_ERROR"])).toBe("PARSE_ERROR");
+    expect(worstVariantError(["TOO_MANY_STATES_ERROR", "MISSING_PROPERTIES_ERROR"])).toBe("MISSING_PROPERTIES_ERROR");
+  });
+
+  it("a Number property's text: Figma's pattern, 2 decimals, no trailing zeros", () => {
+    expect(parsePropertyNumber(" 1.234 ")).toBe(1.23);
+    expect(parsePropertyNumber("-.5")).toBe(-0.5);
+    expect(parsePropertyNumber("3.")).toBe(3);
+    expect(parsePropertyNumber("")).toBeNull();
+    expect(parsePropertyNumber("1e3")).toBeNull();
+    expect(parsePropertyNumber("12px")).toBeNull();
+    expect(formatPropertyNumber(1.5)).toBe("1.5");
+    expect(formatPropertyNumber(2)).toBe("2");
+    expect(formatPropertyNumber(3.4600000381)).toBe("3.46");
+    expect(formatPropertyNumber(Number.NaN)).toBe("0");
+    expect(newPropertyDef("NUMBER", id(9), "Count").initialValue).toEqual({ floatValue: 0 });
+    expect(propertyBaseName("NUMBER")).toBe("Number");
+    expect(canBind({ type: "NUMBER" }, "TEXT")).toBe(true);
+    expect(canBind({ type: "NUMBER" }, "FRAME")).toBe(false);
   });
 
   it("derived ids (docs/schema.md §5.1)", () => {
@@ -218,10 +251,24 @@ describe("assets", () => {
     expect(g[1].frames[1].items.map((i) => assetLabel(i.name))).toEqual(["Heart", "Star"]);
   });
 
-  it("search matches every word in the name, page or frame", () => {
-    expect(searchAssets(list, "icons star").map((x) => x.id)).toEqual(["1:20"]);
+  it("search is Figma's fuzzy asset search: the name first, then the frame and page, typos within 0.3, best first", () => {
+    expect(searchAssets(list, "star")[0].id).toBe("1:20");
+    expect(searchAssets(list, "Buton").map((x) => x.id)).toEqual(["1:1"]);
     expect(searchAssets(list, "screens").map((x) => x.id)).toEqual(["9:1"]);
-    expect(searchAssets(list, "")).toHaveLength(4);
+    expect(searchAssets(list, "zebra")).toEqual([]);
+    expect(searchAssets(list, "  ")).toHaveLength(4);
+  });
+
+  it("tile layouts and Figma's grid math: 96 × 96 two to a row at 240, three from 409; WIDE one 208 × 64", () => {
+    expect(tileLayoutOf([{ x: 300, y: 100 }, { x: 90, y: 30 }])).toBe("WIDE");
+    expect(tileLayoutOf([{ x: 24, y: 24 }, { x: 64, y: 40 }])).toBe("SMALL");
+    expect(tileLayoutOf([{ x: 24, y: 24 }], false)).toBe("NORMAL");
+    expect(tileLayoutOf([{ x: 300, y: 100 }, null])).toBe("NORMAL");
+    expect(tileGrid("NORMAL", 240)).toEqual({ columns: 2, width: 96, height: 96 });
+    expect(tileGrid("NORMAL", 408).columns).toBe(2);
+    expect(tileGrid("NORMAL", 409)).toEqual({ columns: 3, width: 115, height: 115 });
+    expect(tileGrid("SMALL", 240)).toEqual({ columns: 3, width: 58, height: 58 });
+    expect(tileGrid("WIDE", 240)).toEqual({ columns: 1, width: 208, height: 64 });
   });
 
   it("preferred values match by GUID string (local) or key (published)", () => {

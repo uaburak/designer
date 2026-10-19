@@ -66,6 +66,8 @@ export const access: Record<string, string> = {
   "Connect with GitHub": "GitHub ile bağlan",
   "Or use a fine-grained token, read-only: Repository access — the repositories you want; Permissions — Contents: Read-only and Metadata: Read-only.":
     "Ya da salt okunur, ayrıntılı (fine-grained) bir token kullan: Repository access — istediğin depolar; Permissions — Contents: Read-only ve Metadata: Read-only.",
+  "Use a fine-grained token, read-only: Repository access — the repositories you want; Permissions — Contents: Read-only and Metadata: Read-only.":
+    "Salt okunur, ayrıntılı (fine-grained) bir token kullan: Repository access — istediğin depolar; Permissions — Contents: Read-only ve Metadata: Read-only.",
   Token: "Token",
   Connect: "Bağlan",
   "Create a token on GitHub": "GitHub'da token oluştur",

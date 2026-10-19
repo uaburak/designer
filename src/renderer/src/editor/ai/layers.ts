@@ -14,6 +14,8 @@ export interface Layer {
   type: string;
   name: string;
   hidden: boolean;
+  /** At opacity 0 (Rename layers leaves it out, as hidden ones) */
+  transparent: boolean;
   locked: boolean;
   width: number;
   height: number;
@@ -29,7 +31,7 @@ export interface Layer {
   inInstance: boolean;
   /** The top-level frame it is in (itself for a top-level layer); null when the read started below the page and found none */
   top: Guid | null;
-  /** Child indices from its top-level frame ("" for the frame itself) */
+  /** Its place from its top-level frame ("" for the frame itself): each step's name and index among same-named siblings, "/"-joined (Figma's matching layers) */
   path: string;
   /** FONT: base font (family / style) — text checks */
   font?: { family: string; style: string };
@@ -38,7 +40,7 @@ export interface Layer {
   children: Layer[];
 }
 
-const FIELDS = ["name", "type", "visible", "locked", "size", "textData", "autoRename", "fillPaints", "symbolData", "overriddenSymbolID", "resizeToFit", "isStateGroup", "parentIndex", "fontName"];
+const FIELDS = ["name", "type", "visible", "opacity", "locked", "size", "textData", "autoRename", "fillPaints", "symbolData", "overriddenSymbolID", "resizeToFit", "isStateGroup", "parentIndex", "fontName"];
 
 /** Our names for the document's types. */
 export function layerType(n: NodeChange): string {
@@ -57,13 +59,16 @@ const guidOf = (g: unknown): string | null => {
   return typeof o.sessionID === "number" && typeof o.localID === "number" ? `${o.sessionID}:${o.localID}` : null;
 };
 
-/** Where a layer sits: its top-level frame and its child-index path from it (by reading up). */
+/** A path step: the name and the index among same-named siblings (Layers panel order, top first). */
+const step = (name: string, siblings: readonly string[], index: number): string => `${name}#${siblings.slice(0, index).filter((s) => s === name).length}`;
+
+/** Where a layer sits: its top-level frame and its path from it (by reading up). */
 function placeOf(ed: EditorController, id: Guid): { top: Guid | null; path: string[]; inInstance: boolean } {
   const path: string[] = [];
   let inInstance = false;
   let cur: Guid = id;
   for (let i = 0; i < 200; i++) {
-    const n = ed.engine.readNode(cur, { fields: ["parentIndex", "type"] });
+    const n = ed.engine.readNode(cur, { fields: ["parentIndex", "type", "name"] });
     const parent = n?.parentIndex?.guid;
     if (!n || !parent) return { top: null, path, inInstance };
     const p = ed.engine.readNode(parent, { childIds: true, fields: ["type"] });
@@ -71,8 +76,9 @@ function placeOf(ed: EditorController, id: Guid): { top: Guid | null; path: stri
     if (p.type === "CANVAS") return { top: cur, path, inInstance };
     if (p.type === "INSTANCE") inInstance = true;
     // Layers panel order: top first (childIds are back to front).
-    const kids = p.childIds ?? [];
-    path.unshift(String(kids.length - 1 - kids.indexOf(cur)));
+    const kids = [...(p.childIds ?? [])].reverse();
+    const names = kids.map((k) => (k === cur ? (n.name ?? "") : (ed.engine.readNode(k, { fields: ["name"] })?.name ?? "")));
+    path.unshift(step(n.name ?? "", names, kids.indexOf(cur)));
     cur = parent;
   }
   return { top: null, path, inInstance };
@@ -102,6 +108,7 @@ export function readLayers(ed: EditorController, refs: readonly Guid[]): Layer[]
         type,
         name: n.name ?? "",
         hidden: (n as { visible?: boolean }).visible === false,
+        transparent: (n as { opacity?: number }).opacity === 0,
         locked: (n as { locked?: boolean }).locked === true,
         width: n.size?.x ?? 0,
         height: n.size?.y ?? 0,
@@ -115,7 +122,9 @@ export function readLayers(ed: EditorController, refs: readonly Guid[]): Layer[]
         path: path.join("/"),
         children: [],
       };
-      layer.children = kids.map((k) => byId.get(k)).filter((c): c is NodeChange => !!c).map((c, i) => build(c, inInstance || type === "INSTANCE", [...path, String(i)]));
+      const children = kids.map((k) => byId.get(k)).filter((c): c is NodeChange => !!c);
+      const names = children.map((c) => c.name ?? "");
+      layer.children = children.map((c, i) => build(c, inInstance || type === "INSTANCE", [...path, step(c.name ?? "", names, i)]));
       return layer;
     };
     const root = byId.get(ref);

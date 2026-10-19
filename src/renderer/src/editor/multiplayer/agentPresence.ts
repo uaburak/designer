@@ -89,8 +89,8 @@ export const MOVE_MS = 450;
 export const FIT_MARGIN = 64;
 export const FIT_MAX_ZOOM = 1;
 /** The engine's zoom range and canvas edge (engine/src/render/Camera.h: kMinZoom, kCanvasBound) */
-export const MIN_ZOOM = 0.02;
-export const CANVAS_BOUND = 130_000;
+export const MIN_ZOOM = 1 / 64;
+export const CANVAS_BOUND = 131_072;
 /** Share of the way a drawn cursor glides towards its target each frame */
 const EASE = 0.18;
 /** Engine ids for agents start here (room sessions are small numbers) */

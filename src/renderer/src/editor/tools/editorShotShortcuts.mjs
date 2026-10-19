@@ -64,8 +64,9 @@ export async function shortcutsSection(page, theme, { open, settle, shot, check 
   check(`Shortcuts (${theme}): Essential — the heading and the three numbered ones`, (await panel.getByText("Essential keyboard shortcuts").count()) === 1 && (await panel.locator("[data-shortcut-row]").count()) === 3 && (await panel.getByText("Component search").count()) === 1);
   await shot(page, `400-shortcuts-essential-${theme}`);
 
-  // 2. Every tab: rows, each with caps.
-  const tabs = ["Tools", "View", "Zoom", "Text", "Shape", "Selection", "Cursor", "Edit", "Transform", "Arrange", "Components"];
+  // 2. Every tab: rows, each with caps. Components only when the file uses libraries (Atlas 03 §8): this one doesn't.
+  check(`Shortcuts (${theme}): no Components tab in a file without libraries`, (await panel.getByRole("tab", { name: "Components", exact: true }).count()) === 0);
+  const tabs = ["Tools", "View", "Zoom", "Text", "Shape", "Selection", "Cursor", "Edit", "Transform", "Arrange"];
   for (const name of tabs) {
     await panel.getByRole("tab", { name, exact: true }).click();
     await settle(page);
@@ -130,7 +131,9 @@ export async function shortcutsSection(page, theme, { open, settle, shot, check 
   await shot(page, `405-shortcuts-conflict-${theme}`);
   await conflict.locator("[data-shortcut-replace]").click();
   await settle(page);
-  check(`Shortcuts (${theme}): Replace — Rulers ⇧ G, Layout guides none`, /⇧\s*G/.test(await panel.locator('[data-shortcut-caps="view.rulers"]').innerText()) && /None/.test(await panel.locator('[data-shortcut-caps="view.layout-guides"]').innerText()));
+  // Layout guides keeps its other key of Figma's table (⌃G, src/shared/shortcuts.figma.json), only ⇧G goes.
+  const guides = await panel.locator('[data-shortcut-caps="view.layout-guides"]').innerText();
+  check(`Shortcuts (${theme}): Replace — Rulers ⇧ G, Layout guides without it (⌃ G left)`, /⇧\s*G/.test(await panel.locator('[data-shortcut-caps="view.rulers"]').innerText()) && !/⇧/.test(guides) && /⌃\s*G|None/.test(guides), `${await panel.locator('[data-shortcut-caps="view.rulers"]').innerText()} / ${await panel.locator('[data-shortcut-caps="view.layout-guides"]').innerText()}`.replace(/\n/g, " "));
   const rulers = () => page.evaluate(() => !!window.__designerEditor.ui.get().rulers);
   const before = await rulers();
   await page.locator("#engine-canvas").focus();

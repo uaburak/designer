@@ -80,6 +80,40 @@ struct ExportJob {
   std::vector<exporter::Target> targets;
 };
 
+// Static exports draw the base values while Motion is on (docs/motion.md §3.4, the owner's answer of 2026-10-12): the
+// caller holds the editor's motionSuspended() for the call. With `motionTimeUs` in the settings [ours] they draw the
+// timeline at that time instead (§7.2's exports at time t, for any layer): the first ref's timeline root is applied at
+// it, as engine_motion_render_frame does, and the view state is put back after.
+class ExportAtTime {
+ public:
+  ExportAtTime(Editor& ed, Ptr refsPtr, uint32_t refsLen, Ptr settingsPtr, uint32_t settingsLen) : ed_(ed), prev_(ed.motion()) {
+    json::Value settings, refs;
+    if (!settingsLen || !parse(settingsPtr, settingsLen, settings) || !settings.isObject()) return;
+    const json::Value* t = settings.get("motionTimeUs");
+    if (!t || !t->isNumber() || !refsLen || !parse(refsPtr, refsLen, refs)) return;
+    Guid root = kNoGuid;
+    for (Guid id : readRefs(refs))
+      if (root == kNoGuid) root = ed.motionIndex().rootOf(ed.document(), id);
+    if (root == kNoGuid) return;
+    motion::State at = prev_;
+    at.on = true;
+    at.root = root;
+    at.timeUs = static_cast<int64_t>(std::llround(std::max(0.0, t->number)));
+    ed.setMotion(at);
+    timed_ = true;
+  }
+  ~ExportAtTime() {
+    if (timed_) ed_.setMotion(prev_);
+  }
+  ExportAtTime(const ExportAtTime&) = delete;
+  ExportAtTime& operator=(const ExportAtTime&) = delete;
+
+ private:
+  Editor& ed_;
+  motion::State prev_;
+  bool timed_ = false;
+};
+
 // The targets of refs (none: the current page's canvas); E_NOT_FOUND (with the error set) when one shows nothing.
 int32_t exportJob(Engine* e, Ptr refsPtr, uint32_t refsLen, Ptr settingsPtr, uint32_t settingsLen, ExportJob& job) {
   Editor& ed = e->editor;
@@ -135,6 +169,8 @@ ENG_EXPORT int32_t engine_export(Handle h, Ptr refsPtr, uint32_t refsLen, Ptr se
   if (!e) return E_HANDLE;
   Editor& ed = e->editor;
   const Document& doc = ed.document();
+  auto motionGuard = ed.motionSuspended();  // the base values, or the timeline at `motionTimeUs` (ExportAtTime)
+  ExportAtTime timed(ed, refsPtr, refsLen, settingsPtr, settingsLen);
   ExportJob job;
   if (int32_t s = exportJob(e, refsPtr, refsLen, settingsPtr, settingsLen, job); s != OK) return s;
   if (!(flags & EXPORT_ALLOW_PENDING)) {
@@ -202,6 +238,8 @@ ENG_EXPORT int32_t engine_export_info(Handle h, Ptr refsPtr, uint32_t refsLen, P
   if (!e) return E_HANDLE;
   Editor& ed = e->editor;
   const Document& doc = ed.document();
+  auto motionGuard = ed.motionSuspended();  // as engine_export draws it
+  ExportAtTime timed(ed, refsPtr, refsLen, settingsPtr, settingsLen);
   ExportJob job;
   if (int32_t s = exportJob(e, refsPtr, refsLen, settingsPtr, settingsLen, job); s != OK) return s;
   bool vector = job.settings.format == exporter::Format::SVG || job.settings.format == exporter::Format::PDF;
@@ -277,4 +315,67 @@ ENG_EXPORT int32_t engine_export_list(Handle h, uint32_t pageSessionID, uint32_t
   walk(page, 0);
   w.endArray();
   return setResult(w.take());
+}
+
+// ---- Motion (docs/motion.md §7.2, round 8e) ----------------------------------------------------------------------
+
+// engine_motion_render_frame(h, json {root, timeUs, scale, allowPending}): one frame of a timeline root at a time —
+// the root's own box (so every frame has the same size) at `scale`, drawn with the motion layer at `timeUs`, as
+// engine_export's PNG pixels (u32 width, u32 height, straight RGBA8). The view state is put back afterwards (a Design
+// mode export leaves Motion off; a Motion mode one keeps its playhead). E_BUSY as engine_export unless allowPending.
+ENG_EXPORT int32_t engine_motion_render_frame(Handle h, Ptr ptr, uint32_t len) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  json::Value v;
+  if (!parse(ptr, len, v) || !v.isObject()) return E_DECODE;
+  const json::Value* rootV = v.get("root");
+  if (!rootV || !rootV->isString()) return E_INVALID;
+  bool ok = false;
+  Guid root = Guid::parse(rootV->string, &ok);
+  if (!ok) return E_INVALID;
+  Editor& ed = e->editor;
+  const Document& doc = ed.document();
+  if (!doc.has(root)) return E_NOT_FOUND;
+  int64_t timeUs = 0;
+  if (const json::Value* t = v.get("timeUs"); t && t->isNumber()) timeUs = static_cast<int64_t>(std::llround(std::max(0.0, t->number)));
+  double scale = 1;
+  if (const json::Value* s = v.get("scale"); s && s->isNumber() && s->number > 0) scale = s->number;
+  bool allowPending = false;
+  if (const json::Value* a = v.get("allowPending"); a && a->isBool()) allowPending = a->boolean;
+  exporter::Settings st;
+  st.format = exporter::Format::PNG;
+  st.constraint = exporter::Constraint::SCALE;
+  st.value = scale;
+  st.useAbsoluteBounds = true;  // the frame's box, the same every frame
+  st.contentsOnly = true;
+  // The frame at the time: the motion layer's preview writes, the previous view state put back on every way out.
+  struct Restore {
+    Editor& ed;
+    motion::State prev;
+    ~Restore() { ed.setMotion(prev); }
+  } restore{ed, ed.motion()};
+  motion::State at = restore.prev;
+  at.on = true;
+  at.root = root;
+  at.timeUs = timeUs;
+  ed.setMotion(at);
+  ed.derivePageOf(root);
+  exporter::Target t;
+  if (!exporter::resolveTarget(doc, &ed, kNoGuid, root, st, t)) {
+    setError("nothing to export: " + root.toString());
+    return E_NOT_FOUND;
+  }
+  exporter::Raster r = exporter::rasterOf(t.bounds, st);
+  if (!allowPending && !exporter::ready(doc, &ed, t, r.scale)) return E_BUSY;
+  std::string rgba;
+  if (!renderExport(e, t.page, root, r, rgba)) return E_UNSUPPORTED;
+  if (t.background) flatten(rgba, t.backgroundColor);
+  std::string out(8, '\0');
+  for (int i = 0; i < 4; i++) {
+    out[static_cast<size_t>(i)] = static_cast<char>((static_cast<uint32_t>(r.width) >> (8 * i)) & 0xff);
+    out[static_cast<size_t>(4 + i)] = static_cast<char>((static_cast<uint32_t>(r.height) >> (8 * i)) & 0xff);
+  }
+  out += rgba;
+  return setResult(std::move(out));
 }

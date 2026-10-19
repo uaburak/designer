@@ -17,6 +17,7 @@
  */
 import { decodeBinarySchema, encodeBinarySchema, type Definition, type Schema } from "kiwi-schema";
 import { codec, FIELD_FLAGS, NODE_FIELDS, SCHEMA_BINARY, type Message, type NodeChange } from "../schema/document.generated";
+import { guidKey } from "../schema/guid";
 import { NodeTable } from "../schema/patch";
 import type { FigCodecs } from "./compression";
 import { encodeCanvas, PRELUDE_DESIGN, writeCanvasChunks } from "./container";
@@ -100,6 +101,114 @@ function figmaNode(n: NodeChange): NodeChange {
   return out as NodeChange;
 }
 
+/** Our PROP_REF bindings → Figma's legacy ComponentPropRef: the field kind and Figma's NodeChange field number. */
+const PROP_REF_NODE_FIELDS: Record<string, { kind: string; nodeField?: number }> = {
+  VISIBLE: { kind: "VISIBLE", nodeField: 6 },
+  TEXT_DATA: { kind: "TEXT_DATA", nodeField: 42 },
+  OVERRIDDEN_SYMBOL_ID: { kind: "OVERRIDDEN_SYMBOL_ID", nodeField: 143 },
+  SLOT_CONTENT_ID: { kind: "SLOT_CONTENT_ID" },
+};
+
+/* eslint-disable @typescript-eslint/no-explicit-any -- Figma-shaped records built field by field */
+
+/** Every `propRefValue.defId` in `v` (a node's bindings, a nested instance's bound values) through `map`. */
+function remapPropRefs(v: any, map: Map<string, any>): any {
+  if (Array.isArray(v)) return v.map((x) => remapPropRefs(x, map));
+  if (!v || typeof v !== "object" || v instanceof Uint8Array) return v;
+  const out: any = {};
+  for (const [k, x] of Object.entries(v)) {
+    if (k === "propRefValue" && x && typeof x === "object" && (x as any).defId) {
+      const to = map.get(guidKey((x as any).defId));
+      out[k] = to ? { ...x, defId: to } : x;
+    } else {
+      out[k] = remapPropRefs(x, map);
+    }
+  }
+  return out;
+}
+
+/**
+ * Components as Figma stores them (research components.md task 8; the import maps each of these back, convert.ts):
+ * - a SYMBOL's asset key in `componentKey` (216), a library copy's version in `sharedSymbolVersion` (126) — sets,
+ *   styles and variables keep `key` / `version`;
+ * - on each variant, one implicit def per explicit (non-VARIANT) def of its set, `parentPropDefId` (5) pointing at it,
+ *   with the variant's own bindings re-pointed at its implicit defs (Figma resolves implicit → explicit);
+ * - beside each PROP_REF binding, the legacy `componentPropRefs` (267) entry Figma still writes;
+ * - the root override entry addressed as `[symbolID]`.
+ */
+function figmaComponents(nodes: NodeChange[]): NodeChange[] {
+  const out = nodes.map((n) => ({ ...n }) as any);
+  const children = new Map<string, any[]>();
+  for (const n of out) {
+    const p = n.parentIndex?.guid;
+    if (!p) continue;
+    const k = guidKey(p);
+    if (!children.has(k)) children.set(k, []);
+    children.get(k)!.push(n);
+  }
+  // Fresh ids for implicit defs: above every localID a session already uses (nodes and defs).
+  const top = new Map<number, number>();
+  const see = (g: any) => g && top.set(g.sessionID, Math.max(top.get(g.sessionID) ?? 0, g.localID));
+  for (const n of out) {
+    see(n.guid);
+    for (const d of n.componentPropDefs ?? []) see(d.id);
+  }
+  const fresh = (session: number) => {
+    const localID = (top.get(session) ?? 0) + 1;
+    top.set(session, localID);
+    return { sessionID: session, localID };
+  };
+  for (const set of out) {
+    if (!set.isStateGroup || !set.componentPropDefs?.length) continue;
+    const explicit = (set.componentPropDefs as any[]).filter((d) => d.type !== "VARIANT" && d.id);
+    if (!explicit.length) continue;
+    for (const variant of children.get(guidKey(set.guid)) ?? []) {
+      if (variant.type !== "SYMBOL") continue;
+      const map = new Map<string, any>();
+      const implicit = explicit.map((d) => {
+        const id = fresh(variant.guid.sessionID);
+        map.set(guidKey(d.id), id);
+        const def: any = { id, name: d.name, initialValue: d.initialValue, sortPosition: d.sortPosition, parentPropDefId: d.id, type: d.type };
+        if (d.preferredValues) def.preferredValues = d.preferredValues;
+        return def;
+      });
+      variant.componentPropDefs = [...(variant.componentPropDefs ?? []), ...implicit];
+      const stack = [variant];
+      while (stack.length) {
+        const n = stack.pop();
+        if (n.parameterConsumptionMap) n.parameterConsumptionMap = remapPropRefs(n.parameterConsumptionMap, map);
+        if (n.componentPropAssignments) n.componentPropAssignments = remapPropRefs(n.componentPropAssignments, map);
+        if (n.symbolData) n.symbolData = remapPropRefs(n.symbolData, map);
+        stack.push(...(children.get(guidKey(n.guid)) ?? []));
+      }
+    }
+  }
+  for (const n of out) {
+    if (n.type === "SYMBOL") {
+      if (n.key) n.componentKey = n.key;
+      delete n.key;
+      if (n.version && n.sourceLibraryKey) {
+        n.sharedSymbolVersion = n.version;
+        delete n.version;
+      }
+    }
+    const refs: any[] = [];
+    for (const e of n.parameterConsumptionMap?.entries ?? []) {
+      const f = PROP_REF_NODE_FIELDS[e?.variableField];
+      const defID = e?.variableData?.dataType === "PROP_REF" ? e.variableData.value?.propRefValue?.defId : undefined;
+      if (!f || !defID) continue;
+      refs.push({ ...(f.nodeField !== undefined ? { nodeField: f.nodeField } : {}), defID, componentPropNodeField: f.kind });
+    }
+    if (refs.length) n.componentPropRefs = refs;
+    const sd = n.symbolData;
+    if (sd?.symbolID && sd.symbolOverrides?.some((o: any) => !o.guidPath?.guids?.length))
+      n.symbolData = { ...sd, symbolOverrides: sd.symbolOverrides.map((o: any) => (o.guidPath?.guids?.length ? o : { ...o, guidPath: { guids: [sd.symbolID] } })) };
+  }
+  return out;
+}
+
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 /**
  * The Message of an export: every live node CREATED in our snapshot order (DOCUMENT first, parents before children),
  * session 0 as in Figma's files, and a dense blob table of what is still referenced. `@derived` fields go unless they
@@ -110,7 +219,7 @@ function figmaNode(n: NodeChange): NodeChange {
 export function toFigmaMessage(message: Message): Message {
   const table = NodeTable.fromMessage(message);
   const plain = table.toMessage({ keepDerived: table.derivedDataVersion === FIGMA_DERIVED_DATA_VERSION, sessionID: 0 });
-  return { type: "NODE_CHANGES", sessionID: 0, ackID: 0, nodeChanges: (plain.nodeChanges ?? []).map(figmaNode), blobs: plain.blobs ?? [] };
+  return { type: "NODE_CHANGES", sessionID: 0, ackID: 0, nodeChanges: figmaComponents((plain.nodeChanges ?? []).map(figmaNode)), blobs: plain.blobs ?? [] };
 }
 
 /** `canvas.fig` bytes for a `.fig` export of `message` (zstd when the codecs have it, else deflate-raw). */

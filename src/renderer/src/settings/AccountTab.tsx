@@ -33,7 +33,7 @@ export const Divider = () => <hr className={styles.divider} />;
 
 export function Link({ children, onClick, danger, tight, ...rest }: { children: ReactNode; onClick: () => void; danger?: boolean; disabled?: boolean; tight?: boolean; "aria-haspopup"?: "menu" } & Record<`data-${string}`, string | undefined>) {
   return (
-    <button type="button" className={[styles.link, danger && styles.danger, tight && styles.tight].filter(Boolean).join(" ")} onClick={onClick} {...rest}>
+    <button type="button" className={[styles.link, danger && styles.danger, tight && styles.tight].filter(Boolean).join(" ")} onClick={onClick} data-link="" {...rest}>
       {children}
     </button>
   );

@@ -34,6 +34,8 @@ struct KiwiRegion {
 struct KiwiMessage {
   uint32_t sessionID = 0;
   std::vector<NodeChange> changes;
+  // An undo batch's pages (Message.undoBatchPageIds 46): the pages its changes were on, first first.
+  std::vector<Guid> undoBatchPageIds;
   uint32_t derivedDataVersion = 0;  // Message.derivedDataVersion (0: no derived data)
   // Clipboard (docs/schema.md §4.1).
   bool hasPastePage = false;
@@ -71,6 +73,23 @@ bool readMessage(std::string_view bytes, KiwiMessage& out, DerivedSink* derived 
 // A message list (import / update payloads): 0x00, varuint count, count × (varuint length, Message bytes).
 bool isMessageList(std::string_view bytes);
 bool readMessageList(std::string_view bytes, std::vector<KiwiMessage>& out);
+// An override entry read by either codec: its overrideLevel (321, kept in `extra` by the generic reader) taken into
+// `level`, and its root path [symbolID] made empty (docs/schema.md §5.1). Then `list` gets it, merged into an entry of
+// the same (path, level) (later fields win).
+void addOverrideEntry(std::vector<SymbolOverride>& list, SymbolOverride&& o, Guid symbolID);
+// NodeChange.overrideStash as kept in NodeProps::extra (the field's bytes, id-prefixed) ↔ its entries. Reading
+// empty bytes gives none; writing none gives empty bytes (the field removed).
+bool readOverrideStash(std::string_view field, std::vector<OverrideStash>& out);
+// An undo history as Figma carries it (Message.localUndoStack 22 / localRedoStack 23): a NODE_CHANGES Message whose two
+// lists hold one NODE_CHANGES Message per step (its inverse changes in the order they were recorded, and the pages they
+// were on as undoBatchPageIds 46), oldest first.
+struct UndoHistoryStep {
+  std::vector<NodeChange> changes;
+  std::vector<Guid> pageIds;
+};
+std::string writeUndoHistory(uint32_t sessionID, const std::vector<UndoHistoryStep>& undo, const std::vector<UndoHistoryStep>& redo);
+bool readUndoHistory(std::string_view bytes, std::vector<KiwiMessage>& undo, std::vector<KiwiMessage>& redo);
+std::string writeOverrideStash(const std::vector<OverrideStash>& stash);
 std::string writeMessageList(const std::vector<std::string>& messages);
 
 struct KiwiWriteOptions {
@@ -81,6 +100,8 @@ struct KiwiWriteOptions {
   std::string pasteFileKey;
   bool isCut = false;
   const std::vector<KiwiRegion>* regions = nullptr;
+  // An undo batch's pages (Message.undoBatchPageIds 46)
+  const std::vector<Guid>* undoBatchPageIds = nullptr;
 };
 // {type NODE_CHANGES, sessionID, nodeChanges, blobs, …}: the Message's bytes.
 std::string writeMessage(uint32_t sessionID, const std::vector<NodeChange>& changes, const KiwiWriteOptions& opts = {});

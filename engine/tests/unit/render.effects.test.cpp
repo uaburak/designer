@@ -183,11 +183,12 @@ TEST_CASE("renderer: a progressive background blur draws the shape once per inte
     if (c.pipeline.shader == gfx::ShaderId::Shape && c.call.uniforms[6][0] == doctest::Approx(20)) {
       params = true;
       CHECK(c.call.uniforms[6][1] == doctest::Approx(0.8));  // Refraction 80
+      CHECK(c.call.uniforms[6][2] == doctest::Approx(0.1));  // Dispersion 50 × 0.2 (Figma's CHROMATIC_EXPANSION_FACTOR)
       CHECK(c.call.uniforms[6][3] == doctest::Approx(0));    // Splay 0
-      CHECK(c.call.uniforms[8][2] == doctest::Approx(0.8));  // Intensity 80 %
-      // Light angle −45°: the light up and to the left (canvas y down).
-      CHECK(c.call.uniforms[8][0] < 0);
-      CHECK(c.call.uniforms[8][1] < 0);
+      CHECK(c.call.uniforms[8][1] == doctest::Approx(0.8));  // Intensity 80 %
+      CHECK(c.call.uniforms[8][2] == doctest::Approx(1));    // Bevel 1
+      // Figma's light in the node's space: −45° − the frame's rotation (none) + 90° = 45°.
+      CHECK(c.call.uniforms[8][0] == doctest::Approx(0.785398));
     }
   CHECK(params);
 }
@@ -745,13 +746,13 @@ TEST_CASE("renderer: a background blur is clamped to the node's box (stroke grow
   CHECK(u[6][1] == doctest::Approx(0));
   CHECK(u[6][2] == doctest::Approx(100));
   CHECK(u[6][3] == doctest::Approx(100));
-  // Slots 7–8: the node's space → the halved copy's px (y up from its bottom). The copy is 98…202 device px: the node's
-  // top-left (100, 100) is texel (1, 52 − 1).
-  CHECK(u[7][2] == doctest::Approx(1));
-  CHECK(u[8][2] == doctest::Approx(51));
-  // Slots 4–5 map back: texel (1, 51) → the node's (0, 0).
-  CHECK(u[4][0] * 1 + u[4][1] * 51 + u[4][2] == doctest::Approx(0).epsilon(1e-4));
-  CHECK(u[5][0] * 1 + u[5][1] * 51 + u[5][2] == doctest::Approx(0).epsilon(1e-4));
+  // Slots 7–8: the node's space → the halved atlas's px (y up from its bottom). The copy is 98…202 device px, in its
+  // atlas slot 2 px in (round 18): the node's top-left (100, 100) is atlas texel (4, 104), halved (2, 52).
+  CHECK(u[7][2] == doctest::Approx(2));
+  CHECK(u[8][2] == doctest::Approx(52));
+  // Slots 4–5 map back: texel (2, 52) → the node's (0, 0).
+  CHECK(u[4][0] * 2 + u[4][1] * 52 + u[4][2] == doctest::Approx(0).epsilon(1e-4));
+  CHECK(u[5][0] * 2 + u[5][1] * 52 + u[5][2] == doctest::Approx(0).epsilon(1e-4));
   // No unclamped tent on the backdrop.
   CHECK(blurRadii(dev).empty());
 

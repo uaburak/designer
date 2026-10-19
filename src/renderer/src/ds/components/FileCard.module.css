@@ -1,23 +1,26 @@
 @layer ds {
+  /* Figma's resource tile (docs/research/atlas/01-app-shell-home.md §4.1): as wide as its grid column (264 at least),
+     a 16:9 thumbnail; framed as live Figma web draws it (2026-10-19, home.txt) — the card's own 1px ring and radius 13,
+     the footer a 59 high bar under a line (the kind tile 16 in, the name at 44) */
   .card {
     position: relative;
     display: flex;
     flex-direction: column;
-    width: var(--ds-size-card-width);
-    height: var(--ds-size-card-height);
+    min-width: var(--ds-size-card-width);
     overflow: hidden;
+    /* Live 2026-10-19 (home.txt, Figma web): the card itself framed — 1px #444, radius 13 — the thumbnail flush on top,
+       a 59 high footer under a line */
     border: 1px solid var(--figma-color-border);
-    /* Live 2026-10-19 (home.txt): radius 13 */
     border-radius: var(--ds-radius-large);
     background: var(--figma-color-bg);
     color: var(--figma-color-text);
     outline: none;
     cursor: default;
   }
-  .card:hover, .card[data-hover] { border-color: var(--ds-color-card-border-hover); }
-  .card[aria-selected="true"] { box-shadow: inset 0 0 0 2px var(--figma-color-border-selected); border-color: var(--figma-color-border-selected); }
   .card:focus-visible, .card[data-focus-visible] { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
-  .thumb { position: relative; flex: none; height: var(--ds-size-card-thumb); overflow: hidden; background: var(--figma-color-bg-secondary); }
+  .card:hover, .card[data-hover] { border-color: var(--ds-color-card-border-hover); }
+  .card[aria-selected="true"] { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); border-color: var(--figma-color-border-selected); }
+  .thumb { position: relative; flex: none; aspect-ratio: 16 / 9; overflow: hidden; background: var(--figma-color-bg-secondary); }
   .thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
   /* Star at the top right, always there (the owner's Home, 2026-10-14): outlined until starred */
   /* (live 2026-10-19, home.txt: Add to Starred 24 × 24 on #2C2C2C, radius 5, 16 in from the thumbnail's top right) */
@@ -31,7 +34,7 @@
   .branches { display: inline-flex; align-self: flex-start; align-items: center; max-width: 100%; margin: 0; padding: 0; border: 0; border-radius: var(--ds-radius-small); background: none; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); white-space: nowrap; cursor: default; }
   .branches:hover { color: var(--figma-color-text); }
   .branches:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
-  .footer { display: flex; flex: 1 1 auto; align-items: center; gap: var(--ds-space-3); min-height: 0; padding: 0 var(--ds-space-4); border-top: 1px solid var(--figma-color-border); }
+  .footer { display: flex; flex: none; align-items: center; gap: var(--ds-space-3); height: var(--ds-size-card-footer); padding: 0 var(--ds-space-4); border-top: 1px solid var(--figma-color-border); }
   .kindBadge { display: inline-flex; flex: none; align-items: center; justify-content: center; border-radius: calc(var(--ds-radius-small) + 1px); background: var(--ds-color-file-design); color: var(--figma-color-icon-onbrand); }
   .meta { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
   .title { overflow: hidden; font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); text-overflow: ellipsis; white-space: nowrap; }

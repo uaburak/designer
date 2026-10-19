@@ -8,7 +8,9 @@ export const STRINGS = {
   noResults: "No results",
   untitled: "Untitled",
   home: "Home",
-  newDesignFile: "New design file",
+  /** The tab bar's "+" (Figma's desktop label; it opens the new-tab page) and its tabs menu (atlas 01 §2.5, §10) */
+  newFile: "New file",
+  tabsMenu: "Open and recently closed tabs",
   mainMenu: "Main menu",
   collapse: "Collapse",
   expand: "Expand",

@@ -17,6 +17,8 @@
 
   /* ---- Lists ---- */
   .section { display: flex; flex-direction: column; }
+  /* Top teams: two columns of three (atlas 12 §8.3), filled down each column */
+  .topTeams { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: repeat(3, auto); grid-auto-flow: column; column-gap: var(--ds-space-4); }
   .sectionTitle { display: flex; align-items: center; height: var(--ds-size-row); color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
   .listRow {
     display: flex;

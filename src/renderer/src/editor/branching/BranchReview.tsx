@@ -15,8 +15,8 @@ import type { FileKey } from "../../../../shared/store/types";
 import { useEditor } from "../controller";
 import type { BranchingBackend, Reviewer } from "./access";
 import { ChunkCompare, useSideDocs } from "./ChunkCompare";
-import { allPicked, reviewBadge, reviewRole, sendLabel } from "./model";
-import { BranchBadge, BranchWindow, ChangeList, codeOf, Conflicts, errorText } from "./parts";
+import { allPicked, pickAll, reviewBadge, reviewRole, sendLabel } from "./model";
+import { BranchBadge, BranchWindow, ChangeDetails, ChangeList, codeOf, Conflicts, errorText, ForceDialog } from "./parts";
 import { openBranchWindow, refreshBranch, useBranching } from "./state";
 import styles from "./Branching.module.css";
 
@@ -37,6 +37,7 @@ export function BranchReview({ backend, branchFileKey }: { backend: BranchingBac
   const [me, setMe] = useState<{ id: string | null; name: string | null }>({ id: null, name: null });
   const [canMerge, setCanMerge] = useState(false);
   const [finishing, setFinishing] = useState(false);
+  const [forcing, setForcing] = useState(false);
   const images = ed.source.images ? (h: string) => ed.source.images!.get(h) : null;
   const docs = useSideDocs(backend.branches, images);
 
@@ -87,7 +88,40 @@ export function BranchReview({ backend, branchFileKey }: { backend: BranchingBac
     );
   }
 
+  const merge = async (chosen: Resolutions, title: string, description: string) => {
+    if (!preview) return;
+    try {
+      const p = Object.keys(chosen).length ? await backend.branches.preview(branchFileKey, "merge", chosen) : preview;
+      await backend.branches.merge(branchFileKey, { previewId: p.previewId, resolutions: chosen, title: title || undefined, description: description || undefined });
+      showToast({ message: t("Branch merged") });
+      close();
+      await refreshBranch(ed);
+      await backend.openFile(record.mainFileKey);
+    } catch (e) {
+      if (codeOf(e) === "stale") {
+        showToast({ message: t("The files changed. Review the changes again.") });
+        setStep("summary");
+        void load(chosen);
+      } else showToast({ kind: "error", message: t("Couldn’t merge the branch: {error}", { error: errorText(e) }) });
+    }
+  };
   const role = reviewRole(record, me);
+  const withdraw = async () => {
+    try {
+      await backend.branches.withdrawReview(branchFileKey);
+      setRecord(await backend.branches.get(branchFileKey));
+    } catch (e) {
+      showToast({ kind: "error", message: t("Couldn’t withdraw the review: {error}", { error: errorText(e) }) });
+    }
+  };
+  const closeRequest = async () => {
+    try {
+      await backend.branches.closeReview(branchFileKey);
+      setRecord(await backend.branches.get(branchFileKey));
+    } catch (e) {
+      showToast({ kind: "error", message: t("Couldn’t close the request: {error}", { error: errorText(e) }) });
+    }
+  };
   const review = record.review;
   const conflicts = preview ? preview.conflicts.length > 0 : false;
   const picked = !!preview && (!conflicts || allPicked(picks, preview));
@@ -97,6 +131,13 @@ export function BranchReview({ backend, branchFileKey }: { backend: BranchingBac
   const footer = () => {
     if (step !== "summary") return undefined;
     const out: ReactNode[] = [<span key="grow" className={styles.grow} />];
+    // A verdict given can be taken back (Figma's unapprove; the words are ours)
+    if (role === "reviewer" && mine && mine.verdict !== "pending" && review && review.state !== "closed")
+      out.push(
+        <Button key="withdraw" variant="secondary" onClick={() => void withdraw()} data-withdraw-review="">
+          {t("Withdraw review")}
+        </Button>
+      );
     if (role === "reviewer")
       out.push(
         <Button key="review" variant="primary" onClick={() => setFinishing(true)} data-add-review="">
@@ -116,7 +157,22 @@ export function BranchReview({ backend, branchFileKey }: { backend: BranchingBac
             {t("Request another review")}
           </Button>
         );
+      if (review && review.state !== "closed")
+        out.push(
+          <Button key="close" variant="secondary" onClick={() => void closeRequest()} data-close-review="">
+            {t("Close request")}
+          </Button>
+        );
     }
+    // Force merge: every conflict kept from one side at once (editors of main, an active branch with conflicts).
+    if (canMerge && conflicts && record.status === "active")
+      out.splice(
+        0,
+        0,
+        <Button key="force" variant="secondary" onClick={() => setForcing(true)} data-force-open="">
+          {t("Force merge…")}
+        </Button>,
+      );
     if (role !== "reviewer" || canMerge)
       out.push(
         <Button key="merge" variant="primary" disabled={!canMerge || !picked || record.status !== "active"} onClick={() => setStep("merge")} data-merge-branch="">
@@ -150,25 +206,7 @@ export function BranchReview({ backend, branchFileKey }: { backend: BranchingBac
           }}
         />
       ) : step === "merge" && preview ? (
-        <MergeStep
-          record={record}
-          onMerge={async (title, description) => {
-            try {
-              const p = Object.keys(picks).length ? await backend.branches.preview(branchFileKey, "merge", picks) : preview;
-              await backend.branches.merge(branchFileKey, { previewId: p.previewId, resolutions: picks, title: title || undefined, description: description || undefined });
-              showToast({ message: t("Branch merged") });
-              close();
-              await refreshBranch(ed);
-              await backend.openFile(record.mainFileKey);
-            } catch (e) {
-              if (codeOf(e) === "stale") {
-                showToast({ message: t("The files changed. Review the changes again.") });
-                setStep("summary");
-                void load(picks);
-              } else showToast({ kind: "error", message: t("Couldn’t merge the branch: {error}", { error: errorText(e) }) });
-            }
-          }}
-        />
+        <MergeStep record={record} onMerge={(title, description) => merge(picks, title, description)} />
       ) : (
         <div className={styles.body}>
           <nav className={styles.sidebar}>
@@ -182,6 +220,7 @@ export function BranchReview({ backend, branchFileKey }: { backend: BranchingBac
                     <span className={styles.grow}>
                       <span className={styles.rowName}>{r.name ?? r.userId}</span>
                       {r.comment && <span className={styles.hint}>{r.comment}</span>}
+                      {r.outdated && <span className={styles.hint} data-outdated="">{t("Reviewed an older version of the branch")}</span>}
                     </span>
                     <span className={styles.hint} data-verdict={r.verdict}>
                       {r.verdict === "approved" ? t("Approved") : r.verdict === "changes-suggested" ? t("Changes suggested") : t("Pending")}
@@ -202,20 +241,33 @@ export function BranchReview({ backend, branchFileKey }: { backend: BranchingBac
           </nav>
           <section className={styles.main}>
             {preview && chunk ? (
-              <ChunkCompare
-                docs={docs}
-                previewId={preview.previewId}
-                chunk={chunk}
-                sides={[
-                  { side: "main", caption: t("Main file") },
-                  { side: "branch", caption: record.name },
-                ]}
-              />
+              <>
+                <ChunkCompare
+                  docs={docs}
+                  previewId={preview.previewId}
+                  chunk={chunk}
+                  sides={[
+                    { side: "main", caption: t("Main file") },
+                    { side: "branch", caption: record.name },
+                  ]}
+                />
+                <ChangeDetails chunk={chunk} />
+              </>
             ) : preview ? (
               <EmptyState icon="24.check" title={t("No changes")} body={t("This branch has no changes to merge.")} />
             ) : null}
           </section>
         </div>
+      )}
+      {forcing && (
+        <ForceDialog
+          direction="merge"
+          onClose={() => setForcing(false)}
+          onConfirm={async (side) => {
+            setForcing(false);
+            await merge(pickAll(side), "", "");
+          }}
+        />
       )}
       {finishing && (
         <FinishReview

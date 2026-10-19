@@ -1,10 +1,13 @@
 /**
- * Dev Mode's left panel, read-only: the file's name with "Developer preview" under it, the pages, and the current
- * page's layers (top layer first; a click selects, ⇧ adds; the chevron opens a layer). Selecting a layer here shows
- * it on the canvas.
+ * Dev Mode's left panel, read-only (the owner's capture docs/research/figma/live/owner-2026-10-18/figma-devmode-inspect):
+ * the file's name with "Developer preview" under it (the editor's Dev Mode puts its own header — name ▾, location,
+ * Minimize UI — in its place), "Pages" with a search, "Ready for development" with "Mark as ready for dev", and the
+ * current page's layers (top layer first; a click selects, ⇧ adds; the chevron opens a layer) — full-width rows, the
+ * selected one and the layers inside it in Dev Mode's green. Selecting a layer here shows it on the canvas.
  */
-import { useMemo, useState } from "react";
-import { Icon, LayerRow, MenuButton, PageRow, PanelSection, ScrollArea, type IconName } from "@/ds";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { Button, Icon, IconButton, LayerRow, MenuButton, PageRow, PanelSection, ScrollArea, SearchField, type IconName } from "@/ds";
+import { t, useT } from "@/i18n";
 import { useCurrentPage, useSelection } from "@/engine/hooks";
 import type { Guid } from "@/engine/codec";
 import { useViewer } from "./context";
@@ -16,10 +19,9 @@ export function layerIcon(n: LayerNode): IconName {
   if (n.group) return "16.group";
   if (n.stateGroup) return "16.component.set";
   switch (n.type) {
+    // Dev Mode names a frame "#" with or without auto layout (the owner's capture owner-2026-10-18: an auto-layout
+    // frame's row and Inspect's type row both "# Frame").
     case "FRAME":
-      if (n.stackMode === "HORIZONTAL") return n.stackWrap === "WRAP" ? "16.autolayout.wrap" : "16.autolayout.horizontal";
-      if (n.stackMode === "VERTICAL") return "16.autolayout.vertical";
-      if (n.stackMode === "GRID") return "16.autolayout.grid";
       return "16.frame";
     case "SECTION":
       return "16.section";
@@ -53,57 +55,78 @@ export function layerIcon(n: LayerNode): IconName {
   }
 }
 
-export function LeftPanel() {
-  const { preview, host } = useViewer();
+/** `header`: the editor's own file header in place of the viewer's; `style` / `children`: its width and resize handle. */
+export function LeftPanel({ header, style, children }: { header?: ReactNode; style?: CSSProperties; children?: ReactNode } = {}) {
+  useT();
   return (
-    <aside className={styles.left} aria-label="Layers panel">
-      <div className={styles.fileHeader}>
-        {host?.fileMenu ? (
-          <MenuButton label="File" entries={() => host.fileMenu!.entries()} onSelect={(id) => host.fileMenu!.onSelect(id)} className={styles.fileMenu}>
-            <span className={styles.fileName} title={preview.manifest.fileName}>
-              {preview.manifest.fileName || "Untitled"}
-            </span>
-            <Icon name="16.chevron.down" />
-          </MenuButton>
-        ) : (
-          <span className={styles.fileName} title={preview.manifest.fileName}>
-            {preview.manifest.fileName || "Untitled"}
-          </span>
-        )}
-        <span className={styles.fileSub}>{host?.subtitle ?? "Developer preview"}</span>
-      </div>
+    <aside className={styles.left} style={style} aria-label={t("Layers panel")} data-panel="left" data-dev-left="">
+      {header ?? <FileHeader />}
       <Pages />
       <Statuses />
       <Layers />
+      {children}
     </aside>
   );
 }
 
+function FileHeader() {
+  const { preview, host } = useViewer();
+  return (
+    <div className={styles.fileHeader}>
+      {host?.fileMenu ? (
+        <MenuButton label="File" entries={() => host.fileMenu!.entries()} onSelect={(id) => host.fileMenu!.onSelect(id)} className={styles.fileMenu}>
+          <span className={styles.fileName} title={preview.manifest.fileName}>
+            {preview.manifest.fileName || "Untitled"}
+          </span>
+          <Icon name="16.chevron.down" />
+        </MenuButton>
+      ) : (
+        <span className={styles.fileName} title={preview.manifest.fileName}>
+          {preview.manifest.fileName || "Untitled"}
+        </span>
+      )}
+      <span className={styles.fileSub}>{host?.subtitle ?? "Developer preview"}</span>
+    </div>
+  );
+}
+
 function Pages() {
+  useT();
   const { engine, store, preview } = useViewer();
   const current = useCurrentPage(store);
-  const [open, setOpen] = useState(true);
+  // Figma's Dev Mode: "Pages" with a search at its right (no fold); the search filters the list by name.
+  const [query, setQuery] = useState<string | null>(null);
   if (preview.manifest.pages.length < 2) return null;
+  const q = query?.trim().toLowerCase() ?? "";
+  const pages = q ? preview.manifest.pages.filter((p) => p.name.toLowerCase().includes(q)) : preview.manifest.pages;
   return (
-    <PanelSection title="Pages" collapsible open={open} onOpenChange={setOpen} pad="none" className={styles.pages}>
-      {open && (
-        <div role="listbox" aria-label="Pages" className={styles.pageList}>
-          {preview.manifest.pages.map((p) => (
-            <PageRow
-              key={p.id}
-              id={p.id}
-              name={p.name}
-              current={p.id === current}
-              tabIndex={0}
-              onSelect={() => {
-                if (p.id === current) return;
-                engine.setCurrentPage(p.id);
-                engine.command("ZOOM_TO_FIT");
-              }}
-            />
-          ))}
+    <PanelSection
+      title={t("Pages")}
+      pad="none"
+      className={styles.pages}
+      actions={<IconButton icon="24.search.small" label={t("Search pages")} aria-pressed={query !== null} onClick={() => setQuery((v) => (v === null ? "" : null))} />}
+    >
+      {query !== null && (
+        <div className={styles.pageSearch}>
+          <SearchField label={t("Search pages")} value={query} autoFocus onChange={setQuery} onExit={() => setQuery(null)} />
         </div>
       )}
+      <div role="listbox" aria-label={t("Pages")} className={styles.pageList}>
+        {pages.map((p) => (
+          <PageRow
+            key={p.id}
+            id={p.id}
+            name={p.name}
+            current={p.id === current}
+            tabIndex={0}
+            onSelect={() => {
+              if (p.id === current) return;
+              engine.setCurrentPage(p.id);
+              engine.command("ZOOM_TO_FIT");
+            }}
+          />
+        ))}
+      </div>
     </PanelSection>
   );
 }
@@ -114,18 +137,32 @@ function Pages() {
  * and zooms to its design.
  */
 function Statuses() {
+  useT();
   const { engine, store, doc, host } = useViewer();
   const page = useCurrentPage(store);
+  const selection = useSelection(store);
   const list = useMemo(() => doc.statuses(page), [doc, page]);
   const [open, setOpen] = useState(true);
   // The editor's Dev Mode: "Ready for dev" with the file's count opens the view of every page's designs (D-4).
   const total = useMemo(() => (host?.onReadyView ? engine.pages().reduce((n, p) => n + doc.statuses(p.guid).length, 0) : 0), [engine, doc, host]);
-  if (!list.length && !total) return null;
+  // "Mark as ready for dev" (Figma's Dev Mode, the owner's capture): the selection's design — a top-level frame,
+  // component or section without a status — opens the status menu where its Ready to Dev is.
+  const one = selection.refs.length === 1 ? selection.refs[0] : null;
+  const design = one && doc.parentOf(one) === null && !list.some((s) => s.id === one) ? one : null;
+  const mark = !!host?.onStatus;
+  if (!list.length && !total && !mark) return null;
   return (
-    <PanelSection title="Ready for development" collapsible open={open} onOpenChange={setOpen} pad="none" className={styles.pages}>
-      {open && host?.onReadyView && (
+    <PanelSection title={t("Ready for development")} collapsible={!mark} open={open} onOpenChange={setOpen} pad="none" className={styles.pages} data-ready-section="">
+      {mark && (
+        <div className={styles.markReady}>
+          <Button variant="secondary" icon="24.dev-brackets" disabled={!design} onClick={(e) => design && host.onStatus!(design, e.currentTarget.getBoundingClientRect())} data-mark-ready="">
+            {t("Mark as ready for dev")}
+          </Button>
+        </div>
+      )}
+      {open && host?.onReadyView && total > 0 && (
         <button type="button" className={styles.statusRow} data-ready-view="" onClick={() => host.onReadyView!()}>
-          <span>Ready for dev</span>
+          <span>{t("Ready for dev")}</span>
           <span className={styles.statusLabel}>{total}</span>
         </button>
       )}
@@ -190,11 +227,16 @@ function Layers() {
   }
   const rows = useMemo(() => visibleRows(tree, shown), [tree, shown]);
   const selected = new Set(selection.refs);
+  // A layer inside a selected one: the paler green (the owner's capture: the frame's rows under it).
+  const inside = (id: Guid) => {
+    for (let p = doc.parentOf(id); p; p = doc.parentOf(p)) if (selected.has(p)) return true;
+    return false;
+  };
   return (
-    <section className={styles.layers} aria-label="Layers">
-      <div className={styles.sectionTitle}>Layers</div>
+    <section className={styles.layers} aria-label={t("Layers")}>
+      <div className={styles.sectionTitle}>{t("Layers")}</div>
       <ScrollArea className={styles.layerScroll}>
-        <div role="tree" aria-label="Layers" aria-multiselectable>
+        <div role="tree" aria-label={t("Layers")} aria-multiselectable className={styles.devLayers}>
           {rows.map(({ node, depth }) => (
             <LayerRow
               key={node.id}
@@ -205,6 +247,7 @@ function Layers() {
               kind={node.type === "SYMBOL" || node.stateGroup ? "component" : node.type === "INSTANCE" ? "instance" : "default"}
               expanded={node.children.length ? shown.has(node.id) : undefined}
               selected={selected.has(node.id)}
+              selectedAncestor={!selected.has(node.id) && inside(node.id)}
               hidden={!node.visible}
               onToggleExpand={() =>
                 setShown((v) => {

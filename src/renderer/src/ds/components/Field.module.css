@@ -98,6 +98,9 @@
   [data-ds="Popover"] .prefix { font-weight: var(--ds-weight-body-medium); }
   .scrub { cursor: ew-resize; touch-action: none; }
   .field[data-disabled] .scrub { cursor: default; }
+  /* A locked scrub's own cursor (Figma's 24 × 24, util/scrubLock.ts): it wraps around the window, over everything */
+  .scrubCursor { position: fixed; top: 0; left: 0; z-index: var(--ds-z-drag); width: 24px; height: 24px; pointer-events: none; }
+  .scrubCursor > svg { display: block; }
   .unit { flex: none; user-select: none; }
   .filler { flex: 1 1 0; min-width: var(--ds-space-1); height: 100%; cursor: text; }
   .suffix { display: flex; flex: none; align-items: center; height: 100%; }

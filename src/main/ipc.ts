@@ -23,7 +23,8 @@ import * as sharedFonts from "./sharedFonts";
 import { isAppUrl } from "./protocol";
 import { workspaceDir } from "./storeHost";
 import { setShortcutSettings, shortcutSettings } from "./shortcuts";
-import { setContrast, setThemePreference, themeState } from "./theme";
+import { setContrast, setThemePreference, setUnderlineLinks, themeState } from "./theme";
+import { zoomFactor } from "./interfaceScale";
 import { setLocalePreference } from "./locale";
 import { parseLocale, t } from "../shared/i18n";
 import { removeUploadedFont, uploadFonts, uploadedFonts } from "./uploadedFonts";
@@ -105,6 +106,7 @@ function aiRunRequest(r: AiRunRequest): AiRunRequest {
     schema = JSON.parse(text) as Record<string, unknown>;
   }
   const max = Number(r.maxOutputTokens);
+  const timeout = Number(r.timeoutMs);
   return {
     runId,
     action: r.action,
@@ -114,6 +116,7 @@ function aiRunRequest(r: AiRunRequest): AiRunRequest {
     ...(images.length ? { images } : {}),
     ...(schema ? { schema } : {}),
     ...(Number.isFinite(max) && max > 0 ? { maxOutputTokens: Math.min(200_000, Math.round(max)) } : {}),
+    ...(Number.isFinite(timeout) && timeout > 0 ? { timeoutMs: Math.max(1000, Math.round(timeout)) } : {}),
   };
 }
 const folderOf = (v: unknown) => (v === null || v === undefined ? null : str(v, 64));
@@ -121,7 +124,12 @@ const folderOf = (v: unknown) => (v === null || v === undefined ? null : str(v, 
 export function registerIpc() {
   // ── Init and window ──
   onInvoke("desktop:init", ({ info }) => ({ version: app.getVersion(), platform: process.platform, role: info.role, tabId: info.tabId, fileKey: info.fileKey, windowId: info.windowId, theme: themeState() }));
-  onSend("shell:ready", ({ info, ctl }) => (info.role === "welcome" ? welcomeReady() : ctl.markReady(info.role === "tabbar" ? "tabbar" : "content")));
+  onSend("shell:ready", ({ info, ctl, sender }) => {
+    if (info.role === "welcome") return welcomeReady();
+    // The tab preview card's page (a tab bar page of its own): ready for the card.
+    if (info.role === "tabbar" && sender !== ctl.tabbar.webContents) return ctl.preview.pageReady(sender);
+    ctl.markReady(info.role === "tabbar" ? "tabbar" : "content");
+  });
 
   // ── Tabs ──
   onInvoke("tabs:get", ({ ctl }) => ctl.tabs.snapshot());
@@ -143,9 +151,27 @@ export function registerIpc() {
     if (id && typeof p.x === "number" && typeof p.y === "number") ctl.tabs.contextMenu(id, p.x, p.y);
   });
   onSend("tabs:main-menu", ({ ctl }, p) => {
-    if (typeof p?.x === "number" && typeof p.y === "number") Menu.getApplicationMenu()?.popup({ window: ctl.win, x: Math.round(p.x), y: Math.round(p.y) });
+    if (typeof p?.x === "number" && typeof p.y === "number") Menu.getApplicationMenu()?.popup({ window: ctl.win, x: Math.round(p.x * zoomFactor()), y: Math.round(p.y * zoomFactor()) });
   });
   onSend("tabs:reopen", ({ ctl }) => void ctl.tabs.reopen());
+  onSend("tabs:new-tab", ({ ctl }) => ctl.tabs.newTab());
+  onSend("tabs:group-menu", ({ ctl }, p) => {
+    const id = str(p?.groupId, 64);
+    if (id && typeof p.x === "number" && typeof p.y === "number") ctl.tabs.groupMenu(id, p.x, p.y);
+  });
+  onSend("tabs:group-rename", ({ ctl }, p) => {
+    const id = str(p?.groupId, 64);
+    if (id && typeof p.name === "string") ctl.tabs.dispatch({ type: "group-set", groupId: id, name: p.name.slice(0, 300) });
+  });
+  onSend("tabs:list-menu", ({ ctl }, p) => {
+    if (typeof p?.x === "number" && typeof p.y === "number") ctl.tabs.listMenu(p.x, p.y);
+  });
+  // Only the bar's own view hovers (the preview view is a tab bar page too).
+  onSend("tabs:hover", ({ ctl, sender }, p) => {
+    if (sender !== ctl.tabbar.webContents || typeof p?.x !== "number" || !Number.isFinite(p.x)) return;
+    const id = p.tabId === null ? null : str(p.tabId, 64);
+    void ctl.preview.hover(id || null, p.x, p.keyboard === true);
+  });
 
   // ── Updates (docs/desktop.md §12.6): the tab bar's pill and a manual check's progress ──
   onInvoke("updater:get", () => updaterStatus());
@@ -156,9 +182,11 @@ export function registerIpc() {
   });
 
   // ── Navigation ──
-  onInvoke("nav:open-file", ({ ctl }, file) => {
+  // From a new-tab page (a Home view of a tab's own): the file takes that tab's place (atlas 01 §3).
+  const newTabOf = (info: { role: string; tabId: string | null }) => (info.role === "home" && info.tabId ? info.tabId : undefined);
+  onInvoke("nav:open-file", ({ ctl, info }, file) => {
     if (!isFileKey(file?.fileKey)) throw new Error("nav:open-file: not a file key");
-    return ctl.tabs.openFile({ fileKey: file.fileKey, title: str(file.title, 300) ?? undefined, background: file.background === true, pageId: str(file.pageId, 64) ?? undefined, nodeId: str(file.nodeId, 64) ?? undefined });
+    return ctl.tabs.openFile({ fileKey: file.fileKey, title: str(file.title, 300) ?? undefined, background: file.background === true, pageId: str(file.pageId, 64) ?? undefined, nodeId: str(file.nodeId, 64) ?? undefined }, Date.now(), newTabOf(info));
   });
   onInvoke("nav:open-prototype", ({ ctl }, p) => {
     if (!isFileKey(p?.fileKey)) throw new Error("nav:open-prototype: not a file key");
@@ -167,7 +195,7 @@ export function registerIpc() {
     if (!pageId) throw new Error("nav:open-prototype: not a page");
     return ctl.tabs.openPrototype({ fileKey: p.fileKey, pageId, startNodeId: guid(p.startNodeId), title: str(p.title, 300) ?? undefined });
   });
-  onInvoke("nav:new-file", ({ ctl }, p) => ctl.tabs.newFile({ folderId: folderOf(p?.folderId), name: str(p?.name, 300) ?? undefined }));
+  onInvoke("nav:new-file", ({ ctl, info }, p) => ctl.tabs.newFile({ folderId: folderOf(p?.folderId), name: str(p?.name, 300) ?? undefined, replace: newTabOf(info) }));
   onSend("nav:go-home", ({ ctl, info }, p) => {
     // "Back to files": Home shows the file it came from, unless told another.
     const reveal = str(p?.revealFileKey, 64);
@@ -178,7 +206,7 @@ export function registerIpc() {
   onInvoke("file:import", ({ ctl }, p) => ctl.tabs.importFiles(folderOf(p?.folderId), Array.isArray(p?.paths) ? p.paths.map((x) => str(x, 4096)).filter((x): x is string => x !== null) : undefined));
   onInvoke("file:save-local-copy", ({ ctl }, p) => {
     if (!isFileKey(p?.fileKey)) throw new Error("file:save-local-copy: not a file key");
-    return ctl.tabs.saveLocalCopy(p.fileKey);
+    return ctl.tabs.saveLocalCopy(p.fileKey, { partial: p.partial === true });
   });
   onInvoke("file:export-assets", ({ ctl }, p) => {
     const list = Array.isArray(p?.files) ? p.files : null;
@@ -266,6 +294,8 @@ export function registerIpc() {
   });
   onInvoke("agents:remove-connector", (_c, p) => agents.removeConnector(str(p?.id, 64) ?? ""));
   onInvoke("agents:test-connector", (_c, p) => agents.testConnector(str(p?.id, 64) ?? ""));
+  onInvoke("agents:sign-in-connector", (_c, p) => agents.signInConnector(str(p?.id, 64) ?? ""));
+  onInvoke("agents:sign-out-connector", (_c, p) => agents.signOutConnector(str(p?.id, 64) ?? ""));
   onSend("agents:consent-answer", ({ sender }, p) => {
     if (p && typeof p.reqId === "number") agents.answerConsent(sender, { reqId: p.reqId, allow: p.allow === true, remember: p.remember === true, windowId: str(p.windowId, 200) ?? undefined });
   });
@@ -319,6 +349,7 @@ export function registerIpc() {
     return setThemePreference(preference);
   });
   onInvoke("theme:set-contrast", (_c, on) => setContrast(on === true));
+  onInvoke("theme:set-underline-links", (_c, on) => setUnderlineLinks(on === true));
   onInvoke("locale:set", (_c, locale) => setLocalePreference(parseLocale(locale)));
   // ── The Figma connection (docs/desktop.md §13 "Images from Figma"): the token is sealed here, never sent back ──
   onInvoke("figma:status", () => figmaConnection().status());
@@ -477,10 +508,11 @@ function popupMenu(ctl: WindowController, sender: WebContents, p: { template: Na
       });
     const view = [ctl.tabbar, ...ctl.tabs.contentViews()].find((v) => v.webContents === sender);
     const origin = view?.getBounds() ?? { x: 0, y: 0 };
+    // The view's CSS px, at View › Interface Scale's zoom (interfaceScale.ts).
     Menu.buildFromTemplate(build(p?.template, 0)).popup({
       window: ctl.win,
-      x: Math.round(origin.x + (Number(p?.x) || 0)),
-      y: Math.round(origin.y + (Number(p?.y) || 0)),
+      x: Math.round(origin.x + (Number(p?.x) || 0) * zoomFactor()),
+      y: Math.round(origin.y + (Number(p?.y) || 0) * zoomFactor()),
       // The pick's click may come just after the menu closes.
       callback: () => setTimeout(() => resolve(picked), 0),
     });

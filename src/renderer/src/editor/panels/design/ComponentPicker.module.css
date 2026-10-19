@@ -124,4 +124,8 @@
   .tile { width: 64px; height: 64px; padding: 0; }
   .tile .thumb { width: 64px; height: 64px; }
   .empty { padding: var(--ds-space-2) var(--ds-space-4); color: var(--figma-color-text-secondary); }
+  /* "Browse libraries" under the list (opens the Libraries modal) */
+  .browse { flex: none; height: var(--ds-size-row); padding: 0 var(--ds-space-4); border: 0; border-top: 1px solid var(--figma-color-border); background: transparent; color: var(--figma-color-text-brand); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); text-align: left; outline: none; }
+  .browse:hover { background: var(--figma-color-bg-hover); }
+  .browse:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
 }

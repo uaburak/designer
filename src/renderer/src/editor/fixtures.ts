@@ -505,6 +505,8 @@ export const TEXT_DOCUMENT: Message = {
     node({ guid: "4:10", type: "ROUNDED_RECTANGLE", name: "Trim box", parentIndex: { guid: "4:1", position: ")" }, size: { x: 360, y: 24 }, transform: at(40, 520), fillPaints: solidFill(0xe5f4ff) }),
     specimenText("4:11", "4:1", "*", 40, 520, "Cap height to baseline", { leadingTrim: "CAP_HEIGHT", fontSize: 32, textAutoResize: "WIDTH_AND_HEIGHT", size: { x: 350, y: 24 } }),
     specimenText("4:12", "4:1", "+", 40, 580, "Balanced wrapping keeps the lines of a short paragraph about the same width.", { textWrapStyle: "BALANCE", size: { x: 360, y: 40 } }),
+    // Bidi (Atlas wave 3): a Hebrew phrase with a number in brackets inside a Latin line, laid out right to left in place.
+    specimenText("4:13", "4:1", ",", 40, 636, "Bidi: שלום עולם (2026) and back", { size: { x: 360, y: 20 } }),
   ],
 };
 

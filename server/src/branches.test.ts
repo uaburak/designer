@@ -77,7 +77,55 @@ async function sharedFile() {
   return { alice, bob, a };
 }
 
+describe("a branch's link password is its main file's (docs/multiplayer.md §18.7)", () => {
+  it("a pass for main opens its branches; unlocking a branch checks main's password; a new one asks again", async () => {
+    const { alice } = await sharedFile();
+    await call("POST", "/files/main_00001/branches", alice.token, { branchKey: "brch_00001", name: "Tokens v2", baseSeq: 2 });
+    await call("PUT", "/files/brch_00001/snapshot?seq=0", alice.token, bytes("MAIN@2"));
+    await call("PATCH", "/files/main_00001", alice.token, { linkAccess: "viewer" });
+    expect((await call("PATCH", "/files/main_00001", alice.token, { linkPassword: "four random words" })).status).toBe(200);
+    const guest = await signIn("guest@x.co");
+    const get = (key: string, pass?: string) =>
+      handle(new Request(`${ORIGIN}/files/${key}`, { headers: { authorization: `Bearer ${guest.token}`, ...(pass ? { "x-file-pass": pass } : {}) } }), deps).then((r) => r.json() as Promise<Any>);
+    // Locked like main, until the guest enters main's password
+    expect(await get("brch_00001")).toMatchObject({ passwordProtected: true, needsPassword: true });
+    const { pass } = (await call("POST", "/files/main_00001/unlock", guest.token, { password: "four random words" })).body;
+    expect(await get("brch_00001", pass)).toMatchObject({ needsPassword: false, branch: { mainKey: "main_00001" } });
+    // On the branch itself: main's password, a pass that opens main and its branches alike
+    expect((await call("POST", "/files/brch_00001/unlock", guest.token, { password: "nope" })).status).toBe(403);
+    const branchPass = (await call("POST", "/files/brch_00001/unlock", guest.token, { password: "four random words" })).body.pass;
+    expect(await get("main_00001", branchPass)).toMatchObject({ needsPassword: false });
+    // A new password on main closes the branch's link-only sockets too, and the old pass stops working there
+    mem.calls.length = 0;
+    await call("PATCH", "/files/main_00001", alice.token, { linkPassword: "another one" });
+    expect(mem.calls.filter((c) => c.path === "/room/revoke-link").map((c) => c.key)).toEqual(["main_00001", "brch_00001"]);
+    expect(await get("brch_00001", pass)).toMatchObject({ needsPassword: true });
+  });
+});
+
 describe("the room's storage (roomBox.ts)", () => {
+  it("records each version's editors — who wrote since the last version at the head (docs/multiplayer.md §18.6)", async () => {
+    const { alice, bob } = await sharedFile();
+    await call("PUT", "/files/main_00001/members", alice.token, { email: "bob@x.co", role: "editor" });
+    const v1 = (await call("POST", "/files/main_00001/versions", alice.token, { kind: "named", title: "Alice's" })).body.version;
+    expect(v1.editors).toEqual([{ id: alice.user.id, name: null }]);
+    // Bob edits, then Alice: the next version holds both; one after it with no edits, nobody
+    const b = mem.join("main_00001", bob.user.id);
+    mem.send("main_00001", b, bytes("bob-edit"));
+    mem.send("main_00001", mem.join("main_00001", alice.user.id), bytes("alice-edit"));
+    const v2 = (await call("POST", "/files/main_00001/versions", bob.token, { kind: "autosave" })).body.version;
+    expect(v2.editors.map((e: Any) => e.id)).toEqual([bob.user.id, alice.user.id]);
+    expect((await call("POST", "/files/main_00001/versions", bob.token, { kind: "named", title: "Quiet" })).body.version.editors).toEqual([]);
+    // Listed with them; a version made before rooms recorded editors has none (the column was added to an old room)
+    const listed = (await call("GET", "/files/main_00001/versions", alice.token)).body.versions;
+    expect(listed.find((v: Any) => v.id === v2.id).editors).toHaveLength(2);
+    const box = mem.get("main_00001").box as Any;
+    box.host.sql.exec(`UPDATE versions SET editors = NULL WHERE id = ?`, v1.id);
+    box.reset();
+    expect((await call("GET", "/files/main_00001/versions", alice.token)).body.versions.find((v: Any) => v.id === v1.id).editors).toBeUndefined();
+  });
+
+
   it("keeps versions as a snapshot plus frames, serves them, compacts them, and autosaves after 30 minutes of edits", async () => {
     const { alice, a } = await sharedFile();
     // A named version at the head (seq 2): the snapshot at 0 and frames 1–2
@@ -234,6 +282,28 @@ describe("branches (docs/data.md §15.7)", () => {
     expect((await call("POST", "/branches/brch_00001/merge", alice.token, mrg({ mainSeq: 4, branchSeq: 2 }))).status).toBe(409);
   });
 
+  it("the merge request's lifecycle: a verdict on an older version says so, a reviewer withdraws it, the asker closes the request", async () => {
+    const { alice, bob } = await sharedFile();
+    await call("POST", "/files/main_00001/branches", alice.token, { branchKey: "brch_rev001", name: "Review me", baseSeq: 2 });
+    await call("PUT", "/files/brch_rev001/snapshot?seq=0", alice.token, bytes("MAIN@2"));
+    const review = (await call("POST", "/branches/brch_rev001/reviews", alice.token, { reviewerIds: [bob.user.id], description: "Look" })).body.review;
+    const approved = (await call("POST", `/branches/brch_rev001/reviews/${review.id}/verdict`, bob.token, { verdict: "approved" })).body.review;
+    expect(approved.reviewers[0]).toMatchObject({ verdict: "approved", seq: 0, outdated: false });
+    // Alice changes the branch: Bob's approval is of an older version now
+    mem.send("brch_rev001", mem.join("brch_rev001", alice.user.id), bytes("after-review"));
+    expect((await call("GET", "/branches/brch_rev001/reviews", bob.token)).body.reviews[0].reviewers[0]).toMatchObject({ verdict: "approved", outdated: true });
+    // Withdrawn (Figma's unapprove): pending again, the review back in review; only reviewers can
+    expect((await call("DELETE", `/branches/brch_rev001/reviews/${review.id}/verdict`, alice.token)).status).toBe(403);
+    const withdrawn = (await call("DELETE", `/branches/brch_rev001/reviews/${review.id}/verdict`, bob.token)).body.review;
+    expect(withdrawn).toMatchObject({ state: "in-review", reviewers: [{ verdict: "pending", seq: null, outdated: false }] });
+    // Closed by the asker (a reviewer who can't edit main can't); then no verdicts
+    expect((await call("POST", `/branches/brch_rev001/reviews/${review.id}/close`, bob.token)).status).toBe(403);
+    expect((await call("POST", `/branches/brch_rev001/reviews/${review.id}/close`, alice.token)).body.review.state).toBe("closed");
+    expect((await call("POST", `/branches/brch_rev001/reviews/${review.id}/verdict`, bob.token, { verdict: "approved" })).status).toBe(409);
+    // A new request opens a new review
+    expect((await call("POST", "/branches/brch_rev001/reviews", alice.token, { reviewerIds: [bob.user.id], description: "Again" })).body.review.id).not.toBe(review.id);
+  });
+
   it("archives, restores, renames and deletes; viewers branch only when they may copy; the creator edits their branch", async () => {
     const { alice, bob } = await sharedFile();
     await call("PATCH", "/files/main_00001", alice.token, { viewersCanCopy: false });
@@ -298,6 +368,51 @@ describe("branches (docs/data.md §15.7)", () => {
     expect(logs.map((l: Any) => l.action.type)).toEqual(["branch_create", "branch_member_add", "branch_archive", "branch_unarchive", "repo_merge_to_source"]);
     expect(logs[0].entity).toMatchObject({ type: "file_repo", id: "file_web001", name: "Home", main_file_key: "file_web001" });
     expect(logs[0].action.details).toMatchObject({ branch_key: "brch_web001", branch_name: "Hero" });
+  });
+});
+
+describe("branches follow their main file (leftovers 2026-10-18)", () => {
+  it("move with main, never alone; aren't counted as a folder's files; a merge into a trashed main is refused; a merge closes the review", async () => {
+    const alice = await signIn("alice@x.co");
+    const bob = await signIn("bob@x.co");
+    const org = (await call("POST", "/orgs", alice.token, { name: "Acme" })).body.org;
+    await call("POST", `/orgs/${org.id}/admin/people`, alice.token, { emails: ["bob@x.co"], role: "member" });
+    const team = (await call("POST", `/orgs/${org.id}/teams`, alice.token, { name: "Design" })).body.team;
+    const web = (await call("POST", `/teams/${team.id}/projects`, alice.token, { name: "Web" })).body.project;
+    const app = (await call("POST", `/teams/${team.id}/projects`, alice.token, { name: "App" })).body.project;
+    await call("POST", `/projects/${web.id}/files`, alice.token, { key: "file_web001", name: "Home" });
+    await call("PUT", "/files/file_web001/snapshot?seq=0", alice.token, bytes("HOME@0"));
+    await call("PUT", "/files/file_web001/members", alice.token, { email: "bob@x.co", role: "viewer" });
+    expect((await call("POST", "/files/file_web001/branches", alice.token, { branchKey: "brch_web001", name: "Hero", baseSeq: 0 })).status).toBe(201);
+    await call("PUT", "/files/brch_web001/snapshot?seq=0", alice.token, bytes("HOME@0"));
+    await call("PUT", "/branches/brch_web001/base?seq=0", alice.token, bytes("HOME@0"));
+    const where = async (key: string) => deps.db.d1.prepare(`SELECT org_id, team_id, project_id FROM files WHERE key = ?1`).bind(key).first();
+
+    // The folder's tile counts main only
+    const folders = (await call("GET", `/teams/${team.id}/projects`, alice.token)).body.projects;
+    expect(folders.find((p: Any) => p.id === web.id).fileCount).toBe(1);
+    // A branch is neither moved nor trashed on its own
+    expect((await call("POST", "/files/brch_web001/move", alice.token, { projectId: app.id })).status).toBe(400);
+    expect((await call("POST", "/files/brch_web001/trash", alice.token)).status).toBe(400);
+    // Main moved: its branch goes with it, so deleting the old folder for good leaves the branch alive
+    expect((await call("POST", "/files/file_web001/move", alice.token, { projectId: app.id })).status).toBe(200);
+    expect(await where("brch_web001")).toEqual({ org_id: org.id, team_id: team.id, project_id: app.id });
+    await call("POST", `/projects/${web.id}/trash`, alice.token);
+    expect((await call("DELETE", `/projects/${web.id}`, alice.token)).status).toBe(204);
+    expect((await call("GET", "/branches/brch_web001", alice.token)).body.branch).toMatchObject({ name: "Hero", status: "active" });
+    expect(str((await call("GET", "/files/brch_web001/snapshot", alice.token)).body)).toBe("HOME@0");
+
+    // A review, then main in the trash: no merge until it's back
+    const review = (await call("POST", "/branches/brch_web001/reviews", alice.token, { reviewerIds: [bob.user.id], description: "Look" })).body.review;
+    expect(review.state).toBe("in-review");
+    await call("POST", "/files/file_web001/trash", alice.token);
+    const refused = await call("POST", "/branches/brch_web001/merge", alice.token, encodeEnvelope({ mainSeq: 0, branchSeq: 0 }, bytes("m")));
+    expect([refused.status, refused.body.error]).toEqual([409, "the main file is in the trash; restore it first"]);
+    await call("POST", "/files/file_web001/restore", alice.token);
+    expect((await call("POST", "/branches/brch_web001/merge", alice.token, encodeEnvelope({ mainSeq: 0, branchSeq: 0 }, bytes("m")))).status).toBe(200);
+    const merged = (await call("GET", "/branches/brch_web001", alice.token)).body.branch;
+    expect([merged.status, merged.review.state]).toEqual(["merged", "closed"]);
+    expect((await call("POST", `/branches/brch_web001/reviews/${review.id}/verdict`, bob.token, { verdict: "approved" })).status).toBe(409);
   });
 });
 

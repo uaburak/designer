@@ -1,0 +1,9 @@
+same     popup live @1204,427 210x204  ours @1204,427 210x204
+DIFF     [Number of columns]  live 8,8 85x24  ours 32,8 61x24
+MISSING  32,8 61x24 input =3 [Number of columns] r=5px
+DIFF     [Number of rows]  live 117,8 85x24  ours 141,8 37x24
+DIFF     [Number of rows]  live 141,8 37x24  ours 178,8 24x24
+MISSING  178,8 24x24 button [Number of rows]
+DIFF     "11 × 1" 11px/400  live 169,57 29x13  ours 169,58 27x14
+EXTRA    0,0 210x204 dialog [Grid dimensions picker] bg=#2c2c2c r=13px
+EXTRA    8,40 194x126 radiogroup [Grid dimensions]
