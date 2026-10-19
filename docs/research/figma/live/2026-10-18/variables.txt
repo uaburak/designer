@@ -1,0 +1,48 @@
+State: Figma web (UI3, dark, 2026 build), 1440x900. Rail [Variables] clicked. Collection "Primitives" (Free plan: 1 mode, "Light") with label (string), enabled (boolean), color/primary, color/surface, space/md. Screenshot: variables-view.jpg (800x500 scale).
+
+LAYOUT CHANGE: local variables are no longer a floating modal. The rail's Variables button turns the whole editor into a full-window "Variables" view (URL ?view=variables): rail (57) + left panel (240) + the table filling the rest (x 298..1440). The canvas, toolbar and right panel are hidden; clicking File in the rail returns to the canvas. "Minimize" (top right) shrinks the view back to the old docked table.
+
+LEFT PANEL @57,0 240x900 bg #2C2C2C
+  header 49 high: file name "Untitled" 16,16 13px/550 · 200,8 [Hide panel] 32x32
+  region [Variable collections] from y 49:
+    "Collections" 15,63 11px/600 white · 182,57 [Collections options] 24x24 · 208,57 [Create collection] 24x24 (16x16 plus)
+    collection rows 210x32 at x 15: name 11px/600 white (current) · count "5" right-aligned at 218, 11px/400 #ffffffb2 (accessible text "5 variables"); current row has no fill, bold name
+  "Groups" disclosure 16,144 11px/550 · 210,138 [Collapse groups] 24x24
+    group rows 224x24 at x 8, 32 apart from y 174: "All" (selected: bg #394360 r=5px, 11px/600), then groups indented to x 24 ("color", "space") 11px/400, counts right at 217 #ffffffb2
+
+TABLE @298,0 1142 wide
+  top bar 49 high bg #2C2C2C: title "Primitives" 20,16 13px/450 white (breadcrumb "› Primitives" when a group is open, "›" #ffffff66)
+    search group 829,12 200x24: field 175x24 bg #383838 r=5px 0 0 5px (search icon, input "Search") + [Filter] 24x24 bg #383838 r=0 5px 5px 0
+    [Minimize] 24x24 at ~1045,12 · "Share" 55x32 bg #0C8CE9 r=5px at 1079,8 (11px/450 white)
+  grid: cells are separated by 1px gaps showing #444 (the table's own bg); header row 40 high, rows 40 high, 41 apart
+    header: "Name" column 200 wide (label 16,63 11px/600) · one column per mode 280 wide ("Light" 11px/600 at +16) · filler column · 40-wide last column with [New variable mode] 24x24 (+)
+    variable row: name cell — 24x24 type icon at x 16, name at x 44 11px/400 white; value cell 280 wide:
+       string → input 261x24 at +12 (r=2px, no fill until hover)
+       boolean → 28x16 switch (on: #0C8CE9) + "True" 11px/450 at +55
+       color → 16x16 swatch r=20% at +17 (dark colours get a 2px #ffffff1a inset ring) + hex input 140x24 at +36
+       number → 135x24 field at +12, value at +20
+    hover reveals [Edit variable] 24x24 in the 40-wide last column
+    group header row 56 high: group name at x 16, y +30, 11px/600 white (variables of the group follow, with only their leaf names)
+  footer 41 high, top border 1px #444: [Create variable] button 121x24 at 8,868 r=5px (plus icon + "Create variable" 11px/400)
+
+EDIT VARIABLE popover (from the row's [Edit variable]) 280x325, opens left of the button
+  bg #2C2C2C r=13px shadow #00000059 0 2px 5px 0, #ffffff59 0 0 .5px 0 inset, #00000059 0 10px 16px 0, #ffffff14 0 .5px 0 0 inset
+  header 40 high with an inset bottom line #444: tabs "Details" (53x24 bg #383838 r=5px, 11px/550 white) · "Scope" (11px/550 #ffffffb2) · [Close] 24x24 at 248,8
+  rows: label column at x 16 11px/450 #ffffffb2, controls at x 102 162 wide:
+    Name 57: input 162x24 r=5px border 1px #444 (focused) · Description 91: textarea bg #383838 r=5px placeholder "How to use this variable"
+    "Value" 151 11px/500 white; "Light" 183: colour field 83x24 bg #383838 (swatch + hex) + opacity field 83x24 "100%"
+    "Code syntax" 232 11px/500 + [Add code syntax] 24x24 at 248
+    checkbox 16x16 bg #383838 r=2px border 1px #ffffff33 at 16,289 + "Hide from publishing" 11px/450 white
+
+ICONS
+Type string: M8 7h8a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1M6 8a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2zm3.5 1a.5.5 0 0 0-.5.5v1a.5.5 0 0 0 1 0V10h1.5v4H11a.5.5 0 0 0 0 1h2a.5.5 0 0 0 0-1h-.5v-4H14v.5a.5.5 0 0 0 1 0v-1a.5.5 0 0 0-.5-.5z
+Type boolean: M10 8h4a4 4 0 0 1 0 8h-4a4 4 0 0 1 0-8m-5 4a5 5 0 0 1 5-5h4a5 5 0 0 1 0 10h-4a5 5 0 0 1-5-5m5 2a2 2 0 1 1 0-4 2 2 0 0 1 0 4m-3-2a3 3 0 1 1 6 0 3 3 0 0 1-6 0
+Type color: M7.312 6.803a7 7 0 0 1 9.639.248l.28.298a7 7 0 0 1 1.76 4.998l-.029.38C18.807 14.222 17.446 15 16.242 15H13.5l-.101.01a.5.5 0 0 0-.4.49v.5c0 .82-.338 1.603-.92 2.127-.6.542-1.468.8-2.37.488a7 7 0 0 1-2.362-1.385l-.297-.28a7 7 0 0 1 0-9.9zm8.93.955a6 6 0 0 0-8.485 0l-.212.225a6 6 0 0 0 2.492 9.689c.978.337 1.848-.457 1.953-1.467L12 16v-.499a1.5 1.5 0 0 1 1.5-1.5h2.743l.158-.006c.733-.057 1.391-.513 1.543-1.216l.024-.155a6 6 0 0 0-1.484-4.611zM8.5 12.001a1 1 0 1 1 0 2 1 1 0 0 1 0-2m7-2a1 1 0 1 1-.001 2 1 1 0 0 1 0-2m-6-1.5a1 1 0 1 1 0 2.001 1 1 0 0 1 0-2m3.5-1a1 1 0 1 1 0 2 1 1 0 0 1 0-2
+Type number: M16 6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2zM8 7a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1zm3.05 2.002a.5.5 0 0 1 .448.547l-.045.452h1.495l.055-.55a.5.5 0 0 1 .995.098l-.045.452h.547a.5.5 0 1 1 0 1h-.648l-.199 2h.847a.5.5 0 1 1 0 1h-.948l-.054.548a.501.501 0 0 1-.995-.098l.044-.45h-1.495l-.054.548a.501.501 0 0 1-.995-.098l.044-.45H9.5a.5.5 0 0 1 0-1h.647l.2-2H9.5a.5.5 0 0 1 0-1h.948l.055-.55a.5.5 0 0 1 .546-.449m.302 1.999-.199 2h1.494l.2-2z
+Edit variable: M7.5 20a.5.5 0 0 0 .5-.5v-2.042a3 3 0 0 0 0-5.917V4.5a.5.5 0 0 0-1 0v7.041a3.001 3.001 0 0 0 0 5.917V19.5a.5.5 0 0 0 .5.5m9 0a.5.5 0 0 0 .5-.5v-7.041a3.001 3.001 0 0 0 0-5.917V4.5a.5.5 0 0 0-1 0v2.042a3 3 0 0 0 0 5.917V19.5a.5.5 0 0 0 .5.5m0-8.5a2 2 0 1 1 0-4 2 2 0 0 1 0 4m-9 5a2 2 0 1 1 0-4 2 2 0 0 1 0 4
+Collections options: M8.5 18a.5.5 0 0 0 .5-.5v-1.55a2.5 2.5 0 0 0 0-4.9V6.5a.5.5 0 0 0-1 0v4.55a2.501 2.501 0 0 0 0 4.9v1.55a.5.5 0 0 0 .5.5m7 0a.5.5 0 0 0 .5-.5v-4.55a2.501 2.501 0 0 0 0-4.9V6.5a.5.5 0 0 0-1 0v1.55a2.5 2.5 0 0 0 0 4.9v4.55a.5.5 0 0 0 .5.5m0-6a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3m-7 3a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3
+Filter: M12 18a6 6 0 1 1 0-12 6 6 0 0 1 0 12m-7-6a7 7 0 1 1 14 0 7 7 0 0 1-14 0m4.5-.5a.5.5 0 0 0 0 1h5a.5.5 0 0 0 0-1zm.5 3a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 0 1h-3a.5.5 0 0 1-.5-.5M8.5 9a.5.5 0 0 0 0 1h7a.5.5 0 0 0 0-1z
+Minimize: M17.146 6.146a.5.5 0 0 1 .708.708L14.707 10H17.5a.5.5 0 0 1 0 1h-4a.5.5 0 0 1-.5-.5v-4a.5.5 0 0 1 1 0v2.793zM6.854 17.854a.5.5 0 0 1-.708-.708L9.293 14H6.5a.5.5 0 0 1 0-1h4a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-1 0v-2.793z
+Plus (16x16, Create collection): M8 3a.5.5 0 0 1 .5.5v4h4a.5.5 0 0 1 0 1h-4v4a.5.5 0 0 1-1 0v-4h-4a.5.5 0 0 1 0-1h4v-4A.5.5 0 0 1 8 3
+Apply variable (12x12, hex): m2 3.693 4-2.31 4 2.31v4.619l-4 2.31-4-2.31zM6 .23l5 2.887V8.89l-5 2.887L1 8.89V3.116zM7 6c0 .553-.448 1-1 1-.552 0-1-.447-1-1 0-.552.448-1 1-1 .552 0 1 .448 1 1
+Close (popover, 24x24): M16.224 7.082a.501.501 0 0 1 .694.693l-.065.078L12.707 12l4.146 4.146.065.078a.5.5 0 0 1-.694.694l-.078-.065L12 12.706l-4.147 4.147a.5.5 0 1 1-.707-.707l4.147-4.147-4.147-4.146-.064-.078a.501.501 0 0 1 .693-.693l.078.064L12 11.293l4.146-4.147z

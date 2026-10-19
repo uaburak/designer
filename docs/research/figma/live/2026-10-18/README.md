@@ -8,3 +8,14 @@ Taken in the owner's own draft "Untitled" (page "Capture") with the same method 
 - `boolean-menu.txt` — the header's Boolean operations split button, its menu, and the Union / Subtract / Intersect / Exclude / Flatten / Edit object icons.
 - `devmode-inspect-right.txt` — Dev Mode's 320-px Inspect panel chrome (the draft is on a Free plan, so Figma shows its upgrade overlay over a placeholder panel; content from `../owner-2026-10-18/figma-devmode-inspect.webp`).
 - `motion.txt` — Motion mode: the right panel's joined fields with their keyframe cells, the diamond icons, the timeline header / layer rows / playhead, and its icons.
+
+Second pass, 2026-10-19 (same method; the rest of the editor and Home):
+
+- `toolbar.txt` — the bottom toolbar (tool groups, chevrons, Comment, Actions, the Draw / Design / Motion / Dev Mode switch), the five tool menus and the left navigation rail, with every icon.
+- `menus.txt` — the shared menu chrome (surface, rows, separators, shortcuts, submenu arrow), the main menu and all its submenus' items, the canvas context menu on a shape, and the Manage libraries dialog.
+- `left-panel.txt` — file header, Pages, Layers (indent, icons, hover lock / eye, selection) and the Assets tab.
+- `variables.txt` + `variables-view.jpg` — local variables are now a full-window view from the rail (collections, groups, the table and its value cells) and the Edit variable popover.
+- `prototype.txt` + `prototype-panel-interaction.png` — the Prototype tab and the Interaction popover (trigger, action, destination, animation, easing, duration, preview).
+- `comments.txt` — comment mode, the Comments panel and the new-comment pin and composer (nothing was posted).
+- `home.txt` + `home-recents.jpg` — Home: sidebar, header pill buttons, Community banner, tabs and filters, file cards.
+- `settings.txt` — the account dropdown and the Settings dialog's Account tab (no screenshot: it shows personal details).

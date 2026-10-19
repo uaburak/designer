@@ -1,0 +1,76 @@
+State: Figma web (UI3, dark), 1440x900, Design mode. Read from the DOM and computed styles.
+
+COMMON MENU CHROME (main menu, its submenus, context menu, tool menus — one component)
+  surface bg #1E1E1E, r=13px, shadow rgba(0,0,0,.35) 0 2px 5px 0, rgba(255,255,255,.35) 0 0 .5px 0 inset, rgba(0,0,0,.35) 0 10px 16px 0, rgba(255,255,255,.08) 0 .5px 0 0 inset
+  list padding 8px 0 (top/bottom); rows 24 high, padding 0 8px; the highlighted row's inner box (x 8 .. w-8) bg #0C8CE9 r=5px
+  label 11px/450 white at x 16 (no icon column) — context menu labels 11px/400; disabled rows text at 40 % (same layout)
+  shortcut right-aligned, ends 16 px from the right edge, #ffffffb2 (context menu: 12px/400, each glyph its own span, e.g. "⌘" 13 wide + "C" 9 wide)
+  submenu arrow: 16x16 chevron at x w-32 (168 on a 200-wide menu), path M6.768 5.525a.5.5 0 0 1 .707 0l2.121 2.121a.5.5 0 0 1 0 .707l-2.121 2.122a.5.5 0 0 1-.707-.708L8.535 8 6.768 6.232a.5.5 0 0 1 0-.707
+  separator: a 17-high block, padding 8px 0, holding a 1px line border-top #383838 across the inner width (x 8 .. w-8)
+  submenus open on click/hover to the right, top-aligned with the hovered row (clamped to the window: tall ones start at y 6)
+
+MAIN MENU (Figma logo at the rail top) @12,18 194x468
+  "Back to files" row 32 high (label 16,14)
+  ---
+  Actions… ⌘K (search icon 24x24 at x 8, label at x 40)
+  ---
+  File ▸ · Edit ▸ · View ▸ · Object ▸ · Text ▸ · Arrange ▸ · Vector ▸
+  ---
+  Plugins ▸ · Widgets ▸ · Preferences ▸ · Libraries (opens Manage libraries)
+  ---
+  Open in desktop app · AI balance · Help and account ▸ (last row 32 high)
+  Actions icon: M11.5 6a5.5 5.5 0 0 1 4.226 9.019l2.127 2.127a.5.5 0 1 1-.707.707l-2.127-2.127A5.5 5.5 0 1 1 11.5 6m0 1a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9
+  Submenu chevron (24x24): M11.146 9.646a.5.5 0 0 1 .708 0l2 2a.5.5 0 0 1 0 .708l-2 2a.5.5 0 0 1-.708-.708L12.793 12l-1.647-1.646a.5.5 0 0 1 0-.708
+
+SUBMENUS (nothing selected; "(disabled)" rows are greyed; ✓ = checked)
+== File @210,100 198 wide
+New Design · New ▸ · --- · Place image… ⇧⌘K · --- · Duplicate · Save local copy… · Save to version history… ⌥⌘S · Show version history · --- · Export… ⇧⌘E · Export frames to PDF… · --- · Create branch…
+== Edit 190 wide
+Undo ⌘Z · Redo ⇧⌘Z · Copy as ▸ · Paste over selection ⇧⌘V · Paste to replace ⇧⌘R · Duplicate ⌘D · Delete ⌫ · Find ⌘F · Find next ⇧⌘F · Find previous ⇧⌘D · Find and replace… · Set default properties · Copy properties ⌥⌘C · Paste properties ⌥⌘V · Pick color ⌃C · Select all ⌘A · Select matching layers ⌥⌘A · Select none ⎋ · Select inverse ⇧⌘A · Select all with ▸
+== View 201 wide
+Pixel grid ⇧' ✓ · Layout guides ⇧G · Rulers ⇧R · Show slices ✓ · Comments ⇧C ✓ · Annotations ⇧Y ✓ · Outlines ▸ · Pixel preview ⇧⌘P · Mask outlines · Frame outlines · Memory usage · Additional labels ✓ · Minimize left navigation bar · Minimize UI ⇧⌘\ · Show/Hide UI ⌘\ ✓ · Multiplayer cursors ⌥⌘\ ✓ · Switch to Draw · Switch to Dev Mode ⇧D · Panels ▸ · Zoom in ⌘+ · Zoom out ⌘– · Zoom to 100% ⌘0 · Zoom to fit ⇧1 · Zoom to selection ⇧2 · Previous page 🌐↑ · Next page 🌐↓ · Zoom to previous frame ⇧N · Zoom to next frame N · Find previous frame Home · Find next frame End
+== Object 185 wide
+Frame selection ⌥⌘G · Group selection ⌘G · Ungroup selection ⌘⌫ · Wrap in new section ⌘S · Convert to section · Convert to frame · Restore default thumbnail · Use as mask ⌃⌘M · Add auto layout ⇧A · More layout options ▸ · Create component ⌥⌘K · Slots ▸ · Reset instance · Detach instance ⌥⌘B · Main component ▸ · Bring to front ] · Bring forward ⌘] · Send backward ⌘[ · Send to back [ · Flip horizontal ⇧H · Flip vertical ⇧V · Rotate 180˚ · Rotate 90˚ left · Rotate 90˚ right · Flatten ⌥⇧F · Outline stroke ⌥⌘O · Boolean groups ▸ · Show/Hide selection ⇧⌘H · Lock/Unlock selection ⇧⌘L · Hide other layers · Collapse layers ⌥L · Remove fill ⌥/ · Remove stroke ⇧/ · Swap fill and stroke ⇧X · Remove interactions · Delete contents
+== Text 183 wide
+Bold ⌘B · Italic ⌘I · Underline ⌘U · Strikethrough ⇧⌘X · Create link ⇧⌘U · Bulleted list ⇧⌘8 · Numbered list ⇧⌘7 · Alignment ▸ · Adjust ▸ · Case ▸ · Text direction ▸ · Spell check ▸
+== Arrange 220 wide
+Round to pixel · Align left ⌥A · Align horizontal centers ⌥H · Align right ⌥D · Align top ⌥W · Align vertical centers ⌥V · Align bottom ⌥S · Tidy up ⌃⌥T · Pack horizontal · Pack vertical · Distribute horizontal spacing ⌃⌥H · Distribute vertical spacing ⌃⌥V · Distribute left · Distribute horizontal centers · Distribute right · Distribute top · Distribute vertical centers · Distribute bottom
+== Vector 198 wide
+Join selection ⌘J · Smooth join selection ⇧⌘J · Delete and heal selection ⇧⌫ · Split vector · Simplify vector · Offset vector
+== Plugins 181 wide
+Run last plugin ⌥⌘P · Saved plugins ▸ · Manage plugins…
+== Widgets 152 wide
+Manage widgets… · Select all widgets
+== Preferences 235 wide
+Snap to geometry ✓ · Snap to objects ✓ · Snap to pixel grid ⇧⌘' ✓ · Keep tool selected after use · Highlight layers on hover ✓ · Rename duplicated layers ✓ · Show dimensions on objects ✓ · Hide canvas UI during changes ✓ · Use smart quotes/symbols ✓ · Flip objects while resizing ✓ · Keyboard zooms into selection · Invert zoom direction · Ctrl+click opens right click menus · Use number keys for opacity ✓ · Use old shortcuts for outlines · Use ⌘⌥↑/↓ to rotate layers · Play audio notifications in AI chat ✓ · Open links in desktop app ✓ · Show Agents on canvas ✓ · Use scroll wheel zoom · Right-click and drag to pan ✓ · Theme ▸ · Color profile… · Keyboard layout… · Accessibility settings… · Permissions and helpers… · Nudge amount…
+== Help and account
+Help page · Keyboard shortcuts ⌃⇧? · Support forum · Video tutorials · Release notes · Open font settings · Legal summary · Account settings · Log out
+(Separators were not captured inside the submenus — their DOM has no role; group them as Figma's desktop menus do.)
+
+CANVAS CONTEXT MENU (right-click on a selected Rectangle) @842,203 200x629
+Copy ⌘C · Paste here · Paste to replace ⇧⌘R · Copy/Paste as ▸ · Send to Figma Make · Add motion ▸
+---
+Select layer ▸ · Bring to front ] · Send to back [
+---
+Group selection ⌘G · Frame selection ⌥⌘G · Flatten ⌥⇧F · Outline stroke ⌥⌘O · Use as mask ⌃⌘M
+---
+Add auto layout ⇧A · Create component ⌥⌘K · Plugins ▸ · Widgets ▸
+---
+Show/Hide ⇧⌘H · Lock/Unlock ⇧⌘L
+---
+Flip horizontal ⇧H · Flip vertical ⇧V
+(the menu opens with its top-left at the pointer, shifted up to stay inside the window)
+
+MANAGE LIBRARIES (main menu › Libraries) @425,60 591x641 (centred)
+  bg #2C2C2C r=13px shadow #00000073 0 10px 24px 0, #00000059 0 3px 5px 0, #ffffff14 0 .5px 0 0 inset, #ffffff59 0 0 .5px 0 inset
+  title "Manage libraries" 16,14 11px/550 white · Close 24x24 at 554,8 · header 40 high + 1px divider
+  left nav 200 wide (divider at its right): search 8,49 184x24 bg #383838 r=5px (search icon + input "Search all libraries")
+     tabs 184x24 r=5px, icon 24x24 at x 8, label at x 37: "This file" (selected bg #383838, 11px/550) · "Updates" (11px/400)
+     "Browse libraries" caption 12,169 11px/450 #ffffffb2 · "Teams" · "UI kits"
+  content from x 216: banner 359x128 bg #383838 r=5px — icon, "Publish your components as a library" 11px/550, body 11px/450 #ffffffb2 with a #7CC4F8 link, button "Publish this file" 96x24 bg #0C8CE9 r=5px
+     "Libraries added to this file" 216,211 11px/450 white
+     rows 74 apart: thumbnail 102x58 r=5px bg #ffffff1a border 1px #0000000d · name 334 13px/450 white + 16x16 kit icon · author 11px/450 #ffffffb2 · "Remove" button 79x24 r=5px (right edge at 575)
+  Icons: This file M15.25 6a5.35 5.35 0 0 1 2.661.69 4.8 4.8 0 0 1 .883.646l.05.05.016.017.008.008-.368.339.368-.338A.5.5 0 0 1 19 7.75v9.5a.5.5 0 0 1-.868.338v.002l-.032-.033a3 3 0 0 0-.132-.118 4 4 0 0 0-.552-.38 4.35 4.35 0 0 0-2.166-.559c-.949 0-1.677.281-2.166.56-.245.139-.43.277-.552.379q-.09.076-.132.118l-.033.033v-.001h.001v-.001a.5.5 0 0 1-.736 0v.002l-.032-.033a3 3 0 0 0-.132-.118 4 4 0 0 0-.552-.38A4.35 4.35 0 0 0 8.75 16.5a4.34 4.34 0 0 0-2.166.56c-.245.139-.43.277-.552.379a2 2 0 0 0-.132.118l-.033.033v-.001h.001v-.001A.5.5 0 0 1 5 17.25v-9.5a.5.5 0 0 1 .132-.338l.368.338-.368-.339.008-.008.015-.016.051-.051q.065-.064.186-.165a5 5 0 0 1 .697-.48A5.35 5.35 0 0 1 8.75 6a5.35 5.35 0 0 1 2.661.69c.241.138.438.275.589.393.15-.118.348-.255.589-.393A5.35 5.35 0 0 1 15.25 6m-6.5 1a4.34 4.34 0 0 0-2.166.56c-.245.139-.43.277-.552.378L6 7.967v8.276l.089-.053a5.35 5.35 0 0 1 2.661-.69 5.35 5.35 0 0 1 2.661.69l.089.053V7.967l-.032-.029a4 4 0 0 0-.552-.378A4.35 4.35 0 0 0 8.75 7m6.5 0c-.949 0-1.677.281-2.166.56-.245.139-.43.277-.552.378l-.032.029v8.276l.089-.053a5.35 5.35 0 0 1 2.661-.69 5.35 5.35 0 0 1 2.661.69l.089.053V7.967l-.032-.029a4 4 0 0 0-.552-.378A4.35 4.35 0 0 0 15.25 7
+  Updates M7.023 11.525A5 5 0 0 1 16 9h-2a.5.5 0 0 0 0 1h3.5a.5.5 0 0 0 .5-.5v-3a.5.5 0 0 0-1 0v2.183A6 6 0 0 0 6.027 11.43a.5.5 0 0 0 .996.095m10.95 1.044a.5.5 0 0 0-.996-.095A5 5 0 0 1 8 15h2a.5.5 0 1 0 0-1H6.5a.5.5 0 0 0-.5.5v3a.5.5 0 1 0 1 0v-2.183a6 6 0 0 0 10.973-2.747
+  UI kits M5.5 10.309a1 1 0 0 1 1.448-.894l5.053 2.525 5.053-2.525a1 1 0 0 1 1.447.894v4.573c0 .568-.321 1.087-.83 1.342l-5.447 2.723a.5.5 0 0 1-.448 0L6.33 16.224a1.5 1.5 0 0 1-.83-1.342zm1.001 4.573a.5.5 0 0 0 .276.447L11.5 17.69v-4.88l-4.999-2.5zm5.999-2.073v4.881l4.725-2.36a.5.5 0 0 0 .276-.448v-4.573zM12.001 5a2.5 2.5 0 1 1-.002 5.002A2.5 2.5 0 0 1 12.001 5m0 1a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3
+  Close M17.354 6.646a.5.5 0 0 1 0 .708L12.707 12l4.647 4.646a.5.5 0 0 1-.708.708L12 12.707l-4.646 4.647a.5.5 0 0 1-.708-.708L11.293 12 6.646 7.354a.5.5 0 0 1 .708-.707L12 11.293l4.646-4.647a.5.5 0 0 1 .708 0

@@ -1,0 +1,42 @@
+State: Figma web (UI3, dark), 1440x900, Design mode, rail [File] expanded. Read from the DOM and computed styles. The panel sits right of the 57-px rail.
+
+LEFT PANEL @57,0 240x900 bg #2C2C2C (resize handle 8 px wide at its right edge, x 238)
+File header:
+  "Untitled" file-name button 17,13 — 13px/550 white · 73,12 [Edit file menu] 24x24 r=0 5px 5px 0 (16x16 down chevron)
+  200,8 [Minimize UI] 32x32 r=5px
+  12,40 "Drafts" link 11px/450 #ffffffb2 (r=5px hover) · 56,40 plan chip "Free" 31x16 bg #32394D r=5px, text 11px/450 #7CC4F8
+Pages (collapsible, header row 40 high from y 65):
+  "Pages" 16,79 11px/550 white · 180,73 [Find] 24x24 · 208,73 [Add new page] 24x24
+  page row 8,109 224x24 r=5px; current page bg #383838, label at x 16 11px/550 white (other pages 11px/400)
+  resize handle between Pages and Layers: 240x8 slider at y 143
+Layers (from y 146):
+  "Layers" 16,160 11px/550 white · 208,154 [Collapse layers] 24x24
+  rows 32 apart (row box 278x32, its visible plate 8,+4 262x24 r=5px), first row at y 190
+  indent 24 px per level: level 0 → chevron button 24x24 at x 8 (16x16 chevron at 12), type icon 16x16 at x 28, name at x 52; level 1 → icon at 52, name at 76
+  shape icons are 16x10 boxes holding a 10x10 SVG of the real shape (Ellipse circle, Rectangle drawn at the layer's aspect ratio, e.g. M0.5 1.91463H9.5V8.08537H0.5V1.91463Z), stroke rgba(255,255,255,.4), no fill
+  frame / auto-layout icons 16x16 fill rgba(255,255,255,.4)
+  names 11px/400 white
+  hover: plate bg #383838; [Toggle layer locking] 16x16 at x 188 and [Toggle layer visibility] 16x16 at x 212 appear (white)
+  selected: plate bg #394360 r=5px (a #32394D under-plate for multi-row selection), the icon box bg #394360, name stays white
+  a scrollbar strip 11 px wide at x 229 from y 186
+
+LEFT PANEL — ASSETS (rail [Assets]) @57,0 240x900
+  header 49 high: "Assets" 16,16 13px/550 white · 204,12 [Libraries] 24x24
+  search 16,61 180x24 bg #383838 r=5px (icon 24x24 at x 16, input at x 40 "Search all libraries") · 204,61 [Libraries and settings] 24x24
+  "All libraries" crumb 11,94 70x22 r=5px, 11px/550 white
+  library cards 224x173 at x 8, 173 apart (first hovered: bg #383838 r=5px): thumbnail 17,+9 206x115 bg #ffffff1a r=5px with a 0.5px #444 inset ring; name 11px/450 white at +134 with a 16x16 kit icon after it; "190 components" 11px/450 #ffffffb2 at +150
+  "Add more libraries" centred text button 11px/450 white under the cards
+
+ICONS
+Edit file menu (16x16): M9.768 6.768a.5.5 0 0 1 .707.707l-2.12 2.121a.5.5 0 0 1-.708 0L5.525 7.475a.5.5 0 0 1 .708-.707l1.768 1.767z
+Minimize UI: M17.653 7.008A1.5 1.5 0 0 1 19 8.5v7a1.5 1.5 0 0 1-1.347 1.492L17.5 17h-11a1.5 1.5 0 0 1-1.492-1.347L5 15.5v-7A1.5 1.5 0 0 1 6.5 7h11zM6.5 8a.5.5 0 0 0-.5.5v7a.5.5 0 0 0 .5.5H9V8zm3.5 8h7.5a.5.5 0 0 0 .5-.5v-7a.5.5 0 0 0-.5-.5H10z
+Find: M11.5 6a5.5 5.5 0 0 1 4.226 9.019l2.127 2.127a.5.5 0 1 1-.707.707l-2.127-2.127A5.5 5.5 0 1 1 11.5 6m0 1a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9
+Add new page: M12 6a.5.5 0 0 1 .5.5v5h5a.5.5 0 0 1 0 1h-5v5a.5.5 0 0 1-1 0v-5h-5a.5.5 0 0 1 0-1h5v-5A.5.5 0 0 1 12 6
+Collapse layers: M12.5 16a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1zm3.725-1.918a.5.5 0 0 1 .628.064l2 2a.5.5 0 1 1-.707.707L16.5 15.208l-1.646 1.646a.5.5 0 1 1-.707-.707l2-2zM12.5 13a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1zm0-3a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1zm5.647-2.854a.5.5 0 1 1 .707.708l-2 2a.5.5 0 0 1-.63.064l-.078-.064-2-2a.5.5 0 1 1 .707-.708L16.5 8.793zM12.5 7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1z
+Layer chevron (16x16, collapsed, points right): M6.768 5.525a.5.5 0 0 1 .707 0l2.121 2.121a.5.5 0 0 1 0 .707l-2.121 2.122a.5.5 0 0 1-.707-.708L8.535 8 6.768 6.232a.5.5 0 0 1 0-.707
+Frame (16x16): M5.5 3a.5.5 0 0 1 .5.5V5h4V3.5a.5.5 0 0 1 1 0V5h1.5a.5.5 0 0 1 0 1H11v4h1.5a.5.5 0 0 1 0 1H11v1.5a.5.5 0 0 1-1 0V11H6v1.5a.5.5 0 0 1-1 0V11H3.5a.5.5 0 0 1 0-1H5V6H3.5a.5.5 0 0 1 0-1H5V3.5a.5.5 0 0 1 .5-.5m4.5 7V6H6v4z
+Auto layout (16x16, vertical stack variant): M4 4h2v8H4zM3 4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1zm7 0h2v4h-2zM9 4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1z
+Toggle layer locking (16x16): M5 5a3 3 0 0 1 6 0v2.025c.57.116 1 .62 1 1.225v3.5c0 .69-.56 1.25-1.25 1.25h-5.5C4.56 13 4 12.44 4 11.75v-3.5C4 7.56 4.56 7 5.25 7H10V5a2 2 0 1 0-4 0 .5.5 0 0 1-1 0m.25 3a.25.25 0 0 0-.25.25v3.5c0 .138.112.25.25.25h5.5a.25.25 0 0 0 .25-.25v-3.5a.25.25 0 0 0-.25-.25z
+Toggle layer visibility (16x16): M3.035 8.07 3.01 8l.026-.07q.064-.155.235-.412a5.6 5.6 0 0 1 1.053-1.121C5.257 5.627 6.54 5 8 5s2.743.628 3.677 1.397c.465.383.821.783 1.053 1.121.116.17.191.31.235.413L12.99 8l-.026.07q-.064.155-.235.412a5.6 5.6 0 0 1-1.053 1.121C10.743 10.373 9.46 11 8 11s-2.743-.628-3.677-1.397A5.6 5.6 0 0 1 3.27 8.482a2.5 2.5 0 0 1-.235-.413M2 8c0-1 2.5-4 6-4s6 3 6 4-2.5 4-6 4-6-3-6-4m6 1a1 1 0 1 0 0-2 1 1 0 0 0 0 2
+Libraries and settings: M8.5 18a.5.5 0 0 0 .5-.5v-1.55a2.5 2.5 0 0 0 0-4.9V6.5a.5.5 0 0 0-1 0v4.55a2.501 2.501 0 0 0 0 4.9v1.55a.5.5 0 0 0 .5.5m7 0a.5.5 0 0 0 .5-.5v-4.55a2.501 2.501 0 0 0 0-4.9V6.5a.5.5 0 0 0-1 0v1.55a2.5 2.5 0 0 0 0 4.9v4.55a.5.5 0 0 0 .5.5m0-6a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3m-7 3a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3
+Libraries: the book icon of menus.txt (Manage libraries › This file)

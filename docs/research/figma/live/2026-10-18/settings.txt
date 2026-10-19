@@ -1,0 +1,30 @@
+State: Figma web file browser, dark, 1440x900. Account dropdown (top-left) › Settings. No screenshot saved (it shows the owner's photo and e-mail). The editor's own preferences are the main menu's Preferences submenu — see menus.txt.
+
+ACCOUNT DROPDOWN @8,44 224x365 (opens under the account button)
+  bg #1E1E1E r=13px shadow #00000059 0 2px 5px 0, #ffffff59 0 0 .5px 0 inset, #00000059 0 10px 16px 0, #ffffff14 0 .5px 0 0 inset; list padding 8px 0
+  profile block 120 high: avatar 40x40 r=9999px centred at y 24 (initial 25px/550), name 11px/450 white centred at y 72, e-mail 11px/450 #ffffffb2 at y 88 (the block is one menuitem "View profile for …")
+  rows 24 high (plate x 8..216 r=5px): Change theme · Settings · Get desktop app
+  group caption "Community" 11px/450 #ffffffb2, then View Community profile · Saved from Community
+  Add account · Log out
+  groups separated by the menu's 17-px separator (see menus.txt)
+
+SETTINGS DIALOG — modal, centred @395,90 650x720 over a #00000080 scrim
+  bg #2C2C2C r=13px shadow #00000059 0 3px 5px 0, #ffffff59 0 0 .5px 0 inset, #00000073 0 10px 24px 0, #ffffff14 0 .5px 0 0 inset
+  header 40 high, inset bottom line #444; h2 "Settings" visually hidden; tablist at 8,8: tabs 24 high r=5px, label at +8 11px/550 — Account (selected bg #383838 white) · Community · Notifications · Security (#ffffffb2, bg #2C2C2C) · [Close] 24x24 at 618,8
+  body scrolls (11-px scrollbar at the right); content padding 16 + 32: avatar column at x 48 (avatar 120x120 r=100%, hover scrim #0000004d with a pencil icon; "Edit" 36x24 button under it at 90,208)
+  sections column at x 200, 402 wide, each: h3 14px/450 white (24 high), value 11px/450 white 12 px below, then a text-link button 11px/450 #7CC4F8 ("Change name"), 40 px to the next section; a 1px #444 rule between the identity block and "Your spaces"
+    Name · Email · Role ("Design" / Change role)
+    "Your spaces" 15px/550: team avatar 32x32 r=9999px (#198F51 initial) + name 11px/450, role "Admin" #ffffffb2, seat "Full seat"; "Learn what products are included in each seat." (Learn = link 11px/550 #7CC4F8)
+    Language: "English" / Change language
+    Theme: select 128x24 r=5px inset ring 1px #444 "System theme" (options Light / Dark / System theme); switch 32x16 r=9999px + "Enhance contrast" 11px/450 white with a description 11px/450 #ffffffb2
+    New features: rows with a "Beta" chip 28x16 bg #0C8CE9 r=5px 9px/500 white, link "here"
+    Fonts: text + primary button "Use local fonts" 94x24 bg #0C8CE9 r=5px
+    Your uploaded fonts: primary button "Upload font" 78x24, then one 53-px row per uploaded font file with [Remove …] 24x24 at the right
+    Library: "Enable libraries" link · View history: "Learn more" link + "Change preference" link
+    Account: "Delete account" link in #FCA397 (danger text)
+  (Community / Notifications / Security tabs not dumped.)
+
+ICONS
+User placeholder: M15 9a3 3 0 1 1-6 0 3 3 0 0 1 6 0m1 0a4 4 0 1 1-8 0 4 4 0 0 1 8 0m-9.75 8.006a.48.48 0 0 0 .054.612c.233.235.619.167.811-.103A5.99 5.99 0 0 1 12 15c2.014 0 3.797.992 4.885 2.515.192.27.578.338.81.102a.48.48 0 0 0 .054-.611A6.99 6.99 0 0 0 12 14a6.99 6.99 0 0 0-5.75 3.006
+Avatar edit pencil (15x15): m11.8 1.69.353-.354L11.8.983l-.353.353zm2.12 2.121.354.354.354-.354-.354-.353-.353.353zm-9.553 9.554.12.485.135-.033.099-.098zm-2.121-2.121-.354-.354-.098.098-.034.136zm-.7 2.82-.485-.12-.2.805.806-.2-.12-.485zm9.9-12.02 2.121 2.12.707-.706-2.12-2.122zM4.72 13.012 2.599 10.89l-.707.707 2.121 2.122.708-.707zm-2.122-1.415 7.794-7.794-.707-.707-7.794 7.794zm7.794-7.794 1.76-1.76-.707-.707-1.76 1.76zm3.174-.345-1.76 1.76.707.707 1.76-1.76zm-1.76 1.76-7.794 7.794.708.707 7.793-7.794zm-2.12-1.415 2.121 2.122.707-.707-2.12-2.122zm-7.926 7.32-.699 2.821.97.24.7-2.82-.97-.24zm-.093 3.427 2.82-.7-.24-.97-2.82.7z
+Close (dialog): M16.224 7.082a.501.501 0 0 1 .694.693l-.065.078L12.707 12l4.146 4.146.065.078a.5.5 0 0 1-.694.694l-.078-.065L12 12.706l-4.147 4.147a.5.5 0 1 1-.707-.707l4.147-4.147-4.147-4.146-.064-.078a.501.501 0 0 1 .693-.693l.078.064L12 11.293l4.146-4.147z

@@ -1,0 +1,41 @@
+State: Figma web file browser ("Home"), dark, 1440x900, Recents › Recently viewed, grid view. Free team. Screenshot: home-recents.jpg (800-px scale).
+
+SIDEBAR nav [Sidebar] @0,0 241x900 bg #2C2C2C (1px right border)
+  top 88: [Account dropdown] 8,8 117x32 r=4px — avatar 24x24 r=9999px at 12,12 (#667799 + initial 15px/450), name "burak.koc" 44,12 13px/500 white, 16x16 chevron · [Notifications] 200,8 32x32 r=5px (bell)
+     search 8,48 224x32 bg #383838 r=8px — 24x24 search icon at 13, input at 42 ("Search", 11px)
+  nav rows 240x32 with a 224x28 plate at x 8 r=5px; icon 24x24 at x 12; label at x 44 11px/400 white
+     Recents (current: plate bg #394360) · Community (hover shows [Open Community in new tab] 24x24 at 204)
+  divider 1px #444 at y 160
+  team row 8,171 166x32 r=4px: 16x16 team avatar r=9999px (#0A6DC2, initial 10px/500, 1px #ffffff66 inset ring) at 16,179 · "burak.koc's team" 44 13px/550 white · chevron · plan chip "Free" 35x16 at 178,179 bg #32394D r=4px 11px/500 #7CC4F8
+     Drafts (hover: [New file] + at 204) · All folders · Resources · Trash
+  plan card 12,341 216x58 r=13px border 1px #444: "See what's included" 11px/450 white / "Your plan and usage" 11px/450 #ffffffb2, chevron-right 24x24 at the right
+  divider at y 415
+  "Starred" disclosure row (16x16 chevron at x 0) then starred rows (project/file icon 24 or 16x16 file-type tile, label at 44); hover shows [Move row down]/[Move row up] 24x24 at x 4 / 28
+  loading skeleton: #383838 bars r=3px (rows 16 high, 32 apart)
+
+MAIN @241,0 1199 wide bg #2C2C2C
+  header 49 high (1px #444 bottom): h1 "Recents" 273,16 13px/400 white
+     right: pill buttons 32 high r=9999px bg #383838 with a 1px #444 inset ring, 8 px apart: "Design" (16x16 tile #0C8CE9 r=2px) 92 · "FigJam" (#8A38F5) 94 · "Slides" (#F65009) 88 · "Make" (#FFFFFF tile) 85 · "More" 75 — icon at +16, label at +40 11px/450 white; ends at x 1408
+  community banner 273,65 1133x262 bg #383838 r=13px: title "Recommended resources from Community" 297,82 13px/550 · [Refresh recommendations] / [Dismiss recommendations] 24x24 at 1334/1366,81
+     cards 255 wide, 279 apart: thumb 255x144 r=6px ring 0 0 0 1px #444; name 11px/550 at +156; meta "by … · ♥ 938 · 👤 37.2k" 11px/450 #ffffffb2 at +174; 24x24 product badge at the thumb's bottom-left (+8,+112)
+     "See more resources" stack 221x145 bg #444 r=13px with 3 fanned thumbs (199x117 r=5px, shadow #00000066 0 1px 3px, #ffffff4d 0 0 .5px inset, #ffffff1a 0 .5px 0 inset, #00000080 0 0 .5px), link text 11px/550 #7CC4F8
+  tab bar row 241,342 64 high: tabs 24 high r=5px — "Recently viewed" (selected bg #383838, 11px/550 white) · "Shared files" · "Shared folders" (11px/450 #ffffffb2) at 273
+     right: "All organizations" select 113x24 r=5px inset ring 1px #444 · "All files" select 64x24 · view mode radiogroup 48x24 bg #383838 r=5px: grid (selected: bg #2C2C2C inset ring #444) / list
+  divider 1px #444 at y 405
+  grid: 3 columns of 356x260 cards from x 275, 388 apart, rows 292 apart (gap 32)
+     card r=13px border 1px #444; thumbnail 354x199 (canvas bg, e.g. #1E1E1E); [Add to Starred] 24x24 bg #2C2C2C r=5px at top-right (+315,+17), shown on hover (★ yellow when starred)
+     footer 354x59 bg #2C2C2C top border 1px #444: 24x24 file-type tile at +16 (Design #0C8CE9), name h2 at +44 11px/550 white, "Edited 5 minutes ago" under it 11px/450 #ffffffb2; collaborators' avatars 24x24 at the right (+314)
+
+ICONS (24x24 unless noted)
+Notifications: M12.992 6.124Q13 6.064 13 6a1 1 0 1 0-1.992.124A4 4 0 0 0 8 10v1.172a5.83 5.83 0 0 1-1.707 4.12A1 1 0 0 0 7 17h3a2 2 0 0 0 4 0h3a1 1 0 0 0 .707-1.707A5.83 5.83 0 0 1 16 11.172V10a4 4 0 0 0-3.008-3.876M12 18a1 1 0 0 1-1-1h2a1 1 0 0 1-1 1m5-2a6.82 6.82 0 0 1-2-4.828V10a3 3 0 1 0-6 0v1.172A6.83 6.83 0 0 1 7 16z
+Recents: M12 19a7 7 0 1 0 0-14 7 7 0 0 0 0 14m6-7a6 6 0 1 1-12 0 6 6 0 0 1 12 0m-5.5-3.5a.5.5 0 0 0-1 0V12a.5.5 0 0 0 .146.354l2 2a.5.5 0 0 0 .708-.708L12.5 11.793z
+Open in new tab: M9.5 6a.5.5 0 0 1 0 1h-2a.5.5 0 0 0-.5.5v9a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5v-2a.5.5 0 0 1 1 0v2a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 16.5v-9A1.5 1.5 0 0 1 7.5 6zm8 0a.5.5 0 0 1 .5.5v5a.5.5 0 0 1-1 0V7.707l-4.146 4.147a.5.5 0 1 1-.707-.707L16.293 7H12.5a.5.5 0 0 1 0-1z
+New file (+): M12 6a.5.5 0 0 1 .5.5v5h5a.5.5 0 0 1 0 1h-5v5a.5.5 0 0 1-1 0v-5h-5a.5.5 0 0 1 0-1h5v-5A.5.5 0 0 1 12 6
+All folders: M9.653 13.008A1.5 1.5 0 0 1 11 14.5v2l-.008.153a1.5 1.5 0 0 1-1.339 1.34L9.5 18h-2a1.5 1.5 0 0 1-1.492-1.347L6 16.5v-2A1.5 1.5 0 0 1 7.5 13h2zm7 0A1.5 1.5 0 0 1 18 14.5v2l-.008.153a1.5 1.5 0 0 1-1.339 1.34L16.5 18h-2a1.5 1.5 0 0 1-1.492-1.347L13 16.5v-2a1.5 1.5 0 0 1 1.5-1.5h2zM7.5 14a.5.5 0 0 0-.5.5v2a.5.5 0 0 0 .5.5h2a.5.5 0 0 0 .5-.5v-2a.5.5 0 0 0-.5-.5zm7 0a.5.5 0 0 0-.5.5v2a.5.5 0 0 0 .5.5h2a.5.5 0 0 0 .5-.5v-2a.5.5 0 0 0-.5-.5zM9.653 6.008A1.5 1.5 0 0 1 11 7.5v2l-.008.153a1.5 1.5 0 0 1-1.339 1.34L9.5 11h-2a1.5 1.5 0 0 1-1.492-1.347L6 9.5v-2A1.5 1.5 0 0 1 7.5 6h2zm7 0A1.5 1.5 0 0 1 18 7.5v2l-.008.153a1.5 1.5 0 0 1-1.339 1.34L16.5 11h-2a1.5 1.5 0 0 1-1.492-1.347L13 9.5v-2A1.5 1.5 0 0 1 14.5 6h2zM7.5 7a.5.5 0 0 0-.5.5v2a.5.5 0 0 0 .5.5h2a.5.5 0 0 0 .5-.5v-2a.5.5 0 0 0-.5-.5zm7 0a.5.5 0 0 0-.5.5v2a.5.5 0 0 0 .5.5h2a.5.5 0 0 0 .5-.5v-2a.5.5 0 0 0-.5-.5z
+Resources: M7 7h10a1 1 0 0 1 1 1v2H6V8a1 1 0 0 1 1-1m-1 4v5a1 1 0 0 0 1 1h2v-6zm4 6h7a1 1 0 0 0 1-1v-5h-8zM5 8a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z
+Trash: M16.355 9a.5.5 0 0 1 .498.52l-.273 6.563-.018.198a2 2 0 0 1-1.782 1.71l-.198.009H9.418a2 2 0 0 1-1.998-1.917l-.273-6.562a.5.5 0 1 1 1-.042l.272 6.563a1 1 0 0 0 .999.958h5.164a1 1 0 0 0 1-.958l.272-6.563a.5.5 0 0 1 .5-.479M11 10a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-1 0v-4a.5.5 0 0 1 .5-.5m2 0a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-1 0v-4a.5.5 0 0 1 .5-.5m0-5a1 1 0 0 1 1 1v1h3.5a.5.5 0 0 1 0 1h-11a.5.5 0 0 1 0-1H10V6a1 1 0 0 1 1-1zm-2 2h2V6h-2z
+Project (filled folder): M10.379 6a2 2 0 0 1 1.414.586L13.207 8H16.5a2 2 0 0 1 2 2v5.5a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2zM8.5 14a.5.5 0 0 0 0 1h7a.5.5 0 0 0 0-1z
+Chevron right (plan card): M10.146 16.354a.5.5 0 0 1 0-.708L13.793 12l-3.647-3.646a.5.5 0 0 1 .708-.708l4 4a.5.5 0 0 1 0 .708l-4 4a.5.5 0 0 1-.708 0
+Move row down: M12 7a.5.5 0 0 1 .5.5v6.793l3.146-3.147a.5.5 0 0 1 .708.708l-4 4a.5.5 0 0 1-.708 0l-4-4a.5.5 0 0 1 .708-.708l3.146 3.147V7.5A.5.5 0 0 1 12 7
+Move row up: M12 16a.5.5 0 0 1-.5-.5V8.707l-3.146 3.147a.5.5 0 0 1-.708-.708l4-4a.5.5 0 0 1 .708 0l4 4a.5.5 0 0 1-.708.708L12.5 8.707V15.5a.5.5 0 0 1-.5.5
+Design file tile (16x16, rounded square + pen): M0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2z M4.14 3.207a1 1 0 0 1 .837-.181l3.762.878a4.57 4.57 0 0 1 3.531 4.452l.437.436a1 1 0 0 1 0 1.415l-2.5 2.5a1 1 0 0 1-1.414 0l-.437-.437A4.57 4.57 0 0 1 3.96 8.949l-.054-.21-.879-3.762a1 1 0 0 1 .267-.935l.75-.75zm.59.813 2.623 2.624-.006.006a1.5 1.5 0 1 1-.697.697l-.004.004-2.624-2.624L4 4.749l.879 3.763a3.573 3.573 0 0 0 3.87 2.737l.75.75L12 9.5l-.75-.75a3.57 3.57 0 0 0-2.737-3.872L4.75 4zM8 7.5a.5.5 0 1 0 0 1 .5.5 0 0 0 0-1
