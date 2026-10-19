@@ -26,6 +26,7 @@ export type MenuId =
   | "new-file"
   | "import"
   | "empty-trash"
+  | "file-settings"
   | `color:${FolderColor}`;
 
 export interface MenuContext {
@@ -41,6 +42,8 @@ export interface MenuContext {
   exportRestricted?: boolean;
   /** False: nowhere to move files to (personal Drafts are flat and the person is in no organization — docs/cloud.md §2) */
   canMove?: boolean;
+  /** File settings… is offered (the backend has it) */
+  fileSettings?: boolean;
 }
 
 const item = (id: MenuId, label: string, extra: Partial<Exclude<MenuEntry, "-" | { header: string }>> = {}): MenuEntry => ({ id, label, ...extra });
@@ -80,6 +83,8 @@ export function itemMenu(ctx: MenuContext): MenuEntry[] {
     ...(ctx.canMove === false ? [] : [item("move", t("Move to folder…"))]),
     ...(ctx.location.kind === "recents" && !ctx.folders ? [item("remove-from-recents", t("Remove from recents"))] : []),
     "-",
+    // Ours (docs/home.md "File settings [ours]"): one file's details, storage, people, activity and options
+    ...(ctx.fileSettings && one && !ctx.folders ? [item("file-settings", t("File settings…")), "-" as const] : []),
     item("trash", t("Move to trash"), { shortcut: keys(["backspace"]) }),
   ];
 }

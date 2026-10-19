@@ -1302,6 +1302,50 @@ export class FileStore {
     return a.sizeBytes;
   }
 
+  /**
+   * File settings' storage and activity (docs/home.md "File settings [ours]"): the directory's bytes by kind — the
+   * document (snapshots, journal, store / ui / undo state), versions (their own inodes only: a version hard-linked to
+   * a snapshot counts once) and the thumbnail — and the journal's frames' sessions, read from disk without loading
+   * the head (nothing stays in memory for a closed file).
+   */
+  async diskUsage(fileKey: FileKey): Promise<{ document: number; versions: number; thumbnail: number; frames: { sessionID: number; wallClock: number; kind: string }[] }> {
+    const a = this.actor(fileKey);
+    return a.queue.run(async () => {
+      const out = { document: 0, versions: 0, thumbnail: 0, frames: [] as { sessionID: number; wallClock: number; kind: string }[] };
+      const seen = new Set<string>();
+      const inode = async (p: string): Promise<{ size: number; id: string } | null> => {
+        const st = await fsp.stat(p).catch(() => null);
+        return st?.isFile() ? { size: st.size, id: `${st.dev}:${st.ino}` } : null;
+      };
+      for (const n of await fsp.readdir(a.dir).catch(() => [] as string[])) {
+        if (n === "versions" || n.includes(".damaged") || n.includes(".dropped")) continue;
+        const st = await inode(join(a.dir, n));
+        if (!st) continue;
+        seen.add(st.id);
+        if (n === "thumbnail.png") out.thumbnail += st.size;
+        else out.document += st.size;
+      }
+      const vdir = this.versionsDir(a);
+      for (const n of await fsp.readdir(vdir).catch(() => [] as string[])) {
+        const st = await inode(join(vdir, n));
+        if (!st || seen.has(st.id)) continue;
+        seen.add(st.id);
+        out.versions += st.size;
+      }
+      const state = a.head?.state ?? (await readJsonOrNull<FileStoreState>(this.path(a, "store.json")));
+      for (const segment of state?.head.segments ?? []) {
+        const bytes = await this.readSegment(a, segment);
+        if (!bytes) continue;
+        try {
+          for (const f of scanSegment(bytes, nodeCodecs.inflateRaw).frames) out.frames.push({ sessionID: f.sessionID, wallClock: f.wallClock, kind: f.kind });
+        } catch {
+          // A damaged segment says nothing here; open recovers it
+        }
+      }
+      return out;
+    });
+  }
+
   cachedSize(fileKey: FileKey): number {
     return this.actors.get(fileKey)?.sizeBytes ?? 0;
   }

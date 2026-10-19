@@ -2,6 +2,7 @@
 import type { LinkAccess, LinkSettingsPatch, MultiplayerRepository, OpenIntent, RestJobAnswer } from "../../shared/multiplayer/types";
 import { StoreError } from "../../shared/store/protocol";
 import type { MultiplayerService } from "./service";
+import { FILE_ACTIVITY_KINDS, type FileActivityKind } from "../../shared/store/fileSettings";
 
 /** `owner`: the port the repository is bound to (its renderers end when it closes: `releaseRenderersOf`) */
 export function multiplayerApi(m: MultiplayerService, owner?: object): MultiplayerRepository {
@@ -34,6 +35,13 @@ export function multiplayerApi(m: MultiplayerService, owner?: object): Multiplay
     updateLink: (fileKey, patch) => m.updateLink(fileKey, cleanLinkPatch(patch)),
     invite: (fileKey, email, role) => m.invite(fileKey, String(email), role === "viewer" ? "viewer" : "editor"),
     removeMember: (fileKey, email) => m.removeMember(fileKey, String(email)),
+    fileReport: (fileKey) => m.fileReport(fileKey),
+    fileActivity: (fileKey, query) =>
+      m.fileActivity(fileKey, {
+        cursor: Number(query?.cursor) || 0,
+        limit: Number(query?.limit) || undefined,
+        kinds: Array.isArray(query?.kinds) ? query.kinds.filter((k): k is FileActivityKind => (FILE_ACTIVITY_KINDS as readonly string[]).includes(k)) : undefined,
+      }),
     exclusions: (fileKey) => m.exclusions(fileKey),
     exclude: (fileKey, userId) => m.exclude(fileKey, String(userId)),
     include: (fileKey, userId) => m.include(fileKey, String(userId)),

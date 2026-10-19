@@ -395,6 +395,8 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   if (parts[2] === "branches" || parts[2] === "versions") return (await import("./branches")).fileBranchesRoute(orgCtx(), f, a);
   const branchRow = parts[2] === "members" && m !== "GET" ? await acc.branch(key) : null;
   if (branchRow) return (await import("./branches")).branchMembers(orgCtx(), branchRow);
+  // Home's File settings (ours, docs/home.md "File settings [ours]"): what the server knows about the file, its log
+  if (a && (parts[2] === "report" || (parts[2] === "activity" && m === "GET"))) return (await import("./fileReport")).fileReportRoute(deps, f, a, user, parts, m, url);
   switch (parts[2]) {
     case "unlock": {
       if (parts.length !== 3 || m !== "POST") break;

@@ -32,6 +32,7 @@ import { countingBody, pool, sendBlobs, UploadTracker, BLOB_CONCURRENCY, type Bl
 import { BlobDownloads, DOWNLOAD_CONCURRENCY, imageDownloadOrder, type BlobSource } from "./downloads";
 import { UPLOAD_CANCELED, UPLOAD_CANCELED_TEXT, type UploadEvent } from "../../shared/multiplayer/uploads";
 import { t as tr } from "../../shared/i18n";
+import type { FileActivityKind, FileActivityPage, FileServerReport } from "../../shared/store/fileSettings";
 
 /** What the store gives the service. */
 export interface MultiplayerHost {
@@ -1344,6 +1345,33 @@ export class MultiplayerService {
 
   async fileInfo(fileKey: FileKey): Promise<SharedFileInfo> {
     return this.api<SharedFileInfo>("GET", `/files/${await this.keyOf(fileKey)}`);
+  }
+
+  /** The file's room key for File settings: a shared file's link, an org copy's or a cloud draft's own; null: a file
+   *  only this computer has (or signed out) */
+  private async serverKeyOf(fileKey: FileKey): Promise<string | null> {
+    if (!this.session) return null;
+    const meta = this.host.getMeta(fileKey);
+    return (await this.loadState()).links[fileKey]?.key ?? meta?.space?.key ?? (meta?.cloud && !meta.cloud.pendingCreate ? meta.cloud.key : null) ?? null;
+  }
+
+  /** Home's File settings (docs/home.md "File settings [ours]"): what the server knows about the file; null when it
+   *  isn't on the server or nobody is signed in */
+  async fileReport(fileKey: FileKey): Promise<FileServerReport | null> {
+    const key = await this.serverKeyOf(fileKey);
+    return key ? this.api<FileServerReport>("GET", `/files/${key}/report`) : null;
+  }
+
+  /** One page of the file's activity on the server (newest first); null as `fileReport` */
+  async fileActivity(fileKey: FileKey, query: { cursor?: number; kinds?: readonly FileActivityKind[]; limit?: number } = {}): Promise<FileActivityPage | null> {
+    const key = await this.serverKeyOf(fileKey);
+    if (!key) return null;
+    const q = new URLSearchParams();
+    if (query.cursor) q.set("cursor", String(Math.max(0, Math.floor(query.cursor))));
+    if (query.limit) q.set("limit", String(Math.max(1, Math.floor(query.limit))));
+    if (query.kinds?.length) q.set("kinds", query.kinds.join(","));
+    const s = q.toString();
+    return this.api<FileActivityPage>("GET", `/files/${key}/activity${s ? `?${s}` : ""}`);
   }
 
   async setLinkAccess(fileKey: FileKey, access: LinkAccess): Promise<SharedFileInfo> {

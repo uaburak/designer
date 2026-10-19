@@ -5,6 +5,7 @@
 import type { FilePolicy, RoomPolicy } from "../org/identity";
 import type { GovernanceErrorCode, OrgGate } from "../org/governance";
 import type { FileKey } from "../store/types";
+import type { FileActivityKind, FileActivityPage, FileServerReport } from "../store/fileSettings";
 import type { RestJob } from "../rest/types";
 import type { MultiplayerSignalName, PeerInfo, Role } from "./protocol";
 import type { UploadEvent, UploadProgress } from "./uploads";
@@ -296,6 +297,12 @@ export interface MultiplayerRepository {
   /** A message to one session in the room (`FileShareState.me` / `PeerInfo.sessionID`) */
   signal(fileKey: FileKey, to: number, data: unknown): Promise<void>;
   members(fileKey: FileKey): Promise<FileMember[]>;
+  /** Home's File settings (docs/home.md "File settings [ours]"): what the server knows about the file — owner, stored
+   *  bytes, versions, comments, visitors, the owner's quota (`GET /files/:key/report`); null: not on the server or
+   *  signed out */
+  fileReport(fileKey: FileKey): Promise<FileServerReport | null>;
+  /** One page of the file's server activity, newest first (`GET /files/:key/activity`); null as `fileReport` */
+  fileActivity(fileKey: FileKey, query?: { cursor?: number; kinds?: readonly FileActivityKind[]; limit?: number }): Promise<FileActivityPage | null>;
   fileInfo(fileKey: FileKey): Promise<SharedFileInfo>;
   /** "Anyone with the link" (owner only) */
   setLinkAccess(fileKey: FileKey, access: LinkAccess): Promise<SharedFileInfo>;

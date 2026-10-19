@@ -18,6 +18,9 @@ import type { CloudRepository } from "@shared/store/cloud";
 import { exportAllowedFor } from "./governance";
 import type { UploadSource } from "../uploads/UploadPanel";
 import { openSharedFile, type SharedSource } from "./SharedFiles";
+import type { FileSettingsSource } from "./FileSettings";
+import type { AccountUsage } from "@shared/quota";
+import { accountBridge } from "./account";
 
 /** The org spaces (StoreApi.orgs / teams / projects / admin) and the two calls Home adds around them. */
 export interface OrgBackend {
@@ -70,6 +73,8 @@ export interface FilesBackend {
   cloud?: CloudRepository;
   /** Home › Shared (SharedFiles.tsx): the files shared with the person and by them; absent: the page says so */
   shared?: SharedSource;
+  /** File settings… (FileSettings.tsx, ours): a file's details, its server report and log, its people and options; absent: not offered */
+  fileSettings?: FileSettingsSource;
 }
 
 /** The store's snapshot with its journal applied, as one kiwi Message (the editor hands the same to `multiplayer.share`). */
@@ -118,6 +123,28 @@ export function filesBackend(): Promise<FilesBackend> {
       list: () => client.multiplayer.listRemote(),
       open: (key, intent) => openSharedFile(key, intent),
       thumbnail: (fileKey) => client.workspace.getFile(fileKey).then((f) => thumbnailUrl(f), () => null),
+    },
+    fileSettings: {
+      details: (fileKey) => client.files.details(fileKey),
+      report: (fileKey) => client.multiplayer.fileReport(fileKey),
+      activity: (fileKey, query) => client.multiplayer.fileActivity(fileKey, query),
+      signedIn: () => client.multiplayer.status().then((s) => s.signedIn),
+      shareState: (fileKey) => client.multiplayer.fileState(fileKey),
+      info: (fileKey) => client.multiplayer.fileInfo(fileKey),
+      members: (fileKey) => client.multiplayer.members(fileKey),
+      requests: (fileKey) => client.multiplayer.requests(fileKey),
+      invite: (fileKey, email, role) => client.multiplayer.invite(fileKey, email, role),
+      removeMember: (fileKey, email) => client.multiplayer.removeMember(fileKey, email),
+      answerRequest: (fileKey, userId, approve) => client.multiplayer.answerRequest(fileKey, userId, approve),
+      setLinkAccess: (fileKey, access) => client.multiplayer.setLinkAccess(fileKey, access),
+      setViewersCanCopy: (fileKey, on) => client.multiplayer.setViewersCanCopy(fileKey, on),
+      usage: async () => {
+        const b = accountBridge();
+        if (!b) return null;
+        const r = await b.request({ method: "GET", path: "/me/usage" });
+        return r.status === 200 ? (r.body as AccountUsage) : null;
+      },
+      libraries: { listAvailable: (fileKey) => client.libraries.listAvailable(fileKey), setEnabled: (fileKey, lib, on) => client.libraries.setEnabled(fileKey, lib, on) },
     },
   };
   return Promise.resolve(shared);

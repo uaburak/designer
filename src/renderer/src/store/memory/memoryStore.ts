@@ -16,6 +16,7 @@ import { messageImageHashes, NodeTable } from "../../../../shared/schema/patch";
 import { applyStructure, structureOf } from "../../../../shared/multiplayer/structure";
 import { restoreDiff, withNewAssetIdentity } from "../../../../shared/store/assetIdentity";
 import { snapshotLosses } from "../../../../shared/store/snapshotCheck";
+import { blobKind, fileDetailsOf, type FileDetails } from "../../../../shared/store/fileSettings";
 import { Emitter } from "../../../../shared/store/emitter";
 import { StoreError } from "../../../../shared/store/protocol";
 import type { BlobStore, FileChange, FileRepository, LibraryEvent, LibraryRegistry, OpenedFile, PreviewService, StoreAdmin, StoreApi, WorkspaceEvent, WorkspaceRepository } from "../../../../shared/store/repositories";
@@ -1504,6 +1505,23 @@ export class MemoryStore {
     return raw === null ? null : parseWithBytes<{ bytes: Uint8Array; mime: string }>(raw);
   }
 
+  /** File settings (docs/home.md "File settings [ours]"): the file's bytes in this page's storage, as the desktop store's */
+  private async fileDetails(fileKey: FileKey): Promise<FileDetails> {
+    const meta = this.ws.getMeta(fileKey);
+    const raw = this.data.has(fileKey) || this.storage.get(K.file(fileKey)) !== null ? this.fileData(fileKey) : null;
+    const frameBytes = raw ? raw.frames.reduce((n, f) => n + f.message.length, 0) : 0;
+    const refs = raw ? [...new Set([...raw.blobRefs, ...raw.versions.flatMap((v) => v.record.blobRefs)])] : [];
+    const blobs = await Promise.all(refs.map(async (r) => ((b) => (b ? { size: b.bytes.length, kind: blobKind(b.bytes.subarray(0, 16)) } : null))(await this.blobAsync(r))));
+    return fileDetailsOf({
+      meta,
+      documentHere: !!raw,
+      disk: { document: raw ? raw.snapshot.length + frameBytes : 0, versions: raw ? raw.versions.reduce((n, v) => n + v.snapshot.length, 0) : 0, thumbnail: raw?.thumbnail?.bytes.length ?? 0, frames: raw?.frames ?? [] },
+      versions: raw ? raw.versions.map((v) => v.record) : [],
+      blobs,
+      previews: { count: 0, at: [], bytes: 0 },
+    });
+  }
+
   hasBlob(sha1: string): boolean {
     return isSha1(sha1) && (this.storage.has ? this.storage.has(K.blob(sha1)) : this.storage.get(K.blob(sha1)) !== null);
   }
@@ -1609,6 +1627,7 @@ export class MemoryStore {
       },
       // Every image of a file in this page's store is here
       missingImages: async (fileKey) => (this.ws.getMeta(fileKey), 0),
+      details: (fileKey) => this.fileDetails(fileKey),
       // The web app's Save local copy…: the .fig's bytes, which the page downloads
       exportFigBytes: (fileKey) => this.exportFigBytes(fileKey),
     };

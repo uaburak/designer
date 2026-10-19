@@ -21,6 +21,7 @@ import * as act from "./actions";
 import { ConfirmDialog, MoveDialog, NewFolderDialog } from "./dialogs";
 import { importWithShell, newDesignFile, onOpenShared, onReveal, onShellCommand, openFile, pickFigFiles, saveLocalCopy, setMenuState, type OpenDeps } from "./desktop";
 import { ItemsView } from "./ItemsView";
+import { FileSettingsDialog } from "./FileSettings";
 import { useBranchCounts, useBranchSwitcher, useMainNames } from "./branches";
 import { branchCountTargets } from "./branchesModel";
 import { allFoldersMenu, blankMenu, itemMenu, trashMenu } from "./menus";
@@ -100,7 +101,8 @@ type DialogState =
   | { kind: "empty-trash" }
   | { kind: "create-org" }
   | { kind: "rename-local-team" }
-  | { kind: "leave-org"; orgId: string; name: string };
+  | { kind: "leave-org"; orgId: string; name: string }
+  | { kind: "file-settings"; file: FileListItem };
 /** Local locations an org's space has its own of (shown when the space is switched). */
 const LOCAL_ONLY = new Set<Location["kind"]>(["recents", "drafts", "folders", "folder", "trash"]);
 type MenuState = { at: { x: number; y: number }; entries: MenuEntry[]; run: (id: string) => void; className?: string };
@@ -495,6 +497,11 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
         return void doImport();
       case "empty-trash":
         return setDialog({ kind: "empty-trash" });
+      case "file-settings": {
+        const file = known.find((f) => f.fileKey === t.files[0]) ?? (t.files[0] ? await backend.workspace.getFile(t.files[0]).catch(() => null) : null);
+        if (file) setDialog({ kind: "file-settings", file });
+        return;
+      }
     }
   };
 
@@ -622,7 +629,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
     const t = selectedTargets(next.ids);
     const byKey = new Map(items.filter((i) => i.kind === "file").map((i) => [i.file.fileKey, i.file] as const));
     const allStarred = t.files.every((k) => byKey.get(k)?.starred) && t.folders.every((f) => starredFolderSet.has(f));
-    const menuCtx = { location, files: t.files.length, folders: t.folders.length, allStarred, color: t.folders.length === 1 && !t.files.length ? folders.get(t.folders[0])?.color : undefined, canMove };
+    const menuCtx = { location, files: t.files.length, folders: t.folders.length, allStarred, color: t.folders.length === 1 && !t.files.length ? folders.get(t.folders[0])?.color : undefined, canMove, fileSettings: !!backend.fileSettings };
     const shown = itemMenu({ ...menuCtx, exportRestricted: exportRestricted(t.files) });
     menuFor(e, shown, t);
     refreshMenuExport(t.files, shown, (restricted) => itemMenu({ ...menuCtx, exportRestricted: restricted }));
@@ -630,7 +637,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   const sidebarFolderMenu = (e: React.MouseEvent, f: Folder) =>
     menuFor(e, itemMenu({ location: { kind: "folders" }, files: 0, folders: 1, allStarred: starredFolderSet.has(f.id), color: f.color }), { files: [], folders: [f.id] }, f);
   const sidebarFileMenu = (e: React.MouseEvent, f: FileListItem) => {
-    const menuCtx = { location: { kind: "starred" } as const, files: 1, folders: 0, allStarred: f.starred, canMove };
+    const menuCtx = { location: { kind: "starred" } as const, files: 1, folders: 0, allStarred: f.starred, canMove, fileSettings: !!backend.fileSettings };
     const shown = itemMenu({ ...menuCtx, exportRestricted: exportRestricted([f.fileKey]) });
     menuFor(e, shown, { files: [f.fileKey], folders: [] });
     refreshMenuExport([f.fileKey], shown, (restricted) => itemMenu({ ...menuCtx, exportRestricted: restricted }));
@@ -1219,6 +1226,9 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
             }
           }}
         />
+      )}
+      {dialog?.kind === "file-settings" && backend.fileSettings && (
+        <FileSettingsDialog file={dialog.file} workspace={backend.workspace} source={backend.fileSettings} branches={backend.branches} teamName={spaceTitle} onClose={() => setDialog(null)} toast={toast} />
       )}
       {moveDialog && (
         <MoveDialog
