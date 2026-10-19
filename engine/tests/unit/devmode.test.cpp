@@ -221,6 +221,26 @@ TEST_CASE("devmode: the Annotation tool's click opens a new note on the layer") 
   CHECK(f.ed.setTool(Tool::ANNOTATION) == OK);
 }
 
+TEST_CASE("devmode: the eyedropper picks in Dev Mode (the editor copies the colour), not for a plain viewer") {
+  Fixture f(designs());
+  f.frame();
+  f.ed.setViewerMode(true);
+  CHECK(f.ed.setTool(Tool::EYEDROPPER) == E_READONLY);
+  f.ed.setDevEdits(true);
+  REQUIRE(f.ed.setTool(Tool::EYEDROPPER) == OK);
+  f.ed.takeEvents();
+  f.click(150, 80);
+  auto ev = f.ed.takeEvents();
+  REQUIRE(ev.colorPicks.size() == 1);
+  CHECK(ev.colorPicks[0] == Vec2{150, 80});
+  CHECK(f.ed.tool() == Tool::MOVE);
+  CHECK(f.ed.selection().empty());  // nothing selected by the pick
+  // Leaving Dev Mode puts a viewer's eyedropper back to Move.
+  REQUIRE(f.ed.setTool(Tool::EYEDROPPER) == OK);
+  f.ed.setDevEdits(false);
+  CHECK(f.ed.tool() == Tool::MOVE);
+}
+
 TEST_CASE("devmode: measurements — the tool, the commands, drawing, kiwi, delete and undo") {
   Fixture f(designs());
   REQUIRE(f.ed.setTool(Tool::MEASUREMENT) == OK);

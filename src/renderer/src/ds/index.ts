@@ -30,6 +30,7 @@ export { clickSelection, moveSelection, inOrder, idsInRect, isToggleModifier, se
 export { Portal, overlayRoot, themeOf } from "./overlay/Portal";
 export { place, placeMenu, placeOverTrigger, EDGE } from "./overlay/position";
 export { useDismiss } from "./overlay/useDismiss";
+export { startHeaderDrag, clampToWindow } from "./overlay/drag";
 export { FocusTrap, useFocusScope } from "./overlay/FocusTrap";
 export { TooltipManager, TooltipBubble, tooltipProps } from "./overlay/TooltipManager";
 
