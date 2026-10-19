@@ -286,6 +286,10 @@ struct LocalChat {
 // What the editor wants drawn over the scene.
 struct Overlay {
   std::vector<Guid> hover;  // outlined (the canvas hover, or rows hovered in Layers)
+  // Dotted (1 px, 1.5 px dashes, each in its chrome colour): with something selected, the direct children of the
+  // auto-layout frame under the pointer — not that frame's selected layers, never deeper (live Figma 2026-10-19,
+  // docs/research/figma/live/2026-10-18/hover-nested-frames.txt; Figma's STACK_CHILD_HOVER_OUTLINE).
+  std::vector<Guid> hoverDotted;
   std::vector<Guid> selection;
   bool handles = true;      // resize handles on the selection box
   // Group 1 (live Figma: canvas-rect-selected-hover-radius-handles, autolayout-drag-01 / -08, -r2-07…): the AI

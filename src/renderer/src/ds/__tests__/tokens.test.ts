@@ -117,9 +117,9 @@ describe("the canvas chrome palette (engine ABI)", () => {
     expect(dark).toHaveLength(CHROME_COLORS.length * 4);
     for (const v of dark) expect(v >= 0 && v <= 1).toBe(true);
     const sel = [...chromePalette("light").slice(0, 4)];
-    expect(sel[0]).toBeCloseTo(13 / 255);
-    expect(sel[1]).toBeCloseTo(153 / 255);
-    expect(sel[2]).toBeCloseTo(1);
+    expect(sel[0]).toBeCloseTo(12 / 255); // #0c8ce9, Figma's canvas blue on a light canvas too (2026-10-19)
+    expect(sel[1]).toBeCloseTo(140 / 255);
+    expect(sel[2]).toBeCloseTo(233 / 255);
     expect(sel[3]).toBe(1);
     // layoutGapFill (#ff24bd40): alpha 0x40
     expect(chromePalette("light")[13 * 4 + 3]).toBeCloseTo(0x40 / 255);

@@ -881,6 +881,7 @@ Overlay Editor::overlay() const {
   if ((gesture_ == Gesture::None || gesture_ == Gesture::Press) && hover_ != kNoGuid && measureTarget_ == kNoGuid) o.hover.push_back(hover_);
   for (Guid h : layersHover_) o.hover.push_back(h);
   o.selection = selection_;
+  hoverDottedOverlay(o);
   o.handles = !viewer_ && gesture_ != Gesture::Move && gesture_ != Gesture::Marquee && gesture_ != Gesture::Rotate && gesture_ != Gesture::Reorder;
   o.sizeBadge = true;
   // Round 15, a layer dragged inside its own auto-layout flow (live Figma, autolayout-drag.md): drawn above its

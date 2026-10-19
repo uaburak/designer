@@ -855,6 +855,14 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
          Pass::Shape);
   }
 
+  // The hovered auto-layout frame's direct children dotted (Editor::hoverDottedOverlay: live Figma 2026-10-19, A / B / C
+  // of hover-nested-frames.txt — 1 px, 1.5 px dashes and gaps, in each layer's chrome colour), under the outlines.
+  for (Guid k : overlay.hoverDotted) {
+    if (!doc.has(k)) continue;
+    Rect lb = doc.localBounds(k);
+    dashedBox(screenBox(view * doc.worldTransform(k) * Mat2x3::translate(lb.x, lb.y), {lb.w, lb.h}, dpr), colorOf(k));
+  }
+
   // Hover: the hovered layer's own outline — selected layers too (live Figma). A text layer's lines are underlined at
   // their baseline instead (live Figma round 11, canvas-text-hover-baseline-underline: 2 px just under the baseline,
   // across the line's text; a hovered selected text keeps a 1 px one inside its box, canvas-text-selected).
@@ -872,19 +880,6 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     }
     nodeOutline(h, style.hoverWidth, true);
     const NodeProps& hp = hn->props;
-    // Group 1 (live autolayout-drag-08, -r2-07): a hovered auto-layout frame whose layer is selected outlines its
-    // other layers dotted (1 px, 1.5 px dashes), in its chrome colour.
-    if (hp.isAutoLayout() && std::find(overlay.selection.begin(), overlay.selection.end(), h) == overlay.selection.end()) {
-      bool parentOfSelection = false;
-      for (Guid s : overlay.selection) parentOfSelection |= doc.has(s) && doc.parentOf(s) == h;
-      if (parentOfSelection)
-        for (Guid k : doc.children(h)) {
-          const Node* kn = doc.get(k);
-          if (!kn || !kn->props.visible || std::find(overlay.selection.begin(), overlay.selection.end(), k) != overlay.selection.end()) continue;
-          Rect lb = doc.localBounds(k);
-          dashedBox(screenBox(view * doc.worldTransform(k) * Mat2x3::translate(lb.x, lb.y), {lb.w, lb.h}, dpr), colorOf(k));
-        }
-    }
     // Group 1 (C 9 #1, the owner's components15/figma-instance-child-hover.png): a hovered instance also dots its inner
     // auto-layout frames' boxes in the component purple.
     if (hp.type == NodeType::INSTANCE)
