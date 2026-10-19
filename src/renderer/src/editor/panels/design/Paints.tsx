@@ -45,6 +45,7 @@ import { VariableList } from "../variables/VariablePicker";
 import { paintVariable, resolveVariable } from "../../model/variables";
 import { applyStyle, bindPaint, createCollection, createVariable } from "../../variables";
 import { CreateStylePopover } from "../variables/EditStyle";
+import { MotionField } from "../../motion/panels/MotionField";
 import { t, useT } from "@/i18n";
 import styles from "./Design.module.css";
 
@@ -227,14 +228,17 @@ export function PaintsSection({ title, field, nodes, onPick, className }: { titl
                 {paintVariable(p) ? (
                   <BoundPaintRow nodes={nodes} field={field} index={i} paint={p} className={cx(styles.paintField, p.visible === false && styles.paintHidden)} />
                 ) : (
-                  <PaintRow
-                    className={cx(styles.paintField, p.visible === false && styles.paintHidden)}
-                    paint={p}
-                    label="Color"
-                    onColor={(hex, info, o) => writePaints(ed, refs, field, paints.map((q, j) => (j === i ? { ...q, color: hexToColor(hex, 1), ...(o !== undefined ? { opacity: o / 100 } : {}) } : q)), `${label} colour`, info)}
-                    onOpacity={(o, info) => writePaints(ed, refs, field, paints.map((q, j) => (j === i ? { ...q, opacity: o / 100 } : q)), `${label} opacity`, info)}
-                    onPick={(anchor) => onPick({ kind: "paint", field, index: i, anchor })}
-                  />
+                  // Motion mode: a solid paint's row joined with its colour's keyframe diamond (Figma's Fill row, docs/motion.md §6.5)
+                  <MotionField field={{ type: "INDEXED_ITEM", collection: field === "fillPaints" ? "fills" : "strokes", index: i }} disabled={p.type !== "SOLID"} className={styles.paintField}>
+                    <PaintRow
+                      className={cx(styles.paintField, p.visible === false && styles.paintHidden)}
+                      paint={p}
+                      label="Color"
+                      onColor={(hex, info, o) => writePaints(ed, refs, field, paints.map((q, j) => (j === i ? { ...q, color: hexToColor(hex, 1), ...(o !== undefined ? { opacity: o / 100 } : {}) } : q)), `${label} colour`, info)}
+                      onOpacity={(o, info) => writePaints(ed, refs, field, paints.map((q, j) => (j === i ? { ...q, opacity: o / 100 } : q)), `${label} opacity`, info)}
+                      onPick={(anchor) => onPick({ kind: "paint", field, index: i, anchor })}
+                    />
+                  </MotionField>
                 )}
                 <IconButton
                   icon={p.visible === false ? "24.hidden.small" : "24.eye.small"}

@@ -32,7 +32,7 @@ import { designSections, isTypeNode } from "../../draw/panels/drawPanel";
 import { TransformSection } from "../../draw/panels/TransformSection";
 import { AnimationsSection } from "../../motion/panels/AnimationsSection";
 import { AudioSection } from "../../motion/panels/AudioSection";
-import { MotionSection } from "../../motion/panels/MotionSection";
+import { MotionTransformSection } from "../../motion/panels/TransformSection";
 import { TextStaggerSection } from "../../motion/panels/TextStaggerSection";
 import { MotionFieldStates } from "../../motion/panels/MotionField";
 import { PathTrimSection } from "../../motion/panels/PathTrimSection";
@@ -156,15 +156,12 @@ function Selected({ nodes, paintNodes, onPick }: { nodes: PanelNode[]; paintNode
       {comp?.kind === "instance" ? <InstanceHeader instance={comp.node} /> : comp && !drawMode ? <ComponentBlock sel={comp} /> : <TypeHeader nodes={nodes} />}
       <RelaunchButtons refs={nodes.map((n) => n.guid)} />
       <VectorOperationNote nodes={nodes} />
-      {/* Motion mode (docs/motion.md §6.5): the keyframable fields with their diamonds, before Design's sections (round 8d, increment 1). */}
-      {mode === "motion" && <MotionSection nodes={nodes} />}
       {/* Motion mode (docs/motion.md §4.6, §6.5): the selection's preset clips, + to add one, the composite styles (round 8h). */}
       {mode === "motion" && <AnimationsSection nodes={nodes} />}
       {/* Motion mode (docs/motion.md §4.10, §6.5): a text animated by its own keyframes, staggered by element (round 8i). */}
       {mode === "motion" && <TextStaggerSection nodes={nodes} />}
-      {/* Motion mode (docs/motion.md §6.5, §6.6): the audio clip selected on the timeline — Volume, Mute (round 8e). */}
-      {mode === "motion" && <AudioSection />}
-      {shown.has("position") && <PositionSection nodes={nodes} />}
+      {/* Motion mode (docs/motion.md §6.5; Figma's, docs/research/figma/live/2026-10-18/motion.txt): Transform in place of Position. */}
+      {mode === "motion" ? <MotionTransformSection nodes={nodes} /> : shown.has("position") && <PositionSection nodes={nodes} />}
       {shown.has("layout") && <LayoutSection nodes={nodes} />}
       {shown.has("appearance") && <AppearanceSection nodes={nodes} />}
       {/* Masks only: Alpha / Vector / Luminance (atlas 07 §12) */}
@@ -179,10 +176,12 @@ function Selected({ nodes, paintNodes, onPick }: { nodes: PanelNode[]; paintNode
       {shown.has("effects") && <EffectsSection nodes={nodes} />}
       {shown.has("selectionColors") && <SelectionColorsSection nodes={nodes} onPick={onPick} />}
       {shown.has("layoutGuide") && <LayoutGuideSection nodes={nodes} />}
+      {/* Motion mode (docs/motion.md §6.5, §6.6): Audio after Effects, as Figma's panel — the clip selected on the timeline (round 8e). */}
+      {mode === "motion" && <AudioSection />}
       <ExportSection targets={nodes as ExportTarget[]} page={false} />
     </>
   );
-  // Motion mode (docs/motion.md §6.5): one read of the selection's diamonds for the Motion section and Design's fields.
+  // Motion mode (docs/motion.md §6.5): one read of the selection's diamonds for Transform and Design's fields.
   return mode === "motion" ? <MotionFieldStates nodes={nodes}>{sections}</MotionFieldStates> : sections;
 }
 

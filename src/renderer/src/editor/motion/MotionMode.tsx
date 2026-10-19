@@ -32,6 +32,8 @@ import { copySelectedKeyframes, pasteKeyframes } from "./keyframeClipboard";
 import { motionRead, motionUi, setMotionUi, setPlayhead, toggleAutoKeyframe, toggleMotionPlaying } from "./motionState";
 import { editPreset, removePresets } from "./presets";
 import { Timeline } from "./timeline/Timeline";
+import { anchorPosition } from "./panels/TransformSection";
+import type { PanelNode } from "../panels/design/shared";
 import { syncEngine } from "../devmode/devMode";
 import { timelineHeader } from "../social/export/exportPosts";
 
@@ -344,6 +346,16 @@ function MotionShell() {
       onSetUnit={(unit) => setMotionUi(ed, { unit })}
       onRetimeLayer={onRetimeLayer}
       onCombineTracks={(node, kind, combine) => run(() => void ed.engine.runMotionCommand(combine ? "MOTION_COMBINE_TRACKS" : "MOTION_SPLIT_TRACKS", { node, kind }))}
+      onToggleKeyframe={(node, track, at) =>
+        run(() => {
+          if (at) ed.engine.runMotionCommand("MOTION_DELETE_KEYFRAMES", { ids: [at] });
+          else ed.engine.runMotionCommand("MOTION_ADD_KEYFRAME", { nodes: [node], field: track.field, timeUs: ui.timeUs });
+        })
+      }
+      positionOf={(node) => {
+        const n = ed.store.readNode(node) as PanelNode | null;
+        return n ? anchorPosition(ed, n) : null;
+      }}
       easingVariables
       audioPeaks={(hash) => library.peaksOf(hash)}
       audioLength={(hash) => {

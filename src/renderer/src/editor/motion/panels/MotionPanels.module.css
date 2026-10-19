@@ -1,5 +1,10 @@
 @layer app {
-  /* The diamond before a field (docs/motion.md §6.5): 16 in a 24 cell; grey empty, blue outline with a track, blue filled at a keyframe */
+  /*
+   * The keyframe diamond's cell (docs/motion.md §6.5; Figma's, docs/research/figma/live/2026-10-18/motion.txt): the last
+   * 24 of a field's joined control, 1 px after the field, the field's grey with its right corners rounded. No track:
+   * outlined in the icon colour; a track (or auto-keyframe on): the selected blue behind a light-blue outline; a
+   * keyframe at the playhead: filled light blue.
+   */
   .diamond {
     display: flex;
     flex: none;
@@ -7,33 +12,41 @@
     justify-content: center;
     width: var(--ds-size-control);
     height: var(--ds-size-control);
+    margin-left: 1px;
     padding: 0;
     border: 0;
-    border-radius: var(--ds-radius-medium);
-    background: none;
-    color: var(--figma-color-icon-tertiary);
+    border-radius: 0 var(--ds-radius-medium) var(--ds-radius-medium) 0;
+    background: var(--figma-color-bg-secondary);
+    color: var(--figma-color-icon);
     outline: none;
-    cursor: pointer;
+    cursor: default;
   }
-  .diamond svg { width: 16px; height: 16px; }
-  .diamond path { fill: none; stroke: currentColor; stroke-width: 1.25; }
-  .diamond:hover { background: var(--figma-color-bg-hover); color: var(--figma-color-icon-secondary); }
-  .diamond:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
-  .diamond[data-state="track"] { color: var(--figma-color-icon-brand); }
-  .diamond[data-state="keyframe"] { color: var(--figma-color-icon-brand); }
-  .diamond[data-state="keyframe"] path { fill: currentColor; }
-  .diamond:disabled { color: var(--figma-color-icon-disabled); cursor: default; }
-  /* Beside a Design field: 16 wide, the field's height */
-  .diamond[data-size="small"] { width: 16px; border-radius: var(--ds-radius-small); }
+  .diamond svg, .diamondBare svg { display: block; width: 24px; height: 24px; }
+  .diamond path, .diamondBare path { fill: none; stroke: currentColor; stroke-width: 1; }
+  .diamond:hover:not(:disabled) { background: var(--figma-color-bg-tertiary); }
+  .diamond:focus-visible { box-shadow: inset 0 0 0 var(--ds-focus-width) var(--ds-focus-color); }
+  .diamond[data-state="track"], .diamond[data-auto] { background: var(--figma-color-bg-selected-secondary); color: var(--figma-color-icon-selected); }
+  .diamond[data-state="keyframe"] { background: var(--figma-color-bg-selected-secondary); color: var(--figma-color-icon-selected); }
+  .diamond[data-state="keyframe"] path, .diamondBare[data-state="keyframe"] path { fill: currentColor; }
+  .diamond:disabled { color: var(--figma-color-icon-disabled); }
+  .diamondBare { display: flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-control); height: var(--ds-size-control); padding: 0; border: 0; border-radius: var(--ds-radius-medium); background: none; color: var(--figma-color-icon-secondary); outline: none; }
+  .diamondBare:hover:not(:disabled) { background: var(--figma-color-bg-hover); color: var(--figma-color-icon); }
+  .diamondBare[data-state="keyframe"] { color: var(--figma-color-icon-selected); }
 
-  /* A Design field with its diamond before it (Motion mode): the diamond, then the field (a `display: contents` wrapper's field too) */
-  .field { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: center; min-width: 0; }
+  /*
+   * A joined control (Motion mode): its fields side by side 1 px apart, the first keeping its left corners, the diamond
+   * the right ones (a `display: contents` wrapper's field too).
+   */
+  .field { display: flex; align-items: center; min-width: 0; }
+  .field > :not(.diamond) { flex: 1 1 0; min-width: 0; }
+  .field > :not(.diamond) + :not(.diamond) { margin-left: 1px; }
+  .field > [data-ds="ColorInput"] { margin-right: 0; }
+  .field [data-ds="NumericInput"], .field [data-ds="TextInput"], .field [data-ds="ColorInput"] { border-radius: 0; }
+  .field > :first-child [data-ds="NumericInput"], .field > [data-ds="NumericInput"]:first-child, .field > :first-child[data-ds="ColorInput"], .field > :first-child [data-ds="ColorInput"] { border-radius: var(--ds-radius-medium) 0 0 var(--ds-radius-medium); }
 
-  /* The Motion section's rows: the diamond, the field's name, its value at the playhead */
-  .row { display: flex; align-items: center; gap: var(--ds-space-1); height: var(--ds-size-control); padding: 0 var(--ds-size-panel-pad-right) 0 calc(var(--ds-size-panel-pad-left) - var(--ds-space-2)); }
-  .label { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--figma-color-text); white-space: nowrap; text-overflow: ellipsis; }
-  .row[data-state="none"] .label { color: var(--figma-color-text-secondary); }
-  .value { flex: none; color: var(--figma-color-text-secondary); font-variant-numeric: tabular-nums; }
+  /* The Transform section (Motion): a row's hover-only button at its end (Separate dimensions) */
+  .hoverAction { opacity: 0; }
+  [data-motion-row]:hover .hoverAction, .hoverAction:focus-visible, .hoverAction[aria-pressed="true"] { opacity: 1; }
   .hint { padding: 0 var(--ds-size-panel-pad-right) var(--ds-space-1) var(--ds-size-panel-pad-left); color: var(--figma-color-text-secondary); }
 
   /* The Animations section (round 8h): its header's menus in an icon button's box */
@@ -91,4 +104,9 @@
   }
   .easingField:hover { box-shadow: inset 0 0 0 1px var(--figma-color-border); }
   .easingField:focus-visible { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
+}
+
+@layer app {
+  /* Animations keeps its title white when it has no clip (Figma's panel, 2026-10-18/motion.txt: "Animations" 11/550 white) */
+  .animations > :first-child > span { color: var(--figma-color-text); }
 }

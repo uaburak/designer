@@ -5,14 +5,17 @@
  * (round 8e); the layer bar moved or stretched, the snapping grids of the timeline settings (round 8i). Figma's
  * timeline worker draws the origin at x = 18 px and 16 × 16 diamonds (docs/research/rea/motion.md).
  */
-import type { GuidString, Micros, MotionClipboard, TimelineAudioClip, TimelineLayer } from "@shared/motion/types";
+import { easingAt } from "@shared/motion/easing";
+import type { GuidString, KeyframeValue, Micros, MotionClipboard, TimelineAudioClip, TimelineLayer, TimelineTrack } from "@shared/motion/types";
 
 /** Where t = 0 sits in the track area (px from its left edge). */
 export const ORIGIN_PX = 18;
 /** The diamonds' size. */
 export const DIAMOND_PX = 16;
-/** The ruler's label steps (ms), the first whose labels are at least `minLabelPx` apart. */
-const LABEL_STEPS_MS = [10, 25, 50, 100, 250, 500, 1000, 2000, 5000, 10000];
+/** The zoom slider's box at the ruler's right end (Figma's capture: 160 wide); the duration fits left of it. */
+export const ZOOM_BOX_PX = 160;
+/** The ruler's label steps (ms), the first whose labels are at least `minLabelPx` apart (Figma's captures: 200 ms at 100 px a step, 500 ms where 200 would be 63). */
+const LABEL_STEPS_MS = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000];
 
 export interface Scale {
   /** Pixels per microsecond */
@@ -36,14 +39,14 @@ export interface Tick {
 }
 
 /** The ruler's ticks over [0, durationUs]: labels every step, minor ticks at a fifth of it. */
-export function rulerTicks(durationUs: Micros, s: Scale, unit: "ms" | "frames", fps: number, minLabelPx = 56): Tick[] {
+export function rulerTicks(durationUs: Micros, s: Scale, unit: "ms" | "frames", fps: number, minLabelPx = 80): Tick[] {
   const stepMs = LABEL_STEPS_MS.find((ms) => ms * 1000 * s.pxPerUs >= minLabelPx) ?? LABEL_STEPS_MS[LABEL_STEPS_MS.length - 1];
   const stepUs = stepMs * 1000;
   const minorUs = stepUs / 5;
   const out: Tick[] = [];
   for (let t = 0; t <= durationUs + 1; t += minorUs) {
     const major = Math.abs(t / stepUs - Math.round(t / stepUs)) < 1e-6;
-    out.push({ timeUs: Math.round(t), x: timeToX(t, s), label: major ? formatTime(Math.round(t), unit, fps) : null });
+    out.push({ timeUs: Math.round(t), x: timeToX(t, s), label: major ? rulerLabel(Math.round(t), unit, fps) : null });
   }
   return out;
 }
@@ -75,6 +78,22 @@ export function formatTime(timeUs: Micros, unit: "ms" | "frames", fps: number): 
   return `${Number.isInteger(ms) ? ms : ms.toFixed(1)} ms`;
 }
 
+/**
+ * A ruler label as Figma's timeline writes it (the owner's capture, 2026-10-18: "0s 500ms 1s 500ms 2s"): whole seconds
+ * as "1s", the rest as the milliseconds past the last second; frames as the frame number.
+ */
+export function rulerLabel(timeUs: Micros, unit: "ms" | "frames", fps: number): string {
+  if (unit === "frames") return String(Math.round(timeUs / frameUs(fps)));
+  const ms = Math.round(timeUs / 1000);
+  return ms % 1000 === 0 ? `${ms / 1000}s` : `${ms % 1000}ms`;
+}
+
+/** The header's time fields (Figma's "1855 2000 ms"): the number alone, the unit beside the fields. */
+export function timeNumber(timeUs: Micros, unit: "ms" | "frames", fps: number): string {
+  if (unit === "frames") return String(Math.round(timeUs / frameUs(fps)));
+  return String(Math.round(timeUs / 1000));
+}
+
 /** A typed time → µs (ms, or frames in the frames unit; "1.5s" is seconds). */
 export function parseTime(text: string, unit: "ms" | "frames", fps: number): Micros | null {
   const m = text.trim().toLowerCase().match(/^(-?\d+(?:\.\d+)?)\s*(ms|s|f)?$/);
@@ -101,6 +120,60 @@ export function layerExtent(layer: TimelineLayer): { startUs: Micros; endUs: Mic
     end = Math.max(end, c.startUs + c.durationUs);
   }
   return start === Infinity ? null : { startUs: start, endUs: end };
+}
+
+/**
+ * A track's value at `timeUs` (the property row's value, Figma's "190.6, 246" / "100%"): its keyframes' values eased
+ * into each keyframe by its easing (a bound easing read as linear), the first before the first, the last after the last.
+ */
+export function trackValueAt(track: TimelineTrack, timeUs: Micros): KeyframeValue | null {
+  const ks = [...track.keyframes].sort((a, b) => a.timeUs - b.timeUs);
+  if (!ks.length) return null;
+  if (timeUs <= ks[0].timeUs) return ks[0].value;
+  for (let i = 1; i < ks.length; i++) {
+    const a = ks[i - 1];
+    const b = ks[i];
+    if (timeUs > b.timeUs) continue;
+    const p = (timeUs - a.timeUs) / Math.max(1, b.timeUs - a.timeUs);
+    const e = "type" in b.easing ? easingAt(b.easing, p) : p;
+    const mix = (x: number, y: number) => x + (y - x) * e;
+    if (a.value.type === "FLOAT" && b.value.type === "FLOAT") return { type: "FLOAT", value: mix(a.value.value, b.value.value) };
+    if (a.value.type === "VECTOR" && b.value.type === "VECTOR") return { type: "VECTOR", value: { x: mix(a.value.value.x, b.value.value.x), y: mix(a.value.value.y, b.value.value.y) } };
+    if (a.value.type === "COLOR" && b.value.type === "COLOR") {
+      const ca = a.value.value;
+      const cb = b.value.value;
+      return { type: "COLOR", value: { r: mix(ca.r, cb.r), g: mix(ca.g, cb.g), b: mix(ca.b, cb.b), a: mix(ca.a, cb.a) } };
+    }
+    return e >= 1 ? b.value : a.value;
+  }
+  return ks[ks.length - 1].value;
+}
+
+const tenth = (v: number) => String(Math.round(v * 10) / 10);
+const hex2 = (v: number) => Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16).padStart(2, "0").toUpperCase();
+
+/** A property row's value as Figma writes it: opacity, trims and scale in %, rotation in °, the rest to a tenth. */
+export function formatTrackValue(track: TimelineTrack, value: KeyframeValue | null): string {
+  if (!value) return "";
+  const name = track.field.type === "PROPERTY" ? track.field.name : null;
+  const percent = name === "OPACITY" || name === "PATH_TRIM_START" || name === "PATH_TRIM_END" || !!name?.startsWith("SCALE") || (track.field.type === "INDEXED_ITEM" && "opacity" in track.field && !!track.field.opacity);
+  switch (value.type) {
+    case "FLOAT":
+      return percent ? `${Math.round(value.value * 100)}%` : name === "ROTATION" ? `${tenth(value.value)}°` : tenth(value.value);
+    case "VECTOR":
+      return percent ? `${Math.round(value.value.x * 100)}%, ${Math.round(value.value.y * 100)}%` : `${tenth(value.value.x)}, ${tenth(value.value.y)}`;
+    case "COLOR":
+      return hex2(value.value.r) + hex2(value.value.g) + hex2(value.value.b);
+    default:
+      return "";
+  }
+}
+
+/** The keyframe time before (−1) / after (1) `timeUs` on a track — the property row's ‹ and › — else null. */
+export function adjacentKeyframe(track: TimelineTrack, timeUs: Micros, dir: -1 | 1): Micros | null {
+  const times = track.keyframes.map((k) => k.timeUs).sort((a, b) => a - b);
+  if (dir < 0) return [...times].reverse().find((t) => t < timeUs - 500) ?? null;
+  return times.find((t) => t > timeUs + 500) ?? null;
 }
 
 /**

@@ -419,6 +419,14 @@ struct Overlay {
   std::vector<OverlayLine> motionHandles;
   bool hasAnchorPoint = false;
   Vec2 anchorPoint;
+  // Motion's transform gizmo on the one selected layer (the owner's capture of Figma, 2026-10-18,
+  // docs/research/figma/live/owner-2026-10-18/figma-motion-rect-gizmo-panel.webp): the anchor (world), the layer's own
+  // right and up directions (world, unit), and the dotted guides from the layer's box to its parent frame's left and top
+  // edges at the anchor (world).
+  bool hasMotionGizmo = false;
+  Vec2 gizmoAnchor;
+  Vec2 gizmoRight{1, 0}, gizmoUp{0, -1};
+  std::vector<OverlayLine> gizmoGuides;
   std::string badgeText;
   struct RulerGuide {
     Vec2 a, b;           // world

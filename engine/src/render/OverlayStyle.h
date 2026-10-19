@@ -133,6 +133,13 @@ struct OverlayStyle {
   double presenceChatNameAlpha = 0.8, presenceChatPlaceholderAlpha = 0.6;
   std::string presenceChatPlaceholder = "Say something";
   Color presenceLocalChat = Color::hex(0x0D99FF);
+  // Motion's transform gizmo (the owner's capture of Figma at 1.32 px per CSS px, 2026-10-18: the same size at 31 % and
+  // 72 %): a ring `gizmoRadius` round in a 1.5 px line of the selection colour, white handles 8 across (corners 2) where
+  // it meets the layer's up and right axes, a centre dot 8 across; an arrow `gizmoArrow` long out of each handle (heads 6
+  // deep, 5 to each side) — up green, right pink; the guides to the parent's edges dotted 2 / 2.
+  double gizmoRadius = 33.5, gizmoStroke = 1.5, gizmoHandle = 8, gizmoDot = 8;
+  double gizmoArrow = 20, gizmoHead = 6, gizmoHeadSide = 5;
+  Color gizmoUp = Color::hex(0x14AE5C), gizmoRight = Color::hex(0xEC35B5);
 
   static Color chrome(Theme t, ds::ChromeColor c) {
     const float* v = (t == Theme::Dark ? ds::kChromeDark : ds::kChromeLight)[static_cast<size_t>(c)];
