@@ -240,6 +240,26 @@
   .segment[data-variable] { background: var(--figma-color-icon-brand-secondary); }
   .segment:disabled { cursor: default; }
   .segment::before { position: absolute; top: -6px; right: 0; bottom: -6px; left: 0; content: ""; }
+  /* Figma's easing glyph (owner-2026-10-19 capture): a 16 box at the segment's middle, r 4, its curve; blue when selected */
+  .easingGlyph {
+    position: absolute;
+    top: -8px;
+    left: calc(50% - 8px);
+    box-sizing: border-box;
+    width: 16px;
+    height: 16px;
+    border: 1px solid var(--figma-color-text-disabled);
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg);
+    color: var(--figma-color-icon-secondary);
+    pointer-events: none;
+  }
+  .easingGlyph svg { position: absolute; top: -1px; left: -1px; width: 16px; height: 16px; }
+  .easingGlyph path { fill: none; stroke: currentColor; stroke-width: 1; stroke-linecap: round; }
+  /* Figma's capture: only the selected segment wears it (a lit row's others show none); hovering shows where to click */
+  .easingGlyph { opacity: 0; }
+  .segment:hover .easingGlyph { opacity: 1; border-color: var(--figma-color-text-brand); }
+  .segment[data-segment-selected] .easingGlyph { opacity: 1; border: 1.5px solid var(--figma-color-bg-brand); background: var(--figma-color-bg-selected); color: var(--figma-color-icon-brand); }
   /* The diamonds (capture: 10 across): a light outline, filled in the brand's light blue when selected */
   .diamond {
     position: absolute;

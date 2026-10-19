@@ -32,6 +32,7 @@ import { copySelectedKeyframes, pasteKeyframes } from "./keyframeClipboard";
 import { motionRead, motionUi, setMotionUi, setPlayhead, toggleAutoKeyframe, toggleMotionPlaying } from "./motionState";
 import { editPreset, removePresets } from "./presets";
 import { Timeline } from "./timeline/Timeline";
+import { segmentTargets } from "./easing/easingMaths";
 import { anchorPosition } from "./panels/TransformSection";
 import type { PanelNode } from "../panels/design/shared";
 import { syncEngine } from "../devmode/devMode";
@@ -285,6 +286,12 @@ function MotionShell() {
     [ed, model]
   );
   const selectedKeyframes = useMemo(() => new Set(ui.selectedKeyframes), [ui.selectedKeyframes]);
+  const selectedSegments = useMemo(() => new Set(ui.selectedSegments ?? []), [ui.selectedSegments]);
+  // Another selection (none of the segments' layers in it), or the segments gone: the Easing page closes for good.
+  useEffect(() => {
+    const ids = motionUi(ed).selectedSegments;
+    if (ids?.length && segmentTargets(model, ids, selectedNodes).length === 0) setMotionUi(ed, { selectedSegments: [] });
+  }, [ed, model, selectedNodes]);
   // Social (docs/social.md §8): the post's format and video limits next to Duration, Duration red outside them.
   const social = useUI((s) => s.mode === "social");
   const header = useMemo(() => {
@@ -311,7 +318,18 @@ function MotionShell() {
       onToggleAutoKeyframe={() => toggleAutoKeyframe(ed)}
       onToggleCollapse={() => setMotionUi(ed, { collapsed: !motionUi(ed).collapsed })}
       onSetTimeline={onSetTimeline}
-      onSelectKeyframes={(ids) => setMotionUi(ed, { selectedKeyframes: ids })}
+      onSelectKeyframes={(ids) => setMotionUi(ed, { selectedKeyframes: ids, selectedSegments: [] })}
+      selectedSegments={selectedSegments}
+      onSelectSegments={
+        social
+          ? undefined
+          : (ids, node, additive) => {
+              // A segment selected (Figma's): its layer selected, no keyframes — the right panel shows its Easing page.
+              setMotionUi(ed, { selectedSegments: ids, selectedKeyframes: [], selectedClip: null, selectedAudio: null });
+              const refs = ed.store.selection.refs;
+              if (!refs.includes(node)) ed.engine.setSelection(additive ? [...refs, node] : [node]);
+            }
+      }
       onMoveKeyframes={onMoveKeyframes}
       onDeleteKeyframes={onDeleteKeyframes}
       onDeleteTrack={onDeleteTrack}
@@ -325,12 +343,12 @@ function MotionShell() {
       onResize={(height) => setMotionUi(ed, { height })}
       onMoveInstance={onMoveInstance}
       selectedClip={ui.selectedClip ?? null}
-      onSelectClip={(id) => setMotionUi(ed, id ? { selectedClip: id, selectedAudio: null } : { selectedClip: null })}
+      onSelectClip={(id) => setMotionUi(ed, id ? { selectedClip: id, selectedAudio: null, selectedSegments: [] } : { selectedClip: null })}
       onEditClip={onEditClip}
       onDeleteClip={onDeleteClip}
       selectedAudio={ui.selectedAudio ?? null}
       onSelectAudio={(id) => {
-        setMotionUi(ed, { selectedAudio: id, selectedClip: null });
+        setMotionUi(ed, { selectedAudio: id, selectedClip: null, ...(id ? { selectedSegments: [] } : null) });
         // The audio is the root's: selecting a clip selects the frame (its Audio section shows in the right panel).
         if (id && model && !ed.store.selection.refs.includes(model.root)) ed.engine.setSelection([model.root]);
       }}

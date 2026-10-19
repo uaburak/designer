@@ -60,6 +60,11 @@ export interface MotionUIState {
   selectedClip?: string | null;
   /** The audio clip selected on the timeline (round 8e): the Audio section shows its volume, ⌥K splits it */
   selectedAudio?: string | null;
+  /**
+   * The keyframe segments selected on the timeline, by their end keyframes' ids (2026-10-19, Figma's): the right panel
+   * shows their Easing page
+   */
+  selectedSegments?: string[];
 }
 export const MOTION_UI_DEFAULT: MotionUIState = { timeUs: 0, playing: false, autoKeyframe: false, collapsed: false, selectedKeyframes: [], unit: "ms" };
 

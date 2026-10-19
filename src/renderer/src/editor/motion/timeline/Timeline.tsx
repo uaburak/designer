@@ -96,6 +96,13 @@ export interface TimelineProps {
   onDeleteKeyframes(ids: GuidString[]): void;
   onDeleteTrack(node: GuidString, track: TimelineTrack): void;
   onSetEasing(ids: GuidString[], easing: EasingRef): void;
+  /**
+   * The keyframe segments selected (2026-10-19, Figma's): by their end keyframes' ids. With `onSelectSegments` a
+   * segment's click selects it (⇧ adds or removes it) and its layer, and the right panel's Easing page edits it; without
+   * (Social's timeline, the tests' bare mount) the click opens the Easing popover as before.
+   */
+  selectedSegments?: ReadonlySet<GuidString>;
+  onSelectSegments?(ids: GuidString[], node: GuidString, additive: boolean): void;
   /** A layer row clicked: select the layer on the canvas */
   onSelectLayer(node: GuidString, additive: boolean): void;
   /** ⌘C in the track area with keyframes selected (the editor keeps the copy) */
@@ -745,7 +752,13 @@ export function Timeline(p: TimelineProps) {
                     ) : r.kind === "layer" ? <LayerLane layer={r.layer} scale={scale} selected={lit} onInstanceDown={readOnly || !p.onMoveInstance ? undefined : (e) => onInstanceDown(e, r.layer)} onBarDown={readOnly || !p.onRetimeLayer ? undefined : (e, edge) => onLayerBarDown(e, r.layer, edge)} /> : <TrackLane track={r.track} lit={lit} scale={scale} durationUs={shownDuration} selected={selectedKeyframes} dragging={drag?.moving ? new Set(drag.items.map((i) => i.id)) : null} onDown={onDiamondDown} onDouble={(k) => {
                       p.onSeek(k.timeUs);
                       p.onSelectLayer(r.layer.node, false);
-                    }} onSegment={readOnly ? undefined : (k, anchor) => setEasingAt({ ids: [k.id], easing: k.easingVariable ? { variable: k.easingVariable } : k.easing, resolved: "type" in k.easing ? k.easing : undefined, anchor })} />}
+                    }} selectedSegments={p.selectedSegments} onSegment={readOnly ? undefined : (k, anchor, shift) => {
+                      if (p.onSelectSegments) {
+                        const cur = [...(p.selectedSegments ?? [])];
+                        p.onSelectSegments(shift ? (cur.includes(k.id) ? cur.filter((x) => x !== k.id) : [...cur, k.id]) : [k.id], r.layer.node, shift);
+                        setSelectedRow(null);
+                      } else setEasingAt({ ids: [k.id], easing: k.easingVariable ? { variable: k.easingVariable } : k.easing, resolved: "type" in k.easing ? k.easing : undefined, anchor });
+                    }} />}
                   </div>
                 );
               })}
@@ -948,18 +961,20 @@ function vectorKind(track: TimelineTrack): { kind: "POSITION" | "SCALE"; combine
   }
 }
 
-function TrackLane({ track, lit, scale, durationUs, selected, dragging, onDown, onDouble, onSegment }: {
+function TrackLane({ track, lit, scale, durationUs, selected, selectedSegments, dragging, onDown, onDouble, onSegment }: {
   track: TimelineTrack;
   scale: Scale;
   durationUs: Micros;
   selected: ReadonlySet<GuidString>;
   /** Its layer selected: Figma draws the row's keyframes filled light blue and its lines blue */
   lit: boolean;
+  /** The segments selected (their end keyframes): their glyphs blue */
+  selectedSegments?: ReadonlySet<GuidString>;
   dragging: ReadonlySet<GuidString> | null;
   onDown(e: ReactPointerEvent<HTMLButtonElement>, k: TimelineKeyframe): void;
   onDouble(k: TimelineKeyframe): void;
   /** Absent (read-only): the segments are drawn, not opened */
-  onSegment?(end: TimelineKeyframe, anchor: { x: number; y: number; width: number; height: number }): void;
+  onSegment?(end: TimelineKeyframe, anchor: { x: number; y: number; width: number; height: number }, shift: boolean): void;
 }) {
   const out: ReactNode[] = [];
   const ks = track.keyframes;
@@ -970,13 +985,21 @@ function TrackLane({ track, lit, scale, durationUs, selected, dragging, onDown, 
       const b = timeToX(k.timeUs, scale) - DIAMOND_PX / 2;
       const hold = "type" in k.easing && k.easing.type === "HOLD";
       const label = k.easingVariable || !("type" in k.easing) ? t("Easing variable") : t(EASING_LABELS[k.easing.type]);
+      const chosen = !!selectedSegments?.has(k.id);
       if (b > a)
         out.push(
-          <button key={`s${k.id}`} type="button" className={styles.segment} data-hold={hold || undefined} data-variable={k.easingVariable ? "" : undefined} data-selected={lit || (selected.has(k.id) && selected.has(ks[i - 1].id)) || undefined} data-segment={k.id} aria-label={t("Easing: {name}", { name: label })} disabled={!onSegment} style={{ left: a, width: b - a }} onClick={(e) => {
+          <button key={`s${k.id}`} type="button" className={styles.segment} data-hold={hold || undefined} data-variable={k.easingVariable ? "" : undefined} data-selected={lit || chosen || (selected.has(k.id) && selected.has(ks[i - 1].id)) || undefined} data-segment={k.id} data-segment-selected={chosen || undefined} aria-label={t("Easing: {name}", { name: label })} aria-pressed={chosen} disabled={!onSegment} style={{ left: a, width: b - a }} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => {
             e.stopPropagation();
             const r = e.currentTarget.getBoundingClientRect();
-            onSegment?.(k, { x: r.left, y: r.top, width: r.width, height: r.height });
-          }} />
+            onSegment?.(k, { x: r.left, y: r.top, width: r.width, height: r.height }, e.shiftKey);
+          }}>
+            {/* Figma's easing glyph at the segment's middle: a 16 × 16 rounded box with a curve, on the selected segment (and on hover) */}
+            {b - a >= 20 && (
+              <span className={styles.easingGlyph} data-easing-glyph aria-hidden>
+                <svg viewBox="0 0 16 16"><path d={hold ? "M4.5 11.5H11.5V4.5" : "M4.5 11.5C8 11.5 8 4.5 11.5 4.5"} /></svg>
+              </span>
+            )}
+          </button>
         );
     }
     const sel = selected.has(k.id);
