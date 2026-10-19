@@ -1223,6 +1223,28 @@ function pageMain() {
         }
         return out;
       },
+      // --dump: views of the measured page beyond fit (k = 0…5; false past the last) — the page at 3× and 10× its fit
+      // around the middle, the densest frame at 50, 100 and 200 %. Settled as showPage.
+      async showView(guid, k) {
+        await this.showPage(guid);
+        const W2 = innerWidth / 2, H2 = innerHeight / 2;
+        const fitCam = engine.getCamera();
+        const target = this.denseTarget(guid);
+        const views = [];
+        for (const f of [3, 10]) views.push({ x: fitCam.x * f - W2 * (f - 1), y: fitCam.y * f - H2 * (f - 1), zoom: fitCam.zoom * f });
+        if (target) for (const z of [0.5, 1, 2]) views.push({ x: W2 - target.x * z, y: H2 - target.y * z, zoom: z });
+        if (k >= views.length) return false;
+        engine.setCamera(views[k]);
+        for (let i = 0; i < 3; i++) {
+          engine.pump();
+          engine.renderNow();
+          await fonts.settled();
+          await engine.imagesSettled();
+        }
+        engine.pump();
+        engine.renderNow();
+        return true;
+      },
       // A page at fit, once the fonts and images its first frame asked for are in (a font or image arriving after
       // the screenshot made two dumps of one build differ).
       async showPage(guid) {
@@ -1920,6 +1942,12 @@ if (dumpDir) {
     await page.waitForTimeout(150);
     await page.evaluate((g) => window.__bench.showPage(g), guids[i]);
     await page.screenshot({ path: path.join(dumpDir, `page-${String(i).padStart(2, "0")}.png`) });
+  }
+  for (let k = 0; ; k++) {
+    if (!(await page.evaluate(([g, kk]) => window.__bench.showView(g, kk), [pageGuid, k]))) break;
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    await page.waitForTimeout(150);
+    await page.screenshot({ path: path.join(dumpDir, `view-${k}.png`) });
   }
 }
 report.gpuSteps.end = gpuFootprintMB(browserPid);
