@@ -25,6 +25,7 @@ import { writeOn } from "../components";
 import { command, shortcutOf } from "../commands";
 import { thumbnailNode } from "../objectCommands";
 import { parseDerivedId } from "../model/components";
+import { variantValues } from "../model/prototype";
 import { useLayerTree, useUI } from "../hooks";
 import {
   LAYER_DRAG_THRESHOLD,
@@ -61,6 +62,16 @@ const INSET = 8;
 const NAME_MIN = 96;
 /** How many open rows' names one engine read brings for the list's width (the rest in later idle reads). */
 const NAMES_PER_READ = 2000;
+
+/**
+ * The name a row shows: a variant reads its property values only ("State=Hover, Size=Large" → "Hover, Large"; live
+ * left/layers-row-hover.txt: the Chip set's "State=Default" row reads "Default"); renaming edits the whole name.
+ */
+function rowName(tree: ReturnType<typeof useLayerTree>, id: string, name: string): string {
+  const node = tree.nodes.get(id);
+  if (node?.type !== "SYMBOL" || !node.parent || !tree.nodes.get(node.parent)?.stateGroup) return name;
+  return variantValues(name);
+}
 
 /**
  * The row's glyph: the layer's type (its real one, even when the engine can't draw it yet), auto layout's direction,
@@ -277,7 +288,7 @@ export function Layers() {
       rows.map((r) => r.id),
       NAMES_PER_READ
     );
-    return { px: layerListWidth(rows.map((r, i) => ({ depth: r.depth, name: names[i] })), drawMode), pending: names.includes(null) };
+    return { px: layerListWidth(rows.map((r, i) => ({ depth: r.depth, name: names[i] === null ? null : rowName(tree, r.id, names[i]) })), drawMode), pending: names.includes(null) };
     // fonts / namesRead: measured again once the UI font is in, read on while names are missing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, tree, fonts, namesRead, drawMode]);
@@ -541,7 +552,7 @@ export function Layers() {
               <LayerRow
                 id={row.id}
                 depth={row.depth}
-                name={typing.get(row.id) ?? node.name}
+                name={typing.get(row.id) ?? (renaming === row.id ? node.name : rowName(tree, row.id, node.name))}
                 icon={icon}
                 shape={row.id === thumbnailFrame ? undefined : layerShape(node)}
                 thumbnail={thumbs ? <LayerThumb thumbs={thumbs} node={row.id} icon={icon} /> : undefined}

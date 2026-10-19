@@ -1,6 +1,6 @@
 /**
  * The navigation bar at the window's left (Figma 2026, help "Navigate the left sidebar", measured on the live app):
- * the Figma menu, a line, the File, Agents, Assets and Tools tabs, a line, Variables (the variables view, formerly
+ * the Figma menu, a line, the File, Agents, Assets and Brands tabs (no Tools: the owner, 2026-10-19), a line, Variables (the variables view, formerly
  * the right sidebar's Local variables), and at the bottom the file's notifications — missing fonts, library updates
  * — only while there is one. Tabs are their icons, named in a tooltip with the shortcut (the owner's choice, 2026-10-10:
  * live Figma draws the names under the icons by default); View › Additional labels, toggled on, brings the names
@@ -25,7 +25,7 @@ type Open = { at: { x: number; y: number }; entries: MenuEntry[] } | null;
 /** The tabs' names under their icons: off unless View › Additional labels turned them on. */
 export const showsRailLabels = (s: { railLabels?: boolean }): boolean => s.railLabels === true;
 
-const TABS: { tab: RailTab; icon: "24.social" | "24.rail.file" | "24.rail.agents" | "24.rail.assets" | "24.library" | "24.rail.tools"; label: string; command?: string }[] = [
+const TABS: { tab: RailTab; icon: "24.social" | "24.rail.file" | "24.rail.agents" | "24.rail.assets" | "24.library"; label: string; command?: string }[] = [
   // Social mode's own (docs/social.md §6.2) [ours]: the posts by campaign; shown only in Social
   { tab: "posts", icon: "24.social", label: "Posts" },
   { tab: "file", icon: "24.rail.file", label: "File", command: "view.layers" },
@@ -33,7 +33,6 @@ const TABS: { tab: RailTab; icon: "24.social" | "24.rail.file" | "24.rail.agents
   { tab: "assets", icon: "24.rail.assets", label: "Assets", command: "view.assets" },
   // Studio (docs/studio.md §3.2) [ours]: the brand and product library
   { tab: "brands", icon: "24.library", label: "Brands" },
-  { tab: "tools", icon: "24.rail.tools", label: "Tools", command: "view.tools" },
 ];
 
 /**
@@ -45,7 +44,7 @@ const railTabs = (social: boolean) => TABS.filter((x) => (x.tab === "posts" ? so
 /**
  * View › Minimize left navigation bar (round 10; unverified look — help "Navigate the left sidebar" names the option
  * only): the navigation bar goes and its tabs fold into a row at the top of the left sidebar — the Figma menu, File,
- * Agents, Assets, Tools, Variables as 32 × 32 buttons.
+ * Agents, Assets, Brands, Variables as 32 × 32 buttons.
  */
 export function NavStrip() {
   useT();

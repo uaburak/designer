@@ -498,6 +498,11 @@ Figma's branching UI over `BranchesRepository` (`src/shared/merge/branches.ts`, 
 - a merge memory-limit banner;
 - `pasteBranchSourceFileKey`.
 
+## Status 2026-10-19 — follow-up: no Tools tab, variant rows show their values
+
+- The left rail has no Tools tab (the owner, 2026-10-19): plugins run from Actions (⌘K) › Plugins & widgets and the main menu's Plugins ▸; the image tools from Actions. `RailTab` has no `"tools"`, `view.tools` is gone.
+- Layers: a variant row reads its property values only ("State=Default" → "Default", live `left/layers-row-hover.txt`), with Figma's 12 px variant diamond in `--ds-color-layer-component-glyph`. Detail: `docs/research/compare-2026-10-18/STATUS-2026-10-19.md` "As built (follow-up 2026-10-19)".
+
 ## Status 2026-10-10 — Round 16 — Padding fields, scrubbing, haptics, Apply variable inside the field (branch `r16-inputs`)
 
 The owner's request with live Figma (53–57.png); shots `docs/research/inputs16/`, `EDITOR_ONLY=inputs16` (12 checks × 2 themes).

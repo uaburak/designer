@@ -88,7 +88,6 @@
    * (Layers.tsx sets the VirtualList's width; Figma, the owner's capture 39.png): the list scrolls sideways only when
    * a row doesn't fit. Names fade at the visible right edge (--layer-clip-right, set on the list's viewport).
    */
-  .placeholderTab { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
   /* View › Minimize left navigation bar (round 10, unverified look): the navigation's tabs in a row atop the sidebar */
   .navStrip {
     display: flex;
@@ -102,7 +101,7 @@
   .navStripOn { background: var(--figma-color-bg-selected); }
   /* Dev Mode's navigation bar: the active tab in Dev Mode's green (the owner's capture owner-2026-10-18) */
   .devRail { --figma-color-bg-selected: var(--ds-color-devmode-selected); --figma-color-icon-brand: var(--ds-color-devmode-text); }
-  /* A tab's header (Assets, Tools, Agents; live): 48 and its line, the title 13 / 550 at 16, actions 12 from the edge */
+  /* A tab's header (Assets, Agents, Brands; live): 48 and its line, the title 13 / 550 at 16, actions 12 from the edge */
   .tabHeader {
     display: flex;
     flex: none;
@@ -123,29 +122,6 @@
     white-space: nowrap;
   }
   .tabActions { display: flex; flex: none; align-items: center; }
-  /* Tools (live): a search 12 under the header, Source and Category, then the suggestions */
-  .toolsSearch { display: flex; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-3) var(--ds-space-3) 0 var(--ds-space-4); }
-  .toolsFilterButton { display: inline-flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-control); height: var(--ds-size-control); padding: 0; border: 0; border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-icon-secondary); outline: none; }
-  .toolsFilterButton:hover { background: var(--figma-color-bg-hover); color: var(--figma-color-icon); }
-  .toolsFilterButton[data-open] { background: var(--figma-color-bg-selected); color: var(--figma-color-icon); }
-  .toolsFilterButton:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
-  .toolsFilters { display: flex; gap: var(--ds-space-2); padding: var(--ds-space-4) var(--ds-space-3) 0 var(--ds-space-4); }
-  /* Live (rail-tools.txt): the filters on the panel's own ground, their labels in the primary colour even when idle */
-  .toolsFilter.toolsFilter { background: var(--figma-color-bg); color: var(--figma-color-text); }
-  /* Live: 79 / 91 — the chevron 2 from the end */
-  .toolsFilter [role="combobox"] { padding-right: var(--ds-space-half); }
-  /* Live: "Create" 11 / 450 at 173, 18 — text, 20 before the header's 12 edge */
-  .toolsCreate {
-    height: var(--ds-size-control);
-    margin-right: var(--ds-space-5);
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: var(--figma-color-text);
-    font: var(--ds-font-body-medium);
-    letter-spacing: var(--ds-tracking-body-medium);
-    cursor: default;
-  }
   .layersEmpty { padding: var(--ds-space-2) var(--ds-space-4); color: var(--figma-color-text-secondary); }
   .assets { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
   .assetsSearch { padding: var(--ds-space-2) var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-space-4); }
@@ -343,76 +319,3 @@
   .missingSelect, .missingScope { align-self: flex-start; }
   .missingWholePage { margin-right: auto; }
 }
-/* Tools: the plugins by source (docs/plugins.md §6) — a section header, then 32px rows with the plugin glyph */
-.toolsList { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-bottom: var(--ds-space-2); }
-.toolsSection {
-  display: flex;
-  align-items: center;
-  height: var(--ds-size-control);
-  margin-top: var(--ds-space-2);
-  padding: 0 var(--ds-space-4);
-  color: var(--figma-color-text-secondary);
-  font: var(--ds-font-body-medium);
-  letter-spacing: var(--ds-tracking-body-medium);
-}
-.toolsRow {
-  display: flex;
-  align-items: center;
-  gap: var(--ds-space-1);
-  width: calc(100% - var(--ds-space-4));
-  height: var(--ds-size-control-large);
-  margin: 0 var(--ds-space-2);
-  padding: 0 var(--ds-space-2);
-  border: 0;
-  border-radius: var(--ds-radius-medium);
-  background: none;
-  color: var(--figma-color-text);
-  font: var(--ds-font-body-medium);
-  letter-spacing: var(--ds-tracking-body-medium);
-  text-align: left;
-}
-.toolsRow:hover:not(:disabled) { background: var(--figma-color-bg-hover); }
-.toolsRow:disabled { color: var(--figma-color-text-disabled); }
-.toolsRowLabel { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-/*
- * Tools › Suggested (live left/rail-tools.txt): 224 × 56 rows 8 in (radius 5) — a 40 × 40 thumbnail 16 in on
- * bg-secondary, the name at 64 (11 / 450) 12 from the top, under it the kind's 16 glyph, a 1 × 12 line and the maker
- * (secondary), 18 lower.
- */
-.toolsCard {
-  display: grid;
-  grid-template-columns: var(--ds-space-10) minmax(0, 1fr);
-  grid-template-rows: var(--ds-space-4) var(--ds-space-4);
-  align-content: center;
-  column-gap: var(--ds-space-2);
-  row-gap: var(--ds-space-half);
-  width: calc(100% - var(--ds-space-4));
-  height: calc(var(--ds-space-12) + var(--ds-space-2));
-  margin: 0 var(--ds-space-2);
-  padding: 0 var(--ds-space-2);
-  border: 0;
-  border-radius: var(--ds-radius-medium);
-  background: none;
-  color: var(--figma-color-text);
-  font: var(--ds-font-body-medium);
-  letter-spacing: var(--ds-tracking-body-medium);
-  text-align: left;
-}
-.toolsCard:hover:not(:disabled) { background: var(--figma-color-bg-hover); }
-.toolsCard:disabled { color: var(--figma-color-text-disabled); }
-.toolsThumb {
-  display: flex;
-  grid-row: 1 / span 2;
-  align-items: center;
-  justify-content: center;
-  width: var(--ds-space-10);
-  height: var(--ds-space-10);
-  border-radius: var(--ds-radius-medium);
-  background: var(--figma-color-bg-secondary);
-  color: var(--figma-color-icon);
-}
-.toolsCardName { min-width: 0; overflow: hidden; align-self: end; text-overflow: ellipsis; white-space: nowrap; }
-.toolsCardMeta { display: flex; align-items: center; gap: var(--ds-space-1); min-width: 0; color: var(--figma-color-text-secondary); }
-.toolsCardMeta > svg { flex: none; color: var(--figma-color-icon-secondary); }
-.toolsCardLine { flex: none; width: 1px; height: var(--ds-space-3); border-radius: 1px; background: var(--figma-color-border); }

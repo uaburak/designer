@@ -243,6 +243,7 @@ export const appColor = {
   "scrollbar-thumb-hover": ["#00000059", "#ffffff59"], // K
   "text-selection": ["#0d99ff66", "#0d99ff66"], // F
   "field-selection": ["#0d99ff66", "#325f88"], // a field's selected text (dark: the owner's panel17/73.png, "154" selected in W on #383838)
+  "layer-component-glyph": ["#a38cc0", "#7f699b"], // an unselected component / variant / instance row's glyph in Layers: Figma's design-editor --color-icon-component-secondary (figma_app.css [data-editor-theme=design]: pale-purple-450 / -500; live #80699b on #2c2c2c)
   "card-border-hover": ["#cccccc", "#5c5c5c"], // K
   "file-design": ["#0c8ce9", "#0c8ce9"], // K
   "canvas-default": ["#f5f5f5", "#1e1e1e"], // K

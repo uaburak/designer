@@ -2,6 +2,17 @@
 
 First written 2026-10-06 when the first Claude session stopped and the owner moved the work to another Claude account through GitHub (`https://github.com/uaburak/designer`). Updated the same day by the second session, which finished every workstream's partial items and ran the integration round. Read `AGENTS.md`, `docs/architecture.md` and `docs/roadmap.md` first; the contracts in `docs/` decide everything; `docs/research/` holds the verified facts about Figma (with sources).
 
+## Status 2026-10-19 — follow-up: Tools tab removed, Figma's AI-action icons, line boxes explained, variant rows in Layers, committed on its branch, not merged
+
+Branch `worktree-agent-a35538b95bd5125d6` (from main `6280611a`); detail in `docs/research/compare-2026-10-18/STATUS-2026-10-19.md` "As built (follow-up 2026-10-19)", images `compare-2026-10-18/after/followup-*.png`.
+
+- **Tools tab removed** (the owner): the rail is File, Agents, Assets, Brands, Variables; plugins run from Actions (⌘K) › Plugins & widgets and the main menu's Plugins ▸ (New plugin… under Development ▸), the image tools from Actions and the image's own entry points.
+- **Actions' AI rows** draw Figma's own AI-action icons (`24.ai.*`), read from Figma desktop's cached editor build.
+- **11 px line boxes**: not a difference — live measured 13 on a Retina screen, where Chrome rounds the font's metrics in device pixels; Wecra gives the same 13 there (`after/tools/line-box-dpr.mjs`). Nothing changed.
+- **Layers' variant rows**: Figma's 12 px variant diamond, the glyph in Figma's design-theme component-secondary (#7f699b dark, new `--ds-color-layer-component-glyph`), and a variant reads its values only ("Default"; renaming edits the whole name).
+
+Checks: typecheck, eslint on the changed files, vitest (renderer, shared, store, main, viewer). No engine change. To verify: the rail has no Tools; ⌘K shows the new glyphs; open a component set in Layers.
+
 ## Status 2026-10-19 — hovering frames inside / beside a selected frame matched to live Figma, committed on its branch, not merged
 
 Branch `worktree-agent-abc5d4abf5ad315ee` (from main `7135b4a6`). The owner: hovering a frame inside the selected 3×3 grid looks "a bit different" from Figma. Rebuilt his fixtures ("ana frame" with two auto-layout "iç frame"s; "test" with the wrap grid test-Frame and test-Rectangle) and shot six states headless (`docs/research/figma/live/owner-2026-10-19/after/tools/hover-shoot.mjs`, `hover-compose.mjs`; Figma beside Wecra in `after/hover-*.png`). **The difference**: Wecra dotted the hovered frame's layers only when it was the selection's parent; live Figma dots the **direct children of any hovered auto-layout frame while something is selected** (a sibling of the selection, a child of it, its parent), never the selected layers, never deeper — now `Editor::hoverDottedOverlay` (`Overlay::hoverDotted`). Also: a selected plain frame's equally spaced layers get the smart-selection rings / dots (live B). **Not changed**: the "dashed" selection edge in the owner's Wecra capture is the parent "test"'s flow dashes, which his own Figma captures show along the same edge; dash pattern, thickness, colour and the 2 px hover outline already matched. Rules in `docs/engine.md` §6.11 "Hovering frames". Checks: `engine:test` (new `hover_nested_frames.test.cpp`), `engine.wasm` rebuilt, typecheck, vitest (renderer, shared, store, main, viewer). **Unverified live**: nothing selected (kept: no dots), a hovered plain (non-auto-layout) frame (kept: no dots).
