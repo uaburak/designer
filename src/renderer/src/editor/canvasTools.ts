@@ -236,6 +236,8 @@ export function attachCanvasTools(ed: EditorController, canvas: HTMLCanvasElemen
   offs.push(ed.engine.on("HAPTIC", () => hapticTick()));
   // Round 17 B: what the engine refused, in Figma's words (a toast: Figma's visual bell).
   offs.push(attachRefusals(ed.engine));
+  // Group 1: the AI sparkle by the selection (live Figma) opens the Actions panel, where our AI actions are.
+  offs.push(ed.engine.on("AI_BUTTON", () => ed.ui.set({ actionsOpen: true, uiHidden: false })));
   offs.push(
     ed.engine.on("COLOR_PICK", (e) => {
       const color = canvasColorAt(ed, e.x, e.y);

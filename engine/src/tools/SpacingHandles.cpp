@@ -62,6 +62,22 @@ void Editor::updateAutoLayoutBands(Vec2 world) {
   int hovered = -1, bandHover = -1;
   GridGapHover gap;
   bool dragging = gesture_ == Gesture::LayoutBar;
+  // Group 1 (live canvas-grid-hover-row-track-pill / -row-track-selected): the column the pointer was last over keeps
+  // its compact pill while the pointer is on the rows' side — a row's pill, its band — or a row is selected.
+  {
+    Guid frame = gridFrameSelected();
+    int column = -1;
+    if (frame != kNoGuid && gesture_ == Gesture::None) {
+      GridHit h = gridHitAt(camera_.toScreen(world));
+      bool rowSide = h.hoverRow >= 0 || (!h.column && h.kind != GridHit::Kind::None && h.kind != GridHit::Kind::Hover);
+      column = h.hoverColumn >= 0 ? h.hoverColumn : rowSide && gridBandFrame_ == frame ? gridBandColumn_ : -1;
+    } else if (frame != kNoGuid && gridBandFrame_ == frame) {
+      column = gridBandColumn_;  // (kept through a gesture on its grid)
+    }
+    if (column != gridBandColumn_ || frame != gridBandFrame_) needsRender_ = true;
+    gridBandColumn_ = column;
+    gridBandFrame_ = frame;
+  }
   if ((gesture_ == Gesture::None || dragging) && tool_ == Tool::MOVE && !spaceHeld_ && selection_.size() == 1 && !viewer_) {
     Guid id = selection_[0];
     const Node* n = doc_.get(id);
@@ -79,8 +95,15 @@ void Editor::updateAutoLayoutBands(Vec2 world) {
       const Mat2x3 S = camera_.matrix() * W;  // the frame's space → screen
       Vec2 onScreen{w * Vec2{S.m00, S.m10}.length(), h * Vec2{S.m01, S.m11}.length()};
       bool big = onScreen.x >= kMinFrameOnScreen && onScreen.y >= kMinFrameOnScreen;
-      // A grid's bars also while the pointer is on its pills' bands (live Figma, canvas-grid-hover-top-pill).
-      bool onPills = grid && gesture_ == Gesture::None && gridHitAt(camera_.toScreen(world)).kind != GridHit::Kind::None;
+      // A grid's bars also while the pointer is on its columns' pills' band above it (live Figma,
+      // canvas-grid-hover-top-pill, -column-track-pill) — not on the rows' band left of it (Group 1: live
+      // canvas-grid-hover-row-track-pill and -row-track-selected, the pointer on a row's pill, show none).
+      bool onPills = false;
+      if (grid && gesture_ == Gesture::None) {
+        Vec2 s = camera_.toScreen(world);
+        Rect box = transformedBounds(camera_.matrix() * W, w, h);
+        onPills = gridHitAt(s).kind != GridHit::Kind::None && s.x >= box.x && s.x <= box.right();
+      }
       if ((dragging || onPills || (q.x >= 0 && q.y >= 0 && q.x <= w && q.y <= h)) && (big || dragging)) {
         int P = p.stack().stackMode == StackMode::HORIZONTAL ? 0 : 1;
         double pad[4];

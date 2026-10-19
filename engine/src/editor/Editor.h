@@ -644,6 +644,7 @@ class Editor : private LayoutHost, public TextLayouts {
     std::vector<PrototypeSelected> prototypeSelected;    // PROTOTYPE_CONNECTION_SELECTED
     std::vector<GridTracksEvent> gridTracks;             // GRID_TRACKS: the grid tracks selected on the canvas
     std::vector<RenameRequest> renames;                  // REQUEST_RENAME: a double-click on a frame's title
+    std::vector<Rect> aiButtons;                         // AI_BUTTON (Group 1): the sparkle by the selection pressed
     // HAPTIC (round 17): the trackpad's tick — a canvas drag changed its value by a whole step (a padding, gap, corner
     // radius, W / H, whole degree), its auto-layout flow swapped, or it snapped to a new guide. At most one per pointer
     // move (several steps in one move: one tick); the count is the moves that ticked since the last takeEvents.
@@ -661,7 +662,7 @@ class Editor : private LayoutHost, public TextLayouts {
          navigation = false;
     bool any() const {
       return !colorPicks.empty() || !inlineEdits.empty() || !annotationOpens.empty() || !measurementEdits.empty() || !statusClicks.empty() || measurementSelection ||
-             !documents.empty() || !contextMenus.empty() || !prototypeConnected.empty() || !prototypeSelected.empty() || !gridTracks.empty() || !renames.empty() || haptics != 0 || !drawSampled.empty() || !notices.empty() || pathTool || !nodes.empty() || !components.empty() || !collections.empty() ||
+             !documents.empty() || !contextMenus.empty() || !prototypeConnected.empty() || !prototypeSelected.empty() || !gridTracks.empty() || !renames.empty() || !aiButtons.empty() || haptics != 0 || !drawSampled.empty() || !notices.empty() || pathTool || !nodes.empty() || !components.empty() || !collections.empty() ||
              !variables.empty() || !styles.empty() || selection || camera || tool || cursor || hover || undo || structure || pages ||
              currentPage || textEdit || vectorEdit || paintEdit || navigation || motion;
     }
@@ -2232,6 +2233,9 @@ class Editor : private LayoutHost, public TextLayouts {
   void writeGridTracks(Guid frame, bool column, const std::vector<Layout::GridTrackDef>& tracks);
   GridDrag gridDrag_;
   GridTrackSelection gridSel_;
+  // The column whose compact pill stays while the pointer is on the rows' side (Group 1; updateAutoLayoutBands).
+  Guid gridBandFrame_ = kNoGuid;
+  int gridBandColumn_ = -1;
 
   // ---- Text editing (editor/TextEditing.cpp) ----
   struct TextSession {
@@ -2407,6 +2411,9 @@ class Editor : private LayoutHost, public TextLayouts {
     double ratio = 0, radius = 0;
     double lastAngle = 0, turned = 0, startReach = 0;
   } shapeDrag_;
+  bool aiHover_ = false;
+  bool pointerNearSelection_ = false;  // within 64 px of the selection on screen (the AI sparkle, Group 1)  // the pointer on the AI sparkle by the selection (Group 1)
+  bool contextMenuHeld_ = false;  // a context menu opened from the canvas: a pointer leave keeps the hover handles (Group 1)
   bool pointerInSelection_ = false;        // the pointer is over the selection's box (radius and gap handles show)
   NodeType drawType_ = NodeType::NONE;
   bool drawArrow_ = false;

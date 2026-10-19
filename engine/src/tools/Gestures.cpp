@@ -675,16 +675,21 @@ void Editor::gapBoxesOverlay(Overlay& o) const {
 }
 
 bool Editor::selectionHoverChanged(Vec2 s) {
-  bool in = false;
+  bool in = false, near = false;
   if (!selection_.empty()) {
     SelectionBox box = selectionBox(doc_, selection_);
     if (box.valid) {
       Vec2 q = (camera_.matrix() * box.toWorld).inverse().apply(s);
       in = q.x >= 0 && q.y >= 0 && q.x <= box.size.x && q.y <= box.size.y;
+      // Near it (the AI sparkle, Group 1: live shows it with the pointer by the selection — autolayout-drag-08 ~15 px
+      // off, the grid's row pill ~60 px off): within 64 px of its screen box.
+      Rect sr = transformedBounds(camera_.matrix() * box.toWorld, box.size.x, box.size.y);
+      near = s.x >= sr.x - 64 && s.y >= sr.y - 64 && s.x <= sr.right() + 64 && s.y <= sr.bottom() + 64;
     }
   }
-  bool changed = in != pointerInSelection_;
+  bool changed = in != pointerInSelection_ || near != pointerNearSelection_;
   pointerInSelection_ = in;
+  pointerNearSelection_ = near;
   return changed;
 }
 
@@ -788,6 +793,11 @@ void Editor::updateHover(Vec2 s, uint32_t mods) {
     reorderHover_ = oh;
     // The radius handles and gap handles come and go with the pointer over the selection.
     if (selectionHoverChanged(s)) needsRender_ = true;
+    // The AI sparkle (Group 1): its box where the last frame drew it, 4 px of slack.
+    const Rect& ai = hits_.aiButton;
+    bool onAi = ai.w > 0 && s.x >= ai.x - 4 && s.y >= ai.y - 4 && s.x <= ai.right() + 4 && s.y <= ai.bottom() + 4;
+    if (onAi != aiHover_) needsRender_ = true;
+    aiHover_ = onAi;
   }
   if (next != hover_) {
     hover_ = next;
@@ -866,8 +876,9 @@ uint32_t Editor::pointer(PointerEvent type, double x, double y, int button, uint
   if (type == PointerEvent::DOWN) clickCount_ = std::max(1, clickCount);
   Vec2 s{x, y};
   switch (type) {
-    case PointerEvent::DOWN: replayWanted_ = false; return pointerDown(s, button, mods);
+    case PointerEvent::DOWN: replayWanted_ = false; contextMenuHeld_ = false; return pointerDown(s, button, mods);
     case PointerEvent::MOVE:
+      contextMenuHeld_ = false;
       if (coalesceMoves_ && gesture_ != Gesture::None) {
         queuedMove_ = {true, s, mods};  // the latest wins; tick() handles it
         return 0;
@@ -881,11 +892,13 @@ uint32_t Editor::pointer(PointerEvent type, double x, double y, int button, uint
     }
     case PointerEvent::CANCEL: cancelGesture(); return P_HANDLED;
     case PointerEvent::LEAVE:
-      // Off the canvas: the selection's hover handles (radius, gap, shape rings) go with the pointer, as in Figma.
-      if (gesture_ == Gesture::None) {
+      // Off the canvas: the selection's hover handles (radius, gap, shape rings) go with the pointer, as in Figma —
+      // except onto the context menu it just opened: the smart selection's rings and gap handles stay while it is open
+      // (live menu-context-multi-and-smart-selection, Group 1).
+      if (gesture_ == Gesture::None && !contextMenuHeld_) {
         lastScreen_ = {-1e9, -1e9};
         if (pointerInSelection_ || radiusHover_ >= 0 || gapHover_ >= 0 || reorderHover_ >= 0 || shapeHover_ >= 0) needsRender_ = true;
-        pointerInSelection_ = false;
+        pointerInSelection_ = pointerNearSelection_ = false;
         radiusHover_ = gapHover_ = reorderHover_ = shapeHover_ = -1;
       }
       if (gesture_ == Gesture::None && hover_ != kNoGuid) {
@@ -1000,6 +1013,12 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
 
   // Dev Mode: status chips, annotation labels and dots, saved measurements, the Annotation and Measurement tools.
   if (uint32_t r = devPointerDown(s, mods)) return r;
+
+  // Group 1: the AI sparkle by the selection — TS opens the Actions panel.
+  if (!viewer_ && selectingTool() && !selection_.empty() && hits_.aiButton.w > 0 && hits_.aiButton.contains(s)) {
+    events_.aiButtons.push_back(hits_.aiButton);
+    return P_HANDLED;
+  }
 
   // A selected component set's "+" under its variants pill (live Figma round 11): Add variant.
   if (!viewer_ && selectingTool() && hits_.addVariant.set != kNoGuid && hits_.addVariant.rect.contains(s) && selection_.size() == 1 &&
@@ -1260,6 +1279,7 @@ uint32_t Editor::contextMenu(Vec2 s, uint32_t mods) {
   }
   menu.selection = !selection_.empty();
   events_.contextMenus.push_back(std::move(menu));
+  contextMenuHeld_ = true;
   needsRender_ = true;
   return P_HANDLED;
 }
@@ -1579,6 +1599,11 @@ void Editor::endGesture() {
   targets_.clear();
   originalTargets_.clear();
   originals_.clear();
+  if (duplicating_) {  // an ⌥-copy's distances (dragMove) go with it
+    measureTarget_ = kNoGuid;
+    measures_.clear();
+    measureGuides_.clear();
+  }
   duplicating_ = false;
   excluded_.clear();
   pinned_.clear();
@@ -1933,6 +1958,27 @@ void Editor::dragMove(Vec2 world, uint32_t mods) {
 
   // Into the frame under the pointer, out of the one it left.
   Guid drop = keepParent ? kNoGuid : dropTargetAt(world, forceNest);
+  // Group 1 (live Figma, the owner's recording autolayout-drag-r2-04: the pointer ~15 units off the frame, the layer
+  // still its child, clipped, its chrome and its slot kept): a layer dragged out of its own auto-layout flow stays in
+  // it while its box still overlaps the frame — unless the pointer is over another frame; once it is clear of the
+  // frame it is the page's (r2-05).
+  if (!keepParent && !flowDrag_.ids.empty() && !flowDrag_.left && !duplicating_ && drop != flowDrag_.frame && doc_.has(flowDrag_.frame)) {
+    bool outward = drop == kNoGuid;
+    for (Guid a = doc_.parentOf(flowDrag_.frame); !outward && a != kNoGuid; a = doc_.parentOf(a)) outward = a == drop;
+    Rect moving{moveBox_.x + d.x, moveBox_.y + d.y, moveBox_.w, moveBox_.h};
+    Rect fb = doc_.worldBounds(flowDrag_.frame);
+    bool overlaps = moving.x < fb.right() && fb.x < moving.right() && moving.y < fb.bottom() && fb.y < moving.bottom();
+    if (outward && overlaps) drop = flowDrag_.frame;
+    // The owner's report (2026-10-19; live Figma docs/research/figma/live/2026-10-18/autolayout-drag-frames.txt): while
+    // a layer is dragged inside its own auto-layout flow, the flow's other frames are no drop targets — it reorders,
+    // as a rectangle does (wrap rows too), and never goes into a sibling frame. (⌘ still nests: unverified live.)
+    if (!forceNest && !outward)
+      for (Guid a = drop; a != kNoGuid; a = doc_.parentOf(a))
+        if (a == flowDrag_.frame) {
+          drop = flowDrag_.frame;
+          break;
+        }
+  }
   for (const Target& t : targets_) {
     const Node* n = doc_.get(t.id);
     if (!n) continue;
@@ -2018,6 +2064,26 @@ void Editor::dragMove(Vec2 world, uint32_t mods) {
     hasInsertion_ = false;
   }
   if (flowDragLive()) slideFrom(shown);
+  // Group 1 (live autolayout-drag-r2-02): an ⌥-copy off any auto-layout frame shows its distances to the layer it was
+  // copied from — red pills, dashed extensions, that layer outlined red (the ⌥ measurement's look).
+  {
+    std::vector<SpacingMark> marks;
+    std::vector<GuideLine> extensions;
+    Guid target = kNoGuid;
+    if (duplicating_ && !intoAutoLayout && !originals_.empty() && doc_.has(originals_[0])) {
+      bool any = false;
+      Rect sel;
+      for (const Target& t : targets_)
+        if (doc_.has(t.id)) sel = any ? sel.united(doc_.worldBounds(t.id)) : doc_.worldBounds(t.id), any = true;
+      if (any) {
+        target = originals_[0];
+        measureBetween(sel, doc_.worldBounds(target), marks, extensions);
+      }
+    }
+    measureTarget_ = target;
+    measures_ = std::move(marks);
+    measureGuides_ = std::move(extensions);
+  }
   needsRender_ = true;
 }
 

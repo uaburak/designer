@@ -235,6 +235,7 @@ else()
     tests/unit/r14.deep_select.test.cpp
     tests/unit/r14.viewport_insets.test.cpp
     tests/unit/r15.chrome_labels.test.cpp
+    tests/unit/g1.canvas_chrome.test.cpp
     tests/unit/r15.components_chrome.test.cpp
     tests/unit/r15.spacing_handles.test.cpp
     tests/unit/r16.panel_spacing.test.cpp

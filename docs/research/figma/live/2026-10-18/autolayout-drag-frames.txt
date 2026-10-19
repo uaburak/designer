@@ -1,0 +1,19 @@
+Live Figma (web, UI3), 2026-10-19: dragging a FRAME child inside a wrapped auto-layout grid. Owner's test file: figma.com/design/hch4pFsm2kl216JpQcDt7b node 24:87 "test" (the same layout exists in his Wecra file file_96rtNKtJYanT node 6291490:49).
+
+FIXTURE (from the Plugin API)
+test FRAME 24:87, horizontal auto layout, gap 299:
+  test-Frame FRAME 23:48 3602x4806, HORIZONTAL + WRAP, gap 10, padding 233/171/233/171, clip
+    9 children "Frame 15, 20, 16, 21, 22, 23, 17, 18, 19", each a FRAME 1080x1440 with VERTICAL auto layout (gap 0, no padding) holding one RECTANGLE 492x515 (at different places)
+  test-Rectangle FRAME 23:68 — the same grid with 9 RECTANGLES 1080x1440 instead of frames
+
+WHAT FIGMA DOES (real mouse drags with the selection = Frame 15, zoom 16 %)
+1. Frame 15 dropped with the pointer at the CENTRE of sibling Frame 22 (over Frame 22's rectangle): Frame 15 stays a child of test-Frame and is REORDERED — new order Frame 20, 16, 21, 22, Frame 15, 23, 17, 18, 19 (index 4, after Frame 22). It does NOT go inside Frame 22, although Frame 22 is a frame (and itself an auto-layout frame) under the pointer.
+2. Frame 15 dropped over an empty corner of a sibling: again reordered (index 1), never inside the sibling.
+=> Rule: while a layer is dragged inside an auto-layout parent, sibling frames of that parent are NOT drop targets; the drag reorders within the parent (insertion index from the dragged layer's position among the flow, wrap rows included) exactly as it does for rectangles. The layer leaves the parent only by being dragged out of the parent's bounds (the reparent-out threshold — see the comparison's A autolayout-drag-r2-04), and enters a frame only from outside an auto-layout flow (or another rule not seen here).
+3. Rectangles in test-Rectangle reorder the same way (the owner says Wecra gets rectangles right).
+
+WECRA TODAY (owner, 2026-10-19): rectangles reorder correctly; a FRAME child dragged over a sibling frame drops INTO that sibling — wrong.
+
+NOT VERIFIED
+- A slow drag that hovers a sibling frame for a long time (Figma may have a hover-delay to enter); the test browser sends instant drags only.
+- ⌘ (ignore auto layout) while dragging over a sibling frame.

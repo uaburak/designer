@@ -99,18 +99,19 @@ TEST_CASE("r15 labelFrame: upright layers keep their AABB; a turned one reads al
   CHECK(f.box.h == doctest::Approx(423));
   CHECK(near(f.place.apply({f.box.x, f.box.y}), m.apply({0, 0})));                       // the top-left corner
   CHECK(near(f.place.apply({f.box.x + f.box.w / 2, f.box.bottom()}), m.apply({166, 423})));  // the bottom edge's middle
-  // Up to ±90°: along the top edge; Figma's 90° (a quarter turn anticlockwise) reads bottom to top on the left.
+  // Group 1 (live autolayout-drag-06 / -08): a quarter turn either way keeps its labels level — upright, the AABB (the
+  // name above its on-screen top-left corner, the badge under its on-screen bottom edge).
   LabelFrame q = labelFrame(Mat2x3::translate(300, 500) * Mat2x3::rotate(rad(-90)), size);
-  CHECK_FALSE(q.upright);
-  CHECK(near(q.place.applyLinear({1, 0}), {0, -1}));
-  CHECK(near(q.place.apply({q.box.x, q.box.y}), {300, 500}));  // the name starts at the layer's top-left corner
-  // Figma's −90°: the x axis points down, so the labels read the other way — bottom to top, over the layer's bottom
-  // edge, which is on the left on screen.
+  CHECK(q.upright);
+  CHECK(q.place == Mat2x3{});
+  CHECK(q.box == transformedBounds(Mat2x3::translate(300, 500) * Mat2x3::rotate(rad(-90)), size.x, size.y));
   Mat2x3 down = Mat2x3::translate(300, 100) * Mat2x3::rotate(rad(90));
   LabelFrame d = labelFrame(down, size);
-  CHECK(near(d.place.applyLinear({1, 0}), {0, -1}));
-  CHECK(near(d.place.apply({d.box.x, d.box.y}), down.apply({332, 423})));  // the bottom-right corner, bottom left on screen
-  CHECK(d.box.w == doctest::Approx(332));
+  CHECK(d.upright);
+  CHECK(d.box.w == doctest::Approx(423));
+  CHECK(d.box.h == doctest::Approx(332));
+  // Just off a quarter turn (89°): turned again, along the top edge.
+  CHECK_FALSE(labelFrame(Mat2x3::rotate(rad(-89)), size).upright);
   // 135°: upside down along the top edge, so along the bottom edge read left to right.
   Mat2x3 m135 = Mat2x3::translate(500, 500) * Mat2x3::rotate(rad(135));
   LabelFrame h = labelFrame(m135, size);

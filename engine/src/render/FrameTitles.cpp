@@ -21,7 +21,11 @@ LabelFrame labelFrame(const Mat2x3& toScreen, Vec2 size) {
     const double eps = 1e-9;
     // Never upside down: reading leftwards (or straight down) is read the other way.
     if (u.x < -eps || (std::fabs(u.x) <= eps && u.y > 0)) u = {-u.x, -u.y};
-    if (std::fabs(u.y) > eps) {
+    // Group 1 (2026-10-19; live Figma, the owner's recording autolayout-drag-06 / -08): a quarter turn (±90°, 270°)
+    // keeps its labels level — the name above the on-screen top-left corner, the W × H badge centred under the
+    // on-screen bottom edge — as an upright layer's; other angles turn them (round 15, 42.png at 37°).
+    const bool quarter = std::fabs(u.x) <= 1e-6;
+    if (std::fabs(u.y) > eps && !quarter) {
       f.upright = false;
       f.place = {u.x, -u.y, 0, u.y, u.x, 0};
     }

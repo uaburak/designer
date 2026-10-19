@@ -582,7 +582,27 @@ uint32_t Editor::gridKey(KeyCode code, uint32_t mods) {
 
 void Editor::gridTrackOverlay(Overlay& o) const {
   Guid frame = gridFrameSelected();
-  if (frame == kNoGuid) return;
+  if (frame == kNoGuid) {
+    // A grid's child selected: the grid's cells outlined, nothing else of its chrome (Group 1, live
+    // left-find-results-and-filter-menu: AL_grid_item4 selected, AL_grid's cells drawn).
+    if (selection_.size() != 1 || viewer_ || text_.node != kNoGuid || selection_[0].isDerived()) return;
+    const Node* child = doc_.get(selection_[0]);
+    Guid parent = doc_.parentOf(selection_[0]);
+    const Node* pn = doc_.get(parent);
+    if (!child || !pn || !pn->props.isAutoLayout() || pn->props.stack().stackMode != StackMode::GRID || !child->props.inFlow()) return;
+    if (!axisAligned(doc_.worldTransform(parent))) return;
+    Layout L(*const_cast<Editor*>(this));
+    Layout::GridCells g = L.gridCells(parent);
+    Mat2x3 W = doc_.worldTransform(parent);
+    for (size_t c = 0; c < g.colX.size(); c++)
+      for (size_t r = 0; r < g.rowY.size(); r++) {
+        Overlay::GridCell cell;
+        cell.a = W.apply({g.colX[c], g.rowY[r]});
+        cell.b = W.apply({g.colX[c] + g.colW[c], g.rowY[r] + g.rowH[r]});
+        o.gridCells.push_back(cell);
+      }
+    return;
+  }
   Layout L(*const_cast<Editor*>(this));
   Layout::GridCells g = L.gridCells(frame);
   Mat2x3 W = doc_.worldTransform(frame);
@@ -636,6 +656,9 @@ void Editor::gridTrackOverlay(Overlay& o) const {
   for (bool column : {true, false}) {
     size_t n = column ? g.colX.size() : g.rowY.size();
     int band = column ? hover.hoverColumn : hover.hoverRow;
+    // On the rows' side: the column last under the pointer keeps its compact pill (Group 1, live
+    // canvas-grid-hover-row-track-pill / -row-track-selected).
+    if (column && band < 0 && gridBandFrame_ == frame) band = gridBandColumn_;
     for (size_t i = 0; i < n; i++) {
       int segment = segmentOf(column, i);
       bool dragged = resizing && gridDrag_.column == column && gridDrag_.track == i;

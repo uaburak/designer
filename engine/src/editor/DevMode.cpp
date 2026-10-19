@@ -443,7 +443,9 @@ void Editor::devOverlay(Overlay& o) const {
           mark.workflow = static_cast<uint8_t>(wf);
           mark.trailing = viewer_ || section;
           d.statuses.push_back(mark);
-        } else if (canEditDev() && n->props.type != NodeType::INSTANCE && selected(c)) {
+        } else if (canEditDev() && n->props.type != NodeType::INSTANCE && !section && selected(c)) {
+          // (A selected section shows no `</>`: live Figma, canvas-section-selected — Group 1. Its status is set from
+          // the Design panel's header.)
           mark.kind = DevStatusMark::Kind::MarkButton;
           d.statuses.push_back(mark);
         }

@@ -619,7 +619,9 @@ export const canvasChrome: Record<ChromeColorName, Pair> = {
   handleFill: ["#ffffff", "#ffffff"],
   handleStroke: ["#0d99ff", "#0c8ce9"],
   hover: ["#0d99ff", "#0c8ce9"],
-  component: ["#9747ff", "#8a38f5"],
+  // Group 1 (2026-10-19): the canvas's component purple is #8a38f5 on a light canvas too — the owner's light-theme
+  // captures components15/figma-instance-child-{hover,selected}.png sample #8a38f5 (their red reads its exact #e30614).
+  component: ["#8a38f5", "#8a38f5"],
   sizeBadgeFill: ["#0d99ff", "#0c8ce9"],
   sizeBadgeText: ["#ffffff", "#ffffff"],
   frameTitleOnLight: ["#00000080", "#00000080"],
@@ -643,7 +645,9 @@ export const canvasChrome: Record<ChromeColorName, Pair> = {
   slotFill: ["#ff24bd40", "#f316b040"],
   slotStroke: ["#ff24bd", "#f316b0"],
   canvasDefault: ["#f5f5f5", "#1e1e1e"],
-  pixelGrid: ["#0000001a", "#ffffff1a"],
+  // Group 1 (2026-10-19, G6): fainter — live 800 % reads the lines a few levels over the canvas, 300 % hardly at all
+  // (behaviour/img/pixel-grid-{300,800}.png; ours at 10 % stood out).
+  pixelGrid: ["#0000000f", "#ffffff0f"],
   // Titles of selected frames and of components follow Figma's text-selected / text-component on the page's
   // background (live Figma 2026-10-08: #7cc4f8 and #d1a8ff over the dark canvas).
   frameTitleSelectedOnLight: ["#007be5", "#007be5"],
@@ -701,8 +705,9 @@ export const canvasChromeMetrics = {
   ruler: { thickness: 20, tick: 4, fontSize: 10 },
   titleSize: 11,
   // Live Figma (canvas-section-selected, round 9 at 1×): the name in a 23 px pill above the section's top-left corner,
-  // 6 px off it (the name semibold, 550: the engine's OverlayStyle).
-  sectionPill: { height: 23, padX: 6, fontSize: 11, gap: 6 },
+  // 6 px off it (the name semibold, 550: the engine's OverlayStyle). Group 1 (2026-10-19, the same capture zoomed: the
+  // pill 48.8 px, its text ~5.6 px in): 5 px either side, not 6 ("Section" 53 → 50).
+  sectionPill: { height: 23, padX: 5, fontSize: 11, gap: 6 },
   // Live Figma: a 9 px ring whose centre sits 12 px in from each corner (radius 0).
   radiusHandle: { size: 9, inset: 12 },
 } as const;

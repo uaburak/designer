@@ -463,9 +463,10 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
   };
 
   // The pixel grid (View › Pixel grid): a line on every whole canvas unit from 300 % zoom (faint at 300 %, full from
-  // 400 %: live Figma), under the other overlays.
+  // 400 %: live Figma), under the other overlays. Group 1 (G6): faint means barely there — live's 300 % and the
+  // light-theme recording at ≈ 370 % show none in their captures — so it fades in from 0.25 at 300 % to full at 400 %.
   if (overlay.pixelGrid && camera.zoom >= 3 && std::fabs(view.m01) < 1e-9 && std::fabs(view.m10) < 1e-9) {
-    double alpha = camera.zoom >= 4 ? 1.0 : 0.5;
+    double alpha = std::clamp(0.25 + 0.75 * (camera.zoom - 3), 0.25, 1.0);
     const Color gc{style.pixelGrid.r, style.pixelGrid.g, style.pixelGrid.b, 1};
     alpha *= style.pixelGrid.a;
     double px = 1 / dpr;
@@ -661,7 +662,8 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
         if (mark.frame == t.id && mark.kind == DevStatusMark::Kind::MarkButton) devIcon = true;
         else if (mark.frame == t.id && !mark.trailing) corner = &mark;
       devIcon &= t.frame.w >= 3 * kDevIconWidth;
-      if (devIcon && overlay.hideTitle != t.id)
+      // (A grid's track selected hides the name only: its `</>` stays — live canvas-grid-row-track-selected, Group 1.)
+      if (devIcon)
         drawDevIcon(t.id, DevStatusMark::Kind::MarkButton, t.frame.right(), baseline, ink, t.place, t.upright, overlay.dev, style);
       double cornerRoom = 0;
       if (corner && overlay.hideTitle != t.id) {
@@ -869,6 +871,29 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       continue;
     }
     nodeOutline(h, style.hoverWidth, true);
+    const NodeProps& hp = hn->props;
+    // Group 1 (live autolayout-drag-08, -r2-07): a hovered auto-layout frame whose layer is selected outlines its
+    // other layers dotted (1 px, 1.5 px dashes), in its chrome colour.
+    if (hp.isAutoLayout() && std::find(overlay.selection.begin(), overlay.selection.end(), h) == overlay.selection.end()) {
+      bool parentOfSelection = false;
+      for (Guid s : overlay.selection) parentOfSelection |= doc.has(s) && doc.parentOf(s) == h;
+      if (parentOfSelection)
+        for (Guid k : doc.children(h)) {
+          const Node* kn = doc.get(k);
+          if (!kn || !kn->props.visible || std::find(overlay.selection.begin(), overlay.selection.end(), k) != overlay.selection.end()) continue;
+          Rect lb = doc.localBounds(k);
+          dashedBox(screenBox(view * doc.worldTransform(k) * Mat2x3::translate(lb.x, lb.y), {lb.w, lb.h}, dpr), colorOf(k));
+        }
+    }
+    // Group 1 (C 9 #1, the owner's components15/figma-instance-child-hover.png): a hovered instance also dots its inner
+    // auto-layout frames' boxes in the component purple.
+    if (hp.type == NodeType::INSTANCE)
+      for (Guid k : doc.children(h)) {
+        const Node* kn = doc.get(k);
+        if (!kn || !kn->props.visible || !kn->props.isAutoLayout()) continue;
+        Rect lb = doc.localBounds(k);
+        dashedBox(screenBox(view * doc.worldTransform(k) * Mat2x3::translate(lb.x, lb.y), {lb.w, lb.h}, dpr), style.component);
+      }
   }
 
   // A layer in an auto-layout flow selected: its parent's box dashed (live Figma).
@@ -960,7 +985,14 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
                      style.radiusHandleFill, 1, blue, 1, 1, 0),
            Pass::Shape);
     }
-    // A line: a handle on each end instead.
+    // A line: the line itself in the selection colour, 1 px over its stroke (live Figma, canvas-arrow-line-selected;
+    // Group 1), on device pixels when level or plumb; a handle on each end instead of the box's.
+    if (overlay.lineEnds.size() == 2) {
+      Vec2 a = view.apply(overlay.lineEnds[0]), b = view.apply(overlay.lineEnds[1]);
+      if (std::fabs(a.y - b.y) < 1e-6) a.y = b.y = std::round((a.y - 0.5) * dpr) / dpr + 0.5;
+      if (std::fabs(a.x - b.x) < 1e-6) a.x = b.x = std::round((a.x - 0.5) * dpr) / dpr + 0.5;
+      polyline({a, b}, false, 1, blue, 1);
+    }
     for (Vec2 w : overlay.lineEnds) {
       Vec2 c = view.apply(w);
       Mat2x3 hm = Mat2x3::translate(std::round((c.x - hs / 2) * dpr) / dpr, std::round((c.y - hs / 2) * dpr) / dpr);
@@ -1030,7 +1062,13 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
             }
           }
         }
-      std::string text = formatNumber(worldSize.x) + sx + " \u00D7 " + formatNumber(worldSize.y) + sy;
+      // Hair spaces (U+200A) round the "\u00D7" and before Hug / Fill (the 2026-10-18 comparison, G1: live "120 \u00D7 0" 42 px,
+      // "400 \u00D7 300" 58, "232 Hug \u00D7 72 Hug" 95 at 1\u00D7 \u2014 Inter's full spaces made each pill ~6 px wider; hair spaces land
+      // within a pixel or two of every one).
+      static const std::string kHair = "\u200A";
+      for (std::string* s : {&sx, &sy})
+        if (!s->empty() && (*s)[0] == ' ') *s = kHair + s->substr(1);
+      std::string text = formatNumber(worldSize.x) + sx + kHair + "\u00D7" + kHair + formatNumber(worldSize.y) + sy;
       if (set) {
         size_t variants = 0;
         for (Guid c : doc.children(overlay.selection[0]))
@@ -1061,6 +1099,35 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     // The "+": centred under the pill, with the handles (not while moving or in view-only mode).
     if (set && overlay.handles && overlay.badgeText.empty())
       drawAddVariant(overlay.selection[0], sr.x + sr.w / 2 - style.addVariantSize / 2, below, blue, style);
+    // Group 1: the AI sparkle outside the selection's top-right corner (live Figma, measured on
+    // canvas-rect-selected-hover-radius-handles and autolayout-drag-r2-07: its centre ~16 px right of and ~16 px below
+    // the corner, ~11 px across, a four-pointed star outlined 1 px in the selected title's colour); hovered, white on a
+    // 20 px rounded square of the selection colour (as the `</>` button; unverified). A press opens the Actions panel.
+    if (overlay.aiButton) {
+      const bool dark = style.darkCanvas;
+      const Color ink = allComponents ? (dark ? style.titleComponentOnDark : style.titleComponentOnLight) : (dark ? style.titleSelectedOnDark : style.titleSelectedOnLight);
+      auto snap = [&](double v) { return std::round(v * dpr) / dpr; };
+      Vec2 c{snap(sr.right() + 16) + 0.5, snap(sr.y + 16) + 0.5};
+      const double box = 20;
+      Rect hit{c.x - box / 2, c.y - box / 2, box, box};
+      if (overlay.aiButtonHovered) {
+        const double r = 4;
+        emit(makeShape(Mat2x3::translate(hit.x, hit.y), {box, box}, ShapeKind::Rect, {r, r, r, r}, blue, 1, blue, 0, 0, 0), Pass::Shape);
+      }
+      const Color glyph = overlay.aiButtonHovered ? white : Color{ink.r, ink.g, ink.b, 1};
+      // The star: four tips 5.5 px out, its sides curving in towards the middle.
+      const double R = 5.5, k = 0.27;  // the sides' control points k of the way out from the middle
+      geom::Path star;
+      Vec2 tips[4] = {{0, -R}, {R, 0}, {0, R}, {-R, 0}};
+      star.moveTo(c + tips[0]);
+      for (int i = 0; i < 4; i++) {
+        Vec2 a = tips[i], b = tips[(i + 1) % 4];
+        star.cubicTo(c + a * k, c + b * k, c + b);
+      }
+      star.close();
+      for (const geom::Polyline& pl : geom::flatten(star, 0.1)) polyline(pl.points, true, 1, glyph, overlay.aiButtonHovered ? 1 : ink.a);
+      if (recordHits_) hits_.aiButton = hit;
+    }
   }
   // A grid item's span handles: small white circles with a blue ring on its sides' midpoints.
   for (const Vec2& w : overlay.gridSpanHandles) {
@@ -1151,8 +1218,9 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     bool lit = static_cast<int>(k) == overlay.centreDotHovered;
     const double ring = style.ringSize;
     if (overlay.centreDotsIdle && !lit) {
+      // Off the selection: a light dot, no pink in it (Group 1: live smart-selection-three-equal-rects, a PNG, reads
+      // a plain light dot; the pink core round 11 guessed through the JPEG's chroma subsampling isn't there).
       circle(style.dotSize, &white, nullptr);
-      circle(style.dotCore, &pink, nullptr);
     } else if (lit) {
       circle(ring + 3, &white, nullptr);
       circle(ring + 1, &pink, nullptr);
