@@ -1,6 +1,6 @@
 /** Agent settings' building blocks (AgentSettings.tsx, aiSettings.tsx): the list's groups and rows, a page's blocks and fields. */
 import type { ReactNode } from "react";
-import { Icon, cx, type IconName } from "@/ds";
+import { Icon, cx, tooltipProps, type IconName } from "@/ds";
 import styles from "./Agents.module.css";
 
 export const errorText = (err: unknown) => (err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "") : String(err));
@@ -41,6 +41,23 @@ export function Field({ label, children, ...data }: { label: string; children: R
       <span className={styles.fieldLabel}>{label}</span>
       <span className={styles.fieldValue}>{children}</span>
     </div>
+  );
+}
+
+/**
+ * A path on this computer, read whole however narrow the page: the home folder as "~", the middle cut, never its
+ * last part ("~/.local/bi…/antigravity"); the whole path in its tooltip, and selectable to copy.
+ */
+export function PathText({ path }: { path: string }) {
+  const shown = path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~");
+  const cut = shown.lastIndexOf("/", shown.length - 2);
+  const head = cut > 0 ? shown.slice(0, cut) : "";
+  const tail = cut > 0 ? shown.slice(cut) : shown;
+  return (
+    <span className={styles.path} data-path={path} {...tooltipProps(path)}>
+      {head && <span className={styles.pathHead}>{head}</span>}
+      <span className={styles.pathTail}>{tail}</span>
+    </span>
   );
 }
 

@@ -10,10 +10,31 @@ import { t, useT } from "@/i18n";
 import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { useEditor } from "../controller";
 import { agentsOf } from "../agents/service";
+import { viewRect } from "./viewInsets";
 import styles from "./AgentImagePlaceholders.module.css";
 
 /** Below this on screen (px) the placeholder drops its caption. */
 const CAPTION_MIN = 120;
+
+/**
+ * "Making an image…" sits at the placeholder's bottom left; when that corner is under a panel or past the view's edge
+ * it slides along the placeholder into the visible part (an upright placeholder; a turned one keeps its corner).
+ */
+function keepCaptionInView(node: HTMLElement, m: readonly number[], w: number, h: number, z: number, c: { x: number; y: number }, view: { left: number; top: number; right: number; bottom: number } | null) {
+  const caption = node.firstElementChild as HTMLElement | null;
+  if (!caption) return;
+  let dx = 0;
+  let dy = 0;
+  if (view && m[1] === 0 && m[3] === 0 && m[0] > 0 && m[4] > 0) {
+    const x = m[2] * z + c.x;
+    const y = m[5] * z + c.y;
+    // Its margin inside the placeholder (offsetLeft / the space under it) is kept on every side.
+    const margin = caption.offsetLeft;
+    dx = Math.min(Math.max(0, w - caption.offsetWidth - 2 * margin), Math.max(0, view.left - x));
+    dy = -Math.min(Math.max(0, caption.offsetTop - margin), Math.max(0, y + h - view.bottom));
+  }
+  caption.style.transform = dx || dy ? `translate(${dx}px, ${dy}px)` : "";
+}
 
 export function AgentImagePlaceholders() {
   useT();
@@ -28,6 +49,10 @@ export function AgentImagePlaceholders() {
       const c = ed.store.camera;
       const z = c.zoom;
       const page = ed.store.page;
+      // The panels lie over the canvas: the part they leave visible, in the layer's px (the caption is kept in it).
+      const box = el.getBoundingClientRect();
+      const v = viewRect(ed.canvas);
+      const view = v ? { left: v.left - box.left, top: v.top - box.top, right: v.right - box.left, bottom: v.bottom - box.top } : null;
       for (const node of Array.from(el.children) as HTMLElement[]) {
         const p = items.find((x) => x.id === node.dataset.placeholder);
         if (!p) continue;
@@ -40,6 +65,7 @@ export function AgentImagePlaceholders() {
         node.style.height = `${height * z}px`;
         node.style.borderRadius = ellipse ? "50%" : radius ? radius.map((r) => `${r * z}px`).join(" ") : "";
         node.toggleAttribute("data-small", Math.min(width, height) * z < CAPTION_MIN);
+        keepCaptionInView(node, m, width * z, height * z, z, c, view);
       }
     };
     place();

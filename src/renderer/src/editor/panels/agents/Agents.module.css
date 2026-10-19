@@ -31,7 +31,7 @@
   .chatRow:hover { background: var(--figma-color-bg-hover); }
   .chatOpen { display: grid; flex: 1 1 auto; grid-template-columns: 1fr auto; gap: var(--ds-space-half) var(--ds-space-2); min-width: 0; padding: var(--ds-space-2); border: 0; background: transparent; color: inherit; text-align: left; outline: none; cursor: default; }
   .chatOpen:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); border-radius: var(--ds-radius-medium); }
-  .chatTitle { overflow: hidden; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); text-overflow: ellipsis; white-space: nowrap; }
+  .chatTitle { overflow: hidden; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); text-overflow: ellipsis; white-space: nowrap; }
   .chatTime { color: var(--figma-color-text-tertiary); font: var(--ds-font-body-small); }
   .chatPreview { display: -webkit-box; grid-column: 1 / -1; overflow: hidden; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
   .chatDelete { flex: none; margin: var(--ds-space-1) var(--ds-space-1) 0 0; visibility: hidden; }
@@ -70,7 +70,8 @@
   /* A run of steps as one row (Claude's desktop way): the Agents icon, its line and a chevron; open, the steps under it
      along a thin line, each ✓ (or a spinner, or ⚠ that opens to its error) and what it did */
   .stepGroup { display: flex; flex-direction: column; gap: var(--ds-space-1); }
-  .groupHeader { display: flex; align-items: center; align-self: flex-start; gap: var(--ds-space-1-5); max-width: 100%; min-height: var(--ds-size-control); padding: 0; border: 0; background: transparent; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); text-align: left; outline: none; cursor: default; }
+  /* The row is the answer's width (the thinking line's too), its words at the start */
+  .groupHeader { display: flex; align-items: center; align-self: stretch; gap: var(--ds-space-1-5); max-width: 100%; min-height: var(--ds-size-control); padding: 0; border: 0; background: transparent; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); text-align: left; outline: none; cursor: default; }
   button.groupHeader:hover { color: var(--figma-color-text); }
   button.groupHeader:hover .groupChevron { color: var(--figma-color-icon-secondary); }
   .groupHeader:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); border-radius: var(--ds-radius-small); }
@@ -90,7 +91,8 @@
   .toolFailed > .tool:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); border-radius: var(--ds-radius-small); }
   .toolChevron { display: inline-flex; flex: none; color: var(--figma-color-icon-tertiary); }
   .toolChevronOpen { transform: rotate(90deg); }
-  .toolError { margin-left: var(--ds-space-5); color: var(--figma-color-text-danger); font: var(--ds-font-body-medium); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+  /* A step's error under its ⚠, the group's whole width (not indented again to the step's words) */
+  .toolError { color: var(--figma-color-text-danger); font: var(--ds-font-body-medium); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
   .error { padding: var(--ds-space-2); border: 1px solid var(--figma-color-border-danger); border-radius: var(--ds-radius-medium); color: var(--figma-color-text-danger); font: var(--ds-font-body-medium); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
   .stopped { color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); }
 
@@ -175,15 +177,15 @@
   .fileThumb { flex: none; width: var(--ds-space-4); height: var(--ds-space-4); border-radius: var(--ds-radius-small); object-fit: cover; }
   .attachProblem { color: var(--figma-color-text-danger); font: var(--ds-font-body-medium); overflow-wrap: anywhere; }
 
-  /* The usage ring: the most used limit of the plan (75 % warns, 95 % is full); none reported, the track alone */
+  /* The usage ring: the most used limit of the plan as a slice (75 % warns, 95 % is full); none reported, the ring alone */
   .usage { display: inline-flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-control); height: var(--ds-size-control); padding: 0; border: 0; border-radius: var(--ds-radius-full); background: transparent; outline: none; }
   .usage:hover, .usage[aria-expanded="true"] { background: var(--figma-color-bg-hover); }
   .usage:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .usageSvg { width: var(--ds-space-4); height: var(--ds-space-4); }
-  .usageTrack { fill: none; stroke: var(--figma-color-border); stroke-width: 2; }
-  .usageValue { fill: none; stroke: var(--figma-color-icon); stroke-width: 2; stroke-linecap: round; }
-  .usage[data-usage="warn"] .usageValue { stroke: var(--figma-color-icon-warning); }
-  .usage[data-usage="full"] .usageValue { stroke: var(--figma-color-icon-danger); }
+  .usageTrack { fill: none; stroke: var(--figma-color-icon-tertiary); stroke-width: 1; }
+  .usageValue { fill: var(--figma-color-icon-secondary); }
+  .usage[data-usage="warn"] .usageValue { fill: var(--figma-color-icon-warning); }
+  .usage[data-usage="full"] .usageValue { fill: var(--figma-color-icon-danger); }
   /* Its card (hover; a click pins it): the plan, each limit with its bar and reset, this chat's tokens */
   .usageCard { position: fixed; z-index: var(--ds-z-popover); display: flex; flex-direction: column; gap: var(--ds-space-3); width: var(--ds-size-panel); padding: var(--ds-space-3) var(--ds-space-4); border-radius: var(--ds-radius-large); background: var(--figma-color-bg); color: var(--figma-color-text); box-shadow: var(--ds-elevation-400-menu-panel); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); visibility: hidden; }
   .usageHead { display: flex; flex-direction: column; gap: var(--ds-space-half); }
@@ -228,10 +230,11 @@
   .row:hover { background: var(--figma-color-bg-hover); }
   .row:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .rowIcon { display: inline-flex; flex: none; color: var(--figma-color-icon); }
-  /* The name whole up to two thirds of the row; a long status ("Turned off by your organization") gives way first */
+  /* UI3's rows cut the name, never the value: "Antigravity (Google…  ● Connected". Only a status longer than two thirds of
+     the row ("Turned off by your organization") is cut too. */
   .rowLabel { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .rowLabel:has(+ .rowStatus) { flex-shrink: 0; max-width: 66%; }
-  .rowStatus { display: inline-flex; flex: 0 1 auto; align-items: center; gap: var(--ds-space-1); min-width: 0; margin-left: auto; color: var(--figma-color-text-secondary); white-space: nowrap; }
+  .rowLabel:has(+ .rowStatus) { flex: 0 1 auto; }
+  .rowStatus { display: inline-flex; flex: none; align-items: center; gap: var(--ds-space-1); min-width: 0; max-width: 66%; margin-left: auto; color: var(--figma-color-text-secondary); white-space: nowrap; }
   .rowStatus > span:last-child { overflow: hidden; text-overflow: ellipsis; }
   .rowChevron { display: inline-flex; flex: none; color: var(--figma-color-icon-tertiary); }
   .rowDim .rowLabel, .rowDim .rowStatus { color: var(--figma-color-text-tertiary); }
@@ -251,6 +254,10 @@
   .fieldLabel { flex: none; width: var(--ds-space-16); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
   .fieldValue { display: flex; flex: 1 1 auto; align-items: center; gap: var(--ds-space-1); min-width: 0; color: var(--figma-color-text); font: var(--ds-font-body-medium); overflow-wrap: anywhere; }
   .fieldSelect { flex: 1 1 auto; min-width: 0; }
+  /* A path: its middle gives way, its last part stays ("~/.local/bi…/antigravity") */
+  .path { display: flex; flex: 1 1 auto; min-width: 0; font: var(--ds-font-code); white-space: nowrap; user-select: text; }
+  .pathHead { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .pathTail { flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
   .mono { flex: 1 1 auto; min-width: 0; overflow: hidden; font: var(--ds-font-code); text-overflow: ellipsis; white-space: nowrap; user-select: text; }
   .command { display: block; padding: var(--ds-space-1-5) var(--ds-space-2); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); color: var(--figma-color-text); font: var(--ds-font-code); overflow-wrap: anywhere; user-select: text; }
   .pageText { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-1); margin: 0; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); overflow-wrap: anywhere; }

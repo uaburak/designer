@@ -212,6 +212,8 @@ describe("the canvas placeholder", () => {
     expect(targetAspect(placeholderTarget(env()))).toBe(1);
     const zoomed = { ...env(), camera: { x: -500, y: -500, zoom: 2 } };
     expect(placeholderTarget(zoomed, 2)!.box).toEqual({ x: 350, y: 425, width: 300, height: 150 });
+    // The panels lie over the canvas: the middle of the part they leave visible (a 240 left panel, a 40 bar on top).
+    expect(placeholderTarget({ ...env(), view: { x: 240, y: 40, width: 760, height: 960 } })!.box).toEqual({ x: 392, y: 292, width: 456, height: 456 });
     expect(placeholderTarget({ ...env(), page: null })).toBeNull();
   });
 

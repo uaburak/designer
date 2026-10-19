@@ -12,7 +12,7 @@
  */
 import { t, useT } from "@/i18n";
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
-import { Button, ContextMenu, Dialog, IconButton, SegmentedControl, Select, Spinner, TextArea, Toolbar, ToolbarDivider, ToolTextButton } from "@/ds";
+import { Button, ContextMenu, Dialog, IconButton, SegmentedControl, Select, Spinner, TextArea, Toolbar, ToolbarDivider, ToolTextButton, type SelectOption } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import type { AiRoute, AiSettings, ImageRouteInfo } from "../../../../shared/ai/types";
 import { useEditor } from "../controller";
@@ -41,9 +41,12 @@ const MORE: { id: string; label: string }[] = [
   { id: "vectorize", label: "Vectorize" },
 ];
 
-/** The image providers for the model dropdown: the routes that can run (`ai:image-routes`), else by Settings › AI's keys. */
-function routeOptions(s: AiSettings | null, routes: ImageRouteInfo[] | null) {
-  const out = [{ value: "antigravity", label: "Antigravity (Google AI)" }];
+/**
+ * The image providers for the model dropdown: the routes that can run (`ai:image-routes`), else by Settings › AI's keys.
+ * The field shows Antigravity's short name (its menu row the whole one), so the card's foot never cuts it.
+ */
+function routeOptions(s: AiSettings | null, routes: ImageRouteInfo[] | null): SelectOption[] {
+  const out: SelectOption[] = [{ value: "antigravity", label: "Antigravity (Google AI)", valueLabel: "Antigravity" }];
   if (routes) {
     for (const r of routes) if (r.available && r.providerId !== "antigravity") out.push({ value: r.providerId, label: r.label });
     return out;
