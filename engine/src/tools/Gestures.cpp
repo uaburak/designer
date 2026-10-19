@@ -2004,28 +2004,31 @@ void Editor::dragMove(Vec2 world, uint32_t mods) {
           break;
         }
   }
-  // 2026-10-20 (the owner): layers that ignore auto layout stay their auto-layout parent's children while the pointer
-  // is over it — its other frames are no drop targets (as for a layer dragged in its own flow; ⌘ still nests).
+  // 2026-10-20 (the owner): layers that ignore auto layout stay their auto-layout parents' children while the pointer
+  // is over one of them — those parents' other frames are no drop targets (as for a layer dragged in its own flow; ⌘
+  // still nests). Each keeps its own parent, also when they are in different auto-layout frames (one inside the other,
+  // the owner's absolute-multi-drag captures): they move together freely, as layers in plain frames.
+  bool keepHomes = false;
   if (!keepParent && !forceNest && drop != kNoGuid && !targets_.empty()) {
-    const Guid home = targets_[0].parent;
-    const Node* hn = doc_.get(home);
-    bool absolute = hn && hn->props.isAutoLayout();
+    bool absolute = true;
     for (const Target& t : targets_) {
       const Node* n = doc_.get(t.id);
-      absolute = absolute && n && t.parent == home && n->props.stackPositioning == StackPositioning::ABSOLUTE;
+      const Node* hn = doc_.get(t.parent);
+      absolute = absolute && n && hn && hn->props.isAutoLayout() && n->props.stackPositioning == StackPositioning::ABSOLUTE;
     }
     if (absolute)
-      for (Guid a = drop; a != kNoGuid; a = doc_.parentOf(a))
-        if (a == home) {
-          drop = home;
-          break;
-        }
+      for (Guid a = drop; a != kNoGuid && !keepHomes; a = doc_.parentOf(a))
+        for (const Target& t : targets_)
+          if (a == t.parent) {
+            keepHomes = true;
+            break;
+          }
   }
   for (const Target& t : targets_) {
     const Node* n = doc_.get(t.id);
     if (!n) continue;
     Guid now = n->props.parentIndex.guid;
-    Guid want = keepParent ? t.parent : drop == containerOf(t.parent) ? t.parent : drop;
+    Guid want = keepParent || keepHomes ? t.parent : drop == containerOf(t.parent) ? t.parent : drop;
     if (want == now) continue;
     NodeChange c = NodeChange::changed(t.id);
     c.mask = F_PARENT_INDEX;
