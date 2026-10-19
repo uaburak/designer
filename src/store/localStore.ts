@@ -195,6 +195,9 @@ export class LocalStore {
         fileChanges: files.changes,
         backlog: (fileKey, fromSeq) => files.backlog(fileKey, fromSeq),
         appendRemote: (fileKey, message) => files.appendRemote(fileKey, message),
+        // The tree under concurrent moves (docs/multiplayer.md §18.12)
+        appendCorrection: (fileKey, message) => files.appendSystem(fileKey, message, { kind: "system", label: "Multiplayer" }),
+        structureAt: (fileKey, skip) => files.structureAt(fileKey, skip),
         createSharedFile: (input) => this.createSharedFile(input),
         fillFile: (fileKey, snapshot, message) => this.fillCloudFile(fileKey, snapshot, message),
         newFileKey: () => newFileKey(),

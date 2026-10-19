@@ -322,7 +322,7 @@ async function deleteAccount(deps: Deps, user: User): Promise<void> {
   // Their sockets in others' files close (the room checks membership again on reconnect).
   const { results: joined } = await d1.prepare(`SELECT file_key FROM members WHERE user_id = ?1 OR email = ?2`).bind(user.id, user.email).all<{ file_key: string }>();
   await d1.prepare(`DELETE FROM members WHERE user_id = ?1 OR email = ?2`).bind(user.id, user.email).run();
-  for (const { file_key } of joined) await deps.rooms.fetch(file_key, "/room/revoke", { method: "POST", body: JSON.stringify({ userId: user.id }) });
+  for (const { file_key } of joined) await deps.rooms.fetch(file_key, "/room/revoke", { method: "POST", body: JSON.stringify({ userId: user.id, removed: true }) });
   await d1.prepare(`DELETE FROM access_requests WHERE user_id = ?1`).bind(user.id).run();
   await d1.prepare(`DELETE FROM comment_reactions WHERE user_id = ?1`).bind(user.id).run();
   await d1.prepare(`DELETE FROM comment_reads WHERE user_id = ?1`).bind(user.id).run();

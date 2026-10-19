@@ -10,8 +10,8 @@
  */
 import type { RoomPolicy } from "../../shared/org/identity";
 import { GOVERNANCE_SIGN_IN_ERROR_TEXT, REQUIRES_GOVERNANCE_PLUS, type GovernanceErrorCode, type OrgGate } from "../../shared/org/governance";
-import { CLOSE_MOVING, encodeChangesUp, decodeChangesDown, type ClientControl, type PeerInfo, type Role, type ServerControl } from "../../shared/multiplayer/protocol";
-import type { AccessRequest, FileMember, FileShareState, InheritedPerson, LinkAccess, LinkSettingsPatch, MultiplayerNotice, MultiplayerSession, MultiplayerStatus, OpenIntent, OpeningProgress, RemoteFile, RestJobAnswer, RestJobRequest, SessionEnded, SharedFileInfo } from "../../shared/multiplayer/types";
+import { CLOSE_FULL, CLOSE_MOVING, CLOSE_TOO_OLD, encodeChangesUp, decodeChangesDown, PROTOCOL_VERSION, type ClientControl, type PeerInfo, type Role, type ServerControl } from "../../shared/multiplayer/protocol";
+import type { AccessRequest, FileMember, FileShareState, InheritedPerson, LinkAccess, LinkSettingsPatch, MultiplayerNotice, MultiplayerSession, MultiplayerSignal, MultiplayerStatus, OpenIntent, OpeningProgress, RemoteFile, RestJobAnswer, RestJobRequest, SessionEnded, SharedFileInfo } from "../../shared/multiplayer/types";
 import type { RestJob, RestJobPart } from "../../shared/rest/types";
 import { decodeMessage } from "../../shared/schema/codec";
 import type { Message } from "../../shared/schema/document.generated";
@@ -24,6 +24,9 @@ import type { FileChange, Unsubscribe } from "../../shared/store/repositories";
 import type { FileKey, FileMeta, FileSpace } from "../../shared/store/types";
 import { touchedBy, withoutPending, type Touched } from "../../shared/multiplayer/conflict";
 import { splitFrame } from "../../shared/multiplayer/split";
+import { applyStructure, changesStructure, repairStructure, structureTouched, type Structure } from "../../shared/multiplayer/structure";
+import { encodeMessage, type ParentIndex } from "../../shared/schema/codec";
+import { guidKey } from "../../shared/schema/guid";
 import { busyError, fetchWithRetry, isErrorPage, READ_RETRY_DELAYS, STILL_UPLOADING_TEXT, UPLOAD_RETRY_DELAYS, withRetry } from "./http";
 import { countingBody, pool, sendBlobs, UploadTracker, BLOB_CONCURRENCY, type BlobSender, type MultipartStart, type UploadClock } from "./uploads";
 import { BlobDownloads, DOWNLOAD_CONCURRENCY, imageDownloadOrder, type BlobSource } from "./downloads";
@@ -35,6 +38,12 @@ export interface MultiplayerHost {
   readonly fileChanges: { on(listener: (c: FileChange) => void): Unsubscribe };
   backlog(fileKey: FileKey, fromSeq: number): Promise<FileChange[]>;
   appendRemote(fileKey: FileKey, message: Uint8Array): Promise<{ seq: number }>;
+  /** A change the store writes for the link (docs/multiplayer.md §18.12, a refused move or a rescued orphan): sent to the
+   *  room as this copy's edits are, applied by the editor as another session's. Absent: the tree isn't repaired. */
+  appendCorrection?(fileKey: FileKey, message: Uint8Array): Promise<{ seq: number }>;
+  /** The file's tree from its snapshot and every journaled frame but `skip` (this copy's changes still waiting: what is
+   *  left is the room's tree); null when one of them is folded into the snapshot already (§18.12) */
+  structureAt?(fileKey: FileKey, skip: readonly number[]): Promise<Structure | null>;
   /** A new local file holding this snapshot as it is (no GUID remapping: the room's nodes keep their ids); `space`: the
    *  org file it copies (docs/multiplayer.md §14.6), so it never lists among local Drafts */
   createSharedFile(input: { name: string; snapshot: Uint8Array; space?: FileSpace | null; fileKey?: FileKey; message?: Message }): Promise<FileMeta>;
@@ -179,6 +188,14 @@ export const COMPACT_EVERY = 1000;
 export const ACK_TIMEOUT_MS = 30_000;
 export const ACK_PER_MB_MS = 8_000;
 /**
+ * A move (or delete) of this copy's journaled this soon after another person's change to the tree is checked against
+ * it (docs/multiplayer.md §18.12): the editor made it before that change reached its engine, so it may close a cycle
+ * or leave a layer without a parent in the room's order (ours).
+ */
+export const STRUCTURE_RECENT_MS = 10_000;
+/** A full file (Figma's too-many-connections, §18.13) is tried again this long after (ours) */
+export const FULL_RETRY_MS = 60_000;
+/**
  * Figma's "Offline sync" savepoint (atlas 22 §3.3): before changes made away from the room are sent, the room's state is
  * kept as a version — on the link's first connection with changes waiting (edits restored at start), or after it was
  * offline this long (ours: Figma's own trigger is a restored session).
@@ -302,7 +319,9 @@ export class MultiplayerService {
     return {
       shared: !!rec,
       key: rec?.key ?? null,
-      role: rec?.role ?? null,
+      // Past the editors' limit the room made this session a viewer's (§18.13): the editor is read-only meanwhile
+      role: link?.limited ? "viewer" : (rec?.role ?? null),
+      ...(link?.limited ? { limited: "editors" as const } : {}),
       connection: link?.connection ?? "offline",
       peers: link ? [...link.peers.values()] : [],
       requests: this.requestCounts.get(fileKey) ?? 0,
@@ -1272,6 +1291,13 @@ export class MultiplayerService {
     return () => this.notices.delete(listener);
   }
 
+  /** @internal One of Figma's multiplayer signals for the file (§18.13), with whether this copy has unsaved changes:
+   *  the editor says it in Figma's words */
+  mpSignal(fileKey: FileKey, signal: MultiplayerSignal, unsaved: boolean): void {
+    this.emitState(fileKey);
+    for (const l of this.notices) l(fileKey, { kind: "signal", signal, unsaved });
+  }
+
   /** @internal A notice from the room: requests are counted for editors, answers reach the person who asked. */
   async notice(fileKey: FileKey, n: MultiplayerNotice): Promise<void> {
     if (n.kind === "access-request") await this.requests(fileKey, true).catch(() => []);
@@ -1942,6 +1968,7 @@ class Link {
     if (waiting === (this.unackedSince !== null)) return;
     if (waiting) this.unackedSince = Date.now();
     else {
+      this.shadow.clear();
       this.unackedSince = null;
       this.lastAckAt = Date.now();
     }
@@ -1964,6 +1991,13 @@ class Link {
    *  it has been offline — the Offline sync savepoint */
   private wasLive = false;
   private offlineSince: number | null = null;
+  /** The room's places of nodes this copy is moving, from frames whose move lost to ours meanwhile (§18.12: the journal
+   *  doesn't hold them, the room's tree does); emptied when nothing waits */
+  private shadow = new Map<string, ParentIndex>();
+  /** When another person's change to the tree was last journaled (STRUCTURE_RECENT_MS) */
+  private remoteStructureAt = 0;
+  /** Joined past the room's editors' limit (§18.13): a viewer for this socket, its changes wait (unsaved) */
+  limited = false;
   /** Sent frames waiting for their echo: local seq → when the link gives up on this socket (ACK_TIMEOUT_MS) */
   private deadlines = new Map<number, number>();
   private watchdog: ReturnType<typeof setTimeout> | null = null;
@@ -2018,10 +2052,14 @@ class Link {
 
   /** A frame the store just journaled. */
   local(c: FileChange): void {
+    // A move or delete made just after another person's change to the tree: checked against it (§18.12)
+    if (c.kind !== "remote" && Date.now() - this.remoteStructureAt < STRUCTURE_RECENT_MS && this.svc.host_.structureAt && this.svc.host_.appendCorrection) {
+      if (changesStructure(decodeMessage(c.message))) this.chain = this.chain.then(() => this.repairLocal()).catch((err) => this.svc.host_.log("warn", `multiplayer ${this.fileKey}: the tree wasn't checked`, err));
+    }
     // While the backlog goes out (`ready`) a new frame waits its turn: it is sent in journal order with it
     if (c.kind === "remote" || !this.ready || this.flushing || this.pending.has(c.seq)) return;
     const rec = this.svc.record(this.fileKey);
-    if (!rec || c.seq <= rec.acked || rec.role === "viewer") return;
+    if (!rec || c.seq <= rec.acked || rec.role === "viewer" || this.limited) return;
     this.send(c);
   }
 
@@ -2099,7 +2137,7 @@ class Link {
   /** The room holds many frames past its snapshot: one client (the owner, else the present editor with the lowest
    *  session) uploads a new one from its copy, when its copy is exactly the room's state (nothing pending). */
   private maybeCompact(rec: LinkRecord): void {
-    if (this.compacting || rec.role === "viewer" || this.pending.size || rec.since - this.snapshotSeq < (this.svc.deps_.compactEvery ?? COMPACT_EVERY)) return;
+    if (this.compacting || rec.role === "viewer" || this.limited || this.pending.size || rec.since - this.snapshotSeq < (this.svc.deps_.compactEvery ?? COMPACT_EVERY)) return;
     const writers = [...this.peers.values()].filter((p) => p.role !== "viewer");
     const ownerHere = writers.some((p) => p.role === "owner");
     if (rec.role !== "owner" && (ownerHere || writers.some((p) => p.sessionID < this.session))) return;
@@ -2114,6 +2152,83 @@ class Link {
         this.compacting = false;
       }
     });
+  }
+
+  /**
+   * Another session's frame, as this copy journals it: without what this copy's waiting changes override (Figma's rule,
+   * conflict.ts) and, when it meets a move or delete of this copy's still waiting, with the tree repaired (§18.12) — a
+   * cycle our later move closes or a layer left without a parent is put right by a change journaled (and sent) before
+   * the frame, so neither this copy's engine nor anyone's tree is left broken.
+   */
+  private async remoteFrame(rec: LinkRecord, incoming: Uint8Array): Promise<Uint8Array | null> {
+    const touched = this.pendingTouched();
+    const host = this.svc.host_;
+    if (!host.structureAt || !host.appendCorrection || rec.role === "viewer" || this.limited) return withoutPending(incoming, touched);
+    const decoded = decodeMessage(incoming);
+    if (!changesStructure(decoded)) return withoutPending(incoming, touched);
+    this.remoteStructureAt = Date.now();
+    if (!touched.size) return incoming;
+    const shadowBefore = new Map(this.shadow);
+    for (const nc of decoded.nodeChanges ?? []) {
+      if (!nc.guid || !nc.parentIndex || nc.phase === "REMOVED") continue;
+      const mine = touched.get(guidKey(nc.guid));
+      if (mine && (mine.has("parentIndex") || mine.has("*"))) this.shadow.set(guidKey(nc.guid), nc.parentIndex);
+    }
+    if (![...touched.values()].some((f) => f.has("parentIndex") || f.has("*"))) return withoutPending(incoming, touched);
+    const fix = await this.structureRepair(rec, shadowBefore, decoded, incoming);
+    if (!fix) return withoutPending(incoming, touched);
+    if (fix.corrections.length) await this.correct(fix.corrections);
+    const kept = withoutPending(incoming, this.pendingTouched());
+    if (!fix.reasserts.length) return kept;
+    const base: Message = kept ? decodeMessage(kept) : { ...decoded, nodeChanges: [], blobs: [] };
+    return encodeMessage({ ...base, nodeChanges: [...(base.nodeChanges ?? []), ...fix.reasserts] });
+  }
+
+  /** The repair the tree needs once `frame` (another session's, null: none) lands after this copy's waiting changes */
+  private async structureRepair(rec: LinkRecord, shadow: Map<string, ParentIndex>, frame: Message | null, frameBytes: Uint8Array | null) {
+    const host = this.svc.host_;
+    const mine = (await host.backlog(this.fileKey, rec.acked)).filter((c) => c.kind !== "remote");
+    if (!mine.length) return null;
+    const before = await host.structureAt!(this.fileKey, mine.map((c) => c.seq));
+    if (!before) {
+      host.log("info", `multiplayer ${this.fileKey}: the tree can't be checked (this copy's waiting changes are compacted)`);
+      return null;
+    }
+    for (const [k, p] of shadow) if (before.has(k)) before.set(k, p);
+    const messages = mine.map((c) => decodeMessage(c.message));
+    const room: Structure = frame ? applyStructure(new Map(before), frame) : before;
+    const local: Structure = new Map(before);
+    for (const m of messages) applyStructure(local, m);
+    if (frame && frameBytes) {
+      const kept = withoutPending(frameBytes, this.pendingTouched());
+      if (kept) applyStructure(local, kept === frameBytes ? frame : decodeMessage(kept));
+    }
+    const { placed, removed } = structureTouched(messages);
+    const fix = repairStructure({ local, room, ancestry: before, placed, removed });
+    if (fix.corrections.length) host.log("info", `multiplayer ${this.fileKey}: ${fix.corrections.length} layer(s) put back after a concurrent move or delete`);
+    return fix;
+  }
+
+  /** A move or delete of this copy's journaled after another session's change to the tree (the editor made it before
+   *  that change reached it): repaired if, in the room's order, it breaks the tree (§18.12) */
+  private async repairLocal(): Promise<void> {
+    const rec = this.svc.record(this.fileKey);
+    if (!rec || rec.role === "viewer" || this.limited || this.stopped) return;
+    const fix = await this.structureRepair(rec, new Map(this.shadow), null, null);
+    if (!fix) return;
+    if (fix.corrections.length) await this.correct(fix.corrections);
+    if (fix.reasserts.length) await this.svc.host_.appendRemote(this.fileKey, encodeMessage({ type: "NODE_CHANGES", sessionID: 0, ackID: 0, nodeChanges: fix.reasserts, blobs: [] } as Message));
+  }
+
+  /** The repair journaled as a change of this copy's: sent to the room in its turn, waiting like any other */
+  private async correct(corrections: Message["nodeChanges"]): Promise<void> {
+    const bytes = encodeMessage({ type: "NODE_CHANGES", sessionID: 0, ackID: 0, nodeChanges: corrections, blobs: [] } as Message);
+    const { seq } = await this.svc.host_.appendCorrection!(this.fileKey, bytes);
+    // Not sent yet (the catch-up before `ready`): it waits with the backlog, and the room's frames give way to it now
+    if (!this.pending.has(seq)) {
+      this.pending.set(seq, touchedBy(decodeMessage(bytes)));
+      this.notePending();
+    }
   }
 
   private pendingTouched(): Touched {
@@ -2156,12 +2271,19 @@ class Link {
         if (r.role !== "viewer") for (const c of await this.svc.host_.backlog(this.fileKey, r.acked)) if (c.kind !== "remote") this.pending.set(c.seq, touchedBy(decodeMessage(c.message)));
         this.notePending();
         const flags = this.svc.renderFlags(this.fileKey);
-        const hello: ClientControl = { t: "hello", since: r.since, ...(flags.render ? { render: true } : {}), ...(flags.helper ? { helper: true } : {}) };
+        const hello: ClientControl = { t: "hello", since: r.since, v: PROTOCOL_VERSION, ...(flags.render ? { render: true } : {}), ...(flags.helper ? { helper: true } : {}) };
         ws.send(JSON.stringify(hello));
       });
     };
     ws.onmessage = (e) => {
       const data = e.data;
+      // Figma's signals (§18.13) come right before the room closes the socket (or as a bell): said now, not after it
+      if (typeof data === "string" && data.includes('"t":"mp-signal"')) {
+        const msg = JSON.parse(data) as Extract<ServerControl, { t: "mp-signal" }>;
+        this.svc.host_.log("warn", `multiplayer ${this.fileKey}: ${msg.name}`);
+        this.svc.mpSignal(this.fileKey, msg.name, this.pending.size > 0);
+        return;
+      }
       // The room's refusals come right before it closes the socket: acted on now, before the close can schedule a retry.
       if (typeof data === "string" && data.includes('"t":"error"')) {
         const msg = JSON.parse(data) as Extract<ServerControl, { t: "error" }>;
@@ -2179,6 +2301,8 @@ class Link {
           this.stopped = true;
           void this.svc.recover(this.fileKey);
         }
+        // A frame the room couldn't read (Figma's message-decode-failure): the bell, then the reconnect sends it again
+        if (msg.code === "bad-frame") this.svc.mpSignal(this.fileKey, "message-decode-failure", this.pending.size > 0);
         return;
       }
       this.chain = this.chain.then(() => this.receive(ws, data)).catch((err) => this.svc.host_.log("error", `multiplayer ${this.fileKey}: a frame failed`, err));
@@ -2193,6 +2317,13 @@ class Link {
       this.peers.clear();
       this.svc.emitState(this.fileKey);
       if (e.code === CLOSE_UNSHARED) return void this.svc.unlink(this.fileKey);
+      // Figma's signals (§18.13): an app too old for the room stops (updating it is the way back); a full file is
+      // tried again after a while, its changes kept here meanwhile
+      if (e.code === CLOSE_TOO_OLD) {
+        this.stopped = true;
+        return;
+      }
+      if (e.code === CLOSE_FULL) return this.retry(FULL_RETRY_MS);
       // The room is moving to another region (§15.10): its copy answers once the Worker flipped the file — like 4003,
       // a reconnect without backoff, after a moment.
       // A move that keeps refusing falls back to the backoff (every loop here is bounded).
@@ -2228,8 +2359,14 @@ class Link {
           this.session = msg.sessionID;
           // Lost the right to edit (made a viewer, a merged branch) with changes the room hasn't taken: rolled back at
           // `ready`, once the catch-up has acknowledged whatever of them it had.
-          this.demoted = rec.role !== "viewer" && msg.role === "viewer";
-          rec.role = msg.role;
+          // Past the editors' limit (§18.13) the room says viewer for this session only: the person's role stays, their
+          // changes wait (they aren't rolled back), the editor says so
+          this.limited = msg.limited === "editors";
+          this.demoted = rec.role !== "viewer" && msg.role === "viewer" && !this.limited;
+          if (!this.limited) rec.role = msg.role;
+          else if (rec.role === "viewer") rec.role = "editor";
+          if (this.limited) this.svc.mpSignal(this.fileKey, "converted-to-viewer", this.pending.size > 0);
+          if (msg.cursorHidden) this.svc.mpSignal(this.fileKey, "cursor-hidden", false);
           if (!rec.sessions.includes(msg.sessionID)) rec.sessions = [...rec.sessions.slice(-63), msg.sessionID];
           this.peers = new Map(msg.peers.map((p) => [p.sessionID, p]));
           this.snapshotSeq = msg.snapshotSeq ?? 0;
@@ -2251,14 +2388,14 @@ class Link {
           this.demoted = false;
           // Changes made away from the room: its state is kept as a version before they land (Figma's Offline sync).
           const away = !this.wasLive || (this.offlineSince !== null && Date.now() - this.offlineSince >= OFFLINE_SYNC_AFTER_MS);
-          if (unsent && away && rec.role !== "viewer") await this.svc.offlineSavepoint(rec.key);
+          if (unsent && away && rec.role !== "viewer" && !this.limited) await this.svc.offlineSavepoint(rec.key);
           if (this.ws !== ws) return;
           this.wasLive = true;
           this.offlineSince = null;
           this.ready = true;
           // What the room hasn't acknowledged goes (again) now, in journal order — frames journaled meanwhile with it,
           // never ahead of an older one (a later read finds them; nothing new between the last read and the end).
-          if (rec.role !== "viewer") {
+          if (rec.role !== "viewer" && !this.limited) {
             this.flushing = true;
             try {
               for (;;) {
@@ -2299,6 +2436,8 @@ class Link {
           return this.svc.setPolicy(this.fileKey, msg.policy ?? null, true);
         case "rest-job":
           return this.svc.restJob(this.fileKey, msg.id, msg.job);
+        case "cursor":
+          return this.svc.mpSignal(this.fileKey, msg.why === "observed" ? "cursor-visible-observed" : "cursor-visible-left", false);
       }
       return;
     }
@@ -2317,7 +2456,7 @@ class Link {
         rec.acked = Math.max(rec.acked, frame.batch);
       }
     } else {
-      const message = withoutPending(frame.message, this.pendingTouched());
+      const message = await this.remoteFrame(rec, frame.message);
       if (message) {
         await this.svc.downloadBlobs(rec.key, imagesOf(message), this.fileKey);
         await this.svc.host_.appendRemote(this.fileKey, message);

@@ -13,6 +13,7 @@ import { prepareFigImportAsync } from "../../../../shared/fig/importFig";
 import { decodeMessage, encodeMessage, newDocumentMessage, SCHEMA_BINARY } from "../../../../shared/schema/codec";
 import { RESERVED_SESSION_LIMIT, sessionIdFor, splitSessionId } from "../../../../shared/schema/guid";
 import { messageImageHashes, NodeTable } from "../../../../shared/schema/patch";
+import { applyStructure, structureOf } from "../../../../shared/multiplayer/structure";
 import { restoreDiff, withNewAssetIdentity } from "../../../../shared/store/assetIdentity";
 import { snapshotLosses } from "../../../../shared/store/snapshotCheck";
 import { Emitter } from "../../../../shared/store/emitter";
@@ -352,6 +353,16 @@ export class MemoryStore {
         fileChanges: this.fileChanges,
         backlog: async (fileKey, fromSeq) => this.backlog(fileKey, fromSeq),
         appendRemote: async (fileKey, message) => this.appendRemote(fileKey, message),
+        // The tree under concurrent moves (docs/multiplayer.md §18.12)
+        appendCorrection: async (fileKey, message) => this.appendSystem(fileKey, message, { kind: "system", label: "Multiplayer" }),
+        structureAt: async (fileKey, skip) => {
+          const d = this.fileData(fileKey);
+          if (skip.some((seq) => seq <= d.snapshotSeq)) return null;
+          const s = structureOf(decodeMessage(d.snapshot));
+          const skipped = new Set(skip);
+          for (const f of d.frames) if (f.seq > d.snapshotSeq && !skipped.has(f.seq)) applyStructure(s, decodeMessage(f.message));
+          return s;
+        },
         createSharedFile: (input) => this.addFile({ name: input.name.trim() || "Untitled", folderId: null, snapshot: input.snapshot, space: input.space ?? null }),
         fillFile: async (fileKey, snapshot) => this.fillCloudFile(fileKey, snapshot),
         newDocument: () => encodeMessage(newDocumentMessage()),
@@ -742,7 +753,7 @@ export class MemoryStore {
   }
 
   /** A store batch without a session: "remote", "merge" or "update" (docs/data.md §15.5); `expectSeq`: else `stale`. */
-  appendSystem(fileKey: FileKey, message: Uint8Array, opts: { kind: "remote" | "merge" | "update"; label?: string; expectSeq?: number; blobRefsAdded?: string[] }): AppendAck {
+  appendSystem(fileKey: FileKey, message: Uint8Array, opts: { kind: "remote" | "merge" | "update" | "system"; label?: string; expectSeq?: number; blobRefsAdded?: string[] }): AppendAck {
     const d = this.fileData(fileKey);
     decodeMessage(message);
     if (opts.expectSeq !== undefined && this.headSeq(d) !== opts.expectSeq) throw new StoreError("stale", "The file changed meanwhile");

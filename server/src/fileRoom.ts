@@ -234,7 +234,9 @@ export class FileRoom extends DurableObject {
         return res ?? new Response("not found", { status: 404 });
       }
       case "POST /room/revoke": {
-        const { userId } = (await req.json()) as { userId: string };
+        const { userId, removed } = (await req.json()) as { userId: string; removed?: boolean };
+        // Their access was taken away (not changed): Figma's `invalid-permissions` first (docs/multiplayer.md §18.13)
+        if (removed === true) this.room.signalUser(userId, "invalid-permissions");
         this.room.closeUser(userId, CLOSE_ACCESS, "access changed");
         return Response.json({ ok: true });
       }

@@ -16,6 +16,7 @@ import { MultiplayerService, type MultiplayerDeps, type MultiplayerHost } from "
 import { multiplayerApi } from "./api";
 import { isPackedSnapshot, packSnapshot, unpackSnapshot } from "../../shared/multiplayer/snapshotWire";
 import type { UploadEvent, UploadProgress } from "../../shared/multiplayer/uploads";
+import { applyStructure, cycleFrom, structureOf } from "../../shared/multiplayer/structure";
 
 const SERVER = "https://mp.test";
 
@@ -51,7 +52,9 @@ const fakeRooms: Rooms = {
     }
     if (blob) return r.blobs.has(blob[1]) ? new Response(r.blobs.get(blob[1])!.slice()) : new Response("none", { status: 404 });
     if (path === "/room/revoke") {
-      r.room.closeUser(JSON.parse(String(init.body)).userId, 4003, "access changed");
+      const body = JSON.parse(String(init.body)) as { userId: string; removed?: boolean };
+      if (body.removed) r.room.signalUser(body.userId, "invalid-permissions");
+      r.room.closeUser(body.userId, 4003, "access changed");
       return Response.json({ ok: true });
     }
     return Response.json({ ok: true });
@@ -143,6 +146,15 @@ class FakeStore implements MultiplayerHost {
   async appendRemote(fileKey: FileKey, message: Uint8Array) {
     return { seq: this.push(fileKey, { sessionID: 0, kind: "remote", message }).seq };
   }
+  async appendCorrection(fileKey: FileKey, message: Uint8Array) {
+    return { seq: this.push(fileKey, { sessionID: 0, kind: "system", message }).seq };
+  }
+  async structureAt(fileKey: FileKey, skip: readonly number[]) {
+    const f = this.files.get(fileKey)!;
+    const s = structureOf(decodeMessage(f.snapshot));
+    for (const c of f.frames) if (!skip.includes(c.seq)) applyStructure(s, decodeMessage(c.message));
+    return s;
+  }
   newFileKey() {
     return `joined${++this.n}`;
   }
@@ -191,7 +203,8 @@ class FakeStore implements MultiplayerHost {
       for (const nc of decodeMessage(bytes).nodeChanges ?? []) {
         const k = `${nc.guid!.sessionID}:${nc.guid!.localID}`;
         if (nc.phase === "REMOVED") delete out[k];
-        else {
+        else if (nc.phase === "CREATED" || out[k] || bytes === f.snapshot) {
+          // A change to a node that isn't there is dropped, as the store's table does (patch.ts)
           const { guid: _g, phase: _p, ...rest } = nc as any;
           out[k] = { ...(nc.phase === "CREATED" ? {} : out[k]), ...rest };
         }
@@ -1124,21 +1137,24 @@ describe("MultiplayerService, Phase 6: concurrent editing (docs/multiplayer.md �
   });
 });
 
-describe("MultiplayerService, Phase 6: convergence (docs/multiplayer.md §18.4)", () => {
-  /** The document the room's order makes: its snapshot, then every frame it holds after it */
-  async function roomDoc(key: string) {
-    const r = rooms.get(key)!;
-    const out: Record<string, Record<string, unknown>> = {};
-    const frames = [await unpackSnapshot(r.snapshot!.bytes), ...r.storage.frames.filter((f) => f.seq > r.snapshot!.seq).map((f) => f.message)];
-    for (const bytes of frames)
-      for (const nc of decodeMessage(bytes).nodeChanges ?? []) {
-        const k = `${nc.guid!.sessionID}:${nc.guid!.localID}`;
+/** The document the room's order makes: its snapshot, then every frame it holds after it */
+async function roomDoc(key: string) {
+  const r = rooms.get(key)!;
+  const out: Record<string, Record<string, unknown>> = {};
+  const frames = [await unpackSnapshot(r.snapshot!.bytes), ...r.storage.frames.filter((f) => f.seq > r.snapshot!.seq).map((f) => f.message)];
+  for (const bytes of frames)
+    for (const nc of decodeMessage(bytes).nodeChanges ?? []) {
+      const k = `${nc.guid!.sessionID}:${nc.guid!.localID}`;
+      if (nc.phase === "REMOVED") delete out[k];
+      else if (nc.phase === "CREATED" || out[k] || bytes === frames[0]) {
         const { guid: _g, phase: _p, ...rest } = nc as any;
         out[k] = { ...(nc.phase === "CREATED" ? {} : out[k]), ...rest };
       }
-    return out;
-  }
+    }
+  return out;
+}
 
+describe("MultiplayerService, Phase 6: convergence (docs/multiplayer.md §18.4)", () => {
   for (const start of [7, 2024, 31337])
     it(`three installations editing the same properties at once, with dropped connections, end on the room's order (seed ${start})`, async () => {
       const { a, b, fa, fb, key } = await sharedPair();
@@ -1171,6 +1187,214 @@ describe("MultiplayerService, Phase 6: convergence (docs/multiplayer.md §18.4)"
       expect(b.store.doc(fb)).toEqual(room);
       expect(c.store.doc(fc)).toEqual(room);
     });
+});
+
+describe("MultiplayerService, Phase 6: the tree under concurrent moves and deletes (docs/multiplayer.md §18.12)", () => {
+  const S = 2 * 2 ** 20 + 1;
+  const k = (localID: number, sessionID = S) => `${sessionID}:${localID}`;
+  const into = (localID: number, sessionID = S, position = "m") => ({ parentIndex: { guid: { sessionID, localID }, position } });
+  const parentOf = (doc: Record<string, Record<string, unknown>>, key: string) => {
+    const p = doc[key]?.parentIndex as { guid: { sessionID: number; localID: number } } | undefined;
+    return p ? `${p.guid.sessionID}:${p.guid.localID}` : null;
+  };
+  /** What's wrong with a document's tree: nodes on a cycle, nodes whose parent isn't there */
+  function treeProblems(doc: Record<string, Record<string, unknown>>): string[] {
+    const s = new Map(Object.entries(doc).map(([key, v]) => [key, (v.parentIndex as any) ?? null]));
+    const out: string[] = [];
+    for (const key of s.keys()) {
+      if (cycleFrom(s, key)) out.push(`cycle at ${key}`);
+      else
+        for (let cur: string | null = key, g = 0; cur && g < 1000; g++) {
+          const p = parentOf(doc, cur);
+          if (p && !doc[p]) out.push(`orphan ${key}`);
+          cur = p && doc[p] ? p : null;
+        }
+    }
+    return out.sort();
+  }
+  /** A shared pair whose page holds frames X (10), Y (11), F (12) and N (13), made by A */
+  async function sharedTree() {
+    const p = await sharedPair();
+    p.a.store.edit(p.fa, [10, 11, 12, 13].map((id, i) => node(id, { phase: "CREATED", name: `n${id}`, ...into(1, 0, String.fromCharCode(97 + i)) }, S)));
+    await settle();
+    return p;
+  }
+  async function converged(p: { a: { store: FakeStore; svc: MultiplayerService }; b: { store: FakeStore; svc: MultiplayerService }; fa: string; fb: string; key: string }) {
+    await wait(40);
+    await wait(40);
+    for (const [x, f] of [[p.a, p.fa], [p.b, p.fb]] as const) expect(await x.svc.syncState(f)).toMatchObject({ connection: "live", pending: 0, unsent: 0 });
+    const room = await roomDoc(p.key);
+    expect(p.a.store.doc(p.fa)).toEqual(room);
+    expect(p.b.store.doc(p.fb)).toEqual(room);
+    expect(treeProblems(room)).toEqual([]);
+    return room;
+  }
+
+  it("two people moving X into Y and Y into X at once: the later move in the room's order goes back, both copies agree, nothing vanishes", async () => {
+    const p = await sharedTree();
+    p.a.store.edit(p.fa, [node(10, { ...into(11), opacity: 0.25 }, S)]);
+    p.b.store.edit(p.fb, [node(11, { ...into(10), opacity: 0.75 }, S)]);
+    const room = await converged(p);
+    const xUnderY = parentOf(room, k(10)) === k(11);
+    const yUnderX = parentOf(room, k(11)) === k(10);
+    expect(xUnderY !== yUnderX).toBe(true);
+    // The loser is back on the page; its other properties stand (only the move was refused)
+    expect(parentOf(room, xUnderY ? k(11) : k(10))).toBe("0:1");
+    expect(room[k(10)].opacity).toBe(0.25);
+    expect(room[k(11)].opacity).toBe(0.75);
+  });
+
+  it("a layer moved into a frame someone deletes at the same moment goes to the frame's parent, not lost", async () => {
+    const p = await sharedTree();
+    p.a.store.edit(p.fa, [{ guid: { sessionID: S, localID: 12 }, phase: "REMOVED" } as NodeChange]);
+    p.b.store.edit(p.fb, [node(13, into(12), S)]);
+    const room = await converged(p);
+    expect(room[k(12)]).toBeUndefined();
+    expect(parentOf(room, k(13))).toBe("0:1");
+  });
+
+  it("a layer drawn into a frame someone deletes at the same moment is kept, in the frame's parent", async () => {
+    const p = await sharedTree();
+    const T = 3 * 2 ** 20 + 1;
+    p.a.store.edit(p.fa, [{ guid: { sessionID: S, localID: 12 }, phase: "REMOVED" } as NodeChange]);
+    p.b.store.edit(p.fb, [node(1, { phase: "CREATED", name: "Drawn", ...into(12) }, T), node(2, { phase: "CREATED", name: "Inside", ...into(1, T) }, T)]);
+    const room = await converged(p);
+    expect(parentOf(room, k(1, T))).toBe("0:1");
+    expect(parentOf(room, k(2, T))).toBe(k(1, T));
+  });
+
+  it("a move the editor made before another person's move reached it (journaled after it) is put back when it closes a cycle", async () => {
+    const p = await sharedTree();
+    p.b.store.edit(p.fb, [node(11, into(10), S)]);
+    await settle();
+    expect(parentOf(p.a.store.doc(p.fa), k(11))).toBe(k(10));
+    // A's editor moved X into Y before B's move reached its engine: journaled now, after it
+    p.a.store.edit(p.fa, [node(10, into(11), S)]);
+    const room = await converged(p);
+    expect(parentOf(room, k(11))).toBe(k(10));
+    expect(parentOf(room, k(10))).toBe("0:1");
+  });
+
+  for (const start of [5, 77, 4242, 90210])
+    it(`three installations moving, drawing and deleting layers at once, with dropped connections, end on one tree with nothing lost (seed ${start})`, async () => {
+      const p = await sharedTree();
+      const c = await installation("c@x.co");
+      services.push(c.svc);
+      await p.a.svc.invite(p.fa, "c@x.co", "editor");
+      const { fileKey: fc } = await c.svc.openShared(p.key);
+      await settle();
+      const peers = [
+        { store: p.a.store, f: p.fa, session: 4 * 2 ** 20 + 1, n: 0 },
+        { store: p.b.store, f: p.fb, session: 5 * 2 ** 20 + 1, n: 0 },
+        { store: c.store, f: fc, session: 6 * 2 ** 20 + 1, n: 0 },
+      ];
+      const created = new Set([k(10), k(11), k(12), k(13)]);
+      const removed = new Set<string>();
+      let seed = start;
+      const rnd = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
+      const pick = <T,>(xs: T[]) => xs[Math.floor(rnd() * xs.length)];
+      const guidOf = (key: string) => ({ sessionID: Number(key.split(":")[0]), localID: Number(key.split(":")[1]) });
+      for (let step = 0; step < 90; step++) {
+        const peer = pick(peers);
+        const doc = peer.store.doc(peer.f);
+        const layers = Object.keys(doc).filter((key) => created.has(key));
+        const r = rnd();
+        if (r < 0.25 || !layers.length) {
+          // Draw a layer into the page or one of the layers this copy has
+          const id = ++peer.n;
+          const parent = pick(["0:1", ...layers]);
+          created.add(k(id, peer.session));
+          peer.store.edit(peer.f, [node(id, { phase: "CREATED", name: `s${step}`, parentIndex: { guid: guidOf(parent), position: `p${step}` } } as any, peer.session)]);
+        } else if (r < 0.6) {
+          // Move a layer — the editor refuses a move into itself or its own layers, as this copy has them
+          const n = pick(layers);
+          const target = pick(["0:1", ...layers].filter((t) => t !== n && !cycleFrom(new Map([...Object.entries(doc).map(([key, v]) => [key, (v.parentIndex as any) ?? null] as const), [n, { guid: guidOf(t), position: "" }]]), n)));
+          if (target) peer.store.edit(peer.f, [{ guid: guidOf(n), parentIndex: { guid: guidOf(target), position: `q${step}` }, opacity: step / 100 } as any]);
+        } else if (r < 0.72) {
+          // Delete a layer with everything this copy has inside it
+          const n = pick(layers);
+          const gone = [n];
+          for (let i = 0; i < gone.length; i++) for (const key of Object.keys(doc)) if (parentOf(doc, key) === gone[i] && !gone.includes(key)) gone.push(key);
+          for (const g of gone) removed.add(g);
+          peer.store.edit(peer.f, gone.map((g) => ({ guid: guidOf(g), phase: "REMOVED" }) as NodeChange));
+        } else {
+          const n = pick(layers);
+          peer.store.edit(peer.f, [{ guid: guidOf(n), name: `renamed ${step}` } as any]);
+        }
+        if (rnd() < 0.06) for (const s of [...sockets]) if (rnd() < 0.5) s.drop();
+        if (rnd() < 0.35) await settle();
+      }
+      await wait(40);
+      await wait(40);
+      await wait(40);
+      for (const x of [p.a, p.b, c]) expect(await x.svc.syncState(x === p.a ? p.fa : x === p.b ? p.fb : fc)).toMatchObject({ connection: "live", pending: 0, unsent: 0 });
+      const room = await roomDoc(p.key);
+      expect(p.a.store.doc(p.fa)).toEqual(room);
+      expect(p.b.store.doc(p.fb)).toEqual(room);
+      expect(c.store.doc(fc)).toEqual(room);
+      expect(treeProblems(room)).toEqual([]);
+      // Nothing lost: every layer drawn is there unless someone deleted it
+      expect(Object.keys(room).filter((key) => created.has(key)).sort()).toEqual([...created].filter((key) => !removed.has(key)).sort());
+    });
+});
+
+describe("MultiplayerService, Phase 6: Figma's limits and signals (docs/multiplayer.md §18.13)", () => {
+  const signals = (svc: MultiplayerService) => {
+    const out: { fileKey: string; signal: string; unsaved: boolean }[] = [];
+    svc.onNotice((fileKey, n) => n.kind === "signal" && out.push({ fileKey, signal: n.signal, unsaved: n.unsaved }));
+    return out;
+  };
+
+  it("past the editors' limit an editor is a viewer for the session — told so, its change waits (not rolled back) and goes once there is room", async () => {
+    const { a, b, fa, key } = await sharedPair();
+    (rooms.get(key)!.room as any).opts.limits = { editors: 2 };
+    const c = await installation("c@x.co");
+    services.push(c.svc);
+    const heard = signals(c.svc);
+    const replaced: string[] = [];
+    c.svc.onReplaced((from) => replaced.push(from));
+    await a.svc.invite(fa, "c@x.co", "editor");
+    const { fileKey: fc } = await c.svc.openShared(key);
+    await settle();
+    expect(await c.svc.fileState(fc)).toMatchObject({ role: "viewer", limited: "editors", connection: "live" });
+    expect(heard).toEqual([{ fileKey: fc, signal: "converted-to-viewer", unsaved: false }]);
+    c.store.edit(fc, [node(1, { name: "C waits" })]);
+    await settle();
+    expect(a.store.doc(fa)["0:1"].name).toBe("Home");
+    expect(replaced).toEqual([]);
+    // B leaves; C's next connection finds room for an editor and its change goes
+    b.svc.close();
+    for (const s of [...sockets]) s.drop();
+    await wait(40);
+    await wait(40);
+    expect(await c.svc.fileState(fc)).toMatchObject({ role: "editor", connection: "live" });
+    expect((await c.svc.fileState(fc)).limited).toBeUndefined();
+    expect(a.store.doc(fa)["0:1"].name).toBe("C waits");
+  });
+
+  it("a full file: too-many-connections, said with whether changes wait; the link tries again later", async () => {
+    const { a, fa, key } = await sharedPair();
+    (rooms.get(key)!.room as any).opts.limits = { participants: 2, extraEditors: 0 };
+    const c = await installation("c@x.co");
+    services.push(c.svc);
+    const heard = signals(c.svc);
+    await a.svc.invite(fa, "c@x.co", "viewer");
+    const { fileKey: fc } = await c.svc.openShared(key);
+    await settle();
+    expect(heard).toEqual([{ fileKey: fc, signal: "too-many-connections", unsaved: false }]);
+    expect((await c.svc.fileState(fc)).connection).toBe("offline");
+  });
+
+  it("access taken away while the file is open: invalid-permissions, then the copy stays here, unshared", async () => {
+    const { a, b, fa, fb } = await sharedPair();
+    const heard = signals(b.svc);
+    b.store.edit(fb, [node(1, { name: "B's" })]);
+    await a.svc.removeMember(fa, "b@x.co");
+    await wait(40);
+    expect(heard[0]).toMatchObject({ fileKey: fb, signal: "invalid-permissions" });
+    expect((await b.svc.fileState(fb)).shared).toBe(false);
+    expect(b.store.doc(fb)["0:1"].name).toBe("B's");
+  });
 });
 
 describe("MultiplayerService, Phase 6: Offline sync (atlas 22 §3.3)", () => {

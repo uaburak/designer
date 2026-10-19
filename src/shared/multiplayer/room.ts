@@ -27,6 +27,15 @@ import {
   encodeChangesDown,
   MAX_FRAME_BYTES,
   MAX_SIGNAL_BYTES,
+  MAX_CURSORS,
+  MAX_EDITORS,
+  MAX_PARTICIPANTS,
+  MAX_PRESENCE_BYTES,
+  EXTRA_EDITORS_WHEN_FULL,
+  PRESENCE_PER_SECOND,
+  CLOSE_FULL,
+  CLOSE_TOO_OLD,
+  type MultiplayerSignalName,
   type ChangesDown,
   type ClientControl,
   type PeerInfo,
@@ -77,7 +86,27 @@ export interface MemberState extends Identity {
   activeAt?: number;
   /** Its multiplayer colour (an index into MULTIPLAYER_COLORS), given at hello */
   color?: number;
+  /** Joined past MAX_EDITORS: can edit the file, a viewer in this session (§18.13) */
+  limited?: boolean;
+  /** Joined past MAX_PARTICIPANTS as one of the EXTRA_EDITORS_WHEN_FULL */
+  overflow?: boolean;
+  /** Joined past MAX_CURSORS: its cursor isn't relayed unless someone follows it; `observedTold`: it was told once */
+  cursorHidden?: boolean;
+  observedTold?: boolean;
 }
+
+/** The room's limits (§18.13): Figma's by default, smaller in tests */
+export interface RoomLimits {
+  editors: number;
+  cursors: number;
+  participants: number;
+  extraEditors: number;
+}
+
+const LIMITS: RoomLimits = { editors: MAX_EDITORS, cursors: MAX_CURSORS, participants: MAX_PARTICIPANTS, extraEditors: EXTRA_EDITORS_WHEN_FULL };
+
+/** Does the member write in this session (an owner or editor not limited)? */
+const writes = (m: MemberState) => (m.role === "owner" || m.role === "editor") && !m.limited;
 
 /** What the room captured for Discovery since the last drain (docs/governance.md §2.11) */
 export interface DiscoveryCapture {
@@ -102,6 +131,10 @@ export interface RoomOptions {
   onRest?(conn: Connection, member: MemberState, answer: RestAnswer): void;
   /** A member that can render said hello (a job waiting for one may go on) */
   onRenderer?(conn: Connection, member: MemberState): void;
+  /** Figma's limits (default: theirs) */
+  limits?: Partial<RoomLimits>;
+  /** The oldest client protocol (hello.v) the room takes (default 0: every client) */
+  minProtocol?: number;
 }
 
 export class Room {
@@ -119,6 +152,18 @@ export class Room {
     return this.opts.now ? this.opts.now() : Date.now();
   }
 
+  private get limits(): RoomLimits {
+    return { ...LIMITS, ...this.opts.limits };
+  }
+
+  /** Presence messages per member in the current second (PRESENCE_PER_SECOND; not kept across hibernation) */
+  private presenceRate = new WeakMap<Connection, { second: number; n: number }>();
+
+  /** One of Figma's signals to a user's sessions (`invalid-permissions` before their access goes) */
+  signalUser(userId: string, name: MultiplayerSignalName): void {
+    for (const [c, m] of this.members) if (m.userId === userId) this.send(c, { t: "mp-signal", name });
+  }
+
   /**
    * Members that can answer REST jobs, in the order jobs try them (§16.6): editors (idle longest first), then viewers,
    * then render helpers. `canEdit`: only those whose role edits (POST variables).
@@ -126,7 +171,7 @@ export class Room {
   renderers(opts: { canEdit?: boolean } = {}): Connection[] {
     const tier = (m: MemberState) => (m.helper ? 2 : m.role === "viewer" ? 1 : 0);
     return [...this.members]
-      .filter(([, m]) => m.sessionID && m.render && (!opts.canEdit || m.role === "owner" || m.role === "editor"))
+      .filter(([, m]) => m.sessionID && m.render && (!opts.canEdit || writes(m)))
       .sort(([, a], [, b]) => tier(a) - tier(b) || (a.activeAt ?? 0) - (b.activeAt ?? 0))
       .map(([c]) => c);
   }
@@ -195,17 +240,25 @@ export class Room {
       } catch {
         return this.fail(conn, "bad-frame", "not JSON");
       }
-      if (msg.t === "hello") return this.hello(conn, m, msg.since, msg.render === true, (msg as { helper?: unknown }).helper === true);
+      if (msg.t === "hello") return this.hello(conn, m, msg.since, msg.render === true, (msg as { helper?: unknown }).helper === true, typeof msg.v === "number" ? msg.v : 0);
       if (!m.sessionID) return this.fail(conn, "unauthorized", "hello first");
       if (msg.t === "rest-job-done" || msg.t === "rest-job-failed") {
         if (typeof msg.id === "string") this.opts.onRest?.(conn, m, msg);
         return;
       }
       if (msg.t === "presence") {
+        // Past the size or the rate (§18.13): dropped — the next one carries the same state
+        if (data.length > MAX_PRESENCE_BYTES) return;
+        const second = Math.floor(this.now() / 1000);
+        const rate = this.presenceRate.get(conn);
+        if (rate && rate.second === second) {
+          if (++rate.n > PRESENCE_PER_SECOND) return;
+        } else this.presenceRate.set(conn, { second, n: 1 });
         this.chatEnded(m, m.presence, msg.data);
         m.presence = msg.data;
         this.onState(conn, m);
-        this.broadcast({ t: "presence", sessionID: m.sessionID, data: msg.data }, conn);
+        this.broadcast({ t: "presence", sessionID: m.sessionID, data: this.relayed(m) }, conn);
+        this.followed(m);
       } else if (msg.t === "signal") {
         if (data.length > MAX_SIGNAL_BYTES) return this.fail(conn, "too-large", "signal over the limit");
         const text = JSON.stringify({ t: "signal", from: m.sessionID, data: msg.data } satisfies ServerControl);
@@ -214,8 +267,9 @@ export class Room {
       return;
     }
     if (!m.sessionID) return this.fail(conn, "unauthorized", "hello first");
-    // Only owners and editors write (defense in depth: any other level — viewer, prototype-only — is refused)
-    if (m.role !== "owner" && m.role !== "editor") return this.fail(conn, "forbidden", "viewers can't edit");
+    // Only owners and editors write (defense in depth: any other level — viewer, prototype-only — is refused), and not
+    // one who joined past the editors' limit (a viewer for this session)
+    if (!writes(m)) return this.fail(conn, "forbidden", "viewers can't edit");
     if (data.length > MAX_FRAME_BYTES) return this.fail(conn, "too-large", "frame over the limit");
     const up = decodeChangesUp(data);
     if (!up) return this.fail(conn, "bad-frame", "unknown binary frame");
@@ -233,6 +287,47 @@ export class Room {
     this.members.delete(conn);
     this.chatEnded(m, m.presence, undefined);
     if (m.sessionID) this.broadcast({ t: "peer-left", sessionID: m.sessionID });
+    // A cursor shown left: the longest hidden one is shown again (§18.13)
+    if (m.sessionID && !m.cursorHidden) {
+      const shown = [...this.members.values()].filter((o) => o.sessionID && !o.cursorHidden).length;
+      if (shown < this.limits.cursors) {
+        const next = [...this.members].filter(([, o]) => o.sessionID && o.cursorHidden).sort(([, a], [, b]) => a.sessionID - b.sessionID)[0];
+        if (next) {
+          next[1].cursorHidden = false;
+          this.onState(next[0], next[1]);
+          this.send(next[0], { t: "cursor", hidden: false, why: "left" });
+          if (next[1].presence !== undefined) this.broadcast({ t: "presence", sessionID: next[1].sessionID, data: next[1].presence }, next[0]);
+        }
+      }
+    }
+  }
+
+  /** What others get of a member's presence: a hidden cursor (MAX_CURSORS) is left out unless someone follows it */
+  private relayed(m: MemberState): unknown {
+    if (!m.cursorHidden || this.observed(m)) return m.presence;
+    const p = m.presence;
+    return p && typeof p === "object" && "cursor" in p ? { ...(p as object), cursor: null } : p;
+  }
+
+  private observed(m: MemberState): boolean {
+    for (const o of this.members.values()) {
+      if (o === m || !o.sessionID || !o.presence || typeof o.presence !== "object") continue;
+      if ((o.presence as { observing?: unknown }).observing === m.sessionID) return true;
+    }
+    return (m.presence as { spotlight?: unknown } | undefined)?.spotlight === true;
+  }
+
+  /** `m` may have started following a hidden cursor: its owner is told once, and its cursor goes out again */
+  private followed(m: MemberState): void {
+    const target = m.presence && typeof m.presence === "object" ? (m.presence as { observing?: unknown }).observing : undefined;
+    if (typeof target !== "number") return;
+    for (const [c, o] of this.members) {
+      if (o.sessionID !== target || !o.cursorHidden || o.observedTold) continue;
+      o.observedTold = true;
+      this.onState(c, o);
+      this.send(c, { t: "cursor", hidden: false, why: "observed" });
+      if (o.presence !== undefined) this.broadcast({ t: "presence", sessionID: o.sessionID, data: o.presence }, c);
+    }
   }
 
   /** Close every member (the file stopped being shared, or its snapshot was replaced under them). */
@@ -276,9 +371,20 @@ export class Room {
     }
   }
 
-  private hello(conn: Connection, m: MemberState, since: number, render = false, helper = false): void {
+  private hello(conn: Connection, m: MemberState, since: number, render = false, helper = false, v = 0): void {
     if (m.sessionID) return;
     if (!Number.isInteger(since) || since < 0) return this.fail(conn, "bad-frame", "bad since");
+    // Figma's signals (§18.13): an app older than the room takes, a full file
+    if (v < (this.opts.minProtocol ?? 0)) return this.refuse(conn, "client-too-old", CLOSE_TOO_OLD);
+    const present = [...this.members.values()].filter((o) => o !== m && o.sessionID);
+    const limits = this.limits;
+    const canWrite = m.role === "owner" || m.role === "editor";
+    if (present.length >= limits.participants) {
+      if (!canWrite || present.filter((o) => o.overflow).length >= limits.extraEditors) return this.refuse(conn, "too-many-connections", CLOSE_FULL);
+      m.overflow = true;
+    }
+    if (canWrite && present.filter(writes).length >= limits.editors) m.limited = true;
+    if (present.filter((o) => !o.cursorHidden).length >= limits.cursors) m.cursorHidden = true;
     if (since < this.storage.firstSeq() - 1 || since > this.storage.lastSeq()) return this.fail(conn, "too-old", "load the file's snapshot first");
     m.sessionID = this.storage.nextSessionID();
     m.activeAt = this.now();
@@ -287,11 +393,22 @@ export class Room {
     if (render && helper) m.helper = true;
     this.onState(conn, m);
     const peers: PeerInfo[] = [];
-    for (const [c, o] of this.members) if (c !== conn && o.sessionID) peers.push(peerOf(o));
-    this.send(conn, { t: "welcome", sessionID: m.sessionID, role: m.role, seq: this.storage.lastSeq(), peers, snapshotSeq: this.storage.snapshotSeq(), color: m.color, ...(m.policy ? { policy: m.policy } : {}) });
+    for (const [c, o] of this.members) if (c !== conn && o.sessionID) peers.push(peerOf(o, this.relayed(o)));
+    this.send(conn, {
+      t: "welcome",
+      sessionID: m.sessionID,
+      role: roleOf(m),
+      seq: this.storage.lastSeq(),
+      peers,
+      snapshotSeq: this.storage.snapshotSeq(),
+      color: m.color,
+      ...(m.policy ? { policy: m.policy } : {}),
+      ...(m.limited ? { limited: "editors" as const } : {}),
+      ...(m.cursorHidden ? { cursorHidden: true } : {}),
+    });
     for (const f of this.storage.readAfter(since)) conn.send(encodeChangesDown(f));
     this.send(conn, { t: "ready", seq: this.storage.lastSeq() });
-    this.broadcast({ t: "peer-joined", peer: { sessionID: m.sessionID, userId: m.userId, name: m.name, role: m.role, color: m.color } }, conn);
+    this.broadcast({ t: "peer-joined", peer: { sessionID: m.sessionID, userId: m.userId, name: m.name, role: roleOf(m), color: m.color } }, conn);
     if (m.render) this.opts.onRenderer?.(conn, m);
   }
 
@@ -302,6 +419,13 @@ export class Room {
 
   private send(conn: Connection, msg: ServerControl): void {
     conn.send(JSON.stringify(msg));
+  }
+
+  /** One of Figma's signals, then the socket closes with `code` (the member never joined) */
+  private refuse(conn: Connection, name: MultiplayerSignalName, code: number): void {
+    this.send(conn, { t: "mp-signal", name });
+    this.members.delete(conn);
+    conn.close(code, name);
   }
 
   private fail(conn: Connection, code: Extract<ServerControl, { t: "error" }>["code"], message: string): void {
@@ -317,8 +441,13 @@ function chatOf(presence: unknown): string | null {
   return typeof c === "string" ? c.trim() : null;
 }
 
-function peerOf(m: MemberState): PeerInfo {
-  return { sessionID: m.sessionID, userId: m.userId, name: m.name, role: m.role, presence: m.presence, ...(m.color !== undefined ? { color: m.color } : {}) };
+/** The role others see and the member is told: a viewer while limited (MAX_EDITORS) */
+function roleOf(m: MemberState): Role {
+  return m.limited ? "viewer" : m.role;
+}
+
+function peerOf(m: MemberState, presence: unknown = m.presence): PeerInfo {
+  return { sessionID: m.sessionID, userId: m.userId, name: m.name, role: roleOf(m), presence, ...(m.color !== undefined ? { color: m.color } : {}) };
 }
 
 /** A `RoomStorage` in memory — tests, and the room's reference behaviour. */
