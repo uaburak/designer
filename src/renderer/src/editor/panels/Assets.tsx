@@ -293,7 +293,7 @@ export function Assets() {
         actions={
           // Live (rail-assets.txt): Libraries at 204, 12 — its blue dot while an enabled library has updates.
           <span className={lstyles.libButton}>
-            <IconButton icon="24.library" label={t(librariesButtonLabel(ed))} tone="secondary" data-libraries-button="" onClick={() => openLibraries(pending ? "updates" : "libraries")} />
+            <IconButton icon="24.library.this-file" label={t(librariesButtonLabel(ed))} tone="secondary" data-libraries-button="" onClick={() => openLibraries(pending ? "updates" : "libraries")} />
             {pending > 0 && <span className={lstyles.badge} data-updates-badge="" aria-hidden />}
           </span>
         }
@@ -302,7 +302,7 @@ export function Assets() {
         <SearchField data-assets-search="" className={styles.search} value={query} onChange={setQuery} placeholder={open ? t("Search in this library") : t("Search all libraries")} label={open ? t("Search in this library") : t("Search all libraries")} />
         <div ref={settingsButton} style={{ display: "contents" }}>
           <IconButton
-            icon="24.adjust.small"
+            icon="24.libraries-settings"
             label={t("Libraries and settings")}
             tone="secondary"
             onClick={(e) => {

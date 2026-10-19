@@ -12,7 +12,7 @@
  * edges), and a canvas selection opens its ancestors and scrolls into view.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { IconButton, LAYER_ROW_LARGE, LAYER_THUMB, LayerRow, PanelSection, VirtualList, layerListWidth, onFontsLoaded, showToast, type IconName } from "@/ds";
+import { IconButton, LAYER_ROW_LARGE, LAYER_THUMB, LayerRow, PanelSection, VirtualList, layerListWidth, onFontsLoaded, showToast, type IconName, type ShapeGlyphProps } from "@/ds";
 import { layerThumbnails } from "../draw/panels/layerThumbs";
 import { LayerThumb } from "../draw/panels/LayerThumb";
 import { useHover, useSelection } from "@/engine/hooks";
@@ -115,6 +115,17 @@ export function layerIcon(node: TreeNode, parent?: TreeNode | null): IconName {
     default:
       return "16.rectangle";
   }
+}
+
+/**
+ * A rectangle's or an ellipse's glyph: its outline at the layer's proportions (live 2026-10-18/left-panel.txt), unless
+ * it shows a picture (the Image / Video glyph) or is a mask; undefined: the type glyph.
+ */
+export function layerShape(node: TreeNode): ShapeGlyphProps | undefined {
+  if (node.mask || node.aspect === undefined) return undefined;
+  if (node.type === "ELLIPSE") return { kind: "ellipse", aspect: node.aspect };
+  if ((node.type === "RECTANGLE" || node.type === "ROUNDED_RECTANGLE") && !node.media) return { kind: "rectangle", aspect: node.aspect };
+  return undefined;
 }
 
 /**
@@ -486,6 +497,7 @@ export function Layers() {
                 depth={row.depth}
                 name={node.name}
                 icon={icon}
+                shape={row.id === thumbnailFrame ? undefined : layerShape(node)}
                 thumbnail={thumbs ? <LayerThumb thumbs={thumbs} node={row.id} icon={icon} /> : undefined}
                 iconLabel={t(layerKind(node, node.parent ? tree.nodes.get(node.parent) : null))}
                 kind={node.type === "SYMBOL" || node.stateGroup ? "component" : node.type === "INSTANCE" ? "instance" : "default"}

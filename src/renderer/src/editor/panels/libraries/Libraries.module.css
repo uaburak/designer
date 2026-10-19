@@ -53,8 +53,26 @@
   .progress { display: inline-flex; align-items: center; gap: var(--ds-space-2); margin-right: auto; color: var(--figma-color-text-secondary); }
 
   /* ---- Libraries ---- */
-  .libraries { display: flex; flex-direction: column; gap: var(--ds-space-3); min-height: 50vh; }
-  .listBody { display: flex; flex-direction: column; gap: var(--ds-space-3); max-height: 60vh; overflow-y: auto; }
+  /*
+   * Manage libraries (live 2026-10-18/menus.txt): a 200 nav — search 184 × 24 at 8, 8 under the header, then the tabs
+   * (184 × 24, r 5, the icon at 8, the label at 37; selected bg-secondary and 550) — a line, the content from 216
+   */
+  .libraries { display: flex; flex: 1 1 auto; min-height: 0; }
+  .libNav { display: flex; flex: none; flex-direction: column; gap: var(--ds-space-2); width: var(--ds-size-dialog-nav); padding: var(--ds-space-2); border-right: 1px solid var(--figma-color-border); }
+  .libTabs { display: flex; flex-direction: column; }
+  .libTab {
+    display: flex; align-items: center; gap: var(--ds-space-1); height: var(--ds-size-control); padding: 0 var(--ds-space-2) 0 0; border: 0;
+    border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-text); outline: none; cursor: default;
+    font: var(--ds-font-body-medium-regular); letter-spacing: var(--ds-tracking-body-medium-regular); text-align: left;
+  }
+  .libTab > svg { flex: none; color: var(--figma-color-icon); }
+  .libTab:hover { background: var(--figma-color-bg-hover); }
+  .libTab[aria-selected="true"] { background: var(--figma-color-bg-secondary); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .libTab:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
+  .libTabLabel { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .libTabBadge { flex: none; color: var(--figma-color-text-brand); }
+  .libContent { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--ds-space-3); min-width: 0; padding: var(--ds-space-4); overflow-y: auto; }
+  .listBody { display: flex; flex-direction: column; gap: var(--ds-space-3); }
   .sectionTitle { display: flex; align-items: center; height: var(--ds-size-row); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
   .libRow { display: flex; align-items: center; gap: var(--ds-space-3); min-height: var(--ds-size-list-row); padding: var(--ds-space-1) 0; }
   .libIcon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-control-large); height: var(--ds-size-control-large); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); color: var(--figma-color-icon); }

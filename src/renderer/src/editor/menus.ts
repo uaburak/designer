@@ -150,8 +150,8 @@ function componentEntries(ed: EditorController): Spec[] {
 export const MAIN_MENU: Spec[] = [
   "file.back-to-files",
   "-",
-  // Live: "Actions…" with its glyph (the label at 40) and ⌘K.
-  { id: "tool.actions", icon: "24.actions" },
+  // Live: "Actions…" with its glyph (2026-10-18: the magnifier; the label at 40) and ⌘K.
+  { id: "tool.actions", icon: "24.search.small" },
   "-",
   {
     label: "File",
@@ -161,7 +161,8 @@ export const MAIN_MENU: Spec[] = [
       // Live: "New ▸" under New Design (its items not captured: help.figma.com's file kinds, unverified).
       { label: "New", items: [{ id: "file.new", label: "Design file" }] },
       "-",
-      { id: "file.place-image", label: "Place image/video…" },
+      // Live 2026-10-18 (menus.txt): "Place image…" (2026-10-08: "Place image/video…")
+      "file.place-image",
       "-",
       "file.duplicate",
       "file.save-local-copy",
@@ -433,11 +434,11 @@ export const MAIN_MENU: Spec[] = [
     ],
   },
   { id: "file.libraries", label: "Libraries" },
-  // docs/ai.md §7: "AI balance" (credits used, remaining, the reset date) — not in the live capture (an account
-  // without AI credits); placed after Libraries [unverified].
-  "file.ai-balance",
   "-",
   "file.open-in-desktop",
+  // docs/ai.md §7: "AI balance" (credits used, remaining, the reset date); live 2026-10-18 (menus.txt): between Open in
+  // desktop app and Help and account.
+  "file.ai-balance",
   {
     label: "Help and account",
     width: 178,

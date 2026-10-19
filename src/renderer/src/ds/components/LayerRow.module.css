@@ -51,9 +51,12 @@
   .chevron:hover { color: var(--figma-color-icon); }
   .chevron[aria-expanded="false"] svg { transform: rotate(-90deg); }
   .leaf { flex: none; width: 16px; }
-  /* The glyph: secondary; primary on a selected row and on top-level frames; 8 to the name */
-  .type { display: flex; flex: none; align-items: center; justify-content: center; width: 16px; height: 16px; margin-right: var(--ds-space-2); color: var(--figma-color-icon-secondary); }
-  .row[aria-selected="true"] .type, .strong .type { color: var(--figma-color-icon); }
+  /* The glyph (live 2026-10-18/left-panel.txt: white at 40 %, frames included): tertiary; primary on a selected row; 8 to the name */
+  .type { display: flex; flex: none; align-items: center; justify-content: center; width: 16px; height: 16px; margin-right: var(--ds-space-2); color: var(--figma-color-icon-tertiary); }
+  .row[aria-selected="true"] .type { color: var(--figma-color-icon); }
+  /* A shape's own outline (live: a 16 × 10 box holding a 10 × 10 drawing, 1px strokes, no fill) */
+  .shape { display: flex; align-items: center; justify-content: center; width: 16px; height: 10px; }
+  .shape > svg { display: block; overflow: visible; fill: none; stroke: currentColor; }
   /*
    * Draw mode (docs/draw.md §5.9 [sizes unverified]): rows on a 48 pitch (the highlight 40, 4 above and below), a
    * 32 × 32 preview in the glyph's place — the layer drawn by the engine, fitted and centred on the panel's secondary

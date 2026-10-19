@@ -202,7 +202,7 @@ function FileHeader() {
         )}
         <span className={styles.fileLocation}>{location}</span>
       </div>
-      <IconButton icon="24.sidebar.closed" label={t("Minimize UI")} shortcut={shortcutOf(command("view.minimize-ui"))} onClick={() => runEditorCommand(ed, "view.minimize-ui")} />
+      <IconButton icon="24.minimize-ui" size="large" className={styles.fileMinimize} label={t("Minimize UI")} shortcut={shortcutOf(command("view.minimize-ui"))} onClick={() => runEditorCommand(ed, "view.minimize-ui")} />
     </div>
   );
 }

@@ -17,7 +17,8 @@ describe("toolbar model", () => {
       ["rectangle", "line", "arrow", "ellipse", "polygon", "star", "image"],
       ["pen", "pencil"],
       ["text", "text-on-path"],
-      ["comment", "annotation", "measurement"],
+      // Live 2026-10-18 (toolbar.txt): Comment alone, no menu
+      ["comment"],
     ]);
     expect(groupOf("ellipse")).toBe("shape");
   });
@@ -78,8 +79,8 @@ describe("EditorToolbar", () => {
     expect(onTool.calls).toHaveLength(0);
     click(items[1]);
     expect(onTool.calls).toEqual([["pencil"]]);
-    // every comment tool off: its chevron is disabled too
-    expect(($('[aria-label="Comment tools"]', m!.host) as HTMLButtonElement).disabled).toBe(true);
+    // Comment has no menu in Design (live 2026-10-18): no chevron
+    expect(m!.host.querySelector('[aria-label="Comment tools"]')).toBeNull();
   });
 
   it("disabled modes keep their tooltip and can't be chosen", () => {

@@ -159,7 +159,8 @@
     white-space: nowrap;
     color: var(--ds-color-menu-text-secondary);
   }
-  .separator { height: 1px; margin: var(--ds-space-2) 0; background: var(--ds-color-menu-separator); }
+  /* Live 2026-10-18 (menus.txt): a 17 block, its 1px line across the rows' inner width (8 in from each side) */
+  .separator { height: 1px; margin: var(--ds-space-2) var(--menu-inset); background: var(--ds-color-menu-separator); }
   .header {
     display: flex;
     align-items: center;

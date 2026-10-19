@@ -7,7 +7,7 @@
  * Update, Update all; removed assets (Restore component) and moved ones (accepted with the update).
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, EmptyState, Icon, IconButton, SearchField, SegmentedControl, Spinner, Tabs, showToast, cx, Dialog, tooltipProps } from "@/ds";
+import { Button, EmptyState, Icon, IconButton, SearchField, SegmentedControl, Spinner, showToast, cx, Dialog, tooltipProps, type IconName } from "@/ds";
 import type { LibraryAsset, LibraryVersion } from "../../../../../shared/store/types";
 import { useEditor } from "../../controller";
 import { useDocumentVersion, useLibraries, useUI } from "../../hooks";
@@ -50,18 +50,36 @@ function Libraries() {
     const box = body.current?.closest<HTMLElement>('[role="dialog"]');
     if (box && !box.contains(document.activeElement)) box.focus({ preventScroll: true });
   }, [view.tab, view.library, view.update]);
+  const [query, setQuery] = useState("");
+  const tabs: { value: "libraries" | "updates"; label: string; icon: IconName; badge?: number }[] = [
+    { value: "libraries", label: t("This file"), icon: "24.library.this-file" },
+    { value: "updates", label: t("Updates"), icon: "24.library.updates", badge: pending || undefined },
+  ];
+  // Live 2026-10-18 (menus.txt): "Manage libraries", 591 × 641 — a 200 left nav (search, This file, Updates) and the
+  // content from 216.
   return (
-    <Dialog title={t("Libraries")} size="large" open onClose={close}>
+    <Dialog title={t("Manage libraries")} size="libraries" compact open onClose={close}>
       <div ref={body} className={styles.libraries} data-libraries-dialog="">
-        <Tabs
-          label={t("Libraries")}
-          value={view.tab}
-          tabs={[
-            { value: "libraries", label: t("Libraries") },
-            { value: "updates", label: t("Updates"), badge: pending || undefined },
-          ]}
-          onChange={(tab) => set({ tab: tab as "libraries" | "updates", library: null, update: null })}
-        />
+        <nav className={styles.libNav} aria-label={t("Manage libraries")}>
+          <SearchField value={query} onChange={setQuery} placeholder={t("Search all libraries")} autoFocus />
+          <div role="tablist" aria-orientation="vertical" className={styles.libTabs}>
+            {tabs.map((tab) => (
+              <button
+                key={tab.value}
+                type="button"
+                role="tab"
+                aria-selected={view.tab === tab.value}
+                className={styles.libTab}
+                onClick={() => set({ tab: tab.value, library: null, update: null })}
+              >
+                <Icon name={tab.icon} />
+                <span className={styles.libTabLabel}>{tab.label}</span>
+                {tab.badge ? <span className={styles.libTabBadge}>{tab.badge}</span> : null}
+              </button>
+            ))}
+          </div>
+        </nav>
+        <div className={styles.libContent}>
         {!state.on ? (
           <EmptyState icon="24.library" title={t("Libraries aren't available here")} body={t("Open a file from your workspace to publish and use libraries.")} />
         ) : view.tab === "updates" ? (
@@ -69,18 +87,18 @@ function Libraries() {
         ) : view.library ? (
           <LibraryPreview lib={view.library} onBack={() => set({ library: null })} />
         ) : (
-          <LibraryList onOpen={(lib) => set({ library: lib })} onPublish={() => ed.ui.set({ publishOpen: true, librariesDialog: null })} />
+          <LibraryList query={query} onOpen={(lib) => set({ library: lib })} onPublish={() => ed.ui.set({ publishOpen: true, librariesDialog: null })} />
         )}
+        </div>
       </div>
     </Dialog>
   );
 }
 
-function LibraryList({ onOpen, onPublish }: { onOpen: (lib: string) => void; onPublish: () => void }) {
+function LibraryList({ query, onOpen, onPublish }: { query: string; onOpen: (lib: string) => void; onPublish: () => void }) {
   useT();
   const ed = useEditor();
   const state = useLibraries();
-  const [query, setQuery] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const q = query.trim().toLowerCase();
   const match = (name: string) => !q || name.toLowerCase().includes(q);
@@ -103,7 +121,6 @@ function LibraryList({ onOpen, onPublish }: { onOpen: (lib: string) => void; onP
   const fileName = useUI((s) => s.fileName);
   return (
     <div className={styles.listBody}>
-      <SearchField value={query} onChange={setQuery} placeholder={t("Search libraries")} autoFocus />
       {state.loading && (
         <div className={styles.loading}>
           <Spinner /> {t("Loading libraries…")}
@@ -122,8 +139,8 @@ function LibraryList({ onOpen, onPublish }: { onOpen: (lib: string) => void; onP
           </Button>
         </div>
       </section>
-      <section aria-label={t("Added to this file")}>
-        <div className={styles.sectionTitle}>{t("Added to this file")}</div>
+      <section aria-label={t("Libraries added to this file")}>
+        <div className={styles.sectionTitle}>{t("Libraries added to this file")}</div>
         {added.length === 0 && <div className={styles.none}>{q ? t("No results for “{query}”", { query }) : t("No libraries added to this file")}</div>}
         {added.map((e) => (
           <LibraryRow key={e.fileKey} entry={e} orgName={state.org?.orgName ?? null} missing={!byKey.has(e.fileKey)} onOpen={byKey.has(e.fileKey) ? () => onOpen(e.fileKey) : undefined}>

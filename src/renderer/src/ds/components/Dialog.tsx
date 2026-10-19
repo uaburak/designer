@@ -9,8 +9,13 @@ import styles from "./Dialog.module.css";
 
 export interface DialogProps {
   title: string;
-  /** 320 / 480 / 640 */
-  size?: "small" | "medium" | "large";
+  /** 320 / 480 / 640; `libraries`: live's Manage libraries, 591 × 641 */
+  size?: "small" | "medium" | "large" | "libraries";
+  /**
+   * Figma UI3's modal header (live 2026-10-18/menus.txt, Manage libraries): 40 high, the title 11 / 550 at 16, the ×
+   * 8 from the top and the right; the body unpadded (its own layout)
+   */
+  compact?: boolean;
   open: boolean;
   onClose: () => void;
   footer?: ReactNode;
@@ -29,7 +34,7 @@ export interface DialogProps {
  * trapped and comes back on close; Esc closes; Enter activates the primary
  * button (not from a text area or a menu). No open animation.
  */
-export function Dialog({ title, size = "small", open, onClose, footer, children, initialFocus, closeOnScrim = true, static: isStatic }: DialogProps) {
+export function Dialog({ title, size = "small", compact, open, onClose, footer, children, initialFocus, closeOnScrim = true, static: isStatic }: DialogProps) {
   useT();
   const panel = useRef<HTMLDivElement>(null);
   const titleId = useId();
@@ -43,7 +48,7 @@ export function Dialog({ title, size = "small", open, onClose, footer, children,
       aria-labelledby={titleId}
       tabIndex={-1}
       data-ds="Dialog"
-      className={cx(styles.dialog, styles[size], isStatic && styles.static)}
+      className={cx(styles.dialog, styles[size], compact && styles.compact, isStatic && styles.static)}
       onKeyDown={(e) => {
         if (e.key === "Escape") {
           e.stopPropagation();

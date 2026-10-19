@@ -8,8 +8,8 @@ import { Toolbar, ToolbarDivider, ToolButton } from "./Toolbar";
 import styles from "./Toolbar.module.css";
 
 /**
- * The editor's bottom toolbar as Figma's (measured on the owner's screenshots:
- * 530 × 48 — eight tool slots, a full-height line, the mode switch). This
+ * The editor's bottom toolbar as Figma's (live 2026-10-18/toolbar.txt: 512 × 48 — five tool slots with their menus,
+ * Comment, Actions, a full-height line, the mode switch). This
  * file is the model the editor drives; the component only draws it.
  */
 export type ToolId =
@@ -30,29 +30,31 @@ export type ToolDef = {
   /** Display string (keys()), for the tooltip and the menu */
   shortcut?: string;
   icon: IconName;
+  /** Its glyph in the slot menus (live 2026-10-18/toolbar.txt: the menus draw smaller glyphs than the toolbar) */
+  menuIcon?: IconName;
 };
 
 /** Every tool, as Figma names it, with its keys. */
 export const TOOLS: Record<ToolId, ToolDef> = {
-  move: { id: "move", label: "Move", shortcut: "V", icon: "24.move" },
-  hand: { id: "hand", label: "Hand tool", shortcut: "H", icon: "24.hand" },
-  scale: { id: "scale", label: "Scale", shortcut: "K", icon: "24.scale" },
-  frame: { id: "frame", label: "Frame", shortcut: "F", icon: "24.frame" },
-  section: { id: "section", label: "Section", shortcut: keys(["shift", "s"]), icon: "24.section" },
-  slice: { id: "slice", label: "Slice", shortcut: "S", icon: "24.slice" },
-  rectangle: { id: "rectangle", label: "Rectangle", shortcut: "R", icon: "24.rectangle" },
-  line: { id: "line", label: "Line", shortcut: "L", icon: "24.line" },
-  arrow: { id: "arrow", label: "Arrow", shortcut: keys(["shift", "l"]), icon: "24.arrow" },
-  ellipse: { id: "ellipse", label: "Ellipse", shortcut: "O", icon: "24.ellipse" },
-  polygon: { id: "polygon", label: "Polygon", icon: "24.polygon" },
-  star: { id: "star", label: "Star", icon: "24.star" },
-  image: { id: "image", label: "Image/video…", shortcut: keys(["shift", "mod", "k"]), icon: "24.image" },
-  pen: { id: "pen", label: "Pen", shortcut: "P", icon: "24.pen" },
-  pencil: { id: "pencil", label: "Pencil", shortcut: keys(["shift", "p"]), icon: "24.pencil" },
+  move: { id: "move", label: "Move", shortcut: "V", icon: "24.move", menuIcon: "24.tool-menu.move" },
+  hand: { id: "hand", label: "Hand tool", shortcut: "H", icon: "24.hand", menuIcon: "24.tool-menu.hand" },
+  scale: { id: "scale", label: "Scale", shortcut: "K", icon: "24.scale", menuIcon: "24.tool-menu.scale" },
+  frame: { id: "frame", label: "Frame", shortcut: "F", icon: "24.frame", menuIcon: "24.tool-menu.frame" },
+  section: { id: "section", label: "Section", shortcut: keys(["shift", "s"]), icon: "24.section", menuIcon: "24.tool-menu.section" },
+  slice: { id: "slice", label: "Slice", shortcut: "S", icon: "24.slice", menuIcon: "24.tool-menu.slice" },
+  rectangle: { id: "rectangle", label: "Rectangle", shortcut: "R", icon: "24.rectangle", menuIcon: "24.tool-menu.rectangle" },
+  line: { id: "line", label: "Line", shortcut: "L", icon: "24.line", menuIcon: "24.tool-menu.line" },
+  arrow: { id: "arrow", label: "Arrow", shortcut: keys(["shift", "l"]), icon: "24.arrow", menuIcon: "24.tool-menu.arrow" },
+  ellipse: { id: "ellipse", label: "Ellipse", shortcut: "O", icon: "24.ellipse", menuIcon: "24.tool-menu.ellipse" },
+  polygon: { id: "polygon", label: "Polygon", icon: "24.polygon", menuIcon: "24.tool-menu.polygon" },
+  star: { id: "star", label: "Star", icon: "24.star", menuIcon: "24.tool-menu.star" },
+  image: { id: "image", label: "Image/video…", shortcut: keys(["shift", "mod", "k"]), icon: "24.image", menuIcon: "24.tool-menu.image" },
+  pen: { id: "pen", label: "Pen", shortcut: "P", icon: "24.pen", menuIcon: "24.tool-menu.pen" },
+  pencil: { id: "pencil", label: "Pencil", shortcut: keys(["shift", "p"]), icon: "24.pencil", menuIcon: "24.tool-menu.pencil" },
   // Figma Draw's Brush (help.figma.com 31440438150935); its key B is ours [unverified] (docs/draw.md §5.1).
   brush: { id: "brush", label: "Brush", shortcut: "B", icon: "24.brush" },
   text: { id: "text", label: "Text", shortcut: "T", icon: "24.text" },
-  "text-on-path": { id: "text-on-path", label: "Text on path", icon: "24.text-on-path" },
+  "text-on-path": { id: "text-on-path", label: "Text on path", icon: "24.text-on-path", menuIcon: "24.tool-menu.text-on-path" },
   comment: { id: "comment", label: "Comment", shortcut: "C", icon: "24.comment" },
   annotation: { id: "annotation", label: "Annotation", shortcut: "Y", icon: "24.annotation" },
   measurement: { id: "measurement", label: "Measurement", shortcut: keys(["shift", "m"]), icon: "24.measurement" },
@@ -68,8 +70,15 @@ export const TOOL_GROUPS: ToolGroupDef[] = [
   { id: "shape", label: "Shape tools", tools: ["rectangle", "line", "arrow", "ellipse", "polygon", "star", "image"], menuWidth: 196 },
   { id: "creation", label: "Creation tools", tools: ["pen", "pencil"], menuWidth: 142 },
   { id: "text", label: "Type tools", tools: ["text", "text-on-path"], menuWidth: 142 },
-  { id: "comment", label: "Comment tools", tools: ["comment", "annotation", "measurement"], menuWidth: 186 },
+  // Live 2026-10-18 (toolbar.txt): Comment is a tool of its own, without a menu (the toolbar 512 wide)
+  { id: "comment", label: "Comment", tools: ["comment"], menuWidth: 0 },
 ];
+
+/** Dev Mode's comment slot (help.figma.com: Comment, Annotate, Measure) [ours: live wasn't measured in Dev Mode]. */
+export const COMMENT_TOOLS: ToolGroupDef = { id: "comment", label: "Comment tools", tools: ["comment", "annotation", "measurement"], menuWidth: 186 };
+
+/** Dev Mode keeps Design's slots, with the comment tools in their menu. */
+const DEV_TOOL_GROUPS: ToolGroupDef[] = [...TOOL_GROUPS.slice(0, 5), COMMENT_TOOLS];
 
 /**
  * Draw mode's toolbar (docs/draw.md §5.1; help.figma.com 31440394517143: "quick-access tools" Pen, Brush, Pencil):
@@ -87,14 +96,14 @@ export const DRAW_TOOL_GROUPS: ToolGroupDef[] = [
 ];
 
 /** A mode's tool slots (Dev Mode and Motion keep Design's; the editor disables what they can't use). */
-export const toolGroups = (mode: EditorMode = "design"): ToolGroupDef[] => (mode === "draw" ? DRAW_TOOL_GROUPS : TOOL_GROUPS);
+export const toolGroups = (mode: EditorMode = "design"): ToolGroupDef[] => (mode === "draw" ? DRAW_TOOL_GROUPS : mode === "dev" ? DEV_TOOL_GROUPS : TOOL_GROUPS);
 
 /**
  * The slot a tool belongs to in a mode. A tool the mode has no slot for (Frame in Draw, Brush in Design) answers its
  * Design slot (Brush: Creation tools), which the Draw toolbar doesn't show — no slot lights there.
  */
 export const groupOf = (tool: ToolId, mode: EditorMode = "design"): ToolGroupId =>
-  (toolGroups(mode).find((g) => g.tools.includes(tool)) ?? TOOL_GROUPS.find((g) => g.tools.includes(tool)))?.id ?? "creation";
+  (toolGroups(mode).find((g) => g.tools.includes(tool)) ?? DEV_TOOL_GROUPS.find((g) => g.tools.includes(tool)))?.id ?? "creation";
 
 /** The tool a key chooses (single keys and ⇧ combinations, outside text fields), or null — for the editor's keymap. */
 export function toolForKey(e: { key: string; shiftKey: boolean; metaKey?: boolean; ctrlKey?: boolean; altKey?: boolean }): ToolId | null {
@@ -107,12 +116,12 @@ export function toolForKey(e: { key: string; shiftKey: boolean; metaKey?: boolea
 
 export type EditorModeDef = { id: EditorMode; label: string; icon: IconName; shortcut?: string };
 
-/** The mode switch, left to right (the owner's screenshots; Figma's Draw, Design, Motion, Dev Mode). */
+/** The mode switch, left to right (live 2026-10-18/toolbar.txt: Draw, Design, Motion, Dev Mode — icons only). */
 export const EDITOR_MODES: EditorModeDef[] = [
-  { id: "draw", label: "Draw", icon: "24.draw" },
-  { id: "design", label: "Design", icon: "24.design" },
-  { id: "motion", label: "Motion", icon: "24.motion" },
-  { id: "dev", label: "Dev Mode", icon: "24.dev-brackets", shortcut: keys(["shift", "d"]) },
+  { id: "draw", label: "Draw", icon: "24.mode.draw" },
+  { id: "design", label: "Design", icon: "24.mode.design" },
+  { id: "motion", label: "Motion", icon: "24.mode.motion" },
+  { id: "dev", label: "Dev Mode", icon: "24.mode.dev", shortcut: keys(["shift", "d"]) },
 ];
 
 export interface EditorToolbarProps {
@@ -171,7 +180,7 @@ export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActi
             menuLabel={t(g.label)}
             menuWidth={g.menuWidth}
             // Live (toolbar/*-tools-menu.txt): the slot's own tool is the lit row, whichever tool is active
-            menu={g.tools.map((id) => ({ id, label: t(TOOLS[id].label), shortcut: shortcutOf(id, TOOLS[id].shortcut), icon: TOOLS[id].icon, checked: id === shown.id, radio: true, disabled: disabledTools.includes(id) }))}
+            menu={g.tools.map((id) => ({ id, label: t(TOOLS[id].label), shortcut: shortcutOf(id, TOOLS[id].shortcut), icon: TOOLS[id].menuIcon ?? TOOLS[id].icon, checked: id === shown.id, radio: true, disabled: disabledTools.includes(id) }))}
             onMenuSelect={(id) => !disabledTools.includes(id as ToolId) && onTool(id as ToolId)}
           />
         );

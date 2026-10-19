@@ -44,13 +44,15 @@ export interface RowDetails {
   slot?: boolean;
   /** A visible image or video fill: the Image / Video glyph (Figma's) for a rectangle */
   media?: "IMAGE" | "VIDEO";
+  /** Width / height: a rectangle's or an ellipse's glyph is its outline at these proportions (live 2026-10-18) */
+  aspect?: number;
 }
 
 /** A row: its outline, and its details filled on first use (`LayerTree.details`). */
 export interface TreeNode extends OutlineNode, RowDetails {}
 
 /** What a details read asks the engine for (schema keys of `engine_read_nodes` `fields`). */
-export const DETAIL_FIELDS: readonly string[] = ["name", "visible", "locked", "resizeToFit", "stackMode", "stackWrap", "booleanOperation", "isStateGroup", "mask", "isSlot", "fillPaints"];
+export const DETAIL_FIELDS: readonly string[] = ["name", "visible", "locked", "resizeToFit", "stackMode", "stackWrap", "booleanOperation", "isStateGroup", "mask", "isSlot", "fillPaints", "size"];
 
 /** The glyph a fill list gives a row: its top visible image or video fill. */
 function mediaOf(fills: unknown): RowDetails["media"] {
@@ -71,7 +73,7 @@ const UNKNOWN: RowDetails = { name: "", visible: true, locked: false };
 /** A row's details from its engine row. */
 export function detailsOf(row: NodeChange | undefined): RowDetails {
   if (!row) return UNKNOWN;
-  const extra = row as NodeChange & { stackMode?: string; stackWrap?: string; booleanOperation?: string; mask?: boolean; isSlot?: boolean; fillPaints?: unknown };
+  const extra = row as NodeChange & { stackMode?: string; stackWrap?: string; booleanOperation?: string; mask?: boolean; isSlot?: boolean; fillPaints?: unknown; size?: { x?: number; y?: number } };
   const out: RowDetails = { name: row.name ?? "", visible: row.visible !== false, locked: row.locked === true };
   if (extra.stackMode !== undefined) out.stackMode = extra.stackMode;
   if (extra.stackWrap !== undefined) out.stackWrap = extra.stackWrap;
@@ -80,6 +82,8 @@ export function detailsOf(row: NodeChange | undefined): RowDetails {
   if (extra.isSlot === true) out.slot = true;
   const media = mediaOf(extra.fillPaints);
   if (media) out.media = media;
+  const w = extra.size?.x, h = extra.size?.y;
+  if (typeof w === "number" && typeof h === "number" && w > 0 && h > 0) out.aspect = w / h;
   return out;
 }
 
@@ -94,6 +98,11 @@ export class RowDetailsStore {
   private readonly rows = new Map<Guid, NodeChange>();
   /** The details computed so far (the rows shown) */
   private readonly known = new Map<Guid, RowDetails>();
+  /**
+   * The proportions last read of each row (the glyph of a rectangle / ellipse): a delta's row (the engine's
+   * layer-row fields) carries no size, so a rename keeps the glyph it had
+   */
+  private readonly aspects = new Map<Guid, number>();
   /** Names read for the rows' widths alone (`names`), of rows whose details aren't built */
   private readonly nameOnly = new Map<Guid, string>();
   private readonly read: RowReader | null;
@@ -172,7 +181,9 @@ export class RowDetailsStore {
       this.rowsRead++;
       row = this.read([id])[0];
     }
-    const details = detailsOf(row);
+    let details = detailsOf(row);
+    if (details.aspect !== undefined) this.aspects.set(id, details.aspect);
+    else if (row && !("size" in row) && this.aspects.has(id)) details = { ...details, aspect: this.aspects.get(id) };
     this.known.set(id, details);
     this.rows.delete(id);
     return details;
@@ -192,6 +203,7 @@ export class RowDetailsStore {
 
   /** The row changed (NODES_CHANGED, a committed change): its details are read again when next shown. */
   invalidate(id: Guid): void {
+    this.aspects.delete(id);
     this.rows.delete(id);
     this.known.delete(id);
     this.nameOnly.delete(id);
@@ -263,6 +275,9 @@ class Row implements TreeNode {
   }
   get media(): RowDetails["media"] {
     return this.store.of(this.id).media;
+  }
+  get aspect(): number | undefined {
+    return this.store.of(this.id).aspect;
   }
 }
 

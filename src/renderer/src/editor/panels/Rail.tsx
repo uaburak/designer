@@ -25,13 +25,13 @@ type Open = { at: { x: number; y: number }; entries: MenuEntry[] } | null;
 /** The tabs' names under their icons: off unless View › Additional labels turned them on. */
 export const showsRailLabels = (s: { railLabels?: boolean }): boolean => s.railLabels === true;
 
-const TABS: { tab: RailTab; icon: "24.page" | "24.agents" | "24.assets" | "24.library" | "24.tools"; label: string; command?: string }[] = [
-  { tab: "file", icon: "24.page", label: "File", command: "view.layers" },
-  { tab: "agents", icon: "24.agents", label: "Agents", command: "view.agents" },
-  { tab: "assets", icon: "24.assets", label: "Assets", command: "view.assets" },
+const TABS: { tab: RailTab; icon: "24.rail.file" | "24.rail.agents" | "24.rail.assets" | "24.library" | "24.rail.tools"; label: string; command?: string }[] = [
+  { tab: "file", icon: "24.rail.file", label: "File", command: "view.layers" },
+  { tab: "agents", icon: "24.rail.agents", label: "Agents", command: "view.agents" },
+  { tab: "assets", icon: "24.rail.assets", label: "Assets", command: "view.assets" },
   // Studio (docs/studio.md §3.2) [ours]: the brand and product library
   { tab: "brands", icon: "24.library", label: "Brands" },
-  { tab: "tools", icon: "24.tools", label: "Tools", command: "view.tools" },
+  { tab: "tools", icon: "24.rail.tools", label: "Tools", command: "view.tools" },
 ];
 
 /** The tabs shown: the web app has no Agents (they run on the computer: CLI agents, the MCP server — docs/cloud.md §7) */
@@ -75,7 +75,7 @@ export function NavStrip() {
           onClick={() => ed.ui.set({ railTab: item.tab, variablesOpen: false, find: item.tab === "file" ? ed.ui.get().find : null })}
         />
       ))}
-      <IconButton icon="24.variables" label={t("Variables")} aria-expanded={variables} className={variables ? styles.navStripOn : undefined} data-rail-tab="variables" onClick={() => ed.ui.set((s) => ({ variablesOpen: !s.variablesOpen }))} />
+      <IconButton icon="24.rail.variables" label={t("Variables")} aria-expanded={variables} className={variables ? styles.navStripOn : undefined} data-rail-tab="variables" onClick={() => ed.ui.set((s) => ({ variablesOpen: !s.variablesOpen }))} />
       {menu && (
         <ContextMenu
           at={menu.at}
@@ -127,7 +127,7 @@ export function Rail() {
           />
         ))}
         <RailSeparator />
-        <RailItem icon="24.variables" label={t("Variables")} active={variables} data-rail-tab="variables" onClick={() => ed.ui.set((s) => ({ variablesOpen: !s.variablesOpen }))} />
+        <RailItem icon="24.rail.variables" label={t("Variables")} active={variables} data-rail-tab="variables" onClick={() => ed.ui.set((s) => ({ variablesOpen: !s.variablesOpen }))} />
         <RailSpacer />
         <MissingFontsButton />
         {pending > 0 && (

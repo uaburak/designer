@@ -65,14 +65,15 @@ export function ToolButton({ icon, label, shortcut, active, onSelect, menu, onMe
   useT();
   const chevron = useRef<HTMLButtonElement>(null);
   const [at, setAt] = useState<{ x: number; y: number } | null>(null);
-  // Live (toolbar/*-tools-menu.txt): the menu's left edge at the chevron's, its bottom 12 over the tool's top (4 over
-  // the toolbar).
+  // Live (2026-10-18/toolbar.txt): the menu's left edge at the chevron's, its rows ending 12 over the tool's top (4
+  // over the toolbar) and its 8 of padding under them over the toolbar's edge — the surface's bottom 4 over the tool.
   const toggle = () => {
     const el = chevron.current;
     if (at || !el) return setAt(null);
     const r = el.getBoundingClientRect();
-    setAt({ x: r.left, y: r.top - 12 });
+    setAt({ x: r.left, y: r.top - 4 });
   };
+  const open = Boolean(at) || Boolean(forceOpen);
   return (
     <div data-ds="ToolButton" className={styles.tool} data-active={active || undefined}>
       {/* Disabled stays hoverable (aria-disabled, not the attribute) so its tooltip still says what it is */}
@@ -86,19 +87,21 @@ export function ToolButton({ icon, label, shortcut, active, onSelect, menu, onMe
             type="button"
             aria-label={menuLabel ?? t("{label} options", { label })}
             aria-haspopup="menu"
-            aria-expanded={Boolean(at) || Boolean(forceOpen)}
-            data-open={at || forceOpen ? "" : undefined}
+            aria-expanded={open}
+            data-open={open ? "" : undefined}
             disabled={menuDisabled}
             className={styles.chevron}
             onClick={toggle}
           >
-            <Icon name="16.chevron.down" />
+            {/* Live: the chevron points up while its menu is open */}
+            <Icon name={open ? "16.chevron.up.small" : "16.chevron.down.small"} />
           </button>
           {at && (
             <ContextMenu
               at={at}
               above
               dropdown
+              className={styles.toolMenu}
               width={menuWidth}
               label={menuLabel ?? t("{label} options", { label })}
               entries={menu}
