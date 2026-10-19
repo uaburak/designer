@@ -16,7 +16,9 @@
 //   --size WxH --dpr D  the canvas in CSS px and its device pixel ratio (default 1440x900 @2, a Retina editor)
 //   --only a,b          run only these scenarios (rest, lowZoom, slowPan, fastPan, zoom, dense, hover, select, drag, and the
 //                       instance ones: instSelect, instDrag, altDrag, multiDrag; variantMain (a variant dragged in its
-//                       set), flowDrag (live auto-layout reorder, nested), selectMany; menuState in --editor mode)
+//                       set), flowDrag (live auto-layout reorder, nested), selectMany; menuState in --editor mode;
+//                       glassZoom (a pinch into a glass layer to 25,600 % and back, and at rest at 100 … 25,600 %; with
+//                       --synthetic --glass))
 //   --open              the file-open path instead: the real EditorApp mounted (panels, Layers, fonts, images,
 //                       thumbnail) on a DocumentSource over the imported snapshot; marks every step (see "Open")
 //   --no-strict         --open without React.StrictMode (the app's main.tsx mounts under StrictMode, which in dev
@@ -1065,6 +1067,57 @@ function pageMain() {
           results.push(
             await scenario("wheel zoom in/out (pinch, fit → 8× → fit)", 120, (i) => input.wheel(W2 + 200 * Math.sin(i / 20), H2, 0, i < 60 ? -3.5 : 3.5, true))
           );
+        }
+        if (want("glassZoom")) {
+          // 2026-10-20 (the owner: zooming over a glass layer lags, and the glass vanishes at the deepest zooms): a
+          // pinch from 25 % into a glass layer's middle up to 25,600 % and back, synced each frame; the same over a
+          // layer without glass for comparison (--synthetic --glass has both).
+          const worldCentre = (id) => {
+            let n = engine.readNode(id);
+            let p = { x: (n.size?.x ?? 0) / 2, y: (n.size?.y ?? 0) / 2 };
+            for (let k = 0; n && n.type !== "CANVAS" && k < 1000; k++) {
+              const m = n.transform ?? { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 };
+              p = { x: m.m00 * p.x + m.m01 * p.y + m.m02, y: m.m10 * p.x + m.m11 * p.y + m.m12 };
+              n = n.parentIndex?.guid ? engine.readNode(n.parentIndex.guid) : null;
+            }
+            return p;
+          };
+          let glassId = null, plainId = null;
+          for (const [id, node] of this._byId) {
+            if (node.type !== "FRAME" && node.type !== "ROUNDED_RECTANGLE") continue;
+            const fx = node.effects ?? [];
+            if (!glassId && fx.some((e) => e.type === "GLASS" && e.visible !== false)) glassId = id;
+            else if (!plainId && /^Card /.test(node.name ?? "") && !fx.some((e) => e.type === "GLASS" || e.type === "BACKGROUND_BLUR")) plainId = id;
+            if (glassId && plainId) break;
+          }
+          const steps = 80;
+          const rate = Math.log(4) / 100;  // Editor::wheel's pinch: 4^(delta / 100)
+          const dy = Math.log(256 / 0.25) / rate / steps;
+          for (const [label, id] of [["glass", glassId], ["no glass", plainId]]) {
+            if (!id) continue;
+            const c = worldCentre(id);
+            engine.setCamera({ x: W2 - c.x * 0.25, y: H2 - c.y * 0.25, zoom: 0.25 });
+            engine.pump();
+            const r = await scenario(`pinch zoom over a layer with ${label} (25 % → 25,600 % → 25 %)`, 2 * steps,
+              (i) => input.wheel(W2, H2, 0, i < steps ? -dy : dy, true), { sync: true, frameStats: true });
+            r.layer = id;
+            results.push(r);
+            if (label === "glass") {
+              // At rest at each zoom: a redraw (its backdrop captured, frosted and refracted again), synced.
+              for (const z of [1, 4, 16, 64, 256]) {
+                engine.setCamera({ x: W2 - c.x * z, y: H2 - c.y * z, zoom: z });
+                engine.pump();
+                const s = await scenario(`glass at ${z * 100} % (full redraw)`, 10, (i) => {
+                  const k = i % 2 ? 1.001 : 1;
+                  engine.setCamera({ x: W2 - c.x * z * k, y: H2 - c.y * z * k, zoom: z * k });
+                  engine.renderNow();
+                }, { sync: true, frameStats: true });
+                s.backdrops = engine.stats().backdrops;
+                results.push(s);
+              }
+            }
+          }
+          fit();
         }
         const target = this.denseTarget(page);
         const at100 = () => {
