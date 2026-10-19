@@ -456,7 +456,8 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
             returnFocus?.();
           }
         }}
-        className={cx(styles.input, styles.tabular, modeLabel && styles.hug, unitAfter && styles.opacityInput, prefix === undefined && !unitAfter && styles.padStart, (mixedShown || (dimValue && !focused)) && styles.mixedText)}
+        // Proportional digits, as Figma's fields draw them (the owner's panel17/72–74: "179" 35 px wide at 2x, tabular 39.4)
+        className={cx(styles.input, modeLabel && styles.hug, unitAfter && styles.opacityInput, prefix === undefined && !unitAfter && styles.padStart, (mixedShown || (dimValue && !focused)) && styles.mixedText)}
       />
       {unitAfter && (
         <>

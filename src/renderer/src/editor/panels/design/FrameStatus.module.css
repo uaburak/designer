@@ -16,7 +16,9 @@
     border-radius: var(--ds-radius-full);
     background: var(--figma-color-bg-secondary);
     color: var(--figma-color-text);
-    font: var(--ds-font-body-small);
+    /* UI3's chrome text, as the header's other labels (A-live O4: 9px read below it) */
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
     white-space: nowrap;
   }
   .dot { flex: none; width: var(--ds-space-2); height: var(--ds-space-2); border-radius: var(--ds-radius-full); }

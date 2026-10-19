@@ -1,0 +1,22 @@
+Live Figma (web, UI3), 2026-10-19: boolean groups and corner radius. Built with the Plugin API in the owner's draft (two rectangles: A 300x240, B 60x200 overlapping A's top centre, B 30 px above A), then each result exported as SVG to read Figma's exact outline. Owner's captures: ../owner-2026-10-19/ (Wecra vs Figma, Subtract with radius 999).
+
+WHAT FIGMA DOES
+- A boolean group (BOOLEAN_OPERATION: UNION / SUBTRACT / INTERSECT / EXCLUDE) has its own Appearance → Corner radius (cornerRadius) and corner smoothing. They act on the RESULT's outline, not on the children.
+- The radius rounds EVERY corner of the result outline — convex and concave alike — each clamped to what fits (half of the shorter adjacent edge). Radius 999 = "as round as possible".
+  Subtract r20:  M300 220C300 231.046 291.046 240 280 240H20C8.95 240 0 231.046 0 220V20C0 8.95 8.95 0 20 0H100C111.046 0 120 8.95 120 20V150C120 161.046 128.954 170 140 170H160C171.046 170 180 161.046 180 150V20C180 8.95 188.954 0 200 0H280C291.046 0 300 8.95 300 20V220Z
+     → the notch's top corners (where the cut meets A's top edge) are rounded too: the edge goes 100→120 with a 20 arc down into the notch, i.e. the corner at (120,0) is rounded INTO the cut; the notch bottom corners (120,170)/(180,170) rounded 20.
+  Subtract r999: M300 120C300 186.274 246.274 240 180 240H120C53.73 240 0 186.274 0 120V60C0 26.86 26.86 0 60 0C93.14 0 120 26.86 120 60V140C120 156.569 133.431 170 150 170C166.569 170 180 156.569 180 140V60C180 26.86 206.86 0 240 0C273.14 0 300 26.86 300 60V120Z
+     → each corner gets the largest radius its two edges allow (the 120-wide outer arms → 60; the 60-wide notch → 30, a half circle; the bottom 240 tall → 120).
+  Union r20: the bump on top (B above A) is rounded at its top (15 = half of B's 30-high part) and the joins into A's top edge are concave arcs (radius 15).
+  Exclude r20: two sub-paths (A minus B's overlap, B's top part); each rounded; corners on the shared cut line are rounded inside each piece.
+  Intersect r999: 60x170 → a pill (radius 30 = half the width).
+- Clamp rule matches Figma's rectangle rule: for each vertex r = min(radius, half of each adjacent edge length) — the same per-corner clamp as vector "Corner radius" on a path.
+- Corner smoothing (squircle, 0–1) applies to the result the same way (0.6 → the iOS-style curves on every corner).
+- Fill: the boolean group's OWN fills draw the result (default #D9D9D9 when made by the Plugin API; Figma's UI keeps the top child's fill on creation). Children's fills don't show.
+- Children keep their own radius: a child with radius 40 inside a boolean with radius 0 keeps its 40 corners in the result, and the cut's corners stay sharp.
+- Nested booleans: the outer boolean's radius rounds the final outline once (an inner boolean's result is just geometry to it).
+- Flatten (⌥⇧F / ⌘E) bakes the rounded result into a VECTOR: the arcs become cubic curves; cornerRadius on the vector is 0.
+- Panel: the boolean group's header has the boolean split button (op icon + chevron menu Union / Subtract / Intersect / Exclude / Flatten) and Edit object; Appearance shows Opacity, Corner radius (+ individual-corners button disabled for booleans — one value) and corner smoothing under the radius' settings.
+
+WECRA TODAY (owner's capture 2026-10-19, left half of the first image)
+- The Subtract group shows Corner radius 999 in Appearance but draws the result with sharp corners: the radius is stored and ignored by the boolean result. Flatten therefore can't bake it either.

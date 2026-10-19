@@ -23,15 +23,19 @@
   .tab[aria-selected="true"] { background: var(--figma-color-bg-secondary); color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
   .tab:focus-visible, .tab[data-focus-visible] { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
   .tab.lit, .tab.lit:hover { color: var(--figma-color-text-brand); }
-  /* card (live Keyboard shortcuts panel): the row's full height, no gap, 13px; the chosen tab a card over the row's line */
+  /*
+   * card (live Keyboard shortcuts panel, live-*.webp at 1.3228): the row's full height, no gap, 12px; the chosen tab a
+   * card over the row's line. Labels 16 apart from each side's edge with the card's 1px sides inside that: Tools → View
+   * 62 apart, as live.
+   */
   .card { gap: 0; align-self: stretch; align-items: stretch; }
   .card .tab {
-    height: auto; margin-bottom: -1px; padding: 0 var(--ds-space-4); border: solid transparent; border-width: 0 1px 1px; border-radius: 0;
-    font: var(--ds-font-body-large); letter-spacing: var(--ds-tracking-body-large);
+    height: auto; margin-bottom: -1px; padding: 0 calc(var(--ds-space-4) - 1px); border: solid transparent; border-width: 0 1px 1px; border-radius: 0;
+    font: var(--ds-font-shortcuts); letter-spacing: var(--ds-tracking-shortcuts);
   }
   .card .tab[aria-selected="true"] {
     border-color: var(--figma-color-bg-secondary); border-bottom-color: var(--ds-tabs-card-bg, var(--figma-color-bg)); background: var(--ds-tabs-card-bg, var(--figma-color-bg));
-    font: var(--ds-font-body-large); letter-spacing: var(--ds-tracking-body-large);
+    font: var(--ds-font-shortcuts); letter-spacing: var(--ds-tracking-shortcuts);
   }
   .card .tab[aria-selected="true"].lit { color: var(--figma-color-text-brand); }
   .card .labelBold { font-weight: inherit; }

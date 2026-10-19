@@ -97,6 +97,8 @@
   .buttonGroup > .groupButton:disabled { background: var(--figma-color-bg-secondary); }
   /* Gap and, for a wrap, the gap between rows: two fields stacked next to the 56-high alignment box */
   .gapStack { display: flex; flex-direction: column; gap: var(--ds-space-2); }
+  /* Auto layout without row labels (the owner's panel17/74): the Flow row 1 lower under the title (24 from it, not 23) */
+  .autoLayoutGrid { padding-top: 1px; }
   /* A padding field's hover / ⌘-click / focus listener, no box of its own (the field stays its cell's child) */
   .contents { display: contents; }
   .alignRow { align-items: start; }
@@ -239,6 +241,8 @@
   }
   .hoverMenuField:hover .hoverMenu, .hoverMenu:focus-visible, .hoverMenu[data-open] { opacity: 1; pointer-events: auto; }
   .hoverMenu:hover, .hoverMenu[data-open] { color: var(--figma-color-icon); }
+  /* Without row labels (panel17/74–75): the gap's chevron a 24 segment at rest, a 1px line in the panel's colour before it */
+  .splitMenuField .hoverMenu { width: var(--ds-size-control); border-left: 1px solid var(--figma-color-bg); opacity: 1; pointer-events: auto; }
   /* Font size (live design/text.txt): one 88 field, the number across it; the list's chevron shows on hover */
   .fontSizeField { position: relative; }
   .fontSizeMenu {

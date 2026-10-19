@@ -42,6 +42,7 @@ import {
 } from "../../model/exports";
 import { useKeeps } from "./shared";
 import { writeKeepingAnimated } from "../../motion/export/animatedSettings";
+import { timelineOf } from "../../motion/export/exportAnimated";
 import { ExportAnimatedTab } from "./ExportAnimated";
 import { Grip, moved, useReorder } from "./reorder";
 import styles from "./Design.module.css";
@@ -64,6 +65,13 @@ function writeSettings(ed: EditorController, refs: readonly Guid[], list: Export
   writeKeepingAnimated(ed, refs, list, label);
 }
 
+/** A timeline root with something on it to export animated: keyframes, clips, an animated instance or audio. */
+function hasMotion(ed: EditorController, root: Guid): boolean {
+  if (!timelineOf(ed, root)) return false;
+  const model = ed.engine.motionTimeline(root);
+  return !!model && (model.audio.length > 0 || model.layers.some((l) => l.tracks.length > 0 || l.clips.length > 0 || !!l.instance));
+}
+
 /** Hidden for a viewer the file or the org doesn't let export (docs/governance.md §2.7: "hidden or disabled"). */
 export function ExportSection(props: { targets: ExportTarget[]; page: boolean }) {
   const ed = useEditor();
@@ -82,7 +90,15 @@ function ExportSectionBody({ targets, page }: { targets: ExportTarget[]; page: b
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState(false);
   // Static (today's) | Animated (docs/motion.md §7.1: the animated formats of a timeline root).
-  const [tab, setTab] = useState<"static" | "animated">("static");
+  const [chosenTab, setTab] = useState<"static" | "animated">("static");
+  // The Static / Animated strip only when there is something to export animated — a timeline root with keyframes,
+  // clips, an animated instance or audio among the targets; else Export is Figma's header with "+" alone (A-live O5).
+  const version = useDocumentVersion();
+  const animatable = useMemo(() => {
+    void version;
+    return !page && targets.some((tg) => hasMotion(ed, tg.guid));
+  }, [ed, targets, page, version]);
+  const tab = animatable ? chosenTab : "static";
   const exporting = canExport(ed);
   const add = () => writeSettings(ed, refs, isMixed ? [nextExportSetting([])] : [...list, nextExportSetting(list)], "Add export settings");
   const set = (i: number, next: ExportSettings, label = "Export settings") => writeSettings(ed, refs, list.map((x, j) => (j === i ? next : x)), label);
@@ -103,7 +119,7 @@ function ExportSectionBody({ targets, page }: { targets: ExportTarget[]; page: b
   };
   return (
     <PanelSection title={t("Export")} empty={empty && tab === "static"} actions={<IconButton icon="24.plus.small" label={t("Add export settings")} tone="secondary" disabled={!kept || tab !== "static"} onClick={add} />}>
-      <Tabs className={own.tabs} label={t("Export kind")} value={tab} tabs={[{ value: "static", label: t("Static") }, { value: "animated", label: t("Animated") }]} onChange={(v) => setTab(v as "static" | "animated")} />
+      {animatable && <Tabs className={own.tabs} label={t("Export kind")} value={tab} tabs={[{ value: "static", label: t("Static") }, { value: "animated", label: t("Animated") }]} onChange={(v) => setTab(v as "static" | "animated")} />}
       {tab === "animated" && <ExportAnimatedTab targets={targets} page={page} />}
       {tab === "static" && isMixed && <div className={styles.note}>{t("Click + to replace mixed export settings")}</div>}
       {tab === "static" && list.length > 0 && (
