@@ -212,6 +212,15 @@ enum class CommandId : uint32_t {
   MOTION_COMBINE_TRACKS = 350,
   MOTION_SPLIT_TRACKS = 351,
   MOTION_SET_PRESET_TRACKS = 352,
+  // Round 19b: Illustrator's Pathfinders (editor/PathfinderCommands.cpp; geometry/Pathfinder.h); 360-369.
+  // args {precision?: number (0.028), removeRedundantPoints?: bool (true), removeUnpainted?: bool (false)} — Pathfinder
+  // Options; created: the result (a group of vectors; Minus Back: a vector).
+  PATHFINDER_DIVIDE = 360,
+  PATHFINDER_TRIM = 361,
+  PATHFINDER_MERGE = 362,
+  PATHFINDER_CROP = 363,
+  PATHFINDER_OUTLINE = 364,
+  PATHFINDER_MINUS_BACK = 365,
 };
 
 // engine_command_state bits.

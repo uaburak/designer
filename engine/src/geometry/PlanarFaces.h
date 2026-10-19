@@ -48,11 +48,14 @@ struct PlanarMap {
   };
   std::vector<Vec2> points;
   std::vector<Curve> curves;
+  std::vector<uint32_t> curveInput;  // the input each curve came from (round 19b, Pathfinder's Outline)
   std::vector<Edge> edges;
   std::vector<uint32_t> nextHalf;
   std::vector<int> faceOfHalf;
   // The contour through these half-edges (in order), runs along one curve turned back into its sections.
-  void appendRing(Path& out, const std::vector<uint32_t>& halves) const;
+  void appendRing(Path& out, const std::vector<uint32_t>& halves) const { appendChain(out, halves, true); }
+  // The same for a run of half-edges that need not come back to its start (`closed` false: left open).
+  void appendChain(Path& out, const std::vector<uint32_t>& halves, bool closed) const;
 };
 
 // The bounded faces of the inputs' arrangement that lie inside at least one input. `tolerance`: how finely curves are

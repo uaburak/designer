@@ -1,0 +1,7 @@
+/* Round 19b: Pathfinder options (canvas/PathfinderOptions.tsx) — Illustrator's three settings in the nudge window's form. */
+@layer app {
+  .form { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-3) var(--ds-space-4); }
+  .row { display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: var(--ds-space-2); }
+  .label { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .footer { display: flex; justify-content: flex-end; padding-top: var(--ds-space-1); }
+}

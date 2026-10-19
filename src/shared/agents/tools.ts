@@ -601,6 +601,24 @@ export const TOOLS: ToolDef[] = [
     write: true,
   },
   {
+    name: "pathfinder",
+    title: "Pathfinder",
+    description:
+      "Adobe Illustrator's Pathfinders on the given layers (destructive: they are replaced by plain vectors, grouped — Minus Back: one vector; one undo step; the result's ids come back). DIVIDE: every overlap a separate piece, painted by the shape on top there (open paths cut too). TRIM: the hidden parts removed, strokes removed. MERGE: Trim, then touching pieces of the same fill merged. CROP: the top layer crops everything below it and goes. OUTLINE: every edge, split where they cross, as open paths stroked with the shape's fill colour. MINUS_BACK: the layers behind subtracted from the front one. Groups and frames are opened up; a boolean group counts as its result. For live (non-destructive) booleans use run_command BOOLEAN_UNION / SUBTRACT / INTERSECT / EXCLUDE.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        operation: { enum: ["DIVIDE", "TRIM", "MERGE", "CROP", "OUTLINE", "MINUS_BACK"] },
+        nodeIds: { ...writeIds, description: "The layers, any order (their stacking decides what is on top). " + WRITE_IDS },
+        precision: { type: "number", description: "How closely curves are followed, px (default 0.028, Illustrator's)." },
+        removeRedundantPoints: { type: "boolean", description: "Default true." },
+        removeUnpainted: { type: "boolean", description: "Divide and Outline drop unfilled shapes first. Default false." },
+      },
+      required: ["operation", "nodeIds"],
+    },
+    write: true,
+  },
+  {
     name: "set_current_page",
     title: "Go to page",
     description: "Switches the current page (id or name). Tools work on any page's layers by id; this changes what the user sees and where new layers go by default.",

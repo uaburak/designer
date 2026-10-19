@@ -33,6 +33,7 @@ import { OpenVariablesButton, VariablePicker } from "../variables/VariablePicker
 import { BIND_TYPE } from "../../model/variables";
 import { sharedBinding } from "./Variables";
 import { convertFrameKind, frameKindOf, offeredKinds, type FrameKind } from "./frameKind";
+import { PATHFINDER_OPTIONS_ID, PATHFINDERS, pathfinderSubmenu } from "../../pathfinder";
 import { PANEL_MENU_GAP, isFrameNode, typeLabel, typeOf, useParents, useTextEditRef, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 import hstyles from "./Header.module.css";
@@ -197,6 +198,9 @@ export const ACTION_ICON: Record<string, IconName> = {
   "vector.intersect": "24.boolean.intersect.small",
   "vector.exclude": "24.boolean.exclude.small",
   "vector.flatten": "24.flatten.small",
+  // Round 19b [ours]: Illustrator's Pathfinders, drawn in Figma's boolean-icon style.
+  ...Object.fromEntries(PATHFINDERS.map((p) => [p.id, p.icon])),
+  [PATHFINDER_OPTIONS_ID]: "24.adjust.small",
 };
 
 /** A command as a header-menu item: its glyph, never a check column (live labels at 44). */
@@ -444,14 +448,19 @@ function TextVariableButton({ nodes }: { nodes: PanelNode[] }) {
   );
 }
 
-/** The boolean menu's entries (live popovers/boolean-operations-menu.txt: Union … Exclude, Flatten — no line, no checks). */
-export function booleanMenu(ed: EditorController, booleans: boolean): MenuItem[] {
+/**
+ * The boolean menu's entries (live popovers/boolean-operations-menu.txt: Union … Exclude, Flatten — no line, no
+ * checks), then ours (round 19b): a line and Illustrator's "Pathfinder ›" — Divide … Minus Back, Pathfinder options….
+ */
+export function booleanMenu(ed: EditorController, booleans: boolean): MenuEntry[] {
   return [
     ...BOOLEAN_ITEMS.map((b) => {
       const c = command(b.id);
       return { id: b.id, label: t(c.label.replace(" selection", "")), icon: b.icon, shortcut: shortcutOf(c), disabled: !(booleans || isEnabled(ed, c)) };
     }),
     actionItem(ed, "vector.flatten"),
+    "-",
+    pathfinderSubmenu((id) => actionItem(ed, id)),
   ];
 }
 
@@ -467,7 +476,7 @@ function BooleanGroup({ nodes }: { nodes: PanelNode[] }) {
   const entries = booleanMenu(ed, booleans);
   const first = BOOLEAN_ITEMS.find((b) => b.op === (current ?? "UNION")) ?? BOOLEAN_ITEMS[0];
   const firstCommand = command(first.id);
-  const any = entries.some((e) => !e.disabled);
+  const any = entries.some((e) => typeof e === "object" && "id" in e && !e.disabled);
   return (
     <div className={styles.splitButton} role="group" aria-label={t("Boolean operations")}>
       <IconButton

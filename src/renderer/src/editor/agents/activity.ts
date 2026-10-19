@@ -26,6 +26,7 @@ const TOOL_ACTIVE: Record<string, string> = {
   apply_variable: "Applying a variable…",
   apply_style: "Applying a style…",
   create_responsive_variant: "Making a responsive version…",
+  pathfinder: "Running a Pathfinder…",
   set_selection: "Selecting the result…",
   place_image: "Placing the image…",
   generate_image: "Making an image…",

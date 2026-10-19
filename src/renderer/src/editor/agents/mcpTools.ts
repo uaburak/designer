@@ -1179,6 +1179,19 @@ function runCommandTool(env: ToolEnv, args: Spec): ToolResult {
   throw new ToolError('Give command (an editor command id) or engineCommand (an engine command name) — list_commands lists both.');
 }
 
+/** Round 19b: Illustrator's Pathfinders (the engine's PATHFINDER_* commands) on the layers named. */
+const PATHFINDER_OPS = ["DIVIDE", "TRIM", "MERGE", "CROP", "OUTLINE", "MINUS_BACK"] as const;
+function pathfinderTool(env: ToolEnv, args: Spec): ToolResult {
+  const op = typeof args.operation === "string" ? args.operation.toUpperCase().replace(/[\s-]+/g, "_") : "";
+  if (!(PATHFINDER_OPS as readonly string[]).includes(op)) throw new ToolError(`operation: one of ${PATHFINDER_OPS.join(", ")}.`);
+  const nodeIds = writeTargets(env, args, "pathfinder");
+  const options: Record<string, number | boolean> = {};
+  if (typeof args.precision === "number" && args.precision > 0) options.precision = args.precision;
+  if (typeof args.removeRedundantPoints === "boolean") options.removeRedundantPoints = args.removeRedundantPoints;
+  if (typeof args.removeUnpainted === "boolean") options.removeUnpainted = args.removeUnpainted;
+  return runCommandTool(env, { engineCommand: `PATHFINDER_${op}`, args: options, nodeIds });
+}
+
 function setPageTool(env: ToolEnv, args: Spec): ToolResult {
   const pages = env.ed.engine.pages();
   const p = pages.find((x) => x.guid === normId(args.pageId) || x.name === args.pageId);
@@ -1288,6 +1301,8 @@ export async function runTool(env: ToolEnv, name: string, args: Spec): Promise<T
         return listCommands(env, args);
       case "run_command":
         return runCommandTool(env, args);
+      case "pathfinder":
+        return pathfinderTool(env, args);
       case "set_current_page":
         return setPageTool(env, args);
       case "apply_style":

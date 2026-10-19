@@ -29,6 +29,7 @@
 #include "editor/Undo.h"
 #include "geometry/Brush.h"
 #include "geometry/DynamicStroke.h"
+#include "geometry/Pathfinder.h"
 #include "geometry/PlanarFaces.h"
 #include "geometry/VariableWidth.h"
 #include "geometry/VectorNetwork.h"
@@ -1588,6 +1589,13 @@ class Editor : private LayoutHost, public TextLayouts {
   size_t outdatedBooleans() const;
   Status upgradeBooleans();
   Status flattenSelection();
+  // Round 19b (editor/PathfinderCommands.cpp): Illustrator's Pathfinders over the selection — its shapes (groups and
+  // frames opened up, a boolean as its result) replaced by ordinary vectors, grouped (Minus Back: one vector), one undo
+  // step with Illustrator's name, the result selected.
+  Status pathfinderSelection(geom::PathfinderOp op, const geom::PathfinderOptions& options);
+  bool pathfinderEnabled(geom::PathfinderOp op) const;
+  // The selection's shapes as Pathfinder inputs (bottom first) in `toSpace`'s space, with the layers they came from.
+  void pathfinderInputs(const Mat2x3& toSpace, std::vector<geom::PathfinderInput>& inputs, std::vector<Guid>& sources) const;
   Status outlineStroke();
   Status useAsMask();
   Status placeImage(const CommandArgs& args);

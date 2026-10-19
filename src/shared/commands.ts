@@ -178,6 +178,14 @@ export const COMMANDS = [
   { id: "vector.subtract", label: "Subtract selection", accelerator: "Alt+Shift+S", scope: "editor" },
   { id: "vector.intersect", label: "Intersect selection", accelerator: "Alt+Shift+I", scope: "editor" },
   { id: "vector.exclude", label: "Exclude selection", accelerator: "Alt+Shift+E", scope: "editor" },
+  // Round 19b [ours]: Illustrator's Pathfinders (no default keys in Illustrator either) and their options.
+  { id: "vector.pathfinder-divide", label: "Divide", scope: "editor" },
+  { id: "vector.pathfinder-trim", label: "Trim", scope: "editor" },
+  { id: "vector.pathfinder-merge", label: "Merge", scope: "editor" },
+  { id: "vector.pathfinder-crop", label: "Crop", scope: "editor" },
+  { id: "vector.pathfinder-outline", label: "Outline", scope: "editor" },
+  { id: "vector.pathfinder-minus-back", label: "Minus Back", scope: "editor" },
+  { id: "vector.pathfinder-options", label: "Pathfinder options…", scope: "editor" },
 
   // ── Window ──
   { id: "window.next-tab", label: "Show Next Tab", accelerator: "Ctrl+Tab", scope: "shell" },
@@ -401,7 +409,22 @@ export const MENU_LAYOUT: Record<TopMenu, MenuEntry[]> = {
     "arrange.distribute-horizontal",
     "arrange.distribute-vertical",
   ],
-  Vector: ["vector.flatten", "vector.outline-stroke", "-", { submenu: "Boolean groups", items: ["vector.union", "vector.subtract", "vector.intersect", "vector.exclude"] }],
+  Vector: [
+    "vector.flatten",
+    "vector.outline-stroke",
+    "-",
+    {
+      submenu: "Boolean groups",
+      items: [
+        "vector.union",
+        "vector.subtract",
+        "vector.intersect",
+        "vector.exclude",
+        "-",
+        { submenu: "Pathfinder", items: ["vector.pathfinder-divide", "vector.pathfinder-trim", "vector.pathfinder-merge", "vector.pathfinder-crop", "vector.pathfinder-outline", "vector.pathfinder-minus-back", "-", "vector.pathfinder-options"] },
+      ],
+    },
+  ],
   Window: [
     { role: "minimize" },
     { role: "zoom" },

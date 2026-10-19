@@ -266,8 +266,11 @@ void forEachHit(const Document& doc, Guid page, Vec2 world, double pixel, F&& f,
     // its layers aren't hit on their own (the outermost group stands for everything inside it).
     if (repeatAncestor(doc, id) != kNoGuid) continue;
     bool transform = n->props.type == NodeType::TRANSFORM;
-    // Groups and boolean operations are hit through their children.
-    if (n->props.fitsChildren() && !transform) continue;
+    // Groups and boolean operations are hit through their children; a boolean also where its result covers what none
+    // of them does (a rounded concave corner's fill, round 19a) — after its children (they paint above it), so a
+    // child's hit comes first and this one adds nothing to the list.
+    const bool booleanItself = n->props.isBoolean();
+    if (n->props.fitsChildren() && !transform && !booleanItself) continue;
     bool clipped = false;
     for (Guid a = n->props.parentIndex.guid; a != kNoGuid && !clipped;) {
       const Node* an = doc.get(a);

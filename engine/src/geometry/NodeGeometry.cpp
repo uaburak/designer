@@ -5,6 +5,7 @@
 
 #include "base/Json.h"
 #include "geometry/Boolean.h"
+#include "geometry/CornerRounding.h"
 #include "geometry/Repeat.h"
 #include "geometry/Shapes.h"
 #include "scene/CodecKiwi.h"
@@ -247,7 +248,14 @@ void GeometryCache::build(const Document& doc, Guid id, const NodeProps& p, Node
         collect(c, Mat2x3{}, o.path, depth);
         if (!o.path.empty()) ops.push_back(std::move(o));
       }
-      if (!ops.empty()) closedShape(booleanOp(ops, p.shape().booleanOperation, 0.01));
+      if (!ops.empty()) {
+        Path result = booleanOp(ops, p.shape().booleanOperation, 0.01);
+        // The group's own corner radius rounds its result's every corner, convex and concave, clamped per corner; its
+        // smoothing is Figma's squircle (round 19a; live boolean-radius.txt). A nested boolean is plain geometry here:
+        // its parent's radius rounds the final outline once.
+        if (p.cornerRadii[0] > 0) result = roundCorners(result, p.cornerRadii[0], p.stroke().cornerSmoothing);
+        closedShape(std::move(result));
+      }
       break;
     }
     default: break;

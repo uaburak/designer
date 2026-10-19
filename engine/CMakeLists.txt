@@ -80,6 +80,7 @@ add_library(eng_core STATIC
   src/editor/TextEditing.cpp
   src/editor/VectorEditing.cpp
   src/editor/VectorCommands.cpp
+  src/editor/PathfinderCommands.cpp
   src/editor/PaintEditing.cpp
   src/render/CurveCache.cpp
   src/render/ImageCache.cpp
@@ -89,6 +90,8 @@ add_library(eng_core STATIC
   src/geometry/Shapes.cpp
   src/geometry/Stroker.cpp
   src/geometry/Boolean.cpp
+  src/geometry/CornerRounding.cpp
+  src/geometry/Pathfinder.cpp
   src/geometry/Brush.cpp
   src/geometry/DynamicStroke.cpp
   src/geometry/Repeat.cpp
@@ -205,6 +208,8 @@ else()
     tests/unit/text.render.test.cpp
     tests/unit/geometry.path.test.cpp
     tests/unit/geometry.boolean.test.cpp
+    tests/unit/r19.boolean_radius.test.cpp
+    tests/unit/r19.pathfinder.test.cpp
     tests/unit/geometry.figma_golden.test.cpp
     tests/unit/editor.vector.test.cpp
     tests/unit/render.paths.test.cpp
