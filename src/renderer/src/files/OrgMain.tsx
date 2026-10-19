@@ -587,8 +587,7 @@ export function OrgMain(props: OrgMainProps) {
       const drafts: OrgImportPlace = { kind: "org-drafts" };
       actions = noCreate ? null : (
         <>
-          <Button variant="tinted" size="large" className={styles.productPill} tooltip={tr("New design file")} onClick={() => void newDesignFile(null)}>
-            <FileKindIcon />
+          <Button variant="tinted" size="large" icon="24.design" tooltip={tr("New design file")} onClick={() => void newDesignFile(null)}>
             {tr("Design")}
           </Button>
           {mayImport && importButton(() => importTo(drafts))}
@@ -626,8 +625,7 @@ export function OrgMain(props: OrgMainProps) {
       const drafts: OrgImportPlace = { kind: "org-drafts" };
       actions = noCreate ? null : (
         <>
-          <Button variant="tinted" size="large" className={styles.productPill} tooltip={tr("New design file")} onClick={() => void newDesignFile(null)}>
-            <FileKindIcon />
+          <Button variant="tinted" size="large" icon="24.design" tooltip={tr("New design file")} onClick={() => void newDesignFile(null)}>
             {tr("Design")}
           </Button>
           {mayImport && importButton(() => importTo(drafts))}
@@ -786,8 +784,7 @@ export function OrgMain(props: OrgMainProps) {
       actions =
         tab === "main" && creates ? (
           <>
-            <Button variant="tinted" size="large" className={styles.productPill} tooltip={tr("New design file")} onClick={() => void newProject()}>
-              <FileKindIcon />
+            <Button variant="tinted" size="large" icon="24.design" tooltip={tr("New design file")} onClick={() => void newProject()}>
               {tr("Design")}
             </Button>
             {mayImport && importButton(() => void importProjects())}
@@ -879,8 +876,7 @@ export function OrgMain(props: OrgMainProps) {
                 {tr("New folder")}
               </Button>
             )}
-            <Button variant="tinted" size="large" className={styles.productPill} tooltip={tr("New design file")} onClick={() => void newDesignFile(p.id)}>
-              <FileKindIcon />
+            <Button variant="tinted" size="large" icon="24.design" tooltip={tr("New design file")} onClick={() => void newDesignFile(p.id)}>
               {tr("Design")}
             </Button>
             {mayImport && importButton(() => importTo({ kind: "project", projectId: p.id }))}

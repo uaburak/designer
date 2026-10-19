@@ -1,19 +1,41 @@
 /**
- * Home › Recents › "Shared files" (live Figma: Recents' tabs "Recently viewed | Shared files | Shared folders"; cards say
- * "From <name>" — docs/research/figma/live/multiplayer/home-shared-files.txt, R13 §3): the files on the server the user was
- * invited to or owns, newest share first. Opening one the first time makes its local copy from the room's snapshot; from
- * then on the store keeps it in step. "Open link…" takes a file's link (or `designer://` hands it over by itself).
+ * Home › Shared (the owner's Home, 2026-10-19: a sidebar page in Recents' place; live Figma keeps the same lists as
+ * Recents' tabs — docs/research/figma/live/multiplayer/home-shared-files.txt, R13 §3): the files on the server other
+ * people shared with the user ("Shared with you", each card "From <name>") and the ones the user shared ("Shared by
+ * you"), newest share first, in Home's grid or list with Home's cards. Opening one the first time makes its local copy
+ * from the room's snapshot; from then on the store keeps it in step. "Open link…" takes a file's link (or
+ * `designer://` hands it over by itself). Signed out or offline, Figma's empty states.
  */
 import { useEffect, useState } from "react";
-import { Button, Dialog, EmptyState, FileCard, Spinner, TextInput } from "@/ds";
+import { Button, CollectionView, Dialog, EmptyState, FileCard, FileKindIcon, ListHeader, ListRow, Spinner, TextInput, type ListColumn } from "@/ds";
+import { timeAgo } from "@/ds/util/time";
 import { t, useT } from "@/i18n";
-import { getStoreClient, thumbnailUrl } from "@/store";
+import { getStoreClient } from "@/store";
 import { intentFromLink, keyFromLink, type OpenIntent, type RemoteFile } from "@shared/multiplayer/types";
+import type { FileKey } from "@shared/store/types";
 import { withLinkPassword } from "./LinkPassword";
 import styles from "./Files.module.css";
 
-interface Row extends RemoteFile {
-  thumb: string | null;
+/** Where the Shared page reads from (FilesBackend.shared): the store's `multiplayer` repository in the app */
+export interface SharedSource {
+  /** The files on the server the user owns or was invited to (`multiplayer.listRemote`) */
+  list(): Promise<RemoteFile[]>;
+  /** Its local copy, made the first time (asking for the link's password when it has one); null: cancelled */
+  open(key: string, intent?: OpenIntent): Promise<{ fileKey: FileKey } | null>;
+  /** A local copy's card picture; null: the empty card */
+  thumbnail?(fileKey: FileKey): Promise<string | null>;
+}
+
+/** The page's two lists: what others shared with the user, what the user shared */
+export type SharedTab = "with-you" | "by-you";
+export const SHARED_TABS: readonly (readonly [SharedTab, string])[] = [
+  ["with-you", "Shared with you"],
+  ["by-you", "Shared by you"],
+];
+
+/** The files a tab lists, by date shared (`default`: newest first) */
+export function sharedRows<T extends Pick<RemoteFile, "role" | "sharedAt">>(files: readonly T[], tab: SharedTab, order: "default" | "reversed" = "default"): T[] {
+  return files.filter((f) => (tab === "by-you") === (f.role === "owner")).sort((a, b) => (order === "default" ? b.sharedAt - a.sharedAt : a.sharedAt - b.sharedAt));
 }
 
 /** Opens a shared file (its local copy), asking for the link's password when it has one; null when that was cancelled. */
@@ -22,24 +44,41 @@ export function openSharedFile(key: string, intent: OpenIntent = {}): Promise<{ 
   return withLinkPassword((password) => getStoreClient().multiplayer.openShared(key, password, intent, { early: true }));
 }
 
-export function SharedFilesView({ layout, order = "default", onOpen, onError }: { layout: "grid" | "list"; /** By date shared: "default" newest first */ order?: "default" | "reversed"; onOpen: (fileKey: string, name: string, intent?: OpenIntent) => void; onError: (message: string) => void }) {
+interface Row extends RemoteFile {
+  thumb: string | null;
+}
+
+export interface SharedFilesViewProps {
+  source: SharedSource | null;
+  tab: SharedTab;
+  layout: "grid" | "list";
+  /** By date shared: "default" newest first */
+  order?: "default" | "reversed";
+  /** Signed in to the server (the lists are the account's); false: the log-in empty state */
+  signedIn: boolean;
+  onLogIn?: () => void;
+  now: number;
+  onOpen: (fileKey: string, name: string, intent?: OpenIntent) => void;
+  onError: (message: string) => void;
+  /** The star on a file this computer has a copy of (Starred is per local file); absent: no star */
+  star?: { isStarred: (fileKey: FileKey) => boolean; set: (fileKey: FileKey, on: boolean) => void };
+}
+
+export function SharedFilesView({ source, tab, layout, order = "default", signedIn, onLogIn, now, onOpen, onError, star }: SharedFilesViewProps) {
   useT();
   const [rows, setRows] = useState<Row[] | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [opening, setOpening] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
+    if (!source || !signedIn) return;
     let live = true;
-    const store = getStoreClient();
-    void store.multiplayer.listRemote().then(
+    void source.list().then(
       async (files) => {
         // Local copies have thumbnails; files not opened yet show the empty card.
-        const out: Row[] = [];
-        for (const f of files.filter((x) => x.role !== "owner")) {
-          const meta = f.fileKey ? await store.workspace.getFile(f.fileKey).catch(() => null) : null;
-          out.push({ ...f, thumb: meta ? thumbnailUrl(meta) : null });
-        }
+        const out = await Promise.all(files.map(async (f): Promise<Row> => ({ ...f, thumb: f.fileKey && source.thumbnail ? await source.thumbnail(f.fileKey).catch(() => null) : null })));
         if (live) setRows(out);
       },
       (e: unknown) => live && setFailed(e instanceof Error ? e.message : String(e)),
@@ -47,13 +86,13 @@ export function SharedFilesView({ layout, order = "default", onOpen, onError }: 
     return () => {
       live = false;
     };
-  }, []);
+  }, [source, signedIn, attempt]);
 
   const open = async (f: Row) => {
-    if (opening) return;
+    if (opening || !source) return;
     setOpening(f.key);
     try {
-      const r = await openSharedFile(f.key);
+      const r = await source.open(f.key);
       if (r) onOpen(r.fileKey, f.name);
     } catch (e) {
       onError(t("Couldn’t open “{name}”: {error}", { name: f.name, error: e instanceof Error ? e.message : String(e) }));
@@ -62,21 +101,100 @@ export function SharedFilesView({ layout, order = "default", onOpen, onError }: 
     }
   };
 
-  if (failed) return <EmptyState size="page" icon="24.person" title={t("Couldn’t load shared files")} body={failed} />;
+  const withYou = tab === "with-you";
+  if (!signedIn || !source)
+    return (
+      <div className={styles.empty} data-shared-empty="signed-out">
+        <EmptyState size="page" icon="24.person" title={t("Log in to see shared files")} body={t("Files people share with you, and the ones you share, show up here.")} action={onLogIn ? { label: t("Log in"), onClick: onLogIn } : undefined} />
+      </div>
+    );
+  if (failed) {
+    const retry = () => {
+      setFailed(null);
+      setAttempt((n) => n + 1);
+    };
+    return (
+      <div className={styles.empty} data-shared-empty="failed">
+        <EmptyState size="page" icon="24.offline" title={t("Couldn’t load shared files")} body={failed} action={{ label: t("Try again"), onClick: retry }} />
+      </div>
+    );
+  }
   if (!rows)
     return (
       <div className={styles.center} aria-busy>
         <Spinner size={24} />
       </div>
     );
-  if (!rows.length) return <EmptyState size="page" icon="24.person" title={t("No shared files")} body={t("Files people share with you show up here.")} />;
+  const shown = sharedRows(rows, tab, order);
+  if (!shown.length)
+    return (
+      <div className={styles.empty} data-shared-empty="none">
+        {withYou ? (
+          <EmptyState size="page" icon="24.person" title={t("No shared files")} body={t("Files people share with you show up here.")} />
+        ) : (
+          <EmptyState size="page" icon="24.link" title={t("You haven’t shared any files")} body={t("Files you share with others show up here.")} />
+        )}
+      </div>
+    );
+
+  // "From <name>" under a file shared with the user; when it was shared under the user's own
+  const subtitle = (f: Row) => (withYou ? (f.ownerName ? t("From {name}", { name: f.ownerName }) : t("Shared with you")) : t("Shared {time}", { time: timeAgo(f.sharedAt, now) }));
+  const columns: ListColumn[] = [
+    { id: "name", label: t("Name") },
+    { id: "who", label: withYou ? t("Shared by") : t("Your role"), width: "minmax(0, var(--ds-size-panel))" },
+    { id: "date", label: t("Date shared"), width: "minmax(0, var(--ds-size-panel))" },
+  ];
+  const events = (f: Row) => ({
+    selected: selected === f.key,
+    onSelect: () => setSelected(f.key),
+    onOpen: () => void open(f),
+  });
   return (
-    <div className={layout === "grid" ? styles.sharedGrid : styles.sharedListView} role="list" aria-label={t("Shared files")} data-shared-files="">
-      {[...rows].sort((a, b) => (order === "default" ? b.sharedAt - a.sharedAt : a.sharedAt - b.sharedAt)).map((f) => (
-        <div key={f.key} role="listitem" data-shared-file={f.key} aria-busy={opening === f.key || undefined}>
-          <FileCard id={f.key} title={f.name} subtitle={f.ownerName ? t("From {name}", { name: f.ownerName }) : t("Shared with you")} thumbnail={f.thumb ?? undefined} selected={selected === f.key} onSelect={() => setSelected(f.key)} onOpen={() => void open(f)} />
-        </div>
-      ))}
+    <div className={styles.content} data-layout={layout} data-shared-files={tab} aria-busy={opening ? true : undefined}>
+      <CollectionView
+        className={styles.collection}
+        layout={layout}
+        label={withYou ? t("Shared with you") : t("Shared by you")}
+        header={layout === "list" ? <ListHeader columns={columns} sort={{ column: "date", direction: order === "default" ? "descending" : "ascending" }} /> : undefined}
+        onNavigate={(id) => setSelected(id)}
+        onClearSelection={() => setSelected(null)}
+      >
+        {shown.map((f) =>
+          layout === "list" ? (
+            <ListRow
+              key={f.key}
+              id={f.key}
+              data-shared-file={f.key}
+              columns={columns}
+              cells={{
+                name: (
+                  <span className={styles.rowName}>
+                    <span className={styles.kindCell}>
+                      <FileKindIcon />
+                    </span>
+                    <span className={styles.rowTitle}>{f.name}</span>
+                  </span>
+                ),
+                who: withYou ? (f.ownerName ?? "—") : t("Owner"),
+                date: timeAgo(f.sharedAt, now),
+              }}
+              {...events(f)}
+            />
+          ) : (
+            <div key={f.key} className={styles.dragWrap} data-shared-file={f.key}>
+              <FileCard
+                id={f.key}
+                title={f.name}
+                subtitle={subtitle(f)}
+                thumbnail={f.thumb ?? undefined}
+                starred={!!f.fileKey && !!star?.isStarred(f.fileKey)}
+                onStar={f.fileKey && star ? (on) => star.set(f.fileKey!, on) : undefined}
+                {...events(f)}
+              />
+            </div>
+          ),
+        )}
+      </CollectionView>
     </div>
   );
 }

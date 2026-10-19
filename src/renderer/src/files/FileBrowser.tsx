@@ -4,7 +4,7 @@
  * through its watch.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Breadcrumb, Button, ContextMenu, EmptyState, FileKindIcon, Icon, IconButton, MenuButton, SegmentedControl, Select, Spinner, showToast, useTheme, type MenuEntry, type ToastOptions } from "@/ds";
+import { Breadcrumb, Button, ContextMenu, EmptyState, Icon, IconButton, MenuButton, SegmentedControl, Select, Spinner, showToast, useTheme, type MenuEntry, type ToastOptions } from "@/ds";
 import { keys } from "@/ds/util/keys";
 import { useNow } from "@/ds/util/time";
 import { t as tr, useT } from "@/i18n";
@@ -14,7 +14,7 @@ import { accountBridge, accountMenu, useAccount } from "./account";
 import { EXTERNAL_RESTRICTED_TEXT, useAdminWorkspace, useHomeOrg } from "./orgPolicy";
 import { useSessionNotices } from "./session";
 import { openSettings } from "../settings/bridge";
-import { OpenLinkDialog, openSharedFile, SharedFilesView } from "./SharedFiles";
+import { OpenLinkDialog, openSharedFile, SHARED_TABS, SharedFilesView, type SharedTab } from "./SharedFiles";
 import { NotificationsBell } from "../notifications/NotificationsBell";
 import { notificationIntent } from "../notifications/intent";
 import * as act from "./actions";
@@ -561,8 +561,8 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
     if (orgGone) switchSpaceRef.current("local");
   }, [orgGone]);
   const [linkOpen, setLinkOpen] = useState(false);
-  // Recents' tabs (live Figma): "Recently viewed" | "Shared files" (signed in)
-  const [recentsTab, setRecentsTab] = useState<"viewed" | "shared">("viewed");
+  // Shared's lists (the owner's Home, 2026-10-19): "Shared with you" | "Shared by you"
+  const [sharedTab, setSharedTab] = useState<SharedTab>("with-you");
   const accountName = account.state?.user ? account.state.user.name || account.state.user.email : null;
   // The personal space's name (docs/cloud.md §2): the person's, as Figma's Starter sidebar; signed out, the local team's
   const spaceTitle = personal ? (accountName ?? data.workspace?.teamName ?? "") : (data.workspace?.teamName ?? "");
@@ -815,7 +815,8 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   // --- what shows ---
 
   const title = locationTitle(location, data.folders);
-  const showShared = location.kind === "recents" && recentsTab === "shared" && !!account.state?.user;
+  const showShared = location.kind === "shared";
+  const signedIn = !!account.state?.user;
   const workspaceName = data.workspace?.teamName ?? "";
   const trashEmpty = location.kind === "trash" && current && items.length === 0;
   const folderGone = location.kind === "folder" && data.ready && (!folders.get(location.folderId) || folders.hidden(location.folderId));
@@ -844,8 +845,8 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   const crumbs = location.kind === "folder" ? folders.path(location.folderId) : [];
   const currentFolder = location.kind === "folder" && !folderGone ? folders.get(location.folderId) : undefined;
   // The sort menu (Figma's): "Sort by" when the view has more than one key, then "Order" in the key's words
-  const menuView: BrowseView = showShared ? "shared" : view;
-  const menuSort = showShared ? viewSort("shared", browse) : { key: sort, order };
+  const menuView: BrowseView = view;
+  const menuSort = { key: sort, order };
   const sortKeys = VIEW_SORTS[menuView].keys;
   const sortEntries: MenuEntry[] = [
     ...(sortKeys.length > 1 ? [{ header: tr("Sort by") }, ...sortKeys.map((k) => ({ id: `sort:${k}`, label: tr(SORT_LABEL[k]), checked: menuSort.key === k })), "-" as const] : []),
@@ -1044,8 +1045,8 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
             )}
             {canCreateFiles(location) && !folderGone && !outsideHome && (
               <>
-                <Button variant="tinted" size="large" className={styles.productPill} tooltip={tr("New design file")} shortcut={keys(["mod", "n"])} onClick={() => void newFile()}>
-                  <FileKindIcon />
+                {/* The owner's Home (2026-10-19): a tinted pill like Import — the 24 design glyph, then "Design" */}
+                <Button variant="tinted" size="large" icon="24.design" tooltip={tr("New design file")} shortcut={keys(["mod", "n"])} onClick={() => void newFile()}>
                   {tr("Design")}
                 </Button>
                 <Button variant="tinted" size="large" icon="24.plus.small" tooltip={tr("Import .fig files")} onClick={() => void doImport()}>
@@ -1066,28 +1067,23 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
           </div>
         )}
         <div className={styles.filters}>
-          {location.kind === "recents" && account.state?.user && (
-            <div className={styles.tabs} role="tablist" aria-label={tr("Recents")}>
-              {(
-                [
-                  ["viewed", "Recently viewed"],
-                  ["shared", "Shared files"],
-                ] as const
-              ).map(([id, label]) => (
-                <button key={id} type="button" role="tab" aria-selected={recentsTab === id} className={styles.tab} onClick={() => setRecentsTab(id)}>
+          {showShared && (
+            <div className={styles.tabs} role="tablist" aria-label={tr("Shared")}>
+              {SHARED_TABS.map(([id, label]) => (
+                <button key={id} type="button" role="tab" aria-selected={sharedTab === id} className={styles.tab} data-shared-tab={id} onClick={() => setSharedTab(id)}>
                   {tr(label)}
                 </button>
               ))}
             </div>
           )}
           <span className={styles.grow} />
-          {showShared && (
+          {showShared && signedIn && (
             <Button variant="secondary" onClick={() => setLinkOpen(true)}>
               {tr("Open link…")}
             </Button>
           )}
           {location.kind !== "folders" && !showShared && (
-            <Select label={tr("Files shown")} variant="outlined" width="hug" value={shownFilter} options={fileFilters(location).map((f) => ({ value: f, label: tr(FILTER_LABEL[f]) }))} onChange={(v) => setFilter(v as FileFilter)} />
+            <Select label={tr("Files shown")} variant="ghost" width="hug" value={shownFilter} options={fileFilters(location).map((f) => ({ value: f, label: tr(FILTER_LABEL[f]) }))} onChange={(v) => setFilter(v as FileFilter)} />
           )}
           <MenuButton label={tr("Sort")} entries={sortEntries} onSelect={onSortMenu}>
             <span className={styles.sortLabel}>
@@ -1106,7 +1102,18 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
           />
         </div>
         {showShared ? (
-          <SharedFilesView layout={browse.layout} order={menuSort.order} onOpen={(fileKey, name) => void openFile(fileKey, { title: name }, deps)} onError={(message) => toast({ kind: "error", message })} />
+          <SharedFilesView
+            source={backend.shared ?? null}
+            tab={sharedTab}
+            layout={browse.layout}
+            order={menuSort.order}
+            signedIn={signedIn}
+            onLogIn={accountBridge() ? () => void account.run("log-in") : undefined}
+            now={tick}
+            onOpen={(fileKey, name) => void openFile(fileKey, { title: name }, deps)}
+            onError={(message) => toast({ kind: "error", message })}
+            star={{ isStarred: (fileKey) => !!data.prefs?.starred.files.includes(fileKey), set: (fileKey, on) => void act.setStarred(ctx, { fileKey }, on) }}
+          />
         ) : !data.ready || (!current && !data.error) ? (
           <div className={styles.center} aria-busy>
             <Spinner size={24} />

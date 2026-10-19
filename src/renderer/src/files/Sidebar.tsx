@@ -1,5 +1,6 @@
 /**
- * Home's sidebar (Figma's 2026 file browser): the account, Search, Recents | the space: signed in, the person's own
+ * Home's sidebar (Figma's 2026 file browser, as the owner laid it out on 2026-10-19): the account, Search, All projects
+ * and Shared (in Recents' place) | the space: signed in, the person's own
  * (their name: Drafts, Trash — docs/cloud.md §2) or an org's (OrgSidebar); signed out, the local team (Drafts, All
  * folders with the folder tree, nested and coloured, Trash) | Starred. Drafts and folders take dropped files.
  */
@@ -162,6 +163,8 @@ export function Sidebar(props: SidebarProps) {
         <DropTarget dest={null} dnd={dnd}>
           {(over) => <SidebarItem icon="24.file" label={t("All projects")} selected={location.kind === props.allProjects.kind} dropTarget={over} onClick={() => go(props.allProjects)} />}
         </DropTarget>
+        {/* The owner's Home (2026-10-19): Shared in Recents' place — what others shared with the person, and theirs */}
+        <SidebarItem icon="24.person" label={t("Shared")} selected={is("shared")} onClick={() => go({ kind: "shared" })} />
       </div>
       <SidebarDivider />
       <div className={styles.team} onContextMenu={onSpaceContextMenu}>

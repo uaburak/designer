@@ -17,6 +17,7 @@ import type { SessionEnded } from "@shared/multiplayer/types";
 import type { CloudRepository } from "@shared/store/cloud";
 import { exportAllowedFor } from "./governance";
 import type { UploadSource } from "../uploads/UploadPanel";
+import { openSharedFile, type SharedSource } from "./SharedFiles";
 
 /** The org spaces (StoreApi.orgs / teams / projects / admin) and the two calls Home adds around them. */
 export interface OrgBackend {
@@ -67,6 +68,8 @@ export interface FilesBackend {
   /** Personal Drafts in the cloud (docs/cloud.md §2): signed in, the personal space is the person's Drafts and Trash;
    *  absent or no account: the local workspace's team, folders and Drafts */
   cloud?: CloudRepository;
+  /** Home › Shared (SharedFiles.tsx): the files shared with the person and by them; absent: the page says so */
+  shared?: SharedSource;
 }
 
 /** The store's snapshot with its journal applied, as one kiwi Message (the editor hands the same to `multiplayer.share`). */
@@ -111,6 +114,11 @@ export function filesBackend(): Promise<FilesBackend> {
     exportAccess: (fileKey) => exportAllowedFor(client.multiplayer, fileKey),
     uploads: client.multiplayer,
     cloud: client.cloud,
+    shared: {
+      list: () => client.multiplayer.listRemote(),
+      open: (key, intent) => openSharedFile(key, intent),
+      thumbnail: (fileKey) => client.workspace.getFile(fileKey).then((f) => thumbnailUrl(f), () => null),
+    },
   };
   return Promise.resolve(shared);
 }

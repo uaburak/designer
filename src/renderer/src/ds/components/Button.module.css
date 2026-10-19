@@ -49,8 +49,9 @@
   .link:hover, .link[data-hover] { text-decoration: underline; }
   .link:active, .link[data-pressed] { background: var(--figma-color-bg-selected); }
 
-  /* Home's header pills (live 2026-10-19, home.txt): 32 high, #383838 with a 1px #444 inset ring */
-  .tinted { height: var(--ds-size-control-large); padding: 0 var(--ds-space-3); border-radius: var(--ds-radius-full); background: var(--figma-color-bg-secondary); box-shadow: inset 0 0 0 1px var(--figma-color-border); color: var(--figma-color-text); }
+  /* Home's header pills (the owner's Tinted button, 2026-10-19: 32 high, bg-secondary, no ring — live Figma web draws
+     a 1px #444 inset ring) */
+  .tinted { height: var(--ds-size-control-large); padding: 0 var(--ds-space-3); border-radius: var(--ds-radius-full); background: var(--figma-color-bg-secondary); color: var(--figma-color-text); }
   .tinted:hover, .tinted[data-hover], .tinted:active, .tinted[data-pressed] { background: var(--figma-color-bg-tertiary); }
 
   /* Disabled (a loading button is disabled too, but keeps its look under the spinner) */

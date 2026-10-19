@@ -28,9 +28,9 @@
     border-right: 1px solid var(--figma-color-border);
     background: var(--figma-color-bg);
   }
-  /* The account (name, then its chevron) and, at the right, the notifications bell 8 from the edge (live 2026-10-19,
-     home.txt: the account a 32 high button at 8, 8, radius 4 — the 24 photo at 12, the name 13 / 500 at 44 — the bell
-     32 × 32 at 200, 8) */
+  /* The account (name, then its chevron) and, at the right, the notifications bell 8 from the edge (the owner's Home,
+     2026-10-19: a 48 high row — the 24 photo at 16, the name 13 / 550 at 48, the chevron 8 on; the bell as live Figma's,
+     32 × 32 8 from the right) */
   .accountRow {
     display: flex;
     flex: none;
@@ -47,11 +47,10 @@
     align-items: center;
     gap: var(--ds-space-2);
     height: var(--ds-size-control-large);
-    padding: 0 var(--ds-space-1);
+    padding: 0 var(--ds-space-2);
     border-radius: var(--ds-radius-home-row);
-    font: var(--ds-font-body-large);
-    font-weight: 500;
-    letter-spacing: var(--ds-tracking-body-large);
+    font: var(--ds-font-body-large-strong);
+    letter-spacing: var(--ds-tracking-body-large-strong);
   }
   button.account {
     border: 0;
@@ -73,23 +72,22 @@
   .sharedName { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sharedRole { color: var(--figma-color-text-secondary); }
   .accountName { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* Live 2026-10-19 (home.txt): Search 224 × 32 at 8, 48 on #383838, radius 8 */
-  .search { flex: none; padding: 0 var(--ds-space-2) var(--ds-space-2); }
-  .searchPill { border-radius: var(--ds-radius-home-search); }
+  /* The owner's Home (2026-10-19): Search a 207 × 32 pill at 16, 48 on bg-secondary — the 24 glyph in a 32 box, then
+     "Search" 11 / 450 secondary */
+  .search { flex: none; padding: 0 var(--ds-space-4) var(--ds-space-2); }
+  .searchPill { border-radius: var(--ds-radius-full); }
   .searchPill:hover:not(:focus-within) { --field-ring: transparent; background: var(--figma-color-bg-tertiary); }
-  /* The space row (live 2026-10-19, home.txt: 8 in, 32 high, radius 4 — the 16 icon at 16, the name 13 / 550 at 44,
-     the plan chip 16 high at the right) */
+  /* The space row (the owner's Home, 2026-10-19: 32 high, 8 below the line — the 16 icon at 16, the name 11 / 550 at
+     40; the plan chip 16 high at the right) */
   .team {
     display: flex;
     flex: none;
     align-items: center;
-    gap: var(--ds-space-3);
+    gap: var(--ds-space-2);
     height: var(--ds-size-row);
-    margin: 0 var(--ds-space-2);
-    padding: 0 var(--ds-space-2);
-    border-radius: var(--ds-radius-home-row);
-    font: var(--ds-font-body-large-strong);
-    letter-spacing: var(--ds-tracking-body-large-strong);
+    padding: 0 var(--ds-space-4);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
   }
   .teamName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .navGroup { display: flex; flex: none; flex-direction: column; }
@@ -130,15 +128,14 @@
     gap: var(--ds-space-1);
     min-width: 0;
     margin-left: var(--ds-space-1);
-    /* Live 2026-10-19 (home.txt): the page's title 13 / 400 */
-    font: var(--ds-font-body-large-regular);
-    letter-spacing: var(--ds-tracking-body-large-regular);
+    /* The owner's Home (2026-10-19): the page's title 13 / 450 (body-large), its crumb 4 in */
+    font: var(--ds-font-body-large);
+    letter-spacing: var(--ds-tracking-body-large);
     white-space: nowrap;
   }
+  /* The owner's Home (2026-10-19): Design and Import, two 32 high tinted pills 8 apart (the 24 glyph 12 in, the label
+     11 / 450) */
   .create { display: flex; flex: none; gap: var(--ds-space-2); }
-  /* Live 2026-10-19 (home.txt): a product's pill ("Design") — the 16 product tile 16 in, the label at 40 (11 / 450) */
-  .productPill { padding: 0 var(--ds-space-4); }
-  .productPill > span { gap: var(--ds-space-2); }
 
   /* Offline (docs/cloud.md §2): one line under the top bar */
   .offlineBanner {
@@ -152,7 +149,8 @@
     letter-spacing: var(--ds-tracking-body-medium);
   }
 
-  /* The tabs and filters (live 2026-10-19, home.txt: a 64 high row, a 1px #444 line under it) */
+  /* The tabs and filters (the owner's Home, 2026-10-19: a 32 high row 16 under the top bar, 32 in at the sides — the
+     filter, sort and view 24 high, 8 apart, at its right — no line under it; the cards 16 below) */
   .filters {
     display: flex;
     flex: none;
@@ -160,10 +158,10 @@
     gap: var(--ds-space-2);
     height: var(--ds-space-16);
     margin: 0 var(--ds-space-8);
-    border-bottom: 1px solid var(--figma-color-border);
   }
   .grow { flex: 1 1 auto; }
-  /* Recents' tabs (live: 24 high, radius 5, selected bg #383838 / text, others bg #2c2c2c / secondary text, 11/550) */
+  /* Shared's tabs (as live Figma's Recents tabs: 24 high, radius 5, selected bg #383838 / text, others bg #2c2c2c /
+     secondary text, 11/550) */
   .tabs { display: flex; gap: var(--ds-space-1); }
   .tab {
     height: 24px;
@@ -178,13 +176,12 @@
   }
   .tab[aria-selected="true"] { background: var(--figma-color-bg-secondary); color: var(--figma-color-text); }
   .tab:hover { color: var(--figma-color-text); }
-  .sharedGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--ds-size-card-width), 1fr)); gap: var(--ds-size-card-gap); align-content: start; padding: var(--ds-space-6) var(--ds-space-8) var(--ds-space-8); overflow-y: auto; }
-  .sharedListView { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--ds-size-card-width), 1fr)); gap: var(--ds-size-card-gap); align-content: start; padding: var(--ds-space-4) var(--ds-space-8) var(--ds-space-8); overflow-y: auto; }
   .sortLabel { display: inline-flex; align-items: center; gap: var(--ds-space-half); }
 
   .content { position: relative; flex: 1 1 auto; min-height: 0; overflow: auto; padding: var(--ds-space-4) var(--ds-space-8) var(--ds-space-12); outline: none; user-select: none; }
-  /* Figma's tile grid: 24 below the view bar, 32 in at the sides and the bottom */
-  .content[data-layout="grid"] { padding: var(--ds-space-6) var(--ds-space-8) var(--ds-space-8); }
+  /* The tile grid (the owner's Home, 2026-10-19): right under the filters' row (the cards at 112), 32 in at the sides
+     and the bottom */
+  .content[data-layout="grid"] { padding: 0 var(--ds-space-8) var(--ds-space-8); }
   .content:focus-visible { outline: none; }
   .collection { min-height: 100%; }
   .dragWrap { display: block; min-width: 0; }
@@ -237,7 +234,7 @@
     flex: 0 1 auto;
     min-width: 0;
     align-items: center;
-    gap: var(--ds-space-3);
+    gap: var(--ds-space-2);
     height: var(--ds-size-row);
     padding: 0;
     border: 0;

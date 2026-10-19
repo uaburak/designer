@@ -403,13 +403,14 @@ export const size = {
   "rename-list": 240, // Rename layers' Preview list before it scrolls
   "field-narrow": 40, // live: Rename layers' "Start ascending from" field
   "home-topbar": 48,
-  "home-sidebar": 241, // live 2026-10-19 (home.txt): 240 and its 1px right border
+  "home-sidebar": 240, // the owner's Home (2026-10-19): 240 with its 1px right border inside
   "home-nav": 28,
   "home-nav-pitch": 32,
-  // Home's tile grid (docs/research/atlas/01-app-shell-home.md §4.1): columns at least 264 wide sharing the row's
-  // width, 32 apart both ways (live 2026-10-19, home.txt: three 356 × 260 cards at 1440 — 354 × 199 thumbnail, 59 footer)
-  "card-width": 264,
-  "card-footer": 59,
+  // Home's tile grid (docs/research/atlas/01-app-shell-home.md §4.1): columns at least 260 wide sharing the row's
+  // width, 32 apart both ways (the owner's Home, 2026-10-19: four 260 × 208 cards at 1440 — a 5:4 card, the thumbnail
+  // over a 60 high footer)
+  "card-width": 260,
+  "card-footer": 60,
   "card-gap": 32,
   "list-row": 40, // the Home list view's row (§4.27)
   "list-header": 32, // G — the list view's column header

@@ -51,10 +51,12 @@ export function FileKindIcon({ size = 16 }: { size?: 16 | 20 | 24 }) {
 }
 
 /**
- * Home's file card (contract §4.27; footer as measured on Figma's 2026 file
- * browser): 268×213, radius 9; a 16:9 thumbnail; the kind badge 16px in,
- * then — 12px on — the title (11/550) over when it was edited (11, secondary;
- * `formatEdited`). Enter opens, Space selects.
+ * Home's file card (contract §4.27, as the owner designed it on 2026-10-19 —
+ * docs/research/figma/live/owner-2026-10-19): 260×208 at the least, radius 9,
+ * the thumbnail over a 60 high footer — the title (11/550) over when it was
+ * edited (11, secondary; `formatEdited`), 16 in, no kind badge; the star box
+ * at the thumbnail's top right; a 1px ring, 2px grey on hover, 2px blue when
+ * selected. Enter opens, Space selects.
  */
 export function FileCard({ id, title, subtitle, thumbnail, starred, selected, renaming, onOpen, onSelect, onContextMenu, onRename, onStar, forceHover, branches, branch, badge, place }: FileCardProps) {
   useT();
@@ -112,7 +114,6 @@ export function FileCard({ id, title, subtitle, thumbnail, starred, selected, re
         )}
       </div>
       <div className={styles.footer}>
-        <FileKindIcon />
         <span className={styles.meta}>
           {renaming ? <CardRename value={title} onDone={(n) => onRename?.(n)} /> : <span className={styles.title}>{title}</span>}
           {hasBranches ? (

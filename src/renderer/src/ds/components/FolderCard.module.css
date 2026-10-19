@@ -24,7 +24,8 @@
     background: var(--figma-color-bg-secondary);
   }
   .thumb::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px var(--figma-color-border); pointer-events: none; }
-  .card:hover .thumb::after, .card[data-hover] .thumb::after { box-shadow: inset 0 0 0 1px var(--ds-color-card-border-hover); }
+  /* Hover as the file card's (the owner's card states, 2026-10-19): a 2px grey ring */
+  .card:hover .thumb::after, .card[data-hover] .thumb::after { box-shadow: inset 0 0 0 2px var(--ds-color-card-border-hover); }
   .card[aria-selected="true"] .thumb::after, .card[data-drop-target] .thumb::after { box-shadow: inset 0 0 0 2px var(--figma-color-border-selected); }
   .glyph { color: var(--figma-color-icon-secondary); }
   /* Up to four files, 2×2, 12 in and 8 apart */
