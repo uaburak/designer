@@ -907,7 +907,7 @@ async function librariesSection(page, theme) {
   await shot(page, `73-libraries-modal-${theme}`);
   for (const name of ["Kit", "Tokens"]) {
     await page.locator(`[data-library-row="${name}"]`).getByRole("button", { name: "Add to file" }).click();
-    await page.locator('section[aria-label="Added to this file"]').locator(`[data-library-row="${name}"]`).waitFor({ timeout: 10000 });
+    await page.locator('section[aria-label="Libraries added to this file"]').locator(`[data-library-row="${name}"]`).waitFor({ timeout: 10000 });
   }
   check("Add to file: both libraries are enabled in the App", (await ed(() => window.__designerEditor.libraries.get().enabled.length)) === 2);
   await page.getByRole("button", { name: "Preview Kit" }).click();
@@ -4786,12 +4786,14 @@ async function menus12Section(page, theme) {
     }
     await close();
   }
-  for (const [name, want] of [["Shape tools", [611, 668, 196, 168]], ["Creation tools", [668, 788, 142, 48]], ["Move tools", [497, 764, 151, 72]], ["Region tools", [554, 764, 150, 72]], ["Type tools", [725, 788, 142, 48]], ["Comment tools", [782, 764, 186, 72]]]) {
+  // Live 2026-10-18 (toolbar.txt): each menu with its 8 above and below the rows, its bottom 4 over the tool; Comment has
+  // no menu. x for a toolbar at 456 (toolbarDx adds where it is: live's 512-wide one is at 464)
+  for (const [name, want] of [["Shape tools", [611, 660, 196, 184]], ["Creation tools", [668, 780, 142, 64]], ["Move tools", [497, 756, 151, 88]], ["Region tools", [554, 756, 150, 88]], ["Type tools", [725, 780, 142, 64]]]) {
     await page.getByRole("button", { name }).click();
     await page.waitForTimeout(300);
     const got = await box(page.getByRole("menu").last());
     const dx = await toolbarDx(page);
-    check(`R12 ${name} menu ${want.join(", ")} exactly (live toolbar/*-tools-menu.txt; with the toolbar's left)`, same(got, [want[0] + dx, ...want.slice(1)]), JSON.stringify(got));
+    check(`R12 ${name} menu ${want.join(", ")} exactly (live 2026-10-18/toolbar.txt; with the toolbar's left)`, same(got, [want[0] + dx, ...want.slice(1)]), JSON.stringify(got));
     await page.keyboard.press("Escape");
   }
   // The vector edit toolbar and its More menu.

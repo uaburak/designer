@@ -21,10 +21,11 @@ const chevrons = () => $$('[data-ds="ToolButton"] > button[aria-haspopup="menu"]
 
 describe("round 7c: the toolbar per mode", () => {
   it("models Draw's slots", () => {
-    expect(DRAW_TOOL_GROUPS.map((g) => g.tools)).toEqual([["move", "hand", "scale"], ["rectangle", "line", "arrow", "ellipse", "polygon", "star", "image"], ["pen"], ["pencil"], ["brush"], ["text", "text-on-path"], ["comment", "annotation", "measurement"]]);
+    expect(DRAW_TOOL_GROUPS.map((g) => g.tools)).toEqual([["move", "hand", "scale"], ["rectangle", "line", "arrow", "ellipse", "polygon", "star", "image"], ["pen"], ["pencil"], ["brush"], ["text", "text-on-path"], ["comment"]]);
     // Dev Mode: Move, Measurement, Annotation, Comment, a slot each (the owner's capture 2026-10-18)
     expect(toolGroups("dev").map((g) => g.tools)).toEqual([["move"], ["measurement"], ["annotation"], ["comment"]]);
     expect(TOOLS.brush).toEqual({ id: "brush", label: "Brush", shortcut: "B", icon: "24.brush" });
+    expect(groupOf("annotation")).toBe("annotation");
     expect([groupOf("pen", "draw"), groupOf("pen"), groupOf("brush", "draw"), groupOf("brush")]).toEqual(["pen", "creation", "brush", "creation"]);
     // Frame has no slot in Draw: none lights
     expect(DRAW_TOOL_GROUPS.some((g) => g.id === groupOf("frame", "draw"))).toBe(false);
@@ -34,13 +35,13 @@ describe("round 7c: the toolbar per mode", () => {
   it("Design: Figma's six slots, Pen and Pencil in Creation tools", () => {
     setup({});
     expect(slots()).toEqual(["Move", "Frame", "Rectangle", "Pen", "Text", "Comment", "Actions"]);
-    expect(chevrons()).toEqual(["Move tools", "Region tools", "Shape tools", "Creation tools", "Type tools", "Comment tools"]);
+    expect(chevrons()).toEqual(["Move tools", "Region tools", "Shape tools", "Creation tools", "Type tools"]);
   });
 
   it("Draw: Pen, Pencil and Brush as quick-access slots without a menu; the Brush lit", () => {
     const { onTool } = setup({ mode: "draw", tool: "brush" });
     expect(slots()).toEqual(["Move", "Rectangle", "Pen", "Pencil", "Brush", "Text", "Comment", "Actions"]);
-    expect(chevrons()).toEqual(["Move tools", "Shape tools", "Type tools", "Comment tools"]);
+    expect(chevrons()).toEqual(["Move tools", "Shape tools", "Type tools"]);
     expect($$('[data-ds="ToolButton"] > button[aria-pressed="true"]', m!.host).map((b) => b.getAttribute("aria-label"))).toEqual(["Brush"]);
     expect($('[aria-label="Brush"]', m!.host).getAttribute("aria-keyshortcuts")).toBe("B");
     click($('[aria-label="Pencil"]', m!.host));

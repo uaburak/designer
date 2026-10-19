@@ -42,6 +42,7 @@ export const panels: Record<string, string> = {
   "Add variant": "Varyant ekle",
   "Added to this file": "Bu dosyaya eklenenler",
   "Additional axes": "Ek eksenler",
+  "Manage libraries": "Kütüphaneleri yönet",
   "Added {name} to this file": "{name} bu dosyaya eklendi",
   "Added {n} interaction": "{n} etkileşim eklendi",
   "Added {n} interactions": "{n} etkileşim eklendi",

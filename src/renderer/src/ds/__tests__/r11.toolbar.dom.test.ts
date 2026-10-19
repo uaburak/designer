@@ -21,7 +21,6 @@ describe("round 11: the slot menus' lit row", () => {
   it("lights the slot's own tool while another slot's tool is the active one", () => {
     expect(checkedIn("Region tools", { tool: "ellipse" })).toEqual(["FrameF"]);
     expect(checkedIn("Type tools", { tool: "ellipse" })).toEqual(["TextT"]);
-    expect(checkedIn("Comment tools", { tool: "ellipse" })).toEqual(["CommentC"]);
     expect(checkedIn("Creation tools", { tool: "ellipse" })).toEqual(["PenP"]);
     expect(checkedIn("Shape tools", { tool: "frame" })).toEqual(["RectangleR"]);
   });

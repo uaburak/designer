@@ -102,6 +102,9 @@ function Libraries() {
         set({ tab: value, library: null, swap: null, missing: false });
       }}
     >
+      {/* Live 2026-10-18 (menus.txt): This file and Updates with their 24 glyphs */}
+      {value === "libraries" && <Icon name="24.library.this-file" />}
+      {value === "updates" && <Icon name="24.library.updates" />}
       <span className={styles.sideTabLabel}>{label}</span>
       {badge ? <span className={styles.sideBadge}>{badge}</span> : null}
     </button>
@@ -127,7 +130,7 @@ function Libraries() {
     <LibraryList onOpen={(lib) => set({ library: lib })} onMissing={() => set({ missing: true })} onPublish={() => ed.ui.set({ publishOpen: true, librariesDialog: null })} />
   );
   return (
-    <Dialog title={t("Libraries")} size="large" open onClose={close}>
+    <Dialog title={t("Manage libraries")} size="large" open onClose={close}>
       <div ref={body} className={styles.libraries} data-libraries-dialog="">
         <nav className={styles.sidebar} aria-label={t("Libraries")}>
           <SearchField value={query} onChange={setQuery} placeholder={t("Search")} autoFocus selectOnFocus data-libraries-search="" />

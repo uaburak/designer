@@ -19,7 +19,7 @@ export { toNativeTemplate, tidy } from "../util/menu";
 /**
  * Figma's menu (contract §4.8; ported from components/admin/ContextMenu.tsx):
  * dark in both themes, 13px corners, 24px items at 12px, groups parted by
- * full-bleed lines, keys at the right, check and icon columns only when some
+ * lines 8 in from each side (live 2026-10-18/menus.txt), keys at the right, check and icon columns only when some
  * item uses them, submenus beside their item (flipped at the view's edge).
  * Keys: ↑ ↓ (wrapping) Home End, typeahead, → / Enter open a submenu, ← /
  * Esc go back, Esc at the root closes, Enter / Space pick. A submenu opens
@@ -384,7 +384,7 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
               onPointerEnter={(e) => enter(i, e)}
               onClick={() => pick(i)}
             >
-              {hasChecks && <span className={styles.check}>{entry.checked && <Icon name="16.check" />}</span>}
+              {hasChecks && <span className={styles.check}>{entry.checked && <Icon name="16.menu-check" />}</span>}
               {hasIcons && (
                 <span className={styles.icon}>
                   {entry.avatar ? <Avatar name={entry.avatar.name} src={entry.avatar.picture} size={16} /> : entry.icon && !entry.inlineIcon && <MenuIcon name={entry.icon} />}
@@ -421,7 +421,7 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
                 ) : (
                   <span className={styles.shortcut}>{entry.shortcut}</span>
                 ))}
-              {entry.checkEnd && <span className={styles.checkEnd}>{entry.checked && <Icon name="16.check" />}</span>}
+              {entry.checkEnd && <span className={styles.checkEnd}>{entry.checked && <Icon name="16.menu-check" />}</span>}
               {entry.items && <Icon name="16.chevron.right" className={styles.chevron} />}
             </div>
           );

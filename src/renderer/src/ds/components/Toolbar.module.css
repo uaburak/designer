@@ -8,8 +8,11 @@
     border-radius: var(--ds-radius-large);
     background: var(--figma-color-bg);
     color: var(--figma-color-icon);
-    box-shadow: var(--ds-elevation-100);
+    /* Live 2026-10-18 (toolbar.txt): elevation 200's four shadows */
+    box-shadow: var(--ds-elevation-200);
   }
+  /* A slot's menu (live 2026-10-18/toolbar.txt): the menus' 8 above and below its rows, its bottom 4 over the toolbar's top */
+  .toolMenu.toolMenu { padding-block: var(--ds-size-menu-pad); }
   /* `--ds-toolbar-lift`: what docks under it (the Keyboard shortcuts panel: the toolbar 12 over it, live) */
   .floating { position: absolute; left: calc(50% + var(--ds-toolbar-offset, 0px)); bottom: calc(var(--ds-size-toolbar-bottom) + var(--ds-toolbar-lift, 0px)); z-index: var(--ds-z-floating); transform: translateX(-50%); }
   /* Live (toolbar/vector-edit-toolbar.txt): 40 high, 8 over the bottom toolbar, 529 wide like it */
@@ -62,14 +65,17 @@
   .help:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
   .inline { position: relative; right: auto; bottom: auto; }
 
-  /* The mode switch (Draw / Design / Motion / Dev Mode): a #444 track, 2px in, 28px items 2px apart; the chosen one the panel colour, its glyph blue */
-  .modes { display: flex; align-items: center; gap: 2px; height: var(--ds-size-control-large); padding: 2px; border-radius: calc(var(--ds-radius-medium) + 2px); background: var(--figma-color-bg-tertiary); }
+  /*
+   * The mode switch (Draw / Design / Motion / Dev Mode; live 2026-10-18/toolbar.txt: 122 × 32, a #444 track r 5, 2px in,
+   * 28px items 2px apart): the chosen one a 28 thumb in the panel colour, r 3 with its shadow, its glyph blue
+   */
+  .modes { display: flex; align-items: center; gap: 2px; height: var(--ds-size-control-large); padding: 2px; border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-tertiary); }
   .mode {
     display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0;
-    border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-icon-secondary); outline: none; cursor: default;
+    border-radius: var(--ds-radius-thumb); background: transparent; color: var(--figma-color-icon-secondary); outline: none; cursor: default;
   }
   .mode:hover, .mode[data-hover] { color: var(--figma-color-icon); }
-  .mode[aria-checked="true"] { background: var(--figma-color-bg); color: var(--figma-color-icon-brand); }
+  .mode[aria-checked="true"] { background: var(--figma-color-bg); color: var(--figma-color-icon-brand); box-shadow: var(--ds-elevation-thumb); }
   .mode:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
   /* Disabled: the disabled ink (after :hover, so hovering doesn't brighten it), and no chosen fill */
   .mode:disabled, .mode[aria-disabled="true"], .mode[aria-disabled="true"]:hover { color: var(--figma-color-icon-disabled); background: transparent; }

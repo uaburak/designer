@@ -439,7 +439,7 @@ export const size = {
 } as const;
 
 /** Corner radii, `--ds-radius-<key>` (px, §1.7). */
-export const radius = { none: 0, small: 2, "home-row": 4, medium: 5, tile: 6, "tab-preview-thumb": 8, "home-search": 8, "medium-large": 9, "asset-tile": 10, large: 13, full: 9999 } as const;
+export const radius = { none: 0, small: 2, thumb: 3, "home-row": 4, medium: 5, tile: 6, "tab-preview-thumb": 8, "home-search": 8, "medium-large": 9, "asset-tile": 10, large: 13, full: 9999 } as const;
 
 export const fontFamily = {
   /** "Inter Symbols" (global.css): Inter 3.19's key glyphs (⌘ ⇧ ⌥ ⌃ ⌫ ↵ arrows) — live's widths (11px: ⌫ 13, ⌘ 11, ⌃ 9) */
@@ -501,7 +501,10 @@ export const elevation = {
   "200": ["0 0 0.5px #0000002e, 0 3px 8px #0000001a, 0 1px 3px #0000001a", "0 3px 8px #00000059, 0 1px 3px #00000080, inset 0 0.5px 0 #ffffff14, inset 0 0 0.5px #ffffff4d"],
   "400-menu-panel": ["0 0 0.5px #0000001f, 0 10px 16px #0000001f, 0 2px 5px #00000026", "0 10px 16px #00000059, 0 2px 5px #00000059, inset 0 0.5px 0 #ffffff14, inset 0 0.75px 0 #ffffff1a"],
   "500-modal-window": ["0 0 0.5px #00000014, 0 10px 24px #0000002e, 0 2px 5px #00000026", "0 10px 24px #00000073, 0 3px 5px #00000059, inset 0 0.75px 0 #ffffff1a"],
-  menu: ["0 0 0.5px #0000004d, 0 5px 17px #00000040, 0 2px 7px #00000026", "0 0 0.5px #0000004d, 0 5px 17px #00000040, 0 2px 7px #00000026"],
+  // Live 2026-10-18 (menus.txt): every menu's surface, dark in both themes
+  menu: ["0 2px 5px #00000059, inset 0 0 0.5px #ffffff59, 0 10px 16px #00000059, inset 0 0.5px 0 #ffffff14", "0 2px 5px #00000059, inset 0 0 0.5px #ffffff59, 0 10px 16px #00000059, inset 0 0.5px 0 #ffffff14"],
+  // Live 2026-10-18 (toolbar.txt): the mode switch's thumb (light: elevation 100's, unmeasured)
+  thumb: ["0 0 0.5px #0000004d, 0 1px 3px #00000026", "0 0 0.5px #00000080, 0 1px 3px #00000066, inset 0 0.5px 0 #ffffff1a, inset 0 0 0.5px #ffffff4d"],
   // A slider's 12 px thumb (live 2026-10-18 slider.txt, dark; light: the same without the inner light rims)
   "slider-thumb": ["0 1px 3px #00000040, 0 0 0.5px #0000004d, 0 3px 8px #00000026", "0 1px 3px #00000080, inset 0 0 0.5px #ffffff4d, 0 3px 8px #00000059, inset 0 0.5px 0 #ffffff14"],
 } as const satisfies Record<string, Pair>;

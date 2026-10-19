@@ -25,15 +25,15 @@ type Open = { at: { x: number; y: number }; entries: MenuEntry[] } | null;
 /** The tabs' names under their icons: off unless View › Additional labels turned them on. */
 export const showsRailLabels = (s: { railLabels?: boolean }): boolean => s.railLabels === true;
 
-const TABS: { tab: RailTab; icon: "24.social" | "24.page" | "24.agents" | "24.assets" | "24.library" | "24.tools"; label: string; command?: string }[] = [
+const TABS: { tab: RailTab; icon: "24.social" | "24.rail.file" | "24.rail.agents" | "24.rail.assets" | "24.library" | "24.rail.tools"; label: string; command?: string }[] = [
   // Social mode's own (docs/social.md §6.2) [ours]: the posts by campaign; shown only in Social
   { tab: "posts", icon: "24.social", label: "Posts" },
-  { tab: "file", icon: "24.page", label: "File", command: "view.layers" },
-  { tab: "agents", icon: "24.agents", label: "Agents", command: "view.agents" },
-  { tab: "assets", icon: "24.assets", label: "Assets", command: "view.assets" },
+  { tab: "file", icon: "24.rail.file", label: "File", command: "view.layers" },
+  { tab: "agents", icon: "24.rail.agents", label: "Agents", command: "view.agents" },
+  { tab: "assets", icon: "24.rail.assets", label: "Assets", command: "view.assets" },
   // Studio (docs/studio.md §3.2) [ours]: the brand and product library
   { tab: "brands", icon: "24.library", label: "Brands" },
-  { tab: "tools", icon: "24.tools", label: "Tools", command: "view.tools" },
+  { tab: "tools", icon: "24.rail.tools", label: "Tools", command: "view.tools" },
 ];
 
 /**
@@ -81,7 +81,7 @@ export function NavStrip() {
           onClick={() => ed.ui.set({ railTab: item.tab, variablesOpen: false, find: item.tab === "file" ? ed.ui.get().find : null })}
         />
       ))}
-      <IconButton icon="24.variables" label={t("Variables")} aria-expanded={variables} className={variables ? styles.navStripOn : undefined} data-rail-tab="variables" onClick={() => ed.ui.set((s) => ({ variablesOpen: !s.variablesOpen }))} />
+      <IconButton icon="24.rail.variables" label={t("Variables")} aria-expanded={variables} className={variables ? styles.navStripOn : undefined} data-rail-tab="variables" onClick={() => ed.ui.set((s) => ({ variablesOpen: !s.variablesOpen }))} />
       {menu && (
         <ContextMenu
           at={menu.at}
@@ -128,7 +128,7 @@ export function Rail() {
           // Dev Mode (the owner's capture owner-2026-10-18/figma-devmode-inspect): File in Dev Mode's green, a line,
           // Plugins (the right panel's Plugins tab).
           <>
-            <RailItem icon="24.page" label={t("File")} active={devTab !== "plugins"} data-rail-tab="file" onClick={() => ed.ui.set({ railTab: "file", devTab: "inspect" })} />
+            <RailItem icon="24.rail.file" label={t("File")} active={devTab !== "plugins"} data-rail-tab="file" onClick={() => ed.ui.set({ railTab: "file", devTab: "inspect" })} />
             <RailSeparator />
             <RailItem icon="24.plugin" label={t("Plugins")} active={devTab === "plugins"} data-rail-tab="plugins" onClick={() => ed.ui.set((s) => ({ devTab: s.devTab === "plugins" ? "inspect" : "plugins" }))} />
           </>
@@ -146,7 +146,7 @@ export function Rail() {
               />
             ))}
             <RailSeparator />
-            <RailItem icon="24.variables" label={t("Variables")} active={variables} data-rail-tab="variables" onClick={() => ed.ui.set((s) => ({ variablesOpen: !s.variablesOpen }))} />
+            <RailItem icon="24.rail.variables" label={t("Variables")} active={variables} data-rail-tab="variables" onClick={() => ed.ui.set((s) => ({ variablesOpen: !s.variablesOpen }))} />
           </>
         )}
         <RailSpacer />

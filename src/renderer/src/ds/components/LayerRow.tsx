@@ -18,6 +18,8 @@ export interface LayerRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "onD
   icon: IconName;
   /** The glyph's name (live: img [Frame], [Auto layout], [Component]…), read out and in its tooltip */
   iconLabel?: string;
+  /** A rectangle or an ellipse: its outline at the layer's width / height drawn in the glyph's place (`ShapeGlyph`) */
+  shape?: ShapeGlyphProps;
   kind?: "default" | "component" | "instance";
   /** Inside a component or an instance (or one itself): the hover cells in the component purple */
   tone?: "default" | "component";
@@ -51,6 +53,32 @@ export interface LayerRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "onD
    * glyph's name stays the slot's accessible name.
    */
   thumbnail?: ReactNode;
+}
+
+export interface ShapeGlyphProps {
+  kind: "rectangle" | "ellipse";
+  /** The layer's width / height */
+  aspect: number;
+}
+
+/**
+ * A shape layer's glyph as Figma draws it (live 2026-10-18/left-panel.txt): a 16 × 10 box holding a 10 × 10 drawing of
+ * the shape, fitted to 9 × 9 at the layer's proportions and centred (a 1px stroke, e.g. a wide rectangle
+ * "M0.5 1.91463H9.5V8.08537H0.5V1.91463Z"), stroked, not filled.
+ */
+export function ShapeGlyph({ kind, aspect }: ShapeGlyphProps) {
+  const a = Number.isFinite(aspect) && aspect > 0 ? aspect : 1;
+  const w = Math.max(1, a >= 1 ? 9 : 9 * a);
+  const h = Math.max(1, a >= 1 ? 9 / a : 9);
+  const x = 5 - w / 2;
+  const y = 5 - h / 2;
+  return (
+    <span className={styles.shape} data-layer-shape={kind}>
+      <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden>
+        {kind === "ellipse" ? <ellipse cx="5" cy="5" rx={w / 2} ry={h / 2} /> : <path d={`M${x} ${y}H${x + w}V${y + h}H${x}V${y}Z`} />}
+      </svg>
+    </span>
+  );
 }
 
 /** Draw mode's row pitch and its preview's box (docs/draw.md §5.9 [sizes unverified]). */
@@ -148,7 +176,7 @@ export function layerListWidth(rows: readonly { depth: number; name: string | nu
  * unless the row is selected or a top-level frame; components and instances in purple; hidden layers faded. Enter
  * belongs to the list (select the children), not the row.
  */
-export function LayerRow({ id, depth, name, icon, iconLabel, kind = "default", tone = "default", expanded, selected, selectedAncestor, hovered, locked, hidden, strong, renaming, run, drop, onToggleExpand, onToggleLock, onToggleVisible, onRename, onPointerDown, onDoubleClick, thumbnail, className, style, ...rest }: LayerRowProps) {
+export function LayerRow({ id, depth, name, icon, iconLabel, shape, kind = "default", tone = "default", expanded, selected, selectedAncestor, hovered, locked, hidden, strong, renaming, run, drop, onToggleExpand, onToggleLock, onToggleVisible, onRename, onPointerDown, onDoubleClick, thumbnail, className, style, ...rest }: LayerRowProps) {
   useT();
   const large = thumbnail !== undefined;
   const cells = renaming ? { rest: 0, hover: 0 } : tailCells({ locked, hidden, lock: !!onToggleLock, visible: !!onToggleVisible });
@@ -186,7 +214,7 @@ export function LayerRow({ id, depth, name, icon, iconLabel, kind = "default", t
             {thumbnail ?? <Icon name={icon} size={16} />}
           </span>
         ) : (
-          <span className={styles.type} data-layer-icon="" role={iconLabel ? "img" : undefined} aria-label={iconLabel} {...tooltipProps(iconLabel)}><Icon name={icon} size={16} /></span>
+          <span className={styles.type} data-layer-icon="" role={iconLabel ? "img" : undefined} aria-label={iconLabel} {...tooltipProps(iconLabel)}>{shape ? <ShapeGlyph {...shape} /> : <Icon name={icon} size={16} />}</span>
         )}
         {renaming ? (
           <RenameField className={styles.rename} value={name} onDone={(n, r) => onRename?.(n, r)} />

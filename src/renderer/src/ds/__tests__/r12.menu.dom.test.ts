@@ -50,7 +50,7 @@ describe("round 12: menu geometry", () => {
   });
 
   it("the tool menus' widths are live's (toolbar/*-tools-menu.txt)", () => {
-    expect(Object.fromEntries(TOOL_GROUPS.map((g) => [g.id, g.menuWidth]))).toEqual({ move: 151, region: 150, shape: 196, creation: 142, text: 142, comment: 186 });
+    expect(Object.fromEntries(TOOL_GROUPS.map((g) => [g.id, g.menuWidth]))).toEqual({ move: 151, region: 150, shape: 196, creation: 142, text: 142, comment: 0 });
     m = mount(EditorToolbar, { tool: "move", onTool: spy<[ToolId]>(), mode: "design", onMode: spy(), } as EditorToolbarProps);
     click($('[aria-label="Shape tools"]', m.host));
     expect($('#ds-overlays [role="menu"]').style.width).toBe("196px");

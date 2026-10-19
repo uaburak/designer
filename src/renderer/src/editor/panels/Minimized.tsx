@@ -41,7 +41,7 @@ export function MinimizedPanels() {
           />
         </div>
         <span className={styles.cardName}>{name}</span>
-        <IconButton icon="24.sidebar.closed" label={t("Expand UI")} shortcut={shortcutOf(command("view.minimize-ui"))} size="large" onClick={() => runEditorCommand(ed, "view.minimize-ui")} />
+        <IconButton icon="24.minimize-ui" label={t("Expand UI")} shortcut={shortcutOf(command("view.minimize-ui"))} size="large" onClick={() => runEditorCommand(ed, "view.minimize-ui")} />
       </div>
       {selected ? (
         <RightPanel floating />
