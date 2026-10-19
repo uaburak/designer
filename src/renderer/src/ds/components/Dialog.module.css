@@ -28,7 +28,6 @@
   .small { width: var(--ds-size-dialog-small); }
   .medium { width: var(--ds-size-dialog-medium); }
   .large { width: var(--ds-size-dialog-large); }
-  .libraries { width: var(--ds-size-dialog-libraries); height: var(--ds-size-dialog-libraries-height); }
   .static { z-index: auto; max-height: none; }
   .header {
     display: flex;
@@ -41,8 +40,5 @@
   }
   .title { flex: 1 1 auto; min-width: 0; overflow: hidden; font: var(--ds-font-body-large-strong); letter-spacing: var(--ds-tracking-body-large-strong); text-overflow: ellipsis; white-space: nowrap; }
   .body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: var(--ds-space-4); }
-  .compact .header { height: var(--ds-size-dialog-header-compact); padding: 0 var(--ds-space-2) 0 var(--ds-space-4); }
-  .compact .title { font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
-  .compact .body { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
   .footer { display: flex; flex: none; align-items: center; justify-content: flex-end; gap: var(--ds-space-2); padding: var(--ds-space-4); border-top: 1px solid var(--figma-color-border); }
 }

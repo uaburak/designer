@@ -7,6 +7,7 @@
 import { t as tr } from "@/i18n";
 import type { Color, Guid } from "@/engine/codec";
 import type { IconName } from "@/ds";
+import type { MotionEasing } from "@shared/motion/types";
 
 export interface GuidJson {
   sessionID: number;
@@ -277,8 +278,8 @@ type MenuEntry = { value: string; label: string; icon: IconName; disabled?: bool
  * On click, On drag, While hovering, While pressing, Key/Gamepad | Mouse enter, Mouse leave, Mouse down, Mouse up |
  * After delay — each with its glyph; on a video the video triggers after (unverified).
  */
-export function triggerMenu(video: boolean): MenuEntry[] {
-  const t = (v: InteractionType): MenuEntry => ({ value: v, label: triggerLabel(v), icon: TRIGGER_ICON[v] });
+export function triggerMenu(video: boolean, disabled: ReadonlySet<InteractionType> = new Set()): MenuEntry[] {
+  const t = (v: InteractionType): MenuEntry => ({ value: v, label: triggerLabel(v), icon: TRIGGER_ICON[v], ...(disabled.has(v) ? { disabled: true } : {}) });
   return [
     { value: "NONE", label: "None", icon: TRIGGER_ICON.NONE },
     "-",
@@ -289,6 +290,44 @@ export function triggerMenu(video: boolean): MenuEntry[] {
     t("AFTER_TIMEOUT"),
     ...(video ? ["-" as const, t("ON_MEDIA_HIT"), t("ON_MEDIA_END")] : []),
   ];
+}
+
+/**
+ * A trigger's identity on a layer (atlas 13 §3.2, figma_app 821376): mouse triggers with whether they wait, keys with
+ * their device and codes, After delay with its delay, the others by type.
+ */
+export function triggerIdentity(e: PrototypeInteraction["event"]): string {
+  const type = e?.interactionType === "MOUSE_IN" ? "MOUSE_ENTER" : e?.interactionType === "MOUSE_OUT" ? "MOUSE_LEAVE" : (e?.interactionType ?? "ON_CLICK");
+  if (takesDelay(type)) return `${type}:${mouseDelayOf(e) > 0}`;
+  if (type === "ON_KEY_DOWN") return `${type}:${e?.keyTrigger?.triggerDevice ?? "KEYBOARD"}:${[...(e?.keyTrigger?.keyCodes ?? [])].sort((a, b) => a - b).join(",")}`;
+  if (type === "AFTER_TIMEOUT") return `${type}:${e?.transitionTimeout || 0.8}`;
+  return type;
+}
+
+/** Every action of an interaction, those inside its Conditional's blocks too. */
+function allActions(actions: readonly PrototypeAction[] | undefined): PrototypeAction[] {
+  return (actions ?? []).flatMap((a) => [a, ...(a.conditionalActions ?? []).flatMap((b) => allActions(b.actions))]);
+}
+
+/**
+ * The triggers the Trigger list disables for `interaction` (atlas 13 §3.2, Figma's `eI`): one another interaction of
+ * the layer uses (Key/Gamepad, On drag and When video hits may repeat; After delay never disabled); with Open link
+ * only On click and Mouse up; with a video action no While hovering, While pressing or On drag; a lone Back no While
+ * hovering or While pressing.
+ */
+export function disabledTriggers(interaction: PrototypeInteraction, others: readonly PrototypeInteraction[]): Set<InteractionType> {
+  const out = new Set<InteractionType>();
+  const all: InteractionType[] = ["ON_CLICK", "DRAG", "ON_HOVER", "ON_PRESS", "ON_KEY_DOWN", "MOUSE_ENTER", "MOUSE_LEAVE", "MOUSE_DOWN", "MOUSE_UP", "ON_MEDIA_HIT", "ON_MEDIA_END"];
+  const repeats = new Set<InteractionType>(["ON_KEY_DOWN", "DRAG", "ON_MEDIA_HIT"]);
+  // Same trigger: the identity this interaction would have with it (its delay kept) against the others'.
+  const used = new Set(others.filter((o) => o !== interaction).map((o) => triggerIdentity(o.event)));
+  for (const t of all) if (!repeats.has(t) && used.has(triggerIdentity({ ...interaction.event, interactionType: t }))) out.add(t);
+  const actions = allActions(interaction.actions);
+  if (actions.some((a) => a.connectionType === "URL")) for (const t of all) if (t !== "ON_CLICK" && t !== "MOUSE_UP") out.add(t);
+  if (actions.some((a) => a.connectionType === "UPDATE_MEDIA_RUNTIME")) for (const t of ["ON_HOVER", "ON_PRESS", "DRAG"] as const) out.add(t);
+  if (interaction.actions?.length === 1 && interaction.actions[0].connectionType === "BACK") for (const t of ["ON_HOVER", "ON_PRESS"] as const) out.add(t);
+  out.delete(interaction.event?.interactionType ?? "ON_CLICK");
+  return out;
 }
 
 /**
@@ -469,10 +508,10 @@ export const DIRECTIONS: { value: Direction; label: string }[] = [
 
 export const isDirectional = (a: Animation): boolean => a === "MOVE_IN" || a === "MOVE_OUT" || a === "PUSH" || a === "SLIDE_IN" || a === "SLIDE_OUT";
 
-// Incoming screens (Move in, Push, Slide in) come FROM the side opposite to where they move; outgoing ones (Move out,
-// Slide out) go TO the side they move to.
+// The arrows name the way the layers move; the stored type names the other side (atlas 13 §5.2, Figma's panel): Move in
+// left is MOVE_FROM_RIGHT, Move out left MOVE_OUT_TO_RIGHT — the _OUT_TO_ types are the reversed _FROM_ ones, so the old
+// screen leaves to the left (§5.3). No direction yet: left (Figma's stored RIGHT).
 const OPPOSITE: Record<Direction, Side> = { LEFT: "RIGHT", RIGHT: "LEFT", UP: "BOTTOM", DOWN: "TOP" };
-const TOWARDS: Record<Direction, Side> = { LEFT: "LEFT", RIGHT: "RIGHT", UP: "TOP", DOWN: "BOTTOM" };
 
 export function transitionOf(animation: Animation, direction: Direction = "LEFT"): TransitionType {
   switch (animation) {
@@ -482,14 +521,14 @@ export function transitionOf(animation: Animation, direction: Direction = "LEFT"
     case "MOVE_IN": return `MOVE_FROM_${OPPOSITE[direction]}`;
     case "PUSH": return `PUSH_FROM_${OPPOSITE[direction]}`;
     case "SLIDE_IN": return `SLIDE_FROM_${OPPOSITE[direction]}`;
-    case "MOVE_OUT": return `MOVE_OUT_TO_${TOWARDS[direction]}`;
-    case "SLIDE_OUT": return `SLIDE_OUT_TO_${TOWARDS[direction]}`;
+    case "MOVE_OUT": return `MOVE_OUT_TO_${OPPOSITE[direction]}`;
+    case "SLIDE_OUT": return `SLIDE_OUT_TO_${OPPOSITE[direction]}`;
   }
 }
 
 export function animationOf(t: TransitionType | undefined): { animation: Animation; direction: Direction } {
   const fromSide = (s: string): Direction => (s === "RIGHT" ? "LEFT" : s === "LEFT" ? "RIGHT" : s === "BOTTOM" ? "UP" : "DOWN");
-  const toSide = (s: string): Direction => (s === "LEFT" ? "LEFT" : s === "RIGHT" ? "RIGHT" : s === "TOP" ? "UP" : "DOWN");
+  const toSide = fromSide;
   if (!t || t === "INSTANT_TRANSITION") return { animation: "INSTANT", direction: "LEFT" };
   if (t === "DISSOLVE" || t === "FADE" || t === "SCROLL_ANIMATE") return { animation: "DISSOLVE", direction: "LEFT" };
   if (t === "SMART_ANIMATE" || t === "MAGIC_MOVE") return { animation: "SMART_ANIMATE", direction: "LEFT" };
@@ -531,6 +570,96 @@ export function easingLabel(e: EasingType | undefined): string {
   if (e === "EASE_IN") return "Ease in";
   for (const x of EASINGS) if (x !== "-" && x.value === (e ?? "OUT_CUBIC")) return x.label;
   return "Ease out";
+}
+
+/**
+ * The animations an action offers (atlas 13 §5.1, Figma's `en`): Open overlay Instant, Dissolve and Move in; Swap
+ * overlay those and Smart animate; Change to Instant, Dissolve and Smart animate; the others all; On drag needs a moving
+ * one (Instant and Dissolve disabled). Scroll to's own pair is the panel's.
+ */
+export function animationsFor(kind: ActionKind, trigger: InteractionType | undefined): { value: Animation; label: string; disabled?: boolean }[] {
+  const allowed: Partial<Record<ActionKind, Animation[]>> = {
+    OVERLAY: ["INSTANT", "DISSOLVE", "MOVE_IN"],
+    SWAP: ["INSTANT", "DISSOLVE", "SMART_ANIMATE", "MOVE_IN"],
+    CHANGE_TO: ["INSTANT", "DISSOLVE", "SMART_ANIMATE"],
+  };
+  const list = allowed[kind];
+  return ANIMATIONS.map((a) => {
+    const off = (list && !list.includes(a.value)) || (trigger === "DRAG" && (a.value === "INSTANT" || a.value === "DISSOLVE"));
+    return off ? { ...a, disabled: true } : a;
+  });
+}
+
+// Springs (atlas 13 §5.4, motion/Easing): ω₀ = √(k/m), ζ = c / (2√(km)).
+const springParts = (f: readonly number[]) => {
+  const [m, k, c] = [f[0] ?? 1, f[1] ?? 100, f[2] ?? 15];
+  const w0 = Math.sqrt(k / m);
+  return { m, w0, zeta: c / (2 * Math.sqrt(k * m)) };
+};
+
+/** A spring preset's or custom spring's [mass, stiffness, damping] (Figma's tables; an unknown one its fallback). */
+export function springOf(e: EasingType, fn?: readonly number[]): number[] {
+  switch (e) {
+    case "GENTLE_SPRING":
+    case "SPRING": return [1, 100, 15];
+    case "SPRING_PRESET_ONE": return [1, 300, 20];
+    case "SPRING_PRESET_TWO": return [1, 600, 15];
+    case "SPRING_PRESET_THREE": return [1, 80, 20];
+    default: return fn && fn.length >= 3 ? [fn[0], fn[1], fn[2]] : [1, 100, 10];
+  }
+}
+
+/**
+ * What `transitionDuration` holds for a spring (Figma's `J5`): its settle time T = (−ln 0.001 + ln(1 + ζω₀ / ω_d)) /
+ * (ζω₀), ζ ≤ 0.9999 — Gentle 1.022 s, Quick 0.744 s, Bouncy 0.958 s, Slow 1.250 s.
+ */
+export function springSettleTime(f: readonly number[]): number {
+  const { w0, zeta: z } = springParts(f);
+  const zeta = Math.min(0.9999, z);
+  const wd = w0 * Math.sqrt(1 - zeta * zeta);
+  return (-Math.log(0.001) + Math.log(1 + (zeta * w0) / wd)) / (zeta * w0);
+}
+
+/** The spring editor's Duration: 6 / (ζω₀). */
+export function springEditorDuration(f: readonly number[]): number {
+  const { w0, zeta } = springParts(f);
+  return 6 / (zeta * w0);
+}
+
+/** The spring with an editor Duration of `seconds`: ω₀ = 6 / (d·ζ) to 4 significant digits, mass and ζ kept. */
+export function springWithEditorDuration(f: readonly number[], seconds: number): number[] {
+  const { m, zeta } = springParts(f);
+  let w0 = 6 / (seconds * zeta);
+  if (w0 > 0) {
+    const scale = 10 ** (4 - (Math.floor(Math.log10(w0)) + 1));
+    w0 = Math.round(w0 * scale) / scale;
+  }
+  w0 = Math.min(1000, Math.max(0.1, w0));
+  return [m, w0 * w0 * m, 2 * zeta * w0 * m];
+}
+
+/**
+ * The Easing editor's graph in the Prototype panel (docs/motion.md §6.3, round 8j: easing/CurveEditor shared with
+ * Motion): a custom bezier as Motion's CUSTOM_CUBIC_BEZIER, a custom spring as its bounce clamp(1 − ζ, 0, 1) — the
+ * graph's one spring handle [ours: the prototype's ω₀ stays on its Mass / Stiffness fields and Duration].
+ */
+export function prototypeCurve(e: EasingType, fn: readonly number[]): MotionEasing | null {
+  if (e === "CUSTOM_CUBIC") return { type: "CUSTOM_CUBIC_BEZIER", easingFunctionCubicBezier: { x1: fn[0] ?? 0, y1: fn[1] ?? 0, x2: fn[2] ?? 0.58, y2: fn[3] ?? 1 } };
+  if (e === "CUSTOM_SPRING") return { type: "CUSTOM_SPRING", easingFunctionSpring: { bounce: Math.min(1, Math.max(0, 1 - springParts(springOf(e, fn)).zeta)) } };
+  return null;
+}
+
+/**
+ * The graph's edit as the action's `easingFunction`: a bezier's four numbers; a spring's damping for the dragged
+ * bounce, mass and stiffness kept (ζ = 1 − bounce, at least 0.01; damping 0.01…1000, the spring editor's limits).
+ */
+export function easingFunctionOfCurve(curve: MotionEasing, fn: readonly number[]): number[] {
+  const b = curve.easingFunctionCubicBezier;
+  if (curve.type === "CUSTOM_CUBIC_BEZIER" && b) return [b.x1, b.y1, b.x2, b.y2];
+  const [m, k] = springOf("CUSTOM_SPRING", fn);
+  const zeta = Math.max(0.01, 1 - (curve.easingFunctionSpring?.bounce ?? 0));
+  const damping = Math.min(1000, Math.max(0.01, Math.round(zeta * 2 * Math.sqrt(k * m) * 100) / 100));
+  return [m, k, damping, ...fn.slice(3)];
 }
 
 /** Custom bezier / spring defaults when picked (Figma's: its ease out curve [0, 0, 0.58, 1], a gentle spring). */

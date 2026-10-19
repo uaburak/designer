@@ -10,7 +10,8 @@ import { ContextMenu } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../controller";
 import { useUI } from "../hooks";
-import { canvasMenu, canvasMenuWidth, commandItem, runMenuItem } from "../menus";
+import { canvasMenu, canvasMenuWidth, commandItem, runMenuItem, withoutDisabled } from "../menus";
+import { command, shortcutOf } from "../commands";
 import { layerIcon } from "../panels/Layers";
 import { detailsOf, DETAIL_FIELDS, type TreeNode } from "../model/layerTree";
 
@@ -54,6 +55,18 @@ export function attachGridTracks(ed: EditorController, canvas: HTMLCanvasElement
   };
 }
 
+/**
+ * A ruler's menu (Figma's rulerGuideMenu, Atlas 04 §4.2): the top ruler's guides ("Y": horizontal) or the left one's
+ * ("X": vertical) removed, then Hide rulers with the rulers' key. (Ruler units are Figma Buzz's, not Design's.)
+ */
+export function rulerMenu(ed: EditorController, ruler: "X" | "Y") {
+  return [
+    commandItem(ed, ruler === "Y" ? "canvas.remove-horizontal-guides" : "canvas.remove-vertical-guides"),
+    "-" as const,
+    { ...commandItem(ed, "canvas.hide-rulers"), shortcut: shortcutOf(command("view.rulers")) },
+  ];
+}
+
 export function CanvasMenu() {
   useT();
   const ed = useEditor();
@@ -73,7 +86,7 @@ export function CanvasMenu() {
     };
     return { id, name: n?.name ?? "", locked: !!n?.locked, icon: layerIcon(row) };
   });
-  const entries = at.guide ? [commandItem(ed, "canvas.remove-guide")] : canvasMenu(ed, layers, { row: !at.canvas });
+  const entries = at.ruler ? withoutDisabled(ed, rulerMenu(ed, at.ruler)) : at.guide ? [commandItem(ed, "canvas.remove-guide")] : canvasMenu(ed, layers, { row: !at.canvas });
   return (
     <ContextMenu
       at={{ x: at.x, y: at.y }}

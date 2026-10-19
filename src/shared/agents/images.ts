@@ -16,6 +16,19 @@ export function sniffImage(b: Uint8Array): ImageMime | null {
   return null;
 }
 
+/** The largest sound add_audio takes (the Motion timeline's limit, docs/motion.md §6.6). */
+export const MAX_AUDIO_ARG_BYTES = 100 * 1024 * 1024;
+
+/** add_audio's files, known by their bytes: WAV (RIFF…WAVE), M4A / MP4 audio (…ftyp), MP3 (an ID3 tag or a frame sync), AAC (ADTS). */
+export function sniffAudio(b: Uint8Array): "audio/wav" | "audio/mp4" | "audio/mpeg" | "audio/aac" | null {
+  if (b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x41 && b[10] === 0x56 && b[11] === 0x45) return "audio/wav";
+  if (b.length >= 8 && b[4] === 0x66 && b[5] === 0x74 && b[6] === 0x79 && b[7] === 0x70) return "audio/mp4";
+  if (b.length >= 3 && b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) return "audio/mpeg";
+  if (b.length >= 2 && b[0] === 0xff && (b[1] & 0xf6) === 0xf0) return "audio/aac";
+  if (b.length >= 2 && b[0] === 0xff && (b[1] & 0xe0) === 0xe0) return "audio/mpeg";
+  return null;
+}
+
 /** An image the editor receives: its bytes as base64 (main has read a path already), with its file name. */
 export interface ImageData {
   data: string;

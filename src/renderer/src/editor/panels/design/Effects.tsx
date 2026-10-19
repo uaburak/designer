@@ -6,16 +6,18 @@
  * Drop shadow with Figma's defaults (X 0, Y 4, Blur 4, Spread 0, #000000 25%); until its onboarding card is
  * dismissed it opens Figma's "Shader effects (Beta)" browser instead (the card's "Got it"), as live Figma does.
  * The settings popover: the type dropdown in its header (Inner shadow, Drop shadow, Layer blur, Background blur,
- * Noise, Texture, Glass, then Shader), a blend mode button for shadows and noise, then per type —
- * - shadows: Position X / Y, Blur, Spread, Color (and "Show behind transparent areas" on a drop shadow when the
- *   layer isn't opaque);
- * - blurs: Type Uniform / Progressive; Blur, or Start and End;
- * - Noise: Noise type Mono / Duo / Multi; Noise size X / Y, Density, then Color (Mono), two colours (Duo) or
- *   Opacity (Multi);
+ * Noise, Texture, Glass, then Shader; a type the layer already has its most of — 8 shadows, 1 blur of each kind,
+ * 2 noises, 1 texture, 1 glass — is greyed, "Already applied"), a blend mode button for shadows and noise, then per
+ * type (atlas 08 §6) —
+ * - shadows: Position X / Y and Spread (±30000), Blur (0–250), Color (and "Show behind transparent areas" on a drop
+ *   shadow when the layer isn't opaque); Spread is off, saying why, where it can't draw;
+ * - blurs: Type Uniform / Progressive; Blur, or Start and End (0–100);
+ * - Noise: Noise type Mono / Duo / Multi; Noise size X / Y (Y following X while equal), Density, then Color (Mono),
+ *   two colours (Duo) or Opacity (Multi);
  * - Texture: Size X / Y, Radius, Clip to shape;
- * - Glass: Light (a dial, Angle 0–359°, Intensity), Refraction, Depth (refractionRadius 1–100), Dispersion, Frost,
- *   Splay (reflectionDistance 0–1); bevelSize stays 1 (model/glass.ts). One glass per layer: the type menu's Glass
- *   is off while another effect is one.
+ * - Glass: Light (a dial snapping to 45°, Angle −180…180°, Intensity), Refraction, Depth (refractionRadius 1–100),
+ *   Dispersion, Frost, Splay (reflectionDistance 0–1); bevelSize stays 1 (model/glass.ts).
+ * A type change keeps every field and fills in the new type's (Figma's UF); editing a hidden effect shows it.
  * Stored as `effects` (schema Effect: FOREGROUND_BLUR = Layer blur, GRAIN = Texture; the newer fields — blurOpType,
  * startRadius, noiseType, … — as the engine keeps them, JSON members of the effect).
  *
@@ -26,14 +28,17 @@
  * columns, Top / Center / Bottom for rows), width (Auto when stretched),
  * margin or offset, gutter; the colour. Stored as `layoutGrids`.
  */
-import { useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { BLEND_LABEL, BLEND_MODES, Button, Checkbox, ColorInput, Icon, IconButton, MenuButton, NumericInput, PanelSection, Popover, SearchField, SegmentedControl, Select, cx, tooltipProps, type ChangeInfo, type IconName, type PopoverPlacement } from "@/ds";
+import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { BLEND_LABEL, BLEND_MODES, Button, Checkbox, ColorInput, ContextMenu, Icon, IconButton, MenuButton, NumericInput, PanelSection, Popover, SearchField, SegmentedControl, Select, Slider, cx, tooltipProps, useTheme, type ChangeInfo, type IconName, type MenuEntry, type PopoverPlacement } from "@/ds";
 import { guidStr, guidVal, resolveVariable } from "../../model/variables";
 import { VariablePicker } from "../variables/VariablePicker";
 import type { BlendMode, Color, Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
+import { engineMethod } from "../../engineCompat";
+import { Status } from "@/engine/abi";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
 import { mixed, sameData } from "../../model/mixed";
+import { DEFAULT_NUDGE, loadNudge, syncViewOptions } from "../../canvasTools";
 import { PANEL_MENU_GAP, fields, useKeeps, type Effect, type LayoutGrid, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 import { AppliedStyle, StylesButton, sharedStyle } from "./Styles";
@@ -48,8 +53,8 @@ import { GLASS_DEFAULTS, figmaGlass, shownAngle } from "../../model/glass";
 
 /** The type menu's order (live Figma): shadows, blurs, then Noise, Texture, Glass. */
 export const EFFECT_TYPES: { value: Effect["type"]; label: string; icon: IconName }[] = [
-  { value: "INNER_SHADOW", label: "Inner shadow", icon: "24.inner.shadow.top.left.small" },
-  { value: "DROP_SHADOW", label: "Drop shadow", icon: "24.drop.shadow.mid.small" },
+  { value: "INNER_SHADOW", label: "Inner shadow", icon: "24.effect.inner.shadow.small" },
+  { value: "DROP_SHADOW", label: "Drop shadow", icon: "24.effect.drop.shadow.small" },
   { value: "FOREGROUND_BLUR", label: "Layer blur", icon: "24.layer.blur.small" },
   { value: "BACKGROUND_BLUR", label: "Background blur", icon: "24.background.blur.small" },
   { value: "NOISE", label: "Noise", icon: "24.noise.small" },
@@ -68,6 +73,11 @@ const BLACK_25: Color = { r: 0, g: 0, b: 0, a: 0.25 };
 const NO_SIZE: V2 = { x: 0, y: 0 };
 /** Figma's Multi noise opacity when Multi is picked. */
 const MULTI_OPACITY = 0.15;
+/** A shadow's Position and Spread fields (±), its Blur field (atlas 08 §6.1: the Plugin API's clamp too). */
+const SHADOW_MAX = 30000;
+const SHADOW_BLUR_MAX = 250;
+/** A noise's or texture's size field. */
+const NOISE_SIZE_MAX = 100;
 
 /** A new noise's or texture's random pattern: Figma's floor(10⁴ · random), so two of them don't look the same. */
 export const randomSeed = () => Math.floor(Math.random() * 10000);
@@ -79,40 +89,168 @@ export const randomSeed = () => Math.floor(Math.random() * 10000);
  * §2.18).
  */
 export function defaultEffect(type: Effect["type"] = "DROP_SHADOW"): Effect {
-  if (type === "DROP_SHADOW" || type === "INNER_SHADOW")
-    return { type, color: { ...BLACK_25 }, offset: { x: 0, y: 4 }, radius: 4, spread: 0, visible: true, blendMode: "NORMAL", ...(type === "DROP_SHADOW" ? { showShadowBehindNode: false } : {}) };
-  if (type === "NOISE")
-    return { type, color: { ...BLACK_25 }, visible: true, blendMode: "NORMAL", noiseType: "MONOTONE", noiseSize: { x: 0.5, y: 0.5 }, density: 1, seed: randomSeed() };
-  if (type === "GRAIN") return { type, radius: 4, visible: true, noiseSize: { x: 4, y: 4 }, clipToShape: false, seed: randomSeed() };
-  if (type === "GLASS") return { type, visible: true, ...GLASS_DEFAULTS };
-  return { type, radius: 4, visible: true };
+  // Figma's template (its `j()` then `IK(type)`, atlas 08 §4.1): every type starts from the drop shadow's fields — a
+  // blur or a texture keeps the colour, offset and spread unseen — then the type's own, then the type's fill-ins.
+  const base: Effect = { type, blendMode: "NORMAL", color: { ...BLACK_25 }, offset: { x: 0, y: 4 }, radius: 4, spread: 0, visible: true, showShadowBehindNode: false };
+  if (type === "NOISE") Object.assign(base, { opacity: 0.25 });
+  if (type === "GLASS") Object.assign(base, { ...GLASS_DEFAULTS, radius: base.radius, secondaryColor: { r: 1, g: 1, b: 1, a: 0 } });
+  return { ...base, ...fillIns(base, type, false) };
 }
 
-/** The effect as another type: a shadow keeps its numbers as a shadow, a blur its radius and type; others start fresh. */
-export function withEffectType(e: Effect, type: Effect["type"]): Effect {
-  if (type === e.type) return e;
-  const base = defaultEffect(type);
-  if (isShadow(e) && (type === "DROP_SHADOW" || type === "INNER_SHADOW")) {
-    const out: Effect = { ...e, type };
-    if (type === "INNER_SHADOW") delete out.showShadowBehindNode;
-    else out.showShadowBehindNode ??= false;
-    return out;
+/**
+ * Figma's fill-ins when an effect becomes a type (its `UF`, atlas 08 §4.2): only the fields that are missing or falsy
+ * (so a stored angle or intensity of 0 goes back to the default) — Texture its size, clip and seed; Noise Mono, size
+ * 0.5, opacity 0.15, density 1, the white secondary colour and a seed; Glass its light, refraction, depth, dispersion
+ * and splay; a progressive blur its radii clamped to 100 and its line top-centre → bottom-centre (along a line,
+ * (0, −0.5) → (1, −0.5)); a shader clips to its shape.
+ */
+function fillIns(e: Effect, type: Effect["type"], lineOnly: boolean): Partial<Effect> {
+  const missing = (k: string) => !e[k];
+  const out: Record<string, unknown> = {};
+  const fill = (k: string, v: unknown) => missing(k) && (out[k] = v);
+  if (type === "GRAIN") {
+    fill("noiseSize", { x: 4, y: 4 });
+    if (e.clipToShape === undefined) out.clipToShape = false;
+    fill("seed", randomSeed());
+  } else if (type === "NOISE") {
+    fill("noiseType", "MONOTONE");
+    fill("noiseSize", { x: 0.5, y: 0.5 });
+    fill("opacity", MULTI_OPACITY);
+    fill("density", 1);
+    fill("secondaryColor", { r: 1, g: 1, b: 1, a: 0.25 });
+    fill("seed", randomSeed());
+  } else if (type === "GLASS") {
+    for (const [k, v] of Object.entries(GLASS_DEFAULTS)) if (k !== "radius") fill(k, v);
+    fill("secondaryColor", { r: 1, g: 1, b: 1, a: 0 });
+  } else if ((type === "FOREGROUND_BLUR" || type === "BACKGROUND_BLUR") && e.blurOpType === "PROGRESSIVE") {
+    out.radius = Math.min(e.radius ?? 0, PROGRESSIVE_MAX);
+    out.startRadius = Math.min((e.startRadius as number | undefined) ?? 0, PROGRESSIVE_MAX);
+    fill("startOffset", lineOnly ? { x: 0, y: -0.5 } : { x: 0.5, y: 0 });
+    fill("endOffset", lineOnly ? { x: 1, y: -0.5 } : { x: 0.5, y: 1 });
+  } else if (type === "CUSTOM") {
+    if (e.clipToShape === undefined) out.clipToShape = true;
   }
-  if (isBlur(e) && (type === "FOREGROUND_BLUR" || type === "BACKGROUND_BLUR")) return { ...e, type };
-  if (isShadow(base) || isBlur(base)) return { ...base, radius: e.radius ?? base.radius, visible: e.visible ?? true };
-  return { ...base, visible: e.visible ?? true };
+  return out as Partial<Effect>;
 }
 
-/** A blur made progressive: Start 0, End = its radius, from the top of the layer to its bottom (Figma's default). */
-export function withBlurType(e: Effect, progressive: boolean): Effect {
+/**
+ * The effect as another type, as Figma's type menu writes it: every field kept (a shadow turned layer blur keeps its
+ * colour and offset unseen, and has them back when turned into a shadow again), the new type's missing ones filled in.
+ */
+export function withEffectType(e: Effect, type: Effect["type"], lineOnly = false): Effect {
+  if (type === e.type) return e;
+  return { ...e, type, ...fillIns(e, type, lineOnly) };
+}
+
+/**
+ * Uniform ↔ Progressive: progressive clamps both radii to 100 and gives a line from the top of the layer to its bottom
+ * when it has none (along a line: its length); back to Uniform keeps Start and the line in the data.
+ */
+export function withBlurType(e: Effect, progressive: boolean, lineOnly = false): Effect {
   if (!progressive) return { ...e, blurOpType: "NORMAL" };
-  return { ...e, blurOpType: "PROGRESSIVE", startRadius: (e.startRadius as number | undefined) ?? 0, startOffset: (e.startOffset as V2 | undefined) ?? { x: 0.5, y: 0 }, endOffset: (e.endOffset as V2 | undefined) ?? { x: 0.5, y: 1 } };
+  const p: Effect = { ...e, blurOpType: "PROGRESSIVE" };
+  return { ...p, ...fillIns(p, p.type, lineOnly) };
+}
+
+/** A progressive blur's Start and End (and the radii it clamps to on the switch). */
+export const PROGRESSIVE_MAX = 100;
+
+/** Figma's cap on one layer's effects of each type (atlas 08 §3.2); the renderer draws up to eight shadows. */
+export const EFFECT_LIMITS: Partial<Record<Effect["type"], number>> = { DROP_SHADOW: 8, INNER_SHADOW: 8, FOREGROUND_BLUR: 1, BACKGROUND_BLUR: 1, NOISE: 2, GRAIN: 1, GLASS: 1, CUSTOM: 10 };
+
+/** The types the list can't take another of (greyed in the type menu, "Already applied"); `own` keeps its own type. */
+export function fullTypes(effects: readonly Effect[], own?: number): Set<Effect["type"]> {
+  const out = new Set<Effect["type"]>();
+  for (const [type, limit] of Object.entries(EFFECT_LIMITS) as [Effect["type"], number][]) if (effects.filter((x) => x.type === type).length >= limit) out.add(type);
+  if (own !== undefined && effects[own]) out.delete(effects[own].type);
+  return out;
+}
+
+/**
+ * Why a shadow's Spread is off for these layers (Figma draws it on rectangles, ellipses and frames that clip and have a
+ * visible fill — the engine's shadowSpread), first cause first; null when every layer takes it.
+ */
+export function spreadBlocker(nodes: readonly PanelNode[]): "fills" | "clip" | "shape" | null {
+  for (const n of nodes) {
+    if (n.type === "RECTANGLE" || n.type === "ROUNDED_RECTANGLE" || n.type === "ELLIPSE") continue;
+    if (n.type === "FRAME" || n.type === "SYMBOL" || n.type === "INSTANCE") {
+      const fills = ((n.fillPaints ?? []) as { visible?: boolean; opacity?: number; type?: string; color?: Color }[]).some((p) => p.visible !== false && (p.opacity ?? 1) * (p.type === "SOLID" ? (p.color?.a ?? 1) : 1) >= 0.01);
+      if (!fills) return "fills";
+      if (n.frameMaskDisabled === true) return "clip";
+      continue;
+    }
+    return "shape";
+  }
+  return null;
+}
+
+/**
+ * Spread's disabled tooltip by cause (Figma's `spread_fills_warning`, `spread_clip_warning`,
+ * `spread_rect_ellipse_warning`; their English is unattested — this wording is Wecra's).
+ */
+const SPREAD_WARNING = {
+  fills: "Spread only applies to frames with a visible fill",
+  clip: "Spread only applies to frames that clip content",
+  shape: "Spread only applies to rectangles, ellipses and frames",
+} as const;
+
+/** The glass light's angle as the field shows it: −180…180° (a stored angle past 180 less 360, atlas 08 §6.5). */
+export const shownLightAngle = (a: number) => {
+  const w = shownAngle(a);
+  return w > 180 ? w - 360 : w;
+};
+
+/**
+ * The light dial's angle while dragging (atlas 08 §6.5): ⇧ snaps to multiples of 45°; otherwise a multiple of 45° within
+ * 4° pulls it on; ⌃ turns snapping off.
+ */
+export function snapLightAngle(a: number, mods: { shiftKey: boolean; ctrlKey: boolean }): number {
+  if (mods.ctrlKey) return a;
+  const near = Math.round(a / 45) * 45;
+  if (mods.shiftKey || Math.abs(a - near) <= 4) return near;
+  return a;
+}
+
+/** Large-preview rows (Draw): the effect's values after its name (atlas 08 §5.1), numbers to two decimals. */
+export function effectSummary(e: Effect): string {
+  const n = (v: number | undefined) => String(Math.round((v ?? 0) * 100) / 100);
+  const size = (s: V2 | undefined) => (s && s.x !== s.y ? `${t("Size X")} ${n(s.x)} ${t("Size Y")} ${n(s.y)}` : `${t("Size")} ${n(s?.x)}`);
+  if (isShadow(e)) {
+    const o = (e.offset as V2 | undefined) ?? { x: 0, y: 0 };
+    return `X ${n(o.x)} Y ${n(o.y)} B ${n(e.radius)} S ${n(e.spread)}`;
+  }
+  if (isBlur(e)) return e.blurOpType === "PROGRESSIVE" ? `${t("Progressive")} ${n(e.startRadius as number | undefined)} → ${n(e.radius)}` : `${t("Uniform")} ${n(e.radius)}`;
+  if (e.type === "GRAIN") return `${size(e.noiseSize as V2 | undefined)} R ${n(e.radius)}`;
+  if (e.type === "NOISE") {
+    const kind = { MONOTONE: "Mono", DUOTONE: "Duo", MULTITONE: "Multi" }[(e.noiseType as string | undefined) ?? "MONOTONE"] ?? "Mono";
+    return `${t(kind)} ${size(e.noiseSize as V2 | undefined)} D ${Math.round(((e.density as number | undefined) ?? 1) * 100)}%`;
+  }
+  if (e.type === "GLASS") return `A ${n(e.specularAngle as number | undefined)}° I ${Math.round(((e.specularIntensity as number | undefined) ?? 0.8) * 100)}%`;
+  return "";
 }
 
 /** The row's name: the type's ("Drop shadow"), a shader's preset ("Halftone"). */
 export const effectLabel = (e: Effect) => (e.type === "CUSTOM" ? (presetOf(e as ShaderFields)?.name ?? "Shader") : (EFFECT_TYPES.find((t) => t.value === e.type)?.label ?? "Effect"));
 /** The type's glyph (a shader's: the shader icon). */
-export const effectIcon = (e: Effect): IconName => (e.type === "CUSTOM" ? "24.shader.small" : (EFFECT_TYPES.find((t) => t.value === e.type) ?? EFFECT_TYPES[1]).icon);
+export const effectIcon = (e: Effect): IconName => (e.type === "CUSTOM" ? "24.effect.shader.small" : (EFFECT_TYPES.find((t) => t.value === e.type) ?? EFFECT_TYPES[1]).icon);
+
+/**
+ * A progressive blur's Start and End handles on the canvas (Figma's PROGRESSIVE_BLUR edit mode, atlas 08 §6.2): on while
+ * its settings are open on one layer; returns how the panel's Start / End fields mark their handle.
+ */
+function useBlurHandles(ed: EditorController, ref: Guid | null, index: number | null, progressive: boolean): (handle: "START" | "END" | "NONE") => void {
+  useEffect(() => {
+    if (!ref || index === null || !progressive) return;
+    const start = engineMethod<(ref: Guid, index: number) => number>(ed.engine, "startBlurEdit");
+    if (!start || start(ref, index) !== Status.OK) return;
+    return () => {
+      if (!ed.engine.destroyed) engineMethod<() => void>(ed.engine, "endPaintEdit")?.();
+    };
+  }, [ed, ref, index, progressive]);
+  return (handle) => {
+    if (ref && progressive && !ed.engine.destroyed) engineMethod<(h: string) => number>(ed.engine, "setBlurEditHandle")?.(handle);
+  };
+}
 
 function writeEffects(ed: EditorController, refs: readonly Guid[], effects: Effect[], label: string, info: ChangeInfo = { final: true, source: "pick" }) {
   ed.edit(label, info, () => void ed.engine.setProps(refs, fields({ effects })));
@@ -156,19 +294,32 @@ export function EffectsSection({ nodes }: { nodes: PanelNode[] }) {
   // The Shader effects browser: from "+" (a pick adds the shader) or an effect's type menu (a pick replaces it).
   const [shaders, setShaders] = useState<{ anchor: HTMLElement; onboarding: boolean; replace?: number } | null>(null);
   const addButton = useRef<HTMLDivElement>(null);
+  // "+" (live 2026-10-18 effects-add-menu.txt): adds an Inner shadow at the top of the list at once and opens the new
+  // row's type menu under "+" — hovering a type previews it, a pick turns the new effect into it (Shader: the shader
+  // browser), Esc or a press outside keeps the Inner shadow.
+  const [typeMenu, setTypeMenu] = useState<{ before: Effect[]; at: { x: number; y: number }; previewed: boolean } | null>(null);
   const add = () => {
-    if (!onboardingDone()) {
-      const anchor = addButton.current;
-      if (anchor) setShaders({ anchor, onboarding: true });
-      return;
-    }
-    writeEffects(ed, refs, isMixedList ? [defaultEffect()] : [...effects, defaultEffect()], "Add effect");
+    const before = isMixedList ? [] : effects;
+    writeEffects(ed, refs, [...before, defaultEffect("INNER_SHADOW")], "Add effect");
+    const r = addButton.current?.getBoundingClientRect();
+    if (r) setTypeMenu({ before, at: { x: r.right, y: r.bottom + PANEL_MENU_GAP }, previewed: false });
   };
+  const typeEntries = (before: readonly Effect[]): MenuEntry[] => {
+    const full = fullTypes([...before, defaultEffect("INNER_SHADOW")], before.length);
+    return [
+      ...EFFECT_TYPES.map((o): MenuEntry => ({ id: o.value, label: t(o.label), icon: o.icon, disabled: full.has(o.value) })),
+      "-",
+      { id: "CUSTOM", label: t("Shader"), icon: "24.effect.shader.small", chip: t("Beta"), disabled: full.has("CUSTOM") },
+    ];
+  };
+  const typed = (before: readonly Effect[], type: string) => [...before, withEffectType(defaultEffect("INNER_SHADOW"), type as Effect["type"])];
   const empty = !isMixedList && effects.length === 0;
   const styled = sharedStyle(nodes, "effect");
   const hasStyle = !!styled && styled !== "mixed";
   // Rows show the top effect first: display index d is effect n − 1 − d (as Fill's rows).
   const n = effects.length;
+  const openEffect = open ? effects[open.index] : undefined;
+  const markHandle = useBlurHandles(ed, refs.length === 1 ? refs[0] : null, open?.index ?? null, !!openEffect && isBlur(openEffect) && openEffect.blurOpType === "PROGRESSIVE");
   const { container: reorderRef, grip, dragging, line: dropLine } = useReorder((from, to) => writeEffects(ed, refs, moved(effects, n - 1 - from, n - 1 - to), "Reorder effects"));
   return (
     <PanelSection
@@ -179,7 +330,7 @@ export function EffectsSection({ nodes }: { nodes: PanelNode[] }) {
           <StylesButton nodes={nodes} slot="effect" />
           {!hasStyle && (
             <div ref={addButton} className={styles.inlineAnchor}>
-              <IconButton icon="24.plus.small" label={t("Add effect")} tone="secondary" disabled={!kept} aria-expanded={!!shaders} onClick={add} />
+              <IconButton icon="24.plus.small" label={t("Add effect")} tone="secondary" disabled={!kept} aria-expanded={!!shaders || !!typeMenu} onClick={add} />
             </div>
           )}
         </>
@@ -201,6 +352,8 @@ export function EffectsSection({ nodes }: { nodes: PanelNode[] }) {
               <div className={styles.effectField}>
                 <IconButton icon={type.icon} label={t("Effect settings")} aria-expanded={open?.index === i} onClick={(ev) => setOpen(open?.index === i ? null : { index: i, anchor: ev.currentTarget })} />
                 <span className={cx(styles.effectLabel, styles.effectName)}>{type.label}</span>
+                {/* Draw's large-preview rows: the values after the name (atlas 08 §5.1) */}
+                {drawMode && <span className={styles.effectSummary}>{effectSummary(e)}</span>}
               </div>
               <IconButton icon={e.visible === false ? "24.hidden.small" : "24.eye.small"} label={t("Toggle visibility")} tone="secondary" onClick={() => set({ ...e, visible: e.visible === false }, e.visible === false ? "Show effect" : "Hide effect")} />
               <IconButton icon="24.minus.small" label={t("Remove")} tone="secondary" onClick={() => writeEffects(ed, refs, effects.filter((_, j) => j !== i), "Remove effect")} />
@@ -215,12 +368,43 @@ export function EffectsSection({ nodes }: { nodes: PanelNode[] }) {
           effect={effects[open.index]}
           anchor={open.anchor}
           opaque={opaqueLayers(nodes)}
-          glassTaken={effects.some((x, j) => j !== open.index && x.type === "GLASS")}
+          full={fullTypes(effects, open.index)}
+          lineOnly={nodes.length > 0 && nodes.every((x) => x.type === "LINE")}
+          spreadBlocked={spreadBlocker(nodes)}
+          onHandle={markHandle}
           sliders={drawMode}
           onClose={() => setOpen(null)}
           onChange={(next, info) => writeEffects(ed, refs, effects.map((x, j) => (j === open.index ? next : x)), "Effect", info)}
           onCancel={() => ed.cancelEdit()}
           onShaders={(anchor) => setShaders({ anchor, onboarding: !onboardingDone(), replace: open.index })}
+        />
+      )}
+      {typeMenu && (
+        <ContextMenu
+          at={typeMenu.at}
+          flipX={typeMenu.at.x}
+          flush
+          highlighted={0}
+          label={t("Effect settings")}
+          entries={typeEntries(typeMenu.before)}
+          onHighlight={(id) => {
+            // A type hovered shows on the layers (a shader isn't previewed); the Inner shadow again when none is.
+            if (id === "CUSTOM" || (id === null && !typeMenu.previewed)) return;
+            writeEffects(ed, refs, typed(typeMenu.before, id ?? "INNER_SHADOW"), "Effect", { final: false, source: "pick" });
+            if (!typeMenu.previewed) setTypeMenu({ ...typeMenu, previewed: true });
+          }}
+          onSelect={(id) => {
+            const anchor = addButton.current;
+            if (id === "CUSTOM") {
+              if (typeMenu.previewed) ed.cancelEdit();
+              if (anchor) setShaders({ anchor, onboarding: !onboardingDone(), replace: typeMenu.before.length });
+            } else writeEffects(ed, refs, typed(typeMenu.before, id), "Effect");
+            setTypeMenu(null);
+          }}
+          onClose={() => {
+            if (typeMenu.previewed) ed.cancelEdit();
+            setTypeMenu(null);
+          }}
         />
       )}
       {shaders && (
@@ -260,6 +444,9 @@ function EffectBlend({ value, onChange }: { value: BlendMode; onChange: (b: Blen
 
 const pct = (v: number | undefined, fallback: number) => Math.round((v ?? fallback) * 1000) / 10;
 
+/** A shader effect's settings window: 280 wide (atlas 08 §5.3; the owner's capture figma-shader-pixelate-panel). */
+const SHADER_POPOVER_WIDTH = 280;
+
 /**
  * The effect's settings popover: the type dropdown in its header (and the blend mode for shadows and noise), the
  * type's fields in Figma's label / field columns.
@@ -268,18 +455,27 @@ export function EffectSettings({
   effect: given,
   anchor,
   opaque = true,
-  glassTaken = false,
-  onChange,
+  full,
+  lineOnly = false,
+  spreadBlocked = null,
+  onChange: write,
   onCancel,
   onClose,
   onShaders,
+  onHandle,
   sliders = false,
 }: {
+  /** A progressive blur's Start / End field hovered or focused: its handle on the canvas is marked */
+  onHandle?: (handle: "START" | "END" | "NONE") => void;
   effect: Effect;
   anchor: HTMLElement;
   opaque?: boolean;
-  /** Another effect of the layer is a glass: Figma allows one per layer (the type menu's Glass is off) */
-  glassTaken?: boolean;
+  /** The types the layer's list can't take another of (fullTypes: one glass, eight drop shadows…): greyed in the type menu */
+  full?: ReadonlySet<Effect["type"]>;
+  /** The selection is lines only: a progressive blur runs along them */
+  lineOnly?: boolean;
+  /** Why Spread is off for the selection (spreadBlocker), or null */
+  spreadBlocked?: ReturnType<typeof spreadBlocker>;
   /** Draw (docs/draw.md §5.3): a slider under blur, spread, density, opacity and radius */
   sliders?: boolean;
   onChange: (next: Effect, info: ChangeInfo) => void;
@@ -290,13 +486,20 @@ export function EffectSettings({
   useT();
   // A glass Wecra wrote before round 17 shows (and is written back) in Figma's fields.
   const effect = figmaGlass(given);
+  // The effect as it was before the type menu's hover preview: previews and the pick start from it.
+  const unpreviewed = useRef<Effect | null>(null);
+  // Editing any field of a hidden effect shows it again (Figma's onChange sets visible, atlas 08 §5.1).
+  const onChange = (next: Effect, info: ChangeInfo) => write(next.visible === false ? { ...next, visible: true } : next, info);
   const title = t(effectLabel(effect));
   const pick: ChangeInfo = { final: true, source: "pick" };
   const color = (effect.color as Color | undefined) ?? BLACK_25;
   const typeOptions = [
-    ...EFFECT_TYPES.map((o) => ({ value: o.value as string, label: t(o.label), icon: o.icon, disabled: o.value === "GLASS" && glassTaken && effect.type !== "GLASS" })),
+    ...EFFECT_TYPES.map((o) => {
+      const taken = !!full?.has(o.value) && o.value !== effect.type;
+      return { value: o.value as string, label: t(o.label), icon: o.icon, disabled: taken, ...(taken ? { hint: t("Already applied") } : {}) };
+    }),
     "-" as const,
-    { value: "CUSTOM", label: t("Shader"), icon: "24.shader.small" as IconName },
+    { value: "CUSTOM", label: t("Shader"), icon: "24.effect.shader.small" as IconName, chip: t("Beta"), disabled: !!full?.has("CUSTOM") && effect.type !== "CUSTOM" },
   ];
   const header = (
     <Select
@@ -309,10 +512,23 @@ export function EffectSettings({
       value={effect.type}
       options={typeOptions}
       onChange={(v) => {
+        const from = unpreviewed.current ?? effect;
         // Shader: the browser picks the preset (the effect becomes it).
         if (v === "CUSTOM") {
-          if (effect.type !== "CUSTOM") onShaders?.(anchor);
-        } else onChange(withEffectType(effect, v as Effect["type"]), pick);
+          if (from.type !== "CUSTOM") onShaders?.(anchor);
+        } else onChange(withEffectType(from, v as Effect["type"], lineOnly), pick);
+      }}
+      // Hovering a type shows it on the layers after 50 ms (Figma's type menu, atlas 08 §5.3); the pick, or leaving the
+      // menu, puts back the effect it started from (a shader isn't previewed: picking it opens the browser).
+      onPreview={(v) => {
+        if (v === null || v === "CUSTOM") {
+          if (!unpreviewed.current) return;
+          onCancel();
+          queueMicrotask(() => (unpreviewed.current = null));
+          return;
+        }
+        unpreviewed.current ??= effect;
+        onChange(withEffectType(unpreviewed.current, v as Effect["type"], lineOnly), { final: false, source: "pick" });
       }}
     />
   );
@@ -321,11 +537,11 @@ export function EffectSettings({
   const vec = (key: string, fallback: V2) => (effect[key] as V2 | undefined) ?? fallback;
   const num = (key: string, fallback: number) => (effect[key] as number | undefined) ?? fallback;
   // Draw's slider under a field (an empty label cell keeps the grid's pairs).
-  const slide = (label: string, value: number, [min, max]: readonly [number, number], write: (v: number, info: ChangeInfo) => void) =>
+  const slide = (label: string, value: number, [min, max]: readonly [number, number], write: (v: number, info: ChangeInfo) => void, scale?: "exponential") =>
     sliders ? (
       <>
         <span />
-        <DrawSlider spec={{ label: t(label), value, min, max, onChange: write, onCancel }} />
+        <DrawSlider spec={{ label: t(label), value, min, max, onChange: write, onCancel, scale }} />
       </>
     ) : null;
   const colorRow = (label: string, key: "color" | "secondaryColor", value: Color, aria = "Color") => (
@@ -341,14 +557,30 @@ export function EffectSettings({
       />
     </>
   );
-  const xy = (label: string, key: string, aria: string, fallback: V2, min?: number) => {
+  // A noise's or texture's size (atlas 08 §6.3–6.4): up to 100; Y follows X while the two are equal — it shows X as
+  // its placeholder — and emptying Y links it again.
+  const xy = (label: string, key: string, aria: string, fallback: V2) => {
     const v = vec(key, fallback);
+    const linked = v.x === v.y;
     return (
       <>
         <span className={styles.settingsLabel}>{t(label)}</span>
-        <NumericInput label={t("{name} X", { name: t(aria) })} prefix="X" min={min} value={v.x} onChange={(x, info) => set({ [key]: { x, y: v.y } }, info)} onCancel={onCancel} />
+        <NumericInput label={t("{name} X", { name: t(aria) })} prefix="X" min={0} max={NOISE_SIZE_MAX} value={v.x} onChange={(x, info) => set({ [key]: { x, y: linked ? x : v.y } }, info)} onCancel={onCancel} />
+        {/* Draw: each size its own exponential slider, 0.01–100 (Figma's EXPONENTIAL transform) */}
+        {slide(t("{name} X", { name: t(aria) }), v.x, SLIDER_RANGE.noiseSize, (x, info) => set({ [key]: { x, y: linked ? x : v.y } }, info), "exponential")}
         <span />
-        <NumericInput label={t("{name} Y", { name: t(aria) })} prefix="Y" min={min} value={v.y} onChange={(y, info) => set({ [key]: { x: v.x, y } }, info)} onCancel={onCancel} />
+        <NumericInput
+          label={t("{name} Y", { name: t(aria) })}
+          prefix="Y"
+          min={0}
+          max={NOISE_SIZE_MAX}
+          value={linked ? null : v.y}
+          placeholder={linked ? String(Math.round(v.x * 100) / 100) : undefined}
+          onChange={(y, info) => set({ [key]: { x: v.x, y } }, info)}
+          onClear={() => set({ [key]: { x: v.x, y: v.x } }, pick)}
+          onCancel={onCancel}
+        />
+        {slide(t("{name} Y", { name: t(aria) }), v.y, SLIDER_RANGE.noiseSize, (y, info) => set({ [key]: { x: v.x, y } }, info), "exponential")}
       </>
     );
   };
@@ -357,16 +589,20 @@ export function EffectSettings({
     const offset = (effect.offset as V2 | undefined) ?? { x: 0, y: 0 };
     body = (
       <>
+        {/* Figma's limits (atlas 08 §6.1): Position and Spread ±30000 (Draw's sliders ±300), Blur 0–250 (slider 0–100) */}
         <span className={styles.settingsLabel}>{t("Position")}</span>
-        <NumericInput label={t("Position X")} prefix="X" value={offset.x} onChange={(x, info) => set({ offset: { x, y: offset.y } }, info)} onCancel={onCancel} />
+        <NumericInput label={t("Position X")} prefix="X" min={-SHADOW_MAX} max={SHADOW_MAX} value={offset.x} onChange={(x, info) => set({ offset: { x, y: offset.y } }, info)} onCancel={onCancel} />
         <span />
-        <NumericInput label={t("Position Y")} prefix="Y" value={offset.y} onChange={(y, info) => set({ offset: { x: offset.x, y } }, info)} onCancel={onCancel} />
+        <NumericInput label={t("Position Y")} prefix="Y" min={-SHADOW_MAX} max={SHADOW_MAX} value={offset.y} onChange={(y, info) => set({ offset: { x: offset.x, y } }, info)} onCancel={onCancel} />
         <span className={styles.settingsLabel}>{t("Blur")}</span>
-        <NumericInput scrubHandle="previous" label={t("Blur radius")} min={0} value={effect.radius ?? 0} onChange={(v, info) => set({ radius: v }, info)} onCancel={onCancel} />
-        {slide("Blur radius", effect.radius ?? 0, SLIDER_RANGE.blur, (v, info) => set({ radius: v }, info))}
+        <NumericInput scrubHandle="previous" label={t("Blur radius")} min={0} max={SHADOW_BLUR_MAX} value={effect.radius ?? 0} onChange={(v, info) => set({ radius: v }, info)} onCancel={onCancel} />
+        {slide("Blur radius", effect.radius ?? 0, [0, 100], (v, info) => set({ radius: v }, info))}
         <span className={styles.settingsLabel}>{t("Spread")}</span>
-        <NumericInput scrubHandle="previous" label={t("Spread")} value={effect.spread ?? 0} onChange={(v, info) => set({ spread: v }, info)} onCancel={onCancel} />
-        {slide("Spread", effect.spread ?? 0, SLIDER_RANGE.spread, (v, info) => set({ spread: v }, info))}
+        {/* Off where it can't draw (a text, a frame without a fill or clip…), saying why; the stored value stays */}
+        <span className={styles.fxSpread} {...(spreadBlocked ? tooltipProps(t(SPREAD_WARNING[spreadBlocked])) : {})}>
+          <NumericInput scrubHandle="previous" label={t("Spread")} min={-SHADOW_MAX} max={SHADOW_MAX} disabled={!!spreadBlocked} value={effect.spread ?? 0} onChange={(v, info) => set({ spread: v }, info)} onCancel={onCancel} />
+        </span>
+        {!spreadBlocked && slide("Spread", effect.spread ?? 0, [-300, 300], (v, info) => set({ spread: v }, info))}
         {colorRow("Color", "color", color)}
         {slide("Color opacity", toPercent(color.a ?? 1), SLIDER_RANGE.percent, (o, info) => set({ color: { ...color, a: o / 100 } }, info))}
         {effect.type === "DROP_SHADOW" && !opaque && (
@@ -391,21 +627,29 @@ export function EffectSettings({
               { value: "NORMAL", label: t("Uniform") },
               { value: "PROGRESSIVE", label: t("Progressive") },
             ]}
-            onChange={(v) => onChange(withBlurType(effect, v === "PROGRESSIVE"), pick)}
+            onChange={(v) => onChange(withBlurType(effect, v === "PROGRESSIVE", lineOnly), pick)}
           />
         </div>
         {progressive ? (
           <>
+            {/* Start and End 0–100 (atlas 08 §6.2); hovering or focusing one marks its handle on the canvas */}
             <span className={styles.settingsLabel}>{t("Start")}</span>
-            <NumericInput label={t("Start")} min={0} value={num("startRadius", 0)} onChange={(v, info) => set({ startRadius: v }, info)} onCancel={onCancel} />
+            <span className={styles.fxHandleField} onPointerEnter={() => onHandle?.("START")} onPointerLeave={() => onHandle?.("NONE")} onFocus={() => onHandle?.("START")} onBlur={() => onHandle?.("NONE")}>
+              <NumericInput label={t("Start")} min={0} max={PROGRESSIVE_MAX} value={num("startRadius", 0)} onChange={(v, info) => set({ startRadius: v }, info)} onCancel={onCancel} />
+            </span>
+            {slide("Start", num("startRadius", 0), [0, PROGRESSIVE_MAX], (v, info) => set({ startRadius: v }, info))}
             <span className={styles.settingsLabel}>{t("End")}</span>
-            <NumericInput label={t("End")} min={0} value={effect.radius ?? 0} onChange={(v, info) => set({ radius: v }, info)} onCancel={onCancel} />
+            <span className={styles.fxHandleField} onPointerEnter={() => onHandle?.("END")} onPointerLeave={() => onHandle?.("NONE")} onFocus={() => onHandle?.("END")} onBlur={() => onHandle?.("NONE")}>
+              <NumericInput label={t("End")} min={0} max={PROGRESSIVE_MAX} value={effect.radius ?? 0} onChange={(v, info) => set({ radius: v }, info)} onCancel={onCancel} />
+            </span>
+            {slide("End", effect.radius ?? 0, [0, PROGRESSIVE_MAX], (v, info) => set({ radius: v }, info))}
           </>
         ) : (
           <>
+            {/* No input max; the slider goes to 500 for a layer blur, 100 for a background blur */}
             <span className={styles.settingsLabel}>{t("Blur")}</span>
             <NumericInput scrubHandle="previous" label={t("Blur radius")} min={0} value={effect.radius ?? 0} onChange={(v, info) => set({ radius: v }, info)} onCancel={onCancel} />
-            {slide("Blur radius", effect.radius ?? 0, SLIDER_RANGE.blur, (v, info) => set({ radius: v }, info))}
+            {slide("Blur radius", effect.radius ?? 0, [0, effect.type === "FOREGROUND_BLUR" ? 500 : 100], (v, info) => set({ radius: v }, info))}
           </>
         )}
       </>
@@ -428,7 +672,7 @@ export function EffectSettings({
             onChange={(v) => set({ noiseType: v, ...(v === "DUOTONE" && !effect.secondaryColor ? { secondaryColor: second } : {}), ...(v === "MULTITONE" && effect.opacity === undefined ? { opacity: MULTI_OPACITY } : {}) }, pick)}
           />
         </div>
-        {xy("Noise size", "noiseSize", "Noise size", NO_SIZE, 0)}
+        {xy("Noise size", "noiseSize", "Noise size", NO_SIZE)}
         <span className={styles.settingsLabel}>{t("Density")}</span>
         <NumericInput label={t("Density")} min={0} max={100} unit="%" value={pct(num("density", 1), 1)} onChange={(v, info) => set({ density: v / 100 }, info)} onCancel={onCancel} />
         {slide("Density", pct(num("density", 1), 1), SLIDER_RANGE.percent, (v, info) => set({ density: v / 100 }, info))}
@@ -447,10 +691,10 @@ export function EffectSettings({
   } else if (effect.type === "GRAIN") {
     body = (
       <>
-        {xy("Size", "noiseSize", "Size", NO_SIZE, 0)}
+        {xy("Size", "noiseSize", "Size", NO_SIZE)}
         <span className={styles.settingsLabel}>{t("Radius")}</span>
         <NumericInput label={t("Radius")} min={0} value={effect.radius ?? 0} onChange={(v, info) => set({ radius: v }, info)} onCancel={onCancel} />
-        {slide("Radius", effect.radius ?? 0, SLIDER_RANGE.blur, (v, info) => set({ radius: v }, info))}
+        {slide("Radius", effect.radius ?? 0, SLIDER_RANGE.noiseSize, (v, info) => set({ radius: v }, info), "exponential")}
         <div className={cx(styles.fxWide, styles.fxCheck)}>
           <Checkbox label={t("Clip to shape")} checked={effect.clipToShape === true} onChange={(on) => set({ clipToShape: on }, pick)} />
         </div>
@@ -460,11 +704,12 @@ export function EffectSettings({
     const slider = (label: string, value: number, max: number, write: (v: number, info: ChangeInfo) => void, min = 0) => (
       <>
         <span className={styles.settingsLabel}>{t(label)}</span>
-        {/* Live (popovers/effect-settings-glass.txt): the track 80 × 24, the slider over it 96 × 44 (its 12 thumb 22 in
-            from each end), the value 56 beside — its number 48 × 15 at 7 in */}
+        {/* Live (2026-10-18 slider.txt): the slider's box 80 × 24 (its thumb's centre 14…66 in it), joined to the
+            value 56 beside — its number 48 × 15 at 7 in */}
         <div className={styles.fxSlider}>
-          <span className={styles.fxTrack} />
-          <input type="range" className={styles.fxRange} aria-label={t(label)} min={min} max={max} step={1} value={value} onChange={(e) => write(Number(e.currentTarget.value), { final: false, source: "scrub" })} onPointerUp={(e) => write(Number(e.currentTarget.value), pick)} />
+          <span className={styles.fxTrack}>
+            <Slider label={t(label)} min={min} max={max} value={value} onChange={write} onCancel={onCancel} />
+          </span>
           <NumericInput className={styles.fxValue} label={t(label)} min={min} max={max} precision={0} value={value} onChange={write} onCancel={onCancel} />
         </div>
       </>
@@ -474,9 +719,10 @@ export function EffectSettings({
         <span className={cx(styles.settingsLabel, styles.fxTop)}>{tx("glass", "Light")}</span>
         <div className={cx(styles.fxLight, styles.fxLegended)}>
           <span className={styles.fxLegend}>{tx("glass", "Light")}</span>
-          <LightDial angle={num("specularAngle", -45)} onChange={(a, info) => set({ specularAngle: a }, info)} />
+          {/* The angle shows −180…180° and is written 0…359° (atlas 08 §6.5) */}
+          <LightDial angle={num("specularAngle", -45)} intensity={num("specularIntensity", 0.8)} onChange={(a, info) => set({ specularAngle: shownAngle(a) }, info)} />
           <div className={styles.fxLightFields}>
-            <NumericInput label={t("Angle")} unit="°" min={0} max={359} precision={0} value={shownAngle(num("specularAngle", -45))} onChange={(v, info) => set({ specularAngle: v }, info)} onCancel={onCancel} />
+            <NumericInput label={t("Angle")} unit="°" min={-180} max={180} precision={0} value={shownLightAngle(num("specularAngle", -45))} onChange={(v, info) => set({ specularAngle: shownAngle(v) }, info)} onCancel={onCancel} />
             <NumericInput label={t("Intensity")} unit="%" min={0} max={100} precision={0} value={pct(num("specularIntensity", 0.8), 0.8)} onChange={(v, info) => set({ specularIntensity: v / 100 }, info)} onCancel={onCancel} />
           </div>
         </div>
@@ -490,7 +736,7 @@ export function EffectSettings({
     );
   }
   return (
-    <Popover anchor={anchor} header={header} headerActions={blend} width={240} offsetX={-1} onClose={onClose} label={title}>
+    <Popover anchor={anchor} header={header} headerActions={blend} width={effect.type === "CUSTOM" ? SHADER_POPOVER_WIDTH : 240} offsetX={-1} onClose={onClose} label={title}>
       {effect.type === "CUSTOM" ? (
         <div data-effect-settings={effect.type}>
           <ShaderParams target={effect as Effect & ShaderFields} onChange={(next, info) => onChange(next as Effect, info)} onCancel={onCancel} onChoose={onShaders} />
@@ -504,22 +750,30 @@ export function EffectSettings({
   );
 }
 
+/** Figma's light glow (its light-intensity indicator, 56 × 38): a rounded diamond's top, lit from its tip. */
+const GLOW = "M28.85 52.11L0.61 23.87L15.85 8.62C19.99 4.49 22.42 0.88 28.8 0.88C35.07 0.87 37.61 4.35 41.71 8.45L57.11 23.85L28.85 52.11Z";
+const GLOW_EDGE = "M28.8 1.38C34.82 1.37 37.2 4.65 41.35 8.8L56.4 23.85L28.85 51.4L1.32 23.87L16.2 8.98C20.41 4.77 22.68 1.38 28.8 1.38Z";
+
 /**
- * Glass's light: a dial whose dot sits toward the light (the angle counter-clockwise from the right, the way the
- * light travels: −45° lights the top-left edges); dragging it turns the light.
+ * Glass's light (live 2026-10-18, Figma's light-angle-control): a 56 dial turned to the angle as the field shows it
+ * (0° up, clockwise — the side the renderer lights): the light's glow at the top, its spotlight glyph above it, a
+ * fixed 8 × 8 handle in the middle. The glow's strength follows the intensity ((0.1 + 0.9·I^0.6), a fifth of it in
+ * the dark theme). Dragging turns the light — ⇧ in 45° steps, otherwise pulled onto a 45° step within 4°, ⌃ free.
  */
-function LightDial({ angle, onChange }: { angle: number; onChange: (a: number, info: ChangeInfo) => void }) {
+function LightDial({ angle, intensity, onChange }: { angle: number; intensity: number; onChange: (a: number, info: ChangeInfo) => void }) {
   useT();
+  const theme = useTheme();
+  const ids = useId();
   const box = useRef<HTMLDivElement>(null);
-  const rad = (angle * Math.PI) / 180;
-  // Toward the light, in the dial's own space (y down).
-  const dx = -Math.cos(rad), dy = Math.sin(rad);
+  const o = Math.min(1, Math.max(0, intensity)) ** 0.6;
+  const c = theme.resolved === "dark" ? 0.2 : 1;
+  const d = (0.1 + 0.9 * o) * c;
   const at = (e: ReactPointerEvent | PointerEvent) => {
     const r = box.current?.getBoundingClientRect();
     if (!r) return angle;
     const x = e.clientX - (r.left + r.width / 2), y = e.clientY - (r.top + r.height / 2);
-    // The dot toward (x, y): the light travels the other way.
-    return Math.round((Math.atan2(y, -x) * 180) / Math.PI);
+    // 0° up, clockwise (Figma's atan2(x, −y)).
+    return Math.round(snapLightAngle((Math.atan2(x, -y) * 180) / Math.PI, e));
   };
   const down = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
@@ -535,14 +789,40 @@ function LightDial({ angle, onChange }: { angle: number; onChange: (a: number, i
     window.addEventListener("pointerup", up);
   };
   return (
-    <div ref={box} className={styles.fxDial} role="slider" aria-label={tx("glass", "Light")} aria-valuemin={0} aria-valuemax={359} aria-valuenow={shownAngle(angle)} tabIndex={0} onPointerDown={down}
+    <div ref={box} className={styles.fxDial} role="slider" aria-label={tx("glass", "Light")} aria-valuemin={-180} aria-valuemax={180} aria-valuenow={shownLightAngle(angle)} tabIndex={0} onPointerDown={down}
       onKeyDown={(e) => {
         const step = e.shiftKey ? 15 : 1;
         if (e.key === "ArrowLeft" || e.key === "ArrowDown") onChange(shownAngle(angle - step), { final: true, source: "step" });
         else if (e.key === "ArrowRight" || e.key === "ArrowUp") onChange(shownAngle(angle + step), { final: true, source: "step" });
       }}>
-      <span className={styles.fxDialRing} />
-      <span className={styles.fxDialDot} style={{ left: `calc(50% + ${dx} * var(--ds-space-4))`, top: `calc(50% + ${dy} * var(--ds-space-4))` }} />
+      <span className={styles.fxDialScene} style={{ transform: `rotate(${shownLightAngle(angle)}deg)` }}>
+        <svg className={styles.fxDialGlow} width="56" height="38" viewBox="0 0 56 38" fill="none" aria-hidden>
+          <path d={GLOW} fill={`url(#${ids}a)`} />
+          <path d={GLOW} fill={`url(#${ids}b)`} />
+          <path d={GLOW} fill={`url(#${ids}c)`} />
+          <path d={GLOW_EDGE} stroke={`url(#${ids}d)`} strokeOpacity={0.4 * d} />
+          <defs>
+            <radialGradient id={`${ids}a`} cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(28.79 7.13) rotate(90) scale(28.33 31.36)">
+              <stop stopColor="currentColor" stopOpacity={(0.3 + 0.7 * o) * c} />
+              <stop offset="1" stopColor="currentColor" stopOpacity="0" />
+            </radialGradient>
+            <radialGradient id={`${ids}b`} cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(28.79 7.13) rotate(90) scale(30.97 34.29)">
+              <stop stopColor="currentColor" stopOpacity={0.8 * d} />
+              <stop offset="1" stopColor="currentColor" stopOpacity="0" />
+            </radialGradient>
+            <linearGradient id={`${ids}c`} x1="28.79" y1="7.79" x2="28.8" y2="31.64" gradientUnits="userSpaceOnUse">
+              <stop stopColor="currentColor" stopOpacity={0.6 * d} />
+              <stop offset="1" stopColor="currentColor" stopOpacity="0" />
+            </linearGradient>
+            <linearGradient id={`${ids}d`} x1="28.79" y1="5.24" x2="28.8" y2="12.97" gradientUnits="userSpaceOnUse">
+              <stop stopColor="currentColor" stopOpacity={d} />
+              <stop offset="1" stopColor="currentColor" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+        </svg>
+        <Icon name="24.light.spot.small" className={styles.fxDialLamp} />
+      </span>
+      <span className={styles.fxDialHandle} />
     </div>
   );
 }
@@ -641,17 +921,24 @@ export type GuideKind = "GRID" | "COLUMNS" | "ROWS";
 
 export const guideKind = (g: LayoutGrid): GuideKind => (g.pattern === "GRID" ? "GRID" : g.axis === "Y" ? "ROWS" : "COLUMNS");
 
-/** Figma's new guide of a kind: Grid 10px; Columns / Rows 5, stretch, margin 0, gutter 20. */
-export function defaultGuide(kind: GuideKind = "GRID"): LayoutGrid {
-  if (kind === "GRID") return { pattern: "GRID", sectionSize: 10, color: GUIDE_RED, visible: true, axis: "X", type: "STRETCH" };
-  return { pattern: "STRIPES", axis: kind === "ROWS" ? "Y" : "X", numSections: 5, type: "STRETCH", offset: 0, gutterSize: 20, sectionSize: 10, color: GUIDE_RED, visible: true };
+/**
+ * Figma's new guide of a kind (Atlas 09 §8, its GridsPanel defaults): Grid of `size` — the user's big nudge amount
+ * (Preferences › Nudge amount…, 10 by default); Columns / Rows 5, stretch, margin 0, gutter 20; red at 10 %.
+ */
+export function defaultGuide(kind: GuideKind = "GRID", size = DEFAULT_NUDGE.big): LayoutGrid {
+  if (kind === "GRID") return { pattern: "GRID", sectionSize: size, color: GUIDE_RED, visible: true, axis: "X", type: "STRETCH" };
+  return { pattern: "STRIPES", axis: kind === "ROWS" ? "Y" : "X", numSections: 5, type: "STRETCH", offset: 0, gutterSize: 20, sectionSize: size, color: GUIDE_RED, visible: true };
 }
 
-/** The row's name: "Grid 10px", "Columns 5", "Rows 5" (Figma; "Columns 5 (Auto)" isn't shown). */
+/** A guide's Count "Auto" (Figma's 0x7fffffff, Atlas 09 §8): as many columns or rows as fit. */
+export const GUIDE_COUNT_AUTO = 0x7fffffff;
+export const isAutoCount = (g: LayoutGrid) => (g.numSections ?? 5) >= GUIDE_COUNT_AUTO;
+
+/** The row's name: "Grid 10px", "Columns 5", "Rows 5", "Columns Auto" (Figma; "Columns 5 (Auto)" isn't shown). */
 export function guideLabel(g: LayoutGrid): string {
   const kind = guideKind(g);
   if (kind === "GRID") return t("Grid {size}px", { size: Math.round((g.sectionSize ?? 10) * 100) / 100 });
-  const n = g.numSections ?? 5;
+  const n = isAutoCount(g) ? t("Auto") : (g.numSections ?? 5);
   return kind === "ROWS" ? t("Rows {n}", { n }) : t("Columns {n}", { n });
 }
 
@@ -667,11 +954,20 @@ export function LayoutGuideSection({ nodes }: { nodes: PanelNode[] }) {
   const grids = (shared === undefined || isMixedList ? [] : [...(shared as LayoutGrid[])]) as LayoutGrid[];
   const [open, setOpen] = useState<{ index: number; anchor: HTMLElement } | null>(null);
   const write = (next: LayoutGrid[], label: string, info: ChangeInfo = { final: true, source: "pick" }) => ed.edit(label, info, () => void ed.engine.setProps(refs, fields({ layoutGrids: next })));
+  // "+" (Figma's onGridsChange): a new guide of the big nudge's size, and guides shown if they were hidden.
+  const add = () => {
+    const guide = defaultGuide("GRID", (ed.ui.get().nudge ?? loadNudge()).big);
+    write(isMixedList ? [guide] : [...grids, guide], "Add layout guide");
+    if (ed.ui.get().layoutGuides === false) {
+      ed.ui.set({ layoutGuides: true });
+      syncViewOptions(ed);
+    }
+  };
   const empty = !isMixedList && grids.length === 0;
   const styled = sharedStyle(nodes, "grid");
   const hasStyle = !!styled && styled !== "mixed";
   return (
-    <PanelSection title={t("Layout guide")} empty={empty} actions={<><StylesButton nodes={nodes} slot="grid" />{!hasStyle && <IconButton icon="24.plus.small" label={t("Add layout guide")} tone="secondary" disabled={!kept} onClick={() => write(isMixedList ? [defaultGuide()] : [...grids, defaultGuide()], "Add layout guide")} />}</>}>
+    <PanelSection title={t("Layout guide")} empty={empty} actions={<><StylesButton nodes={nodes} slot="grid" />{!hasStyle && <IconButton icon="24.plus.small" label={t("Add layout guide")} tone="secondary" disabled={!kept} onClick={add} />}</>}>
       {hasStyle && <AppliedStyle nodes={nodes} slot="grid" />}
       {!hasStyle && grids
         .map((g, i) => ({ g, i }))
@@ -797,7 +1093,20 @@ export function GuideSettings({ grid, anchor, onChange, onCancel, onClose }: { g
         ) : (
           <>
             <span className={styles.settingsLabel}>{t("Count")}</span>
-            <NumericInput scrubHandle="previous" label={t("Count")} min={1} precision={0} value={grid.numSections ?? 5} onChange={(v, info) => onChange({ ...grid, numSections: Math.round(v) }, info)} onCancel={onCancel} />
+            {/* Atlas 09 §8: min 0, "Auto" (or any start of it) as many as fit (0x7fffffff) */}
+            <NumericInput
+              scrubHandle="previous"
+              label={t("Count")}
+              min={0}
+              max={GUIDE_COUNT_AUTO}
+              precision={0}
+              value={isAutoCount(grid) ? null : (grid.numSections ?? 5)}
+              valueLabel={isAutoCount(grid) ? t("Auto") : undefined}
+              keywords={["Auto"]}
+              onKeyword={() => onChange({ ...grid, numSections: GUIDE_COUNT_AUTO }, pick)}
+              onChange={(v, info) => onChange({ ...grid, numSections: Math.round(v) }, info)}
+              onCancel={onCancel}
+            />
           </>
         )}
         <span className={styles.settingsLabel}>{t("Color")}</span>

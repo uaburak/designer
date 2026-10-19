@@ -6,8 +6,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Message, NodeChange } from "@/engine/codec";
 import { IMAGE_DISPLAY_P3, IMAGE_STRAIGHT, Status } from "@/engine/abi";
-import { deriveProgressive, ImageService, importImage, importSize, memoryImageStore, sha1Hex, shouldDownscale, sniffImageMime, tierMime, tierSize, type ImageStore } from "../images";
-import { hashBytes, hashHex, imagePaint, paintThumbHash, paintThumbnailHash } from "../model/paints";
+import { deriveProgressive, gifFrames, ImageService, importImage, importSize, isImageFile, memoryImageStore, sha1Hex, shouldDownscale, sniffImageMime, tierMime, tierSize, type ImageStore } from "../images";
+import { hashBytes, hashHex, imagePaint, mediaPaint, paintGifHash, paintLabel, paintThumbHash, paintThumbnailHash } from "../model/paints";
+import { gifFrameMs } from "@/present/presentationVideos";
 import { rgbaToThumbHash, thumbHashToApproximateAspectRatio } from "../thumbHash";
 
 type Handler = (e: Record<string, unknown>) => void;
@@ -521,6 +522,56 @@ describe("importImage", () => {
     expect(big).toMatchObject({ width: 4096, height: 4096 });
     const small = await importImage(file(3000, 3000, "image/png", "small.png"), store, { maxTextureSize: 2048 });
     expect(small).toMatchObject({ width: 2048, height: 2048 });
+  });
+
+  it("avif, bmp, tiff and heic are taken where they decode and kept as PNG (Figma re-encodes what it doesn't store)", async () => {
+    expect(["image/avif", "image/bmp", "image/tiff", "image/heic"].every((type) => isImageFile({ type }))).toBe(true);
+    expect(isImageFile({ type: "", name: "IMG_0001.HEIC" })).toBe(true);
+    expect(isImageFile({ type: "image/svg+xml" })).toBe(false);
+    const store = memoryImageStore();
+    const img = await importImage(file(300, 200, "image/avif", "photo.avif"), store);
+    expect(img).toMatchObject({ width: 300, height: 200, name: "photo", mime: "image/png" });
+    expect(await store.get(img.hash)).not.toEqual(imageBytes(300, 200));
+    const png = await importImage(file(300, 200, "image/png", "same.png"), store);
+    expect(await store.get(png.hash)).toEqual(imageBytes(300, 200));
+  });
+
+  it("an animated GIF keeps the GIF (animatedImage) and its first frame as the still the paint draws; one frame stays a plain image", async () => {
+    const g = globalThis as Record<string, unknown>;
+    const before = g.ImageDecoder;
+    let frameCount = 3;
+    g.ImageDecoder = class {
+      tracks = { ready: Promise.resolve(), selectedTrack: { frameCount } };
+      completed = Promise.resolve();
+      async decode({ frameIndex }: { frameIndex: number }) {
+        return { image: { width: 40, height: 30, duration: frameIndex === 1 ? 0 : 70_000, close() {} } };
+      }
+      close() {}
+    };
+    try {
+      const store = memoryImageStore();
+      const gifBytes = imageBytes(40, 30, 0x47);
+      const img = await importImage(Object.assign(new Blob([gifBytes], { type: "image/gif" }), { name: "Party.gif" }), store);
+      expect(img).toMatchObject({ width: 40, height: 30, name: "Party", mime: "image/png" });
+      expect(img.animated).toMatch(/^[0-9a-f]{40}$/);
+      expect(await store.get(img.animated!)).toEqual(gifBytes);
+      expect(img.hash).not.toBe(img.animated);
+      const paint = mediaPaint(img) as { animatedImage?: { hash: number[] }; animationFrame?: number; type: string };
+      expect(paint.type).toBe("IMAGE");
+      expect(paint.animationFrame).toBe(0);
+      expect(paintGifHash(paint as never)).toBe(img.animated);
+      expect(paintLabel(paint as never)).toBe("GIF");
+      const frames = await gifFrames(gifBytes);
+      expect(frames?.count).toBe(3);
+      expect((await frames!.frame(0))!.durationMs).toBe(70);
+      expect(gifFrameMs((await frames!.frame(1))!.durationMs)).toBe(100); // 0 ms: browsers show it for 100
+      frameCount = 1;
+      const still = await importImage(Object.assign(new Blob([gifBytes], { type: "image/gif" }), { name: "Still.gif" }), store);
+      expect(still.animated).toBeUndefined();
+      expect(still.mime).toBe("image/gif");
+    } finally {
+      g.ImageDecoder = before;
+    }
   });
 
   it("an image of 512 px or less is its own thumbnail (as in Figma's files): no extra blob", async () => {

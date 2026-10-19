@@ -1,0 +1,6 @@
+/* File › Color profile… (ColorProfileDialog.tsx): the profile, Convert / Assign, what each does. */
+@layer app {
+  .form { display: flex; flex-direction: column; gap: var(--ds-space-3); }
+  .note { margin: 0; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .warning { margin: 0; color: var(--figma-color-text-warning); font: var(--ds-font-body-medium); }
+}

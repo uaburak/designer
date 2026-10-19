@@ -1,0 +1,73 @@
+DIFF     popup live @57,-50 240x950  ours @237,105 166x338
+MISSING  17,9 16x16 img [Auto layout]
+MISSING  41,11 56x13 "AL_vertical" 11px/400 #ffffff
+MISSING  20,46 10x10 img [Rectangle]
+MISSING  41,45 89x13 "AL_vertical_item1" 11px/400 #ffffff
+MISSING  41,63 51x12 "AL_vertical" 10px/400 #ffffffb2
+MISSING  20,98 10x10 img [Rectangle]
+MISSING  41,97 91x13 "AL_vertical_item2" 11px/400 #ffffff
+MISSING  41,115 51x12 "AL_vertical" 10px/400 #ffffffb2
+MISSING  20,150 10x10 img [Rectangle]
+MISSING  41,149 91x13 "AL_vertical_item3" 11px/400 #ffffff
+MISSING  41,167 51x12 "AL_vertical" 10px/400 #ffffffb2
+MISSING  17,199 16x16 img [Auto layout]
+MISSING  41,201 70x13 "AL_horizontal" 11px/400 #ffffff
+MISSING  20,236 10x10 img [Rectangle]
+MISSING  41,235 103x13 "AL_horizontal_item1" 11px/400 #ffffff
+MISSING  41,253 64x12 "AL_horizontal" 10px/400 #ffffffb2
+MISSING  20,288 10x10 img [Rectangle]
+MISSING  41,287 105x13 "AL_horizontal_item2" 11px/400 #ffffff
+MISSING  41,305 64x12 "AL_horizontal" 10px/400 #ffffffb2
+MISSING  20,340 10x10 img [Rectangle]
+MISSING  41,339 105x13 "AL_horizontal_item3" 11px/400 #ffffff
+MISSING  41,357 64x12 "AL_horizontal" 10px/400 #ffffffb2
+MISSING  17,389 16x16 img [Auto layout]
+MISSING  41,391 45x13 "AL_wrap" 11px/400 #ffffff
+MISSING  20,426 10x10 img [Rectangle]
+MISSING  41,425 77x13 "AL_wrap_item1" 11px/400 #ffffff
+MISSING  41,443 40x12 "AL_wrap" 10px/400 #ffffffb2
+MISSING  20,478 10x10 img [Rectangle]
+MISSING  41,477 79x13 "AL_wrap_item3" 11px/400 #ffffff
+MISSING  41,495 40x12 "AL_wrap" 10px/400 #ffffffb2
+MISSING  20,530 10x10 img [Rectangle]
+MISSING  41,529 79x13 "AL_wrap_item2" 11px/400 #ffffff
+MISSING  41,547 40x12 "AL_wrap" 10px/400 #ffffffb2
+MISSING  17,579 16x16 img [Auto layout]
+MISSING  41,581 39x13 "AL_grid" 11px/400 #ffffff
+MISSING  20,616 10x10 img [Rectangle]
+MISSING  41,615 72x13 "AL_grid_item1" 11px/400 #ffffff
+MISSING  41,633 35x12 "AL_grid" 10px/400 #ffffffb2
+MISSING  20,668 10x10 img [Rectangle]
+MISSING  41,667 74x13 "AL_grid_item2" 11px/400 #ffffff
+MISSING  41,685 35x12 "AL_grid" 10px/400 #ffffffb2
+MISSING  20,720 10x10 img [Rectangle]
+MISSING  41,719 74x13 "AL_grid_item3" 11px/400 #ffffff
+MISSING  41,737 35x12 "AL_grid" 10px/400 #ffffffb2
+MISSING  20,772 10x10 img [Rectangle]
+MISSING  41,771 74x13 "AL_grid_item4" 11px/400 #ffffff
+MISSING  41,789 35x12 "AL_grid" 10px/400 #ffffffb2
+MISSING  17,821 16x16 img [Auto layout]
+MISSING  41,823 53x13 "AL_parent" 11px/400 #ffffff
+MISSING  20,858 10x10 img [Rectangle]
+MISSING  41,857 43x13 "AL_child" 11px/400 #ffffff
+MISSING  41,875 48x12 "AL_parent" 10px/400 #ffffffb2
+MISSING  20,910 10x10 img [Rectangle]
+MISSING  41,909 50x13 "AL_child2" 11px/400 #ffffff
+MISSING  41,927 48x12 "AL_parent" 10px/400 #ffffffb2
+EXTRA    0,0 166x338 menu [Settings] bg=#1e1e1e r=13px
+EXTRA    60,13 23x14 "Find" 11px/450 #ffffff
+EXTRA    60,37 42x14 "Replace" 11px/450 #ffffff
+EXTRA    60,78 13x14 "All" 11px/450 #ffffff
+EXTRA    136,78 14x14 "20" 11px/450 #ffffff
+EXTRA    60,102 23x14 "Text" 11px/450 #ffffff
+EXTRA    60,126 76x14 "Frame / Group" 11px/450 #ffffff
+EXTRA    144,126 7x14 "5" 11px/450 #ffffff
+EXTRA    60,150 61x14 "Component" 11px/450 #ffffff
+EXTRA    60,174 45x14 "Instance" 11px/450 #ffffff
+EXTRA    60,198 32x14 "Image" 11px/450 #ffffff
+EXTRA    60,222 33x14 "Shape" 11px/450 #ffffff
+EXTRA    139,222 11x14 "15" 11px/450 #ffffff
+EXTRA    60,246 30x14 "Other" 11px/450 #ffffff
+EXTRA    60,287 61x14 "Match case" 11px/450 #ffffff
+EXTRA    60,311 69x14 "Whole words" 11px/450 #ffffff
+MISSING popup @237,105,167,338

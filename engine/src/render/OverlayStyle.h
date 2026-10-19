@@ -93,6 +93,13 @@ struct OverlayStyle {
   Color tooltipFill = Color::hex(0x1E1E1E), tooltipText = Color::hex(0xFFFFFF);
   double tooltipHeight = 24, tooltipPadding = 8, tooltipRadius = 4, tooltipArrow = 5;
   double hatchWash = 0.06, hatchInk = 0.25, hatchPeriod = 6.5, hatchWidth = 1;
+  // Dev Mode's inspect chrome (the owner's capture owner-2026-10-18/figma-devmode-inspect at 1.32×, sampled): paddings
+  // and gaps hatched denser — a 10 % wash, stripes 1.5 px across at 40 %, 4.5 px apart along a row; the design's box
+  // round it and its name (a 4 % white wash, its edge 8 %, 7.5 px out at the sides, 6 below, 28 above, radius 6); the
+  // pills 20 × 16 (radius 3) and the two-line size badge 16 a line, 15 below the design (9 below its box).
+  double devHatchWash = 0.1, devHatchInk = 0.4, devHatchPeriod = 4.5, devHatchWidth = 1.5;
+  double devBoxSide = 7.5, devBoxBottom = 6, devBoxTop = 28, devBoxRadius = 6, devBoxWash = 0.04, devBoxEdge = 0.08;
+  double devPillHeight = 16, devPillRadius = 3, devPillMinWidth = 20, devBadgeLine = 16, devBadgeGap = 9, devBadgeWordGap = 5;
   Color statusChanged = Color::hex(0xFFCD29);  // --figma-color-bg-warning
   // Frame status (ours): the owner's statuses' chips, by Editor::workflowStatus's number (1–7; 3 Ready to Dev is
   // statusReady). Cancelled's chip is muted: its label in the title's grey.
@@ -133,6 +140,13 @@ struct OverlayStyle {
   double presenceChatNameAlpha = 0.8, presenceChatPlaceholderAlpha = 0.6;
   std::string presenceChatPlaceholder = "Say something";
   Color presenceLocalChat = Color::hex(0x0D99FF);
+  // Motion's transform gizmo (the owner's capture of Figma at 1.32 px per CSS px, 2026-10-18: the same size at 31 % and
+  // 72 %): a ring `gizmoRadius` round in a 1.5 px line of the selection colour, white handles 8 across (corners 2) where
+  // it meets the layer's up and right axes, a centre dot 8 across; an arrow `gizmoArrow` long out of each handle (heads 6
+  // deep, 5 to each side) — up green, right pink; the guides to the parent's edges dotted 2 / 2.
+  double gizmoRadius = 33.5, gizmoStroke = 1.5, gizmoHandle = 8, gizmoDot = 8;
+  double gizmoArrow = 20, gizmoHead = 6, gizmoHeadSide = 5;
+  Color gizmoUp = Color::hex(0x14AE5C), gizmoRight = Color::hex(0xEC35B5);
 
   static Color chrome(Theme t, ds::ChromeColor c) {
     const float* v = (t == Theme::Dark ? ds::kChromeDark : ds::kChromeLight)[static_cast<size_t>(c)];

@@ -369,8 +369,10 @@ describe("MCP tools: one schema", () => {
     const src = readdirSync(dir).filter((f) => /\.tsx?$/.test(f)).map((f) => readFileSync(dir + f, "utf8")).join("\n");
     const panel = NODE_FIELDS.map((f) => f.name).filter((n) => new RegExp(`\\b${n}\\b`).test(src));
     // Not layer properties: identity and structure, versions, keys, styles' references (apply_style), component definitions (run_command),
-    // plugins' relaunch buttons (written by plugins only, docs/plugins.md §8).
-    const NOT_PROPS = new Set(["guid", "parentIndex", "type", "version", "key", "styleIdForFill", "styleIdForStrokeFill", "componentPropDefs", "count", "pluginRelaunchData"]);
+    // plugins' relaunch buttons (written by plugins only, docs/plugins.md §8), a change's phase and an instance's property
+    // references (component property bindings, run_command); the layout version (run_command SET_STACK_LAYOUT_VERSION); the
+    // text layout versions and the optical size's detach flag (Type settings' Update / Revert and Variable tab).
+    const NOT_PROPS = new Set(["guid", "parentIndex", "type", "version", "key", "styleIdForFill", "styleIdForStrokeFill", "componentPropDefs", "count", "pluginRelaunchData", "phase", "componentPropRefs", "stackLayoutVersion", "textUserLayoutVersion", "textExplicitLayoutVersion", "textBidiVersion", "detachOpticalSizeFromFontSize"]);
     const covered = new Set<string>([...RAW_FIELDS, ...Object.values(NAMED_PROPS).flatMap((p) => p.fields)]);
     const missing = panel.filter((f) => !NOT_PROPS.has(f) && !covered.has(f));
     expect(missing).toEqual([]);
@@ -392,7 +394,7 @@ describe("MCP tools: one schema", () => {
       [rect, "layoutSizingHorizontal", "FILL"], [rect, "layoutSizingVertical", "FILL"], [rect, "minWidth", 20], [rect, "maxWidth", 200], [rect, "isMask", true],
       [txt, "fontSize", 22], [txt, "lineHeight", "150%"], [txt, "letterSpacing", "2%"], [txt, "textAlignHorizontal", "CENTER"], [txt, "textCase", "UPPER"], [txt, "textDecoration", "UNDERLINE"],
       [txt, "paragraphSpacing", 8], [txt, "textAutoResize", "HEIGHT"], [txt, "textAlignVertical", "BOTTOM"],
-      [star, "pointCount", 7], [star, "innerRadius", 0.5], [star, "rotation", 30], [star, "constraints", { horizontal: "STRETCH", vertical: "CENTER" }], [star, "constrainProportions", true],
+      [star, "pointCount", 7], [star, "innerRadius", 0.5], [star, "rotation", 30], [star, "constraints", { horizontal: "STRETCH", vertical: "CENTER" }], [star, "constrainProportions", true], [star, "pathTrim", { start: 0.25, end: 0.75 }],
     ];
     const failures: string[] = [];
     for (const [id, prop, value] of samples) {

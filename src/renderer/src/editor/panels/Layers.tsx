@@ -8,11 +8,14 @@
  * own; the shortcut layer forwards them to the engine — children, vector or text edit, parent), the lock and eye
  * toggle on press and a drag
  * from one goes on over the rows it crosses, a chevron opens (⌥ opens every level), "Collapse layers" (⌥L) closes
- * all but the selection's branch, a drag reorders and reparents (Engine.moveNodes; the list scrolls near its
- * edges), and a canvas selection opens its ancestors and scrolls into view.
+ * all but the selection's branch, a drag reorders and reparents (Engine.moveNodes; past 3 px, as Figma's: the list
+ * scrolls while the pointer is past its top or bottom, and resting 1000 ms on the middle third of a closed layer opens
+ * it), an open top-level layer's row stays pinned at the top while its layers scroll under it (Figma's sticky header),
+ * and a canvas selection opens its ancestors and scrolls into view (Figma's placement: from above at the top, under a
+ * pinned row; from below at mid-height). Figma's rules: docs/research/atlas/02-editor-chrome.md §3.6.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { IconButton, LAYER_ROW_LARGE, LAYER_THUMB, LayerRow, PanelSection, VirtualList, layerListWidth, onFontsLoaded, showToast, type IconName, type ShapeGlyphProps } from "@/ds";
+import { glideMs, IconButton, LAYER_ROW_LARGE, LAYER_THUMB, LayerRow, PanelSection, VirtualList, layerListWidth, onFontsLoaded, showToast, type IconName, type ShapeGlyphProps } from "@/ds";
 import { layerThumbnails } from "../draw/panels/layerThumbs";
 import { LayerThumb } from "../draw/panels/LayerThumb";
 import { useHover, useSelection } from "@/engine/hooks";
@@ -24,14 +27,19 @@ import { thumbnailNode } from "../objectCommands";
 import { parseDerivedId } from "../model/components";
 import { useLayerTree, useUI } from "../hooks";
 import {
+  LAYER_DRAG_THRESHOLD,
+  LAYER_HOVER_EXPAND_MS,
   ancestorsOf,
   collapsedLayers,
   detailsWindow,
+  dragScrollStep,
   draggedLayers,
   dropTarget,
+  hoverExpandTarget,
   rangeSelection,
   revealed,
   selectionRuns,
+  stickyHeader,
   toggleSelection,
   visibleRows,
   withSubtree,
@@ -41,6 +49,7 @@ import {
 } from "../model/layerTree";
 import styles from "./Panels.module.css";
 import { t, useT } from "@/i18n";
+import { useRenameAnimations } from "../ai/renameAnimation";
 
 /** The live capture's pitch (rows 32 apart, a 24 highlight). */
 const ROW = 32;
@@ -52,9 +61,6 @@ const INSET = 8;
 const NAME_MIN = 96;
 /** How many open rows' names one engine read brings for the list's width (the rest in later idle reads). */
 const NAMES_PER_READ = 2000;
-/** How near the list's top or bottom edge a drag scrolls it, and how far per frame. */
-const EDGE = 24;
-const EDGE_STEP = 8;
 
 /**
  * The row's glyph: the layer's type (its real one, even when the engine can't draw it yet), auto layout's direction,
@@ -187,11 +193,11 @@ export function selectable(ed: EditorController, refs: readonly Guid[]): Guid[] 
   return out;
 }
 
-/** A layer selected and the camera on it (as ⇧2, Zoom to selection, gliding over 300 ms). */
+/** A layer selected and the camera on it (as ⇧2, Zoom to selection, gliding over 300 ms; a jump with Reduce motion on). */
 export function zoomToLayer(ed: EditorController, id: Guid): void {
   ed.engine.setSelection(selectable(ed, [id]));
   ed.ui.set({ anchor: id });
-  ed.engine.command("ZOOM_TO_SELECTION", { animate: 300 });
+  ed.engine.command("ZOOM_TO_SELECTION", { animate: glideMs(300) });
 }
 
 /** "Collapse layers" (⌥L, the Layers header): every expanded layer closes but the selection's ancestors (Figma). */
@@ -222,6 +228,10 @@ export function Layers() {
   const [drop, setDrop] = useState<DropTarget | null>(null);
   const press = useRef<{ id: Guid; x: number; y: number; dragging: Guid[] | null; deferred: boolean } | null>(null);
   const cellDrag = useRef<CellDrag | null>(null);
+  // A drag's hover-to-expand: the closed layer it rests on and its timer.
+  const expandTarget = useRef<Guid | null>(null);
+  const expandTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(expandTimer.current), []);
   // Draw (docs/draw.md §5.9): 48 px rows, each with the layer's preview in the glyph's place.
   const drawMode = useUI((s) => s.mode === "draw");
   const thumbs = drawMode && !ed.engine.destroyed ? layerThumbnails(ed) : null;
@@ -231,6 +241,13 @@ export function Layers() {
   const nameLeft = NAME_LEFT + (drawMode ? LAYER_THUMB - 16 : 0);
 
   const rows = useMemo(() => visibleRows(tree, expanded), [tree, expanded]);
+  // Rename layers' rows as their new names are typed in (atlas 18 §4.3)
+  const typing = useRenameAnimations();
+  // The rows and tree as now, for a drag's handlers (set up at its press, they outlive the render a hover-expand redraws).
+  const live = useRef({ rows, tree });
+  useLayoutEffect(() => {
+    live.current = { rows, tree };
+  }, [rows, tree]);
   const selected = useMemo(() => new Set(selection), [selection]);
   const insideSelected = useMemo(() => {
     const out = new Set<Guid>();
@@ -311,13 +328,35 @@ export function Layers() {
     ed.engine.setSelection(next);
   };
 
-  /** Near the list's top or bottom edge a drag scrolls it (one step per pointer move). */
+  /** A drag past the list's top or bottom edge scrolls it, farther the farther out (one step per pointer move, Figma). */
   const autoScroll = (y: number) => {
     const v = viewport();
     if (!v) return;
     const r = v.getBoundingClientRect();
-    if (y < r.top + EDGE) v.scrollTop -= EDGE_STEP;
-    else if (y > r.bottom - EDGE) v.scrollTop += EDGE_STEP;
+    if (y < r.top) v.scrollTop -= dragScrollStep(r.top - y, rowHeight);
+    else if (y > r.bottom) v.scrollTop += dragScrollStep(y - r.bottom, rowHeight);
+  };
+
+  /**
+   * Resting a drag on the middle third of a closed layer's row opens it after 1000 ms (Figma's hover-to-expand); moving
+   * to another row starts again. Not over the pinned row (Figma's sticky header doesn't open).
+   */
+  const hoverExpand = (x: number, y: number) => {
+    const el = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-ds="LayerRow"]');
+    const sticky = !!el?.closest("[data-sticky-row]");
+    const r = el?.getBoundingClientRect();
+    const target = el && r && !sticky ? hoverExpandTarget(live.current.rows.find((row) => row.id === el.dataset.id), (y - r.top) / r.height) : null;
+    if (target === expandTarget.current) return;
+    window.clearTimeout(expandTimer.current);
+    expandTarget.current = target;
+    if (target)
+      expandTimer.current = window.setTimeout(() => {
+        if (press.current?.dragging) ed.ui.set((s) => ({ expanded: new Set([...s.expanded, target]) }));
+      }, LAYER_HOVER_EXPAND_MS);
+  };
+  const stopHoverExpand = () => {
+    window.clearTimeout(expandTimer.current);
+    expandTarget.current = null;
   };
 
   const onPointerDown = (e: React.PointerEvent, id: Guid) => {
@@ -328,7 +367,7 @@ export function Layers() {
     if (!e.shiftKey && !mod && (e.target as Element | null)?.closest?.("[data-layer-icon]")) {
       select([id]);
       ed.ui.set({ anchor: id });
-      ed.engine.command("ZOOM_TO_SELECTION", { animate: 300 });
+      ed.engine.command("ZOOM_TO_SELECTION", { animate: glideMs(300) });
       return;
     }
     let deferred = false;
@@ -345,16 +384,18 @@ export function Layers() {
       const p = press.current;
       if (!p) return;
       if (!p.dragging) {
-        if (Math.hypot(ev.clientX - p.x, ev.clientY - p.y) < 4) return;
+        if (Math.hypot(ev.clientX - p.x, ev.clientY - p.y) <= LAYER_DRAG_THRESHOLD) return;
         if (tree.nodes.get(p.id)?.derived) return; // an instance's layers stay where the main has them
         p.dragging = draggedLayers(tree, rows, ed.selection, p.id);
       }
       autoScroll(ev.clientY);
       setDrop(targetAt(ev.clientX, ev.clientY, p.dragging));
+      hoverExpand(ev.clientX, ev.clientY);
     };
     const up = (ev: PointerEvent) => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      stopHoverExpand();
       const p = press.current;
       press.current = null;
       setDrop(null);
@@ -376,8 +417,9 @@ export function Layers() {
     window.addEventListener("pointerup", up);
   };
 
-  /** The drop under a pointer (the row it is over, and where on it). */
+  /** The drop under a pointer (the row it is over, and where on it) — in the rows as they are now (a drag opens layers). */
   const targetAt = (x: number, y: number, moving: Guid[]): DropTarget | null => {
+    const { rows, tree } = live.current;
     const el = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-ds="LayerRow"]');
     const list = document.querySelector<HTMLElement>("[data-layer-list]");
     if (!el) {
@@ -483,6 +525,10 @@ export function Layers() {
           // Scrolled sideways, the names fade at the new visible edge (CSS only: no render).
           onScroll={(e) => syncClip(e.currentTarget)}
           scrollToIndex={firstSelected >= 0 ? firstSelected : undefined}
+          // Figma's placement; a nested row coming from above stops under its pinned top-level row.
+          scrollAlign="figma"
+          scrollTopPad={firstSelectedDepth > 0 ? rowHeight : 0}
+          sticky={(top) => stickyHeader(rows, rowHeight, top)}
           label={t("Layers")}
           renderRow={(i) => {
             const row = rows[i];
@@ -495,7 +541,7 @@ export function Layers() {
               <LayerRow
                 id={row.id}
                 depth={row.depth}
-                name={node.name}
+                name={typing.get(row.id) ?? node.name}
                 icon={icon}
                 shape={row.id === thumbnailFrame ? undefined : layerShape(node)}
                 thumbnail={thumbs ? <LayerThumb thumbs={thumbs} node={row.id} icon={icon} /> : undefined}

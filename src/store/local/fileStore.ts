@@ -6,6 +6,7 @@
  *   files/<key>/journal-<baseSeq>.log   journal segments; at most one is open for appends
  *   files/<key>/versions/               index.json + <VersionId>.kiwi (hard links of snapshots)
  *   files/<key>/thumbnail.png, ui.json
+ *   files/<key>/undo.kiwi               the local user's undo history at the last close (per device, undoHistory.ts)
  *
  * Appends are acknowledged after `write()`, fdatasync'ed at most 1 s later (immediately on flush). Open recovers from
  * a torn tail (truncate at the last good frame), a damaged head snapshot (the previous generation) and worse (the
@@ -27,6 +28,7 @@ import { decodeWithSchema } from "../kiwi/schemas";
 import { pngSize } from "./blobs";
 import { Emitter } from "./emitter";
 import { atomicWrite, ensureDir, exists, fileSize, linkOrCopy, readJsonOrNull, writeJsonAtomic } from "./fsutil";
+import { decodeUndoHistory, encodeUndoHistory, MAX_UNDO_HISTORY_BYTES, UNDO_HISTORY_FILE } from "./undoHistory";
 import { newVersionId, type Clock, type HlcClock } from "./ids";
 import { encodeFrame, scanSegment, segmentName, SegmentWriter, snapshotName, type Frame, type SegmentHeader } from "./journal";
 import { SerialQueue } from "./queue";
@@ -161,6 +163,8 @@ export interface FileStoreDeps {
   timers?: Timers;
   /** A branch ran out of its GUID block: the next one, reserved on its main file (docs/data.md §15.2) */
   nextSessionBlock?: (fileKey: FileKey) => Promise<{ start: number; end: number } | null>;
+  /** The signed-in account, recorded as a new version's editor (null: signed out — none recorded) */
+  editor?: () => string | null;
 }
 
 export class FileStore {
@@ -542,6 +546,12 @@ export class FileStore {
     const journal: OpenedFile["journal"] = [];
     for (const f of await this.readFrames(a, h, h.state.head.snapshotSeq)) journal.push({ seq: f.seq, kind: f.kind, message: f.message });
     const ui = await readJsonOrNull<FileUiState>(this.path(a, "ui.json"));
+    // The undo history kept at the last close, when the file is still where it was then.
+    let undoHistory: Uint8Array | null = null;
+    if (mode === "edit") {
+      const kept = decodeUndoHistory(await fsp.readFile(this.path(a, UNDO_HISTORY_FILE)).catch(() => null));
+      if (kept && kept.headSeq === h.lastSeq) undoHistory = kept.bytes;
+    }
     return {
       meta: { ...this.d.workspace.getMeta(a.key) },
       mode,
@@ -554,6 +564,7 @@ export class FileStore {
       headSeq: h.lastSeq,
       ui,
       recovery: h.recovery,
+      ...(undoHistory ? { undoHistory } : {}),
     };
   }
 
@@ -1004,6 +1015,8 @@ export class FileStore {
       }
       const id: VersionId = newVersionId();
       const src = this.path(a, h.state.head.snapshot);
+      // The one person who edits a local file: the account signed in (a shared file's versions are the server's).
+      const editor = this.d.editor?.() ?? null;
       await ensureDir(this.versionsDir(a));
       await linkOrCopy(src, join(this.versionsDir(a), `${id}.kiwi`));
       const rec: VersionRecord = {
@@ -1014,6 +1027,7 @@ export class FileStore {
         sizeBytes: await fileSize(src),
         blobRefs: [...h.state.blobRefs],
         ...(h.state.head.derivedDataVersion ? { derivedDataVersion: h.state.head.derivedDataVersion } : {}),
+        ...(editor && !input.editors ? { editors: [editor] } : {}),
       };
       const records = [rec, ...(await this.readVersionIndex(a))];
       await this.writeVersionIndex(a, await this.thin(a, records));
@@ -1124,6 +1138,15 @@ export class FileStore {
     return codec.encodeMessage(restoreDiff(table, target));
   }
 
+  /** The images the head uses (no flush, no compaction): Save local copy's check for ones still downloading. */
+  async headBlobRefs(fileKey: FileKey): Promise<string[]> {
+    const a = this.actor(fileKey);
+    return a.queue.run(async () => {
+      const h = await this.loaded(a);
+      return [...new Set([...h.state.blobRefs, ...h.pendingRefs])];
+    });
+  }
+
   /** The head snapshot file after a flush and a compaction (Save Local Copy, duplicate). */
   async compactedHead(fileKey: FileKey): Promise<{ path: string; seq: number; blobRefs: string[]; derivedDataVersion: number }> {
     const a = this.actor(fileKey);
@@ -1165,6 +1188,21 @@ export class FileStore {
       const cur = (await readJsonOrNull<FileUiState>(this.path(a, "ui.json"))) ?? { currentPageId: null, pages: {}, leftPanelWidth: 240, rightPanelWidth: 240 };
       const next: FileUiState = { ...cur, ...patch, pages: { ...cur.pages, ...(patch.pages ?? {}) } };
       await writeJsonAtomic(this.d.dirs.tmp, this.path(a, "ui.json"), next);
+    });
+  }
+
+  /** Keeps (or with `bytes` null forgets) the local user's undo history at `headSeq`, for the next open on this device. */
+  async setUndoHistory(fileKey: FileKey, history: { headSeq: number; bytes: Uint8Array | null }): Promise<void> {
+    this.d.workspace.getMeta(fileKey);
+    const headSeq = Number(history?.headSeq);
+    const bytes = history?.bytes ?? null;
+    if (!Number.isSafeInteger(headSeq) || headSeq < 0) throw new StoreError("invalid", "undo history: headSeq");
+    if (bytes !== null && (!(bytes instanceof Uint8Array) || bytes.length > MAX_UNDO_HISTORY_BYTES)) throw new StoreError("invalid", "undo history: bytes");
+    const a = this.actor(fileKey);
+    await a.queue.run(async () => {
+      const path = this.path(a, UNDO_HISTORY_FILE);
+      if (!bytes || !bytes.length) await fsp.rm(path, { force: true });
+      else await atomicWrite(this.d.dirs.tmp, path, encodeUndoHistory(headSeq, bytes));
     });
   }
 

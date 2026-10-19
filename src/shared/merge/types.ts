@@ -49,7 +49,20 @@ export interface DiffChunk {
   /** Which sides changed something in it */
   changedOn: Side[];
   conflicts: string[];
+  /** The display node is a library copy the incoming side updated (Figma's UPDATED_LIBRARY phase) */
+  libraryUpdate?: boolean;
+  /** Figma's change details: what the incoming side changed, per node (its first CHUNK_DETAILS_MAX nodes) */
+  details?: ChunkDetail[];
 }
+/** One node's changes in a chunk: each field added, changed or removed (keyed fields' items count as the field changed) */
+export interface ChunkDetail {
+  guid: string;
+  name: string;
+  type: string;
+  phase: "created" | "removed" | "updated";
+  fields: { field: string; change: "added" | "changed" | "removed" }[];
+}
+export const CHUNK_DETAILS_MAX = 50;
 export type Resolutions = Record<string /* Conflict.id, or "chunk:<index>", or "*" */, Side>;
 export interface MergeInput {
   base: NodeTable;

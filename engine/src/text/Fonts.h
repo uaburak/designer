@@ -50,6 +50,7 @@ struct AxisInfo {
   std::string name;
   float min = 0, def = 0, max = 0, value = 0;
   bool hidden = false;
+  std::vector<float> instances;  // the named instances' values on this axis (each once, ascending): the slider's hints
 };
 // An OpenType feature of the font (GSUB / GPOS), with its UI name for stylistic sets and character variants.
 struct FeatureInfo {
@@ -90,12 +91,17 @@ class Font {
   void setOutline(uint32_t glyph, GlyphOutline outline) { outlines_[glyph] = std::move(outline); }
   // The SHA-1 of the font file the face came from (derivedTextData's FontMetaData.fontDigest); zeros without a face.
   const std::array<uint8_t, 20>& digest() const;
+  // The face when this font draws its glyf outlines as they are (TrueType, a variable font at its default instance):
+  // the PDF export embeds it as TrueType (export/TrueType.h). Null for CFF outlines, other instances, outline-only fonts.
+  hb_face_t* trueTypeFace() const;
 
   // This font with axis values set on top of its own (fontVariations): itself when they change nothing, else a
   // variant it keeps (the same face, its own id, outlines and metrics).
   Font* withVariations(const std::vector<std::pair<uint32_t, float>>& variations);
   // The axes of a variable font (empty for a static one), each with the value this font uses.
   std::vector<AxisInfo> axes() const;
+  // The range of the font's optical size axis (opsz); false when it has none.
+  bool opticalSizeRange(float& min, float& max) const;
   // The OpenType features the font has (GSUB and GPOS, each tag once).
   std::vector<FeatureInfo> features() const;
   bool hasFeature(uint32_t tag) const;
@@ -142,7 +148,9 @@ class FontRegistry {
   Font* substituteFor(const FontName& name);
   // Inter Regular: what missing fonts and the overlays draw with (nullptr while it loads).
   Font* defaultFont();
-  // A fallback font that has `codePoint` (requesting the list's fonts in turn), or nullptr.
+  // A fallback font that has `codePoint` (requesting the list's fonts in turn), or nullptr: the code point's script's
+  // Noto family first when the list has it (scriptFallback), then the list's other families in order, the other
+  // scripts' Noto families skipped.
   Font* fallbackFor(uint32_t codePoint);
 
   // REQUEST_FONT: names asked for since the last call.
@@ -165,6 +173,10 @@ class FontRegistry {
   std::vector<std::string> fallbacks_;
   uint32_t generation_ = 1;
 };
+
+// The Noto family of Figma's fallback set for a code point's script ("Noto Sans Thai" for ก); nullptr for the scripts
+// the list's general families cover (Latin, Greek, Cyrillic, symbols: Noto Sans, Noto Sans Symbols, Symbols 2, Math).
+const char* scriptFallback(uint32_t codePoint);
 
 // "Semi Bold Italic" → "semibolditalic".
 std::string normalizeStyle(const std::string& style);

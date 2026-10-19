@@ -60,6 +60,14 @@
    */
   .editor:has([data-shortcuts-panel]) { --ds-toolbar-lift: var(--ds-size-shortcuts-panel); }
   .editor:has([data-shortcuts-panel]) > .chrome { bottom: var(--ds-size-shortcuts-panel); }
+  /* Motion mode's timeline (docs/motion.md §6.2): docked along the bottom like the shortcuts panel; collapsed, its header only. */
+  .editor:has([data-motion-timeline="open"]) { --ds-toolbar-lift: var(--ds-size-motion-timeline); }
+  .editor:has([data-motion-timeline="open"]) > .chrome { bottom: var(--ds-size-motion-timeline); }
+  .editor:has([data-motion-timeline="collapsed"]) { --ds-toolbar-lift: var(--ds-size-motion-timeline-header); }
+  .editor:has([data-motion-timeline="collapsed"]) > .chrome { bottom: var(--ds-size-motion-timeline-header); }
+  /* Social's posts table (docs/social.md §4.5): docked the same way */
+  .editor:has([data-social-table]) { --ds-toolbar-lift: var(--ds-size-social-table); }
+  .editor:has([data-social-table]) > .chrome { bottom: var(--ds-size-social-table); }
   .canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
   /* The "?" circle: centred with the toolbar (20 from the bottom), 24 from the window's right edge, over the right panel */
   .help { position: absolute; right: var(--ds-space-6); bottom: var(--ds-space-5); z-index: var(--ds-z-floating); display: flex; }

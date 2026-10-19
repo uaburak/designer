@@ -1,0 +1,36 @@
+@layer app {
+  /* The Post section (docs/social.md §6.5): labelled fields, two to a row for the short ones [metrics ours] */
+  .section { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: var(--ds-space-1) var(--ds-size-panel-pad-right) var(--ds-space-3) var(--ds-size-panel-pad-left); }
+  .pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--ds-space-2); }
+  .field { display: flex; flex-direction: column; gap: var(--ds-space-1); min-width: 0; }
+  .label { display: flex; align-items: baseline; justify-content: space-between; gap: var(--ds-space-2); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .value { display: flex; align-items: center; min-height: var(--ds-size-control); color: var(--figma-color-text); font: var(--ds-font-body-medium); }
+  .note { margin: 0; padding: var(--ds-space-2) var(--ds-size-panel-pad-right) var(--ds-space-3) var(--ds-size-panel-pad-left); color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); }
+  .section .note { padding: 0; }
+  .actions { display: flex; gap: var(--ds-space-2); }
+
+  .area {
+    width: 100%; min-height: var(--ds-size-row); padding: var(--ds-space-1) var(--ds-space-2); border: 1px solid transparent; border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary); color: var(--figma-color-text); font: var(--ds-font-body-medium); resize: vertical; outline: none;
+  }
+  .area:hover { border-color: var(--figma-color-border); }
+  .area:focus { border-color: var(--figma-color-border-selected); background: var(--figma-color-bg); }
+  .area:disabled { color: var(--figma-color-text-disabled); resize: none; }
+
+  /* The caption's counter and its bar: the fold a dashed mark, past the limit in danger */
+  .counter { color: var(--figma-color-text-tertiary); font: var(--ds-font-body-small); font-variant-numeric: tabular-nums; }
+  .over { color: var(--figma-color-text-danger); }
+  .meter { position: relative; height: var(--ds-space-half); border-radius: var(--ds-radius-full); background: var(--figma-color-bg-tertiary); }
+  .meterFill { position: absolute; inset: 0 auto 0 0; border-radius: var(--ds-radius-full); background: var(--figma-color-bg-brand); }
+  .meterOver { background: var(--figma-color-bg-danger); }
+  .fold { position: absolute; top: calc(var(--ds-space-1) * -1); bottom: calc(var(--ds-space-1) * -1); width: 0; border-left: 1px dashed var(--figma-color-border-strong); }
+
+  /* Hashtags: chips and the field after them */
+  .chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-1); min-height: var(--ds-size-control); padding: var(--ds-space-half) var(--ds-space-1); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); }
+  .chip { display: inline-flex; align-items: center; height: var(--ds-size-control); padding-left: var(--ds-space-1-5); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg); color: var(--figma-color-text); font: var(--ds-font-body-medium); }
+  .chipInput { flex: 1 1 var(--ds-space-16); min-width: 0; height: var(--ds-size-control); padding: 0 var(--ds-space-1); border: 0; background: transparent; color: var(--figma-color-text); font: var(--ds-font-body-medium); outline: none; }
+
+  /* Problems: the detail, Fix, Leave */
+  .problem { display: flex; align-items: center; gap: var(--ds-space-1); }
+  .problemText { flex: 1 1 auto; min-width: 0; color: var(--figma-color-text-warning); font: var(--ds-font-body-medium); overflow-wrap: anywhere; }
+}

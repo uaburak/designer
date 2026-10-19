@@ -1,29 +1,42 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cx } from "../util/cx";
-import { contrastRatio, hexDigits, hexToRgba, hslToRgb, hsvToRgb, parseCssColor, rgbToHex, rgbToHsl, rgbToHsv, rgbaToCss, sameRgba, type HSV, type RGBA } from "../util/color";
+import { hexDigits, hexToRgba, hslToRgb, hsvToRgb, parseColor, parseCssColor, rgbToHex, rgbToHsl, rgbToHsv, rgbaToCss, sameRgba, type HSV, type RGBA } from "../util/color";
 import {
   addStop,
   BLEND_LABEL,
   BLEND_MODES,
+  colorAt,
   convertPaint,
-  flipStops,
+  duplicateStop,
+  flipGradient,
+  hasHue,
+  HUE_METHODS,
+  INTERPOLATION_SPACES,
   isGradient,
+  magnetStop,
+  MIN_STOPS,
   moveStop,
+  nextStopPosition,
   paintCss,
   GRADIENT_TYPES,
   PAINT_TABS,
   isMedia,
   paintTab,
   type PaintTab,
+  redistributeStops,
   removeStop,
-  sortStops,
+  snapStop,
   targetColor,
+  withInterpolation,
   withTargetColor,
   type ImageScaleMode,
+  type InterpolationColorSpace,
+  type InterpolationHueMethod,
   type PaintType,
   type PatternAlignment,
   type PickerPaint,
 } from "../util/paint";
+import { autoCorrect, contrastLines, contrastOf, CONTRAST_RATIOS, type ContrastCategory, type ContrastLevel } from "../util/contrast";
 import { rovingTarget } from "../util/rovingFocus";
 import { tooltipProps } from "../overlay/TooltipManager";
 import type { ChangeInfo } from "../types";
@@ -35,7 +48,7 @@ import { Select } from "./Select";
 import { NumericInput } from "./NumericInput";
 import { ColorInput } from "./ColorInput";
 import { Button, IconButton, ToggleIconButton } from "./Button";
-import { MenuButton, type MenuEntry } from "./Menu";
+import { ContextMenu, MenuButton, type MenuEntry } from "./Menu";
 import { EmptyState } from "./Misc";
 import { selectAllOnClick } from "../util/selectAll";
 import { t, useT } from "@/i18n";
@@ -61,6 +74,23 @@ const SCALE_MODES: { value: ImageScaleMode; label: string }[] = [
 ];
 
 const HUE_TRACK = "linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)";
+/** Figma's user settings for the contrast check (on or off, the level), kept per machine. */
+const CONTRAST_SHOWN_KEY = "color_picker_show_color_contrast";
+const CONTRAST_LEVEL_KEY = "color_picker_color_contrast_level";
+const readSetting = (key: string): string | null => {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+};
+const writeSetting = (key: string, value: string) => {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // no storage: this session only
+  }
+};
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 const byte = (n: number) => Math.round(clamp01(n) * 255);
 const pct = (n: number) => Math.round(clamp01(n) * 100);
@@ -73,6 +103,24 @@ const fractionX = (clientX: number, r: DOMRect, inset: number) => {
 };
 /** A thumb's `left` on an inset track. */
 const insetLeft = (f: number) => `calc(${INSET}px + (100% - ${2 * INSET}px) * ${clamp01(f)})`;
+/** How far a press on a gradient stop moves before it drags it (Figma's GradientControl THRESHOLD). */
+const STOP_DRAG_THRESHOLD = 5;
+/** The wheel over the square (atlas 07 §5.5): (−dx + dy) / 2000 of the hue circle, or with ⌥ of the opacity. */
+const WHEEL_SCALE = 2000;
+/** A wheel turn's edits end (one undo step) once the wheel rests this long (ms). */
+const WHEEL_SETTLE = 300;
+
+/**
+ * The opacity after a ⌥-wheel step on the square: rounded to 0.001 and pulled onto the nearest 10 % when within
+ * 0.3 % of it, kept in 0..1 (atlas 07 §5.5).
+ */
+export function wheelAlpha(a: number, delta: number): number {
+  const v = Math.round((a + delta) * 1000) / 1000;
+  const tens = Math.round(v * 10) / 10;
+  return clamp01(Math.abs(v - tens) <= 0.003 ? tens : v);
+}
+/** The hue (degrees) after a wheel step on the square: round the circle. */
+export const wheelHue = (h: number, delta: number) => (((h + delta * 360) % 360) + 360) % 360;
 
 /**
  * Follows a pointer from a press until release (pointer captured on the
@@ -80,10 +128,10 @@ const insetLeft = (f: number) => `calc(${INSET}px + (100% - ${2 * INSET}px) * ${
  * (x measured `inset` px in from each side);
  * `onEnd(cancelled)` runs once — Esc or a lost pointer cancels.
  */
-function trackPointer(e: React.PointerEvent<HTMLElement>, area: HTMLElement, onMove: (fx: number, fy: number, dy: number) => void, onEnd: (cancelled: boolean) => void, inset = 0) {
+function trackPointer(e: React.PointerEvent<HTMLElement>, area: HTMLElement, onMove: (fx: number, fy: number, dy: number, ev: { clientX: number; shiftKey: boolean; altKey: boolean }) => void, onEnd: (cancelled: boolean) => void, inset = 0) {
   const el = e.currentTarget;
   const r = area.getBoundingClientRect();
-  const at = (ev: { clientX: number; clientY: number }) => onMove(fractionX(ev.clientX, r, inset), clamp01((ev.clientY - r.top) / (r.height || 1)), ev.clientY - (r.top + r.height / 2));
+  const at = (ev: { clientX: number; clientY: number; shiftKey: boolean; altKey: boolean }) => onMove(fractionX(ev.clientX, r, inset), clamp01((ev.clientY - r.top) / (r.height || 1)), ev.clientY - (r.top + r.height / 2), ev);
   try {
     el.setPointerCapture?.(e.pointerId);
   } catch {
@@ -167,8 +215,18 @@ export interface ColorPickerProps<P extends PickerPaint> {
   placement?: PopoverPlacement;
   /** The paint types offered (default all six) */
   paintTypes?: PaintType[];
+  /** Offered but greyed out (Figma: Pattern while another paint of the list is one — one pattern per list) */
+  disabledTypes?: PaintType[];
   /** "On this page": the document's colours (hex or rgba()) */
   documentColors?: string[];
+  /**
+   * The swatch sets after "On this page" (Figma's "Local assets": the file's colour variables, then its fill styles;
+   * then one per enabled library); `separated`: a line above it in the menu
+   */
+  swatchSets?: { id: string; label: string; colors: string[]; separated?: boolean }[];
+  /** The set shown ("page" or a set's id; the editor remembers it); uncontrolled without it */
+  swatchSet?: string;
+  onSwatchSetChange?: (id: string) => void;
   /** The Libraries tab: the editor's variables and styles */
   libraries?: ReactNode;
   initialTab?: "custom" | "libraries";
@@ -179,6 +237,8 @@ export interface ColorPickerProps<P extends PickerPaint> {
   onMakeImage?: () => void;
   /** "Check color contrast": what's behind the layer (a solid colour); the button shows only with it */
   contrastBackground?: RGBA | null;
+  /** What the layers are read as for the contrast standard (their text sizes; null: mixed with normal text — none applies) */
+  contrastCategory?: ContrastCategory | null;
   /** A gradient's "Rotate gradient" (its handles turn 90° about the middle — the editor owns the paint's transform) */
   onRotateGradient?: () => void;
   /** IMAGE: more controls under the scale mode (the editor's rotate and adjustment sliders) */
@@ -211,29 +271,52 @@ export interface ColorPickerProps<P extends PickerPaint> {
 /**
  * Figma UI3's colour picker (contract §4.6), a 240px popover: Custom /
  * Libraries tabs; the paint type (Solid, Linear, Radial, Angular, Diamond,
- * Image) and blend mode; for gradients the stop bar (click adds a stop, drag
- * moves it, drag it off the bar or Delete removes it) and the stops list;
- * the saturation/brightness square, hue and opacity sliders, eyedropper;
- * the colour model (Hex, RGB, CSS, HSL, HSB) with its values; "On this
- * page". Controlled: `value` in, `onChange(next, { final })` out.
+ * Image) and blend mode; for gradients the stop bar as Figma's GradientControl
+ * (atlas 07 §7.2: a click adds a stop in the colour there and drags it, a stop
+ * moves past 5 px, ⇧ in 5 % steps, dropped within 2 % of another it touches it
+ * unless ⌥, ⌥-press copies it, double-click spreads the stops, right-click
+ * Delete stop / Redistribute stops, ← / → 1 % or 5 %, Delete), the stops list
+ * and "Color interpolation"; the saturation/brightness square (the wheel turns
+ * the hue, ⌥-wheel the opacity), hue and opacity sliders, eyedropper; the colour
+ * model (Hex, RGB, CSS, HSL, HSB) with its values; "On this page".
+ * Controlled: `value` in, `onChange(next, { final })` out.
  */
 export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
   useT();
-  const { value, onChange, onCancel, onClose, anchor, placement = "left-of-panel", paintTypes, documentColors = [], libraries, initialTab = "custom", imageUrl, onChooseImage, onMakeImage, onRotateGradient, contrastBackground, imageControls, imageAction, pattern, onShaders, shader, offsetX = -1, colorModel, onColorModelChange, stop: controlledStop, onStopChange, headerActions, static: isStatic } = props;
+  const { value, onChange, onCancel, onClose, anchor, placement = "left-of-panel", paintTypes, disabledTypes, documentColors = [], swatchSets = [], swatchSet: controlledSet, onSwatchSetChange, libraries, initialTab = "custom", imageUrl, onChooseImage, onMakeImage, onRotateGradient, contrastBackground, contrastCategory = "graphics", imageControls, imageAction, pattern, onShaders, shader, offsetX = -1, colorModel, onColorModelChange, stop: controlledStop, onStopChange, headerActions, static: isStatic } = props;
   const [tab, setTab] = useState(initialTab);
-  const [contrast, setContrast] = useState(false);
+  // "Check color contrast" on or off and the level asked for: kept, as Figma's user settings
+  // (`color_picker_show_color_contrast`, `color_picker_color_contrast_level`); the category is chosen per picker.
+  const [contrast, setContrastState] = useState(() => readSetting(CONTRAST_SHOWN_KEY) === "1");
+  const [contrastLevel, setContrastLevelState] = useState<ContrastLevel>(() => (readSetting(CONTRAST_LEVEL_KEY) === "AAA" ? "AAA" : "AA"));
+  const [categoryChoice, setCategoryChoice] = useState<ContrastCategory | "auto">("auto");
+  const [fixPreview, setFixPreview] = useState(false);
+  const setContrast = (on: boolean) => {
+    setContrastState(on);
+    writeSetting(CONTRAST_SHOWN_KEY, on ? "1" : "0");
+  };
+  const setContrastLevel = (level: ContrastLevel) => {
+    setContrastLevelState(level);
+    writeSetting(CONTRAST_LEVEL_KEY, level);
+  };
   const [ownModel, setOwnModel] = useState<ColorModel>("hex");
+  const [ownSet, setOwnSet] = useState("page");
   const model = colorModel ?? ownModel;
   const [ownStop, setOwnStop] = useState(0);
   const [localHsv, setLocalHsv] = useState<HSV | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [removing, setRemoving] = useState<number | null>(null);
+  // The stop bar: a ghost stop under the pointer (the colour there), a stop's context menu.
+  const [ghost, setGhost] = useState<number | null>(null);
+  const [stopMenu, setStopMenu] = useState<{ index: number; x: number; y: number } | null>(null);
+  const wheel = useRef<{ timer: ReturnType<typeof setTimeout> | null }>({ timer: null });
   const bar = useRef<HTMLDivElement>(null);
   const latest = useRef({ value, onChange, onCancel });
   useLayoutEffect(() => {
     latest.current = { value, onChange, onCancel };
   });
   const gesture = useRef<{ start: P; last: P } | null>(null);
+  // The paint before the interpolation menu's hover preview: previews and the pick start from it.
+  const unpreviewed = useRef<P | null>(null);
 
   const gradient = isGradient(value.type);
   const stopCount = value.stops?.length ?? 0;
@@ -273,7 +356,6 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
     const g = gesture.current;
     gesture.current = null;
     setDragging(false);
-    setRemoving(null);
     if (!g) return;
     if (cancelled) {
       setLocalHsv(null);
@@ -305,48 +387,130 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
     apply(step[0], step[1]);
   };
 
-  // ── gradient stops ──
+  // ── the wheel over the square: the hue, or with ⌥ the opacity; one undo step per turn (⌃-wheel is the canvas's zoom) ──
+  const wheelRun = useRef<{ hsv: HSV; a: number } | null>(null);
+  const turnWheel = (e: WheelEvent) => {
+    if (e.ctrlKey) return;
+    e.preventDefault();
+    const delta = (-e.deltaX + e.deltaY) / WHEEL_SCALE;
+    if (!delta) return;
+    if (!gesture.current || !wheelRun.current) {
+      begin();
+      wheelRun.current = { hsv, a: target.a };
+    }
+    const run = wheelRun.current;
+    if (e.altKey) run.a = wheelAlpha(run.a, delta);
+    else run.hsv = { ...run.hsv, h: wheelHue(run.hsv.h, delta) };
+    setLocalHsv(run.hsv);
+    preview(withTargetColor(gesture.current!.start, stop, { ...hsvToRgb(run.hsv), a: run.a }));
+    if (wheel.current.timer) clearTimeout(wheel.current.timer);
+    wheel.current.timer = setTimeout(settleWheel, WHEEL_SETTLE);
+  };
+  const settleWheel = () => {
+    if (wheel.current.timer) clearTimeout(wheel.current.timer);
+    wheel.current.timer = null;
+    if (!wheelRun.current) return;
+    wheelRun.current = null;
+    end(false);
+  };
+  const onWheel = useRef(turnWheel);
+  const settle = useRef(settleWheel);
+  useLayoutEffect(() => {
+    onWheel.current = turnWheel;
+    settle.current = settleWheel;
+  });
+  // Closing the picker mid-turn keeps what the wheel did.
+  useEffect(() => () => settle.current(), []);
+  const svRef = useCallback((el: HTMLDivElement | null) => {
+    if (!el) return;
+    el.addEventListener("wheel", (e) => onWheel.current(e), { passive: false });
+  }, []);
+
+  // ── gradient stops (Figma's GradientControl, atlas 07 §7.2) ──
   const setStops = (stops: NonNullable<P["stops"]>, info: ChangeInfo) => onChange({ ...value, stops }, info);
+  type Stops = NonNullable<P["stops"]>;
+  /**
+   * Follows a stop from a press: moved by the pointer (⇧ in 5 % steps) once it has gone `threshold` px, then on release
+   * pulled onto a neighbour within 2 % (⌥ off) and put in order (the selection follows it).
+   */
+  const dragStop = (e: React.PointerEvent<HTMLElement>, stops: Stops, index: number, threshold: number) => {
+    const el = bar.current;
+    if (!el) return;
+    const x0 = e.clientX;
+    let moved = threshold === 0;
+    let last = { stops, alt: e.altKey };
+    const start = { ...gesture.current!.start, stops };
+    if (threshold === 0) preview(start);
+    trackPointer(e, el, (fx, _fy, _dy, ev) => {
+      last = { stops: last.stops, alt: ev.altKey };
+      if (!moved && Math.abs(ev.clientX - x0) < threshold) return;
+      moved = true;
+      last.stops = moveStop(stops, index, snapStop(fx, ev.shiftKey)) as Stops;
+      preview({ ...start, stops: last.stops });
+    }, (cancelled) => {
+      const g = gesture.current;
+      if (!cancelled && g && moved) {
+        const dropped = last.stops[index]?.position ?? 0;
+        const placed = ordered(moveStop(last.stops, index, last.alt ? dropped : magnetStop(last.stops, index, dropped)) as Stops, index);
+        g.last = { ...start, stops: placed.stops };
+        selectStop(placed.index);
+      }
+      end(cancelled);
+    }, 0);
+  };
+  /** The stops in order of position (Figma re-sorts after every change), and where stop `i` went. */
+  const ordered = (stops: Stops, i: number): { stops: Stops; index: number } => {
+    const sorted = stops.map((s, k) => ({ s, k })).sort((a, b) => a.s.position - b.s.position || a.k - b.k);
+    return { stops: sorted.map((x) => x.s) as Stops, index: Math.max(0, sorted.findIndex((x) => x.k === i)) };
+  };
   const pressBar = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 || (e.target !== e.currentTarget.firstElementChild && e.target !== e.currentTarget)) return;
-    e.preventDefault();
     const el = bar.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    // The bar's ends are the stops' 0 % and 100 % (live: the chips centred on 16 and 224).
-    const { stops, index } = addStop(value.stops ?? [], fractionX(e.clientX, r, 0));
+    // The bar's ends are the stops' 0 % and 100 % (live: the chips centred on 16 and 224); a press past them adds nothing.
+    const f = (e.clientX - r.left) / (r.width || 1);
+    if (f < 0 || f > 1) return;
+    e.preventDefault();
+    // A new stop there in the gradient's colour at that point, selected and dragged in the same gesture.
+    const { stops, index } = addStop(value.stops ?? [], snapStop(f, e.shiftKey), value);
+    setGhost(null);
     begin();
     selectStop(index);
-    const start = { ...gesture.current!.start, stops };
-    preview(start);
-    trackPointer(e, el, (fx) => preview({ ...start, stops: moveStop(stops, index, fx) }), end, 0);
+    dragStop(e, stops as Stops, index, 0);
   };
   const pressStop = (e: React.PointerEvent<HTMLButtonElement>, i: number) => {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
     e.currentTarget.focus({ preventScroll: true });
-    selectStop(i);
+    setGhost(null);
     const el = bar.current;
     if (!el) return;
     begin();
-    const start = gesture.current!.start;
-    const stops = start.stops ?? [];
-    trackPointer(e, el, (fx, _fy, dy) => {
-      // Dragged off the bar: it goes (there are always two)
-      const off = Math.abs(dy) > 32 && stops.length > 2;
-      setRemoving(off ? i : null);
-      preview({ ...start, stops: off ? removeStop(stops, i) : moveStop(stops, i, fx) });
-    }, (cancelled) => {
-      if (!cancelled && gesture.current && (gesture.current.last.stops?.length ?? 0) < stops.length) selectStop(0);
-      end(cancelled);
-    }, 0);
+    const own = (value.stops ?? []) as Stops;
+    if (e.altKey) {
+      // ⌥-press: a copy of the stop at the pointer, dragged from there.
+      const r = el.getBoundingClientRect();
+      const { stops, index } = duplicateStop(own, i, snapStop(fractionX(e.clientX, r, 0), e.shiftKey));
+      selectStop(index);
+      dragStop(e, stops as Stops, index, 0);
+      return;
+    }
+    selectStop(i);
+    dragStop(e, own, i, STOP_DRAG_THRESHOLD);
   };
+  const deleteStop = (i: number, source: ChangeInfo["source"]) => {
+    if (stopCount <= MIN_STOPS) return;
+    setStops(removeStop(value.stops ?? [], i) as Stops, { final: true, source });
+    selectStop(Math.max(0, Math.min(i, stopCount - 2)));
+  };
+  const redistribute = () => setStops(redistributeStops(value.stops ?? []) as Stops, { final: true, source: "pick" });
 
   // The tabs with at least one type offered; Gradient keeps the gradient's own type (or Linear for a new one).
   const offered = (t: PaintType) => !paintTypes || paintTypes.includes(t);
   const gradientTypes = GRADIENT_TYPES.filter((g) => offered(g.value)).map((g) => ({ ...g, label: t(g.label) }));
-  const typeOptions = PAINT_TABS.filter((p) => (p.value === "GRADIENT" ? gradientTypes.length > 0 : offered(p.value))).map((p) => ({ value: p.value, icon: p.icon as IconName, tooltip: t(p.label) }));
+  const typeOptions = PAINT_TABS.filter((p) => (p.value === "GRADIENT" ? gradientTypes.length > 0 : offered(p.value))).map((p) => ({ value: p.value, icon: p.icon as IconName, tooltip: t(p.label), disabled: p.value !== paintTab(value.type) && !!disabledTypes?.includes(p.value as PaintType) }));
   const pickTab = (tab: PaintTab) => {
     const type: PaintType = tab === "GRADIENT" ? (isGradient(value.type) ? value.type : (gradientTypes[0]?.value ?? "GRADIENT_LINEAR")) : tab;
     // (A shader fill: any type tab leaves it, its own included.)
@@ -410,10 +574,9 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
                 upper
                 value={hexDigits(rgbToHex(target))}
                 onCommit={(raw) => {
-                  const c = hexToRgba(raw);
-                  if (!c) return;
-                  const eight = raw.trim().replace(/^#/, "").length === 8;
-                  setColor({ ...c, a: eight ? c.a : target.a }, { final: true, source: "type" });
+                  // Figma's colour string: 1–8 hex digits, a name, rgb() / hsl() / oklch()…; its alpha only when typed.
+                  const c = parseColor(raw);
+                  if (c) setColor({ ...c.color, a: c.alpha ? c.color.a : target.a }, { final: true, source: "type" });
                 }}
               />
             </span>
@@ -440,6 +603,30 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
   const opaque = rgbToHex(hsvToRgb(hsv));
   const tab0 = paintTab(value.type);
   const showContrast = !!contrastBackground && value.type === "SOLID";
+  // The contrast check (atlas 07 §5.7): the standard the layers' category asks for at the chosen level (graphics: AA
+  // only), the ratio, the square's lines where it is met exactly, and — short of it — Figma's auto-correct: the nearest
+  // colour of this hue and alpha that meets it.
+  const contrastCategoryShown = categoryChoice === "auto" ? contrastCategory : categoryChoice;
+  const contrastLevelShown: ContrastLevel = contrastCategoryShown === "graphics" ? "AA" : contrastLevel;
+  const contrastNeed = contrastCategoryShown ? CONTRAST_RATIOS[contrastCategoryShown][contrastLevelShown] : null;
+  const contrastOn = contrast && showContrast;
+  const hsvH = hsv.h;
+  const { r: fr, g: fg, b: fb, a: fa } = target;
+  const bgKey = contrastBackground ? rgbaToCss(contrastBackground) : "";
+  const contrastCheck = useMemo(() => {
+    if (!contrastOn || !contrastBackground) return null;
+    const fgc = { r: fr, g: fg, b: fb, a: fa };
+    const ratio = contrastOf(fgc, contrastBackground);
+    const met = contrastNeed !== null && ratio >= contrastNeed;
+    const hue = hsvH / 360;
+    return {
+      ratio,
+      met,
+      lines: contrastNeed !== null ? contrastLines(contrastNeed, hue, fa, contrastBackground) : null,
+      fix: contrastNeed !== null && !met ? autoCorrect({ ratio: contrastNeed, hue, alpha: fa, fg: fgc, bg: contrastBackground }) : null,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the background by value (bgKey)
+  }, [contrastOn, bgKey, contrastNeed, fr, fg, fb, fa, hsvH]);
   const pickerBox = useRef<HTMLDivElement>(null);
   // A stop's swatch opens a Solid picker for that stop beside this one (unverified: the live capture has no stop picker).
   const [stopPickerAt, setStopPickerAt] = useState<{ index: number; anchor: HTMLElement | null } | null>(null);
@@ -459,9 +646,10 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
       aria-label={t.tooltip}
       tabIndex={t.value === tab0 && !shader ? 0 : -1}
       className={styles.typeTab}
+      disabled={t.disabled}
       onClick={() => pickTab(t.value as PaintTab)}
       onKeyDown={(e) => {
-        const next = rovingTarget(e.key, typeOptions.length, () => true, i, "horizontal");
+        const next = rovingTarget(e.key, typeOptions.length, (k) => !typeOptions[k].disabled, i, "horizontal");
         if (next === null || next < 0) return;
         e.preventDefault();
         typeRefs.current[next]?.focus();
@@ -482,11 +670,35 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
       aria-valuenow={Math.round(hsv.s * 100)}
       tabIndex={0}
       data-autofocus=""
+      ref={svRef}
       style={{ background: svBackground }}
       onPointerDown={(e) => dragColor(e, (fx, fy) => ({ hsv: { h: hsv.h, s: fx, v: 1 - fy }, a: target.a }))}
-      onKeyDown={(e) => keyStep(e, (dx, dy) => { const next = { h: hsv.h, s: clamp01(hsv.s + dx), v: clamp01(hsv.v + dy) }; setColor({ ...hsvToRgb(next), a: target.a }, { final: true, source: "step" }, next); })}
+      onKeyDown={(e) => {
+        // PageUp / PageDown: the top / bottom edge; Home / End: the left / right edge (atlas 07 §5.5).
+        const edge: Partial<HSV> | undefined = { PageUp: { v: 1 }, PageDown: { v: 0 }, Home: { s: 0 }, End: { s: 1 } }[e.key];
+        const apply = (next: HSV) => setColor({ ...hsvToRgb(next), a: target.a }, { final: true, source: "step" }, next);
+        if (edge) {
+          e.preventDefault();
+          e.stopPropagation();
+          apply({ ...hsv, ...edge });
+          return;
+        }
+        keyStep(e, (dx, dy) => apply({ h: hsv.h, s: clamp01(hsv.s + dx), v: clamp01(hsv.v + dy) }));
+      }}
     >
+      {contrastCheck?.lines && (
+        // Where the contrast is exactly the standard's (Figma's lighter / darker luminance lines, white at 80 %).
+        <svg className={styles.contrastLines} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden>
+          {[contrastCheck.lines.lighter, contrastCheck.lines.darker].map((line, i) =>
+            line ? <polyline key={i} points={line.map((p) => `${p.s},${1 - p.v}`).join(" ")} vectorEffect="non-scaling-stroke" /> : null
+          )}
+        </svg>
+      )}
       <span className={styles.thumb} style={{ left: `${hsv.s * 100}%`, top: `${(1 - hsv.v) * 100}%`, background: opaque }} />
+      {fixPreview && contrastCheck?.fix && (() => {
+        const at = rgbToHsv(contrastCheck.fix);
+        return <span className={cx(styles.thumb, styles.contrastFix)} style={{ left: `${at.s * 100}%`, top: `${(1 - at.v) * 100}%`, background: rgbToHex(contrastCheck.fix) }} />;
+      })()}
     </div>
   );
   const sliders = (
@@ -498,11 +710,20 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
           role="slider"
           aria-label={t("Hue")}
           aria-valuemin={0}
-          aria-valuemax={360}
-          aria-valuenow={Math.round(hsv.h)}
+          aria-valuemax={359}
+          aria-valuenow={Math.round(hsv.h) % 360}
+          aria-valuetext={`${Math.round(hsv.h) % 360}°`}
           tabIndex={0}
           onPointerDown={(e) => dragColor(e, (fx) => ({ hsv: { ...hsv, h: fx * 360 }, a: target.a }), INSET)}
-          onKeyDown={(e) => keyStep(e, (dx, dy) => { const next = { ...hsv, h: Math.min(360, Math.max(0, hsv.h + (dx + dy) * 360)) }; setColor({ ...hsvToRgb(next), a: target.a }, { final: true, source: "step" }, next); })}
+          onKeyDown={(e) => {
+            // 1° a press, 10° with ⇧, round the circle (atlas 07 §5.5: step 1, big step 10, loops).
+            const d = ({ ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1 } as Record<string, number>)[e.key];
+            if (!d) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const next = { ...hsv, h: (((Math.round(hsv.h) + d * (e.shiftKey ? 10 : 1)) % 360) + 360) % 360 };
+            setColor({ ...hsvToRgb(next), a: target.a }, { final: true, source: "step" }, next);
+          }}
         >
           <span className={styles.track} style={{ background: HUE_TRACK }} />
           <span className={styles.thumb} style={{ left: insetLeft(hsv.h / 360), background: rgbToHex(hsvToRgb({ h: hsv.h, s: 1, v: 1 })) }} />
@@ -532,28 +753,82 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
       <div className={cx(field.field, styles.joined)}>{modelFields}</div>
     </div>
   );
-  const contrastRow =
-    contrast && showContrast
-      ? (() => {
-          // WCAG 2: AA 4.5 (3 for large text), AAA 7 (4.5 for large text).
-          const ratio = contrastRatio(target, contrastBackground!);
-          const shown = Math.floor(ratio * 100) / 100;
-          return (
-            <div className={styles.contrastRow} role="status" aria-label={t("Contrast")}>
-              <span>{t("Contrast")}</span>
-              <span className={styles.contrastValue}>{shown}:1</span>
-              <span className={styles.contrastBadge} data-pass={ratio >= 4.5 || undefined}>AA</span>
-              <span className={styles.contrastBadge} data-pass={ratio >= 7 || undefined}>AAA</span>
-            </div>
-          );
-        })()
-      : null;
+  // The check's settings (Figma's COLOR_CONTRAST_SETTINGS_DROPDOWN): the category — Auto (what the layers are read
+  // as), or one chosen — and the level, each with its ratio.
+  const categoryName = (c: ContrastCategory | null | undefined) => (c === "largeText" ? t("Large text") : c === "normalText" ? t("Normal text") : c === "graphics" ? t("Graphics") : t("Mixed"));
+  const ratioText = (level: ContrastLevel) => {
+    const r = contrastCategoryShown ? CONTRAST_RATIOS[contrastCategoryShown][level] : null;
+    return r === null ? level : `${level} (${r}:1)`;
+  };
+  const contrastSettings: MenuEntry[] = [
+    { header: t("Category") },
+    { id: "category.auto", label: t("Auto ({category})", { category: categoryName(contrastCategory) }), checked: categoryChoice === "auto", radio: true },
+    ...(["largeText", "normalText", "graphics"] as const).map((c) => ({ id: `category.${c}`, label: categoryName(c), checked: categoryChoice === c, radio: true })),
+    "-",
+    { header: t("Level") },
+    ...(["AA", "AAA"] as const).map((l) => ({ id: `level.${l}`, label: ratioText(l), checked: contrastLevelShown === l, radio: true, disabled: contrastCategoryShown === "graphics" && l === "AAA" })),
+  ];
+  const contrastRow = contrastCheck ? (
+    <>
+      <div className={styles.contrastRow} role="status" aria-label={t("Contrast")}>
+        <span>{t("Contrast")}</span>
+        <span className={styles.contrastValue}>{contrastCheck.ratio}:1</span>
+        {contrastNeed !== null && (
+          <span className={styles.contrastBadge} data-pass={contrastCheck.met || undefined}>
+            {contrastLevelShown}
+          </span>
+        )}
+        <MenuButton
+          label={t("Contrast settings")}
+          className={buttons.icon}
+          entries={contrastSettings}
+          onSelect={(id) => {
+            if (id.startsWith("category.")) setCategoryChoice(id.slice(9) as ContrastCategory | "auto");
+            else if (id.startsWith("level.")) setContrastLevel(id.slice(6) as ContrastLevel);
+          }}
+        >
+          <Icon name="24.adjust.small" />
+        </MenuButton>
+      </div>
+      {contrastNeed !== null && (
+        <div className={styles.contrastNote}>
+          <span>{contrastCheck.met ? t("Meets {standard}", { standard: contrastLevelShown }) : t("Doesn't meet {standard}", { standard: contrastLevelShown })}</span>
+          {contrastCheck.fix && (
+            <Button
+              variant="link"
+              onPointerEnter={() => setFixPreview(true)}
+              onPointerLeave={() => setFixPreview(false)}
+              onClick={() => {
+                setFixPreview(false);
+                setColor({ ...contrastCheck.fix!, a: target.a }, { final: true, source: "pick" });
+              }}
+            >
+              {t("Auto-correct")}
+            </Button>
+          )}
+        </div>
+      )}
+    </>
+  ) : null;
+  // "On this page" first, then the editor's sets (a set it no longer has falls back to the page's).
+  const set = swatchSets.find((s) => s.id === (controlledSet ?? ownSet)) ?? null;
+  const swatchColors = set ? set.colors : documentColors;
   const swatchSection = (
     <div className={styles.swatchSection}>
-      <Select label={t("Color swatch set selector")} variant="ghost" value="page" options={[{ value: "page", label: t("On this page") }]} width={208} onChange={() => {}} />
-      {documentColors.length ? (
+      <Select
+        label={t("Color swatch set selector")}
+        variant="ghost"
+        value={set?.id ?? "page"}
+        options={[{ value: "page", label: t("On this page") }, ...swatchSets.flatMap((s) => [...(s.separated ? ["-" as const] : []), { value: s.id, label: s.label }])]}
+        width={208}
+        onChange={(id) => {
+          setOwnSet(id);
+          onSwatchSetChange?.(id);
+        }}
+      />
+      {swatchColors.length ? (
         <div className={styles.swatches}>
-          {documentColors.map((c) => {
+          {swatchColors.map((c) => {
             const rgba = parseCssColor(c);
             const hex = rgba ? hexDigits(rgbToHex(rgba)).toUpperCase() : c;
             return (
@@ -571,7 +846,7 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
           })}
         </div>
       ) : (
-        <span className={styles.empty}>{t("No colors on this page yet")}</span>
+        <span className={styles.empty}>{set ? t("No colors available") : t("No colors on this page yet")}</span>
       )}
     </div>
   );
@@ -585,13 +860,31 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
           <Select label={t("Paint type")} variant="ghost" width={96} value={value.type} options={gradientTypes} onChange={(t) => { setLocalHsv(null); onChange(convertPaint(value, t as PaintType), { final: true, source: "pick" }); }} />
         </div>
         <span className={styles.gradientActions}>
-          <IconButton icon="24.flip.horizontal.small" label={t("Flip gradient")} onClick={() => setStops(flipStops(value.stops ?? []) as NonNullable<P["stops"]>, { final: true, source: "pick" })} />
+          <IconButton icon="24.flip.horizontal.small" label={t("Flip gradient")} disabled={stopCount < 2} onClick={() => onChange(flipGradient(value), { final: true, source: "pick" })} />
           {onRotateGradient && <IconButton icon="24.rotate" label={t("Rotate gradient")} onClick={onRotateGradient} />}
         </span>
       </div>
       <div className={styles.gradientRow}>
-        <div ref={bar} className={styles.bar} onPointerDown={pressBar} data-ds="GradientBar">
+        <div
+          ref={bar}
+          className={styles.bar}
+          onPointerDown={pressBar}
+          // Hovering the track: a ghost stop in the colour there (where a click adds one).
+          onPointerMove={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            const f = (e.clientX - r.left) / (r.width || 1);
+            const onTrack = !dragging && (e.target === e.currentTarget || e.target === e.currentTarget.firstElementChild) && f >= 0 && f <= 1;
+            setGhost(onTrack ? f : null);
+          }}
+          onPointerLeave={() => setGhost(null)}
+          data-ds="GradientBar"
+        >
           <span className={styles.barFill} style={{ background: paintCss(value, "bar") }} />
+          {ghost !== null && (
+            <span className={cx(styles.stop, styles.ghostStop)} style={{ left: `${ghost * 100}%` }} aria-hidden data-ghost-stop="">
+              <span className={styles.stopChip} style={{ background: rgbaToCss({ ...colorAt(value.stops ?? [], ghost, value.interpolationColorSpace, value.interpolationHueMethod), a: 1 }) }} />
+            </span>
+          )}
           {(value.stops ?? []).map((s, i) => (
             <button
               key={i}
@@ -602,22 +895,32 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
               aria-valuemax={100}
               aria-valuenow={pct(s.position)}
               aria-selected={i === stop}
-              data-removing={removing === i || undefined}
               className={styles.stop}
               style={{ left: `${clamp01(s.position) * 100}%` }}
               onPointerDown={(e) => pressStop(e, i)}
               onFocus={() => i !== stop && selectStop(i)}
+              // Double-click: the stops spread evenly; right-click: Delete stop / Redistribute stops (atlas 07 §7.2).
+              onDoubleClick={() => !stopMenu && redistribute()}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                selectStop(i);
+                setStopMenu({ index: i, x: e.clientX, y: e.clientY });
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Delete" || e.key === "Backspace") {
                   e.preventDefault();
                   e.stopPropagation();
-                  if (stopCount > 2) {
-                    setStops(removeStop(value.stops ?? [], i) as NonNullable<P["stops"]>, { final: true, source: "type" });
-                    selectStop(0);
-                  }
+                  deleteStop(i, "type");
                   return;
                 }
-                keyStep(e, (dx) => setStops(moveStop(value.stops ?? [], i, s.position + dx) as NonNullable<P["stops"]>, { final: true, source: "step" }));
+                // ← / → 1 %, with ⇧ 5 %; the stops stay in order and the selection follows the stop.
+                const d = ({ ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1 } as Record<string, number>)[e.key];
+                if (!d) return;
+                e.preventDefault();
+                e.stopPropagation();
+                const placed = ordered(moveStop(value.stops ?? [], i, Math.round((s.position + d * (e.shiftKey ? 0.05 : 0.01)) * 10000) / 10000) as Stops, i);
+                setStops(placed.stops, { final: true, source: "step" });
+                selectStop(placed.index);
               }}
             >
               <span className={styles.stopChip} style={{ background: rgbaToCss({ ...s.color, a: 1 }) }} />
@@ -625,6 +928,18 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
           ))}
         </div>
       </div>
+      {stopMenu && (
+        <ContextMenu
+          at={{ x: stopMenu.x, y: stopMenu.y }}
+          label={t("Gradient stop")}
+          entries={[
+            { id: "delete", label: t("Delete stop"), disabled: stopCount <= MIN_STOPS },
+            ...(stopCount > MIN_STOPS ? [{ id: "redistribute", label: t("Redistribute stops") }] : []),
+          ]}
+          onSelect={(id) => (id === "delete" ? deleteStop(stopMenu.index, "pick") : redistribute())}
+          onClose={() => setStopMenu(null)}
+        />
+      )}
       <div className={styles.stopsSection}>
         <div className={styles.stopsHeader}>
           <span>{t("Stops")}</span>
@@ -633,20 +948,29 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
             label={t("Add gradient stop")}
             tone="secondary"
             onClick={() => {
-              const s = sortStops(value.stops ?? []);
-              const at = s.findIndex((x) => x.position >= (value.stops?.[stop]?.position ?? 0));
-              const a = s[Math.max(0, at)]?.position ?? 0;
-              const b = s[Math.min(s.length - 1, Math.max(0, at) + 1)]?.position ?? 1;
-              const { stops, index } = addStop(value.stops ?? [], a === b ? Math.min(1, a + 0.1) : (a + b) / 2);
-              setStops(stops as NonNullable<P["stops"]>, { final: true, source: "pick" });
-              selectStop(index);
+              // Halfway to the next stop (a lone stop: the far end), in the gradient's colour there.
+              const added = addStop(value.stops ?? [], nextStopPosition(value.stops ?? [], stop), value);
+              const placed = ordered(added.stops as Stops, added.index);
+              setStops(placed.stops, { final: true, source: "pick" });
+              selectStop(placed.index);
             }}
           />
         </div>
-        {sorted.map((s) => (
+        {sorted.map((s, row) => (
           <div key={s.i} className={styles.stopRow} aria-selected={s.i === stop} onPointerDown={() => s.i !== stop && selectStop(s.i)}>
-            <span className={styles.stopPosition}>
-              <NumericInput label={t("Gradient stop position")} value={pct(s.position)} min={0} max={100} precision={0} unit="%" onChange={(v, info) => setStops(moveStop(value.stops ?? [], s.i, v / 100) as NonNullable<P["stops"]>, info)} />
+            <span
+              className={styles.stopPosition}
+              data-stop-row={row}
+              // Tab / ⇧Tab: the next / previous stop's position (atlas 07 §7.3).
+              onKeyDown={(e) => {
+                if (e.key !== "Tab") return;
+                const next = pickerBox.current?.querySelector<HTMLInputElement>(`[data-stop-row="${row + (e.shiftKey ? -1 : 1)}"] input`);
+                if (!next) return;
+                e.preventDefault();
+                next.focus();
+              }}
+            >
+              <NumericInput label={t("Gradient stop position")} value={pct(s.position)} min={0} max={100} precision={0} unit="%" scrub={false} onChange={(v, info) => setStops(moveStop(value.stops ?? [], s.i, v / 100) as Stops, info)} />
             </span>
             <span className={styles.stopColor}>
               <ColorInput
@@ -662,19 +986,51 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
                 onOpacity={(o, info) => setStops((value.stops ?? []).map((x, k) => (k === s.i ? { ...x, color: { ...x.color, a: o / 100 } } : x)) as NonNullable<P["stops"]>, info)}
               />
             </span>
-            {/* Live: enabled with two stops too; a gradient keeps two, so it removes nothing then (unverified) */}
-            <IconButton
-              icon="24.minus.small"
-              label={t("Delete gradient stop")}
-              tone="secondary"
-              onClick={() => {
-                if (stopCount <= 2) return;
-                setStops(removeStop(value.stops ?? [], s.i) as NonNullable<P["stops"]>, { final: true, source: "pick" });
-                selectStop(0);
-              }}
-            />
+            {/* Only while there are more stops than the least a gradient keeps (one; live shows it with two stops) */}
+            {stopCount > MIN_STOPS && <IconButton icon="24.minus.small" label={t("Delete gradient stop")} tone="secondary" onClick={() => deleteStop(s.i, "pick")} />}
           </div>
         ))}
+      </div>
+      {/* "Color interpolation": the space the stops blend in, and for OKLCH / HSL the way round the hue */}
+      <div className={styles.interpolationRow}>
+        <span className={styles.interpolationLabel}>{t("Color interpolation")}</span>
+        <Select
+          label={t("Interpolation color space")}
+          variant="ghost"
+          width="hug"
+          value={value.interpolationColorSpace ?? "DEFAULT"}
+          options={INTERPOLATION_SPACES.map((o) => ({ ...o, label: t(o.label) }))}
+          onChange={(v) => {
+            const from = unpreviewed.current ?? value;
+            onChange(withInterpolation(from, v as InterpolationColorSpace), { final: true, source: "pick" });
+          }}
+          // Hovering a space shows the gradient in it (Figma: "Hovering an option previews it", atlas 07 §7); leaving the
+          // menu or picking puts back what it started from. Only where a change can be rolled back (`onCancel`).
+          onPreview={
+            onCancel
+              ? (v) => {
+                  if (v === null) {
+                    if (!unpreviewed.current) return;
+                    onCancel();
+                    queueMicrotask(() => (unpreviewed.current = null));
+                    return;
+                  }
+                  unpreviewed.current ??= value;
+                  onChange(withInterpolation(unpreviewed.current, v as InterpolationColorSpace), { final: false, source: "pick" });
+                }
+              : undefined
+          }
+        />
+        {hasHue(value.interpolationColorSpace) && (
+          <Select
+            label={t("Interpolation hue method")}
+            variant="ghost"
+            width="hug"
+            value={value.interpolationHueMethod === "DECREASING" ? "DECREASING" : "INCREASING"}
+            options={HUE_METHODS.map((o) => ({ ...o, label: t(o.label) }))}
+            onChange={(v) => onChange({ ...value, interpolationHueMethod: v as InterpolationHueMethod }, { final: true, source: "pick" })}
+          />
+        )}
       </div>
     </>
   );
@@ -795,6 +1151,12 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
                 value={{ type: "SOLID", color: { ...value.stops[stopPicker].color, a: 1 }, opacity: value.stops[stopPicker].color.a }}
                 paintTypes={["SOLID"]}
                 documentColors={documentColors}
+                swatchSets={swatchSets}
+                swatchSet={controlledSet ?? ownSet}
+                onSwatchSetChange={(id) => {
+                  setOwnSet(id);
+                  onSwatchSetChange?.(id);
+                }}
                 anchor={stopPickerAt?.anchor ?? null}
                 placement="left"
                 colorModel={model}

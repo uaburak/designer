@@ -173,6 +173,7 @@ const APPLY_FLAGS: Record<NonNullable<ApplyKind>, number> = {
   system: abi.APPLY_SYSTEM,
   restore: abi.APPLY_USER | abi.APPLY_EXACT,
   remote: abi.APPLY_REMOTE,
+  peer: abi.APPLY_REMOTE | abi.APPLY_PEER,
   load: abi.APPLY_LOAD,
 };
 

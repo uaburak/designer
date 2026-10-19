@@ -199,4 +199,8 @@
   .propBefore { color: var(--figma-color-text-danger); text-decoration: line-through; overflow-wrap: anywhere; }
   .propAfter { color: var(--figma-color-text-success); overflow-wrap: anywhere; }
   .codeDiff { display: flex; flex-direction: column; gap: var(--ds-space-1); overflow: auto; }
+  /* The frame stepper above the toolbar (the owner's capture: "‹ 1 / 1 ›" on a 40-high card) */
+  .stepper { gap: var(--ds-space-1); height: var(--ds-size-control-large); padding: var(--ds-space-1); }
+  .stepBack svg { transform: rotate(180deg); }
+  .stepCount { min-width: var(--ds-space-12); color: var(--figma-color-text); font: var(--ds-font-body-medium); text-align: center; font-variant-numeric: tabular-nums; }
 }

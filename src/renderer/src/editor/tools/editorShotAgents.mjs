@@ -17,7 +17,9 @@ export function installMockAgents() {
   const listeners = { event: new Set(), mcp: new Set() };
   let toolHandler = null;
   let reqId = 0;
-  const settings = { providerId: "claude-code", models: { "claude-code": "sonnet" }, custom: [] };
+  // The manager off (docs/studio.md §2.1: on by default since round 15): the chat talks to the picked agent directly.
+  const manager = { enabled: false, name: "Manager", manager: { providerId: "claude-code", model: "claude-haiku-5-5", effort: "low" }, general: { providerId: "claude-code", model: "claude-sonnet-5-5" }, image: null, allowed: [], parallel: 3 };
+  const settings = { providerId: "claude-code", models: { "claude-code": "sonnet" }, custom: [], manager };
   const mcp = { running: true, url: "http://127.0.0.1:3917/mcp", connections: [{ id: "s1", client: "Claude Code", chat: false, fileKey: null }] };
   const emit = (turnId, chatId, event) => listeners.event.forEach((cb) => cb({ turnId, chatId, event }));
   const call = async (turnId, name, args) => (toolHandler ? toolHandler({ reqId: ++reqId, turnId, client: "Claude Code", name, args }) : { content: [{ type: "text", text: "{}" }] });
@@ -216,8 +218,8 @@ export function installMockAgents() {
   };
 }
 
-/** A desktop landing page as NODE_CHANGES: a nav, a hero, three cards in a row, an image. */
-function desktopFrame() {
+/** A desktop landing page as NODE_CHANGES: a nav, a hero, three cards in a row, an image (the Studio section's too). */
+export function desktopFrame() {
   const at = (x, y) => ({ m00: 1, m01: 0, m02: x, m10: 0, m11: 1, m12: y });
   const fill = (hex) => [{ type: "SOLID", color: { r: ((hex >> 16) & 255) / 255, g: ((hex >> 8) & 255) / 255, b: (hex & 255) / 255, a: 1 }, opacity: 1, visible: true, blendMode: "NORMAL" }];
   const text = (guid, parent, pos, name, chars, size, x, y, w, color = 0x111111) => ({ guid, phase: "CREATED", type: "TEXT", name, parentIndex: { guid: parent, position: pos }, size: { x: w, y: Math.round(size * 1.3) }, transform: at(x, y), fillPaints: fill(color), textData: { characters: chars }, fontSize: size, fontName: { family: "Inter", style: size > 40 ? "Bold" : "Regular", postscript: "" }, textAutoResize: "HEIGHT" });
@@ -331,12 +333,17 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
     const ed = window.__designerEditor;
     const sel = ed.selection;
     const n = sel[0] ? ed.engine.readNode(sel[0], { childIds: true }) : null;
-    return { sel, name: n?.name, width: n?.size?.x, mode: n?.stackMode, x: n?.transform?.m02, kids: n?.childIds?.length ?? 0, undo: ed.store.undo.undoLabel, log: window.__designerAgentsLog };
+    // The turn has a history of its own (r17 agent isolation): the user's ⌘Z leaves it; the chat's Undo takes it back.
+    const undo = ed.store.undo.canUndo;
+    if (undo) ed.engine.command("UNDO");
+    const kept = sel[0] ? !!ed.engine.readNode(sel[0]) : false;
+    if (undo) ed.engine.command("REDO");
+    return { sel, name: n?.name, width: n?.size?.x, mode: n?.stackMode, x: n?.transform?.m02, kids: n?.childIds?.length ?? 0, kept, log: window.__designerAgentsLog };
   });
   check("Agents: the turn's request carries the selection as context", result.log[0]?.context?.selection?.[0]?.id === "7:1", JSON.stringify(result.log[0]?.context));
   check("Agents: the agent's tool calls ran on the engine", result.log.slice(1).every((l) => !l.isError), result.log.slice(1).map((l) => `${l.name}${l.isError ? " (error)" : ""}`).join(", "));
   check("Agents: a 390 wide vertical auto layout frame next to the desktop one, selected", result.width === 390 && result.mode === "VERTICAL" && result.x >= 1440 + 100 && result.kids >= 5 && result.name === "Desktop — Mobile", JSON.stringify({ ...result, log: undefined }));
-  check("Agents: the turn is one undo step labelled for the agent", result.undo === "Claude Code edit", result.undo);
+  check("Agents: the turn stays out of the user's history (⌘Z leaves the mobile frame; the chat's Undo is the turn's)", result.kept);
   // The answer as Claude's desktop app shows it: words, a folded group, words, a new group, the image's group, words.
   const segOrder = await answer.evaluate((el) => [...el.children].map((c) => (c.hasAttribute("data-step-group") ? `${c.getAttribute("data-step-group")}: ${c.querySelector("[data-group-label]")?.textContent ?? ""}` : c.hasAttribute("data-agent-text") ? "text" : c.hasAttribute("data-changes") ? "changes" : null)).filter(Boolean));
   check("Chat steps: the answer reads words, a group named by its last step (not Thinking), words, a new group after them, the image's own group, words, the changes", JSON.stringify(segOrder.map((x) => (x.startsWith("steps: ") ? (x.includes("Thinking") ? "steps: Thinking" : "steps") : x))) === JSON.stringify(["text", "steps", "text", "steps", "image: Generate image", "text", "changes"]), JSON.stringify(segOrder));
@@ -517,13 +524,14 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
   await page.waitForFunction(() => !document.querySelector("[data-agent-image-placeholder]"), null, { timeout: 3000 });
   check("Agents: Stop fades the placeholder out and the card says Image not placed", ((await page.locator('[data-message="assistant"]').last().locator('[data-image-card="failed"]').textContent()) ?? "").includes("Image not placed"));
 
-  // Agent settings: a list in three groups (one row each: name, state, chevron); a row opens its own page.
+  // Agent settings: a list in groups (one row each: name, state, chevron); a row opens its own page. Studio (round 15)
+  // and Skills (round 6) are groups of their own; Access (round 16) shows with main's reach (EDITOR_ONLY=reach).
   await page.locator("[data-agents-settings]").click();
   await page.waitForSelector('[data-agent-settings][data-settings-page="list"]');
   await page.waitForTimeout(150);
   const settings = page.locator("[data-agent-settings]");
   const groups = await settings.locator("h3").allTextContents();
-  check("Agents: settings open as a list grouped On this computer / Servers / Connect other apps", JSON.stringify(groups) === JSON.stringify(["On this computer", "Servers", "Connect other apps"]), JSON.stringify(groups));
+  check("Agents: settings open as a list grouped Studio / On this computer / Servers / Skills / Connect other apps", JSON.stringify(groups) === JSON.stringify(["Studio", "On this computer", "Servers", "Skills", "Connect other apps"]), JSON.stringify(groups));
   check("Agents: the list has no paragraphs but one short line", (await settings.locator("p").count()) === 1);
   const row = (id) => page.locator(`[data-provider="${id}"]`);
   const stateOf = async (id) => ((await row(id).locator("[data-provider-state]").textContent()) ?? "").trim();
@@ -615,8 +623,9 @@ async function composerSection(page, theme, { settle, shot, check, menus }) {
   });
   check("Composer: + at the left; model, effort, usage ring, Send at the right, in order on one line", bar.plus.x < bar.model.x && bar.model.r <= bar.effort.x && bar.effort.r <= bar.ring.x && bar.ring.r <= bar.send.x && new Set([bar.plus.y, bar.model.y, bar.effort.y, bar.ring.y, bar.send.y]).size <= 2 && bar.send.r <= bar.box.r, JSON.stringify(bar));
 
-  // "+": main's dialog (the stand-in picks a PDF).
-  await composer.locator("[data-attach]").click();
+  // "+" › Add files and photos (round 6 made "+" a menu): main's dialog (the stand-in picks a PDF).
+  await composer.locator("[data-attach] button").click();
+  await page.getByRole("menuitem", { name: "Add files and photos" }).click();
   await chips.first().waitFor({ timeout: 3000 });
   check("Composer: + adds the picked file as a chip (a document glyph for a PDF)", (await chips.count()) === 1 && ((await chips.first().textContent()) ?? "").includes("Brief.pdf") && (await chips.first().locator("img").count()) === 0);
 

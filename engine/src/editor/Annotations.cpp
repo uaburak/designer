@@ -190,11 +190,11 @@ Color categoryColor(const std::string& n) {
 }
 
 std::string presetColorName(const std::string& preset) {
-  if (preset == "DEVELOPMENT") return "BLUE";
-  if (preset == "INTERACTION") return "VIOLET";
-  if (preset == "ACCESSIBILITY") return "GREEN";
+  if (preset == "DEVELOPMENT") return "GREEN";
+  if (preset == "INTERACTION") return "BLUE";
+  if (preset == "ACCESSIBILITY") return "PINK";
   if (preset == "CONTENT") return "ORANGE";
-  if (preset == "BEHAVIOR") return "TEAL";
+  if (preset == "BEHAVIOR") return "BLUE";
   return "GREEN";
 }
 

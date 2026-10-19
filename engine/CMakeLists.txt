@@ -36,6 +36,7 @@ add_library(eng_core STATIC
   src/layout/Layout.cpp
   src/layout/GridLayout.cpp
   src/layout/Reorder.cpp
+  src/layout/Infer.cpp
   src/editor/Selection.cpp
   src/editor/Snapping.cpp
   src/editor/Undo.cpp
@@ -58,8 +59,10 @@ add_library(eng_core STATIC
   src/editor/SlotCommands.cpp
   src/editor/SelectionCommands.cpp
   src/editor/ArrangeCommands.cpp
+  src/editor/AutoLayoutCommands.cpp
   src/editor/PathTools.cpp
   src/render/Renderer.cpp
+  src/render/GradientRamp.cpp
   src/render/RenderTree.cpp
   src/render/Overlay.cpp
   src/render/SpacingOverlay.cpp
@@ -67,6 +70,7 @@ add_library(eng_core STATIC
   src/gfx/null/NullDevice.cpp
   src/api/Api.cpp
   src/text/Unicode.cpp
+  src/text/Bidi.cpp
   src/text/Fonts.cpp
   src/text/TextLayout.cpp
   src/text/TextPathLayout.cpp
@@ -95,11 +99,20 @@ add_library(eng_core STATIC
   src/export/Scene.cpp
   src/export/SvgWriter.cpp
   src/export/PdfWriter.cpp
+  src/export/TrueType.cpp
   src/export/Deflate.cpp
   src/motion/Easing.cpp
+  src/motion/Fields.cpp
+  src/motion/Model.cpp
+  src/motion/Evaluate.cpp
+  src/motion/MotionLayer.cpp
+  src/motion/TextStagger.cpp
+  src/editor/MotionCommands.cpp
+  src/editor/MotionExport.cpp
   src/proto/Devices.cpp
   src/proto/Prototype.cpp
   src/proto/Player.cpp
+  src/proto/Scroll.cpp
   src/editor/PrototypeEditing.cpp
   src/editor/CanvasNav.cpp
   src/render/PrototypeOverlay.cpp
@@ -128,7 +141,7 @@ if(EMSCRIPTEN)
     target_compile_options(eng_core PRIVATE -O3 -flto -DNDEBUG)
     # The exporters run once per export, not per frame: built for size.
     set_source_files_properties(src/export/Export.cpp src/export/Scene.cpp src/export/SvgWriter.cpp src/export/PdfWriter.cpp
-      PROPERTIES COMPILE_OPTIONS "-Os")
+      src/export/TrueType.cpp PROPERTIES COMPILE_OPTIONS "-Os")
   else()
     target_compile_options(eng_core PRIVATE -O1 -g)
   endif()
@@ -157,6 +170,10 @@ else()
     tests/unit/undo.test.cpp
     tests/unit/hit.picking.test.cpp
     tests/unit/render.camera.test.cpp
+    tests/unit/atlas.canvas_shapes.test.cpp
+    tests/unit/atlas.layout.test.cpp
+    tests/unit/atlas.sweep.test.cpp
+    tests/unit/atlas.undo_scope.test.cpp
     tests/unit/render.batching.test.cpp
     tests/unit/editor.gestures.test.cpp
     tests/unit/api.test.cpp
@@ -172,6 +189,15 @@ else()
     tests/unit/variables.test.cpp
     tests/unit/r6.grid_slots.test.cpp
     tests/unit/variables.extended.test.cpp
+    tests/unit/r8.motion.test.cpp
+    tests/unit/r8.motion_edit.test.cpp
+    tests/unit/r8.motion_logo.test.cpp
+    tests/unit/r8.motion_layer.test.cpp
+    tests/unit/r8.motion_presets.test.cpp
+    tests/unit/r8.motion_audio.test.cpp
+    tests/unit/r8.motion_export.test.cpp
+    tests/unit/r8.motion_finish.test.cpp
+    tests/unit/r8.motion_close.test.cpp
     tests/unit/libraries.test.cpp
     tests/unit/text.layout.test.cpp
     tests/unit/text.edit.test.cpp
@@ -187,6 +213,7 @@ else()
     tests/unit/text.stored.test.cpp
     tests/unit/text.parity.test.cpp
     tests/unit/text.features.test.cpp
+    tests/unit/text.wave3.test.cpp
     tests/unit/render.brush.test.cpp
     tests/unit/r7.draw.test.cpp
     tests/unit/r7.draw_edit.test.cpp
@@ -194,6 +221,7 @@ else()
     tests/unit/prototype.test.cpp
     tests/unit/prototype.video.test.cpp
     tests/unit/proto.delay.test.cpp
+    tests/unit/proto.wave4.test.cpp
     tests/unit/motion.easing.test.cpp
     tests/unit/devmode.test.cpp
     tests/unit/r7.selection.test.cpp
@@ -213,9 +241,11 @@ else()
     tests/unit/r16.canvas_handles.test.cpp
     tests/unit/r16.canvas_nav.test.cpp
     tests/unit/r17.canvas_feedback.test.cpp
+    tests/unit/r17c.schema.test.cpp
     tests/unit/r17.prototype_connections.test.cpp
     tests/unit/r17.hover_outline.test.cpp
     tests/unit/r17.actors.test.cpp
+    tests/unit/phase6.peer.test.cpp
     tests/unit/r17.layout_undo.test.cpp
     tests/unit/r17.image_color.test.cpp
     tests/unit/r18.presence.test.cpp

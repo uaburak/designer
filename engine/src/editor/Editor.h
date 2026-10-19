@@ -33,6 +33,7 @@
 #include "geometry/VariableWidth.h"
 #include "geometry/VectorNetwork.h"
 #include "layout/Layout.h"
+#include "motion/MotionLayer.h"
 #include "proto/Prototype.h"
 #include "render/Camera.h"
 #include "render/Renderer.h"
@@ -51,11 +52,15 @@ enum class Tool : uint8_t {
   ANNOTATION, MEASUREMENT,
   EYEDROPPER,
   BRUSH, TEXT_PATH,
+  ANCHOR_POINT,
   Count
 };
 // ANNOTATION and MEASUREMENT: Dev Mode's tools (⇧T, ⇧M), editor/DevMode.cpp. Round 8 (tools/CanvasTools.cpp): SCALE (K)
 // selects and moves as MOVE, its handles scale the layers with their properties; SLICE (S) draws slices; COMMENT (C) is
 // inert until multiplayer; EYEDROPPER (I, ⌃C "Pick color"): a click emits COLOR_PICK and the tool goes back to Move.
+// ANCHOR_POINT (Phase 7 round 8, docs/motion.md §4.9; round 8a increment 2, editor/MotionCommands.cpp): Motion's anchor
+// point (⌥R there): a press on the selected layer's target drags it, MOTION_SET_ANCHOR when let go; a press elsewhere —
+// or any press while Motion is off, which shows no target — goes back to Move. Motion ending puts Move back.
 // BRUSH and TEXT_PATH (Phase 7 round 7, docs/draw.md §4.4–4.5; round 7b, tools/DrawTools.cpp): the Brush draws as the
 // Pencil does with the Brush's brush (setDrawToolSettings); Text on path makes a TEXT_PATH from a shape's edge.
 const char* toolName(Tool t);
@@ -76,8 +81,11 @@ enum class DeltaMode : uint8_t { PIXEL = 0, LINE = 1, PAGE = 2 };
 
 // APPLY_SYSTEM: journaled and emitted, not an undo step (library bookkeeping); APPLY_EXACT (with APPLY_USER: Restore
 // version): the changes are a whole document state computed elsewhere — written as they are, library copies included,
-// none of the user-edit rules (no read-only refusal, no detaching, no instance root overrides).
-enum ApplyFlags : uint32_t { APPLY_USER = 1, APPLY_REMOTE = 2, APPLY_LOAD = 4, APPLY_SYSTEM = 8, APPLY_EXACT = 16 };
+// none of the user-edit rules (no read-only refusal, no detaching, no instance root overrides). APPLY_PEER (with
+// APPLY_REMOTE: another session's change — multiplayer, another window): a remote session is an actor (docs/engine.md
+// §9.5) — E_BUSY while anything is open (a gesture, a step, an actor's write), so it never joins the user's step, and
+// its commit makes every history yield the fields it wrote, the user's too.
+enum ApplyFlags : uint32_t { APPLY_USER = 1, APPLY_REMOTE = 2, APPLY_LOAD = 4, APPLY_SYSTEM = 8, APPLY_EXACT = 16, APPLY_PEER = 32 };
 enum SetPropsFlags : uint32_t { NO_UNDO_MERGE = 1 };
 // PASTE_OVER (⇧⌘V "Paste over selection"): in place, just above the selection (not into it); PASTE_REPLACE (⇧⌘R
 // "Paste to replace"): a copy at each selected layer's place, which goes.
@@ -133,6 +141,11 @@ struct ComponentProperty {
   // The variable the value (an instance's variant) or the default (a main's boolean / text property) is bound to.
   Guid boundVariable = kNoGuid;
 };
+// Figma's StateGroupError, in its order (the worst is the highest): a set past 1000 variants, a variant with no value
+// for one of the set's Variant properties, two variants with the same values, a name that isn't "Property=Value, …".
+enum class VariantError : uint8_t { NONE = 0, TOO_MANY_STATES = 1, MISSING_PROPERTIES = 2, DUPLICATE_STATE = 3, PARSE = 4 };
+// Figma: "Components with more than 1000 variants may experience performance issues".
+constexpr size_t kMaxVariants = 1000;
 struct ComponentInfo {
   enum class Kind : uint8_t { NONE, COMPONENT, VARIANT, COMPONENT_SET, INSTANCE, NESTED_INSTANCE, INSTANCE_SUBLAYER, COMPONENT_SUBLAYER };
   Kind kind = Kind::NONE;
@@ -140,6 +153,7 @@ struct ComponentInfo {
   Guid main = kNoGuid, mainPage = kNoGuid, mainSet = kNoGuid;
   std::string mainName;
   bool mainSoftDeleted = false;
+  Guid missingVariantSet = kNoGuid;  // the main is a deleted variant of this set (Figma's missing variant panel)
   bool mainRemote = false, mainCopied = false;  // a library copy; copied in from another file
   std::string mainLibraryKey, mainKey, mainVersion;
   Guid instance = kNoGuid;
@@ -161,14 +175,18 @@ struct ComponentInfo {
   bool canPush = false, canReset = false, canDetach = false, isExposed = false, mainDeleted = false;
   bool canExpose = false;  // a primary instance in a main that Figma lets expose its properties (canExposeInstance)
   uint32_t instanceCount = 0;
-  // Round 17 B, Figma's conflicting variants: a variant whose name isn't its values (an invalid name kept as typed) or
-  // repeats another variant's values; a set lists its own.
-  bool variantConflict = false;
-  std::vector<Guid> conflictingVariants;
+  // Figma's variant errors (atlas 10 §4.2): a variant's own, or a set's worst — TOO_MANY_STATES past 1000 variants
+  // when none has one — with the variants that have it ("Select invalid / conflicting variants" selects them).
+  VariantError variantError = VariantError::NONE;
+  std::vector<Guid> errorVariants;
 };
 
 // Figma's default name of a new component property: `base`, else "base N+1" past the highest "base N" in `taken`.
 std::string defaultPropertyName(const std::vector<std::string>& taken, const std::string& base);
+// A NUMBER property's value (atlas 10 §5.2): a finite number, or text Figma accepts ("-1", "2.5", ".5"; not blank),
+// stored rounded to 2 decimals; false for anything else. Shown without trailing zeros or a trailing "." (NaN: "0").
+bool propNumber(const json::Value& v, float& out);
+std::string formatPropNumber(double v);
 
 // What a copy puts on the clipboard (docs/schema.md §4.1): the copied nodes as
 // CREATED with their source GUIDs, parents first; for each source parent, its
@@ -249,8 +267,9 @@ class Editor : private LayoutHost, public TextLayouts {
   void setSessionID(uint32_t sessionID);
   uint32_t sessionID() const { return sessionID_; }
   // Changes from outside. APPLY_USER: undoable and emitted (one step); APPLY_SYSTEM: emitted, not undoable
-  // (E_BUSY inside an open user step); APPLY_REMOTE / APPLY_LOAD: neither. User and system changes never write into
-  // library copies, unless APPLY_EXACT (a store-computed state: Restore version).
+  // (E_BUSY inside an open user step); APPLY_REMOTE / APPLY_LOAD: neither (APPLY_REMOTE | APPLY_PEER: E_BUSY unless
+  // idle, every history yields). User and system changes never write into library copies, unless APPLY_EXACT (a
+  // store-computed state: Restore version).
   Status applyChanges(const std::vector<NodeChange>& changes, uint32_t flags);
   // Every node, parents before children (a full snapshot).
   std::vector<NodeChange> encodeDocument() const;
@@ -317,9 +336,12 @@ class Editor : private LayoutHost, public TextLayouts {
     VIEW_KEEP_TOOL = 1024, VIEW_SHOW_DIMENSIONS = 2048, VIEW_FLIP_RESIZE = 4096, VIEW_KEYBOARD_ZOOM_SELECTION = 8192,
     VIEW_INVERT_ZOOM = 16384, VIEW_SCROLL_WHEEL_ZOOM = 32768, VIEW_RIGHT_DRAG_PAN = 65536,
     // Round 10, View › Frame outlines / Mask outlines: each frame's / mask's box as a thin line (unverified look).
-    VIEW_FRAME_OUTLINES = 131072, VIEW_MASK_OUTLINES = 262144
+    VIEW_FRAME_OUTLINES = 131072, VIEW_MASK_OUTLINES = 262144,
+    // Atlas wave 1, View › Outlines ▸ Show hidden layers / Show object bounds (Figma's toggle-outline-mode-hidden-layers /
+    // -object-bounds, Atlas 04 §9.3): in outline mode, hidden layers outlined too; each layer's box drawn.
+    VIEW_OUTLINE_HIDDEN = 524288, VIEW_OUTLINE_BOUNDS = 1048576
   };
-  static constexpr uint32_t kViewOptionsAll = 524287;
+  static constexpr uint32_t kViewOptionsAll = 2097151;
   static constexpr uint32_t kViewOptionsDefault = VIEW_PIXEL_GRID | VIEW_LAYOUT_GUIDES | VIEW_SNAP_PIXELS | VIEW_SLICES | VIEW_SNAP_GEOMETRY |
                                                   VIEW_SNAP_OBJECTS | VIEW_SHOW_DIMENSIONS | VIEW_FLIP_RESIZE | VIEW_RIGHT_DRAG_PAN;
   void setViewOptions(uint32_t options);
@@ -344,6 +366,8 @@ class Editor : private LayoutHost, public TextLayouts {
   // ruler's horizontal one) from `screen` (canvas CSS px); `rulerSize`: the rulers' thickness (a guide let go over a
   // ruler goes). The pointer events that follow drive it.
   Status startGuideDrag(int axis, Vec2 screen, double rulerSize);
+  // Whose guides the rulers add to: the one selected top-level frame (axis-aligned), else the page.
+  Guid guideOwner() const;
   bool hasSelectedGuide() const { return selectedGuide_.owner != kNoGuid; }
   const RulerGuide& selectedGuide() const { return selectedGuide_; }
 
@@ -410,6 +434,30 @@ class Editor : private LayoutHost, public TextLayouts {
   Status command(CommandId id, const CommandArgs& args);
   uint32_t commandState(CommandId id) const;
 
+  // ---- Figma Motion (docs/motion.md §4.9, §5; round 8a: motion/MotionLayer.*) ----
+  // The view state: Motion on / off, the timeline root shown (kNoGuid: the selection's root), the playhead, auto-keyframe.
+  // Setting it applies the evaluated values as preview writes (the motion layer) or restores the base values; the
+  // document itself never changes. Omitted parts keep their value (setMotionJson, the ABI's engine_set_motion).
+  void setMotion(const motion::State& s);
+  Status setMotionJson(const json::Value& v);
+  const motion::State& motion() const { return motion_; }
+  // The root the layer plays now (the state's, or the selection's), kNoGuid when none.
+  Guid motionRoot() const;
+  // The decoded model (rebuilt after a commit; tests, the timeline reads of round 8b).
+  const motion::MotionIndex& motionIndex();
+  const motion::MotionLayer& motionLayer() const { return motionLayer_; }
+  // The base values put back for the scope (storage, exports, the clipboard), the layer applied again after it.
+  motion::Suspend motionSuspended();
+  // Round 8b (editor/MotionCommands.cpp): the timeline model of a root (or of the selection's: kNoGuid), the right
+  // panel's diamonds for nodes, the resolved model of a root or a layer — as JSON (src/shared/motion/types.ts shapes).
+  void writeMotionTimeline(json::Writer& w, Guid root);
+  void writeMotionFieldStates(json::Writer& w, const std::vector<Guid>& ids);
+  void writeMotionResolved(json::Writer& w, Guid node);
+  // Round 8e (editor/MotionExport.cpp): what the vector exports draw — the root's layers as shapes at base values, and
+  // their evaluated transform, opacity, path trim, solid colours and stroke weight at each of `times` (µs).
+  void writeMotionShapes(json::Writer& w, Guid root);
+  void writeMotionSamples(json::Writer& w, Guid root, const std::vector<int64_t>& times);
+
   // ---- Figma Draw (docs/draw.md §4; round 7b: editor/DrawCommands.cpp, tools/DrawTools.cpp) ----
   // The Pencil's and the Brush's settings (the secondary toolbar's DrawToolSettings, src/shared/draw/types.ts).
   struct DrawTools {
@@ -461,8 +509,23 @@ class Editor : private LayoutHost, public TextLayouts {
   uint32_t paste(const Clipboard& clip, bool inPlace);
   uint32_t pasteWith(const Clipboard& clip, uint32_t flags);  // PasteFlags
   bool canUndo() const { return undo_.canUndo(); }
+  // Figma's openIgnoreUndoRedoScope / closeIgnoreUndoRedoScope (docs/research/rea/canvas.md §2.4): while one is open
+  // (they nest), writes go into the document and the transaction's changes as usual but leave no inverse in any undo
+  // history — system bookkeeping that must not become, or join, a step. Closing more than were opened does nothing.
+  void openIgnoreUndo() { ignoreUndo_++; }
+  void closeIgnoreUndo() {
+    if (ignoreUndo_ > 0) ignoreUndo_--;
+  }
+  bool ignoringUndo() const { return ignoreUndo_ > 0; }
   bool canRedo() const { return undo_.canRedo(); }
   const UndoStack& undoStack() const { return undo_; }
+  // The local user's undo history as Figma's Message.localUndoStack / localRedoStack (docs/research/rea/canvas.md
+  // §2.18): the last `maxSteps` steps of each, fewer when they pass `maxBytes`. Per device: the store keeps it beside
+  // the file, never in a snapshot. Labels and selections don't travel (a restored step selects nothing).
+  std::string exportUndoHistory(size_t maxSteps = 100, size_t maxBytes = 16u << 20) const;
+  // Takes such a history back (the document must be the one it was exported from). False on malformed bytes or while
+  // a transaction is open; the history is left as it was then.
+  bool importUndoHistory(std::string_view bytes);
 
   // ---- Actors (docs/engine.md §9.5): per-actor undo and view state ----
   // Actor 0 is the local user (⌘Z / ⇧⌘Z, the selection, the page, the view). Any other id is a writer working
@@ -592,6 +655,7 @@ class Editor : private LayoutHost, public TextLayouts {
     // editor shows each as a toast (Figma's visual bell). Once per key per take.
     std::vector<std::string> notices;
     bool pathTool = false;  // PATH_TOOL: Simplify vector / Offset path opened, changed or closed
+    bool motion = false;    // MOTION_CHANGED (round 8a): the root's motion model or the view state changed
     bool selection = false, camera = false, tool = false, cursor = false, hover = false, undo = false,
          structure = false, pages = false, currentPage = false, textEdit = false, vectorEdit = false, paintEdit = false,
          navigation = false;
@@ -599,7 +663,7 @@ class Editor : private LayoutHost, public TextLayouts {
       return !colorPicks.empty() || !inlineEdits.empty() || !annotationOpens.empty() || !measurementEdits.empty() || !statusClicks.empty() || measurementSelection ||
              !documents.empty() || !contextMenus.empty() || !prototypeConnected.empty() || !prototypeSelected.empty() || !gridTracks.empty() || !renames.empty() || haptics != 0 || !drawSampled.empty() || !notices.empty() || pathTool || !nodes.empty() || !components.empty() || !collections.empty() ||
              !variables.empty() || !styles.empty() || selection || camera || tool || cursor || hover || undo || structure || pages ||
-             currentPage || textEdit || vectorEdit || paintEdit || navigation;
+             currentPage || textEdit || vectorEdit || paintEdit || navigation || motion;
     }
   };
   bool hasEvents() const { return events_.any(); }
@@ -608,6 +672,8 @@ class Editor : private LayoutHost, public TextLayouts {
   // ---- Text (docs/engine.md §7.6) ----
   // The layout of a TEXT node as it is now (cached; nullptr for other nodes).
   const text::TextLayout* textLayout(Guid id) override;
+  // Motion's text stagger (round 8h): the poses the motion layer applied to a text's elements.
+  const motion::TextElementPoses* textElements(Guid id) override { return motionLayer_.textElements(id); }
   size_t textCacheSize() const { return textCache_.size(); }  // layouts kept (tests: a lookup that hits adds none)
   // A font arrived or went missing: text is laid out again (and auto-resized
   // texts measured while it loaded take their size).
@@ -731,6 +797,11 @@ class Editor : private LayoutHost, public TextLayouts {
   uint32_t paintIndex() const { return paint_.index; }
   int paintStop() const { return paint_.stop; }
   Status setPaintStop(int stop);
+  // A progressive blur's edit mode (Figma's PROGRESSIVE_BLUR, atlas 08 §6.2), in the same session: `id`'s effect
+  // `index` (a layer or background blur, progressive) shows its Start and End handles; dragging one moves startOffset /
+  // endOffset. `paintStop()` is then the marked handle: 0 Start, 1 End, −1 none (the panel's hovered field).
+  Status startBlurEdit(Guid id, uint32_t index);
+  bool blurEditing() const { return paint_.node != kNoGuid && paint_.effect; }
 
   // ---- Prototype mode (editor/PrototypeEditing.cpp; the right panel's Prototype tab) ----
   // The canvas shows connections, the "+" connection handle on selected layers and flow labels; dragging a handle to a
@@ -759,9 +830,17 @@ class Editor : private LayoutHost, public TextLayouts {
   void setDevEdits(bool on);
   bool devEdits() const { return devEdits_; }
   bool canEditDev() const { return !viewer_ || devEdits_; }
+  // Dev Mode's inspect chrome on the canvas (the selection's design highlighted, an auto-layout frame's paddings and
+  // gaps measured, the two-line size badge: DevMode.cpp devInspectOverlay); viewer mode only.
+  void setDevInspect(bool on);
+  bool devInspect() const { return viewer_ && devInspect_; }
   // View › Annotations (labels, dots and saved measurements); `dots`: Dev Mode's dots (a click opens one's label).
   void setAnnotationView(bool show, bool dots);
   bool annotationsShown() const { return dev_.show; }
+  // The zoom menu's Annotations ▸ <category> (Figma's filterAnnotationCategoryId): only that category's annotations
+  // show; kNoGuid ("Show all categories"): every one.
+  void setAnnotationFilter(Guid category);
+  Guid annotationFilter() const { return dev_.category; }
   // Every user edit stamps editInfo {lastEditedAt, createdAt} (unix seconds) on the edited nodes and their ancestors,
   // as Figma's files do — a design marked ready whose lastEditedAt is later than its status shows "Changed". Edits of
   // annotations, measurements and statuses don't count.
@@ -801,15 +880,20 @@ class Editor : private LayoutHost, public TextLayouts {
     FieldMask bits = 0;
     std::vector<std::string> extraKeys;
     bool otherExtras = false, assignments = false, slotAssignments = false;
+    // Figma's reset-prop-assignments for one property ("Reset {property}", resetComponentPropAssignmentForInstances):
+    // only these properties' values (ids or names of the instance's main), nothing else.
+    std::vector<std::string> props;
   };
   // Figma's reset kinds (ResetOverridesKind 0–14, and reset-variable-modes / reset-prop-assignments as VARIABLE_MODES /
   // PROPERTY_ASSIGNMENTS) into `spec`; false for an unknown kind. LAYER is every field no other kind names (Figma's
   // "others": opacity, corners, auto layout, layout guides, …).
   static bool resetKind(const std::string& kind, ResetSpec& spec);
   bool computeComponentInfo(Guid id, ComponentInfo& out) const;
-  // GO_TO_MAIN_COMPONENT / RETURN_TO_INSTANCE: where the last navigation went and where it came from.
+  // GO_TO_MAIN_COMPONENT / RETURN_TO_INSTANCE: where the last navigation went and where it came from (Figma keeps
+  // {mainComponentGUID, instanceGUIDs}: every instance selected when it went; the first is `returnToInstance`).
   Guid navigationMain() const { return navMain_; }
-  Guid returnToInstance() const { return returnTo_; }
+  Guid returnToInstance() const { return returnTo_.empty() ? kNoGuid : returnTo_[0]; }
+  const std::vector<Guid>& returnToInstances() const { return returnTo_; }
   // A derived node (an instance's sublayer).
   bool isDerived(Guid id) const { return id.isDerived(); }
   // The real instance a derived node belongs to (kNoGuid for real nodes).
@@ -865,12 +949,16 @@ class Editor : private LayoutHost, public TextLayouts {
   // How many layers use a style.
   uint32_t styleUsage(Guid style) const;
   // The fonts the document names (text, runs, instance overrides), each with how many places name it
-  // (editor/FontCommands.cpp).
+  // (editor/FontCommands.cpp). With `roots` (the Missing fonts dialog's Current page / Current selection), only the
+  // layers in them and inside them, and each font's layers (`nodes`).
   struct DocumentFont {
     FontName font;
     uint32_t uses = 0;
+    std::vector<Guid> nodes;
   };
-  std::vector<DocumentFont> documentFonts() const;
+  std::vector<DocumentFont> documentFonts(const std::vector<Guid>& roots = {}) const;
+  // Whether `id` is one of `roots` or inside one (every node when there are none).
+  bool inScope(const std::vector<Guid>& roots, Guid id) const;
   struct BoundVariable {
     std::string target;     // BindingTarget (docs/engine-build.md)
     Guid variable = kNoGuid;  // the alias (a composed colour: its colour's alias)
@@ -1103,7 +1191,7 @@ class Editor : private LayoutHost, public TextLayouts {
 
   enum class Gesture : uint8_t { None, Pan, Press, Move, Resize, Rotate, Draw, Marquee, TextSelect, Vector, Pencil, Paint, Noodle, Grid,
                                  Measure, MeasureDrag, Radius, Gap, LayoutBar, ZoomArea, Reorder, RotationOrigin, Guide, Shape,
-                                 Scrollbar, TextPathStart };
+                                 Scrollbar, TextPathStart, MotionAnchor };
 
   struct Target {
     Guid id;
@@ -1163,8 +1251,9 @@ class Editor : private LayoutHost, public TextLayouts {
   // Is the node on a page already derived (or on the internal canvas)? Undo, redo and remote changes lay out only there.
   bool onDerivedPage(Guid id) const;
   Camera snapped(Camera c) const;
-  // The visible part of the canvas (Viewport::visible): a camera fitting r in it, its centre (screen), its world rect.
-  Camera fitVisible(const Rect& r, bool upTo100) const;
+  // The visible part of the canvas (Viewport::visible): a camera fitting r in it with `padding` px on each side (the
+  // camera as it is when the padding alone fills it), its centre (screen), its world rect.
+  Camera fitVisible(const Rect& r, double padding) const;
   Vec2 visibleCentre() const;
   Rect visibleWorld() const;
   void zoomToFit();
@@ -1263,6 +1352,10 @@ class Editor : private LayoutHost, public TextLayouts {
   bool isStructuralTarget(Guid parent) const;
   // Remaps an instance's overrides from one main to another (variant switch / swap; Figma's name rules).
   std::vector<SymbolOverride> remapOverrides(const std::vector<SymbolOverride>& overrides, Guid from, Guid to, bool variant) const;
+  // A nested swap of the derived instance `ref` from `from` to `to` (Figma's override stash, docs/schema.md §5.3): the
+  // top-level instance's overrides under it are rewritten to `to`'s layers (remapOverrides), the ones that don't carry
+  // over are stashed in its overrideStash under (path, from's key), and a stash kept for (path, to's key) comes back.
+  void transferNestedSwap(Guid ref, Guid from, Guid to);
   // The path (keys) of the one TEXT layer in `symbol`'s tree, nested instances' mains included (false: none or several).
   bool soleTextPath(Guid symbol, std::vector<Guid>& path) const;
   // An instance's assignment of one of `main`'s SLOT properties (its slot content frame; Push changes keeps it).
@@ -1321,13 +1414,15 @@ class Editor : private LayoutHost, public TextLayouts {
   // A variant renamed by hand (round 17 B, Figma's backfillVariantPropDefs): its name's pairs become its values, a new
   // property name a Variant property of the set; an invalid name is kept (the variant shows as conflicting).
   void backfillVariantNames();
-  // Whether a variant's name disagrees with its values, or repeats another variant's values (Figma's conflicting
-  // variants).
-  bool variantConflicts(Guid variant) const;
+  // Figma's variant errors (StateGroupError): each variant of `set` with its own, read from its name; a variant's.
+  std::vector<std::pair<Guid, VariantError>> variantErrors(Guid set) const;
+  VariantError variantError(Guid variant) const;
   Status insertInstance(Guid main, const CommandArgs& args);
   Status setVariantProperties(Guid variant, const CommandArgs& args);
   Status pushChangesToMain(Guid instance);
-  Status goToMainComponent(Guid ref);
+  Status goToMainComponent(const std::vector<Guid>& refs);
+  // The instance behind a ref (an instance, or the instance a derived sublayer lies in).
+  Guid instanceBehind(Guid ref) const;
   Status returnToInstanceCmd();
   Status swapInstance(const std::vector<Guid>& ids, Guid main);
   Status setComponentProperty(Guid ref, const std::string& prop, const json::Value& value);
@@ -1373,8 +1468,21 @@ class Editor : private LayoutHost, public TextLayouts {
   // Moves a node by `d` in world space.
   void shiftWorld(Guid id, Vec2 d);
   // Turns `frame` into auto layout, inferring direction, gap and alignment from
-  // its children (and its padding from where they sit, when `padFromContent`).
+  // its children (and its padding from where they sit, when `padFromContent`;
+  // layout/Infer.h: a grid or a wrap too). Atlas wave 2 (editor/AutoLayoutCommands.cpp).
   void inferAutoLayout(Guid frame, bool padFromContent);
+  // Sibling layers wrapped in a new auto-layout frame inferred from them (in the open transaction).
+  Guid wrapInAutoLayout(const std::vector<Guid>& ids);
+  // Suggest auto layout: sibling layers stacked into nested auto-layout frames (`into`: the frame they are in becomes
+  // the outer stack); the frames created go to `made`. What stands for them now, or kNoGuid when nothing was stacked.
+  Guid suggestStack(const std::vector<Guid>& ids, Guid into, std::vector<Guid>& made, int depth);
+  void suggestInside(Guid frame, std::vector<Guid>& made, int depth);
+  // SUGGEST_AUTO_LAYOUT, REMOVE_ALL_AUTO_LAYOUT, SET_STACK_LAYOUT_VERSION.
+  Status autoLayoutCommand(CommandId id, const CommandArgs& args);
+  uint32_t autoLayoutCommandState(CommandId id) const;
+  // The auto-layout frames (their own layout) not at `version`'s layout: the selection's (with what is inside them
+  // when `deep`) or the current page's.
+  std::vector<Guid> stacksAt(uint32_t version, bool page, bool deep) const;
   // A position for a child of `parent` at `index` among its children without
   // `moving`; rebalances the siblings (in the open transaction) when the key
   // would be longer than 24 characters.
@@ -1461,6 +1569,10 @@ class Editor : private LayoutHost, public TextLayouts {
   Guid duplicatePage(Guid page);
   // E4 / E5 (editor/VectorCommands.cpp).
   Status booleanSelection(BooleanOperation op);
+  // The selected boolean groups still at an older vectorOperationVersion (Atlas 05 §9.2): how many, and brought to the
+  // latest as one undo step ("Update boolean").
+  size_t outdatedBooleans() const;
+  Status upgradeBooleans();
   Status flattenSelection();
   Status outlineStroke();
   Status useAsMask();
@@ -1602,6 +1714,7 @@ class Editor : private LayoutHost, public TextLayouts {
   bool startMove(uint32_t mods);
   void setDuplicating(bool on);
   void dragMove(Vec2 world, uint32_t mods);
+  void motionDragMove(Vec2 world, uint32_t mods);
   void finishMove();
   void updateInsertion(Guid frame, Vec2 world);
   void startResize(int hx, int hy);
@@ -1750,6 +1863,107 @@ class Editor : private LayoutHost, public TextLayouts {
   void brushPaste(const std::vector<NodeChange>& clip, std::unordered_map<Guid, Guid, GuidHash>& remap);
   void remapStrokeBrush(NodeProps& p, const std::unordered_map<Guid, Guid, GuidHash>& remap) const;
   DrawTools drawTools_;
+  // Motion (round 8a): the view state, the decoded model and the preview-write layer; `motionDirty_`: the index is
+  // rebuilt before its next use (a commit changed the document).
+  motion::State motion_;
+  motion::MotionIndex motionIndex_;
+  motion::MotionLayer motionLayer_;
+  bool motionDirty_ = true;
+  // Round 8j: the layer evaluates inside the open transaction (setMotion's `inTransaction`: a style's canvas preview,
+  // whose transaction is cancelled and holds no other write); cleared when the transaction ends.
+  bool motionInTxn_ = false;
+  void motionApply();
+  // Round 8i: the index rebuilt with the variables resolved (EASING / TIMING bindings, in the animated layer's modes);
+  // the top-level frames with animated layers (the Motion icon before their names, render/FrameTitles.h), kept with it.
+  void motionRebuild();
+  std::vector<Guid> motionTitleRoots_;
+  // Round 8a, increment 2: lays out what the motion layer's layout-changing fields touched, its writes previews; the
+  // motion path and the anchor point's target of the selected layer on the canvas.
+  void motionRelayout(const std::vector<Guid>& dirty);
+  void motionOverlay(Overlay& o) const;
+  // Round 8b (editor/MotionCommands.cpp).
+  Status motionCommand(CommandId id, const CommandArgs& args);
+  Status motionAudioCommand(CommandId id, const json::Value& raw);  // round 8e: 345–348 on the root's audio
+  std::vector<std::pair<Guid, Guid>> motionExportLayers(Guid root);  // round 8e: (layer, parent) as the exports walk them
+  bool motionRasterized(Guid id) const;
+  uint32_t motionCommandState(CommandId id) const;
+  const VariableData* motionSlotData(const NodeProps& p, const motion::Slot& s) const;
+  bool motionBaseValue(const NodeProps& p, const motion::Slot& s, motion::KeyframeValue& out) const;
+  void motionWriteSlot(Guid id, const motion::Slot& s, const VariableData& data);
+  Guid internalCanvas() const;
+  Guid motionTrackOf(const NodeProps& p, const motion::Slot& s) const;
+  Guid motionEnsureTrack(Guid id, const motion::Slot& s, Guid root);
+  Guid motionKeyframeAt(Guid track, int64_t timeUs) const;
+  Guid motionUpsertKeyframe(Guid track, int64_t timeUs, const motion::KeyframeValue& value, const json::Value* easing);
+  // Round 8i: easings and a clip's timing bound to EASING / TIMING variables; X / Y tracks combined and split.
+  void motionBindEasing(Guid keyframe, Guid variable);
+ public:
+  // A public MotionEasing as an EasingData (JSON), for keyframes, clips and EASING variables (VariableCommands.cpp).
+  static bool motionEasingData(const json::Value& pub, json::Value& out);
+
+ private:
+  void motionBindPresetVariables(Guid preset, const json::Value& variables);
+  Status motionCombineTracks(Guid node, bool scale, bool combine);
+  Status motionCreateStyle(const json::Value& spec);
+  void motionReapplyStyle(Guid style, const json::Value& runs);
+  void motionRemoveTrack(Guid track);
+  std::vector<Guid> motionTracksOwnedBy(const std::vector<Guid>& ids);
+  bool motionSlotOfTrack(Guid track, Guid& owner, motion::Slot& slot);
+  bool motionCurrentValue(Guid id, const motion::Slot& slot, int64_t timeUs, motion::KeyframeValue& out);
+  FieldMask motionRouteWrite(Guid id, NodeChange& props);
+  // Round 8b, increment 2: a move, resize or rotate of layers under the timeline's root while Motion is on is drawn as
+  // the motion layer's preview writes (no transaction) and keyed in one step when it ends; a nudge is keyed at once.
+  struct MotionDrag {
+    bool on = false;
+    bool moved = false;     // a preview was written (a click on a handle keys nothing)
+    bool rotating = false;  // the rotate handle: the turn goes to ROTATION
+    struct Item {
+      Guid id;
+      Mat2x3 shown;  // where the canvas showed it when the gesture began (the parent's space)
+      Vec2 shownSize;
+      Mat2x3 to;  // where the gesture leaves it
+      Vec2 toSize;
+    };
+    std::vector<Item> items;
+  };
+  MotionDrag motionDrag_;
+  bool motionGestureFor(const std::vector<Guid>& ids);
+  bool motionStartGesture(const std::vector<Target>& targets, bool rotating);
+  void motionPreview(Guid id, const Mat2x3& transform, Vec2 size);
+  void motionFinishGesture(const char* label);
+  void motionCancelGesture();
+  void motionKeyPose(Guid id, const Mat2x3& shown, Vec2 shownSize, const Mat2x3& to, Vec2 toSize, bool rotating);
+  motion::LayerBase motionPoseAt(Guid id, int64_t timeUs);
+  void motionKeyAtPlayhead(Guid id, const motion::Slot& s, Guid root, const motion::KeyframeValue& value);
+  void motionShiftTranslation(Guid id, Vec2 by);
+  // Round 8a, increment 2: the anchor point tool (⌥R in Motion, docs/motion.md §4.9) — its target dragged (a view state,
+  // snapped to the layer's box), MOTION_SET_ANCHOR when let go.
+  struct MotionAnchorDrag {
+    Guid id = kNoGuid;
+    Vec2 world;  // where the target is drawn
+  };
+  MotionAnchorDrag motionAnchor_;
+  bool motionAnchorTarget(Guid& id, Vec2& world) const;
+  bool motionAnchorPress(Vec2 screen);
+  void motionAnchorDrag(Vec2 world, uint32_t mods);
+  void motionAnchorDrop();
+  // Ownership (docs/motion.md §4.2): a copied layer's tracks copied with it; the clipboard carries them.
+  void motionCopyTracks(NodeProps& p, Guid parent, const std::vector<NodeChange>* clip);
+  Guid motionCopyTrack(Guid track, const std::vector<NodeChange>* clip);
+  void motionClipboard(std::vector<NodeChange>& nodes, const std::vector<const NodeProps*>& copied) const;
+  Guid motionCopyPreset(Guid preset, const std::vector<NodeChange>* clip, std::unordered_map<Guid, Guid, GuidHash>& tracks);
+  // Round 8h (docs/motion.md §4.6): animation presets — ANIMATION_PRESET_INSTANCE clips on the internal canvas, listed
+  // in their layer's `animationPresets`, their materialised tracks their KEYFRAME_TRACK children bound through
+  // ANIMATION_PRESET parameters — and the composite styles that generated them (`styleIdsForAnimation`).
+  bool motionBindingOf(const NodeProps& p, const motion::Slot& s, VariableData& base, std::vector<motion::Param>& params) const;
+  Guid motionAddPreset(Guid node, Guid root, const json::Value& spec, int64_t startUs);
+  bool motionPresetProps(const json::Value& spec, Guid parent, int64_t startUs, NodeProps& out);
+  bool motionEditPreset(Guid preset, const json::Value& edit);
+  void motionSetPresetTracks(Guid preset, const json::Value& output);
+  void motionRemovePreset(Guid preset);
+  void motionScalePreset(Guid preset, double factor);
+  Guid motionPresetOwner(Guid preset) const;
+  void motionWritePresetList(Guid node, const std::vector<Guid>& presets);
   Guid textPathDrag_ = kNoGuid;    // the TEXT_PATH whose start handle is dragged
   Guid textPathHover_ = kNoGuid;   // the edge the Text on path tool is over (highlighted)
   void switchVectorNode(Guid id);
@@ -1773,8 +1987,14 @@ class Editor : private LayoutHost, public TextLayouts {
     int handle = 0;  // 0 start / centre, 1 end, 2 width
     Paint start;     // the paint when the drag started
     bool dragged = false;
+    bool effect = false;  // a progressive blur (`index` into the effects), not a gradient paint
+    Effect effectStart;   // the effect when the drag started
   };
   const Paint* editedPaint() const;
+  const Effect* editedBlur() const;
+  // The session's paint or progressive blur is still there.
+  bool paintSessionLive() const { return paint_.effect ? editedBlur() != nullptr : editedPaint() != nullptr; }
+  void writeBlur(const Effect& e);
   // The handles in node unit space: [start or centre, end, width].
   void paintHandles(const Paint& p, Vec2 out[3]) const;
   uint32_t paintPointerDown(Vec2 s, uint32_t mods);
@@ -1853,6 +2073,7 @@ class Editor : private LayoutHost, public TextLayouts {
   // ---- Dev Mode (editor/DevMode.cpp) ----
   struct DevSession {
     bool show = true, dots = false;
+    Guid category = kNoGuid;  // the zoom menu's Annotations ▸ filter: only this category's notes (none: all)
     Guid focus = kNoGuid;
     Guid selectedMeasurement = kNoGuid;
     Guid openNode = kNoGuid;  // dots: the annotation whose label is open
@@ -1873,6 +2094,7 @@ class Editor : private LayoutHost, public TextLayouts {
   };
   DevSession dev_;
   bool devEdits_ = false;
+  bool devInspect_ = false;
   bool editTracking_ = false;
   std::function<double()> wallClock_;
   std::unordered_set<Guid, GuidHash> userGeometry_;  // this USER step's nodes whose size / transform the user wrote (base)
@@ -1880,6 +2102,7 @@ class Editor : private LayoutHost, public TextLayouts {
   std::unordered_set<Guid, GuidHash> annotated_;  // nodes with annotations
   CanvasHits hits_;
   void devOverlay(Overlay& o) const;
+  void devInspectOverlay(Overlay& o) const;
   uint32_t devPointerDown(Vec2 s, uint32_t mods);
   bool devPointerMove(Vec2 s);
   bool devPointerUp(Vec2 s);
@@ -2068,6 +2291,7 @@ class Editor : private LayoutHost, public TextLayouts {
     ChangeSet changes;
     bool run = false;   // txnBeginRun: the step is marked for the next run slice
     bool join = false;  // txnBeginRun(join): folds into the marked step
+    bool peer = false;  // APPLY_PEER: another session's change — every history yields what it wrote
   } txn_;
   // The user's undo count right after the last run slice committed (SIZE_MAX: none, or something else since).
   size_t runMark_ = SIZE_MAX;
@@ -2250,7 +2474,8 @@ class Editor : private LayoutHost, public TextLayouts {
   std::vector<PendingLayout>* deferredLayout_ = nullptr;  // flushInstances' batch: stage B waits for all of it
   std::unordered_set<Guid, GuidHash> layingOut_;          // instances in stage B (their writes don't dirty them)
   bool intrinsicLayout_ = false;  // stage A of an instance's layout: no constraints
-  Guid navMain_ = kNoGuid, returnTo_ = kNoGuid;
+  Guid navMain_ = kNoGuid;
+  std::vector<Guid> returnTo_;
   std::unordered_map<Guid, Guid, GuidHash> detachMap_;  // the last detach: derived id → the real node made for it
   bool pasteAsInstances_ = true;
 
@@ -2366,6 +2591,8 @@ class Editor : private LayoutHost, public TextLayouts {
 
   // ---- Actors (actorBegin) ----
   UndoStack& stackOf(uint32_t actor);
+  // Open ignore-undo scopes (openIgnoreUndo)
+  int ignoreUndo_ = 0;
   UndoStack& recording() { return stackOf(undoTo_); }
   const UndoStack& recording() const {
     auto it = actorUndo_.find(undoTo_);
@@ -2373,6 +2600,8 @@ class Editor : private LayoutHost, public TextLayouts {
   }
   // A step of `undoTo_` committed: every other history yields the fields it wrote.
   void yieldOthers();
+  // Another session's change committed (APPLY_PEER): every history yields the fields it wrote, the user's too.
+  void yieldAll();
   // After another actor's write or undo: the user's text / vector / gradient edit follows what changed under it.
   void followForeign(const std::vector<Guid>& touched);
   uint32_t actor_ = 0;   // who is writing (DOCUMENT_CHANGED.actor)

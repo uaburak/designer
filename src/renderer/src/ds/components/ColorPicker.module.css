@@ -100,6 +100,11 @@
   .contrastValue { flex: 1 1 auto; color: var(--figma-color-text); font-variant-numeric: tabular-nums; }
   .contrastBadge { padding: 0 var(--ds-space-1); border-radius: var(--ds-radius-small); color: var(--figma-color-text-tertiary); }
   .contrastBadge[data-pass] { background: var(--figma-color-bg-success); color: var(--figma-color-text-onsuccess); }
+  /* Met or not, and the auto-correct; on the square, the lines where the ratio is the standard's and the colour it would pick */
+  .contrastNote { display: flex; align-items: center; justify-content: space-between; gap: var(--ds-space-2); min-height: var(--ds-size-control); margin: 0 var(--ds-space-4); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .contrastLines { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+  .contrastLines polyline { fill: none; stroke: var(--figma-color-icon-onbrand); stroke-opacity: 0.8; stroke-width: 1; }
+  .contrastFix { opacity: 0.8; pointer-events: none; }
 
   /* "On this page" and its swatches */
   .swatchSection { display: flex; flex: none; flex-direction: column; gap: var(--ds-space-2); margin-top: 28px; padding: 0 var(--ds-space-4) var(--ds-space-4); }
@@ -143,7 +148,11 @@
   .stopChip { width: 14px; height: 14px; border-radius: var(--ds-radius-small); box-shadow: inset 0 0 0 1px var(--ds-color-border-translucent); }
   .stop[aria-selected="true"] { background: var(--figma-color-bg-brand); }
   .stop:focus-visible { box-shadow: 0 0 0 2px var(--ds-focus-color); }
-  .stop[data-removing] { opacity: 0.3; }
+  /* The hovered track's ghost stop: where a click adds one, in the colour there */
+  .ghostStop { opacity: 0.5; pointer-events: none; }
+  /* "Color interpolation" under the stops: the label, the space (and the hue method) */
+  .interpolationRow { display: flex; flex: none; align-items: center; gap: var(--ds-space-1); height: 32px; padding: 0 var(--ds-space-2) 0 var(--ds-space-4); border-top: 1px solid var(--figma-color-border); }
+  .interpolationLabel { flex: 1 1 auto; overflow: hidden; color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
 
   .stopsSection { display: flex; flex: none; flex-direction: column; margin-top: var(--ds-space-3); padding: 15px 0 var(--ds-space-3); border-top: 1px solid var(--figma-color-border); }
   .stopsHeader { display: flex; align-items: center; justify-content: space-between; height: 40px; padding: 0 var(--ds-space-2) 0 var(--ds-space-4); color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
@@ -197,6 +206,7 @@
   .patternShade { position: absolute; inset: 1px; display: flex; align-items: center; justify-content: center; background: var(--ds-color-picker-preview-shade); }
   /* With a source the preview shows it; the shade and "Select source…" come back on hover */
   .patternPreview:not([data-empty]) .patternShade { opacity: 0; transition: opacity 0.1s; }
+  @media (prefers-reduced-motion: reduce) { .imageOverlay, .patternShade { transition: none; } }
   .patternPreview:not([data-empty]):hover .patternShade, .patternPreview:not([data-empty]) .patternShade:focus-within { opacity: 1; }
   .selectSource { min-width: 117px; max-width: 176px; }
   .patternGrid { display: grid; grid-template-columns: 72px 136px; align-items: center; column-gap: 0; row-gap: var(--ds-space-2); margin: 21px var(--ds-space-4) 11px; }

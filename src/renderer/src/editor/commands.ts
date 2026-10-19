@@ -17,15 +17,20 @@ import { canExport, copyAsCode, copyAsPng, copyAsSvg, copyAsText, exportAllowed,
 import { present, togglePreview } from "./present";
 import { setDevStatus, statusOfTargets, statusTargets } from "./devStatus";
 import { annotationsShown, modeOf, setMode, toggleAnnotations } from "./devmode/devMode";
+import { audioMuted, hasAudio, splitAudioAtPlayhead, splitTargets, toggleAudioMute } from "./motion/audio/audioEdits";
+import { toggleAutoKeyframe, toggleMotionPlaying } from "./motion/motionState";
+import { askAgent, campaignPosts, exportPostsDialog, safeAreasShown, selectedPosts, toggleSafeAreas, toggleSocialMode } from "./social/SocialMode";
+import { MOTION_UI_DEFAULT } from "./uiStore";
 import { round5, setRound5 } from "./devmode/round5";
 import { textSummary, toggledBold, toggledItalic } from "./model/text";
 import { fields, type ExtraFields } from "./panels/design/shared";
+import { removeAllAutoLayout, suggestAutoLayout } from "./panels/design/layoutActions";
 import type { Guid } from "@/engine/codec";
 import { COMPONENT_COMMAND, canPushChanges, goToMainComponent, instanceChanges, mainOf, pageOf, resetChanges, returnToInstance, selectedInstance } from "./components";
 import { collapsedLayers } from "./model/layerTree";
 import { openFind, stepFind } from "./find";
 import { adjustText, syncViewOptions, type TextAdjust } from "./canvasTools";
-import { PREFERENCES, pref, togglePreference } from "./preferences";
+import { PREFERENCES, pref, togglePreference, type PreferenceKey } from "./preferences";
 import { setSpellCheck, spellCheckOn, spellChecker } from "./spellcheck";
 import {
   addLayout,
@@ -55,6 +60,7 @@ import { isBranch } from "./branching/state";
 import { accountBridge, accountSignedIn } from "../files/account";
 import { canShowLibraryAnalytics, openLibraryAnalytics } from "./analytics/EditorAnalytics";
 import { presenceOf } from "./multiplayer/presence";
+import { saveReminder } from "./saveStatus";
 import { pluginsOf } from "./plugins/service";
 import { pluginDesktop } from "./plugins/desktop";
 import { openActions } from "./panels/actionsTab";
@@ -92,6 +98,8 @@ export interface EditorCommand {
   run(ed: EditorController): void;
   enabled?(ed: EditorController): boolean;
   checked?(ed: EditorController): boolean;
+  /** Its key pressed while it can't run (⌘S with nothing to wrap in a section: Figma's save reminder) */
+  whenDisabled?(ed: EditorController): void;
 }
 
 const KEY_LABEL: Record<string, string> = {
@@ -119,6 +127,11 @@ const KEY_LABEL: Record<string, string> = {
 
 /** A combo as Figma writes it ("⇧⌘H", "⌥⌘G", "⌃⇧?"). */
 export function comboText(c: KeyCombo): string {
+  // Figma's table says what its menus show (⇧⌘= is "⌘+").
+  if (c.shown) {
+    const s = c.shown;
+    return keyText([...(s.ctrl ? ["ctrl"] : []), ...(s.alt ? ["alt"] : []), ...(s.shift ? ["shift"] : []), ...(s.mod ? ["mod"] : []), s.key]);
+  }
   let key = keyLayout?.label(c.code)?.toUpperCase() ?? KEY_LABEL[c.code] ?? c.code.replace(/^Key|^Digit/, "");
   // Live: "⌃⇧?" (Keyboard shortcuts) but "⇧/" (Remove stroke).
   if (c.code === "Slash" && c.shift && c.ctrl) key = "?";
@@ -208,10 +221,13 @@ const PLUGIN_COMMANDS: EditorCommand[] = [
   { id: "plugins.none", label: "No saved plugins", run: () => {}, enabled: () => false },
   // "New plugin…": the "Create a plugin" dialog; main writes Figma's templates into a folder the person picks.
   { id: "plugins.new", label: "New plugin…", run: (ed) => pluginsOf(ed)?.openNewPlugin(), enabled: (ed) => !!pluginsOf(ed)?.canDevelop },
-  { id: "plugins.import", label: "Import new plugin from manifest…", run: (ed) => void pluginsOf(ed)?.importManifest(), enabled: (ed) => !!pluginsOf(ed) && !!pluginDesktop() },
+  { id: "plugins.import", label: "Import plugin from manifest…", run: (ed) => void pluginsOf(ed)?.importManifest(), enabled: (ed) => !!pluginsOf(ed) && !!pluginDesktop() },
+  // Development ▸ (Figma's order, docs/research/atlas/17-plugins.md §10.1)
+  { id: "plugins.manage-development", label: "Manage plugins in development", run: (ed) => openActions(ed, "plugins"), enabled: (ed) => !!pluginsOf(ed) },
+  { id: "plugins.api-docs", label: "View API documentation", run: () => void window.open("https://www.figma.com/plugin-docs/", "_blank", "noopener") },
   { id: "plugins.hot-reload", label: "Hot reload plugin", run: (ed) => pluginsOf(ed)?.toggleHotReload(), enabled: (ed) => !!pluginsOf(ed), checked: (ed) => !!pluginsOf(ed)?.get().hotReload },
   { id: "plugins.developer-vm", label: "Use developer VM", run: (ed) => pluginsOf(ed)?.toggleDeveloperVm(), enabled: (ed) => !!pluginsOf(ed), checked: (ed) => !!pluginsOf(ed)?.get().developerVm },
-  { id: "plugins.open-console", label: "Open console", run: (ed) => pluginsOf(ed)?.openConsole(), enabled: (ed) => !!pluginsOf(ed) && !!pluginDesktop() },
+  { id: "plugins.open-console", label: "Show/Hide console", run: (ed) => pluginsOf(ed)?.openConsole(), enabled: (ed) => !!pluginsOf(ed) && !!pluginDesktop() },
 ];
 
 const later = (id: string, label: string, keys?: KeyCombo[]): EditorCommand => ({ id, label, keys, run: () => {}, enabled: () => false });
@@ -300,6 +316,16 @@ const selectAllWith = (id: string, label: string, mode: string): EditorCommand =
   enabled: (ed) => engineEnabled(ed, "SELECT_MATCHING"),
 });
 
+/**
+ * Figma's toasts when a snapping preference is switched (docs/research/atlas/21-settings.md §3:
+ * visual_bell.snap_to_{geometry,objects,pixel_grid}_enabled / _disabled; the English worded as its Pixel preview one).
+ */
+const TOGGLE_TOASTS: Partial<Record<PreferenceKey, readonly [on: string, off: string]>> = {
+  snapToGeometry: ["Snap to geometry enabled", "Snap to geometry disabled"],
+  snapToObjects: ["Snap to objects enabled", "Snap to objects disabled"],
+  snapToPixelGrid: ["Snap to pixel grid enabled", "Snap to pixel grid disabled"],
+};
+
 /** View › Pixel grid's state (on unless turned off). */
 const pixelGridOn = (ed: EditorController) => ed.ui.get().pixelGrid !== false;
 
@@ -308,11 +334,25 @@ const pixelGridOn = (ed: EditorController) => ed.ui.get().pixelGrid !== false;
  */
 export function setViewOption(
   ed: EditorController,
-  patch: { pixelGrid?: boolean; outlines?: boolean; layoutGuides?: boolean; rulers?: boolean; showSlices?: boolean; pixelPreview?: 0 | 1 | 2; maskOutlines?: boolean; frameOutlines?: boolean }
+  patch: {
+    pixelGrid?: boolean;
+    outlines?: boolean;
+    outlineHiddenLayers?: boolean;
+    outlineObjectBounds?: boolean;
+    layoutGuides?: boolean;
+    rulers?: boolean;
+    showSlices?: boolean;
+    pixelPreview?: 0 | 1 | 2;
+    maskOutlines?: boolean;
+    frameOutlines?: boolean;
+  }
 ): void {
   ed.ui.set(patch);
   syncViewOptions(ed);
   if (patch.outlines !== undefined) showToast({ message: patch.outlines ? t("Outlines visible") : t("Outlines hidden") });
+  // Figma's toggle toasts (docs/research/atlas/21-settings.md §3: visual_bell.render_grid_*, show_frame_guides_*).
+  if (patch.pixelGrid !== undefined) showToast({ message: patch.pixelGrid ? t("Pixel grid visible") : t("Pixel grid hidden") });
+  if (patch.layoutGuides !== undefined) showToast({ message: patch.layoutGuides ? t("Layout guides visible") : t("Layout guides hidden") });
   // Live Figma's toasts (behaviour/keys.md: ⌃P).
   if (patch.pixelPreview !== undefined) showToast({ message: patch.pixelPreview ? t("Pixel preview enabled ({n}x)", { n: patch.pixelPreview }) : t("Pixel preview disabled") });
 }
@@ -423,7 +463,11 @@ export const COMMANDS: EditorCommand[] = [
   { id: "edit.paste-to-replace", label: "Paste to replace", keys: [k("KeyR", { mod: true, shift: true })], run: (ed) => pasteFromMenu(ed, { mode: "replace" }), enabled: hasSelection },
   { id: "edit.copy-as-png", label: "Copy as PNG", keys: [k("KeyC", { mod: true, shift: true })], run: (ed) => void copyAsPng(ed), enabled: (ed) => hasSelection(ed) && canExport(ed) },
   { id: "edit.copy-as-svg", label: "Copy as SVG", run: (ed) => void copyAsSvg(ed), enabled: (ed) => hasSelection(ed) && canExport(ed) },
-  { id: "edit.copy-as-code", label: "Copy as code", run: (ed) => void copyAsCode(ed), enabled: (ed) => hasSelection(ed) && exportAllowed(ed) },
+  // Copy as code ▸ (atlas 03 "Copy/Paste as"): Dev Mode's CSS of the selection, of every layer in it, its iOS (SwiftUI) and Android (Compose).
+  { id: "edit.copy-as-css", label: "CSS", run: (ed) => void copyAsCode(ed, "css"), enabled: (ed) => hasSelection(ed) && exportAllowed(ed) },
+  { id: "edit.copy-as-css-recursive", label: "CSS (all layers)", run: (ed) => void copyAsCode(ed, "css-all"), enabled: (ed) => hasSelection(ed) && exportAllowed(ed) },
+  { id: "edit.copy-as-ios", label: "iOS", run: (ed) => void copyAsCode(ed, "ios"), enabled: (ed) => hasSelection(ed) && exportAllowed(ed) },
+  { id: "edit.copy-as-android", label: "Android", run: (ed) => void copyAsCode(ed, "android"), enabled: (ed) => hasSelection(ed) && exportAllowed(ed) },
   { id: "edit.copy-as-text", label: "Copy as text", run: (ed) => void copyAsText(ed), enabled: (ed) => hasTextSelected(ed) },
   engine("edit.duplicate", "Duplicate", "DUPLICATE", [k("KeyD", { mod: true })]),
   engine("edit.delete", "Delete", "DELETE", [k("Backspace"), k("Delete")]),
@@ -457,9 +501,11 @@ export const COMMANDS: EditorCommand[] = [
   selectAllWith("edit.select-same-instance", "Same instance", "INSTANCE"),
 
   // ---- View ----
-  ui("view.toggle-ui", "Show/Hide UI", [k("Backslash", { mod: true })], (ed) => ed.ui.set((s) => ({ uiHidden: !s.uiHidden })), (ed) => !ed.ui.get().uiHidden),
-  // ⇧⌘\ (the live View menu; help "Navigate the left sidebar": collapses the navigation bar and both sidebars).
-  ui("view.minimize-ui", "Minimize UI", [k("Backslash", { mod: true, shift: true })], (ed) => ed.ui.set((s) => ({ uiMinimized: !s.uiMinimized, uiHidden: false })), (ed) => ed.ui.get().uiMinimized),
+  // ⌘\, and ⌘. (Figma's shortcut table, docs/research/atlas/02-editor-chrome.md §5).
+  ui("view.toggle-ui", "Show/Hide UI", [k("Backslash", { mod: true }), k("Period", { mod: true })], (ed) => ed.ui.set((s) => ({ uiHidden: !s.uiHidden })), (ed) => !ed.ui.get().uiHidden),
+  // ⇧⌘\ (the live View menu; help "Navigate the left sidebar": collapses the navigation bar and both sidebars), and
+  // Figma's ⇧\ and ⇧. (atlas 02 §5).
+  ui("view.minimize-ui", "Minimize UI", [k("Backslash", { mod: true, shift: true }), k("Backslash", { shift: true }), k("Period", { shift: true })], (ed) => ed.ui.set((s) => ({ uiMinimized: !s.uiMinimized, uiHidden: false })), (ed) => ed.ui.get().uiMinimized),
   // View › Additional labels: the navigation bar's tab names and the Design panel's property labels, together. Its check
   // is the rail's labels (off by default: an icon-only rail, panels/Rail.tsx showsRailLabels), so one click from the
   // default turns both on, the next both off.
@@ -487,7 +533,18 @@ export const COMMANDS: EditorCommand[] = [
   ui("view.show-slices", "Show slices", undefined, (ed) => setViewOption(ed, { showSlices: ed.ui.get().showSlices === false }), (ed) => ed.ui.get().showSlices !== false),
   // Round 10, View › Comments ⇧C (on by default): comment pins shown on the canvas (editor/comments).
   ui("view.comments", "Comments", [k("KeyC", { shift: true })], (ed) => ed.ui.set((s) => ({ comments: s.comments === false })), (ed) => ed.ui.get().comments !== false),
+  // ⇧E, the zoom menu's last row for someone who can only view a design file (Figma's toggle-prototyping-info,
+  // `prototypeCanvasUiVisible`, atlas 02 §4.3): the prototype's connections on the canvas, as the Prototype tab shows
+  // them to an editor (RightPanel's prototype mode).
+  {
+    ...ui("view.prototyping-info", "Prototyping information", [k("KeyE", { shift: true })], (ed) => ed.ui.set((s) => ({ prototypingInfo: !s.prototypingInfo })), (ed) => !!ed.ui.get().prototypingInfo),
+    enabled: (ed) => viewOnly(ed) && modeOf(ed) === "design",
+  },
   ui("view.outlines", "Show outlines", [k("KeyO", { mod: true, shift: true })], (ed) => setViewOption(ed, { outlines: !ed.ui.get().outlines }), (ed) => !!ed.ui.get().outlines),
+  // The zoom menu's Outlines ▸ (Figma's toggle-outline-mode-hidden-layers / -object-bounds, Atlas 04 §9.3): in outline
+  // mode, hidden layers outlined too; each layer's box drawn (the engine's VIEW_OUTLINE_HIDDEN / VIEW_OUTLINE_BOUNDS).
+  ui("view.outline-hidden-layers", "Show hidden layers", undefined, (ed) => setViewOption(ed, { outlineHiddenLayers: !ed.ui.get().outlineHiddenLayers }), (ed) => !!ed.ui.get().outlineHiddenLayers),
+  ui("view.outline-object-bounds", "Show object bounds", undefined, (ed) => setViewOption(ed, { outlineObjectBounds: !ed.ui.get().outlineObjectBounds }), (ed) => !!ed.ui.get().outlineObjectBounds),
   // Live: View › Pixel preview ⇧⌘P; ⌃P toggles it ("Pixel preview enabled (1x)" / "Pixel preview disabled").
   ui("view.pixel-preview", "Pixel preview", [k("KeyP", { mod: true, shift: true }), k("KeyP", { ctrl: true })], (ed) => setViewOption(ed, { pixelPreview: ed.ui.get().pixelPreview ? 0 : 1 }), (ed) => !!ed.ui.get().pixelPreview),
   // Round 10: the engine's thin boxes around masks / frames (VIEW_MASK_OUTLINES / VIEW_FRAME_OUTLINES).
@@ -503,10 +560,46 @@ export const COMMANDS: EditorCommand[] = [
     setMode(ed, "draw");
     ed.setTool("MOVE");
   }, (ed) => modeOf(ed) === "draw"),
-  engine("view.zoom-in", "Zoom in", "ZOOM_IN", [k("Equal", { mod: true }), k("Equal", { mod: true, shift: true }), k("Equal"), k("NumpadAdd")]),
-  engine("view.zoom-out", "Zoom out", "ZOOM_OUT", [k("Minus", { mod: true }), k("Minus"), k("NumpadSubtract")]),
+  // Motion (docs/motion.md §6.1, §6.9): the mode switch's Motion segment, View › Switch to Motion (no shortcut [unverified]).
+  ui("view.switch-to-motion", "Switch to Motion", undefined, (ed) => {
+    if (modeOf(ed) === "motion") return setMode(ed, "design");
+    setMode(ed, "motion");
+    ed.setTool("MOVE");
+  }, (ed) => modeOf(ed) === "motion"),
+  // Social (docs/social.md §6.6, ours): the mode switch's Social segment and View › Social (no key: Figma's ⇧D stays Dev
+  // Mode's); New post opens the toolbar's menu; Export campaign… opens Export… for the selected posts' campaigns (nothing
+  // selected: every post on the page, by campaign; docs/social.md §8).
+  ui("view.mode-social", "Social", undefined, (ed) => toggleSocialMode(ed), (ed) => modeOf(ed) === "social"),
+  { id: "social.new-post", label: "New post…", run: (ed) => ed.ui.set((s) => ({ socialNewPostMenu: (s.socialNewPostMenu ?? 0) + 1, uiHidden: false })), enabled: (ed) => modeOf(ed) === "social" },
+  { id: "social.toggle-safe-areas", label: "Safe areas", run: (ed) => toggleSafeAreas(ed), enabled: (ed) => modeOf(ed) === "social", checked: (ed) => modeOf(ed) === "social" && safeAreasShown(ed) },
+  { id: "social.table", label: "Table", run: (ed) => ed.ui.set((s) => ({ socialTable: !s.socialTable })), enabled: (ed) => modeOf(ed) === "social", checked: (ed) => modeOf(ed) === "social" && !!ed.ui.get().socialTable },
+  { id: "social.save-as-template", label: "Save as template…", run: (ed) => ed.ui.set({ socialSaveTemplate: selectedPosts(ed)[0] ?? null }), enabled: (ed) => modeOf(ed) === "social" && selectedPosts(ed).length === 1 },
+  { id: "social.export-campaign", label: "Export campaign…", run: (ed) => exportPostsDialog(ed, campaignPosts(ed)), enabled: (ed) => modeOf(ed) === "social" && canExport(ed) && campaignPosts(ed).length > 0 },
+  { id: "social.ask-agent", label: "Ask agent…", run: (ed) => askAgent(ed), enabled: (ed) => modeOf(ed) === "social" },
+  // Space plays and pauses while Motion is on (help: "Spacebar plays, again pauses"), and in Social while the selected
+  // post's timeline shows (docs/social.md §6.1); elsewhere Space is the Hand tool's.
+  { id: "motion.play-pause", label: "Play/Pause", keys: [k("Space")], run: (ed) => toggleMotionPlaying(ed), enabled: (ed) => modeOf(ed) === "motion" || (modeOf(ed) === "social" && !!ed.ui.get().socialTimeline) },
+  { id: "motion.toggle-auto-keyframe", label: "Toggle auto-keyframe", run: (ed) => toggleAutoKeyframe(ed), enabled: (ed) => modeOf(ed) === "motion", checked: (ed) => !!ed.ui.get().motion?.autoKeyframe },
+  // Edit anchor point (help: "in the Transform section, or ⌥R"): Motion's anchor point tool, on and off again. ⌥R is the
+  // rotation origin's key in Design (object.rotation-origin hands it here in Motion).
+  {
+    id: "motion.anchor-point",
+    label: "Edit anchor point",
+    run: (ed) => ed.setTool(ed.store.tool === "ANCHOR_POINT" ? "MOVE" : "ANCHOR_POINT"),
+    enabled: (ed) => modeOf(ed) === "motion" && ed.store.selection.refs.length === 1,
+    checked: (ed) => ed.store.tool === "ANCHOR_POINT",
+  },
+  // Audio (docs/motion.md §6.6, §6.9; round 8e): help's "Split audio at playhead (⌥K / Alt K)" and right-click › "Mute
+  // audio" — the selected clip, else the clips under the playhead / every clip of the timeline's root.
+  { id: "motion.split-audio", label: "Split audio at playhead", keys: [k("KeyK", { alt: true })], run: (ed) => splitAudioAtPlayhead(ed), enabled: (ed) => modeOf(ed) === "motion" && splitTargets(ed).length > 0 },
+  { id: "motion.mute-audio", label: "Mute audio", run: (ed) => toggleAudioMute(ed), enabled: (ed) => modeOf(ed) === "motion" && hasAudio(ed), checked: (ed) => modeOf(ed) === "motion" && audioMuted(ed) },
+  { id: "motion.collapse-timeline", label: "Collapse timeline", run: (ed) => ed.ui.set({ motion: { ...(ed.ui.get().motion ?? MOTION_UI_DEFAULT), collapsed: !(ed.ui.get().motion ?? MOTION_UI_DEFAULT).collapsed } }), enabled: (ed) => modeOf(ed) === "motion" },
+  // Figma's shortcut table (Atlas 04 §2.5): ⌘= ⌘+ ⌘Num+ = + Num+ / ⌘- ⌘⇧- ⌘Num- - ⇧- Num-; ⇧1 and ⇧9 fit. With
+  // Preferences › Use number keys for opacity off, 0 / 1 / 9 / 2 alone zoom (keyboard.ts).
+  engine("view.zoom-in", "Zoom in", "ZOOM_IN", [k("Equal", { mod: true }), k("Equal", { mod: true, shift: true }), k("NumpadAdd", { mod: true }), k("Equal"), k("Equal", { shift: true }), k("NumpadAdd")]),
+  engine("view.zoom-out", "Zoom out", "ZOOM_OUT", [k("Minus", { mod: true }), k("Minus", { mod: true, shift: true }), k("NumpadSubtract", { mod: true }), k("Minus"), k("Minus", { shift: true }), k("NumpadSubtract")]),
   engine("view.zoom-100", "Zoom to 100%", "ZOOM_TO_100", [k("Digit0", { mod: true }), k("Digit0", { shift: true })]),
-  engine("view.zoom-fit", "Zoom to fit", "ZOOM_TO_FIT", [k("Digit1", { shift: true })]),
+  engine("view.zoom-fit", "Zoom to fit", "ZOOM_TO_FIT", [k("Digit1", { shift: true }), k("Digit9", { shift: true })]),
   engine("view.zoom-selection", "Zoom to selection", "ZOOM_TO_SELECTION", [k("Digit2", { shift: true })]),
   ui("view.zoom-50", "Zoom to 50%", undefined, (ed) => zoomTo(ed, 0.5)),
   ui("view.zoom-200", "Zoom to 200%", undefined, (ed) => zoomTo(ed, 2)),
@@ -526,8 +619,8 @@ export const COMMANDS: EditorCommand[] = [
   ui("view.local-variables", "Variables", undefined, (ed) => ed.ui.set((s) => ({ variablesOpen: !s.variablesOpen, uiHidden: false })), (ed) => ed.ui.get().variablesOpen),
   ui("view.agents", "Agents", undefined, (ed) => ed.ui.set({ railTab: "agents", uiHidden: false, uiMinimized: false }), (ed) => ed.ui.get().railTab === "agents"),
   ui("view.tools", "Tools", undefined, (ed) => ed.ui.set({ railTab: "tools", uiHidden: false, uiMinimized: false }), (ed) => ed.ui.get().railTab === "tools"),
-  ui("view.design-panel", "Open design panel", [k("Digit8", { alt: true })], (ed) => ed.ui.set({ rightTab: "design", uiHidden: false, uiMinimized: false })),
-  ui("view.prototype-panel", "Open prototype panel", [k("Digit9", { alt: true })], (ed) => ed.ui.set({ rightTab: "prototype", uiHidden: false, uiMinimized: false })),
+  ui("view.design-panel", "Open design panel", [k("Digit8", { alt: true })], (ed) => ed.ui.set({ rightTab: "design", devTab: "inspect", uiHidden: false, uiMinimized: false })),
+  ui("view.prototype-panel", "Open prototype panel", [k("Digit9", { alt: true })], (ed) => ed.ui.set(ed.ui.get().mode === "dev" ? { devTab: "plugins", uiHidden: false, uiMinimized: false } : { rightTab: "prototype", uiHidden: false, uiMinimized: false })),
   // ⌥3 (live's Keyboard shortcuts panel, View and Components: "Team library"): the Libraries modal. Its own command — the
   // live Figma menu's "Libraries…" shows no key.
   ui("view.team-library", "Team library", [k("Digit3", { alt: true })], (ed) => ed.ui.set({ librariesDialog: { tab: "libraries" }, uiHidden: false })),
@@ -553,7 +646,8 @@ export const COMMANDS: EditorCommand[] = [
     enabled: (ed) => engineEnabled(ed, "UNGROUP") || engineEnabled(ed, "REMOVE_KEEP_CONTENTS"),
   },
   engine("object.frame-selection", "Frame selection", "FRAME_SELECTION", [k("KeyG", { mod: true, alt: true })]),
-  engine("object.wrap-in-section", "Wrap in new section", "WRAP_IN_SECTION", [k("KeyS", { mod: true })]),
+  // ⌘S saves nothing (Figma saves as you go): with nothing to wrap, the save reminder says so (saveStatus.ts).
+  engine("object.wrap-in-section", "Wrap in new section", "WRAP_IN_SECTION", [k("KeyS", { mod: true })], { whenDisabled: (ed) => !viewOnly(ed) && saveReminder(ed) }),
   // Round 10: in place, the engine's (same GUID, layers and look).
   engine("object.convert-to-section", "Convert to section", "CONVERT_TO_SECTION"),
   engine("object.convert-to-frame", "Convert to frame", "CONVERT_TO_FRAME"),
@@ -576,8 +670,14 @@ export const COMMANDS: EditorCommand[] = [
   { id: "object.swap-fill-stroke", label: "Swap fill and stroke", keys: [k("KeyX", { shift: true })], run: (ed) => swapFillAndStroke(ed), enabled: hasSelection },
   engine("object.add-auto-layout", "Add auto layout", "ADD_AUTO_LAYOUT", [k("KeyA", { shift: true })]),
   engine("object.remove-auto-layout", "Remove auto layout", "REMOVE_AUTO_LAYOUT", [k("KeyA", { shift: true, alt: true })]),
-  // Live's Keyboard shortcuts panel (Arrange): "Suggest auto layout ⌃⇧A" — Figma's suggestions aren't built.
-  later("object.suggest-auto-layout", "Suggest auto layout", [k("KeyA", { ctrl: true, shift: true })]),
+  // Atlas 09 §4 (wave 2): Suggest auto layout ⌃⇧A (live's Keyboard shortcuts panel, Arrange) and Figma's
+  // destroy-all-auto-layout beside it; the layout version's bulk actions (search-only in Figma's Actions).
+  engine("object.suggest-auto-layout", "Suggest auto layout", "SUGGEST_AUTO_LAYOUT", [k("KeyA", { ctrl: true, shift: true })], { run: suggestAutoLayout }),
+  engine("object.remove-all-auto-layout", "Remove all auto layout", "REMOVE_ALL_AUTO_LAYOUT", undefined, { run: removeAllAutoLayout }),
+  engine("object.update-layout-version", "Update layout version for selection", "SET_STACK_LAYOUT_VERSION", undefined, {
+    run: (ed) => void ed.engine.runCommand("SET_STACK_LAYOUT_VERSION", { deep: true }),
+  }),
+  { id: "object.update-layout-version-page", label: "Update layout version for page", run: (ed) => void ed.engine.runCommand("SET_STACK_LAYOUT_VERSION", { page: true }) },
   // Components (E6: the structural ones are the engine's; R4-components.md for the wording and keys)
   pending("object.create-component", "Create component", COMPONENT_COMMAND.create, [k("KeyK", { mod: true, alt: true })]),
   pending("object.create-multiple-components", "Create multiple components", COMPONENT_COMMAND.create, undefined, {
@@ -609,6 +709,19 @@ export const COMMANDS: EditorCommand[] = [
     enabled: (ed) => {
       const inst = selectedInstance(ed);
       return !!inst && instanceChanges(ed, inst).length > 0;
+    },
+  },
+  {
+    // Figma's reset-variable-modes: its own action, not an item of Reset ▸ (atlas 10 §6.2).
+    id: "object.reset-variable-modes",
+    label: "Reset variable modes",
+    run: (ed) => {
+      const inst = selectedInstance(ed);
+      if (inst) resetChanges(ed, inst, "VARIABLE_MODES");
+    },
+    enabled: (ed) => {
+      const inst = selectedInstance(ed);
+      return !!inst && instanceChanges(ed, inst).some((g) => g.kind === "VARIABLE_MODES");
     },
   },
   pending("object.restore-component", "Restore component", COMPONENT_COMMAND.restore),
@@ -663,8 +776,18 @@ export const COMMANDS: EditorCommand[] = [
   engine("arrange.distribute-vertical", "Distribute vertical spacing", "DISTRIBUTE_VERTICAL", [k("KeyV", { alt: true, ctrl: true })]),
   engine("arrange.tidy-up", "Tidy up", "TIDY_UP", [k("KeyT", { alt: true, ctrl: true })]),
   // ⌥R (a forum report; not in the live menus): the rotation origin shown, dragged; rotation turns about it.
-  engine("object.rotation-origin", "Show rotation origin", "SHOW_ROTATION_ORIGIN", [k("KeyR", { alt: true })], { checked: (ed) => (ed.engine.commandState("SHOW_ROTATION_ORIGIN") & 2) !== 0 }),
+  // In Motion, ⌥R is Edit anchor point (docs/motion.md §4.9: Draw's / Design's rotation origin stays theirs).
+  engine("object.rotation-origin", "Show rotation origin", "SHOW_ROTATION_ORIGIN", [k("KeyR", { alt: true })], {
+    run: (ed) => (modeOf(ed) === "motion" ? void runEditorCommand(ed, "motion.anchor-point") : void ed.engine.command("SHOW_ROTATION_ORIGIN")),
+    enabled: (ed) => (modeOf(ed) === "motion" ? isEnabled(ed, command("motion.anchor-point")) : (ed.engine.commandState("SHOW_ROTATION_ORIGIN") & CMD_ENABLED) !== 0),
+    checked: (ed) => (ed.engine.commandState("SHOW_ROTATION_ORIGIN") & 2) !== 0,
+  }),
   engine("canvas.remove-guide", "Remove guide", "REMOVE_GUIDE"),
+  // A ruler's context menu (Figma's rulerGuideMenu, Atlas 04 §4.2): the top ruler's guides or the left one's, then
+  // Hide rulers. The English of the first two is unverified (keys remove-horizontal-guides / remove-vertical-guides).
+  engine("canvas.remove-horizontal-guides", "Remove horizontal guides", "REMOVE_HORIZONTAL_GUIDES"),
+  engine("canvas.remove-vertical-guides", "Remove vertical guides", "REMOVE_VERTICAL_GUIDES"),
+  ui("canvas.hide-rulers", "Hide rulers", undefined, (ed) => setViewOption(ed, { rulers: false })),
   // Round 10 (engine/src/editor/ArrangeCommands.cpp).
   engine("arrange.round-to-pixel", "Round to pixel", "ROUND_TO_PIXEL"),
   engine("arrange.pack-horizontal", "Pack horizontal", "PACK_HORIZONTAL"),
@@ -683,6 +806,9 @@ export const COMMANDS: EditorCommand[] = [
   pending("vector.subtract", "Subtract selection", "BOOLEAN_SUBTRACT", [k("KeyS", { alt: true, shift: true })]),
   pending("vector.intersect", "Intersect selection", "BOOLEAN_INTERSECT", [k("KeyI", { alt: true, shift: true })]),
   pending("vector.exclude", "Exclude selection", "BOOLEAN_EXCLUDE", [k("KeyE", { alt: true, shift: true })]),
+  // A boolean group made with an older version of the boolean operations brought to the latest (the Design panel's
+  // Update, panels/design/VectorOperation.tsx; Atlas 05 §9.2).
+  engine("vector.update-boolean", "Update boolean", "UPGRADE_VECTOR_OPERATION"),
   // The Figma menu › Vector (live main-vector.txt): vector edit mode's point commands.
   // Round 10 (the engine's): vector edit mode's selected points joined, straight or smooth.
   engine("vector.join", "Join selection", "VECTOR_JOIN", [k("KeyJ", { mod: true })]),
@@ -773,7 +899,8 @@ export const COMMANDS: EditorCommand[] = [
   // Branching (Phase 7 round 2b, branching/commands.ts): Create branch…, See all branches, Update from main…, Review
   // and merge changes…, Archive.
   ...BRANCH_COMMANDS,
-  later("file.color-profile", "Color profile…"),
+  // The document's colour profile: sRGB / Display P3, converted or assigned (ColorProfileDialog.tsx, atlas 07 §14).
+  ui("file.color-profile", "Color profile…", undefined, (ed) => ed.ui.set({ colorProfileDialog: true, uiHidden: false })),
   // Plugins (docs/plugins.md §6; plugins/service.ts). Widgets aren't built (§11): listed as Figma lists them, disabled.
   ...PLUGIN_COMMANDS,
   later("widgets.manage", "Manage widgets…"),
@@ -788,6 +915,8 @@ export const COMMANDS: EditorCommand[] = [
       run: (ed) => {
         togglePreference(ed, p.key);
         syncViewOptions(ed);
+        const said = TOGGLE_TOASTS[p.key];
+        if (said) showToast({ message: t(pref(ed.ui.get(), p.key) ? said[0] : said[1]) });
       },
       checked: (ed) => pref(ed.ui.get(), p.key),
     })
@@ -795,7 +924,8 @@ export const COMMANDS: EditorCommand[] = [
   later("prefs.color-profile", "Color profile…"),
   // help.figma.com "Select a keyboard layout": the Keyboard shortcuts panel's Layout tab.
   ui("prefs.keyboard-layout", "Keyboard layout…", undefined, (ed) => ed.ui.set({ shortcutsOpen: true, shortcutsTab: "layout" })),
-  later("prefs.accessibility", "Accessibility settings…"),
+  // Atlas 21 §4.1: the seven switches (AccessibilityDialog.tsx).
+  ui("prefs.accessibility", "Accessibility settings…", undefined, (ed) => ed.ui.set({ accessibilityDialog: true, uiHidden: false })),
   later("prefs.permissions", "Permissions and helpers…"),
   ui("prefs.nudge-amount", "Nudge amount…", undefined, (ed) => ed.ui.set({ nudgeDialog: true, uiHidden: false })),
   // The Figma menu's "Open in desktop app" (the web app's; this app has no deep links yet).
@@ -804,13 +934,18 @@ export const COMMANDS: EditorCommand[] = [
     id: "file.save-version",
     label: "Save to version history…",
     keys: [k("KeyS", { mod: true, alt: true })],
-    run: (ed) => ed.ui.set({ versionDialog: "save" }),
+    run: (ed) => ed.ui.set({ savepoint: { version: null } }),
     enabled: (ed) => typeof ed.source.saveVersion === "function",
   },
   {
     id: "file.version-history",
     label: "Show version history",
-    run: (ed) => ed.ui.set({ versionDialog: "history" }),
+    // Figma's toggle-version-history: enters history mode (nothing selected on the canvas), or leaves it.
+    run: (ed) => {
+      const open = ed.ui.get().versionDialog === "history";
+      if (!open) ed.engine.setSelection([]);
+      ed.ui.set({ versionDialog: open ? null : "history", historyVersion: null });
+    },
     enabled: (ed) => typeof ed.source.listVersions === "function",
   },
   {
@@ -971,6 +1106,8 @@ const VIEWER_EDITS = new Set([
   "object.mark-completed",
   "object.remove-dev-status",
   "canvas.rename-layers-ai",
+  "social.new-post",
+  "social.save-as-template",
 ]);
 const viewerEdits = (id: string) => VIEWER_EDITS.has(id) || id.startsWith("object.add-layout-") || (id.startsWith("text.") && id !== "text.spell-check");
 for (const c of COMMANDS) {
@@ -997,13 +1134,16 @@ export function runEditorCommand(ed: EditorController, id: string): boolean {
   return true;
 }
 
-/** The command a key press means (null: none). */
-export function commandForKey(e: Pick<KeyboardEvent, "code" | "shiftKey" | "altKey" | "ctrlKey" | "metaKey">): EditorCommand | null {
+/**
+ * The command a key press means (null: none). `mode`: the edit mode the editor is in ("VECTOR" while a vector is
+ * edited) — a key Figma's table keeps out of it is no key there (⌘] reorders layers, not points).
+ */
+export function commandForKey(e: Pick<KeyboardEvent, "code" | "shiftKey" | "altKey" | "ctrlKey" | "metaKey">, mode?: string): EditorCommand | null {
   // A layout picked in the Keyboard shortcuts panel: the key that types the binding's character.
   const code = keyLayout ? keyLayout.toBinding(e.code) : e.code;
   if (code === null) return null;
   const press = { code, shiftKey: e.shiftKey, altKey: e.altKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey };
-  for (const c of COMMANDS) if (c.keys?.some((combo) => matchesCombo(combo, press))) return c;
+  for (const c of COMMANDS) if (c.keys?.some((combo) => matchesCombo(combo, press) && !(mode && combo.except?.includes(mode)))) return c;
   return null;
 }
 

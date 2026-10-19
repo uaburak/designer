@@ -6,6 +6,7 @@
 #include <cmath>
 #include <unordered_map>
 
+#include "text/Bidi.h"
 #include "text/Unicode.h"
 
 namespace eng::text {
@@ -53,6 +54,7 @@ struct Cluster {
   uint16_t style = 0;
   bool space = false;     // whitespace (hangs at a line's end)
   char breakAfter = BREAK_NO;
+  uint8_t level = 0;      // bidi embedding level (odd: right to left); its glyphs are in visual order
 };
 
 struct Glyph {
@@ -92,52 +94,57 @@ void shapeWith(hb_font_t* font, hb_buffer_t* buf, const std::vector<hb_feature_t
   hb_shape(font, buf, features.empty() ? nullptr : features.data(), static_cast<unsigned>(features.size()));
 }
 
-// Shapes [from, to) of `display` (a paragraph is [pStart, pEnd), the context) into glyphs and clusters.
+// Shapes [from, to) of `display` (a paragraph is [pStart, pEnd), the context) into glyphs and clusters, in logical
+// order. `levels`: the paragraph's bidi levels per unit (empty: all left to right); a right-to-left run is shaped
+// right to left (HarfBuzz mirrors its brackets), its clusters put back in logical order, each one's glyphs left as
+// HarfBuzz placed them.
 void shapeParagraph(const std::u16string& display, uint32_t pStart, uint32_t pEnd, const TextLayout& L, const FeatureSets& feats,
-                    std::vector<Glyph>& glyphs, std::vector<Cluster>& clusters) {
+                    const std::vector<uint8_t>& levels, std::vector<Glyph>& glyphs, std::vector<Cluster>& clusters) {
   glyphs.clear();
   clusters.clear();
   if (pEnd <= pStart) return;
   FontRegistry& fonts = FontRegistry::get();
 
-  // Itemize: style, font (fallback by coverage), script.
+  // Itemize: style, bidi level, font (fallback by coverage), script.
   struct Run {
     uint32_t start, end;
     uint16_t style;
     Font* font;
     hb_script_t script;
+    uint8_t level;
   };
   std::vector<Run> runs;
   for (uint32_t i = pStart; i < pEnd;) {
     size_t n = 1;
     uint32_t cp = codePointAt(display, i, &n);
     uint16_t style = L.styleOf[i];
+    uint8_t level = levels.empty() ? 0 : levels[i - pStart];
     Font* primary = L.styles[style].font;
     Font* font = primary;
     hb_script_t script = scriptOf(cp);
     bool common = script == HB_SCRIPT_COMMON || script == HB_SCRIPT_INHERITED || script == HB_SCRIPT_UNKNOWN;
-    if (!runs.empty() && runs.back().style == style && (joinsPrevious(cp) || cp == 0x200D)) {
+    if (!runs.empty() && runs.back().style == style && runs.back().level == level && (joinsPrevious(cp) || cp == 0x200D)) {
       font = runs.back().font;
     } else if (primary && !primary->covers(cp) && !isWhitespace(cp) && cp >= 0x20) {
       if (Font* fb = fonts.fallbackFor(cp)) font = fb;
     }
     if (common && !runs.empty()) script = runs.back().script;
     auto vague = [](hb_script_t s) { return s == HB_SCRIPT_COMMON || s == HB_SCRIPT_INHERITED || s == HB_SCRIPT_UNKNOWN; };
-    if (!runs.empty() && runs.back().style == style && runs.back().font == font &&
+    if (!runs.empty() && runs.back().style == style && runs.back().font == font && runs.back().level == level &&
         (runs.back().script == script || common || vague(runs.back().script))) {
       // A run of common characters ("/", digits' punctuation) takes the script that follows it: one run, so the pair
       // kerns ("/s" kerns in fonts that kern it, as Figma lays it out).
       if (vague(runs.back().script)) runs.back().script = script;
       runs.back().end = i + static_cast<uint32_t>(n);
     } else {
-      runs.push_back({i, i + static_cast<uint32_t>(n), style, font, script});
+      runs.push_back({i, i + static_cast<uint32_t>(n), style, font, script, level});
     }
     i += static_cast<uint32_t>(n);
   }
   // Resolve the leading common run's script from the next run.
   for (size_t r = 0; r + 1 < runs.size(); r++)
     if ((runs[r].script == HB_SCRIPT_COMMON || runs[r].script == HB_SCRIPT_INHERITED || runs[r].script == HB_SCRIPT_UNKNOWN) &&
-        runs[r + 1].style == runs[r].style && runs[r + 1].font == runs[r].font)
+        runs[r + 1].style == runs[r].style && runs[r + 1].font == runs[r].font && runs[r + 1].level == runs[r].level)
       runs[r].script = runs[r + 1].script;
 
   hb_buffer_t* buf = hb_buffer_create();
@@ -153,7 +160,8 @@ void shapeParagraph(const std::u16string& display, uint32_t pStart, uint32_t pEn
       hb_buffer_clear_contents(buf);
       hb_buffer_add_utf16(buf, paragraph, static_cast<int>(pEnd - pStart), run.start - pStart, static_cast<int>(run.end - run.start));
       hb_buffer_set_script(buf, run.script);
-      hb_buffer_set_direction(buf, HB_DIRECTION_LTR);  // bidi comes with E3.2
+      const bool rtl = run.level & 1;
+      hb_buffer_set_direction(buf, rtl ? HB_DIRECTION_RTL : HB_DIRECTION_LTR);
       hb_buffer_set_language(buf, hb_language_get_default());
       hb_buffer_set_cluster_level(buf, HB_BUFFER_CLUSTER_LEVEL_MONOTONE_CHARACTERS);
       shapeWith(run.font->hbUnits(), buf, feats[run.style]);
@@ -164,8 +172,20 @@ void shapeParagraph(const std::u16string& display, uint32_t pStart, uint32_t pEn
         FigmaPos fp = figmaPos(*run.font, info[g], pos[g], st.fontSize);
         glyphs.push_back({run.font, info[g].codepoint, fp.dx, fp.dy, fp.advance, info[g].cluster + pStart, run.style});
       }
+      if (rtl) {
+        // HarfBuzz gives a right-to-left run in visual order (clusters descending): its clusters go back to logical
+        // order, each cluster's glyphs kept in their visual order.
+        auto first = glyphs.begin() + static_cast<long>(firstGlyph);
+        std::reverse(first, glyphs.end());
+        for (auto g = first; g != glyphs.end();) {
+          auto h = g;
+          while (h != glyphs.end() && h->cluster == g->cluster) ++h;
+          std::reverse(g, h);
+          g = h;
+        }
+      }
     }
-    // Clusters of this run (cluster values never decrease in an LTR run).
+    // Clusters of this run (cluster values never decrease in logical order).
     for (size_t g = firstGlyph; g < glyphs.size();) {
       size_t h = g;
       double width = 0;
@@ -176,6 +196,7 @@ void shapeParagraph(const std::u16string& display, uint32_t pStart, uint32_t pEn
       c.firstGlyph = static_cast<uint32_t>(g);
       c.glyphCount = static_cast<uint32_t>(h - g);
       c.style = run.style;
+      c.level = run.level;
       c.spacing = letterSpacingPx(st);
       c.width = width + c.spacing;
       c.space = isWhitespace(codePointAt(display, c.start));
@@ -259,26 +280,47 @@ size_t wordsIn(const std::vector<Cluster>& pc, Span s) {
 
 }  // namespace
 
+void followOpticalSize(const Font& font, double fontSize, std::vector<std::pair<uint32_t, float>>& axes) {
+  float lo = 0, hi = 0;
+  if (!font.opticalSizeRange(lo, hi)) return;
+  constexpr uint32_t kOpsz = HB_TAG('o', 'p', 's', 'z');
+  float v = static_cast<float>(std::clamp(fontSize, static_cast<double>(lo), static_cast<double>(hi)));
+  for (auto& a : axes)
+    if (a.first == kOpsz) {
+      a.second = v;
+      return;
+    }
+  axes.push_back({kOpsz, v});
+}
+
 const std::vector<Paint>* decorationFills(const TextLayout& L, const Decoration& d) {
   const ResolvedStyle& s = L.styles[d.style];
   return s.features.hasDecorationFills ? &s.features.decorationFills : s.fills;
 }
 
-double autoLineHeight(const Font* font, double fontSize) {
-  return std::round((font ? font->lineHeightEm() : kStandInLineHeight) * fontSize);
+double autoLineHeight(const Font* font, double fontSize, bool whole) {
+  double v = (font ? font->lineHeightEm() : kStandInLineHeight) * fontSize;
+  return whole ? std::round(v) : v;
 }
 
+bool wholePixelLineHeights(const TextFeatures& f) { return f.userLayoutVersion != 0; }
+
 double lineHeightPx(const ResolvedStyle& s) {
+  // textUserLayoutVersion ≥ 1 (and texts without one) round a multiple to whole pixels; an older text (version 0)
+  // keeps its fraction (Atlas 06 §2.4, figma_app 387610: Math.round unless the version is 0).
+  const bool whole = wholePixelLineHeights(s.features);
+  auto px = [&](double v) { return whole ? std::round(v) : v; };
   switch (s.lineHeight.units) {
     case NumberUnits::PIXELS: return s.lineHeight.value;
     // A multiple of the font size is rounded to whole pixels (Figma's stored layouts): 1.3 × 15 = 19.4999… → 19,
     // 1.5 × 13 = 19.5 → 20, 1.4286 × 12 → 17 (every RAW line height a large private file's derivedTextData holds).
     // (The value is the file's float: 1.3 is 1.29999995.)
-    case NumberUnits::RAW: return std::round(s.lineHeight.value * s.fontSize);
+    case NumberUnits::RAW: return px(s.lineHeight.value * s.fontSize);
     case NumberUnits::PERCENT:
     default:
-      if (std::fabs(s.lineHeight.value - 100) < 1e-6) return autoLineHeight(s.font, s.fontSize);
-      return std::round(s.lineHeight.value / 100.0 * (s.font ? s.font->lineHeightEm() : kStandInLineHeight) * s.fontSize);
+      // Auto is {100, PERCENT}, within 0.1 (387610).
+      if (std::fabs(s.lineHeight.value - 100) < 0.1) return autoLineHeight(s.font, s.fontSize, whole);
+      return px(s.lineHeight.value / 100.0 * (s.font ? s.font->lineHeightEm() : kStandInLineHeight) * s.fontSize);
   }
 }
 
@@ -333,8 +375,11 @@ void resolveStyles(const NodeProps& p, std::vector<ResolvedStyle>& styles, std::
       s.pending = !s.missing;
       // A missing font keeps its weight and slant (Inter at the nearest one); a font still loading waits in Regular.
       s.font = s.missing ? fonts.substituteFor(s.fontName) : fonts.defaultFont();
-    } else if (!s.features.variations.empty()) {
-      s.font = s.font->withVariations(s.features.variations);
+    } else {
+      if (s.fontSize <= 0) s.fontSize = 1;
+      std::vector<std::pair<uint32_t, float>> axes = s.features.variations;
+      if (!s.features.detachOpticalSize) followOpticalSize(*s.font, s.fontSize, axes);
+      if (!axes.empty()) s.font = s.font->withVariations(axes);
     }
     if (s.fontSize <= 0) s.fontSize = 1;
   }
@@ -397,28 +442,41 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
     size_t paragraph;
     double startX;  // where its content starts (indents)
     double alignWidth = -1;  // a truncated line: the width alignment places (its content before "…")
+    bool bidi = false;       // some cluster is right to left, or the paragraph is: placed in visual order
   };
   std::vector<LineDraft> drafts;
   struct Para {
     LineInfo info;
     double contentX = 0;  // a list item's text (every line)
     bool list = false;
+    uint8_t level = 0;    // bidi paragraph level: 1 right to left
   };
   std::vector<Para> paras;
 
   std::vector<Glyph> pg;
   std::vector<Cluster> pc;
+  std::vector<uint8_t> levels, lineLv;
+  std::vector<BidiClass> classes;
+  // Bidi (UAX #9) per paragraph, unless the text is older than it (textBidiVersion 0: left to right only).
+  const bool bidi = nodeF.bidiVersion != 0;
   uint32_t pStart = 0;
   while (true) {
     uint32_t pEnd = pStart;
     while (pEnd < n && L.text[pEnd] != u'\n') pEnd++;
     bool last = pEnd >= n;
-    shapeParagraph(display, pStart, pEnd, L, feats, pg, pc);
+    Para para;
+    para.info = paragraphInfo(paras.size());
+    // The paragraph's direction: its own (Text direction), else its first strong character's (P2 / P3).
+    std::u16string_view ptext = std::u16string_view(display).substr(pStart, pEnd - pStart);
+    levels.clear();
+    if (bidi) {
+      para.level = para.info.direction == 2 ? 1 : para.info.direction == 1 ? 0 : paragraphLevel(ptext);
+      if (para.level == 1 || hasRtl(ptext)) resolveLevels(ptext, para.level, levels, classes);
+    }
+    shapeParagraph(display, pStart, pEnd, L, feats, levels, pg, pc);
     for (Cluster& c : pc) c.breakAfter = c.end > 0 && c.end - 1 < n ? breaks[c.end - 1] : BREAK_NO;
     uint16_t emptyStyle = pStart < n ? L.styleOf[pStart] : (pStart > 0 ? L.styleOf[pStart - 1] : 0);
 
-    Para para;
-    para.info = paragraphInfo(paras.size());
     para.list = para.info.type != LineType::PLAIN;
     int level = std::max(para.info.indentationLevel, para.list ? 1 : 0);
     double unit = std::round(L.styles[emptyStyle].fontSize * kListIndentEm);
@@ -467,9 +525,18 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
       if (from == to && paragraphStart) d.start = pStart;
       d.emptyStyle = from < to ? pc[from].style : emptyStyle;
       d.startX = paragraphStart ? firstIndent : para.contentX;
+      // L1: the line's trailing whitespace (and separators) back to the paragraph's level.
+      if (!levels.empty()) {
+        lineLv = levels;
+        size_t a = from < to ? pc[from].start - pStart : 0, b = to > from ? pc[to - 1].end - pStart : a;
+        lineLevels(classes, para.level, a, b, lineLv);
+      }
+      d.bidi = para.level == 1;
       for (size_t k = from; k < to; k++) {
         Cluster c = pc[k];
         c.firstGlyph = static_cast<uint32_t>(d.glyphs.size());
+        if (!levels.empty()) c.level = lineLv[c.start - pStart];
+        d.bidi |= (c.level & 1) != 0;
         for (uint32_t g = 0; g < pc[k].glyphCount; g++) d.glyphs.push_back(pg[pc[k].firstGlyph + g]);
         d.clusters.push_back(c);
       }
@@ -576,6 +643,7 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
       c.glyphCount = static_cast<uint32_t>(dotsGlyphs.size());
       c.width = dotsWidth;
       c.style = st;
+      c.level = paras[d.paragraph].level;
       for (Glyph g : dotsGlyphs) {
         g.cluster = at;
         g.style = st;
@@ -660,13 +728,23 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
   };
   uint32_t linkId = 0;
   const HyperlinkData* prevLink = nullptr;
+  // A cluster as placed: its index on the line and its left / right x (letter spacing and justification included).
+  struct Placed {
+    size_t k;
+    double x0, x1;
+  };
+  std::vector<Placed> vis;
+  std::vector<uint8_t> clusterLevels;
   for (size_t li = 0; li < drafts.size(); li++) {
     LineDraft& d = drafts[li];
     LaidLine& line = L.lines[li];
     line.top += L.offsetY;
     line.baseline += L.offsetY;
-    double indent = d.startX;
-    double free = L.boxWidth - indent - (d.alignWidth >= 0 ? d.alignWidth : line.width);
+    const bool rtl = paras[d.paragraph].level == 1;
+    // Indents (a list's levels, the first line's paragraph indent) are taken from the paragraph's start side: the
+    // right of a right-to-left one, whose markers then sit in that indent.
+    double indent = rtl ? 0 : d.startX;
+    double free = L.boxWidth - d.startX - (d.alignWidth >= 0 ? d.alignWidth : line.width);
     double x0 = indent, extraPerSpace = 0;
     switch (p.text().textAlignHorizontal) {
       case TextAlignHorizontal::CENTER: x0 += free / 2; break;
@@ -683,16 +761,18 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
       }
       default: break;
     }
-    if (p.text().textAlignHorizontal == TextAlignHorizontal::JUSTIFIED && extraPerSpace > 0) line.width = L.boxWidth - indent;
+    if (p.text().textAlignHorizontal == TextAlignHorizontal::JUSTIFIED && extraPerSpace > 0) line.width = L.boxWidth - d.startX;
     line.x = x0;
     line.firstGlyph = static_cast<uint32_t>(L.glyphs.size());
-    // A list item's marker, before its first line.
+    size_t contentEnd = d.clusters.size();
+    while (contentEnd > 0 && d.clusters[contentEnd - 1].space) contentEnd--;
+    // A list item's marker, before its first line (after it, on the right, in a right-to-left paragraph).
     if (d.paragraphStart && !markers[d.paragraph].empty()) {
       uint16_t ms = d.clusters.empty() ? d.emptyStyle : d.clusters.front().style;
       std::vector<Glyph> mg;
       double mw = shapeString(markers[d.paragraph], L.styles[ms], ms, feats[ms], mg);
       double gap = std::round(L.styles[ms].fontSize * kMarkerGapEm);
-      double mx = x0 - gap - mw;
+      double mx = rtl ? x0 + line.width + gap : x0 - gap - mw;
       for (const Glyph& g : mg) {
         LaidGlyph out;
         out.font = g.font;
@@ -709,8 +789,21 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
         L.glyphs.push_back(out);
       }
     }
+    // The clusters in visual order (L2). A right-to-left paragraph's trailing spaces end up on the left: they hang
+    // there, as they hang on the right of a left-to-right one.
+    std::vector<uint32_t> order;
+    if (d.bidi) {
+      clusterLevels.resize(d.clusters.size());
+      for (size_t k = 0; k < d.clusters.size(); k++) clusterLevels[k] = d.clusters[k].level;
+      order = visualOrder(clusterLevels);
+    }
     double pen = x0;
-    for (size_t k = 0; k < d.clusters.size(); k++) {
+    if (rtl)
+      for (size_t k = contentEnd; k < d.clusters.size(); k++) pen -= d.clusters[k].width + (d.clusters[k].space ? extraPerSpace : 0);
+    const double lineLeft = pen;
+    vis.clear();
+    for (size_t m = 0; m < d.clusters.size(); m++) {
+      size_t k = d.bidi ? order[m] : m;
       Cluster& c = d.clusters[k];
       double startX = pen;
       for (uint32_t g = 0; g < c.glyphCount; g++) {
@@ -730,30 +823,46 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
       }
       pen += c.spacing;
       if (c.space) pen += extraPerSpace;
-      // Carets inside the cluster (ligatures split evenly).
+      vis.push_back({k, startX, pen});
+      // Carets inside the cluster (ligatures split evenly; from its right edge when it runs right to left).
       uint32_t span = c.end > c.start ? c.end - c.start : 0;
-      for (uint32_t u = 0; u < span && c.start + u <= n; u++) L.caretXs[c.start + u] = startX + (pen - startX) * u / static_cast<double>(span);
+      const bool back = c.level & 1;
+      for (uint32_t u = 0; u < span && c.start + u <= n; u++)
+        L.caretXs[c.start + u] = back ? pen - (pen - startX) * u / static_cast<double>(span) : startX + (pen - startX) * u / static_cast<double>(span);
     }
     line.glyphCount = static_cast<uint32_t>(L.glyphs.size()) - line.firstGlyph;
-    line.caretEnd = pen;
+    // After the line's last character: its right end, or its left end in a right-to-left paragraph.
+    line.caretEnd = rtl ? lineLeft : pen;
+    line.rtl = rtl;
     if (d.clusters.empty()) line.caretEnd = x0;
+    if (d.bidi) {
+      line.firstBox = static_cast<uint32_t>(L.boxes.size());
+      for (const Placed& v : vis) L.boxes.push_back({d.clusters[v.k].start, d.clusters[v.k].end, v.x0, v.x1, (d.clusters[v.k].level & 1) != 0});
+      line.boxCount = static_cast<uint32_t>(vis.size());
+    }
     // Positions without a cluster (the "\n", the end of the text, an empty line).
     uint32_t tail = d.clusters.empty() ? line.start : d.clusters.back().end;
     for (uint32_t u = tail; u < line.end && u <= n; u++) L.caretXs[u] = line.caretEnd;
     if (li + 1 == drafts.size()) L.caretXs[n] = line.caretEnd;
 
-    size_t contentEnd = d.clusters.size();
-    while (contentEnd > 0 && d.clusters[contentEnd - 1].space) contentEnd--;
-    auto clusterX = [&](size_t k) { return d.clusters[k].start == d.clusters[k].end ? line.caretEnd - d.clusters[k].width : L.caretXs[d.clusters[k].start]; };
-    // Underline / strikethrough, per run of a decorated style (trailing spaces left out).
-    for (size_t k = 0; k < contentEnd;) {
-      uint16_t st = d.clusters[k].style;
-      size_t j = k;
-      while (j < contentEnd && d.clusters[j].style == st) j++;
+    // Underline / strikethrough, per visual run of a decorated style (trailing spaces left out; no letter spacing
+    // after the last character).
+    auto runEnd = [&](size_t m) {
+      double to = vis[m].x1;
+      if (vis[m].k + 1 == contentEnd) to -= d.clusters[vis[m].k].spacing;
+      return to;
+    };
+    for (size_t m = 0; m < vis.size();) {
+      if (vis[m].k >= contentEnd) {
+        m++;
+        continue;
+      }
+      uint16_t st = d.clusters[vis[m].k].style;
+      size_t j = m;
+      while (j < vis.size() && vis[j].k < contentEnd && d.clusters[vis[j].k].style == st) j++;
       const ResolvedStyle& s = L.styles[st];
       if (s.textDecoration != TextDecoration::NONE) {
-        double from = clusterX(k), to = j < d.clusters.size() ? clusterX(j) : line.caretEnd;
-        if (j == contentEnd) to -= d.clusters[j - 1].spacing;
+        double from = vis[m].x0, to = runEnd(j - 1);
         double size = s.fontSize;
         Font* f = s.font;
         const TextFeatures& tf = s.features;
@@ -786,23 +895,32 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
           L.decorations.push_back({Rect{from, top, len, h}, st});
         }
       }
-      k = j;
+      m = j;
     }
-    // Links: one box per run of a link on this line (Figma's hyperlinkBoxes: the glyphs' extent, ascent to descent).
-    for (size_t k = 0; k < contentEnd;) {
-      const HyperlinkData& link = L.styles[d.clusters[k].style].features.hyperlink;
-      size_t j = k + 1;
-      while (j < contentEnd && L.styles[d.clusters[j].style].features.hyperlink == link) j++;
-      if (!link.empty()) {
-        if (!prevLink || !(*prevLink == link) || L.links.empty() || L.links.back().end != d.clusters[k].start) linkId++;
-        double from = clusterX(k), to = j < d.clusters.size() ? clusterX(j) : line.caretEnd;
-        if (j == contentEnd) to -= d.clusters[j - 1].spacing;
-        const ResolvedStyle& s = L.styles[d.clusters[k].style];
-        double asc = ascentPx(s), desc = descentPx(s);
-        L.links.push_back({Rect{from, line.baseline - asc, std::max(0.0, to - from), asc + desc}, link, d.clusters[k].start, d.clusters[j - 1].end, linkId});
-        prevLink = &L.styles[d.clusters[k].style].features.hyperlink;
+    // Links: one box per visual run of a link on this line (Figma's hyperlinkBoxes: the glyphs' extent, ascent to
+    // descent).
+    for (size_t m = 0; m < vis.size();) {
+      if (vis[m].k >= contentEnd) {
+        m++;
+        continue;
       }
-      k = j;
+      const HyperlinkData& link = L.styles[d.clusters[vis[m].k].style].features.hyperlink;
+      size_t j = m + 1;
+      while (j < vis.size() && vis[j].k < contentEnd && L.styles[d.clusters[vis[j].k].style].features.hyperlink == link) j++;
+      if (!link.empty()) {
+        uint32_t start = d.clusters[vis[m].k].start, end = d.clusters[vis[m].k].end;
+        for (size_t q = m; q < j; q++) {
+          start = std::min(start, d.clusters[vis[q].k].start);
+          end = std::max(end, d.clusters[vis[q].k].end);
+        }
+        if (!prevLink || !(*prevLink == link) || L.links.empty() || L.links.back().end != start) linkId++;
+        double from = vis[m].x0, to = runEnd(j - 1);
+        const ResolvedStyle& s = L.styles[d.clusters[vis[m].k].style];
+        double asc = ascentPx(s), desc = descentPx(s);
+        L.links.push_back({Rect{from, line.baseline - asc, std::max(0.0, to - from), asc + desc}, link, start, end, linkId});
+        prevLink = &L.styles[d.clusters[vis[m].k].style].features.hyperlink;
+      }
+      m = j;
     }
   }
   if (!anyInk) L.inkBounds = {0, 0, L.size.x, L.size.y};
@@ -857,6 +975,22 @@ std::vector<Rect> TextLayout::selectionRects(uint32_t from, uint32_t to) const {
   for (size_t i = 0; i < lines.size(); i++) {
     const LaidLine& l = lines[i];
     if (to <= l.start || from >= l.end) continue;
+    if (l.boxCount > 0) {
+      // A line in visual order: the selected part of each cluster, joined where they touch.
+      size_t first = out.size();
+      for (uint32_t b = l.firstBox; b < l.firstBox + l.boxCount; b++) {
+        const ClusterBox& c = boxes[b];
+        uint32_t a = std::max(from, c.start), z = std::min(to, c.end);
+        if (c.end == c.start || a >= z) continue;
+        double span = c.end - c.start, w = c.x1 - c.x0;
+        double u0 = (a - c.start) / span, u1 = (z - c.start) / span;
+        double x0 = c.rtl ? c.x1 - u1 * w : c.x0 + u0 * w, x1 = c.rtl ? c.x1 - u0 * w : c.x0 + u1 * w;
+        if (out.size() > first && std::fabs(out.back().x + out.back().w - x0) < 1e-3) out.back().w = x1 - out.back().x;
+        else out.push_back({x0, l.top, x1 - x0, l.height});
+      }
+      if (l.hardEnd && to >= l.end) out.push_back({l.caretEnd - (l.rtl ? 4 : 0), l.top, 4, l.height});  // the selected "\n"
+      continue;
+    }
     double x0 = caretX(std::max(from, l.start), i);
     double x1;
     if (to >= l.end) x1 = l.caretEnd + (l.hardEnd && to >= l.end ? 0 : 0);

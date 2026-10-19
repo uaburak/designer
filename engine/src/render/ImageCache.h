@@ -43,6 +43,8 @@ struct ImageHints {
 ImageHints imageHints(const Paint& paint);
 // A VIDEO paint's video file (Paint.video.hash, kept in Paint.extra); absent for other paints.
 ImageHash paintVideoHash(const Paint& paint);
+// A GIF fill's GIF (an IMAGE paint's Paint.animatedImage.hash, kept in Paint.extra; `image` is its cover frame).
+ImageHash paintGifHash(const Paint& paint);
 
 class ImageRegistry {
  public:
@@ -115,6 +117,8 @@ class ImageCache {
                   bool* placeholder = nullptr);
   // After a frame: past the budget, textures not drawn in it are freed, oldest first.
   void endFrame();
+  // Between frames: the textures the last frame didn't draw are freed (Renderer::purgeMemory).
+  void purge();
   uint64_t bytes() const { return bytes_; }
   size_t count() const { return textures_.size(); }
 

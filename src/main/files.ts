@@ -62,18 +62,27 @@ export async function exportPreview(
   return { path: r.path, bytes: r.bytes };
 }
 
-/** The file as a .fig where the Save dialog says. */
-export async function saveLocalCopy(win: BaseWindow | null, fileKey: string): Promise<{ path: string } | { cancelled: true }> {
+/**
+ * The file as a .fig where the Save dialog says. `partial` (Figma's "Save partial file", atlas 22 §4): images still
+ * downloading are left out and the name says so — "<name> - partial copy <date>", the date's / and _ as -.
+ */
+export async function saveLocalCopy(win: BaseWindow | null, fileKey: string, opts: { partial?: boolean } = {}): Promise<{ path: string } | { cancelled: true }> {
   const store = await readyStore();
   // A viewer the file's export setting restricts (docs/governance.md §2.7) saves no copy, whichever view asked.
   if (!(await mayExportFile(store.multiplayer, fileKey))) throw new Error(t(EXPORT_RESTRICTED_MESSAGE));
   const file = await store.workspace.getFile(fileKey);
   const safe = (file.name || "Untitled").replace(/[/\\:]/g, "-");
-  const options = { title: t("Save local copy"), defaultPath: `${safe}.fig`, filters: [{ name: t("Figma files"), extensions: ["fig"] }] };
+  const name = opts.partial ? partialCopyName(safe, new Date()) : safe;
+  const options = { title: t("Save local copy"), defaultPath: `${name}.fig`, filters: [{ name: t("Figma files"), extensions: ["fig"] }] };
   const picked = win && !win.isDestroyed() ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
   if (picked.canceled || !picked.filePath) return { cancelled: true };
-  await store.files.exportLocalCopy(fileKey, picked.filePath);
+  await store.files.exportLocalCopy(fileKey, picked.filePath, { partial: opts.partial === true });
   return { path: picked.filePath };
+}
+
+/** "<name> - partial copy <date>": the locale's date with its / and _ as - (Figma's save_partial_file_name_suffix; its English isn't read) */
+export function partialCopyName(name: string, date: Date): string {
+  return `${name} - ${t("partial copy {date}", { date: date.toLocaleDateString().replace(/[/_]/g, "-") })}`;
 }
 
 const FORMATS: Record<string, string> = { "image/png": "PNG", "image/jpeg": "JPG", "image/svg+xml": "SVG", "application/pdf": "PDF" };
@@ -81,7 +90,7 @@ const FORMATS: Record<string, string> = { "image/png": "PNG", "image/jpeg": "JPG
 /**
  * Exported files (Figma's desktop app: "you're prompted to rename the file and choose a location"): one through the
  * Save dialog; more into a folder picked in the Open dialog, each at its planned path (folders for "/" in names,
- * "name 2.png" for a name already there).
+ * "name1.png" for a name already there, as Figma numbers names in its archive).
  */
 export async function exportAssets(win: BaseWindow | null, files: ExportAsset[]): Promise<{ paths: string[] } | { cancelled: true }> {
   const parent = win && !win.isDestroyed() ? win : null;

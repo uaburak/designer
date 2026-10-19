@@ -1766,7 +1766,7 @@ TEST_CASE("components: a variant renamed by hand — its values follow its name,
   auto rename = [&](Guid v, const std::string& name) { e.setProps({v}, change(F_NAME, [&](NodeProps& p) { p.name = name; }), 0); };
   ComponentInfo info;
   REQUIRE(e.componentInfo(set, info));
-  CHECK(info.conflictingVariants.empty());
+  CHECK(info.errorVariants.empty());
   rename(LARGE, "Size=Huge");
   CHECK(valueOf(LARGE, "Size") == "Huge");
   bool listed = false;
@@ -1774,7 +1774,7 @@ TEST_CASE("components: a variant renamed by hand — its values follow its name,
     if (o.property == "Size") listed = std::find(o.values.begin(), o.values.end(), "Huge") != o.values.end();
   CHECK(listed);
   REQUIRE(e.componentInfo(LARGE, info));
-  CHECK(!info.variantConflict);
+  CHECK(info.variantError == VariantError::NONE);
   // A new property name: a Variant property of the set.
   rename(LARGE, "Size=Huge, Tone=Dark");
   CHECK(valueOf(LARGE, "Tone") == "Dark");
@@ -1786,16 +1786,176 @@ TEST_CASE("components: a variant renamed by hand — its values follow its name,
   CHECK(props(e, SMALL).name == "Broken");
   CHECK(valueOf(SMALL, "Size") == "Small");
   REQUIRE(e.componentInfo(SMALL, info));
-  CHECK(info.variantConflict);
+  CHECK(info.variantError == VariantError::PARSE);
   REQUIRE(e.componentInfo(set, info));
-  CHECK(info.conflictingVariants == std::vector<Guid>{SMALL});
+  CHECK(info.errorVariants == std::vector<Guid>{SMALL});
   rename(SMALL, "Size=Huge, Tone=Dark");
   REQUIRE(e.componentInfo(set, info));
-  CHECK(info.conflictingVariants.size() == 2);
+  CHECK(info.errorVariants.size() == 2);
   // Undo takes the rename and its values back in one step.
   REQUIRE(e.command(CommandId::UNDO) == OK);
   CHECK(props(e, SMALL).name == "Broken");
   CHECK(valueOf(SMALL, "Size") == "Small");
+}
+
+TEST_CASE("components: Figma's variant errors — missing properties, the same values, an invalid name, past 1000 variants") {
+  auto nodes = baseChanges();
+  const Guid SMALL{2, 1}, LARGE{2, 2};
+  nodes.push_back(make(SMALL, NodeType::SYMBOL, kPage, "!", {0, 0, 50, 50}, "Size=Small"));
+  nodes.push_back(make(LARGE, NodeType::SYMBOL, kPage, "\"", {100, 0, 50, 50}, "Size=Large"));
+  Editor e = load(nodes);
+  e.setSelection({SMALL, LARGE});
+  REQUIRE(e.command(CommandId::COMBINE_AS_VARIANTS) == OK);
+  Guid set = e.document().parentOf(SMALL);
+  auto rename = [&](Guid v, const std::string& name) { e.setProps({v}, change(F_NAME, [&](NodeProps& p) { p.name = name; }), 0); };
+  auto errorOf = [&](Guid id) {
+    ComponentInfo info;
+    REQUIRE(e.componentInfo(id, info));
+    return std::make_pair(info.variantError, info.errorVariants);
+  };
+  CHECK(errorOf(set).first == VariantError::NONE);
+  // A new property on one variant: the other has no value for it.
+  rename(LARGE, "Size=Large, Tone=Dark");
+  CHECK(errorOf(SMALL).first == VariantError::MISSING_PROPERTIES);
+  CHECK(errorOf(LARGE).first == VariantError::NONE);
+  CHECK(errorOf(set) == std::make_pair(VariantError::MISSING_PROPERTIES, std::vector<Guid>{SMALL}));
+  // The same values: both conflict, and that is worse than a missing property.
+  rename(SMALL, "Tone=Dark, Size=Large");
+  CHECK(errorOf(SMALL).first == VariantError::DUPLICATE_STATE);
+  CHECK(errorOf(set) == std::make_pair(VariantError::DUPLICATE_STATE, std::vector<Guid>{SMALL, LARGE}));
+  // A name that isn't "Property=Value, …": the worst; the set lists only that variant.
+  rename(SMALL, "Small");
+  CHECK(errorOf(SMALL).first == VariantError::PARSE);
+  CHECK(errorOf(set) == std::make_pair(VariantError::PARSE, std::vector<Guid>{SMALL}));
+  rename(SMALL, "Size=Small, Tone=Light");
+  CHECK(errorOf(set) == std::make_pair(VariantError::NONE, std::vector<Guid>{}));
+  // Past 1000 variants, with none of the others: the performance warning (no variants to select).
+  std::vector<NodeChange> many = baseChanges();
+  std::vector<Guid> ids;
+  for (uint32_t i = 0; i <= kMaxVariants; i++) {
+    ids.push_back(Guid{3, i + 1});
+    std::string position{char('!' + i / 90), char('!' + i % 90)};  // in order
+    many.push_back(make(ids.back(), NodeType::SYMBOL, kPage, position, {double(i) * 10, 0, 8, 8}, "N=" + std::to_string(i)));
+  }
+  Editor big = load(many);
+  big.setSelection(ids);
+  REQUIRE(big.command(CommandId::COMBINE_AS_VARIANTS) == OK);
+  ComponentInfo info;
+  REQUIRE(big.componentInfo(big.document().parentOf(ids[0]), info));
+  CHECK(info.variantError == VariantError::TOO_MANY_STATES);
+  CHECK(info.errorVariants.empty());
+}
+
+TEST_CASE("components: an instance of a deleted variant — Figma's missing variant (its set still there), not Restore") {
+  auto nodes = baseChanges();
+  const Guid SMALL{2, 1}, LARGE{2, 2}, INST{2, 10};
+  nodes.push_back(make(SMALL, NodeType::SYMBOL, kPage, "!", {0, 0, 50, 50}, "Size=Small"));
+  nodes.push_back(make(LARGE, NodeType::SYMBOL, kPage, "\"", {100, 0, 50, 50}, "Size=Large"));
+  nodes.push_back(instanceOf(INST, LARGE, kPage, "#", {0, 200, 50, 50}));
+  Editor e = load(nodes);
+  e.setSelection({SMALL, LARGE});
+  REQUIRE(e.command(CommandId::COMBINE_AS_VARIANTS) == OK);
+  Guid set = e.document().parentOf(SMALL);
+  e.setSelection({LARGE});
+  e.command(CommandId::DELETE);
+  REQUIRE(props(e, LARGE).comp().isSoftDeleted);
+  ComponentInfo info;
+  REQUIRE(e.componentInfo(INST, info));
+  CHECK(info.mainSoftDeleted);
+  CHECK(info.missingVariantSet == set);
+  // The whole set deleted: Restore component, no missing variant.
+  e.setSelection({set});
+  e.command(CommandId::DELETE);
+  REQUIRE(e.componentInfo(INST, info));
+  CHECK(info.mainSoftDeleted);
+  CHECK(info.missingVariantSet == kNoGuid);
+}
+
+TEST_CASE("components: Go to main component from several instances of one main, and Return to instance to all of them") {
+  auto nodes = buttonDoc();
+  const Guid I2{1, 11};
+  nodes.push_back(instanceOf(I2, M, kPage, "#", {0, 200, 100, 40}));
+  Editor e = load(nodes);
+  // A layer inside an instance counts as its instance.
+  e.setSelection({I, sub(I2, {LABEL})});
+  REQUIRE(e.commandState(CommandId::GO_TO_MAIN_COMPONENT) == CMD_ENABLED);
+  REQUIRE(e.command(CommandId::GO_TO_MAIN_COMPONENT) == OK);
+  CHECK(e.selection() == std::vector<Guid>{M});
+  CHECK(e.returnToInstances() == std::vector<Guid>{I, sub(I2, {LABEL})});
+  REQUIRE(e.command(CommandId::RETURN_TO_INSTANCE) == OK);
+  CHECK(e.selection() == std::vector<Guid>{I, sub(I2, {LABEL})});
+  CHECK(e.returnToInstances().empty());
+  CHECK(e.commandState(CommandId::RETURN_TO_INSTANCE) == 0);
+  // Instances of two mains: nothing to go to.
+  const Guid M2{1, 20}, I3{1, 21};
+  nodes.push_back(make(M2, NodeType::SYMBOL, kPage, "$", {300, 0, 50, 50}, "Other"));
+  nodes.push_back(instanceOf(I3, M2, kPage, "%", {300, 100, 50, 50}));
+  Editor two = load(nodes);
+  two.setSelection({I, I3});
+  CHECK(two.commandState(CommandId::GO_TO_MAIN_COMPONENT) == 0);
+  CHECK(two.command(CommandId::GO_TO_MAIN_COMPONENT) == E_INVALID);
+}
+
+TEST_CASE("components: a NUMBER property — 0 by default, 2 decimals, Figma's number text, shown on its text layer") {
+  auto jv = [](const char* text) {
+    json::Value v;
+    json::parse(text, v);
+    return v;
+  };
+  float x = 0;
+  CHECK((propNumber(jv("1.234"), x) && x == doctest::Approx(1.23)));
+  CHECK((propNumber(jv("\" -2.5 \""), x) && x == doctest::Approx(-2.5)));
+  CHECK((propNumber(jv("\".5\""), x) && x == doctest::Approx(0.5)));
+  CHECK(!propNumber(jv("\"\""), x));
+  CHECK(!propNumber(jv("\"1e3\""), x));
+  CHECK(!propNumber(jv("\"12px\""), x));
+  CHECK(formatPropNumber(1.5) == "1.5");
+  CHECK(formatPropNumber(2.0) == "2");
+  CHECK(formatPropNumber(0.125) == "0.13");
+  CHECK(formatPropNumber(-0.001) == "0");
+  CHECK(formatPropNumber(std::nan("")) == "0");
+  Editor e = load(buttonDoc());
+  e.setSelection({M});
+  REQUIRE(e.command(CommandId::ADD_COMPONENT_PROPERTY, args("{\"type\":\"NUMBER\",\"bind\":[\"1:3\"]}")) == OK);
+  const ComponentPropDef& def = props(e, M).comp().componentPropDefs.back();
+  CHECK(def.type == ComponentPropType::NUMBER);
+  CHECK(def.name == "Number");
+  CHECK((def.initialValue.hasFloat && def.initialValue.floatValue == 0));
+  Guid label = sub(I, {LABEL});
+  CHECK(props(e, label).text().textData.characters == "0");
+  e.setSelection({I});
+  REQUIRE(e.command(CommandId::SET_COMPONENT_PROPERTY, args("{\"prop\":\"Number\",\"value\":\"3.456\"}")) == OK);
+  CHECK(props(e, label).text().textData.characters == "3.46");
+  CHECK(e.command(CommandId::SET_COMPONENT_PROPERTY, args("{\"prop\":\"Number\",\"value\":\"three\"}")) == E_INVALID);
+  CHECK(e.command(CommandId::SET_COMPONENT_PROPERTY, args("{\"prop\":\"Number\",\"value\":true}")) == E_INVALID);
+  // The value round-trips through the file (ComponentPropValue.floatValue 4).
+  REQUIRE(props(e, I).comp().componentPropAssignments.size() == 1);
+  CHECK(props(e, I).comp().componentPropAssignments[0].value.floatValue == doctest::Approx(3.46));
+  e.setSelection({M});
+  CHECK(e.command(CommandId::ADD_COMPONENT_PROPERTY, args("{\"type\":\"NUMBER\",\"defaultValue\":\"x\"}")) == E_INVALID);
+}
+
+TEST_CASE("components: Reset ▸ one property's value (Figma's per-assignment reset) keeps the others and the overrides") {
+  Editor e = load(buttonDoc());
+  e.setSelection({M});
+  REQUIRE(e.command(CommandId::ADD_COMPONENT_PROPERTY, args("{\"type\":\"BOOLEAN\",\"name\":\"Shown\",\"bind\":[\"1:2\"]}")) == OK);
+  REQUIRE(e.command(CommandId::ADD_COMPONENT_PROPERTY, args("{\"type\":\"TEXT\",\"name\":\"Caption\",\"bind\":[\"1:3\"]}")) == OK);
+  Guid bg = sub(I, {BG});
+  e.setProps({bg}, change(F_OPACITY, [](NodeProps& p) { p.opacity = 0.5; }), 0);
+  e.setSelection({I});
+  REQUIRE(e.command(CommandId::SET_COMPONENT_PROPERTY, args("{\"prop\":\"Shown\",\"value\":false}")) == OK);
+  REQUIRE(e.command(CommandId::SET_COMPONENT_PROPERTY, args("{\"prop\":\"Caption\",\"value\":\"Go\"}")) == OK);
+  REQUIRE(props(e, I).comp().componentPropAssignments.size() == 2);
+  REQUIRE(e.command(CommandId::RESET_OVERRIDES, args("{\"kind\":\"PROPERTY_ASSIGNMENTS\",\"prop\":\"Caption\"}")) == OK);
+  const auto& left = props(e, I).comp().componentPropAssignments;
+  REQUIRE(left.size() == 1);
+  ComponentInfo info;
+  REQUIRE(e.componentInfo(I, info));
+  for (const ComponentProperty& p : info.properties) CHECK(p.overridden == (p.name == "Shown"));
+  CHECK(props(e, sub(I, {LABEL})).text().textData.characters == "Text");  // the default again
+  CHECK(hasOverride(e, I, {BG}, F_OPACITY));
+  // One property only goes with its kind.
+  CHECK(e.command(CommandId::RESET_OVERRIDES, args("{\"kind\":\"FILL\",\"prop\":\"Shown\"}")) == E_INVALID);
 }
 
 TEST_CASE("components: a slot's preferred values are components too; Reset properties takes a nested instance's values") {

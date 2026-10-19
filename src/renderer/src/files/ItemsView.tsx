@@ -8,7 +8,7 @@ import { timeAgo } from "@/ds/util/time";
 import { t, useT } from "@/i18n";
 import type { FileListItem, FolderId } from "@shared/store/types";
 import { branchCountLabel, branchTileSubtitle, branchTileTitle } from "./branchesModel";
-import { dateColumn, folderSubtitle, type FolderIndex, type Item, type Layout, type Location, type SortKey, type SortOrder } from "./model";
+import { dateColumn, folderSubtitle, sortView, VIEW_SORTS, type FolderIndex, type Item, type Layout, type Location, type SortKey, type SortOrder } from "./model";
 import { FolderGlyph } from "./parts";
 import styles from "./Files.module.css";
 
@@ -67,12 +67,14 @@ export function ItemsView(props: ItemsViewProps) {
   const place = (folderId: FolderId | null) => (folderId === null ? t("Drafts") : (folders.get(folderId)?.name ?? ""));
   const date = dateColumn(sort);
 
+  // A column sorts when the view offers its key (Trash and Recents: the date only)
+  const keys = VIEW_SORTS[sortView(location) ?? "drafts"].keys;
   const columns: ListColumn[] = [
-    { id: "name", label: t("Name"), sortable: !inTrash },
-    { id: "date", label: inTrash ? t("Deleted") : t(date.label), width: "minmax(0, var(--ds-size-panel))", sortable: !inTrash },
+    { id: "name", label: t("Name"), sortable: keys.includes("alphabetical") },
+    { id: "date", label: inTrash ? t("Deleted") : t(date.label), width: "minmax(0, var(--ds-size-panel))", sortable: true },
     { id: "place", label: t("Location"), width: "minmax(0, var(--ds-size-panel))" },
   ];
-  const listSort: ListSort | null = inTrash ? null : sort === "alphabetical" ? { column: "name", direction: order === "default" ? "ascending" : "descending" } : { column: "date", direction: order === "default" ? "descending" : "ascending" };
+  const listSort: ListSort = sort === "alphabetical" ? { column: "name", direction: order === "default" ? "ascending" : "descending" } : { column: "date", direction: order === "default" ? "descending" : "ascending" };
 
   const nameCell = (item: Item, name: string, icon: React.ReactNode, starred: boolean) => (
     <span className={styles.rowName}>
@@ -172,6 +174,7 @@ export function ItemsView(props: ItemsViewProps) {
   return (
     <div
       className={styles.content}
+      data-layout={layout}
       onContextMenu={(e) => {
         if ((e.target as Element).closest(ITEM)) return;
         onBlankMenu(e);

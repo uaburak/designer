@@ -1,0 +1,70 @@
+@layer app {
+  /* The Templates gallery (docs/social.md §4.3): three filters, then two cards to a row [metrics ours] */
+  .gallery { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: var(--ds-space-1) var(--ds-size-panel-pad-right) var(--ds-space-3) var(--ds-size-panel-pad-left); }
+  .filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--ds-space-1); }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ds-space-2); max-height: calc(var(--ds-size-social-table) + var(--ds-space-10)); overflow-y: auto; overscroll-behavior: contain; }
+  .card {
+    display: flex; flex-direction: column; align-items: stretch; gap: var(--ds-space-half); min-width: 0; padding: var(--ds-space-1); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg); color: var(--figma-color-text); font: var(--ds-font-body-medium); text-align: left; outline: none; cursor: default; touch-action: none;
+  }
+  .card:hover { border-color: var(--figma-color-border-strong); background: var(--figma-color-bg-hover); }
+  .card:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .card:disabled { color: var(--figma-color-text-disabled); }
+  .thumb { align-self: center; }
+  .name { display: flex; align-items: center; gap: var(--ds-space-1); min-width: 0; overflow: hidden; font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); text-overflow: ellipsis; white-space: nowrap; }
+  .animated { flex: none; color: var(--figma-color-icon-secondary); }
+  .source { min-width: 0; overflow: hidden; color: var(--figma-color-text-tertiary); font: var(--ds-font-body-small); text-overflow: ellipsis; white-space: nowrap; }
+  .note { margin: 0; color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); }
+
+  /* The dragged template follows the pointer (as Assets' components do) */
+  .ghost {
+    position: fixed; z-index: var(--ds-z-drag); display: flex; align-items: center; gap: var(--ds-space-1); height: var(--ds-size-control); padding: 0 var(--ds-space-2); border-radius: var(--ds-radius-medium);
+    background: var(--ds-color-menu-bg); box-shadow: var(--ds-elevation-menu); color: var(--ds-color-menu-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); pointer-events: none; transform: translate(8px, 8px);
+  }
+
+  /* Over the canvas, where the drop puts the post: its outline at the canvas's zoom, its format above it [ours] */
+  .drop { position: fixed; z-index: var(--ds-z-drag); box-sizing: border-box; border: 1px dashed var(--figma-color-border-selected); background: color-mix(in srgb, var(--figma-color-bg-selected) 40%, transparent); pointer-events: none; }
+  .dropLabel { position: absolute; bottom: 100%; left: 0; padding-bottom: var(--ds-space-half); color: var(--figma-color-text-brand); font: var(--ds-font-body-small); letter-spacing: var(--ds-tracking-body-small); white-space: nowrap; }
+
+  /* Save as template and Import CSV: labelled fields, the slots as rows (layer, role, locked, characters) */
+  .form { display: flex; flex-direction: column; gap: var(--ds-space-3); }
+  .field { display: flex; flex-direction: column; gap: var(--ds-space-1); min-width: 0; }
+  .label { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .checks { display: flex; flex-wrap: wrap; gap: var(--ds-space-2) var(--ds-space-4); }
+  .slots { display: flex; flex-direction: column; gap: var(--ds-space-1); max-height: calc(var(--ds-size-row) * 8); overflow-y: auto; }
+  .slot { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 120px) auto minmax(0, 72px); align-items: center; gap: var(--ds-space-2); min-height: var(--ds-size-row); }
+  .slotName { min-width: 0; overflow: hidden; color: var(--figma-color-text); font: var(--ds-font-body-medium); text-overflow: ellipsis; white-space: nowrap; }
+  .error { margin: 0; color: var(--figma-color-text-danger); font: var(--ds-font-body-medium); }
+  .hint { margin: 0; color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); }
+
+  /* The posts table (§4.5): docked along the editor's bottom like Motion's timeline (EditorApp.module.css lifts the rest) */
+  .table {
+    position: absolute; right: 0; bottom: 0; left: 0; z-index: var(--ds-z-panel); display: flex; flex-direction: column; box-sizing: border-box; height: var(--ds-size-social-table);
+    border-top: 1px solid var(--figma-color-border); background: var(--figma-color-bg); color: var(--figma-color-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium);
+  }
+  .tableHeader { display: flex; flex: none; align-items: center; gap: var(--ds-space-2); height: var(--ds-size-row); padding: 0 var(--ds-space-2) 0 var(--ds-space-4); border-bottom: 1px solid var(--figma-color-border); }
+  .tableTitle { flex: 1 1 auto; font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .tableScroll { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+  .grid2 { width: max-content; min-width: 100%; border-collapse: collapse; }
+  .th {
+    position: sticky; top: 0; z-index: 1; height: var(--ds-size-row); padding: 0 var(--ds-space-2); border-bottom: 1px solid var(--figma-color-border); background: var(--figma-color-bg);
+    color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); text-align: left; white-space: nowrap;
+  }
+  /* A header sorts its column: its label a button, the direction's arrow after it */
+  .sort { display: inline-flex; align-items: center; gap: var(--ds-space-half); height: var(--ds-size-row); padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: default; }
+  .sort:hover { color: var(--figma-color-text); }
+  .sort:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .sortIcon { color: var(--figma-color-icon-secondary); }
+  .row { height: var(--ds-size-row); }
+  .row:hover { background: var(--figma-color-bg-hover); }
+  .row[aria-selected="true"] { background: var(--figma-color-bg-selected); }
+  .td { max-width: 280px; padding: 0 var(--ds-space-1); border-bottom: 1px solid var(--figma-color-border); white-space: nowrap; }
+  .cellText { display: block; max-width: 160px; overflow: hidden; color: var(--figma-color-text-secondary); text-overflow: ellipsis; }
+  .cell { min-width: 140px; }
+  .rowThumb { display: block; width: var(--ds-size-icon-24); height: var(--ds-size-icon-24); border-radius: var(--ds-radius-small); background: var(--figma-color-bg-secondary); object-fit: contain; }
+  .campaign { height: var(--ds-size-row); padding: 0 var(--ds-space-4); color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); text-align: left; }
+
+  /* The Brands library's banner over the canvas (§4.1) */
+  .banner { position: absolute; top: var(--ds-space-3); left: 50%; z-index: var(--ds-z-floating); display: flex; max-width: calc(100% - var(--ds-space-8)); transform: translateX(-50%); pointer-events: auto; }
+  .bannerText { display: inline-flex; align-items: center; gap: var(--ds-space-2); }
+}

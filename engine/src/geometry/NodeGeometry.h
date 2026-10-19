@@ -29,6 +29,12 @@ struct NodeGeometry {
   Rect bounds;                          // of the fills and the stroke centre line
 };
 
+// Figma's path trim on a node (`pathTrim` in `extra`, x = start, y = end; docs/motion.md §4.13): true with its start
+// and end (0–1) when it cuts anything (present, and not [0, 1]). The geometry's stroke centre line is the trimmed one
+// where the stroke is centred or open (Figma trims center strokes only), so the renderer, exports and hit-testing all
+// draw and test what is left.
+bool pathTrimOf(const NodeProps& p, double& start, double& end);
+
 class GeometryCache {
  public:
   using TextSource = std::function<const text::TextLayout*(Guid)>;
@@ -53,6 +59,11 @@ class GeometryCache {
     Bytes network;  // the blob the entry was built from (its identity is part of the input)
     NodeGeometry geometry;
     bool valid = false;
+    // The document and its version it was last checked against: unchanged since, a shape's inputs are too (every
+    // change bumps the version) — its key isn't hashed again each frame (round 18: ~1.4 ms a frame at 3 % on B2C).
+    // Text keeps hashing: its layout can change with the document as it was (a font arriving).
+    const Document* doc = nullptr;
+    uint64_t checkedAt = 0;
   };
   uint64_t inputKey(const Document& doc, Guid id, const NodeProps& p, int depth);
   void build(const Document& doc, Guid id, const NodeProps& p, NodeGeometry& out, int depth);

@@ -37,6 +37,8 @@
 //   EDITOR_ONLY=grid12 node …                                      (round 12 at 1440 × 900, only on its own: a grid's gap boxes and gap drag, the row pill's click and its chevron's field and sizing list against the live captures)
 //   EDITOR_ONLY=overlays11 node …                                  (round 11 at 1440 × 900, only on its own: the component set's "3 Variants" pill, "+" and gap boxes, no instance title, the text's baseline underline, smart selection dots)
 //   EDITOR_ONLY=agents node …                                      (the Agents tab and the MCP section with a stand-in agent: "Make the mobile version of this", Undo / Apply, Agent settings)
+//   EDITOR_ONLY=studio node …                                      (Studio, run on its own: the manager's task cards, the choice card, the brand form, the review with its boxes, a task's prompt edited and run again; the Brands tab)
+//   EDITOR_ONLY=reach node …                                       (agents' reach, run on its own: Agent settings › Access — the policies, Web's allowed addresses, GitHub off by the org, folders, Screen Recording, the log — and a chat's web card and window picker)
 //   EDITOR_ONLY=input node …                                       (keys typed into fields never reach the canvas; a panel resize never blanks or stretches it, frame by frame)
 //   EDITOR_ONLY=layers14 node …                                    (round 14, Layers polish: names fade at the dynamic cut, rows 32 in every state, the list as wide as its widest row, nothing moves when it overflows, icon-only rail)
 //   EDITOR_ONLY=chrome15 node …                                    (round 15: a turned frame's name and badge along its edges, its press; turned resize / rotate cursors, the cursor sheet; the eyedropper's card, sample, Esc)
@@ -65,6 +67,8 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
 import { agentsSection } from "./editorShotAgents.mjs";
+import { studioSection } from "./editorShotStudio.mjs";
+import { reachSection } from "./editorShotReach.mjs";
 import { autoLayoutDragSection } from "./editorShotAutoLayoutDrag.mjs";
 import { chromeSection } from "./editorShotChrome.mjs";
 import { components15Section } from "./editorShotComponents.mjs";
@@ -151,6 +155,15 @@ const check = (name, ok, detail = "") => results.push(`${ok ? "ok  " : "FAIL"} $
 
 let openedOnWebGPU = false;
 async function open(page, query, { defaultLabels = false } = {}) {
+  // SwiftShader is software rendering: Figma's hardware-acceleration bell (EngineHealth.tsx, a 10 s toast over the
+  // toolbar, once a machine) would come in every fresh context and sit in the shots and pixel counts — marked shown.
+  await page.addInitScript(() => {
+    try {
+      localStorage.setItem("hardware_acceleration_disabled_warning_shown", "1");
+    } catch {
+      // storage blocked: no bell either
+    }
+  });
   await page.goto(`${base}/?editor${query}${gfxQuery}`);
   await page.waitForFunction(() => window.__designerEditor && !window.__designerEditor.engine.destroyed, null, { timeout: 20000 });
   // The Design panel's row labels are off by default since round 17 (the owner's live Figma); the live captures the
@@ -197,6 +210,11 @@ const selection = (page) => page.evaluate(() => window.__designerEditor.selectio
 const node = (page, id) => page.evaluate((id) => window.__designerEditor.engine.readNode(id), id);
 
 const only = process.env.EDITOR_ONLY ?? "";
+/**
+ * Live's bottom toolbar is 529 wide at 456 (live toolbar/bottom-toolbar.txt); ours is wider by its mode switch's own
+ * modes (Social, Motion [ours]) and stays centred, so what hangs off it — the tool menus, Actions — moves with its left.
+ */
+const toolbarDx = async (page) => Math.round((await page.locator('[data-ds="EditorToolbar"]').boundingBox()).x) - 456;
 // The full run in two parts, each within the 180 s stop on a busy machine: EDITOR_PART=1 the sections, 2 the main
 // walk-through (both themes); unset, both.
 const part = process.env.EDITOR_PART ?? "";
@@ -235,6 +253,9 @@ async function paintsSection(page, theme) {
 
   // Selection colors list a frame's gradients as rows.
   await select("2:1");
+  // Four colours or more open folded (atlas 07 §4): the title row opens the list.
+  await panel.locator('section[aria-label="Selection colors"] button[aria-label="Selection colors"][aria-expanded="false"]').click({ timeout: 2000 }).catch(() => {});
+  await settle(page);
   const seeAll = panel.locator('section[aria-label="Selection colors"]').getByRole("button", { name: /^See all/ });
   if (await seeAll.count()) await seeAll.click();
   check("Selection colors list gradients (one row each)", (await panel.locator("section[aria-label=\"Selection colors\"]").getByRole("button", { name: "Color: Diamond" }).count()) === 1);
@@ -547,7 +568,9 @@ async function componentsSection(page, theme) {
   await page.mouse.click(...(await toScreen(page, ...box)), { button: "right" });
   await settle(page);
   const canvasText = (await page.getByRole("menu").count()) ? await page.getByRole("menu").first().innerText() : "";
-  check("the canvas menu on an instance: Go to main component, Reset, Detach instance", canvasText.includes("Go to main component") && canvasText.includes("Detach instance"), canvasText.replace(/\n/g, " | "));
+  // Go to main component alone when it is the one main component action that can run, else under "Main component ▸"
+  // (Atlas 03 §4.2).
+  check("the canvas menu on an instance: Go to main component (or Main component ▸), Reset, Detach instance", /Go to main component|Main component/.test(canvasText) && canvasText.includes("Reset instance") && canvasText.includes("Detach instance"), canvasText.replace(/\n/g, " | "));
   await shot(page, `42-instance-canvas-menu-${theme}`);
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Main menu" }).first().click();
@@ -564,7 +587,7 @@ async function componentsSection(page, theme) {
   await settle(page);
   const went = await page.evaluate(() => ({ page: window.__designerEditor.store.page, sel: window.__designerEditor.selection }));
   check("⌃⌥⌘K goes to the main on its page", went.page === "0:3" && went.sel.join() === "1:1", JSON.stringify(went));
-  check("the Return to instance pill shows", (await page.locator("[data-return-to-instance]").count()) === 1);
+  check("the Return to instance bell shows", (await page.getByRole("button", { name: "Return to instance" }).count()) === 1);
   await shot(page, `44-go-to-main-${theme}`);
 
   // The main component: Properties (+), its rows, the description.
@@ -586,7 +609,7 @@ async function componentsSection(page, theme) {
   const defs = (await node(page, "1:1")).componentPropDefs ?? [];
   check("Create property adds a Boolean property", defs.some((d) => d.name === "Disabled" && d.type === "BOOL"), defs.map((d) => d.name).join(", "));
 
-  await page.locator("[data-return-to-instance] button").first().click();
+  await page.getByRole("button", { name: "Return to instance" }).first().click();
   await settle(page);
   const back = await page.evaluate(() => ({ page: window.__designerEditor.store.page, sel: window.__designerEditor.selection }));
   check("Return to instance goes back", back.page === "0:1" && back.sel.join() === "2:2", JSON.stringify(back));
@@ -703,7 +726,13 @@ async function variablesSection(page, theme) {
   await win.locator('[data-variable-row] [data-name-cell="bg/primary"]').hover();
   await win.locator('[data-edit-cell="bg/primary"]').getByRole("button", { name: "Edit variable" }).click(); // live: its own column
   await settle(page);
-  check("Edit variable: name, values per mode, scoping, code syntax, publishing", (await page.locator("[data-edit-variable]").count()) === 1 && (await page.getByText("Show in all supported properties").count()) === 1);
+  // Figma's Details | Scoping tabs (Atlas 11): name, values per mode, code syntax, publishing; then the scopes.
+  const editOpen = (await page.locator('[data-edit-variable][data-tab="details"]').count()) === 1;
+  await page.getByRole("tab", { name: "Scoping", exact: true }).click({ timeout: 2000 }).catch(() => {});
+  await settle(page);
+  check("Edit variable: name, values per mode, code syntax, publishing | scoping", editOpen && (await page.getByText("Show in all supported properties").count()) === 1);
+  await page.getByRole("tab", { name: "Details", exact: true }).click({ timeout: 2000 }).catch(() => {});
+  await settle(page);
   await shot(page, `57-edit-variable-${theme}`);
   await page.keyboard.press("Escape");
   await settle(page);
@@ -732,7 +761,7 @@ async function variablesSection(page, theme) {
 
   // Binding in the Design panel: hover "Apply variable", the picker, the pill, Detach.
   await select("2:3");
-  const radius = panel.locator('[data-bind-field="CORNER_RADIUS"]');
+  const radius = panel.locator('[data-bind-field*="CORNER_RADIUS"]').first();
   await radius.hover();
   await settle(page);
   await shot(page, `60-apply-variable-hover-${theme}`);
@@ -918,7 +947,9 @@ async function librariesSection(page, theme) {
   await drag(page, [area.x + 120, area.y + 120], [area.x + 220, area.y + 200]);
   await settle(page);
   const panel = page.locator('[data-panel="right"]');
-  const radius = panel.locator('[data-bind-field="CORNER_RADIUS"]');
+  const radius = panel.locator('[data-bind-field*="CORNER_RADIUS"]').first();
+  await radius.waitFor({ timeout: 5000 }).catch(() => {});
+  if (await radius.count()) {
   await radius.hover();
   await radius.getByRole("button", { name: "Apply variable" }).click();
   await page.locator('[data-variable-picker] [data-picker-library="Tokens"]').waitFor({ timeout: 10000 }).catch(() => {});
@@ -932,6 +963,7 @@ async function librariesSection(page, theme) {
     check("a library variable binds through its copy (the pill shows its name)", (await radius.locator("[data-bound-variable]").count()) === 1);
     await shot(page, `78-bound-pill-library-${theme}`);
   } else check("a library variable binds through its copy (the pill shows its name)", false, "radius/lg not listed under Tokens");
+  } else check("a library variable binds through its copy (the pill shows its name)", false, "no Corner radius field on the drawn rectangle");
   await page.evaluate(() => window.__designerEditor.source.flush());
 
   // ---- The Kit changes its Button and publishes v2 (the modal lists it as modified).
@@ -961,7 +993,7 @@ async function librariesSection(page, theme) {
   await page.locator("[data-review-update]").getByText("Overlay", { exact: true }).click();
   await settle(page);
   await shot(page, `83-review-overlay-${theme}`);
-  await page.locator("[data-review-update]").getByRole("button", { name: "Update", exact: true }).click();
+  await page.locator("[data-review-update]").getByRole("button", { name: "Update instance", exact: true }).click();
   await page.waitForFunction(() => window.__designerEditor.libraries.pendingCount() === 0, null, { timeout: 10000 }).catch(() => {});
   const fill = await ed((id) => {
     const c = window.__designerEditor.engine.readNode(id)?.fillPaints?.[0]?.color;
@@ -1045,7 +1077,16 @@ async function librariesSection(page, theme) {
   await page.locator('[data-update="Button"]').click();
   await page.locator("[data-review-update]").waitFor({ timeout: 5000 });
   const layersBefore = await ed((id) => window.__designerEditor.engine.readNode(id, { childIds: true })?.childIds?.length ?? 0, second);
-  await page.locator("[data-review-update]").getByRole("button", { name: "Update selected instance" }).click();
+  // The review goes instance by instance (atlas 12 §6.5): to the first one, then Update instance.
+  const firstShown = await ed(async () => {
+    const e = window.__designerEditor;
+    const { instancesOfUpdate } = await import("/src/editor/libraries.ts");
+    return instancesOfUpdate(e, e.libraries.updates().find((u) => u.copy.name === "Button"), "current")[0]?.id;
+  });
+  check("Review: ◀ ▶ and i/N with two instances", (await page.locator("[data-review-update]").getByText("1/2", { exact: true }).count()) === 1);
+  await shot(page, `87-review-instances-${theme}`);
+  if (firstShown !== inserted.id) await page.locator("[data-review-update]").getByRole("button", { name: "Next instance" }).click();
+  await page.locator("[data-review-update]").getByRole("button", { name: "Update instance" }).click();
   await page.waitForFunction(() => window.__designerEditor.libraries.copies().filter((c) => c.name === "Button").length === 2, null, { timeout: 10000 }).catch(() => {});
   await settle(page);
   const after = await ed(
@@ -1057,7 +1098,7 @@ async function librariesSection(page, theme) {
     },
     [inserted.id, second]
   );
-  check("Update selected instance: a complete second copy, the selected instance on it with its layers, the other unchanged", after.copies === 2 && after.a === layersBefore && after.ga === 173 && after.gb !== 173, JSON.stringify(after));
+  check("Update instance: a complete second copy, the instance on it with its layers, the other unchanged", after.copies === 2 && after.a === layersBefore && after.ga === 173 && after.gb !== 173, JSON.stringify(after));
   await shot(page, `88-update-selected-instance-${theme}`);
   await page.locator("[data-review-update]").getByRole("button", { name: "Back to updates" }).click().catch(() => {});
   await page.getByRole("button", { name: "Update all" }).click();
@@ -1069,6 +1110,18 @@ async function librariesSection(page, theme) {
   check("Update all: every copy of every asset updated, one undo step", all.pending === 0 && all.undo === "Update library assets", JSON.stringify(all));
   await settle(page);
   await shot(page, `89-updated-all-${theme}`);
+
+  // ---- Swap library (atlas 12 §7.1): Kit's view › Swap library › to Tokens — the used assets, "None found".
+  await ed(() => window.__designerEditor.ui.set({ librariesDialog: { tab: "libraries" } }));
+  await page.getByRole("button", { name: "Preview Kit", exact: true }).click();
+  await page.locator("[data-library-footer]").getByRole("button", { name: "Swap library" }).click();
+  await page.locator("[data-swap-library]").getByRole("combobox", { name: "Swap to" }).click();
+  await page.getByRole("option", { name: "Tokens" }).click();
+  await page.locator("[data-swap-row]").first().waitFor({ timeout: 10000 }).catch(() => {});
+  await settle(page);
+  check("Swap library: Kit's used components listed, none found in Tokens", (await page.locator("[data-swap-row]").count()) >= 1 && (await page.locator("[data-swap-library]").getByText("None found").count()) >= 1);
+  await shot(page, `90-swap-library-${theme}`);
+  await page.keyboard.press("Escape");
 }
 
 
@@ -1091,14 +1144,17 @@ async function exportSection(page, theme) {
   await page.getByRole("option", { name: "SVG" }).click().catch(() => {});
   await settle(page);
   const third = await page.evaluate(() => window.__designerEditor.engine.readNode("1:1").exportSettings[2]);
-  check("Export: the format menu makes it SVG (1x, suffix kept)", third?.imageType === "SVG" && third.suffix === "@3x", JSON.stringify(third));
+  // The automatic "@3x" follows the scale and goes on SVG / PDF (atlas 15 wave 4).
+  check("Export: the format menu makes it SVG (1x, the automatic suffix dropped)", third?.imageType === "SVG" && third.suffix === "" && third.constraint?.value === 1, JSON.stringify(third));
   await section.scrollIntoViewIfNeeded().catch(() => {});
   await shot(page, `90-export-section-${theme}`);
   // The "…" settings: Suffix and the format's options.
   await panel.locator('[data-export-row="2"]').getByRole("button", { name: "Advanced export settings", exact: true }).click();
   await settle(page);
   const pop = page.locator("[data-export-settings]");
-  check("Export settings: SVG's options", (await pop.getByText("Outline text").count()) === 1 && (await pop.getByText("Simplify stroke").count()) === 1 && (await pop.getByText('Include "id" attribute').count()) === 1);
+  // Outline text only when the layers hold text, Simplify stroke only with a stroke SVG draws as a mask (atlas 15).
+  const svgOptions = await pop.locator("label").allInnerTexts();
+  check("Export settings: SVG's options", (await pop.getByText('Include "id" attribute').count()) === 1, svgOptions.join(" | "));
   await shot(page, `91-export-settings-${theme}`);
   await page.keyboard.press("Escape");
   await settle(page);
@@ -1118,7 +1174,7 @@ async function exportSection(page, theme) {
     const zip = readFileSync(file);
     const names = [];
     for (let at = 0; at + 4 <= zip.length; at++) if (zip.readUInt32LE(at) === 0x02014b50) names.push(zip.subarray(at + 46, at + 46 + zip.readUInt16LE(at + 28)).toString());
-    check("Export Frame 1: the three files", names.join() === "Frame 1.png,Frame 1@2x.png,Frame 1@3x.svg", `${download.suggestedFilename()}: ${names.join(", ")}`);
+    check("Export Frame 1: the three files", names.join() === "Frame 1.png,Frame 1@2x.png,Frame 1.svg", `${download.suggestedFilename()}: ${names.join(", ")}`);
   } else check("Export Frame 1: the three files", false, "no download");
   // ⇧⌘E: the dialog lists the frame.
   await page.evaluate(() => window.__designerEditor.focusCanvas());
@@ -2201,11 +2257,12 @@ async function designRound8(page, theme, panel, select, focus) {
   const gapItems = (await page.getByRole("menu").last().getByRole("menuitemcheckbox").allTextContents()).map((t) => t.trim());
   check("Design r8: the gap's list reads its number and Auto", gapItems.length === 2 && gapItems[1] === "Auto", gapItems.join());
   await page.keyboard.press("Escape");
-  // Auto layout settings as live: 240 wide, Inside stroke / Canvas stacking / Align text baseline / Auto spacing / Layout.
+  // Auto layout settings as live: 240 wide, Inside stroke / Canvas stacking / Align text baseline / Auto spacing / Layout;
+  // "Strokes" in Inside stroke's place under the Legacy layout (Atlas 09 §3.9), as this frame's.
   await panel.getByRole("button", { name: "Auto layout settings" }).click();
   await settle(page);
   const alBox = await popupBox();
-  check("Design r8: Auto layout settings is 240 wide with Inside stroke, Canvas stacking, Align text baseline, Auto spacing, Layout", alBox && Math.round(alBox.width) === 240 && (await popup().getByRole("combobox", { name: "Inside stroke" }).count()) === 1 && (await popup().getByRole("radiogroup", { name: "Align text baseline" }).count()) === 1 && (await popup().getByRole("combobox", { name: "Layout" }).count()) === 1);
+  check("Design r8: Auto layout settings is 240 wide with Inside stroke, Canvas stacking, Align text baseline, Auto spacing, Layout", alBox && Math.round(alBox.width) === 240 && (await popup().getByRole("combobox", { name: /^(Inside stroke|Strokes)$/ }).count()) === 1 && (await popup().getByRole("radiogroup", { name: "Align text baseline" }).count()) === 1 && (await popup().getByRole("combobox", { name: "Layout" }).count()) === 1);
   await shot(page, `253-design-autolayout-settings-${theme}`);
   await page.keyboard.press("Escape");
   // Typography: the font size list over its field (the sizes only), Type settings with its preview, the font picker.
@@ -2565,15 +2622,20 @@ async function panel10Section(page, theme) {
   check("R10 grid child: Column span and Row span", (await panel.getByText("Column span", { exact: true }).count()) === 1 && (await panel.getByText("Row span", { exact: true }).count()) === 1);
   // 4. Rect + Ellipse + Text + F_frame: four colours, no link, live's order.
   await select(["7:60", "7:61", "7:90", "7:1"]);
+  // Four colours or more open folded, the first three in the title row (atlas 07 §4): the title row opens the list.
+  await panel.locator('section[aria-label="Selection colors"] button[aria-label="Selection colors"][aria-expanded="false"]').click({ timeout: 2000 }).catch(() => {});
+  await settle(page);
   const colors = await panel.locator('section[aria-label="Selection colors"] button[aria-label^="Solid color hex"]').evaluateAll((els) => els.map((e) => e.getAttribute("aria-label").slice(-6)));
   check("R10 Selection colors: D9D9D9, 000000, 3380FF, FFFFFF, no See all", colors.join() === "D9D9D9,000000,3380FF,FFFFFF" && (await panel.getByText(/^See all/).count()) === 0, colors.join());
   // 5. Frame ▾: one list past the window's bottom, 8 under the button.
   await select(["7:20"]);
+  // (Selection colors' list, opened above, scrolled the panel: the header back in view first.)
+  await panel.getByRole("button", { name: "Frame, Frame Dimension Presets" }).scrollIntoViewIfNeeded();
   const fb = await box(panel.getByRole("button", { name: "Frame, Frame Dimension Presets" }));
   await panel.getByRole("button", { name: "Frame, Frame Dimension Presets" }).click();
   await settle(page);
   const pm = await box(page.getByRole("menu").last());
-  check("R10 Frame ▾: 222 wide, 8 under its button, longer than the window (not cut)", pm && fb && Math.round(pm.width) === 222 && Math.round(pm.y) === Math.round(fb.y + fb.height + 8) && pm.height > 900, JSON.stringify(pm));
+  check("R10 Frame ▾: 222 wide, 8 under its button, longer than the window (not cut)", pm && fb && Math.round(pm.width) === 222 && Math.round(pm.y) === Math.round(fb.y + fb.height + 8) && pm.height > 900, JSON.stringify([pm, fb]));
   await page.keyboard.press("Escape");
   await settle(page);
   // 6. Individual strokes: flips above its button, 12 away.
@@ -2608,7 +2670,9 @@ async function panel10Section(page, theme) {
   await page.getByRole("combobox", { name: "Font filter" }).click();
   await settle(page);
   const filters = await page.getByRole("listbox").last().getByRole("option").allInnerTexts();
-  check("R10 font filter: live's order and wording", filters.map((t) => t.trim()).join() === "All fonts,In this file,Popular fonts,Google fonts,Variable fonts,Uploaded by you,Installed by you", filters.join());
+  // Uploaded / Installed by you only with the computer's fonts (the desktop app's `designer.fonts`), not in a browser.
+  const local = await page.evaluate(() => !!window.designer?.fonts);
+  check("R10 font filter: live's order and wording", filters.map((t) => t.trim()).join() === `All fonts,In this file,Popular fonts,Google fonts,Variable fonts${local ? ",Uploaded by you,Installed by you" : ""}`, filters.join());
   await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
   await settle(page);
@@ -2832,7 +2896,9 @@ async function selectionSection(page, theme) {
   await settle(page);
   const menu = page.getByRole("menu");
   const labels = (await menu.getByRole("menuitem").allTextContents()).map((t) => t.replace(/[⌘⇧⌥⌃⌫\][]|[A-Z]$/g, "").trim());
-  check("Canvas menu: Paste to replace, Move to page, Bring to front, Show/Hide; no Cut or Delete", ["Paste to replace", "Move to page", "Bring to front", "Show/Hide", "Flip horizontal"].every((l) => labels.some((t) => t.startsWith(l))) && !labels.some((t) => t === "Cut" || t === "Delete"), labels.slice(0, 8).join(", "));
+  // Move to page only with another page to move to: rows that can't run are dropped, as Figma's (Atlas 03 §4).
+  const otherPages = await page.evaluate(() => window.__designerEditor.store.pages.length > 1);
+  check("Canvas menu: Paste to replace, Move to page (with another page), Bring to front, Show/Hide; no Cut or Delete", ["Paste to replace", "Bring to front", "Show/Hide", "Flip horizontal"].every((l) => labels.some((t) => t.startsWith(l))) && labels.some((t) => t.startsWith("Move to page")) === otherPages && !labels.some((t) => t === "Cut" || t === "Delete"), labels.join(", "));
   await shot(page, `172-canvas-menu-${theme}`);
   await page.keyboard.press("Escape");
   // ] / [: to the front and back.
@@ -2983,10 +3049,13 @@ async function overlays9Section(page, theme) {
     const [fx] = await at(232, 0);
     const box = await canvas.boundingBox();
     check("The </> ends at the frame's right edge", Math.abs(box.x + icon.x + icon.width - 2 - fx) <= 1.5, `${box.x + icon.x + icon.width - 2} vs ${fx}`);
+    // A click opens the status menu (docs/editor.md "Frame status (ours)", 2026-10-12); Ready to Dev is Ready for dev.
     await page.mouse.click(box.x + icon.x + icon.width / 2, box.y + icon.y + icon.height / 2);
     await settle(page);
+    await page.locator('[data-ds="Menu"]').getByText("Ready to Dev", { exact: true }).click().catch(() => {});
+    await settle(page);
     const st = (await page.evaluate(() => window.__designerEditor.engine.readNode("7:20", { fields: ["sectionStatusInfo"] })))?.sectionStatusInfo?.status;
-    check("A click on the </> marks the frame ready for dev", st === "BUILD", String(st));
+    check("A click on the </> and Ready to Dev in its menu mark the frame ready for dev", st === "BUILD", String(st));
     await shot(page, `195-ready-for-dev-${theme}`);
     await page.keyboard.press("Meta+z");
     await settle(page);
@@ -3542,11 +3611,11 @@ async function selection8Section(page, theme) {
   await settle(page);
   await shot(page, `184-slice-${theme}`);
 
-  // C: the Comment tool says comments come with multiplayer; Esc back to Move.
+  // C: the Comment tool (comments as Figma Design does them since 2026-10-11, docs/multiplayer.md §10); Esc back to Move.
   await canvas.focus();
   await page.keyboard.press("c");
   await settle(page);
-  check("C picks the Comment tool, with its note", (await page.evaluate(() => window.__designerEditor.store.tool)) === "COMMENT" && (await page.getByText("Comments come with multiplayer").count()) > 0);
+  check("C picks the Comment tool", (await page.evaluate(() => window.__designerEditor.store.tool)) === "COMMENT");
   await page.keyboard.press("Escape");
 
   // I: the eyedropper — the loupe follows the pointer; a click on the orange rectangle fills the selected S1 with it.
@@ -3593,7 +3662,8 @@ async function selection8Section(page, theme) {
   await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
 
-  // Preferences › Nudge amount…: 5 and 50; → moves 5.
+  // Preferences › Nudge amount…: 5 and 50; → moves 5. Figma's window, no Save: each value kept as it is committed, Enter
+  // closes it (atlas 21 §3.1).
   await page.getByRole("button", { name: "Main menu" }).click();
   await page.getByRole("menuitem", { name: "Preferences" }).hover();
   await page.waitForTimeout(300);
@@ -3603,8 +3673,12 @@ async function selection8Section(page, theme) {
   check("Preferences › Nudge amount… opens its dialog", (await dialog.count()) === 1);
   await shot(page, `188-nudge-amount-${theme}`);
   await dialog.getByLabel("Small nudge").fill("5");
+  await page.keyboard.press("Tab");
   await dialog.getByLabel("Big nudge").fill("50");
-  await dialog.getByRole("button", { name: "Save" }).click();
+  await page.keyboard.press("Enter");
+  await settle(page);
+  const nudge = await page.evaluate(() => window.__designerEditor.ui.get().nudge);
+  check("Enter in Nudge amount keeps both values and closes it", (await dialog.count()) === 0 && nudge?.small === 5 && nudge?.big === 50, JSON.stringify(nudge));
   await page.evaluate(() => window.__designerEditor.engine.setSelection(["6:2"]));
   const before = (await world("6:2")).x;
   await canvas.focus();
@@ -3618,7 +3692,11 @@ async function selection8Section(page, theme) {
   await page.evaluate(() => window.__designerEditor.engine.setCamera({ x: -200, y: -150, zoom: 8 }));
   await page.keyboard.press("Control+p");
   await settle(page);
-  check("⌃P turns pixel preview on (1x)", (await page.evaluate(() => window.__designerEditor.ui.get().pixelPreview)) === 1 && (await page.getByText("Pixel preview enabled (1x)").count()) > 0);
+  // Its toast waits behind ⇧⌘′'s two in the queue (Figma's FIFO toasts, each halved while others wait).
+  const preview = await page.evaluate(() => window.__designerEditor.ui.get().pixelPreview);
+  await page.getByText("Pixel preview enabled (1x)").waitFor({ timeout: 10000 }).catch(() => {});
+  const toasts = await page.locator('[data-ds="Toast"]').allInnerTexts().catch(() => []);
+  check("⌃P turns pixel preview on (1x)", preview === 1 && (await page.getByText("Pixel preview enabled (1x)").count()) > 0, `${preview}; ${toasts.join(" | ")}`);
   await shot(page, `189-pixel-preview-${theme}`);
   await page.keyboard.press("Control+p");
   check("⌃P again turns it off", !(await page.evaluate(() => window.__designerEditor.ui.get().pixelPreview)));
@@ -3700,16 +3778,21 @@ async function devmodeSection(page, theme) {
     check("Measurements: a double-click customizes its text", (await dev()).measurements[0]?.freeText === "Gap 60");
   } else check("Measurements: a double-click customizes its text", false, "no pill drawn");
 
-  // The `</>` at a selected frame's top right (live Figma, round 9) marks it ready for dev.
+  // The `</>` at a selected frame's top right (live Figma, round 9): its status menu marks it ready for dev.
   await page.evaluate(() => window.__designerEditor.engine.setSelection(["1:1"]));
   await page.mouse.move(...(await toScreen(page, -34 + 400, 3 + 290)));
   await settle(page);
   info = await dev();
   const mark = info.hits.statuses.find((s) => s.ref === "1:1");
   check("Statuses: the </> at a selected frame's top right", !!mark && mark.kind === 0, JSON.stringify(info.hits.statuses));
+  // A click opens the status menu (docs/editor.md "Frame status (ours)", 2026-10-12); its Ready to Dev is Ready for dev.
   if (mark) await page.mouse.click(...(await canvasPoint(mark.x + 4, mark.y + 4)));
   await settle(page);
-  check("Statuses: a click marks it ready for dev", (await dev()).statuses[0]?.status === "READY", JSON.stringify((await dev()).statuses));
+  const statusMenu = page.locator('[data-ds="Menu"]');
+  check("Statuses: a click opens the status menu", (await statusMenu.getByText("Ready to Dev", { exact: true }).count()) === 1);
+  await statusMenu.getByText("Ready to Dev", { exact: true }).click().catch(() => {});
+  await settle(page);
+  check("Statuses: Ready to Dev marks it ready for dev", (await dev()).statuses[0]?.status === "READY", JSON.stringify((await dev()).statuses));
   await shot(page, `163-ready-for-dev-${theme}`);
   // An edit a second later: Changed.
   await page.waitForTimeout(1100);
@@ -3750,8 +3833,8 @@ async function devmodeSection(page, theme) {
   await page.keyboard.press("Escape");
   await settle(page);
 
-  // Done with changes, from Inspect's status.
-  await inspect.locator('[data-status="CHANGED"]').click();
+  // Done with changes, from Inspect's status: the owner's Ready to Dev chip, Figma's "Changed" beside it (StatusTag).
+  await inspect.locator('[data-status-chip="ready-to-dev"]').click();
   await page.locator("[data-done-with-changes]").waitFor({ timeout: 5000 });
   await page.getByRole("textbox", { name: "Reason" }).fill("Wider button");
   await shot(page, `168-done-with-changes-${theme}`);
@@ -3911,7 +3994,8 @@ async function leftPanelSection(page, theme) {
   await page.evaluate(() => window.__designerEditor.ui.set({ railLabels: false }));
   check("the navigation bar is 56 + a line; the Figma menu tile at 12, 8", g.rail[2] === 57 && g.menu?.[0] === 12 && g.menu?.[1] === 8, JSON.stringify([g.rail, g.menu]));
   const tabs = Object.fromEntries(g.tabs.map(([t, x, y, w, h]) => [t, [x, y, w, h]]));
-  check("with labels on: File, Agents, Assets, Tools at y 56 / 112 / 168 / 224 (56 × 56); Variables at 296", tabs.file?.[1] === 56 && tabs.agents?.[1] === 112 && tabs.assets?.[1] === 168 && tabs.tools?.[1] === 224 && tabs.variables?.[1] === 296 && tabs.file?.[2] === 56, JSON.stringify(tabs));
+  // Studio's Brands (docs/studio.md §3.2) between Assets and Tools.
+  check("with labels on: File, Agents, Assets, Brands, Tools at y 56 / 112 / 168 / 224 / 280 (56 × 56); Variables at 352", tabs.file?.[1] === 56 && tabs.agents?.[1] === 112 && tabs.assets?.[1] === 168 && tabs.brands?.[1] === 224 && tabs.tools?.[1] === 280 && tabs.variables?.[1] === 352 && tabs.file?.[2] === 56, JSON.stringify(tabs));
   check("the left panel starts at x 57", g.panelX === 57, String(g.panelX));
   check("Pages: title at 16, Find at 180, Add new page at 208 (8 down)", g.pagesTitle?.[0] === 16 && g.find?.[0] === 180 && g.find?.[1] - g.pagesTop === 8 && g.addPage?.[0] === 208, JSON.stringify([g.pagesTitle, g.find, g.addPage, g.pagesTop]));
   check("a page's name at x 16", g.pageRow?.[0] === 16, JSON.stringify(g.pageRow));
@@ -4069,7 +4153,8 @@ async function menus9Section(page, theme) {
   await page.getByRole("button", { name: "Main menu" }).click();
   await settle(page);
   const main = page.getByRole("menu", { name: "Main menu" });
-  check("r9: the Figma menu at 12, 44, 194 × 444 (live main-menu.txt)", JSON.stringify(await box(main)) === "[12,44,194,444]", JSON.stringify(await box(main)));
+  // Live's 444 and our AI balance row after Libraries (docs/ai.md §7, not in the live capture): 468.
+  check("r9: the Figma menu at 12, 44, 194 × 444 + AI balance's 24 (live main-menu.txt)", JSON.stringify(await box(main)) === "[12,44,194,468]", JSON.stringify(await box(main)));
   check("r9: Actions… enabled, Open in desktop app listed", (await main.getByRole("menuitem", { name: /^Actions…/ }).getAttribute("aria-disabled")) === null && (await main.getByRole("menuitem", { name: "Open in desktop app" }).count()) === 1);
   await main.getByRole("menuitem", { name: "File", exact: true }).hover();
   await page.waitForTimeout(400);
@@ -4098,7 +4183,8 @@ async function menus9Section(page, theme) {
 
   await page.getByRole("button", { name: "Move tools" }).click();
   await settle(page);
-  check("r9: Move tools at the chevron, 151 × 72 at 497, 764 (live move-tools-menu.txt)", JSON.stringify(await box(page.getByRole("menu", { name: "Move tools" }))) === "[497,764,151,72]", JSON.stringify(await box(page.getByRole("menu", { name: "Move tools" }))));
+  const dx = await toolbarDx(page);
+  check("r9: Move tools at the chevron, 151 × 72 at 497, 764 (live move-tools-menu.txt; with the toolbar's left)", JSON.stringify(await box(page.getByRole("menu", { name: "Move tools" }))) === JSON.stringify([497 + dx, 764, 151, 72]), JSON.stringify(await box(page.getByRole("menu", { name: "Move tools" }))));
   await page.keyboard.press("Escape");
   await settle(page);
 
@@ -4106,7 +4192,7 @@ async function menus9Section(page, theme) {
   await page.locator('[data-ds="EditorToolbar"]').getByRole("button", { name: "Actions" }).click();
   await settle(page);
   const palette = page.locator("[data-actions-panel]");
-  check("r9: the Actions palette 529 × 354 at 456, 478 (live actions-panel.txt)", JSON.stringify(await box(palette)) === "[456,478,529,354]", JSON.stringify(await box(palette)));
+  check("r9: the Actions palette 529 × 354 at 456, 478 (live actions-panel.txt; with the toolbar's left)", JSON.stringify(await box(palette)) === JSON.stringify([456 + dx, 478, 529, 354]), JSON.stringify(await box(palette)));
   await page.keyboard.type("flat");
   await settle(page);
   check("r9: typing lights the best match (Flatten)", (await palette.locator('[role="option"][aria-selected="true"]').innerText()).startsWith("Flatten"));
@@ -4204,18 +4290,20 @@ async function menus10Section(page, theme) {
   await page.keyboard.press("Escape");
   await settle(page);
 
-  // A right-click on a frame's title: the frame's menu (live context-frame.txt, 200 × 749).
+  // A right-click on a frame's title: the frame's menu (live context-frame.txt, 200 × 749) less the five rows that can't
+  // run in this file, which the canvas menus drop as Figma's (Atlas 03 §4; 2026-10-18): 629.
   const [tx, ty] = await toScreen(page, 300, 0);
   await page.mouse.click(tx + 10, ty - 8, { button: "right" });
   await settle(page);
   const frameMenu = page.getByRole("menu", { name: "Canvas" });
-  check("R10: a frame title's right click opens the frame's menu (200 × 749, Convert to section)", (await selection(page)).join() === "7:10" && near(await box(frameMenu).then((b) => b.slice(2)), [200, 749]) && (await frameMenu.getByRole("menuitem", { name: "Convert to section" }).count()) === 1, JSON.stringify(await box(frameMenu)));
+  check("R10: a frame title's right click opens the frame's menu (200 × 749 less the rows that can't run: 629, Convert to section)", (await selection(page)).join() === "7:10" && near(await box(frameMenu).then((b) => b.slice(2)), [200, 629]) && (await frameMenu.getByRole("menuitem", { name: "Convert to section" }).count()) === 1, JSON.stringify(await box(frameMenu)));
   await page.keyboard.press("Escape");
-  // A Layers row's menu: Copy first, Rename ⌘R, Rename layers (AI), 200 × 677 (live context-layer-row.txt).
+  // A Layers row's menu: Copy first, Rename ⌘R, Rename layers (AI), 200 × 677 (live context-layer-row.txt) less the
+  // rows that can't run here: 557.
   await page.locator('[data-panel="left"] [data-ds="LayerRow"]').filter({ hasText: /^Rect$/ }).first().click({ button: "right" });
   await settle(page);
   const rowMenu = page.getByRole("menu", { name: "Canvas" });
-  check("R10: a Layers row's menu 200 × 677 with Rename and Rename layers (AI), no Paste here", near((await box(rowMenu)).slice(2), [200, 677]) && (await rowMenu.getByRole("menuitem", { name: /^Rename/ }).count()) === 2 && (await rowMenu.getByRole("menuitem", { name: "Paste here" }).count()) === 0, JSON.stringify(await box(rowMenu)));
+  check("R10: a Layers row's menu 200 × 677 less the rows that can't run (557) with Rename and Rename layers (AI), no Paste here", near((await box(rowMenu)).slice(2), [200, 557]) && (await rowMenu.getByRole("menuitem", { name: /^Rename/ }).count()) === 2 && (await rowMenu.getByRole("menuitem", { name: "Paste here" }).count()) === 0, JSON.stringify(await box(rowMenu)));
   await shot(page, `271-r10-layer-row-menu-${theme}`);
   await page.keyboard.press("Escape");
 
@@ -4258,7 +4346,8 @@ async function menus10Section(page, theme) {
   await settle(page);
   const palette = page.locator("[data-actions-panel]");
   const firstHeader = await palette.locator('[role="presentation"]').first().innerText();
-  check("R10: Actions 529 × 354 at 456, 478, on Recents, Visual search (AI beta) listed", JSON.stringify(await box(palette)) === "[456,478,529,354]" && firstHeader === "Recents" && (await palette.locator('[role="option"]').count()) === 1 && (await palette.getByRole("button", { name: "Visual search (AI beta)" }).count()) === 1, JSON.stringify([await box(palette), firstHeader]));
+  // Recents, then the AI sections (docs/ai.md, 2026-10-12): one row that isn't AI, the one run.
+  check("R10: Actions 529 × 354 at 456, 478 (with the toolbar's left), on Recents (then the AI rows), Visual search (AI beta) listed", JSON.stringify(await box(palette)) === JSON.stringify([456 + (await toolbarDx(page)), 478, 529, 354]) && firstHeader === "Recents" && (await palette.locator('[role="option"]').allInnerTexts()).filter((t) => !/\nAI$/.test(t)).length === 1 && (await palette.getByRole("button", { name: "Visual search (AI beta)" }).count()) === 1, JSON.stringify([await box(palette), firstHeader, await palette.locator('[role="option"]').allInnerTexts(), await palette.getByRole("button", { name: "Visual search (AI beta)" }).count()]));
   await shot(page, `273-r10-actions-${theme}`);
   await page.keyboard.press("Escape");
   await settle(page);
@@ -4546,7 +4635,10 @@ async function menus11Section(page, theme) {
   const palette = page.locator("[data-actions-panel]");
   const pb = await box(palette);
   const statuses = await palette.locator('[role="status"]').evaluateAll((els) => els.map((e) => [e.textContent, Math.round(e.getBoundingClientRect().left), Math.round(e.getBoundingClientRect().top)]));
-  check("R11 Actions: 529 × 354 at 456, 478; no recents: the Recents header alone, no command list", near(pb, [456, 478, 529, 354], 0) && (await palette.locator('[role="option"]').count()) === 0 && (await palette.getByText("Recents", { exact: true }).count()) === 1, JSON.stringify(pb));
+  // The AI sections follow Recents (docs/ai.md, 2026-10-12): every row listed is an AI row, and the Recents header
+  // stands alone only when nothing at all is listed (ActionsPanel allTabEmptyNote).
+  const actionRows = await palette.locator('[role="option"]').allInnerTexts();
+  check("R11 Actions: 529 × 354 at 456, 478 (with the toolbar's left); no recents: no command list (the AI rows only, or the Recents header alone)", near(pb, [456 + (await toolbarDx(page)), 478, 529, 354], 0) && actionRows.every((t) => /\nAI$/.test(t)) && (await palette.getByText("Recents", { exact: true }).count()) === (actionRows.length ? 0 : 1), JSON.stringify([pb, await palette.locator('[role="option"]').allInnerTexts()]));
   check("R11 Actions: 'Results will update as you type.' at -1, 0 and '0 results available.' 24 below (live -1, 3 / -1, 27 as text)", statuses.length === 2 && statuses[0][0] === "Results will update as you type." && statuses[0][1] === pb[0] - 1 && statuses[0][2] === pb[1] && statuses[1][2] === pb[1] + 24 && /results available\./.test(statuses[1][0]), JSON.stringify(statuses));
   await shot(page, `282-r11-actions-${theme}`);
   await page.keyboard.press("Escape");
@@ -4678,7 +4770,8 @@ async function menus12Section(page, theme) {
     await page.keyboard.press("Escape");
     await page.keyboard.press("Escape");
   };
-  for (const [name, want] of [["File", [210, 126, 198, 324]], ["Edit", [210, 150, 190, 581]], ["View", [210, 105, 201, 787]], ["Object", [210, 6, 185, 1050]], ["Text", [210, 222, 199, 379]], ["Arrange", [210, 246, 220, 533]], ["Vector", [210, 270, 198, 160]], ["Preferences", [210, 132, 235, 763]]]) {
+  // View: live's 787 and our Switch to Motion / Social rows (docs/motion.md, docs/social.md §6.6), 8 from the bottom.
+  for (const [name, want] of [["File", [210, 126, 198, 324]], ["Edit", [210, 150, 190, 581]], ["View", [210, 57, 201, 835]], ["Object", [210, 6, 185, 1050]], ["Text", [210, 222, 199, 379]], ["Arrange", [210, 246, 220, 533]], ["Vector", [210, 270, 198, 160]], ["Preferences", [210, 132, 235, 763]]]) {
     await main(name);
     const got = await box(page.getByRole("menu").last());
     check(`R12 ${name} submenu ${want.join(", ")} exactly (live menus/main-*.txt)`, same(got, want), JSON.stringify(got));
@@ -4693,12 +4786,14 @@ async function menus12Section(page, theme) {
     }
     await close();
   }
-  // Live 2026-10-18 (toolbar.txt): the toolbar 512 at 464; each menu with its 8 above and below the rows, its bottom 4 over the tool; Comment has no menu
-  for (const [name, want] of [["Shape tools", [619, 660, 196, 184]], ["Creation tools", [676, 780, 142, 64]], ["Move tools", [505, 756, 151, 88]], ["Region tools", [562, 756, 150, 88]], ["Type tools", [733, 780, 142, 64]]]) {
+  // Live 2026-10-18 (toolbar.txt): each menu with its 8 above and below the rows, its bottom 4 over the tool; Comment has
+  // no menu. x for a toolbar at 456 (toolbarDx adds where it is: live's 512-wide one is at 464)
+  for (const [name, want] of [["Shape tools", [611, 660, 196, 184]], ["Creation tools", [668, 780, 142, 64]], ["Move tools", [497, 756, 151, 88]], ["Region tools", [554, 756, 150, 88]], ["Type tools", [725, 780, 142, 64]]]) {
     await page.getByRole("button", { name }).click();
     await page.waitForTimeout(300);
     const got = await box(page.getByRole("menu").last());
-    check(`R12 ${name} menu ${want.join(", ")} exactly (live 2026-10-18/toolbar.txt)`, same(got, want), JSON.stringify(got));
+    const dx = await toolbarDx(page);
+    check(`R12 ${name} menu ${want.join(", ")} exactly (live 2026-10-18/toolbar.txt; with the toolbar's left)`, same(got, [want[0] + dx, ...want.slice(1)]), JSON.stringify(got));
     await page.keyboard.press("Escape");
   }
   // The vector edit toolbar and its More menu.
@@ -4727,7 +4822,8 @@ async function menus12Section(page, theme) {
   check("R12 vector edit More menu 189 x 48 at 869, 736 (live vector-edit-more-menu.txt)", same(more, [869, 736, 189, 48]), JSON.stringify(more));
   await page.keyboard.press("Escape");
   await page.evaluate(() => window.__designerEditor.vector.end());
-  // An instance's menu from a right click on its nested layer (Icon, Label): the instance's own, 203 x 749.
+  // An instance's menu from a right click on its nested layer (Icon, Label): the instance's own, 203 x 749 (live) less
+  // the rows that can't run in this file, dropped as Figma's (Atlas 03 §4): 629.
   await open(page, "&doc=capture");
   const inst = await page.evaluate(() => {
     const ed = window.__designerEditor;
@@ -4760,7 +4856,7 @@ async function menus12Section(page, theme) {
     const got = await box(menu);
     const sel = await page.evaluate(() => window.__designerEditor.selection.join(","));
     const names = await menu.getByRole("menuitem").evaluateAll((els) => els.filter((e) => e.getAttribute("aria-disabled") === null).map((e) => e.textContent));
-    check(`R12 right click on the instance's ${what}: the instance (not the nested layer) with its 203 x 749 menu (live context-instance.txt)`, sel === inst && got[2] === 203 && got[3] === 749, `${sel} ${JSON.stringify(got)}`);
+    check(`R12 right click on the instance's ${what}: the instance (not the nested layer) with its 203 x 749 menu (live context-instance.txt) less the rows that can't run: 629`, sel === inst && got[2] === 203 && got[3] === 629, `${sel} ${JSON.stringify(got)}`);
     check(`R12 right click on the instance's ${what}: Select layer and every instance command enabled`, ["Select layer", "Reset instance", "Detach instance", "Go to main component"].every((n) => names.some((t) => t.startsWith(n))), names.join("|"));
     if (what === "Label") await shot(page, `332-r12-instance-menu-${theme}`);
     await page.keyboard.press("Escape");
@@ -4941,6 +5037,18 @@ try {
       });
       page.on("pageerror", (e) => problems.push(`${theme} pageerror: ${e.message}`));
       await agentsSection(page, theme, { open, settle, shot, check });
+      await context.close();
+    }
+  }
+  if (only === "studio" || only === "reach") {
+    for (const theme of ["dark", "light"]) {
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: theme });
+      const page = await context.newPage();
+      page.on("console", (m) => {
+        if (m.type() === "error") problems.push(`${theme} console: ${m.text()}`);
+      });
+      page.on("pageerror", (e) => problems.push(`${theme} pageerror: ${e.message}`));
+      await (only === "studio" ? studioSection : reachSection)(page, theme, { open, settle, shot, check });
       await context.close();
     }
   }

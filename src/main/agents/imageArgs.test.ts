@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { base64Bytes, sniffImage } from "../../shared/agents/images";
+import { base64Bytes, sniffAudio, sniffImage } from "../../shared/agents/images";
 import { ImagePathError, resolveImagePaths } from "./imageArgs";
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
@@ -26,6 +26,13 @@ describe("image paths", () => {
     const out = resolveImagePaths("place_image", { path: "images-out/hero_photo.png", x: 10 }, root);
     expect(out).toEqual({ x: 10, name: "hero_photo", data: Buffer.from(PNG).toString("base64") });
     expect(sniffImage(base64Bytes(out.data as string)!)).toBe("image/png");
+  });
+
+  it("fill_slots' picture path (docs/social.md §7.2)", () => {
+    const root = tmp();
+    writeFileSync(join(root, "pack.png"), PNG);
+    const out = resolveImagePaths("fill_slots", { nodeId: "1:2", values: { headline: "Hi" }, picture: { path: "pack.png", scaleMode: "FILL" } }, root);
+    expect(out).toEqual({ nodeId: "1:2", values: { headline: "Hi" }, picture: { name: "pack", scaleMode: "FILL", data: Buffer.from(PNG).toString("base64") } });
   });
 
   it("`image.path` in create_nodes' nested specs and update_nodes' updates", () => {
@@ -71,5 +78,19 @@ describe("image paths", () => {
     expect(sniffImage(new TextEncoder().encode("<svg"))).toBeNull();
     expect(base64Bytes("data:image/png;base64,iVBORw0KGgo=")?.[1]).toBe(0x50);
     expect(base64Bytes("not base64!")).toBeNull();
+  });
+
+  it("add_audio's path: a sound in the folder, known by its bytes, becomes base64 with its type and name", () => {
+    const root = tmp();
+    const wav = new TextEncoder().encode("RIFF\0\0\0\0WAVEfmt ");
+    writeFileSync(join(root, "beat.wav"), wav);
+    writeFileSync(join(root, "fake.mp3"), "not a sound");
+    expect(resolveImagePaths("add_audio", { nodeId: "1:1", path: "beat.wav", offset: 1 }, root)).toEqual({ nodeId: "1:1", offset: 1, name: "beat", mime: "audio/wav", data: Buffer.from(wav).toString("base64") });
+    expect(() => resolveImagePaths("add_audio", { path: "fake.mp3" }, root)).toThrow(/not an AAC, MP3, WAV or M4A/);
+    expect(() => resolveImagePaths("add_audio", { path: "/etc/hosts" }, root)).toThrow(/working folder/);
+    expect(sniffAudio(new TextEncoder().encode("ID3\u0004"))).toBe("audio/mpeg");
+    expect(sniffAudio(new Uint8Array([0, 0, 0, 0x20, 0x66, 0x74, 0x79, 0x70]))).toBe("audio/mp4");
+    expect(sniffAudio(new Uint8Array([0xff, 0xf1]))).toBe("audio/aac");
+    expect(sniffAudio(new Uint8Array([0xff, 0xfb]))).toBe("audio/mpeg");
   });
 });

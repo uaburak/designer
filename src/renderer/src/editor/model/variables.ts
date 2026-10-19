@@ -10,19 +10,26 @@
  * nearest explicit one up to the page (else the collection's default).
  */
 import type { Color, Guid, NodeChange, Paint } from "@/engine/codec";
+import { t } from "@/i18n";
+import { easingFromData, easingNumbers, easingToData, type EasingData } from "@shared/motion/easing";
+import { EASING_LABELS, type MotionEasing } from "@shared/motion/types";
 import { guidStr, guidVal, type GuidValue } from "./components";
 
 export { guidStr, guidVal, type GuidValue };
 
 // ---- Schema shapes --------------------------------------------------------------------------------------------
 
-/** The four types Design shows (EASING / TIMING come with Motion). */
-export type VarType = "COLOR" | "FLOAT" | "STRING" | "BOOLEAN";
-export const VAR_TYPES: readonly VarType[] = ["COLOR", "FLOAT", "STRING", "BOOLEAN"];
+/**
+ * Design's four types, and Motion's two (docs/motion.md §4.7, §6.7; round 8i): EASING — "Easing curve or spring
+ * animation", applied to animation presets and keyframes — and TIMING — "Duration in milliseconds", applied to a
+ * preset's Delay and Duration.
+ */
+export type VarType = "COLOR" | "FLOAT" | "STRING" | "BOOLEAN" | "EASING" | "TIMING";
+export const VAR_TYPES: readonly VarType[] = ["COLOR", "FLOAT", "STRING", "BOOLEAN", "EASING", "TIMING"];
 /** Figma's names for them ("+ Create variable" menu, the Edit variable header). */
-export const VAR_TYPE_LABEL: Record<VarType, string> = { COLOR: "Color", FLOAT: "Number", STRING: "String", BOOLEAN: "Boolean" };
+export const VAR_TYPE_LABEL: Record<VarType, string> = { COLOR: "Color", FLOAT: "Number", STRING: "String", BOOLEAN: "Boolean", EASING: "Easing", TIMING: "Timing" };
 /** The 16px glyph of each type (the table's name column, the pickers). */
-export const VAR_TYPE_ICON = { COLOR: "16.variable.color", FLOAT: "16.number", STRING: "16.text", BOOLEAN: "16.variable.boolean" } as const;
+export const VAR_TYPE_ICON = { COLOR: "16.variable.color", FLOAT: "16.number", STRING: "16.text", BOOLEAN: "16.variable.boolean", EASING: "16.easing", TIMING: "16.timing" } as const;
 
 export interface AliasRef {
   guid: GuidValue;
@@ -34,6 +41,8 @@ export interface VariableAnyValue {
   floatValue?: number;
   colorValue?: Color;
   alias?: AliasRef;
+  /** EASING (Motion): an EasingData */
+  easingValue?: EasingData;
   [other: string]: unknown;
 }
 
@@ -121,7 +130,11 @@ export interface Variable {
 
 /** A value in a mode: a literal of the variable's type, or an alias to another variable. */
 export type VarValue = { kind: "alias"; id: Guid } | { kind: "literal"; value: Literal };
-export type Literal = boolean | number | string | Color;
+/** An EASING literal is Motion's public easing; a TIMING one a number of milliseconds. */
+export type Literal = boolean | number | string | Color | MotionEasing;
+
+/** An EASING literal (a MotionEasing has a `type`; a colour hasn't). */
+export const isEasingLiteral = (v: Literal | null | undefined): v is MotionEasing => typeof v === "object" && v !== null && "type" in v;
 
 // ---- Reading ---------------------------------------------------------------------------------------------------
 
@@ -155,12 +168,13 @@ export function fromData(d: VariableData | undefined): VarValue | null {
   const v = d?.value;
   if (!d || !v) return null;
   if (d.dataType === "ALIAS" && v.alias?.guid) return { kind: "alias", id: guidStr(v.alias.guid) };
+  if (v.easingValue || d.dataType === "EASING") return { kind: "literal", value: easingFromData(v.easingValue) };
   if (v.colorValue) return { kind: "literal", value: v.colorValue };
   if (typeof v.floatValue === "number") return { kind: "literal", value: v.floatValue };
   if (typeof v.textValue === "string") return { kind: "literal", value: v.textValue };
   if (typeof v.boolValue === "boolean") return { kind: "literal", value: v.boolValue };
   // Absent fields are kiwi's defaults: a FLOAT 0, a BOOLEAN false, a STRING "".
-  if (d.dataType === "FLOAT") return { kind: "literal", value: 0 };
+  if (d.dataType === "FLOAT" || d.dataType === "TIMING") return { kind: "literal", value: 0 };
   if (d.dataType === "BOOLEAN") return { kind: "literal", value: false };
   if (d.dataType === "STRING") return { kind: "literal", value: "" };
   return null;
@@ -179,8 +193,16 @@ export function toData(type: VarType, value: VarValue): VariableData {
       return { dataType: "STRING", resolvedDataType: "STRING", value: { textValue: String(v) } };
     case "BOOLEAN":
       return { dataType: "BOOLEAN", resolvedDataType: "BOOLEAN", value: { boolValue: v === true } };
+    case "EASING":
+      return { dataType: "EASING", resolvedDataType: "EASING", value: { easingValue: easingToData(isEasingLiteral(v) ? v : DEFAULT_EASING_VALUE) } };
+    case "TIMING":
+      return { dataType: "TIMING", resolvedDataType: "TIMING", value: { floatValue: Math.max(0, Number(v)) } };
   }
 }
+
+/** A new Easing variable's value (Motion's preset default, Ease out) and a new Timing's (Motion's preset Duration) [ours]. */
+export const DEFAULT_EASING_VALUE: MotionEasing = { type: "EASE_OUT" };
+export const DEFAULT_TIMING_MS = 500;
 
 export function readVariable(n: VNode): Variable {
   const values = new Map<Guid, VarValue>();
@@ -231,6 +253,10 @@ export function defaultLiteral(type: VarType): Literal {
       return "";
     case "BOOLEAN":
       return false;
+    case "EASING":
+      return DEFAULT_EASING_VALUE;
+    case "TIMING":
+      return DEFAULT_TIMING_MS;
   }
 }
 
@@ -381,12 +407,23 @@ export function renameGroupIn(name: string, from: string, to: string): string | 
   return cleanName(`${to}/${name.slice(from.length + 1)}`);
 }
 
-/** "Color", "Color 2", … — the first free name of a new variable (or mode, collection) among `taken`. */
+/**
+ * Figma's unique name (atlas 11 §3.4): `base` when free, else "base N" with N one past the largest number already
+ * after it (at least 2) — the second "Color" is "Color 2", and after "Color 7" comes "Color 8" even with gaps.
+ */
 export function nextName(base: string, taken: Iterable<string>): string {
-  const used = new Set(taken);
-  if (!used.has(base)) return base;
-  for (let i = 2; ; i++) if (!used.has(`${base} ${i}`)) return `${base} ${i}`;
+  const used = [...taken];
+  if (!used.includes(base)) return base;
+  let most = 1;
+  for (const name of used) {
+    const m = name.startsWith(`${base} `) ? /^\d+$/.exec(name.slice(base.length + 1)) : null;
+    if (m) most = Math.max(most, Number(m[0]));
+  }
+  return `${base} ${most + 1}`;
 }
+
+/** A name without its trailing " N" ("Color 3" → "Color"): what a duplicate is numbered from (Figma). */
+export const stripNumber = (name: string): string => name.replace(/(.) \d+$/, "$1");
 
 /** "Mode 1", "Mode 2", … */
 export function nextModeName(c: Pick<Collection, "modes">): string {
@@ -395,18 +432,24 @@ export function nextModeName(c: Pick<Collection, "modes">): string {
 }
 
 /**
- * Limits: 5,000 variables per collection and mode names ≤ 40 characters (Figma's UI, R3-07); modes per collection a
- * soft guard of 1,000 (docs/data.md §16.8: we are "Enterprise", whose per-collection number Figma doesn't publish — its
- * "unlimited" is through extensions); an extension chain at most 16 deep (ours: a guard against runaway resolution).
+ * Limits (atlas 11 §3.1): 5,000 variables per collection, mode names ≤ 40 characters; modes per collection by plan —
+ * Starter 1, Pro 10, Organization 20, Enterprise 40 — and a personal app is on the top plan, so 40 (a file bringing
+ * more keeps them, the columns past 40 disabled); an extension chain at most 10 sets, the root included.
  */
-export const LIMITS = { variables: 5000, modes: 1000, modeName: 40, extensionDepth: 16 } as const;
+export const LIMITS = { variables: 5000, modes: 40, modeName: 40, extensionChain: 10 } as const;
+
+/** Figma's modes per collection by plan (`3187.min.js`); `LIMITS.modes` is the Enterprise one. */
+export const MODE_LIMIT_BY_PLAN = { starter: 1, pro: 10, org: 20, enterprise: 40 } as const;
 
 /** How many collections `c` extends through (0: not an extended collection). */
 export function extensionDepth(c: Collection): number {
   let n = 0;
-  for (let cur = c; cur.parentCollection && n <= LIMITS.extensionDepth; cur = cur.parentCollection) n++;
+  for (let cur = c; cur.parentCollection && n <= LIMITS.extensionChain; cur = cur.parentCollection) n++;
   return n;
 }
+
+/** Can `c` be extended (the new collection is its chain's next set)? */
+export const canExtend = (c: Collection): boolean => extensionDepth(c) + 2 <= LIMITS.extensionChain;
 
 /** An extended collection's mode whose parent mode is gone (deleted in the collection it extends): it may be removed. */
 export function orphanMode(c: Collection, mode: Guid): boolean {
@@ -468,11 +511,20 @@ export const positionAfter = (positions: Iterable<string>) => {
 export interface ScopeOption {
   scope: string;
   label: string;
+  /** Grey text after the label (Gap: "Auto layout") */
+  sublabel?: string;
+  /** A section heading before this option (numbers: "Typography" over the type fields) */
+  section?: string;
   /** Fill's sub-scopes (Frame / Shape / Text) */
   children?: ScopeOption[];
 }
 
-/** The Edit variable modal's scoping checkboxes per type (R3-16, R3-17), Figma's labels. Booleans have none. */
+/**
+ * The Edit variable modal's scoping checkboxes per type, in Figma's order with its labels (atlas 11 §5.2, the build's
+ * per-type lists; R3-16, R3-17). Booleans have none. Numbers' "Color opacity" (COLOR_OPACITY) is behind Figma's
+ * `ds_color_opacity_variables` gate and the Design panel has no composed colour yet, so it isn't offered here; the
+ * engine takes it, and TRANSFORM / FONT_VARIATIONS, which Figma lists in no checkbox ("all" covers them).
+ */
 export const SCOPE_OPTIONS: Record<VarType, ScopeOption[]> = {
   COLOR: [
     {
@@ -490,11 +542,12 @@ export const SCOPE_OPTIONS: Record<VarType, ScopeOption[]> = {
   FLOAT: [
     { scope: "CORNER_RADIUS", label: "Corner radius" },
     { scope: "WIDTH_HEIGHT", label: "Width and height" },
-    { scope: "GAP", label: "Gap" },
+    { scope: "GAP", label: "Gap", sublabel: "Auto layout" },
+    { scope: "TEXT_CONTENT", label: "Text content" },
     { scope: "STROKE_FLOAT", label: "Stroke" },
     { scope: "OPACITY", label: "Layer opacity" },
     { scope: "EFFECT_FLOAT", label: "Effects" },
-    { scope: "FONT_STYLE", label: "Font weight" },
+    { scope: "FONT_STYLE", label: "Font weight", section: "Typography" },
     { scope: "FONT_SIZE", label: "Font size" },
     { scope: "LINE_HEIGHT", label: "Line height" },
     { scope: "LETTER_SPACING", label: "Letter spacing" },
@@ -504,9 +557,12 @@ export const SCOPE_OPTIONS: Record<VarType, ScopeOption[]> = {
   STRING: [
     { scope: "TEXT_CONTENT", label: "Text content" },
     { scope: "FONT_FAMILY", label: "Font family" },
-    { scope: "FONT_STYLE", label: "Font style" },
+    { scope: "FONT_STYLE", label: "Font weight or style" },
   ],
   BOOLEAN: [],
+  // Motion's types bind one kind of field each (easings; delays and durations) [unverified: Figma's scopes for them].
+  EASING: [],
+  TIMING: [],
 };
 
 /** Every scope a type's checkboxes can set (flattened). */
@@ -600,9 +656,17 @@ export type BindField =
   | "LINE_HEIGHT"
   | "LETTER_SPACING"
   | "PARAGRAPH_SPACING"
-  | "PARAGRAPH_INDENT";
+  | "PARAGRAPH_INDENT"
+  | "X_POSITION"
+  | "Y_POSITION"
+  | "ROTATION"
+  | "POLYGON_COUNT";
 
-export const BIND_TYPE: Record<BindField, { type: VarType; scope: string | null; label: string }> = {
+/**
+ * Each field's variable type and scope (atlas 11 §5.3's field → scope map). `also`: further types it takes — text
+ * content shows a number too (numbers have the Text content scope).
+ */
+export const BIND_TYPE: Record<BindField, { type: VarType; also?: VarType[]; scope: string | null; label: string }> = {
   CORNER_RADIUS: { type: "FLOAT", scope: "CORNER_RADIUS", label: "Corner radius" },
   RECTANGLE_TOP_LEFT_CORNER_RADIUS: { type: "FLOAT", scope: "CORNER_RADIUS", label: "Top left corner radius" },
   RECTANGLE_TOP_RIGHT_CORNER_RADIUS: { type: "FLOAT", scope: "CORNER_RADIUS", label: "Top right corner radius" },
@@ -629,7 +693,7 @@ export const BIND_TYPE: Record<BindField, { type: VarType; scope: string | null;
   BORDER_LEFT_WEIGHT: { type: "FLOAT", scope: "STROKE_FLOAT", label: "Left stroke weight" },
   BORDER_RIGHT_WEIGHT: { type: "FLOAT", scope: "STROKE_FLOAT", label: "Right stroke weight" },
   VISIBLE: { type: "BOOLEAN", scope: null, label: "Visibility" },
-  TEXT_DATA: { type: "STRING", scope: "TEXT_CONTENT", label: "Text content" },
+  TEXT_DATA: { type: "STRING", also: ["FLOAT"], scope: "TEXT_CONTENT", label: "Text content" },
   FONT_FAMILY: { type: "STRING", scope: "FONT_FAMILY", label: "Font family" },
   FONT_STYLE: { type: "STRING", scope: "FONT_STYLE", label: "Font style" },
   FONT_SIZE: { type: "FLOAT", scope: "FONT_SIZE", label: "Font size" },
@@ -637,7 +701,54 @@ export const BIND_TYPE: Record<BindField, { type: VarType; scope: string | null;
   LETTER_SPACING: { type: "FLOAT", scope: "LETTER_SPACING", label: "Letter spacing" },
   PARAGRAPH_SPACING: { type: "FLOAT", scope: "PARAGRAPH_SPACING", label: "Paragraph spacing" },
   PARAGRAPH_INDENT: { type: "FLOAT", scope: "PARAGRAPH_INDENT", label: "Paragraph indent" },
+  // X / Y / rotation need TRANSFORM, which no checkbox sets: only variables shown in all supported properties.
+  X_POSITION: { type: "FLOAT", scope: "TRANSFORM", label: "X-position" },
+  Y_POSITION: { type: "FLOAT", scope: "TRANSFORM", label: "Y-position" },
+  ROTATION: { type: "FLOAT", scope: "TRANSFORM", label: "Rotation" },
+  POLYGON_COUNT: { type: "FLOAT", scope: null, label: "Count" },
 };
+
+/** The variable types a field's picker lists. */
+export const bindTypes = (field: BindField): VarType[] => [BIND_TYPE[field].type, ...(BIND_TYPE[field].also ?? [])];
+
+/**
+ * Why a bound value isn't used as it is (atlas 11 §6: Figma's `variables.invalid.*` and `variables.opacity.*`): a
+ * width or height past the layer's min / max, a negative size, padding, radius or stroke, a font size under 1, an
+ * opacity past 0…100 % (clamped). Null when the value is used as it is. Figma's English for these keys isn't in the
+ * build's cache: the texts are ours.
+ */
+export function bindingWarning(field: string, value: Literal | null, n: { minSize?: { value?: { x: number; y: number } }; maxSize?: { value?: { x: number; y: number } } } | null): string | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const limit = (k: "minSize" | "maxSize") => n?.[k]?.value ?? null;
+  switch (field) {
+    case "OPACITY":
+      if (value > 100) return "Above 100%: the layer is fully opaque";
+      if (value < 0) return "Below 0%: the layer is fully transparent";
+      return null;
+    case "WIDTH":
+    case "HEIGHT": {
+      const axis = field === "WIDTH" ? "x" : "y";
+      const min = limit("minSize")?.[axis];
+      const max = limit("maxSize")?.[axis];
+      if (value <= 0) return "Must be greater than 0";
+      if (min && value < min) return field === "WIDTH" ? "Less than the min width" : "Less than the min height";
+      if (max && value > max) return field === "WIDTH" ? "Greater than the max width" : "Greater than the max height";
+      return null;
+    }
+    case "FONT_SIZE":
+      return value < 1 ? "Must be at least 1" : null;
+    case "STACK_SPACING":
+    case "STACK_COUNTER_SPACING":
+    case "LETTER_SPACING":
+    case "LINE_HEIGHT":
+    case "X_POSITION":
+    case "Y_POSITION":
+    case "ROTATION":
+      return null;  // negative is a value these take
+    default:
+      return value < 0 ? "Can't be negative" : null;
+  }
+}
 
 export interface ParameterEntryData {
   variableField: string;
@@ -816,6 +927,13 @@ export function formatLiteral(type: VarType, value: Literal | null): string {
       return String(value);
     case "BOOLEAN":
       return value === true ? "true" : "false";
+    case "EASING": {
+      if (!isEasingLiteral(value)) return "";
+      const numbers = easingNumbers(value);
+      return numbers ? `${t(EASING_LABELS[value.type])} (${numbers})` : t(EASING_LABELS[value.type]);
+    }
+    case "TIMING":
+      return `${Math.round(Number(value))}ms`;
   }
 }
 

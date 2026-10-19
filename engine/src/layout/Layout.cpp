@@ -17,12 +17,29 @@ void setAxis(Vec2& v, int a, double value) { (a == 0 ? v.x : v.y) = value; }
 
 bool axisAligned(const Mat2x3& m) { return std::fabs(m.m01) < 1e-9 && std::fabs(m.m10) < 1e-9; }
 
-// min/max (0 = no limit on that axis), never below 0.
+// The padding (and the strokes it includes) along an axis: what an Updated frame is at least (Atlas 09 §3.2 row 1).
+double paddingAlong(const NodeProps& p, int a) {
+  double pad[4];
+  Layout::padding(p, pad);
+  return a == 0 ? pad[0] + pad[2] : pad[1] + pad[3];
+}
+
+// min/max (0 = no limit on that axis), never below 0. An auto-layout frame of the Updated layout is never smaller than
+// its padding, its max size notwithstanding (Figma's containerMinSizeGrowth: padding 30 a side in a 50 wide frame
+// makes it 60).
 double clampSize(double v, const NodeProps& p, int a) {
   double mx = axis(p.rare().maxSize, a), mn = axis(p.rare().minSize, a);
   if (mx > 0 && v > mx) v = mx;
   if (mn > 0 && v < mn) v = mn;
+  if (p.isAutoLayout() && Layout::updatedLayout(p)) v = std::max(v, paddingAlong(p, a));
   return std::max(0.0, v);
+}
+
+bool hasVisibleStroke(const NodeProps& p) {
+  if (p.strokeWeight <= 0) return false;
+  for (auto& s : p.strokePaints)
+    if (s.visible) return true;
+  return false;
 }
 
 Vec2 clampSize(Vec2 v, const NodeProps& p) { return {clampSize(v.x, p, 0), clampSize(v.y, p, 1)}; }
@@ -64,22 +81,50 @@ void constrain(ConstraintType t, double x0, double w0, double W0, double W1, dou
 
 bool sameSize(Vec2 a, Vec2 b) { return std::fabs(a.x - b.x) < kEps && std::fabs(a.y - b.y) < kEps; }
 
+// A layout box grown by `o` on every side (a Legacy child's outside stroke, Layout::strokeOutset).
+Rect outsetBox(Rect b, double o) { return o > 0 ? Rect{b.x - o, b.y - o, b.w + 2 * o, b.h + 2 * o} : b; }
+
 }  // namespace
 
 Rect layoutBox(const Mat2x3& transform, Vec2 size) { return transformedBounds(transform, size.x, size.y); }
+
+int layoutGridCount(const LayoutGrid& g, double len) {
+  constexpr int32_t kAuto = 0x7fffffff;
+  int32_t n = g.numSections;
+  if (n >= kAuto || (n <= 0 && g.type != LayoutGridType::STRETCH)) {
+    double step = std::max(g.sectionSize + g.gutterSize, 1e-9);
+    double fit = std::floor((len - 2 * g.offset + g.gutterSize) / step);
+    n = fit >= 2048 ? 2048 : static_cast<int32_t>(std::max(1.0, fit));
+  }
+  return std::clamp<int32_t>(n, 1, 2048);
+}
+
+void stampNewStack(const NodeProps& before, NodeChange& change) {
+  if (!(change.mask & F_STACK_MODE) || before.stack().stackMode != StackMode::NONE || change.props.stack().stackMode == StackMode::NONE) return;
+  if (Layout::hasStackLayoutVersion(before) || ((change.mask & F_EXTRA) && change.props.extra.count("stackLayoutVersion"))) return;
+  change.props.extra["stackLayoutVersion"] = Layout::stackLayoutVersionBytes(Layout::kLatestStackLayoutVersion);
+  change.mask |= F_EXTRA;
+}
 
 void Layout::padding(const NodeProps& p, double out[4]) {
   out[0] = p.stack().stackPaddingLeft;
   out[1] = p.stack().stackPaddingTop;
   out[2] = p.stack().stackPaddingRight;
   out[3] = p.stack().stackPaddingBottom;
-  if (!p.stack().bordersTakeSpace || p.strokeWeight <= 0) return;
-  bool stroke = false;
-  for (auto& s : p.strokePaints) stroke |= s.visible;
-  if (!stroke) return;
-  // "Strokes included in layout": what the stroke covers inside the frame takes space.
-  double inside = p.strokeAlign == StrokeAlign::INSIDE ? p.strokeWeight : p.strokeAlign == StrokeAlign::CENTER ? p.strokeWeight / 2 : 0;
+  if (!p.stack().bordersTakeSpace || !hasVisibleStroke(p)) return;
+  // "Inside stroke: Included" (Atlas 09 §3.2 row 2): the Updated layout counts an inside stroke only (CSS borders);
+  // the Legacy one ("Strokes: Included") counted a centre stroke by half and an outside one whole.
+  double w = p.strokeWeight, inside = 0;
+  if (p.strokeAlign == StrokeAlign::INSIDE) inside = w;
+  else if (!updatedLayout(p)) inside = p.strokeAlign == StrokeAlign::CENTER ? w / 2 : w;
   for (int i = 0; i < 4; i++) out[i] += inside;
+}
+
+double Layout::strokeOutset(const NodeProps& parent, const NodeProps& child) {
+  // Legacy only (Atlas 09 §3.2 row 3): a frame's "Strokes: Included" also measured its children with the part of their
+  // strokes outside them; the Updated layout keeps the setting to the frame itself.
+  if (!parent.stack().bordersTakeSpace || updatedLayout(parent) || !hasVisibleStroke(child)) return 0;
+  return child.strokeAlign == StrokeAlign::OUTSIDE ? child.strokeWeight : child.strokeAlign == StrokeAlign::CENTER ? child.strokeWeight / 2 : 0;
 }
 
 std::vector<Guid> Layout::flowChildren(Guid frame) const {
@@ -210,11 +255,12 @@ Vec2 Layout::contentSize(Guid frame, Vec2 frameSize, int hug) {
     for (size_t i = 0; i < kids.size(); i++) {
       const NodeProps& cp = doc_.get(kids[i])->props;
       Vec2 s = measure(kids[i], cp);
-      Rect b = layoutBox(cp.transform, s);
+      double o = strokeOutset(p, cp);
+      Rect b = outsetBox(layoutBox(cp.transform, s), o);
       main += (P == 0 ? b.w : b.h) + (i ? gap : 0);
       cross = std::max(cross, C == 0 ? b.w : b.h);
       if (baseline) {
-        double base = baselineOf(kids[i], s);
+        double base = o + baselineOf(kids[i], s);
         above = std::max(above, base);
         below = std::max(below, b.h - base);
       }
@@ -226,7 +272,7 @@ Vec2 Layout::contentSize(Guid frame, Vec2 frameSize, int hug) {
     int inLine = 0, lines = 0;
     for (Guid c : kids) {
       const NodeProps& cp = doc_.get(c)->props;
-      Rect b = layoutBox(cp.transform, measure(c, cp));
+      Rect b = outsetBox(layoutBox(cp.transform, measure(c, cp)), strokeOutset(p, cp));
       double bp = P == 0 ? b.w : b.h, bc = C == 0 ? b.w : b.h;
       if (inLine && lineMain + gap + bp > avail + kEps) {
         cross += lineCross + (lines ? counterGap : 0);
@@ -264,11 +310,13 @@ std::vector<Layout::Placement> Layout::place(Guid frame, Vec2 size) {
   double innerP = axis(size, P) - padP0 - padP1, innerC = axis(size, C) - padC0 - padC1;
   double gap = p.stack().stackSpacing, counterGap = p.stack().stackCounterSpacing.value_or(p.stack().stackSpacing);
   bool wrap = p.stack().stackWrap == StackWrap::WRAP && P == 0 && !p.hugsPrimary();
+  const bool updated = updatedLayout(p);
 
   struct Item {
     Guid id;
     Vec2 size;              // the node's size
     double bp = 0, bc = 0;  // its layout box along the axes
+    double outset = 0;      // the part of its stroke a Legacy frame counts around it (strokeOutset)
     double grow = 0;
     bool stretch = false;
     bool aligned = true;
@@ -281,21 +329,22 @@ std::vector<Layout::Placement> Layout::place(Guid frame, Vec2 size) {
     it.id = c;
     it.size = natural(c, -1, -1, fillHugAxes(p, cp));
     it.aligned = axisAligned(cp.transform);
-    Rect b = layoutBox(cp.transform, it.size);
+    it.outset = strokeOutset(p, cp);
+    Rect b = outsetBox(layoutBox(cp.transform, it.size), it.outset);
     it.bp = P == 0 ? b.w : b.h;
     it.bc = C == 0 ? b.w : b.h;
     it.grow = cp.stackChildPrimaryGrow > 0 && !p.hugsPrimary() && it.aligned && !cp.fitsChildren() ? cp.stackChildPrimaryGrow : 0;
     it.stretch = cp.stackChildAlignSelf == StackCounterAlign::STRETCH && it.aligned && !cp.fitsChildren();
     if (it.stretch && C == 0 && !wrap && cp.type == NodeType::TEXT) {
       // Stretched across a vertical flow: the text wraps at the frame's inner width, its height follows.
-      it.size = natural(c, std::max(0.0, innerC), -1);
-      Rect b2 = layoutBox(cp.transform, it.size);
+      it.size = natural(c, std::max(0.0, innerC - 2 * it.outset), -1);
+      Rect b2 = outsetBox(layoutBox(cp.transform, it.size), it.outset);
       it.bp = b2.h;
     } else if (it.stretch && !wrap && it.grow <= 0 && aspectRatio(cp) > 0) {
       // Stretched across the counter axis with its aspect ratio locked: that length sets its primary one (Figma).
-      double inner = std::max(0.0, innerC);
+      double inner = std::max(0.0, innerC - 2 * it.outset);
       it.size = natural(c, C == 0 ? inner : -1, C == 1 ? inner : -1);
-      Rect b2 = layoutBox(cp.transform, it.size);
+      Rect b2 = outsetBox(layoutBox(cp.transform, it.size), it.outset);
       it.bp = P == 0 ? b2.w : b2.h;
     }
     items.push_back(it);
@@ -319,7 +368,14 @@ std::vector<Layout::Placement> Layout::place(Guid frame, Vec2 size) {
     if (begin < items.size()) lines.push_back({begin, items.size()});
   }
 
-  // Primary axis, line by line: Fill shares what's left (frozen at min/max, CSS flex style), then justify.
+  // Primary axis, line by line: Fill shares what's left (frozen at min/max, CSS flex style), then justify. The Updated
+  // layout shares it by content box (Atlas 09 §3.2 row 4, Figma's fillChildrenResize): a Fill child that is an
+  // auto-layout frame keeps its own padding (and the inside stroke it includes) and gets its share on top, so the
+  // children's content comes out equal; the Legacy one shares the whole size.
+  auto contentBase = [&](const Item& it) {
+    const NodeProps& cp = doc_.get(it.id)->props;
+    return updated && cp.isAutoLayout() ? paddingAlong(cp, P) : 0.0;
+  };
   std::vector<double> lineCross;
   for (auto [b, e] : lines) {
     size_t k = e - b;
@@ -333,21 +389,24 @@ std::vector<Layout::Placement> Layout::place(Guid frame, Vec2 size) {
       std::vector<bool> frozen(k, false);
       double remaining = innerP - fixed - gaps;
       for (int round = 0; round < 8; round++) {
-        double share = 0, weights = 0;
+        double share = 0, weights = 0, bases = 0;
         for (size_t i = b; i < e; i++)
-          if (items[i].grow > 0 && !frozen[i - b]) weights += items[i].grow;
+          if (items[i].grow > 0 && !frozen[i - b]) {
+            weights += items[i].grow;
+            bases += contentBase(items[i]) + 2 * items[i].outset;
+          }
         if (weights <= 0) break;
-        share = remaining / weights;
+        share = (remaining - bases) / weights;
         bool changed = false;
         for (size_t i = b; i < e; i++) {
           if (items[i].grow <= 0 || frozen[i - b]) continue;
           const NodeProps& cp = doc_.get(items[i].id)->props;
-          double want = std::max(0.0, share * items[i].grow);
+          double want = std::max(0.0, contentBase(items[i]) + share * items[i].grow);
           double got = clampSize(want, cp, P);
-          items[i].bp = got;
+          items[i].bp = got + 2 * items[i].outset;
           if (got != want) {
             frozen[i - b] = true;
-            remaining -= got;
+            remaining -= items[i].bp;
             changed = true;
           }
         }
@@ -355,14 +414,15 @@ std::vector<Layout::Placement> Layout::place(Guid frame, Vec2 size) {
       }
       for (size_t i = b; i < e; i++)
         if (items[i].grow > 0) {
-          setAxis(items[i].size, P, items[i].bp);
+          const double o = items[i].outset, own = items[i].bp - 2 * o;
+          setAxis(items[i].size, P, own);
           // Its other axis may follow from this one (a wrapping frame's height from its width).
           const NodeProps& cp = doc_.get(items[i].id)->props;
           if ((cp.isAutoLayout() || (cp.type == NodeType::TEXT && P == 0) || aspectRatio(cp) > 0) && !items[i].stretch) {
-            Vec2 n2 = natural(items[i].id, P == 0 ? items[i].bp : -1, P == 1 ? items[i].bp : -1);
+            Vec2 n2 = natural(items[i].id, P == 0 ? own : -1, P == 1 ? own : -1);
             items[i].size = n2;
-            setAxis(items[i].size, P, items[i].bp);
-            items[i].bc = axis(n2, C);
+            setAxis(items[i].size, P, own);
+            items[i].bc = axis(n2, C) + 2 * o;
           }
         }
     }
@@ -373,11 +433,17 @@ std::vector<Layout::Placement> Layout::place(Guid frame, Vec2 size) {
       case StackJustify::CENTER: start = free / 2; break;
       case StackJustify::MAX: start = free; break;
       // Figma's "Space between" is SPACE_EVENLY in its files (its plugin API's SPACE_BETWEEN; the kiwi SPACE_BETWEEN
-      // lays out the same); a lone child is centred. CSS space-evenly is SPACE_EVENLY_CSS.
+      // lays out the same). CSS space-evenly is SPACE_EVENLY_CSS. The Updated layout (Atlas 09 §3.2 rows 5, 6) never
+      // lets the gap go below 0 (children that don't fit run on from the start) and puts a lone child at the start;
+      // the Legacy one overlaps them and centres a lone child.
       case StackJustify::SPACE_BETWEEN:
       case StackJustify::SPACE_EVENLY:
-        if (k > 1 && !p.hugsPrimary()) g = std::max(0.0, (innerP - (used - gaps)) / static_cast<double>(k - 1));
-        else if (k == 1) start = free / 2;
+        if (k > 1 && !p.hugsPrimary()) {
+          g = (innerP - (used - gaps)) / static_cast<double>(k - 1);
+          if (updated) g = std::max(0.0, g);
+        } else if (k == 1 && !updated) {
+          start = free / 2;
+        }
         break;
       case StackJustify::SPACE_EVENLY_CSS:
         if (!p.hugsPrimary()) {
@@ -440,8 +506,8 @@ std::vector<Layout::Placement> Layout::place(Guid frame, Vec2 size) {
         continue;
       }
       if (it.stretch) {
-        it.bc = clampSize(room, cp, C);
-        setAxis(it.size, C, it.bc);
+        it.bc = clampSize(room - 2 * it.outset, cp, C) + 2 * it.outset;
+        setAxis(it.size, C, it.bc - 2 * it.outset);
         // Held below the line by its max (or past it by its min): placed by the frame's alignment (Figma).
         it.cpos = lineTop + (room - it.bc) * alignFactor(p.stack().stackCounterAlignItems);
       } else {
@@ -461,11 +527,12 @@ std::vector<Layout::Placement> Layout::place(Guid frame, Vec2 size) {
       // Back from the layout box to the node's size (its transform may flip it, never scale it).
       const NodeProps& cp = doc_.get(it.id)->props;
       double sx = std::fabs(cp.transform.m00), sy = std::fabs(cp.transform.m11);
-      double bw = P == 0 ? it.bp : it.bc, bh = P == 0 ? it.bc : it.bp;
+      double bw = (P == 0 ? it.bp : it.bc) - 2 * it.outset, bh = (P == 0 ? it.bc : it.bp) - 2 * it.outset;
       pl.size = {sx > 0 ? bw / sx : it.size.x, sy > 0 ? bh / sy : it.size.y};
     }
-    setAxis(pl.position, P, it.pos);
-    setAxis(pl.position, C, it.cpos);
+    // The node's own box sits inside its (Legacy, stroke-grown) layout box.
+    setAxis(pl.position, P, it.pos + it.outset);
+    setAxis(pl.position, C, it.cpos + it.outset);
     out.push_back(pl);
   }
   return out;

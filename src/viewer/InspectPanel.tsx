@@ -4,28 +4,34 @@
  *
  * - nothing selected: the page, the code language (CSS, iOS, Android), the file's variables ("Open variables table");
  * - a layer: its name and type; the component it comes from; the box model (size, position in its parent, padding);
- *   the code in the chosen language (CSS in Figma's groups Layout / Style / Typography, each with Copy); the colours
- *   with their variables (collection and mode) or styles; typography with its text style; effects; Export (PNG / JPG
- *   at 0.5×–4×, rendered here by the engine) when the preview allows it.
+ *   the code in the chosen language (Figma's sections — CSS: Layout / Position / Other / Typography / Style — each
+ *   with Copy, its hints and "Show N more"); the colours with their variables (collection and mode) or styles;
+ *   typography with its text style; effects; Export (PNG / JPG at 0.5×–4×, rendered here by the engine) when the
+ *   preview allows it.
  *
  * Every value is copied with a click.
  */
-import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
-import { Button, CodeBlock, Dialog, EmptyState, Icon, IconButton, MenuButton, PanelSection, ScrollArea, SegmentedControl, Swatch, showToast } from "@/ds";
+import { useEffect, useMemo, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { Button, CodeBlock, Dialog, EmptyState, Icon, IconButton, MenuButton, PanelSection, ScrollArea, SegmentedControl, Swatch, Tabs, showToast, type MenuEntry } from "@/ds";
 import { useCurrentPage, useSelection } from "@/engine/hooks";
 import type { Effect, Guid, NodeChange, Paint } from "@/engine/codec";
-import { cssLines, cssSnippet } from "./inspect/css";
-import { cornersOf, cssColor, hexOf, isAutoLayout, isTextLike, num, paddingOf, rotationOf, sizingOf, typeLabel, typographyOf, visibleEffects, visiblePaints } from "./inspect/model";
-import { compose, swiftUI } from "./inspect/native";
+import { cssSnippet, isVectorClass } from "./inspect/css";
+import { renderEngineExport } from "@/editor/exportCore";
+import { codeSections } from "./inspect/codegen";
+import { CodeSections } from "./inspect/CodeSections";
+import { cornersOf, cssColor, hexOf, isAutoLayout, isMirrored, isTextLike, num, paddingOf, rotationOf, typeLabel, typographyOf, visibleEffects, visiblePaints } from "./inspect/model";
 import { useViewer, type CodegenHost, type CodegenLanguage } from "./context";
 import { layerIcon } from "./LeftPanel";
 import type { VariableUse } from "./viewerDoc";
 import { AnnotationsSection, AssetsSection, CodeSettings, ExportSection, type PluginLanguages } from "./DevSections";
 import { CodeConnectSection } from "./inspect/CodeConnectSection";
+import { McpSection } from "./inspect/McpSection";
 import { DevResourcesSection } from "./inspect/DevResources";
+import { DevTimeline, MotionTab, motionOf } from "./inspect/MotionTab";
+import { t, useT } from "@/i18n";
 import { editedAgo, listRows } from "./inspect/devMode";
 import { StatusTag } from "@/editor/devmode/StatusTag";
-import { composeInUnit, cssInUnit, storedUnits, storeUnits, swiftUIInUnit, type Language, type UnitSettings } from "./inspect/units";
+import { cssValueInUnit, storedUnits, storeUnits, UNITS, type Language, type UnitSettings } from "./inspect/units";
 import styles from "./Viewer.module.css";
 
 const LANGUAGE_KEY = "designer-viewer-language";
@@ -33,7 +39,7 @@ const LANGUAGE_KEY = "designer-viewer-language";
 function storedLanguage(): Language {
   try {
     const v = localStorage.getItem(LANGUAGE_KEY);
-    return v === "swiftui" || v === "compose" ? v : "css";
+    return v && v in UNITS ? (v as Language) : "css";
   } catch {
     return "css";
   }
@@ -41,8 +47,8 @@ function storedLanguage(): Language {
 
 function copy(text: string) {
   void navigator.clipboard?.writeText(text).then(
-    () => showToast({ message: "Copied to clipboard" }),
-    () => showToast({ message: "Couldn't copy" }),
+    () => showToast({ message: t("Copied to clipboard") }),
+    () => showToast({ message: t("Couldn't copy") }),
   );
 }
 
@@ -90,9 +96,37 @@ export interface ExtraTab {
   render(): ReactNode;
 }
 
-export function InspectPanel({ onPresent, extraTab }: { onPresent?: () => void; extraTab?: ExtraTab }) {
-  const { store, preview, host } = useViewer();
-  const [tab, setTab] = useState<"inspect" | "extra">("inspect");
+export interface InspectPanelProps {
+  onPresent?: () => void;
+  extraTab?: ExtraTab;
+  /** Above the tabs (the editor's Dev Mode: the account, Present and Share) */
+  header?: ReactNode;
+  /** At the tabs row's right (the editor's Dev Mode: the zoom menu) */
+  tabsEnd?: ReactNode;
+  /** The tab when the host keeps it (the editor's Dev Mode: ⌥8 / ⌥9 and the rail's Plugins) */
+  tab?: "inspect" | "extra";
+  onTab?: (tab: "inspect" | "extra") => void;
+  /** The panel's width; `children`: its resize handle */
+  style?: CSSProperties;
+  children?: ReactNode;
+}
+
+/**
+ * The panel (the owner's capture owner-2026-10-18/figma-devmode-inspect; live devmode-inspect-right.txt): the host's
+ * header, the tabs row (Inspect, Motion for an animated layer, the host's Plugins; the zoom at its right), then the tab.
+ */
+export function InspectPanel({ onPresent, extraTab, header, tabsEnd, tab: hostTab, onTab, style, children }: InspectPanelProps) {
+  useT();
+  const { engine, store, preview, host } = useViewer();
+  const [ownTab, setOwnTab] = useState<"inspect" | "extra" | "motion">("inspect");
+  // The host's choice between Inspect and its own tab wins; Motion stays this panel's own.
+  const tab = hostTab === "extra" ? "extra" : ownTab === "extra" && hostTab ? "inspect" : ownTab;
+  const setTab = (next: "inspect" | "extra" | "motion") => {
+    setOwnTab(next);
+    if (onTab) onTab(next === "extra" ? "extra" : "inspect");
+  };
+  const [aside, setAside] = useState<HTMLElement | null>(null);
+  const [timeline, setTimeline] = useState<string | null>(null);
   const plugins = usePluginLanguages(host?.dev?.codegen);
   const selection = useSelection(store);
   const [language, setLanguage] = useState<Language>(storedLanguage);
@@ -110,29 +144,36 @@ export function InspectPanel({ onPresent, extraTab }: { onPresent?: () => void; 
     }
   };
   const inspect = preview.manifest.options.inspect;
+  // The Motion tab: one layer selected that is, or holds, an animated layer (docs/motion.md §8.2).
+  const one = selection.refs.length === 1 ? selection.refs[0] : null;
+  const motion = useMemo(() => (inspect && one ? motionOf(engine, one) : null), [engine, inspect, one]);
+  const shown = tab === "motion" && !motion ? "inspect" : tab;
+  // The timeline view stays open while the selection is in its root.
+  const timelineRoot = motion && timeline === motion.root ? timeline : null;
   return (
-    <aside className={styles.right} aria-label="Inspect panel" data-panel="inspect">
-      <div className={styles.rightHeader}>
-        {extraTab ? (
-          <>
-            <button type="button" className={tab === "inspect" ? styles.rightTab : styles.rightTabOff} aria-current={tab === "inspect" ? "page" : undefined} onClick={() => setTab("inspect")}>
-              Inspect
-            </button>
-            <button type="button" className={tab === "extra" ? styles.rightTab : styles.rightTabOff} aria-current={tab === "extra" ? "page" : undefined} onClick={() => setTab("extra")} data-tab={extraTab.label}>
-              {extraTab.label}
-            </button>
-          </>
-        ) : (
-          <span className={styles.rightTab} aria-current="page">
-            Inspect
-          </span>
-        )}
+    <aside ref={setAside} className={styles.right} style={style} aria-label={t("Inspect panel")} data-panel="inspect">
+      {header}
+      <div className={styles.rightTabs}>
+        <Tabs
+          label={t("Inspect panel")}
+          idBase="inspect"
+          value={shown}
+          tabs={[
+            { value: "inspect", label: t("Inspect") },
+            ...(motion ? [{ value: "motion", label: t("Motion") }] : []),
+            ...(extraTab ? [{ value: "extra", label: extraTab.label }] : []),
+          ]}
+          onChange={(v) => setTab(v as "inspect" | "extra" | "motion")}
+        />
         <span className={styles.grow} />
-        {onPresent && <IconButton icon="24.play" label="Present" shortcut="⌥⌘↩" onClick={onPresent} />}
+        {onPresent && <IconButton icon="24.play" label={t("Present")} shortcut="⌥⌘↩" onClick={onPresent} />}
+        {tabsEnd}
       </div>
-      <ScrollArea className={styles.rightBody}>
-        {extraTab && tab === "extra" ? (
+      <ScrollArea className={styles.rightBody} role="tabpanel" id={`inspect-panel-${shown}`} aria-labelledby={`inspect-tab-${shown}`}>
+        {extraTab && shown === "extra" ? (
           extraTab.render()
+        ) : motion && one && shown === "motion" ? (
+          <MotionTab key={one} engine={engine} id={one} units={units} onTimeline={(open) => setTimeline(open ? motion.root : null)} />
         ) : !inspect ? (
           <EmptyState icon="24.info" title="Inspect is off" body="The person who shared this preview turned off Inspect." />
         ) : selection.refs.length === 0 ? (
@@ -143,6 +184,8 @@ export function InspectPanel({ onPresent, extraTab }: { onPresent?: () => void; 
           <LayerInspect key={selection.refs[0]} id={selection.refs[0]} code={{ language, units, onLanguage: choose, onUnits, plugins }} />
         )}
       </ScrollArea>
+      {timelineRoot && <DevTimeline engine={engine} root={timelineRoot} panel={aside} onClose={() => setTimeline(null)} />}
+      {children}
     </aside>
   );
 }
@@ -268,7 +311,14 @@ function VariablesTable({ onClose }: { onClose: () => void }) {
 
 // ---- One layer --------------------------------------------------------------------------------------------------
 
+/**
+ * One layer, in Figma's order (the owner's capture owner-2026-10-18/figma-devmode-inspect): the selection header —
+ * its name with Copy link, the `</>` (its status menu) and ⋯, its type under it —, MCP, Code Connect, its notes, the
+ * component it comes from, dev resources, Layer properties (the box model, List | Code and the language, the code),
+ * then Colors, Typography, Effects, Assets and Export.
+ */
 function LayerInspect({ id, code }: { id: Guid; code: CodeChoice }) {
+  useT();
   const { engine, doc, preview, host } = useViewer();
   const input = useMemo(() => doc.inspect(id), [doc, id]);
   const page = engine.getSelection().pageId;
@@ -287,48 +337,58 @@ function LayerInspect({ id, code }: { id: Guid; code: CodeChoice }) {
   const n = input.node;
   const tree = doc.tree(engine.getSelection().pageId);
   const row = tree.nodes.get(id);
+  // A design: a top-level frame, component or section (its status, Compare changes).
+  const design = doc.parentOf(id) === null && (n.type === "FRAME" || n.type === "SYMBOL" || n.type === "SECTION");
+  const edited = editedAgo((n as { editInfo?: { lastEditedAt?: number } }).editInfo?.lastEditedAt);
+  const more: MenuEntry[] = [
+    ...(edited ? [{ header: edited }, "-" as const] : []),
+    { id: "copy-name", label: t("Copy layer name") },
+    ...(host?.onCompare && design ? [{ id: "compare", label: t("Compare changes") }] : []),
+    ...(dev?.canEdit && dev.addDevResource ? [{ id: "add-link", label: t("Add a dev resource link") }] : []),
+  ];
   return (
     <>
-      <div className={styles.layerHeader}>
-        <Icon name={row ? layerIcon(row) : "16.frame"} />
-        <div className={styles.layerTitle}>
-          <span className={styles.layerName}>{n.name || typeLabel(n)}</span>
-          <span className={styles.layerType}>{typeLabel(n)}</span>
-        </div>
-        {status && (
-          <span className={styles.devStatus} data-dev-status={status.workflow}>
-            <StatusTag
-              workflow={status.workflow}
-              dev={status.status}
-              variant="chip"
-              onClick={host?.onStatus ? (e) => host.onStatus!(id, e.currentTarget.getBoundingClientRect()) : undefined}
-            />
+      <div className={styles.selection} data-selection-header="">
+        <div className={styles.selectionTop}>
+          <span className={styles.layerName} title={n.name || typeLabel(n)}>
+            {n.name || typeLabel(n)}
           </span>
-        )}
-        {dev?.canEdit && dev.addDevResource && (
-          <MenuButton label="Layer options" entries={[{ id: "add-link", label: "Add a dev resource link" }]} onSelect={(a) => a === "add-link" && setAddingLink(true)}>
+          {host?.onCopyLink && <IconButton icon="24.link" label={t("Copy link")} onClick={() => host.onCopyLink!(id)} />}
+          {host?.onStatus && design && <IconButton icon="24.dev-brackets" label={t("Set status")} onClick={(e) => host.onStatus!(id, e.currentTarget.getBoundingClientRect())} data-status-button="" />}
+          <MenuButton
+            label={t("More options")}
+            entries={more}
+            onSelect={(a) => {
+              if (a === "copy-name") copy(n.name ?? "");
+              else if (a === "compare") host?.onCompare?.(id);
+              else if (a === "add-link") setAddingLink(true);
+            }}
+            className={styles.selectionMore}
+          >
             <Icon name="24.more" />
           </MenuButton>
-        )}
+        </div>
+        <div className={styles.selectionType}>
+          <Icon name={row ? layerIcon(row) : "16.frame"} />
+          <span className={styles.layerType}>{typeLabel(n)}</span>
+          {status && (
+            <span className={styles.devStatus} data-dev-status={status.workflow}>
+              <StatusTag
+                workflow={status.workflow}
+                dev={status.status}
+                variant="chip"
+                onClick={host?.onStatus ? (e) => host.onStatus!(id, e.currentTarget.getBoundingClientRect()) : undefined}
+              />
+            </span>
+          )}
+        </div>
       </div>
-      {editedAgo((n as { editInfo?: { lastEditedAt?: number } }).editInfo?.lastEditedAt) && (
-        <div className={styles.edited} data-edited="">
-          {editedAgo((n as { editInfo?: { lastEditedAt?: number } }).editInfo?.lastEditedAt)}
-        </div>
-      )}
-      {host?.onCompare && doc.parentOf(id) === null && (n.type === "FRAME" || n.type === "SYMBOL" || n.type === "SECTION") && (
-        <div className={styles.compareRow}>
-          <Button variant="secondary" onClick={() => host.onCompare!(id)} data-compare-changes="">
-            Compare changes
-          </Button>
-        </div>
-      )}
+      {host?.mcp && <McpSection id={id} mcp={host.mcp} />}
+      <CodeConnectSection id={id} info={info} />
       <AnnotationsSection notes={notes} />
       <ComponentSection id={id} />
-      <CodeConnectSection id={id} info={info} />
       <DevResourcesSection id={id} adding={addingLink} onAdding={setAddingLink} />
-      <LayoutSection node={n} sizing={sizingOf(input)} parentBox={doc.parentOf(id) ? doc.pageBox(doc.parentOf(id)!) : null} box={doc.pageBox(id)} />
-      <CodeSection input={input} code={code} />
+      <LayerProperties input={input} code={code} box={doc.pageBox(id)} parentBox={doc.parentOf(id) ? doc.pageBox(doc.parentOf(id)!) : null} />
       <ColorsSection node={n} variables={input.variables} styles={input.styles ?? {}} />
       {isTextLike(n) && <TypographySection node={n} styleName={input.styles?.text} variables={input.variables} />}
       <EffectsSection effects={visibleEffects(n.effects)} styleName={input.styles?.effect} />
@@ -363,58 +423,69 @@ function ComponentSection({ id }: { id: Guid }) {
   );
 }
 
-function LayoutSection({ node, sizing, box, parentBox }: { node: NodeChange; sizing: { width: string; height: string }; box: { x: number; y: number; width: number; height: number } | null; parentBox: { x: number; y: number } | null }) {
+type Box = { x: number; y: number; width: number; height: number };
+
+/**
+ * The box model (live devmode-inspect-right.txt; the owner's capture): the border box — "Border", each side's stroke
+ * and each corner's radius —, the padding box — "Padding", each side's —, and the size; around it the distances to the
+ * parent, on ticks with a pill each; "border-box" under it. "-" where there is none; a value is copied with a click.
+ */
+function BoxModel({ node, box, parentBox }: { node: NodeChange; box: Box | null; parentBox: Box | null }) {
+  useT();
   const size = node.size ?? { x: 0, y: 0 };
-  const left = box ? box.x - (parentBox?.x ?? 0) : 0;
-  const top = box ? box.y - (parentBox?.y ?? 0) : 0;
-  const auto = isAutoLayout(node);
-  const p = auto ? paddingOf(node) : null;
-  const rot = rotationOf(node);
+  const p = isAutoLayout(node) ? paddingOf(node) : null;
+  const stroke = visiblePaints(node.strokePaints).length ? (node.strokeWeight ?? 1) : 0;
   const corners = cornersOf(node);
+  const cell = (value: number, className: string, what: string) =>
+    value ? (
+      <button type="button" className={className} onClick={() => copy(`${num(value)}px`)} title={what}>
+        {num(value)}
+      </button>
+    ) : (
+      <span className={className}>-</span>
+    );
+  const distances =
+    box && parentBox
+      ? { top: box.y - parentBox.y, right: parentBox.x + parentBox.width - box.x - box.width, bottom: parentBox.y + parentBox.height - box.y - box.height, left: box.x - parentBox.x }
+      : null;
+  const padded = !!p && (p.top > 0 || p.right > 0 || p.bottom > 0 || p.left > 0);
   return (
-    <PanelSection title="Layout">
-      <div className={styles.boxModel} aria-label="Box model">
-        {p && (
-          <>
-            <span className={styles.boxModelLabel}>Padding</span>
-            <button type="button" className={styles.boxTop} onClick={() => copy(`${num(p.top)}px`)}>
-              {num(p.top)}
+    <div className={styles.boxModel} aria-label={t("Box model")} data-box-model="">
+      {distances &&
+        (["top", "right", "bottom", "left"] as const).map((side) => (
+          <span key={side} className={styles.bmTick} data-side={side}>
+            <button type="button" className={styles.bmPill} onClick={() => copy(`${num(distances[side])}px`)}>
+              {num(distances[side])}
             </button>
-            <button type="button" className={styles.boxRight} onClick={() => copy(`${num(p.right)}px`)}>
-              {num(p.right)}
-            </button>
-            <button type="button" className={styles.boxBottom} onClick={() => copy(`${num(p.bottom)}px`)}>
-              {num(p.bottom)}
-            </button>
-            <button type="button" className={styles.boxLeft} onClick={() => copy(`${num(p.left)}px`)}>
-              {num(p.left)}
-            </button>
-          </>
-        )}
-        <button type="button" className={styles.boxSize} onClick={() => copy(`width: ${num(size.x)}px;\nheight: ${num(size.y)}px;`)}>
-          {num(size.x)} × {num(size.y)}
-        </button>
-      </div>
-      <div className={styles.grid2}>
-        <Value label="Width" value={`${num(size.x)}px`} sub={sizing.width !== "Fixed" ? sizing.width : null} copyText={`${num(size.x)}px`} />
-        <Value label="Height" value={`${num(size.y)}px`} sub={sizing.height !== "Fixed" ? sizing.height : null} copyText={`${num(size.y)}px`} />
-        <Value label="Left" value={`${num(left)}px`} copyText={`${num(left)}px`} />
-        <Value label="Top" value={`${num(top)}px`} copyText={`${num(top)}px`} />
-        {rot !== 0 && <Value label="Rotation" value={`${num(rot)}°`} copyText={`${num(rot)}deg`} />}
-        {corners && <Value label="Radius" value={corners.tl === corners.tr && corners.tr === corners.br && corners.br === corners.bl ? `${num(corners.tl)}px` : `${num(corners.tl)} ${num(corners.tr)} ${num(corners.br)} ${num(corners.bl)}`} copyText={`${num(corners.tl)}px`} />}
-        {node.opacity !== undefined && node.opacity < 1 && <Value label="Opacity" value={`${num(node.opacity * 100)}%`} copyText={num(node.opacity)} />}
-      </div>
-      {auto && (
-        <div className={styles.grid2}>
-          <Value label="Auto layout" value={node.stackMode === "HORIZONTAL" ? "Horizontal" : "Vertical"} copyText={node.stackMode === "HORIZONTAL" ? "row" : "column"} />
-          <Value label="Gap" value={node.stackPrimaryAlignItems === "SPACE_BETWEEN" || node.stackPrimaryAlignItems === "SPACE_EVENLY" ? "Auto" : `${num(node.stackSpacing ?? 0)}px`} copyText={`${num(node.stackSpacing ?? 0)}px`} />
+          </span>
+        ))}
+      <div className={styles.bmBorder}>
+        <span className={styles.bmLabel}>{t("Border")}</span>
+        {cell(corners?.tl ?? 0, styles.bmTopLeft, t("Radius"))}
+        {cell(stroke, styles.bmTop, t("Border"))}
+        {cell(corners?.tr ?? 0, styles.bmTopRight, t("Radius"))}
+        {cell(stroke, styles.bmLeft, t("Border"))}
+        {cell(stroke, styles.bmRight, t("Border"))}
+        {cell(corners?.bl ?? 0, styles.bmBottomLeft, t("Radius"))}
+        {cell(stroke, styles.bmBottom, t("Border"))}
+        {cell(corners?.br ?? 0, styles.bmBottomRight, t("Radius"))}
+        <div className={styles.bmPadding} data-padded={padded || undefined}>
+          <span className={styles.bmLabel}>{t("Padding")}</span>
+          {cell(p?.top ?? 0, styles.bmTop, t("Padding"))}
+          {cell(p?.left ?? 0, styles.bmLeft, t("Padding"))}
+          {cell(p?.right ?? 0, styles.bmRight, t("Padding"))}
+          {cell(p?.bottom ?? 0, styles.bmBottom, t("Padding"))}
+          <button type="button" className={styles.bmSize} onClick={() => copy(`width: ${num(size.x)}px;\nheight: ${num(size.y)}px;`)}>
+            {num(size.x)} × {num(size.y)}
+          </button>
         </div>
-      )}
-    </PanelSection>
+      </div>
+      <span className={styles.bmCaption}>border-box</span>
+    </div>
   );
 }
 
-/** "Code" / "List": the snippets, or the properties they set with their values ("Code (default)"). */
+/** "Code" / "List": the snippets, or the properties they set with their values (Figma's default: Code). */
 const VIEW_KEY = "designer-viewer-code-view";
 function storedView(): "code" | "list" {
   try {
@@ -424,8 +495,14 @@ function storedView(): "code" | "list" {
   }
 }
 
-function CodeSection({ input, code }: { input: NonNullable<ReturnType<ReturnType<typeof useViewer>["doc"]["inspect"]>>; code: CodeChoice }) {
+/**
+ * Layer properties (the owner's capture; live devmode-inspect-right.txt), folded with its chevron: the box model, then
+ * List | Code with the language select at the right, then the code sections or the list.
+ */
+function LayerProperties({ input, code, box, parentBox }: { input: NonNullable<ReturnType<ReturnType<typeof useViewer>["doc"]["inspect"]>>; code: CodeChoice; box: Box | null; parentBox: Box | null }) {
+  useT();
   const { language, units } = code;
+  const [open, setOpen] = useState(true);
   const [view, setView] = useState<"code" | "list">(storedView);
   const choose = (v: "code" | "list") => {
     setView(v);
@@ -435,80 +512,92 @@ function CodeSection({ input, code }: { input: NonNullable<ReturnType<ReturnType
       // this visit only
     }
   };
-  const blocks = useMemo(() => {
-    if (language === "swiftui") return [{ title: "SwiftUI", code: swiftUIInUnit(swiftUI(input), units) }];
-    if (language === "compose") return [{ title: "Compose", code: composeInUnit(compose(input), units) }];
-    const s = cssSnippet(input);
-    return [
-      { title: "Layout", code: cssInUnit(cssLines(s.layout), units) },
-      { title: "Style", code: cssInUnit(cssLines(s.style), units) },
-      { title: "Typography", code: s.typography.length ? cssInUnit(cssLines(s.typography, s.textStyle), units) : "" },
-    ].filter((b) => b.code);
-  }, [input, language, units]);
+  const svg = useVectorSvg(input.node, language === "css");
+  const sections = useMemo(() => codeSections(svg ? { ...input, svg } : input, language, units), [input, svg, language, units]);
   const rows = useMemo(() => {
     if (view !== "list") return [];
     const s = cssSnippet(input);
-    const conv = (v: string) => cssInUnit(v, units);
     return [
-      { title: "Layout", rows: listRows(s.layout) },
-      { title: "Style", rows: listRows(s.style) },
-      { title: "Typography", rows: listRows(s.typography) },
+      { title: "Layout", decls: s.layout },
+      { title: "Position", decls: s.position },
+      { title: "Other", decls: s.other },
+      { title: "Typography", decls: s.typography },
+      { title: "Style", decls: s.style },
     ]
-      .filter((g) => g.rows.length)
-      .map((g) => ({ ...g, rows: g.rows.map((r) => ({ ...r, value: conv(r.value) })) }));
+      .filter((g) => g.decls.length)
+      .map((g) => ({ title: g.title, rows: listRows(g.decls).map((r, i) => ({ ...r, value: cssValueInUnit(g.decls[i].property, r.value, units) })) }));
   }, [input, view, units]);
-  const toggle = (
-    <span className={styles.codeActions}>
-      <SegmentedControl
-        label="Code or list"
-        value={view}
-        options={[
-          { value: "code", label: "Code" },
-          { value: "list", label: "List" },
-        ]}
-        onChange={(v) => choose(v as "code" | "list")}
-      />
-      <LanguageSelect code={code} />
-    </span>
-  );
-  if (code.plugins?.current)
-    return (
-      <PanelSection
-        title="Code"
-        actions={
-          <span className={styles.codeActions}>
-            <LanguageSelect code={code} />
-          </span>
-        }
-      >
-        <CodegenBlocks id={input.node.guid} lang={code.plugins.current} />
-      </PanelSection>
-    );
+  const plugin = code.plugins?.current ?? null;
   return (
-    <PanelSection title="Code" actions={toggle}>
-      {view === "code" ? (
-        <div className={styles.code} data-language={language}>
-          {blocks.map((b) => (
-            <div key={b.title} className={styles.codeGroup}>
-              {blocks.length > 1 && <div className={styles.codeTitle}>{b.title}</div>}
-              <CodeBlock code={b.code} label="Copy" />
+    <PanelSection title={t("Layer properties")} collapsible open={open} onOpenChange={setOpen} data-layer-properties="">
+      {open && (
+        <>
+          <BoxModel node={input.node} box={box} parentBox={parentBox} />
+          <div className={styles.codeBar}>
+            {!plugin && (
+              <SegmentedControl
+                label={t("List or code")}
+                value={view}
+                options={[
+                  { value: "list", label: t("List") },
+                  { value: "code", label: t("Code") },
+                ]}
+                onChange={(v) => choose(v as "code" | "list")}
+              />
+            )}
+            <span className={styles.grow} />
+            <LanguageSelect code={code} />
+          </div>
+          {plugin ? (
+            <CodegenBlocks id={input.node.guid} lang={plugin} />
+          ) : view === "code" ? (
+            <div className={styles.code} data-language={language}>
+              <CodeSections sections={sections} />
             </div>
-          ))}
-        </div>
-      ) : (
-        <div className={styles.list} data-list-view="">
-          {rows.map((g) => (
-            <div key={g.title}>
-              <div className={styles.codeTitle}>{g.title}</div>
-              {g.rows.map((r, i) => (
-                <Value key={`${r.label}${i}`} label={r.label} value={r.value} copyText={r.value} />
+          ) : (
+            <div className={styles.list} data-list-view="">
+              {rows.map((g) => (
+                <div key={g.title}>
+                  <div className={styles.codeTitle}>{t(g.title)}</div>
+                  {g.rows.map((r, i) => (
+                    <Value key={`${r.label}${i}`} label={r.label} value={r.value} copyText={r.value} />
+                  ))}
+                </div>
               ))}
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
     </PanelSection>
   );
+}
+
+/**
+ * A vector's SVG for CSS's SVG section (atlas 14 §5.3): the engine's SVG export of the layer, as Copy as SVG writes it,
+ * and whether the layer or a parent is rotated or mirrored (hint 20). None when the file blocks exports.
+ */
+function useVectorSvg(node: NodeChange, css: boolean): { markup: string; transformed: boolean } | null {
+  const { engine, preview, doc } = useViewer();
+  const [svg, setSvg] = useState<{ id: Guid; markup: string; transformed: boolean } | null>(null);
+  const id = node.guid;
+  const wanted = css && !!id && isVectorClass(node) && !!preview.manifest.options.export;
+  useEffect(() => {
+    if (!wanted || !id) return;
+    let live = true;
+    void renderEngineExport(engine, (h) => preview.image(h), [id], { imageType: "SVG", constraint: { type: "CONTENT_SCALE", value: 1 }, contentsOnly: true, svgOutlineText: true }).then((r) => {
+      if (!live || "error" in r) return;
+      let transformed = false;
+      for (let at: Guid | null = id; at && !transformed; at = doc.parentOf(at)) {
+        const n = engine.readNode(at, { fields: ["transform"] });
+        transformed = !!n && (rotationOf(n) !== 0 || isMirrored(n));
+      }
+      setSvg({ id, markup: new TextDecoder().decode(r.bytes), transformed });
+    });
+    return () => {
+      live = false;
+    };
+  }, [engine, preview, doc, id, wanted, node]);
+  return wanted && svg?.id === id ? { markup: svg.markup, transformed: svg.transformed } : null;
 }
 
 function paintRow(p: Paint, i: number, list: "fillPaints" | "strokePaints", variables: Record<string, VariableUse>, styleName: string | undefined) {

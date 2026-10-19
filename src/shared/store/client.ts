@@ -395,6 +395,7 @@ export class StoreClient implements StoreApi {
     },
     saveThumbnail: (fileKey, png, size) => this.call("files.saveThumbnail", [fileKey, png, size]),
     setUiState: (fileKey, patch) => this.call("files.setUiState", [fileKey, patch]),
+    setUndoHistory: (fileKey, history) => this.call("files.setUndoHistory", [fileKey, history]),
     saveSnapshot: (fileKey, save) => this.call("files.saveSnapshot", [fileKey, save]),
     listVersions: (fileKey) => this.call("files.listVersions", [fileKey]),
     createVersion: (fileKey, input) => this.call("files.createVersion", [fileKey, input]),
@@ -404,7 +405,8 @@ export class StoreClient implements StoreApi {
     duplicateVersion: (fileKey, id) => this.call("files.duplicateVersion", [fileKey, id]),
     importLocalCopy: (path, folderId) => this.call("files.importLocalCopy", [path, folderId]),
     importFigBytes: (bytes, name, folderId, org) => this.call("files.importFigBytes", [bytes, name, folderId ?? null, org ?? null]),
-    exportLocalCopy: (fileKey, path) => this.call("files.exportLocalCopy", [fileKey, path]),
+    exportLocalCopy: (fileKey, path, opts) => this.call("files.exportLocalCopy", [fileKey, path, opts]),
+    missingImages: (fileKey) => this.call("files.missingImages", [fileKey]),
     exportFigBytes: (fileKey) => this.call("files.exportFigBytes", [fileKey]),
   };
 
@@ -447,7 +449,7 @@ export class StoreClient implements StoreApi {
   readonly comments: CommentsRepository = {
     list: (fileKey) => this.call("comments.list", [fileKey]),
     add: (fileKey, input) => this.call("comments.add", [fileKey, input]),
-    edit: (fileKey, id, message, mentions) => this.call("comments.edit", [fileKey, id, message, mentions]),
+    edit: (fileKey, id, message, mentions, messageMeta) => this.call("comments.edit", [fileKey, id, message, mentions, messageMeta]),
     remove: (fileKey, id) => this.call("comments.remove", [fileKey, id]),
     setResolved: (fileKey, id, resolved) => this.call("comments.setResolved", [fileKey, id, resolved]),
     setRead: (fileKey, ids, read) => this.call("comments.setRead", [fileKey, ids, read]),
@@ -618,6 +620,9 @@ export class StoreClient implements StoreApi {
     merge: (branchFileKey, input) => this.call("branches.merge", [branchFileKey, input]),
     requestReview: (branchFileKey, input) => this.call("branches.requestReview", [branchFileKey, input]),
     answerReview: (branchFileKey, input) => this.call("branches.answerReview", [branchFileKey, input]),
+    withdrawReview: (branchFileKey) => this.call("branches.withdrawReview", [branchFileKey]),
+    closeReview: (branchFileKey) => this.call("branches.closeReview", [branchFileKey]),
+    undoMerge: (branchFileKey) => this.call("branches.undoMerge", [branchFileKey]),
     watch: (listener) => this.branchEvents.add(listener),
   };
 

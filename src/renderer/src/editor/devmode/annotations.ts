@@ -232,13 +232,13 @@ export const PRESET_LABEL: Record<Preset, string> = {
   CONTENT: "Content",
   BEHAVIOR: "Behavior",
 };
-/** A preset's colour (Figma's files store presets without one; unverified). */
+/** A preset's colour (Figma's files store presets without one; the app gives them these, atlas 14 §12 `u()`). */
 export const PRESET_COLOR: Record<Preset, CategoryColor> = {
-  DEVELOPMENT: "BLUE",
-  INTERACTION: "VIOLET",
-  ACCESSIBILITY: "GREEN",
+  DEVELOPMENT: "GREEN",
+  INTERACTION: "BLUE",
+  ACCESSIBILITY: "PINK",
   CONTENT: "ORANGE",
-  BEHAVIOR: "TEAL",
+  BEHAVIOR: "BLUE",
 };
 /** The order Figma's files list the presets in (FILE: the owner's file, R9). */
 export const DEFAULT_PRESETS: Preset[] = ["DEVELOPMENT", "INTERACTION", "ACCESSIBILITY", "CONTENT"];

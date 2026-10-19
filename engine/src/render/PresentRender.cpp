@@ -68,7 +68,7 @@ RenderStats Renderer::renderScene(const Document& doc, Guid page, const Viewport
     if (item.kind == PresentItem::Kind::Rect) {
       CornerRadii r{item.radius, item.radius, item.radius, item.radius};
       emit(makeShape(Mat2x3::translate(item.rect.x, item.rect.y), {item.rect.w, item.rect.h}, ShapeKind::Rect, r, item.color, item.alpha,
-                     item.borderColor, item.border > 0 ? item.alpha : 0, item.border, 0),
+                     item.borderColor, item.border > 0 ? (item.borderAlpha >= 0 ? item.borderAlpha : item.alpha) : 0, item.border, 0),
            Pass::Shape);
       continue;
     }

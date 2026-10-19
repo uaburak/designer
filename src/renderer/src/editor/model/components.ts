@@ -10,6 +10,8 @@
  * frame for Assets and the instance menu.
  */
 import { t, tp } from "@/i18n";
+import Fuse from "fuse.js";
+import type { IconName } from "@/ds";
 import type { Guid, NodeChange } from "@/engine/codec";
 
 // ---- Schema shapes (the facade doesn't type them yet) -----------------------------------------------------------
@@ -19,12 +21,14 @@ export interface GuidValue {
   localID: number;
 }
 
-export type ComponentPropType = "BOOL" | "TEXT" | "INSTANCE_SWAP" | "VARIANT" | "SLOT";
+export type ComponentPropType = "BOOL" | "TEXT" | "INSTANCE_SWAP" | "VARIANT" | "NUMBER" | "SLOT";
 
 export interface ComponentPropValue {
   boolValue?: boolean;
   textValue?: { characters: string };
   guidValue?: GuidValue;
+  /** NUMBER (2 decimals) */
+  floatValue?: number;
 }
 
 export interface InstanceSwapPreferredValue {
@@ -267,13 +271,24 @@ export function renameInVariantName(name: string, property: string, next: { prop
 
 // ---- Properties -------------------------------------------------------------------------------------------------
 
-export const PROPERTY_TYPE_LABEL: Record<ComponentPropType, string> = { BOOL: "Boolean", TEXT: "Text", INSTANCE_SWAP: "Instance swap", VARIANT: "Variant", SLOT: "Slot" };
+export const PROPERTY_TYPE_LABEL: Record<ComponentPropType, string> = { BOOL: "Boolean", TEXT: "Text", INSTANCE_SWAP: "Instance swap", VARIANT: "Variant", NUMBER: "Number", SLOT: "Slot" };
+
+/** Each property type's glyph (the Properties rows, the Create property menu, Reset ▸ a property's value). */
+export const PROPERTY_ICON: Record<ComponentPropType, IconName> = {
+  VARIANT: "16.variant",
+  BOOL: "16.visible",
+  TEXT: "16.text",
+  INSTANCE_SWAP: "16.instance",
+  NUMBER: "16.number",
+  SLOT: "16.slot",
+};
 
 /** The binding each property type makes on a layer (docs/schema.md §5.5). */
 export const BINDING_OF: Record<Exclude<ComponentPropType, "VARIANT">, { field: BindableField; resolved: string }> = {
   BOOL: { field: "VISIBLE", resolved: "BOOLEAN" },
   TEXT: { field: "TEXT_DATA", resolved: "TEXT_DATA" },
   INSTANCE_SWAP: { field: "OVERRIDDEN_SYMBOL_ID", resolved: "SYMBOL_ID" },
+  NUMBER: { field: "TEXT_DATA", resolved: "FLOAT" },
   SLOT: { field: "SLOT_CONTENT_ID", resolved: "SLOT_CONTENT_ID" },
 };
 
@@ -300,7 +315,7 @@ export function sortedDefs(defs: readonly ComponentPropDef[]): ComponentPropDef[
  */
 export function propertyBaseName(type: ComponentPropType, layerName?: string): string {
   if (type === "BOOL" && layerName?.trim()) return layerName;
-  return type === "BOOL" ? "Boolean" : type === "TEXT" ? "Text" : type === "INSTANCE_SWAP" ? "Instance" : type === "SLOT" ? "Slot" : "Property";
+  return type === "BOOL" ? "Boolean" : type === "TEXT" ? "Text" : type === "NUMBER" ? "Number" : type === "INSTANCE_SWAP" ? "Instance" : type === "SLOT" ? "Slot" : "Property";
 }
 
 /** Figma's default name for a new property: `base` when neither it nor any "base N" is taken, else "base " + (max N, 1) + 1 — Slot, Slot 2, Slot 3. */
@@ -319,11 +334,30 @@ export function newPropertyName(defs: readonly ComponentPropDef[], base = "Prope
   return any ? `${prefix}${top + 1}` : base;
 }
 
-/** A new definition of `type` with Figma's defaults (Boolean true, Text "Text", the given component, Variant "Default"). */
+/** A new definition of `type` with Figma's defaults (Boolean true, Text "Text", Number 0, the given component, Variant "Default"). */
 export function newPropertyDef(type: ComponentPropType, id: GuidValue, name: string, value?: ComponentPropValue): ComponentPropDef {
   const initialValue: ComponentPropValue =
-    value ?? (type === "BOOL" ? { boolValue: true } : type === "TEXT" ? { textValue: { characters: "Text" } } : type === "VARIANT" ? { textValue: { characters: "Default" } } : {});
+    value ??
+    (type === "BOOL" ? { boolValue: true } : type === "TEXT" ? { textValue: { characters: "Text" } } : type === "NUMBER" ? { floatValue: 0 } : type === "VARIANT" ? { textValue: { characters: "Default" } } : {});
   return { id, name, type, initialValue };
+}
+
+/**
+ * A NUMBER property's typed value (atlas 10 §5.2, the engine's propNumber): an optional sign and digits with an
+ * optional decimal part, or a decimal starting with "." — not blank — rounded to 2 decimals; null for anything else.
+ */
+export function parsePropertyNumber(text: string): number | null {
+  const s = text.trim();
+  if (!/^[+-]?(\d+(\.\d*)?|\.\d+)$/.test(s)) return null;
+  const x = Number(s);
+  return Number.isFinite(x) ? Math.round(x * 100) / 100 : null;
+}
+
+/** A NUMBER as Figma shows it: 2 decimals at most, no trailing zeros or "." ("1.50" → "1.5"; NaN → "0"). */
+export function formatPropertyNumber(v: number | undefined): string {
+  if (v === undefined || !Number.isFinite(v)) return "0";
+  const s = (Math.round(v * 100) / 100).toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+  return s === "-0" ? "0" : s;
 }
 
 /** The API name (Figma's `Name#id` for non-variant properties). */
@@ -367,6 +401,7 @@ export function canBind(def: Pick<ComponentPropDef, "type">, layerType: string):
     case "BOOL":
       return true;
     case "TEXT":
+    case "NUMBER":
       return layerType === "TEXT";
     case "INSTANCE_SWAP":
       return layerType === "INSTANCE";
@@ -461,6 +496,25 @@ const RESET_KINDS: { kind: ResetKind; label: string; fields: string[] }[] = [
   { kind: "VARIABLE_MODES", label: "Variable modes", fields: ["variableModeBySetMap"] },
   { kind: "PROPERTY_ASSIGNMENTS", label: "Properties", fields: ["componentPropAssignments"] },
 ];
+
+/**
+ * The kinds Figma's "Reset specific changes" lists (figma_app's fixed order of twelve; atlas 10 §6.2), each only when
+ * the instance has it; one "Reset {property}" per changed property value follows them. A nested swap is reset with its
+ * instance's Reset, variable modes with their own action ("Reset variable modes").
+ */
+export const RESET_MENU_KINDS: ReadonlySet<ResetKind> = new Set<ResetKind>(["EXPORTS", "EFFECTS", "LAYER", "VISIBLE", "NAME", "FILL", "STROKE", "TEXT", "TEXT_STYLE", "SIZE", "PROTOTYPE_INTERACTIONS", "OVERLAY"]);
+
+/**
+ * Figma's variant errors (StateGroupError, atlas 10 §4.2), worst last: a set past 1000 variants (a warning only), a
+ * variant with no value for one of the set's Variant properties, two variants with the same values, a variant name
+ * that isn't "Property=Value, …".
+ */
+export type VariantError = "NONE" | "TOO_MANY_STATES_ERROR" | "MISSING_PROPERTIES_ERROR" | "DUPLICATE_STATE_ERROR" | "PARSE_ERROR";
+const VARIANT_ERROR_ORDER: readonly VariantError[] = ["NONE", "TOO_MANY_STATES_ERROR", "MISSING_PROPERTIES_ERROR", "DUPLICATE_STATE_ERROR", "PARSE_ERROR"];
+
+/** The worst of several variants' errors (Figma takes the highest). */
+export const worstVariantError = (errors: readonly VariantError[]): VariantError =>
+  errors.reduce<VariantError>((worst, e) => (VARIANT_ERROR_ORDER.indexOf(e) > VARIANT_ERROR_ORDER.indexOf(worst) ? e : worst), "NONE");
 
 /**
  * Figma's publish errors for a component or a set's properties (componentPropDefError; round 17 B): a property no
@@ -586,14 +640,69 @@ export function groupAssets(assets: readonly ComponentAsset[], pageOrder: readon
   return [...pages.values()].sort((a, b) => pageOrder.indexOf(a.page) - pageOrder.indexOf(b.page));
 }
 
-/** Assets matching a search (name, page, frame, description; every word must match). */
-export function searchAssets(assets: readonly ComponentAsset[], query: string): ComponentAsset[] {
-  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  if (!words.length) return [...assets];
-  return assets.filter((a) => {
-    const hay = `${a.name} ${a.pageName} ${a.frameName ?? ""} ${a.description ?? ""}`.toLowerCase();
-    return words.every((w) => hay.includes(w));
-  });
+/**
+ * Figma's tile layouts of a library grid (atlas 10 §8.2): WIDE when every item is at least 3× wider than tall, SMALL
+ * when every item fits in 64 × 64 (the Assets panel's component grid passes `small: false`), else NORMAL — an item
+ * without a size forces NORMAL.
+ */
+export type TileLayout = "WIDE" | "SMALL" | "NORMAL";
+export function tileLayoutOf(sizes: readonly ({ x: number; y: number } | null | undefined)[], small = true): TileLayout {
+  if (!sizes.length || sizes.some((s) => !s || !(s.x > 0) || !(s.y > 0))) return "NORMAL";
+  const known = sizes as readonly { x: number; y: number }[];
+  if (known.every((s) => s.x >= 3 * s.y)) return "WIDE";
+  if (small && known.every((s) => s.x <= 64 && s.y <= 64)) return "SMALL";
+  return "NORMAL";
+}
+
+/** Each layout's columns, tile aspect (w / h) and its max height, which is its min size too (WIDE: the whole row). */
+const TILE_SPECS: Record<TileLayout, { min: number; max: number; aspect: number; size: number | null }> = {
+  NORMAL: { min: 2, max: 3, aspect: 1, size: 115 },
+  SMALL: { min: 3, max: 5, aspect: 1, size: 72 },
+  WIDE: { min: 1, max: 1, aspect: 3.25, size: null },
+};
+/** The grid's gutters (16 a side) and gap (16). */
+const TILE_GUTTER = 16;
+const TILE_GAP = 16;
+
+/**
+ * Figma's grid math for a sidebar `width` px wide: the room is the width less two gutters; columns =
+ * clamp(⌊(room + gap) / (min size + gap)⌋, min, max); a tile ⌊(room − (columns − 1)·gap) / columns⌋ wide and
+ * min(max height, ⌊width / aspect⌋) tall. At Figma's 240 px: NORMAL two 96 × 96 tiles, SMALL three 58s, WIDE one 208 × 64;
+ * NORMAL reaches three columns at 409 px.
+ */
+export function tileGrid(layout: TileLayout, width: number): { columns: number; width: number; height: number } {
+  const spec = TILE_SPECS[layout];
+  const room = Math.max(0, width - 2 * TILE_GUTTER);
+  const min = spec.size ?? room;
+  const columns = Math.min(spec.max, Math.max(spec.min, Math.floor((room + TILE_GAP) / (min + TILE_GAP))));
+  const w = Math.floor((room - (columns - 1) * TILE_GAP) / columns);
+  const h = Math.floor(w / spec.aspect);
+  return { columns, width: w, height: spec.size === null ? h : Math.min(spec.size, h) };
+}
+
+/**
+ * Figma's asset search (atlas 10 §8.3; its Assets panel runs Fuse.js 3 with these options): the name weighs 0.6, the
+ * frame it sits in and its page 0.1 each, the description 0.05; a fuzzy match within threshold 0.3, word by word
+ * (`tokenize`), best first. An empty (or blank) query lists every asset as it was.
+ */
+const ASSET_SEARCH: Fuse.FuseOptions<ComponentAsset> = {
+  keys: [
+    { name: "name", weight: 0.6 },
+    { name: "containingFrame.name", weight: 0.1 },
+    { name: "containingFrame.pageName", weight: 0.1 },
+    { name: "description", weight: 0.05 },
+  ],
+  threshold: 0.3,
+  tokenize: true,
+  shouldSort: true,
+  // Figma's keys name a library asset's fields; ours sit on the asset itself.
+  getFn: (a: ComponentAsset, path: string) => (path === "containingFrame.name" ? a.frameName : path === "containingFrame.pageName" ? a.pageName : path === "description" ? a.description : a.name) ?? "",
+};
+
+export function searchAssets<T extends ComponentAsset>(assets: readonly T[], query: string): T[] {
+  const q = query.trim();
+  if (!q) return [...assets];
+  return new Fuse<T, Fuse.FuseOptions<T>>(assets, ASSET_SEARCH as Fuse.FuseOptions<T>).search(q) as T[];
 }
 
 /**

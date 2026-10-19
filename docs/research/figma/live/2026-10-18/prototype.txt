@@ -1,0 +1,37 @@
+State: Figma web (UI3, dark), 1440x900. Two 200x300 frames "Proto A" / "Proto B"; a 120x40 rectangle "Button" in Proto A with On click → Navigate to Proto B, Smart animate, Ease out, 300 ms. Button selected, right panel on the Prototype tab. Screenshot: prototype-panel-interaction.png (panel + interaction popover, 800-px frame scale).
+
+RIGHT PANEL @1199,0 241x900 (header identical to the Design tab)
+  [Multiplayer tools] 9,12 50x24 r=50px (24 avatar + 28x28 chevron disc bg #383838 border 2px #2C2C2C)
+  [Prototype view] group 125,8 49x32: [Present] 32x32 r=5px 0 0 5px + chevron 16x32 r=0 5px 5px 0 · "Share" 178,8 55x32 bg #0C8CE9 r=5px
+  tabs y 48: "Design" 53x24 (11px/550 #ffffffb2) · "Prototype" 66,48 69x24 bg #383838 r=5px SELECTED (11px/550 white) · zoom 173,48 60x24 "100%" 11px/400 + 16x16 chevron
+  content from y 81:
+  "Send to Figma Make" full-width text button (centred label 11px/450) under the tabs, then a divider
+  "Interactions" 17,152 11px/550 white · [Add action] 24x24 at 209,146
+    interaction row 17,181 184x26 r=5px border 1px #444444: trigger "Click" at +8 11px/400 · arrow icon 24x24 · destination "Proto B" at +107 11px/400 · [Remove click interaction] 24x24 (minus) at 209,182 outside the row
+    while its popover is open the row is highlighted (bg #383838 in the screenshot)
+  "Scroll behavior" 17,237 11px/550 · "Position" 17,273 11px/450 #ffffffb2 · combobox 84,267 141x24 r=5px border 1px #444 "Scroll with parent" 11px/450 + chevron
+  "Show prototype settings" centred text button 11px/450 (y 330)
+  tip cards: "Removing a connection" 17,379 11px/550 + [Close] at 205,373; illustration 20x16 at x 17 + text at x 49 173 wide 11px/450 "To delete a connection, click and drag on either end."
+             "Running your prototype" 17,475 + [Close]; play icon + text "Use the play button in the toolbar to play your prototype. If there are no connections, the play button can be used to play a presentation of your frames."
+
+INTERACTION POPOVER @960,178 242x437 (opens left of the panel, top aligned with the row)
+  bg #2C2C2C r=13px shadow #00000073 0 10px 24px 0, #00000059 0 3px 5px 0, #ffffff14 0 .5px 0 0 inset, #ffffff59 0 0 .5px 0 inset
+  header: "Interaction" 24,14 11px/550 white (draggable title) · [Create action] 24x24 (+) at 186,8 · [Close] 24x24 at 210,8
+  label column x 16, 11px/450 #ffffffb2; controls at x 89, 137x24 r=5px border 1px #444 (combobox bg #2C2C2C, icon 24x24 at the left, text at x 122, chevron at the right):
+    Trigger y 52: "On click" (tap icon) — then a divider
+    Action y 101: "Navigate to" (arrow icon) · Destination y 133: "Proto B" (text at x 98, no icon) — then a divider
+    Animation y 182: "Smart animate" · Easing y 214: button "Ease out" with the curve icon (24x24 polyline) · Duration y 246: field 137x24 bg #383838 r=5px, stopwatch icon + "300ms"
+    preview tile 15,280 212x96 bg #383838 r=5px: a 54x60 white-outlined phone (r=2px, 1px #fff) holding three 42-wide bars (12/10/10 high), animating the transition
+  "State" disclosure 16,407 11px/550 #ffffffb2 (chevron 16x16) — collapsed; inside: "Reset scroll position" checkbox and a Learn more (i) icon
+  row rhythm: 32 px between rows of a group, 49 px across a divider
+
+ICONS
+Present (play outline): M6 5.903C6 4.43 7.604 3.517 8.87 4.269l10.15 6.028c1.307.776 1.305 2.669-.003 3.442l-10.15 5.995c-1.228.724-2.768-.11-2.863-1.5L6 18.098zm1 12.195a.9.9 0 0 0 1.357.774l10.152-5.995a1 1 0 0 0 .002-1.72L8.359 5.129A.9.9 0 0 0 7 5.903z
+Navigate arrow: M13.146 7.146a.5.5 0 0 1 .707 0l4 4a.5.5 0 0 1 0 .708l-4 4a.5.5 0 0 1-.707-.708L16.293 12H6.5a.5.5 0 0 1 0-1h9.793l-3.146-3.146a.5.5 0 0 1 0-.708
+Remove (minus): M6 12a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11A.5.5 0 0 1 6 12
+On click (tap): M11.097 12.905c-.444-1.135.678-2.252 1.81-1.807l5.209 2.046.11.048c1.077.525 1.018 2.102-.095 2.544l-.115.041-1.712.526-.526 1.712c-.389 1.262-2.15 1.33-2.633.1l-2.047-5.208zm-1.27 3.034c.102-.246.393-.346.64-.244.245.102.386.38.284.626l-.777 1.875a.5.5 0 0 1-.924-.383zm2.715-3.91a.396.396 0 0 0-.513.512l2.047 5.208c.128.327.574.33.72.035l.026-.063.682-2.218 1.915-.589.303-.093a.396.396 0 0 0 .089-.716l-.06-.03zm-4.864 1.22c.246-.103.524.039.626.284.102.246.003.537-.243.639l-1.875.777a.5.5 0 0 1-.383-.924zM5.533 9.32a.5.5 0 0 1 .653-.27l1.875.777c.246.102.345.393.243.639-.102.245-.38.387-.626.285l-1.875-.777a.5.5 0 0 1-.27-.654m12.28-.27a.5.5 0 0 1 .384.924l-1.875.777c-.246.102-.524-.04-.626-.285-.102-.246-.003-.537.243-.639zm-8.49-3.518a.5.5 0 0 1 .653.27l.776 1.876c.102.246-.04.524-.285.626s-.537.002-.639-.243L9.05 6.186a.5.5 0 0 1 .272-.654m4.704.27a.5.5 0 0 1 .924.384l-.778 1.875c-.102.245-.393.345-.639.243-.245-.102-.386-.38-.285-.626z
+Ease out curve: stroke var(--color-icon), no fill — a polyline sampled from cubic-bezier(0,0,0.58,1) between (6.5,17.5) and (17.5,6.5) (Figma samples 33 points; draw it as that bezier)
+Duration (stopwatch): M12 5a.5.5 0 0 0 0 1 6 6 0 1 1-6 6 .5.5 0 0 0-1 0 7 7 0 1 0 7-7M8.3 6.918A1 1 0 0 0 6.919 8.3l3.074 4.75a2.213 2.213 0 1 0 3.06-3.059zm4.208 3.914L9.806 9.083 7.757 7.757l1.326 2.05 1.749 2.701a1.213 1.213 0 1 0 1.676-1.676
+Tip "Removing a connection" (20x16): M9.5 1H3V0h7.5v5.708C11.383 6.094 12 6.975 12 8c0 1.025-.617 1.906-1.5 2.292V16H3v-1h6.5v-4.5C8.12 10.5 7 9.38 7 8c0-1.38 1.12-2.5 2.5-2.5zm7 7.707 2.646 2.647.708-.708L17.207 8l2.647-2.646-.708-.708L16.5 7.293l-2.646-2.647-.708.708L15.793 8l-2.647 2.646.708.708zm-7 .793c.828 0 1.5-.672 1.5-1.5 0-.828-.672-1.5-1.5-1.5C8.672 6.5 8 7.172 8 8c0 .828.672 1.5 1.5 1.5
+Tip "Running your prototype" (14x12): m4 .098.765.478 8 5 .678.424-.678.424-8 5-.765.478zm1 1.804v8.196L11.557 6z
+Learn more (16x16): M8 2a6 6 0 1 1 0 12A6 6 0 0 1 8 2m0 1a5 5 0 1 0 0 10A5 5 0 0 0 8 3m0 4a.5.5 0 0 1 .5.5v3a.5.5 0 0 1-1 0v-3A.5.5 0 0 1 8 7m0-2.25a.75.75 0 1 1 0 1.5.75.75 0 0 1 0-1.5

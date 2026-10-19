@@ -11,44 +11,50 @@ import { BUILT_BLOCKS, buildDraft, onColor } from "../ai/draft/build";
 
 let next = 1;
 function L(type: string, name: string, o: Partial<Layer> = {}, children: Layer[] = []): Layer {
-  return { id: `1:${next++}`, type, name, hidden: false, locked: false, width: 100, height: 40, imageFill: false, inInstance: false, top: null, path: "", children, ...o };
+  return { id: `1:${next++}`, type, name, hidden: false, transparent: false, locked: false, width: 100, height: 40, imageFill: false, inInstance: false, top: null, path: "", children, ...o };
 }
 
 describe("Rename layers' rules", () => {
-  it("default names by kind", () => {
+  it("default names by kind: Figma's base and a number (atlas 18 §4.1)", () => {
     expect(hasDefaultName(L("FRAME", "Frame 12"))).toBe(true);
-    expect(hasDefaultName(L("FRAME", "Frame"))).toBe(true);
+    expect(hasDefaultName(L("FRAME", "frame 3 (2)"))).toBe(true);
+    expect(hasDefaultName(L("FRAME", "Group 4"))).toBe(true);
+    expect(hasDefaultName(L("FRAME", "Frame"))).toBe(false);
     expect(hasDefaultName(L("FRAME", "Header"))).toBe(false);
+    expect(hasDefaultName(L("FRAME", "Frame 1 copy"))).toBe(false);
     expect(hasDefaultName(L("GROUP", "Group 3"))).toBe(true);
     expect(hasDefaultName(L("RECTANGLE", "Image 2"))).toBe(true);
-    expect(hasDefaultName(L("TEXT", "Welcome back", { text: "Welcome back" }))).toBe(true);
-    expect(hasDefaultName(L("TEXT", "Title", { text: "Welcome back" }))).toBe(false);
+    expect(hasDefaultName(L("RECTANGLE", "Rectangle 7"))).toBe(true);
+    expect(hasDefaultName(L("TEXT", "Text 2", { text: "Hi" }))).toBe(true);
+    expect(hasDefaultName(L("TEXT", "Welcome back", { text: "Welcome back" }))).toBe(false);
     expect(hasDefaultName(L("TEXT", "Anything", { text: "x", autoRename: true }))).toBe(true);
     expect(hasDefaultName(L("INSTANCE", "Button", { mainName: "Button" }))).toBe(true);
+    expect(hasDefaultName(L("INSTANCE", "Instance 4", { mainName: "Button" }))).toBe(true);
     expect(hasDefaultName(L("INSTANCE", "Submit", { mainName: "Button" }))).toBe(false);
   });
 
-  it("skips renamed, hidden and locked layers (with what is in them), layers inside instances and plain vectors; renames an instance alone", () => {
-    const inner = L("TEXT", "Label", { text: "Label", inInstance: true });
+  it("skips renamed, hidden, transparent and locked layers (with what is in them), layers inside instances and vectors; renames an instance alone", () => {
+    const inner = L("TEXT", "Label", { text: "Label", inInstance: true, autoRename: true });
     const instance = L("INSTANCE", "Button", { mainName: "Button" }, [inner]);
-    const hiddenText = L("TEXT", "Secret", { text: "Secret" });
-    const lockedText = L("TEXT", "Locked", { text: "Locked" });
+    const hiddenText = L("TEXT", "Secret", { text: "Secret", autoRename: true });
+    const lockedText = L("TEXT", "Locked", { text: "Locked", autoRename: true });
     const image = L("RECTANGLE", "Rectangle 2", { imageFill: true });
     const plain = L("RECTANGLE", "Rectangle 3");
+    const faded = L("RECTANGLE", "Rectangle 4", { transparent: true });
     const vector = L("VECTOR", "Vector 1");
     const ellipse = L("ELLIPSE", "Ellipse 1");
-    const renamed = L("FRAME", "Header", {}, [L("TEXT", "Hi", { text: "Hi" })]);
-    const root = L("FRAME", "Frame 1", {}, [instance, L("FRAME", "Frame 2", { hidden: true }, [hiddenText]), L("GROUP", "Group 1", { locked: true }, [lockedText]), image, plain, vector, ellipse, renamed]);
+    const renamed = L("FRAME", "Header", {}, [L("TEXT", "Hi", { text: "Hi", autoRename: true })]);
+    const root = L("FRAME", "Frame 1", {}, [instance, L("FRAME", "Frame 2", { hidden: true }, [hiddenText]), L("GROUP", "Group 1", { locked: true }, [lockedText]), image, plain, faded, vector, ellipse, renamed]);
     const got = renameCandidates([root]).map((l) => l.name);
-    expect(got).toEqual(["Frame 1", "Button", "Rectangle 2", "Hi"]);
-    // Rename anyway: renamed ones too — still not hidden, locked, inside instances or vectors.
-    expect(renameCandidates([root], true).map((l) => l.name)).toEqual(["Frame 1", "Button", "Rectangle 2", "Header", "Hi"]);
+    expect(got).toEqual(["Frame 1", "Button", "Rectangle 2", "Rectangle 3", "Hi"]);
+    // Rename anyway: renamed ones too — still not hidden, transparent, locked, inside instances or vectors.
+    expect(renameCandidates([root], true).map((l) => l.name)).toEqual(["Frame 1", "Button", "Rectangle 2", "Rectangle 3", "Header", "Hi"]);
   });
 
   it("matching layers across top-level frames form one group; top-level frames stay alone", () => {
-    const a1 = L("FRAME", "Frame 3", { top: "A", path: "0" });
-    const b1 = L("FRAME", "Frame 3", { top: "B", path: "0" });
-    const a2 = L("TEXT", "Hi", { top: "A", path: "0/0" });
+    const a1 = L("FRAME", "Frame 3", { top: "A", path: "Frame 3#0" });
+    const b1 = L("FRAME", "Frame 3", { top: "B", path: "Frame 3#0" });
+    const a2 = L("TEXT", "Hi", { top: "A", path: "Frame 3#0/Hi#0" });
     const topA = L("FRAME", "Frame 1", { top: "A", path: "" });
     const topB = L("FRAME", "Frame 2", { top: "B", path: "" });
     expect(matchGroups([topA, a1, a2, topB, b1]).map((g) => g.map((l) => l.id))).toEqual([[topA.id], [a1.id, b1.id], [a2.id], [topB.id]]);

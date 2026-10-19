@@ -61,17 +61,21 @@ export function selectedSides(c: ConstraintType): ConstraintSide[] {
 }
 
 /**
- * A click on one of the widget's lines: that side alone; with ⇧ the opposite
- * edge joins (Left and right) or, when both are on, the clicked one leaves.
+ * A click on one of the widget's lines (Figma's constraint selector, Atlas 09 §7): that side alone. With ⇧ or ⌘ it
+ * toggles: the side already on → Scale; the opposite side on → both (Left and right); both on → the opposite side
+ * alone (the clicked one leaves); else that side. The centre line: Center, a second click Scale.
  */
-export function clickConstraint(current: ConstraintType, side: ConstraintSide, shift: boolean): ConstraintType {
+export function clickConstraint(current: ConstraintType, side: ConstraintSide, toggle: boolean): ConstraintType {
   const c = normalizeConstraint(current);
-  if (side === "center") return "CENTER";
-  if (shift) {
-    if (c === "STRETCH") return side === "min" ? "MAX" : "MIN";
-    if ((c === "MIN" && side === "max") || (c === "MAX" && side === "min")) return "STRETCH";
+  if (side === "center") return c === "CENTER" ? "SCALE" : "CENTER";
+  const own = side === "min" ? "MIN" : "MAX";
+  const opposite = side === "min" ? "MAX" : "MIN";
+  if (toggle) {
+    if (c === own) return "SCALE";
+    if (c === opposite) return "STRETCH";
+    if (c === "STRETCH") return opposite;
   }
-  return side === "min" ? "MIN" : "MAX";
+  return own;
 }
 
 /** The fewest facts that decide whether a layer has constraints. */

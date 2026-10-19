@@ -273,6 +273,41 @@ TEST_CASE("prototype.video: a frame of the video is drawn in place of the poster
   ImageRegistry::get().takeRequests();
 }
 
+TEST_CASE("prototype.video: a GIF fill plays, looping and silent, its frames drawn in place of the cover frame") {
+  auto nodes = videoScreens();
+  Paint gif;
+  gif.type = PaintType::IMAGE;
+  gif.image = ImageHash::fromHex(kPosterHash);
+  json::Value v;
+  REQUIRE(json::parse(std::string("{\"hash\":\"") + kVideoHash + "\"}", v));
+  gif.extra = codec::extraFromJson("Paint", "animatedImage", v);
+  REQUIRE(!gif.extra.empty());
+  CHECK(paintGifHash(gif).hex() == kVideoHash);
+  CHECK(!paintVideoHash(gif).present);
+  const Guid GIF{1, 70};
+  NodeChange g = make(GIF, NodeType::RECTANGLE, A, "%", {0, 600, 200, 200}, "Sticker");
+  g.props.fillPaints = {gif};
+  nodes.push_back(g);
+  Fixture f(nodes);
+  json::Value m = f.media(GIF);
+  REQUIRE(m.isObject());
+  CHECK(m.get("gif")->boolean);
+  CHECK(m.get("hash")->string == kVideoHash);
+  CHECK(m.get("playing")->boolean);
+  CHECK(m.get("loop")->boolean);
+  CHECK(m.get("muted")->boolean);
+  CHECK(f.media(VID).get("gif") == nullptr);  // a video says nothing of it
+  auto rgba = std::make_shared<std::vector<uint8_t>>(4 * 4 * 4, 120);
+  f.player.mediaFrame(GIF, 0, 4, 4, 0.1, 1, false, 0, rgba);
+  f.player.scene();
+  const NodeProps* drawn = f.player.drawnProps(GIF);
+  REQUIRE(drawn);
+  CHECK(drawn->fillPaints[0].image == f.player.frameHash(GIF));
+  CHECK(drawn->fillPaints[0].type == PaintType::IMAGE);
+  f.player.stop();
+  ImageRegistry::get().takeRequests();
+}
+
 TEST_CASE("prototype.video: a noodle dropped on a video makes a video action; its connection is drawn") {
   Editor ed;
   ed.setSessionID(1);

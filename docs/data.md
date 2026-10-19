@@ -160,6 +160,7 @@ Workspace/
     journal-<baseSeq:012>.log           journal segments (§5.2)
     thumbnail.png                       ≤ 800×600 PNG
     ui.json                             FileUiState                               (local only)
+    undo.kiwi                           the local user's undo history at the last close (local only, §5.7)
     versions/index.json                 VersionRecord[]                           (synced)
     versions/<VersionId>.kiwi           version snapshots (hard links where possible)
     clocks.bin                          per-(guid, field) HLCs; only once sync is on (§12.5)
@@ -383,6 +384,14 @@ export interface FileUiState {
   leftPanelWidth: number; rightPanelWidth: number;
 }
 ```
+
+- **Undo history** (`undo.kiwi`, local only, per device; atlas 22 §2, wave 6): the engine's export of the local user's
+  stacks (Figma's `Message.localUndoStack` 22 / `localRedoStack` 23, each step with its `undoBatchPageIds` 46) — the
+  last 100 steps, 16 MB at most — handed to the source as the editor goes and written by `files.setUndoHistory` when it
+  closes, after its last flush, at the journal seq the document then stands at: `"WUH1" | headSeq (float64 LE) |
+  bytes` (`src/store/local/undoHistory.ts`). An edit open gets it back as `OpenedFile.undoHistory` only while the head
+  is still that seq (another editor, a branch update or a sync moved it: no history); the editor imports it after the
+  load. Never in a snapshot, a version, an export or a sync; a damaged file reads as none.
 
 ### 5.8 Schema evolution
 
@@ -639,6 +648,7 @@ export interface LibraryAsset {
   componentSetKey?: string; collectionKey?: string;
   containingFrame?: { pageName: string; frameName?: string };   // Assets panel grouping: file › page › frame
   thumbnail: { sha1: string; width: number; height: number } | null;   // ≤ 256 px, 2×
+  userFacingVersion?: string;        // Figma's: the version (as text) that published this content, kept while it doesn't change (atlas 12 §6.1; 2026-10-18)
 }
 ```
 
@@ -722,6 +732,8 @@ export interface AssetPayload { key: string; versionHash: string; message: Uint8
   ```
 
   A non-empty diff shows Figma's blue badge on Assets/Libraries and the toast "Library updates available".
+
+  The rule (atlas 12 §6.1, 2026-10-18): an asset used at two or more versions is always outdated; at one, only when both its `versionHash` and its `userFacingVersion` (the store looks it up in the library's history) differ from the latest. The diff also names the publishes the updated content comes from (`publishes`: version, date, description) — the Updates tab's groups.
 - **Review and accept**: the Updates modal lists the changed components, styles and variables, comparing old (rendered from the copy) with new (manifest thumbnail or payload). "Update all" or a per-asset update fetches the payloads, and the engine replaces the copies in **one undo batch**. Accepting one asset also brings the hidden (`dependencyOnly`) assets it uses whose copies are behind, so it shows them as published. Instances re-materialise. Updates never apply automatically.
 
 ### 9.5 Move to this file, Publish as a copy
@@ -1408,6 +1420,7 @@ Files: `src/shared/merge/` — `diff.ts` (the diff, the keyed fields), `merge3.t
 - **Shared mains** (`RemoteBranches`, against §15.7.1's routes; `remote.test.ts` runs it against the real handler): create = `POST /files/:main/branches` through `MultiplayerService.shareTo` (register, images, `PUT …/snapshot?seq=0`, link), then `PUT /branches/:key/base?seq=`; the local copy keeps its own "branch" versions too. Update and merge are one call each with the envelope; the frame comes back to the local copy through its link as a remote change (no `sessionID` sent). Before either, both copies must be live, caught up and with nothing pending (`MultiplayerService.syncState`, added) — else `offline`; the room's 409 `stale` becomes `stale`. `mainStatus` compares room seqs for shared mains.
 - **With 2b**: the editor reaches it as `StoreApi.branches` (`editor/branching/access.ts getBranches` = `store.branches`); `openSide` answers a view `OpenedFile` without derived data, which Compare changes loads with `mergedDocument`; renaming either the branch or its file renames the other. 2b's UI tests still run on their fake (`branching/fake/`), not on this store.
 - **Not built** (round 2d built the images before a shared merge / update, the room's version history and 2b's UI tests on this store — §15.9): images a shared merge's batch uses aren't uploaded to the target room first (the link does that only for its own frames); a shared branch's local GUID block is still reserved locally (the room's `sessionBase` isn't used: the store's sessions for room files are the room's); the room's version history isn't read by `files.listVersions` for shared files; `pasteBranchSourceFileKey`; the case-29 bench on the owner's 32k file (the 20 000-layer test in `npm run check` stands in); a merge of a branch whose main is itself in Trash isn't refused.
+- **As built (2026-10-18, leftovers)**: `BranchService.merge` refuses a main in Trash (`trashed`, "The main file is in Trash. Restore it first.") before it reads the preview, as the server does for shared ones, and a local merge closes the branch's open review (`review.state: "closed"`). Tests: `scenario.ts` (both stores).
 
 ### 15.7 Shared files (rooms) and the server
 
@@ -1514,6 +1527,13 @@ Files: `server/migrations/0011_branches.sql` (the text above, verbatim), `server
 - **Activity** (org files only): `branch_create`, `branch_archive`, `branch_unarchive`, `branch_delete`, `branch_member_add` / `_permission_change` / `_remove`, `repo_merge_to_source` (merge), `repo_merge_from_source` (update), entity `file_repo {id: main key, name: main's name, main_file_key}`, details `{branch_key, branch_name, …}`.
 - **Deleting**: `DELETE /branches/:key` (archived / merged) deletes the branch's room and rows; deleting a main file for good deletes its branches first.
 - Not built: review state `closed` is never set (a merge leaves the last verdict); "Request another review" reuses the open review (verdicts reset, reviewers replaced); folder file counts (`fileCount`) and the room reauth lists still count branch rows; moving main to another folder leaves its branches' rows where they were (access is main's anyway); no thinning or size cap of room history; `fig_file_view` is logged for branch sockets as for files.
+- **As built (2026-10-18, leftovers).** The rows left behind were a data-loss bug, not only bookkeeping: main moved to another folder, then the old folder deleted for good, deleted the live branches with it (`deleteForever` takes every `files` row of the folder). Now:
+  - **A branch's rows follow main** (`branches.ts placeBranchesWith`: org, team and folder copied from main's row): on `POST /files/:key/move`, Admin's Unassigned drafts moved, a file shared outside orgs moved in (`createOrgFile`) and Import shared files (`migrate.ts`, which no longer treats branch rows as files of their own). Their people reconnect with main's (`reauth`), also when main goes to the trash or comes back.
+  - **A branch is never moved or trashed on its own**: `/files/:branch/move` → 400 "a branch moves with its main file", `…/trash|restore` → 400 "archive the branch instead".
+  - **Counts** leave branch rows out: a folder's `fileCount`, Admin › Teams' file count, REST's project file count; Unassigned drafts no longer list a branch whose creator left. The reauth lists keep them on purpose (a branch's access is main's).
+  - **A merge into a main in the trash** → 409 "the main file is in the trash; restore it first" (it was a 403 about editing).
+  - **A merge closes the branch's open review** (`state: "closed"`); a verdict on it is then 409. "Request another review" still reopens an open review (Figma's wording); after a merge there is none.
+  - `fig_file_view` for branch sockets and history thinning stay as they are (Figma's Enterprise history is unlimited). Tests: `server/src/branches.test.ts` "branches follow their main file".
 
 ### 15.8 Test corpus (round 2a: `src/shared/merge/*.test.ts`, `src/store/branches/*.test.ts`)
 
@@ -1654,7 +1674,7 @@ Figma's facts below were read on help.figma.com and developers.figma.com on 2026
 | Update notices | The person's **Inbox** (multiplayer.md §12) carries `{t: "library", libraryKey, version}`; the store turns it into today's `LibraryEvent {type: "published"}`. No bell row: Figma's bell has no library-update kind that we found (unverified), the Libraries button's badge and toast are the notice. |
 | Local libraries | Untouched: §9's registry on disk, `Workspace.defaultLibraries`, `FileMeta.enabledLibraries` of local files. |
 | Local files and org libraries | Figma's rule: org libraries are offered only in files of that org (drafts in the org included). A local file never lists them. Exception (ours): a local file already holding copies of a library whose file moved into an org keeps receiving its updates (§16.9). |
-| Mode cap | The hard 40-mode cap per collection becomes a soft guard of **1,000** modes; extensions are unlimited in number and chain depth ≤ **16** (ours, a guard against cycles and runaway resolution). §16.8. |
+| Mode cap | **Superseded 2026-10-18 (atlas 11 §3.1, read in Figma's build):** Enterprise's per-collection cap is **40** (`{starter:1, pro:10, org:20, enterprise:40}`), not unlimited — a personal app is on that plan; a file bringing more keeps them, the columns past 40 disabled. Extension chains ≤ **10** sets (Figma's wasm). Was: a soft guard of 1,000 modes and chains ≤ 16. §16.8. |
 | Free-plan limits | Every route is ≤ 6 D1 queries (the free plan allows 50 per invocation), bulk writes use one statement over `json_each(?)` (100 bound parameters at most per query), big work runs in the Durable Object (30 s CPU), the Worker stays under 10 ms CPU. |
 
 ### 16.3 Records and the store
@@ -1757,7 +1777,7 @@ Round 5 built extended collections (Extend collection, `VARIABLE_OVERRIDE`, publ
 - **Chains**: an extension may be extended (C extends B extends A [L-api-ext]). Each level is one library; consumers get the whole chain as dependencies. Depth ≤ 16 (ours; the editor refuses "Extend collection" past it with a toast "Can't extend further").
 - **Parent updates** reach the extension's file through §16.7 like any library update. Consumers of the extension see them only after the extension's file accepts them and publishes. That is Figma's chain.
 - **Restrictions checked in round 3 (R18 D-5)**, each a test in 3c: in an extension the Local variables window disables Create variable, Add mode, rename of variables / modes / groups, Edit description, Scoping, Delete variable, Duplicate; values can be edited (blue) and **Reset change** reverts; colour and opacity are one override; "Remove mode" only for a mode whose parent mode is gone; "Import mode" into an extension writes overrides only, never adds a mode; extending is refused on a branch's file when migrating (Figma recommends main; ours: allowed, with no warning — unverified whether Figma blocks it).
-- **Mode cap**: `LIMITS.modes` (editor/model/variables.ts) goes from 40 to a soft guard of **1,000** per collection, with Figma's error wording for the guard ("Limited to 1000 modes only", the Plugin API's form). We are "Enterprise": no plan checks. Figma's Enterprise per-collection number is unverified; its "unlimited" is through extensions, which have no cap in count here. `docs/schema.md` §6.1's "40 modes" line follows.
+- **Mode cap** (superseded 2026-10-18: back to Figma's Enterprise **40**, extension chains ≤ 10 sets — atlas 11 §3.1 read the plan table in Figma's build; the paragraph below is the old decision): `LIMITS.modes` (editor/model/variables.ts) goes from 40 to a soft guard of **1,000** per collection, with Figma's error wording for the guard ("Limited to 1000 modes only", the Plugin API's form). We are "Enterprise": no plan checks. Figma's Enterprise per-collection number is unverified; its "unlimited" is through extensions, which have no cap in count here. `docs/schema.md` §6.1's "40 modes" line follows.
 - **Accepting a parent's update** in a consumer removes nothing here: our explicit modes point at mode ids that survive. Figma's "previously set variable modes are removed" applies to migrating brand modes into extensions (the modes were deleted). Ours behaves the same in that case: an explicit mode whose mode no longer exists falls back to Auto.
 
 ### 16.9 Local files, local libraries, and files moving into an org
@@ -2311,6 +2331,7 @@ export interface LibraryAnalyticsRepository {
 - **Access as built**: rule 1 resolves the file with `viaLink: false` (the org link doesn't count; members get org-scope libraries by rule 3). In listings rule 1 is tried only when rules 2 and 3 don't apply, so `via` may leave out "file" there (`GET /libraries/:key` lists every rule). The edit checks (publish, uploads, subscriptions) resolve with `viaLink: true` like the files routes. `GET /orgs/:org/libraries` lists published libraries the caller can use or reach as an admin, approved ones first; `OrgLibraryInfo.settings` holds the existing rows the caller may see (org admins all; others the org row, their workspaces' and teams' rows), not placeholders.
 - **Settings**: workspace admins write `approved` on their workspace row freely; an org approval still wins in resolution. Default modes need a published collection with ≥ 2 modes and the mode in it (400). An org default on a team-scope library sets the link to "Anyone at ‹org›: can view" first (logged). `library_default_override` goes to org admins (workspace override) or org admins + the team's workspace admins (team override), only when the library is approved above; stored with `file_name` = the library's name and `text` = the workspace's or team's name.
 - **Status**: `libraryFileStatus` runs on `POST /files/:key/trash|restore`, on `DELETE /files/:key` and inside `org/projects.ts deleteFileForever` (so a folder or team deleted for good takes its libraries too). Restore always goes back to `published` (§16.6). **Not built**: a library whose *folder* (not the file) is trashed stays listed until the file itself is trashed or deleted.
+- **As built (2026-10-18, leftovers)**: `libraries/db.ts libraryContainerStatus(deps, fileKeys)` — run on a folder's trash / restore (its subtree's files), a team's delete / restore, and a library file's restore — sets each library `trashed` while its file, any folder above it or its team is in the trash (`IN_TRASH`, the same chain `Access` reads) and `published` again once none is; the audience hears `{t: "library", status}` as for a trashed file. A library file trashed on its own stays trashed when its folder comes back, and one restored inside a folder still in the trash stays off the lists. Test: `libraries.test.ts` "a library in a folder or team gone to the trash …".
 - **Notices**: §16.7's recipients plus the members of the file's own folder; `deps.waitUntil` (new optional `Deps` field, the Worker's `ctx.waitUntil`) takes recipients past the first 500. Settings / scope changes send `{t: "org", what: "libraries", orgId}` (`OrgNotice.what` gained `"libraries"`).
 - **Frozen types, missing**: `ActivityAction` (`src/shared/org/types.ts`) lists only `org_library_approve`; the server logs `org_library_unapprove`, `org_library_setting_change`, `workspace_library_approve` / `_unapprove` / `_setting_change` cast. `NotificationKind` lacks `library_default_override` (kept server-side, as the other org kinds).
 - **Tests** (`npx vitest run server/src`): `libraries/libraries.test.ts` 12 cases on `testing/orgWorld.ts` (an org written into D1, the real handler, `testing/memoryLibraries.ts`).

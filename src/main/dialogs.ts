@@ -63,6 +63,21 @@ export async function askUnresponsive(win: BaseWindow | null, title: string, sig
   return answer === "Reload Tab" ? "reload" : "wait";
 }
 
+/**
+ * Help › Troubleshooting's switches that take a relaunch (atlas 21 §7: Figma's "Restart required", Restart / Cancel):
+ * true to relaunch now. Figma's box has only its title in the build; the detail is ours.
+ */
+export async function askRestartRequired(win: BaseWindow | null): Promise<boolean> {
+  const answer = await ask(win, {
+    type: "info",
+    message: t("Restart required"),
+    detail: t("The change takes effect when the app restarts. Your files are saved first."),
+    buttons: ["Restart", "Cancel"],
+    defaultId: 0,
+    cancelId: 1,
+  });
+  return answer === "Restart";
+}
 
 // ── Files that save as they go (docs/desktop.md §6, §9) ──────────────────────
 

@@ -1,0 +1,354 @@
+{
+ "shortcuts-live-essential": {
+  "ref": [
+   2000,
+   392
+  ],
+  "ours": [
+   2000,
+   392
+  ],
+  "changed": 17.94
+ },
+ "shortcuts-live-tools": {
+  "ref": [
+   2000,
+   392
+  ],
+  "ours": [
+   2000,
+   392
+  ],
+  "changed": 16.67
+ },
+ "shortcuts-live-view": {
+  "ref": [
+   2000,
+   392
+  ],
+  "ours": [
+   2000,
+   392
+  ],
+  "changed": 17.51
+ },
+ "shortcuts-live-zoom": {
+  "ref": [
+   2000,
+   392
+  ],
+  "ours": [
+   2000,
+   392
+  ],
+  "changed": 16.16
+ },
+ "shortcuts-live-text": {
+  "ref": [
+   2000,
+   392
+  ],
+  "ours": [
+   2000,
+   392
+  ],
+  "changed": 17.29
+ },
+ "shortcuts-live-shape": {
+  "ref": [
+   2000,
+   392
+  ],
+  "ours": [
+   2000,
+   392
+  ],
+  "changed": 16.91
+ },
+ "shortcuts-live-selection": {
+  "ref": [
+   2000,
+   392
+  ],
+  "ours": [
+   2000,
+   392
+  ],
+  "changed": 19.01
+ },
+ "shortcuts-live-cursor": {
+  "ref": [
+   2000,
+   392
+  ],
+  "ours": [
+   2000,
+   392
+  ],
+  "changed": 16.75
+ },
+ "shortcuts-live-edit": {
+  "ref": [
+   2000,
+   392
+  ],
+  "ours": [
+   2000,
+   392
+  ],
+  "changed": 19.14
+ },
+ "shortcuts-live-transform": {
+  "ref": [
+   2000,
+   392
+  ],
+  "ours": [
+   2000,
+   392
+  ],
+  "changed": 16.01
+ },
+ "shortcuts-live-arrange": {
+  "ref": [
+   2000,
+   392
+  ],
+  "ours": [
+   2000,
+   392
+  ],
+  "changed": 16.61
+ },
+ "shortcuts-live-layout": {
+  "ref": [
+   2000,
+   392
+  ],
+  "ours": [
+   2000,
+   392
+  ],
+  "changed": 17.26
+ },
+ "shortcuts-live-layout-select": {
+  "ref": [
+   2000,
+   808
+  ],
+  "ours": [
+   2000,
+   807
+  ],
+  "changed": 42.43
+ },
+ "shortcuts-live-window-tools": {
+  "ref": [
+   2000,
+   1299
+  ],
+  "ours": [
+   2000,
+   1299
+  ],
+  "changed": 44.12
+ },
+ "shortcuts-live-window-text": {
+  "ref": [
+   2000,
+   1299
+  ],
+  "ours": [
+   2000,
+   1299
+  ],
+  "changed": 44.1
+ },
+ "shortcuts-ours-essential-dark": {
+  "ref": [
+   1512,
+   982
+  ],
+  "ours": [
+   1512,
+   982
+  ],
+  "changed": 1.2
+ },
+ "shortcuts-ours-essential-light": {
+  "ref": [
+   1512,
+   982
+  ],
+  "ours": [
+   1512,
+   982
+  ],
+  "changed": 1.3
+ },
+ "shortcuts-ours-tools-dark": {
+  "ref": [
+   1512,
+   982
+  ],
+  "ours": [
+   1512,
+   982
+  ],
+  "changed": 0.92
+ },
+ "shortcuts-ours-text-dark": {
+  "ref": [
+   1512,
+   982
+  ],
+  "ours": [
+   1512,
+   982
+  ],
+  "changed": 1.16
+ },
+ "shortcuts-ours-selection-dark": {
+  "ref": [
+   1512,
+   982
+  ],
+  "ours": [
+   1512,
+   982
+  ],
+  "changed": 1.17
+ },
+ "shortcuts-ours-arrange-dark": {
+  "ref": [
+   1512,
+   982
+  ],
+  "ours": [
+   1512,
+   982
+  ],
+  "changed": 1.08
+ },
+ "shortcuts-ours-layout-dark": {
+  "ref": [
+   1512,
+   982
+  ],
+  "ours": [
+   1512,
+   982
+  ],
+  "changed": 0.8
+ },
+ "shortcuts-ours-used-dark": {
+  "ref": [
+   1512,
+   982
+  ],
+  "ours": [
+   1512,
+   982
+  ],
+  "changed": 1.04
+ },
+ "shortcuts-ours-recording-dark": {
+  "ref": [
+   1512,
+   982
+  ],
+  "ours": [
+   1512,
+   982
+  ],
+  "changed": 1.21
+ },
+ "shortcuts-ours-conflict-light": {
+  "ref": [
+   1512,
+   982
+  ],
+  "ours": [
+   1512,
+   982
+  ],
+  "changed": 1.22
+ },
+ "shortcuts-ours-layout-de-dark": {
+  "ref": [
+   1512,
+   982
+  ],
+  "ours": [
+   1512,
+   982
+  ],
+  "changed": 1.17
+ },
+ "shortcuts-ours-layout-tr-dark": {
+  "ref": [
+   1512,
+   982
+  ],
+  "ours": [
+   1512,
+   982
+  ],
+  "changed": 0.44
+ },
+ "chrome15-cursors-dark": {
+  "ref": [
+   960,
+   384
+  ],
+  "ours": [
+   960,
+   384
+  ],
+  "changed": 4.58
+ },
+ "chrome15-eyedropper-dark": {
+  "ref": [
+   340,
+   130
+  ],
+  "ours": [
+   340,
+   130
+  ],
+  "changed": 0
+ },
+ "chrome15-eyedropper-light": {
+  "ref": [
+   340,
+   130
+  ],
+  "ours": [
+   340,
+   130
+  ],
+  "changed": 0
+ },
+ "chrome15-rotated-labels-dark": {
+  "ref": [
+   641,
+   658
+  ],
+  "ours": [
+   641,
+   658
+  ],
+  "changed": 0.01
+ },
+ "chrome15-rotated-labels-light": {
+  "ref": [
+   641,
+   658
+  ],
+  "ours": [
+   641,
+   658
+  ],
+  "changed": 0.01
+ }
+}

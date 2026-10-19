@@ -237,8 +237,10 @@ export interface PageRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "onSe
   name: string;
   current: boolean;
   renaming?: boolean;
-  /** An empty page named with a leading dash: drawn as a 1px line, not a page to go to */
+  /** An empty page named like a divider ("---"): drawn as a 1px line on a 16 pitch, not a page to go to */
   divider?: boolean;
+  /** A titled divider's title ("--- Components" → "Components"): the line after it on a page row's pitch; its rename field holds the title */
+  dividerTitle?: string;
   onRename?: (name: string | null) => void;
   onSelect?: () => void;
   trailing?: ReactNode;
@@ -249,7 +251,7 @@ export interface PageRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "onSe
  * A page (contract §4.18; live left/pages-add-page-rename.txt): a 224 × 24 button, 8 in, 8 apart; the current one
  * bg-secondary and its name 550; double click renames.
  */
-export function PageRow({ id, name, current, renaming, divider, onRename, onSelect, trailing, hovered, className, ...rest }: PageRowProps) {
+export function PageRow({ id, name, current, renaming, divider, dividerTitle, onRename, onSelect, trailing, hovered, className, ...rest }: PageRowProps) {
   useT();
   return (
     <div
@@ -258,7 +260,7 @@ export function PageRow({ id, name, current, renaming, divider, onRename, onSele
       data-id={id}
       aria-current={current ? "page" : undefined}
       data-hover={hovered || undefined}
-      data-divider={divider && !renaming ? "" : undefined}
+      data-divider={divider && !renaming ? (dividerTitle ? "titled" : "") : undefined}
       className={cx(styles.page, className)}
       onClick={divider ? undefined : onSelect}
       onKeyDown={(e) => {
@@ -271,9 +273,12 @@ export function PageRow({ id, name, current, renaming, divider, onRename, onSele
       {...rest}
     >
       {divider && !renaming ? (
-        <span className={styles.divider} aria-label={name} />
+        <>
+          {dividerTitle && <span className={styles.dividerTitle}>{dividerTitle}</span>}
+          <span className={styles.divider} aria-label={name} />
+        </>
       ) : renaming ? (
-        <RenameField className={styles.rename} label={t("Page name")} value={name} onDone={(n) => onRename?.(n)} />
+        <RenameField className={styles.rename} label={t("Page name")} value={divider ? (dividerTitle ?? "") : name} onDone={(n) => onRename?.(n)} />
       ) : (
         <span className={styles.name}>{name}</span>
       )}

@@ -1,0 +1,23 @@
+State: Figma web (UI3, dark), 1440x900. A Rectangle selected. The panel header shows, right of "Create component": a split control "Boolean operations" (group 41x24): [Union] button 24x24 r=5px 0 0 5px + chevron button [Boolean operations] 16x24 r=0 5px 5px 0; then [Edit object] as its own header button. The chevron was clicked.
+(The owner's desktop capture figma-boolean-menu.png shows the same items in the header's ⋯ menu with "Edit object" under a separator — that is the narrow-header variant.)
+
+MENU @1253,129 151x120
+row height 24, highlighted row 8,0 135x24 bg=rgb(12, 140, 233) #0C8CE9 r=5px
+icon 24x24 at x=16, label at x=44 11px/450 white, shortcut right-aligned (ends at x≈135) 11px/450 rgba(255,255,255,0.698) (0.8 on the highlighted row)
+Union ⌥⇧U · Subtract ⌥⇧S · Intersect ⌥⇧I · Exclude ⌥⇧E · Flatten ⌥⇧F
+
+ICONS (24x24; var(--color-icon) = the icon colour, var(--color-icon-tertiary) = the dimmed fill):
+Union:
+<svg width="24" height="24" fill="none" viewBox="0 0 24 24"><path fill="var(--color-icon-tertiary)" fill-rule="evenodd" clip-rule="evenodd" d="M14 7H7v7h3v3h7v-7h-3z"/><mask id="bool-union-m" fill="#fff"><path fill-rule="evenodd" clip-rule="evenodd" d="M7 6a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h2v2a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1v-7a1 1 0 0 0-1-1h-2V7a1 1 0 0 0-1-1z"/></mask><path fill="var(--color-icon)" mask="url(#bool-union-m)" d="M9 15h1v-1H9zm6-6h-1v1h1zM7 7V5a2 2 0 0 0-2 2zm0 7V7H5v7zm0 0H5a2 2 0 0 0 2 2zm2 0H7v2h2zm1 3v-2H8v2zm0 0H8a2 2 0 0 0 2 2zm7 0h-7v2h7zm0 0v2a2 2 0 0 0 2-2zm0-7v7h2v-7zm0 0h2a2 2 0 0 0-2-2zm-2 0h2V8h-2zm-1-3v2h2V7zm0 0h2a2 2 0 0 0-2-2zM7 7h7V5H7z"/></svg>
+Subtract:
+<svg width="24" height="24" fill="none" viewBox="0 0 24 24"><path fill="var(--color-icon-tertiary)" fill-rule="evenodd" clip-rule="evenodd" d="M10 15v2h7v-7h-2v4a1 1 0 0 1-1 1z"/><path fill="var(--color-icon)" fill-rule="evenodd" clip-rule="evenodd" d="M17 17h-7v-2h4a1 1 0 0 0 1-1v-4h2zm-7-3h4V7H7v7zm-3 1h2v2a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1v-7a1 1 0 0 0-1-1h-2V7a1 1 0 0 0-1-1H7a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1"/></svg>
+Intersect:
+<svg width="24" height="24" fill="none" viewBox="0 0 24 24"><path fill="var(--color-icon-tertiary)" fill-rule="evenodd" clip-rule="evenodd" d="M14 10v4h-4v-4z"/><path fill="var(--color-icon)" fill-rule="evenodd" clip-rule="evenodd" d="M10.5 15H10v2h7v-7h-2v4a1 1 0 0 1-1 1zm0-1H10v-4h4v4zM9 14H7V7h7v2h-4a1 1 0 0 0-1 1zm-1 1H7a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v2h2a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-2z"/></svg>
+Exclude:
+<svg width="24" height="24" fill="none" viewBox="0 0 24 24"><path fill="var(--color-icon-tertiary)" fill-rule="evenodd" clip-rule="evenodd" d="M7 7h7v2h-4a1 1 0 0 0-1 1v4H7zm3 8v2h7v-7h-2v4a1 1 0 0 1-1 1z"/><path fill="var(--color-icon)" fill-rule="evenodd" clip-rule="evenodd" d="M10.5 15H10v2h7v-7h-2v4a1 1 0 0 1-1 1zm0-1H10v-4h4v4zM9 14H7V7h7v2h-4a1 1 0 0 0-1 1zm-1 1H7a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v2h2a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-2z"/></svg>
+Flatten:
+<svg width="24" height="24" fill="none" viewBox="0 0 24 24"><path fill="var(--color-icon)" d="M16.6 17.01a.5.5 0 0 1 0 .98l-.1.01h-9a.5.5 0 0 1 0-1h9zm1-3a.5.5 0 0 1 0 .98l-.1.01h-11a.5.5 0 0 1 0-1h11zM12 6a.5.5 0 0 1 .5.5v3.793l1.646-1.647a.5.5 0 1 1 .707.708l-2.5 2.5a.5.5 0 0 1-.707 0l-2.5-2.5-.064-.079a.5.5 0 0 1 .693-.693l.079.064 1.646 1.647V6.5A.5.5 0 0 1 12 6"/></svg>
+Chevron (the split button's down arrow):
+<svg width="24" height="24" fill="none" viewBox="0 0 24 24"><path fill="var(--color-icon)" fill-rule="evenodd" clip-rule="evenodd" d="M9.646 11.146a.5.5 0 0 1 .708 0L12 12.793l1.646-1.647a.5.5 0 0 1 .708.708l-2 2a.5.5 0 0 1-.708 0l-2-2a.5.5 0 0 1 0-.708"/></svg>
+Edit object (the header button next to the boolean split control; also the last item, under a separator, of the narrow header's ⋯ menu):
+<svg width="24" height="24" fill="none" viewBox="0 0 24 24"><path fill="var(--color-icon)" fill-rule="evenodd" clip-rule="evenodd" d="M8 9a1 1 0 1 1 0-2 1 1 0 0 1 0 2m.5.937A2 2 0 0 0 9.937 8.5h4.126c.18.703.734 1.256 1.437 1.437v4.126a2 2 0 0 0-1.437 1.437H9.937A2 2 0 0 0 8.5 14.063zm8 4.126a2 2 0 1 1-2.437 2.437H9.937A2 2 0 1 1 7.5 14.063V9.937A2 2 0 1 1 9.937 7.5h4.126A2 2 0 1 1 16.5 9.937zM16 15a1 1 0 1 0 0 2 1 1 0 0 0 0-2m0-6a1 1 0 1 0 0-2 1 1 0 0 0 0 2m-8 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2"/></svg>

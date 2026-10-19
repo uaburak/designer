@@ -43,6 +43,7 @@
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
+#include <malloc.h>
 
 #include "gfx/Backend.h"
 #define ENG_EXPORT extern "C" EMSCRIPTEN_KEEPALIVE
@@ -354,7 +355,7 @@ void writeEvents(json::Writer& w, Engine& e) {
     w.beginObject().key("type").string("PAINT_EDIT").key("active").boolean(ed.paintEditing()).key("ref");
     if (ed.paintEditing()) w.string(ed.paintNode().toString());
     else w.null();
-    w.key("paints").string(ed.paintStrokes() ? "STROKE" : "FILL").key("index").number(ed.paintIndex());
+    w.key("paints").string(ed.blurEditing() ? "EFFECT" : ed.paintStrokes() ? "STROKE" : "FILL").key("index").number(ed.paintIndex());
     w.key("stop").number(ed.paintStop()).endObject();
   }
   if (!ev.components.empty()) {
@@ -406,6 +407,8 @@ void writeEvents(json::Writer& w, Engine& e) {
     w.key("returnTo");
     if (ed.returnToInstance() == kNoGuid) w.null();
     else w.string(ed.returnToInstance().toString());
+    w.key("returnToAll");
+    writeIds(w, ed.returnToInstances());
     w.endObject();
   }
   for (auto& g : ev.gridTracks) {
@@ -426,6 +429,14 @@ void writeEvents(json::Writer& w, Engine& e) {
     json::Writer pw;
     ed.writePathToolState(pw);
     w.raw("{\"type\":\"PATH_TOOL\"," + pw.take().substr(1));
+  }
+  // Motion (docs/motion.md §5): the root's motion model or the view state changed; the timeline refetches.
+  if (ev.motion) {
+    w.beginObject().key("type").string("MOTION_CHANGED").key("root");
+    Guid root = ed.motionRoot();
+    if (root == kNoGuid) w.null();
+    else w.string(root.toString());
+    w.endObject();
   }
   for (auto& r : ev.inlineEdits) {
     w.beginObject().key("type").string("REQUEST_INLINE_EDIT").key("ref").string(r.node.toString()).key("field").string(r.field);
@@ -608,6 +619,7 @@ ENG_EXPORT int32_t engine_encode_document(Handle h, uint32_t flags) {
   Call call;
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
+  auto motionGuard = e->editor.motionSuspended();  // storage reads base values (docs/motion.md §5)
   if (e->wire == WIRE_KIWI) {
     codec::KiwiWriteOptions opts;
     if (flags & ENCODE_DERIVED) {
@@ -777,6 +789,7 @@ ENG_EXPORT int32_t engine_set_presence(Handle h, Ptr ptr, uint32_t len) {
     if (auto* chat = p.get("chat"); chat && chat->isString()) {
       peer.hasChat = true;
       peer.chat = chat->string;
+      if (auto* a = p.get("chatOpacity"); a && a->isNumber() && std::isfinite(a->number)) peer.chatAlpha = std::clamp(a->number, 0.0, 1.0);
     }
     peers.push_back(std::move(peer));
   }
@@ -804,6 +817,7 @@ ENG_EXPORT int32_t engine_set_local_chat(Handle h, Ptr ptr, uint32_t len) {
       chat.on = true;
       chat.text = text->string;
       chat.at = {x->number, y->number};
+      if (auto* a = v.get("opacity"); a && a->isNumber() && std::isfinite(a->number)) chat.alpha = std::clamp(a->number, 0.0, 1.0);
     }
   }
   e->editor.setLocalChat(chat);
@@ -819,12 +833,12 @@ ENG_EXPORT void engine_set_theme(Handle h, uint32_t theme) {
 // type DOWN 0 / MOVE 1 / UP 2 / CANCEL 3 / ENTER 4 / LEAVE 5; x,y CSS px in the canvas.
 // Returns HANDLED (1) | CAPTURE (2: call setPointerCapture).
 ENG_EXPORT uint32_t engine_pointer(Handle h, uint32_t type, double x, double y, uint32_t button, uint32_t buttons, uint32_t mods,
-                                   double /*pressure*/, uint32_t clickCount, uint32_t /*pointerType*/, double /*timeMs*/) {
+                                   double /*pressure*/, uint32_t clickCount, uint32_t /*pointerType*/, double timeMs) {
   Call call;
   Engine* e = engineOf(h);
   if (!e || type > 5) return 0;
   // Presenting: the pointer plays the prototype (as engine_present_pointer).
-  if (e->presenting()) return e->player->pointer(static_cast<PointerEvent>(type), x, y, buttons, mods);
+  if (e->presenting()) return e->player->pointer(static_cast<PointerEvent>(type), x, y, buttons, mods, timeMs);
   return e->editor.pointer(static_cast<PointerEvent>(type), x, y, static_cast<int>(button), buttons, mods, static_cast<int>(clickCount));
 }
 
@@ -958,6 +972,28 @@ ENG_EXPORT void engine_gl_context_restored(Handle h) {
   e->editor.setViewport(e->editor.viewport().width, e->editor.viewport().height, e->editor.viewport().dpr,
                         e->editor.viewport().pixelWidth, e->editor.viewport().pixelHeight);
 #endif
+}
+
+// The wasm heap in use: the bytes malloc has handed out and not had back (Figma's getTotalUsedHeapMemory), the file
+// memory percentage's numerator (src/renderer/src/engine/memory.ts). The module's, not one engine's. 0 natively.
+ENG_EXPORT uint32_t engine_heap_used() {
+#ifdef __EMSCRIPTEN__
+  return static_cast<uint32_t>(mallinfo().uordblks);
+#else
+  return 0;
+#endif
+}
+
+// Figma's high-memory optimisations (handleHighMemoryUsageThresholdReached, atlas 20 §9.1), called when the file's
+// memory passes 90 %: every cache the engine rebuilds as it needs it goes (Renderer::purgeMemory, the shapes'
+// geometry). The next frame draws the page whole.
+ENG_EXPORT void engine_purge_memory(Handle h) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return;
+  e->renderer->purgeMemory();
+  e->editor.document().geometryCache().clear();
+  e->editor.invalidateCanvas();
 }
 
 // The canvas's backend changes (Figma's dynamic fallback: a WebGPU device lost or failing its self test moves the
@@ -1419,6 +1455,34 @@ ENG_EXPORT int32_t engine_actor_undo(Handle h, uint32_t actor, uint32_t redo) {
   return e->editor.actorUndo(actor, redo != 0) ? OK : E_INVALID;
 }
 
+// Figma's ignore-undo scope (open = 1 opens one, 0 closes one): writes while one is open leave no undo step.
+ENG_EXPORT int32_t engine_ignore_undo(Handle h, uint32_t open) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  if (open) e->editor.openIgnoreUndo();
+  else e->editor.closeIgnoreUndo();
+  return OK;
+}
+
+// The local user's undo history as Figma's Message.localUndoStack / localRedoStack (docs/research/rea/canvas.md §2.18):
+// a NODE_CHANGES Message, the last `maxSteps` steps of each stack within `maxBytes` (0: 100 steps / 16 MB).
+ENG_EXPORT int32_t engine_undo_export(Handle h, uint32_t maxSteps, uint32_t maxBytes) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  return setResult(e->editor.exportUndoHistory(maxSteps ? maxSteps : 100, maxBytes ? maxBytes : 16u << 20));
+}
+
+// Takes such a history back, replacing the local user's (the document must be the one it came from).
+ENG_EXPORT int32_t engine_undo_import(Handle h, Ptr ptr, uint32_t len) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  if (e->editor.viewerMode()) return E_READONLY;
+  return e->editor.importUndoHistory(bytes(ptr, len)) ? OK : E_DECODE;
+}
+
 // {"canUndo","canRedo","undoLabel","redoLabel","overwritten":["1:2",â¦],"idle"}
 ENG_EXPORT int32_t engine_actor_info(Handle h, uint32_t actor) {
   Call call;
@@ -1536,6 +1600,7 @@ ENG_EXPORT int32_t engine_encode_selection(Handle h, uint32_t flags) {
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
   Clipboard clip;
+  auto motionGuard = e->editor.motionSuspended();  // the clipboard carries base values (docs/motion.md §5)
   if (!e->editor.copySelection(clip, (flags & 1) != 0)) return E_NOT_FOUND;
   if (e->wire == WIRE_KIWI) {
     std::vector<codec::KiwiRegion> regions;
@@ -1652,6 +1717,7 @@ ENG_EXPORT int32_t engine_render_region(Handle h, uint32_t pageSessionID, uint32
   uint32_t limit = static_cast<uint32_t>(e->device->caps().maxTextureSize);
   if (width > limit || height > limit) return E_INVALID;
   ed.derivePage(page);  // its instances' sublayers draw
+  auto motionGuard = ed.motionSuspended();  // thumbnails show the base values (docs/motion.md §3.4)
   double zoom = width / w;
   Camera camera{-x * zoom, -y * zoom, zoom};
   Overlay none;
@@ -1679,6 +1745,7 @@ ENG_EXPORT int32_t engine_render_thumbnail(Handle h, uint32_t pageSessionID, uin
   const Node* pn = doc.get(page);
   if (!pn || pn->props.type != NodeType::CANVAS || maxSize == 0) return E_NOT_FOUND;
   ed.derivePage(page);  // its instances' sublayers draw
+  auto motionGuard = ed.motionSuspended();  // thumbnails show the base values (docs/motion.md §3.4)
   bool any = false;
   Rect bounds;
   for (Guid c : doc.children(page)) {
@@ -1746,6 +1813,7 @@ ENG_EXPORT int32_t engine_stats(Handle h) {
   json::Writer w;
   w.beginObject().key("nodes").number(static_cast<double>(e->editor.document().size()));
   w.key("shapes").number(e->stats.shapes).key("drawCalls").number(e->stats.drawCalls);
+  w.key("passes").number(e->stats.passes).key("backdrops").number(e->stats.backdrops).key("captures").number(e->stats.captures);
   w.key("glyphs").number(e->stats.glyphs).key("paths").number(e->stats.paths).key("layers").number(e->stats.layers);
   w.key("visited").number(e->stats.nodes).key("culled").number(e->stats.culled).key("tiny").number(e->stats.tiny);
   w.key("greeked").number(e->stats.greeked).key("cachedRegions").number(e->stats.cachedRegions).key("stale").number(e->stats.stale);
@@ -1803,7 +1871,7 @@ ENG_EXPORT void engine_font_missing(Ptr familyPtr, uint32_t familyLen, Ptr style
   gFontsDirty = true;
 }
 
-// ["Apple Color Emoji", "PingFang SC", â¦]: tried in order for characters a text's font lacks.
+// ["Noto Sans", "Noto Sans Arabic", ...]: tried for characters a text's font lacks (a script's own Noto family first).
 ENG_EXPORT int32_t engine_set_fallback_fonts(Ptr ptr, uint32_t len) {
   Call call(false);
   json::Value v;
@@ -1903,6 +1971,21 @@ ENG_EXPORT int32_t engine_paint_edit_stop(Handle h, uint32_t index) {
   Call call;
   Engine* e = engineOf(h);
   return e ? e->editor.setPaintStop(static_cast<int>(index)) : E_HANDLE;
+}
+
+// A progressive blur's edit mode: effect `index` of the node (a progressive layer / background blur); ended by
+// engine_paint_edit_end. `handle` marks Start (0), End (1) or none (−1).
+ENG_EXPORT int32_t engine_blur_edit(Handle h, uint32_t sessionID, uint32_t localID, uint32_t index) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (e && e->editor.viewerMode()) return E_READONLY;
+  return e ? e->editor.startBlurEdit({sessionID, localID}, index) : E_HANDLE;
+}
+
+ENG_EXPORT int32_t engine_blur_edit_handle(Handle h, int32_t handle) {
+  Call call;
+  Engine* e = engineOf(h);
+  return e && e->editor.blurEditing() ? e->editor.setPaintStop(handle) : E_HANDLE;
 }
 
 // ---- Images (docs/engine.md Â§6.6) ----------------------------------------------------------
@@ -2102,9 +2185,13 @@ ENG_EXPORT int32_t engine_font_info(Ptr familyPtr, uint32_t familyLen, Ptr style
   for (const text::AxisInfo& a : f->axes()) {
     w.beginObject().key("tag").string(text::tagString(a.tag)).key("name").string(a.name);
     w.key("min").number(a.min).key("default").number(a.def).key("max").number(a.max).key("value").number(a.value);
-    w.key("hidden").boolean(a.hidden).endObject();
+    w.key("hidden").boolean(a.hidden).key("instances").beginArray();
+    for (float v : a.instances) w.number(v);
+    w.endArray().endObject();
   }
-  w.endArray().key("features").beginArray();
+  // The underline's own thickness and offset (em; post / OS/2): Type settings' Auto values ("N%" of the font size).
+  w.endArray().key("underlineThickness").number(f->underlineThickness).key("underlineOffset").number(f->underlineOffset);
+  w.key("features").beginArray();
   for (const text::FeatureInfo& ft : f->features()) {
     w.beginObject().key("tag").string(text::tagString(ft.tag));
     if (!ft.name.empty()) w.key("name").string(ft.name);
@@ -2143,6 +2230,10 @@ void writePropValue(json::Writer& w, ComponentPropType type, const ComponentProp
       else w.null();
       return;
     case ComponentPropType::VARIANT: w.string(variant); return;
+    case ComponentPropType::NUMBER:
+      if (v.hasFloat) w.number(v.floatValue);
+      else w.null();
+      return;
     default:
       if (v.guidValue != kNoGuid) w.string(v.guidValue.toString());
       else w.null();
@@ -2224,6 +2315,9 @@ ENG_EXPORT int32_t engine_component_info(Handle h, Ptr refPtr, uint32_t refLen) 
     if (info.mainSet == kNoGuid) w.null();
     else w.string(info.mainSet.toString());
     w.key("softDeleted").boolean(info.mainSoftDeleted);
+    w.key("missingVariantSet");
+    if (info.missingVariantSet == kNoGuid) w.null();
+    else w.string(info.missingVariantSet.toString());
     w.key("remote");
     if (!info.mainRemote) {
       w.null();
@@ -2265,8 +2359,9 @@ ENG_EXPORT int32_t engine_component_info(Handle h, Ptr refPtr, uint32_t refLen) 
   w.key("canPush").boolean(info.canPush).key("canReset").boolean(info.canReset).key("canDetach").boolean(info.canDetach);
   w.key("isExposed").boolean(info.isExposed).key("mainDeleted").boolean(info.mainDeleted).key("canExpose").boolean(info.canExpose);
   w.key("instanceCount").number(info.instanceCount);
-  w.key("variantConflict").boolean(info.variantConflict).key("conflictingVariants");
-  writeIds(w, info.conflictingVariants);
+  static const char* const kVariantErrors[] = {"NONE", "TOO_MANY_STATES_ERROR", "MISSING_PROPERTIES_ERROR", "DUPLICATE_STATE_ERROR", "PARSE_ERROR"};
+  w.key("variantError").string(kVariantErrors[static_cast<int>(info.variantError)]).key("errorVariants");
+  writeIds(w, info.errorVariants);
   w.endObject();
   return setResult(w.take());
 }
@@ -2284,6 +2379,7 @@ ENG_EXPORT int32_t engine_render_node_thumbnail(Handle h, Ptr refPtr, uint32_t r
   const Node* n = ok ? doc.get(id) : nullptr;
   Guid page = n ? doc.pageOf(id) : kNoGuid;
   if (!n || page == kNoGuid || maxSize == 0) return E_NOT_FOUND;
+  auto motionGuard = ed.motionSuspended();  // thumbnails show the base values (docs/motion.md §3.4)
   Rect bounds = doc.renderBounds(id);
   if (!(bounds.w > 0) || !(bounds.h > 0)) return E_NOT_FOUND;
   double limit = std::min<double>(maxSize, e->device->caps().maxTextureSize);
@@ -2687,15 +2783,30 @@ ENG_EXPORT int32_t engine_style_usage(Handle h, Ptr idPtr, uint32_t idLen) {
 
 // The fonts the document names (text, its runs, instance overrides; text styles too), each with its number of
 // uses: [{family, style, uses}] sorted by family and style. The Missing fonts dialog and the font picker's
-// "In this file" read it (docs/engine-build.md "Fonts").
-ENG_EXPORT int32_t engine_document_fonts(Handle h) {
+// "In this file" read it (docs/engine-build.md "Fonts"). `refs` (a NodeRefList; empty: the whole file): only the
+// layers in and inside them — the dialog's Current page / Current selection —, each font with its layers (`nodes`).
+ENG_EXPORT int32_t engine_document_fonts(Handle h, Ptr refsPtr, uint32_t refsLen) {
   Call call;
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
+  std::vector<Guid> refs;
+  if (refsLen) {
+    json::Value v;
+    if (!parse(refsPtr, refsLen, v)) return E_DECODE;
+    refs = readRefs(v);
+    if (refs.empty()) return setResult("[]");
+  }
   json::Writer w;
   w.beginArray();
-  for (const Editor::DocumentFont& f : e->editor.documentFonts())
-    w.beginObject().key("family").string(f.font.family).key("style").string(f.font.style).key("uses").number(f.uses).endObject();
+  for (const Editor::DocumentFont& f : e->editor.documentFonts(refs)) {
+    w.beginObject().key("family").string(f.font.family).key("style").string(f.font.style).key("uses").number(f.uses);
+    if (refsLen) {
+      w.key("nodes").beginArray();
+      for (Guid g : f.nodes) w.string(g.toString());
+      w.endArray();
+    }
+    w.endObject();
+  }
   w.endArray();
   return setResult(w.take());
 }
@@ -2967,19 +3078,23 @@ ENG_EXPORT int32_t engine_library_usage(Handle h) {
 
 // The editor's Prototype tab: connections, "+" handles and flow labels on the canvas (on = 1).
 // Viewer mode (developer previews): read-only, no resize handles (on = 1).
-// flags: 1 viewer mode; 2 with Dev Mode's own edits (the editor's Dev Mode: annotations, measurements, statuses).
+// flags: 1 viewer mode; 2 with Dev Mode's own edits (the editor's Dev Mode: annotations, measurements, statuses); 4 with Dev Mode's
+// inspect chrome (the design highlighted, padding / gap measurements, the two-line size badge).
 ENG_EXPORT void engine_set_viewer_mode(Handle h, uint32_t flags) {
   Call call;
   Engine* e = engineOf(h);
   if (!e) return;
   e->editor.setViewerMode((flags & 1) != 0);
   e->editor.setDevEdits((flags & 1) != 0 && (flags & 2) != 0);
+  e->editor.setDevInspect((flags & 1) != 0 && (flags & 4) != 0);
 }
 
 // View options (round 7): 1 the pixel grid (View âº Pixel grid, â§'), 2 outline mode (â§âO), 4 layout guides (â§G); round 8:
 // 8 rulers (â§R: guides shown and dragged), 16 snap to pixel grid (â§ââ²), 32 show slices, 64 pixel preview 1x, 128 2x;
 // round 9 (Preferences): 256 snap to geometry, 512 snap to objects, 1024 keep tool selected, 2048 show dimensions, 4096 flip
-// while resizing, 8192 keyboard zooms into selection, 16384 invert zoom, 32768 scroll wheel zoom, 65536 right-drag pans.
+// while resizing, 8192 keyboard zooms into selection, 16384 invert zoom, 32768 scroll wheel zoom, 65536 right-drag pans;
+// round 10: 131072 frame outlines, 262144 mask outlines; Atlas wave 1 (outline mode's options): 524288 hidden layers
+// outlined, 1048576 object bounds.
 ENG_EXPORT void engine_set_view_options(Handle h, uint32_t options) {
   Call call;
   Engine* e = engineOf(h);
@@ -3011,6 +3126,13 @@ ENG_EXPORT void engine_set_annotation_view(Handle h, uint32_t show, uint32_t dot
   Call call;
   Engine* e = engineOf(h);
   if (e) e->editor.setAnnotationView(show != 0, dots != 0);
+}
+
+// The zoom menu's Annotations ▸ filter: only that category's annotations ((0xffffffff, 0xffffffff): all of them).
+ENG_EXPORT void engine_set_annotation_filter(Handle h, uint32_t sessionID, uint32_t localID) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (e) e->editor.setAnnotationFilter(Guid{sessionID, localID});
 }
 
 // editInfo stamped on every user edit (the editor turns it on).
@@ -3179,7 +3301,7 @@ ENG_EXPORT int32_t engine_present_command(Handle h, uint32_t command) {
   }
 }
 
-// {"scale": "ACTUAL" | "FIT_WIDTH" | "FIT" | "FILL", "hints": bool}
+// {"scale": "ACTUAL" | "FIT_WIDTH" | "FIT" | "FILL", "hints": bool, "host": "mac" | "windows" | "linux" | "other"}
 ENG_EXPORT int32_t engine_present_set_options(Handle h, Ptr ptr, uint32_t len) {
   Call call;
   Engine* e = engineOf(h);
@@ -3197,6 +3319,12 @@ ENG_EXPORT int32_t engine_present_set_options(Handle h, Ptr ptr, uint32_t len) {
   // With a device: Responsive / Fixed size, Show device frame.
   if (auto* r = v.get("responsive"); r && r->isBool()) e->player->setResponsive(r->boolean);
   if (auto* f = v.get("deviceFrame"); f && f->isBool()) e->player->setDeviceFrame(f->boolean);
+  // The machine the prototype plays on: "mac" | "windows" | "linux" | "other" (scroll physics, ⌘ in key triggers).
+  if (auto* host = v.get("host"); host && host->isString()) {
+    const std::string& h = host->string;
+    e->player->setHost(h == "mac" ? proto::Player::Host::MAC : h == "windows" ? proto::Player::Host::WINDOWS
+                       : h == "linux" ? proto::Player::Host::LINUX : proto::Player::Host::OTHER);
+  }
   e->editor.invalidateCanvas();
   return OK;
 }
@@ -3247,3 +3375,4 @@ ENG_EXPORT int32_t engine_present_state(Handle h) {
 }
 #include "api/TraceApi.inc"
 #include "api/DrawApi.inc"
+#include "api/MotionApi.inc"

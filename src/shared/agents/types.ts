@@ -3,7 +3,7 @@
  * and the MCP server that gives them — and any MCP client the user connects — the open file. Shared by main
  * (src/main/agents) and the editor (src/renderer/src/editor/agents); the IPC channels are in src/shared/ipc.ts.
  */
-import type { ToolContent } from "./tools";
+import type { ToolContent, ToolFile } from "./tools";
 import type { AttachResult, TurnAttachment } from "./attachments";
 import type { Connector, ConnectorConsent, ConnectorToolPolicy } from "../ai/types";
 import type { AccessLogEntry, ReachPatch, ReachView } from "./reach";
@@ -82,7 +82,7 @@ export interface TurnRequest {
   prompt: string;
   history: ChatTurnMessage[];
   /** The selection attached as context ("Frame “Desktop” 1440 × 900", ids) */
-  context: { fileName: string; pageName: string; selection: { id: string; name: string; type: string; width: number; height: number }[] };
+  context: { fileName: string; pageName: string; selection: { id: string; name: string; type: string; width: number; height: number; /** A Social post's format name ("Instagram story") */ format?: string }[] };
   /** The CLI's own session to continue (Claude Code `--resume`) */
   resume?: string;
   /** The reasoning effort (one of the provider's `efforts`) */
@@ -175,6 +175,8 @@ export interface ToolCallResult {
   content: ToolContent[];
   isError?: boolean;
   touched?: string[];
+  /** Files the tool made (export_animation): main saves them in the agent's working folder */
+  files?: ToolFile[];
 }
 
 /** One MCP connection as the right panel's "MCP" section counts it. */
@@ -260,6 +262,9 @@ export interface AgentsApi {
   updateConnector?(p: { id: string; enabled?: boolean; policies?: Record<string, ConnectorToolPolicy> }): Promise<Connector[]>;
   removeConnector?(id: string): Promise<Connector[]>;
   testConnector?(id: string): Promise<Connector>;
+  /** An OAuth connector: the sign-in in the owner's browser, then a test (its state "sign-in" says it wants one) */
+  signInConnector?(id: string): Promise<Connector>;
+  signOutConnector?(id: string): Promise<Connector[]>;
   /** A connector's tool wants to run (its policy is Ask): show the consent card, answer with answerConsent */
   onConsent?(cb: (c: ConnectorConsent) => void): () => void;
   /** `windowId`: the window the owner picked on a Local apps card (docs/agents-reach.md §9) */
@@ -289,4 +294,4 @@ export interface ReachApi {
 }
 
 /** The setup half of AgentsApi (no turns, no tools): what Settings › Agents uses — Home has it too. */
-export type AgentSetupApi = Pick<AgentsApi, "providers" | "settings" | "setSettings" | "addServer" | "removeServer" | "test" | "auth" | "signIn" | "signOut" | "install" | "mcp" | "onMcpState" | "clients" | "connect" | "disconnect" | "clientConfig" | "connectors" | "addConnector" | "updateConnector" | "removeConnector" | "testConnector" | "reach">;
+export type AgentSetupApi = Pick<AgentsApi, "providers" | "settings" | "setSettings" | "addServer" | "removeServer" | "test" | "auth" | "signIn" | "signOut" | "install" | "mcp" | "onMcpState" | "clients" | "connect" | "disconnect" | "clientConfig" | "connectors" | "addConnector" | "updateConnector" | "removeConnector" | "testConnector" | "signInConnector" | "signOutConnector" | "reach">;

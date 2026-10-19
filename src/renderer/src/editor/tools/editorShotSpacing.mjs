@@ -7,7 +7,7 @@
 // 3. A gap's bar hovered: pink hatch and a pink badge.
 // 4. A padding and a gap dragged: the values follow (one undo step each).
 // 5. A click on the gap's bar: its field; 24 typed → the gap is 24.
-// 6. The `</>` hovered: a filled blue square, the tooltip after the delay; clicked: ready for dev, the button green.
+// 6. The `</>` hovered: a filled blue square, the tooltip after the delay; clicked: the status menu, Ready to Dev → green.
 /* global window, atob, Blob, createImageBitmap, OffscreenCanvas */
 import path from "node:path";
 
@@ -192,17 +192,22 @@ export async function spacing15Section(page, theme, { open, settle, check, outDi
     await page.waitForTimeout(700);
     await settle(page);
     const tip = (await pixels(page, tipBox, TOOLTIP)).length - before;
-    check(`Spacing15 ${theme}: …and after the delay its tooltip "Mark as ready for dev" under it`, tip > 1000, `${tip} px more`);
+    check(`Spacing15 ${theme}: …and after the delay its tooltip "Set status" under it`, tip > 1000, `${tip} px more`);
     await crop("spacing15-dev-tooltip", { x: Math.round(ix - 140), y: Math.round(iy - 40), width: 280, height: 110 });
+    // A click opens the status menu (docs/editor.md "Frame status (ours)", 2026-10-12); Ready to Dev is Ready for dev.
     await page.mouse.click(ix, iy);
     await settle(page);
+    const menu = page.locator('[data-ds="Menu"]');
+    check(`Spacing15 ${theme}: a click opens the status menu`, (await menu.getByText("Ready to Dev", { exact: true }).count()) === 1);
+    await menu.getByText("Ready to Dev", { exact: true }).click().catch(() => {});
+    await settle(page);
     const status = (await page.evaluate(() => window.__designerEditor.engine.readNode("16:1", { fields: ["sectionStatusInfo"] })))?.sectionStatusInfo?.status;
-    check(`Spacing15 ${theme}: a click marks the frame ready for dev`, status === "BUILD", String(status));
+    check(`Spacing15 ${theme}: Ready to Dev marks the frame ready for dev`, status === "BUILD", String(status));
     await page.mouse.move(rect.right - 30, rect.bottom - 30);
     await settle(page);
     await settle(page);
     const green = (await pixels(page, iconBox, GREEN_SOLID)).length;
-    check(`Spacing15 ${theme}: …and the button is green`, green > 120, `${green} px`);
+    check(`Spacing15 ${theme}: …and its place is the green Ready to Dev chip`, green > 120, `${green} px`);
     await crop("spacing15-ready", { x: Math.round(ix - 140), y: Math.round(iy - 40), width: 280, height: 110 });
     await page.evaluate(() => window.__designerEditor.engine.undo());
     await settle(page);

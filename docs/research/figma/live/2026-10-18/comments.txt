@@ -1,0 +1,28 @@
+State: Figma web (UI3, dark), 1440x900, Comment tool (C) active, no comments in the file. A draft was opened and discarded (nothing posted).
+
+COMMENT MODE
+  The toolbar's Comment button turns selected (bg #0C8CE9 r=5px), the right panel becomes the Comments panel, and the canvas cursor is the comment cursor.
+
+COMMENTS PANEL @1199,0 241x900 (replaces Design/Prototype)
+  header as in Design (avatar, Present group, Share); tab row y 48 shows a single tab "Comments" 74x24 (11px/550 white, no fill) + zoom "100%" at 173
+  toolbar row 1,81 240x41: search 9,89 160x24 bg #383838 r=5px (search icon 24 + input "Search for comments" at x 33, a clear-search ⓧ icon when typing)
+     · [Sort/Filter] 24x24 at 177,89 (16x16 circle-with-lines icon) · [Settings] 24x24 at 209,89 (… horizontal dots)
+  empty state 45,140 174 wide: 20x20 comment-bubble icon at x 17 and text 11px/400 white, 4 lines:
+     "Give feedback, ask a question, or just leave a note of appreciation. Click anywhere in the file to leave a comment."
+
+NEW-COMMENT DRAFT (after a click on the canvas)
+  pin: 32x32 at the click point's upper-left, bg #0C8CE9, radius 16px 16px 16px 0 (the tail at the bottom-left touches the click point)
+  composer @642,324 296x40 (16 px right of the pin's right edge, top 4 px below the pin's top)
+     bg #2C2C2C r=13px shadow #00000059 0 3px 8px 0, #00000080 0 1px 3px 0, #ffffff14 0 .5px 0 0 inset, #ffffff4d 0 0 .5px 0 inset (same elevation as the bottom toolbar)
+     combobox [Add a comment] 16,8 236x24: placeholder "Add a comment" 13px/400 #ffffff66, typed text 13px/400 white
+     [Send] 24x24 r=9999px at 264,8: disabled bg #757575, enabled bg #0C8CE9, white up-arrow
+  Esc (or a click elsewhere with an empty draft) removes the pin and composer.
+
+ICONS
+Send (up arrow): M12 16a.5.5 0 0 1-.5-.5V8.707l-3.146 3.147a.5.5 0 0 1-.708-.708l4-4a.5.5 0 0 1 .708 0l4 4a.5.5 0 0 1-.708.708L12.5 8.707V15.5a.5.5 0 0 1-.5.5
+Clear search: M12 5a7 7 0 1 1 0 14 7 7 0 0 1 0-14m0 1a6 6 0 1 0 0 12 6 6 0 0 0 0-12m2.225 3.082a.5.5 0 0 1 .693.693l-.064.079L12.707 12l2.147 2.146.064.079a.5.5 0 0 1-.693.693l-.078-.064L12 12.707l-2.146 2.146a.5.5 0 1 1-.707-.707L11.293 12 9.147 9.854l-.065-.079a.5.5 0 0 1 .694-.693l.078.064L12 11.293l2.147-2.147z
+Sort/Filter (16x16): M8 15c-3.866 0-7-3.134-7-7 0-3.866 3.134-7 7-7 3.866 0 7 3.134 7 7 0 3.866-3.134 7-7 7M0 8c0-4.418 3.582-8 8-8 4.418 0 8 3.582 8 8 0 4.418-3.582 8-8 8-4.418 0-8-3.582-8-8m6 3v-1h4v1zM4 5v1h8V5zm1 3.5h6v-1H5z
+Settings (more): M7.5 12a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m6 0a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m4.5 1.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3
+Empty-state bubble (20x20): m1.944 16.75 1.696-2.758.287-.465-.237-.493c-.465-.951-.697-1.91-.69-3.034 0-3.866 3.134-7 7-7 3.866 0 7 3.134 7 7 0 3.866-3.134 7-7 7-1.14.007-2.112-.232-3.074-.709l-.268-.131-.296.037-4.418.552zm4.543.44c1.06.518 2.253.81 3.513.81 4.418 0 8-3.582 8-8 0-4.418-3.582-8-8-8-4.418 0-8 3.582-8 8 0 1.243.283 2.419.789 3.468l-2.117 3.44L0 18l1.272-.159 5.215-.652z
+Comment tool: see toolbar.txt
+(Not captured: a posted thread, replies, reactions — the owner's draft has no comments and posting was avoided.)

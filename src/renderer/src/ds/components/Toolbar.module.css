@@ -50,6 +50,9 @@
   .button:hover, .button[data-hover] { background: var(--figma-color-bg-hover); }
   .chevron:hover, .chevron[data-open] { background: var(--figma-color-bg-hover); color: var(--figma-color-icon); }
   .tool[data-active] .button { background: var(--figma-color-bg-brand); color: var(--figma-color-icon-onbrand); }
+  /* Dev Mode (the owner's capture owner-2026-10-18): the active tool green, the mode switch's `</>` green */
+  [data-mode="dev"] .tool[data-active] .button { background: var(--figma-color-bg-success); }
+  [data-mode="dev"] .mode[aria-checked="true"] { color: var(--figma-color-icon-success); }
   .button:focus-visible, .chevron:focus-visible, .button[data-focus-visible] { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
   .button:disabled, .button[aria-disabled="true"], .button[aria-disabled="true"]:hover { color: var(--figma-color-icon-disabled); background: transparent; }
   .chevron:disabled, .chevron:disabled:hover { color: var(--figma-color-icon-disabled); background: transparent; }

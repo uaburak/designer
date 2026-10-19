@@ -86,27 +86,64 @@ vec3 adjust(vec3 c) {
   return pow(clamp(c, 0.0, 1.0), vec3(1.0 / 2.2));
 }
 
-// Glass (slots 6 = (depth in device px, refraction, dispersion, splay), 8 = (the direction toward the light in canvas
-// device px — y down —, intensity, 0)): the frosted backdrop (u_t2) seen through a curved edge — bent toward the
-// edge within the depth, split by colour, lit along the edges facing the light (and, fainter, the opposite ones).
+// Glass as Figma draws it (docs/research/rea/effects.md §2.15, its GLASS fragment shader), in the node's own units:
+// slots 6 = (depth — refractionRadius —, refraction, dispersion × 0.2, splay), 8 = (the light's angle in the node's
+// space — light angle − the frame's rotation + 90° —, intensity, bevel size, 0). The frosted backdrop (u_t2) is read
+// displaced inward within min(depth, half the size) of the edge (the displacement ramps as t^3.5 up to the depth, a
+// fifth of it in the outer 0.7 of the bevel), split by colour over 8 taps along the displacement, lit on the edges
+// facing the light (0.6× on the opposite ones) within the bevel, and shaded faintly along the light across the
+// refracting band. A path (no distance, g_glassShape < 0) gets the frost alone.
+float glassRamp(float lo, float hi, float x) { return clamp((x - lo) / max(0.00001, hi - lo), 0.0, 1.0); }
+vec2 glassUnit(vec2 v) {
+  float l = dot(v, v);
+  return l > 1.0e-10 ? v / sqrt(l) : vec2(0.0);
+}
+// The outward normal at p of the box of half size b with corners of radius r: none inside the corners' centres' box
+// (deeper than the bevel when r ≤ bevel), the corners' radial direction, the sides' normals between; an ellipse's own.
+vec2 glassNormal(vec2 p, vec2 b, float r, float bevel) {
+  if (g_glassShape == 1) return glassUnit(p / max(b * b, vec2(1e-6)));
+  float k = min(min(b.x, b.y), r);
+  vec2 q = abs(p) - (b - k);
+  if (max(q.x, q.y) <= -bevel * step(r, bevel)) return vec2(0.0);
+  return glassUnit(q + max(-min(q.x, q.y), 0.0)) * sign(p);
+}
+// The frost at this pixel moved by `off` (the node's units).
+vec4 glassFetch(vec2 off) { return texture(u_t2, (gl_FragCoord.xy - u_v[4].xy + g_toFrag * off) / u_v[4].zw); }
 vec4 glassAt() {
+  if (g_glassShape < 0) return glassFetch(vec2(0.0));
   vec4 G = u_v[6], L = u_v[8];
-  vec2 sz = u_v[4].zw;
-  vec2 base = gl_FragCoord.xy - u_v[4].xy;
-  float depth = max(G.x, 1e-3);
-  float e = clamp(1.0 + g_sdf / depth, 0.0, 1.0);
-  float bend = e * e * G.y * depth;
-  vec2 o = vec2(g_normal.x, -g_normal.y) * bend;  // gl_FragCoord's y runs up
-  float k = G.z * 0.5;
-  vec4 mid = texture(u_t2, (base + o) / sz);
-  float r = texture(u_t2, (base + o * (1.0 + k)) / sz).r;
-  float b = texture(u_t2, (base + o * (1.0 - k)) / sz).b;
-  float facing = dot(g_normal, L.xy);
-  float sharp = mix(6.0, 1.5, clamp(G.w, 0.0, 1.0));
-  float rim = pow(clamp(1.0 + g_sdf / max(depth * 0.25, 1.0), 0.0, 1.0), 2.0);
-  float spec = L.z * (pow(max(facing, 0.0), sharp) + 0.4 * pow(max(-facing, 0.0), sharp)) * rim;
-  vec3 rgb = min(vec3(r, mid.g, b), vec3(mid.a));
-  return vec4(rgb + (mid.a - rgb) * clamp(spec, 0.0, 1.0), mid.a);
+  vec2 hs = v_origin.zw * 0.5;
+  vec2 p = v_local - hs;
+  float corner = p.x > 0.0 ? (p.y > 0.0 ? v_box.z : v_box.y) : (p.y > 0.0 ? v_box.w : v_box.x);
+  float rd = min(min(hs.x, hs.y), G.x);
+  float bevel = L.z, eh = g_dist;
+  float lim = 0.999 * rd;
+  float bend = clamp(pow(glassRamp(-rd - bevel, -bevel, eh), 3.5) * rd * G.y, -lim, lim);
+  float rim = glassRamp(-bevel - 0.0001, -bevel * 0.3, eh);
+  vec2 dir = mix(glassNormal(p, hs, max(corner, max(bevel, rd)), bevel), glassUnit(p), G.w);
+  vec2 dg = -dir * mix(bend, G.y * 0.2 * lim, rim);
+  vec4 c = vec4(0.0);
+  if (G.z < 0.001) c = glassFetch(dg);
+  else {
+    float total = 0.0;
+    for (int i = 0; i < 8; i++) {
+      float t = float(i) / 7.0 - 0.5;
+      float w = 1.0 - abs(t * 2.0);
+      vec4 r = glassFetch(dg * (1.0 + (t + 0.5) * G.z));
+      vec4 g = glassFetch(dg * (1.0 + t * G.z));
+      vec4 b = glassFetch(dg * (1.0 + (t - 0.5) * G.z));
+      c += vec4(r.r, g.g, b.b, max(max(r.a, g.a), b.a)) * w;
+      total += w;
+    }
+    c /= total;
+  }
+  vec2 light = vec2(cos(L.x), sin(L.x));
+  vec2 n = glassNormal(p, hs, corner, bevel);
+  float lit = smoothstep(-bevel - 0.001, -bevel * 0.2, eh) * L.y;
+  c.rgb += smoothstep(0.35, 1.0, dot(n, -light)) * lit;
+  c.rgb += smoothstep(0.35, 1.0, dot(n, light)) * lit * 0.6;
+  c.rgb += dot(dir, light) * pow(glassRamp(-rd, -bevel + 0.0001, eh), 2.0) * 0.05 * L.y;
+  return vec4(clamp(c.rgb, vec3(0.0), vec3(c.a)), c.a);
 }
 
 // Figma's dither (its gradients and analytic shadows, docs/research/rea/effects.md §2.21): ±1/255 on every channel,
@@ -429,11 +466,12 @@ uniform sampler2D u_t0;
 uniform sampler2D u_t3;
 out vec4 o_color;
 #define CURVES u_t0
-// The fragment's canvas device px; a shape's signed distance (device px, < 0 inside) and outward normal (canvas
-// device px, y down) — for glass.
+// The fragment's canvas device px. For glass: the shape (-1 none — a path —, 0 a rounded rectangle, 1 an ellipse), its
+// signed distance in its own units (< 0 inside) and the map from its own units to gl_FragCoord px.
 vec2 g_dp;
-float g_sdf = -1e9;
-vec2 g_normal = vec2(0.0);
+int g_glassShape = -1;
+float g_dist = 0.0;
+mat2 g_toFrag = mat2(1.0);
 )";
 
 inline constexpr const char* kDrawFragmentBody = R"(
@@ -500,8 +538,9 @@ void shapeMain() {
   }
   float d = kind == 1 ? sdEllipse(p, halfSize) : sdRoundedBox(p, halfSize, v_box);
   float fillCoverage = clamp(0.5 - d / px, 0.0, 1.0);
-  g_sdf = d / px;
-  g_normal = normalize(vec2(dFdx(d), -dFdy(d)) + vec2(1e-12, 0.0));
+  g_glassShape = kind == 1 ? 1 : 0;
+  g_dist = d;
+  g_toFrag = inverse(mat2(dFdx(v_local), dFdy(v_local)));
   if (u_stencilPass == 1) {
     if (fillCoverage < 0.5) discard;
     o_color = vec4(0.0);

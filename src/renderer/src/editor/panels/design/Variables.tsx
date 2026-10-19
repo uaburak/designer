@@ -14,7 +14,7 @@ import type { Color, Guid, Paint } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { GEOMETRY_GROUPS, useDocumentVersion, useLocalAssets } from "../../hooks";
 import { colorToHex, toPercent } from "../../model/color";
-import { BIND_TYPE, modeCollections, paintVariable, splitName, variableBindings, type BindField, type Variable } from "../../model/variables";
+import { BIND_TYPE, bindingWarning, formatLiteral, modeCollections, paintVariable, splitName, variableBindings, type BindField, type Variable } from "../../model/variables";
 import { bindPaint, bindVariable, modesAt, resolveAt, setExplicitMode } from "../../variables";
 import { OpenVariablesButton, VariablePicker } from "../variables/VariablePicker";
 import vstyles from "../variables/Variables.module.css";
@@ -47,15 +47,20 @@ function useVariableName(id: Guid | null): { variable: Variable | null; name: st
   return { variable: null, name: n?.name ? splitName(n.name).leaf : t("Missing variable"), missing: true };
 }
 
-/** The pill of a bound field / paint: its glyph or swatch, the variable's name (a click opens the picker), Detach on hover. */
-export function BoundPill({ id, prefix, swatch, label, onOpen, onDetach }: { id: Guid; prefix?: IconName | string; swatch?: ReactNode; label: string; onOpen: (anchor: HTMLElement) => void; onDetach: () => void }) {
+/**
+ * The pill of a bound field / paint: its glyph or swatch, the variable's name (a click opens the picker), Detach on
+ * hover. `warning`: the bound value isn't used as it is (atlas 11 §6) — the pill in Figma's "warning" style, the
+ * reason in its tooltip; otherwise the tooltip is the name, the description and the value, a blank line between.
+ */
+export function BoundPill({ id, prefix, swatch, label, warning, value, onOpen, onDetach }: { id: Guid; prefix?: IconName | string; swatch?: ReactNode; label: string; warning?: string | null; value?: string; onOpen: (anchor: HTMLElement) => void; onDetach: () => void }) {
   useT();
   const { variable, name, missing } = useVariableName(id);
+  const tip = warning ? t(warning) : [variable?.name ?? name, variable?.description, value].filter(Boolean).join("\n\n");
   return (
-    <div className={vstyles.bound} data-bound-variable={variable?.name ?? name}>
+    <div className={vstyles.bound} data-bound-variable={variable?.name ?? name} data-warning={warning ? "" : undefined}>
       {prefix && <FieldPrefix prefix={prefix} className={vstyles.boundPrefix} />}
       {swatch}
-      <button type="button" className={vstyles.pill} aria-label={`${t(label)}: ${variable?.name ?? name}`} {...tooltipProps(variable?.name ?? name)} onClick={(e) => onOpen(e.currentTarget)}>
+      <button type="button" className={cx(vstyles.pill, warning && vstyles.pillWarning)} aria-label={`${t(label)}: ${variable?.name ?? name}`} {...tooltipProps(tip)} onClick={(e) => onOpen(e.currentTarget)}>
         <span className={cx(vstyles.pillText, missing && vstyles.pillMissing)}>{name}</span>
       </button>
       <button type="button" className={vstyles.detach} aria-label={t("Detach variable")} {...tooltipProps(t("Detach variable"))} onClick={onDetach}>
@@ -85,7 +90,7 @@ export function VariableField({ nodes, fields, prefix, children, disabled, butto
   const picker = open && (
     <VariablePicker
       anchor={open}
-      types={[spec.type]}
+      types={[spec.type, ...(spec.also ?? [])]}
       scope={spec.scope}
       current={typeof bound === "string" && bound !== "mixed" ? bound : null}
       consumer={refs[0]}
@@ -95,9 +100,12 @@ export function VariableField({ nodes, fields, prefix, children, disabled, butto
     />
   );
   if (bound && bound !== "mixed") {
+    // The value as the first layer sees it (its modes): a warning when the field can't use it as it is.
+    const value = resolveAt(ed, bound, refs[0]);
+    const warning = bindingWarning(fields[0], value, nodes[0] as never);
     return (
       <div className={vstyles.bindWrap} data-bind-field={fields.join(",")}>
-        <BoundPill id={bound} prefix={prefix} label={spec.label} onOpen={setOpen} onDetach={() => bind(null)} />
+        <BoundPill id={bound} prefix={prefix} label={spec.label} warning={warning} value={typeof value === "number" ? formatLiteral("FLOAT", value) : undefined} onOpen={setOpen} onDetach={() => bind(null)} />
         {picker}
       </div>
     );

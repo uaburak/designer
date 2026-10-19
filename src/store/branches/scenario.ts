@@ -91,7 +91,8 @@ export async function scenario(api: StoreApi, idle: () => Promise<void>): Promis
   const afterUpdate = await head(api, b.branchFileKey);
   expect(afterUpdate.get(g(sm, 1))).toBeDefined();
   expect(afterUpdate.get(g(s0, 1))?.name).toBe("Branch's");
-  expect((await files.listVersions(b.branchFileKey)).map((v) => v.kind)).toEqual(["update", "branch"]);
+  // Savepoints on both files before the update (atlas 16 §3.2).
+  expect((await files.listVersions(b.branchFileKey)).map((v) => v.kind)).toEqual(["update", "autosave", "branch"]);
   expect(await branches.mainStatus(b.branchFileKey)).toEqual({ changed: false, mainHeadSeq: 2, baseSeq: 2 });
   // The preview is spent.
   await expect(branches.applyUpdate(b.branchFileKey, { previewId: up.previewId, resolutions: {} })).rejects.toMatchObject({ code: "stale" });
@@ -110,8 +111,10 @@ export async function scenario(api: StoreApi, idle: () => Promise<void>): Promis
   expect(version).toMatchObject({ kind: "merge", title: "Feature", description: "Ready" });
   expect(done).toMatchObject({ status: "merged", mergeVersionId: version.id });
   expect(done.mergedAt).not.toBeNull();
-  expect((await files.listVersions(main.fileKey)).map((v) => v.kind)).toEqual(["merge", "autosave", "branch"]);
-  expect((await files.listVersions(b.branchFileKey)).map((v) => v.kind)).toEqual(["merge", "update", "branch"]);
+  expect((await files.listVersions(main.fileKey)).map((v) => v.kind)).toEqual(["merge", "autosave", "autosave", "branch"]);
+  expect((await files.listVersions(b.branchFileKey)).map((v) => v.kind)).toEqual(["merge", "autosave", "update", "autosave", "branch"]);
+  // Undo merge keeps main's savepoint from just before it.
+  expect(done.preMergeVersionId).toBe((await files.listVersions(main.fileKey))[1].id);
   const afterMerge = await head(api, main.fileKey);
   expect(afterMerge.get(g(s0, 1))?.name).toBe("Branch's");
   expect(afterMerge.get(g(sb, 1))).toBeDefined();
@@ -123,6 +126,12 @@ export async function scenario(api: StoreApi, idle: () => Promise<void>): Promis
   await expect(branches.restore(b.branchFileKey)).rejects.toMatchObject({ code: "invalid" });
   await expect(branches.preview(b.branchFileKey, "merge")).rejects.toMatchObject({ code: "invalid" });
   expect((await branches.list(main.fileKey, "archived")).map((r) => r.branchFileKey)).toEqual([b.branchFileKey]);
+  // Undo merge: the branch active again (main goes back by the editor's restore of preMergeVersionId); only once.
+  const undone = await branches.undoMerge(b.branchFileKey);
+  expect(undone).toMatchObject({ status: "active", mergedAt: null, mergeVersionId: null, preMergeVersionId: null, archivedAt: null });
+  expect((await branches.list(main.fileKey, "active")).map((r) => r.branchFileKey)).toContain(b.branchFileKey);
+  await expect(branches.undoMerge(b.branchFileKey)).rejects.toMatchObject({ code: "invalid" });
+  await branches.archive(b.branchFileKey);
 
   // Case 26: a head moved since the preview → stale.
   const b2 = await branches.create(main.fileKey, "Second");
@@ -155,4 +164,13 @@ export async function scenario(api: StoreApi, idle: () => Promise<void>): Promis
   expect(again.state).toBe("in-review");
   expect(again.reviewers.every((r) => r.verdict === "pending")).toBe(true);
   expect((await branches.get(b2.branchFileKey))?.review?.state).toBe("in-review");
+
+  // Main in the Trash takes no merge; restored, the merge closes the open review (leftovers 2026-10-18).
+  const p3 = await branches.preview(b2.branchFileKey, "merge");
+  await workspace.trash({ files: [main.fileKey] });
+  await expect(branches.merge(b2.branchFileKey, { previewId: p3.previewId, resolutions: {} })).rejects.toMatchObject({ code: "trashed" });
+  await workspace.restore({ files: [main.fileKey] });
+  const resolutions = Object.fromEntries(p3.conflicts.map((c) => [c.id, "branch" as const]));
+  const second = await branches.merge(b2.branchFileKey, { previewId: p3.previewId, resolutions });
+  expect(second.branch.review?.state).toBe("closed");
 }

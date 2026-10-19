@@ -24,6 +24,7 @@
  */
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Button, ContextMenu, Icon, IconButton, MenuButton, Popover, Select, Switch, TextInput, ToggleIconButton, cx, showToast, tooltipProps, type IconName, type MenuEntry } from "@/ds";
+import type { Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { command, isEnabled, runEditorCommand, shortcutOf } from "../../commands";
 import { RESET_PREFIX, runMenuItem } from "../../menus";
@@ -41,6 +42,7 @@ import {
   canExpose,
   clearSlot,
   deleteProperty,
+  deletedMainState,
   instanceInfo,
   mainOf,
   nestedInstancesOf,
@@ -50,6 +52,9 @@ import {
   reorderProperty,
   reorderVariantValues,
   resetSlot,
+  resetToDefaultVariant,
+  restoreMainOf,
+  selectVariants,
   setExposed,
   setOf,
   setPropertyValue,
@@ -60,16 +65,18 @@ import {
   updateProperty,
   usedPropertyIds,
   valueFromLayer,
-  variantConflictCount,
+  variantErrorOf,
   variantsOf,
   type InstanceInfo,
   type PropertyRowData,
   type SlotState,
 } from "../../components";
 import {
+  PROPERTY_ICON,
   PROPERTY_TYPE_LABEL,
   assetLabel,
   canBind,
+  formatPropertyNumber,
   guidStr,
   guidVal,
   hasSlotLimits,
@@ -81,6 +88,7 @@ import {
   moveValue,
   newPropertyName,
   parseDerivedId,
+  parsePropertyNumber,
   propertyBaseName,
   slotGuidelines,
   slotMax,
@@ -96,6 +104,7 @@ import {
   type ComponentPropType,
   type ComponentPropValue,
   type GuidValue,
+  type VariantError,
 } from "../../model/components";
 import { ComponentPicker, useComponentAssets, usePopoverToggle } from "./ComponentPicker";
 import { ComponentConfiguration } from "./ComponentConfiguration";
@@ -108,14 +117,6 @@ import { PANEL_MENU_GAP, type PanelNode } from "./shared";
 import styles from "./Component.module.css";
 import hstyles from "./Header.module.css";
 import { t, tp, useLocale, useT } from "@/i18n";
-
-export const PROPERTY_ICON: Record<ComponentPropType, IconName> = {
-  VARIANT: "16.variant",
-  BOOL: "16.visible",
-  TEXT: "16.text",
-  INSTANCE_SWAP: "16.instance",
-  SLOT: "16.slot",
-};
 
 /** The Create property menu's order (live popovers/component-create-property-menu.txt). */
 export const ADD_TYPES: ComponentPropType[] = ["VARIANT", "TEXT", "BOOL", "INSTANCE_SWAP", "SLOT"];
@@ -284,11 +285,17 @@ export function InstanceProperties({ instance }: { instance: CNode }) {
     void version;
     return instanceInfo(ed, readC(ed, instance.guid) ?? instance);
   }, [ed, instance, version]);
+  // Unfolded for this instance only: another selection folds them again.
+  const [allNested, setAllNested] = useState<string | null>(null);
+  // A deleted main: Figma shows only Restore component, or the missing variant panel.
+  const deleted = deletedMainState(ed, instance);
+  if (deleted) return <DeletedMainPanel instance={instance} state={deleted} />;
   if (!info.rows.length && !info.nested.length) return null;
+  const nested = allNested === instance.guid ? info.nested : shownRows(info.nested);
   return (
     <div className={styles.instanceBody} data-instance-properties="">
       <PropertyRows info={info} />
-      {info.nested.map((n) => (
+      {nested.map((n) => (
         <div key={n.id} className={styles.nested} data-nested-instance={n.id}>
           <div className={styles.nestedHeader}>
             <Icon name="16.instance" className={styles.purpleIcon} />
@@ -297,16 +304,61 @@ export function InstanceProperties({ instance }: { instance: CNode }) {
           <PropertyRows info={n.info} />
         </div>
       ))}
+      {nested.length < info.nested.length && <ShowMoreRows count={info.nested.length - nested.length} onClick={() => setAllNested(instance.guid)} />}
     </div>
   );
 }
 
+/**
+ * An instance of a deleted main (atlas 10 §6.5): a full-width "Restore component", or — a deleted variant of a set
+ * that is still there — Figma's missing variant panel: its title, its text and a secondary "Reset to default".
+ */
+function DeletedMainPanel({ instance, state }: { instance: CNode; state: NonNullable<ReturnType<typeof deletedMainState>> }) {
+  useT();
+  const ed = useEditor();
+  if (state.kind === "restore")
+    return (
+      <div className={styles.instanceBody} data-deleted-main="restore">
+        <Button variant="secondary" className={styles.fullWidth} onClick={() => restoreMainOf(ed, instance)}>
+          {t("Restore component")}
+        </Button>
+      </div>
+    );
+  return (
+    <div className={cx(styles.instanceBody, styles.missingVariant)} data-deleted-main="missing-variant">
+      <div className={styles.missingVariantTitle}>{t("Missing variant")}</div>
+      <div className={styles.missingVariantBody}>{t("The selected variant is missing in the component")}</div>
+      <Button variant="secondary" className={styles.fullWidth} onClick={() => resetToDefaultVariant(ed, instance, state.set)}>
+        {t("Reset to default")}
+      </Button>
+    </div>
+  );
+}
+
+/** Figma's row overflow (UI3, atlas 10 §5.6): more than five rows show four, then "Show N more" for the rest. */
+const ROWS_SHOWN = 5;
+const ROWS_FOLDED = 4;
+const shownRows = <T,>(rows: readonly T[]): readonly T[] => (rows.length > ROWS_SHOWN ? rows.slice(0, ROWS_FOLDED) : rows);
+
+function ShowMoreRows({ count, onClick }: { count: number; onClick: () => void }) {
+  useT();
+  return (
+    <button type="button" className={styles.showMoreRows} data-show-more-rows={count} onClick={onClick}>
+      {tp(count, "Show {n} more", "Show {n} more")}
+    </button>
+  );
+}
+
 function PropertyRows({ info }: { info: InstanceInfo }) {
+  // The instance's rows, variant properties first (instanceInfo's order); unfolded for this instance only.
+  const [all, setAll] = useState<string | null>(null);
+  const rows = all === info.instance.guid ? info.rows : shownRows(info.rows);
   return (
     <>
-      {info.rows.map((r) => (
+      {rows.map((r) => (
         <InstancePropertyRow key={`${r.def.type}:${guidStr(r.def.id)}:${r.def.name}`} info={info} row={r} />
       ))}
+      {rows.length < info.rows.length && <ShowMoreRows count={info.rows.length - rows.length} onClick={() => setAll(info.instance.guid)} />}
     </>
   );
 }
@@ -316,6 +368,7 @@ const APPLY_TYPES: Partial<Record<ComponentPropType, ("BOOLEAN" | "STRING" | "FL
   VARIANT: ["STRING", "FLOAT", "BOOLEAN"],
   BOOL: ["BOOLEAN"],
   TEXT: ["STRING"],
+  NUMBER: ["FLOAT"],
 };
 
 /** The 208 button's label (live instance.txt / variant-instance.txt). */
@@ -351,6 +404,9 @@ function InstancePropertyRow({ info, row }: { info: InstanceInfo; row: PropertyR
         break;
       case "TEXT":
         control = <PropertyText labelledBy={labelId} value={row.value?.textValue?.characters ?? ""} onCommit={(v) => setPropertyValue(ed, fresh(), def, { textValue: { characters: v } })} />;
+        break;
+      case "NUMBER":
+        control = <PropertyNumber label={def.name} value={row.value?.floatValue} onCommit={(v) => setPropertyValue(ed, fresh(), def, { floatValue: v })} />;
         break;
       case "INSTANCE_SWAP": {
         const current = row.value?.guidValue ? readC(ed, guidStr(row.value.guidValue)) : null;
@@ -441,6 +497,23 @@ function PropertyText({ value, labelledBy, onCommit }: { value: string; labelled
 }
 
 /**
+ * A Number property's field (atlas 10 §5.2): Figma's number text — 2 decimals at most, no trailing zeros; what isn't a
+ * number (blank, "12px", "1e3") puts the value back.
+ */
+function PropertyNumber({ label, value, onCommit }: { label: string; value: number | undefined; onCommit: (v: number) => void }) {
+  return (
+    <TextInput
+      label={label}
+      value={formatPropertyNumber(value)}
+      onCommit={(typed) => {
+        const v = parsePropertyNumber(typed);
+        if (v !== null && v !== value) onCommit(v);
+      }}
+    />
+  );
+}
+
+/**
  * An instance's slot property (help "Create and use slots"): the Limits label when the slot has guidelines (orange
  * when one is broken; a click lists them with a check or a warning), "Add instances" (+: the components, preferred
  * first), and More actions — Reset slot, Delete contents. Going over the maximum shows a toast (limits guide, never
@@ -487,7 +560,7 @@ function SlotControl({ row }: { row: PropertyRowData }) {
         <Icon name="24.more" />
       </MenuButton>
       {picker && (
-        <ComponentPicker anchor={picker} title={t("Add instances")} preferredKeys={preferredKeys} preferredFilter onPick={(a) => addInstanceToSlot(ed, state.ref, a, config)} onClose={closePicker} />
+        <ComponentPicker anchor={picker} title={t("Add instances")} preferredKeys={preferredKeys} onPick={(a) => addInstanceToSlot(ed, state.ref, a, config)} onClose={closePicker} />
       )}
       {limits && (
         <Popover anchor={limits} title={t("Limits")} width={240} onClose={() => setLimits(null)} label={t("Limits")}>
@@ -592,8 +665,8 @@ export function ComponentBlock({ sel }: { sel: ComponentSelection }) {
   const multi = useMultiEdit(set?.guid);
   const [config, toggleConfig, closeConfig] = usePopoverToggle<HTMLElement>();
   const kind = sel.kind === "instance" ? "component" : sel.kind;
-  // Figma's conflicting variants (round 17 B): a name that isn't its values (kept as typed) or values another has.
-  const conflicts = sel.kind === "set" || sel.kind === "variant" ? variantConflictCount(ed, node.guid) : 0;
+  // Figma's variant errors (atlas 10 §4.2): a set's worst, or the selected variants'.
+  const variantError = sel.kind === "set" || sel.kind === "variant" ? variantErrorOf(ed, { kind: sel.kind, ref: node.guid }) : null;
   const add = command("object.add-variant");
   const matching = command("edit.select-matching");
   const action = (a: ComponentHeaderAction) => {
@@ -617,14 +690,43 @@ export function ComponentBlock({ sel }: { sel: ComponentSelection }) {
         <NameField node={sel.kind === "variant" ? (set ?? node) : node} />
         {COMPONENT_HEADER_ACTIONS[kind].map(action)}
       </div>
-      {conflicts > 0 && (
-        <div className={styles.conflictWarning} role="status" data-variant-conflict="">
-          <Icon name="16.warning" />
-          <span>{sel.kind === "set" ? tp(conflicts, "{n} variant has conflicting properties", "{n} variants have conflicting properties") : t("This variant's name doesn't match its properties, or another variant has the same values")}</span>
-        </div>
-      )}
+      {variantError && <VariantErrorPanel set={sel.kind === "set"} {...variantError} />}
       {sel.kind === "variant" ? <CurrentVariantSection variant={node} /> : <PropertiesSection owner={node} />}
       {config && <ComponentConfiguration owner={node} anchor={config} onClose={closeConfig} />}
+    </div>
+  );
+}
+
+/**
+ * Figma's variant error panel (atlas 10 §4.2, figma_app's states panel): a warning icon and the error's text — for a
+ * set, with a link that selects the variants that have it ("Select invalid variants" / "Select conflicting
+ * variants"); for variants, counted by how many are selected. An invalid name shows the format it should have.
+ */
+function VariantErrorPanel({ set, error, variants, count }: { set: boolean; error: VariantError; variants: Guid[]; count: number }) {
+  useT();
+  const ed = useEditor();
+  const format = <strong className={styles.variantErrorFormat}>{t("Property=Value, Property=Value")}</strong>;
+  const link = (label: string) => (
+    <Button variant="link" className={styles.variantErrorLink} onClick={() => selectVariants(ed, variants)}>
+      {label}
+    </Button>
+  );
+  let body: React.ReactNode = null;
+  if (set) {
+    if (error === "PARSE_ERROR") body = <>{t("Some layers have invalid names")}{format}{link(t("Select invalid variants"))}</>;
+    else if (error === "DUPLICATE_STATE_ERROR") body = <>{t("Some variants have the same property values applied")}{link(t("Select conflicting variants"))}</>;
+    else if (error === "MISSING_PROPERTIES_ERROR") body = <>{t("Some variants are missing properties")}{link(t("Select invalid variants"))}</>;
+    else if (error === "TOO_MANY_STATES_ERROR") body = t("Components with more than 1000 variants may experience performance issues");
+  } else {
+    if (error === "PARSE_ERROR") body = <>{tp(count, "This layer has an invalid name", "These layers have invalid names")}{format}</>;
+    else if (error === "DUPLICATE_STATE_ERROR") body = tp(count, "The properties and values of this variant are conflicting", "The properties and values of these variants are conflicting");
+    else if (error === "MISSING_PROPERTIES_ERROR") body = tp(count, "This variant is missing one or more properties", "These variants are missing one or more properties");
+  }
+  if (!body) return null;
+  return (
+    <div className={styles.conflictWarning} role="status" data-variant-error={error}>
+      <Icon name="16.warning" />
+      <div className={styles.variantErrorBody}>{body}</div>
     </div>
   );
 }
@@ -673,6 +775,7 @@ function propertySummary(ed: EditorController, d: ComponentPropDef, variantProps
   if (d.type === "VARIANT") return variantProps.find((p) => p.name === d.name)?.values.join(", ") ?? "";
   if (d.type === "BOOL") return d.initialValue?.boolValue === false ? t("False") : t("True");
   if (d.type === "TEXT") return d.initialValue?.textValue?.characters ?? "";
+  if (d.type === "NUMBER") return formatPropertyNumber(d.initialValue?.floatValue);
   if (d.type === "INSTANCE_SWAP") {
     const c = d.initialValue?.guidValue ? readC(ed, guidStr(d.initialValue.guidValue)) : null;
     return c ? assetLabel(c.name ?? "") : "";
@@ -1024,7 +1127,7 @@ function GenericPropertyEditor({ owner, target, anchor, onClose }: { owner: CNod
   const layerName = target.mode === "create" ? target.bind?.layer.name : undefined;
   const [name, setName] = useState(def?.name ?? (type === "TEXT" && layerName ? layerName : ""));
   const initial = target.mode === "create" ? (target.bind ? valueFromLayer(target.bind.layer, type) : undefined) : def?.initialValue;
-  const [value, setValue] = useState<ComponentPropValue | undefined>(initial ?? (type === "BOOL" ? { boolValue: true } : type === "TEXT" ? { textValue: { characters: "Text" } } : type === "VARIANT" ? { textValue: { characters: "Default" } } : undefined));
+  const [value, setValue] = useState<ComponentPropValue | undefined>(initial ?? (type === "BOOL" ? { boolValue: true } : type === "TEXT" ? { textValue: { characters: "Text" } } : type === "NUMBER" ? { floatValue: 0 } : type === "VARIANT" ? { textValue: { characters: "Default" } } : undefined));
   const [picker, setPicker] = useState<{ kind: "value" | "preferred"; anchor: HTMLElement } | null>(null);
   const [applying, setApplying] = useState<HTMLElement | null>(null);
   const [valueDrag, setValueDrag] = useState<number | null>(null);
@@ -1087,7 +1190,19 @@ function GenericPropertyEditor({ owner, target, anchor, onClose }: { owner: CNod
             <TextInput label={t("Value")} value={value?.textValue?.characters ?? ""} onCommit={(v) => editValue({ textValue: { characters: v } })} />
           </>
         )}
-        {(type === "BOOL" || type === "TEXT") && def && !boundDefault && (
+        {type === "NUMBER" && boundDefault && def && (
+          <>
+            <span className={styles.editorLabel}>{t("Value")}</span>
+            <BoundPill id={boundDefault} label={t("Value")} onOpen={setApplying} onDetach={() => bindPropertyVariable(ed, owner.guid, def.name, null)} />
+          </>
+        )}
+        {type === "NUMBER" && !boundDefault && (
+          <>
+            <span className={styles.editorLabel}>{t("Value")}</span>
+            <PropertyNumber label={t("Value")} value={value?.floatValue ?? 0} onCommit={(v) => editValue({ floatValue: v })} />
+          </>
+        )}
+        {(type === "BOOL" || type === "TEXT" || type === "NUMBER") && def && !boundDefault && (
           // "Apply variable" (help: a boolean variable for a boolean property's default, a string one for a text one).
           <span className={cx(styles.editorWide, styles.editorFooterStart)}>
             <Button variant="secondary" onClick={(e) => setApplying(e.currentTarget)} {...tooltipProps(t("Apply variable"))}>
@@ -1099,7 +1214,7 @@ function GenericPropertyEditor({ owner, target, anchor, onClose }: { owner: CNod
         {applying && def && (
           <VariablePicker
             anchor={applying}
-            types={[type === "BOOL" ? "BOOLEAN" : "STRING"]}
+            types={[type === "BOOL" ? "BOOLEAN" : type === "NUMBER" ? "FLOAT" : "STRING"]}
             current={boundDefault}
             onPick={(v) => bindPropertyVariable(ed, owner.guid, def.name, v.id)}
             onClose={() => setApplying(null)}
@@ -1222,7 +1337,9 @@ function GenericPropertyEditor({ owner, target, anchor, onClose }: { owner: CNod
 /**
  * The "Apply property" button next to a field of a layer inside a main component (Figma's purple bind icon):
  * a menu of the component's properties of the right type (the bound one ticked), Create property…, Detach.
- * Bound, it shows as the property's purple pill. Renders nothing outside components.
+ * Bound, it shows as the property's purple pill. Renders nothing outside components. As Figma's (atlas 10 §5.3): named
+ * "Apply {type} property" when the component has properties of that type, else "Create {type} property"; never on an
+ * instance's sublayer, nor on a component's own visibility (a Boolean can't hide the main itself) unless it is bound.
  */
 export function BindButton({ layer, field, type }: { layer: Pick<CNode, "guid"> & Partial<CNode>; field: BindableField; type: Exclude<ComponentPropType, "VARIANT"> }) {
   useT();
@@ -1237,11 +1354,13 @@ export function BindButton({ layer, field, type }: { layer: Pick<CNode, "guid"> 
     const owner = owningComponent(ed, node);
     if (!owner || !canBind({ type }, node.type ?? "")) return null;
     const defs = (owner.definer.componentPropDefs ?? []).filter((d) => d.type === type);
-    return { node, owner, defs, bound: boundProperty(node, field, owner.definer.componentPropDefs ?? []) };
+    const bound = boundProperty(node, field, owner.definer.componentPropDefs ?? []);
+    if (field === "VISIBLE" && isComponent(node) && !bound) return null;
+    return { node, owner, defs, bound };
   }, [ed, layer.guid, field, type, version]);
   if (!data) return null;
   const typeName = t(PROPERTY_TYPE_LABEL[type]).toLowerCase();
-  const label = t("Apply {type} property", { type: typeName });
+  const label = data.defs.length ? t("Apply {type} property", { type: typeName }) : t("Create {type} property", { type: typeName });
   const entries: MenuEntry[] = [
     { header: label },
     ...data.defs.map((d) => ({ id: guidStr(d.id), label: d.name, checked: !!data.bound && guidStr(data.bound.id) === guidStr(d.id) })),

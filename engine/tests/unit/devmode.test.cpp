@@ -116,6 +116,9 @@ TEST_CASE("devmode: annotations stored in Figma's fields, drawn as labels beside
   auto cats = annot::categoriesOf(&f.ed.document().get(kDoc)->props);
   REQUIRE(cats.size() == 3);
   CHECK(cats[0].label == "Development");
+  // The presets' colours (atlas 14 §12): Development green, Interaction blue.
+  CHECK(cats[0].colorName == "GREEN");
+  CHECK(cats[1].colorName == "BLUE");
   CHECK(cats[2].label == "Motion");
   CHECK(cats[2].colorName == "PINK");
   auto notes = annot::notesOf(f.ed.document().get(CHILD)->props);
@@ -130,6 +133,13 @@ TEST_CASE("devmode: annotations stored in Figma's fields, drawn as labels beside
   CHECK(o.dev.cards[0].lines[0].text == "Use the brand card");
   REQUIRE(o.dev.cards[0].properties.size() == 2);
   CHECK(o.dev.cards[0].properties[0] == std::pair<std::string, std::string>{"Width", "60"});
+  // The zoom menu's Annotations ▸ <category>: only that category's annotations; "Show all categories" again.
+  f.ed.setAnnotationFilter({2, 1});
+  CHECK(f.ed.overlay().dev.cards.empty());
+  f.ed.setAnnotationFilter({2, 5});
+  CHECK(f.ed.overlay().dev.cards.size() == 1);
+  f.ed.setAnnotationFilter(kNoGuid);
+  CHECK(f.ed.overlay().dev.cards.size() == 1);
   // Drawn beside design A (the layer is in A's left half: on its left), recorded for clicks.
   f.frame();
   REQUIRE(f.r.canvasHits().annotations.size() == 1);
@@ -497,4 +507,47 @@ TEST_CASE("devmode: focus view draws and picks one design") {
   RenderStats s = f.r.render(f.ed.document(), f.ed.page(), f.ed.camera(), f.ed.viewport(), o, OverlayStyle::of(Theme::Dark));
   CHECK(s.shapes > 0);
   CHECK(f.ed.setFocus(Guid{9, 9}) == E_NOT_FOUND);
+}
+
+TEST_CASE("devmode: the inspect chrome measures a selected auto-layout frame (the owner's capture 2026-10-18)") {
+  // Frame 5043: 678 × 549, horizontal, padding 70 / 21 / 307 / 25, gap 140, two 246 × 172 layers at the end.
+  const Guid F{2, 1}, R1{2, 2}, R2{2, 3};
+  auto nodes = baseChanges();
+  NodeChange frame = make(F, NodeType::FRAME, kPage, "a", {0, 0, 678, 549}, "Frame 5043");
+  StackFacet& st = frame.props.stack();
+  st.stackMode = StackMode::HORIZONTAL;
+  st.stackPaddingTop = 70, st.stackPaddingRight = 21, st.stackPaddingBottom = 307, st.stackPaddingLeft = 25;
+  st.stackSpacing = 140;
+  st.stackPrimaryAlignItems = StackJustify::MAX;
+  st.stackPrimarySizing = st.stackCounterSizing = StackSize::FIXED;
+  nodes.push_back(frame);
+  nodes.push_back(make(R1, NodeType::ROUNDED_RECTANGLE, F, "a", {25, 70, 246, 172}, "Rectangle 24"));
+  nodes.push_back(make(R2, NodeType::ROUNDED_RECTANGLE, F, "b", {411, 70, 246, 172}, "Rectangle 25"));
+  Fixture f(nodes);
+  f.ed.setSelection({F});
+  // Design mode: none of it.
+  CHECK_FALSE(f.ed.overlay().devInspect.on);
+  f.ed.setViewerMode(true);
+  f.ed.setDevEdits(true);
+  f.ed.setDevInspect(true);
+  Overlay o = f.ed.overlay();
+  REQUIRE(o.devInspect.on);
+  CHECK(o.devInspect.frame == F);
+  CHECK(o.devInspect.width == "W Fixed 678px");
+  CHECK(o.devInspect.height == "H Fixed 549px");
+  // Four paddings and the gap hatched, the gap pink; the two layers dotted.
+  REQUIRE(o.devInspect.areas.size() == 5);
+  CHECK(o.devInspect.areas.back().gap);
+  CHECK(o.devInspect.dotted.size() == 2);
+  std::vector<std::string> pills;
+  for (const auto& p : o.devInspect.pills) pills.push_back(p.text);
+  CHECK(pills == std::vector<std::string>{"25", "70", "21", "307", "140"});
+  // The gap's pill in its middle, level with the layers' middle (70 + 172 / 2).
+  CHECK(o.devInspect.pills.back().at.x == doctest::Approx(271 + 70));
+  CHECK(o.devInspect.pills.back().at.y == doctest::Approx(156));
+  RenderStats s = f.r.render(f.ed.document(), f.ed.page(), f.ed.camera(), f.ed.viewport(), o, OverlayStyle::of(Theme::Dark));
+  CHECK(s.shapes > 0);
+  // Viewer mode without the inspect chrome (the version history's preview): none.
+  f.ed.setDevInspect(false);
+  CHECK_FALSE(f.ed.overlay().devInspect.on);
 }

@@ -154,7 +154,7 @@ describe("round 10: the stubs live has enabled (live menus/main-*.txt)", () => {
 
   it("the intended exclusions stay disabled", async () => {
     const { ed } = await editor();
-    for (const id of ["file.open-in-desktop", "canvas.send-to-make", "canvas.find-similar", "canvas.add-motion", "plugins.manage", "widgets.manage", "widgets.select-all", "prefs.color-profile", "prefs.accessibility", "prefs.permissions", "help.font-settings", "help.log-out"])
+    for (const id of ["file.open-in-desktop", "canvas.send-to-make", "canvas.find-similar", "canvas.add-motion", "plugins.manage", "widgets.manage", "widgets.select-all", "prefs.color-profile", "prefs.permissions", "help.font-settings", "help.log-out"])
       expect(enabled(ed, id), id).toBe(false);
     // Account settings opens the Settings modal (src/renderer/src/settings); Log out waits for a signed-in account.
     expect(enabled(ed, "help.account")).toBe(true);
@@ -187,6 +187,8 @@ describe("round 10: the commands do what they say", () => {
     runEditorCommand(ed, "edit.copy-properties");
     engine.setSelection(["7:60"]);
     runEditorCommand(ed, "edit.paste-properties");
+    // Read from the system clipboard first (none here: the window's last copy).
+    await new Promise((r) => setTimeout(r, 0));
     expect((engine.readNode("7:60", { fields: ["opacity"] }) as { opacity: number }).opacity).toBeCloseTo(0.5);
     runEditorCommand(ed, "object.hide-other-layers");
     expect((engine.readNode("7:61", { fields: ["visible"] }) as { visible?: boolean }).visible).toBe(false);
@@ -229,7 +231,10 @@ describe("round 10: context menus (live menus/context-*.txt)", () => {
     expect(l).toContain("Select layer");
     expect(l).not.toContain("Convert to section");
     expect(l).not.toContain("Set as thumbnail");
-    expect(l.slice(-11, -4)).toEqual(["Add auto layout", "Create component", "Reset instance", "Detach instance", "Go to main component", "Plugins", "Widgets"]);
+    // Rows that can't run are gone (Atlas 03 §4: Plugins and Widgets have nothing to run here).
+    const at = l.indexOf("Add auto layout");
+    expect(l.slice(at, at + 5)).toEqual(["Add auto layout", "Create component", "Reset instance", "Detach instance", "Go to main component"]);
+    expect(l).not.toContain("Widgets");
   });
 
   it("a main component: Set as thumbnail, More layout options, no Convert to section; a frame: Convert to section", async () => {

@@ -152,7 +152,12 @@
     font: var(--ds-font-body-medium);
     font-weight: 600;
   }
-  .headName { padding-left: var(--ds-space-4); }
+  /* Name: drag its right edge (50 … 500, double-click back to 200 — atlas 11 §8.1); over the first mode's header so
+     the edge's outer half takes the pointer */
+  .headName { z-index: 2; padding-left: var(--ds-space-4); }
+  /* A mode past the plan's limit: the column disabled (atlas 11 §3.1) */
+  .modeDisabled .modeLabel, .valueDisabled { color: var(--figma-color-text-disabled); }
+  .valueText { min-width: 0; padding: 0 var(--ds-space-1); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .modeHead { justify-content: space-between; user-select: none; }
   .modeHead[data-default] .modeLabel::after { content: ""; }
   .modeLabel { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--figma-color-text); }
@@ -299,6 +304,26 @@
   .typeFilter[data-open] { background: var(--ds-color-bg-transparent-pressed); color: var(--figma-color-icon); }
   .typeFilter:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
 
+  /* The Collections menu's button (an icon button's look) */
+  .sideMenuWrap { display: inline-flex; flex: none; }
+  .sideMenu {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--ds-size-control);
+    height: var(--ds-size-control);
+    padding: 0;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: none;
+    color: var(--figma-color-icon-secondary);
+    outline: none;
+  }
+  .sideMenu:hover { background: var(--figma-color-bg-hover); color: var(--figma-color-icon); }
+  .sideMenu[data-open] { background: var(--ds-color-bg-transparent-pressed); color: var(--figma-color-icon); }
+  .sideMenu:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+
   /* Reorder collections */
   .reorderRow {
     display: flex;
@@ -313,18 +338,24 @@
   .reorderOver { box-shadow: inset 0 2px 0 var(--figma-color-border-selected); }
   .reorderName { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   /* Round 6: Minimize — a smaller modal over the canvas, resizable by its edges; Expand fills the window again */
+  /* Minimized (atlas 11 §8.1, Figma's numbers): 642 wide, + the sidebar while it shows, 380 high, at the top right 8 in
+     and 8 down; resized down to 400 × 180 (400 × 300 with no variables), up to the window less 8 on each side */
   .windowMinimized {
-    inset: auto var(--ds-space-4) calc(var(--ds-size-toolbar) + var(--ds-space-6)) auto;
-    width: min(880px, calc(100% - var(--ds-size-rail) - 2 * var(--ds-space-4)));
-    height: min(420px, calc(100% - 2 * var(--ds-space-6)));
-    min-width: 480px;
-    min-height: 240px;
+    inset: var(--ds-space-2) var(--ds-space-2) auto auto;
+    width: min(calc(642px + var(--ds-size-panel) + 1px), calc(100% - 2 * var(--ds-space-2)));
+    height: min(380px, calc(100% - 2 * var(--ds-space-2)));
+    min-width: 400px;
+    min-height: 180px;
+    max-width: calc(100% - 2 * var(--ds-space-2));
+    max-height: calc(100% - 2 * var(--ds-space-2));
     overflow: hidden;
     resize: both;
     border: 1px solid var(--figma-color-border);
     border-radius: var(--ds-radius-large);
     box-shadow: var(--ds-elevation-500);
   }
+  .windowMinimized.noSidebar { width: min(642px, calc(100% - 2 * var(--ds-space-2))); }
+  .windowMinimized[data-empty] { min-height: 300px; }
   /* Toggle sidebar: the table takes the whole width */
   .noSidebar { grid-template-columns: minmax(0, 1fr); }
   .noSidebar > .toolbar { grid-column: 1; }
@@ -334,4 +365,22 @@
   .sideRow[data-group-drop="into"] { background: var(--figma-color-bg-selected); }
   .sideRow[data-group-drop="before"] { box-shadow: inset 0 2px 0 var(--figma-color-border-selected-strong); }
   .sideRow[data-group-drop="after"] { box-shadow: inset 0 -2px 0 var(--figma-color-border-selected-strong); }
+
+  /* An Easing variable's value (round 8i): its name, the Easing editor on click */
+  .easingValue {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: var(--ds-space-1);
+    min-width: 0;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-1);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: none;
+    color: var(--figma-color-text);
+    font: inherit;
+    text-align: left;
+  }
+  .easingValue:hover { background: var(--figma-color-bg-hover); }
 }

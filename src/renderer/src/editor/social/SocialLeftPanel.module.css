@@ -1,0 +1,41 @@
+@layer app {
+  /* Social's left panel (docs/social.md §6.2): the brand, the posts by campaign, the templates' place [metrics ours] */
+  .add {
+    display: flex; align-items: center; justify-content: center; width: var(--ds-size-control-large); height: var(--ds-size-control-large); padding: 0; border: 0;
+    border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-icon); outline: none; cursor: default;
+  }
+  .add:hover, .add[data-open] { background: var(--figma-color-bg-hover); }
+  .add:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .brand { flex: none; padding: var(--ds-space-2) var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-size-panel-pad-left); border-bottom: 1px solid var(--figma-color-border); }
+  .scroll { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+  .templates { flex: none; border-top: 1px solid var(--figma-color-border); }
+
+  /* Campaigns: a disclosure, the name, the count */
+  .posts { display: flex; flex-direction: column; padding: var(--ds-space-1) 0 var(--ds-space-2); }
+  .group { display: flex; flex-direction: column; }
+  .groupHeader { display: flex; align-items: center; gap: var(--ds-space-1); height: var(--ds-size-row); padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-space-2); color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .disclosure { display: flex; align-items: center; justify-content: center; width: var(--ds-size-icon-16); height: var(--ds-size-icon-16); padding: 0; border: 0; background: none; color: var(--figma-color-icon-secondary); cursor: default; }
+  .chevron { display: flex; transition: transform var(--ds-duration-fast) var(--ds-ease-out); }
+  .chevronClosed { transform: rotate(-90deg); }
+  .groupName { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: none; }
+  .groupCount { flex: none; color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); }
+  .rename { flex: 1 1 auto; min-width: 0; }
+
+  /* A post: 32 high — its picture (24), name and format, the platform, its state */
+  .post {
+    display: flex; align-items: center; gap: var(--ds-space-2); width: calc(100% - var(--ds-space-4)); height: var(--ds-size-row); margin: 0 var(--ds-space-2);
+    padding: 0 var(--ds-space-2) 0 var(--ds-space-5); border: 0; border-radius: var(--ds-radius-medium); background: none; color: var(--figma-color-text); font: var(--ds-font-body-medium); text-align: left; outline: none; cursor: default;
+  }
+  .post:hover { background: var(--figma-color-bg-hover); }
+  .post[aria-selected="true"] { background: var(--figma-color-bg-selected); }
+  .post:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .thumb { flex: none; width: var(--ds-size-icon-24); height: var(--ds-size-icon-24); border-radius: var(--ds-radius-small); background: var(--figma-color-bg-secondary); object-fit: contain; outline: 1px solid var(--figma-color-border); outline-offset: -1px; }
+  .postText { display: flex; flex: 1 1 auto; align-items: baseline; gap: var(--ds-space-1-5); min-width: 0; overflow: hidden; white-space: nowrap; }
+  .postName { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .postFormat { flex: 0 10 auto; min-width: 0; overflow: hidden; color: var(--figma-color-text-tertiary); text-overflow: ellipsis; }
+  .platform { flex: none; min-width: var(--ds-size-icon-16); padding: 0 var(--ds-space-half); border-radius: var(--ds-radius-small); background: var(--figma-color-bg-secondary); color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); text-align: center; }
+  .glyph { display: inline-flex; flex: none; align-items: center; justify-content: center; min-width: var(--ds-size-icon-16); height: var(--ds-size-icon-16); color: var(--figma-color-icon-secondary); font: var(--ds-font-body-small); }
+  .problems { color: var(--figma-color-icon-warning); }
+  .done { color: var(--figma-color-icon-success); }
+  .draftDot { width: var(--ds-space-1-5); height: var(--ds-space-1-5); border-radius: var(--ds-radius-full); background: var(--figma-color-icon-tertiary); }
+}

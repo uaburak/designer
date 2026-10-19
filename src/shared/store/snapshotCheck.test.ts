@@ -23,4 +23,21 @@ describe("an engine snapshot against the head (docs/data.md §5.5)", () => {
     const gone = snapshotLosses(head, NodeTable.fromMessage(newDocumentMessage()));
     expect(gone.missingNodes).toBe(1);
   });
+
+  it("a deleted main nothing uses, and what is inside it, may go (the engine lets it go at load); a published one may not", () => {
+    const m = newDocumentMessage();
+    const main = node({ guid: { sessionID: 1, localID: 5 }, type: "SYMBOL", name: "Gone", isSoftDeleted: true } as Partial<NodeChange>);
+    const inside = node({ guid: { sessionID: 1, localID: 6 }, type: "TEXT", name: "Label", parentIndex: { guid: { sessionID: 1, localID: 5 }, position: "!" } });
+    m.nodeChanges!.push(main, inside);
+    const empty = NodeTable.fromMessage(newDocumentMessage());
+    expect(snapshotLosses(NodeTable.fromMessage(m), empty).total).toBe(0);
+    // Published: the next publish lists it as Removed — it stays.
+    const p = newDocumentMessage();
+    p.nodeChanges!.push({ ...main, publishedVersion: "abc" } as NodeChange, inside);
+    expect(snapshotLosses(NodeTable.fromMessage(p), empty).missingNodes).toBe(2);
+    // Not deleted: a loss.
+    const live = newDocumentMessage();
+    live.nodeChanges!.push({ ...main, isSoftDeleted: false } as NodeChange, inside);
+    expect(snapshotLosses(NodeTable.fromMessage(live), empty).missingNodes).toBe(2);
+  });
 });

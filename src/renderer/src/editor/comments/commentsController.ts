@@ -8,11 +8,15 @@ import { useSyncExternalStore } from "react";
 import { showToast } from "@/ds";
 import { t } from "@/i18n";
 import { getStoreClient } from "@/store";
-import { mentionsIn, type CommentAnchor, type CommentsState, type CommentThread, type MentionCandidate } from "@shared/comments";
+import { mentionsIn, type Comment, type CommentAnchor, type CommentAttachment, type CommentSegment, type CommentsState, type CommentThread, type MentionCandidate } from "@shared/comments";
 import type { Guid, NodeChange } from "@/engine/codec";
 import type { EditorController } from "../controller";
+import { modeOf, setMode } from "../devmode/devMode";
+import type { ImageStore } from "../images";
+import { motionUi, setPlayhead } from "../motion/motionState";
 
-export type CommentSort = "date" | "unread";
+/** Figma's sorts: "date" the threads' creation (`creationDate`), "recent" their last reply (`recent`), "unread" unread first */
+export type CommentSort = "date" | "recent" | "unread";
 export type CommentNotifications = "everything" | "mentions" | "nothing";
 
 export interface CommentsView {
@@ -31,6 +35,10 @@ export interface CommentsView {
 }
 
 const PREFS_KEY = "designer.comments.prefs";
+/** A pending comment's id (and its new thread's) before the store gives it one */
+export const PENDING = "pending:";
+/** A pending comment's pin shows its spinner only after this long (Figma's `PENDING_DELAY_MS`) */
+export const PENDING_DELAY_MS = 500;
 /** Figma attaches a comment to the top-level frame, component or group under it (R14 §attachment) */
 const ATTACHABLE = new Set(["FRAME", "SYMBOL", "INSTANCE", "GROUP", "SECTION", "COMPONENT_SET"]);
 
@@ -38,7 +46,7 @@ function loadPrefs(): Partial<CommentsView> {
   try {
     const raw = localStorage.getItem(PREFS_KEY);
     const p = raw ? (JSON.parse(raw) as Partial<CommentsView>) : {};
-    return { sort: p.sort === "unread" ? "unread" : "date", showResolved: p.showResolved === true, onlyMine: p.onlyMine === true, onlyPage: p.onlyPage === true, notifications: p.notifications === "mentions" || p.notifications === "nothing" ? p.notifications : "everything" };
+    return { sort: p.sort === "unread" || p.sort === "recent" ? p.sort : "date", showResolved: p.showResolved === true, onlyMine: p.onlyMine === true, onlyPage: p.onlyPage === true, notifications: p.notifications === "mentions" || p.notifications === "nothing" ? p.notifications : "everything" };
   } catch {
     return {};
   }
@@ -143,6 +151,13 @@ export class CommentsController {
   }
   setNotifications(notifications: CommentNotifications): void {
     this.set({ notifications });
+    // Figma's opt-in toast after a change (atlas 16 §2.8): 15 s, with Manage (the Comments panel, where the setting is).
+    if (notifications === "nothing") return;
+    showToast({
+      message: notifications === "everything" ? t("You will be notified about all comments in this file") : t("You will be notified about replies and @mentions"),
+      duration: 15_000,
+      action: { label: t("Manage"), onAction: () => this.ed.setTool("COMMENT") },
+    });
   }
 
   /** The Comment tool's click at a canvas point (CSS px): a new comment there. */
@@ -155,11 +170,56 @@ export class CommentsController {
     if (this.view.draft) this.set({ draft: null });
   }
 
-  async post(message: string): Promise<boolean> {
+  /** Where a comment's files go: the file's images (the store's blobs) — a local file's comments only for now */
+  attachments(): ImageStore | undefined {
+    return this.view.data && !this.view.data.shared ? this.ed.source.images : undefined;
+  }
+
+  /** The people a message mentions: those picked in the composer, and any "@Name" typed out */
+  private mentions(message: string, picked: string[]): string[] {
+    return [...new Set([...picked, ...mentionsIn(message, this.view.people)])];
+  }
+
+  /**
+   * A comment shown at once, before the store answers (atlas 16 §2.1: every write is optimistic) — "In a moment" for
+   * its time, its pin's spinner after 500 ms; the store's answer replaces it.
+   */
+  private pendingComment(threadId: string, message: string, mentions: string[], files: { attachments?: CommentAttachment[]; messageMeta?: CommentSegment[] }): Comment | null {
+    const me = this.view.data?.me;
+    if (!me) return null;
+    const id = threadId.startsWith(PENDING) ? threadId : `${PENDING}${Math.random().toString(36).slice(2)}`;
+    return { id, threadId, parentId: threadId.startsWith(PENDING) ? null : threadId, user: me, message, mentions, createdAt: Date.now(), editedAt: null, reactions: [], ...files, pending: true };
+  }
+
+  /** The data with a pending thread or reply in it, or without what's pending (`null`: the write failed). */
+  private withPending(change: { thread?: CommentThread; reply?: Comment } | null): void {
+    const data = this.view.data;
+    if (!data) return;
+    const threads = data.threads
+      .filter((th) => !(change === null && th.id.startsWith(PENDING)))
+      .map((th) => (change?.reply && th.id === change.reply.threadId ? { ...th, comments: [...th.comments, change.reply] } : change === null ? { ...th, comments: th.comments.filter((x) => !x.pending) } : th));
+    this.set({ data: { ...data, threads: change?.thread ? [...threads, change.thread] : threads } });
+  }
+
+  async post(message: string, attachments: CommentAttachment[] = [], messageMeta: CommentSegment[] | null = null, picked: string[] = []): Promise<boolean> {
     const anchor = this.view.draft;
-    if (!anchor || !message.trim()) return false;
-    const data = await this.apply(getStoreClient().comments.add(this.fileKey, { message, mentions: mentionsIn(message, this.view.people), anchor }));
-    if (!data) return false;
+    if (!anchor || (!message.trim() && !attachments.length)) return false;
+    const files = { ...(attachments.length ? { attachments } : {}), ...(messageMeta ? { messageMeta } : {}) };
+    const mentions = this.mentions(message, picked);
+    const draftText = this.draftText;
+    const shown = this.pendingComment(`${PENDING}${Math.random().toString(36).slice(2)}`, message, mentions, files);
+    if (shown) {
+      this.withPending({ thread: { id: shown.threadId, number: 0, anchor, comments: [{ ...shown, id: shown.threadId }], resolvedAt: null, resolvedBy: null, unread: false, readAt: 0 } });
+      this.set({ draft: null });
+    }
+    const data = await this.apply(getStoreClient().comments.add(this.fileKey, { message, mentions, anchor, ...files }));
+    if (!data) {
+      // Not saved: the comment goes back to its composer, as it was.
+      this.withPending(null);
+      this.draftText = draftText;
+      this.set({ draft: anchor });
+      return false;
+    }
     this.set({ draft: null });
     if (!toldAboutReplies) {
       toldAboutReplies = true;
@@ -168,14 +228,26 @@ export class CommentsController {
     return true;
   }
 
-  async reply(threadId: string, message: string): Promise<boolean> {
-    if (!message.trim()) return false;
-    return !!(await this.apply(getStoreClient().comments.add(this.fileKey, { threadId, message, mentions: mentionsIn(message, this.view.people) })));
+  async reply(threadId: string, message: string, attachments: CommentAttachment[] = [], messageMeta: CommentSegment[] | null = null, picked: string[] = []): Promise<boolean> {
+    if (!message.trim() && !attachments.length) return false;
+    const files = { ...(attachments.length ? { attachments } : {}), ...(messageMeta ? { messageMeta } : {}) };
+    const mentions = this.mentions(message, picked);
+    const shown = this.pendingComment(threadId, message, mentions, files);
+    if (shown) this.withPending({ reply: shown });
+    const data = await this.apply(getStoreClient().comments.add(this.fileKey, { threadId, message, mentions, ...files }));
+    if (!data) this.withPending(null);
+    return !!data;
   }
 
-  async edit(commentId: string, message: string): Promise<boolean> {
-    if (!message.trim()) return false;
-    return !!(await this.apply(getStoreClient().comments.edit(this.fileKey, commentId, message, mentionsIn(message, this.view.people))));
+  async edit(commentId: string, message: string, messageMeta: CommentSegment[] | null = null, picked: string[] = []): Promise<boolean> {
+    const had = this.view.data?.threads.some((th) => th.comments.some((c) => c.id === commentId && c.attachments?.length));
+    if (!message.trim() && !had) return false;
+    return !!(await this.apply(getStoreClient().comments.edit(this.fileKey, commentId, message, this.mentions(message, picked), messageMeta)));
+  }
+
+  /** Rich text in the composer: a local file's comments (a shared file's server keeps the plain text) */
+  rich(): boolean {
+    return !this.view.data?.shared;
   }
 
   async remove(commentId: string): Promise<void> {
@@ -203,9 +275,22 @@ export class CommentsController {
     await this.apply(getStoreClient().comments.react(this.fileKey, commentId, emoji, on));
   }
 
-  /** A pin dropped at a canvas point (CSS px) */
+  /** A pin dropped at a canvas point (CSS px); a thread placed in Motion keeps its time */
   async move(threadId: string, canvasX: number, canvasY: number): Promise<void> {
-    await this.apply(getStoreClient().comments.move(this.fileKey, threadId, this.anchorAt(canvasX, canvasY)));
+    const { timeMs: _now, ...place } = this.anchorAt(canvasX, canvasY);
+    const timeMs = this.view.data?.threads.find((x) => x.id === threadId)?.anchor.timeMs;
+    await this.apply(getStoreClient().comments.move(this.fileKey, threadId, timeMs === null || timeMs === undefined ? place : { ...place, timeMs }));
+  }
+
+  /**
+   * A thread's time (docs/motion.md §6.8): the playhead moves there, in Motion (the mode switches to it first). The
+   * ruler's marker and the thread card's time both come here.
+   */
+  goToTime(threadId: string): void {
+    const timeMs = this.view.data?.threads.find((x) => x.id === threadId)?.anchor.timeMs;
+    if (timeMs === null || timeMs === undefined) return;
+    if (modeOf(this.ed) !== "motion") setMode(this.ed, "motion");
+    setPlayhead(this.ed, timeMs * 1000);
   }
 
   /** Opens a thread's card (and reads it); `reveal`: from the list — its page, the view centred on it. */
@@ -215,6 +300,8 @@ export class CommentsController {
     const t = this.view.data?.threads.find((x) => x.id === threadId);
     if (!t) return;
     if (t.unread) void this.markRead([t.id], true);
+    // A link to a resolved thread shows resolved threads (Figma turns the filter on).
+    if (reveal && t.resolvedAt && !this.view.showResolved) this.set({ showResolved: true });
     if (reveal) {
       const ed = this.ed;
       if (t.anchor.pageId && t.anchor.pageId !== ed.store.page && ed.store.pages.some((p) => p.guid === t.anchor.pageId)) ed.engine.setCurrentPage(t.anchor.pageId as Guid);
@@ -244,30 +331,61 @@ export class CommentsController {
     return { x: a.x, y: a.y };
   }
 
-  /** The anchor for a canvas point (CSS px): the page point, and the top-level frame / component / group under it */
+  /**
+   * The anchor for a canvas point (CSS px): the page point, and the top-level frame / component / group under it; in
+   * Motion, the playhead's time too (docs/motion.md §6.8)
+   */
   anchorAt(canvasX: number, canvasY: number): CommentAnchor {
     const ed = this.ed;
     const cam = ed.engine.getCamera();
     const x = round((canvasX - cam.x) / cam.zoom);
     const y = round((canvasY - cam.y) / cam.zoom);
     const pageId = ed.store.page;
+    const time = modeOf(ed) === "motion" ? { timeMs: Math.round(motionUi(ed).timeUs / 1000) } : {};
     for (const id of ed.engine.hitTest(canvasX, canvasY)) {
       let n: NodeChange | null = ed.store.readNode(id);
       for (let depth = 0; n && depth < 256; depth++) {
         const parent = n.parentIndex?.guid;
         if (parent === pageId) {
-          if (ATTACHABLE.has(n.type ?? "") && n.transform) return { pageId, x, y, nodeId: n.guid, offset: { x: round(x - n.transform.m02), y: round(y - n.transform.m12) } };
+          if (ATTACHABLE.has(n.type ?? "") && n.transform) return { pageId, x, y, nodeId: n.guid, offset: { x: round(x - n.transform.m02), y: round(y - n.transform.m12) }, ...time };
           break;
         }
         n = parent ? ed.store.readNode(parent) : null;
       }
       break;
     }
-    return { pageId, x, y, nodeId: null, offset: null };
+    return { pageId, x, y, nodeId: null, offset: null, ...time };
   }
 }
 
 const round = (v: number) => Math.round(v * 100) / 100;
+
+/** Motion (docs/motion.md §6.8): a pin placed at a time shows while the playhead is this close to it [unverified] */
+export const COMMENT_TIME_WINDOW_MS = 250;
+
+/** Whether a thread's pin shows: always outside Motion and for threads without a time; in Motion, near the playhead */
+export function pinShownAt(a: CommentAnchor, motion: boolean, playheadMs: number): boolean {
+  if (!motion || a.timeMs === null || a.timeMs === undefined) return true;
+  return Math.abs(a.timeMs - playheadMs) <= COMMENT_TIME_WINDOW_MS;
+}
+
+/** A thread's time as its card shows it: "0:01.250" (minutes, seconds, ms) */
+export function formatCommentTime(ms: number): string {
+  const total = Math.max(0, Math.round(ms));
+  const s = Math.floor((total % 60_000) / 1000);
+  return `${Math.floor(total / 60_000)}:${String(s).padStart(2, "0")}.${String(total % 1000).padStart(3, "0")}`;
+}
+
+/** The ruler's markers (docs/motion.md §6.8): the page's threads placed in Motion, resolved ones while they're shown */
+export function timedThreads(v: CommentsView, page: string): { id: string; number: number; timeMs: number }[] {
+  const out: { id: string; number: number; timeMs: number }[] = [];
+  for (const th of v.data?.threads ?? []) {
+    const timeMs = th.anchor.timeMs;
+    if (timeMs === null || timeMs === undefined || th.anchor.pageId !== page || (th.resolvedAt && !v.showResolved)) continue;
+    out.push({ id: th.id, number: th.number, timeMs });
+  }
+  return out;
+}
 
 const registry = new WeakMap<EditorController, CommentsController>();
 
@@ -288,19 +406,26 @@ export function useComments(ed: EditorController): CommentsView {
   return useSyncExternalStore(c ? c.subscribe : noop, () => c?.view ?? EMPTY_VIEW);
 }
 
-/** The threads the panel lists, as its search, sort and filters say (Figma's Sort/Filter menu) */
+/**
+ * The threads the panel lists, as its search, sort and filters say (Figma's Sort/Filter menu, atlas 16 §2.8): resolved
+ * threads hidden unless shown; "Only your threads" keeps those with a comment of yours or one mentioning you; a search
+ * matching a reply finds its thread. "Sort by date" orders by the first comment's time, "Sort by last action" by the
+ * last reply's, "Sort by unread" puts unread threads first, then by date — newest first in each.
+ */
 export function listedThreads(v: CommentsView, currentPage: string): CommentThread[] {
-  const me = v.data?.me.id;
+  const me = v.data?.me;
   const q = v.search.trim().toLowerCase();
+  const mentionsMe = (mentions: string[]) => !!me && (mentions.includes(me.id) || (!!me.email && mentions.includes(me.email)));
   let list = (v.data?.threads ?? []).filter((t) => {
     if (t.resolvedAt && !v.showResolved) return false;
     if (v.onlyPage && t.anchor.pageId !== currentPage) return false;
-    if (v.onlyMine && !t.comments.some((c) => c.user.id === me)) return false;
+    if (v.onlyMine && !t.comments.some((c) => c.user.id === me?.id || mentionsMe(c.mentions))) return false;
     if (q && !t.comments.some((c) => c.message.toLowerCase().includes(q) || c.user.name.toLowerCase().includes(q))) return false;
     return true;
   });
-  // Newest first by the latest activity; "Sort by unread" puts unread threads first.
-  const last = (t: CommentThread) => Math.max(...t.comments.map((c) => c.createdAt));
-  list = [...list].sort((a, b) => (v.sort === "unread" ? Number(b.unread) - Number(a.unread) : 0) || last(b) - last(a));
+  const created = (t: CommentThread) => t.comments[0]?.createdAt ?? 0;
+  const last = (t: CommentThread) => Math.max(0, ...t.comments.map((c) => c.createdAt));
+  const key = v.sort === "recent" ? last : created;
+  list = [...list].sort((a, b) => (v.sort === "unread" ? Number(b.unread) - Number(a.unread) : 0) || key(b) - key(a) || b.number - a.number);
   return list;
 }

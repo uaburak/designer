@@ -126,11 +126,12 @@ export class AgentTurns {
    * An AI action's apply (docs/ai.md §2.3, editor/ai): `fn` runs as the AI's own actor — `refs` its selection, so the
    * user's selection, page and view stay theirs — and is **one step of the user's history** labelled `label`
    * (`undoTo: 0`: ⌘Z takes it back). Rolled back if `fn` throws; EngineBusy while the user's gesture or step is open.
+   * `merge` joins it to the history's last step (a streamed text tool's later writes, atlas 18 §5).
    */
-  writeAction<T>(label: string, fn: () => T, refs: readonly Guid[] = []): T {
+  writeAction<T>(label: string, fn: () => T, refs: readonly Guid[] = [], merge = false): T {
     const e = this.ed.engine;
     this.aiActor ??= this.nextActor++;
-    const status = e.actorBegin(this.aiActor, { label, refs, merge: false, undoTo: 0 });
+    const status = e.actorBegin(this.aiActor, { label, refs, merge, undoTo: 0 });
     if (status === Status.E_BUSY) throw new EngineBusy();
     if (status !== Status.OK) throw new Error(status === Status.E_READONLY ? "The file is read-only." : `The engine refused the change (status ${status}).`);
     this.ed.actorWriting++;

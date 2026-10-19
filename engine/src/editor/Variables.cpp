@@ -77,9 +77,34 @@ double extraFloat(const NodeProps& p, const char* key, uint32_t id) {
   return v;
 }
 
+// The layer's rotation as the Design panel shows it (degrees, counter-clockwise on screen).
+double rotationDegrees(const Mat2x3& m) { return std::atan2(-m.m10, m.m00) * 180 / M_PI; }
+
 // The FLOAT a node field binding takes, written into `p`.
 void setFloatField(NodeProps& p, VariableField f, double v) {
   switch (f) {
+    // Position and rotation (the TRANSFORM scope, atlas 11 §5.3): x / y in the parent's space; the rotation turns the
+    // layer about its centre to `v` degrees, as the panel's Rotation does (flips kept).
+    case VariableField::X_POSITION: p.transform.m02 = std::isfinite(v) ? v : 0; break;
+    case VariableField::Y_POSITION: p.transform.m12 = std::isfinite(v) ? v : 0; break;
+    case VariableField::ROTATION: {
+      if (!std::isfinite(v)) break;
+      double d = (v - rotationDegrees(p.transform)) * M_PI / 180;
+      if (std::fabs(d) < 1e-12) break;
+      Vec2 c = p.transform.apply({p.size.x / 2, p.size.y / 2});
+      Mat2x3 turn{std::cos(d), std::sin(d), 0, -std::sin(d), std::cos(d), 0};
+      p.transform = Mat2x3::translate(c.x, c.y) * turn * Mat2x3::translate(-c.x, -c.y) * p.transform;
+      break;
+    }
+    // Shapes: a polygon's / star's count (whole, 3 … 60, the panel's Count), a star's ratio (0.001 … 1, the panel's
+    // Ratio) and an arc's inner radius (0 … 1) as fractions, an arc's angles as the file stores them (radians).
+    case VariableField::POLYGON_COUNT:
+      if (std::isfinite(v)) p.shape().count = static_cast<uint32_t>(std::clamp(std::lround(v), 3L, 60L));
+      break;
+    case VariableField::STAR_INNER_SCALE: p.shape().starInnerScale = std::isfinite(v) ? std::clamp(v, 0.001, 1.0) : 0.001; break;
+    case VariableField::ARC_DATA_STARTING_ANGLE: p.shape().arcData.startingAngle = std::isfinite(v) ? v : 0; break;
+    case VariableField::ARC_DATA_ENDING_ANGLE: p.shape().arcData.endingAngle = std::isfinite(v) ? v : 0; break;
+    case VariableField::ARC_DATA_INNER_RADIUS: p.shape().arcData.innerRadius = std::isfinite(v) ? std::clamp(v, 0.0, 1.0) : 0; break;
     case VariableField::WIDTH: p.size.x = nonNegative(v); break;
     case VariableField::HEIGHT: p.size.y = nonNegative(v); break;
     case VariableField::MIN_WIDTH: p.rare().minSize.x = nonNegative(v); break;
@@ -122,6 +147,25 @@ void setFloatField(NodeProps& p, VariableField f, double v) {
     default: break;  // FONT_VARIATIONS: kept as data (not modelled)
   }
 }
+
+// Fields Motion keyframes (docs/motion.md §4.5) that only a variable's alias resolves into: a KEYFRAME expression on
+// them is the motion layer's (its tracks), never written here.
+bool transformOrShapeField(VariableField f) {
+  switch (f) {
+    case VariableField::X_POSITION:
+    case VariableField::Y_POSITION:
+    case VariableField::ROTATION:
+    case VariableField::POLYGON_COUNT:
+    case VariableField::STAR_INNER_SCALE:
+    case VariableField::ARC_DATA_STARTING_ANGLE:
+    case VariableField::ARC_DATA_ENDING_ANGLE:
+    case VariableField::ARC_DATA_INNER_RADIUS: return true;
+    default: return false;
+  }
+}
+bool isKeyframe(const VariableData& d) { return d.kind == VariableData::Kind::EXPRESSION && d.function == ExpressionFunction::KEYFRAME; }
+// A binding whose value the resolver writes into its field.
+bool resolvesInto(const ParamBinding& b) { return b.isVariable() && !(transformOrShapeField(b.field) && isKeyframe(b.data)); }
 
 constexpr VariableField kTextStyleFields[] = {VariableField::FONT_FAMILY,      VariableField::FONT_STYLE,
                                               VariableField::FONT_SIZE,        VariableField::LINE_HEIGHT,
@@ -561,6 +605,11 @@ bool Editor::resolveData(const VariableData& d, const ModeContext& ctx, Resolved
         return true;
       }
       if (d.function == ExpressionFunction::RESOLVE_VARIANT) return false;  // a variant (variantFor), not a value
+      if (d.function == ExpressionFunction::KEYFRAME) {
+        // Motion (docs/motion.md §4.2): the resting value is the first argument; the motion layer writes the evaluated one.
+        if (d.args.empty()) return false;
+        return resolveData(d.args[0], ctx, out, deps, depth + 1);
+      }
       if (d.function == ExpressionFunction::VAR_MODE_LOOKUP) {
         // A variable's value in a mode named explicitly (help.figma.com 15253268379799: "variableName:modeName"):
         // [ALIAS variable, STRING the mode's id "s:l"] — the argument encoding is ours (Figma's isn't published).
@@ -878,9 +927,15 @@ FieldMask Editor::boundFieldMask(const NodeProps& p) {
   if (p.refs().styleIdForGrid.present()) m |= F_LAYOUT_GRIDS;
   if (p.refs().styleIdForText.present() && p.type == NodeType::TEXT) m |= kTextStyleNodeFields;
   for (const ParamBinding& b : p.parameterConsumptionMap) {
-    if (!b.isVariable()) continue;
+    if (!resolvesInto(b)) continue;
     switch (b.field) {
       case VariableField::WIDTH: case VariableField::HEIGHT: m |= F_SIZE; break;
+      case VariableField::X_POSITION: case VariableField::Y_POSITION: case VariableField::ROTATION: m |= F_TRANSFORM; break;
+      case VariableField::POLYGON_COUNT: m |= F_COUNT; break;
+      case VariableField::STAR_INNER_SCALE: m |= F_STAR_INNER_SCALE; break;
+      case VariableField::ARC_DATA_STARTING_ANGLE: case VariableField::ARC_DATA_ENDING_ANGLE: case VariableField::ARC_DATA_INNER_RADIUS:
+        m |= F_ARC_DATA;
+        break;
       case VariableField::MIN_WIDTH: case VariableField::MIN_HEIGHT: m |= F_MIN_SIZE; break;
       case VariableField::MAX_WIDTH: case VariableField::MAX_HEIGHT: m |= F_MAX_SIZE; break;
       case VariableField::OPACITY: m |= F_OPACITY; break;
@@ -1030,13 +1085,13 @@ void Editor::resolveBindings(Guid id, NodeProps& p, BindingDeps* deps) const {
         }
       }
     }
-  // Node fields: the uniform corner radius first, so per-corner bindings win.
+  // Node fields: the uniform corner radius first, so per-corner bindings win; the rotation (about the centre) before
+  // x and y.
   std::vector<const ParamBinding*> bindings;
   for (const ParamBinding& b : p.parameterConsumptionMap)
-    if (b.isVariable()) bindings.push_back(&b);
-  std::stable_sort(bindings.begin(), bindings.end(), [](const ParamBinding* a, const ParamBinding* b) {
-    return (a->field == VariableField::CORNER_RADIUS) > (b->field == VariableField::CORNER_RADIUS);
-  });
+    if (resolvesInto(b)) bindings.push_back(&b);
+  auto first = [](VariableField f) { return f == VariableField::CORNER_RADIUS || f == VariableField::ROTATION; };
+  std::stable_sort(bindings.begin(), bindings.end(), [&](const ParamBinding* a, const ParamBinding* b) { return first(a->field) > first(b->field); });
   std::vector<std::pair<VariableField, Resolved>> values;
   for (const ParamBinding* b : bindings)
     if (resolve(b->data, r)) values.push_back({b->field, r});
@@ -1045,13 +1100,16 @@ void Editor::resolveBindings(Guid id, NodeProps& p, BindingDeps* deps) const {
       case VariableField::VISIBLE:
         if (v.kind == Resolved::Kind::BOOL) p.visible = v.b;
         break;
-      case VariableField::TEXT_DATA:
-        if (v.kind == Resolved::Kind::STRING && p.type == NodeType::TEXT && p.text().textData.characters != v.s) {
-          p.text().textData.characters = v.s;
+      case VariableField::TEXT_DATA: {
+        // A number variable shows as its number (no trailing zeros).
+        std::string s = v.kind == Resolved::Kind::FLOAT ? numberText(v.f) : v.s;
+        if ((v.kind == Resolved::Kind::STRING || v.kind == Resolved::Kind::FLOAT) && p.type == NodeType::TEXT && p.text().textData.characters != s) {
+          p.text().textData.characters = s;
           p.text().textData.characterStyleIDs.clear();  // one style: the layer's own
           p.text().textData.lines.clear();
         }
         break;
+      }
       case VariableField::FONT_FAMILY:
         if (v.kind == Resolved::Kind::STRING && !v.s.empty() && p.text().fontName.family != v.s) {
           p.text().fontName.family = v.s;
@@ -1136,7 +1194,7 @@ void Editor::clearBoundValues(NodeProps& p) {
               map.end());
   }
   for (const ParamBinding& b : p.parameterConsumptionMap) {
-    if (!b.isVariable()) continue;
+    if (!resolvesInto(b)) continue;
     switch (b.field) {
       case VariableField::VISIBLE: p.visible = none.visible; break;
       case VariableField::TEXT_DATA:
@@ -1409,13 +1467,23 @@ void Editor::detachEdited(const NodeProps& before, NodeChange& c) const {
           return (m & F_EXTRA) && now.extra.count("gridColumnGap") &&
                  (!before.extra.count("gridColumnGap") ||
                   extraFloat(now, "gridColumnGap", kGridColumnGapId) != extraFloat(before, "gridColumnGap", kGridColumnGapId));
+        // A move drops x / y, a turn the rotation (a move of a turned layer keeps it).
+        case VariableField::X_POSITION: return (m & F_TRANSFORM) && now.transform.m02 != before.transform.m02;
+        case VariableField::Y_POSITION: return (m & F_TRANSFORM) && now.transform.m12 != before.transform.m12;
+        case VariableField::ROTATION:
+          return (m & F_TRANSFORM) && std::fabs(rotationDegrees(now.transform) - rotationDegrees(before.transform)) > 1e-9;
+        case VariableField::POLYGON_COUNT: return (m & F_COUNT) != 0;
+        case VariableField::STAR_INNER_SCALE: return (m & F_STAR_INNER_SCALE) != 0;
+        case VariableField::ARC_DATA_STARTING_ANGLE: return (m & F_ARC_DATA) && now.shape().arcData.startingAngle != before.shape().arcData.startingAngle;
+        case VariableField::ARC_DATA_ENDING_ANGLE: return (m & F_ARC_DATA) && now.shape().arcData.endingAngle != before.shape().arcData.endingAngle;
+        case VariableField::ARC_DATA_INNER_RADIUS: return (m & F_ARC_DATA) && now.shape().arcData.innerRadius != before.shape().arcData.innerRadius;
         default: return false;
       }
     };
     std::vector<ParamBinding> kept;
     bool dropped = false;
     for (const ParamBinding& b : before.parameterConsumptionMap) {
-      if (b.isVariable() && changed(b.field)) dropped = true;
+      if (resolvesInto(b) && changed(b.field)) dropped = true;
       else kept.push_back(b);
     }
     if (dropped) {

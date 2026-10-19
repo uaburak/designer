@@ -52,7 +52,7 @@ async function filesIn(ctx: RestCtx, id: string, branchData: boolean) {
 }
 
 async function meta(ctx: RestCtx, p: ProjectRow) {
-  const c = await ctx.deps.db.d1.prepare(`SELECT COUNT(*) AS n FROM files WHERE project_id = ?1 AND trashed_at IS NULL`).bind(p.id).first<{ n: number }>();
+  const c = await ctx.deps.db.d1.prepare(`SELECT COUNT(*) AS n FROM files f WHERE f.project_id = ?1 AND f.trashed_at IS NULL AND NOT EXISTS (SELECT 1 FROM branches b WHERE b.key = f.key)`).bind(p.id).first<{ n: number }>();
   return { id: p.id, name: p.name, thumbnail_url: null, file_count: c?.n ?? 0, updated_at: iso(p.updated_at), created_at: iso(p.created_at) };
 }
 

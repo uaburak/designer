@@ -1,8 +1,13 @@
 import { app, Menu, nativeTheme, webContents, type KeyboardEvent, type MenuItemConstructorOptions } from "electron";
-import { command, layoutCommands, MENU_LAYOUT, registersAccelerator, runsFromMenuBar, type CommandId, type MenuEntry } from "../shared/commands";
+import { command, layoutCommands, MENU_LAYOUT, RECENTLY_CLOSED, registersAccelerator, runsFromMenuBar, type CommandId, type MenuEntry } from "../shared/commands";
 import { acceleratorFor, type KeyCombo } from "../shared/shortcuts";
+import { FIGMA_ACTION } from "../shared/figmaActions";
+import { tableAccelerator, tableBindings } from "../shared/shortcutsTable";
 import { getLocale, t, tx } from "../shared/i18n";
 import { readSettings } from "./session";
+import { interfaceScale } from "./interfaceScale";
+import { graphicsBackend, hardwareAccelerationDisabled } from "./troubleshooting";
+import { performanceLogging } from "./diagnostics";
 import { checkForUpdates, onUpdaterChange, restartToUpdate, updaterStatus } from "./updater";
 import type { WindowController } from "./window";
 
@@ -28,16 +33,21 @@ export function appMenu(current: () => WindowController | null, dev: boolean, bi
 
   const item = (id: CommandId, extra: Partial<MenuItemConstructorOptions> = {}): MenuItemConstructorOptions => {
     const spec = command(id);
-    const accelerator = acceleratorFor(id, spec.accelerator, bindings);
+    // Figma's table first (the editor's own keys, Atlas 03 §6), then the registry's; the user's own over both.
+    const accelerator = acceleratorFor(id, menuDefault(id, mac) ?? spec.accelerator, bindings);
     return {
       id,
-      label: t(spec.label),
+      label: id === "app.performance-log" && performanceLogging() ? t("Stop Performance Logging…") : t(spec.label),
       accelerator,
       // Keys without ⌘ or ⌃ are the page's own (a registered ⇧R would eat the R typed into a field): shown only.
       registerAccelerator: registersAccelerator(accelerator),
       type: spec.kind === "checkbox" ? "checkbox" : spec.kind === "radio" ? "radio" : "normal",
+      // Hidden items keep their keys (macOS; Windows and Linux register them as any other).
+      ...(spec.hidden ? { visible: false, acceleratorWorksWhenHidden: true } : {}),
       // Disabled until the view in front says otherwise (TabManager.applyMenu runs once the window is up).
       enabled: signedOut ? enabledSignedOut(id) : spec.scope === "app" || spec.scope === "shell",
+      // Help › Troubleshooting's checks are main's (troubleshooting.ts).
+      ...appChecked(id),
       ...extra,
       click: (_item, _win, event: KeyboardEvent) => {
         // A plain key (N, [, ⇧V…) a page left unhandled is typing in a text field, never this command (runsFromMenuBar).
@@ -57,6 +67,15 @@ export function appMenu(current: () => WindowController | null, dev: boolean, bi
       if (e === "-") return { type: "separator" };
       if (typeof e === "string") return e === "view.reload-tab" && dev ? item(e, { accelerator: "CmdOrCtrl+Shift+R", registerAccelerator: true }) : item(e);
       if ("role" in e) return roleItem(e.role);
+      // View › Interface Scale: the scale now as a line of its own above its items (Figma desktop's "{n}%").
+      if (e.submenu === "Interface Scale") return { label: t(e.submenu), submenu: [{ id: "app.interface-scale-current", label: `${interfaceScale()}%`, enabled: false }, ...entries(e.items)] };
+      // File › Recently closed tabs: the window in front's (rebuilt when they change, syncClosedMenu).
+      if (e.submenu === RECENTLY_CLOSED) {
+        const ctl = signedOut ? null : current();
+        closedKey = ctl?.tabs.recentlyClosedKey() ?? "";
+        const recent = ctl?.tabs.recentlyClosedItems() ?? [];
+        return { label: t(e.submenu), enabled: recent.length > 0, submenu: recent.length ? recent : [{ label: t(e.submenu), enabled: false }] };
+      }
       return { label: t(e.submenu), submenu: entries(e.items) };
     });
 
@@ -96,6 +115,26 @@ export function appMenu(current: () => WindowController | null, dev: boolean, bi
   return Menu.buildFromTemplate(template);
 }
 
+/**
+ * A menu item's key from Figma's shortcut table (Atlas 03 §6): the first binding that holds in the Design editor on
+ * this platform, the desktop app, a U.S. keyboard and the default preferences (number keys for opacity on, the new
+ * outline keys) — what the editor's keyboard layer acts on there. Undefined for a command that isn't Figma's action
+ * or has no binding (the registry's then).
+ */
+export function menuDefault(id: CommandId, mac = process.platform === "darwin"): string | undefined {
+  const action = FIGMA_ACTION[id];
+  if (!action) return undefined;
+  const [first] = tableBindings(action, { mac, editor: "design", layout: "us_qwerty", desktop: true, numbersForOpacity: true, oldOutlineShortcuts: false, flags: [] });
+  return first ? tableAccelerator(first, mac) : undefined;
+}
+
+/** Help › Troubleshooting's check and radio set, as main keeps them (troubleshooting.ts). */
+function appChecked(id: CommandId): Partial<MenuItemConstructorOptions> {
+  if (id === "app.disable-hardware-acceleration") return { checked: hardwareAccelerationDisabled() };
+  if (id.startsWith("app.graphics-backend-")) return { checked: graphicsBackend() === id.slice("app.graphics-backend-".length) };
+  return {};
+}
+
 /** A role's item: Electron's own English label, or the language's (src/shared/i18n) when the UI isn't in English. */
 const ROLE_LABELS: Partial<Record<NonNullable<MenuItemConstructorOptions["role"]>, string>> = {
   about: "About {app}",
@@ -119,6 +158,14 @@ function roleItem(role: NonNullable<MenuItemConstructorOptions["role"]>): MenuIt
 }
 
 let built: { current: () => WindowController | null; dev: boolean } | null = null;
+/** What File › Recently closed tabs was built with (the window in front's last 8) */
+let closedKey = "";
+
+/** The window in front changed, or its closed tabs did: the menu bar again when File › Recently closed tabs would differ. */
+export function syncClosedMenu(): void {
+  if (!built || (built.current()?.tabs.recentlyClosedKey() ?? "") === closedKey) return;
+  refreshAppMenu();
+}
 
 /** The menu bar set at launch, with the user's shortcuts. */
 export function installAppMenu(current: () => WindowController | null, dev: boolean): void {

@@ -14,7 +14,7 @@ import { decodeCanvas } from "../../shared/fig/container";
 import { codec } from "../../shared/schema/document.generated";
 import { messageImageHashes } from "../../shared/schema/patch";
 import { StoreError } from "../../shared/store/protocol";
-import { diffAgainst, libraryCounts, movedOutOf, movesOf, previewAgainst, toLibraryAsset, validatePublishAssets } from "../../shared/store/libraryRules";
+import { diffWithHistory, libraryCounts, movedOutOf, movesOf, previewAgainst, stampUserFacingVersions, toLibraryAsset, validatePublishAssets } from "../../shared/store/libraryRules";
 import type { LibraryEvent } from "../../shared/store/repositories";
 import {
   isAssetKey,
@@ -227,7 +227,7 @@ export class LocalLibraries {
           removed: preview.removed.map((a) => a.key),
           moved: [...preview.moved, ...moves],
         },
-        assets,
+        assets: stampUserFacingVersions(assets, prev, n),
       };
       await ensureDir(join(this.dir(lib), "versions"));
       await writeJsonAtomic(this.d.dirs.tmp, join(this.dir(lib), "versions", `${n}.json`), version);
@@ -237,7 +237,7 @@ export class LocalLibraries {
       next.status = "published";
       next.latestVersion = n;
       next.lastPublishedAt = now;
-      next.counts = libraryCounts(assets);
+      next.counts = libraryCounts(version.assets);
       this.stamp(next, ["status", "latestVersion", "lastPublishedAt", "counts", ...(moves.length ? ["movedIn"] : []), ...(record ? [] : ["firstPublishedAt"])]);
       await this.saveRecord(next);
       // 3. The library file's history and record.
@@ -329,7 +329,10 @@ export class LocalLibraries {
     const r = this.records.get(lib);
     const latestVersion = r?.latestVersion ?? 0;
     if (!r || r.status !== "published") return { latestVersion, updated: [], removed: [], moved: [] };
-    return diffAgainst(await this.latest(lib), latestVersion, have, this.movedOutOf(lib));
+    return diffWithHistory(await this.latest(lib), latestVersion, have, this.movedOutOf(lib), {
+      entry: async (key, versionHash) => (await this.findEntry(lib, key, versionHash))?.asset ?? null,
+      version: (n) => this.getVersion(lib, n).catch(() => null),
+    });
   }
 
   // -------------------------------------------------------------------------------------------------------------------

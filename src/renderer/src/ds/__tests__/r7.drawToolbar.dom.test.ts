@@ -22,11 +22,10 @@ const chevrons = () => $$('[data-ds="ToolButton"] > button[aria-haspopup="menu"]
 describe("round 7c: the toolbar per mode", () => {
   it("models Draw's slots", () => {
     expect(DRAW_TOOL_GROUPS.map((g) => g.tools)).toEqual([["move", "hand", "scale"], ["rectangle", "line", "arrow", "ellipse", "polygon", "star", "image"], ["pen"], ["pencil"], ["brush"], ["text", "text-on-path"], ["comment"]]);
-    // Dev Mode: Design's slots, the comment tools in their menu
-    expect(toolGroups("dev").slice(0, 5)).toEqual(toolGroups("design").slice(0, 5));
-    expect(toolGroups("dev")[5].tools).toEqual(["comment", "annotation", "measurement"]);
+    // Dev Mode: Move, Measurement, Annotation, Comment, a slot each (the owner's capture 2026-10-18)
+    expect(toolGroups("dev").map((g) => g.tools)).toEqual([["move"], ["measurement"], ["annotation"], ["comment"]]);
     expect(TOOLS.brush).toEqual({ id: "brush", label: "Brush", shortcut: "B", icon: "24.brush" });
-    expect(groupOf("annotation")).toBe("comment");
+    expect(groupOf("annotation")).toBe("annotation");
     expect([groupOf("pen", "draw"), groupOf("pen"), groupOf("brush", "draw"), groupOf("brush")]).toEqual(["pen", "creation", "brush", "creation"]);
     // Frame has no slot in Draw: none lights
     expect(DRAW_TOOL_GROUPS.some((g) => g.id === groupOf("frame", "draw"))).toBe(false);

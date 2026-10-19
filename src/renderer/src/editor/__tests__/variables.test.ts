@@ -3,8 +3,15 @@
 import { describe, expect, it } from "vitest";
 import {
   aliasMakesCycle,
+  BIND_TYPE,
+  bindingWarning,
+  bindTypes,
   boundPaint,
+  canExtend,
   cleanName,
+  LIMITS,
+  SCOPE_OPTIONS,
+  stripNumber,
   detachedPaint,
   explicitModes,
   formatLiteral,
@@ -206,3 +213,71 @@ describe("styles (pure)", () => {
     expect(styleFieldsFrom("TEXT", { fontSize: 20 } as never)).toMatchObject({ fontSize: 20, textData: { characters: "Ag" } });
   });
 });
+
+describe("variables (atlas 11, wave 3)", () => {
+  it("names: Figma's \"Name 2\" — one past the largest number; duplicates numbered from the name without its number", () => {
+    expect(nextName("Color", [])).toBe("Color");
+    expect(nextName("Color", ["Color"])).toBe("Color 2");
+    expect(nextName("Color", ["Color", "Color 7", "Color 3"])).toBe("Color 8");
+    expect(nextName("Color", ["Color", "Color 2a", "Colorful 9"])).toBe("Color 2");
+    expect(stripNumber("Color 3")).toBe("Color");
+    expect(stripNumber("Grey900")).toBe("Grey900");
+    expect(stripNumber("12")).toBe("12");
+    expect(nextName(stripNumber("Color 7"), ["Color", "Color 7"])).toBe("Color 8");
+  });
+
+  it("limits: Enterprise's 40 modes (Figma: 1 / 10 / 20 / 40 by plan) and extension chains of 10 sets", () => {
+    expect(LIMITS.modes).toBe(40);
+    let c = readCollection(collection("1:1", [[1, "Light", "!"]]));
+    for (let i = 0; i < 8; i++) c = { ...readCollection(collection(`2:${i}`, [[1, "Light", "!"]])), parentCollection: c, parent: c.id };
+    expect(canExtend(c)).toBe(true); // nine sets so far
+    c = { ...readCollection(collection("3:1", [[1, "Light", "!"]])), parentCollection: c, parent: c.id };
+    expect(canExtend(c)).toBe(false); // ten
+  });
+
+  it("scopes: Figma's per-type lists — numbers' Text content fourth, Gap's \"Auto layout\", the Typography heading", () => {
+    expect(SCOPE_OPTIONS.FLOAT.map((o) => o.scope).slice(0, 5)).toEqual(["CORNER_RADIUS", "WIDTH_HEIGHT", "GAP", "TEXT_CONTENT", "STROKE_FLOAT"]);
+    expect(SCOPE_OPTIONS.FLOAT.find((o) => o.scope === "GAP")?.sublabel).toBe("Auto layout");
+    expect(SCOPE_OPTIONS.FLOAT.find((o) => o.section)?.scope).toBe("FONT_STYLE");
+    expect(SCOPE_OPTIONS.STRING.find((o) => o.scope === "FONT_STYLE")?.label).toBe("Font weight or style");
+    // X / Y / rotation need TRANSFORM (no checkbox): only "all" variables offer themselves; text content takes numbers
+    expect(BIND_TYPE.X_POSITION.scope).toBe("TRANSFORM");
+    expect(scopeAllows(["CORNER_RADIUS"], "TRANSFORM")).toBe(false);
+    expect(scopeAllows(["ALL_SCOPES"], "TRANSFORM")).toBe(true);
+    expect(bindTypes("TEXT_DATA")).toEqual(["STRING", "FLOAT"]);
+  });
+
+  it("warnings: a bound value the field can't use as it is", () => {
+    const n = { minSize: { value: { x: 40, y: 0 } }, maxSize: { value: { x: 400, y: 0 } } };
+    expect(bindingWarning("WIDTH", 20, n)).toBe("Less than the min width");
+    expect(bindingWarning("WIDTH", 500, n)).toBe("Greater than the max width");
+    expect(bindingWarning("WIDTH", 100, n)).toBeNull();
+    expect(bindingWarning("HEIGHT", 0, n)).toBe("Must be greater than 0");
+    expect(bindingWarning("OPACITY", 120, null)).toBe("Above 100%: the layer is fully opaque");
+    expect(bindingWarning("OPACITY", -5, null)).toBe("Below 0%: the layer is fully transparent");
+    expect(bindingWarning("FONT_SIZE", 0.5, null)).toBe("Must be at least 1");
+    expect(bindingWarning("CORNER_RADIUS", -2, null)).toBe("Can't be negative");
+    expect(bindingWarning("STACK_SPACING", -2, null)).toBeNull();
+    expect(bindingWarning("TEXT_DATA", "x", null)).toBeNull();
+  });
+});
+
+describe("Motion's variable types (round 8i, docs/motion.md §6.7)", () => {
+  it("Easing and Timing: their values as EasingData and milliseconds, read back; formatted as the table shows them", () => {
+    const bezier = { type: "CUSTOM_CUBIC_BEZIER" as const, easingFunctionCubicBezier: { x1: 0.2, y1: 0, x2: 0.4, y2: 1 } };
+    const easing = toData("EASING", { kind: "literal", value: bezier });
+    expect(easing).toEqual({ dataType: "EASING", resolvedDataType: "EASING", value: { easingValue: { easingType: "CUSTOM_CUBIC", easingValue: { bezierEasing: { p1x: 0.2, p1y: 0, p2x: 0.4, p2y: 1 } } } } });
+    expect(fromData(easing)).toEqual({ kind: "literal", value: bezier });
+    const timing = toData("TIMING", { kind: "literal", value: 250 });
+    expect(timing).toEqual({ dataType: "TIMING", resolvedDataType: "TIMING", value: { floatValue: 250 } });
+    expect(fromData(timing)).toEqual({ kind: "literal", value: 250 });
+    expect(formatLiteral("EASING", { type: "EASE_OUT" })).toBe("Ease out");
+    expect(formatLiteral("EASING", bezier)).toBe("Custom bezier (0.2, 0, 0.4, 1)");
+    expect(formatLiteral("TIMING", 250)).toBe("250ms");
+    // An alias keeps its type; neither type offers scopes.
+    expect(toData("TIMING", { kind: "alias", id: "1:9" }).resolvedDataType).toBe("TIMING");
+    expect(SCOPE_OPTIONS.EASING).toEqual([]);
+    expect(SCOPE_OPTIONS.TIMING).toEqual([]);
+  });
+});
+

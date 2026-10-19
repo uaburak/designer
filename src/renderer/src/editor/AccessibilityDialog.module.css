@@ -1,0 +1,8 @@
+/* Preferences › Accessibility settings… (AccessibilityDialog.tsx): a switch row each, its label over its description. */
+@layer app {
+  .rows { display: flex; flex-direction: column; gap: var(--ds-space-4); }
+  .row { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--ds-space-4); }
+  .text { display: flex; flex-direction: column; gap: var(--ds-space-1); min-width: 0; }
+  .label { color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); }
+  .description { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+}

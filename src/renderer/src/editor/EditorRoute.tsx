@@ -28,6 +28,9 @@ import type { EditorController } from "./controller";
 import type { ImageStore } from "./images";
 import { withImages } from "./sourceImages";
 import { CAPTURE_DOCUMENT, CAPTURE_UI_STATE, COMPONENTS_DOCUMENT, EMPTY_DOCUMENT, PAINTS_DOCUMENT, PROTOTYPE_DOCUMENT, REFERENCE_DOCUMENT, TEXT_DOCUMENT, TYPES_DOCUMENT, VARIABLES_DOCUMENT } from "./fixtures";
+// The Figma logo animated over an 8 s Motion timeline (engine_tests "motion logo" wrote it, docs/motion.md §6.10): `?editor&doc=motion`.
+import MOTION_LOGO_DOCUMENT from "./motion/fixtures/figma-logo-motion.json";
+import type { Message } from "@/engine/codec";
 import { PresentationView } from "@/present/PresentationView";
 import { storePresentationSource } from "@/present/PresentRoute";
 import { SharePrototypeDialog } from "./SharePrototypeDialog";
@@ -71,6 +74,7 @@ function memorySource(doc: string | null): DocumentSource {
   if (doc === "variables") return memoryDocumentSource(VARIABLES_DOCUMENT, { fileName: "Variables and styles", location: "Drafts" });
   if (doc === "prototype") return memoryDocumentSource(PROTOTYPE_DOCUMENT, { fileName: "Prototype", location: "Drafts", versions: true });
   if (doc === "text") return memoryDocumentSource(TEXT_DOCUMENT, { fileName: "Text", location: "Drafts" });
+  if (doc === "motion") return memoryDocumentSource(MOTION_LOGO_DOCUMENT as unknown as Message, { fileName: "Figma logo · Motion", location: "Drafts" });
   return memoryDocumentSource(SAMPLE_DOCUMENT, { fileName: "Sample file", location: "Drafts" });
 }
 

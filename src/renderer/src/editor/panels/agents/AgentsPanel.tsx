@@ -4,7 +4,7 @@
  * selection they were about, the agent's answer streamed with its steps, the turn's changes with Undo / Apply,
  * Stop while it runs, the agent and model under the message box), and Agent settings (AgentSettings.tsx).
  */
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ClipboardEvent, type CSSProperties, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
+import { Fragment, createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ClipboardEvent, type CSSProperties, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { NO_FILTER, filterChats, matchSnippet, splitMatches, type ChatFilter, type ChatSort } from "../../agents/chatList";
 import { Button, Dialog, EmptyState, Icon, IconButton, MenuButton, Portal, SearchField, Select, Spinner, cx, place, timeAgo, tooltipProps, useDismiss, type IconName } from "@/ds";
 import { readableError } from "@shared/agents/errors";
@@ -42,9 +42,18 @@ function useSelectionContext(service: AgentsService) {
   return useMemo(() => service.selectionContext() ?? [], [service, version]);
 }
 
-export function AgentsPanel() {
+/** Text put in the composer from outside the panel (Social's Ask agent…, docs/social.md §6.3), and its taking. */
+type ComposerDraft = { draft: { id: number; text: string } | null; taken: () => void };
+const DraftContext = createContext<ComposerDraft>({ draft: null, taken: () => {} });
+
+/**
+ * `placement`: the left panel's Agents tab (Design), or Social's right panel (docs/social.md §6.3) — one instance mounts
+ * at a time. `draft` / `onDraftTaken`: text the composer takes once, with the focus.
+ */
+export function AgentsPanel({ placement = "left", draft = null, onDraftTaken }: { placement?: "left" | "right"; draft?: { id: number; text: string } | null; onDraftTaken?: () => void } = {}) {
   useT();
   const [service, state] = useAgents();
+  const composerDraft = useMemo<ComposerDraft>(() => ({ draft, taken: () => onDraftTaken?.() }), [draft, onDraftTaken]);
   useEffect(() => {
     if (state.available && !state.providers.length && !state.providersLoading) void service.refreshProviders();
     // Once per panel: providers are refreshed from settings after that.
@@ -57,18 +66,20 @@ export function AgentsPanel() {
     </>
   );
   return (
-    <div className={styles.panel} data-agents="" data-view={state.view}>
-      <TabHeader title={t("Agents")} actions={actions} />
-      {!state.available ? (
-        <EmptyState icon="24.agents" title={t("Agents run in the desktop app")} body={t("Open this file in Wecra to chat with the AI tools on your computer.")} />
-      ) : state.view === "settings" ? (
-        <AgentSettings service={service} />
-      ) : state.view === "list" && state.chats.length ? (
-        <ChatList service={service} chats={state.chats} />
-      ) : (
-        <ChatView service={service} chat={service.currentChat()} />
-      )}
-    </div>
+    <DraftContext.Provider value={composerDraft}>
+      <div className={styles.panel} data-agents="" data-view={state.view} data-placement={placement}>
+        <TabHeader title={t("Agents")} actions={actions} />
+        {!state.available ? (
+          <EmptyState icon="24.agents" title={t("Agents run in the desktop app")} body={t("Open this file in Wecra to chat with the AI tools on your computer.")} />
+        ) : state.view === "settings" ? (
+          <AgentSettings service={service} />
+        ) : state.view === "list" && state.chats.length ? (
+          <ChatList service={service} chats={state.chats} />
+        ) : (
+          <ChatView service={service} chat={service.currentChat()} />
+        )}
+      </div>
+    </DraftContext.Provider>
   );
 }
 
@@ -233,9 +244,11 @@ const TYPE_ICON: Record<string, IconName> = { FRAME: "16.frame", TEXT: "16.text"
 function ContextChip({ item, onRemove }: { item: NonNullable<ChatMessage["context"]>[number]; onRemove?: () => void }) {
   useT();
   return (
-    <span className={styles.chip} data-context-chip="" {...tooltipProps(`${Math.round(item.width)} × ${Math.round(item.height)}`)}>
+    <span className={styles.chip} data-context-chip="" {...tooltipProps(`${item.format ? `${t(item.format)} · ` : ""}${Math.round(item.width)} × ${Math.round(item.height)}`)}>
       <Icon name={TYPE_ICON[item.type] ?? "16.frame"} />
       <span className={styles.chipName}>{item.name || item.type.toLowerCase()}</span>
+      {/* A Social post shows its format (docs/social.md §6.3) */}
+      {item.format && <span className={styles.contextFormat} data-context-format="">{t(item.format)}</span>}
       {onRemove && (
         <button type="button" className={styles.chipRemove} aria-label={t("Remove from context")} onClick={onRemove}>
           <Icon name="16.close" />
@@ -291,8 +304,9 @@ function AgentMessage({ m, service }: { m: ChatMessage; service: AgentsService }
       {/* The manager's answers carry its name as it is now (Agent settings › Manager › Name) */}
       {(m.manager || m.provider) && <span className={styles.agentName}>{m.manager ? managerName(service.managerSettings()) : m.provider}</span>}
       {segments.map((s) => (s.kind === "text" ? <div key={s.key} className={styles.agentText} data-agent-text="">{renderText(s.text)}</div> : <StepGroup key={s.key} seg={s} since={m.startedAt} />))}
-      {m.cards?.map((c) => <ManagerCard key={c.id} card={c} service={service} />)}
+      {/* The tasks first, the cards under them: a card waits on the owner, nearest the composer */}
       {m.manager && <ManagerTasks messageId={m.id} service={service} />}
+      {m.cards?.map((c) => <ManagerCard key={c.id} card={c} service={service} />)}
       {m.error && <div className={styles.error} role="alert">{m.error}</div>}
       {m.state === "stopped" && <div className={styles.stopped}>{t("Stopped")}</div>}
       {m.changes && m.turnId && <Changes turnId={m.turnId} changes={m.changes} service={service} />}
@@ -649,6 +663,27 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
   const { list: allConnectors } = useConnectors(service.api);
   const input = useRef<HTMLTextAreaElement>(null);
   const [caret, setCaret] = useState(0);
+  // Text from outside (Social's Ask agent…): taken once, the caret at its end; an empty one only focuses the field.
+  const outside = useContext(DraftContext);
+  const [draftSeen, setDraftSeen] = useState<number | null>(null);
+  if (outside.draft && outside.draft.id !== draftSeen) {
+    setDraftSeen(outside.draft.id);
+    if (outside.draft.text) {
+      setText(outside.draft.text);
+      setCaret(outside.draft.text.length);
+    }
+  }
+  useEffect(() => {
+    if (!outside.draft) return;
+    outside.taken();
+    requestAnimationFrame(() => {
+      const end = input.current?.value.length ?? 0;
+      input.current?.focus();
+      input.current?.setSelectionRange(end, end);
+    });
+    // Once per draft.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [outside.draft?.id]);
   const [slashActive, setSlashActive] = useState(0);
   const [slashClosed, setSlashClosed] = useState<string | null>(null);
   const slash = slashQuery(text, caret);
@@ -857,7 +892,9 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
         </MenuButton>
         </span>
         <span className={styles.barGap} />
-        {service.managerProvider() ? (
+        {service.inSocial() && state.providers.some((p) => p.available) ? (
+          <SocialAgentMenu service={service} provider={provider} />
+        ) : service.managerProvider() ? (
           <button type="button" className={styles.noProvider} {...tooltipProps(t("Messages go to the manager (Agent settings › Manager)"))} onClick={() => { service.setView("settings"); service.openSetting("manager"); }} data-manager-chip="">
             {managerName(service.managerSettings())}
           </button>
@@ -885,6 +922,39 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
 
 /** A paste that carries files or a picture (a screenshot, a copied image, files copied in Finder). */
 const hasFiles = (d: DataTransfer) => d.types.includes("Files") || [...d.items].some((i) => i.kind === "file");
+
+/** Social's agent menu's value for the manager. */
+const MANAGER_VALUE = "manager";
+
+/**
+ * Social's composer (docs/social.md §1.3): the manager by default — every turn its — or an agent's model (the agents as
+ * headings, as the model menu lists them) for direct turns, until the manager is picked again.
+ */
+function SocialAgentMenu({ service, provider }: { service: AgentsService; provider: ProviderInfo | null }) {
+  useT();
+  const state = service.get();
+  const effort = provider ? service.current(provider).effort : undefined;
+  const value = state.socialDirect && provider ? `${provider.id}${MODEL_SEP}${service.current(provider).option?.key ?? ""}` : MANAGER_VALUE;
+  return (
+    <Select
+      label={t("Agent")}
+      variant="ghost"
+      width="hug"
+      value={value}
+      options={[{ value: MANAGER_VALUE, label: managerName(service.managerSettings()) }, "-", ...modelMenu(state.providers, state.resolved)]}
+      onChange={(v) => {
+        if (v === MANAGER_VALUE) return void service.chooseInSocial(null);
+        const [id, key] = v.split(MODEL_SEP);
+        const p = state.providers.find((x) => x.id === id);
+        if (!p) return;
+        const next = pickModel(p, key, effort?.id, state.resolved);
+        void service.chooseInSocial({ providerId: id, model: next.model || undefined, effort: p.efforts?.length ? next.effort : undefined });
+      }}
+      className={cx(styles.menu, styles.modelMenu)}
+      data-social-agent-menu=""
+    />
+  );
+}
 
 /** The model by its short name (the agents as headings in its menu) and, when the agent has one, its effort. */
 function ModelMenus({ service, provider }: { service: AgentsService; provider: ProviderInfo }) {

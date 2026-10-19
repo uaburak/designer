@@ -4,8 +4,12 @@
 #include <cmath>
 
 #include "doctest.h"
+#include "base/Json.h"
 #include "editor/Editor.h"
 #include "geometry/VectorNetwork.h"
+#include "render/GradientRamp.h"
+#include "scene/CodecKiwi.h"
+#include "scene/Extras.h"
 #include "Helpers.h"
 
 using namespace eng;
@@ -358,4 +362,75 @@ TEST_CASE("gradient handles: drag the end, add and delete a stop, one undo step 
   e.command(CommandId::UNDO);
   CHECK(props(e, R).fillPaints[0].stops.size() == 2);
   CHECK(props(e, R).fillPaints[0].transform.apply({1, 0.5}).x == doctest::Approx(1));
+}
+
+TEST_CASE("gradient handles: a stop added on the line takes the colour there in the paint's space; one stop stays at least") {
+  Editor e = makeEditor();
+  Paint g;
+  g.type = PaintType::GRADIENT_LINEAR;
+  g.stops = {{Color::hex(0xFF0000), 0}, {Color::hex(0x0000FF), 1}};
+  json::Value space;
+  json::parse("\"OKLAB\"", space);
+  g.extra = codec::extraFromJson("Paint", "interpolationColorSpace", space);
+  NodeChange c = NodeChange::changed(R);
+  c.mask = F_FILLS;
+  c.props.fillPaints = {g};
+  e.applyChanges({c}, APPLY_LOAD);
+  REQUIRE(e.startPaintEdit(R, false, 0) == OK);
+  // The line runs (100, 150) → (200, 150): halfway is t = 0.5, red and blue blended in OKLAB (not sRGB's 0.5 / 0 / 0.5).
+  click(e, 150, 150);
+  const Paint& p = props(e, R).fillPaints[0];
+  REQUIRE(p.stops.size() == 3);
+  RampColor m = interpolateColor(Color::hex(0xFF0000), Color::hex(0x0000FF), 0.5, InterpolationColorSpace::OKLAB, InterpolationHueMethod::SHORTER);
+  // (The stops put in order on release: it is the middle one.)
+  CHECK(p.stops[1].color.r == doctest::Approx(m.r).epsilon(1e-4));
+  CHECK(p.stops[1].color.b == doctest::Approx(m.b).epsilon(1e-4));
+  CHECK(p.stops[1].color.r != doctest::Approx(0.5).epsilon(0.01));
+  // ⌫ removes the selected stop down to a lone one (Figma's minStops 1), never the last.
+  for (int i = 0; i < 3; i++) e.key(KeyEvent::DOWN, KeyCode::Backspace, 0, 0, false);
+  CHECK(props(e, R).fillPaints[0].stops.size() == 1);
+}
+
+TEST_CASE("progressive blur handles: Start and End on the canvas, a drag moves one (one undo step), the panel marks one") {
+  Editor e = makeEditor();
+  Effect b;
+  b.type = EffectType::FOREGROUND_BLUR;
+  b.radius = 20;
+  json::Value op;
+  json::parse("\"PROGRESSIVE\"", op);
+  b.extra = codec::extraFromJson("Effect", "blurOpType", op);
+  NodeChange c = NodeChange::changed(R);
+  c.mask = F_EFFECTS;
+  c.props.effects = {b};
+  e.applyChanges({c}, APPLY_LOAD);
+  // A uniform blur has no line: refused.
+  Effect uniform = b;
+  uniform.extra.clear();
+  c.props.effects = {uniform};
+  e.applyChanges({c}, APPLY_LOAD);
+  CHECK(e.startBlurEdit(R, 0) == E_INVALID);
+  c.props.effects = {b};
+  e.applyChanges({c}, APPLY_LOAD);
+  REQUIRE(e.startBlurEdit(R, 0) == OK);
+  CHECK(e.blurEditing());
+  CHECK_FALSE(e.paintStop() == 0);
+  CHECK(e.setPaintStop(1) == OK);  // the panel's End field hovered
+  CHECK(e.paintStop() == 1);
+  CHECK(e.setPaintStop(2) == E_INVALID);
+  // Figma's default line, top-centre → bottom-centre of the 100 × 100 box at (100, 100): End at (150, 200).
+  drag(e, {150, 200}, {200, 150});
+  const EffectExtras& x = effectExtras(props(e, R).effects[0]);
+  CHECK(x.endOffset.x == doctest::Approx(1));
+  CHECK(x.endOffset.y == doctest::Approx(0.5));
+  CHECK(x.startOffset.x == doctest::Approx(0.5));
+  CHECK(x.startOffset.y == doctest::Approx(0));
+  CHECK(x.blurOpType == BlurOpType::PROGRESSIVE);
+  CHECK(e.undoStack().undoLabel() == "Edit progressive blur");
+  // A press away from both handles isn't the blur's.
+  click(e, 120, 180);
+  CHECK(effectExtras(props(e, R).effects[0]).endOffset.x == doctest::Approx(1));
+  e.key(KeyEvent::DOWN, KeyCode::Escape, 0, 0, false);
+  CHECK_FALSE(e.paintEditing());
+  e.command(CommandId::UNDO);
+  CHECK(effectExtras(props(e, R).effects[0]).endOffset.y == doctest::Approx(1));
 }

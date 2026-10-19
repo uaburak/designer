@@ -12,7 +12,7 @@ import { t, useT } from "@/i18n";
 import { renderEngineExport } from "../exportCore";
 import { useEditor, type EditorController } from "../controller";
 import { ViewerDoc } from "../../../../viewer/viewerDoc";
-import { cssLines, cssSnippet } from "../../../../viewer/inspect/css";
+import { cssText } from "../../../../viewer/inspect/css";
 import { codeConnectSnippets, targetOf, type ViewSnippet } from "../../../../viewer/inspect/codeConnect";
 import { buildScratch, setScratchMode, setScratchProperty, type Scratch } from "./scratch";
 import { editorDevData, setRound5, useRound5, type Round5State } from "./round5";
@@ -76,8 +76,7 @@ function Playground({ ed, id, onClose }: { ed: EditorController; id: Guid; onClo
     });
     const dev = editorDevData(ed);
     const input = new ViewerDoc(scratch.engine).inspect(scratch.instance);
-    const s = input ? cssSnippet(input) : null;
-    const css = s ? [cssLines(s.layout), cssLines(s.style), s.typography.length ? cssLines(s.typography, s.textStyle) : ""].filter(Boolean).join("\n\n") : "";
+    const css = input ? cssText(input) : "";
     (dev ? codeConnectSnippets(scratch.engine, scratch.instance, dev.codeConnect, { target }) : Promise.resolve([])).then(
       (snippets) => !off && setSnippet({ snippets, css }),
       () => !off && setSnippet({ snippets: [], css })

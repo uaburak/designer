@@ -131,6 +131,12 @@
   .paintHidden { opacity: 0.4; }
   /* Selection colors: an empty eye-sized slot, then "Select matching layers" shown on hover / focus */
   .colorRowSlot { flex: none; width: var(--ds-size-control); }
+  /* Selection colors with four colours or more: the title row folds the list; folded, it shows three and "+N" */
+  .colorsCollapsible { position: relative; }
+  .colorsToggle { position: absolute; top: 0; left: 0; width: 100%; height: 40px; padding: 0; border: 0; background: transparent; cursor: default; }
+  .colorsToggle:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(-1 * var(--ds-focus-width)); }
+  .colorsPeek { display: flex; align-items: center; gap: var(--ds-space-1); padding-right: var(--ds-space-2); pointer-events: none; }
+  .colorsMore { color: var(--figma-color-text-secondary); font-variant-numeric: tabular-nums; }
   .colorRow .colorRowAction { visibility: hidden; }
   .colorRow:hover .colorRowAction, .colorRow:focus-within .colorRowAction { visibility: visible; }
   /* "Click + to replace mixed content": a 32 row, the text at 40% (Figma's live panel) */
@@ -360,6 +366,24 @@
     appearance: none;
   }
   .axisSlider:focus-visible::-webkit-slider-thumb { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  /* The optical size's "Set optical size automatically" under its slider; the "Additional axes" fold (Atlas 06 §5.4) */
+  .axisAuto { grid-column: 1 / -1; }
+  .axesMore {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    height: var(--ds-size-control);
+    margin-left: calc(var(--ds-space-2) * -1);
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium-strong);
+    cursor: default;
+  }
+  .axesMore:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  /* Details' layout-version banner (Atlas 06 §2.4): the grid's whole width */
+  .settings.settingsEnd > .layoutVersion { grid-column: 1 / -1; justify-self: stretch; margin-top: var(--ds-space-3); }
 
   /* "See all N colors" */
   .seeAll { padding: 0 var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-size-panel-pad-left); }
@@ -399,12 +423,20 @@
     border-radius: var(--ds-radius-medium);
     background: var(--figma-color-bg-secondary);
   }
+  /* The row whose settings are open (live 2026-10-18 effects-glass-popover.txt: #394360, its name #7CC4F8) */
+  .effectField:has(> [aria-expanded="true"]) { background: var(--figma-color-bg-selected); color: var(--figma-color-text-brand); }
+  .effectField > [aria-expanded="true"] { background: transparent; color: var(--figma-color-icon-brand); }
   /* Line height / Letter spacing (live design/text.txt): their number 61 wide, 3 short of the field's end */
   .typeMetric input { flex: 0 0 61px; min-width: 0; }
   .effectField > [data-ds="Select"] { flex: 1 1 auto; min-width: 0; }
   .effectLabel { flex: 1 1 auto; min-width: 0; overflow: hidden; padding-left: var(--ds-space-1); white-space: nowrap; text-overflow: ellipsis; }
   /* Live (design/rectangle-with-effect.txt): the effect's name 11px / 400 at 41, 1 after its glyph */
   .effectName { padding-left: 1px; font: var(--ds-font-body-medium-regular); letter-spacing: var(--ds-tracking-body-medium-regular); }
+  /* Draw's large-preview rows: the effect's values after its name */
+  .effectSummary { flex: 0 1 auto; min-width: 0; overflow: hidden; padding: 0 var(--ds-space-2) 0 var(--ds-space-1); color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+  /* Spread (its tooltip says why it is off) and a progressive blur's Start / End (they mark their canvas handle): the field's cell */
+  .fxSpread, .fxHandleField { display: flex; min-width: 0; }
+  .fxSpread > *, .fxHandleField > * { flex: 1 1 auto; min-width: 0; }
   /* The effect settings header's type (live: 11px / 400, 117 wide for "Drop shadow" — 8 after the chevron) */
   .fxType { font: var(--ds-font-body-medium-regular); letter-spacing: var(--ds-tracking-body-medium-regular); }
   .fxType > button { padding-right: var(--ds-space-2); }
@@ -437,6 +469,11 @@
   /* Image adjustments (live popovers/fill-picker-image.txt): from 349 every 32 — the name at 16, a slider 104 → 224 with
      its 16 thumb (0 in the middle, at 164, where a 4 dot marks it) */
   .imageControls { display: flex; flex-direction: column; gap: var(--ds-space-2); margin: var(--ds-space-3) var(--ds-space-4) var(--ds-space-3); }
+  /* The scale mode row's right end: a tile's Scaling factor, then Rotate 90º */
+  .imageActions { display: flex; align-items: center; gap: var(--ds-space-1); }
+  /* Mask: the type dropdown under its title */
+  .maskRow { padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left); }
+  .tileScale { width: 64px; }
   .adjustment { position: relative; display: grid; grid-template-columns: 88px 120px; align-items: center; height: var(--ds-size-control); }
   .adjustment::after { content: ""; position: absolute; left: 146px; top: 10px; width: 4px; height: 4px; border-radius: var(--ds-radius-full); background: var(--figma-color-icon); pointer-events: none; }
   .adjustmentLabel { color: var(--figma-color-text-secondary); }
@@ -450,19 +487,21 @@
     appearance: none;
     outline: none;
   }
+  /* Figma's slider (live 2026-10-18 slider.txt): a 6 px pill track, a 12 px white thumb with its shadow */
   .slider::-webkit-slider-runnable-track {
-    height: var(--ds-space-1);
+    height: var(--ds-space-1-5);
     border-radius: var(--ds-radius-full);
-    background: var(--figma-color-bg-tertiary);
+    /* --fill (Corner smoothing): the part up to the value in the brand blue */
+    background: linear-gradient(to right, var(--figma-color-bg-brand) var(--fill, 0%), var(--figma-color-bg-tertiary) var(--fill, 0%));
   }
   .slider::-webkit-slider-thumb {
-    width: var(--ds-space-4);
-    height: var(--ds-space-4);
-    margin-top: calc((var(--ds-space-1) - var(--ds-space-4)) / 2);
+    width: var(--ds-space-3);
+    height: var(--ds-space-3);
+    margin-top: calc((var(--ds-space-1-5) - var(--ds-space-3)) / 2);
     border: 0;
     border-radius: var(--ds-radius-full);
     background: var(--ds-color-picker-thumb);
-    box-shadow: var(--ds-elevation-100);
+    box-shadow: var(--ds-elevation-slider-thumb);
     appearance: none;
   }
   .slider:focus-visible::-webkit-slider-thumb { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
@@ -494,8 +533,8 @@
   .fxSegmented { margin-bottom: var(--ds-space-1); }
   /* Texture's "Clip to shape" (live popovers/effect-settings-texture.txt): its box 37 under Radius, 16 above the bottom */
   .fxCheck { align-items: center; margin-bottom: -5px; padding-top: calc(var(--ds-space-6) + 2px); }
-  /* Glass: 17 between the light and the sliders (live: the first slider at 145) */
-  .fxGap { height: calc(var(--ds-space-4) + 1px); }
+  /* Glass: a line across the popover between the light and the sliders (live 2026-10-18: at 128, the first slider at 145) */
+  .fxGap { height: 0; margin: var(--ds-space-2) calc(-1 * var(--ds-space-4)); border-top: 1px solid var(--figma-color-border); }
   .fxTop { align-self: start; line-height: var(--ds-size-control); }
   /* A control's legend as live keeps it: in the DOM for assistive tech, clipped from view (live "Type" at 15,45) */
   .fxLegended { position: relative; }
@@ -523,31 +562,18 @@
   .vectorLegend { position: absolute; top: -7px; left: -1px; clip-path: inset(50%); color: var(--figma-color-text); font: var(--ds-font-body-medium-regular); letter-spacing: var(--ds-tracking-body-medium-regular); white-space: nowrap; pointer-events: none; }
   /* Glass: a slider and its value (live: the track 80 at 87, the value 56 at 168) */
   .fxSlider { position: relative; display: flex; align-items: center; height: var(--ds-size-control); margin-left: -1px; }
-  .fxTrack { flex: none; width: 80px; height: var(--ds-size-control); border-radius: var(--ds-radius-medium) 0 0 var(--ds-radius-medium); background: var(--figma-color-bg-secondary); }
-  .fxRange {
-    position: absolute;
-    top: -10px;
-    left: calc(-1 * var(--ds-space-2));
-    z-index: 1;
-    width: 96px;
-    height: 44px;
-    margin: 0;
-    padding: 0 var(--ds-space-4);
-    background: transparent;
-    appearance: none;
-    outline: none;
+  /* The slider's box: the DS slider 8 in from each side (its thumb's centre 14…66) */
+  .fxTrack {
+    display: flex;
+    flex: none;
+    align-items: center;
+    width: 80px;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-2);
+    border-radius: var(--ds-radius-medium) 0 0 var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+    box-sizing: border-box;
   }
-  .fxRange::-webkit-slider-runnable-track { height: var(--ds-space-3); background: transparent; }
-  .fxRange::-webkit-slider-thumb {
-    width: var(--ds-space-3);
-    height: var(--ds-space-3);
-    border: 0;
-    border-radius: var(--ds-radius-full);
-    background: var(--ds-color-picker-thumb);
-    box-shadow: var(--ds-elevation-100);
-    appearance: none;
-  }
-  .fxRange:focus-visible::-webkit-slider-thumb { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .fxValue { flex: none; width: calc(var(--ds-space-12) + var(--ds-space-2)); margin-left: 1px; border-radius: 0 var(--ds-radius-medium) var(--ds-radius-medium) 0; }
   .fxValue input { flex: none; width: var(--ds-space-12); height: 15px; margin-left: 7px; padding: 0; }
   /* Glass's light: the dial (56) beside Angle and Intensity (72; live: Angle at 57, Intensity at 88) */
@@ -562,25 +588,28 @@
     height: calc(var(--ds-space-12) + var(--ds-space-2));
     /* live: r 8 */
     border-radius: var(--ds-space-2);
+    overflow: hidden;
     background: var(--figma-color-bg-secondary);
     cursor: grab;
     touch-action: none;
   }
   .fxDial:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
-  .fxDialRing {
+  /* Turned to the angle about the dial's middle: the glow 14 down (its tip toward the light), the spotlight above it
+     pointing in (Figma's: the glyph's beam turned down) */
+  .fxDialScene { position: absolute; inset: 0; pointer-events: none; }
+  .fxDialGlow { position: absolute; top: calc(var(--ds-space-3) + var(--ds-space-half)); left: 0; color: var(--ds-color-picker-thumb); }
+  .fxDialLamp { position: absolute; top: 0; left: var(--ds-space-4); color: var(--figma-color-icon-brand); transform: rotate(90deg); }
+  /* The 8 × 8 handle in the middle (live: r 2, a 1 px border at 40 % white) */
+  .fxDialHandle {
     position: absolute;
-    inset: var(--ds-space-3);
-    border: 1px solid var(--figma-color-border);
-    border-radius: var(--ds-radius-full);
-  }
-  .fxDialDot {
-    position: absolute;
-    width: var(--ds-space-3);
-    height: var(--ds-space-3);
-    margin: calc(var(--ds-space-3) / -2) 0 0 calc(var(--ds-space-3) / -2);
-    border-radius: var(--ds-radius-full);
-    background: var(--figma-color-icon);
-    box-shadow: var(--ds-elevation-100);
+    top: 50%;
+    left: 50%;
+    width: var(--ds-space-2);
+    height: var(--ds-space-2);
+    border: 1px solid var(--figma-color-icon-tertiary);
+    border-radius: var(--ds-radius-small);
+    box-sizing: border-box;
+    transform: translate(-50%, -50%);
   }
   /* The Shader effects (Beta) browser */
   .shaderTitle { display: flex; flex: 1 1 auto; gap: var(--ds-space-3); align-items: baseline; padding-left: var(--ds-space-2); }
@@ -652,4 +681,7 @@
 .relaunchRow { display: flex; flex-direction: column; gap: var(--ds-space-1); }
 .relaunchButton { width: 100%; justify-content: center; }
 .relaunchMessage { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+/* A boolean group made with older boolean operations (Atlas 05 §9.2): the note, then a full-width secondary Update */
+.vectorOperation { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: var(--ds-space-2) var(--ds-space-4); border-bottom: 1px solid var(--figma-color-border); }
+.vectorOperationText { margin: 0; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
 

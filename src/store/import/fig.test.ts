@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { decodeCanvas, readCanvasChunks } from "../../shared/fig/container";
@@ -100,6 +100,21 @@ describe(".fig import and Save Local Copy (docs/data.md §11)", () => {
     expect([...b.nodes.values()].some((n) => n.name === "Added after import")).toBe(true);
     expect(toHex(new Uint8Array(20))).toHaveLength(40);
     expect(tablesEqual(a, a.clone())).toBe(true);
+  });
+
+  it("counts images not on this computer yet, and a partial copy leaves them out instead of waiting (atlas 22 §4)", async () => {
+    t = await openTestStore();
+    const imported = await t.api.files.importLocalCopy(join(SAMPLES, "structure.fig"), null);
+    expect(await t.api.files.missingImages(imported.fileKey)).toBe(0);
+    const o = await t.api.files.open(imported.fileKey, { mode: "view" });
+    const [gone] = [...NodeTable.fromMessage(decodeMessage(o.snapshot)).imageHashes()].sort();
+    rmSync(join(t.dir, "Workspace", "blobs", gone.slice(0, 2), gone));
+    expect(await t.api.files.missingImages(imported.fileKey)).toBe(1);
+    const out = join(t.dir, "Partial.fig");
+    await t.api.files.exportLocalCopy(imported.fileKey, out, { partial: true });
+    const fig = readFigFile(new Uint8Array(readFileSync(out)), nodeCodecs);
+    expect(fig.images.size).toBe(2);
+    expect(fig.images.has(gone)).toBe(false);
   });
 
   it("duplicates a file with its content and thumbnail but not its versions", async () => {

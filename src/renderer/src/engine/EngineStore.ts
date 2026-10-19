@@ -36,7 +36,9 @@ export class EngineStore {
   private readonly versions = new Map<Guid, number>();
   /** Per node, the version of its last change that wasn't geometry only (a full read is needed past it). */
   private readonly fullVersions = new Map<Guid, number>();
-  private readonly nodes = new Map<Guid, { version: number; full: number; node: NodeChange | null }>();
+  private readonly nodes = new Map<Guid, { version: number; full: number; epoch: number; node: NodeChange | null }>();
+  /** Bumped by refreshNodes: every cached read older than it is read again in full. */
+  private epoch = 0;
   /** Reads answered by patching geometry (typed facets) / by a full JSON read (tests, the bench). */
   readonly reads = { patched: 0, full: 0 };
   private readonly unsubscribe: () => void;
@@ -118,14 +120,15 @@ export class EngineStore {
   readNode(ref: Guid): NodeChange | null {
     const version = this.versions.get(ref) ?? 0;
     const full = this.fullVersions.get(ref) ?? 0;
+    const epoch = this.epoch;
     const cached = this.nodes.get(ref);
-    if (cached && cached.version === version) return cached.node;
+    if (cached && cached.version === version && cached.epoch === epoch) return cached.node;
     if (this.engine.destroyed) {
-      this.nodes.set(ref, { version, full, node: null });
+      this.nodes.set(ref, { version, full, epoch, node: null });
       return null;
     }
     let node: NodeChange | null;
-    if (cached?.node && cached.full === full) {
+    if (cached?.node && cached.full === full && cached.epoch === epoch) {
       const patch = this.engine.readFacets([ref], GEOMETRY_FACETS)[0];
       node = patch ? ({ ...cached.node, ...patch } as NodeChange) : null;
       this.reads.patched++;
@@ -133,8 +136,19 @@ export class EngineStore {
       node = this.engine.readNode(ref);
       this.reads.full++;
     }
-    this.nodes.set(ref, { version, full, node });
+    this.nodes.set(ref, { version, full, epoch, node });
     return node;
+  }
+
+  /**
+   * Every node is read again in full on its next read, and every node listener is told. Motion's preview writes
+   * (docs/motion.md §5: the motion layer writes the values at the playhead into the live nodes) send neither
+   * NODES_CHANGED nor DOCUMENT_CHANGED, so Motion mode calls this when the playhead or the mode changes and when an edit
+   * re-applied the layer.
+   */
+  refreshNodes(): void {
+    this.epoch++;
+    this.nodeListeners.forEach((set) => set.forEach((l) => l()));
   }
 
   private touch(ref: Guid, geometryOnly = false): void {

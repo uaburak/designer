@@ -133,6 +133,10 @@ export interface LibraryCopy {
   publishID: Guid;
   kind: AssetKind;
   name: string;
+  /** A style's type (Swap library matches styles of one type, atlas 12 §7.1) */
+  styleType?: string;
+  /** A variable's collection's key */
+  collectionKey?: string;
 }
 
 export function libraryCopies(doc: DocIndex): LibraryCopy[] {

@@ -392,6 +392,34 @@ export function letterSpacingFromApi(v: unknown): { value: number; units: "PIXEL
   return { value: num(o.value), units: o.unit as "PIXELS" | "PERCENT" };
 }
 
+/** An underline's thickness or offset (TextDecorationThickness / TextDecorationOffset): absent is `{unit: "AUTO"}`. */
+export function decorationMetricToApi(v: { value: number; units: string } | null | undefined): Obj {
+  if (!v) return { unit: "AUTO" };
+  return { value: v.value, unit: v.units === "PERCENT" ? "PERCENT" : "PIXELS" };
+}
+
+export function decorationMetricFromApi(v: unknown, name: string): { value: number; units: "PIXELS" | "PERCENT" } | null {
+  const o = v as Obj | null;
+  if (!o || typeof o !== "object") throw new ApiError(`${name}: expected {value, unit: 'PIXELS' | 'PERCENT'} or {unit: 'AUTO'}`);
+  if (o.unit === "AUTO") return null;
+  if (o.unit !== "PIXELS" && o.unit !== "PERCENT") throw new ApiError(`${name}.unit: invalid enum value '${String(o.unit)}'`);
+  return { value: num(o.value), units: o.unit };
+}
+
+/** TextDecorationColor: `{value: SolidPaint}`, or `{value: "AUTO"}` (the text's own fill) when none is set. */
+export function decorationColorToApi(v: Paint[] | null | undefined): Obj {
+  const p = v?.[0];
+  return p ? { value: paintToApi(p) } : { value: "AUTO" };
+}
+
+export function decorationColorFromApi(v: unknown): Paint[] {
+  const o = v as Obj | null;
+  if (!o || typeof o !== "object") throw new ApiError("textDecorationColor: expected {value: SolidPaint} or {value: 'AUTO'}");
+  if (o.value === "AUTO") return [];
+  if (!o.value || typeof o.value !== "object" || (o.value as Obj).type !== "SOLID") throw new ApiError("Text decoration color must be a single solid paint");
+  return [paintFromApi(o.value, "textDecorationColor.value")];
+}
+
 export function fontNameFromApi(v: unknown): { family: string; style: string; postscript: string } {
   const o = v as Obj | null;
   if (!o || typeof o.family !== "string" || typeof o.style !== "string") throw new ApiError("fontName: expected {family, style}");

@@ -30,6 +30,7 @@
 #include "editor/Snapping.h"
 #include "geometry/Path.h"
 #include "gfx/Device.h"
+#include "motion/TextStagger.h"
 #include "render/Camera.h"
 #include "render/CurveCache.h"
 #include "render/DrawInstance.h"
@@ -265,9 +266,11 @@ struct PresencePeer {
   bool hasCursor = false;
   Vec2 cursor;
   std::vector<Guid> selection;
-  // Cursor chat ("/"): the bubble instead of the name chip; an empty `chat` is open with nothing typed yet.
+  // Cursor chat ("/"): the bubble instead of the name chip; an empty `chat` is open with nothing typed yet. Phase 6:
+  // two lines at most ("\n" between them); `chatAlpha` while it fades (5–8 s after its last change).
   bool hasChat = false;
   std::string chat;
+  double chatAlpha = 1;
 };
 
 // The local user's own cursor chat: their bubble at `at` (page coordinates; by their real pointer, no arrow).
@@ -275,6 +278,7 @@ struct LocalChat {
   bool on = false;
   std::string text;
   Vec2 at;
+  double alpha = 1;  // while it fades
 };
 
 // What the editor wants drawn over the scene.
@@ -403,6 +407,26 @@ struct Overlay {
   // slices, dashed); pixel preview (the page drawn at `pixelPreview`× and scaled up without smoothing; 0: off).
   bool hasRotationOrigin = false;
   Vec2 rotationOrigin;
+  // Figma Motion (docs/motion.md §6.4; round 8a, increment 2): the selected layer's motion path — "a sequence of dots"
+  // (one per frame of its position keyframes: their spacing shows the easing), a square at each keyframe (filled at the
+  // playhead), each curved keyframe's handles — and the anchor point's target (Edit anchor point, ⌥R). World.
+  struct MotionKey {
+    Vec2 at;
+    bool current = false;  // the keyframe at the playhead
+  };
+  std::vector<Vec2> motionDots;
+  std::vector<MotionKey> motionKeys;
+  std::vector<OverlayLine> motionHandles;
+  bool hasAnchorPoint = false;
+  Vec2 anchorPoint;
+  // Motion's transform gizmo on the one selected layer (the owner's capture of Figma, 2026-10-18,
+  // docs/research/figma/live/owner-2026-10-18/figma-motion-rect-gizmo-panel.webp): the anchor (world), the layer's own
+  // right and up directions (world, unit), and the dotted guides from the layer's box to its parent frame's left and top
+  // edges at the anchor (world).
+  bool hasMotionGizmo = false;
+  Vec2 gizmoAnchor;
+  Vec2 gizmoRight{1, 0}, gizmoUp{0, -1};
+  std::vector<OverlayLine> gizmoGuides;
   std::string badgeText;
   struct RulerGuide {
     Vec2 a, b;           // world
@@ -422,10 +446,17 @@ struct Overlay {
   // thin outline, no fills).
   bool pixelGrid = true;
   bool outlines = false;
+  // Outline mode's options (View › Outlines ▸ Show hidden layers / Show object bounds, Atlas 04 §9.3): hidden layers
+  // outlined too; each layer's box drawn (unverified look: the outline colour, the boxes fainter).
+  bool outlineHidden = false;
+  bool outlineBounds = false;
   bool layoutGuides = true;  // View › Layout guides (⇧G): frames' layout grids drawn
   // Top-level frames' names above them; one frame's left out (a grid whose track is selected: live Figma).
   bool frameTitles = true;
   Guid hideTitle = kNoGuid;
+  // Top-level frames with animated layers: the Motion icon before their names (help: "Top-level frames with animated
+  // layers are marked with the Motion icon"; round 8i).
+  std::vector<Guid> motionTitles;
   // The camera is in a continuous zoom (the wheel, a pinch): a page that takes long to draw may show its cached
   // pixels scaled until the zoom settles (docs/engine.md §6.9).
   bool zooming = false;
@@ -450,6 +481,25 @@ struct Overlay {
   ScrollbarOverlay scrollbars;  // round 16: the canvas scrollbars
   // Dev Mode: annotations, measurements, statuses, focus view.
   DevOverlay dev;
+  // Dev Mode's inspect chrome (the owner's capture docs/research/figma/live/owner-2026-10-18/figma-devmode-inspect;
+  // Figma's DevHandoffStackMouseBehavior and DevHandoffTLFCanvasHighlightBehavior): the selected layer's design
+  // highlighted (a rounded box round it and its name, its outline 2 px), a selected auto-layout frame's paddings
+  // hatched blue and gaps pink with a blue value pill on each (a line through the vertical paddings and the gaps), its
+  // layers' boxes dotted, and the size badge as two lines — "W Fixed 678px" / "H Hug 120px".
+  struct DevInspect {
+    bool on = false;
+    Guid frame = kNoGuid;  // the highlighted design (the page's child holding the selection)
+    std::vector<SpacingArea> areas;  // world quads; `gap` pink, else blue
+    std::vector<GuideLine> lines;    // world
+    struct Pill {
+      Vec2 at;  // world: its centre
+      std::string text;
+    };
+    std::vector<Pill> pills;
+    std::vector<SpacingArea> dotted;  // the flow layers' boxes (world quads)
+    std::string width, height;        // the badge's lines (none: the usual W × H badge)
+  };
+  DevInspect devInspect;
   // Round 18: other people in the file (multiplayer presence, Editor::setPresence) — their selections outlined in their
   // colour under the local selection's chrome, their cursors with name chips over everything. Only the editor's
   // overlay carries them: exports, thumbnails, the content cache and presentation never draw an Overlay's presence.
@@ -462,6 +512,9 @@ class TextLayouts {
  public:
   virtual ~TextLayouts() = default;
   virtual const text::TextLayout* textLayout(Guid id) = 0;
+  // A staggered text's element poses (Figma Motion, docs/motion.md §4.10; round 8h): each glyph drawn with its
+  // element's transform and opacity. nullptr: drawn as laid out.
+  virtual const motion::TextElementPoses* textElements(Guid) { return nullptr; }
 };
 
 struct Viewport {
@@ -488,6 +541,9 @@ struct RenderStats {
   uint32_t paths = 0;
   uint32_t layers = 0;  // offscreen layers
   uint32_t drawCalls = 0;
+  uint32_t passes = 0;     // render passes begun (each a store and a load of its target on a tile-based GPU)
+  uint32_t backdrops = 0;  // background blurs' (and glass's) backdrops captured
+  uint32_t captures = 0;   // the breaks of the pass they were captured in (round 18: taken together)
   uint32_t nodes = 0;    // render-tree nodes visited (drawn or culled at their subtree)
   uint32_t culled = 0;   // subtrees skipped: off screen
   uint32_t tiny = 0;     // subtrees skipped: under half a device pixel (LOD)
@@ -528,6 +584,10 @@ class Renderer {
     if (!on) dropCache();
   }
   bool contentCache() const { return cacheEnabled_; }
+  // Figma's high-memory optimisations (atlas 20 §9.1), between frames: every cache the next frames rebuild goes —
+  // the content cache, the tiles, idle layer targets, the curves, the images the last frame didn't draw. The pixels
+  // stay the same; the next frame draws the page whole.
+  void purgeMemory();
   // Exports (export/Export.h): the page's layers on transparent (no page colour) and text never greeked.
   void setExporting(bool on) { exporting_ = on; }
   // When the next frame is wanted (a continuous zoom settling: draw the page sharp again), in nowMs() time; 0: none.
@@ -639,10 +699,18 @@ class Renderer {
     Vec2 blitOrigin;
     double blitScale = 1;
     int blitHeight = 0;
+    // Draw: the device px (canvas space) its instances can touch; w < 0: unknown (anywhere). The backdrop scheduler
+    // (runCmds) runs a draw before a background blur's capture when it lies clear of every capture still to take.
+    gfx::IRect bounds{0, 0, -1, -1};
+    // Draw: its instances overlap a background blur recorded before them in this layer (batches split where this
+    // changes, so what lies clear of the blurs isn't held back with what lies over them).
+    bool overBackdrop = false;
   };
   struct Layer {
     gfx::IRect rect;           // device px, canvas space
     std::vector<Cmd> cmds;
+    // Recording: the regions of the background blurs recorded into it (the last kRecentBackdrops), for Cmd::overBackdrop.
+    std::vector<gfx::IRect> backdropRects;
     int copyOf = -1;           // a copy of another layer (then blurred: shadows)
     double blurRadius = 0;     // the tent blur's radius in device px, applied after drawing
     double morph = 0;          // + dilate / − erode, device px, before the blur
@@ -691,6 +759,9 @@ class Renderer {
     float fx[3][4] = {};                                   // progressive: slots 16–18 (the node's box, start / end)
     double start = 0, end = 0;                             // progressive: the radius at the start and at the end (device px)
     float glass[2][4] = {};                                // glass: slots 6 and 8
+    double glassReach = 0;                                 // glass: how far past its pixels it reads (device px)
+    // Where the layer it was recorded in cut its region (left, bottom, right, top): the atlas repeats the edge there.
+    bool cut[4] = {false, false, false, false};
     // A uniform background blur: clamped to the node's box (Layer::clamped).
     bool clamped = false;
     Rect clampBox;
@@ -763,9 +834,17 @@ class Renderer {
   static constexpr double kGlyphZoomEmPx = 6;  // …while a zoom goes on
   // A glyph's outline area in em² (cached): the ink of greeked lines.
   double glyphArea(text::Font* font, uint32_t glyph);
+  // The layout's largest glyph size, and its lines' ink for greeked bars (TextLayout::InkCache), worked out once.
+  float maxEmOf(const text::TextLayout& L);
+  const std::vector<double>& lineInkOf(const text::TextLayout& L);
   // Outline mode (View › Outlines, ⇧⌘O): a node as a thin outline (text: its glyphs in the outline colour), then its
   // children; no fills, strokes, effects or masks.
   void drawOutlined(const Document& doc, uint32_t i, const NodeProps& p, const Mat2x3& m);
+  // One node's own outline (no children), `m` its space → CSS px.
+  void outlineShape(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha);
+  // Outline mode's options over the page (View › Outlines ▸ Show hidden layers / Show object bounds): hidden layers
+  // outlined as the shown ones are, each layer's box.
+  void drawOutlineOptions(const Document& doc, Guid page, const Mat2x3& view, const Overlay& overlay);
   // A polyline in CSS px, `width` across: a thin rectangle per segment.
   void strokePolyline(const std::vector<Vec2>& pts, bool closed, double width, const Color& color, double alpha);
   // Glyphs of `layout` placed by `m` (layout space → CSS px), all in `color`.
@@ -794,6 +873,9 @@ class Renderer {
   // (render/SpacingOverlay.cpp).
   // `padding`: the paddings' colour (the selection's chrome: purple in a component or instance); gaps are pink.
   void drawSpacing(const Mat2x3& view, const Overlay& overlay, const OverlayStyle& style, const Color& padding);
+  // A quad (screen CSS px, corners in order round it) washed in `color` at `wash` and striped "/" at `ink`, a stripe
+  // `width` across every `period` along a row, the pattern's phase from its first corner (SpacingOverlay.cpp).
+  void hatchQuad(const Vec2 quad[4], const Color& color, double wash, double ink, double period, double width);
   // Figma's component (four diamonds) or instance (a diamond outline) icon before a title, in `box` (screen CSS px).
   void drawTitleIcon(TitleIcon icon, const Rect& box, const Color& color, const Mat2x3& place = {});
   // A hovered text layer (Overlay.cpp, round 11): each line's baseline underlined across its text, 2 px (1 px when
@@ -815,7 +897,8 @@ class Renderer {
                 const CurveEntry* clip = nullptr, bool clipSubtract = false, bool clipEvenOdd = false, Pass pass = Pass::Path);
   // An instance's paint fields; false when there is nothing to draw (an invisible paint).
   bool setPaint(DrawInstance& q, DrawState& state, const Paint& paint, const Mat2x3& localToNode, Vec2 nodeSize, double alpha);
-  int rampRow(const std::vector<ColorStop>& stops);
+  int rampRow(const std::vector<ColorStop>& stops, InterpolationColorSpace space = InterpolationColorSpace::DEFAULT,
+              InterpolationHueMethod hue = InterpolationHueMethod::SHORTER);
   void compositeLayer(int src, int aux, int mode, float opacity, BlendMode bm, const Color& color, Vec2 offset, bool knockout,
                       gfx::IRect rect);
   // Draws one paint (`draw(alpha)`), through a layer when the paint has its own blend mode.
@@ -844,7 +927,22 @@ class Renderer {
   }
   // Layer `index` has run: what it read is read once less, and a layer nothing reads any more gives its target back.
   void doneReading(int index);
+  // Layer L's commands into `target`. Background blurs (round 18): each needs the pixels under it before anything is
+  // drawn over it, and reading them closes the render pass — on a tile-based GPU a store and a load of the whole
+  // target (the canvas: 2880×1724 on a Retina editor), 0.5–1 ms each, and the owner's B2C pages show 30–60 of them.
+  // So the captures are taken together: a blur's capture waits, what lies over it (or over what waits) waits with it,
+  // and everything else is drawn at once; the next blur whose region nothing waiting touches joins the same capture.
+  // Only commands with disjoint pixels change order, so the frame is the same.
   void runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, const float clear[4], bool keep);
+  // The blurred backdrops of `grabs` (BackdropBlur commands of layer L, in order), taken in one break of the pass `pd`.
+  bool captureBackdrops(Layer& L, const gfx::PassDesc& pd, const std::vector<const Cmd*>& grabs);
+  bool openPass(const gfx::PassDesc& pd) {
+    stats_.passes++;
+    return device_.beginPass(pd);
+  }
+  // Where a draw instance can touch, device px in canvas space (its quad as the draw vertex shader spans it).
+  gfx::IRect instanceBounds(const DrawInstance& q) const;
+  static constexpr size_t kRecentBackdrops = 32;
   // A recording of `region` (device px; clipToRegion: nothing drawn outside it), then its execution into `target`
   // (keep: what the target holds stays outside the region).
   void beginRecording(gfx::IRect region, bool clipToRegion);

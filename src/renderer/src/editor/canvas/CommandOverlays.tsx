@@ -1,11 +1,12 @@
 /**
  * Round 10's pieces for the Figma menu's commands (docs/editor.md "Round 10 — Menus, commands, left side and toolbar"):
  * File › Move to folder… (a dialog of the workspace's places), Cursor chat (/ : a bubble at the pointer), View ›
- * Memory usage (a chip at the canvas's bottom left). Their looks are unverified (no live capture); they use the DS's
- * own parts. (Vector › Simplify vector / Offset vector are Figma's tools since round 17b: canvas/PathToolbar.)
+ * Memory usage (Figma's memory card, with the engine's other health notices: canvas/EngineHealth). Their looks are
+ * unverified (no live capture); they use the DS's own parts. (Vector › Simplify vector / Offset vector are Figma's
+ * tools since round 17b: canvas/PathToolbar.)
  */
 import { t, useT } from "@/i18n";
-import { presenceOf } from "../multiplayer/presence";
+import { CHAT_FADE_MS, CHAT_LINE_MAX, chatOpacity, presenceOf } from "../multiplayer/presence";
 import { useEffect, useRef, useState } from "react";
 import { Button, Dialog, RadioGroup, showToast } from "@/ds";
 import { useEditor } from "../controller";
@@ -13,6 +14,7 @@ import { useUI } from "../hooks";
 import { lastPointer } from "../commands";
 import { fileOps } from "../objectCommands";
 import { attachSpellcheck } from "../spellcheck";
+import { EngineHealth } from "./EngineHealth";
 import styles from "./CommandOverlays.module.css";
 
 export function CommandOverlays() {
@@ -31,12 +33,11 @@ export function CommandOverlays() {
   }, [ed]);
   const move = useUI((s) => !!s.moveFileDialog);
   const chat = useUI((s) => s.cursorChat ?? null);
-  const memory = useUI((s) => !!s.memoryUsage);
   return (
     <>
       {move && <MoveFileDialog />}
       {chat && <CursorChat at={chat} />}
-      {memory && <MemoryUsage />}
+      <EngineHealth />
     </>
   );
 }
@@ -92,15 +93,20 @@ function MoveFileDialog() {
   );
 }
 
-/** Cursor chat (/): a bubble by the pointer; Enter sends (it stays a moment), Esc closes. */
-/** Cursor chat ("/", R13 §1): a bubble at the pointer showing what you type, live for the others (52 characters), gone
- *  5 s after you stop typing; Esc, a click or leaving the field closes it. The engine draws the bubbles (setLocalChat; the
- *  others' through presence). */
+/** Cursor chat ("/", atlas 19 §4.3): a bubble at the pointer showing what you type, live for the others — 50 characters
+ *  a line; Enter moves the line up and starts a second (Figma's `previousText`), Enter on an empty line closes; it starts
+ *  fading 5 s after the last keystroke and is gone at 8 s; Esc, a click or leaving the field closes it. The engine draws
+ *  the bubbles (setLocalChat; the others' through presence). */
 function CursorChat({ at }: { at: { x: number; y: number } }) {
   useT();
   const ed = useEditor();
-  const engine = ed.engine as unknown as { setLocalChat?(text: string | null, at: { x: number; y: number } | null): void; screenToWorld?(x: number, y: number): { x: number; y: number } };
+  const engine = ed.engine as unknown as { setLocalChat?(text: string | null, at: { x: number; y: number } | null, opacity?: number): void; screenToWorld?(x: number, y: number): { x: number; y: number } };
   const [text, setText] = useState("");
+  // The line moved up by Enter (null: one line)
+  const previous = useRef<string | null>(null);
+  const [lines, setLines] = useState(1);
+  const opacity = useRef(1);
+  const whole = (line: string) => (previous.current === null ? line : `${previous.current}\n${line}`);
   const pos = useRef(at);
   const [shown, setShown] = useState(at);
   const input = useRef<HTMLInputElement>(null);
@@ -112,7 +118,7 @@ function CursorChat({ at }: { at: { x: number; y: number } }) {
     if (ed.engine.destroyed || !engine.setLocalChat || !engine.screenToWorld) return;
     const r = ed.canvas?.getBoundingClientRect();
     const world = r ? engine.screenToWorld(pos.current.x - r.left, pos.current.y - r.top) : null;
-    engine.setLocalChat(t, t === null ? null : world);
+    engine.setLocalChat(t, t === null ? null : world, opacity.current);
   };
   useEffect(() => {
     input.current?.focus();
@@ -121,7 +127,7 @@ function CursorChat({ at }: { at: { x: number; y: number } }) {
     const move = (e: PointerEvent) => {
       pos.current = { x: e.clientX, y: e.clientY };
       setShown(pos.current);
-      draw(input.current?.value ?? "");
+      draw(whole(input.current?.value ?? ""));
     };
     window.addEventListener("pointermove", move, { passive: true });
     return () => {
@@ -131,10 +137,26 @@ function CursorChat({ at }: { at: { x: number; y: number } }) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- opened once per chat
   }, [ed]);
-  // Gone 5 s after the last keystroke (R13 §1); the first wait is longer so an empty bubble doesn't vanish at once.
+  // Fading from 5 s after the last keystroke, gone at 8 s (Figma's START_FADING_INACTIVE_CHAT, then close).
   useEffect(() => {
-    const t = window.setTimeout(() => ed.ui.set({ cursorChat: null }), text ? 5000 : 8000);
-    return () => window.clearTimeout(t);
+    opacity.current = 1;
+    const started = Date.now();
+    let raf = 0;
+    const fade = () => {
+      const o = chatOpacity(Date.now() - started);
+      if (o <= 0) return ed.ui.set({ cursorChat: null });
+      if (o !== opacity.current) {
+        opacity.current = o;
+        draw(whole(input.current?.value ?? ""));
+      }
+      raf = requestAnimationFrame(fade);
+    };
+    const t = window.setTimeout(() => (raf = requestAnimationFrame(fade)), CHAT_FADE_MS);
+    return () => {
+      window.clearTimeout(t);
+      cancelAnimationFrame(raf);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- restarted by each keystroke
   }, [text, ed]);
   return (
     <input
@@ -144,42 +166,30 @@ function CursorChat({ at }: { at: { x: number; y: number } }) {
       aria-label={t("Cursor chat")}
       placeholder={t("Say something")}
       value={text}
-      maxLength={52}
+      maxLength={CHAT_LINE_MAX}
       data-cursor-chat=""
+      data-lines={lines}
       onChange={(e) => {
         setText(e.target.value);
-        draw(e.target.value);
-        presenceOf(ed)?.setChat(e.target.value);
+        opacity.current = 1;
+        draw(whole(e.target.value));
+        presenceOf(ed)?.setChat(whole(e.target.value));
       }}
       onBlur={close}
       onKeyDown={(e) => {
         e.stopPropagation();
-        if (e.key === "Escape" || e.key === "Enter") close();
+        if (e.key === "Escape" || (e.key === "Enter" && !text)) return close();
+        if (e.key === "Enter") {
+          // The line moves up; the next starts empty
+          e.preventDefault();
+          previous.current = text;
+          setLines(2);
+          setText("");
+          opacity.current = 1;
+          draw(whole(""));
+          presenceOf(ed)?.setChat(whole(""));
+        }
       }}
     />
-  );
-}
-
-/** View › Memory usage: the engine's memory and the page's JS heap, at the canvas's bottom left, every second. */
-function MemoryUsage() {
-  useT();
-  const ed = useEditor();
-  const read = () => {
-    const heap = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? 0;
-    return (ed.engine.destroyed ? 0 : ed.engine.memoryBytes()) + heap;
-  };
-  const [bytes, setBytes] = useState(read);
-  useEffect(() => {
-    const t = window.setInterval(() => setBytes(read()), 1000);
-    return () => window.clearInterval(t);
-    // read() reads the engine
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ed]);
-  const r = ed.canvas?.getBoundingClientRect();
-  return (
-    <div className={styles.memory} style={r ? { left: r.left + 12, top: r.bottom - 36 } : undefined} role="status" data-memory-usage="">
-      <span className={styles.memoryLabel}>{t("Memory usage")}</span>
-      <span>{Math.round(bytes / (1024 * 1024))} MB</span>
-    </div>
   );
 }

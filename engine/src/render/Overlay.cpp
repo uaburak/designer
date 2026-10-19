@@ -81,6 +81,16 @@ void Renderer::drawTitleIcon(TitleIcon icon, const Rect& box, const Color& color
   }
   if (icon == TitleIcon::Instance) {
     diamond(c, box.w - 1, false);
+  } else if (icon == TitleIcon::Motion) {
+    // The Motion mode's glyph (the toolbar's): a diamond outline, a play mark in it — three 1 px columns shortening to
+    // the right, a triangle at this size.
+    diamond(c, box.w - 1, false);
+    const double h = std::round(box.w * 0.36);
+    for (int i = 0; i < 3; i++) {
+      double ch = std::max(1.0, h - 2.0 * i * h / 3.0);
+      emit(makeShape(place * Mat2x3::translate(c.x - 1.5 + i, c.y - ch / 2), {1, ch}, ShapeKind::Rect, {0, 0, 0, 0}, color, color.a, color, 0, 0, 0),
+           Pass::Shape);
+    }
   } else {
     double q = box.w / 4;
     diamond({c.x, c.y - q}, box.w / 2 - 0.5, true);
@@ -276,7 +286,9 @@ void Renderer::drawPresenceCursors(const Camera& camera, const Overlay& overlay,
   // Cursor chat (Figma's "/"): a bubble where the name chip goes — the name (semibold, 0.8) over the message (regular,
   // wrapped at `presenceChatWidth`, at most `presenceChatLines` lines, "…" past them); "" shows "Say something" at 0.6.
   // Its corner by the arrow's tip squarer than the others.
-  auto chatBubble = [&](Vec2 tip, const Color& fill, const std::string* name, const std::string& chat) {
+  auto chatBubble = [&](Vec2 tip, const Color& fill, const std::string* name, const std::string& chat, double alpha) {
+    alpha = std::clamp(alpha, 0.0, 1.0);
+    if (alpha <= 0) return;
     const Color ink{fill.r, fill.g, fill.b, 1};
     const Ink t = inkOn(ink);
     const double size = style.presenceLabelSize, maxW = style.presenceChatWidth;
@@ -294,20 +306,29 @@ void Renderer::drawPresenceCursors(const Camera& camera, const Overlay& overlay,
     const bool placeholder = chat.empty();
     const std::string& message = placeholder ? style.presenceChatPlaceholder : chat;
     const text::TextLayout* M = label(message, "Regular", size);
-    double mw = M ? M->size.x : 6.2 * static_cast<double>(message.size());
+    // Without the font yet: its lines ("\n" between Figma's previous and current line) by their characters
+    size_t lines = 1, longest = 0;
+    for (size_t at = 0, next; at <= message.size(); at = next + 1) {
+      next = message.find('\n', at);
+      if (next == std::string::npos) next = message.size();
+      longest = std::max(longest, next - at);
+      if (next < message.size()) lines++;
+    }
+    lines = std::min(lines, static_cast<size_t>(style.presenceChatLines));
+    double mw = M ? M->size.x : 6.2 * static_cast<double>(longest);
     if (mw > maxW) {
       M = label(message, "Regular", size, maxW, static_cast<int>(style.presenceChatLines));
       mw = maxW;
     }
-    double mh = M && !M->lines.empty() ? M->size.y : size * 1.2;
+    double mh = M && !M->lines.empty() ? M->size.y : size * 1.2 * static_cast<double>(lines);
     const double padX = style.presenceChatPadX, padY = style.presenceChatPadY, gap = N ? style.presenceChatGap : 0;
     double bw = std::round(std::max(nw, mw) + 2 * padX), bh = std::round(nh + gap + mh + 2 * padY);
     double bx = snap(tip.x + style.presenceChipX), by = snap(tip.y + style.presenceChipY);
     const double r = style.presenceChatRadius, rt = style.presenceChatTipRadius;
-    emit(makeShape(Mat2x3::translate(bx, by), {bw, bh}, ShapeKind::Rect, {rt, r, r, r}, ink, 1, ink, 0, 0, 0), Pass::Shape);
-    if (N && !N->lines.empty()) drawGlyphs(*N, Mat2x3::translate(snap(bx + padX), snap(by + padY)), t.color, t.alpha * style.presenceChatNameAlpha);
+    emit(makeShape(Mat2x3::translate(bx, by), {bw, bh}, ShapeKind::Rect, {rt, r, r, r}, ink, alpha, ink, 0, 0, 0), Pass::Shape);
+    if (N && !N->lines.empty()) drawGlyphs(*N, Mat2x3::translate(snap(bx + padX), snap(by + padY)), t.color, alpha * t.alpha * style.presenceChatNameAlpha);
     if (M && !M->lines.empty())
-      drawGlyphs(*M, Mat2x3::translate(snap(bx + padX), snap(by + padY + nh + gap)), t.color, t.alpha * (placeholder ? style.presenceChatPlaceholderAlpha : 1));
+      drawGlyphs(*M, Mat2x3::translate(snap(bx + padX), snap(by + padY + nh + gap)), t.color, alpha * t.alpha * (placeholder ? style.presenceChatPlaceholderAlpha : 1));
   };
   for (const PresencePeer& peer : overlay.presence) {
     if (!peer.hasCursor) continue;
@@ -320,7 +341,7 @@ void Renderer::drawPresenceCursors(const Camera& camera, const Overlay& overlay,
     emitPath(rimEntry, at, false, Paint::solid(white, 1), {1, 1}, 1);
     emitPath(arrowEntry, at, false, Paint::solid(ink, 1), {1, 1}, 1);
     if (peer.hasChat) {
-      chatBubble(tip, ink, &peer.name, peer.chat);
+      chatBubble(tip, ink, &peer.name, peer.chat, peer.chatAlpha);
       continue;
     }
     if (peer.name.empty()) continue;
@@ -342,7 +363,7 @@ void Renderer::drawPresenceCursors(const Camera& camera, const Overlay& overlay,
   // The local user's own cursor chat: the bubble by their real pointer (no arrow, no name), in the selection blue.
   if (overlay.localChat.on) {
     Vec2 tip = camera.toScreen(overlay.localChat.at);
-    chatBubble({snap(tip.x), snap(tip.y)}, style.presenceLocalChat, nullptr, overlay.localChat.text);
+    chatBubble({snap(tip.x), snap(tip.y)}, style.presenceLocalChat, nullptr, overlay.localChat.text, overlay.localChat.alpha);
   }
 }
 
@@ -352,6 +373,8 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
   const Color& blue = style.selection;
   const Color white{1, 1, 1, 1};
   Mat2x3 view = camera.matrix();
+  // Outline mode's options, under the rest of the chrome.
+  if (overlay.outlines && (overlay.outlineHidden || overlay.outlineBounds) && page != kNoGuid) drawOutlineOptions(doc, page, view, overlay);
 
   // Components, component sets and instances — and every layer inside one — are outlined in the component purple
   // (live Figma; round 15, the owner's screenshots in docs/research/components15/).
@@ -532,6 +555,33 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     }
   }
 
+  // Dev Mode's inspect chrome (Renderer.h DevInspect): the selection's design in a rounded box round it and its name,
+  // under the names; selected, its outline 2 px (a ring outside the selection's 1 px).
+  const Overlay::DevInspect& devInspect = overlay.devInspect;
+  Rect devBox;
+  bool hasDevBox = false;
+  if (devInspect.on && devInspect.frame != kNoGuid && doc.has(devInspect.frame)) {
+    const Mat2x3 m = view * doc.worldTransform(devInspect.frame);
+    if (std::fabs(m.m01) < 1e-9 && std::fabs(m.m10) < 1e-9) {
+      auto snap = [&](double v) { return std::round(v * dpr) / dpr; };
+      const Vec2 fs = doc.get(devInspect.frame)->props.size;
+      Rect r = transformedBounds(m, fs.x, fs.y);
+      r = Rect::fromPoints({snap(r.x), snap(r.y)}, {snap(r.right()), snap(r.bottom())});
+      devBox = {r.x - style.devBoxSide, r.y - style.devBoxTop, r.w + 2 * style.devBoxSide, r.h + style.devBoxTop + style.devBoxBottom};
+      hasDevBox = true;
+      const Color ink = style.darkCanvas ? Color{1, 1, 1, 1} : Color{0, 0, 0, 1};
+      const double R = style.devBoxRadius, a = style.devBoxWash;
+      // The wash in four pieces round the design (never over it), the edge whole.
+      emit(makeShape(Mat2x3::translate(devBox.x, devBox.y), {devBox.w, style.devBoxTop}, ShapeKind::Rect, {R, R, 0, 0}, ink, a, ink, 0, 0, 0), Pass::Shape);
+      emit(makeShape(Mat2x3::translate(devBox.x, r.bottom()), {devBox.w, style.devBoxBottom}, ShapeKind::Rect, {0, 0, R, R}, ink, a, ink, 0, 0, 0), Pass::Shape);
+      emit(makeShape(Mat2x3::translate(devBox.x, r.y), {style.devBoxSide, r.h}, ShapeKind::Rect, kSquare, ink, a, ink, 0, 0, 0), Pass::Shape);
+      emit(makeShape(Mat2x3::translate(r.right(), r.y), {style.devBoxSide, r.h}, ShapeKind::Rect, kSquare, ink, a, ink, 0, 0, 0), Pass::Shape);
+      emit(makeShape(Mat2x3::translate(devBox.x, devBox.y), {devBox.w, devBox.h}, ShapeKind::Rect, {R, R, R, R}, ink, 0, ink, style.devBoxEdge, 1, 0), Pass::Shape);
+      if (std::find(overlay.selection.begin(), overlay.selection.end(), devInspect.frame) != overlay.selection.end())
+        emit(makeShape(Mat2x3::translate(r.x - 1, r.y - 1), {r.w + 2, r.h + 2}, ShapeKind::Rect, kSquare, blue, 0, blue, 1, 1, 0), Pass::Shape);
+    }
+  }
+
   // Frames' names above their top-left corner (top-level frames and those directly in sections), sections' pills
   // (render/FrameTitles.cpp: the same boxes the editor hit-tests).
   // Prototype mode: flow starting point labels (before the titles: a title moves right past its frame's label).
@@ -548,7 +598,7 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       return L ? L->size.x : 6.2 * static_cast<double>(name.size()) * size / 11;
     };
     auto has = [](const std::vector<Guid>& ids, Guid id) { return std::find(ids.begin(), ids.end(), id) != ids.end(); };
-    for (const FrameTitle& t : frameTitles(doc, page, view, screen_, style, measure, overlay.dev.focus)) {
+    for (const FrameTitle& t : frameTitles(doc, page, view, screen_, style, measure, overlay.dev.focus, overlay.motionTitles)) {
       const Node* n = doc.get(t.id);
       if (!n) continue;
       bool isSelected = has(overlay.selection, t.id), hovered = has(overlay.hover, t.id);
@@ -631,6 +681,50 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
   // Auto layout's padding and gap handles, the padding or gap under the pointer hatched (round 15), the value badge
   // (render/SpacingOverlay.cpp) — a padding's in the selection's chrome colour (purple in a component or instance).
   drawSpacing(view, overlay, style, blueSel);
+
+  // Dev Mode: a selected auto-layout frame's paddings (blue) and gaps (pink) hatched, its layers' boxes dotted, a line
+  // through each vertical padding and gap, a blue pill with each value (Renderer.h DevInspect).
+  if (devInspect.on) {
+    auto snap = [&](double v) { return std::round(v * dpr) / dpr; };
+    auto onScreen = [&](const Overlay::SpacingArea& area, Vec2 q[4]) {
+      for (int i = 0; i < 4; i++) q[i] = view.apply(area.quad[i]);
+      Vec2 e1 = q[1] - q[0], e2 = q[3] - q[0];
+      if ((std::fabs(e1.y) < 1e-9 && std::fabs(e2.x) < 1e-9) || (std::fabs(e1.x) < 1e-9 && std::fabs(e2.y) < 1e-9)) {
+        double x0 = snap(std::min({q[0].x, q[1].x, q[2].x, q[3].x})), x1 = snap(std::max({q[0].x, q[1].x, q[2].x, q[3].x}));
+        double y0 = snap(std::min({q[0].y, q[1].y, q[2].y, q[3].y})), y1 = snap(std::max({q[0].y, q[1].y, q[2].y, q[3].y}));
+        q[0] = {x0, y0}, q[1] = {x1, y0}, q[2] = {x1, y1}, q[3] = {x0, y1};
+      }
+    };
+    for (const Overlay::SpacingArea& area : devInspect.areas) {
+      Vec2 q[4];
+      onScreen(area, q);
+      hatchQuad(q, area.gap ? style.spacing : blueSel, style.devHatchWash, style.devHatchInk, style.devHatchPeriod, style.devHatchWidth);
+    }
+    for (const Overlay::SpacingArea& area : devInspect.dotted) {
+      Vec2 q[4];
+      onScreen(area, q);
+      Vec2 e1 = q[1] - q[0], e2 = q[3] - q[0];
+      double l1 = e1.length(), l2 = e2.length();
+      if (l1 < 1e-9 || l2 < 1e-9) continue;
+      dashedBox({Mat2x3{e1.x / l1, e2.x / l2, q[0].x, e1.y / l1, e2.y / l2, q[0].y}, {l1, l2}, 1}, blueSel);
+    }
+    for (const GuideLine& l : devInspect.lines) {
+      Vec2 a = view.apply(l.a), b = view.apply(l.b);
+      // Upright lines on a device pixel's middle (crisp), 1 px across.
+      if (std::fabs(a.x - b.x) < 1e-9) a.x = b.x = snap(a.x - 0.5) + 0.5;
+      if (std::fabs(a.y - b.y) < 1e-9) a.y = b.y = snap(a.y - 0.5) + 0.5;
+      polyline({a, b}, false, 1, blueSel, 1);
+    }
+    for (const Overlay::DevInspect::Pill& pill : devInspect.pills) {
+      const text::TextLayout* L = label(pill.text, "Medium", style.labelSize);
+      double tw = L ? L->size.x : 6.2 * static_cast<double>(pill.text.size());
+      double pw = std::max(std::round(tw + 2 * style.badgePadding), style.devPillMinWidth), ph = style.devPillHeight, rr = style.devPillRadius;
+      Vec2 c = view.apply(pill.at);
+      double px = snap(c.x - pw / 2), py = snap(c.y - ph / 2);
+      emit(makeShape(Mat2x3::translate(px, py), {pw, ph}, ShapeKind::Rect, {rr, rr, rr, rr}, blueSel, 1, blueSel, 0, 0, 0), Pass::Shape);
+      if (L && !L->lines.empty()) drawGlyphs(*L, Mat2x3::translate(snap(px + (pw - tw) / 2), snap(py + (ph - L->lines[0].height) / 2)), white, 1);
+    }
+  }
 
   // A selected grid (live Figma, canvas-grid-*): every cell outlined in a light blue (the selection colour at 37 %), a
   // selected track's empty cells filled (15 %), an expanded pill's track outlined, and the pills — compact: a capsule
@@ -822,7 +916,38 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     if (set && (!set->props.isComponentSet() || overlay.selection[0].isDerived())) set = nullptr;
     Rect sr = transformedBounds(toScreen, box.size.x, box.size.y);
     double below = std::round((sr.bottom() + style.badgeGap) * dpr) / dpr;  // where the pill (or else the "+") goes
-    if (overlay.sizeBadge) {
+    if (overlay.sizeBadge && !devInspect.width.empty() && overlay.badgeText.empty() && labelFrame(toScreen, box.size).upright) {
+      // Dev Mode: two lines, "W Fixed 678px" over "H Fixed 549px", under the design's box when it is the selection —
+      // in three columns (the axis, its sizing, the value) a word gap apart, as the owner's capture lines them up.
+      std::vector<std::string> words[2];
+      for (int row = 0; row < 2; row++) {
+        const std::string& line = row == 0 ? devInspect.width : devInspect.height;
+        for (size_t at = 0; at <= line.size();) {
+          size_t sp = std::min(line.find(' ', at), line.size());
+          words[row].push_back(line.substr(at, sp - at));
+          at = sp + 1;
+        }
+      }
+      double col[3] = {0, 0, 0};
+      for (int row = 0; row < 2; row++)
+        for (size_t k = 0; k < words[row].size() && k < 3; k++)
+          if (const text::TextLayout* L = label(words[row][k], "Regular", style.labelSize)) col[k] = std::max(col[k], L->size.x);
+      double tw = col[0] + col[1] + col[2] + 2 * style.devBadgeWordGap;
+      double bw = std::round(tw + 2 * style.badgePadding), bh = 2 * style.devBadgeLine, rr = style.devPillRadius;
+      bool inBox = hasDevBox && overlay.selection.size() == 1 && overlay.selection[0] == devInspect.frame;
+      double bx = std::round((sr.x + sr.w / 2 - bw / 2) * dpr) / dpr;
+      double by = std::round((inBox ? devBox.bottom() + style.devBadgeGap : sr.bottom() + style.badgeGap) * dpr) / dpr;
+      emit(makeShape(Mat2x3::translate(bx, by), {bw, bh}, ShapeKind::Rect, {rr, rr, rr, rr}, blue, 1, blue, 0, 0, 0), Pass::Shape);
+      for (int row = 0; row < 2; row++) {
+        double x = bx + style.badgePadding;
+        for (size_t k = 0; k < words[row].size() && k < 3; k++) {
+          const text::TextLayout* L = label(words[row][k], "Regular", style.labelSize);
+          if (L && !L->lines.empty())
+            drawGlyphs(*L, Mat2x3::translate(std::round(x * dpr) / dpr, std::round((by + row * style.devBadgeLine + (style.devBadgeLine - L->lines[0].height) / 2) * dpr) / dpr), white, 1);
+          x += col[k] + style.devBadgeWordGap;
+        }
+      }
+    } else if (overlay.sizeBadge) {
       // The pill under the box; its text arrives with the text engine (E3), so it is sized for it now.
       Rect r = sr;
       Mat2x3 w = box.toWorld;
@@ -1006,6 +1131,77 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     emit(makeShape(Mat2x3::translate(std::round((c.x - dot / 2) * dpr) / dpr, std::round((c.y - dot / 2) * dpr) / dpr), {dot, dot}, ShapeKind::Ellipse,
                    kSquare, blueSel, 1, blueSel, 0, 0, 0),
          Pass::Shape);
+  }
+
+  // Figma Motion (docs/motion.md §6.4): the motion path — a 3 px dot per frame, the handles of curved keyframes, a 7 px
+  // square at each keyframe (filled at the playhead) — and the anchor point's target: a ring with a cross through it
+  // and a dot in the middle [look unverified: no signed-in capture].
+  for (Vec2 w : overlay.motionDots) {
+    Vec2 c = view.apply(w);
+    const double d = 3;
+    emit(makeShape(Mat2x3::translate(std::round((c.x - d / 2) * dpr) / dpr, std::round((c.y - d / 2) * dpr) / dpr), {d, d}, ShapeKind::Ellipse, kSquare,
+                   blue, 1, blue, 0, 0, 0),
+         Pass::Shape);
+  }
+  for (const OverlayLine& l : overlay.motionHandles) {
+    Vec2 a = view.apply(l.a), b = view.apply(l.b);
+    polyline({a, b}, false, 1, blue, 1);
+    const double d = 5;
+    emit(makeShape(Mat2x3::translate(std::round((b.x - d / 2) * dpr) / dpr, std::round((b.y - d / 2) * dpr) / dpr), {d, d}, ShapeKind::Ellipse, kSquare,
+                   white, 1, blue, 1, 1, 0),
+         Pass::Shape);
+  }
+  for (const Overlay::MotionKey& k : overlay.motionKeys) {
+    Vec2 c = view.apply(k.at);
+    const double d = 7;
+    emit(makeShape(Mat2x3::translate(std::round((c.x - d / 2) * dpr) / dpr, std::round((c.y - d / 2) * dpr) / dpr), {d, d}, ShapeKind::Rect, kSquare,
+                   k.current ? blue : white, 1, k.current ? white : blue, 1, 1, 0),
+         Pass::Shape);
+  }
+  if (overlay.hasAnchorPoint) {
+    Vec2 c = view.apply(overlay.anchorPoint);
+    c = {std::round(c.x * dpr) / dpr, std::round(c.y * dpr) / dpr};
+    const double d = 14, arm = 10, dot = 4;
+    polyline({{c.x - arm, c.y}, {c.x + arm, c.y}}, false, 1, blue, 1);
+    polyline({{c.x, c.y - arm}, {c.x, c.y + arm}}, false, 1, blue, 1);
+    emit(makeShape(Mat2x3::translate(c.x - d / 2, c.y - d / 2), {d, d}, ShapeKind::Ellipse, kSquare, white, 0, blue, 1, 1.5, 0), Pass::Shape);
+    emit(makeShape(Mat2x3::translate(c.x - dot / 2, c.y - dot / 2), {dot, dot}, ShapeKind::Ellipse, kSquare, blue, 1, white, 1, 1, 0), Pass::Shape);
+  }
+
+  // Motion's transform gizmo (the owner's capture of Figma, OverlayStyle's gizmo* metrics): the dotted guides from the
+  // layer to its parent's edges, the ring round the anchor, the arrows out of its up and right handles, the handles, the
+  // centre dot.
+  if (overlay.hasMotionGizmo) {
+    for (const OverlayLine& g : overlay.gizmoGuides) {
+      Vec2 a = view.apply(g.a), b = view.apply(g.b);
+      double len = (b - a).length();
+      for (double t = 0; len > 1e-9 && t < len; t += 4) {
+        Vec2 p0 = a + (b - a) * (t / len), p1 = a + (b - a) * (std::min(len, t + 2) / len);
+        polyline({p0, p1}, false, 1, blue, 1);
+      }
+    }
+    Vec2 c = view.apply(overlay.gizmoAnchor);
+    c = {std::round(c.x * dpr) / dpr, std::round(c.y * dpr) / dpr};
+    // The ring: an inside stroke on an ellipse grown by half its width, so the line is centred on the radius.
+    const double r = style.gizmoRadius, s = style.gizmoStroke, d = 2 * r + s;
+    emit(makeShape(Mat2x3::translate(c.x - d / 2, c.y - d / 2), {d, d}, ShapeKind::Ellipse, kSquare, white, 0, blue, 1, s, 0), Pass::Shape);
+    const double hs = style.gizmoHandle, hr = 2;
+    auto arrow = [&](Vec2 dir, const Color& ink) {
+      Vec2 n{-dir.y, dir.x};
+      Vec2 from = c + dir * (r + hs / 2), tip = c + dir * (r + hs / 2 + style.gizmoArrow);
+      polyline({from, tip}, false, style.gizmoStroke, ink, 1);
+      polyline({tip - dir * style.gizmoHead + n * style.gizmoHeadSide, tip, tip - dir * style.gizmoHead - n * style.gizmoHeadSide}, false, style.gizmoStroke, ink, 1);
+    };
+    arrow(overlay.gizmoUp, style.gizmoUp);
+    arrow(overlay.gizmoRight, style.gizmoRight);
+    for (Vec2 dir : {overlay.gizmoUp, overlay.gizmoRight}) {
+      Vec2 h = c + dir * r;
+      emit(makeShape(Mat2x3::translate(std::round((h.x - hs / 2) * dpr) / dpr, std::round((h.y - hs / 2) * dpr) / dpr), {hs, hs}, ShapeKind::Rect, {hr, hr, hr, hr},
+                     style.handleFill, 1, blue, 1, 1, 0),
+           Pass::Shape);
+    }
+    const double dot = style.gizmoDot;
+    emit(makeShape(Mat2x3::translate(c.x - dot / 2, c.y - dot / 2), {dot, dot}, ShapeKind::Ellipse, kSquare, white, 1, blue, 1, style.gizmoStroke, 0), Pass::Shape);
   }
 
   // ⌥ measurement: the measured layer outlined in red, its distances, and dashed extensions.

@@ -19,7 +19,7 @@ import { decodeMessage } from "../../shared/schema/codec";
 import type { Message, NodeChange } from "../../shared/schema/document.generated";
 import { guidKey } from "../../shared/schema/guid";
 import { messageImageHashes } from "../../shared/schema/patch";
-import { diffAgainst, previewAgainst, toLibraryAsset, validatePublishAssets, withDependencies } from "../../shared/store/libraryRules";
+import { diffAgainst, previewAgainst, stampUserFacingVersions, toLibraryAsset, validatePublishAssets, withDependencies } from "../../shared/store/libraryRules";
 import { StoreError } from "../../shared/store/protocol";
 import type { LibraryEvent, Unsubscribe } from "../../shared/store/repositories";
 import { isAssetKey, isSha1, type AssetPayload, type FileKey, type FileMeta, type LibraryAsset, type LibraryDiff, type LibraryVersion, type PublishAsset, type PublishPreview, type PublishRequest } from "../../shared/store/types";
@@ -552,7 +552,8 @@ export class OrgLibraries {
       baseVersion: prev?.version ?? 0,
       description: typeof req.description === "string" ? req.description : "",
       scope,
-      assets,
+      // The server stamps them again on commit (an older client's manifest gets them too).
+      assets: stampUserFacingVersions(assets, prev, (prev?.version ?? 0) + 1),
       changes: { created: preview.created.map((a) => a.key), modified: preview.modified.map((a) => a.key), removed: preview.removed.map((a) => a.key), moved: preview.moved },
       moves: (req.moves ?? []).map((m) => ({ key: m.key, fromLibraryFileKey: m.fromLibraryFileKey, fromKey: m.fromKey, mode: m.mode })),
       collections: await this.collectionsOf(key, req.assets, messages),

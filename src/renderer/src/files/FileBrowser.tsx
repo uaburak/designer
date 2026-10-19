@@ -6,8 +6,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Breadcrumb, Button, ContextMenu, EmptyState, Icon, IconButton, MenuButton, SegmentedControl, Select, Spinner, showToast, useTheme, type MenuEntry, type ToastOptions } from "@/ds";
 import { keys } from "@/ds/util/keys";
+import { useNow } from "@/ds/util/time";
 import { t as tr, useT } from "@/i18n";
-import type { FileKey, FileListItem, Folder, FolderId, OrgImportPlace, Prefs } from "@shared/store/types";
+import type { BrowseView, FileKey, FileListItem, Folder, FolderId, OrgImportPlace, Prefs } from "@shared/store/types";
 import type { OpenIntent } from "@shared/multiplayer/types";
 import { accountBridge, accountMenu, useAccount } from "./account";
 import { EXTERNAL_RESTRICTED_TEXT, useAdminWorkspace, useHomeOrg } from "./orgPolicy";
@@ -27,13 +28,14 @@ import {
   EMPTY_SELECTION,
   FILTER_LABEL,
   FolderIndex,
-  SORT_KEYS,
   SORT_LABEL,
+  VIEW_SORTS,
   canCreateFiles,
   canCreateFolders,
   clickSelect,
   contextSelect,
   countMessage,
+  fileFilters,
   fileItemId,
   folderItemId,
   listItems,
@@ -47,12 +49,16 @@ import {
   sameLocation,
   selectAll,
   selectedTargets,
+  sortView,
+  viewSort,
+  type CreatorFilter,
   type FileFilter,
   type Item,
   type Location,
   type Selection,
   type SortKey,
   type SortOrder,
+  type ViewSort,
 } from "./model";
 import { Sidebar, type DropApi } from "./Sidebar";
 import type { FilesBackend } from "./storeAccess";
@@ -133,17 +139,19 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   const [renaming, setRenaming] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [dialog, setDialog] = useState<DialogState | null>(null);
-  const [order, setOrder] = useState<SortOrder>("default");
   const [filter, setFilter] = useState<FileFilter>("all");
+  const [creator, setCreator] = useState<CreatorFilter>("anyone");
   const [starredOpen, setStarredOpen] = useState(true);
   const [expanded, setExpanded] = useState<Set<FolderId>>(() => new Set());
-  const [tick, setTick] = useState(() => Date.now());
 
-  // "Edited 3 minutes ago" moves on.
-  useEffect(() => {
-    const t = window.setInterval(() => setTick(Date.now()), 30_000);
-    return () => window.clearInterval(t);
-  }, []);
+  // "Edited 3 minutes ago" moves on, at the pace of the newest time shown (Figma's 30 s / 30 min / 6 h).
+  const newest = useMemo(() => {
+    let at = 0;
+    for (const f of data.files) at = Math.max(at, f.updatedAt, f.trashedAt ?? 0);
+    for (const f of data.folders) at = Math.max(at, f.trashedAt ?? 0);
+    return isOrgLocation(location) ? null : at || null;
+  }, [data.files, data.folders, location]);
+  const tick = useNow(newest);
   const now = Math.max(tick, data.loadedAt);
 
   // Personal Drafts in the cloud (docs/cloud.md §2): signed in, the personal space is the person's Drafts and Trash
@@ -156,9 +164,14 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   const browse = data.prefs?.browse ?? DEFAULT_BROWSE;
   const current = !!data.location && sameLocation(data.location, location);
   const starredFolderIds = useMemo(() => (personal ? [] : (data.prefs?.starred.folders ?? [])), [data.prefs, personal]);
+  // Each view's own sort (Figma's §5.2): its keys, the one chosen there or its default
+  const view = sortView(location) ?? "drafts";
+  const { key: sort, order } = viewSort(view, browse);
+  // A filter the view doesn't offer (Folders, from a folder) reads as All files
+  const shownFilter = fileFilters(location).includes(filter) ? filter : "all";
   const items = useMemo(
-    () => (current ? listItems({ location, folders, files: shownFiles, counts: data.counts, starredFolders: starredFolderIds, sort: browse.sort, order, filter }) : []),
-    [current, location, folders, shownFiles, data.counts, starredFolderIds, browse.sort, order, filter],
+    () => (current ? listItems({ location, folders, files: shownFiles, counts: data.counts, starredFolders: starredFolderIds, sort, order, filter: shownFilter }) : []),
+    [current, location, folders, shownFiles, data.counts, starredFolderIds, sort, order, shownFilter],
   );
   const ids = useMemo(() => items.map((i) => i.id), [items]);
   const sel = useMemo(() => pruneSelection(selection, ids), [selection, ids]);
@@ -313,9 +326,11 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   };
 
   const setBrowse = (patch: Partial<Prefs["browse"]>) => {
-    if (data.prefs) setPrefs({ ...data.prefs, browse: { ...data.prefs.browse, ...patch } });
+    if (data.prefs) setPrefs({ ...data.prefs, browse: { ...data.prefs.browse, ...patch, ...(patch.sorts ? { sorts: { ...data.prefs.browse.sorts, ...patch.sorts } } : {}) } });
     repo.setBrowsePrefs(patch).then(setPrefs, (e) => toast({ kind: "error", message: act.errorText(e) }));
   };
+  /** A view's sort, kept for that view; picking another key starts in the key's own direction */
+  const setViewSort = (v: BrowseView, s: ViewSort) => setBrowse({ sorts: { [v]: s } });
 
   // --- opening and creating ---
 
@@ -827,13 +842,19 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
 
   const crumbs = location.kind === "folder" ? folders.path(location.folderId) : [];
   const currentFolder = location.kind === "folder" && !folderGone ? folders.get(location.folderId) : undefined;
+  // The sort menu (Figma's): "Sort by" when the view has more than one key, then "Order" in the key's words
+  const menuView: BrowseView = showShared ? "shared" : view;
+  const menuSort = showShared ? viewSort("shared", browse) : { key: sort, order };
+  const sortKeys = VIEW_SORTS[menuView].keys;
   const sortEntries: MenuEntry[] = [
-    { header: tr("Sort by") },
-    ...SORT_KEYS.map((k) => ({ id: `sort:${k}`, label: tr(SORT_LABEL[k]), checked: browse.sort === k })),
-    "-",
+    ...(sortKeys.length > 1 ? [{ header: tr("Sort by") }, ...sortKeys.map((k) => ({ id: `sort:${k}`, label: tr(SORT_LABEL[k]), checked: menuSort.key === k })), "-" as const] : []),
     { header: tr("Order") },
-    ...(["default", "reversed"] as SortOrder[]).map((o) => ({ id: `order:${o}`, label: tr(orderLabels(browse.sort)[o]), checked: order === o })),
+    ...(["default", "reversed"] as SortOrder[]).map((o) => ({ id: `order:${o}`, label: tr(orderLabels(menuSort.key)[o]), checked: menuSort.order === o })),
   ];
+  const onSortMenu = (id: string) => {
+    if (id.startsWith("sort:")) setViewSort(menuView, { key: id.slice(5) as SortKey, order: "default" });
+    else if (id.startsWith("order:")) setViewSort(menuView, { key: menuSort.key, order: id.slice(6) as SortOrder });
+  };
   const moveDialog = dialog?.kind === "move" ? dialog : null;
   const moveExclude = useMemo(() => {
     const s = new Set<FolderId>();
@@ -969,14 +990,18 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
           onImportFiles={(files, at) => void importFilesAt(files, at)}
           serverUrl={account.state?.server ?? null}
           renameFile={(fileKey, name) => repo.renameFile(fileKey, name)}
+          duplicate={{ make: (fileKey) => repo.duplicateFile(fileKey), discard: (fileKey) => repo.deleteForever({ files: [fileKey] }) }}
           viewedAt={(fileKey) => data.prefs?.viewedAt[fileKey] ?? null}
           isStarred={(fileKey) => !!data.prefs?.starred.files.includes(fileKey)}
           setStarred={(fileKey, on) => act.setStarred(ctx, { fileKey }, on)}
           localThumbnail={localThumbnail}
           browse={{ layout: browse.layout, sort: browse.sort }}
           onBrowse={setBrowse}
-          filter={filter}
+          filter={filter === "folders" ? "all" : filter}
           onFilter={setFilter}
+          creator={creator}
+          onCreator={setCreator}
+          me={me}
         />
       ) : (
       <main
@@ -1060,25 +1085,14 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
             </Button>
           )}
           {location.kind !== "folders" && !showShared && (
-            <Select label={tr("Files shown")} variant="ghost" width="hug" value={filter} options={(["all", "design"] as FileFilter[]).map((f) => ({ value: f, label: tr(FILTER_LABEL[f]) }))} onChange={(v) => setFilter(v as FileFilter)} />
+            <Select label={tr("Files shown")} variant="ghost" width="hug" value={shownFilter} options={fileFilters(location).map((f) => ({ value: f, label: tr(FILTER_LABEL[f]) }))} onChange={(v) => setFilter(v as FileFilter)} />
           )}
-          {location.kind !== "trash" && !showShared && (
-            <MenuButton
-              label={tr("Sort")}
-              entries={sortEntries}
-              onSelect={(id) => {
-                if (id.startsWith("sort:")) {
-                  setBrowse({ sort: id.slice(5) as SortKey });
-                  setOrder("default");
-                } else if (id.startsWith("order:")) setOrder(id.slice(6) as SortOrder);
-              }}
-            >
-              <span className={styles.sortLabel}>
-                {tr(SORT_LABEL[browse.sort])}
-                <Icon name="16.chevron.down" />
-              </span>
-            </MenuButton>
-          )}
+          <MenuButton label={tr("Sort")} entries={sortEntries} onSelect={onSortMenu}>
+            <span className={styles.sortLabel}>
+              {tr(SORT_LABEL[menuSort.key])}
+              <Icon name="16.chevron.down" />
+            </span>
+          </MenuButton>
           <SegmentedControl
             label={tr("View")}
             value={browse.layout}
@@ -1090,7 +1104,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
           />
         </div>
         {showShared ? (
-          <SharedFilesView layout={browse.layout} onOpen={(fileKey, name) => void openFile(fileKey, { title: name }, deps)} onError={(message) => toast({ kind: "error", message })} />
+          <SharedFilesView layout={browse.layout} order={menuSort.order} onOpen={(fileKey, name) => void openFile(fileKey, { title: name }, deps)} onError={(message) => toast({ kind: "error", message })} />
         ) : !data.ready || (!current && !data.error) ? (
           <div className={styles.center} aria-busy>
             <Spinner size={24} />
@@ -1107,7 +1121,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
             items={items}
             layout={browse.layout}
             location={location}
-            sort={browse.sort}
+            sort={sort}
             order={order}
             folders={folders}
             selected={selected}
@@ -1131,12 +1145,11 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
             onRename={rename}
             onStar={(item, on) => void act.setStarred(ctx, item.kind === "file" ? { fileKey: item.file.fileKey } : { folderId: item.folder.id }, on)}
             onSortColumn={(column) => {
-              const isName = browse.sort === "alphabetical";
-              if ((column === "name") === isName) setOrder((o) => (o === "default" ? "reversed" : "default"));
-              else {
-                setBrowse({ sort: column === "name" ? "alphabetical" : "last-modified" });
-                setOrder("default");
-              }
+              // The column of the current key turns the order round; the other picks its key (the date: the view's
+              // first time key) in the key's own direction
+              if ((column === "name") === (sort === "alphabetical")) return setViewSort(view, { key: sort, order: order === "default" ? "reversed" : "default" });
+              const key = column === "name" ? "alphabetical" : VIEW_SORTS[view].keys.includes("last-modified") ? "last-modified" : VIEW_SORTS[view].default;
+              if (VIEW_SORTS[view].keys.includes(key)) setViewSort(view, { key, order: "default" });
             }}
             onDragItems={onDragItems}
             dropOn={dropOn}

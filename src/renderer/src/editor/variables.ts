@@ -22,12 +22,15 @@ import type { Color, Guid, Message, NodeChange, NodeFields, Paint } from "@/engi
 import type { EditorController } from "./controller";
 import { engineMethod, hasCommand, runEngineCommand, type CommandArgs, changesOf } from "./engineCompat";
 import { sameData } from "./model/mixed";
+import { isSpaceBetween } from "./model/sizing";
 import { deferredListener } from "./deferred";
 import {
   aliasMakesCycle,
   boundPaint,
   byPosition,
   cleanName,
+  DEFAULT_EASING_VALUE,
+  DEFAULT_TIMING_MS,
   detachedPaint,
   explicitModes,
   fromData,
@@ -36,7 +39,8 @@ import {
   isCollectionNode,
   isVariableNode,
   LIMITS,
-  extensionDepth,
+  canExtend,
+  stripNumber,
   modeAt,
   nextModeName,
   nextName,
@@ -436,7 +440,7 @@ export function duplicateCollection(ed: EditorController, id: Guid): Guid | null
         ...stripNode(c.node),
         guid: copy,
         phase: "CREATED",
-        name: nextName(`${c.name} copy`, a.collections.map((x) => x.name)),
+        name: nextName(stripNumber(c.name), a.collections.map((x) => x.name)),
         parentIndex: { guid: internal, position: positionAfter(childPositions(ed, internal)) },
         sortPosition: positionBetween(c.sortPosition, next?.sortPosition ?? null),
       } as unknown as NodeChange,
@@ -604,6 +608,10 @@ function newValue(type: VarType): Literal {
       return "";
     case "BOOLEAN":
       return false;
+    case "EASING":
+      return DEFAULT_EASING_VALUE;
+    case "TIMING":
+      return DEFAULT_TIMING_MS;
   }
 }
 
@@ -695,7 +703,7 @@ export function duplicateVariables(ed: EditorController, ids: readonly Guid[]): 
           ...stripNode(v.node),
           guid: copy,
           phase: "CREATED",
-          name: nextName((group ? `${group}/` : "") + `${leaf} copy`, taken),
+          name: nextName((group ? `${group}/` : "") + stripNumber(leaf), taken),
           parentIndex: { guid: internal, position: positionAfter(childPositions(ed, internal)) },
           sortPosition: positionBetween(v.sortPosition, next?.sortPosition ?? null),
         } as unknown as NodeChange,
@@ -905,12 +913,38 @@ export function pasteVariables(ed: EditorController, ids: readonly Guid[], colle
 
 // ---- Binding ---------------------------------------------------------------------------------------------------------
 
+/**
+ * What binding the gap fields changes first (atlas 09 §3.3 – §3.4): a gap that is Auto (Between, Evenly, Around) is
+ * packed — Figma's `PACKED`, our MIN as the gap menu's number does — and an Auto gap between rows becomes AUTO, so the
+ * variable's number is the gap. Empty when nothing needs it.
+ */
+export function gapUnpacking(nodes: readonly NodeChange[], fields: readonly string[]): { guid: Guid; fields: Record<string, unknown> }[] {
+  const out: { guid: Guid; fields: Record<string, unknown> }[] = [];
+  for (const n of nodes) {
+    const f: Record<string, unknown> = {};
+    const primary = n.stackPrimaryAlignItems as string | undefined;
+    if (fields.includes("STACK_SPACING") && (isSpaceBetween(primary) || primary === "SPACE_EVENLY_CSS" || primary === "SPACE_AROUND")) f.stackPrimaryAlignItems = "MIN";
+    if (fields.includes("STACK_COUNTER_SPACING") && (n as { stackCounterAlignContent?: string }).stackCounterAlignContent === "SPACE_BETWEEN") f.stackCounterAlignContent = "AUTO";
+    if (Object.keys(f).length) out.push({ guid: n.guid, fields: f });
+  }
+  return out;
+}
+
 /** Binds a node field (VariableField) on every ref to `variable` (null: "Detach variable" — the value stays). */
 export function bindVariable(ed: EditorController, refs: readonly Guid[], field: string | readonly string[], variable: Guid | null): void {
   const a = assets(ed);
   const v = variable ? a.lookup.variable(variable) : null;
   if (variable && !v) return;
   const fields = typeof field === "string" ? [field] : [...field];
+  const unpack = v && fields.some((f) => f === "STACK_SPACING" || f === "STACK_COUNTER_SPACING") ? gapUnpacking(ed.engine.readNodes(refs), fields) : [];
+  if (unpack.length) {
+    // One undo step: the engine's bind joins the open transaction.
+    ed.batch("Apply variable", () => {
+      for (const u of unpack) ed.engine.setProps([u.guid], asFields(u.fields));
+      bindVariable(ed, refs, fields, variable);
+    });
+    return;
+  }
   if (engineResolves(ed)) {
     let ok = true;
     for (const target of fields) ok = (v ? engineDid(ed, VARIABLE_COMMAND.bind, { refs: [...refs], target, variable: v.id }) : engineDid(ed, VARIABLE_COMMAND.detach, { refs: [...refs], target })) && ok;
@@ -971,9 +1005,9 @@ export function bindPaint(ed: EditorController, refs: readonly Guid[], field: Pa
 
 /** "Extend collection" (R3-32): a collection inheriting `collection`'s variables and modes; its values overridable. */
 export function extendCollection(ed: EditorController, collection: Guid): Guid | null {
-  // Chains: C extends B extends A — at most 16 deep (docs/data.md §16.8, ours).
+  // Chains: C extends B extends A — at most 10 sets (Figma, atlas 11 §3.1).
   const c = assets(ed).lookup.collection(collection);
-  if (c && extensionDepth(c) + 1 > LIMITS.extensionDepth) {
+  if (c && !canExtend(c)) {
     showToast({ message: t("Can't extend further"), kind: "error" });
     return null;
   }

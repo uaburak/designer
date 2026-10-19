@@ -5,19 +5,22 @@
  * change tells the people in the file through its room (`/room/comments`), and they read the list again.
  *
  *   GET    /files/:key/comments                        the threads, as the caller sees them (read marks)
- *   POST   /files/:key/comments                        {id?, threadId?, message, mentions?, anchor?}
- *   PATCH  /files/:key/comments/:id                    {message?, mentions?, resolved?, anchor?}
+ *   POST   /files/:key/comments                        {id?, threadId?, message, mentions?, anchor?, messageMeta?}
+ *   PATCH  /files/:key/comments/:id                    {message?, mentions?, messageMeta?, resolved?, anchor?}
  *   DELETE /files/:key/comments/:id
  *   PUT    /files/:key/comments/:id/reactions          {emoji}       DELETE … ?emoji=
  *   POST   /files/:key/comments/read                   {threadIds, read}
  *
  * Every answer is the whole list, `{threads, me, canResolveAny, canDeleteAny}`.
  *
+ * Rich text (Phase 6, migration 0028; docs/multiplayer.md §18.8): `messageMeta` — Figma's `message_meta` segments — is
+ * kept beside the plain `message` when it says more than it; a message edited without it goes back to plain text.
+ *
  * Discovery (docs/governance.md §2.11): each change's text — a comment posted, edited or deleted, a reaction added or
  * removed — is recorded with the room notice (`changed`), after the answer; nothing for orgs without Discovery.
  */
 import type { Role } from "../../src/shared/multiplayer/protocol";
-import { buildThreads, COMMENT_ID, MAX_COMMENT_LENGTH, type Comment, type CommentAnchor, type CommentUser } from "../../src/shared/comments";
+import { buildThreads, cleanSegments, COMMENT_ID, commentLength, MAX_COMMENT_LENGTH, type Comment, type CommentAnchor, type CommentSegment, type CommentUser } from "../../src/shared/comments";
 import type { Deps } from "./api";
 import type { User } from "./db";
 import { forgetComments, notifyComment, notifyReaction } from "./notifications";
@@ -48,6 +51,8 @@ interface Row {
   node_id: string | null;
   offset_x: number | null;
   offset_y: number | null;
+  time_ms: number | null;
+  message_meta?: string | null;
   created_at: number;
   edited_at: number | null;
   resolved_at: number | null;
@@ -106,6 +111,7 @@ export async function commentsRoute(req: Request, deps: Deps, ctx: CommentsConte
         createdAt: r.created_at,
         editedAt: r.edited_at,
         reactions: byComment.get(r.id) ?? [],
+        ...metaOf(r.message_meta),
       } satisfies Comment,
       number: r.number ?? 0,
       anchor: r.page_id !== null ? anchorOf(r) : null,
@@ -147,6 +153,8 @@ export async function commentsRoute(req: Request, deps: Deps, ctx: CommentsConte
     // Comments and replies a minute (docs/multiplayer.md §17): 429 quota_exceeded
     await (await import("./quota/quota")).countFor(deps, user, "comments_per_minute");
     const mentions = cleanMentions(body.mentions);
+    const meta = cleanMeta(body.messageMeta);
+    if (meta === undefined) return fail(400, "messageMeta");
     const id = typeof body.id === "string" && COMMENT_ID.test(body.id) ? body.id : `c_${randomToken(12)}`;
     if (await one(id)) return fail(409, "comment id taken");
     const now = deps.now();
@@ -154,8 +162,8 @@ export async function commentsRoute(req: Request, deps: Deps, ctx: CommentsConte
       const thread = await one(body.threadId);
       if (!thread || thread.thread_id !== thread.id) return fail(404, "no such thread");
       await d1
-        .prepare(`INSERT INTO comments (id, file_key, thread_id, user_id, message, mentions, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`)
-        .bind(id, key, thread.id, user.id, message, JSON.stringify(mentions), now)
+        .prepare(`INSERT INTO comments (id, file_key, thread_id, user_id, message, mentions, message_meta, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`)
+        .bind(id, key, thread.id, user.id, message, JSON.stringify(mentions), meta, now)
         .run();
       // Replying reads the thread.
       await markRead(thread.id, now);
@@ -170,10 +178,10 @@ export async function commentsRoute(req: Request, deps: Deps, ctx: CommentsConte
     const next = await d1.prepare(`SELECT COALESCE(MAX(number), 0) + 1 AS n FROM comments WHERE file_key = ?1`).bind(key).first<{ n: number }>();
     await d1
       .prepare(
-        `INSERT INTO comments (id, file_key, thread_id, user_id, message, mentions, number, page_id, x, y, node_id, offset_x, offset_y, created_at)
-         VALUES (?1, ?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
+        `INSERT INTO comments (id, file_key, thread_id, user_id, message, mentions, number, page_id, x, y, node_id, offset_x, offset_y, time_ms, message_meta, created_at)
+         VALUES (?1, ?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`,
       )
-      .bind(id, key, user.id, message, JSON.stringify(mentions), next?.n ?? 1, anchor.pageId, anchor.x, anchor.y, anchor.nodeId ?? null, anchor.offset?.x ?? null, anchor.offset?.y ?? null, now)
+      .bind(id, key, user.id, message, JSON.stringify(mentions), next?.n ?? 1, anchor.pageId, anchor.x, anchor.y, anchor.nodeId ?? null, anchor.offset?.x ?? null, anchor.offset?.y ?? null, anchor.timeMs ?? null, meta, now)
       .run();
     await markRead(id, now);
     disc.push({ text: message, action: "insert", textType: "file_comments", resourceId: id, nodeId: anchor.nodeId ?? null, userId: user.id });
@@ -245,7 +253,9 @@ export async function commentsRoute(req: Request, deps: Deps, ctx: CommentsConte
     if (c.user_id !== user.id) return fail(403, "you can only edit your own comments");
     const message = cleanMessage(body.message);
     if (message === null) return fail(400, "a comment needs some text");
-    await d1.prepare(`UPDATE comments SET message = ?2, mentions = ?3, edited_at = ?4 WHERE id = ?1`).bind(id, message, JSON.stringify(cleanMentions(body.mentions)), now).run();
+    const meta = cleanMeta(body.messageMeta);
+    if (meta === undefined) return fail(400, "messageMeta");
+    await d1.prepare(`UPDATE comments SET message = ?2, mentions = ?3, message_meta = ?4, edited_at = ?5 WHERE id = ?1`).bind(id, message, JSON.stringify(cleanMentions(body.mentions)), meta, now).run();
     disc.push({ text: message, action: "update", textType: "file_comments", resourceId: id, parentCommentId: root ? null : c.thread_id, userId: user.id });
   }
   if (body.resolved !== undefined) {
@@ -260,8 +270,8 @@ export async function commentsRoute(req: Request, deps: Deps, ctx: CommentsConte
     const a = cleanAnchor(body.anchor);
     if (!a) return fail(400, "anchor");
     await d1
-      .prepare(`UPDATE comments SET page_id = ?2, x = ?3, y = ?4, node_id = ?5, offset_x = ?6, offset_y = ?7 WHERE id = ?1`)
-      .bind(id, a.pageId, a.x, a.y, a.nodeId ?? null, a.offset?.x ?? null, a.offset?.y ?? null)
+      .prepare(`UPDATE comments SET page_id = ?2, x = ?3, y = ?4, node_id = ?5, offset_x = ?6, offset_y = ?7, time_ms = ?8 WHERE id = ?1`)
+      .bind(id, a.pageId, a.x, a.y, a.nodeId ?? null, a.offset?.x ?? null, a.offset?.y ?? null, a.timeMs ?? null)
       .run();
   }
   await changed(c.thread_id);
@@ -269,7 +279,7 @@ export async function commentsRoute(req: Request, deps: Deps, ctx: CommentsConte
 }
 
 function anchorOf(r: Row): CommentAnchor {
-  return { pageId: r.page_id ?? "", x: r.x ?? 0, y: r.y ?? 0, nodeId: r.node_id, offset: r.offset_x !== null && r.offset_y !== null ? { x: r.offset_x, y: r.offset_y } : null };
+  return { pageId: r.page_id ?? "", x: r.x ?? 0, y: r.y ?? 0, nodeId: r.node_id, offset: r.offset_x !== null && r.offset_y !== null ? { x: r.offset_x, y: r.offset_y } : null, ...(r.time_ms !== null && r.time_ms !== undefined ? { timeMs: r.time_ms } : {}) };
 }
 
 async function readJson(req: Request): Promise<Record<string, unknown> | null> {
@@ -284,7 +294,31 @@ async function readJson(req: Request): Promise<Record<string, unknown> | null> {
 function cleanMessage(v: unknown): string | null {
   if (typeof v !== "string") return null;
   const t = v.replace(/\s+$/, "").replace(/^\s+/, "");
-  return t && t.length <= MAX_COMMENT_LENGTH ? t : null;
+  return t && commentLength(t) <= MAX_COMMENT_LENGTH ? t : null;
+}
+
+/** The largest `message_meta` kept (its JSON) */
+const MAX_META_BYTES = 64 * 1024;
+
+/** A request's `messageMeta` as stored: its JSON, null when absent or empty; undefined when it isn't segments */
+function cleanMeta(v: unknown): string | null | undefined {
+  if (v === undefined || v === null) return null;
+  const segs = cleanSegments(v);
+  if (!segs) return undefined;
+  if (!segs.length) return null;
+  const json = JSON.stringify(segs);
+  return json.length <= MAX_META_BYTES ? json : undefined;
+}
+
+/** A row's rich segments, for the answer (none: plain text) */
+function metaOf(s: string | null | undefined): { messageMeta?: CommentSegment[] } {
+  if (!s) return {};
+  try {
+    const segs = cleanSegments(JSON.parse(s));
+    return segs?.length ? { messageMeta: segs } : {};
+  } catch {
+    return {};
+  }
 }
 
 function cleanMentions(v: unknown): string[] {
@@ -308,7 +342,9 @@ function cleanAnchor(v: unknown): CommentAnchor | null {
   const nodeId = typeof a.nodeId === "string" && a.nodeId.length <= 64 ? a.nodeId : null;
   const o = a.offset as Record<string, unknown> | null | undefined;
   const offset = nodeId && o && finite(o.x) && finite(o.y) ? { x: o.x, y: o.y } : null;
-  return { pageId: a.pageId, x: a.x, y: a.y, nodeId: offset ? nodeId : null, offset };
+  // Motion's playhead time (docs/motion.md §6.8): whole ms, at most a day.
+  const timeMs = finite(a.timeMs) && a.timeMs >= 0 && a.timeMs <= 86_400_000 ? Math.round(a.timeMs) : null;
+  return { pageId: a.pageId, x: a.x, y: a.y, nodeId: offset ? nodeId : null, offset, ...(timeMs !== null ? { timeMs } : {}) };
 }
 
 function cleanEmoji(v: unknown): string | null {

@@ -7,7 +7,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { encodeChangesUp } from "../../../src/shared/multiplayer/protocol";
 import { memoryRoomNamespace, type MemoryRoomNamespace, type MemoryRoomObject } from "../testing/memoryRooms";
 import { assetKey, LIB, publish, sha1, WEB, world, type Any, type World } from "../testing/orgWorld";
-import { roomsOn } from "./region";
+import { MOVE_LEASE_MS, roomsOn, sweepRegionLeftovers } from "./region";
+import type { ObjectNamespace } from "../libraries/db";
 
 let w: World;
 let ns: MemoryRoomNamespace;
@@ -179,5 +180,58 @@ describe("moving an org's content (§15.10)", () => {
     expect((await w.call("GET", `/libraries/${LIB}/versions/latest`, alice())).body.version).toBe(1);
     expect((await region("/move", "POST")).body.moving).toBe(LIB);
     expect((await w.call("GET", `/libraries/${LIB}/versions/latest`, alice())).body.version).toBe(1);
+  });
+});
+
+describe("moves one at a time, and the old objects left behind (leftovers 2026-10-18)", () => {
+  it("a move while another holds the org's lease answers 409 conflict; a lease past its time is taken again", async () => {
+    await populated();
+    await region("", "PUT", { region: "eu" });
+    await w.run(`UPDATE orgs SET region_move_until = ?2 WHERE id = ?1`, w.orgId, w.now.t + MOVE_LEASE_MS);
+    const busy = await region("/move", "POST");
+    expect(busy.status).toBe(409);
+    expect(busy.body.code).toBe("conflict");
+    expect(await jurisdiction(WEB)).toBeNull();
+    await w.run(`UPDATE orgs SET region_move_until = ?2 WHERE id = ?1`, w.orgId, w.now.t - 1);
+    expect((await region("/move", "POST")).body.moving).toBeTruthy();
+    // released after the call, failed or not
+    expect((await w.rows(`SELECT region_move_until AS u FROM orgs WHERE id = ?1`, w.orgId))[0].u).toBeNull();
+    ns.failNext("/room/load");
+    await w.run(`UPDATE files SET jurisdiction = 'eu' WHERE key <> ?1 AND org_id = ?2`, WEB, w.orgId);
+    expect((await region("/move", "POST")).status).toBe(502);
+    expect((await w.rows(`SELECT region_move_until AS u FROM orgs WHERE id = ?1`, w.orgId))[0].u).toBeNull();
+  });
+
+  it("an old object whose delete failed is kept for the cron, which deletes it — never a live one", async () => {
+    await populated();
+    await region("", "PUT", { region: "eu" });
+    await w.run(`UPDATE files SET jurisdiction = 'eu' WHERE key <> ?1 AND org_id = ?2`, WEB, w.orgId);
+    // the default namespace's DELETE /room fails (the EU one, where the copy goes, doesn't)
+    const real = ns.binding as unknown as ObjectNamespace;
+    const flaky: ObjectNamespace = {
+      idFromName: (n) => real.idFromName(n),
+      get: (id) => {
+        const stub = real.get(id);
+        return { fetch: (req) => (req.method === "DELETE" && new URL(req.url).pathname === "/room" ? Promise.resolve(new Response("down", { status: 500 })) : stub.fetch(req)) };
+      },
+      jurisdiction: (n) => real.jurisdiction!(n),
+    };
+    (w.deps.env as Any).ROOMS = flaky;
+    expect((await region("/move", "POST")).body.moving).toBe(WEB);
+    expect(await jurisdiction(WEB)).toBe("eu");
+    expect(room("default", WEB)!.box.storage.lastSeq()).toBeGreaterThan(0); // still there
+    expect(await w.rows(`SELECT kind, name, jurisdiction, org_id FROM region_leftovers`)).toEqual([{ kind: "room", name: WEB, jurisdiction: "default", org_id: w.orgId }]);
+
+    (w.deps.env as Any).ROOMS = ns.binding;
+    expect(await sweepRegionLeftovers(w.deps)).toEqual({ deleted: 1, failed: 0 });
+    expect(room("default", WEB)?.box.storage.lastSeq() ?? 0).toBe(0);
+    expect(await w.rows(`SELECT name FROM region_leftovers`)).toEqual([]);
+    expect(str((await w.call("GET", `/files/${WEB}/snapshot`, alice())).bytes)).toBe("WEB@0");
+
+    // a leftover in the region its file lives in again is the live object: only the row goes
+    await w.run(`INSERT INTO region_leftovers (kind, name, jurisdiction, org_id, at) VALUES ('room', ?1, 'eu', ?2, 0)`, WEB, w.orgId);
+    expect(await sweepRegionLeftovers(w.deps)).toEqual({ deleted: 0, failed: 0 });
+    expect(await w.rows(`SELECT name FROM region_leftovers`)).toEqual([]);
+    expect(str((await w.call("GET", `/files/${WEB}/snapshot`, alice())).bytes)).toBe("WEB@0");
   });
 });

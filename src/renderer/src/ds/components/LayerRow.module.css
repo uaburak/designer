@@ -131,7 +131,19 @@
   .page[aria-current="page"] { background: var(--figma-color-bg-secondary); }
   .page[aria-current="page"] .name { font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
   .page:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
-  .page[data-divider]:hover { background: var(--figma-color-bg); }
+  /* A divider has no hover and no highlight (Figma); a plain one takes 16 of the list (`pageDividerRowHeight`: 8 + the
+     list's 8 gap), a titled one a page row's 32 (G) */
+  .page[data-divider], .page[data-divider]:hover { background: var(--figma-color-bg); }
+  .page[data-divider=""] { height: var(--ds-space-2); }
+  .dividerTitle {
+    flex: none;
+    max-width: 50%;
+    margin-right: var(--ds-space-2);
+    overflow: hidden;
+    color: var(--figma-color-text-secondary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   /* Renaming (live "input [Page name]" 224 × 24 at 8): the field is the row */
   .page:has(.rename) { padding: 0; }
   .page .rename { margin-left: 0; background: var(--figma-color-bg); }

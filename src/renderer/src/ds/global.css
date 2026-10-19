@@ -39,6 +39,8 @@
     -webkit-font-smoothing: antialiased;
     user-select: none;
   }
+  /* A transparent view's page (the tab preview card, app/TabPreviewApp.tsx) */
+  html[data-transparent], html[data-transparent] body { background: transparent; }
   input, textarea, [contenteditable] { user-select: text; }
   ::selection { background: var(--ds-color-text-selection); }
   /* Figma's chrome is instant: motion only where a component opts in */
@@ -56,7 +58,19 @@
   [data-ds-scrub-handle] { cursor: ew-resize; touch-action: none; user-select: none; }
   html[data-cursor="col-resize"], html[data-cursor="col-resize"] * { cursor: col-resize !important; }
   html[data-cursor="row-resize"], html[data-cursor="row-resize"] * { cursor: row-resize !important; }
+  /*
+   * The system's Reduce motion (atlas 21 §4.2): the chrome's transitions and one-off reveals end at once; looping
+   * placeholders stop in their modules, spinners slow down, the canvas camera jumps (util/motion.ts).
+   */
   @media (prefers-reduced-motion: reduce) {
-    :root { --ds-duration-fast: 0ms; --ds-duration-medium: 0ms; }
+    :root { --ds-duration-fast: 0ms; --ds-duration-medium: 0ms; --ds-duration-fade: 0ms; --ds-duration-reveal: 0ms; }
   }
+}
+
+/* Preferences › Accessibility settings › Underline links (Figma's `data-underline-links` on <body>, atlas 21 §4.1) */
+@layer app {
+  [data-underline-links] a[href],
+  [data-underline-links] [role="link"],
+  [data-underline-links] [data-link],
+  [data-underline-links] [data-ds="Button"][data-variant="link"] { text-decoration: underline; }
 }

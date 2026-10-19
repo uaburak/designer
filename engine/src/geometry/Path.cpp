@@ -378,4 +378,127 @@ double distanceTo(const std::vector<Polyline>& polys, Vec2 p) {
   return best;
 }
 
+// ---- Path trim (docs/motion.md §4.13) -------------------------------------------------------------------------------
+
+namespace {
+
+// One drawing segment of a contour (Close's line included) with its arc length sampled at 32 even steps of t.
+struct TrimSegment {
+  Verb verb = Verb::Line;
+  Vec2 p[4];              // the start, then the segment's own points (a line 2, a quad 3, a cubic 4)
+  double table[33] = {};  // the length from the start to t = i / 32
+  double length() const { return table[32]; }
+  Vec2 at(double t) const {
+    switch (verb) {
+      case Verb::Quad: return quadAt(p[0], p[1], p[2], t);
+      case Verb::Cubic: return cubicAt(p[0], p[1], p[2], p[3], t);
+      default: return p[0] + (p[1] - p[0]) * t;
+    }
+  }
+  // The t at length `s` along it (read linearly between the samples).
+  double tAt(double s) const {
+    if (s <= 0) return 0;
+    if (s >= table[32]) return 1;
+    size_t i = static_cast<size_t>(std::upper_bound(table, table + 33, s) - table);
+    i = std::clamp<size_t>(i, 1, 32);
+    double a = table[i - 1], b = table[i];
+    double f = b > a ? (s - a) / (b - a) : 0;
+    return (static_cast<double>(i - 1) + f) / 32;
+  }
+  // Its part [t0, t1] added to `out` (the pen at its start).
+  void section(double t0, double t1, Path& out) const {
+    if (verb == Verb::Line) {
+      out.lineTo(at(t1));
+      return;
+    }
+    Vec2 c[4] = {p[0], p[1], p[2], p[3]};
+    if (verb == Verb::Quad) {  // raised to a cubic
+      c[1] = p[0] + (p[1] - p[0]) * (2.0 / 3);
+      c[2] = p[2] + (p[1] - p[2]) * (2.0 / 3);
+      c[3] = p[2];
+    }
+    Vec2 o[4];
+    cubicSection(c, t0, t1, o);
+    out.cubicTo(o[1], o[2], o[3]);
+  }
+};
+
+struct TrimContour {
+  std::vector<TrimSegment> segments;
+  bool closed = false;
+  double length = 0;
+};
+
+// The part [a, b] of a contour (lengths along it) added to `out`; `pen` false: it starts a contour there.
+void trimRange(const TrimContour& c, double a, double b, Path& out, bool& pen) {
+  double s0 = 0;
+  for (const TrimSegment& seg : c.segments) {
+    double s1 = s0 + seg.length();
+    double lo = std::max(a, s0), hi = std::min(b, s1);
+    if (hi > lo) {
+      double t0 = seg.tAt(lo - s0), t1 = seg.tAt(hi - s0);
+      if (!pen) {
+        out.moveTo(seg.at(t0));
+        pen = true;
+      }
+      seg.section(t0, t1, out);
+    }
+    s0 = s1;
+    if (s0 >= b) break;
+  }
+}
+
+}  // namespace
+
+Path trimPath(const Path& path, double start, double end, std::vector<TrimmedContour>* kept) {
+  std::vector<TrimContour> contours;
+  forEachSegment(
+      path, [&](Vec2) { contours.push_back({}); },
+      [&](Verb v, Vec2 from, const Vec2* pts) {
+        TrimSegment seg;
+        seg.verb = v;
+        seg.p[0] = from;
+        int n = v == Verb::Line ? 1 : v == Verb::Quad ? 2 : 3;
+        for (int i = 0; i < n; i++) seg.p[i + 1] = pts[i];
+        Vec2 prev = from;
+        for (int i = 1; i <= 32; i++) {
+          Vec2 q = seg.at(i / 32.0);
+          seg.table[i] = seg.table[i - 1] + (q - prev).length();
+          prev = q;
+        }
+        contours.back().segments.push_back(seg);
+        contours.back().length += seg.length();
+      },
+      [&](bool closed) { contours.back().closed = closed; });
+  double s = std::clamp(start, 0.0, 1.0), e = std::clamp(end, 0.0, 1.0);
+  Path out;
+  if (kept) kept->clear();
+  for (size_t i = 0; i < contours.size(); i++) {
+    const TrimContour& c = contours[i];
+    double L = c.length;
+    if (c.segments.empty() || !(L > 0)) continue;
+    bool pen = false;
+    TrimmedContour info;
+    info.source = i;
+    if (c.closed && s <= 0 && e >= 1) {
+      trimRange(c, 0, L, out, pen);
+      out.close();
+      info.closed = true;
+    } else if (!c.closed || s <= e) {
+      double a = std::min(s, e) * L, b = std::max(s, e) * L;
+      if (b - a <= 1e-9) continue;
+      trimRange(c, a, b, out, pen);
+      info.ownStart = !c.closed && a <= 0;
+      info.ownEnd = !c.closed && b >= L;
+    } else {
+      // A closed contour past its start: [start, its end], then on through [its start, end].
+      if ((1 - s) + e <= 1e-9) continue;
+      trimRange(c, s * L, L, out, pen);
+      trimRange(c, 0, e * L, out, pen);
+    }
+    if (kept && pen) kept->push_back(info);
+  }
+  return out;
+}
+
 }  // namespace eng::geom

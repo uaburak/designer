@@ -121,12 +121,14 @@ describe("org libraries in the editor (docs/data.md §16–§17)", () => {
     lib.ed.ui.set({ publishOpen: true });
     view = mount(() => createElement(EditorContext.Provider, { value: lib.ed }, createElement(PublishDialog)), {});
     await settleLong();
-    const box = $("[data-publish-org-scope] label") as HTMLElement;
-    expect(box.textContent).toBe(`Allow any member of ${ORG} to access the file`);
-    const input = box.querySelector("input") as HTMLInputElement;
-    expect(input.checked).toBe(false);
-    act(() => input.click());
-    expect(input.checked).toBe(true);
+    // Publish to (atlas 12 §3.2): the team first (never published), the organization chosen, the audience warning.
+    const scope = $('[data-publish-org-scope] [role="combobox"]') as HTMLElement;
+    expect(scope.textContent).toContain("Everyone on this file's team");
+    expect($("[data-publish-audience]")).toBeNull();
+    act(() => scope.click());
+    act(() => ($$('[role="option"]').find((o) => o.textContent?.includes(`Everyone at ${ORG}`)) as HTMLElement).click());
+    expect(($('[data-publish-org-scope] [role="combobox"]') as HTMLElement).textContent).toContain(`Everyone at ${ORG}`);
+    expect($("[data-publish-audience]")?.textContent).toContain(`anyone in ${ORG}`);
     act(() => $$('[role="dialog"] button').find((b) => b.textContent?.trim() === "Publish")!.click());
     await settleLong(15);
     expect(srv.log).toContain("POST /libraries/libf_Comp/versions");

@@ -8,15 +8,16 @@
  *   drawn by the engine's exporters (E7: exportCore.ts) — "Export ‹layer›".
  * Downloads are the browser's (a ZIP for several files).
  */
-import { useEffect, useMemo, useState } from "react";
-import { Button, Dialog, Icon, IconButton, MenuButton, NumericInput, PanelSection, Select, showToast, type MenuEntry } from "@/ds";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Button, Checkbox, Dialog, Icon, IconButton, MenuButton, NumericInput, PanelSection, Select, showToast, type MenuEntry } from "@/ds";
+import { t, useT } from "@/i18n";
 import type { Guid, NodeChange } from "@/engine/codec";
 import { renderEngineExport, sniffMime } from "@/editor/exportCore";
 import { EXPORT_FORMATS, exportFileName, exportSettingsOf, formatOf, nextExportSetting, parseScale, scaleLabel, SCALE_PRESETS, withFormat, zipStored, type ExportFormat, type ExportSettings } from "@/editor/model/exports";
 import { useViewer } from "./context";
 import { detectAssets, type AnnotationView, type Asset } from "./inspect/devMode";
 import { typeLabel } from "./inspect/model";
-import { UNITS, type Language, type Unit, type UnitSettings } from "./inspect/units";
+import { NATIVE_SCALES, UNITS, type Language, type Unit, type UnitSettings } from "./inspect/units";
 import type { CodegenLanguage } from "./context";
 import styles from "./Viewer.module.css";
 
@@ -28,10 +29,14 @@ export interface PluginLanguages {
 }
 export const pluginLanguageId = (l: CodegenLanguage) => `${l.pluginId}:${l.value}`;
 
+/** The first-party languages' names in the dropdown (`dev_handoff.code.lang_*`) and on its button. */
+const LANGUAGE_NAME: Record<Language, string> = { css: "CSS", swiftui: "SwiftUI", uikit: "UIKit", compose: "Compose", xml: "XML" };
 export const LANGUAGES: { value: Language; label: string }[] = [
   { value: "css", label: "CSS" },
   { value: "swiftui", label: "iOS (SwiftUI)" },
+  { value: "uikit", label: "iOS (UIKit)" },
   { value: "compose", label: "Android (Compose)" },
+  { value: "xml", label: "Android (XML)" },
 ];
 
 /** Saves files: one as itself, several as a ZIP (a browser download). */
@@ -49,25 +54,32 @@ export function download(files: readonly { name: string; bytes: Uint8Array }[], 
 
 // ---- Code settings -------------------------------------------------------------------------------------------------
 
-/** The language dropdown: the languages, then (under Settings) the units of the chosen one and "Set unit scale…". */
+/**
+ * The language dropdown (atlas 14 §10): CSS, iOS ▸ (SwiftUI, UIKit), Android ▸ (Compose, XML), the plugins' languages,
+ * then (under Settings) px and the language's scaled unit, and "Set unit scale…".
+ */
 export function CodeSettings({ language, units, onLanguage, onUnits, plugins }: { language: Language; units: UnitSettings; onLanguage: (l: Language) => void; onUnits: (u: UnitSettings) => void; plugins?: PluginLanguages }) {
+  useT();
   const [scaleOpen, setScaleOpen] = useState(false);
   const unit = units.unit[language];
   const chosen = plugins?.current ?? null;
   const pluginEntries: MenuEntry[] = plugins?.list.length ? ["-", { header: "Plugins" }, ...plugins.list.map((l) => ({ id: `plugin:${pluginLanguageId(l)}`, label: plugins.list.filter((x) => x.label === l.label).length > 1 ? `${l.label} (${l.pluginName})` : l.label, checked: !!chosen && pluginLanguageId(chosen) === pluginLanguageId(l) }))] : [];
+  const item = (l: Language) => ({ id: `lang:${l}`, label: LANGUAGE_NAME[l], checked: !chosen && l === language });
   const entries: MenuEntry[] = [
-    ...LANGUAGES.map((l) => ({ id: `lang:${l.value}`, label: l.label, checked: !chosen && l.value === language })),
+    item("css"),
+    { id: "ios", label: "iOS", checked: !chosen && (language === "swiftui" || language === "uikit"), items: [item("swiftui"), item("uikit")] },
+    { id: "android", label: "Android", checked: !chosen && (language === "compose" || language === "xml"), items: [item("compose"), item("xml")] },
     ...pluginEntries,
     "-",
     { header: "Settings" },
     ...UNITS[language].map((u) => ({ id: `unit:${u.value}`, label: u.label, checked: u.value === unit })),
-    { id: "scale", label: "Set unit scale…" },
+    { id: "scale", label: t("Set unit scale…") },
   ];
-  const label = chosen ? chosen.label : `${LANGUAGES.find((l) => l.value === language)?.label ?? "CSS"}`;
+  const label = chosen ? chosen.label : LANGUAGE_NAME[language];
   return (
     <>
       <MenuButton
-        label="Code settings"
+        label={t("Code language: {codeLanguage}", { codeLanguage: label })}
         entries={entries}
         className={styles.codeSettings}
         onSelect={(id) => {
@@ -89,36 +101,51 @@ export function CodeSettings({ language, units, onLanguage, onUnits, plugins }: 
   );
 }
 
-/** "Set unit scale…": the root font size for CSS rems, the scale factor for points / dp / sp. */
+/** What each platform's scale factor means (the help's words; Figma's own descriptions are keys only, atlas 14 §16). */
+const SCALE_DESCRIPTION: Record<"web" | "ios" | "android", string> = {
+  web: "Relative to the root font size (e.g. 1rem = 16px by default)",
+  ios: "Resolution-independent points: px divided by the scale factor",
+  android: "Density-independent pixels: px divided by the scale factor",
+};
+
+/**
+ * "Set unit scale…" (`unit_settings_modal_title`, atlas 14 §10): its own language dropdown; CSS's inspection scale
+ * factor as a number (at least 0.1, two decimals) with "Only apply rem on text"; iOS's and Android's chosen from
+ * 3, 2, 1, 1/2, 1/3. A change applies after 250 ms.
+ */
 function UnitScaleDialog({ language, units, onUnits, onClose }: { language: Language; units: UnitSettings; onUnits: (u: UnitSettings) => void; onClose: () => void }) {
-  const css = language === "css";
-  const [value, setValue] = useState(css ? units.rootFontSize : units.scale);
+  useT();
+  const [lang, setLang] = useState(language);
+  const [draft, setDraft] = useState(units);
+  const latest = useRef(onUnits);
+  useEffect(() => {
+    latest.current = onUnits;
+  }, [onUnits]);
+  useEffect(() => {
+    if (draft === units) return;
+    const timer = setTimeout(() => latest.current(draft), 250);
+    return () => clearTimeout(timer);
+  }, [draft, units]);
+  const css = lang === "css";
+  const platform = css ? "web" : lang === "swiftui" || lang === "uikit" ? "ios" : "android";
+  const setScale = (v: number) => setDraft((d) => ({ ...d, scale: { ...d.scale, [lang]: v } }));
   return (
-    <Dialog
-      title="Unit scale"
-      open
-      onClose={onClose}
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            onClick={() => {
-              onUnits(css ? { ...units, rootFontSize: value } : { ...units, scale: value });
-              onClose();
-            }}
-          >
-            Save
-          </Button>
-        </>
-      }
-    >
+    <Dialog title={t("Unit scale")} open onClose={onClose}>
       <div className={styles.unitScale}>
-        <span>{css ? "Root font size" : language === "swiftui" ? "1pt =" : "1dp ="}</span>
-        <NumericInput label={css ? "Root font size" : "Scale factor"} value={value} min={0.01} max={1000} onChange={(v) => setValue(v)} unit="px" />
+        <Select label={t("Code language")} value={lang} options={LANGUAGES.map((l) => ({ value: l.value, label: l.label }))} onChange={(v) => setLang(v as Language)} />
+        {css ? (
+          <NumericInput label={t("Inspection scale factor")} value={draft.scale.css} min={0.1} max={1000} precision={2} onChange={(v) => setScale(Math.max(0.1, Math.round(v * 100) / 100))} />
+        ) : (
+          <Select
+            label={t("Scale factor")}
+            value={String(NATIVE_SCALES.find((s) => Math.abs(s.value - draft.scale[lang]) < 1e-6)?.value ?? 1)}
+            options={NATIVE_SCALES.map((s) => ({ value: String(s.value), label: s.label }))}
+            onChange={(v) => setScale(Number(v))}
+          />
+        )}
       </div>
+      <div className={styles.hint}>{t(SCALE_DESCRIPTION[platform])}</div>
+      {css && <Checkbox label={t("Only apply rem on text")} checked={draft.remOnText} onChange={(v) => setDraft((d) => ({ ...d, remOnText: v === true }))} />}
     </Dialog>
   );
 }

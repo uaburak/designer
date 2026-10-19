@@ -1,10 +1,13 @@
 #include "geometry/NodeGeometry.h"
 
+#include <algorithm>
 #include <cstring>
 
+#include "base/Json.h"
 #include "geometry/Boolean.h"
 #include "geometry/Repeat.h"
 #include "geometry/Shapes.h"
+#include "scene/CodecKiwi.h"
 #include "scene/Document.h"
 #include "text/TextLayout.h"
 
@@ -64,7 +67,34 @@ geom::Path textPath(const text::TextLayout& L) {
   return path;
 }
 
+// The stroke's centre line cut by the path trim: each kept piece's caps are its contour's own at the contour's own
+// ends, the node's cap where the trim cut it (a closed contour cut open gets the node's at both).
+geom::StrokeCenter trimStroke(const geom::StrokeCenter& in, double start, double end, StrokeCap cap) {
+  geom::StrokeCenter out;
+  std::vector<geom::TrimmedContour> kept;
+  out.path = geom::trimPath(in.path, start, end, &kept);
+  for (const geom::TrimmedContour& k : kept) {
+    std::pair<StrokeCap, StrokeCap> own = k.source < in.caps.size() ? in.caps[k.source] : std::pair<StrokeCap, StrokeCap>{cap, cap};
+    out.caps.push_back({k.ownStart ? own.first : cap, k.ownEnd ? own.second : cap});
+  }
+  return out;
+}
+
 }  // namespace
+
+bool pathTrimOf(const NodeProps& p, double& start, double& end) {
+  auto it = p.extra.find("pathTrim");
+  if (it == p.extra.end() || it->second.empty()) return false;
+  json::Value v;
+  if (!json::parse(codec::extraValueToJson("NodeChange", it->second), v)) return false;
+  const json::Value* value = v.get("value");
+  if (!value || !value->isObject()) return false;
+  const json::Value* x = value->get("x");
+  const json::Value* y = value->get("y");
+  start = std::clamp(x ? x->numberOr(0) : 0, 0.0, 1.0);
+  end = std::clamp(y ? y->numberOr(1) : 1, 0.0, 1.0);
+  return !(start <= 0 && end >= 1);
+}
 
 const geom::VectorNetwork* GeometryCache::network(const VectorData& data) {
   if (!data.network || data.network->empty()) return nullptr;
@@ -90,6 +120,11 @@ uint64_t GeometryCache::inputKey(const Document& doc, Guid id, const NodeProps& 
   h.d(p.shape().starInnerScale);
   h.pod(p.strokeCap);
   h.pod(p.resizeToFit);
+  if (auto trim = p.extra.find("pathTrim"); trim != p.extra.end()) {
+    // Path trim cuts the stroke's centre line where the stroke is centred (docs/motion.md §4.13).
+    h.bytes(trim->second.data(), trim->second.size());
+    h.pod(p.strokeAlign);
+  }
   if (p.shape().vectorData.present) {
     const void* bytes = p.shape().vectorData.network.get();
     h.pod(bytes);
@@ -217,6 +252,10 @@ void GeometryCache::build(const Document& doc, Guid id, const NodeProps& p, Node
     }
     default: break;
   }
+  // Path trim (docs/motion.md §4.13): the centre line cut to what is drawn, where the stroke is centred or open.
+  double trimStart = 0, trimEnd = 1;
+  if (!out.stroke.path.empty() && pathTrimOf(p, trimStart, trimEnd) && (p.strokeAlign == StrokeAlign::CENTER || openEnds(out.stroke.path)))
+    out.stroke = trimStroke(out.stroke, trimStart, trimEnd, p.strokeCap);
   out.hasOpenEnds = openEnds(out.stroke.path);
   Rect b;
   bool any = false;
@@ -244,9 +283,15 @@ const NodeGeometry* GeometryCache::get(const Document& doc, Guid id, int depth) 
     default: break;
   }
   if (p.isGroupLike()) return nullptr;
-  uint64_t key = inputKey(doc, id, p, depth);
   auto it = entries_.find(id);  // found without inserting; made only when missing
+  bool textLike = p.type == NodeType::TEXT || p.type == NodeType::TEXT_PATH || p.isBoolean();  // a boolean hashes its texts too
+  if (it != entries_.end() && it->second.valid && !textLike && it->second.doc == &doc && it->second.checkedAt == doc.version() &&
+      it->second.network == p.shape().vectorData.network)
+    return &it->second.geometry;
+  uint64_t key = inputKey(doc, id, p, depth);
   Entry& e = it != entries_.end() ? it->second : entries_.try_emplace(id).first->second;
+  e.doc = &doc;
+  e.checkedAt = doc.version();
   if (!e.valid || e.input != key || e.network != p.shape().vectorData.network) {
     build(doc, id, p, e.geometry, depth);
     e.input = key;

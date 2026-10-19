@@ -327,6 +327,257 @@ export const TOOLS: ToolDef[] = [
     },
     write: true,
   },
+  // Motion (docs/motion.md §9, round 8f): Figma's Plugin API shapes — seconds, public field names and units.
+  {
+    name: "get_motion",
+    title: "Get motion",
+    description:
+      "The Motion timeline of a top-level frame (nodeId: the frame or any layer in it; default: the selection's): its duration (seconds), playback (LOOP, ONCE, PING_PONG) and snapping fps; each animated layer's manualKeyframeTracks (Figma's Plugin API object: {OPACITY: {id, keyframes: [{id, timelinePosition, value, easing}]}, fills: {0: track}, effects: {0: {RADIUS: track}}}), its animations (applied presets: {id, styleId, name, duration, timelineOffset, props, visible}) and the composite animation styles they came from; the audio clips. `resolved: true` adds the resolved model (every property's keyframes in timeline time, presets materialised — what Dev Mode's code is written from). Read it before changing motion.",
+    inputSchema: { type: "object", properties: { nodeId, resolved: { type: "boolean" } } },
+    write: false,
+  },
+  {
+    name: "set_keyframes",
+    title: "Set keyframes",
+    description:
+      'Writes one field\'s keyframe track on layers (Figma\'s applyManualKeyframeTrack): keyframes [{id?, timelinePosition (seconds ≥ 0), value: {type: "FLOAT" | "VECTOR" | "COLOR", value}, easing?: {type: EASE_OUT | EASE_IN | EASE_IN_AND_OUT | LINEAR | EASE_IN_BACK | EASE_OUT_BACK | EASE_IN_AND_OUT_BACK | GENTLE | QUICK | BOUNCY | SLOW | HOLD | CUSTOM_CUBIC_BEZIER (easingFunctionCubicBezier {x1, y1, x2, y2}) | CUSTOM_SPRING (easingFunctionSpring {bounce})}}]. The track becomes this list: keyframes with an id it has are edited, the others added, the ones left out deleted (an empty list removes the track); `merge: true` only adds and edits. field: OPACITY (0–1), TRANSLATION_X / TRANSLATION_Y (px, added to the resting position), TRANSLATION_XY (VECTOR px), ROTATION (degrees, counter-clockwise +, added), SCALE_X / SCALE_Y / SCALE_XY (multipliers, 1 = unchanged), WIDTH, HEIGHT, CORNER_RADIUS, RECTANGLE_*_CORNER_RADIUS, STROKE_WEIGHT, BORDER_*_WEIGHT, STACK_SPACING, STACK_COUNTER_SPACING, STACK_PADDING_*, GRID_ROW_GAP, GRID_COLUMN_GAP, PATH_TRIM_START / PATH_TRIM_END (0–1); or {type: "INDEXED_ITEM", collection: "fills" | "strokes", index} (a SOLID paint\'s COLOR {r, g, b, a} 0–1) or {type: "INDEXED_ITEM", collection: "effects", index, field: RADIUS | SPREAD | OFFSET_X | OFFSET_Y | COLOR …}. The first keyframe\'s value holds back to 0 and the last one\'s to the end; the easing is into the keyframe. Never on a top-level frame (it is the timeline): animate its descendants. X / Y and XY tracks are exclusive. The timeline grows to hold the last keyframe unless extendTimeline is false. ' + WRITE_IDS,
+    inputSchema: {
+      type: "object",
+      properties: {
+        nodeIds: writeIds,
+        nodeId: writeId,
+        field: { description: 'A field name ("OPACITY") or {type: "PROPERTY", name} | {type: "INDEXED_ITEM", collection, index[, field]}' },
+        keyframes: { type: "array", items: { type: "object", properties: { id: { type: "string" }, timelinePosition: { type: "number" }, value: {}, easing: { type: "object" } }, required: ["timelinePosition", "value"] } },
+        merge: { type: "boolean" },
+        extendTimeline: { type: "boolean" },
+      },
+      required: ["field", "keyframes"],
+    },
+    write: true,
+  },
+  {
+    name: "remove_keyframes",
+    title: "Remove keyframes",
+    description: "Deletes keyframes by `keyframeIds` (get_motion lists them; a track left empty goes), and / or whole tracks: `fields` on nodeIds (Figma's removeManualKeyframeTrack).",
+    inputSchema: { type: "object", properties: { keyframeIds: ids, nodeIds: writeIds, nodeId: writeId, fields: { type: "array", items: {} } } },
+    write: true,
+  },
+  {
+    name: "set_timeline",
+    title: "Set timeline",
+    description: "A top-level frame's timeline (nodeId: the frame or any layer in it): duration in seconds (≤ 600), playback LOOP | ONCE | PING_PONG (not PING_PONG with audio), fps — the keyframes' snapping rate.",
+    inputSchema: { type: "object", properties: { nodeId: { type: "string" }, duration: { type: "number" }, playback: { enum: ["LOOP", "ONCE", "PING_PONG"] }, fps: { type: "number" } }, required: ["nodeId"] },
+    write: true,
+  },
+  {
+    name: "add_animation",
+    title: "Add animation",
+    description:
+      'Adds an animation preset to layers (Figma\'s applyAnimationStyle): style Opacity | Position | Scale | Rotation | Size | CornerRadius | Path (stroked layers) | TextStagger (text layers: characters, words, lines appear in turn) | New; timelineOffset (its start, seconds; default 0), duration (seconds; default 0.5), props — the preset\'s settings (e.g. Opacity {type: "fadeIn" | "fadeOut" | "custom", amount}, Position {type: "slide_in" | "slide_out" | "custom", direction: left | right | top | bottom | top_left …, distance}, Scale {type: "scaleIn" | "scaleOut", amount %}, TextStagger {animationDirection: "in" | "out", textDelayGrouping: CHARACTER | WORD | LINE | PARAGRAPH, textDelayOrder: LEFT_RIGHT | RIGHT_LEFT | CENTER_OUT | RANDOM, presetStaggerOverlap 0–100, positionEnabled, direction, distance, opacityEnabled, opacityAmount, scaleEnabled, scaleAmount, rotationEnabled, rotationAmount}; easing {type}). get_motion shows each preset\'s props as stored. Returns each layer\'s new animation (its id edits or removes it). ' + WRITE_IDS,
+    inputSchema: { type: "object", properties: { nodeIds: writeIds, nodeId: writeId, style: { type: "string" }, timelineOffset: { type: "number" }, duration: { type: "number" }, props: { type: "object" }, visible: { type: "boolean" }, extendTimeline: { type: "boolean" } }, required: ["style"] },
+    write: true,
+  },
+  {
+    name: "edit_animation",
+    title: "Edit animation",
+    description: "Changes one animation (animationId from get_motion / add_animation; nodeId: its layer): props (merged over its own; its preset's code runs again), timelineOffset, duration (seconds), style (another preset type), visible (its eye).",
+    inputSchema: { type: "object", properties: { nodeId: { type: "string" }, animationId: { type: "string" }, style: { type: "string" }, timelineOffset: { type: "number" }, duration: { type: "number" }, props: { type: "object" }, visible: { type: "boolean" } }, required: ["animationId"] },
+    write: true,
+  },
+  {
+    name: "remove_animations",
+    title: "Remove animations",
+    description: "Removes animations (presets) by id, with their keyframes (nodeId: their layer, when they are all on one).",
+    inputSchema: { type: "object", properties: { nodeId: { type: "string" }, animationIds: ids }, required: ["animationIds"] },
+    write: true,
+  },
+  {
+    name: "apply_animation_style",
+    title: "Apply animation style",
+    description: "Applies a composite animation style — its presets stacked to play together — to layers at timelineOffset (seconds; default 0): fadeIn, fadeOut, slideIn, slideOut, scaleIn, scaleOut, spinIn, textEnter / textExit (text layers), or one of the file's custom styles by id or name (get_motion's customAnimationStyles). One preset at a time is add_animation. " + WRITE_IDS,
+    inputSchema: { type: "object", properties: { nodeIds: writeIds, nodeId: writeId, style: { type: "string" }, timelineOffset: { type: "number" }, extendTimeline: { type: "boolean" } }, required: ["style"] },
+    write: true,
+  },
+  {
+    name: "save_animation_style",
+    title: "Save animation style",
+    description:
+      'Makes or changes a custom animation style of the file (a reusable, named set of presets): name with fromNodeId (that layer\'s animations become the style) or entries [{style: "Opacity", props: {duration, delay, easing, …}}] (figma presets, in order; delay is the entry\'s place in the style). With styleId: its content replaced the same way (the layers it is applied to follow), name renames it, delete: true deletes it (the layers keep their animations). Apply one with apply_animation_style.',
+    inputSchema: { type: "object", properties: { styleId: { type: "string" }, name: { type: "string" }, fromNodeId: { type: "string" }, entries: { type: "array", items: { type: "object" } }, delete: { type: "boolean" } } },
+    write: true,
+  },
+  {
+    name: "detach_animation_style",
+    title: "Detach animation style",
+    description: "Detaches an applied composite style (styleEntryId: get_motion's animationStyles[].id): its animations stay, editable one by one.",
+    inputSchema: { type: "object", properties: { styleEntryId: { type: "string" } }, required: ["styleEntryId"] },
+    write: true,
+  },
+  {
+    name: "add_audio",
+    title: "Add audio",
+    description: "Puts a sound on a top-level frame's timeline (nodeId: the frame or a layer in it) at `offset` seconds: `path` — an AAC, MP3, WAV or M4A file in your working folder — or `data`, its bytes as base64; `name`. Exported MP4 / WebM carry it.",
+    inputSchema: { type: "object", properties: { nodeId: { type: "string" }, path: { type: "string" }, data: { type: "string" }, name: { type: "string" }, offset: { type: "number" } }, required: ["nodeId"] },
+    write: true,
+  },
+  {
+    name: "edit_audio",
+    title: "Edit audio",
+    description: "Changes an audio clip of a timeline (nodeId: its frame; audioId from get_motion): offset (its start on the timeline, s), trimStart (where in the file it starts, s), duration (s), volume 0–1, mute; splitAt (timeline seconds: cut in two); remove: true deletes it.",
+    inputSchema: { type: "object", properties: { nodeId: { type: "string" }, audioId: { type: "string" }, offset: { type: "number" }, trimStart: { type: "number" }, duration: { type: "number" }, volume: { type: "number" }, mute: { type: "boolean" }, splitAt: { type: "number" }, remove: { type: "boolean" } }, required: ["nodeId", "audioId"] },
+    write: true,
+  },
+  {
+    name: "export_animation",
+    title: "Export animation",
+    description:
+      "Exports a top-level frame's animation (nodeId: the frame or a layer in it) as a file saved in your working folder (the result gives its path): format MP4 (default, with the timeline's audio), WEBM, GIF (loop: true by default), SVG (animated), LOTTIE (JSON) or DOTLOTTIE; scale 0.5–4 (default 1) or width / height in px; fps 24, 25, 30 (default), 50 or 60; quality LOW | MEDIUM | HIGH (video); name (the file's). The whole timeline once (Ping-pong: there and back). To check motion, export a small GIF and look at its frames — get_screenshot shows the design at rest.",
+    inputSchema: { type: "object", properties: { nodeId: { type: "string" }, format: { enum: ["MP4", "WEBM", "GIF", "SVG", "LOTTIE", "DOTLOTTIE"] }, scale: { type: "number" }, width: { type: "number" }, height: { type: "number" }, fps: { type: "number" }, quality: { enum: ["LOW", "MEDIUM", "HIGH"] }, loop: { type: "boolean" }, name: { type: "string" } }, required: ["nodeId"] },
+    write: false,
+  },
+  // Social (docs/social.md §7.2, round 18): posts are top-level frames carrying a record (format, brand, caption …);
+  // the same functions the Social mode's controls call (editor/social/actions.ts).
+  {
+    name: "get_board",
+    title: "Get board",
+    description:
+      "Social mode's board of a page (default: the current one): the board's brand, the campaigns in order with their posts — each {nodeId, name, formatId, format {name, width, height, platform}, brandId, productIds, template, group, status (draft | reviewed | approved | exported), caption, hashtags, altText, animated, durationSec, problems, duplicateOf?} — and the posts outside any campaign (unplaced). Read it first in every Social turn.",
+    inputSchema: { type: "object", properties: { pageId: { type: "string" } } },
+    write: false,
+  },
+  {
+    name: "list_formats",
+    title: "List formats",
+    description: "The social formats catalogue: id (\"instagram.post\"), name, size, kind (image | carousel | document | video | thumbnail), aspect, safe area (px the platform's UI covers), caption limits (max, unit, fold, hashtags, mentions), image and video limits, and which values are unverified. `platform` filters; `brandId` adds the brand's own sizes (ids \"brand:<brandId>:<formatId>\", no limits).",
+    inputSchema: { type: "object", properties: { platform: { enum: ["instagram", "linkedin", "facebook", "x", "tiktok", "youtube", "pinterest"] }, brandId: { type: "string", description: "Adds the brand's own sizes" } } },
+    write: false,
+  },
+  {
+    name: "list_templates",
+    title: "List templates",
+    description: "The post templates this file can use (its own component sets marked as templates, and the enabled libraries'): key, name, source (\"local\" or the library's name), formats (Format variant → format id), animated, and the slots ({role: logo | picture | headline | body | cta | label | accent | background, property, locked, maxChars}). Filters: platform, formatId, animated.",
+    inputSchema: { type: "object", properties: { platform: { type: "string" }, formatId: { type: "string" }, animated: { type: "boolean" } } },
+    write: false,
+  },
+  {
+    name: "new_post",
+    title: "New post",
+    description:
+      "Makes a post on the current page: a frame of the format's size (formatId from list_formats) carrying its record, placed at the end of its campaign's row (or a new row) unless x / y say where; from a template (templateKey, variant: its Format value — default the format's) when given. brandId, productId, campaignId — or `campaign`, a new campaign's name. Returns {nodeId, campaignId, slots: [{role, nodeId, property}]}.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        formatId: { type: "string" },
+        name: { type: "string" },
+        brandId: { type: "string" },
+        productId: { type: "string" },
+        campaignId: { type: "string" },
+        campaign: { type: "string", description: "A new campaign's name (instead of campaignId)" },
+        templateKey: { type: "string" },
+        variant: { type: "string" },
+        x: { type: "number" },
+        y: { type: "number" },
+      },
+      required: ["formatId"],
+    },
+    write: true,
+  },
+  {
+    name: "apply_template",
+    title: "Apply template",
+    description: "Puts posts on a template (list_templates' key; variant: its Format value, default the post's format): an instance swaps its component; a plain frame is replaced by an instance at its place, its texts carried to the slots by role. brandId / productId fill the brand (colours, fonts, logo) and the product's picture. " + WRITE_IDS,
+    inputSchema: { type: "object", properties: { nodeIds: writeIds, nodeId: writeId, templateKey: { type: "string" }, variant: { type: "string" }, brandId: { type: "string" }, productId: { type: "string" } }, required: ["templateKey"] },
+    write: true,
+  },
+  {
+    name: "fill_slots",
+    title: "Fill slots",
+    description: "Writes a template post's text slots (values: headline, body, cta, label — through their component properties) and its picture slot (picture, as place_image takes it). A locked slot is refused (\"‹role› is locked in this template\"); text over a slot's maxChars is written and reported.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        nodeId: { type: "string" },
+        values: { type: "object", properties: { headline: { type: "string" }, body: { type: "string" }, cta: { type: "string" }, label: { type: "string" } } },
+        picture: imageArg,
+      },
+      required: ["nodeId"],
+    },
+    write: true,
+  },
+  {
+    name: "set_post",
+    title: "Set post",
+    description:
+      "Changes posts' records: brandId, productIds, campaignId (null: no campaign), caption (without the hashtags), hashtags (without \"#\"), altText, status (draft | reviewed | approved | exported); formatId marks a frame that isn't a post yet as one (resizing is resize_post). Returns each post's caption count against its format ({count, max, fold, hashtags}), so an overrun shows at once. " + WRITE_IDS,
+    inputSchema: {
+      type: "object",
+      properties: {
+        nodeIds: writeIds,
+        nodeId: writeId,
+        brandId: { type: ["string", "null"] },
+        productIds: ids,
+        campaignId: { type: ["string", "null"] },
+        caption: { type: "string" },
+        hashtags: ids,
+        altText: { type: "string" },
+        status: { enum: ["draft", "reviewed", "approved", "exported"] },
+        formatId: { type: "string", description: "Marks a frame as a post of this format (it isn't one yet); resizing is resize_post" },
+      },
+    },
+    write: true,
+  },
+  {
+    name: "resize_post",
+    title: "Resize post",
+    description: "Puts posts in another format (formatId): the frame's size (its layers by their constraints; a template post takes the template's variant for that format), or with duplicate: true a copy in the new format at the end of its campaign's row — a fresh draft. Returns the posts resized (the copies). " + WRITE_IDS,
+    inputSchema: { type: "object", properties: { nodeIds: writeIds, nodeId: writeId, formatId: { type: "string" }, duplicate: { type: "boolean", description: "Make a copy in the new format next to it (default false)" } }, required: ["formatId"] },
+    write: true,
+  },
+  {
+    name: "set_campaign",
+    title: "Set campaign",
+    description: "Adds a campaign to the current page (name, brandId; returns its campaignId), renames or re-brands one (campaignId and the fields), or removes one (campaignId, remove: true — its posts stay, without a campaign).",
+    inputSchema: { type: "object", properties: { campaignId: { type: "string" }, name: { type: "string" }, brandId: { type: "string" }, remove: { type: "boolean" } } },
+    write: true,
+  },
+  {
+    name: "check_posts",
+    title: "Check posts",
+    description:
+      "Checks posts (default: every post on the board) against their formats' rules: caption, hashtag and mention counts; text and logo layers inside the safe area; video duration against the format; a missing logo (a post with a brand) or more than one; text contrast over its backdrop (WCAG 4.5:1 under 24 px, 3:1 above). → [{nodeId, problems: [{id, kind: caption | safe-area | video | logo | contrast, detail, box?, fix}]}]; the problems also show on the canvas as pins (a problem no longer found leaves).",
+    inputSchema: { type: "object", properties: { nodeIds: ids } },
+    write: false,
+  },
+  {
+    name: "save_as_template",
+    title: "Save as template",
+    description: "Makes a post a template: the frame becomes a component in a component set with a Format variant, its slots tagged (slots: [{nodeId, role, locked?, maxChars?}]; the texts, logo and picture are inferred when left out). Refuses with the missing wiring named (a text slot needs its TEXT property, the logo an instance of the Brands library's Logo, a picture an image fill).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        nodeId: { type: "string" },
+        name: { type: "string" },
+        slots: { type: "array", items: { type: "object", properties: { nodeId: { type: "string" }, role: { type: "string" }, locked: { type: "boolean" }, maxChars: { type: "number" } }, required: ["nodeId", "role"] } },
+      },
+      required: ["nodeId", "name"],
+    },
+    write: true,
+  },
+  {
+    name: "export_posts",
+    title: "Export posts",
+    description: "Exports posts (nodeIds, or a campaign's: campaignId) with the platforms' presets into files saved in your working folder (the result gives their paths): preset — a preset id, or \"auto\" (default: each post's own: JPEG / PNG for a still post, MP4 for an animated one); zip — one zip (default when more than one file). Each post's file, bytes and warnings (over a size limit).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        nodeIds: ids,
+        campaignId: { type: "string" },
+        preset: { type: "string", description: 'A preset id (§8), or "auto" (default): each post\'s own' },
+        zip: { type: "boolean", description: "One zip (default when more than one file)" },
+      },
+    },
+    write: false,
+  },
   {
     name: "describe_schema",
     title: "Describe schema",
@@ -414,8 +665,8 @@ export const MANAGER_TOOLS: ToolDef[] = [
     name: "ask_choice",
     title: "Ask a choice",
     description:
-      "Shows the owner a choice card in the chat and waits for the click: {question, options: [{id, label, detail?}]} → the option picked. `imageRoute: true` instead lists the image models (Gemini API, Gemini CLI, Antigravity, OpenAI) with \"Use this for this chat\" — ask it when pictures are needed and no image model is set.",
-    inputSchema: { type: "object", properties: { question: { type: "string" }, options: { type: "array", items: { type: "object", properties: { id: { type: "string" }, label: { type: "string" }, detail: { type: "string" } }, required: ["id", "label"] } }, remember: { type: "boolean" }, imageRoute: { type: "boolean" } } },
+      "Shows the owner a choice card in the chat and waits for the click: {question, options: [{id, label, detail?}]} → the option picked. `imageRoute: true` instead lists the image models (Gemini API, Gemini CLI, Antigravity, OpenAI) with \"Use this for this chat\" — ask it when pictures are needed and no image model is set. `suggestions: true` shows at most three options as chips under your answer (Social's follow-ups after a review passes) and returns at once — the chip the owner picks comes back as his next message.",
+    inputSchema: { type: "object", properties: { question: { type: "string" }, options: { type: "array", items: { type: "object", properties: { id: { type: "string" }, label: { type: "string" }, detail: { type: "string" } }, required: ["id", "label"] } }, remember: { type: "boolean" }, imageRoute: { type: "boolean" }, suggestions: { type: "boolean" } } },
     write: false,
   },
   {
@@ -436,10 +687,14 @@ export const MANAGER_TOOLS: ToolDef[] = [
         briefId: { type: "string", description: "Run a brief again (its id); else a new brief from the fields below" },
         brand: { type: "string", description: "Brand id" },
         products: { ...ids, description: "Product ids" },
-        formats: { ...ids, description: "Format ids of the brand (default: post and story)" },
+        formats: { ...ids, description: "Format ids: the brand's (default: post and story), or catalogue ids (list_formats: \"instagram.post\", \"linkedin.landscape\" …)" },
         scene: { type: "string" },
         variations: { type: "number", description: "Default 2" },
         request: { type: "string", description: "The owner's words" },
+        template: { type: "string", description: "Social: a template's key (list_templates) — the frames are made from it and their slots filled" },
+        captions: { type: "boolean", description: "Social: write each post's caption, hashtags and alt text afterwards (default true in Social)" },
+        campaign: { type: "string", description: "Social: the campaign's name (default \"‹Products› — ‹Month›\")" },
+        animate: { type: "object", description: "Social: a Motion pass per video format (seconds; style: a composite animation style)", properties: { seconds: { type: "number" }, style: { type: "string" } }, required: ["seconds"] },
       },
     },
     write: false,
@@ -455,7 +710,7 @@ export const MANAGER_TOOLS: ToolDef[] = [
     name: "report_review",
     title: "Report review",
     description:
-      "Shows the review card (each frame ✓ or its problems; a problem: {id, kind: sharp-text | soft-text | shape | extra | missing | layout | brand, detail, box?: frame coordinates, fix: fix-label | blur | regenerate | relayout}) and waits for the owner: \"Fix selected\" starts the fixes and returns their task ids (wait_tasks, then review the changed frames again); \"Leave as is\" ends the loop.",
+      "Shows the review card (each frame ✓ or its problems; a problem: {id, kind: sharp-text | soft-text | shape | extra | missing | layout | brand | safe-area | caption | contrast | logo | video, detail, box?: frame coordinates, fix: fix-label | blur | regenerate | relayout | rewrite | retime}) and waits for the owner: \"Fix selected\" starts the fixes and returns their task ids (wait_tasks, then review the changed frames again) and the ones that are yours to do (rewrite: the caption with set_post; retime: set_timeline / the clips); \"Leave as is\" ends the loop. On posts, the problems also show as pins on the canvas until fixed or left.",
     inputSchema: {
       type: "object",
       properties: {
@@ -471,12 +726,22 @@ export const MANAGER_TOOLS: ToolDef[] = [
     },
     write: false,
   },
+  {
+    name: "make_brand_library",
+    title: "Make brands library",
+    description: "Creates the Brands library file (one Brand collection with a mode per brand, colour and font variables, text styles, a Logo component set with a Brand variant per brand) or updates it from the library, in a background tab, and returns {fileKey, brands}. Ask the owner first (ask_choice); publishing it stays his click.",
+    inputSchema: { type: "object", properties: {} },
+    write: false,
+  },
 ];
 
 export const MANAGER_TOOL_NAMES: ReadonlySet<string> = new Set(MANAGER_TOOLS.map((t) => t.name));
 
-/** Tools that wait for the owner or for tasks: main gives them 30 minutes instead of 120 s (docs/studio.md §2.2). */
-export const WAITING_TOOLS: ReadonlySet<string> = new Set(["wait_tasks", "ask_choice", "show_form", "report_review", "make_posts", "library_read_labels"]);
+/**
+ * Tools that wait for the owner, for tasks or for a long render: main gives them 30 minutes instead of 120 s
+ * (docs/studio.md §2.2; export_animation, docs/motion.md §9; export_posts and make_brand_library, docs/social.md §7.2).
+ */
+export const WAITING_TOOLS: ReadonlySet<string> = new Set(["wait_tasks", "ask_choice", "show_form", "report_review", "make_posts", "library_read_labels", "export_animation", "export_posts", "make_brand_library"]);
 export const WAITING_TOOL_MS = 30 * 60_000;
 
 /** Tools main answers itself (never sent to the editor view): `get_skill` (docs/ai.md §2.10). */
@@ -497,6 +762,15 @@ export interface ToolResult {
   isError?: boolean;
   /** The layers the call created or changed (the panel's "Changes" row; not sent to the agent). */
   touched?: string[];
+  /** Files the call made (export_animation): main saves them in the agent's working folder and tells it where (not sent as such). */
+  files?: ToolFile[];
+}
+
+/** A file a tool made, its bytes as base64. */
+export interface ToolFile {
+  name: string;
+  data: string;
+  mimeType: string;
 }
 
 export const textResult = (value: unknown, isError = false): ToolResult => ({ content: [{ type: "text", text: typeof value === "string" ? value : JSON.stringify(value, null, 1) }], isError: isError || undefined });

@@ -96,7 +96,8 @@ function Connection({ view }: { view: ReachView }) {
                 <Button variant="primary" onClick={() => void startDevice()} data-github-device="">{t("Connect with GitHub")}</Button>
               </div>
             ))}
-          <p className={styles.pageText}>{t("Or use a fine-grained token, read-only: Repository access — the repositories you want; Permissions — Contents: Read-only and Metadata: Read-only.")}</p>
+          {/* "Or …" only under Connect with GitHub (a build without the App's client id offers the token alone) */}
+          <p className={styles.pageText}>{g.deviceFlow ? t("Or use a fine-grained token, read-only: Repository access — the repositories you want; Permissions — Contents: Read-only and Metadata: Read-only.") : t("Use a fine-grained token, read-only: Repository access — the repositories you want; Permissions — Contents: Read-only and Metadata: Read-only.")}</p>
           <div className={styles.actions}>
             <TextInput label={t("Token")} placeholder="github_pat_…" secret value={token} onChange={setToken} data-github-token="" />
             <Button

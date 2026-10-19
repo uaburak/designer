@@ -158,6 +158,10 @@
   .row:hover { background: var(--figma-color-bg-hover); }
   .row:focus-visible, .tile:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
   .rowName { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  /* Figma's list view: a 40 × 40 thumbnail, the row as tall as it with 4 above and below */
+  .row:has(> .rowThumb) { height: auto; padding-top: var(--ds-space-1); padding-bottom: var(--ds-space-1); padding-left: var(--ds-space-2); }
+  .rowThumb { display: flex; flex: none; width: var(--ds-space-10); height: var(--ds-space-10); }
+  .rowThumb .thumb { flex: 1 1 auto; }
   .glyph { flex: none; color: var(--figma-color-icon-component); }
 
   /* Grid (live): 96 tiles two to a row at 16 and 128, the name 11 / 400 six under each, rows 132 apart */
@@ -210,6 +214,15 @@
   .tileName { min-width: 0; margin: 1px 0 -1px; padding-left: 2px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left; }
   .tile { position: relative; }
   .srOnly { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+  /* A component's details (Figma's flyout: the name — 14 px there, the kit's 13 strong here —, the variant count, the description, Insert instance) */
+  .details { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: var(--ds-space-4); }
+  .detailsName { overflow: hidden; color: var(--figma-color-text); font: var(--ds-font-body-large-strong); letter-spacing: var(--ds-tracking-body-large-strong); white-space: nowrap; text-overflow: ellipsis; }
+  .detailsMeta { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+  .detailsDescription { color: var(--figma-color-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .detailsDescription[data-clamped] { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; }
+  .detailsMore { align-self: flex-start; margin-left: calc(var(--ds-space-1) * -1); }
+  .detailsInsert { align-self: stretch; }
 
   /* The dragged asset follows the pointer */
   .ghost {

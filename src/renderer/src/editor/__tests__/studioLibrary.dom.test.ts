@@ -42,6 +42,17 @@ function library() {
 }
 
 const tick = () => act(() => new Promise((r) => setTimeout(r, 10)));
+/** Ticks until `check` passes (2 s at most): a picture's read and a save take longer under a loaded full run. */
+async function until(check: () => void) {
+  for (let i = 0; ; i++) {
+    await tick();
+    try {
+      return check();
+    } catch (err) {
+      if (i >= 200) throw err;
+    }
+  }
+}
 const ed = {} as EditorController;
 const call = async (name: string, args: Record<string, unknown>) => {
   const r = await runLibraryTool(ed, name, args);
@@ -87,11 +98,9 @@ describe("the forms", () => {
     const input = $('[data-file-input="logo"]', form) as HTMLInputElement;
     Object.defineProperty(input, "files", { value: [file], configurable: true });
     act(() => void input.dispatchEvent(new Event("change", { bubbles: true })));
-    await tick();
-    expect($$('[data-picture="staged"]', form)).toHaveLength(1);
+    await until(() => expect($$('[data-picture="staged"]', form)).toHaveLength(1));
     act(() => $("[data-save]", form).click());
-    await tick();
-    expect(done).toHaveBeenCalledTimes(1);
+    await until(() => expect(done).toHaveBeenCalledTimes(1));
     const [brand] = await svc.list();
     expect(brand.name).toBe("Partner Agro");
     expect(brand.colors).toEqual([{ name: "Leaf", hex: "#1BA37A" }]);
@@ -107,8 +116,7 @@ describe("the forms", () => {
     const input = $('[data-file-input="logo"]', form) as HTMLInputElement;
     Object.defineProperty(input, "files", { value: [new File(["x"], "notes.txt", { type: "text/plain" })], configurable: true });
     act(() => void input.dispatchEvent(new Event("change", { bubbles: true })));
-    await tick();
-    expect($('[role="alert"]', form).textContent).toContain("isn't a PNG, JPEG or WebP");
+    await until(() => expect($('[role="alert"]', form).textContent).toContain("isn't a PNG, JPEG or WebP"));
     act(() => $$("button", form).find((b) => b.textContent === "Cancel")!.click());
     expect(cancel).toHaveBeenCalled();
     expect(await svc.list()).toEqual([]);
@@ -126,9 +134,8 @@ describe("the forms", () => {
     act(() => $$("button", form).find((b) => b.textContent === "Add text")!.click());
     setInput($('input[aria-label="Label text 2"]', form) as HTMLInputElement, "Içindekiler …");
     act(() => $("[data-save]", form).click());
-    await tick();
-    expect(done).toHaveBeenCalledTimes(1);
-    const p = (await svc.get(brand.id))!.products[0];
+    await until(() => expect(done).toHaveBeenCalledTimes(1));
+    const p =(await svc.get(brand.id))!.products[0];
     expect(p).toMatchObject({ name: "Liq Humus", shape: "20 L jerrycan", labelsConfirmed: false });
     expect(p.labels.map((l) => [l.text, l.tier])).toEqual([["LIQ HUMUS", "sharp"], ["Içindekiler …", "sharp"]]);
   });
@@ -139,14 +146,12 @@ describe("the Brands panel", () => {
     const brand = await svc.saveBrand({ name: "Partner Agro", colors: [{ name: "Leaf", hex: "#1BA37A" }], tone: "calm" });
     await svc.saveProduct({ brandId: brand.id, name: "Liq Humus", shape: "20 L jerrycan", labels: [{ text: "LIQ HUMUS", tier: "sharp" }] });
     view = mount(() => createElement(EditorContext.Provider, { value: ed }, createElement(BrandsPanel)), {});
-    await tick();
-    expect($$("[data-brand]")).toHaveLength(1);
+    await until(() => expect($$("[data-brand]")).toHaveLength(1));
     act(() => $("[data-brand]").click());
-    await tick();
-    expect($("[data-brand-page]").textContent).toContain("Leaf #1BA37A");
+    await until(() => expect($("[data-brand-page]").textContent).toContain("Leaf #1BA37A"));
     expect($("[data-brand-page]").textContent).toContain("1080 × 1350");
     act(() => $("[data-product]").click());
-    await tick();
+    await until(() => expect($("[data-product-page]")).not.toBeNull());
     const page = $("[data-product-page]");
     expect($('input[aria-label="Label text"]', page)).not.toBeNull();
     expect(page.textContent).toContain("20 L jerrycan");
@@ -155,8 +160,7 @@ describe("the Brands panel", () => {
 
   it("shows an empty state with no brands", async () => {
     view = mount(() => createElement(EditorContext.Provider, { value: ed }, createElement(BrandsPanel)), {});
-    await tick();
-    expect(document.body.textContent).toContain("No brands yet");
+    await until(() => expect(document.body.textContent).toContain("No brands yet"));
   });
 });
 

@@ -32,6 +32,7 @@ struct PresentItem {
   double radius = 0;
   double border = 0;
   Color borderColor;
+  double borderAlpha = -1;  // the border's own opacity (< 0: `alpha`)
 };
 
 struct PresentScene {

@@ -3,13 +3,15 @@
  * 13402894554519 "Export formats and settings", 360040028114 "Export from
  * Figma Design"): the scale field ("1x", "0.5x", "512w", "512h" — a factor,
  * a width or a height), the formats (PNG, JPG, SVG, PDF; SVG and PDF only at
- * 1x), the "+" defaults (1x, then 2x "@2x", then 3x "@3x"), file names
+ * 1x), the "+" defaults (1x, then 2x "@2x", then 3x "@3x"), the format
+ * switch and the suffix that follows the scale (atlas 15 §3), file names
  * (layer name + suffix + extension), and the pure helpers the export path
  * uses: PNG DPI (72 × scale, Figma's pHYs), a stored ZIP for a browser
  * download of several files, Copy as code's CSS, and Export frames to PDF's
  * page order (rows top to bottom, left to right).
  */
 import type { ExportSettings } from "../../../../shared/schema/document.generated";
+import { evaluate } from "@/ds/util/evaluate";
 
 export type { ExportSettings };
 export type ExportFormat = "PNG" | "JPEG" | "SVG" | "PDF";
@@ -25,20 +27,31 @@ export const EXPORT_FORMATS: { value: ExportFormat; label: string }[] = [
 /** The scale field's menu. */
 export const SCALE_PRESETS = ["0.5x", "0.75x", "1x", "1.5x", "2x", "3x", "4x", "512w", "512h"] as const;
 
-/** Image quality (JPG, PDF): Figma's defaults are High for JPG and Medium for PDF. */
-export const QUALITY_LEVELS: { value: string; label: string; quality: number }[] = [
-  { value: "low", label: "Low", quality: 0.6 },
-  { value: "medium", label: "Medium", quality: 0.8 },
-  { value: "high", label: "High", quality: 0.92 },
+/**
+ * Image quality (JPEG, PDF, atlas 15 §4): the popover's levels in Figma's order (High, Medium, Low) and the number
+ * each stores — JPEG 1 / 0.8 / 0.75, PDF 1 / 0.76 / 0.5. A new JPEG is High, a new PDF Medium.
+ */
+export type QualityLevel = "high" | "medium" | "low";
+export const QUALITY_LEVELS: { value: QualityLevel; label: string; jpeg: number; pdf: number }[] = [
+  { value: "high", label: "High", jpeg: 1, pdf: 1 },
+  { value: "medium", label: "Medium", jpeg: 0.8, pdf: 0.76 },
+  { value: "low", label: "Low", jpeg: 0.75, pdf: 0.5 },
 ];
+export const DEFAULT_JPEG_QUALITY = 1;
+export const DEFAULT_PDF_QUALITY = 0.76;
+
+/** Figma's limits on the constraint field (MAX_SCALE, MAX_SIZE); a value at or below 0 becomes 1. */
+export const MAX_EXPORT_SCALE = 1024;
+export const MAX_EXPORT_SIZE = 32768;
 
 export const formatOf = (s: ExportSettings): ExportFormat => (s.imageType === "JPEG" || s.imageType === "SVG" || s.imageType === "PDF" ? s.imageType : "PNG");
 export const isVectorFormat = (f: ExportFormat) => f === "SVG" || f === "PDF";
 export const extensionOf = (f: ExportFormat) => (f === "JPEG" ? "jpg" : f.toLowerCase());
 export const formatLabel = (f: ExportFormat) => EXPORT_FORMATS.find((x) => x.value === f)?.label ?? f;
 
+/** Figma's constraint text: the value to 2 decimals. */
 function trimNumber(v: number): string {
-  return String(Math.round(v * 1000) / 1000);
+  return String(Math.round(v * 100) / 100);
 }
 
 /** "2x", "0.5x", "512w", "512h" (SVG and PDF: always 1x). */
@@ -50,40 +63,91 @@ export function scaleLabel(s: ExportSettings): string {
   return `${trimNumber(c.value)}x`;
 }
 
-/** What the scale field accepts: a number with "x" (or none), "w" or "h" — null when it isn't one. */
-export function parseScale(text: string): ExportSettings["constraint"] | null {
-  const m = /^\s*(\d*\.?\d+)\s*([xwh]?)\s*$/i.exec(text);
-  if (!m) return null;
-  const value = Number(m[1]);
-  const unit = (m[2] || "x").toLowerCase();
-  if (!(value > 0) || !Number.isFinite(value)) return null;
-  if (unit === "x") return { type: "CONTENT_SCALE", value: Math.min(value, 100) };
-  const px = Math.max(1, Math.min(16384, Math.round(value)));
-  return { type: unit === "w" ? "CONTENT_WIDTH" : "CONTENT_HEIGHT", value: px };
+type Constraint = NonNullable<ExportSettings["constraint"]>;
+
+/**
+ * What the scale field makes of `text`, as Figma's parser: lower-cased, a "w" anywhere makes it a width, else an "h"
+ * a height, else a scale; the letters go and the rest is a number expression ("1.5*2x" is 3x). Scales stop at 1024,
+ * sizes at 32768, and a value at or below 0 is 1. Null when the rest isn't a number.
+ */
+export function parseScale(text: string): Constraint | null {
+  const lower = text.toLowerCase();
+  const type = lower.includes("w") ? "CONTENT_WIDTH" : lower.includes("h") ? "CONTENT_HEIGHT" : "CONTENT_SCALE";
+  const value = evaluate(lower.replace(/[xwh]/g, ""));
+  if (!Number.isFinite(value)) return null;
+  return { type, value: clampConstraint(type, value) };
 }
 
-/** The "+" button's next setting: 1x, then 2x "@2x", 3x "@3x", 4x "@4x" (as Figma adds them), PNG. */
+function clampConstraint(type: Constraint["type"], value: number): number {
+  if (value <= 0) return 1;
+  return Math.min(value, type === "CONTENT_SCALE" ? MAX_EXPORT_SCALE : MAX_EXPORT_SIZE);
+}
+
+/** ↑ / ↓ in the scale field: 0.5 a step, 1 with ⇧ (Figma's getNudgeAmount), clamped as typed values are. */
+export function nudgeConstraint(c: ExportSettings["constraint"], up: boolean, shift: boolean): Constraint {
+  const cur = c ?? { type: "CONTENT_SCALE", value: 1 };
+  const step = (shift ? 1 : 0.5) * (up ? 1 : -1);
+  return { type: cur.type, value: clampConstraint(cur.type, cur.value + step) };
+}
+
+/** The suffix Figma gives a scale: 2 "@2x", 3 "@3x", 4 "@4x", anything else none. */
+export function autoSuffix(scale: number): string {
+  return scale === 2 ? "@2x" : scale === 3 ? "@3x" : scale === 4 ? "@4x" : "";
+}
+
+/** The auto suffix of a constraint (sizes have none). */
+const autoSuffixOf = (c: ExportSettings["constraint"]) => ((c?.type ?? "CONTENT_SCALE") === "CONTENT_SCALE" ? autoSuffix(c?.value ?? 1) : "");
+
+/** Whether `s`'s suffix is the one its scale gave it (and not empty): a typed suffix is the person's. */
+const hasAutoSuffix = (s: ExportSettings) => !!s.suffix && s.suffix === autoSuffixOf(s.constraint);
+
+/**
+ * The "+" button's next setting, as Figma's: 1x when no row is 1x (a size row counts as one), else 2x "@2x" when none
+ * is 2x, else 3x "@3x" when none is 3x, else 1x again — never 4x. PNG, Ignore overlapping layers on, Detailed
+ * resampling, the file's colour profile.
+ */
 export function nextExportSetting(existing: readonly ExportSettings[]): ExportSettings {
-  const order = [1, 2, 3, 4];
-  const used = new Set(existing.filter((s) => (s.constraint?.type ?? "CONTENT_SCALE") === "CONTENT_SCALE").map((s) => s.constraint?.value ?? 1));
-  const scale = order.find((v) => !used.has(v)) ?? 1;
+  const scales = existing.map((s) => ((s.constraint?.type ?? "CONTENT_SCALE") === "CONTENT_SCALE" ? s.constraint?.value ?? 1 : 1));
+  const scale = !scales.includes(1) ? 1 : !scales.includes(2) ? 2 : !scales.includes(3) ? 3 : 1;
   return {
-    suffix: scale === 1 ? "" : `@${scale}x`,
+    suffix: autoSuffix(scale),
     imageType: "PNG",
     constraint: { type: "CONTENT_SCALE", value: scale },
     contentsOnly: true,
-    svgOutlineText: true,
-    svgIDMode: "IF_NEEDED",
-    svgForceStrokeMasks: false,
     useAbsoluteBounds: false,
+    useBicubicSampler: true,
     colorProfile: "DOCUMENT",
   };
 }
 
-/** The setting with another format (the scale is 1x for SVG and PDF; the suffix stays, as in Figma). */
+/** The setting with another constraint; a suffix the old scale gave follows the new one (2x "@2x" → 3x "@3x", → 1.5x none). */
+export function withConstraint(s: ExportSettings, constraint: Constraint): ExportSettings {
+  return { ...s, constraint, suffix: hasAutoSuffix(s) ? autoSuffixOf(constraint) : s.suffix };
+}
+
+/**
+ * The setting with another format, as Figma's format switch builds it: the shared fields kept (suffix, constraint,
+ * Ignore overlapping layers, colour profile, bounding box, resampling); JPEG at High; PDF and SVG at 1x with an auto
+ * suffix dropped ("@2x" → none), PDF at Medium, SVG with ids if needed, outlined text and simplified strokes.
+ */
 export function withFormat(s: ExportSettings, format: ExportFormat): ExportSettings {
-  const next: ExportSettings = { ...s, imageType: format };
-  if (isVectorFormat(format)) next.constraint = { type: "CONTENT_SCALE", value: 1 };
+  const next: ExportSettings = {
+    suffix: s.suffix,
+    imageType: format,
+    constraint: s.constraint,
+    contentsOnly: s.contentsOnly,
+    colorProfile: s.colorProfile,
+    useAbsoluteBounds: s.useAbsoluteBounds,
+    useBicubicSampler: s.useBicubicSampler,
+  };
+  if (format === "JPEG") next.quality = DEFAULT_JPEG_QUALITY;
+  if (isVectorFormat(format)) {
+    next.constraint = { type: "CONTENT_SCALE", value: 1 };
+    if (hasAutoSuffix(s)) next.suffix = "";
+  }
+  if (format === "PDF") next.quality = DEFAULT_PDF_QUALITY;
+  if (format === "SVG") Object.assign(next, { svgIDMode: "IF_NEEDED", svgOutlineText: true, svgForceStrokeMasks: false, svgAnimated: false });
+  for (const k of Object.keys(next) as (keyof ExportSettings)[]) if (next[k] === undefined) delete next[k];
   return next;
 }
 
@@ -99,16 +163,33 @@ export function describeSetting(s: ExportSettings): string {
   return isVectorFormat(f) ? formatLabel(f) : `${scaleLabel(s)} ${formatLabel(f)}`;
 }
 
-/** The settings of a node as the panel reads them (absent: none). */
+/** Motion's Animated tab entry (round 8e, docs/motion.md §7.1): a video, GIF, Lottie or animated SVG format. */
+export const isAnimatedSetting = (s: ExportSettings): boolean =>
+  s.imageType === "MP4" || s.imageType === "WEBM" || s.imageType === "GIF" || s.imageType === "LOTTIE" || s.imageType === "DOTLOTTIE" || (s.imageType === "SVG" && !!s.svgAnimated);
+
+/** The settings of a node as the panel reads them (absent: none; the Animated tab's entry is its own). */
 export function exportSettingsOf(node: { exportSettings?: unknown } | null | undefined): ExportSettings[] {
   const v = node?.exportSettings;
-  return Array.isArray(v) ? (v as ExportSettings[]) : [];
+  return Array.isArray(v) ? (v as ExportSettings[]).filter((s) => !isAnimatedSetting(s)) : [];
 }
 
-/** The JPEG / PDF image quality of a setting (0..1). */
+/** The JPEG / PDF image quality of a setting (0..1; a missing one is the format's default). */
 export function qualityOf(s: ExportSettings): number {
   if (typeof s.quality === "number" && s.quality > 0 && s.quality <= 1) return s.quality;
-  return formatOf(s) === "PDF" ? 0.8 : 0.92;
+  return formatOf(s) === "PDF" ? DEFAULT_PDF_QUALITY : DEFAULT_JPEG_QUALITY;
+}
+
+/** The level a stored quality shows as: the one it equals within 1e-6, else High (Figma's popover). */
+export function qualityLevel(s: ExportSettings): QualityLevel {
+  const q = qualityOf(s);
+  const pdf = formatOf(s) === "PDF";
+  return QUALITY_LEVELS.find((l) => Math.abs((pdf ? l.pdf : l.jpeg) - q) < 1e-6)?.value ?? "high";
+}
+
+/** The number a level stores for `s`'s format. */
+export function qualityFor(s: ExportSettings, level: QualityLevel): number {
+  const l = QUALITY_LEVELS.find((x) => x.value === level) ?? QUALITY_LEVELS[0];
+  return formatOf(s) === "PDF" ? l.pdf : l.jpeg;
 }
 
 // ---- Files ----

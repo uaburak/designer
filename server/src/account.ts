@@ -290,6 +290,11 @@ async function patchProfile(deps: Deps, userId: string, body: Record<string, unk
     if (typeof p.closedCaptions === "boolean") next.closedCaptions = p.closedCaptions;
     if (typeof p.viewHistory === "boolean") next.viewHistory = p.viewHistory;
     if (typeof p.restHelper === "boolean") next.restHelper = p.restHelper;
+    // The editor's preferences Figma keeps on the user record (atlas 21 §2; src/renderer/src/editor/preferences.ts).
+    for (const k of ["numberKeysOpacity", "scrollWheelZoom", "rightDragPan", "screenReader"] as const) {
+      const v = p[k];
+      if (typeof v === "boolean") next[k] = v;
+    }
     await d1.prepare(`UPDATE users SET prefs = ?2 WHERE id = ?1`).bind(userId, JSON.stringify(next)).run();
   }
   return null;

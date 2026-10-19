@@ -1,0 +1,23 @@
+State: Figma web (UI3, dark), 1440x900, Dev Mode (m=dev) on a Free-plan draft. Figma shows the "Upgrade to work in Dev Mode" overlay (Upgrade to Professional / Back to Design Mode / "Or try Figma's remote MCP server for free"), and BEHIND it a placeholder Inspect panel (sample content "Button", grey text bars). The values below are that panel's real chrome: widths, positions, colours, type — use them together with the owner's real capture owner-2026-10-18/figma-devmode-inspect.webp (paid team, real content) for the content.
+
+RIGHT PANEL @1121,0 320x900 (Dev Mode's right panel is 320 wide; Design mode's is 240)
+Header (y 0–48): avatar button [Multiplayer tools] 9,12 50x24 r=50px (24x24 avatar, a 28x28 chevron disc bg #383838 border 2px #2C2C2C)
+  204,8 49x32 group [Prototype view]: [Present] 32x32 r=5px 0 0 5px + chevron 16x32 r=0 5px 5px 0
+  257,8 55x32 button "Share" bg=rgb(25, 143, 81) #198F51 r=5px, label 11px/450 white  (Dev Mode's green Share)
+Tabs row 1,48 319x41 bg #2C2C2C: "Inspect" 17,50 11px/500 white · "Plugins" 80,50 11px/500 · zoom button 252,56 60x24 r=5px "100%" 11px/400 + 16x16 chevron
+Selection header: name 17,105 13px/550 white; type row icon 14x14 at 18,134 + text at 41 (placeholder bar 97x12)
+Section titles 11px/550 white, each with a 16x16 collapse chevron at x=1 (left of the title, in the gutter):
+  "Layer properties" 17,216
+  box model img 17,246 287x190 bg #383838 r=5px:
+     outer "Border" box 49,281 223x120 bg #2C2C2C r=16px inset ring 1px #444 ; "Border" label 89,287 11px/450 rgba(255,255,255,0.698)
+     "Padding" box 81,305 159x72 bg #383838 r=2px inset ring 1px #444 ; label 89,311
+     size box 113,329 95x26 bg #2C2C2C r=2px border 1px #444 (dashed in the owner's capture, text "678 × 549")
+     guide ticks: vertical 1x35 lines at x=160 top (246) and bottom (401), horizontal 32x1 at y=341 left (17) and right (272), each with a 19x16 value pill r=2px (#757575 in the placeholder)
+     "border-box" caption bottom-right (owner's capture)
+  List | Code segmented: 17,448: "List" button 35x24 bg #2C2C2C r=5px (11px/450 rgba(255,255,255,0.698)) · "Code" 56,448 44x24 bg #383838 r=5px SELECTED 11px/550 white
+  [Language: CSS] select 248,448 56x24 bg #2C2C2C r=5px border 1px #444, "CSS" 11px/450 + 24x24 chevron
+  Code block: title bar 17,480 287x32 bg #2C2C2C r=5px 5px 0 0, "Layout" 11px/400 white at 17,490 (copy button at the right in the owner's capture)
+     body 17,513 287x142 r=5px ring 1px rgba(255,255,255,0.1); line numbers at x=26 11px/400 rgba(255,255,255,0.4); code at x=46 11px/400, lines 18px apart (523, 541, 559, …), monospace in the real panel; property names white, values coloured (owner's capture: values pink/orange)
+  "Colors" 17,678 (11px/400 in the placeholder); rows 263x24 bg #2C2C2C r=5px border 1px #444, 16x16 swatch r=20% at +9, text at +29; rows 36 px apart
+  "Assets" 17,835: 56x56 thumbnails bg #383838 r=2px, two text lines at x=73
+Owner's real capture adds, between the selection header and Layer properties: an "MCP" section (? and + buttons; Selection details; Session activity "Not sent"; Estimated tokens; a prompt box "Implement this design from Figma. @https://www.figma.com/design/…"; "Copy example prompt" button) and "Code Connect" (status chip "Not started", text "Publish components to a library, then you can connect them to your codebase with Code Connect. Learn more").

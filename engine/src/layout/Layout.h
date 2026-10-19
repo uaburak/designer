@@ -86,8 +86,22 @@ class Layout {
   // The flow children of an auto-layout frame, in order.
   std::vector<Guid> flowChildren(Guid frame) const;
 
-  // Padding (left, top, right, bottom) of an auto-layout frame, strokes included when they take space.
+  // Padding (left, top, right, bottom) of an auto-layout frame, strokes included when they take space (by its layout
+  // version's rules).
   static void padding(const NodeProps& p, double out[4]);
+  // A Legacy frame with "Strokes: Included" measures each child with the part of its stroke outside it (a centre stroke
+  // by half, an outside one whole); 0 otherwise.
+  static double strokeOutset(const NodeProps& parent, const NodeProps& child);
+
+  // Figma's auto layout version (stackLayoutVersion 574, Atlas 09 §3.2): 0 or absent "Legacy", 1 "Updated" (Figma's
+  // "apr26" rules: padding is the frame's least size, only inside strokes take space and only the frame's own, Fill
+  // shares by content box, an Auto gap never below 0, a lone child of an Auto gap at the start). New stacks are made
+  // Updated (Figma's default since July 2026). stackLayoutVersionBytes: the field's kiwi bytes for NodeProps::extra.
+  static constexpr uint32_t kLatestStackLayoutVersion = 1;
+  static uint32_t stackLayoutVersion(const NodeProps& p);
+  static bool updatedLayout(const NodeProps& p) { return stackLayoutVersion(p) >= kLatestStackLayoutVersion; }
+  static bool hasStackLayoutVersion(const NodeProps& p);
+  static std::string stackLayoutVersionBytes(uint32_t version);
 
   // A grid frame's cells as laid out now (frame space): track offsets and sizes, track GUIDs (kNoGuid for rows past
   // the defined ones), automatic placement, and where each flow item sits. Gestures and overlays use it.
@@ -122,6 +136,8 @@ class Layout {
   // gridAutoTracks ROWS ("Number of rows: Auto"): the rows are as many as the items need (empty ones go).
   static bool gridAutoRows(const NodeProps& p);
   static std::string gridAutoRowsBytes(bool on);
+  // gridReflowEnabled ("Toggle automatic positioning"): its kiwi bytes.
+  static std::string gridReflowBytes(bool on);
   // A grid's gap between columns / rows (gridColumnGap / gridRowGap; 0 when unset) and its kiwi bytes (round 12: the
   // canvas's gap drag writes it).
   static double gridGap(const NodeProps& p, bool column);
@@ -168,5 +184,13 @@ class Layout {
 
 // A child's layout box: the bounds of its box in its parent's space, for a given size.
 Rect layoutBox(const Mat2x3& transform, Vec2 size);
+
+// A layout guide's columns or rows along `len` (Atlas 09 §8): its count, or as many as fit when it is Figma's Count
+// "Auto" (0x7fffffff; 0 too for one that isn't stretched); 1 … 2048 (what is drawn and snapped to).
+int layoutGridCount(const LayoutGrid& g, double len);
+
+// A change that gives a node auto layout for the first time (stackMode from NONE, no layout version yet) makes it an
+// Updated stack (Layout::kLatestStackLayoutVersion), as Figma's new frames are.
+void stampNewStack(const NodeProps& before, NodeChange& change);
 
 }  // namespace eng

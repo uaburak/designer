@@ -119,8 +119,12 @@ export interface ProjectsRepository {
   createFile(projectId: string, input?: { name?: string; editorType?: O.EditorType }): Promise<{ fileKey: FileKey; file: O.OrgFile }>;
   /** Org files (by room key) into a folder, or into the mover's drafts (null) — same org only */
   moveFiles(keys: string[], to: { projectId: string | null }): Promise<void>;
-  /** A local file into a folder: §5's share with a destination; the editor hands the snapshot (as multiplayer.share) */
-  moveLocalFile(fileKey: FileKey, projectId: string, input: { snapshot: Uint8Array; headSeq: number }): Promise<O.OrgFile>;
+  /**
+   * A local file into a folder: §5's share with a destination; the editor hands the snapshot (as multiplayer.share).
+   * `duplicateOf`: the org file (room key) this local file is a Duplicate of — the server checks the caller may copy
+   * from it and logs `fig_file_duplicate`.
+   */
+  moveLocalFile(fileKey: FileKey, projectId: string, input: { snapshot: Uint8Array; headSeq: number; duplicateOf?: string }): Promise<O.OrgFile>;
   trashFiles(keys: string[]): Promise<void>;
   restoreFiles(keys: string[]): Promise<void>;
   /** "Delete forever" for files in the trash (their owners, admins): gone with their rooms, comments and links */

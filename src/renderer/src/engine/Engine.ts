@@ -13,6 +13,7 @@
 import {
   APPLY_EXACT,
   APPLY_LOAD,
+  APPLY_PEER,
   APPLY_REMOTE,
   APPLY_SYSTEM,
   APPLY_USER,
@@ -52,6 +53,8 @@ import {
   VIEW_RIGHT_DRAG_PAN,
   VIEW_FRAME_OUTLINES,
   VIEW_MASK_OUTLINES,
+  VIEW_OUTLINE_HIDDEN,
+  VIEW_OUTLINE_BOUNDS,
   WIRE_JSON,
   WIRE_KIWI,
   type CommandName,
@@ -126,9 +129,11 @@ import { FACET_DECODERS, FACET_IDS, FACET_SLOTS, type FacetName } from "./facets
 import type { ExportSettings } from "../../../shared/schema/document.generated";
 import type { TraceOptions, TraceResult } from "../../../shared/ai/types";
 import type { BrushArtwork, BrushType, DrawCommandArgs, DrawToolSettings, GuidString, InstallBrushInput, ScatterSettings } from "../../../shared/draw/types";
+import type { FieldStates, Micros, MotionCommandArgs, MotionSamples, MotionShapeLayer, MotionViewState, ResolvedMotion, TimelineModel } from "../../../shared/motion/types";
 import { fonts } from "./fonts";
+import { FrameTelemetry } from "./frameTelemetry";
 import { keyCodeOf } from "./keyCodes";
-import { prepareGfx, recordWebGPUFallback, type GfxBackend, type GfxPreference } from "./gfx";
+import { afterDeviceFailure, prepareGfx, recordWebGPUFallback, type GfxBackend, type GfxPreference } from "./gfx";
 import { loadEngine } from "./loadEngine";
 import { changesOf } from "./guids";
 
@@ -173,8 +178,10 @@ export interface EngineOptions {
  * How applyChanges takes changes: "user" = undoable and emitted; "system" = emitted, not an undo step (library
  * bookkeeping: libraryMoveInfo, publishedVersion, publishing flags; E_BUSY inside an open batch); "restore" = a
  * store-computed state (Restore version's diff): undoable and emitted, written as it is — library copies included, no
- * detaching, no instance root overrides; "remote" / "load" = neither emitted nor undoable. "user" and "system" never
- * write into library copies (docs/schema.md §8.2).
+ * detaching, no instance root overrides; "remote" / "load" = neither emitted nor undoable; "peer" = another session's
+ * change (multiplayer, another window): "remote" that waits (BUSY) while a gesture, a step or an agent's write is open
+ * and makes every undo history yield what it wrote (docs/engine.md §9.5). "user" and "system" never write into library
+ * copies (docs/schema.md §8.2).
  */
 /** Round 18: another person in the file, as `Engine.setPresence` draws them (docs/engine.md §9.6). */
 export interface PresencePeer {
@@ -188,11 +195,14 @@ export interface PresencePeer {
   cursor: { x: number; y: number } | null;
   /** Node GUIDs "sessionID:localID" the peer has selected on the page currently shown. */
   selection: string[];
-  /** Cursor chat ("/"): a string draws the chat bubble instead of the name chip ("": open, nothing typed yet). */
+  /** Cursor chat ("/"): a string draws the chat bubble instead of the name chip ("": open, nothing typed yet); two lines
+   *  at most, "\n" between them. */
   chat?: string | null;
+  /** The bubble's opacity (Phase 6: it fades 5–8 s after its last change); default 1 */
+  chatOpacity?: number;
 }
 
-export type ApplyKind ="user" | "system" | "restore" | "remote" | "load";
+export type ApplyKind = "user" | "system" | "restore" | "remote" | "peer" | "load";
 
 /** Where image bytes come from (the file's image store): the image file for a SHA-1 hash, or null. */
 export type ImageSource = (hash: string) => Promise<Uint8Array | null>;
@@ -209,8 +219,10 @@ export type PresentScale = "ACTUAL" | "FIT_WIDTH" | "FIT" | "FILL" | "RESPONSIVE
  */
 export interface PresentVideo {
   id: Guid;
-  /** The video file's SHA-1 (the image store holds it) */
+  /** The video file's SHA-1 (the image store holds it); a GIF's GIF */
   hash: string;
+  /** A GIF fill ("GIFs in prototypes" play, looping and silent): its frames come from a <canvas>, not a <video> */
+  gif?: boolean;
   playing: boolean;
   muted: boolean;
   loop: boolean;
@@ -244,6 +256,8 @@ export interface PresentState {
   /** The first frame's width (Figma's recommended scales) and whether every frame is 16:9 */
   firstFrameWidth?: number;
   allWide?: boolean;
+  /** The scale options in Figma's order for the file (the first two "Recommended"; Z goes to the next) */
+  scaleOrder?: PresentScale[];
   device?: boolean;
   /** The page's prototype device type */
   deviceType?: "NONE" | "PRESET" | "CUSTOM" | "PRESENTATION";
@@ -264,8 +278,8 @@ export interface PresentState {
 }
 
 let nextBitmapId = 1;
-/** A presentation's <video> elements and their ids in Module.engineBitmaps (one per element, reused per frame). */
-const videoBitmapIds = new WeakMap<HTMLVideoElement, number>();
+/** A presentation's <video> (and GIF <canvas>) elements and their ids in Module.engineBitmaps (one per element, reused per frame). */
+const videoBitmapIds = new WeakMap<HTMLVideoElement | HTMLCanvasElement, number>();
 
 type Handler = (event: EngineEvent) => void;
 
@@ -297,7 +311,7 @@ export class Engine {
       engine.gfxBackend = (engine.stats() as Record<string, unknown>).gfx === "webgpu" ? "webgpu" : "webgl2";
       Engine.drawing.add(engine);
       exports.module.onEngineGfxFailure ??= (selector, reason) => {
-        for (const e of Engine.drawing) if (e.canvas && `#${e.canvas.id}` === selector) e.gfxFallback(reason);
+        for (const e of Engine.drawing) if (e.canvas && `#${e.canvas.id}` === selector) e.gfxFailure(reason);
       };
     }
     return engine;
@@ -327,8 +341,35 @@ export class Engine {
   }
 
   /**
-   * Figma's dynamic fallback: the WebGPU device was lost or failed its self test, so the session continues on
-   * WebGL2. A canvas keeps the context type it first got, so a copy of it takes its place (the original stays,
+   * A WebGPU device failed (library_engine_wgpu.js). Figma's order (atlas 20 §3.6): a lost device is re-created — at
+   * once, or after 3 s when it was "destroyed" — and the engine rebuilds its device and renderer on the same canvas;
+   * a self-test failure, a device that can't be re-created, or one lost again soon after, moves to WebGL2.
+   */
+  gfxFailure(reason: string): void {
+    if (!this.h || !this.canvas || this.gfxBackend !== "webgpu" || this.gfxRecreating) return;
+    const next = afterDeviceFailure(reason, performance.now() - this.gfxRecreatedAt);
+    if (!next.recreate) return this.gfxFallback(reason);
+    console.warn(`[engine] WebGPU ${reason}: re-creating the device`);
+    this.gfxRecreating = true;
+    const recreate = async () => {
+      if (next.delayMs) await new Promise((done) => setTimeout(done, next.delayMs));
+      const backend = this.h ? await prepareGfx(this.x.module, "auto") : "webgl2";
+      this.gfxRecreating = false;
+      if (!this.h || !this.canvas || this.gfxBackend !== "webgpu") return;
+      if (backend !== "webgpu" || this.x.gfxSwitch(this.h, `#${this.canvas.id}`, 1) !== 1) return this.gfxFallback(`${reason}; not re-created`);
+      this.gfxRecreatedAt = performance.now();
+      this.schedule();
+    };
+    void recreate();
+  }
+
+  /** When this engine last re-created its WebGPU device (gfxFailure); -Infinity: never. */
+  private gfxRecreatedAt = -Infinity;
+  private gfxRecreating = false;
+
+  /**
+   * Figma's dynamic fallback: the WebGPU device was lost for good or failed its self test, so the session continues
+   * on WebGL2. A canvas keeps the context type it first got, so a copy of it takes its place (the original stays,
    * hidden, for whoever rendered it); every GPU resource is a cache the engine rebuilds.
    */
   gfxFallback(reason: string): void {
@@ -617,6 +658,7 @@ export class Engine {
       : kind === "system" ? APPLY_SYSTEM
       : kind === "restore" ? APPLY_USER | APPLY_EXACT
       : kind === "remote" ? APPLY_REMOTE
+      : kind === "peer" ? APPLY_REMOTE | APPLY_PEER
       : APPLY_LOAD;
   }
 
@@ -628,10 +670,18 @@ export class Engine {
     this.frameRequested = requestAnimationFrame(this.frame);
   }
 
+  /** Frame times and dropped frames in Figma's histograms (frameTelemetry.ts). */
+  readonly frameTelemetry = new FrameTelemetry();
+
   private readonly frame = (time: number): void => {
     this.frameRequested = 0;
     if (!this.h) return;
-    if (this.x.tick(this.h, time) & TICK_NEEDS_RENDER) this.x.render(this.h);
+    const start = performance.now();
+    if (this.x.tick(this.h, time) & TICK_NEEDS_RENDER) {
+      this.x.render(this.h);
+      const end = performance.now();
+      this.frameTelemetry.record(end - start, end);
+    }
     const delay = this.x.nextFrameDelay(this.h);
     if (delay === 0) this.schedule();
     else if (delay > 0) this.frameTimer = window.setTimeout(() => this.schedule(), delay);
@@ -676,9 +726,11 @@ export class Engine {
   /**
    * Viewer mode (developer previews, Dev Mode): read-only — no resize handles, clicks select and drags move nothing,
    * no context menu or text / vector editing; edits (setProps, user changes, editing commands) return E_READONLY.
+   * `devEdits`: Dev Mode's own edits (annotations, measurements, statuses); `inspect`: Dev Mode's inspect chrome on the
+   * canvas (the selection's design highlighted, an auto-layout frame's paddings and gaps measured, "W Fixed 678px").
    */
-  setViewerMode(on: boolean, options: { devEdits?: boolean } = {}): void {
-    this.after(this.x.setViewerMode(this.h, on ? (options.devEdits ? 3 : 1) : 0));
+  setViewerMode(on: boolean, options: { devEdits?: boolean; inspect?: boolean } = {}): void {
+    this.after(this.x.setViewerMode(this.h, on ? 1 | (options.devEdits ? 2 : 0) | (options.inspect ? 4 : 0) : 0));
   }
 
   // ---- Dev Mode (round 6: docs/engine-build.md "Round 6") -------------------------
@@ -710,6 +762,8 @@ export class Engine {
     rightDragPan?: boolean;
     frameOutlines?: boolean;
     maskOutlines?: boolean;
+    outlineHiddenLayers?: boolean;
+    outlineObjectBounds?: boolean;
   }): void {
     const flags =
       (options.pixelGrid ? VIEW_PIXEL_GRID : 0) |
@@ -729,7 +783,9 @@ export class Engine {
       (options.scrollWheelZoom ? VIEW_SCROLL_WHEEL_ZOOM : 0) |
       (options.rightDragPan !== false ? VIEW_RIGHT_DRAG_PAN : 0) |
       (options.frameOutlines ? VIEW_FRAME_OUTLINES : 0) |
-      (options.maskOutlines ? VIEW_MASK_OUTLINES : 0);
+      (options.maskOutlines ? VIEW_MASK_OUTLINES : 0) |
+      (options.outlineHiddenLayers ? VIEW_OUTLINE_HIDDEN : 0) |
+      (options.outlineObjectBounds ? VIEW_OUTLINE_BOUNDS : 0);
     this.after(this.x.setViewOptions(this.h, flags));
   }
 
@@ -750,6 +806,12 @@ export class Engine {
   /** View › Annotations: labels (or, `dots`, Dev Mode's dots), and saved measurements; off: none of them. */
   setAnnotationView(show: boolean, dots = false): void {
     this.after(this.x.setAnnotationView(this.h, show, dots));
+  }
+
+  /** The zoom menu's Annotations ▸ <category>: only that category's annotations show (null: all). */
+  setAnnotationFilter(category: Guid | null): void {
+    const [s, l] = category ? this.ids(category) : [0xffffffff, 0xffffffff];
+    this.after(this.x.setAnnotationFilter(this.h, s, l));
   }
 
   /** editInfo {lastEditedAt, createdAt} stamped on every user edit and its ancestors (Dev Mode's "Changed"). */
@@ -827,7 +889,15 @@ export class Engine {
     return this.after(status);
   }
 
-  presentSetOptions(options: { scale?: PresentScale; hints?: boolean; shortcuts?: boolean; responsive?: boolean; deviceFrame?: boolean }): void {
+  presentSetOptions(options: {
+    scale?: PresentScale;
+    hints?: boolean;
+    shortcuts?: boolean;
+    responsive?: boolean;
+    deviceFrame?: boolean;
+    /** The machine it plays on: its scroll physics, ⌘ in key triggers */
+    host?: "mac" | "windows" | "linux" | "other";
+  }): void {
     this.x.presentSetOptions(this.h, encodeText(JSON.stringify(options)));
     this.schedule();
     this.after(undefined);
@@ -842,18 +912,20 @@ export class Engine {
 
   /**
    * A video's report: its time and length (seconds), whether it ended, the last seek it made, and — with `element` —
-   * a new frame to draw in place of the poster (uploaded from the <video> straight into a texture).
+   * a new frame to draw in place of the poster (uploaded from the <video> straight into a texture; a GIF's <canvas>
+   * holding its current frame).
    */
   presentMediaFrame(
     id: Guid,
-    report: { element?: HTMLVideoElement | null; time: number; duration: number; ended: boolean; seekSerial: number },
+    report: { element?: HTMLVideoElement | HTMLCanvasElement | null; time: number; duration: number; ended: boolean; seekSerial: number },
   ): number {
     const [s, l] = this.ids(id);
     let bitmapId = 0;
     let width = 0;
     let height = 0;
     const el = report.element;
-    if (el && el.videoWidth > 0 && el.videoHeight > 0) {
+    const [w, h] = !el ? [0, 0] : "videoWidth" in el ? [el.videoWidth, el.videoHeight] : [el.width, el.height];
+    if (el && w > 0 && h > 0) {
       const module = this.x.module;
       module.engineBitmaps ??= {};
       let known = videoBitmapIds.get(el);
@@ -864,15 +936,15 @@ export class Engine {
       // The engine uploads from it while it draws (the frame shown at that moment).
       (module.engineBitmaps as Record<number, unknown>)[known] = el;
       bitmapId = known;
-      width = el.videoWidth;
-      height = el.videoHeight;
+      width = w;
+      height = h;
     }
     const status = this.x.presentMediaFrame(this.h, s, l, bitmapId, width, height, report.time, report.duration, report.ended ? 1 : 0, report.seekSerial);
     return this.after(status);
   }
 
-  /** A video element the presentation no longer plays: its slot in the module's bitmaps goes. */
-  forgetVideo(element: HTMLVideoElement): void {
+  /** A video element (or a GIF's canvas) the presentation no longer plays: its slot in the module's bitmaps goes. */
+  forgetVideo(element: HTMLVideoElement | HTMLCanvasElement): void {
     const id = videoBitmapIds.get(element);
     if (id === undefined) return;
     videoBitmapIds.delete(element);
@@ -907,6 +979,15 @@ export class Engine {
   /** After a load: the canvas takes the document's colour space (Figma draws a Display P3 file in P3). */
   private loaded(status: number): number {
     if (status !== Status.OK) return status;
+    this.refreshColorProfile();
+    return status;
+  }
+
+  /**
+   * The canvas takes the document's colour space again: after a load, and after the profile changed (File › Color
+   * profile's Convert / Assign, or their undo).
+   */
+  refreshColorProfile(): void {
     const doc = this.readNode("0:0") as { documentColorProfile?: string } | null;
     this.profile = doc?.documentColorProfile === "DISPLAY_P3" ? "DISPLAY_P3" : "SRGB";
     if (this.gfxBackend === "webgpu") {
@@ -916,7 +997,7 @@ export class Engine {
         this.x.module.engineColorSpace = space;
         this.schedule();
       }
-      return status;
+      return;
     }
     const gl = this.canvas?.getContext("webgl2") as (WebGL2RenderingContext & { drawingBufferColorSpace?: string; unpackColorSpace?: string }) | null | undefined;
     if (gl) {
@@ -928,7 +1009,6 @@ export class Engine {
         this.schedule();
       }
     }
-    return status;
   }
 
   /** The task's name for load(). */
@@ -1008,16 +1088,16 @@ export class Engine {
    * Unknown GUIDs in `selection` are ignored.
    */
   setPresence(peers: readonly PresencePeer[]): void {
-    const payload = peers.map((p) => ({ id: p.id, name: p.name, color: p.color, cursor: p.cursor, selection: p.selection, chat: p.chat ?? null }));
+    const payload = peers.map((p) => ({ id: p.id, name: p.name, color: p.color, cursor: p.cursor, selection: p.selection, chat: p.chat ?? null, ...(p.chatOpacity !== undefined ? { chatOpacity: p.chatOpacity } : {}) }));
     this.after(this.x.setPresence(this.h, encodeText(JSON.stringify(payload))));
   }
 
   /**
    * The local user's own cursor chat: their bubble at page point `at` (by their real pointer; no arrow, no name) in the
-   * selection blue — "" shows the placeholder; a null text or point closes it.
+   * selection blue — "" shows the placeholder; a null text or point closes it; `opacity` while it fades (default 1).
    */
-  setLocalChat(text: string | null, at: { x: number; y: number } | null): void {
-    this.after(this.x.setLocalChat(this.h, encodeText(JSON.stringify({ text, at }))));
+  setLocalChat(text: string | null, at: { x: number; y: number } | null, opacity = 1): void {
+    this.after(this.x.setLocalChat(this.h, encodeText(JSON.stringify({ text, at, ...(opacity !== 1 ? { opacity } : {}) }))));
   }
 
   setTheme(theme: "LIGHT" | "DARK"): void {
@@ -1081,6 +1161,21 @@ export class Engine {
 
   contextRestored(): void {
     this.after(this.x.glContextRestored(this.h));
+  }
+
+  /** The canvas can't draw any more (a WebGL context that won't come back, contextLoss.ts); null while it can. */
+  gfxError: string | null = null;
+  private readonly gfxErrorListeners = new Set<(message: string) => void>();
+
+  reportGfxError(message: string): void {
+    this.gfxError = message;
+    for (const listener of [...this.gfxErrorListeners]) listener(message);
+  }
+
+  /** Called when the canvas can't draw any more (Figma's WebGL error modal); returns the unsubscribe. */
+  onGfxError(listener: (message: string) => void): () => void {
+    this.gfxErrorListeners.add(listener);
+    return () => this.gfxErrorListeners.delete(listener);
   }
 
   // ---- Selection and reads (panels) ------------------------------------------------
@@ -1272,6 +1367,33 @@ export class Engine {
     return this.after(this.x.actorUndo(this.h, actor, redo)) === Status.OK;
   }
 
+  /**
+   * The local user's undo history as Figma's Message.localUndoStack / localRedoStack (kiwi bytes; per device, never in
+   * a snapshot — docs/research/rea/canvas.md §2.18): the last `maxSteps` steps of each stack within `maxBytes`.
+   */
+  exportUndoHistory(maxSteps = 100, maxBytes = 16 << 20): Uint8Array {
+    this.after(this.x.undoExport(this.h, maxSteps, maxBytes));
+    return this.x.result();
+  }
+
+  /**
+   * `fn`'s writes kept out of every undo history (Figma's openIgnoreUndoRedoScope): system bookkeeping that must not
+   * become, or join, a step. Its writes still reach the document and its listeners as usual.
+   */
+  ignoringUndo<T>(fn: () => T): T {
+    this.x.ignoreUndo(this.h, 1);
+    try {
+      return fn();
+    } finally {
+      this.x.ignoreUndo(this.h, 0);
+    }
+  }
+
+  /** Takes an exported history back into this document (the one it came from); false on bad bytes. */
+  importUndoHistory(history: Uint8Array): boolean {
+    return this.after(this.x.undoImport(this.h, history)) === Status.OK;
+  }
+
   /** The actor's history: what it can undo / redo, and the layers whose changes by it someone else changed since. */
   actorInfo(actor: number): ActorInfo {
     this.x.actorInfo(this.h, actor);
@@ -1395,11 +1517,13 @@ export class Engine {
    * One export, drawn by the engine: `refs` one layer (PNG, JPEG, SVG) or, for PDF, every layer as a page of one
    * file; [] = the current page's canvas. PNG / JPEG come back as straight RGBA pixels (JPEG already on white) for
    * the caller to encode; SVG / PDF as the file. "busy": fonts or images it draws are still loading (they were
-   * requested; try again when they arrive, or pass `allowPending` to draw what there is).
+   * requested; try again when they arrive, or pass `allowPending` to draw what there is). While Motion plays, the
+   * export is of the design (the base values, docs/motion.md §3); `motionTimeUs` draws the first ref's timeline at that
+   * time instead (§7.2), as `motionRenderFrame` draws a root's frame.
    */
-  exportNodes(refs: readonly Guid[], settings: ExportSettings, options: { allowPending?: boolean } = {}): ExportOutput {
+  exportNodes(refs: readonly Guid[], settings: ExportSettings, options: { allowPending?: boolean; motionTimeUs?: Micros } = {}): ExportOutput {
     const format = settings.imageType ?? "PNG";
-    const status = this.x.exportNodes(this.h, encodeRefs(refs), encodeText(JSON.stringify(settings)), options.allowPending ? EXPORT_ALLOW_PENDING : 0);
+    const status = this.x.exportNodes(this.h, encodeRefs(refs), encodeText(exportSettingsJson(settings, options.motionTimeUs)), options.allowPending ? EXPORT_ALLOW_PENDING : 0);
     if (status === Status.E_BUSY) return this.after({ status: "busy" });
     if (status !== Status.OK) {
       this.x.lastError();
@@ -1407,12 +1531,14 @@ export class Engine {
     }
     const bytes = this.x.result();
     if (format === "PNG" || format === "JPEG") return this.after({ status: "ok", format, pixels: decodePixels(bytes) });
-    return this.after({ status: "ok", format, bytes });
+    if (format === "SVG" || format === "PDF") return this.after({ status: "ok", format, bytes });
+    // The animated formats are Motion's export (docs/motion.md §7): frames rendered at times, encoded in the renderer.
+    return this.after({ status: "error", code: Status.E_UNSUPPORTED, message: `${format} is an animated format` });
   }
 
   /** What an export would make (its size per layer, the images an SVG / PDF needs handed in, whether it can draw now). */
-  exportInfo(refs: readonly Guid[], settings: ExportSettings): ExportInfo | null {
-    return this.json(this.x.exportInfo(this.h, encodeRefs(refs), encodeText(JSON.stringify(settings))), null);
+  exportInfo(refs: readonly Guid[], settings: ExportSettings, options: { motionTimeUs?: Micros } = {}): ExportInfo | null {
+    return this.json(this.x.exportInfo(this.h, encodeRefs(refs), encodeText(exportSettingsJson(settings, options.motionTimeUs))), null);
   }
 
   /** An image for SVG / PDF exports: the file itself (`kind` "file"), a JPEG of its colour or raw RGB (PDF), with alpha. */
@@ -1535,10 +1661,14 @@ export class Engine {
    * The fonts the document names — text, its runs, instance overrides, text styles — each with its number of uses
    * (the Missing fonts dialog, the font picker's "In this file"). An engine without the export: none.
    */
-  documentFonts(): { family: string; style: string; uses: number }[] {
+  documentFonts(): { family: string; style: string; uses: number }[];
+  /** Only the layers in `refs` and inside them (the Missing fonts dialog's Current page / Current selection), each font with its layers. */
+  documentFonts(refs: readonly Guid[]): { family: string; style: string; uses: number; nodes: Guid[] }[];
+  documentFonts(refs?: readonly Guid[]): { family: string; style: string; uses: number; nodes?: Guid[] }[] {
     const module = (this.x as unknown as { module?: Record<string, unknown> }).module;
     if (module && typeof module._engine_document_fonts !== "function") return [];
-    return this.json(this.x.documentFonts(this.h), []);
+    if (refs && !refs.length) return [];
+    return this.json(this.x.documentFonts(this.h, refs ? encodeRefs(refs) : new Uint8Array()), []);
   }
 
   /** How many layers use a style. */
@@ -1787,6 +1917,17 @@ export class Engine {
     return this.after(this.x.paintEditStop(this.h, index));
   }
 
+  /** A progressive blur's Start and End handles on the canvas (the node's effect `index`); endPaintEdit ends it. */
+  startBlurEdit(ref: Guid, index: number): number {
+    const [s, l] = this.ids(ref);
+    return this.after(this.x.blurEdit(this.h, s, l, index));
+  }
+
+  /** The panel's hovered Start / End field: its handle is marked (NONE: neither). */
+  setBlurEditHandle(handle: "START" | "END" | "NONE"): number {
+    return this.after(this.x.blurEditHandle(this.h, handle === "START" ? 0 : handle === "END" ? 1 : -1));
+  }
+
   // ---- Images (docs/engine.md §6.6) ------------------------------------------------------
 
   /**
@@ -1872,6 +2013,16 @@ export class Engine {
     return this.x.module.HEAPU8.byteLength;
   }
 
+  /** The engine's WebAssembly heap in use (malloc's bytes): the file memory percentage's numerator (memory.ts). */
+  heapUsed(): number {
+    return this.x.heapUsed();
+  }
+
+  /** Figma's high-memory optimisations: every GPU and geometry cache the engine rebuilds as it needs it is dropped. */
+  purgeMemory(): void {
+    this.after(this.x.purgeMemory(this.h));
+  }
+
   /** The last frame's numbers and the node count. */
   stats(): Record<string, number> {
     this.x.stats(this.h);
@@ -1923,4 +2074,69 @@ export class Engine {
   runDrawCommand<K extends keyof DrawCommandArgs>(id: K, args: DrawCommandArgs[K]): number {
     return this.command(id, args as unknown as Readonly<Record<string, CommandArgValue>>);
   }
+
+  // ---- Motion (docs/motion.md §10 "Engine.ts stubs"; round 8b fills them against the engine's MotionApi) ------------
+
+  /** The Motion view state (on, root, time, auto-keyframe, motion path): never in the document (docs/motion.md §4.9). */
+  setMotion(state: MotionViewState): number {
+    if (!this.h) return Status.E_HANDLE;
+    return this.after(this.x.setMotion(this.h, encodeText(JSON.stringify(state))));
+  }
+
+  /** The timeline panel's model for a root (null: the root of the selection); null when there is none. */
+  motionTimeline(root?: GuidString): TimelineModel | null {
+    if (!this.h) return null;
+    return this.json<TimelineModel | null>(this.x.motionTimeline(this.h, encodeText(root ?? "")), null);
+  }
+
+  /** The right panel's diamonds: per node and field key, none / track / keyframe at the playhead. */
+  motionFieldStates(nodes: GuidString[]): FieldStates {
+    if (!this.h) return {};
+    return this.json<FieldStates>(this.x.motionFieldStates(this.h, encodeText(JSON.stringify(nodes))), {});
+  }
+
+  /** The resolved model (Dev Mode code, SVG / Lottie export, the plugin's `animations`, agents) of a root or a layer. */
+  motionResolved(node: GuidString): ResolvedMotion | null {
+    if (!this.h) return null;
+    return this.json<ResolvedMotion | null>(this.x.motionResolved(this.h, encodeText(node)), null);
+  }
+
+  /** The last `motionRenderFrame` answered "busy" (fonts or images the root draws are still loading): try again, or pass `allowPending`. */
+  motionRenderBusy = false;
+
+  /**
+   * One frame of a timeline root at a time: the root's own box at `scale` with the motion layer applied at `timeUs`,
+   * as straight RGBA pixels (the animated exports, docs/motion.md §7.2). null: busy (see `motionRenderBusy`) or an error.
+   */
+  motionRenderFrame(root: GuidString, timeUs: Micros, scale: number, options: { allowPending?: boolean } = {}): Pixels | null {
+    if (!this.h) return null;
+    const status = this.x.motionRenderFrame(this.h, encodeText(JSON.stringify({ root, timeUs, scale, allowPending: !!options.allowPending })));
+    this.motionRenderBusy = status === Status.E_BUSY;
+    return this.after(status === Status.OK ? decodePixels(this.x.result()) : null);
+  }
+
+  /** What the vector exports draw: the root's layers as shapes at base values (docs/motion.md §7.5, §7.6; round 8e). */
+  motionShapes(root: GuidString): MotionShapeLayer[] | null {
+    return this.json<MotionShapeLayer[] | null>(this.x.motionShapes(this.h, encodeText(root)), null);
+  }
+
+  /** Those layers' evaluated values at each time (µs); the view state is put back after (round 8e). */
+  motionSamples(root: GuidString, times: readonly Micros[]): MotionSamples | null {
+    return this.json<MotionSamples | null>(this.x.motionSamples(this.h, encodeText(JSON.stringify({ root, times }))), null);
+  }
+
+  /** A Motion command (CommandId 330–352) with its typed args; one undo step with Figma's name (docs/motion.md §4.9). */
+  runMotionCommand<K extends keyof MotionCommandArgs>(id: K, args: MotionCommandArgs[K]): number {
+    return this.command(id, args as unknown as Readonly<Record<string, CommandArgValue>>);
+  }
+
+  /** `runMotionCommand` with what it created (Add animation's clips, Add keyframe's keyframes; round 8h). */
+  runMotionCommandCreating<K extends keyof MotionCommandArgs>(id: K, args: MotionCommandArgs[K]): CommandResult {
+    return this.runCommand(id, args as unknown as Readonly<Record<string, CommandArgValue>>);
+  }
+}
+
+/** An export's settings as the engine reads them: the schema's ExportSettings, and `motionTimeUs` (ours) when asked. */
+function exportSettingsJson(settings: ExportSettings, motionTimeUs: Micros | undefined): string {
+  return JSON.stringify(motionTimeUs === undefined ? settings : { ...settings, motionTimeUs });
 }

@@ -253,7 +253,7 @@ editor view (renderer, main thread)
 **Manifests** (`manifest.ts`, `manifests.ts`):
 - §4's fields, each checked and copied. Anything else is dropped.
 - Refused: widget manifests ("Widgets aren't supported in DesignerV2 yet"); `main` / `ui` paths that are absolute or contain `..`; domains that aren't Figma's forms (an entry is a CSP source, so `;` `,` spaces and quotes are never accepted); `"none"` beside other entries; `codegen` without `codegenLanguages`.
-- `*` and localhost without `reasoning` give a console warning.
+- `*` and localhost without `reasoning` give a console warning. *Superseded 2026-10-18 (wave 7): Figma's validator — they are errors, an `allowedDomains` entry needs its scheme, and the texts are Figma's (docs/research/atlas/17-plugins.md §13 "As built").*
 - **The development list**: `userData/plugins/development.json` `{path, id, name, addedAt}[]`, written temp + rename.
   - The id is the manifest's `id`, else `dev:<sha1(path)>`.
   - Re-importing the same path or id replaces the entry and keeps its `addedAt`.
@@ -346,9 +346,9 @@ Figma's fields [P-man], parsed and checked by `parseManifest(json, {development}
 |---|---|
 | `name`, `id`, `api`, `main` | required. `id` for development plugins: any string (Figma assigns ids on publish; a manifest without one gets `dev:<sha1(path)>`). `api` is kept and shown (we implement "1.0.0") |
 | `ui` | a string → `__html__`; a map → `__uiFiles__` |
-| `editorType` | `figma` and / or `dev` are run; `figjam`, `slides`, `buzz` are accepted and ignored (set aside, roadmap Phase 7). A manifest with neither `figma` nor `dev` is listed disabled: "This plugin doesn't run in Figma Design or Dev Mode" |
+| `editorType` | Required (Figma's "Missing editorType in manifest."); `figma` and / or `dev` are run (`inspect` read as `dev`); `figjam`, `slides`, `buzz`, `sites` are accepted and ignored (set aside, roadmap Phase 7). A manifest with neither `figma` nor `dev` is listed disabled: 'The manifest editorType does not include "figma"' (Figma's text; wave 7) |
 | `documentAccess` | `"dynamic-page"` or absent (decision 7) |
-| `networkAccess` | `{allowedDomains (≥ 1), reasoning?, devAllowedDomains?}` with Figma's rules: `"*"` and localhost need `reasoning` (a warning in the console when missing, not an error — ours) |
+| `networkAccess` | `{allowedDomains (≥ 1), reasoning?, devAllowedDomains?}` with Figma's rules and texts (wave 7): each `allowedDomains` entry has its scheme, no duplicates, `"*"` and localhost need `reasoning` (< 1000 characters) — errors, as Figma's |
 | `parameters`, `parameterOnly` | Figma's Quick Actions parameters: the Actions panel prompts as Figma (§6) |
 | `menu` | nested items, separators, `command` → `figma.command` |
 | `relaunchButtons` | shown in the Design panel's header for selected nodes with `setRelaunchData` (§8), Figma's buttons |
@@ -413,10 +413,11 @@ Figma's fields [P-man], parsed and checked by `parseManifest(json, {development}
 - **Events**: `figma.on` / `once` / `off` for `run`, `close`, `selectionchange`, `currentpagechange`, `documentchange`, `drop`, `stylechange`.
 - **Parameters**: `figma.parameters.on('input', ({query, key, parameters, result}) => result.setSuggestions(...) | setError | setLoadingMessage)`.
 - **Codegen**: `figma.codegen.on('generate' | 'preferenceschange')`, `preferences`, `refresh` (§7).
+- **Motion** (round 8f, docs/motion.md §9; `editor/plugins/api/motion.ts` over `editor/motion/publicApi.ts`, shared with the agents' motion tools): the node properties `manualKeyframeTracks` (get / set), `animationStyles` (get / set), `timelines`, `animations` and the methods `applyManualKeyframeTrack`, `removeManualKeyframeTrack`, `applyAnimationStyle`, `removeAnimationStyle`, `setTimelineDuration`; `figma.motion.figmaAnimationStyles()`, `playheadPosition`, `physicalSpringToNormalized()`. Seconds, Figma's public units and refusals; Dev Mode reads only.
 - **Dev resources**: `figma.devResources` (private API) and the node methods `getDevResourcesAsync`, `addDevResourceAsync`, `editDevResourceAsync`, `deleteDevResourceAsync` (docs/editor.md D-3).
 
 **Later (not round 5; each throws `"‹name› is not supported in DesignerV2 yet"`):**
-- `figma.payments`, `figma.timer`, `figma.buzz`, `figma.textreview`, `figma.vscode`, `figma.motion`.
+- `figma.payments`, `figma.timer`, `figma.buzz`, `figma.textreview`, `figma.vscode`. (`figma.motion`: round 8f, below.)
 - `createNodeFromJSXAsync`, `createVideoAsync`. (`createTextPath`, `transformGroup`, `loadBrushesAsync`: §5b, round 7e.)
 - FigJam and Slides creators (`createSticky`, `createConnector`, `createShapeWithText`, `createTable`, `createSlide` …).
 - `figma.widget`.

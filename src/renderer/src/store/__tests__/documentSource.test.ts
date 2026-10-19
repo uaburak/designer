@@ -135,6 +135,32 @@ describe("the store-backed DocumentSource", () => {
     await again.close();
   });
 
+  it("keeps the undo history at close for the next open, and says how long changes have waited for the store", async () => {
+    bed = await rpcTestbed();
+    const editor = await bed.connect("editor");
+    const f = await editor.workspace.createFile({ name: "Undo", folderId: null });
+    const src = await openStoreDocument(editor, f.fileKey, { tabId: "t1" });
+    expect(src.undoHistory).toBeNull();
+    expect(src.saveState()).toEqual({ pendingSince: null, lastSavedAt: 0 });
+    const s = src.sessionID;
+    src.onChanges(msg(s, [rect(s, 1)]), { kind: "USER", label: "Create" });
+    expect(src.saveState().pendingSince).not.toBeNull();
+    await src.flush();
+    expect(src.saveState().pendingSince).toBeNull();
+    expect(src.saveState().lastSavedAt).toBeGreaterThan(0);
+    const history = new Uint8Array([9, 8, 7]);
+    src.keepUndoHistory(history);
+    await src.close();
+    const again = await openStoreDocument(editor, f.fileKey);
+    expect(again.undoHistory).toEqual(history);
+    // A session that keeps none forgets it.
+    again.keepUndoHistory(null);
+    await again.close();
+    const third = await openStoreDocument(editor, f.fileKey);
+    expect(third.undoHistory).toBeNull();
+    await third.close();
+  });
+
   it("survives a store restart in the middle of editing (the client resends what wasn't acknowledged)", async () => {
     bed = await rpcTestbed();
     const editor = await bed.connect("editor");
@@ -209,6 +235,30 @@ describe("the store-backed DocumentSource", () => {
     await home.workspace.trash({ files: [f.fileKey] });
     await settle();
     expect(seen.at(-1)).toMatchObject({ trashed: true, deleted: false });
+    await src.close();
+  });
+
+  it("drops from an external frame the properties this editor changed after it (they reach the room later and win)", async () => {
+    bed = await rpcTestbed();
+    const editor = await bed.connect("editor");
+    const f = await editor.workspace.createFile({ name: "Race", folderId: null });
+    const src = await openStoreDocument(editor, f.fileKey);
+    const s = src.sessionID;
+    src.onChanges(msg(s, [rect(s, 1)]));
+    await src.flush();
+    // A collaborator's frame lands in the journal; this editor renamed the layer before the store passed it on.
+    const remote = encodeMessage(messageToKiwi(msg(0, [{ guid: `${s}:1`, name: "Theirs", visible: false }])));
+    const { seq } = await bed.t.store.files.appendRemote(f.fileKey, remote);
+    src.onChanges(msg(s, [{ guid: `${s}:1`, name: "Mine" }]));
+    const kept = src.withoutLocal(remote, seq);
+    expect(messageToEngine(decodeMessage(kept!)).nodeChanges).toEqual([{ guid: `${s}:1`, visible: false }]);
+    await src.flush();
+    // Journaled after it still: the rename wins over the frame however late the frame is applied.
+    expect(messageToEngine(decodeMessage(src.withoutLocal(remote, seq)!)).nodeChanges).toEqual([{ guid: `${s}:1`, visible: false }]);
+    // A later frame: the rename was journaled before it — the store's own rule covers it, the frame applies whole.
+    const later = encodeMessage(messageToKiwi(msg(0, [{ guid: `${s}:1`, name: "Theirs again" }])));
+    const at = await bed.t.store.files.appendRemote(f.fileKey, later);
+    expect(src.withoutLocal(later, at.seq)).toBe(later);
     await src.close();
   });
 

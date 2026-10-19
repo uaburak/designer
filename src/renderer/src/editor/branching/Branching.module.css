@@ -85,6 +85,10 @@
   .tag[data-tag="Added"] { color: var(--figma-color-text-success); }
   .tag[data-tag="Removed"] { color: var(--figma-color-text-danger); }
   .tag[data-tag="Edited"] { color: var(--figma-color-text-warning); }
+  .tag[data-tag="Updated library"] { color: var(--figma-color-text-component); }
+  .details { display: flex; flex: none; flex-direction: column; gap: var(--ds-space-1); max-height: 160px; padding: var(--ds-space-2) var(--ds-space-4); overflow-y: auto; border-top: 1px solid var(--figma-color-border); }
+  .detail { display: flex; flex-direction: column; }
+  .force { display: flex; flex-direction: column; gap: var(--ds-space-3); }
 
   /* A chunk compared */
   .compareArea { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--ds-space-2); min-height: 0; }

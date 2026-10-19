@@ -33,13 +33,14 @@ export function send<C extends keyof IpcSend>(channel: C, ...payload: IpcSend[C]
 /** Handed over by main's additionalArguments: a sandboxed preload has no app module. */
 const arg = (name: string) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? "";
 
-/** `--designer-theme=<preference>:<resolved>[:contrast]` */
+/** `--designer-theme=<preference>:<resolved>:[contrast]:[underline]` */
 function bootTheme(): ThemeState {
-  const [preference, resolved, contrast] = arg("designer-theme").split(":");
+  const [preference, resolved, contrast, underline] = arg("designer-theme").split(":");
   return {
     preference: preference === "light" || preference === "dark" ? preference : "system",
     resolved: resolved === "dark" ? "dark" : "light",
     contrast: contrast === "contrast",
+    underlineLinks: underline === "underline",
   };
 }
 
@@ -67,6 +68,7 @@ export function common<R extends Role>(role: R) {
     theme: bootTheme(),
     setTheme: (preference: ThemePreference) => invoke("theme:set", preference),
     setContrast: (on: boolean) => invoke("theme:set-contrast", on === true),
+    setUnderlineLinks: (on: boolean) => invoke("theme:set-underline-links", on === true),
     onThemeChanged: (cb: (t: ThemeState) => void) => on("theme:changed", cb),
     locale: (arg("designer-locale") === "tr" ? "tr" : "en") as Locale,
     setLocale: (locale: Locale) => invoke("locale:set", locale === "tr" ? "tr" : "en"),
@@ -145,6 +147,8 @@ export function agentSetupApi(): AgentSetupApi {
     updateConnector: (p) => invoke("agents:update-connector", plain(p)),
     removeConnector: (id) => invoke("agents:remove-connector", { id: String(id) }),
     testConnector: (id) => invoke("agents:test-connector", { id: String(id) }),
+    signInConnector: (id) => invoke("agents:sign-in-connector", { id: String(id) }),
+    signOutConnector: (id) => invoke("agents:sign-out-connector", { id: String(id) }),
     reach: {
       view: () => invoke("agents:access"),
       set: (patch) => invoke("agents:set-access", plain(patch ?? {})),
@@ -239,7 +243,7 @@ export const nav: NavApi = {
 
 export const files: FilesApi = {
   import: (folderId, paths) => invoke("file:import", { folderId: folderId === null || folderId === undefined ? null : String(folderId), paths: Array.isArray(paths) ? paths.map(String) : undefined }),
-  saveLocalCopy: (fileKey) => invoke("file:save-local-copy", { fileKey: String(fileKey) }),
+  saveLocalCopy: (fileKey, opts) => invoke("file:save-local-copy", { fileKey: String(fileKey), partial: opts?.partial === true }),
   exportAssets: (list) =>
     invoke("file:export-assets", {
       files: (Array.isArray(list) ? list : []).map((f) => ({ name: String(f?.name ?? ""), bytes: f?.bytes instanceof Uint8Array ? f.bytes : new Uint8Array(0) })),

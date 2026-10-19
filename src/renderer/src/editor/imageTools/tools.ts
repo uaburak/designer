@@ -5,11 +5,14 @@
  * store takes the org from the file). React-free: the toolbar (ImageToolbar.tsx) and the tests drive it.
  *
  * Where the result goes (Figma's help 24004542669463 and docs/ai.md §2.6):
- * - Remove background, Boost resolution, Edit with prompt: the image fill's picture is swapped (its scale mode, crop
- *   and adjustments kept). Several selected images are one step.
+ * - Remove background, Boost resolution, Edit with prompt: Figma's APPEND (atlas 18 §7.2) — the image paint is copied
+ *   above itself with the new picture (its scale mode, crop and adjustments kept) and the original paint is hidden,
+ *   kept in the list. Several selected images are one step.
  * - Erase, Expand: the layer's picture as it shows (its scale mode applied) becomes a Fill-mode picture; Expand grows
  *   the layer in the dragged directions.
- * - Isolate: the lassoed object becomes a new image layer just above, the original kept [unverified].
+ * - Isolate (atlas 18 §7.6): the lassoed object becomes a new image layer just above; the original becomes the
+ *   background — named "Background", proportions locked, constraints Scale / Scale, the object erased from it when
+ *   LaMa is already on this computer. Not on instances.
  * - Blur (docs/studio.md §6.2, ours): the picture swapped, the lassoed areas blurred as a low-resolution print.
  * - Make an image: the selected layer's fill, else a new image layer in the middle of the view.
  */
@@ -311,6 +314,14 @@ function setFill(ed: EditorController, t: ImageTarget, paint: FullPaint, extra: 
   if (status !== 0) throw new AiRunError("unsupported", tr("This layer can't be changed (status {status}).", { status }));
 }
 
+/** Figma's APPEND (atlas 18 §7.2): `paint` goes just above the image paint, which is hidden and kept in the list. */
+export function appendFill(ed: EditorController, t: ImageTarget, paint: FullPaint) {
+  const fills = [...((ed.engine.readNode(t.id)?.fillPaints ?? t.node.fillPaints ?? []) as FullPaint[])];
+  fills.splice(t.index, 1, { ...fills[t.index], visible: false } as FullPaint, { ...paint, visible: true } as FullPaint);
+  const status = ed.engine.setProps([t.id], { fillPaints: fills as never });
+  if (status !== 0) throw new AiRunError("unsupported", tr("This layer can't be changed (status {status}).", { status }));
+}
+
 const nameOf = (t: ImageTarget) => (t.node.name || "Image").slice(0, 100);
 
 // ---- The tools ------------------------------------------------------------------------------------------------------
@@ -330,23 +341,73 @@ export async function removeBackground(env: ToolEnv, targets: readonly ImageTarg
     results.push({ t, img: await env.io.put(out, nameOf(t)) });
     o.onProgress?.(results.length / targets.length);
   }
-  if (results.length) writeStep(env.ed, "Remove background", () => results.forEach(({ t, img }) => setFill(env.ed, t, withPicture(t.paint, img))));
+  if (results.length) writeStep(env.ed, "Remove background", () => results.forEach(({ t, img }) => appendFill(env.ed, t, withPicture(t.paint, img))));
   return results.length;
 }
 
-/** Boost resolution: each picture ×4 (long side ≤ 4096), one step. */
-export async function boostResolution(env: ToolEnv, targets: readonly ImageTarget[], o: RunOptions = {}): Promise<number> {
+/** Boost resolution's limits (atlas 18 §7.4): the image's own pixels 16…2048 on each side; the answer ≤ 4096. */
+export const BOOST_MIN_SIDE = 16;
+export const BOOST_MAX_SIDE = 2048;
+export const BOOST_MAX_OUTPUT = 4096;
+
+/** "Already at 4×": Figma's error with a "Boost anyway" button (which boosts the image 2×). */
+export class BoostAlreadyMaxError extends AiRunError {
+  constructor() {
+    super("unsupported", tr("This image already has the highest resolution for its size."));
+  }
+}
+
+/**
+ * The size Boost resolution makes (atlas 18 §7.4, Figma's upscale-image): against the layer's on-canvas size (sides
+ * swapped for a picture turned 90° / 270°) — 2× the layer when the image is below 2× on either axis, else 4×, scaled
+ * by max(k·W / w, k·H / h); a Tile-mode picture and "Boost anyway" 2× the image; never over 4096 on a side.
+ */
+export function boostSize(t: Pick<ImageTarget, "paint" | "node">, image: { width: number; height: number }, anyway = false): { width: number; height: number } {
+  const { width: w, height: h } = image;
+  if (w > BOOST_MAX_SIDE || h > BOOST_MAX_SIDE) throw new AiRunError("unsupported", tr("This image is too large to boost. Its sides can be up to {n} px.", { n: BOOST_MAX_SIDE }));
+  if (w < BOOST_MIN_SIDE || h < BOOST_MIN_SIDE) throw new AiRunError("unsupported", tr("This image is too small to boost. Its sides need to be at least {n} px.", { n: BOOST_MIN_SIDE }));
+  let s = 2;
+  if (!anyway && t.paint.imageScaleMode !== "TILE") {
+    const turns = ((Math.round(((t.paint as { rotation?: number }).rotation ?? 0) / 90) % 4) + 4) % 4;
+    const size = t.node.size ?? { x: w, y: h };
+    const W = turns % 2 ? size.y : size.x, H = turns % 2 ? size.x : size.y;
+    if (w >= 4 * W && h >= 4 * H) throw new BoostAlreadyMaxError();
+    const k = w < 2 * W || h < 2 * H ? 2 : 4;
+    s = Math.max((k * W) / w, (k * H) / h);
+  }
+  const clamp = Math.min(1, BOOST_MAX_OUTPUT / (w * s), BOOST_MAX_OUTPUT / (h * s));
+  return { width: Math.max(1, Math.round(w * s * clamp)), height: Math.max(1, Math.round(h * s * clamp)) };
+}
+
+/**
+ * Boost resolution: each picture to `boostSize` — Swin2SR ×4, again while short of it, then resized to it — one step.
+ * An image outside the limits is left out when others are boosted; alone, its error is the run's.
+ */
+export async function boostResolution(env: ToolEnv, targets: readonly ImageTarget[], o: RunOptions & { anyway?: boolean } = {}): Promise<number> {
   const results: { t: ImageTarget; img: ImportedImage }[] = [];
-  let i = 0;
+  const planned: { t: ImageTarget; src: Rgba; size: { width: number; height: number } }[] = [];
+  let refused: unknown = null;
   for (const t of targets) {
     const src = await env.io.read(t.hash);
-    const out = await local(env, "boost-resolution", "swin2sr-x4", (src.width * src.height * 16) / 1e6, () =>
-      runners.boostResolution(src, { signal: o.signal, onTile: (done, total) => o.onProgress?.((i + done / total) / targets.length) })
-    );
+    try {
+      planned.push({ t, src, size: boostSize(t, src, o.anyway) });
+    } catch (err) {
+      refused ??= err;
+    }
+  }
+  if (!planned.length && refused) throw refused;
+  let i = 0;
+  for (const { t, src, size } of planned) {
+    const passes = Math.max(1, Math.ceil(Math.log(Math.max(size.width / src.width, size.height / src.height)) / Math.log(4) - 1e-9));
+    const out = await local(env, "boost-resolution", "swin2sr-x4", (size.width * size.height) / 1e6, async () => {
+      let img = src;
+      for (let p = 0; p < passes; p++) img = await runners.boostResolution(img, { signal: o.signal, onTile: (done, total) => o.onProgress?.((i + (p + done / total) / passes) / planned.length) });
+      return img.width === size.width && img.height === size.height ? img : resize(img, size.width, size.height);
+    });
     results.push({ t, img: await env.io.put(out, nameOf(t)) });
     i++;
   }
-  if (results.length) writeStep(env.ed, "Boost resolution", () => results.forEach(({ t, img }) => setFill(env.ed, t, withPicture(t.paint, img))));
+  if (results.length) writeStep(env.ed, "Boost resolution", () => results.forEach(({ t, img }) => appendFill(env.ed, t, withPicture(t.paint, img))));
   return results.length;
 }
 
@@ -383,15 +444,25 @@ export async function eraseArea(env: ToolEnv, t: ImageTarget, lasso: readonly Po
   writeStep(env.ed, "Erase", () => setFill(env.ed, t, fillPicture(t.paint, img)));
 }
 
-/** Isolate: the lassoed object as a new image layer above the image (the image kept). Answers the new layer. */
+/**
+ * Isolate (atlas 18 §7.6): the lassoed object as a new image layer above the image; the image becomes its background
+ * — "Background", proportions locked, constraints Scale / Scale, the object erased from its picture when LaMa is
+ * already downloaded (no download is asked for here). Not on instances. Answers the new layer.
+ */
 export async function isolateArea(env: ToolEnv, t: ImageTarget, lasso: readonly Point[]): Promise<Guid> {
+  if (t.node.type === "INSTANCE") throw new AiRunError("unsupported", tr("Isolate doesn't work on instances. Detach the instance first."));
   const { image, k } = await layerPicture(env, t);
   const mask = lassoMask(lasso, k, image.width, image.height);
   const cut = await local(env, "isolate-object", "isnet", (image.width * image.height) / 1e6, () => runners.isolate(image, mask));
   if (!cut) throw new AiRunError("unsupported", tr("Select an area on the image first."));
+  const lama = env.hooks.api ? (await env.hooks.api.models().catch(() => null))?.state.find((m) => m.id === "lama")?.state === "ready" : false;
+  const background = lama ? await env.io.put(await runners.erase(image, mask), nameOf(t)) : null;
   const img = await env.io.put(cut.image, `${nameOf(t)} (isolated)`);
   let id = "" as Guid;
   writeStep(env.ed, "Isolate", () => {
+    if (background) setFill(env.ed, t, fillPicture(t.paint, background));
+    const status = env.ed.engine.setProps([t.id], { name: tr("Background"), proportionsConstrained: true, horizontalConstraint: "SCALE", verticalConstraint: "SCALE" } as never);
+    if (status !== 0) throw new AiRunError("unsupported", tr("This layer can't be changed (status {status}).", { status }));
     id = insertImageLayerAbove(env.ed, t.node, img, { x: cut.rect.x / k, y: cut.rect.y / k, width: cut.rect.width / k, height: cut.rect.height / k });
   });
   env.ed.engine.setSelection([id]);
@@ -482,10 +553,13 @@ function insertImageLayer(ed: EditorController, parent: Guid, position: string, 
 /**
  * Expand (owner §10.1): the picture on the larger canvas (the new area transparent) sent to the image route as an
  * Edit asking to fill the empty area; the untouched original re-composited over the answer; the layer grows by
- * `pad` (layer units) in the dragged directions.
+ * `pad` (layer units) in the dragged directions. An image with transparent pixels is refused, as Figma does.
  */
 export async function expandImage(env: ToolEnv, t: ImageTarget, pad: Insets, o: RunOptions & { prompt?: string; route?: AiRoute } = {}): Promise<void> {
   if (pad.left + pad.top + pad.right + pad.bottom <= 0) return;
+  // Figma refuses an image with transparent pixels (atlas 18 §7.5).
+  const src = await env.io.read(t.hash);
+  for (let i = 3; i < src.data.length; i += 4) if (src.data[i] < 255) throw new AiRunError("unsupported", tr("Expand doesn't work on images with transparent pixels."));
   const { image, k } = await layerPicture(env, t);
   const px: Insets = { left: Math.round(pad.left * k), top: Math.round(pad.top * k), right: Math.round(pad.right * k), bottom: Math.round(pad.bottom * k) };
   const { canvas, mask, at } = expandCanvas(image, px);
@@ -494,11 +568,14 @@ export async function expandImage(env: ToolEnv, t: ImageTarget, pad: Insets, o: 
   const out = recomposite(answer, image, canvas.width, canvas.height, at);
   const img = await env.io.put(out, nameOf(t));
   const size = t.node.size ?? { x: image.width / k, y: image.height / k };
-  const tr = t.node.transform ?? { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 };
+  const xf = t.node.transform ?? { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 };
+  // Figma's result paint is STRETCH (Crop) with the image fitted to the grown layer (atlas 18 §7.5): the picture here
+  // is the layer's own, re-composited at the new size, so its transform is the identity.
+  const paint = { ...fillPicture(t.paint, img), imageScaleMode: "STRETCH" } as FullPaint;
   writeStep(env.ed, "Expand", () =>
-    setFill(env.ed, t, fillPicture(t.paint, img), {
+    setFill(env.ed, t, paint, {
       size: { x: size.x + pad.left + pad.right, y: size.y + pad.top + pad.bottom },
-      transform: { ...tr, m02: tr.m02 - (tr.m00 * pad.left + tr.m01 * pad.top), m12: tr.m12 - (tr.m10 * pad.left + tr.m11 * pad.top) },
+      transform: { ...xf, m02: xf.m02 - (xf.m00 * pad.left + xf.m01 * pad.top), m12: xf.m12 - (xf.m10 * pad.left + xf.m11 * pad.top) },
     })
   );
 }
@@ -509,7 +586,7 @@ export async function editWithPrompt(env: ToolEnv, t: ImageTarget, prompt: strin
   await env.hooks.checkCredits("edit-image");
   const answer = await apiImage(env, { action: "edit-image", prompt, image: await pngB64(src), size: { width: src.width, height: src.height }, ...(o.reference ? { reference: await pngB64(o.reference, 1024) } : {}), ...(o.route ? { route: o.route } : {}) }, o.signal);
   const img = await env.io.put(answer, nameOf(t));
-  writeStep(env.ed, "Edit image", () => setFill(env.ed, t, withPicture(t.paint, img)));
+  writeStep(env.ed, "Edit image", () => appendFill(env.ed, t, withPicture(t.paint, img)));
 }
 
 /** Layers that take a fill for Make an image (Figma: the selected layer, else a new image layer). */

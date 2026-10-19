@@ -20,8 +20,11 @@ enum class Trigger : uint8_t {
   ON_PRESS = 7, NONE = 8, DRAG = 9, ON_KEY_DOWN = 10, ON_MEDIA_HIT = 12, ON_MEDIA_END = 13, MOUSE_ENTER = 14, MOUSE_LEAVE = 15
 };
 enum class Connection : uint8_t {
-  NONE = 0, INTERNAL_NODE = 1, URL = 2, BACK = 3, CLOSE = 4, SET_VARIABLE = 5, UPDATE_MEDIA_RUNTIME = 6, CONDITIONAL = 7, SET_VARIABLE_MODE = 8
+  NONE = 0, INTERNAL_NODE = 1, URL = 2, BACK = 3, CLOSE = 4, SET_VARIABLE = 5, UPDATE_MEDIA_RUNTIME = 6, CONDITIONAL = 7, SET_VARIABLE_MODE = 8,
+  UPDATE_ANIMATION_TIMELINE_STATE = 10
 };
+// UPDATE_ANIMATION_TIMELINE_STATE's action on a Motion timeline (docs/motion.md §4.12).
+enum class TimelineAction : uint8_t { PLAY = 0, PAUSE = 1, TOGGLE_PLAY_PAUSE = 2, SET_PLAYHEAD = 3 };
 // UPDATE_MEDIA_RUNTIME's action (help.figma.com 360040035874: Play/pause video, Mute/unmute video, Set to specific time,
 // Jump forward/backward in time).
 enum class MediaAction : uint8_t {
@@ -77,8 +80,11 @@ struct Action {
   MediaAction media = MediaAction::PLAY;  // UPDATE_MEDIA_RUNTIME (on the video `dest`)
   double mediaSkipTo = 0;   // SKIP_TO, seconds
   double mediaSkipBy = 0;   // SKIP_FORWARD / SKIP_BACKWARD, seconds
+  TimelineAction timeline = TimelineAction::PLAY;  // UPDATE_ANIMATION_TIMELINE_STATE (animationTimelineAction)
+  double timelineSkipTo = 0;                       // SET_PLAYHEAD, seconds (animationSkipToTime)
+  Guid timelineDef = kNoGuid;                      // the timeline's root (animationTimelineDefId)
   std::string url;
-  bool newTab = false;
+  bool newTab = true;  // Open link: a new tab unless the file says otherwise (Figma's `openUrlInNewTab === undefined`)
   bool hasOverlayOffset = false;
   Vec2 overlayOffset;  // MANUAL overlays: where the overlay lands, relative to the hotspot's top-left
   Vec2 scrollOffset;   // SCROLL_TO: extraScrollOffset
@@ -152,6 +158,9 @@ Color background(const NodeProps& page);  // prototypeBackgroundColor (absent: F
 VideoSettings videoSettings(const NodeProps& p);
 // The layer's first visible VIDEO fill (its index in fillPaints), −1 when it has none.
 int videoFill(const NodeProps& p);
+// The layer's first visible GIF fill (an IMAGE paint with an animatedImage: "GIFs in prototypes" play, atlas 07 §8.5),
+// −1 when it has none.
+int gifFill(const NodeProps& p);
 // The page's flows in their order (prototypeStartingPoint.position), top-level frames only.
 std::vector<Flow> flows(const Document& doc, Guid page);
 
@@ -175,6 +184,19 @@ bool hasDelay(Trigger t);
 double ease(const Action& a, double t);
 // How long an action's animation runs, seconds (springs: Figma's settle time T, motion::springSettleTime).
 double durationOf(const Action& a);
+
+// Figma's transition geometry (its viewer's transition class, atlas 13 §5.3): where the entering screen (the
+// destination) and the exiting one (the source) go, in units of the screen's size (LEFT = (−1, 0) … BOTTOM = (0, 1)),
+// their opacity, and which is drawn on top — linear in the eased progress. A _FROM_ type names the side the new screen
+// comes from; the _OUT_TO_ types are the reversed _FROM_ ones of the other side (MOVE_OUT_TO_RIGHT is MOVE_FROM_LEFT
+// reversed: the old screen leaves to the left). Slide in moves the other screen a quarter and fades it to 0.5.
+struct Geometry {
+  Vec2 inFrom, inTo, outFrom, outTo;
+  double inAlphaFrom = 1, inAlphaTo = 1, outAlphaFrom = 1, outAlphaTo = 1;
+  bool enteringOnTop = true;
+  bool moves = false;  // Move / Push / Slide (Instant, Dissolve, Smart animate: false)
+};
+Geometry geometryOf(Transition t);
 
 // Every destination of an action and its conditional branches (navigate / overlay / swap / change to / scroll to).
 void destinations(const Action& a, std::vector<std::pair<Navigation, Guid>>& out);

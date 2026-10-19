@@ -28,7 +28,9 @@
     --ds-size-layer-fade: 12px;
     --ds-size-panel: 240px;
     --ds-size-panel-min: 240px;
-    --ds-size-panel-max: 480px;
+    --ds-size-panel-max: 500px;
+    --ds-size-right-panel-max: 499px;
+    --ds-size-dev-panel: 320px;
     --ds-size-panel-header: 64px;
     --ds-size-right-header: 80px;
     --ds-size-rail: 56px;
@@ -36,14 +38,20 @@
     --ds-size-rail-tile: 32px;
     --ds-size-tabbar: 38px;
     --ds-size-tab-home: 40px;
-    --ds-size-tab-min: 72px;
-    --ds-size-tab-max: 240px;
+    --ds-size-tab-min: 40px;
+    --ds-size-tab-title-max: 200px;
+    --ds-size-tab-title-fade: 8px;
+    --ds-size-tab-pill: 24px;
+    --ds-size-tabs-menu: 40px;
     --ds-size-traffic-room: 80px;
     --ds-size-traffic-room-fullscreen: 8px;
     --ds-size-window-controls-room: 138px;
     --ds-size-main-menu: 40px;
     --ds-size-toolbar: 48px;
     --ds-size-toolbar-bottom: 12px;
+    --ds-size-motion-timeline: 240px;
+    --ds-size-motion-timeline-header: 48px;
+    --ds-size-social-table: 240px;
     --ds-size-shortcuts-panel: 240px;
     --ds-size-shortcuts-tabs: 38px;
     --ds-size-shortcuts-column: 300px;
@@ -55,6 +63,7 @@
     --ds-size-tool: 32px;
     --ds-size-ruler: 20px;
     --ds-size-popover: 240px;
+    --ds-size-nudge-window: 180px;
     --ds-size-menu-item: 24px;
     --ds-size-menu-min: 0px;
     --ds-size-menu-max: 320px;
@@ -62,10 +71,6 @@
     --ds-size-dialog-small: 320px;
     --ds-size-dialog-medium: 480px;
     --ds-size-dialog-large: 640px;
-    --ds-size-dialog-libraries: 591px;
-    --ds-size-dialog-libraries-height: 641px;
-    --ds-size-dialog-header-compact: 40px;
-    --ds-size-dialog-nav: 200px;
     --ds-size-rename-preview: 128px;
     --ds-size-rename-list: 240px;
     --ds-size-field-narrow: 40px;
@@ -73,10 +78,8 @@
     --ds-size-home-sidebar: 240px;
     --ds-size-home-nav: 28px;
     --ds-size-home-nav-pitch: 32px;
-    --ds-size-card-width: 268px;
-    --ds-size-card-height: 213px;
-    --ds-size-card-thumb: 151px;
-    --ds-size-card-gap: 36px;
+    --ds-size-card-width: 264px;
+    --ds-size-card-gap: 32px;
     --ds-size-list-row: 40px;
     --ds-size-list-header: 32px;
     --ds-size-breadcrumb-max: 160px;
@@ -102,6 +105,8 @@
     --ds-radius-small: 2px;
     --ds-radius-thumb: 3px;
     --ds-radius-medium: 5px;
+    --ds-radius-tile: 6px;
+    --ds-radius-tab-preview-thumb: 8px;
     --ds-radius-medium-large: 9px;
     --ds-radius-asset-tile: 10px;
     --ds-radius-large: 13px;
@@ -181,11 +186,12 @@
     --ds-duration-fast: 80ms;
     --ds-duration-medium: 150ms;
     --ds-ease-out: cubic-bezier(0, 0, 0.2, 1);
-    --ds-delay-tooltip: 500ms;
-    --ds-delay-tooltip-warm: 300ms;
+    --ds-delay-tooltip: 1000ms;
+    --ds-delay-tooltip-hide: 300ms;
     --ds-delay-submenu: 100ms;
-    --ds-toast-duration: 4000ms;
-    --ds-toast-duration-action: 8000ms;
+    --ds-toast-duration: 3000ms;
+    --ds-toast-duration-long: 6000ms;
+    --ds-toast-duration-action: 10000ms;
     --ds-duration-shimmer: 1600ms;
     --ds-duration-sweep: 1800ms;
     --ds-duration-fade: 300ms;
@@ -414,6 +420,19 @@
     --ds-color-folder-purple: #9747ff;
     --ds-color-folder-pink: #ff24bd;
     --ds-color-folder-gray: #b3b3b3;
+    --ds-color-tabgroup-blue: #0d99ff;
+    --ds-color-tabgroup-red: #f24822;
+    --ds-color-tabgroup-yellow: #ffcd29;
+    --ds-color-tabgroup-green: #14ae5c;
+    --ds-color-tabgroup-purple: #9747ff;
+    --ds-color-tabgroup-pink: #ff24bd;
+    --ds-color-tabgroup-persimmon: #ff7237;
+    --ds-color-tabgroup-grey: #b3b3b3;
+    --ds-color-devmode-selected: #cff7d3;
+    --ds-color-devmode-selected-secondary: #e5f9e8;
+    --ds-color-devmode-ruler-band: #14ae5c33;
+    --ds-color-devmode-text: #009951;
+    --ds-color-code-value: #b5338a;
     --ds-color-ai-1: #0d99ff;
     --ds-color-ai-2: #9747ff;
     --ds-color-ai-3: #ff24bd;
@@ -426,6 +445,7 @@
     --ds-elevation-500-modal-window: 0 0 0.5px #00000014, 0 10px 24px #0000002e, 0 2px 5px #00000026;
     --ds-elevation-menu: 0 2px 5px #00000059, inset 0 0 0.5px #ffffff59, 0 10px 16px #00000059, inset 0 0.5px 0 #ffffff14;
     --ds-elevation-thumb: 0 0 0.5px #0000004d, 0 1px 3px #00000026;
+    --ds-elevation-slider-thumb: 0 1px 3px #00000040, 0 0 0.5px #0000004d, 0 3px 8px #00000026;
     --ds-focus-color: var(--figma-color-border-selected);
   }
   [data-theme="dark"] {
@@ -647,6 +667,19 @@
     --ds-color-folder-purple: #8a38f5;
     --ds-color-folder-pink: #e81fae;
     --ds-color-folder-gray: #8c8c8c;
+    --ds-color-tabgroup-blue: #0c8ce9;
+    --ds-color-tabgroup-red: #e03e1a;
+    --ds-color-tabgroup-yellow: #f3c11b;
+    --ds-color-tabgroup-green: #198f51;
+    --ds-color-tabgroup-purple: #8a38f5;
+    --ds-color-tabgroup-pink: #e81fae;
+    --ds-color-tabgroup-persimmon: #f0632b;
+    --ds-color-tabgroup-grey: #8c8c8c;
+    --ds-color-devmode-selected: #4f7460;
+    --ds-color-devmode-selected-secondary: #486557;
+    --ds-color-devmode-ruler-band: #507360;
+    --ds-color-devmode-text: #79d297;
+    --ds-color-code-value: #d88fcd;
     --ds-color-ai-1: #0c8ce9;
     --ds-color-ai-2: #8a38f5;
     --ds-color-ai-3: #e81fae;
@@ -659,6 +692,7 @@
     --ds-elevation-500-modal-window: 0 10px 24px #00000073, 0 3px 5px #00000059, inset 0 0.75px 0 #ffffff1a;
     --ds-elevation-menu: 0 2px 5px #00000059, inset 0 0 0.5px #ffffff59, 0 10px 16px #00000059, inset 0 0.5px 0 #ffffff14;
     --ds-elevation-thumb: 0 0 0.5px #00000080, 0 1px 3px #00000066, inset 0 0.5px 0 #ffffff1a, inset 0 0 0.5px #ffffff4d;
+    --ds-elevation-slider-thumb: 0 1px 3px #00000080, inset 0 0 0.5px #ffffff4d, 0 3px 8px #00000059, inset 0 0.5px 0 #ffffff14;
     --ds-focus-color: var(--figma-color-border-selected);
   }
   [data-contrast="more"][data-theme="light"],

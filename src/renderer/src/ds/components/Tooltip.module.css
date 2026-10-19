@@ -22,5 +22,7 @@
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
   }
+  /* Figma's "Motion  Beta" (the mode switch's Motion radio): the tag in the bubble's secondary text */
+  .badge { flex: none; color: var(--ds-color-menu-text-secondary); white-space: nowrap; }
   .shortcut { flex: none; color: var(--ds-color-menu-text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
 }

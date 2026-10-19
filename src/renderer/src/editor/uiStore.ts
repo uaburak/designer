@@ -7,6 +7,7 @@
  */
 import { useCallback, useSyncExternalStore } from "react";
 import type { Camera, Guid } from "@/engine/codec";
+import type { VersionInfo } from "./documentSource";
 import type { ImportedImage } from "./images";
 import type { PreferenceKey } from "./preferences";
 import type { BrushType, BuiltinBrushName, DrawToolSettings, GuidString } from "@shared/draw/types";
@@ -20,8 +21,11 @@ export interface DrawToolsState {
   brush: { name: string; type: BrushType; builtin: BuiltinBrushName | null; guid: GuidString | null };
 }
 
-/** The navigation bar's tabs (Figma 2026: File, Agents, Assets, Tools; Variables opens the variables view instead) */
-export type RailTab = "file" | "agents" | "assets" | "brands" | "tools";
+/**
+ * The navigation bar's tabs (Figma 2026: File, Agents, Assets, Tools; Variables opens the variables view instead); ours:
+ * Brands (Studio), Posts (Social mode's, docs/social.md §6.2)
+ */
+export type RailTab = "posts" | "file" | "agents" | "assets" | "brands" | "tools";
 export type Renaming = { kind: "layer" | "page" | "file"; id: Guid } | null;
 
 /** Find and replace (⌘F, the Pages header's Find): the query, where, which layer types, and the Replace row */
@@ -42,12 +46,32 @@ export interface FindState {
 /** The Figma menu › Preferences checks (preferences.ts: live Figma's defaults when unset; kept per machine) */
 export type PreferenceFlags = { [K in PreferenceKey]?: boolean };
 
+export interface MotionUIState {
+  timeUs: number;
+  playing: boolean;
+  autoKeyframe: boolean;
+  collapsed: boolean;
+  selectedKeyframes: string[];
+  unit: "ms" | "frames";
+  /** The timeline's height dragged by its top edge (px); unset: --ds-size-motion-timeline */
+  height?: number;
+  /** The preset clip selected on the timeline or in the Animations section (round 8h): its settings open */
+  selectedClip?: string | null;
+  /** The audio clip selected on the timeline (round 8e): the Audio section shows its volume, ⌥K splits it */
+  selectedAudio?: string | null;
+}
+export const MOTION_UI_DEFAULT: MotionUIState = { timeUs: 0, playing: false, autoKeyframe: false, collapsed: false, selectedKeyframes: [], unit: "ms" };
+
 export interface UIState extends PreferenceFlags {
   fileName: string;
   railTab: RailTab;
   leftWidth: number;
   rightWidth: number;
   rightTab: "design" | "prototype";
+  /** Dev Mode's right panel: Inspect or Plugins (⌥8 / ⌥9; the rail's plugins button); unset: Inspect */
+  devTab?: "inspect" | "plugins";
+  /** Dev Mode's right panel width (its own: 320 by default, live; Design's is rightWidth) */
+  devRightWidth?: number;
   /** ⌘\ — every panel hidden */
   uiHidden: boolean;
   /** ⇧\ — panels collapsed into floating cards */
@@ -58,6 +82,9 @@ export interface UIState extends PreferenceFlags {
   pixelGrid?: boolean;
   /** View › Outlines › Show outlines (⇧⌘O) */
   outlines?: boolean;
+  /** View › Outlines › Show hidden layers / Show object bounds (Atlas wave 1): outline mode's options */
+  outlineHiddenLayers?: boolean;
+  outlineObjectBounds?: boolean;
   /** View › Layout guides (⇧G); default on */
   layoutGuides?: boolean;
   /** View › Show slices; default on (round 8) */
@@ -84,6 +111,10 @@ export interface UIState extends PreferenceFlags {
   /** Preferences › Nudge amount… (round 8): the steps, and whether its dialog is open */
   nudge?: { small: number; big: number };
   nudgeDialog?: boolean;
+  /** Preferences › Accessibility settings…: its dialog (AccessibilityDialog.tsx) */
+  accessibilityDialog?: boolean;
+  /** File › Color profile…: its dialog (Convert / Assign, ColorProfileDialog.tsx) */
+  colorProfileDialog?: boolean;
   /** An auto-layout bar's value edited in place (round 8, REQUEST_INLINE_EDIT; viewport px) */
   inlineValueEdit?: {
     ref: Guid;
@@ -117,16 +148,22 @@ export interface UIState extends PreferenceFlags {
   actionsOpen?: boolean;
   /** Figma's "Additional labels" (View menu; was "Property labels" in the zoom menu): the Design panel's row labels, off by default (owner, round 17) */
   propertyLabels: boolean;
+  /** Prototyping information (⇧E, a view-only design file): the prototype's connections on the canvas; off by default */
+  prototypingInfo?: boolean;
   /** Position's "Constraints" toggle: the inline Constraints row shown (kept across selections, as Figma) */
   constraintsOpen?: boolean;
-  /** Version history: "Save to version history" (⌥⌘S) or the list */
-  versionDialog: "save" | "history" | null;
+  /** Version history mode (Figma's HISTORY, atlas 16 §3.3): "history" — the history panel in the right panel's place */
+  versionDialog: "history" | null;
+  /** In history mode, the version shown on the canvas, read-only (null: the current version) */
+  historyVersion?: string | null;
+  /** The savepoint modal: "Add to version history" (⌥⌘S, `version` null) or "Edit version information" (a version) */
+  savepoint?: { version: VersionInfo | null } | null;
   /** The context menu over the canvas or a layer: where it opens (view px) and, on the canvas, the point it was opened at (canvas CSS px) */
-  contextMenu: { x: number; y: number; canvas: { x: number; y: number } | null; layers?: Guid[]; guide?: boolean } | null;
+  contextMenu: { x: number; y: number; canvas: { x: number; y: number } | null; layers?: Guid[]; guide?: boolean; ruler?: "X" | "Y" } | null;
   /** Images chosen with the Image tool, waiting for a click each (the first is next) */
   placingImages: readonly ImportedImage[] | null;
-  /** After "Go to main component": where "Return to instance" goes back to */
-  returnToInstance: { instance: Guid; page: Guid; camera: Camera } | null;
+  /** After "Go to main component" (Figma's {mainComponentGUID, instanceGUIDs}): the main, and the instances "Return to instance" goes back to */
+  returnToInstance: { main: Guid; instances: Guid[]; page: Guid; camera: Camera } | null;
   /** Assets: grid or list */
   assetsView: "grid" | "list";
   /** Assets: the library drilled into ("local" or "lib:<key>") and its page; null: All libraries */
@@ -137,8 +174,12 @@ export interface UIState extends PreferenceFlags {
   variablesOpen: boolean;
   /** Styles list (nothing selected): the closed folders ("KIND:path") */
   stylesClosed: ReadonlySet<string>;
-  /** The Libraries modal: its tab, and the library previewed (null: the list) */
-  librariesDialog: { tab: "libraries" | "updates"; library?: string | null; update?: string | null } | null;
+  /**
+   * The Libraries modal (atlas 12 §5–§7): its tab (This file, Updates, Teams, the organization), the library viewed
+   * (null: the tab), the update reviewed (its own window), the Updates tab's scope (the current page by default), the
+   * library Swap library swaps from, the missing libraries view
+   */
+  librariesDialog: { tab: "libraries" | "updates" | "teams" | "org"; library?: string | null; update?: string | null; scope?: "current" | "all"; swap?: string | null; missing?: boolean } | null;
   /** The Publish library modal */
   publishOpen: boolean;
   /** File › Export… (⇧⌘E): the page's layers with export settings */
@@ -158,7 +199,34 @@ export interface UIState extends PreferenceFlags {
   /** The track label editor on the canvas, over this rect (viewport px) */
   gridTrackEditor?: { x: number; y: number; width: number; height: number } | null;
   /** Dev Mode (⇧D, the toolbar's mode switch): the Inspect panel, read-only canvas, annotations as dots (devmode/) */
-  mode?: "design" | "dev" | "draw";
+  mode?: "design" | "dev" | "draw" | "social" | "motion";
+  /** Social mode (docs/social.md §6): the board's brand (kept per file), safe areas shown (default on), the right panel's width, the posts table */
+  socialBrandId?: string | null;
+  socialSafeAreas?: boolean;
+  socialRightWidth?: number;
+  socialTable?: boolean;
+  /** Social's right panel: the agent (default) or the properties alone (docs/social.md §6.3) */
+  socialRightTab?: "agent" | "properties";
+  /** Social: the selected post's timeline shows (MotionMode), and the engine's motion layer with it */
+  socialTimeline?: boolean;
+  /** Social: text put in the agent's composer from elsewhere (Ask agent…, the empty board's prompts); `id` tells repeats apart */
+  socialDraft?: { id: number; text: string } | null;
+  /** Social: the toolbar's New post menu asked open (the command `social.new-post`); a counter */
+  socialNewPostMenu?: number;
+  /** Social: the left panel's Templates open (unset: open only while the page has no posts) */
+  socialTemplatesOpen?: boolean;
+  /** Social: Save as template… open for this post (docs/social.md §4.4); the table's Import CSV… open (§4.5) */
+  socialSaveTemplate?: string | null;
+  socialCsvImport?: boolean;
+  /** Social: Export… open for these posts (docs/social.md §8; a post's menu, Export campaign…) */
+  socialExport?: { ids: string[] } | null;
+  /** Social: the review problem a pin picked (the review card marks it, docs/social.md §6.4) */
+  socialProblem?: { post: string; problem: string } | null;
+  /**
+   * Motion mode (docs/motion.md §6; editor/motion/): the playhead (µs), playing, Toggle auto-keyframe, the timeline
+   * collapsed to its header, the selected keyframes, the time unit. Unset: MOTION_UI_DEFAULT.
+   */
+  motion?: MotionUIState;
   /**
    * Draw's Pencil and Brush settings (the secondary toolbar, docs/draw.md §5.2; editor/draw/drawTools.ts): sent to the
    * engine with setDrawToolSettings; kept for the session. Unset: DRAW_TOOLS_DEFAULT.
@@ -166,6 +234,8 @@ export interface UIState extends PreferenceFlags {
   drawTools?: DrawToolsState;
   /** View › Annotations (labels, dots and saved measurements); default on */
   annotations?: boolean;
+  /** The zoom menu's Annotations ▸ filter (Figma's filterAnnotationCategoryId): only this category's annotations; unset: all */
+  annotationCategory?: Guid | null;
   /** The note editor: the layer, which note (−1: a new one), where (viewport px) */
   annotationEditor?: { ref: Guid; index: number; x: number; y: number; width: number; height: number } | null;
   /** A frame's or section's name edited in place over its title on the canvas (viewport px: the title) */

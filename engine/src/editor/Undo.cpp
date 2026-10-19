@@ -1,5 +1,6 @@
 #include "editor/Undo.h"
 
+#include <algorithm>
 #include <unordered_set>
 
 namespace eng {
@@ -44,15 +45,34 @@ const NodeChange* UndoStack::openInverse(Guid id) const {
   return c.phase == Phase::CHANGED ? &c : nullptr;
 }
 
-void UndoStack::commit(const std::vector<Guid>& selection, bool mergeWithLast) {
+std::vector<Guid> UndoStack::pagesOf(const Document& doc, const std::deque<NodeChange>& inverse) {
+  std::vector<Guid> pages;
+  for (const NodeChange& c : inverse) {
+    // A removal's inverse re-creates the node under its parent: the parent says the page.
+    Guid at = c.phase == Phase::CREATED ? c.props.parentIndex.guid : c.guid;
+    const Node* n = doc.get(at);
+    if (n && (n->props.type == NodeType::CANVAS || n->props.type == NodeType::DOCUMENT) && at == c.guid) continue;  // the page itself
+    Guid page = doc.pageOf(at);
+    const Node* pn = doc.get(page);
+    if (!pn || pn->props.rare().internalOnly) continue;
+    if (std::find(pages.begin(), pages.end(), page) == pages.end()) pages.push_back(page);
+  }
+  return pages;
+}
+
+void UndoStack::commit(const std::vector<Guid>& selection, bool mergeWithLast, const Document* doc) {
   if (depth_ == 0 || --depth_ > 0) return;
   foldable_.clear();
   if (open_.inverse.empty()) return;
   open_.selectionAfter = selection;
+  if (doc) open_.pageIds = pagesOf(*doc, open_.inverse);
   if (mergeWithLast && !undo_.empty()) {
     UndoBatch& last = undo_.back();
     for (auto& c : open_.inverse) last.inverse.push_back(std::move(c));
     last.selectionAfter = selection;
+    if (open_.editVector != kNoGuid) last.editVector = open_.editVector;
+    for (Guid p : open_.pageIds)
+      if (std::find(last.pageIds.begin(), last.pageIds.end(), p) == last.pageIds.end()) last.pageIds.push_back(p);
   } else {
     undo_.push_back(std::move(open_));
     if (undo_.size() > kMaxBatches) undo_.erase(undo_.begin());
@@ -147,6 +167,8 @@ std::vector<NodeChange> UndoStack::replay(Document& doc, UndoBatch& batch, UndoB
   opposite.label = batch.label;
   opposite.selectionBefore = batch.selectionAfter;
   opposite.selectionAfter = batch.selectionBefore;
+  opposite.pageIds = batch.pageIds;  // the same pages either way
+  opposite.editVector = batch.editVector;
   size_t dangling = filterDangling(doc, batch.inverse);
   if (info) info->dangling += dangling;
   for (auto it = batch.inverse.rbegin(); it != batch.inverse.rend(); ++it) {
@@ -240,6 +262,15 @@ size_t UndoStack::yield(const ChangeSet& by) {
 void UndoStack::dropEmpty(bool redo) {
   auto& stack = redo ? redo_ : undo_;
   while (!stack.empty() && stack.back().inverse.empty()) stack.pop_back();
+}
+
+bool UndoStack::restore(std::vector<UndoBatch>&& undo, std::vector<UndoBatch>&& redo) {
+  if (depth_ > 0) return false;
+  undo_ = std::move(undo);
+  redo_ = std::move(redo);
+  if (undo_.size() > kMaxBatches) undo_.erase(undo_.begin(), undo_.end() - kMaxBatches);
+  overwritten_.clear();
+  return true;
 }
 
 void UndoStack::clear() {

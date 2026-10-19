@@ -18,8 +18,8 @@ namespace eng::trace {
 // The options (TraceOptions in src/shared/ai/types.ts). Ranges and defaults are ours (docs/ai.md §5 "Options").
 struct Options {
   Mode mode = Mode::FULL_COLOR;
-  int colors = 8;          // FULL_COLOR: 2–32
-  int grays = 4;           // GRAYSCALE: 2–16
+  int colors = 8;          // FULL_COLOR: 1–32 (Figma's Recolor: from 1)
+  int grays = 4;           // GRAYSCALE: 1–16
   double threshold = 50;   // BLACK_AND_WHITE: 0–100
   int speckle = 4;         // regions under this many pixels merge into a neighbour (0–1000)
   double alphaMax = 1.0;   // 0–4/3

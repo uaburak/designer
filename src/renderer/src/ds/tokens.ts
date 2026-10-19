@@ -254,6 +254,25 @@ export const appColor = {
   "folder-purple": ["#9747ff", "#8a38f5"], // = bg-component
   "folder-pink": ["#ff24bd", "#e81fae"],
   "folder-gray": ["#b3b3b3", "#8c8c8c"],
+  // Tab group colours (atlas 01 §2.3: Figma's `--ramp-pale-*-400`, grey `--ramp-grey-400`). G — Figma's palette as the
+  // folders have it until the pale ramp's values are read live; persimmon unverified
+  "tabgroup-blue": ["#0d99ff", "#0c8ce9"],
+  "tabgroup-red": ["#f24822", "#e03e1a"],
+  "tabgroup-yellow": ["#ffcd29", "#f3c11b"],
+  "tabgroup-green": ["#14ae5c", "#198f51"],
+  "tabgroup-purple": ["#9747ff", "#8a38f5"],
+  "tabgroup-pink": ["#ff24bd", "#e81fae"],
+  "tabgroup-persimmon": ["#ff7237", "#f0632b"],
+  "tabgroup-grey": ["#b3b3b3", "#8c8c8c"],
+  // Dev Mode's green chrome (the owner's capture docs/research/figma/live/owner-2026-10-18/figma-devmode-inspect, dark
+  // sampled K; light G): the selected layer row and the rows inside it, the rail's active tab; the rulers' selection
+  // band and its edge labels. Share and the active tool are bg-success (live devmode-inspect-right.txt: #198F51).
+  "devmode-selected": ["#cff7d3", "#4f7460"],
+  "devmode-selected-secondary": ["#e5f9e8", "#486557"],
+  "devmode-ruler-band": ["#14ae5c33", "#507360"],
+  "devmode-text": ["#009951", "#79d297"],
+  // Dev Mode's code: a CSS value's colour (the owner's capture, dark sampled ≈ #d88fcd; light G)
+  "code-value": ["#b5338a", "#d88fcd"],
   // Agents at work (the chat's Thinking… row, an image being made — in the chat and on the canvas): Figma AI's
   // blue → purple → pink → orange sweep, from Figma's own palette (bg-brand, bg-component, the pink and orange above;
   // Figma's exact AI gradient unverified). The fill is the soft wash under it, the shine the light that crosses it.
@@ -323,9 +342,14 @@ export const size = {
   "row-inset": 8,
   "layer-indent": 24, // live: a level moves the glyph 24
   "layer-fade": 12, // a layer name fades out over its last 12 at the cut (owner's capture of Figma, docs/research/layers-polish)
+  // Figma 126.9.13 (docs/research/atlas/02-editor-chrome.md §3.2, §4.1): the left panel 240 (min 240, max 500), the
+  // right panel's min 240 + its 1px line (241) and its max 500 with the line (499 inside it)
   panel: 240,
   "panel-min": 240,
-  "panel-max": 480, // G
+  "panel-max": 500,
+  "right-panel-max": 499,
+  // Live (docs/research/figma/live/2026-10-18/devmode-inspect-right.txt): Dev Mode's right panel is 320 wide
+  "dev-panel": 320,
   "panel-header": 64,
   "right-header": 80,
   rail: 56, // live: the navigation bar (a 1px line after it)
@@ -333,8 +357,14 @@ export const size = {
   "rail-tile": 32,
   tabbar: 38,
   "tab-home": 40,
-  "tab-min": 72, // G
-  "tab-max": 240, // G
+  // Figma 126.9.13 (atlas 01 §2.1): a file tab at least 40, its title at most 200 (faded out over its last 8, not cut
+  // with an ellipsis); in a tab group, tabs are 24-high pills
+  "tab-min": 40,
+  "tab-title-max": 200,
+  "tab-title-fade": 8,
+  "tab-pill": 24,
+  // The tabs menu at the bar's right end: 40 × 38
+  "tabs-menu": 40,
   "traffic-room": 80,
   "traffic-room-fullscreen": 8,
   // Windows: the system's caption buttons (titleBarOverlay, 3 × 46) at the right, Figma's main menu button (40) at the left
@@ -345,6 +375,11 @@ export const size = {
   // The Keyboard shortcuts panel along the editor's bottom (the owner's screenshots of live Figma, 1512-wide window):
   // 240 high (its top line 1), a 38 tab row (its line under it 1), three 300 columns 48 apart centred, rows 37 apart, 26 caps; the Layout tab's keyboard
   // keys 26 × 25, 32 apart across, 33 down.
+  // Motion's timeline along the editor's bottom (docs/motion.md §6.2 [unverified]): 240 high, a 40 header (Collapse timeline leaves it).
+  "motion-timeline": 240,
+  "motion-timeline-header": 48,
+  // Social's posts table, docked the same way (docs/social.md §4.5 [ours]): 240 high.
+  "social-table": 240,
   "shortcuts-panel": 240,
   "shortcuts-tabs": 38,
   "shortcuts-column": 300,
@@ -356,6 +391,7 @@ export const size = {
   tool: 32,
   ruler: 20,
   popover: 240, // K
+  "nudge-window": 180, // C: Preferences › Nudge amount…, a draggable window 180 wide (atlas 21 §3.1)
   "menu-item": 24, // K
   "menu-min": 0, // live capture: menus are as wide as their items (context menus 200: ContextMenu minWidth)
   "menu-max": 320, // K
@@ -363,11 +399,6 @@ export const size = {
   "dialog-small": 320, // G
   "dialog-medium": 480, // G
   "dialog-large": 640, // G
-  // Live 2026-10-18 (menus.txt): Manage libraries, 591 × 641; its header 40, its left nav 200
-  "dialog-libraries": 591,
-  "dialog-libraries-height": 641,
-  "dialog-header-compact": 40,
-  "dialog-nav": 200,
   "rename-preview": 128, // live: Rename layers' Preview column (fields 160 in)
   "rename-list": 240, // Rename layers' Preview list before it scrolls
   "field-narrow": 40, // live: Rename layers' "Start ascending from" field
@@ -375,10 +406,10 @@ export const size = {
   "home-sidebar": 240, // G
   "home-nav": 28,
   "home-nav-pitch": 32,
-  "card-width": 268,
-  "card-height": 213,
-  "card-thumb": 151,
-  "card-gap": 36,
+  // Home's tile grid (docs/research/atlas/01-app-shell-home.md §4.1): columns at least 264 wide sharing the row's
+  // width, 32 apart both ways
+  "card-width": 264,
+  "card-gap": 32,
   "list-row": 40, // the Home list view's row (§4.27)
   "list-header": 32, // G — the list view's column header
   "breadcrumb-max": 160, // G — an ancestor crumb's width before it ellipsizes
@@ -406,7 +437,7 @@ export const size = {
 } as const;
 
 /** Corner radii, `--ds-radius-<key>` (px, §1.7). */
-export const radius = { none: 0, small: 2, thumb: 3, medium: 5, "medium-large": 9, "asset-tile": 10, large: 13, full: 9999 } as const;
+export const radius = { none: 0, small: 2, thumb: 3, medium: 5, tile: 6, "tab-preview-thumb": 8, "medium-large": 9, "asset-tile": 10, large: 13, full: 9999 } as const;
 
 export const fontFamily = {
   /** "Inter Symbols" (global.css): Inter 3.19's key glyphs (⌘ ⇧ ⌥ ⌃ ⌫ ↵ arrows) — live's widths (11px: ⌫ 13, ⌘ 11, ⌃ 9) */
@@ -472,6 +503,8 @@ export const elevation = {
   menu: ["0 2px 5px #00000059, inset 0 0 0.5px #ffffff59, 0 10px 16px #00000059, inset 0 0.5px 0 #ffffff14", "0 2px 5px #00000059, inset 0 0 0.5px #ffffff59, 0 10px 16px #00000059, inset 0 0.5px 0 #ffffff14"],
   // Live 2026-10-18 (toolbar.txt): the mode switch's thumb (light: elevation 100's, unmeasured)
   thumb: ["0 0 0.5px #0000004d, 0 1px 3px #00000026", "0 0 0.5px #00000080, 0 1px 3px #00000066, inset 0 0.5px 0 #ffffff1a, inset 0 0 0.5px #ffffff4d"],
+  // A slider's 12 px thumb (live 2026-10-18 slider.txt, dark; light: the same without the inner light rims)
+  "slider-thumb": ["0 1px 3px #00000040, 0 0 0.5px #0000004d, 0 3px 8px #00000026", "0 1px 3px #00000080, inset 0 0 0.5px #ffffff4d, 0 3px 8px #00000059, inset 0 0.5px 0 #ffffff14"],
 } as const satisfies Record<string, Pair>;
 
 /** Focus (§1.10): fields turn their border blue; everything else gets a 1px outline 1px out. */
@@ -486,11 +519,15 @@ export const motion = {
   "duration-fast": "80ms",
   "duration-medium": "150ms",
   "ease-out": "cubic-bezier(0, 0, 0.2, 1)",
-  "delay-tooltip": "500ms",
-  "delay-tooltip-warm": "300ms",
+  // Figma's tooltip manager (atlas 02 §6): shows after 1000 ms, at once while another is showing, hides 300 ms after
+  // the pointer leaves
+  "delay-tooltip": "1000ms",
+  "delay-tooltip-hide": "300ms",
   "delay-submenu": "100ms",
-  "toast-duration": "4000ms",
-  "toast-duration-action": "8000ms",
+  // Figma's visual bell (atlas 02 §7): 3 s; 6 s for a message over 25 characters; 10 s with a button
+  "toast-duration": "3000ms",
+  "toast-duration-long": "6000ms",
+  "toast-duration-action": "10000ms",
   /** Agents at work: the text shimmer, the light sweep over an image being made, a placeholder fading out */
   "duration-shimmer": "1600ms",
   "duration-sweep": "1800ms",
@@ -500,7 +537,7 @@ export const motion = {
 } as const;
 
 /** The same timings as numbers (ms) for code. */
-export const timing = { tooltip: 500, tooltipWarm: 300, submenu: 100, toast: 4000, toastAction: 8000 } as const;
+export const timing = { tooltip: 1000, tooltipHide: 300, submenu: 100, toast: 3000, toastLong: 6000, toastAction: 10000 } as const;
 
 /**
  * The canvas chrome palette the engine draws with (§1.4). The ORDER IS THE

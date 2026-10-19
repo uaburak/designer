@@ -27,6 +27,7 @@ import type {
   OpenWorkspaceFile,
   Role,
   TabAttach,
+  TabPreview,
   TabsSnapshot,
   ThemePreference,
   ThemeState,
@@ -57,6 +58,8 @@ interface DesktopCommon {
   setTheme(preference: ThemePreference): Promise<ThemeState>;
   /** Settings › Account › Enhance contrast (Home and editors) */
   setContrast(on: boolean): Promise<ThemeState>;
+  /** Preferences › Accessibility settings › Underline links */
+  setUnderlineLinks(on: boolean): Promise<ThemeState>;
   onThemeChanged(cb: (t: ThemeState) => void): Unsubscribe;
   /** The UI's language when the view was made (`--designer-locale`); onLocaleChanged after (src/shared/i18n) */
   locale: Locale;
@@ -102,6 +105,20 @@ export interface TabBarApi extends DesktopCommon {
     reopen(): void;
     /** "+": a new design file in Drafts, opened */
     newFile(): void;
+    /** "+" (⌘T): the new-tab page (atlas 01 §3) */
+    newTab(): void;
+    /** A group header's native menu */
+    groupMenu(groupId: string, x: number, y: number): void;
+    /** Edit group name done */
+    renameGroup(groupId: string, name: string): void;
+    /** The bar's tabs menu ("Open and recently closed tabs") */
+    listMenu(x: number, y: number): void;
+    /** Edit group name chosen in the group's menu */
+    onEditGroup(cb: (e: { groupId: string }) => void): Unsubscribe;
+    /** A tab hovered (or focused with the keyboard) from x in the bar, or none: its preview card (atlas 01 §2.2) */
+    hover(tabId: string | null, x: number, keyboard?: boolean): void;
+    /** The preview view's own: the card to draw */
+    onPreview(cb: (p: TabPreview | null) => void): Unsubscribe;
   };
   /** The app's updates (docs/desktop.md §12.6): the "Restart to update" pill and a manual check's progress */
   updates: {
@@ -131,7 +148,8 @@ export interface FilesApi {
   /** .fig files into a folder (null: Drafts): `paths` (dropped files, see pathFor), or the ones picked in the Open dialog */
   import(folderId: string | null, paths?: string[]): Promise<ImportResult>;
   /** The file as a .fig, where the Save dialog says */
-  saveLocalCopy(fileKey: string): Promise<{ path: string } | { cancelled: true }>;
+  /** `partial`: Figma's "Save partial file" — images still downloading left out, " - partial copy <date>" in the name */
+  saveLocalCopy(fileKey: string, opts?: { partial?: boolean }): Promise<{ path: string } | { cancelled: true }>;
   /** Exported files: one where the Save dialog says, more into the folder the Open dialog picks (editors only) */
   exportAssets(files: ExportAsset[]): Promise<{ paths: string[] } | { cancelled: true }>;
   /** A developer preview as one HTML file, where the Save dialog says (editors; docs/data.md §13) */

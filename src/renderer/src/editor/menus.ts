@@ -9,12 +9,16 @@ import { intlLocale, t } from "@/i18n";
 import { CMD_ENABLED, Status } from "@/engine/abi";
 import type { Guid } from "@/engine/codec";
 import type { EditorController } from "./controller";
-import { COMMAND_BY_ID, command, isEnabled, runEditorCommand, shortcutOf } from "./commands";
-import { instanceChanges, resetChanges, selectedInstance, selectionNodes } from "./components";
-import { isComponent, isComponentSet, isInstance, type ResetKind } from "./model/components";
+import { COMMAND_BY_ID, command, isEnabled, runEditorCommand, shortcutOf, viewOnly } from "./commands";
+import { modeOf } from "./devmode/devMode";
+import { exportAllowed } from "./exporting";
+import { changedProperties, instanceChanges, resetChanges, resetPropertyValue, selectedInstance, selectionNodes } from "./components";
+import { PROPERTY_ICON, RESET_MENU_KINDS, isComponent, isComponentSet, isInstance, type ResetKind } from "./model/components";
 import { branchMenuIds } from "./branching/commands";
 import { canvasPluginsMenu, pluginsMenu, runPluginMenuItem } from "./plugins/menus";
 import { isBrushSource } from "./draw/drawTools";
+import { POST_ROW, postCanvasRows, runPostMenu } from "./social/PostsList";
+import { selectedPosts } from "./social/SocialMode";
 
 /** A frame-like layer: a frame, component, set, instance or section (not a group). */
 const isFrameLike = (n: { type?: string; resizeToFit?: boolean }) => ["FRAME", "SYMBOL", "INSTANCE", "SECTION"].includes(String(n.type)) && !n.resizeToFit;
@@ -66,22 +70,34 @@ function build(ed: EditorController, specs: Spec[], prefix: string, checks = fal
 /** Live View menu: 201 wide (main-view.txt); see MAIN_MENU_WIDTH for its .4. */
 const VIEW_WIDTH = 201.4;
 
-const MORE_LAYOUT: SubSpec = { label: "More layout options", items: ["object.add-layout-horizontal", "object.add-layout-vertical", "object.add-layout-grid"] };
+/** Copy as code ▸ (atlas 03 "Copy/Paste as": `copy-as-code` {CSS, CSS (all layers), iOS, Android}). */
+const COPY_AS_CODE: Spec[] = ["edit.copy-as-css", "edit.copy-as-css-recursive", "edit.copy-as-ios", "edit.copy-as-android"];
 
-/** Dynamic items' ids: "Reset ▸ <group>" carries the group's fields; "Move to page ▸ <page>" the page. */
+// Atlas 09 §4: Figma's Object menu code has a submenu (multi-stack-selection-submenu) with Suggest auto layout and
+// destroy-all-auto-layout that the live menus don't show (gated); they sit here after a line until a probe names it.
+const MORE_LAYOUT: SubSpec = {
+  label: "More layout options",
+  items: ["object.add-layout-horizontal", "object.add-layout-vertical", "object.add-layout-grid", "-", "object.suggest-auto-layout", "object.remove-all-auto-layout"],
+};
+
+/** Dynamic items' ids: "Reset ▸ <kind>", "Reset ▸ <property>" (its id), "Move to page ▸ <page>" the page. */
 export const RESET_PREFIX = "reset-changes:";
+export const RESET_PROPERTY_PREFIX = "reset-property:";
 const MOVE_TO_PAGE = "move-to-page:";
 
 /**
- * "Reset ▸" for the selected instance (R4 §3): Reset all changes, then one item per changed property group (only
- * those it has). Null when nothing is an instance.
+ * "Reset ▸" for the selected instance (atlas 10 §6.2): Reset all changes, then Figma's "Reset specific changes" —
+ * its twelve kinds in its order, each only when the instance has it, then one "Reset {property}" per changed property
+ * value with the property type's glyph. Null when nothing is an instance.
  */
 export function resetSubmenu(ed: EditorController): MenuItem | null {
   const inst = selectedInstance(ed);
   if (!inst) return null;
   const groups = instanceChanges(ed, inst);
+  const kinds: MenuEntry[] = groups.filter((g) => RESET_MENU_KINDS.has(g.kind)).map((g) => ({ id: `${RESET_PREFIX}${g.kind}`, label: t("Reset {group}", { group: t(g.label).toLocaleLowerCase(intlLocale()) }) }));
+  const props: MenuEntry[] = changedProperties(ed, inst).map((p) => ({ id: `${RESET_PROPERTY_PREFIX}${p.id}`, label: t("Reset {property}", { property: p.name }), icon: PROPERTY_ICON[p.type] }));
   const items: MenuEntry[] = [withoutCheck(commandItem(ed, "object.reset-all-changes"))];
-  if (groups.length) items.push("-", ...groups.map((g) => ({ id: `${RESET_PREFIX}${g.kind}`, label: t("Reset {group}", { group: t(g.label).toLocaleLowerCase(intlLocale()) }) })));
+  if (kinds.length || props.length) items.push("-", ...kinds, ...props);
   return { id: "submenu:reset", label: t("Reset"), items, disabled: !groups.length };
 }
 
@@ -100,6 +116,16 @@ export function runMenuItem(ed: EditorController, id: string): boolean {
     resetChanges(ed, inst, id.slice(RESET_PREFIX.length) as ResetKind);
     return true;
   }
+  if (id.startsWith(RESET_PROPERTY_PREFIX)) {
+    const inst = selectedInstance(ed);
+    if (!inst) return false;
+    resetPropertyValue(ed, inst, id.slice(RESET_PROPERTY_PREFIX.length));
+    return true;
+  }
+  if (id.startsWith(POST_ROW)) {
+    runPostMenu(ed, id.slice(POST_ROW.length), selectedPosts(ed), ed.store.page);
+    return true;
+  }
   if (id.startsWith("select-layer:")) {
     ed.engine.setSelection([id.slice("select-layer:".length)]);
     return true;
@@ -115,32 +141,45 @@ export function runMenuItem(ed: EditorController, id: string): boolean {
   return runEditorCommand(ed, id);
 }
 
+/**
+ * Figma's main component actions (Atlas 03 §4.2 `getMainComponentActionsMenu`): Go to main component, Push changes to
+ * main, Restore main component, Add variant, Publish — counted by those that can run: none, no row; one, that row
+ * alone; two or more, "Main component ▸" with all five. Publish is the selected main components' (the library's
+ * publish dialog).
+ */
+const MAIN_ACTIONS = ["object.go-to-main-component", "object.push-changes", "object.restore-component", "object.add-variant", "file.publish-library"];
+
+function mainComponentActions(ed: EditorController): Spec[] {
+  const nodes = selectionNodes(ed);
+  const can = (id: string) => isEnabled(ed, command(id)) && (id !== "file.publish-library" || (nodes.length > 0 && nodes.every((n) => isComponent(n) || isComponentSet(n))));
+  const on = MAIN_ACTIONS.filter(can);
+  if (on.length < 2) return on;
+  return [{ label: "Main component", items: MAIN_ACTIONS }];
+}
+
 /** The component items a selection gets in the canvas menu (Figma's): instance actions, or create / combine / add variant. */
 function componentEntries(ed: EditorController): Spec[] {
   const nodes = selectionNodes(ed);
   // An instance (live Figma): Create component, Reset instance, Detach instance, Go to main component.
   if (nodes.some(isInstance))
-    return ["object.create-component", (e) => { const r = resetSubmenu(e); return r ? { ...r, label: t("Reset instance") } : null; }, "object.detach-instance", "object.go-to-main-component"];
+    return ["object.create-component", (e) => { const r = resetSubmenu(e); return r ? { ...r, label: t("Reset instance") } : null; }, "object.detach-instance", ...mainComponentActions(ed)];
   const out: Spec[] = [];
   const mains = nodes.length > 0 && nodes.every((n) => isComponent(n) || isComponentSet(n));
   // Live (context-multi.txt): a multi-selection gets Create component only (no "Create multiple components").
   if (!mains) out.push("object.create-component");
-  // A main component (live Figma): its actions under "Main component ▸".
-  else
-    out.push({
-      label: "Main component",
-      items: [
-        ...(nodes.length > 1 && nodes.every(isComponent) ? ["object.combine-as-variants"] : []),
-        ...(nodes.length === 1 ? ["object.add-variant"] : []),
-        "object.restore-component",
-      ],
-    });
-  if (!mains && nodes.some((n) => n.isSoftDeleted)) out.push("object.restore-component");
+  else if (nodes.length > 1 && nodes.every(isComponent)) out.push("object.combine-as-variants");
+  out.push(...mainComponentActions(ed));
   // Inside a main: a nested frame converts to a slot, other layers are wrapped in a new one (help "Create and use slots").
   if (isEnabled(ed, command("object.convert-to-slot"))) out.push("object.convert-to-slot");
   else if (isEnabled(ed, command("object.wrap-in-new-slot"))) out.push("object.wrap-in-new-slot");
   return out;
 }
+
+/** Edit › Select all with ▸ (SELECT_MATCHING's modes). */
+const SELECT_ALL_WITH: SubSpec = {
+  label: "Select all with",
+  items: ["edit.select-same-fill", "edit.select-same-stroke", "edit.select-same-effect", "edit.select-same-text", "edit.select-same-font", "edit.select-same-instance"],
+};
 
 /**
  * Figma's menus, in Figma's order: the Figma menu as the live app shows it (docs/research/figma/live/menus:
@@ -186,7 +225,7 @@ export const MAIN_MENU: Spec[] = [
       "edit.undo",
       "edit.redo",
       "-",
-      { label: "Copy as", items: ["edit.copy-as-png", "edit.copy-as-svg", "edit.copy-as-code", "edit.copy-as-text"] },
+      { label: "Copy as", items: ["edit.copy-as-png", "edit.copy-as-svg", { label: "Copy as code", items: COPY_AS_CODE }, "edit.copy-as-text"] },
       "edit.paste-over-selection",
       "edit.paste-to-replace",
       "edit.duplicate",
@@ -207,10 +246,7 @@ export const MAIN_MENU: Spec[] = [
       "edit.select-matching",
       "edit.select-none",
       "edit.select-inverse",
-      {
-        label: "Select all with",
-        items: ["edit.select-same-fill", "edit.select-same-stroke", "edit.select-same-effect", "edit.select-same-text", "edit.select-same-font", "edit.select-same-instance"],
-      },
+      SELECT_ALL_WITH,
     ],
   },
   {
@@ -224,7 +260,7 @@ export const MAIN_MENU: Spec[] = [
       "view.show-slices",
       "view.comments",
       "view.annotations",
-      { label: "Outlines", checks: true, items: ["view.outlines"] },
+      { label: "Outlines", checks: true, items: ["view.outlines", "-", "view.outline-hidden-layers", "view.outline-object-bounds"] },
       "view.pixel-preview",
       "view.mask-outlines",
       "view.frame-outlines",
@@ -236,6 +272,10 @@ export const MAIN_MENU: Spec[] = [
       "view.toggle-ui",
       "view.multiplayer-cursors",
       "view.switch-to-draw",
+      "view.switch-to-motion",
+      // Social (ours, docs/social.md §6.6): the mode, and its safe areas while in it
+      "view.mode-social",
+      (ed) => (modeOf(ed) === "social" ? commandItem(ed, "social.toggle-safe-areas") : null),
       // Live: "Switch to Dev Mode ⇧D", no check.
       (ed) => ({ ...withoutCheck(commandItem(ed, "view.dev-mode")), label: t("Switch to Dev Mode") }),
       {
@@ -453,8 +493,31 @@ export const MAIN_MENU: Spec[] = [
  */
 export const MAIN_MENU_WIDTH = 194.4;
 
+/**
+ * Edit ▸ for someone who can't edit (Atlas 03 §3.2, Figma's `!edit !dev_handoff`): Find, Find next / previous, Pick
+ * color, Copy properties, Select all / matching / none / inverse, Select all with ▸ (the lines between are ours).
+ */
+const EDIT_VIEW_ONLY: Spec[] = ["edit.find", "edit.find-next", "edit.find-previous", "-", "edit.copy-properties", "-", "edit.pick-color", "-", "edit.select-all", "edit.select-matching", "edit.select-none", "edit.select-inverse", SELECT_ALL_WITH];
+
+/** Edit ▸ in Dev Mode (§3.2 `!edit dev_handoff`): Copy as ▸, Find ×3, Select all, Select none. */
+const EDIT_DEV_MODE: Spec[] = [{ label: "Copy as", items: ["edit.copy-as-text", "edit.copy-as-svg", "edit.copy-as-png"] }, "-", "edit.find", "edit.find-next", "edit.find-previous", "-", "edit.select-all", "edit.select-none"];
+
+/** Submenus Figma shows only to someone who can edit (Text, Arrange, Vector: `edit`), and Object not in Dev Mode. */
+const EDITING_ONLY = new Set(["Text", "Arrange", "Vector"]);
+
+/**
+ * The Figma menu as this person sees it (§3): an editor's; for a viewer, Edit ▸ is the view-only one and Text, Arrange
+ * and Vector are gone; in Dev Mode Edit ▸ is Dev Mode's and Object is gone too.
+ */
 export function mainMenu(ed: EditorController): MenuEntry[] {
-  return build(ed, MAIN_MENU, "main.");
+  const dev = modeOf(ed) === "dev";
+  if (!dev && !viewOnly(ed)) return build(ed, MAIN_MENU, "main.");
+  const specs = MAIN_MENU.flatMap((s): Spec[] => {
+    if (typeof s !== "object" || "id" in s) return [s];
+    if (s.label === "Edit") return [{ ...s, items: dev ? EDIT_DEV_MODE : EDIT_VIEW_ONLY }];
+    return EDITING_ONLY.has(s.label) || (dev && s.label === "Object") ? [] : [s];
+  });
+  return build(ed, specs, "main.");
 }
 
 /** The page items of "Move to page ▸": every other page. */
@@ -480,13 +543,13 @@ const CREATE_BRUSH: SubSpec = { label: "Create brush", items: ["object.create-br
  */
 export function canvasMenu(ed: EditorController, layers: { id: Guid; name: string; locked?: boolean; icon?: IconName }[], options: { row?: boolean } = {}): MenuEntry[] {
   if (!ed.selection.length) {
-    return [
+    return withoutDisabled(ed, [
       ...build(ed, ["edit.paste-here", "-"], "canvas."),
       withoutCheck(commandItem(ed, "view.toggle-ui")),
       withoutCheck(commandItem(ed, "view.comments", "Show/Hide comments")),
       "-",
       ...build(ed, ["canvas.cursor-chat", "tool.actions", PLUGINS, WIDGETS], "canvas."),
-    ];
+    ]);
   }
   const nodes = selectionNodes(ed);
   const single = nodes.length === 1 ? nodes[0] : null;
@@ -507,10 +570,12 @@ export function canvasMenu(ed: EditorController, layers: { id: Guid; name: strin
     // Live (context-layer-row.txt): a Layers row's menu has no Paste here.
     ...(row ? [] : ["edit.paste-here"]),
     "edit.paste-to-replace",
-    { label: "Copy/Paste as", items: ["edit.copy-as-text", "edit.copy-as-code", "edit.copy-as-svg", "edit.copy-as-png", "-", "edit.copy-properties", "edit.paste-properties"] },
+    { label: "Copy/Paste as", items: ["edit.copy-as-text", { label: "Copy as code", items: COPY_AS_CODE }, "edit.copy-as-svg", "edit.copy-as-png", "-", "edit.copy-properties", "edit.paste-properties"] },
     "canvas.send-to-make",
     ...(multi ? [] : ["canvas.find-similar"]),
     ...(allComponents ? [] : ["canvas.add-motion"]),
+    // Motion (docs/motion.md §6.9, round 8e): Mute audio while the timeline's root has audio (help: right-click › Mute audio).
+    ...(ed.ui.get().mode === "motion" && isEnabled(ed, command("motion.mute-audio")) ? ["motion.mute-audio"] : []),
     "-",
     ...(layers.length > 1 && !row ? [() => selectLayerSubmenu(ed, layers)] : []),
     moveToPage,
@@ -548,7 +613,40 @@ export function canvasMenu(ed: EditorController, layers: { id: Guid; name: strin
     "object.flip-horizontal",
     "object.flip-vertical",
   ];
-  return build(ed, specs, "canvas.");
+  // Social (docs/social.md §6.6, ours): over post frames alone, the posts' own rows first.
+  const posts = modeOf(ed) === "social" ? selectedPosts(ed) : [];
+  const social: MenuEntry[] = posts.length && posts.length === ed.selection.length ? [...postCanvasRows(ed, posts), "-"] : [];
+  return withoutDisabled(ed, [...social, ...build(ed, specs, "canvas.")]);
+}
+
+/** Copy as SVG / PNG stay, greyed, when the file's owner blocks exports (Figma's `disabledAndForceVisible`). */
+const FORCE_VISIBLE = new Set(["edit.copy-as-svg", "edit.copy-as-png"]);
+
+/**
+ * A canvas menu without the rows that can't run (Atlas 03 §4: Figma's canvas menus `removeDisabledItems`), but the
+ * ones it forces visible; a submenu left empty goes too, and the lines are tidied (none first, last or twice).
+ */
+export function withoutDisabled(ed: EditorController, entries: MenuEntry[]): MenuEntry[] {
+  const blocked = ed.selection.length > 0 && !exportAllowed(ed);
+  const out: MenuEntry[] = [];
+  for (const e of entries) {
+    if (e === "-") {
+      if (out.length && out[out.length - 1] !== "-") out.push(e);
+      continue;
+    }
+    if (!("id" in e)) {
+      out.push(e);
+      continue;
+    }
+    if (e.items) {
+      const items = withoutDisabled(ed, e.items);
+      if (!e.disabled && items.some((i) => i !== "-")) out.push({ ...e, items });
+      continue;
+    }
+    if (!e.disabled || (blocked && FORCE_VISIBLE.has(e.id))) out.push(e);
+  }
+  while (out[out.length - 1] === "-") out.pop();
+  return out;
 }
 
 /**
@@ -632,14 +730,31 @@ export interface ActionItem {
   section: string;
   shortcut?: string;
   disabled: boolean;
+  /** A toggle: its check (Actions keeps itself open 300 ms after running one, the check flipping) */
+  checked?: boolean;
 }
+
+/**
+ * Actions the Figma menu hasn't that Actions finds (Figma's search-only items, Atlas 03 §9: rename-selection,
+ * create-multiple-symbols, reset-variable-modes, component-insert, toggle-library, publish-selection, auto-rename-layers),
+ * under the menu they would be in.
+ */
+const SEARCH_ONLY: [id: string, section: string][] = [
+  ["object.rename", "Object"],
+  ["object.create-multiple-components", "Object"],
+  ["object.reset-variable-modes", "Object"],
+  ["canvas.rename-layers-ai", "Object"],
+  ["view.component-search", "View"],
+  ["view.team-library", "View"],
+  ["file.publish-library", "File"],
+];
 
 /** The toolbar's tools, as the palette lists them (the bottom toolbar's order). */
 const TOOL_ACTIONS = ["tool.move", "tool.hand", "tool.scale", "tool.frame", "tool.section", "tool.slice", "tool.rectangle", "tool.line", "tool.arrow", "tool.ellipse", "tool.polygon", "tool.star", "tool.image", "tool.pen", "tool.pencil", "tool.brush", "tool.text", "tool.text-on-path", "tool.comment", "tool.annotation", "tool.measurement"];
 
 /**
  * The Actions palette's commands (⌘K; panels/ActionsPanel.tsx): every command of the Figma menu (live main-*.txt) in
- * its order, under its submenu's name, then the tools — each once, the palette itself left out.
+ * its order, under its submenu's name, then the tools and the search-only ones — each once, the palette itself left out.
  */
 export function actionItems(ed: EditorController): ActionItem[] {
   const out: ActionItem[] = [];
@@ -648,7 +763,7 @@ export function actionItems(ed: EditorController): ActionItem[] {
     if (seen.has(id) || !COMMAND_BY_ID.has(id)) return;
     seen.add(id);
     const item = commandItem(ed, id, label);
-    out.push({ id, label: item.label, section, shortcut: item.shortcut, disabled: !!item.disabled });
+    out.push({ id, label: item.label, section, shortcut: item.shortcut, disabled: !!item.disabled, ...(item.checked !== undefined ? { checked: item.checked } : {}) });
   };
   const walk = (specs: Spec[], section: string) => {
     for (const s of specs) {
@@ -667,5 +782,6 @@ export function actionItems(ed: EditorController): ActionItem[] {
   for (const id of branchMenuIds(ed)) add(id, "File");
   add("view.dev-mode", "View", "Switch to Dev Mode");
   for (const id of TOOL_ACTIONS) add(id, "Tools");
+  for (const [id, section] of SEARCH_ONLY) add(id, section);
   return out;
 }

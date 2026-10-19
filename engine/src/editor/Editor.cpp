@@ -1,6 +1,7 @@
 #include "editor/Editor.h"
 #include "editor/Refusals.h"
 
+#include "scene/CodecKiwi.h"
 #include "schema/SchemaTable.h"
 #include "text/TextEdit.h"
 
@@ -45,7 +46,7 @@ void dropStaleAuthoredColors(const NodeProps& before, NodeChange& c) {
 const char* toolName(Tool t) {
   static constexpr const char* kNames[] = {"MOVE", "SCALE", "HAND", "FRAME", "SECTION", "SLICE", "RECTANGLE", "LINE", "ARROW",
                                            "ELLIPSE", "POLYGON", "STAR", "IMAGE", "PEN", "PENCIL", "TEXT", "COMMENT",
-                                           "ANNOTATION", "MEASUREMENT", "EYEDROPPER", "BRUSH", "TEXT_PATH"};
+                                           "ANNOTATION", "MEASUREMENT", "EYEDROPPER", "BRUSH", "TEXT_PATH", "ANCHOR_POINT"};
   auto i = static_cast<size_t>(t);
   return i < sizeof kNames / sizeof kNames[0] ? kNames[i] : "MOVE";
 }
@@ -54,7 +55,7 @@ bool toolImplemented(Tool t) {
   return t == Tool::MOVE || t == Tool::HAND || t == Tool::FRAME || t == Tool::SECTION || t == Tool::RECTANGLE || t == Tool::ELLIPSE || t == Tool::TEXT ||
          t == Tool::LINE || t == Tool::ARROW || t == Tool::POLYGON || t == Tool::STAR || t == Tool::PEN || t == Tool::PENCIL ||
          t == Tool::ANNOTATION || t == Tool::MEASUREMENT || t == Tool::SCALE || t == Tool::SLICE || t == Tool::COMMENT || t == Tool::EYEDROPPER ||
-         t == Tool::BRUSH || t == Tool::TEXT_PATH;
+         t == Tool::BRUSH || t == Tool::TEXT_PATH || t == Tool::ANCHOR_POINT;
 }
 
 const char* txnKindName(TxnKind k) {
@@ -83,15 +84,20 @@ Editor::Editor() {
 
 void Editor::begin(TxnKind kind, const std::string& label) {
   if (txn_.open) {
+    // A preview evaluated inside the transaction (motionInTxn_) goes before anything more is written in it.
+    if (motionInTxn_ && motionLayer_.active()) motionLayer_.restore(doc_);
     txn_.depth++;
     return;
   }
+  // Motion (docs/motion.md §5): every transaction reads and writes base values; the layer applies again after the commit.
+  if (motionLayer_.active()) motionLayer_.restore(doc_);
   txn_.open = true;
   txn_.depth = 1;
   txn_.kind = kind;
   txn_.label = label;
   txn_.run = false;
   txn_.join = false;
+  txn_.peer = false;
   txn_.changes.clear();
   layoutDirty_.clear();
   groupsTouched_.clear();
@@ -365,9 +371,10 @@ void Editor::write(const NodeChange& change) {
   if (userEdit && txn_.kind == TxnKind::USER && c->phase == Phase::CHANGED && (c->mask & (F_SIZE | F_TRANSFORM))) userGeometry_.insert(c->guid);
   NodeType typeBefore = existing ? existing->props.type : NodeType::NONE;
   Guid parentBefore = existing ? existing->props.parentIndex.guid : kNoGuid;
-  bool record = txn_.open && (txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE);
+  // An ignore-undo scope keeps the write out of every history (openIgnoreUndo).
+  bool record = txn_.open && (txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE) && ignoreUndo_ == 0;
   // An undo / redo's own writes (layout, groups, bindings after the replay) keep their inverses for its batch.
-  bool replayWrite = txn_.open && (txn_.kind == TxnKind::UNDO || txn_.kind == TxnKind::REDO);
+  bool replayWrite = txn_.open && (txn_.kind == TxnKind::UNDO || txn_.kind == TxnKind::REDO) && ignoreUndo_ == 0;
   // An instance's bindings as they were (its root override records only what changed).
   std::vector<ParamBinding> mapBefore;
   bool rootOverride = userEdit && c->phase == Phase::CHANGED && typeBefore == NodeType::INSTANCE;
@@ -486,6 +493,8 @@ void Editor::removeEmptyGroups() {
 void Editor::commit(bool mergeWithLast) {
   if (!txn_.open || txn_.depth > 1) {
     if (txn_.open) txn_.depth--;
+    // A preview evaluated inside the transaction (motionInTxn_) shows again once the nested step is done.
+    if (txn_.open && txn_.depth == 1 && motionInTxn_ && motion_.on) motionApply();
     return;
   }
   if (txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE) {
@@ -504,6 +513,9 @@ void Editor::commit(bool mergeWithLast) {
   }
   txn_.depth = 0;
   txn_.open = false;
+  motionInTxn_ = false;
+  motionDirty_ = true;
+  if (motion_.on) motionApply();
   bool emits = txn_.kind != TxnKind::REMOTE && txn_.kind != TxnKind::LOAD;
   if (emits && !txn_.changes.empty()) {
     auto changes = txn_.changes.build(doc_);
@@ -516,7 +528,9 @@ void Editor::commit(bool mergeWithLast) {
     bool userStack = undoTo_ == 0;
     size_t before = stack.undoCount();
     bool join = txn_.run && txn_.join && userStack && runMark_ != SIZE_MAX && runMark_ == before && !stack.canRedo() && stack.undoLabel() == txn_.label;
-    stack.commit(selection_, mergeWithLast || join);
+    // The user's step remembers the vector edit mode it was made in (undo goes back into it).
+    if (userStack) stack.noteEditVector(vector_.node);
+    stack.commit(selection_, mergeWithLast || join, &doc_);
     if (userStack && txn_.run) {
       bool made = stack.undoCount() != before || join;
       if (made) runMark_ = stack.undoCount();
@@ -525,12 +539,17 @@ void Editor::commit(bool mergeWithLast) {
     events_.undo = true;
   }
   if (txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE || txn_.kind == TxnKind::UNDO || txn_.kind == TxnKind::REDO) yieldOthers();
+  else if (txn_.peer) yieldAll();
+  txn_.peer = false;
   txn_.changes.clear();
   layoutDirty_.clear();
 }
 
 void Editor::rollback() {
   if (!txn_.open) return;
+  // A preview's values go first: the rollback puts back what the transaction read.
+  if (motionInTxn_ && motionLayer_.active()) motionLayer_.restore(doc_);
+  motionInTxn_ = false;
   txn_.open = false;
   txn_.depth = 0;
   if (txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE) {
@@ -549,6 +568,9 @@ void Editor::rollback() {
     commit();
   }
   pruneSelection();
+  // Motion (docs/motion.md §5): the transaction began with the base values back; the layer applies again.
+  motionDirty_ = true;
+  if (motion_.on) motionApply();
 }
 
 void Editor::relayoutAll() {
@@ -768,6 +790,7 @@ const NodeChange* Editor::replayInverse(Guid id, FieldMask field) const {
 // ---- Bookkeeping ------------------------------------------------------------
 
 void Editor::changeSelection(std::vector<Guid> ids) {
+  bool motionFollows = motion_.on && motion_.root == kNoGuid;
   if (ids == selection_) return;
   selection_ = std::move(ids);
   // Layers selected: a selected ruler guide lets go; nothing selected: the ⌥R origin goes too.
@@ -776,6 +799,7 @@ void Editor::changeSelection(std::vector<Guid> ids) {
   // Gradient handles belong to a selected layer.
   if (paint_.node != kNoGuid && std::find(selection_.begin(), selection_.end(), paint_.node) == selection_.end()) endPaintEdit();
   events_.selection = true;
+  if (motionFollows) motionApply();  // a new selection may be in another root (docs/motion.md §4.9: root null = the selection's)
   needsRender_ = true;
 }
 
@@ -953,6 +977,8 @@ Overlay Editor::overlay() const {
   if (text_.node == kNoGuid && vector_.node == kNoGuid) gridGapOverlay(o);
   o.pixelGrid = (viewOptions_ & VIEW_PIXEL_GRID) != 0;
   o.outlines = (viewOptions_ & VIEW_OUTLINES) != 0;
+  o.outlineHidden = (viewOptions_ & VIEW_OUTLINE_HIDDEN) != 0;
+  o.outlineBounds = (viewOptions_ & VIEW_OUTLINE_BOUNDS) != 0;
   o.layoutGuides = (viewOptions_ & VIEW_LAYOUT_GUIDES) != 0;
   o.pixelPreview = (viewOptions_ & VIEW_PIXEL_PREVIEW_2X) ? 2 : (viewOptions_ & VIEW_PIXEL_PREVIEW) ? 1 : 0;
   // Preferences › Show dimensions on objects (round 9): no W × H badge (the angle while rotating stays).
@@ -963,6 +989,11 @@ Overlay Editor::overlay() const {
     o.rotationOrigin = gesture_ == Gesture::Rotate ? rotateCentre_ : rotationOrigin();
   }
   if (gesture_ == Gesture::Rotate) o.badgeText = rotateBadgeText();
+  // Motion (the owner's capture of Figma, 2026-10-18): no W × H badge under the selection (the angle while rotating stays).
+  if (motion_.on && gesture_ != Gesture::Rotate) o.sizeBadge = false;
+  // Motion (docs/motion.md §6.4): the selected layer's motion path, the anchor point's target; the Motion icon's frames.
+  motionOverlay(o);
+  o.motionTitles = motionTitleRoots_;
   guideOverlay(o);
   // Round 10, View › Frame outlines / Mask outlines: every frame's / mask's box on the page as a thin quiet line
   // (help.figma.com lists the toggles; the look is unverified).
@@ -1029,6 +1060,7 @@ Overlay Editor::overlay() const {
   if (proto_.on) protoOverlay(o);
   scrollbarOverlay(o);  // round 16
   devOverlay(o);
+  if (devInspect()) devInspectOverlay(o);
   // Round 18: other people — their selected layers that exist on this page (others ignored), their cursors.
   o.localChat = localChat_;
   o.presence.reserve(presence_.size());
@@ -1049,6 +1081,9 @@ Overlay Editor::overlay() const {
 
 void Editor::loadDocument(std::vector<NodeChange>&& nodes, Guid page, StoredDerived* derived) {
   cancelGesture();
+  motionLayer_ = motion::MotionLayer();  // the old document's base values are gone with it
+  motion_ = motion::State();
+  motionDirty_ = true;
   pathToolCancel();
   storedText_.clear();
   storedSymbols_.clear();
@@ -1095,7 +1130,8 @@ void Editor::loadDocument(std::vector<NodeChange>&& nodes, Guid page, StoredDeri
   overrideIndex_.clear();
   extensionSyncDirty_.clear();
   assetKeysDirty_ = true;
-  navMain_ = returnTo_ = kNoGuid;
+  navMain_ = kNoGuid;
+  returnTo_.clear();
   if (text_.node != kNoGuid) events_.textEdit = true;
   text_ = TextSession{};
   hasLibraryCopies_ = false;
@@ -1149,6 +1185,10 @@ void Editor::setSessionID(uint32_t sessionID) {
 
 Status Editor::applyChanges(const std::vector<NodeChange>& changes, uint32_t flags) {
   if (busy()) return E_BUSY;
+  // Another session's change waits for the user's step, gesture or an actor's write to end (the caller tries again):
+  // inside it, it would become part of the user's undo step and be emitted as theirs.
+  bool peer = (flags & APPLY_PEER) && !(flags & (APPLY_USER | APPLY_SYSTEM | APPLY_LOAD));
+  if (peer && !idle()) return E_BUSY;
   TxnKind kind = (flags & APPLY_USER)     ? TxnKind::USER
                  : (flags & APPLY_SYSTEM) ? TxnKind::SYSTEM
                  : (flags & APPLY_LOAD)   ? TxnKind::LOAD
@@ -1156,6 +1196,7 @@ Status Editor::applyChanges(const std::vector<NodeChange>& changes, uint32_t fla
   // A system change inside an open user step would become part of that undo step.
   if (kind == TxnKind::SYSTEM && txn_.open && txn_.kind != TxnKind::SYSTEM) return E_BUSY;
   begin(kind, "Edit");
+  txn_.peer = peer;
   // APPLY_EXACT (Restore version): a whole document state computed elsewhere — written as it is, library copies too.
   bool exact = (flags & APPLY_EXACT) != 0;
   bool libraryWriteBefore = libraryWrite_, guardBefore = applyGuard_;
@@ -1171,7 +1212,11 @@ Status Editor::applyChanges(const std::vector<NodeChange>& changes, uint32_t fla
   }
   libraryWrite_ = libraryWriteBefore;
   applyGuard_ = guardBefore;
+  std::vector<Guid> touched;
+  if (peer) touched = txn_.changes.touched();
   commit();
+  // The user's edit sessions follow what the other session changed under them (a caret kept inside a rewritten text).
+  if (peer) followForeign(touched);
   pruneSelection();
   if (!doc_.has(page_)) {
     auto all = pages();
@@ -1345,10 +1390,11 @@ void Editor::setViewportInsets(double left, double top, double right, double bot
   viewport_.insetBottom = std::max(0.0, bottom);
 }
 
-Camera Editor::fitVisible(const Rect& r, bool upTo100) const {
+Camera Editor::fitVisible(const Rect& r, double padding) const {
   // Camera::fit in the part of the canvas the panels leave visible, then moved to where that part is.
   Rect v = viewport_.visible();
-  Camera c = Camera::fit(r, v.w, v.h, upTo100);
+  if (v.w <= padding * 2 || v.h <= padding * 2) return camera_;
+  Camera c = Camera::fit(r, v.w, v.h, padding);
   return {c.x + v.x, c.y + v.y, c.zoom};
 }
 
@@ -1414,7 +1460,7 @@ void Editor::zoomToFit() {
   }
   stopCameraAnimation();
   zooming_ = false;
-  if (any) changeCamera(snapped(fitVisible(r, true)));
+  if (any) changeCamera(snapped(fitVisible(r, kFitPadding)));
 }
 
 void Editor::zoomToSelection(double animateMs) {
@@ -1426,14 +1472,18 @@ void Editor::zoomToSelection(double animateMs) {
     r = any ? r.united(b) : b;
     any = true;
   }
-  if (!any) return;
+  // Nothing selected: zoom to fit (Figma, Atlas 04 §2.3).
+  if (!any) {
+    zoomToFit();
+    return;
+  }
   if (animateMs > 0) {
-    animateCamera(snapped(fitVisible(r, false)), animateMs);
+    animateCamera(snapped(fitVisible(r, kSelectionPadding)), animateMs);
     return;
   }
   stopCameraAnimation();
   zooming_ = false;
-  changeCamera(snapped(fitVisible(r, false)));
+  changeCamera(snapped(fitVisible(r, kSelectionPadding)));
 }
 
 bool Editor::tick(double timeMs) {
@@ -1448,6 +1498,8 @@ bool Editor::tick(double timeMs) {
   }
   // Round 16: the camera gliding, the scrollbars showing / fading.
   cameraTick(timeMs);
+  // Round 8i: the Motion icon follows the document outside Motion mode too — the index rebuilt between gestures.
+  if (motionDirty_ && !txn_.open && gesture_ == Gesture::None && page_ != kNoGuid) motionIndex();
   scrollbarTick(timeMs);
   // The `</>` button's tooltip: after the tooltip delay under the pointer (DevMode.cpp devIconHoverAt).
   if (devIconHover_ != kNoGuid && !devTooltip_ && !devIconPressed_) {
@@ -1549,6 +1601,9 @@ Status Editor::setProps(const std::vector<Guid>& ids, const NodeChange& props, u
     NodeChange c = NodeChange::changed(id);
     c.mask = differingFields(before, props.props, mask);  // equal values are no-ops
     copyFields(c.props, props.props, c.mask);
+    // Motion on (docs/motion.md §4.9): a keyframable field with a track (or any, with auto-keyframe) becomes a keyframe.
+    if (motion_.on && c.mask) c.mask &= ~motionRouteWrite(id, c);
+    if (!c.mask) continue;
     if (before.type == NodeType::TEXT && (c.mask & F_SIZE) && !(mask & F_TEXT_AUTO_RESIZE) &&
         before.text().textAutoResize != TextAutoResize::NONE) {
       // A size typed for an auto-resizing text: a width makes it auto height, a height a fixed box (Figma).
@@ -1571,6 +1626,7 @@ Status Editor::setProps(const std::vector<Guid>& ids, const NodeChange& props, u
       }
     }
     dropStaleAuthoredColors(before, c);
+    stampNewStack(before, c);  // auto layout given now: the Updated layout (Atlas 09 §3.2)
     if (c.mask) write(c);
   }
   flushLayout();  // live, also inside a panel scrub
@@ -1627,8 +1683,13 @@ bool Editor::undoStep(bool redo) {
   // One press always does something the user can see (Figma: "%d batch(es) would be skipped before applying one"):
   // a batch with no visible effect — only hidden layers' values, values equal to the current ones, or nothing left
   // after the dangling-reference filter — is applied, and the next one follows in the same press.
+  // The vector edit mode the step that did something was made in (Figma's update-edit-mode-for-undo).
+  Guid editIn = kNoGuid;
   for (;;) {
     std::string label = redo ? undo_.redoLabel() : undo_.undoLabel();
+    // The batch's own pages, as it noted them when made (Message.undoBatchPageIds 46), win over the replay's.
+    std::vector<Guid> stored = redo ? undo_.redoBatches().back().pageIds : undo_.undoBatches().back().pageIds;
+    Guid batchEdit = redo ? undo_.redoBatches().back().editVector : undo_.undoBatches().back().editVector;
     ReplayInfo info;
     batchPages.clear();
     auto applied = redo ? undo_.redo(doc_, sel, &txn_.changes, &info) : undo_.undo(doc_, sel, &txn_.changes, &info);
@@ -1641,9 +1702,17 @@ bool Editor::undoStep(bool redo) {
       bool pageItself = n && (n->props.type == NodeType::CANVAS || n->props.type == NodeType::DOCUMENT);
       if (!pageItself) notePage(c.phase == Phase::REMOVED ? info.parentsBefore[i] : c.guid);
     }
+    if (!stored.empty()) {
+      batchPages.clear();
+      for (Guid p : stored) {
+        const Node* pn = doc_.get(p);
+        if (pn && pn->props.type == NodeType::CANVAS && !pn->props.rare().internalOnly) batchPages.push_back(p);
+      }
+    }
     if (info.visible) {
       txn_.label = label;  // the step is named by the batch that did something
       touchedPages = batchPages;
+      editIn = batchEdit;
       break;
     }
     for (Guid page : batchPages)
@@ -1665,7 +1734,9 @@ bool Editor::undoStep(bool redo) {
   changeSelection(sel);
   pruneSelection();
   if (vector_.node != kNoGuid) reloadVector();
-  if (paint_.node != kNoGuid && !editedPaint()) endPaintEdit();
+  // A step made in vector edit mode takes the editor back into it on its layer (left since, or another layer's).
+  if (editIn != kNoGuid && vector_.node != editIn && text_.node == kNoGuid && doc_.has(editIn) && doc_.pageOf(editIn) == page_) startVectorEdit(editIn);
+  if (paint_.node != kNoGuid && !paintSessionLive()) endPaintEdit();
   return true;
 }
 
@@ -1691,6 +1762,12 @@ void Editor::yieldOthers() {
     if (id != undoTo_) stack.yield(txn_.changes);
 }
 
+void Editor::yieldAll() {
+  if (txn_.changes.empty()) return;
+  undo_.yield(txn_.changes);
+  for (auto& [id, stack] : actorUndo_) stack.yield(txn_.changes);
+}
+
 void Editor::followForeign(const std::vector<Guid>& touched) {
   auto hit = [&](Guid id) { return id != kNoGuid && std::find(touched.begin(), touched.end(), id) != touched.end(); };
   if (hit(text_.node)) {
@@ -1713,7 +1790,7 @@ void Editor::followForeign(const std::vector<Guid>& touched) {
       events_.vectorEdit = true;
     }
   }
-  if (paint_.node != kNoGuid && hit(paint_.node) && (!doc_.has(paint_.node) || !editedPaint())) endPaintEdit();
+  if (paint_.node != kNoGuid && hit(paint_.node) && (!doc_.has(paint_.node) || !paintSessionLive())) endPaintEdit();
   pruneSelection();
   needsRender_ = true;
 }
@@ -1947,9 +2024,9 @@ uint32_t Editor::key(KeyEvent type, KeyCode code, uint32_t /*codepoint*/, uint32
       return K_HANDLED;
     }
     if ((code == KeyCode::Backspace || code == KeyCode::Delete) && gesture_ == Gesture::None) {
-      // The selected stop goes (two stay at least).
+      // The selected stop goes (one stays at least, as the picker's GradientControl minStops).
       const Paint* p = editedPaint();
-      if (p && p->stops.size() > 2 && paint_.stop >= 0 && static_cast<size_t>(paint_.stop) < p->stops.size()) {
+      if (p && p->stops.size() > 1 && paint_.stop >= 0 && static_cast<size_t>(paint_.stop) < p->stops.size()) {
         Paint q = *p;
         q.stops.erase(q.stops.begin() + paint_.stop);
         begin(TxnKind::USER, "Delete color stop");
@@ -2092,6 +2169,174 @@ Status Editor::setTool(Tool t) {
   }
   updateCursor(lastScreen_);
   return OK;
+}
+
+// ---- Undo history export / import (Message.localUndoStack 22 / localRedoStack 23) ----
+
+std::string Editor::exportUndoHistory(size_t maxSteps, size_t maxBytes) const {
+  // The newest steps first until the caps, then oldest first as the stacks keep them.
+  auto take = [&](const std::vector<UndoBatch>& stack, size_t& budget) {
+    std::vector<codec::UndoHistoryStep> out;
+    for (auto it = stack.rbegin(); it != stack.rend() && out.size() < maxSteps; ++it) {
+      codec::UndoHistoryStep step{std::vector<NodeChange>(it->inverse.begin(), it->inverse.end()), it->pageIds};
+      size_t size = codec::writeMessage(sessionID_, step.changes).size();
+      if (size > budget) break;
+      budget -= size;
+      out.push_back(std::move(step));
+    }
+    std::reverse(out.begin(), out.end());
+    return out;
+  };
+  size_t budget = maxBytes;
+  auto undo = take(undo_.undoBatches(), budget);
+  auto redo = take(undo_.redoBatches(), budget);
+  return codec::writeUndoHistory(sessionID_, undo, redo);
+}
+
+bool Editor::importUndoHistory(std::string_view bytes) {
+  std::vector<codec::KiwiMessage> undo, redo;
+  if (!codec::readUndoHistory(bytes, undo, redo)) return false;
+  auto batches = [](std::vector<codec::KiwiMessage>& list) {
+    std::vector<UndoBatch> out;
+    for (codec::KiwiMessage& m : list) {
+      UndoBatch b;
+      for (NodeChange& c : m.changes) b.inverse.push_back(std::move(c));
+      b.pageIds = std::move(m.undoBatchPageIds);
+      if (!b.inverse.empty()) out.push_back(std::move(b));
+    }
+    return out;
+  };
+  if (!undo_.restore(batches(undo), batches(redo))) return false;
+  events_.undo = true;
+  return true;
+}
+
+}  // namespace eng
+
+namespace eng {
+
+// ---- Figma Motion (docs/motion.md §4.9, §5; round 8a) -----------------------------------------------------------------
+
+Guid Editor::motionRoot() const {
+  if (motion_.root != kNoGuid) return doc_.has(motion_.root) ? motion_.root : kNoGuid;
+  for (Guid id : selection_) {
+    Guid r = motionIndex_.rootOf(doc_, id);
+    if (r != kNoGuid) return r;
+  }
+  return kNoGuid;
+}
+
+const motion::MotionIndex& Editor::motionIndex() {
+  if (motionDirty_) {
+    // The index reads base values: never while the layer's writes are in the nodes.
+    bool was = motionLayer_.active();
+    if (was) motionLayer_.restore(doc_);
+    motionRebuild();
+    if (was && motion_.on) motionApply();
+  }
+  return motionIndex_;
+}
+
+void Editor::motionRebuild() {
+  motion::Resolver r;
+  r.easing = [&](const VariableData& alias, Guid consumer, motion::EasingSpec& out) {
+    Resolved v;
+    if (!resolveValue(alias, consumer, v) || v.kind != Resolved::Kind::OTHER) return false;
+    // The literal EASING VariableData's members (Variables.cpp): its value's easingValue is an EasingData.
+    json::Value d;
+    if (!json::parse("{" + v.raw + "}", d)) return false;
+    const json::Value* val = d.get("value");
+    const json::Value* e = val ? val->get("easingValue") : nullptr;
+    return e && motion::decodeEasing(*e, out);
+  };
+  r.timing = [&](const VariableData& alias, Guid consumer, double& ms) {
+    Resolved v;
+    if (!resolveValue(alias, consumer, v) || v.kind != Resolved::Kind::FLOAT) return false;
+    ms = v.f;
+    return true;
+  };
+  motionIndex_.rebuild(doc_, &r);
+  motionDirty_ = false;
+  // The Motion icon's frames: the page's (and its sections') top-level frames whose timeline plays.
+  std::vector<Guid> titled;
+  doc_.forEach([&](const Node& n) {
+    if (!n.guid.isDerived() && motionIndex_.plays(n.guid) && showsTitle(doc_, n.guid)) titled.push_back(n.guid);
+  });
+  if (titled != motionTitleRoots_) {
+    motionTitleRoots_ = std::move(titled);
+    needsRender_ = true;
+  }
+}
+
+void Editor::motionApply() {
+  if (txn_.open && !motionInTxn_) return;  // applied when the transaction commits
+  if (motionDirty_) {
+    if (motionLayer_.active()) motionLayer_.restore(doc_);
+    motionRebuild();
+  }
+  Guid root = motionRoot();
+  if (!motion_.on || root == kNoGuid) {
+    if (motionLayer_.active()) motionLayer_.restore(doc_);
+    needsRender_ = true;
+    return;
+  }
+  // A root other than the one applied: its layers go back first.
+  motionLayer_.restore(doc_);
+  motion::MotionLayer::Hooks hooks;
+  hooks.resolve = [&](Guid node, const VariableData& base, motion::KeyframeValue& out) {
+    Resolved r;
+    if (!resolveValue(base, node, r)) return false;
+    if (r.kind == Resolved::Kind::FLOAT) out = motion::KeyframeValue::number(r.f);
+    else if (r.kind == Resolved::Kind::COLOR) out = motion::KeyframeValue::color(r.c);
+    else return false;
+    return true;
+  };
+  // Round 8a, increment 2: instance sublayers play their main's tracks (docs/motion.md §4.3); layout-changing fields
+  // lay out again as previews (§4.5, editor/MotionCommands.cpp).
+  hooks.mainOf = [&](Guid id) { return mainOf(id); };
+  hooks.sourceOf = [&](Guid id) {
+    auto it = derivedInfo_.find(id);
+    return it != derivedInfo_.end() ? it->second.source : kNoGuid;
+  };
+  hooks.relayout = [&](const std::vector<Guid>& dirty) { motionRelayout(dirty); };
+  hooks.textLayout = [&](Guid id) { return textLayout(id); };  // round 8h: text stagger's elements
+  motionLayer_.apply(doc_, motionIndex_, root, motion_.timeUs, hooks);
+  needsRender_ = true;
+}
+
+void Editor::setMotion(const motion::State& s) {
+  bool rootChanged = s.on != motion_.on || s.root != motion_.root;
+  motion_ = s;
+  if (rootChanged) events_.motion = true;
+  if (!s.on && tool_ == Tool::ANCHOR_POINT) setTool(Tool::MOVE);  // Motion's own tool goes with it
+  motionApply();
+}
+
+Status Editor::setMotionJson(const json::Value& v) {
+  if (!v.isObject()) return E_INVALID;
+  motion::State s = motion_;
+  if (const json::Value* on = v.get("on"); on && on->isBool()) s.on = on->boolean;
+  if (const json::Value* root = v.get("root")) {
+    if (root->isNull()) s.root = kNoGuid;
+    else if (root->isString()) {
+      bool ok = false;
+      Guid g = Guid::parse(root->string, &ok);
+      if (!ok) return E_INVALID;
+      s.root = g;
+    }
+  }
+  if (const json::Value* t = v.get("timeUs"); t && t->isNumber()) s.timeUs = static_cast<int64_t>(std::llround(std::max(0.0, t->number)));
+  if (const json::Value* a = v.get("autoKeyframe"); a && a->isBool()) s.autoKeyframe = a->boolean;
+  if (const json::Value* p = v.get("showMotionPath"); p && p->isBool()) s.showMotionPath = p->boolean;
+  if (const json::Value* in = v.get("inTransaction"); in && in->isBool()) motionInTxn_ = in->boolean && txn_.open;
+  setMotion(s);
+  return OK;
+}
+
+motion::Suspend Editor::motionSuspended() {
+  return motion::Suspend(motionLayer_, doc_, [this] {
+    if (motion_.on) motionApply();
+  });
 }
 
 }  // namespace eng

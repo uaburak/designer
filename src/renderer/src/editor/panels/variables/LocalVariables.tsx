@@ -11,22 +11,28 @@
  * edited in place (ValueEditor: colours, numbers, strings, booleans, aliases),
  * Edit variable on hover. Click / ⌘-click / ⇧-click select, drag reorders
  * (dropped next to a row of another group, it moves into that group),
- * ⌫ deletes, ⇧↵ duplicates, right click: Edit variable, Rename, Duplicate,
- * Delete, New group with selection. "+ Create variable" with the type menu.
+ * ⌫ deletes, ⇧↵ duplicates, ⌘A selects every row shown, right click (Figma's
+ * order): Copy, Paste, New group with selection, Edit variable, Move to top /
+ * up / down / to bottom, Duplicate, Delete. "+ Create variable" with the type
+ * menu. Atlas 11 (wave 3): the Name column resizes 50 … 500 (double-click:
+ * 200); modes past the plan's limit (40) show disabled, read-only.
  * Round 5 (help "Create and manage variables", "Extend a variable collection"):
  * Extend collection (the extension lists its root's variables with its own
  * modes; edits override, in blue, "Reset change"), Reorder collections / Sort A
  * to Z, Filter by type, Edit variables on a selection, Copy / Paste, Ungroup
  * and Duplicate group.
  * Esc or × closes it; ⌘Z / ⇧⌘Z undo and redo inside it.
+ * Atlas sweep (2026-10-18): minimized, Figma's 642 (+ the sidebar) × 380 at the top right; the Collections menu's
+ * All collections / Created in this file (the libraries' collections this file uses listed too, read-only: their
+ * values shown, Copy and Extend collection only) and Sort A to Z; a value cell's Create alias / Clear alias.
  */
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { Button, ContextMenu, Icon, IconButton, InlineEdit, MenuButton, SearchField, cx, type MenuEntry } from "@/ds";
+import { Button, ContextMenu, Icon, IconButton, InlineEdit, MenuButton, ResizeHandle, SearchField, cx, type MenuEntry } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { runEditorCommand } from "../../commands";
 import { useLocalAssets, useUI } from "../../hooks";
-import { formatLiteral, groupTree, inGroup, matchesQuery, orphanMode, resolveVariable, rootOf, splitName, valueIn, VAR_TYPE_ICON, VAR_TYPE_LABEL, VAR_TYPES, type Collection, type GroupNode, type Variable, type VarType } from "../../model/variables";
+import { aliasMakesCycle, canExtend, formatLiteral, groupTree, inGroup, LIMITS, matchesQuery, orphanMode, resolveVariable, rootOf, splitName, valueIn, VAR_TYPE_ICON, VAR_TYPE_LABEL, VAR_TYPES, type Collection, type GroupNode, type Variable, type VarType } from "../../model/variables";
 import {
   addMode,
   createCollection,
@@ -50,12 +56,15 @@ import {
   renameVariable,
   resetOverride,
   setDefaultMode,
+  setVariableValue,
+  sortCollections,
   ungroupVariables,
 } from "../../variables";
 import { clipboardText, exportModes, importIntoMode, importModes, pasteClipboardVariables, readClipboardText } from "../../variablesIO";
 import { EditVariablesPopover, ReorderCollectionsPopover } from "./CollectionTools";
 import { EditVariablePopover } from "./EditVariable";
 import { ValueEditor } from "./ValueEditor";
+import { VariablePicker } from "./VariablePicker";
 import styles from "./LocalVariables.module.css";
 import { t, tp, useT } from "@/i18n";
 
@@ -98,6 +107,11 @@ function pickJsonFiles(multiple: boolean): Promise<{ name: string; text: string 
   });
 }
 
+/** The Name column: 200 wide, resized 50 … 500 (atlas 11 §8.1). */
+const NAME_WIDTH = 200;
+const NAME_WIDTH_MIN = 50;
+const NAME_WIDTH_MAX = 500;
+
 /** help.figma.com "Create and manage variables" (the empty state's Learn more). */
 const VARIABLES_HELP = "https://help.figma.com/hc/en-us/articles/15145852043927";
 
@@ -112,24 +126,35 @@ export function LocalVariables() {
   const [groupDrop, setGroupDrop] = useState<{ path: string; where: "before" | "after" | "into" } | null>(null);
   const [dropping, setDropping] = useState(false);
   const [collectionId, setCollectionId] = useState<Guid | null>(null);
+  // The Collections menu: All collections (the libraries' ones too) or Created in this file (this file's only).
+  const [allCollections, setAllCollections] = useState(false);
   const [group, setGroup] = useState("");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<ReadonlySet<Guid>>(new Set());
   const [anchor, setAnchor] = useState<Guid | null>(null);
   const [renaming, setRenaming] = useState<Renaming>(null);
   const [edit, setEdit] = useState<{ id: Guid; anchor: HTMLElement } | null>(null);
+  // A value cell's Create alias (the row menu's value options): the picker under that cell.
+  const [aliasing, setAliasing] = useState<{ v: Variable; mode: Guid; anchor: HTMLElement } | null>(null);
   const [menu, setMenu] = useState<Menu>(null);
   const [drop, setDrop] = useState<{ id: Guid; side: "before" | "after" } | null>(null);
   const [typeFilter, setTypeFilter] = useState<VarType | null>(null);
   const [reorder, setReorder] = useState<HTMLElement | null>(null);
   // Groups ▸ Collapse groups (live rail-variables-table.txt): the nested groups folded under their parents.
   const [groupsCollapsed, setGroupsCollapsed] = useState(false);
+  // The Name column's width (Figma: 200, its edge dragged 50 … 500, a double-click resets — atlas 11 §8.1).
+  const [nameWidth, setNameWidth] = useState(NAME_WIDTH);
   const fileName = useUI((s) => s.fileName);
   const [bulk, setBulk] = useState<{ ids: Guid[]; anchor: HTMLElement | DOMRect } | null>(null);
   const root = useRef<HTMLDivElement>(null);
-  const collection = a.collections.find((c) => c.id === collectionId) ?? a.collections[0] ?? null;
+  const listed = allCollections ? [...a.collections, ...a.library.collections] : a.collections;
+  const collection = listed.find((c) => c.id === collectionId) ?? a.collections[0] ?? null;
   // An extended collection: its root's variables, its own modes, values only (Figma: no new variables or modes).
   const extended = !!collection?.parent;
+  // A library's collection (All collections): read-only — its values shown, nothing changed here.
+  const readOnly = !!collection && a.library.collections.some((c) => c.id === collection.id);
+  // No new variables, modes or groups, no renames or moves.
+  const locked = extended || readOnly;
   const parent = collection?.parentCollection ?? null;
 
   useEffect(() => {
@@ -212,44 +237,81 @@ export function LocalVariables() {
     importModes(ed, c, files);
   };
 
-  const variableMenu = (v: Variable, x: number, y: number, target: HTMLElement) => {
+  const variableMenu = (v: Variable, x: number, y: number, target: HTMLElement, cell: HTMLElement | null = null) => {
     const ids = selected.has(v.id) ? chosen() : [v.id];
     if (!selected.has(v.id)) setSelected(new Set([v.id]));
     const many = ids.length > 1;
+    // Right-clicked on a value: Figma's value options first — Create alias, or Clear alias on an alias (atlas 11 §8.3).
+    const mode = cell && !cell.hasAttribute("aria-disabled") && !readOnly ? (cell.dataset.valueMode ?? null) : null;
+    const value = mode && collection ? valueIn(v, mode, collection) : null;
+    const valueEntries: MenuEntry[] = value ? [value.kind === "alias" ? { id: "clear-alias", label: t("Clear alias") } : { id: "create-alias", label: t("Create alias") }, "-"] : [];
+    const valuePick = (id: string): boolean => {
+      if (!mode || !value) return false;
+      if (id === "create-alias") setAliasing({ v, mode, anchor: cell! });
+      else if (id === "clear-alias" && value.kind === "alias") {
+        const literal = resolveVariable(value.id, a.lookup);
+        if (literal !== null) setVariableValue(ed, v.id, mode, { kind: "literal", value: literal });
+      } else return false;
+      return true;
+    };
+    if (readOnly) {
+      setMenu({ x, y, entries: [{ id: "copy", label: t("Copy"), shortcut: "⌘C" }], pick: (id) => id === "copy" && copyVariables(ids) });
+      return;
+    }
     if (extended && collection) {
       // An extended collection overrides values only: "Reset changes" brings back every value of the parent's.
       const changed = ids.filter((i) => collection.overrides.has(i));
       setMenu({
         x,
         y,
-        entries: [{ id: "copy", label: t("Copy"), shortcut: "⌘C" }, "-", { id: "reset", label: many ? t("Reset changes") : t("Reset change"), disabled: !changed.length }],
+        entries: [...valueEntries, { id: "copy", label: t("Copy"), shortcut: "⌘C" }, "-", { id: "reset", label: many ? t("Reset changes") : t("Reset change"), disabled: !changed.length }],
         pick: (id) => {
+          if (valuePick(id)) return;
           if (id === "copy") copyVariables(ids);
           if (id === "reset") resetOverride(ed, collection.id, changed, null);
         },
       });
       return;
     }
+    // Figma's order (atlas 11 §8.3): Copy, Paste, New group with selection, Edit, then Move to top / up / down / to
+    // bottom (within the rows' group) and Duplicate, then Delete.
+    const siblings = inCollection.filter((x) => splitName(x.name).group === splitName(v.name).group);
+    const first = siblings.findIndex((x) => ids.includes(x.id));
+    const last = siblings.length - 1 - [...siblings].reverse().findIndex((x) => ids.includes(x.id));
     setMenu({
       x,
       y,
       entries: [
-        { id: "edit", label: many ? t("Edit variables") : t("Edit variable") },
-        { id: "rename", label: t("Rename"), disabled: many },
-        { id: "duplicate", label: many ? t("Duplicate variables") : t("Duplicate"), shortcut: "⇧↵" },
-        { id: "group", label: t("New group with selection") },
-        "-",
+        ...valueEntries,
         { id: "copy", label: t("Copy"), shortcut: "⌘C" },
         { id: "paste", label: t("Paste"), shortcut: "⌘V" },
+        { id: "group", label: t("New group with selection") },
+        { id: "edit", label: many ? t("Edit variables") : t("Edit variable") },
+        "-",
+        { id: "top", label: t("Move to top"), disabled: first <= 0 },
+        { id: "up", label: t("Move up"), disabled: first <= 0 },
+        { id: "down", label: t("Move down"), disabled: last < 0 || last >= siblings.length - 1 },
+        { id: "bottom", label: t("Move to bottom"), disabled: last < 0 || last >= siblings.length - 1 },
+        { id: "duplicate", label: many ? t("Duplicate variables") : t("Duplicate"), shortcut: "⇧↵" },
         "-",
         { id: "delete", label: many ? t("Delete {n} variables", { n: ids.length }) : t("Delete variable") },
       ],
       pick: (id) => {
+        if (valuePick(id)) return;
         if (id === "edit" && many) setBulk({ ids, anchor: target });
         else if (id === "edit") setEdit({ id: v.id, anchor: target });
         if (id === "copy") copyVariables(ids);
         if (id === "paste") void paste();
-        if (id === "rename") setRenaming({ kind: "variable", id: v.id });
+        if (id === "top" || id === "up" || id === "down" || id === "bottom") {
+          // Before the group's first row / the row above / after the row below / after the group's last row.
+          const rest = siblings.filter((x) => !ids.includes(x.id));
+          const all = inCollection.filter((x) => !ids.includes(x.id));
+          const below = siblings.slice(last + 1).find((x) => !ids.includes(x.id));
+          const after = (x: Variable | undefined) => (x ? all[all.indexOf(x) + 1] : undefined);
+          const before =
+            id === "top" ? rest[0] : id === "up" ? [...siblings.slice(0, first)].reverse().find((x) => !ids.includes(x.id)) : after(id === "down" ? below : rest[rest.length - 1]);
+          moveVariables(ed, ids, before?.id ?? null);
+        }
         if (id === "duplicate") setSelected(new Set(duplicateVariables(ed, ids)));
         if (id === "group") {
           const path = groupVariables(ed, ids);
@@ -264,7 +326,7 @@ export function LocalVariables() {
   };
 
   const paste = async () => {
-    if (!collection || extended) return;
+    if (!collection || locked) return;
     // What this window copied (aliases between the copies kept), else another file's copy on the system clipboard.
     const text = await clipboardRead();
     const clip = text && text !== copiedText ? readClipboardText(text) : null;
@@ -273,21 +335,28 @@ export function LocalVariables() {
   };
 
   const modeMenu = (c: Collection, modeId: Guid, x: number, y: number) => {
+    if (readOnly) {
+      setMenu({ x, y, entries: [{ id: "export", label: t("Export mode") }], pick: () => void exportModes(ed, c.id, [modeId]) });
+      return;
+    }
     const i = c.modes.findIndex((m) => m.id === modeId);
     // An extended collection inherits its parent's modes: names, order and the default come from the parent.
     const inherited = !!c.parent;
+    // A mode past the plan's limit is read-only (only Delete); none becomes the default while there are too many.
+    const beyond = i >= LIMITS.modes;
+    const full = c.modes.length >= LIMITS.modes;
     setMenu({
       x,
       y,
       entries: [
-        { id: "rename", label: t("Rename mode"), disabled: inherited },
-        { id: "duplicate", label: t("Duplicate mode"), disabled: inherited },
-        { id: "default", label: t("Set as default"), disabled: inherited || i === 0 },
+        { id: "rename", label: t("Rename mode"), disabled: inherited || beyond },
+        { id: "duplicate", label: t("Duplicate mode"), disabled: inherited || full },
+        { id: "default", label: t("Set as default"), disabled: inherited || beyond || i === 0 || c.modes.length > LIMITS.modes },
         "-",
-        { id: "left", label: t("Move column left"), disabled: inherited || i === 0 },
-        { id: "right", label: t("Move column right"), disabled: inherited || i === c.modes.length - 1 },
+        { id: "left", label: t("Move column left"), disabled: inherited || beyond || i === 0 },
+        { id: "right", label: t("Move column right"), disabled: inherited || beyond || i === c.modes.length - 1 || i + 1 >= LIMITS.modes },
         "-",
-        { id: "import", label: t("Import mode") },
+        { id: "import", label: t("Import mode"), disabled: beyond },
         { id: "export", label: t("Export mode") },
         "-",
         // An extension removes a mode only when the parent's mode was deleted (docs/data.md §16.8).
@@ -309,19 +378,21 @@ export function LocalVariables() {
     });
   };
 
-  const collectionMenu = (c: Collection, x: number, y: number) =>
+  const collectionMenu = (c: Collection, x: number, y: number) => {
+    // A library's collection: extended here (a local extension of a library's collection), its modes exported.
+    const library = a.library.collections.some((l) => l.id === c.id);
     setMenu({
       x,
       y,
       entries: [
-        { id: "rename", label: t("Rename collection") },
-        { id: "duplicate", label: t("Duplicate collection"), disabled: !!c.parent },
-        { id: "extend", label: t("Extend collection") },
-        { id: "reorder", label: t("Reorder collections"), disabled: a.collections.length < 2 },
+        { id: "rename", label: t("Rename collection"), disabled: library },
+        { id: "duplicate", label: t("Duplicate collection"), disabled: !!c.parent || library },
+        { id: "extend", label: t("Extend collection"), disabled: !canExtend(c) },
+        { id: "reorder", label: t("Reorder collections"), disabled: a.collections.length < 2 || library },
         "-",
         { id: "export", label: t("Export modes") },
         "-",
-        { id: "delete", label: t("Delete collection") },
+        { id: "delete", label: t("Delete collection"), disabled: library },
       ],
       pick: (id) => {
         if (id === "export") void exportModes(ed, c.id);
@@ -346,17 +417,18 @@ export function LocalVariables() {
         }
       },
     });
+  };
 
   const groupMenu = (g: GroupNode, x: number, y: number) =>
     setMenu({
       x,
       y,
       entries: [
-        { id: "rename", label: t("Rename group"), disabled: extended },
-        { id: "ungroup", label: t("Ungroup"), disabled: extended },
-        { id: "duplicate", label: t("Duplicate group"), disabled: extended },
+        { id: "rename", label: t("Rename group"), disabled: locked },
+        { id: "ungroup", label: t("Ungroup"), disabled: locked },
+        { id: "duplicate", label: t("Duplicate group"), disabled: locked },
         "-",
-        { id: "delete", label: t("Delete group"), disabled: extended },
+        { id: "delete", label: t("Delete group"), disabled: locked },
       ],
       pick: (id) => {
         if (!collection) return;
@@ -375,7 +447,7 @@ export function LocalVariables() {
 
   // ---- Drag to reorder ----------------------------------------------------------------------------------------------
   const startDrag = (e: ReactPointerEvent, v: Variable) => {
-    if (extended || e.button !== 0 || (e.target as Element).closest("input, textarea, button")) return;
+    if (locked || e.button !== 0 || (e.target as Element).closest("input, textarea, button")) return;
     const ids = selected.has(v.id) ? chosen() : [v.id];
     const start = { x: e.clientX, y: e.clientY };
     let dragging = false;
@@ -410,7 +482,7 @@ export function LocalVariables() {
 
   // ---- Drag groups in the sidebar: reorder (the top or bottom of a group row) or nest (its middle) ----------------
   const startGroupDrag = (e: ReactPointerEvent, path: string) => {
-    if (extended || e.button !== 0 || !collection || (e.target as Element).closest("input")) return;
+    if (locked || e.button !== 0 || !collection || (e.target as Element).closest("input")) return;
     const start = { x: e.clientX, y: e.clientY };
     let dragging = false;
     let target: { path: string; where: "before" | "after" | "into" } | null = null;
@@ -458,11 +530,11 @@ export function LocalVariables() {
     } else if (mod && e.code === "KeyV") {
       e.preventDefault();
       void paste();
-    } else if (!extended && (e.key === "Backspace" || e.key === "Delete") && selected.size) {
+    } else if (!locked && (e.key === "Backspace" || e.key === "Delete") && selected.size) {
       e.preventDefault();
       deleteVariables(ed, chosen());
       setSelected(new Set());
-    } else if (!extended && e.key === "Enter" && e.shiftKey && selected.size) {
+    } else if (!locked && e.key === "Enter" && e.shiftKey && selected.size) {
       e.preventDefault();
       setSelected(new Set(duplicateVariables(ed, chosen())));
     } else if (mod && e.code === "KeyA") {
@@ -471,8 +543,9 @@ export function LocalVariables() {
     }
   };
 
-  // Live (rail-variables-table.txt): Name 200, a 280 column per mode, the rest, then 40 for New variable mode / Edit variable.
-  const columns = collection ? `200px repeat(${collection.modes.length}, 280px) minmax(0, 1fr) 40px` : "1fr";
+  // Live (rail-variables-table.txt): Name 200 (resizable), a 280 column per mode, the rest, then 40 for New variable mode / Edit variable.
+  const columns = collection ? `${nameWidth}px repeat(${collection.modes.length}, 280px) minmax(0, 1fr) 40px` : "1fr";
+  const modesFull = !!collection && collection.modes.length >= LIMITS.modes;
   const createMenu: MenuEntry[] = VAR_TYPES.map((vt) => ({ id: vt, label: t(VAR_TYPE_LABEL[vt]), icon: VAR_TYPE_ICON[vt] }));
 
   const groupRows = (nodes: GroupNode[], depth: number): ReactNode =>
@@ -487,7 +560,7 @@ export function LocalVariables() {
           data-group-drop={groupDrop?.path === g.path ? groupDrop.where : undefined}
           onPointerDown={(e) => startGroupDrag(e, g.path)}
           onClick={() => setGroup(g.path)}
-          onDoubleClick={() => setRenaming({ kind: "group", id: g.path })}
+          onDoubleClick={() => !locked && setRenaming({ kind: "group", id: g.path })}
           onContextMenu={(e) => {
             e.preventDefault();
             groupMenu(g, e.clientX, e.clientY);
@@ -523,10 +596,11 @@ export function LocalVariables() {
       tabIndex={-1}
       data-local-variables=""
       data-minimized={minimized || undefined}
+      data-empty={inCollection.length ? undefined : ""}
       onKeyDown={onKeyDown}
       // DTCG files dropped on the view: one new mode per file (help "Modes for variables").
       onDragOver={(e) => {
-        if (!collection || extended || ![...e.dataTransfer.types].includes("Files")) return;
+        if (!collection || locked || ![...e.dataTransfer.types].includes("Files")) return;
         e.preventDefault();
         setDropping(true);
       }}
@@ -535,7 +609,7 @@ export function LocalVariables() {
       }}
       onDrop={(e) => {
         setDropping(false);
-        if (!collection || extended || !e.dataTransfer.files.length) return;
+        if (!collection || locked || !e.dataTransfer.files.length) return;
         e.preventDefault();
         const files = [...e.dataTransfer.files].filter((f) => /\.json$/i.test(f.name));
         void Promise.all(files.map(async (f) => ({ name: f.name, text: await f.text() }))).then((list) => list.length && importModes(ed, collection.id, list));
@@ -583,7 +657,27 @@ export function LocalVariables() {
         <section className={styles.collections} aria-label={t("Variable collections")}>
           <div className={styles.sideHeader}>
             <span className={styles.sideHeading}>{t("Collections")}</span>
-            <IconButton icon="24.adjust.small" label={t("Collections options")} tone="secondary" onClick={(e) => setReorder(e.currentTarget)} />
+            {/* Figma's collections menu (atlas 11 §8.2): All collections / Created in this file, then Sort A to Z */}
+            <span className={styles.sideMenuWrap} data-collections-options="">
+              <MenuButton
+                label={t("Collections options")}
+                className={styles.sideMenu}
+                entries={[
+                  { id: "all", label: t("All collections"), checked: allCollections },
+                  { id: "local", label: t("Created in this file"), checked: !allCollections },
+                  "-",
+                  { id: "sort", label: t("Sort A to Z"), disabled: a.collections.length < 2 },
+                  { id: "reorder", label: t("Reorder collections"), disabled: a.collections.length < 2 },
+                ]}
+                onSelect={(id) => {
+                  if (id === "all" || id === "local") setAllCollections(id === "all");
+                  if (id === "sort") sortCollections(ed);
+                  if (id === "reorder") setReorder(root.current?.querySelector<HTMLElement>("[data-collections-options]") ?? null);
+                }}
+              >
+                <Icon name="24.adjust.small" />
+              </MenuButton>
+            </span>
             <IconButton
               icon="24.plus.small"
               label={t("Create collection")}
@@ -598,7 +692,7 @@ export function LocalVariables() {
               }}
             />
           </div>
-          {a.collections.map((c) => (
+          {listed.map((c) => (
             <div
               key={c.id}
               role="button"
@@ -606,12 +700,13 @@ export function LocalVariables() {
               className={cx(styles.collectionRow, c.parent && styles.sideExtension, collection?.id === c.id && styles.collectionOn)}
               data-collection={c.name}
               data-extension={c.parent ? "" : undefined}
+              data-library={a.library.collections.includes(c) ? "" : undefined}
               onClick={() => {
                 setCollectionId(c.id);
                 setGroup("");
                 setSelected(new Set());
               }}
-              onDoubleClick={() => setRenaming({ kind: "collection", id: c.id })}
+              onDoubleClick={() => !a.library.collections.includes(c) && setRenaming({ kind: "collection", id: c.id })}
               onContextMenu={(e) => {
                 e.preventDefault();
                 collectionMenu(c, e.clientX, e.clientY);
@@ -682,15 +777,17 @@ export function LocalVariables() {
                 <div className={styles.row} role="row">
                   <div className={cx(styles.cell, styles.head, styles.headName)} role="columnheader">
                     {t("Name")}
+                    <ResizeHandle side="right" value={nameWidth} min={NAME_WIDTH_MIN} max={NAME_WIDTH_MAX} defaultValue={NAME_WIDTH} onChange={(px) => setNameWidth(px)} />
                   </div>
                   {collection.modes.map((m, i) => (
                     <div
                       key={m.id}
-                      className={cx(styles.cell, styles.head, styles.modeHead)}
+                      className={cx(styles.cell, styles.head, styles.modeHead, i >= LIMITS.modes && styles.modeDisabled)}
                       role="columnheader"
+                      aria-disabled={i >= LIMITS.modes || undefined}
                       data-mode={m.name}
                       data-default={i === 0 ? "" : undefined}
-                      onDoubleClick={() => !extended && setRenaming({ kind: "mode", id: m.id })}
+                      onDoubleClick={() => !locked && i < LIMITS.modes && setRenaming({ kind: "mode", id: m.id })}
                       onContextMenu={(e) => {
                         e.preventDefault();
                         modeMenu(collection, m.id, e.clientX, e.clientY);
@@ -713,11 +810,13 @@ export function LocalVariables() {
                   ))}
                   <div className={cx(styles.cell, styles.head, styles.filler)} role="columnheader" />
                   <div className={cx(styles.cell, styles.head, styles.addMode)} role="columnheader">
-                    {!extended && (
+                    {!locked && (
                     <IconButton
                       icon="24.plus.small"
-                      label={t("New variable mode")}
+                      // At the limit Figma disables it and names the limit (`reached_hard_mode_limit`; no plan above ours to upgrade to)
+                      label={modesFull ? t("Limited to {n} modes only", { n: LIMITS.modes }) : t("New variable mode")}
                       tone="secondary"
+                      disabled={modesFull}
                       onClick={() => {
                         const id = addMode(ed, collection.id);
                         if (id) setRenaming({ kind: "mode", id });
@@ -744,7 +843,7 @@ export function LocalVariables() {
                       data-drop={drop?.id === r.v.id ? drop.side : undefined}
                       onContextMenu={(e) => {
                         e.preventDefault();
-                        variableMenu(r.v, e.clientX, e.clientY, e.currentTarget.querySelector<HTMLElement>("[data-name-cell]") ?? (e.target as HTMLElement));
+                        variableMenu(r.v, e.clientX, e.clientY, e.currentTarget.querySelector<HTMLElement>("[data-name-cell]") ?? (e.target as HTMLElement), (e.target as HTMLElement).closest<HTMLElement>("[data-value-cell]"));
                       }}
                     >
                       <div
@@ -753,7 +852,7 @@ export function LocalVariables() {
                         data-name-cell={r.v.name}
                         onPointerDown={(e) => startDrag(e, r.v)}
                         onClick={(e) => select(r.v.id, e)}
-                        onDoubleClick={() => !extended && setRenaming({ kind: "variable", id: r.v.id })}
+                        onDoubleClick={() => !locked && setRenaming({ kind: "variable", id: r.v.id })}
                       >
                         <span className={styles.glyph}>
                           <Icon name={VAR_TYPE_ICON[r.v.type]} />
@@ -772,13 +871,13 @@ export function LocalVariables() {
                           onCancel={() => setRenaming(null)}
                         />
                       </div>
-                      {collection.modes.map((m) => (
-                        <ValueEditor key={m.id} variable={r.v} mode={m.id} collection={collection} />
+                      {collection.modes.map((m, i) => (
+                        <ValueEditor key={m.id} variable={r.v} mode={m.id} collection={collection} disabled={readOnly || i >= LIMITS.modes} />
                       ))}
                       <div className={cx(styles.cell, styles.filler)} />
                       {/* Live: Edit variable in the last column, at 8, 8 */}
                       <div className={cx(styles.cell, styles.addMode)} data-edit-cell={r.v.name}>
-                        {!extended && <IconButton icon="24.adjust.small" label={t("Edit variable")} tone="secondary" className={styles.editButton} aria-expanded={edit?.id === r.v.id} onClick={(e) => setEdit({ id: r.v.id, anchor: e.currentTarget })} />}
+                        {!locked && <IconButton icon="24.adjust.small" label={t("Edit variable")} tone="secondary" className={styles.editButton} aria-expanded={edit?.id === r.v.id} onClick={(e) => setEdit({ id: r.v.id, anchor: e.currentTarget })} />}
                       </div>
                     </div>
                   )
@@ -787,7 +886,7 @@ export function LocalVariables() {
               {rows.length === 0 && query && <div className={styles.footer}>{t("No results for “{query}”", { query })}</div>}
             </div>
             {/* Live: "Create variable" 8 from the view's bottom-left corner, over the table */}
-            {!extended && (
+            {!locked && (
               <div className={styles.createBar}>
                 <MenuButton label={t("Create variable")} entries={createMenu} onSelect={(vt) => create(vt as VarType)} className={styles.createButton}>
                   <Icon name="24.plus.small" />
@@ -800,6 +899,17 @@ export function LocalVariables() {
       </main>
 
       {edit && <EditVariablePopover id={edit.id} anchor={edit.anchor} onClose={() => setEdit(null)} />}
+      {aliasing && (
+        <VariablePicker
+          anchor={aliasing.anchor}
+          placement="bottom-start"
+          types={[aliasing.v.type]}
+          exclude={new Set(a.variables.filter((x) => x.type === aliasing.v.type && (x.id === aliasing.v.id || aliasMakesCycle(aliasing.v.id, x.id, a.lookup))).map((x) => x.id))}
+          current={null}
+          onPick={(x) => setVariableValue(ed, aliasing.v.id, aliasing.mode, { kind: "alias", id: x.id })}
+          onClose={() => setAliasing(null)}
+        />
+      )}
       {bulk && <EditVariablesPopover ids={bulk.ids} anchor={bulk.anchor} onClose={() => setBulk(null)} />}
       {reorder && <ReorderCollectionsPopover anchor={reorder} onClose={() => setReorder(null)} />}
       {menu && (

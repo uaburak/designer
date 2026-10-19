@@ -3,6 +3,7 @@
 #pragma once
 
 #include <cstring>
+#include <utility>
 #include <vector>
 
 #include "gfx/Device.h"
@@ -38,9 +39,18 @@ class NullDevice final : public Device {
   void copyToTexture(TextureId texture, IRect rect) override {
     copies++;
     copyRects.push_back(rect);
+    copyAt.push_back(draws.size());
     if (passTexture_ && texture == passTexture_) {
       hazards++;
       reportSampledAttachment("NullDevice", lastPass.target, texture, -1);
+    }
+  }
+  void copyRegionsToTexture(TextureId texture, std::span<const CopyRegion> regions, bool clear) override {
+    copySteps++;
+    if (clear) cleared.push_back(texture);
+    for (const CopyRegion& r : regions) {
+      copyToTexture(texture, r.src);
+      copyPlaces.push_back({r.x, r.y});
     }
   }
   // Textures keep their bytes (tests read them back).
@@ -64,6 +74,10 @@ class NullDevice final : public Device {
   int passes = 0;
   int copies = 0;
   std::vector<IRect> copyRects;  // every copy's rectangle (device px of the pass's target), oldest first
+  std::vector<size_t> copyAt;    // how many of the frame's draws came before each copy (copies taken together share it)
+  int copySteps = 0;                                // copyRegionsToTexture calls
+  std::vector<std::pair<int, int>> copyPlaces;      // where each of their regions landed (texels, rows from the bottom)
+  std::vector<TextureId> cleared;                   // the textures they cleared first
   // Draws that sampled the texture of the pass they drew in (gfx::samplesAttachment: WebGPU drops such a frame).
   int hazards = 0;
 

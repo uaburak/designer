@@ -1,6 +1,7 @@
 // Text layout (docs/engine.md §7.2, §7.4): a TEXT node's characters and styles
 // → shaped glyphs on lines, in the node's space. HarfBuzz shapes runs split by
-// style, script and font coverage (fallback fonts); libunibreak gives the line
+// style, bidi level (text/Bidi.h: right-to-left runs, each line placed in visual
+// order), script and font coverage (fallback fonts); libunibreak gives the line
 // break opportunities (greedy fill, words broken at grapheme boundaries when
 // they don't fit); Figma's line heights (Auto = the font's own, rounded),
 // CSS half-leading, paragraph spacing, alignment, vertical alignment in fixed
@@ -69,6 +70,17 @@ struct LaidLine {
   double caretEnd = 0;         // the caret's x after its last character (trailing spaces included)
   bool paragraphEnd = false;   // ends a paragraph (or the text)
   bool hardEnd = false;        // ends with "\n" (its last unit), so a caret at `end` belongs to the next line
+  // A line with right-to-left text (bidi): its clusters as placed, TextLayout::boxes[firstBox, firstBox + boxCount)
+  // in visual order (0: a left-to-right line, whose carets increase with the index).
+  uint32_t firstBox = 0, boxCount = 0;
+  bool rtl = false;            // in a right-to-left paragraph (its caret ends on the left)
+};
+
+// A cluster as a bidi line places it: UTF-16 [start, end) between x0 and x1 (node space), right to left when `rtl`.
+struct ClusterBox {
+  uint32_t start = 0, end = 0;
+  double x0 = 0, x1 = 0;
+  bool rtl = false;
 };
 
 struct Decoration {
@@ -99,7 +111,8 @@ struct TextLayout {
   std::vector<LaidLine> lines;  // at least one (an empty text has one empty line)
   std::vector<Decoration> decorations;
   std::vector<LinkBox> links;
-  Vec2 size;            // the content's size (Auto width: the widest line; height: the lines and paragraph spacing)
+  std::vector<ClusterBox> boxes;  // bidi lines' clusters (LaidLine::firstBox)
+  Vec2 size;           // the content's size (Auto width: the widest line; height: the lines and paragraph spacing)
   double boxWidth = 0;  // the width alignment used
   double offsetY = 0;   // textAlignVertical's shift in a fixed box (already in the line and glyph positions)
   bool truncated = false;
@@ -127,6 +140,24 @@ struct TextLayout {
       return *this;
     }
   } glyphKey;
+  // What the renderer reads of the glyphs on every draw at low zoom (Renderer::drawText), worked out on first use: the
+  // largest glyph size (every draw), and each line's ink — its glyphs' outline areas at their sizes, the greeked bar's
+  // coverage (greeked draws only: the outlines are read where they were before). Every frame of a zoomed-out page
+  // walked every glyph for them (wave 8). A copy has its own.
+  struct InkCache {
+    mutable bool emKnown = false;
+    mutable float maxEm = 0;
+    mutable bool inkKnown = false;
+    mutable uint32_t fonts = 0;  // the font registry's generation the ink was worked out at (outlines come with faces)
+    mutable std::vector<double> lineInk;
+    InkCache() = default;
+    InkCache(const InkCache&) {}
+    InkCache& operator=(const InkCache&) {
+      emKnown = inkKnown = false;
+      lineInk.clear();
+      return *this;
+    }
+  } ink;
 
   // Caret geometry: the x of the caret before UTF-16 unit `index` on `line`.
   double caretX(uint32_t index, size_t line) const;
@@ -149,6 +180,11 @@ struct LayoutOptions {
 // Fonts are looked up (and requested) as layoutText does.
 void resolveStyles(const NodeProps& p, std::vector<ResolvedStyle>& styles, std::unordered_map<uint32_t, uint16_t>& byId);
 
+// Type settings › Variable's "Set optical size automatically" (Atlas 06 §5.4): unless a text detaches it
+// (detachOpticalSizeFromFontSize), a font's opsz axis follows the font size, clamped into the axis's range — set in
+// `axes` (added when absent, replacing a stored value).
+void followOpticalSize(const Font& font, double fontSize, std::vector<std::pair<uint32_t, float>>& axes);
+
 // The paints a decoration draws with: the underline's own (textDecorationFillPaints) or its run's fills.
 const std::vector<Paint>* decorationFills(const TextLayout& L, const Decoration& d);
 
@@ -159,8 +195,11 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
 // The width/height a TEXT node's layout uses for its own textAutoResize and size.
 LayoutOptions optionsFor(const NodeProps& p, double widthOverride = -1);
 
-// Figma's Auto line height for a font at a size: the font's line height, rounded to whole pixels.
-double autoLineHeight(const Font* font, double fontSize);
+// Figma's Auto line height for a font at a size: the font's line height, rounded to whole pixels unless `whole` is
+// false (an older text, textUserLayoutVersion 0).
+double autoLineHeight(const Font* font, double fontSize, bool whole = true);
+// Whether a text's line heights are whole pixels (textUserLayoutVersion is not 0).
+bool wholePixelLineHeights(const TextFeatures& f);
 // A style's line height in px.
 double lineHeightPx(const ResolvedStyle& s);
 

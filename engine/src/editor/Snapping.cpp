@@ -51,7 +51,9 @@ SnapResult Snapper::snapBox(const Rect& m, double threshold, bool snapX, bool sn
   SnapResult res;
   struct Choice {
     double d = 0;
-    int kind = -1;  // 0 lines, 1 centred between two, 2 a known gap after `before`, 3 a known gap before `after`
+    // 0 lines, 1 centred between two, 2 a known gap after `before`, 3 a known gap before `after`, 4 an implied frame
+    // margin: `before`'s distance from the parent's start (gapLeft 0) or end (1), kept at the other end
+    int kind = -1;
     int before = -1, after = -1, gapLeft = -1, gapRight = -1;
   } choice[2];
 
@@ -111,6 +113,18 @@ SnapResult Snapper::snapBox(const Rect& m, double threshold, bool snapX, bool sn
         consider(lo(boxes_[static_cast<size_t>(after)], a) - gap - hi(m, a), c);
       }
     }
+    // Implied frame margins (Figma's cacheTemporarySnapTargetsForImpliedFrameMargins, Atlas 04 §5.2): the distance a
+    // sibling keeps from one side of the parent frame is offered at the opposite side (after the lines: they win ties).
+    if (container_ && m.intersects(*container_)) {
+      const Rect& C = *container_;
+      for (int i = 0; i < static_cast<int>(boxes_.size()); i++) {
+        const Rect& t = boxes_[static_cast<size_t>(i)];
+        if (!C.containsRect(t)) continue;
+        double start = lo(t, a) - lo(C, a), end = hi(C, a) - hi(t, a);
+        if (start > kSame) consider(hi(C, a) - start - hi(m, a), Choice{0, 4, i, -1, 0});
+        if (end > kSame) consider(lo(C, a) + end - lo(m, a), Choice{0, 4, i, -1, 1});
+      }
+    }
     if (best.kind >= 0) {
       (a == 0 ? res.offset.x : res.offset.y) = best.d;
       (a == 0 ? res.snappedX : res.snappedY) = true;
@@ -127,6 +141,20 @@ SnapResult Snapper::snapBox(const Rect& m, double threshold, bool snapX, bool sn
       continue;
     }
     auto box = [&](int i) -> const Rect& { return boxes_[static_cast<size_t>(i)]; };
+    if (c.kind == 4) {
+      // Both margins measured: the sibling's from its side, the moving box's from the other.
+      const Rect& C = *container_;
+      const Rect& t = box(c.before);
+      int x = 1 - a;
+      if (c.gapLeft == 0) {
+        res.spacings.push_back(mark(a, lo(C, a), lo(t, a), mid(t, x)));
+        res.spacings.push_back(mark(a, hi(placed, a), hi(C, a), mid(placed, x)));
+      } else {
+        res.spacings.push_back(mark(a, hi(t, a), hi(C, a), mid(t, x)));
+        res.spacings.push_back(mark(a, lo(C, a), lo(placed, a), mid(placed, x)));
+      }
+      continue;
+    }
     if (c.kind == 1) {
       res.spacings.push_back(mark(a, hi(box(c.before), a), lo(placed, a), crossMiddle(box(c.before), placed, a, placed)));
       res.spacings.push_back(mark(a, hi(placed, a), lo(box(c.after), a), crossMiddle(placed, box(c.after), a, placed)));

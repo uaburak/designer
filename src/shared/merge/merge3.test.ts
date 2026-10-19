@@ -275,6 +275,15 @@ describe("merge3 — §15.8 corpus", () => {
     const r3 = run(b2, m2, br3, "merge");
     expect(r3.conflicts).toHaveLength(1);
     expect(r3.conflicts[0]).toMatchObject({ kind: "keyed", field: "symbolData", itemKey: `${k(50)}#opacity`, main: 0.2, branch: 0.9 });
+    // One path at two override levels (Figma's overrideLevel): two entries, never merged into one.
+    const m4 = edit(b, upd(41, { symbolData: { symbolID: g(40), symbolOverrides: [ov(50, { opacity: 0.2 })] } }));
+    const br4 = edit(b, upd(41, { symbolData: { symbolID: g(40), symbolOverrides: [ov(50, { overrideLevel: 1, opacity: 0.9 })] } }));
+    const r4 = run(b, m4, br4, "merge");
+    expect(r4.conflicts).toEqual([]);
+    const entries = applied(r4, m4, br4).get(k(41))!.symbolData!.symbolOverrides!;
+    expect(entries).toHaveLength(2);
+    expect(entries.find((o) => !o.overrideLevel)!.opacity).toBe(0.2);
+    expect(entries.find((o) => o.overrideLevel === 1)!.opacity).toBe(0.9);
   });
 
   it("14. componentPropAssignments, componentPropDefs, parameterConsumptionMap, prototypeInteractions per key", () => {
@@ -428,6 +437,25 @@ describe("merge3 — §15.8 corpus", () => {
     expect(r.conflicts).toEqual([]);
     expect(r.chunks.map((c) => c.displayType)).toEqual(["DOCUMENT"]);
     expect(applied(r, edit(b, docUpd("L1")), edit(b, docUpd("L2"))).get("0:0")!.librarySubscriptions!.map((s) => s.libraryKey).sort()).toEqual(["L1", "L2"]);
+  });
+
+  it("change details: each node's fields added / changed / removed; a library copy the other side updated is UPDATED_LIBRARY", () => {
+    const b = baseDoc();
+    const branch = edit(b, upd(11, { opacity: 0.5, name: "B" }), upd(10, { effects: [{ type: "DROP_SHADOW", visible: true } as never] }), node(13, "ELLIPSE", at(g(10), "#")));
+    const chunk = run(b, b, branch, "merge").chunks.find((c) => c.displayNode === k(10))!;
+    const byNode = Object.fromEntries((chunk.details ?? []).map((d) => [d.guid, d]));
+    expect(byNode[k(11)]).toMatchObject({ phase: "updated", name: "B", fields: expect.arrayContaining([{ field: "opacity", change: "added" }, { field: "name", change: "changed" }]) });
+    expect(byNode[k(10)].fields).toEqual([{ field: "effects", change: "added" }]);
+    expect(byNode[k(13)]).toMatchObject({ phase: "created", type: "ELLIPSE" });
+    expect(chunk.libraryUpdate).toBeUndefined();
+    const LIB = "LibraryFileKey00000000";
+    const copy = (version: string, childName: string): NodeChange[] => [
+      node(120, "SYMBOL", at(INTERNAL, "!"), { sourceLibraryKey: LIB, key: "a".repeat(40), version, publishID: g(1, 9) }),
+      node(121, "TEXT", at(g(120), "!"), { name: childName, overrideKey: g(5, 9) }),
+    ];
+    const lb = baseDoc(copy("v3", "three"));
+    const u = run(lb, edit(lb, copy("v4", "four")), lb, "update");
+    expect(u.chunks.map((c) => [c.displayNode, c.phase, c.libraryUpdate])).toEqual([[k(120), null, true]]);
   });
 
   it("19. local asset bookkeeping is main's", () => {

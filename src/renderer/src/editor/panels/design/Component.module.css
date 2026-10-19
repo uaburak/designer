@@ -206,6 +206,12 @@
 
   /* Instance properties: label (88), control (88), the 24 action column (Figma's live rows) */
   .instanceBody { display: flex; flex-direction: column; gap: var(--ds-space-2); margin-top: var(--ds-space-2); }
+  /* A deleted main's full-width button (Restore component, Reset to default) inside the panel's padding */
+  .fullWidth { align-self: stretch; margin: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left); }
+  /* Figma's missing variant panel: its title (strong), its text (secondary), then Reset to default */
+  .missingVariant { gap: var(--ds-space-1); }
+  .missingVariantTitle { padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .missingVariantBody { padding: 0 var(--ds-size-panel-pad-right) var(--ds-space-1) var(--ds-size-panel-pad-left); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
   .propRow {
     display: grid;
     grid-template-columns: var(--ds-size-field) var(--ds-size-field) var(--ds-size-control);
@@ -215,6 +221,22 @@
     padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left);
   }
   .propLabel { min-width: 0; overflow: hidden; color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
+  /* Figma's row overflow: "Show N more" under the four rows shown (its look is not captured: a row-high text button, G) */
+  .showMoreRows {
+    display: flex;
+    align-items: center;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left);
+    border: 0;
+    background: transparent;
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    text-align: left;
+    outline: none;
+  }
+  .showMoreRows:hover { color: var(--figma-color-text); }
+  .showMoreRows:focus-visible { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
   .propControl { display: flex; align-items: center; min-width: 0; }
   .propControl > [data-ds="Select"], .propControl > [data-ds="TextInput"] { flex: 1 1 auto; min-width: 0; }
   .propControl > [data-bound-variable] { flex: 1 1 auto; min-width: 0; }
@@ -343,6 +365,10 @@
     letter-spacing: var(--ds-tracking-body-medium);
   }
   .conflictWarning > svg { flex: none; color: var(--figma-color-icon-warning); }
+  /* Figma's variant error panel: the text, the name format in bold on its own line, then the selection link */
+  .variantErrorBody { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
+  .variantErrorFormat { font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .variantErrorLink { margin-left: calc(var(--ds-space-1) * -1); }
   .limitsList { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-3); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
   .guideline { display: flex; align-items: center; gap: var(--ds-space-1); }
   .guidelineOk { color: var(--figma-color-icon-success); }

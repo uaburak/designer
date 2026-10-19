@@ -165,7 +165,7 @@ export class AiRuns {
     const local = new AbortController();
     const onAbort = () => local.abort(signal.reason);
     signal.addEventListener("abort", onAbort);
-    const ms = this.deps.timeoutMs ?? 180_000;
+    const ms = Math.min(this.deps.timeoutMs ?? 180_000, req.timeoutMs && req.timeoutMs > 0 ? req.timeoutMs : Infinity);
     const timer = setTimeout(() => local.abort(new AiError("timeout", `No answer in ${Math.round(ms / 1000)} s.`)), ms);
     const ctl: AttemptControl = { signal: local.signal, onDelta: (text) => emit({ type: "delta", text }) };
     const cwd = join(this.deps.workDir, `${req.runId.replace(/[^\w-]/g, "_").slice(0, 60)}-${Date.now().toString(36)}`);

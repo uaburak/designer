@@ -1,7 +1,8 @@
 /**
- * The plugin parts of the editor's menus (docs/plugins.md §6): the Figma menu's Plugins ▸ — Run last plugin, Saved
- * plugins ▸, the plugins run here (by their manifest `menu`), Development ▸, Manage plugins… — and the canvas menu's
- * Plugins ▸ (the same run section). A plugin's row id is `plugin:<source>:<id>:<command>`; `runPluginMenuItem` runs it.
+ * The plugin parts of the editor's menus (docs/plugins.md §6), in Figma's order (docs/research/atlas/17-plugins.md
+ * §10.1): the Figma menu's Plugins ▸ — the recent plugins (at most 6, each by its manifest `menu`), Run last plugin,
+ * Saved plugins ▸, From ‹org› ▸, Development ▸, Manage plugins… — and the canvas menu's Plugins ▸ (the same).
+ * A plugin's row id is `plugin:<source>:<id>:<command>`; `runPluginMenuItem` runs it.
  */
 import type { MenuEntry, MenuItem } from "@/ds";
 import type { PluginMenuItem, PluginRef } from "@shared/plugins/types";
@@ -10,6 +11,8 @@ import type { EditorController } from "../controller";
 import { pluginsOf, type PluginService } from "./service";
 
 export const PLUGIN_ITEM = "plugin:";
+/** Figma lists this many recent plugins above Run last plugin */
+const RECENTS_SHOWN = 6;
 
 const itemId = (ref: PluginRef, command: string) => `${PLUGIN_ITEM}${ref.source.type}:${encodeURIComponent(ref.id)}:${encodeURIComponent(command)}`;
 
@@ -27,29 +30,44 @@ function pluginEntry(s: PluginService, ref: PluginRef, disabled: string | null =
   return { id: `submenu:plugin:${ref.id}`, label: ref.name, items: build(menu, "") };
 }
 
-/** Saved plugins ▸, then the plugins run here (recents), as the menu's run section. */
-function runSection(s: PluginService): MenuEntry[] {
-  const snap = s.get();
-  const saved: MenuEntry[] = snap.saved.length ? snap.saved.map((r) => pluginEntry(s, r)) : [{ id: "plugins.none", label: t("No saved plugins"), disabled: true }];
-  const recents = snap.recents.map((r) => pluginEntry(s, r));
-  return [{ id: "submenu:plugins.saved", label: t("Saved plugins"), items: saved }, ...(recents.length ? ["-" as const, ...recents] : [])];
+/** The recent plugins (newest first, at most 6) with a line under them; none: nothing. */
+function recentsSection(s: PluginService): MenuEntry[] {
+  const recents = s.get().recents.slice(0, RECENTS_SHOWN).map((r) => pluginEntry(s, r));
+  return recents.length ? [...recents, "-"] : [];
 }
 
-/** Development ▸ */
+/** Saved plugins ▸ */
+function savedMenu(s: PluginService): MenuItem {
+  const saved = s.get().saved;
+  return { id: "submenu:plugins.saved", label: t("Saved plugins"), items: saved.length ? saved.map((r) => pluginEntry(s, r)) : [{ id: "plugins.none", label: t("No saved plugins"), disabled: true }] };
+}
+
+/** From ‹org› ▸ (the org's private plugins), when it has any */
+function orgMenu(s: PluginService): MenuItem[] {
+  const snap = s.get();
+  if (!snap.organization.length) return [];
+  return [{ id: "submenu:plugins.org", label: snap.orgName ? t("From {name}", { name: snap.orgName }) : t("From your organization"), items: snap.organization.map((e) => pluginEntry(s, e.ref, e.disabled)) }];
+}
+
+/** Development ▸: the plugins, Manage plugins in development; New / Import; the API docs, console, VM and hot reload */
 function development(s: PluginService, item: (id: string, label?: string) => MenuItem): MenuItem {
   const snap = s.get();
   const plugins = snap.development.map((e) => pluginEntry(s, e.ref, e.disabled));
+  const valid = snap.development.some((e) => !e.disabled);
   return {
     id: "submenu:plugins.development",
     label: t("Development"),
     items: [
+      ...plugins,
+      ...(valid ? [item("plugins.manage-development")] : []),
+      ...(plugins.length ? ["-" as const] : []),
       item("plugins.new"),
       item("plugins.import"),
-      ...(plugins.length ? ["-" as const, ...plugins] : []),
       "-",
-      item("plugins.hot-reload"),
-      item("plugins.developer-vm"),
+      item("plugins.api-docs"),
       item("plugins.open-console"),
+      item("plugins.developer-vm"),
+      item("plugins.hot-reload"),
     ],
   };
 }
@@ -58,33 +76,22 @@ function development(s: PluginService, item: (id: string, label?: string) => Men
 export function pluginsMenu(ed: EditorController, item: (id: string, label?: string) => MenuItem): MenuItem {
   const s = pluginsOf(ed);
   if (!s) return { id: "submenu:plugins", label: t("Plugins"), width: 181, items: [item("plugins.run-last"), "-", { id: "submenu:plugins.saved", label: t("Saved plugins"), items: [item("plugins.none")] }, "-", item("plugins.manage")] };
-  const org = s.get().organization;
   return {
     id: "submenu:plugins",
     label: t("Plugins"),
     width: 181,
-    items: [
-      item("plugins.run-last"),
-      "-",
-      ...runSection(s),
-      "-",
-      development(s, item),
-      ...(org.length ? [{ id: "submenu:plugins.org", label: s.get().orgName ? t("From {name}", { name: s.get().orgName! }) : t("From your organization"), items: org.map((e) => pluginEntry(s, e.ref, e.disabled)) } as MenuItem] : []),
-      "-",
-      item("plugins.manage"),
-    ],
+    items: [...recentsSection(s), item("plugins.run-last"), "-", savedMenu(s), ...orgMenu(s), development(s, item), "-", item("plugins.manage")],
   };
 }
 
-/** The canvas menu's Plugins ▸: the run section and Manage plugins…. */
+/** The canvas menu's Plugins ▸: the same as the Figma menu's (Figma builds both from one list, module 381085). */
 export function canvasPluginsMenu(ed: EditorController, item: (id: string, label?: string) => MenuItem): MenuItem {
   const s = pluginsOf(ed);
   if (!s) return { id: "submenu:canvas.plugins", label: t("Plugins"), items: [item("plugins.run-last"), "-", { id: "submenu:plugins.saved", label: t("Saved plugins"), items: [item("plugins.none")] }, "-", item("plugins.manage")] };
-  const dev = s.get().development.map((e) => pluginEntry(s, e.ref, e.disabled));
   return {
     id: "submenu:canvas.plugins",
     label: t("Plugins"),
-    items: [item("plugins.run-last"), "-", ...runSection(s), ...(dev.length ? ["-" as const, { id: "submenu:canvas.plugins.development", label: t("Development"), items: dev } as MenuItem] : []), "-", item("plugins.manage")],
+    items: [...recentsSection(s), item("plugins.run-last"), "-", savedMenu(s), ...orgMenu(s), development(s, item), "-", item("plugins.manage")],
   };
 }
 

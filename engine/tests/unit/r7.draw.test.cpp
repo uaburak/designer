@@ -2,6 +2,7 @@
 // (TRANSFORM, its repeats evaluated, bounded, drawn, hit and exported as their copies), dynamic strokes (the seeded
 // wandering centre line), text on a path (TEXT_PATH: glyphs placed and turned along their path), pattern strokes.
 #include <cmath>
+#include <set>
 #include <string>
 
 #include "base/Json.h"
@@ -333,6 +334,15 @@ TEST_CASE("r7 repeat: SVG and PDF write every copy (not only the source); boolea
   CHECK(count(svg, "<g transform=\"matrix(1 0 0 1 30 0)\">") == 1);
   CHECK(count(svg, "<g transform=\"matrix(1 0 0 1 60 0)\">") == 1);
   CHECK(svg.find("<use") == std::string::npos);
+  // With layer ids, each copy's are its own (an id twice is invalid SVG): the source's, then the next free ones.
+  s.svgIds = true;
+  std::string withIds = exporter::writeSvg(doc, &e, t, s);
+  INFO(withIds);
+  std::vector<std::string> ids;
+  for (size_t at = withIds.find(" id=\""); at != std::string::npos; at = withIds.find(" id=\"", at + 1))
+    ids.push_back(withIds.substr(at + 5, withIds.find('"', at + 5) - at - 5));
+  CHECK(ids.size() >= 3);
+  CHECK(std::set<std::string>(ids.begin(), ids.end()).size() == ids.size());
   std::string pdf = exporter::writePdf(doc, &e, {t}, s, exporter::Rasterize{});
   CHECK(pdf.rfind("%PDF", 0) == 0);
   // A boolean over a transform group: the copies are its operand.

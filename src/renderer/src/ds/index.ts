@@ -11,13 +11,15 @@ export * from "./types";
 export { STRINGS } from "./strings";
 
 export { cx } from "./util/cx";
-export { evaluate, evaluateWith, parseExpression, usesMixed, stripUnit, clampRound, commitTyped, formatNumber, type Committed } from "./util/evaluate";
-export { scrubFrom, scrubSteps, scrubValue, scrubRate, stepValue, SCRUB_PX_PER_STEP, SCRUB_THRESHOLD, SCRUB_SPEEDS } from "./util/scrub";
-export { normalizeHex, parseHexInput, contrastRatio, hexDigits, withOpacity, rgbToHsv, hsvToRgb, rgbToHsl, hslToRgb, rgbToHex, hexToRgba, rgbaToCss, parseCssColor, mixRgba, sameRgba, type RGBA, type HSV, type HSL } from "./util/color";
+export { evaluate, evaluateWith, parseExpression, usesMixed, usesCurrent, stripUnit, clampRound, commitTyped, formatNumber, type Committed } from "./util/evaluate";
+export { scrubFrom, scrubSteps, scrubValue, scrubRate, scrubSpeedLabel, stepValue, SCRUB_PX_PER_STEP, SCRUB_THRESHOLD, SCRUB_SPEEDS } from "./util/scrub";
+export { normalizeHex, namedColor, parseHexInput, parseColor, hexDigitsToRgba, p3ToSrgb, srgbToP3, contrastRatio, hexDigits, withOpacity, rgbToHsv, hsvToRgb, rgbToHsl, hslToRgb, rgbToHex, hexToRgba, rgbaToCss, parseCssColor, mixRgba, sameRgba, type RGBA, type HSV, type HSL } from "./util/color";
 export * from "./util/paint";
+export { autoCorrect, contrastCategoryOf, contrastLines, contrastOf, CONTRAST_RATIOS, isoLuminanceLine, selectionCategory, wcagLuminance, type ContrastCategory, type ContrastLevel } from "./util/contrast";
 export { timeAgo, formatEdited } from "./util/time";
 export { textWidth, clearTextWidths, onFontsLoaded } from "./util/textWidth";
 export { keys, IS_MAC } from "./util/keys";
+export { prefersReducedMotion, glideMs } from "./util/motion";
 export { typeahead, createTypeahead } from "./util/typeahead";
 export { selectAllOnClick } from "./util/selectAll";
 export { ReturnFocusProvider, useReturnFocus } from "./util/returnFocus";

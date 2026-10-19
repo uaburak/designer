@@ -68,7 +68,8 @@ bool showsTitle(const Document& doc, Guid id) {
 }
 
 std::vector<FrameTitle> frameTitles(const Document& doc, Guid page, const Mat2x3& view, const Rect& screen, const OverlayStyle& style,
-                                    const std::function<double(const std::string&, bool)>& measure, Guid focus) {
+                                    const std::function<double(const std::string&, bool)>& measure, Guid focus,
+                                    const std::vector<Guid>& motion) {
   std::vector<FrameTitle> out;
   const Guid thumbnail = thumbnailNode(doc);
   Rect near{screen.x - 200, screen.y - 40, screen.w + 400, screen.h + 80};
@@ -105,7 +106,10 @@ std::vector<FrameTitle> frameTitles(const Document& doc, Guid page, const Mat2x3
           // menu-context-multi-and-smart-selection show the unselected "Button instance" and "Chip instance" bare under
           // the main component's "❖ Button").
           // The file's thumbnail shows Figma's thumbnail glyph before its name (a component's too: the glyph says more).
-          t.icon = c == thumbnail ? TitleIcon::Thumbnail : n->props.isComponentish() ? TitleIcon::Component : TitleIcon::None;
+          t.icon = c == thumbnail                                             ? TitleIcon::Thumbnail
+                   : n->props.isComponentish()                                ? TitleIcon::Component
+                   : std::find(motion.begin(), motion.end(), c) != motion.end() ? TitleIcon::Motion
+                                                                              : TitleIcon::None;
           double x = b.x;
           t.baseline = b.y - style.titleBaselineGap;
           if (t.icon != TitleIcon::None) {

@@ -26,8 +26,10 @@ import { isGrid } from "../../model/grid";
 import { ApplyModeButton, ModeRows, VariableField } from "./Variables";
 import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
 import { IDENTITY, panelPosition, roundPanel, rotateTo, rotationOf, withPanelPosition } from "../../model/geometry";
-import { PANEL_MENU_GAP, fields, hasCorners, isFrameNode, isGroupNode, isInstanceSublayer, typeOf, useKeeps, useParents, useSupports, useTextEditRef, type BlendModeName, type PanelNode } from "./shared";
+import { PANEL_MENU_GAP, fields, hasCorners, isFrameNode, isGroupNode, isInstanceSublayer, previewProps, typeOf, useKeeps, useParents, useSupports, useTextEditRef, type BlendModeName, type PanelNode } from "./shared";
 import { SLIDER_RANGE, SliderRow, useDrawMode } from "../../draw/panels/DrawSliders";
+import { MotionField } from "../../motion/panels/MotionField";
+import { motionPerLayer } from "../../motion/panels/motionWrites";
 import { t, useT } from "@/i18n";
 import styles from "./Design.module.css";
 
@@ -204,21 +206,14 @@ export function PositionSection({ nodes }: { nodes: PanelNode[] }) {
   const x = mixedNumber(pos.map((p) => roundPanel(p.x)));
   const y = mixedNumber(pos.map((p) => roundPanel(p.y)));
   const rotation = mixedNumber(nodes.map((n) => roundPanel(rotationOf(n.transform ?? IDENTITY))));
-  const axis = (a: "x" | "y") =>
-    perLayer(
-      ed,
-      "Position",
-      refs,
-      (n) => panelPosition(n.transform ?? IDENTITY, groupChain(ed, n))[a],
-      (n, v) => ({ transform: withPanelPosition(n.transform ?? IDENTITY, groupChain(ed, n), a === "x" ? v : null, a === "y" ? v : null) })
-    );
-  const rotate = perLayer(
-    ed,
-    "Rotate",
-    refs,
-    (n) => rotationOf(n.transform ?? IDENTITY),
-    (n, deg) => (n.size ? { transform: rotateTo(n.transform ?? IDENTITY, n.size, deg) } : null)
-  );
+  const axisOf = (a: "x" | "y") => (n: PanelNode) => panelPosition(n.transform ?? IDENTITY, groupChain(ed, n))[a];
+  const moveTo = (a: "x" | "y") => (n: PanelNode, v: number) => ({ transform: withPanelPosition(n.transform ?? IDENTITY, groupChain(ed, n), a === "x" ? v : null, a === "y" ? v : null) });
+  const turnOf = (n: PanelNode) => rotationOf(n.transform ?? IDENTITY);
+  const turnTo = (n: PanelNode, deg: number) => (n.size ? { transform: rotateTo(n.transform ?? IDENTITY, n.size, deg) } : null);
+  // Motion mode (docs/motion.md §6.5): the fields show the layer at the playhead; a change lands on its keyframe there.
+  const motion = useUI((s) => s.mode === "motion");
+  const axis = (a: "x" | "y") => (motion ? motionPerLayer(ed, "Position", refs, axisOf(a), moveTo(a), a, exitToCanvas(ed)) : perLayer(ed, "Position", refs, axisOf(a), moveTo(a)));
+  const rotate = motion ? motionPerLayer(ed, "Rotate", refs, turnOf, turnTo, "rotation", exitToCanvas(ed)) : perLayer(ed, "Rotate", refs, turnOf, turnTo);
   const container = nodes.length === 1 && (isGroupNode(nodes[0]) || typeOf(nodes[0]) === "BOOLEAN_OPERATION" || (typeOf(nodes[0]) === "FRAME" && !isAutoLayout(nodes[0])));
   // A layer inside an instance keeps its place and turn (live design/nested-instance.txt); a layer in an auto-layout
   // flow keeps its place (autolayout-child, grid-child: X / Y disabled); a text being edited keeps its turn
@@ -270,13 +265,27 @@ export function PositionSection({ nodes }: { nodes: PanelNode[] }) {
           </PropertyRow>
         )}
         <PropertyRow label={t("Position")} action={constraints && !section ? <ConstraintsToggle /> : undefined}>
-          <NumericInput label={t("X-position")} prefix="X" prefixTone="primary" disabled={placeLocked} className={styles.plainDisabled} value={fieldValue(x)} {...axis("x")} />
-          <NumericInput label={t("Y-position")} prefix="Y" prefixTone="primary" disabled={placeLocked} className={styles.plainDisabled} value={fieldValue(y)} {...axis("y")} />
+          <MotionField field="TRANSLATION_XY" axis="TRANSLATION_X">
+            {/* X / Y / Rotation take number variables shown in all properties (the TRANSFORM scope, atlas 11 §5.3) */}
+            <VariableField nodes={nodes} fields={["X_POSITION"]} prefix="X" disabled={placeLocked || motion}>
+              <NumericInput label={t("X-position")} prefix="X" prefixTone="primary" disabled={placeLocked} className={styles.plainDisabled} value={fieldValue(x)} {...axis("x")} />
+            </VariableField>
+          </MotionField>
+          <MotionField field="TRANSLATION_XY" axis="TRANSLATION_Y">
+            <VariableField nodes={nodes} fields={["Y_POSITION"]} prefix="Y" disabled={placeLocked || motion}>
+              <NumericInput label={t("Y-position")} prefix="Y" prefixTone="primary" disabled={placeLocked} className={styles.plainDisabled} value={fieldValue(y)} {...axis("y")} />
+            </VariableField>
+          </MotionField>
         </PropertyRow>
         {constraints && !section && constraintsOpen && <ConstraintsRow nodes={nodes} />}
         {!section && (
           <PropertyRow label={t("Rotation")}>
-            <NumericInput label={t("Rotation")} prefix="24.rotation" unit="°" disabled={locked} className={styles.plainDisabled} value={fieldValue(rotation)} min={-360} max={360} {...rotate} />
+            <MotionField field="ROTATION">
+              {/* ⇧ ↑ ↓ by 15° (Figma's rotation field: nudges 1 / 15, Atlas 04 §7.2) */}
+              <VariableField nodes={nodes} fields={["ROTATION"]} prefix="24.rotation" disabled={locked || motion}>
+                <NumericInput label={t("Rotation")} prefix="24.rotation" unit="°" disabled={locked} className={styles.plainDisabled} value={fieldValue(rotation)} min={-360} max={360} bigStep={15} {...rotate} />
+              </VariableField>
+            </MotionField>
             <div className={styles.buttonGroup}>
               <GroupButton id="object.rotate-90-right" icon="24.rotate" disabled={locked || editingText || undefined} />
               <GroupButton id="object.flip-horizontal" icon="24.flip.horizontal.small" disabled={locked || editingText || undefined} />
@@ -344,6 +353,8 @@ const PLAIN_RADIUS = new Set(["TEXT", "LINE", "ELLIPSE"]);
 
 /** Figma's iOS corner smoothing preset (help 360050986854). */
 export const IOS_SMOOTHING = 60;
+/** The corner smoothing slider's ⇧ + arrow keys: which way each steps. */
+const BIG_STEP_KEYS: Record<string, number> = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 };
 
 export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
   useT();
@@ -365,6 +376,7 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
   ];
   const blendOptions = [{ value: "PASS_THROUGH", label: t("Pass through") }, ...BLEND_MODES.filter((m): m is Exclude<(typeof BLEND_MODES)[number], "-"> => m !== "-").map((m) => ({ value: m, label: t(BLEND_LABEL[m]) }))];
   const polygons = nodes.filter((n) => typeOf(n) === "REGULAR_POLYGON" || typeOf(n) === "STAR");
+  const ellipses = nodes.length > 0 && nodes.every((n) => typeOf(n) === "ELLIPSE");
   const stars = polygons.length > 0 && polygons.every((n) => typeOf(n) === "STAR");
   const countKept = useKeeps("count");
   const opacity = mixedNumber(nodes.map((n) => Math.round((n.opacity ?? 1) * 100)));
@@ -444,7 +456,7 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
             span={2}
             action={<IconButton icon="24.minus.small" label={t("Remove blend mode")} tone="secondary" onClick={() => ed.setProps(refs, fields({ blendMode: "PASS_THROUGH" }), "Blend mode")} />}
           >
-            <Select label={t("Blend mode")} value={blend ?? MIXED} placeholder={blendLabel(blend)} options={blendOptions} onChange={(v) => ed.setProps(refs, fields({ blendMode: v as BlendModeName }), "Blend mode")} />
+            <Select label={t("Blend mode")} value={blend ?? MIXED} placeholder={blendLabel(blend)} options={blendOptions} onChange={(v) => ed.setProps(refs, fields({ blendMode: v as BlendModeName }), "Blend mode")} onPreview={previewProps(ed, refs, "Blend mode", (v) => fields({ blendMode: v as BlendModeName }))} />
           </PropertyRow>
         )}
         <PropertyRow
@@ -457,12 +469,16 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
             )
           }
         >
-          <VariableField nodes={nodes} fields={["OPACITY"]} prefix="24.opacity">
-            <NumericInput label={t("Opacity")} prefix="24.opacity" unit="%" precision={0} min={0} max={100} value={fieldValue(opacity)} {...opacityHandlers} />
-          </VariableField>
-          <VariableField nodes={nodes} fields={ALL_CORNERS} prefix="24.corners" disabled={independentNow}>
-            <NumericInput label={t("Corner radius")} prefix="24.corners" min={signedOk ? undefined : 0} disabled={plainOnly} value={independentNow ? MIXED : fieldValue(radius)} {...radiusHandlers} />
-          </VariableField>
+          <MotionField field="OPACITY">
+            <VariableField nodes={nodes} fields={["OPACITY"]} prefix="24.opacity">
+              <NumericInput label={t("Opacity")} prefix="24.opacity" unit="%" precision={0} min={0} max={100} value={fieldValue(opacity)} {...opacityHandlers} />
+            </VariableField>
+          </MotionField>
+          <MotionField field="CORNER_RADIUS" disabled={plainOnly}>
+            <VariableField nodes={nodes} fields={ALL_CORNERS} prefix="24.corners" disabled={independentNow}>
+              <NumericInput label={t("Corner radius")} prefix="24.corners" min={signedOk ? undefined : 0} disabled={plainOnly} value={independentNow ? MIXED : fieldValue(radius)} {...radiusHandlers} />
+            </VariableField>
+          </MotionField>
         </PropertyRow>
         {drawMode && (
           <SliderRow
@@ -487,6 +503,7 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
           </>
         )}
         {polygons.length > 0 && countKept && <CountRow nodes={polygons} stars={stars} />}
+        {drawMode && ellipses && <ArcRow nodes={nodes} />}
       </PropertyGrid>
       {!drawMode && <ModeRows refs={refs} />}
     </PanelSection>
@@ -499,11 +516,58 @@ function CountRow({ nodes, stars }: { nodes: PanelNode[]; stars: boolean }) {
   const ed = useEditor();
   const refs = nodes.map((n) => n.guid);
   const count = perLayer(ed, "Count", refs, (n) => n.count ?? (typeOf(n) === "STAR" ? 5 : 3), (_, v) => fields({ count: Math.max(3, Math.min(60, Math.round(v))) }), (v) => Math.max(3, Math.min(60, v)));
-  const ratio = perLayer(ed, "Ratio", refs, (n) => (n.starInnerScale ?? 0.382) * 100, (_, v) => fields({ starInnerScale: Math.max(0, Math.min(100, v)) / 100 }), (v) => Math.max(0, Math.min(100, v)));
+  // Ratio from 0.1 % (Figma's field: min 0.001, resolution 0.001).
+  const ratio = perLayer(ed, "Ratio", refs, (n) => (n.starInnerScale ?? 0.382) * 100, (_, v) => fields({ starInnerScale: Math.max(0.1, Math.min(100, v)) / 100 }), (v) => Math.max(0.1, Math.min(100, v)));
   return (
     <PropertyRow labels={stars ? [t("Count"), t("Ratio")] : undefined} label={stars ? undefined : t("Count")}>
-      <NumericInput label={t("Count")} prefix="24.polygon" min={3} max={60} precision={0} value={fieldValue(mixedNumber(nodes.map((n) => n.count ?? (typeOf(n) === "STAR" ? 5 : 3))))} {...count} />
-      {stars ? <NumericInput label={t("Ratio")} prefix="24.star.outline" unit="%" min={0} max={100} precision={1} value={fieldValue(mixedNumber(nodes.map((n) => Math.round((n.starInnerScale ?? 0.382) * 1000) / 10)))} {...ratio} /> : <span />}
+      <VariableField nodes={nodes} fields={["POLYGON_COUNT"]} prefix="24.polygon">
+        <NumericInput label={t("Count")} prefix="24.polygon" min={3} max={60} precision={0} value={fieldValue(mixedNumber(nodes.map((n) => n.count ?? (typeOf(n) === "STAR" ? 5 : 3))))} {...count} />
+      </VariableField>
+      {stars ? <NumericInput label={t("Ratio")} prefix="24.star.outline" unit="%" min={0.1} max={100} precision={1} value={fieldValue(mixedNumber(nodes.map((n) => Math.round((n.starInnerScale ?? 0.382) * 1000) / 10)))} {...ratio} /> : <span />}
+    </PropertyRow>
+  );
+}
+
+const TWO_PI = 2 * Math.PI;
+/** An ellipse's arc as the Arc row shows it: Start (degrees), Sweep and Ratio (%); a full ellipse is 0° / 100 % / 0 %. */
+export function arcFields(n: PanelNode): { start: number; sweep: number; ratio: number } {
+  const a = n.arcData;
+  const from = a?.startingAngle ?? 0;
+  const to = a?.endingAngle ?? TWO_PI;
+  const span = from === 0 && to === 0 ? TWO_PI : to - from;
+  return { start: (from * 180) / Math.PI, sweep: (span / TWO_PI) * 100, ratio: (a?.innerRadius ?? 0) * 100 };
+}
+
+/** The arc written back from the row's values (Start in degrees; Sweep −100…100 %, the end from the start; Ratio 0…100 %). */
+export function arcFromFields(start: number, sweep: number, ratio: number) {
+  const from = (start * Math.PI) / 180;
+  const s = Math.max(-100, Math.min(100, sweep)) / 100;
+  return { startingAngle: from, endingAngle: from + s * TWO_PI, innerRadius: Math.max(0, Math.min(100, ratio)) / 100 };
+}
+
+/**
+ * Draw's "Arc" row for ellipses (Figma's properties.label.arc, docs/draw.md §5.3 — Design's live ellipse panel has
+ * none): Start, Sweep and Ratio in one row (Figma names each by a tooltip; here by its accessible label); Sweep from
+ * −100 %, Sweep and Ratio shown to 0.1 %.
+ */
+function ArcRow({ nodes }: { nodes: PanelNode[] }) {
+  useT();
+  const ed = useEditor();
+  const refs = nodes.map((n) => n.guid);
+  const values = nodes.map(arcFields);
+  const write = (label: string, get: (f: ReturnType<typeof arcFields>) => number, set: (f: ReturnType<typeof arcFields>, v: number) => ReturnType<typeof arcFields>, clamp: (v: number) => number) =>
+    perLayer(ed, label, refs, (n) => get(arcFields(n)), (n, v) => {
+      const f = set(arcFields(n), clamp(v));
+      return fields({ arcData: arcFromFields(f.start, f.sweep, f.ratio) });
+    }, clamp);
+  const start = write("Arc", (f) => f.start, (f, v) => ({ ...f, start: v }), (v) => v);
+  const sweep = write("Arc", (f) => f.sweep, (f, v) => ({ ...f, sweep: v }), (v) => Math.max(-100, Math.min(100, v)));
+  const ratio = write("Arc", (f) => f.ratio, (f, v) => ({ ...f, ratio: v }), (v) => Math.max(0, Math.min(100, v)));
+  return (
+    <PropertyRow label={t("Arc")} columns="minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)" data-arc-row="">
+      <NumericInput label={t("Start")} prefix="24.rotation" unit="°" precision={2} value={fieldValue(mixedNumber(values.map((v) => v.start)))} {...start} />
+      <NumericInput label={t("Sweep")} unit="%" min={-100} max={100} precision={1} value={fieldValue(mixedNumber(values.map((v) => v.sweep)))} {...sweep} />
+      <NumericInput label={t("Ratio")} unit="%" min={0} max={100} precision={1} value={fieldValue(mixedNumber(values.map((v) => v.ratio)))} {...ratio} />
     </PropertyRow>
   );
 }
@@ -539,7 +603,17 @@ export function CornerSmoothingButton({ nodes }: { nodes: PanelNode[] }) {
                 style={{ ["--fill" as string]: `${slider}%` }}
                 onChange={(e) => handlers.onChange(Number(e.currentTarget.value), { final: false, source: "drag" })}
                 onPointerUp={(e) => handlers.onChange(Number(e.currentTarget.value), { final: true, source: "drag" })}
-                onKeyUp={(e) => handlers.onChange(Number(e.currentTarget.value), { final: true, source: "step" })}
+                onKeyDown={(e) => {
+                  // ⇧ + an arrow: Figma's big step, 10 % (its slider: step 0.01, big step 0.1).
+                  const dir = BIG_STEP_KEYS[e.key];
+                  if (!e.shiftKey || !dir) return;
+                  e.preventDefault();
+                  handlers.onChange(Math.max(0, Math.min(100, slider + dir * 10)), { final: true, source: "step" });
+                }}
+                onKeyUp={(e) => {
+                  if (e.shiftKey && BIG_STEP_KEYS[e.key]) return;
+                  handlers.onChange(Number(e.currentTarget.value), { final: true, source: "step" });
+                }}
               />
               <button type="button" className={cx(styles.iosMark, slider === IOS_SMOOTHING && styles.iosOn)} style={{ left: `${IOS_SMOOTHING}%` }} aria-label={t("iOS corner smoothing (60%)")} onClick={() => handlers.onChange(IOS_SMOOTHING, { final: true, source: "pick" })}>
                 iOS

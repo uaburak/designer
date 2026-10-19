@@ -1,0 +1,24 @@
+DIFF     [X-position]  live 16,108 88x24  ours 40,108 64x24
+MISSING  40,108 64x24 input = [X-position] r=5px DISABLED
+DIFF     [Y-position]  live 112,108 88x24  ours 136,108 64x24
+MISSING  136,108 64x24 input = [Y-position] r=5px DISABLED
+MISSING  15,173 65x13 "No mirroring" 11px/400 #ffffff
+MISSING  76,173 63x13 "Mirror angle" 11px/400 #ffffff
+MISSING  138,173 121x13 "Mirror angle and length" 11px/400 #ffffff
+MISSING  39,302 28x13 "Color" 11px/450 #ffffff
+DIFF     "%" 11px/450  live 156,295 9x13  ours 156,294 11x14
+MISSING  192,302 82x13 "Toggle visibility" 11px/450 #ffffff
+MISSING  39,387 28x13 "Color" 11px/450 #ffffff
+DIFF     "%" 11px/450  live 156,380 9x13  ours 156,379 11x14
+MISSING  192,387 82x13 "Toggle visibility" 11px/450 #ffffff
+MISSING  15,425 61x13 "Stroke align" 11px/400 #ffffff
+DIFF     [Stroke weight]  live 100,424 72x24  ours 124,424 48x24
+MISSING  124,424 47x24 input =1 [Stroke weight] r=2px
+EXTRA    0,0 240x245 section [Vector]
+EXTRA    16,156 184x24 radiogroup [Mirroring] bg=#383838 r=5px
+EXTRA    40,204 64x24 input =0 [Corner radius]
+EXTRA    0,245 240x85 section [Fill]
+EXTRA    118,289 38x24 input =100 [Color opacity]
+EXTRA    0,330 240x135 section [Stroke]
+EXTRA    118,374 38x24 input =100 [Color opacity]
+EXTRA    16,424 76x24 combobox [Stroke align] r=5px

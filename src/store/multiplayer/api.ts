@@ -40,7 +40,7 @@ export function multiplayerApi(m: MultiplayerService, owner?: object): Multiplay
     presence: (fileKey, data) => m.presence(fileKey, data),
     watch: (listener) => {
       const a = m.onFileState((fileKey, state) => listener({ fileKey, state }));
-      const b = m.onReplaced((from, to) => void m.fileState(from).then((state) => listener({ fileKey: from, state, replacedBy: to })));
+      const b = m.onReplaced((from, to, why) => void m.fileState(from).then((state) => listener({ fileKey: from, state, replacedBy: to, replacedWhy: why })));
       const c = m.onNotice((fileKey, notice) => void m.fileState(fileKey).then((state) => listener({ fileKey, state, notice })));
       const d = m.onSignal((fileKey, from, data) => void m.fileState(fileKey).then((state) => listener({ fileKey, state, signal: { from, data } })));
       const e = m.onPolicy((fileKey, policy) => void m.fileState(fileKey).then((state) => listener({ fileKey, state, policy })));

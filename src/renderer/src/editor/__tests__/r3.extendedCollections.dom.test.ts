@@ -153,10 +153,10 @@ describe("extended collections (docs/data.md §16.8)", () => {
     engine.destroy();
   });
 
-  it("chains: an extension may be extended, at most 16 deep (\"Can't extend further\")", async () => {
+  it("chains: an extension may be extended, at most 10 sets with the root (\"Can't extend further\", atlas 11 §3.1)", async () => {
     const { ed, engine } = await editor();
     let top = THEME;
-    for (let i = 1; i <= LIMITS.extensionDepth; i++) {
+    for (let i = 1; i < LIMITS.extensionChain; i++) {
       const next = extendCollection(ed, top);
       expect(next, `level ${i}`).toBeTruthy();
       top = next!;
@@ -168,19 +168,20 @@ describe("extended collections (docs/data.md §16.8)", () => {
     engine.destroy();
   });
 
-  it("the mode cap: past 40 modes, refused at 1,000 with Figma's wording", async () => {
+  it("the mode cap: Enterprise's 40 (atlas 11 §3.1), refused past it with Figma's wording", async () => {
     const { ed, engine } = await editor();
-    expect(LIMITS.modes).toBe(1000);
-    for (let i = collection(ed, THEME).modes.length; i < 41; i++) expect(addMode(ed, THEME)).toBeTruthy();
-    expect(collection(ed, THEME).modes).toHaveLength(41);
-    // A collection at the cap (written as one change): the next is refused
+    expect(LIMITS.modes).toBe(40);
+    for (let i = collection(ed, THEME).modes.length; i < 40; i++) expect(addMode(ed, THEME)).toBeTruthy();
+    expect(collection(ed, THEME).modes).toHaveLength(40);
+    expect(addMode(ed, THEME)).toBeNull();
+    expect(toasts).toContain("Limited to 40 modes only");
+    // A file bringing more (written as one change) keeps them
     const c = collection(ed, THEME);
-    const modes = Array.from({ length: 1000 }, (_, i) => ({ id: { sessionID: 9, localID: i + 1 }, name: `Mode ${i + 1}`, sortPosition: `a${String(i).padStart(4, "0")}` }));
+    const modes = Array.from({ length: 42 }, (_, i) => ({ id: { sessionID: 9, localID: i + 1 }, name: `Mode ${i + 1}`, sortPosition: `a${String(i).padStart(4, "0")}` }));
     ed.engine.applyChanges({ type: "NODE_CHANGES", sessionID: 1, nodeChanges: [{ guid: c.id, variableSetModes: modes } as never] }, "user");
     ed.variables.invalidate();
-    expect(collection(ed, THEME).modes).toHaveLength(1000);
+    expect(collection(ed, THEME).modes).toHaveLength(42);
     expect(addMode(ed, THEME)).toBeNull();
-    expect(toasts).toContain("Limited to 1000 modes only");
     engine.destroy();
   });
 });

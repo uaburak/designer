@@ -3,7 +3,7 @@
  * touch pinch zooms and pans), the wheel (pinch arrives as ctrlKey + wheel;
  * its source and Windows notches by Figma's rules, pointerInput.ts), keys (the engine first, then the
  * shortcut table), focus, the canvas's size in CSS and device pixels, cursors,
- * WebGL context loss and the move to a new canvas after a WebGPU failure.
+ * WebGL context loss (with Figma's restore polls, contextLoss.ts) and the move to a new canvas after a WebGPU failure.
  * Every event goes straight to the engine — no React state on the way, so
  * input latency is one call.
  *
@@ -28,6 +28,7 @@ import {
   WHEEL_PINCH,
   WHEEL_TRACKPAD,
 } from "./abi";
+import { ContextRestorer, restorableContext } from "./contextLoss";
 import { cssCursor } from "./cursors";
 import type { Engine } from "./Engine";
 import { CLICK_MS, pinchDelta, TouchPinch, WheelNormalizer, withinClickBox } from "./pointerInput";
@@ -53,6 +54,8 @@ export interface CanvasControllerOptions {
   shortcuts?: readonly Shortcut[];
   /** A key the engine didn't use while a text is edited (true: it was taken). */
   onTextKey?: (e: KeyboardEvent) => boolean;
+  /** Text pasted while a text is edited, before it goes in (true: it was taken — a link onto selected characters). */
+  onTextPaste?: (text: string) => boolean;
 }
 
 export class CanvasController {
@@ -60,6 +63,7 @@ export class CanvasController {
   private readonly engine: Engine;
   private readonly shortcuts: readonly Shortcut[];
   private readonly onTextKey?: (e: KeyboardEvent) => boolean;
+  private readonly onTextPaste?: (text: string) => boolean;
   private readonly cleanups: (() => void)[] = [];
   private textarea: HTMLTextAreaElement | null = null;
   private readonly wheelInput = new WheelNormalizer({ mac: IS_MAC, windows: IS_WINDOWS });
@@ -70,6 +74,7 @@ export class CanvasController {
     this.engine = engine;
     this.shortcuts = options.shortcuts ?? DEFAULT_SHORTCUTS;
     this.onTextKey = options.onTextKey;
+    this.onTextPaste = options.onTextPaste;
   }
 
   /** Starts listening; returns the detach. */
@@ -89,6 +94,10 @@ export class CanvasController {
     this.listen(c, "keyup", this.onKeyUp);
     this.listen(c, "blur", this.onBlur);
     this.listen(c, "contextmenu", (e: Event) => e.preventDefault());
+    // A lost WebGL context: Figma's restore polls (contextLoss.ts); one that won't come back is the engine's GPU error.
+    const gl = restorableContext(c);
+    this.restorer = gl ? new ContextRestorer(gl, (message) => this.engine.reportGfxError(message)) : null;
+    this.cleanups.push(() => this.restorer?.dispose());
     this.listen(c, "webglcontextlost", this.onContextLost);
     this.listen(c, "webglcontextrestored", this.onContextRestored);
     // A WebGPU failure moves the engine to a fresh canvas (Engine.gfxFallback): input follows it.
@@ -286,7 +295,7 @@ export class CanvasController {
       e.preventDefault();
       e.stopPropagation();
       const text = e.clipboardData?.getData("text/plain") ?? "";
-      if (text) this.engine.textInput(text.replace(/\r\n?/g, "\n"));
+      if (text && !this.onTextPaste?.(text)) this.engine.textInput(text.replace(/\r\n?/g, "\n"));
     });
     document.body.appendChild(t);
     this.textarea = t;
@@ -353,10 +362,17 @@ export class CanvasController {
 
   private readonly onBlur = () => this.engine.blur();
 
+  private restorer: ContextRestorer | null = null;
+
   private readonly onContextLost = (e: Event) => {
     e.preventDefault(); // allows the restore
+    e.stopImmediatePropagation();
     this.engine.contextLost();
+    this.restorer?.lost();
   };
 
-  private readonly onContextRestored = () => this.engine.contextRestored();
+  private readonly onContextRestored = () => {
+    this.restorer?.restored();
+    this.engine.contextRestored();
+  };
 }

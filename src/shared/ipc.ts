@@ -16,7 +16,7 @@ import type { CommandId, MenuStatePatch } from "./commands";
 import type { SharedFontFace, SharedFontsChannels } from "./fonts/sharedTypes";
 import type { PluginBundle, PluginManifest } from "./plugins/types";
 import type { ShortcutSettings } from "./shortcuts";
-import type { TabKind, TabReport, TabStatus } from "./tabs";
+import type { TabGroup, TabKind, TabReport, TabStatus } from "./tabs";
 import type { Locale } from "./i18n";
 import type { FigmaImage, FigmaResult, FigmaUser } from "./figmaApi";
 
@@ -42,8 +42,11 @@ export interface InitInfo {
 export interface ThemeState {
   preference: ThemePreference;
   resolved: "light" | "dark";
-  /** Settings › Account › "Enhance contrast" (docs/design-system.md §2.5): the high-contrast tokens on every view */
+  /** Settings › Account › "Enhance contrast" (docs/design-system.md §2.5): the high-contrast tokens on every view — as set,
+   *  else the system's (atlas 21 §4.1) */
   contrast: boolean;
+  /** Preferences › Accessibility settings › Underline links: `data-underline-links` on every view's body */
+  underlineLinks: boolean;
 }
 
 /** A native menu's item, as a view asks for it (`menu:popup`): plain data, built into an Electron menu by main. */
@@ -64,6 +67,27 @@ export interface TabInfo {
   fileKey?: string;
   title: string;
   status: TabStatus;
+  pinned?: boolean;
+  groupId?: string;
+  /** A split tab (atlas 01 §2.3): the tab shown beside it */
+  splitWith?: string;
+}
+
+/**
+ * The card under a hovered tab (atlas 01 §2.2), drawn by the window's preview view (`?tabpreview`): the file's
+ * thumbnail, its name, when it was edited (or last viewed) and its memory — or what offloading it freed.
+ */
+export interface TabPreview {
+  tabId: string;
+  title: string;
+  kind: "design" | "prototype";
+  /** The thumbnail's address (app://designer/_thumb/…), when the file has one */
+  image: string | null;
+  time: { kind: "edited" | "viewed"; at: number } | null;
+  /** Its renderer's working set, or what offloading it freed, in MB */
+  memory: { kind: "usage" | "freed"; mb: number } | null;
+  /** Shown at once (the bar has keyboard focus, or a card was showing already) instead of after the hover delay */
+  immediate: boolean;
 }
 
 export interface TabsSnapshot {
@@ -72,6 +96,8 @@ export interface TabsSnapshot {
   activeTabId: string;
   canReopen: boolean;
   fullScreen: boolean;
+  /** The tab groups (atlas 01 §2.3), in the bar's order of their tabs */
+  groups: TabGroup[];
 }
 
 export interface WindowState {
@@ -301,7 +327,7 @@ export interface IpcInvoke extends SharedFontsChannels {
   /** .fig files into a folder (null: Drafts): the given paths, or the ones picked in the system's Open dialog */
   "file:import": { args: [{ folderId: string | null; paths?: string[] }]; result: ImportResult };
   /** A file written out as a .fig where the system's Save dialog says */
-  "file:save-local-copy": { args: [{ fileKey: string }]; result: { path: string } | { cancelled: true } };
+  "file:save-local-copy": { args: [{ fileKey: string; partial?: boolean }]; result: { path: string } | { cancelled: true } };
   /**
    * Exported files (File › Export…, the Design panel's Export section, Export frames to PDF): one through the system's
    * Save dialog, more into a folder picked in its Open dialog; names with "/" make folders, a name already taken
@@ -317,6 +343,8 @@ export interface IpcInvoke extends SharedFontsChannels {
   "theme:set": { args: [ThemePreference]; result: ThemeState };
   /** "Enhance contrast" on or off: main keeps it (settings.json) and tells every view (`theme:changed`) */
   "theme:set-contrast": { args: [boolean]; result: ThemeState };
+  /** Accessibility settings › Underline links on or off: kept and told the same way */
+  "theme:set-underline-links": { args: [boolean]; result: ThemeState };
   /** The UI's language (Settings › Account › Language): main keeps it (settings.json), tells every view (`locale:changed`) and rebuilds the menu bar */
   "locale:set": { args: [Locale]; result: Locale };
   /** The updater's state (docs/desktop.md §12.6), for the tab bar */
@@ -451,6 +479,9 @@ export interface IpcInvoke extends SharedFontsChannels {
   "agents:update-connector": { args: [{ id: string; enabled?: boolean; policies?: Record<string, ConnectorToolPolicy> }]; result: Connector[] };
   "agents:remove-connector": { args: [{ id: string }]; result: Connector[] };
   "agents:test-connector": { args: [{ id: string }]; result: Connector };
+  /** An OAuth connector (a server answering with a Bearer challenge): the sign-in in the owner's browser, then a test */
+  "agents:sign-in-connector": { args: [{ id: string }]; result: Connector };
+  "agents:sign-out-connector": { args: [{ id: string }]; result: Connector[] };
   // ── Agents' reach (docs/agents-reach.md): Agent settings › Access ──
   "agents:access": { args: []; result: ReachView };
   "agents:set-access": { args: [ReachPatch]; result: ReachView };
@@ -497,6 +528,16 @@ export interface IpcSend {
   /** Windows: the tab bar's main menu button — the app's menu, popped up at (x, y) in the bar */
   "tabs:main-menu": { x: number; y: number };
   "tabs:reopen": void;
+  /** "+" (⌘T): the new-tab page in a new tab (atlas 01 §3) */
+  "tabs:new-tab": void;
+  /** A tab group's header pressed with the right button: its native menu (Edit group name, Group color, Ungroup, Delete group) */
+  "tabs:group-menu": { groupId: string; x: number; y: number };
+  /** The group's name typed in the bar (after Edit group name) */
+  "tabs:group-rename": { groupId: string; name: string };
+  /** The tabs menu at the bar's right end ("Open and recently closed tabs"), popped up at (x, y) */
+  "tabs:list-menu": { x: number; y: number };
+  /** The pointer (or the keyboard's focus) on a tab: its preview card under the bar from x; null: none */
+  "tabs:hover": { tabId: string | null; x: number; keyboard?: boolean };
   /** "Check for Updates…" from the tab bar (docs/desktop.md §12.6) */
   "updater:check": void;
   /** "Restart to update": the app's normal quit (every file flushed, the store shut down), then the update installs and the app opens again */
@@ -520,6 +561,10 @@ export interface IpcSend {
 
 export interface IpcEvents {
   "tabs:state": TabsSnapshot;
+  /** To the tab bar: Edit group name was chosen — the group's name becomes a field */
+  "tabs:edit-group": { groupId: string };
+  /** To the window's tab preview view: the card to draw, or none */
+  "tabs:preview": TabPreview | null;
   /** To the tab bar: the updater's state changed (docs/desktop.md §12.6) */
   "updater:state": UpdaterStatus;
   "window:state": WindowState;
@@ -580,6 +625,7 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "file:export-preview": ["editor"],
   "theme:set": ["tabbar", "home", "editor", "welcome"],
   "theme:set-contrast": ["home", "editor"],
+  "theme:set-underline-links": ["home", "editor"],
   "locale:set": ["tabbar", "home", "editor", "welcome"],
   "updater:get": ["tabbar"],
   "shortcuts:get": ["editor"],
@@ -658,6 +704,8 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "agents:update-connector": ["home", "editor"],
   "agents:remove-connector": ["home", "editor"],
   "agents:test-connector": ["home", "editor"],
+  "agents:sign-in-connector": ["home", "editor"],
+  "agents:sign-out-connector": ["home", "editor"],
   "agents:access": ["home", "editor"],
   "agents:set-access": ["home", "editor"],
   "agents:access-add-folder": ["home", "editor"],
@@ -679,6 +727,11 @@ export const SEND_ROLES: { [C in keyof IpcSend]: readonly Role[] } = {
   "tabs:context-menu": ["tabbar"],
   "tabs:main-menu": ["tabbar"],
   "tabs:reopen": ["tabbar", "home"],
+  "tabs:new-tab": ["tabbar"],
+  "tabs:group-menu": ["tabbar"],
+  "tabs:group-rename": ["tabbar"],
+  "tabs:list-menu": ["tabbar"],
+  "tabs:hover": ["tabbar"],
   "updater:check": ["tabbar"],
   "updater:restart": ["tabbar"],
   "nav:go-home": ["editor"],

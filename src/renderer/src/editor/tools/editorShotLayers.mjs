@@ -144,10 +144,10 @@ export async function layersSection(page, theme, { open, settle, check, outDir }
       return { tab: el.dataset.railTab, text: el.innerText.trim(), height: Math.round(b.height), labels: el.closest('[data-ds="Rail"]').hasAttribute("data-labels") };
     })
   );
-  check(`Layers14 rail: File, Agents, Assets, Tools, Variables drawn as icons only (no names under them; Additional labels off by default)`, tabs.length === 5 && tabs.every((t) => t.text === "" && !t.labels), JSON.stringify(tabs));
+  check(`Layers14 rail: File, Agents, Assets, Brands, Tools, Variables drawn as icons only (no names under them; Additional labels off by default)`, tabs.length === 6 && tabs.every((t) => t.text === "" && !t.labels), JSON.stringify(tabs));
   check(`Layers14 rail: each tab is its 32 tile and 8 around it (40 apart)`, tabs.every((t) => t.height === 40), tabs.map((t) => t.height).join());
   await page.locator('[data-rail-tab="assets"]').hover();
-  await page.waitForTimeout(900);
+  await page.waitForTimeout(1300); // Figma's 1000 ms tooltip delay (ds timing.tooltip)
   const tip = await page.evaluate(() => [...document.querySelectorAll('[data-ds="Tooltip"]')].map((t) => (t.style.visibility === "hidden" ? "" : t.textContent)).join("|"));
   check(`Layers14 rail: hovering a tab names it in a tooltip with its shortcut`, /Assets/.test(tip) && /⌥2/.test(tip), tip);
   await crop("layers14-rail", { x: 0, y: 0, width: Math.round(rail.width) + 1, height: 360 });

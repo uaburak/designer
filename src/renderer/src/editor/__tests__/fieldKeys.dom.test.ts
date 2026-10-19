@@ -16,7 +16,7 @@ function stubEditor() {
   const ed = {
     engineKey: (type: string, e: KeyboardEvent) => (acted.push(`engine ${type} ${e.code}`), true),
     vector: { state: { get: () => ({ active: false }) }, setTool: (t: string) => acted.push(`vector ${t}`) },
-    ui: { get: () => ({ preferences: { numberKeysOpacity: true } }) },
+    ui: { get: () => ({ preferences: { numberKeysOpacity: true } }), subscribe: () => () => {} },
     selection: ["1:2"],
     setProps: () => acted.push("setProps"),
   };

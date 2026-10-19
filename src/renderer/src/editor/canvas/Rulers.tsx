@@ -6,7 +6,7 @@
  * selection's span is a band with its edges labelled in blue, and the labels
  * near those edges fade (docs/research/visual-diff.md, model/rulers.ts).
  */
-import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { PointerType, Status } from "@/engine/abi";
 import { modifiersOf } from "@/engine/CanvasController";
 import { canvasChrome, canvasChromeMetrics, text, useTheme, type ThemeName } from "@/ds";
@@ -29,15 +29,18 @@ interface Palette {
   border: string;
 }
 
-function palette(theme: ThemeName, el: Element): Palette {
+/** `dev`: Dev Mode's rulers — the selection's band and its edge labels in Dev Mode's green (the owner's capture). */
+function palette(theme: ThemeName, el: Element, dev: boolean): Palette {
   const i = theme === "light" ? 0 : 1;
+  const css = getComputedStyle(el);
+  const token = (name: string, fallback: string) => (dev && css.getPropertyValue(name).trim()) || fallback;
   return {
     bg: canvasChrome.rulerBg[i],
     tick: canvasChrome.rulerTick[i],
     text: canvasChrome.rulerText[i],
-    band: canvasChrome.rulerSelectionBand[i],
-    edge: canvasChrome.rulerSelectionText[i],
-    border: getComputedStyle(el).getPropertyValue("--figma-color-border").trim() || canvasChrome.rulerTick[i],
+    band: token("--ds-color-devmode-ruler-band", canvasChrome.rulerSelectionBand[i]),
+    edge: token("--ds-color-devmode-text", canvasChrome.rulerSelectionText[i]),
+    border: css.getPropertyValue("--figma-color-border").trim() || canvasChrome.rulerTick[i],
   };
 }
 
@@ -115,7 +118,7 @@ function draw(ed: EditorController, top: HTMLCanvasElement, left: HTMLCanvasElem
   const a = area.getBoundingClientRect();
   const dx = c ? a.left - c.left : 0;
   const dy = c ? a.top - c.top : 0;
-  const p = palette(theme, area);
+  const p = palette(theme, area, ed.ui.get().mode === "dev");
   // The ruler's 0: the selection's top-level frame (its page-space corner), else the page's origin.
   const sel = ed.selection;
   let ox = 0;
@@ -216,6 +219,12 @@ export function guideDrag(ed: EditorController, axis: "X" | "Y", e: ReactPointer
   el.addEventListener("pointercancel", done);
 }
 
+/** A right click on a ruler: its menu (CanvasMenu's rulerMenu) where the pointer is. */
+function rulerMenuAt(ed: EditorController, ruler: "X" | "Y", e: ReactMouseEvent<HTMLCanvasElement>): void {
+  e.preventDefault();
+  ed.ui.set({ contextMenu: { x: e.clientX, y: e.clientY, canvas: null, ruler } });
+}
+
 export function Rulers() {
   const ed = useEditor();
   const on = useUI((s) => s.rulers);
@@ -233,7 +242,7 @@ export function Rulers() {
         draw(ed, t, l, resolved);
       });
     };
-    const offs = [ed.store.subscribe("camera", schedule), ed.store.subscribe("selection", schedule), ed.store.subscribe("page", schedule), ed.engine.on("NODES_CHANGED", schedule)];
+    const offs = [ed.store.subscribe("camera", schedule), ed.store.subscribe("selection", schedule), ed.store.subscribe("page", schedule), ed.engine.on("NODES_CHANGED", schedule), ed.ui.subscribe(schedule)];
     // The rulers take presses (guides), so a wheel over them goes on to the canvas.
     const wheel = (e: WheelEvent) => {
       e.preventDefault();
@@ -255,8 +264,8 @@ export function Rulers() {
   if (!on) return null;
   return (
     <>
-      <canvas ref={top} className={styles.rulerTop} aria-hidden data-ruler="top" onPointerDown={(e) => guideDrag(ed, "Y", e)} />
-      <canvas ref={left} className={styles.rulerLeft} aria-hidden data-ruler="left" onPointerDown={(e) => guideDrag(ed, "X", e)} />
+      <canvas ref={top} className={styles.rulerTop} aria-hidden data-ruler="top" onPointerDown={(e) => guideDrag(ed, "Y", e)} onContextMenu={(e) => rulerMenuAt(ed, "Y", e)} />
+      <canvas ref={left} className={styles.rulerLeft} aria-hidden data-ruler="left" onPointerDown={(e) => guideDrag(ed, "X", e)} onContextMenu={(e) => rulerMenuAt(ed, "X", e)} />
       <div className={styles.rulerCorner} aria-hidden />
     </>
   );
