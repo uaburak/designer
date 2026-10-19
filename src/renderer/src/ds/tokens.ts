@@ -242,6 +242,7 @@ export const appColor = {
   "scrollbar-thumb": ["#00000033", "#ffffff33"], // K
   "scrollbar-thumb-hover": ["#00000059", "#ffffff59"], // K
   "text-selection": ["#0d99ff66", "#0d99ff66"], // F
+  "field-selection": ["#0d99ff66", "#325f88"], // a field's selected text (dark: the owner's panel17/73.png, "154" selected in W on #383838)
   "card-border-hover": ["#cccccc", "#5c5c5c"], // K
   "file-design": ["#0c8ce9", "#0c8ce9"], // K
   "canvas-default": ["#f5f5f5", "#1e1e1e"], // K
@@ -501,6 +502,14 @@ export const text = {
   "settings-cell": { size: 12, line: 16, weight: 450, tracking: "0px" },
   "settings-caption": { size: 13, line: 20, weight: 400, tracking: "0px" },
   "settings-sample": { size: 16, line: 20, weight: 400, tracking: "0px" },
+  /**
+   * The Keyboard shortcuts panel (the owner's live-*.webp at 1.3228, ink widths matched in Inter, 2026-10-19): tabs, row
+   * labels, "and", hints and the Essential descriptions 12px ("Move tool" 54.4, "Annotation tool" 86.2, "Essential" 49.1
+   * CSS px; the descriptions’ lines 16 apart); the Essential heading and its three names 14px ("Essential keyboard
+   * shortcuts" 189.7, "Component search" 124). The caps' text is body-medium (11px: "Home" 29.5, "End" 18.1).
+   */
+  shortcuts: { size: 12, line: 16, weight: 450, tracking: "0px" },
+  "shortcuts-heading": { size: 14, line: 20, weight: 450, tracking: "0px" },
   code: { size: 11, line: 16, weight: 400, tracking: "0px", mono: true },
 } as const satisfies Record<string, TextStyle>;
 

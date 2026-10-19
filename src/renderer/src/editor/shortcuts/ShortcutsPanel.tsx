@@ -381,6 +381,7 @@ function LayoutTab({ layout }: { layout: KeyboardLayoutId }) {
             label={t("Keyboard layout")}
             value={layout}
             width={179}
+            openUnhighlighted
             options={layoutOptions(shortcutPrefs.detectedLayout())}
             onChange={(v) => shortcutPrefs.update({ layout: v as KeyboardLayoutId })}
           />

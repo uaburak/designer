@@ -92,7 +92,7 @@ export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
   const removeCommand = command("object.remove-auto-layout");
   const actions = auto ? (
     instances ? undefined : (
-      <ToggleIconButton icon="24.autolayout-add-vertical" label={t("Remove auto layout")} tooltip={t("Toggle auto layout")} shortcut={shortcutOf(removeCommand)} tone="secondary" pressed onPressedChange={removeAutoLayout} />
+      <ToggleIconButton icon="24.autolayout-on" label={t("Remove auto layout")} tooltip={t("Toggle auto layout")} shortcut={shortcutOf(removeCommand)} tone="secondary" pressed onPressedChange={removeAutoLayout} />
     )
   ) : (
     <>
@@ -105,7 +105,7 @@ export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
 
   return (
     <PanelSection title={drawMode ? t("Dimensions") : auto ? t("Auto layout") : t("Layout")} actions={drawMode ? undefined : actions}>
-      <PropertyGrid labels={labels}>
+      <PropertyGrid labels={labels} className={cx(auto && !labels && styles.autoLayoutGrid)}>
         {flowable && <FlowRow nodes={nodes} disabled={flowLocked} onAdd={addAutoLayout} onRemove={removeAutoLayout} />}
         {texts.length > 0 && <TextResizingRow nodes={texts} />}
         <PropertyRow
@@ -290,6 +290,7 @@ const isAutoGap = (v: string | undefined) => isSpaceBetween(v) || v === "SPACE_E
 function AutoLayoutRows({ nodes }: { nodes: PanelNode[] }) {
   useT();
   const ed = useEditor();
+  const labels = useUI((s) => s.propertyLabels);
   const refs = nodes.map((n) => n.guid);
   const flow = mixed(nodes.map(flowOf));
   const first = nodes[0];
@@ -341,12 +342,16 @@ function AutoLayoutRows({ nodes }: { nodes: PanelNode[] }) {
           />
         </div>
         <div className={styles.gapStack}>
-          {/* Live: the gap field's hover chevron at its right edge (its list) — the hover Apply variable left out there */}
+          {/*
+            Live: the gap field's chevron at its right edge (its list) — the hover Apply variable left out there. Without
+            the row labels (the owner's panel17/74–75) a split control at rest, "12 │ ⌄"; with them (72, 78, the live dump
+            design/autolayout-*.txt: the input across the 88) only on hover.
+          */}
           <VariableField nodes={nodes} fields={["STACK_SPACING"]} prefix={horizontal ? "24.al.spacing-horizontal" : "24.al.spacing-vertical"} button={false}>
             <NumericInput
               label={gapLabel()}
               prefix={horizontal ? "24.al.spacing-horizontal" : "24.al.spacing-vertical"}
-              className={styles.hoverMenuField}
+              className={cx(styles.hoverMenuField, !labels && styles.splitMenuField)}
               value={fieldValue(gap)}
               valueLabel={autoGap ? t("Auto") : undefined}
               keywords={["Auto"]}
@@ -495,11 +500,11 @@ function PaddingRows({ nodes, highlight }: { nodes: PanelNode[]; highlight: High
     ed.setProps(refs, fields(paddingFields(p)), "Padding");
     return true;
   };
+  // Figma's glyph at full white (the owner's panel17/74, live panel-grid-autolayout-highres; 78's dashed one is older)
   const toggle = (
     <ToggleIconButton
-      icon="24.al.padding-sides"
+      icon="24.al.padding-individual"
       label={t("Individual padding")}
-      tone="secondary"
       pressed={individual && !merged}
       onPressedChange={() => undefined}
       onClick={(e) => {

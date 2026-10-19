@@ -1,3 +1,15 @@
+/*
+ * The caps' letters and digits from the engine's full Inter: the bundled UI face is subset without Inter's character
+ * variants, and cv08 (serif I) / zero (slashed 0) need its GSUB. Read the first time a cap is shown.
+ */
+@font-face {
+  font-family: "Inter Keys";
+  font-style: normal;
+  font-weight: 100 900;
+  src: url("../../engine/fonts/InterVariable.ttf") format("truetype");
+  unicode-range: U+0030-0039, U+0041-005A, U+0061-007A;
+}
+
 @layer app {
   /*
    * Live (the owner's screenshots, 1512 wide): 240 high along the window's bottom, #1e1e1e (Figma's menus' colour, dark
@@ -18,10 +30,16 @@
     border-top: 1px solid var(--figma-color-border);
     background: var(--ds-color-menu-bg);
     color: var(--figma-color-text-secondary);
-    font: var(--ds-font-body-large);
-    letter-spacing: var(--ds-tracking-body-large);
+    font: var(--ds-font-shortcuts);
+    letter-spacing: var(--ds-tracking-shortcuts);
     user-select: none;
   }
+
+  /*
+   * Live's type (live-*.webp at 1.3228, ink widths matched in Inter): labels, "and", hints 12px (the tabs too: Tabs' card); the caps' text
+   * 11px with Inter's disambiguation forms — a serif I and a slashed zero (cv08, zero), also on the drawn keyboard.
+   */
+  .panel [data-ds="KeyCap"] { font: var(--ds-font-body-medium); font-family: "Inter Keys", var(--ds-font-family-keys); font-feature-settings: "cv08", "zero"; letter-spacing: var(--ds-tracking-body-medium); line-height: 1; }
 
   /* The tab row: its tabs start 36 left of the columns, Layout ends with them; ✕ 6 from the window's right edge. */
   .tabRow {
@@ -90,11 +108,11 @@
 
   /* Essential: the heading, then three numbered ones (a 24 circle, the name and its keys, two lines about it). */
   .essential { padding-top: var(--ds-space-3); }
-  .essentialTitle { width: var(--grid); max-width: calc(100% - 2 * var(--ds-space-4)); margin: 0 auto; color: var(--figma-color-text); line-height: var(--ds-space-4); }
+  .essentialTitle { width: var(--grid); max-width: calc(100% - 2 * var(--ds-space-4)); margin: 0 auto; color: var(--figma-color-text); font: var(--ds-font-shortcuts-heading); letter-spacing: var(--ds-tracking-shortcuts-heading); }
   .essential .grid { margin-top: var(--ds-space-5); }
   .essentialItem { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
   .essentialItem > .row { align-self: stretch; height: var(--ds-size-shortcuts-cap); margin-top: var(--ds-space-5); }
-  .essentialName { flex: 1 1 auto; min-width: 0; }
+  .essentialName { flex: 1 1 auto; min-width: 0; font: var(--ds-font-shortcuts-heading); letter-spacing: var(--ds-tracking-shortcuts-heading); }
   .number {
     display: flex;
     align-items: center;
@@ -106,20 +124,21 @@
     border-radius: var(--ds-radius-full);
     color: var(--figma-color-text);
   }
-  .description { max-width: 72%; margin: 0; line-height: var(--ds-space-4); }
+  .description { max-width: 72%; margin: 0; }
 
   /* Layout: "Keyboard layout:" and its list on the left, "Learn more" under; the keyboard at the columns' right. */
   .layout { display: flex; justify-content: space-between; gap: var(--ds-space-6); width: var(--grid); max-width: calc(100% - 2 * var(--ds-space-4)); margin: 0 auto; padding-top: var(--ds-space-3); }
   .layoutSide { display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; }
   .layoutField { display: flex; align-items: center; gap: var(--ds-space-2); }
-  .layoutLabel { white-space: nowrap; }
-  .learnMore { margin-bottom: var(--ds-space-1); }
+  /* Live (live-layout.webp): "Keyboard layout:" 11px (86.9 wide), "Learn more" 12px at the label's x, its line level with the keyboard's last row; the keyboard 2 lower. */
+  .layoutLabel { font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); white-space: nowrap; }
+  .learnMore { margin-bottom: calc(-1 * var(--ds-space-1)); padding: 0; font: var(--ds-font-shortcuts); letter-spacing: var(--ds-tracking-shortcuts); }
   /* A tab just completed: its keys lift once, each after its delay (Atlas 03 §8 timings; the look is ours, unverified). */
   [data-celebrate] [data-ds="KeyCap"] { animation: celebrate var(--ds-duration-reveal) var(--ds-ease-out) var(--celebrate-delay) both; }
   @keyframes celebrate { 50% { transform: translateY(calc(-1 * var(--ds-space-1))); } }
   @media (prefers-reduced-motion: reduce) { [data-celebrate] [data-ds="KeyCap"] { animation: none; } }
-  .layoutNote { width: min-content; min-width: 100%; margin: var(--ds-space-2) 0 auto; color: var(--figma-color-text-secondary); line-height: var(--ds-space-4); }
-  .keyboard { display: flex; flex: none; flex-direction: column; gap: var(--ds-space-2); }
+  .layoutNote { width: min-content; min-width: 100%; margin: var(--ds-space-2) 0 auto; color: var(--figma-color-text-secondary); }
+  .keyboard { display: flex; flex: none; flex-direction: column; gap: var(--ds-space-2); margin-top: calc(var(--ds-space-1) / 2); }
   .keyboardRow { display: flex; gap: var(--ds-space-1-5); }
   /* An ISO keyboard's tall Return: the cap's own border hidden, its L outlined over this row and the next. */
   .tallKey { position: relative; border-color: transparent; }

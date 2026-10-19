@@ -59,6 +59,11 @@ export interface SelectProps extends Omit<HTMLAttributes<HTMLDivElement>, "onCha
    */
   onPreview?: (v: string | null) => void;
   previewDelay?: number;
+  /**
+   * The list opens with no row highlighted, only the ✓ on the value (live: the Keyboard shortcuts panel's layout list,
+   * live-layout-select.webp); the pointer or ↑ / ↓ highlight one as usual.
+   */
+  openUnhighlighted?: boolean;
 }
 
 /** Figma's hover preview debounce (the mask type menu's 50 ms; the effect type menu's too). */
@@ -71,7 +76,7 @@ export const PREVIEW_DELAY = 50;
  * in the list ↑ ↓ Home End, typeahead, Enter picks, Esc closes (focus stays
  * on the trigger). Never a native <select>.
  */
-export function Select({ label, value: valueProp, options, onChange, variant = "filled", size = "default", prefix, width, disabled, placeholder = "", static: isStatic, noCheck, below, menuWidth, onPreview, previewDelay = PREVIEW_DELAY, className, style, ...rest }: SelectProps) {
+export function Select({ label, value: valueProp, options, onChange, variant = "filled", size = "default", prefix, width, disabled, placeholder = "", static: isStatic, noCheck, below, menuWidth, onPreview, previewDelay = PREVIEW_DELAY, openUnhighlighted, className, style, ...rest }: SelectProps) {
   useT();
   const trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpenState] = useState(false);
@@ -129,12 +134,12 @@ export function Select({ label, value: valueProp, options, onChange, variant = "
         )}
         <Icon name="16.chevron.down" className={styles.chevron} />
       </button>
-      {showList && <Listbox id={id} anchor={trigger} options={options} value={mixed ? null : value} isStatic={isStatic} noCheck={noCheck} below={below} width={menuWidth} onPreview={onPreview} previewDelay={previewDelay} onPick={(v) => { close(); if (v !== value) onChange(v); }} onClose={close} />}
+      {showList && <Listbox id={id} anchor={trigger} options={options} value={mixed ? null : value} isStatic={isStatic} noCheck={noCheck} below={below} width={menuWidth} onPreview={onPreview} previewDelay={previewDelay} openUnhighlighted={openUnhighlighted} onPick={(v) => { close(); if (v !== value) onChange(v); }} onClose={close} />}
     </div>
   );
 }
 
-function Listbox({ id, anchor, options, value, isStatic, noCheck, below, width, onPreview, previewDelay = PREVIEW_DELAY, onPick: pick, onClose }: { width?: number; id: string; anchor: React.RefObject<HTMLButtonElement | null>; options: SelectEntry[]; value: string | null; isStatic?: boolean; noCheck?: boolean; below?: boolean; onPreview?: (v: string | null) => void; previewDelay?: number; onPick: (v: string) => void; onClose: (focus?: boolean) => void }) {
+function Listbox({ id, anchor, options, value, isStatic, noCheck, below, width, onPreview, previewDelay = PREVIEW_DELAY, openUnhighlighted, onPick: pick, onClose }: { width?: number; openUnhighlighted?: boolean; id: string; anchor: React.RefObject<HTMLButtonElement | null>; options: SelectEntry[]; value: string | null; isStatic?: boolean; noCheck?: boolean; below?: boolean; onPreview?: (v: string | null) => void; previewDelay?: number; onPick: (v: string) => void; onClose: (focus?: boolean) => void }) {
   const panel = useRef<HTMLDivElement>(null);
   // The hover preview: the option shown (null: none), its pending timer; put back before a pick and when the list goes.
   const preview = useRef<{ shown: string | null; timer: number; onPreview?: (v: string | null) => void }>({ shown: null, timer: 0 });
@@ -166,7 +171,7 @@ function Listbox({ id, anchor, options, value, isStatic, noCheck, below, width, 
   };
   const selected = options.findIndex((o) => isOption(o) && o.value === value);
   const usable = options.map((o, i) => (isOption(o) && !o.disabled ? i : -1)).filter((i) => i >= 0);
-  const [active, setActive] = useState(selected >= 0 ? selected : usable[0] ?? -1);
+  const [active, setActive] = useState(openUnhighlighted ? -1 : selected >= 0 ? selected : usable[0] ?? -1);
   const typed = useRef(createTypeahead());
   const move = (dir: 1 | -1) => {
     const at = usable.indexOf(active);
@@ -231,8 +236,8 @@ function Listbox({ id, anchor, options, value, isStatic, noCheck, below, width, 
         else if (k === "Home") setActive(usable[0] ?? -1);
         else if (k === "End") setActive(usable[usable.length - 1] ?? -1);
         else if (k === "Enter" || k === " ") {
-          const o = options[active];
-          if (isOption(o) && !o.disabled) onPick(o.value);
+          const o = active >= 0 ? options[active] : undefined;
+          if (o && isOption(o) && !o.disabled) onPick(o.value);
         } else if (k === "Escape") onClose();
         else if (k === "Tab") onClose(false);
         else if (k.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
@@ -261,10 +266,20 @@ function Listbox({ id, anchor, options, value, isStatic, noCheck, below, width, 
             data-highlighted={(active === i && !o.disabled) || undefined}
             className={cx(menu.item, !noCheck && menu.listItem)}
             onPointerEnter={() => {
-              if (o.disabled) return;
+              // Opened unhighlighted: the list appearing under a still pointer highlights nothing; a move does.
+              if (o.disabled || openUnhighlighted) return;
               setActive(i);
               previewTo(o.value);
             }}
+            onPointerMove={
+              openUnhighlighted
+                ? () => {
+                    if (o.disabled || active === i) return;
+                    setActive(i);
+                    previewTo(o.value);
+                  }
+                : undefined
+            }
             onClick={() => !o.disabled && onPick(o.value)}
           >
             {!noCheck && <span className={menu.check}>{o.value === value && <Icon name="16.check" />}</span>}

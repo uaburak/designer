@@ -386,7 +386,7 @@ export function GridTrackEditor() {
         />
       </div>
       <ContextMenu
-        at={{ x: at.x - TRACK_MENU.inset, y: at.y + at.height + TRACK_MENU.below }}
+        at={trackMenuAt(at)}
         entries={trackMenu(node, axis, index)}
         ignore={field}
         label={axis === "columns" ? t("Column sizing") : t("Row sizing")}
@@ -400,9 +400,18 @@ export function GridTrackEditor() {
 
 /**
  * Where the pill's list sits (live grid/row-track-menu.txt): 10 left of the pill's label (8 in from the pill's left end,
- * past its 18 px grabber), its first row 17 under the pill.
+ * past its 18 px grabber), its first row 17 under the pill. Without the room there — the pill at the window's left
+ * edge (live canvas-grid-row-track-menu, a 444-wide pane) — it opens right of the label, over the chevron (`side`),
+ * its first row level with the pill (`firstRow`: the menu's top to that row's middle); `edge` is the room it keeps.
  */
-export const TRACK_MENU = { inset: 10, below: 17 } as const;
+export const TRACK_MENU = { inset: 10, below: 17, side: 9, firstRow: 10, edge: 8 } as const;
+
+/** Where the pill's list opens for the pill's label box `at` (TRACK_MENU). */
+export function trackMenuAt(at: { x: number; y: number; width: number; height: number }): { x: number; y: number } {
+  const under = at.x - TRACK_MENU.inset;
+  if (under >= TRACK_MENU.edge) return { x: under, y: at.y + at.height + TRACK_MENU.below };
+  return { x: at.x + at.width + TRACK_MENU.side, y: Math.round(at.y + at.height / 2 - TRACK_MENU.firstRow) };
+}
 
 /**
  * The sizing a row of the track list gives (the pill's and the Grid panel's): Fixed at the track's size as laid out

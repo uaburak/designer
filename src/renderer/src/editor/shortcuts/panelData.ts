@@ -58,9 +58,9 @@ export const SHORTCUT_TABS: ShortcutTab[] = [
     id: "tools",
     label: "Tools",
     columns: [
-      [keys("Move tool", "tool.move", "24.move"), keys("Frame tool", "tool.frame", "24.frame"), keys("Pen tool", "tool.pen", "24.pen"), keys("Pencil tool", "tool.pencil", "24.pencil")],
+      [keys("Move tool", "tool.move", "24.tool-menu.move"), keys("Frame tool", "tool.frame", "24.frame"), keys("Pen tool", "tool.pen", "24.tool-menu.pen"), keys("Pencil tool", "tool.pencil", "24.tool-menu.pencil")],
       [keys("Text tool", "tool.text", "24.text"), keys("Rectangle tool", "tool.rectangle", "24.rectangle"), keys("Ellipse tool", "tool.ellipse", "24.ellipse"), keys("Line tool", "tool.line", "24.line"), keys("Arrow tool", "tool.arrow", "24.arrow")],
-      [keys("View comments", "tool.comment", "24.comment"), keys("Annotation tool", "tool.annotation", "24.annotation"), keys("Pick color", "edit.pick-color", "24.eyedropper.small"), keys("Slice tool", "tool.slice", "24.slice")],
+      [keys("View comments", "tool.comment", "24.comment.empty"), keys("Annotation tool", "tool.annotation", "24.annotation"), keys("Pick color", "edit.pick-color", "24.tool-menu.eyedropper"), keys("Slice tool", "tool.slice", "24.tool-menu.slice")],
     ],
   },
   {
@@ -99,7 +99,7 @@ export const SHORTCUT_TABS: ShortcutTab[] = [
     id: "shape",
     label: "Shape",
     columns: [
-      [keys("Pen", "tool.pen", "24.pen"), keys("Pencil", "tool.pencil", "24.pencil"), hint("While editing a shape…"), fixed("paint", "Paint", ["shift", "B"], "24.paint-bucket"), fixed("bend", "Bend tool", ["mod"], "24.bend")],
+      [keys("Pen", "tool.pen", "24.tool-menu.pen"), keys("Pencil", "tool.pencil", "24.tool-menu.pencil"), hint("While editing a shape…"), fixed("paint", "Paint", ["shift", "B"], "24.paint-bucket"), fixed("bend", "Bend tool", ["mod"], "24.tool-menu.bend")],
       [keys("Remove fill", "object.remove-fill"), keys("Remove stroke", "object.remove-stroke"), keys("Swap fill and stroke", "object.swap-fill-stroke"), keys("Outline stroke", "vector.outline-stroke"), keys("Flatten", "vector.flatten")],
       [hint("After selecting points…"), keys("Join selection", "vector.join"), keys("Smooth join selection", "vector.smooth-join"), keys("Delete and heal selection", "vector.delete-heal")],
     ],

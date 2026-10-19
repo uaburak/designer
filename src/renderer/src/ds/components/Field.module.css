@@ -47,6 +47,7 @@
     text-overflow: ellipsis;
     outline: none;
   }
+  .input::selection { background: var(--ds-color-field-selection); }
   .input::placeholder { color: var(--figma-color-text-secondary); opacity: 1; }
   .input::-webkit-search-cancel-button { display: none; }
   /* Without a prefix the input itself starts 8 in and ends 1 short of the box (live popovers/type-settings.txt:

@@ -179,6 +179,12 @@
     --ds-font-settings-sample: 400 16px/20px "Inter Symbols", "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
     --ds-tracking-settings-sample: 0px;
     --ds-weight-settings-sample: 400;
+    --ds-font-shortcuts: 450 12px/16px "Inter Symbols", "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
+    --ds-tracking-shortcuts: 0px;
+    --ds-weight-shortcuts: 450;
+    --ds-font-shortcuts-heading: 450 14px/20px "Inter Symbols", "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
+    --ds-tracking-shortcuts-heading: 0px;
+    --ds-weight-shortcuts-heading: 450;
     --ds-font-code: 400 11px/16px ui-monospace, "SF Mono", Menlo, monospace;
     --ds-tracking-code: 0px;
     --ds-weight-code: 400;
@@ -419,6 +425,7 @@
     --ds-color-scrollbar-thumb: #00000033;
     --ds-color-scrollbar-thumb-hover: #00000059;
     --ds-color-text-selection: #0d99ff66;
+    --ds-color-field-selection: #0d99ff66;
     --ds-color-card-border-hover: #cccccc;
     --ds-color-file-design: #0c8ce9;
     --ds-color-canvas-default: #f5f5f5;
@@ -668,6 +675,7 @@
     --ds-color-scrollbar-thumb: #ffffff33;
     --ds-color-scrollbar-thumb-hover: #ffffff59;
     --ds-color-text-selection: #0d99ff66;
+    --ds-color-field-selection: #325f88;
     --ds-color-card-border-hover: #5c5c5c;
     --ds-color-file-design: #0c8ce9;
     --ds-color-canvas-default: #1e1e1e;
