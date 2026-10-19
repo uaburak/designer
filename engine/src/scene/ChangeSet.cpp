@@ -8,7 +8,16 @@ void ChangeSet::touch(const Document& doc, const NodeChange& change) {
     it = entries_.emplace(change.guid, Entry{doc.has(change.guid), 0}).first;
     order_.push_back(change.guid);
   }
-  it->second.mask |= change.phase == Phase::CHANGED ? change.mask : F_ALL;
+  if (change.phase == Phase::CHANGED) {
+    it->second.mask |= change.mask;
+  } else if (const Node* live = change.phase == Phase::CREATED ? doc.get(change.guid) : nullptr) {
+    // CREATED for a live GUID is a full replace (docs/schema.md §4.2; Detach instance, a library copy replaced): the
+    // forward change carries only the fields it really changes. F_ALL wrote every field with its value — defaults
+    // too — so a detached frame stored `textData {characters: ""}` and the rest of a TEXT's defaults (2026-10-19).
+    it->second.mask |= differingFields(live->props, change.props, F_ALL);
+  } else {
+    it->second.mask |= F_ALL;
+  }
 }
 
 void ChangeSet::clear() {

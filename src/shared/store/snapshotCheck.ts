@@ -36,9 +36,14 @@ export const REFERENCE_FIELDS: ReadonlySet<string> = new Set([
 
 const SKIP = new Set(["guid", "phase", "clearedFields"]);
 
-/** An empty value of any shape: an empty array or bytes, or a message whose every value is empty ({entries: []}). */
+/**
+ * An empty value of any shape: an empty array, bytes or string, or a message whose every value is empty ({entries: []},
+ * a TextData `{characters: ""}`). The engine holds such a message as its default — no message — and writes it as
+ * absent (docs/schema.md §3.4): a detached frame's `textData {characters: ""}` (written by Detach instance before
+ * 2026-10-19) had every snapshot of the owner's file refused.
+ */
 function emptyish(v: unknown): boolean {
-  if (v === undefined || v === null) return true;
+  if (v === undefined || v === null || v === "") return true;
   if (Array.isArray(v) || v instanceof Uint8Array) return v.length === 0;
   if (typeof v === "object") return Object.values(v as Record<string, unknown>).every(emptyish);
   return false;
