@@ -9,6 +9,7 @@ import { isSha1 } from "../../shared/store/types";
 import { own } from "../kiwi/codecs";
 import { sha1Hex } from "../kiwi/schemas";
 import { atomicWrite, ensureDir, exists } from "./fsutil";
+import { blobKind, type BlobKind } from "../../shared/store/fileSettings";
 
 /** Sniffs the MIME type from magic bytes (PNG, JPEG, GIF, WebP), else the hint, else octet-stream. */
 export function sniffMime(b: Uint8Array, hint?: string): string {
@@ -58,6 +59,25 @@ export class LocalBlobs {
       await fsp.utimes(path, now, now).catch(() => {});
     }
     return { sha1, size: bytes.length, mime: sniffMime(bytes, hint?.mime) };
+  }
+
+  /** Each blob's size and what it is (File settings' storage, docs/home.md): null when it isn't here */
+  async stat(sha1s: string[]): Promise<({ size: number; kind: BlobKind } | null)[]> {
+    return Promise.all(
+      sha1s.map(async (s) => {
+        if (!isSha1(s)) return null;
+        const fh = await fsp.open(this.path(s), "r").catch(() => null);
+        if (!fh) return null;
+        try {
+          const head = new Uint8Array(16);
+          const { bytesRead } = await fh.read(head, 0, 16, 0);
+          const { size } = await fh.stat();
+          return { size, kind: blobKind(head.subarray(0, bytesRead)) };
+        } finally {
+          await fh.close();
+        }
+      }),
+    );
   }
 
   async has(sha1s: string[]): Promise<boolean[]> {

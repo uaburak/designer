@@ -101,6 +101,7 @@ export const STORE_METHODS = {
     "importLocalCopy",
     "exportLocalCopy",
     "missingImages",
+    "details",
     "importFigBytes",
     "exportFigBytes",
   ],
@@ -108,7 +109,7 @@ export const STORE_METHODS = {
   libraries: ["listAvailable", "getRecord", "getVersion", "previewPublish", "publish", "unpublish", "setEnabled", "getPayloads", "diff"],
   previews: ["status", "list", "publish", "stop", "exportHtml"],
   store: ["shutdown", "flushAll", "info", "collectGarbage"],
-  multiplayer: ["setSession", "status", "fileState", "share", "listRemote", "openShared", "members", "fileInfo", "setLinkAccess", "updateLink", "setViewersCanCopy", "requestEdit", "requests", "answerRequest", "invite", "removeMember", "exclusions", "exclude", "include", "presence", "takeOpenIntent", "unlockFile", "setLinkPassword", "transferOwnership", "signal", "restRender", "restAnswer", "uploads", "retryUpload", "cancelUpload"],
+  multiplayer: ["setSession", "status", "fileState", "share", "listRemote", "openShared", "members", "fileReport", "fileActivity", "fileInfo", "setLinkAccess", "updateLink", "setViewersCanCopy", "requestEdit", "requests", "answerRequest", "invite", "removeMember", "exclusions", "exclude", "include", "presence", "takeOpenIntent", "unlockFile", "setLinkPassword", "transferOwnership", "signal", "restRender", "restAnswer", "uploads", "retryUpload", "cancelUpload"],
   comments: ["list", "add", "edit", "remove", "setResolved", "setRead", "react", "move", "mentionable"],
   notifications: ["list", "markRead", "prefs", "setPrefs", "answer"],
   // The org spaces (docs/multiplayer.md §14.6); `watch` is the `org` event topic

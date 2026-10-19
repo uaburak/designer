@@ -32,6 +32,7 @@ import { inlineCompactor, type Compactor } from "./compactor";
 import { writeLocalCopy } from "./export/fig";
 import { prepareFigImport } from "./import/fig";
 import { LocalBlobs, pngSize } from "./local/blobs";
+import { fileDetailsOf, type FileDetails } from "../shared/store/fileSettings";
 import { Emitter } from "./local/emitter";
 import { FileStore, type SessionOwner, type Timers } from "./local/fileStore";
 import { atomicWrite, ensureDir, readJsonOrNull, writeJsonAtomic } from "./local/fsutil";
@@ -953,6 +954,26 @@ export class LocalStore {
     return (await this.blobs.has(refs)).filter((here) => !here).length;
   }
 
+  /** File settings (docs/home.md "File settings [ours]"): the file's bytes here by kind, its versions and its local activity. */
+  async fileDetails(fileKey: FileKey): Promise<FileDetails> {
+    this.guard();
+    const meta = this.ws.getMeta(fileKey);
+    const documentHere = await this.files.hasDocument(fileKey);
+    const disk = documentHere ? await this.files.diskUsage(fileKey) : { document: 0, versions: 0, thumbnail: 0, frames: [] };
+    const versions = documentHere ? await this.files.listVersions(fileKey) : [];
+    const refs = documentHere ? await this.files.blobRefsOf(fileKey) : [];
+    const previews = (await this.previewRecords()).filter((p) => p.fileKey === fileKey);
+    const previewRefs = [...new Set(previews.flatMap((p) => p.blobRefs))].filter((r) => !refs.includes(r));
+    return fileDetailsOf({
+      meta,
+      documentHere,
+      disk,
+      versions,
+      blobs: await this.blobs.stat(refs),
+      previews: { count: previews.length, at: previews.map((p) => p.updatedAt), bytes: (await this.blobs.stat(previewRefs)).reduce((n, b) => n + (b?.size ?? 0), 0) },
+    });
+  }
+
   async exportLocalCopy(fileKey: FileKey, path: string, opts: { partial?: boolean } = {}): Promise<void> {
     this.guard();
     if (typeof path !== "string" || !path) throw new StoreError("invalid", "exportLocalCopy needs a path");
@@ -1127,6 +1148,7 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     importFigBytes: (bytes, name, folderId, org) => s.importFigBytes(bytes, name, folderId ?? null, org),
     exportLocalCopy: (fileKey, path, opts) => s.exportLocalCopy(fileKey, path, { partial: opts?.partial === true }),
     missingImages: (fileKey) => s.missingImages(fileKey),
+    details: (fileKey) => s.fileDetails(fileKey),
   };
   const blobs: BlobStore = {
     put: (bytes, hint) => s.blobs.put(bytes, hint),

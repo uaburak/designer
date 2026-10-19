@@ -1,0 +1,65 @@
+/* File settings (FileSettings.tsx, docs/home.md "File settings [ours]"): every value from the DS's tokens. */
+@layer app {
+  .dialog { max-width: calc(100vw - var(--ds-space-8)); }
+  .root { display: flex; flex-direction: column; gap: var(--ds-space-2); min-height: var(--ds-size-dialog-small); }
+  .body { max-height: var(--ds-size-dialog-medium); padding-right: var(--ds-space-2); }
+
+  .section { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: var(--ds-space-3) 0; border-bottom: 1px solid var(--figma-color-border); }
+  .section:last-child { border-bottom: 0; }
+  .heading { margin: 0; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .hint { margin: 0; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+
+  .grid { display: flex; flex-direction: column; margin: 0; padding: var(--ds-space-2) 0; }
+  .row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 5fr); gap: var(--ds-space-3); align-items: center; min-height: var(--ds-space-8); }
+  .label { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+  .value { display: flex; align-items: center; min-width: 0; margin: 0; color: var(--figma-color-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); overflow-wrap: anywhere; }
+  .person { display: inline-flex; align-items: center; gap: var(--ds-space-2); }
+  .key { display: flex; flex: 1 1 auto; align-items: center; justify-content: space-between; gap: var(--ds-space-2); min-width: 0; }
+  .code { overflow: hidden; color: var(--figma-color-text-secondary); font: var(--ds-font-code); letter-spacing: var(--ds-tracking-code); text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Storage bars and quota meters */
+  .barHead { display: flex; justify-content: space-between; gap: var(--ds-space-2); color: var(--figma-color-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+  .total { color: var(--figma-color-text-secondary); }
+  .bar { display: flex; overflow: hidden; height: var(--ds-space-2); border-radius: var(--ds-radius-full); background: var(--figma-color-bg-tertiary); }
+  .bar > span { height: 100%; }
+  .seg_document { background: var(--figma-color-bg-brand); }
+  .seg_images { background: var(--figma-color-bg-component); }
+  .seg_media { background: var(--figma-color-bg-warning); }
+  .seg_versions { background: var(--figma-color-bg-success); }
+  .seg_previews { background: var(--figma-color-bg-danger); }
+  .seg_thumbnail { background: var(--figma-color-bg-inverse); }
+  .seg_other { background: var(--figma-color-bg-disabled); }
+  .fill { background: var(--figma-color-bg-brand); }
+  .fillWarning { background: var(--figma-color-bg-warning); }
+  .fillDanger { background: var(--figma-color-bg-danger); }
+  .meter { display: flex; flex-direction: column; gap: var(--ds-space-1); padding: var(--ds-space-1) 0; }
+  .legend { display: flex; flex-direction: column; gap: var(--ds-space-1); margin: 0; padding: 0; list-style: none; }
+  .legendRow { display: flex; align-items: center; gap: var(--ds-space-2); color: var(--figma-color-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+  .dot { flex: none; width: var(--ds-space-2); height: var(--ds-space-2); border-radius: var(--ds-radius-full); }
+  .legendName { flex: 1 1 auto; min-width: 0; }
+  .legendCount { color: var(--figma-color-text-secondary); }
+  .legendBytes { min-width: var(--ds-space-16); color: var(--figma-color-text-secondary); text-align: right; }
+
+  /* People */
+  .people { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+  .personRow { display: flex; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-1-5) var(--ds-space-2); border-radius: var(--ds-radius-medium); }
+  .personRow:hover { background: var(--figma-color-bg-hover); }
+  .personText { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
+  .personName, .personHint { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .personName { color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .personHint, .personRole { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+
+  /* Activity */
+  .filters { display: flex; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-2) 0; }
+  .search { flex: 1 1 auto; }
+  .log { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+  .logRow { display: flex; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-2); border-bottom: 1px solid var(--figma-color-border); }
+  .logText { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
+  .logWhat { color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .logDetail { overflow: hidden; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); text-overflow: ellipsis; white-space: nowrap; }
+  .logTime { flex: none; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+
+  /* Settings */
+  .setting { display: flex; align-items: center; justify-content: space-between; gap: var(--ds-space-3); min-height: var(--ds-space-8); }
+  .settingText { color: var(--figma-color-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+}

@@ -407,6 +407,7 @@ export class StoreClient implements StoreApi {
     importFigBytes: (bytes, name, folderId, org) => this.call("files.importFigBytes", [bytes, name, folderId ?? null, org ?? null]),
     exportLocalCopy: (fileKey, path, opts) => this.call("files.exportLocalCopy", [fileKey, path, opts]),
     missingImages: (fileKey) => this.call("files.missingImages", [fileKey]),
+    details: (fileKey) => this.call("files.details", [fileKey]),
     exportFigBytes: (fileKey) => this.call("files.exportFigBytes", [fileKey]),
   };
 
@@ -482,6 +483,8 @@ export class StoreClient implements StoreApi {
     transferOwnership: (fileKey, email) => this.call("multiplayer.transferOwnership", [fileKey, email]),
     signal: (fileKey, to, data) => this.call("multiplayer.signal", [fileKey, to, data]),
     members: (fileKey) => this.call("multiplayer.members", [fileKey]),
+    fileReport: (fileKey) => this.call("multiplayer.fileReport", [fileKey]),
+    fileActivity: (fileKey, query) => this.call("multiplayer.fileActivity", [fileKey, query]),
     fileInfo: (fileKey) => this.call("multiplayer.fileInfo", [fileKey]),
     setLinkAccess: (fileKey, access) => this.call("multiplayer.setLinkAccess", [fileKey, access]),
     setViewersCanCopy: (fileKey, on) => this.call("multiplayer.setViewersCanCopy", [fileKey, on]),

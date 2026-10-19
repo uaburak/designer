@@ -97,6 +97,42 @@ In a browser, a file opens as `?editor&file=<fileKey>`, and "Open in new tab" op
 - **Sidebar** 240 with its border inside: the account's 24 photo at 16 and the name 13 / 550; Search a 207 × 32 pill at 16; rows' labels 13 / 450 (SidebarItem); the space row 11 / 550 at 16. **Top bar**: the title 13 / 450; Design and Import tinted pills without a ring (Design with the 24 design glyph). **Filters**: "All files" a ghost select, no line under the row, the grid right below it (cards at y 112).
 - **Shared** (`{ kind: "shared" }`, under All projects — in Recents' place, which the owner removed): two tabs, **Shared with you** (files others shared, cards "From <name>") and **Shared by you** (the user's shared files, "Shared <time>"), newest share first (Date shared, either order), grid or list (Name / Shared by or Your role / Date shared), Open link…, a star on files this computer has a copy of; double-click opens the local copy (made the first time). Data: `FilesBackend.shared` (`SharedSource`: the store's `multiplayer.listRemote` / `openShared` over the store port — the server's `GET /files`, owner and invited). Signed out: "Log in to see shared files" with Log in; the server not answering: "Couldn’t load shared files" with Try again; nothing: "No shared files" / "You haven’t shared any files". Not there: projects shared with the person (the server has no such listing yet). Tests: `__tests__/sharedPage.dom.test.ts`, `ds/__tests__/fileCardStates.dom.test.ts`.
 
+## File settings [ours]
+
+Figma has no such screen; the owner asked for one (2026-10-19). Right-clicking a file card or list row (one file, any local
+location, Starred in the sidebar too) offers **File settings…** just before Move to trash. It opens `FileSettingsDialog`
+(`files/FileSettings.tsx`, `FileSettings.module.css`): the DS `Dialog`, large, draggable by its small header like
+Manage libraries, with five `Tabs`. Images: `docs/research/figma/live/owner-2026-10-19/after/file-settings-*.png`.
+
+| Tab | What | Where it comes from |
+|---|---|---|
+| Overview | Name; Location (Drafts, the team's folder path, Shared with you, or org / team / folder); Owner; Created; Last edited (by whom, from the room's last version's editors); Last viewed; Size on this computer; Size in the cloud; Versions; Branches; Comments (threads, open); Status (Local only / In your cloud drafts / Shared / In an organization); File key with Copy link | `workspace.getFile` / `listFolders`, `files.details`, `multiplayer.fileReport`, `branches.list` |
+| Storage | Bars by kind — Document, Images, Videos and sounds, Versions, Developer previews, Thumbnail — on this computer and in the cloud, each with a legend (items, bytes); the owner's account quota (Storage, Files on the server, Developer previews: `QUOTA_LIMITS`, brand → warning at 75 % → danger at 90 %) | `files.details`; the report's `stored_items` sums; the report's `quota`, else `GET /me/usage` through the account bridge |
+| People | Link access (owner: Only people invited / Anyone with the link can view / can edit); Who has access (role select Can edit / Can view / Remove for people who can share; Invited for pending); Requests to edit (Approve / Decline); Opened by (org files: their `fig_file_view` audit rows) | the Share dialog's own calls: `multiplayer.fileInfo`, `members`, `invite` (a role change), `removeMember`, `requests`, `answerRequest`, `setLinkAccess` |
+| Activity | One log, newest first: local entries (created / imported, versions, editing sessions still in the journal with their change count, previews) marked "This computer", and the server's (org audit rows, or creation and invitations outside orgs; comments, replies, resolutions; branches and merges; previews; the room's versions and autosaves); Show (All activity, Edits, Versions, Sharing, Comments, Views), search, Show more (50 at a time, the server paged by `cursor`) | `files.details().activity` + `multiplayer.fileActivity` (`mergeActivity` keeps an event recorded on both sides once) |
+| Settings | Starred; Available offline (local only / downloaded / not downloaded); Thumbnail size; Library status; Viewers can copy, save, and export (shared, owner); Libraries in this file (enable / disable each published library) | `workspace.setStarred`, `FileMeta`, `multiplayer.setViewersCanCopy`, `libraries.listAvailable` / `setEnabled` |
+
+Signed out, the server parts say "Log in to see this"; a local-only file "Only on this computer"; a server that didn't
+answer "Couldn't reach the server" — the local parts show in every case.
+
+**The store** (`src/shared/store/fileSettings.ts` holds the types and the pure helpers): `files.details(fileKey)` —
+`FileStore.diskUsage` reads the file's directory by kind (a version hard-linked to a snapshot counted once, by inode) and
+its journal segments' frame headers straight from disk (nothing loaded or kept in memory), `LocalBlobs.stat` sizes each
+image and sorts images from videos and sounds by their first bytes (`blobKind`); the dev store answers the same from
+its memory. `multiplayer.fileReport` / `multiplayer.fileActivity` resolve the file's room key (a shared file's link,
+an org copy's `space.key`, a cloud draft's `cloud.key`) and answer null signed out or for a local-only file.
+
+**The server** (`server/src/fileReport.ts`, no migration): `GET /files/:key/report` (anyone with access; the quota
+only for the owner) and `GET /files/:key/activity?cursor=&limit=&kinds=` (who was given access shows only to people
+who can share). Both read existing records only: `files`, `users`, `stored_items` under `f:<key>:` and its previews'
+`p:<id>:`, `branches`, `comments`, `previews`, `members`, `activity_log` (org files) and the room's `/room/versions`.
+Tests: `server/src/fileReport.test.ts`, `src/store/fileDetails.test.ts`, `files/__tests__/fileSettings.dom.test.ts`.
+
+**Not there**: images and videos on the server aren't told apart (`stored_items` keeps no type: all count as Images);
+opens of files outside organizations aren't recorded (no audit log there); teams and organizations have no quota of
+their own; org files' cards on an org's pages (OrgMain) don't offer the item yet (they may have no local copy);
+per-file comment or Dev Mode notification settings aren't readable through the store yet.
+
 ## Left to do
 
 - Drive it in the built app with `scripts/drive.mjs` once `?files` is Home.

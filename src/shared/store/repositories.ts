@@ -43,6 +43,7 @@ import type { AiRepository, SearchRepository } from "../ai/types";
 import type { BrandsRepository } from "../studio/types";
 import type { LibraryAnalyticsRepository, OrgLibrariesRepository } from "../libraries/orgTypes";
 import type { CloudRepository } from "./cloud";
+import type { FileDetails } from "./fileSettings";
 
 // Branches' repository and events (docs/data.md §15.6) live in src/shared/merge/branches.ts; re-exported here.
 export type { BranchEvent, BranchesRepository, MergePreview } from "../merge/branches";
@@ -180,6 +181,9 @@ export interface FileRepository {
   exportLocalCopy(fileKey: FileKey, path: string, opts?: { partial?: boolean }): Promise<void>;
   /** How many of the images the file uses aren't on this computer yet (a shared file's still coming down) */
   missingImages(fileKey: FileKey): Promise<number>;
+  /** Home's File settings (ours, docs/home.md "File settings [ours]"): the file's bytes here by kind, its versions and
+   *  the activity this computer recorded */
+  details(fileKey: FileKey): Promise<FileDetails>;
   /**
    * The file as `.fig` bytes (the web app's Save local copy…, which the page downloads — no path; docs/cloud.md §7).
    * Only the browser's store answers it; the desktop store writes the file itself (`exportLocalCopy`).
