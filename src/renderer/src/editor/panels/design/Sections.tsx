@@ -383,13 +383,16 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
   const visible = mixed(nodes.map((n) => n.visible !== false));
   const rectCorners = nodes.some(hasCorners) || nodes.some((n) => isGroupNode(n) || typeOf(n) === "BOOLEAN_OPERATION");
   const smoothOnly = nodes.every((n) => SMOOTHED.has(typeOf(n)));
+  // Boolean groups (live boolean-radius.txt): one radius for their result's every corner — Individual corners there but
+  // disabled —, and corner smoothing beside it.
+  const booleansOnly = nodes.length > 0 && nodes.every((n) => typeOf(n) === "BOOLEAN_OPERATION");
   const plainOnly = nodes.every((n) => PLAIN_RADIUS.has(typeOf(n)));
   const radius = mixedNumber(nodes.map(signedRadius));
   // Negative radii (inverted corners) only where every layer has four corners.
   const signedOk = nodes.every(hasCorners);
   const independentNow = nodes.some((n) => n.rectangleCornerRadiiIndependent === true);
   const [independentOpen, setIndependentOpen] = useState(false);
-  const independent = rectCorners && !smoothOnly && (independentNow || independentOpen);
+  const independent = rectCorners && !smoothOnly && !booleansOnly && (independentNow || independentOpen);
   const corner = (f: CornerField): Mixed<number> | undefined => mixedNumber(nodes.map((n) => signedCorner(n, f)));
 
   // Rectangles and frames keep four corners; other layers one radius.
@@ -461,8 +464,11 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
         )}
         <PropertyRow
           labels={[t("Opacity"), t("Corner radius")]}
+          action2={booleansOnly ? <CornerSmoothingButton nodes={nodes} /> : undefined}
           action={
-            plainOnly ? undefined : smoothOnly ? (
+            plainOnly ? undefined : booleansOnly ? (
+              <ToggleIconButton icon="24.corners.independent" label={t("Individual corners")} tone="secondary" pressed={false} disabled onPressedChange={() => undefined} />
+            ) : smoothOnly ? (
               <CornerSmoothingButton nodes={nodes} />
             ) : (
               <ToggleIconButton icon="24.corners.independent" label={t("Individual corners")} tone="secondary" pressed={independent} onPressedChange={setIndependentOpen} />
@@ -476,7 +482,7 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
           </MotionField>
           <MotionField field="CORNER_RADIUS" disabled={plainOnly}>
             <VariableField nodes={nodes} fields={ALL_CORNERS} prefix="24.corners" disabled={independentNow}>
-              <NumericInput label={t("Corner radius")} prefix="24.corners" min={signedOk ? undefined : 0} disabled={plainOnly} value={independentNow ? MIXED : fieldValue(radius)} {...radiusHandlers} />
+              <NumericInput label={t("Corner radius")} prefix="24.corners" min={signedOk ? undefined : 0} disabled={plainOnly} value={independentNow && !booleansOnly ? MIXED : fieldValue(radius)} {...radiusHandlers} />
             </VariableField>
           </MotionField>
         </PropertyRow>

@@ -110,6 +110,16 @@ Status Editor::command(CommandId id, const CommandArgs& args) {
   if (id >= CommandId::SET_WIDTH_PROFILE && id <= CommandId::FLIP_WIDTH_POINTS) return widthCommand(id, args);
   if (id >= CommandId::ADD_TRANSFORM_MODIFIER && id <= CommandId::SET_TEXT_PATH_START) return drawCommand(id, args);  // Draw (DrawCommands.cpp)
   if (id >= CommandId::MOTION_ADD_KEYFRAME && id <= CommandId::MOTION_SET_PRESET_TRACKS) return motionCommand(id, args);  // Motion (MotionCommands.cpp)
+  if (id >= CommandId::PATHFINDER_DIVIDE && id <= CommandId::PATHFINDER_MINUS_BACK) {
+    // Round 19b (PathfinderCommands.cpp): Pathfinder Options from the args, Illustrator's defaults otherwise.
+    geom::PathfinderOptions o;
+    if (args.raw.isObject()) {
+      if (const json::Value* v = args.raw.get("precision"); v && v->isNumber() && v->number > 0) o.precision = v->number;
+      if (const json::Value* v = args.raw.get("removeRedundantPoints"); v && v->isBool()) o.removeRedundantPoints = v->boolean;
+      if (const json::Value* v = args.raw.get("removeUnpainted"); v && v->isBool()) o.removeUnpainted = v->boolean;
+    }
+    return pathfinderSelection(static_cast<geom::PathfinderOp>(static_cast<uint32_t>(id) - static_cast<uint32_t>(CommandId::PATHFINDER_DIVIDE)), o);
+  }
   if (id == CommandId::SELECT_GRID_TRACKS) return selectGridTracksCommand(args);
   if (id >= CommandId::CREATE_VARIABLE_COLLECTION && id <= CommandId::UNGROUP_STYLES) {
     Status st = variableCommand(id, args);
@@ -226,6 +236,8 @@ uint32_t Editor::commandState(CommandId id) const {
   if (id >= CommandId::SUGGEST_AUTO_LAYOUT && id <= CommandId::SET_STACK_LAYOUT_VERSION) return autoLayoutCommandState(id);
   if (id >= CommandId::CONVERT_TO_SECTION && id <= CommandId::SET_SPELLING_MARKS) return arrangeCommandState(id);
   if (id >= CommandId::MOTION_ADD_KEYFRAME && id <= CommandId::MOTION_SET_PRESET_TRACKS) return motionCommandState(id);
+  if (id >= CommandId::PATHFINDER_DIVIDE && id <= CommandId::PATHFINDER_MINUS_BACK)
+    return pathfinderEnabled(static_cast<geom::PathfinderOp>(static_cast<uint32_t>(id) - static_cast<uint32_t>(CommandId::PATHFINDER_DIVIDE))) ? CMD_ENABLED : 0;
   if (id >= CommandId::SET_WIDTH_PROFILE && id <= CommandId::FLIP_WIDTH_POINTS) return widthCommandState(id);
   if (id >= CommandId::ADD_TRANSFORM_MODIFIER && id <= CommandId::SET_TEXT_PATH_START) return drawCommandState(id);
   if (id == CommandId::SELECT_GRID_TRACKS) return gridFrameSelected() != kNoGuid ? CMD_ENABLED : 0;

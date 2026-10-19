@@ -108,6 +108,7 @@ PlanarMap planarMap(const std::vector<FaceInput>& inputs, double tolerance, size
   const double eps = std::max(1e-7, std::max(all.w, all.h) * 1e-9);
 
   std::vector<Curve> curves;
+  std::vector<uint32_t> curveInput;
   std::vector<Edge> edges;
   std::vector<std::vector<Polyline>> polys(inputs.size());
   Vertices verts(eps);
@@ -118,6 +119,7 @@ PlanarMap planarMap(const std::vector<FaceInput>& inputs, double tolerance, size
     auto addCurve = [&](const Curve& c) {
       uint32_t id = static_cast<uint32_t>(curves.size());
       curves.push_back(c);
+      curveInput.push_back(static_cast<uint32_t>(ii));
       int steps = 1;
       if (!c.line) {
         double m = std::max((c.p[0] - c.p[1] * 2 + c.p[2]).length(), (c.p[1] - c.p[2] * 2 + c.p[3]).length());
@@ -327,6 +329,7 @@ PlanarMap planarMap(const std::vector<FaceInput>& inputs, double tolerance, size
   // 5. Each bounded face: its covers (a point inside, tested against every input), its curves.
   map.points = P;
   map.curves = curves;
+  map.curveInput = curveInput;
   map.edges = graph;
   map.nextHalf.resize(H);
   for (size_t h = 0; h < H; h++) map.nextHalf[h] = static_cast<uint32_t>(next(h));
@@ -426,9 +429,9 @@ PlanarMap planarMap(const std::vector<FaceInput>& inputs, double tolerance, size
   return map;
 }
 
-void PlanarMap::appendRing(Path& out, const std::vector<uint32_t>& halves) const {
+void PlanarMap::appendChain(Path& out, const std::vector<uint32_t>& halves, bool closed) const {
   size_t n = halves.size();
-  if (n < 2) return;
+  if (n < (closed ? 2u : 1u)) return;
   auto origin = [&](uint32_t h) { return h & 1 ? edges[h >> 1].v : edges[h >> 1].u; };
   auto target = [&](uint32_t h) { return h & 1 ? edges[h >> 1].u : edges[h >> 1].v; };
   auto param = [&](size_t i, double& t0, double& t1) {
@@ -460,7 +463,7 @@ void PlanarMap::appendRing(Path& out, const std::vector<uint32_t>& halves) const
     out.cubicTo(sec[1], sec[2], points[target(halves[j - 1])]);
     i = j;
   }
-  out.close();
+  if (closed) out.close();
 }
 
 Path PlanarMap::unionOf(const std::vector<int>& which) const {
