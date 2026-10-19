@@ -2,7 +2,8 @@
  * The left sidebar (240, resizable): the file header (name ▾ with the Edit file menu and rename, the location,
  * Minimize UI), then what the navigation bar's tab shows — File: Pages and Layers (or Find and replace, ⌘F),
  * Assets, Agents (panels/agents: chats with the AI tools on this computer) and Tools (the plugins this person can run
- * here, docs/plugins.md §6: by Source — Development, Your organization — and type; a row runs it).
+ * here, docs/plugins.md §6: by Source — Development, Your organization — and type; a row runs it; then Suggested,
+ * Wecra's own image tools, where live Figma suggests Community plugins — no Weave card, Phase 7 scope).
  */
 import { useCallback, useState, useSyncExternalStore } from "react";
 import { EmptyState, Icon, IconButton, MenuButton, ResizeHandle, SearchField, Select, TextInput, showToast, type MenuEntry } from "@/ds";
@@ -23,6 +24,8 @@ import { BrandsPanel } from "../studio/BrandsPanel";
 import { usePluginService, usePlugins } from "../plugins/service";
 import { pluginRows } from "../plugins/actions";
 import { isEnabled } from "../commands";
+import { AI_ROWS, imageRowHandler } from "../ai/actionRows";
+import { useSelection } from "@/engine/hooks";
 import styles from "./Panels.module.css";
 import { t, useT } from "@/i18n";
 
@@ -34,7 +37,7 @@ export function LeftPanel() {
   const finding = useUI((s) => !!s.find);
   const navMinimized = useUI((s) => !!s.navMinimized);
   return (
-    <aside className={styles.left} style={{ width: width + 1 /* live: 240 and the 1px line */ }} aria-label={t("Layers panel")} data-panel="left" data-tab={tab}>
+    <aside className={styles.left} style={{ width: width + 1 /* live: 240 and the 1px line */, ["--left-panel-width" as string]: `${width}px` }} aria-label={t("Layers panel")} data-panel="left" data-tab={tab}>
       {navMinimized && <NavStrip />}
       {tab === "file" && <FileHeader />}
       {tab === "file" ? (
@@ -136,29 +139,57 @@ function ToolsPanel() {
   );
 }
 
-/** The plugins as rows (widgets aren't built: the Widgets type lists none). */
+/** Suggested (live: Figma's Community picks): Wecra's own image tools (editor/imageTools), each run as its Actions row. */
+const SUGGESTED = AI_ROWS.filter((r) => r.section === "Image editing" && r.action !== "visual-search");
+
+/** The plugins as rows (widgets aren't built: the Widgets type lists none), then Suggested. */
 function ToolsList({ query, source, type }: { query: string; source: string; type: string }) {
   useT();
   const ed = useEditor();
   const plugins = usePluginService(ed);
   usePlugins(plugins);
-  if (!plugins || type === "type-widgets" || type === "type-shaders") return <EmptyState icon="24.tools" title={t("No tools")} body={plugins ? t("Widgets and shaders aren’t built in this app yet.") : t("Plugins aren’t available here.")} />;
-  const rows = pluginRows(plugins, query).filter((r) => (source === "development" ? r.ref.source.type === "development" : source === "organization" ? r.ref.source.type === "private" : true));
+  // The suggested tools' enabled state follows the selection.
+  useSelection(ed.store);
+  const listsPlugins = !!plugins && type !== "type-widgets" && type !== "type-shaders";
+  const rows = listsPlugins ? pluginRows(plugins, query).filter((r) => (source === "development" ? r.ref.source.type === "development" : source === "organization" ? r.ref.source.type === "private" : true)) : [];
   // Recents and Saved repeat the plugins listed by source: by source only here.
   const shown = rows.filter((r, i) => (r.section !== "Recents" && r.section !== "Saved") || !rows.some((x, j) => j !== i && x.ref.id === r.ref.id && x.section !== r.section));
   const unique = shown.filter((r, i) => shown.findIndex((x) => x.key === r.key || (x.ref.id === r.ref.id && x.command === r.command)) === i);
-  if (!unique.length) return <EmptyState icon="24.tools" title={t("No tools")} body={query ? t("No plugins match.") : t("Import a plugin from Plugins › Development › Import plugin from manifest…")} />;
+  const q = query.trim().toLowerCase();
+  const suggested = type === "type-all" && source === "source" ? SUGGESTED.filter((r) => !q || t(r.label).toLowerCase().includes(q)) : [];
+  if (!unique.length && !suggested.length) {
+    if (type === "type-widgets" || type === "type-shaders") return <EmptyState icon="24.tools" title={t("No tools")} body={t("Widgets and shaders aren’t built in this app yet.")} />;
+    return <EmptyState icon="24.tools" title={t("No tools")} body={query ? t("No plugins match.") : plugins ? t("Import a plugin from Plugins › Development › Import plugin from manifest…") : t("Plugins aren’t available here.")} />;
+  }
   return (
-    <div className={styles.toolsList} role="list" aria-label={t("Plugins")}>
+    <div className={styles.toolsList} role="list" aria-label={t("Tools")}>
       {unique.map((r, i) => (
         <div key={r.key} style={{ display: "contents" }}>
           {(i === 0 || unique[i - 1].section !== r.section) && <div className={styles.toolsSection}>{t(r.section)}</div>}
-          <button type="button" role="listitem" className={styles.toolsRow} disabled={!!r.disabled} title={r.disabled ?? undefined} onClick={() => void plugins.run(r.ref, r.command)}>
+          <button type="button" role="listitem" className={styles.toolsRow} disabled={!!r.disabled} title={r.disabled ?? undefined} onClick={() => void plugins?.run(r.ref, r.command)}>
             <Icon name="24.plugin" />
             <span className={styles.toolsRowLabel}>{r.label}</span>
           </button>
         </div>
       ))}
+      {suggested.length > 0 && <div className={styles.toolsSection}>{t("Suggested")}</div>}
+      {suggested.map((r) => {
+        const handler = imageRowHandler(r.action);
+        const can = !!handler && handler.enabled?.(ed) !== false;
+        return (
+          <button key={r.id} type="button" role="listitem" className={styles.toolsCard} disabled={!can} data-suggested-tool={r.action} onClick={() => handler?.run(ed)}>
+            <span className={styles.toolsThumb}>
+              <Icon name={r.icon} />
+            </span>
+            <span className={styles.toolsCardName}>{t(r.label)}</span>
+            <span className={styles.toolsCardMeta}>
+              <Icon name="16.sparkle" />
+              <span className={styles.toolsCardLine} />
+              <span>{t("By Wecra")}</span>
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }

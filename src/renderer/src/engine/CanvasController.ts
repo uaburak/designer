@@ -49,6 +49,8 @@ export function modifiersOf(e: { shiftKey: boolean; altKey: boolean; ctrlKey: bo
 }
 
 const POINTER_KIND: Record<string, number> = { mouse: 0, pen: 1, touch: 2 };
+/** Canvas pixels far outside any view: where a leaving pointer's last move lands (onPointerLeave). */
+const OFF_CANVAS = -1e5;
 
 export interface CanvasControllerOptions {
   shortcuts?: readonly Shortcut[];
@@ -335,7 +337,15 @@ export class CanvasController {
     return was;
   }
   private readonly onPointerEnter = (e: PointerEvent) => void this.send(PointerType.ENTER, e);
-  private readonly onPointerLeave = (e: PointerEvent) => void this.send(PointerType.LEAVE, e);
+  /**
+   * Off the canvas (onto a panel, or the "?" over the right panel in one jump): the gap / padding hatch outlived the
+   * engine's LEAVE alone (compare-2026-10-18 C, regression 1), so with no button down the pointer first moves far off
+   * the canvas — as a pointer leaving across empty canvas does — and every hover ends with it.
+   */
+  private readonly onPointerLeave = (e: PointerEvent) => {
+    if (!e.buttons) this.engine.pointer(PointerType.MOVE, OFF_CANVAS, OFF_CANVAS, e.button, 0, modifiersOf(e), e.pressure, this.lastDown.count || 1, POINTER_KIND[e.pointerType] ?? 0, e.timeStamp);
+    this.send(PointerType.LEAVE, e);
+  };
 
   private readonly onWheel = (e: WheelEvent) => {
     e.preventDefault();

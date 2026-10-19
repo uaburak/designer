@@ -8,8 +8,9 @@ import type { IconName, MenuEntry, MenuItem } from "@/ds";
 import { intlLocale, t } from "@/i18n";
 import { CMD_ENABLED, Status } from "@/engine/abi";
 import type { Guid } from "@/engine/codec";
+import { ANIMATION_STYLES } from "@shared/motion/types";
 import type { EditorController } from "./controller";
-import { COMMAND_BY_ID, command, isEnabled, runEditorCommand, shortcutOf, viewOnly } from "./commands";
+import { COMMAND_BY_ID, command, inDesktopApp, isEnabled, runEditorCommand, shortcutOf, viewOnly } from "./commands";
 import { modeOf } from "./devmode/devMode";
 import { exportAllowed } from "./exporting";
 import { changedProperties, instanceChanges, resetChanges, resetPropertyValue, selectedInstance, selectionNodes } from "./components";
@@ -151,6 +152,8 @@ const MAIN_ACTIONS = ["object.go-to-main-component", "object.push-changes", "obj
 
 function mainComponentActions(ed: EditorController): Spec[] {
   const nodes = selectionNodes(ed);
+  // Main components (live context-component.txt): "Main component ▸" with its five rows, those that can't run here greyed.
+  if (nodes.length > 0 && nodes.every((n) => isComponent(n) || isComponentSet(n))) return [(e) => kept({ id: "submenu:main-component", label: t("Main component"), items: build(e, MAIN_ACTIONS, "main-component.") })];
   const can = (id: string) => isEnabled(ed, command(id)) && (id !== "file.publish-library" || (nodes.length > 0 && nodes.every((n) => isComponent(n) || isComponentSet(n))));
   const on = MAIN_ACTIONS.filter(can);
   if (on.length < 2) return on;
@@ -475,7 +478,8 @@ export const MAIN_MENU: Spec[] = [
   },
   { id: "file.libraries", label: "Libraries" },
   "-",
-  "file.open-in-desktop",
+  // In the desktop app it is the app itself: no row (live's capture is the browser's).
+  (ed) => (inDesktopApp() ? null : commandItem(ed, "file.open-in-desktop")),
   // docs/ai.md §7: "AI balance" (credits used, remaining, the reset date); live 2026-10-18 (menus.txt): between Open in
   // desktop app and Help and account.
   "file.ai-balance",
@@ -529,7 +533,37 @@ function moveToPage(ed: EditorController): MenuEntry | null {
 
 /** Plugins ▸ in the canvas menu (plugins/menus.ts); Widgets ▸ open, its items disabled (widgets aren't built). */
 const PLUGINS = (ed: EditorController): MenuEntry => canvasPluginsMenu(ed, (id, label) => withoutCheck(commandItem(ed, id, label)));
-const WIDGETS: SubSpec = { label: "Widgets", items: ["widgets.manage", "widgets.select-all"] };
+const WIDGETS = (ed: EditorController): MenuEntry => kept({ id: "submenu:widgets", label: t("Widgets"), items: build(ed, ["widgets.manage", "widgets.select-all"], "widgets.") });
+
+/**
+ * Add motion ▸ (atlas 03 §4: Figma's metronome rows) — Position, Scale, Rotation, Opacity, More ▸, then Apply
+ * animation style ▸ (the composite styles): each switches to Motion and keys that field (commands.ts addMotion).
+ */
+const ADD_MOTION = (ed: EditorController): MenuEntry => kept({
+  id: "submenu:add-motion",
+  label: t("Add motion"),
+  items: build(ed, [
+    "motion.add.position",
+    "motion.add.scale",
+    "motion.add.rotation",
+    "motion.add.opacity",
+    { label: "More", items: ["motion.add.corner-radius", "motion.add.fill", "motion.add.stroke-paint", "motion.add.stroke-weight", "motion.add.drop-shadow"] },
+    "-",
+    { label: "Apply animation style", items: ANIMATION_STYLES.map((s) => `motion.add-style.${s.key}`) },
+  ], "add-motion."),
+});
+
+/**
+ * Rows Figma's canvas menu shows that Wecra can't run (yet): kept, greyed, rather than dropped (the owner's decision,
+ * 2026-10-19 — the menu reads as Figma's): Send to Figma Make, Find similar designs, Outline stroke, Widgets ▸ and a
+ * main component's Main component ▸ (with their disabled rows).
+ */
+const KEEP_VISIBLE = new Set(["canvas.send-to-make", "canvas.find-similar", "vector.outline-stroke"]);
+const keptEntries = new WeakSet<object>();
+function kept(entry: MenuEntry): MenuEntry {
+  if (typeof entry === "object") keptEntries.add(entry);
+  return entry;
+}
 /** Right-click › Create brush ▸ Stretch brush / Scatter brush (help.figma.com 31440438150935). */
 const CREATE_BRUSH: SubSpec = { label: "Create brush", items: ["object.create-brush.stretch", "object.create-brush.scatter"] };
 
@@ -573,7 +607,7 @@ export function canvasMenu(ed: EditorController, layers: { id: Guid; name: strin
     { label: "Copy/Paste as", items: ["edit.copy-as-text", { label: "Copy as code", items: COPY_AS_CODE }, "edit.copy-as-svg", "edit.copy-as-png", "-", "edit.copy-properties", "edit.paste-properties"] },
     "canvas.send-to-make",
     ...(multi ? [] : ["canvas.find-similar"]),
-    ...(allComponents ? [] : ["canvas.add-motion"]),
+    ...(allComponents ? [] : [ADD_MOTION]),
     // Motion (docs/motion.md §6.9, round 8e): Mute audio while the timeline's root has audio (help: right-click › Mute audio).
     ...(ed.ui.get().mode === "motion" && isEnabled(ed, command("motion.mute-audio")) ? ["motion.mute-audio"] : []),
     "-",
@@ -634,7 +668,7 @@ export function withoutDisabled(ed: EditorController, entries: MenuEntry[]): Men
       if (out.length && out[out.length - 1] !== "-") out.push(e);
       continue;
     }
-    if (!("id" in e)) {
+    if (!("id" in e) || keptEntries.has(e)) {
       out.push(e);
       continue;
     }
@@ -643,7 +677,7 @@ export function withoutDisabled(ed: EditorController, entries: MenuEntry[]): Men
       if (!e.disabled && items.some((i) => i !== "-")) out.push({ ...e, items });
       continue;
     }
-    if (!e.disabled || (blocked && FORCE_VISIBLE.has(e.id))) out.push(e);
+    if (!e.disabled || (blocked && FORCE_VISIBLE.has(e.id)) || KEEP_VISIBLE.has(e.id)) out.push(e);
   }
   while (out[out.length - 1] === "-") out.pop();
   return out;

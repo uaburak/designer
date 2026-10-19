@@ -89,7 +89,11 @@ export function CanvasMenu() {
   const entries = at.ruler ? withoutDisabled(ed, rulerMenu(ed, at.ruler)) : at.guide ? [commandItem(ed, "canvas.remove-guide")] : canvasMenu(ed, layers, { row: !at.canvas });
   return (
     <ContextMenu
-      at={{ x: at.x, y: at.y }}
+      // Live (menu-context-main-component): a menu moved up to fit never has a row under the pointer — it opens 4 px
+      // beside it (right of it, or left when it flips; 1 px still lit the row at 1.08×), so nothing lights until the
+      // pointer moves.
+      at={{ x: at.x + 4, y: at.y }}
+      flipX={at.x - 4}
       entries={entries}
       width={canvasMenuWidth(entries)}
       label={t("Canvas")}

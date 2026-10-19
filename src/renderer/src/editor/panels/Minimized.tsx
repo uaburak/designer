@@ -47,8 +47,7 @@ export function MinimizedPanels() {
         <RightPanel floating />
       ) : (
         <div className={`${styles.card} ${styles.cardRight}`} style={below} data-minimized="right">
-          <RightHeader compact />
-          <ZoomMenu />
+          <RightHeader compact zoom={<ZoomMenu />} />
         </div>
       )}
       {menu && <ContextMenu at={menu} entries={mainMenu(ed)} label={t("Main menu")} minWidth={MAIN_MENU_WIDTH} ignore={button} onSelect={(id) => runMenuItem(ed, id)} onClose={() => setMenu(null)} />}

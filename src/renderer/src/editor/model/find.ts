@@ -20,6 +20,11 @@ export interface FindNode {
   media?: boolean;
   /** Its parent's name (the result's second line); none on the page */
   parent?: string;
+  /** Auto layout (the result's glyph, as Layers draws it): HORIZONTAL / VERTICAL / GRID, and WRAP */
+  stackMode?: string;
+  stackWrap?: string;
+  /** A component's slot (FRAME isSlot) */
+  slot?: boolean;
 }
 
 /** The layer-type filters, as the live Settings menu lists them under "All" (docs/research/figma/live/left/find-filter-menu.txt). */
@@ -102,7 +107,18 @@ export interface FindResult {
   inText: boolean;
   /** The parent's name (the result's second line), none for a top-level layer */
   parent?: string;
+  /** The layer's auto layout and slot (its glyph) */
+  stackMode?: string;
+  stackWrap?: string;
+  slot?: boolean;
 }
+
+/** What a result's glyph needs besides its type (only the fields the layer has). */
+const glyphOf = (n: FindNode): Pick<FindResult, "stackMode" | "stackWrap" | "slot"> => ({
+  ...(n.stackMode !== undefined ? { stackMode: n.stackMode } : {}),
+  ...(n.stackWrap !== undefined ? { stackWrap: n.stackWrap } : {}),
+  ...(n.slot ? { slot: true } : {}),
+});
 
 /** Every match before the type filter, counted per type (the Settings menu's counts; "all": what All finds). */
 export function countByType(nodes: readonly FindNode[], query: string, o: FindOptions = {}): Record<string, number> {
@@ -125,11 +141,11 @@ export function findLayers(nodes: readonly FindNode[], query: string, o: FindOpt
     if (types ? !types.has(filter) : filter === "other") continue;
     const inText = n.type === "TEXT" && n.text !== undefined ? matchRanges(n.text, pattern) : [];
     if (inText.length) {
-      out.push({ id: n.id, page: n.page, type: n.type, filter, name: n.name, label: n.text!, ranges: inText, inText: true, parent: n.parent });
+      out.push({ id: n.id, page: n.page, type: n.type, filter, name: n.name, label: n.text!, ranges: inText, inText: true, parent: n.parent, ...glyphOf(n) });
       continue;
     }
     const inName = matchRanges(n.name, pattern);
-    if (inName.length) out.push({ id: n.id, page: n.page, type: n.type, filter, name: n.name, label: n.name, ranges: inName, inText: false, parent: n.parent });
+    if (inName.length) out.push({ id: n.id, page: n.page, type: n.type, filter, name: n.name, label: n.name, ranges: inName, inText: false, parent: n.parent, ...glyphOf(n) });
   }
   return out;
 }

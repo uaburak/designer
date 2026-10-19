@@ -25,7 +25,9 @@ import { round5, setRound5 } from "./devmode/round5";
 import { textSummary, toggledBold, toggledItalic } from "./model/text";
 import { fields, type ExtraFields } from "./panels/design/shared";
 import { removeAllAutoLayout, suggestAutoLayout } from "./panels/design/layoutActions";
-import type { Guid } from "@/engine/codec";
+import type { Guid, NodeChange } from "@/engine/codec";
+import { ANIMATION_STYLES, type KeyframeField } from "@shared/motion/types";
+import { applyStyle } from "./motion/presets";
 import { COMPONENT_COMMAND, canPushChanges, goToMainComponent, instanceChanges, mainOf, pageOf, resetChanges, returnToInstance, selectedInstance } from "./components";
 import { collapsedLayers } from "./model/layerTree";
 import { openFind, stepFind } from "./find";
@@ -230,6 +232,41 @@ const PLUGIN_COMMANDS: EditorCommand[] = [
   { id: "plugins.open-console", label: "Show/Hide console", run: (ed) => pluginsOf(ed)?.openConsole(), enabled: (ed) => !!pluginsOf(ed) && !!pluginDesktop() },
 ];
 
+/** The editor runs in the desktop app (an editor view), not in a browser. */
+export const inDesktopApp = (): boolean => typeof window !== "undefined" && (window as { designer?: { role?: string } }).designer?.role === "editor";
+
+/**
+ * Add motion ▸ can key the selection: layers inside a top-level frame — the timeline animates what is in it, never the
+ * frame (docs/motion.md §4.3); a layer straight on the page has no timeline, so its rows stay greyed.
+ */
+function canAddMotion(ed: EditorController): boolean {
+  const page = ed.store.page;
+  const nodes = ed.selectedNodes();
+  return nodes.length > 0 && nodes.every((n) => !!n.parentIndex?.guid && n.parentIndex.guid !== page);
+}
+
+const firstSolid = (paints: unknown) => Array.isArray(paints) && (paints[0] as { type?: string } | undefined)?.type === "SOLID";
+
+/** An Add motion ▸ row: the field it keys (null: the selection hasn't it — the row disabled). */
+function addMotion(id: string, label: string, field: (nodes: NodeChange[]) => KeyframeField | null): EditorCommand {
+  return {
+    id,
+    label,
+    run: (ed) => {
+      const f = field(ed.selectedNodes());
+      if (!f) return;
+      const nodes = [...ed.selection];
+      if (modeOf(ed) !== "motion") setMode(ed, "motion");
+      try {
+        ed.engine.runMotionCommand("MOTION_ADD_KEYFRAME", { nodes, field: f, timeUs: (ed.ui.get().motion ?? MOTION_UI_DEFAULT).timeUs });
+      } catch {
+        // The engine's Motion commands not built in this wasm.
+      }
+    },
+    enabled: (ed) => canAddMotion(ed) && field(ed.selectedNodes()) !== null,
+  };
+}
+
 const later = (id: string, label: string, keys?: KeyCombo[]): EditorCommand => ({ id, label, keys, run: () => {}, enabled: () => false });
 
 /** One of Figma's own web pages (Help and account ▸), in the browser (the desktop app opens it outside). */
@@ -349,7 +386,20 @@ export function setViewOption(
 ): void {
   ed.ui.set(patch);
   syncViewOptions(ed);
-  if (patch.outlines !== undefined) showToast({ message: patch.outlines ? t("Outlines visible") : t("Outlines hidden") });
+  // Live (outlines-shift-cmd-o): "Outlines visible | Cancel" — Cancel turns them off again (no second toast).
+  if (patch.outlines !== undefined)
+    showToast({
+      message: patch.outlines ? t("Outlines visible") : t("Outlines hidden"),
+      action: patch.outlines
+        ? {
+            label: t("Cancel"),
+            onAction: () => {
+              ed.ui.set({ outlines: false });
+              syncViewOptions(ed);
+            },
+          }
+        : undefined,
+    });
   // Figma's toggle toasts (docs/research/atlas/21-settings.md §3: visual_bell.render_grid_*, show_frame_guides_*).
   if (patch.pixelGrid !== undefined) showToast({ message: patch.pixelGrid ? t("Pixel grid visible") : t("Pixel grid hidden") });
   if (patch.layoutGuides !== undefined) showToast({ message: patch.layoutGuides ? t("Layout guides visible") : t("Layout guides hidden") });
@@ -928,8 +978,18 @@ export const COMMANDS: EditorCommand[] = [
   ui("prefs.accessibility", "Accessibility settings…", undefined, (ed) => ed.ui.set({ accessibilityDialog: true, uiHidden: false })),
   later("prefs.permissions", "Permissions and helpers…"),
   ui("prefs.nudge-amount", "Nudge amount…", undefined, (ed) => ed.ui.set({ nudgeDialog: true, uiHidden: false })),
-  // The Figma menu's "Open in desktop app" (the web app's; this app has no deep links yet).
-  later("file.open-in-desktop", "Open in desktop app"),
+  // The Figma menu's "Open in desktop app" (live menu-main-view: enabled in the browser). The web app hands the file to
+  // the desktop app by its link (designer://f/<key>, main's open-url → openSharedLink); the desktop app's own menu
+  // leaves the row out (menus.ts: it is the desktop app).
+  {
+    id: "file.open-in-desktop",
+    label: "Open in desktop app",
+    run: (ed) => {
+      const key = (ed.source as { fileKey?: string }).fileKey;
+      if (key) window.location.href = `designer://f/${encodeURIComponent(key)}`;
+    },
+    enabled: (ed) => !inDesktopApp() && !!(ed.source as { fileKey?: string }).fileKey,
+  },
   {
     id: "file.save-version",
     label: "Save to version history…",
@@ -990,7 +1050,28 @@ export const COMMANDS: EditorCommand[] = [
   theme("theme.system", "Use system setting", "system"),
   later("canvas.send-to-make", "Send to Figma Make"),
   later("canvas.find-similar", "Find similar designs"),
-  later("canvas.add-motion", "Add motion"),
+  // Add motion ▸ (atlas 03 §4, Figma's metronome rows): Position, Scale, Rotation, Opacity, More ▸ {Corner radius, Fill,
+  // Stroke paint, Stroke weight, Drop shadow}, Apply animation style ▸ — each switches to Motion and keys that field at
+  // the playhead on the selected layers (docs/motion.md §6.9); Drop shadow waits for its effect field [unverified].
+  addMotion("motion.add.position", "Position", () => ({ type: "PROPERTY", name: "TRANSLATION_XY" })),
+  addMotion("motion.add.scale", "Scale", () => ({ type: "PROPERTY", name: "SCALE_XY" })),
+  addMotion("motion.add.rotation", "Rotation", () => ({ type: "PROPERTY", name: "ROTATION" })),
+  addMotion("motion.add.opacity", "Opacity", () => ({ type: "PROPERTY", name: "OPACITY" })),
+  addMotion("motion.add.corner-radius", "Corner radius", (nodes) => (nodes.every((n) => typeof (n as { cornerRadius?: number }).cornerRadius === "number" || ["RECTANGLE", "ROUNDED_RECTANGLE", "FRAME", "SYMBOL", "INSTANCE"].includes(String(n.type))) ? { type: "PROPERTY", name: "CORNER_RADIUS" } : null)),
+  addMotion("motion.add.fill", "Fill", (nodes) => (nodes.every((n) => firstSolid(n.fillPaints)) ? { type: "INDEXED_ITEM", collection: "fills", index: 0 } : null)),
+  addMotion("motion.add.stroke-paint", "Stroke paint", (nodes) => (nodes.every((n) => firstSolid(n.strokePaints)) ? { type: "INDEXED_ITEM", collection: "strokes", index: 0 } : null)),
+  addMotion("motion.add.stroke-weight", "Stroke weight", (nodes) => (nodes.every((n) => Array.isArray(n.strokePaints) && n.strokePaints.length > 0) ? { type: "PROPERTY", name: "STROKE_WEIGHT" } : null)),
+  later("motion.add.drop-shadow", "Drop shadow"),
+  ...ANIMATION_STYLES.map((s): EditorCommand => ({
+    id: `motion.add-style.${s.key}`,
+    label: s.name,
+    run: (ed) => {
+      const nodes = [...ed.selection];
+      if (modeOf(ed) !== "motion") setMode(ed, "motion");
+      applyStyle(ed, s.key, nodes);
+    },
+    enabled: (ed) => canAddMotion(ed),
+  })),
   // Rename layers with AI (the Layers row's menu, "AI" tag; docs/ai.md §3, editor/ai): the selected layers' default names.
   {
     id: "canvas.rename-layers-ai",

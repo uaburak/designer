@@ -13,7 +13,7 @@ import { runEditorCommand, setViewOption } from "../commands";
 import { zoomTo } from "../actions";
 import { useUI } from "../hooks";
 import { commandItem } from "../menus";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useTool } from "@/engine/hooks";
 import { CommentsPanel } from "../comments/CommentsPanel";
 import { DesignPanel } from "./design/DesignPanel";
@@ -119,7 +119,8 @@ export function RightPanel({ floating }: { floating?: boolean } = {}) {
   );
 }
 
-export function RightHeader({ compact }: { compact?: boolean }) {
+/** `zoom`: Minimize UI's card puts the zoom menu here, after the avatar (live minimize-ui: avatar · 250 % · ▶ · Share). */
+export function RightHeader({ compact, zoom }: { compact?: boolean; zoom?: ReactNode }) {
   useT();
   const ed = useEditor();
   const me = useAccount().state?.user;
@@ -147,6 +148,7 @@ export function RightHeader({ compact }: { compact?: boolean }) {
           <span className={styles.accountMore}><Icon name="16.chevron.down" /></span>
         </MenuButton>
       )}
+      {zoom}
       <span className={styles.grow} />
       <SaveStatusIcon />
       <span className={styles.present}>

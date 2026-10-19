@@ -1,4 +1,6 @@
 @layer app {
+  /* Live (bulk-rename-dialog-and-smart-selection): the dialog sits 14 above the window's centre (a 28 margin under it) */
+  .dialog { margin-bottom: calc(var(--ds-space-6) + var(--ds-space-1)); }
   /* Live: the Preview column at the left (16 in), the fields 160 in, 480 wide */
   .body { display: grid; grid-template-columns: var(--ds-size-rename-preview) minmax(0, 1fr); gap: var(--ds-space-4); min-height: 0; }
   .preview { display: flex; flex-direction: column; gap: var(--ds-space-2); min-width: 0; }

@@ -2,6 +2,31 @@
 
 First written 2026-10-06 when the first Claude session stopped and the owner moved the work to another Claude account through GitHub (`https://github.com/uaburak/designer`). Updated the same day by the second session, which finished every workstream's partial items and ran the integration round. Read `AGENTS.md`, `docs/architecture.md` and `docs/roadmap.md` first; the contracts in `docs/` decide everything; `docs/research/` holds the verified facts about Figma (with sources).
 
+## Status 2026-10-19 — compare-2026-10-18 Group 2 (left panel, menus, toolbar chrome, editor shell), committed on its branch, not merged
+
+Branch `worktree-agent-acf6a78c196267049` (from main `1fb3352f`): 17 of the 19 Group 2 items of `docs/research/compare-2026-10-18/STATUS-2026-10-19.md` fixed; its "As built — Group 2" section lists each item with its file, and the side-by-side images are in `compare-2026-10-18/after/group2-*.png`.
+
+- **Fixed:**
+  - A narrow window's right panel lies over the left one.
+  - The Tools tab gets Suggested (Wecra's image tools, no Weave card).
+  - Find's auto-layout glyphs; its field is blurred while Settings is open.
+  - Assets: no variant badge, and the library search is focused.
+  - "?" over the Variables view; Actions' placeholder reads "Search".
+  - Open in desktop app: a `designer://` link in the browser, no row in the desktop app.
+  - The canvas menu keeps Figma's rows Wecra can't run, greyed (Send to Figma Make, Find similar designs, Outline stroke, Widgets ▸, a main's Main component ▸), and **Add motion ▸ is built** (keys a field in Motion, or applies a style).
+  - The menu opens 4 px beside the pointer.
+  - The Pages chevron shows on hover only; the eye's hover square.
+  - Rename dialog 14 higher; Minimize UI's pill order; "Outlines visible | Cancel"; the eyedropper card's text and margin.
+  - A pointer leaving the canvas ends the gap hatch.
+- **Not fixed:**
+  - #3: live's DOM says that button is "Filter by price and type", so there is no difference.
+  - #9: Figma's AI-action glyphs have no source yet.
+- **Checks:** typecheck, eslint and vitest (2989 tests) green.
+- **Next:**
+  - Merge.
+  - Check Open in desktop app on the web app with a real file.
+  - Get Figma's AI glyphs (REA or a 2× capture).
+
 ## Status 2026-10-19 — Manage libraries as live Figma's, draggable panels, Dev Mode's eyedropper, committed on its branch, not merged
 
 The owner's three requests. **Manage libraries** rebuilt to live's measurement (`docs/research/figma/live/2026-10-18/menus.txt`): 591 × 641, 40 header, draggable, a 200 nav ("Search all libraries", This file / Updates, Browse libraries, Teams), the publish banner, 74-high rows with 102 × 58 thumbnails and Remove — every working feature kept (enable / disable, Updates and review, Publish / Unpublish, preview, swap, missing); no UI kits (Wecra has none). **Draggable panels**: one shared header drag (`ds/overlay/drag.ts`) for every titled Popover (colour picker, effect settings, Interaction details, Edit variable, pickers, Easing…), `Dialog draggable` (Manage libraries, Export) and Review updates — kept inside the window, reopened at their own place. **Dev Mode's eyedropper**: the 2nd toolbar slot (I), a pick copies the colour (engine: Dev Mode lets a viewer take the eyedropper; `engine.wasm` rebuilt). Detail: `docs/design-system.md` "As built 2026-10-19 — Manage libraries…", atlas 14 §17. Images: `docs/research/figma/live/owner-2026-10-19/after/{libraries,drag,devmode-eyedropper}-*.png`. To verify: main menu › Libraries on an unpublished file and a published one; drag the colour picker and Manage libraries to a window edge; Dev Mode › I › click the canvas → the toast and the clipboard.

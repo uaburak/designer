@@ -1621,4 +1621,7 @@ export const panels: Record<string, string> = {
   "Add library": "Kütüphane ekle",
   "Add libraries": "Kütüphaneleri ekle",
   "The library couldn't be published: it's too large": "Kütüphane yayınlanamadı: çok büyük",
+  // Tools › Suggested (compare 2026-10-18, Group 2)
+  Suggested: "Önerilenler",
+  "By Wecra": "Wecra'dan",
 };

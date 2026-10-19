@@ -184,21 +184,6 @@
   .tileBox { position: relative; display: flex; aspect-ratio: 1; border-radius: var(--ds-radius-asset-tile); background: var(--figma-color-bg-secondary); overflow: hidden; }
   .tileBox .thumb { flex: 1 1 auto; background: transparent; }
   .tile:hover .tileBox { box-shadow: inset 0 0 0 1px var(--figma-color-border-component); }
-  /* A set's variant count (live: a 16 dot, top right) */
-  .variants {
-    position: absolute;
-    top: var(--ds-space-1);
-    right: var(--ds-space-1);
-    min-width: var(--ds-space-4);
-    height: var(--ds-space-4);
-    padding: 0 var(--ds-space-1);
-    border-radius: var(--ds-radius-full);
-    background: var(--ds-color-asset-variants-bg);
-    color: var(--figma-color-text-onbrand);
-    font: var(--ds-font-body-medium-regular);
-    line-height: var(--ds-space-4);
-    text-align: center;
-  }
   .thumb {
     display: flex;
     align-items: center;

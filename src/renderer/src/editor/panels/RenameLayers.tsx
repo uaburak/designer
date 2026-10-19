@@ -65,6 +65,7 @@ function RenameLayers({ refs }: { refs: string[] }) {
     <Dialog
       title={tp(refs.length, "Rename {n} layer", "Rename {n} layers")}
       size="medium"
+      className={styles.dialog}
       open
       onClose={close}
       footer={

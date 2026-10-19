@@ -500,7 +500,8 @@ function Overlays() {
       {/* Centred on the window by CSS alone: a panel resized, folded or hidden never moves or re-renders it. */}
       {!hidden && <BottomToolbar />}
       {variables && <LocalVariables />}
-      {!hidden && !variables && !shortcuts && <Help />}
+      {/* Live (left-rail-variables-full-view): the "?" stays over the Variables view too */}
+      {!hidden && !shortcuts && <Help />}
       <CanvasMenu />
       {/* Docked along the bottom: the panels end over it and the toolbar sits over it (EditorApp.module.css); the canvas keeps its size. */}
       <ShortcutsPanel />
