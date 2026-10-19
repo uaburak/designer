@@ -244,6 +244,12 @@ class MotionIndex {
   bool plays(Guid root) const { return playing_.count(root) != 0; }
   size_t trackCount() const { return tracks_.size(); }
   size_t nodeCount() const { return nodes_.size(); }
+  // Nothing decoded: no track, clip, animated layer or playing root (Batch D: a commit that brings no motion data into
+  // such a document leaves it so, and skips the whole-document rebuild).
+  bool empty() const { return tracks_.empty() && nodes_.empty() && presets_.empty() && playing_.empty(); }
+  // Whether a node's own fields put anything in the index (a track, a keyframe, a clip, a KEYFRAME expression on a
+  // field, paint or effect, a clip list) — the per-node test of rebuild's steps 1–2.
+  static bool mayAnimate(const NodeProps& p);
 
  private:
   std::unordered_map<Guid, Track, GuidHash> tracks_;

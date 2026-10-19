@@ -312,7 +312,12 @@ void Editor::markInstanceDirty(const NodeChange& c) {
   if (c.phase == Phase::REMOVED) {
     if (derivedRows_.count(c.guid)) instanceDirty_.insert(c.guid);
   } else if (n && n->props.type == NodeType::INSTANCE) {
-    if (m & ~kOwnFields) instanceDirty_.insert(c.guid);
+    // Batch D: its size alone, written by layout (its auto-layout parent filling or stretching it), refits the rows it
+    // has (stage B) instead of deriving them again. Deriving again wrote the main's size back on the root, so the
+    // parent's next layout pass resized it and derived it once more — on every frame of a drag in its parent.
+    FieldMask inherited = m & ~kOwnFields;
+    if (inherited == F_SIZE && inLayout_ && !deriving_ && c.phase == Phase::CHANGED && canRefit(c.guid)) instanceRefit_.insert(c.guid);
+    else if (inherited) instanceDirty_.insert(c.guid);
   } else if (derivedRows_.count(c.guid)) {
     instanceDirty_.insert(c.guid);  // no longer an instance (detached)
   }
@@ -363,8 +368,40 @@ bool Editor::instanceWaits(Guid r) const {
   return top != kNoGuid && !derivedInternal_.count(top);
 }
 
+bool Editor::canRefit(Guid R) const {
+  // Rows laid out by this engine's stage A (their blueprint is where constraints start), no stored layout waiting, no
+  // slot content (a diverged slot's frame follows its slot in finishLayouts from the expansion's list).
+  auto rows = derivedRows_.find(R);
+  if (rows == derivedRows_.end() || storedSymbols_.count(R) || slotContentsOf_.count(R)) return false;
+  auto rb = blueprint_.find(R);
+  if (rb == blueprint_.end() || !rb->second.frame) return false;
+  for (Guid row : rows->second) {
+    auto b = blueprint_.find(row);
+    if (b == blueprint_.end() || !b->second.geometry) return false;
+  }
+  return true;
+}
+
+void Editor::flushRefits() {
+  if (instanceRefit_.empty()) return;
+  std::vector<Guid> list;
+  list.reserve(instanceRefit_.size());
+  for (Guid r : instanceRefit_)
+    if (!instanceDirty_.count(r) && doc_.has(r) && doc_.get(r)->props.type == NodeType::INSTANCE && canRefit(r)) list.push_back(r);
+    else if (doc_.has(r)) instanceDirty_.insert(r);  // no longer refittable: derived again
+  instanceRefit_.clear();
+  if (list.empty()) return;
+  std::sort(list.begin(), list.end());
+  std::vector<PendingLayout> batch;
+  batch.reserve(list.size());
+  for (Guid r : list) batch.push_back(PendingLayout{r, derivedRows_[r], true, {}, false});
+  finishLayouts(batch);
+}
+
 void Editor::flushInstances() {
-  for (int pass = 0; pass < 16 && !instanceDirty_.empty(); pass++) {
+  for (int pass = 0; pass < 16; pass++) {
+    flushRefits();
+    if (instanceDirty_.empty()) break;
     std::vector<Guid> list;
     list.reserve(instanceDirty_.size());
     for (Guid r : instanceDirty_)
@@ -736,6 +773,7 @@ void normalizeOverridePaths(std::vector<NodeChange>& nodes) {
 }
 
 void Editor::materialize(Guid R) {
+  materializations_++;
   // Its old dependency edges go; deriving records new ones.
   if (auto s = instanceSources_.find(R); s != instanceSources_.end()) {
     for (Guid src : s->second) {

@@ -134,7 +134,7 @@ class Document {
   mutable std::vector<Guid> stack_;
   mutable GeometryCache geometry_;
   uint64_t version_ = 0;
-  // approxBytes, kept per version and node count (engine_stats is read every frame by tools; it walked every node).
+  // approxBytes, kept per node count and across small edits (engine_stats is read every frame by tools; it walks every node).
   mutable uint64_t bytesVersion_ = ~0ull, bytes_ = 0;
   mutable size_t bytesNodes_ = 0;
   uint64_t logStart_ = 0;  // log_[k] is the change of version logStart_ + 1 + k

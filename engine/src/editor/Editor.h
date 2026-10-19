@@ -446,6 +446,10 @@ class Editor : private LayoutHost, public TextLayouts {
   Guid motionRoot() const;
   // The decoded model (rebuilt after a commit; tests, the timeline reads of round 8b).
   const motion::MotionIndex& motionIndex();
+  // How many times the motion index was rebuilt (Batch D's tests: a commit without motion data keeps it).
+  uint64_t motionRebuilds() const { return motionRebuilds_; }
+  // How many times an instance was derived (materialize) — Batch D's tests: a size from layout refits instead.
+  uint64_t materializations() const { return materializations_; }
   const motion::MotionLayer& motionLayer() const { return motionLayer_; }
   // The base values put back for the scope (storage, exports, the clipboard), the layer applied again after it.
   motion::Suspend motionSuspended();
@@ -1329,6 +1333,9 @@ class Editor : private LayoutHost, public TextLayouts {
   NodeProps instanceRoot(const NodeProps& own, const NodeProps& main, Guid mainId = kNoGuid) const;
   void markInstanceDirty(const NodeChange& c);
   void flushInstances();
+  // Batch D: instances whose size alone layout changed — their rows fitted again (stage B), not derived again.
+  bool canRefit(Guid R) const;
+  void flushRefits();
   void materialize(Guid instance);
   // Stage B of materialization (layout to the instance's size, constraints, slots), for one instance or a batch.
   struct PendingLayout {
@@ -1377,6 +1384,15 @@ class Editor : private LayoutHost, public TextLayouts {
   bool isSlotAssignment(Guid main, const ComponentPropAssignment& a) const;
   // The real layer at `path` (keys) in `symbol`'s tree, following nested instances' mains (kNoGuid: none).
   Guid layerAtPath(Guid symbol, const std::vector<Guid>& path) const;
+  // Batch D: layerAtPath's answers (an override's path into a main, asked again for every instance of that main — 1.4 s
+  // of deriving the owner's heaviest page), dropped when a real node is created, removed, moved, retyped, re-keyed or
+  // swapped (noteChange) and at a load.
+  struct PathMemo {
+    Guid symbol;
+    std::vector<Guid> path;
+    Guid at;
+  };
+  mutable std::unordered_map<uint64_t, PathMemo> pathMemo_;
   // A nested instance showing `main` (a variant chosen by a variable, a variant or instance picked at the usage site):
   // the overrides under `path` made on another of `from` or `main`'s variants follow it by layer name (remapOverrides).
   void carryNestedOverrides(Expansion& ex, const std::vector<Guid>& path, Guid main, const std::vector<Guid>& from);
@@ -1892,6 +1908,13 @@ class Editor : private LayoutHost, public TextLayouts {
   motion::MotionIndex motionIndex_;
   motion::MotionLayer motionLayer_;
   bool motionDirty_ = true;
+  // Batch D: what the open transaction wrote, for its commit — anything (`motionDocTouched_`), and anything that puts
+  // a node in the index (`motionTouched_`, MotionIndex::mayAnimate). A commit that wrote nothing, or nothing motion
+  // into a document whose index is empty, keeps the index: the rebuild walks every node (~150 ms on a 350k-node file,
+  // after every click).
+  bool motionDocTouched_ = false;
+  uint64_t motionRebuilds_ = 0;
+  bool motionTouched_ = false;
   // Round 8j: the layer evaluates inside the open transaction (setMotion's `inTransaction`: a style's canvas preview,
   // whose transaction is cancelled and holds no other write); cleared when the transaction ends.
   bool motionInTxn_ = false;
@@ -2498,6 +2521,8 @@ class Editor : private LayoutHost, public TextLayouts {
 
   // Instances.
   std::unordered_set<Guid, GuidHash> instanceDirty_;
+  std::unordered_set<Guid, GuidHash> instanceRefit_;
+  uint64_t materializations_ = 0;
   std::unordered_map<Guid, std::vector<Guid>, GuidHash> sourceDeps_;       // a real node → instances derived from it
   std::unordered_map<Guid, std::vector<Guid>, GuidHash> instanceSources_;  // an instance → what it read
   std::unordered_map<Guid, std::vector<Guid>, GuidHash> derivedRows_;      // an instance → its derived rows

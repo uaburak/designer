@@ -351,7 +351,9 @@ uint32_t Document::maxLocalID(uint32_t sessionID) const {
 // ---- Changes ------------------------------------------------------------------------
 
 uint64_t Document::approxBytes() const {
-  if (bytesVersion_ == version_ && bytesNodes_ == nodes_.size()) return bytes_;
+  // An estimate: walked again once the node count moves or a sixty-fourth of the nodes' worth of changes came in (a drag's
+  // frames change a few nodes each: the bench reads engine_stats every frame, and a 350k-node walk was 45 ms of each).
+  if (bytesVersion_ != ~0ull && bytesNodes_ == nodes_.size() && version_ - bytesVersion_ <= nodes_.size() / 64) return bytes_;
   uint64_t total = 0;
   auto paints = [](const std::vector<Paint>& list) {
     uint64_t b = list.capacity() * sizeof(Paint);

@@ -249,6 +249,7 @@ else()
     tests/unit/r16.canvas_nav.test.cpp
     tests/unit/r17.canvas_feedback.test.cpp
     tests/unit/r17c.schema.test.cpp
+    tests/unit/batchd.perf.test.cpp
     tests/unit/r17.prototype_connections.test.cpp
     tests/unit/r17.hover_outline.test.cpp
     tests/unit/r17.actors.test.cpp
