@@ -117,16 +117,18 @@ void Renderer::drawSpacing(const Mat2x3& view, const Overlay& overlay, const Ove
   }
 }
 
-void Renderer::hatchQuad(const Vec2 quad[4], const Color& color, double wash, double ink, double period, double width) {
+void Renderer::hatchQuad(const Vec2 quad[4], const Color& color, double wash, double ink, double period, double width, bool back,
+                         const Vec2* phase) {
   Vec2 q[4] = {quad[0], quad[1], quad[2], quad[3]};
   Vec2 e1 = q[1] - q[0], e2 = q[3] - q[0];
   double l1 = e1.length(), l2 = e2.length();
   if (l1 <= 0 || l2 <= 0) return;
   Vec2 a{e1.x / l1, e1.y / l1}, b{e2.x / l2, e2.y / l2};
   emit(makeShape(Mat2x3{a.x, b.x, q[0].x, a.y, b.y, q[0].y}, {l1, l2}, ShapeKind::Rect, kSquare, color, wash, color, 0, 0, 0), Pass::Shape);
-  // The stripes: lines n·p = c, `period / √2` apart across them (`period` along a row), each clipped to the quad.
+  // The stripes: lines n·p = c, `period / √2` apart across them (`period` along a row), each clipped to the quad —
+  // "/" (u up and to the right), or "\\" when `back`.
   const double k = std::sqrt(0.5);
-  const Vec2 u{k, -k}, n{k, k};
+  const Vec2 u = back ? Vec2{k, k} : Vec2{k, -k}, n = back ? Vec2{k, -k} : Vec2{k, k};
   const double sp = period * k, w = width;
   double cMin = 1e300, cMax = -1e300;
   Vec2 mid{0, 0};
@@ -134,8 +136,8 @@ void Renderer::hatchQuad(const Vec2 quad[4], const Color& color, double wash, do
     cMin = std::min(cMin, dot(n, p)), cMax = std::max(cMax, dot(n, p));
     mid = {mid.x + p.x / 4, mid.y + p.y / 4};
   }
-  // The pattern's phase: from the quad's first corner (it moves with the frame, not with the screen).
-  const double c0 = dot(n, q[0]);
+  // The pattern's phase: from the quad's first corner or `phase` (it moves with the frame, not with the screen).
+  const double c0 = dot(n, phase ? *phase : q[0]);
   double first = c0 + std::ceil((cMin - c0) / sp) * sp;
   for (double c = first; c <= cMax; c += sp) {
     double t0 = -1e300, t1 = 1e300;

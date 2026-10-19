@@ -2103,6 +2103,7 @@ class Editor : private LayoutHost, public TextLayouts {
   CanvasHits hits_;
   void devOverlay(Overlay& o) const;
   void devInspectOverlay(Overlay& o) const;
+  void devInspectSpacing(Guid frame, Overlay& o) const;  // an auto-layout frame's paddings and gaps (DevMode.cpp)
   uint32_t devPointerDown(Vec2 s, uint32_t mods);
   bool devPointerMove(Vec2 s);
   bool devPointerUp(Vec2 s);

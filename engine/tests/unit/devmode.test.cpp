@@ -8,6 +8,7 @@
 #include "TextHelpers.h"
 #include "editor/Editor.h"
 #include "gfx/null/NullDevice.h"
+#include "layout/Layout.h"
 #include "render/Renderer.h"
 #include "scene/CodecKiwi.h"
 
@@ -550,4 +551,114 @@ TEST_CASE("devmode: the inspect chrome measures a selected auto-layout frame (th
   // Viewer mode without the inspect chrome (the version history's preview): none.
   f.ed.setDevInspect(false);
   CHECK_FALSE(f.ed.overlay().devInspect.on);
+}
+
+TEST_CASE("devmode: a grid's and a wrap's gaps, a hovered auto layout, a nested layer's tag and badge (owner 2026-10-19)") {
+  // Container: a 2 × 2 grid of 100 × 50 cards, 24 between columns and rows (owner-2026-10-19/figma-devmode-gap-hatch),
+  // in Frame 4507 (vertical). Card 1 holds "Text": vertical, padding 12 / 12 / 12 / 16, stretched across the card
+  // (owner-2026-10-19/figma-devmode-padding-hatch). A wrap: three 60 × 30 in a 150-wide row, gap 10, 20 between lines.
+  const Guid OUTER{3, 1}, GRID{3, 2}, C1{3, 3}, C2{3, 4}, C3{3, 5}, C4{3, 6}, TXT{3, 7}, WRAP{3, 10}, W1{3, 11}, W2{3, 12}, W3{3, 13};
+  auto nodes = baseChanges();
+  NodeChange outer = make(OUTER, NodeType::FRAME, kPage, "a", {0, 0, 224.666687, 124}, "Frame 4507");
+  outer.props.stack().stackMode = StackMode::VERTICAL;
+  nodes.push_back(outer);
+  NodeChange grid = make(GRID, NodeType::FRAME, OUTER, "a", {0, 0, 224, 124}, "Container");
+  grid.props.stack().stackMode = StackMode::GRID;
+  grid.props.stack().stackPrimarySizing = grid.props.stack().stackCounterSizing = StackSize::FIXED;
+  Layout::setGridTrackDefs(grid.props, true, {{Guid{8, 1}, "!", 1, 100}, {Guid{8, 2}, "\"", 1, 100}});
+  Layout::setGridTrackDefs(grid.props, false, {{Guid{8, 3}, "!", 1, 50}, {Guid{8, 4}, "\"", 1, 50}});
+  grid.props.extra["gridColumnGap"] = Layout::gridGapBytes(true, 24);
+  grid.props.extra["gridRowGap"] = Layout::gridGapBytes(false, 24);
+  nodes.push_back(grid);
+  NodeChange c1 = make(C1, NodeType::FRAME, GRID, "a", {0, 0, 100, 50}, "card");
+  c1.props.stack().stackMode = StackMode::VERTICAL;
+  nodes.push_back(c1);
+  nodes.push_back(make(C2, NodeType::FRAME, GRID, "b", {124, 0, 100, 50}, "card"));
+  nodes.push_back(make(C3, NodeType::FRAME, GRID, "c", {0, 74, 100, 50}, "card"));
+  nodes.push_back(make(C4, NodeType::FRAME, GRID, "d", {124, 74, 100, 50}, "card"));
+  NodeChange text = make(TXT, NodeType::FRAME, C1, "a", {0, 0, 100, 40}, "Text");
+  StackFacet& ts = text.props.stack();
+  ts.stackMode = StackMode::VERTICAL;
+  ts.stackPaddingTop = ts.stackPaddingRight = ts.stackPaddingBottom = 12, ts.stackPaddingLeft = 16;
+  ts.stackPrimarySizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
+  text.props.stackChildAlignSelf = StackCounterAlign::STRETCH;
+  nodes.push_back(text);
+  NodeChange wrap = make(WRAP, NodeType::FRAME, kPage, "b", {400, 0, 150, 80}, "Wrap");
+  StackFacet& ws = wrap.props.stack();
+  ws.stackMode = StackMode::HORIZONTAL;
+  ws.stackWrap = StackWrap::WRAP;
+  ws.stackSpacing = 10;
+  ws.stackCounterSpacing = 20;
+  ws.stackPrimarySizing = StackSize::FIXED;
+  nodes.push_back(wrap);
+  nodes.push_back(make(W1, NodeType::ROUNDED_RECTANGLE, WRAP, "a", {0, 0, 60, 30}, "w1"));
+  nodes.push_back(make(W2, NodeType::ROUNDED_RECTANGLE, WRAP, "b", {70, 0, 60, 30}, "w2"));
+  nodes.push_back(make(W3, NodeType::ROUNDED_RECTANGLE, WRAP, "c", {0, 50, 60, 30}, "w3"));
+  Fixture f(nodes);
+  f.ed.setViewerMode(true);
+  f.ed.setDevInspect(true);
+  auto pillsOf = [](const Overlay& o) {
+    std::vector<std::string> out;
+    for (const auto& p : o.devInspect.pills) out.push_back(p.text);
+    return out;
+  };
+
+  // The grid selected: the row gap across the grid, the column gap in a piece per row (never over the row gap); a pill
+  // per row on the column gap, the row gap's at the first column's middle.
+  f.ed.setSelection({GRID});
+  Overlay o = f.ed.overlay();
+  REQUIRE(o.devInspect.areas.size() == 3);
+  for (const auto& a : o.devInspect.areas) CHECK(a.gap);
+  CHECK(o.devInspect.areas[0].quad[0].x == doctest::Approx(0));
+  CHECK(o.devInspect.areas[0].quad[1].x == doctest::Approx(224));
+  CHECK(o.devInspect.areas[0].quad[0].y == doctest::Approx(50));
+  CHECK(o.devInspect.areas[0].quad[2].y == doctest::Approx(74));
+  CHECK(o.devInspect.areas[1].quad[0].x == doctest::Approx(100));
+  CHECK(o.devInspect.areas[1].quad[0].y == doctest::Approx(0));
+  CHECK(o.devInspect.areas[1].quad[2].y == doctest::Approx(50));
+  CHECK(o.devInspect.areas[2].quad[0].y == doctest::Approx(74));
+  CHECK(pillsOf(o) == std::vector<std::string>{"24", "24", "24"});
+  CHECK(o.devInspect.pills[0].at.x == doctest::Approx(50));
+  CHECK(o.devInspect.pills[0].at.y == doctest::Approx(62));
+  CHECK(o.devInspect.pills[2].at.x == doctest::Approx(112));
+  CHECK(o.devInspect.pills[2].at.y == doctest::Approx(99));
+  CHECK(o.devInspect.dotted.size() == 4);
+  CHECK(o.devInspect.tag == GRID);  // a layer inside the design: its name tag
+  RenderStats s = f.r.render(f.ed.document(), f.ed.page(), f.ed.camera(), f.ed.viewport(), o, OverlayStyle::of(Theme::Dark));
+  CHECK(s.shapes > 0);
+
+  // Frame 4507 selected (the design itself: no tag), the grid hovered in Layers: the grid's gaps, the selection's badge.
+  f.ed.setSelection({OUTER});
+  f.ed.setHover({GRID});
+  o = f.ed.overlay();
+  CHECK(o.devInspect.tag == kNoGuid);
+  CHECK(o.devInspect.areas.size() == 3);
+  CHECK(o.devInspect.origin.x == doctest::Approx(0));
+  CHECK(o.devInspect.width == "W Fixed 224.66669px");  // Figma's decimals (a .fig's float)
+  // A hovered layer that isn't an auto layout: the selection's own spacing (none here).
+  f.ed.setHover({C2});
+  CHECK(f.ed.overlay().devInspect.areas.empty());
+  f.ed.setHover({});
+
+  // "Text" inside a card: its paddings, its tag, the badge's "100%" across its parent's flow.
+  f.ed.setSelection({TXT});
+  o = f.ed.overlay();
+  CHECK(o.devInspect.tag == TXT);
+  CHECK(pillsOf(o) == std::vector<std::string>{"16", "12", "12", "12"});
+  CHECK(o.devInspect.width == "W 100% 100px");
+  s = f.r.render(f.ed.document(), f.ed.page(), f.ed.camera(), f.ed.viewport(), o, OverlayStyle::of(Theme::Dark));
+  CHECK(s.shapes > 0);
+
+  // The wrap: the gap between the first line's two layers (across that line), the one between the lines across the
+  // content box, its pill at the first layer's middle.
+  f.ed.setSelection({WRAP});
+  o = f.ed.overlay();
+  REQUIRE(o.devInspect.areas.size() == 2);
+  CHECK(pillsOf(o) == std::vector<std::string>{"10", "20"});
+  CHECK(o.devInspect.areas[0].quad[0].x == doctest::Approx(460));
+  CHECK(o.devInspect.areas[0].quad[2].y == doctest::Approx(30));
+  CHECK(o.devInspect.areas[1].quad[0].y == doctest::Approx(30));
+  CHECK(o.devInspect.areas[1].quad[2].y == doctest::Approx(50));
+  CHECK(o.devInspect.areas[1].quad[1].x == doctest::Approx(550));
+  CHECK(o.devInspect.pills[1].at.x == doctest::Approx(430));
 }

@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <ctime>
 #include <functional>
 
@@ -74,14 +75,15 @@ void Editor::setDevInspect(bool on) {
   needsRender_ = true;
 }
 
-// Dev Mode's inspect chrome (the owner's capture docs/research/figma/live/owner-2026-10-18/figma-devmode-inspect; Figma's
-// DevHandoffStackMouseBehavior, DevHandoffTLFCanvasHighlightBehavior). One layer selected:
-// - its design (the page's child holding it, a frame or component) highlighted — Renderer draws the box;
-// - an auto-layout frame (not a grid, not wrapping): each padding hatched blue and each gap pink, a blue pill with
-//   the value in each — a vertical padding's and a gap's on a line through it (the frame's middle across a padding,
-//   the content's middle along a gap), a horizontal padding's at its middle, level with the content's middle — and
-//   its flow layers' boxes dotted;
-// - the size badge as two lines, "W Fixed 678px" / "H Hug 120px" (Fill inside an auto layout, Hug when it hugs).
+// Dev Mode's inspect chrome (the owner's captures docs/research/figma/live/owner-2026-10-18/figma-devmode-inspect and
+// owner-2026-10-19/figma-devmode-{gap,padding}-hatch; Figma's DevHandoffStackMouseBehavior,
+// DevHandoffTLFCanvasHighlightBehavior). One layer selected:
+// - its design (the page's child holding it, a frame or component) highlighted — Renderer draws the box; a layer inside
+//   the design gets its name tag above its top-left corner;
+// - the spacing of an auto-layout frame — the one hovered (a Layers row or the canvas) when it is one, else the
+//   selection (devInspectSpacing);
+// - the size badge as two lines, "W Fixed 678px" / "H Hug 120px" (Fill inside an auto layout — "100%" when it
+//   stretches across its parent's flow —, Hug when it hugs; values to 5 decimals, as Figma's "410.66669px").
 void Editor::devInspectOverlay(Overlay& o) const {
   Overlay::DevInspect& d = o.devInspect;
   d.on = true;
@@ -95,33 +97,67 @@ void Editor::devInspectOverlay(Overlay& o) const {
       if (top && top->props.isFrameLike() && top->props.type != NodeType::SECTION) d.frame = at;
       break;
     }
+  if (d.frame != kNoGuid && d.frame != id) d.tag = id;
   const NodeProps& p = n->props;
   const Mat2x3 W = doc_.worldTransform(id);
 
   // The badge's lines.
+  auto number = [](double v) {
+    char buf[48];
+    std::snprintf(buf, sizeof buf, "%.5f", std::round(v * 1e5) / 1e5);
+    std::string s = buf;
+    while (!s.empty() && s.back() == '0') s.pop_back();
+    if (!s.empty() && s.back() == '.') s.pop_back();
+    return s == "-0" ? std::string("0") : s;
+  };
   const Node* parent = doc_.get(p.parentIndex.guid);
   for (int axis = 0; axis < 2; axis++) {
-    const char* how = "Fixed";
+    std::string how = "Fixed";
     if (parent && parent->props.isAutoLayout() && p.inFlow() && parent->props.stack().stackMode != StackMode::GRID) {
       bool along = (parent->props.stack().stackMode == StackMode::VERTICAL) == (axis == 1);
-      if (along ? p.stackChildPrimaryGrow > 0 : p.stackChildAlignSelf == StackCounterAlign::STRETCH) how = "Fill";
+      if (along ? p.stackChildPrimaryGrow > 0 : p.stackChildAlignSelf == StackCounterAlign::STRETCH) how = along ? "Fill" : "100%";
     }
-    if (std::string(how) == "Fixed" && p.isAutoLayout() && p.stack().stackMode != StackMode::GRID) {
+    if (how == "Fixed" && p.isAutoLayout() && p.stack().stackMode != StackMode::GRID) {
       bool primary = (p.stack().stackMode == StackMode::VERTICAL) == (axis == 1);
       if (primary ? p.hugsPrimary() : p.hugsCounter()) how = "Hug";
     }
     double v = axis == 0 ? p.size.x * std::hypot(W.m00, W.m10) : p.size.y * std::hypot(W.m01, W.m11);
-    (axis == 0 ? d.width : d.height) = std::string(axis == 0 ? "W " : "H ") + how + " " + annot::formatNumber(v) + "px";
+    (axis == 0 ? d.width : d.height) = std::string(axis == 0 ? "W " : "H ") + how + " " + number(v) + "px";
   }
 
-  if (!p.isAutoLayout() || p.stack().stackMode == StackMode::GRID || p.stack().stackWrap == StackWrap::WRAP) return;
+  Guid target = id;
+  const Guid hovered = layersHover_.size() == 1 ? layersHover_[0] : layersHover_.empty() ? hover_ : kNoGuid;
+  if (hovered != kNoGuid && hovered != id)
+    if (const Node* h = doc_.get(hovered); h && h->props.isAutoLayout()) target = hovered;
+  devInspectSpacing(target, o);
+}
+
+// An auto-layout frame's spacing in Dev Mode: each padding hatched blue ("/") and each gap pink ("\"), a blue pill with
+// each value and a line through it across the gap or padding, its flow layers' boxes dotted.
+// - Paddings: top and bottom across the frame, left and right between them; a vertical padding's pill on the frame's
+//   middle, a horizontal padding's level with the content's middle.
+// - A row or column (no wrap): each gap across the content box, its pill at the content's middle.
+// - Wrap: the gaps between the layers of each line across that line, the gaps between lines across the content box —
+//   their pills level with each line's middle and at the first layer's middle.
+// - Grid: the column gaps along the whole grid, the row gaps across it (owner-2026-10-19/figma-devmode-gap-hatch: the
+//   bands run the grid's length), a column gap's pill on each row's middle, a row gap's at the first column's middle.
+void Editor::devInspectSpacing(Guid frame, Overlay& o) const {
+  Overlay::DevInspect& d = o.devInspect;
+  const Node* n = doc_.get(frame);
+  if (!n || !n->props.isAutoLayout()) return;
+  const NodeProps& p = n->props;
+  const Mat2x3 W = doc_.worldTransform(frame);
+  d.origin = W.apply({0, 0});
   const double w = p.size.x, h = p.size.y;
   double pad[4];  // left, top, right, bottom
   Layout::padding(p, pad);
   const double own[4] = {p.stack().stackPaddingLeft, p.stack().stackPaddingTop, p.stack().stackPaddingRight, p.stack().stackPaddingBottom};
+  const bool grid = p.stack().stackMode == StackMode::GRID;
   const bool horizontal = p.stack().stackMode == StackMode::HORIZONTAL;
+  const bool wrap = !grid && horizontal && p.stack().stackWrap == StackWrap::WRAP;
+  Layout L(const_cast<Editor&>(*this));
   std::vector<Rect> boxes;
-  for (Guid c : Layout(const_cast<Editor&>(*this)).flowChildren(id)) {
+  for (Guid c : L.flowChildren(frame)) {
     const Node* cn = doc_.get(c);
     if (!cn || !cn->props.visible) continue;
     boxes.push_back(layoutBox(cn->props.transform, cn->props.size));
@@ -136,13 +172,21 @@ void Editor::devInspectOverlay(Overlay& o) const {
     return a;
   };
   for (const Rect& b : boxes) d.dotted.push_back(quad(b, false));
+  // A gap's band, its line across it through `at` and its pill there.
+  auto gapAt = [&](const Rect& g, Vec2 at, bool acrossX, double value) {
+    if (g.w <= 0 || g.h <= 0) return;
+    d.areas.push_back(quad(g, true));
+    if (acrossX) d.lines.push_back({W.apply({g.x, at.y}), W.apply({g.right(), at.y})});
+    else d.lines.push_back({W.apply({at.x, g.y}), W.apply({at.x, g.bottom()})});
+    d.pills.push_back({W.apply(at), annot::formatNumber(value)});
+  };
   // The content's middle across the flow (the pills of the side paddings and the gaps' lines sit on it).
   double c0 = 1e300, c1 = -1e300;
   for (const Rect& b : boxes) {
     c0 = std::min(c0, horizontal ? b.y : b.x);
     c1 = std::max(c1, horizontal ? b.bottom() : b.right());
   }
-  if (boxes.empty()) c0 = horizontal ? pad[1] : pad[0], c1 = horizontal ? h - pad[3] : w - pad[2];
+  if (boxes.empty() || grid) c0 = horizontal ? pad[1] : pad[0], c1 = horizontal ? h - pad[3] : w - pad[2];
   const double mid = (c0 + c1) / 2;
   // The paddings, not overlapping: top and bottom across the frame, left and right between them.
   const Rect sides[4] = {{0, pad[1], pad[0], h - pad[1] - pad[3]}, {0, 0, w, pad[1]}, {w - pad[2], pad[1], pad[2], h - pad[1] - pad[3]}, {0, h - pad[3], w, pad[3]}};
@@ -156,18 +200,65 @@ void Editor::devInspectOverlay(Overlay& o) const {
     else d.lines.push_back({W.apply({r.x, at.y}), W.apply({r.right(), at.y})});
     d.pills.push_back({W.apply(at), annot::formatNumber(own[k])});
   }
+
+  if (grid) {
+    Layout::GridCells g = L.gridCells(frame);
+    if (g.colX.empty() || g.rowY.empty()) return;
+    const double left = g.colX.front(), right = g.colX.back() + g.colW.back();
+    const double top = g.rowY.front(), bottom = g.rowY.back() + g.rowH.back();
+    // The row gaps across the grid; the column gaps in pieces between them (the bands never overlap).
+    for (size_t r = 1; r < g.rowY.size(); r++) {
+      double y0 = g.rowY[r - 1] + g.rowH[r - 1], y1 = g.rowY[r];
+      gapAt({left, y0, right - left, y1 - y0}, {g.colX[0] + g.colW[0] / 2, (y0 + y1) / 2}, false, y1 - y0);
+    }
+    for (size_t c = 1; c < g.colX.size(); c++) {
+      double x0 = g.colX[c - 1] + g.colW[c - 1], x1 = g.colX[c];
+      for (size_t r = 0; r < g.rowY.size(); r++) {
+        double y0 = r == 0 ? top : g.rowY[r], y1 = r + 1 == g.rowY.size() ? bottom : g.rowY[r] + g.rowH[r];
+        gapAt({x0, y0, x1 - x0, y1 - y0}, {(x0 + x1) / 2, g.rowY[r] + g.rowH[r] / 2}, true, x1 - x0);
+      }
+    }
+    return;
+  }
+
   const bool between = p.stack().stackPrimaryAlignItems == StackJustify::SPACE_BETWEEN;
+  if (wrap) {
+    // The lines: a layer starting left of the one before it starts a line.
+    std::vector<std::vector<Rect>> lines;
+    for (const Rect& b : boxes) {
+      if (lines.empty() || b.x <= lines.back().back().x) lines.emplace_back();
+      lines.back().push_back(b);
+    }
+    std::vector<std::pair<double, double>> spans;  // each line's top and bottom
+    for (const auto& line : lines) {
+      double t = 1e300, b = -1e300;
+      for (const Rect& r : line) t = std::min(t, r.y), b = std::max(b, r.bottom());
+      spans.push_back({t, b});
+    }
+    for (size_t l = 0; l < lines.size(); l++) {
+      const double lineMid = (spans[l].first + spans[l].second) / 2;
+      for (size_t i = 1; i < lines[l].size(); i++) {
+        const Rect& a = lines[l][i - 1];
+        const Rect& b = lines[l][i];
+        Rect g{std::min(a.right(), b.x), spans[l].first, std::fabs(b.x - a.right()), spans[l].second - spans[l].first};
+        gapAt(g, {g.x + g.w / 2, lineMid}, true, between ? g.w : p.stack().stackSpacing);
+      }
+      if (l == 0) continue;
+      const double y0 = spans[l - 1].second, y1 = spans[l].first;
+      const bool auto_ = p.stack().stackCounterAlignContent == StackCounterAlignContent::SPACE_BETWEEN;
+      const Rect& first = lines[0][0];
+      gapAt({pad[0], y0, w - pad[0] - pad[2], y1 - y0}, {first.x + first.w / 2, (y0 + y1) / 2}, false,
+            auto_ ? y1 - y0 : p.stack().stackCounterSpacing.value_or(p.stack().stackSpacing));
+    }
+    return;
+  }
   for (size_t i = 1; i < boxes.size(); i++) {
     const Rect& a = boxes[i - 1];
     const Rect& b = boxes[i];
     Rect g = horizontal ? Rect{std::min(a.right(), b.x), pad[1], std::fabs(b.x - a.right()), h - pad[1] - pad[3]}
                         : Rect{pad[0], std::min(a.bottom(), b.y), w - pad[0] - pad[2], std::fabs(b.y - a.bottom())};
-    if (g.w > 0 && g.h > 0) d.areas.push_back(quad(g, true));
     double value = between ? (horizontal ? g.w : g.h) : p.stack().stackSpacing;
-    Vec2 at = horizontal ? Vec2{g.x + g.w / 2, mid} : Vec2{mid, g.y + g.h / 2};
-    if (horizontal) d.lines.push_back({W.apply({g.x, mid}), W.apply({g.right(), mid})});
-    else d.lines.push_back({W.apply({mid, g.y}), W.apply({mid, g.bottom()})});
-    d.pills.push_back({W.apply(at), annot::formatNumber(value)});
+    gapAt(g, horizontal ? Vec2{g.x + g.w / 2, mid} : Vec2{mid, g.y + g.h / 2}, horizontal, value);
   }
 }
 

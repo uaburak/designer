@@ -498,6 +498,11 @@ struct Overlay {
     std::vector<Pill> pills;
     std::vector<SpacingArea> dotted;  // the flow layers' boxes (world quads)
     std::string width, height;        // the badge's lines (none: the usual W × H badge)
+    // 2026-10-19 (the owner's figma-devmode-{gap,padding}-hatch): the stripes' phase (world: the inspected frame's
+    // origin, so a gap's pieces and the paddings join), and the selected layer whose name tag sits above its top-left
+    // corner (a layer inside the design; the design's own name is its title).
+    Vec2 origin{0, 0};
+    Guid tag = kNoGuid;
   };
   DevInspect devInspect;
   // Round 18: other people in the file (multiplayer presence, Editor::setPresence) — their selections outlined in their
@@ -875,7 +880,10 @@ class Renderer {
   void drawSpacing(const Mat2x3& view, const Overlay& overlay, const OverlayStyle& style, const Color& padding);
   // A quad (screen CSS px, corners in order round it) washed in `color` at `wash` and striped "/" at `ink`, a stripe
   // `width` across every `period` along a row, the pattern's phase from its first corner (SpacingOverlay.cpp).
-  void hatchQuad(const Vec2 quad[4], const Color& color, double wash, double ink, double period, double width);
+  // `back`: "\" stripes (Dev Mode's gaps) instead of "/"; `phase`: a screen point a stripe goes through (default: the
+  // quad's first corner).
+  void hatchQuad(const Vec2 quad[4], const Color& color, double wash, double ink, double period, double width, bool back = false,
+                 const Vec2* phase = nullptr);
   // Figma's component (four diamonds) or instance (a diamond outline) icon before a title, in `box` (screen CSS px).
   void drawTitleIcon(TitleIcon icon, const Rect& box, const Color& color, const Mat2x3& place = {});
   // A hovered text layer (Overlay.cpp, round 11): each line's baseline underlined across its text, 2 px (1 px when
