@@ -238,9 +238,9 @@ export function plainTextOfKiwi(message: KiwiMessage): string {
  * Every format one copy writes, from the engine's kiwi clipboard Message (docs/desktop.md §13): the fig-kiwi archive
  * (our schema, stored deflate) in our type and in Figma's `(figma)` envelope with `(figmeta)` metadata.
  */
-export function encodeClipboardKiwi(bytes: Uint8Array, meta: { fileKey?: string | null; pasteID?: number } = {}): Record<string, string> {
+export function encodeClipboardKiwi(bytes: Uint8Array, meta: { fileKey?: string | null; pasteID?: number; /** the text/plain (default: the copied layers' names) */ plain?: string } = {}): Record<string, string> {
   const message = decodeMessage(bytes);
-  const plain = plainTextOfKiwi(message);
+  const plain = meta.plain ?? plainTextOfKiwi(message);
   const archive = bytesToB64(figContainer(SCHEMA_BINARY, bytes, DOCUMENT_FORMAT_VERSION, STORED));
   const metaB64 = utf8ToBase64(JSON.stringify({ fileKey: meta.fileKey ?? message.pasteFileKey ?? "", pasteID: meta.pasteID ?? message.pasteID ?? 0, dataType: "scene", app: "designerv2" }));
   return {

@@ -10,6 +10,7 @@ import type { Camera, Guid } from "@/engine/codec";
 import type { VersionInfo } from "./documentSource";
 import type { ImportedImage } from "./images";
 import type { PreferenceKey } from "./preferences";
+import type { PropertyRows } from "./model/propertyRows";
 import type { BrushType, BuiltinBrushName, DrawToolSettings, GuidString } from "@shared/draw/types";
 
 /**
@@ -148,6 +149,8 @@ export interface UIState extends PreferenceFlags {
   actionsOpen?: boolean;
   /** Figma's "Additional labels" (View menu; was "Property labels" in the zoom menu): the Design panel's row labels, off by default (owner, round 17) */
   propertyLabels: boolean;
+  /** Fill / Stroke / Effect rows selected in the Design panel (⌘C / ⌘V / Delete act on them); cleared with the layer selection */
+  propertyRows?: PropertyRows | null;
   /** Prototyping information (⇧E, a view-only design file): the prototype's connections on the canvas; off by default */
   prototypingInfo?: boolean;
   /** Position's "Constraints" toggle: the inline Constraints row shown (kept across selections, as Figma) */

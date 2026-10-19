@@ -43,7 +43,7 @@ What was verified on 2026-10-06 (scratch tests, not in the repo):
 ### 1.2 Editing rules
 
 - **Never renumber, retype or reuse a field number. Never change a struct** (kiwi structs are fixed-layout; adding a field breaks every reader).
-- Kiwi requires a message's field ids to be ≤ its field count. Figma numbers we do not keep are therefore declared as placeholders, `byte _rN = N [deprecated];`, in a "Reserved field numbers" block at the end of each message (931 in total, 781 of them in `NodeChange`, after round 17 batch C). Deprecated fields are never written, are omitted from the TS types and the C++ accessors, and cost nothing at runtime.
+- Kiwi requires a message's field ids to be ≤ its field count. Figma numbers we do not keep are therefore declared as placeholders, `byte _rN = N [deprecated];`, in a "Reserved field numbers" block at the end of each message (870 in total, 740 of them in `NodeChange`, counted 2026-10-19). Deprecated fields are never written, are omitted from the TS types and the C++ accessors, and cost nothing at runtime.
 - **Adopting a Figma field later**: replace its placeholder with Figma's exact declaration (same number, same type).
 - **Own fields** use numbers from **1000** in `NodeChange` and from **100** in every other Figma-derived message; own enum values start at 100. Numbers below are Figma's, kept or reserved. Messages Figma does not have (`LibrarySubscription`) number from 1.
 - `DOCUMENT_FORMAT_VERSION` is declared in the file header (`// DOCUMENT_FORMAT_VERSION = 1`). It is bumped only for a change that kiwi's additive evolution cannot express and that needs a migration (`data.md` §5.8). Adding fields or enum values never bumps it.
@@ -674,7 +674,7 @@ Phase 7 (docs/roadmap.md) builds Figma's other products. Each one starts by brin
 **What is not yet reserved**:
 - **Enum values** (kiwi enums need no placeholders, but our enums omit Figma's dropped values):
   - `NodeType` 17–24, 26, 27, 29, 30, 32–34, 36–45, 47–64 (Figma's 59–64 are new since version 106: `CODE_EMBED`, `BINARY_FILE`, `SPEC_BLOCK`, `TOOL_INSTANCE`, `CUSTOM_EFFECT_INSTANCE`, `NATIVE_CODE_LAYER_INSTANCE`);
-  - `MessageType` other than 1 and 5 (`STYLE`, Copy properties' clipboard Message: one CREATED node at 0:0 with the copied fields, `pasteFileKey` — atlas 15 §10, 2026-10-18);
+  - `MessageType` other than 1 and 5 (`STYLE`, Copy properties' clipboard Message: one CREATED node at 0:0 with the copied fields, `pasteFileKey` — atlas 15 §10, 2026-10-18). Adopted 2026-10-19 with copied Fill / Stroke / Effect rows (docs/desktop.md §13): `Message.pasteEditorType = 27` (`EditorType`) and `Message.pasteAssetType = 41` with enum `PasteAssetType` (UNKNOWN 0, VARIABLE 1, STYLE_PROPERTIES 2, STYLE_PROPERTIES_FILL 3, STYLE_PROPERTIES_STROKE 4, STYLE_PROPERTIES_EFFECT 5), Figma's declarations from `figma-schema-106.kiwi`;
   - `EditorType` 8 (`FIGSPEC`; 0–7 came with `EditScope`, round 17 batch C).
 - **Whole messages and enums** we dropped.
 

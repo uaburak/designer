@@ -36,6 +36,7 @@ import { ShaderParams } from "./ShaderSettings";
 import { SHADER_FILLS, shaderPaint, type ShaderFields } from "../../model/shaders";
 import { StrokeRows, firstStrokeFields } from "./Stroke";
 import { Grip, moved, useReorder } from "./reorder";
+import { useRowSelection } from "../../propertyRows";
 import { isFrameNode, typeOf, type PanelNode } from "./shared";
 import { styleWeight } from "../../model/text";
 import { BoundPaintRow, paintScope } from "./Variables";
@@ -196,6 +197,8 @@ export function PaintsSection({ title, field, nodes, onPick, className }: { titl
   // Rows show the top paint first: display index d is paint n − 1 − d.
   const n = paints.length;
   const { container: reorderRef, grip, dragging, line: dropLine } = useReorder((from, to) => ed.setProps(refs, { [field]: moved(paints, n - 1 - from, n - 1 - to) }, `Reorder ${word}s`));
+  // A click on a row's empty part selects it (⇧ a range): ⌘C / ⌘V / Delete act on the selected rows (propertyRows.ts).
+  const rows = useRowSelection(field === "fillPaints" ? "fill" : "stroke", n);
   return (
     <PanelSection
       title={t(title)}
@@ -223,7 +226,7 @@ export function PaintsSection({ title, field, nodes, onPick, className }: { titl
             .map((p, i) => ({ p, i }))
             .reverse()
             .map(({ p, i }, d) => (
-              <div key={i} className={cx(styles.paintRow, dragging === d && styles.rowDragging)} data-paint-row={p.type} data-reorder-row="">
+              <div key={i} className={cx(styles.paintRow, dragging === d && styles.rowDragging, rows.isSelected(i) && styles.rowSelected)} data-paint-row={p.type} data-reorder-row="" {...rows.rowProps(d)}>
                 {n > 1 && <Grip {...grip(d)} />}
                 {paintVariable(p) ? (
                   <BoundPaintRow nodes={nodes} field={field} index={i} paint={p} className={cx(styles.paintField, p.visible === false && styles.paintHidden)} />
