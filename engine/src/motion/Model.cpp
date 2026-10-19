@@ -340,6 +340,7 @@ std::vector<AudioClip> decodeAudioClips(const NodeProps& root) {
     c.playbackDurationUs = us(a, "playbackDurationUs");
     c.track = guidOf(a.get("trackId"));
     c.loopPhaseUs = us(a, "loopPhaseOffsetUs");
+    c.kept = a;
     out.push_back(std::move(c));
   }
   return out;

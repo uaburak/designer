@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { deflateRawSync, inflateRawSync, zstdCompressSync, zstdDecompressSync } from "node:zlib";
-import { decodeBinarySchema } from "kiwi-schema";
+import { decodeBinarySchema, parseSchema } from "kiwi-schema";
 import { describe, expect, it } from "vitest";
 import type { Message, NodeChange } from "../schema/document.generated";
 import { DERIVED_FIELDS, NodeTable, tablesEqual } from "../schema/patch";
@@ -33,6 +33,8 @@ const sampleCanvas = decodeCanvas(sample.canvas, codecs);
 const figmaSchema = decodeBinarySchema(sampleCanvas.schema);
 const figma = interpretSchema(figmaSchema);
 const figmaMessage = figma.decode("Message", sampleCanvas.message);
+/** The schema embedded in Figma's current build (2026-10-15): fields newer than the sample (Motion's, R17 batch C). */
+const figmaCurrent = parseSchema(readFileSync(join(__dirname, "../../../docs/research/figma/figma-schema-current.kiwi"), "utf8"));
 
 const g = (s: number, l: number) => ({ sessionID: s, localID: l });
 const T = (x: number, y: number) => ({ m00: 1, m01: 0, m02: x, m10: 0, m11: 1, m12: y });
@@ -73,18 +75,21 @@ const byKey = (m: any) => new Map<string, any>((m.nodeChanges ?? []).map((n: any
 describe("Save Local Copy as Figma writes a .fig (figmaExport.ts)", () => {
   it("embeds a schema that is a strict subset of Figma's: same definitions, field numbers and types", () => {
     const ours = decodeBinarySchema(figmaExportSchema());
+    // Figma's sample (version 106) first; what only Figma's current build has is checked against its schema.
     const theirs = new Map(figmaSchema.definitions.map((d) => [d.name, d]));
+    const current = new Map(figmaCurrent.definitions.map((d) => [d.name, d]));
     const problems: string[] = [];
     for (const d of ours.definitions) {
-      const t = theirs.get(d.name);
+      const t = theirs.get(d.name) ?? current.get(d.name);
       if (!t) {
         problems.push(`definition ${d.name}`);
         continue;
       }
       if (t.kind !== d.kind) problems.push(`${d.name} kind`);
       const tf = new Map(t.fields.map((f) => [f.name, f]));
+      const cf = new Map((current.get(d.name)?.fields ?? []).map((f) => [f.name, f]));
       for (const f of d.fields) {
-        const x = tf.get(f.name);
+        const x = tf.get(f.name) ?? cf.get(f.name);
         if (!x) problems.push(`${d.name}.${f.name}`);
         else if (x.value !== f.value || x.type !== f.type || x.isArray !== f.isArray) problems.push(`${d.name}.${f.name} ${f.value}:${f.type} vs ${x.value}:${x.type}`);
       }

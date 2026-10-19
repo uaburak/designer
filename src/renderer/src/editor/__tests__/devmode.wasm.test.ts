@@ -115,6 +115,22 @@ describe("Dev Mode in the editor (wasm, headless)", () => {
     engine.destroy();
   });
 
+  it("edits are stamped with Figma's editScopeInfo: the user's, a pushed plugin scope's; Figma's nesting rules refuse", async () => {
+    const { engine, ed } = await editor();
+    engine.setEditTracking(true);
+    ed.setProps(["2:4"], { opacity: 0.5 } as NodeFields, "Opacity");
+    type Scoped = { editScopeInfo?: { editScopeStacks?: { stack?: { type?: string; label?: string }[] }[] } } | null;
+    const scopeOf = (ref: string) => (engine.readNode(ref, { fields: ["editScopeInfo"] }) as Scoped)?.editScopeInfo?.editScopeStacks?.[0]?.stack?.[0];
+    expect(scopeOf("2:4")?.type).toBe("USER");
+    expect(engine.editScopePush("PLUGIN", "Tidy")).toBe(Status.OK);
+    expect(engine.editScopePush("USER")).toBe(Status.E_INVALID);
+    ed.setProps(["2:4"], { opacity: 0.4 } as NodeFields, "Opacity");
+    expect(engine.editScopePop()).toBe(Status.OK);
+    expect(engine.editScopePop()).toBe(Status.E_INVALID);
+    expect(scopeOf("2:4")).toMatchObject({ type: "PLUGIN", label: "Tidy" });
+    engine.destroy();
+  });
+
   it("focus view: the design alone, Dev Mode, back", async () => {
     const { engine, ed } = await editor();
     openFocus(ed, "2:1");

@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <ctime>
 #include <functional>
+#include <iterator>
 
 #include "editor/Editor.h"
 #include "hit/HitTest.h"
@@ -873,6 +874,115 @@ void Editor::noteEdited(const NodeChange& c) {
     return;
   }
   edited_.insert(c.guid);
+  scoped_.insert(c.guid);
+}
+
+// ---- editScopeInfo (Figma's NodeChange 365, canvas.md §2.9) ----------------------------------------------------------
+
+namespace {
+
+const char* scopeTypeName(Editor::EditScopeType t) {
+  static const char* const kNames[] = {"INVALID", "TEST_SETUP", "USER", "PLUGIN", "SYSTEM", "REST_API", "ONBOARDING", "AUTOSAVE", "AI"};
+  size_t i = static_cast<size_t>(t);
+  return i < std::size(kNames) ? kNames[i] : "INVALID";
+}
+
+}  // namespace
+
+Status Editor::editScopePush(EditScopeType type, std::string label) {
+  using T = EditScopeType;
+  auto fail = [&](Status st, std::string message) {
+    editScopeError_ = std::move(message);
+    return st;
+  };
+  if (type == T::INVALID || static_cast<uint8_t>(type) > static_cast<uint8_t>(T::AI)) return fail(E_INVALID, "Invalid edit scope type");
+  auto inside = [&](std::initializer_list<T> outer) {
+    for (const auto& [t, l] : editScopes_)
+      for (T o : outer)
+        if (t == o) return t;
+    return T::INVALID;
+  };
+  for (const auto& [t, l] : editScopes_)
+    if (t == type) return fail(E_INVALID, std::string("Cannot push a ") + scopeTypeName(type) + " edit scope: one is already on the stack");
+  T bad = T::INVALID;
+  switch (type) {
+    case T::TEST_SETUP:
+      if (!editScopes_.empty()) return fail(E_INVALID, "A TEST_SETUP edit scope must be the first scope");
+      break;
+    case T::AUTOSAVE:
+      if (!editScopes_.empty()) return fail(E_INVALID, "An AUTOSAVE edit scope is not allowed inside another scope");
+      break;
+    case T::USER: bad = inside({T::PLUGIN, T::SYSTEM, T::REST_API, T::ONBOARDING, T::AI}); break;
+    case T::PLUGIN: bad = inside({T::SYSTEM, T::REST_API, T::AI}); break;
+    case T::REST_API: bad = inside({T::USER, T::PLUGIN, T::SYSTEM, T::ONBOARDING, T::AI}); break;
+    case T::ONBOARDING: bad = inside({T::USER, T::PLUGIN, T::SYSTEM, T::REST_API, T::AI}); break;
+    case T::AI: bad = inside({T::SYSTEM, T::REST_API, T::ONBOARDING}); break;
+    default: break;
+  }
+  if (bad != T::INVALID) return fail(E_INVALID, std::string(scopeTypeName(type)) + " edit scope is not allowed inside " + scopeTypeName(bad) + " edit scope");
+  editScopes_.emplace_back(type, std::move(label));
+  return OK;
+}
+
+Status Editor::editScopePop() {
+  if (editScopes_.empty()) {
+    editScopeError_ = "No edit scope to pop";
+    return E_INVALID;
+  }
+  editScopes_.pop_back();
+  return OK;
+}
+
+void Editor::stampScopes() {
+  if (scoped_.empty()) return;
+  // The stack the step was made in: the pushed scopes, else the transaction's own.
+  std::vector<std::pair<EditScopeType, std::string>> stack = editScopes_;
+  if (stack.empty()) stack.emplace_back(txn_.run ? EditScopeType::PLUGIN : actor_ != 0 ? EditScopeType::AI : EditScopeType::USER, txn_.label);
+  json::Value frames;
+  frames.kind = json::Value::Kind::Array;
+  for (const auto& [t, label] : stack) {
+    json::Value f;
+    f.kind = json::Value::Kind::Object;
+    json::Value s;
+    s.kind = json::Value::Kind::String;
+    s.string = scopeTypeName(t);
+    f.object.emplace_back("type", s);
+    if (!label.empty()) {
+      s.string = label;
+      f.object.emplace_back("label", s);
+    }
+    s.string = "DESIGN";
+    f.object.emplace_back("editorType", s);
+    frames.array.push_back(std::move(f));
+  }
+  json::Value stackMsg;
+  stackMsg.kind = json::Value::Kind::Object;
+  stackMsg.object.emplace_back("stack", std::move(frames));
+  json::Value stacks;
+  stacks.kind = json::Value::Kind::Array;
+  stacks.array.push_back(std::move(stackMsg));
+  json::Value info;
+  info.kind = json::Value::Kind::Object;
+  info.object.emplace_back("editScopeStacks", std::move(stacks));
+  std::string bytes = codec::extraFromJson("NodeChange", "editScopeInfo", info);
+  std::vector<Guid> order(scoped_.begin(), scoped_.end());
+  scoped_.clear();
+  if (bytes.empty()) return;
+  std::sort(order.begin(), order.end());
+  // Bookkeeping, as editInfo: no instance overrides, no detaching.
+  bool libraryWriteBefore = libraryWrite_;
+  libraryWrite_ = true;
+  for (Guid g : order) {
+    const Node* n = doc_.get(g);
+    if (!n || n->props.type == NodeType::DOCUMENT) continue;
+    auto it = n->props.extra.find("editScopeInfo");
+    if (it != n->props.extra.end() && it->second == bytes) continue;
+    NodeChange c = NodeChange::changed(g);
+    c.mask = F_EXTRA;
+    c.props.extra["editScopeInfo"] = bytes;
+    write(c);
+  }
+  libraryWrite_ = libraryWriteBefore;
 }
 
 void Editor::stampEdited() {

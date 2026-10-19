@@ -303,3 +303,65 @@ describe("convertFigMessage: Motion nodes and fields (docs/motion.md §4.1, roun
     expect(rect.motionTransform?.scale).toEqual({ x: 1, y: 1 });
   });
 });
+
+describe("convertFigMessage: Motion fields from Figma's current embedded schema (R17 batch C)", () => {
+  it("keeps durationUsVar, timelineOffsetVar, text stagger 5–7, audio 13–20, beat analyses, ROTATION_3D and video fill playback", () => {
+    const timing = { dataType: "TIMING", resolvedDataType: "TIMING", value: { floatValue: 1500 } };
+    const f = {
+      type: "NODE_CHANGES",
+      sessionID: 0,
+      ackID: 0,
+      nodeChanges: [
+        { guid: g(0, 0), phase: "CREATED", type: "DOCUMENT" },
+        node(g(0, 1), "CANVAS", g(0, 0), "!"),
+        node(g(0, 2), "CANVAS", g(0, 0), "~", { internalOnly: true }),
+        node(g(1, 1), "FRAME", g(0, 1), "!", {
+          size: { x: 400, y: 300 },
+          transform: T(0, 0),
+          timelineDefinitions: { entries: [{ id: g(1, 9), data: { durationUs: 1_000_000n, durationUsVar: timing } }] },
+          audioFills: [
+            {
+              id: g(1, 7),
+              mediaHash: "ab",
+              sourceDurationUs: 9_000_000n,
+              bpm: 120,
+              beatOffsetUs: 40_000n,
+              timeSignatureNumerator: 3,
+              timeSignatureDenominator: 4,
+              beatConfidence: 0.5,
+              volumeVar: { dataType: "FLOAT", resolvedDataType: "FLOAT", value: { floatValue: 0.5 } },
+              timelineOffsetVar: timing,
+            },
+          ],
+          audioBeatAnalyses: [{ mediaHash: "ab", bpm: 120, beatOffsetUs: 40_000n, beatConfidence: 0.5, timeSignatureNumerator: 3, timeSignatureDenominator: 4 }],
+          fillPaints: [{ type: "VIDEO", visible: true, opacity: 1, videoFillPlayback: { startTimeMs: 100, endTimeMs: 900, timelineOffsetUs: 250_000n, playbackDurationUs: 800_000n, loopPhaseOffsetUs: 0n, volume: 0.25, mute: true } }],
+        }),
+        node(g(1, 2), "TEXT", g(1, 1), "!", {
+          size: { x: 100, y: 20 },
+          transform: T(0, 0),
+          textData: { characters: "Hi" },
+          textElementDelayBehaviour: { enabled: true, grouping: "WORD", delayMs: 50, order: "LEFT_RIGHT", clipContent: true, transformOriginMode: "WORD", transformOrigin: { x: 0.5, y: 1 } },
+          styleIdsForAnimation: [{ id: g(1, 8), timelineDefId: g(1, 1), timelineOffset: 0n, sortPosition: "!", timelineOffsetVar: timing }],
+        }),
+        node(g(7, 1), "KEYFRAME_TRACK", g(0, 2), "!", { keyframeOperation: "SET" }),
+        node(g(7, 2), "KEYFRAME", g(7, 1), "!", { timelinePosition: 0n, keyframeValue: { value: { rotation3DValue: { x: 10, y: 20, z: 30, translateZ: 5 } }, valueType: "ROTATION_3D" } }),
+      ],
+    };
+    const { message, report } = convertFigMessage(f, MODEL);
+    for (const k of ["durationUsVar", "timelineOffsetVar", "clipContent", "transformOriginMode", "transformOrigin", "sourceDurationUs", "bpm", "volumeVar", "audioBeatAnalyses", "videoFillPlayback", "rotation3DValue"])
+      expect(Object.keys(report.droppedFields).some((x) => x.endsWith(`.${k}`))).toBe(false);
+    const back = codec.decodeMessage(codec.encodeMessage(message));
+    const frame = back.nodeChanges!.find((n) => n.type === "FRAME")!;
+    expect(frame.timelineDefinitions!.entries![0].data!.durationUsVar!.value!.floatValue).toBe(1500);
+    expect(frame.audioFills![0]).toMatchObject({ sourceDurationUs: 9_000_000n, bpm: 120, beatOffsetUs: 40_000n, timeSignatureNumerator: 3, timeSignatureDenominator: 4, beatConfidence: 0.5 });
+    expect(frame.audioFills![0].volumeVar!.value!.floatValue).toBe(0.5);
+    expect(frame.audioFills![0].timelineOffsetVar!.dataType).toBe("TIMING");
+    expect(frame.audioBeatAnalyses).toEqual([{ mediaHash: "ab", bpm: 120, beatOffsetUs: 40_000n, beatConfidence: 0.5, timeSignatureNumerator: 3, timeSignatureDenominator: 4 }]);
+    expect(frame.fillPaints![0].videoFillPlayback).toEqual({ startTimeMs: 100, endTimeMs: 900, timelineOffsetUs: 250_000n, playbackDurationUs: 800_000n, loopPhaseOffsetUs: 0n, volume: 0.25, mute: true });
+    const text = back.nodeChanges!.find((n) => n.type === "TEXT")!;
+    expect(text.textElementDelayBehaviour).toMatchObject({ clipContent: true, transformOriginMode: "WORD", transformOrigin: { x: 0.5, y: 1 } });
+    expect(text.styleIdsForAnimation![0].timelineOffsetVar!.value!.floatValue).toBe(1500);
+    const key = back.nodeChanges!.find((n) => n.type === "KEYFRAME")!;
+    expect(key.keyframeValue).toEqual({ value: { rotation3DValue: { x: 10, y: 20, z: 30, translateZ: 5 } }, valueType: "ROTATION_3D" });
+  });
+});
