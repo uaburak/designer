@@ -2392,6 +2392,8 @@ class Editor : private LayoutHost, public TextLayouts {
   static constexpr double kSlideMs = 120;             // CSS ease-out over 120 ms (fitted on the recording)
   void startFlowDrag();
   bool flowDragLive() const;  // the layers are in their own flow now (not dragged out, not ⌥ copies)
+  // Every layer moved ignores auto layout (stackPositioning ABSOLUTE) and is still in the parent it started in.
+  bool absoluteAtHome() const;
   Rect flowDragBox() const;   // the dragged layers' layout boxes' union, in the frame's space
   void reorderFlow();
   bool placeFlow(Guid frame, const std::unordered_set<Guid, GuidHash>& dragged);

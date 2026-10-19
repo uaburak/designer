@@ -1069,6 +1069,7 @@ void writeLayerRow(json::Writer& w, const Document& doc, Guid id, const NodeProp
   if (p.stack().stackWrap != StackWrap::NO_WRAP) w.key("stackWrap").string(enumName(p.stack().stackWrap));
   if (p.type == NodeType::BOOLEAN_OPERATION) w.key("booleanOperation").string(enumName(p.shape().booleanOperation));
   if (p.comp().isStateGroup) w.key("isStateGroup").boolean(true);
+  if (p.stackPositioning == StackPositioning::ABSOLUTE) w.key("stackPositioning").string("ABSOLUTE");
   w.key("childIds");
   writeIds(w, doc.children(id));
   w.endObject();
@@ -1091,7 +1092,7 @@ void writeLayerRows(json::Writer& w, const Document& doc, Guid page) {
 
 // What a Layers row shows, or where it is: a change of these changes the row.
 constexpr FieldMask kLayerRowFields = F_PARENT_INDEX | F_NAME | F_VISIBLE | F_LOCKED | F_TYPE | F_RESIZE_TO_FIT | F_STACK_MODE |
-                                      F_STACK_WRAP | F_BOOLEAN_OPERATION | F_IS_STATE_GROUP;
+                                      F_STACK_WRAP | F_BOOLEAN_OPERATION | F_IS_STATE_GROUP | F_STACK_POSITIONING;
 // Past this many changed rows a delta is not worth it: the whole tree is given.
 constexpr size_t kMaxLayerDelta = 4096;
 

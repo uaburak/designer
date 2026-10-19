@@ -21,6 +21,11 @@ export interface LayerRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "onD
   /** A rectangle or an ellipse: its outline at the layer's width / height drawn in the glyph's place (`ShapeGlyph`) */
   shape?: ShapeGlyphProps;
   kind?: "default" | "component" | "instance";
+  /**
+   * Ignores its auto-layout parent's flow (`stackPositioning` ABSOLUTE): Figma draws its `16.absolute-corners`
+   * (four corner marks) over the type glyph, in the glyph's colour.
+   */
+  absolute?: boolean;
   /** Inside a component or an instance (or one itself): the hover cells in the component purple */
   tone?: "default" | "component";
   /** undefined: a leaf (no chevron) */
@@ -176,7 +181,7 @@ export function layerListWidth(rows: readonly { depth: number; name: string | nu
  * unless the row is selected or a top-level frame; components and instances in purple; hidden layers faded. Enter
  * belongs to the list (select the children), not the row.
  */
-export function LayerRow({ id, depth, name, icon, iconLabel, shape, kind = "default", tone = "default", expanded, selected, selectedAncestor, hovered, locked, hidden, strong, renaming, run, drop, onToggleExpand, onToggleLock, onToggleVisible, onRename, onPointerDown, onDoubleClick, thumbnail, className, style, ...rest }: LayerRowProps) {
+export function LayerRow({ id, depth, name, icon, iconLabel, shape, kind = "default", absolute, tone = "default", expanded, selected, selectedAncestor, hovered, locked, hidden, strong, renaming, run, drop, onToggleExpand, onToggleLock, onToggleVisible, onRename, onPointerDown, onDoubleClick, thumbnail, className, style, ...rest }: LayerRowProps) {
   useT();
   const large = thumbnail !== undefined;
   const cells = renaming ? { rest: 0, hover: 0 } : tailCells({ locked, hidden, lock: !!onToggleLock, visible: !!onToggleVisible });
@@ -214,7 +219,7 @@ export function LayerRow({ id, depth, name, icon, iconLabel, shape, kind = "defa
             {thumbnail ?? <Icon name={icon} size={16} />}
           </span>
         ) : (
-          <span className={styles.type} data-layer-icon="" role={iconLabel ? "img" : undefined} aria-label={iconLabel} {...tooltipProps(iconLabel)}>{shape ? <ShapeGlyph {...shape} /> : <Icon name={icon} size={16} />}</span>
+          <span className={styles.type} data-layer-icon="" role={iconLabel ? "img" : undefined} aria-label={iconLabel} {...tooltipProps(iconLabel)}>{shape ? <ShapeGlyph {...shape} /> : <Icon name={icon} size={16} />}{absolute && <span className={styles.absolute} data-layer-absolute=""><Icon name="16.absolute-corners" size={16} /></span>}</span>
         )}
         {renaming ? (
           <RenameField className={styles.rename} value={name} onDone={(n, r) => onRename?.(n, r)} />

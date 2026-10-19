@@ -40,7 +40,7 @@ import {
   rangeSelection,
   revealed,
   selectionRuns,
-  stickyHeader,
+  stickyBlocks,
   toggleSelection,
   visibleRows,
   withSubtree,
@@ -71,6 +71,16 @@ function rowName(tree: ReturnType<typeof useLayerTree>, id: string, name: string
   const node = tree.nodes.get(id);
   if (node?.type !== "SYMBOL" || !node.parent || !tree.nodes.get(node.parent)?.stateGroup) return name;
   return variantValues(name);
+}
+
+/**
+ * A layer that ignores its auto-layout parent's flow (Figma: `"ABSOLUTE" === stackPositioning`, its layer icon gets
+ * the corner-mark overlay): only inside an auto-layout frame — a stale ABSOLUTE left under a plain frame reads as none.
+ */
+export function isAbsolute(node: TreeNode, parent?: TreeNode | null): boolean {
+  if (!node.absolute || !parent) return false;
+  const m = parent.stackMode;
+  return m === "HORIZONTAL" || m === "VERTICAL" || m === "GRID";
 }
 
 /**
@@ -252,6 +262,7 @@ export function Layers() {
   const nameLeft = NAME_LEFT + (drawMode ? LAYER_THUMB - 16 : 0);
 
   const rows = useMemo(() => visibleRows(tree, expanded), [tree, expanded]);
+  const blockOf = useMemo(() => stickyBlocks(rows), [rows]);
   // Rename layers' rows as their new names are typed in (atlas 18 §4.3)
   const typing = useRenameAnimations();
   // The rows and tree as now, for a drag's handlers (set up at its press, they outlive the render a hover-expand redraws).
@@ -539,7 +550,7 @@ export function Layers() {
           // Figma's placement; a nested row coming from above stops under its pinned top-level row.
           scrollAlign="figma"
           scrollTopPad={firstSelectedDepth > 0 ? rowHeight : 0}
-          sticky={(top) => stickyHeader(rows, rowHeight, top)}
+          stickyBlock={blockOf}
           label={t("Layers")}
           renderRow={(i) => {
             const row = rows[i];
@@ -557,6 +568,7 @@ export function Layers() {
                 shape={row.id === thumbnailFrame ? undefined : layerShape(node)}
                 thumbnail={thumbs ? <LayerThumb thumbs={thumbs} node={row.id} icon={icon} /> : undefined}
                 iconLabel={t(layerKind(node, node.parent ? tree.nodes.get(node.parent) : null))}
+                absolute={isAbsolute(node, node.parent ? tree.nodes.get(node.parent) : null)}
                 kind={node.type === "SYMBOL" || node.stateGroup ? "component" : node.type === "INSTANCE" ? "instance" : "default"}
                 tone={componentRows.has(row.id) ? "component" : "default"}
                 expanded={row.expandable ? row.expanded : undefined}

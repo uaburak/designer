@@ -36,6 +36,8 @@ export interface RowDetails {
   /** Auto layout direction, when the engine keeps it */
   stackMode?: string;
   stackWrap?: string;
+  /** Ignores its auto-layout parent's flow (`stackPositioning` ABSOLUTE): the corner marks over its glyph */
+  absolute?: boolean;
   /** BOOLEAN_OPERATION's operation (UNION, INTERSECT, SUBTRACT, XOR) */
   booleanOperation?: string;
   /** "Use as mask" */
@@ -52,7 +54,7 @@ export interface RowDetails {
 export interface TreeNode extends OutlineNode, RowDetails {}
 
 /** What a details read asks the engine for (schema keys of `engine_read_nodes` `fields`). */
-export const DETAIL_FIELDS: readonly string[] = ["name", "visible", "locked", "resizeToFit", "stackMode", "stackWrap", "booleanOperation", "isStateGroup", "mask", "isSlot", "fillPaints", "size"];
+export const DETAIL_FIELDS: readonly string[] = ["name", "visible", "locked", "resizeToFit", "stackMode", "stackWrap", "booleanOperation", "isStateGroup", "mask", "isSlot", "fillPaints", "size", "stackPositioning"];
 
 /** The glyph a fill list gives a row: its top visible image or video fill. */
 function mediaOf(fills: unknown): RowDetails["media"] {
@@ -73,13 +75,14 @@ const UNKNOWN: RowDetails = { name: "", visible: true, locked: false };
 /** A row's details from its engine row. */
 export function detailsOf(row: NodeChange | undefined): RowDetails {
   if (!row) return UNKNOWN;
-  const extra = row as NodeChange & { stackMode?: string; stackWrap?: string; booleanOperation?: string; mask?: boolean; isSlot?: boolean; fillPaints?: unknown; size?: { x?: number; y?: number } };
+  const extra = row as NodeChange & { stackMode?: string; stackWrap?: string; booleanOperation?: string; mask?: boolean; isSlot?: boolean; stackPositioning?: string; fillPaints?: unknown; size?: { x?: number; y?: number } };
   const out: RowDetails = { name: row.name ?? "", visible: row.visible !== false, locked: row.locked === true };
   if (extra.stackMode !== undefined) out.stackMode = extra.stackMode;
   if (extra.stackWrap !== undefined) out.stackWrap = extra.stackWrap;
   if (extra.booleanOperation !== undefined) out.booleanOperation = extra.booleanOperation;
   if (extra.mask === true) out.mask = true;
   if (extra.isSlot === true) out.slot = true;
+  if (extra.stackPositioning === "ABSOLUTE") out.absolute = true;
   const media = mediaOf(extra.fillPaints);
   if (media) out.media = media;
   const w = extra.size?.x, h = extra.size?.y;
@@ -263,6 +266,9 @@ class Row implements TreeNode {
   }
   get stackWrap(): string | undefined {
     return this.store.of(this.id).stackWrap;
+  }
+  get absolute(): boolean | undefined {
+    return this.store.of(this.id).absolute;
   }
   get booleanOperation(): string | undefined {
     return this.store.of(this.id).booleanOperation;
@@ -582,6 +588,29 @@ export function hoverExpandTarget(row: RowData | undefined, fraction: number): G
  */
 export function dragScrollStep(distance: number, pitch: number): number {
   return distance <= 0 ? 0 : Math.min(pitch, Math.ceil(distance / 2));
+}
+
+/**
+ * The blocks Figma's sticky header pins (`stickyHeader`'s rule, as data for CSS `position: sticky`): for each row, the
+ * index of the open top-level row whose block it is in (-1: none — a closed or childless top-level row's), and for
+ * each such header the index of the next top-level row (the block's end, where the next header pushes it up).
+ */
+export function stickyBlocks(rows: readonly RowData[]): (index: number) => { start: number; end: number } | null {
+  const head = new Int32Array(rows.length).fill(-1);
+  const end = new Map<number, number>();
+  let h = -1;
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].depth === 0) {
+      if (h >= 0) end.set(h, i);
+      h = rows[i].expanded && rows[i].expandable ? i : -1;
+    }
+    head[i] = h;
+  }
+  if (h >= 0) end.set(h, rows.length);
+  return (index) => {
+    const s = index >= 0 && index < rows.length ? head[index] : -1;
+    return s < 0 ? null : { start: s, end: end.get(s) ?? rows.length };
+  };
 }
 
 /**

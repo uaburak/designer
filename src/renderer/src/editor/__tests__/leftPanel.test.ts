@@ -2,7 +2,7 @@
 // panel order, Find's matching / filters / replace, the bulk rename, page dividers, the keyboard's panel lists.
 import { describe, expect, it } from "vitest";
 import type { NodeChange } from "@/engine/codec";
-import { LAYER_DRAG_THRESHOLD, LAYER_HOVER_EXPAND_MS, collapsedLayers, dragScrollStep, dropTarget, flowOrdered, hoverExpandTarget, inPanelOrder, stickyHeader, treeFromNodes, visibleRows } from "../model/layerTree";
+import { LAYER_DRAG_THRESHOLD, LAYER_HOVER_EXPAND_MS, collapsedLayers, dragScrollStep, dropTarget, flowOrdered, hoverExpandTarget, inPanelOrder, stickyBlocks, stickyHeader, treeFromNodes, visibleRows } from "../model/layerTree";
 import { countByType, filterOf, findLayers, findPattern, matchRanges, remapStyleIds, replaceText, stepIndex, type FindNode } from "../model/find";
 import { expandRename, renameAll } from "../model/rename";
 import { dividerName, dividerTitle, isDividerName } from "../panels/Pages";
@@ -99,6 +99,19 @@ describe("Layers: Figma's drag and scroll rules (atlas 02 §3.6)", () => {
     expect(stickyHeader(rows, 32, 100)).toBeNull(); // Gr is closed
     expect(stickyHeader(rows, 32, 140)).toEqual({ index: 4, top: 140 }); // V
     expect(stickyHeader(rows, 32, 230)).toBeNull(); // H, closed, at the top
+  });
+
+  it("gives the pinned blocks for CSS sticky — where the browser puts the header is stickyHeader's place, every scroll", () => {
+    const blockOf = stickyBlocks(rows);
+    expect(rows.map((_, i) => blockOf(i))).toEqual([{ start: 0, end: 3 }, { start: 0, end: 3 }, { start: 0, end: 3 }, null, { start: 4, end: 7 }, { start: 4, end: 7 }, { start: 4, end: 7 }, null]);
+    for (let top = 1; top < 7 * 32; top++) {
+      const pin = stickyHeader(rows, 32, top);
+      const b = blockOf(Math.floor(top / 32));
+      // position: sticky; top: 0 in a box from the header's row to the block's end
+      const at = b ? Math.min(Math.max(top, b.start * 32), (b.end - 1) * 32) : null;
+      if (pin) expect([b?.start, at]).toEqual([pin.index, pin.top]);
+      else expect(b === null || at === b.start * 32 || at! < top).toBe(true);
+    }
   });
 });
 

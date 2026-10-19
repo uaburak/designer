@@ -2004,6 +2004,23 @@ void Editor::dragMove(Vec2 world, uint32_t mods) {
           break;
         }
   }
+  // 2026-10-20 (the owner): layers that ignore auto layout stay their auto-layout parent's children while the pointer
+  // is over it — its other frames are no drop targets (as for a layer dragged in its own flow; ⌘ still nests).
+  if (!keepParent && !forceNest && drop != kNoGuid && !targets_.empty()) {
+    const Guid home = targets_[0].parent;
+    const Node* hn = doc_.get(home);
+    bool absolute = hn && hn->props.isAutoLayout();
+    for (const Target& t : targets_) {
+      const Node* n = doc_.get(t.id);
+      absolute = absolute && n && t.parent == home && n->props.stackPositioning == StackPositioning::ABSOLUTE;
+    }
+    if (absolute)
+      for (Guid a = drop; a != kNoGuid; a = doc_.parentOf(a))
+        if (a == home) {
+          drop = home;
+          break;
+        }
+  }
   for (const Target& t : targets_) {
     const Node* n = doc_.get(t.id);
     if (!n) continue;
@@ -2036,7 +2053,10 @@ void Editor::dragMove(Vec2 world, uint32_t mods) {
   Guid parent = doc_.parentOf(targets_[0].id);
   dropParent_ = parent;
   const Node* pn = doc_.get(parent);
-  bool intoAutoLayout = pn && pn->props.isAutoLayout();
+  // 2026-10-20 (the owner): a layer that ignores auto layout (stackPositioning ABSOLUTE) moves in its own auto-layout
+  // parent as any layer moves in a plain frame — freely with the pointer, snapped, its chrome kept; no insertion line,
+  // no ghost, no reorder. Out of its parent (or into another frame) it is an ordinary layer again.
+  bool intoAutoLayout = pn && pn->props.isAutoLayout() && !absoluteAtHome();
 
   // Snap the moving box (not inside auto layout: the flow places it), else whole pixels.
   guides_.clear();
@@ -2463,6 +2483,15 @@ void Editor::updateInsertion(Guid frame, Vec2 world) {
   hasInsertion_ = true;
 }
 
+bool Editor::absoluteAtHome() const {
+  if (targets_.empty()) return false;
+  for (const Target& t : targets_) {
+    const Node* n = doc_.get(t.id);
+    if (!n || n->props.stackPositioning != StackPositioning::ABSOLUTE || n->props.parentIndex.guid != t.parent) return false;
+  }
+  return true;
+}
+
 void Editor::finishMove() {
   if (motionDrag_.on) return motionFinishGesture("Move");
   // Round 15: dropped in its own flow it is already in its place in the document; layout puts it (and any sibling
@@ -2523,6 +2552,17 @@ void Editor::finishMove() {
     }
   }
   gridDrop_ = false;
+  // 2026-10-20: a layer that ignored its auto-layout parent's flow and was dropped in another parent no longer
+  // ignores it — Figma's "Ignore auto layout" belongs to the auto-layout child it was set on [unverified live]; dropped
+  // into another auto-layout frame it joins that flow as any layer does.
+  for (const Target& t : targets_) {
+    const Node* n = doc_.get(t.id);
+    if (!n || n->props.stackPositioning != StackPositioning::ABSOLUTE || n->props.parentIndex.guid == t.parent) continue;
+    NodeChange c = NodeChange::changed(t.id);
+    c.mask = F_STACK_POSITIONING;
+    c.props.stackPositioning = StackPositioning::AUTO;
+    write(c);
+  }
   // Round 2 (live Figma): a layer taken out of auto layout keeps its size, fixed — its Fill / stretch goes (dragged
   // back in later it is "54 × 27", not "54 Fill × 27").
   for (const Target& t : targets_) {

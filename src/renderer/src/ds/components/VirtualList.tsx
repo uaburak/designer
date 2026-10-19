@@ -21,10 +21,12 @@ export interface VirtualListProps {
   /** With "figma": the room a sticky row takes at the top when the row comes from above */
   scrollTopPad?: number;
   /**
-   * A row pinned at the top while the list scrolls under it (Figma's sticky headers): for the scroll position, which
-   * row and where (its `top`, in the list's coordinates — pushed up by the next one), or null
+   * Rows pinned at the top while the list scrolls under them (Figma's sticky headers): the block row `index` belongs
+   * to — its header row `start` and the row past its end `end` (row indices) — or null. The header is drawn with CSS
+   * `position: sticky` in a box spanning its block, so the browser keeps it at the top (and the next block's header
+   * pushes it up) in the same frame as the scroll — never repositioned from a scroll event a frame late.
    */
-  sticky?: (scrollTop: number) => { index: number; top: number } | null;
+  stickyBlock?: (index: number) => { start: number; end: number } | null;
   className?: string;
   label?: string;
   /** "both": the rows may be wider than the list (`contentWidth`, or their own CSS sets it) and it scrolls sideways too */
@@ -36,7 +38,7 @@ export interface VirtualListProps {
 }
 
 /** A long list drawing only the rows in view (contract §4.34), on a ScrollArea. */
-export function VirtualList({ count, rowHeight, overscan = 8, renderRow, scrollToIndex, scrollAlign = "nearest", scrollTopPad = 0, sticky, className, label, axis = "y", contentWidth, onScroll }: VirtualListProps) {
+export function VirtualList({ count, rowHeight, overscan = 8, renderRow, scrollToIndex, scrollAlign = "nearest", scrollTopPad = 0, stickyBlock, className, label, axis = "y", contentWidth, onScroll }: VirtualListProps) {
   const viewport = useRef<HTMLDivElement | null>(null);
   const [view, setView] = useState({ top: 0, height: 600 });
   useEffect(() => {
@@ -61,20 +63,30 @@ export function VirtualList({ count, rowHeight, overscan = 8, renderRow, scrollT
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollToIndex, rowHeight]);
   const [first, last] = visibleRange(view.top, view.height, rowHeight, count, overscan);
+  // The blocks with a pinned header among the rows drawn (their headers too, however far above the window they are).
+  const blocks = new Map<number, number>();
+  if (stickyBlock)
+    for (let i = first; i < last; i++) {
+      const b = stickyBlock(i);
+      if (b && b.end > b.start + 1 && !blocks.has(b.start)) blocks.set(b.start, b.end);
+    }
   const rows: ReactNode[] = [];
   for (let i = first; i < last; i++) {
+    if (blocks.has(i)) continue;
     rows.push(
       <div key={i} style={{ position: "absolute", top: i * rowHeight, left: 0, right: 0, height: rowHeight }}>
         {renderRow(i)}
       </div>
     );
   }
-  // The pinned row: drawn again over the rows, on the list's background, where the scroll puts it.
-  const pin = sticky && view.top > 0 ? sticky(view.top) : null;
-  if (pin && pin.index < count)
+  // A pinned header: its block's box (no pointer events of its own) over the block's rows, the header sticky at its
+  // top on the list's background — where the compositor scrolls it, with no per-scroll render or write.
+  for (const [start, end] of blocks)
     rows.push(
-      <div key="sticky" data-sticky-row="" style={{ position: "absolute", top: pin.top, left: 0, right: 0, height: rowHeight, zIndex: 1, background: "var(--figma-color-bg)" }}>
-        {renderRow(pin.index)}
+      <div key={`block:${start}`} data-sticky-block="" style={{ position: "absolute", top: start * rowHeight, left: 0, right: 0, height: (Math.min(end, count) - start) * rowHeight, zIndex: 1, pointerEvents: "none" }}>
+        <div data-sticky-row="" style={{ position: "sticky", top: 0, height: rowHeight, background: "var(--figma-color-bg)", pointerEvents: "auto" }}>
+          {renderRow(start)}
+        </div>
       </div>
     );
   return (

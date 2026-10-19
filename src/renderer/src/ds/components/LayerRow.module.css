@@ -54,6 +54,9 @@
   /* The glyph (live 2026-10-18/left-panel.txt: white at 40 %, frames included): tertiary; primary on a selected row; 8 to the name */
   .type { display: flex; flex: none; align-items: center; justify-content: center; width: 16px; height: 16px; margin-right: var(--ds-space-2); color: var(--figma-color-icon-tertiary); }
   .row[aria-selected="true"] .type { color: var(--figma-color-icon); }
+  /* Ignores auto layout: Figma's corner marks (object_row--iconOverlay: position absolute) over the 16 glyph, in its colour */
+  .type { position: relative; }
+  .absolute { position: absolute; inset: 0; display: flex; pointer-events: none; }
   /* A shape's own outline (live: a 16 × 10 box holding a 10 × 10 drawing, 1px strokes, no fill) */
   .shape { display: flex; align-items: center; justify-content: center; width: 16px; height: 10px; }
   .shape > svg { display: block; overflow: visible; fill: none; stroke: currentColor; }

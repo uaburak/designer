@@ -186,6 +186,7 @@ else()
     tests/unit/editor.commands.test.cpp
     tests/unit/editor.move.test.cpp
     tests/unit/editor.flowdrag.test.cpp
+    tests/unit/editor.absolutedrag.test.cpp
     tests/unit/layout.figma_golden.test.cpp
     tests/unit/scene.kiwi.test.cpp
     tests/unit/components.test.cpp
