@@ -211,11 +211,8 @@ export function Assets() {
         <>
           <span className={styles.tileBox} style={{ width: box.width, height: box.height }}>
             {a.remote ? <RemoteThumb asset={a.remote} size={Math.max(box.width, box.height)} className={styles.remoteThumb} /> : <Thumb asset={a} size={box.width} height={box.height} />}
-            {a.kind === "set" && (a.variantCount ?? 0) > 0 && (
-              <span className={styles.variants} aria-label={tp(a.variantCount ?? 0, "Includes {n} variant", "Includes {n} variants")}>
-                {a.variantCount}
-              </span>
-            )}
+            {/* Live (left-rail-assets-components): no variant count on a set's tile — read out only */}
+            {a.kind === "set" && (a.variantCount ?? 0) > 0 && <span className={styles.srOnly}>{tp(a.variantCount ?? 0, "Includes {n} variant", "Includes {n} variants")}</span>}
           </span>
           <span className={styles.tileName}>{assetLabel(a.name)}</span>
           {/* Live: each tile's hint for assistive tech */}
@@ -356,7 +353,8 @@ export function Assets() {
         }
       />
       <div className={styles.toolbar}>
-        <SearchField data-assets-search="" className={styles.search} value={query} onChange={setQuery} placeholder={open ? t("Search in this library") : t("Search all libraries")} label={open ? t("Search in this library") : t("Search all libraries")} />
+        {/* Live: a library opened focuses "Search in this library" */}
+        <SearchField key={open ? open.key : ""} autoFocus={!!open} data-assets-search="" className={styles.search} value={query} onChange={setQuery} placeholder={open ? t("Search in this library") : t("Search all libraries")} label={open ? t("Search in this library") : t("Search all libraries")} />
         <div ref={settingsButton} style={{ display: "contents" }}>
           <IconButton
             icon="24.libraries-settings"

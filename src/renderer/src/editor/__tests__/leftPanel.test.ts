@@ -120,6 +120,16 @@ describe("Find (help \"Find and replace\", live find-filter-menu)", () => {
     expect(findLayers(nodes, "card", { types: ["image", "frame"] }).map((r) => r.id)).toEqual(["1", "4"]);
   });
 
+  it("carries an auto-layout frame's and a slot's glyph fields (live: Find draws Layers' glyphs)", () => {
+    const al: FindNode[] = [
+      { id: "a", page: "p", type: "FRAME", name: "AL_wrap", stackMode: "HORIZONTAL", stackWrap: "WRAP" },
+      { id: "b", page: "p", type: "FRAME", name: "AL_grid", stackMode: "GRID" },
+      { id: "c", page: "p", type: "FRAME", name: "AL_slot", slot: true },
+    ];
+    expect(findLayers(al, "al_").map((r) => [r.stackMode, r.stackWrap, r.slot])).toEqual([["HORIZONTAL", "WRAP", undefined], ["GRID", undefined, undefined], [undefined, undefined, true]]);
+    expect(findLayers(nodes, "card")[0]).not.toHaveProperty("stackMode");
+  });
+
   it("Match case and Whole words", () => {
     expect(findLayers(nodes, "Card", { matchCase: true }).map((r) => r.id)).toEqual(["1", "4"]);
     expect(findLayers(nodes, "card", { wholeWords: true }).map((r) => r.id)).toEqual(["1", "2", "3"]);

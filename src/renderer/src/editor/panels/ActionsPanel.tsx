@@ -442,7 +442,7 @@ function Actions() {
             ref={input}
             type="text"
             aria-label={t("Search")}
-            placeholder={prompt ? (prompt.defs[prompt.index].description ?? prompt.defs[prompt.index].name) : t("Search actions")}
+            placeholder={prompt ? (prompt.defs[prompt.index].description ?? prompt.defs[prompt.index].name) : t("Search") /* live actions-panel.txt: [Search] */}
             spellCheck={false}
             maxLength={150}
             dir="auto"

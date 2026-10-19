@@ -154,7 +154,7 @@ describe("round 10: the stubs live has enabled (live menus/main-*.txt)", () => {
 
   it("the intended exclusions stay disabled", async () => {
     const { ed } = await editor();
-    for (const id of ["file.open-in-desktop", "canvas.send-to-make", "canvas.find-similar", "canvas.add-motion", "plugins.manage", "widgets.manage", "widgets.select-all", "prefs.color-profile", "prefs.permissions", "help.font-settings", "help.log-out"])
+    for (const id of ["file.open-in-desktop", "canvas.send-to-make", "canvas.find-similar", "plugins.manage", "widgets.manage", "widgets.select-all", "prefs.color-profile", "prefs.permissions", "help.font-settings", "help.log-out"])
       expect(enabled(ed, id), id).toBe(false);
     // Account settings opens the Settings modal (src/renderer/src/settings); Log out waits for a signed-in account.
     expect(enabled(ed, "help.account")).toBe(true);
@@ -231,10 +231,11 @@ describe("round 10: context menus (live menus/context-*.txt)", () => {
     expect(l).toContain("Select layer");
     expect(l).not.toContain("Convert to section");
     expect(l).not.toContain("Set as thumbnail");
-    // Rows that can't run are gone (Atlas 03 §4: Plugins and Widgets have nothing to run here).
+    // Rows that can't run are gone (Atlas 03 §4), but Figma's rows Wecra hasn't built stay, greyed (the owner's 2026-10-19
+    // decision): Widgets ▸ with its disabled rows.
     const at = l.indexOf("Add auto layout");
     expect(l.slice(at, at + 5)).toEqual(["Add auto layout", "Create component", "Reset instance", "Detach instance", "Go to main component"]);
-    expect(l).not.toContain("Widgets");
+    expect(l).toContain("Widgets");
   });
 
   it("a main component: Set as thumbnail, More layout options, no Convert to section; a frame: Convert to section", async () => {

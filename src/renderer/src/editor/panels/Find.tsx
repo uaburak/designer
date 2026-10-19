@@ -23,7 +23,8 @@ import styles from "./Find.module.css";
 import { t, tp, useT } from "@/i18n";
 
 /** A result's glyph, as the Layers row draws it. */
-const rowOf = (r: FindResult) => ({ type: r.type, group: r.type === "GROUP", stateGroup: r.filter === "component" && r.type === "FRAME", media: r.filter === "image" ? "IMAGE" : undefined }) as unknown as TreeNode;
+const rowOf = (r: FindResult) =>
+  ({ type: r.type, group: r.type === "GROUP", stateGroup: r.filter === "component" && r.type === "FRAME", media: r.filter === "image" ? "IMAGE" : undefined, stackMode: r.stackMode, stackWrap: r.stackWrap, slot: r.slot }) as unknown as TreeNode;
 const glyph = (r: FindResult) => layerIcon(rowOf(r));
 /** The glyph's name (live: img [Frame], [Text]…, as in Layers) */
 const glyphLabel = (r: FindResult) => t(layerKind(rowOf(r)));
@@ -64,6 +65,7 @@ export function FindPanel() {
   const selection = useSelection(ed.store).refs;
   const anchor = useRef<number>(-1);
   const settingsButton = useRef<HTMLDivElement>(null);
+  const field = useRef<HTMLInputElement>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const set = (patch: Partial<FindState>) => ed.ui.set((s) => ({ find: { ...(s.find ?? EMPTY_FIND), ...patch } }));
 
@@ -128,6 +130,7 @@ export function FindPanel() {
         <label className={styles.field} data-find-query="">
           <Icon name="24.search.small" className={styles.fieldIcon} />
           <input
+            ref={field}
             className={styles.input}
             aria-label={t("Find…")}
             placeholder={t("Find…")}
@@ -158,6 +161,8 @@ export function FindPanel() {
             onClick={(e) => {
               if (menu) return setMenu(null);
               const r = e.currentTarget.getBoundingClientRect();
+              // Live (left-find-results-and-filter-menu): the field gives up its focus while the menu is open, the button shown pressed.
+              field.current?.blur();
               setMenu({ x: r.left, y: r.bottom + 4 });
             }}
           />

@@ -2,6 +2,31 @@
 
 First written 2026-10-06 when the first Claude session stopped and the owner moved the work to another Claude account through GitHub (`https://github.com/uaburak/designer`). Updated the same day by the second session, which finished every workstream's partial items and ran the integration round. Read `AGENTS.md`, `docs/architecture.md` and `docs/roadmap.md` first; the contracts in `docs/` decide everything; `docs/research/` holds the verified facts about Figma (with sources).
 
+## Status 2026-10-19 — compare-2026-10-18 Group 2 (left panel, menus, toolbar chrome, editor shell), committed on its branch, not merged
+
+Branch `worktree-agent-acf6a78c196267049` (from main `1fb3352f`): 17 of the 19 Group 2 items of `docs/research/compare-2026-10-18/STATUS-2026-10-19.md` fixed; its "As built — Group 2" section lists each item with its file, and the side-by-side images are in `compare-2026-10-18/after/group2-*.png`.
+
+- **Fixed:**
+  - A narrow window's right panel lies over the left one.
+  - The Tools tab gets Suggested (Wecra's image tools, no Weave card).
+  - Find's auto-layout glyphs; its field is blurred while Settings is open.
+  - Assets: no variant badge, and the library search is focused.
+  - "?" over the Variables view; Actions' placeholder reads "Search".
+  - Open in desktop app: a `designer://` link in the browser, no row in the desktop app.
+  - The canvas menu keeps Figma's rows Wecra can't run, greyed (Send to Figma Make, Find similar designs, Outline stroke, Widgets ▸, a main's Main component ▸), and **Add motion ▸ is built** (keys a field in Motion, or applies a style).
+  - The menu opens 4 px beside the pointer.
+  - The Pages chevron shows on hover only; the eye's hover square.
+  - Rename dialog 14 higher; Minimize UI's pill order; "Outlines visible | Cancel"; the eyedropper card's text and margin.
+  - A pointer leaving the canvas ends the gap hatch.
+- **Not fixed:**
+  - #3: live's DOM says that button is "Filter by price and type", so there is no difference.
+  - #9: Figma's AI-action glyphs have no source yet.
+- **Checks:** typecheck, eslint and vitest (2989 tests) green.
+- **Next:**
+  - Merge.
+  - Check Open in desktop app on the web app with a real file.
+  - Get Figma's AI glyphs (REA or a 2× capture).
+
 ## Status 2026-10-19 — Phase 6's leftovers: concurrent reparent cycles / orphans, Figma's signals and limits, committed on its branch, not merged
 
 Branch `worktree-agent-a2b6d34b17598bfdd` (from main `08d486e1`). `docs/multiplayer.md` §18.12–§18.13 have the detail. **The tree under concurrent moves** (atlas 19 §3): A moving X into Y while B moves Y into X, or a layer moved / drawn into a frame someone deletes at the same moment, no longer leaves layers on a cycle or without a parent (both vanished from every page before). The copy whose change is later in the room's order — the one still waiting when the other reaches it — repairs it with a change of its own (`src/shared/multiplayer/structure.ts`, `Link.remoteFrame` / `repairLocal` in `src/store/multiplayer/service.ts`, journaled through the new optional hosts `appendCorrection` / `structureAt` of FileStore and memoryStore): its move loses (the layer goes back, its other properties stand), an orphan goes to the nearest existing parent above the deleted one; the editor applies the repair as another session's, so ⌘Z never brings the refused move back; another session's move that would cycle in this engine is applied without the move (`withoutCycles`, TS — **no engine change**, no schema change). **Signals and limits** (atlas 19 §2.3, R13 §4): the room enforces 200 editors (past it a session joins as a viewer, its changes wait, no rollback), 200 cursors (hidden until followed or a place frees up), 500 people (+20 editors), presence ≤ 16 kB and 30 a second; it says Figma's `too-many-connections` / `invalid-permissions` (member removed while the file is open) / `client-too-old` / `message-decode-failure`, and the editor shows each in its key's words, two cases (with / without unsaved changes), Turkish included (`editor/multiplayer/signals.ts`). **Checks:** typecheck (node + web + server), eslint on the touched files, vitest `src/renderer/src src/shared src/store src/main src/viewer` 366 files / 3011 tests, the new harness (three installations, random concurrent draws / moves / deletes with drops, four seeds: copies equal the room's order, no cycle, no orphan, nothing lost — 6 of its 8 cases fail without the repair), server 404 / 405 (the one failure, branches' "merge request's lifecycle" review-id assertion, is intermittent and untouched by this branch; `cpu.test` timing flakes under load), a `wrangler dev` smoke (local D1 through 0029, the real FileRoom; scratch, not committed): cycle and orphan converge with a valid tree, a removed member hears `invalid-permissions` — stopped after. **No migration**; the Worker's next deploy carries the room's limits and signals. **Left:** comments' attachments in shared files (the owner's storage / quota decision), Copy link's per-type toasts, Previously viewed / View profile, Cancel ask to spotlight. **To verify on two machines:** both move one frame into the other at the same moment (one move loses, nothing disappears); one deletes a frame while the other drags a layer into it (the layer lands on the page / parent); remove a member while they have the file open (their toast, the copy stays).

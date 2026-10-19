@@ -45,7 +45,7 @@ export const LOUPE_CELLS = 7;
 const LOUPE_CELL = 8;
 const LOUPE_BOX = 48;
 /** The card's size and its offset from the pointer (below right of it, kept on the canvas). */
-const CARD_W = 260, CARD_H = 64, CARD_OFFSET = 16, CARD_MARGIN = 4;
+const CARD_W = 260, CARD_H = 64, CARD_OFFSET = 16, CARD_MARGIN = 2;
 
 /**
  * The eyedropper's card (Pick color, ⌃C / I), as live Figma's (docs/research/chrome-cursors/figma-eyedropper.png): a

@@ -1,15 +1,22 @@
 @layer app {
   /* ---- Left panel ---- */
+  /*
+   * A window too narrow for both panels (live panel-grid-autolayout-highres: 444 wide): the right panel stays whole at
+   * the window's right edge and lies over the left one, cut where it starts. The left panel gives up its width (it
+   * shrinks, the canvas between them first) while its rows keep theirs (`--left-panel-width`) under the right panel.
+   */
   .left {
     position: relative;
     z-index: var(--ds-z-panel);
     display: flex;
-    flex: none;
+    flex: 0 1 auto;
     flex-direction: column;
+    min-width: 0;
     min-height: 0;
     border-right: 1px solid var(--figma-color-border);
     background: var(--figma-color-bg);
   }
+  .left > :not([data-ds="ResizeHandle"]) { min-width: var(--left-panel-width, auto); }
   /*
    * File header (live 2026-10-18/left-panel.txt): 64; the name 13/22 550 at 17, 13 and the Edit file chevron 11 after
    * it (its 24 button at the name's end), "Drafts" at 12, 40 (its text 4 in), Minimize UI 32 × 32 at 200, 8
@@ -64,6 +71,9 @@
 
   /* Pages (live): rows from the header's foot, 8 under the last, the 8px resize handle on the line under them */
   .pages { position: relative; flex: none; }
+  /* Live (left-panel.txt, pages-divider-dashes): "Pages" at 16 with no chevron at rest; it shows while the header is hovered or the list is folded */
+  .pages button[aria-expanded="true"] > span:first-child { opacity: 0; }
+  .pages button[aria-expanded="true"]:hover > span:first-child, .pages button[aria-expanded="true"]:focus-visible > span:first-child { opacity: 1; }
   /* Live (left/pages-add-page-rename.txt): rows from 4 under the header, 8 apart; Layers' line 13 under the last */
   .pageList { display: flex; flex-direction: column; gap: var(--ds-space-2); max-height: 40vh; overflow-y: auto; padding: var(--ds-space-1) 0 calc(var(--ds-space-2) + var(--ds-space-1)); }
   .pageDragging { opacity: 0.5; }
@@ -365,3 +375,44 @@
 .toolsRow:disabled { color: var(--figma-color-text-disabled); }
 .toolsRowLabel { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/*
+ * Tools › Suggested (live left/rail-tools.txt): 224 × 56 rows 8 in (radius 5) — a 40 × 40 thumbnail 16 in on
+ * bg-secondary, the name at 64 (11 / 450) 12 from the top, under it the kind's 16 glyph, a 1 × 12 line and the maker
+ * (secondary), 18 lower.
+ */
+.toolsCard {
+  display: grid;
+  grid-template-columns: var(--ds-space-10) minmax(0, 1fr);
+  grid-template-rows: var(--ds-space-4) var(--ds-space-4);
+  align-content: center;
+  column-gap: var(--ds-space-2);
+  row-gap: var(--ds-space-half);
+  width: calc(100% - var(--ds-space-4));
+  height: calc(var(--ds-space-12) + var(--ds-space-2));
+  margin: 0 var(--ds-space-2);
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-medium);
+  background: none;
+  color: var(--figma-color-text);
+  font: var(--ds-font-body-medium);
+  letter-spacing: var(--ds-tracking-body-medium);
+  text-align: left;
+}
+.toolsCard:hover:not(:disabled) { background: var(--figma-color-bg-hover); }
+.toolsCard:disabled { color: var(--figma-color-text-disabled); }
+.toolsThumb {
+  display: flex;
+  grid-row: 1 / span 2;
+  align-items: center;
+  justify-content: center;
+  width: var(--ds-space-10);
+  height: var(--ds-space-10);
+  border-radius: var(--ds-radius-medium);
+  background: var(--figma-color-bg-secondary);
+  color: var(--figma-color-icon);
+}
+.toolsCardName { min-width: 0; overflow: hidden; align-self: end; text-overflow: ellipsis; white-space: nowrap; }
+.toolsCardMeta { display: flex; align-items: center; gap: var(--ds-space-1); min-width: 0; color: var(--figma-color-text-secondary); }
+.toolsCardMeta > svg { flex: none; color: var(--figma-color-icon-secondary); }
+.toolsCardLine { flex: none; width: 1px; height: var(--ds-space-3); border-radius: 1px; background: var(--figma-color-border); }

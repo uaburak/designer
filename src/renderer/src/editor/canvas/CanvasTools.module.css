@@ -10,7 +10,7 @@
 
   /* The eyedropper's card (live Figma, docs/research/chrome-cursors/figma-eyedropper.png, 2× screenshot): 260 × 64,
      radius 13, 8 inset; the 48 × 48 preview (radius 5), 12 to the rows; two 24-high rows — a 16 swatch or the 24 click
-     icon over the same 16 column, 8 to the text: the hex (strong) and "Click to sample" (secondary). */
+     icon over the same 16 column, 6 to the text: the hex (strong) and "Click to sample" (secondary). */
   .loupe {
     position: fixed;
     z-index: var(--ds-z-popover);
@@ -53,10 +53,11 @@
 
   .loupeRows { display: flex; flex-direction: column; min-width: 0; }
 
+  /* Live (B 1.16): the hex and "Click to sample" start 6 after the 16 column (154.5 CSS px across the 2× capture) */
   .loupeRow {
     display: flex;
     align-items: center;
-    gap: var(--ds-space-2);
+    gap: var(--ds-space-1-5);
     height: var(--ds-space-6);
   }
 

@@ -29,7 +29,7 @@ export function closeFind(ed: EditorController): void {
   ed.focusCanvas();
 }
 
-const FIELDS = ["name", "type", "parentIndex", "textData", "fillPaints", "resizeToFit", "isStateGroup", "visible"] as const;
+const FIELDS = ["name", "type", "parentIndex", "textData", "fillPaints", "resizeToFit", "isStateGroup", "visible", "stackMode", "stackWrap", "isSlot"] as const;
 
 const hasMedia = (fills: unknown) => Array.isArray(fills) && fills.some((p: { type?: string; visible?: boolean }) => p?.visible !== false && (p?.type === "IMAGE" || p?.type === "VIDEO"));
 
@@ -56,7 +56,7 @@ export function readPageForFind(ed: EditorController, page: Guid): FindNode[] {
     for (const child of list) {
       const n = byId.get(child);
       if (!n) continue;
-      const x = n as NodeChange & { isStateGroup?: boolean; textData?: { characters?: string } };
+      const x = n as NodeChange & { isStateGroup?: boolean; textData?: { characters?: string }; stackMode?: string; stackWrap?: string; isSlot?: boolean };
       const type = n.type ?? "NONE";
       out.push({
         id: n.guid,
@@ -68,6 +68,10 @@ export function readPageForFind(ed: EditorController, page: Guid): FindNode[] {
         stateGroup: x.isStateGroup === true,
         media: hasMedia(n.fillPaints),
         parent,
+        // The auto-layout and slot glyphs (live: Find's results draw them as Layers does)
+        ...(x.stackMode !== undefined ? { stackMode: x.stackMode } : {}),
+        ...(x.stackWrap !== undefined ? { stackWrap: x.stackWrap } : {}),
+        ...(x.isSlot === true ? { slot: true } : {}),
       });
       walk(n.guid, n.name ?? "");
     }

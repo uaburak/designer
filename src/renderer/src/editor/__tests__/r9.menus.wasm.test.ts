@@ -196,13 +196,16 @@ describe("round 9: the Figma menu (live menus/main-*.txt)", () => {
     const { ed, engine } = await editor();
     engine.setSelection(["1:2"]);
     const menu = canvasMenu(ed, []);
-    expect(items(menu).every((i) => !i.disabled)).toBe(true);
+    // Figma's rows Wecra can't run yet stay, greyed (the owner's 2026-10-19 decision); every other row can run.
+    const greyed = new Set(["Send to Figma Make", "Find similar designs", "Outline stroke"]);
+    expect(items(menu).every((i) => !i.disabled || greyed.has(i.label))).toBe(true);
     expect(menu[0]).not.toBe("-");
     expect(menu.at(-1)).not.toBe("-");
     expect(menu.some((e, i) => e === "-" && menu[i + 1] === "-")).toBe(false);
-    // Not built here: Send to Figma Make, Widgets ▸.
-    expect(labels(menu)).not.toContain("Send to Figma Make");
-    expect(labels(menu)).not.toContain("Widgets");
+    // Not built here: Send to Figma Make (greyed), Widgets ▸ (its rows greyed); Add motion ▸ is built.
+    expect(items(menu).find((i) => i.label === "Send to Figma Make")?.disabled).toBe(true);
+    expect(labels(menu)).toContain("Widgets");
+    expect(labels(menu)).toContain("Add motion");
   });
 
   it("Dev Mode's Figma menu (Atlas 03 §3.2): Edit ▸ Copy as, Find ×3, Select all / none; no Object, Text, Arrange, Vector", async () => {
