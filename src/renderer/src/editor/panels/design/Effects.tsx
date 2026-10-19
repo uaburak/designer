@@ -43,6 +43,7 @@ import { PANEL_MENU_GAP, fields, useKeeps, type Effect, type LayoutGrid, type Pa
 import styles from "./Design.module.css";
 import { AppliedStyle, StylesButton, sharedStyle } from "./Styles";
 import { Grip, moved, useReorder } from "./reorder";
+import { useRowSelection } from "../../propertyRows";
 import { SHADER_EFFECTS, SHADER_FILLS, presetOf, shaderEffect, type ShaderFields, type ShaderPreset } from "../../model/shaders";
 import { ShaderParams } from "./ShaderSettings";
 import { DrawSlider, SLIDER_RANGE, useDrawMode } from "../../draw/panels/DrawSliders";
@@ -321,6 +322,8 @@ export function EffectsSection({ nodes }: { nodes: PanelNode[] }) {
   const openEffect = open ? effects[open.index] : undefined;
   const markHandle = useBlurHandles(ed, refs.length === 1 ? refs[0] : null, open?.index ?? null, !!openEffect && isBlur(openEffect) && openEffect.blurOpType === "PROGRESSIVE");
   const { container: reorderRef, grip, dragging, line: dropLine } = useReorder((from, to) => writeEffects(ed, refs, moved(effects, n - 1 - from, n - 1 - to), "Reorder effects"));
+  // Rows are selected as Fill's (propertyRows.ts).
+  const rows = useRowSelection("effect", n);
   return (
     <PanelSection
       title={t("Effects")}
@@ -347,7 +350,7 @@ export function EffectsSection({ nodes }: { nodes: PanelNode[] }) {
           const type = { icon: effectIcon(e), label: t(effectLabel(e)) };
           const set = (next: Effect, label: string, info?: ChangeInfo) => writeEffects(ed, refs, effects.map((x, j) => (j === i ? next : x)), label, info);
           return (
-            <div key={i} className={cx(styles.paintRow, e.visible === false && styles.rowHidden, dragging === d && styles.rowDragging)} data-effect-row={e.type} data-reorder-row="">
+            <div key={i} className={cx(styles.paintRow, e.visible === false && styles.rowHidden, dragging === d && styles.rowDragging, rows.isSelected(i) && styles.rowSelected)} data-effect-row={e.type} data-reorder-row="" {...rows.rowProps(d)}>
               {n > 1 && <Grip {...grip(d)} />}
               <div className={styles.effectField}>
                 <IconButton icon={type.icon} label={t("Effect settings")} aria-expanded={open?.index === i} onClick={(ev) => setOpen(open?.index === i ? null : { index: i, anchor: ev.currentTarget })} />

@@ -121,7 +121,9 @@ message Message {
   bool pasteIsPartiallyOutsideEnclosingFrame = 19;
   GUID pastePageId = 20;
   bool isCut = 21;
+  EditorType pasteEditorType = 27;  // clipboard: the editor the copy came from (DESIGN for ours)
   ClipboardSelectionRegion[] clipboardSelectionRegions = 33;
+  PasteAssetType pasteAssetType = 41;  // clipboard: Fill / Stroke / Effect rows copied from the Design panel (one 100x100 ROUNDED_RECTANGLE carrying only them)
   uint64 sentTimestamp = 38;       // optional: ms since Unix epoch when committed
   uint derivedDataVersion = 100;   // @ours engine version of the derived fields in this Message (0/absent = none)
   Message[] localUndoStack = 22;   // the editor's undo batches (oldest first), each a NODE_CHANGES Message; per-device UI state, never in a snapshot
@@ -131,9 +133,9 @@ message Message {
   // Reserved field numbers (82): Figma fields not kept, or reserved for future Figma fields. Never reuse.
   byte _r5 = 5 [deprecated]; byte _r7 = 7 [deprecated]; byte _r8 = 8 [deprecated]; byte _r9 = 9 [deprecated]; byte _r10 = 10 [deprecated]; byte _r11 = 11 [deprecated];
   byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated]; byte _r17 = 17 [deprecated]; byte _r18 = 18 [deprecated];
-  byte _r24 = 24 [deprecated]; byte _r25 = 25 [deprecated]; byte _r26 = 26 [deprecated]; byte _r27 = 27 [deprecated]; byte _r28 = 28 [deprecated]; byte _r29 = 29 [deprecated];
+  byte _r24 = 24 [deprecated]; byte _r25 = 25 [deprecated]; byte _r26 = 26 [deprecated]; byte _r28 = 28 [deprecated]; byte _r29 = 29 [deprecated];
   byte _r30 = 30 [deprecated]; byte _r31 = 31 [deprecated]; byte _r32 = 32 [deprecated]; byte _r35 = 35 [deprecated]; byte _r36 = 36 [deprecated];
-  byte _r37 = 37 [deprecated]; byte _r39 = 39 [deprecated]; byte _r40 = 40 [deprecated]; byte _r41 = 41 [deprecated]; byte _r42 = 42 [deprecated]; byte _r43 = 43 [deprecated];
+  byte _r37 = 37 [deprecated]; byte _r39 = 39 [deprecated]; byte _r40 = 40 [deprecated]; byte _r42 = 42 [deprecated]; byte _r43 = 43 [deprecated];
   byte _r44 = 44 [deprecated]; byte _r45 = 45 [deprecated]; byte _r47 = 47 [deprecated]; byte _r48 = 48 [deprecated]; byte _r49 = 49 [deprecated];
   byte _r50 = 50 [deprecated]; byte _r51 = 51 [deprecated]; byte _r52 = 52 [deprecated]; byte _r53 = 53 [deprecated]; byte _r54 = 54 [deprecated]; byte _r55 = 55 [deprecated];
   byte _r56 = 56 [deprecated]; byte _r57 = 57 [deprecated]; byte _r58 = 58 [deprecated]; byte _r59 = 59 [deprecated]; byte _r60 = 60 [deprecated]; byte _r61 = 61 [deprecated];
@@ -164,6 +166,15 @@ message ClipboardSelectionRegion {
   Vector enclosingFrameOffset = 3;
   bool pasteIsPartiallyOutsideEnclosingFrame = 4;
   SelectionRegionFocusType focusType = 5;
+}
+
+enum PasteAssetType {      // Message.pasteAssetType: what a clipboard of assets holds (2026-10-19, live Figma)
+  UNKNOWN = 0;
+  VARIABLE = 1;
+  STYLE_PROPERTIES = 2;
+  STYLE_PROPERTIES_FILL = 3;
+  STYLE_PROPERTIES_STROKE = 4;
+  STYLE_PROPERTIES_EFFECT = 5;
 }
 
 enum SelectionRegionFocusType {

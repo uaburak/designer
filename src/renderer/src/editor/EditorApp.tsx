@@ -34,6 +34,7 @@ import { applyEngineBytes, changeBytesOf, engineDerivedDataVersion, engineMethod
 import { applyFontScope, planFonts, requestFonts } from "./openFonts";
 import { attachKeyboard, runTextKey } from "./keyboard";
 import { attachClipboard, pasteLinkOnText } from "./clipboardIO";
+import { attachPropertyRows } from "./propertyRows";
 import { attachDesktop } from "./desktop";
 import { attachPersistence, noteOpenInfo, restoreUiState } from "./persistence";
 import { runEditorCommand } from "./commands";
@@ -289,6 +290,7 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
       cleanups.push(attachUsageTracking(ed, canvas));
       cleanups.push(attachKeyboard(ed, canvas));
       cleanups.push(attachClipboard(ed));
+      cleanups.push(attachPropertyRows(ed, canvas));
       cleanups.push(attachCanvasMenu(ed, canvas));
       cleanups.push(attachGridTracks(ed, canvas));
       cleanups.push(attachTitleRename(ed, canvas));

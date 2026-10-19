@@ -15,6 +15,9 @@
  * URL or e-mail address pasted onto selected characters links them; Copy / Paste properties go through the system
  * clipboard (Figma's STYLE Message), so they work across files and windows; a menu paste with no layers on the
  * clipboard takes its picture (`web image/png`, then `image/png`) before its text.
+ *
+ * Fill / Stroke / Effect rows selected in the Design panel copy as Figma's STYLE_PROPERTIES_* Message, and such a
+ * clipboard pastes onto the selected layers' lists, never as layers (propertyRows.ts).
  */
 import { t, tp } from "@/i18n";
 import type { Message, NodeChange } from "@/engine/codec";
@@ -50,6 +53,8 @@ import { viewCentre } from "./canvas/viewInsets";
 import { editorBridge } from "./desktop";
 import { copiedLibraries, movedAmong, unaddedLibraries, unaddedLibrariesToast } from "./libraries";
 import { showToast } from "@/ds";
+import { deleteRows, pasteRows, rowsClipboardFormats } from "./propertyRows";
+import { rowsOfMessage } from "./model/propertyRows";
 
 
 function writeTo(data: DataTransfer, formats: Record<string, string>) {
@@ -104,12 +109,19 @@ async function pastePayload(ed: EditorController, payload: ClipboardPayload, mod
   });
   // Copy properties' STYLE Message (Figma's ⌥⌘C) is no layers: ⌘V leaves it for ⌥⌘V.
   if (!bytes || ed.engine.destroyed || isStyleMessage(bytes)) return;
+  const decoded = decodeMessage(bytes);
+  // Copied Fill / Stroke / Effect rows (pasteAssetType STYLE_PROPERTIES_*): onto the selected layers' lists, or nothing.
+  const rows = rowsOfMessage(decoded);
+  if (rows) {
+    if (pasteRows(ed, rows.section, rows.items) && figma.report) void figmaPasteToast(ed, { ...figma.report, detached: 0 });
+    return;
+  }
   const pasteKiwi = engineCall<(b: Uint8Array, o: PasteOptions) => number>(ed.engine, "pasteKiwi", "set_wire_format");
   if (!pasteKiwi || mode?.mode === "point") {
-    pasteMessage(ed, messageToEngine(decodeMessage(bytes)), mode);
+    pasteMessage(ed, messageToEngine(decoded), mode);
   } else {
     const fileKey = ed.source.libraries?.libraryKey ?? null;
-    const from = decodeMessage(bytes).pasteFileKey;
+    const from = decoded.pasteFileKey;
     const before = copiedLibraries(ed);
     pasteKiwi(bytes, pasteOptions(mode));
     ed.focusCanvas();
@@ -349,6 +361,15 @@ export function attachClipboard(ed: EditorController): () => void {
   const onCopy = (e: ClipboardEvent, cut: boolean) => {
     if (isEditable(e.target) || !e.clipboardData) return;
     if (!ed.selection.length) return;
+    // Fill / Stroke / Effect rows selected: those are copied (⌘X: and removed), not the layers.
+    const rows = rowsClipboardFormats(ed);
+    if (rows) {
+      e.preventDefault();
+      writeTo(e.clipboardData, rows);
+      ed.lastCopy = rows;
+      if (cut) deleteRows(ed);
+      return;
+    }
     const formats = copyFormats(ed, cut);
     e.preventDefault();
     if (!formats) return;
@@ -395,12 +416,14 @@ export function attachClipboard(ed: EditorController): () => void {
 export function copyFromMenu(ed: EditorController, cut: boolean): void {
   ed.focusCanvas();
   if (document.execCommand(cut ? "cut" : "copy")) return;
-  const formats = copyFormats(ed, cut);
+  const rows = rowsClipboardFormats(ed);
+  const formats = rows ?? copyFormats(ed, cut);
   if (!formats) return;
   ed.lastCopy = formats;
   const item = new ClipboardItem({ "text/html": new Blob([formats["text/html"]], { type: "text/html" }), "text/plain": new Blob([formats["text/plain"]], { type: "text/plain" }) });
   void navigator.clipboard?.write([item]).catch(() => {});
-  if (cut) ed.engine.command("DELETE");
+  if (cut && rows) deleteRows(ed);
+  else if (cut) ed.engine.command("DELETE");
 }
 
 /** Paste from a menu ("Paste", "Paste over selection", "Paste here"). */
