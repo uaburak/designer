@@ -22,8 +22,10 @@ const chevrons = () => $$('[data-ds="ToolButton"] > button[aria-haspopup="menu"]
 describe("round 7c: the toolbar per mode", () => {
   it("models Draw's slots", () => {
     expect(DRAW_TOOL_GROUPS.map((g) => g.tools)).toEqual([["move", "hand", "scale"], ["rectangle", "line", "arrow", "ellipse", "polygon", "star", "image"], ["pen"], ["pencil"], ["brush"], ["text", "text-on-path"], ["comment"]]);
-    // Dev Mode: Move, Measurement, Annotation, Comment, a slot each (the owner's capture 2026-10-18)
-    expect(toolGroups("dev").map((g) => g.tools)).toEqual([["move"], ["measurement"], ["annotation"], ["comment"]]);
+    // Dev Mode: Move, the eyedropper (it copies; owner 2026-10-19), Measurement, Annotation, Comment, a slot each
+    expect(toolGroups("dev").map((g) => g.tools)).toEqual([["move"], ["eyedropper"], ["measurement"], ["annotation"], ["comment"]]);
+    // Design has no eyedropper slot (Edit › Pick color, I)
+    expect(toolGroups("design").some((g) => g.tools.includes("eyedropper"))).toBe(false);
     expect(TOOLS.brush).toEqual({ id: "brush", label: "Brush", shortcut: "B", icon: "24.brush" });
     expect(groupOf("annotation")).toBe("annotation");
     expect([groupOf("pen", "draw"), groupOf("pen"), groupOf("brush", "draw"), groupOf("brush")]).toEqual(["pen", "creation", "brush", "creation"]);

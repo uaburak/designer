@@ -55,10 +55,14 @@ export const ENGINE_TOOL: Record<ToolId, ToolName | null> = {
   comment: "COMMENT",
   annotation: "ANNOTATION",
   measurement: "MEASUREMENT",
+  eyedropper: "EYEDROPPER",
 };
 
-/** Dev Mode's tools (help.figma.com: ⇧T Annotate, ⇧M Measure, C Comment; Move and Hand to look around). */
-const DEV_TOOLS: ReadonlySet<ToolId> = new Set<ToolId>(["move", "hand", "comment", "annotation", "measurement"]);
+/**
+ * Dev Mode's tools (help.figma.com: ⇧T Annotate, ⇧M Measure, C Comment; Move and Hand to look around; the eyedropper,
+ * which copies the colour). The eyedropper has a slot in Dev Mode alone (Design's is the Edit menu's Pick color, I).
+ */
+const DEV_TOOLS: ReadonlySet<ToolId> = new Set<ToolId>(["move", "hand", "comment", "annotation", "measurement", "eyedropper"]);
 
 /** The toolbar's tool for the engine's current one. */
 export function toolIdOf(engineTool: string): ToolId {
@@ -113,7 +117,7 @@ export function BottomToolbar() {
     return out;
   }, [bindings]);
   // The Brush is Draw's alone (docs/draw.md §5.1).
-  const disabledTools = useMemo(() => (Object.keys(ENGINE_TOOL) as ToolId[]).filter((t) => !isAvailable(ed, t) || (dev && !DEV_TOOLS.has(t)) || (t === "brush" && !draw)), [ed, dev, draw]);
+  const disabledTools = useMemo(() => (Object.keys(ENGINE_TOOL) as ToolId[]).filter((t) => !isAvailable(ed, t) || (dev && !DEV_TOOLS.has(t)) || (t === "brush" && !draw) || (t === "eyedropper" && !dev)), [ed, dev, draw]);
   const pick = (chosen: ToolId) => {
     const t = toolbarChoice(chosen, tool);
     if (t === "image") {

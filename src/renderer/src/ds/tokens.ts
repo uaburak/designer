@@ -233,6 +233,8 @@ export const appColor = {
   "asset-card-bg": ["#0000001a", "#ffffff1a"],
   /** Live capture (left/rail-assets-page-components.txt): a set tile's variant count dot, black 50 % (light unverified) */
   "asset-variants-bg": ["#00000080", "#00000080"],
+  /** Live (menus.txt, Manage libraries): a library thumbnail's 1 px ring (light unverified) */
+  "library-thumb-ring": ["#0000000d", "#0000000d"],
   "switch-hover": ["#f4f4f4", "#585858"], // K
   "switch-knob": ["#ffffff", "#ffffff"], // K — the knob is white in both themes
   "picker-thumb": ["#ffffff", "#ffffff"], // K — colour picker thumbs and gradient stops: white rings in both themes
@@ -426,6 +428,14 @@ export const size = {
   "settings-pad": 48,
   "settings-content": 200,
   "settings-photo": 120,
+  // Manage libraries (live 2026-10-18, menus.txt): 591 × 641, a 200 nav, rows 74 apart with 102 × 58 thumbnails
+  "library-modal": 591,
+  "library-modal-height": 641,
+  "library-nav": 200,
+  "library-row": 74,
+  "library-thumb-width": 102,
+  "library-thumb-height": 58,
+  "library-banner": 128,
   // Home's account menu (live 2026-10-19, settings.txt): 224 wide, a 120 profile block with a 40 photo, 24 rows.
   "account-menu": 224,
   "account-photo": 40,
@@ -505,6 +515,8 @@ export const elevation = {
   menu: ["0 2px 5px #00000059, inset 0 0 0.5px #ffffff59, 0 10px 16px #00000059, inset 0 0.5px 0 #ffffff14", "0 2px 5px #00000059, inset 0 0 0.5px #ffffff59, 0 10px 16px #00000059, inset 0 0.5px 0 #ffffff14"],
   // Live 2026-10-18 (toolbar.txt): the mode switch's thumb (light: elevation 100's, unmeasured)
   thumb: ["0 0 0.5px #0000004d, 0 1px 3px #00000026", "0 0 0.5px #00000080, 0 1px 3px #00000066, inset 0 0.5px 0 #ffffff1a, inset 0 0 0.5px #ffffff4d"],
+  // Live 2026-10-18 (menus.txt): Figma's draggable modals (Manage libraries) — elevation 500 with the menus' light rims (light: 500's)
+  "draggable-modal": ["0 0 0.5px #00000014, 0 10px 24px #0000002e, 0 2px 5px #00000026", "0 10px 24px #00000073, 0 3px 5px #00000059, inset 0 0.5px 0 #ffffff14, inset 0 0 0.5px #ffffff59"],
   // A slider's 12 px thumb (live 2026-10-18 slider.txt, dark; light: the same without the inner light rims)
   "slider-thumb": ["0 1px 3px #00000040, 0 0 0.5px #0000004d, 0 3px 8px #00000026", "0 1px 3px #00000080, inset 0 0 0.5px #ffffff4d, 0 3px 8px #00000059, inset 0 0.5px 0 #ffffff14"],
 } as const satisfies Record<string, Pair>;

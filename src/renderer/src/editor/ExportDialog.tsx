@@ -52,6 +52,8 @@ function ExportDialogBody() {
     <Dialog
       title={t("Export")}
       size="medium"
+      // Figma's Export window is draggable by its header (atlas 15 "Window")
+      draggable
       open
       onClose={close}
       footer={

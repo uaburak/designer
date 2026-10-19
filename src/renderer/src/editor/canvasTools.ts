@@ -110,12 +110,13 @@ export function canvasPixelsAround(ed: EditorController, x: number, y: number, s
 /**
  * The eyedropper's pick: the selected layers' fill becomes the colour (their first solid fill's, else a new fill) — with
  * ⇧ over a colour variable's or a fill style's colour, bound to it (eyedropper.ts); with nothing selected the colour
- * is copied to the clipboard in the colour format (Figma's "Click to copy", atlas 07 §6).
+ * is copied to the clipboard in the colour format (Figma's "Click to copy", atlas 07 §6). In Dev Mode a pick always
+ * copies (its toolbar's eyedropper, atlas 14 §17): nothing there edits the selection.
  */
 export function applyPickedColor(ed: EditorController, color: { r: number; g: number; b: number }): void {
   const nodes = ed.selectedNodes();
   const match = eyedropperChoice(ed);
-  if (!nodes.length) {
+  if (!nodes.length || ed.ui.get().mode === "dev") {
     const text = formatColor(color, colorFormat());
     void navigator.clipboard?.writeText(text).catch(() => {});
     showToast({ message: t("Copied {color} to clipboard", { color: text }) });

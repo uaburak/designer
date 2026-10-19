@@ -18,10 +18,10 @@ export type ToolId =
   | "rectangle" | "line" | "arrow" | "ellipse" | "polygon" | "star" | "image"
   | "pen" | "pencil" | "brush"
   | "text" | "text-on-path"
-  | "comment" | "annotation" | "measurement";
+  | "comment" | "annotation" | "measurement" | "eyedropper";
 
 /** Draw mode's quick-access slots ("pen", "pencil", "brush") hold one tool each (docs/draw.md §5.1). */
-export type ToolGroupId = "move" | "region" | "shape" | "creation" | "pen" | "pencil" | "brush" | "text" | "comment" | "measurement" | "annotation";
+export type ToolGroupId = "move" | "region" | "shape" | "creation" | "pen" | "pencil" | "brush" | "text" | "comment" | "measurement" | "annotation" | "eyedropper";
 export type EditorMode = "draw" | "design" | "social" | "motion" | "dev";
 
 export type ToolDef = {
@@ -58,6 +58,9 @@ export const TOOLS: Record<ToolId, ToolDef> = {
   comment: { id: "comment", label: "Comment", shortcut: "C", icon: "24.comment" },
   annotation: { id: "annotation", label: "Annotation", shortcut: "Y", icon: "24.annotation" },
   measurement: { id: "measurement", label: "Measurement", shortcut: keys(["shift", "m"]), icon: "24.measurement" },
+  // Dev Mode's eyedropper (the owner's capture figma-devmode-gap-hatch: 2nd in its toolbar): a pick copies the colour.
+  // Named as Figma's Edit menu item (the slot's own tooltip wasn't captured); I as Figma's key.
+  eyedropper: { id: "eyedropper", label: "Pick color", shortcut: "I", icon: "24.eyedropper.small" },
 };
 
 /** `menuWidth`: the width of the group's menu in live (toolbar/*-tools-menu.txt; ours come out a fraction wider) */
@@ -91,11 +94,13 @@ export const DRAW_TOOL_GROUPS: ToolGroupDef[] = [
 
 /**
  * Dev Mode's toolbar (the owner's capture docs/research/figma/live/owner-2026-10-18/figma-devmode-inspect): Move,
- * Measurement, Annotation and Comment, each a slot of its own (no menus), no Actions; the active one in Dev Mode's green.
- * (Figma's eyedropper slot — it copies a colour in Dev Mode — isn't built: ours fills the selection, an edit.)
+ * the eyedropper (docs/research/figma/live/owner-2026-10-19/figma-devmode-gap-hatch: 2nd — a pick copies the colour, no
+ * edit), Measurement, Annotation and Comment, each a slot of its own (no menus), no Actions; the active one in Dev
+ * Mode's green.
  */
 export const DEV_TOOL_GROUPS: ToolGroupDef[] = [
   { id: "move", label: "Move", tools: ["move"], menuWidth: 0 },
+  { id: "eyedropper", label: "Pick color", tools: ["eyedropper"], menuWidth: 0 },
   { id: "measurement", label: "Measurement", tools: ["measurement"], menuWidth: 0 },
   { id: "annotation", label: "Annotation", tools: ["annotation"], menuWidth: 0 },
   { id: "comment", label: "Comment", tools: ["comment"], menuWidth: 0 },

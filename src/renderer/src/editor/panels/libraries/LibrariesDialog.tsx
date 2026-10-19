@@ -1,7 +1,8 @@
 /**
- * The Libraries modal (UI3; help.figma.com "Enable libraries", "Review and accept updates", R5; atlas 12 §5–§7): a
- * sidebar — search first ("/" focuses it), This file, Updates, then Browse libraries (Teams, the organization) — and
- * the tab's content. This file: the current file (publish it, or "Move to a folder to publish" in Drafts), the
+ * The Libraries modal (UI3; help.figma.com "Enable libraries", "Review and accept updates", R5; atlas 12 §5–§7), laid
+ * out as live Figma's Manage libraries (docs/research/figma/live/2026-10-18/menus.txt "MANAGE LIBRARIES": 591 × 641,
+ * a 40 header, a 200 nav, the content 16 in) and draggable by its header: a nav — search first ("/" focuses it), This
+ * file, Updates, then Browse libraries (Teams, the organization; no UI kits: Wecra has none) — and the tab's content. This file: the current file (publish it, or "Move to a folder to publish" in Drafts), the
  * libraries added to it (Remove from file — what is used stays), the others it can add, View missing libraries. A
  * library's view: its components, styles and variables, how many of them are used here, Swap library. Updates: what
  * the libraries changed for the assets used here, by publish, for the current page or all pages; each one's review
@@ -9,7 +10,7 @@
  * all); removed assets (Restore component) and moved ones (accepted with the update).
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Banner, Button, Checkbox, EmptyState, Icon, IconButton, Portal, SearchField, SegmentedControl, Select, Slider, Spinner, Switch, showToast, dismissToast, cx, Dialog, tooltipProps } from "@/ds";
+import { Banner, Button, Checkbox, EmptyState, Icon, IconButton, Portal, SearchField, SegmentedControl, Select, Slider, Spinner, Switch, showToast, dismissToast, cx, Dialog, startHeaderDrag, tooltipProps } from "@/ds";
 import type { LibraryAsset, LibraryVersion } from "../../../../../shared/store/types";
 import { useEditor, type EditorController } from "../../controller";
 import { useDocumentVersion, useLibraries, useUI } from "../../hooks";
@@ -105,7 +106,7 @@ function Libraries() {
       {/* Live 2026-10-18 (menus.txt): This file and Updates with their 24 glyphs */}
       {value === "libraries" && <Icon name="24.library.this-file" />}
       {value === "updates" && <Icon name="24.library.updates" />}
-      <span className={styles.sideTabLabel}>{label}</span>
+      <span className={cx(styles.sideTabLabel, value !== "libraries" && value !== "updates" && styles.sideTabLabelBare)}>{label}</span>
       {badge ? <span className={styles.sideBadge}>{badge}</span> : null}
     </button>
   );
@@ -130,14 +131,14 @@ function Libraries() {
     <LibraryList onOpen={(lib) => set({ library: lib })} onMissing={() => set({ missing: true })} onPublish={() => ed.ui.set({ publishOpen: true, librariesDialog: null })} />
   );
   return (
-    <Dialog title={t("Manage libraries")} size="large" open onClose={close}>
+    <Dialog title={t("Manage libraries")} size="large" header="small" className={styles.modal} draggable open onClose={close}>
       <div ref={body} className={styles.libraries} data-libraries-dialog="">
         <nav className={styles.sidebar} aria-label={t("Libraries")}>
-          <SearchField value={query} onChange={setQuery} placeholder={t("Search")} autoFocus selectOnFocus data-libraries-search="" />
-          <div className={styles.sideDivider} />
+          <SearchField value={query} onChange={setQuery} placeholder={t("Search all libraries")} label={t("Search all libraries")} autoFocus selectOnFocus data-libraries-search="" />
           <div role="tablist" aria-orientation="vertical" aria-label={t("Libraries")} className={styles.sideTabs}>
             {tab("libraries", t("This file"))}
             {tab("updates", t("Updates"), pending || undefined)}
+            <div className={styles.sideDivider} />
             <div className={styles.sideHeading}>{t("Browse libraries")}</div>
             {tab("teams", org ? t("Your teams") : t("Teams"))}
             {org !== null && tab("org", org)}
@@ -182,31 +183,53 @@ function LibraryList({ onOpen, onMissing, onPublish }: { onOpen: (lib: string) =
         </div>
       )}
       <section aria-label={t("Current file")}>
-        <div className={styles.sectionTitle}>{t("Current file")}</div>
-        <div className={styles.libRow} data-library-row="current">
-          <LibIcon />
-          <div className={styles.libText}>
-            <span className={styles.libName}>{fileName}</span>
-            <span className={styles.meta}>{state.inDrafts ? t("In Drafts · Move to a folder to publish") : own ? t("{counts} · Version {version}", { counts: countsText(own.counts), version: own.latestVersion }) : t("Not published")}</span>
+        {own ? (
+          // Published: the file as a row of its own (atlas 12 §5.4 current_file_is_published), Publish changes and Unpublish.
+          <div className={styles.libRow} data-library-row="current">
+            <LibraryThumb lib={ed.source.libraries?.libraryKey ?? null} />
+            <div className={styles.libText}>
+              <span className={styles.rowName}>{fileName}</span>
+              <span className={styles.meta}>{state.inDrafts ? t("In Drafts · Move to a folder to publish") : t("{counts} · Version {version}", { counts: countsText(own.counts), version: own.latestVersion })}</span>
+              {/* (two buttons beside the 102 thumbnail leave the name no room: under it) */}
+              <div className={styles.rowActions}>
+                {own.status === "published" && ed.source.libraries?.unpublish && (
+                  <Button variant="secondary" onClick={() => setUnpublishing(true)}>
+                    {t("Unpublish")}
+                  </Button>
+                )}
+                <Button variant="secondary" disabled={state.inDrafts} tooltip={state.inDrafts ? t("Move to a folder to publish") : undefined} onClick={onPublish}>
+                  {t("Publish changes…")}
+                </Button>
+              </div>
+            </div>
           </div>
-          {own && own.status === "published" && ed.source.libraries?.unpublish && (
-            <Button variant="secondary" onClick={() => setUnpublishing(true)}>
-              {t("Unpublish")}
-            </Button>
-          )}
-          <Button variant="secondary" disabled={state.inDrafts} tooltip={state.inDrafts ? t("Move to a folder to publish") : undefined} onClick={onPublish}>
-            {own ? t("Publish changes…") : t("Publish…")}
-          </Button>
-        </div>
+        ) : (
+          // Not published: live's banner (359 × 128, #383838, r 5) — the title, a line with a link, Publish this file.
+          <div className={styles.publishBanner} data-library-row="current" data-publish-banner="">
+            <Icon name="24.library" className={styles.publishBannerIcon} />
+            <div className={styles.publishBannerText}>
+              <span className={styles.publishBannerTitle}>{t("Publish your components as a library")}</span>
+              <span className={styles.meta2}>
+                {t("Share this file's components, styles and variables with your other files.")}{" "}
+                <a className={styles.link} href={LEARN_MORE} target="_blank" rel="noreferrer">
+                  {t("Learn more")}
+                </a>
+              </span>
+              <Button variant="primary" className={styles.publishBannerButton} disabled={state.inDrafts} tooltip={state.inDrafts ? t("Move to a folder to publish") : undefined} onClick={onPublish}>
+                {t("Publish this file")}
+              </Button>
+            </div>
+          </div>
+        )}
       </section>
       {unpublishing && <UnpublishConfirm onClose={() => setUnpublishing(false)} />}
-      <section aria-label={t("Added to this file")}>
-        <div className={styles.sectionTitle}>{t("Added to this file")}</div>
+      <section aria-label={t("Libraries added to this file")}>
+        <div className={styles.sectionTitle}>{t("Libraries added to this file")}</div>
         {added.length === 0 && <div className={styles.none}>{t("No libraries added to this file")}</div>}
         {added.map((e) => (
           <LibraryRow key={e.fileKey} entry={e} orgName={state.org?.orgName ?? null} missing={!byKey.has(e.fileKey)} onOpen={byKey.has(e.fileKey) ? () => onOpen(e.fileKey) : undefined}>
             <Button variant="secondary" loading={busy === e.fileKey} onClick={() => void toggle(e.fileKey, false, e.name)}>
-              {t("Remove from file")}
+              {t("Remove")}
             </Button>
           </LibraryRow>
         ))}
@@ -277,10 +300,47 @@ function UnpublishConfirm({ onClose }: { onClose: () => void }) {
   );
 }
 
-function LibIcon() {
+/** "Learn more" on the publish banner (help.figma.com "Guide to libraries") */
+const LEARN_MORE = "https://help.figma.com/hc/en-us/search?query=guide%20to%20libraries";
+
+/** Each library's thumbnail (its latest manifest's first component, else first asset with one), per editor. */
+const thumbUrls = new WeakMap<EditorController, Map<string, Promise<string>>>();
+function libraryThumbUrl(ed: EditorController, lib: string): Promise<string> {
+  let byLib = thumbUrls.get(ed);
+  if (!byLib) thumbUrls.set(ed, (byLib = new Map()));
+  let url = byLib.get(lib);
+  if (!url) {
+    url = ed.libraries
+      .manifest(lib)
+      .then((v) => {
+        const assets = v?.assets ?? [];
+        const a = assets.find((x) => (x.kind === "COMPONENT" || x.kind === "COMPONENT_SET") && x.thumbnail) ?? assets.find((x) => x.thumbnail);
+        return a?.thumbnail ? (ed.source.libraries?.blobUrl(a.thumbnail.sha1) ?? "") : "";
+      })
+      .catch(() => "");
+    byLib.set(lib, url);
+  }
+  return url;
+}
+
+/**
+ * A library's 102 × 58 thumbnail (live: r 5, #FFFFFF1A, a 1 px #0000000D ring): Figma draws the file's cover; Wecra
+ * the library's first component (the editor has no other file's cover), the library glyph until then or without one.
+ */
+function LibraryThumb({ lib }: { lib: string | null }) {
+  const ed = useEditor();
+  const [url, setUrl] = useState("");
+  useEffect(() => {
+    if (!lib) return;
+    let live = true;
+    void libraryThumbUrl(ed, lib).then((u) => live && setUrl(u));
+    return () => {
+      live = false;
+    };
+  }, [ed, lib]);
   return (
-    <span className={styles.libIcon}>
-      <Icon name="24.library" />
+    <span className={styles.libThumb} data-library-thumb="">
+      {url ? <img src={url} alt="" className={styles.libThumbImage} /> : <Icon name="24.library" className={styles.thumbGlyph} />}
     </span>
   );
 }
@@ -340,10 +400,10 @@ function LibraryRow({ entry, orgName = null, missing, onOpen, children }: { entr
   useT();
   return (
     <div className={styles.libRow} data-library-row={entry.name}>
-      <LibIcon />
+      <LibraryThumb lib={missing ? null : entry.fileKey} />
       <button type="button" className={styles.libOpen} onClick={onOpen} disabled={!onOpen} aria-label={t("Preview {name}", { name: entry.name })}>
         <span className={styles.libNameRow}>
-          <span className={styles.libName}>{entry.name}</span>
+          <span className={styles.rowName}>{entry.name}</span>
           <ApprovedMark entry={entry} orgName={orgName} />
         </span>
         <span className={styles.meta}>{missing ? t("Missing library · assets used here keep working") : [entry.location, countsText(entry.record.counts)].filter(Boolean).join(" · ")}</span>
@@ -379,7 +439,7 @@ function TeamLibraries({ org, onOpen }: { org: boolean; onOpen: (lib: string) =>
             <div className={styles.cards}>
               {shown.map((e) => (
                 <button key={e.fileKey} type="button" className={styles.card} data-library-card={e.name} onClick={() => onOpen(e.fileKey)}>
-                  <LibIcon />
+                  <LibraryThumb lib={e.fileKey} />
                   <span className={styles.libNameRow}>
                     <span className={styles.libName}>{e.name}</span>
                     <ApprovedMark entry={e} orgName={orgName} />
@@ -555,9 +615,9 @@ function MissingLibraries({ onBack, onSwap }: { onBack: () => void; onSwap: (lib
       {!missing.length && <div className={styles.none}>{t("No missing libraries")}</div>}
       {missing.map((m) => (
         <div key={m.library} className={styles.libRow} data-missing-library={m.name}>
-          <LibIcon />
+          <LibraryThumb lib={null} />
           <div className={styles.libText}>
-            <span className={styles.libName}>{m.name}</span>
+            <span className={styles.rowName}>{m.name}</span>
             <span className={styles.meta}>{tp(m.assets, "{n} asset used in this file", "{n} assets used in this file")}</span>
           </div>
           <Button variant="secondary" onClick={() => onSwap(m.library)}>
@@ -882,17 +942,7 @@ function ReviewWindow({ id }: { id: string }) {
       setBusy(false);
     }
   };
-  const drag = (e: React.PointerEvent) => {
-    if ((e.target as Element).closest("button")) return;
-    const start = { x: e.clientX - pos.x, y: e.clientY - pos.y };
-    const move = (ev: PointerEvent) => setPos({ x: Math.min(window.innerWidth - 80, Math.max(0, ev.clientX - start.x)), y: Math.min(window.innerHeight - 40, Math.max(0, ev.clientY - start.y)) });
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  };
+  const drag = (e: React.PointerEvent<HTMLElement>) => startHeaderDrag(e, box.current, (x, y) => setPos({ x, y }));
   const isComponent = !!shownItem && (shownItem.copy.kind === "COMPONENT" || shownItem.copy.kind === "COMPONENT_SET");
   const isStyle = shownItem?.copy.kind === "STYLE";
   const size = Math.round((PREVIEW * zoom) / 100);

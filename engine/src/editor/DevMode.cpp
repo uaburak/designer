@@ -65,7 +65,7 @@ double Editor::wallClock() const { return wallClock_ ? wallClock_() : static_cas
 
 void Editor::setDevEdits(bool on) {
   devEdits_ = on;
-  if (!on && viewer_ && (tool_ == Tool::ANNOTATION || tool_ == Tool::MEASUREMENT)) setTool(Tool::MOVE);
+  if (!on && viewer_ && (tool_ == Tool::ANNOTATION || tool_ == Tool::MEASUREMENT || tool_ == Tool::EYEDROPPER)) setTool(Tool::MOVE);
   needsRender_ = true;
 }
 

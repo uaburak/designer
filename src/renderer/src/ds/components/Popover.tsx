@@ -1,10 +1,10 @@
-import { capture } from "../util/pointer";
 import { useId, useLayoutEffect, useRef, type ReactNode } from "react";
 import { cx } from "../util/cx";
 import { Portal } from "../overlay/Portal";
 import { useDismiss } from "../overlay/useDismiss";
 import { useFocusScope } from "../overlay/FocusTrap";
 import { EDGE, place } from "../overlay/position";
+import { startHeaderDrag } from "../overlay/drag";
 import { size } from "../tokens";
 import { STRINGS } from "../strings";
 import { t, useT } from "@/i18n";
@@ -155,21 +155,11 @@ export function Popover({ anchor, placement = "left-of-panel", title, header, he
           style={titleInset !== undefined ? { paddingLeft: titleInset } : undefined}
           onPointerDown={(e) => {
             const el = panel.current;
-            // (A press in an overlay the header opened — a Select's list — bubbles here through the portal: not a drag.)
-            if (!canDrag || !el || e.button !== 0 || !e.currentTarget.contains(e.target as Node) || (e.target as Element).closest("button,input,[role=tab],[role=combobox]")) return;
-            capture(e.currentTarget, e.pointerId);
-            const start = { x: e.clientX, y: e.clientY, left: el.offsetLeft, top: el.offsetTop };
-            const move = (ev: PointerEvent) => {
-              dragged.current = true;
-              el.style.left = `${start.left + ev.clientX - start.x}px`;
-              el.style.top = `${start.top + ev.clientY - start.y}px`;
-            };
-            const up = () => {
-              window.removeEventListener("pointermove", move);
-              window.removeEventListener("pointerup", up);
-            };
-            window.addEventListener("pointermove", move);
-            window.addEventListener("pointerup", up);
+            if (!canDrag || !el) return;
+            startHeaderDrag(e, el, (x, y) => {
+              el.style.left = `${x}px`;
+              el.style.top = `${y}px`;
+            }, () => (dragged.current = true));
           }}
         >
           {header ? <div className={styles.headerContent}>{header}</div> : <h2 id={titleId} className={styles.title}>{title}</h2>}

@@ -73,7 +73,9 @@ function Loupe() {
   const rgb = useMemo(() => (hex ? { r: parseInt(hex.slice(0, 2), 16) / 255, g: parseInt(hex.slice(2, 4), 16) / 255, b: parseInt(hex.slice(4, 6), 16) / 255 } : null), [hex]);
   // (Read once per colour under the pointer, not per pointer move.)
   const match = useMemo(() => (rgb ? matchColor(assets, rgb) : null), [assets, rgb]);
-  const choice = shift ? match : null;
+  // Dev Mode's pick copies (no binding, no sample onto the selection).
+  const dev = useUI((s) => s.mode === "dev");
+  const choice = shift && !dev ? match : null;
   useEffect(() => {
     setEyedropperChoice(ed, choice);
     return () => setEyedropperChoice(ed, null);
@@ -172,13 +174,13 @@ function Loupe() {
           <span className={styles.loupeLead}>
             <Icon name="24.interaction.click.small" className={styles.loupeIcon} />
           </span>
-          {match ? (
+          {match && !dev ? (
             <>
               <span className={styles.loupeHint}>{match.name}</span>
               <span className={styles.loupeKey}>⇧</span>
             </>
           ) : (
-            <span className={styles.loupeHint}>{ed.selectedNodes().length ? t("Click to sample") : t("Click to copy")}</span>
+            <span className={styles.loupeHint}>{ed.selectedNodes().length && !dev ? t("Click to sample") : t("Click to copy")}</span>
           )}
         </div>
       </div>
