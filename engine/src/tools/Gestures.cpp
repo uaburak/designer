@@ -9,6 +9,7 @@
 #include <unordered_set>
 
 #include "editor/Editor.h"
+#include "editor/Selection.h"
 #include "geometry/Shapes.h"
 #include "hit/HitTest.h"
 #include "hit/Marquee.h"
@@ -630,18 +631,42 @@ void Editor::groupDotsOverlay(Overlay& o) const {
   // A selected group whose layers are equally spaced: their centres dotted as a smart selection's at rest (live Figma,
   // canvas-group-selected; on the group under the pointer: unverified, the dots stay).
   if (selection_.size() != 1 || viewer_ || tool_ != Tool::MOVE || text_.node != kNoGuid || vector_.node != kNoGuid) return;
+  // A selected plain frame (no auto layout) too — live Figma 2026-10-19 (hover-nested-frames.txt B: "ana frame"
+  // selected, the pointer over one of its two frames): the rings on its layers with the pointer on it, else the dots.
   const Node* n = doc_.get(selection_[0]);
-  if (!n || !n->props.isGroupLike()) return;
+  if (!n) return;
+  const bool group = n->props.isGroupLike();
+  const bool frame = !group && n->props.type == NodeType::FRAME && !n->props.isAutoLayout();
+  if (!group && !frame) return;
   std::vector<Guid> layers;
   for (Guid c : doc_.children(selection_[0]))
     if (const Node* k = doc_.get(c); k && k->props.visible) layers.push_back(c);
   SmartSelection smart;
-  if (!equallySpaced(layers, smart)) return;
+  if (layers.size() < (frame ? 2u : 1u) || !equallySpaced(layers, smart)) return;
   for (Guid id : smart.order) {
     Rect b = doc_.worldBounds(id);
     o.centreDots.push_back({b.x + b.w / 2, b.y + b.h / 2});
   }
-  o.centreDotsIdle = true;
+  o.centreDotsIdle = group || !pointerInSelection_;
+}
+
+void Editor::hoverDottedOverlay(Overlay& o) const {
+  // Live Figma 2026-10-19 (docs/research/figma/live/2026-10-18/hover-nested-frames.txt, the owner's hover-figma-*
+  // captures): with something selected, the auto-layout frame under the pointer — a sibling of the selection (A), a
+  // child of it (B, C) or its parent (Group 1, autolayout-drag-08) — dots its direct children, never the selected ones
+  // and never deeper; the selected frame's own children are never dotted. Figma's overlay is STACK_CHILD_HOVER_OUTLINE:
+  // a plain frame hovered dots nothing (as with nothing selected: unverified live, kept as before). An instance keeps
+  // its own rule (its inner auto-layout frames, purple: Overlay.cpp); a layer inside one is dotted itself.
+  if (selection_.empty() || hover_ == kNoGuid || measureTarget_ != kNoGuid) return;
+  if (gesture_ != Gesture::None && gesture_ != Gesture::Press) return;
+  const Node* n = doc_.get(hover_);
+  if (!n || !n->props.isAutoLayout() || n->props.type == NodeType::INSTANCE || insideInstance(doc_, hover_)) return;
+  auto selected = [&](Guid id) { return std::find(selection_.begin(), selection_.end(), id) != selection_.end(); };
+  if (selected(hover_)) return;
+  for (Guid k : doc_.children(hover_)) {
+    const Node* kn = doc_.get(k);
+    if (kn && kn->props.visible && !selected(k)) o.hoverDotted.push_back(k);
+  }
 }
 
 void Editor::gapBoxesOverlay(Overlay& o) const {

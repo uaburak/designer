@@ -1645,6 +1645,7 @@ class Editor : private LayoutHost, public TextLayouts {
   // Round 11: the centre dots of a selected group's equally spaced layers (live Figma, canvas-group-selected) and the
   // pink gap boxes of a selected auto-layout component, set or instance (tools/Gestures.cpp).
   void groupDotsOverlay(Overlay& o) const;
+  void hoverDottedOverlay(Overlay& o) const;
   void gapBoxesOverlay(Overlay& o) const;
   void startGap(int gap);
   void startLayoutBar(int band);
