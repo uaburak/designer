@@ -83,6 +83,8 @@ export interface OrgMainProps {
   /** Duplicate an org file through its local copy: the local "‹name› (Copy)" (`workspace.duplicateFile`), and the copy
    *  dropped again when the server refuses it (`deleteForever`); absent: no Duplicate */
   duplicate?: { make: (fileKey: FileKey) => Promise<{ fileKey: FileKey }>; discard: (fileKey: FileKey) => Promise<unknown> };
+  /** File settings… (ours, docs/home.md "File settings [ours]") on an org file's local copy; absent: not offered */
+  onFileSettings?: (fileKey: FileKey) => void;
   /** When this installation last opened a file (its local copy's Recents time), for All projects' order; absent: never */
   viewedAt?: (fileKey: FileKey) => number | null;
   /** Starred (Home's Starred, by the file's local copy); absent: no star on the cards */
@@ -163,7 +165,7 @@ const pageKey = (loc: Location) => JSON.stringify(loc);
 
 export function OrgMain(props: OrgMainProps) {
   useT();
-  const { org, orgId, info, location, page, reload, go, nav, openFile, onBranches, toast, now, noCreate = false, blocked, banner, onImport, onImportFiles, serverUrl, renameFile, duplicate, viewedAt, isStarred, setStarred, localThumbnail, browse, onBrowse, filter = "all", onFilter, creator = "anyone", onCreator, me = null } = props;
+  const { org, orgId, info, location, page, reload, go, nav, openFile, onBranches, toast, now, noCreate = false, blocked, banner, onImport, onImportFiles, serverUrl, renameFile, duplicate, onFileSettings, viewedAt, isStarred, setStarred, localThumbnail, browse, onBrowse, filter = "all", onFilter, creator = "anyone", onCreator, me = null } = props;
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -348,6 +350,7 @@ export function OrgMain(props: OrgMainProps) {
             ...(renameFile ? [{ id: "rename", label: tr("Rename"), disabled: !may }] : []),
             { id: "move", label: tr("Move to…"), disabled: !may },
             "-",
+            ...(onFileSettings ? [{ id: "file-settings", label: tr("File settings…") }, "-" as const] : []),
             { id: "trash", label: tr("Move to trash"), disabled: !may },
           ],
       run: (id) => {
@@ -358,6 +361,7 @@ export function OrgMain(props: OrgMainProps) {
         if (id === "duplicate") void duplicateFile(f);
         if (id === "rename") setDialog({ kind: "rename-file", file: f });
         if (id === "move") void moveFiles([f]);
+        if (id === "file-settings") void write(async () => onFileSettings?.(f.fileKey ?? (await org.openShared(f.key)).fileKey));
         if (id === "trash") void write(() => org.projects.trashFiles([f.key]), tr("File moved to trash"));
         if (id === "restore") void write(() => org.projects.restoreFiles([f.key]), tr("File restored"));
         if (id === "delete-forever") setDialog({ kind: "delete-files", files: [f] });

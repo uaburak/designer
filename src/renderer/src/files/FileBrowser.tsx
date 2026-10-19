@@ -1000,6 +1000,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
           serverUrl={account.state?.server ?? null}
           renameFile={(fileKey, name) => repo.renameFile(fileKey, name)}
           duplicate={{ make: (fileKey) => repo.duplicateFile(fileKey), discard: (fileKey) => repo.deleteForever({ files: [fileKey] }) }}
+          onFileSettings={backend.fileSettings ? (fileKey) => void backend.workspace.getFile(fileKey).then((file) => setDialog({ kind: "file-settings", file }), () => undefined) : undefined}
           viewedAt={(fileKey) => data.prefs?.viewedAt[fileKey] ?? null}
           isStarred={(fileKey) => !!data.prefs?.starred.files.includes(fileKey)}
           setStarred={(fileKey, on) => act.setStarred(ctx, { fileKey }, on)}
