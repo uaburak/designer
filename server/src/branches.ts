@@ -573,7 +573,8 @@ async function requestReview(ctx: Ctx, r: Resolved): Promise<BranchReviewJson> {
   }
   for (const u of ids) await d1.prepare(`INSERT INTO branch_reviewers (review_id, user_id) VALUES (?1, ?2)`).bind(id, u).run();
   await notifyBranchReview(deps, { key: b.key, by: user, reviewerIds: ids, description });
-  return (await reviewsOf(deps, b.key, true))[0];
+  // The review just written, by its id: "newest first" ties on created_at when a closed one shares the millisecond.
+  return reviewById(deps, b.key, id, null);
 }
 
 /** "Add your review" › Approve / Suggest changes: the review's state is the latest verdict; the asker is told. */
