@@ -93,11 +93,18 @@ struct OverlayStyle {
   Color tooltipFill = Color::hex(0x1E1E1E), tooltipText = Color::hex(0xFFFFFF);
   double tooltipHeight = 24, tooltipPadding = 8, tooltipRadius = 4, tooltipArrow = 5;
   double hatchWash = 0.06, hatchInk = 0.25, hatchPeriod = 6.5, hatchWidth = 1;
-  // Dev Mode's inspect chrome (the owner's capture owner-2026-10-18/figma-devmode-inspect at 1.32×, sampled): paddings
-  // and gaps hatched denser — a 10 % wash, stripes 1.5 px across at 40 %, 4.5 px apart along a row; the design's box
-  // round it and its name (a 4 % white wash, its edge 8 %, 7.5 px out at the sides, 6 below, 28 above, radius 6); the
-  // pills 20 × 16 (radius 3) and the two-line size badge 16 a line, 15 below the design (9 below its box).
-  double devHatchWash = 0.1, devHatchInk = 0.4, devHatchPeriod = 4.5, devHatchWidth = 1.5;
+  // Dev Mode's inspect chrome (the owner's capture owner-2026-10-18/figma-devmode-inspect at 1.32×, sampled): the
+  // design's box round it and its name (a 4 % white wash, its edge 8 %, 7.5 px out at the sides, 6 below, 28 above,
+  // radius 6); the pills 20 × 16 (radius 3) and the two-line size badge 16 a line, 15 below the design (9 below its box).
+  // The hatch (2026-10-19, the owner's figma-devmode-{gap,padding}-hatch and the 10-18 capture, all at 1.32×, measured
+  // against Wecra shot at the same scale by luma — the captures' chroma is subsampled): stripes 1.5 px across, 6.55
+  // device px apart along a row at any zoom (4.96 CSS px); paddings "/" in the selection blue, a 3 % wash, stripes at
+  // 47 %; gaps "\" in the spacing pink, 3 % and 37 %.
+  double devHatchWash = 0.03, devHatchInk = 0.47, devHatchPeriod = 4.96, devHatchWidth = 1.5;
+  double devGapWash = 0.03, devGapInk = 0.37;
+  // Dev Mode's name tag above a selected layer inside the design (owner-2026-10-19/figma-devmode-padding-hatch).
+  double devTagHeight = 15, devTagGap = 6, devTagRadius = 2, devTagPadding = 4, devTagGlyph = 12, devTagGlyphGap = 2, devTagMaxWidth = 240;
+  double devPillPadding = 4;
   double devBoxSide = 7.5, devBoxBottom = 6, devBoxTop = 28, devBoxRadius = 6, devBoxWash = 0.04, devBoxEdge = 0.08;
   double devPillHeight = 16, devPillRadius = 3, devPillMinWidth = 20, devBadgeLine = 16, devBadgeGap = 9, devBadgeWordGap = 5;
   Color statusChanged = Color::hex(0xFFCD29);  // --figma-color-bg-warning

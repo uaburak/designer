@@ -581,6 +581,18 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
         emit(makeShape(Mat2x3::translate(r.x - 1, r.y - 1), {r.w + 2, r.h + 2}, ShapeKind::Rect, kSquare, blue, 0, blue, 1, 1, 0), Pass::Shape);
     }
   }
+  // A layer inside the design selected: its outline 2 px too (owner-2026-10-19/figma-devmode-padding-hatch), in its
+  // chrome colour.
+  if (devInspect.on && devInspect.tag != kNoGuid && doc.has(devInspect.tag)) {
+    const Mat2x3 m = view * doc.worldTransform(devInspect.tag);
+    if (std::fabs(m.m01) < 1e-9 && std::fabs(m.m10) < 1e-9) {
+      auto snap = [&](double v) { return std::round(v * dpr) / dpr; };
+      const Vec2 ts = doc.get(devInspect.tag)->props.size;
+      Rect r = transformedBounds(m, ts.x, ts.y);
+      r = Rect::fromPoints({snap(r.x), snap(r.y)}, {snap(r.right()), snap(r.bottom())});
+      emit(makeShape(Mat2x3::translate(r.x - 1, r.y - 1), {r.w + 2, r.h + 2}, ShapeKind::Rect, kSquare, blueSel, 0, blueSel, 1, 1, 0), Pass::Shape);
+    }
+  }
 
   // Frames' names above their top-left corner (top-level frames and those directly in sections), sections' pills
   // (render/FrameTitles.cpp: the same boxes the editor hit-tests).
@@ -682,9 +694,12 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
   // (render/SpacingOverlay.cpp) — a padding's in the selection's chrome colour (purple in a component or instance).
   drawSpacing(view, overlay, style, blueSel);
 
-  // Dev Mode: a selected auto-layout frame's paddings (blue) and gaps (pink) hatched, its layers' boxes dotted, a line
-  // through each vertical padding and gap, a blue pill with each value (Renderer.h DevInspect).
+  // Dev Mode: a selected (or hovered) auto-layout frame's paddings hatched blue "/" and gaps pink "\\" — the stripes'
+  // phase from the frame's origin, so a gap's pieces join —, its layers' boxes dotted in the selection's chrome colour,
+  // a line across each padding and gap and a pill with each value, blue whatever the chrome (Renderer.h DevInspect;
+  // owner-2026-10-19/figma-devmode-{gap,padding}-hatch: a component's padding is blue too, its dotted box purple).
   if (devInspect.on) {
+    const Vec2 phase = view.apply(devInspect.origin);
     auto snap = [&](double v) { return std::round(v * dpr) / dpr; };
     auto onScreen = [&](const Overlay::SpacingArea& area, Vec2 q[4]) {
       for (int i = 0; i < 4; i++) q[i] = view.apply(area.quad[i]);
@@ -698,7 +713,8 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     for (const Overlay::SpacingArea& area : devInspect.areas) {
       Vec2 q[4];
       onScreen(area, q);
-      hatchQuad(q, area.gap ? style.spacing : blueSel, style.devHatchWash, style.devHatchInk, style.devHatchPeriod, style.devHatchWidth);
+      hatchQuad(q, area.gap ? style.spacing : blue, area.gap ? style.devGapWash : style.devHatchWash, area.gap ? style.devGapInk : style.devHatchInk,
+                style.devHatchPeriod, style.devHatchWidth, area.gap, &phase);
     }
     for (const Overlay::SpacingArea& area : devInspect.dotted) {
       Vec2 q[4];
@@ -713,16 +729,57 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       // Upright lines on a device pixel's middle (crisp), 1 px across.
       if (std::fabs(a.x - b.x) < 1e-9) a.x = b.x = snap(a.x - 0.5) + 0.5;
       if (std::fabs(a.y - b.y) < 1e-9) a.y = b.y = snap(a.y - 0.5) + 0.5;
-      polyline({a, b}, false, 1, blueSel, 1);
+      polyline({a, b}, false, 1, blue, 1);
     }
     for (const Overlay::DevInspect::Pill& pill : devInspect.pills) {
       const text::TextLayout* L = label(pill.text, "Medium", style.labelSize);
       double tw = L ? L->size.x : 6.2 * static_cast<double>(pill.text.size());
-      double pw = std::max(std::round(tw + 2 * style.badgePadding), style.devPillMinWidth), ph = style.devPillHeight, rr = style.devPillRadius;
+      double pw = std::max(std::round(tw + 2 * style.devPillPadding), style.devPillMinWidth), ph = style.devPillHeight, rr = style.devPillRadius;
       Vec2 c = view.apply(pill.at);
       double px = snap(c.x - pw / 2), py = snap(c.y - ph / 2);
-      emit(makeShape(Mat2x3::translate(px, py), {pw, ph}, ShapeKind::Rect, {rr, rr, rr, rr}, blueSel, 1, blueSel, 0, 0, 0), Pass::Shape);
+      emit(makeShape(Mat2x3::translate(px, py), {pw, ph}, ShapeKind::Rect, {rr, rr, rr, rr}, blue, 1, blue, 0, 0, 0), Pass::Shape);
       if (L && !L->lines.empty()) drawGlyphs(*L, Mat2x3::translate(snap(px + (pw - tw) / 2), snap(py + (ph - L->lines[0].height) / 2)), white, 1);
+    }
+  }
+
+  // Dev Mode: the selected layer's name tag above its top-left corner, in its chrome colour (a component's purple) —
+  // its kind's glyph (auto layout's bars, a grid's squares) and its name in white (owner-2026-10-19/
+  // figma-devmode-padding-hatch).
+  if (devInspect.on && devInspect.tag != kNoGuid && doc.has(devInspect.tag)) {
+    const Node* tn = doc.get(devInspect.tag);
+    const Mat2x3 m = view * doc.worldTransform(devInspect.tag);
+    const text::TextLayout* L = label(tn->props.name, "Medium", style.labelSize, style.devTagMaxWidth);
+    if (std::fabs(m.m01) < 1e-9 && std::fabs(m.m10) < 1e-9 && L && !L->lines.empty()) {
+      auto snap = [&](double v) { return std::round(v * dpr) / dpr; };
+      const NodeProps& tp = tn->props;
+      Rect r = transformedBounds(m, tp.size.x, tp.size.y);
+      const bool glyph = tp.isAutoLayout();
+      const double g = style.devTagGlyph, pad = style.devTagPadding;
+      const double tw = std::ceil(L->size.x), th = style.devTagHeight, rr = style.devTagRadius;
+      const double bw = pad + (glyph ? g + style.devTagGlyphGap : 0) + tw + pad;
+      const double bx = snap(r.x), by = snap(r.y - style.devTagGap - th);
+      emit(makeShape(Mat2x3::translate(bx, by), {bw, th}, ShapeKind::Rect, {rr, rr, rr, rr}, blueSel, 1, blueSel, 0, 0, 0), Pass::Shape);
+      double x = bx + pad;
+      if (glyph) {
+        // Figma's auto-layout glyphs in a 12 box: two outlined bars along the flow, the second shorter (vertical: one
+        // under the other; horizontal: side by side); a grid's: four squares.
+        const double gx = x, gy = by + (th - g) / 2;
+        auto bar = [&](double x0, double y0, double w0, double h0) {
+          emit(makeShape(Mat2x3::translate(snap(gx + x0), snap(gy + y0)), {w0, h0}, ShapeKind::Rect, {1, 1, 1, 1}, white, 0, white, 1, 1, 0),
+               Pass::Shape);
+        };
+        if (tp.stack().stackMode == StackMode::GRID) {
+          for (int k = 0; k < 4; k++) bar(1.5 + (k % 2) * 5, 1.5 + (k / 2) * 5, 4, 4);
+        } else if (tp.stack().stackMode == StackMode::VERTICAL) {
+          bar(1, 2, 10, 4);
+          bar(1, 7.5, 6, 3);
+        } else {
+          bar(2, 1, 4, 10);
+          bar(7.5, 1, 3, 6);
+        }
+        x += g + style.devTagGlyphGap;
+      }
+      drawGlyphs(*L, Mat2x3::translate(snap(x), snap(by + (th - L->lines[0].height) / 2)), white, 1);
     }
   }
 
@@ -937,13 +994,16 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       bool inBox = hasDevBox && overlay.selection.size() == 1 && overlay.selection[0] == devInspect.frame;
       double bx = std::round((sr.x + sr.w / 2 - bw / 2) * dpr) / dpr;
       double by = std::round((inBox ? devBox.bottom() + style.devBadgeGap : sr.bottom() + style.badgeGap) * dpr) / dpr;
-      emit(makeShape(Mat2x3::translate(bx, by), {bw, bh}, ShapeKind::Rect, {rr, rr, rr, rr}, blue, 1, blue, 0, 0, 0), Pass::Shape);
+      // In the selection's chrome colour (a component's purple: owner-2026-10-19/figma-devmode-padding-hatch), the
+      // value column right-aligned ("H Hug" over "W 100%", "70px" under "410.66669px").
+      emit(makeShape(Mat2x3::translate(bx, by), {bw, bh}, ShapeKind::Rect, {rr, rr, rr, rr}, blueSel, 1, blueSel, 0, 0, 0), Pass::Shape);
       for (int row = 0; row < 2; row++) {
         double x = bx + style.badgePadding;
         for (size_t k = 0; k < words[row].size() && k < 3; k++) {
           const text::TextLayout* L = label(words[row][k], "Regular", style.labelSize);
+          double at = k == 2 && L ? x + col[k] - L->size.x : x;
           if (L && !L->lines.empty())
-            drawGlyphs(*L, Mat2x3::translate(std::round(x * dpr) / dpr, std::round((by + row * style.devBadgeLine + (style.devBadgeLine - L->lines[0].height) / 2) * dpr) / dpr), white, 1);
+            drawGlyphs(*L, Mat2x3::translate(std::round(at * dpr) / dpr, std::round((by + row * style.devBadgeLine + (style.devBadgeLine - L->lines[0].height) / 2) * dpr) / dpr), white, 1);
           x += col[k] + style.devBadgeWordGap;
         }
       }
