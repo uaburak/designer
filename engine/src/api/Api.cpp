@@ -3142,6 +3142,35 @@ ENG_EXPORT void engine_set_edit_tracking(Handle h, uint32_t on) {
   if (e) e->editor.setEditTracking(on != 0);
 }
 
+// Figma's edit scopes (EditScopeInfo 365): {"type": "PLUGIN" | "REST_API" | "AI" | …, "label"?: string} pushed on
+// the stack the next edits are stamped with (with edit tracking on); E_INVALID with Figma's nesting message.
+ENG_EXPORT int32_t engine_edit_scope_push(Handle h, Ptr ptr, uint32_t len) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  json::Value v;
+  if (!parse(ptr, len, v)) return E_DECODE;
+  const json::Value* type = v.isObject() ? v.get("type") : nullptr;
+  static const char* const kTypes[] = {"INVALID", "TEST_SETUP", "USER", "PLUGIN", "SYSTEM", "REST_API", "ONBOARDING", "AUTOSAVE", "AI"};
+  int t = 0;
+  if (type && type->isString())
+    for (int i = 1; i < 9; i++)
+      if (type->string == kTypes[i]) t = i;
+  const json::Value* label = v.isObject() ? v.get("label") : nullptr;
+  Status st = e->editor.editScopePush(static_cast<Editor::EditScopeType>(t), label && label->isString() ? label->string : std::string());
+  if (st != OK) setError(e->editor.editScopeError());
+  return st;
+}
+
+ENG_EXPORT int32_t engine_edit_scope_pop(Handle h) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  Status st = e->editor.editScopePop();
+  if (st != OK) setError(e->editor.editScopeError());
+  return st;
+}
+
 // Focus view: only this design is drawn and picked; (0xffffffff, 0xffffffff) leaves it.
 ENG_EXPORT int32_t engine_set_focus(Handle h, uint32_t sessionID, uint32_t localID) {
   Call call;

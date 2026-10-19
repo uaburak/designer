@@ -502,7 +502,11 @@ void Editor::commit(bool mergeWithLast) {
     flushLayout();
     removeEmptyGroups();
     flushLayout();
-    if (editTracking_) stampEdited();  // editInfo on what was edited and its ancestors (Dev Mode's "Changed")
+    if (editTracking_) {
+      stampEdited();  // editInfo on what was edited and its ancestors (Dev Mode's "Changed")
+      if (!txn_.peer) stampScopes();  // editScopeInfo on what was written (another session's changes carry their own)
+    }
+    scoped_.clear();
   } else {
     // Instances re-derive after undo, redo, remote changes and loads; undo, redo and remote changes are laid out
     // again too (laysOut). An undo's layout writes join the batch it put on the redo stack (a redo's: the undo stack).

@@ -844,8 +844,21 @@ class Editor : private LayoutHost, public TextLayouts {
   // Every user edit stamps editInfo {lastEditedAt, createdAt} (unix seconds) on the edited nodes and their ancestors,
   // as Figma's files do — a design marked ready whose lastEditedAt is later than its status shows "Changed". Edits of
   // annotations, measurements and statuses don't count.
+  // With it on, each edited node also gets Figma's editScopeInfo (365): the scope stack the change was made in — the
+  // pushed scopes when any (editScopePush), else the transaction's own: a plugin run PLUGIN, an actor's write (an
+  // agent turn) AI, the user USER, labelled with the step's name (docs/research/rea/canvas.md §2.9).
   void setEditTracking(bool on) { editTracking_ = on; }
   bool editTracking() const { return editTracking_; }
+  // Figma's edit scopes (EditScopeType's numbers): pushes a scope with Figma's nesting rules — USER never inside
+  // PLUGIN / SYSTEM / REST_API / ONBOARDING / AI, PLUGIN never inside SYSTEM / REST_API / AI, REST_API and ONBOARDING
+  // inside nothing but SYSTEM's absence of others (never inside USER / PLUGIN / SYSTEM / REST_API / ONBOARDING / AI),
+  // AI never inside SYSTEM / REST_API / ONBOARDING, AUTOSAVE inside nothing, TEST_SETUP only first, never two of one
+  // type. E_INVALID (with Figma's message as the error) otherwise; pop takes only the top one.
+  enum class EditScopeType : uint8_t { INVALID = 0, TEST_SETUP, USER, PLUGIN, SYSTEM, REST_API, ONBOARDING, AUTOSAVE, AI };
+  Status editScopePush(EditScopeType type, std::string label);
+  Status editScopePop();
+  size_t editScopeDepth() const { return editScopes_.size(); }
+  const std::string& editScopeError() const { return editScopeError_; }  // the last refused push / pop's message
   void setWallClock(std::function<double()> secondsNow) { wallClock_ = std::move(secondsNow); }
   double wallClock() const;
   // Focus view: only `id` (a design on the current page) is drawn, hovered and selected; kNoGuid leaves it.
@@ -2099,6 +2112,9 @@ class Editor : private LayoutHost, public TextLayouts {
   std::function<double()> wallClock_;
   std::unordered_set<Guid, GuidHash> userGeometry_;  // this USER step's nodes whose size / transform the user wrote (base)
   std::unordered_set<Guid, GuidHash> edited_;     // this transaction's edited nodes (editInfo)
+  std::unordered_set<Guid, GuidHash> scoped_;     // this transaction's written nodes (editScopeInfo)
+  std::vector<std::pair<EditScopeType, std::string>> editScopes_;  // editScopePush's stack, outermost first
+  std::string editScopeError_;
   std::unordered_set<Guid, GuidHash> annotated_;  // nodes with annotations
   CanvasHits hits_;
   void devOverlay(Overlay& o) const;
@@ -2114,6 +2130,7 @@ class Editor : private LayoutHost, public TextLayouts {
   // editInfo: the user edits of the open transaction, stamped at its commit.
   void noteEdited(const NodeChange& c);
   void stampEdited();
+  void stampScopes();  // editScopeInfo on scoped_ (DevMode.cpp)
   void noteAnnotated(const NodeChange& c);
   // The edge the measurement tool snaps to under `s` (`axis`: 0 any, 1 left / right, 2 top / bottom).
   bool edgeAt(Vec2 s, int axis, Guid& node, annot::Side& side) const;

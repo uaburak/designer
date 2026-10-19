@@ -142,6 +142,8 @@ _engine_start_guide
 _engine_set_annotation_view
 _engine_set_annotation_filter
 _engine_set_edit_tracking
+_engine_edit_scope_push
+_engine_edit_scope_pop
 _engine_set_focus
 _engine_select_measurement
 _engine_dev_info

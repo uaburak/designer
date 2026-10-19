@@ -357,6 +357,16 @@ message Video {
   string s3Url = 2;
 }
 
+message VideoFillPlayback { // Paint.videoFillPlayback: a video fill as a clip on a Motion timeline (round trip)
+  uint startTimeMs = 1;    // trim into the file
+  uint endTimeMs = 2;
+  int64 timelineOffsetUs = 3;
+  int64 playbackDurationUs = 4;
+  int64 loopPhaseOffsetUs = 5;
+  float volume = 6;
+  bool mute = 7;
+}
+
 enum ColorSpace {          // the space a colour was picked in (Paint / Effect authoredColor)
   DEFAULT = 0;
   SRGB = 1;
@@ -418,10 +428,11 @@ message Paint {
   InterpolationHueMethod interpolationHueMethod = 42;    // gradients in OKLCH / HSL: the way round the hue circle
   Image animatedImage = 16;              // IMAGE, a GIF: the animated file (`image` is its still at `animationFrame`)
   uint animationFrame = 17;              // IMAGE, a GIF: the cover frame (the still drawn on the canvas)
-  // Reserved field numbers (8): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  VideoFillPlayback videoFillPlayback = 47;  // VIDEO in Motion: the clip's trim and place on the timeline (round trip)
+  // Reserved field numbers (9): Figma fields not kept, or reserved for future Figma fields. Never reuse.
   byte _r13 = 13 [deprecated]; byte _r15 = 15 [deprecated]; byte _r22 = 22 [deprecated];
   byte _r24 = 24 [deprecated]; byte _r31 = 31 [deprecated]; byte _r32 = 32 [deprecated]; byte _r33 = 33 [deprecated];
-  byte _r43 = 43 [deprecated];
+  byte _r43 = 43 [deprecated]; byte _r46 = 46 [deprecated];
 }
 
 enum PatternTileType {
@@ -1351,7 +1362,7 @@ enum VariableDataType {
   TIMING = 23;             // Motion: floatValue in milliseconds (help: "Duration in milliseconds")
   // Dropped: INVALID=10, NODE_FIELD_ALIAS=11, CMS_ALIAS=12,
   // IMAGE=14, MANAGED_STRING_ALIAS=15, LINK=16, JS_RUNTIME_ALIAS=17, DATE=19,
-  // VECTOR=24 .. TRANSITION_PARAMETER_DATA=35.
+  // VECTOR=24 .. TRANSITION_PARAMETER_DATA=35, UNIT_NUMBER=36.
 }
 
 enum VariableResolvedDataType {
@@ -1477,10 +1488,14 @@ message EasingData {       // a transition's or keyframe's easing; also an EASIN
 }
 
 // ---- Motion (docs/motion.md §4.1; Figma's names and numbers from figma-schema-106.kiwi) --------------------------
-// What the current Figma build adds beyond the 106 dump (TimelineData.durationUsVar 8, StyleIdForAnimation.timelineOffsetVar 7,
-// TextElementDelayBehaviour 5-7, AudioFill 13-20, KeyframeValueType.ROTATION_3D 12, NodeContentsKeyframeBindingLocation 5,
-// NodeChange.audioBeatAnalyses 613, Paint.videoFillPlayback 47) stays out until that schema text is in docs/research (the
-// parity check reads the 106 dump); a .fig import drops those fields and reports them.
+// What the current Figma build adds beyond the 106 dump is adopted from that build's embedded schema
+// (docs/research/figma/figma-schema-current.kiwi, round 17 batch C): TimelineData.durationUsVar 8,
+// StyleIdForAnimation.timelineOffsetVar 7, TextElementDelayBehaviour 5-7 + TextElementTransformOriginMode,
+// AudioFill 13-20, AudioBeatAnalysis + NodeChange.audioBeatAnalyses 613, KeyframeValueType.ROTATION_3D 12 + Rotation3D,
+// NodeContentsKeyframeBindingLocation.audioParametrizedField 5 + AudioParametrizedField, Paint.videoFillPlayback 47 +
+// VideoFillPlayback — kept for round trips (a .fig keeps them; nothing here draws or plays them yet). Still dropped:
+// ExpressionFunction 21-23 and VariableDataType 24-36, whose argument and value types (Paint, Length, UnitNumber…) we
+// don't carry.
 
 enum InterpolationType {   // KEYFRAME.interpolationType mirrors easingData (HOLD / BEZIER / SPRING) for round trips
   HOLD = 0;
@@ -1518,6 +1533,7 @@ enum KeyframeValueType {
   COLOR_POINT = 9;
   GRADIENT_PAINT = 10;
   PAINT = 11;
+  ROTATION_3D = 12;        // rotation3DValue (round trip: no 3-D rotation is drawn here)
 }
 enum KeyframeTrackParameterType {
   INVALID = 0;
@@ -1536,6 +1552,13 @@ enum TextElementDelayOrder {
   RIGHT_LEFT = 1;
   CENTER_OUT = 2;
   RANDOM = 3;
+}
+enum TextElementTransformOriginMode { // TextElementDelayBehaviour.transformOriginMode
+  MATCH = 0;
+  CHARACTER = 1;
+  WORD = 2;
+  LINE = 3;
+  PARAGRAPH = 4;
 }
 enum SpringType {
   NORMALIZED = 0;
@@ -1610,6 +1633,12 @@ message CirclePoint {
   float radius = 2;
   float angle = 3;
 }
+message Rotation3D {       // a ROTATION_3D keyframe's value (round trip)
+  float x = 1;
+  float y = 2;
+  float z = 3;
+  float translateZ = 4;
+}
 message ColorPoint {
   Vector point = 1;
   VariableData color = 2;
@@ -1631,6 +1660,7 @@ message KeyframeAnyValue { // exactly one set, by KeyframeValueData.valueType
   ColorPoint colorPointValue = 9;
   GradientParameterValue gradientParameterValue = 10;
   Paint paintValue = 11;
+  Rotation3D rotation3DValue = 12;
 }
 message KeyframeValueData { // a KEYFRAME's value, in Figma's stored units (opacity x100, rotation -radians: docs/motion.md §4.5)
   KeyframeAnyValue value = 1;
@@ -1673,6 +1703,7 @@ message TimelineData {     // a nested or main-component timeline (timelineDefin
   bool autoplay = 5;
   FrameRate keyframeSnappingFps = 6;
   bool quantizePlayback = 7;
+  VariableData durationUsVar = 8;  // durationUs bound to a TIMING variable (round trip)
 }
 message TimelineDefinitionsMapEntry {
   GUID id = 1;
@@ -1718,12 +1749,16 @@ message StyleIdForAnimation { // a composite style applied to a layer and the pr
   int64 timelineOffset = 4; // µs
   GeneratedAnimationPreset[] generatedAnimationPresets = 5;
   string sortPosition = 6;
+  VariableData timelineOffsetVar = 7;  // timelineOffset bound to a TIMING variable (round trip)
 }
 message TextElementDelayBehaviour { // text stagger (NodeChange.textElementDelayBehaviour, docs/motion.md §4.10)
   bool enabled = 1;
   TextElementGrouping grouping = 2;
   float delayMs = 3;
   TextElementDelayOrder order = 4;
+  bool clipContent = 5;    // the elements clipped to their own line box (round trip)
+  TextElementTransformOriginMode transformOriginMode = 6;  // the elements' transform origin: the layer's (MATCH) or each element's own
+  Vector transformOrigin = 7;  // the origin within each element (0..1)
 }
 message AudioFill {        // an audio clip on a timeline root (docs/motion.md §4.11); mediaHash as videos' (the file's image store)
   GUID id = 1;
@@ -1738,6 +1773,22 @@ message AudioFill {        // an audio clip on a timeline root (docs/motion.md �
   int64 playbackDurationUs = 10;
   GUID trackId = 11;
   int64 loopPhaseOffsetUs = 12;
+  int64 sourceDurationUs = 13;  // the file's own length
+  float bpm = 14;          // beat grid (from the file's AudioBeatAnalysis)
+  int64 beatOffsetUs = 15;
+  uint timeSignatureNumerator = 16;
+  uint timeSignatureDenominator = 17;
+  float beatConfidence = 18;
+  VariableData volumeVar = 19;          // volume bound to a variable (round trip)
+  VariableData timelineOffsetVar = 20;  // timelineOffsetUs bound to a TIMING variable (round trip)
+}
+message AudioBeatAnalysis { // NodeChange.audioBeatAnalyses: an audio file's analysed beat grid, by media hash
+  string mediaHash = 1;
+  float bpm = 2;
+  int64 beatOffsetUs = 3;
+  float beatConfidence = 4;
+  uint timeSignatureNumerator = 5;
+  uint timeSignatureDenominator = 6;
 }
 message AudioTrack {       // an audio row (NodeChange.audioTracks)
   GUID id = 1;
@@ -1750,6 +1801,12 @@ message NodeContentsKeyframeBindingLocation { // where a keyframe binding sits i
   VariableField parameterFieldValue = 2;
   int index = 3;
   KeyframeBindingEffectParametrizedField effectParametrizedFieldValue = 4;
+  AudioParametrizedField audioParametrizedField = 5;  // topLevelField AUDIO_FILLS: which clip field
+}
+enum AudioParametrizedField { // an audio clip's keyframed / bound field
+  MISSING = 0;
+  GAIN = 1;
+  TIMELINE_OFFSET = 2;
 }
 
 enum VariableField {       // which node field a parameterConsumptionMap entry binds
@@ -2627,7 +2684,8 @@ message NodeChange {
   AudioFill[] audioFills = 603;                   // @nooverride timeline root: audio clips
   AudioTrack[] audioTracks = 605;                 // @nooverride timeline root: audio rows
   TextElementDelayBehaviour textElementDelayBehaviour = 610; // TEXT: text stagger
-  // Reserved field numbers (740): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  AudioBeatAnalysis[] audioBeatAnalyses = 613;   // @nooverride timeline root: its audio files' beat grids (round trip)
+  // Reserved field numbers (739): Figma fields not kept, or reserved for future Figma fields. Never reuse.
   byte _r17 = 17 [deprecated]; byte _r18 = 18 [deprecated]; byte _r53 = 53 [deprecated]; byte _r54 = 54 [deprecated]; byte _r55 = 55 [deprecated];
   byte _r56 = 56 [deprecated]; byte _r57 = 57 [deprecated]; byte _r58 = 58 [deprecated]; byte _r59 = 59 [deprecated]; byte _r60 = 60 [deprecated]; byte _r61 = 61 [deprecated];
   byte _r62 = 62 [deprecated]; byte _r63 = 63 [deprecated]; byte _r64 = 64 [deprecated]; byte _r65 = 65 [deprecated]; byte _r66 = 66 [deprecated]; byte _r67 = 67 [deprecated];
@@ -2697,7 +2755,7 @@ message NodeChange {
   byte _r595 = 595 [deprecated]; byte _r596 = 596 [deprecated];
   byte _r604 = 604 [deprecated]; byte _r606 = 606 [deprecated];
   byte _r607 = 607 [deprecated]; byte _r608 = 608 [deprecated]; byte _r609 = 609 [deprecated]; byte _r611 = 611 [deprecated]; byte _r612 = 612 [deprecated];
-  byte _r613 = 613 [deprecated]; byte _r614 = 614 [deprecated]; byte _r615 = 615 [deprecated]; byte _r616 = 616 [deprecated]; byte _r617 = 617 [deprecated]; byte _r618 = 618 [deprecated];
+  byte _r614 = 614 [deprecated]; byte _r615 = 615 [deprecated]; byte _r616 = 616 [deprecated]; byte _r617 = 617 [deprecated]; byte _r618 = 618 [deprecated];
   byte _r619 = 619 [deprecated]; byte _r620 = 620 [deprecated]; byte _r621 = 621 [deprecated]; byte _r622 = 622 [deprecated]; byte _r623 = 623 [deprecated]; byte _r624 = 624 [deprecated];
   byte _r625 = 625 [deprecated]; byte _r626 = 626 [deprecated]; byte _r627 = 627 [deprecated]; byte _r628 = 628 [deprecated]; byte _r629 = 629 [deprecated]; byte _r630 = 630 [deprecated];
   byte _r631 = 631 [deprecated]; byte _r632 = 632 [deprecated]; byte _r633 = 633 [deprecated]; byte _r634 = 634 [deprecated]; byte _r635 = 635 [deprecated]; byte _r636 = 636 [deprecated];

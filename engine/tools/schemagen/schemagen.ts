@@ -41,6 +41,8 @@ export const TS_OUTPUT = join(REPO_ROOT, "src/shared/schema/document.generated.t
 export const FACETS_TS_OUTPUT = join(REPO_ROOT, "src/renderer/src/engine/facets.generated.ts");
 export const FIGMA_SCHEMA_TEXT = join(REPO_ROOT, "docs/research/figma/figma-schema.kiwi");
 export const FIGMA_SAMPLE_FIG = join(REPO_ROOT, "docs/research/figma/samples/sections.fig");
+/** The schema embedded in Figma desktop's current editor build (2026-10-15, read with REA: docs/research/rea/README.md) */
+export const FIGMA_SCHEMA_CURRENT = join(REPO_ROOT, "docs/research/figma/figma-schema-current.kiwi");
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Tags
@@ -928,7 +930,7 @@ function writeIfChanged(path: string, content: string): boolean {
 }
 
 export function loadFigmaSchemas(): Schema[] {
-  return [parseSchema(readFileSync(FIGMA_SCHEMA_TEXT, "utf8")), figmaSchemaFromFig(FIGMA_SAMPLE_FIG)];
+  return [parseSchema(readFileSync(FIGMA_SCHEMA_TEXT, "utf8")), figmaSchemaFromFig(FIGMA_SAMPLE_FIG), parseSchema(readFileSync(FIGMA_SCHEMA_CURRENT, "utf8"))];
 }
 
 function main(argv: string[]): number {

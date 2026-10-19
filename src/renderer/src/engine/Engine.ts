@@ -819,6 +819,19 @@ export class Engine {
     this.after(this.x.setEditTracking(this.h, on));
   }
 
+  /**
+   * Figma's edit scopes (editScopeInfo 365): edits made until the matching pop are stamped with this scope on top of
+   * the stack (with edit tracking on). Returns the status: E_INVALID when Figma's nesting rules refuse it.
+   */
+  editScopePush(type: "USER" | "PLUGIN" | "SYSTEM" | "REST_API" | "ONBOARDING" | "AUTOSAVE" | "AI" | "TEST_SETUP", label?: string): number {
+    return this.after(this.x.editScopePush(this.h, encodeText(JSON.stringify(label ? { type, label } : { type }))));
+  }
+
+  /** Pops the top edit scope (E_INVALID when none). */
+  editScopePop(): number {
+    return this.after(this.x.editScopePop(this.h));
+  }
+
   /** Focus view: only `node` (a design on the current page) is drawn and picked; null leaves it. */
   setFocus(node: Guid | null): number {
     const [s, l] = node ? this.ids(node) : [0xffffffff, 0xffffffff];

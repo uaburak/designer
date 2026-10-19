@@ -208,6 +208,9 @@ struct AudioClip {
   int64_t playbackDurationUs = 0;
   Guid track = kNoGuid;
   int64_t loopPhaseUs = 0;
+  // The clip as stored: the fields not modelled here (Figma's current build: sourceDurationUs, the beat grid 14–18,
+  // volumeVar / timelineOffsetVar) are written back as they came.
+  json::Value kept;
 };
 
 struct AudioRow {

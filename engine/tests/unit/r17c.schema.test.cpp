@@ -15,6 +15,8 @@
 #include "scene/CodecKiwi.h"
 #include "scene/Extras.h"
 #include "schema/SchemaTable.h"
+#include "base/Json.h"
+#include "motion/Model.h"
 
 using namespace eng;
 using namespace eng::test;
@@ -464,4 +466,201 @@ TEST_CASE("r17c editScopeInfo: a node's edit scopes survive load, an edit and th
   REQUIRE(back);
   CHECK(back->props.extra.at("editScopeInfo") == o.s);
   CHECK(back->props.opacity == doctest::Approx(0.5));
+}
+
+// ---- Motion fields from Figma's current embedded schema (motion.md §2.6) ---------------------------------------------
+
+namespace {
+
+json::Value parsedJson(const std::string& text) {
+  json::Value v;
+  REQUIRE(json::parse(text, v));
+  return v;
+}
+
+const char* kClipJson =
+    R"([{"id":"1:7","mediaHash":"0123456789abcdef0123456789abcdef01234567","timelineOffsetUs":0,"startTimeUs":0,"durationUs":4000000,)"
+    R"("volume":0.5,"mute":false,"displayName":"Beat.mp3","loopEnabled":false,"playbackDurationUs":4000000,"trackId":"1:8","loopPhaseOffsetUs":0,)"
+    R"("sourceDurationUs":9000000,"bpm":120,"beatOffsetUs":40000,"timeSignatureNumerator":3,"timeSignatureDenominator":4,"beatConfidence":0.5,)"
+    R"("volumeVar":{"dataType":"FLOAT","resolvedDataType":"FLOAT","value":{"floatValue":0.5}},)"
+    R"("timelineOffsetVar":{"dataType":"TIMING","resolvedDataType":"TIMING","value":{"floatValue":1500}}}])";
+
+std::vector<NodeChange> motionDoc() {
+  auto nodes = baseChanges();
+  NodeChange root = make(Guid{1, 1}, NodeType::FRAME, kPage, "!", {0, 0, 400, 300}, "Root");
+  root.props.extra["audioFills"] = codec::extraFromJson("NodeChange", "audioFills", parsedJson(kClipJson));
+  root.props.extra["audioTracks"] = codec::extraFromJson("NodeChange", "audioTracks", parsedJson(R"([{"id":"1:8","name":"Beat.mp3","gain":1,"mute":false}])"));
+  root.props.extra["audioBeatAnalyses"] = codec::extraFromJson(
+      "NodeChange", "audioBeatAnalyses", parsedJson(R"([{"mediaHash":"0123456789abcdef0123456789abcdef01234567","bpm":120,"beatOffsetUs":40000,"beatConfidence":0.5,"timeSignatureNumerator":3,"timeSignatureDenominator":4}])"));
+  Paint video;
+  video.type = PaintType::VIDEO;
+  video.extra = codec::extraFromJson("Paint", "videoFillPlayback", parsedJson(R"({"startTimeMs":100,"endTimeMs":900,"timelineOffsetUs":250000,"playbackDurationUs":800000,"volume":0.25,"mute":true})"));
+  root.props.fillPaints = {video};
+  nodes.push_back(root);
+  NodeChange text = make(Guid{1, 2}, NodeType::TEXT, Guid{1, 1}, "!", {0, 0, 100, 20}, "Hi");
+  text.props.extra["textElementDelayBehaviour"] = codec::extraFromJson(
+      "NodeChange", "textElementDelayBehaviour", parsedJson(R"({"enabled":true,"grouping":"WORD","delayMs":50,"order":"LEFT_RIGHT","clipContent":true,"transformOriginMode":"WORD","transformOrigin":{"x":0.5,"y":1}})"));
+  nodes.push_back(text);
+  return nodes;
+}
+
+}  // namespace
+
+TEST_CASE("r17c motion fields of Figma's current schema: the schema knows them, and they survive load, an edit and the snapshot") {
+  for (const char* k : {"audioFills", "audioBeatAnalyses", "textElementDelayBehaviour"}) CHECK(codec::fieldIdOf("NodeChange", k) != 0);
+  CHECK(codec::fieldIdOf("NodeChange", "audioBeatAnalyses") == 613);
+  CHECK(codec::fieldIdOf("Paint", "videoFillPlayback") == 47);
+  CHECK(codec::fieldIdOf("AudioFill", "timelineOffsetVar") == 20);
+  CHECK(codec::fieldIdOf("TimelineData", "durationUsVar") == 8);
+  CHECK(codec::fieldIdOf("StyleIdForAnimation", "timelineOffsetVar") == 7);
+  CHECK(codec::fieldIdOf("KeyframeAnyValue", "rotation3DValue") == 12);
+  CHECK(codec::fieldIdOf("NodeContentsKeyframeBindingLocation", "audioParametrizedField") == 5);
+  auto nodes = motionDoc();
+  for (const NodeChange& n : nodes)
+    if (n.guid == Guid{1, 1}) {
+      REQUIRE_FALSE(n.props.extra.at("audioBeatAnalyses").empty());
+      REQUIRE_FALSE(n.props.fillPaints[0].extra.empty());
+    }
+  Editor e = load(nodes);
+  NodeChange c = NodeChange::changed(Guid{0, 0});
+  c.mask = F_OPACITY;
+  c.props.opacity = 0.5;
+  REQUIRE(e.setProps({Guid{1, 1}, Guid{1, 2}}, c, 0) == OK);
+  codec::KiwiMessage m;
+  REQUIRE(codec::readMessage(codec::writeMessage(0, e.encodeDocument()), m));
+  const NodeChange *root = nullptr, *text = nullptr;
+  for (const NodeChange& n : m.changes) {
+    if (n.guid == Guid{1, 1}) root = &n;
+    if (n.guid == Guid{1, 2}) text = &n;
+  }
+  REQUIRE(root);
+  REQUIRE(text);
+  for (const NodeChange& n : nodes) {
+    if (n.guid == Guid{1, 1}) {
+      CHECK(root->props.extra.at("audioBeatAnalyses") == n.props.extra.at("audioBeatAnalyses"));
+      CHECK(root->props.extra.at("audioFills") == n.props.extra.at("audioFills"));
+      REQUIRE(root->props.fillPaints.size() == 1);
+      CHECK(root->props.fillPaints[0].extra == n.props.fillPaints[0].extra);
+    }
+    if (n.guid == Guid{1, 2}) CHECK(text->props.extra.at("textElementDelayBehaviour") == n.props.extra.at("textElementDelayBehaviour"));
+  }
+  std::string stagger = codec::extraValueToJson("NodeChange", text->props.extra.at("textElementDelayBehaviour"));
+  CHECK(stagger.find("\"clipContent\":true") != std::string::npos);
+  CHECK(stagger.find("\"transformOriginMode\":\"WORD\"") != std::string::npos);
+}
+
+TEST_CASE("r17c motion audio: an edit keeps the clip's beat grid; a typed volume or offset detaches its variable") {
+  Editor e = load(motionDoc());
+  motion::State s;
+  s.on = true;
+  s.root = Guid{1, 1};
+  e.setMotion(s);
+  CommandArgs a;
+  REQUIRE(json::parse(R"({"root":"1:1","edits":[{"id":"1:7","mute":true}]})", a.raw));
+  REQUIRE(e.command(CommandId::MOTION_SET_AUDIO, a) == OK);
+  auto clipJson = [&] { return codec::extraValueToJson("NodeChange", e.document().get(Guid{1, 1})->props.extra.at("audioFills")); };
+  std::string j = clipJson();
+  CHECK(j.find("\"mute\":true") != std::string::npos);
+  CHECK(j.find("\"bpm\":120") != std::string::npos);
+  CHECK(j.find("\"sourceDurationUs\"") != std::string::npos);  // int64: its JSON form may be a string
+  CHECK(j.find("\"timeSignatureNumerator\":3") != std::string::npos);
+  CHECK(j.find("\"volumeVar\"") != std::string::npos);
+  CHECK(j.find("\"timelineOffsetVar\"") != std::string::npos);
+  REQUIRE(json::parse(R"({"root":"1:1","edits":[{"id":"1:7","volume":0.2,"offsetUs":100000}]})", a.raw));
+  REQUIRE(e.command(CommandId::MOTION_SET_AUDIO, a) == OK);
+  j = clipJson();
+  CHECK(j.find("\"volumeVar\"") == std::string::npos);
+  CHECK(j.find("\"timelineOffsetVar\"") == std::string::npos);
+  CHECK(j.find("\"bpm\":120") != std::string::npos);
+  REQUIRE(e.command(CommandId::UNDO) == OK);
+  CHECK(clipJson().find("\"volumeVar\"") != std::string::npos);
+}
+
+// ---- editScopeInfo 365: Figma's scope stack and the changes stamped with it (canvas.md §2.9) -----------------------
+
+TEST_CASE("r17c edit scopes: Figma's nesting rules") {
+  using T = Editor::EditScopeType;
+  Editor e = load(baseChanges());
+  CHECK(e.editScopePop() == E_INVALID);
+  CHECK(e.editScopePush(T::INVALID, "") == E_INVALID);
+  REQUIRE(e.editScopePush(T::PLUGIN, "Rename") == OK);
+  CHECK(e.editScopePush(T::USER, "") == E_INVALID);  // USER not inside PLUGIN
+  CHECK(e.editScopeError() == "USER edit scope is not allowed inside PLUGIN edit scope");
+  CHECK(e.editScopePush(T::PLUGIN, "") == E_INVALID);  // never two of one type
+  CHECK(e.editScopePush(T::REST_API, "") == E_INVALID);
+  CHECK(e.editScopePush(T::AUTOSAVE, "") == E_INVALID);
+  CHECK(e.editScopePush(T::TEST_SETUP, "") == E_INVALID);
+  REQUIRE(e.editScopePush(T::SYSTEM, "Layout") == OK);  // SYSTEM goes anywhere
+  CHECK(e.editScopePush(T::AI, "") == E_INVALID);       // AI not inside SYSTEM
+  CHECK(e.editScopeDepth() == 2);
+  REQUIRE(e.editScopePop() == OK);
+  REQUIRE(e.editScopePush(T::AI, "") == OK);  // AI inside PLUGIN is allowed
+  REQUIRE(e.editScopePop() == OK);
+  REQUIRE(e.editScopePop() == OK);
+  REQUIRE(e.editScopePush(T::USER, "") == OK);
+  CHECK(e.editScopePush(T::REST_API, "") == E_INVALID);    // REST_API not inside USER
+  CHECK(e.editScopePush(T::ONBOARDING, "") == E_INVALID);  // ONBOARDING not inside USER
+  REQUIRE(e.editScopePush(T::PLUGIN, "") == OK);           // PLUGIN inside USER is allowed
+  REQUIRE(e.editScopePop() == OK);
+  REQUIRE(e.editScopePop() == OK);
+  REQUIRE(e.editScopePush(T::TEST_SETUP, "") == OK);
+  REQUIRE(e.editScopePop() == OK);
+}
+
+namespace {
+
+std::string scopeJsonOf(const Editor& e, Guid id) {
+  const Node* n = e.document().get(id);
+  REQUIRE(n);
+  auto it = n->props.extra.find("editScopeInfo");
+  return it == n->props.extra.end() ? std::string() : codec::extraValueToJson("NodeChange", it->second);
+}
+
+}  // namespace
+
+TEST_CASE("r17c edit scopes: a user edit, a pushed plugin scope and an agent's write stamp the changes they make") {
+  const Guid R{9, 1}, S{9, 2};
+  auto nodes = baseChanges();
+  nodes.push_back(make(R, NodeType::ROUNDED_RECTANGLE, kPage, "!", {0, 0, 10, 10}, "R"));
+  nodes.push_back(make(S, NodeType::ROUNDED_RECTANGLE, kPage, "\"", {20, 0, 10, 10}, "S"));
+  Editor e = load(nodes);
+  NodeChange c = NodeChange::changed(Guid{0, 0});
+  c.mask = F_OPACITY;
+  c.props.opacity = 0.5;
+  // Off (the engine's default): nothing stamped.
+  REQUIRE(e.setProps({R}, c, 0) == OK);
+  CHECK(scopeJsonOf(e, R).empty());
+  e.setEditTracking(true);
+  e.takeEvents();
+  c.props.opacity = 0.4;
+  REQUIRE(e.setProps({R}, c, 0) == OK);
+  std::string user = scopeJsonOf(e, R);
+  CHECK(user.find("\"type\":\"USER\"") != std::string::npos);
+  CHECK(user.find("\"editorType\":\"DESIGN\"") != std::string::npos);
+  CHECK(scopeJsonOf(e, S).empty());  // only what was written
+  // The stamp travels in the step's change message.
+  Editor::Events ev = e.takeEvents();
+  bool carried = false;
+  for (const auto& d : ev.documents)
+    for (const NodeChange& n : d.changes)
+      if (n.guid == R && n.props.extra.count("editScopeInfo")) carried = true;
+  CHECK(carried);
+  // A plugin's scope pushed around the edit.
+  REQUIRE(e.editScopePush(Editor::EditScopeType::PLUGIN, "Rename it") == OK);
+  c.props.opacity = 0.3;
+  REQUIRE(e.setProps({S}, c, 0) == OK);
+  REQUIRE(e.editScopePop() == OK);
+  std::string plugin = scopeJsonOf(e, S);
+  CHECK(plugin.find("\"type\":\"PLUGIN\"") != std::string::npos);
+  CHECK(plugin.find("\"label\":\"Rename it\"") != std::string::npos);
+  // An agent's write (an actor) is AI.
+  REQUIRE(e.actorBegin(7, {R}, kNoGuid, "Agent edit", false, 7) == OK);
+  c.props.opacity = 0.2;
+  REQUIRE(e.setProps({R}, c, 0) == OK);
+  REQUIRE(e.actorEnd(false) == OK);
+  CHECK(scopeJsonOf(e, R).find("\"type\":\"AI\"") != std::string::npos);
+  // Undo puts the earlier stamp back with the value.
+  REQUIRE(e.actorUndo(7, false));
+  CHECK(e.document().get(R)->props.opacity == doctest::Approx(0.4));
+  CHECK(scopeJsonOf(e, R).find("\"type\":\"USER\"") != std::string::npos);
 }

@@ -1922,7 +1922,7 @@ namespace {
 
 // A clip and a row as the schema's AudioFill / AudioTrack JSON (GUIDs as "s:l", times in µs).
 json::Value audioClipJson(const motion::AudioClip& c) {
-  json::Value o = jobj();
+  json::Value o = c.kept.isObject() ? c.kept : jobj();  // what isn't modelled stays (AudioClip::kept)
   put(o, "id", jstr(c.id.toString()));
   put(o, "mediaHash", jstr(c.mediaHash));
   put(o, "timelineOffsetUs", jnum(static_cast<double>(c.offsetUs)));
@@ -2025,10 +2025,16 @@ Status Editor::motionAudioCommand(CommandId id, const json::Value& raw) {
           if (i < 0) continue;
           motion::AudioClip& c = clips[i];
           double v;
-          if (num(&e, "offsetUs", v)) c.offsetUs = roundUs(v);
+          // A value typed over a bound one detaches it (volumeVar / timelineOffsetVar, Figma's current build).
+          auto unbind = [&](const char* k) {
+            if (!c.kept.isObject()) return;
+            auto& o = c.kept.object;
+            o.erase(std::remove_if(o.begin(), o.end(), [&](const auto& kv) { return kv.first == k; }), o.end());
+          };
+          if (num(&e, "offsetUs", v)) c.offsetUs = roundUs(v), unbind("timelineOffsetVar");
           if (num(&e, "startUs", v)) c.startUs = roundUs(v);
           if (num(&e, "durationUs", v)) c.durationUs = c.playbackDurationUs = std::max<int64_t>(1, roundUs(v));
-          if (num(&e, "volume", v)) c.volume = std::clamp(v, 0.0, 1.0);
+          if (num(&e, "volume", v)) c.volume = std::clamp(v, 0.0, 1.0), unbind("volumeVar");
           if (const json::Value* m = member(e, "mute"); m && m->isBool()) c.mute = m->boolean;
           if (Guid t; guidOf(member(e, "trackId"), t) && hasRow(t)) c.track = t;
           done++;
@@ -2060,6 +2066,10 @@ Status Editor::motionAudioCommand(CommandId id, const json::Value& raw) {
       motion::AudioClip second = first;
       second.id = newGuid();
       second.offsetUs = cut;
+      if (second.kept.isObject()) {  // the new region starts elsewhere: a bound offset stays with the first
+        auto& o = second.kept.object;
+        o.erase(std::remove_if(o.begin(), o.end(), [](const auto& kv) { return kv.first == "timelineOffsetVar"; }), o.end());
+      }
       second.startUs = first.startUs + (cut - first.offsetUs);
       second.durationUs = second.playbackDurationUs = first.offsetUs + first.durationUs - cut;
       clips[i].durationUs = clips[i].playbackDurationUs = cut - first.offsetUs;
