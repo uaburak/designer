@@ -26,7 +26,7 @@ export interface DrawToolsState {
  * The navigation bar's tabs (Figma 2026: File, Agents, Assets, Tools; Variables opens the variables view instead); ours:
  * Brands (Studio), Posts (Social mode's, docs/social.md §6.2)
  */
-export type RailTab = "posts" | "file" | "agents" | "assets" | "brands" | "tools";
+export type RailTab = "posts" | "file" | "agents" | "assets" | "brands";
 export type Renaming = { kind: "layer" | "page" | "file"; id: Guid } | null;
 
 /** Find and replace (⌘F, the Pages header's Find): the query, where, which layer types, and the Replace row */

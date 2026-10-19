@@ -4,7 +4,7 @@
 - the sandbox for a plugin's code and its UI;
 - the `figma.*` API we implement first;
 - development plugins from a `manifest.json`;
-- the Plugins menu, the Actions panel and the Tools tab;
+- the Plugins menu and the Actions panel (Figma's Tools tab is not built: the owner, 2026-10-19);
 - Dev Mode plugins (codegen, inspect);
 - private organization plugins, and admin approval;
 - network access;
@@ -80,7 +80,7 @@ Facts were read on 2026-10-11. DEV = `https://developers.figma.com/docs`, HELP =
 **Running** [P-run-help]:
 - Run last plugin: ⌥⌘P.
 - Saved plugins.
-- Design: the Tools tab in the left navigation, filtered by Plugin.
+- Design: the Tools tab in the left navigation, filtered by Plugin (Figma's; not built here — the owner removed it 2026-10-19: Actions › Plugins & widgets and the Plugins menu list the same plugins).
 - Dev Mode: the Plugins panel in the right sidebar.
 - The Actions panel's "Plugins & widgets" tab [P-request].
 
@@ -441,7 +441,7 @@ Figma's fields [P-man], parsed and checked by `parseManifest(json, {development}
 
 ## 5a. As built — the host (5d, 2026-10-11)
 
-**Where**: `src/renderer/src/editor/plugins/` — `host.ts` (`PluginRun`), `service.ts` (`PluginService`, one per editor: `attachPlugins` / `pluginsOf` / `usePluginService`), `vm/` (`types.ts`, `quickjs.ts`, `devWorker.ts`, `devWorker.worker.ts`), `runtime/` (`bridge.js`, `figma.js` — the VM-side scripts, imported `?raw`), `api/` (`codec.ts`, `context.ts`, `convert.ts`, `nodes.ts`, `document.ts`, `sha1.ts`), `menus.ts`, `actions.ts`, `desktop.ts`, `ui/` (`store.ts`, `PluginLayer.tsx`, `NewPluginDialog.tsx`), `index.ts` (`createSandbox`). Shared: `src/shared/plugins/manifest.ts` and `network.ts` — **one copy for main and the editor** (main's 5e copies moved here; main imports them). Chrome: `panels/ActionsPanel.tsx` (+ `panels/actionsTab.ts`), `panels/LeftPanel.tsx` (Tools), `panels/design/RelaunchButtons.tsx`, `menus.ts` / `commands.ts`, `EditorApp.tsx` (`<PluginLayer />`).
+**Where**: `src/renderer/src/editor/plugins/` — `host.ts` (`PluginRun`), `service.ts` (`PluginService`, one per editor: `attachPlugins` / `pluginsOf` / `usePluginService`), `vm/` (`types.ts`, `quickjs.ts`, `devWorker.ts`, `devWorker.worker.ts`), `runtime/` (`bridge.js`, `figma.js` — the VM-side scripts, imported `?raw`), `api/` (`codec.ts`, `context.ts`, `convert.ts`, `nodes.ts`, `document.ts`, `sha1.ts`), `menus.ts`, `actions.ts`, `desktop.ts`, `ui/` (`store.ts`, `PluginLayer.tsx`, `NewPluginDialog.tsx`), `index.ts` (`createSandbox`). Shared: `src/shared/plugins/manifest.ts` and `network.ts` — **one copy for main and the editor** (main's 5e copies moved here; main imports them). Chrome: `panels/ActionsPanel.tsx` (+ `panels/actionsTab.ts`), `panels/design/RelaunchButtons.tsx`, `menus.ts` / `commands.ts`, `EditorApp.tsx` (`<PluginLayer />`).
 
 **Packages** (exact): `quickjs-emscripten-core` 0.32.0 + `@jitl/quickjs-wasmfile-release-asyncify` 0.32.0 (the newest ≥ 2 weeks old; 2026-02-16); dev `@figma/plugin-typings` 1.139.0 (2026-09-23; 1.140/1.141 were too new). The view loads QuickJS's `.wasm` from the URL Vite gives it (`…/wasm?url` + `newVariant`): Vite's dependency step moves the module's JS away from the file it looks for (the browser got index.html); tests in Node read it from the package.
 
@@ -468,7 +468,7 @@ Figma's fields [P-man], parsed and checked by `parseManifest(json, {development}
 - Figma menu › **Plugins ▸**: Run last plugin ⌥⌘P, Saved plugins ▸, the plugins run here (recents, each with its manifest `menu` as a submenu), Development ▸ (New plugin…, Import new plugin from manifest…, the development plugins, Hot reload plugin ✓, Use developer VM ✓, Open console), From ‹org› ▸ (private plugins), Manage plugins… (Actions on Plugins & widgets). The canvas menu's Plugins ▸ has the run section and Development. Widgets stay disabled (§11). Row ids `plugin:<source>:<id>:<command>` (`runPluginMenuItem`).
 - **New plugin…**: "Create a plugin" (Figma design / Dev Mode, name, template), Save as → `plugins:new-plugin`.
 - **Actions › Plugins & widgets**: Recents, Saved, Development, From ‹org›; search finds plugins and their menu commands (also in All); ⋯ = Save / Remove from saved, Open console, Remove. **Parameters**: the run starts with `awaitParameters` (`figma.on("run")` waits), the palette asks each parameter with `figma.parameters.on("input")`'s suggestions / error / loading message, Tab / Enter to the next, Enter on the last → `submitParameters`; Esc stops the run.
-- **Tools tab**: the plugins by Source (Development, Your organization) with the type filter (Widgets / Shaders list none); Create = New plugin….
+- **Tools tab**: removed 2026-10-19 (the owner: "we may not need the Tools tab"). Its plugins are in Actions › Plugins & widgets and the Plugins menu (Development ▸ holds New plugin…); its Suggested image tools are Actions' Image editing rows.
 - **Relaunch buttons** (`RelaunchButtons`) under the Design panel's header for the selection (several layers: `multipleSelection` commands they all have), and with nothing selected the page's and the document's.
 - Saved / recents through `store.plugins` (5g) with a localStorage fallback; approval through `store.plugins.allowed` before a bundle is read (refused: "Your organization only allows approved plugins"). "Loading n pages" (parity) for a manifest without `documentAccess` on a file of more than one page.
 
@@ -537,9 +537,7 @@ Figma's Update 123 (2026-01-26) as `@figma/plugin-typings` 1.139.0 types it. **W
 - **Search**: typing filters the list, and a plugin's `menu` commands appear as their own rows (Figma's Quick Actions).
 - **Parameters**: a plugin with `parameters` prompts in the palette as Figma's: one field per parameter, suggestions from `figma.parameters.on('input')`, Tab to the next, Enter to run.
 
-**The Tools tab** (left navigation; `editor/panels/LeftPanel.tsx`'s Tools content):
-- Lists the same plugins under Source (Development / Organization) and Category, with the filter by type (Plugins / Widgets).
-- "Create" opens New plugin…
+**The Tools tab** (Figma's left navigation): not built — the owner removed it on 2026-10-19. The same plugins run from Actions (⌘K) › Plugins & widgets and the main menu's Plugins ▸ (New plugin… under Development ▸).
 
 **Dev Mode**: the right sidebar's **Plugins** panel (§7).
 

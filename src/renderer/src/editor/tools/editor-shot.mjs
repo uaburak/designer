@@ -4112,7 +4112,7 @@ async function leftPanelSection(page, theme) {
   check("Rename layers numbers from the bottom row up", JSON.stringify(names) === JSON.stringify(["Shape 1", "Shape 2"]), JSON.stringify(names));
 
   // The other tabs: their headers in place of the file's.
-  for (const [tab, title] of [["assets", "Assets"], ["tools", "Tools"], ["agents", "Agents"]]) {
+  for (const [tab, title] of [["assets", "Assets"], ["agents", "Agents"]]) {
     await page.locator(`[data-rail-tab="${tab}"]`).click();
     await settle(page);
     check(`${title}: the tab is current and the panel has its header`, (await page.locator(`[data-rail-tab="${tab}"][aria-current="true"]`).count()) === 1 && (await page.locator(`[data-tab-header="${title}"]`).count()) === 1);
@@ -4520,22 +4520,7 @@ async function panel12Section(page, theme) {
   check("R12 N9: Make an image reads white (enabled look), its text 90 from the picker's left", !mk.disabled && mk.color === "rgb(255, 255, 255)" && !!pickerBox && near(mk.text - pickerBox[0], 90, 2), JSON.stringify([mk, pickerBox]));
   await shot(page, `292-r12-fill-image-${theme}`);
   await page.keyboard.press("Escape");
-  // 4. Tools: Source and Category are enabled, with menus.
-  await page.locator('[data-rail-tab="tools"]').click();
-  await settle(page);
-  const left = page.locator('[data-panel="left"]');
-  const src = left.getByRole("combobox", { name: "Filter by source" });
-  const cat = left.getByRole("combobox", { name: "Filter by category" });
-  check("R12 N11: Filter by source and Filter by category are enabled", (await src.isEnabled()) && (await cat.isEnabled()) && (await src.getAttribute("aria-disabled")) !== "true");
-  await src.click();
-  await settle(page);
-  check("R12 N11: Source opens a list", (await page.getByRole("option").count()) >= 2);
-  await page.keyboard.press("Escape");
-  await cat.click();
-  await settle(page);
-  check("R12 N11: Category opens a list", (await page.getByRole("option").count()) >= 2);
-  await page.keyboard.press("Escape");
-  await shot(page, `293-r12-tools-${theme}`);
+  // 4. (The Tools tab is gone, the owner 2026-10-19: no Source / Category check.)
   // 5. Variables, no collection: Collections is secondary (#ffffffb2), the arrow follows Learn more directly.
   await page.locator('[data-rail-tab="variables"]').click();
   await settle(page);
@@ -4618,16 +4603,8 @@ async function menus11Section(page, theme) {
   check("R11 Variables table: Edit variable's glyph is drawn on the hovered row only", op0 === "0" && op1 === "1", `${op0} -> ${op1}`);
   await shot(page, `281-r11-variables-table-${theme}`);
   await page.locator('[data-rail-tab="variables"]').click();
-  // 3. Tools: Filter by price and type enabled, with a menu.
+  // 3. (The Tools tab is gone, the owner 2026-10-19.)
   await open(page, "&doc=capture");
-  await page.locator('[data-rail-tab="tools"]').click();
-  const filter = page.getByRole("button", { name: "Filter by price and type" });
-  check("R11 Tools: Filter by price and type is enabled and opens a menu", (await filter.isEnabled()) && (await filter.getAttribute("aria-haspopup")) === "menu");
-  await filter.click();
-  await settle(page);
-  check("R11 Tools: its menu lists prices and types", (await page.getByRole("menuitemradio").count()) + (await page.getByRole("menuitem").count()) >= 6 || (await page.getByRole("menu").count()) === 1);
-  await page.keyboard.press("Escape");
-  await page.locator('[data-rail-tab="file"]').click();
   // 4. Actions with nothing run yet: Recents alone, the two status lines at -1, 0 and -1, 24.
   await page.evaluate(() => localStorage.removeItem("designer.actions.recents"));
   await page.locator('[data-ds="EditorToolbar"]').getByRole("button", { name: "Actions" }).click();
