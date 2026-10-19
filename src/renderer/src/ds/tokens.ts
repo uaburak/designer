@@ -624,14 +624,16 @@ export const CHROME_COLORS = [
 export type ChromeColorName = (typeof CHROME_COLORS)[number];
 
 export const canvasChrome: Record<ChromeColorName, Pair> = {
-  selection: ["#0d99ff", "#0c8ce9"],
+  // 2026-10-19 (owner: "the same as Figma"): the light canvas's selection blue is Figma's #0c8ce9 too — the owner's
+  // light-theme recording samples it as #0a8ce8 (the capture's colour profile), not the UI's #0d99ff.
+  selection: ["#0c8ce9", "#0c8ce9"],
   handleFill: ["#ffffff", "#ffffff"],
-  handleStroke: ["#0d99ff", "#0c8ce9"],
-  hover: ["#0d99ff", "#0c8ce9"],
+  handleStroke: ["#0c8ce9", "#0c8ce9"],
+  hover: ["#0c8ce9", "#0c8ce9"],
   // Group 1 (2026-10-19): the canvas's component purple is #8a38f5 on a light canvas too — the owner's light-theme
   // captures components15/figma-instance-child-{hover,selected}.png sample #8a38f5 (their red reads its exact #e30614).
   component: ["#8a38f5", "#8a38f5"],
-  sizeBadgeFill: ["#0d99ff", "#0c8ce9"],
+  sizeBadgeFill: ["#0c8ce9", "#0c8ce9"],
   sizeBadgeText: ["#ffffff", "#ffffff"],
   frameTitleOnLight: ["#00000080", "#00000080"],
   frameTitleOnDark: ["#ffffff76", "#ffffff76"],

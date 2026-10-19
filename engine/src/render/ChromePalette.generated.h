@@ -5,12 +5,12 @@
 namespace ds {
 enum class ChromeColor : uint8_t { Selection = 0, HandleFill = 1, HandleStroke = 2, Hover = 3, Component = 4, SizeBadgeFill = 5, SizeBadgeText = 6, FrameTitleOnLight = 7, FrameTitleOnDark = 8, Measure = 9, MeasureText = 10, SnapGuide = 11, SpacingGuide = 12, LayoutGapFill = 13, LayoutGapStroke = 14, MarqueeFill = 15, MarqueeStroke = 16, RulerBg = 17, RulerTick = 18, RulerText = 19, RulerSelectionBand = 20, RulerSelectionText = 21, TextCaret = 22, TextSelection = 23, PrototypeNoodle = 24, SlotFill = 25, SlotStroke = 26, CanvasDefault = 27, PixelGrid = 28, FrameTitleSelectedOnLight = 29, FrameTitleSelectedOnDark = 30, FrameTitleComponentOnLight = 31, FrameTitleComponentOnDark = 32, RadiusHandleFill = 33, RadiusHandleStroke = 34, CanvasTooltipFill = 35, CanvasTooltipText = 36, ReadyForDev = 37, PrototypeNoodleQuiet = 38, CanvasScrollbarFill = 39, CanvasScrollbarFillHover = 40, CanvasScrollbarRim = 41, PrototypeLabelText = 42, PrototypeNoodleChangeTo = 43, PrototypeChangeToLabelText = 44, StatusDone = 45, StatusRToMerge = 46, StatusToBeDone = 47, StatusProcess = 48, StatusRevised = 49, StatusCancelled = 50, Count };
 inline constexpr float kChromeLight[size_t(ChromeColor::Count)][4] = {
-  {0.05098f, 0.6f, 1.0f, 1.0f}, // selection
+  {0.047059f, 0.54902f, 0.913725f, 1.0f}, // selection
   {1.0f, 1.0f, 1.0f, 1.0f}, // handleFill
-  {0.05098f, 0.6f, 1.0f, 1.0f}, // handleStroke
-  {0.05098f, 0.6f, 1.0f, 1.0f}, // hover
+  {0.047059f, 0.54902f, 0.913725f, 1.0f}, // handleStroke
+  {0.047059f, 0.54902f, 0.913725f, 1.0f}, // hover
   {0.541176f, 0.219608f, 0.960784f, 1.0f}, // component
-  {0.05098f, 0.6f, 1.0f, 1.0f}, // sizeBadgeFill
+  {0.047059f, 0.54902f, 0.913725f, 1.0f}, // sizeBadgeFill
   {1.0f, 1.0f, 1.0f, 1.0f}, // sizeBadgeText
   {0.0f, 0.0f, 0.0f, 0.501961f}, // frameTitleOnLight
   {1.0f, 1.0f, 1.0f, 0.462745f}, // frameTitleOnDark
