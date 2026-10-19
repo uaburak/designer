@@ -3,8 +3,8 @@
  * soft light sweeping across). It appears as soon as the chat's prompt asks for a picture (activity.ts
  * `asksForImage`), else when the agent starts generate_image — over a selected layer that can take a fill (a frame,
  * with auto layout or not, a rectangle, an ellipse, a component, an instance, a vector: the picture becomes that
- * layer's IMAGE fill, scale mode FILL, no new layer), centred inside a selected section, else at the viewport's centre
- * — 512 × 512 (or the aspect asked for) scaled to fit. place_image then puts the image exactly there unless the agent
+ * layer's IMAGE fill, scale mode FILL, no new layer), centred inside a selected section, else in the middle of the
+ * canvas the panels leave visible — 512 × 512 (or the aspect asked for) scaled to fit. place_image then puts the image exactly there unless the agent
  * named another place (`placeholderArgs`); the placeholder plays its reveal over the picture (a last brighter sweep,
  * then the grey dissolves) and goes. On an error, Stop or a turn ending without a picture it fades out.
  *
@@ -77,6 +77,8 @@ export interface PlaceholderEnv {
   camera: Camera;
   /** The canvas's CSS size */
   viewport: { width: number; height: number };
+  /** The part of the canvas the panels leave visible, in canvas px (canvas/viewInsets.ts); else the whole canvas */
+  view?: Box;
 }
 
 export const PLACEHOLDER_SIZE = 512;
@@ -153,10 +155,11 @@ export function placeholderTarget(env: PlaceholderEnv, aspect = 1): PlaceholderT
     }
     if (CONTAINERS.has(n.type)) return inParent(page, only, m, centred(fitSize(aspect, own.width, own.height), own));
   }
-  // The visible part of the page, its middle.
-  const { camera: c, viewport: v } = env;
+  // The visible part of the page (between the panels, which lie over the canvas), its middle.
+  const { camera: c, viewport } = env;
+  const v = env.view ?? { x: 0, y: 0, ...viewport };
   const zoom = c.zoom > 0 ? c.zoom : 1;
-  const visible: Box = { x: -c.x / zoom, y: -c.y / zoom, width: Math.max(1, v.width) / zoom, height: Math.max(1, v.height) / zoom };
+  const visible: Box = { x: (v.x - c.x) / zoom, y: (v.y - c.y) / zoom, width: Math.max(1, v.width) / zoom, height: Math.max(1, v.height) / zoom };
   return inParent(page, page, IDENTITY, centred(fitSize(aspect, visible.width * 0.6, visible.height * 0.6), visible));
 }
 

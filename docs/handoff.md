@@ -2,6 +2,31 @@
 
 First written 2026-10-06 when the first Claude session stopped and the owner moved the work to another Claude account through GitHub (`https://github.com/uaburak/designer`). Updated the same day by the second session, which finished every workstream's partial items and ran the integration round. Read `AGENTS.md`, `docs/architecture.md` and `docs/roadmap.md` first; the contracts in `docs/` decide everything; `docs/research/` holds the verified facts about Figma (with sources).
 
+## Status 2026-10-19 — compare-2026-10-18 Group 4 (agents UX and settings, docs), committed on its branch, not merged
+
+Branch `worktree-agent-ad1871a4c501212ca` (from main `52335409`): all 6 Group 4 items done; "As built — Group 4" in `docs/research/compare-2026-10-18/STATUS-2026-10-19.md` lists each with its file, before / after images in `compare-2026-10-18/after/group4-*.png`.
+
+- **Fixed:**
+  - Agent settings rows cut the name, never the state.
+  - The Model field shows the short name.
+  - Location is a path whose middle gives way: "~", the last part whole, the full path in a tooltip.
+  - The image prompt card's field says "Antigravity".
+- **Done and the composer:** the result stays selected after Done, and its chip is in the composer.
+  - The 402 shot had lost the selection to its own ⌘Z probe; the probe now runs after the shot.
+  - The usage ring beside Send is a still slice, not a spinner-like arc.
+- **Doc:** `docs/editor.md` "Steps in groups" now matches the code: a finished group reads its last step.
+- **Canvas placeholder:**
+  - With nothing selected it sits mid-way in the visible canvas, not under the panels.
+  - "Making an image…" slides out from under a panel into view.
+  - The shot restores its camera after the pan check.
+- **Sharpness:** checked with a real photo (`AGENTS_REAL_IMAGE=<png>` in editor-shot). The canvas is as sharp as the browser's own drawing at 100 / 50 / 25 %. The soft sun was the stand-in's 256 px picture.
+- **Cosmetics:**
+  - Group rows (the Thinking row too) are full width again.
+  - Errors are no longer indented twice.
+  - The chat title weight stays the DS token (global Inter rendering).
+
+The canvas overlay `canvas/AgentImagePlaceholders.tsx` was touched (agents-only code). Nothing in `engine/`, `panels/design`, menus or EditorApp. Checks: typecheck, eslint on changed files, and vitest (367 files / 3019 tests) all pass.
+
 ## Status 2026-10-19 — every easing on the right panel's Easing page (clip, Social, Easing variables); the old popover removed, committed on its branch, not merged
 
 Follow-up to "Motion's easing moved into the right panel" below. The page's pieces are one component, `EasingControls` (`motion/easing/EasingPage.tsx`, with `EasingFrame` and `useEasingTransaction`), and three more entry points use it: **a preset clip's Easing** (Animations section › a clip › Easing → the Design panel's clip Easing page, `ui.motion.clipEasing`, `ClipEasingPage`; Back returns to the clip's settings), **Social's timeline** (a segment selects it as in Motion, Social's right panel switches to Properties and its Design part shows the page; Mixed for several), **an Easing variable's value** (Local variables / Edit variable: a floating "Easing" panel with the page's controls, Presets only — no Libraries / New variable for a variable's own value). One undo step per change everywhere (a handle's drag included). `EasingEditor.tsx`, `EasingMenu`, `EasingEditorProps`, the timeline's `onSetEasing` / `easingVariables` props are gone (`createEasingVariable` kept in `EasingPage.tsx`; `CurveEditor.tsx` stays for the Prototype panel). Detail: `docs/motion.md` §6.14 "Every easing on the page", `docs/social.md` §6.1. Images `docs/research/figma/live/owner-2026-10-19/after/easing-{clip,social,variable}.png` (`src/renderer/src/editor/tools/easing-entry-shot.mjs`, port 5318). Checks: typecheck, eslint on the changed files, vitest renderer/shared/store/main/viewer 366 files / 3019 tests (3 new cases in `easingPage.wasm.test.ts`). No engine change. To verify: `?editor&doc=motion` — Motion › select Red › Animations + Opacity › Easing; Social › click a timeline segment; Variables › an Easing variable's value.

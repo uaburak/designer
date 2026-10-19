@@ -1000,6 +1000,19 @@ function ModelMenus({ service, provider }: { service: AgentsService; provider: P
 }
 
 /**
+ * The used part as a filled slice from 12 o'clock, clockwise (a pie in the 16 box, radius 5 inside the 6.5 track): a
+ * slice never reads as a turn still running, as an arc beside Send did.
+ */
+function pieOf(pct: number): string {
+  const r = 5;
+  const a = (Math.min(100, pct) / 100) * 2 * Math.PI;
+  if (pct >= 100) return `M8 3a${r} ${r} 0 1 1 0 ${2 * r}a${r} ${r} 0 1 1 0 ${-2 * r}Z`;
+  const x = 8 + r * Math.sin(a);
+  const y = 8 - r * Math.cos(a);
+  return `M8 8V3A${r} ${r} 0 ${a > Math.PI ? 1 : 0} 1 ${x.toFixed(2)} ${y.toFixed(2)}Z`;
+}
+
+/**
  * How much of the plan is used (Claude's composer ring): the most used limit the agent's CLI reports, with a card on
  * hover (pinned by a click) — each limit, when it resets, and this chat's tokens. Nothing reported: the tokens only.
  */
@@ -1034,8 +1047,6 @@ function UsageRing({ service, provider, chat }: { service: AgentsService; provid
     else leave.current = setTimeout(() => setOpen((o) => (o === "hover" ? null : o)), 150);
   };
   const top = windows.length ? windows.reduce((a, b) => (b.usedPct > a.usedPct ? b : a)) : null;
-  const r = 6;
-  const c = 2 * Math.PI * r;
   return (
     <>
       <button
@@ -1050,8 +1061,8 @@ function UsageRing({ service, provider, chat }: { service: AgentsService; provid
         onMouseLeave={() => hover(false)}
       >
         <svg viewBox="0 0 16 16" className={styles.usageSvg} aria-hidden="true">
-          <circle className={styles.usageTrack} cx="8" cy="8" r={r} />
-          {ring.pct > 0 && <circle className={styles.usageValue} cx="8" cy="8" r={r} strokeDasharray={`${(c * ring.pct) / 100} ${c}`} transform="rotate(-90 8 8)" data-usage-pct={Math.round(ring.pct)} />}
+          <circle className={styles.usageTrack} cx="8" cy="8" r="6.5" />
+          {ring.pct > 0 && <path className={styles.usageValue} d={pieOf(ring.pct)} data-usage-pct={Math.round(ring.pct)} />}
         </svg>
       </button>
       {open && (

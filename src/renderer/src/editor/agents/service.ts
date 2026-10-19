@@ -44,6 +44,7 @@ import { paintImageHash } from "../model/paints";
 import { agentPresenceOf } from "../multiplayer/agentsOnCanvas";
 import { LEAVE_AFTER_MS, type AgentActor } from "../multiplayer/agentPresence";
 import { managerName, workerName } from "./managerName";
+import { viewRect } from "../canvas/viewInsets";
 
 /**
  * An image the agent makes: being made, made (about to be placed), on the canvas, or not placed (an error, Stop) — or
@@ -433,6 +434,7 @@ export class AgentsService implements AgentSetupHost {
       },
       camera: ed.store.camera,
       viewport: { width: ed.canvas?.clientWidth ?? 0, height: ed.canvas?.clientHeight ?? 0 },
+      view: visibleView(ed.canvas),
     };
   }
 
@@ -1350,6 +1352,14 @@ export function applyEvent(m: ChatMessage, e: ChatEvent): Partial<ChatMessage> {
 }
 
 const imagePartId = (toolId: string) => `image:${toolId}`;
+
+/** The part of the canvas the panels leave visible, in canvas px (undefined without a canvas: the whole of it). */
+function visibleView(canvas: HTMLElement | null | undefined) {
+  const v = viewRect(canvas);
+  if (!canvas || !v) return undefined;
+  const c = canvas.getBoundingClientRect();
+  return { x: v.left - c.left, y: v.top - c.top, width: v.width, height: v.height };
+}
 
 /**
  * An answer's parts once its turn is over: no status line, running steps done (failed when stopped), images still

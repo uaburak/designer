@@ -8,8 +8,9 @@
 // fill with the reveal (frozen part-way for the shots), then gone; a prompt that asked for a picture the agent never
 // made (the placeholder fades, the card goes); and Stop while one is made. No real agent or model is involved.
 // AGENTS_UX_DIR=<folder> also saves close-ups of the Thinking… row, the image card and the canvas placeholder there.
-/* global window, document, setTimeout, getComputedStyle, process, atob, btoa, navigator, Blob, ClipboardItem, ClipboardEvent, DataTransfer, DragEvent, File, TextEncoder */
-import { mkdirSync } from "node:fs";
+// AGENTS_REAL_IMAGE=<png> also places a real photo and measures its sharpness on the canvas (realImageSharpness).
+/* global window, document, setTimeout, getComputedStyle, process, atob, btoa, navigator, Blob, ClipboardItem, ClipboardEvent, DataTransfer, DragEvent, File, TextEncoder, createImageBitmap, fetch, OffscreenCanvas */
+import { mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 /** The stand-in for main's side (src/shared/agents/types.ts AgentsApi), in the page. */
@@ -167,6 +168,16 @@ export function installMockAgents() {
         setTimeout(() => void filesTurn(turnId, req), 30);
         return { turnId };
       }
+      if (/real photo/i.test(req.prompt) && window.__realImage) {
+        // AGENTS_REAL_IMAGE: a real picture (a photo's bytes), placed into the selected layer as an agent does.
+        setTimeout(async () => {
+          emit(turnId, req.chatId, { type: "tool", id: "r1", name: "place_image", state: "running" });
+          const r = await call(turnId, "place_image", { data: window.__realImage, name: "Photo" });
+          emit(turnId, req.chatId, { type: "tool", id: "r1", name: "place_image", state: r.isError ? "error" : "done" });
+          emit(turnId, req.chatId, { type: "done" });
+        }, 30);
+        return { turnId };
+      }
       if (/image|resmi/i.test(req.prompt)) {
         setTimeout(() => void imageTurn(turnId, req), 30);
         return { turnId };
@@ -257,6 +268,87 @@ async function closeUp(page, selector, name, pad = 12) {
   await page.screenshot({ path: path.join(dir, `${name}.png`), clip: { x, y, width: Math.min(view.width - x, box.width + pad * 2), height: Math.min(view.height - y, box.height + pad * 2) } });
 }
 
+/**
+ * AGENTS_REAL_IMAGE=<png>: the placed picture's sharpness with a real image. The agent places the photo into a layer of
+ * its own size; at 100 %, 50 % and 25 % the canvas is shot and its detail (the mean of |Laplacian|) set against the
+ * browser's own high-quality drawing of the same photo at the same size — 1.0 is as sharp as the browser draws it.
+ */
+async function realImageSharpness(page, theme, { settle, check }) {
+  const bytes = readFileSync(process.env.AGENTS_REAL_IMAGE);
+  const size = await page.evaluate(async (b64) => {
+    window.__realImage = b64;
+    const bmp = await createImageBitmap(await (await fetch(`data:image/png;base64,${b64}`)).blob());
+    const ed = window.__designerEditor;
+    const fill = [{ type: "SOLID", color: { r: 0.85, g: 0.87, b: 0.9, a: 1 }, opacity: 1, visible: true, blendMode: "NORMAL" }];
+    ed.engine.applyChanges({ type: "NODE_CHANGES", sessionID: 0, nodeChanges: [{ guid: "7:41", phase: "CREATED", type: "RECTANGLE", name: "Real photo", parentIndex: { guid: "0:1", position: "~~" }, size: { x: bmp.width, y: bmp.height }, transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 2000 }, fillPaints: fill }] });
+    ed.engine.setSelection(["7:41"]);
+    return { w: bmp.width, h: bmp.height };
+  }, bytes.toString("base64"));
+  await settle(page);
+  await page.locator("[data-agents-input]").fill("Put the real photo here");
+  await page.locator("[data-agents-input]").press("Enter");
+  await page.waitForFunction(() => window.__designerEditor.engine.readNode("7:41", { fields: ["fillPaints"] })?.fillPaints?.[0]?.type === "IMAGE", null, { timeout: 8000 });
+  await page.waitForFunction(() => [...document.querySelectorAll('[data-message="assistant"]')].pop()?.getAttribute("data-state") === "done", null, { timeout: 8000 });
+  const out = {};
+  for (const zoom of [1, 0.5, 0.25]) {
+    const rect = await page.evaluate((z) => {
+      const ed = window.__designerEditor;
+      ed.engine.setSelection([]);
+      const view = document.querySelector("[data-canvas-view]").getBoundingClientRect();
+      const cr = ed.canvas.getBoundingClientRect();
+      const n = ed.engine.readNode("7:41", { fields: ["size", "transform"] });
+      // Its top left at the visible canvas's top left (+16), whole pixels.
+      const x = Math.round(view.left - cr.left + 16 - n.transform.m02 * z);
+      const y = Math.round(view.top - cr.top + 16 - n.transform.m12 * z);
+      ed.engine.setCamera({ ...ed.engine.getCamera(), zoom: z, x, y });
+      return { x: Math.round(view.left + 16), y: Math.round(view.top + 16), w: Math.round(n.size.x * z), h: Math.round(n.size.y * z) };
+    }, zoom);
+    await settle(page);
+    await page.waitForTimeout(400);
+    await settle(page);
+    const clip = { x: rect.x, y: rect.y, width: Math.min(rect.w, 600), height: Math.min(rect.h, 600) };
+    const shotBytes = await page.screenshot({ clip });
+    const dir = process.env.AGENTS_UX_DIR;
+    if (dir) await page.screenshot({ path: path.join(dir, `canvas-real-photo-${Math.round(zoom * 100)}-${theme}.png`), clip });
+    out[zoom] = await page.evaluate(
+      async ({ shotB64, src, w, h, cw, ch }) => {
+        const load = async (b64) => createImageBitmap(await (await fetch(`data:image/png;base64,${b64}`)).blob());
+        const lap = (img) => {
+          const d = img.data;
+          let sum = 0;
+          let n = 0;
+          const L = (i) => 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+          for (let y = 1; y < img.height - 1; y++)
+            for (let x = 1; x < img.width - 1; x++) {
+              const i = (y * img.width + x) * 4;
+              sum += Math.abs(4 * L(i) - L(i - 4) - L(i + 4) - L(i - img.width * 4) - L(i + img.width * 4));
+              n++;
+            }
+          return sum / n;
+        };
+        const shotBmp = await load(shotB64);
+        const a = new OffscreenCanvas(cw, ch).getContext("2d");
+        a.drawImage(shotBmp, 0, 0);
+        const ref = new OffscreenCanvas(cw, ch).getContext("2d");
+        ref.imageSmoothingQuality = "high";
+        ref.drawImage(await load(src), 0, 0, w, h);
+        const canvasDetail = lap(a.getImageData(0, 0, cw, ch));
+        const refDetail = lap(ref.getImageData(0, 0, cw, ch));
+        return { canvas: Math.round(canvasDetail * 100) / 100, browser: Math.round(refDetail * 100) / 100, ratio: Math.round((canvasDetail / refDetail) * 100) / 100 };
+      },
+      { shotB64: shotBytes.toString("base64"), src: bytes.toString("base64"), w: rect.w, h: rect.h, cw: clip.width, ch: clip.height }
+    );
+  }
+  check("Agents: a real photo placed by the agent is drawn as sharp as the browser draws it (100 / 50 / 25 %, detail ratio ≥ 0.85)", Object.values(out).every((r) => r.ratio >= 0.85), JSON.stringify({ size, ...out }));
+  await page.evaluate(() => {
+    const ed = window.__designerEditor;
+    ed.engine.applyChanges({ type: "NODE_CHANGES", sessionID: 0, nodeChanges: [{ guid: "7:41", phase: "REMOVED" }] });
+    ed.engine.setSelection(["7:40"]);
+    ed.engine.command("ZOOM_TO_SELECTION");
+  });
+  await settle(page);
+}
+
 export async function agentsSection(page, theme, { open, settle, shot, check }) {
   await page.addInitScript(installMockAgents);
   await open(page, "&doc=empty");
@@ -333,17 +425,19 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
     const ed = window.__designerEditor;
     const sel = ed.selection;
     const n = sel[0] ? ed.engine.readNode(sel[0], { childIds: true }) : null;
-    // The turn has a history of its own (r17 agent isolation): the user's ⌘Z leaves it; the chat's Undo takes it back.
-    const undo = ed.store.undo.canUndo;
-    if (undo) ed.engine.command("UNDO");
-    const kept = sel[0] ? !!ed.engine.readNode(sel[0]) : false;
-    if (undo) ed.engine.command("REDO");
-    return { sel, name: n?.name, width: n?.size?.x, mode: n?.stackMode, x: n?.transform?.m02, kids: n?.childIds?.length ?? 0, kept, log: window.__designerAgentsLog };
+    return { sel, name: n?.name, width: n?.size?.x, mode: n?.stackMode, x: n?.transform?.m02, kids: n?.childIds?.length ?? 0, log: window.__designerAgentsLog };
   });
+  // Done: the result is the selection (set_selection) and its chip is in the composer, as the user goes on with it.
+  const doneChip = (await page.locator("[data-composer] [data-context-chip]").allTextContents()).join(" | ");
+  check("Agents: after Done the result stays selected and its chip is in the composer", result.sel.length === 1 && doneChip.includes("Desktop — Mobile"), JSON.stringify({ sel: result.sel, doneChip }));
+  const ringStill = await page.evaluate(() => {
+    const ring = document.querySelector("[data-composer] [data-usage]");
+    return !!ring && !ring.querySelector("circle[stroke-dasharray]") && ring.getAnimations({ subtree: true }).length === 0;
+  });
+  check("Agents: idle, nothing turns beside Send (the usage ring is a still slice, not an arc)", ringStill);
   check("Agents: the turn's request carries the selection as context", result.log[0]?.context?.selection?.[0]?.id === "7:1", JSON.stringify(result.log[0]?.context));
   check("Agents: the agent's tool calls ran on the engine", result.log.slice(1).every((l) => !l.isError), result.log.slice(1).map((l) => `${l.name}${l.isError ? " (error)" : ""}`).join(", "));
   check("Agents: a 390 wide vertical auto layout frame next to the desktop one, selected", result.width === 390 && result.mode === "VERTICAL" && result.x >= 1440 + 100 && result.kids >= 5 && result.name === "Desktop — Mobile", JSON.stringify({ ...result, log: undefined }));
-  check("Agents: the turn stays out of the user's history (⌘Z leaves the mobile frame; the chat's Undo is the turn's)", result.kept);
   // The answer as Claude's desktop app shows it: words, a folded group, words, a new group, the image's group, words.
   const segOrder = await answer.evaluate((el) => [...el.children].map((c) => (c.hasAttribute("data-step-group") ? `${c.getAttribute("data-step-group")}: ${c.querySelector("[data-group-label]")?.textContent ?? ""}` : c.hasAttribute("data-agent-text") ? "text" : c.hasAttribute("data-changes") ? "changes" : null)).filter(Boolean));
   check("Chat steps: the answer reads words, a group named by its last step (not Thinking), words, a new group after them, the image's own group, words, the changes", JSON.stringify(segOrder.map((x) => (x.startsWith("steps: ") ? (x.includes("Thinking") ? "steps: Thinking" : "steps") : x))) === JSON.stringify(["text", "steps", "text", "steps", "image: Generate image", "text", "changes"]), JSON.stringify(segOrder));
@@ -368,6 +462,17 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
   check("Agents: the changes row offers Undo", (await page.locator("[data-turn-undo]").count()) === 1);
   await shot(page, `402-agents-mobile-version-${theme}`);
   const made = result.sel[0];
+  // The turn has a history of its own (r17 agent isolation): the user's ⌘Z leaves it; the chat's Undo takes it back.
+  // (After the shot: the user's ⌘Z / ⇧⌘Z bring back their own step's selection.)
+  const kept = await page.evaluate((id) => {
+    const ed = window.__designerEditor;
+    const undo = ed.store.undo.canUndo;
+    if (undo) ed.engine.command("UNDO");
+    const k = !!ed.engine.readNode(id);
+    if (undo) ed.engine.command("REDO");
+    return k;
+  }, made);
+  check("Agents: the turn stays out of the user's history (⌘Z leaves the mobile frame; the chat's Undo is the turn's)", kept);
   await page.locator("[data-turn-undo]").click();
   await settle(page);
   check("Agents: Undo in the chat takes the whole turn back", (await page.evaluate((id) => window.__designerEditor.engine.readNode(id), made)) === null);
@@ -436,6 +541,21 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
   await settle(page);
   const panned = await measure();
   check("Agents: the placeholder follows pan and zoom", covers(panned), JSON.stringify(panned));
+  // Panned so its left edge lies under the left panel: "Making an image…" slides into the visible canvas.
+  const captionAt = await page.evaluate(() => {
+    const cap = document.querySelector("[data-agent-image-placeholder] > span")?.getBoundingClientRect();
+    const view = document.querySelector("[data-canvas-view]")?.getBoundingClientRect();
+    return cap && view ? { cap: Math.round(cap.left), capBottom: Math.round(cap.bottom), view: Math.round(view.left), viewBottom: Math.round(view.bottom) } : null;
+  });
+  check("Agents: the placeholder's caption stays in the visible canvas, never under a panel", !!captionAt && captionAt.cap >= captionAt.view && captionAt.capBottom <= captionAt.viewBottom, JSON.stringify({ captionAt, r: panned.r }));
+  if (process.env.AGENTS_UX_DIR) await closeUp(page, "[data-agent-image-placeholder]", `canvas-placeholder-panned-${theme}`, 48);
+  // Back to the view's own framing (zoom to the selection) for the shots.
+  await page.evaluate(() => {
+    const ed = window.__designerEditor;
+    const c = ed.engine.getCamera();
+    ed.engine.setCamera({ ...c, x: c.x + 60, y: c.y - 40 });
+  });
+  await settle(page);
   await page.evaluate(() => window.__agentsOpen("think"));
   await last.locator('[data-step-group="image"][data-group-state="running"]').waitFor({ timeout: 5000 });
   await page.waitForTimeout(300);
@@ -501,6 +621,7 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
     const pad = 48;
     await page.screenshot({ path: path.join(process.env.AGENTS_UX_DIR, `canvas-placed-${theme}.png`), clip: { x: Math.max(0, m.rect.x - pad), y: Math.max(0, m.rect.y - pad), width: m.rect.w + pad * 2, height: m.rect.h + pad * 2 } });
   }
+  if (process.env.AGENTS_REAL_IMAGE) await realImageSharpness(page, theme, { settle, check });
   // Asked for in words, but the agent makes none: the placeholder fades out, the card goes.
   await page.evaluate(() => window.__designerEditor.engine.setSelection([]));
   await settle(page);
@@ -541,6 +662,11 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
   const rowBox = await row("claude-code").boundingBox();
   check("Agents: rows are 32 px", Math.round(rowBox?.height ?? 0) === 32, JSON.stringify(rowBox));
   check("Agents: no Gemini CLI anywhere; the MCP server row counts 1 connection; Claude Code is connected as an app", !((await settings.textContent()) ?? "").includes("Gemini CLI") && (await page.locator('[data-settings-row="gemini-key"]').count()) === 0 && ((await page.locator('[data-settings-row="mcp"]').textContent()) ?? "").includes("1 connection") && (await page.locator('[data-client="claude-code"][data-connected]').count()) === 1);
+  const agRow = await row("antigravity").evaluate((e) => {
+    const state = e.querySelector("[data-provider-state]");
+    return { label: e.querySelector("span:nth-child(2)")?.textContent, state: state?.textContent, cut: !!state && state.scrollWidth > state.clientWidth + 1 };
+  });
+  check("Agents: a long name gives way, its state never: Antigravity (Google AI) keeps Connected whole", !agRow.cut && agRow.state === "Connected" && agRow.label === "Antigravity (Google AI)", JSON.stringify(agRow));
   await shot(page, `403-agents-settings-${theme}`);
   const openRow = async (sel) => {
     await page.locator(sel).click();
@@ -564,7 +690,14 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
   const order = await settings.locator('[aria-label="On this computer"] [data-provider]').evaluateAll((els) => els.map((e) => e.getAttribute("data-provider")));
   check("Agents: Antigravity is listed first after Claude Code", order[0] === "claude-code" && order[1] === "antigravity", JSON.stringify(order));
   await openRow('[data-provider="antigravity"]');
-  check("Agents: Antigravity's page: Connected with the Google account, its model by its own name, Sign out", ((await card("antigravity").textContent()) ?? "").includes("you@gmail.com") && ((await card("antigravity").getByRole("combobox", { name: "Model" }).textContent()) ?? "").includes("Gemini 3.8 Flash (Medium)") && (await card("antigravity").locator("[data-sign-out]").count()) === 1);
+  check("Agents: Antigravity's page: Connected with the Google account, its model by its own name, Sign out", ((await card("antigravity").textContent()) ?? "").includes("you@gmail.com") && ((await card("antigravity").getByRole("combobox", { name: "Model" }).textContent()) ?? "").includes("3.8 Flash (Medium)") && (await card("antigravity").locator("[data-sign-out]").count()) === 1);
+  const fits = await card("antigravity").evaluate((el) => {
+    const cut = (e) => !!e && e.scrollWidth > e.clientWidth + 1;
+    const path = el.querySelector("[data-path]");
+    const value = el.querySelector('[role="combobox"] span');
+    return { modelCut: cut(value), model: value?.textContent, tail: path?.lastElementChild?.textContent, tailCut: cut(path?.lastElementChild), tooltip: path?.getAttribute("data-tooltip") };
+  });
+  check("Agents: Antigravity's page: the model by its short name, whole; the Location's last part whole, the full path in its tooltip", !fits.modelCut && fits.model === "3.8 Flash (Medium)" && fits.tail === "/agy" && !fits.tailCut && fits.tooltip === "/Users/you/.local/bin/agy", JSON.stringify(fits));
   await shot(page, `403c-agents-settings-antigravity-${theme}`);
   await back();
   await openRow('[data-client="cursor"]');

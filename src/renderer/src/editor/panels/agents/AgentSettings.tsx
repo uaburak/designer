@@ -8,8 +8,9 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Button, IconButton, Select, Spinner, TextInput, cx, showToast, type IconName } from "@/ds";
 import type { AuthState, McpClientInfo, ProviderInfo } from "@shared/agents/types";
 import { modelLabel, type AgentSetupHost } from "../../agents/setup";
+import { shortModelName } from "../../agents/models";
 import styles from "./Agents.module.css";
-import { Block, Field, Group, Row, errorText } from "./settingsParts";
+import { Block, Field, Group, PathText, Row, errorText } from "./settingsParts";
 import { ConnectorsGroup, SkillsGroup, aiSettingsPage } from "./aiSettings";
 import { AccessGroup, accessSettingsPage } from "./AccessSettings";
 import { ManagerPage, managerStatus } from "./ManagerSettings";
@@ -259,7 +260,7 @@ function ProviderPage({ p, service }: { p: ProviderInfo; service: AgentSetupHost
           <span data-provider-state="">{t(state)}</span>
         </Field>
         {account && <Field label={t("Account")}>{account}</Field>}
-        {where && <Field label={cli ? t("Location") : t("Address")}><span className={styles.mono}>{where}</span></Field>}
+        {where && <Field label={cli ? t("Location") : t("Address")}>{cli ? <PathText path={where} /> : <span className={styles.mono}>{where}</span>}</Field>}
         {auth?.state === "signing-in" && (
           <div className={styles.pageText}>
             <Spinner size={16} /> {t("Waiting for the sign-in to finish…")}{" "}
@@ -274,7 +275,7 @@ function ProviderPage({ p, service }: { p: ProviderInfo; service: AgentSetupHost
         {!cli && !p.available && !custom && <p className={styles.pageText}>{t("Start {name} and load a model, then Look again.", { name: p.label })}</p>}
         {p.available && p.models.length > 1 && (
           <Field label={t("Model")}>
-            <Select label={t("Model")} className={styles.fieldSelect} value={service.modelOf(p) ?? ""} options={p.models.map((m) => ({ value: m, label: modelLabel(m, p) }))} onChange={(m) => void service.choose(p.id, m)} />
+            <Select label={t("Model")} className={styles.fieldSelect} value={service.modelOf(p) ?? ""} options={p.models.map((m) => ({ value: m, label: modelLabel(m, p), valueLabel: shortModelName(modelLabel(m, p)) }))} onChange={(m) => void service.choose(p.id, m)} />
           </Field>
         )}
         <div className={styles.actions}>
