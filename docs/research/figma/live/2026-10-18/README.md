@@ -19,3 +19,4 @@ Second pass, 2026-10-19 (same method; the rest of the editor and Home):
 - `comments.txt` — comment mode, the Comments panel and the new-comment pin and composer (nothing was posted).
 - `home.txt` + `home-recents.jpg` — Home: sidebar, header pill buttons, Community banner, tabs and filters, file cards.
 - `settings.txt` — the account dropdown and the Settings dialog's Account tab (no screenshot: it shows personal details).
+- `property-rows-copy.txt` — selecting Fill / Stroke / Effect rows in the Design panel, ⌘C / ⌘V / Delete on them, and the clipboard Message Figma writes (NODE_CHANGES with pasteAssetType STYLE_PROPERTIES_FILL / STROKE / EFFECT).

@@ -1,0 +1,30 @@
+Live Figma (web, UI3, dark, 1440x900), 2026-10-19: selecting Fill / Stroke / Effect rows in the Design panel and copying them with ⌘C / ⌘V. Measured in the owner's draft with the Plugin API, real clicks on the panel rows, and synthetic copy/paste ClipboardEvents (Figma's own handlers wrote and read the DataTransfer); the clipboard bytes were decoded with the schema the clipboard itself carries. Owner's screenshots of the selected state: the four images in his message of 2026-10-19 (fill row "White/3", "Image 100 %", two rows selected, a Glass effect row).
+
+ROW SELECTION
+- Clicking a paint / effect row's empty part (the gutter left of the field, the space between the field and the icons — not the swatch, not the text field, not the eye / minus) selects the ROW. The row element is role=row with aria-selected=true.
+- Selected look: the whole 240 x 32 row bg #394360 (--color-bg-selected); the row's field (156 x 24, r=5) gets a 1px solid #0C8CE9 border; the eye / minus buttons keep their place (their 24 x 24 boxes are marked data-fpl-selected).
+- Shift-click adds the range from the anchor to the clicked row (two fill rows → both highlighted, each field with its blue border — owner's 3rd capture). Selection lives in ONE section at a time: with a fill row selected, shift-clicking an effect row selected a range in Effects (rows 0..clicked, by the anchor's index) and dropped the fill row.
+- Selecting rows does not change the layer selection. Esc is the normal Esc (the layer is deselected and the rows with it). Clicking the canvas or selecting another layer clears the row selection.
+- Delete / Backspace with rows selected removes those paints / effects (one undo step) and clears the row selection; the layer stays.
+
+COPY (⌘C with rows selected)
+- Writes Figma's normal clipboard HTML (the (figmeta) / (figma) spans, a fig-kiwi archive: schema chunk + data chunk) holding a NODE_CHANGES Message:
+    type NODE_CHANGES, pasteID, pasteFileKey, pastePageId, isCut false, pasteEditorType DESIGN, clipboardSelectionRegions [{ parent: page, nodes: [the source layer's guid], focusType NONE }],
+    pasteAssetType (Message field 41, enum PasteAssetType: UNKNOWN=0, VARIABLE=1, STYLE_PROPERTIES=2, STYLE_PROPERTIES_FILL=3, STYLE_PROPERTIES_STROKE=4, STYLE_PROPERTIES_EFFECT=5),
+    nodeChanges: DOCUMENT 0:0, CANVAS 0:1 "Page 1", ONE temporary ROUNDED_RECTANGLE "Rectangle" 100 x 100 at identity transform (strokeJoin BEVEL) carrying ONLY the copied rows — fillPaints [...] for FILL, strokePaints [...] for STROKE (inferred from the enum), effects [...] for EFFECT, in the source's order — and the hidden "Internal Only Canvas" (internalOnly).
+- Fill copy example: pasteAssetType STYLE_PROPERTIES_FILL, fillPaints [{ SOLID 0000FF, opacity 0.5, authoredColor }].
+- Effect copy example (two rows): pasteAssetType STYLE_PROPERTIES_EFFECT, effects [DROP_SHADOW, FOREGROUND_BLUR] (Layer blur is FOREGROUND_BLUR in the schema).
+- Without a row selected ⌘C copies the layer as usual (verified: the next ⌘V pasted a whole copy of the rectangle).
+
+PASTE (⌘V when the clipboard holds a STYLE_PROPERTIES_* message)
+- Nothing selected: nothing happens — no layer is created ("can't paste into nothing").
+- One layer selected, no row selected: the copied paints / effects are ADDED ON TOP of the layer's own list (in the panel: above the existing rows), keeping their order; nothing is replaced. The pasted rows are not selected afterwards.
+- One layer selected WITH a row of the same section selected: the copied items are inserted directly ABOVE the selected row, and the row selection moves to the pasted rows.
+- Several layers selected whose lists are equal: added on top of each one. Several layers whose lists differ (the panel shows Mixed): nothing happens (one run with a text and an empty frame added it to the text only — treat mixed as "no paste").
+- A layer with no fills (a frame with none, a line): the paints become its fills. A text gets them as text fills. A group: they are added to the group's children (an ellipse inside a group got the paint added on top of its own).
+- Paste kind follows the clipboard's pasteAssetType: fills go to fills, effects to effects (strokes to strokes), whatever row is selected in the target.
+- Undo: one step per paste.
+
+NOT VERIFIED
+- ⌘X on rows (assumed: copy + delete), ⌘D on rows, drag of a selected group of rows, pasting a FILL clipboard while a STROKE row is selected (assumed: still fills), right-click on a row.
+- The real ⌘C / ⌘V keys could not be sent to the page from the test browser (its key events don't run the native copy command), so copy / paste were triggered with ClipboardEvents on Figma's focused input — the same handlers the keys run.
