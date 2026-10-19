@@ -56,31 +56,31 @@
   }
   .previewReplies { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
 
-  /* --- the new comment's composer (296 wide, 48 right of the pin) --- */
+  /* --- the new comment's composer (live 2026-10-19, comments.txt: 296 × 40, radius 13, 16 right of the pin's right edge and
+     4 under its top, the bottom toolbar's elevation; "Add a comment" 13 / 400 at 16, 8; Send 24 round at 264, 8) --- */
   .newComment {
     position: fixed;
     z-index: var(--ds-z-floating);
-    border-radius: 13px;
+    border-radius: var(--ds-radius-large);
     background: var(--figma-color-bg);
     box-shadow: var(--ds-elevation-200);
   }
-  .newComment:focus-within { box-shadow: var(--ds-elevation-200), inset 0 0 0 1px var(--figma-color-border-selected); }
 
   .composer { position: relative; display: flex; flex-direction: column; width: 100%; }
-  .composerRow { display: flex; align-items: flex-start; gap: var(--ds-space-2); padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-4); }
+  .composerRow { display: flex; align-items: flex-start; gap: var(--ds-space-3); padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-4); }
   .composerField {
     flex: 1;
     min-height: 24px;
-    padding: 3px 0;
+    padding: 1px 0;
     border: 0;
     outline: none;
     background: transparent;
     color: var(--figma-color-text);
-    font: var(--ds-font-body-large);
+    font: var(--ds-font-body-large-regular);
     resize: none;
     overflow-wrap: anywhere;
   }
-  .composerField::placeholder { color: var(--figma-color-text-disabled); }
+  .composerField::placeholder { color: var(--figma-color-text-tertiary); }
   .composerTools { display: flex; align-items: center; gap: 0; padding: 0 var(--ds-space-2) var(--ds-space-2); }
   .composer-reply { border-radius: 13px; background: var(--figma-color-bg-secondary); }
   .composer-edit { border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); margin-top: var(--ds-space-1); }
@@ -103,9 +103,9 @@
   }
   .toolButton:hover:not(:disabled) { background: var(--figma-color-bg-hover); }
   .toolButton:disabled { color: var(--figma-color-icon-disabled); }
-  /* [Send]: a 24 circle, grey while empty, blue with text */
-  .send { border-radius: 50%; background: var(--figma-color-bg-brand); color: var(--figma-color-icon-onbrand); }
-  .send:disabled { background: var(--figma-color-bg-disabled); color: var(--figma-color-icon-ondisabled); }
+  /* [Send]: a 24 circle, #757575 while empty, #0C8CE9 with text, the white up arrow on both (live 2026-10-19) */
+  .send { border-radius: var(--ds-radius-full); background: var(--figma-color-bg-brand); color: var(--figma-color-icon-onbrand); }
+  .send:disabled { background: var(--figma-color-bg-disabled); color: var(--figma-color-icon-onbrand); }
   .textButton,
   .saveButton {
     height: 24px;
@@ -243,9 +243,11 @@
   .headerGlyph { display: flex; }
   .panelError { margin: var(--ds-space-2) var(--ds-space-4) 0; color: var(--figma-color-text-danger); font: var(--ds-font-body-medium); }
 
-  .empty { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: var(--ds-space-4); }
-  .emptyIcon { display: flex; color: var(--figma-color-icon-secondary); }
-  .emptyText { margin: 0 0 0 28px; color: var(--figma-color-text); font: var(--ds-font-body-medium); font-weight: 400; }
+  /* The empty state (live 2026-10-19, comments.txt: the 20 bubble at 17, the text 174 wide at 45, 18 under the toolbar
+     row; 11 / 400) */
+  .empty { display: flex; align-items: flex-start; gap: var(--ds-space-1-5); padding: var(--ds-space-4) var(--ds-space-5) var(--ds-space-4) calc(var(--ds-space-4) - 1px); }
+  .emptyIcon { display: flex; flex: none; color: var(--figma-color-icon); }
+  .emptyText { flex: 1 1 auto; margin: var(--ds-space-half) 0 0; color: var(--figma-color-text); font: var(--ds-font-body-medium-regular); letter-spacing: var(--ds-tracking-body-medium-regular); }
 
   .list { flex: 1; min-height: 0; padding: var(--ds-space-2) 0; overflow-y: auto; }
   .row { display: block; padding: 0 var(--ds-space-2) var(--ds-space-2); outline: none; cursor: default; }

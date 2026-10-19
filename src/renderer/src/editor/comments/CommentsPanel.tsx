@@ -63,7 +63,7 @@ export function CommentsPanel() {
           }}
         >
           <span data-on={filtering || undefined} className={styles.headerGlyph}>
-            <Icon name="24.filter" />
+            <Icon name="16.filter.circle" />
           </span>
         </MenuButton>
         <MenuButton
@@ -84,7 +84,7 @@ export function CommentsPanel() {
       {list.length === 0 ? (
         <div className={styles.empty}>
           <span className={styles.emptyIcon}>
-            <Icon name="24.comment" />
+            <Icon name="24.comment.empty" />
           </span>
           <p className={styles.emptyText}>
             {v.search.trim() ? t("No comments match") : t("Give feedback, ask a question, or just leave a note of appreciation. Click anywhere in the file to leave a comment.")}

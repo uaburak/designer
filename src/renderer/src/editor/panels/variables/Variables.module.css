@@ -258,6 +258,24 @@
     letter-spacing: var(--ds-tracking-body-medium-strong);
   }
   .formIndent { padding-left: var(--ds-space-6); }
+  /* Edit variable (live 2026-10-19, variables.txt): 32 high rows, the label column 16 in (11 / 450, secondary), the
+     controls 102 in, 162 wide; "Value" and "Code syntax" 11 / 500 in the text colour, Code syntax's "+" at 248 */
+  .editForm { display: flex; flex-direction: column; padding: var(--ds-space-1) var(--ds-space-4) var(--ds-space-3); }
+  .editRow { display: grid; grid-template-columns: 78px minmax(0, 1fr); align-items: center; column-gap: var(--ds-space-2); min-height: var(--ds-size-row); padding: var(--ds-space-1) 0; }
+  .editRow > :first-child { align-self: start; line-height: var(--ds-size-control); }
+  .editSection {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: var(--ds-size-row);
+    margin-right: calc(var(--ds-space-2) * -1);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    font-weight: 500;
+    letter-spacing: var(--ds-tracking-body-medium);
+  }
+  .editCheck { display: flex; align-items: center; min-height: var(--ds-size-row); margin-top: var(--ds-space-2); }
+  .editScope { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: var(--ds-space-3) var(--ds-space-4) var(--ds-space-4); }
   .formFooter { display: flex; justify-content: flex-end; margin-top: var(--ds-space-2); }
   .formPair { display: flex; gap: var(--ds-space-2); }
   .formPair > * { flex: 1 1 0; min-width: 0; }

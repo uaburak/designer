@@ -31,7 +31,7 @@ export function Section({ heading, children, ...data }: { heading?: string; chil
 
 export const Divider = () => <hr className={styles.divider} />;
 
-export function Link({ children, onClick, danger, tight, ...rest }: { children: ReactNode; onClick: () => void; danger?: boolean; disabled?: boolean; tight?: boolean } & Record<`data-${string}`, string | undefined>) {
+export function Link({ children, onClick, danger, tight, ...rest }: { children: ReactNode; onClick: () => void; danger?: boolean; disabled?: boolean; tight?: boolean; "aria-haspopup"?: "menu" } & Record<`data-${string}`, string | undefined>) {
   return (
     <button type="button" className={[styles.link, danger && styles.danger, tight && styles.tight].filter(Boolean).join(" ")} onClick={onClick} {...rest}>
       {children}
@@ -70,6 +70,8 @@ export function AccountTab() {
   const user = account.state?.user ?? null;
   const [dialog, setDialog] = useState<DialogId>(null);
   const [photoMenu, setPhotoMenu] = useState<{ x: number; y: number } | null>(null);
+  // Language (live 2026-10-19, settings.txt: the language's name, then "Change language"): the languages as a menu under the link
+  const [languageMenu, setLanguageMenu] = useState<{ x: number; y: number } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const theme = useTheme();
   const [teamName, setTeamName] = useState<string | null>(null);
@@ -213,15 +215,28 @@ export function AccountTab() {
         )}
         <Divider />
         <Section heading={t("Language")} data-settings-section="language">
-          <Select
-            label={t("Language")}
-            className={styles.themeSelect}
-            variant="outlined"
-            value={locale}
-            options={LOCALES.map((l) => ({ value: l.id, label: l.label }))}
-            onChange={(v) => void setLocalePreference(v as Locale)}
-            data-language-select=""
-          />
+          <p className={styles.value} data-language-value="">{LOCALES.find((l) => l.id === locale)?.label ?? locale}</p>
+          <Link
+            onClick={() => {
+              const r = document.querySelector("[data-change-language]")?.getBoundingClientRect();
+              if (r) setLanguageMenu({ x: r.left, y: r.bottom + 4 });
+            }}
+            aria-haspopup="menu"
+            data-change-language=""
+          >
+            {t("Change language")}
+          </Link>
+          {languageMenu && (
+            <ContextMenu
+              at={languageMenu}
+              entries={LOCALES.map((l) => ({ id: l.id, label: l.label, checked: l.id === locale }))}
+              onSelect={(id) => {
+                setLanguageMenu(null);
+                void setLocalePreference(id as Locale);
+              }}
+              onClose={() => setLanguageMenu(null)}
+            />
+          )}
         </Section>
         <Divider />
         <Section heading={t("Theme")} data-settings-section="theme">
@@ -233,7 +248,7 @@ export function AccountTab() {
             options={[
               { value: "light", label: t("Light") },
               { value: "dark", label: t("Dark") },
-              { value: "system", label: t("System") },
+              { value: "system", label: t("System theme") },
             ]}
             onChange={(v) => setThemePreference(v as ThemePreference)}
           />

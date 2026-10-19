@@ -63,10 +63,17 @@ export function RightPanel({ floating }: { floating?: boolean } = {}) {
           </div>
         </>
       ) : commenting ? (
-        // Comment mode (C): the panel lists the file's comments (R14)
-        <div className={styles.rightBody}>
-          <CommentsPanel />
-        </div>
+        // Comment mode (C): the panel lists the file's comments (R14); live 2026-10-19 (comments.txt): its tab row holds
+        // one "Comments" tab (74 × 24, 11 / 550, no fill) and the zoom
+        <>
+          <div className={styles.rightTabs}>
+            <h2 className={styles.commentsTab}>{t("Comments")}</h2>
+            <ZoomMenu />
+          </div>
+          <div className={styles.rightBody}>
+            <CommentsPanel />
+          </div>
+        </>
       ) : (
         <>
           <div className={styles.rightTabs}>

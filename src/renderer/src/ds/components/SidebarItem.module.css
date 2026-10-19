@@ -8,8 +8,9 @@
     border: 0;
     background: transparent;
     color: var(--figma-color-text);
-    font: var(--ds-font-body-large);
-    letter-spacing: var(--ds-tracking-body-large);
+    /* Live 2026-10-19 (home.txt): the nav rows' labels 11 / 400 */
+    font: var(--ds-font-body-medium-regular);
+    letter-spacing: var(--ds-tracking-body-medium-regular);
     text-align: left;
     outline: none;
     cursor: default;

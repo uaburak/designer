@@ -14,7 +14,7 @@
  * prototypeBackgroundColor, scrollDirection, scrollBehavior), so it round-trips with .fig files.
  */
 import { useEffect, useMemo, useState } from "react";
-import { Checkbox, ColorInput, Icon, IconButton, MIXED, PanelSection, SegmentedControl, Select, TextInput, ToggleIconButton, cx } from "@/ds";
+import { Button, Checkbox, ColorInput, Icon, IconButton, MIXED, PanelSection, SegmentedControl, Select, TextInput, ToggleIconButton, cx } from "@/ds";
 import type { Color, Guid, NodeChange, NodeFields } from "@/engine/codec";
 import { useCurrentPage } from "@/engine/hooks";
 import { keyBetween } from "../../../../../shared/schema/fractionalIndex";
@@ -258,6 +258,7 @@ function Selected({
   onOpen: (node: Guid, index: number, anchor: HTMLElement | null) => void;
   openIndex: { node: Guid; index: number } | null;
 }) {
+  useT();
   const ed = useEditor();
   const page = useCurrentPage(ed.store);
   const one = nodes.length === 1 ? nodes[0] : null;
@@ -270,6 +271,68 @@ function Selected({
       <InteractionsSection nodes={nodes} frames={frames} onOpen={onOpen} openIndex={openIndex} screens={nodes.length > 1 && nodes.every((n) => n.parentIndex?.guid === page && isFrame(n))} />
       {nodes.every((n) => hasVideoFill(n as never)) && <VideoSection nodes={nodes} />}
       <ScrollSection nodes={nodes} topLevel={topLevel} isFrame={nodes.every(isFrame)} />
+      {/* Live 2026-10-19 (prototype.txt): "Show prototype settings" — the page's Device, Background and Flows, shown
+          with nothing selected — then Figma's tips. (Figma's "Send to Figma Make" row has no counterpart here.) */}
+      <div className={styles.settingsRow}>
+        <Button variant="secondary" fullWidth onClick={() => ed.engine.setSelection([])} data-show-prototype-settings="">
+          {t("Show prototype settings")}
+        </Button>
+      </div>
+      <PrototypeTips />
+    </>
+  );
+}
+
+const TIPS_KEY = "designer.prototypeTips";
+const TIPS = [
+  { id: "remove", title: "Removing a connection", icon: "24.proto.tip.remove", text: "To delete a connection, click and drag on either end." },
+  {
+    id: "run",
+    title: "Running your prototype",
+    icon: "16.proto.tip.play",
+    text: "Use the play button in the toolbar to play your prototype. If there are no connections, the play button can be used to play a presentation of your frames.",
+  },
+] as const;
+
+/** The tips' Close: kept per machine (localStorage, like the preferences) */
+function closedTips(): string[] {
+  try {
+    const raw = typeof localStorage !== "undefined" ? localStorage.getItem(TIPS_KEY) : null;
+    const v = raw ? (JSON.parse(raw) as unknown) : [];
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function PrototypeTips() {
+  useT();
+  const [closed, setClosed] = useState<string[]>(closedTips);
+  const close = (id: string) => {
+    const next = [...closed, id];
+    setClosed(next);
+    try {
+      if (typeof localStorage !== "undefined") localStorage.setItem(TIPS_KEY, JSON.stringify(next));
+    } catch {
+      // Private mode or a full store: closed for this session.
+    }
+  };
+  return (
+    <>
+      {TIPS.filter((tip) => !closed.includes(tip.id)).map((tip) => (
+        <section key={tip.id} className={styles.tip} aria-label={t(tip.title)} data-prototype-tip={tip.id}>
+          <div className={styles.tipHeader}>
+            <span>{t(tip.title)}</span>
+            <IconButton icon="24.close.small" label={t("Close")} tone="secondary" onClick={() => close(tip.id)} />
+          </div>
+          <div className={styles.tipBody}>
+            <span className={styles.tipGlyph}>
+              <Icon name={tip.icon} />
+            </span>
+            <p className={styles.tipText}>{t(tip.text)}</p>
+          </div>
+        </section>
+      ))}
     </>
   );
 }

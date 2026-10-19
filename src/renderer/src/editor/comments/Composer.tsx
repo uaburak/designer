@@ -184,7 +184,7 @@ function SendButton({ disabled, onClick }: { disabled: boolean; onClick(): void 
   useT();
   return (
     <button type="button" className={styles.send} aria-label={t("Send")} disabled={disabled} onPointerDown={(e) => e.preventDefault()} onClick={onClick}>
-      <Icon name="16.arrow.up" />
+      <Icon name="24.arrow.up" />
     </button>
   );
 }

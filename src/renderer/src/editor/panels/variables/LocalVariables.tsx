@@ -26,7 +26,7 @@ import type { Guid } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { runEditorCommand } from "../../commands";
 import { useLocalAssets, useUI } from "../../hooks";
-import { formatLiteral, groupTree, inGroup, matchesQuery, orphanMode, resolveVariable, rootOf, splitName, valueIn, VAR_TYPE_ICON, VAR_TYPE_LABEL, VAR_TYPES, type Collection, type GroupNode, type Variable, type VarType } from "../../model/variables";
+import { formatLiteral, groupTree, inGroup, matchesQuery, orphanMode, resolveVariable, rootOf, splitName, valueIn, VAR_TYPE_ICON, VAR_TYPE_ICON_24, VAR_TYPE_LABEL, VAR_TYPES, type Collection, type GroupNode, type Variable, type VarType } from "../../model/variables";
 import {
   addMode,
   createCollection,
@@ -564,7 +564,7 @@ export function LocalVariables() {
             entries={[{ id: "", label: t("All types"), checked: !typeFilter }, "-", ...VAR_TYPES.map((vt) => ({ id: vt, label: t(VAR_TYPE_LABEL[vt]), icon: VAR_TYPE_ICON[vt], checked: typeFilter === vt }))]}
             onSelect={(vt) => setTypeFilter((vt || null) as VarType | null)}
           >
-            <Icon name={typeFilter ? VAR_TYPE_ICON[typeFilter] : "24.adjust.small"} />
+            <Icon name={typeFilter ? VAR_TYPE_ICON[typeFilter] : "24.filter.circle"} />
           </MenuButton>
         </div>
         )}
@@ -756,7 +756,7 @@ export function LocalVariables() {
                         onDoubleClick={() => !extended && setRenaming({ kind: "variable", id: r.v.id })}
                       >
                         <span className={styles.glyph}>
-                          <Icon name={VAR_TYPE_ICON[r.v.type]} />
+                          <Icon name={VAR_TYPE_ICON_24[r.v.type]} />
                         </span>
                         <InlineEdit
                           label={t("Rename variable")}
@@ -778,7 +778,7 @@ export function LocalVariables() {
                       <div className={cx(styles.cell, styles.filler)} />
                       {/* Live: Edit variable in the last column, at 8, 8 */}
                       <div className={cx(styles.cell, styles.addMode)} data-edit-cell={r.v.name}>
-                        {!extended && <IconButton icon="24.adjust.small" label={t("Edit variable")} tone="secondary" className={styles.editButton} aria-expanded={edit?.id === r.v.id} onClick={(e) => setEdit({ id: r.v.id, anchor: e.currentTarget })} />}
+                        {!extended && <IconButton icon="24.variable.edit" label={t("Edit variable")} tone="secondary" className={styles.editButton} aria-expanded={edit?.id === r.v.id} onClick={(e) => setEdit({ id: r.v.id, anchor: e.currentTarget })} />}
                       </div>
                     </div>
                   )
@@ -786,9 +786,9 @@ export function LocalVariables() {
               </div>
               {rows.length === 0 && query && <div className={styles.footer}>{t("No results for “{query}”", { query })}</div>}
             </div>
-            {/* Live: "Create variable" 8 from the view's bottom-left corner, over the table */}
+            {/* Live 2026-10-19: a 41 high footer (a 1px line on top) with "Create variable" 8 in */}
             {!extended && (
-              <div className={styles.createBar}>
+              <div className={styles.createBar} data-variables-footer="">
                 <MenuButton label={t("Create variable")} entries={createMenu} onSelect={(vt) => create(vt as VarType)} className={styles.createButton}>
                   <Icon name="24.plus.small" />
                   <span>{t("Create variable")}</span>
@@ -799,7 +799,8 @@ export function LocalVariables() {
         )}
       </main>
 
-      {edit && <EditVariablePopover id={edit.id} anchor={edit.anchor} onClose={() => setEdit(null)} />}
+      {/* Live 2026-10-19: Edit variable opens left of the row's button */}
+      {edit && <EditVariablePopover id={edit.id} anchor={edit.anchor} placement="left" onClose={() => setEdit(null)} />}
       {bulk && <EditVariablesPopover ids={bulk.ids} anchor={bulk.anchor} onClose={() => setBulk(null)} />}
       {reorder && <ReorderCollectionsPopover anchor={reorder} onClose={() => setReorder(null)} />}
       {menu && (

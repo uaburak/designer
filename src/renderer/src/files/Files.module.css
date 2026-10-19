@@ -28,7 +28,9 @@
     border-right: 1px solid var(--figma-color-border);
     background: var(--figma-color-bg);
   }
-  /* The account (name, then its chevron) and, at the right, the notifications bell 8 from the edge (live 1.png) */
+  /* The account (name, then its chevron) and, at the right, the notifications bell 8 from the edge (live 2026-10-19,
+     home.txt: the account a 32 high button at 8, 8, radius 4 — the 24 photo at 12, the name 13 / 500 at 44 — the bell
+     32 × 32 at 200, 8) */
   .accountRow {
     display: flex;
     flex: none;
@@ -36,7 +38,7 @@
     justify-content: space-between;
     gap: var(--ds-space-2);
     height: var(--ds-size-home-topbar);
-    padding-right: var(--ds-space-2);
+    padding: 0 var(--ds-space-2);
   }
   .account {
     display: flex;
@@ -44,10 +46,12 @@
     min-width: 0;
     align-items: center;
     gap: var(--ds-space-2);
-    height: var(--ds-size-home-topbar);
-    padding: 0 var(--ds-space-2) 0 var(--ds-space-4);
-    font: var(--ds-font-body-large-strong);
-    letter-spacing: var(--ds-tracking-body-large-strong);
+    height: var(--ds-size-control-large);
+    padding: 0 var(--ds-space-1);
+    border-radius: var(--ds-radius-home-row);
+    font: var(--ds-font-body-large);
+    font-weight: 500;
+    letter-spacing: var(--ds-tracking-body-large);
   }
   button.account {
     border: 0;
@@ -56,7 +60,7 @@
     text-align: left;
     cursor: default;
   }
-  button.account:hover .accountName { color: var(--figma-color-text); }
+  button.account:hover { background: var(--figma-color-bg-hover); }
   button.account:focus-visible { outline: 2px solid var(--figma-color-border-selected); outline-offset: -2px; }
   button.account > [data-ds="Icon"] { flex: none; color: var(--figma-color-icon-secondary); }
   /* Figma's account menu (the owner's screenshot of live Figma's Home): ~300 wide, its rows 32 high, the header's own */
@@ -69,19 +73,23 @@
   .sharedName { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sharedRole { color: var(--figma-color-text-secondary); }
   .accountName { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .search { flex: none; padding: 0 var(--ds-space-4) var(--ds-space-2); }
-  /* Search as the page's tinted buttons (New folder, Import): a pill on the secondary fill, darker on hover */
-  .searchPill { border-radius: var(--ds-radius-full); }
+  /* Live 2026-10-19 (home.txt): Search 224 × 32 at 8, 48 on #383838, radius 8 */
+  .search { flex: none; padding: 0 var(--ds-space-2) var(--ds-space-2); }
+  .searchPill { border-radius: var(--ds-radius-home-search); }
   .searchPill:hover:not(:focus-within) { --field-ring: transparent; background: var(--figma-color-bg-tertiary); }
+  /* The space row (live 2026-10-19, home.txt: 8 in, 32 high, radius 4 — the 16 icon at 16, the name 13 / 550 at 44,
+     the plan chip 16 high at the right) */
   .team {
     display: flex;
     flex: none;
     align-items: center;
-    gap: var(--ds-space-2);
+    gap: var(--ds-space-3);
     height: var(--ds-size-row);
-    padding: 0 var(--ds-space-4);
-    font: var(--ds-font-body-medium-strong);
-    letter-spacing: var(--ds-tracking-body-medium-strong);
+    margin: 0 var(--ds-space-2);
+    padding: 0 var(--ds-space-2);
+    border-radius: var(--ds-radius-home-row);
+    font: var(--ds-font-body-large-strong);
+    letter-spacing: var(--ds-tracking-body-large-strong);
   }
   .teamName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .navGroup { display: flex; flex: none; flex-direction: column; }
@@ -122,11 +130,15 @@
     gap: var(--ds-space-1);
     min-width: 0;
     margin-left: var(--ds-space-1);
-    font: var(--ds-font-body-large-strong);
-    letter-spacing: var(--ds-tracking-body-large-strong);
+    /* Live 2026-10-19 (home.txt): the page's title 13 / 400 */
+    font: var(--ds-font-body-large-regular);
+    letter-spacing: var(--ds-tracking-body-large-regular);
     white-space: nowrap;
   }
   .create { display: flex; flex: none; gap: var(--ds-space-2); }
+  /* Live 2026-10-19 (home.txt): a product's pill ("Design") — the 16 product tile 16 in, the label at 40 (11 / 450) */
+  .productPill { padding: 0 var(--ds-space-4); }
+  .productPill > span { gap: var(--ds-space-2); }
 
   /* Offline (docs/cloud.md §2): one line under the top bar */
   .offlineBanner {
@@ -140,13 +152,15 @@
     letter-spacing: var(--ds-tracking-body-medium);
   }
 
+  /* The tabs and filters (live 2026-10-19, home.txt: a 64 high row, a 1px #444 line under it) */
   .filters {
     display: flex;
     flex: none;
     align-items: center;
     gap: var(--ds-space-2);
-    height: var(--ds-size-row);
-    margin: var(--ds-space-4) var(--ds-space-8) var(--ds-space-4);
+    height: var(--ds-space-16);
+    margin: 0 var(--ds-space-8) var(--ds-space-8);
+    border-bottom: 1px solid var(--figma-color-border);
   }
   .grow { flex: 1 1 auto; }
   /* Recents' tabs (live: 24 high, radius 5, selected bg #383838 / text, others bg #2c2c2c / secondary text, 11/550) */
@@ -221,7 +235,7 @@
     flex: 0 1 auto;
     min-width: 0;
     align-items: center;
-    gap: var(--ds-space-2);
+    gap: var(--ds-space-3);
     height: var(--ds-size-row);
     padding: 0;
     border: 0;
@@ -234,7 +248,8 @@
   }
   .spaceButton:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: 2px; }
   .spaceButton > [data-ds="Icon"] { flex: none; color: var(--figma-color-icon-secondary); }
-  .planBadge { flex: none; margin-left: auto; }
+  /* The plan chip (live 2026-10-19, home.txt: "Free" 16 high, #32394D, radius 4, 11 / 500 in #7CC4F8) */
+  .planBadge { flex: none; margin-left: auto; border-radius: var(--ds-radius-home-row); background: var(--figma-color-bg-selected-secondary); color: var(--figma-color-text-brand); font-weight: 500; }
   /* A team's icon: its initial in white on green — the sidebar's 16 circle, a 24 / 40 rounded square elsewhere */
   .teamIcon {
     display: inline-flex;

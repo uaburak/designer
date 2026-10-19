@@ -125,9 +125,9 @@
 
   /* The table */
   .main { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-  /* Room under the last row for "Create variable" */
-  .scroll { flex: 1 1 auto; min-height: 0; overflow: auto; padding-bottom: calc(var(--ds-size-control) + var(--ds-space-4)); }
-  .table { display: grid; min-width: max-content; }
+  .scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  /* Live 2026-10-19 (variables.txt): the cells 40 high, 1px apart — the gaps show the table's own #444 */
+  .table { display: grid; gap: 1px; min-width: max-content; padding-bottom: 1px; background: var(--figma-color-border); }
   .row { display: contents; }
   .cell {
     position: relative;
@@ -137,8 +137,6 @@
     min-width: 0;
     height: 40px;
     padding: 0 var(--ds-space-2);
-    border-right: 1px solid var(--figma-color-border);
-    border-bottom: 1px solid var(--figma-color-border);
     background: var(--figma-color-bg);
   }
   /* Live: Name and the modes 11 / 600 at 16 */
@@ -156,13 +154,14 @@
   .modeHead { justify-content: space-between; user-select: none; }
   .modeHead[data-default] .modeLabel::after { content: ""; }
   .modeLabel { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--figma-color-text); }
-  .addMode { border-right: 0; padding: 0 var(--ds-space-2); }
-  /* A group in the table (live: 16 above it, its name 11 / 600 at 16 on a 40 row) */
+  .addMode { padding: 0 var(--ds-space-2); }
+  /* A group in the table (live 2026-10-19: a 56 high row, its name 11 / 600 at 16, 30 down) */
   .groupCell {
     grid-column: 1 / -1;
-    margin-top: var(--ds-space-4);
+    align-items: flex-start;
+    height: 56px;
+    padding-top: calc(var(--ds-space-8) - 2px);
     padding-left: var(--ds-space-4);
-    border-right: 0;
     color: var(--figma-color-text);
     font: var(--ds-font-body-medium);
     font-weight: 600;
@@ -177,11 +176,14 @@
   .row[data-drop="after"] > .cell { box-shadow: inset 0 -2px 0 var(--figma-color-border-selected-strong); }
   .row:hover > .cell { background: var(--figma-color-bg-hover); }
   .rowSelected:hover > .cell { background: var(--figma-color-bg-selected-hover); }
-  .filler { border-right: 0; }
-
-  /* A value cell */
-  .value { padding: 0 var(--ds-space-1); }
-  .value > [data-ds="TextInput"], .value > [data-ds="NumericInput"] { flex: 1 1 auto; min-width: 0; }
+  /* A value cell (live 2026-10-19: a string's field 261 wide 12 in; a number's 135 wide 12 in; a colour's 16 swatch at 17
+     and its hex field 140 wide at 36; a boolean's 28 × 16 switch, then "True" / "False" at 55) */
+  .value { padding: 0 var(--ds-space-1) 0 var(--ds-space-3); }
+  .value > [data-ds="TextInput"] { flex: 1 1 auto; min-width: 0; }
+  .value > [data-ds="NumericInput"] { flex: 0 1 auto; width: 135px; min-width: 0; }
+  .swatchButton + [data-ds="TextInput"] { flex: 0 1 auto; width: 140px; }
+  .boolean { display: inline-flex; align-items: center; gap: 11px; padding-left: var(--ds-space-1); }
+  .formValue .boolean { padding-left: 0; }
   .swatchButton {
     display: inline-flex;
     flex: none;
@@ -239,8 +241,8 @@
   .formValue { height: var(--ds-size-control); padding: 0; border: 0; background: transparent; }
 
   .footer { display: flex; align-items: center; height: var(--ds-size-section-header); padding: 0 var(--ds-space-2); }
-  /* Live: "Create variable" 121 × 24 at 8 from the view's bottom-left, 11 / 400 at 34 */
-  .createBar { position: absolute; bottom: var(--ds-space-2); left: var(--ds-space-2); z-index: 2; display: flex; }
+  /* Live 2026-10-19: the footer 41 high, a 1px #444 line on top; "Create variable" 121 × 24 8 in, 11 / 400 at 34 */
+  .createBar { display: flex; flex: none; align-items: center; height: calc(var(--ds-size-section-header) + 1px); padding: 0 var(--ds-space-2); border-top: 1px solid var(--figma-color-border); }
   .createButton {
     display: inline-flex;
     align-items: center;

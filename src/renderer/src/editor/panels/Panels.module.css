@@ -216,6 +216,18 @@
     padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-space-2);
     border-bottom: 1px solid var(--figma-color-border);
   }
+  /* Comment mode's one tab (live 2026-10-19, comments.txt: "Comments" 74 × 24, 11 / 550, no fill) */
+  .commentsTab {
+    display: inline-flex;
+    align-items: center;
+    width: 74px;
+    height: var(--ds-size-control);
+    margin: 0;
+    padding: 0 var(--ds-space-2);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+  }
   /* The zoom (live: 62 × 24 at 300%, its text 12 from the left edge, the chevron 16 with 4 after it) */
   .zoom {
     display: flex;

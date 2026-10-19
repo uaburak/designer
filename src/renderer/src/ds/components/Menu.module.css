@@ -127,31 +127,31 @@
     color: var(--ds-color-menu-text-secondary);
   }
   /*
-   * The account menu's header (MenuItem `profile`; the owner's screenshot of live Figma's Home): the photo centred, the
-   * name under it underlined as a link, the email in the secondary colour. No row highlight — the name thickens instead.
+   * The account menu's header (MenuItem `profile`; live 2026-10-19, settings.txt): one 120 high item — the 40 photo
+   * centred 24 from its top, the name (11 / 450) centred at 72, the email (secondary) at 88. No row highlight — the name
+   * is underlined instead.
    */
   .profile {
     flex-direction: column;
-    gap: var(--ds-space-1);
-    height: auto;
-    padding-block: var(--ds-space-3) var(--ds-space-2);
+    justify-content: flex-start;
+    gap: 0;
+    height: var(--ds-size-account-profile);
+    padding-block: var(--ds-space-1) 0;
     text-align: center;
     white-space: normal;
   }
   .profile::before { content: none; }
-  .profile > [data-ds="Avatar"] { margin-bottom: var(--ds-space-1); }
+  .profile > [data-ds="Avatar"] { margin-bottom: var(--ds-space-5); }
   .profileName {
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font: var(--ds-font-body-large-strong);
-    letter-spacing: var(--ds-tracking-body-large-strong);
-    text-decoration: underline;
-    text-underline-offset: 2px;
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
     cursor: pointer;
   }
-  .profile[data-highlighted] .profileName { text-decoration-thickness: 2px; }
+  .profile[data-highlighted] .profileName { text-decoration: underline; text-underline-offset: 2px; }
   .profileEmail {
     max-width: 100%;
     overflow: hidden;

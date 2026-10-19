@@ -1,15 +1,15 @@
 /**
- * "Edit variable" (R3-18): Name, Description, the value in every mode,
- * Scoping ("Show in all supported properties" and the type's properties —
- * booleans have none), Code syntax (Web / Android / iOS, "+" adds one) and
- * Hide from publishing. Each change is one undo step.
+ * "Edit variable" (R3-18; live 2026-10-19, variables.txt: 280 wide, a 40 header with the tabs "Details" and "Scope"
+ * and Close). Details: Name, Description, "Value" with the value in every mode, Code syntax (Web / Android / iOS, "+"
+ * adds one) and Hide from publishing — a label column 16 in, the controls 102 in, 162 wide. Scope: "Show in all
+ * supported properties" and the type's properties (booleans have none: no Scope tab). Each change is one undo step.
  */
 import { useState } from "react";
-import { Checkbox, Icon, IconButton, MenuButton, Popover, TextArea, TextInput, cx, type PopoverPlacement } from "@/ds";
+import { Checkbox, Icon, IconButton, MenuButton, Popover, Tabs, TextArea, TextInput, cx, type PopoverPlacement } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { useLocalAssets } from "../../hooks";
-import { CODE_PLATFORMS, SCOPE_OPTIONS, scopeChecked, toggleScope, VAR_TYPE_LABEL, type CodeSyntaxEntry } from "../../model/variables";
+import { CODE_PLATFORMS, SCOPE_OPTIONS, scopeChecked, toggleScope, type CodeSyntaxEntry } from "../../model/variables";
 import { renameVariable, updateVariable } from "../../variables";
 import { ValueEditor } from "./ValueEditor";
 import styles from "./Variables.module.css";
@@ -21,6 +21,7 @@ export function EditVariablePopover({ id, anchor, placement = "bottom-start", on
   const ed = useEditor();
   const a = useLocalAssets();
   const [adding, setAdding] = useState<ReadonlySet<string>>(new Set());
+  const [tab, setTab] = useState<"details" | "scope">("details");
   const v = a.lookup.variable(id);
   const c = v ? a.lookup.collection(v.collection) : undefined;
   if (!v || !c) return null;
@@ -35,42 +36,48 @@ export function EditVariablePopover({ id, anchor, placement = "bottom-start", on
   };
   const shown = (platform: string) => !!syntax(platform as CodeSyntaxEntry["platform"]) || adding.has(platform);
   const missing = CODE_PLATFORMS.filter((p) => !shown(p.platform));
+  const tabs = [{ value: "details", label: t("Details") }, ...(options.length > 0 ? [{ value: "scope", label: t("Scope") }] : [])];
   return (
-    <Popover anchor={anchor} title={t("Edit variable")} width={280} placement={placement} onClose={onClose} label={t("Edit variable")}>
-      <div className={styles.form} data-edit-variable={v.name}>
-        <div className={styles.formRow}>
+    <Popover
+      anchor={anchor}
+      header={<Tabs label={t("Edit variable")} value={tab} onChange={(next) => setTab(next as "details" | "scope")} tabs={tabs} />}
+      width={280}
+      placement={placement}
+      onClose={onClose}
+      label={t("Edit variable")}
+    >
+      {tab === "scope" && options.length > 0 ? (
+        <div className={styles.editScope} data-edit-variable={v.name}>
+          <Checkbox label={t("Show in all supported properties")} checked={all} onChange={(on) => setScope("ALL_SCOPES", on)} />
+          {options.map((o) => (
+            <div key={o.scope}>
+              <Checkbox label={t(o.label)} checked={scopeChecked(scopes, o.scope)} onChange={(on) => setScope(o.scope, on)} />
+              {o.children?.map((ch) => (
+                <div key={ch.scope} className={styles.formIndent}>
+                  <Checkbox label={t(ch.label)} checked={scopeChecked(scopes, ch.scope)} onChange={(on) => setScope(ch.scope, on)} />
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : (
+      <div className={styles.editForm} data-edit-variable={v.name}>
+        <div className={styles.editRow}>
           <span className={styles.formLabel}>{t("Name")}</span>
-          <TextInput label={t("Name")} value={v.name} onCommit={(name) => renameVariable(ed, id, name)} autoFocus />
+          <TextInput label={t("Name")} variant="outlined" value={v.name} onCommit={(name) => renameVariable(ed, id, name)} autoFocus />
         </div>
-        <div className={styles.formRow}>
-          <span className={styles.formLabel}>{t("Type")}</span>
-          <span>{t(VAR_TYPE_LABEL[v.type])}</span>
+        <div className={styles.editRow}>
+          <span className={styles.formLabel}>{t("Description")}</span>
+          <TextArea label={t("Description")} value={v.description} placeholder={t("How to use this variable")} minRows={2} onCommit={(description) => updateVariable(ed, id, { description }, "Edit variable description")} />
         </div>
-        <TextArea label={t("Description")} value={v.description} placeholder={t("Description")} minRows={2} onCommit={(description) => updateVariable(ed, id, { description }, "Edit variable description")} />
-        <div className={styles.formSection}>{t("Values")}</div>
+        <div className={styles.editSection}>{t("Value")}</div>
         {c.modes.map((m) => (
-          <div key={m.id} className={styles.formRow}>
+          <div key={m.id} className={styles.editRow}>
             <span className={styles.formLabel}>{m.name}</span>
             <ValueEditor variable={v} mode={m.id} collection={c} className={cx(tableStyles.formValue)} />
           </div>
         ))}
-        {options.length > 0 && (
-          <>
-            <div className={styles.formSection}>{t("Scoping")}</div>
-            <Checkbox label={t("Show in all supported properties")} checked={all} onChange={(on) => setScope("ALL_SCOPES", on)} />
-            {options.map((o) => (
-              <div key={o.scope}>
-                <Checkbox label={t(o.label)} checked={scopeChecked(scopes, o.scope)} onChange={(on) => setScope(o.scope, on)} />
-                {o.children?.map((ch) => (
-                  <div key={ch.scope} className={styles.formIndent}>
-                    <Checkbox label={t(ch.label)} checked={scopeChecked(scopes, ch.scope)} onChange={(on) => setScope(ch.scope, on)} />
-                  </div>
-                ))}
-              </div>
-            ))}
-          </>
-        )}
-        <div className={styles.formSection}>
+        <div className={styles.editSection}>
           <span>{t("Code syntax")}</span>
           {missing.length > 0 && (
             <MenuButton label={t("Add code syntax")} entries={missing.map((p) => ({ id: p.platform, label: p.label }))} onSelect={(p) => setAdding(new Set([...adding, p]))}>
@@ -88,9 +95,11 @@ export function EditVariablePopover({ id, anchor, placement = "bottom-start", on
               }} />
           </div>
         ))}
-        <div className={styles.formSection}>{t("Publishing")}</div>
-        <Checkbox label={t("Hide from publishing")} checked={v.hidden} onChange={(hidden) => updateVariable(ed, id, { hidden }, "Hide from publishing")} />
+        <div className={styles.editCheck}>
+          <Checkbox label={t("Hide from publishing")} checked={v.hidden} onChange={(hidden) => updateVariable(ed, id, { hidden }, "Hide from publishing")} />
+        </div>
       </div>
+      )}
     </Popover>
   );
 }

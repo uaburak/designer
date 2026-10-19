@@ -102,9 +102,10 @@ describe("Settings", () => {
     (window as unknown as { designer: { setLocale: (l: string) => Promise<string> } }).designer.setLocale = async (l) => (asked.push(l), l);
     expect($("[data-settings-section='language'] h3")?.textContent).toBe("Language");
     expect($("[role='tab'][aria-selected='true']")?.textContent).toBe("Account");
-    await click($("[data-language-select] [role='combobox']")!);
+    expect($("[data-language-value]")?.textContent).toBe("English");
+    await click($("[data-change-language]")!);
     await settle();
-    await click($$("[role='option']").find((o) => o.textContent?.trim() === "Türkçe")!);
+    await click($$("[role^='menuitem']").find((o) => o.textContent?.trim() === "Türkçe")!);
     // Turkish's dictionary is a chunk of its own, loaded on the first switch
     await act(() => vi.waitFor(() => expect(asked).toEqual(["tr"]), { timeout: 5000 }));
     expect($("[data-settings-section='language'] h3")?.textContent).toBe("Dil");

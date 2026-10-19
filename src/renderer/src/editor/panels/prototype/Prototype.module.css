@@ -82,7 +82,8 @@
     height: var(--ds-size-row);
     padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left);
   }
-  .interactionOpen { background: var(--figma-color-bg-tertiary); }
+  /* (live 2026-10-19: the open interaction's row on #383838) */
+  .interactionOpen { background: var(--figma-color-bg-secondary); }
   .interactionButton {
     display: grid;
     flex: 1 1 auto;
@@ -137,7 +138,7 @@
     padding: 0;
     border: 0;
     background: transparent;
-    color: var(--figma-color-text);
+    color: var(--figma-color-text-secondary); /* live 2026-10-19: "State" 11 / 550 in #ffffffb2 */
     font: var(--ds-font-body-medium-strong);
     letter-spacing: var(--ds-tracking-body-medium-strong);
     text-align: left;
@@ -154,6 +155,62 @@
     letter-spacing: var(--ds-tracking-body-medium-strong);
   }
   .duration { flex: none; width: 88px; }
+  /* The animation's preview (live 2026-10-19, prototype.txt): a 212 × 96 tile at 15 (#383838, radius 5), the 54 × 60
+     phone outlined in white (radius 2), three 42-wide bars (12 / 10 / 10 high) playing the transition in a loop */
+  .previewTile {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 96px;
+    margin: var(--ds-space-2) calc(var(--ds-space-4) - 1px) 0;
+    overflow: hidden;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+  }
+  .previewPhone {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ds-space-1);
+    width: 54px;
+    height: 60px;
+    padding: var(--ds-space-1-5);
+    overflow: hidden;
+    border: 1px solid var(--figma-color-icon);
+    border-radius: var(--ds-radius-small);
+  }
+  .previewBar { flex: none; width: 42px; height: 10px; border: 1px solid var(--figma-color-icon); border-radius: 1px; }
+  .previewBar:first-child { height: 12px; }
+  .previewPhone > .previewBar { animation: previewPlay calc(var(--preview-duration) + 1.2s) var(--preview-timing) infinite; }
+  .previewPhone[data-kind="INSTANT"] > .previewBar { animation: none; }
+  .previewPhone[data-kind="DISSOLVE"] > .previewBar, .previewPhone[data-kind="SMART_ANIMATE"] > .previewBar { animation-name: previewFade; }
+  @keyframes previewPlay {
+    0% { transform: translateX(100%); }
+    60%, 100% { transform: translateX(0); }
+  }
+  @keyframes previewFade {
+    0% { opacity: 0; transform: translateY(var(--ds-space-2)); }
+    60%, 100% { opacity: 1; transform: translateY(0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .previewPhone > .previewBar { animation: none; }
+  }
+  /* "Show prototype settings" (live 2026-10-19): a full-width text button under Scroll behavior */
+  .settingsRow { padding: var(--ds-space-2) var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-size-panel-pad-left); border-bottom: 1px solid var(--figma-color-border); }
+  /* Tips (live 2026-10-19, prototype.txt: "Removing a connection", "Running your prototype"): a 11 / 550 title with
+     Close, then the illustration at 17 and the text (11 / 450) at 49, 173 wide */
+  .tip { padding: var(--ds-space-2) 0 var(--ds-space-4); border-bottom: 1px solid var(--figma-color-border); }
+  .tipHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: var(--ds-size-row);
+    padding: 0 var(--ds-space-2) 0 var(--ds-size-panel-pad-left);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+  }
+  .tipBody { display: flex; align-items: flex-start; gap: var(--ds-space-2); padding: 0 var(--ds-space-4) 0 calc(var(--ds-size-panel-pad-left) - 4px); }
+  .tipGlyph { display: flex; flex: none; justify-content: center; width: var(--ds-size-control); color: var(--figma-color-icon); }
+  .tipText { margin: 0; color: var(--figma-color-text); }
   .quad {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -52,8 +52,9 @@
     border-radius: var(--ds-radius-medium);
     background: transparent;
     color: var(--figma-color-text-secondary);
-    font: var(--ds-font-body-medium);
-    letter-spacing: var(--ds-tracking-body-medium);
+    /* Live 2026-10-19 (settings.txt): every tab's label 11 / 550, the one shown white on #383838 */
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
     white-space: nowrap;
     outline: none;
     cursor: default;

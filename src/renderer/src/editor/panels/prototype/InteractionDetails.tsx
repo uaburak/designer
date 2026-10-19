@@ -561,11 +561,14 @@ function AnimationEditor({ action, kind, onChange }: { action: PrototypeAction; 
       )}
       {shown !== "INSTANT" && (
         <>
-          <div className={styles.row}>
+          {/* Live 2026-10-19 (prototype.txt): "Easing" — the curve's glyph, then its name — and "Duration" — a filled
+              field with a stopwatch, "300ms" — each a labelled row of its own */}
+          <Labelled label={t("Easing")}>
             <Select
-              label={t("Curve")}
+              label={t("Easing")}
               variant="outlined"
-              className={styles.grow}
+              className={styles.field}
+              prefix="24.proto.easing"
               value={easing === "SPRING" ? "GENTLE_SPRING" : easing === "EASE_IN" ? "IN_CUBIC" : easing}
               options={translated(EASINGS)}
               onChange={(v) => {
@@ -577,10 +580,13 @@ function AnimationEditor({ action, kind, onChange }: { action: PrototypeAction; 
                 onChange(next, "Edit easing");
               }}
             />
-            {!spring && (
+          </Labelled>
+          {!spring && (
+            <Labelled label={t("Duration")}>
               <NumericInput
                 label={t("Duration")}
-                className={styles.duration}
+                className={styles.field}
+                prefix="24.proto.duration"
                 value={Math.round((action.transitionDuration || 0.3) * 1000)}
                 unit="ms"
                 min={1}
@@ -588,8 +594,8 @@ function AnimationEditor({ action, kind, onChange }: { action: PrototypeAction; 
                 precision={0}
                 onChange={(v, info) => onChange({ ...action, transitionDuration: v / 1000 }, "Edit duration", info)}
               />
-            )}
-          </div>
+            </Labelled>
+          )}
           {easing === "CUSTOM_CUBIC" && (
             <div className={styles.quad}>
               {["X1", "Y1", "X2", "Y2"].map((p, i) => (
@@ -604,9 +610,28 @@ function AnimationEditor({ action, kind, onChange }: { action: PrototypeAction; 
               ))}
             </div>
           )}
+          <TransitionPreview animation={shown} curve={spring ? null : fn} duration={spring ? 0.6 : action.transitionDuration || 0.3} />
         </>
       )}
     </>
+  );
+}
+
+/**
+ * The animation's preview (live 2026-10-19, prototype.txt): a 212 × 96 tile (#383838, radius 5) under Duration, a
+ * 54 × 60 outlined phone holding three 42-wide bars that play the transition — its kind, curve and duration — again
+ * and again.
+ */
+function TransitionPreview({ animation, curve, duration }: { animation: Animation; curve: readonly number[] | null; duration: number }) {
+  const timing = curve && curve.length === 4 ? `cubic-bezier(${curve.join(", ")})` : "ease-out";
+  return (
+    <div className={styles.previewTile} aria-hidden data-transition-preview={animation}>
+      <div className={styles.previewPhone} data-kind={animation} style={{ ["--preview-duration" as string]: `${duration}s`, ["--preview-timing" as string]: timing }}>
+        <span className={styles.previewBar} />
+        <span className={styles.previewBar} />
+        <span className={styles.previewBar} />
+      </div>
+    </div>
   );
 }
 

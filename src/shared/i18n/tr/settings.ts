@@ -52,6 +52,8 @@ export const settings: Record<string, string> = {
   Light: "Açık",
   Dark: "Koyu",
   System: "Sistem",
+  "System theme": "Sistem teması",
+  "Change language": "Dili değiştir",
   "Enhance contrast": "Kontrastı artır",
   "When enabled, contrast between text and controls and their backgrounds will be increased":
     "Açıkken metin ve denetimlerle arka planları arasındaki kontrast artırılır",

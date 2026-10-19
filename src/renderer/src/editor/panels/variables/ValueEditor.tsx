@@ -7,7 +7,7 @@
  * same type — never one that would make a cycle.
  */
 import { useMemo, useState } from "react";
-import { Checkbox, ColorPicker, Icon, NumericInput, Swatch, TextInput, cx, tooltipProps } from "@/ds";
+import { ColorPicker, Icon, NumericInput, Swatch, Switch, TextInput, cx, tooltipProps } from "@/ds";
 import type { Color, Guid } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { useLocalAssets } from "../../hooks";
@@ -56,7 +56,7 @@ export function ValueEditor({ variable, mode, collection, className }: { variabl
         body = (
           <>
             <button type="button" className={styles.swatchButton} aria-label={`${label}: ${t("colour")}`} onClick={(e) => setColor(e.currentTarget.getBoundingClientRect())}>
-              <Swatch color={colorToHex(c)} opacity={toPercent(c.a ?? 1)} size={14} />
+              <Swatch color={colorToHex(c)} opacity={toPercent(c.a ?? 1)} size={16} />
             </button>
             <TextInput
               label={label}
@@ -78,7 +78,13 @@ export function ValueEditor({ variable, mode, collection, className }: { variabl
         body = <TextInput label={label} variant="ghost" value={String(value.value)} placeholder={t("Empty")} onCommit={(v) => set(v)} />;
         break;
       case "BOOLEAN":
-        body = <Checkbox label={value.value === true ? t("true") : t("false")} checked={value.value === true} onChange={(on) => set(on)} aria-label={label} />;
+        // Live 2026-10-19 (variables.txt): a switch, then "True" / "False"
+        body = (
+          <span className={styles.boolean}>
+            <Switch label={label} checked={value.value === true} onChange={(on) => set(on)} />
+            <span aria-hidden>{value.value === true ? t("True") : t("False")}</span>
+          </span>
+        );
         break;
     }
   }

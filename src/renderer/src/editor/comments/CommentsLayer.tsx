@@ -22,6 +22,8 @@ const PIN = 32;
 /** Live: the composer's left edge 48 right of the pin's, its top 4 above the pin's */
 const CARD_DX = 48;
 const CARD_DY = -4;
+/** The new comment's composer: 4 under the pin's top (live 2026-10-19, comments.txt) */
+const DRAFT_DY = 4;
 const DRAG_PX = 3;
 
 export function CommentsLayer() {
@@ -103,7 +105,7 @@ function Pins({ c }: { c: CommentsController }) {
       </div>
       {draftAt && data && (
         <Portal>
-          <Card left={canvasRect.left + draftAt.x + CARD_DX} top={canvasRect.top + draftAt.y - PIN + CARD_DY} width={296}>
+          <Card left={canvasRect.left + draftAt.x + CARD_DX} top={canvasRect.top + draftAt.y - PIN + DRAFT_DY} width={296}>
             {(style) => (
               <div className={styles.newComment} style={style} onPointerDown={(e) => e.stopPropagation()} data-comment-composer="">
                 <Composer

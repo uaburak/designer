@@ -367,13 +367,14 @@ export const size = {
   "rename-list": 240, // Rename layers' Preview list before it scrolls
   "field-narrow": 40, // live: Rename layers' "Start ascending from" field
   "home-topbar": 48,
-  "home-sidebar": 240, // G
+  "home-sidebar": 241, // live 2026-10-19 (home.txt): 240 and its 1px right border
   "home-nav": 28,
   "home-nav-pitch": 32,
-  "card-width": 268,
-  "card-height": 213,
-  "card-thumb": 151,
-  "card-gap": 36,
+  // live 2026-10-19 (home.txt): 356 × 260 cards, a 354 × 199 thumbnail over a 59 footer, 32 apart
+  "card-width": 356,
+  "card-height": 260,
+  "card-thumb": 199,
+  "card-gap": 32,
   "list-row": 40, // the Home list view's row (§4.27)
   "list-header": 32, // G — the list view's column header
   "breadcrumb-max": 160, // G — an ancestor crumb's width before it ellipsizes
@@ -384,15 +385,16 @@ export const size = {
   // The Settings modal (5–9.png ÷ 2): 650 wide, a 40 header, 48 in at the sides, the Account tab's content 200 in past a
   // 120 photo; at most 730 high.
   "settings-modal": 650,
-  "settings-modal-height": 730,
+  "settings-modal-height": 720, // live 2026-10-19 (settings.txt): 650 × 720
   "settings-header": 40,
   "settings-pad": 48,
   "settings-content": 200,
   "settings-photo": 120,
-  // Home's account menu (the owner's screenshot of live Figma, 2026-10-12): ~300 wide, the header's photo 48, 32 rows.
-  "account-menu": 300,
-  "account-photo": 48,
-  "account-row": 32,
+  // Home's account menu (live 2026-10-19, settings.txt): 224 wide, a 120 profile block with a 40 photo, 24 rows.
+  "account-menu": 224,
+  "account-photo": 40,
+  "account-row": 24,
+  "account-profile": 120,
   chit: 14, // K
   "swatch-round": 16,
   "styles-row": 30,
@@ -401,7 +403,7 @@ export const size = {
 } as const;
 
 /** Corner radii, `--ds-radius-<key>` (px, §1.7). */
-export const radius = { none: 0, small: 2, medium: 5, "medium-large": 9, "asset-tile": 10, large: 13, full: 9999 } as const;
+export const radius = { none: 0, small: 2, "home-row": 4, medium: 5, "home-search": 8, "medium-large": 9, "asset-tile": 10, large: 13, full: 9999 } as const;
 
 export const fontFamily = {
   /** "Inter Symbols" (global.css): Inter 3.19's key glyphs (⌘ ⇧ ⌥ ⌃ ⌫ ↵ arrows) — live's widths (11px: ⌫ 13, ⌘ 11, ⌃ 9) */

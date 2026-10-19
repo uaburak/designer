@@ -4,7 +4,7 @@
  * through its watch.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Breadcrumb, Button, ContextMenu, EmptyState, Icon, IconButton, MenuButton, SegmentedControl, Select, Spinner, showToast, useTheme, type MenuEntry, type ToastOptions } from "@/ds";
+import { Breadcrumb, Button, ContextMenu, EmptyState, FileKindIcon, Icon, IconButton, MenuButton, SegmentedControl, Select, Spinner, showToast, useTheme, type MenuEntry, type ToastOptions } from "@/ds";
 import { keys } from "@/ds/util/keys";
 import { t as tr, useT } from "@/i18n";
 import type { FileKey, FileListItem, Folder, FolderId, OrgImportPlace, Prefs } from "@shared/store/types";
@@ -555,7 +555,8 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   const onAccountMenu = (e: React.MouseEvent) => {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     setMenu({
-      at: { x: r.left + 8, y: r.bottom },
+      // Live 2026-10-19 (settings.txt): under the account button, its left edge, 4 below
+      at: { x: r.left, y: r.bottom + 4 },
       entries: accountMenu(account.state, { theme: theme.preference, multi: account.multi }),
       className: styles.accountMenu,
       run: (id) =>
@@ -1018,7 +1019,8 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
             )}
             {canCreateFiles(location) && !folderGone && !outsideHome && (
               <>
-                <Button variant="tinted" size="large" icon="24.design" tooltip={tr("New design file")} shortcut={keys(["mod", "n"])} onClick={() => void newFile()}>
+                <Button variant="tinted" size="large" className={styles.productPill} tooltip={tr("New design file")} shortcut={keys(["mod", "n"])} onClick={() => void newFile()}>
+                  <FileKindIcon />
                   {tr("Design")}
                 </Button>
                 <Button variant="tinted" size="large" icon="24.plus.small" tooltip={tr("Import .fig files")} onClick={() => void doImport()}>
@@ -1060,7 +1062,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
             </Button>
           )}
           {location.kind !== "folders" && !showShared && (
-            <Select label={tr("Files shown")} variant="ghost" width="hug" value={filter} options={(["all", "design"] as FileFilter[]).map((f) => ({ value: f, label: tr(FILTER_LABEL[f]) }))} onChange={(v) => setFilter(v as FileFilter)} />
+            <Select label={tr("Files shown")} variant="outlined" width="hug" value={filter} options={(["all", "design"] as FileFilter[]).map((f) => ({ value: f, label: tr(FILTER_LABEL[f]) }))} onChange={(v) => setFilter(v as FileFilter)} />
           )}
           {location.kind !== "trash" && !showShared && (
             <MenuButton

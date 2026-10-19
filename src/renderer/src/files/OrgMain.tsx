@@ -407,7 +407,7 @@ export function OrgMain(props: OrgMainProps) {
   };
   const controls = (withFiles = true) => (
     <div className={styles.pageControls}>
-      {withFiles && onFilter && <Select label={tr("Files shown")} variant="ghost" width="hug" value={filter} options={(["all", "design"] as FileFilter[]).map((f) => ({ value: f, label: tr(FILTER_LABEL[f]) }))} onChange={(v) => onFilter(v as FileFilter)} />}
+      {withFiles && onFilter && <Select label={tr("Files shown")} variant="outlined" width="hug" value={filter} options={(["all", "design"] as FileFilter[]).map((f) => ({ value: f, label: tr(FILTER_LABEL[f]) }))} onChange={(v) => onFilter(v as FileFilter)} />}
       {withFiles && onBrowse && (
         <MenuButton label={tr("Sort")} entries={[{ header: tr("Sort by") }, ...SORT_KEYS.map((k) => ({ id: k, label: tr(SORT_LABEL[k]), checked: sortKey === k }))]} onSelect={(id) => onBrowse({ sort: id as SortKey })}>
           <span className={styles.sortLabel}>
@@ -549,7 +549,8 @@ export function OrgMain(props: OrgMainProps) {
       const drafts: OrgImportPlace = { kind: "org-drafts" };
       actions = noCreate ? null : (
         <>
-          <Button variant="tinted" size="large" icon="24.design" tooltip={tr("New design file")} onClick={() => void newDesignFile(null)}>
+          <Button variant="tinted" size="large" className={styles.productPill} tooltip={tr("New design file")} onClick={() => void newDesignFile(null)}>
+            <FileKindIcon />
             {tr("Design")}
           </Button>
           {mayImport && importButton(() => importTo(drafts))}
@@ -587,7 +588,8 @@ export function OrgMain(props: OrgMainProps) {
       const drafts: OrgImportPlace = { kind: "org-drafts" };
       actions = noCreate ? null : (
         <>
-          <Button variant="tinted" size="large" icon="24.design" tooltip={tr("New design file")} onClick={() => void newDesignFile(null)}>
+          <Button variant="tinted" size="large" className={styles.productPill} tooltip={tr("New design file")} onClick={() => void newDesignFile(null)}>
+            <FileKindIcon />
             {tr("Design")}
           </Button>
           {mayImport && importButton(() => importTo(drafts))}
@@ -746,7 +748,8 @@ export function OrgMain(props: OrgMainProps) {
       actions =
         tab === "main" && creates ? (
           <>
-            <Button variant="tinted" size="large" icon="24.design" tooltip={tr("New design file")} onClick={() => void newProject()}>
+            <Button variant="tinted" size="large" className={styles.productPill} tooltip={tr("New design file")} onClick={() => void newProject()}>
+              <FileKindIcon />
               {tr("Design")}
             </Button>
             {mayImport && importButton(() => void importProjects())}
@@ -838,7 +841,8 @@ export function OrgMain(props: OrgMainProps) {
                 {tr("New folder")}
               </Button>
             )}
-            <Button variant="tinted" size="large" icon="24.design" tooltip={tr("New design file")} onClick={() => void newDesignFile(p.id)}>
+            <Button variant="tinted" size="large" className={styles.productPill} tooltip={tr("New design file")} onClick={() => void newDesignFile(p.id)}>
+              <FileKindIcon />
               {tr("Design")}
             </Button>
             {mayImport && importButton(() => importTo({ kind: "project", projectId: p.id }))}

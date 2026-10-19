@@ -1493,6 +1493,17 @@ engine/src/overlay/ChromePalette.generated.h   # GENERATED (path per engine cont
    Baselines live outside the repo (in the scratchpad or `~/DesignerV2-gallery-baseline`).
 4. **When to run it.** Every DS change: `npm run check` (tokens sync, raw-value test, unit tests), then `gallery:shots` against the previous baseline. Inspect the intended diffs and re-baseline.
 
+### As built 2026-10-19 — Variables, Prototype, Comments, Home, Settings against live Figma
+
+Source: `docs/research/figma/live/2026-10-18/{variables,prototype,comments,home,settings}.txt` (live DOM, 2026-10-19). Tokens changed: `home-sidebar` 241, `card-*` 356 × 260 / thumb 199 / gap 32, `settings-modal-height` 720, `account-menu` 224 / `account-row` 24 / `account-photo` 40 / `account-profile` 120, radii `home-row` 4 and `home-search` 8. New icons: `24.variable.type.{string,boolean,color,number}`, `24.variable.edit`, `24/16.filter.circle`, `24.comment.empty`, `24.arrow.up`, `24.proto.{easing,duration,tip.remove}`, `16.proto.tip.play` (Figma's paths). The tinted button (Home's pills) has the 1px #444 ring; SidebarItem labels are 11 / 400; FileCard radius 13, star 16 in, no ring.
+
+Still different, on purpose or for lack of data:
+- Home keeps **All projects** in Recents' place (the owner's 2026-10-14 decision): no Recents row / Recently viewed · Shared files · Shared folders tabs on the local or org pages, no Community row or banner (no Community in Wecra), no plan card ("See what's included" — no plans page), no FigJam / Slides / Make / More pills (Wecra has Design only; Import stays), the star shown always (owner, 2026-10-14) rather than on hover, Back / Forward kept.
+- Variables: Minimize keeps the resizable floating table (Figma's docked table not measured); the breadcrumb for an open group, the 2px ring on dark swatches and the colour + opacity split fields in Edit variable aren't built (Wecra's alias-capable value editor is kept there); Edit variable drops the "Type" row (Figma has none).
+- Prototype: no "Send to Figma Make" row; the easing glyph is one ease-out curve for every easing (Figma draws the chosen curve); the preview animates bars rather than Figma's exact frames.
+- Comments: only the empty panel, the pin and the composer were measured (no posted thread); Wecra's emoji / @ toolbar after typing is kept.
+- Settings: sections keep Wecra's dividers and 24 spacing (the earlier screenshots), the scrim stays `--ds-color-scrim` (#00000066 vs Figma's #00000080), the account menu keeps Wecra's rows (no Get desktop app / Community group).
+
 ---
 
 ## 6. Mismatches to fix (from `docs/research/visual-diff.md`)

@@ -23,6 +23,8 @@ export const VAR_TYPES: readonly VarType[] = ["COLOR", "FLOAT", "STRING", "BOOLE
 export const VAR_TYPE_LABEL: Record<VarType, string> = { COLOR: "Color", FLOAT: "Number", STRING: "String", BOOLEAN: "Boolean" };
 /** The 16px glyph of each type (the table's name column, the pickers). */
 export const VAR_TYPE_ICON = { COLOR: "16.variable.color", FLOAT: "16.number", STRING: "16.text", BOOLEAN: "16.variable.boolean" } as const;
+/** The Local variables table's 24 type glyphs (live 2026-10-19, variables.txt) */
+export const VAR_TYPE_ICON_24 = { COLOR: "24.variable.type.color", FLOAT: "24.variable.type.number", STRING: "24.variable.type.string", BOOLEAN: "24.variable.type.boolean" } as const;
 
 export interface AliasRef {
   guid: GuidValue;
