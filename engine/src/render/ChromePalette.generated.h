@@ -9,7 +9,7 @@ inline constexpr float kChromeLight[size_t(ChromeColor::Count)][4] = {
   {1.0f, 1.0f, 1.0f, 1.0f}, // handleFill
   {0.05098f, 0.6f, 1.0f, 1.0f}, // handleStroke
   {0.05098f, 0.6f, 1.0f, 1.0f}, // hover
-  {0.592157f, 0.278431f, 1.0f, 1.0f}, // component
+  {0.541176f, 0.219608f, 0.960784f, 1.0f}, // component
   {0.05098f, 0.6f, 1.0f, 1.0f}, // sizeBadgeFill
   {1.0f, 1.0f, 1.0f, 1.0f}, // sizeBadgeText
   {0.0f, 0.0f, 0.0f, 0.501961f}, // frameTitleOnLight
@@ -33,7 +33,7 @@ inline constexpr float kChromeLight[size_t(ChromeColor::Count)][4] = {
   {1.0f, 0.141176f, 0.741176f, 0.25098f}, // slotFill
   {1.0f, 0.141176f, 0.741176f, 1.0f}, // slotStroke
   {0.960784f, 0.960784f, 0.960784f, 1.0f}, // canvasDefault
-  {0.0f, 0.0f, 0.0f, 0.101961f}, // pixelGrid
+  {0.0f, 0.0f, 0.0f, 0.058824f}, // pixelGrid
   {0.0f, 0.482353f, 0.898039f, 1.0f}, // frameTitleSelectedOnLight
   {0.486275f, 0.768627f, 0.972549f, 1.0f}, // frameTitleSelectedOnDark
   {0.52549f, 0.219608f, 0.898039f, 1.0f}, // frameTitleComponentOnLight
@@ -86,7 +86,7 @@ inline constexpr float kChromeDark[size_t(ChromeColor::Count)][4] = {
   {0.952941f, 0.086275f, 0.690196f, 0.25098f}, // slotFill
   {0.952941f, 0.086275f, 0.690196f, 1.0f}, // slotStroke
   {0.117647f, 0.117647f, 0.117647f, 1.0f}, // canvasDefault
-  {1.0f, 1.0f, 1.0f, 0.101961f}, // pixelGrid
+  {1.0f, 1.0f, 1.0f, 0.058824f}, // pixelGrid
   {0.0f, 0.482353f, 0.898039f, 1.0f}, // frameTitleSelectedOnLight
   {0.486275f, 0.768627f, 0.972549f, 1.0f}, // frameTitleSelectedOnDark
   {0.52549f, 0.219608f, 0.898039f, 1.0f}, // frameTitleComponentOnLight
@@ -111,5 +111,5 @@ inline constexpr float kChromeDark[size_t(ChromeColor::Count)][4] = {
   {0.458824f, 0.458824f, 0.458824f, 1.0f}, // statusCancelled
 };
 struct ChromeMetrics { float selectionStroke, hoverStroke, handle, badgeHeight, badgePadX, badgeRadius, badgeGap, titleBaseline, rulerThickness, rulerTick, rulerFontSize, titleSize, sectionPillHeight, sectionPillPadX, sectionPillFontSize, sectionPillGap, radiusHandle, radiusHandleInset; };
-inline constexpr ChromeMetrics kChromeMetrics{ 1, 2, 7, 17, 4, 2, 6, 10, 20, 4, 10, 11, 23, 6, 11, 6, 9, 12 };
+inline constexpr ChromeMetrics kChromeMetrics{ 1, 2, 7, 17, 4, 2, 6, 10, 20, 4, 10, 11, 23, 5, 11, 6, 9, 12 };
 }

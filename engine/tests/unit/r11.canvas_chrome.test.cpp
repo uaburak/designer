@@ -289,13 +289,13 @@ TEST_CASE("r11 smart selection: tiny dots off the selection, rings on it; a sele
   auto ellipses = [&](const Color& c, bool fill, float d) {
     return boxes(all, [&](const DrawInstance& q) { return kind(q, ShapeKind::Ellipse) && sameColor(q, c) && (fill ? isFill(q) : isStroke(q)) && q.origin[2] == d; });
   };
-  // A white dot 3.5 across with a pink core 1.5 across, on each centre.
-  CHECK(ellipses(white, true, 3.5f).size() == 3);
-  auto cores = ellipses(style.spacing, true, 1.5f);
-  REQUIRE(cores.size() == 3);
+  // A white dot 3.5 across on each centre — no pink core (Group 1: live smart-selection-three-equal-rects).
+  auto dots = ellipses(white, true, 3.5f);
+  REQUIRE(dots.size() == 3);
+  CHECK(ellipses(style.spacing, true, 1.5f).empty());
   Vec2 c1 = s.screen({530, 30});
-  CHECK(cores[0][0] + 0.75f == doctest::Approx(std::round(c1.x)));
-  CHECK(cores[0][1] + 0.75f == doctest::Approx(std::round(c1.y)));
+  CHECK(dots[0][0] + 1.75f == doctest::Approx(std::round(c1.x)));
+  CHECK(dots[0][1] + 1.75f == doctest::Approx(std::round(c1.y)));
   // The pointer on the selection: rings — pink 9 across (1 px inside) between white ones 11 and 7 across.
   s.move(s.screen({610, 30}));
   CHECK_FALSE(s.e.overlay().centreDotsIdle);

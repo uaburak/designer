@@ -877,7 +877,8 @@ Editor::Events Editor::takeEvents() {
 Overlay Editor::overlay() const {
   Overlay o;
   o.zooming = zooming_;
-  if (gesture_ == Gesture::None && hover_ != kNoGuid && measureTarget_ == kNoGuid) o.hover.push_back(hover_);
+  // (Pressed but not moved yet, the layer under the pointer keeps its 2 px hover outline: live autolayout-drag-01, Group 1.)
+  if ((gesture_ == Gesture::None || gesture_ == Gesture::Press) && hover_ != kNoGuid && measureTarget_ == kNoGuid) o.hover.push_back(hover_);
   for (Guid h : layersHover_) o.hover.push_back(h);
   o.selection = selection_;
   o.handles = !viewer_ && gesture_ != Gesture::Move && gesture_ != Gesture::Marquee && gesture_ != Gesture::Rotate && gesture_ != Gesture::Reorder;
@@ -920,6 +921,11 @@ Overlay Editor::overlay() const {
     o.measures = measures_;
     o.measureGuides = measureGuides_;
     o.bands = bands_;
+  } else if (gesture_ == Gesture::Move && duplicating_) {
+    // An ⌥-copy off any auto-layout frame: its distances to the layer it was copied from (Group 1; dragMove).
+    o.measureTarget = measureTarget_;
+    o.measures = measures_;
+    o.measureGuides = measureGuides_;
   }
   if ((gesture_ == Gesture::None || gesture_ == Gesture::LayoutBar) && selection_.size() == 1 && selection_[0] == layoutBarsFrame_) {
     o.layoutBars = layoutBars_;
@@ -980,6 +986,12 @@ Overlay Editor::overlay() const {
   // Round 12: a selected grid's gaps of one axis, the pointer in one of them or dragging it (tools/GridGestures.cpp).
   if (text_.node == kNoGuid && vector_.node == kNoGuid) gridGapOverlay(o);
   o.pixelGrid = (viewOptions_ & VIEW_PIXEL_GRID) != 0;
+  // Group 1: the AI sparkle while the pointer is over the selection or on the sparkle — not while dragging, editing
+  // text or a path, on a spacing bar, in Dev Mode, Prototype or Motion, nor for a viewer.
+  o.aiButton = (gesture_ == Gesture::None || gesture_ == Gesture::Press) && !viewer_ && !selection_.empty() && (pointerNearSelection_ || aiHover_) &&
+               text_.node == kNoGuid && vector_.node == kNoGuid && layoutBarHover_ < 0 && !proto_.on && !motion_.on && !devInspect() &&
+               selectingTool() && !spaceHeld_ && !contextMenuHeld_;
+  o.aiButtonHovered = o.aiButton && aiHover_;
   o.outlines = (viewOptions_ & VIEW_OUTLINES) != 0;
   o.outlineHidden = (viewOptions_ & VIEW_OUTLINE_HIDDEN) != 0;
   o.outlineBounds = (viewOptions_ & VIEW_OUTLINE_BOUNDS) != 0;

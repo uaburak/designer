@@ -958,6 +958,8 @@ export type EngineEvent =
   | { type: "GRID_TRACKS"; frame: Guid | null; axis: "COLUMNS" | "ROWS"; tracks: number[]; edit: boolean; x: number; y: number; width: number; height: number }
   /** A frame's title (or a section's pill) was double-clicked: rename it in place over (x, y, width, height), canvas CSS px. */
   | { type: "REQUEST_RENAME"; ref: Guid; x: number; y: number; width: number; height: number }
+  // Group 1: the AI sparkle by the selection pressed (its box, canvas CSS px) — the Actions panel opens.
+  | { type: "AI_BUTTON"; x: number; y: number; width: number; height: number }
   /**
    * Round 17: a canvas drag changed its value by a whole step (padding, gap, corner radius, W / H, a degree), its
    * auto-layout flow swapped, or a move snapped to a new guide — the trackpad's tick (`count`: the pointer moves that

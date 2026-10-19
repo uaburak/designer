@@ -255,6 +255,8 @@ struct CanvasHits {
     Guid set = kNoGuid;
     Rect rect;
   } addVariant;
+  // Group 1: the AI (sparkle) button outside the selection's top-right corner (screen CSS px; w 0: none).
+  Rect aiButton;
 };
 
 // Round 18: another person in the file (docs/engine.md §9.6 presence): their room session, name, multiplayer colour,
@@ -286,6 +288,10 @@ struct Overlay {
   std::vector<Guid> hover;  // outlined (the canvas hover, or rows hovered in Layers)
   std::vector<Guid> selection;
   bool handles = true;      // resize handles on the selection box
+  // Group 1 (live Figma: canvas-rect-selected-hover-radius-handles, autolayout-drag-01 / -08, -r2-07…): the AI
+  // sparkle button outside the selection's top-right corner while the pointer is over the selection (or on it).
+  bool aiButton = false;
+  bool aiButtonHovered = false;
   bool sizeBadge = true;    // the W × H badge under the selection
   bool selectionBox = true; // the selection's box (off in vector edit mode)
   bool hasMarquee = false;
