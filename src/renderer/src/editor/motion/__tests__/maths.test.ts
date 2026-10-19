@@ -3,7 +3,8 @@
 // the Design fields' routing in Motion mode (panels/motionWrites.ts).
 import { describe, expect, it } from "vitest";
 import type { TimelineLayer } from "@shared/motion/types";
-import { ORIGIN_PX, clampTimelineHeight, copyKeyframes, fitScale, formatTime, frameUs, layerExtent, marqueeBox, otherKeyframeTimes, overlaps, parseTime, rulerTicks, snapTime, snapToFrame, timeToX, xToTime } from "../timeline/maths";
+import { ORIGIN_PX, adjacentKeyframe, clampTimelineHeight, copyKeyframes, fitScale, formatTime, formatTrackValue, frameUs, layerExtent, marqueeBox, otherKeyframeTimes, overlaps, parseTime, rulerLabel, rulerTicks, snapTime, snapToFrame, timeNumber, timeToX, trackValueAt, xToTime } from "../timeline/maths";
+import type { TimelineTrack } from "@shared/motion/types";
 import { motionFieldOf, movedValue } from "../panels/motionWrites";
 
 const layer = (tracks: { id: string; times: number[] }[]): TimelineLayer => ({
@@ -27,13 +28,13 @@ describe("timeline maths", () => {
     expect(xToTime(-40, s)).toBe(0);
   });
 
-  it("labels the ruler at the first step whose labels are 56 px apart", () => {
-    const s = { pxPerUs: 0.0005 }; // 0.5 px / ms → 250 ms = 125 px, 100 ms = 50 px (too close)
+  it("labels the ruler at the first step whose labels are 80 px apart", () => {
+    const s = { pxPerUs: 0.0005 }; // 0.5 px / ms → 200 ms = 100 px, 100 ms = 50 px (too close)
     const ticks = rulerTicks(1_000_000, s, "ms", 60);
     const labels = ticks.filter((t) => t.label !== null).map((t) => t.label);
-    expect(labels).toEqual(["0 ms", "250 ms", "500 ms", "750 ms", "1000 ms"]);
-    expect(ticks.filter((t) => t.label === null).length).toBe(16);
-    expect(rulerTicks(1_000_000, s, "frames", 60).find((t) => t.timeUs === 500_000)?.label).toBe("30 f");
+    expect(labels).toEqual(["0s", "200ms", "400ms", "600ms", "800ms", "1s"]);
+    expect(ticks.filter((t) => t.label === null).length).toBe(20);
+    expect(rulerTicks(1_000_000, s, "frames", 60).find((t) => t.timeUs === 400_000)?.label).toBe("24");
   });
 
   it("snaps to frames, and with ⇧ to the playhead and the other keyframes", () => {
@@ -96,5 +97,25 @@ describe("timeline maths", () => {
     expect(motionFieldOf("rotation", undefined)).toBe("ROTATION");
     expect(movedValue({ type: "VECTOR", value: { x: 10, y: -5 } }, { x: 5, y: 1 })).toEqual({ type: "VECTOR", value: { x: 15, y: -4 } });
     expect(movedValue({ type: "FLOAT", value: 90 }, { x: -10, y: 0 })).toEqual({ type: "FLOAT", value: 80 });
+  });
+
+  it("Figma's timeline wording (2026-10-18): ruler labels, the header's bare numbers, a property row's value and its ‹ ›", () => {
+    expect([0, 500_000, 1_000_000, 1_500_000, 2_000_000].map((t) => rulerLabel(t, "ms", 60))).toEqual(["0s", "500ms", "1s", "500ms", "2s"]);
+    expect(rulerLabel(500_000, "frames", 60)).toBe("30");
+    expect(timeNumber(1_855_000, "ms", 60)).toBe("1855");
+    const opacity: TimelineTrack = { id: "t", field: { type: "PROPERTY", name: "OPACITY" }, label: "Opacity", keyframes: [
+      { id: "a", timeUs: 0, value: { type: "FLOAT", value: 0 }, easing: { type: "LINEAR" } },
+      { id: "b", timeUs: 1_000_000, value: { type: "FLOAT", value: 1 }, easing: { type: "LINEAR" } },
+    ] };
+    expect(formatTrackValue(opacity, trackValueAt(opacity, 250_000))).toBe("25%");
+    expect(formatTrackValue(opacity, trackValueAt(opacity, 5_000_000))).toBe("100%");
+    const position: TimelineTrack = { id: "p", field: { type: "PROPERTY", name: "TRANSLATION_XY" }, label: "Position", keyframes: [
+      { id: "c", timeUs: 0, value: { type: "VECTOR", value: { x: 0, y: 0 } }, easing: { type: "LINEAR" } },
+      { id: "d", timeUs: 1_000_000, value: { type: "VECTOR", value: { x: 381.2, y: 492 } }, easing: { type: "LINEAR" } },
+    ] };
+    expect(formatTrackValue(position, trackValueAt(position, 500_000))).toBe("190.6, 246");
+    expect(adjacentKeyframe(position, 500_000, -1)).toBe(0);
+    expect(adjacentKeyframe(position, 500_000, 1)).toBe(1_000_000);
+    expect(adjacentKeyframe(position, 1_000_000, 1)).toBeNull();
   });
 });

@@ -1,11 +1,12 @@
 /**
- * The diamonds beside Design's own fields in Motion mode (docs/motion.md §6.5): Position X / Y, Rotation, W / H,
- * Opacity, Corner radius and Stroke weight wear the Motion section's diamond before the field — empty without a
- * track, an outline with one, filled at a keyframe on the playhead; a click adds the keyframe there or removes it.
+ * The diamonds of the fields in Motion mode (docs/motion.md §6.5, §6.13): Transform's Position / Scale / Rotation, W / H,
+ * Opacity, Corner radius, Stroke weight, a solid paint's colour — each joined with its diamond as the control's last
+ * cell, Figma's way: outlined without a track, on the selected blue with one (or with auto-keyframe on), filled at a
+ * keyframe on the playhead; a click adds the keyframe there or removes it.
  *
  * DesignPanel puts `MotionFieldStates` around its sections in Motion mode: one `motionFieldStates` read for the
- * selection, re-read when the document, the selection, Motion or the playhead changed, shared by every diamond (and
- * the Motion section). Out of Motion mode there is no provider and a `MotionField` is its field alone.
+ * selection, re-read when the document, the selection, Motion or the playhead changed, shared by every diamond. Out of
+ * Motion mode there is no provider and a `MotionField` is its field alone.
  */
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { fieldKey, type DiamondState, type FieldStates, type KeyframeField, type KeyframePropertyFieldName } from "@shared/motion/types";
@@ -21,6 +22,8 @@ interface MotionStates {
   refs: string[];
   states: FieldStates;
   timeUs: number;
+  /** Auto-keyframe on: every diamond reads as keyed-to-be (Figma tints them all) */
+  auto: boolean;
 }
 
 const MotionStatesContext = createContext<MotionStates | null>(null);
@@ -30,6 +33,7 @@ export function useMotionFieldStates(nodes: readonly PanelNode[]): MotionStates 
   const ed = useEditor();
   const refs = useMemo(() => nodes.map((n) => String(n.guid)), [nodes]);
   const timeUs = useUI((s) => (s.motion ?? MOTION_UI_DEFAULT).timeUs);
+  const auto = useUI((s) => !!(s.motion ?? MOTION_UI_DEFAULT).autoKeyframe);
   const version = useTopics(ed.store, ["selection", "structure", "undo"]);
   const [motionVersion, setMotionVersion] = useState(0);
   useEffect(() => ed.engine.on("MOTION_CHANGED", () => setMotionVersion((v) => v + 1)), [ed]);
@@ -39,7 +43,7 @@ export function useMotionFieldStates(nodes: readonly PanelNode[]): MotionStates 
     void timeUs;
     return motionRead(() => ed.engine.motionFieldStates(refs), {});
   }, [ed, refs, version, motionVersion, timeUs]);
-  return useMemo(() => ({ refs, states, timeUs }), [refs, states, timeUs]);
+  return useMemo(() => ({ refs, states, timeUs, auto }), [refs, states, timeUs, auto]);
 }
 
 export function MotionFieldStates({ nodes, children }: { nodes: readonly PanelNode[]; children: ReactNode }) {
@@ -69,20 +73,24 @@ export function toggleKeyframe(ed: EditorController, refs: readonly string[], fi
 }
 
 /**
- * A Design field with its diamond before it (Motion mode only). `field` is the track the diamond adds; `axis`, when
- * the layer has its own track for one axis (Position X or Y alone, exclusive with the XY track), is the one it shows.
+ * A Design field joined with its diamond (Motion mode only; Figma's rule, docs/research/figma/live/2026-10-18/
+ * motion.txt: "every animatable field is a joined control whose LAST cell holds the keyframe diamond"). `field` is the
+ * track the diamond adds — a property, or a paint's / effect's indexed field; `axis`, when the layer has its own track
+ * for one axis (Position X or Y alone, exclusive with the XY track), is the one it shows. Several fields sharing one
+ * diamond (Position X / Y, Scale X / Y) go in one MotionField as its children.
  */
-export function MotionField({ field, axis, disabled, children }: { field: KeyframePropertyFieldName; axis?: KeyframePropertyFieldName; disabled?: boolean; children: ReactNode }) {
+export function MotionField({ field, axis, disabled, className, children }: { field: KeyframePropertyFieldName | KeyframeField; axis?: KeyframePropertyFieldName; disabled?: boolean; className?: string; children: ReactNode }) {
   const ed = useEditor();
   const ctx = useMotionStates();
   if (!ctx) return <>{children}</>;
+  const asField = (f: KeyframePropertyFieldName | KeyframeField): KeyframeField => (typeof f === "string" ? { type: "PROPERTY", name: f } : f);
   const own = axis ? combinedState(ctx.states, ctx.refs, fieldKey({ type: "PROPERTY", name: axis })) : null;
-  const name = own && own.state !== "none" ? axis! : field;
-  const { state, keyframes } = own && own.state !== "none" ? own : combinedState(ctx.states, ctx.refs, fieldKey({ type: "PROPERTY", name }));
+  const target = own && own.state !== "none" ? asField(axis!) : asField(field);
+  const { state, keyframes } = own && own.state !== "none" ? own : combinedState(ctx.states, ctx.refs, fieldKey(target));
   return (
-    <div className={styles.field} data-motion-field={name} data-state={state}>
-      <KeyframeDiamond size="small" state={state} disabled={disabled} onClick={() => toggleKeyframe(ed, ctx.refs, { type: "PROPERTY", name }, state, keyframes, ctx.timeUs)} />
+    <div className={className ? `${styles.field} ${className}` : styles.field} data-motion-field={target.type === "PROPERTY" ? target.name : fieldKey(target)} data-state={state}>
       {children}
+      <KeyframeDiamond state={state} auto={ctx.auto} disabled={disabled} onClick={() => toggleKeyframe(ed, ctx.refs, target, state, keyframes, ctx.timeUs)} />
     </div>
   );
 }

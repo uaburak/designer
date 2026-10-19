@@ -216,6 +216,10 @@
     padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-space-2);
     border-bottom: 1px solid var(--figma-color-border);
   }
+  /* Motion mode (the owner's capture, 2026-10-18): "Motion" 11/550 at 16 with a "Beta" chip — 1 px border, corners 4 — in place of the tabs */
+  .motionHeader { padding-left: var(--ds-size-panel-pad-left); }
+  .motionTitle { display: flex; align-items: center; height: var(--ds-size-control); gap: var(--ds-space-1); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium); }
+  .betaChip { display: inline-flex; align-items: center; box-sizing: border-box; height: 16px; padding: 0 var(--ds-space-1); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium); color: var(--figma-color-text); font: var(--ds-font-body-medium); }
   /* The zoom (live: 62 × 24 at 300%, its text 12 from the left edge, the chevron 16 with 4 after it) */
   .zoom {
     display: flex;

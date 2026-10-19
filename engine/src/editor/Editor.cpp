@@ -989,6 +989,8 @@ Overlay Editor::overlay() const {
     o.rotationOrigin = gesture_ == Gesture::Rotate ? rotateCentre_ : rotationOrigin();
   }
   if (gesture_ == Gesture::Rotate) o.badgeText = rotateBadgeText();
+  // Motion (the owner's capture of Figma, 2026-10-18): no W × H badge under the selection (the angle while rotating stays).
+  if (motion_.on && gesture_ != Gesture::Rotate) o.sizeBadge = false;
   // Motion (docs/motion.md §6.4): the selected layer's motion path, the anchor point's target; the Motion icon's frames.
   motionOverlay(o);
   o.motionTitles = motionTitleRoots_;
