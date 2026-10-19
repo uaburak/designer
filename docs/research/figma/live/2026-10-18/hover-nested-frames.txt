@@ -1,0 +1,17 @@
+Live Figma (web, UI3), 2026-10-19: hovering frames inside / beside a selected frame. Owner's test file figma.com/design/hch4pFsm2kl216JpQcDt7b, page "Test":
+- "ana frame" FRAME 26:93 (1554x3356, no auto layout) holding two "iç frame" FRAMEs 26:90 and 26:94 (1080x1440, VERTICAL auto layout), each with "çocuk" RECTANGLE 492x515 and a TEXT label ("BU SEÇİLİ OLAN FRAME" / "BU HOVER OLAN FRAME").
+- "test" / "test-Frame" (wrapped 3x3 auto-layout grid of 1080x1440 frames, each a vertical auto-layout frame with a rectangle) — see autolayout-drag-frames.txt.
+Owner's desktop captures of the same states: owner-2026-10-19/hover-*.webp (his message of 22:20–22:29; the pointer isn't visible in them).
+
+OBSERVED (zoom 23 %, real pointer hover)
+A. One "iç frame" selected (26:94), pointer over the other "iç frame" (26:90, its sibling):
+   - the hovered frame's DIRECT children (the text and the rectangle) are outlined with a 1 px dotted blue line;
+   - the hovered frame itself gets the hover outline (1 px solid blue; in the capture it sat under the owner's green multiplayer selection);
+   - the selected frame keeps its normal selection chrome (solid 1 px, handles, "1080 × 1440" pill); its own children are NOT dotted.
+B. The parent "ana frame" selected, pointer over a child "iç frame":
+   - the hovered child: 1 px solid blue outline; ITS direct children dotted (text, rectangle);
+   - the selected parent's other children are not dotted; smart-selection pink centre rings show on the parent's children (equal spacing), as for any multi-child selection.
+C. (owner's captures) "test-Frame" (wrap grid) selected, pointer over a cell frame: same as B — the hovered cell outlined, its rectangle dotted.
+Rule: dotted outlines go on the DIRECT children of the frame under the pointer (when that frame is not the selection), never on the selection's own children and never deeper than one level.
+
+THE OWNER'S REPORT (2026-10-19): "in Wecra, with a frame selected (the 8-cell one), hovering a frame inside it — the hovered frame's children get dashed borders… it's a bit different from Figma". Compare Wecra in states A, B and C with the same fixture and pointer positions and match Figma: which layers get dotted, solid hover outline, line style (dotted 1 px, dash pattern), colour, and whether the selection's own outline turns dashed (in the owner's Wecra capture the selected grid frame shows a dashed outline — Figma keeps it solid).
