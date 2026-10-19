@@ -74,7 +74,8 @@ double textPathReach(const NodeProps& p) {
 // Past this many changes the log starts over (a cache that fell that far behind rebuilds).
 constexpr size_t kMaxLog = 1 << 16;
 // Fields that change which nodes draw or how they nest (Document::ChangeRecord::structural).
-constexpr FieldMask kStructuralFields = F_PARENT_INDEX | F_VISIBLE | F_TYPE | F_RESIZE_TO_FIT | F_FRAME_MASK_DISABLED | F_MASK | F_MASK_TYPE;
+// Canvas stacking (stackReverseZIndex) and auto layout on / off change the order a frame's children paint in.
+constexpr FieldMask kStructuralFields = F_PARENT_INDEX | F_VISIBLE | F_TYPE | F_RESIZE_TO_FIT | F_FRAME_MASK_DISABLED | F_MASK | F_MASK_TYPE | F_STACK_REVERSE_Z | F_STACK_MODE;
 
 void Document::record(Guid id, bool structural, const Rect& before, Guid parentBefore, FieldMask fields) {
   if (log_.size() >= kMaxLog) {

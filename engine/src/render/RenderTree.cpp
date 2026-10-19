@@ -10,6 +10,16 @@ namespace eng {
 namespace {
 // Past this many structural changes in one sync the page's tree is rebuilt instead of re-placed piecemeal.
 constexpr size_t kMaxRelocations = 24;
+
+// Whether a node's children paint last-first: an auto-layout frame with Canvas stacking "First on top"
+// (stackReverseZIndex) paints its first child last, as Document::paintsBefore orders them for hit-testing and export.
+bool paintsReversed(const Document& doc, Guid id) {
+  const Node* n = doc.get(id);
+  return n && n->props.stack().stackReverseZIndex && n->props.isAutoLayout();
+}
+
+// The k-th child in paint order (no copy: the page's tree holds hundreds of thousands of nodes).
+Guid paintChild(const std::vector<Guid>& kids, bool reversed, size_t k) { return reversed ? kids[kids.size() - 1 - k] : kids[k]; }
 }  // namespace
 
 void RenderTree::add(const Document& doc, Guid id, uint32_t parent, int depth) {
@@ -26,7 +36,8 @@ void RenderTree::add(const Document& doc, Guid id, uint32_t parent, int depth) {
   hasRepeats_ |= n->props.type == NodeType::TRANSFORM;
   const std::vector<Guid>& kids = doc.children(id);
   nodes_[i].hasChildren = !kids.empty();
-  for (Guid c : kids) add(doc, c, i, depth + 1);
+  const bool reversed = !kids.empty() && paintsReversed(doc, id);
+  for (size_t k = 0; k < kids.size(); k++) add(doc, paintChild(kids, reversed, k), i, depth + 1);
   nodes_[i].end = static_cast<uint32_t>(nodes_.size());
 }
 
@@ -44,7 +55,8 @@ void RenderTree::addTo(std::vector<RenderNode>& out, const Document& doc, Guid i
   size_t at = out.size() - 1;
   const std::vector<Guid>& kids = doc.children(id);
   out[at].hasChildren = !kids.empty();
-  for (Guid c : kids) addTo(out, doc, c, i, depth + 1, base);
+  const bool reversed = !kids.empty() && paintsReversed(doc, id);
+  for (size_t k = 0; k < kids.size(); k++) addTo(out, doc, paintChild(kids, reversed, k), i, depth + 1, base);
   out[at].end = base + static_cast<uint32_t>(out.size());
 }
 
@@ -166,9 +178,10 @@ void RenderTree::attach(const Document& doc, Guid id, std::unordered_set<Guid, G
     parentIndex = pit->second;
   }
   const std::vector<Guid>& siblings = doc.children(parent);
+  const bool reversed = parent != page_ && paintsReversed(doc, parent);
   uint32_t pos = parentIndex == kNoParent ? 0 : parentIndex + 1;
-  for (size_t k = 0; k < siblings.size() && siblings[k] != id; k++)
-    if (auto sit = index_.find(siblings[k]); sit != index_.end() && nodes_[sit->second].parent == parentIndex) pos = nodes_[sit->second].end;
+  for (size_t k = 0; k < siblings.size() && paintChild(siblings, reversed, k) != id; k++)
+    if (auto sit = index_.find(paintChild(siblings, reversed, k)); sit != index_.end() && nodes_[sit->second].parent == parentIndex) pos = nodes_[sit->second].end;
   std::vector<RenderNode> fresh;
   addTo(fresh, doc, id, parentIndex, 0, pos);
   if (fresh.empty()) return;

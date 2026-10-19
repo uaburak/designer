@@ -230,6 +230,56 @@ TEST_CASE("render tree: structural changes re-place subtrees and leave the array
   CHECK(t.rebuilds() == rebuilds + 2);
 }
 
+TEST_CASE("render tree: Canvas stacking — an auto-layout frame's first child paints on top with First on top") {
+  // The owner's case (2026-10-19): two overlapping children in a vertical auto-layout frame; Last on top / First on
+  // top in Auto layout settings must change which one draws above, the way hit-testing and export already order them.
+  Document d;
+  base(d);
+  d.apply(make({4, 1}, NodeType::FRAME, kPage, "!", {0, 0, 370, 443}, "Stack"));
+  d.apply(make({4, 2}, NodeType::ROUNDED_RECTANGLE, {4, 1}, "!", {0, 0, 370, 300}, "Red"));
+  d.apply(make({4, 3}, NodeType::ROUNDED_RECTANGLE, {4, 1}, "\"", {0, 100, 370, 300}, "Blue"));
+  NodeChange al = NodeChange::changed({4, 1});
+  al.mask = F_STACK_MODE;
+  al.props.stack().stackMode = StackMode::VERTICAL;
+  REQUIRE(d.apply(al));
+  RenderTree t;
+  t.sync(d, kPage);
+  // Last on top (default): the later child paints later.
+  CHECK(t.indexOf({4, 2}) < t.indexOf({4, 3}));
+  CHECK(d.paintsBefore({4, 2}, {4, 3}));
+  uint32_t rebuilds = t.rebuilds();
+  auto stacking = [&](bool firstOnTop) {
+    NodeChange c = NodeChange::changed({4, 1});
+    c.mask = F_STACK_REVERSE_Z;
+    c.props.stack().stackReverseZIndex = firstOnTop;
+    REQUIRE(d.apply(c));
+    t.sync(d, kPage);
+  };
+  stacking(true);
+  CHECK(t.indexOf({4, 2}) > t.indexOf({4, 3}));  // the first child paints last: on top
+  CHECK(d.paintsBefore({4, 3}, {4, 2}));
+  CHECK(t.rebuilds() == rebuilds);  // re-placed in place, no rebuild
+  CHECK(t.consistent(d));
+  // A child added to the reversed frame lands in paint order too.
+  d.apply(make({4, 4}, NodeType::ELLIPSE, {4, 1}, "#", {0, 200, 50, 50}, "Third"));
+  t.sync(d, kPage);
+  CHECK(t.indexOf({4, 4}) < t.indexOf({4, 3}));
+  CHECK(t.consistent(d));
+  stacking(false);
+  CHECK(t.indexOf({4, 2}) < t.indexOf({4, 3}));
+  CHECK(t.indexOf({4, 3}) < t.indexOf({4, 4}));
+  CHECK(t.consistent(d));
+  // Auto layout off: a plain frame paints in document order whatever the flag says.
+  stacking(true);
+  NodeChange off = NodeChange::changed({4, 1});
+  off.mask = F_STACK_MODE;
+  off.props.stack().stackMode = StackMode::NONE;
+  REQUIRE(d.apply(off));
+  t.sync(d, kPage);
+  CHECK(t.indexOf({4, 2}) < t.indexOf({4, 3}));
+  CHECK(t.consistent(d));
+}
+
 TEST_CASE("render tree: a relocation's damage is where the subtree was and where it is") {
   Document d;
   base(d);
