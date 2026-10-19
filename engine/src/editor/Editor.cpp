@@ -202,6 +202,9 @@ void Editor::noteChange(const NodeChange& c, NodeType typeBefore) {
   if (!applyingStored_ && (!storedText_.empty() || !storedSymbols_.empty())) invalidateStored(c, typeBefore);
   indexChange(c);
   noteAnnotated(c);
+  if (!pathMemo_.empty() && !c.guid.isDerived() &&
+      (c.phase != Phase::CHANGED || (c.mask & (F_PARENT_INDEX | F_SYMBOL_DATA | F_OVERRIDE_KEY | F_TYPE))))
+    pathMemo_.clear();
   motionDocTouched_ = true;
   if (!motionTouched_ && !c.guid.isDerived()) {
     const Node* mn = c.phase == Phase::REMOVED ? nullptr : doc_.get(c.guid);
@@ -1107,6 +1110,7 @@ void Editor::loadDocument(std::vector<NodeChange>&& nodes, Guid page, StoredDeri
   motionLayer_ = motion::MotionLayer();  // the old document's base values are gone with it
   motion_ = motion::State();
   motionDirty_ = true;
+  pathMemo_.clear();
   pathToolCancel();
   storedText_.clear();
   storedSymbols_.clear();

@@ -1462,7 +1462,22 @@ static Guid resolvePath(const Document& doc, Guid symbol, const std::vector<Guid
   return cur;
 }
 
-Guid Editor::layerAtPath(Guid symbol, const std::vector<Guid>& path) const { return resolvePath(doc_, symbol, path, nullptr, nullptr); }
+Guid Editor::layerAtPath(Guid symbol, const std::vector<Guid>& path) const {
+  uint64_t h = 1469598103934665603ull;
+  auto mix = [&h](Guid g) {
+    h ^= (static_cast<uint64_t>(g.sessionID) << 32) | g.localID;
+    h *= 1099511628211ull;
+    h ^= h >> 29;
+  };
+  mix(symbol);
+  for (Guid k : path) mix(k);
+  auto it = pathMemo_.find(h);
+  if (it != pathMemo_.end() && it->second.symbol == symbol && it->second.path == path) return it->second.at;
+  Guid at = resolvePath(doc_, symbol, path, nullptr, nullptr);
+  if (pathMemo_.size() >= (1u << 20)) pathMemo_.clear();
+  pathMemo_[h] = PathMemo{symbol, path, at};
+  return at;
+}
 
 Status Editor::pushChangesToMain(Guid R) {
   ComponentInfo info;

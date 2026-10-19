@@ -1383,6 +1383,15 @@ class Editor : private LayoutHost, public TextLayouts {
   bool isSlotAssignment(Guid main, const ComponentPropAssignment& a) const;
   // The real layer at `path` (keys) in `symbol`'s tree, following nested instances' mains (kNoGuid: none).
   Guid layerAtPath(Guid symbol, const std::vector<Guid>& path) const;
+  // Batch D: layerAtPath's answers (an override's path into a main, asked again for every instance of that main — 1.4 s
+  // of deriving the owner's heaviest page), dropped when a real node is created, removed, moved, retyped, re-keyed or
+  // swapped (noteChange) and at a load.
+  struct PathMemo {
+    Guid symbol;
+    std::vector<Guid> path;
+    Guid at;
+  };
+  mutable std::unordered_map<uint64_t, PathMemo> pathMemo_;
   // A nested instance showing `main` (a variant chosen by a variable, a variant or instance picked at the usage site):
   // the overrides under `path` made on another of `from` or `main`'s variants follow it by layer name (remapOverrides).
   void carryNestedOverrides(Expansion& ex, const std::vector<Guid>& path, Guid main, const std::vector<Guid>& from);
