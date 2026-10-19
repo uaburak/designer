@@ -24,6 +24,13 @@ describe("an engine snapshot against the head (docs/data.md §5.5)", () => {
     expect(gone.missingNodes).toBe(1);
   });
 
+  it("an empty textData on a FRAME is its default, not a loss (the owner's detached FileCard, 2026-10-19); a text's characters are", () => {
+    const head = table(node({ textData: { characters: "" } } as Partial<NodeChange>));
+    expect(snapshotLosses(head, table(node({}))).total).toBe(0);
+    const text = table(node({ type: "TEXT", textData: { characters: "Hi" } } as Partial<NodeChange>));
+    expect(snapshotLosses(text, table(node({ type: "TEXT" } as Partial<NodeChange>)))).toMatchObject({ droppedFields: { textData: 1 }, total: 1 });
+  });
+
   it("a deleted main nothing uses, and what is inside it, may go (the engine lets it go at load); a published one may not", () => {
     const m = newDocumentMessage();
     const main = node({ guid: { sessionID: 1, localID: 5 }, type: "SYMBOL", name: "Gone", isSoftDeleted: true } as Partial<NodeChange>);

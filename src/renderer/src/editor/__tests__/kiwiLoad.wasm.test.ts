@@ -106,6 +106,30 @@ describe("kiwi at the engine's boundary (wasm, headless)", () => {
     for (const e of [viaKiwi, viaJson, viaSnapshot]) e.destroy();
   });
 
+  it("adopts the engine's snapshot of a FRAME stored with an empty textData (the owner's detached FileCard, 2026-10-19)", async () => {
+    bed = await rpcTestbed();
+    const client = await bed.connect("editor");
+    const f = await client.workspace.createFile({ name: "Detached", folderId: null });
+    const src = await openStoreDocument(client, f.fileKey);
+    const s = src.sessionID;
+    // What Detach instance stored before the fix: the frame with every field, TEXT defaults included.
+    const frame = rect(s, 1, { type: "FRAME", name: "FileCard", textData: { characters: "" }, fontSize: 12 } as Partial<NodeChange>);
+    const kept = rect(s, 2, { type: "FRAME", name: "Holder", textData: { characters: "kept" } } as Partial<NodeChange>);
+    src.onChanges({ type: "NODE_CHANGES", sessionID: s, nodeChanges: [frame, kept] }, { kind: "USER", label: "Detach" });
+    await src.close();
+    const again = await openStoreDocument(client, f.fileKey);
+    const engine = await Engine.create(null, { sessionID: again.sessionID });
+    expect(engine.load(await again.load())).toBe(Status.OK);
+    const snapshot = encodeDocumentBytes(engine, { derived: true })!;
+    const nodes = decodeMessage(snapshot).nodeChanges!;
+    const byName = (name: string) => nodes.find((n) => n.name === name) as { textData?: { characters?: string } } | undefined;
+    expect(byName("FileCard")?.textData).toBeUndefined(); // the default, written as absent (docs/schema.md §3.4)
+    expect(byName("Holder")?.textData?.characters).toBe("kept"); // a FRAME's textData is kept
+    expect(await again.saveSnapshot(snapshot, { derivedDataVersion: decodeMessage(snapshot).derivedDataVersion ?? 0 })).toBe(true);
+    await again.close();
+    engine.destroy();
+  });
+
   it("copies into Figma's fig-kiwi clipboard archive and pastes it back with no conversion", async () => {
     const engine = await Engine.create(null, { sessionID: 1048577 });
     expect(engineWireFormat(engine)).toBe("kiwi");

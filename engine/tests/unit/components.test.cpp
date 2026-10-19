@@ -18,6 +18,7 @@
 #include "render/Renderer.h"
 #include "hit/Picking.h"
 #include "scene/CodecJson.h"
+#include "scene/CodecKiwi.h"
 
 using namespace eng;
 using namespace eng::test;
@@ -476,6 +477,47 @@ TEST_CASE("components: detach makes a frame with real layers; a nested instance 
   e.command(CommandId::UNDO);
   CHECK(props(e, I).type == NodeType::INSTANCE);
   CHECK(props(e, sub(I, {LABEL})).text().textData.characters == "Go");
+}
+
+TEST_CASE("components: detach stores only what it changes — no TEXT defaults on the frame; textData on a FRAME round-trips (2026-10-19)") {
+  // The owner's "Wecra UI": a detached instance's frame was stored with every field — textData {characters: ""}
+  // among them — which the engine's snapshot writes as absent, so the store refused every snapshot of the file.
+  Editor e = load(buttonDoc());
+  e.setSelection({I});
+  REQUIRE(e.command(CommandId::DETACH_INSTANCE) == OK);
+  auto ev = e.takeEvents();
+  REQUIRE(ev.documents.size() == 1);
+  const NodeChange* frame = nullptr;
+  for (const NodeChange& c : ev.documents[0].changes)
+    if (c.guid == I) frame = &c;
+  REQUIRE(frame);
+  CHECK(frame->phase == Phase::CHANGED);
+  CHECK((frame->mask & F_TYPE));
+  CHECK((frame->mask & F_SYMBOL_DATA));  // cleared: it is a frame now
+  CHECK(!(frame->mask & (F_TEXT_DATA | F_FONT_NAME | F_FONT_SIZE | F_OPACITY | F_VISIBLE)));
+  std::string bytes = codec::writeMessage(1, ev.documents[0].changes);
+  codec::KiwiMessage back;
+  REQUIRE(codec::readMessage(bytes, back));
+  for (const NodeChange& c : back.changes)
+    if (c.guid == I) CHECK(!(c.mask & F_TEXT_DATA));
+  // Undo puts the instance back whole, and the stored change says so.
+  e.command(CommandId::UNDO);
+  CHECK(props(e, I).type == NodeType::INSTANCE);
+  CHECK(props(e, I).comp().symbolData.symbolID == M);
+
+  // Whatever textData a FRAME holds, the snapshot keeps (Figma's NodeChange allows it on any node type).
+  auto nodes = buttonDoc();
+  const Guid F{3, 1};
+  NodeChange f = make(F, NodeType::FRAME, kPage, "$", {300, 300, 50, 50}, "Holder");
+  f.props.text().textData.characters = "kept";
+  nodes.push_back(f);
+  Editor g = load(nodes);
+  codec::KiwiMessage snap;
+  REQUIRE(codec::readMessage(codec::writeMessage(1, g.encodeDocument()), snap));
+  bool kept = false;
+  for (const NodeChange& c : snap.changes)
+    if (c.guid == F) kept = c.props.text().textData.characters == "kept";
+  CHECK(kept);
 }
 
 TEST_CASE("round 11: Flatten on an instance is enabled (live) — it is detached, then flattened, in one undo step") {
