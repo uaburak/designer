@@ -1276,6 +1276,13 @@ export const editor: Record<string, string> = {
   Hold: "Tut",
   "Cubic bezier": "Kübik bezier",
   Bounce: "Zıplama",
+  // The right panel's Easing page and its presets popover (motion/easing/EasingPage.tsx, EasingPresets.tsx; 2026-10-19)
+  "Easing presets": "Yumuşatma ön ayarları",
+  "Easing source": "Yumuşatma kaynağı",
+  Presets: "Ön ayarlar",
+  "New variable": "Yeni değişken",
+  "Easing type": "Yumuşatma türü",
+  "Flip curve": "Eğriyi çevir",
   "Top left radius": "Sol üst yarıçap",
   "Top right radius": "Sağ üst yarıçap",
   "Bottom left radius": "Sol alt yarıçap",

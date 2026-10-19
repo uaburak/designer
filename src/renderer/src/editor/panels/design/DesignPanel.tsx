@@ -36,6 +36,7 @@ import { MotionTransformSection } from "../../motion/panels/TransformSection";
 import { TextStaggerSection } from "../../motion/panels/TextStaggerSection";
 import { MotionFieldStates } from "../../motion/panels/MotionField";
 import { PathTrimSection } from "../../motion/panels/PathTrimSection";
+import { EasingPage, useEasingSegments } from "../../motion/easing/EasingPage";
 import draw from "../../draw/panels/DrawPanels.module.css";
 import { TypeHeader } from "./Header";
 import { RelaunchButtons } from "./RelaunchButtons";
@@ -140,6 +141,8 @@ function Selected({ nodes, paintNodes, onPick }: { nodes: PanelNode[]; paintNode
   const editingVector = !!vectorRef && nodes.length === 1 && nodes[0].guid === vectorRef;
   // One component, set, variant or instance: its header and properties come first (UI3).
   const comp = componentSelection(ed, nodes);
+  // Motion mode (docs/motion.md §6.14, Figma's): keyframe segments selected on the timeline turn the panel into their Easing page.
+  const segments = useEasingSegments(nodes);
   // Vector edit mode (live design/vector-edit-mode.txt): "Vector", its points' block, then Fill and Stroke only.
   if (editingVector)
     return (
@@ -147,6 +150,14 @@ function Selected({ nodes, paintNodes, onPick }: { nodes: PanelNode[]; paintNode
         <VectorEditPanel />
         <PaintsSection title="Fill" field="fillPaints" nodes={paintNodes} onPick={onPick} />
         <PaintsSection title="Stroke" field="strokePaints" nodes={paintNodes} onPick={onPick} />
+      </>
+    );
+  if (segments.length)
+    return (
+      <>
+        {comp?.kind === "instance" ? <InstanceHeader instance={comp.node} /> : <TypeHeader nodes={nodes} />}
+        <EasingPage targets={segments} />
+        <AudioSection />
       </>
     );
   const sections = (

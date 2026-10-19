@@ -1,0 +1,85 @@
+@layer app {
+  /*
+   * The right panel's Easing page (docs/motion.md §6.14; Figma's, 2026-10-18/motion-easing.txt): Back at 16,8 and the
+   * title centred; the preset select at 16,48, Curve | Spring at 80, the 208 graph at 112, the value row at 328 — 208
+   * wide, 8 apart — and the line under it before Audio.
+   */
+  .page { display: flex; flex-direction: column; border-bottom: 1px solid var(--figma-color-border); }
+  .title { position: relative; box-sizing: border-box; display: flex; align-items: center; height: var(--ds-size-section-header); padding: 0 var(--ds-space-4); }
+  .heading {
+    position: absolute;
+    left: 40px;
+    right: 40px;
+    margin: 0;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-large-strong);
+    letter-spacing: var(--ds-tracking-body-large);
+    text-align: center;
+    pointer-events: none;
+  }
+  .body { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: var(--ds-space-2) var(--ds-space-4) calc(var(--ds-space-4) + var(--ds-space-2)); }
+  .selectRow { display: flex; align-items: center; gap: var(--ds-space-1); }
+  .select {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    min-width: 0;
+    height: var(--ds-size-control);
+    padding: 0;
+    border: 1px solid var(--figma-color-border);
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    text-align: left;
+  }
+  .select:hover { border-color: var(--figma-color-border-strong); }
+  .select:focus-visible { outline: 1px solid var(--figma-color-border-selected); outline-offset: -1px; }
+  .selectIcon { flex: none; width: 24px; height: 16px; color: var(--figma-color-icon-secondary); }
+  .selectLabel { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .selectChevron { flex: none; color: var(--figma-color-icon-secondary); }
+  .valueRow { display: flex; align-items: center; gap: var(--ds-space-1); }
+  .valueField { flex: 1 1 auto; min-width: 0; }
+
+  /* The graph: Figma's #383838 square, guides faint, the curve white 1.5, the handles blue with ring knobs */
+  .graph { display: block; flex: none; border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); touch-action: none; overflow: hidden; }
+  .guide { stroke: var(--figma-color-icon-tertiary); stroke-width: 1.5; }
+  .curve { fill: none; stroke: var(--figma-color-icon); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  .handleLine { stroke: var(--figma-color-icon-brand); stroke-width: 1.5; }
+  .knob { fill: var(--figma-color-bg-secondary); stroke: var(--figma-color-icon-brand); stroke-width: 1.5; cursor: grab; }
+  .knob:active { cursor: grabbing; }
+  /* The hover preview [ours]: a dot across in time (linear), up with the curve's own timing */
+  .traceX { animation: trace-x 1.2s linear infinite; }
+  .traceDot { fill: var(--figma-color-bg-brand); animation: trace-y 1.2s infinite; }
+  @keyframes trace-x {
+    0% { transform: translateX(var(--trace-x0)); }
+    80%, 100% { transform: translateX(var(--trace-x1)); }
+  }
+  @keyframes trace-y {
+    0% { transform: translateY(var(--trace-y0)); }
+    80%, 100% { transform: translateY(var(--trace-y1)); }
+  }
+
+  /* The presets popover: rows 32 high, the glyph at 8, the label at 40; hover #383838, the current one #394360 */
+  .presets { margin: 0; padding: var(--ds-space-2) 0 0; list-style: none; }
+  .preset {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    height: var(--ds-size-control-large);
+    padding: 0 var(--ds-space-2);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    cursor: default;
+    user-select: none;
+  }
+  .preset:hover { background: var(--figma-color-bg-hover); }
+  .preset[aria-selected="true"] { background: var(--figma-color-bg-selected); }
+  .presetLabel { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .presetGlyph { flex: none; width: 24px; height: 24px; overflow: visible; }
+  .glyphDot { fill: var(--figma-color-icon-tertiary); }
+  .glyphCurve { fill: none; stroke: var(--figma-color-icon-secondary); stroke-width: 1; stroke-linecap: round; stroke-linejoin: round; }
+  .libraries { display: flex; flex-direction: column; min-height: 120px; }
+}

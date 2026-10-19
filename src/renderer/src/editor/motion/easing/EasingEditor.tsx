@@ -18,7 +18,7 @@ import { Icon, IconButton, Popover, SegmentedControl, TextInput, showToast, tool
 import { t, useT } from "@/i18n";
 import { easingCss, isSpringEasing } from "@shared/motion/easing";
 import { BEZIER_PRESETS, DEFAULT_KEYFRAME_EASING, EASING_LABELS, MOTION_EASING_TYPES, type EasingEditorProps, type EasingRef, type MotionEasing, type MotionEasingType } from "@shared/motion/types";
-import { useEditor } from "../../controller";
+import { useEditor, type EditorController } from "../../controller";
 import { useLocalAssets } from "../../hooks";
 import { VariablePicker } from "../../panels/variables/VariablePicker";
 import { createCollection, createVariable } from "../../variables";
@@ -157,10 +157,8 @@ function EasingVariable({ bound, current, onBind, onDetach }: { bound: string | 
   const [picker, setPicker] = useState<HTMLElement | null>(null);
   const variable = bound ? a.lookup.variable(bound) : undefined;
   const create = () => {
-    const collection = a.collections[0]?.id ?? createCollection(ed);
-    const id = collection ? createVariable(ed, collection, "EASING", "", { kind: "literal", value: current }) : null;
+    const id = createEasingVariable(ed, a.collections[0]?.id ?? null, current);
     if (id) onBind(id);
-    else showToast({ message: t("Couldn't create the variable"), kind: "error" });
   };
   return (
     <div className={styles.variableRow} data-easing-variable={bound ?? ""}>
@@ -187,6 +185,17 @@ function EasingVariable({ bound, current, onBind, onDetach }: { bound: string | 
       {picker && <VariablePicker anchor={picker} placement="bottom-start" types={["EASING"]} current={bound} onPick={(v) => onBind(v.id)} onClose={() => setPicker(null)} />}
     </div>
   );
+}
+
+/**
+ * A new Easing variable holding `value`, in `collection` (the file's first; a new one when it has none) — the Easing
+ * popover's "Create variable" and the Easing page's presets "New variable". null (a toast said why) when it failed.
+ */
+export function createEasingVariable(ed: EditorController, collection: string | null, value: MotionEasing): string | null {
+  const into = collection ?? createCollection(ed);
+  const id = into ? createVariable(ed, into, "EASING", "", { kind: "literal", value }) : null;
+  if (!id) showToast({ message: t("Couldn't create the variable"), kind: "error" });
+  return id;
 }
 
 /** The dropdown alone (a segment's or clip's easing): the same popover. */
