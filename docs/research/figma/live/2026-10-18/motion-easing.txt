@@ -1,0 +1,32 @@
+Live Figma (web, UI3, dark, 1440x900), 2026-10-19: Motion mode, the easing of a keyframe segment. Owner's desktop capture of the same: ../owner-2026-10-19/figma-motion-easing-panel.webp (Custom bezier 0.45, 1.45, 0.8, 1, presets popover open, "Ease out back" hovered).
+
+HOW IT OPENS
+- In the timeline, a property row's segment between two keyframes shows a small easing glyph at its middle (a 16x16 rounded box with the curve, blue when the segment is selected). Clicking the segment selects it; the RIGHT PANEL then replaces the layer's sections with an "Easing" page (the timeline's Position row is highlighted). Nothing floats over the canvas.
+
+RIGHT PANEL "Easing" page @1200,130 240 wide (under the layer header "Rectangle" + its buttons)
+  16,8 [Back] 24x24 r=5px (chevron-left) · title h2 "Easing" centred 13px/550 white (40..192)
+  16,48 preset select button 208x24 bg #2C2C2C r=5px border 1px #444: 24x24 curve glyph at x 16+, label at x 40 11px/450 white ("Custom bezier" / "Custom spring" / a preset's name), chevron at the right
+  16,80 radiogroup "Easing type" 208x24 bg #383838 r=5px: "Curve" (value bezier) 104x24 | "Spring" 104x24 — selected half bg #2C2C2C r=5px with inset ring 0 0 0 1px #444, label white; other label #ffffffb2; 11px/450
+  16,112 graph 208x208 bg #383838 r=5px
+     Curve: a <canvas> editor — x axis = time, the curve white 1.5px from bottom-left to top-right (start/end on two faint horizontal guide lines, a vertical guide at the end), two blue (#0C8CE9) handles: a line from each end point to a 8px ring knob (white fill, blue ring); the curve may overshoot outside the 0..1 band (back eases).
+     Spring: an <svg> 208x208: guideline line from (23,104) to (185,104) (class springvisGuideline, the target value), the spring curve path from (23,185) rising to the line and settling (springvisSpringCurve, white), a knob at its first peak.
+  16,328 value row:
+     Curve: field 180x24 bg #383838 r=5px (24x24 icon at x 16, input [Bezier] at x 40 "0.62, -0.01, 0.39, 1" 11px) + [Flip curve] 24x24 button at 200,328
+     Spring: spinbutton [Bounce] 208x24 bg #383838 r=5px, icon at 16, value "0.33"
+  section below: "Audio" with +, as in the layer page
+
+PRESETS POPOVER (click the preset select) — opens LEFT of the panel @976,178 232x336 (its right edge 8 px left of the panel)
+  bg #2C2C2C r=13px shadow #00000059 0 2px 5px 0, #ffffff59 0 0 .5px 0 inset, #00000059 0 10px 16px 0, #ffffff14 0 .5px 0 0 inset
+  header 40 high with an inset bottom line #444: tabs "Presets" (56x24 bg #383838 r=5px 11px/550 white, selected) · "Libraries" (62x24, 11px/550 #ffffffb2) at 8,8 · [New variable] + 24x24 at 176,8 (create an easing style/variable) · [Close] 24x24 at 200,8
+  rows 232x32 from y 48: 24x24 glyph at x 8 (a 4x4 grid of 1px dots in --color-icon-tertiary + the curve stroked --color-icon-secondary 1px, from (6.5,17.5) to (17.5,6.5)), label at x 40 11px/450 white
+     Hold (path M 6.5,17.5 H 17.5 V 6.5) · Linear · Ease in · Ease out · Ease in and out · Ease in back · Ease out back · Ease in and out back · Custom bezier
+     hover row bg #383838 (owner's capture); the current one bg #394360
+  The popover is a Figma floating panel: its header drags it.
+  Glyph curves are 33-point samples of the cubic beziers (ease in ≈ 0.42,0,1,1; ease out ≈ 0,0,0.58,1; ease in and out ≈ 0.42,0,0.58,1; back variants overshoot: ease in back starts dipping below, ease out back peaks above then settles, ease in and out back both). Exact sample paths were read and are reproducible from those bezier values.
+
+ICONS
+Back: M13.854 7.146a.5.5 0 0 1 0 .708L9.707 12l4.147 4.146a.5.5 0 0 1-.708.708l-4.5-4.5a.5.5 0 0 1 0-.708l4.5-4.5a.5.5 0 0 1 .708 0
+Bezier field icon: M18 8a.5.5 0 0 0-.5-.5 6.16 6.16 0 0 0-5.513 3.407l-.869 1.739A5.16 5.16 0 0 1 6.5 15.5a.5.5 0 0 0 0 1 6.16 6.16 0 0 0 5.513-3.407l.869-1.739A5.16 5.16 0 0 1 17.5 8.5.5.5 0 0 0 18 8m-5 0a.5.5 0 0 0-.5-.5H9.935A1.999 1.999 0 0 0 6 8a2 2 0 0 0 3.935.5H12.5A.5.5 0 0 0 13 8M9 8a1 1 0 1 1-2 0 1 1 0 0 1 2 0m9 8a1.998 1.998 0 0 0-3.934-.5H11.5a.5.5 0 0 0 0 1h2.566A1.998 1.998 0 0 0 18 16m-1 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0
+Flip curve: m11 17.397-.01.12a.75.75 0 0 1-1.271.41L6.073 14.28a.75.75 0 0 1 .53-1.28H10a1 1 0 0 1 1 1zM7.206 14 10 16.793V14zm9.147 1.646a.5.5 0 0 1-.707.707l-8-8a.5.5 0 1 1 .707-.707zm1.573-5.926a.75.75 0 0 1-.53 1.281H14a1 1 0 0 1-1-1V6.604l.01-.12a.75.75 0 0 1 1.27-.41zM14 7.207v2.794L16.793 10z
+Preset glyph grid: 16 circles r=0.5 at x,y in {6.5, 10.1667, 13.8333, 17.5}, fill var(--color-icon-tertiary)
+Close: M16.224 7.082a.501.501 0 0 1 .694.693l-.065.078L12.707 12l4.146 4.146.065.078a.5.5 0 0 1-.694.694l-.078-.065L12 12.706l-4.147 4.147a.5.5 0 1 1-.707-.707l4.147-4.147-4.147-4.146-.064-.078a.501.501 0 0 1 .693-.693l.078.064L12 11.293l4.146-4.147z

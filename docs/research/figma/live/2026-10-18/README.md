@@ -20,3 +20,4 @@ Second pass, 2026-10-19 (same method; the rest of the editor and Home):
 - `home.txt` + `home-recents.jpg` — Home: sidebar, header pill buttons, Community banner, tabs and filters, file cards.
 - `settings.txt` — the account dropdown and the Settings dialog's Account tab (no screenshot: it shows personal details).
 - `property-rows-copy.txt` — selecting Fill / Stroke / Effect rows in the Design panel, ⌘C / ⌘V / Delete on them, and the clipboard Message Figma writes (NODE_CHANGES with pasteAssetType STYLE_PROPERTIES_FILL / STROKE / EFFECT).
+- `motion-easing.txt` — Motion: a keyframe segment's easing as a right-panel page (preset select, Curve | Spring, the 208-px graph, Bezier / Bounce field, Flip curve) and the Presets popover beside the panel.
