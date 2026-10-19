@@ -1,0 +1,15 @@
+Figma UI3 slider (the effect popover's "slider_combo_input"), read from the DOM and computed styles, viewport 1440x900, dark theme.
+
+Structure:
+<div class="slider_combo_input--sliderContainer">            80x24, bg rgb(56,56,56) #383838, border-radius 5px 0 0 5px (left half of a joined control; the value field is the right half: 56x24, r 0 5px 5px 0, same bg)
+  <div class="slider_combo_input--root slider_module--root"> 64x6 at x+8, vertically centred (y+9)
+    ::before  absolute, inset 0 -3px 0 -3px (so 58..70 px wide), height 6px, bg rgb(68,68,68) #444444, radius 9999px   ← the rest track
+    <div role="slider" aria-valuemin=0 aria-valuemax=100 aria-label="Refraction">  invisible hit area 96x44 centred on the track
+    <div class="slider_combo_input--range" style="left: 0%; right: <100-v>%">  6px tall
+      ::after  absolute, inset 0 -3px 0 -3px, height 6px, bg rgb(12,140,233) #0C8CE9, radius 9999px   ← the filled part (from the start to the thumb)
+    <div class="slider_combo_input--thumb" style="left: v%; transform: translateX(-50%)">  12x12, bg #FFFFFF, radius 9999px,
+       box-shadow: rgba(0,0,0,0.5) 0 1px 3px 0, rgba(255,255,255,0.3) 0 0 0.5px 0 inset, rgba(0,0,0,0.35) 0 3px 8px 0, rgba(255,255,255,0.08) 0 0.5px 0 0 inset
+
+Track geometry: the visible track runs 3 px past both ends of the 52-px range (inset -3px), so the thumb centre travels the inner 52 px (x+12 … x+64 of the 80-px container) while the pill spans 58 px.
+At value 0 the range is empty (only the 6-px end caps of the ::after show under the thumb); at 100 it fills the whole track.
+Value field: input 48x15, 11px/450 white, text left at +7.

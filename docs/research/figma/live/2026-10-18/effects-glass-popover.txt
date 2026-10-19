@@ -1,0 +1,65 @@
+State: Figma web (UI3, dark), viewport 1440x900. An Ellipse 100x100 with fill D9D9D9 20% and one Glass effect (light -45° 80%, refraction 100, depth 46, dispersion 100, frost 4, splay 0) selected; the Glass effect row clicked → its settings popover open. Dump format: x,y wxh relative to the container; "text" size/weight colour; element [aria-label] bg= r= border= shadow= STATES.
+[viewport 1440x900]
+RIGHT
+0,0 240x776 div bg=rgb(44, 44, 44)
+16,16 40x16 "Ellipse" 13px/550 rgb(255, 255, 255)
+124,12 24x24 button [Select matching layers] r=5px
+152,12 24x24 button [Create component] r=5px
+180,12 24x24 input =on [mask-selection]  ("Use as mask")
+208,12 24x24 button [More actions] r=5px
+16,63 44x13 "Position" 11px/550 rgb(255, 255, 255)
+16,93 46x11 "Alignment" 9px/500 rgba(255, 255, 255, 0.698)
+16,109 29x24 button [Align left] bg=rgb(56, 56, 56) r=5px 0px 0px 5px
+46,109 29x24 button [Align horizontal centers] bg=rgb(56, 56, 56)
+75,109 29x24 button [Align right] bg=rgb(56, 56, 56) r=0px 5px 5px 0px
+112,109 29x24 button [Align top] bg=rgb(56, 56, 56) r=5px 0px 0px 5px
+142,109 29x24 button [Align vertical centers] bg=rgb(56, 56, 56)
+171,109 29x24 button [Align bottom] bg=rgb(56, 56, 56) r=0px 5px 5px 0px
+16,141 37x11 "Position" 9px/500 rgba(255, 255, 255, 0.698)
+16,157 88x24 div [X-position] bg=rgb(56, 56, 56) r=5px ; "X" 11px/400 at 24,163 ; input 40,157 64x24 =80
+112,157 88x24 div [Y-position] bg=rgb(56, 56, 56) r=5px ; input =230
+208,157 24x24 button [Constraints] r=5px
+16,189 38x11 "Rotation" 9px/500 rgba(255, 255, 255, 0.698)
+16,205 88x24 div [Rotation] bg=rgb(56, 56, 56) r=5px ; input 40,205 64x24 =0°
+112,205 29x24 button [Rotate 90˚ right] bg=rgb(56, 56, 56) r=5px 0px 0px 5px
+142,205 29x24 button [Flip horizontal] bg=rgb(56, 56, 56)
+171,205 29x24 button [Flip vertical] bg=rgb(56, 56, 56) r=0px 5px 5px 0px
+16,260 36x13 "Layout" 11px/550 rgb(255, 255, 255)
+16,290 53x11 "Dimensions" 9px/500 rgba(255, 255, 255, 0.698)
+16,306 88x24 label [Width] bg=rgb(56, 56, 56) r=5px border=1px rgb(56, 56, 56) ; "W" 11px/400 rgba(255,255,255,0.698) ; input =100
+112,306 88x24 label [Height] bg=rgb(56, 56, 56) r=5px ; input =100
+208,306 24x24 input =on [Lock aspect ratio]
+16,361 65x13 "Appearance" 11px/550 rgb(255, 255, 255)
+179,355 24x24 input =on [Hide] ; 208,355 24x24 button [Apply blend mode] r=5px
+16,393 35x11 "Opacity" 9px/500 ; 16,409 88x24 label bg=rgb(56, 56, 56) r=5px ; input =100%
+112,393 62x11 "Corner radius" 9px/500 ; 112,409 88x24 label DISABLED ; input =0
+16,464 15x13 "Fill" 11px/550 rgb(255, 255, 255)
+180,458 24x24 button [Fill, Apply styles and variables] r=5px ; 208,458 24x24 button [Add fill] r=5px
+16,494 156x24 div bg=rgb(56, 56, 56) r=5px ; 21,499 14x14 swatch r=2px ; input 40,494 77x24 =D9D9D9 ; 118,494 38x24 input =20 ; "%" 11px/450 rgba(255,255,255,0.698)
+180,494 24x24 [Toggle visibility] ; 208,494 24x24 button [Remove]
+16,549 35x13 "Stroke" 11px/550 rgba(255, 255, 255, 0.698) (empty section title is dimmed)
+180,543 [Stroke, Apply styles and variables] ; 208,543 [Add stroke]
+16,590 38x13 "Effects" 11px/550 rgb(255, 255, 255)
+180,584 24x24 button [Effects, Apply styles] r=5px ; 208,584 24x24 button [Add effect] r=5px
+16,619 156x26 button bg=rgb(57, 67, 96) r=5px EXPANDED   (the effect row while its popover is open: #394360)
+17,620 24x24 svg (effect icon) ; 41,626 "Glass" 11px/400 rgb(124, 196, 248)  (#7CC4F8 while open)
+180,620 24x24 [Toggle visibility] ; 208,620 24x24 button [Remove]
+16,675 36x13 "Export" 11px/550 rgba(255, 255, 255, 0.698)
+208,669 24x24 button [Add export settings]
+
+POPUP @959,571 240x313 (left of the panel, its top near the effect row)
+0,0 240x313 div bg=rgb(44, 44, 44) r=13px shadow=rgba(0,0,0,0.35) 0px 2px 5px 0px, rgba(255,255,255,0.35) 0px 0px 0.5px 0px inset, rgba(0,0,0,0.35) 0px 10px 16px 0px, rgba(255,255,255,0.08) 0px 0.5px 0px 0px inset
+0,0 240x40 header, bottom divider = inset shadow rgb(68, 68, 68) 0px -1px 0px 0px
+8,8 76x24 button [Effect settings] (type select): 8,8 24x24 icon ; 32,14 "Glass" 11px/400 white ; 60,8 24x24 chevron
+  (hidden options in the select, in order: Inner shadow, Drop shadow, Layer blur, Background blur, Noise, Texture, Glass — each 18x24 icon + 11px/400 label, row r=5px)
+208,8 24x24 button [Close] r=5px
+16,62 "Light" 11px/450 rgba(255, 255, 255, 0.698)
+88,56 56x56 div bg=rgb(56, 56, 56) r=8px  (the light dial; an 8x8 handle r=2px border=1px rgba(255,255,255,0.4) at 112,81)
+152,57 72x24 label [Angle] bg=rgb(56, 56, 56) r=5px ; input =-45°
+152,88 72x24 label [Intensity] bg=rgb(56, 56, 56) r=5px ; input =80%
+0,128 240x177 div border-top=1px rgb(68, 68, 68)
+Rows (32 px apart, first at y=145): label at x=16 "Refraction" / "Depth" / "Dispersion" / "Frost" / "Splay" 11px/450 rgba(255,255,255,0.698)
+  slider container 87,y 80x24 bg=rgb(56, 56, 56) r=5px 0px 0px 5px  (joined to the value field)
+  value field 168,y 56x24 label bg=rgb(56, 56, 56) r=0px 5px 5px 0px ; input 48x15 11px/450 white
+  slider (role=slider) hit area 96x44 ; thumb 12x12 bg=#fff r=9999px shadow=rgba(0,0,0,0.5) 0 1px 3px, rgba(255,255,255,0.3) 0 0 0.5px inset, rgba(0,0,0,0.35) 0 3px 8px, rgba(255,255,255,0.08) 0 0.5px 0 inset
+Values: Refraction=100, Depth=46, Dispersion=100, Frost=4, Splay=0

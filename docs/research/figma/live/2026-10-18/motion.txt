@@ -1,0 +1,46 @@
+State: Figma web (UI3, dark), 1440x900, Motion mode (URL ?timeline=keyframe). A Rectangle 369x253 (fill D9D9D9) inside "Frame 15009" selected. One Position keyframe added from the panel at 0 ms.
+Tokens read on the page: --color-icon #fff, --color-icon-secondary #ffffffb2, --color-icon-tertiary #fff6, --color-icon-selected #7cc4f8, --color-bg-selected #394360.
+
+RIGHT PANEL (240 wide, same panel as Design; header shows "Motion  Beta" chip + zoom instead of the Design | Prototype tabs)
+Header: "Rectangle" 16,16 13px/550 · buttons 24x24 r=5px at 124 [Select matching layers], 152 [Create component], 180 [Use as mask], 208 [More actions]
+Section "Animations" 16,63 11px/550 white · 180,57 [Animations] (styles, 4-dots icon) · 208,57 [Add animation] (+)
+Section "Transform" 16,104 11px/550 · 208,98 24x24 [Origin] button (the anchor icon below)
+  "Position" caption 16,134 9px/500 rgba(255,255,255,0.698)
+  ONE joined control 16,150 184x24: [Motion Translation X] 92x24 bg #383838 r=5px 0 0 5px (24x24 "X→" glyph + input 68 wide =325.5) | [Motion Translation Y] 67x24 bg #383838 (24x24 "Y↓" glyph + input 43 =209.5) | keyframe cell 25x24 bg #383838 r=0 5px 5px 0 with the diamond button 24x24 at 176,150
+     keyed: the diamond button gets bg rgb(50, 57, 77) #32394D, PRESSED, diamond filled+stroked #7CC4F8
+  208,150 24x24 [Separate dimensions] (icon below)
+  "Scale" caption 16,182 ; same joined control 16,198: [Motion Scale X] "↔" glyph + =100% | [Motion Scale Y] "↕" + =100% | diamond cell 25x24
+     208,198 24x24 [Unlock scale aspect ratio] toggle, ON look: bg #394360 r=5px
+  "Rotation" caption 16,230 ; joined 16,246: [Motion Rotation] 63x24 (24 glyph + input 39 =0°) | diamond cell 79,246 25x24
+Section "Layout" 16,301 ; "Dimensions" 16,331 ; W: label 63x24 r=5px 0 0 5px + input 38 =369 | diamond cell 79,347 25x24 ; H the same at 112 / 175 ; 208,347 [Lock aspect ratio]
+Section "Appearance" 16,402 ; Opacity 16,450 (63 + 25 diamond) ; Corner radius 112,450 (63 + 25 diamond) ; 208,450 [Individual corners]
+Section "Fill" 16,505 ; row 16,535: swatch+hex+% field 131x24 r=5px 0 0 5px | diamond cell 147,535 25x24 r=0 5px 5px 0 | 180 [Toggle visibility] | 208 [Remove]
+Sections "Stroke" 16,590, "Effects" 16,631, "Audio" 16,672 ([Add audio]), "Export" 16,713 — empty ones titled rgba(255,255,255,0.698)
+RULE: every animatable field is a joined control whose LAST cell (25x24, r=0 5px 5px 0, same #383838 bg) holds the 24x24 keyframe diamond; the field before it loses its right radius. No separate "Motion" list.
+
+KEYFRAME DIAMOND (panel and timeline), 24x24:
+unkeyed: <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M11.6465 8.06055C11.8417 7.8654 12.1583 7.86537 12.3535 8.06055L15.9395 11.6465C16.1346 11.8417 16.1346 12.1583 15.9395 12.3535L12.3535 15.9395C12.1583 16.1346 11.8417 16.1346 11.6465 15.9395L8.06055 12.3535C7.86538 12.1583 7.86538 11.8417 8.06055 11.6465L11.6465 8.06055Z" stroke="var(--color-icon)" fill="none"/></svg>
+keyed (at the playhead): the same path with stroke="var(--color-icon-selected)" fill="var(--color-icon-selected)" (#7CC4F8), button bg #32394D.
+Origin (anchor) icon:
+<svg width="24" height="24" fill="none" viewBox="0 0 24 24"><path fill="var(--color-icon)" d="M12 5a.5.5 0 0 1 .5.5v1.524a5 5 0 0 1 4.476 4.476H18.5a.5.5 0 1 1 0 1h-1.524a5 5 0 0 1-4.476 4.475V18.5a.5.5 0 1 1-1 0v-1.525A5 5 0 0 1 7.025 12.5H5.5a.5.5 0 0 1 0-1h1.525A5 5 0 0 1 11.5 7.024V5.5A.5.5 0 0 1 12 5m-3.968 7.5a4 4 0 0 0 3.468 3.468V12.5zm4.468 3.468a4 4 0 0 0 3.468-3.468H12.5zm-1-7.937A4 4 0 0 0 8.032 11.5H11.5zm1 3.469h3.468A4 4 0 0 0 12.5 8.031z"/></svg>
+Separate dimensions:
+<svg width="24" height="24" fill="none" viewBox="0 0 24 24"><path fill="var(--color-icon)" d="M17.146 8.146a.5.5 0 0 1 .707.708l-9 9a.5.5 0 1 1-.707-.707zM17.5 14a.5.5 0 0 1 .5.5v3a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1 0-1h1.793l-2.147-2.146a.5.5 0 0 1 .707-.707L17 16.293V14.5a.5.5 0 0 1 .5-.5m-2.354-7.854a.5.5 0 0 1 .707.708l-9 9a.5.5 0 1 1-.707-.707zM9.5 6a.5.5 0 0 1 0 1H7.707l2.146 2.146a.5.5 0 0 1-.707.708L7 7.707V9.5a.5.5 0 0 1-1 0v-3a.5.5 0 0 1 .5-.5z"/></svg>
+
+TIMELINE @0,701 1440x200 (docked under the canvas, full width; the left column is 297 wide, bg #2C2C2C; the keyframe area right of it is one <canvas> with DOM buttons over the keyframes)
+Header row (y 12, 24 high):
+  8,12 [Play] 24x24 r=5px (icon below) · 36,12 [Turn on auto-keyframe] toggle 24x24 (the red keyframe-dot icon in the owner's capture)
+  68,12 136x24 joined field group bg #2C2C2C r=5px: [Current time] 42x24 bg #383838 r=5px 0 0 5px — the value is shown zero-padded "0000" with the leading zeros at rgba(255,255,255,0.4) and the significant digits white, 11px/400 · [Duration] 42x24 bg #383838 =2000 · [Change time format] 24x24 bg #383838 "ms" 11px/400 rgba(255,255,255,0.698) · [Loop] 24x24 bg #383838 r=0 5px 5px 0 (icon below)
+  265,12 [Collapse layers] 24x24 r=5px (icon below)
+Layers treegrid [Motion layers] 0,48 297x92:
+  layer row y≈56: chevron 16x16 at 8,60 · type icon 16x10 at 32,63 · name 56,62 11px/450 rgba(255,255,255,0.898) · 265,56 [Toggle layer visibility] 24x24 PRESSED
+  property row y≈80: tree guide lines rgba(255,255,255,0.1) (1x13 at x=40, 8x1 at y=92) · "Position" 56,86 11px/450 rgba(255,255,255,0.698) · 145,80 [Add or remove keyframe] 24x24 (diamond; ‹ › neighbours appear around it in the owner's capture) · 193,83 [Value] 96x18 r=5px "325.5, 209.5" 11px/450 rgba(255,255,255,0.698) · 265,80 [Toggle animation visibility] 24x24
+Keyframe area: region from x=297; [Timeline scrubber] slider 989x48 at the top (the ruler); playhead line 1x186 bg #0C8CE9 at x≈315 from y=14; scrub head SVG 17x14 (below) on the line's top; keyframe buttons 14x24 (e.g. "Rectangle 1532578659, Keyframe at 0.000 seconds" at 308,80), drawn as the diamond on the canvas.
+Scrub head:
+<svg width="17" height="14" viewBox="0 0 17 14" fill="none"><path d="M0 2C0 0.895431 0.895431 0 2 0H15C16.1046 0 17 0.895431 17 2V7.71631C17 8.41528 16.6351 9.06353 16.0375 9.42614L9.53754 13.3704C8.89995 13.7573 8.10005 13.7573 7.46246 13.3704L0.962457 9.42614C0.364901 9.06353 0 8.41528 0 7.71631V2Z" fill="var(--motion-playhead-scrub-head-color)"/></svg>  (blue #0C8CE9; red while auto-keyframe is on, per the owner's capture)
+Play:
+<svg width="24" height="24" fill="none" viewBox="0 0 24 24"><path fill="var(--color-icon)" d="M7 7.753c0-1.347 1.458-2.19 2.625-1.516l7.586 4.382a1.6 1.6 0 0 1 0 2.772l-7.586 4.382C8.458 18.446 7 17.604 7 16.257zm2.125-.65A.75.75 0 0 0 8 7.754v8.504a.75.75 0 0 0 1.125.65l7.586-4.383a.6.6 0 0 0 0-1.039z"/></svg>
+Loop:
+<svg width="24" height="24" fill="none" viewBox="0 0 24 24"><path fill="var(--color-icon)" fill-rule="evenodd" clip-rule="evenodd" d="M9.146 6.146a.5.5 0 0 1 .708 0l2 2a.5.5 0 0 1 0 .708l-2 2a.5.5 0 0 1-.708-.708L10.293 9H9a3 3 0 1 0 0 6h.5a.5.5 0 0 1 0 1H9a4 4 0 0 1 0-8h1.293L9.146 6.854a.5.5 0 0 1 0-.708M14 8.5a.5.5 0 0 1 .5-.5h.5a4 4 0 0 1 0 8h-1.293l1.147 1.146a.5.5 0 0 1-.708.708l-2-2a.5.5 0 0 1 0-.708l2-2a.5.5 0 0 1 .708.708L13.707 15H15a3 3 0 1 0 0-6h-.5a.5.5 0 0 1-.5-.5"/></svg>
+Collapse layers:
+<svg width="24" height="24" fill="none" viewBox="0 0 24 24"><path fill="var(--color-icon)" d="M12.5 16a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1zm3.725-1.918a.5.5 0 0 1 .628.064l2 2a.5.5 0 1 1-.707.707L16.5 15.208l-1.646 1.646a.5.5 0 1 1-.707-.707l2-2zM12.5 13a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1zm0-3a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1zm5.647-2.854a.5.5 0 1 1 .707.708l-2 2a.5.5 0 0 1-.63.064l-.078-.064-2-2a.5.5 0 1 1 .707-.708L16.5 8.793zM12.5 7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1z"/></svg>
+Canvas transform gizmo: drawn by Figma's WebGL canvas (no DOM) — use owner-2026-10-18/figma-motion-rect-gizmo-panel.webp: an anchor circle (≈90 px wide at 72 % zoom, 1.5 px #0C8CE9 stroke, small white-filled handle dots at its top / right and centre), a green arrow up and a pink arrow right from the circle's edge, dotted #0C8CE9 guides from the layer's edges to the parent frame's edges.
