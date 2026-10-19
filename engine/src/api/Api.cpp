@@ -3078,13 +3078,15 @@ ENG_EXPORT int32_t engine_library_usage(Handle h) {
 
 // The editor's Prototype tab: connections, "+" handles and flow labels on the canvas (on = 1).
 // Viewer mode (developer previews): read-only, no resize handles (on = 1).
-// flags: 1 viewer mode; 2 with Dev Mode's own edits (the editor's Dev Mode: annotations, measurements, statuses).
+// flags: 1 viewer mode; 2 with Dev Mode's own edits (the editor's Dev Mode: annotations, measurements, statuses); 4 with Dev Mode's
+// inspect chrome (the design highlighted, padding / gap measurements, the two-line size badge).
 ENG_EXPORT void engine_set_viewer_mode(Handle h, uint32_t flags) {
   Call call;
   Engine* e = engineOf(h);
   if (!e) return;
   e->editor.setViewerMode((flags & 1) != 0);
   e->editor.setDevEdits((flags & 1) != 0 && (flags & 2) != 0);
+  e->editor.setDevInspect((flags & 1) != 0 && (flags & 4) != 0);
 }
 
 // View options (round 7): 1 the pixel grid (View âº Pixel grid, â§'), 2 outline mode (â§âO), 4 layout guides (â§G); round 8:

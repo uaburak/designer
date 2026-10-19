@@ -3,12 +3,14 @@
  * label (Figma's language selector) above the generated code; the snippet with nested connected instances inline or as
  * pills (a click selects the instance), "‹component› · ‹source›" (a link opens the browser), Figma's error names in a
  * quiet block, and "Generated from properties" under a Code Connect UI mapping. Without a mapping, editors get
- * "Connect components" (the Code Connect UI); a component gets "Explore component behavior" (the playground, D-2).
+ * "Connect components" (the Code Connect UI); a component gets "Explore component behavior" (the playground, D-2) —
+ * under Figma's "Not started" chip and its hint, which any other layer shows too (the owner's capture owner-2026-10-18).
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button, IconButton, PanelSection, Tabs, showToast } from "@/ds";
 import type { ComponentInfo, Guid } from "@/engine/codec";
-import { useViewer } from "../context";
+import { useViewer, type DevData } from "../context";
+import { t, useT } from "@/i18n";
 import { codeConnectSnippets, sourceUrl, targetOf, type ViewSnippet } from "./codeConnect";
 import styles from "../Viewer.module.css";
 
@@ -50,7 +52,11 @@ export function CodeConnectSection({ id, info }: { id: Guid; info: ComponentInfo
   const [label, setLabel] = useState<string | null>(storedLabel);
   const connectable = !!info && (info.kind === "INSTANCE" || info.kind === "NESTED_INSTANCE" || info.kind === "COMPONENT" || info.kind === "VARIANT" || info.kind === "COMPONENT_SET");
   const target = useMemo(() => targetOf(info, dev?.fileKey ?? null), [info, dev]);
-  if (!dev || !connectable) return null;
+  // The editor without the store's Dev Mode data (a file of no account): the section as Figma shows it, nothing to map.
+  if (!dev) return host ? <NotStarted dev={null} /> : null;
+  // Nothing mapped (Figma's Dev Mode, the owner's capture): "Code Connect" with its status chip "Not started", how to
+  // start, and for a component its actions.
+  if (!connectable) return <NotStarted dev={dev} />;
   const choose = (l: string) => {
     setLabel(l);
     try {
@@ -72,12 +78,15 @@ export function CodeConnectSection({ id, info }: { id: Guid; info: ComponentInfo
         Connect components
       </Button>
     ) : null;
-    if (!connect && !playground) return null;
     return (
-      <div className={styles.connectActions}>
-        {playground}
-        {connect}
-      </div>
+      <NotStarted dev={dev}>
+        {(connect || playground) && (
+          <div className={styles.connectActions}>
+            {playground}
+            {connect}
+          </div>
+        )}
+      </NotStarted>
     );
   }
   const current = snippets.find((s) => s.label === label) ?? snippets[0];
@@ -138,6 +147,33 @@ export function CodeConnectSection({ id, info }: { id: Guid; info: ComponentInfo
       )}
       {current.origin === "ui" && <div className={styles.hint}>Generated from properties</div>}
       {playground && <div className={styles.connectActions}>{playground}</div>}
+    </PanelSection>
+  );
+}
+
+/** Figma's Code Connect help, "Learn more" in the section (its status "Not started"). */
+const CODE_CONNECT_HELP = "https://help.figma.com/hc/en-us/articles/23920389749655-Code-Connect";
+
+/** "Code Connect" before anything is mapped: the status chip "Not started", how to start, and `children` (its actions). */
+function NotStarted({ dev, children }: { dev: DevData | null; children?: ReactNode }) {
+  useT();
+  return (
+    <PanelSection title={t("Code Connect")} actions={<span className={styles.connectStatus}>{t("Not started")}</span>} data-code-connect="not-started">
+      <div className={styles.connectHint}>
+        {t("Publish components to a library, then you can connect them to your codebase with Code Connect.")}{" "}
+        <a
+          href={CODE_CONNECT_HELP}
+          className={styles.devLink}
+          onClick={(e) => {
+            e.preventDefault();
+            if (dev?.openUrl) dev.openUrl(CODE_CONNECT_HELP);
+            else window.open(CODE_CONNECT_HELP, "_blank", "noopener");
+          }}
+        >
+          {t("Learn more")}
+        </a>
+      </div>
+      {children}
     </PanelSection>
   );
 }

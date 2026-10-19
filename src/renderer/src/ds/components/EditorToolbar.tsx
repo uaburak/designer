@@ -21,7 +21,7 @@ export type ToolId =
   | "comment" | "annotation" | "measurement";
 
 /** Draw mode's quick-access slots ("pen", "pencil", "brush") hold one tool each (docs/draw.md §5.1). */
-export type ToolGroupId = "move" | "region" | "shape" | "creation" | "pen" | "pencil" | "brush" | "text" | "comment";
+export type ToolGroupId = "move" | "region" | "shape" | "creation" | "pen" | "pencil" | "brush" | "text" | "comment" | "measurement" | "annotation";
 export type EditorMode = "draw" | "design" | "social" | "motion" | "dev";
 
 export type ToolDef = {
@@ -86,8 +86,20 @@ export const DRAW_TOOL_GROUPS: ToolGroupDef[] = [
   TOOL_GROUPS[5],
 ];
 
-/** A mode's tool slots (Dev Mode and Motion keep Design's; the editor disables what they can't use). */
-export const toolGroups = (mode: EditorMode = "design"): ToolGroupDef[] => (mode === "draw" ? DRAW_TOOL_GROUPS : TOOL_GROUPS);
+/**
+ * Dev Mode's toolbar (the owner's capture docs/research/figma/live/owner-2026-10-18/figma-devmode-inspect): Move,
+ * Measurement, Annotation and Comment, each a slot of its own (no menus), no Actions; the active one in Dev Mode's green.
+ * (Figma's eyedropper slot — it copies a colour in Dev Mode — isn't built: ours fills the selection, an edit.)
+ */
+export const DEV_TOOL_GROUPS: ToolGroupDef[] = [
+  { id: "move", label: "Move", tools: ["move"], menuWidth: 0 },
+  { id: "measurement", label: "Measurement", tools: ["measurement"], menuWidth: 0 },
+  { id: "annotation", label: "Annotation", tools: ["annotation"], menuWidth: 0 },
+  { id: "comment", label: "Comment", tools: ["comment"], menuWidth: 0 },
+];
+
+/** A mode's tool slots (Motion keeps Design's; the editor disables what a mode can't use). */
+export const toolGroups = (mode: EditorMode = "design"): ToolGroupDef[] => (mode === "draw" ? DRAW_TOOL_GROUPS : mode === "dev" ? DEV_TOOL_GROUPS : TOOL_GROUPS);
 
 /**
  * The slot a tool belongs to in a mode. A tool the mode has no slot for (Frame in Draw, Brush in Design) answers its
@@ -190,7 +202,7 @@ export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActi
           <ToolbarDivider />
         </>
       )}
-      <ToolButton icon="24.actions" label={t("Actions")} shortcut={shortcutOf("actions", keys(["mod", "k"]))} active={Boolean(actionsActive)} onSelect={() => onActions?.()} />
+      {mode !== "dev" && <ToolButton icon="24.actions" label={t("Actions")} shortcut={shortcutOf("actions", keys(["mod", "k"]))} active={Boolean(actionsActive)} onSelect={() => onActions?.()} />}
       <ToolbarDivider />
       <div role="radiogroup" aria-label={t("Mode")} className={styles.modes} data-ds="ModeSwitch">
         {EDITOR_MODES.map((m, i) => {

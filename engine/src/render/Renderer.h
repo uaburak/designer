@@ -473,6 +473,25 @@ struct Overlay {
   ScrollbarOverlay scrollbars;  // round 16: the canvas scrollbars
   // Dev Mode: annotations, measurements, statuses, focus view.
   DevOverlay dev;
+  // Dev Mode's inspect chrome (the owner's capture docs/research/figma/live/owner-2026-10-18/figma-devmode-inspect;
+  // Figma's DevHandoffStackMouseBehavior and DevHandoffTLFCanvasHighlightBehavior): the selected layer's design
+  // highlighted (a rounded box round it and its name, its outline 2 px), a selected auto-layout frame's paddings
+  // hatched blue and gaps pink with a blue value pill on each (a line through the vertical paddings and the gaps), its
+  // layers' boxes dotted, and the size badge as two lines — "W Fixed 678px" / "H Hug 120px".
+  struct DevInspect {
+    bool on = false;
+    Guid frame = kNoGuid;  // the highlighted design (the page's child holding the selection)
+    std::vector<SpacingArea> areas;  // world quads; `gap` pink, else blue
+    std::vector<GuideLine> lines;    // world
+    struct Pill {
+      Vec2 at;  // world: its centre
+      std::string text;
+    };
+    std::vector<Pill> pills;
+    std::vector<SpacingArea> dotted;  // the flow layers' boxes (world quads)
+    std::string width, height;        // the badge's lines (none: the usual W × H badge)
+  };
+  DevInspect devInspect;
   // Round 18: other people in the file (multiplayer presence, Editor::setPresence) — their selections outlined in their
   // colour under the local selection's chrome, their cursors with name chips over everything. Only the editor's
   // overlay carries them: exports, thumbnails, the content cache and presentation never draw an Overlay's presence.
@@ -845,6 +864,9 @@ class Renderer {
   // (render/SpacingOverlay.cpp).
   // `padding`: the paddings' colour (the selection's chrome: purple in a component or instance); gaps are pink.
   void drawSpacing(const Mat2x3& view, const Overlay& overlay, const OverlayStyle& style, const Color& padding);
+  // A quad (screen CSS px, corners in order round it) washed in `color` at `wash` and striped "/" at `ink`, a stripe
+  // `width` across every `period` along a row, the pattern's phase from its first corner (SpacingOverlay.cpp).
+  void hatchQuad(const Vec2 quad[4], const Color& color, double wash, double ink, double period, double width);
   // Figma's component (four diamonds) or instance (a diamond outline) icon before a title, in `box` (screen CSS px).
   void drawTitleIcon(TitleIcon icon, const Rect& box, const Color& color, const Mat2x3& place = {});
   // A hovered text layer (Overlay.cpp, round 11): each line's baseline underlined across its text, 2 px (1 px when

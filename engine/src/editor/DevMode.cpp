@@ -14,6 +14,7 @@
 #include "editor/Editor.h"
 #include "hit/HitTest.h"
 #include "hit/Picking.h"
+#include "layout/Layout.h"
 #include "scene/CodecKiwi.h"
 
 namespace eng {
@@ -65,6 +66,109 @@ void Editor::setDevEdits(bool on) {
   devEdits_ = on;
   if (!on && viewer_ && (tool_ == Tool::ANNOTATION || tool_ == Tool::MEASUREMENT)) setTool(Tool::MOVE);
   needsRender_ = true;
+}
+
+void Editor::setDevInspect(bool on) {
+  if (devInspect_ == on) return;
+  devInspect_ = on;
+  needsRender_ = true;
+}
+
+// Dev Mode's inspect chrome (the owner's capture docs/research/figma/live/owner-2026-10-18/figma-devmode-inspect; Figma's
+// DevHandoffStackMouseBehavior, DevHandoffTLFCanvasHighlightBehavior). One layer selected:
+// - its design (the page's child holding it, a frame or component) highlighted — Renderer draws the box;
+// - an auto-layout frame (not a grid, not wrapping): each padding hatched blue and each gap pink, a blue pill with
+//   the value in each — a vertical padding's and a gap's on a line through it (the frame's middle across a padding,
+//   the content's middle along a gap), a horizontal padding's at its middle, level with the content's middle — and
+//   its flow layers' boxes dotted;
+// - the size badge as two lines, "W Fixed 678px" / "H Hug 120px" (Fill inside an auto layout, Hug when it hugs).
+void Editor::devInspectOverlay(Overlay& o) const {
+  Overlay::DevInspect& d = o.devInspect;
+  d.on = true;
+  if (selection_.size() != 1 || gesture_ != Gesture::None) return;
+  const Guid id = selection_[0];
+  const Node* n = doc_.get(id);
+  if (!n || id == page_) return;
+  for (Guid at = id; at != kNoGuid; at = doc_.parentOf(at))
+    if (doc_.parentOf(at) == page_) {
+      const Node* top = doc_.get(at);
+      if (top && top->props.isFrameLike() && top->props.type != NodeType::SECTION) d.frame = at;
+      break;
+    }
+  const NodeProps& p = n->props;
+  const Mat2x3 W = doc_.worldTransform(id);
+
+  // The badge's lines.
+  const Node* parent = doc_.get(p.parentIndex.guid);
+  for (int axis = 0; axis < 2; axis++) {
+    const char* how = "Fixed";
+    if (parent && parent->props.isAutoLayout() && p.inFlow() && parent->props.stack().stackMode != StackMode::GRID) {
+      bool along = (parent->props.stack().stackMode == StackMode::VERTICAL) == (axis == 1);
+      if (along ? p.stackChildPrimaryGrow > 0 : p.stackChildAlignSelf == StackCounterAlign::STRETCH) how = "Fill";
+    }
+    if (std::string(how) == "Fixed" && p.isAutoLayout() && p.stack().stackMode != StackMode::GRID) {
+      bool primary = (p.stack().stackMode == StackMode::VERTICAL) == (axis == 1);
+      if (primary ? p.hugsPrimary() : p.hugsCounter()) how = "Hug";
+    }
+    double v = axis == 0 ? p.size.x * std::hypot(W.m00, W.m10) : p.size.y * std::hypot(W.m01, W.m11);
+    (axis == 0 ? d.width : d.height) = std::string(axis == 0 ? "W " : "H ") + how + " " + annot::formatNumber(v) + "px";
+  }
+
+  if (!p.isAutoLayout() || p.stack().stackMode == StackMode::GRID || p.stack().stackWrap == StackWrap::WRAP) return;
+  const double w = p.size.x, h = p.size.y;
+  double pad[4];  // left, top, right, bottom
+  Layout::padding(p, pad);
+  const double own[4] = {p.stack().stackPaddingLeft, p.stack().stackPaddingTop, p.stack().stackPaddingRight, p.stack().stackPaddingBottom};
+  const bool horizontal = p.stack().stackMode == StackMode::HORIZONTAL;
+  std::vector<Rect> boxes;
+  for (Guid c : Layout(const_cast<Editor&>(*this)).flowChildren(id)) {
+    const Node* cn = doc_.get(c);
+    if (!cn || !cn->props.visible) continue;
+    boxes.push_back(layoutBox(cn->props.transform, cn->props.size));
+  }
+  auto quad = [&](const Rect& r, bool gap) {
+    Overlay::SpacingArea a;
+    a.quad[0] = W.apply({r.x, r.y});
+    a.quad[1] = W.apply({r.right(), r.y});
+    a.quad[2] = W.apply({r.right(), r.bottom()});
+    a.quad[3] = W.apply({r.x, r.bottom()});
+    a.gap = gap;
+    return a;
+  };
+  for (const Rect& b : boxes) d.dotted.push_back(quad(b, false));
+  // The content's middle across the flow (the pills of the side paddings and the gaps' lines sit on it).
+  double c0 = 1e300, c1 = -1e300;
+  for (const Rect& b : boxes) {
+    c0 = std::min(c0, horizontal ? b.y : b.x);
+    c1 = std::max(c1, horizontal ? b.bottom() : b.right());
+  }
+  if (boxes.empty()) c0 = horizontal ? pad[1] : pad[0], c1 = horizontal ? h - pad[3] : w - pad[2];
+  const double mid = (c0 + c1) / 2;
+  // The paddings, not overlapping: top and bottom across the frame, left and right between them.
+  const Rect sides[4] = {{0, pad[1], pad[0], h - pad[1] - pad[3]}, {0, 0, w, pad[1]}, {w - pad[2], pad[1], pad[2], h - pad[1] - pad[3]}, {0, h - pad[3], w, pad[3]}};
+  for (int k = 0; k < 4; k++) {
+    if (pad[k] <= 0) continue;
+    const Rect& r = sides[k];
+    if (r.w > 0 && r.h > 0) d.areas.push_back(quad(r, false));
+    const bool vertical = k == 1 || k == 3;
+    Vec2 at = vertical ? Vec2{w / 2, r.y + r.h / 2} : Vec2{r.x + r.w / 2, horizontal ? mid : h / 2};
+    if (vertical) d.lines.push_back({W.apply({w / 2, r.y}), W.apply({w / 2, r.bottom()})});
+    else d.lines.push_back({W.apply({r.x, at.y}), W.apply({r.right(), at.y})});
+    d.pills.push_back({W.apply(at), annot::formatNumber(own[k])});
+  }
+  const bool between = p.stack().stackPrimaryAlignItems == StackJustify::SPACE_BETWEEN;
+  for (size_t i = 1; i < boxes.size(); i++) {
+    const Rect& a = boxes[i - 1];
+    const Rect& b = boxes[i];
+    Rect g = horizontal ? Rect{std::min(a.right(), b.x), pad[1], std::fabs(b.x - a.right()), h - pad[1] - pad[3]}
+                        : Rect{pad[0], std::min(a.bottom(), b.y), w - pad[0] - pad[2], std::fabs(b.y - a.bottom())};
+    if (g.w > 0 && g.h > 0) d.areas.push_back(quad(g, true));
+    double value = between ? (horizontal ? g.w : g.h) : p.stack().stackSpacing;
+    Vec2 at = horizontal ? Vec2{g.x + g.w / 2, mid} : Vec2{mid, g.y + g.h / 2};
+    if (horizontal) d.lines.push_back({W.apply({g.x, mid}), W.apply({g.right(), mid})});
+    else d.lines.push_back({W.apply({mid, g.y}), W.apply({mid, g.bottom()})});
+    d.pills.push_back({W.apply(at), annot::formatNumber(value)});
+  }
 }
 
 void Editor::setAnnotationView(bool show, bool dots) {

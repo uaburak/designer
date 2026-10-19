@@ -1058,6 +1058,7 @@ Overlay Editor::overlay() const {
   if (proto_.on) protoOverlay(o);
   scrollbarOverlay(o);  // round 16
   devOverlay(o);
+  if (devInspect()) devInspectOverlay(o);
   // Round 18: other people — their selected layers that exist on this page (others ignored), their cursors.
   o.localChat = localChat_;
   o.presence.reserve(presence_.size());

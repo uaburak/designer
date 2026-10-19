@@ -619,8 +619,8 @@ export const COMMANDS: EditorCommand[] = [
   ui("view.local-variables", "Variables", undefined, (ed) => ed.ui.set((s) => ({ variablesOpen: !s.variablesOpen, uiHidden: false })), (ed) => ed.ui.get().variablesOpen),
   ui("view.agents", "Agents", undefined, (ed) => ed.ui.set({ railTab: "agents", uiHidden: false, uiMinimized: false }), (ed) => ed.ui.get().railTab === "agents"),
   ui("view.tools", "Tools", undefined, (ed) => ed.ui.set({ railTab: "tools", uiHidden: false, uiMinimized: false }), (ed) => ed.ui.get().railTab === "tools"),
-  ui("view.design-panel", "Open design panel", [k("Digit8", { alt: true })], (ed) => ed.ui.set({ rightTab: "design", uiHidden: false, uiMinimized: false })),
-  ui("view.prototype-panel", "Open prototype panel", [k("Digit9", { alt: true })], (ed) => ed.ui.set({ rightTab: "prototype", uiHidden: false, uiMinimized: false })),
+  ui("view.design-panel", "Open design panel", [k("Digit8", { alt: true })], (ed) => ed.ui.set({ rightTab: "design", devTab: "inspect", uiHidden: false, uiMinimized: false })),
+  ui("view.prototype-panel", "Open prototype panel", [k("Digit9", { alt: true })], (ed) => ed.ui.set(ed.ui.get().mode === "dev" ? { devTab: "plugins", uiHidden: false, uiMinimized: false } : { rightTab: "prototype", uiHidden: false, uiMinimized: false })),
   // ⌥3 (live's Keyboard shortcuts panel, View and Components: "Team library"): the Libraries modal. Its own command — the
   // live Figma menu's "Libraries…" shows no key.
   ui("view.team-library", "Team library", [k("Digit3", { alt: true })], (ed) => ed.ui.set({ librariesDialog: { tab: "libraries" }, uiHidden: false })),
