@@ -730,18 +730,3 @@ export interface MotionSamples {
 export type MotionCodeFormat = "CSS" | "REACT" | "JSON";
 export const MOTION_CODE_FORMATS: readonly MotionCodeFormat[] = ["CSS", "REACT", "JSON"];
 export const MOTION_CODE_LABELS: Record<MotionCodeFormat, string> = { CSS: "CSS", REACT: "React", JSON: "JSON" };
-
-// ---- The easing editor's props (8d builds it, 8c uses it) -----------------------------------------------------------
-
-export interface EasingEditorProps {
-  value: EasingRef;
-  /** A bound value's easing (the variable's in the layer's modes): what the graph shows while `value` is a variable */
-  resolved?: MotionEasing;
-  /** Live changes while dragging (no commit); `commit` once on release / Enter */
-  onChange(value: EasingRef, commit: boolean): void;
-  /** Offer the variable binding (EASING variables) */
-  allowVariable?: boolean;
-  /** Where to anchor the popover (a DOMRect's box; the shared types stay DOM-free) */
-  anchor: { x: number; y: number; width: number; height: number };
-  onClose(): void;
-}

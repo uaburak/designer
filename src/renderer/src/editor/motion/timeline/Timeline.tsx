@@ -22,10 +22,9 @@
  * a typed one — and Once / Loop / Ping pong; TimelineSettings.tsx); the **layer bar** dragged moves all its layer's
  * keyframes and clips, its side handles scale them about the other end (MOTION_RETIME_LAYER); the lanes **scroll with
  * the layer column** (one scroll position: the column's, the lanes translated by it, the playhead and the past over
- * them; a plain wheel over the lanes scrolls the column); a segment bound to an EASING variable says so and its menu
- * offers the binding (`easingVariables`); a Position / Scale row's context menu combines or splits its X / Y tracks.
- * `readOnly` (Dev Mode's timeline view) leaves play, scrub and zoom: no resize edge, settings, segment menus, layer
- * bar or duration drags.
+ * them; a plain wheel over the lanes scrolls the column); a segment bound to an EASING variable says so; a Position /
+ * Scale row's context menu combines or splits its X / Y tracks. `readOnly` (Dev Mode's timeline view) leaves play,
+ * scrub and zoom: no resize edge, settings, segment selection, layer bar or duration drags.
  *
  * 2026-10-19, Figma's look (docs/motion.md §6.13; the owner's captures, 2026-10-18/motion.txt): one 48 header row —
  * the controls over the layer column (Play, the keyframe button, "1855 | 2000 | ms | loop", Collapse layers), the ruler
@@ -39,9 +38,8 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEven
 import { ContextMenu, ICON_NAMES, Icon, IconButton, Slider, TextInput, type IconName, type MenuEntry } from "@/ds";
 import { capture } from "@/ds/util/pointer";
 import { t, useT } from "@/i18n";
-import { ANIMATION_PRESETS, EASING_LABELS, PLAYBACK_CYCLE, PLAYBACK_LABELS, type EasingRef, type GuidString, type Micros, type MotionEasing, type PlaybackName, type TimelineAudioClip, type TimelineClip, type TimelineKeyframe, type TimelineLayer, type TimelineModel, type TimelineTrack, type TimelineUnit } from "@shared/motion/types";
+import { ANIMATION_PRESETS, EASING_LABELS, PLAYBACK_CYCLE, PLAYBACK_LABELS, type GuidString, type Micros, type PlaybackName, type TimelineAudioClip, type TimelineClip, type TimelineKeyframe, type TimelineLayer, type TimelineModel, type TimelineTrack, type TimelineUnit } from "@shared/motion/types";
 import { isAudioFile, waveformPath } from "../audio/audio";
-import { EasingMenu } from "../easing/EasingEditor";
 import { layerIcon } from "../../panels/Layers";
 import { DIAMOND_PATH } from "../panels/KeyframeDiamond";
 import { DIAMOND_PX, ORIGIN_PX, ZOOM_BOX_PX, adjacentKeyframe, clampTimelineHeight, fitScale, formatTime, formatTrackValue, frameUs, layerExtent, marqueeBox, otherKeyframeTimes, overlaps, parseTime, retimeLayer, rulerTicks, snapTime, snapToFrame, timeNumber, timeToX, trackValueAt, trimAudio, xToTime, type Box, type Scale } from "./maths";
@@ -88,18 +86,15 @@ export interface TimelineProps {
   onToggleKeyframe?(node: GuidString, track: TimelineTrack, at: GuidString | null): void;
   /** A selected layer's position as the right panel shows it (its Position row's value, Figma's "190.6, 246") */
   positionOf?(node: GuidString): { x: number; y: number } | null;
-  /** Segments' Easing menus offer the EASING variable binding (needs the editor; off in the tests' bare mount) */
-  easingVariables?: boolean;
   onSelectKeyframes(ids: GuidString[]): void;
   /** A keyframe drag: the moved keyframes' new times each frame (`final` false), once more with `final` true */
   onMoveKeyframes(edits: { id: GuidString; timeUs: Micros }[], final: boolean): void;
   onDeleteKeyframes(ids: GuidString[]): void;
   onDeleteTrack(node: GuidString, track: TimelineTrack): void;
-  onSetEasing(ids: GuidString[], easing: EasingRef): void;
   /**
-   * The keyframe segments selected (2026-10-19, Figma's): by their end keyframes' ids. With `onSelectSegments` a
-   * segment's click selects it (⇧ adds or removes it) and its layer, and the right panel's Easing page edits it; without
-   * (Social's timeline, the tests' bare mount) the click opens the Easing popover as before.
+   * The keyframe segments selected (2026-10-19, Figma's): by their end keyframes' ids. A segment's click selects it (⇧
+   * adds or removes it) and its layer, and the right panel's Easing page edits it — in Motion and in Social (Figma has
+   * no floating Easing menu; the popover is gone since 2026-10-19).
    */
   selectedSegments?: ReadonlySet<GuidString>;
   onSelectSegments?(ids: GuidString[], node: GuidString, additive: boolean): void;
@@ -155,14 +150,6 @@ interface Drag {
   moving: boolean;
 }
 
-interface EasingTarget {
-  ids: GuidString[];
-  easing: EasingRef;
-  /** A bound one's value (what the graph shows) */
-  resolved?: MotionEasing;
-  anchor: { x: number; y: number; width: number; height: number };
-}
-
 /** One row of the layer column and its lane. */
 type Row =
   | { kind: "layer"; layer: TimelineLayer }
@@ -187,7 +174,6 @@ export function Timeline(p: TimelineProps) {
   const [collapsedLayers, setCollapsedLayers] = useState<ReadonlySet<GuidString>>(new Set());
   const [selectedRow, setSelectedRow] = useState<{ node: GuidString; track: GuidString } | null>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
-  const [easingAt, setEasingAt] = useState<EasingTarget | null>(null);
   const [durationDrag, setDurationDrag] = useState<number | null>(null);
   const [marquee, setMarquee] = useState<Box | null>(null);
   // The layer column's scroll position: the lanes follow it (round 8i).
@@ -752,12 +738,10 @@ export function Timeline(p: TimelineProps) {
                     ) : r.kind === "layer" ? <LayerLane layer={r.layer} scale={scale} selected={lit} onInstanceDown={readOnly || !p.onMoveInstance ? undefined : (e) => onInstanceDown(e, r.layer)} onBarDown={readOnly || !p.onRetimeLayer ? undefined : (e, edge) => onLayerBarDown(e, r.layer, edge)} /> : <TrackLane track={r.track} lit={lit} scale={scale} durationUs={shownDuration} selected={selectedKeyframes} dragging={drag?.moving ? new Set(drag.items.map((i) => i.id)) : null} onDown={onDiamondDown} onDouble={(k) => {
                       p.onSeek(k.timeUs);
                       p.onSelectLayer(r.layer.node, false);
-                    }} selectedSegments={p.selectedSegments} onSegment={readOnly ? undefined : (k, anchor, shift) => {
-                      if (p.onSelectSegments) {
-                        const cur = [...(p.selectedSegments ?? [])];
-                        p.onSelectSegments(shift ? (cur.includes(k.id) ? cur.filter((x) => x !== k.id) : [...cur, k.id]) : [k.id], r.layer.node, shift);
-                        setSelectedRow(null);
-                      } else setEasingAt({ ids: [k.id], easing: k.easingVariable ? { variable: k.easingVariable } : k.easing, resolved: "type" in k.easing ? k.easing : undefined, anchor });
+                    }} selectedSegments={p.selectedSegments} onSegment={readOnly || !p.onSelectSegments ? undefined : (k, shift) => {
+                      const cur = [...(p.selectedSegments ?? [])];
+                      p.onSelectSegments?.(shift ? (cur.includes(k.id) ? cur.filter((x) => x !== k.id) : [...cur, k.id]) : [k.id], r.layer.node, shift);
+                      setSelectedRow(null);
                     }} />}
                   </div>
                 );
@@ -773,18 +757,6 @@ export function Timeline(p: TimelineProps) {
           )}
         </div>
       </div>
-      {easingAt && (
-        <EasingMenu
-          value={easingAt.easing}
-          resolved={easingAt.resolved}
-          allowVariable={p.easingVariables}
-          anchor={easingAt.anchor}
-          onChange={(easing, commit) => {
-            if (commit) p.onSetEasing(easingAt.ids, easing);
-          }}
-          onClose={() => setEasingAt(null)}
-        />
-      )}
       {audioMenu && (
         <ContextMenu at={audioMenu.at} context entries={audioMenuEntries(audioMenu.clip)} label={t("Audio")} onSelect={(id) => p.onAudioMenu?.(audioMenu.clip, id as "mute" | "split" | "delete")} onClose={() => setAudioMenu(null)} />
       )}
@@ -973,8 +945,8 @@ function TrackLane({ track, lit, scale, durationUs, selected, selectedSegments, 
   dragging: ReadonlySet<GuidString> | null;
   onDown(e: ReactPointerEvent<HTMLButtonElement>, k: TimelineKeyframe): void;
   onDouble(k: TimelineKeyframe): void;
-  /** Absent (read-only): the segments are drawn, not opened */
-  onSegment?(end: TimelineKeyframe, anchor: { x: number; y: number; width: number; height: number }, shift: boolean): void;
+  /** Absent (read-only): the segments are drawn, not selected */
+  onSegment?(end: TimelineKeyframe, shift: boolean): void;
 }) {
   const out: ReactNode[] = [];
   const ks = track.keyframes;
@@ -990,8 +962,7 @@ function TrackLane({ track, lit, scale, durationUs, selected, selectedSegments, 
         out.push(
           <button key={`s${k.id}`} type="button" className={styles.segment} data-hold={hold || undefined} data-variable={k.easingVariable ? "" : undefined} data-selected={lit || chosen || (selected.has(k.id) && selected.has(ks[i - 1].id)) || undefined} data-segment={k.id} data-segment-selected={chosen || undefined} aria-label={t("Easing: {name}", { name: label })} aria-pressed={chosen} disabled={!onSegment} style={{ left: a, width: b - a }} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => {
             e.stopPropagation();
-            const r = e.currentTarget.getBoundingClientRect();
-            onSegment?.(k, { x: r.left, y: r.top, width: r.width, height: r.height }, e.shiftKey);
+            onSegment?.(k, e.shiftKey);
           }}>
             {/* Figma's easing glyph at the segment's middle: a 16 × 16 rounded box with a curve, on the selected segment (and on hover) */}
             {b - a >= 20 && (

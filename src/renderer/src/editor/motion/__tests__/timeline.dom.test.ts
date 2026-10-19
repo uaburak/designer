@@ -48,7 +48,7 @@ type Spies = { [K in keyof TimelineProps as NonNullable<TimelineProps[K]> extend
 function setup(over: Partial<TimelineProps> = {}) {
   const s = {
     onSeek: spy(), onTogglePlay: spy(), onToggleAutoKeyframe: spy(), onToggleCollapse: spy(), onSetTimeline: spy(), onSelectKeyframes: spy(),
-    onMoveKeyframes: spy(), onDeleteKeyframes: spy(), onDeleteTrack: spy(), onSetEasing: spy(), onSelectLayer: spy(),
+    onMoveKeyframes: spy(), onDeleteKeyframes: spy(), onDeleteTrack: spy(), onSelectSegments: spy(), onSelectLayer: spy(),
     onCopyKeyframes: spy(), onPasteKeyframes: spy(), onResize: spy(), onMoveInstance: spy(), onSelectClip: spy(), onEditClip: spy(), onDeleteClip: spy(),
   } as unknown as Spies;
   const props = { model: MODEL, timeUs: 0, playing: false, autoKeyframe: false, collapsed: false, unit: "ms", selectedKeyframes: new Set(), selectedNodes: new Set(), ...(s as unknown as Partial<TimelineProps>), ...over } as TimelineProps;
@@ -153,17 +153,12 @@ describe("the Motion timeline", () => {
     view.unmount();
   });
 
-  it("a segment opens the Easing menu for its end keyframe: Hold first; choosing one writes it", () => {
+  it("a segment selects its end keyframe's segment (the right panel's Easing page edits it): no floating Easing menu", () => {
     const { view, s } = setup();
     click($("[data-segment]", view.host));
-    const editor = $("[data-easing-editor]");
-    expect(editor).not.toBeNull();
-    const names = $$("[data-easing]", editor).map((e) => e.dataset.easing);
-    expect(names[0]).toBe("HOLD");
-    expect(names).not.toContain("GENTLE");
-    expect($('[data-easing="EASE_OUT"]', editor).getAttribute("aria-selected")).toBe("true");
-    click($('[data-easing="HOLD"]', editor));
-    expect(s.onSetEasing.calls).toEqual([[["k2"], { type: "HOLD" }]]);
+    expect(s.onSelectSegments.calls).toEqual([[["k2"], "1:2", false]]);
+    expect($("[data-easing-editor]")).toBeNull();
+    expect($('[role="dialog"]')).toBeNull();
     view.unmount();
   });
 

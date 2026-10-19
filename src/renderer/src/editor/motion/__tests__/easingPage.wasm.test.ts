@@ -2,7 +2,10 @@
 // The right panel's Easing page (docs/motion.md §6.14; Figma's, docs/research/figma/live/2026-10-18/motion-easing.txt):
 // the graph's layout and the presets' glyphs (pure), segment selection on the timeline's view, and the page on the real
 // engine (the committed Wasm build, the Figma logo fixture) — the preset select and its popover, Flip curve, the Bezier
-// field, a handle dragged as one undo step, Curve | Spring and Bounce, several segments edited together (Mixed).
+// field, a handle dragged as one undo step, Curve | Spring and Bounce, several segments edited together (Mixed). Since
+// 2026-10-19 every easing editor uses it: a preset clip's Easing (its page in the Design panel), Social's timeline
+// segments (the page in Social's Design part) and an Easing variable's value (the controls in its value editor) — the old
+// floating Easing popover is gone.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createElement } from "react";
@@ -18,6 +21,13 @@ import { $, $$, box, click, focus, key, mount, pointer, spy, type, type Mounted 
 import { EditorContext, EditorController } from "../../controller";
 import { setMode } from "../../devmode/devMode";
 import { memoryDocumentSource } from "../../documentSource";
+import { useLocalAssets } from "../../hooks";
+import { resolveVariable } from "../../model/variables";
+import { DesignPanel } from "../../panels/design/DesignPanel";
+import { ValueEditor } from "../../panels/variables/ValueEditor";
+import { createCollection, createVariable } from "../../variables";
+import { MotionMode } from "../MotionMode";
+import { addPreset } from "../presets";
 import { EasingPage, useEasingSegments } from "../easing/EasingPage";
 import { bezierText, bounceForPeak, curveLayout, flipEasing, parseBezierText, presetGlyphPath, segmentTargets, sharedEasing, springPeak } from "../easing/easingMaths";
 import MOTION_LOGO from "../fixtures/figma-logo-motion.json";
@@ -199,5 +209,115 @@ describe("the Easing page on the engine", () => {
     act(() => click($("[data-easing-select]")));
     act(() => click($('[data-easing-presets] [data-easing="LINEAR"]')));
     expect([easingOf(ed, k1.id), easingOf(ed, k2.id)]).toEqual([{ type: "LINEAR" }, { type: "LINEAR" }]);
+  });
+  const noPopover = () => {
+    expect($("[data-easing-editor]")).toBeNull();
+    expect($("[data-easing-preview]")).toBeNull();
+  };
+  const drag = (graph: HTMLElement) => {
+    box(graph, { left: 0, top: 0, width: 208, height: 208 });
+    act(() => pointer($('[data-handle="1"]', graph), "pointerdown", { clientX: 94, clientY: 164 }));
+    act(() => window.dispatchEvent(new MouseEvent("pointermove", { clientX: 74, clientY: 104 })));
+    act(() => window.dispatchEvent(new MouseEvent("pointermove", { clientX: 68, clientY: 44 })));
+    act(() => window.dispatchEvent(new MouseEvent("pointerup", {})));
+  };
+
+  it("a clip's Easing opens its Easing page in the Design panel (no popover): a preset and a drag one undo step each, Back", async () => {
+    const { ed, engine } = await editor();
+    const [clip] = addPreset(ed, "opacity", [RED]);
+    const clipOf = () => ed.engine.motionTimeline(RED)!.layers.find((l) => l.node === RED)!.clips.find((c) => c.id === clip)!;
+    act(() => setMotionUi(ed, { selectedClip: clip }));
+    m = mount(() => createElement(EditorContext.Provider, { value: ed }, createElement(DesignPanel)), {});
+    act(() => click($("[data-clip-easing]")));
+    noPopover();
+    expect($('[data-easing-page="clip"]')).not.toBeNull();
+    expect($("[data-animations-section]")).toBeNull();
+    expect(motionUi(ed).clipEasing).toBe(clip);
+    const before = clipOf().easing;
+    act(() => click($("[data-easing-select]")));
+    act(() => click($('[data-easing-presets] [data-easing="EASE_IN_BACK"]')));
+    expect(clipOf().easing).toEqual({ type: "EASE_IN_BACK" });
+    expect($("[data-easing-select]").textContent).toBe("Ease in back");
+    act(() => engine.undo());
+    expect(clipOf().easing).toEqual(before);
+    drag($("[data-easing-graph]"));
+    expect(clipOf().easing).toMatchObject({ type: "CUSTOM_CUBIC_BEZIER" });
+    act(() => engine.undo());
+    expect(clipOf().easing).toEqual(before);
+    // Back: the layer's sections, the clip's settings still open.
+    act(() => click($("[data-easing-back]")));
+    expect(motionUi(ed).clipEasing).toBeNull();
+    expect($("[data-easing-page]")).toBeNull();
+    expect($(`[data-clip-settings="${clip}"]`)).not.toBeNull();
+  });
+
+  it("Social: a timeline segment opens the Easing page in the Design part (its Properties tab), no popover; Mixed; Back", async () => {
+    const { ed, engine } = await editor();
+    act(() => setMode(ed, "social"));
+    m = mount(() => createElement(EditorContext.Provider, { value: ed }, createElement("div", null, createElement(MotionMode), createElement(DesignPanel))), {});
+    box($('[aria-label="Tracks"]'), { left: 0, top: 0, width: 600, height: 200 });
+    const [, k1, k2] = trackOf(ed).keyframes;
+    act(() => ed.engine.runMotionCommand("MOTION_SET_EASING", { ids: [k1.id], easing: { type: "EASE_IN" } }));
+    act(() => click($(`[data-segment="${k1.id}"]`)));
+    noPopover();
+    expect(motionUi(ed).selectedSegments).toEqual([k1.id]);
+    expect(ed.ui.get().socialRightTab).toBe("properties");
+    expect($('[data-easing-page="segments"]')).not.toBeNull();
+    act(() => click($("[data-easing-select]")));
+    act(() => click($('[data-easing-presets] [data-easing="HOLD"]')));
+    expect(easingOf(ed, k1.id)).toEqual({ type: "HOLD" });
+    act(() => engine.undo());
+    expect(easingOf(ed, k1.id)).toEqual({ type: "EASE_IN" });
+    if (k2) {
+      act(() => ed.engine.runMotionCommand("MOTION_SET_EASING", { ids: [k2.id], easing: { type: "EASE_OUT" } }));
+      act(() => $(`[data-segment="${k2.id}"]`).dispatchEvent(new MouseEvent("click", { bubbles: true, shiftKey: true })));
+      expect(motionUi(ed).selectedSegments).toEqual([k1.id, k2.id]);
+      expect($("[data-easing-select]").textContent).toBe("Mixed");
+    }
+    act(() => click($("[data-easing-back]")));
+    expect(motionUi(ed).selectedSegments).toEqual([]);
+    expect($("[data-easing-page]")).toBeNull();
+  });
+
+  it("an Easing variable's value is edited with the page's controls (graph, presets without Libraries, Curve | Spring), one step each", async () => {
+    const { ed, engine } = await editor();
+    const collection = createCollection(ed)!;
+    const id = createVariable(ed, collection, "EASING", "", { kind: "literal", value: { type: "LINEAR" } })!;
+    const valueOf = () => resolveVariable(id, ed.variables.get().lookup);
+    // The variables' listeners hear of a change in a microtask.
+    const flush = () => act(async () => {});
+    function Cell() {
+      const a = useLocalAssets();
+      const v = a.lookup.variable(id);
+      const c = a.collections.find((x) => x.id === collection);
+      return v && c ? createElement(ValueEditor, { variable: v, mode: c.modes[0].id, collection: c }) : null;
+    }
+    m = mount(() => createElement(EditorContext.Provider, { value: ed }, createElement(Cell)), {});
+    act(() => click($("[data-easing-value]")));
+    noPopover();
+    const editorEl = $("[data-easing-value-editor]");
+    expect($("[data-easing-graph]", editorEl)).not.toBeNull();
+    expect($("[data-easing-bezier]", editorEl)).not.toBeNull();
+    act(() => click($("[data-easing-select]", editorEl)));
+    // A variable's own value: Presets alone, no New variable.
+    expect($$('[role="tab"]')).toHaveLength(1);
+    expect($('[role="tab"]').textContent).toContain("Presets");
+    expect($("[data-new-easing-variable]")).toBeNull();
+    act(() => click($('[data-easing-presets] [data-easing="EASE_OUT"]')));
+    expect(valueOf()).toEqual({ type: "EASE_OUT" });
+    await flush();
+    expect($("[data-easing-select]").textContent).toBe("Ease out");
+    act(() => engine.undo());
+    expect(valueOf()).toEqual({ type: "LINEAR" });
+    await flush();
+    drag($("[data-easing-graph]"));
+    expect(valueOf()).toMatchObject({ type: "CUSTOM_CUBIC_BEZIER" });
+    act(() => engine.undo());
+    expect(valueOf()).toEqual({ type: "LINEAR" });
+    await flush();
+    act(() => click($$('[role="radio"]').find((r) => r.textContent === "Spring")!));
+    expect(valueOf()).toMatchObject({ type: "CUSTOM_SPRING" });
+    await flush();
+    expect($("[data-easing-bounce]")).not.toBeNull();
   });
 });

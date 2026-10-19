@@ -5,15 +5,15 @@
  * Popover's). Presets lists Figma's rows for the current kind — Hold, Linear, Ease in, Ease out, Ease in and out, the
  * back curves, Custom bezier (a spring: Gentle, Quick, Bouncy, Slow, Custom spring) — each with Figma's glyph (a 4 × 4
  * dot grid and the curve; none for the custom ones), the current one lit. **Libraries** lists the file's and its
- * libraries' Easing variables (Wecra's easing styles), the applied one ticked.
+ * libraries' Easing variables (Wecra's easing styles), the applied one ticked. Without `variables` (an Easing
+ * variable's own value) the header has Presets alone and no **+**.
  */
 import { useState } from "react";
 import { IconButton, Popover, Tabs } from "@/ds";
 import { t, useT } from "@/i18n";
 import { EASING_LABELS, type MotionEasing, type MotionEasingType } from "@shared/motion/types";
 import { VariableList } from "../../panels/variables/VariablePicker";
-import { easingMenuTypes, easingOfType } from "./EasingEditor";
-import { GLYPH_DOTS, presetGlyphPath } from "./easingMaths";
+import { GLYPH_DOTS, easingMenuTypes, easingOfType, presetGlyphPath } from "./easingMaths";
 import styles from "./EasingPage.module.css";
 
 /** The popover's width (Figma's: 232). */
@@ -28,6 +28,8 @@ export interface EasingPresetsProps {
   bound: string | null;
   /** The layer the variables' values are shown for */
   consumer: string | null;
+  /** The Libraries tab and New variable (off for a variable's own value) */
+  variables?: boolean;
   onPick(e: MotionEasing): void;
   onHover(e: MotionEasing | null): void;
   onBind(variable: string): void;
@@ -46,7 +48,7 @@ export function PresetGlyph({ type, easing, always }: { type: MotionEasingType; 
   );
 }
 
-export function EasingPresets({ anchor, current, kind, bound, consumer, onPick, onHover, onBind, onCreate, onClose }: EasingPresetsProps) {
+export function EasingPresets({ anchor, current, kind, bound, consumer, variables = true, onPick, onHover, onBind, onCreate, onClose }: EasingPresetsProps) {
   useT();
   const [tab, setTab] = useState<"presets" | "libraries">("presets");
   const base: MotionEasing = current ?? { type: kind === "spring" ? "GENTLE" : "LINEAR" };
@@ -61,10 +63,10 @@ export function EasingPresets({ anchor, current, kind, bound, consumer, onPick, 
         onHover(null);
         onClose();
       }}
-      header={<Tabs label={t("Easing source")} value={tab} onChange={(v) => setTab(v as "presets" | "libraries")} tabs={[{ value: "presets", label: t("Presets") }, { value: "libraries", label: t("Libraries") }]} />}
-      headerActions={<IconButton icon="24.plus.small" label={t("New variable")} data-new-easing-variable onClick={onCreate} />}
+      header={<Tabs label={t("Easing source")} value={tab} onChange={(v) => setTab(v as "presets" | "libraries")} tabs={variables ? [{ value: "presets", label: t("Presets") }, { value: "libraries", label: t("Libraries") }] : [{ value: "presets", label: t("Presets") }]} />}
+      headerActions={variables ? <IconButton icon="24.plus.small" label={t("New variable")} data-new-easing-variable onClick={onCreate} /> : undefined}
     >
-      {tab === "presets" ? (
+      {tab === "presets" || !variables ? (
         <ul className={styles.presets} role="listbox" aria-label={t("Presets")} data-easing-presets onMouseLeave={() => onHover(null)}>
           {types.map((type) => (
             <li
