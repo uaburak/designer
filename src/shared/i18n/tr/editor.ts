@@ -1270,11 +1270,9 @@ export const editor: Record<string, string> = {
   "Unlock scale aspect ratio": "Ölçek en-boy oranının kilidini aç",
   "Lock scale aspect ratio": "Ölçek en-boy oranını kilitle",
   Easing: "Yumuşatma",
-  "Easing kind": "Yumuşatma türü",
   Bezier: "Bezier",
   Spring: "Yay",
   Hold: "Tut",
-  "Cubic bezier": "Kübik bezier",
   Bounce: "Zıplama",
   // The right panel's Easing page and its presets popover (motion/easing/EasingPage.tsx, EasingPresets.tsx; 2026-10-19)
   "Easing presets": "Yumuşatma ön ayarları",

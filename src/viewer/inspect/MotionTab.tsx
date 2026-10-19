@@ -218,7 +218,6 @@ export function DevTimeline({ engine, root, panel, onClose }: { engine: Engine; 
         onMoveKeyframes={noop}
         onDeleteKeyframes={noop}
         onDeleteTrack={noop}
-        onSetEasing={noop}
         onSelectLayer={noop}
         onCopyKeyframes={noop}
         onPasteKeyframes={() => false}

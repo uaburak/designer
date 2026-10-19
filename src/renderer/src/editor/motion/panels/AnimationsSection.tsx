@@ -13,6 +13,10 @@
  * from the selected layer's clips, and per custom style "Update from selection" and "Delete style" (presets.ts).
  *
  * Round 8j: a style's row lit in the Animations menu plays it on the canvas (stylePreview.ts), never written.
+ *
+ * 2026-10-19 (Figma's: a clip's easing opens the same Easing menu as a segment's): the settings' Easing field turns the
+ * right panel into the clip's **Easing page** (`ClipEasingPage`, the segments' controls — easing/EasingPage.tsx), Back
+ * returns to the layer's sections with the clip still open; no floating popover.
  */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Checkbox, Icon, IconButton, MenuButton, NumericInput, PanelSection, PropertyGrid, PropertyRow, Select, cx, tooltipProps, type IconName, type MenuEntry } from "@/ds";
@@ -24,7 +28,7 @@ import { BoundPill } from "../../panels/design/Variables";
 import { PANEL_MENU_GAP, type PanelNode } from "../../panels/design/shared";
 import { VariablePicker } from "../../panels/variables/VariablePicker";
 import vstyles from "../../panels/variables/Variables.module.css";
-import { EasingMenu } from "../easing/EasingEditor";
+import { EasingControls, EasingFrame, useEasingTransaction } from "../easing/EasingPage";
 import { motionRead, setMotionUi } from "../motionState";
 import { addPreset, applyStyle, clipProps, createCustomStyle, customStyles, deleteCustomStyle, detachStyle, editPreset, presetAllowed, presetDef, removePresets, updateCustomStyle, type CustomStyle, type PresetTarget } from "../presets";
 import { previewStyle, stopStylePreview } from "../stylePreview";
@@ -229,7 +233,6 @@ export function ClipSettings({ clip, target }: { clip: TimelineClip; target: Pre
   const ed = useEditor();
   const def = presetDef(clip.preset);
   const props = clipProps(clip);
-  const [easingAt, setEasingAt] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const easing: MotionEasing = "type" in clip.easing ? clip.easing : { type: "EASE_OUT" };
   const set = (patch: Record<string, PresetPropValue>) => editPreset(ed, clip, { props: patch }, target);
   const typeOptions = ANIMATION_PRESETS.filter((p) => p.key === clip.preset || presetAllowed(p, [target])).map((p) => ({ value: p.key, label: t(p.name) }));
@@ -267,28 +270,44 @@ export function ClipSettings({ clip, target }: { clip: TimelineClip; target: Pre
           </TimingField>
         </PropertyRow>
         <PropertyRow labels={[t("Easing")]}>
-          <button type="button" className={styles.easingField} data-clip-easing data-variable={clip.variables?.easing ? "" : undefined} onClick={(e) => {
-            const r = e.currentTarget.getBoundingClientRect();
-            setEasingAt({ x: r.left, y: r.top, width: r.width, height: r.height });
-          }}>
+          <button type="button" className={styles.easingField} data-clip-easing data-variable={clip.variables?.easing ? "" : undefined} onClick={() => setMotionUi(ed, { selectedClip: clip.id, clipEasing: clip.id, selectedSegments: [] })}>
             {clip.variables?.easing ? <VariableName id={clip.variables.easing} /> : t(EASING_LABELS[easing.type])}
           </button>
         </PropertyRow>
       </PropertyGrid>
-      {easingAt && (
-        <EasingMenu
-          value={clip.variables?.easing ? { variable: clip.variables.easing } : easing}
-          resolved={easing}
-          allowVariable
-          anchor={easingAt}
-          onChange={(next, commit) => {
-            if (!commit) return;
-            if ("variable" in next) editPreset(ed, clip, { variables: { easing: next.variable } }, target);
-            else editPreset(ed, clip, { easing: next, ...(clip.variables?.easing ? { variables: { easing: null } } : {}) }, target);
-          }}
-          onClose={() => setEasingAt(null)}
-        />
-      )}
     </div>
+  );
+}
+
+/** The clip whose Easing page shows (`ui.motion.clipEasing`), when it is one of the one selected layer's clips. */
+export function useClipEasing(nodes: readonly PanelNode[]): { clip: TimelineClip; node: PanelNode } | null {
+  const id = useUI((s) => (s.mode === "motion" ? (s.motion?.clipEasing ?? null) : null));
+  const model = useMotionModel();
+  if (!id || nodes.length !== 1 || !model) return null;
+  const clip = model.layers.find((l) => l.node === nodes[0].guid)?.clips.find((c) => c.id === id);
+  return clip ? { clip, node: nodes[0] } : null;
+}
+
+/**
+ * A preset clip's Easing page (Figma's: the same Easing menu as a segment's): the segments' controls over the clip's
+ * easing — a change runs the preset again with it (editPreset), one undo step per change (a drag's in one); an
+ * applied EASING variable by name, Detach keeping its value as the clip's own. Back: the layer's sections, the clip's
+ * settings still open.
+ */
+export function ClipEasingPage({ clip, node }: { clip: TimelineClip; node: PanelNode }) {
+  const ed = useEditor();
+  const timeUs = useUI((s) => s.motion?.timeUs ?? 0);
+  const target = targetOf(node);
+  const bound = clip.variables?.easing;
+  const easing: MotionEasing = "type" in clip.easing ? clip.easing : { type: "EASE_OUT" };
+  const apply = useEasingTransaction((next) => {
+    if ("variable" in next) editPreset(ed, clip, { variables: { easing: next.variable } }, target);
+    else editPreset(ed, clip, { easing: next, ...(bound ? { variables: { easing: null } } : {}) }, target);
+  });
+  const playhead = clip.durationUs > 0 && timeUs >= clip.startUs && timeUs <= clip.startUs + clip.durationUs ? (timeUs - clip.startUs) / clip.durationUs : null;
+  return (
+    <EasingFrame owner="clip" onBack={() => setMotionUi(ed, { clipEasing: null })}>
+      <EasingControls values={[{ easing, variable: bound }]} onChange={apply} playhead={playhead} consumer={node.guid} />
+    </EasingFrame>
   );
 }

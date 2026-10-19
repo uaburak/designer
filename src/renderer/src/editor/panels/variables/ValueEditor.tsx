@@ -2,19 +2,20 @@
  * One variable's value in one mode, edited in place (the Local variables
  * table's cells and the Edit variable modal's Values): a colour's swatch (the
  * colour picker) and hex, a number, a string, a boolean; Motion's easing (its
- * name, the Easing editor) and timing (milliseconds; round 8i); an alias shows
+ * name; a click opens the Easing page's controls — graph, presets, Curve |
+ * Spring, Bezier / Bounce — in a floating "Easing" panel, 2026-10-19) and timing (milliseconds; round 8i); an alias shows
  * as the aliased variable's pill (its × makes it a plain value again: the value
  * it resolves to now). "Apply variable" on hover aliases another variable of
  * the same type — never one that would make a cycle.
  */
 import { useMemo, useState } from "react";
-import { ColorPicker, Icon, NumericInput, Swatch, Switch, TextInput, cx, tooltipProps } from "@/ds";
+import { ColorPicker, Icon, NumericInput, Popover, Swatch, Switch, TextInput, cx, tooltipProps } from "@/ds";
 import type { Color, Guid } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { useLocalAssets } from "../../hooks";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
 import { aliasMakesCycle, formatLiteral, isEasingLiteral, resolveVariable, valueIn, type Collection, type Literal, type Variable } from "../../model/variables";
-import { EasingEditor } from "../../motion/easing/EasingEditor";
+import { EasingControls } from "../../motion/easing/EasingPage";
 import { isOverridden, resetOverride, setVariableValue } from "../../variables";
 import { VariableGlyph, VariablePicker } from "./VariablePicker";
 import styles from "./LocalVariables.module.css";
@@ -154,14 +155,18 @@ export function ValueEditor({ variable, mode, collection, className, disabled }:
         />
       )}
       {easing && value.kind === "literal" && isEasingLiteral(value.value) && (
-        <EasingEditor
-          value={value.value}
-          anchor={{ x: easing.left, y: easing.top, width: easing.width, height: easing.height }}
-          onChange={(next, commit) => {
-            if (commit && "type" in next) set(next);
-          }}
-          onClose={() => setEasing(null)}
-        />
+        // The Easing page's own controls (motion/easing/EasingPage.tsx) over the value; a drag is one step (ed.edit).
+        <Popover anchor={easing} placement="bottom-start" title={t("Easing")} width={240} label={label} onClose={() => setEasing(null)}>
+          <div data-easing-value-editor>
+            <EasingControls
+              values={[{ easing: value.value }]}
+              variables={false}
+              onChange={(next, commit) => {
+                if ("type" in next) set(next, { final: commit, source: commit ? "pick" : "drag" });
+              }}
+            />
+          </div>
+        </Popover>
       )}
       {color && value.kind === "literal" && (
         <ColorPicker

@@ -30,7 +30,7 @@ import { VectorEditPanel } from "./VectorPoints";
 import { usePaintTargets, useSelectedNodes, type PanelNode } from "./shared";
 import { designSections, isTypeNode } from "../../draw/panels/drawPanel";
 import { TransformSection } from "../../draw/panels/TransformSection";
-import { AnimationsSection } from "../../motion/panels/AnimationsSection";
+import { AnimationsSection, ClipEasingPage, useClipEasing } from "../../motion/panels/AnimationsSection";
 import { AudioSection } from "../../motion/panels/AudioSection";
 import { MotionTransformSection } from "../../motion/panels/TransformSection";
 import { TextStaggerSection } from "../../motion/panels/TextStaggerSection";
@@ -143,6 +143,8 @@ function Selected({ nodes, paintNodes, onPick }: { nodes: PanelNode[]; paintNode
   const comp = componentSelection(ed, nodes);
   // Motion mode (docs/motion.md §6.14, Figma's): keyframe segments selected on the timeline turn the panel into their Easing page.
   const segments = useEasingSegments(nodes);
+  // …and a preset clip's Easing clicked in its settings (Figma's: the same Easing menu).
+  const clipEasing = useClipEasing(nodes);
   // Vector edit mode (live design/vector-edit-mode.txt): "Vector", its points' block, then Fill and Stroke only.
   if (editingVector)
     return (
@@ -152,12 +154,13 @@ function Selected({ nodes, paintNodes, onPick }: { nodes: PanelNode[]; paintNode
         <PaintsSection title="Stroke" field="strokePaints" nodes={paintNodes} onPick={onPick} />
       </>
     );
-  if (segments.length)
+  if (segments.length || clipEasing)
     return (
       <>
         {comp?.kind === "instance" ? <InstanceHeader instance={comp.node} /> : <TypeHeader nodes={nodes} />}
-        <EasingPage targets={segments} />
-        <AudioSection />
+        {segments.length ? <EasingPage targets={segments} /> : clipEasing && <ClipEasingPage clip={clipEasing.clip} node={clipEasing.node} />}
+        {/* Social's Design part has no Audio section (its posts' audio is the timeline's) */}
+        {mode === "motion" && <AudioSection />}
       </>
     );
   const sections = (

@@ -286,6 +286,8 @@ All metrics [ours], from DS tokens (`--ds-space-*`, `ds/tokens.ts` text styles; 
 
 `EditorApp.tsx`: `LeftSide` mounts `SocialLeftPanel` when `mode === "social"` and the rail's tab is `posts`; `RightSide` mounts `SocialRightPanel`; `CanvasLayers` adds `SafeAreaOverlay` and `ReviewPins`; `Overlays` keeps `<MotionMode />` (it shows the timeline in Social when the selected post has a timeline — `editor/motion/MotionMode.tsx` reads `mode === "motion" || (mode === "social" && hasTimeline)`) and adds `PostsTable` and `BrandLibraryBanner`.
 
+**Easing, 2026-10-19** (`docs/motion.md` §6.14): a segment clicked on Social's timeline no longer opens the floating Easing popover. It selects the segment (⇧ adds) and its layer as in Motion, brings the right panel's **Properties** tab forward (`ui.socialRightTab`), and the Design part shows the segment's **Easing page** (Back, the preset select and its presets popover, Curve | Spring, the graph, Bezier + Flip curve or Bounce; several segments → Mixed; one undo step per change). Social's Design part has no Audio section under it. Image: `docs/research/figma/live/owner-2026-10-19/after/easing-social.png`.
+
 ### 6.2 Left panel (`editor/social/SocialLeftPanel.tsx` + `.module.css`)
 
 - **Rail**: `RailTab` gains `"posts"` (icon `24.social`), first and selected when Social opens; **Agents** is hidden in Social (the agent is on the right); File, Assets, Brands, Tools unchanged (Layers and Pages through File, as in Design).

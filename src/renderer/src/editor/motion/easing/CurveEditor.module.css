@@ -1,0 +1,11 @@
+@layer app {
+  /* The Prototype panel's 200 × 200 easing graph (round 8i / 8j): the unit square, the curve, a custom curve's handles */
+  .graph { display: block; flex: none; overflow: visible; border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); touch-action: none; }
+  .unit { fill: none; stroke: var(--figma-color-border); stroke-dasharray: 2 3; }
+  .curve { fill: none; stroke: var(--figma-color-icon-brand); stroke-width: 2; stroke-linecap: round; }
+  .handleLine { stroke: var(--figma-color-icon-secondary); stroke-width: 1; }
+  .handle { fill: var(--figma-color-bg); stroke: var(--figma-color-icon-brand); stroke-width: 1.5; cursor: grab; }
+  .handle:active { cursor: grabbing; }
+  .corner { fill: var(--figma-color-icon-secondary); cursor: pointer; }
+  .corner:hover { fill: var(--figma-color-icon-brand); }
+}

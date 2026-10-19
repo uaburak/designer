@@ -1,24 +1,28 @@
 /**
  * The right panel's Easing page (docs/motion.md §6.14; Figma's, docs/research/figma/live/2026-10-18/motion-easing.txt):
  * what it reads and draws without React — the selected segments (their end keyframes) found in the timeline's model,
- * their shared easing (Mixed when they differ), the 208 × 208 graph's layout for a curve (fitted so overshooting
+ * their shared easing (Mixed when they differ), the presets' list and an easing chosen by name, the 208 × 208 graph's layout for a curve (fitted so overshooting
  * handles stay in view, as Figma's) and for a spring, the presets popover's glyphs, the Bezier field's text and Flip
  * curve.
  */
 import { MIXED, type Mixed } from "@/ds";
 import { bezierOf, easingAt, isSpringEasing, type Bezier } from "@shared/motion/easing";
-import { BEZIER_PRESETS, type EasingRef, type GuidString, type Micros, type MotionEasing, type MotionEasingType, type TimelineModel } from "@shared/motion/types";
+import { BEZIER_PRESETS, DEFAULT_KEYFRAME_EASING, MOTION_EASING_TYPES, type EasingRef, type GuidString, type Micros, type MotionEasing, type MotionEasingType, type TimelineModel } from "@shared/motion/types";
 
-/** A selected segment: its end keyframe (whose easing it is), its layer, its start and end on the timeline. */
-export interface SegmentTarget {
-  id: GuidString;
-  node: GuidString;
-  startUs: Micros;
-  endUs: Micros;
+/** One easing the page edits (a segment's, a clip's, a variable's value). */
+export interface EasingValue {
   /** Its easing (a bound one's value in the layer's modes) */
   easing: MotionEasing;
   /** The EASING variable it is bound to */
   variable?: GuidString;
+}
+
+/** A selected segment: its end keyframe (whose easing it is), its layer, its start and end on the timeline. */
+export interface SegmentTarget extends EasingValue {
+  id: GuidString;
+  node: GuidString;
+  startUs: Micros;
+  endUs: Micros;
 }
 
 /** The segments `ids` names (end keyframes with a keyframe before them), on the layers `nodes` holds. */
@@ -38,10 +42,10 @@ export function segmentTargets(model: TimelineModel | null, ids: readonly GuidSt
   return out;
 }
 
-const refKey = (t: SegmentTarget) => (t.variable ? `v:${t.variable}` : JSON.stringify(t.easing));
+const refKey = (t: EasingValue) => (t.variable ? `v:${t.variable}` : JSON.stringify(t.easing));
 
-/** The segments' easing as one value (a variable binding, or the easing), Mixed when they differ. */
-export function sharedEasing(targets: readonly SegmentTarget[]): Mixed<EasingRef> | null {
+/** The segments' (or any values') easing as one value (a variable binding, or the easing), Mixed when they differ. */
+export function sharedEasing(targets: readonly EasingValue[]): Mixed<EasingRef> | null {
   if (!targets.length) return null;
   const first = refKey(targets[0]);
   if (targets.some((t) => refKey(t) !== first)) return MIXED;
@@ -171,3 +175,29 @@ export function flipEasing(e: MotionEasing): MotionEasing | null {
 }
 
 export const isSpring = (e: MotionEasing): boolean => isSpringEasing(e.type);
+
+// ---- Presets by name ------------------------------------------------------------------------------------------------
+
+const SPRINGS: readonly MotionEasingType[] = ["GENTLE", "QUICK", "BOUNCY", "SLOW", "CUSTOM_SPRING"];
+/** The spring presets' bounce as shown (clamp(1 − ζ, 0, 1) of SPRING_PRESETS). */
+export const PRESET_BOUNCE: Partial<Record<MotionEasingType, number>> = { GENTLE: 0.25, QUICK: 0.42, BOUNCY: 0.69, SLOW: 0 };
+
+/** The presets for the current easing: springs only while it is a spring, else Hold and the curves (Figma's list). */
+export function easingMenuTypes(current: MotionEasingType): MotionEasingType[] {
+  return isSpringEasing(current) ? [...SPRINGS] : MOTION_EASING_TYPES.filter((x) => !isSpringEasing(x));
+}
+
+const toBezier = (b: readonly [number, number, number, number]) => ({ x1: b[0], y1: b[1], x2: b[2], y2: b[3] });
+
+/** The easing chosen by name: a preset's values load; a custom type keeps the current custom values when they match. */
+export function easingOfType(type: MotionEasingType, current: MotionEasing): MotionEasing {
+  if (type === "CUSTOM_CUBIC_BEZIER") {
+    const b = current.type === "CUSTOM_CUBIC_BEZIER" && current.easingFunctionCubicBezier ? current.easingFunctionCubicBezier : BEZIER_PRESETS[current.type] ? toBezier(BEZIER_PRESETS[current.type]!) : DEFAULT_KEYFRAME_EASING.easingFunctionCubicBezier!;
+    return { type, easingFunctionCubicBezier: b };
+  }
+  if (type === "CUSTOM_SPRING") {
+    const bounce = current.type === "CUSTOM_SPRING" && current.easingFunctionSpring ? current.easingFunctionSpring.bounce : PRESET_BOUNCE[current.type] ?? 0.3;
+    return { type, easingFunctionSpring: { bounce } };
+  }
+  return { type };
+}

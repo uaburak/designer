@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // Round 8i on the real engine (the committed Wasm build, the Figma logo fixture; docs/motion.md §4.7, §4.9, §6.7):
 // Easing and Timing variables made by the chrome, a keyframe's easing and a clip's Delay / Duration / Easing bound to
-// them (the timeline names the variable, the engine plays its value), the Easing editor's "Create variable", keyframes
+// them (the timeline names the variable, the engine plays its value), the Easing presets' "New variable", keyframes
 // pasted by the engine's command, X / Y tracks combined and split, custom animation styles made from a layer's clips,
 // applied and deleted.
 import { readFileSync } from "node:fs";
@@ -18,7 +18,7 @@ import { setMode } from "../../devmode/devMode";
 import { memoryDocumentSource } from "../../documentSource";
 import { formatLiteral, resolveVariable } from "../../model/variables";
 import { createCollection, createVariable } from "../../variables";
-import { EasingEditor } from "../easing/EasingEditor";
+import { EasingControls } from "../easing/EasingPage";
 import MOTION_LOGO from "../fixtures/figma-logo-motion.json";
 import { clearKeyframeCopy, copySelectedKeyframes, pasteKeyframes } from "../keyframeClipboard";
 import { setPlayhead } from "../motionState";
@@ -81,12 +81,13 @@ describe("round 8i on the engine", () => {
     expect(c.startUs).toBe(500_000);
   });
 
-  it("the Easing editor's Create variable saves the current curve as an Easing variable and binds it", async () => {
+  it("the Easing presets' New variable saves the current curve as an Easing variable and binds it", async () => {
     const { ed } = await editor();
     const changes: unknown[] = [];
-    m = mount(() => createElement(EditorContext.Provider, { value: ed }, createElement(EasingEditor, { value: { type: "EASE_IN_BACK" }, anchor: { x: 0, y: 0, width: 10, height: 10 }, allowVariable: true, onChange: (v: unknown, commit: boolean) => changes.push([v, commit]), onClose: () => {} })), {});
+    m = mount(() => createElement(EditorContext.Provider, { value: ed }, createElement(EasingControls, { values: [{ easing: { type: "EASE_IN_BACK" } }], onChange: (v: unknown, commit: boolean) => changes.push([v, commit]) })), {});
     expect($("[data-easing-graph]")).not.toBeNull();
-    click($("[data-create-easing-variable]"));
+    click($("[data-easing-select]"));
+    click($("[data-new-easing-variable]"));
     const made = ed.variables.get().variables.find((v) => v.type === "EASING");
     expect(made).toBeDefined();
     expect(resolveVariable(made!.id, ed.variables.get().lookup)).toEqual({ type: "EASE_IN_BACK" });

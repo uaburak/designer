@@ -1,5 +1,5 @@
 /**
- * The Easing editor's 200 × 200 graph (docs/motion.md §6.3; round 8i): progress across, the eased value up, the unit
+ * The Prototype panel's easing graph, 200 × 200 (docs/motion.md §6.3; round 8i): progress across, the eased value up, the unit
  * square in the middle (0–1 both ways, 100 px a unit) so the back curves and springs overshoot into the space above
  * and below (y −0.5 … 1.5, the custom bezier's range). Any easing is drawn; a custom one is edited on it:
  *
@@ -9,14 +9,15 @@
  *   up and down for the bounce — its height Figma's y = 2 − 2·ζ^0.87, here a quarter of it above the end value [ours:
  *   the graph is normalised, so ω₀ has no handle].
  *
- * A drag reports each move (`commit` false) and its release once (`commit` true), as EasingEditorProps asks.
+ * A drag reports each move (`commit` false) and its release once (`commit` true). Used by the Prototype panel's
+ * Interaction details (round 8j); Motion's easings use the Easing page's graph (EasingGraph.tsx) since 2026-10-19.
  */
 import { useRef, type PointerEvent as ReactPointerEvent } from "react";
 import { capture } from "@/ds/util/pointer";
 import { t, useT } from "@/i18n";
 import { bezierOf, bounceAtHandle, easingAt, springHandle } from "@shared/motion/easing";
 import type { MotionEasing } from "@shared/motion/types";
-import styles from "./EasingEditor.module.css";
+import styles from "./CurveEditor.module.css";
 
 /** The graph's size and where the unit square sits in it. */
 export const GRAPH_PX = 200;

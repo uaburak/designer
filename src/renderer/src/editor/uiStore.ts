@@ -65,6 +65,8 @@ export interface MotionUIState {
    * shows their Easing page
    */
   selectedSegments?: string[];
+  /** A preset clip whose Easing the right panel shows (its Animations settings' Easing clicked; 2026-10-19, Figma's) */
+  clipEasing?: string | null;
 }
 export const MOTION_UI_DEFAULT: MotionUIState = { timeUs: 0, playing: false, autoKeyframe: false, collapsed: false, selectedKeyframes: [], unit: "ms" };
 
