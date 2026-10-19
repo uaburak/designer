@@ -3083,6 +3083,34 @@ void Editor::motionOverlay(Overlay& o) const {
   if (tool_ == Tool::ANCHOR_POINT || gesture_ == Gesture::MotionAnchor) {
     o.hasAnchorPoint = true;
     o.anchorPoint = gesture_ == Gesture::MotionAnchor ? motionAnchor_.world : anchor;
+  } else if (gesture_ == Gesture::None && o.handles) {
+    // The transform gizmo (the owner's capture of Figma, 2026-10-18): at the anchor, along the layer's own axes, with
+    // dotted guides from its box to the parent frame's left and top edges at the anchor (X / Y are measured from them).
+    Mat2x3 w = doc_.worldTransform(id);
+    auto unit = [](Vec2 v, Vec2 fallback) {
+      double l = v.length();
+      return l > 1e-9 ? Vec2{v.x / l, v.y / l} : fallback;
+    };
+    o.hasMotionGizmo = true;
+    o.gizmoAnchor = anchor;
+    o.gizmoRight = unit(w.applyLinear({1, 0}), {1, 0});
+    o.gizmoUp = unit(w.applyLinear({0, -1}), {0, -1});
+    Guid parentId = doc_.parentOf(id);
+    const Node* parent = doc_.get(parentId);
+    if (parent && parent->props.isFrameLike()) {
+      Mat2x3 pw = doc_.worldTransform(parentId);
+      Mat2x3 toParent = pw.inverse() * w;
+      Rect lb = doc_.localBounds(id);
+      double minX = 1e300, minY = 1e300;
+      for (Vec2 k : {Vec2{lb.x, lb.y}, Vec2{lb.x + lb.w, lb.y}, Vec2{lb.x, lb.y + lb.h}, Vec2{lb.x + lb.w, lb.y + lb.h}}) {
+        Vec2 q = toParent.apply(k);
+        minX = std::min(minX, q.x);
+        minY = std::min(minY, q.y);
+      }
+      Vec2 a = pw.inverse().apply(anchor);
+      if (minY > 0) o.gizmoGuides.push_back({pw.apply({a.x, 0}), pw.apply({a.x, minY})});
+      if (minX > 0) o.gizmoGuides.push_back({pw.apply({0, a.y}), pw.apply({minX, a.y})});
+    }
   }
   const motion::AnimatedNode* an = motionIndex_.node(id);
   if (!an || !motion_.showMotionPath || gesture_ == Gesture::Move) return;

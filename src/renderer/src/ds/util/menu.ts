@@ -12,6 +12,8 @@ export type MenuItem = {
   hint?: string;
   /** A tag at the row's right end (live context-layer-row.txt: "Rename layers" with an "AI" link, 20 × 18 at 164) */
   badge?: string;
+  /** A chip right after the label (live 2026-10-18 effects-add-menu.txt: Shader's "Beta", 32 × 16, 8 after it) */
+  chip?: string;
   icon?: IconName;
   /** A filled dot before the label in this colour — a token, e.g. `var(--figma-color-bg-success)` (the frame status menu) */
   swatch?: string;

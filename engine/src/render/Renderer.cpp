@@ -898,7 +898,7 @@ Rect Renderer::blurClampBox(const NodeProps& p, const Rect& ink) {
 
 double Renderer::backdropReach(const NodeProps& p, const Effect& e, bool glass, double scale) {
   const EffectExtras& x = effectExtras(e);
-  double r1 = std::max(0.0, e.radius) * scale;
+  double r1 = std::max(glass ? 1.0 : 0.0, e.radius) * scale;  // glass frosts by at least 1 (Figma's)
   double r0 = std::max(0.0, x.startRadius) * scale;
   bool progressive = !glass && x.blurOpType == BlurOpType::PROGRESSIVE && std::fabs(r0 - r1) > 0.01;
   if (!glass && !progressive) {
@@ -1022,19 +1022,24 @@ void Renderer::drawBackgroundBlur(const Document& doc, Guid id, const NodeProps&
   double reach = backdropReach(p, e, glass, scale);
   Rect own = transformedBounds(m, p.size.x, p.size.y);
   if (glass) {
-    // Glass: the backdrop frosted by "Frost" (the radius), bent toward the edge within "Depth" (refractionRadius),
-    // split by colour ("Dispersion"), lit along the edges facing the light ("Angle", "Intensity"), "Splay"
-    // (reflectionDistance, 0–1) softening the light.
+    // Glass, Figma's (docs/research/rea/effects.md §2.15): the backdrop frosted by "Frost" (the radius, at least 1),
+    // read displaced inward within "Depth" (refractionRadius, the node's units) by "Refraction", split by colour by
+    // "Dispersion" (× 0.2, Figma's CHROMATIC_EXPANSION_FACTOR), "Splay" (reflectionDistance) turning the displacement
+    // from the edge's normal toward the centre's, lit by the light at its angle less the frame's rotation.
     b.kind = BackdropBlur::Kind::Glass;
-    double depth = std::max(0.0, x.refractionRadius) * scale;
-    double dispersion = std::clamp(x.chromaticAberration, 0.0, 1.0);
-    double th = x.specularAngle * 3.14159265358979323846 / 180;
-    float g0[4] = {static_cast<float>(depth), static_cast<float>(std::clamp(x.refractionIntensity, 0.0, 1.0)), static_cast<float>(dispersion),
+    double depth = std::max(0.0, x.refractionRadius);
+    double refraction = std::clamp(x.refractionIntensity, 0.0, 1.0);
+    double dispersion = std::clamp(x.chromaticAberration, 0.0, 1.0) * 0.2;
+    constexpr double kPi = 3.14159265358979323846;
+    double light = x.specularAngle * kPi / 180 - std::atan2(m.m10, m.m00) + kPi / 2;
+    float g0[4] = {static_cast<float>(depth), static_cast<float>(refraction), static_cast<float>(dispersion),
                    static_cast<float>(std::clamp(x.reflectionDistance, 0.0, 1.0))};
-    // The light's direction in canvas device px (y down): the angle counter-clockwise from +x, pointing at the light.
-    float g1[4] = {static_cast<float>(-std::cos(th)), static_cast<float>(std::sin(th)), static_cast<float>(std::clamp(x.specularIntensity, 0.0, 1.0)), 0};
+    float g1[4] = {static_cast<float>(light), static_cast<float>(std::clamp(x.specularIntensity, 0.0, 1.0)), static_cast<float>(std::max(0.0, x.bevelSize)), 0};
     std::memcpy(b.glass[0], g0, sizeof g0);
     std::memcpy(b.glass[1], g1, sizeof g1);
+    // What it reads past where it paints: the displacement (at most the depth, within half the size) and the dispersion.
+    b.glassReach = std::min({depth, p.size.x / 2, p.size.y / 2}) * scale * refraction * (1 + dispersion);
+    s1 = std::max(s1, scale);
     b.radii[0] = s1;
   } else if (progressive) {
     b.kind = BackdropBlur::Kind::Progressive;
@@ -2600,8 +2605,8 @@ bool Renderer::captureBackdrops(Layer& L, const gfx::PassDesc& pd, const std::ve
       it.cut[3] = b.cut[3] || r.y > c->rect.y, it.cut[1] = b.cut[1] || r.y + r.h < c->rect.y + c->rect.h;
       double scale = 1;
       while (it.radius > 0 && (it.radius * scale > 64 || (scale == 1 && it.radius > 4)) && scale > 1.0 / 32) scale /= 2, it.depth++;
-      // Glass reads its frost bent toward the edge: up to the depth × (1 + dispersion / 2) past where it paints.
-      double bend = b.kind == BackdropBlur::Kind::Glass ? 1.5 * std::max(0.0, static_cast<double>(b.glass[0][0])) : 0;
+      // Glass reads its frost displaced from where it paints (drawBackgroundBlur's glassReach).
+      double bend = b.kind == BackdropBlur::Kind::Glass ? b.glassReach : 0;
       it.pad = it.clamped && !cut ? 2 : static_cast<int>(std::ceil(it.radius + bend)) + 2;
       deepest = std::max(deepest, it.depth);
       items.push_back(it);

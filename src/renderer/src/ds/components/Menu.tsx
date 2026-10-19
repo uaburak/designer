@@ -397,7 +397,10 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
                   {entry.spaceAvatar.src && <img src={entry.spaceAvatar.src} alt="" />}
                 </span>
               )}
-              <span className={styles.label}>{entry.label}</span>
+              <span className={styles.label}>
+                {entry.label}
+                {entry.chip && <span className={styles.chip}>{entry.chip}</span>}
+              </span>
               {entry.trailingIcon && <span className={styles.icon}><MenuIcon name={entry.trailingIcon} /></span>}
               {entry.hint && <span className={styles.hint}>{hintParts(entry.hint)}</span>}
               {entry.badge && (

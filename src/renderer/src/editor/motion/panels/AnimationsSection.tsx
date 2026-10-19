@@ -126,6 +126,7 @@ export function AnimationsSection({ nodes }: { nodes: PanelNode[] }) {
       title={t("Animations")}
       empty={!clips.length}
       data-animations-section
+      className={styles.animations}
       actions={
         <>
           <MenuButton label={t("Animation styles")} tooltip={t("Animations")} entries={stylesMenu} className={styles.iconMenu} align="end" gap={PANEL_MENU_GAP} onHighlight={(id) => {

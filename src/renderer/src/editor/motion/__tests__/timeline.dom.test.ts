@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import type { TimelineModel } from "@shared/motion/types";
 import { $, $$, box, click, focus, key, mount, pointer, spy, type } from "@/ds/__tests__/dom";
 import { Timeline, type TimelineProps } from "../timeline/Timeline";
-import { ORIGIN_PX, fitScale, frameUs } from "../timeline/maths";
+import { ORIGIN_PX, ZOOM_BOX_PX, fitScale, frameUs } from "../timeline/maths";
 
 const MODEL: TimelineModel = {
   root: "1:1",
@@ -57,7 +57,7 @@ function setup(over: Partial<TimelineProps> = {}) {
   const rerender = (patch: Partial<TimelineProps>) => view.rerender(Timeline, { ...props, ...patch } as TimelineProps);
   // happy-dom has no layout: the track area reports its default 600 width, its box starts at 0.
   box($('[aria-label="Tracks"]', view.host), { left: 0, top: 0, width: 600, height: 200 });
-  return { view, s, rerender, scale: fitScale(2_000_000, 600) };
+  return { view, s, rerender, scale: fitScale(2_000_000, 600 - ZOOM_BOX_PX, ORIGIN_PX) };
 }
 
 const windowPointer = (type: "pointermove" | "pointerup", init: { clientX: number; clientY?: number; shiftKey?: boolean }) =>
@@ -178,13 +178,13 @@ describe("the Motion timeline", () => {
     click($('button[aria-label="Collapse timeline"]', view.host));
     expect(s.onToggleCollapse.calls).toHaveLength(1);
     const time = $('input[aria-label="Current time"]', view.host) as HTMLInputElement;
-    expect(time.value).toBe("0 ms");
+    expect(time.value).toBe("0");
     focus(time);
     type(time, "750");
     key(time, "Enter");
     expect(s.onSeek.calls.at(-1)).toEqual([750_000]);
     const duration = $('input[aria-label="Duration"]', view.host) as HTMLInputElement;
-    expect(duration.value).toBe("2000 ms");
+    expect(duration.value).toBe("2000");
     focus(duration);
     type(duration, "3s");
     key(duration, "Enter");
@@ -476,6 +476,28 @@ describe("the Motion timeline", () => {
     expect(duration(view.host).hasAttribute("data-duration-outside")).toBe(false);
     rerender({ header: undefined });
     expect(view.host.querySelector("[data-timeline-social]")).toBeNull();
+    view.unmount();
+  });
+
+  it("Figma's property rows (2026-10-18): ‹ › move the playhead to the keyframe before / after, ◇ adds or removes the one there, a selected layer's rows show the value", () => {
+    const onToggleKeyframe = spy();
+    const { view, s, rerender } = setup({ timeUs: 250_000, onToggleKeyframe } as unknown as Partial<TimelineProps>);
+    const row = $('[data-track-row="t1"]', view.host);
+    expect(row.querySelector("[data-track-value]")).toBeNull();
+    click(row.querySelector("[data-keyframe-next]") as HTMLElement);
+    expect(s.onSeek.calls.at(-1)).toEqual([500_000]);
+    click(row.querySelector("[data-keyframe-previous]") as HTMLElement);
+    expect(s.onSeek.calls.at(-1)).toEqual([0]);
+    click(row.querySelector("[data-keyframe-toggle]") as HTMLElement);
+    expect(onToggleKeyframe.calls.at(-1)).toEqual(["1:2", MODEL.layers[0].tracks[0], null]);
+    rerender({ timeUs: 500_000, selectedNodes: new Set(["1:2"]), onToggleKeyframe } as unknown as Partial<TimelineProps>);
+    const lit = $('[data-track-row="t1"]', view.host);
+    expect(lit.hasAttribute("data-lit")).toBe(true);
+    expect(lit.querySelector("[data-track-value]")?.textContent).toBe("0%");
+    expect(lit.querySelector("[data-keyframe-toggle]")?.getAttribute("aria-pressed")).toBe("true");
+    click(lit.querySelector("[data-keyframe-toggle]") as HTMLElement);
+    expect(onToggleKeyframe.calls.at(-1)).toEqual(["1:2", MODEL.layers[0].tracks[0], "k2"]);
+    expect($('[data-keyframe="k1"]', view.host).hasAttribute("data-lit")).toBe(true);
     view.unmount();
   });
 });

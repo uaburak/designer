@@ -36,7 +36,9 @@ export function RightPanel({ floating }: { floating?: boolean } = {}) {
   // Draw has no Prototype tab (docs/draw.md §5.3 [unverified]): the Design tab shows; Design mode gets the chosen one back.
   const drawMode = useUI((s) => s.mode === "draw");
   const chosen = useUI((s) => s.rightTab);
-  const tab = drawMode ? "design" : chosen;
+  // Motion has no tabs (Figma's capture: "Motion  Beta" and the zoom): its sections are the Design tab's.
+  const motionMode = useUI((s) => s.mode === "motion");
+  const tab = drawMode || motionMode ? "design" : chosen;
   const viewer = usePresence(ed).role === "viewer";
   const commenting = useTool(ed.store) === "COMMENT";
   const [viewerTab, setViewerTab] = useState<"comments" | "properties">("comments");
@@ -75,6 +77,15 @@ export function RightPanel({ floating }: { floating?: boolean } = {}) {
         </div>
       ) : (
         <>
+          {motionMode ? (
+            <div className={`${styles.rightTabs} ${styles.motionHeader}`} data-motion-header>
+              <span className={styles.motionTitle} id={`editor-right-tab-${tab}`}>
+                {t("Motion")}
+                <span className={styles.betaChip}>{t("Beta")}</span>
+              </span>
+              <ZoomMenu />
+            </div>
+          ) : (
           <div className={styles.rightTabs}>
             <Tabs
               label={t("Properties")}
@@ -89,6 +100,7 @@ export function RightPanel({ floating }: { floating?: boolean } = {}) {
             />
             <ZoomMenu />
           </div>
+          )}
           <div className={styles.rightBody} role="tabpanel" id={`editor-right-panel-${tab}`} aria-labelledby={`editor-right-tab-${tab}`} onKeyDownCapture={tab === "design" ? designPanelTab : undefined}>
             {tab === "design" ? <DesignPanel /> : <PrototypePanel />}
           </div>

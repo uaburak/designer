@@ -111,6 +111,17 @@
     border-radius: var(--ds-radius-medium);
     color: var(--ds-color-menu-text-secondary);
   }
+  /* A chip after the label (Shader's "Beta", live 2026-10-18): 16 high, 5 in, r 5, on the tertiary background */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    height: var(--ds-space-4);
+    margin-left: var(--ds-space-2);
+    padding: 0 5px;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-tertiary);
+    vertical-align: middle;
+  }
   .item[data-highlighted] .badge { color: var(--ds-color-menu-text-on-highlight-secondary); }
   /* A check at the row's end (MenuItem `checkEnd`): the check column stays out, the text edge with it */
   .checkEnd { display: flex; flex: none; width: 16px; }

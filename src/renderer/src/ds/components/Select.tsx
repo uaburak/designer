@@ -18,7 +18,7 @@ import styles from "./Select.module.css";
  * An option; `image` is drawn in place of the label, in the field and in the list (live Stroke settings' "Width
  * profile": the profile as a 62 × 4 image named "Uniform"), the label staying its accessible name.
  */
-export type SelectOption = { value: string; label: string; icon?: IconName; hint?: string; disabled?: boolean; image?: ReactNode; /** What the field shows when it is chosen (default: its label; e.g. the agent and its model under the agent's heading) */ valueLabel?: string };
+export type SelectOption = { value: string; label: string; icon?: IconName; hint?: string; /** A chip after the label (Menu's `chip`: Shader's "Beta") */ chip?: string; disabled?: boolean; image?: ReactNode; /** What the field shows when it is chosen (default: its label; e.g. the agent and its model under the agent's heading) */ valueLabel?: string };
 /** A list entry: an option, a line ("-"), or a group's heading (Menu's header — e.g. the agent above its models) */
 export type SelectEntry = SelectOption | "-" | { header: string };
 const isOption = (o: SelectEntry | undefined): o is SelectOption => !!o && typeof o === "object" && "value" in o;
@@ -276,7 +276,10 @@ function Listbox({ id, anchor, options, value, isStatic, noCheck, below, width, 
                 </span>
               </span>
             ) : (
-              <span className={menu.label}>{o.label}</span>
+              <span className={menu.label}>
+                {o.label}
+                {o.chip && <span className={menu.chip}>{o.chip}</span>}
+              </span>
             )}
             {o.hint && <span className={menu.hint}>{o.hint}</span>}
           </div>

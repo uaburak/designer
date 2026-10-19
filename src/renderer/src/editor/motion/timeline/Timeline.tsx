@@ -27,17 +27,24 @@
  * `readOnly` (Dev Mode's timeline view) leaves play, scrub and zoom: no resize edge, settings, segment menus, layer
  * bar or duration drags.
  *
+ * 2026-10-19, Figma's look (docs/motion.md §6.13; the owner's captures, 2026-10-18/motion.txt): one 48 header row —
+ * the controls over the layer column (Play, the keyframe button, "1855 | 2000 | ms | loop", Collapse layers), the ruler
+ * ("0s 200ms … 1s", the scrub head) over the lanes, the zoom box at its right —; property rows with ‹ ◇ › and, while
+ * their layer is selected, the value at the playhead; a selected layer's rows lit, its bar blue, its keyframes filled.
+ *
  * A pure view of a `TimelineModel`: every change goes out through its callbacks, so MotionMode wires it to the engine
  * and the tests mount it on a fixed model.
  */
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type WheelEvent as ReactWheelEvent } from "react";
-import { ContextMenu, Icon, IconButton, Slider, TextInput, type IconName, type MenuEntry } from "@/ds";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type SyntheticEvent as ReactSyntheticEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type WheelEvent as ReactWheelEvent } from "react";
+import { ContextMenu, ICON_NAMES, Icon, IconButton, Slider, TextInput, type IconName, type MenuEntry } from "@/ds";
 import { capture } from "@/ds/util/pointer";
 import { t, useT } from "@/i18n";
 import { ANIMATION_PRESETS, EASING_LABELS, PLAYBACK_CYCLE, PLAYBACK_LABELS, type EasingRef, type GuidString, type Micros, type MotionEasing, type PlaybackName, type TimelineAudioClip, type TimelineClip, type TimelineKeyframe, type TimelineLayer, type TimelineModel, type TimelineTrack, type TimelineUnit } from "@shared/motion/types";
 import { isAudioFile, waveformPath } from "../audio/audio";
 import { EasingMenu } from "../easing/EasingEditor";
-import { DIAMOND_PX, clampTimelineHeight, fitScale, formatTime, frameUs, layerExtent, marqueeBox, otherKeyframeTimes, overlaps, parseTime, retimeLayer, rulerTicks, snapTime, snapToFrame, timeToX, trimAudio, xToTime, type Box, type Scale } from "./maths";
+import { layerIcon } from "../../panels/Layers";
+import { DIAMOND_PATH } from "../panels/KeyframeDiamond";
+import { DIAMOND_PX, ORIGIN_PX, ZOOM_BOX_PX, adjacentKeyframe, clampTimelineHeight, fitScale, formatTime, formatTrackValue, frameUs, layerExtent, marqueeBox, otherKeyframeTimes, overlaps, parseTime, retimeLayer, rulerTicks, snapTime, snapToFrame, timeNumber, timeToX, trackValueAt, trimAudio, xToTime, type Box, type Scale } from "./maths";
 import { TimelineSettings } from "./TimelineSettings";
 import styles from "./Timeline.module.css";
 
@@ -74,6 +81,13 @@ export interface TimelineProps {
   onRetimeLayer?(node: GuidString, change: { deltaUs: Micros } | { scale: { factor: number; pivotUs: Micros } }, final: boolean): void;
   /** A Position / Scale row's menu: its X / Y tracks combined into one, or its XY track split (round 8i) */
   onCombineTracks?(node: GuidString, kind: "POSITION" | "SCALE", combine: boolean): void;
+  /**
+   * A property row's ◇ (Figma's): the keyframe at the playhead removed (`at` its id), or one added there (`at` null).
+   * Absent (the tests' bare mount, read-only): the row's ‹ ◇ › only move the playhead.
+   */
+  onToggleKeyframe?(node: GuidString, track: TimelineTrack, at: GuidString | null): void;
+  /** A selected layer's position as the right panel shows it (its Position row's value, Figma's "190.6, 246") */
+  positionOf?(node: GuidString): { x: number; y: number } | null;
   /** Segments' Easing menus offer the EASING variable binding (needs the editor; off in the tests' bare mount) */
   easingVariables?: boolean;
   onSelectKeyframes(ids: GuidString[]): void;
@@ -119,7 +133,7 @@ export interface TimelineProps {
   onOpenComment?(id: string): void;
 }
 
-const PLAYBACK_ICON: Record<PlaybackName, IconName> = { LOOP: "24.loop", ONCE: "24.play-once", PING_PONG: "24.ping-pong" };
+const PLAYBACK_ICON: Record<PlaybackName, IconName> = { LOOP: "24.motion-loop", ONCE: "24.play-once", PING_PONG: "24.ping-pong" };
 /** A drag starts after this many px (a click selects). */
 const DRAG_PX = 3;
 /** ⇧-snap distance (px) to the playhead and the other keyframes. */
@@ -149,8 +163,11 @@ type Row =
   | { kind: "track"; layer: TimelineLayer; track: TimelineTrack }
   | { kind: "audio"; row: TimelineModel["audioTracks"][number]; clips: TimelineAudioClip[] };
 
-/** The Layers panel's icon name, or the frame glyph when the engine gave one the registry lacks. */
-const iconOf = (name: string): IconName => (name.startsWith("16.") ? (name as IconName) : (`16.${name}` as IconName));
+/** The Layers panel's icon name, or — the engine giving the node's type — the Layers panel's glyph for that type. */
+const iconOf = (name: string): IconName => {
+  const own = name.startsWith("16.") ? name : `16.${name}`;
+  return (ICON_NAMES as string[]).includes(own) ? (own as IconName) : layerIcon({ type: name } as Parameters<typeof layerIcon>[0]);
+};
 
 export function Timeline(p: TimelineProps) {
   useT();
@@ -182,11 +199,16 @@ export function Timeline(p: TimelineProps) {
     return () => ro.disconnect();
   }, [collapsed]);
   const scale: Scale = useMemo(() => {
-    const fit = fitScale(durationUs, width);
+    const fit = fitScale(durationUs, width - ZOOM_BOX_PX, ORIGIN_PX);
     return { pxPerUs: fit.pxPerUs * zoom };
   }, [durationUs, width, zoom]);
 
-  const layers = useMemo(() => model?.layers ?? [], [model]);
+  // The root's children at the column's first indent (Figma's capture: their glyphs at 32, their tracks' line at 40).
+  const layers = useMemo(() => {
+    const all = model?.layers ?? [];
+    const base = all.length ? Math.min(...all.map((l) => l.depth)) : 0;
+    return base ? all.map((l) => ({ ...l, depth: l.depth - base })) : all;
+  }, [model]);
   // A row per layer, then (expanded) a row per clip and a row per track, then the audio rows: the same list draws the
   // layer column and the lanes.
   const rows = useMemo(() => {
@@ -568,161 +590,176 @@ export function Timeline(p: TimelineProps) {
   const playheadX = timeToX(timeUs, scale);
   const ticks = rulerTicks(Math.max(shownDuration, xToTime(width, scale)), scale, unit, fps);
   const state = collapsed ? "collapsed" : "open";
+  // A lit property row's value at the playhead: Position as the right panel's X / Y, the rest from the track.
+  const trackValueText = (layer: TimelineLayer, track: TimelineTrack): string => {
+    const name = track.field.type === "PROPERTY" ? track.field.name : null;
+    const pos = name === "TRANSLATION_XY" ? p.positionOf?.(layer.node) : null;
+    if (pos) return formatTrackValue(track, { type: "VECTOR", value: pos });
+    return formatTrackValue(track, trackValueAt(track, timeUs));
+  };
 
   return (
     <section ref={panelEl} data-motion-timeline={state} data-auto-keyframe={autoKeyframe || undefined} data-theme="dark" className={styles.panel} aria-label={t("Timeline")} onDragOver={onDragOver} onDrop={onDrop}>
       {!collapsed && !readOnly && <div className={styles.resize} role="separator" aria-orientation="horizontal" aria-label={t("Resize timeline")} data-timeline-resize onPointerDown={onResizeDown} />}
-      <div className={styles.header}>
-        <IconButton icon={p.playing ? "24.pause" : "24.play"} label={p.playing ? t("Pause") : t("Play")} shortcut="Space" onClick={p.onTogglePlay} />
-        {!readOnly && <IconButton icon="24.auto-keyframe" label={t("Toggle auto-keyframe")} aria-pressed={autoKeyframe} className={autoKeyframe ? styles.autoOn : undefined} onClick={p.onToggleAutoKeyframe} />}
-        <div className={styles.time}>
-          <TextInput label={t("Current time")} value={formatTime(timeUs, unit, fps)} onCommit={(v) => {
-            const us = parseTime(v, unit, fps);
-            if (us !== null) p.onSeek(Math.min(durationUs, us));
-          }} />
-          <span aria-hidden>/</span>
-          <TextInput label={t("Duration")} className={outside ? styles.over : undefined} data-duration-outside={outside || undefined} value={formatTime(shownDuration, unit, fps)} disabled={readOnly || !model} onCommit={(v) => {
-            const us = parseTime(v, unit, fps);
-            if (us !== null && us > 0) p.onSetTimeline({ durationUs: us }, true);
-          }} />
-        </div>
-        {p.header && (
-          <span className={styles.social} data-timeline-social="">
-            {p.header.content}
-          </span>
-        )}
-        {!readOnly && <IconButton icon="24.settings.small" label={t("Timeline settings")} aria-expanded={!!settingsAt} disabled={!model} data-timeline-settings onClick={(e) => setSettingsAt(settingsAt ? null : e.currentTarget)} />}
-        {!readOnly && <IconButton icon={PLAYBACK_ICON[model?.playback ?? "LOOP"]} label={t("Playback: {mode}", { mode: t(PLAYBACK_LABELS[model?.playback ?? "LOOP"]) })} disabled={!model} onClick={cyclePlayback} />}
-        <IconButton icon="24.collapse-layers" label={allCollapsed ? t("Expand layers") : t("Collapse layers")} disabled={!layers.length} onClick={collapseAll} />
-        {model && <span className={styles.rootName}>{model.rootName}</span>}
-        <div className={styles.headerRight}>
-          <Slider className={styles.zoom} label={t("Zoom")} value={zoom} min={1} max={16} step={0.1} onChange={(v) => setZoom(v)} />
-          <IconButton icon="24.timeline-collapse" label={collapsed ? t("Expand timeline") : t("Collapse timeline")} aria-expanded={!collapsed} onClick={p.onToggleCollapse} />
-        </div>
-      </div>
-      {!collapsed && (
-        <div className={styles.body}>
-          {!model ? (
-            <div className={styles.empty}>{t("Select a layer inside a top-level frame to animate it.")}</div>
-          ) : (
-            <>
-              <div className={styles.layers}>
-                <div className={styles.layersHead}>{t("Layers")}</div>
-                <div ref={rowsEl} className={styles.rows} role="tree" aria-label={t("Animated layers")} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
-                  {rows.map((r) =>
-                    r.kind === "layer" ? (
-                      <LayerRowView key={r.layer.node} layer={r.layer} expanded={!collapsedLayers.has(r.layer.node)} selected={p.selectedNodes.has(r.layer.node)} onToggle={() => setCollapsedLayers((s) => {
-                        const n = new Set(s);
-                        if (n.has(r.layer.node)) n.delete(r.layer.node);
-                        else n.add(r.layer.node);
-                        return n;
-                      })} onSelect={(additive) => {
-                        p.onSelectLayer(r.layer.node, additive);
-                        // Selecting a layer in the timeline selects all its keyframes (help).
-                        p.onSelectKeyframes(r.layer.tracks.flatMap((tr) => tr.keyframes.map((k) => k.id)));
-                        setSelectedRow(null);
-                      }} />
-                    ) : r.kind === "clip" ? (
-                      <button key={r.clip.id} type="button" role="treeitem" aria-level={r.layer.depth + 2} aria-selected={p.selectedClip === r.clip.id} data-clip-row={r.clip.id} className={styles.propertyRow} style={{ "--depth": r.layer.depth } as CSSProperties} onClick={() => {
-                        setSelectedRow(null);
-                        p.onSelectKeyframes([]);
-                        p.onSelectClip?.(r.clip.id);
-                      }}>
-                        <span className={styles.name}>{clipName(r.clip)}</span>
-                      </button>
-                    ) : r.kind === "track" ? (
-                      <button key={r.track.id} type="button" role="treeitem" aria-level={r.layer.depth + 2} aria-selected={selectedRow?.track === r.track.id} data-track-row={r.track.id} className={styles.propertyRow} style={{ "--depth": r.layer.depth } as CSSProperties} onClick={() => {
-                        setSelectedRow({ node: r.layer.node, track: r.track.id });
-                        p.onSelectKeyframes(r.track.keyframes.map((k) => k.id));
-                      }} onContextMenu={(e) => {
-                        const v = vectorKind(r.track);
-                        if (!v || readOnly || !p.onCombineTracks) return;
-                        e.preventDefault();
-                        setRowMenu({ node: r.layer.node, kind: v.kind, combine: !v.combined, at: { x: e.clientX, y: e.clientY } });
-                      }}>
-                        <span className={styles.name}>{t(r.track.label)}</span>
-                      </button>
-                    ) : (
-                      <div key={r.row.id} role="treeitem" aria-level={1} aria-selected={r.clips.some((c) => c.id === p.selectedAudio)} data-audio-row={r.row.id} className={`${styles.layerRow} ${styles.audioRow}`} data-muted={r.row.mute || undefined}>
-                        <span className={styles.chevron} aria-hidden />
-                        <span className={styles.glyph}><Icon name="16.audio" /></span>
-                        <span className={styles.name}>{r.row.name || t("Audio")}</span>
-                        {!readOnly && (
-                          <button type="button" className={styles.eye} aria-label={r.row.mute ? t("Unmute audio") : t("Mute audio")} aria-pressed={r.row.mute} data-audio-eye={r.row.id} onClick={() => p.onToggleAudioRow?.(r.row.id, !r.row.mute)}>
-                            <Icon name={r.row.mute ? "16.hidden" : "16.visible"} />
-                          </button>
-                        )}
-                      </div>
-                    )
+      <div className={styles.body}>
+        <div className={styles.layers}>
+          {/* Figma's header over the layer column: Play, the keyframe button, "1855 | 2000 | ms | loop", the layers toggle at the right */}
+          <div className={styles.controls}>
+            <IconButton icon={p.playing ? "24.pause" : "24.play"} label={p.playing ? t("Pause") : t("Play")} shortcut="Space" onClick={p.onTogglePlay} />
+            {!readOnly && <IconButton icon={autoKeyframe ? "24.auto-keyframe.on" : "24.auto-keyframe"} label={t("Toggle auto-keyframe")} aria-pressed={autoKeyframe} className={autoKeyframe ? styles.autoOn : undefined} onClick={p.onToggleAutoKeyframe} />}
+            <div className={styles.time} data-timeline-time>
+              <TextInput label={t("Current time")} className={styles.timeField} value={timeNumber(timeUs, unit, fps)} prefix={"0".repeat(Math.max(0, 4 - timeNumber(timeUs, unit, fps).length)) || undefined} onCommit={(v) => {
+                const us = parseTime(v, unit, fps);
+                if (us !== null) p.onSeek(Math.min(durationUs, us));
+              }} />
+              <TextInput label={t("Duration")} className={`${styles.timeField} ${outside ? styles.over : ""}`} data-duration-outside={outside || undefined} value={timeNumber(shownDuration, unit, fps)} disabled={readOnly || !model} onCommit={(v) => {
+                const us = parseTime(v, unit, fps);
+                if (us !== null && us > 0) p.onSetTimeline({ durationUs: us }, true);
+              }} />
+              {/* The unit opens the timeline settings (units, the snapping grid, loop) */}
+              {readOnly ? (
+                <span className={styles.unit}>{unit === "frames" ? "f" : "ms"}</span>
+              ) : (
+                <button type="button" className={styles.unit} aria-label={t("Timeline settings")} aria-expanded={!!settingsAt} disabled={!model} data-timeline-settings onClick={(e) => setSettingsAt(settingsAt ? null : e.currentTarget)}>
+                  {unit === "frames" ? "f" : "ms"}
+                </button>
+              )}
+              {!readOnly && <IconButton icon={PLAYBACK_ICON[model?.playback ?? "LOOP"]} className={styles.loop} label={t("Playback: {mode}", { mode: t(PLAYBACK_LABELS[model?.playback ?? "LOOP"]) })} disabled={!model} onClick={cyclePlayback} />}
+            </div>
+            {p.header && (
+              <span className={styles.social} data-timeline-social="">
+                {p.header.content}
+              </span>
+            )}
+            <span className={styles.grow} />
+            {layers.length > 0 && <IconButton icon="24.collapse-layers.small" label={allCollapsed ? t("Expand layers") : t("Collapse layers")} onClick={collapseAll} />}
+          </div>
+          <div ref={rowsEl} className={styles.rows} role="tree" aria-label={t("Animated layers")} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
+            {(collapsed ? [] : rows).map((r, i) => {
+              const lit = r.kind !== "audio" && p.selectedNodes.has(r.layer.node);
+              const last = r.kind !== "layer" && r.kind !== "audio" && (rows[i + 1]?.kind === "layer" || rows[i + 1]?.kind === "audio" || i === rows.length - 1);
+              return r.kind === "layer" ? (
+                <LayerRowView key={r.layer.node} layer={r.layer} expanded={!collapsedLayers.has(r.layer.node)} selected={lit} onToggle={() => setCollapsedLayers((s) => {
+                  const n = new Set(s);
+                  if (n.has(r.layer.node)) n.delete(r.layer.node);
+                  else n.add(r.layer.node);
+                  return n;
+                })} onSelect={(additive) => {
+                  p.onSelectLayer(r.layer.node, additive);
+                  // Selecting a layer in the timeline selects all its keyframes (help).
+                  p.onSelectKeyframes(r.layer.tracks.flatMap((tr) => tr.keyframes.map((k) => k.id)));
+                  setSelectedRow(null);
+                }} />
+              ) : r.kind === "clip" ? (
+                <button key={r.clip.id} type="button" role="treeitem" aria-level={r.layer.depth + 2} aria-selected={p.selectedClip === r.clip.id} data-clip-row={r.clip.id} data-lit={lit || undefined} data-last={last || undefined} className={styles.propertyRow} style={{ "--depth": r.layer.depth } as CSSProperties} onClick={() => {
+                  setSelectedRow(null);
+                  p.onSelectKeyframes([]);
+                  p.onSelectClip?.(r.clip.id);
+                }}>
+                  <span className={styles.name}>{clipName(r.clip)}</span>
+                </button>
+              ) : r.kind === "track" ? (
+                <TrackRowView key={r.track.id} layer={r.layer} track={r.track} lit={lit} last={last} selected={selectedRow?.track === r.track.id} timeUs={timeUs} fps={fps} readOnly={readOnly} value={lit ? trackValueText(r.layer, r.track) : ""} onSelect={() => {
+                  setSelectedRow({ node: r.layer.node, track: r.track.id });
+                  p.onSelectKeyframes(r.track.keyframes.map((k) => k.id));
+                }} onSeek={p.onSeek} onToggleKeyframe={p.onToggleKeyframe ? (at) => p.onToggleKeyframe?.(r.layer.node, r.track, at) : undefined} onMenu={(e) => {
+                  const v = vectorKind(r.track);
+                  if (!v || readOnly || !p.onCombineTracks) return;
+                  e.preventDefault();
+                  setRowMenu({ node: r.layer.node, kind: v.kind, combine: !v.combined, at: { x: e.clientX, y: e.clientY } });
+                }} />
+              ) : (
+                <div key={r.row.id} role="treeitem" aria-level={1} aria-selected={r.clips.some((c) => c.id === p.selectedAudio)} data-audio-row={r.row.id} className={`${styles.layerRow} ${styles.audioRow}`} data-muted={r.row.mute || undefined}>
+                  <span className={styles.chevron} aria-hidden />
+                  <span className={styles.glyph}><Icon name="16.audio" /></span>
+                  <span className={styles.name}>{r.row.name || t("Audio")}</span>
+                  {!readOnly && (
+                    <button type="button" className={styles.eye} aria-label={r.row.mute ? t("Unmute audio") : t("Mute audio")} aria-pressed={r.row.mute} data-audio-eye={r.row.id} onClick={() => p.onToggleAudioRow?.(r.row.id, !r.row.mute)}>
+                      <Icon name={r.row.mute ? "16.hidden" : "16.visible"} />
+                    </button>
                   )}
                 </div>
-              </div>
-              <div ref={tracksEl} className={styles.tracks} tabIndex={0} aria-label={t("Tracks")} onKeyDown={onKeyDown} onWheel={onWheel} onPointerDown={onAreaDown} onCopy={(e) => {
-                // ⌘C / ⌘V here are the keyframes' (the document's clipboard events stop at the track area).
-                if (!selectedKeyframes.size || readOnly) return;
-                e.preventDefault();
-                e.stopPropagation();
-                p.onCopyKeyframes([...selectedKeyframes]);
-              }} onPaste={(e) => {
-                if (readOnly || !p.onPasteKeyframes()) return;
-                e.preventDefault();
-                e.stopPropagation();
-              }}>
-                <div className={styles.ruler} data-ruler onPointerDown={onRulerDown}>
-                  {ticks.map((tk) => (
-                    <span key={tk.timeUs} style={{ left: tk.x }}>
-                      <span className={styles.tick} data-major={tk.label !== null || undefined} style={{ left: tk.x }} />
-                      {tk.label !== null && <span className={styles.tickLabel} style={{ left: tk.x }}>{tk.label}</span>}
-                    </span>
-                  ))}
-                  {p.comments?.map((cm) => (
-                    <button
-                      key={cm.id}
-                      type="button"
-                      className={styles.commentMarker}
-                      style={{ left: timeToX(cm.timeMs * 1000, scale) }}
-                      aria-label={t("Comment #{number}", { number: cm.number })}
-                      data-comment-marker={cm.id}
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={() => p.onOpenComment?.(cm.id)}
-                    />
-                  ))}
-                  <div className={styles.playhead} data-auto={autoKeyframe || undefined} style={{ left: playheadX, pointerEvents: "none" }}>
-                    <span className={styles.playheadHandle} />
+              );
+            })}
+          </div>
+        </div>
+        <div ref={tracksEl} className={styles.tracks} tabIndex={0} aria-label={t("Tracks")} onKeyDown={onKeyDown} onWheel={onWheel} onPointerDown={onAreaDown} onCopy={(e) => {
+          // ⌘C / ⌘V here are the keyframes' (the document's clipboard events stop at the track area).
+          if (!selectedKeyframes.size || readOnly) return;
+          e.preventDefault();
+          e.stopPropagation();
+          p.onCopyKeyframes([...selectedKeyframes]);
+        }} onPaste={(e) => {
+          if (readOnly || !p.onPasteKeyframes()) return;
+          e.preventDefault();
+          e.stopPropagation();
+        }}>
+          <div className={styles.ruler} data-ruler onPointerDown={onRulerDown}>
+            {ticks.map((tk) =>
+              tk.label === null ? null : (
+                <span key={tk.timeUs}>
+                  <span className={styles.tick} data-major style={{ left: tk.x }} />
+                  <span className={styles.tickLabel} style={{ left: tk.x }}>{tk.label}</span>
+                </span>
+              )
+            )}
+            {p.comments?.map((cm) => (
+              <button
+                key={cm.id}
+                type="button"
+                className={styles.commentMarker}
+                style={{ left: timeToX(cm.timeMs * 1000, scale) }}
+                aria-label={t("Comment #{number}", { number: cm.number })}
+                data-comment-marker={cm.id}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => p.onOpenComment?.(cm.id)}
+              />
+            ))}
+            <div className={styles.playhead} data-auto={autoKeyframe || undefined} style={{ left: playheadX, pointerEvents: "none" }}>
+              <span className={styles.playheadHandle} />
+            </div>
+          </div>
+          {/* The zoom slider and the panel's toggle, in a box at the ruler's right end */}
+          <div className={styles.zoomBox} onPointerDown={(e) => e.stopPropagation()}>
+            <Slider className={styles.zoom} label={t("Zoom")} value={zoom} min={1} max={16} step={0.1} onChange={(v) => setZoom(v)} />
+            <IconButton icon="24.timeline-panel" label={collapsed ? t("Expand timeline") : t("Collapse timeline")} aria-expanded={!collapsed} onClick={p.onToggleCollapse} />
+          </div>
+          <div className={styles.lanes}>
+            {/* Past the duration the lanes darken; the lit rows' colour stays over it */}
+            <div className={styles.past} style={{ left: timeToX(shownDuration, scale) }} />
+            {!model && <div className={styles.empty}>{t("Select a layer inside a top-level frame to animate it.")}</div>}
+            <div className={styles.laneRows} style={{ transform: `translateY(${-scrollTop}px)` }}>
+              {(collapsed ? [] : rows).map((r) => {
+                const lit = r.kind !== "audio" && p.selectedNodes.has(r.layer.node);
+                return (
+                  <div key={rowKey(r)} className={styles.lane} aria-selected={r.kind === "track" && selectedRow?.track === r.track.id ? true : undefined} data-lane={rowKey(r)} data-lit={lit ? (r.kind === "layer" ? "layer" : "child") : undefined}>
+                    {r.kind === "clip" ? (
+                      <ClipLane clip={r.clip} scale={scale} selected={p.selectedClip === r.clip.id} onDown={(e, edge) => onClipDown(e, r.clip, edge)} />
+                    ) : r.kind === "audio" ? (
+                      r.clips.map((c) => (
+                        <AudioClipLane key={c.id} clip={c} rowMuted={r.row.mute} scale={scale} selected={p.selectedAudio === c.id} peaks={p.audioPeaks?.(c.mediaHash) ?? null} onDown={(e, edge) => onAudioDown(e, c, edge)} onMenu={readOnly || !p.onAudioMenu ? undefined : (at) => {
+                          p.onSelectAudio?.(c.id);
+                          setAudioMenu({ clip: c, at });
+                        }} />
+                      ))
+                    ) : r.kind === "layer" ? <LayerLane layer={r.layer} scale={scale} selected={lit} onInstanceDown={readOnly || !p.onMoveInstance ? undefined : (e) => onInstanceDown(e, r.layer)} onBarDown={readOnly || !p.onRetimeLayer ? undefined : (e, edge) => onLayerBarDown(e, r.layer, edge)} /> : <TrackLane track={r.track} lit={lit} scale={scale} durationUs={shownDuration} selected={selectedKeyframes} dragging={drag?.moving ? new Set(drag.items.map((i) => i.id)) : null} onDown={onDiamondDown} onDouble={(k) => {
+                      p.onSeek(k.timeUs);
+                      p.onSelectLayer(r.layer.node, false);
+                    }} onSegment={readOnly ? undefined : (k, anchor) => setEasingAt({ ids: [k.id], easing: k.easingVariable ? { variable: k.easingVariable } : k.easing, resolved: "type" in k.easing ? k.easing : undefined, anchor })} />}
                   </div>
-                </div>
-                <div className={styles.lanes}>
-                  <div className={styles.laneRows} style={{ transform: `translateY(${-scrollTop}px)` }}>
-                  {rows.map((r) => (
-                    <div key={rowKey(r)} className={styles.lane} aria-selected={r.kind === "track" && selectedRow?.track === r.track.id ? true : undefined} data-lane={rowKey(r)}>
-                      {r.kind === "clip" ? (
-                        <ClipLane clip={r.clip} scale={scale} selected={p.selectedClip === r.clip.id} onDown={(e, edge) => onClipDown(e, r.clip, edge)} />
-                      ) : r.kind === "audio" ? (
-                        r.clips.map((c) => (
-                          <AudioClipLane key={c.id} clip={c} rowMuted={r.row.mute} scale={scale} selected={p.selectedAudio === c.id} peaks={p.audioPeaks?.(c.mediaHash) ?? null} onDown={(e, edge) => onAudioDown(e, c, edge)} onMenu={readOnly || !p.onAudioMenu ? undefined : (at) => {
-                            p.onSelectAudio?.(c.id);
-                            setAudioMenu({ clip: c, at });
-                          }} />
-                        ))
-                      ) : r.kind === "layer" ? <LayerLane layer={r.layer} scale={scale} onInstanceDown={readOnly || !p.onMoveInstance ? undefined : (e) => onInstanceDown(e, r.layer)} onBarDown={readOnly || !p.onRetimeLayer ? undefined : (e, edge) => onLayerBarDown(e, r.layer, edge)} /> : <TrackLane track={r.track} scale={scale} durationUs={shownDuration} selected={selectedKeyframes} dragging={drag?.moving ? new Set(drag.items.map((i) => i.id)) : null} onDown={onDiamondDown} onDouble={(k) => {
-                        p.onSeek(k.timeUs);
-                        p.onSelectLayer(r.layer.node, false);
-                      }} onSegment={readOnly ? undefined : (k, anchor) => setEasingAt({ ids: [k.id], easing: k.easingVariable ? { variable: k.easingVariable } : k.easing, resolved: "type" in k.easing ? k.easing : undefined, anchor })} />}
-                    </div>
-                  ))}
-                  </div>
-                  <div className={styles.past} style={{ left: timeToX(shownDuration, scale) }} />
-                  <div className={styles.playhead} data-auto={autoKeyframe || undefined} style={{ left: playheadX }} />
-                </div>
-                {marquee && <div className={styles.marquee} data-marquee style={{ left: marquee.left, top: marquee.top, width: marquee.width, height: marquee.height }} />}
-                <div className={styles.duration} data-duration-handle data-readonly={readOnly || undefined} style={{ left: timeToX(shownDuration, scale) }} onPointerDown={onDurationDown} role="slider" aria-label={t("Duration")} aria-valuenow={Math.round(shownDuration / 1000)} aria-valuemin={0} aria-valuemax={Math.round(xToTime(width, scale) / 1000)}>
-                  <span className={styles.durationHandle} />
-                </div>
-              </div>
-            </>
+                );
+              })}
+            </div>
+            <div className={styles.playhead} data-auto={autoKeyframe || undefined} style={{ left: playheadX }} />
+          </div>
+          {marquee && <div className={styles.marquee} data-marquee style={{ left: marquee.left, top: marquee.top, width: marquee.width, height: marquee.height }} />}
+          {model && (
+            <div className={styles.duration} data-duration-handle data-readonly={readOnly || undefined} style={{ left: timeToX(shownDuration, scale) }} onPointerDown={onDurationDown} role="slider" aria-label={t("Duration")} aria-valuenow={Math.round(shownDuration / 1000)} aria-valuemin={0} aria-valuemax={Math.round(xToTime(width, scale) / 1000)}>
+              <span className={styles.durationHandle} />
+            </div>
           )}
         </div>
-      )}
+      </div>
       {easingAt && (
         <EasingMenu
           value={easingAt.easing}
@@ -778,6 +815,51 @@ function LayerRowView({ layer, expanded, selected, onToggle, onSelect }: { layer
   );
 }
 
+/**
+ * A property row (Figma's capture): the tree's line from its layer, the track's name, ‹ ◇ › — the playhead to the
+ * previous keyframe, the keyframe at the playhead added or removed (filled when there is one), the next keyframe — and,
+ * while its layer is selected, the value at the playhead.
+ */
+function TrackRowView({ layer, track, lit, last, selected, timeUs, fps, readOnly, value, onSelect, onSeek, onToggleKeyframe, onMenu }: {
+  layer: TimelineLayer;
+  track: TimelineTrack;
+  lit: boolean;
+  last: boolean;
+  selected: boolean;
+  timeUs: Micros;
+  fps: number;
+  readOnly?: boolean;
+  value: string;
+  onSelect(): void;
+  onSeek(timeUs: Micros): void;
+  onToggleKeyframe?(at: GuidString | null): void;
+  onMenu(e: ReactMouseEvent): void;
+}) {
+  const here = track.keyframes.find((k) => Math.abs(k.timeUs - timeUs) <= frameUs(fps) / 2) ?? null;
+  const prev = adjacentKeyframe(track, timeUs, -1);
+  const next = adjacentKeyframe(track, timeUs, 1);
+  const stop = (e: ReactSyntheticEvent) => e.stopPropagation();
+  return (
+    <div role="treeitem" tabIndex={-1} aria-level={layer.depth + 2} aria-selected={selected} data-track-row={track.id} data-lit={lit || undefined} data-last={last || undefined} className={styles.propertyRow} style={{ "--depth": layer.depth } as CSSProperties} onClick={onSelect} onContextMenu={onMenu}>
+      <span className={styles.name}>{t(track.label)}</span>
+      <span className={styles.keyNav} onClick={stop} onPointerDown={stop}>
+        <button type="button" className={styles.navButton} aria-label={t("Previous keyframe")} disabled={prev === null} data-keyframe-previous onClick={() => prev !== null && onSeek(prev)}>
+          <Icon name="24.keyframe-previous" />
+        </button>
+        <button type="button" className={styles.navButton} aria-label={here ? t("Remove keyframe") : t("Add keyframe")} aria-pressed={!!here} data-keyframe-toggle disabled={readOnly || !onToggleKeyframe} onClick={() => onToggleKeyframe?.(here?.id ?? null)}>
+          <svg viewBox="4 4 16 16" aria-hidden>
+            <path d={DIAMOND_PATH} />
+          </svg>
+        </button>
+        <button type="button" className={styles.navButton} aria-label={t("Next keyframe")} disabled={next === null} data-keyframe-next onClick={() => next !== null && onSeek(next)}>
+          <Icon name="24.keyframe-next" />
+        </button>
+      </span>
+      {value && <span className={styles.value} data-track-value>{value}</span>}
+    </div>
+  );
+}
+
 /** A clip's name: its preset type's, else the instance's own. */
 const clipName = (c: TimelineClip) => t(ANIMATION_PRESETS.find((d) => d.key === c.preset)?.name ?? c.name);
 
@@ -826,7 +908,7 @@ function AudioClipLane({ clip, rowMuted, scale, selected, peaks, onDown, onMenu 
  * The layer's lane: its bar from the first to the last keyframe or clip — dragged to move them all, its side handles to
  * scale them about the other end (round 8i) — or an instance's purple clip bar, dragged in time.
  */
-function LayerLane({ layer, scale, onInstanceDown, onBarDown }: { layer: TimelineLayer; scale: Scale; onInstanceDown?(e: ReactPointerEvent<HTMLDivElement>): void; onBarDown?(e: ReactPointerEvent<HTMLElement>, edge: "move" | "start" | "end"): void }) {
+function LayerLane({ layer, scale, selected, onInstanceDown, onBarDown }: { layer: TimelineLayer; scale: Scale; selected: boolean; onInstanceDown?(e: ReactPointerEvent<HTMLDivElement>): void; onBarDown?(e: ReactPointerEvent<HTMLElement>, edge: "move" | "start" | "end"): void }) {
   if (layer.instance) {
     const x0 = timeToX(layer.instance.offsetUs, scale);
     return <div className={styles.instanceBar} data-instance-bar={layer.node} style={{ left: x0, width: Math.max(4, layer.instance.durationUs * scale.pxPerUs) }} title={layer.name} onPointerDown={onInstanceDown} />;
@@ -836,7 +918,7 @@ function LayerLane({ layer, scale, onInstanceDown, onBarDown }: { layer: Timelin
   const x0 = timeToX(ext.startUs, scale);
   const span = ext.endUs > ext.startUs;
   return (
-    <div className={styles.layerBar} data-layer-bar={layer.node} data-editable={onBarDown ? "" : undefined} style={{ left: x0, width: Math.max(2, (ext.endUs - ext.startUs) * scale.pxPerUs) }} onPointerDown={onBarDown ? (e) => onBarDown(e, "move") : undefined}>
+    <div className={styles.layerBar} data-layer-bar={layer.node} data-selected={selected || undefined} data-editable={onBarDown ? "" : undefined} style={{ left: x0, width: Math.max(2, (ext.endUs - ext.startUs) * scale.pxPerUs) }} onPointerDown={onBarDown ? (e) => onBarDown(e, "move") : undefined}>
       {onBarDown && span && (
         <>
           <span className={styles.barHandle} data-bar-handle="start" onPointerDown={(e) => onBarDown(e, "start")} />
@@ -866,11 +948,13 @@ function vectorKind(track: TimelineTrack): { kind: "POSITION" | "SCALE"; combine
   }
 }
 
-function TrackLane({ track, scale, durationUs, selected, dragging, onDown, onDouble, onSegment }: {
+function TrackLane({ track, lit, scale, durationUs, selected, dragging, onDown, onDouble, onSegment }: {
   track: TimelineTrack;
   scale: Scale;
   durationUs: Micros;
   selected: ReadonlySet<GuidString>;
+  /** Its layer selected: Figma draws the row's keyframes filled light blue and its lines blue */
+  lit: boolean;
   dragging: ReadonlySet<GuidString> | null;
   onDown(e: ReactPointerEvent<HTMLButtonElement>, k: TimelineKeyframe): void;
   onDouble(k: TimelineKeyframe): void;
@@ -888,7 +972,7 @@ function TrackLane({ track, scale, durationUs, selected, dragging, onDown, onDou
       const label = k.easingVariable || !("type" in k.easing) ? t("Easing variable") : t(EASING_LABELS[k.easing.type]);
       if (b > a)
         out.push(
-          <button key={`s${k.id}`} type="button" className={styles.segment} data-hold={hold || undefined} data-variable={k.easingVariable ? "" : undefined} data-segment={k.id} aria-label={t("Easing: {name}", { name: label })} disabled={!onSegment} style={{ left: a, width: b - a }} onClick={(e) => {
+          <button key={`s${k.id}`} type="button" className={styles.segment} data-hold={hold || undefined} data-variable={k.easingVariable ? "" : undefined} data-selected={lit || (selected.has(k.id) && selected.has(ks[i - 1].id)) || undefined} data-segment={k.id} aria-label={t("Easing: {name}", { name: label })} disabled={!onSegment} style={{ left: a, width: b - a }} onClick={(e) => {
             e.stopPropagation();
             const r = e.currentTarget.getBoundingClientRect();
             onSegment?.(k, { x: r.left, y: r.top, width: r.width, height: r.height });
@@ -897,11 +981,11 @@ function TrackLane({ track, scale, durationUs, selected, dragging, onDown, onDou
     }
     const sel = selected.has(k.id);
     out.push(
-      <button key={k.id} type="button" className={styles.diamond} data-keyframe={k.id} data-selected={sel || undefined} data-dragging={dragging?.has(k.id) || undefined} data-past={k.timeUs > durationUs || undefined} aria-label={t("Keyframe at {time}", { time: formatTime(k.timeUs, "ms", 60) })} aria-pressed={sel} style={{ left: timeToX(k.timeUs, scale) }} onPointerDown={(e) => onDown(e, k)} onDoubleClick={(e) => {
+      <button key={k.id} type="button" className={styles.diamond} data-keyframe={k.id} data-selected={sel || undefined} data-lit={lit || undefined} data-dragging={dragging?.has(k.id) || undefined} data-past={k.timeUs > durationUs || undefined} aria-label={t("Keyframe at {time}", { time: formatTime(k.timeUs, "ms", 60) })} aria-pressed={sel} style={{ left: timeToX(k.timeUs, scale) }} onPointerDown={(e) => onDown(e, k)} onDoubleClick={(e) => {
         e.stopPropagation();
         onDouble(k);
       }}>
-        <svg viewBox="0 0 16 16" aria-hidden><path d="M8 2.5 13.5 8 8 13.5 2.5 8Z" fill="none" stroke="currentColor" strokeWidth="1.5" /></svg>
+        <svg viewBox="4 4 16 16" aria-hidden><path d={DIAMOND_PATH} /></svg>
       </button>
     );
   }

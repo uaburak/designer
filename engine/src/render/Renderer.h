@@ -419,6 +419,14 @@ struct Overlay {
   std::vector<OverlayLine> motionHandles;
   bool hasAnchorPoint = false;
   Vec2 anchorPoint;
+  // Motion's transform gizmo on the one selected layer (the owner's capture of Figma, 2026-10-18,
+  // docs/research/figma/live/owner-2026-10-18/figma-motion-rect-gizmo-panel.webp): the anchor (world), the layer's own
+  // right and up directions (world, unit), and the dotted guides from the layer's box to its parent frame's left and top
+  // edges at the anchor (world).
+  bool hasMotionGizmo = false;
+  Vec2 gizmoAnchor;
+  Vec2 gizmoRight{1, 0}, gizmoUp{0, -1};
+  std::vector<OverlayLine> gizmoGuides;
   std::string badgeText;
   struct RulerGuide {
     Vec2 a, b;           // world
@@ -751,6 +759,7 @@ class Renderer {
     float fx[3][4] = {};                                   // progressive: slots 16–18 (the node's box, start / end)
     double start = 0, end = 0;                             // progressive: the radius at the start and at the end (device px)
     float glass[2][4] = {};                                // glass: slots 6 and 8
+    double glassReach = 0;                                 // glass: how far past its pixels it reads (device px)
     // Where the layer it was recorded in cut its region (left, bottom, right, top): the atlas repeats the edge there.
     bool cut[4] = {false, false, false, false};
     // A uniform background blur: clamped to the node's box (Layer::clamped).

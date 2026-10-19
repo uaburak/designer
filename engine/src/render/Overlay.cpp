@@ -1168,6 +1168,42 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     emit(makeShape(Mat2x3::translate(c.x - dot / 2, c.y - dot / 2), {dot, dot}, ShapeKind::Ellipse, kSquare, blue, 1, white, 1, 1, 0), Pass::Shape);
   }
 
+  // Motion's transform gizmo (the owner's capture of Figma, OverlayStyle's gizmo* metrics): the dotted guides from the
+  // layer to its parent's edges, the ring round the anchor, the arrows out of its up and right handles, the handles, the
+  // centre dot.
+  if (overlay.hasMotionGizmo) {
+    for (const OverlayLine& g : overlay.gizmoGuides) {
+      Vec2 a = view.apply(g.a), b = view.apply(g.b);
+      double len = (b - a).length();
+      for (double t = 0; len > 1e-9 && t < len; t += 4) {
+        Vec2 p0 = a + (b - a) * (t / len), p1 = a + (b - a) * (std::min(len, t + 2) / len);
+        polyline({p0, p1}, false, 1, blue, 1);
+      }
+    }
+    Vec2 c = view.apply(overlay.gizmoAnchor);
+    c = {std::round(c.x * dpr) / dpr, std::round(c.y * dpr) / dpr};
+    // The ring: an inside stroke on an ellipse grown by half its width, so the line is centred on the radius.
+    const double r = style.gizmoRadius, s = style.gizmoStroke, d = 2 * r + s;
+    emit(makeShape(Mat2x3::translate(c.x - d / 2, c.y - d / 2), {d, d}, ShapeKind::Ellipse, kSquare, white, 0, blue, 1, s, 0), Pass::Shape);
+    const double hs = style.gizmoHandle, hr = 2;
+    auto arrow = [&](Vec2 dir, const Color& ink) {
+      Vec2 n{-dir.y, dir.x};
+      Vec2 from = c + dir * (r + hs / 2), tip = c + dir * (r + hs / 2 + style.gizmoArrow);
+      polyline({from, tip}, false, style.gizmoStroke, ink, 1);
+      polyline({tip - dir * style.gizmoHead + n * style.gizmoHeadSide, tip, tip - dir * style.gizmoHead - n * style.gizmoHeadSide}, false, style.gizmoStroke, ink, 1);
+    };
+    arrow(overlay.gizmoUp, style.gizmoUp);
+    arrow(overlay.gizmoRight, style.gizmoRight);
+    for (Vec2 dir : {overlay.gizmoUp, overlay.gizmoRight}) {
+      Vec2 h = c + dir * r;
+      emit(makeShape(Mat2x3::translate(std::round((h.x - hs / 2) * dpr) / dpr, std::round((h.y - hs / 2) * dpr) / dpr), {hs, hs}, ShapeKind::Rect, {hr, hr, hr, hr},
+                     style.handleFill, 1, blue, 1, 1, 0),
+           Pass::Shape);
+    }
+    const double dot = style.gizmoDot;
+    emit(makeShape(Mat2x3::translate(c.x - dot / 2, c.y - dot / 2), {dot, dot}, ShapeKind::Ellipse, kSquare, white, 1, blue, 1, style.gizmoStroke, 0), Pass::Shape);
+  }
+
   // ⌥ measurement: the measured layer outlined in red, its distances, and dashed extensions.
   if (overlay.measureTarget != kNoGuid && doc.has(overlay.measureTarget)) {
     Guid id = overlay.measureTarget;

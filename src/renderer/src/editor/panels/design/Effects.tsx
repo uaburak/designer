@@ -28,8 +28,8 @@
  * columns, Top / Center / Bottom for rows), width (Auto when stretched),
  * margin or offset, gutter; the colour. Stored as `layoutGrids`.
  */
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { BLEND_LABEL, BLEND_MODES, Button, Checkbox, ColorInput, Icon, IconButton, MenuButton, NumericInput, PanelSection, Popover, SearchField, SegmentedControl, Select, cx, tooltipProps, type ChangeInfo, type IconName, type PopoverPlacement } from "@/ds";
+import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { BLEND_LABEL, BLEND_MODES, Button, Checkbox, ColorInput, ContextMenu, Icon, IconButton, MenuButton, NumericInput, PanelSection, Popover, SearchField, SegmentedControl, Select, Slider, cx, tooltipProps, useTheme, type ChangeInfo, type IconName, type MenuEntry, type PopoverPlacement } from "@/ds";
 import { guidStr, guidVal, resolveVariable } from "../../model/variables";
 import { VariablePicker } from "../variables/VariablePicker";
 import type { BlendMode, Color, Guid } from "@/engine/codec";
@@ -53,8 +53,8 @@ import { GLASS_DEFAULTS, figmaGlass, shownAngle } from "../../model/glass";
 
 /** The type menu's order (live Figma): shadows, blurs, then Noise, Texture, Glass. */
 export const EFFECT_TYPES: { value: Effect["type"]; label: string; icon: IconName }[] = [
-  { value: "INNER_SHADOW", label: "Inner shadow", icon: "24.inner.shadow.top.left.small" },
-  { value: "DROP_SHADOW", label: "Drop shadow", icon: "24.drop.shadow.mid.small" },
+  { value: "INNER_SHADOW", label: "Inner shadow", icon: "24.effect.inner.shadow.small" },
+  { value: "DROP_SHADOW", label: "Drop shadow", icon: "24.effect.drop.shadow.small" },
   { value: "FOREGROUND_BLUR", label: "Layer blur", icon: "24.layer.blur.small" },
   { value: "BACKGROUND_BLUR", label: "Background blur", icon: "24.background.blur.small" },
   { value: "NOISE", label: "Noise", icon: "24.noise.small" },
@@ -232,7 +232,7 @@ export function effectSummary(e: Effect): string {
 /** The row's name: the type's ("Drop shadow"), a shader's preset ("Halftone"). */
 export const effectLabel = (e: Effect) => (e.type === "CUSTOM" ? (presetOf(e as ShaderFields)?.name ?? "Shader") : (EFFECT_TYPES.find((t) => t.value === e.type)?.label ?? "Effect"));
 /** The type's glyph (a shader's: the shader icon). */
-export const effectIcon = (e: Effect): IconName => (e.type === "CUSTOM" ? "24.shader.small" : (EFFECT_TYPES.find((t) => t.value === e.type) ?? EFFECT_TYPES[1]).icon);
+export const effectIcon = (e: Effect): IconName => (e.type === "CUSTOM" ? "24.effect.shader.small" : (EFFECT_TYPES.find((t) => t.value === e.type) ?? EFFECT_TYPES[1]).icon);
 
 /**
  * A progressive blur's Start and End handles on the canvas (Figma's PROGRESSIVE_BLUR edit mode, atlas 08 §6.2): on while
@@ -294,14 +294,25 @@ export function EffectsSection({ nodes }: { nodes: PanelNode[] }) {
   // The Shader effects browser: from "+" (a pick adds the shader) or an effect's type menu (a pick replaces it).
   const [shaders, setShaders] = useState<{ anchor: HTMLElement; onboarding: boolean; replace?: number } | null>(null);
   const addButton = useRef<HTMLDivElement>(null);
+  // "+" (live 2026-10-18 effects-add-menu.txt): adds an Inner shadow at the top of the list at once and opens the new
+  // row's type menu under "+" — hovering a type previews it, a pick turns the new effect into it (Shader: the shader
+  // browser), Esc or a press outside keeps the Inner shadow.
+  const [typeMenu, setTypeMenu] = useState<{ before: Effect[]; at: { x: number; y: number }; previewed: boolean } | null>(null);
   const add = () => {
-    if (!onboardingDone()) {
-      const anchor = addButton.current;
-      if (anchor) setShaders({ anchor, onboarding: true });
-      return;
-    }
-    writeEffects(ed, refs, isMixedList ? [defaultEffect()] : [...effects, defaultEffect()], "Add effect");
+    const before = isMixedList ? [] : effects;
+    writeEffects(ed, refs, [...before, defaultEffect("INNER_SHADOW")], "Add effect");
+    const r = addButton.current?.getBoundingClientRect();
+    if (r) setTypeMenu({ before, at: { x: r.right, y: r.bottom + PANEL_MENU_GAP }, previewed: false });
   };
+  const typeEntries = (before: readonly Effect[]): MenuEntry[] => {
+    const full = fullTypes([...before, defaultEffect("INNER_SHADOW")], before.length);
+    return [
+      ...EFFECT_TYPES.map((o): MenuEntry => ({ id: o.value, label: t(o.label), icon: o.icon, disabled: full.has(o.value) })),
+      "-",
+      { id: "CUSTOM", label: t("Shader"), icon: "24.effect.shader.small", chip: t("Beta"), disabled: full.has("CUSTOM") },
+    ];
+  };
+  const typed = (before: readonly Effect[], type: string) => [...before, withEffectType(defaultEffect("INNER_SHADOW"), type as Effect["type"])];
   const empty = !isMixedList && effects.length === 0;
   const styled = sharedStyle(nodes, "effect");
   const hasStyle = !!styled && styled !== "mixed";
@@ -319,7 +330,7 @@ export function EffectsSection({ nodes }: { nodes: PanelNode[] }) {
           <StylesButton nodes={nodes} slot="effect" />
           {!hasStyle && (
             <div ref={addButton} className={styles.inlineAnchor}>
-              <IconButton icon="24.plus.small" label={t("Add effect")} tone="secondary" disabled={!kept} aria-expanded={!!shaders} onClick={add} />
+              <IconButton icon="24.plus.small" label={t("Add effect")} tone="secondary" disabled={!kept} aria-expanded={!!shaders || !!typeMenu} onClick={add} />
             </div>
           )}
         </>
@@ -368,6 +379,34 @@ export function EffectsSection({ nodes }: { nodes: PanelNode[] }) {
           onShaders={(anchor) => setShaders({ anchor, onboarding: !onboardingDone(), replace: open.index })}
         />
       )}
+      {typeMenu && (
+        <ContextMenu
+          at={typeMenu.at}
+          flipX={typeMenu.at.x}
+          flush
+          highlighted={0}
+          label={t("Effect settings")}
+          entries={typeEntries(typeMenu.before)}
+          onHighlight={(id) => {
+            // A type hovered shows on the layers (a shader isn't previewed); the Inner shadow again when none is.
+            if (id === "CUSTOM" || (id === null && !typeMenu.previewed)) return;
+            writeEffects(ed, refs, typed(typeMenu.before, id ?? "INNER_SHADOW"), "Effect", { final: false, source: "pick" });
+            if (!typeMenu.previewed) setTypeMenu({ ...typeMenu, previewed: true });
+          }}
+          onSelect={(id) => {
+            const anchor = addButton.current;
+            if (id === "CUSTOM") {
+              if (typeMenu.previewed) ed.cancelEdit();
+              if (anchor) setShaders({ anchor, onboarding: !onboardingDone(), replace: typeMenu.before.length });
+            } else writeEffects(ed, refs, typed(typeMenu.before, id), "Effect");
+            setTypeMenu(null);
+          }}
+          onClose={() => {
+            if (typeMenu.previewed) ed.cancelEdit();
+            setTypeMenu(null);
+          }}
+        />
+      )}
       {shaders && (
         <ShaderEffects
           anchor={shaders.anchor}
@@ -404,6 +443,9 @@ function EffectBlend({ value, onChange }: { value: BlendMode; onChange: (b: Blen
 }
 
 const pct = (v: number | undefined, fallback: number) => Math.round((v ?? fallback) * 1000) / 10;
+
+/** A shader effect's settings window: 280 wide (atlas 08 §5.3; the owner's capture figma-shader-pixelate-panel). */
+const SHADER_POPOVER_WIDTH = 280;
 
 /**
  * The effect's settings popover: the type dropdown in its header (and the blend mode for shadows and noise), the
@@ -457,7 +499,7 @@ export function EffectSettings({
       return { value: o.value as string, label: t(o.label), icon: o.icon, disabled: taken, ...(taken ? { hint: t("Already applied") } : {}) };
     }),
     "-" as const,
-    { value: "CUSTOM", label: t("Shader"), icon: "24.shader.small" as IconName, disabled: !!full?.has("CUSTOM") && effect.type !== "CUSTOM" },
+    { value: "CUSTOM", label: t("Shader"), icon: "24.effect.shader.small" as IconName, chip: t("Beta"), disabled: !!full?.has("CUSTOM") && effect.type !== "CUSTOM" },
   ];
   const header = (
     <Select
@@ -662,11 +704,12 @@ export function EffectSettings({
     const slider = (label: string, value: number, max: number, write: (v: number, info: ChangeInfo) => void, min = 0) => (
       <>
         <span className={styles.settingsLabel}>{t(label)}</span>
-        {/* Live (popovers/effect-settings-glass.txt): the track 80 × 24, the slider over it 96 × 44 (its 12 thumb 22 in
-            from each end), the value 56 beside — its number 48 × 15 at 7 in */}
+        {/* Live (2026-10-18 slider.txt): the slider's box 80 × 24 (its thumb's centre 14…66 in it), joined to the
+            value 56 beside — its number 48 × 15 at 7 in */}
         <div className={styles.fxSlider}>
-          <span className={styles.fxTrack} />
-          <input type="range" className={styles.fxRange} aria-label={t(label)} min={min} max={max} step={1} value={value} onChange={(e) => write(Number(e.currentTarget.value), { final: false, source: "scrub" })} onPointerUp={(e) => write(Number(e.currentTarget.value), pick)} />
+          <span className={styles.fxTrack}>
+            <Slider label={t(label)} min={min} max={max} value={value} onChange={write} onCancel={onCancel} />
+          </span>
           <NumericInput className={styles.fxValue} label={t(label)} min={min} max={max} precision={0} value={value} onChange={write} onCancel={onCancel} />
         </div>
       </>
@@ -677,7 +720,7 @@ export function EffectSettings({
         <div className={cx(styles.fxLight, styles.fxLegended)}>
           <span className={styles.fxLegend}>{tx("glass", "Light")}</span>
           {/* The angle shows −180…180° and is written 0…359° (atlas 08 §6.5) */}
-          <LightDial angle={num("specularAngle", -45)} onChange={(a, info) => set({ specularAngle: shownAngle(a) }, info)} />
+          <LightDial angle={num("specularAngle", -45)} intensity={num("specularIntensity", 0.8)} onChange={(a, info) => set({ specularAngle: shownAngle(a) }, info)} />
           <div className={styles.fxLightFields}>
             <NumericInput label={t("Angle")} unit="°" min={-180} max={180} precision={0} value={shownLightAngle(num("specularAngle", -45))} onChange={(v, info) => set({ specularAngle: shownAngle(v) }, info)} onCancel={onCancel} />
             <NumericInput label={t("Intensity")} unit="%" min={0} max={100} precision={0} value={pct(num("specularIntensity", 0.8), 0.8)} onChange={(v, info) => set({ specularIntensity: v / 100 }, info)} onCancel={onCancel} />
@@ -693,7 +736,7 @@ export function EffectSettings({
     );
   }
   return (
-    <Popover anchor={anchor} header={header} headerActions={blend} width={240} offsetX={-1} onClose={onClose} label={title}>
+    <Popover anchor={anchor} header={header} headerActions={blend} width={effect.type === "CUSTOM" ? SHADER_POPOVER_WIDTH : 240} offsetX={-1} onClose={onClose} label={title}>
       {effect.type === "CUSTOM" ? (
         <div data-effect-settings={effect.type}>
           <ShaderParams target={effect as Effect & ShaderFields} onChange={(next, info) => onChange(next as Effect, info)} onCancel={onCancel} onChoose={onShaders} />
@@ -707,23 +750,30 @@ export function EffectSettings({
   );
 }
 
+/** Figma's light glow (its light-intensity indicator, 56 × 38): a rounded diamond's top, lit from its tip. */
+const GLOW = "M28.85 52.11L0.61 23.87L15.85 8.62C19.99 4.49 22.42 0.88 28.8 0.88C35.07 0.87 37.61 4.35 41.71 8.45L57.11 23.85L28.85 52.11Z";
+const GLOW_EDGE = "M28.8 1.38C34.82 1.37 37.2 4.65 41.35 8.8L56.4 23.85L28.85 51.4L1.32 23.87L16.2 8.98C20.41 4.77 22.68 1.38 28.8 1.38Z";
+
 /**
- * Glass's light: a dial whose dot sits toward the light (the angle counter-clockwise from the right, the way the
- * light travels: −45° lights the top-left edges); dragging it turns the light — ⇧ in 45° steps, otherwise pulled onto a
- * 45° step within 4°, ⌃ free (atlas 08 §6.5).
+ * Glass's light (live 2026-10-18, Figma's light-angle-control): a 56 dial turned to the angle as the field shows it
+ * (0° up, clockwise — the side the renderer lights): the light's glow at the top, its spotlight glyph above it, a
+ * fixed 8 × 8 handle in the middle. The glow's strength follows the intensity ((0.1 + 0.9·I^0.6), a fifth of it in
+ * the dark theme). Dragging turns the light — ⇧ in 45° steps, otherwise pulled onto a 45° step within 4°, ⌃ free.
  */
-function LightDial({ angle, onChange }: { angle: number; onChange: (a: number, info: ChangeInfo) => void }) {
+function LightDial({ angle, intensity, onChange }: { angle: number; intensity: number; onChange: (a: number, info: ChangeInfo) => void }) {
   useT();
+  const theme = useTheme();
+  const ids = useId();
   const box = useRef<HTMLDivElement>(null);
-  const rad = (angle * Math.PI) / 180;
-  // Toward the light, in the dial's own space (y down).
-  const dx = -Math.cos(rad), dy = Math.sin(rad);
+  const o = Math.min(1, Math.max(0, intensity)) ** 0.6;
+  const c = theme.resolved === "dark" ? 0.2 : 1;
+  const d = (0.1 + 0.9 * o) * c;
   const at = (e: ReactPointerEvent | PointerEvent) => {
     const r = box.current?.getBoundingClientRect();
     if (!r) return angle;
     const x = e.clientX - (r.left + r.width / 2), y = e.clientY - (r.top + r.height / 2);
-    // The dot toward (x, y): the light travels the other way.
-    return Math.round(snapLightAngle((Math.atan2(y, -x) * 180) / Math.PI, e));
+    // 0° up, clockwise (Figma's atan2(x, −y)).
+    return Math.round(snapLightAngle((Math.atan2(x, -y) * 180) / Math.PI, e));
   };
   const down = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
@@ -745,8 +795,34 @@ function LightDial({ angle, onChange }: { angle: number; onChange: (a: number, i
         if (e.key === "ArrowLeft" || e.key === "ArrowDown") onChange(shownAngle(angle - step), { final: true, source: "step" });
         else if (e.key === "ArrowRight" || e.key === "ArrowUp") onChange(shownAngle(angle + step), { final: true, source: "step" });
       }}>
-      <span className={styles.fxDialRing} />
-      <span className={styles.fxDialDot} style={{ left: `calc(50% + ${dx} * var(--ds-space-4))`, top: `calc(50% + ${dy} * var(--ds-space-4))` }} />
+      <span className={styles.fxDialScene} style={{ transform: `rotate(${shownLightAngle(angle)}deg)` }}>
+        <svg className={styles.fxDialGlow} width="56" height="38" viewBox="0 0 56 38" fill="none" aria-hidden>
+          <path d={GLOW} fill={`url(#${ids}a)`} />
+          <path d={GLOW} fill={`url(#${ids}b)`} />
+          <path d={GLOW} fill={`url(#${ids}c)`} />
+          <path d={GLOW_EDGE} stroke={`url(#${ids}d)`} strokeOpacity={0.4 * d} />
+          <defs>
+            <radialGradient id={`${ids}a`} cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(28.79 7.13) rotate(90) scale(28.33 31.36)">
+              <stop stopColor="currentColor" stopOpacity={(0.3 + 0.7 * o) * c} />
+              <stop offset="1" stopColor="currentColor" stopOpacity="0" />
+            </radialGradient>
+            <radialGradient id={`${ids}b`} cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(28.79 7.13) rotate(90) scale(30.97 34.29)">
+              <stop stopColor="currentColor" stopOpacity={0.8 * d} />
+              <stop offset="1" stopColor="currentColor" stopOpacity="0" />
+            </radialGradient>
+            <linearGradient id={`${ids}c`} x1="28.79" y1="7.79" x2="28.8" y2="31.64" gradientUnits="userSpaceOnUse">
+              <stop stopColor="currentColor" stopOpacity={0.6 * d} />
+              <stop offset="1" stopColor="currentColor" stopOpacity="0" />
+            </linearGradient>
+            <linearGradient id={`${ids}d`} x1="28.79" y1="5.24" x2="28.8" y2="12.97" gradientUnits="userSpaceOnUse">
+              <stop stopColor="currentColor" stopOpacity={d} />
+              <stop offset="1" stopColor="currentColor" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+        </svg>
+        <Icon name="24.light.spot.small" className={styles.fxDialLamp} />
+      </span>
+      <span className={styles.fxDialHandle} />
     </div>
   );
 }
