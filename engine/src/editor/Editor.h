@@ -830,6 +830,10 @@ class Editor : private LayoutHost, public TextLayouts {
   void setDevEdits(bool on);
   bool devEdits() const { return devEdits_; }
   bool canEditDev() const { return !viewer_ || devEdits_; }
+  // Dev Mode's inspect chrome on the canvas (the selection's design highlighted, an auto-layout frame's paddings and
+  // gaps measured, the two-line size badge: DevMode.cpp devInspectOverlay); viewer mode only.
+  void setDevInspect(bool on);
+  bool devInspect() const { return viewer_ && devInspect_; }
   // View › Annotations (labels, dots and saved measurements); `dots`: Dev Mode's dots (a click opens one's label).
   void setAnnotationView(bool show, bool dots);
   bool annotationsShown() const { return dev_.show; }
@@ -2090,6 +2094,7 @@ class Editor : private LayoutHost, public TextLayouts {
   };
   DevSession dev_;
   bool devEdits_ = false;
+  bool devInspect_ = false;
   bool editTracking_ = false;
   std::function<double()> wallClock_;
   std::unordered_set<Guid, GuidHash> userGeometry_;  // this USER step's nodes whose size / transform the user wrote (base)
@@ -2097,6 +2102,7 @@ class Editor : private LayoutHost, public TextLayouts {
   std::unordered_set<Guid, GuidHash> annotated_;  // nodes with annotations
   CanvasHits hits_;
   void devOverlay(Overlay& o) const;
+  void devInspectOverlay(Overlay& o) const;
   uint32_t devPointerDown(Vec2 s, uint32_t mods);
   bool devPointerMove(Vec2 s);
   bool devPointerUp(Vec2 s);

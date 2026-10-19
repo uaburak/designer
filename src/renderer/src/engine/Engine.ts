@@ -726,9 +726,11 @@ export class Engine {
   /**
    * Viewer mode (developer previews, Dev Mode): read-only — no resize handles, clicks select and drags move nothing,
    * no context menu or text / vector editing; edits (setProps, user changes, editing commands) return E_READONLY.
+   * `devEdits`: Dev Mode's own edits (annotations, measurements, statuses); `inspect`: Dev Mode's inspect chrome on the
+   * canvas (the selection's design highlighted, an auto-layout frame's paddings and gaps measured, "W Fixed 678px").
    */
-  setViewerMode(on: boolean, options: { devEdits?: boolean } = {}): void {
-    this.after(this.x.setViewerMode(this.h, on ? (options.devEdits ? 3 : 1) : 0));
+  setViewerMode(on: boolean, options: { devEdits?: boolean; inspect?: boolean } = {}): void {
+    this.after(this.x.setViewerMode(this.h, on ? 1 | (options.devEdits ? 2 : 0) | (options.inspect ? 4 : 0) : 0));
   }
 
   // ---- Dev Mode (round 6: docs/engine-build.md "Round 6") -------------------------

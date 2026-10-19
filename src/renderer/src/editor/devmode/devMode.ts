@@ -21,7 +21,7 @@ export const annotationsShown = (ed: EditorController): boolean => ed.ui.get().a
 export function syncEngine(ed: EditorController): void {
   if (ed.engine.destroyed) return;
   const dev = modeOf(ed) === "dev";
-  ed.engine.setViewerMode(dev, { devEdits: true });
+  ed.engine.setViewerMode(dev, { devEdits: true, inspect: true });
   ed.engine.setAnnotationView(annotationsShown(ed), dev);
   ed.engine.setAnnotationFilter(ed.ui.get().annotationCategory ?? null);
   // Motion (docs/motion.md §6.1): on, the focused root plays at the playhead (the engine's motion layer); off, base values.

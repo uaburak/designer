@@ -68,6 +68,10 @@ export interface UIState extends PreferenceFlags {
   leftWidth: number;
   rightWidth: number;
   rightTab: "design" | "prototype";
+  /** Dev Mode's right panel: Inspect or Plugins (⌥8 / ⌥9; the rail's plugins button); unset: Inspect */
+  devTab?: "inspect" | "plugins";
+  /** Dev Mode's right panel width (its own: 320 by default, live; Design's is rightWidth) */
+  devRightWidth?: number;
   /** ⌘\ — every panel hidden */
   uiHidden: boolean;
   /** ⇧\ — panels collapsed into floating cards */

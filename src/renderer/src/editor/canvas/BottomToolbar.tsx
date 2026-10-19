@@ -24,6 +24,7 @@ import { useShortcutSettings } from "../shortcuts/prefs";
 import { useUI } from "../hooks";
 import { useStoreSlice } from "../uiStore";
 import { setMode } from "../devmode/devMode";
+import { FrameStepper } from "../devmode/FrameStepper";
 import type { VectorTool } from "../vectorEdit";
 import { ImageToolbar } from "../imageTools/ImageToolbar";
 import { DrawToolSettings, isDrawTool } from "../draw/DrawToolSettings";
@@ -128,7 +129,7 @@ export function BottomToolbar() {
   };
   return (
     <>
-      {pathTool ? <PathToolbar state={pathTool} /> : vectorEditing ? <VectorEditToolbar /> : draw && isDrawTool(ENGINE_TOOL[tool] ?? "") ? <DrawToolSettings tool={ENGINE_TOOL[tool] as "PENCIL" | "BRUSH"} /> : !dev && <ImageToolbar />}
+      {pathTool ? <PathToolbar state={pathTool} /> : vectorEditing ? <VectorEditToolbar /> : draw && isDrawTool(ENGINE_TOOL[tool] ?? "") ? <DrawToolSettings tool={ENGINE_TOOL[tool] as "PENCIL" | "BRUSH"} /> : dev ? <FrameStepper /> : <ImageToolbar />}
       <EditorToolbar
       floating
       tool={tool}

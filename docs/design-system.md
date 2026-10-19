@@ -279,6 +279,10 @@ These are colours Figma does not publish. Components use `--figma-color-*` whene
 | `--ds-color-file-design` | #0c8ce9 | #0c8ce9 | K | Design-file glyph (Home, tab) |
 | `--ds-color-canvas-default` | #f5f5f5 | #1e1e1e | K | Gallery canvas stand-in; mirrors the engine's `canvasDefault` |
 | `--ds-color-folder-{red, orange, yellow, green, teal, blue, purple, pink, gray}` | #f24822 #ffa629 #ffcd29 #14ae5c #0fa8a8 #0d99ff #9747ff #ff24bd #b3b3b3 | #e03e1a #f0941d #f3c11b #198f51 #119a9a #0c8ce9 #8a38f5 #e81fae #8c8c8c | G (red/yellow/green/blue/purple = Figma's danger/warning/success/brand/component) | folder glyphs; ids = the store's `FolderColor` ("none" = icon-secondary) |
+| `--ds-color-devmode-selected` / `-selected-secondary` | #cff7d3 / #e5f9e8 | #4f7460 / #486557 | K dark (the owner's Dev Mode capture 2026-10-18), G light | Dev Mode: the selected layer row and the rows inside it, the rail's active tab |
+| `--ds-color-devmode-ruler-band` | #14ae5c33 | #507360 | K dark, G light | Dev Mode: the rulers' selection band |
+| `--ds-color-devmode-text` | #009951 | #79d297 | K dark, G light | Dev Mode: the rulers' edge labels, the rail's active glyph |
+| `--ds-color-code-value` | #b5338a | #d88fcd | K dark, G light | Dev Mode's code: a CSS value |
 | `--ds-color-marquee-fill` | #0d99ff1a | #0c8ce926 | G | drag-select rectangle in Home's grid and list (`CollectionView`); its border is `--figma-color-border-selected` |
 | `--ds-checkerboard` | `repeating-conic-gradient(#e6e6e6 0% 25%, #ffffff 0% 50%) 0 0 / 8px 8px` | same | G | alpha behind chits and swatches |
 

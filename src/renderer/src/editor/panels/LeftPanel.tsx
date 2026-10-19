@@ -5,7 +5,7 @@
  * here, docs/plugins.md §6: by Source — Development, Your organization — and type; a row runs it).
  */
 import { useCallback, useState, useSyncExternalStore } from "react";
-import { EmptyState, Icon, IconButton, MenuButton, ResizeHandle, SearchField, Select, TextInput, showToast } from "@/ds";
+import { EmptyState, Icon, IconButton, MenuButton, ResizeHandle, SearchField, Select, TextInput, showToast, type MenuEntry } from "@/ds";
 import { useEditor } from "../controller";
 import { command, runEditorCommand, shortcutOf } from "../commands";
 import { useUI } from "../hooks";
@@ -163,7 +163,8 @@ function ToolsList({ query, source, type }: { query: string; source: string; typ
   );
 }
 
-function FileHeader() {
+/** `menu`: the name's menu in place of Edit file's (Dev Mode's: version history, Library ▸ …). */
+export function FileHeader({ menu }: { menu?: () => MenuEntry[] } = {}) {
   useT();
   const ed = useEditor();
   const name = useUI((s) => s.fileName);
@@ -197,7 +198,7 @@ function FileHeader() {
         {renaming ? (
           <RenameFile name={name} />
         ) : (
-          <MenuButton label={t("Edit file")} entries={entries} onSelect={(id) => runEditorCommand(ed, id)} className={styles.fileButton}>
+          <MenuButton label={t("Edit file")} entries={menu ?? entries}onSelect={(id) => runEditorCommand(ed, id)} className={styles.fileButton}>
             <BranchTitle name={name} />
             <Icon name="16.chevron.down" />
           </MenuButton>

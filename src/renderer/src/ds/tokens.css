@@ -30,6 +30,7 @@
     --ds-size-panel-min: 240px;
     --ds-size-panel-max: 500px;
     --ds-size-right-panel-max: 499px;
+    --ds-size-dev-panel: 320px;
     --ds-size-panel-header: 64px;
     --ds-size-right-header: 80px;
     --ds-size-rail: 56px;
@@ -426,6 +427,11 @@
     --ds-color-tabgroup-pink: #ff24bd;
     --ds-color-tabgroup-persimmon: #ff7237;
     --ds-color-tabgroup-grey: #b3b3b3;
+    --ds-color-devmode-selected: #cff7d3;
+    --ds-color-devmode-selected-secondary: #e5f9e8;
+    --ds-color-devmode-ruler-band: #14ae5c33;
+    --ds-color-devmode-text: #009951;
+    --ds-color-code-value: #b5338a;
     --ds-color-ai-1: #0d99ff;
     --ds-color-ai-2: #9747ff;
     --ds-color-ai-3: #ff24bd;
@@ -667,6 +673,11 @@
     --ds-color-tabgroup-pink: #e81fae;
     --ds-color-tabgroup-persimmon: #f0632b;
     --ds-color-tabgroup-grey: #8c8c8c;
+    --ds-color-devmode-selected: #4f7460;
+    --ds-color-devmode-selected-secondary: #486557;
+    --ds-color-devmode-ruler-band: #507360;
+    --ds-color-devmode-text: #79d297;
+    --ds-color-code-value: #d88fcd;
     --ds-color-ai-1: #0c8ce9;
     --ds-color-ai-2: #8a38f5;
     --ds-color-ai-3: #e81fae;

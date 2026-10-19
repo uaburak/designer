@@ -117,6 +117,8 @@ export function RightHeader({ compact }: { compact?: boolean }) {
   const ed = useEditor();
   const me = useAccount().state?.user;
   const presence = usePresence(ed);
+  // Dev Mode: Share in Dev Mode's green (live devmode-inspect-right.txt: #198F51, bg-success).
+  const dev = useUI((s) => s.mode === "dev");
   // With other people in the file the facepile takes the account avatar's place (live Figma: your avatar is Multiplayer tools).
   const facepile = useFacepile();
   const account: MenuEntry[] = [{ header: t("Theme") }, commandItem(ed, "theme.light"), commandItem(ed, "theme.dark"), commandItem(ed, "theme.system"), "-", commandItem(ed, "help.shortcuts"), commandItem(ed, "file.back-to-files")];
@@ -146,7 +148,7 @@ export function RightHeader({ compact }: { compact?: boolean }) {
           <Icon name="16.chevron.down" />
         </MenuButton>
       </span>
-      <Button variant="primary" size="large" className={styles.share} onClick={() => runEditorCommand(ed, "file.share-preview")} data-requests={presence.requests || undefined}>
+      <Button variant="primary" size="large" className={dev ? `${styles.share} ${styles.devShare}` : styles.share} onClick={() => runEditorCommand(ed, "file.share-preview")} data-requests={presence.requests || undefined}>
         {t("Share")}
       </Button>
     </div>

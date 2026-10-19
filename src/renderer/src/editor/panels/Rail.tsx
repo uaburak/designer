@@ -104,6 +104,8 @@ export function Rail() {
   const ed = useEditor();
   const tab = useUI((s) => s.railTab);
   const social = useUI((s) => s.mode === "social");
+  const dev = useUI((s) => s.mode === "dev");
+  const devTab = useUI((s) => s.devTab);
   const labels = useUI(showsRailLabels);
   const variables = useUI((s) => s.variablesOpen);
   const libs = useLibraries();
@@ -117,24 +119,36 @@ export function Rail() {
   };
   return (
     <>
-      <DSRail label={t("Navigation")} labels={labels}>
+      <DSRail label={t("Navigation")} labels={labels} className={dev ? styles.devRail : undefined}>
         <div ref={figma} style={{ display: "contents" }}>
           <RailItem compact icon="24.figma" label={t("Main menu")} active={!!menu} onClick={openMain} />
         </div>
         <RailSeparator />
-        {railTabs(social).map((item) => (
-          <RailItem
-            key={item.tab}
-            icon={item.icon}
-            label={t(item.label)}
-            shortcut={item.command ? shortcutOf(command(item.command)) : undefined}
-            active={tab === item.tab && !variables}
-            data-rail-tab={item.tab}
-            onClick={() => ed.ui.set({ railTab: item.tab, variablesOpen: false, find: item.tab === "file" ? ed.ui.get().find : null })}
-          />
-        ))}
-        <RailSeparator />
-        <RailItem icon="24.variables" label={t("Variables")} active={variables} data-rail-tab="variables" onClick={() => ed.ui.set((s) => ({ variablesOpen: !s.variablesOpen }))} />
+        {dev ? (
+          // Dev Mode (the owner's capture owner-2026-10-18/figma-devmode-inspect): File in Dev Mode's green, a line,
+          // Plugins (the right panel's Plugins tab).
+          <>
+            <RailItem icon="24.page" label={t("File")} active={devTab !== "plugins"} data-rail-tab="file" onClick={() => ed.ui.set({ railTab: "file", devTab: "inspect" })} />
+            <RailSeparator />
+            <RailItem icon="24.plugin" label={t("Plugins")} active={devTab === "plugins"} data-rail-tab="plugins" onClick={() => ed.ui.set((s) => ({ devTab: s.devTab === "plugins" ? "inspect" : "plugins" }))} />
+          </>
+        ) : (
+          <>
+            {railTabs(social).map((item) => (
+              <RailItem
+                key={item.tab}
+                icon={item.icon}
+                label={t(item.label)}
+                shortcut={item.command ? shortcutOf(command(item.command)) : undefined}
+                active={tab === item.tab && !variables}
+                data-rail-tab={item.tab}
+                onClick={() => ed.ui.set({ railTab: item.tab, variablesOpen: false, find: item.tab === "file" ? ed.ui.get().find : null })}
+              />
+            ))}
+            <RailSeparator />
+            <RailItem icon="24.variables" label={t("Variables")} active={variables} data-rail-tab="variables" onClick={() => ed.ui.set((s) => ({ variablesOpen: !s.variablesOpen }))} />
+          </>
+        )}
         <RailSpacer />
         <MissingFontsButton />
         {pending > 0 && (

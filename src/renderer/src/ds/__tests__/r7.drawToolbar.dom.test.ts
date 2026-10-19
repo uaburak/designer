@@ -22,7 +22,8 @@ const chevrons = () => $$('[data-ds="ToolButton"] > button[aria-haspopup="menu"]
 describe("round 7c: the toolbar per mode", () => {
   it("models Draw's slots", () => {
     expect(DRAW_TOOL_GROUPS.map((g) => g.tools)).toEqual([["move", "hand", "scale"], ["rectangle", "line", "arrow", "ellipse", "polygon", "star", "image"], ["pen"], ["pencil"], ["brush"], ["text", "text-on-path"], ["comment", "annotation", "measurement"]]);
-    expect(toolGroups("dev")).toBe(toolGroups("design"));
+    // Dev Mode: Move, Measurement, Annotation, Comment, a slot each (the owner's capture 2026-10-18)
+    expect(toolGroups("dev").map((g) => g.tools)).toEqual([["move"], ["measurement"], ["annotation"], ["comment"]]);
     expect(TOOLS.brush).toEqual({ id: "brush", label: "Brush", shortcut: "B", icon: "24.brush" });
     expect([groupOf("pen", "draw"), groupOf("pen"), groupOf("brush", "draw"), groupOf("brush")]).toEqual(["pen", "creation", "brush", "creation"]);
     // Frame has no slot in Draw: none lights

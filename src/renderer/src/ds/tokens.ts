@@ -264,6 +264,15 @@ export const appColor = {
   "tabgroup-pink": ["#ff24bd", "#e81fae"],
   "tabgroup-persimmon": ["#ff7237", "#f0632b"],
   "tabgroup-grey": ["#b3b3b3", "#8c8c8c"],
+  // Dev Mode's green chrome (the owner's capture docs/research/figma/live/owner-2026-10-18/figma-devmode-inspect, dark
+  // sampled K; light G): the selected layer row and the rows inside it, the rail's active tab; the rulers' selection
+  // band and its edge labels. Share and the active tool are bg-success (live devmode-inspect-right.txt: #198F51).
+  "devmode-selected": ["#cff7d3", "#4f7460"],
+  "devmode-selected-secondary": ["#e5f9e8", "#486557"],
+  "devmode-ruler-band": ["#14ae5c33", "#507360"],
+  "devmode-text": ["#009951", "#79d297"],
+  // Dev Mode's code: a CSS value's colour (the owner's capture, dark sampled ≈ #d88fcd; light G)
+  "code-value": ["#b5338a", "#d88fcd"],
   // Agents at work (the chat's Thinking… row, an image being made — in the chat and on the canvas): Figma AI's
   // blue → purple → pink → orange sweep, from Figma's own palette (bg-brand, bg-component, the pink and orange above;
   // Figma's exact AI gradient unverified). The fill is the soft wash under it, the shine the light that crosses it.
@@ -339,6 +348,8 @@ export const size = {
   "panel-min": 240,
   "panel-max": 500,
   "right-panel-max": 499,
+  // Live (docs/research/figma/live/2026-10-18/devmode-inspect-right.txt): Dev Mode's right panel is 320 wide
+  "dev-panel": 320,
   "panel-header": 64,
   "right-header": 80,
   rail: 56, // live: the navigation bar (a 1px line after it)
