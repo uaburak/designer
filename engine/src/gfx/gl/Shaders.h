@@ -11,7 +11,9 @@ namespace eng::gfx::gl {
 // ---- Shape and Path: the paint, shared ----------------------------------------
 //
 // Slots: 2 = image adjustments (exposure, contrast, saturation, temperature), 3 = (tint, highlights,
-// shadows, 0), 4 = the backdrop texture's place (x, y in window px, width, height in texels).
+// shadows, 0), 4 = the backdrop texture's place (x, y in window px, width, height in texels), 9 / 10 = the backdrop's
+// slot in u_t2 / u_t3 as uv (x0, y0, x1, y1; x1 <= x0: none): reads past it take its border (2026-10-20: the atlas's
+// margin past what the blur reads is not stored, its border holds what lies past it).
 // u_t1: gradient ramps (256 texels per row, premultiplied), u_t2: the image (premultiplied) or the
 // blurred backdrop.
 inline constexpr const char* kPaintFunctions = R"(
@@ -24,6 +26,8 @@ vec4 rampAt(float t, float row) {
 }
 
 float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+
+vec2 slotUv(vec2 uv, vec4 b) { return b.z > b.x ? clamp(uv, b.xy, b.zw) : uv; }
 
 // Figma's image adjustments (docs/research/rea/effects.md §2.24; its image colour-adjust shader), slot 2 = (exposure,
 // contrast — stored ±0.3 —, saturation (vibrance), temperature), 3 = (tint, highlights, shadows): in linear light
@@ -108,7 +112,7 @@ vec2 glassNormal(vec2 p, vec2 b, float r, float bevel) {
   return glassUnit(q + max(-min(q.x, q.y), 0.0)) * sign(p);
 }
 // The frost at this pixel moved by `off` (the node's units).
-vec4 glassFetch(vec2 off) { return texture(u_t2, (gl_FragCoord.xy - u_v[4].xy + g_toFrag * off) / u_v[4].zw); }
+vec4 glassFetch(vec2 off) { return texture(u_t2, slotUv((gl_FragCoord.xy - u_v[4].xy + g_toFrag * off) / u_v[4].zw, u_v[9])); }
 vec4 glassAt() {
   if (g_glassShape < 0) return glassFetch(vec2(0.0));
   vec4 G = u_v[6], L = u_v[8];
@@ -166,8 +170,8 @@ vec4 paintAt(vec2 local, int kind) {
     float s = mix(P.x, P.y, progressT(g_dp));
     if (s < P.z || s >= P.w) return vec4(0.0);
     float f = clamp((s - P.z) / max(P.w - P.z, 1e-6), 0.0, 1.0);
-    vec2 uv1 = (gl_FragCoord.xy - u_v[4].xy) / u_v[4].zw;
-    vec2 uv0 = (gl_FragCoord.xy - u_v[7].xy) / u_v[7].zw;
+    vec2 uv1 = slotUv((gl_FragCoord.xy - u_v[4].xy) / u_v[4].zw, u_v[9]);
+    vec2 uv0 = slotUv((gl_FragCoord.xy - u_v[7].xy) / u_v[7].zw, u_v[10]);
     return mix(texture(u_t3, uv0), texture(u_t2, uv1), f) * v_color.a;
   }
   if (kind == 8) return glassAt() * v_color.a;
@@ -184,7 +188,7 @@ vec4 paintAt(vec2 local, int kind) {
                    figmaNoise(g + gx + gy, 0.0, v_paint0.w, code & 3, v_color, vec4(0.0)));
   }
   if (kind == 6) {
-    vec2 uv = (gl_FragCoord.xy - u_v[4].xy) / u_v[4].zw;
+    vec2 uv = slotUv((gl_FragCoord.xy - u_v[4].xy) / u_v[4].zw, u_v[9]);
     return texture(u_t2, uv) * v_color.a;
   }
   vec2 g = vec2(dot(v_paint0.xy, local) + v_paint0.z, dot(v_paint1.xy, local) + v_paint1.z);
@@ -810,7 +814,9 @@ void main() {
 // ---- Blur: separable tent, dilate, erode -----------------------------------------
 // A quad over the whole viewport; the source texture has the target's layout. Slots: 2 = (direction x, y in
 // texels, the blur's radius in texels, mode: 0 tent, 1 dilate, 2 erode, 3 tent clamped to a box), 3 = (radius in
-// texels for dilate / erode).
+// texels for dilate / erode), 9 = the backdrop's slot in the atlas (texels, x0, y0, x1, y1 as gl_FragCoord counts;
+// x1 <= x0: none): tent taps past it read its border, which holds what lies past it (2026-10-20: the margin past a
+// big blur's reach is not stored).
 // Figma's blur (docs/research/rea/effects.md §2.1): a tent of half-width R — tap weights R − |i| — one pass per
 // axis, two adjacent taps read by one bilinear fetch; at most 64 taps a side (the renderer halves the layer first).
 // Clamped (a background blur, §2.11; Figma's CLAMPED_BLUR_TILE_NODE_SPACE): slots 4–5 map the target's pixels
@@ -830,6 +836,10 @@ precision highp float;
 uniform vec4 u_v[20];
 uniform sampler2D u_t0;
 out vec4 o_color;
+vec2 slot(vec2 uv, vec2 sz) {
+  vec4 b = u_v[9];
+  return b.z > b.x ? clamp(uv, (b.xy + 0.5) / sz, (b.zw - 0.5) / sz) : uv;
+}
 void main() {
   vec2 sz = vec2(textureSize(u_t0, 0));
   vec2 uv = gl_FragCoord.xy / sz;
@@ -843,7 +853,7 @@ void main() {
       float w1 = max(R - float(i), 0.0), w2 = max(R - float(i + 1), 0.0), w = w1 + w2;
       if (w <= 0.0) break;
       vec2 o = dir * (float(i) + w2 / w);
-      sum += (texture(u_t0, uv + o) + texture(u_t0, uv - o)) * w;
+      sum += (texture(u_t0, slot(uv + o, sz)) + texture(u_t0, slot(uv - o, sz))) * w;
       total += 2.0 * w;
     }
     vec4 c = sum / total;
@@ -859,7 +869,7 @@ void main() {
     vec2 nc = clamp(n, B.xy, B.zw);
     vec2 p = vec2(dot(u_v[7].xyz, vec3(nc, 1.0)), dot(u_v[8].xyz, vec3(nc, 1.0)));  // the centre, in the target's px
     vec2 step1 = vec2(dot(u_v[4].xy, u_v[2].xy), dot(u_v[5].xy, u_v[2].xy));      // one tap, in the node's space
-    vec4 sum = texture(u_t0, p / sz) * R;
+    vec4 sum = texture(u_t0, slot(p / sz, sz)) * R;
     float total = R;
     // Taps i and i + 1 on each side, the ones inside the box read by one bilinear fetch between them (Figma's).
     for (int i = 1; i < 64; i += 2) {
@@ -872,7 +882,7 @@ void main() {
         float wl = ql == clamp(ql, B.xy, B.zw) ? R - l : 0.0;
         float w = wk + wl;
         if (w <= 0.0) continue;
-        sum += texture(u_t0, (p + u_v[2].xy * (s * (k * wk + l * wl) / w)) / sz) * w;
+        sum += texture(u_t0, slot((p + u_v[2].xy * (s * (k * wk + l * wl) / w)) / sz, sz)) * w;
         total += w;
       }
     }

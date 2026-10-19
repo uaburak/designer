@@ -7,6 +7,7 @@
 //   SHOT_ONLY=r7 npm run engine:shot    only round 7's effects and paints (progressive blurs, noise, texture, glass), and
 //                                       Figma's blur reach (round 17: a tent of half-width R)
 //   SHOT_ONLY=r17 npm run engine:shot   only round 17's backdrop effects panned away and back (= a fresh draw)
+//   SHOT_ONLY=glasszoom npm run engine:shot  only glass from 100 % to 25,600 % (drawn at every zoom; 2026-10-20)
 //   SHOT_ONLY=r17b npm run engine:shot  only round 17 B's effect order, clamped background blur, fBm noise / texture, image
 //                                       adjustments and dither
 //   SHOT_ONLY=r18 npm run engine:shot   only round 18's multiplayer presence (two cursors, a peer's selection)
@@ -1646,6 +1647,68 @@ async function r17Checks(files) {
     `${d.count} px differ (max ${d.max}${d.box ? `, in ${d.box}` : ""})`);
 }
 
+// 2026-10-20: glass zoomed from 100 % to 25,600 % (the owner: the glass vanished at the deepest zooms). Stripes under a
+// glass rectangle; at each zoom the glass's middle, centred, must differ from the same view with the glass hidden
+// (frosted), its backdrop captured. Screenshots glasszoom-<zoom>.png; GLASS_ZOOM_OUT=<dir> also saves them there.
+async function glassZoomChecks(files) {
+  const solid = (r, g, b, a = 1) => ({ type: "SOLID", color: { r, g, b, a: 1 }, opacity: a, visible: true });
+  const T = (x, y) => ({ transform: { m00: 1, m01: 0, m02: x, m10: 0, m11: 1, m12: y } });
+  const nodes = [{ guid: "59:1", phase: "CREATED", type: "FRAME", name: "Glass zoom", parentIndex: { guid: "0:1", position: "~~~~~~~~~~z" },
+    size: { x: 480, y: 300 }, ...T(0, 7000), fillPaints: [solid(0.11, 0.106, 0.125)] }];
+  let n = 1;
+  const palette = [[0.95, 0.7, 0.2], [0.2, 0.5, 0.95], [0.9, 0.25, 0.35], [0.3, 0.8, 0.5], [0.95, 0.95, 0.95], [0.5, 0.3, 0.9]];
+  for (let x = 20, i = 0; x < 460; i++) {
+    const sw = 6 + ((i * 7) % 13);
+    nodes.push({ guid: `59:${++n}`, phase: "CREATED", type: "ROUNDED_RECTANGLE", name: `Stripe ${i}`, parentIndex: { guid: "59:1", position: `!${String(n).padStart(3, "0")}` },
+      size: { x: Math.min(sw, 460 - x), y: 260 }, ...T(x, 20), fillPaints: [solid(...palette[i % palette.length])] });
+    x += sw + (i % 2 ? 4 : 0);
+  }
+  const glass = "59:900";
+  const fx = (visible) => [{ type: "GLASS", radius: 8, visible, specularAngle: -45, specularIntensity: 0.6, refractionIntensity: 0.7, refractionRadius: 16, bevelSize: 1, chromaticAberration: 0.4, reflectionDistance: 0.2 }];
+  nodes.push({ guid: glass, phase: "CREATED", type: "ROUNDED_RECTANGLE", name: "Glass", parentIndex: { guid: "59:1", position: "~" },
+    size: { x: 240, y: 140 }, ...T(120, 80), cornerRadius: 32, fillPaints: [solid(1, 1, 1, 0.05)], effects: fx(true) });
+  await engine((message) => {
+    const e = window.__designerEngine;
+    e.applyChanges(message, "user");
+    e.setSelection([]);
+  }, { type: "NODE_CHANGES", sessionID: 0, nodeChanges: nodes });
+  await page.mouse.move(2, 2);
+  const vw = 1280, vh = 800;
+  const setGlass = (visible) =>
+    engine(({ glass, effects }) => window.__designerEngine.applyChanges({ type: "NODE_CHANGES", sessionID: 0, nodeChanges: [{ guid: glass, phase: "CHANGED", effects }] }, "user"),
+      { glass, effects: fx(visible) });
+  // Near the glass's middle, at the canvas's middle.
+  const at = async (zoom) => {
+    const cx = 248, cy = 7000 + 80 + 70;  // where a white stripe meets a purple one, near the glass's middle
+    await engine((c) => window.__designerEngine.setCamera(c), { x: vw / 2 - cx * zoom, y: vh / 2 - cy * zoom, zoom });
+    await settle();
+    const stats = await engine(() => window.__designerEngine.stats());
+    await settle();
+    await settle();
+    return stats;
+  };
+  const outDir2 = process.env.GLASS_ZOOM_OUT;
+  for (const zoom of [1, 4, 16, 64, 256]) {
+    await at(zoom * 1.001);
+    const stats = await at(zoom);
+    // Five points across the middle (one may fall on a stripe the frost hardly changes).
+    const pts = [-160, -80, 0, 80, 160].map((dx) => [vw / 2 + dx, vh / 2]);
+    const mid = await pixelsAt(pts);
+    const file = await shot(`glasszoom-${zoom * 100}`);
+    files.push(file);
+    if (outDir2) await page.screenshot({ path: path.join(outDir2, `glass-zoom-${zoom * 100}.png`) });
+    await setGlass(false);
+    await at(zoom * 1.001);
+    await at(zoom);
+    const bare = await pixelsAt(pts);
+    await setGlass(true);
+    await at(zoom * 1.001);
+    const d = Math.max(...mid.map((m, i) => Math.max(...[0, 1, 2].map((k) => Math.abs(m[k] - bare[i][k])))));
+    check(`glass at ${zoom * 100} %: drawn (frosted: differs from the view without it)`, d >= 3,
+      `${stats.backdrops} backdrops, ${stats.captures} captures; most changed channel ${d}; glass ${mid.join(" ")} vs hidden ${bare.join(" ")}`);
+  }
+}
+
 // Round 18: other people in the file (Engine.setPresence) — two cursors with name chips (a dark colour: white text; a
 // light one: dark text) and a peer's selection outlined in their colour; cleared, none of it is left.
 async function r18Checks(files) {
@@ -1732,7 +1795,7 @@ try {
   await settle();
   const backend = await engine(() => window.__designerEngine.gfx);
   check(`the canvas draws with ${gfx === "webgpu" ? "WebGPU" : "WebGL2"}`, backend === (gfx === "webgpu" ? "webgpu" : "webgl2"), backend);
-  if (only === "e4" || only === "r7" || only === "r17" || only === "r17b" || only === "r18" || only === "r8" || only === "r11" || only === "r12" || only === "e6" || only === "vars" || only === "export" || only === "e8") {
+  if (only === "e4" || only === "r7" || only === "r17" || only === "glasszoom" || only === "r17b" || only === "r18" || only === "r8" || only === "r11" || only === "r12" || only === "e6" || only === "vars" || only === "export" || only === "e8") {
     const files = [];
     if (only === "e4") await e4Checks(files);
     else if (only === "r12") await r12Checks(files);
@@ -1741,6 +1804,7 @@ try {
       await blurReachChecks(files);
     }
     else if (only === "r17") await r17Checks(files);
+    else if (only === "glasszoom") await glassZoomChecks(files);
     else if (only === "r17b") await r17bChecks(files);
     else if (only === "r18") await r18Checks(files);
     else if (only === "r11") await r11Checks(files);

@@ -215,6 +215,7 @@ else()
     tests/unit/render.paths.test.cpp
     tests/unit/render.effects.test.cpp
     tests/unit/render.cache.test.cpp
+    tests/unit/render.glass_zoom.test.cpp
     tests/unit/text.stored.test.cpp
     tests/unit/text.parity.test.cpp
     tests/unit/text.features.test.cpp

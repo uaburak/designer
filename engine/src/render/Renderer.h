@@ -765,12 +765,21 @@ class Renderer {
   // A background blur's (or glass's) copy of the backdrop, blurred: one level, or a progressive blur's levels (radii
   // ascending; the shape is drawn once per interval between two, each pixel by the one its radius falls in).
   static constexpr int kMaxBlurLevels = 8;
+  // 2026-10-20 (glass vanished at the deepest zooms, and lagged zooming over it): a backdrop's slot in the capture's
+  // atlas keeps at most this margin (device px) past its copy, and its readers (the tent, the paint) clamp to the slot
+  // — its border holds what lies past it. Before, the margin was the blur's radius plus the glass's refraction, both
+  // growing with the zoom: an 8,000 px atlas at 6,400 %, past the GPU's texture size at 25,600 % (the capture failed,
+  // the glass was not drawn).
+  static constexpr int kMaxBackdropPad = 256;
+  // A backdrop is halved at most this many times before its tent (64 taps at most a side): 2^10 × 64 device px.
+  static constexpr int kMaxBackdropDepth = 10;
   struct BackdropBlur {
     enum class Kind : uint8_t { Plain, Progressive, Glass } kind = Kind::Plain;
     int count = 1;
     double radii[kMaxBlurLevels] = {};                     // blur radii, device px
     gfx::TextureId textures[kMaxBlurLevels] = {};          // set at execution
     float places[kMaxBlurLevels][4] = {};                  // x, y in window px, width, height in texels
+    float slots[kMaxBlurLevels][4] = {};                   // its slot in textures[k], uv (x0, y0, x1, y1): reads clamp to it
     float fx[3][4] = {};                                   // progressive: slots 16–18 (the node's box, start / end)
     double start = 0, end = 0;                             // progressive: the radius at the start and at the end (device px)
     float glass[2][4] = {};                                // glass: slots 6 and 8

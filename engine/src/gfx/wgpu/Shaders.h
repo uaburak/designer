@@ -367,8 +367,10 @@ fn glassNormal(p: vec2f, b: vec2f, r: f32, bevel: f32) -> vec2f {
   if (max(q.x, q.y) <= -bevel * step(r, bevel)) { return vec2f(0.0); }
   return glassUnit(q + max(-min(q.x, q.y), 0.0)) * sign(p);
 }
+// The backdrop's slot in its atlas as uv (slots 9 / 10, gl/Shaders.h kPaintFunctions): reads past it take its border.
+fn slotUv(uv: vec2f, b: vec4f) -> vec2f { return select(uv, clamp(uv, b.xy, b.zw), b.z > b.x); }
 fn glassFetch(off: vec2f) -> vec4f {
-  return textureSampleLevel(t2, s2, (fragCoord - u.v[4].xy + g_toFrag * off) / u.v[4].zw, 0.0);
+  return textureSampleLevel(t2, s2, slotUv((fragCoord - u.v[4].xy + g_toFrag * off) / u.v[4].zw, u.v[9]), 0.0);
 }
 fn glassAt() -> vec4f {
   if (g_glassShape < 0) { return glassFetch(vec2f(0.0)); }
@@ -424,8 +426,8 @@ fn paintAt(local: vec2f, kind: i32) -> vec4f {
     let s = mix(P.x, P.y, progressT(g_dp));
     if (s < P.z || s >= P.w) { return vec4f(0.0); }
     let f = clamp((s - P.z) / max(P.w - P.z, 1e-6), 0.0, 1.0);
-    let uv1 = (fragCoord - u.v[4].xy) / u.v[4].zw;
-    let uv0 = (fragCoord - u.v[7].xy) / u.v[7].zw;
+    let uv1 = slotUv((fragCoord - u.v[4].xy) / u.v[4].zw, u.v[9]);
+    let uv0 = slotUv((fragCoord - u.v[7].xy) / u.v[7].zw, u.v[10]);
     return mix(textureSampleLevel(t3, s3, uv0, 0.0), textureSampleLevel(t2, s2, uv1, 0.0), f) * v_color.a;
   }
   if (kind == 8) { return glassAt() * v_color.a; }
@@ -442,7 +444,7 @@ fn paintAt(local: vec2f, kind: i32) -> vec4f {
                    figmaNoise(gn + nx + ny, 0.0, v_paint0.w, k, v_color, vec4f(0.0)));
   }
   if (kind == 6) {
-    let uv = (fragCoord - u.v[4].xy) / u.v[4].zw;
+    let uv = slotUv((fragCoord - u.v[4].xy) / u.v[4].zw, u.v[9]);
     return textureSampleLevel(t2, s2, uv, 0.0) * v_color.a;
   }
   let g = vec2f(dot(v_paint0.xy, local) + v_paint0.z, dot(v_paint1.xy, local) + v_paint1.z);
@@ -830,6 +832,12 @@ inline constexpr const char* kBlur = R"(
   return vec4f(corner * 2.0 - 1.0, 0.0, 1.0);
 }
 
+// The backdrop's slot (slot 9, texels; gl/Shaders.h kBlurFragment): taps past it read its border.
+fn slot(uv: vec2f, sz: vec2f) -> vec2f {
+  let b = u.v[9];
+  return select(uv, clamp(uv, (b.xy + 0.5) / sz, (b.zw - 0.5) / sz), b.z > b.x);
+}
+
 @fragment fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
   let sz = vec2f(textureDimensions(t0, 0));
   let uv = glFragCoord(pos) / sz;
@@ -845,7 +853,7 @@ inline constexpr const char* kBlur = R"(
       let w = w1 + w2;
       if (w <= 0.0) { break; }
       let o = dir * (f32(i) + w2 / w);
-      sum += (textureSampleLevel(t0, s0, uv + o, 0.0) + textureSampleLevel(t0, s0, uv - o, 0.0)) * w;
+      sum += (textureSampleLevel(t0, s0, slot(uv + o, sz), 0.0) + textureSampleLevel(t0, s0, slot(uv - o, sz), 0.0)) * w;
       total += 2.0 * w;
     }
     let c = sum / total;
@@ -861,7 +869,7 @@ inline constexpr const char* kBlur = R"(
     let nc = clamp(n, B.xy, B.zw);
     let p = vec2f(dot(u.v[7].xyz, vec3f(nc, 1.0)), dot(u.v[8].xyz, vec3f(nc, 1.0)));
     let step1 = vec2f(dot(u.v[4].xy, u.v[2].xy), dot(u.v[5].xy, u.v[2].xy));
-    var sum = textureSampleLevel(t0, s0, p / sz, 0.0) * R;
+    var sum = textureSampleLevel(t0, s0, slot(p / sz, sz), 0.0) * R;
     var total = R;
     for (var i = 1; i < 64; i += 2) {
       let k = f32(i);
@@ -875,7 +883,7 @@ inline constexpr const char* kBlur = R"(
         let wl = select(0.0, R - l, all(ql == clamp(ql, B.xy, B.zw)));
         let w = wk + wl;
         if (w <= 0.0) { continue; }
-        sum += textureSampleLevel(t0, s0, (p + u.v[2].xy * (s * (k * wk + l * wl) / w)) / sz, 0.0) * w;
+        sum += textureSampleLevel(t0, s0, slot((p + u.v[2].xy * (s * (k * wk + l * wl) / w)) / sz, sz), 0.0) * w;
         total += w;
       }
     }

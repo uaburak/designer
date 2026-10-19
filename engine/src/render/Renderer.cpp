@@ -1360,9 +1360,23 @@ gfx::IRect Renderer::deviceRect(const Rect& css, double margin) const {
   if (x1 <= x0 || y1 <= y0) return {0, 0, 0, 0};
   int ix0 = static_cast<int>(std::floor(x0)), iy0 = static_cast<int>(std::floor(y0));
   int ix1 = static_cast<int>(std::ceil(x1)), iy1 = static_cast<int>(std::ceil(y1));
-  // Large layers are capped (the device's texture size).
+  // Large layers are capped (the device's texture size). 2026-10-20: the margins go first, each in proportion to how
+  // far it reaches, and the part being drawn stays — capped from the right only, a big margin (a glass's or a blur's
+  // reach at a deep zoom: 15,000 px at 25,600 %) left the canvas outside the rectangle, and the glass wasn't drawn.
   int cap = static_cast<int>(device_.caps().maxTextureSize);
-  return {ix0, iy0, std::min(ix1 - ix0, cap), std::min(iy1 - iy0, cap)};
+  auto fit = [cap](int& lo, int& hi, int keepLo, int keepHi) {
+    int over = (hi - lo) - cap;
+    if (over <= 0) return;
+    int roomLo = std::max(0, keepLo - lo), roomHi = std::max(0, hi - keepHi);
+    int room = roomLo + roomHi;
+    int cutLo = room > 0 ? std::min(roomLo, static_cast<int>((static_cast<long long>(over) * roomLo + room - 1) / room)) : 0;
+    lo += cutLo;
+    hi -= std::min(roomHi, over - cutLo);
+    hi = std::min(hi, lo + cap);  // the part itself is wider than a texture: its start kept, as before
+  };
+  fit(ix0, ix1, region_.x, region_.x + region_.w);
+  fit(iy0, iy1, region_.y, region_.y + region_.h);
+  return {ix0, iy0, ix1 - ix0, iy1 - iy0};
 }
 
 Rect Renderer::screenBounds(uint32_t i) const {
@@ -2407,6 +2421,7 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
           call.textures[3] = b.textures[k];
           call.textures[2] = b.textures[k1];
           for (int i = 0; i < 4; i++) call.uniforms[7][i] = b.places[k][i], call.uniforms[4][i] = b.places[k1][i];
+          for (int i = 0; i < 4; i++) call.uniforms[10][i] = b.slots[k][i], call.uniforms[9][i] = b.slots[k1][i];
           for (int j = 0; j < 3; j++)
             for (int i = 0; i < 4; i++) call.uniforms[16 + j][i] = b.fx[j][i];
           bool last = k1 == b.count - 1;
@@ -2416,7 +2431,7 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
         } else {
           if (!b.textures[0]) return;
           call.textures[2] = b.textures[0];
-          for (int i = 0; i < 4; i++) call.uniforms[4][i] = b.places[0][i];
+          for (int i = 0; i < 4; i++) call.uniforms[4][i] = b.places[0][i], call.uniforms[9][i] = b.slots[0][i];
           if (b.kind == BackdropBlur::Kind::Glass)
             for (int i = 0; i < 4; i++) call.uniforms[6][i] = b.glass[0][i], call.uniforms[8][i] = b.glass[1][i];
         }
@@ -2604,30 +2619,43 @@ bool Renderer::captureBackdrops(Layer& L, const gfx::PassDesc& pd, const std::ve
       it.cut[0] = b.cut[0] || r.x > c->rect.x, it.cut[2] = b.cut[2] || r.x + r.w < c->rect.x + c->rect.w;
       it.cut[3] = b.cut[3] || r.y > c->rect.y, it.cut[1] = b.cut[1] || r.y + r.h < c->rect.y + c->rect.h;
       double scale = 1;
-      while (it.radius > 0 && (it.radius * scale > 64 || (scale == 1 && it.radius > 4)) && scale > 1.0 / 32) scale /= 2, it.depth++;
+      while (it.radius > 0 && (it.radius * scale > 64 || (scale == 1 && it.radius > 4)) && it.depth < kMaxBackdropDepth) scale /= 2, it.depth++;
       // Glass reads its frost displaced from where it paints (drawBackgroundBlur's glassReach).
       double bend = b.kind == BackdropBlur::Kind::Glass ? b.glassReach : 0;
-      it.pad = it.clamped && !cut ? 2 : static_cast<int>(std::ceil(it.radius + bend)) + 2;
+      // At most kMaxBackdropPad: past it the readers clamp to the slot, whose border holds what lies past it (the
+      // margin cleared where the copy wasn't cut, its edge repeated where it was). Exact for the tent's input at any
+      // margin; what the glass reads past the margin is the blurred border's (only where the canvas's edge cut it).
+      it.pad = it.clamped && !cut ? 2 : std::min(kMaxBackdropPad, static_cast<int>(std::ceil(it.radius + bend)) + 2);
       deepest = std::max(deepest, it.depth);
       items.push_back(it);
     }
   }
   if (items.empty()) return true;
-  // Shelves, tallest first, at most kAtlasMax wide and high (more pages when they don't fit).
-  const int A = 1 << deepest;
+  // Shelves, tallest first, at most kAtlasMax wide and high (more pages when they don't fit). Slots align to the
+  // deepest level's step (32 at most); a backdrop halved further (a huge blur: glass at a deep zoom) takes a page of
+  // its own aligned to its step, so it doesn't round every slot up with it.
+  constexpr int kSharedDepth = 5;
+  const int A = 1 << std::min(deepest, kSharedDepth);
   const int kAtlasMax = std::min<int>(4096, static_cast<int>(std::max<uint32_t>(device_.caps().maxTextureSize, 2048)));
   std::vector<size_t> order(items.size());
   for (size_t i = 0; i < order.size(); i++) order[i] = i;
-  for (Item& it : items) it.sw = roundUp(it.r.w + 2 * it.pad, A), it.sh = roundUp(it.r.h + 2 * it.pad, A);
-  std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) { return items[a].sh > items[b].sh; });
+  for (Item& it : items) {
+    const int step = it.depth > kSharedDepth ? 1 << it.depth : A;
+    it.sw = roundUp(it.r.w + 2 * it.pad, step), it.sh = roundUp(it.r.h + 2 * it.pad, step);
+  }
+  std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+    bool da = items[a].depth > kSharedDepth, db = items[b].depth > kSharedDepth;
+    return da != db ? db : items[a].sh > items[b].sh;  // the shared pages first, then the deep ones
+  });
   struct Page {
     int w = 0, h = 0;
-    PoolTarget* levels[6] = {};  // depth 0 … 5
+    PoolTarget* levels[kMaxBackdropDepth + 1] = {};  // depth 0 … kMaxBackdropDepth
   };
   std::vector<Page> pages(1);
   int x = 0, y = 0, shelf = 0;
   for (size_t i : order) {
     Item& it = items[i];
+    if (it.depth > kSharedDepth && (x > 0 || y > 0)) pages.push_back({}), x = 0, y = 0, shelf = 0;
     if (x + it.sw > kAtlasMax && x > 0) y += shelf, x = 0, shelf = 0;
     if (y + it.sh > kAtlasMax && y > 0) pages.push_back({}), x = 0, y = 0, shelf = 0;
     it.page = static_cast<int>(pages.size()) - 1;
@@ -2740,8 +2768,21 @@ bool Renderer::captureBackdrops(Layer& L, const gfx::PassDesc& pd, const std::ve
             call.uniforms[2][0] = dir == 0 ? 1.f : 0.f, call.uniforms[2][1] = dir == 0 ? 0.f : 1.f;
             call.uniforms[2][2] = static_cast<float>(it->radius * s), call.uniforms[2][3] = static_cast<float>(mode);
             call.textures[0] = src;
-            // The slot at this level (scissors are top-left: the pass's rows flipped).
+            // The slot at this level (scissors are top-left: the pass's rows flipped); the taps clamp to it.
             int sx = it->sx >> d, sy = it->sy >> d, sw = it->sw >> d, sh = it->sh >> d;
+            // Where the layer's edge cut the copy, its taps stop at the copy's edge (a clamped texture's reads: the
+            // margin there repeats the edge, but not into its corners — those are cleared — and a tent wider than the
+            // slot would read them); elsewhere at the slot's edge (the cleared margin).
+            const double cx0 = (it->sx + it->pad) * s, cy0 = (it->sy + it->pad) * s;
+            call.uniforms[9][0] = static_cast<float>(it->cut[0] ? cx0 : sx);
+            call.uniforms[9][1] = static_cast<float>(it->cut[1] ? cy0 : sy);
+            call.uniforms[9][2] = static_cast<float>(it->cut[2] ? cx0 + it->r.w * s : sx + sw);
+            call.uniforms[9][3] = static_cast<float>(it->cut[3] ? cy0 + it->r.h * s : sy + sh);
+            for (int a = 0; a < 2; a++)  // at least a texel (the shader clamps half a texel in from each side)
+              if (call.uniforms[9][a + 2] - call.uniforms[9][a] < 1) {
+                float mid = (call.uniforms[9][a] + call.uniforms[9][a + 2]) / 2;
+                call.uniforms[9][a] = mid - 0.5f, call.uniforms[9][a + 2] = mid + 0.5f;
+              }
             call.scissorEnabled = true;
             call.scissor = {sx, vh - sy - sh, sw, sh};
             device_.draw(call);
@@ -2764,9 +2805,15 @@ bool Renderer::captureBackdrops(Layer& L, const gfx::PassDesc& pd, const std::ve
         b.places[it.level][1] = static_cast<float>(H - it.local.y - it.local.h - (it.sy + it.pad));
         b.places[it.level][2] = static_cast<float>(tw / s);
         b.places[it.level][3] = static_cast<float>(th / s);
+        // Its slot at this level as uv, half a texel in: the paint's reads past it take its border.
+        const int ld = it.radius > 0 ? d : 0;
+        b.slots[it.level][0] = static_cast<float>(((it.sx >> ld) + 0.5) / tw);
+        b.slots[it.level][1] = static_cast<float>(((it.sy >> ld) + 0.5) / th);
+        b.slots[it.level][2] = static_cast<float>((((it.sx + it.sw) >> ld) - 0.5) / tw);
+        b.slots[it.level][3] = static_cast<float>((((it.sy + it.sh) >> ld) - 0.5) / th);
       }
     }
-    for (int d = 0; d < 6; d++) done(d);
+    for (int d = 0; d <= kMaxBackdropDepth; d++) done(d);
   }
   // Back to this layer, as it was.
   gfx::PassDesc resume = pd;
