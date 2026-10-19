@@ -184,6 +184,7 @@ const TOOL_LABEL: Record<string, string> = {
   apply_variable: "Applied a variable",
   apply_style: "Applied a style",
   create_responsive_variant: "Made a responsive version",
+  pathfinder: "Ran a Pathfinder",
   set_selection: "Selected the result",
   place_image: "Placed an image",
   generate_image: "Made an image",

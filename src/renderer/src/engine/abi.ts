@@ -310,6 +310,13 @@ export const CommandId = {
   MOTION_SPLIT_TRACKS: 351,
   /** A preset instance's materialised tracks (the `figma:motion` code's output, §4.6); inside the applying step. */
   MOTION_SET_PRESET_TRACKS: 352,
+  /** Round 19b: Illustrator's Pathfinders (args: Pathfinder Options {precision?, removeRedundantPoints?, removeUnpainted?}). */
+  PATHFINDER_DIVIDE: 360,
+  PATHFINDER_TRIM: 361,
+  PATHFINDER_MERGE: 362,
+  PATHFINDER_CROP: 363,
+  PATHFINDER_OUTLINE: 364,
+  PATHFINDER_MINUS_BACK: 365,
 } as const;
 export type CommandName = keyof typeof CommandId;
 

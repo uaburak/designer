@@ -119,6 +119,9 @@ export interface UIState extends PreferenceFlags {
   /** Preferences › Nudge amount… (round 8): the steps, and whether its dialog is open */
   nudge?: { small: number; big: number };
   nudgeDialog?: boolean;
+  /** Round 19b, Pathfinder › Pathfinder options… (Illustrator's): the options, and whether their window is open */
+  pathfinder?: { precision: number; removeRedundantPoints: boolean; removeUnpainted: boolean };
+  pathfinderDialog?: boolean;
   /** Preferences › Accessibility settings…: its dialog (AccessibilityDialog.tsx) */
   accessibilityDialog?: boolean;
   /** File › Color profile…: its dialog (Convert / Assign, ColorProfileDialog.tsx) */

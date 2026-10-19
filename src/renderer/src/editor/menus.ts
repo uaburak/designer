@@ -20,6 +20,7 @@ import { canvasPluginsMenu, pluginsMenu, runPluginMenuItem } from "./plugins/men
 import { isBrushSource } from "./draw/drawTools";
 import { POST_ROW, postCanvasRows, runPostMenu } from "./social/PostsList";
 import { selectedPosts } from "./social/SocialMode";
+import { PATHFINDER_MENU_IDS } from "./pathfinder";
 
 /** A frame-like layer: a frame, component, set, instance or section (not a group). */
 const isFrameLike = (n: { type?: string; resizeToFit?: boolean }) => ["FRAME", "SYMBOL", "INSTANCE", "SECTION"].includes(String(n.type)) && !n.resizeToFit;
@@ -344,7 +345,8 @@ export const MAIN_MENU: Spec[] = [
       "-",
       "vector.flatten",
       "vector.outline-stroke",
-      { label: "Boolean groups", items: ["vector.union", "vector.subtract", "vector.intersect", "vector.exclude"] },
+      // Round 19b [ours]: Illustrator's Pathfinders under Figma's four (pathfinder.ts).
+      { label: "Boolean groups", items: ["vector.union", "vector.subtract", "vector.intersect", "vector.exclude", "-", { label: "Pathfinder", items: [...PATHFINDER_MENU_IDS] }] },
       "-",
       "object.toggle-visible",
       "object.toggle-lock",

@@ -54,6 +54,7 @@ import {
   type LayoutFlow,
 } from "./objectCommands";
 import { viewRect } from "./canvas/viewInsets";
+import { PATHFINDER_OPTIONS_ID, PATHFINDERS, runPathfinder } from "./pathfinder";
 import type { KeyCombo } from "@shared/shortcuts";
 import { openSettings } from "../settings/bridge";
 import { openAiBalance } from "../settings/AiBalance";
@@ -859,6 +860,9 @@ export const COMMANDS: EditorCommand[] = [
   // A boolean group made with an older version of the boolean operations brought to the latest (the Design panel's
   // Update, panels/design/VectorOperation.tsx; Atlas 05 §9.2).
   engine("vector.update-boolean", "Update boolean", "UPGRADE_VECTOR_OPERATION"),
+  // Round 19b [ours]: Illustrator's Pathfinders (pathfinder.ts) with the Pathfinder Options in effect, and their window.
+  ...PATHFINDERS.map((p) => engine(p.id, p.label, p.name, undefined, { run: (ed) => void runPathfinder(ed, p.name) })),
+  ui(PATHFINDER_OPTIONS_ID, "Pathfinder options…", undefined, (ed) => ed.ui.set({ pathfinderDialog: true, uiHidden: false })),
   // The Figma menu › Vector (live main-vector.txt): vector edit mode's point commands.
   // Round 10 (the engine's): vector edit mode's selected points joined, straight or smooth.
   engine("vector.join", "Join selection", "VECTOR_JOIN", [k("KeyJ", { mod: true })]),

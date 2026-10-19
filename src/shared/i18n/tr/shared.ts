@@ -15,6 +15,15 @@ export const shared: Record<string, string> = {
   Outlines: "Anahatlar",
   Developer: "Geliştirici",
   "Boolean groups": "Boolean grupları",
+  // ── Round 19b: Illustrator's Pathfinders (editor/pathfinder.ts; Turkish Illustrator's own words) ──
+  Pathfinder: "Yol Bulucu",
+  Divide: "Böl",
+  Trim: "Buda",
+  Merge: "Birleştir",
+  Crop: "Kırp",
+  Outline: "Anahat",
+  "Minus Back": "Arkayı Çıkar",
+  "Pathfinder options…": "Yol Bulucu seçenekleri…",
 
   // ── The app menu and Electron's role items (src/main/menu.ts) ──
   Theme: "Tema",
