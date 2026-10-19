@@ -206,3 +206,103 @@ TEST_CASE("absolute drag: out of the parent it is the page's, an ordinary layer;
 }
 
 }  // namespace
+
+// The owner's absolute-multi-drag captures (2026-10-20): absolute layers in different auto-layout parents, selected
+// together, move together freely — each keeps its parent, its ABSOLUTE and its offset; one undo step.
+namespace {
+NodeChange alFrame(Guid id, Guid parent, const char* pos, Rect r, const char* name) {
+  NodeChange f = make(id, NodeType::FRAME, parent, pos, r, name);
+  StackFacet& s = f.props.stack();
+  s.stackMode = StackMode::VERTICAL;
+  s.stackPaddingLeft = s.stackPaddingTop = s.stackPaddingRight = s.stackPaddingBottom = 10;
+  s.stackSpacing = 20;
+  s.stackPrimarySizing = StackSize::FIXED;
+  s.stackCounterSizing = StackSize::FIXED;
+  return f;
+}
+NodeChange absRect(Guid id, Guid parent, const char* pos, Rect r, const char* name) {
+  NodeChange b = make(id, NodeType::ROUNDED_RECTANGLE, parent, pos, r, name);
+  b.props.stackPositioning = StackPositioning::ABSOLUTE;
+  return b;
+}
+}  // namespace
+
+TEST_CASE("absolute drag: absolute layers in different auto-layout parents move together freely, keep parents") {
+  // Two sibling auto-layout frames, each with a flow child and an absolute badge.
+  const Guid A{1, 90}, A0{1, 91}, AB{1, 92}, C{1, 93}, C0{1, 94}, CB{1, 95};
+  auto nodes = baseChanges();
+  nodes.push_back(alFrame(A, kPage, "!", {0, 0, 300, 300}, "left"));
+  nodes.push_back(make(A0, NodeType::ROUNDED_RECTANGLE, A, "a", {10, 10, 100, 40}, "a0"));
+  nodes.push_back(absRect(AB, A, "b", {200, 200, 20, 20}, "badge"));
+  nodes.push_back(alFrame(C, kPage, "\"", {400, 0, 300, 300}, "right"));
+  nodes.push_back(make(C0, NodeType::ROUNDED_RECTANGLE, C, "a", {10, 10, 100, 40}, "c0"));
+  nodes.push_back(absRect(CB, C, "b", {200, 200, 20, 20}, "deals"));
+  Editor e = load(nodes);
+  REQUIRE(world(e, AB) == Rect{200, 200, 20, 20});
+  REQUIRE(world(e, CB) == Rect{600, 200, 20, 20});
+  e.setSelection({AB, CB});
+  down(e, 210, 210);
+  steps(e, {210, 210}, {183, 171}, MOD_CTRL);
+  CHECK(e.document().parentOf(AB) == A);
+  CHECK(e.document().parentOf(CB) == C);
+  CHECK(world(e, AB) == Rect{173, 161, 20, 20});
+  CHECK(world(e, CB) == Rect{573, 161, 20, 20});
+  Overlay o = e.overlay();
+  CHECK(o.sizeBadge);
+  CHECK(o.lifted.empty());
+  CHECK(o.ghosts.empty());
+  CHECK(!o.hasInsertion);
+  up(e, 183, 171, MOD_CTRL);
+  CHECK(e.document().parentOf(AB) == A);
+  CHECK(e.document().parentOf(CB) == C);
+  CHECK(e.document().get(AB)->props.stackPositioning == StackPositioning::ABSOLUTE);
+  CHECK(e.document().get(CB)->props.stackPositioning == StackPositioning::ABSOLUTE);
+  CHECK(world(e, AB) == Rect{173, 161, 20, 20});
+  CHECK(world(e, CB) == Rect{573, 161, 20, 20});
+  CHECK(world(e, A0) == Rect{10, 10, 100, 40});
+  CHECK(world(e, C0) == Rect{410, 10, 100, 40});
+  e.command(CommandId::UNDO);
+  CHECK(world(e, AB) == Rect{200, 200, 20, 20});
+  CHECK(world(e, CB) == Rect{600, 200, 20, 20});
+}
+
+TEST_CASE("absolute drag: nested auto-layout parents (badges in the card, deals in its image) move together") {
+  // card (auto layout) › image (auto layout, a flow child) › deals (absolute); card › badges (absolute).
+  const Guid CARD{1, 100}, IMG{1, 101}, IMG0{1, 102}, DEALS{1, 103}, BADGES{1, 104}, TXT{1, 105};
+  auto nodes = baseChanges();
+  nodes.push_back(alFrame(CARD, kPage, "!", {0, 0, 400, 400}, "resorts-card"));
+  nodes.push_back(alFrame(IMG, CARD, "a", {10, 10, 380, 200}, "image"));
+  nodes.push_back(make(IMG0, NodeType::ROUNDED_RECTANGLE, IMG, "a", {10, 10, 100, 40}, "photo"));
+  nodes.push_back(absRect(DEALS, IMG, "b", {290, 140, 40, 20}, "deals"));
+  nodes.push_back(make(TXT, NodeType::ROUNDED_RECTANGLE, CARD, "b", {10, 230, 100, 40}, "title"));
+  nodes.push_back(absRect(BADGES, CARD, "c", {20, 300, 60, 20}, "badges"));
+  Editor e = load(nodes);
+  REQUIRE(world(e, DEALS) == Rect{300, 150, 40, 20});
+  REQUIRE(world(e, BADGES) == Rect{20, 300, 60, 20});
+  for (Vec2 to : {Vec2{70, 280}, Vec2{80, 130}}) {  // pointer over the card, then over the image
+    Editor g = load(nodes);
+    g.setSelection({BADGES, DEALS});
+    down(g, 50, 310);
+    steps(g, {50, 310}, to, MOD_CTRL);
+    const double dx = to.x - 50, dy = to.y - 310;
+    CHECK(g.document().parentOf(BADGES) == CARD);
+    CHECK(g.document().parentOf(DEALS) == IMG);
+    CHECK(world(g, BADGES) == Rect{20 + dx, 300 + dy, 60, 20});
+    CHECK(world(g, DEALS) == Rect{300 + dx, 150 + dy, 40, 20});
+    CHECK(g.overlay().lifted.empty());
+    CHECK(!g.overlay().hasInsertion);
+    up(g, to.x, to.y, MOD_CTRL);
+    CHECK(g.document().parentOf(BADGES) == CARD);
+    CHECK(g.document().parentOf(DEALS) == IMG);
+    CHECK(g.document().get(BADGES)->props.stackPositioning == StackPositioning::ABSOLUTE);
+    CHECK(g.document().get(DEALS)->props.stackPositioning == StackPositioning::ABSOLUTE);
+    CHECK(world(g, BADGES) == Rect{20 + dx, 300 + dy, 60, 20});
+    CHECK(world(g, DEALS) == Rect{300 + dx, 150 + dy, 40, 20});
+    CHECK(world(g, IMG0) == Rect{20, 20, 100, 40});
+    CHECK(world(g, TXT) == Rect{10, 230, 100, 40});
+    g.command(CommandId::UNDO);
+    CHECK(g.document().parentOf(DEALS) == IMG);
+    CHECK(world(g, BADGES) == Rect{20, 300, 60, 20});
+    CHECK(world(g, DEALS) == Rect{300, 150, 40, 20});
+  }
+}
