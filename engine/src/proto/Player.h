@@ -217,6 +217,7 @@ class Player {
   // An interactive component changing state (Change to) with Smart animate / Dissolve.
   struct InstanceAnim {
     Guid instance = kNoGuid;
+    std::string key;  // keyOf(instance): found again when a change above it gives it a new id
     Guid ghost = kNoGuid;  // the old state, kept (hidden from layout) while its unmatched layers fade out
     Snapshot from;
     Action action;
@@ -293,11 +294,15 @@ class Player {
   struct Chain {
     std::vector<Hit> hits;
     int layer = -2;  // −2: nothing
+    // Each hit's layer key (keyOf), filled by keyChain: a layer inside an instance gets a new id when an instance above
+    // it changes variant, its key stays — what the pointer was over and still is over is compared by key.
+    std::vector<std::string> keys;
   };
   // While hovering / While pressing: how to undo what they did when the pointer leaves / is released.
   struct Held {
     Guid anchor = kNoGuid;  // what must stay under the pointer (the swapped instance, or the hotspot)
     Guid hotspot = kNoGuid;  // the While hovering's own layer (hovered already: not fired again)
+    std::string anchorKey, hotspotKey;  // the same by key (ids inside instances change with their parents' variants)
     std::vector<std::function<void()>> revert;
     uint64_t id = 0;
   };
@@ -354,6 +359,8 @@ class Player {
   Vec2 overlayPos(Guid frame, const OverlaySettings& s, const Action* a, const Hit* hotspot) const;
   Vec2 overlayPlace(Guid frame, const OverlaySettings& s, const Action* a, const Hit* hotspot) const;
   Chain hitTest(Vec2 css) const;
+  // A layer's children in hit order: the topmost first (Canvas stacking "First on top" respected).
+  std::vector<Guid> topmostFirst(Guid id) const;
   bool hitWalk(Guid id, const Mat2x3& parentCss, Vec2 css, std::vector<Hit>& out, bool root, Vec2 rootScroll = {}) const;
   Mat2x3 frameCss(const Side& s) const;
   Side baseSide() const;
@@ -380,6 +387,22 @@ class Player {
   // screen down, the screen's own name left out — so an instance at the same path on the next screen shows it too,
   // unless the step resets component states. Cleared by Restart.
   std::string semanticPath(Guid node) const;
+  // A layer's key: its screen (top-level frame) and its semantic path in it. Stable while an instance above it changes
+  // variant (its derived id is not: the id follows the variant's own layers). `byKey` finds the layer a key names now
+  // (kNoGuid: none); `underKey` the layer at a path relative to `root` (a key's part after the root's key).
+  std::string keyOf(Guid node) const;
+  Guid byKey(const std::string& key) const;
+  Guid underKey(Guid root, const std::string& rel) const;
+  void keyChain(Chain& c) const;
+  // Nested instances' states the player set (Change to on an instance inside another instance), by key → the variant
+  // shown. A Change to on an instance above keeps them where its old and new variants design that layer alike, and
+  // gives the new variant's design where they differ (the outer state drives that layer, a prop in a web page).
+  std::unordered_map<std::string, Guid> nestedStates_;
+  void keepNestedStates(Guid instance, Guid fromMain, Guid toMain);
+  // Re-finds running Change-to animations whose instance got a new id (by their key).
+  void rekeyInstanceAnims();
+  // What the screen shows (base and overlays): a change of it ends a hover round.
+  uint64_t screenSignature() const;
   void carryComponentStates(Guid screen, const Action& a);
   std::unordered_map<std::string, Guid> componentStates_;  // path → the variant shown (its set is the variant's parent)
   // Scroll positions the same way (Figma's v1 `handleStateChangeInitiated`): the old screen's offsets stored by semantic
@@ -408,7 +431,10 @@ class Player {
   void dropTimers(Guid root);
   // Drops the pending delayed interactions of trigger `t` (on `node`, or on any node when it is kNoGuid).
   void cancelDelayed(Trigger t, Guid node = kNoGuid);
-  void hover(const Chain& c);
+  // `live`: the pointer is over the prototype (re-hit-tested after a change under it); false when it left.
+  void hover(const Chain& c, bool live = true);
+  // While hovering on one layer of the chain (its first such interaction), unless that layer is hovered already.
+  void whileHovering(const Hit& h, const std::string& key);
   // The hyperlink under `css` in a text of the chain (Figma: "Links in text also work in prototypes").
   const text::LinkBox* linkAt(const Chain& c, Vec2 css) const;
   // Follows a link: a URL opens (OPEN_URL), a frame of this file is navigated to.

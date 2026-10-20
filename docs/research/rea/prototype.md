@@ -96,8 +96,8 @@ Wecra changed in this round (commit after the group); open = not settled, why.
 
 | Item | Figma | Wecra (before) | Status |
 |---|---|---|---|
-| Mouse leave / enter order | leaves inner → outer, then enters **outer → inner**, the first that changes state ends the round (`mP` @~1575000) | enters deepest first, all of them | **fixed** (`hover`); `proto.rea` test |
-| While hovering | only when no enter / leave acted; the topmost (deepest) hover hotspot's **first** hover interaction; not again while hovered | every newly entered layer's every hover interaction | **fixed** (`Held.hotspot`) |
+| Mouse leave / enter order | leaves inner → outer, then enters **outer → inner**, the first that changes state ends the round (`mP` @~1575000) | enters deepest first, all of them | **fixed** (`hover`); `proto.rea` test. 2026-10-21: **deliberately beyond Figma** — every layer left / entered fires (inner → outer / outer → inner), only a screen change ends the round (docs/engine.md §3.4 "nested interactive components") |
+| While hovering | only when no enter / leave acted; the topmost (deepest) hover hotspot's **first** hover interaction; not again while hovered | every newly entered layer's every hover interaction | **fixed** (`Held.hotspot`). 2026-10-21: **deliberately beyond Figma** — every layer under the pointer with a While hovering holds its first one, like CSS `:hover` |
 | NONE trigger | read as On click (`sQ.interactionType`) | never fired | **fixed** (`ix`) |
 | Press / release / click | Mouse down → While pressing; release → Mouse up → On click (≤ 5 px) → reverse press; drag threshold 5 px | same constants (`kDragThreshold` 5, …) | ✓ (code) |
 | After delay | timers start on every committed change, checked each frame, cancelled by any change; ← / → at least 500 ms | `armTimers` / `kArrowDelayMs` | ✓ (code) |
