@@ -225,8 +225,8 @@ preferredValues and varValue; variant property ids made from the name (SHA-1); F
 crashed the presentation); library variables / styles referenced as {assetRef: {key, version}}; component property
 ids resolved per component — Figma reuses def ids across components (a variant's implicit id is another symbol's
 explicit def, a duplicated set keeps its defs' ids), and Wecra's import and export resolved them file-wide, binding
-a symbol's texts to a foreign set's defs. That still isn't all: with those fixed, the Desktop page (1:3531) of the
-owner's file still makes Figma's editor abort, with no message before Aborted(). It happens with either of its sections
-removed and without any interaction, while the other pages open. Bisect variants 34–43 (one frame each) were left
-for the owner to import. Set variable / mode and the Nav bar title are open: Figma's own files also write
+a symbol's texts to a foreign set's defs. And every assetRef with a version: a detached instance's detachedSymbolId as {key} alone made Figma's editor abort
+("[fatalEmptyOptionalDereferenced] empty optional dereferenced" in visitMessage_nodeChanges, read off the Sentry event
+in the page; found by bisecting the Desktop page to the frames holding detached instances). Figma writes version "".
+With that the whole file opens and presents ("Yeni Test Dosyası (Wecra)", 8IYcStcBd1SVLZdFIJbIxv). Set variable / mode and the Nav bar title are open: Figma's own files also write
 variableConsumptionMap, which Wecra's schema doesn't have.

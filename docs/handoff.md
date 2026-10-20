@@ -20,7 +20,7 @@ First written 2026-10-06 when the first Claude session stopped and the owner mov
   - component property ids resolved per component (import and export resolved them file-wide; Figma reuses def ids across components).
   The owner's "Yeni Test Dosyası" page opens and presents in Figma.
 - Open:
-  - The whole "Prototype deneme" file still aborts Figma's editor: the cause is on its Desktop page (1:3531). Bisect files "Wecra export test 34–43" (one Desktop frame each) are in ~/Desktop/wecra-fig-test-7 for the owner to import; the scratchpad scripts are variant.ts, refcheck.ts and pagesum.ts.
+  - Fixed later the same night: the whole file now opens and presents in Figma ("Yeni Test Dosyası (Wecra)" in the owner's Drafts, 8IYcStcBd1SVLZdFIJbIxv). Figma had aborted on `detachedSymbolId.assetRef` without `version`; the export now writes `""` (read off Figma's Sentry event: "fatalEmptyOptionalDereferenced" in visitMessage_nodeChanges).
   - In the imported file, Set variable / Set variable mode do nothing and the Nav bar title is missing (Figma's files also carry variableConsumptionMap, not in our schema).
   - Text widths differ by a few px (Inter metrics).
 
