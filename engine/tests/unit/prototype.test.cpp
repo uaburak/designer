@@ -419,6 +419,53 @@ TEST_CASE("prototype.player: Change to on While hovering swaps the instance's va
   CHECK(f.ed.mainOf(INST) == DEF);
 }
 
+TEST_CASE("prototype.player: While hovering is undone when its screen goes, once the screen change has played") {
+  // Figma's reverse hover: the pointer is no longer over the hotspot (atlas 13 §3). Wecra kept the hover state for good
+  // (the owner's "Yeni Test Dosyası": every button clicked on 01 was still hovered when 01 came back).
+  auto nodes = baseChanges();
+  const Guid SET{2, 1}, DEF{2, 2}, HOV{2, 3}, BG1{2, 4}, BG2{2, 5}, SCREEN{2, 10}, INST{2, 11}, NEXT{2, 12};
+  NodeChange set = make(SET, NodeType::FRAME, kPage, "~", {0, 1000, 300, 200}, "Button");
+  set.props.comp().isStateGroup = true;
+  nodes.push_back(set);
+  NodeChange def = make(DEF, NodeType::SYMBOL, SET, "!", {20, 20, 100, 40}, "State=Default");
+  def.props.extra["prototypeInteractions"] = extra("prototypeInteractions", nav(HOV, "ON_HOVER", "SWAP_STATE", "SMART_ANIMATE", 0.3));
+  nodes.push_back(def);
+  nodes.push_back(make(BG1, NodeType::RECTANGLE, DEF, "!", {0, 0, 100, 40}, "Bg"));
+  nodes.push_back(make(HOV, NodeType::SYMBOL, SET, "\"", {150, 20, 120, 40}, "State=Hover"));
+  nodes.push_back(make(BG2, NodeType::RECTANGLE, HOV, "!", {0, 0, 120, 40}, "Bg"));
+  nodes.push_back(make(SCREEN, NodeType::FRAME, kPage, "!", {0, 0, 375, 812}, "Screen"));
+  nodes.push_back(make(NEXT, NodeType::FRAME, kPage, "\"", {500, 0, 375, 812}, "Next"));
+  for (const char* transition : {"INSTANT_TRANSITION", "DISSOLVE"}) {
+    auto doc = nodes;
+    NodeChange inst = make(INST, NodeType::INSTANCE, SCREEN, "!", {100, 100, 100, 40}, "Button");
+    inst.props.comp().symbolData.symbolID = DEF;
+    inst.props.fillPaints.clear();
+    inst.props.extra["prototypeInteractions"] = extra("prototypeInteractions", nav(NEXT, "ON_CLICK", "NAVIGATE", transition, 0.4));
+    doc.push_back(inst);
+    Fixture f(doc);
+    REQUIRE(f.player.start(kPage, SCREEN));
+    f.player.pointer(PointerEvent::MOVE, 120, 110, 0, 0);
+    f.advance(400);
+    CHECK(f.ed.mainOf(INST) == HOV);
+    f.click(120, 110);
+    CHECK(f.player.screen() == NEXT);
+    if (std::string(transition) == "DISSOLVE") {
+      // The screen leaves as it was shown.
+      f.advance(200);
+      CHECK(f.ed.mainOf(INST) == HOV);
+    }
+    f.advance(400);
+    CHECK(f.ed.mainOf(INST) == DEF);
+    CHECK(!f.player.animating());
+    // Back on it (the pointer elsewhere): as it was before the hover.
+    f.player.pointer(PointerEvent::MOVE, 300, 700, 0, 0);
+    REQUIRE(f.player.back());
+    f.advance(500);
+    CHECK(f.player.screen() == SCREEN);
+    CHECK(f.ed.mainOf(INST) == DEF);
+  }
+}
+
 TEST_CASE("prototype.player: overflow scrolling, fixed layers, Scroll to, After delay") {
   auto nodes = baseChanges();
   const Guid TALL{3, 1}, HEADER{3, 2}, LIST{3, 3}, ITEM1{3, 4}, ITEM2{3, 5}, TARGET{3, 6}, LINK{3, 7}, NEXTSCREEN{3, 8};

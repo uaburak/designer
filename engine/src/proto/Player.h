@@ -353,6 +353,8 @@ class Player {
   void run(Guid source, const std::vector<Action>& actions, const Hit* hotspot, Held* held);
   void drain(Pending&& q, Held* now = nullptr);
   Held* heldById(uint64_t id);
+  void leaveHeld();
+  void releaseLeftHeld();
   bool running(uint64_t serial) const;
   void resumePending();
   const Branch* chosenBranch(const Action& a, Guid source) const;
@@ -465,6 +467,8 @@ class Player {
   std::vector<Delayed> delayed_;  // mouse triggers waiting out their delay
   std::vector<Held> held_;     // While hovering
   Held pressed_;               // While pressing
+  std::vector<Held> leftHeld_;  // held on a screen that went: undone once its screen change has played
+  bool instantSwaps_ = false;   // Change to without its animation (a left screen's states going back)
   Chain hoverChain_, downChain_;
   Vec2 hoverCss_;
   Vec2 downCss_;

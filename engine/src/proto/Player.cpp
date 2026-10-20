@@ -257,6 +257,7 @@ bool Player::start(Guid page, Guid start) {
   timers_.clear();
   delayed_.clear();
   held_.clear();
+  leftHeld_.clear();
   pressed_ = Held{};
   hoverChain_ = Chain{};
   downChain_ = Chain{};
@@ -1203,6 +1204,26 @@ void Player::drain(Pending&& q, Held* now) {
   }
 }
 
+void Player::leaveHeld() {
+  // While hovering / While pressing on a screen that goes: the pointer is no longer over their hotspots, so they are
+  // undone (Figma's reverse hover, `returnInstanceToState(…, BEFORE_LAST_ANY_STATE, REVERSE_HOVER)`, atlas 13 §3) —
+  // once the screen change has played, at once: the screen leaves as it was shown and is as it was when it comes back.
+  for (auto& h : held_) leftHeld_.push_back(std::move(h));
+  held_.clear();
+  if (pressed_.id) leftHeld_.push_back(std::move(pressed_));
+  pressed_ = Held{};
+}
+
+void Player::releaseLeftHeld() {
+  std::vector<Held> left = std::move(leftHeld_);
+  leftHeld_.clear();
+  instantSwaps_ = true;
+  for (auto& h : left)
+    for (auto it = h.revert.rbegin(); it != h.revert.rend(); ++it) (*it)();
+  instantSwaps_ = false;
+  dirty_ = true;
+}
+
 Player::Held* Player::heldById(uint64_t id) {
   if (pressed_.id == id) return &pressed_;
   for (auto& h : held_)
@@ -1322,7 +1343,7 @@ void Player::navigate(Guid dest, const Action& a, bool record) {
   dropTimers(base_);
   for (auto& o : overlays_) dropTimers(o.frame);
   overlays_.clear();
-  held_.clear();
+  leaveHeld();
   base_ = dest;
   // Scroll: reset unless the action keeps it (Figma's state memorises it per frame; "Reset scroll position" resets).
   if (a.resetScroll) scroll_.erase(dest);
@@ -1379,7 +1400,7 @@ bool Player::back() {
   base_ = h.base;
   overlays_ = h.overlays;
   scroll_[base_] = h.baseScroll;
-  held_.clear();
+  leaveHeld();
   Side y = baseSide();
   if (h.via.transition != Transition::INSTANT && durationOf(h.via) > 0) {
     Anim an;
@@ -1535,7 +1556,7 @@ void Player::remember(Guid id, FieldMask mask) {
 
 void Player::swapInstance(Guid instance, Guid main, const Action& a) {
   // A Smart animate / Dissolve between the two states: the instance's layers as they are now.
-  bool animate = a.transition != Transition::INSTANT && durationOf(a) > 0;
+  bool animate = !instantSwaps_ && a.transition != Transition::INSTANT && durationOf(a) > 0;
   Snapshot from;
   if (animate) from = snapshot(instance, true);
   // What its new size moves around it: the auto-layout parents it sits in (up to the outermost one) and everything in
@@ -1619,6 +1640,12 @@ void Player::swapInstance(Guid instance, Guid main, const Action& a) {
     instanceAnims_.push_back(std::move(ia));
     instanceSerial_++;
     lastInstanceAnim_ = instance;
+  } else if (!animate) {
+    // An instant change ends the instance's running one (it would play on towards the state it left).
+    for (auto& x : instanceAnims_)
+      if (x.instance == instance) dropGhost(x.ghost);
+    instanceAnims_.erase(std::remove_if(instanceAnims_.begin(), instanceAnims_.end(), [&](const InstanceAnim& x) { return x.instance == instance; }),
+                         instanceAnims_.end());
   }
   dropTimers(instance);
   armTimers(instance);
@@ -2197,6 +2224,10 @@ bool Player::tick(double nowMs) {
     }
     draw = true;
     if (clock_ - anim_.start >= anim_.duration) finishAnim();
+  }
+  if (!leftHeld_.empty() && !anim_.active) {
+    releaseLeftHeld();
+    draw = true;
   }
   for (size_t i = 0; i < instanceAnims_.size();) {
     auto& ia = instanceAnims_[i];
