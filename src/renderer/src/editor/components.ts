@@ -76,6 +76,7 @@ import {
   type VariantError,
 } from "./model/components";
 import { viewCentre } from "./canvas/viewInsets";
+import { deferredListener } from "./deferred";
 
 /** The engine's E6 commands (docs/engine-build.md); each one runs only once abi.ts names it. */
 export const COMPONENT_COMMAND = {
@@ -342,9 +343,12 @@ export class ComponentIndex {
   private readonly listeners = new Set<() => void>();
 
   constructor(private readonly ed: EditorController) {
+    // Listeners hear of it in a microtask (deferred.ts): an engine read during a render (Comments' pins, Apply variable
+    // mode) can deliver a DOCUMENT_CHANGED, and Assets must not be updated while another component renders.
+    const notify = deferredListener(() => this.listeners.forEach((l) => l()));
     const bump = () => {
       this.version++;
-      this.listeners.forEach((l) => l());
+      notify();
     };
     this.offs.push(
       ed.engine.on("DOCUMENT_CHANGED", bump),
