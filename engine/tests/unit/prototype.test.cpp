@@ -361,6 +361,66 @@ TEST_CASE("prototype.player: an overlay closed by a click outside or Close leave
   CHECK(!drawn);
 }
 
+TEST_CASE("prototype.player: an overlay moves in from just outside the screen's edge") {
+  // Live Figma (the owner's "Yeni Test Dosyası"): a top toast moving in from the top travels its own height, a centred
+  // modal from the bottom the distance from its place to the bottom edge — not a whole screen.
+  for (const char* pos : {"TOP_CENTER", "CENTER"}) {
+    auto nodes = screens();
+    NodeChange ovl = make(OVL, NodeType::FRAME, kPage, "$", {0, 1000, 200, 100}, "Toast");
+    ovl.props.extra["overlayPositionType"] = extra("overlayPositionType", std::string("\"") + pos + "\"");
+    nodes.push_back(ovl);
+    bool top = std::string(pos) == "TOP_CENTER";
+    for (auto& n : nodes)
+      if (n.guid == NEXT) n.props.extra["prototypeInteractions"] = extra("prototypeInteractions", nav(OVL, "ON_CLICK", "OVERLAY", top ? "MOVE_FROM_TOP" : "MOVE_FROM_BOTTOM", 0.4));
+    Fixture f(nodes);
+    REQUIRE(f.player.start(kPage, A));
+    f.click(50, 720);
+    f.advance(16);
+    f.advance(184);  // the clock starts on the first frame: p = 184 / 400 = 0.46 (Linear)
+    double y = -1e9;
+    for (const PresentItem& it : f.player.scene().items)
+      if (it.node == OVL) y = it.parentCss.m12 + 1000;  // the frame's own y (1000) is undone by parentCss
+    if (top) CHECK(y == doctest::Approx(-100 * 0.54).epsilon(0.01));      // from −100 (just above) to 0
+    else CHECK(y == doctest::Approx(356 + 456 * 0.54).epsilon(0.01));     // from 812 (just below) to 356
+  }
+}
+
+TEST_CASE("prototype.player: a moving overlay's background fades with the transition, in and out") {
+  // Figma's backgroundTransitionProgress (atlas 13 §5); Wecra drew it at full strength from the first frame of a Move in
+  // (the owner's "Yeni Test Dosyası": the modal's and the bottom sheet's dim).
+  auto nodes = screens();
+  NodeChange ovl = make(OVL, NodeType::FRAME, kPage, "$", {0, 1000, 200, 100}, "Menu");
+  ovl.props.extra["overlayPositionType"] = extra("overlayPositionType", R"("CENTER")");
+  ovl.props.extra["overlayBackgroundInteraction"] = extra("overlayBackgroundInteraction", R"("CLOSE_ON_CLICK_OUTSIDE")");
+  ovl.props.extra["overlayBackgroundAppearance"] =
+      extra("overlayBackgroundAppearance", R"({"backgroundType":"SOLID_COLOR","backgroundColor":{"r":0,"g":0,"b":0,"a":0.5}})");
+  nodes.push_back(ovl);
+  for (auto& n : nodes)
+    if (n.guid == NEXT) n.props.extra["prototypeInteractions"] = extra("prototypeInteractions", nav(OVL, "ON_CLICK", "OVERLAY", "MOVE_FROM_BOTTOM", 0.4));
+  Fixture f(nodes);
+  REQUIRE(f.player.start(kPage, A));
+  auto dim = [&] {
+    double a = 0;
+    for (const PresentItem& it : f.player.scene().items)
+      if (it.kind == PresentItem::Kind::Rect) a = std::max(a, it.alpha);
+    return a;
+  };
+  f.click(50, 720);
+  f.advance(16);
+  CHECK(dim() < 0.1);
+  f.advance(184);  // half way (Linear)
+  CHECK(dim() == doctest::Approx(0.25).epsilon(0.1));
+  f.advance(300);
+  CHECK(dim() == doctest::Approx(0.5));
+  // Closed by a click outside: the opening backwards, the dim with it.
+  f.click(10, 10);
+  f.advance(16);
+  f.advance(200);
+  CHECK(dim() == doctest::Approx(0.25).epsilon(0.1));
+  f.advance(300);
+  CHECK(dim() == 0);
+}
+
 TEST_CASE("prototype.smart: layers match by name and place; Smart animate interpolates them") {
   auto nodes = screens();
   for (auto& n : nodes)
@@ -443,6 +503,58 @@ TEST_CASE("prototype.player: Change to on While hovering swaps the instance's va
   CHECK(f.ed.mainOf(INST) == HOV);
   f.player.restart();
   CHECK(f.ed.mainOf(INST) == DEF);
+  // A start at a frame (the inline preview's Restart, a flow picked) is fresh too.
+  f.player.pointer(PointerEvent::MOVE, 120, 110, 0, 0);
+  CHECK(f.ed.mainOf(INST) == HOV);
+  REQUIRE(f.player.start(kPage, SCREEN));
+  CHECK(f.ed.mainOf(INST) == DEF);
+}
+
+TEST_CASE("prototype.player: While hovering is undone when its screen goes, once the screen change has played") {
+  // Figma's reverse hover: the pointer is no longer over the hotspot (atlas 13 §3). Wecra kept the hover state for good
+  // (the owner's "Yeni Test Dosyası": every button clicked on 01 was still hovered when 01 came back).
+  auto nodes = baseChanges();
+  const Guid SET{2, 1}, DEF{2, 2}, HOV{2, 3}, BG1{2, 4}, BG2{2, 5}, SCREEN{2, 10}, INST{2, 11}, NEXT{2, 12};
+  NodeChange set = make(SET, NodeType::FRAME, kPage, "~", {0, 1000, 300, 200}, "Button");
+  set.props.comp().isStateGroup = true;
+  nodes.push_back(set);
+  NodeChange def = make(DEF, NodeType::SYMBOL, SET, "!", {20, 20, 100, 40}, "State=Default");
+  def.props.extra["prototypeInteractions"] = extra("prototypeInteractions", nav(HOV, "ON_HOVER", "SWAP_STATE", "SMART_ANIMATE", 0.3));
+  nodes.push_back(def);
+  nodes.push_back(make(BG1, NodeType::RECTANGLE, DEF, "!", {0, 0, 100, 40}, "Bg"));
+  nodes.push_back(make(HOV, NodeType::SYMBOL, SET, "\"", {150, 20, 120, 40}, "State=Hover"));
+  nodes.push_back(make(BG2, NodeType::RECTANGLE, HOV, "!", {0, 0, 120, 40}, "Bg"));
+  nodes.push_back(make(SCREEN, NodeType::FRAME, kPage, "!", {0, 0, 375, 812}, "Screen"));
+  nodes.push_back(make(NEXT, NodeType::FRAME, kPage, "\"", {500, 0, 375, 812}, "Next"));
+  for (const char* transition : {"INSTANT_TRANSITION", "DISSOLVE"}) {
+    auto doc = nodes;
+    NodeChange inst = make(INST, NodeType::INSTANCE, SCREEN, "!", {100, 100, 100, 40}, "Button");
+    inst.props.comp().symbolData.symbolID = DEF;
+    inst.props.fillPaints.clear();
+    inst.props.extra["prototypeInteractions"] = extra("prototypeInteractions", nav(NEXT, "ON_CLICK", "NAVIGATE", transition, 0.4));
+    doc.push_back(inst);
+    Fixture f(doc);
+    REQUIRE(f.player.start(kPage, SCREEN));
+    f.player.pointer(PointerEvent::MOVE, 120, 110, 0, 0);
+    f.advance(400);
+    CHECK(f.ed.mainOf(INST) == HOV);
+    f.click(120, 110);
+    CHECK(f.player.screen() == NEXT);
+    if (std::string(transition) == "DISSOLVE") {
+      // The screen leaves as it was shown.
+      f.advance(200);
+      CHECK(f.ed.mainOf(INST) == HOV);
+    }
+    f.advance(400);
+    CHECK(f.ed.mainOf(INST) == DEF);
+    CHECK(!f.player.animating());
+    // Back on it (the pointer elsewhere): as it was before the hover.
+    f.player.pointer(PointerEvent::MOVE, 300, 700, 0, 0);
+    REQUIRE(f.player.back());
+    f.advance(500);
+    CHECK(f.player.screen() == SCREEN);
+    CHECK(f.ed.mainOf(INST) == DEF);
+  }
 }
 
 TEST_CASE("prototype.player: overflow scrolling, fixed layers, Scroll to, After delay") {

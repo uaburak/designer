@@ -209,6 +209,10 @@ bool Player::frameExists(Guid id) const {
 bool Player::start(Guid page, Guid start) {
   const NodeProps* pg = props(page);
   if (!pg || pg->type != NodeType::CANVAS) return false;
+  // A start is a fresh prototype, as Figma's Restart and its flow / frame picks are: what the player wrote while it
+  // ran (Change to states, variables, modes) goes back first — the inline preview's Restart and a jump to another frame
+  // or flow come here, not through restart().
+  restoreOriginals();
   page_ = page;
   componentStates_.clear();
   scrollStore_.clear();
@@ -259,6 +263,7 @@ bool Player::start(Guid page, Guid start) {
   timers_.clear();
   delayed_.clear();
   held_.clear();
+  leftHeld_.clear();
   pressed_ = Held{};
   hoverChain_ = Chain{};
   downChain_ = Chain{};
@@ -1293,6 +1298,26 @@ void Player::drain(Pending&& q, Held* now) {
   }
 }
 
+void Player::leaveHeld() {
+  // While hovering / While pressing on a screen that goes: the pointer is no longer over their hotspots, so they are
+  // undone (Figma's reverse hover, `returnInstanceToState(…, BEFORE_LAST_ANY_STATE, REVERSE_HOVER)`, atlas 13 §3) —
+  // once the screen change has played, at once: the screen leaves as it was shown and is as it was when it comes back.
+  for (auto& h : held_) leftHeld_.push_back(std::move(h));
+  held_.clear();
+  if (pressed_.id) leftHeld_.push_back(std::move(pressed_));
+  pressed_ = Held{};
+}
+
+void Player::releaseLeftHeld() {
+  std::vector<Held> left = std::move(leftHeld_);
+  leftHeld_.clear();
+  instantSwaps_ = true;
+  for (auto& h : left)
+    for (auto it = h.revert.rbegin(); it != h.revert.rend(); ++it) (*it)();
+  instantSwaps_ = false;
+  dirty_ = true;
+}
+
 Player::Held* Player::heldById(uint64_t id) {
   if (pressed_.id == id) return &pressed_;
   for (auto& h : held_)
@@ -1412,7 +1437,7 @@ void Player::navigate(Guid dest, const Action& a, bool record) {
   dropTimers(base_);
   for (auto& o : overlays_) dropTimers(o.frame);
   overlays_.clear();
-  held_.clear();
+  leaveHeld();
   Guid left = base_;
   base_ = dest;
   carryComponentStates(dest, a);
@@ -1486,7 +1511,7 @@ bool Player::undoLast(bool restoreOverlays) {
   if (restoreOverlays) overlays_ = h.overlays;
   else overlays_.clear();
   scroll_[base_] = h.baseScroll;
-  held_.clear();
+  leaveHeld();
   Side y = baseSide();
   if (h.via.transition != Transition::INSTANT && durationOf(h.via) > 0) {
     Anim an;
@@ -1646,7 +1671,7 @@ void Player::remember(Guid id, FieldMask mask) {
 
 void Player::swapInstance(Guid instance, Guid main, const Action& a) {
   // A Smart animate / Dissolve between the two states: the instance's layers as they are now.
-  bool animate = a.transition != Transition::INSTANT && durationOf(a) > 0;
+  bool animate = !instantSwaps_ && a.transition != Transition::INSTANT && durationOf(a) > 0;
   Snapshot from;
   if (animate) from = snapshot(instance, true);
   // What its new size moves around it: the auto-layout parents it sits in (up to the outermost one) and everything in
@@ -1730,6 +1755,12 @@ void Player::swapInstance(Guid instance, Guid main, const Action& a) {
     instanceAnims_.push_back(std::move(ia));
     instanceSerial_++;
     lastInstanceAnim_ = instance;
+  } else if (!animate) {
+    // An instant change ends the instance's running one (it would play on towards the state it left).
+    for (auto& x : instanceAnims_)
+      if (x.instance == instance) dropGhost(x.ghost);
+    instanceAnims_.erase(std::remove_if(instanceAnims_.begin(), instanceAnims_.end(), [&](const InstanceAnim& x) { return x.instance == instance; }),
+                         instanceAnims_.end());
   }
   dropTimers(instance);
   armTimers(instance);
@@ -2121,7 +2152,7 @@ void Player::endScrub(double timeMs) {
 
 void Player::silentBack() {
   noAnim_ = true;
-  back();
+  undoLast();  // the dragged step alone, overlays as they were
   noAnim_ = false;
 }
 
@@ -2309,6 +2340,10 @@ bool Player::tick(double nowMs) {
     }
     draw = true;
     if (clock_ - anim_.start >= anim_.duration) finishAnim();
+  }
+  if (!leftHeld_.empty() && !anim_.active) {
+    releaseLeftHeld();
+    draw = true;
   }
   for (size_t i = 0; i < instanceAnims_.size();) {
     auto& ia = instanceAnims_[i];
@@ -2912,20 +2947,32 @@ void Player::addSlot(const Side* x, const Side* y, const Anim* a) {
     return;
   }
   if (g.moves) {
-    // The screens along their paths (in units of the screen), the exiting one fading where the type says.
+    // The screens along their paths (in units of the screen), the exiting one fading where the type says. An overlay's
+    // background doesn't travel: it fades with the transition's progress (Figma's `backgroundTransitionProgress`,
+    // atlas 13 §5) — in as the overlay moves in, out as it moves out (Close plays the opening backwards). A screen
+    // travels a screen's length; an overlay from just outside the screen's edge to its place (live Figma, 2026-10-20: a
+    // centred 158-tall modal moving in from the bottom of a 1024-tall screen travels 591, a top toast only its own
+    // height — Wecra moved both a whole screen, and the toast showed only in the last frames).
     Vec2 S = view_.screen;
-    auto at = [&](Vec2 from, Vec2 to) { return Vec2{lerp(from.x, to.x, p) * S.x, lerp(from.y, to.y, p) * S.y}; };
+    auto at = [&](const Side& s, Vec2 from, Vec2 to) {
+      Vec2 v{lerp(from.x, to.x, p), lerp(from.y, to.y, p)};
+      if (!s.overlay) return Vec2{v.x * S.x, v.y * S.y};
+      const NodeProps* op = props(s.frame);
+      Vec2 o = op ? op->size : Vec2{};
+      Vec2 side{from.x != 0 ? from.x : to.x, from.y != 0 ? from.y : to.y};
+      return Vec2{v.x * (side.x > 0 ? S.x - s.pos.x : s.pos.x + o.x), v.y * (side.y > 0 ? S.y - s.pos.y : s.pos.y + o.y)};
+    };
     auto drawX = [&] {
       if (!hasX) return;
       double alpha = unit(lerp(g.outAlphaFrom, g.outAlphaTo, p));
-      background(*x, alpha);
-      addFrame(*x, at(g.outFrom, g.outTo), alpha, {});
+      background(*x, alpha * unit(1 - p));
+      addFrame(*x, at(*x, g.outFrom, g.outTo), alpha, {});
     };
     auto drawY = [&] {
       if (!hasY) return;
       double alpha = unit(lerp(g.inAlphaFrom, g.inAlphaTo, p));
-      background(*y, alpha);
-      addFrame(*y, at(g.inFrom, g.inTo), alpha, {});
+      background(*y, alpha * unit(p));
+      addFrame(*y, at(*y, g.inFrom, g.inTo), alpha, {});
     };
     if (g.enteringOnTop) drawX(), drawY();
     else drawY(), drawX();

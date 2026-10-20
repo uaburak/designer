@@ -2,6 +2,28 @@
 
 First written 2026-10-06 when the first Claude session stopped and the owner moved the work to another Claude account through GitHub (`https://github.com/uaburak/designer`). Updated the same day by the second session, which finished every workstream's partial items and ran the integration round. Read `AGENTS.md`, `docs/architecture.md` and `docs/roadmap.md` first; the contracts in `docs/` decide everything; `docs/research/` holds the verified facts about Figma (with sources).
 
+## Status 2026-10-20 (late night) — "Yeni Test Dosyası" in Figma through our .fig export, played one to one (committed on its branch, not merged)
+
+- Prototype player, compared with live Figma frame by frame (docs/research/figma/live/2026-10-20/prototype-playback.txt §8, scripts/proto-bench/scenarios.mjs): these now match Figma:
+  - a start at a frame or the inline preview's Restart starts fresh;
+  - While hovering is undone once its screen has gone and the change has played;
+  - an Instant Change to ends the running animation;
+  - an overlay's background fades with its transition;
+  - an overlay moves in and out from just outside the screen edge (it travelled a whole screen).
+  Native tests are in engine/tests/unit/prototype.test.cpp; engine.wasm is rebuilt. Frame pacing: p50 8.3 ms, no long tasks.
+- .fig export (src/shared/fig/figmaExport.ts, convert.ts) now writes what Figma needs:
+  - thumbnail.png always;
+  - implicit variant defs as only {id, parentPropDefId}, explicit defs with varValue / preferredValues;
+  - variant property ids by SHA-1 of the name;
+  - Figma's device presetIdentifiers (src/shared/fig/figmaDevices.ts);
+  - library variables / styles as assetRef;
+  - component property ids resolved per component (import and export resolved them file-wide; Figma reuses def ids across components).
+  The owner's "Yeni Test Dosyası" page opens and presents in Figma.
+- Open:
+  - Fixed later the same night: the whole file now opens and presents in Figma ("Yeni Test Dosyası (Wecra)" in the owner's Drafts, 8IYcStcBd1SVLZdFIJbIxv). Figma had aborted on `detachedSymbolId.assetRef` without `version`; the export now writes `""` (read off Figma's Sentry event: "fatalEmptyOptionalDereferenced" in visitMessage_nodeChanges).
+  - In the imported file, Set variable / Set variable mode do nothing and the Nav bar title is missing (Figma's files also carry variableConsumptionMap, not in our schema).
+  - Text widths differ by a few px (Inter metrics).
+
 ## Status 2026-10-20 (night) — hug anchors and a whole-file prototype audit against live Figma (committed on its branch, not merged)
 
 The owner: a centred button that changes to a bigger hover variant grew right / down in Wecra, around its centre in Figma; then "check the whole behaviour". Measured live (scratch page in his file, deleted after; a virtual clock shooting both apps at the same ms — `scripts/proto-bench/frames.mjs`); findings and a behaviour | Figma | before | after table in `docs/research/figma/live/2026-10-20/prototype-playback.txt` §6–7. Fixed:

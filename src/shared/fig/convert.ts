@@ -256,7 +256,7 @@ function keepFigmaDerived(m: any, report: ImportReport): void {
 }
 
 /** The pre-projection pass over every NodeChange (nodes, overrides, text runs): Figma's names → ours. */
-function figmaNodeFixups(n: any, report: ImportReport, variantDefs: Map<string, any>, opts: ConvertOptions = {}): any {
+function figmaNodeFixups(n: any, report: ImportReport, variantDefs: Map<string, Map<string, any>>, opts: ConvertOptions = {}): any {
   const m: any = { ...n };
   if (m.type === "GROUP") {
     m.type = "FRAME";
@@ -373,7 +373,9 @@ function figmaNodeFixups(n: any, report: ImportReport, variantDefs: Map<string, 
   if (Array.isArray(m.componentPropDefs)) {
     const own = m.componentPropDefs.filter((d: any) => {
       if (d?.parentPropDefId && d.id) {
-        variantDefs.set(guidKey(d.id), d.parentPropDefId);
+        const at = m.guid ? guidKey(m.guid) : "";
+        if (!variantDefs.has(at)) variantDefs.set(at, new Map());
+        variantDefs.get(at)!.set(guidKey(d.id), d.parentPropDefId);
         return false;
       }
       return true;
@@ -466,7 +468,9 @@ export interface ConvertOptions {
  */
 export function convertFigMessage(message: any, theirs: SchemaModel, ours: SchemaModel = MODEL, opts: ConvertOptions = {}): ConvertResult {
   const report = newImportReport();
-  const variantDefs = new Map<string, any>();
+  // Implicit defs by the variant holding them: a def id is only unique within its component (the owner's "Front End
+  // Demo Project 2.fig" has a variant's implicit 104:2 → 104:0 and, on another symbol, an explicit def 104:2).
+  const variantDefs = new Map<string, Map<string, any>>();
   const nodeTargets = new Set(["NodeChange"]);
   const paintTargets = new Set(["Paint"]);
   const fixed = {
@@ -491,9 +495,45 @@ export function convertFigMessage(message: any, theirs: SchemaModel, ours: Schem
   for (const n of nodes) if (n.key && n.guid && !byKey.has(n.key)) byKey.set(n.key, n.guid);
 
   const refTargets = new Set(["PropRefValue", "ComponentPropAssignment", "VariantPropSpec", "StyleId", "VariableID", "VariableSetID", "SymbolId", "GUID"]);
-  const remapDef = (g: any) => (g ? variantDefs.get(guidKey(g)) : undefined);
-  nodes = nodes.map((n) =>
-    mapValue(ours, "NodeChange", n, refTargets, (def, v, ctx) => {
+  // Implicit → explicit, in the scope the id belongs to: a binding by the variant it sits in (its nearest symbol), an
+  // assignment by the symbol its instance shows. Elsewhere (an override's nested instance not found) only an id that
+  // no component holds as an explicit def of its own.
+  const byGuid = new Map(nodes.filter((n) => n.guid).map((n) => [guidKey(n.guid!), n]));
+  const explicitIds = new Set<string>();
+  const anywhere = new Map<string, any>();
+  for (const n of nodes) for (const d of n.componentPropDefs ?? []) if (d.id) explicitIds.add(guidKey(d.id));
+  for (const m of variantDefs.values()) for (const [id, to] of m) anywhere.set(id, to);
+  const symbolOf = (n: any): string => {
+    for (let c = n, i = 0; c && i < 400; c = c.parentIndex ? byGuid.get(guidKey(c.parentIndex.guid)) : undefined, i++) if (c.type === "SYMBOL") return guidKey(c.guid);
+    return "";
+  };
+  const shownBy = (guid: any) => {
+    const sym = guid ? byGuid.get(guidKey(guid))?.symbolData?.symbolID : undefined;
+    return sym ? variantDefs.get(guidKey(sym)) : undefined;
+  };
+  const inScope = (scope: Map<string, any> | undefined, g: any) => (g ? (scope ?? new Map()).get(guidKey(g)) : undefined);
+  const unscoped = (g: any) => (g && !explicitIds.has(guidKey(g)) ? anywhere.get(guidKey(g)) : undefined);
+  const assign = (list: any[] | undefined, scope: Map<string, any> | undefined) =>
+    list?.map((a: any) => {
+      const to = inScope(scope, a?.defID) ?? unscoped(a?.defID);
+      return to ? { ...a, defID: to } : a;
+    });
+  nodes = nodes.map((n0) => {
+    const own = variantDefs.get(symbolOf(n0));
+    const shows = n0.symbolData?.symbolID ? variantDefs.get(guidKey(n0.symbolData.symbolID)) : undefined;
+    const n: any = { ...n0 };
+    if (n.componentPropAssignments) n.componentPropAssignments = assign(n.componentPropAssignments, shows);
+    if (n.symbolData?.symbolOverrides?.some((o: any) => o?.componentPropAssignments))
+      n.symbolData = {
+        ...n.symbolData,
+        symbolOverrides: n.symbolData.symbolOverrides.map((o: any) => {
+          if (!o?.componentPropAssignments) return o;
+          const g = o.guidPath?.guids;
+          return { ...o, componentPropAssignments: assign(o.componentPropAssignments, g?.length ? shownBy(g[g.length - 1]) : shows) };
+        }),
+      };
+    const remapDef = (g: any) => inScope(own, g) ?? unscoped(g);
+    return mapValue(ours, "NodeChange", n, refTargets, (def, v, ctx) => {
       switch (def) {
         case "GUID":
           // Only optional (message) fields can become absent; a struct's GUID (ParentIndex.guid) is required.
@@ -506,10 +546,8 @@ export function convertFigMessage(message: any, theirs: SchemaModel, ours: Schem
           const to = remapDef(v.defId);
           return to ? { ...v, defId: to } : v;
         }
-        case "ComponentPropAssignment": {
-          const to = remapDef(v.defID);
-          return to ? { ...v, defID: to } : v;
-        }
+        case "ComponentPropAssignment":
+          return v; // remapped above, by the symbol the instance shows
         case "VariantPropSpec": {
           const to = remapDef(v.propDefId);
           return to ? { ...v, propDefId: to } : v;
@@ -523,8 +561,8 @@ export function convertFigMessage(message: any, theirs: SchemaModel, ours: Schem
           return { guid: local };
         }
       }
-    }),
-  );
+    });
+  });
 
   nodes = adoptSlotContent(nodes, report);
 

@@ -187,3 +187,46 @@ Images: img/wecra-before-push-1-4.png, img/wecra-after-push-1-4.png, img/wecra-c
 Left: the hover's Change to on the sidebar button runs together with the click's Navigate; for ~100 ms the matched
 pill shows the pressed variant's width before the destination's. Figma's own blend-mode drop during animation is not
 copied. The After delay loop's exact period wasn't compared.
+
+8. "Yeni Test Dosyası": the owner's test page in Figma through Wecra's .fig export, played one to one (2026-10-20, late)
+------------------------------------------------------------------------------------------------------------------
+The page (file "Prototype deneme", 6291472:1: screens 01–10 and their labs — transitions, hover / press, overlays,
+timers, variables, back / home) exported with Wecra's own .fig export and imported by the owner into his Drafts.
+The page alone opens and presents in Figma ("Wecra export test 15 - page only (fixed)", HMEE7TKAkKrZ9xB7VBEZ59). The
+whole file still makes Figma's editor abort on open (see "Export" below). Figma was shot in the Browser pane's presentation
+with a held clock (performance.now / requestAnimationFrame patched, synthetic pointer events on the canvas). Wecra
+was shot in the built app's Present here on a copy of his workspace with scripts/proto-bench/scenarios.mjs (60
+scenarios, 2 passes: virtual-clock shots at start / ¼ / ½ / ¾ / end, then real-time pacing).
+
+| Interaction | Figma | Wecra before | Wecra after |
+|---|---|---|---|
+| Dissolve, Smart animate, Push / Slide / Move in and out, every direction (01 → 02 … 10, the T_ buttons) | as set | same positions and opacity at each shot | — |
+| Spring curves (Slide in Bouncy, Push custom spring) | overshoot (~178 px at 300 ms on Push) | same | — |
+| Overlay Move in from the bottom (centred modal) | starts just below the screen: travels H − y (591 px), at 88 ms the top at ~62 % of the screen | travelled a whole screen height (top at ~77 % at 88 ms), reached its place late | from the edge; matches at 88 / 175 ms |
+| Overlay Move in from the top (toast) | travels y + its own height | a whole screen height | its own height |
+| Overlay background (20 % black) | fades with the transition, in and out | full strength from the first frame | fades with it |
+| After delay on an overlay (auto toast, 2.5 s) | counts from the end of the transition | same | — |
+| While hovering on a button that navigates, then Back | the button is back at rest when the screen returns | stayed hovered for good | reverted once the screen change has played |
+| A flow / a frame picked, the inline preview's Restart | starts fresh: Change to states, variables and modes back to the file's | kept what the player had written | fresh |
+| An Instant Change to while the instance is still animating | ends the running animation | the old animation kept running under it | ends it |
+| Back from 07c | 07b | 07b | — |
+| Set variable (count + 1), Set variable mode (Dark), Conditional | no effect in the imported file | work | export gap, not a player difference (below) |
+| Nav bar title | missing in the imported file | shown | export gap |
+| Text widths ("02 Hover & Press" button) | 283 px | 291 px | Inter metrics differ; not changed |
+| Frame pacing (120 Hz) | §2 | p50 8.3 ms, p95 ≤ 9.3 ms, no long tasks, no gap > 33 ms in any scenario | same after the fixes |
+
+Images: img/figma-modal-move-in-88ms.jpg against img/wecra-modal-move-in-before-after.png (before 88 / 175 ms, after
+88 / 175 ms); img/figma-toast-move-in-75ms.jpg against img/wecra-toast-move-in-before-after.png (before 50 / 100 ms,
+after 50 / 100 ms); img/figma-hover-reverted-after-back.jpg.
+
+Export (what Figma needs to open and present a Wecra file, learnt from Figma's own "Front End Demo Project 2.fig"):
+a thumbnail.png in every archive; implicit prop defs on variants as only {id, parentPropDefId}; explicit defs with
+preferredValues and varValue; variant property ids made from the name (SHA-1); Figma's device presetIdentifiers ("DESKTOP"
+crashed the presentation); library variables / styles referenced as {assetRef: {key, version}}; component property
+ids resolved per component — Figma reuses def ids across components (a variant's implicit id is another symbol's
+explicit def, a duplicated set keeps its defs' ids), and Wecra's import and export resolved them file-wide, binding
+a symbol's texts to a foreign set's defs. And every assetRef with a version: a detached instance's detachedSymbolId as {key} alone made Figma's editor abort
+("[fatalEmptyOptionalDereferenced] empty optional dereferenced" in visitMessage_nodeChanges, read off the Sentry event
+in the page; found by bisecting the Desktop page to the frames holding detached instances). Figma writes version "".
+With that the whole file opens and presents ("Yeni Test Dosyası (Wecra)", 8IYcStcBd1SVLZdFIJbIxv). Set variable / mode and the Nav bar title are open: Figma's own files also write
+variableConsumptionMap, which Wecra's schema doesn't have.
