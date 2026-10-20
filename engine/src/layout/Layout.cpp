@@ -553,7 +553,7 @@ void Layout::arrange(Guid id, Vec2 size, bool sizeFromParent) {
   const Vec2 size0 = live.size;
   if (autoLayout) {
     if (!sizeFromParent) size = natural(id);
-    if (!sameSize(size, size0)) host_.writeGeometry(id, transform0, size);
+    if (!sameSize(size, size0)) host_.writeGeometry(id, sizeFromParent ? transform0 : hugAnchored(doc_, id, transform0, size0, size), size);
     arrangeAutoLayout(id, size);
     applyConstraints(id, false);  // absolute children follow the frame
     // Absolute children take no place in the flow, but their own content is laid out. (Hidden ones are left as they
@@ -586,6 +586,37 @@ void Layout::arrange(Guid id, Vec2 size, bool sizeFromParent) {
     if (!sameSize(size, size0) || !(t == transform0)) host_.writeGeometry(id, t, size);
     if (frameLike) applyConstraints(id, true);
   }
+}
+
+Mat2x3 Layout::hugAnchored(const Document& doc, Guid id, const Mat2x3& t, Vec2 from, Vec2 to) {
+  const Node* n = doc.get(id);
+  if (!n || !n->props.isAutoLayout()) return t;
+  const NodeProps& p = n->props;
+  const Node* parent = doc.get(p.parentIndex.guid);
+  if (!parent) return t;
+  const NodeProps& pp = parent->props;
+  // Constraints hold in a frame, a component or an instance; not on the canvas, in a section or a group.
+  if (!pp.isFrameLike() || pp.type == NodeType::SECTION) return t;
+  if (pp.isAutoLayout() && p.inFlow()) return t;  // its parent's auto layout places it
+  auto factor = [](ConstraintType c) {
+    switch (c) {
+      case ConstraintType::MIN:
+      case ConstraintType::FIXED_MIN: return 0.0;
+      case ConstraintType::MAX:
+      case ConstraintType::FIXED_MAX: return 1.0;
+      default: return 0.5;  // CENTER, STRETCH, SCALE
+    }
+  };
+  const bool horizontal = p.stack().stackMode != StackMode::VERTICAL;  // a grid's primary axis is its width too
+  const bool hugX = horizontal ? p.hugsPrimary() : p.hugsCounter();
+  const bool hugY = horizontal ? p.hugsCounter() : p.hugsPrimary();
+  Vec2 d{hugX ? (from.x - to.x) * factor(p.horizontalConstraint) : 0, hugY ? (from.y - to.y) * factor(p.verticalConstraint) : 0};
+  if (d.x == 0 && d.y == 0) return t;
+  Vec2 shift = t.applyLinear(d);
+  Mat2x3 out = t;
+  out.m02 += shift.x;
+  out.m12 += shift.y;
+  return out;
 }
 
 void Layout::arrangeAutoLayout(Guid id, Vec2 size) {

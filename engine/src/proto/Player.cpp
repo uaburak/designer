@@ -1543,7 +1543,7 @@ void Player::swapInstance(Guid instance, Guid main, const Action& a) {
       if (!doc().has(ghost)) ghost = kNoGuid;
       else ghosts_.insert(ghost);
     }
-  remember(real, F_SYMBOL_DATA | F_COMPONENT_PROP_ASSIGNMENTS);
+  remember(real, F_SYMBOL_DATA | F_COMPONENT_PROP_ASSIGNMENTS | F_TRANSFORM | F_SIZE);  // a Hug resize moves it (hugAnchored)
   Guid fromMain = ed_.mainOf(instance);
   CommandArgs args;
   json::Value raw = parseJson("{}");

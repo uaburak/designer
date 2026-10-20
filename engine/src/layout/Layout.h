@@ -83,6 +83,13 @@ class Layout {
   // A frame's children follow its size by their constraints (from where LayoutHost::base says they were).
   void constrainChildren(Guid frame);
 
+  // Figma (measured live 2026-10-20, docs/engine.md §4.4 "Hug anchors"): an auto-layout frame or instance whose own
+  // content resizes it on a Hug axis (its content changed, a variant switch, a Change to in a prototype) keeps the side
+  // its constraints hold in a parent that doesn't lay it out — Left keeps its left, Right its right, Center / Left &
+  // Right / Scale its centre (Top / Bottom likewise). On the canvas, in a section or a group, or placed by its parent's
+  // auto layout: its top-left, as before. `t` moved for a size change `from` → `to`.
+  static Mat2x3 hugAnchored(const Document& doc, Guid id, const Mat2x3& t, Vec2 from, Vec2 to);
+
   // The flow children of an auto-layout frame, in order.
   std::vector<Guid> flowChildren(Guid frame) const;
 

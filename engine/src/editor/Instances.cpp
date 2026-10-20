@@ -825,10 +825,32 @@ void Editor::materialize(Guid R) {
     c.mask = differingFields(rn->props, root, rootMask);
     if (c.mask) {
       copyFields(c.props, root, c.mask);
-      bool prevResolving = resolving_;
-      resolving_ = true;
-      write(c);
-      resolving_ = prevResolving;
+      // Its size from its (new) main on a Hug axis: it keeps the side its constraints hold (Layout::hugAnchored —
+      // a variant switch of a centred button grows it around its centre); layout then hugs it from there the same way.
+      if ((c.mask & F_SIZE) && !hasStored) {
+        Mat2x3 t = rn->props.transform;
+        Vec2 from = rn->props.size;
+        bool prevResolving = resolving_;
+        resolving_ = true;
+        write(c);
+        resolving_ = prevResolving;
+        if (const Node* now = doc_.get(R)) {
+          Mat2x3 to = Layout::hugAnchored(doc_, R, t, from, now->props.size);
+          if (!(to == t)) {
+            NodeChange m = NodeChange::changed(R);
+            m.mask = F_TRANSFORM;
+            m.props.transform = to;
+            resolving_ = true;
+            write(m);
+            resolving_ = prevResolving;
+          }
+        }
+      } else {
+        bool prevResolving = resolving_;
+        resolving_ = true;
+        write(c);
+        resolving_ = prevResolving;
+      }
     }
     rn = doc_.get(R);
     ex.sources.push_back(setOf(main));
