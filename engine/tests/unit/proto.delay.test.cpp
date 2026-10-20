@@ -1,5 +1,5 @@
-// Prototype timing as Figma reads and plays it (docs/research/rea/motion.md §2.2): a zero duration reads 0.3 s, a
-// zero After delay 0.8 s; mouse enter / leave / down / up keep their delay in interactionMaintained +
+// Prototype timing as Figma reads and plays it (docs/research/rea/prototype.md §2): a missing duration reads 0.3 s, a
+// missing After delay 0.8 s (an explicit 0 stays 0 in the viewer); mouse enter / leave / down / up keep their delay in interactionMaintained +
 // interactionDuration (Wecra's earlier transitionTimeout placement still read), and the player waits it out,
 // cancelling when the pointer undoes the trigger first; new interactions carry stateManagementVersion 1.
 #include "doctest.h"
@@ -66,13 +66,13 @@ struct Fixture {
 
 }  // namespace
 
-TEST_CASE("proto.delay: a zero duration reads 0.3 s and a zero After delay 0.8 s (Figma's `|| .3` / `|| .8`)") {
+TEST_CASE("proto.delay: a missing duration reads 0.3 s and a missing After delay 0.8 s; an explicit 0 stays 0 (Figma's viewer)") {
   auto list = read(R"([{"event":{"interactionType":"AFTER_TIMEOUT","transitionTimeout":0},"actions":[{"connectionType":"BACK","transitionType":"DISSOLVE","transitionDuration":0}]},
                        {"event":{"interactionType":"AFTER_TIMEOUT"},"actions":[{"connectionType":"BACK","transitionType":"DISSOLVE"}]},
                        {"event":{"interactionType":"AFTER_TIMEOUT","transitionTimeout":1.5},"actions":[{"connectionType":"BACK","transitionType":"DISSOLVE","transitionDuration":0.45}]}])");
   REQUIRE(list.size() == 3);
-  CHECK(list[0].timeout == doctest::Approx(0.8));
-  CHECK(list[0].actions[0].duration == doctest::Approx(0.3));
+  CHECK(list[0].timeout == 0);
+  CHECK(list[0].actions[0].duration == 0);
   CHECK(list[1].timeout == doctest::Approx(0.8));
   CHECK(list[1].actions[0].duration == doctest::Approx(0.3));
   CHECK(list[2].timeout == doctest::Approx(1.5));

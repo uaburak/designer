@@ -838,7 +838,8 @@ TEST_CASE("prototype.smart: Animate matching layers on Move in; shadows dissolve
   CHECK(card->transform.m02 == doctest::Approx(20).epsilon(0.02));
   CHECK(card->size.x == doctest::Approx(250).epsilon(0.02));
 
-  // A drop shadow on B's Card: not animatable — it dissolves in where it ends.
+  // A drop shadow on B's Card: it still animates (live Figma 2026-10-20) — the card moves at full opacity while the
+  // shadow comes in.
   auto shadowed = screens();
   for (auto& n : shadowed) {
     if (n.guid == NEXT) n.props.extra["prototypeInteractions"] = extra("prototypeInteractions", nav(B, "ON_CLICK", "NAVIGATE", "SMART_ANIMATE", 0.4));
@@ -859,8 +860,11 @@ TEST_CASE("prototype.smart: Animate matching layers on Move in; shadows dissolve
   g.player.scene();
   const NodeProps* faded = g.player.drawnProps(CARD_B);
   REQUIRE(faded);
-  CHECK(faded->transform.m12 == doctest::Approx(300));
-  CHECK(faded->opacity == doctest::Approx(0.5).epsilon(0.02));
+  CHECK(faded->transform.m12 == doctest::Approx(200).epsilon(0.02));
+  CHECK(faded->opacity == doctest::Approx(1));
+  REQUIRE(faded->effects.size() == 1);
+  CHECK(faded->effects[0].color.a < 0.2f);  // 0.25 at the end
+  CHECK(faded->effects[0].color.a > 0.05f);
 }
 
 TEST_CASE("prototype.player: Change to with Smart animate keeps the old state while its layers fade out") {

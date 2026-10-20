@@ -125,9 +125,10 @@ Action readAction(const json::Value& v) {
   a.navigation = enumOf(v.get("navigationType"), kNavigations, Navigation::NAVIGATE);
   a.dest = guidOf(v.get("transitionNodeID"));
   a.transition = enumOf(v.get("transitionType"), kTransitions, Transition::INSTANT);
-  // Seconds; Figma reads a missing or zero duration as 0.3 (`transitionDuration || .3`).
-  a.duration = num(v.get("transitionDuration"), 0);
-  if (!(a.duration != 0)) a.duration = 0.3;
+  // Seconds. Figma's viewer (`s1.transitionDuration`): a missing or negative duration plays 0.3 s, an explicit 0 stays 0
+  // (an instant change); only its Plugin API reads 0 as 0.3 (`|| .3`). Instant transitions play 0 whatever is stored.
+  a.duration = num(v.get("transitionDuration"), -1);
+  if (!(a.duration >= 0)) a.duration = 0.3;
   if (const json::Value* d = v.get("transitionDurationVar"); d && d->isObject()) a.durationVar = *d;
   a.easing = enumOf(v.get("easingType"), kEasings, Easing::OUT_CUBIC);
   if (const json::Value* f = v.get("easingFunction"); f && f->isArray())
@@ -358,15 +359,16 @@ std::vector<Interaction> readInteractions(const NodeProps& p) {
     i.stateManagementVersion = static_cast<int>(num(x.get("stateManagementVersion"), 0));
     if (const json::Value* e = x.get("event"); e && e->isObject()) {
       i.trigger = enumOf(e->get("interactionType"), kTriggers, Trigger::ON_CLICK);
-      // After delay: a missing or zero timeout reads as 0.8 s, as Figma's (`transitionTimeout || .8`).
-      i.timeout = num(e->get("transitionTimeout"), 0);
-      if (!(i.timeout != 0)) i.timeout = 0.8;
+      // After delay: a missing (or negative) timeout plays as 0.8 s; an explicit 0 stays 0 — Figma's viewer
+      // (`sQ.transitionTimeout`: value ≥ 0 ? value : .8). Only its Plugin API reads 0 as 0.8 (`|| .8`).
+      i.timeout = num(e->get("transitionTimeout"), -1);
+      if (!(i.timeout >= 0)) i.timeout = 0.8;
       // Mouse enter / leave / down / up: the delay is Figma's interactionMaintained + interactionDuration (seconds; a
       // maintained interaction without a duration waits 0.3 s). Files Wecra wrote before kept it in transitionTimeout.
       if (hasDelay(i.trigger)) {
         if (flag(e->get("interactionMaintained"))) {
-          double d = num(e->get("interactionDuration"), 0);
-          i.delay = d > 0 ? d : 0.3;
+          double d = num(e->get("interactionDuration"), -1);
+          i.delay = d >= 0 ? d : 0.3;  // the viewer's `interactionDuration`: missing → 0.3, an explicit 0 stays 0
         } else {
           i.delay = std::max(0.0, num(e->get("transitionTimeout"), 0));
         }

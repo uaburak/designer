@@ -25,16 +25,20 @@ constexpr double kArrowDelayMs = 500;     // After delay on a screen reached wit
 constexpr double kWheelLatchMs = 200;     // wheel events this close keep scrolling the same frame
 
 double lerp(double a, double b, double t) { return a + (b - a) * t; }
+// An eased progress used as an opacity: an overshooting easing never makes a layer more than opaque or less than clear.
+double unit(double t) { return std::clamp(t, 0.0, 1.0); }
 
 Color lerpColor(const Color& a, const Color& b, double t) {
   return {static_cast<float>(lerp(a.r, b.r, t)), static_cast<float>(lerp(a.g, b.g, t)), static_cast<float>(lerp(a.b, b.b, t)),
           static_cast<float>(lerp(a.a, b.a, t))};
 }
 
-// Rotation + translation (and a flip) interpolate as an angle and a position; anything else by components.
+// Rotation + translation (and a flip) interpolate as an angle and a position; anything else by components. Not clamped:
+// an easing that overshoots (Back, springs) carries the layer past its end and back, as Figma's viewer does (its
+// translation is a plain lerp of the eased progress; measured live 2026-10-20, docs/research/rea/prototype.md §3).
 Mat2x3 lerpMatrix(const Mat2x3& a, const Mat2x3& b, double t) {
-  if (t <= 0) return a;
-  if (t >= 1) return b;
+  if (t == 0) return a;
+  if (t == 1) return b;
   double da = a.determinant(), db = b.determinant();
   bool rigid = std::fabs(std::fabs(da) - 1) < 1e-3 && std::fabs(std::fabs(db) - 1) < 1e-3 && (da > 0) == (db > 0);
   if (rigid) {
@@ -60,12 +64,13 @@ std::vector<Paint> lerpPaints(const std::vector<Paint>& a, const std::vector<Pai
       continue;
     }
     out[i].color = lerpColor(a[i].color, b[i].color, t);
-    out[i].opacity = static_cast<float>(lerp(a[i].opacity, b[i].opacity, t));
+    // Opacities stay in [0, 1] when the easing overshoots (Figma's viewer clamps a paint's opacity).
+    out[i].opacity = static_cast<float>(std::clamp(lerp(a[i].opacity, b[i].opacity, t), 0.0, 1.0));
     if (a[i].visible != b[i].visible) {
       // One side hidden: fade it.
       out[i].visible = true;
       double from = a[i].visible ? a[i].opacity : 0, to = b[i].visible ? b[i].opacity : 0;
-      out[i].opacity = static_cast<float>(lerp(from, to, t));
+      out[i].opacity = static_cast<float>(std::clamp(lerp(from, to, t), 0.0, 1.0));
     }
     if (a[i].stops.size() == b[i].stops.size())
       for (size_t k = 0; k < a[i].stops.size(); k++) {
@@ -88,19 +93,17 @@ std::string textSignature(const NodeProps& p) {
   return t.textData.characters + "\x01" + t.fontName.family + "\x01" + t.fontName.style;
 }
 
-// The visible shadows of a layer (help.figma.com 360039818874: "Figma does not support smart animate for layers with
-// drop shadow and inner shadow effects" — a layer whose shadows differ dissolves instead).
-std::vector<Effect> shadowsOf(const std::vector<Effect>& list) {
-  std::vector<Effect> out;
-  for (const Effect& e : list)
-    if (e.visible && e.isShadow()) out.push_back(e);
-  return out;
-}
-
-// Layer and background blurs (and texture / noise) animate: their radius and colour, when both sides have the
-// same effects in the same order; otherwise the destination's.
-std::vector<Effect> lerpEffects(const std::vector<Effect>& a, const std::vector<Effect>& b, double t) {
-  if (a.size() != b.size()) return t < 0.5 ? a : b;
+// Effects animate pair by pair: radius, spread, offset and colour; an effect only one side has comes in (or goes) with
+// its colour's alpha — live Figma 2026-10-20: a layer that gains a drop shadow moves at full opacity while the shadow
+// fades in at its final offset (help.figma.com's "no smart animate for shadows" no longer holds); types that differ at
+// an index switch half way.
+std::vector<Effect> lerpEffects(std::vector<Effect> a, std::vector<Effect> b, double t) {
+  auto clear = [](Effect e) {
+    e.color.a = 0;
+    return e;
+  };
+  while (a.size() < b.size()) a.push_back(clear(b[a.size()]));
+  while (b.size() < a.size()) b.push_back(clear(a[b.size()]));
   std::vector<Effect> out = b;
   for (size_t i = 0; i < a.size(); i++) {
     if (a[i].type != b[i].type) return t < 0.5 ? a : b;
@@ -2376,6 +2379,7 @@ void Player::snapWalk(Snapshot& s, Guid id, const Mat2x3& parentRel, const std::
   n.radii = p->cornerRadii;
   n.effects = p->effects;
   n.text = textSignature(*p);
+  n.type = p->type;
   if (p->type == NodeType::TEXT) n.fontSize = p->text().fontSize;
   s.byKey.emplace(key, std::move(n));
   std::unordered_map<std::string, int> seen;
@@ -2393,9 +2397,17 @@ Player::Snapshot Player::snapshot(Guid root, bool rootTransform) const {
   return s;
 }
 
+namespace {
+// A leaf shape (no children of its own): a change of kind can't morph, it cross-fades.
+bool leafShape(NodeType t) {
+  return t == NodeType::RECTANGLE || t == NodeType::ROUNDED_RECTANGLE || t == NodeType::ELLIPSE || t == NodeType::VECTOR ||
+         t == NodeType::STAR || t == NodeType::REGULAR_POLYGON || t == NodeType::LINE;
+}
+}  // namespace
+
 bool Player::animatable(const SnapNode& s, const NodeProps& p) const {
   if (s.text != textSignature(p)) return false;
-  return shadowsOf(s.effects) == shadowsOf(p.effects);
+  return !(s.type != p.type && (leafShape(s.type) || leafShape(p.type)));
 }
 
 std::unordered_set<std::string> Player::matchedKeys(const Snapshot& from, Guid to, bool rootTransform) const {
@@ -2428,19 +2440,32 @@ void Player::smartDest(Guid id, const Snapshot& from, double p, bool rootTransfo
   Mat2x3 destRel = parentDest * own;
   Mat2x3 interpRel;
   bool unmatched = false;
+  if (root) dissolving_.clear();
   auto it = from.byKey.find(key);
-  if (it != from.byKey.end() && (root || animatable(it->second, *np))) {
+  if (it != from.byKey.end() && !root && !animatable(it->second, *np)) {
+    // Matched but not animatable: the new layer fades in along the matched path (its subtree with it); the old one
+    // fades out along the same path (smartSource, through dissolving_).
+    unmatched = true;
+    interpRel = lerpMatrix(it->second.rel, destRel, p);
+    dissolving_[key] = interpRel;
+    NodeProps q = *np;
+    q.opacity *= unit(p);
+    q.transform = parentInterp.inverse() * interpRel;
+    out[id] = std::move(q);
+  } else if (it != from.byKey.end() && (root || animatable(it->second, *np))) {
     const SnapNode& s = it->second;
     interpRel = lerpMatrix(s.rel, destRel, p);
     NodeProps q = *np;
-    q.size = {lerp(s.size.x, np->size.x, p), lerp(s.size.y, np->size.y, p)};
+    // Position and size follow the eased progress past 0 and 1 (Back easings, springs); opacity is clamped to [0, 1],
+    // radii and stroke weight to ≥ 0 (Figma's viewer: `max(lerp, 0)` for each corner radius, opacity clamped).
+    q.size = {std::max(0.0, lerp(s.size.x, np->size.x, p)), std::max(0.0, lerp(s.size.y, np->size.y, p))};
     double toOpacity = np->visible ? np->opacity : 0;
-    q.opacity = lerp(s.opacity, toOpacity, p);
+    q.opacity = std::clamp(lerp(s.opacity, toOpacity, p), 0.0, 1.0);
     if (!np->visible && q.opacity > 0) q.visible = true;
     q.fillPaints = lerpPaints(s.fills, np->fillPaints, p);
     q.strokePaints = lerpPaints(s.strokes, np->strokePaints, p);
-    q.strokeWeight = lerp(s.strokeWeight, np->strokeWeight, p);
-    for (size_t k = 0; k < 4; k++) q.cornerRadii[k] = lerp(s.radii[k], np->cornerRadii[k], p);
+    q.strokeWeight = std::max(0.0, lerp(s.strokeWeight, np->strokeWeight, p));
+    for (size_t k = 0; k < 4; k++) q.cornerRadii[k] = std::max(0.0, lerp(s.radii[k], np->cornerRadii[k], p));
     q.effects = lerpEffects(s.effects, np->effects, p);
     if (!(root && !rootTransform)) q.transform = parentInterp.inverse() * interpRel;
     // A text whose font size changed: drawn at its new size, scaled from the old one (its glyphs grow, no re-wrap).
@@ -2455,7 +2480,7 @@ void Player::smartDest(Guid id, const Snapshot& from, double p, bool rootTransfo
     interpRel = parentInterp * own;
     if (!parentUnmatched) {
       NodeProps q = *np;
-      q.opacity *= p;
+      q.opacity *= unit(p);
       out[id] = std::move(q);
     }
   }
@@ -2470,7 +2495,7 @@ void Player::smartDest(Guid id, const Snapshot& from, double p, bool rootTransfo
 }
 
 void Player::smartSource(Guid id, const std::unordered_set<std::string>& keys, double p, PropsOverrides& out, const std::string& key,
-                         bool root, bool parentUnmatched) const {
+                         bool root, bool parentUnmatched, const Mat2x3& parentRel) const {
   const NodeProps* np = props(id);
   if (!np) return;
   bool matched = root || keys.count(key) != 0;
@@ -2486,15 +2511,19 @@ void Player::smartSource(Guid id, const std::unordered_set<std::string>& keys, d
     out[id] = std::move(q);
   } else if (!parentUnmatched) {
     NodeProps q = *np;
-    q.opacity *= 1 - p;
+    q.opacity *= unit(1 - p);
+    // A dissolving match: it leaves along the path its new layer comes in on.
+    if (auto d = dissolving_.find(key); d != dissolving_.end()) q.transform = parentRel.inverse() * d->second;
     out[id] = std::move(q);
   }
+  // `parentRel` is, for the root, the root's own matrix as drawn (identity for a screen).
+  Mat2x3 rel = root ? parentRel : parentRel * np->transform;
   std::unordered_map<std::string, int> seen;
   for (Guid c : kids) {
     const NodeProps* cp = props(c);
     if (!cp || ghosts_.count(c)) continue;
     int k = seen[cp->name]++;
-    smartSource(c, keys, p, out, key + "/" + cp->name + "#" + std::to_string(k), false, !matched || parentUnmatched);
+    smartSource(c, keys, p, out, key + "/" + cp->name + "#" + std::to_string(k), false, !matched || parentUnmatched, rel);
   }
 }
 
@@ -2559,6 +2588,10 @@ void Player::scrollOverrides(Guid frame, PropsOverrides& out, bool topLevel, Vec
 void Player::addFrame(const Side& s, Vec2 offset, double alpha, PropsOverrides&& overrides, double fixedAlpha) {
   const NodeProps* p = props(s.frame);
   if (!p) return;
+  // A screen's or an overlay's fade follows the eased progress clamped to [0, 1] (Figma's frame-pair transitions:
+  // `clamp(lerp(from, to, t), 0, 1)` for opacity, the translation unclamped).
+  alpha = unit(alpha);
+  if (fixedAlpha >= 0) fixedAlpha = unit(fixedAlpha);
   scrollOverrides(s.frame, overrides, !s.overlay, s.scroll);
   // Instances changing state inside it.
   for (auto& ia : instanceAnims_) {
@@ -2569,7 +2602,10 @@ void Player::addFrame(const Side& s, Vec2 offset, double alpha, PropsOverrides&&
       smartDest(ia.instance, ia.from, e, true, tmp, Mat2x3{}, Mat2x3{}, std::string(), true, false);
       // The old state's unmatched layers fade out over it (help: layers that don't match dissolve), moving with it.
       if (ia.ghost != kNoGuid && doc().has(ia.ghost)) {
-        smartSource(ia.ghost, matchedKeys(ia.from, ia.instance, true), e, tmp, std::string(), true, false);
+        // Where the old state is drawn: over the instance as it moves (in auto layout), else where it was.
+        Mat2x3 ghostAt = props(ia.ghost)->transform;
+        if (auto i = tmp.find(ia.instance); i != tmp.end() && !ia.around.empty()) ghostAt = i->second.transform;
+        smartSource(ia.ghost, matchedKeys(ia.from, ia.instance, true), e, tmp, std::string(), true, false, ghostAt);
         if (auto g = tmp.find(ia.ghost), i = tmp.find(ia.instance); g != tmp.end() && i != tmp.end() && !ia.around.empty())
           g->second.transform = i->second.transform;
       }
@@ -2577,13 +2613,13 @@ void Player::addFrame(const Side& s, Vec2 offset, double alpha, PropsOverrides&&
       // Dissolve: the new state fades in over the old one.
       if (const NodeProps* ip = props(ia.instance)) {
         NodeProps q = *ip;
-        q.opacity *= e;
+        q.opacity *= unit(e);
         tmp[ia.instance] = std::move(q);
       }
       if (ia.ghost != kNoGuid)
         if (const NodeProps* gp = props(ia.ghost)) {
           NodeProps q = *gp;
-          q.opacity *= 1 - e;
+          q.opacity *= unit(1 - e);
           tmp[ia.ghost] = std::move(q);
         }
     }
@@ -2732,8 +2768,8 @@ void Player::addSlot(const Side* x, const Side* y, const Anim* a) {
   if (a->smart && hasX && hasY) {
     PropsOverrides src, dst;
     std::unordered_set<std::string> keys = matchedKeys(a->fromSnap, y->frame, false);
-    smartSource(x->frame, keys, p, src, std::string(), true, false);
     smartDest(y->frame, a->fromSnap, p, false, dst, Mat2x3{}, Mat2x3{}, std::string(), true, false);
+    smartSource(x->frame, keys, p, src, std::string(), true, false);
     background(*y, 1);
     Side xs = *x, ys = *y;
     Vec2 pos{lerp(x->pos.x, y->pos.x, p), lerp(x->pos.y, y->pos.y, p)};
@@ -2768,13 +2804,13 @@ void Player::addSlot(const Side* x, const Side* y, const Anim* a) {
     auto at = [&](Vec2 from, Vec2 to) { return Vec2{lerp(from.x, to.x, p) * S.x, lerp(from.y, to.y, p) * S.y}; };
     auto drawX = [&] {
       if (!hasX) return;
-      double alpha = lerp(g.outAlphaFrom, g.outAlphaTo, p);
+      double alpha = unit(lerp(g.outAlphaFrom, g.outAlphaTo, p));
       background(*x, alpha);
       addFrame(*x, at(g.outFrom, g.outTo), alpha, {});
     };
     auto drawY = [&] {
       if (!hasY) return;
-      double alpha = lerp(g.inAlphaFrom, g.inAlphaTo, p);
+      double alpha = unit(lerp(g.inAlphaFrom, g.inAlphaTo, p));
       background(*y, alpha);
       addFrame(*y, at(g.inFrom, g.inTo), alpha, {});
     };
@@ -2784,6 +2820,7 @@ void Player::addSlot(const Side* x, const Side* y, const Anim* a) {
   }
   // Dissolve (and Smart animate with nothing to match): the new one fades in over the old.
   auto draw = [&](const Side& s, double alpha) {
+    alpha = unit(alpha);
     background(s, alpha);
     addFrame(s, {}, alpha, {});
   };
@@ -2931,7 +2968,7 @@ void Player::addMatching(const Side& x, const Side& y, const Anim& a, double p) 
     NodeProps q = *np;
     if (!matched) {
       if (inInstance) {
-        q.opacity *= 1 - p;
+        q.opacity *= unit(1 - p);
         anyFading = anyFading || q.opacity > 0;
       } else {
         q.visible = false;

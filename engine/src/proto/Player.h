@@ -177,6 +177,7 @@ class Player {
     CornerRadii radii{0, 0, 0, 0};
     std::vector<Effect> effects;
     std::string text;  // a TEXT layer's characters and font (Smart animate dissolves a text whose content changed)
+    NodeType type = NodeType::NONE;  // a leaf shape whose kind changed (rectangle → ellipse) dissolves while it moves
     double fontSize = 0;  // a TEXT layer's: a size change alone scales it (Figma)
   };
   struct Snapshot {
@@ -397,7 +398,7 @@ class Player {
   void smartDest(Guid id, const Snapshot& from, double p, bool rootTransform, PropsOverrides& out, const Mat2x3& parentInterp,
                  const Mat2x3& parentDest, const std::string& key, bool root, bool parentUnmatched) const;
   void smartSource(Guid id, const std::unordered_set<std::string>& keys, double p, PropsOverrides& out, const std::string& key,
-                   bool root, bool parentUnmatched) const;
+                   bool root, bool parentUnmatched, const Mat2x3& parentRel = Mat2x3{}) const;
   void scrollOverrides(Guid frame, PropsOverrides& out, bool topLevel, Vec2 topScroll) const;
   // `fixedAlpha`: the top-level frame's Fixed children's alpha (< 0: `alpha`; 0: left out — drawn by the caller).
   void addFrame(const Side& s, Vec2 offset, double alpha, PropsOverrides&& overrides, double fixedAlpha = -1);
@@ -406,10 +407,15 @@ class Player {
   void addMatching(const Side& x, const Side& y, const Anim& a, double p);
   // Fixed children of a top-level frame drawn on their own (unscrolled), each with the alpha `alphaOf` gives (0: none).
   void addFixed(const Side& s, Vec2 offset, const std::function<double(Guid, const std::string&)>& alphaOf);
-  // The keys of `from`'s layers that `to`'s layers match and can animate (Smart animate falls back to Dissolve for a
-  // layer whose shadows or text content changed: help.figma.com 360039818874).
+  // The keys of `from`'s layers that `to`'s layers match and can animate (a matched layer whose text content or shape
+  // kind changed dissolves while it moves; shadows animate — live Figma 2026-10-20).
   std::unordered_set<std::string> matchedKeys(const Snapshot& from, Guid to, bool rootTransform) const;
   bool animatable(const SnapNode& s, const NodeProps& p) const;
+  // Matched layers that can't animate (text content, shadows, shape kind changed) dissolve while they move (Figma's
+  // plan nodes with `isDissolve`, live 2026-10-20: a rectangle → an ellipse of the same name cross-fades along the
+  // path): smartDest records each one's interpolated transform (relative to the destination frame) under its key, so
+  // smartSource moves the old layer along the same path as it fades out. Filled by smartDest, read by smartSource.
+  mutable std::unordered_map<std::string, Mat2x3> dissolving_;
   double progress(const Anim& a) const;
   // Responsive: the frames shown resized to the window (or the device's screen); `restoreResponsive` puts them back.
   bool responsiveOn() const;
