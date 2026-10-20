@@ -311,6 +311,7 @@ describe("components as Figma stores them (components.md task 8)", () => {
         strokePaints: [{ type: "SOLID", color: { r: 0, g: 0, b: 0, a: 1 }, opacity: 1, visible: true, colorVar: alias(LVAR) }],
         styleIdForFill: { guid: STYLE },
       }),
+      node(g(9, 14), "FRAME", g(0, 1), "*", { size: { x: 10, y: 10 }, detachedSymbolId: { assetRef: { key: "9".repeat(40) } } }),
     );
     const out = new Map(toFigmaMessage(m).nodeChanges!.map((n) => [guidKey(n.guid!), n as any]));
     const r = out.get(guidKey(R))!;
@@ -318,6 +319,8 @@ describe("components as Figma stores them (components.md task 8)", () => {
     expect(r.styleIdForFill).toEqual({ assetRef: { key: "f".repeat(40), version: "4:5" } });
     expect(r.strokePaints[0].colorVar.value.alias).toEqual({ guid: LVAR });
     expect(out.get(guidKey(VAR))!.guid).toEqual(VAR); // the copy itself keeps its guid
+    // A detached instance's main by key alone: Figma's editor aborts on an assetRef without a version ("" as Figma writes).
+    expect(out.get("9:14")!.detachedSymbolId).toEqual({ assetRef: { key: "9".repeat(40), version: "" } });
   });
 
   it("makes a variant property's id from its name as Figma does", () => {

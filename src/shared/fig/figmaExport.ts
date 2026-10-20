@@ -364,6 +364,21 @@ function figmaComponents(nodes: NodeChange[]): NodeChange[] {
  * Figma's presentation never switched a library collection's mode (Set variable mode did nothing) and the bindings
  * weren't the library's.
  */
+/**
+ * Every `assetRef` with a `version`, "" when there is none (Figma writes `{key, version: ""}` for a detached
+ * instance's `detachedSymbolId`). Without it Figma's editor aborts applying the node changes — "[fatalEmptyOptional
+ * Dereferenced] empty optional dereferenced" in visitMessage_nodeChanges, read off its Sentry event (2026-10-20, the
+ * owner's "Prototype deneme": every frame holding a detached instance).
+ */
+function withAssetVersions(v: any): any {
+  if (Array.isArray(v)) return v.map(withAssetVersions);
+  if (!v || typeof v !== "object" || v instanceof Uint8Array) return v;
+  const out: any = {};
+  for (const [k, x] of Object.entries(v)) out[k] = withAssetVersions(x);
+  if (out.assetRef && typeof out.assetRef === "object" && out.assetRef.key !== undefined && out.assetRef.version === undefined) out.assetRef = { ...out.assetRef, version: "" };
+  return out;
+}
+
 function figmaAssetRefs(nodes: any[]): any[] {
   const refs = new Map<string, { key: string; version?: string }>();
   // A library's copy: a variable or collection with its library's key; a style Figma keeps unpublishable (the library's
@@ -399,7 +414,7 @@ function figmaAssetRefs(nodes: any[]): any[] {
 export function toFigmaMessage(message: Message): Message {
   const table = NodeTable.fromMessage(message);
   const plain = table.toMessage({ keepDerived: table.derivedDataVersion === FIGMA_DERIVED_DATA_VERSION, sessionID: 0 });
-  return { type: "NODE_CHANGES", sessionID: 0, ackID: 0, nodeChanges: figmaAssetRefs(figmaComponents((plain.nodeChanges ?? []).map(figmaNode))), blobs: plain.blobs ?? [] };
+  return { type: "NODE_CHANGES", sessionID: 0, ackID: 0, nodeChanges: figmaAssetRefs(figmaComponents((plain.nodeChanges ?? []).map(figmaNode))).map(withAssetVersions), blobs: plain.blobs ?? [] };
 }
 
 /** `canvas.fig` bytes for a `.fig` export of `message` (zstd when the codecs have it, else deflate-raw). */
