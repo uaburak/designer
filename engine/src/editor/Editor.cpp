@@ -241,6 +241,10 @@ void Editor::noteChange(const NodeChange& c, NodeType typeBefore) {
     textCache_.erase(c.guid);
   }
   if (c.phase != Phase::CHANGED || (mask & (kTextLayoutFields | F_FILLS | F_TYPE | F_EXTRA))) measured_.erase(c.guid);
+  if (c.phase == Phase::REMOVED) fallbackMeasured_.erase(c.guid);
+  else if (txn_.open && txn_.kind != TxnKind::LOAD && c.phase == Phase::CHANGED &&
+           ((mask & kTextLayoutFields) || ((mask & F_EXTRA) && text::changesTextLayout(c.props.extra))))
+    if (const Node* tn = doc_.get(c.guid); tn && tn->props.type == NodeType::TEXT) fallbackMeasured_.insert(c.guid);
   if (text_.node == c.guid) events_.textEdit = true;
   // Round 12: the edited vector's stroke (dashes, width points) decides Variable width; the panels show its points.
   if (vector_.node != kNoGuid && vector_.node == c.guid && (mask & (F_EXTRA | F_DASH_PATTERN | F_STROKE_WEIGHT))) events_.vectorEdit = true;
@@ -1274,6 +1278,8 @@ void Editor::loadDocument(std::vector<NodeChange>&& nodes, Guid page, StoredDeri
   textCache_.clear();
   measured_.clear();
   unmeasured_.clear();
+  fallbackMeasured_.clear();
+  setNumber_ = 0;
   instanceDirty_.clear();
   sourceDeps_.clear();
   instanceSources_.clear();

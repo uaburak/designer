@@ -36,5 +36,8 @@ inline constexpr const char* kVariantDefaultLocked = "variant_default_locked";
 inline constexpr const char* kSlotDefaultLocked = "slot_default_locked";
 // "Can only add variant property to a component set" (the plugin API; the UI makes the component a set).
 inline constexpr const char* kVariantNeedsSet = "variant_property_needs_set";
+// A property reference's field that isn't one (BIND_COMPONENT_PROPERTY: characters, visible, mainComponent — Figma's
+// componentPropertyReferences keys — or TEXT_DATA, VISIBLE, OVERRIDDEN_SYMBOL_ID, SLOT_CONTENT_ID).
+inline constexpr const char* kPropertyRefFieldInvalid = "property_reference_field_invalid";
 
 }  // namespace eng::refusal

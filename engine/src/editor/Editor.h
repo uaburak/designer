@@ -959,6 +959,9 @@ class Editor : private LayoutHost, public TextLayouts {
   std::vector<proto::Interaction> playedInteractions(Guid id, std::vector<int>* ownIndex = nullptr) const;
   // Which of a layer's own interactions are its connections (proto::instanceOwnEntries; all of them but an instance's).
   std::vector<bool> ownInteractions(Guid id) const;
+  // A copy's interactions (duplicate, paste) get ids of their own, as Figma's do — but an instance's entries for its
+  // main's interactions, which are matched by id.
+  void freshInteractionIds(NodeProps& p);
 
   // ---- Variables, modes and styles (editor/Variables.cpp, editor/VariableCommands.cpp; docs/schema.md §6) ----
   // A resolved variable value.
@@ -2560,6 +2563,11 @@ class Editor : private LayoutHost, public TextLayouts {
   };
   std::unordered_map<Guid, std::vector<MeasuredText>, GuidHash> measured_;  // measureText's results
   std::unordered_set<Guid, GuidHash> unmeasured_;  // auto-resized texts measured while their font loaded
+  // Texts whose text fields an edit changed (their own, a main's reaching an instance's sublayer, an override, a
+  // property): with a missing font they are measured with the fallback they draw with (Figma), where an untouched
+  // one keeps the size it was stored with.
+  std::unordered_set<Guid, GuidHash> fallbackMeasured_;
+  unsigned long setNumber_ = 0;  // the last "Component N" a new component set took (combineAsVariants)
   TextSession text_;
   VectorSession vector_;
   PaintSession paint_;

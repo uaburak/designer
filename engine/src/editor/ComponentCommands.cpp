@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <map>
 #include <unordered_set>
 
@@ -745,7 +746,10 @@ Status Editor::componentCommand(CommandId id, const CommandArgs& args) {
       begin(TxnKind::USER, "Combine as variants");
       Guid set = kNoGuid;
       Status st = combineAsVariants(top, &set);
-      if (set != kNoGuid) changeSelection({set});
+      if (set != kNoGuid) {
+        changeSelection({set});
+        created_ = {set};
+      }
       commit();
       return st;
     }
@@ -918,6 +922,25 @@ Status Editor::combineAsVariants(std::vector<Guid> symbols, Guid* setOut) {
   std::vector<std::vector<std::pair<std::string, std::string>>> parsed(symbols.size());
   bool allParsed = true;
   for (size_t i = 0; i < symbols.size(); i++) allParsed &= parseVariantName(doc_.get(symbols[i])->props.name, parsed[i]);
+  // "Accordion/State=Closed", "Accordion/State=Open": the shared base name is the set's, the rest its variants' values.
+  std::string base;
+  {
+    std::vector<std::vector<std::pair<std::string, std::string>>> rest(symbols.size());
+    bool shared = true;
+    for (size_t i = 0; i < symbols.size() && shared; i++) {
+      const std::string& name = doc_.get(symbols[i])->props.name;
+      size_t slash = name.rfind('/', name.find('='));
+      std::string b = slash == std::string::npos ? std::string() : trim(name.substr(0, slash));
+      shared = !b.empty() && (i == 0 || b == base) && parseVariantName(name.substr(slash + 1), rest[i]);
+      base = b;
+    }
+    if (shared) {
+      parsed = std::move(rest);
+      allParsed = true;
+    } else {
+      base.clear();
+    }
+  }
   if (allParsed) {
     for (auto& ps : parsed)
       for (auto& [k, v] : ps)
@@ -991,8 +1014,19 @@ Status Editor::combineAsVariants(std::vector<Guid> symbols, Guid* setOut) {
       shared &= segs.size() > 1 && trim(segs[0]) == trim(first[0]);
     }
     if (shared) common = trim(first[0]);
+    if (!base.empty()) common = base;
   }
-  sp.name = !common.empty() ? common : symbols.size() == 1 ? doc_.get(symbols[0])->props.name : nextName("Component");
+  if (!common.empty()) sp.name = common;
+  else if (symbols.size() == 1) sp.name = doc_.get(symbols[0])->props.name;
+  else {
+    // "Component N", the numbering going on through the file: past every "Component N" there is and every set this
+    // session named so (renamed since, the next one still takes the next number).
+    std::string next = nextName("Component");
+    unsigned long n = std::strtoul(next.c_str() + std::strlen("Component "), nullptr, 10);
+    if (n <= setNumber_) n = setNumber_ + 1;
+    setNumber_ = n;
+    sp.name = "Component " + std::to_string(n);
+  }
   sp.comp().isStateGroup = true;
   sp.fillPaints.clear();
   sp.strokePaints = {Paint::solid(kComponentPurple)};
@@ -2314,10 +2348,14 @@ Status Editor::deleteComponentProperty(Guid ref, const std::string& prop) {
 }
 
 Status Editor::bindComponentProperty(const std::vector<Guid>& ids, const std::string& field, const std::string& prop) {
+  // The field: Figma's componentPropertyReferences keys (the plugin API's names) or the binding field's own.
   VariableField f = VariableField::MISSING;
-  if (!enumFromName(field, f) || (f != VariableField::VISIBLE && f != VariableField::TEXT_DATA && f != VariableField::OVERRIDDEN_SYMBOL_ID &&
-                                  f != VariableField::SLOT_CONTENT_ID))
-    return E_INVALID;
+  if (field == "characters") f = VariableField::TEXT_DATA;
+  else if (field == "visible") f = VariableField::VISIBLE;
+  else if (field == "mainComponent") f = VariableField::OVERRIDDEN_SYMBOL_ID;
+  else if (!enumFromName(field, f)) f = VariableField::MISSING;
+  if (f != VariableField::VISIBLE && f != VariableField::TEXT_DATA && f != VariableField::OVERRIDDEN_SYMBOL_ID && f != VariableField::SLOT_CONTENT_ID)
+    return refuse(refusal::kPropertyRefFieldInvalid);
   begin(TxnKind::USER, prop.empty() ? "Detach property" : "Apply property");
   bool any = false;
   for (Guid id : ids) {
@@ -2359,15 +2397,18 @@ Status Editor::insertInstance(Guid main, const CommandArgs& args) {
   const Node* mn = doc_.get(main);
   if (mn && mn->props.isComponentSet()) main = defaultVariantOf(doc_, main), mn = doc_.get(main);
   if (!mn || mn->props.type != NodeType::SYMBOL || page_ == kNoGuid) return E_INVALID;
-  // Into `parent` (or the frame at the point, else the page), its centre at (x, y) on the page (else the view's centre).
+  // Into `parent` (or the frame at the point, else the page), its centre at (x, y) on the page (else the view's centre);
+  // into a `parent` given without x / y: at the parent's origin (Figma's createInstance + appendChild, x = y = 0 in it).
   Vec2 at;
   const json::Value* x = arg(args, "x");
   const json::Value* y = arg(args, "y");
-  if (x && y && x->isNumber() && y->isNumber()) at = {x->number, y->number};
+  bool placed = x && y && x->isNumber() && y->isNumber();
+  if (placed) at = {x->number, y->number};
   else at = camera_.toWorld(visibleCentre());
   Guid parent = kNoGuid;
   for (Guid g : refsArg(args, "parent"))
     if (arg(args, "parent") && acceptsChildren(g)) parent = g;
+  bool atOrigin = parent != kNoGuid && !placed;
   if (parent == kNoGuid) {
     parent = page_;
     auto path = hitPath(doc_, page_, at, pixel());
@@ -2381,8 +2422,11 @@ Status Editor::insertInstance(Guid main, const CommandArgs& args) {
   Vec2 size = mn->props.size;
   Mat2x3 world = Mat2x3::translate(std::round(at.x - size.x / 2), std::round(at.y - size.y / 2));
   begin(TxnKind::USER, "Insert instance");
-  Guid id = createInstance(main, parent, doc_.positionAtEnd(parent), localFor(parent, world));
-  if (id != kNoGuid) changeSelection({id});
+  Guid id = createInstance(main, parent, doc_.positionAtEnd(parent), atOrigin ? Mat2x3() : localFor(parent, world));
+  if (id != kNoGuid) {
+    changeSelection({id});
+    created_ = {id};  // (run_command reports it)
+  }
   commit();
   return id != kNoGuid ? OK : E_INVALID;
 }

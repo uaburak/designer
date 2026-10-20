@@ -236,12 +236,13 @@ Vec2 Layout::contentSize(Guid frame, Vec2 frameSize, int hug) {
   double gap = p.stack().stackSpacing, counterGap = p.stack().stackCounterSpacing.value_or(p.stack().stackSpacing);
   bool wrap = p.stack().stackWrap == StackWrap::WRAP && P == 0 && !(hug & bitP);
   // A child that stretches across the counter axis this frame hugs counts for its content there (fillHugAxes); one
-  // stretched across a counter axis of a set size with its aspect ratio locked is as long as that size sets it (place).
+  // stretched across a counter axis of a set size is measured at that size, as place will lay it out: an auto-height
+  // text wraps there, a frame lays its content out there, an aspect ratio locked sets the other side (Figma: stretch,
+  // then the width, then the height — an auto-height text's old width never decides its parent's hug).
   auto measure = [&](Guid c, const NodeProps& cp) {
     int f = 0;
     if (cp.stackChildAlignSelf == StackCounterAlign::STRETCH && (hug & bitC)) f |= bitC;
-    if (cp.stackChildAlignSelf == StackCounterAlign::STRETCH && !(hug & bitC) && !wrap && axisAligned(cp.transform) && !cp.fitsChildren() &&
-        aspectRatio(cp) > 0) {
+    if (cp.stackChildAlignSelf == StackCounterAlign::STRETCH && !(hug & bitC) && !wrap && axisAligned(cp.transform) && !cp.fitsChildren()) {
       double inner = std::max(0.0, axis(frameSize, C) - padC);
       return natural(c, C == 0 ? inner : -1, C == 1 ? inner : -1);
     }

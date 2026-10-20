@@ -733,6 +733,7 @@ Guid Editor::cloneTree(Guid src, Guid parent, const std::string& position, const
   if (keepHere) keepKeys(src, p);
   else p.overrideKey = kNoGuid;
   p.comp().isSoftDeleted = false;
+  freshInteractionIds(p);
   motionCopyTracks(p, parent, nullptr);  // Motion: the copy animates on tracks of its own (docs/motion.md §4.2)
   write(NodeChange::created(id, p));
   for (Guid c : kids) {
@@ -1618,6 +1619,7 @@ uint32_t Editor::pasteWith(const Clipboard& clip, uint32_t flags) {
     } else {
       id = newGuid();
     }
+    freshInteractionIds(p);
     motionCopyTracks(p, parent, &clip.nodes);  // Motion: tracks of its own, from the clipboard (docs/motion.md §4.2)
     write(NodeChange::created(id, p));
     if (keepIdentity) movedMains.push_back({src.guid, id});

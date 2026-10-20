@@ -126,10 +126,14 @@ bool Editor::measureText(Guid id, double width, Vec2& size) {
       size = m.size;
       return true;
     }
-  MeasuredText m{width, generation, L->size, !(L->pendingFont || L->missingFont), L->pendingFont};
+  // A missing font of a text an edit changed: measured with the fallback it draws with (Figma lays it out with the
+  // fallback's metrics), so the box, its auto-layout parents and the drawing agree.
+  bool fallback = L->missingFont && !L->pendingFont && fallbackMeasured_.count(id);
+  MeasuredText m{width, generation, L->size, fallback || !(L->pendingFont || L->missingFont), L->pendingFont};
   if (entries.size() >= 4) entries.erase(entries.begin());
   entries.push_back(m);
-  // A font still loading: measured again when it arrives. A missing one: the stored size stands (Figma).
+  // A font still loading: measured again when it arrives. A missing one: the stored size stands (Figma) until the
+  // text is edited.
   if (L->pendingFont) unmeasured_.insert(id);
   // Measured in the box it is drawn in (an Auto width text, a fixed width one at its width): the layout is the one
   // drawing will ask for — kept, so a page's texts are shaped once at load, not once to measure and again to draw.

@@ -9,7 +9,7 @@ import { TOOL_BY_NAME, textResult, type ToolResult } from "@shared/agents/tools"
 import type { EditorController } from "../controller";
 import { cssOf } from "../model/exports";
 import { applyStyle, newNodeGuid } from "../variables";
-import { autoLayoutFields, colorHex, CREATABLE_TYPES, defaults, describeNode, describePaints, fieldsOf, IDENTITY, nodeTypeOf, normId, notTaken, parseColor, parseEffects, parsePaints, readProps, solid, typeName, type Rejection, type Spec } from "./nodeSpec";
+import { autoLayoutFields, colorHex, CREATABLE_TYPES, defaults, describeNode, describePaints, fieldsOf, IDENTITY, layerType, nodeTypeOf, normId, notTaken, parseColor, parseEffects, parsePaints, readProps, solid, typeName, type Rejection, type Spec } from "./nodeSpec";
 import { fromTool, sameValue, toTool } from "@shared/agents/docSchema";
 import { propForField } from "@shared/agents/layerProps";
 import { MODEL } from "@shared/schema/model";
@@ -174,7 +174,7 @@ const xmlEsc = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").r
 
 function toXml(t: Tree, indent = ""): string {
   const n = t.node;
-  const tag = typeName(n.type).toLowerCase().replace(/_/g, "-");
+  const tag = layerType(n).toLowerCase().replace(/_/g, "-");
   const tr = n.transform ?? IDENTITY;
   const attrs = [`id="${n.guid}"`, `name="${xmlEsc(n.name ?? "")}"`];
   if (n.type !== "CANVAS") attrs.push(`x="${Math.round(tr.m02)}"`, `y="${Math.round(tr.m12)}"`, `width="${Math.round(n.size?.x ?? 0)}"`, `height="${Math.round(n.size?.y ?? 0)}"`);
@@ -191,7 +191,28 @@ function toXml(t: Tree, indent = ""): string {
 
 function brief(env: ToolEnv, n: NodeChange) {
   const t = n.transform ?? IDENTITY;
-  return { id: n.guid, name: n.name ?? "", type: typeName(env.ed.withRealType(n).type), x: Math.round(t.m02), y: Math.round(t.m12), width: Math.round(n.size?.x ?? 0), height: Math.round(n.size?.y ?? 0) };
+  const type = layerType(env.ed.withRealType(n));
+  return { id: n.guid, name: n.name ?? "", type, x: Math.round(t.m02), y: Math.round(t.m12), width: Math.round(n.size?.x ?? 0), height: Math.round(n.size?.y ?? 0), ...(type === "COMPONENT_SET" ? componentDefinitions(env, n.guid, type) : {}) };
+}
+
+/**
+ * Figma's API on a main: a component set's (or a component's outside a set) componentPropertyDefinitions — a variant
+ * property by its name, the others as "Name#id" — and a set's variantGroupProperties; a variant's variantProperties.
+ */
+function componentDefinitions(env: ToolEnv, id: Guid, type: string): Record<string, unknown> {
+  if (type !== "COMPONENT_SET" && type !== "COMPONENT") return {};
+  const info = env.ed.engine.componentInfo(id);
+  if (!info) return {};
+  if (info.kind === "VARIANT") return info.variantProperties ? { variantProperties: info.variantProperties } : {};
+  if (type === "COMPONENT" && !info.properties.length) return {};
+  const defs: Record<string, unknown> = {};
+  const groups: Record<string, { values: string[] }> = {};
+  for (const p of info.properties) {
+    const variant = p.type === "VARIANT";
+    defs[variant ? p.name : p.apiName] = { type: p.type === "BOOL" ? "BOOLEAN" : p.type, defaultValue: p.defaultValue ?? (variant ? (p.variantOptions[0] ?? "") : null), ...(variant ? { variantOptions: p.variantOptions } : {}), ...(p.preferredValues.length ? { preferredValues: p.preferredValues } : {}) };
+    if (variant) groups[p.name] = { values: p.variantOptions };
+  }
+  return { componentPropertyDefinitions: defs, ...(type === "COMPONENT_SET" ? { variantGroupProperties: groups } : {}) };
 }
 
 function getSelection(env: ToolEnv): ToolResult {
@@ -216,7 +237,7 @@ function getMetadata(env: ToolEnv, args: Spec): ToolResult {
     const page = currentPage(env);
     refs = page ? [page] : [];
   }
-  const { roots, truncated } = trees(env, refs, depth, ["name", "type", "size", "transform", "visible", "prototypeInteractions", "prototypeStartingPoint"]);
+  const { roots, truncated } = trees(env, refs, depth, ["name", "type", "isStateGroup", "size", "transform", "visible", "prototypeInteractions", "prototypeStartingPoint"]);
   // The prototype of what is listed: the page's flows, and each listed layer's interactions (get_prototype's shape).
   const interactions: Record<string, unknown>[] = [];
   const walk = (t: Tree) => {
@@ -290,6 +311,7 @@ async function getDesignContext(env: ToolEnv, args: Spec): Promise<ToolResult> {
       const main = info?.main?.name ?? info?.mainName;
       if (main) d.component = main;
     }
+    Object.assign(d, componentDefinitions(env, t.node.guid, d.type as string));
     if (t.children.length) d.children = t.children.map((c) => describe(c, t.node));
     else if ((t.node.childIds?.length ?? 0) > 0) d.childCount = t.node.childIds!.length;
     return d;
@@ -612,12 +634,13 @@ async function placeImageTool(env: ToolEnv, args: Spec): Promise<ToolResult> {
 // ---- Writes: layers -------------------------------------------------------------------------------------------------
 
 /**
- * An SVG's layers in `parent` (Figma's figma.createNodeFromSvg: a frame holding its vectors, at 0, 0), on top: the
- * editor's own SVG import (model/svgImport.ts, what a paste of SVG makes), its layers given fresh ids and applied in
- * the write as any created layer (a paste can't run inside a write, and would land on the page in front).
+ * An SVG's layers in `parent` at `position` (Figma's figma.createNodeFromSvg: a frame the SVG's size holding its
+ * vectors, at `at` in the parent): the editor's own SVG import (model/svgImport.ts, what a paste of SVG makes), its
+ * layers given fresh ids and applied in the write as any created layer (a paste can't run inside a write, and would
+ * land on the page in front).
  */
-function createFromSvg(env: ToolEnv, svg: string, parent: Guid, session: number): Guid | null {
-  const { message } = svgToMessage(svg);
+function createFromSvg(env: ToolEnv, svg: string, parent: Guid, session: number, position: string, at: { x: number; y: number }): Guid | null {
+  const { message } = svgToMessage(svg, undefined, { frame: true });
   if (!message?.nodeChanges.length) return null;
   const ids = new Map<Guid, Guid>();
   for (const c of message.nodeChanges) if (c.guid) ids.set(c.guid, newNodeGuid(env.ed));
@@ -626,7 +649,7 @@ function createFromSvg(env: ToolEnv, svg: string, parent: Guid, session: number)
     ...c,
     guid: ids.get(c.guid!)!,
     phase: "CREATED",
-    ...(c === top ? { transform: { ...IDENTITY }, parentIndex: { guid: parent, position: topKey(env, parent) } } : { parentIndex: { guid: ids.get(c.parentIndex!.guid) ?? parent, position: c.parentIndex!.position } }),
+    ...(c === top ? { transform: { ...IDENTITY, m02: at.x, m12: at.y }, parentIndex: { guid: parent, position } } : { parentIndex: { guid: ids.get(c.parentIndex!.guid) ?? parent, position: c.parentIndex!.position } }),
   })) as NodeChange[];
   const status = env.ed.engine.applyChanges({ ...message, sessionID: session, nodeChanges }, "user");
   if (status !== 0) throw new ToolError(`The engine refused the SVG's layers (status ${status}).`);
@@ -635,11 +658,8 @@ function createFromSvg(env: ToolEnv, svg: string, parent: Guid, session: number)
 
 /** create_nodes (also First Draft's apply, editor/ai: inside its own write, `env.write` running `fn` as it is). */
 export function createNodes(env: ToolEnv, args: Spec): ToolResult {
-  const all = Array.isArray(args.nodes) ? (args.nodes as Spec[]) : [];
-  if (!all.length) throw new ToolError("nodes: give at least one spec");
-  // `svg` specs: the SVG's layers as Figma's createNodeFromSvg makes them (a frame of vectors), made after the rest
-  const specs = all.filter((s) => typeof s.svg !== "string");
-  const svgs = all.filter((s) => typeof s.svg === "string");
+  const specs = Array.isArray(args.nodes) ? (args.nodes as Spec[]) : [];
+  if (!specs.length) throw new ToolError("nodes: give at least one spec");
   const parentId = args.parentId ? normId(args.parentId) : currentPage(env);
   if (!parentId) throw new ToolError("No page to create on.");
   const parent = must(env, parentId);
@@ -650,19 +670,32 @@ export function createNodes(env: ToolEnv, args: Spec): ToolResult {
   env.write("Create layers", () => {
     const changes: NodeChange[] = [];
     const later: { id: Guid; spec: Spec }[] = [];
+    // `svg` specs, at any depth: the SVG's layers as Figma's createNodeFromSvg makes them (a frame the SVG's size
+    // holding its vectors), made in their place once their parent is
+    const svgs: { spec: Spec; parent: Guid; position: string; at: { x: number; y: number }; slot: number; path: string }[] = [];
+    const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
     const make = (spec: Spec, par: NodeChange, position: string, top: boolean, path: string): void => {
+      const spot = top && par.type === "CANVAS" && spec.x === undefined && spec.y === undefined ? freeSpot(env, par.guid) : null;
+      // Figma's createFrame + appendChild + resize: a layer is made at its own place and size before its children
+      // are put in it, so they keep the x / y they are given (no constraints run while it is made).
+      const at = { x: num(spec.x) ?? spot?.x ?? 0, y: num(spec.y) ?? spot?.y ?? 0 };
+      if (typeof spec.svg === "string") {
+        svgs.push({ spec, parent: par.guid, position, at, slot: top ? created.push("") - 1 : -1, path });
+        return;
+      }
       const type = nodeTypeOf(spec.type);
       if (!type) {
-        typeErrors.push({ property: `${path}.type`, reason: `${JSON.stringify(spec.type)}: one of ${CREATABLE_TYPES.join(", ")} (components, instances, vectors: run_command)` });
+        typeErrors.push({ property: `${path}.type`, reason: `${JSON.stringify(spec.type)}: one of ${CREATABLE_TYPES.join(", ")} (components, instances, vectors: run_command; svg: {svg: "<svg …>"})` });
         return;
       }
       const guid = newNodeGuid(env.ed);
       const base = { guid, type, ...defaults(type), transform: IDENTITY } as NodeChange;
       if (type === "TEXT" && typeof spec.characters === "string" && spec.name === undefined) base.name = spec.characters.slice(0, 60);
-      const pos: Spec = {};
-      if (top && par.type === "CANVAS" && spec.x === undefined && spec.y === undefined) Object.assign(pos, freeSpot(env, par.guid));
-      // Made with its type's defaults and its name; every property is then applied as update_nodes applies it (checked, read back).
-      const node: NodeChange = { ...base, ...(pos.x !== undefined ? { transform: { ...IDENTITY, m02: pos.x as number, m12: pos.y as number } } : {}), phase: "CREATED", name: (typeof spec.name === "string" ? spec.name : (base.name ?? defaultName(type))) as string, parentIndex: { guid: par.guid, position } } as NodeChange;
+      const w = num(spec.width), h = num(spec.height);
+      // (A text's size follows its text and its auto resize: given with them, after.)
+      const size = type !== "TEXT" && (w !== undefined || h !== undefined) ? { size: { x: w !== undefined && w > 0 ? w : (base.size?.x ?? 100), y: h !== undefined && h >= 0 ? h : (base.size?.y ?? 100) } } : {};
+      // Made with its type's defaults, its name, place and size; every property is then applied as update_nodes applies it (checked, read back).
+      const node: NodeChange = { ...base, ...size, transform: { ...IDENTITY, m02: at.x, m12: at.y }, phase: "CREATED", name: (typeof spec.name === "string" ? spec.name : (base.name ?? defaultName(type))) as string, parentIndex: { guid: par.guid, position } } as NodeChange;
       changes.push(node);
       if (top) created.push(guid);
       const { children, type: _t, ...props } = spec;
@@ -682,19 +715,20 @@ export function createNodes(env: ToolEnv, args: Spec): ToolResult {
     const message: Message = { type: "NODE_CHANGES", sessionID: session, nodeChanges: changes };
     const status = changes.length ? env.ed.engine.applyChanges(message, "user") : 0;
     if (status !== 0) throw new ToolError(`The engine refused the layers (status ${status}).`);
-    svgs.forEach((spec, i) => {
-      const made = createFromSvg(env, spec.svg as string, parent.guid, session);
+    for (const s of svgs) {
+      const made = createFromSvg(env, s.spec.svg as string, s.parent, session, s.position, s.at);
       if (!made) {
-        typeErrors.push({ property: `svg nodes[${i}].svg`, reason: "the SVG draws nothing (paths, shapes; text and images are left out)" });
-        return;
+        typeErrors.push({ property: `${s.path}.svg`, reason: "the SVG draws nothing (paths, shapes; text and images are left out)" });
+        continue;
       }
-      created.push(made);
-      const { svg: _svg, type: _type, children: _children, ...props } = spec;
+      if (s.slot >= 0) created[s.slot] = made;
+      const { svg: _svg, type: _type, children: _children, ...props } = s.spec;
       later.push({ id: made, spec: props });
-    });
-    // Parents before children (auto layout first), sizing after (FILL / HUG need the parent's layout).
+    }
+    // Parents before children (auto layout first), then sizing — parents first too: a parent's size and layout are
+    // there before a child fills it, and a text's width (stretched, given) before its auto height is measured.
     for (const l of later) results.push(applySpec(env, l.id, l.spec, { creating: true, skip: ["layoutSizingHorizontal", "layoutSizingVertical", "width", "height", "x", "y"] }));
-    for (const l of [...later].reverse()) {
+    for (const l of later) {
       const geo: Spec = {};
       for (const k of ["width", "height", "x", "y", "layoutSizingHorizontal", "layoutSizingVertical"]) if (l.spec[k] !== undefined) geo[k] = l.spec[k];
       if (!Object.keys(geo).length) continue;
@@ -707,7 +741,7 @@ export function createNodes(env: ToolEnv, args: Spec): ToolResult {
     }
   });
   if (typeErrors.length) results.push({ nodeId: "(not created)", applied: [], rejected: typeErrors, notApplied: [], values: {} });
-  return writeResult("create_nodes", results, { created: created.map((id) => brief(env, read(env, id)!)) });
+  return writeResult("create_nodes", results, { created: created.filter(Boolean).map((id) => brief(env, read(env, id)!)) });
 }
 
 const defaultName = (t: string) => (t === "ROUNDED_RECTANGLE" ? "Rectangle" : t === "REGULAR_POLYGON" ? "Polygon" : t.charAt(0) + t.slice(1).toLowerCase());
@@ -850,7 +884,8 @@ function reparentNodes(env: ToolEnv, args: Spec): ToolResult {
     moved = env.ed.engine.moveNodes(refs, parent.guid, index);
   });
   if (!moved) return textResult(`The engine refused to move ${refs.join(", ")} into ${parent.guid} (${typeName(parent.type)}): ${parent.type === "CANVAS" || ["FRAME", "GROUP", "SYMBOL", "SECTION", "BOOLEAN_OPERATION"].includes(parent.type ?? "") ? "a page into a layer, a library copy, or layers inside an instance" : "it can't hold layers (use a frame, group, section or component)"}.`, true);
-  const result = textResult({ moved: refs.map((id) => ({ id, parentId: read(env, id)?.parentIndex?.guid })) });
+  // Where each one is now: its parent and its index there (0 = the back, as Figma's children).
+  const result = textResult({ moved: refs.map((id) => ({ id, parentId: read(env, id)?.parentIndex?.guid, index: (read(env, parent.guid)?.childIds ?? []).indexOf(id) })) });
   result.touched = refs;
   return result;
 }
@@ -1170,7 +1205,7 @@ function runCommandTool(env: ToolEnv, args: Spec): ToolResult {
       after = [...env.ed.engine.getSelection().refs];
     }, nodeIds);
     // A refusal in Figma's words (round 17 B) says why; other statuses say what kind.
-    if (r.status !== 0 && r.error) return textResult(`${name} was refused by the engine: ${refusalEnglish(r.error)}.`, true);
+    if (r.status !== 0 && r.error) return textResult(`${name} was refused by the engine: ${refusalEnglish(r.error)}.${ENGINE_COMMAND_DOCS[name] ? ` Arguments: ${ENGINE_COMMAND_DOCS[name]}.` : ""}`, true);
     if (r.status !== 0) return textResult(`${name} was refused by the engine (status ${r.status}${r.status === -3 ? ": invalid arguments or nothing it applies to" : r.status === -6 ? ": read-only" : r.status === -8 ? ": not supported" : ""}). Arguments: ${ENGINE_COMMAND_DOCS[name] ?? "see list_commands"}.`, true);
     const out = textResult({ ran: name, created: r.created, selection: after.filter((id) => read(env, id, ["name"])).map((id) => brief(env, read(env, id)!)) });
     out.touched = [...r.created, ...nodeIds];
@@ -1352,6 +1387,9 @@ export async function runTool(env: ToolEnv, name: string, args: Spec): Promise<T
       case "export_animation":
         return await exportAnimationTool(env, args);
       case "describe_schema": {
+        // An engine command's arguments (run_command's table), e.g. BIND_COMPONENT_PROPERTY's field.
+        const command = String(args.field ?? args.name ?? "").trim();
+        if (command in CommandId && ENGINE_COMMAND_DOCS[command]) return textResult({ name: command, kind: 'engine command (run_command {engineCommand, args})', args: ENGINE_COMMAND_DOCS[command] });
         const r = describeSchema(String(args.field ?? args.name ?? ""));
         return r.ok ? textResult(r.value) : textResult(r.error, true);
       }

@@ -344,6 +344,8 @@ export function defaults(type: NodeType): NodeFields {
 
 /** The type as the Plugin API names it. */
 export const typeName = (t: string | undefined) => (t === "ROUNDED_RECTANGLE" ? "RECTANGLE" : t === "SYMBOL" ? "COMPONENT" : t === "CANVAS" ? "PAGE" : t === "REGULAR_POLYGON" ? "POLYGON" : (t ?? "NONE"));
+/** A layer's type in Figma's API: typeName, and a component set (a FRAME with isStateGroup) is COMPONENT_SET. */
+export const layerType = (n: NodeChange) => (n.type === "FRAME" && (n as { isStateGroup?: boolean }).isStateGroup ? "COMPONENT_SET" : typeName(n.type));
 
 const FRAMEISH = new Set(["FRAME", "SYMBOL", "INSTANCE"]);
 const isText = (n: NodeChange) => n.type === "TEXT";
@@ -850,7 +852,7 @@ function whyNot(k: string, n: NodeChange, parent: NodeChange | null): string {
 
 /** One layer's design, in the tools' vocabulary (get_design_context): every property it has that isn't a default. */
 export function describeNode(n: NodeChange, parent: NodeChange | null): Record<string, unknown> {
-  const out: Record<string, unknown> = { id: n.guid, name: n.name, type: typeName(n.type) };
+  const out: Record<string, unknown> = { id: n.guid, name: n.name, type: layerType(n) };
   for (const k of PROP_NAMES) {
     if (k === "name") continue;
     const p = PROPS[k];

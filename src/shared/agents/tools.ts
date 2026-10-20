@@ -50,7 +50,7 @@ const nodeSpec: Record<string, unknown> = {
     type: { enum: ["FRAME", "RECTANGLE", "ELLIPSE", "TEXT", "LINE", "GROUP", "POLYGON", "STAR", "SECTION"], description: "GROUP needs children. Components, instances, vectors, boolean groups: run_command (list_commands)." },
     ...layerProps,
     image: imageArg,
-    svg: { type: "string", description: "SVG markup: the layer is made from it as Figma's createNodeFromSvg does — a frame holding its vectors (paths, shapes; text and images left out), placed on top of parentId; the other properties then apply to that frame. Made after the other specs of the call." },
+    svg: { type: "string", description: "SVG markup, at any depth (type FRAME): the layer is made from it as Figma's createNodeFromSvg does — a frame the SVG's size (its width / height, else its viewBox) holding its vectors (paths, shapes; text and images left out), at its x / y in its parent; the other properties then apply to that frame." },
     children: { type: "array", items: { type: "object" }, description: "Nested node specs (same shape), created inside this one in order." },
   },
   required: ["type"],
@@ -582,7 +582,7 @@ export const TOOLS: ToolDef[] = [
     name: "describe_schema",
     title: "Describe schema",
     description:
-      "The JSON shape any tool takes for a name: a layer property (fills, effects, layoutMode), a document field (stackSpacing, prototypeInteractions, arcData), a schema type (Paint, Effect, PrototypeAction, VariableData) or \"Type.field\", an enum's values (EasingType), or the prototype shapes Reaction, Trigger, Action, Transition, Easing, VariableData, device, flowStartingPoints.",
+      "The JSON shape any tool takes for a name: a layer property (fills, effects, layoutMode), a document field (stackSpacing, prototypeInteractions, arcData), a schema type (Paint, Effect, PrototypeAction, VariableData) or \"Type.field\", an enum's values (EasingType), the prototype shapes Reaction, Trigger, Action, Transition, Easing, VariableData, device, flowStartingPoints, or an engine command's arguments (BIND_COMPONENT_PROPERTY, INSERT_INSTANCE …).",
     inputSchema: { type: "object", properties: { field: { type: "string" } }, required: ["field"] },
     write: false,
   },
@@ -596,7 +596,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "run_command",
     title: "Run command",
-    description: 'Runs any of the app\'s commands (list_commands lists them): {command: "<editor id>", nodeIds} as from the menus / shortcuts with those layers selected, or {engineCommand: "<NAME>", args: {...}, nodeIds?} — an engine command with its arguments (layers as its refs, or nodeIds as its selection); ids it created come back. Never on the user\'s selection: without nodeIds nothing is selected, and an empty nodeIds is an error. Refusals say why.',
+    description: 'Runs any of the app\'s commands (list_commands lists them): {command: "<editor id>", nodeIds} as from the menus / shortcuts with those layers selected, or {engineCommand: "<NAME>", args: {...}, nodeIds?} — an engine command with its arguments (layers as its refs, or nodeIds as its selection); ids it created come back. Never on the user\'s selection: without nodeIds nothing is selected, and an empty nodeIds is an error. Refusals say why. BIND_COMPONENT_PROPERTY {refs, field, prop} applies a main\'s property to its layers — field is Figma\'s componentPropertyReferences key: "characters" (TEXT), "visible" (BOOLEAN) or "mainComponent" (INSTANCE_SWAP); describe_schema {field: "<COMMAND>"} gives any command\'s arguments.',
     inputSchema: { type: "object", properties: { command: { type: "string" }, engineCommand: { type: "string" }, args: { type: "object" }, nodeIds: { ...writeIds, description: "The layers the command acts on (its selection). " + WRITE_IDS } } },
     write: true,
   },

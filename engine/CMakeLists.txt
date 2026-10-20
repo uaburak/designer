@@ -206,6 +206,8 @@ else()
     tests/unit/text.layout.test.cpp
     tests/unit/text.edit.test.cpp
     tests/unit/text.fonts.test.cpp
+    tests/unit/text.missing_font_layout.test.cpp
+    tests/unit/editor.agent_tool_fixes.test.cpp
     tests/unit/text.render.test.cpp
     tests/unit/geometry.path.test.cpp
     tests/unit/geometry.boolean.test.cpp

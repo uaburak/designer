@@ -484,6 +484,7 @@ export const editor: Record<string, string> = {
   "Cannot change defaultValue of a variant property": "Varyant özelliğinin varsayılan değeri değiştirilemez",
   "Cannot change defaultValue of a slot component property": "Yuva özelliğinin varsayılan değeri değiştirilemez",
   "Can only add variant property to a component set": "Varyant özelliği yalnızca bir bileşen kümesine eklenebilir",
+  "A component property can only be applied to characters, visible or mainComponent": "Bileşen özelliği yalnızca characters, visible veya mainComponent alanına uygulanabilir",
   // Atlas wave 2: Figma's variant errors (the Design panel) — Round 17 B: publish errors (Publish library)
   "Some layers have invalid names": "Bazı katmanların adları geçersiz",
   "Property=Value, Property=Value": "Özellik=Değer, Özellik=Değer",

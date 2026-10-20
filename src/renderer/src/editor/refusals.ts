@@ -25,6 +25,7 @@ const ENGLISH: Readonly<Record<string, string>> = {
   variant_default_locked: "Cannot change defaultValue of a variant property",
   slot_default_locked: "Cannot change defaultValue of a slot component property",
   variant_property_needs_set: "Can only add variant property to a component set",
+  property_reference_field_invalid: "A component property can only be applied to characters, visible or mainComponent",
 };
 
 /**

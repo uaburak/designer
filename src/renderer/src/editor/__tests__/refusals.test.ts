@@ -24,6 +24,7 @@ describe("refusals (round 17 B)", () => {
       "variant_default_locked",
       "slot_default_locked",
       "variant_property_needs_set",
+      "property_reference_field_invalid",
     ])
       expect(TR[refusalMessage(key)], key).toBeTruthy();
   });

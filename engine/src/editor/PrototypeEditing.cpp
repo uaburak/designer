@@ -891,4 +891,30 @@ void Editor::protoOverlay(Overlay& o) const {
   if (gesture_ == Gesture::Move || gesture_ == Gesture::Resize || gesture_ == Gesture::Rotate) po.handles.clear();
 }
 
+void Editor::freshInteractionIds(NodeProps& p) {
+  auto it = p.extra.find("prototypeInteractions");
+  if (it == p.extra.end() || it->second.empty()) return;
+  json::Value list = interactionsJson(p);
+  // An instance's entries with its main's ids are the main's (changed on it): those ids stay theirs.
+  std::vector<Guid> mains;
+  if (p.type == NodeType::INSTANCE)
+    if (const Node* mn = doc_.get(symbolOf(p)); mn && proto::hasInteractions(mn->props))
+      for (const proto::Interaction& i : proto::interactions(mn->props)) mains.push_back(i.id);
+  auto guidIn = [](const json::Value* v) {
+    const json::Value* s = v && v->isObject() ? v->get("sessionID") : nullptr;
+    const json::Value* l = v && v->isObject() ? v->get("localID") : nullptr;
+    return s && l && s->isNumber() && l->isNumber() ? Guid{static_cast<uint32_t>(s->number), static_cast<uint32_t>(l->number)} : kNoGuid;
+  };
+  bool changed = false;
+  for (json::Value& entry : list.array) {
+    if (!entry.isObject()) continue;
+    json::Value* id = member(entry, "id");
+    if (Guid g = guidIn(id); g != kNoGuid && std::find(mains.begin(), mains.end(), g) != mains.end()) continue;
+    if (id) *id = guidJson(newGuid());
+    else entry.object.emplace_back("id", guidJson(newGuid()));
+    changed = true;
+  }
+  if (changed) it->second = proto::encodeField("prototypeInteractions", list);
+}
+
 }  // namespace eng

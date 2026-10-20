@@ -76,11 +76,11 @@ enum class CommandId : uint32_t {
   ADD_COMPONENT_PROPERTY = 130,     // args {ref?, name?, type, defaultValue?, bind?, preferredValues?, plugin?}
   EDIT_COMPONENT_PROPERTY = 131,    // args {ref?, prop, name?, defaultValue?, preferredValues?, oldValue?, newValue?}
   DELETE_COMPONENT_PROPERTY = 132,  // args {ref?, prop}
-  BIND_COMPONENT_PROPERTY = 133,    // args {refs?, field, prop}
+  BIND_COMPONENT_PROPERTY = 133,    // args {refs?, field: "characters" | "visible" | "mainComponent" (Figma's componentPropertyReferences keys; or TEXT_DATA, VISIBLE, OVERRIDDEN_SYMBOL_ID, SLOT_CONTENT_ID), prop (name or id; "" detaches)}
   RESTORE_COMPONENT = 134,          // args {ref?}
   SET_EXPOSED_INSTANCE = 135,       // args {ref?, exposed}
   RESET_SLOT = 136,                 // args {ref?}
-  INSERT_INSTANCE = 137,            // args {main, x?, y?, parent?}
+  INSERT_INSTANCE = 137,            // args {main, x?, y? (its centre on the page), parent? (without x / y: at its origin)}
   SET_VARIANT_PROPERTIES = 138,     // args {ref?, values: {prop: value}}
   // E6: variables, modes and styles (docs/engine-build.md "E6 variables"). `created` ids go to the result slot.
   CREATE_VARIABLE_COLLECTION = 140,     // args {name?}

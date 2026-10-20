@@ -166,7 +166,7 @@ export function cloneNode(ctx: ApiContext, node: unknown): unknown {
 }
 
 export function createNodeFromSvg(ctx: ApiContext, svg: string): unknown {
-  const { message } = svgToMessage(svg);
+  const { message } = svgToMessage(svg, undefined, { frame: true });
   if (!message) throw new ApiError("Failed to parse the SVG");
   message.nodeChanges[0].transform = { ...IDENTITY };
   const [made] = withSelection(ctx, [], () => ctx.ed.engine.paste(message, { inPlace: true }));

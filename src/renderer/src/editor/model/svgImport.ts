@@ -80,6 +80,8 @@ interface GroupItem {
   name: string;
   opacity: number;
   children: Item[];
+  /** The SVG's own frame (Figma's createNodeFromSvg): its box is the SVG's viewport, not its artwork's bounds. */
+  frame?: Box;
 }
 type Item = ShapeItem | GroupItem;
 
@@ -200,6 +202,8 @@ class Importer {
   private rules: Rule[] = [];
   readonly skipped = { text: 0, images: 0 };
   private viewport = { w: 0, h: 0 };
+  /** The root's size in px (its width / height, else its viewBox's), set by run(). */
+  size = { w: 0, h: 0 };
   private useDepth = 0;
 
   constructor(private root: XmlElement) {
@@ -251,6 +255,7 @@ class Importer {
     const vb = numbers(this.root.attrs.viewBox ?? "");
     const w = num(this.root.attrs.width, vb[2] ?? 0), h = num(this.root.attrs.height, vb[3] ?? 0);
     this.viewport = { w: vb.length === 4 ? vb[2] : w, h: vb.length === 4 ? vb[3] : h };
+    this.size = { w, h };
     const ctm = vb.length === 4 && vb[2] > 0 && vb[3] > 0 && this.root.attrs.width && this.root.attrs.height ? viewBoxMatrix(vb, w, h, this.root.attrs.preserveAspectRatio) : IDENTITY;
     // The root's own presentation attributes are inherited too (Figma's exports: `fill="none"` on <svg>).
     return this.children(this.root, ctm, this.styleOf(this.declared(this.root), INITIAL));
@@ -679,18 +684,28 @@ function toPaint(p: PaintSpec, box: Box): Paint {
 
 function itemBox(item: Item): Box | null {
   if (item.kind === "shape") return bounds(item.paths);
+  if (item.frame) return item.frame;
   let b: Box | null = null;
   for (const c of item.children) b = unionBox(b, itemBox(c));
   return b;
 }
 
-/** SVG markup → a clipboard Message of editable layers, the artwork's top-left at `origin` (page px). */
-export function svgToMessage(svg: string, origin: Vector = { x: 0, y: 0 }): SvgImport {
+/**
+ * SVG markup → a clipboard Message of editable layers, the artwork's top-left at `origin` (page px). `frame`: as
+ * Figma's createNodeFromSvg makes it — one frame the SVG's size (its viewport; the artwork's bounds when it has
+ * none) holding the layers, however many, its top-left at `origin`.
+ */
+export function svgToMessage(svg: string, origin: Vector = { x: 0, y: 0 }, opts: { frame?: boolean } = {}): SvgImport {
   const root = parseXml(svg);
   if (!root || root.name !== "svg") return { message: null, skipped: { text: 0, images: 0 }, layers: 0 };
   const importer = new Importer(root);
   let items = importer.run();
-  if (items.length > 1) items = [{ kind: "group", name: "Group", opacity: 1, children: items }];
+  if (opts.frame && items.length) {
+    const { w, h } = importer.size;
+    const art = itemBox({ kind: "group", name: "", opacity: 1, children: items });
+    const frame = w > 0 && h > 0 ? { x: 0, y: 0, w, h } : art;
+    if (frame) items = [{ kind: "group", name: "svg", opacity: 1, children: items, frame }];
+  } else if (items.length > 1) items = [{ kind: "group", name: "Group", opacity: 1, children: items }];
   const top = items.length ? itemBox(items[0]) : null;
   if (!top) return { message: null, skipped: importer.skipped, layers: 0 };
   const nodeChanges: NodeChange[] = [];
@@ -710,7 +725,8 @@ export function svgToMessage(svg: string, origin: Vector = { x: 0, y: 0 }): SvgI
       ...(item.opacity < 1 ? { opacity: item.opacity } : {}),
     };
     if (item.kind === "group") {
-      nodeChanges.push({ ...base, type: "FRAME", resizeToFit: true, frameMaskDisabled: true, fillPaints: [], strokeWeight: 1, strokeAlign: "INSIDE" });
+      // The SVG's own frame is a frame (clipping, as Figma's createFrame makes one); a <g> is a group.
+      nodeChanges.push({ ...base, type: "FRAME", ...(item.frame ? { frameMaskDisabled: false } : { resizeToFit: true, frameMaskDisabled: true }), fillPaints: [], strokeWeight: 1, strokeAlign: "INSIDE" });
       const pos = positions(item.children.length);
       item.children.forEach((c, i) => emit(c, guid, pos[i], box));
       return guid;
