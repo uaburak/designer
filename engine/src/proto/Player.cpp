@@ -80,12 +80,12 @@ bool isSmart(const Action& a) { return a.transition == Transition::SMART_ANIMATE
 
 // A TEXT layer's content and font: Smart animate dissolves a text whose content changed (and animates one that only
 // moved, resized or changed colour).
+// Live Figma (2026-10-20, prototype-playback.txt "Whole-file audit"): a text whose characters or font (family, style)
+// differ dissolves; one whose font size alone differs is matched and scales; its colour interpolates.
 std::string textSignature(const NodeProps& p) {
   if (p.type != NodeType::TEXT) return std::string();
   const TextFacet& t = p.text();
-  char size[32];
-  std::snprintf(size, sizeof size, "%g", t.fontSize);
-  return t.textData.characters + "\x01" + t.fontName.family + "\x01" + t.fontName.style + "\x01" + size;
+  return t.textData.characters + "\x01" + t.fontName.family + "\x01" + t.fontName.style;
 }
 
 // The visible shadows of a layer (help.figma.com 360039818874: "Figma does not support smart animate for layers with
@@ -1521,6 +1521,32 @@ void Player::swapInstance(Guid instance, Guid main, const Action& a) {
   bool animate = a.transition != Transition::INSTANT && durationOf(a) > 0;
   Snapshot from;
   if (animate) from = snapshot(instance, true);
+  // What its new size moves around it: the auto-layout parents it sits in (up to the outermost one) and everything in
+  // them but itself, where they are now.
+  struct Geo {
+    Mat2x3 t;
+    Vec2 s;
+  };
+  std::unordered_map<Guid, Geo, GuidHash> before;
+  Guid layoutRoot = instance;
+  if (animate) {
+    for (int guard = 0; guard < 1000; guard++) {
+      const NodeProps* cp = props(layoutRoot);
+      const NodeProps* pp = props(doc().parentOf(layoutRoot));
+      if (!cp || !pp || !pp->isAutoLayout() || !cp->inFlow()) break;
+      layoutRoot = doc().parentOf(layoutRoot);
+    }
+    if (layoutRoot != instance) {
+      std::function<void(Guid)> walk = [&](Guid id) {
+        if (id == instance || before.size() > 20000) return;
+        const NodeProps* np = props(id);
+        if (!np) return;
+        before[id] = {np->transform, np->size};
+        for (Guid c : doc().children(id)) walk(c);
+      };
+      walk(layoutRoot);
+    }
+  }
   Guid real = instance.isDerived() ? ed_.instanceOfDerived(instance) : instance;
   // The old state stays on screen while it animates: a copy of the instance as it is (absolute, so auto layout
   // doesn't make room for it; never hit), drawn with only its unmatched layers, fading out (Dissolve: all of them).
@@ -1568,6 +1594,10 @@ void Player::swapInstance(Guid instance, Guid main, const Action& a) {
     ia.action = a;
     ia.duration = durationOf(a) * 1000;
     ia.fromMain = fromMain;
+    for (auto& [id, g] : before) {
+      const NodeProps* np = props(id);
+      if (np && (!(np->transform == g.t) || !(np->size == g.s))) ia.around.push_back({id, g.t, np->transform, g.s, np->size});
+    }
     ia.serial = ++motionSerial_;
     instanceAnims_.push_back(std::move(ia));
     instanceSerial_++;
@@ -2333,6 +2363,7 @@ void Player::snapWalk(Snapshot& s, Guid id, const Mat2x3& parentRel, const std::
   n.radii = p->cornerRadii;
   n.effects = p->effects;
   n.text = textSignature(*p);
+  if (p->type == NodeType::TEXT) n.fontSize = p->text().fontSize;
   s.byKey.emplace(key, std::move(n));
   std::unordered_map<std::string, int> seen;
   for (Guid c : doc().children(id)) {
@@ -2399,6 +2430,12 @@ void Player::smartDest(Guid id, const Snapshot& from, double p, bool rootTransfo
     for (size_t k = 0; k < 4; k++) q.cornerRadii[k] = lerp(s.radii[k], np->cornerRadii[k], p);
     q.effects = lerpEffects(s.effects, np->effects, p);
     if (!(root && !rootTransform)) q.transform = parentInterp.inverse() * interpRel;
+    // A text whose font size changed: drawn at its new size, scaled from the old one (its glyphs grow, no re-wrap).
+    if (np->type == NodeType::TEXT && s.fontSize > 0 && np->text().fontSize > 0 && std::fabs(s.fontSize - np->text().fontSize) > 1e-6) {
+      double k = lerp(s.fontSize, np->text().fontSize, p) / np->text().fontSize;
+      q.size = np->size;
+      q.transform = q.transform * Mat2x3::scale(k);
+    }
     out[id] = std::move(q);
   } else {
     unmatched = true;
@@ -2517,8 +2554,12 @@ void Player::addFrame(const Side& s, Vec2 offset, double alpha, PropsOverrides&&
     PropsOverrides tmp;
     if (isSmart(ia.action)) {
       smartDest(ia.instance, ia.from, e, true, tmp, Mat2x3{}, Mat2x3{}, std::string(), true, false);
-      // The old state's unmatched layers fade out over it (help: layers that don't match dissolve).
-      if (ia.ghost != kNoGuid && doc().has(ia.ghost)) smartSource(ia.ghost, matchedKeys(ia.from, ia.instance, true), e, tmp, std::string(), true, false);
+      // The old state's unmatched layers fade out over it (help: layers that don't match dissolve), moving with it.
+      if (ia.ghost != kNoGuid && doc().has(ia.ghost)) {
+        smartSource(ia.ghost, matchedKeys(ia.from, ia.instance, true), e, tmp, std::string(), true, false);
+        if (auto g = tmp.find(ia.ghost), i = tmp.find(ia.instance); g != tmp.end() && i != tmp.end() && !ia.around.empty())
+          g->second.transform = i->second.transform;
+      }
     } else {
       // Dissolve: the new state fades in over the old one.
       if (const NodeProps* ip = props(ia.instance)) {
@@ -2532,6 +2573,17 @@ void Player::addFrame(const Side& s, Vec2 offset, double alpha, PropsOverrides&&
           q.opacity *= 1 - e;
           tmp[ia.ghost] = std::move(q);
         }
+    }
+    // Its auto-layout parents and their other layers re-lay out with it: from where they were to where they are.
+    for (const InstanceAnim::Around& a : ia.around) {
+      const NodeProps* np = props(a.id);
+      if (!np) continue;
+      auto it = overrides.find(a.id);
+      NodeProps q = it != overrides.end() ? it->second : *np;
+      Mat2x3 shift = q.transform * np->transform.inverse();  // a scroll given to it already
+      q.transform = shift * lerpMatrix(a.t0, a.t1, e);
+      q.size = {lerp(a.s0.x, a.s1.x, e), lerp(a.s0.y, a.s1.y, e)};
+      overrides[a.id] = std::move(q);
     }
     for (auto& [id, q] : tmp) {
       // Keep a scroll shift already given to the instance itself.

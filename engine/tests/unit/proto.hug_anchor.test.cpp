@@ -209,3 +209,75 @@ TEST_CASE("hug anchors: Change to in a prototype — Instant, and Smart animate 
     CHECK(f.box(INST) == Rect{100, 110, 200, 80});
   }
 }
+
+TEST_CASE("smart animate: the auto-layout parent re-lays out with the instance every frame (siblings, its own Hug size)") {
+  // Live Figma: a Hug row [50 · instance · 50] (gap 10) whose instance grows 100 → 200 wide: half way the row is
+  // 50 + 150 + 50 + 2 × 10 wide and the right square half way along — not at its end from the first frame.
+  auto nodes = doc(ConstraintType::MIN, ConstraintType::MIN, "SMART_ANIMATE", 1.0);
+  const Guid ROW{2, 20}, SQ1{2, 21}, SQ2{2, 22};
+  NodeChange row = make(ROW, NodeType::FRAME, SCREEN, "#", {20, 20, 230, 40}, "Row");
+  hug(row);
+  row.props.stack().stackSpacing = 10;
+  nodes.push_back(row);
+  nodes.push_back(make(SQ1, NodeType::RECTANGLE, ROW, "!", {0, 0, 50, 40}, "a"));
+  for (auto& c : nodes)
+    if (c.guid == INST) c.props.parentIndex = {ROW, "\""};
+  nodes.push_back(make(SQ2, NodeType::RECTANGLE, ROW, "#", {170, 0, 50, 40}, "b"));
+  Fixture f(nodes);
+  CHECK(f.box(SQ2).x == 170);
+  REQUIRE(f.player.start(kPage, SCREEN));
+  f.click(100, 40);
+  REQUIRE(f.ed.mainOf(INST) == VB);
+  CHECK(f.box(SQ2).x == 270);  // the document is in its end state at once
+  f.advance(16);
+  f.advance(484);
+  f.player.scene();
+  const NodeProps* sq = f.player.drawnProps(SQ2);
+  const NodeProps* rp = f.player.drawnProps(ROW);
+  REQUIRE(sq);
+  REQUIRE(rp);
+  CHECK(sq->transform.m02 == doctest::Approx(220).epsilon(0.02));
+  CHECK(rp->size.x == doctest::Approx(270).epsilon(0.02));
+  f.advance(800);
+  f.player.scene();
+  CHECK(f.box(SQ2).x == 270);
+}
+
+TEST_CASE("smart animate: a text whose font size alone changed scales; other text changes dissolve") {
+  auto nodes = baseChanges();
+  const Guid SET2{4, 1}, A2{4, 2}, B2{4, 3}, TA{4, 4}, TB{4, 5}, SCR{4, 10}, I2{4, 11};
+  NodeChange set = make(SET2, NodeType::FRAME, kPage, "~", {0, 1000, 400, 200}, "T");
+  set.props.comp().isStateGroup = true;
+  nodes.push_back(set);
+  NodeChange a = make(A2, NodeType::SYMBOL, SET2, "!", {0, 0, 200, 100}, "T=a");
+  a.props.extra["prototypeInteractions"] = extra("prototypeInteractions", changeTo(B2, "SMART_ANIMATE", 1.0));
+  nodes.push_back(a);
+  NodeChange ta = make(TA, NodeType::TEXT, A2, "!", {10, 10, 60, 24}, "title");
+  ta.props.text().textData.characters = "Size";
+  ta.props.text().fontSize = 20;
+  nodes.push_back(ta);
+  nodes.push_back(make(B2, NodeType::SYMBOL, SET2, "\"", {200, 0, 200, 100}, "T=b"));
+  NodeChange tb = make(TB, NodeType::TEXT, B2, "!", {10, 10, 120, 48}, "title");
+  tb.props.text().textData.characters = "Size";
+  tb.props.text().fontSize = 40;
+  nodes.push_back(tb);
+  nodes.push_back(make(SCR, NodeType::FRAME, kPage, "!", {0, 0, 400, 300}, "Screen"));
+  NodeChange inst = make(I2, NodeType::INSTANCE, SCR, "!", {0, 0, 200, 100}, "T");
+  inst.props.comp().symbolData.symbolID = A2;
+  nodes.push_back(inst);
+  Fixture f(nodes);
+  REQUIRE(f.player.start(kPage, SCR));
+  f.click(50, 50);
+  REQUIRE(f.ed.mainOf(I2) == B2);
+  f.advance(16);
+  f.advance(484);
+  f.player.scene();
+  // The instance's title: drawn at full opacity, scaled to 30 / 40 of its new size.
+  Guid title = kNoGuid;
+  for (Guid c : f.ed.document().children(I2)) title = c;
+  REQUIRE(title != kNoGuid);
+  const NodeProps* q = f.player.drawnProps(title);
+  REQUIRE(q);
+  CHECK(q->opacity == doctest::Approx(1));
+  CHECK(q->transform.m00 == doctest::Approx(0.75).epsilon(0.02));
+}

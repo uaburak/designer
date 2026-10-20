@@ -176,6 +176,7 @@ class Player {
     CornerRadii radii{0, 0, 0, 0};
     std::vector<Effect> effects;
     std::string text;  // a TEXT layer's characters and font (Smart animate dissolves a text whose content changed)
+    double fontSize = 0;  // a TEXT layer's: a size change alone scales it (Figma)
   };
   struct Snapshot {
     std::unordered_map<std::string, SnapNode> byKey;
@@ -217,6 +218,14 @@ class Player {
     // On drag scrubbing it (as Anim's): the progress follows the pointer; released before half way it runs back and
     // the instance returns to `fromMain`.
     Guid fromMain = kNoGuid;
+    // The layers around it that its new size moved or resized — its auto-layout parents (Hug), their other children —
+    // from where they were to where they are now: they move with it every frame, as the parent re-lays out (Figma).
+    struct Around {
+      Guid id = kNoGuid;
+      Mat2x3 t0, t1;
+      Vec2 s0, s1;
+    };
+    std::vector<Around> around;
     bool scrubbing = false;
     double scrubP = 0;
     double p0 = 0, p1 = 1;
