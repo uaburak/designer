@@ -2,6 +2,12 @@
 
 First written 2026-10-06 when the first Claude session stopped and the owner moved the work to another Claude account through GitHub (`https://github.com/uaburak/designer`). Updated the same day by the second session, which finished every workstream's partial items and ran the integration round. Read `AGENTS.md`, `docs/architecture.md` and `docs/roadmap.md` first; the contracts in `docs/` decide everything; `docs/research/` holds the verified facts about Figma (with sources).
 
+## Status 2026-10-21 — the shown screen scrolls its own overflowing content (owner: "04 Scroll" didn't scroll)
+
+- Figma's rule, read from its cached viewer (`NodeScrollingLogic`, viewer bundle ~1074000): the shown top-level frame scrolls BOTH ways; its box is the frame cut to the screen; its content is, with No scrolling, the frame itself, otherwise the box plus every non-Fixed child, kept to the overflow's axis (Vertical keeps the box's width, Horizontal its height); range = content end − box end. So a screen-sized frame whose content runs past its bottom (overflow Vertical) scrolls; a frame wider than the screen with No scrolling now scrolls sideways too (Wecra only did with an overflow).
+- Wecra (`engine/src/proto/Player.cpp`): `topScrollRange` follows that rule; `topShift` — the frame itself moves under the screen only as far as it is bigger, the rest of the scroll (and a bounce) moves its non-Fixed layers inside it (scene overrides, hit testing, hotspot hints); Fixed stay, Sticky pin as before. Inferred, not measured: Figma resizes the base node to the screen, so a tall frame's own image fill may stay put there while ours scrolls with it.
+- Tests: `engine/tests/unit/proto.top_scroll.test.cpp` (5 cases: 04 Scroll's range 2484 + 67 − 1024, Fixed nav, Sticky, hits on scrolled content, Scroll to Section C, the horizontal carousel, No scrolling, a taller frame). engine.wasm rebuilt. **To verify in the app**: present "04 Scroll" (Prototype deneme › Yeni Test Dosyası) — wheel / drag scrolls the content, Nav bar stays, Sticky title pins.
+
 ## Status 2026-10-20 (late night) — "Yeni Test Dosyası" in Figma through our .fig export, played one to one (committed on its branch, not merged)
 
 - Prototype player, compared with live Figma frame by frame (docs/research/figma/live/2026-10-20/prototype-playback.txt §8, scripts/proto-bench/scenarios.mjs): these now match Figma:

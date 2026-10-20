@@ -347,11 +347,13 @@ class Player {
   void layout();
   void replaceOverlays();
   Vec2 topScrollRange(Guid frame) const;
+  // How far a top-level frame scrolled by `scroll` itself moves under the screen (the rest scrolls its layers).
+  Vec2 topShift(Guid frame, Vec2 scroll) const;
   Vec2 nestedScrollRange(Guid frame) const;
   bool scrollsNested(Guid id) const;
   Vec2 overlayPos(Guid frame, const OverlaySettings& s, const Action* a, const Hit* hotspot) const;
   Chain hitTest(Vec2 css) const;
-  bool hitWalk(Guid id, const Mat2x3& parentCss, Vec2 css, std::vector<Hit>& out, bool root) const;
+  bool hitWalk(Guid id, const Mat2x3& parentCss, Vec2 css, std::vector<Hit>& out, bool root, Vec2 rootScroll = {}) const;
   Mat2x3 frameCss(const Side& s) const;
   Side baseSide() const;
 

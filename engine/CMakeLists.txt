@@ -231,6 +231,7 @@ else()
     tests/unit/prototype.video.test.cpp
     tests/unit/proto.delay.test.cpp
     tests/unit/proto.rea.test.cpp
+    tests/unit/proto.top_scroll.test.cpp
     tests/unit/proto.wave4.test.cpp
     tests/unit/proto.page_subset.test.cpp
     tests/unit/proto.hug_anchor.test.cpp

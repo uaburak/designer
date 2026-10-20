@@ -726,13 +726,45 @@ void Player::restoreResponsive() {
 }
 
 Vec2 Player::topScrollRange(Guid frame) const {
+  // Figma's viewer (`NodeScrollingLogic`): the shown top-level frame scrolls both ways (scrollDirection BOTH); its box
+  // is the frame cut to the screen (resized to fit the viewport) and its content is, with "No scrolling", the frame
+  // itself, otherwise that box plus every child that isn't Fixed (a frame whose content runs past its bottom scrolls
+  // that content), along the overflow's axis only (Vertical keeps the box's width, Horizontal its height). Range =
+  // content's end − the box's end, per axis. (Content above or left of the frame — Figma's negative minimum — isn't
+  // reached; nested frames don't reach it either.)
   const NodeProps* p = props(frame);
   if (!p) return {};
   Overflow o = overflow(*p);
-  // A top-level frame bigger than the screen scrolls (vertically always, horizontally when its overflow says so).
-  double rx = (o == Overflow::HORIZONTAL || o == Overflow::BOTH) ? std::max(0.0, p->size.x - view_.screen.x) : 0;
-  double ry = std::max(0.0, p->size.y - view_.screen.y);
-  return {rx, ry};
+  Vec2 box{std::min(p->size.x, view_.screen.x), std::min(p->size.y, view_.screen.y)};
+  if (o == Overflow::NONE) return {std::max(0.0, p->size.x - box.x), std::max(0.0, p->size.y - box.y)};
+  double right = 0, bottom = 0;
+  for (Guid c : doc().children(frame)) {
+    const NodeProps* cp = props(c);
+    if (!cp || !cp->visible || scrollBehavior(*cp) == ScrollBehavior::FIXED) continue;
+    Rect b = transformedBounds(cp->transform, cp->size.x, cp->size.y);
+    right = std::max(right, b.right());
+    bottom = std::max(bottom, b.bottom());
+  }
+  // Auto layout: the padding after the last child belongs to the content (as a nested frame's).
+  if (p->isAutoLayout()) {
+    right += p->stack().stackPaddingRight;
+    bottom += p->stack().stackPaddingBottom;
+  }
+  right = std::max(right, box.x);
+  bottom = std::max(bottom, box.y);
+  Vec2 r;
+  if (o == Overflow::HORIZONTAL || o == Overflow::BOTH) r.x = std::max(0.0, right - box.x);
+  if (o == Overflow::VERTICAL || o == Overflow::BOTH) r.y = std::max(0.0, bottom - box.y);
+  return r;
+}
+
+Vec2 Player::topShift(Guid frame, Vec2 scroll) const {
+  // A top-level frame bigger than the screen moves under it until its far edge meets the screen's; scrolling past
+  // that (content running beyond the frame) — or bouncing past either end — moves its layers inside it instead.
+  const NodeProps* p = props(frame);
+  if (!p) return {};
+  Vec2 room{std::max(0.0, p->size.x - view_.screen.x), std::max(0.0, p->size.y - view_.screen.y)};
+  return {std::clamp(scroll.x, 0.0, room.x), std::clamp(scroll.y, 0.0, room.y)};
 }
 
 Vec2 Player::nestedScrollRange(Guid frame) const {
@@ -778,7 +810,8 @@ Player::Side Player::baseSide() const {
 
 Mat2x3 Player::frameCss(const Side& s) const {
   if (s.overlay) return view_.toCss * Mat2x3::translate(s.pos.x, s.pos.y);
-  return view_.toCss * Mat2x3::translate(-s.scroll.x, -s.scroll.y);
+  Vec2 f = topShift(s.frame, s.scroll);
+  return view_.toCss * Mat2x3::translate(-f.x, -f.y);
 }
 
 Vec2 Player::overlayPos(Guid frame, const OverlaySettings& s, const Action* a, const Hit* hotspot) const {
@@ -808,7 +841,7 @@ Vec2 Player::overlayPos(Guid frame, const OverlaySettings& s, const Action* a, c
 
 // ---- Hit-testing -----------------------------------------------------------------------------------------
 
-bool Player::hitWalk(Guid id, const Mat2x3& parentCss, Vec2 css, std::vector<Hit>& out, bool root) const {
+bool Player::hitWalk(Guid id, const Mat2x3& parentCss, Vec2 css, std::vector<Hit>& out, bool root, Vec2 rootScroll) const {
   const NodeProps* p = props(id);
   if (!p || !p->visible || ghosts_.count(id)) return false;
   // Scrolling: the same offsets the scene draws with.
@@ -818,7 +851,8 @@ bool Player::hitWalk(Guid id, const Mat2x3& parentCss, Vec2 css, std::vector<Hit
   if (p->clipsContent() && !inside) return false;
   // Children, topmost first; a nested scrolling frame's children are offset by its scroll.
   Mat2x3 childBase = m;
-  Vec2 sc = scrollsNested(id) && !root ? scrollOf(id) : Vec2{};
+  // The shown screen's layers by the part of its scroll the frame doesn't take (`rootScroll`).
+  Vec2 sc = root ? rootScroll : scrollsNested(id) ? scrollOf(id) : Vec2{};
   const auto& kids = doc().children(id);
   // A nested scrolling frame's Fixed children are drawn above its other children: hit first.
   bool nestedScroll = !root && scrollsNested(id);
@@ -877,7 +911,7 @@ Player::Chain Player::hitTest(Vec2 css) const {
     }
   }
   hits.clear();
-  if (hitWalk(base_, frameCss(b), css, hits, true)) {
+  if (hitWalk(base_, frameCss(b), css, hits, true, b.scroll - topShift(base_, b.scroll))) {
     c.hits = std::move(hits);
     c.layer = -1;
   }
@@ -2712,7 +2746,18 @@ void Player::scrollOverrides(Guid frame, PropsOverrides& out, bool topLevel, Vec
     const NodeProps* p = props(id);
     if (!p || !p->visible) return;
     if (root && topLevel) {
-      // A top-level frame scrolls as a whole (the scene's matrix); its sticky layers stay.
+      // A top-level frame moves under the screen as far as it is bigger (the scene's matrix, `topShift`); the rest of
+      // its scroll moves its layers inside it, Fixed ones excepted; its sticky layers stay.
+      Vec2 inner = topScroll - topShift(id, topScroll);
+      if (inner.x != 0 || inner.y != 0)
+        for (Guid c : doc().children(id)) {
+          const NodeProps* cp = props(c);
+          if (!cp || scrollBehavior(*cp) == ScrollBehavior::FIXED) continue;
+          auto it = out.find(c);
+          NodeProps q = it != out.end() ? it->second : *cp;
+          q.transform = Mat2x3::translate(-inner.x, -inner.y) * q.transform;
+          out[c] = std::move(q);
+        }
       stick(id, topScroll.y, out);
     } else if (scrollsNested(id)) {
       Vec2 sc = scrollOf(id);
@@ -3217,6 +3262,7 @@ const PresentScene& Player::scene() {
   if (since >= 0 && since < kHintsMs) {
     double alpha = 1 - motion::cubicBezier(0, 0, 0.58, 1, since / kHintsMs);
     double dpr = ed_.viewport().dpr > 0 ? ed_.viewport().dpr : 1;
+    Vec2 baseInner = base.scroll - topShift(base_, base.scroll);
     std::vector<std::pair<Guid, Mat2x3>> roots{{base_, frameCss(base)}};
     for (auto& o : overlays_) {
       Side s;
@@ -3249,9 +3295,12 @@ const PresentScene& Player::scene() {
           scene_.items.push_back(h);
         }
         Rect inner = p->clipsContent() ? intersect(clip, r) : clip;
-        Vec2 sc = scrollsNested(id) && !isRoot ? scrollOf(id) : Vec2{};
-        for (Guid c : doc().children(id))
-          walk(c, sc.x != 0 || sc.y != 0 ? mm * Mat2x3::translate(-sc.x, -sc.y) : mm, false, inner);
+        Vec2 sc = isRoot ? (id == base_ ? baseInner : Vec2{}) : scrollsNested(id) ? scrollOf(id) : Vec2{};
+        for (Guid c : doc().children(id)) {
+          const NodeProps* cp = props(c);
+          bool fixed = isRoot && cp && scrollBehavior(*cp) == ScrollBehavior::FIXED;
+          walk(c, (sc.x != 0 || sc.y != 0) && !fixed ? mm * Mat2x3::translate(-sc.x, -sc.y) : mm, false, inner);
+        }
       };
       walk(root, m, true, view_.css);
     }
