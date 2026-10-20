@@ -109,6 +109,8 @@ export interface PrototypeDevice {
 }
 
 export type OverlayPositionType = "CENTER" | "TOP_LEFT" | "TOP_CENTER" | "TOP_RIGHT" | "BOTTOM_LEFT" | "BOTTOM_CENTER" | "BOTTOM_RIGHT" | "MANUAL";
+/** Wecra's overlay "Fit to window" (NodeChange.overlayFitWindow, @ours: never in a .fig export; docs/engine.md §3.4). */
+export type OverlayFitWindow = "NONE" | "WIDTH" | "HEIGHT" | "BOTH";
 export type ScrollDirection = "NONE" | "HORIZONTAL" | "VERTICAL" | "BOTH";
 export type ScrollBehavior = "SCROLLS" | "FIXED_WHEN_CHILD_OF_SCROLLING_FRAME" | "STICKY_SCROLLS";
 
@@ -121,6 +123,8 @@ export interface PrototypeFields {
   overlayPositionType?: OverlayPositionType;
   overlayBackgroundInteraction?: "NONE" | "CLOSE_ON_CLICK_OUTSIDE";
   overlayBackgroundAppearance?: { backgroundType?: "NONE" | "SOLID_COLOR"; backgroundColor?: Color };
+  /** Wecra-only: the overlay's sides that take the window's size while presented (absent: None) */
+  overlayFitWindow?: OverlayFitWindow;
   scrollDirection?: ScrollDirection;
   scrollBehavior?: ScrollBehavior;
   /** Prototype › Video (absent: all off) */
@@ -958,6 +962,14 @@ export const OVERLAY_POSITIONS: { value: OverlayPositionType; label: string }[] 
   { value: "BOTTOM_CENTER", label: "Bottom center" },
   { value: "BOTTOM_RIGHT", label: "Bottom right" },
   { value: "MANUAL", label: "Manual" },
+];
+
+/** Overlay › Fit to window (Wecra-only): None keeps the overlay's size. */
+export const OVERLAY_FITS: { value: OverlayFitWindow; label: string }[] = [
+  { value: "NONE", label: "None" },
+  { value: "WIDTH", label: "Width" },
+  { value: "HEIGHT", label: "Height" },
+  { value: "BOTH", label: "Width and height" },
 ];
 
 export const OVERFLOWS: { value: ScrollDirection; label: string }[] = [

@@ -30,6 +30,7 @@ import {
   springWithEditorDuration,
   EASINGS,
   OVERLAY_POSITIONS,
+  OVERLAY_FITS,
   MEDIA_CHOICES,
   TRIGGER_ICON,
   actionKind,
@@ -64,6 +65,7 @@ import {
   type InteractionType,
   type MediaAction,
   type OverlayPositionType,
+  type OverlayFitWindow,
   type PrototypeAction,
   type PrototypeInteraction,
 } from "../../model/prototype";
@@ -727,6 +729,18 @@ function OverlaySettings({ frame, trigger }: { frame: Guid; trigger: Interaction
           value={n.overlayPositionType ?? "CENTER"}
           options={translated(OVERLAY_POSITIONS)}
           onChange={(v) => ed.setProps([frame], protoFields({ overlayPositionType: v as OverlayPositionType }), "Overlay position")}
+        />
+      </div>
+      {/* Wecra-only (not Figma's): the overlay takes the window's height / width while presented — a drawer taller
+          than the window fits it. Stored in an @ours field the .fig export never writes. */}
+      <div className={styles.labelled}>
+        <span className={styles.label}>{t("Fit to window")}</span>
+        <Select
+          label={t("Overlay fit to window")}
+          className={styles.grow}
+          value={n.overlayFitWindow ?? "NONE"}
+          options={translated(OVERLAY_FITS)}
+          onChange={(v) => ed.setProps([frame], protoFields({ overlayFitWindow: v === "NONE" ? null : (v as OverlayFitWindow) }), "Overlay settings")}
         />
       </div>
       {trigger !== "ON_HOVER" && trigger !== "ON_PRESS" && (

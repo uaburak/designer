@@ -351,3 +351,39 @@ describe("components as Figma stores them (components.md task 8)", () => {
     }
   });
 });
+
+describe("Wecra-only prototype settings stay out of the export (overlay Fit to window, docs/engine.md §3.4)", () => {
+  const withFit = (fit: string | undefined): Message => {
+    const base = ourSnapshot();
+    const overlay = node(g(S + 1, 9), "FRAME", g(0, 1), "#", {
+      name: "Drawer",
+      size: { x: 360, y: 1280 },
+      overlayPositionType: "TOP_LEFT",
+      ...(fit ? { overlayFitWindow: fit } : {}),
+    });
+    return { ...base, nodeChanges: [...base.nodeChanges!, overlay] } as Message;
+  };
+
+  it("never writes overlayFitWindow; the file is byte for byte the one without it", () => {
+    const without = decodeCanvas(encodeFigmaCanvas(withFit(undefined), codecs), codecs);
+    for (const fit of ["WIDTH", "HEIGHT", "BOTH"]) {
+      const withIt = decodeCanvas(encodeFigmaCanvas(withFit(fit), codecs), codecs);
+      expect(withIt.message).toEqual(without.message);
+      expect(withIt.schema).toEqual(without.schema);
+      const drawer = byKey(figma.decode("Message", withIt.message)).get(exportIds(withFit(fit)).key(g(S + 1, 9)));
+      expect(drawer.overlayFitWindow).toBeUndefined();
+      expect(drawer.overlayPositionType).toBe("TOP_LEFT"); // Figma's own overlay settings are kept
+    }
+    // Neither the field nor its enum is in the schema the export embeds.
+    const schema = decodeBinarySchema(figmaExportSchema());
+    expect(schema.definitions.some((d) => d.name === "OverlayFitWindow")).toBe(false);
+    expect(schema.definitions.find((d) => d.name === "NodeChange")!.fields.some((f) => f.name === "overlayFitWindow")).toBe(false);
+  });
+
+  it("a Figma file read and written back has none (import → export round trip unchanged)", () => {
+    const { message } = decodeAnySchema(sampleCanvas.schema, sampleCanvas.message, { keepDerived: true });
+    expect(message.nodeChanges!.some((n: any) => n.overlayFitWindow !== undefined)).toBe(false);
+    const out = figma.decode("Message", decodeCanvas(encodeFigmaCanvas(message, codecs), codecs).message);
+    expect(out.nodeChanges.some((n: any) => n.overlayFitWindow !== undefined)).toBe(false);
+  });
+});
