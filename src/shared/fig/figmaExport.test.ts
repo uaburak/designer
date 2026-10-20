@@ -16,7 +16,7 @@ import type { FigCodecs } from "./compression";
 import { decodeCanvas, readCanvasChunks } from "./container";
 import { FIGMA_DERIVED_DATA_VERSION } from "./convert";
 import { readFigFile } from "./figFile";
-import { encodeFigmaCanvas, FIGMA_FILE_VERSION, figmaExportSchema, toFigmaMessage } from "./figmaExport";
+import { encodeFigmaCanvas, FIGMA_FILE_VERSION, figmaExportSchema, figmaVariantDefId, toFigmaMessage } from "./figmaExport";
 import { decodeAnySchema } from "./importFig";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- Figma-shaped values */
@@ -261,15 +261,28 @@ describe("components as Figma stores them (components.md task 8)", () => {
     expect(setDefs.find((d: any) => d.name === "Label").initialValue.textValue.lines).toHaveLength(1);
     expect(setDefs.find((d: any) => d.name === "Show icon")).toMatchObject({ varValue: { dataType: "BOOLEAN", value: { boolValue: true } } });
     expect(setDefs.find((d: any) => d.name === "Size")).toMatchObject({ varValue: { dataType: "STRING", value: { textValue: "" } } });
+    // A variant property's def on Figma's id for its name, the variants' specs on it.
+    expect(setDefs.find((d: any) => d.name === "Size").id).toEqual(figmaVariantDefId("Size"));
+    expect(nodes.get(k(V2)).variantPropSpecs[0].propDefId).toEqual(figmaVariantDefId("Size"));
     expect(nodes.get(k(R1)).componentPropRefs[0]).toMatchObject({ nodeField: 6, componentPropNodeField: "VISIBLE" });
     expect(nodes.get(k(INST)).symbolData.symbolOverrides[0].guidPath.guids).toEqual([xs.guid(LOCAL)]);
+  });
+
+  it("makes a variant property's id from its name as Figma does", () => {
+    // Figma's own "Front End Demo Project 2.fig".
+    expect(figmaVariantDefId("State")).toEqual(g(3479705717, 100804006));
+    expect(figmaVariantDefId("Mode")).toEqual(g(4162906152, 557693350));
+    expect(figmaVariantDefId("Property 1")).toEqual(g(3042298610, 1086140708));
+    expect(figmaVariantDefId("isIconOnly")).toEqual(g(3493905706, 449148450));
   });
 
   it("reads back through our importer as the model it came from", () => {
     const canvas = decodeCanvas(encodeFigmaCanvas(components(), codecs), codecs);
     const { message: back } = decodeAnySchema(canvas.schema, canvas.message, { keepDerived: true });
     const ids = exportIds(components());
-    const before = byKey(ids.deep(components()));
+    // The variant property comes back on Figma's id for its name.
+    const sizeF = figmaVariantDefId("Size");
+    const before = byKey(JSON.parse(JSON.stringify(components()), (_k, v) => (v && v.sessionID === SIZE.sessionID && v.localID === SIZE.localID ? sizeF : v)));
     const after = byKey(back);
     for (const id of [SET, V1, V2, T1, T2, R1, LOCAL, COPY, INST].map(ids.key)) {
       const a = after.get(id);

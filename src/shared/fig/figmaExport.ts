@@ -23,6 +23,7 @@ import type { FigCodecs } from "./compression";
 import { encodeCanvas, PRELUDE_DESIGN, writeCanvasChunks } from "./container";
 import { FIGMA_DERIVED_DATA_VERSION } from "./convert";
 import { figmaPrototypeDevice } from "./figmaDevices";
+import { sha1 } from "../sha1";
 
 /** The `fig-kiwi` version Figma writes today (docs/research/figma/samples/sections.fig, the owner's 2026-10 export). */
 export const FIGMA_FILE_VERSION = 106;
@@ -129,6 +130,40 @@ function remapPropRefs(v: any, map: Map<string, any>): any {
   return out;
 }
 
+/**
+ * Figma's id of a variant property: made from its name, so every set's "State" is the same def — SHA-1 of the UTF-8
+ * name, its first two little-endian words: session = word 1 | 2^31, local = word 0 with the low bit cleared (every
+ * variant property of the owner's "Front End Demo Project 2.fig" — "State" → 3479705717:100804006, "Mode", "Size" …).
+ * Wecra gives them ids of its own; Figma then fails to rebuild the set's properties ("could not create explicit prop
+ * def" with "mismatching type and default value" for each) and its editor aborts.
+ */
+export function figmaVariantDefId(name: string): { sessionID: number; localID: number } {
+  const hex = sha1(new TextEncoder().encode(name));
+  const word = (i: number) => parseInt(hex.slice(i * 8 + 6, i * 8 + 8) + hex.slice(i * 8 + 4, i * 8 + 6) + hex.slice(i * 8 + 2, i * 8 + 4) + hex.slice(i * 8, i * 8 + 2), 16);
+  return { sessionID: (word(1) | 0x80000000) >>> 0, localID: (word(0) & ~1) >>> 0 };
+}
+
+/** Variant property defs on Figma's ids, with every variant's spec and every reference (`guidKey`) following. */
+function figmaVariantIds(nodes: any[]): void {
+  const map = new Map<string, any>();
+  for (const n of nodes)
+    for (const d of n.componentPropDefs ?? []) if (d.type === "VARIANT" && d.id && d.name) map.set(guidKey(d.id), figmaVariantDefId(d.name));
+  if (!map.size) return;
+  const to = (g: any) => (g && map.get(guidKey(g))) ?? g;
+  const keys = (v: any): any => {
+    if (Array.isArray(v)) return v.map(keys);
+    if (!v || typeof v !== "object" || v instanceof Uint8Array) return v;
+    const out: any = {};
+    for (const [k, x] of Object.entries(v)) out[k] = k === "guidKey" ? to(x) : keys(x);
+    return out;
+  };
+  for (const n of nodes) {
+    if (n.componentPropDefs) n.componentPropDefs = n.componentPropDefs.map((d: any) => (d.type === "VARIANT" && d.id ? { ...d, id: to(d.id) } : d));
+    if (n.variantPropSpecs) n.variantPropSpecs = n.variantPropSpecs.map((s: any) => ({ ...s, propDefId: to(s.propDefId) }));
+    for (const f of ["parameterConsumptionMap", "prototypeInteractions", "symbolData"]) if (n[f]) n[f] = keys(n[f]);
+  }
+}
+
 /** Text with one PLAIN line per paragraph, as Figma writes every TextData. */
 function withLines(td: any): any {
   if (td?.lines?.length) return td;
@@ -168,6 +203,7 @@ function figmaAssignments(list: any[], implicitOf: Map<string, any>): any[] {
  */
 function figmaComponents(nodes: NodeChange[]): NodeChange[] {
   const out = nodes.map((n) => ({ ...n }) as any);
+  figmaVariantIds(out);
   const children = new Map<string, any[]>();
   for (const n of out) {
     const p = n.parentIndex?.guid;

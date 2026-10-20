@@ -15,7 +15,7 @@ import { ApiError, MIXED } from "./codec";
 import { mustNode, readNode, ref, refOf, type ApiContext } from "./context";
 import { apiType, decorationColorFromApi, decorationColorToApi, decorationMetricFromApi, decorationMetricToApi, effectToApi, ENGINE_TYPE, fontNameFromApi, IDENTITY, letterSpacingFromApi, letterSpacingToApi, lineHeightFromApi, lineHeightToApi, paintsFromApi, paintToApi, weightOf } from "./convert";
 import { positionAt, writeFields } from "./nodes";
-import { sha1 } from "./sha1";
+import { sha1 } from "@shared/sha1";
 
 type Obj = Record<string, unknown>;
 const session = (ctx: ApiContext) => ctx.ed.source.sessionID ?? 1;
