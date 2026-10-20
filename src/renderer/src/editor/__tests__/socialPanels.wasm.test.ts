@@ -87,7 +87,8 @@ describe("Social mode's chrome (round 18a)", () => {
     act(() => runEditorCommand(ed, "view.mode-social"));
     expect($("[data-social-posts]")).toBeNull();
     const w = editorWriter(ed);
-    act(() => {
+    // The index tells its listeners in a microtask (deferred.ts): an async act lets the list re-render
+    await act(async () => {
       const c = newCampaign("October", null);
       setCampaign(ed, w, ed.store.page, c);
       newPost(ed, w, { formatId: "instagram.post", campaignId: c.id });
@@ -120,7 +121,7 @@ describe("Social mode's chrome (round 18a)", () => {
   it("turns the caption's counter red past the format's limit", async () => {
     let id = "";
     const { ed } = await setup(() => createElement(PostSection));
-    act(() => {
+    await act(async () => {
       ed.ui.set({ mode: "social" });
       id = newPost(ed, editorWriter(ed), { formatId: "instagram.post" });
       ed.engine.setSelection([id]);
@@ -129,11 +130,11 @@ describe("Social mode's chrome (round 18a)", () => {
     expect(counter().textContent).toBe("0 / 2,200");
     expect(counter().hasAttribute("data-over")).toBe(false);
     expect($("[data-caption-fold]")?.getAttribute("data-caption-fold")).toBe("125");
-    act(() => setPost(ed, editorWriter(ed), [id], { caption: "x".repeat(2201) }));
+    await act(async () => setPost(ed, editorWriter(ed), [id], { caption: "x".repeat(2201) }));
     expect(counter().textContent).toBe("2,201 / 2,200");
     expect(counter().hasAttribute("data-over")).toBe(true);
     // Hashtags count against the limit too (on their own line after the caption).
-    act(() => setPost(ed, editorWriter(ed), [id], { caption: "x".repeat(2190), hashtags: ["tarım"] }));
+    await act(async () => setPost(ed, editorWriter(ed), [id], { caption: "x".repeat(2190), hashtags: ["tarım"] }));
     expect(counter().textContent).toBe("2,198 / 2,200");
     expect(counter().hasAttribute("data-over")).toBe(false);
   });
@@ -178,12 +179,12 @@ describe("Social's agent pieces (round 18c)", () => {
     }
     const { ed } = await setup(() => createElement("div", null, createElement(CanvasLayers), createElement(Card)));
     let id = "";
-    act(() => {
+    await act(async () => {
       ed.ui.set({ mode: "social" });
       id = newPost(ed, editorWriter(ed), { formatId: "instagram.story", at: { x: 0, y: 0 } });
     });
     const problem = { id: "s1", kind: "safe-area" as const, detail: "“CTA” reaches into the bottom band", box: { x: 100, y: 1700, width: 300, height: 80 }, fix: "relayout" as const };
-    act(() => ed.batch("Pins", () => writePost(ed, id, { ...readPost(ed, id)!, problems: [{ ...problem, source: "review" }] })));
+    await act(async () => ed.batch("Pins", () => writePost(ed, id, { ...readPost(ed, id)!, problems: [{ ...problem, source: "review" }] })));
     card = { kind: "review", id: "card-r", report: { briefId: "b", items: [{ nodeId: id, name: "Story", ok: false, problems: [problem] }] } };
     const pin = $('[data-review-pins] [data-problem="s1"]')!;
     expect(pin.textContent).toBe("1");

@@ -96,6 +96,7 @@ describe("Social posts (round 18a)", () => {
       ["Liq Humus — October", [a, b]],
       [null, [loose]],
     ]);
+    await Promise.resolve(); // listeners hear of it in a microtask (deferred.ts)
     expect(seen.length).toBeGreaterThan(0);
 
     // Duplicate for › LinkedIn landscape: a fresh draft in the same campaign, at the row's end; one undo step.
