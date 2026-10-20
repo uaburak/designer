@@ -432,6 +432,10 @@ Math is in `double`, stored as `float`. Positions are not rounded, as in Figma (
   go negative (overlap) and a lone child is centred. A change that gives a frame auto layout for the first time
   (`set_props`, ⇧A, Suggest auto layout) stamps 1 (`stampNewStack`); `SET_STACK_LAYOUT_VERSION` changes it (the
   Design panel's Layout row, "Update layout version for selection / page"). Instances take their main's.
+- **Auto gap with Fill children** (live Figma 2026-10-20): with "Space between" (`SPACE_BETWEEN` / `SPACE_EVENLY`) on a
+  frame that doesn't hug its primary axis, Fill children share the whole room — the stored `stackSpacing` isn't held
+  back for them, so the gap comes out 0 (a 400 row, spacing 20, [100 · Fill · 50]: the Fill one 250 at x 100; Packed:
+  210 at 120).
 
 ### 4.3 Grid (`GridLayout.cpp`): `stackMode GRID`
 - Tracks are `gridColumns`/`gridRows` (GUIDPositionMap, each track has a GUID and a fractional position) sized by `gridColumnsSizing`/`gridRowsSizing`: fixed px, flex (fr), or hug. The algorithm is CSS-grid-like:
@@ -457,6 +461,13 @@ Math is in `double`, stored as `float`. Positions are not rounded, as in Figma (
 - Constraints don't apply:
   - inside groups (groups follow their children, §4.5);
   - when the user resizes with ⌘ held: the gesture sets `ignoreConstraints` (Figma's behaviour).
+- **Hug anchors** (live Figma 2026-10-20, `Layout::hugAnchored`): an auto-layout frame or instance that its own
+  content resizes on a Hug axis — a content edit, a variant switch in the panel, a prototype's Change to — keeps the side
+  its constraints hold in a parent that doesn't lay it out: Left / Top keep that edge, Right / Bottom theirs, Center,
+  Left & Right and Scale the centre. On the canvas, in a section or a group, or in its parent's flow: its top-left (the
+  flow places it). A fixed-size variant switch keeps the top-left whatever the constraints (Figma); an auto-width text
+  grows from the side its alignment holds, not its constraints. A variant switch moves the instance as its root takes
+  its new main's size (`Editor::materialize`), and layout then hugs it from there by the same rule.
 - **Lock aspect ratio** (`targetAspectRatio`, Figma's 423, an unmodelled field read by `Layout::aspectRatio`; plugin API "targetAspectRatio": kept "when the user resizes it via auto layout, constraints, the properties panel, or on-canvas"; never on an auto-resizing text): a constraint that resizes one axis resizes the other by the ratio; in auto layout, Fill on the primary axis sets the counter length and Fill across the counter axis (stretch, the frame's counter length set) sets the primary one — the frame's Hug follows. Turning `proportionsConstrained` on through `set_props` records the layer's width : height there; off clears it (import polish, 2026-10-11).
 
 ### 4.5 Groups and boolean operations (`Groups.cpp`)

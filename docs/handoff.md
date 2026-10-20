@@ -2,6 +2,17 @@
 
 First written 2026-10-06 when the first Claude session stopped and the owner moved the work to another Claude account through GitHub (`https://github.com/uaburak/designer`). Updated the same day by the second session, which finished every workstream's partial items and ran the integration round. Read `AGENTS.md`, `docs/architecture.md` and `docs/roadmap.md` first; the contracts in `docs/` decide everything; `docs/research/` holds the verified facts about Figma (with sources).
 
+## Status 2026-10-20 (night) — hug anchors and a whole-file prototype audit against live Figma (committed on its branch, not merged)
+
+The owner: a centred button that changes to a bigger hover variant grew right / down in Wecra, around its centre in Figma; then "check the whole behaviour". Measured live (scratch page in his file, deleted after; a virtual clock shooting both apps at the same ms — `scripts/proto-bench/frames.mjs`); findings and a behaviour | Figma | before | after table in `docs/research/figma/live/2026-10-20/prototype-playback.txt` §6–7. Fixed:
+- **Hug anchors** (docs/engine.md §4.4): a Hug auto-layout frame / instance resized by its content (content edit, variant switch in the panel, Change to) keeps the side its constraints hold (Center / Stretch / Scale: the centre). On his case rebuilt in a copy: centre (521.5, 348.5) on every frame (before: left edge fixed, centre drifting to 541).
+- Smart animate: an instance's auto-layout parents and siblings re-lay out with it every frame; a font-size-only text change scales (no double text).
+- **Variant switch lost overrides** (the card's own photo and "Edit" became the main's, permanently after a hover): layers inside frames weren't found, same-named layers took the first — `remapOverrides` / `resolvePath` fixed; a custom instance name stays.
+- Push + matching layers: unmatched content inside a matched frame slides (it faded in place); the renderer now honours an override's `visible = false`; a Change to's ghost never matches; matched instances' differing insides fade in place.
+- Close overlay / click outside play the opening transition backwards (was instant).
+- Layout: "Space between" with a Fill child → gap 0 (his body was 12 px off whenever Wecra laid it out).
+Tests: `proto.hug_anchor.test.cpp` (7 cases), components / layout / prototype cases, opt-in `proto.owner_file.test.cpp` (OWNER_MSG); engine:test 952/952; vitest editor + present + engine 182 files / 1,471; typecheck. engine.wasm rebuilt. **Left**: Figma drops blend modes while animating (not copied); a press Change-to running into a Navigate shows the pressed width ~100 ms; After delay loop timing not compared; nested (derived) instances swapped inside another instance aren't hug-anchored (their main's layout places them).
+
 ## Status 2026-10-20 (evening) — "Prototype deneme" plays as Figma: springs, layout grids, Play on a section (committed on its branch, not merged)
 
 The owner: hovers and transitions of "Prototype deneme" (page Desktop, frames 1–6) run "very heavily" next to Figma; Play inside the section "tries to play every frame". Measured live in Figma (his file, Browser pane, 120 Hz) and in the built app on his own user data (he had closed every Wecra and made a backup; only this file opened, nothing edited) with the new `scripts/proto-bench/playback.mjs`; numbers in `docs/research/figma/live/2026-10-20/prototype-playback.txt`.

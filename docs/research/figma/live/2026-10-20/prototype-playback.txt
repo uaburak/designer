@@ -91,3 +91,99 @@ show many columns over every screen was the layout grid (§3), which looks like 
   pointer coordinates at another scale), so Figma's 2 → 3 and 6 → 1 weren't timed; 1 → 4 and 4 → 6 were.
 - The bench's taps below the visible part of a screen taller than the window (pagination at y 872, frame 6's bottom
   button in the inline preview) don't land — the screen would have to be scrolled first; not a player fault.
+
+
+6. Hug anchors — where an instance goes when a variant switch changes its size (2026-10-20, later)
+--------------------------------------------------------------------------------------------------
+The owner's recording: "Frame 5" (523 × 349) with an instance of "Buttons" (secondary / xl, Hug × Hug, 196 × 52 at
+163, 148.5, constraints Center / Center), Mouse enter → Change to the hover variant (another size), Smart animate,
+Slow. Figma grows / shrinks it around its centre; Wecra kept its top-left and grew it right and down.
+
+How: live Figma, the owner's file, a scratch page "zz anchor test" made for it (deleted afterwards). A set "AnchorBtn"
+of two Hug variants (a 100 × 40 box, a 200 × 80 box), instances at (150, 130) in 400 × 300 frames with each
+constraint pair; plugin API setProperties (the panel's variant switch) and the presentation (Mouse enter → Change to,
+Smart animate, Linear 3 s; the page's clock held by script — performance.now and the animation frames' time replaced —
+so a transition is shot at exact times; the same trick in Wecra, scripts/proto-bench/frames.mjs).
+
+Variant switch in the editor (setProperties), the instance (150, 130, 100 × 40) → 200 × 80:
+  Left / Top                     (150, 130)   the top-left stays
+  Right / Bottom                 ( 50,  90)   the right and bottom edges stay
+  Center / Center                (100, 110)   the centre stays
+  Left & Right / Top & Bottom    (100, 110)   the centre stays (the instance takes the variant's size, not stretched)
+  Scale / Scale                  (100, 110)   the centre stays
+  Center / Top                   (100, 130)   per axis
+  in a vertical auto-layout frame centring it: placed by the frame (100, 110)
+  in a Hug row [50 · instance · 50]: the row re-lays out (the instance at x 60, the row grows)
+Not specific to instances — any Hug auto-layout frame whose content grows (a child rectangle 100 × 40 → 200 × 80):
+  Center / Center (20, 20) → (−30, 0); Right / Bottom-ish (MAX / MIN) (100, 100) → (0, 100); MIN / MAX → (100, 60);
+  STRETCH / SCALE → (50, 80). On the canvas (no parent frame): the top-left stays.
+Not like that:
+  - fixed-size variants (no Hug): the top-left stays whatever the constraints (Center, Right, Stretch: all at (150, 130));
+  - an auto-width text: grows from the side its text alignment holds, constraints ignored (MAX + Left aligned grew right);
+  - a custom instance name stays across variant switches ("My custom" kept; Wecra now keeps it too).
+Prototype: Change to with Smart animate interpolates position and size together — the centre held on every frame
+(Center: the box's centre at the frame's centre at 1 s, 1.5 s, 2 s of 3 s; Right / Bottom: the right / bottom edges
+held). Instant: the end state above. In an auto-layout parent the parent re-lays out every frame: the row's siblings
+move and the Hug row grows continuously (a 50 · 100→200 · 50 row: half way the right square half way along), not at
+once.
+
+Wecra before → after, the owner's case rebuilt in a copy of his file (a "Buttons test" set: a 196 × 52 yellow pill and
+a 236 × 60 one, Mouse enter / leave Change to, Slow 0.26 s; "Frame 5" 523 × 349, the instance at (163, 148.5), Center /
+Center), Present here, the yellow box measured in each shot (2× px, the frame's centre is (521.5, 348.5)):
+  before  start  x 326..717  centre (521.5, 348.5)
+          40 ms  x 326..756  centre (541.0, 352.5)   ← the left edge stays, it grows right and down
+          80 ms  x 326..728  centre (527.0, 349.5)
+  after   start  x 326..717  centre (521.5, 348.5)
+          40 ms  x 306..737  centre (521.5, 348.5)
+          80 ms  x 292..751  centre (521.5, 348.5)
+          300 ms x 286..757  centre (521.5, 348.5)   (236 × 60, Figma's end)
+          leave 40 ms x 307..736, 150 ms x 326..717  centre (521.5, 348.5) throughout
+Images: img/wecra-before-hover-anchor.png, img/wecra-after-hover-anchor.png.
+Built (docs/engine.md §4.4 "Hug anchors"): Layout::hugAnchored in the auto-layout arrange (a Hug size change moves the
+frame by the constraint's share of the change, in its own axes) and in Editor::materialize (an instance's root taking
+its new main's size); Smart animate already interpolated the instance's transform with its size — the anchor holds on
+every frame, springs that overshoot included. The player remembers the instance's transform / size for Restart.
+Tests: proto.hug_anchor.test.cpp (editor switch for every constraint pair + undo; a Hug frame's content growing;
+Change to Instant Center and Right / Bottom; Smart animate's midpoint centred and Restart; inside auto layout).
+
+7. Whole-file audit: every interaction kind of "Prototype deneme", Figma vs Wecra (2026-10-20)
+--------------------------------------------------------------------------------------------
+The owner: "check the whole behaviour, find the bugs". The file's interactions (Plugin API, all pages): Change to on
+Mouse enter / Mouse leave / While hovering / On click / While pressing / After delay (0.001 s, an input's caret loop),
+with Smart animate (Slow 0.26 / 0.42 s, Bouncy 0.96 s, Quick 0.74 s), Dissolve 0.31 s and Instant; Navigate with Push
+left / right + Animate matching layers (0.63 s); Open overlay Move in (top-down: from the bottom) 0.42 s, centred,
+20 % black, close on click outside; Close overlay; Swap overlay; Back; Set variable mode (dark mode) after a Change to;
+nested interactive components (a card hovering, its buttons hovering). Shot at the same times in both (Figma: the
+presentation at Fit or 100 % in the Browser pane; Wecra: Present here in the built app on a copy of his workspace,
+frames.mjs), start / middle / end; Wecra's player also driven natively on his file (proto.owner_file.test.cpp,
+OWNER_MSG) to read what each pass draws.
+
+| Behaviour | Figma | Wecra before | Wecra after |
+|---|---|---|---|
+| Change to resizing an instance (Hug), Center constraints | grows around its centre (§6) | top-left kept, grew right / down | centre kept every frame |
+| … Right / Bottom constraints | right / bottom edges kept | top-left kept | edges kept |
+| … the editor's variant switch | same rule as the prototype | top-left kept | same rule |
+| … in a Hug auto-layout row | siblings and the row move every frame | the row jumped to its end at once, the instance animated alone | the row and siblings move with it |
+| Overrides across a variant switch (card hover: its own photo on the second "image" layer, the "Edit" label inside frames) | kept | lost: the photo became the main's, "Edit" became "1 min read", and stayed so after leaving | kept (a layer is found at any depth of its level; same-named layers by their place) |
+| A custom instance name across a switch | kept | became the set's name on every re-derivation | kept (root override) |
+| Text whose font size changes (Create News 20 → 24) | one text, scaled | two texts cross-fading | one text, scaled |
+| Text whose characters / font style change | cross-fade | cross-fade | cross-fade |
+| Text colour change | interpolated | interpolated | interpolated |
+| Push + Animate matching layers, content under a matching "body" (1 → 4) | the old content slides out under the sidebar, the new slides in | the new content faded in place over the sliding old one (the renderer ignored `visible = false` in a scene override and drew the hidden copy at its fade opacity) | slides, full opacity; hidden copies not drawn |
+| … the sidebar button (matched instance, label style differs) | label cross-fades in place, highlight grows in | the "Disable Button" pill slid out of the News row (the ghost of the hover's Change to took the set's name and matched the next screen's second "Button"), the old label slid away under the sidebar | label fades in place over the match; ghosts never match |
+| Overlay Move in from the bottom, position, background | slides up, centred, 20 % black | same | same |
+| Overlay closed by a click outside / Close | slides back down (its opening transition backwards, ~0.42 s) | vanished at once | slides back down |
+| Card hover / leave (Mouse enter / leave, Slow 0.42 s) | ~150 ms to settle, both ways | same timing; photo / label lost (row 2) | same timing, overrides kept |
+| A leave during the hover animation | jumps to the hover's end, animates back | same | same |
+| Create News While hovering (Bouncy 0.96 s) | quick, subtitle in by 64 ms | timing alike; title cross-faded (row 7) | alike |
+| Dark mode: Change to (0.42 s) then Set variable mode | mode switches after the Change to ends (~420 ms), no fade | same | same |
+| Push timing (Slow 0.63 s): progress at 30 / 60 / 120 ms | 0.11 / 0.28 / 0.53 | ~1 frame later (0.03 / 0.19 / 0.56) | same |
+| Auto layout "Space between" with a Fill child (frame 1's body) | gap 0: body at x 300, 1128 wide | gap 12 whenever Wecra laid it out itself (body at 312, 1116) | gap 0 (docs/engine.md §4.2) |
+| Blend modes during Smart animate (card overlay, SCREEN gradient) | drawn without the blend mode while animating (the gradient covers the photo half way, then the screen tint returns) | blended throughout | blended throughout — Figma's rendering artifact, not copied |
+| After delay caret loop (Type-1 ⇄ Type-2, 0.001 s + Dissolve 0.31 s) | blinks | blinks (on ~0.2 s, off ~0.4–0.9 s) | not compared frame by frame (the clock trick doesn't hold Figma's timers) |
+
+Images: img/wecra-before-push-1-4.png, img/wecra-after-push-1-4.png, img/wecra-card-hover-before-after.png
+(before: start, 200 ms, after leaving; after: 200 ms, after leaving).
+Left: the hover's Change to on the sidebar button runs together with the click's Navigate; for ~100 ms the matched
+pill shows the pressed variant's width before the destination's. Figma's own blend-mode drop during animation is not
+copied. The After delay loop's exact period wasn't compared.
