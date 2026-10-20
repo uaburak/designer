@@ -67,7 +67,7 @@ std::string inflate(std::string_view z) {
 
 struct El {
   std::string tag;
-  std::map<std::string, std::string> attrs;
+  std::map<std::string, std::string, std::less<>> attrs;
   std::vector<El> kids;
   std::string text;
   const std::string* attr(const std::string& k) const {

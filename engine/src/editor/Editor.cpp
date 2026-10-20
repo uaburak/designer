@@ -19,7 +19,7 @@ namespace {
 std::vector<Guid> interactionTargets(const NodeProps& p) {
   std::vector<std::pair<proto::Navigation, Guid>> dests;
   std::vector<Guid> out;
-  for (const proto::Interaction& i : proto::interactions(p))
+  for (const proto::Interaction& i : *proto::sharedInteractions(p))
     for (const proto::Action& a : i.actions) {
       proto::destinations(a, dests);
       proto::mediaTargets(a, out);
@@ -632,23 +632,40 @@ void Editor::relayoutAll() {
     for (Guid canvas : doc_.children(docNode_)) {
       const Node* cn = doc_.get(canvas);
       if (!cn) continue;
-      bool now = canvas == page_ || cn->props.type != NodeType::CANVAS || cn->props.rare().internalOnly;
+      // A page's subset (setPartial) holds of its other pages only what the page reaches (mains, destinations): now —
+      // those pages are never shown there, and the instances on the page read them.
+      bool now = canvas == page_ || partial_ || cn->props.type != NodeType::CANVAS || cn->props.rare().internalOnly;
       std::vector<Guid>* later = now ? nullptr : &pageBindings_[canvas];
-      std::vector<Guid> stack{canvas};
+      // A presentation's page (setLazyScreens): each screen's bound values when it is shown (deriveTree), as its
+      // instances — a heavy page resolved them all at load (B2C: 0.14 s). Mains and sections now (others read them).
+      bool byScreen = lazyScreens_ && canvas == page_ && cn->props.type == NodeType::CANVAS;
+      bool fresh = freshBindings_ && !staleCanvases_.count(canvas);
+      struct At {
+        Guid id, screen;
+        bool main;  // in a main (or a set): now, its instances elsewhere read its values
+      };
+      std::vector<At> stack{{canvas, kNoGuid, false}};
       while (!stack.empty()) {
-        Guid id = stack.back();
+        At at = stack.back();
         stack.pop_back();
-        if (auto it = bound.find(id); it != bound.end()) {
-          if (later) later->push_back(id);
-          else bindingsDirty_.insert(id);
+        const Node* n = doc_.get(at.id);
+        if (!n) continue;
+        bool main = at.main || n->props.type == NodeType::SYMBOL || n->props.isComponentSet();
+        Guid screen = at.screen;
+        if (byScreen && screen == kNoGuid && at.id != canvas && n->props.type != NodeType::SECTION) screen = at.id;
+        if (auto it = bound.find(at.id); it != bound.end()) {
+          if (fresh) bindingsPending_.push_back(at.id);
+          else if (later) later->push_back(at.id);
+          else if (screen != kNoGuid && !main) screenBindings_[screen].push_back(at.id);
+          else bindingsDirty_.insert(at.id);
           bound.erase(it);
         }
-        for (Guid c : doc_.children(id))
-          if (!c.isDerived()) stack.push_back(c);
+        for (Guid c : doc_.children(at.id))
+          if (!c.isDerived()) stack.push_back({c, screen, main});
       }
     }
   }
-  for (Guid g : bound) bindingsDirty_.insert(g);  // under no page
+  for (Guid g : bound) bindingsDirty_.insert(g);  // under no page (fresh or not: few)
   // Deleted mains kept for their instances go once nothing uses them (docs/schema.md §5.7). Only components: a
   // soft-deleted variable, collection or style stays (Figma's deletedButReferenced: aliases, bindings and explicit
   // modes still name it), and so does a deleted main that was published (the next publish lists it as Removed).
@@ -782,8 +799,13 @@ void Editor::deriveTree(Guid top) {
   Guid page = doc_.pageOf(top);
   const Node* pn = doc_.get(page);
   if (!pn || pn->props.rare().internalOnly) return;
-  derivePage(page);  // its bound values
+  derivePage(page);  // the page's bound values outside its screens
   derivedTrees_.insert(top);
+  // The screen's own bound values (relayoutAll left them for now).
+  if (auto sb = screenBindings_.find(top); sb != screenBindings_.end()) {
+    for (Guid g : sb->second) bindingsDirty_.insert(g);
+    screenBindings_.erase(sb);
+  }
   // As derivePage does for the whole page: its instances, its auto-layout frames and groups.
   std::vector<Guid> dirty;
   std::vector<Guid> stack{top};
@@ -797,20 +819,45 @@ void Editor::deriveTree(Guid top) {
     for (Guid c : doc_.children(id))
       if (!c.isDerived()) stack.push_back(c);
   }
-  if (dirty.empty() && instanceDirty_.empty()) return;
+  if (dirty.empty() && instanceDirty_.empty() && bindingsDirty_.empty()) return;
   std::sort(dirty.begin(), dirty.end());
   begin(TxnKind::LOAD, "Page");
+  flushBindings();
   inLayout_ = true;
   Layout(*this).run(dirty);
   inLayout_ = false;
   commit();
 }
 
-bool Editor::deriveNextTrees(Guid page, double budgetMs) {
+bool Editor::deriveNextTrees(Guid page, double budgetMs, const std::vector<Guid>* only) {
   const Node* pn = doc_.get(page);
   if (!lazyScreens_ || txn_.open || !pn || pn->props.type != NodeType::CANVAS) return false;
   auto now = [] { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count(); };
   double start = now();
+  // Bound values loaded current: their dependencies noted, a slice at a time.
+  if (!bindingsPending_.empty()) {
+    begin(TxnKind::LOAD, "Page");
+    while (!bindingsPending_.empty()) {
+      for (int i = 0; i < 256 && !bindingsPending_.empty(); i++) {
+        bindingsDirty_.insert(bindingsPending_.back());
+        bindingsPending_.pop_back();
+      }
+      flushBindings();
+      if (now() - start >= budgetMs) break;
+    }
+    commit();
+    return true;
+  }
+  if (only) {
+    bool any = false;
+    for (Guid id : *only) {
+      if (!doc_.has(id) || inDerivedTree(id) || doc_.pageOf(id) != page) continue;
+      if (any && now() - start >= budgetMs) return true;
+      deriveTree(id);
+      any = true;
+    }
+    return false;
+  }
   // The page's screens in layer order: its top-level layers, a section's layers in its place (the player's screens).
   std::vector<Guid> stack(doc_.children(page).rbegin(), doc_.children(page).rend());
   bool any = false;  // at least one screen per call
@@ -1257,6 +1304,8 @@ void Editor::loadDocument(std::vector<NodeChange>&& nodes, Guid page, StoredDeri
   derivedInternal_.clear();
   derivedTrees_.clear();
   pageBindings_.clear();
+  screenBindings_.clear();
+  bindingsPending_.clear();
   keyIndex_.clear();
   keyOf_.clear();
   instanceCounts_.clear();
@@ -1293,6 +1342,8 @@ void Editor::loadDocument(std::vector<NodeChange>&& nodes, Guid page, StoredDeri
   applyingStored_ = derived != nullptr;
   relayoutAll();
   applyingStored_ = false;
+  freshBindings_ = false;
+  staleCanvases_.clear();
   derivePage(page_);
   events_.undo = true;
 }

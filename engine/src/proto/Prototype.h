@@ -7,6 +7,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -139,6 +140,8 @@ struct Flow {
 
 // Reads. Absent fields read as their schema defaults; unreadable bytes as absent.
 std::vector<Interaction> interactions(const NodeProps& p);
+// The same list, shared: read once per distinct value of the field (no copy).
+std::shared_ptr<const std::vector<Interaction>> sharedInteractions(const NodeProps& p);
 bool hasInteractions(const NodeProps& p);
 // An instance's interactions as they play (Figma's model, as its files show it: an instance stores copies of its main's
 // interactions under their ids, plus those added on the instance). An entry with the id of one of its main's stands for
@@ -149,6 +152,9 @@ bool hasInteractions(const NodeProps& p);
 // entry, its index in the instance's own interactions(), −1 for one inherited from the main.
 std::vector<Interaction> instanceInteractions(const NodeProps& own, const NodeProps* main, const std::vector<const NodeProps*>& variants,
                                               std::vector<int>* ownIndex = nullptr);
+// Which of an instance's own interactions() it plays as its own (changed or added on it, not copies of its main's or
+// left from another variant): instanceInteractions' ownIndex, without building the played list.
+std::vector<bool> instanceOwnEntries(const NodeProps& own, const NodeProps* main, const std::vector<const NodeProps*>& variants);
 Overflow overflow(const NodeProps& p);
 ScrollBehavior scrollBehavior(const NodeProps& p);
 OverlaySettings overlaySettings(const NodeProps& p);

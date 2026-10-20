@@ -93,6 +93,21 @@ std::vector<proto::Interaction> Editor::playedInteractions(Guid id, std::vector<
   return proto::instanceInteractions(n->props, &m->props, variants, ownIndex);
 }
 
+std::vector<bool> Editor::ownInteractions(Guid id) const {
+  const Node* n = doc_.get(id);
+  if (!n) return {};
+  const Node* m = n->props.type == NodeType::INSTANCE ? doc_.get(mainOf(id)) : nullptr;
+  if (!m) return proto::instanceOwnEntries(n->props, nullptr, {});
+  std::vector<const NodeProps*> variants;
+  if (Guid set = setOf(mainOf(id)); set != kNoGuid) {
+    for (Guid v : doc_.children(set))
+      if (const Node* vn = doc_.get(v); vn && vn->props.type == NodeType::SYMBOL) variants.push_back(&vn->props);
+  } else {
+    variants.push_back(&m->props);
+  }
+  return proto::instanceOwnEntries(n->props, &m->props, variants);
+}
+
 void Editor::setPrototypeMode(bool on) {
   if (proto_.on == on) return;
   proto_.on = on;
@@ -115,12 +130,10 @@ const std::vector<Editor::ProtoLink>& Editor::protoLinks() {
     if (n->props.type != NodeType::CANVAS && proto::hasInteractions(n->props)) {
       // An instance's own (changed or added on it) are its connections; the copies of its main's it stores (Figma's
       // files) are inherited ones, drawn when it is selected (protoOverlay).
-      std::vector<int> own;
-      auto played = n->props.type == NodeType::INSTANCE ? playedInteractions(id, &own) : std::vector<proto::Interaction>{};
-      auto list = proto::interactions(n->props);
-      std::vector<bool> mine(list.size(), n->props.type != NodeType::INSTANCE);
-      for (size_t k = 0; k < own.size(); k++)
-        if (own[k] >= 0 && static_cast<size_t>(own[k]) < mine.size()) mine[static_cast<size_t>(own[k])] = true;
+      auto shared = proto::sharedInteractions(n->props);
+      const std::vector<proto::Interaction>& list = *shared;
+      std::vector<bool> mine = ownInteractions(id);
+      mine.resize(list.size(), false);
       for (size_t i = 0; i < list.size(); i++) {
         if (!mine[i]) continue;
         std::function<void(const std::vector<proto::Action>&, std::vector<size_t>)> actions = [&](const std::vector<proto::Action>& acts,

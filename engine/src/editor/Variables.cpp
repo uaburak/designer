@@ -1307,10 +1307,30 @@ void Editor::markBindingsSubtree(Guid id) {
   }
 }
 
+void Editor::flushPendingBindings() {
+  for (Guid g : bindingsPending_) bindingsDirty_.insert(g);
+  bindingsPending_.clear();
+}
+
+std::vector<Guid> Editor::pagesUnresolved() const {
+  std::vector<Guid> out;
+  for (const auto& [page, list] : pageBindings_)
+    if (!list.empty()) out.push_back(page);
+  return out;
+}
+
 void Editor::noteBindings(const NodeChange& c, NodeType typeBefore) {
   if (c.guid.isDerived()) return;
   const Node* n = doc_.get(c.guid);
   FieldMask m = c.phase == Phase::CHANGED ? c.mask : F_ALL;
+  // Bound values loaded current without their dependencies (setFreshBindings): what a variable, a collection, a
+  // style or a mode now changes is known only once they are noted — all of them, this commit.
+  if (!bindingsPending_.empty() && !resolving_) {
+    NodeType t = n ? n->props.type : typeBefore;
+    bool asset = t == NodeType::VARIABLE || t == NodeType::VARIABLE_SET || t == NodeType::VARIABLE_OVERRIDE || variableSets_.count(c.guid) ||
+                 collectionIds_.count(c.guid) || overrideIndex_.count(c.guid) || styleIds_.count(c.guid) || (n && n->props.isStyle());
+    if (asset || (c.phase == Phase::CHANGED && (m & F_VARIABLE_MODES))) flushPendingBindings();
+  }
   auto markAll = [&](std::unordered_map<Guid, GuidSet, GuidHash>& map) {
     auto it = map.find(c.guid);
     if (it == map.end()) return;

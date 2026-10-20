@@ -37,14 +37,14 @@ TextStyle runStyleOf(const NodeProps& node, uint32_t runMask);
 // Run fields the engine keeps as data (NodeProps::extra form: schema name → varuint id + value; an empty value
 // removes the field): set on [from, to) through styleOverrideTable, like applyRunStyle. A value equal to the node's
 // own removes the field from the run.
-void applyRunExtras(TextData& t, uint32_t from, uint32_t to, const std::map<std::string, std::string>& fields, const NodeProps& node);
+void applyRunExtras(TextData& t, uint32_t from, uint32_t to, const std::map<std::string, std::string, std::less<>>& fields, const NodeProps& node);
 // Drops these fields from every run (a whole-layer edit).
 void clearRunExtras(TextData& t, const std::vector<std::string>& keys);
 // Whether a NodeChange field (schema name) can be a run's: links, variable axes, OpenType switches, decoration details.
 bool isRunExtraKey(std::string_view key);
 // Whether a change's kept-as-data fields (NodeProps::extra) include one text layout reads (run keys, leadingTrim,
 // listSpacing, hangingList, hangingPunctuation, textWrapStyle, the layout versions).
-bool changesTextLayout(const std::map<std::string, std::string>& extra);
+bool changesTextLayout(const std::map<std::string, std::string, std::less<>>& extra);
 
 // A run's fields kept as data, read as a NodeChange's (its styleIdForText, parameterConsumptionMap…).
 NodeProps runProps(const TextStyle& run);

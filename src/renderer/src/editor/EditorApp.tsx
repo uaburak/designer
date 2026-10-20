@@ -87,7 +87,7 @@ import { VisualSearchHost } from "./search";
 import { LinkEditor } from "./canvas/LinkEditor";
 import { ScreenReaderMirror } from "./canvas/ScreenReaderMirror";
 import { PresentationView } from "@/present/PresentationView";
-import { editorPresentationSource } from "./present";
+import { dropParked, editorPresentationSource, handOverPresentation } from "./present";
 import { ShareDialog } from "./ShareDialog";
 import { SharePrototypeDialog } from "./SharePrototypeDialog";
 import { Multiplayer } from "./multiplayer/Multiplayer";
@@ -558,6 +558,8 @@ function Presenting() {
   useEffect(() => {
     if (presenting && !ed.ui.get().preview) ed.ui.set({ previewKept: null });
   }, [ed, presenting]);
+  // A presentation engine parked for the next view (editor/present.ts) goes with the editor.
+  useEffect(() => () => dropParked(ed), [ed]);
   // Share prototype from the presentation's toolbar (docs/editor.md D-6): the store's file; without one, the link is copied.
   const fileKey = (ed.source as { fileKey?: string }).fileKey ?? null;
   const [sharing, setSharing] = useState<{ node: string | null } | null>(null);
@@ -570,6 +572,8 @@ function Presenting() {
         node={presenting.node}
         onShare={fileKey ? (screen) => setSharing({ node: screen }) : undefined}
         onClose={() => {
+          // Its engine stays for the next ⇧Space on the page (unless an inline preview is kept already).
+          if (!ed.ui.get().previewKept) handOverPresentation(ed, presenting.page);
           ed.ui.set({ presenting: null });
           ed.focusCanvas();
         }}

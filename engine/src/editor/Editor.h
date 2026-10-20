@@ -291,6 +291,16 @@ class Editor : private LayoutHost, public TextLayouts {
   // (deriveTree), not the whole page at load.
   void setLazyScreens(bool on) { lazyScreens_ = on; }
   std::vector<Guid> takeLacking() { return std::exchange(lacking_, {}); }
+  // The next load copies a live engine's document (engine_load_page_of): its bound values are current, except on the
+  // pages `stale` that engine hasn't resolved yet (pagesUnresolved). They aren't resolved again at load — only their
+  // dependencies are noted, between frames (deriveNextTrees), or at once when a variable, a collection, a style or a
+  // mode changes (the player's Set variable / Set variable mode).
+  void setFreshBindings(std::vector<Guid> stale) {
+    freshBindings_ = true;
+    staleCanvases_ = std::unordered_set<Guid, GuidHash>(stale.begin(), stale.end());
+  }
+  // The pages whose bound values this engine hasn't resolved yet (not shown: pageBindings_).
+  std::vector<Guid> pagesUnresolved() const;
   Status setCurrentPage(Guid page);
   std::vector<Guid> pages() const;  // O(1): the DOCUMENT node's canvases (the internal one left out)
   // Materializes `page`'s instances and verifies its auto layout, once (docs/engine.md §3.4 as built: per page, on
@@ -303,10 +313,10 @@ class Editor : private LayoutHost, public TextLayouts {
   void deriveInternal(Guid top);
   // A presentation's engine (setLazyScreens) derives its page's screens as the player shows them, not the whole page at
   // its load: derivePage resolves the page's bound values only, deriveTree(screen) its instances and auto layout
-  // (instances elsewhere on the page wait), deriveNextTrees spends `budgetMs` on screens not shown yet (true while some
-  // remain).
+  // (instances elsewhere on the page wait), deriveNextTrees spends `budgetMs` on screens not shown yet — `only` those
+  // when given (the player's upcoming ones) — at least one a call, true while some remain.
   void deriveTree(Guid top);
-  bool deriveNextTrees(Guid page, double budgetMs);
+  bool deriveNextTrees(Guid page, double budgetMs, const std::vector<Guid>* only = nullptr);
   bool pageDerived(Guid page) const { return derivedPages_.count(page) != 0; }
   const Document& document() const override { return doc_; }
   Guid page() const { return page_; }
@@ -947,6 +957,8 @@ class Editor : private LayoutHost, public TextLayouts {
   // The interactions a layer plays (editor/PrototypeEditing.cpp): an instance's are its main's with its own changes and
   // additions (proto::instanceInteractions); any other layer's, its own. `ownIndex`: as proto::instanceInteractions.
   std::vector<proto::Interaction> playedInteractions(Guid id, std::vector<int>* ownIndex = nullptr) const;
+  // Which of a layer's own interactions are its connections (proto::instanceOwnEntries; all of them but an instance's).
+  std::vector<bool> ownInteractions(Guid id) const;
 
   // ---- Variables, modes and styles (editor/Variables.cpp, editor/VariableCommands.cpp; docs/schema.md §6) ----
   // A resolved variable value.
@@ -2119,6 +2131,10 @@ class Editor : private LayoutHost, public TextLayouts {
   bool viewer_ = false;
   bool partial_ = false;          // setPartial: a page's subset (encodePage)
   bool lazyScreens_ = false;      // setLazyScreens: a page's screens derived as they are shown (deriveTree)
+  bool freshBindings_ = false;    // setFreshBindings: the next load's bound values are current
+  std::unordered_set<Guid, GuidHash> staleCanvases_;  // … except on these pages
+  std::vector<Guid> bindingsPending_;  // bound nodes loaded current, their dependencies not noted yet
+  void flushPendingBindings();          // all of them into bindingsDirty_ (a variable, style or mode changed)
   std::vector<Guid> lacking_;     // what changes needed that the subset doesn't have (takeLacking)
   void noteLacking(Guid id);
 
@@ -2620,6 +2636,8 @@ class Editor : private LayoutHost, public TextLayouts {
   // content): what is read there derives the instances under that node's top-level container only (deriveInternal).
   GuidSet derivedInternal_;
   GuidSet derivedTrees_;  // a partial engine's screens derived (deriveTree)
+  // A presentation page's bound nodes by their screen, resolved when it is derived (deriveTree), not at load.
+  std::unordered_map<Guid, std::vector<Guid>, GuidHash> screenBindings_;
   bool inDerivedTree(Guid id) const;
   Guid internalRootOf(Guid id) const;  // the child of the Internal Only Canvas holding `id` (kNoGuid: not there)
   // An instance not derived yet whose page (or internal container) isn't either: it waits for it.

@@ -363,6 +363,23 @@ export class Engine {
     void recreate();
   }
 
+  /**
+   * Draws into `canvas` from now on (an engine handed from one view to another: the inline preview's to Present here
+   * and back), on the same backend; its GPU state is made anew there (every GPU resource is a cache). The document,
+   * the player and the images stay.
+   */
+  moveTo(canvas: HTMLCanvasElement): void {
+    if (!this.h || this.headless || canvas === this.canvas) return;
+    if (!canvas.id) canvas.id = "engine-canvas";
+    this.ownCanvas?.remove();
+    this.ownCanvas = null;
+    this.canvas = canvas;
+    const backend = this.x.gfxSwitch(this.h, `#${canvas.id}`, this.gfxBackend === "webgpu" ? 1 : 0);
+    this.gfxBackend = backend === 1 ? "webgpu" : "webgl2";
+    for (const listener of [...this.canvasListeners]) listener(canvas);
+    this.schedule();
+  }
+
   /** When this engine last re-created its WebGPU device (gfxFailure); -Infinity: never. */
   private gfxRecreatedAt = -Infinity;
   private gfxRecreating = false;
@@ -633,8 +650,9 @@ export class Engine {
 
   /**
    * A presentation's engine (`setPartial({screens})`) derives its page's screens as the player shows them (the first
-   * screen at once, not the whole page at load); this derives the ones not shown yet for up to `budgetMs` (between
-   * frames). True while some remain.
+   * screen at once, not the whole page at load); this spends up to `budgetMs` (one screen at least) between frames on
+   * what comes next: the dependencies of the bound values it loaded current, then the screens the prototype can go to
+   * from the one shown (not presenting: the page's others). True while some remain.
    */
   deriveNext(budgetMs: number): boolean {
     return this.after(this.x.deriveNext(this.h, budgetMs) === 1);

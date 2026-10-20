@@ -2529,7 +2529,7 @@ void Editor::finishMove() {
     if (gridDrop_ && !ids.empty()) {
       const std::string colBytes = Layout::gridAnchorBytes(true, gridDropCol_), rowBytes = Layout::gridAnchorBytes(false, gridDropRow_);
       const auto before = doc_.get(ids[0])->props.extra;
-      auto field = [](const std::map<std::string, std::string>& extra, const char* key) {
+      auto field = [](const std::map<std::string, std::string, std::less<>>& extra, const char* key) {
         auto it = extra.find(key);
         return it == extra.end() ? std::string() : it->second;
       };

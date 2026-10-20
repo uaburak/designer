@@ -36,6 +36,26 @@ export enum MemoryWarningLevel {
 }
 
 export const MEMORY_POLL_MS = 5000;
+/** How long a due memory read waits for a pause in the frames before it runs anyway. */
+export const MEMORY_POLL_WAIT_MS = 60_000;
+/** A pause long enough for a read (requestIdleCallback's deadline when no frame is due is 50 ms). */
+const IDLE_MS = 40;
+
+/** Runs `fn` in the next pause with no frame due (at most MEMORY_POLL_WAIT_MS away); returns the cancel. */
+function whenIdle(fn: () => void): () => void {
+  if (typeof requestIdleCallback !== "function") {
+    fn();
+    return () => {};
+  }
+  let id = 0;
+  const due = performance.now() + MEMORY_POLL_WAIT_MS;
+  const check = (deadline: IdleDeadline) => {
+    if (deadline.timeRemaining() >= IDLE_MS || deadline.didTimeout || performance.now() >= due) fn();
+    else id = requestIdleCallback(check, { timeout: Math.max(1, due - performance.now()) });
+  };
+  id = requestIdleCallback(check, { timeout: MEMORY_POLL_WAIT_MS });
+  return () => cancelIdleCallback(id);
+}
 /** The warning threshold, in percent. */
 export const HIGH_MEMORY_PERCENT = 90;
 /** In recovery mode under this, the card offers to leave it. */
@@ -101,11 +121,24 @@ export class MemoryMonitor {
     this.state = { mode, limit, used: 0, percent: 0, level: MemoryWarningLevel.SAFE, recovered: false };
   }
 
-  /** Polls every 5 s from now on (and once at once); returns the stop. */
+  /**
+   * Polls every 5 s from now on (and once at once); returns the stop. A read walks the whole heap (mallinfo: 50–120 ms
+   * on a heavy file) — so it waits for a real pause, no frame due (a drag, a prototype's transition or a scroll would
+   * drop that many frames), at most MEMORY_POLL_WAIT_MS.
+   */
   start(setInterval = globalThis.setInterval, clearInterval = globalThis.clearInterval): () => void {
     this.poll();
-    this.timer = setInterval(() => this.poll(), MEMORY_POLL_MS) as unknown as number;
-    return () => clearInterval(this.timer);
+    let cancelIdle: (() => void) | null = null;
+    this.timer = setInterval(() => {
+      cancelIdle ??= whenIdle(() => {
+        cancelIdle = null;
+        this.poll();
+      });
+    }, MEMORY_POLL_MS) as unknown as number;
+    return () => {
+      clearInterval(this.timer);
+      cancelIdle?.();
+    };
   }
 
   /** Called with the state now and at each change; returns the unsubscribe. */

@@ -47,6 +47,40 @@ export interface PresentationSource {
    * other pages, and when a change needs a node it lacks that the file has (`has`), the subset is loaded again.
    */
   partial?: { has(id: Guid): boolean };
+  /**
+   * An engine another view of this source handed over (the inline preview's to Present here, and back), taken at mount
+   * instead of a new one: no load, the screens it derived kept.
+   */
+  takeEngine?(): Engine | null;
+  /**
+   * At unmount: whether the source keeps the engine for the view that takes over (it then follows the changes until
+   * taken); false, it is destroyed. `back`: the engine was taken this moment and goes back untouched.
+   */
+  keepEngine?(engine: Engine, back: boolean): boolean;
+}
+
+/**
+ * Keeps `engine` following `source`'s changes; a page's subset is loaded again when a change needs a node it lacks
+ * (and the file has), the prototype going on from the screen it shows while `presenting()`. Returns the stop.
+ */
+export function followSource(engine: Engine, source: PresentationSource, page: Guid | null | undefined, presenting: () => boolean = () => false, after?: () => void): () => void {
+  if (!source.subscribe) return () => {};
+  const refill = (next: { bytes: Uint8Array } | null) => {
+    if (engine.destroyed) return;
+    const on = presenting();
+    const screen = on ? engine.presentState().screen : null;
+    if (on) engine.presentStop();
+    if (next) engine.loadKiwi(next.bytes, page ? { page } : {});
+    else source.loadInto?.(engine);
+    if (on) engine.presentStart({ ...(page ? { page } : {}), ...(screen ? { node: screen } : {}) });
+    after?.();
+  };
+  const reload = () => (source.loadInto ? refill(null) : void source.load().then(refill));
+  return source.subscribe((bytes) => {
+    if (engine.destroyed) return;
+    engine.applyChangesKiwi(bytes, "remote");
+    if (source.partial && engine.takeLacking().some((id) => source.partial!.has(id))) reload();
+  });
 }
 
 export interface PresentationViewProps {
@@ -273,6 +307,20 @@ const POINTER_TYPE: Record<string, number> = {
   pointerleave: POINTER.leave,
 };
 
+/** After the next frame is drawn (a hidden page, which draws none: after 100 ms) — what follows is a task of its own. */
+function nextTask(): Promise<void> {
+  return new Promise((resolve) => {
+    let done = false;
+    const go = () => {
+      if (done) return;
+      done = true;
+      resolve();
+    };
+    requestAnimationFrame(() => setTimeout(go, 0));
+    setTimeout(go, 100);
+  });
+}
+
 function modsOf(e: { shiftKey: boolean; altKey: boolean; ctrlKey: boolean; metaKey: boolean }): number {
   return (e.shiftKey ? MOD_SHIFT : 0) | (e.altKey ? MOD_ALT : 0) | (e.ctrlKey ? MOD_CTRL : 0) | (e.metaKey ? MOD_META : 0);
 }
@@ -305,6 +353,8 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
   const [state, setState] = useState<PresentState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const lastState = useRef("");
+  // Asks for the next screens to be derived while idle (set while presenting).
+  const deriveAhead = useRef<(() => void) | null>(null);
   const videoHost = useRef<HTMLDivElement>(null);
   // The view's own options: the flows sidebar (remembered), the UI hidden, the keyboard shortcuts dialog.
   const [sidebar, setSidebarState] = useState(readSidebar);
@@ -340,6 +390,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       lastState.current = key;
       setState(s);
       onStateRef.current?.(s);
+      deriveAhead.current?.();
     }
   }, []);
 
@@ -352,23 +403,38 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     let disposed = false;
     let engine: Engine | null = null;
     const cleanups: (() => void)[] = [];
+    // An engine handed over by the view this one replaces (the inline preview's, Present here's): no new load.
+    const handed = source.takeEngine?.() ?? null;
+    // (React's development double mount undoes this mount at once: a handed engine goes back untouched.)
+    let settled = false;
+    const settle = window.setTimeout(() => (settled = true), 0);
     (async () => {
-      const created = await Engine.create(canvas, { theme: "DARK", wire: "kiwi", sessionID: 1 });
-      if (disposed) return created.destroy();
-      // The document once the engine is up: a mount undone meanwhile (React's development double mount) encodes nothing.
-      const doc = source.loadInto ? null : await source.load();
-      if (disposed) return created.destroy();
-      engine = created;
-      engineRef.current = engine;
-      window.__designerPresent = engine;
-      if (source.images) engine.setImageSource(source.images);
-      // Its page's screens are derived as they are shown (the first one only, now), not the whole page; a page's subset
-      // (the editor's) keeps out what happens elsewhere.
-      engine.setPartial({ subset: !!source.partial, screens: true });
-      if (source.loadInto) source.loadInto(engine);
-      else if (doc) {
-        engine.loadKiwi(doc.bytes, page ? { page } : {});
-        for (const frame of doc.frames ?? []) engine.applyChangesKiwi(frame, "load");
+      if (handed) {
+        engine = handed;
+        engineRef.current = engine;
+        window.__designerPresent = engine;
+        engine.moveTo(canvas);
+      } else {
+        const created = await Engine.create(canvas, { theme: "DARK", wire: "kiwi", sessionID: 1 });
+        if (disposed) return created.destroy();
+        // The document once the engine is up: a mount undone meanwhile (React's development double mount) encodes nothing.
+        const doc = source.loadInto ? null : await source.load();
+        if (disposed) return created.destroy();
+        engine = created;
+        engineRef.current = engine;
+        window.__designerPresent = engine;
+        if (source.images) engine.setImageSource(source.images);
+        // Its page's screens are derived as they are shown (the first one only, now), not the whole page; a page's subset
+        // (the editor's) keeps out what happens elsewhere.
+        engine.setPartial({ subset: !!source.partial, screens: true });
+        if (source.loadInto) source.loadInto(engine);
+        else if (doc) {
+          engine.loadKiwi(doc.bytes, page ? { page } : {});
+          for (const frame of doc.frames ?? []) engine.applyChangesKiwi(frame, "load");
+        }
+        // The load, the first screen and its first frame are separate tasks: the editor draws in between.
+        await nextTask();
+        if (disposed) return;
       }
       // The size first: the player lays the screen out in the canvas.
       const observer = new ResizeObserver(() => {
@@ -382,35 +448,16 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       });
       observer.observe(canvas);
       cleanups.push(() => observer.disconnect());
-      if (source.subscribe) {
-        // A page's subset: a change that needs a node it lacks (and the file has) loads the page's subset again, the
-        // prototype going on from the screen it shows.
-        const refill = (next: { bytes: Uint8Array } | null) => {
-          if (!engine || engine.destroyed) return;
-          const presenting = presentingRef.current;
-          const screen = presenting ? engine.presentState().screen : null;
-          if (presenting) engine.presentStop();
-          if (next) engine.loadKiwi(next.bytes, page ? { page } : {});
-          else source.loadInto?.(engine);
-          if (presenting) engine.presentStart({ ...(page ? { page } : {}), ...(screen ? { node: screen } : {}) });
-          readState();
-        };
-        const reload = () => (source.loadInto ? refill(null) : void source.load().then(refill));
-        cleanups.push(
-          source.subscribe((bytes) => {
-            if (!engine || engine.destroyed) return;
-            engine.applyChangesKiwi(bytes, "remote");
-            if (source.partial && engine.takeLacking().some((id) => source.partial!.has(id))) reload();
-          })
-        );
-      }
+      cleanups.push(followSource(engine, source, page, () => presentingRef.current, readState));
       setReady(engine);
     })().catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
     return () => {
       disposed = true;
       for (const c of cleanups.splice(0)) c();
       if (window.__designerPresent === engine) delete window.__designerPresent;
-      engine?.destroy();
+      window.clearTimeout(settle);
+      // Kept for the view that takes over (Present here from the inline preview and back), else gone.
+      if (engine && !engine.destroyed && !source.keepEngine?.(engine, !settled && engine === handed)) engine.destroy();
       engineRef.current = null;
     };
     // The source and page are fixed for a mount.
@@ -452,18 +499,24 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     readState();
     if (!inline) canvas.focus({ preventScroll: true });
     onReady?.(engine);
-    // The page's other screens, derived while the browser is idle (a few ms at a time, one screen at least), so going
-    // to them later doesn't wait for it.
+    // What comes next — the screens the shown one leads to — derived while the browser is idle (one screen at least a
+    // call), so going there doesn't wait for it; again after each change of screen. Only in a real pause (no frame due):
+    // a heavy screen takes 50–130 ms, which in a running animation or a drag would be a dropped run of frames.
     let idle = 0;
-    const idleCall = (fn: (deadline?: IdleDeadline) => void): number =>
-      typeof requestIdleCallback === "function" ? requestIdleCallback(fn, { timeout: 2000 }) : window.setTimeout(fn, 50);
+    const idleCall = (fn: (deadline?: IdleDeadline) => void): number => (typeof requestIdleCallback === "function" ? requestIdleCallback(fn) : window.setTimeout(fn, 50));
     const derive = (deadline?: IdleDeadline) => {
       idle = 0;
       if (engine.destroyed) return;
-      if (engine.deriveNext(Math.max(2, Math.min(8, deadline?.timeRemaining() ?? 8)))) idle = idleCall(derive);
+      const left = deadline?.timeRemaining() ?? 50;
+      if (left < 30) idle = idleCall(derive);
+      else if (engine.deriveNext(Math.min(8, left))) idle = idleCall(derive);
     };
     idle = idleCall(derive);
+    deriveAhead.current = () => {
+      if (!idle && !engine.destroyed) idle = idleCall(derive);
+    };
     return () => {
+      deriveAhead.current = null;
       if (idle) (typeof cancelIdleCallback === "function" ? cancelIdleCallback : window.clearTimeout)(idle);
       window.clearInterval(timer);
       videos.dispose();
