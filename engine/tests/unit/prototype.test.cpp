@@ -330,6 +330,42 @@ TEST_CASE("prototype.player: an overlay closed by a click outside or Close leave
   CHECK(!drawn);
 }
 
+TEST_CASE("prototype.player: a moving overlay's background fades with the transition, in and out") {
+  // Figma's backgroundTransitionProgress (atlas 13 §5); Wecra drew it at full strength from the first frame of a Move in
+  // (the owner's "Yeni Test Dosyası": the modal's and the bottom sheet's dim).
+  auto nodes = screens();
+  NodeChange ovl = make(OVL, NodeType::FRAME, kPage, "$", {0, 1000, 200, 100}, "Menu");
+  ovl.props.extra["overlayPositionType"] = extra("overlayPositionType", R"("CENTER")");
+  ovl.props.extra["overlayBackgroundInteraction"] = extra("overlayBackgroundInteraction", R"("CLOSE_ON_CLICK_OUTSIDE")");
+  ovl.props.extra["overlayBackgroundAppearance"] =
+      extra("overlayBackgroundAppearance", R"({"backgroundType":"SOLID_COLOR","backgroundColor":{"r":0,"g":0,"b":0,"a":0.5}})");
+  nodes.push_back(ovl);
+  for (auto& n : nodes)
+    if (n.guid == NEXT) n.props.extra["prototypeInteractions"] = extra("prototypeInteractions", nav(OVL, "ON_CLICK", "OVERLAY", "MOVE_FROM_BOTTOM", 0.4));
+  Fixture f(nodes);
+  REQUIRE(f.player.start(kPage, A));
+  auto dim = [&] {
+    double a = 0;
+    for (const PresentItem& it : f.player.scene().items)
+      if (it.kind == PresentItem::Kind::Rect) a = std::max(a, it.alpha);
+    return a;
+  };
+  f.click(50, 720);
+  f.advance(16);
+  CHECK(dim() < 0.1);
+  f.advance(184);  // half way (Linear)
+  CHECK(dim() == doctest::Approx(0.25).epsilon(0.1));
+  f.advance(300);
+  CHECK(dim() == doctest::Approx(0.5));
+  // Closed by a click outside: the opening backwards, the dim with it.
+  f.click(10, 10);
+  f.advance(16);
+  f.advance(200);
+  CHECK(dim() == doctest::Approx(0.25).epsilon(0.1));
+  f.advance(300);
+  CHECK(dim() == 0);
+}
+
 TEST_CASE("prototype.smart: layers match by name and place; Smart animate interpolates them") {
   auto nodes = screens();
   for (auto& n : nodes)

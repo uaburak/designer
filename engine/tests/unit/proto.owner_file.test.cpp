@@ -61,6 +61,20 @@ TEST_CASE("proto.owner_file: a real file's transition, dumped (OWNER_MSG)") {
         player.pointer(PointerEvent::DOWN, x, y, 1, 0);
         player.pointer(PointerEvent::UP, x, y, 0, 0);
       }
+    } else if (op == "tap") {
+      // A click at a layer's centre, in the shown frame's coordinates.
+      std::string id;
+      w >> id;
+      Guid g = Guid::parse(id);
+      const auto& d = ed.document();
+      REQUIRE(d.has(g));
+      Mat2x3 m = d.worldTransform(g), s = d.worldTransform(player.screen());
+      const NodeProps& gp = d.get(g)->props;
+      double x = m.m02 + gp.size.x / 2 - s.m02, y = m.m12 + gp.size.y / 2 - s.m12;
+      player.pointer(PointerEvent::MOVE, x, y, 0, 0);
+      tick(300);
+      player.pointer(PointerEvent::DOWN, x, y, 1, 0);
+      player.pointer(PointerEvent::UP, x, y, 0, 0);
     } else if (op == "down" || op == "up") {
       double x, y;
       w >> x >> y;

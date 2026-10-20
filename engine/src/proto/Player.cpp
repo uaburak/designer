@@ -2798,19 +2798,20 @@ void Player::addSlot(const Side* x, const Side* y, const Anim* a) {
     return;
   }
   if (g.moves) {
-    // The screens along their paths (in units of the screen), the exiting one fading where the type says.
+    // The screens along their paths (in units of the screen), the exiting one fading where the type says. An overlay's
+    // background doesn't travel: it fades with the transition's progress (Figma's `backgroundTransitionProgress`,
+    // atlas 13 §5) — in as the overlay moves in, out as it moves out (Close plays the opening backwards).
     Vec2 S = view_.screen;
     auto at = [&](Vec2 from, Vec2 to) { return Vec2{lerp(from.x, to.x, p) * S.x, lerp(from.y, to.y, p) * S.y}; };
     auto drawX = [&] {
       if (!hasX) return;
       double alpha = lerp(g.outAlphaFrom, g.outAlphaTo, p);
-      background(*x, alpha);
+      background(*x, alpha * std::clamp(1 - p, 0.0, 1.0));
       addFrame(*x, at(g.outFrom, g.outTo), alpha, {});
     };
     auto drawY = [&] {
       if (!hasY) return;
-      double alpha = lerp(g.inAlphaFrom, g.inAlphaTo, p);
-      background(*y, alpha);
+      double alpha = lerp(g.inAlphaFrom, g.inAlphaTo, p);      background(*y, alpha * std::clamp(p, 0.0, 1.0));
       addFrame(*y, at(g.inFrom, g.inTo), alpha, {});
     };
     if (g.enteringOnTop) drawX(), drawY();
