@@ -369,6 +369,30 @@ TEST_CASE("libraries: localAssets — kinds, hidden assets, dependencies, contai
   CHECK(gone->publishedVersion == buttonHash);
 }
 
+TEST_CASE("libraries: localAssets(listOnly) — the same assets and places, no hashes or dependencies") {
+  Editor e = load(libDoc(), kLibKey);
+  makeAssets(e);
+  REQUIRE(e.moveNodes({PRIVATE}, CARD, 1) == 1);
+  e.ensureAssetKeys({});
+  auto full = e.localAssets();
+  auto list = e.localAssets(true);
+  REQUIRE(list.size() == full.size());
+  for (size_t i = 0; i < list.size(); i++) {
+    CHECK(list[i].id == full[i].id);
+    CHECK(list[i].key == full[i].key);
+    CHECK(list[i].kind == full[i].kind);
+    CHECK(list[i].name == full[i].name);
+    CHECK(list[i].hidden == full[i].hidden);
+    CHECK(list[i].softDeleted == full[i].softDeleted);
+    CHECK(list[i].pageId == full[i].pageId);
+    CHECK(list[i].frameId == full[i].frameId);
+    CHECK(list[i].frameName == full[i].frameName);
+    CHECK(list[i].versionHash.empty());
+    CHECK(list[i].dependencies.empty());
+    CHECK(!full[i].versionHash.empty());
+  }
+}
+
 TEST_CASE("libraries: versionHash changes only when the asset's content changes") {
   Editor e = load(libDoc(), kLibKey);
   Lib l = makeAssets(e);
@@ -2272,7 +2296,7 @@ int32_t engine_variables(Handle h, Ptr collPtr, uint32_t collLen, uint32_t flags
 int32_t engine_styles(Handle h, uint32_t type, uint32_t flags);
 int32_t engine_set_file_key(Handle h, Ptr ptr, uint32_t len);
 int32_t engine_ensure_asset_keys(Handle h, Ptr refsPtr, uint32_t refsLen);
-int32_t engine_local_assets(Handle h);
+int32_t engine_local_assets(Handle h, uint32_t flags);
 int32_t engine_encode_assets(Handle h, Ptr keysPtr, uint32_t keysLen);
 int32_t engine_mark_published(Handle h, Ptr ptr, uint32_t len);
 int32_t engine_import_library_assets(Handle h, Ptr msgPtr, uint32_t msgLen, Ptr optsPtr, uint32_t optsLen);
@@ -2332,7 +2356,7 @@ TEST_CASE("libraries: the C ABI — keys, local assets, payloads, publish, impor
   Text one{"[\"" + BUTTON.toString() + "\"]"};
   REQUIRE(engine_ensure_asset_keys(lib, one.ptr(), one.len()) == OK);
   CHECK(resultJson().array.size() == 1);
-  REQUIRE(engine_local_assets(lib) == OK);
+  REQUIRE(engine_local_assets(lib, 0) == OK);
   json::Value assets = resultJson();
   CHECK(assets.array.size() == 7);
   const json::Value* ba = byMember(assets, "key", button);
@@ -2374,7 +2398,7 @@ TEST_CASE("libraries: the C ABI — keys, local assets, payloads, publish, impor
   published += "]";
   Text pub{published};
   REQUIRE(engine_mark_published(lib, pub.ptr(), pub.len()) == OK);
-  REQUIRE(engine_local_assets(lib) == OK);
+  REQUIRE(engine_local_assets(lib, 0) == OK);
   CHECK(byMember(resultJson(), "key", button)->get("publishedVersion")->string == list.array[0].get("versionHash")->string);
 
   // importLibraryAssets.
@@ -2538,7 +2562,7 @@ TEST_CASE("libraries (review): the C ABI — asNew, copies, fromLibraryKey, imag
   // markPublished with a null versionHash: no longer published.
   Text removed{"[{\"key\":\"" + button + "\",\"versionHash\":null}]"};
   REQUIRE(engine_mark_published(lib, removed.ptr(), removed.len()) == OK);
-  REQUIRE(engine_local_assets(lib) == OK);
+  REQUIRE(engine_local_assets(lib, 0) == OK);
   CHECK(byMember(resultJson(), "key", button)->get("publishedVersion")->isNull());
 
   // APPLY_SYSTEM (8): written, not into copies; APPLY_EXACT (16) with APPLY_USER: into copies too.

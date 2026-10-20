@@ -16,6 +16,7 @@ import { changesOf, engineCall, probeKeeps } from "./engineCompat";
 import { ImageService } from "./images";
 import { VectorEditor } from "./vectorEdit";
 import { ComponentIndex, deriveInstanceRows, type DerivedRow } from "./components";
+import { AssetThumbnails } from "./assetThumbs";
 import { VariableIndex } from "./variables";
 import { LibraryIndex } from "./libraries";
 import type { CNode } from "./model/components";
@@ -51,6 +52,8 @@ export class EditorController {
   readonly vector: VectorEditor;
   /** The file's local components (Assets, the instance menu) */
   readonly components: ComponentIndex;
+  /** Component thumbnails, drawn off the critical path and cached (Assets, the swap picker, the library UI) */
+  readonly thumbnails: AssetThumbnails;
   /** The file's local collections, variables and styles (the internal canvas) */
   readonly variables: VariableIndex;
   /** This file as a library and the libraries it uses (docs/data.md §9) */
@@ -143,6 +146,7 @@ export class EditorController {
     this.images = new ImageService(engine, source.images ?? null);
     this.vector = new VectorEditor(engine);
     this.components = new ComponentIndex(this);
+    this.thumbnails = new AssetThumbnails(this);
     this.variables = new VariableIndex(this);
     this.libraries = new LibraryIndex(this);
     // Whether the engine keeps fields it doesn't model yet is probed now, before any edit opens a transaction.
@@ -279,6 +283,7 @@ export class EditorController {
     this.images.dispose();
     this.vector.dispose();
     this.components.dispose();
+    this.thumbnails.dispose();
     this.variables.dispose();
     this.libraries.dispose();
   }

@@ -2382,6 +2382,7 @@ ENG_EXPORT int32_t engine_render_node_thumbnail(Handle h, Ptr refPtr, uint32_t r
   const Document& doc = ed.document();
   bool ok = false;
   Guid id = Guid::parse(bytes(refPtr, refLen), &ok);
+  if (ok && doc.has(id)) ed.derivePageOf(id, true);  // its instances' sublayers draw (a page not shown yet)
   const Node* n = ok ? doc.get(id) : nullptr;
   Guid page = n ? doc.pageOf(id) : kNoGuid;
   if (!n || page == kNoGuid || maxSize == 0) return E_NOT_FOUND;
@@ -2973,13 +2974,14 @@ ENG_EXPORT int32_t engine_ensure_asset_keys(Handle h, Ptr refsPtr, uint32_t refs
   return setResult(w.take());
 }
 
-ENG_EXPORT int32_t engine_local_assets(Handle h) {
+// flags: LOCAL_ASSETS_LIST_ONLY (1) — no versionHash / dependencies (Assets' list; the publish flow asks for them).
+ENG_EXPORT int32_t engine_local_assets(Handle h, uint32_t flags) {
   Call call;
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
   json::Writer w;
   w.beginArray();
-  for (auto& a : e->editor.localAssets()) {
+  for (auto& a : e->editor.localAssets((flags & 1) != 0)) {
     w.beginObject();
     writeLocalAsset(w, e->editor, a);
     w.endObject();

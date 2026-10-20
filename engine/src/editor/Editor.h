@@ -1057,7 +1057,9 @@ class Editor : private LayoutHost, public TextLayouts {
   bool isCopiedMain(Guid id) const;
   // Gives local assets in `refs` (empty: all) a key when they have none (SYSTEM); returns each one's key.
   std::vector<std::pair<Guid, std::string>> ensureAssetKeys(const std::vector<Guid>& refs);
-  std::vector<AssetInfo> localAssets() const;
+  // Every local asset. `listOnly`: what Assets lists, without the content hash and the dependencies (each walks the
+  // asset's whole subtree; the panel reads the list again after a change to a component).
+  std::vector<AssetInfo> localAssets(bool listOnly = false) const;
   // The assets with these keys and their dependencies (keys are given to dependencies that lack one).
   void encodeAssets(const std::vector<std::string>& keys, std::vector<EncodedAsset>& out, std::vector<ImageHash>& images);
   // The content hash of an asset (docs/data.md §9.1): its own content, and the hashes of the hidden (dependency-only)

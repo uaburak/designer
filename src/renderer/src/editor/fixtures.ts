@@ -687,3 +687,101 @@ export const CAPTURE_DOCUMENT: Message = {
 
 /** The live file reopens on the page it was left on: `&doc=capture` opens on "Capture", not on the first page. */
 export const CAPTURE_UI_STATE: EditorUiState = { currentPageId: "0:1", pages: {}, leftPanelWidth: 0, rightPanelWidth: 0 };
+
+// ---- `&doc=design-system`: a design-system-sized file (the Assets / insert / drag performance fixture) ------------
+
+/** Two-character fractional positions, ascending, for up to 94 × 94 siblings. */
+const pos2 = (i: number) => String.fromCharCode(33 + Math.floor(i / 94)) + String.fromCharCode(33 + (i % 94));
+
+/**
+ * `&doc=design-system`: what a team's library looks like to Assets — page "Icons" (240 icon components in six
+ * frames), page "Components" (40 sets of State × Size, 8 variants each, every variant an auto-layout button with a
+ * nested icon instance and a label; 60 cards with nested button instances) and page "Screens" (24 auto-layout lists
+ * of 20 instances each). 340 assets, 620 mains, ~1,300 instances. The Assets / insert / drag measurements of
+ * docs/handoff.md (2026-10-20) run on it.
+ */
+export function designSystemDocument(): Message {
+  const out: NodeChange[] = [{ guid: "0:0", phase: "CREATED", type: "DOCUMENT", name: "Document" }, page("0:1", "Screens", 0, 0x1e1e1e), page("0:3", "Components", 1, 0x1e1e1e), page("0:4", "Icons", 2, 0x1e1e1e), internalCanvas()];
+  const id = (s: number, l: number) => `${s}:${l}`;
+  const palette = [0x0d99ff, 0x14ae5c, 0xf24822, 0xffc700, 0x9747ff, 0x1e1e1e, 0x667799, 0xff24bd];
+  // Icons: 6 frames × 40
+  const icons: number[] = [];
+  for (let f = 0; f < 6; f++) {
+    const frame = id(10, f);
+    out.push(node({ guid: frame, type: "FRAME", name: `Icons ${f + 1}`, parentIndex: { guid: "0:4", position: pos2(f) }, size: { x: 416, y: 176 }, transform: at(0, f * 220), fillPaints: solidFill(0x2c2c2c) }));
+    for (let i = 0; i < 40; i++) {
+      const n = f * 40 + i;
+      icons.push(n);
+      out.push(node({ guid: id(11, n), type: "SYMBOL", name: `Icons/Set ${f + 1}/Icon ${n + 1}`, parentIndex: { guid: frame, position: pos2(i) }, size: { x: 24, y: 24 }, transform: at(8 + (i % 10) * 40, 8 + Math.floor(i / 10) * 40) }));
+      const shape = n % 3 === 0 ? { type: "STAR", count: 5, starInnerScale: 0.382 } : n % 3 === 1 ? { type: "ELLIPSE" } : { type: "ROUNDED_RECTANGLE", cornerRadius: 4 };
+      out.push(node({ guid: id(12, n), name: "Shape", parentIndex: { guid: id(11, n), position: "!" }, size: { x: 20, y: 20 }, transform: at(2, 2), fillPaints: solidFill(palette[n % palette.length]), ...shape }));
+    }
+  }
+  // Sets: 40 × (2 states × 4 sizes)
+  const firsts: number[] = [];
+  let l = 0;
+  for (let s = 0; s < 40; s++) {
+    const set = id(20, s);
+    const props = [g(20, 1000 + s * 2), g(20, 1001 + s * 2)];
+    out.push(
+      node({
+        guid: set,
+        type: "FRAME",
+        name: `Button ${s + 1}`,
+        isStateGroup: true,
+        parentIndex: { guid: "0:3", position: pos2(s) },
+        size: { x: 580, y: 132 },
+        transform: at((s % 4) * 640, Math.floor(s / 4) * 180),
+        fillPaints: [],
+        strokePaints: [{ type: "SOLID", color: purple, opacity: 1, visible: true }],
+        strokeWeight: 1,
+        strokeAlign: "INSIDE",
+        dashPattern: [10, 5],
+        componentPropDefs: [
+          { id: props[0], name: "State", type: "VARIANT", initialValue: { textValue: text("Default") } },
+          { id: props[1], name: "Size", type: "VARIANT", initialValue: { textValue: text("S") } },
+        ],
+        stateGroupPropertyValueOrders: [
+          { property: "State", values: ["Default", "Hover"] },
+          { property: "Size", values: ["S", "M", "L", "XL"] },
+        ],
+      })
+    );
+    let v = 0;
+    for (const state of ["Default", "Hover"]) {
+      for (const [k, size] of ["S", "M", "L", "XL"].entries()) {
+        const variant = l++;
+        if (!v) firsts.push(variant);
+        const w = 96 + k * 12;
+        const h = 32 + k * 4;
+        out.push(node({ guid: id(21, variant), type: "SYMBOL", name: `State=${state}, Size=${size}`, parentIndex: { guid: set, position: pos2(v) }, transform: at(10 + k * 140, state === "Hover" ? 66 : 10), ...BUTTON_ROOT, size: { x: w, y: h }, fillPaints: solidFill(state === "Hover" ? 0x007be5 : palette[s % palette.length]), variantPropSpecs: [{ propDefId: props[0], value: state }, { propDefId: props[1], value: size }] }));
+        out.push(node({ guid: id(22, variant), type: "INSTANCE", name: "Icon", parentIndex: { guid: id(21, variant), position: "!" }, size: { x: 24, y: 24 }, transform: at(16, (h - 24) / 2), symbolData: { symbolID: g(11, icons[(s * 7 + v) % icons.length]), symbolOverrides: [] } }));
+        out.push(node({ guid: id(23, variant), type: "TEXT", name: "Label", parentIndex: { guid: id(21, variant), position: '"' }, size: { x: 48, y: 16 }, transform: at(48, (h - 16) / 2), fillPaints: solidFill(0xffffff), textData: text(`Button ${s + 1}`), fontSize: 13, textAutoResize: "WIDTH_AND_HEIGHT" }));
+        v++;
+      }
+    }
+  }
+  // Cards: 60, each a title and two nested button instances
+  out.push(node({ guid: "30:0", type: "FRAME", name: "Cards", parentIndex: { guid: "0:3", position: pos2(50) }, size: { x: 2620, y: 1220 }, transform: at(0, 1900), fillPaints: solidFill(0x2c2c2c) }));
+  for (let c = 0; c < 60; c++) {
+    const card = id(31, c);
+    out.push(node({ guid: card, type: "SYMBOL", name: `Cards/Card ${c + 1}`, parentIndex: { guid: "30:0", position: pos2(c) }, size: { x: 240, y: 180 }, transform: at(10 + (c % 10) * 260, 10 + Math.floor(c / 10) * 200), fillPaints: solidFill(0xffffff), cornerRadius: 12, stackMode: "VERTICAL", stackSpacing: 12, stackHorizontalPadding: 16, stackVerticalPadding: 16, stackPaddingRight: 16, stackPaddingBottom: 16, description: `A card for screen ${c + 1}.` }));
+    out.push(node({ guid: id(32, c), type: "TEXT", name: "Title", parentIndex: { guid: card, position: "!" }, size: { x: 208, y: 24 }, transform: at(16, 16), fillPaints: solidFill(0x1e1e1e), textData: text(`Card ${c + 1}`), fontSize: 18, textAutoResize: "HEIGHT" }));
+    for (let b = 0; b < 2; b++) {
+      out.push(node({ guid: id(33, c * 2 + b), type: "INSTANCE", name: "Button", parentIndex: { guid: card, position: b ? "#" : '"' }, ...BUTTON_ROOT, size: { x: 96, y: 32 }, transform: at(16, 52 + b * 44), symbolData: { symbolID: g(21, firsts[(c + b * 13) % firsts.length]), symbolOverrides: [] } }));
+    }
+  }
+  // Screens: 24 auto-layout lists of 20 instances (icons, buttons, cards)
+  for (let s = 0; s < 24; s++) {
+    const screen = id(40, s);
+    out.push(node({ guid: screen, type: "FRAME", name: `Screen ${s + 1}`, parentIndex: { guid: "0:1", position: pos2(s) }, size: { x: 272, y: 20 * 192 + 16 }, transform: at(s * 300, 0), fillPaints: solidFill(0xf5f5f5), stackMode: "VERTICAL", stackSpacing: 12, stackHorizontalPadding: 16, stackVerticalPadding: 16, stackPaddingRight: 16, stackPaddingBottom: 16, stackPrimarySizing: "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE" }));
+    for (let i = 0; i < 20; i++) {
+      const n = s * 20 + i;
+      const kind = i % 4;
+      const main = kind === 0 ? g(11, icons[n % icons.length]) : kind === 1 ? g(21, firsts[n % firsts.length]) : g(31, n % 60);
+      const size = kind === 0 ? { x: 24, y: 24 } : kind === 1 ? { x: 96, y: 32 } : { x: 240, y: 180 };
+      out.push(node({ guid: id(41, n), type: "INSTANCE", name: kind === 0 ? "Icon" : kind === 1 ? "Button" : "Card", parentIndex: { guid: screen, position: pos2(i) }, size, transform: at(16, 16 + i * 192), symbolData: { symbolID: main, symbolOverrides: [] } }));
+    }
+  }
+  return { type: "NODE_CHANGES", sessionID: 0, nodeChanges: out };
+}

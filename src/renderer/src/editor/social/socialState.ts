@@ -9,6 +9,7 @@ import { useSyncExternalStore } from "react";
 import type { Guid, NodeChange } from "@/engine/codec";
 import { SOCIAL_KEYS, SOCIAL_PLUGIN_ID, type PluginDataEntry, type SocialCampaign, type SocialPostData } from "@shared/social/types";
 import type { EditorController } from "../controller";
+import { deferredListener } from "../deferred";
 import { motionRead } from "../motion/motionState";
 import { campaignsIn, postIn } from "./posts";
 import type { PlacedPost } from "./board";
@@ -105,10 +106,13 @@ export class SocialIndex {
   private attach(): void {
     if (this.attached) return;
     this.attached = true;
+    // Listeners hear of it in a microtask (deferred.ts): a panel's engine read while it renders (Assets reading the
+    // components of a page not shown yet) delivers the page's STRUCTURE_CHANGED, and the banner must not update then.
+    const notify = deferredListener(() => this.listeners.forEach((l) => l()));
     const stale = () => {
       if (!this.board) return;
       this.board = null;
-      this.listeners.forEach((l) => l());
+      notify();
     };
     this.ed.engine.on("DOCUMENT_CHANGED", stale);
     this.ed.store.subscribe("page", stale);
