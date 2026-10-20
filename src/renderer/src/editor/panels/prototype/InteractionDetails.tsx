@@ -627,8 +627,9 @@ function AnimationEditor({
           </Labelled>
           <Labelled label={t("Duration")}>
             {spring ? (
-              // A spring's Duration is its editor duration 6 / (ζω₀); typing one rescales it (a custom spring) and stores
-              // the new settle time.
+              // A spring's Duration is its editor duration 6 / (ζω₀); typing one rescales it — a preset keeps its type,
+              // the rescaled spring in easingFunction (Figma's: the owner's Slow at 200 ms is [1, 720, 60, 0]) — and
+              // stores the new settle time, which the player plays.
               <NumericInput
                 label={t("Duration")}
                 className={styles.field}
@@ -640,7 +641,7 @@ function AnimationEditor({
                 precision={0}
                 onChange={(v, info) => {
                   const f = springWithEditorDuration(springFn, v / 1000);
-                  onChange({ ...action, easingType: "CUSTOM_SPRING", easingFunction: [...f, 0], transitionDuration: springSettleTime(f) }, "Edit duration", info);
+                  onChange({ ...action, easingType: easing === "SPRING" ? "GENTLE_SPRING" : easing, easingFunction: [...f, 0], transitionDuration: springSettleTime(f) }, "Edit duration", info);
                 }}
               />
             ) : (

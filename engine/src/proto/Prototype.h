@@ -175,6 +175,10 @@ std::vector<Guid> screens(const Document& doc, Guid page);
 // The screen a layer is on: its outermost ancestor (or itself) that is not a section, under the page and sections
 // only; kNoGuid for a section or a layer off the page.
 Guid screenOf(const Document& doc, Guid id);
+// Where Play starts for a selected section (or a layer only sections hold): the first flow (in flow order) starting
+// on a screen inside it, else its first screen in document order — one frame, never the section (the owner's
+// "Prototype deneme": the section "Desktop" starts at "1"). kNoGuid when it holds no screen.
+Guid sectionStart(const Document& doc, Guid page, Guid section);
 
 // The interactions' JSON (the schema's shape: enums by name, GUIDs as {sessionID, localID}) for writes, and the
 // whole field as the change NodeProps::extra entry it becomes ("" removes the field).

@@ -271,23 +271,39 @@ json::Value actionJson(const Action& a) {
   return v;
 }
 
-// A spring easing's physical spring (Figma's presets; CUSTOM_SPRING: easingFunction [mass, stiffness, damping, v0],
-// at least three finite values with a positive mass and stiffness, else Figma's fallback {1, 100, 10}).
+// A spring easing's physical spring, as Figma's viewer reads it (`easingFunctionValues`): the action's own
+// easingFunction [mass, stiffness, damping, v0] for Gentle, Quick, Bouncy, Slow and Custom spring — a preset whose
+// Duration was edited keeps its type and stores the rescaled spring there (the owner's "Prototype deneme": Slow with
+// [1, 720, 60] for 0.417 s) —, else the preset's numbers (fewer than three finite values, mass or stiffness ≤ 0); the
+// legacy SPRING is Gentle; an unreadable custom spring is Figma's fallback {1, 100, 10}.
 motion::Spring springOf(const Action& a) {
+  motion::Spring preset = motion::kInvalidSpring;
   switch (a.easing) {
-    case Easing::SPRING:
-    case Easing::GENTLE_SPRING: return motion::kGentle;
-    case Easing::SPRING_PRESET_ONE: return motion::kQuick;
-    case Easing::SPRING_PRESET_TWO: return motion::kBouncy;
-    case Easing::SPRING_PRESET_THREE: return motion::kSlow;
+    case Easing::SPRING: return motion::kGentle;
+    case Easing::GENTLE_SPRING: preset = motion::kGentle; break;
+    case Easing::SPRING_PRESET_ONE: preset = motion::kQuick; break;
+    case Easing::SPRING_PRESET_TWO: preset = motion::kBouncy; break;
+    case Easing::SPRING_PRESET_THREE: preset = motion::kSlow; break;
     default: break;
   }
   const std::vector<double>& f = a.easingFunction;
   if (f.size() < 3 || !std::isfinite(f[0]) || !std::isfinite(f[1]) || !std::isfinite(f[2]) || f[0] <= 0 || f[1] <= 0 || f[2] < 0)
-    return motion::kInvalidSpring;
+    return preset;
   motion::Spring s{f[0], f[1], f[2], 0};
   if (f.size() >= 4 && std::isfinite(f[3])) s.initialVelocity = f[3];
   return s;
+}
+
+// Figma's viewer spring (`sX.solve`): under-damped in closed form; ζ ≥ 1 as the critically damped curve at ω₀
+// (x(t) = (1 + (ω₀ − v₀) t) e^(−ω₀ t)), which is what its prototypes play for Slow (ζ ≈ 1.12).
+double viewerSpring(const motion::Spring& s, double t) {
+  if (t <= 0) return 0;
+  double w0 = std::sqrt(s.stiffness / s.mass), zeta = s.damping / (2 * std::sqrt(s.stiffness * s.mass)), v0 = s.initialVelocity;
+  if (zeta < 1) {
+    double wd = w0 * std::sqrt(1 - zeta * zeta);
+    return 1 - std::exp(-t * zeta * w0) * (std::cos(wd * t) + ((zeta * w0 - v0) / wd) * std::sin(wd * t));
+  }
+  return 1 - (1 + (w0 - v0) * t) * std::exp(-t * w0);
 }
 
 bool isSpring(Easing e) {
@@ -498,6 +514,21 @@ Guid screenOf(const Document& doc, Guid id) {
   return kNoGuid;
 }
 
+Guid sectionStart(const Document& doc, Guid page, Guid section) {
+  auto inside = [&](Guid id) {
+    for (Guid cur = id; cur != kNoGuid; cur = doc.parentOf(cur))
+      if (cur == section) return true;
+    return false;
+  };
+  for (const Flow& f : flows(doc, page))
+    if (inside(f.node)) return f.node;
+  for (Guid s : screens(doc, page)) {
+    const Node* n = doc.get(s);
+    if (n && n->props.visible && inside(s)) return s;
+  }
+  return kNoGuid;
+}
+
 std::vector<Flow> flows(const Document& doc, Guid page) {
   std::vector<Flow> out;
   for (Guid c : screens(doc, page)) {
@@ -677,7 +708,8 @@ Interaction newConnection(Guid id, Guid dest) {
 
 double ease(const Action& a, double t) {
   t = std::clamp(t, 0.0, 1.0);
-  if (isSpring(a.easing)) return t >= 1 ? 1 : motion::springValue(springOf(a), t * durationOf(a));
+  // A spring runs in real seconds over the stored duration (Figma's `s$`: spring.solve(x · duration)).
+  if (isSpring(a.easing)) return t >= 1 ? 1 : viewerSpring(springOf(a), t * durationOf(a));
   switch (a.easing) {
     case Easing::LINEAR: return t;
     case Easing::IN_CUBIC:
@@ -696,10 +728,10 @@ double ease(const Action& a, double t) {
   }
 }
 
-double durationOf(const Action& a) {
-  if (isSpring(a.easing)) return motion::springSettleTime(springOf(a));
-  return std::max(0.0, a.duration);
-}
+// The stored duration, springs too (Figma's viewer plays `transitionDuration`, missing or 0 read as 0.3; for a spring the
+// panel stores its settle time T, so a preset whose Duration was edited plays its rescaled spring over the new T). Before
+// 2026-10-20 a spring ignored it and ran its preset's own T: the owner's 0.26 / 0.42 s hovers played 1.25 s.
+double durationOf(const Action& a) { return std::max(0.0, a.duration); }
 
 namespace {
 

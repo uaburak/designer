@@ -34,13 +34,48 @@ TEST_CASE("motion.easing: the settle time is Figma's closed form T (GENTLE ≈ 1
   CHECK(T == doctest::Approx(1.022).epsilon(0.001));
   // Within 0.1 % of the end from T on (the envelope bound).
   for (double t = T; t < T + 2; t += 0.01) CHECK(std::fabs(motion::springValue(motion::kGentle, t) - 1) <= 0.001);
-  // The prototype's spring transitions last T.
+  // A prototype's spring transition lasts its stored duration — the panel stores T (Figma's viewer plays
+  // `transitionDuration`, a missing one 0.3 s).
   proto::Action a;
   a.easing = proto::Easing::GENTLE_SPRING;
+  a.duration = T;
   CHECK(proto::durationOf(a) == doctest::Approx(T));
   CHECK(proto::ease(a, 1) == 1);
   a.easing = proto::Easing::SPRING;  // legacy: Gentle
   CHECK(proto::durationOf(a) == doctest::Approx(T));
+  CHECK(proto::ease(a, 0.5) == doctest::Approx(motion::springValue(motion::kGentle, 0.5 * T)));
+}
+
+TEST_CASE("motion.easing: prototype springs play the action's own spring over the stored duration (Figma's viewer)") {
+  // The owner's "Prototype deneme" (2026-10-20): Slow with its Duration edited to 200 ms keeps SPRING_PRESET_THREE and
+  // stores the rescaled spring [1, 720, 60, 0] and its T 0.4167 s; Figma plays that, not Slow's own 1.25 s.
+  proto::Action a;
+  a.easing = proto::Easing::SPRING_PRESET_THREE;
+  a.easingFunction = {1, 720, 60, 0};
+  a.duration = 0.4167076349258423;
+  CHECK(proto::durationOf(a) == doctest::Approx(0.4167).epsilon(0.001));
+  CHECK(motion::springSettleTime(motion::Spring{1, 720, 60, 0}) == doctest::Approx(a.duration).epsilon(0.001));
+  // ζ ≥ 1: Figma's critically damped curve at ω₀ = √720 (sX.solve), x · duration seconds in.
+  double w0 = std::sqrt(720.0);
+  for (double x : {0.1, 0.25, 0.5, 0.75, 0.9}) {
+    double t = x * a.duration;
+    CHECK(proto::ease(a, x) == doctest::Approx(1 - (1 + w0 * t) * std::exp(-w0 * t)).epsilon(1e-9));
+  }
+  CHECK(proto::ease(a, 0.99) > 0.99);
+  CHECK(proto::ease(a, 1) == 1);
+  // Without a stored spring: the preset's numbers (Slow 1 / 80 / 20) over the stored duration.
+  a.easingFunction.clear();
+  a.duration = 1.25;
+  w0 = std::sqrt(80.0);
+  CHECK(proto::ease(a, 0.4) == doctest::Approx(1 - (1 + w0 * 0.5) * std::exp(-w0 * 0.5)).epsilon(1e-9));
+  // An under-damped spring: the closed form (Bouncy's own numbers, rescaled 2x faster).
+  a.easing = proto::Easing::SPRING_PRESET_TWO;
+  a.easingFunction = {1, 2400, 30, 0};
+  a.duration = 0.479;
+  CHECK(proto::ease(a, 0.3) == doctest::Approx(motion::springValue(motion::Spring{1, 2400, 30, 0}, 0.3 * 0.479)).epsilon(1e-9));
+  // 0 jumps to the end (a missing duration reads 0.3 s in readAction).
+  a.duration = 0;
+  CHECK(proto::durationOf(a) == 0);
 }
 
 TEST_CASE("motion.easing: ζ is clamped to ≥ 0.03 (an undamped spring settles) and ≤ 0.9999 in T") {
@@ -72,12 +107,13 @@ TEST_CASE("motion.easing: the initial velocity starts the spring moving and leng
   proto::Action a;
   a.easing = proto::Easing::CUSTOM_SPRING;
   a.easingFunction = {1, 100, 15, 5};
-  CHECK(proto::durationOf(a) == doctest::Approx(motion::springSettleTime(moving)));
+  a.duration = 2;
+  CHECK(proto::ease(a, 0.25) == doctest::Approx(motion::springValue(moving, 0.5)).epsilon(1e-9));
   // Unreadable custom springs fall back to Figma's {1, 100, 10}.
   a.easingFunction = {1, 100};
-  CHECK(proto::durationOf(a) == doctest::Approx(motion::springSettleTime(motion::kInvalidSpring)));
+  CHECK(proto::ease(a, 0.25) == doctest::Approx(motion::springValue(motion::kInvalidSpring, 0.5)).epsilon(1e-9));
   a.easingFunction = {0, 100, 15};
-  CHECK(proto::durationOf(a) == doctest::Approx(motion::springSettleTime(motion::kInvalidSpring)));
+  CHECK(proto::ease(a, 0.25) == doctest::Approx(motion::springValue(motion::kInvalidSpring, 0.5)).epsilon(1e-9));
 }
 
 TEST_CASE("motion.easing: the spring editor's duration 6 / (ζω₀) = 12m / c and its inverse") {

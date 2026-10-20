@@ -209,6 +209,12 @@ bool Player::start(Guid page, Guid start) {
   if (ed_.page() != page) ed_.setCurrentPage(page);
   ed_.derivePage(page);
   Guid frame = start != kNoGuid ? topLevelOf(start) : kNoGuid;
+  // A section (or a layer only sections hold): its first flow's frame, else its first frame (sectionStart).
+  if (frame == kNoGuid && start != kNoGuid) {
+    Guid s = start;
+    while (s != kNoGuid && props(s) && props(s)->type != NodeType::SECTION) s = doc().parentOf(s);
+    if (s != kNoGuid) frame = sectionStart(doc(), page, s);
+  }
   flow_ = kNoGuid;
   if (frame == kNoGuid) {
     auto fl = flows(doc(), page);

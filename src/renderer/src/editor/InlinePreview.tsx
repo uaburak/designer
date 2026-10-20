@@ -46,7 +46,7 @@ import {
   type Edge,
   type Size,
 } from "./inlinePreviewLayout";
-import { editorPresentationSource, present, presentStart } from "./present";
+import { editorPresentationSource, present, presentNode } from "./present";
 import styles from "./InlinePreview.module.css";
 
 /** What the preview keeps between its openings while the editor is open (Figma hides its window, keeping its state). */
@@ -178,7 +178,7 @@ function PreviewWindow({ page, node, open }: { page: Guid; node: Guid | null; op
     const jump = (e: { refs: readonly Guid[] }) => {
       if (following.current) return;
       // The event's own refs: the store's selection may not have heard of it yet.
-      const frame = e.refs[0] ? presentStart(ed, e.refs[0]) : undefined;
+      const frame = e.refs[0] ? presentNode(ed, e.refs[0]) : undefined;
       const engine = engineRef.current;
       if (!frame || !engine || engine.destroyed || !openRef.current) return;
       lastFrame.current = frame;

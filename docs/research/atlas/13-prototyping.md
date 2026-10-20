@@ -526,7 +526,7 @@ English text where R8 / help verified it; otherwise the i18n key (the English di
 | Trigger list rules | already-used triggers disabled; Open link only with click / mouse up; video / timeline / Back-only limits | list exists (`model/prototype.ts:159`); rules not seen | **missing** |
 | Animation per action | Overlay: Instant / Dissolve / Move in; Swap: + Smart; Change to: Instant / Dissolve / Smart; drag disables Instant / Dissolve | all eight offered (`model/prototype.ts:452`) | **missing** |
 | Direction default | none → RIGHT (`MOVE_FROM_RIGHT`) | `{animation, direction LEFT}` fallback (`model/prototype.ts:494`) | check |
-| Spring duration | stored = settle T (Gentle 1.022 s…), played over it | sampled settle time; Duration hidden for springs (motion.md §2.5) | differs (small) |
+| Spring duration | stored = settle T (Gentle 1.022 s…), played over it; the action's own easingFunction (a preset with an edited Duration keeps its type, rescaled spring stored); ζ ≥ 1 played critically damped | the same since 2026-10-20 (live/2026-10-20/prototype-playback.txt; before: the preset's own T, easingFunction ignored) | same |
 | Overlay settings | 25 % black default, Close-outside hidden for hover / press, positions maths | 25 % black (`InteractionDetails.tsx:621`); hover / press hiding not seen | partial |
 | Swap overlay without overlay | acts as Navigate to | not checked | open |
 | Action queue | navigations hold the queue; others run at once; Conditional inserts its block | `run()` loops all actions at once (`Player.cpp:1047`) | **differs** |

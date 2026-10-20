@@ -1,0 +1,93 @@
+Live Figma vs Wecra, 2026-10-20 — prototype playback on the owner's "Prototype deneme"
+=====================================================================================
+The owner: "the same file in Wecra and Figma; on page Desktop the frames 1–6 have interactions and hover animations; in
+Figma they run very smoothly, in ours very heavily. And with Play inside the section it tries to play every frame of the
+section — it must play the section's first frame, '1'."
+
+How
+---
+Figma: https://www.figma.com/design/7wWg6dB4joZIKOARuwmlT3 (the owner's, signed in), the app's Browser pane (Chromium),
+viewport emulated 1440 × 900 @2, a 120 Hz display. Read with the Plugin API from the console (no change made), the
+inline preview (⇧Space, its same-origin iframe /proto/…?inline-viewer=1) and the presentation
+(/proto/…?node-id=1-3894&starting-point-node-id=1-3894&scaling=min-zoom&hide-ui=1). Frame gaps: a rAF loop in the page
+(and in the preview's iframe), long tasks from PerformanceObserver. Code facts from Figma's viewer bundle as loaded by
+the page (viewer-1e99064317a8d9ad.min.js, classes sj / sX / s$ / sJ / s1) — read, not copied.
+Wecra: the built app (out/, `npm run build`, WebGPU) on the owner's own user data (he had closed every Wecra and made a
+backup; only "Prototype deneme" = 9wLJowqw1RD5F8DT2mB9Qe was opened, nothing edited, the session file put back),
+scripts/proto-bench/playback.mjs: real mouse input; per step the editor page's frame gaps and long tasks and the
+prototype engine's own frame times (`Engine.frame`); MOTION=1 also how long the picture moves after the input (each
+frame drawn 64 × 64 and compared with the last).
+
+The file
+--------
+Page "Desktop" (1:3531): SECTION "Desktop" (75:3803) holding frames 1 (1:3894), 4, 2, 5, 3, 6 in layer order (1 is
+the first child, top-left at 100,100); SECTION "Component". One flow, "Flow 1", starting at 1.
+Every interaction uses Slow (SPRING_PRESET_THREE) with an edited Duration: hover / Mouse enter Change to + Smart animate
+0.2605 s (buttons, pagination) and 0.4167 s (cards), Push + Animate matching layers 0.6251 s for Navigate, Move in
+0.4167 s for the "Edit news" overlay; "creat news" While hovering Bouncy 0.958 s. The kiwi stores, for each, the preset
+type AND the rescaled spring in easingFunction: Slow at 200 ms = [1, 720, 60, 0] (Slow's 1/80/20 three times faster),
+at 125 ms = [1, 1843, 96, 0], at 300 ms = [1, 320, 40, 0]; transitionDuration = that spring's settle time T.
+
+1. What Figma's player does with a spring (viewer bundle)
+---------------------------------------------------------
+- s1.easingFunctionValues(): for CUSTOM_CUBIC, GENTLE_SPRING, SPRING_PRESET_ONE/TWO/THREE and CUSTOM_SPRING the
+  action's own easingFunction when it has one, else the preset's numbers (legacy SPRING and the beziers: the preset).
+- s1.transitionDuration(): the stored transitionDuration (≥ 0), else 0.3.
+- s$.getYValueForXValue(x) = spring.solve(x · durationSeconds): the physical spring runs in real seconds over the
+  stored duration.
+- sX (the spring): ω₀ = √(k/m), ζ = c / (2√(km)); ζ < 1 the under-damped closed form; ζ ≥ 1 the critically damped
+  curve at ω₀: 1 − (1 + (ω₀ − v₀)t)·e^(−ω₀t) (Slow, ζ ≈ 1.118, plays as critical).
+So the owner's card hover lasts 0.417 s and moves 1 − (1 + 26.8t)e^(−26.8t); a Push 0.625 s.
+
+Wecra before: `proto::durationOf` ignored the stored duration for every spring and played the preset's own settle
+time, and `springOf` ignored easingFunction for presets — every Slow animation of the file ran Slow's own 1.25 s:
+3× (cards), 4.8× (buttons) and 2× (navigation) longer than Figma, with the over-damped curve (slower start). That is
+the "very heavy" playback: frame pacing was never the problem (below).
+
+2. Frame pacing (120 Hz; p50 / p95 / max frame gap, long tasks)
+---------------------------------------------------------------
+Figma, inline preview (450 × 254 window, frame 1):
+  first hovers (cold)                     gaps 124, 92, 58, 40 ms; long tasks 125, 62 ms
+  hover 5 cards (warm)                    8.3 / 9.0 / 42 ms, 7 gaps of 25–42 ms, no long task
+Figma, presentation (1440 × 900):
+  hover 5 cards                           8.4 / 16.8 / 50 ms, one long task 57 ms (first hover)
+  click 1 → 4 (Push + SA 0.625 s), cold   25 / 82 / 268 ms, long task 56 ms; ~40 fps during the push
+  click 4 → 6, cold                       12.5 / 24.7 / 59 ms
+  click 1 → 4, warm (×2)                  16.7 / 25.7–33 / 41–42 ms, no long task (it pushes at ~60 fps)
+  click 4 → 6, warm                       8.6 / 23.7 / 25 ms
+Wecra (built app, WebGPU), before → after the fix — the same in the inline preview, Present here and the Present tab:
+  hover each card / button / pagination   p50 8.3, p95 9–17, max 9–40 ms, 0 long tasks → the same; engine frame 1–2 ms
+  click 1 → 4, 4 → 6, 6 → 1               p50 8.3, p95 9–17, max 9–42 ms, 0 long tasks → max 9–18 ms; engine frame 2–3 ms
+  (Present here, the first 1 → 4 of a run: one 60–125 ms frame with no script in it — a long animation frame with
+  blocking 0, the GPU's first upload of frame 4; Figma's first visit costs 268 ms.)
+How long the picture moves (Wecra, Present here, MOTION=1), before → after (Figma: the stored duration):
+  hover card (0.417 s)                    1100–1130 ms → 370–440 ms (incl. a 50 ms glide of the pointer in)
+  hover pagination / button (0.26 s)      1140 ms → ~500 ms (leave of the last + enter of the next)
+  click 1 → 4 / 4 → 6 / 6 → 1 (0.625 s)   1253 / 1276 / 1282 ms → 638 / 627 / 638 ms
+3. Layout grids in the presentation
+-----------------------------------
+Frames 1–6 carry a 12-column layout grid. Figma never draws layout grids in the preview or the presentation; Wecra drew
+them over every screen (red / blue columns, seen in the Present tab's capture). Fixed: renderScene draws no layout
+guides.
+
+4. Play with a section / a frame in it
+--------------------------------------
+Figma: the section "Desktop" selected, ⇧Space → the inline preview at frame "1", one frame as the screen (its own
+viewport, not the section). A frame in the section selected → that frame. Nothing selected → the first flow ("1").
+Wecra before: the toolbar's Play / ⇧Space / Present in this tab with the section selected sent no start node (the
+editor's presentStart answers undefined for a section) and the player started at the page's first flow — "1" here
+only because Flow 1 is inside the section; a section without a flow inside it started wherever the page's first flow
+or first frame is, maybe outside the section. Now (ours, inferred from the live case: Flow 1 is both the section's first
+flow and its first child and top-left): a section selected (or a layer only sections hold) starts at the first flow
+starting inside it, else its first frame in layer order (proto::sectionStart) — always one frame. Checked live in Wecra
+on the owner's file: ⇧Space, Present in this tab and the toolbar's Play (the Present tab) with the section → "1"; with
+frame 4 → "4"; with a layer in frame 2 → "2"; nothing → "1".
+Not reproduced: "it plays every frame of the section" — in the built app every entry point showed one frame. What did
+show many columns over every screen was the layout grid (§3), which looks like the frames' strips.
+
+5. Not done / open
+------------------
+- Figma clicks through its presentation with real input were flaky in the Browser pane (its emulated viewport maps
+  pointer coordinates at another scale), so Figma's 2 → 3 and 6 → 1 weren't timed; 1 → 4 and 4 → 6 were.
+- The bench's taps below the visible part of a screen taller than the window (pagination at y 872, frame 6's bottom
+  button in the inline preview) don't land — the screen would have to be scrolled first; not a player fault.

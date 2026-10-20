@@ -185,6 +185,19 @@ describe("prototype model", () => {
     expect(faster[0]).toBe(1);
   });
 
+  it("a preset whose Duration was edited keeps its type and plays its own rescaled spring (Figma's viewer)", () => {
+    // The owner's "Prototype deneme": Slow at 200 ms is stored as SPRING_PRESET_THREE, [1, 720, 60, 0], 0.4167 s.
+    expect(springOf("SPRING_PRESET_THREE", [1, 720, 60, 0])).toEqual([1, 720, 60]);
+    expect(springSettleTime(springOf("SPRING_PRESET_THREE", [1, 720, 60, 0]))).toBeCloseTo(0.4167, 3);
+    expect(springEditorDuration(springOf("SPRING_PRESET_THREE", [1, 720, 60, 0]))).toBeCloseTo(0.2, 3);
+    // Editing Slow's Duration to 200 ms gives Figma's numbers.
+    const slow = springWithEditorDuration(springOf("SPRING_PRESET_THREE"), 0.2);
+    expect(slow.map((x) => Math.round(x))).toEqual([1, 720, 60]);
+    // No stored spring, or an unreadable one: the preset; legacy SPRING is always Gentle.
+    expect(springOf("SPRING_PRESET_THREE", [0, 0, 1, 1])).toEqual([1, 80, 20]);
+    expect(springOf("SPRING", [1, 720, 60])).toEqual([1, 100, 15]);
+  });
+
   it("round 8j: the Easing editor's graph — a custom bezier's four numbers, a custom spring's bounce as its damping", () => {
     expect(prototypeCurve("CUSTOM_CUBIC", [0.1, 0.2, 0.3, 1.2])).toEqual({ type: "CUSTOM_CUBIC_BEZIER", easingFunctionCubicBezier: { x1: 0.1, y1: 0.2, x2: 0.3, y2: 1.2 } });
     expect(prototypeCurve("OUT_CUBIC", [])).toBeNull();

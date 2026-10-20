@@ -597,15 +597,21 @@ const springParts = (f: readonly number[]) => {
   return { m, w0, zeta: c / (2 * Math.sqrt(k * m)) };
 };
 
-/** A spring preset's or custom spring's [mass, stiffness, damping] (Figma's tables; an unknown one its fallback). */
+/**
+ * A spring's [mass, stiffness, damping] as Figma's viewer reads it (`easingFunctionValues`): the action's own
+ * `easingFunction` for Gentle, Quick, Bouncy, Slow and Custom spring — a preset whose Duration was edited keeps its type
+ * and stores the rescaled spring there —, else the preset's numbers (Figma's tables; legacy SPRING is Gentle; an
+ * unreadable custom spring its fallback).
+ */
 export function springOf(e: EasingType, fn?: readonly number[]): number[] {
+  if (e !== "SPRING" && fn && fn.length >= 3 && fn.slice(0, 3).every(Number.isFinite) && fn[0] > 0 && fn[1] > 0 && fn[2] >= 0) return [fn[0], fn[1], fn[2]];
   switch (e) {
     case "GENTLE_SPRING":
     case "SPRING": return [1, 100, 15];
     case "SPRING_PRESET_ONE": return [1, 300, 20];
     case "SPRING_PRESET_TWO": return [1, 600, 15];
     case "SPRING_PRESET_THREE": return [1, 80, 20];
-    default: return fn && fn.length >= 3 ? [fn[0], fn[1], fn[2]] : [1, 100, 10];
+    default: return [1, 100, 10];
   }
 }
 

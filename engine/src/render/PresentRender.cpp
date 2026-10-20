@@ -10,6 +10,14 @@ namespace eng {
 RenderStats Renderer::renderScene(const Document& doc, Guid page, const Viewport& viewport, const PresentScene& scene, gfx::TargetId target) {
   ensurePipelines();
   frame_++;
+  // A prototype never shows frames' layout grids (Figma's viewer; the owner's "Prototype deneme" drew its 12 columns
+  // over every screen). The editor's own setting comes back after this frame.
+  struct Guides {
+    bool& on;
+    bool was;
+    ~Guides() { on = was; }
+  } guides{layoutGuides_, layoutGuides_};
+  layoutGuides_ = false;
   doc_ = &doc;
   viewport_ = viewport;
   stats_ = {};

@@ -38,9 +38,24 @@ export function presentStart(ed: EditorController, from?: Guid): Guid | undefine
   return undefined;
 }
 
+/**
+ * What Play starts from for the selection (or `from`): its top-level frame, else the section that holds it — the player
+ * starts a section at its first flow's frame, else its first frame (proto::sectionStart: one frame, never the section).
+ */
+export function presentNode(ed: EditorController, from?: Guid): Guid | undefined {
+  const frame = presentStart(ed, from);
+  if (frame) return frame;
+  for (let cur: Guid | undefined = from ?? ed.selection[0], guard = 0; cur && cur !== ed.store.page && guard < 256; guard++) {
+    const n = ed.engine.readNode(cur, { fields: ["parentIndex", "type"] }) as { parentIndex?: { guid?: Guid }; type?: string } | null;
+    if (n?.type === "SECTION") return cur;
+    cur = n?.parentIndex?.guid;
+  }
+  return undefined;
+}
+
 export function present(ed: EditorController, opts: PresentOptions = {}): void {
   const page = ed.store.page;
-  const node = opts.node ?? presentStart(ed);
+  const node = opts.node ?? presentNode(ed);
   const fileKey = (ed.source as { fileKey?: string }).fileKey;
   if (!opts.here && fileKey) {
     const nav = (window as unknown as { designer?: { nav?: DesktopNav } }).designer?.nav;
@@ -82,7 +97,7 @@ export function togglePreview(ed: EditorController): void {
     ed.ui.set({ preview: null });
     return;
   }
-  ed.ui.set({ preview: { page: ed.store.page, node: presentStart(ed) ?? null } });
+  ed.ui.set({ preview: { page: ed.store.page, node: presentNode(ed) ?? null } });
 }
 
 /**

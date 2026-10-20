@@ -19,11 +19,14 @@ const OWNER_FILES = { kahve: "N58dQS7P47PrD2JPT9t70t", b2c: "RktQdAS12XKvwCnRRdJ
 export const FILES = new Proxy(OWNER_FILES, { get: (t, k) => t[k] ?? k });
 
 export let app = null;
+let savedSession = null;
 export async function launch() {
   const env = { ...process.env, DESIGNER_USER_DATA: USER_DATA, DESIGNER_TEST: "1", DESIGNER_SERVER: "http://127.0.0.1:9" };
   delete env.ELECTRON_RUN_AS_NODE;
-  // No tabs restored from the last run.
-  fs.rmSync(path.join(USER_DATA, "session.json"), { force: true });
+  // No tabs restored from the last run; the session is put back on close (UD may be the everyday folder).
+  const sessionPath = path.join(USER_DATA, "session.json");
+  savedSession = fs.existsSync(sessionPath) ? fs.readFileSync(sessionPath) : null;
+  fs.rmSync(sessionPath, { force: true });
   const bin = path.join(APP_DIR, "node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
   for (let i = 1; ; i++) {
     try {
@@ -228,6 +231,8 @@ export async function close() {
     // already gone
   }
   app = null;
+  if (savedSession) fs.writeFileSync(path.join(USER_DATA, "session.json"), savedSession);
+  savedSession = null;
 }
 export function out(name, obj) {
   fs.mkdirSync(path.join(SCR, "proto-bench"), { recursive: true });

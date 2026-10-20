@@ -171,8 +171,10 @@ TEST_CASE("prototype.easing: Figma's curves and springs") {
   a.easing = proto::Easing::CUSTOM_CUBIC;
   a.easingFunction = {0, 0, 1, 1};
   CHECK(proto::ease(a, 0.3) == doctest::Approx(0.3).epsilon(0.01));
-  // Springs: their own duration (settled), Bouncy overshoots, Gentle less.
+  // Springs: over the stored duration (the panel stores the settle time, Bouncy 0.958 s), Bouncy overshoots.
   a.easing = proto::Easing::SPRING_PRESET_TWO;
+  a.easingFunction.clear();
+  a.duration = 0.958;
   double bouncy = 0;
   for (int i = 0; i <= 200; i++) bouncy = std::max(bouncy, proto::ease(a, i / 200.0));
   CHECK(bouncy > 1.05);
@@ -656,6 +658,38 @@ TEST_CASE("prototype.player: frames in sections are screens — flows start ther
   f.click(100, 100);
   f.advance(1000);
   CHECK(f.player.screen() == S2);
+  // Play with a section selected (the owner's "Prototype deneme", 2026-10-20): one frame, never the section — the
+  // first flow starting inside it, else its first frame (nested sections too).
+  CHECK(proto::sectionStart(f.ed.document(), kPage, SEC1) == S1);
+  CHECK(proto::sectionStart(f.ed.document(), kPage, SEC2) == S2);
+  CHECK(proto::sectionStart(f.ed.document(), kPage, INNER) == S2);
+  REQUIRE(f.player.start(kPage, SEC2));
+  CHECK(f.player.screen() == S2);
+  REQUIRE(f.player.start(kPage, SEC1));
+  CHECK(f.player.screen() == S1);
+}
+
+TEST_CASE("prototype.player: a section's Play starts at its flow's frame, else its first frame") {
+  auto nodes = baseChanges();
+  const Guid SEC{6, 1}, A{6, 2}, B{6, 3}, C{6, 4}, OUTSIDE{6, 5};
+  nodes.push_back(make(OUTSIDE, NodeType::FRAME, kPage, "!", {-2000, 0, 375, 812}, "Outside"));
+  nodes.push_back(make(SEC, NodeType::SECTION, kPage, "\"", {0, 0, 3000, 1000}, "Desktop"));
+  nodes.push_back(make(A, NodeType::FRAME, SEC, "!", {100, 100, 375, 812}, "1"));
+  nodes.push_back(make(B, NodeType::FRAME, SEC, "\"", {600, 100, 375, 812}, "4"));
+  NodeChange c = make(C, NodeType::FRAME, SEC, "#", {1100, 100, 375, 812}, "2");
+  nodes.push_back(c);
+  {
+    Fixture f(nodes);
+    // No flow in it: its first frame, as the one screen.
+    REQUIRE(f.player.start(kPage, SEC));
+    CHECK(f.player.screen() == A);
+  }
+  // A flow starting at its third frame wins over the order.
+  c.props.extra["prototypeStartingPoint"] = extra("prototypeStartingPoint", R"({"name":"Flow 1","position":"!"})");
+  nodes.back() = c;
+  Fixture f(nodes);
+  REQUIRE(f.player.start(kPage, SEC));
+  CHECK(f.player.screen() == C);
 }
 
 TEST_CASE("prototype.player: Figma's viewport modes — Fit width scales down only, Fill screen contains") {
