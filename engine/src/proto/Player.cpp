@@ -215,6 +215,7 @@ bool Player::start(Guid page, Guid start) {
   restoreOriginals();
   page_ = page;
   componentStates_.clear();
+  nestedStates_.clear();
   scrollStore_.clear();
   if (ed_.page() != page) ed_.setCurrentPage(page);
   ed_.derivePage(page);
@@ -315,23 +316,17 @@ std::string Player::semanticPath(Guid node) const {
       if (s == cur) break;
       if (const NodeProps* sp = props(s); sp && sp->name == p->name) k++;
     }
-    path = "/" + p->name + "#" + std::to_string(k) + path;
+    // Separators no layer name holds ("Iconset/search" has a '/'): keys are split again by byKey.
+    path = "\x1f" + p->name + "\x1e" + std::to_string(k) + path;
   }
   return path;
 }
 
 void Player::carryComponentStates(Guid screen, const Action& a) {
   if (a.stateVersion < 1) return;
-  std::vector<Guid> instances;
-  std::function<void(Guid)> walk = [&](Guid id) {
-    const NodeProps* p = props(id);
-    if (!p) return;
-    if (p->type == NodeType::INSTANCE) instances.push_back(id);
-    for (Guid c : doc().children(id)) walk(c);
-  };
-  walk(screen);
-  for (Guid inst : instances) {
-    if (!doc().has(inst)) continue;
+  // Outer instances first, their children read after each one's swap: an outer state's swap gives the layers inside it
+  // new ids (and a nested instance's own state is then applied inside the outer's new variant).
+  auto apply = [&](Guid inst) {
     Guid main = ed_.mainOf(inst);
     if (a.resetComponents) {
       // "Reset component state": the instance as it was designed.
@@ -340,14 +335,22 @@ void Player::carryComponentStates(Guid screen, const Action& a) {
         Guid designed = o->second.props.comp().symbolData.symbolID;
         if (designed != kNoGuid && designed != main && doc().has(designed)) swapInstance(inst, designed, Action{});
       }
-      continue;
+      return;
     }
     auto it = componentStates_.find(semanticPath(inst));
-    if (it == componentStates_.end() || it->second == main || !doc().has(it->second)) continue;
+    if (it == componentStates_.end() || it->second == main || !doc().has(it->second)) return;
     // Only a variant of the same set.
-    if (doc().parentOf(it->second) != doc().parentOf(main)) continue;
+    if (doc().parentOf(it->second) != doc().parentOf(main)) return;
     swapInstance(inst, it->second, Action{});
-  }
+  };
+  std::function<void(Guid, int)> walk = [&](Guid id, int depth) {
+    const NodeProps* p = props(id);
+    if (!p || depth > 256) return;
+    if (p->type == NodeType::INSTANCE) apply(id);
+    const std::vector<Guid> kids = doc().children(id);
+    for (Guid c : kids) walk(c, depth + 1);
+  };
+  walk(screen, 0);
 }
 
 void Player::carryScroll(Guid from, Guid to, const Action& a) {
@@ -374,6 +377,7 @@ void Player::carryScroll(Guid from, Guid to, const Action& a) {
 void Player::restart() {
   if (page_ == kNoGuid) return;
   componentStates_.clear();
+  nestedStates_.clear();
   scrollStore_.clear();
   restoreOriginals();
   start(page_, flow_ != kNoGuid ? flow_ : startFrame_);
@@ -841,6 +845,15 @@ Vec2 Player::overlayPos(Guid frame, const OverlaySettings& s, const Action* a, c
 
 // ---- Hit-testing -----------------------------------------------------------------------------------------
 
+std::vector<Guid> Player::topmostFirst(Guid id) const {
+  // Paint order backwards: the last child is on top, unless an auto-layout parent stacks "First on top"
+  // (stackReverseZIndex) — then the first one is (Document::paintsBefore, RenderTree's paint order).
+  const auto& kids = doc().children(id);
+  const NodeProps* p = props(id);
+  if (p && p->stack().stackReverseZIndex && p->isAutoLayout()) return kids;
+  return std::vector<Guid>(kids.rbegin(), kids.rend());
+}
+
 bool Player::hitWalk(Guid id, const Mat2x3& parentCss, Vec2 css, std::vector<Hit>& out, bool root, Vec2 rootScroll) const {
   const NodeProps* p = props(id);
   if (!p || !p->visible || ghosts_.count(id)) return false;
@@ -853,11 +866,13 @@ bool Player::hitWalk(Guid id, const Mat2x3& parentCss, Vec2 css, std::vector<Hit
   Mat2x3 childBase = m;
   // The shown screen's layers by the part of its scroll the frame doesn't take (`rootScroll`).
   Vec2 sc = root ? rootScroll : scrollsNested(id) ? scrollOf(id) : Vec2{};
-  const auto& kids = doc().children(id);
+  // Topmost first, as the scene paints them (Canvas stacking "First on top" included: the owner's "homesearch" lays its
+  // "finder-segmented" over its "adv-banner" so — read last-first, every click on the segments went to the banner).
+  const std::vector<Guid> kids = topmostFirst(id);
   // A nested scrolling frame's Fixed children are drawn above its other children: hit first.
   bool nestedScroll = !root && scrollsNested(id);
   for (int pass = nestedScroll ? 0 : 1; pass < 2; pass++)
-    for (auto it = kids.rbegin(); it != kids.rend(); ++it) {
+    for (auto it = kids.begin(); it != kids.end(); ++it) {
       const NodeProps* cp = props(*it);
       bool fixed = cp && scrollBehavior(*cp) == ScrollBehavior::FIXED;
       if (nestedScroll && (pass == 0) != fixed) continue;
@@ -898,8 +913,8 @@ Player::Chain Player::hitTest(Vec2 css) const {
   std::vector<Hit> hits;
   const NodeProps* bp = props(base_);
   if (bp) {
-    const auto& kids = doc().children(base_);
-    for (auto it = kids.rbegin(); it != kids.rend(); ++it) {
+    const std::vector<Guid> kids = topmostFirst(base_);
+    for (auto it = kids.begin(); it != kids.end(); ++it) {
       const NodeProps* cp = props(*it);
       if (!cp || scrollBehavior(*cp) != ScrollBehavior::FIXED) continue;
       if (hitWalk(*it, view_.toCss, css, hits, false)) {
@@ -953,64 +968,79 @@ void Player::cancelDelayed(Trigger t, Guid node) {
                  delayed_.end());
 }
 
-void Player::hover(const Chain& c) {
-  auto contains = [](const Chain& ch, Guid id) {
-    for (auto& h : ch.hits)
-      if (h.id == id) return true;
+void Player::hover(const Chain& in, bool live) {
+  // Every layer under the pointer gets its own hover, as a web page's :hover / mouseenter / mouseleave do (the owner's
+  // nested interactive components, 2026-10-21): the inner button's and the outer card's apply together; leaving the
+  // inner keeps the outer hovered. Figma's viewer (`mP`) stops at the first enter / leave that changes something and runs
+  // While hovering only on the deepest hover hotspot — one level at a time; we go further on purpose (docs/engine.md
+  // §3.4 "Nested interactive components"). A change of the screen (navigate, overlay) still ends the round.
+  Chain c = in;
+  keyChain(c);
+  auto has = [](const Chain& ch, const std::string& k) { return std::find(ch.keys.begin(), ch.keys.end(), k) != ch.keys.end(); };
+  // A delayed Mouse enter waits for the pointer to stay; a delayed Mouse leave for it to stay away.
+  for (size_t i = 0; i < hoverChain_.hits.size(); i++)
+    if (i >= hoverChain_.keys.size() || !has(c, hoverChain_.keys[i])) cancelDelayed(Trigger::MOUSE_ENTER, hoverChain_.hits[i].id);
+  for (size_t i = 0; i < c.hits.size(); i++)
+    if (!has(hoverChain_, c.keys[i])) cancelDelayed(Trigger::MOUSE_LEAVE, c.hits[i].id);
+  const uint64_t shown = screenSignature();
+  auto screenChanged = [&] { return screenSignature() != shown; };
+  // The layer a key of the last chain names now (its id, unless a change above it gave it another).
+  auto now = [&](const Hit& h, const std::string& k) {
+    if (doc().has(h.id) && keyOf(h.id) == k) return h.id;
+    return byKey(k);
+  };
+  // Left: Mouse leave on every layer the pointer left, inner to outer.
+  Chain before = hoverChain_;
+  const uint64_t version0 = doc().version();
+  for (size_t i = 0; i < before.hits.size() && i < before.keys.size() && !screenChanged(); i++) {
+    if (has(c, before.keys[i])) continue;
+    Hit h = before.hits[i];
+    h.id = now(h, before.keys[i]);
+    if (h.id != kNoGuid) fire(h.id, Trigger::MOUSE_LEAVE, &h);
+  }
+  // While hovering undone where the pointer is no longer over its layer: the innermost first (the reverse of the order
+  // they were made in), so an outer state goes back after the inner ones it holds.
+  auto under = [&](const Held& x) {
+    if (!x.anchorKey.empty()) return has(c, x.anchorKey);
+    for (auto& h : c.hits)
+      if (h.id == x.anchor) return true;
     return false;
   };
-  // Left: Mouse leave, and While hovering undone.
-  // A delayed Mouse enter waits for the pointer to stay; a delayed Mouse leave for it to stay away.
-  for (auto& h : hoverChain_.hits)
-    if (!contains(c, h.id)) cancelDelayed(Trigger::MOUSE_ENTER, h.id);
-  for (auto& h : c.hits)
-    if (!contains(hoverChain_, h.id)) cancelDelayed(Trigger::MOUSE_LEAVE, h.id);
-  // Figma's order (`mP`): the layers left fire Mouse leave inner to outer, then the layers entered Mouse enter outer to
-  // inner, and the first one that does something ends the round (its state change re-checks the hover next frame).
-  bool acted = false;
-  for (auto& h : hoverChain_.hits)
-    if (!contains(c, h.id) && doc().has(h.id) && fire(h.id, Trigger::MOUSE_LEAVE, &h)) {
-      acted = true;
-      break;
-    }
-  for (size_t i = 0; i < held_.size();) {
-    if (!contains(c, held_[i].anchor)) {
-      Held h = std::move(held_[i]);
-      held_.erase(held_.begin() + static_cast<long>(i));
-      for (auto it = h.revert.rbegin(); it != h.revert.rend(); ++it) (*it)();
-    } else {
-      i++;
-    }
+  for (size_t i = held_.size(); i-- > 0;) {
+    if (i >= held_.size() || under(held_[i])) continue;
+    Held h = std::move(held_[i]);
+    held_.erase(held_.begin() + static_cast<long>(i));
+    for (auto it = h.revert.rbegin(); it != h.revert.rend(); ++it) (*it)();
   }
-  // Entered: Mouse enter (outer to inner), then — only when no Mouse enter / leave did anything — While hovering:
-  // the deepest layer under the pointer with a While hovering, its first one, unless it is hovered already.
-  Chain before = hoverChain_;
-  hoverChain_ = c;
-  for (auto it = c.hits.rbegin(); it != c.hits.rend() && !acted; ++it)
-    if (!contains(before, it->id) && fire(it->id, Trigger::MOUSE_ENTER, &*it)) acted = true;
-  for (auto& h : c.hits) {
-    if (acted || !hasIx(h.id)) continue;
-    std::vector<Interaction> list = ix(h.id);
-    const Interaction* first = nullptr;
-    for (const Interaction& i : list)
-      if (i.trigger == Trigger::ON_HOVER) {
-        first = &i;
+  auto rehit = [&] {
+    if (!live) return;
+    c = hitTest(hoverCss_);
+    keyChain(c);
+  };
+  if (!screenChanged() && doc().version() != version0) rehit();  // what the leaves and reverts changed under the pointer
+  // Entered: Mouse enter on every layer newly under the pointer, then While hovering on every layer under it that has
+  // one and isn't hovered yet — outer to inner, the chain hit-tested again after a change (an outer state's new layers
+  // are under the pointer now; an inner one's ids changed).
+  std::unordered_set<std::string> seen;
+  for (int round = 0; round < 64 && !screenChanged(); round++) {
+    bool again = false;
+    for (size_t j = c.hits.size(); j-- > 0;) {
+      const std::string k = c.keys[j];
+      if (!seen.insert(k).second) continue;
+      Hit h = c.hits[j];
+      uint64_t version = doc().version();
+      if (!has(before, k)) fire(h.id, Trigger::MOUSE_ENTER, &h);
+      if (!screenChanged() && doc().has(h.id)) whileHovering(h, k);
+      if (screenChanged()) break;
+      if (doc().version() != version && live) {
+        rehit();
+        again = true;
         break;
       }
-    if (!first) continue;
-    bool hovered = false;
-    for (auto& x : held_) hovered |= x.anchor == h.id || x.hotspot == h.id;
-    if (!hovered) {
-      std::vector<Action> actions = first->actions;
-      Held held;
-      held.anchor = h.id;
-      held.hotspot = h.id;
-      held.id = ++heldSerial_;
-      run(h.id, actions, &h, &held);
-      held_.push_back(std::move(held));
     }
-    break;
+    if (!again) break;
   }
+  hoverChain_ = c;
   // The pointer is a hand over anything that reacts to a click, and over links.
   bool hand = linkAt(c, hoverCss_) != nullptr;
   for (auto& h : c.hits) {
@@ -1023,6 +1053,84 @@ void Player::hover(const Chain& c) {
     hotspot_ = hand;
     events_.push_back(Event{});
   }
+}
+
+void Player::whileHovering(const Hit& h, const std::string& key) {
+  if (!hasIx(h.id)) return;
+  std::vector<Interaction> list = ix(h.id);
+  const Interaction* first = nullptr;
+  for (const Interaction& i : list)
+    if (i.trigger == Trigger::ON_HOVER) {
+      first = &i;
+      break;
+    }
+  if (!first) return;
+  for (auto& x : held_)
+    if (x.hotspotKey == key || x.anchorKey == key || x.anchor == h.id || x.hotspot == h.id) return;  // hovered already
+  std::vector<Action> actions = first->actions;
+  Held held;
+  held.anchor = h.id;
+  held.hotspot = h.id;
+  held.anchorKey = key;
+  held.hotspotKey = key;
+  held.id = ++heldSerial_;
+  run(h.id, actions, &h, &held);
+  held_.push_back(std::move(held));
+}
+
+std::string Player::keyOf(Guid node) const {
+  Guid top = topLevelOf(node);
+  if (top == kNoGuid) return node.toString();
+  return top.toString() + semanticPath(node);
+}
+
+Guid Player::underKey(Guid root, const std::string& rel) const {
+  Guid cur = root;
+  size_t pos = 0;
+  while (pos < rel.size()) {
+    if (rel[pos] != '\x1f') return kNoGuid;
+    size_t mark = rel.find('\x1e', pos + 1);
+    if (mark == std::string::npos) return kNoGuid;
+    size_t end = rel.find('\x1f', mark + 1);
+    if (end == std::string::npos) end = rel.size();
+    std::string_view name(rel.data() + pos + 1, mark - pos - 1);
+    int k = std::atoi(rel.substr(mark + 1, end - mark - 1).c_str());
+    Guid next = kNoGuid;
+    int seen = 0;
+    for (Guid c : doc().children(cur)) {
+      const NodeProps* cp = props(c);
+      if (!cp || cp->name != name || ghosts_.count(c)) continue;
+      if (seen++ == k) {
+        next = c;
+        break;
+      }
+    }
+    if (next == kNoGuid) return kNoGuid;
+    cur = next;
+    pos = end;
+  }
+  return cur;
+}
+
+Guid Player::byKey(const std::string& key) const {
+  size_t cut = key.find('\x1f');
+  bool ok = false;
+  Guid root = Guid::parse(key.substr(0, cut), &ok);
+  if (!ok || !doc().has(root)) return kNoGuid;
+  return cut == std::string::npos ? root : underKey(root, key.substr(cut));
+}
+
+void Player::keyChain(Chain& c) const {
+  c.keys.clear();
+  c.keys.reserve(c.hits.size());
+  for (const Hit& h : c.hits) c.keys.push_back(keyOf(h.id));
+}
+
+uint64_t Player::screenSignature() const {
+  auto mix = [](uint64_t h, Guid g) { return (h ^ ((static_cast<uint64_t>(g.sessionID) << 32) | g.localID)) * 1099511628211ull; };
+  uint64_t h = mix(1469598103934665603ull, base_);
+  for (const Shown& o : overlays_) h = mix(h, o.frame);
+  return h ^ overlays_.size();
 }
 
 const text::LinkBox* Player::linkAt(const Chain& c, Vec2 css) const {
@@ -1108,6 +1216,7 @@ uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*butto
     case PointerEvent::DOWN: {
       Chain c = hitTest(css);
       hover(c);
+      c = hoverChain_;  // as hover left it (hit again if a hover changed what is under the pointer), with its keys
       down_ = true;
       dragFired_ = false;
       downCss_ = css;
@@ -1128,6 +1237,8 @@ uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*butto
           if (!any) {
             pressed_ = Held{};
             pressed_.anchor = h.id;
+            for (size_t k = 0; k < c.hits.size() && k < c.keys.size(); k++)
+              if (c.hits[k].id == h.id) pressed_.anchorKey = pressed_.hotspotKey = c.keys[k];
             pressed_.id = ++heldSerial_;
           }
           run(h.id, i.actions, &h, &pressed_);
@@ -1150,15 +1261,19 @@ uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*butto
       pressed_ = Held{};
       for (auto it = p.revert.rbegin(); it != p.revert.rend(); ++it) (*it)();
       Chain c = hitTest(css);
+      keyChain(c);
       cancelDelayed(Trigger::MOUSE_DOWN);  // released before a delayed Mouse down ran
       for (auto& h : c.hits)
         if (fire(h.id, Trigger::MOUSE_UP, &h)) break;
       bool clicked = false;
       if (!dragFired_) {
         // On click: the deepest layer pressed and released on that reacts to a click.
-        for (auto& h : c.hits) {
+        // Pressed and released on the same layer by key: a press's change above it may have given it a new id.
+        for (size_t i = 0; i < c.hits.size(); i++) {
+          auto& h = c.hits[i];
           bool wasDown = false;
-          for (auto& d : downChain_.hits) wasDown |= d.id == h.id;
+          for (size_t j = 0; j < downChain_.hits.size(); j++)
+            wasDown |= downChain_.hits[j].id == h.id || (j < downChain_.keys.size() && downChain_.keys[j] == c.keys[i]);
           if (!wasDown) continue;
           if (fire(h.id, Trigger::ON_CLICK, &h)) {
             clicked = true;
@@ -1191,7 +1306,7 @@ uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*butto
       downChain_ = Chain{};
       return 1;
     }
-    case PointerEvent::LEAVE: hover(Chain{}); return 1;
+    case PointerEvent::LEAVE: hover(Chain{}, false); return 1;
     case PointerEvent::CANCEL:
       down_ = false;
       if (scrub_.active) endScrub(t);
@@ -1264,8 +1379,8 @@ uint32_t Player::key(bool down, int keyCode, uint32_t mods) {
       const NodeProps* p = props(id);
       if (!p || !p->visible) return;
       // Deepest first.
-      const auto& kids = doc().children(id);
-      for (auto it = kids.rbegin(); it != kids.rend() && !handled; ++it) walk(*it);
+      const std::vector<Guid> kids = topmostFirst(id);
+      for (auto it = kids.begin(); it != kids.end() && !handled; ++it) walk(*it);
       if (handled || !hasIx(id)) return;
       for (const Interaction& i : ix(id)) {
         if (i.trigger != Trigger::ON_KEY_DOWN || i.keyCodes.empty()) continue;
@@ -1769,6 +1884,7 @@ void Player::swapInstance(Guid instance, Guid main, const Action& a) {
   raw.object.emplace_back("ref", r);
   args.raw = raw;
   ed_.command(CommandId::SWAP_INSTANCE, args);
+  keepNestedStates(instance, fromMain, main);
   if (animate && doc().has(instance)) {
     for (auto& x : instanceAnims_)
       if (x.instance == instance) dropGhost(x.ghost);
@@ -1776,6 +1892,7 @@ void Player::swapInstance(Guid instance, Guid main, const Action& a) {
                          instanceAnims_.end());
     InstanceAnim ia;
     ia.instance = instance;
+    ia.key = keyOf(instance);
     ia.ghost = ghost;
     ia.from = std::move(from);
     ia.action = a;
@@ -1796,10 +1913,58 @@ void Player::swapInstance(Guid instance, Guid main, const Action& a) {
     instanceAnims_.erase(std::remove_if(instanceAnims_.begin(), instanceAnims_.end(), [&](const InstanceAnim& x) { return x.instance == instance; }),
                          instanceAnims_.end());
   }
+  rekeyInstanceAnims();
   dropTimers(instance);
   armTimers(instance);
   mediaDirty_ = true;
   dirty_ = true;
+}
+
+void Player::keepNestedStates(Guid instance, Guid fromMain, Guid toMain) {
+  if (nestedStates_.empty() || fromMain == kNoGuid || toMain == kNoGuid || fromMain == toMain || !doc().has(instance)) return;
+  const std::string base = keyOf(instance);
+  std::vector<std::pair<std::string, Guid>> inside;
+  for (const auto& [k, v] : nestedStates_)
+    if (k.size() > base.size() && k.compare(0, base.size(), base) == 0 && k[base.size()] == '\x1f') inside.emplace_back(k, v);
+  // Outer ones first (a shorter key is never inside a longer one's layer).
+  std::sort(inside.begin(), inside.end(), [](const auto& x, const auto& y) { return x.first.size() < y.first.size(); });
+  auto designed = [&](Guid variant, const std::string& rel) {
+    Guid at = underKey(variant, rel);
+    const NodeProps* p = at != kNoGuid ? props(at) : nullptr;
+    return p && p->type == NodeType::INSTANCE ? ed_.mainOf(at) : kNoGuid;
+  };
+  for (const auto& [k, state] : inside) {
+    Guid node = byKey(k);
+    const NodeProps* np = node != kNoGuid ? props(node) : nullptr;
+    if (!np || np->type != NodeType::INSTANCE) {
+      nestedStates_.erase(k);  // not in the new variant: its state goes with it (an unmounted component's)
+      continue;
+    }
+    const std::string rel = k.substr(base.size());
+    Guid before = designed(fromMain, rel), after = designed(toMain, rel);
+    Guid want = state;
+    if (before != after) {
+      // The outer variants design this layer differently: the new one's design shows (the outer state drives it) — and
+      // stays noted, so the next outer change gives its design again (the variant switch alone would carry this one).
+      want = after;
+      if (after != kNoGuid) nestedStates_[k] = after;
+    }
+    Guid shown = ed_.mainOf(node);
+    if (want == kNoGuid || want == shown || !doc().has(want)) continue;
+    if (doc().parentOf(want) != doc().parentOf(shown)) continue;  // another set: left as the variant switch made it
+    swapInstance(node, want, Action{});
+  }
+}
+
+void Player::rekeyInstanceAnims() {
+  for (InstanceAnim& ia : instanceAnims_) {
+    if (doc().has(ia.instance) || ia.key.empty()) continue;
+    Guid again = byKey(ia.key);
+    if (again == kNoGuid) continue;
+    if (scrub_.instance == ia.instance) scrub_.instance = again;
+    if (lastInstanceAnim_ == ia.instance) lastInstanceAnim_ = again;
+    ia.instance = again;
+  }
 }
 
 void Player::changeTo(Guid source, Guid dest, const Action& a, Held* held) {
@@ -1823,12 +1988,23 @@ void Player::changeTo(Guid source, Guid dest, const Action& a, Held* held) {
   if (inst == kNoGuid) return;
   Guid old = ed_.mainOf(inst);
   if (old == dest) return;
+  const std::string key = keyOf(inst);
   swapInstance(inst, dest, a);
+  // A nested instance's own state (it is inside another instance): kept when an instance above it changes variant.
+  if (inst.isDerived()) nestedStates_[key] = dest;
   if (!held) componentStates_[semanticPath(inst)] = dest;
   if (held) {
-    if (held->anchor != kNoGuid && (held->anchor == source) && source != inst && doc().isAncestor(inst, source)) held->anchor = inst;
-    held->revert.push_back([this, inst, old, a] {
-      if (doc().has(inst) && ed_.mainOf(inst) != old) swapInstance(inst, old, a);
+    if (held->anchor != kNoGuid && (held->anchor == source) && source != inst && doc().isAncestor(inst, source)) {
+      held->anchor = inst;
+      held->anchorKey = key;
+    }
+    // Undone on the layer the key names then (an outer change may have given it a new id), and only while it shows
+    // what this change set (an outer state that drove it elsewhere since wins).
+    held->revert.push_back([this, inst, key, old, dest, a] {
+      Guid cur = doc().has(inst) ? inst : byKey(key);
+      if (cur == kNoGuid || ed_.mainOf(cur) != dest) return;
+      swapInstance(cur, old, a);
+      if (cur.isDerived()) nestedStates_[key] = old;
     });
   }
 }
