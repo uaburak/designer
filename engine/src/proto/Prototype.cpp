@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 
 #include "motion/Easing.h"
 #include "render/ImageCache.h"
@@ -374,9 +375,13 @@ Device device(const NodeProps& page) {
 
 Color background(const NodeProps& page) {
   json::Value v;
-  if (!extraJson(page, "prototypeBackgroundColor", v) || !v.isObject()) return Color::hex(0x1E1E1E);
-  return {static_cast<float>(num(v.get("r"), 0)), static_cast<float>(num(v.get("g"), 0)), static_cast<float>(num(v.get("b"), 0)),
+  // Figma's pages hold a transparent black (live 2026-10-20: prototypeBackgrounds opacity 0), shown as black (viewer
+  // `u3`: a transparent background is drawn black).
+  if (!extraJson(page, "prototypeBackgroundColor", v) || !v.isObject()) return Color::hex(0x000000);
+  Color c{static_cast<float>(num(v.get("r"), 0)), static_cast<float>(num(v.get("g"), 0)), static_cast<float>(num(v.get("b"), 0)),
           static_cast<float>(num(v.get("a"), 1))};
+  if (c.a <= 0) return Color::hex(0x000000);
+  return c;
 }
 
 VideoSettings videoSettings(const NodeProps& p) {
@@ -401,9 +406,41 @@ int gifFill(const NodeProps& p) {
   return -1;
 }
 
+std::vector<Guid> screens(const Document& doc, Guid page) {
+  std::vector<Guid> out;
+  std::function<void(Guid)> walk = [&](Guid parent) {
+    for (Guid c : doc.children(parent)) {
+      const Node* n = doc.get(c);
+      if (!n) continue;
+      if (n->props.type == NodeType::SECTION) walk(c);
+      else out.push_back(c);
+    }
+  };
+  walk(page);
+  return out;
+}
+
+Guid screenOf(const Document& doc, Guid id) {
+  // The chain up to the page; the screen is the first layer under the page and its sections.
+  std::vector<Guid> chain;
+  for (Guid cur = id; cur != kNoGuid && chain.size() < 4096; cur = doc.parentOf(cur)) {
+    const Node* n = doc.get(cur);
+    if (!n) return kNoGuid;
+    if (n->props.type == NodeType::CANVAS) {
+      for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+        const Node* c = doc.get(*it);
+        if (c && c->props.type != NodeType::SECTION) return *it;
+      }
+      return kNoGuid;
+    }
+    chain.push_back(cur);
+  }
+  return kNoGuid;
+}
+
 std::vector<Flow> flows(const Document& doc, Guid page) {
   std::vector<Flow> out;
-  for (Guid c : doc.children(page)) {
+  for (Guid c : screens(doc, page)) {
     const Node* n = doc.get(c);
     if (!n) continue;
     Flow f;

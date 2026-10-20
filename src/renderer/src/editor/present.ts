@@ -17,15 +17,21 @@ export interface PresentOptions {
 
 type DesktopNav = { openPrototype?: (fileKey: string, pageId: string, startNodeId?: string, title?: string) => Promise<unknown> };
 
-/** The selection's top-level frame (the first selected layer's, or `from`'s), or undefined. */
+/**
+ * The selection's top-level frame (the first selected layer's, or `from`'s), or undefined. A frame in a section (nested
+ * sections too) is top-level, as in Figma (the player's `screenOf`).
+ */
 export function presentStart(ed: EditorController, from?: Guid): Guid | undefined {
   const page = ed.store.page;
+  const chain: { guid: Guid; section: boolean }[] = [];
   let cur: Guid | undefined = from ?? ed.selection[0];
   for (let guard = 0; cur && guard < 256; guard++) {
-    const n = ed.engine.readNode(cur, { fields: ["parentIndex"] });
+    const read = ed.engine.readNode(cur, { fields: ["parentIndex", "type"] });
+    const n = read ? (ed.withRealType(read) as { parentIndex?: { guid?: Guid }; type?: string }) : null;
     const parent = n?.parentIndex?.guid;
     if (!parent) return undefined;
-    if (parent === page) return cur;
+    chain.push({ guid: cur, section: n?.type === "SECTION" });
+    if (parent === page) return chain.reverse().find((c) => !c.section)?.guid;
     cur = parent;
   }
   return undefined;
@@ -49,6 +55,17 @@ export function present(ed: EditorController, opts: PresentOptions = {}): void {
     }
   }
   ed.ui.set({ presenting: { page, node: node ?? null } });
+}
+
+/**
+ * A flow's link (the Prototype panel's "Copy flow link"): the presentation view of this file starting at `frame`,
+ * Figma's `starting-point-node-id` (presentUrlOptions reads it).
+ */
+export function flowLink(ed: EditorController, frame: Guid): string {
+  const fileKey = (ed.source as { fileKey?: string }).fileKey;
+  const url = new URL(location.href);
+  url.search = "";
+  return `${url.origin}${url.pathname}?present${fileKey ? `&file=${encodeURIComponent(fileKey)}` : ""}&page=${encodeURIComponent(ed.store.page)}&starting-point-node-id=${encodeURIComponent(frame.replace(":", "-"))}`;
 }
 
 /** Opens or closes the inline preview (⇧Space; InlinePreview.tsx) at the selection's frame. */

@@ -154,15 +154,21 @@ ScrollBehavior scrollBehavior(const NodeProps& p);
 OverlaySettings overlaySettings(const NodeProps& p);
 bool flowStart(const NodeProps& p, Flow& out);  // the node's prototypeStartingPoint
 Device device(const NodeProps& page);
-Color background(const NodeProps& page);  // prototypeBackgroundColor (absent: Figma's #1E1E1E)
+Color background(const NodeProps& page);  // prototypeBackgroundColor (absent or transparent: black, as Figma)
 VideoSettings videoSettings(const NodeProps& p);
 // The layer's first visible VIDEO fill (its index in fillPaints), −1 when it has none.
 int videoFill(const NodeProps& p);
 // The layer's first visible GIF fill (an IMAGE paint with an animatedImage: "GIFs in prototypes" play, atlas 07 §8.5),
 // −1 when it has none.
 int gifFill(const NodeProps& p);
-// The page's flows in their order (prototypeStartingPoint.position), top-level frames only.
+// The page's flows in their order (prototypeStartingPoint.position), on its screens.
 std::vector<Flow> flows(const Document& doc, Guid page);
+// The page's screens in document order: its top-level layers and those inside its sections (nested sections too) —
+// Figma treats a frame in a section as a top-level frame (live 2026-10-20: the owner's flows start at such frames).
+std::vector<Guid> screens(const Document& doc, Guid page);
+// The screen a layer is on: its outermost ancestor (or itself) that is not a section, under the page and sections
+// only; kNoGuid for a section or a layer off the page.
+Guid screenOf(const Document& doc, Guid id);
 
 // The interactions' JSON (the schema's shape: enums by name, GUIDs as {sessionID, localID}) for writes, and the
 // whole field as the change NodeProps::extra entry it becomes ("" removes the field).

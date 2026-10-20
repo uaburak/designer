@@ -144,7 +144,10 @@ TEST_CASE("prototype.model: interactions, overlay settings, flows and device rea
   CHECK(!d.none);
   CHECK(d.rotated);
   CHECK(d.size.x == 852);  // landscape
-  CHECK(proto::background(page) == Color::hex(0x1E1E1E));
+  // Figma's default: a transparent black, drawn black (live 2026-10-20).
+  CHECK(proto::background(page) == Color::hex(0x000000));
+  page.extra["prototypeBackgroundColor"] = extra("prototypeBackgroundColor", R"({"r":0.2,"g":0.4,"b":1,"a":0})");
+  CHECK(proto::background(page) == Color::hex(0x000000));
 }
 
 TEST_CASE("prototype.easing: Figma's curves and springs") {
@@ -624,6 +627,61 @@ TEST_CASE("prototype.player: the device frame around the screen, Show device fra
   // Z goes through the options in the file's order (small frames): Actual size → Fit width and height → …
   g.player.key(true, 90, 0);
   CHECK(g.player.scale() == proto::ScaleMode::FIT);
+}
+
+TEST_CASE("prototype.player: frames in sections are screens — flows start there, navigations land there") {
+  // Live 2026-10-20 (the owner's "Kahve"): every flow starts at a frame inside a section.
+  auto nodes = baseChanges();
+  const Guid SEC1{5, 1}, SEC2{5, 2}, INNER{5, 3}, S1{5, 4}, S2{5, 5}, GO{5, 6};
+  nodes.push_back(make(SEC1, NodeType::SECTION, kPage, "!", {0, 0, 1000, 1000}, "Order"));
+  nodes.push_back(make(SEC2, NodeType::SECTION, kPage, "\"", {2000, 0, 2000, 1000}, "Station"));
+  nodes.push_back(make(INNER, NodeType::SECTION, SEC2, "!", {100, 0, 1000, 1000}, "Nested"));
+  NodeChange s1 = make(S1, NodeType::FRAME, SEC1, "!", {100, 100, 375, 812}, "Order 1");
+  s1.props.extra["prototypeStartingPoint"] = extra("prototypeStartingPoint", R"({"name":"Flow 3","position":"!"})");
+  nodes.push_back(s1);
+  nodes.push_back(make(S2, NodeType::FRAME, INNER, "!", {100, 100, 375, 812}, "Station 1"));
+  NodeChange go = make(GO, NodeType::RECTANGLE, S1, "!", {0, 0, 375, 812}, "Go");
+  go.props.extra["prototypeInteractions"] = extra("prototypeInteractions", nav(S2));
+  nodes.push_back(go);
+  Fixture f(nodes);
+  auto fl = proto::flows(f.ed.document(), kPage);
+  REQUIRE(fl.size() == 1);
+  CHECK(fl[0].node == S1);
+  CHECK(proto::screenOf(f.ed.document(), GO) == S1);
+  CHECK(proto::screenOf(f.ed.document(), S2) == S2);
+  CHECK(proto::screenOf(f.ed.document(), INNER) == kNoGuid);
+  // Started on a layer in the section's frame: that frame; clicked, the frame in the nested section.
+  REQUIRE(f.player.start(kPage, GO));
+  CHECK(f.player.screen() == S1);
+  f.click(100, 100);
+  f.advance(1000);
+  CHECK(f.player.screen() == S2);
+}
+
+TEST_CASE("prototype.player: Figma's viewport modes — Fit width scales down only, Fill screen contains") {
+  auto nodes = baseChanges();
+  const Guid PHONE{4, 1};
+  nodes.push_back(make(PHONE, NodeType::FRAME, kPage, "!", {0, 0, 375, 812}, "Phone"));
+  // A window wider and taller than the frame: Fit width leaves it at 100 %, Fill screen grows it to the height.
+  Fixture big(nodes, 1200, 1624);
+  REQUIRE(big.player.start(kPage, PHONE));
+  big.player.setScale(proto::ScaleMode::FIT_WIDTH);
+  big.advance(16);
+  CHECK(big.player.screenRect().w == doctest::Approx(375));
+  big.player.setScale(proto::ScaleMode::FILL);
+  big.advance(16);
+  CHECK(big.player.screenRect().h == doctest::Approx(1624));
+  CHECK(big.player.screenRect().w == doctest::Approx(750));
+  // A narrower window: Fit width shrinks the frame to its width; Fill screen keeps all of it in the window.
+  Fixture narrow(nodes, 300, 400);
+  REQUIRE(narrow.player.start(kPage, PHONE));
+  narrow.player.setScale(proto::ScaleMode::FIT_WIDTH);
+  narrow.advance(16);
+  CHECK(narrow.player.screenRect().w == doctest::Approx(300));
+  narrow.player.setScale(proto::ScaleMode::FILL);
+  narrow.advance(16);
+  CHECK(narrow.player.screenRect().h == doctest::Approx(400));
+  CHECK(narrow.player.screenRect().w == doctest::Approx(375 * 400.0 / 812).epsilon(0.01));
 }
 
 TEST_CASE("prototype.player: Responsive resizes the frame to the window and lays it out by its constraints") {

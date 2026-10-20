@@ -1,9 +1,10 @@
 /**
  * The Prototype tab (UI3; docs/research/figma/R8-prototyping.md §1):
- * - nothing selected: Device (None or a preset, Portrait / Landscape), Background (the presentation's colour), Flows
- *   (the page's flow starting points; a row selects its frame, ▶ presents it);
- * - a top-level frame: Flow starting point (+ / its name and description / −), Interactions, Scroll behavior
- *   (Overflow);
+ * - nothing selected (live 2026-10-20): Prototype settings — Device (None or a preset, Portrait / Landscape) and the
+ *   background colour —, Flows (the page's flow starting points; a row's select frame, copy flow link and preview — the
+ *   inline preview at the flow), the tips;
+ * - a top-level frame: Flow starting point (+ / Copy flow link and −; its name, its frame — moving it to another — and
+ *   its description), Interactions, Scroll behavior (Overflow);
  * - any other layer: Interactions, Scroll behavior (Position; Overflow for frames);
  * - a video (a layer with a video fill): Video (help.figma.com 8878274530455 "Video properties": "Check the box to
  *   autoplay video", "Click the Loop icon to loop video", "Click the Sound icon to turn the video's default sound
@@ -14,13 +15,13 @@
  * prototypeBackgroundColor, scrollDirection, scrollBehavior), so it round-trips with .fig files.
  */
 import { useEffect, useMemo, useState } from "react";
-import { Button, Checkbox, ColorInput, Icon, IconButton, MIXED, PanelSection, SegmentedControl, Select, TextInput, ToggleIconButton, cx } from "@/ds";
+import { Button, Checkbox, ColorInput, Icon, IconButton, MIXED, PanelSection, SegmentedControl, Select, TextInput, ToggleIconButton, cx, showToast } from "@/ds";
 import type { Color, Guid, NodeChange, NodeFields } from "@/engine/codec";
 import { useCurrentPage } from "@/engine/hooks";
 import { keyBetween } from "../../../../../shared/schema/fractionalIndex";
 import { useEditor, type EditorController } from "../../controller";
 import { useDocumentVersion, useNodes, GEOMETRY_GROUPS } from "../../hooks";
-import { colorToHex, hexToColor, toPercent } from "../../model/color";
+import { colorToHex, hexToColor } from "../../model/color";
 import {
   ACTION_ICON,
   actionLabel,
@@ -42,7 +43,7 @@ import {
   type ScrollDirection,
 } from "../../model/prototype";
 import { useSelectedNodes, type PanelNode } from "../design/shared";
-import { present } from "../../present";
+import { flowLink, presentStart } from "../../present";
 import { InteractionDetails, hasVideoFill } from "./InteractionDetails";
 import { AddInteractionsButton } from "./AddInteractions";
 import styles from "./Prototype.module.css";
@@ -53,8 +54,8 @@ export type ProtoNode = PanelNode & PrototypeFields;
 /** Unmodelled fields cross as JSON with their schema names; null clears one. */
 export const protoFields = (f: { [K in keyof PrototypeFields]?: PrototypeFields[K] | null }): NodeFields => f as unknown as NodeFields;
 
-/** The presentation's default background (Figma's dark grey). */
-export const DEFAULT_PROTOTYPE_BACKGROUND: Color = { r: 0x1e / 255, g: 0x1e / 255, b: 0x1e / 255, a: 1 };
+/** The presentation's default background: Figma's pages hold a transparent black, shown and played as black (live 2026-10-20). */
+export const DEFAULT_PROTOTYPE_BACKGROUND: Color = { r: 0, g: 0, b: 0, a: 1 };
 
 export interface PageFrame {
   guid: Guid;
@@ -71,13 +72,23 @@ export function usePageFrames(page: Guid): PageFrame[] {
   return useMemo(() => {
     void version;
     if (ed.engine.destroyed) return [];
-    const pageNode = ed.engine.readNodes([page], { childIds: true })[0] as (NodeChange & { childIds?: Guid[] }) | undefined;
-    const ids = pageNode?.childIds ?? [];
-    if (!ids.length) return [];
-    const rows = ed.engine.readNodes(ids, { fields: ["name", "type", "prototypeStartingPoint", "resizeToFit", "isStateGroup", "visible"] }) as (NodeChange &
-      PrototypeFields & { isStateGroup?: boolean; resizeToFit?: boolean })[];
+    // The page's children and, inside its sections (nested too), theirs: a frame in a section is top-level (Figma's).
+    type Row = NodeChange & PrototypeFields & { isStateGroup?: boolean; resizeToFit?: boolean; type?: string; childIds?: Guid[] };
+    const rows: Row[] = [];
+    const walk = (parent: Guid, depth: number) => {
+      const node = ed.engine.readNodes([parent], { childIds: true })[0] as (NodeChange & { childIds?: Guid[] }) | undefined;
+      const ids = node?.childIds ?? [];
+      if (!ids.length) return;
+      const kids = ed.engine.readNodes(ids, { fields: ["name", "type", "prototypeStartingPoint", "resizeToFit", "isStateGroup", "visible"] }) as Row[];
+      for (const k of kids) {
+        const typed = ed.withRealType(k) as Row;
+        if (typed.type === "SECTION") {
+          if (depth < 32) walk(typed.guid, depth + 1);
+        } else rows.push(typed);
+      }
+    };
+    walk(page, 0);
     return rows
-      .map((n) => ed.withRealType(n) as typeof n & { type?: string })
       .filter((n) => (n.type === "FRAME" && !n.resizeToFit) || n.type === "SYMBOL" || n.type === "INSTANCE")
       .map((n) => ({ guid: n.guid, name: n.name ?? "", type: n.type ?? "FRAME", flow: n.prototypeStartingPoint ?? null, isStateGroup: !!n.isStateGroup }));
   }, [ed, page, version]);
@@ -184,12 +195,16 @@ function NothingSelected() {
     if (!current || !device) return;
     ed.setProps([page], protoFields({ prototypeDevice: { ...device, presetIdentifier: presetIdentifierOf(current.preset[0], m) } }), "Prototype device");
   };
-  const background = pageNode?.prototypeBackgroundColor ?? DEFAULT_PROTOTYPE_BACKGROUND;
+  // A transparent background (Figma's default) is shown — and played — as black.
+  const stored = pageNode?.prototypeBackgroundColor;
+  const background = stored && (stored.a ?? 1) > 0 ? stored : DEFAULT_PROTOTYPE_BACKGROUND;
   const frames = usePageFrames(page);
   const flows = frames.filter((f) => f.flow).sort((a, b) => ((a.flow?.position ?? "") < (b.flow?.position ?? "") ? -1 : 1));
+  // Live 2026-10-20 (prototype-preview.txt): one "Prototype settings" section — Device, then the background colour
+  // (hex only) —, then Flows, then the tips.
   return (
     <>
-      <PanelSection title={t("Device")}>
+      <PanelSection title={t("Prototype settings")}>
         <div className={styles.row}>
           <Select label={t("Device")} value={deviceValue} options={options} onChange={setDevice} className={styles.grow} />
         </div>
@@ -212,39 +227,56 @@ function NothingSelected() {
             <Select label={t("Model")} value={current.model} options={models.map(([value, label]) => ({ value, label: t(label) }))} onChange={setModel} className={styles.grow} />
           </div>
         )}
-      </PanelSection>
-      <PanelSection title={t("Background")}>
         <div className={styles.row}>
           <ColorInput
             className={styles.grow}
-            label={t("Prototype background")}
+            label={t("Background color")}
             color={colorToHex(background)}
-            opacity={toPercent(background.a ?? 1)}
-            onColor={(hex, info) => ed.edit("Prototype background", info, () => void ed.engine.setProps([page], protoFields({ prototypeBackgroundColor: hexToColor(hex, background.a ?? 1) })))}
-            onOpacity={(o, info) => ed.edit("Prototype background", info, () => void ed.engine.setProps([page], protoFields({ prototypeBackgroundColor: { ...background, a: o / 100 } })))}
+            opacity={100}
+            onColor={(hex, info) => ed.edit("Prototype background", info, () => void ed.engine.setProps([page], protoFields({ prototypeBackgroundColor: hexToColor(hex, 1) })))}
           />
         </div>
       </PanelSection>
+      {/* Live: a row per flow — its name, and on hover "select frame", "copy flow link" and "preview" (the inline
+          preview at the flow). */}
       <PanelSection title={t("Flows")} empty={flows.length === 0}>
-        {flows.map((f) => (
-          <div key={f.guid} className={styles.flowRow} data-flow={f.guid}>
-            <button
-              type="button"
-              className={styles.flowName}
-              onClick={() => {
-                ed.engine.setSelection([f.guid]);
-                ed.engine.command("ZOOM_TO_SELECTION");
-              }}
-            >
-              <Icon name="16.play" />
-              <span>{f.flow?.name || t("Flow")}</span>
-            </button>
-            <IconButton icon="24.play.small" label={t("Present flow")} tone="secondary" onClick={() => present(ed, { node: f.guid })} />
-          </div>
-        ))}
+        {flows.map((f) => {
+          const name = f.flow?.name || t("Flow");
+          return (
+            <div key={f.guid} className={styles.flowRow} data-flow={f.guid}>
+              <span className={styles.flowName}>{name}</span>
+              <span className={styles.flowActions}>
+                <IconButton icon="24.proto.target" label={t("{name}, select frame", { name })} onClick={() => selectFrame(ed, f.guid)} />
+                <IconButton icon="24.proto.link" label={t("{name}, copy flow link", { name })} onClick={() => copyFlowLink(ed, f.guid)} />
+                <IconButton icon="24.proto.preview" label={t("{name}, preview", { name })} onClick={() => openPreview(ed, f.guid)} />
+              </span>
+            </div>
+          );
+        })}
       </PanelSection>
+      <PrototypeTips />
     </>
   );
+}
+
+/** A flow's frame selected and zoomed to. */
+function selectFrame(ed: EditorController, frame: Guid): void {
+  ed.engine.setSelection([frame]);
+  ed.engine.command("ZOOM_TO_SELECTION");
+}
+
+/** "Copy flow link": the presentation's address starting at the flow. */
+function copyFlowLink(ed: EditorController, frame: Guid): void {
+  const link = flowLink(ed, frame);
+  void navigator.clipboard?.writeText(link).then(
+    () => showToast({ message: t("Link copied to clipboard") }),
+    () => showToast({ message: t("The link couldn't be copied"), kind: "error" }),
+  );
+}
+
+/** A flow's "preview": the inline preview at its starting frame. */
+function openPreview(ed: EditorController, frame: Guid): void {
+  ed.ui.set({ preview: { page: ed.store.page, node: frame } });
 }
 
 // ── A selection ──────────────────────────────────────────────────────────────
@@ -262,7 +294,8 @@ function Selected({
   const ed = useEditor();
   const page = useCurrentPage(ed.store);
   const one = nodes.length === 1 ? nodes[0] : null;
-  const topLevel = one ? one.parentIndex?.guid === page : false;
+  // Top-level: on the page, or in a section on it (Figma's; the player's screens).
+  const topLevel = one ? one.parentIndex?.guid === page || presentStart(ed, one.guid) === one.guid : false;
   const frames = usePageFrames(page);
   const isFrame = (n: ProtoNode) => (n.type === "FRAME" && n.resizeToFit !== true) || n.type === "SYMBOL" || n.type === "INSTANCE";
   return (
@@ -341,38 +374,63 @@ function FlowSection({ frame, frames }: { frame: ProtoNode; frames: PageFrame[] 
   useT();
   const ed = useEditor();
   const flow = frame.prototypeStartingPoint;
+  const [describing, setDescribing] = useState(!!flow?.description);
   const add = () => {
     const flows = frames.filter((f) => f.flow);
     const last = flows.reduce((m, f) => ((f.flow?.position ?? "") > m ? (f.flow?.position ?? "") : m), "");
     ed.setProps([frame.guid], protoFields({ prototypeStartingPoint: { name: nextFlowName(flows.map((f) => f.flow?.name ?? "")), position: keyBetween(last, null, "LOW") } }), "Add starting point");
   };
+  // The starting point moved to another top-level frame (live: the frame list beside the name), keeping its flow.
+  const move = (to: Guid) => {
+    if (!flow || to === frame.guid) return;
+    ed.batch("Edit flow starting point", () => {
+      ed.engine.setProps([frame.guid], protoFields({ prototypeStartingPoint: null }));
+      ed.engine.setProps([to], protoFields({ prototypeStartingPoint: flow }));
+    });
+    ed.engine.setSelection([to]);
+  };
+  const targets = frames.filter((f) => !f.isStateGroup && (f.guid === frame.guid || !f.flow)).reverse();
+  // Live 2026-10-20 (prototype-preview.txt): the header's Copy flow link and − ; a row of the flow's name (88), its
+  // frame (88) and Edit flow description, which shows the description's field under it.
   return (
     <PanelSection
       title={t("Flow starting point")}
       empty={!flow}
-      actions={flow ? undefined : <IconButton icon="24.plus.small" label={t("Add starting point")} tone="secondary" onClick={add} />}
+      actions={
+        flow ? (
+          <>
+            <IconButton icon="24.proto.link" label={t("Copy flow link")} onClick={() => copyFlowLink(ed, frame.guid)} />
+            <IconButton icon="24.minus.small" label={t("Remove flow starting point")} onClick={() => ed.setProps([frame.guid], protoFields({ prototypeStartingPoint: null }), "Remove starting point")} />
+          </>
+        ) : (
+          <IconButton icon="24.plus.small" label={t("Add starting point")} tone="secondary" onClick={add} />
+        )
+      }
     >
       {flow && (
         <>
           <div className={styles.row}>
             <TextInput
-              className={styles.grow}
-              label={t("Flow name")}
-              prefix="16.play"
+              className={styles.field}
+              label={t("Edit flow title")}
               value={flow.name ?? ""}
               onCommit={(name) => ed.setProps([frame.guid], protoFields({ prototypeStartingPoint: { ...flow, name: name.trim() || flow.name } }), "Rename flow")}
             />
-            <IconButton icon="24.minus.small" label={t("Remove starting point")} tone="secondary" onClick={() => ed.setProps([frame.guid], protoFields({ prototypeStartingPoint: null }), "Remove starting point")} />
+            <Select className={styles.field} label={t("Flow starting point")} value={frame.guid} options={targets.map((f) => ({ value: f.guid, label: f.name || t("Frame") }))} onChange={move} />
+            <ToggleIconButton icon="24.proto.description" label={t("Edit flow description")} pressed={describing} onPressedChange={setDescribing} />
           </div>
-          <div className={styles.row}>
-            <TextInput
-              className={styles.grow}
-              label={t("Description")}
-              placeholder={t("Add description")}
-              value={flow.description ?? ""}
-              onCommit={(description) => ed.setProps([frame.guid], protoFields({ prototypeStartingPoint: { ...flow, description } }), "Edit flow description")}
-            />
-          </div>
+          {describing && (
+            <div className={styles.row}>
+              <TextInput
+                className={styles.grow}
+                label={t("Description")}
+                placeholder={t("Add description")}
+                autoFocus={!flow.description}
+                value={flow.description ?? ""}
+                onCommit={(description) => ed.setProps([frame.guid], protoFields({ prototypeStartingPoint: { ...flow, description } }), "Edit flow description")}
+              />
+            </div>
+          )}
         </>
       )}
     </PanelSection>

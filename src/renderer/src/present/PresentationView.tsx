@@ -1,27 +1,28 @@
 /**
- * The presentation view (Figma's, R8 §9, help.figma.com 360040318013 "Presentation view layout"): a prototype played by
- * the engine's player (engine/src/proto/Player) on an engine of its own — the same Wasm renderer as the canvas —, over
- * the page's prototype background, its videos played by the browser (presentationVideos.ts). The toolbar: left, the
- * sidebar toggle (the left sidebar lists the page's flows with their descriptions) and comments (shown, disabled:
- * there is no multiplayer); the file and the flow; right, Share prototype, the options menu (Enable Figma shortcuts, Show hints
- * on click, Show sidebar, Hide UI, Keyboard shortcuts, then the scale options — "Recommended" and "Other" without a
- * device, Responsive / Fixed size with one) and full screen. Below: ← → (previous / next frame), the device's scaling
- * menu (with a device: Fit device on screen, Zoom device to fill screen, Show device at 100%, Show device frame) and
- * Restart. Keys as Figma's: → Space N next frame, ← previous, R restart, Z the next scale option, F full screen (with
- * "Enable Figma shortcuts"), ? the keyboard shortcuts, Esc leaves (in this tab); interactions with Key / Gamepad
- * triggers take their keys first.
+ * The presentation view (Figma's, R8 §9; measured live 2026-10-20, docs/research/figma/live/2026-10-20/
+ * prototype-preview.txt): a prototype played by the engine's player (engine/src/proto/Player) on an engine of its own
+ * — the same Wasm renderer as the canvas —, over the page's prototype background, its videos played by the browser
+ * (presentationVideos.ts).
+ *
+ * - The bar (48 and a line): Open flows list (the flows sidebar: its rows and the current flow's description) and
+ *   comments (shown, disabled: there is no multiplayer) at the left; the file's name in the middle with its ▾ ("Open
+ *   in editor"); Share prototype, Options and full screen at the right, 48 × 46 glyph buttons.
+ * - Options: "Recommended" — the file's first two scales — and "Other scaling options", each with its glyph and "Z"
+ *   beside the next one; "Advanced settings ›" (Enable Figma shortcuts, Show hints on click); "Hide UI ⌘\". With a
+ *   device: Responsive / Fixed size (its scales — Fit device on screen, Zoom device to fill screen, Show device at
+ *   100%, Show device frame — in the footer's device menu).
+ * - No footer bar: the ‹ | › stepper floats at the bottom's middle, Restart (R) at its right.
+ * - Keys as Figma's: → Space N next frame, ← previous, R restart, Z the next scale option, F full screen (with
+ *   "Enable Figma shortcuts"), ? the keyboard shortcuts, ⌘\ Hide UI, Esc leaves (in this tab); interactions with
+ *   Key / Gamepad triggers take their keys first.
  *
  * The document comes from a PresentationSource: the store's file opened read-only in a tab of its own (PresentRoute),
- * or the editor's engine when presenting in its own tab; its live changes keep the prototype current.
- *
- * Options (help.figma.com 360040318013): without a device Actual size (100%), Responsive, Fit width, Fit width and
- * height, Fill screen; with one Responsive / Fixed size, Fit device on screen, Zoom device to fill screen, Show device
- * at 100%, Show device frame. The `inline` variant is the editor's inline preview (InlinePreview.tsx): its own bar of
- * ← →, Restart, the overflow menu, open in presentation view and ×.
+ * or the editor's engine when presenting in its own tab; its live changes keep the prototype current. The `inline`
+ * variant is only the prototype of the editor's inline preview (InlinePreview.tsx draws its window and header).
  */
 import { t, useT } from "@/i18n";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, Dialog, Icon, IconButton, MenuButton, Spinner, ToggleIconButton, showToast, type MenuEntry } from "@/ds";
+import { Button, Dialog, Icon, IconButton, MenuButton, Spinner, showToast, type IconName, type MenuEntry } from "@/ds";
 import { MOD_ALT, MOD_CTRL, MOD_META, MOD_SHIFT, Status } from "@/engine/abi";
 import { Engine, type ImageSource, type PresentScale, type PresentState } from "@/engine/Engine";
 import type { Guid } from "@/engine/codec";
@@ -44,12 +45,10 @@ export interface PresentationViewProps {
   canvasId?: string;
   /** "inline": the editor's inline preview — its own bar, no footer, never full screen */
   variant?: "full" | "inline";
-  /** Inline: extra overflow menu entries and their handler (Follow prototype, Resize window to 100%, …) */
-  extraOptions?: MenuEntry[];
-  onExtraOption?: (id: string) => void;
-  /** Inline: Restart (default: the engine's, from the flow's start) and "Open in presentation view" */
+  /** Inline: Restart by R (default: the engine's, from the flow's start) */
   onRestart?: () => void;
-  onOpenFull?: () => void;
+  /** The title's menu "Open in editor" (live: the file name's ▾); default: Leave (onClose) when there is one */
+  onOpenEditor?: () => void;
   /** Every state read (the inline preview follows it) */
   onState?: (state: PresentState) => void;
   /** The page; default: the document's first page */
@@ -165,28 +164,45 @@ export interface ViewOptions {
   hideUi: boolean;
 }
 
-/** The options menu's entries for a state (the full view's; the inline preview has its own). */
+/** Each scale option's glyph (live 2026-10-20: the Options menu's 24 icons, also the inline preview's). */
+export const SCALE_ICON: Record<PresentScale, IconName> = {
+  ACTUAL: "24.proto.scale.actual",
+  FIT: "24.proto.scale.fit",
+  FIT_WIDTH: "24.proto.scale.fit.width",
+  FILL: "24.proto.scale.fill",
+  RESPONSIVE: "24.proto.scale.responsive",
+};
+
+/**
+ * The options menu's entries for a state (the full view's; the inline preview has its own). Live 2026-10-20
+ * (prototype-preview.txt): "Recommended" — the file's first two scales —, "Other scaling options" — the rest —, each
+ * with its glyph, "Z" beside the option Z goes to next; then "Advanced settings ›" (Enable Figma shortcuts, Show
+ * hints on click) and "Hide UI ⌘\". With a device: Responsive / Fixed size instead (its scales are in the footer's
+ * device menu).
+ */
 export function presentOptions(state: PresentState | null, view: ViewOptions = { shortcuts: true, sidebar: false, hideUi: false }): MenuEntry[] {
   const device = !!state?.device;
   const scale = state?.scale;
-  const recommended = recommendedScales(state);
-  const scaleEntry = (v: PresentScale) => ({ id: `scale:${v}`, label: t(SCALES.find((s) => s.value === v)!.label), checked: scale === v });
+  const order = scaleOrder(state);
+  const next = scale ? order[(order.indexOf(scale) + 1) % order.length] : undefined;
+  const scaleEntry = (v: PresentScale): MenuEntry => ({ id: `scale:${v}`, label: t(SCALES.find((s) => s.value === v)!.label), icon: SCALE_ICON[v], checked: scale === v, ...(v === next ? { shortcut: "Z" } : {}) });
   return [
-    { id: "shortcuts", label: t("Enable Figma shortcuts"), checked: view.shortcuts },
-    { id: "hints", label: t("Show hints on click"), checked: state?.hints !== false },
-    { id: "sidebar", label: t("Show sidebar"), checked: view.sidebar },
-    { id: "hide-ui", label: t("Hide UI"), checked: view.hideUi },
-    "-",
     ...(device
-      ? [{ id: "responsive:on", label: t("Responsive"), checked: !!state?.responsive }, { id: "responsive:off", label: t("Fixed size"), checked: !state?.responsive }]
-      : [
-          { header: t("Recommended") },
-          ...recommended.map(scaleEntry),
-          { header: t("Other") },
-          ...scaleOrder(state).slice(2).map(scaleEntry),
-        ]),
+      ? [
+          { id: "responsive:on", label: t("Responsive"), checked: !!state?.responsive },
+          { id: "responsive:off", label: t("Fixed size"), checked: !state?.responsive },
+        ]
+      : [{ header: t("Recommended") }, ...order.slice(0, 2).map(scaleEntry), { header: t("Other scaling options") }, ...order.slice(2).map(scaleEntry)]),
     "-",
-    { id: "keys", label: t("Keyboard shortcuts"), shortcut: "?" },
+    {
+      id: "advanced",
+      label: t("Advanced settings"),
+      items: [
+        { id: "shortcuts", label: t("Enable Figma shortcuts"), checked: view.shortcuts },
+        { id: "hints", label: t("Show hints on click"), checked: state?.hints !== false },
+      ],
+    },
+    { id: "hide-ui", label: t("Hide UI"), checked: view.hideUi, shortcut: presentHost() === "mac" ? "⌘\\" : "Ctrl+\\" },
   ];
 }
 
@@ -262,7 +278,7 @@ const readSidebar = (): boolean => {
   }
 };
 
-export function PresentationView({ source, page, node, onClose, onReady, onShare, canvasId = "present-canvas", variant = "full", extraOptions, onExtraOption, onRestart, onOpenFull, onState, urlOptions }: PresentationViewProps) {
+export function PresentationView({ source, page, node, onClose, onReady, onShare, canvasId = "present-canvas", variant = "full", onRestart, onOpenEditor, onState, urlOptions }: PresentationViewProps) {
   useT();
   const inline = variant === "inline";
   const onStateRef = useRef(onState);
@@ -383,9 +399,17 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       const engine = engineRef.current;
       if (!engine || engine.destroyed) return;
       const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.closest("[role='menu'],[role='dialog']"))) return;
+      // (The prototype's own canvas is in the inline preview's dialog: its keys are the prototype's.)
+      if (target && target !== canvasRef.current && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.closest("[role='menu'],[role='dialog']"))) return;
       if (e.type === "keyup") {
         engine.presentKey("up", e.keyCode, modsOf(e));
+        return;
+      }
+      // The inline preview: Esc or ⇧Space close it before the prototype sees them (Figma's listener on its iframe; the
+      // viewer's own next-frame keys leave ⇧Space alone there).
+      if (inline && onClose && (e.key === "Escape" || (e.code === "Space" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey))) {
+        e.preventDefault();
+        onClose();
         return;
       }
       // The inline preview's R: from the last frame selected on the canvas.
@@ -400,7 +424,8 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
         readState();
         return;
       }
-      if (!inline && isHideUiKey(e)) {
+      if (inline) return;
+      if (isHideUiKey(e)) {
         e.preventDefault();
         toggleHideUi();
         return;
@@ -470,15 +495,11 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     canvasRef.current?.focus({ preventScroll: true });
   };
   const flows = state?.flows ?? [];
-  const flowMenu: MenuEntry[] = flows.length
-    ? flows.map((f) => ({ id: f.node, label: f.name || t("Flow"), checked: state?.flow === f.node }))
-    : [{ id: "none", label: t("No flows on this page"), disabled: true }];
-  const options: MenuEntry[] = inline ? (extraOptions ?? []) : presentOptions(state, { shortcuts: state?.shortcuts !== false, sidebar, hideUi });
+  const options: MenuEntry[] = presentOptions(state, { shortcuts: state?.shortcuts !== false, sidebar, hideUi });
   const onOption = (id: string) => {
     const engine = engineRef.current;
     if (!engine) return;
-    if (inline) onExtraOption?.(id);
-    else if (id === "sidebar") setSidebar(!sidebar);
+    if (id === "sidebar") setSidebar(!sidebar);
     else if (id === "hide-ui") toggleHideUi();
     else if (id === "keys") setKeysOpen(true);
     else applyPresentOption(engine, state, id);
@@ -508,10 +529,11 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
   }
   const startFlow = (id: string) => {
     const engine = engineRef.current;
-    if (!engine || id === "none") return;
+    if (!engine) return;
     engine.presentStart({ node: id });
     readState();
   };
+  const openEditor = onOpenEditor ?? onClose;
 
   const canvas = (
     <canvas
@@ -530,20 +552,10 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       onContextMenu={(e) => e.preventDefault()}
     />
   );
+  // The inline preview draws its own header (InlinePreview.tsx: Figma's draggable window); here only the prototype.
   if (inline)
     return (
       <div className={styles.inline} data-presentation="inline">
-        <header className={styles.inlineBar}>
-          <IconButton icon="24.arrow.left" label={t("Back")} disabled={!state?.canBack && !state?.canPrevious} onClick={() => command(state?.canBack ? "back" : "previous")} />
-          <IconButton icon="24.arrow.right" label={t("Forward")} disabled={!state?.canNext} onClick={() => command("next")} />
-          <IconButton icon="24.rotate" label={t("Restart")} shortcut="R" onClick={restart} />
-          <span className={styles.inlineTitle}>{state?.screenName ?? ""}</span>
-          <MenuButton label={t("Preview options")} entries={options} onSelect={onOption} className={styles.chip}>
-            <Icon name="24.more" />
-          </MenuButton>
-          {onOpenFull && <IconButton icon="24.new.tab" label={t("Open in presentation view")} onClick={onOpenFull} />}
-          {onClose && <IconButton icon="24.close.small" label={t("Close preview")} onClick={onClose} />}
-        </header>
         <div className={styles.stage}>
           {canvas}
           <div ref={videoHost} className={styles.videos} aria-hidden />
@@ -557,56 +569,68 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       </div>
     );
 
+  // Live 2026-10-20 (prototype-preview.txt): the Options button is a 48 × 46 glyph button at the bar's right.
   const optionsButton = (
-    <MenuButton label={t("Options")} entries={options} onSelect={onOption} className={styles.chip}>
-      <Icon name="24.settings.small" />
-      <Icon name="16.chevron.down" />
+    <MenuButton label={t("Options")} entries={options} onSelect={onOption} className={styles.barButton} align="end" tooltip>
+      <Icon name="24.adjust" />
     </MenuButton>
   );
+  const current = flows.find((f) => f.node === state?.flow) ?? null;
   return (
     <div className={styles.root} data-presentation data-hide-ui={hideUi || undefined}>
+      {/* Live: a 48 high bar (and its line) — the flows list and comments at the left, the file's name and its ▾
+          ("Open in editor") in the middle, Share prototype, Options and full screen at the right. */}
       {!hideUi && (
         <header className={styles.top}>
-          <ToggleIconButton icon="24.sidebar.closed" label={sidebar ? t("Hide sidebar") : t("Show sidebar")} pressed={sidebar} onPressedChange={setSidebar} />
+          <button type="button" className={styles.barButton} aria-label={sidebar ? t("Close flows list") : t("Open flows list")} aria-pressed={sidebar} onClick={() => setSidebar(!sidebar)}>
+            <Icon name="24.proto.flows.list" />
+          </button>
           {/* Comments need other people (multiplayer): shown as Figma has it, not available here. */}
-          <IconButton icon="24.comment" label={t("Comments aren't available in this app")} shortcut="C" disabled />
-          <MenuButton label={t("Flows")} entries={flowMenu} onSelect={startFlow} className={styles.flowButton}>
-            <span className={styles.title}>
-              <span className={styles.file}>{source.fileName}</span>
-              {state?.flowName ? <span className={styles.flow}>{state.flowName}</span> : null}
-            </span>
-            <Icon name="16.chevron.down" />
-          </MenuButton>
+          <button type="button" className={styles.barButton} aria-label={t("Comments aren't available in this app")} disabled>
+            <Icon name="24.comment" />
+          </button>
+          <div className={styles.title}>
+            <h1 className={styles.file}>{source.fileName}</h1>
+            {openEditor && (
+              <MenuButton label={t("Options dropdown")} entries={[{ id: "editor", label: t("Open in editor") }]} onSelect={() => openEditor()} className={styles.caret}>
+                <Icon name="24.caret.down" />
+              </MenuButton>
+            )}
+          </div>
           <span className={styles.grow} />
-          <span className={styles.screen}>{state?.screenName ?? ""}</span>
-          <span className={styles.grow} />
-          <Button variant="primary" onClick={share}>
+          <Button variant="primary" size="large" onClick={share}>
             {t("Share prototype")}
           </Button>
           {optionsButton}
-          <IconButton icon="24.expand" label={t("Full screen")} shortcut="F" onClick={toggleFullscreen} />
-          {onClose && <IconButton icon="24.close.small" label={t("Close presentation")} onClick={onClose} />}
+          <button type="button" className={styles.barButton} aria-label={document.fullscreenElement ? t("Exit full screen") : t("Enter full screen")} onClick={toggleFullscreen}>
+            <Icon name="24.fullscreen.enter" />
+          </button>
         </header>
       )}
       <div className={styles.body}>
+        {/* Live: the flows sidebar — "Flows" and ×, a row per flow, the current flow's description under a line. */}
         {sidebar && !hideUi && (
           <aside className={styles.sidebar} aria-label={t("Flows")}>
-            <div className={styles.sidebarHeader}>{t("Flows")}</div>
+            <div className={styles.sidebarHeader}>
+              <span>{t("Flows")}</span>
+              <IconButton icon="24.close" label={t("Close")} onClick={() => setSidebar(false)} />
+            </div>
             {flows.length === 0 && <p className={styles.sidebarEmpty}>{t("No flows on this page")}</p>}
             <ul className={styles.flowList}>
-              {flows.map((f) => {
-                const current = state?.flow === f.node;
-                return (
-                  <li key={f.node}>
-                    <button type="button" className={styles.flowRow} aria-current={current || undefined} data-flow={f.node} onClick={() => startFlow(f.node)}>
-                      <Icon name="24.play.small" />
-                      <span className={styles.flowName}>{f.name || t("Flow")}</span>
-                    </button>
-                    {current && f.description ? <p className={styles.flowDescription}>{f.description}</p> : null}
-                  </li>
-                );
-              })}
+              {flows.map((f) => (
+                <li key={f.node}>
+                  <button type="button" className={styles.flowRow} aria-current={state?.flow === f.node || undefined} data-flow={f.node} onClick={() => startFlow(f.node)}>
+                    <Icon name="16.play" />
+                    <span className={styles.flowName}>{f.name || t("Flow")}</span>
+                  </button>
+                </li>
+              ))}
             </ul>
+            {flows.length > 0 && (
+              <section className={styles.flowDescription} aria-label={t("Flow description")}>
+                <p>{current?.description || t("No description")}</p>
+              </section>
+            )}
           </aside>
         )}
         <div className={styles.stage}>
@@ -619,25 +643,33 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
             </div>
           )}
           {error && <div className={styles.center}>{error}</div>}
+          {/* Live: no footer bar — the ‹ | › stepper floats at the bottom's middle, Restart (R) at its right. */}
+          {!hideUi && (
+            <div className={styles.footer}>
+              <div className={styles.stepper} role="group" aria-label={t("Stepper")}>
+                <IconButton icon="24.proto.frame.previous" label={t("Previous frame")} shortcut="←" disabled={!state?.canPrevious} onClick={() => command("previous")} />
+                <span className={styles.stepperLine} />
+                <IconButton icon="24.proto.frame.next" label={t("Next frame")} shortcut="→" disabled={!state?.canNext} onClick={() => command("next")} />
+              </div>
+              <div className={styles.footerRight}>
+                {state?.device && (
+                  <MenuButton label={t("Device")} entries={deviceOptions(state)} onSelect={onOption} placement="top" className={styles.pill}>
+                    <span>{deviceName(state.devicePreset)}</span>
+                    <Icon name="16.chevron.down" />
+                  </MenuButton>
+                )}
+                <button type="button" className={styles.pill} aria-label={t("Restart")} aria-keyshortcuts="R" onClick={restart}>
+                  <Icon name="24.proto.restart" />
+                  <span>{t("Restart")}</span>
+                  <span className={styles.pillKey} aria-hidden>
+                    R
+                  </span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
-      {!hideUi && (
-        <footer className={styles.bottom}>
-          <span className={styles.grow} />
-          <IconButton icon="24.arrow.left" label={t("Previous frame")} shortcut="←" disabled={!state?.canPrevious} onClick={() => command("previous")} />
-          <IconButton icon="24.arrow.right" label={t("Next frame")} shortcut="→" disabled={!state?.canNext} onClick={() => command("next")} />
-          <span className={styles.grow} />
-          {state?.device && (
-            <MenuButton label={t("Device")} entries={deviceOptions(state)} onSelect={onOption} placement="top" className={styles.chip}>
-              <span>{deviceName(state.devicePreset)}</span>
-              <Icon name="16.chevron.down" />
-            </MenuButton>
-          )}
-          <button type="button" className={styles.restart} onClick={restart}>
-            {t("Restart")}
-          </button>
-        </footer>
-      )}
       <Dialog title={t("Keyboard shortcuts")} open={keysOpen} onClose={() => setKeysOpen(false)}>
         <table className={styles.keys}>
           <tbody>
