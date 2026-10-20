@@ -53,7 +53,12 @@ class Player {
   void restart();
   bool next();
   bool previous();
+  // Figma's Back (`returnToState2`, "before the last non-transient state"): the steps that only opened overlays are
+  // skipped and the step before them is undone — back to its screen with no overlays (live 2026-10-20: Back in an
+  // overlay opened on B returns to A). Only overlays since the start: nothing (Close overlay closes them).
   bool back();
+  // Undoes exactly the last step (a hover's or a press's revert: Figma's "before the last state"), overlays included.
+  bool undoLast(bool restoreOverlays = true);
   void setScale(ScaleMode m);
   ScaleMode scale() const { return scale_; }
   void cycleScale();
@@ -292,6 +297,7 @@ class Player {
   // While hovering / While pressing: how to undo what they did when the pointer leaves / is released.
   struct Held {
     Guid anchor = kNoGuid;  // what must stay under the pointer (the swapped instance, or the hotspot)
+    Guid hotspot = kNoGuid;  // the While hovering's own layer (hovered already: not fired again)
     std::vector<std::function<void()>> revert;
     uint64_t id = 0;
   };
@@ -364,6 +370,19 @@ class Player {
   void closeOverlay(int index, const Action* a);
   void changeTo(Guid source, Guid dest, const Action& a, Held* held);
   void swapInstance(Guid instance, Guid main, const Action& a);
+  // Figma's component-state storage (`hV`, stateManagementVersion 1): the state an interacted instance was changed to
+  // (non-transient Change to), by its semantic path — layer names with their index among same-named siblings from the
+  // screen down, the screen's own name left out — so an instance at the same path on the next screen shows it too,
+  // unless the step resets component states. Cleared by Restart.
+  std::string semanticPath(Guid node) const;
+  void carryComponentStates(Guid screen, const Action& a);
+  std::unordered_map<std::string, Guid> componentStates_;  // path → the variant shown (its set is the variant's parent)
+  // Scroll positions the same way (Figma's v1 `handleStateChangeInitiated`): the old screen's offsets stored by semantic
+  // path ("" = the screen itself) when it is left; the next screen's scrolling frames take the offset stored at their
+  // path, 0 where none — or all 0 with "Reset scroll position". Live 2026-10-20: a list scrolled 200 on A, Next → B's
+  // same-named list at 200.
+  void carryScroll(Guid from, Guid to, const Action& a);
+  std::unordered_map<std::string, Vec2> scrollStore_;
   void scrollTo(Guid dest, const Action& a);
   void setVariable(const Action& a, Guid source);
   void setVariableMode(const Action& a);

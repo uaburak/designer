@@ -178,6 +178,7 @@ std::vector<Interaction> Player::ix(Guid id) const {
     }
   };
   for (Interaction& i : list) {
+    if (i.trigger == Trigger::NONE) i.trigger = Trigger::ON_CLICK;  // Figma's viewer reads a NONE trigger as On click
     seconds(i.timeoutVar, i.timeout);
     actions(i.actions);
   }
@@ -209,6 +210,8 @@ bool Player::start(Guid page, Guid start) {
   const NodeProps* pg = props(page);
   if (!pg || pg->type != NodeType::CANVAS) return false;
   page_ = page;
+  componentStates_.clear();
+  scrollStore_.clear();
   if (ed_.page() != page) ed_.setCurrentPage(page);
   ed_.derivePage(page);
   Guid frame = start != kNoGuid ? topLevelOf(start) : kNoGuid;
@@ -296,8 +299,77 @@ void Player::changed() {
   events_.push_back(Event{});
 }
 
+std::string Player::semanticPath(Guid node) const {
+  std::string path;
+  for (Guid cur = node; cur != kNoGuid; cur = doc().parentOf(cur)) {
+    Guid parent = doc().parentOf(cur);
+    const NodeProps* p = props(cur);
+    if (!p || parent == kNoGuid || topLevelOf(cur) == cur) break;
+    int k = 0;
+    for (Guid s : doc().children(parent)) {
+      if (s == cur) break;
+      if (const NodeProps* sp = props(s); sp && sp->name == p->name) k++;
+    }
+    path = "/" + p->name + "#" + std::to_string(k) + path;
+  }
+  return path;
+}
+
+void Player::carryComponentStates(Guid screen, const Action& a) {
+  if (a.stateVersion < 1) return;
+  std::vector<Guid> instances;
+  std::function<void(Guid)> walk = [&](Guid id) {
+    const NodeProps* p = props(id);
+    if (!p) return;
+    if (p->type == NodeType::INSTANCE) instances.push_back(id);
+    for (Guid c : doc().children(id)) walk(c);
+  };
+  walk(screen);
+  for (Guid inst : instances) {
+    if (!doc().has(inst)) continue;
+    Guid main = ed_.mainOf(inst);
+    if (a.resetComponents) {
+      // "Reset component state": the instance as it was designed.
+      auto o = originals_.find(inst);
+      if (o != originals_.end() && (o->second.mask & F_SYMBOL_DATA)) {
+        Guid designed = o->second.props.comp().symbolData.symbolID;
+        if (designed != kNoGuid && designed != main && doc().has(designed)) swapInstance(inst, designed, Action{});
+      }
+      continue;
+    }
+    auto it = componentStates_.find(semanticPath(inst));
+    if (it == componentStates_.end() || it->second == main || !doc().has(it->second)) continue;
+    // Only a variant of the same set.
+    if (doc().parentOf(it->second) != doc().parentOf(main)) continue;
+    swapInstance(inst, it->second, Action{});
+  }
+}
+
+void Player::carryScroll(Guid from, Guid to, const Action& a) {
+  if (a.stateVersion < 1) return;
+  auto inside = [&](Guid root, Guid id) { return id == root || doc().isAncestor(root, id); };
+  if (from != kNoGuid)
+    for (auto& [id, off] : scroll_)
+      if (doc().has(id) && inside(from, id)) scrollStore_[semanticPath(id)] = off;
+  for (auto it = scroll_.begin(); it != scroll_.end();) it = inside(to, it->first) ? scroll_.erase(it) : std::next(it);
+  std::function<void(Guid)> walk = [&](Guid id) {
+    std::string path = semanticPath(id);
+    if (a.resetScroll) {
+      if (scrollStore_.count(path)) scrollStore_[path] = Vec2{};
+    } else if (auto s = scrollStore_.find(path); s != scrollStore_.end() && (s->second.x != 0 || s->second.y != 0)) {
+      scroll_[id] = s->second;
+    }
+    for (Guid c : doc().children(id))
+      if (const NodeProps* cp = props(c); cp && (cp->type == NodeType::FRAME || cp->type == NodeType::INSTANCE || cp->type == NodeType::SYMBOL))
+        walk(c);
+  };
+  walk(to);
+}
+
 void Player::restart() {
   if (page_ == kNoGuid) return;
+  componentStates_.clear();
+  scrollStore_.clear();
   restoreOriginals();
   start(page_, flow_ != kNoGuid ? flow_ : startFrame_);
 }
@@ -854,8 +926,14 @@ void Player::hover(const Chain& c) {
     if (!contains(c, h.id)) cancelDelayed(Trigger::MOUSE_ENTER, h.id);
   for (auto& h : c.hits)
     if (!contains(hoverChain_, h.id)) cancelDelayed(Trigger::MOUSE_LEAVE, h.id);
+  // Figma's order (`mP`): the layers left fire Mouse leave inner to outer, then the layers entered Mouse enter outer to
+  // inner, and the first one that does something ends the round (its state change re-checks the hover next frame).
+  bool acted = false;
   for (auto& h : hoverChain_.hits)
-    if (!contains(c, h.id) && doc().has(h.id)) fire(h.id, Trigger::MOUSE_LEAVE, &h);
+    if (!contains(c, h.id) && doc().has(h.id) && fire(h.id, Trigger::MOUSE_LEAVE, &h)) {
+      acted = true;
+      break;
+    }
   for (size_t i = 0; i < held_.size();) {
     if (!contains(c, held_[i].anchor)) {
       Held h = std::move(held_[i]);
@@ -865,21 +943,34 @@ void Player::hover(const Chain& c) {
       i++;
     }
   }
-  // Entered: Mouse enter, While hovering (deepest first).
+  // Entered: Mouse enter (outer to inner), then — only when no Mouse enter / leave did anything — While hovering:
+  // the deepest layer under the pointer with a While hovering, its first one, unless it is hovered already.
   Chain before = hoverChain_;
   hoverChain_ = c;
+  for (auto it = c.hits.rbegin(); it != c.hits.rend() && !acted; ++it)
+    if (!contains(before, it->id) && fire(it->id, Trigger::MOUSE_ENTER, &*it)) acted = true;
   for (auto& h : c.hits) {
-    if (contains(before, h.id)) continue;
-    fire(h.id, Trigger::MOUSE_ENTER, &h);
-    if (!hasIx(h.id)) continue;
-    for (const Interaction& i : ix(h.id)) {
-      if (i.trigger != Trigger::ON_HOVER) continue;
+    if (acted || !hasIx(h.id)) continue;
+    std::vector<Interaction> list = ix(h.id);
+    const Interaction* first = nullptr;
+    for (const Interaction& i : list)
+      if (i.trigger == Trigger::ON_HOVER) {
+        first = &i;
+        break;
+      }
+    if (!first) continue;
+    bool hovered = false;
+    for (auto& x : held_) hovered |= x.anchor == h.id || x.hotspot == h.id;
+    if (!hovered) {
+      std::vector<Action> actions = first->actions;
       Held held;
       held.anchor = h.id;
+      held.hotspot = h.id;
       held.id = ++heldSerial_;
-      run(h.id, i.actions, &h, &held);
+      run(h.id, actions, &h, &held);
       held_.push_back(std::move(held));
     }
+    break;
   }
   // The pointer is a hand over anything that reacts to a click, and over links.
   bool hand = linkAt(c, hoverCss_) != nullptr;
@@ -1266,7 +1357,7 @@ void Player::runAction(Guid source, const Action& a, const Hit* hotspot, Held* h
           Guid from = base_;
           navigate(top, a);
           if (held) held->revert.push_back([this, from, a] {
-            if (base_ != from) back();
+            if (base_ != from) undoLast();
           });
           return;
         }
@@ -1322,7 +1413,10 @@ void Player::navigate(Guid dest, const Action& a, bool record) {
   for (auto& o : overlays_) dropTimers(o.frame);
   overlays_.clear();
   held_.clear();
+  Guid left = base_;
   base_ = dest;
+  carryComponentStates(dest, a);
+  carryScroll(left, dest, a);
   // Scroll: reset unless the action keeps it (Figma's state memorises it per frame; "Reset scroll position" resets).
   if (a.resetScroll) scroll_.erase(dest);
   Vec2 range = topScrollRange(dest);
@@ -1344,6 +1438,19 @@ void Player::navigate(Guid dest, const Action& a, bool record) {
 }
 
 bool Player::back() {
+  size_t i = history_.size();
+  while (i > 0 && history_[i - 1].overlayOpen) i--;
+  if (i == 0) return false;
+  if (i < history_.size()) {
+    // The overlays opened since go with the screen they were opened on (no animation of their own).
+    history_.resize(i);
+    for (auto& o : overlays_) dropTimers(o.frame);
+    overlays_.clear();
+  }
+  return undoLast(false);
+}
+
+bool Player::undoLast(bool restoreOverlays) {
   if (history_.empty()) return false;
   HistoryEntry h = std::move(history_.back());
   history_.pop_back();
@@ -1376,7 +1483,8 @@ bool Player::back() {
   dropTimers(base_);
   for (auto& o : overlays_) dropTimers(o.frame);
   base_ = h.base;
-  overlays_ = h.overlays;
+  if (restoreOverlays) overlays_ = h.overlays;
+  else overlays_.clear();
   scroll_[base_] = h.baseScroll;
   held_.clear();
   Side y = baseSide();
@@ -1419,6 +1527,10 @@ void Player::openOverlay(Guid dest, const Action& a, const Hit* hotspot, Held* h
   // Open overlay never smart-animates (R8 §5): its animation is the overlay's own entrance.
   Action an = a;
   if (isSmart(an)) an.transition = Transition::DISSOLVE;
+  // Figma's viewer (`s1.transitionType` @432546): an overlay opened with Fade, Push or Slide in appears instantly.
+  if (an.transition == Transition::FADE || (an.transition >= Transition::PUSH_FROM_LEFT && an.transition <= Transition::PUSH_FROM_BOTTOM) ||
+      (an.transition >= Transition::SLIDE_FROM_LEFT && an.transition <= Transition::SLIDE_FROM_BOTTOM))
+    an.transition = Transition::INSTANT;
   s.opened = an;
   overlays_.push_back(s);
   scroll_.erase(frame);
@@ -1647,6 +1759,7 @@ void Player::changeTo(Guid source, Guid dest, const Action& a, Held* held) {
   Guid old = ed_.mainOf(inst);
   if (old == dest) return;
   swapInstance(inst, dest, a);
+  if (!held) componentStates_[semanticPath(inst)] = dest;
   if (held) {
     if (held->anchor != kNoGuid && (held->anchor == source) && source != inst && doc().isAncestor(inst, source)) held->anchor = inst;
     held->revert.push_back([this, inst, old, a] {

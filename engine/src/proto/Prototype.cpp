@@ -380,6 +380,13 @@ std::vector<Interaction> readInteractions(const NodeProps& p) {
           for (auto& c : codes->array) i.keyCodes.push_back(static_cast<int>(c.numberOr(0)));
     }
     readActions(x.get("actions"), i.actions);
+    std::function<void(std::vector<Action>&)> version = [&](std::vector<Action>& list) {
+      for (Action& a : list) {
+        a.stateVersion = i.stateManagementVersion;
+        for (Branch& b : a.branches) version(b.actions);
+      }
+    };
+    version(i.actions);
     out.push_back(std::move(i));
   }
   return out;

@@ -144,6 +144,174 @@ TEST_CASE("proto.rea: opacity follows the overshoot but stays in [0, 1] (Figma: 
   CHECK(lo == 0);
 }
 
+TEST_CASE("proto.rea: an interacted component's state follows to the same path on the next screen (stateManagementVersion 1)") {
+  // Live Figma 2026-10-20: a Toggle (Off red / On green, On click Change to the other) on P1 clicked On, then Next →
+  // P2's Toggle (same name) shows On; Back → P1's still On. "Reset component state" on the Next: P2's stays Off.
+  const Guid SET{5, 1}, OFF{5, 2}, ON{5, 3}, P1{5, 10}, P2{5, 11}, T1{5, 12}, T2{5, 13}, NX{5, 14};
+  auto build = [&](bool reset) {
+    auto nodes = baseChanges();
+    NodeChange set = make(SET, NodeType::FRAME, kPage, "~", {0, 1000, 300, 100}, "Toggle");
+    set.props.comp().isStateGroup = true;
+    nodes.push_back(set);
+    NodeChange off = make(OFF, NodeType::SYMBOL, SET, "!", {20, 20, 100, 40}, "State=Off");
+    off.props.extra["prototypeInteractions"] = extra("prototypeInteractions",
+        R"([{"id":"9:3","stateManagementVersion":1,"event":{"interactionType":"ON_CLICK"},"actions":[{"connectionType":"INTERNAL_NODE","navigationType":"SWAP_STATE","transitionNodeID":"5:3","transitionType":"INSTANT_TRANSITION"}]}])");
+    nodes.push_back(off);
+    NodeChange on = make(ON, NodeType::SYMBOL, SET, "\"", {150, 20, 100, 40}, "State=On");
+    on.props.extra["prototypeInteractions"] = extra("prototypeInteractions",
+        R"([{"id":"9:4","stateManagementVersion":1,"event":{"interactionType":"ON_CLICK"},"actions":[{"connectionType":"INTERNAL_NODE","navigationType":"SWAP_STATE","transitionNodeID":"5:2","transitionType":"INSTANT_TRANSITION"}]}])");
+    nodes.push_back(on);
+    nodes.push_back(make(P1, NodeType::FRAME, kPage, "!", {0, 0, 400, 300}, "P1"));
+    nodes.push_back(make(P2, NodeType::FRAME, kPage, "\"", {500, 0, 400, 300}, "P2"));
+    for (auto [id, parent] : {std::pair{T1, P1}, std::pair{T2, P2}}) {
+      NodeChange t = make(id, NodeType::INSTANCE, parent, "!", {20, 20, 100, 40}, "Toggle");
+      t.props.comp().symbolData.symbolID = OFF;
+      nodes.push_back(t);
+    }
+    NodeChange nx = make(NX, NodeType::RECTANGLE, P1, "\"", {20, 200, 100, 40}, "Next");
+    nx.props.extra["prototypeInteractions"] = extra("prototypeInteractions",
+        std::string(R"([{"id":"9:5","stateManagementVersion":1,"event":{"interactionType":"ON_CLICK"},"actions":[{"connectionType":"INTERNAL_NODE","navigationType":"NAVIGATE","transitionNodeID":"5:11","transitionType":"INSTANT_TRANSITION","transitionResetInteractiveComponents":)") +
+            (reset ? "true" : "false") + "}]}]");
+    nodes.push_back(nx);
+    return nodes;
+  };
+  for (bool reset : {false, true}) {
+    CAPTURE(reset);
+    Editor ed;
+    proto::Player player{ed};
+    ed.setSessionID(1);
+    ed.setViewport(400, 300, 1, 400, 300);
+    ed.loadDocument(build(reset), kNoGuid);
+    ed.takeEvents();
+    REQUIRE(player.start(kPage, P1));
+    auto click = [&](double x, double y) {
+      player.pointer(PointerEvent::MOVE, x, y, 0, 0);
+      player.pointer(PointerEvent::DOWN, x, y, 1, 0);
+      player.pointer(PointerEvent::UP, x, y, 0, 0);
+    };
+    click(70, 40);
+    REQUIRE(ed.mainOf(T1) == ON);
+    click(70, 220);
+    REQUIRE(player.screen() == P2);
+    CHECK(ed.mainOf(T2) == (reset ? OFF : ON));
+    player.restart();
+    CHECK(ed.mainOf(T1) == OFF);
+    CHECK(ed.mainOf(T2) == OFF);
+  }
+}
+
+TEST_CASE("proto.rea: a scrolled list keeps its offset on the next screen's same-named list (stateManagementVersion 1)") {
+  // Live Figma 2026-10-20: "List" (400 × 250, vertical overflow, 800 tall content) scrolled 200 on A, Next → B's List
+  // shows offset 200; with "Reset scroll position", 0.
+  const Guid A1{6, 1}, B1{6, 2}, LA{6, 3}, LB{6, 4}, CA{6, 5}, CB{6, 6}, NX{6, 7};
+  auto build = [&](bool reset) {
+    auto nodes = baseChanges();
+    nodes.push_back(make(A1, NodeType::FRAME, kPage, "!", {0, 0, 400, 300}, "SC A"));
+    nodes.push_back(make(B1, NodeType::FRAME, kPage, "\"", {500, 0, 400, 300}, "SC B"));
+    for (auto [l, c, parent] : {std::tuple{LA, CA, A1}, std::tuple{LB, CB, B1}}) {
+      NodeChange list = make(l, NodeType::FRAME, parent, "!", {0, 0, 400, 250}, "List");
+      list.props.extra["scrollDirection"] = extra("scrollDirection", R"("VERTICAL")");
+      list.props.frameMaskDisabled = false;
+      nodes.push_back(list);
+      nodes.push_back(make(c, NodeType::RECTANGLE, l, "!", {0, 0, 400, 800}, "Band"));
+    }
+    NodeChange nx = make(NX, NodeType::RECTANGLE, A1, "\"", {20, 255, 100, 40}, "Next");
+    nx.props.extra["prototypeInteractions"] = extra("prototypeInteractions",
+        std::string(R"([{"id":"9:6","stateManagementVersion":1,"event":{"interactionType":"ON_CLICK"},"actions":[{"connectionType":"INTERNAL_NODE","navigationType":"NAVIGATE","transitionNodeID":"6:2","transitionType":"INSTANT_TRANSITION","transitionResetScrollPosition":)") +
+            (reset ? "true" : "false") + "}]}]");
+    nodes.push_back(nx);
+    return nodes;
+  };
+  for (bool reset : {false, true}) {
+    CAPTURE(reset);
+    Editor ed;
+    proto::Player player{ed};
+    ed.setSessionID(1);
+    ed.setViewport(400, 300, 1, 400, 300);
+    ed.loadDocument(build(reset), kNoGuid);
+    ed.takeEvents();
+    REQUIRE(player.start(kPage, A1));
+    double t = 0;
+    for (int i = 0; i < 3; i++) player.tick(t += 16);
+    for (int i = 0; i < 4; i++) {
+      player.wheel(200, 120, 0, 50);
+      player.tick(t += 16);
+    }
+    for (int i = 0; i < 60; i++) player.tick(t += 16);
+    REQUIRE(player.scrollOf(LA).y == doctest::Approx(200).epsilon(0.01));
+    player.pointer(PointerEvent::MOVE, 70, 275, 0, 0);
+    player.pointer(PointerEvent::DOWN, 70, 275, 1, 0);
+    player.pointer(PointerEvent::UP, 70, 275, 0, 0);
+    REQUIRE(player.screen() == B1);
+    CHECK(player.scrollOf(LB).y == doctest::Approx(reset ? 0 : 200).epsilon(0.01));
+  }
+}
+
+TEST_CASE("proto.rea: Mouse enter fires outer to inner and the first that acts ends the round; While hovering only then") {
+  // Figma's viewer (`mP` @~1575000): leaves inner → outer, enters outer → inner, stop at the first state change; While
+  // hovering only when no enter / leave did anything, on the deepest hover hotspot. A NONE trigger plays as On click.
+  const Guid S1{7, 1}, S2{7, 2}, S3{7, 3}, OUTER{7, 4}, INNER{7, 5};
+  auto navTo = [](const char* trigger, const char* dest) {
+    return std::string(R"([{"event":{"interactionType":")") + trigger +
+           R"("},"actions":[{"connectionType":"INTERNAL_NODE","navigationType":"NAVIGATE","transitionNodeID":")" + dest +
+           R"(","transitionType":"INSTANT_TRANSITION"}]}])";
+  };
+  auto nodes = baseChanges();
+  nodes.push_back(make(S1, NodeType::FRAME, kPage, "!", {0, 0, 400, 300}, "S1"));
+  nodes.push_back(make(S2, NodeType::FRAME, kPage, "\"", {500, 0, 400, 300}, "S2"));
+  nodes.push_back(make(S3, NodeType::FRAME, kPage, "#", {1000, 0, 400, 300}, "S3"));
+  NodeChange outer = make(OUTER, NodeType::FRAME, S1, "!", {50, 50, 300, 200}, "Outer");
+  outer.props.extra["prototypeInteractions"] = extra("prototypeInteractions", navTo("MOUSE_ENTER", "7:2"));
+  nodes.push_back(outer);
+  NodeChange inner = make(INNER, NodeType::RECTANGLE, OUTER, "!", {50, 50, 100, 50}, "Inner");
+  inner.props.extra["prototypeInteractions"] = extra("prototypeInteractions", navTo("MOUSE_ENTER", "7:3"));
+  nodes.push_back(inner);
+  Editor ed;
+  proto::Player player{ed};
+  ed.setSessionID(1);
+  ed.setViewport(400, 300, 1, 400, 300);
+  ed.loadDocument(nodes, kNoGuid);
+  ed.takeEvents();
+  REQUIRE(player.start(kPage, S1));
+  // Straight onto Inner: Outer's Mouse enter runs first and ends the round.
+  player.pointer(PointerEvent::MOVE, 150, 120, 0, 0);
+  CHECK(player.screen() == S2);
+
+  // NONE reads as On click.
+  auto none = read(navTo("NONE", "7:2"));
+  REQUIRE(none.size() == 1);
+  CHECK(none[0].trigger == proto::Trigger::NONE);  // stored as it came
+}
+
+TEST_CASE("proto.rea: an overlay opened with Push, Slide in or Fade appears at once; Move in animates") {
+  const Guid S1{8, 1}, OV{8, 2}, BTN{8, 3};
+  for (auto [type, animates] : {std::pair{"PUSH_FROM_LEFT", false}, std::pair{"SLIDE_FROM_RIGHT", false}, std::pair{"FADE", false},
+                                std::pair{"MOVE_FROM_BOTTOM", true}, std::pair{"DISSOLVE", true}}) {
+    CAPTURE(type);
+    auto nodes = baseChanges();
+    nodes.push_back(make(S1, NodeType::FRAME, kPage, "!", {0, 0, 400, 300}, "S1"));
+    nodes.push_back(make(OV, NodeType::FRAME, kPage, "\"", {500, 0, 200, 100}, "Sheet"));
+    NodeChange b = make(BTN, NodeType::RECTANGLE, S1, "!", {20, 20, 100, 40}, "Open");
+    b.props.extra["prototypeInteractions"] = extra("prototypeInteractions",
+        std::string(R"([{"event":{"interactionType":"ON_CLICK"},"actions":[{"connectionType":"INTERNAL_NODE","navigationType":"OVERLAY","transitionNodeID":"8:2","transitionType":")") +
+            type + R"(","transitionDuration":0.5}]}])");
+    nodes.push_back(b);
+    Editor ed;
+    proto::Player player{ed};
+    ed.setSessionID(1);
+    ed.setViewport(400, 300, 1, 400, 300);
+    ed.loadDocument(nodes, kNoGuid);
+    ed.takeEvents();
+    REQUIRE(player.start(kPage, S1));
+    player.tick(16);
+    player.pointer(PointerEvent::MOVE, 50, 40, 0, 0);
+    player.pointer(PointerEvent::DOWN, 50, 40, 1, 0);
+    player.pointer(PointerEvent::UP, 50, 40, 0, 0);
+    REQUIRE(player.overlays().size() == 1);
+    CHECK(player.animating() == animates);
+  }
+}
+
 TEST_CASE("proto.rea: a matched layer whose shape kind changed dissolves while it moves (rectangle → ellipse)") {
   // Live Figma: "Shape", a rectangle at (20, 60), and "Shape", an ellipse at (300, 60), Smart animate Linear 1 s — half
   // way both are at x 160, the rectangle's corners half faded; not a fade in place.

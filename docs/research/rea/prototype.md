@@ -81,7 +81,49 @@ Wecra changed in this round (commit after the group); open = not settled, why.
 | Two Navigate actions on one click (Dissolve 1 s, then Instant) | the second waits for the first transition to end (`triggerHotspot` @1827101 queue); measured: R5 at once, T5 at 1020 ms | R5 at 10 ms, T5 at 1010 ms (held clock) | ✓ |
 | Instance and main both On click | Plugin `setReactionsAsync` on an instance replaces its inherited list (read back: only its own; the click navigates to its own destination) | merges by id (`proto::instanceInteractions`) — same for this case | ✓ for the Plugin-written case; the panel-written case is open (needs a UI probe) |
 
-*(Groups 4–7 continue below as they are checked.)*
+### Group 4 — interactive components
+
+| Item | Figma | Wecra (before) | Status |
+|---|---|---|---|
+| Change to (instant) on a clicked toggle | the instance shows the other variant | same (`changeTo` swaps the instance) | ✓ |
+| The changed state on the next screen's same-path instance | **carried** (measured: Toggle On on P1 → Next → P2's "Toggle" green); code: `hV` @1192355 stores non-transient Change-to states by semantic path (names + index among same names, the screen's name left out), applied on arrival unless "Reset component state" | not carried (P2's toggle Off) | **fixed**: `componentStates_` + `carryComponentStates` (v1 interactions only; reset flag honoured; variants of the same set only); `proto.rea` test (both flag values) |
+| Back to the first screen | its toggle still On (measured) | same (the instance keeps its swap) | ✓ |
+| Restart | component states, variables, scroll, history reset; goes to the flow's start — from a non-flow frame (URL `starting-point-node-id` not a flow) Figma restarted at the page's **first flow** (measured) | resets; restarts at the frame it started on | resets ✓; the restart frame for a non-flow start is open (the inline preview restarts "from the last selected frame", prototype-preview.txt) |
+| Instance with its own On click + main's On click | Plugin-written: the instance's list replaces the inherited one (measured: navigates to its own) | merged by id — same result here | ✓ (panel-written case open) |
+| Hover / press states when leaving a screen | reverted (`_initiateStateChange`) | `held_` cleared on navigate | ✓ (read from code) |
+
+### Group 5 — triggers
+
+| Item | Figma | Wecra (before) | Status |
+|---|---|---|---|
+| Mouse leave / enter order | leaves inner → outer, then enters **outer → inner**, the first that changes state ends the round (`mP` @~1575000) | enters deepest first, all of them | **fixed** (`hover`); `proto.rea` test |
+| While hovering | only when no enter / leave acted; the topmost (deepest) hover hotspot's **first** hover interaction; not again while hovered | every newly entered layer's every hover interaction | **fixed** (`Held.hotspot`) |
+| NONE trigger | read as On click (`sQ.interactionType`) | never fired | **fixed** (`ix`) |
+| Press / release / click | Mouse down → While pressing; release → Mouse up → On click (≤ 5 px) → reverse press; drag threshold 5 px | same constants (`kDragThreshold` 5, …) | ✓ (code) |
+| After delay | timers start on every committed change, checked each frame, cancelled by any change; ← / → at least 500 ms | `armTimers` / `kArrowDelayMs` | ✓ (code) |
+| Keys | whole topmost screen, exact key set, first match | proto.wave4 | ✓ (code) |
+| Drag | progress = projection on the vector, 0.15 / duration release rule | `kReleaseSpeed`, scrub | ✓ (code) |
+| Multiple actions | sequential, each screen change / Change to waits (measured 1020 ms) | measured 1010 ms | ✓ |
+| Conditionals | first true branch inserted at the queue's front; none → nothing | `chosenBranch` + `drain` | ✓ (code) |
+| A release < 0.1 s after the press | processed a frame later so the pressed state shows | immediate | open (cosmetic) |
+
+### Group 6 — overlays, history, scroll
+
+| Item | Figma | Wecra (before) | Status |
+|---|---|---|---|
+| Back from an overlay opened on B (after A → B) | **back to A, overlay closed** (measured; `returnToState2` skips transient overlay steps) | closed the overlay only, stayed on B | **fixed** (`back` skips overlay steps; `undoLast` keeps the exact-undo for hover reverts); test `prototype.player: Back in an overlay…` |
+| Back with only overlays opened since the start | nothing (Close overlay closes them) | closed the overlay | **fixed** (test updated) |
+| Back restores the overlays open when the screen was left | no: back to the screen with no overlays | restored them | **fixed** |
+| Scroll position across screens (v1) | stored by semantic path when a screen is left, applied to the next screen's same-path scrollers, 0 where none; Reset scroll position → 0 (measured: List scrolled 200 on A → B's List at 200) | kept per frame id only (B's list at 0) | **fixed** (`carryScroll`, `scrollStore_`); `proto.rea` test (both flag values) |
+| Overlay defaults | CENTER, no background interaction, black 25 % when on; positions against the base screen; manual unclamped | prototype.test (centred 87.5, 356) | ✓ |
+| Click outside | closes the topmost overlay only if it closes on click outside and no hotspot took the click | same | ✓ |
+| Overlay transitions | Fade / Push / Slide on Open overlay play Instant; close = opening reversed | close reversed ✓ (2026-10-20 audit); Fade / Push / Slide played as set | **fixed** (openOverlay: Instant; `proto.rea` test) |
+
+### Group 7 — presentation and inline preview
+
+Matched in the 2026-10-20 audit (`docs/research/figma/live/2026-10-20/prototype-preview.txt` §4: place, size, resize,
+header, options, scaling modes, presentation chrome and options, flows sidebar, background black). Not re-measured in
+this round.
 
 ## 1. Architecture (summary; detail in Appendix C)
 
@@ -165,6 +207,11 @@ main's by id (own fields win, new ones appended, deleted dropped).
 6. Smart animate: match by name path + index among same names; a non-morphable match dissolves along the path; shadows
    animate (`proto.rea`, `prototype.smart`).
 7. Multiple actions: each waits for its predecessor's transition.
+8. Component states and scroll offsets follow semantic paths to the next screen (v1), unless the step resets them;
+   Restart clears them (`proto.rea`).
+9. Back skips overlay-only steps and returns to the previous screen with no overlays (`prototype.player`).
+10. Hover: leaves inner → outer, enters outer → inner, first acting one ends the round; While hovering only then, on
+    the deepest hover hotspot, its first interaction; NONE = On click (`proto.rea`).
 
 ---
 

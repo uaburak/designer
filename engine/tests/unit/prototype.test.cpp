@@ -291,12 +291,43 @@ TEST_CASE("prototype.player: overlays open, close outside, close, swap; Back clo
   REQUIRE(f.player.overlays().size() == 1);
   f.click(87.5 + 180, 356 + 10);
   CHECK(f.player.overlays().empty());
-  // Back closes the overlay the last step opened.
+  // Back skips the steps that only opened overlays (Figma's "last non-transient state"): with nothing before them it
+  // does nothing — the overlay stays (Close overlay closes it).
   f.click(50, 720);
   REQUIRE(f.player.overlays().size() == 1);
-  CHECK(f.player.back());
-  CHECK(f.player.overlays().empty());
+  CHECK(!f.player.back());
+  CHECK(f.player.overlays().size() == 1);
   CHECK(f.player.screen() == A);
+}
+
+TEST_CASE("prototype.player: Back in an overlay goes back to the screen before, overlays closed (live Figma)") {
+  // Live Figma 2026-10-20 (docs/research/rea/prototype.md group 6): A → Navigate B; B opens an overlay; the overlay's
+  // Back → A, no overlay. A hover's revert (undoLast) still undoes the last step alone.
+  auto nodes = screens();
+  nodes.push_back(make(OVL, NodeType::FRAME, kPage, "$", {0, 1000, 200, 100}, "Menu"));
+  const Guid OVL_BACK{1, 41};
+  NodeChange ob = make(OVL_BACK, NodeType::RECTANGLE, OVL, "!", {0, 0, 200, 100}, "Back");
+  ob.props.extra["prototypeInteractions"] =
+      extra("prototypeInteractions", R"([{"event":{"interactionType":"ON_CLICK"},"actions":[{"connectionType":"BACK"}]}])");
+  nodes.push_back(ob);
+  for (auto& n : nodes)
+    if (n.guid == BACK) n.props.extra["prototypeInteractions"] = extra("prototypeInteractions", nav(OVL, "ON_CLICK", "OVERLAY"));
+  Fixture f(nodes);
+  REQUIRE(f.player.start(kPage, A));
+  f.click(50, 720);
+  REQUIRE(f.player.screen() == B);
+  f.click(40, 30);
+  REQUIRE(f.player.overlays().size() == 1);
+  f.click(187.5, 406);  // the overlay's Back (centred: 87.5, 356 … 287.5, 456)
+  CHECK(f.player.screen() == A);
+  CHECK(f.player.overlays().empty());
+
+  f.click(50, 720);
+  f.click(40, 30);
+  REQUIRE(f.player.overlays().size() == 1);
+  CHECK(f.player.undoLast());
+  CHECK(f.player.screen() == B);
+  CHECK(f.player.overlays().empty());
 }
 
 TEST_CASE("prototype.player: an overlay closed by a click outside or Close leaves the way it came in") {

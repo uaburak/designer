@@ -65,6 +65,9 @@ struct Branch {
 };
 
 struct Action {
+  // The interaction's stateManagementVersion (not stored on the action; copied when read): 1 carries interacted
+  // components' states and scroll positions across screens (Figma's v1), 0 is the legacy behaviour.
+  int stateVersion = 1;
   Connection connection = Connection::NONE;
   Navigation navigation = Navigation::NAVIGATE;
   Guid dest = kNoGuid;
