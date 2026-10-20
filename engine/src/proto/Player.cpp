@@ -2800,19 +2800,30 @@ void Player::addSlot(const Side* x, const Side* y, const Anim* a) {
   if (g.moves) {
     // The screens along their paths (in units of the screen), the exiting one fading where the type says. An overlay's
     // background doesn't travel: it fades with the transition's progress (Figma's `backgroundTransitionProgress`,
-    // atlas 13 §5) — in as the overlay moves in, out as it moves out (Close plays the opening backwards).
+    // atlas 13 §5) — in as the overlay moves in, out as it moves out (Close plays the opening backwards). A screen
+    // travels a screen's length; an overlay from just outside the screen's edge to its place (live Figma, 2026-10-20: a
+    // centred 158-tall modal moving in from the bottom of a 1024-tall screen travels 591, a top toast only its own
+    // height — Wecra moved both a whole screen, and the toast showed only in the last frames).
     Vec2 S = view_.screen;
-    auto at = [&](Vec2 from, Vec2 to) { return Vec2{lerp(from.x, to.x, p) * S.x, lerp(from.y, to.y, p) * S.y}; };
+    auto at = [&](const Side& s, Vec2 from, Vec2 to) {
+      Vec2 v{lerp(from.x, to.x, p), lerp(from.y, to.y, p)};
+      if (!s.overlay) return Vec2{v.x * S.x, v.y * S.y};
+      const NodeProps* op = props(s.frame);
+      Vec2 o = op ? op->size : Vec2{};
+      Vec2 side{from.x != 0 ? from.x : to.x, from.y != 0 ? from.y : to.y};
+      return Vec2{v.x * (side.x > 0 ? S.x - s.pos.x : s.pos.x + o.x), v.y * (side.y > 0 ? S.y - s.pos.y : s.pos.y + o.y)};
+    };
     auto drawX = [&] {
       if (!hasX) return;
       double alpha = lerp(g.outAlphaFrom, g.outAlphaTo, p);
       background(*x, alpha * std::clamp(1 - p, 0.0, 1.0));
-      addFrame(*x, at(g.outFrom, g.outTo), alpha, {});
+      addFrame(*x, at(*x, g.outFrom, g.outTo), alpha, {});
     };
     auto drawY = [&] {
       if (!hasY) return;
-      double alpha = lerp(g.inAlphaFrom, g.inAlphaTo, p);      background(*y, alpha * std::clamp(p, 0.0, 1.0));
-      addFrame(*y, at(g.inFrom, g.inTo), alpha, {});
+      double alpha = lerp(g.inAlphaFrom, g.inAlphaTo, p);
+      background(*y, alpha * std::clamp(p, 0.0, 1.0));
+      addFrame(*y, at(*y, g.inFrom, g.inTo), alpha, {});
     };
     if (g.enteringOnTop) drawX(), drawY();
     else drawY(), drawX();

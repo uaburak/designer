@@ -330,6 +330,30 @@ TEST_CASE("prototype.player: an overlay closed by a click outside or Close leave
   CHECK(!drawn);
 }
 
+TEST_CASE("prototype.player: an overlay moves in from just outside the screen's edge") {
+  // Live Figma (the owner's "Yeni Test Dosyası"): a top toast moving in from the top travels its own height, a centred
+  // modal from the bottom the distance from its place to the bottom edge — not a whole screen.
+  for (const char* pos : {"TOP_CENTER", "CENTER"}) {
+    auto nodes = screens();
+    NodeChange ovl = make(OVL, NodeType::FRAME, kPage, "$", {0, 1000, 200, 100}, "Toast");
+    ovl.props.extra["overlayPositionType"] = extra("overlayPositionType", std::string("\"") + pos + "\"");
+    nodes.push_back(ovl);
+    bool top = std::string(pos) == "TOP_CENTER";
+    for (auto& n : nodes)
+      if (n.guid == NEXT) n.props.extra["prototypeInteractions"] = extra("prototypeInteractions", nav(OVL, "ON_CLICK", "OVERLAY", top ? "MOVE_FROM_TOP" : "MOVE_FROM_BOTTOM", 0.4));
+    Fixture f(nodes);
+    REQUIRE(f.player.start(kPage, A));
+    f.click(50, 720);
+    f.advance(16);
+    f.advance(184);  // the clock starts on the first frame: p = 184 / 400 = 0.46 (Linear)
+    double y = -1e9;
+    for (const PresentItem& it : f.player.scene().items)
+      if (it.node == OVL) y = it.parentCss.m12 + 1000;  // the frame's own y (1000) is undone by parentCss
+    if (top) CHECK(y == doctest::Approx(-100 * 0.54).epsilon(0.01));      // from −100 (just above) to 0
+    else CHECK(y == doctest::Approx(356 + 456 * 0.54).epsilon(0.01));     // from 812 (just below) to 356
+  }
+}
+
 TEST_CASE("prototype.player: a moving overlay's background fades with the transition, in and out") {
   // Figma's backgroundTransitionProgress (atlas 13 §5); Wecra drew it at full strength from the first frame of a Move in
   // (the owner's "Yeni Test Dosyası": the modal's and the bottom sheet's dim).
