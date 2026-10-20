@@ -99,6 +99,7 @@ class Player {
     Guid frame = kNoGuid;
     Vec2 pos;  // top-left in screen units (the device's screen, unscaled)
     OverlaySettings settings;
+    Action opened;  // the transition it came in with: closing plays it backwards (live Figma)
   };
   const std::vector<Shown>& overlays() const { return overlays_; }
   Vec2 scrollOf(Guid frame) const;

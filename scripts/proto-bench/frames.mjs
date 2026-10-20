@@ -12,6 +12,7 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { launch, openFile, close, sleep, SCR } from "./lib.mjs";
+import * as lib from "./lib.mjs";
 
 const FILE = process.env.FILE || "9wLJowqw1RD5F8DT2mB9Qe";
 const PAGE = process.env.PAGE || "1:3531";
@@ -24,6 +25,9 @@ try {
   await launch();
   await sleep(800);
   const { page } = await openFile(FILE);
+  // The real cursor over the window would send its own pointer events whenever a screenshot is taken (a hover left
+  // as the shot is made): the window ignores the system's mouse; the script's input still arrives.
+  await lib.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().forEach((w) => w.setIgnoreMouseEvents(true)));
   await page.evaluate((p) => window.__designerEditor.engine.setCurrentPage(p), PAGE);
   await sleep(1200);
   // The virtual clock: animation frames and performance.now read window.__vt while it is set.
@@ -37,6 +41,12 @@ try {
     const raf = window.requestAnimationFrame.bind(window);
     window.requestAnimationFrame = (cb) => raf((t) => cb(window.__vt ?? t));
   });
+  if (process.env.PTRLOG)
+    await page.evaluate(() => {
+      window.__ptrLog = [];
+      for (const t of ["pointermove", "pointerleave", "pointerout", "pointerover", "pointerdown", "pointerup"])
+        document.addEventListener(t, (e) => window.__ptrLog.push([t, Math.round(e.clientX), Math.round(e.clientY), e.target?.id || e.target?.tagName]), true);
+    });
   await page.evaluate((f) => window.__designerEditor.engine.setSelection([f]), FRAME);
   await page.getByRole("button", { name: "Present options" }).click();
   await page.getByText("Present in this tab", { exact: true }).click();
@@ -93,6 +103,11 @@ try {
     } else if (op === "key") {
       await page.keyboard.press(a[0]);
       await frames(4);
+    } else if (op === "read") {
+      // A layer as the presentation's engine has it now (its main, place and size).
+      const n = await page.evaluate((id) => window.__designerPresent.readNode(id, { fields: ["symbolData", "transform", "size"] }), a[0]);
+      console.log("read", a[0], JSON.stringify({ main: n?.symbolData?.symbolID, t: n?.transform && [n.transform.m02, n.transform.m12], size: n?.size }));
+      if (process.env.PTRLOG) console.log("pointer events", await page.evaluate(() => JSON.stringify((window.__ptrLog ?? []).splice(0))));
     } else if (op === "settle") {
       await page.evaluate(() => (window.__vt = null));
       await sleep(a[0]);

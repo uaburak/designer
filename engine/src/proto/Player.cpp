@@ -1413,11 +1413,12 @@ void Player::openOverlay(Guid dest, const Action& a, const Hit* hotspot, Held* h
   h.via = a;
   h.overlayOpen = true;
   history_.push_back(std::move(h));
-  overlays_.push_back(s);
-  scroll_.erase(frame);
   // Open overlay never smart-animates (R8 §5): its animation is the overlay's own entrance.
   Action an = a;
   if (isSmart(an)) an.transition = Transition::DISSOLVE;
+  s.opened = an;
+  overlays_.push_back(s);
+  scroll_.erase(frame);
   if (an.transition != Transition::INSTANT && durationOf(an) > 0) {
     Anim m;
     m.slot = static_cast<int>(overlays_.size()) - 1;
@@ -1495,6 +1496,18 @@ void Player::closeOverlay(int index, const Action* a) {
     m.x.overlay = true;
     m.action = *a;
     if (isSmart(m.action)) m.action.transition = Transition::DISSOLVE;
+    startAnim(std::move(m));
+  } else if (s.opened.transition != Transition::INSTANT && durationOf(s.opened) > 0) {
+    // Close (and a click outside) with no animation of its own: the overlay leaves the way it came, as Back plays it
+    // (live Figma, the owner's "Edit news": Move in from the bottom, out to the bottom).
+    Anim m;
+    m.slot = index;
+    m.y.frame = s.frame;
+    m.y.pos = s.pos;
+    m.y.settings = s.settings;
+    m.y.overlay = true;
+    m.action = s.opened;
+    m.reverse = true;
     startAnim(std::move(m));
   }
   changed();

@@ -299,6 +299,37 @@ TEST_CASE("prototype.player: overlays open, close outside, close, swap; Back clo
   CHECK(f.player.screen() == A);
 }
 
+TEST_CASE("prototype.player: an overlay closed by a click outside or Close leaves the way it came in") {
+  // Live Figma, the owner's "Edit news" (Move in from the bottom, 0.42 s): a click outside slides it back down.
+  auto nodes = screens();
+  NodeChange ovl = make(OVL, NodeType::FRAME, kPage, "$", {0, 1000, 200, 100}, "Menu");
+  ovl.props.extra["overlayPositionType"] = extra("overlayPositionType", R"("CENTER")");
+  ovl.props.extra["overlayBackgroundInteraction"] = extra("overlayBackgroundInteraction", R"("CLOSE_ON_CLICK_OUTSIDE")");
+  nodes.push_back(ovl);
+  for (auto& n : nodes)
+    if (n.guid == NEXT) n.props.extra["prototypeInteractions"] = extra("prototypeInteractions", nav(OVL, "ON_CLICK", "OVERLAY", "MOVE_FROM_BOTTOM", 0.4));
+  Fixture f(nodes);
+  REQUIRE(f.player.start(kPage, A));
+  f.click(50, 720);
+  f.advance(600);
+  REQUIRE(f.player.overlays().size() == 1);
+  f.click(10, 10);
+  CHECK(f.player.overlays().empty());
+  CHECK(f.player.animating());
+  f.advance(16);
+  f.advance(200);
+  // Half way down: still drawn, below its place (y 356).
+  double y = -1;
+  for (const PresentItem& it : f.player.scene().items)
+    if (it.node == OVL) y = it.parentCss.m12 + 1000;  // the frame's own y (1000) is undone by parentCss
+  CHECK(y > 356 + 100);
+  CHECK(y < 812);
+  f.advance(400);
+  bool drawn = false;
+  for (const PresentItem& it : f.player.scene().items) drawn |= it.node == OVL;
+  CHECK(!drawn);
+}
+
 TEST_CASE("prototype.smart: layers match by name and place; Smart animate interpolates them") {
   auto nodes = screens();
   for (auto& n : nodes)
