@@ -39,6 +39,38 @@ function slotFile() {
   };
 }
 
+describe("convertFigMessage: implicit (variant) prop defs", () => {
+  it("resolves a variant's implicit ids within that variant only — another component may hold the same id as its own def", () => {
+    // As in the owner's "Front End Demo Project 2.fig": a set (5:0, def 7:0 "Text") whose variant (5:1) has the
+    // implicit 7:2 → 7:0, and a component of its own (6:1) whose explicit def is also 7:2.
+    const text = (defId: any) => ({ parameterConsumptionMap: { entries: [{ variableField: "TEXT_DATA", variableData: { dataType: "PROP_REF", resolvedDataType: "TEXT_DATA", value: { propRefValue: { defId } } } }] } });
+    const f = {
+      type: "NODE_CHANGES",
+      sessionID: 0,
+      ackID: 0,
+      nodeChanges: [
+        { guid: g(0, 0), phase: "CREATED", type: "DOCUMENT" },
+        node(g(0, 1), "CANVAS", g(0, 0), "!"),
+        node(g(5, 0), "FRAME", g(0, 1), "!", { isStateGroup: true, componentPropDefs: [{ id: g(7, 0), name: "Text", type: "TEXT", initialValue: { textValue: { characters: "a" } } }] }),
+        node(g(5, 1), "SYMBOL", g(5, 0), "!", { componentPropDefs: [{ id: g(7, 2), parentPropDefId: g(7, 0) }] }),
+        node(g(5, 2), "TEXT", g(5, 1), "!", text(g(7, 2))),
+        node(g(6, 1), "SYMBOL", g(0, 1), "\"", { componentPropDefs: [{ id: g(7, 2), name: "Text", type: "TEXT", initialValue: { textValue: { characters: "b" } } }] }),
+        node(g(6, 2), "TEXT", g(6, 1), "!", text(g(7, 2))),
+        node(g(8, 1), "INSTANCE", g(0, 1), "#", { symbolData: { symbolID: g(5, 1), symbolOverrides: [] }, componentPropAssignments: [{ defID: g(7, 2), value: { textValue: { characters: "x" } } }] }),
+        node(g(8, 2), "INSTANCE", g(0, 1), "$", { symbolData: { symbolID: g(6, 1), symbolOverrides: [] }, componentPropAssignments: [{ defID: g(7, 2), value: { textValue: { characters: "y" } } }] }),
+      ],
+    };
+    const { message } = convertFigMessage(f, MODEL);
+    const byId = new Map(message.nodeChanges!.map((n) => [`${n.guid!.sessionID}:${n.guid!.localID}`, n]));
+    const ref = (id: string) => (byId.get(id)!.parameterConsumptionMap!.entries![0].variableData!.value as any).propRefValue.defId;
+    expect(ref("5:2")).toEqual(g(7, 0)); // the variant's text → the set's def
+    expect(ref("6:2")).toEqual(g(7, 2)); // the other component's text keeps its own def
+    expect(byId.get("8:1")!.componentPropAssignments![0].defID).toEqual(g(7, 0));
+    expect(byId.get("8:2")!.componentPropAssignments![0].defID).toEqual(g(7, 2));
+    expect(byId.get("6:1")!.componentPropDefs![0].id).toEqual(g(7, 2));
+  });
+});
+
 describe("convertFigMessage: slots (Figma 2026)", () => {
   it("marks the slot frame, takes the content from the SLOT_CONTENT_ID value and moves it under its instance", () => {
     const { message, report } = convertFigMessage(slotFile(), MODEL);

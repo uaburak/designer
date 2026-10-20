@@ -22,6 +22,8 @@ import { NodeTable } from "../schema/patch";
 import type { FigCodecs } from "./compression";
 import { encodeCanvas, PRELUDE_DESIGN, writeCanvasChunks } from "./container";
 import { FIGMA_DERIVED_DATA_VERSION } from "./convert";
+import { figmaPrototypeDevice } from "./figmaDevices";
+import { sha1 } from "../sha1";
 
 /** The `fig-kiwi` version Figma writes today (docs/research/figma/samples/sections.fig, the owner's 2026-10 export). */
 export const FIGMA_FILE_VERSION = 106;
@@ -84,6 +86,7 @@ function figmaNode(n: NodeChange): NodeChange {
   out.strokeAlign ??= "CENTER";
   out.strokeJoin ??= root ? "BEVEL" : "MITER";
   if (!root) out.size ??= { x: 0, y: 0 };
+  if (out.prototypeDevice) out.prototypeDevice = figmaPrototypeDevice(out.prototypeDevice);
   if (n.type === "TEXT") {
     out.fontName ??= { family: "Inter", style: "Regular", postscript: "Inter-Regular" };
     out.fontSize ??= 12;
@@ -101,11 +104,11 @@ function figmaNode(n: NodeChange): NodeChange {
   return out as NodeChange;
 }
 
-/** Our PROP_REF bindings → Figma's legacy ComponentPropRef: the field kind and Figma's NodeChange field number. */
-const PROP_REF_NODE_FIELDS: Record<string, { kind: string; nodeField?: number }> = {
-  VISIBLE: { kind: "VISIBLE", nodeField: 6 },
-  TEXT_DATA: { kind: "TEXT_DATA", nodeField: 42 },
-  OVERRIDDEN_SYMBOL_ID: { kind: "OVERRIDDEN_SYMBOL_ID", nodeField: 143 },
+/** Our PROP_REF bindings → Figma's legacy ComponentPropRef kind (Figma's own files write no `nodeField` beside it). */
+const PROP_REF_NODE_FIELDS: Record<string, { kind: string }> = {
+  VISIBLE: { kind: "VISIBLE" },
+  TEXT_DATA: { kind: "TEXT_DATA" },
+  OVERRIDDEN_SYMBOL_ID: { kind: "OVERRIDDEN_SYMBOL_ID" },
   SLOT_CONTENT_ID: { kind: "SLOT_CONTENT_ID" },
 };
 
@@ -128,6 +131,112 @@ function remapPropRefs(v: any, map: Map<string, any>): any {
 }
 
 /**
+ * Figma's id of a variant property: made from its name, so every set's "State" is the same def — SHA-1 of the UTF-8
+ * name, its first two little-endian words: session = word 1 | 2^31, local = word 0 with the low bit cleared (every
+ * variant property of the owner's "Front End Demo Project 2.fig" — "State" → 3479705717:100804006, "Mode", "Size" …).
+ * Wecra gives them ids of its own; Figma then fails to rebuild the set's properties ("could not create explicit prop
+ * def" with "mismatching type and default value" for each) and its editor aborts.
+ */
+export function figmaVariantDefId(name: string): { sessionID: number; localID: number } {
+  const hex = sha1(new TextEncoder().encode(name));
+  const word = (i: number) => parseInt(hex.slice(i * 8 + 6, i * 8 + 8) + hex.slice(i * 8 + 4, i * 8 + 6) + hex.slice(i * 8 + 2, i * 8 + 4) + hex.slice(i * 8, i * 8 + 2), 16);
+  return { sessionID: (word(1) | 0x80000000) >>> 0, localID: (word(0) & ~1) >>> 0 };
+}
+
+/** Variant property defs on Figma's ids, with every variant's spec and every reference (`guidKey`) following. */
+function figmaVariantIds(nodes: any[]): void {
+  const map = new Map<string, any>();
+  for (const n of nodes)
+    for (const d of n.componentPropDefs ?? []) if (d.type === "VARIANT" && d.id && d.name) map.set(guidKey(d.id), figmaVariantDefId(d.name));
+  if (!map.size) return;
+  const to = (g: any) => (g && map.get(guidKey(g))) ?? g;
+  const keys = (v: any): any => {
+    if (Array.isArray(v)) return v.map(keys);
+    if (!v || typeof v !== "object" || v instanceof Uint8Array) return v;
+    const out: any = {};
+    for (const [k, x] of Object.entries(v)) out[k] = k === "guidKey" ? to(x) : keys(x);
+    return out;
+  };
+  for (const n of nodes) {
+    if (n.componentPropDefs) n.componentPropDefs = n.componentPropDefs.map((d: any) => (d.type === "VARIANT" && d.id ? { ...d, id: to(d.id) } : d));
+    if (n.variantPropSpecs) n.variantPropSpecs = n.variantPropSpecs.map((s: any) => ({ ...s, propDefId: to(s.propDefId) }));
+    for (const f of ["parameterConsumptionMap", "prototypeInteractions", "symbolData"]) if (n[f]) n[f] = keys(n[f]);
+  }
+}
+
+/**
+ * Every component-property binding resolves on the component it sits in (its nearest symbol, or that variant's set):
+ * Figma aborts opening a file with one that doesn't (2026-10-20, the owner's "Prototype deneme": a symbol's texts
+ * bound to another set's defs, left by an import that resolved Figma's implicit def ids file-wide — fixed in
+ * convert.ts, but documents imported before keep them). An unresolved one goes to the component's def of the same
+ * name and type, or is dropped.
+ */
+function resolvePropRefs(nodes: any[]): void {
+  const byId = new Map(nodes.filter((n) => n.guid).map((n) => [guidKey(n.guid), n]));
+  const defs = new Map<string, any>();
+  for (const n of nodes) for (const d of n.componentPropDefs ?? []) if (d.id) defs.set(guidKey(d.id), d);
+  const scopeOf = new Map<string, Map<string, any> | null>();
+  const scope = (n: any): Map<string, any> | null => {
+    let c = n;
+    for (let i = 0; c && c.type !== "SYMBOL" && i < 400; i++) c = c.parentIndex ? byId.get(guidKey(c.parentIndex.guid)) : undefined;
+    if (!c || c.type !== "SYMBOL") return null;
+    const k = guidKey(c.guid);
+    if (!scopeOf.has(k)) {
+      const set = c.parentIndex ? byId.get(guidKey(c.parentIndex.guid)) : undefined;
+      const own = new Map<string, any>();
+      for (const d of [...(c.componentPropDefs ?? []), ...(set?.isStateGroup ? (set.componentPropDefs ?? []) : [])]) if (d.id) own.set(guidKey(d.id), d);
+      scopeOf.set(k, own);
+    }
+    return scopeOf.get(k)!;
+  };
+  for (const n of nodes) {
+    const entries = n.parameterConsumptionMap?.entries;
+    if (!entries?.some((e: any) => e?.variableData?.value?.propRefValue?.defId)) continue;
+    const own = scope(n);
+    if (!own) continue;
+    const fixed = entries.flatMap((e: any) => {
+      const id = e?.variableData?.value?.propRefValue?.defId;
+      if (!id || own.has(guidKey(id))) return [e];
+      const was = defs.get(guidKey(id));
+      const same = was && [...own.values()].find((d) => d.name === was.name && d.type === was.type);
+      if (!same) return [];
+      return [{ ...e, variableData: { ...e.variableData, value: { ...e.variableData.value, propRefValue: { ...e.variableData.value.propRefValue, defId: same.id } } } }];
+    });
+    n.parameterConsumptionMap = { ...n.parameterConsumptionMap, entries: fixed };
+  }
+}
+
+/** Text with one PLAIN line per paragraph, as Figma writes every TextData. */
+function withLines(td: any): any {
+  if (td?.lines?.length) return td;
+  const line = { lineType: "PLAIN", styleId: 0, indentationLevel: 0, sourceDirectionality: "AUTO", listStartOffset: 0, isFirstLineOfList: false };
+  return { ...td, characters: td?.characters ?? "", lines: Array.from({ length: (td?.characters ?? "").split("\n").length }, () => ({ ...line })) };
+}
+
+/** A component property value as Figma's VariableData (a def's default, an assignment's value). */
+function defaultVar(type: string | undefined, v: any): any {
+  if (type === "TEXT" || (!type && v?.textValue)) return { value: { textDataValue: withLines(v?.textValue ?? { characters: "" }) }, dataType: "TEXT_DATA", resolvedDataType: "TEXT_DATA" };
+  if (type === "BOOL" || (!type && v?.boolValue !== undefined)) return { value: { boolValue: !!v?.boolValue }, dataType: "BOOLEAN", resolvedDataType: "BOOLEAN" };
+  if (type === "VARIANT") return { value: { textValue: "" }, dataType: "STRING", resolvedDataType: "STRING" };
+  if ((type === "INSTANCE_SWAP" || !type) && v?.guidValue) return { value: { symbolIdValue: { guid: v.guidValue } }, dataType: "SYMBOL_ID", resolvedDataType: "SYMBOL_ID" };
+  return undefined;
+}
+
+const NO_IDS = new Map<string, any>();
+
+function figmaAssignments(list: any[], implicitOf: Map<string, any>): any[] {
+  return list.map((a) => {
+    const x = { ...a };
+    const to = x.defID && implicitOf.get(guidKey(x.defID));
+    if (to) x.defID = to;
+    if (x.value?.textValue) x.value = { ...x.value, textValue: withLines(x.value.textValue) };
+    x.varValue ??= defaultVar(undefined, x.value);
+    if (!x.varValue) delete x.varValue;
+    return x;
+  });
+}
+
+/**
  * Components as Figma stores them (research components.md task 8; the import maps each of these back, convert.ts):
  * - a SYMBOL's asset key in `componentKey` (216), a library copy's version in `sharedSymbolVersion` (126) — sets,
  *   styles and variables keep `key` / `version`;
@@ -138,6 +247,8 @@ function remapPropRefs(v: any, map: Map<string, any>): any {
  */
 function figmaComponents(nodes: NodeChange[]): NodeChange[] {
   const out = nodes.map((n) => ({ ...n }) as any);
+  figmaVariantIds(out);
+  resolvePropRefs(out);
   const children = new Map<string, any[]>();
   for (const n of out) {
     const p = n.parentIndex?.guid;
@@ -158,21 +269,31 @@ function figmaComponents(nodes: NodeChange[]): NodeChange[] {
     top.set(session, localID);
     return { sessionID: session, localID };
   };
+  // One implicit id per explicit def of a set, the same on every variant, holding only `id` and `parentPropDefId`
+  // (Figma's own export, "Front End Demo Project 2.fig": every variant of a set carries {6024:19 → 6024:18}); the
+  // variants' bindings and the instances' assignments use it. Defs with a name, type and default but no `varValue` on
+  // each variant made Figma log "mismatching type and default value" / "could not create explicit prop def" for each
+  // and crash opening the file (2026-10-20, the owner's "Prototype deneme" exports).
+  // Per set: a def id is only unique within its component (a duplicated set keeps its defs' ids), so an assignment
+  // goes through the set of the symbol its instance shows; the file-wide map only for an id no other set reuses.
+  const implicitOf = new Map<string, any>();
+  const implicitBySet = new Map<string, Map<string, any>>();
+  const reused = new Set<string>();
   for (const set of out) {
     if (!set.isStateGroup || !set.componentPropDefs?.length) continue;
     const explicit = (set.componentPropDefs as any[]).filter((d) => d.type !== "VARIANT" && d.id);
     if (!explicit.length) continue;
+    const map = new Map<string, any>();
+    for (const d of explicit) {
+      const id = fresh(d.id.sessionID);
+      map.set(guidKey(d.id), id);
+      if (implicitOf.has(guidKey(d.id))) reused.add(guidKey(d.id));
+      implicitOf.set(guidKey(d.id), id);
+    }
+    implicitBySet.set(guidKey(set.guid), map);
     for (const variant of children.get(guidKey(set.guid)) ?? []) {
       if (variant.type !== "SYMBOL") continue;
-      const map = new Map<string, any>();
-      const implicit = explicit.map((d) => {
-        const id = fresh(variant.guid.sessionID);
-        map.set(guidKey(d.id), id);
-        const def: any = { id, name: d.name, initialValue: d.initialValue, sortPosition: d.sortPosition, parentPropDefId: d.id, type: d.type };
-        if (d.preferredValues) def.preferredValues = d.preferredValues;
-        return def;
-      });
-      variant.componentPropDefs = [...(variant.componentPropDefs ?? []), ...implicit];
+      variant.componentPropDefs = [...(variant.componentPropDefs ?? []), ...explicit.map((d) => ({ id: map.get(guidKey(d.id)), parentPropDefId: d.id }))];
       const stack = [variant];
       while (stack.length) {
         const n = stack.pop();
@@ -183,7 +304,37 @@ function figmaComponents(nodes: NodeChange[]): NodeChange[] {
       }
     }
   }
+  const byId = new Map(out.filter((n) => n.guid).map((n) => [guidKey(n.guid), n]));
+  const unique = new Map([...implicitOf].filter(([k]) => !reused.has(k)));
+  /** The implicit ids an instance's assignments use: the set's of the symbol it shows (else the unambiguous ones). */
+  const scopeOfShown = (inst: any): Map<string, any> => {
+    const sym = inst?.symbolData?.symbolID ? byId.get(guidKey(inst.symbolData.symbolID)) : undefined;
+    const set = sym?.parentIndex ? byId.get(guidKey(sym.parentIndex.guid)) : undefined;
+    if (!sym) return unique;
+    return (set?.isStateGroup && implicitBySet.get(guidKey(set.guid))) || NO_IDS; // a component of its own: its own defs
+  };
   for (const n of out) {
+    // Explicit defs and assignments as Figma writes them: the value also as a VariableData (`varValue`), text with its
+    // paragraph lines; assignments to a set's def on its implicit id (nested instances' ones in overrides too).
+    if (n.componentPropDefs)
+      n.componentPropDefs = n.componentPropDefs.map((d: any) => {
+        if (d.parentPropDefId) return d;
+        const x = { ...d, preferredValues: d.preferredValues ?? {} };
+        if (x.initialValue?.textValue) x.initialValue = { ...x.initialValue, textValue: withLines(x.initialValue.textValue) };
+        x.varValue ??= defaultVar(x.type, x.initialValue);
+        if (!x.varValue) delete x.varValue;
+        return x;
+      });
+    if (n.componentPropAssignments) n.componentPropAssignments = figmaAssignments(n.componentPropAssignments, scopeOfShown(n));
+    if (n.symbolData?.symbolOverrides?.some((o: any) => o.componentPropAssignments))
+      n.symbolData = {
+        ...n.symbolData,
+        symbolOverrides: n.symbolData.symbolOverrides.map((o: any) => {
+          if (!o.componentPropAssignments) return o;
+          const g = o.guidPath?.guids;
+          return { ...o, componentPropAssignments: figmaAssignments(o.componentPropAssignments, scopeOfShown(g?.length ? byId.get(guidKey(g[g.length - 1])) : n)) };
+        }),
+      };
     if (n.type === "SYMBOL") {
       if (n.key) n.componentKey = n.key;
       delete n.key;
@@ -197,7 +348,7 @@ function figmaComponents(nodes: NodeChange[]): NodeChange[] {
       const f = PROP_REF_NODE_FIELDS[e?.variableField];
       const defID = e?.variableData?.dataType === "PROP_REF" ? e.variableData.value?.propRefValue?.defId : undefined;
       if (!f || !defID) continue;
-      refs.push({ ...(f.nodeField !== undefined ? { nodeField: f.nodeField } : {}), defID, componentPropNodeField: f.kind });
+      refs.push({ defID, componentPropNodeField: f.kind });
     }
     if (refs.length) n.componentPropRefs = refs;
     const sd = n.symbolData;
@@ -205,6 +356,50 @@ function figmaComponents(nodes: NodeChange[]): NodeChange[] {
       n.symbolData = { ...sd, symbolOverrides: sd.symbolOverrides.map((o: any) => (o.guidPath?.guids?.length ? o : { ...o, guidPath: { guids: [sd.symbolID] } })) };
   }
   return out;
+}
+
+/**
+ * References to a library's variables, collections and styles as Figma writes them: `{assetRef: {key, version}}`, not
+ * the local copy's guid (the import maps them the other way, convert.ts "assetRef → local copy guid"). With the guid,
+ * Figma's presentation never switched a library collection's mode (Set variable mode did nothing) and the bindings
+ * weren't the library's.
+ */
+/**
+ * Every `assetRef` with a `version`, "" when there is none (Figma writes `{key, version: ""}` for a detached
+ * instance's `detachedSymbolId`). Without it Figma's editor aborts applying the node changes — "[fatalEmptyOptional
+ * Dereferenced] empty optional dereferenced" in visitMessage_nodeChanges, read off its Sentry event (2026-10-20, the
+ * owner's "Prototype deneme": every frame holding a detached instance).
+ */
+function withAssetVersions(v: any): any {
+  if (Array.isArray(v)) return v.map(withAssetVersions);
+  if (!v || typeof v !== "object" || v instanceof Uint8Array) return v;
+  const out: any = {};
+  for (const [k, x] of Object.entries(v)) out[k] = withAssetVersions(x);
+  if (out.assetRef && typeof out.assetRef === "object" && out.assetRef.key !== undefined && out.assetRef.version === undefined) out.assetRef = { ...out.assetRef, version: "" };
+  return out;
+}
+
+function figmaAssetRefs(nodes: any[]): any[] {
+  const refs = new Map<string, { key: string; version?: string }>();
+  // A library's copy: a variable or collection with its library's key; a style Figma keeps unpublishable (the library's
+  // styles in Figma's own files carry no other mark).
+  const libraryCopy = (n: any) => !!n.key && (n.type === "VARIABLE" || n.type === "VARIABLE_SET" ? !!n.sourceLibraryKey : !!n.styleType && (!!n.sourceLibraryKey || n.isPublishable === false));
+  for (const n of nodes)
+    if (libraryCopy(n)) refs.set(guidKey(n.guid), { key: n.key, ...(n.version ? { version: n.version } : {}) });
+  if (!refs.size) return nodes;
+  const fix = (v: any): any => {
+    if (Array.isArray(v)) return v.map(fix);
+    if (!v || typeof v !== "object" || v instanceof Uint8Array) return v;
+    const keys = Object.keys(v);
+    if (keys.length === 1 && keys[0] === "guid" && v.guid && typeof v.guid.sessionID === "number") {
+      const r = refs.get(guidKey(v.guid));
+      return r ? { assetRef: r } : v;
+    }
+    const out: any = {};
+    for (const [k, x] of Object.entries(v)) out[k] = k === "guid" || k === "parentIndex" ? x : fix(x);
+    return out;
+  };
+  return nodes.map(fix);
 }
 
 /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -219,7 +414,7 @@ function figmaComponents(nodes: NodeChange[]): NodeChange[] {
 export function toFigmaMessage(message: Message): Message {
   const table = NodeTable.fromMessage(message);
   const plain = table.toMessage({ keepDerived: table.derivedDataVersion === FIGMA_DERIVED_DATA_VERSION, sessionID: 0 });
-  return { type: "NODE_CHANGES", sessionID: 0, ackID: 0, nodeChanges: figmaComponents((plain.nodeChanges ?? []).map(figmaNode)), blobs: plain.blobs ?? [] };
+  return { type: "NODE_CHANGES", sessionID: 0, ackID: 0, nodeChanges: figmaAssetRefs(figmaComponents((plain.nodeChanges ?? []).map(figmaNode))).map(withAssetVersions), blobs: plain.blobs ?? [] };
 }
 
 /** `canvas.fig` bytes for a `.fig` export of `message` (zstd when the codecs have it, else deflate-raw). */
