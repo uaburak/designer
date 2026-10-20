@@ -49,6 +49,9 @@ enum class Easing : uint8_t {
 enum class OverlayPosition : uint8_t { CENTER = 0, TOP_LEFT, TOP_CENTER, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_CENTER, BOTTOM_RIGHT, MANUAL };
 enum class Overflow : uint8_t { NONE = 0, HORIZONTAL = 1, VERTICAL = 2, BOTH = 3 };
 enum class ScrollBehavior : uint8_t { SCROLLS = 0, FIXED = 1, STICKY = 2 };
+// Wecra's overlay "Fit to window" (NodeChange.overlayFitWindow, @ours): the sides of an overlay that take the
+// screen's size while it is presented (docs/engine.md §3.4).
+enum class OverlayFit : uint8_t { NONE = 0, WIDTH = 1, HEIGHT = 2, BOTH = 3 };
 
 const char* triggerName(Trigger t);
 const char* connectionName(Connection c);
@@ -118,6 +121,9 @@ struct OverlaySettings {
   bool closeOnClickOutside = false;
   bool background = false;
   Color backgroundColor{0, 0, 0, 0.25f};
+  OverlayFit fit = OverlayFit::NONE;  // @ours: Fit to window
+  bool fitsWidth() const { return fit == OverlayFit::WIDTH || fit == OverlayFit::BOTH; }
+  bool fitsHeight() const { return fit == OverlayFit::HEIGHT || fit == OverlayFit::BOTH; }
 };
 
 struct Device {

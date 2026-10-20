@@ -352,6 +352,7 @@ class Player {
   Vec2 nestedScrollRange(Guid frame) const;
   bool scrollsNested(Guid id) const;
   Vec2 overlayPos(Guid frame, const OverlaySettings& s, const Action* a, const Hit* hotspot) const;
+  Vec2 overlayPlace(Guid frame, const OverlaySettings& s, const Action* a, const Hit* hotspot) const;
   Chain hitTest(Vec2 css) const;
   bool hitWalk(Guid id, const Mat2x3& parentCss, Vec2 css, std::vector<Hit>& out, bool root, Vec2 rootScroll = {}) const;
   Mat2x3 frameCss(const Side& s) const;
@@ -443,7 +444,11 @@ class Player {
   // Responsive: the frames shown resized to the window (or the device's screen); `restoreResponsive` puts them back.
   bool responsiveOn() const;
   void fitResponsive();
-  void restoreResponsive();
+  void restoreResponsive(bool keepFitted = false);
+  // Wecra's overlay "Fit to window" (OverlaySettings::fit): the open overlays (and `opening`) take the screen's size
+  // along the chosen sides; their own sizes are kept in responsiveSizes_ like Responsive's.
+  void fitOverlays(Guid opening = kNoGuid);
+  bool fittedOverlay(Guid frame) const;
   // Drag scrubbing.
   void beginScrub(Vec2 at, Guid hotspot);
   void beginInstanceScrub(Vec2 at, InstanceAnim& ia);

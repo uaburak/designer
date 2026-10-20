@@ -1182,6 +1182,13 @@ enum OverlayBackgroundType {
   SOLID_COLOR = 1;
 }
 
+enum OverlayFitWindow {     // @ours sides of an overlay that take the window's size while presented (Wecra; docs/engine.md §3.4)
+  NONE = 0;
+  WIDTH = 1;
+  HEIGHT = 2;
+  BOTH = 3;
+}
+
 message OverlayBackgroundAppearance {
   OverlayBackgroundType backgroundType = 1;
   Color backgroundColor = 2;
@@ -2637,6 +2644,7 @@ message NodeChange {
   Vector overlayRelativePosition = 199;           // @nooverride
   OverlayBackgroundInteraction overlayBackgroundInteraction = 200; // @nooverride
   OverlayBackgroundAppearance overlayBackgroundAppearance = 201;   // @nooverride
+  OverlayFitWindow overlayFitWindow = 1003;       // @ours @nooverride overlay: Fit to window (Wecra; docs/engine.md §3.4)
 
   // --- Figma's layout version stamps: which of Figma's layout rules made the stored geometry. Kept through import and
   // export (a .fig written back keeps them); the engine's own derived data is stamped by Message.derivedDataVersion.

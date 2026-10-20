@@ -109,6 +109,7 @@ const char* const kEasings[] = {"IN_CUBIC", "OUT_CUBIC", "INOUT_CUBIC", "LINEAR"
 const char* const kOverlayPositions[] = {"CENTER", "TOP_LEFT", "TOP_CENTER", "TOP_RIGHT", "BOTTOM_LEFT", "BOTTOM_CENTER", "BOTTOM_RIGHT", "MANUAL"};
 const char* const kMediaActions[] = {"PLAY", "PAUSE", "TOGGLE_PLAY_PAUSE", "MUTE", "UNMUTE", "TOGGLE_MUTE_UNMUTE", "SKIP_FORWARD", "SKIP_BACKWARD", "SKIP_TO"};
 const char* const kOverflows[] = {"NONE", "HORIZONTAL", "VERTICAL", "BOTH"};
+const char* const kOverlayFits[] = {"NONE", "WIDTH", "HEIGHT", "BOTH"};
 const char* const kScrollBehaviors[] = {"SCROLLS", "FIXED_WHEN_CHILD_OF_SCROLLING_FRAME", "STICKY_SCROLLS"};
 
 Action readAction(const json::Value& v);
@@ -420,6 +421,7 @@ OverlaySettings overlaySettings(const NodeProps& p) {
   OverlaySettings s;
   json::Value v;
   if (extraJson(p, "overlayPositionType", v)) s.position = enumOf(&v, kOverlayPositions, OverlayPosition::CENTER);
+  if (extraJson(p, "overlayFitWindow", v)) s.fit = enumOf(&v, kOverlayFits, OverlayFit::NONE);
   if (extraJson(p, "overlayBackgroundInteraction", v)) s.closeOnClickOutside = v.isString() ? v.string == "CLOSE_ON_CLICK_OUTSIDE" : v.numberOr(0) == 1;
   if (extraJson(p, "overlayBackgroundAppearance", v) && v.isObject()) {
     const json::Value* t = v.get("backgroundType");

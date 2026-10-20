@@ -573,7 +573,7 @@ void Player::layout() {
   // Responsive: the frame takes the window's (or the device screen's) size first.
   if (!fitting_) {
     if (responsiveOn()) fitResponsive();
-    else if (!responsiveSizes_.empty()) restoreResponsive();
+    else if (!responsiveSizes_.empty()) restoreResponsive(true);
   }
   const NodeProps* fp = props(base_);
   Vec2 frame = fp ? fp->size : Vec2{W, H};
@@ -614,6 +614,7 @@ void Player::layout() {
         (sh.over ? v.over : v.under).push_back(r);
       }
     view_ = std::move(v);
+    if (!fitting_) fitOverlays();
     replaceOverlays();
     return;
   }
@@ -637,6 +638,7 @@ void Player::layout() {
   v.css = {ox, oy, cw, ch};
   v.toCss = Mat2x3::translate(ox, oy) * Mat2x3::scale(v.s);
   view_ = std::move(v);
+  if (!fitting_) fitOverlays();
   replaceOverlays();
 }
 
@@ -657,10 +659,17 @@ bool Player::responsiveOn() const {
 void Player::fitResponsive() {
   // "The contents of the prototype will resize and re-layout as the prototype viewer resizes according to the
   // constraints and auto layout properties applied to the design": the frames shown take the window's width (the
-  // device screen's) and its height when they are no taller (a taller one keeps its height and scrolls); their
-  // children follow by their constraints and auto layout (the editor's layout runs on a user write — the player's
-  // engine is its own, its undo never used; the sizes go back when Responsive is turned off or the presentation
-  // stops).
+  // device screen's); their children follow by their constraints and auto layout (the editor's layout runs on a user
+  // write — the player's engine is its own, its undo never used; the sizes go back when Responsive is turned off or
+  // the presentation stops).
+  // Height (docs/engine.md §3.4). With a device, Figma's: the screen's height when the frame is no taller (a taller
+  // one keeps its height and scrolls). Without one (the window is the viewport), Wecra's web page rule — Figma keeps
+  // the frame's height there, so an app shell taller than the window never fits it:
+  //   - a frame that scrolls inside itself (overflow Vertical or Both: the app-shell pattern) is `height: 100vh` —
+  //     the window's height; its sidebar (Top & Bottom / Scale / Fill) follows, what runs past it scrolls inside
+  //     (topScrollRange);
+  //   - any other frame is `min-height: 100vh` — max(its height, the window's): a short page fills the window, a
+  //     long one keeps its height and scrolls as a whole.
   const Viewport& vp = ed_.viewport();
   Device dev = device(*props(page_));
   Vec2 target = dev.none ? Vec2{std::max(1.0, vp.width), std::max(1.0, vp.height)} : dev.size;
@@ -685,7 +694,12 @@ void Player::fitResponsive() {
     for (auto& o : overlays_) isOverlay |= o.frame == f;
     auto it = responsiveSizes_.find(f);
     Vec2 own = it != responsiveSizes_.end() ? it->second : p->size;
+    if (isOverlay && fittedOverlay(f)) continue;  // fitOverlays sizes it
     Vec2 want{std::round(target.x), own.y <= target.y ? std::round(target.y) : own.y};
+    if (dev.none && !isOverlay) {
+      Overflow ov = overflow(*p);
+      if (ov == Overflow::VERTICAL || ov == Overflow::BOTH) want.y = std::round(target.y);
+    }
     if (isOverlay) {
       // An overlay keeps its size, except along a side it shares with its screen (a full-width sheet, a full-height
       // drawer): that side follows the window and its layers follow their constraints (unverified: Figma doesn't say).
@@ -708,17 +722,79 @@ void Player::fitResponsive() {
   dirty_ = true;
 }
 
-void Player::restoreResponsive() {
+void Player::restoreResponsive(bool keepFitted) {
   if (responsiveSizes_.empty()) return;
   std::vector<NodeChange> changes;
-  for (auto& [f, size] : responsiveSizes_) {
+  for (auto it = responsiveSizes_.begin(); it != responsiveSizes_.end();) {
+    auto [f, size] = *it;
+    // Responsive turned off: an open overlay that fits the window stays fitted (fitOverlays sizes it from its own).
+    if (keepFitted && fittedOverlay(f)) {
+      ++it;
+      continue;
+    }
+    it = responsiveSizes_.erase(it);
     if (!doc().has(f)) continue;
     NodeChange c = NodeChange::changed(f);
     c.mask = F_SIZE;
     c.props.size = size;
     changes.push_back(std::move(c));
   }
-  responsiveSizes_.clear();
+  if (changes.empty()) return;
+  fitting_ = true;
+  for (const NodeChange& c : changes) ed_.setProps({c.guid}, c, 0);
+  fitting_ = false;
+  dirty_ = true;
+}
+
+bool Player::fittedOverlay(Guid frame) const {
+  const NodeProps* p = props(frame);
+  if (!p || overlaySettings(*p).fit == OverlayFit::NONE) return false;
+  for (const auto& o : overlays_)
+    if (o.frame == frame) return true;
+  return false;
+}
+
+void Player::fitOverlays(Guid opening) {
+  // Wecra's overlay "Fit to window" (an @ours field Figma's export never writes; docs/engine.md §3.4): a drawer taller
+  // than the window takes the screen's height (Height), a sheet its width (Width), or both; its layers follow their
+  // constraints and auto layout, what runs past it scrolls inside when it has an overflow. Other sides as Responsive
+  // leaves them (an overlay keeps its size, except a side it shares with its screen).
+  std::vector<Guid> frames;
+  for (const auto& o : overlays_) frames.push_back(o.frame);
+  if (opening != kNoGuid) frames.push_back(opening);
+  if (frames.empty()) return;
+  bool resp = responsiveOn();
+  Device dev = device(*props(page_));
+  const Viewport& vp = ed_.viewport();
+  Vec2 target = dev.none ? Vec2{std::max(1.0, vp.width), std::max(1.0, vp.height)} : dev.size;
+  Vec2 baseOwn;
+  if (const NodeProps* bp = props(base_)) {
+    auto bt = responsiveSizes_.find(base_);
+    baseOwn = bt != responsiveSizes_.end() ? bt->second : bp->size;
+  }
+  std::vector<NodeChange> changes;
+  for (Guid f : frames) {
+    const NodeProps* p = props(f);
+    if (!p || (anim_.active && anim_.x.overlay && f == anim_.x.frame)) continue;
+    OverlaySettings st = overlaySettings(*p);
+    if (st.fit == OverlayFit::NONE) continue;
+    auto it = responsiveSizes_.find(f);
+    Vec2 own = it != responsiveSizes_.end() ? it->second : p->size;
+    Vec2 want = own;
+    if (resp) {
+      if (baseOwn.x > 0 && std::fabs(own.x - baseOwn.x) < 0.5) want.x = std::round(target.x);
+      if (baseOwn.y > 0 && std::fabs(own.y - baseOwn.y) < 0.5 && own.y <= target.y) want.y = std::round(target.y);
+    }
+    if (st.fitsWidth()) want.x = std::max(1.0, std::round(view_.screen.x));
+    if (st.fitsHeight()) want.y = std::max(1.0, std::round(view_.screen.y));
+    if (std::fabs(p->size.x - want.x) < 0.5 && std::fabs(p->size.y - want.y) < 0.5) continue;
+    if (it == responsiveSizes_.end()) responsiveSizes_.emplace(f, own);
+    NodeChange c = NodeChange::changed(f);
+    c.mask = F_SIZE;
+    c.props.size = want;
+    changes.push_back(std::move(c));
+  }
+  if (changes.empty()) return;
   fitting_ = true;
   for (const NodeChange& c : changes) ed_.setProps({c.guid}, c, 0);
   fitting_ = false;
@@ -815,6 +891,15 @@ Mat2x3 Player::frameCss(const Side& s) const {
 }
 
 Vec2 Player::overlayPos(Guid frame, const OverlaySettings& s, const Action* a, const Hit* hotspot) const {
+  // Fit to window: a fitted side starts at the screen's edge (it spans the screen); the other side keeps the position
+  // (a manual offset too).
+  Vec2 at = overlayPlace(frame, s, a, hotspot);
+  if (s.fitsWidth()) at.x = 0;
+  if (s.fitsHeight()) at.y = 0;
+  return at;
+}
+
+Vec2 Player::overlayPlace(Guid frame, const OverlaySettings& s, const Action* a, const Hit* hotspot) const {
   const NodeProps* p = props(frame);
   Vec2 o = p ? p->size : Vec2{};
   double W = view_.screen.x, H = view_.screen.y;
@@ -1572,6 +1657,7 @@ void Player::openOverlay(Guid dest, const Action& a, const Hit* hotspot, Held* h
   layout();
   for (auto& o : overlays_)
     if (o.frame == frame) return;  // already open
+  fitOverlays(frame);  // Fit to window: sized before it is placed
   Shown s;
   s.frame = frame;
   s.settings = overlaySettings(*props(frame));
@@ -1635,6 +1721,7 @@ void Player::swapOverlay(Guid source, Guid dest, const Action& a) {
   s.frame = frame;
   dropTimers(old.frame);
   overlays_[index] = s;
+  fitOverlays();  // Fit to window: the swapped-in frame's own setting
   if (a.transition != Transition::INSTANT && durationOf(a) > 0) {
     Anim m;
     m.slot = static_cast<int>(index);
