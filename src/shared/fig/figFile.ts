@@ -58,10 +58,19 @@ export function readFigFile(bytes: Uint8Array, codecs: Pick<FigCodecs, "inflateR
   return { canvas, meta, thumbnail, images, bare: false };
 }
 
+/** A transparent 1 × 1 PNG. */
+const BLANK_PNG = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
+
+/**
+ * The archive. Every one carries a thumbnail.png: Figma's import refused one without ("Internal error during import",
+ * 2026-10-20) — a file that never had a thumbnail gets a blank 1 × 1 one, its meta saying so.
+ */
 export function writeFigFile(file: { canvas: Uint8Array; meta: FigMeta | null; thumbnail: Uint8Array | null; images: Iterable<[string, Uint8Array]> }, opts: { date?: Date } = {}): Uint8Array {
   const entries: ZipEntry[] = [{ name: "canvas.fig", data: file.canvas }];
-  if (file.thumbnail) entries.push({ name: "thumbnail.png", data: file.thumbnail });
-  if (file.meta) entries.push({ name: "meta.json", data: new TextEncoder().encode(JSON.stringify(file.meta)) });
+  let meta = file.meta;
+  if (!file.thumbnail && meta) meta = { ...meta, client_meta: { ...meta.client_meta, thumbnail_size: { width: 1, height: 1 }, render_coordinates: { x: 0, y: 0, width: 1, height: 1 } } };
+  entries.push({ name: "thumbnail.png", data: file.thumbnail ?? BLANK_PNG });
+  if (meta) entries.push({ name: "meta.json", data: new TextEncoder().encode(JSON.stringify(meta)) });
   entries.push({ name: "images/", data: new Uint8Array(0) });
   for (const [name, data] of file.images) entries.push({ name: `images/${name}`, data });
   return writeZip(entries, opts);

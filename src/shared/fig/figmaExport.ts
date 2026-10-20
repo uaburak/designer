@@ -22,6 +22,7 @@ import { NodeTable } from "../schema/patch";
 import type { FigCodecs } from "./compression";
 import { encodeCanvas, PRELUDE_DESIGN, writeCanvasChunks } from "./container";
 import { FIGMA_DERIVED_DATA_VERSION } from "./convert";
+import { figmaPrototypeDevice } from "./figmaDevices";
 
 /** The `fig-kiwi` version Figma writes today (docs/research/figma/samples/sections.fig, the owner's 2026-10 export). */
 export const FIGMA_FILE_VERSION = 106;
@@ -84,6 +85,7 @@ function figmaNode(n: NodeChange): NodeChange {
   out.strokeAlign ??= "CENTER";
   out.strokeJoin ??= root ? "BEVEL" : "MITER";
   if (!root) out.size ??= { x: 0, y: 0 };
+  if (out.prototypeDevice) out.prototypeDevice = figmaPrototypeDevice(out.prototypeDevice);
   if (n.type === "TEXT") {
     out.fontName ??= { family: "Inter", style: "Regular", postscript: "Inter-Regular" };
     out.fontSize ??= 12;
@@ -127,6 +129,34 @@ function remapPropRefs(v: any, map: Map<string, any>): any {
   return out;
 }
 
+/** Text with one PLAIN line per paragraph, as Figma writes every TextData. */
+function withLines(td: any): any {
+  if (td?.lines?.length) return td;
+  const line = { lineType: "PLAIN", styleId: 0, indentationLevel: 0, sourceDirectionality: "AUTO", listStartOffset: 0, isFirstLineOfList: false };
+  return { ...td, characters: td?.characters ?? "", lines: Array.from({ length: (td?.characters ?? "").split("\n").length }, () => ({ ...line })) };
+}
+
+/** A component property value as Figma's VariableData (a def's default, an assignment's value). */
+function defaultVar(type: string | undefined, v: any): any {
+  if (type === "TEXT" || (!type && v?.textValue)) return { value: { textDataValue: withLines(v?.textValue ?? { characters: "" }) }, dataType: "TEXT_DATA", resolvedDataType: "TEXT_DATA" };
+  if (type === "BOOL" || (!type && v?.boolValue !== undefined)) return { value: { boolValue: !!v?.boolValue }, dataType: "BOOLEAN", resolvedDataType: "BOOLEAN" };
+  if (type === "VARIANT") return { value: { textValue: "" }, dataType: "STRING", resolvedDataType: "STRING" };
+  if ((type === "INSTANCE_SWAP" || !type) && v?.guidValue) return { value: { symbolIdValue: { guid: v.guidValue } }, dataType: "SYMBOL_ID", resolvedDataType: "SYMBOL_ID" };
+  return undefined;
+}
+
+function figmaAssignments(list: any[], implicitOf: Map<string, any>): any[] {
+  return list.map((a) => {
+    const x = { ...a };
+    const to = x.defID && implicitOf.get(guidKey(x.defID));
+    if (to) x.defID = to;
+    if (x.value?.textValue) x.value = { ...x.value, textValue: withLines(x.value.textValue) };
+    x.varValue ??= defaultVar(undefined, x.value);
+    if (!x.varValue) delete x.varValue;
+    return x;
+  });
+}
+
 /**
  * Components as Figma stores them (research components.md task 8; the import maps each of these back, convert.ts):
  * - a SYMBOL's asset key in `componentKey` (216), a library copy's version in `sharedSymbolVersion` (126) — sets,
@@ -158,21 +188,25 @@ function figmaComponents(nodes: NodeChange[]): NodeChange[] {
     top.set(session, localID);
     return { sessionID: session, localID };
   };
+  // One implicit id per explicit def of a set, the same on every variant, holding only `id` and `parentPropDefId`
+  // (Figma's own export, "Front End Demo Project 2.fig": every variant of a set carries {6024:19 → 6024:18}); the
+  // variants' bindings and the instances' assignments use it. Defs with a name, type and default but no `varValue` on
+  // each variant made Figma log "mismatching type and default value" / "could not create explicit prop def" for each
+  // and crash opening the file (2026-10-20, the owner's "Prototype deneme" exports).
+  const implicitOf = new Map<string, any>();
   for (const set of out) {
     if (!set.isStateGroup || !set.componentPropDefs?.length) continue;
     const explicit = (set.componentPropDefs as any[]).filter((d) => d.type !== "VARIANT" && d.id);
     if (!explicit.length) continue;
+    const map = new Map<string, any>();
+    for (const d of explicit) {
+      const id = fresh(d.id.sessionID);
+      map.set(guidKey(d.id), id);
+      implicitOf.set(guidKey(d.id), id);
+    }
     for (const variant of children.get(guidKey(set.guid)) ?? []) {
       if (variant.type !== "SYMBOL") continue;
-      const map = new Map<string, any>();
-      const implicit = explicit.map((d) => {
-        const id = fresh(variant.guid.sessionID);
-        map.set(guidKey(d.id), id);
-        const def: any = { id, name: d.name, initialValue: d.initialValue, sortPosition: d.sortPosition, parentPropDefId: d.id, type: d.type };
-        if (d.preferredValues) def.preferredValues = d.preferredValues;
-        return def;
-      });
-      variant.componentPropDefs = [...(variant.componentPropDefs ?? []), ...implicit];
+      variant.componentPropDefs = [...(variant.componentPropDefs ?? []), ...explicit.map((d) => ({ id: map.get(guidKey(d.id)), parentPropDefId: d.id }))];
       const stack = [variant];
       while (stack.length) {
         const n = stack.pop();
@@ -184,6 +218,23 @@ function figmaComponents(nodes: NodeChange[]): NodeChange[] {
     }
   }
   for (const n of out) {
+    // Explicit defs and assignments as Figma writes them: the value also as a VariableData (`varValue`), text with its
+    // paragraph lines; assignments to a set's def on its implicit id (nested instances' ones in overrides too).
+    if (n.componentPropDefs)
+      n.componentPropDefs = n.componentPropDefs.map((d: any) => {
+        if (d.parentPropDefId) return d;
+        const x = { ...d, preferredValues: d.preferredValues ?? {} };
+        if (x.initialValue?.textValue) x.initialValue = { ...x.initialValue, textValue: withLines(x.initialValue.textValue) };
+        x.varValue ??= defaultVar(x.type, x.initialValue);
+        if (!x.varValue) delete x.varValue;
+        return x;
+      });
+    if (n.componentPropAssignments) n.componentPropAssignments = figmaAssignments(n.componentPropAssignments, implicitOf);
+    if (n.symbolData?.symbolOverrides?.some((o: any) => o.componentPropAssignments))
+      n.symbolData = {
+        ...n.symbolData,
+        symbolOverrides: n.symbolData.symbolOverrides.map((o: any) => (o.componentPropAssignments ? { ...o, componentPropAssignments: figmaAssignments(o.componentPropAssignments, implicitOf) } : o)),
+      };
     if (n.type === "SYMBOL") {
       if (n.key) n.componentKey = n.key;
       delete n.key;

@@ -70,6 +70,12 @@ function ourSnapshot(): Message {
   } as Message;
 }
 
+/** Where the export writes `m`'s GUIDs: as they are (Figma's own files carry sessions ≥ 2^20 too, e.g. 4162906152). */
+function exportIds(_m: Message) {
+  const guid = (x: any) => ({ sessionID: x.sessionID, localID: x.localID });
+  return { key: (x: any) => `${x.sessionID}:${x.localID}`, guid, deep: (v: any) => v };
+}
+
 const byKey = (m: any) => new Map<string, any>((m.nodeChanges ?? []).map((n: any) => [`${n.guid.sessionID}:${n.guid.localID}`, n]));
 
 describe("Save Local Copy as Figma writes a .fig (figmaExport.ts)", () => {
@@ -113,12 +119,13 @@ describe("Save Local Copy as Figma writes a .fig (figmaExport.ts)", () => {
     expect(m.ackID).toBe(0);
     expect(m.derivedDataVersion).toBeUndefined();
     const nodes = byKey(m);
+    const X = exportIds(ourSnapshot()).key;
     expect(nodes.get("0:0").librarySubscriptions).toBeUndefined();
-    expect(nodes.get(`${S + 1}:1`).invertedCornerMask).toBeUndefined();
+    expect(nodes.get(X(g(S + 1, 1))).invertedCornerMask).toBeUndefined();
     // Our engine's derived data is not Figma's: it goes, and so do the blobs only it used.
     for (const n of nodes.values()) for (const f of DERIVED_FIELDS) expect(n[f], f).toBeUndefined();
     expect(m.blobs).toHaveLength(1);
-    expect(nodes.get(`${S + 1}:3`).vectorData.vectorNetworkBlob).toBe(0);
+    expect(nodes.get(X(g(S + 1, 3))).vectorData.vectorNetworkBlob).toBe(0);
     expect(m.blobs[0].bytes).toEqual(ourSnapshot().blobs![1].bytes);
     // Every field Figma's export writes on every node of a type, ours writes too (of the ones that have a default).
     const always = new Map<string, Set<string>>();
@@ -135,7 +142,7 @@ describe("Save Local Copy as Figma writes a .fig (figmaExport.ts)", () => {
     }
     expect(nodes.get("0:0")).toMatchObject({ visible: true, opacity: 1, strokeWeight: 0, strokeAlign: "CENTER", strokeJoin: "BEVEL" });
     expect(nodes.get("0:2").visible).toBe(false);
-    const text = nodes.get(`${S + 1}:2`);
+    const text = nodes.get(X(g(S + 1, 2)));
     expect(text).toMatchObject({ fontSize: 12, fontName: { family: "Inter", style: "Regular" }, lineHeight: { value: 100, units: "PERCENT" }, textAlignVertical: "TOP" });
     expect(text.textData.lines).toHaveLength(2); // one per paragraph, as Figma writes
     expect(text.textData.lines[0]).toMatchObject({ lineType: "PLAIN", styleId: 0 });
@@ -144,15 +151,29 @@ describe("Save Local Copy as Figma writes a .fig (figmaExport.ts)", () => {
   it("keeps Figma's own derived data (a .fig import's text layout) and round-trips through our importer", () => {
     const figmaStamped = { ...ourSnapshot(), derivedDataVersion: FIGMA_DERIVED_DATA_VERSION };
     const kept = byKey(toFigmaMessage(figmaStamped));
-    expect(kept.get(`${S + 1}:2`).derivedTextData).toBeDefined();
+    expect(kept.get(exportIds(figmaStamped).key(g(S + 1, 2))).derivedTextData).toBeDefined();
 
     const exported = toFigmaMessage(ourSnapshot());
     const canvas = decodeCanvas(encodeFigmaCanvas(ourSnapshot(), codecs), codecs);
     const { message: back } = decodeAnySchema(canvas.schema, canvas.message, { keepDerived: true });
     expect(tablesEqual(NodeTable.fromMessage(back), NodeTable.fromMessage(exported))).toBe(true);
     // Nothing but derived data, our own fields and Figma's always-written defaults changed.
-    const before = byKey(ourSnapshot());
+    const before = byKey(exportIds(ourSnapshot()).deep(ourSnapshot()));
     for (const [k, n] of byKey(back)) expect(n.name).toBe(before.get(k).name);
+  });
+});
+
+describe("prototype devices as Figma's presentation knows them (figmaDevices)", () => {
+  it("writes Figma's presetIdentifier, and no device where Figma has none", () => {
+    const base = ourSnapshot();
+    const pages = base.nodeChanges!.map((n: any) => (n.type === "CANVAS" && !n.internalOnly ? { ...n, prototypeDevice: { type: "PRESET", presetIdentifier: "DESKTOP", size: { x: 1440, y: 1024 }, rotation: "NONE" } } : n));
+    const page2 = node(g(0, 3), "CANVAS", g(0, 0), "#", { name: "Phone", prototypeDevice: { type: "PRESET", presetIdentifier: "IPHONE_16_PRO_MAX", size: { x: 440, y: 956 }, rotation: "NONE" } });
+    const page3 = node(g(0, 4), "CANVAS", g(0, 0), "$", { name: "Figma's", prototypeDevice: { type: "PRESET", presetIdentifier: "APPLE_IPHONE_16_PRO_MAX_BLACKTITANIUM", size: { x: 440, y: 956 }, rotation: "NONE" } });
+    const out = byKey(figma.decode("Message", decodeCanvas(encodeFigmaCanvas({ ...base, nodeChanges: [...pages, page2, page3] } as Message, codecs), codecs).message));
+    // The owner's "Yeni Test Dosyası": Figma's presentation crashed on "DESKTOP" ("DESKTOP OS could not be inferred").
+    expect(out.get("0:1").prototypeDevice).toMatchObject({ type: "NONE", size: { x: 1440, y: 1024 } });
+    expect(out.get("0:3").prototypeDevice).toMatchObject({ type: "PRESET", presetIdentifier: "APPLE_IPHONE_16_PRO_MAX_BLACKTITANIUM" });
+    expect(out.get("0:4").prototypeDevice.presetIdentifier).toBe("APPLE_IPHONE_16_PRO_MAX_BLACKTITANIUM");
   });
 });
 
@@ -164,8 +185,9 @@ describe("the schema round's fields in an export (R17 batch C)", () => {
       editScopeInfo: { editScopeStacks: [{ stack: [{ type: "AI", label: "Agent" }] }] },
       fillPaints: [{ type: "GRADIENT_LINEAR", interpolationColorSpace: "OKLCH", interpolationHueMethod: "INCREASING", stops: [] } as any],
     });
-    const canvas = decodeCanvas(encodeFigmaCanvas({ ...base, nodeChanges: [...base.nodeChanges!, rect] } as Message, codecs), codecs);
-    const out = byKey(figma.decode("Message", canvas.message)).get(`${S + 3}:1`);
+    const withRect = { ...base, nodeChanges: [...base.nodeChanges!, rect] } as Message;
+    const canvas = decodeCanvas(encodeFigmaCanvas(withRect, codecs), codecs);
+    const out = byKey(figma.decode("Message", canvas.message)).get(exportIds(withRect).key(g(S + 3, 1)));
     expect(out.fillPaints[0]).toMatchObject({ interpolationColorSpace: "OKLCH", interpolationHueMethod: "INCREASING" });
     expect(out.editScopeInfo.editScopeStacks[0].stack[0]).toMatchObject({ type: "AI", label: "Agent" });
   });
@@ -207,44 +229,55 @@ describe("components as Figma stores them (components.md task 8)", () => {
   it("writes componentKey / sharedSymbolVersion, implicit defs on variants, componentPropRefs and the root override path", () => {
     const canvas = decodeCanvas(encodeFigmaCanvas(components(), codecs), codecs);
     const nodes = byKey(figma.decode("Message", canvas.message));
-    const k = (x: any) => `${x.sessionID}:${x.localID}`;
+    const xs = exportIds(components());
+    const k = (x: any) => xs.key(x);
     expect(nodes.get(k(LOCAL))).toMatchObject({ componentKey: KEY });
     expect(nodes.get(k(LOCAL)).key).toBeUndefined();
     expect(nodes.get(k(COPY))).toMatchObject({ componentKey: "c".repeat(40), sharedSymbolVersion: "v7" });
     expect(nodes.get(k(COPY)).version).toBeUndefined();
     expect(nodes.get(k(SET)).key).toBe("b".repeat(40)); // sets keep key 319
-    // Each variant: one implicit def per explicit non-VARIANT def, its bindings on its own implicit ids.
+    // Each variant: one implicit def per explicit non-VARIANT def — only {id, parentPropDefId}, the same ids on every
+    // variant (Figma's own export) — its bindings on them.
     for (const [v, t] of [
       [V1, T1],
       [V2, T2],
     ]) {
       const defs = nodes.get(k(v)).componentPropDefs;
-      expect(defs.map((d: any) => [d.name, d.type, k(d.parentPropDefId)])).toEqual([
-        ["Label", "TEXT", k(LABEL)],
-        ["Show icon", "BOOL", k(SHOW)],
+      expect(defs.map((d: any) => [k(d.parentPropDefId), Object.keys(JSON.parse(JSON.stringify(d))).sort()])).toEqual([
+        [k(LABEL), ["id", "parentPropDefId"]],
+        [k(SHOW), ["id", "parentPropDefId"]],
       ]);
       const label = defs[0];
-      expect(label.initialValue.textValue.characters).toBe("Go");
       const text = nodes.get(k(t));
       expect(k(text.parameterConsumptionMap.entries[0].variableData.value.propRefValue.defId)).toBe(k(label.id));
       expect(text.componentPropRefs).toEqual([{ nodeField: 42, defID: label.id, componentPropNodeField: "TEXT_DATA", isDeleted: undefined, zombieFallbackName: undefined }].map((r) => JSON.parse(JSON.stringify(r))));
     }
     const ids = [...nodes.get(k(V1)).componentPropDefs, ...nodes.get(k(V2)).componentPropDefs].map((d: any) => k(d.id));
-    expect(new Set(ids).size).toBe(4);
+    expect(new Set(ids).size).toBe(2);
     for (const id of ids) expect(nodes.has(id)).toBe(false);
+    // The explicit defs carry their default as a VariableData too, text with its lines.
+    const setDefs = nodes.get(k(SET)).componentPropDefs;
+    expect(setDefs.find((d: any) => d.name === "Label")).toMatchObject({ type: "TEXT", preferredValues: {}, initialValue: { textValue: { characters: "Go" } }, varValue: { dataType: "TEXT_DATA", value: { textDataValue: { characters: "Go" } } } });
+    expect(setDefs.find((d: any) => d.name === "Label").initialValue.textValue.lines).toHaveLength(1);
+    expect(setDefs.find((d: any) => d.name === "Show icon")).toMatchObject({ varValue: { dataType: "BOOLEAN", value: { boolValue: true } } });
+    expect(setDefs.find((d: any) => d.name === "Size")).toMatchObject({ varValue: { dataType: "STRING", value: { textValue: "" } } });
     expect(nodes.get(k(R1)).componentPropRefs[0]).toMatchObject({ nodeField: 6, componentPropNodeField: "VISIBLE" });
-    expect(nodes.get(k(INST)).symbolData.symbolOverrides[0].guidPath.guids).toEqual([LOCAL]);
+    expect(nodes.get(k(INST)).symbolData.symbolOverrides[0].guidPath.guids).toEqual([xs.guid(LOCAL)]);
   });
 
   it("reads back through our importer as the model it came from", () => {
     const canvas = decodeCanvas(encodeFigmaCanvas(components(), codecs), codecs);
     const { message: back } = decodeAnySchema(canvas.schema, canvas.message, { keepDerived: true });
-    const before = byKey(components());
+    const ids = exportIds(components());
+    const before = byKey(ids.deep(components()));
     const after = byKey(back);
-    for (const id of [SET, V1, V2, T1, T2, R1, LOCAL, COPY, INST].map((x) => `${x.sessionID}:${x.localID}`)) {
+    for (const id of [SET, V1, V2, T1, T2, R1, LOCAL, COPY, INST].map(ids.key)) {
       const a = after.get(id);
       const b = before.get(id);
-      for (const f of ["key", "version", "componentPropDefs", "parameterConsumptionMap", "variantPropSpecs", "symbolData", "sourceLibraryKey"]) expect(a[f], `${id}.${f}`).toEqual(b[f]);
+      for (const f of ["key", "version", "parameterConsumptionMap", "variantPropSpecs", "symbolData", "sourceLibraryKey"]) expect(a[f], `${id}.${f}`).toEqual(b[f]);
+      // Defs come back with the defaults Figma writes beside them (preferredValues, varValue, text lines).
+      if (b.componentPropDefs) expect(a.componentPropDefs, `${id}.componentPropDefs`).toMatchObject(b.componentPropDefs);
+      else expect(a.componentPropDefs).toBeUndefined();
       expect(a.componentKey).toBeUndefined();
       expect(a.componentPropRefs).toBeUndefined();
     }
