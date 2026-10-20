@@ -77,12 +77,19 @@ export function togglePreview(ed: EditorController): void {
   ed.ui.set({ preview: { page: ed.store.page, node: presentStart(ed) ?? null } });
 }
 
-/** This editor's document, and its changes as they commit, for a presentation over it. */
-export function editorPresentationSource(ed: EditorController): PresentationSource {
+/**
+ * This editor's document, and its changes as they commit, for a presentation of `page` over it: only what a prototype
+ * on that page needs (Engine.encodePageKiwi — the page, the internal canvas, the components and destinations it
+ * reaches elsewhere), as Figma's viewer loads only the page it presents. A heavy file's other pages cost nothing.
+ */
+export function editorPresentationSource(ed: EditorController, page: Guid): PresentationSource {
   return {
     fileName: ed.ui.get().fileName || ed.source.fileName,
-    load: async () => ({ bytes: ed.engine.encodeDocumentKiwi() }),
+    load: async () => ({ bytes: ed.engine.encodePageKiwi(page) }),
+    // Both engines are in this module: the page's nodes go across directly (no Message written and read).
+    loadInto: (engine) => void engine.loadPageOf(ed.engine, page),
     subscribe: (apply) => ed.engine.on("DOCUMENT_CHANGED", (e) => e.bytes && apply(e.bytes)),
     images: ed.source.images ? (hash) => ed.source.images!.get(hash) : undefined,
+    partial: { has: (id) => !ed.engine.destroyed && ed.engine.readNode(id, { fields: ["type"] }) !== null },
   };
 }

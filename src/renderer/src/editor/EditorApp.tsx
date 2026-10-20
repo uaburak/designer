@@ -553,7 +553,11 @@ function Overlays() {
 function Presenting() {
   const ed = useEditor();
   const presenting = useUI((s) => s.presenting);
-  const source = useMemo(() => (presenting ? editorPresentationSource(ed) : null), [ed, presenting]);
+  const source = useMemo(() => (presenting ? editorPresentationSource(ed, presenting.page) : null), [ed, presenting]);
+  // One prototype engine beside the editor's at a time: a closed inline preview kept for its next opening goes.
+  useEffect(() => {
+    if (presenting && !ed.ui.get().preview) ed.ui.set({ previewKept: null });
+  }, [ed, presenting]);
   // Share prototype from the presentation's toolbar (docs/editor.md D-6): the store's file; without one, the link is copied.
   const fileKey = (ed.source as { fileKey?: string }).fileKey ?? null;
   const [sharing, setSharing] = useState<{ node: string | null } | null>(null);

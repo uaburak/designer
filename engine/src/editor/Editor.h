@@ -18,6 +18,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "base/Json.h"
@@ -274,6 +275,22 @@ class Editor : private LayoutHost, public TextLayouts {
   Status applyChanges(const std::vector<NodeChange>& changes, uint32_t flags);
   // Every node, parents before children (a full snapshot).
   std::vector<NodeChange> encodeDocument() const;
+  // What a prototype played on `page` needs (the inline preview, Present here; Figma's viewer loads only the page it
+  // presents): the DOCUMENT, every page node, the internal canvases whole, `page` whole, and from the other pages —
+  // transitively — the components its instances show (a variant with its whole set, for Change to), the defaults of
+  // their instance-swap properties and the nodes its interactions reach, each with its ancestors (their own fields
+  // only); variables and styles wherever they are. Parents before children, as encodeDocument.
+  std::vector<NodeChange> encodePage(Guid page) const;
+  // An engine holding such a subset: nodes created under a parent it doesn't have are skipped, and the nodes a change
+  // needs that it doesn't have — a layer moved in from elsewhere, a component an instance now shows, an interaction's
+  // destination — are noted (takeLacking; their ids, at most 64, until taken or the next load) so its owner can
+  // load a new subset.
+  void setPartial(bool on) { partial_ = on; }
+  bool partial() const { return partial_; }
+  // A presentation's engine (whole document or subset) derives its page's screens as the player shows them
+  // (deriveTree), not the whole page at load.
+  void setLazyScreens(bool on) { lazyScreens_ = on; }
+  std::vector<Guid> takeLacking() { return std::exchange(lacking_, {}); }
   Status setCurrentPage(Guid page);
   std::vector<Guid> pages() const;  // O(1): the DOCUMENT node's canvases (the internal one left out)
   // Materializes `page`'s instances and verifies its auto layout, once (docs/engine.md §3.4 as built: per page, on
@@ -284,6 +301,12 @@ class Editor : private LayoutHost, public TextLayouts {
   // read of a whole subtree (`subtree`); a style, a variable or a main read for its own fields derives nothing.
   void derivePageOf(Guid id, bool subtree = false);
   void deriveInternal(Guid top);
+  // A presentation's engine (setLazyScreens) derives its page's screens as the player shows them, not the whole page at
+  // its load: derivePage resolves the page's bound values only, deriveTree(screen) its instances and auto layout
+  // (instances elsewhere on the page wait), deriveNextTrees spends `budgetMs` on screens not shown yet (true while some
+  // remain).
+  void deriveTree(Guid top);
+  bool deriveNextTrees(Guid page, double budgetMs);
   bool pageDerived(Guid page) const { return derivedPages_.count(page) != 0; }
   const Document& document() const override { return doc_; }
   Guid page() const { return page_; }
@@ -2094,6 +2117,10 @@ class Editor : private LayoutHost, public TextLayouts {
   };
   ProtoSession proto_;
   bool viewer_ = false;
+  bool partial_ = false;          // setPartial: a page's subset (encodePage)
+  bool lazyScreens_ = false;      // setLazyScreens: a page's screens derived as they are shown (deriveTree)
+  std::vector<Guid> lacking_;     // what changes needed that the subset doesn't have (takeLacking)
+  void noteLacking(Guid id);
 
   // ---- Canvas navigation (editor/CanvasNav.cpp, round 16) ----
   struct CameraAnimation {
@@ -2592,6 +2619,8 @@ class Editor : private LayoutHost, public TextLayouts {
   // The Internal Only Canvas is never derived as a page (it holds dependencies: styles, variables, mains, slot
   // content): what is read there derives the instances under that node's top-level container only (deriveInternal).
   GuidSet derivedInternal_;
+  GuidSet derivedTrees_;  // a partial engine's screens derived (deriveTree)
+  bool inDerivedTree(Guid id) const;
   Guid internalRootOf(Guid id) const;  // the child of the Internal Only Canvas holding `id` (kNoGuid: not there)
   // An instance not derived yet whose page (or internal container) isn't either: it waits for it.
   bool instanceWaits(Guid r) const;

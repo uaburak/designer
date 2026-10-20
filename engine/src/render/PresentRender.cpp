@@ -20,22 +20,39 @@ RenderStats Renderer::renderScene(const Document& doc, Guid page, const Viewport
     rampRowsUploaded_ = 0;
   }
   view_ = Mat2x3{};
-  if (trees_.size() > 4 && !trees_.count(page)) trees_.clear();
-  RenderTree& tree = trees_[page];
   uint32_t fontGeneration = text::FontRegistry::get().generation();
   if (fontGeneration != treeFonts_) {
     for (auto& [id, t] : trees_) t.invalidate();
+    for (auto& [id, t] : screenTrees_) t.invalidate();
     treeFonts_ = fontGeneration;
   }
-  tree.setTextInk([this](Guid id, Rect& out) {
-    const text::TextLayout* L = texts_ ? texts_->textLayout(id) : nullptr;
-    if (!L) return false;
-    out = L->inkBounds;
-    return true;
-  });
-  tree.sync(doc, page);
-  (void)tree.takeDamage();
-  tree_ = &tree;
+  // Each item's screen (the layer under the page, or under a section) has a tree of its own: a frame shown costs its
+  // own layers, not the whole page's — a heavy page's first frame, and a screen derived later (Editor::deriveTree),
+  // don't rebuild the page's tree.
+  auto screenOf = [&](Guid id) {
+    Guid s = id;
+    for (Guid p = doc.parentOf(s); p != kNoGuid; p = doc.parentOf(p)) {
+      const Node* pn = doc.get(p);
+      if (!pn || pn->props.type == NodeType::CANVAS || pn->props.type == NodeType::SECTION) break;
+      s = p;
+    }
+    return s;
+  };
+  auto treeOf = [&](Guid screen) -> RenderTree& {
+    if (screenTrees_.size() > 16 && !screenTrees_.count(screen)) screenTrees_.clear();
+    RenderTree& tree = screenTrees_[screen];
+    tree.setTextInk([this](Guid id, Rect& out) {
+      const text::TextLayout* L = texts_ ? texts_->textLayout(id) : nullptr;
+      if (!L) return false;
+      out = L->inkBounds;
+      return true;
+    });
+    tree.sync(doc, page, screen);
+    (void)tree.takeDamage();
+    return tree;
+  };
+  static const RenderTree kNoTree;
+  tree_ = &kNoTree;  // until an item's screen is drawn
   const int W = viewport.deviceWidth(), H = viewport.deviceHeight();
   const Color& bg = scene.background;
   float clearColor[4] = {bg.r * bg.a, bg.g * bg.a, bg.b * bg.a, 1};
@@ -72,6 +89,9 @@ RenderStats Renderer::renderScene(const Document& doc, Guid page, const Viewport
            Pass::Shape);
       continue;
     }
+    if (!doc.has(item.node)) continue;
+    RenderTree& tree = treeOf(screenOf(item.node));
+    tree_ = &tree;
     int i = tree.indexOf(item.node);
     if (i < 0) continue;
     overrides_ = item.overrides;

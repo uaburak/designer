@@ -14,6 +14,10 @@
  *   corners resize it (⇧ keeps the proportions); unfocused, a lower shadow and no handles.
  * - Esc or ⇧Space in it closes it; R restarts "from the last selected frame on the canvas"; a frame selected on the
  *   canvas jumps the preview there. Closed and opened again, it keeps its place, its size and its options.
+ * - Its engine holds only the page's prototype (editorPresentationSource: the page and the components it reaches, not
+ *   the file's other pages). Closed, the window stays mounted, hidden (Figma hides its viewer's iframe): the engine
+ *   idle — no player, no frames — but fed the changes, so the next ⇧Space on the page shows at once. Another page's
+ *   opening replaces it; memory pressure (EngineHealth) drops it.
  * - Preview options: Fit width (the default), Fill screen, Responsive | Follow prototype (the canvas follows the
  *   preview's frame), Resize window to 100% (✓ at 100%), Reset aspect ratio (✓ at the frame's proportions). With a
  *   device: Responsive, Zoom device to fill screen, Fixed | Follow prototype, Resize device to 100%, Show device frame.
@@ -79,15 +83,26 @@ function firstBox(ed: EditorController, node: Guid | null): Box {
 }
 
 export function InlinePreview() {
+  const ed = useEditor();
   const preview = useUI((s) => s.preview);
-  if (!preview) return null;
-  return <PreviewWindow key={preview.page} page={preview.page} node={preview.node} />;
+  const kept = useUI((s) => s.previewKept);
+  // The last opening, kept (hidden) once it closes.
+  useEffect(() => {
+    if (preview && preview !== kept) ed.ui.set({ previewKept: preview });
+  }, [ed, preview, kept]);
+  const at = preview ?? kept;
+  if (!at) return null;
+  return <PreviewWindow key={at.page} page={at.page} node={at.node} open={!!preview} />;
 }
 
-function PreviewWindow({ page, node }: { page: Guid; node: Guid | null }) {
+function PreviewWindow({ page, node, open }: { page: Guid; node: Guid | null; open: boolean }) {
   useT();
   const ed = useEditor();
-  const source = useMemo(() => editorPresentationSource(ed), [ed]);
+  const source = useMemo(() => editorPresentationSource(ed, page), [ed, page]);
+  const openRef = useRef(open);
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
   const start = useMemo(() => kept.get(ed), [ed]);
   const [box, setBox] = useState<Box>(() => start?.box ?? firstBox(ed, node));
   // The box a drag or a resize starts from (read in pointer handlers).
@@ -165,7 +180,7 @@ function PreviewWindow({ page, node }: { page: Guid; node: Guid | null }) {
       // The event's own refs: the store's selection may not have heard of it yet.
       const frame = e.refs[0] ? presentStart(ed, e.refs[0]) : undefined;
       const engine = engineRef.current;
-      if (!frame || !engine || engine.destroyed) return;
+      if (!frame || !engine || engine.destroyed || !openRef.current) return;
       lastFrame.current = frame;
       if (stateRef.current?.screen === frame) return;
       engine.presentStart({ node: frame });
@@ -174,12 +189,14 @@ function PreviewWindow({ page, node }: { page: Guid; node: Guid | null }) {
   }, [ed]);
 
   // Opened again at another frame while open (a flow's preview in the Prototype panel): it goes there.
+  // Opened again (kept hidden in between) at a frame: Restart goes back there (the view started there).
   useEffect(() => {
     const engine = engineRef.current;
-    if (!node || !engine || engine.destroyed || stateRef.current?.screen === node) return;
+    if (!node || !engine || engine.destroyed || !open) return;
     lastFrame.current = node;
+    if (stateRef.current?.screen === node) return;
     engine.presentStart({ node });
-  }, [node]);
+  }, [node, open]);
 
   // Follow prototype: the canvas moves to the preview's frame (live: zoomed to it, the selection left as it was).
   useEffect(() => {
@@ -273,8 +290,11 @@ function PreviewWindow({ page, node }: { page: Guid; node: Guid | null }) {
     <div
       ref={windowRef}
       className={cx(styles.window, focused && styles.focused)}
-      style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
+      // Closed: kept in place but not shown — its canvas keeps its size, so opening again draws at once.
+      style={{ left: box.x, top: box.y, width: box.w, height: box.h, visibility: open ? undefined : "hidden" }}
       data-inline-preview=""
+      data-closed={open ? undefined : ""}
+      aria-hidden={open ? undefined : true}
       role="dialog"
       aria-label={t("Preview")}
     >
@@ -298,7 +318,7 @@ function PreviewWindow({ page, node }: { page: Guid; node: Guid | null }) {
           </div>
         </header>
         <div className={styles.content}>
-          <PresentationView source={source} page={page} node={node} variant="inline" canvasId="preview-canvas" onRestart={restart} onClose={close} onReady={onReady} onState={onState} />
+          <PresentationView source={source} page={page} node={node} hidden={!open} variant="inline" canvasId="preview-canvas" onRestart={restart} onClose={close} onReady={onReady} onState={onState} />
         </div>
       </div>
       {focused && EDGES.map((edge) => <div key={edge} className={styles[`resize-${edge}`]} data-resize={edge} onPointerDown={onEdgeDown(edge)} />)}

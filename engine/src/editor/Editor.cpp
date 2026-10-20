@@ -1,16 +1,32 @@
 #include "editor/Editor.h"
 #include "editor/Refusals.h"
+#include "proto/Prototype.h"
 
 #include "scene/CodecKiwi.h"
 #include "schema/SchemaTable.h"
 #include "text/TextEdit.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 
 namespace eng {
 
 namespace {
+
+// The nodes a layer's interactions act on: their destinations (navigate, overlays, swap, Change to, Scroll to) and
+// videos, in their conditional branches too.
+std::vector<Guid> interactionTargets(const NodeProps& p) {
+  std::vector<std::pair<proto::Navigation, Guid>> dests;
+  std::vector<Guid> out;
+  for (const proto::Interaction& i : proto::interactions(p))
+    for (const proto::Action& a : i.actions) {
+      proto::destinations(a, dests);
+      proto::mediaTargets(a, out);
+    }
+  for (const auto& d : dests) out.push_back(d.second);
+  return out;
+}
 
 // Figma keeps a colour as it was picked in another space (Paint.authoredColor 44 / authoredStops 45,
 // Effect.authoredColor 56: HSL, OKLCH…) next to the colour that draws. A colour edited here makes it stale: it goes.
@@ -708,6 +724,18 @@ void Editor::derivePage(Guid page) {
   // Not inside an open step (a gesture, a panel scrub): its writes would join that undo step. The next call derives.
   if (txn_.open) return;
   derivedPages_.insert(page);
+  if (lazyScreens_) {
+    // Its screens are derived as they are shown (deriveTree); its bound values now.
+    if (auto pb = pageBindings_.find(page); pb != pageBindings_.end()) {
+      for (Guid g : pb->second) bindingsDirty_.insert(g);
+      pageBindings_.erase(pb);
+    }
+    if (bindingsDirty_.empty()) return;
+    begin(TxnKind::LOAD, "Page");
+    flushBindings();
+    commit();
+    return;
+  }
   // Its instances (their sublayers were never stored) and its auto-layout frames and groups (stored geometry can be
   // stale), as Figma loads a page with its dependencies on first show.
   std::vector<Guid> dirty;
@@ -741,6 +769,67 @@ void Editor::derivePage(Guid page) {
   Layout(*this).run(dirty);
   inLayout_ = false;
   commit();
+}
+
+bool Editor::inDerivedTree(Guid id) const {
+  for (Guid a = id; a != kNoGuid; a = doc_.parentOf(a))
+    if (derivedTrees_.count(a)) return true;
+  return false;
+}
+
+void Editor::deriveTree(Guid top) {
+  if (!lazyScreens_ || txn_.open || !doc_.has(top) || top.isDerived() || inDerivedTree(top)) return;
+  Guid page = doc_.pageOf(top);
+  const Node* pn = doc_.get(page);
+  if (!pn || pn->props.rare().internalOnly) return;
+  derivePage(page);  // its bound values
+  derivedTrees_.insert(top);
+  // As derivePage does for the whole page: its instances, its auto-layout frames and groups.
+  std::vector<Guid> dirty;
+  std::vector<Guid> stack{top};
+  while (!stack.empty()) {
+    Guid id = stack.back();
+    stack.pop_back();
+    const Node* n = doc_.get(id);
+    if (!n) continue;
+    if (n->props.type == NodeType::INSTANCE && !derivedRows_.count(id)) instanceDirty_.insert(id);
+    if (!trustLayout_ && (n->props.isAutoLayout() || n->props.fitsChildren())) dirty.push_back(id);
+    for (Guid c : doc_.children(id))
+      if (!c.isDerived()) stack.push_back(c);
+  }
+  if (dirty.empty() && instanceDirty_.empty()) return;
+  std::sort(dirty.begin(), dirty.end());
+  begin(TxnKind::LOAD, "Page");
+  inLayout_ = true;
+  Layout(*this).run(dirty);
+  inLayout_ = false;
+  commit();
+}
+
+bool Editor::deriveNextTrees(Guid page, double budgetMs) {
+  const Node* pn = doc_.get(page);
+  if (!lazyScreens_ || txn_.open || !pn || pn->props.type != NodeType::CANVAS) return false;
+  auto now = [] { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count(); };
+  double start = now();
+  // The page's screens in layer order: its top-level layers, a section's layers in its place (the player's screens).
+  std::vector<Guid> stack(doc_.children(page).rbegin(), doc_.children(page).rend());
+  bool any = false;  // at least one screen per call
+  while (!stack.empty()) {
+    Guid id = stack.back();
+    stack.pop_back();
+    const Node* n = id.isDerived() ? nullptr : doc_.get(id);
+    if (!n) continue;
+    if (n->props.type == NodeType::SECTION) {
+      const auto& kids = doc_.children(id);
+      stack.insert(stack.end(), kids.rbegin(), kids.rend());
+      continue;
+    }
+    if (derivedTrees_.count(id)) continue;
+    if (any && now() - start >= budgetMs) return true;
+    deriveTree(id);
+    any = true;
+  }
+  return false;
 }
 
 // ---- LayoutHost -------------------------------------------------------------
@@ -1163,8 +1252,10 @@ void Editor::loadDocument(std::vector<NodeChange>&& nodes, Guid page, StoredDeri
   if (text_.node != kNoGuid) events_.textEdit = true;
   text_ = TextSession{};
   hasLibraryCopies_ = false;
+  lacking_.clear();
   derivedPages_.clear();
   derivedInternal_.clear();
+  derivedTrees_.clear();
   pageBindings_.clear();
   keyIndex_.clear();
   keyOf_.clear();
@@ -1236,6 +1327,37 @@ Status Editor::applyChanges(const std::vector<NodeChange>& changes, uint32_t fla
       const Node* parent = doc_.get(c.props.parentIndex.guid);
       if (parent && parent->props.type != NodeType::DOCUMENT) continue;
     }
+    if (partial_ && !c.guid.isDerived()) {
+      // A page's subset (encodePage): what happens elsewhere stays out; what comes in from elsewhere is lacking.
+      bool has = doc_.has(c.guid);
+      if (c.phase == Phase::CREATED && !has) {
+        // Under a layer it doesn't have, or at the top of another page: elsewhere.
+        const Node* parent = doc_.get(c.props.parentIndex.guid);
+        if (!parent) continue;
+        if (parent->props.type == NodeType::CANVAS && parent->guid != page_ && !parent->props.rare().internalOnly) continue;
+      }
+      if (c.phase == Phase::CHANGED && !has) {
+        if ((c.mask & F_PARENT_INDEX) && doc_.has(c.props.parentIndex.guid)) noteLacking(c.guid);
+        continue;
+      }
+      write(c);
+      const Node* n = c.phase == Phase::REMOVED ? nullptr : doc_.get(c.guid);
+      if (!n) continue;
+      if (n->props.type == NodeType::INSTANCE && (c.phase == Phase::CREATED || (c.mask & (F_SYMBOL_DATA | F_COMPONENT_PROP_ASSIGNMENTS)))) {
+        const ComponentFacet& comp = n->props.comp();
+        noteLacking(comp.symbolData.symbolID);
+        for (const SymbolOverride& o : comp.symbolData.overrides) {
+          const ComponentFacet& oc = std::as_const(o.props).comp();
+          if (o.mask & F_OVERRIDDEN_SYMBOL_ID) noteLacking(oc.overriddenSymbolID);
+          if (o.mask & F_COMPONENT_PROP_ASSIGNMENTS)
+            for (const ComponentPropAssignment& a : oc.componentPropAssignments) noteLacking(a.value.guidValue);
+        }
+        for (const ComponentPropAssignment& a : comp.componentPropAssignments) noteLacking(a.value.guidValue);
+      }
+      if ((c.phase == Phase::CREATED || (c.mask & F_EXTRA)) && n->props.extra.count("prototypeInteractions"))
+        for (Guid dest : interactionTargets(n->props)) noteLacking(dest);
+      continue;
+    }
     write(c);
   }
   libraryWrite_ = libraryWriteBefore;
@@ -1265,6 +1387,98 @@ std::vector<NodeChange> Editor::encodeDocument() const {
     out.push_back(NodeChange::created(id, doc_.get(id)->props));
     for (Guid c : doc_.children(id))
       if (!c.isDerived()) self(self, c);  // an instance's sublayers are derived, never stored
+  };
+  for (Guid r : roots) visit(visit, r);
+  return out;
+}
+
+void Editor::noteLacking(Guid id) {
+  if (id == kNoGuid || id.isDerived() || doc_.has(id) || lacking_.size() >= 64) return;
+  if (std::find(lacking_.begin(), lacking_.end(), id) == lacking_.end()) lacking_.push_back(id);
+}
+
+std::vector<NodeChange> Editor::encodePage(Guid page) const {
+  const Node* pageNode = doc_.get(page);
+  if (!pageNode || pageNode->props.type != NodeType::CANVAS) return encodeDocument();
+  // `whole`: subtrees kept; `in`: every node kept (those, and the ancestors of what is reached from elsewhere).
+  std::unordered_set<Guid, GuidHash> whole, in;
+  std::vector<Guid> scan;  // kept nodes still to read for references
+  auto addSubtree = [&](Guid root) {
+    for (Guid a = root; a != kNoGuid; a = doc_.parentOf(a))
+      if (whole.count(a)) return;
+    whole.insert(root);
+    std::vector<Guid> stack{root};
+    while (!stack.empty()) {
+      Guid id = stack.back();
+      stack.pop_back();
+      in.insert(id);
+      scan.push_back(id);
+      for (Guid k : doc_.children(id))
+        if (!k.isDerived()) stack.push_back(k);
+    }
+  };
+  auto addChain = [&](Guid id) {
+    for (Guid a = doc_.parentOf(id); a != kNoGuid && in.insert(a).second; a = doc_.parentOf(a)) {
+    }
+  };
+  // A node reached from the page: its subtree (a variant: its whole set, for Change to) and its ancestors.
+  std::unordered_set<Guid, GuidHash> reached;
+  auto reach = [&](Guid id) {
+    if (!reached.insert(id).second) return;  // thousands of instances show the same few components
+    const Node* n = id != kNoGuid && !id.isDerived() ? doc_.get(id) : nullptr;
+    if (!n || n->props.type == NodeType::DOCUMENT || n->props.type == NodeType::CANVAS) return;
+    if (const Node* p = doc_.get(n->props.parentIndex.guid); p && p->props.isComponentSet()) id = n->props.parentIndex.guid;
+    addSubtree(id);
+    addChain(id);
+  };
+  // The DOCUMENT, the page nodes, the internal canvases and the page whole; variables and styles wherever they are (the
+  // internal canvas holds them; the asset index finds any elsewhere without walking the whole document).
+  Guid docId = doc_.parentOf(page);
+  const Node* docNode = doc_.get(docId);
+  if (!docNode || docNode->props.type != NodeType::DOCUMENT) return encodeDocument();
+  std::vector<Guid> roots{docId};
+  for (const auto& [id, key] : keyOf_) {
+    const Node* n = doc_.get(id);
+    if (!n) continue;
+    const NodeProps& p = n->props;
+    if (p.type == NodeType::VARIABLE || p.type == NodeType::VARIABLE_SET || p.type == NodeType::VARIABLE_OVERRIDE || p.isStyle()) {
+      in.insert(id);
+      addChain(id);
+    }
+  }
+  for (Guid r : roots) {
+    in.insert(r);
+    for (Guid c : doc_.children(r)) {
+      const Node* cn = doc_.get(c);
+      if (!cn) continue;
+      in.insert(c);
+      if (c == page || cn->props.type != NodeType::CANVAS || cn->props.rare().internalOnly) addSubtree(c);
+    }
+  }
+  // What the kept nodes refer to, transitively.
+  std::vector<Guid> refs;
+  while (!scan.empty()) {
+    Guid id = scan.back();
+    scan.pop_back();
+    const Node* n = doc_.get(id);
+    if (!n) continue;
+    const NodeProps& p = n->props;
+    refs.clear();
+    if (p.type == NodeType::INSTANCE) mainsOfInstance(p, refs);
+    // An instance-swap property's default (what an instance bound to it shows where nothing assigns one).
+    if (p.isComponentish())
+      for (const ComponentPropDef& d : p.comp().componentPropDefs)
+        if (d.type == ComponentPropType::INSTANCE_SWAP) refs.push_back(d.initialValue.guidValue);
+    if (p.extra.count("prototypeInteractions"))
+      for (Guid dest : interactionTargets(p)) refs.push_back(dest);
+    for (Guid r : refs) reach(r);
+  }
+  std::vector<NodeChange> out;
+  out.reserve(in.size());
+  auto visit = [&](auto&& self, Guid id) -> void {
+    out.push_back(NodeChange::created(id, doc_.get(id)->props));
+    for (Guid c : doc_.children(id))
+      if (!c.isDerived() && in.count(c)) self(self, c);
   };
   for (Guid r : roots) visit(visit, r);
   return out;

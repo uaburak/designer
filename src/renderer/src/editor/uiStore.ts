@@ -201,6 +201,11 @@ export interface UIState extends PreferenceFlags {
   presenting: { page: Guid; node: Guid | null } | null;
   /** The inline preview (⇧Space): the page and the frame it started at */
   preview: { page: Guid; node: Guid | null } | null;
+  /**
+   * The inline preview's last opening, kept after it closes: its window stays mounted, hidden, its engine fed the
+   * changes, so the next ⇧Space shows at once (Figma hides its viewer too). Null drops it (memory pressure).
+   */
+  previewKept?: { page: Guid; node: Guid | null } | null;
   /** Share › developer preview (docs/data.md §13) */
   shareOpen: boolean;
   /** "Create link" (⇧⌘U): the link field, over this rect (viewport px: the caret or the layer) */

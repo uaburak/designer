@@ -13,6 +13,11 @@ _engine_load
 _engine_load_at
 _engine_apply_changes
 _engine_encode_document
+_engine_encode_page
+_engine_load_page_of
+_engine_set_partial
+_engine_take_lacking
+_engine_derive_next
 _engine_set_wire_format
 _engine_wire_format
 _engine_attachment

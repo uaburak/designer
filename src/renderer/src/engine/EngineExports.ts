@@ -105,6 +105,15 @@ export class EngineExports {
   applyChanges = (h: number, message: Uint8Array, flags: number): number =>
     this.withBytes([message], (p) => this.fn("apply_changes")(h, p[0], p[1], flags));
   encodeDocument = (h: number, flags: number): number => this.fn("encode_document")(h, flags);
+  /** What a prototype played on the page needs (kiwi): the page, the internal canvases, the components it reaches. */
+  encodePage = (h: number, flags: number, pageSessionID: number, pageLocalID: number): number => this.fn("encode_page")(h, flags, pageSessionID, pageLocalID);
+  /** encodePage's subset of engine `from` loaded into `h` directly (both in this module): no Message written or read. */
+  loadPageOf = (h: number, from: number, pageSessionID: number, pageLocalID: number): number => this.fn("load_page_of")(h, from, pageSessionID, pageLocalID);
+  /** A presentation's engine: 1 a page's subset (changes from elsewhere stay out, what they need is noted), 2 screens derived as shown. */
+  setPartial = (h: number, flags: number): number => this.fn("set_partial")(h, flags);
+  takeLacking = (h: number): number => this.fn("take_lacking")(h);
+  /** A partial engine's screens not shown yet derived for up to `budgetMs`: 1 while some remain. */
+  deriveNext = (h: number, budgetMs: number): number => this.fn("derive_next")(h, budgetMs);
   /** The engine's output format: WIRE_JSON (0) or WIRE_KIWI (1). */
   setWireFormat = (h: number, format: number): number => this.fn("set_wire_format")(h, format);
   wireFormat = (h: number): number => this.fn("wire_format")(h);

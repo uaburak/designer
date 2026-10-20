@@ -536,7 +536,7 @@ void Renderer::drawPattern(const Document& doc, Guid id, const NodeProps& p, con
   int src = tree->indexOf(x.sourceNodeId);
   if (src < 0) {
     Guid page = doc.pageOf(x.sourceNodeId);
-    if (page == kNoGuid || page == tree_->page()) return;
+    if (page == kNoGuid || (page == tree_->page() && !tree_->rooted())) return;
     RenderTree& t = trees_[page];
     t.sync(doc, page);
     tree = &t;

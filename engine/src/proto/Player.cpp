@@ -219,6 +219,7 @@ bool Player::start(Guid page, Guid start) {
     if (!seq.empty()) frame = seq[0];
   }
   if (frame == kNoGuid || !frameExists(frame)) return false;
+  ed_.deriveTree(frame);  // a partial engine derives the screens it shows (Editor::deriveTree)
   restoreResponsive();
   if (!scaleChosen_) {
     // Figma's default scale: the first of the file's order (Fill screen for a presentation, Fit device on screen with a
@@ -303,6 +304,19 @@ void Player::restoreOriginals() {
 }
 
 std::vector<Guid> Player::sequence() const {
+  SequenceMemo& m = sequence_;
+  uint64_t version = doc().version();
+  if (m.version != version || m.page != page_ || m.flow != flow_ || m.start != startFrame_) {
+    m.frames = computeSequence();
+    m.version = version;
+    m.page = page_;
+    m.flow = flow_;
+    m.start = startFrame_;
+  }
+  return m.frames;
+}
+
+std::vector<Guid> Player::computeSequence() const {
   std::vector<Guid> frames;
   for (Guid c : screens(doc(), page_))
     if (frameExists(c) && props(c)->isFrameLike() && props(c)->type != NodeType::SECTION) frames.push_back(c);
@@ -1249,6 +1263,7 @@ void Player::runAction(Guid source, const Action& a, const Hit* hotspot, Held* h
 
 void Player::navigate(Guid dest, const Action& a, bool record) {
   if (!frameExists(dest)) return;
+  ed_.deriveTree(dest);
   layout();
   Side x = baseSide();
   if (record) {
@@ -1342,6 +1357,7 @@ bool Player::back() {
 void Player::openOverlay(Guid dest, const Action& a, const Hit* hotspot, Held* held) {
   Guid frame = topLevelOf(dest);
   if (frame == kNoGuid || !frameExists(frame)) return;
+  ed_.deriveTree(frame);
   layout();
   for (auto& o : overlays_)
     if (o.frame == frame) return;  // already open
@@ -1387,6 +1403,7 @@ void Player::openOverlay(Guid dest, const Action& a, const Hit* hotspot, Held* h
 void Player::swapOverlay(Guid source, Guid dest, const Action& a) {
   Guid frame = topLevelOf(dest);
   if (frame == kNoGuid || !frameExists(frame)) return;
+  ed_.deriveTree(frame);
   layout();
   if (overlays_.empty()) {
     // No overlay to swap: Navigate to (Figma's `SWAP && !hasOverlay`).
@@ -2798,6 +2815,13 @@ const PresentScene& Player::scene() {
   scene_.items.clear();
   store_.clear();
   if (!active()) return scene_;
+  // Every screen drawn is derived (a partial engine's, Editor::deriveTree; a no-op otherwise).
+  ed_.deriveTree(base_);
+  for (const Shown& o : overlays_) ed_.deriveTree(o.frame);
+  if (anim_.active) {
+    ed_.deriveTree(anim_.x.frame);
+    ed_.deriveTree(anim_.y.frame);
+  }
   layout();
   if (mediaDirty_) syncMedia();
   const NodeProps* pg = props(page_);

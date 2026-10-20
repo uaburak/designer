@@ -598,6 +598,54 @@ export class Engine {
     });
   }
 
+  /**
+   * What a prototype played on `page` needs, as a kiwi snapshot Message (Editor::encodePage): the DOCUMENT, every page
+   * node, the internal canvases, the page whole, and from other pages the components its instances show (variants with
+   * their sets), their instance-swap defaults and its interactions' destinations, with their ancestors — the inline
+   * preview's and Present here's document (Figma's viewer loads only the page it presents).
+   */
+  encodePageKiwi(page: Guid, options: { derived?: boolean } = {}): Uint8Array {
+    const [s, l] = this.ids(page);
+    this.x.encodePage(this.h, options.derived ? ENCODE_DERIVED : 0, s, l);
+    return this.after(this.x.result());
+  }
+
+  /**
+   * `source`'s `encodePageKiwi(page)` loaded into this engine, showing `page`: straight from engine to engine when both
+   * live in this module (the editor's and its inline preview's — no Message written or read), else through the
+   * Message. Resets undo and the selection, as loadKiwi.
+   */
+  loadPageOf(source: Engine, page: Guid): number {
+    if (source.x !== this.x || source.destroyed) return this.loadKiwi(source.encodePageKiwi(page), { page });
+    const [s, l] = this.ids(page);
+    return this.loaded(this.after(this.x.loadPageOf(this.h, source.h, s, l)));
+  }
+
+  /**
+   * A presentation's engine, before its load. `subset`: it holds a page's subset (`encodePageKiwi`) — changes from
+   * elsewhere stay out, and the nodes a change needs that it lacks (a layer moved in, a component an instance now shows)
+   * are kept for `takeLacking`. `screens`: its page's screens are derived as the player shows them, not the whole page
+   * at load (`deriveNext` does the rest between frames).
+   */
+  setPartial(options: { subset?: boolean; screens?: boolean }): void {
+    this.after(this.x.setPartial(this.h, (options.subset ? 1 : 0) | (options.screens ? 2 : 0)));
+  }
+
+  /**
+   * A presentation's engine (`setPartial({screens})`) derives its page's screens as the player shows them (the first
+   * screen at once, not the whole page at load); this derives the ones not shown yet for up to `budgetMs` (between
+   * frames). True while some remain.
+   */
+  deriveNext(budgetMs: number): boolean {
+    return this.after(this.x.deriveNext(this.h, budgetMs) === 1);
+  }
+
+  /** The nodes changes needed since the last call (or load) that this partial engine doesn't have. */
+  takeLacking(): Guid[] {
+    if (this.x.takeLacking(this.h) !== Status.OK) return this.after([]);
+    return this.after((JSON.parse(decodeText(this.x.result())) as { nodes: Guid[] }).nodes);
+  }
+
   /** The selection as a kiwi clipboard Message (pastePageId, pasteFileKey, isCut, clipboardSelectionRegions), or null. */
   encodeSelectionKiwi(options: { cut?: boolean } = {}): Uint8Array | null {
     return this.withWire("kiwi", () => {
@@ -666,8 +714,26 @@ export class Engine {
 
   /** Asks for a frame (render on demand). */
   schedule(): void {
-    if (this.frameRequested || !this.h || this.headless) return;
+    if (this.frameRequested || !this.h || this.headless || this.paused) return;
     this.frameRequested = requestAnimationFrame(this.frame);
+  }
+
+  private paused = false;
+
+  /**
+   * Paused, the engine draws nothing and asks for no frames (a hidden view's engine: the kept inline preview); changes
+   * still apply. Resumed, it asks for a frame.
+   */
+  setPaused(paused: boolean): void {
+    if (paused === this.paused) return;
+    this.paused = paused;
+    if (paused) {
+      if (this.frameRequested) cancelAnimationFrame(this.frameRequested);
+      this.frameRequested = 0;
+      clearTimeout(this.frameTimer);
+    } else {
+      this.schedule();
+    }
   }
 
   /** Frame times and dropped frames in Figma's histograms (frameTelemetry.ts). */
@@ -695,7 +761,7 @@ export class Engine {
    * showed.
    */
   frameNow(): void {
-    if (!this.h || this.headless) return;
+    if (!this.h || this.headless || this.paused) return;
     if (this.frameRequested) cancelAnimationFrame(this.frameRequested);
     this.frame(performance.now());
   }

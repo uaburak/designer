@@ -1027,6 +1027,8 @@ class Renderer {
   // The pages' render trees (the current page's, and those thumbnails were drawn from), kept in step with the
   // document (render/RenderTree.h).
   std::unordered_map<Guid, RenderTree, GuidHash> trees_;
+  // The presentation view's screens' trees (renderScene): each shown screen's own (RenderTree's `root`), not the page's.
+  std::unordered_map<Guid, RenderTree, GuidHash> screenTrees_;
   const RenderTree* tree_ = nullptr;  // this frame's
   std::vector<Guid> lifted_;          // this frame's Overlay::lifted (drawn after their siblings)
   std::vector<Guid> ghosts_;          // this frame's Overlay::ghosts (drawn over everything, not in place)

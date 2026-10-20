@@ -41,7 +41,14 @@ export function EngineHealth() {
 
   useEffect(() => {
     const monitor = new MemoryMonitor(
-      { used: () => (ed.engine.destroyed ? null : ed.engine.heapUsed()), purge: () => ed.engine.purgeMemory() },
+      {
+        used: () => (ed.engine.destroyed ? null : ed.engine.heapUsed()),
+        purge: () => {
+          ed.engine.purgeMemory();
+          // The inline preview kept hidden for its next opening (InlinePreview.tsx) goes too.
+          if (!ed.ui.get().preview) ed.ui.set({ previewKept: null });
+        },
+      },
       heapModeOf(location.search)
     );
     const off = [

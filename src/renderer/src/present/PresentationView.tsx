@@ -21,7 +21,7 @@
  * variant is only the prototype of the editor's inline preview (InlinePreview.tsx draws its window and header).
  */
 import { t, useT } from "@/i18n";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button, Dialog, Icon, IconButton, MenuButton, Spinner, showToast, type IconName, type MenuEntry } from "@/ds";
 import { MOD_ALT, MOD_CTRL, MOD_META, MOD_SHIFT, Status } from "@/engine/abi";
 import { Engine, type ImageSource, type PresentScale, type PresentState } from "@/engine/Engine";
@@ -37,6 +37,16 @@ export interface PresentationSource {
   /** Live changes (kiwi NODE_CHANGES Messages) until the returned function is called */
   subscribe?(apply: (bytes: Uint8Array) => void): () => void;
   images?: ImageSource;
+  /**
+   * Instead of `load`: fills the engine straight from another one in this module (Engine.loadPageOf — the editor's
+   * engine, no Message written or read); called again when a partial document is loaded anew.
+   */
+  loadInto?(engine: Engine): void;
+  /**
+   * The document is a page's subset (Engine.encodePageKiwi: the editor's own): the engine keeps out what happens on
+   * other pages, and when a change needs a node it lacks that the file has (`has`), the subset is loaded again.
+   */
+  partial?: { has(id: Guid): boolean };
 }
 
 export interface PresentationViewProps {
@@ -63,6 +73,11 @@ export interface PresentationViewProps {
   onShare?: (screen: Guid | null) => void;
   /** Figma's prototype URL parameters (`presentUrlOptions`): the scale, hints, device frame and UI to start with */
   urlOptions?: PresentUrlOptions;
+  /**
+   * Hidden (the inline preview closed, kept for its next opening): the player stops, the engine draws nothing and asks
+   * for no frames, its videos go; the document still follows the changes. Shown again, it starts at `node` at once.
+   */
+  hidden?: boolean;
 }
 
 /** What a prototype link's parameters ask for (atlas 13 §10.6). */
@@ -278,7 +293,7 @@ const readSidebar = (): boolean => {
   }
 };
 
-export function PresentationView({ source, page, node, onClose, onReady, onShare, canvasId = "present-canvas", variant = "full", onRestart, onOpenEditor, onState, urlOptions }: PresentationViewProps) {
+export function PresentationView({ source, page, node, onClose, onReady, onShare, canvasId = "present-canvas", variant = "full", onRestart, onOpenEditor, onState, urlOptions, hidden = false }: PresentationViewProps) {
   useT();
   const inline = variant === "inline";
   const onStateRef = useRef(onState);
@@ -328,6 +343,9 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     }
   }, []);
 
+  // The engine and its document, once per mount: loaded, sized, fed the source's changes (hidden too).
+  const [ready, setReady] = useState<Engine | null>(null);
+  const presentingRef = useRef(false);
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -335,14 +353,23 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     let engine: Engine | null = null;
     const cleanups: (() => void)[] = [];
     (async () => {
-      const [created, doc] = await Promise.all([Engine.create(canvas, { theme: "DARK", wire: "kiwi", sessionID: 1 }), source.load()]);
+      const created = await Engine.create(canvas, { theme: "DARK", wire: "kiwi", sessionID: 1 });
+      if (disposed) return created.destroy();
+      // The document once the engine is up: a mount undone meanwhile (React's development double mount) encodes nothing.
+      const doc = source.loadInto ? null : await source.load();
       if (disposed) return created.destroy();
       engine = created;
       engineRef.current = engine;
       window.__designerPresent = engine;
       if (source.images) engine.setImageSource(source.images);
-      engine.loadKiwi(doc.bytes, page ? { page } : {});
-      for (const frame of doc.frames ?? []) engine.applyChangesKiwi(frame, "load");
+      // Its page's screens are derived as they are shown (the first one only, now), not the whole page; a page's subset
+      // (the editor's) keeps out what happens elsewhere.
+      engine.setPartial({ subset: !!source.partial, screens: true });
+      if (source.loadInto) source.loadInto(engine);
+      else if (doc) {
+        engine.loadKiwi(doc.bytes, page ? { page } : {});
+        for (const frame of doc.frames ?? []) engine.applyChangesKiwi(frame, "load");
+      }
       // The size first: the player lays the screen out in the canvas.
       const observer = new ResizeObserver(() => {
         const r = canvas.getBoundingClientRect();
@@ -355,32 +382,29 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       });
       observer.observe(canvas);
       cleanups.push(() => observer.disconnect());
-      const r = canvas.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
-      engine.setViewport(Math.max(1, r.width), Math.max(1, r.height), dpr, Math.max(1, Math.round(r.width * dpr)), Math.max(1, Math.round(r.height * dpr)));
-      engine.presentSetOptions({ host: presentHost() });
-      const start = node ?? urlOptions?.node;
-      const status = engine.presentStart({ ...(page ? { page } : {}), ...(start ? { node: start } : {}) });
-      if (status !== Status.OK) {
-        setError(t("This page has no frames to present"));
-        return;
+      if (source.subscribe) {
+        // A page's subset: a change that needs a node it lacks (and the file has) loads the page's subset again, the
+        // prototype going on from the screen it shows.
+        const refill = (next: { bytes: Uint8Array } | null) => {
+          if (!engine || engine.destroyed) return;
+          const presenting = presentingRef.current;
+          const screen = presenting ? engine.presentState().screen : null;
+          if (presenting) engine.presentStop();
+          if (next) engine.loadKiwi(next.bytes, page ? { page } : {});
+          else source.loadInto?.(engine);
+          if (presenting) engine.presentStart({ ...(page ? { page } : {}), ...(screen ? { node: screen } : {}) });
+          readState();
+        };
+        const reload = () => (source.loadInto ? refill(null) : void source.load().then(refill));
+        cleanups.push(
+          source.subscribe((bytes) => {
+            if (!engine || engine.destroyed) return;
+            engine.applyChangesKiwi(bytes, "remote");
+            if (source.partial && engine.takeLacking().some((id) => source.partial!.has(id))) reload();
+          })
+        );
       }
-      // A prototype link's parameters, over the file's own settings; in a mobile browser Fit width and no device frame
-      // unless the link says otherwise.
-      const mobile = !inline && isMobileBrowser();
-      const { scale = mobile ? "FIT_WIDTH" : undefined, hints, deviceFrame = mobile ? false : undefined } = urlOptions ?? {};
-      if (scale || hints !== undefined || deviceFrame !== undefined) engine.presentSetOptions({ ...(scale ? { scale } : {}), ...(hints !== undefined ? { hints } : {}), ...(deviceFrame !== undefined ? { deviceFrame } : {}) });
-      if (source.subscribe) cleanups.push(source.subscribe((bytes) => engine && !engine.destroyed && engine.applyChangesKiwi(bytes, "remote")));
-      // The videos: played by the browser, decided by the player.
-      const videos = new PresentationVideos(engine, source.images, videoHost.current);
-      cleanups.push(() => videos.dispose());
-      (window as unknown as { __designerVideos?: PresentationVideos }).__designerVideos = videos;
-      // After delay, transitions and the scale change the state without input: read it a few times a second.
-      const timer = window.setInterval(readState, 150);
-      cleanups.push(() => window.clearInterval(timer));
-      readState();
-      if (!inline) canvas.focus({ preventScroll: true });
-      onReady?.(engine);
+      setReady(engine);
     })().catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
     return () => {
       disposed = true;
@@ -389,9 +413,68 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       engine?.destroy();
       engineRef.current = null;
     };
-    // The source, page and start are fixed for a mount.
+    // The source and page are fixed for a mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source]);
+
+  // Presenting while shown: the player from `node`, the videos, the state read; hidden, the engine is idle (no player,
+  // no frames). A layout effect: shown again, it presents before the canvas's size is observed and painted.
+  useLayoutEffect(() => {
+    const engine = ready;
+    const canvas = canvasRef.current;
+    if (!engine || engine.destroyed || !canvas) return;
+    if (hidden) {
+      engine.setPaused(true);
+      return;
+    }
+    engine.setPaused(false);
+    const r = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    engine.setViewport(Math.max(1, r.width), Math.max(1, r.height), dpr, Math.max(1, Math.round(r.width * dpr)), Math.max(1, Math.round(r.height * dpr)));
+    engine.presentSetOptions({ host: presentHost() });
+    const start = node ?? urlOptions?.node;
+    const status = engine.presentStart({ ...(page ? { page } : {}), ...(start ? { node: start } : {}) });
+    // (Told after this effect: the page may have gained frames since a failed opening.)
+    const failed = status !== Status.OK;
+    queueMicrotask(() => setError(failed ? t("This page has no frames to present") : null));
+    if (failed) return;
+    presentingRef.current = true;
+    // A prototype link's parameters, over the file's own settings; in a mobile browser Fit width and no device frame
+    // unless the link says otherwise.
+    const mobile = !inline && isMobileBrowser();
+    const { scale = mobile ? "FIT_WIDTH" : undefined, hints, deviceFrame = mobile ? false : undefined } = urlOptions ?? {};
+    if (scale || hints !== undefined || deviceFrame !== undefined) engine.presentSetOptions({ ...(scale ? { scale } : {}), ...(hints !== undefined ? { hints } : {}), ...(deviceFrame !== undefined ? { deviceFrame } : {}) });
+    // The videos: played by the browser, decided by the player.
+    const videos = new PresentationVideos(engine, source.images, videoHost.current);
+    (window as unknown as { __designerVideos?: PresentationVideos }).__designerVideos = videos;
+    // After delay, transitions and the scale change the state without input: read it a few times a second.
+    const timer = window.setInterval(readState, 150);
+    readState();
+    if (!inline) canvas.focus({ preventScroll: true });
+    onReady?.(engine);
+    // The page's other screens, derived while the browser is idle (a few ms at a time, one screen at least), so going
+    // to them later doesn't wait for it.
+    let idle = 0;
+    const idleCall = (fn: (deadline?: IdleDeadline) => void): number =>
+      typeof requestIdleCallback === "function" ? requestIdleCallback(fn, { timeout: 2000 }) : window.setTimeout(fn, 50);
+    const derive = (deadline?: IdleDeadline) => {
+      idle = 0;
+      if (engine.destroyed) return;
+      if (engine.deriveNext(Math.max(2, Math.min(8, deadline?.timeRemaining() ?? 8)))) idle = idleCall(derive);
+    };
+    idle = idleCall(derive);
+    return () => {
+      if (idle) (typeof cancelIdleCallback === "function" ? cancelIdleCallback : window.clearTimeout)(idle);
+      window.clearInterval(timer);
+      videos.dispose();
+      presentingRef.current = false;
+      if (engine.destroyed) return;
+      engine.presentStop();
+      engine.setPaused(true);
+    };
+    // Shown again: from the `node` of that opening.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, hidden]);
 
   // Keys: the prototype's first (Key / Gamepad), then the presentation's.
   useEffect(() => {

@@ -141,7 +141,9 @@ void RenderTree::build(const Document& doc) {
   patternSources_.clear();
   hasRepeats_ = false;
   version_ = doc.version();
-  if (page_ != kNoGuid)
+  if (root_ != kNoGuid)
+    add(doc, root_, kNoParent, 0);
+  else if (page_ != kNoGuid)
     for (Guid c : doc.children(page_)) add(doc, c, kNoParent, 0);
   for (size_t i = nodes_.size(); i-- > 0;) bound(doc, static_cast<uint32_t>(i));
   built_ = true;
@@ -172,7 +174,7 @@ void RenderTree::attach(const Document& doc, Guid id, std::unordered_set<Guid, G
   if (!n || !n->props.visible) return;
   Guid parent = n->props.parentIndex.guid;
   uint32_t parentIndex = kNoParent;
-  if (parent != page_) {
+  if (parent != page_ || root_ != kNoGuid) {
     auto pit = index_.find(parent);
     if (pit == index_.end()) return;  // its parent isn't drawn (hidden, elsewhere, or itself waiting to be attached)
     parentIndex = pit->second;
@@ -285,9 +287,10 @@ RenderTree::Damage RenderTree::takeDamage() {
   return d;
 }
 
-bool RenderTree::sync(const Document& doc, Guid page) {
-  if (!built_ || page != page_) {
+bool RenderTree::sync(const Document& doc, Guid page, Guid root) {
+  if (!built_ || page != page_ || root != root_) {
     page_ = page;
+    root_ = root;
     build(doc);
     damage_ = Damage{true, {}};
     return true;
@@ -301,11 +304,11 @@ bool RenderTree::sync(const Document& doc, Guid page) {
   }
   // Structural changes here (or ones that bring a node here) re-place the node's subtree; the page itself changing,
   // or many at once, rebuild. A change elsewhere doesn't matter.
-  auto here = [&](Guid id) { return id == page_ || index_.count(id) != 0; };
+  auto here = [&](Guid id) { return (root_ == kNoGuid && id == page_) || index_.count(id) != 0; };
   std::vector<Guid> structural;
   for (const Document::ChangeRecord& c : changes_) {
     if (!c.structural) continue;
-    if (c.id == page_) {
+    if (c.id == page_ || (root_ != kNoGuid && c.id == root_)) {
       structural.clear();
       structural.push_back(page_);
       break;
@@ -365,6 +368,7 @@ bool RenderTree::consistent(const Document& doc) const {
   RenderTree fresh;
   fresh.ink_ = ink_;
   fresh.page_ = page_;
+  fresh.root_ = root_;
   fresh.build(doc);
   if (fresh.nodes_.size() != nodes_.size() || fresh.index_.size() != index_.size()) return false;
   auto near = [](const Rect& a, const Rect& b) {

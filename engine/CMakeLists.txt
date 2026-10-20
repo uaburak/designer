@@ -229,6 +229,7 @@ else()
     tests/unit/prototype.video.test.cpp
     tests/unit/proto.delay.test.cpp
     tests/unit/proto.wave4.test.cpp
+    tests/unit/proto.page_subset.test.cpp
     tests/unit/motion.easing.test.cpp
     tests/unit/devmode.test.cpp
     tests/unit/r7.selection.test.cpp

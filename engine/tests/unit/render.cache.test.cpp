@@ -831,3 +831,47 @@ TEST_CASE("memory: the high-memory purge drops what the frames rebuild; the next
   CHECK(contentInstances(dev) == full);
   CHECK(r.curveCache().texelCount() > 0);
 }
+
+TEST_CASE("render tree: one layer's subtree (the presentation's screens) — only it, kept in step, the rest of the page apart") {
+  Document d;
+  base(d);
+  d.apply(make({1, 1}, NodeType::FRAME, kPage, "A", {0, 0, 100, 100}, "Screen"));
+  d.apply(make({1, 2}, NodeType::ROUNDED_RECTANGLE, {1, 1}, "A", {10, 10, 20, 20}));
+  d.apply(make({1, 3}, NodeType::FRAME, kPage, "B", {300, 0, 100, 100}, "Other"));
+  d.apply(make({1, 4}, NodeType::ELLIPSE, {1, 3}, "A", {10, 10, 20, 20}));
+  RenderTree t;
+  t.sync(d, kPage, {1, 1});
+  REQUIRE(t.rooted());
+  REQUIRE(t.size() == 2);
+  CHECK(t.indexOf({1, 1}) == 0);
+  CHECK(t.indexOf({1, 3}) == -1);
+  CHECK(t.nodes()[0].end == 2);
+  uint32_t rebuilds = t.rebuilds();
+  // A layer added in it is placed (no rebuild); one added elsewhere on the page, or moved out of it, isn't here.
+  d.apply(make({1, 5}, NodeType::ELLIPSE, {1, 1}, "B", {40, 40, 10, 10}));
+  d.apply(make({1, 6}, NodeType::ELLIPSE, kPage, "C", {600, 0, 10, 10}));
+  t.sync(d, kPage, {1, 1});
+  CHECK(t.rebuilds() == rebuilds);
+  CHECK(t.indexOf({1, 5}) == 2);
+  CHECK(t.indexOf({1, 6}) == -1);
+  CHECK(t.consistent(d));
+  NodeChange out = NodeChange::changed({1, 2});
+  out.mask = F_PARENT_INDEX;
+  out.props.parentIndex = {kPage, "D"};
+  d.apply(out);
+  t.sync(d, kPage, {1, 1});
+  CHECK(t.indexOf({1, 2}) == -1);
+  CHECK(t.size() == 2);
+  CHECK(t.consistent(d));
+  // A change of the screen itself rebuilds; another root is another tree.
+  NodeChange hide = NodeChange::changed({1, 1});
+  hide.mask = F_VISIBLE;
+  hide.props.visible = false;
+  d.apply(hide);
+  t.sync(d, kPage, {1, 1});
+  CHECK(t.size() == 0);
+  t.sync(d, kPage, {1, 3});
+  CHECK(t.indexOf({1, 3}) == 0);
+  CHECK(t.indexOf({1, 4}) == 1);
+  CHECK(t.consistent(d));
+}

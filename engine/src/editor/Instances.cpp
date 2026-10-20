@@ -363,7 +363,8 @@ bool Editor::instanceWaits(Guid r) const {
   Guid page = doc_.pageOf(r);
   const Node* pn = page != kNoGuid ? doc_.get(page) : nullptr;
   if (!pn) return false;
-  if (!pn->props.rare().internalOnly) return !derivedPages_.count(page);
+  // A presentation's page (setLazyScreens): an instance on a screen not shown yet waits for it (deriveTree).
+  if (!pn->props.rare().internalOnly) return !derivedPages_.count(page) || (lazyScreens_ && !inDerivedTree(r));
   Guid top = internalRootOf(r);
   return top != kNoGuid && !derivedInternal_.count(top);
 }

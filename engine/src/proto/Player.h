@@ -104,7 +104,9 @@ class Player {
   Vec2 scrollOf(Guid frame) const;
   bool animating() const;
   bool hotspotUnder() const { return hotspot_; }
-  // The frames → and ← go through (the flow's connected frames, else every frame of the page).
+  // The frames → and ← go through (the flow's connected frames, else every frame of the page). Kept per document
+  // version: the state is read a few times a second, and the connected frames are found by reading every layer of
+  // them (a heavy screen's thousands).
   std::vector<Guid> sequence() const;
   // Screen geometry: the device screen's size (design units) and where it is on the canvas (CSS px).
   Vec2 screenSize() const { return view_.screen; }
@@ -423,6 +425,13 @@ class Player {
   void silentBack();
 
   Editor& ed_;
+  struct SequenceMemo {
+    uint64_t version = ~0ull;
+    Guid page, flow, start;
+    std::vector<Guid> frames;
+  };
+  mutable SequenceMemo sequence_;
+  std::vector<Guid> computeSequence() const;
   Guid page_ = kNoGuid, base_ = kNoGuid, flow_ = kNoGuid;
   Guid startFrame_ = kNoGuid;  // where the presentation started (Restart without a flow)
   std::vector<Shown> overlays_;

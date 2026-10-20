@@ -45,8 +45,11 @@ class RenderTree {
   static constexpr uint32_t kNoParent = 0xffffffffu;
 
   // Brings the tree up to the document's version for `page` (built on first use or when the page changes).
-  // Returns true when it was rebuilt.
-  bool sync(const Document& doc, Guid page);
+  // Returns true when it was rebuilt. `root`: only that layer of the page and its subtree (the presentation view's
+  // screens: a frame shown doesn't cost the whole page's tree; it is the tree's first node).
+  bool sync(const Document& doc, Guid page, Guid root = kNoGuid);
+  // The tree holds one layer's subtree (sync's `root`), not the page's.
+  bool rooted() const { return root_ != kNoGuid; }
   // Where a TEXT node's glyphs reach (node space; false: unknown) — text can overflow its box (a fixed-size box,
   // overhangs): its visual bounds include it, so it is neither culled nor left stale where it overflows.
   void setTextInk(std::function<bool(Guid, Rect&)> ink) { ink_ = std::move(ink); }
@@ -95,6 +98,7 @@ class RenderTree {
   void rebound(const Document& doc, std::vector<Guid>& ids);
 
   Guid page_ = kNoGuid;
+  Guid root_ = kNoGuid;
   bool built_ = false;
   uint64_t version_ = 0;
   std::vector<RenderNode> nodes_;

@@ -1382,7 +1382,7 @@ async function prototypeSection(page, theme) {
   await panel.getByRole("tab", { name: "Prototype" }).click();
   await settle(page);
   // Nothing selected: Device, Background, Flows.
-  check("Prototype tab, nothing selected: Device, Background, Flows", (await panel.getByRole("region", { name: "Device" }).count()) === 1 && (await panel.getByRole("region", { name: "Background" }).count()) === 1 && (await panel.getByRole("region", { name: "Flows" }).count()) === 1);
+  check("Prototype tab, nothing selected: Prototype settings, Flows", (await panel.getByRole("region", { name: "Prototype settings" }).count()) === 1 && (await panel.getByRole("region", { name: "Flows" }).count()) === 1);
   check("Flows lists the page's flow", (await panel.locator("[data-flow]").getByText("Onboarding").count()) === 1);
   await shot(page, `90-prototype-tab-${theme}`);
 
@@ -1459,25 +1459,24 @@ async function prototypeSection(page, theme) {
   const pres = page.locator("[data-presentation]");
   check(
     "the presentation's toolbar: sidebar, comments (disabled), Share, Options, Full screen, Restart",
-    (await pres.getByRole("button", { name: "Show sidebar" }).count()) === 1 &&
+    (await pres.getByRole("button", { name: "Open flows list" }).count()) === 1 &&
       (await pres.getByRole("button", { name: "Comments aren't available in this app" }).isDisabled()) &&
-      (await pres.getByRole("button", { name: "Share" }).count()) === 1 &&
-      (await pres.getByRole("button", { name: "Options" }).count()) === 1 &&
-      (await pres.getByRole("button", { name: "Full screen" }).count()) === 1 &&
+      (await pres.getByRole("button", { name: "Share prototype" }).count()) === 1 &&
+      (await pres.getByRole("button", { name: "Options", exact: true }).count()) === 1 &&
+      (await pres.getByRole("button", { name: "Enter full screen" }).count()) === 1 &&
       (await pres.getByRole("button", { name: "Restart" }).count()) === 1
   );
-  await pres.getByRole("button", { name: "Show sidebar" }).click();
+  await pres.getByRole("button", { name: "Open flows list" }).click();
   await settle(page);
   check("the flows sidebar lists the page's flows", (await pres.getByRole("complementary", { name: "Flows" }).locator("[data-flow]").getByText("Onboarding").count()) === 1);
   await shot(page, `140-present-flows-sidebar-${theme}`);
-  await pres.getByRole("button", { name: "Hide sidebar" }).click();
-  await pres.getByRole("button", { name: "Options" }).click();
+  await pres.getByRole("button", { name: "Close flows list" }).click();
+  await pres.getByRole("button", { name: "Options", exact: true }).click();
   check(
-    "the options: Enable Figma shortcuts, Show hints on click, Show sidebar, Hide UI, Recommended scales, Keyboard shortcuts",
-    (await page.getByRole("menuitemcheckbox", { name: "Enable Figma shortcuts" }).count()) === 1 &&
-      (await page.getByRole("menuitemcheckbox", { name: "Hide UI" }).count()) === 1 &&
+    "the options (live 2026-10-20): Recommended scales, Advanced settings, Hide UI",
+    (await page.getByRole("menuitemcheckbox", { name: "Hide UI" }).count()) === 1 &&
       (await page.getByText("Recommended").count()) >= 1 &&
-      (await page.getByRole("menuitem", { name: /Keyboard shortcuts/ }).count()) === 1
+      (await page.getByRole("menuitem", { name: /Advanced settings/ }).count()) === 1
   );
   await page.keyboard.press("Escape");
   await page.locator("[data-presentation] canvas").focus();
@@ -1562,12 +1561,31 @@ async function prototypeSection(page, theme) {
   await page.waitForTimeout(200);
   check("selecting another frame on the canvas jumps the preview to it", (await preview()).screen === "2:20", JSON.stringify(await preview()));
   await page.locator("[data-inline-preview]").getByRole("button", { name: "Preview options" }).click();
-  check("the preview's menu: Responsive, Follow prototype, Resize window to 100%, Respect aspect ratio", (await page.getByRole("menuitemcheckbox", { name: "Follow prototype" }).count()) === 1 && (await page.getByRole("menuitemcheckbox", { name: "Respect aspect ratio" }).count()) === 1 && (await page.getByText("Resize window to 100%").count()) === 1);
+  check("the preview's menu: Fit width, Follow prototype, Resize window to 100%, Reset aspect ratio", (await page.getByRole("menuitemcheckbox", { name: "Follow prototype" }).count()) === 1 && (await page.getByRole("menuitemcheckbox", { name: "Reset aspect ratio" }).count()) === 1 && (await page.getByText("Resize window to 100%").count()) === 1);
   await shot(page, `106-inline-preview-menu-${theme}`);
   await page.keyboard.press("Escape");
-  await page.locator("[data-inline-preview]").getByRole("button", { name: "Close preview" }).click();
+  await page.evaluate(() => (window.__keptPreview = window.__designerPreview));
+  await page.locator("[data-inline-preview]").getByRole("button", { name: "Close", exact: true }).click();
   await settle(page);
-  check("× closes the inline preview", (await page.locator("[data-inline-preview]").count()) === 0);
+  // 2026-10-20: closed, the window stays mounted, hidden, its engine idle (no player) but kept for the next opening.
+  check(
+    "× closes the inline preview (kept hidden, its engine idle)",
+    (await page.locator("[data-inline-preview]:not([data-closed])").count()) === 0 && (await page.evaluate(() => !window.__keptPreview.destroyed && !window.__keptPreview.presentState().active))
+  );
+  // An edit while it is closed reaches its engine; ⇧Space opens it again at once, on the same engine.
+  await page.evaluate(() => window.__designerEditor.setProps(["2:20"], { name: "Menu (edited)" }, "Rename"));
+  await select("2:1");
+  await page.evaluate(() => window.__designerEditor.focusCanvas());
+  await page.keyboard.press("Shift+Space");
+  await page.waitForFunction(() => window.__designerPreview && window.__designerPreview.presentState().active, null, { timeout: 5000 });
+  p = await preview();
+  check(
+    "⇧Space again shows the kept preview at once, on the same engine, edits included",
+    (await page.evaluate(() => window.__designerPreview === window.__keptPreview && window.__keptPreview.readNode("2:20", { fields: ["name"] })?.name === "Menu (edited)")) && p.screen === "2:1",
+    JSON.stringify(p)
+  );
+  await page.evaluate(() => window.__designerEditor.ui.set({ preview: null }));
+  await settle(page);
 
   // A device with a frame and a Model: the Prototype tab's Model, the presentation's bezel.
   await select();
@@ -1581,7 +1599,7 @@ async function prototypeSection(page, theme) {
   s = await state();
   check("presenting on a device draws its frame (Fit device on screen)", s.hasDeviceFrame === true && s.deviceFrame === true && s.scale === "FIT", JSON.stringify(s));
   await shot(page, `108-present-device-frame-${theme}`);
-  await page.locator("[data-presentation]").getByRole("button", { name: "Options" }).click();
+  await page.locator("[data-presentation]").getByRole("button", { name: "Options", exact: true }).click();
   check("the options with a device: Responsive / Fixed size", (await page.getByRole("menuitemcheckbox", { name: "Fixed size" }).count()) === 1 && (await page.getByRole("menuitemcheckbox", { name: "Responsive" }).count()) === 1);
   await page.keyboard.press("Escape");
   await page.locator("[data-presentation]").getByRole("button", { name: "Device" }).click();

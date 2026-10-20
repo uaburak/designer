@@ -640,6 +640,75 @@ ENG_EXPORT int32_t engine_encode_document(Handle h, uint32_t flags) {
   return setResult(w.take());
 }
 
+// What a prototype played on the page needs (Editor::encodePage: the page, the internal canvases, and the components
+// and destinations it reaches on other pages), as a kiwi snapshot Message — the inline preview's and Present here's
+// document. flags: ENCODE_DERIVED (1) adds the derived data, as engine_encode_document's.
+ENG_EXPORT int32_t engine_encode_page(Handle h, uint32_t flags, uint32_t pageSessionID, uint32_t pageLocalID) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  auto motionGuard = e->editor.motionSuspended();  // storage reads base values (docs/motion.md §5)
+  codec::KiwiWriteOptions opts;
+  if (flags & ENCODE_DERIVED) {
+    opts.derivedDataVersion = Editor::kDerivedDataVersion;
+    Editor& ed = e->editor;
+    opts.extraFields = [&ed](const NodeChange& c, std::string& fields, codec::BlobsOut& blobs) { ed.encodeDerivedFields(c.guid, fields, blobs); };
+  }
+  return setResult(codec::writeMessage(e->editor.sessionID(), e->editor.encodePage({pageSessionID, pageLocalID}), opts));
+}
+
+// engine_encode_page's subset of engine `from` loaded into this one directly — no Message written and read: both
+// engines live in this module (the editor's and its inline preview's), and the nodes are the same either way. Showing
+// `page`; resets undo and the selection, as engine_load_at.
+ENG_EXPORT int32_t engine_load_page_of(Handle h, Handle from, uint32_t pageSessionID, uint32_t pageLocalID) {
+  Call call;
+  Engine* e = engineOf(h);
+  Engine* src = engineOf(from);
+  if (!e || !src || e == src) return E_HANDLE;
+  Guid page{pageSessionID, pageLocalID};
+  std::vector<NodeChange> nodes;
+  {
+    auto motionGuard = src->editor.motionSuspended();  // storage reads base values (docs/motion.md §5)
+    nodes = src->editor.encodePage(page);
+  }
+  e->editor.loadDocument(std::move(nodes), page);
+  return OK;
+}
+
+// A presentation's engine, set before its load. flags: 1 — it holds a page's subset (engine_encode_page): changes from
+// elsewhere stay out, what they need that it lacks is noted (engine_take_lacking); 2 — its page's screens are derived
+// as the player shows them (Editor::deriveTree), not the whole page at load (engine_derive_next does the rest).
+ENG_EXPORT int32_t engine_set_partial(Handle h, uint32_t flags) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  e->editor.setPartial((flags & 1) != 0);
+  e->editor.setLazyScreens((flags & 2) != 0);
+  return OK;
+}
+
+// A partial engine derives its page's screens as they are shown; this spends up to `budgetMs` deriving the ones not
+// shown yet (the presented page's, else the current one's), between frames. 1 while some remain.
+ENG_EXPORT int32_t engine_derive_next(Handle h, double budgetMs) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  Guid page = e->presenting() ? e->player->page() : e->editor.page();
+  return e->editor.deriveNextTrees(page, budgetMs) ? 1 : 0;
+}
+
+// {"nodes":["s:l"…]}: the nodes changes needed that this partial engine doesn't have, since the last call or load.
+ENG_EXPORT int32_t engine_take_lacking(Handle h) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  json::Writer w;
+  w.beginObject().key("nodes").beginArray();
+  for (Guid id : e->editor.takeLacking()) w.string(id.toString());
+  w.endArray().endObject();
+  return setResult(w.take());
+}
+
 // The wire format of the engine's outputs: 0 = the interim JSON, 1 = kiwi (docs/engine-build.md "Figma parity round 3").
 ENG_EXPORT int32_t engine_set_wire_format(Handle h, uint32_t format) {
   Call call;
