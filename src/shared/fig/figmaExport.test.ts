@@ -10,6 +10,7 @@ import { deflateRawSync, inflateRawSync, zstdCompressSync, zstdDecompressSync } 
 import { decodeBinarySchema, parseSchema } from "kiwi-schema";
 import { describe, expect, it } from "vitest";
 import type { Message, NodeChange } from "../schema/document.generated";
+import { guidKey } from "../schema/guid";
 import { DERIVED_FIELDS, NodeTable, tablesEqual } from "../schema/patch";
 import { interpretSchema } from "../schema/dynamic";
 import type { FigCodecs } from "./compression";
@@ -250,7 +251,7 @@ describe("components as Figma stores them (components.md task 8)", () => {
       const label = defs[0];
       const text = nodes.get(k(t));
       expect(k(text.parameterConsumptionMap.entries[0].variableData.value.propRefValue.defId)).toBe(k(label.id));
-      expect(text.componentPropRefs).toEqual([{ nodeField: 42, defID: label.id, componentPropNodeField: "TEXT_DATA", isDeleted: undefined, zombieFallbackName: undefined }].map((r) => JSON.parse(JSON.stringify(r))));
+      expect(text.componentPropRefs).toEqual([{ defID: label.id, componentPropNodeField: "TEXT_DATA", isDeleted: undefined, zombieFallbackName: undefined }].map((r) => JSON.parse(JSON.stringify(r))));
     }
     const ids = [...nodes.get(k(V1)).componentPropDefs, ...nodes.get(k(V2)).componentPropDefs].map((d: any) => k(d.id));
     expect(new Set(ids).size).toBe(2);
@@ -264,8 +265,59 @@ describe("components as Figma stores them (components.md task 8)", () => {
     // A variant property's def on Figma's id for its name, the variants' specs on it.
     expect(setDefs.find((d: any) => d.name === "Size").id).toEqual(figmaVariantDefId("Size"));
     expect(nodes.get(k(V2)).variantPropSpecs[0].propDefId).toEqual(figmaVariantDefId("Size"));
-    expect(nodes.get(k(R1)).componentPropRefs[0]).toMatchObject({ nodeField: 6, componentPropNodeField: "VISIBLE" });
+    expect(nodes.get(k(R1)).componentPropRefs[0]).toMatchObject({ componentPropNodeField: "VISIBLE" });
+    expect(nodes.get(k(R1)).componentPropRefs[0].nodeField).toBeUndefined(); // Figma's own files write none
     expect(nodes.get(k(INST)).symbolData.symbolOverrides[0].guidPath.guids).toEqual([xs.guid(LOCAL)]);
+  });
+
+  it("keeps every property binding and assignment within its own component (Figma aborts opening the file otherwise)", () => {
+    // A duplicated set (SET2) keeps the def ids of the first; an instance of each set's variant; a component of its
+    // own (LOCAL) whose text a stale import bound to the set's "Label" — it has a "Label" of its own.
+    const SET2 = g(9, 1), V3 = g(9, 2), T3 = g(9, 3), TL = g(9, 4), I1 = g(9, 5), I3 = g(9, 6), OWN = g(9, 7);
+    const m = components();
+    const nodes = m.nodeChanges!.map((n) => (guidKey(n.guid!) === guidKey(LOCAL) ? { ...n, componentPropDefs: [{ id: OWN, name: "Label", type: "TEXT", initialValue: { textValue: { characters: "x" } } }] } : n));
+    const set = nodes.find((n) => guidKey(n.guid!) === guidKey(SET))!;
+    nodes.push(
+      node(SET2, "FRAME", g(0, 1), "&", { name: "Button copy", isStateGroup: true, size: { x: 200, y: 100 }, componentPropDefs: set.componentPropDefs }),
+      node(V3, "SYMBOL", SET2, "!", { name: "Size=S", size: { x: 100, y: 40 }, variantPropSpecs: [{ propDefId: SIZE, value: "S" }] }),
+      node(T3, "TEXT", V3, "!", { name: "Label", textData: { characters: "Go" }, parameterConsumptionMap: { entries: [ref("TEXT_DATA", "TEXT_DATA", LABEL)] } }),
+      node(TL, "TEXT", LOCAL, "!", { name: "Label", textData: { characters: "x" }, parameterConsumptionMap: { entries: [ref("TEXT_DATA", "TEXT_DATA", LABEL)] } }),
+      node(I1, "INSTANCE", g(0, 1), "'", { size: { x: 100, y: 40 }, symbolData: { symbolID: V1, symbolOverrides: [] }, componentPropAssignments: [{ defID: LABEL, value: { textValue: { characters: "a" } } }] }),
+      node(I3, "INSTANCE", g(0, 1), "(", { size: { x: 100, y: 40 }, symbolData: { symbolID: V3, symbolOverrides: [] }, componentPropAssignments: [{ defID: LABEL, value: { textValue: { characters: "b" } } }] }),
+    );
+    const msg = { ...m, nodeChanges: nodes } as Message;
+    const out = byKey(figma.decode("Message", decodeCanvas(encodeFigmaCanvas(msg, codecs), codecs).message));
+    const xs = exportIds(msg);
+    const k = (x: any) => xs.key(x);
+    const implicit = (v: any) => k(out.get(k(v)).componentPropDefs.find((d: any) => k(d.parentPropDefId) === k(LABEL)).id);
+    expect(implicit(V1)).not.toBe(implicit(V3));
+    expect(k(out.get(k(I1)).componentPropAssignments[0].defID)).toBe(implicit(V1));
+    expect(k(out.get(k(I3)).componentPropAssignments[0].defID)).toBe(implicit(V3));
+    expect(k(out.get(k(T3)).componentPropRefs[0].defID)).toBe(implicit(V3));
+    expect(k(out.get(k(TL)).componentPropRefs[0].defID)).toBe(k(OWN));
+  });
+
+  it("refers to a library's variables and styles by assetRef, as Figma writes them; local ones by guid", () => {
+    const VAR = g(9, 10), LVAR = g(9, 11), STYLE = g(9, 12), R = g(9, 13);
+    const m = components();
+    const alias = (id: any) => ({ dataType: "ALIAS", resolvedDataType: "COLOR", value: { alias: { guid: id } } });
+    m.nodeChanges!.push(
+      node(VAR, "VARIABLE", g(0, 2), "\"", { name: "brand", key: "d".repeat(40), version: "12:3", sourceLibraryKey: "LIB" }),
+      node(LVAR, "VARIABLE", g(0, 2), "#", { name: "local", key: "e".repeat(40) }),
+      node(STYLE, "RECTANGLE", g(0, 2), "$", { name: "Fill", styleType: "FILL", key: "f".repeat(40), version: "4:5", isPublishable: false }),
+      node(R, "RECTANGLE", g(0, 1), ")", {
+        size: { x: 10, y: 10 },
+        fillPaints: [{ type: "SOLID", color: { r: 0, g: 0, b: 0, a: 1 }, opacity: 1, visible: true, colorVar: alias(VAR) }],
+        strokePaints: [{ type: "SOLID", color: { r: 0, g: 0, b: 0, a: 1 }, opacity: 1, visible: true, colorVar: alias(LVAR) }],
+        styleIdForFill: { guid: STYLE },
+      }),
+    );
+    const out = new Map(toFigmaMessage(m).nodeChanges!.map((n) => [guidKey(n.guid!), n as any]));
+    const r = out.get(guidKey(R))!;
+    expect(r.fillPaints[0].colorVar.value.alias).toEqual({ assetRef: { key: "d".repeat(40), version: "12:3" } });
+    expect(r.styleIdForFill).toEqual({ assetRef: { key: "f".repeat(40), version: "4:5" } });
+    expect(r.strokePaints[0].colorVar.value.alias).toEqual({ guid: LVAR });
+    expect(out.get(guidKey(VAR))!.guid).toEqual(VAR); // the copy itself keeps its guid
   });
 
   it("makes a variant property's id from its name as Figma does", () => {
