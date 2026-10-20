@@ -121,6 +121,8 @@
   .glyph { position: absolute; color: var(--figma-color-icon-component); }
   .thumbCanvas[data-drawn] ~ .glyph { display: none; }
   .grid { display: grid; grid-template-columns: repeat(3, 64px); gap: var(--ds-space-2); padding: 0 var(--ds-space-4); }
+  /* A long list mounts in blocks (LazyBlock.tsx): the next block one gap under the last */
+  .grid + .grid { margin-top: var(--ds-space-2); }
   .tile { width: 64px; height: 64px; padding: 0; }
   .tile .thumb { width: 64px; height: 64px; }
   .empty { padding: var(--ds-space-2) var(--ds-space-4); color: var(--figma-color-text-secondary); }

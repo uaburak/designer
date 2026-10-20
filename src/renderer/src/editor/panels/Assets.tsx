@@ -11,13 +11,13 @@
  * tile counts its variants). A library component is inserted as an instance of its read-only copy. Right click on a
  * local component: Go to main component, Hide when publishing.
  */
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Banner, Button, ContextMenu, EmptyState, IS_MAC, Icon, IconButton, Popover, SearchField, showToast, type MenuEntry } from "@/ds";
-import type { Pixels } from "@/engine/codec";
 import type { LibraryAsset } from "../../../../shared/store/types";
 import { useEditor, type EditorController } from "../controller";
 import { goToComponent, insertInstance } from "../components";
-import { engineMethod } from "../engineCompat";
+import { useAssetThumbnail } from "../assetThumbs";
+import { LazyBlock, blocksOf } from "./LazyBlock";
 import { useLibraries, useUI } from "../hooks";
 import { insertLibraryComponent, isHiddenWhenPublishing, librariesButtonLabel, setHiddenWhenPublishing } from "../libraries";
 import { addRecentComponent } from "../recentComponents";
@@ -31,12 +31,20 @@ import { SimilarAssets, useSimilarComponents } from "../search/Similar";
 import { TabHeader } from "./TabHeader";
 import lstyles from "./libraries/Libraries.module.css";
 import styles from "./Assets.module.css";
-import { t, tp, useT } from "@/i18n";
+import { t, tp, useLocale, useT } from "@/i18n";
 
 /** A grid tile at Figma's 240 px panel (live: 96 × 96; `tileGrid` sizes them for the panel's width) */
 const TILE = 96;
 /** A list row's thumbnail (Figma's list view: 40 × 40) */
 const LIST_THUMB = 40;
+/** Tiles mounted at once when a view opens; the rest a block at a time as they come near the screen. */
+const EAGER_TILES = 48;
+const GRID_BLOCK = 24;
+const LIST_BLOCK = 40;
+/** A not-yet-mounted block's height: a tile's name under it (4 + a 16 line), the grid's gap, a list row (40 + 4 + 4). */
+const TILE_NAME = 20;
+const TILE_GAP = 16;
+const LIST_ROW = 48;
 
 /** A component of an enabled library, in the local assets' shape (grouped and searched the same way). */
 type Item = ComponentAsset & { library?: string; remote?: LibraryAsset };
@@ -76,6 +84,7 @@ function remoteItems(lib: string, libName: string, assets: readonly LibraryAsset
 
 export function Assets() {
   useT();
+  const locale = useLocale();
   const ed = useEditor();
   const local = useComponentAssets();
   const libs = useLibraries();
@@ -99,21 +108,29 @@ export function Assets() {
   }, []);
   const pending = libs.on ? ed.libraries.pendingCount() : 0;
 
-  const sections: Section[] = [];
-  if (local.length) sections.push({ key: "local", title: t("Created in this file"), items: local, pages: ed.store.pages.map((p) => p.guid) });
-  for (const lib of libs.enabled) {
-    const manifest = libs.manifests.get(lib);
-    if (!manifest) continue;
-    const name = libs.names.get(lib) ?? t("Library");
-    const items = remoteItems(lib, name, manifest.assets);
-    if (!items.length) continue; // a library of styles and variables only: nothing to list here
-    sections.push({ key: `lib:${lib}`, title: name, items, pages: [...new Set(items.map((i) => i.page))], library: lib });
-  }
+  // The sections, their items and the components' sizes are read once per asset list / library change (not per
+  // render: a drag's ghost, the search field and the menus render the panel again; its tiles are memoised on these).
+  const pages = ed.store.pages;
+  const sections = useMemo(() => {
+    void locale; // the titles are in the current language
+    const out: Section[] = [];
+    if (local.length) out.push({ key: "local", title: t("Created in this file"), items: local, pages: pages.map((p) => p.guid) });
+    for (const lib of libs.enabled) {
+      const manifest = libs.manifests.get(lib);
+      if (!manifest) continue;
+      const name = libs.names.get(lib) ?? t("Library");
+      const items = remoteItems(lib, name, manifest.assets);
+      if (!items.length) continue; // a library of styles and variables only: nothing to list here
+      out.push({ key: `lib:${lib}`, title: name, items, pages: [...new Set(items.map((i) => i.page))], library: lib });
+    }
+    return out;
+  }, [local, libs.enabled, libs.manifests, libs.names, pages, locale]);
+  const sizes = useMemo(() => componentSizes(ed, local), [ed, local]);
   const open = at ? sections.find((s) => s.key === at.section) : undefined;
   // A search: the exact matches of every library (of the open one), then "Similar" (visual search, docs/ai.md §6)
   const here = (ed.source as { fileKey?: string }).fileKey;
-  const found = query ? (open ? [open] : sections).map((s) => ({ s, list: searchAssets(s.items, query) as Item[] })).filter((x) => x.list.length) : [];
-  const listed = found.flatMap(({ list }) => list.map((a) => (a.remote && a.library ? { fileKey: a.library, nodeId: a.remote.guid } : { fileKey: here ?? "", nodeId: a.id })));
+  const found = useMemo(() => (query ? (open ? [open] : sections).map((s) => ({ s, list: searchAssets(s.items, query) as Item[] })).filter((x) => x.list.length) : []), [query, open, sections]);
+  const listed = useMemo(() => found.flatMap(({ list }) => list.map((a) => (a.remote && a.library ? { fileKey: a.library, nodeId: a.remote.guid } : { fileKey: here ?? "", nodeId: a.id }))), [found, here]);
   const similar = useSimilarComponents(query, listed, open ? (open.library ?? here) : undefined);
   const go = (next: { section: string; page?: string } | null) => {
     setQuery("");
@@ -137,6 +154,9 @@ export function Assets() {
     else ed.focusCanvas();
   };
 
+  // The ghost follows the pointer through its element's style: the panel renders once when a drag starts and once
+  // when it ends, not on every move (each render went over every tile).
+  const ghost = useRef<HTMLDivElement>(null);
   const onPointerDown = (e: React.PointerEvent, a: Item) => {
     if (e.button !== 0) return;
     const start = { x: e.clientX, y: e.clientY };
@@ -144,8 +164,12 @@ export function Assets() {
     let fitted = false;
     const move = (ev: PointerEvent) => {
       if (!dragging && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 4) return;
+      if (!dragging) setDrag({ asset: a, x: ev.clientX, y: ev.clientY });
+      else if (ghost.current) {
+        ghost.current.style.left = `${ev.clientX}px`;
+        ghost.current.style.top = `${ev.clientY}px`;
+      }
       dragging = true;
-      setDrag({ asset: a, x: ev.clientX, y: ev.clientY });
       const view = viewRect(ed.canvas);
       if (!fitted && view && ev.clientX >= view.left && ev.clientX <= view.right && ev.clientY >= view.top && ev.clientY <= view.bottom) {
         // Figma (atlas 10 §8.5): a component larger than the view, coming onto the canvas, zooms out to
@@ -176,71 +200,62 @@ export function Assets() {
   /** An item's size for the tile layout: a library thumbnail's (its aspect), else the component's own. */
   const sizeOf = (a: Item): { x: number; y: number } | null => {
     if (a.remote) return a.remote.thumbnail ? { x: a.remote.thumbnail.width, y: a.remote.thumbnail.height } : null;
-    return (ed.engine.readNode(a.target, { fields: ["size"] }) as { size?: { x: number; y: number } } | null)?.size ?? null;
+    return sizes.get(a.target) ?? null;
   };
+
+  // The tiles' handlers through one stable object (the tiles are memoised; it reads this render's state).
+  const latest = { onPointerDown, place, setMenu, setDetails, root };
+  const live = useRef(latest);
+  useLayoutEffect(() => {
+    live.current = latest;
+  });
+  const [actions] = useState<TileActions>(() => ({
+    pointerDown: (e, a) => live.current.onPointerDown(e, a),
+    menu: (e, a) => live.current.setMenu({ x: e.clientX, y: e.clientY, asset: a, anchor: e.currentTarget as HTMLElement }),
+    details: (el, a) => live.current.setDetails({ asset: a, anchor: besidePanel(el, live.current.root.current) }),
+    insert: (a) => live.current.place(a),
+  }));
 
   /** A component as a tile (`box`: its size in the grid) or a row. */
   const asset = (a: Item, sectionTitle: string, box: { width: number; height: number } = { width: TILE, height: TILE }) => (
-    <button
-      key={a.id}
-      type="button"
-      role="treeitem"
-      data-asset={a.id}
-      data-asset-name={a.name}
-      data-library={a.library ? sectionTitle : undefined}
-      className={view === "grid" ? styles.tile : styles.row}
-      aria-label={a.name}
-      title={a.description ? `${a.name}\n${a.description}` : a.name}
-      onPointerDown={(e) => onPointerDown(e, a)}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        setMenu({ x: e.clientX, y: e.clientY, asset: a, anchor: e.currentTarget });
-      }}
-      onKeyDown={(e) => {
-        // Figma's tile: ⌘Enter (Ctrl+Enter) views the details, Enter or Space inserts.
-        if (e.key === "Enter" && (IS_MAC ? e.metaKey : e.ctrlKey)) {
-          e.preventDefault();
-          setDetails({ asset: a, anchor: besidePanel(e.currentTarget, root.current) });
-        } else if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          place(a);
-        }
-      }}
-    >
-      {view === "grid" ? (
-        <>
-          <span className={styles.tileBox} style={{ width: box.width, height: box.height }}>
-            {a.remote ? <RemoteThumb asset={a.remote} size={Math.max(box.width, box.height)} className={styles.remoteThumb} /> : <Thumb asset={a} size={box.width} height={box.height} />}
-            {/* Live (left-rail-assets-components): no variant count on a set's tile — read out only */}
-            {a.kind === "set" && (a.variantCount ?? 0) > 0 && <span className={styles.srOnly}>{tp(a.variantCount ?? 0, "Includes {n} variant", "Includes {n} variants")}</span>}
-          </span>
-          <span className={styles.tileName}>{assetLabel(a.name)}</span>
-          {/* Live: each tile's hint for assistive tech */}
-          <span className={styles.srOnly}>{IS_MAC ? t("Press Enter or Space to insert. Press Command+Enter to view details.") : t("Press Enter or Space to insert. Press Ctrl+Enter to view details.")}</span>
-        </>
-      ) : (
-        <>
-          {/* Figma's list view: a 40 × 40 thumbnail before the name */}
-          <span className={styles.rowThumb}>{a.remote ? <RemoteThumb asset={a.remote} size={LIST_THUMB} className={styles.remoteThumb} /> : <Thumb asset={a} size={LIST_THUMB} />}</span>
-          <span className={styles.rowName}>{assetLabel(a.name)}</span>
-        </>
-      )}
-    </button>
+    <AssetTile key={a.id} a={a} library={a.library ? sectionTitle : undefined} grid={view === "grid"} boxWidth={box.width} boxHeight={box.height} nodeSize={a.remote ? null : (sizes.get(a.target) ?? null)} actions={actions} />
   );
 
   /**
    * Components as Figma's grid — its layout from the items' sizes (WIDE when all are 3× wider than tall, else NORMAL:
    * the Assets grid has no SMALL), its columns and tile size from the panel's width — or as the list.
    */
+  // Long lists are mounted a block of tiles at a time as they come near the screen (a page of a few hundred icons
+  // rendered every tile at once); the first EAGER_TILES of a view are there at once.
+  let eager = EAGER_TILES;
   const tiles = (list: Item[], section: Section) => {
-    if (view !== "grid") return <div className={styles.list}>{list.map((a) => asset(a, section.title))}</div>;
+    const blocks = blocksOf(list, view === "grid" ? GRID_BLOCK : LIST_BLOCK);
+    if (view !== "grid")
+      return blocks.map((b, i) => {
+        const now = eager > 0;
+        eager -= b.length;
+        return (
+          <LazyBlock key={i} eager={now} height={b.length * LIST_ROW}>
+            {() => <div className={styles.list}>{b.map((a) => asset(a, section.title))}</div>}
+          </LazyBlock>
+        );
+      });
     const layout = tileLayoutOf(list.map(sizeOf), false);
     const grid = tileGrid(layout, width);
-    return (
-      <div className={styles.grid} data-tile-layout={layout} style={{ gridTemplateColumns: `repeat(${grid.columns}, ${grid.width}px)` }}>
-        {list.map((a) => asset(a, section.title, grid))}
-      </div>
-    );
+    return blocks.map((b, i) => {
+      const now = eager > 0;
+      eager -= b.length;
+      const rows = Math.ceil(b.length / grid.columns);
+      return (
+        <LazyBlock key={i} eager={now} height={rows * (grid.height + TILE_NAME) + rows * TILE_GAP}>
+          {() => (
+            <div className={styles.grid} data-tile-layout={layout} style={{ gridTemplateColumns: `repeat(${grid.columns}, ${grid.width}px)` }}>
+              {b.map((a) => asset(a, section.title, grid))}
+            </div>
+          )}
+        </LazyBlock>
+      );
+    });
   };
 
   /** A list of components, under the frames they sit in. */
@@ -292,7 +307,7 @@ export function Assets() {
         {sections.map((s) => (
           <button key={s.key} type="button" className={styles.card} data-library-card={s.title} onClick={() => go({ section: s.key })}>
             <span className={styles.cardThumb}>
-              {s.items[0] && (s.items[0].remote ? <RemoteThumb asset={s.items[0].remote} size={TILE} className={styles.remoteThumb} /> : <Thumb asset={s.items[0]} size={TILE} />)}
+              {s.items[0] && (s.items[0].remote ? <RemoteThumb asset={s.items[0].remote} size={TILE} className={styles.remoteThumb} /> : <Thumb asset={s.items[0]} size={TILE} nodeSize={sizes.get(s.items[0].target) ?? null} />)}
             </span>
             <span className={styles.cardName}>
               <span className={styles.cardTitle}>{s.title}</span>
@@ -331,7 +346,7 @@ export function Assets() {
               const first = g.frames[0]?.items[0] as Item | undefined;
               return (
                 <button key={g.page} type="button" className={styles.pageRow} data-asset-page={g.pageName} onClick={() => go({ section: open.key, page: g.page })}>
-                  <span className={styles.pageThumb}>{first && (first.remote ? <RemoteThumb asset={first.remote} size={58} className={styles.remoteThumb} /> : <Thumb asset={first} size={58} />)}</span>
+                  <span className={styles.pageThumb}>{first && (first.remote ? <RemoteThumb asset={first.remote} size={58} className={styles.remoteThumb} /> : <Thumb asset={first} size={58} nodeSize={sizes.get(first.target) ?? null} />)}</span>
                   <span className={styles.pageName}>{g.pageName}</span>
                 </button>
               );
@@ -375,7 +390,7 @@ export function Assets() {
       )}
       {body}
       {drag && (
-        <div className={styles.ghost} style={{ left: drag.x, top: drag.y }} aria-hidden>
+        <div ref={ghost} className={styles.ghost} style={{ left: drag.x, top: drag.y }} aria-hidden>
           <Icon name={drag.asset.kind === "set" ? "16.component.set" : "16.component"} className={styles.glyph} />
           <span>{assetLabel(drag.asset.name)}</span>
         </div>
@@ -407,6 +422,76 @@ export function Assets() {
       )}
     </div>
   );
+}
+
+/** What a tile does, one object for every tile (the panel's current handlers behind it). */
+interface TileActions {
+  pointerDown: (e: React.PointerEvent, a: Item) => void;
+  menu: (e: React.MouseEvent, a: Item) => void;
+  details: (tile: HTMLElement, a: Item) => void;
+  insert: (a: Item) => void;
+}
+
+/**
+ * A component as a tile (`boxWidth` × `boxHeight`: its size in the grid) or a list row. Memoised: the panel renders
+ * again for its search field, menus and a drag, and a tile only when its own asset, size or view changed.
+ */
+const AssetTile = memo(function AssetTile({ a, library, grid, boxWidth, boxHeight, nodeSize, actions }: { a: Item; library?: string; grid: boolean; boxWidth: number; boxHeight: number; nodeSize: { x: number; y: number } | null; actions: TileActions }) {
+  useT();
+  return (
+    <button
+      type="button"
+      role="treeitem"
+      data-asset={a.id}
+      data-asset-name={a.name}
+      data-library={library}
+      className={grid ? styles.tile : styles.row}
+      aria-label={a.name}
+      title={a.description ? `${a.name}\n${a.description}` : a.name}
+      onPointerDown={(e) => actions.pointerDown(e, a)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        actions.menu(e, a);
+      }}
+      onKeyDown={(e) => {
+        // Figma's tile: ⌘Enter (Ctrl+Enter) views the details, Enter or Space inserts.
+        if (e.key === "Enter" && (IS_MAC ? e.metaKey : e.ctrlKey)) {
+          e.preventDefault();
+          actions.details(e.currentTarget, a);
+        } else if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          actions.insert(a);
+        }
+      }}
+    >
+      {grid ? (
+        <>
+          <span className={styles.tileBox} style={{ width: boxWidth, height: boxHeight }}>
+            {a.remote ? <RemoteThumb asset={a.remote} size={Math.max(boxWidth, boxHeight)} className={styles.remoteThumb} /> : <Thumb asset={a} size={boxWidth} height={boxHeight} nodeSize={nodeSize} />}
+            {/* Live (left-rail-assets-components): no variant count on a set's tile — read out only */}
+            {a.kind === "set" && (a.variantCount ?? 0) > 0 && <span className={styles.srOnly}>{tp(a.variantCount ?? 0, "Includes {n} variant", "Includes {n} variants")}</span>}
+          </span>
+          <span className={styles.tileName}>{assetLabel(a.name)}</span>
+          {/* Live: each tile's hint for assistive tech */}
+          <span className={styles.srOnly}>{IS_MAC ? t("Press Enter or Space to insert. Press Command+Enter to view details.") : t("Press Enter or Space to insert. Press Ctrl+Enter to view details.")}</span>
+        </>
+      ) : (
+        <>
+          {/* Figma's list view: a 40 × 40 thumbnail before the name */}
+          <span className={styles.rowThumb}>{a.remote ? <RemoteThumb asset={a.remote} size={LIST_THUMB} className={styles.remoteThumb} /> : <Thumb asset={a} size={LIST_THUMB} nodeSize={nodeSize} />}</span>
+          <span className={styles.rowName}>{assetLabel(a.name)}</span>
+        </>
+      )}
+    </button>
+  );
+});
+
+/** The components' sizes (the grid's layout, the thumbnails' boxes, the drag-in zoom): one read for the whole list. */
+function componentSizes(ed: EditorController, assets: readonly ComponentAsset[]): Map<string, { x: number; y: number }> {
+  const out = new Map<string, { x: number; y: number }>();
+  if (!assets.length || ed.engine.destroyed) return out;
+  for (const n of ed.engine.readNodes([...new Set(assets.map((a) => a.target))], { fields: ["size"] }) as { guid: string; size?: { x: number; y: number } }[]) if (n.size) out.set(n.guid, n.size);
+  return out;
 }
 
 /**
@@ -498,34 +583,23 @@ function AssetDetails({ asset, anchor, onInsert, onClose }: { asset: Item; ancho
   );
 }
 
-/** A component's thumbnail when the engine renders nodes; the glyph otherwise (shown until the canvas is drawn). */
-function Thumb({ asset, size, height = size }: { asset: ComponentAsset; size: number; height?: number }) {
+/**
+ * A component's thumbnail (the glyph until it is drawn). Live (img/left-rail-assets-components.jpg): a component at
+ * its own size, only a big one scaled down to fit (8 in from a 96 tile's edges, 4 in a smaller one's) — a 20 px icon
+ * stays 20 px; it is rendered at the size it shows (device px), from the thumbnail cache, once the tile is on screen.
+ */
+function Thumb({ asset, size, height = size, nodeSize }: { asset: ComponentAsset; size: number; height?: number; nodeSize: { x: number; y: number } | null }) {
   const ed = useEditor();
   const ref = useRef<HTMLCanvasElement>(null);
-  const render = engineMethod<(o: { node: string; maxSize: number }) => Pixels | null>(ed.engine, "renderNodeThumbnailPixels");
-  useEffect(() => {
-    const c = ref.current;
-    if (!c || !render) return;
-    const dpr = Math.max(1, Math.round(window.devicePixelRatio || 1));
-    const px = render({ node: asset.target, maxSize: Math.max(size, height) * dpr });
-    if (!px) return;
-    c.width = px.width;
-    c.height = px.height;
-    c.getContext("2d")?.putImageData(new ImageData(new Uint8ClampedArray(px.pixels), px.width, px.height), 0, 0);
-    // Live (img/left-rail-assets-components.jpg): a component at its own size, only a big one scaled down to fit (8 in
-    // from a 96 tile's edges, 4 in a smaller one's) — a 20 px icon stays 20 px.
-    const n = ed.engine.readNode(asset.target, { fields: ["size"] }) as { size?: { x: number; y: number } } | null;
-    const inset = Math.min(size, height) >= TILE ? 16 : 8;
-    if (n?.size && n.size.x > 0 && n.size.y > 0) {
-      const fit = Math.min(1, (size - inset) / n.size.x, (height - inset) / n.size.y);
-      c.style.width = `${Math.max(1, n.size.x * fit)}px`;
-      c.style.height = `${Math.max(1, n.size.y * fit)}px`;
-    }
-    c.dataset.drawn = "";
-  }, [render, asset.target, size, height, ed]);
+  const inset = Math.min(size, height) >= TILE ? 16 : 8;
+  const fit = nodeSize && nodeSize.x > 0 && nodeSize.y > 0 ? Math.min(1, (size - inset) / nodeSize.x, (height - inset) / nodeSize.y) : null;
+  const shown = fit !== null && nodeSize ? { width: Math.max(1, nodeSize.x * fit), height: Math.max(1, nodeSize.y * fit) } : null;
+  const dpr = Math.max(1, Math.round(window.devicePixelRatio || 1));
+  const maxSize = Math.ceil((shown ? Math.max(shown.width, shown.height) : Math.max(size, height)) * dpr);
+  useAssetThumbnail(ed, ref, asset.target, maxSize);
   return (
     <span className={styles.thumb}>
-      {render && <canvas ref={ref} className={styles.thumbCanvas} />}
+      {ed.thumbnails?.available && <canvas ref={ref} className={styles.thumbCanvas} style={shown ? { width: shown.width, height: shown.height } : undefined} />}
       <Icon name={asset.kind === "set" ? "16.component.set" : "16.component"} size={24} className={styles.glyph} />
     </span>
   );

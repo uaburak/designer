@@ -1704,9 +1704,12 @@ export class Engine {
     return this.json(this.x.ensureAssetKeys(this.h, refs?.length ? encodeRefs(refs) : new Uint8Array()), []);
   }
 
-  /** Every local asset (components, sets, styles, collections, variables), publishable or not, deleted-but-kept too. */
-  localAssets(): LocalAssetInfo[] {
-    return this.json(this.x.localAssets(this.h), []);
+  /**
+   * Every local asset (components, sets, styles, collections, variables), publishable or not, deleted-but-kept too.
+   * `listOnly`: without `versionHash` and `dependencies` (empty) — each walks the asset's subtree; Assets' list needs neither.
+   */
+  localAssets(options: { listOnly?: boolean } = {}): LocalAssetInfo[] {
+    return this.json(this.x.localAssets(this.h, options.listOnly ? 1 : 0), []);
   }
 
   /** Publish payloads: the assets with these keys and their dependencies (`dependencyOnly`), each with its Message. */

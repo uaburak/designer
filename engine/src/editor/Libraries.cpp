@@ -597,7 +597,7 @@ std::string Editor::assetVersionHash(Guid id) const {
   return versionHashOf(id, memo);
 }
 
-std::vector<Editor::AssetInfo> Editor::localAssets() const {
+std::vector<Editor::AssetInfo> Editor::localAssets(bool listOnly) const {
   std::vector<Guid> ids;
   doc_.forEach([&](const Node& n) {
     if (assetKindOf(n.guid) != AssetKind::NONE && !isLibraryCopy(n.guid)) ids.push_back(n.guid);
@@ -610,19 +610,21 @@ std::vector<Editor::AssetInfo> Editor::localAssets() const {
     AssetInfo info;
     fillAssetInfo(id, info);
     info.hidden = assetHidden(id);
-    info.versionHash = versionHashOf(id, memo);
-    Guid root = payloadRoot(id);
-    auto it = depsByRoot.find(root);
-    if (it == depsByRoot.end()) {
-      std::vector<std::string> keys;
-      for (Guid d : dependencyRoots({root})) {
-        if (isLibraryCopy(d)) continue;  // another library's asset: travels in the payload, not in this manifest
-        if (!doc_.get(d)->props.asset().key.empty()) keys.push_back(doc_.get(d)->props.asset().key);
-        // A variable's collection is its own asset; a set's variants come with it.
+    if (!listOnly) {
+      info.versionHash = versionHashOf(id, memo);
+      Guid root = payloadRoot(id);
+      auto it = depsByRoot.find(root);
+      if (it == depsByRoot.end()) {
+        std::vector<std::string> keys;
+        for (Guid d : dependencyRoots({root})) {
+          if (isLibraryCopy(d)) continue;  // another library's asset: travels in the payload, not in this manifest
+          if (!doc_.get(d)->props.asset().key.empty()) keys.push_back(doc_.get(d)->props.asset().key);
+          // A variable's collection is its own asset; a set's variants come with it.
+        }
+        it = depsByRoot.emplace(root, std::move(keys)).first;
       }
-      it = depsByRoot.emplace(root, std::move(keys)).first;
+      info.dependencies = it->second;
     }
-    info.dependencies = it->second;
     Guid page = doc_.pageOf(id);
     const Node* pn = doc_.get(page);
     if (pn && !pn->props.rare().internalOnly) {

@@ -21,7 +21,7 @@ import { dismissToast, showToast } from "@/ds";
 import { Status } from "@/engine/abi";
 import type { Guid, Message, NodeChange, NodeFields } from "@/engine/codec";
 import type { EditorController } from "./controller";
-import { engineCall, engineCommandEnabled, engineMethod, hasCommand, runEngineCommand, type CommandArgs } from "./engineCompat";
+import { changesOf, engineCall, engineCommandEnabled, engineMethod, hasCommand, runEngineCommand, type CommandArgs } from "./engineCompat";
 import { frameAt, toPage } from "./placeImages";
 import { libraryOfMain, openLibraryFile } from "./libraries";
 import { positionBetween } from "./model/variables";
@@ -332,15 +332,33 @@ export function subtree(ed: EditorController, root: Guid, limit = 5000): CNode[]
 /** NODES_CHANGED field groups that can change what `componentInfo` says before the change commits (engine.md §10.4). */
 const COMPONENT_GROUPS = 64 | 128; // G_COMPONENT | G_BINDINGS
 
-/** The file's local components on its pages, read again after any change (Assets, the instance menu, swaps). */
+/** NODES_CHANGED field groups that can change how Assets lists a component, a set or a frame they sit in. */
+const LISTED_GROUPS = 16 | 32 | 64; // G_NAME | G_VISIBILITY | G_COMPONENT
+const G_COMPONENT = 64;
+/** Past this many unlisted refs with component changes, the list is read again rather than their types. */
+const PROBE_LIMIT = 2000;
+
+/**
+ * The file's local components on its pages (Assets, the instance menu, swaps), and the component reads of one document
+ * version. Two versions: `version` moves with every document change (an instance's panel reads its main again), the
+ * asset list's only with a change that can alter it — a listed component or set, one of their variants or a layer
+ * they sit in changed, or a layer became a component or set — so a drag, an insert or an edit elsewhere doesn't walk
+ * every component again (the walk is the engine's `localAssets`: every node, every asset's content hash).
+ */
 export class ComponentIndex {
   private cache: { version: number; assets: ComponentAsset[] } | null = null;
   private version = 0;
+  private assetsVersion = 0;
+  /** What the cached list rests on: its components and sets, their variants and every layer above them (pages aside). */
+  private watched = new Set<Guid>();
   /** `engine.componentInfo` per ref, valid for one document version (and dropped by a live component-group change). */
   private infoCache = new Map<Guid, EngineComponentInfo | null>();
   private infoVersion = -1;
   private readonly offs: (() => void)[] = [];
   private readonly listeners = new Set<() => void>();
+  private readonly assetListeners = new Set<() => void>();
+  /** Asset lists read (tests and the bench count them). */
+  reads = 0;
 
   constructor(private readonly ed: EditorController) {
     // Listeners hear of it in a microtask (deferred.ts): an engine read during a render (Comments' pins, Apply variable
@@ -350,14 +368,31 @@ export class ComponentIndex {
       this.version++;
       notify();
     };
+    const notifyAssets = deferredListener(() => this.assetListeners.forEach((l) => l()));
+    const bumpAssets = () => {
+      this.assetsVersion++;
+      notifyAssets();
+    };
     this.offs.push(
-      ed.engine.on("DOCUMENT_CHANGED", bump),
+      ed.engine.on("DOCUMENT_CHANGED", (e) => {
+        bump();
+        if (this.listChangedBy(changesOf(e))) bumpAssets();
+      }),
       ed.store.subscribe("structure", bump),
-      ed.store.subscribe("pages", bump),
+      ed.store.subscribe("pages", () => {
+        bump();
+        bumpAssets();
+      }),
+      // Changes without a DOCUMENT_CHANGED (another session's): a child list under a listed layer changed. Not a
+      // STRUCTURE_CHANGED for every list: a page's first show (its instances derived) and a page switch send one too.
+      ed.engine.on("STRUCTURE_CHANGED", (e) => {
+        if (e.parents?.some((p) => this.watched.has(p))) bumpAssets();
+      }),
       ed.engine.on("NODES_CHANGED", (e) => {
         // A live change to properties or bindings (before its commit): the next read asks the engine again. A move
         // or a resize (GEOMETRY / LAYOUT) changes nothing an instance's panel shows until it commits.
         if (e.fieldGroupMask.some((m) => (m & COMPONENT_GROUPS) !== 0)) this.infoCache.clear();
+        if (this.cache && this.nodesChangeList(e)) bumpAssets();
       }),
       // E6: instances re-derived (a main's change reaching them); navigation forgets Return to instance when the engine returns.
       ed.engine.onAny((e) => {
@@ -372,15 +407,71 @@ export class ComponentIndex {
   dispose(): void {
     this.offs.splice(0).forEach((off) => off());
     this.listeners.clear();
+    this.assetListeners.clear();
     this.infoCache.clear();
   }
 
+  /** Every document change (the component reads of `info`). */
   readonly subscribe = (l: () => void): (() => void) => {
     this.listeners.add(l);
     return () => this.listeners.delete(l);
   };
 
   readonly getVersion = (): number => this.version;
+
+  /** A change of the asset list (`assets()`). */
+  readonly subscribeAssets = (l: () => void): (() => void) => {
+    this.assetListeners.add(l);
+    return () => this.assetListeners.delete(l);
+  };
+
+  readonly getAssetsVersion = (): number => this.assetsVersion;
+
+  /** A committed change that can alter the list: a watched layer's, or one that makes a component or set. */
+  private listChangedBy(changes: readonly NodeChange[]): boolean {
+    if (!this.cache) return true;
+    for (const c of changes) {
+      if (this.watched.has(c.guid)) return true;
+      const f = c as unknown as { type?: string; isStateGroup?: boolean };
+      if (f.type === "SYMBOL" || f.type === "COMPONENT" || f.isStateGroup !== undefined) return true;
+    }
+    return false;
+  }
+
+  /** A NODES_CHANGED that can alter the list: a watched layer's name, visibility or component fields, or a layer that is now a component or set. */
+  private nodesChangeList(e: { refs: readonly Guid[]; fieldGroupMask: readonly number[] }): boolean {
+    const probe: Guid[] = [];
+    for (let i = 0; i < e.refs.length; i++) {
+      const ref = e.refs[i];
+      const mask = e.fieldGroupMask[i] ?? 0xff;
+      if (this.watched.has(ref)) {
+        if (mask & LISTED_GROUPS) return true;
+      } else if (mask & G_COMPONENT && !parseDerivedId(ref)) probe.push(ref);
+    }
+    if (!probe.length || this.ed.engine.destroyed) return false;
+    if (probe.length > PROBE_LIMIT) return true;
+    return this.ed.engine.readNodes(probe, { fields: ["type", "isStateGroup"] }).some((raw) => {
+      const n = this.ed.withRealType(raw) as CNode;
+      return isComponent(n) || isComponentSet(n);
+    });
+  }
+
+  /** The listed layers and every layer above them up to the page (a level of parents per read). */
+  private watch(ids: readonly Guid[]): void {
+    const watched = new Set<Guid>();
+    let level = [...new Set(ids)];
+    for (let depth = 0; level.length && depth < 256; depth++) {
+      const next = new Set<Guid>();
+      for (const n of this.ed.engine.readNodes(level, { fields: ["parentIndex", "type"] })) {
+        if (n.type === "CANVAS" || n.type === "DOCUMENT") continue;
+        watched.add(n.guid);
+        const parent = n.parentIndex?.guid;
+        if (parent && !watched.has(parent)) next.add(parent);
+      }
+      level = [...next];
+    }
+    this.watched = watched;
+  }
 
   /**
    * `engine.componentInfo(ref)` (E6), read once per document version per ref; undefined when the build has no such
@@ -407,10 +498,12 @@ export class ComponentIndex {
 
   /** Every local component and set on the file's pages (variants are reached through their set). */
   assets(): ComponentAsset[] {
-    if (this.cache?.version === this.version) return this.cache.assets;
+    if (this.cache?.version === this.assetsVersion) return this.cache.assets;
     const ed = this.ed;
     const assets: ComponentAsset[] = [];
-    const indexed = ed.engine.destroyed ? null : this.assetsFromIndex();
+    const watch: Guid[] = [];
+    this.reads++;
+    const indexed = ed.engine.destroyed ? null : this.assetsFromIndex(watch);
     if (indexed) assets.push(...indexed);
     else if (!ed.engine.destroyed) {
       for (const page of ed.store.pages) {
@@ -421,11 +514,13 @@ export class ComponentIndex {
             const top = frame ?? (n.type === "FRAME" && !isComponentSet(n) && n.parentIndex?.guid === page.guid ? n : null);
             if (isComponentSet(n)) {
               const variants = variantsOf(ed, n);
+              watch.push(n.guid, ...variants.map((v) => v.guid));
               const first = defaultVariant(variants);
               if (first) assets.push(asset(n, "set", first.guid, page, frame, variants.length));
               continue;
             }
             if (isComponent(n)) {
+              watch.push(n.guid);
               if (!n.isSoftDeleted) assets.push(asset(n, "component", n.guid, page, frame));
               continue; // components inside components are reached by their own instances, not listed
             }
@@ -436,7 +531,8 @@ export class ComponentIndex {
         walk(ed.engine.readNodes([page.guid], { childIds: true })[0]?.childIds ?? [], null);
       }
     }
-    this.cache = { version: this.version, assets };
+    if (!ed.engine.destroyed) this.watch(watch);
+    this.cache = { version: this.assetsVersion, assets };
     return assets;
   }
 
@@ -444,23 +540,35 @@ export class ComponentIndex {
    * The assets from the engine's asset index (`localAssets`, docs/engine-build.md "E6 libraries API": every local
    * component and set with the page and top-level frame it sits in) — no walk over the document. Null without it.
    */
-  private assetsFromIndex(): ComponentAsset[] | null {
+  private assetsFromIndex(watch: Guid[]): ComponentAsset[] | null {
     const ed = this.ed;
-    const read = engineCall<() => { id: Guid; kind: string; name: string; description: string; key: string; componentSetId?: Guid; softDeleted: boolean; containingFrame: { pageId: Guid; pageName: string; frameId?: Guid; frameName?: string } | null }[]>(ed.engine, "localAssets", "local_assets");
+    const read = engineCall<(o: { listOnly: boolean }) => { id: Guid; kind: string; name: string; description: string; key: string; componentSetId?: Guid; softDeleted: boolean; containingFrame: { pageId: Guid; pageName: string; frameId?: Guid; frameName?: string } | null }[]>(ed.engine, "localAssets", "local_assets");
     if (!read) return null;
-    const infos = read().filter((a) => (a.kind === "COMPONENT" || a.kind === "COMPONENT_SET") && !a.softDeleted && a.containingFrame);
+    const all = read({ listOnly: true }); // no content hashes: the publish flow reads those
+    // Soft-deleted ones too: a restore changes the list.
+    for (const a of all) if (a.kind === "COMPONENT" || a.kind === "COMPONENT_SET") watch.push(a.id);
+    const infos = all.filter((a) => (a.kind === "COMPONENT" || a.kind === "COMPONENT_SET") && !a.softDeleted && a.containingFrame);
     const out: ComponentAsset[] = [];
-    const variantsOfSet = new Map<Guid, number>();
-    for (const a of infos) if (a.kind === "COMPONENT" && a.componentSetId) variantsOfSet.set(a.componentSetId, (variantsOfSet.get(a.componentSetId) ?? 0) + 1);
+    // A set's variants, their places read in one go (a set's tile shows its default variant: the top-left one).
+    const variantsOfSet = new Map<Guid, CNode[]>();
+    const variants = infos.filter((a) => a.kind === "COMPONENT" && a.componentSetId);
+    const placed = new Map<Guid, CNode>();
+    if (variants.length) for (const n of ed.engine.readNodes(variants.map((a) => a.id), { fields: ["transform"] })) placed.set(n.guid, n as CNode);
+    for (const a of variants) {
+      const n = placed.get(a.id);
+      if (!n) continue;
+      let list = variantsOfSet.get(a.componentSetId!);
+      if (!list) variantsOfSet.set(a.componentSetId!, (list = []));
+      list.push(n);
+    }
     for (const a of infos) {
       const where = a.containingFrame!;
       const page = { guid: where.pageId, name: where.pageName };
       const frame = where.frameId ? ({ guid: where.frameId, name: where.frameName ?? "" } as CNode) : null;
       if (a.kind === "COMPONENT_SET") {
-        const set = readC(ed, a.id);
-        if (!set) continue;
-        const first = defaultVariant(variantsOf(ed, set));
-        if (first) out.push(asset({ ...set, name: a.name, description: a.description, key: a.key || set.key } as CNode, "set", first.guid, page, frame, variantsOfSet.get(a.id) ?? 0));
+        const list = variantsOfSet.get(a.id) ?? [];
+        const first = defaultVariant(list);
+        if (first) out.push(asset({ guid: a.id, name: a.name, description: a.description, key: a.key || undefined } as CNode, "set", first.guid, page, frame, list.length));
         continue;
       }
       if (a.componentSetId) continue; // a variant: reached through its set

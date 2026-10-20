@@ -11,17 +11,18 @@
  * the copy in first), and "Browse libraries" opens the Libraries modal (atlas 12 §5.4's "Instance swap > Browse
  * libraries link").
  */
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Icon, MenuButton, Popover, cx, type MenuEntry } from "@/ds";
-import type { Guid, Pixels } from "@/engine/codec";
+import type { Guid } from "@/engine/codec";
 import { useEditor } from "../../controller";
-import { engineMethod } from "../../engineCompat";
+import { useAssetThumbnail } from "../../assetThumbs";
 import { addRecentComponent, recentComponents } from "../../recentComponents";
 import { assetLabel, isPreferred, searchAssets, type ComponentAsset } from "../../model/components";
 import { useLibraries } from "../../hooks";
 import { ensureCopy } from "../../libraries";
 import type { LibraryAsset } from "../../../../../shared/store/types";
 import { RemoteThumb } from "../libraries/Thumbs";
+import { LazyBlock, blocksOf } from "../LazyBlock";
 import { t, useT } from "@/i18n";
 import styles from "./ComponentPicker.module.css";
 
@@ -42,7 +43,7 @@ export interface ComponentPickerProps {
 /** The file's components, re-read after document changes. */
 export function useComponentAssets(): ComponentAsset[] {
   const ed = useEditor();
-  const version = useSyncExternalStore(ed.components.subscribe, ed.components.getVersion);
+  const version = useSyncExternalStore(ed.components.subscribeAssets, ed.components.getAssetsVersion);
   return useMemo(() => {
     void version;
     return ed.components.assets();
@@ -132,24 +133,14 @@ export function usePopoverToggle<T>(): [T | null, (value: T) => void, () => void
   return [open, toggle, close];
 }
 
-/** A component's thumbnail in a 40 box (the engine's render; the glyph until there is one). */
+/** A component's thumbnail in a 40 box (the engine's render, from the thumbnail cache once on screen; the glyph until there is one). */
 function Thumb({ asset, size }: { asset: ComponentAsset; size: number }) {
   const ed = useEditor();
   const ref = useRef<HTMLCanvasElement>(null);
-  const render = engineMethod<(o: { node: string; maxSize: number }) => Pixels | null>(ed.engine, "renderNodeThumbnailPixels");
-  useEffect(() => {
-    const c = ref.current;
-    if (!c || !render) return;
-    const px = render({ node: asset.target, maxSize: size * Math.max(1, Math.round(window.devicePixelRatio || 1)) });
-    if (!px) return;
-    c.width = px.width;
-    c.height = px.height;
-    c.getContext("2d")?.putImageData(new ImageData(new Uint8ClampedArray(px.pixels), px.width, px.height), 0, 0);
-    c.dataset.drawn = "";
-  }, [render, asset.target, size]);
+  useAssetThumbnail(ed, ref, asset.target, size * Math.max(1, Math.round(window.devicePixelRatio || 1)));
   return (
     <span className={styles.thumb}>
-      {render && <canvas ref={ref} className={styles.thumbCanvas} />}
+      {ed.thumbnails?.available && <canvas ref={ref} className={styles.thumbCanvas} />}
       <Icon name={asset.kind === "set" ? "16.component.set" : "16.component"} className={styles.glyph} />
     </span>
   );
@@ -164,6 +155,9 @@ function placeOf(anchor: HTMLElement | DOMRect | null): DOMRect | HTMLElement | 
   return new DOMRect(right, r.bottom, 0, 0);
 }
 
+/** Items mounted per block (48 tall rows, or 64 tiles three to a row 8 apart). */
+const PICKER_BLOCK = 30;
+
 export function ComponentPicker({ anchor, title: titleProp, current, preferredKeys, exclude, onPick, onClose }: ComponentPickerProps) {
   useT();
   const title = titleProp ?? t("Swap instance");
@@ -176,16 +170,17 @@ export function ComponentPicker({ anchor, title: titleProp, current, preferredKe
   const offered = useMemo(() => assets.filter((a) => !exclude?.has(a.id) && !exclude?.has(a.target)), [assets, exclude]);
   const currentAsset = current ? ed.components.assetOf(current) : null;
   const [level, setLevel] = useState<PickerLevel>(() => startLevel(offered, currentAsset ? (offered.find((a) => a.id === currentAsset.id) ?? null) : null));
-  const pages = ed.store.pages.map((p) => ({ guid: p.guid, name: p.name }));
-  const preferred = preferredKeys?.length ? offered.filter((a) => preferredKeys.some((k) => isPreferred(a, k))) : [];
+  const storePages = ed.store.pages;
+  const pages = useMemo(() => storePages.map((p) => ({ guid: p.guid, name: p.name })), [storePages]);
+  const preferred = useMemo(() => (preferredKeys?.length ? offered.filter((a) => preferredKeys.some((k) => isPreferred(a, k))) : []), [offered, preferredKeys]);
   const file = (ed.source as { fileKey?: string }).fileKey ?? "";
   const recent = useMemo(() => recentComponents(file).flatMap((id) => offered.find((a) => a.id === id) ?? []), [file, offered]);
   const [section, setSection] = useState<PickerSection>(() => startSection(preferred.length, offered.length));
   // Figma searches the section's scope (Preferred: its components; Recently used: every library's; the library: its
   // own), de-duplicated by name.
   const scope = section === "preferred" ? preferred : offered;
-  const found = query.trim() ? uniqueByName(searchAssets(scope, query)) : null;
-  const contents = levelContents(offered, level, pages);
+  const found = useMemo(() => (query.trim() ? uniqueByName(searchAssets(scope, query)) : null), [scope, query]);
+  const contents = useMemo(() => levelContents(offered, level, pages), [offered, level, pages]);
   const levelName = level.path.length ? level.path[level.path.length - 1] : (pages.find((p) => p.guid === level.page)?.name ?? "");
   const pick = (a: ComponentAsset) => {
     addRecentComponent(file, a.id);
@@ -243,7 +238,13 @@ export function ComponentPicker({ anchor, title: titleProp, current, preferredKe
     </button>
   );
   const placeholder = section === "preferred" ? t("Search preferred") : section === "recent" ? t("Search all libraries") : t("Search in this library");
-  const list = (items: ComponentAsset[]) => <div className={cx(mode === "grid" && styles.grid)}>{items.map(item)}</div>;
+  // A long list (a search over every component, a page of icons) is mounted a block at a time (LazyBlock.tsx).
+  const list = (items: ComponentAsset[]) =>
+    blocksOf(items, PICKER_BLOCK).map((b, i) => (
+      <LazyBlock key={i} eager={i === 0} height={mode === "grid" ? Math.ceil(b.length / 3) * (64 + 8) : b.length * 48}>
+        {() => <div className={cx(mode === "grid" && styles.grid)}>{b.map(item)}</div>}
+      </LazyBlock>
+    ));
   return (
     <Popover anchor={place} placement={place instanceof DOMRect ? "left" : "left-of-panel"} title={title} width={240} onClose={onClose} label={title}>
       <div className={styles.picker} data-component-picker="">

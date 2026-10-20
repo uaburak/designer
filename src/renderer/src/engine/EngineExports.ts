@@ -294,7 +294,7 @@ export class EngineExports {
   /** `refs`: a NodeRefList, or empty for every local asset. */
   ensureAssetKeys = (h: number, refs: Uint8Array): number =>
     refs.length ? this.withBytes([refs], (p) => this.fn("ensure_asset_keys")(h, p[0], p[1])) : this.fn("ensure_asset_keys")(h, 0, 0);
-  localAssets = (h: number): number => this.fn("local_assets")(h);
+  localAssets = (h: number, flags = 0): number => this.fn("local_assets")(h, flags);
   encodeAssets = (h: number, keys: Uint8Array): number => this.withBytes([keys], (p) => this.fn("encode_assets")(h, p[0], p[1]));
   markPublished = (h: number, entries: Uint8Array): number => this.withBytes([entries], (p) => this.fn("mark_published")(h, p[0], p[1]));
   importLibraryAssets = (h: number, messages: Uint8Array, options: Uint8Array): number =>
