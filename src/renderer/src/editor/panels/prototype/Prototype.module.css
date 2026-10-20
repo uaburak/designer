@@ -40,34 +40,26 @@
     color: var(--figma-color-text-secondary);
   }
 
-  /* Flows: ▶ name, then ▶ Present */
+  /* Flows (live 2026-10-20): the name 16 in, in the secondary text; select frame, copy flow link and preview at the
+     right (24 each) while the row is hovered or holds the focus */
   .flowRow {
     display: flex;
     align-items: center;
-    gap: var(--ds-space-1);
     min-height: var(--ds-size-row);
-    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-space-2);
+    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left);
   }
   .flowName {
-    display: flex;
     flex: 1 1 auto;
-    align-items: center;
-    gap: var(--ds-space-1);
     min-width: 0;
-    height: var(--ds-size-control);
-    padding: 0 var(--ds-space-2);
-    border: 0;
-    border-radius: var(--ds-radius-medium);
-    background: transparent;
-    color: var(--figma-color-text);
-    font: inherit;
-    text-align: left;
-    outline: none;
+    overflow: hidden;
+    color: var(--figma-color-text-secondary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  .flowName svg { flex: none; color: var(--figma-color-icon-brand); }
-  .flowName span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .flowName:hover { background: var(--figma-color-bg-hover); }
-  .flowName:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .flowActions { display: flex; flex: none; visibility: hidden; }
+  .flowRow:hover .flowActions, .flowRow:focus-within .flowActions { visibility: visible; }
+  /* Flow starting point: the name and the frame, 88 each */
+  .field { flex: none; width: var(--ds-size-field); }
 
   /*
    * An interaction row as live (2026-10-10, prototype_interaction_list): 32 high, 16 in; a 184 × 26 outlined button

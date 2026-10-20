@@ -43,6 +43,16 @@ export function storePresentationSource(fileKey: string): PresentationSource {
   return source;
 }
 
+/** The title's "Open in editor": the file's tab in the desktop app, else its editor in a browser tab. */
+function openEditor(fileKey: string): void {
+  const nav = (window as unknown as { designer?: { nav?: { openFile?: (key: string, options?: { pageId?: string }) => Promise<unknown> } } }).designer?.nav;
+  if (nav?.openFile) {
+    void nav.openFile(fileKey, { pageId: params.get("page") ?? undefined });
+    return;
+  }
+  window.open(`${location.pathname}?editor&file=${encodeURIComponent(fileKey)}`, "_blank");
+}
+
 export default function PresentRoute() {
   useT();
   useThemeRoot();
@@ -52,7 +62,18 @@ export default function PresentRoute() {
   const [sharing, setSharing] = useState<{ node: string | null } | null>(null);
   return (
     <>
-      {source ? <PresentationView source={source} page={params.get("page")} node={params.get("node")} urlOptions={presentUrlOptions(params)} onShare={(screen) => setSharing({ node: screen })} /> : <p>{t("No file to present.")}</p>}
+      {source ? (
+        <PresentationView
+          source={source}
+          page={params.get("page")}
+          node={params.get("node")}
+          urlOptions={presentUrlOptions(params)}
+          onShare={(screen) => setSharing({ node: screen })}
+          onOpenEditor={fileKey ? () => openEditor(fileKey) : undefined}
+        />
+      ) : (
+        <p>{t("No file to present.")}</p>
+      )}
       {sharing && fileKey && <SharePrototypeDialog fileKey={fileKey} nodeId={sharing.node} onClose={() => setSharing(null)} />}
       <TooltipManager />
       <ToastHost />

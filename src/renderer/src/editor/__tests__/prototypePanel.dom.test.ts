@@ -39,11 +39,17 @@ const section = (host: HTMLElement, name: string) => host.querySelector<HTMLElem
 const click = (el: Element | null) => act(() => (el as HTMLElement).click());
 
 describe("the Prototype tab", () => {
-  it("nothing selected: Device, Background, Flows (the page's flow)", async () => {
+  it("nothing selected: Prototype settings (Device, Background color), Flows (the page's flow)", async () => {
     const { view, engine } = await setup();
-    expect(section(view.host, "Device")).not.toBeNull();
-    expect(section(view.host, "Background")?.querySelector("input")?.value.toUpperCase()).toContain("1E1E1E");
-    expect(section(view.host, "Flows")?.querySelector("[data-flow]")?.textContent).toContain("Onboarding");
+    // Live 2026-10-20: one "Prototype settings" section; a page without a colour shows Figma's black.
+    const settings = section(view.host, "Prototype settings");
+    expect(settings?.querySelector('[aria-label="Device"]')).not.toBeNull();
+    expect(settings?.querySelector("input")?.value.toUpperCase()).toContain("000000");
+    const row = section(view.host, "Flows")?.querySelector("[data-flow]");
+    expect(row?.textContent).toContain("Onboarding");
+    expect(row?.querySelector('button[aria-label="Onboarding, preview"]')).not.toBeNull();
+    expect(row?.querySelector('button[aria-label="Onboarding, select frame"]')).not.toBeNull();
+    expect(row?.querySelector('button[aria-label="Onboarding, copy flow link"]')).not.toBeNull();
     view.unmount();
     engine.destroy();
   });
@@ -76,7 +82,10 @@ describe("the Prototype tab", () => {
     const flow = section(view.host, "Flow starting point")!;
     click(flow.querySelector('button[aria-label="Add starting point"]'));
     expect((engine.readNode("2:10") as { prototypeStartingPoint?: { name: string } }).prototypeStartingPoint?.name).toBe("Flow 2");
-    expect(section(view.host, "Flow starting point")?.querySelector('input[aria-label="Flow name"]')).not.toBeNull();
+    expect(section(view.host, "Flow starting point")?.querySelector('input[aria-label="Edit flow title"]')).not.toBeNull();
+    // Live: Copy flow link and − in the header, the frame's list beside the name.
+    expect(section(view.host, "Flow starting point")?.querySelector('button[aria-label="Remove flow starting point"]')).not.toBeNull();
+    expect(section(view.host, "Flow starting point")?.querySelector('button[aria-label="Copy flow link"]')).not.toBeNull();
     view.unmount();
     engine.destroy();
   });

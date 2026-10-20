@@ -181,17 +181,8 @@ std::vector<Interaction> Player::ix(Guid id) const {
   return list;
 }
 
-Guid Player::topLevelOf(Guid id) const {
-  Guid cur = id;
-  for (int guard = 0; guard < 4096 && cur != kNoGuid; guard++) {
-    Guid parent = doc().parentOf(cur);
-    const NodeProps* pp = props(parent);
-    if (!pp) return kNoGuid;
-    if (pp->type == NodeType::CANVAS) return cur;
-    cur = parent;
-  }
-  return kNoGuid;
-}
+// The screen a layer is on: its top-level frame, a frame in a section counting as top-level (Figma's).
+Guid Player::topLevelOf(Guid id) const { return screenOf(doc(), id); }
 
 void Player::dropGhost(Guid ghost) {
   if (ghost == kNoGuid || !ghosts_.erase(ghost) || !doc().has(ghost)) return;
@@ -313,11 +304,17 @@ void Player::restoreOriginals() {
 
 std::vector<Guid> Player::sequence() const {
   std::vector<Guid> frames;
-  for (Guid c : doc().children(page_))
+  for (Guid c : screens(doc(), page_))
     if (frameExists(c) && props(c)->isFrameLike() && props(c)->type != NodeType::SECTION) frames.push_back(c);
   // Reading order: left to right, then top to bottom (R8 §9).
+  // (On the page: a frame in a section is placed by the sections around it too.)
+  auto onPage = [&](Guid id) {
+    Mat2x3 m = props(id)->transform;
+    for (Guid p = doc().parentOf(id); p != kNoGuid && p != page_ && props(p); p = doc().parentOf(p)) m = props(p)->transform * m;
+    return m;
+  };
   std::stable_sort(frames.begin(), frames.end(), [&](Guid a, Guid b) {
-    Mat2x3 ta = props(a)->transform, tb = props(b)->transform;
+    Mat2x3 ta = onPage(a), tb = onPage(b);
     if (ta.m02 != tb.m02) return ta.m02 < tb.m02;
     return ta.m12 < tb.m12;
   });
@@ -385,7 +382,7 @@ std::vector<ScaleMode> Player::scaleOrder() const {
   bool wide = true;
   int frames = 0;
   if (pg)
-    for (Guid c : doc().children(page_)) {
+    for (Guid c : screens(doc(), page_)) {
       const NodeProps* cp = props(c);
       if (!cp || !cp->visible || !cp->isFrameLike() || cp->type == NodeType::SECTION || cp->size.y <= 0) continue;
       frames++;
@@ -460,7 +457,8 @@ void Player::layout() {
     double aw = std::max(1.0, W - 2 * margin), ah = std::max(1.0, H - 2 * margin);
     switch (scale_) {
       case ScaleMode::ACTUAL: v.s = 1; break;
-      case ScaleMode::FILL: v.s = std::max(W / tw, H / th); break;
+      // Zoom device to fill screen: Figma's "contain" — the whole device, as large as the window takes it.
+      case ScaleMode::FILL: v.s = std::min(W / tw, H / th); break;
       default: v.s = std::min(1.0, std::min(aw / tw, ah / th)); break;  // Fit device on screen: it shrinks, never grows
     }
     double ox = std::round((W - tw * v.s) / 2 + df.left * v.s), oy = std::round((H - th * v.s) / 2 + df.top * v.s);
@@ -488,9 +486,12 @@ void Player::layout() {
   switch (scale_) {
     case ScaleMode::ACTUAL:
     case ScaleMode::RESPONSIVE: v.s = 1; break;
-    case ScaleMode::FIT_WIDTH: v.s = W / fw; break;
+    // Figma's viewport modes (atlas 13 §10.1; live 2026-10-20 in the inline preview): Fit width is "scale-down-width"
+    // (a narrower window shrinks the frame, a wider one leaves it at 100 %), Fit width and height "scale-down", Fill
+    // screen "contain" (the whole frame, as large as the window takes it — never cropped).
+    case ScaleMode::FIT_WIDTH: v.s = std::min(1.0, W / fw); break;
     case ScaleMode::FIT: v.s = std::min(1.0, std::min(W / fw, H / fh)); break;  // "It will not scale up the prototype"
-    case ScaleMode::FILL: v.s = std::max(W / fw, H / fh); break;
+    case ScaleMode::FILL: v.s = std::min(W / fw, H / fh); break;
   }
   // The screen is the frame, cut to what the window shows (a taller frame scrolls).
   v.screen = {std::min(fw, W / v.s), std::min(fh, H / v.s)};
@@ -1562,7 +1563,7 @@ void Player::scrollTo(Guid dest, const Action& a) {
     const NodeProps* cp = props(cur);
     const NodeProps* pp = props(parent);
     if (!cp || !pp) return;
-    if (pp->type == NodeType::CANVAS) {
+    if (pp->type == NodeType::CANVAS || pp->type == NodeType::SECTION) {  // the screen (a section's frames are screens)
       frame = cur;
       pos = acc.apply({0, 0});
       break;
@@ -1664,7 +1665,7 @@ void Player::setVariableMode(const Action& a) {
   // The page and every top-level frame shown take the mode (frames' own explicit modes would win otherwise).
   std::vector<Guid> targets{page_, base_};
   for (auto& o : overlays_) targets.push_back(o.frame);
-  for (Guid c : doc().children(page_)) targets.push_back(c);
+  for (Guid c : screens(doc(), page_)) targets.push_back(c);
   std::vector<NodeChange> changes;
   std::unordered_set<Guid, GuidHash> seen;
   for (Guid t : targets) {
@@ -2800,7 +2801,7 @@ const PresentScene& Player::scene() {
   layout();
   if (mediaDirty_) syncMedia();
   const NodeProps* pg = props(page_);
-  scene_.background = pg ? background(*pg) : Color::hex(0x1E1E1E);
+  scene_.background = pg ? background(*pg) : Color::hex(0x000000);
   // The device frame behind the screen.
   for (const PresentItem& r : view_.under) scene_.items.push_back(r);
   size_t firstScreenItem = scene_.items.size();
@@ -3201,7 +3202,7 @@ std::string Player::stateJson() const {
     if (!seq.empty())
       if (const NodeProps* fp = props(seq.front())) first = fp->size.x;
     if (page_ != kNoGuid)
-      for (Guid c : doc().children(page_)) {
+      for (Guid c : screens(doc(), page_)) {
         const NodeProps* cp = props(c);
         if (!cp || !cp->visible || !cp->isFrameLike() || cp->type == NodeType::SECTION || cp->size.y <= 0) continue;
         frames++;

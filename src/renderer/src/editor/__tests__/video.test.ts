@@ -126,22 +126,27 @@ describe("the presentation view's options", () => {
     expect(recommendedScales(state({ deviceType: "CUSTOM" }))).toEqual(["FIT", "FILL"]);
     // The player's own order wins (atlas 13 §10.1).
     expect(recommendedScales(state({ firstFrameWidth: 375, scaleOrder: ["FILL", "ACTUAL", "FIT", "FIT_WIDTH", "RESPONSIVE"] }))).toEqual(["FILL", "ACTUAL"]);
-    expect(labels(presentOptions(state({ firstFrameWidth: 375, scale: "ACTUAL" })))).toEqual([
-      "Enable Figma shortcuts",
-      "Show hints on click",
-      "Show sidebar",
-      "Hide UI",
-      "-",
+    // Live 2026-10-20 (prototype-preview.txt): the scales under "Recommended" / "Other scaling options", then
+    // "Advanced settings ›" and "Hide UI".
+    const entries = presentOptions(state({ firstFrameWidth: 375, scale: "ACTUAL" }));
+    expect(labels(entries)).toEqual([
       "# Recommended",
       "Actual size (100%)",
       "Fit width and height",
-      "# Other",
+      "# Other scaling options",
       "Fit width",
       "Responsive",
       "Fill screen",
       "-",
-      "Keyboard shortcuts",
+      "Advanced settings",
+      "Hide UI",
     ]);
+    const item = (label: string) => entries.find((e) => e !== "-" && !("header" in e) && e.label === label) as { shortcut?: string; icon?: string; items?: { label: string }[] };
+    // "Z" beside the option Z goes to next; each scale with its glyph.
+    expect(item("Fit width and height").shortcut).toBe("Z");
+    expect(item("Actual size (100%)").shortcut).toBeUndefined();
+    expect(item("Fill screen").icon).toBe("24.proto.scale.fill");
+    expect(item("Advanced settings").items?.map((i) => i.label)).toEqual(["Enable Figma shortcuts", "Show hints on click"]);
   });
 
   it("with a device: Responsive / Fixed size in the options, the device's scaling in the device menu", () => {

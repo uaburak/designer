@@ -1,0 +1,166 @@
+Live Figma, 2026-10-20 — the inline preview (⇧Space), the presentation view and the Prototype tab
+=================================================================================================
+How: the owner's Drafts file "Untitled", signed in, in the app's Browser pane (Claude in Chrome was not connected),
+viewport emulated at 1440 × 900 @2. A page "Proto probe (Wecra)" was made with the plugin API from the console —
+"Screen A" and "Screen B" (375 × 812), a component set "Toggle" (State=Off / State=On, each On click → Change to the
+other, Smart animate 0.3 s ease out), an instance of State=Off on Screen A, "Next button" (On click → Navigate to
+Screen B, Smart animate), "Back button" on Screen B (On click → Back), flow "Flow 1" at Screen A; later "Desktop big"
+(1440 × 1024) and "Small" (200 × 150). The page was deleted at the end; nothing else in the file was touched.
+DOM read with the dump helper of docs/research/figma/live/figma-dump.js; resizes driven with synthetic pointer events
+on Figma's own handles (data-testid="draggable-modal-resize-*"). Code facts from Figma's web bundle loaded by the page
+(figma_app-8af2da57…, 33473-b2b1a0be…; module ids below), read in the page — no code copied.
+Images: img/figma-*.jpg (live), img/wecra-*.jpg (ours before / after).
+
+1. The inline preview (⇧Space)
+------------------------------
+DOM: div.draggable_modal--positionedContainer.inline_preview_modal--previewModal, role=dialog, position fixed,
+z-index 6 (above the canvas and the panels, below menus), inline style left/top/width/height.
+  frame  r = 13 13 2 2, bg #2C2C2C (--figma-color-bg)
+  header 40 high incl. its 1px #444 line (header_modal--headerSmall … headerWithBottomBorder)
+    left group 12 in:  Previous frame (24, aria-disabled at the start) | Next frame | Restart prototype   — no gap
+    right group 8 in:  Preview options (adjust glyph) | Open in presentation view | Close
+    NO title / frame name.
+  content: an iframe /embed?embed_host=inline-viewer&url=…/proto/<file>?node-id=<page>&hide-ui=1&inline-viewer=1
+           (scaling=…, content-scaling=…, bg-color=… added when set). Loader while it loads.
+Opened with Screen A selected: left 314, top 16, 375 × 853 (header 40 + iframe 813). The visible canvas is
+298…1199 (left panel 298, right panel 241): left = canvas left + 16, top = 16.
+Glyph paths were read from the DOM (24 px): Previous / Next = the chevrons, Restart = the ↺ arrow, Preview options =
+the two-slider "adjust", Open in presentation view = the box with ↗, Close = the 24 ×.
+
+Focus: class previewFocused / previewNotFocused.
+  focused   shadow 0 10 24 #00000073, 0 3 5 #00000059, inset 0 .5 0 #ffffff14, inset 0 0 .5 #ffffff59
+            (= --ds-elevation-draggable-modal, dark) and 8 resize handles
+  unfocused shadow 0 3 8 #00000059, 0 1 3 #00000080, inset … (= --ds-elevation-200, dark), no handles
+  A click in the header or the prototype focuses the iframe (document.activeElement = IFRAME); a click on the canvas
+  unfocuses it. Opening it focuses the iframe.
+Resize handles (focused only), relative to the window:
+  top 8,-8 (w−16) × 12 · bottom 8,h−8 (w−16) × 16 · left −8,8 16 × (h−16) · right w−8,8 16 × (h−16)
+  corners 16 × 16 centred on the corners; cursors ns / ew / nwse / nesw.
+Resize (measured): free (no ratio) by default; min 104 × 61 (viewer 104 × 20 + 41); ⇧ keeps the viewer's ratio
+  (h−41)/w — 234 × 361 dragged +100,+100 with ⇧ → 307 × 461 (height led), then −50,0 → 257 × 392.5; sizes not rounded.
+  A top-edge drag past the minimum leaves the bottom where it was.
+Drag by the header (empty part): moved freely during the drag; after it (DraggableModal ensureModalOnScreen with
+  alwaysEnsureHeaderModalOnScreen + allowPartialHeaderOnScreen): top clamped to [0, innerHeight − (41 + 16)]
+  (measured 843 at 900), left so that ≥ 40 px of the header stay on screen (measured −156 and 1264 kept).
+Header buttons by width (1 px steps): < 153 → Preview options, Close; 153–216 → Restart prototype, Preview options,
+  Open in presentation view, Close; ≥ 217 → all six.
+Size and place: kept when closed and opened again in the same session (the modal is hidden with visibility:hidden,
+  not unmounted); not in localStorage — a reload starts again from the default.
+Initial size (bundle 33473 module 710745 `hF`/`O`, `v`, `I`, `A`, `x`, `S`; modal height = viewer + 41 (`uF` =
+  40px + 1) from figma_app 342994):
+  breakpoint = the page's prototype device → DEVICE at its screen size (rotated: swapped; PRESENTATION: the frame's
+               size); else frame width ≥ 1280 → WEBSITE, shown at (w, w / (16/9)); else SMALL at the frame's size.
+  max = (max(0.5 × canvas width, 104), canvas height − 41 − 32); min = (104, 20) (rotated device: 104 × 104).
+  `A`: scale down proportionally into max; when that would put a side under its min, that side is the min and the
+       other follows. `x`: then scale up to min the same way.
+  Measured: 375 × 812 → 375 × 853 window; 1440 × 1024 → 450.5 × 294.5 (canvas 901 wide → 450.5; 810 × 0.3128).
+Starting node (bundle 605997 / 915328): the selection's frame (getInlinePreviewNodeIdOnSelectionChange), else the
+  page's active flow starting point, else the first visually sorted base screen.
+Default scaling (761983): DEVICE → {fit-width, fixed}, else {scale-down-width, fixed} ("Fit width").
+Keys (605997): the iframe's keydown — Shift+Space (code "Space") or Escape closes it (unless resizing / dragging),
+  focus back to the canvas. The viewer's next-frame keys skip Shift+Space in the inline viewer. ← → / R as the viewer.
+Selection: selecting another frame on the canvas jumps the preview there (HANDLE_EDITOR_SELECTION_CHANGED); an empty
+  selection leaves it where it is; the window keeps its size.
+Preview options (menu 200 wide, 24 rows, radius 13, 8 padding):
+  ✓ Fit width   [24 glyph]      Fill screen [glyph]      Responsive [glyph]     (one of three)
+  —
+    Follow prototype            (toggle)
+    Resize window to 100%       ✓ when the viewer is at the frame's 100 % size
+    Reset aspect ratio          ✓ when the viewer has the frame's proportions
+  Measured: Fit width at 600 wide = the frame at 100 % centred (scale-down-width); Fill screen = the whole frame
+  fitted (contain, black bars, never cropped); Responsive = the frame re-laid out to the window.
+  Resize window to 100%: 257 × 392.5 → 375 × 853, left / top kept (even past the window's bottom). Bundle
+  710745 `N`: wider than 90 % of the canvas → a visual bell inline_preview.resize_to_actual_size_visual_bell with
+  "Revert" (English text not read).
+  Reset aspect ratio (`w`): the natural size, or — narrower — the current width at the frame's ratio:
+  475 × 1148 → 375 × 853; 175 × 853 → 175 × 420.
+  Follow prototype: the canvas pans and zooms to the frame the preview shows (zoom 0.6, centred on it); the canvas
+  selection is NOT changed. Logged as prototype.frame_following_selection_replaced.
+Live: Change to on the Toggle instance played inside the preview (Smart animate).
+
+2. The presentation view (/proto/<file>?node-id=…&starting-point-node-id=…)
+---------------------------------------------------------------------------
+Header [aria-label "Prototype controls"] 0,0 1440 × 48 + 1 px #444 line, bg #2C2C2C:
+  18,15 Figma logo link [File browser] · 48,1 48 × 46 [Open flows list] (glyph: a sidebar with ›) ·
+  96,1 48 × 46 [Comment] · centred h1 "Untitled" 14 px / 400 rgba(255,255,255,.9) + 30 × 48 caret [Options dropdown]
+  → menu with one item "Open in editor" · right: avatar 50 × 24 (multiplayer tools) · Share prototype 109 × 32
+  (primary #0C8CE9, 11 / 450) · 48 × 46 [Options] (adjust glyph, no chevron) · 48 × 46 [Enter full screen (F)].
+Stage: black (the page's transparent background), the frame at Actual size centred under the header; the stage runs
+  under the footer.
+Footer [Pages] 0,844 1440 × 48, no bar: the stepper [Stepper] 81 × 40 at the bottom's middle (8 above the edge),
+  r 13, bg #2C2C2C, shadow = elevation-200: Previous frame (24) | 1 × 24 line #444 | Next frame (24), 8 apart;
+  Restart [aria-keyshortcuts R] 96 × 30 pill (r full) bg #2C2C2C at 1332,862 (12 from the right, 8 from the bottom):
+  ↺ glyph, "Restart" 11 px white, "R" at 40 % white.
+UI auto-hidden after a while; moving to the top shows it again (atlas 13 §10.5).
+Options menu (204 wide, at 1188,59):
+  Recommended (header, 11 / 450 at 70 %)
+    ✓ Actual size (100%)     [glyph]
+      Fit width and height   [glyph]   Z      ← "Z" beside the option Z goes to next
+  Other scaling options (header)
+      Fit width [glyph] · Responsive [glyph] · Fill screen [glyph]
+  —
+  Advanced settings ›  → ✓ Enable Figma shortcuts · ✓ Show hints on click · — · Make available offline ·
+                         Accessibility settings…
+  Hide UI   ⌘\
+Flows sidebar (Open flows list; URL gets show-proto-sidebar=1): 240 wide, bg #2C2C2C, resizable by a 6 px edge:
+  header 40 "Flows" 11 / 550 + Close (24 ×), a 1 px line under it as a shadow; rows 224 × 24 at 8 in, an 8 × 7 play
+  glyph at 20, the name at 38 (11 / 450, 70 % white); a line; "Flow description" section 16 in: "No description".
+
+3. The Prototype tab
+--------------------
+Nothing selected:
+  "Prototype settings" (11 / 550) · Device select 208 wide ("No device") · a colour row 208 wide
+  (swatch + hex "000000", no opacity; aria "Background color") — Figma's pages hold prototypeBackgrounds = SOLID
+  black at opacity 0 (plugin API, all three pages), drawn black.
+  "Flows" · a row per flow: the name 16 in (70 % white) and three 24 buttons at 160 / 184 / 208:
+  "<flow>, select frame" (target glyph), "<flow>, copy flow link" (link), "<flow>, preview" (the inline preview).
+  Then the tips "Removing a connection" and "Running your prototype" (as with a selection).
+A top-level frame with a flow:
+  "Send to Figma Make" button (not ours) · "Flow starting point" with Copy flow link (184) and Remove flow
+  starting point (208, "−") in the header · a row: [Edit flow title] 88 ("Flow 1") · a select 88 of the page's
+  top-level frames ("Screen A ▾"; list: Desktop big, Screen B, Small, ✓ Screen A — it moves the starting point) ·
+  [Edit flow description] 24 · then Interactions (+), Scroll behavior (Overflow), "Show prototype settings", tips.
+A layer with an interaction: Interactions rows "Click → Screen B" (as r17-prototype-2), Scroll behavior Position.
+
+4. Wecra before / after
+-----------------------
+| Point | Figma | Wecra before | Now |
+|---|---|---|---|
+| Inline preview place | canvas left + 16, top 16 | hanging from the top-right, over the right panel | as Figma |
+| First size | frame at 100 % (website 16:9, device screen) into ½ canvas width × (height − 73), ≥ 104 × 20 | 320 wide, the frame's ratio | as Figma (inlinePreviewLayout.ts) |
+| Move | drag by the header, header kept on screen | could not be moved | as Figma |
+| Resize | 4 edges + 4 corners, focused only, min 104 × 61, ⇧ ratio | left, bottom, corner; min 160 | as Figma |
+| Focus look | draggable-modal shadow / elevation-200 | one shadow | as Figma |
+| Header | ‹ › ↺ … options, open, × — no title; fewer when narrow | ← → rotate-glyph, frame name, ⋯ | as Figma, Figma's glyphs |
+| Esc / ⇧Space in it | close it | not handled (the dialog role blocked even R) | as Figma |
+| Kept between openings | place, size, options | reset each time | as Figma (per editor session) |
+| Default scale | Fit width (scale-down-width) | Fit width and height | as Figma |
+| Options | Fit width / Fill screen / Responsive · Follow prototype · Resize window to 100% ✓ · Reset aspect ratio ✓ | Fit width, Responsive, Follow, Resize to 100%, Respect aspect ratio (a lock) | as Figma |
+| Follow prototype | canvas follows, selection unchanged | selected the frame | as Figma |
+| Fit width / Fill screen scaling | scale-down-width / contain | width-fit up and down / cover (cropped) | as Figma (engine Player.cpp) |
+| Presentation bar | 48 high; flows list, comment; centred file name + "Open in editor"; Share, Options (adjust), full screen | 40 high; sidebar, comment, flows menu with file/flow; screen name; settings ▾; full screen; × | as Figma (no Figma logo, no avatar) |
+| Presentation options | Recommended / Other scaling options with glyphs, Z hint, Advanced settings ›, Hide UI ⌘\ | flat list incl. Show sidebar, Keyboard shortcuts | as Figma (no "Make available offline" / "Accessibility settings…") |
+| Footer | floating stepper pill + Restart pill (R) | a 40 high bar, ← → and a Restart button | as Figma |
+| Flows sidebar | header with ×, rows, description section | header, rows, description under the current row | as Figma |
+| Prototype tab, nothing selected | "Prototype settings": Device + Background color (hex, black); Flows rows with select / link / preview; tips | Device, Background (+ opacity, #1E1E1E), Flows with present ▶ | as Figma |
+| Flow starting point | name 88 · frame select 88 · description; Copy flow link, − | name with ▶, −, description field | as Figma (description field shown by its button) |
+| Prototype background default | transparent → black | #1E1E1E | black |
+| Interaction details draggable | yes (draggable_modal) | yes since 2026-10-19 (ds/overlay/drag.ts) | unchanged |
+| Change to in instances (inline + presentation) | plays | plays (checked) | unchanged |
+
+5. The owner's "Kahve" (observed only, nothing changed; the selection and the preview are session state)
+------------------------------------------------------------------------------------------------------
+Page "New": 4 flows ("Flow 3", "Flow 5", "Flow 4", "Flow 6"), each starting at a 600 × 1024 frame INSIDE A SECTION
+("/station - H", "/station - H-2"); the page has a landscape iPad device. Real interactions on a flow frame:
+the frame After delay → Navigate; a Button instance with its own On click → Back plus the main's While pressing →
+Change to (State=Pressed); "langSelect" On click → Change to (its open state), whose own variant holds a Button with
+While pressing → Change to.
+  ⇒ Figma treats frames in sections as top-level frames: they start flows, ⇧Space opens on them, they are
+    navigation destinations. Wecra treated only the page's children as screens (a frame in a section previewed
+    / presented as its section) — fixed (engine proto::screens / screenOf, editor presentStart, the panels'
+    frame lists).
+Inline preview with the device: window 314,16 450.5 × 394.5 — the landscape device with its frame artwork fitted to
+½ the canvas width (bundle: `BX(size, framePresetSize, idealDeviceSize)`: the device's artwork size, not only its
+screen); the portrait frame inside, cut by the screen. Preview options with a device:
+  Responsive [glyph] · Zoom device to fill screen [glyph] · ✓ Fixed [glyph]   (one of three)
+  —  Follow prototype · Resize device to 100% · ✓ Show device frame
