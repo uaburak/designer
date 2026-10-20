@@ -108,6 +108,9 @@ class Player {
   // version: the state is read a few times a second, and the connected frames are found by reading every layer of
   // them (a heavy screen's thousands).
   std::vector<Guid> sequence() const;
+  // The screens the prototype can go to next from what it shows: its hotspots' destinations (navigate, overlays,
+  // swaps, scroll to) and the frames → and ← go to — what a partial engine derives ahead, between frames.
+  std::vector<Guid> upcoming() const;
   // Screen geometry: the device screen's size (design units) and where it is on the canvas (CSS px).
   Vec2 screenSize() const { return view_.screen; }
   Rect screenRect() const { return view_.css; }

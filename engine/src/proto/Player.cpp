@@ -316,6 +316,37 @@ std::vector<Guid> Player::sequence() const {
   return m.frames;
 }
 
+std::vector<Guid> Player::upcoming() const {
+  std::vector<Guid> out;
+  std::unordered_set<Guid, GuidHash> seen{base_};
+  auto add = [&](Guid id) {
+    Guid top = id != kNoGuid ? topLevelOf(id) : kNoGuid;
+    if (top != kNoGuid && seen.insert(top).second && frameExists(top)) out.push_back(top);
+  };
+  std::vector<std::pair<Navigation, Guid>> dests;
+  std::vector<Guid> stack{base_};
+  for (const Shown& o : overlays_) stack.push_back(o.frame);
+  while (!stack.empty()) {
+    Guid id = stack.back();
+    stack.pop_back();
+    const NodeProps* p = props(id);
+    if (!p) continue;
+    const NodeProps* m = p->type == NodeType::INSTANCE ? props(ed_.mainOf(id)) : nullptr;
+    if (hasInteractions(*p) || (m && hasInteractions(*m)))
+      for (auto& i : ed_.playedInteractions(id))
+        for (auto& a : i.actions) destinations(a, dests);
+    for (Guid c : doc().children(id)) stack.push_back(c);
+  }
+  for (auto& d : dests) add(d.second);
+  // → and ←.
+  auto seq = sequence();
+  if (auto it = std::find(seq.begin(), seq.end(), base_); it != seq.end()) {
+    if (it + 1 != seq.end()) add(*(it + 1));
+    if (it != seq.begin()) add(*(it - 1));
+  }
+  return out;
+}
+
 std::vector<Guid> Player::computeSequence() const {
   std::vector<Guid> frames;
   for (Guid c : screens(doc(), page_))
@@ -335,9 +366,13 @@ std::vector<Guid> Player::computeSequence() const {
   // With connections: the frames reachable from the flow's start, in the order they are reached.
   bool connected = false;
   std::function<void(Guid, std::vector<std::pair<Navigation, Guid>>&)> collect = [&](Guid id, std::vector<std::pair<Navigation, Guid>>& out) {
-    if (!props(id)) return;
-    for (auto& i : ix(id))
-      for (auto& a : i.actions) destinations(a, out);
+    const NodeProps* p = props(id);
+    if (!p) return;
+    // Only the destinations: no variable read (ix), and nothing read for a layer without interactions.
+    const NodeProps* m = p->type == NodeType::INSTANCE ? props(ed_.mainOf(id)) : nullptr;
+    if (hasInteractions(*p) || (m && hasInteractions(*m)))
+      for (auto& i : ed_.playedInteractions(id))
+        for (auto& a : i.actions) destinations(a, out);
     for (Guid c : doc().children(id)) collect(c, out);
   };
   Guid startAt = flow_ != kNoGuid ? flow_ : startFrame_ != kNoGuid ? startFrame_ : (frames.empty() ? kNoGuid : frames[0]);

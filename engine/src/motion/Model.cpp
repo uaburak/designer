@@ -445,6 +445,15 @@ void MotionIndex::rebuild(const Document& doc, const Resolver* resolve) {
     const NodeProps& p = n.props;
     if (n.guid.isDerived()) return;  // instance sublayers: round 8a's next increment (their main's tracks, offset)
     if (p.type == NodeType::KEYFRAME || p.type == NodeType::KEYFRAME_TRACK || p.type == NodeType::ANIMATION_PRESET_INSTANCE) return;
+    // Most layers animate nothing: told without building anything (a heavy page has 100k+ of them).
+    auto anyVar = [](const std::vector<Paint>& list) {
+      return std::any_of(list.begin(), list.end(), [](const Paint& x) { return x.colorVar.present() || x.opacityVar.present(); });
+    };
+    bool effectVar = std::any_of(p.effects.begin(), p.effects.end(), [](const Effect& e) {
+      return e.radiusVar.present() || e.colorVar.present() || e.spreadVar.present() || e.xVar.present() || e.yVar.present();
+    });
+    if (p.parameterConsumptionMap.empty() && !anyVar(p.fillPaints) && !anyVar(p.strokePaints) && !effectVar && !p.extra.count("animationPresets"))
+      return;
     AnimatedNode an;
     for (const ParamBinding& pb : p.parameterConsumptionMap) {
       if (!pb.isVariable()) continue;

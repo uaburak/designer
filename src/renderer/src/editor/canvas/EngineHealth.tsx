@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import { Button, Dialog, IconButton, showToast } from "@/ds";
 import { useEditor } from "../controller";
 import { useUI } from "../hooks";
+import { dropParked } from "../present";
 import { hardwareAcceleration, probeWebGL2 } from "../../engine/gfx";
 import { onEngineAbort } from "../../engine/loadEngine";
 import {
@@ -47,6 +48,7 @@ export function EngineHealth() {
           ed.engine.purgeMemory();
           // The inline preview kept hidden for its next opening (InlinePreview.tsx) goes too.
           if (!ed.ui.get().preview) ed.ui.set({ previewKept: null });
+          dropParked(ed);
         },
       },
       heapModeOf(location.search)

@@ -3285,7 +3285,7 @@ Guid assignmentSlotContent(std::string_view extra) {
   return d.kind == VariableData::Kind::SLOT_CONTENT ? d.slotContent : kNoGuid;
 }
 
-bool extraBool(const std::map<std::string, std::string>& extra, const char* key, bool fallback) {
+bool extraBool(const std::map<std::string, std::string, std::less<>>& extra, const char* key, bool fallback) {
   auto it = extra.find(key);
   if (it == extra.end() || it->second.empty()) return fallback;
   kiwi::ByteBuffer bb(reinterpret_cast<const uint8_t*>(it->second.data()), it->second.size());

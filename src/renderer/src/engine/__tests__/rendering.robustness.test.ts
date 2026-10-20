@@ -205,6 +205,32 @@ describe("the file's memory (Figma's heap limits and threshold, atlas 20 §9)", 
     expect(m.state.level).toBe(MemoryWarningLevel.OOM); // the dialog stays
   });
 
+  it("a due read (it walks the whole heap) waits for a pause with no frame due, at most MEMORY_POLL_WAIT_MS", () => {
+    const used = vi.fn(() => GiB);
+    const m = new MemoryMonitor({ used, purge: () => {} });
+    const idle: ((d: IdleDeadline) => void)[] = [];
+    vi.stubGlobal("requestIdleCallback", (fn: (d: IdleDeadline) => void) => idle.push(fn));
+    vi.stubGlobal("cancelIdleCallback", () => {});
+    let tick: () => void = () => {};
+    const stop = m.start(((fn: () => void) => ((tick = fn), 1)) as unknown as typeof setInterval, (() => {}) as unknown as typeof clearInterval);
+    try {
+      expect(used).toHaveBeenCalledTimes(1); // at once
+      tick();
+      tick(); // still waiting: not asked twice
+      expect(idle).toHaveLength(1);
+      idle.shift()!({ timeRemaining: () => 8, didTimeout: false }); // a frame is due: later
+      expect(used).toHaveBeenCalledTimes(1);
+      idle.shift()!({ timeRemaining: () => 49, didTimeout: false });
+      expect(used).toHaveBeenCalledTimes(2);
+      tick();
+      idle.shift()!({ timeRemaining: () => 0, didTimeout: true }); // waited long enough
+      expect(used).toHaveBeenCalledTimes(3);
+    } finally {
+      stop();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("recovery mode's 4 GiB limit; an abort for memory is out of memory", () => {
     const m = new MemoryMonitor({ used: () => 2.2 * GiB, purge: () => {} }, HeapMemoryMode.RECOVERY);
     m.poll();

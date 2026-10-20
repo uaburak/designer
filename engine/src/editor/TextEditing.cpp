@@ -752,7 +752,7 @@ Status Editor::applyTextStyle(Guid id, const NodeChange& change) {
   bool ranged = (forced || text_.node == id) && from < to && !(from == 0 && to >= len);
   // Run fields kept as data (links, variable axes, OpenType switches, decoration details): to the range, or to the
   // node and out of every run.
-  std::map<std::string, std::string> runExtras;
+  std::map<std::string, std::string, std::less<>> runExtras;
   if (mask & F_EXTRA)
     for (auto& [k, v] : change.props.extra)
       if (text::isRunExtraKey(k)) runExtras[k] = v;
@@ -830,7 +830,7 @@ std::string Editor::textRangeStyle(Guid id, uint32_t from, uint32_t to, bool use
     if (std::find(list.begin(), list.end(), v) == list.end()) list.push_back(std::move(v));
   };
   auto quoted = [](const char* v) { return std::string("\"") + v + "\""; };
-  std::map<std::string, std::string> nodeExtras;
+  std::map<std::string, std::string, std::less<>> nodeExtras;
   for (auto& [k, v] : p.extra)
     if (text::isRunExtraKey(k) && !v.empty()) nodeExtras[k] = codec::extraValueToJson("NodeChange", v);
   for (uint16_t si : used) {
@@ -860,7 +860,7 @@ std::string Editor::textRangeStyle(Guid id, uint32_t from, uint32_t to, bool use
     codec::writePaints(wf, s.fills ? *s.fills : std::vector<Paint>{});
     put("fillPaints", wf.take());
     // Kept-as-data fields: the run's own, else the node's.
-    std::map<std::string, std::string> extras = nodeExtras;
+    std::map<std::string, std::string, std::less<>> extras = nodeExtras;
     if (s.styleID) {
       for (const TextStyle& o : p.text().textData.styleOverrideTable)
         if (o.styleID == s.styleID && !o.extra.empty()) {

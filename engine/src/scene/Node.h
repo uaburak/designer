@@ -1179,7 +1179,7 @@ struct NodeProps {
   // The fields the engine doesn't model (exportSettings, guides, prototype…): schema
   // name → the field's kiwi bytes (varuint id, value). A CHANGED change's `extra`
   // merges into the node's (an empty value removes that field); CREATED replaces it.
-  std::map<std::string, std::string> extra;
+  std::map<std::string, std::string, std::less<>> extra;
 
   // Groups — and Figma Draw's transform groups (TRANSFORM), which are groups whose children are drawn repeated.
   bool isGroupLike() const { return type == NodeType::GROUP || type == NodeType::TRANSFORM || (type == NodeType::FRAME && resizeToFit); }

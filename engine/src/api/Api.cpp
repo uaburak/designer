@@ -671,6 +671,8 @@ ENG_EXPORT int32_t engine_load_page_of(Handle h, Handle from, uint32_t pageSessi
     auto motionGuard = src->editor.motionSuspended();  // storage reads base values (docs/motion.md §5)
     nodes = src->editor.encodePage(page);
   }
+  // A live engine's bound values are current (but on the pages it hasn't shown): not resolved again at load.
+  e->editor.setFreshBindings(src->editor.pagesUnresolved());
   e->editor.loadDocument(std::move(nodes), page);
   return OK;
 }
@@ -687,14 +689,18 @@ ENG_EXPORT int32_t engine_set_partial(Handle h, uint32_t flags) {
   return OK;
 }
 
-// A partial engine derives its page's screens as they are shown; this spends up to `budgetMs` deriving the ones not
-// shown yet (the presented page's, else the current one's), between frames. 1 while some remain.
+// A partial engine derives its page's screens as they are shown; this spends up to `budgetMs` (at least one screen)
+// noting the dependencies of bound values loaded current (setFreshBindings), then deriving the screens the player can
+// go to next (Player::upcoming) — not presenting, the current page's others — between frames. 1 while some remain.
 ENG_EXPORT int32_t engine_derive_next(Handle h, double budgetMs) {
   Call call;
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
-  Guid page = e->presenting() ? e->player->page() : e->editor.page();
-  return e->editor.deriveNextTrees(page, budgetMs) ? 1 : 0;
+  if (!e->presenting()) return e->editor.deriveNextTrees(e->editor.page(), budgetMs) ? 1 : 0;
+  // Presenting: the screens it can go to next from what it shows (a heavy page's others derive when shown — deriving
+  // them all here kept the main thread busy 60–130 ms a screen for seconds after an opening).
+  std::vector<Guid> next = e->player->upcoming();
+  return e->editor.deriveNextTrees(e->player->page(), budgetMs, &next) ? 1 : 0;
 }
 
 // {"nodes":["s:l"…]}: the nodes changes needed that this partial engine doesn't have, since the last call or load.

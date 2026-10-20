@@ -227,7 +227,7 @@ bool TextFeatures::operator==(const TextFeatures& o) const {
          explicitLayoutVersion == o.explicitLayoutVersion && bidiVersion == o.bidiVersion;
 }
 
-void stampLayoutVersions(std::map<std::string, std::string>& extra) {
+void stampLayoutVersions(std::map<std::string, std::string, std::less<>>& extra) {
   for (const char* key : {"textUserLayoutVersion", "textExplicitLayoutVersion", "textBidiVersion"}) {
     if (extra.count(key)) continue;
     json::Value v;
@@ -237,7 +237,7 @@ void stampLayoutVersions(std::map<std::string, std::string>& extra) {
   }
 }
 
-TextFeatures nodeFeatures(const std::map<std::string, std::string>& extra) {
+TextFeatures nodeFeatures(const std::map<std::string, std::string, std::less<>>& extra) {
   TextFeatures f;
   if (extra.empty()) return f;
   for (const char* key : kKeys) {

@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <memory>
+#include <string_view>
+#include <unordered_map>
 
 #include "motion/Easing.h"
 #include "render/ImageCache.h"
@@ -12,13 +15,56 @@ namespace eng::proto {
 
 namespace {
 
+// What was read from an extra field's bytes, by those bytes (a read is a pure function of them). Reading kiwi bytes
+// as JSON text and parsing it back costs ~20–100 µs a field; the player reads the same interactions over and over
+// (every screen's hotspots for the next / previous order, each instance's main and variants, after every Change to),
+// and a file's instances carry the same copies of their main's: the owner's B2C page (17k interactions) spent 0.6–2.4 s
+// a click or an opening in these reads. Bounded: emptied when it holds too many (what a caller holds stays alive).
+template <typename T>
+class ByBytes {
+ public:
+  template <typename Read>
+  std::shared_ptr<const T> get(const std::string& bytes, Read&& read) {
+    if (auto it = map_.find(std::string_view(bytes)); it != map_.end()) return it->second;
+    if (map_.size() >= kMaxEntries || bytes_ >= kMaxBytes) {
+      map_.clear();
+      bytes_ = 0;
+    }
+    auto value = std::make_shared<const T>(read());
+    map_.emplace(bytes, value);
+    bytes_ += bytes.size();
+    return value;
+  }
+
+ private:
+  // A heavy file's distinct interaction lists (its instances share their main's): B2C's 17k interactions fit.
+  static constexpr size_t kMaxEntries = 32768, kMaxBytes = 16u << 20;
+  struct Hash {
+    using is_transparent = void;
+    size_t operator()(std::string_view s) const { return std::hash<std::string_view>{}(s); }
+  };
+  std::unordered_map<std::string, std::shared_ptr<const T>, Hash, std::equal_to<>> map_;
+  size_t bytes_ = 0;
+};
+
+struct ParsedField {
+  bool ok = false;
+  json::Value value;
+};
+
 // A field of NodeProps::extra as the schema's JSON (null when absent or unreadable).
 bool extraJson(const NodeProps& p, const char* key, json::Value& out) {
   auto it = p.extra.find(key);
   if (it == p.extra.end() || it->second.empty()) return false;
-  std::string text = codec::extraValueToJson("NodeChange", it->second);
-  if (text == "null") return false;
-  return json::parse(text, out);
+  static std::unordered_map<std::string, ByBytes<ParsedField>> memo;  // by field
+  auto parsed = memo[key].get(it->second, [&] {
+    ParsedField r;
+    std::string text = codec::extraValueToJson("NodeChange", it->second);
+    r.ok = text != "null" && json::parse(text, r.value);
+    return r;
+  });
+  if (parsed->ok) out = parsed->value;
+  return parsed->ok;
 }
 
 std::string str(const json::Value* v) { return v && v->isString() ? v->string : std::string(); }
@@ -283,7 +329,9 @@ bool hasInteractions(const NodeProps& p) {
   return it != p.extra.end() && !it->second.empty();
 }
 
-std::vector<Interaction> interactions(const NodeProps& p) {
+namespace {
+
+std::vector<Interaction> readInteractions(const NodeProps& p) {
   std::vector<Interaction> out;
   json::Value v;
   if (!extraJson(p, "prototypeInteractions", v) || !v.isArray()) return out;
@@ -318,6 +366,18 @@ std::vector<Interaction> interactions(const NodeProps& p) {
   }
   return out;
 }
+
+}  // namespace
+
+std::shared_ptr<const std::vector<Interaction>> sharedInteractions(const NodeProps& p) {
+  static const auto none = std::make_shared<const std::vector<Interaction>>();
+  auto it = p.extra.find("prototypeInteractions");
+  if (it == p.extra.end() || it->second.empty()) return none;
+  static ByBytes<std::vector<Interaction>> memo;
+  return memo.get(it->second, [&] { return readInteractions(p); });
+}
+
+std::vector<Interaction> interactions(const NodeProps& p) { return *sharedInteractions(p); }
 
 Overflow overflow(const NodeProps& p) {
   json::Value v;
@@ -486,7 +546,7 @@ namespace {
 
 // Each live entry of prototypeInteractions (the ones interactions() lists, in its order): its id and its JSON without
 // the bookkeeping fields Figma adds to copies (isDeleted, stateManagementVersion).
-std::vector<std::pair<Guid, std::string>> liveEntries(const NodeProps& p) {
+std::vector<std::pair<Guid, std::string>> readLiveEntries(const NodeProps& p) {
   std::vector<std::pair<Guid, std::string>> out;
   json::Value v;
   if (!extraJson(p, "prototypeInteractions", v) || !v.isArray()) return out;
@@ -499,6 +559,14 @@ std::vector<std::pair<Guid, std::string>> liveEntries(const NodeProps& p) {
     out.emplace_back(guidOf(x.get("id")), json::encode(c));
   }
   return out;
+}
+
+using Entries = std::vector<std::pair<Guid, std::string>>;
+std::shared_ptr<const Entries> liveEntries(const NodeProps& p) {
+  auto it = p.extra.find("prototypeInteractions");
+  if (it == p.extra.end() || it->second.empty()) return std::make_shared<const Entries>();
+  static ByBytes<Entries> memo;
+  return memo.get(it->second, [&] { return readLiveEntries(p); });
 }
 
 }  // namespace
@@ -518,24 +586,24 @@ std::vector<Interaction> instanceInteractions(const NodeProps& own, const NodePr
   std::vector<int> index(mainList.size(), -1);
   if (!ownList.empty()) {
     auto ownEntries = liveEntries(own);
-    std::vector<std::vector<std::pair<Guid, std::string>>> variantEntries;
+    std::vector<std::shared_ptr<const Entries>> variantEntries;
     for (const NodeProps* v : variants)
       if (v) variantEntries.push_back(liveEntries(*v));
     auto copyOf = [&](Guid id, const std::string& body) {
       for (const auto& list : variantEntries)
-        for (const auto& [vid, vbody] : list)
+        for (const auto& [vid, vbody] : *list)
           if (vid == id && vbody == body) return true;
       return false;
     };
     auto otherVariants = [&](Guid id) {
       for (const auto& list : variantEntries)
-        for (const auto& e : list)
+        for (const auto& e : *list)
           if (e.first == id) return true;
       return false;
     };
-    for (size_t k = 0; k < ownList.size() && k < ownEntries.size(); k++) {
+    for (size_t k = 0; k < ownList.size() && k < ownEntries->size(); k++) {
       Guid id = ownList[k].id;
-      const std::string& body = ownEntries[k].second;
+      const std::string& body = (*ownEntries)[k].second;
       size_t at = mainList.size();
       if (id != kNoGuid)
         for (size_t m = 0; m < mainList.size(); m++)
@@ -553,6 +621,32 @@ std::vector<Interaction> instanceInteractions(const NodeProps& own, const NodePr
   }
   if (ownIndex) *ownIndex = std::move(index);
   return out;
+}
+
+std::vector<bool> instanceOwnEntries(const NodeProps& own, const NodeProps* main, const std::vector<const NodeProps*>& variants) {
+  auto ownList = sharedInteractions(own);
+  std::vector<bool> mine(ownList->size(), main == nullptr);
+  if (!main || ownList->empty()) return mine;
+  auto mainList = sharedInteractions(*main);
+  auto ownEntries = liveEntries(own);
+  std::vector<std::shared_ptr<const Entries>> variantEntries;
+  for (const NodeProps* v : variants)
+    if (v) variantEntries.push_back(liveEntries(*v));
+  for (size_t k = 0; k < ownList->size() && k < ownEntries->size(); k++) {
+    Guid id = (*ownList)[k].id;
+    const std::string& body = (*ownEntries)[k].second;
+    bool inMain = id != kNoGuid && std::any_of(mainList->begin(), mainList->end(), [&](const Interaction& m) { return m.id == id; });
+    bool copy = false, elsewhere = false;
+    for (const auto& list : variantEntries)
+      for (const auto& [vid, vbody] : *list)
+        if (vid == id) {
+          elsewhere = true;
+          copy |= vbody == body;
+        }
+    // As instanceInteractions: the main's entry changed on the instance, or an entry no variant has.
+    mine[k] = inMain ? !copy : !(id != kNoGuid && elsewhere);
+  }
+  return mine;
 }
 
 std::string encodeField(const char* key, const json::Value& v) { return codec::extraFromJson("NodeChange", key, v); }

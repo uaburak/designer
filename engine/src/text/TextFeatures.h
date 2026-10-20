@@ -71,13 +71,13 @@ struct TextFeatures {
 };
 
 // The node's own (NodeProps::extra).
-TextFeatures nodeFeatures(const std::map<std::string, std::string>& extra);
+TextFeatures nodeFeatures(const std::map<std::string, std::string, std::less<>>& extra);
 
 // Figma's current text layout versions (Atlas 06 §2.4: textUserLayoutVersion, textExplicitLayoutVersion and
 // textBidiVersion are all 1): what a new text is stamped with (stampLayoutVersions, the fields it lacks) and what
 // Type settings' Update writes.
 inline constexpr int32_t kLatestTextLayoutVersion = 1;
-void stampLayoutVersions(std::map<std::string, std::string>& extra);
+void stampLayoutVersions(std::map<std::string, std::string, std::less<>>& extra);
 // A run's fields on top of `base` (TextStyle::extra: a raw NodeChange field sequence).
 TextFeatures runFeatures(const TextFeatures& base, std::string_view runExtra);
 // Whether a run's raw fields hold any of the fields above.

@@ -242,7 +242,7 @@ bool isRunExtraKey(std::string_view key) {
   return false;
 }
 
-bool changesTextLayout(const std::map<std::string, std::string>& extra) {
+bool changesTextLayout(const std::map<std::string, std::string, std::less<>>& extra) {
   for (auto& [k, v] : extra)
     if (isRunExtraKey(k) || k == "leadingTrim" || k == "listSpacing" || k == "hangingList" || k == "hangingPunctuation" ||
         k == "textWrapStyle" || k == "textUserLayoutVersion" || k == "textBidiVersion")
@@ -262,7 +262,7 @@ bool splitEntry(std::string_view entry, uint32_t& id, std::string_view& value) {
 
 }  // namespace
 
-void applyRunExtras(TextData& t, uint32_t from, uint32_t to, const std::map<std::string, std::string>& fields, const NodeProps& p) {
+void applyRunExtras(TextData& t, uint32_t from, uint32_t to, const std::map<std::string, std::string, std::less<>>& fields, const NodeProps& p) {
   uint32_t n = length16(t);
   from = std::min(from, n);
   to = std::clamp(to, from, n);
