@@ -1438,6 +1438,33 @@ Status Editor::resetOverrides(const std::vector<Guid>& refs, const ResetSpec& sp
 
 // The real node in `symbol`'s tree at `path` (keys), following nested instances' mains; `rest` gets the keys left
 // when the walk stops at a nested instance.
+// One level of an override path: the layer with `key` anywhere under `root` in that main — its frames and groups
+// searched, not the insides of nested instances (Figma's guidPath has one key per instance level, the frames between
+// them are not in it). `chain`: the (name, n-th of that name among its siblings) of each layer down to it.
+static Guid findInLevel(const Document& doc, Guid root, Guid key, std::vector<std::pair<std::string, int>>* chain) {
+  for (Guid c : doc.children(root)) {
+    const Node* n = c.isDerived() ? nullptr : doc.get(c);
+    if (!n) continue;
+    int nth = 0;
+    if (chain)
+      for (Guid s : doc.children(root)) {
+        if (s == c) break;
+        const Node* sn = s.isDerived() ? nullptr : doc.get(s);
+        if (sn && sn->props.name == n->props.name) nth++;
+      }
+    if (n->props.keyOf(c) == key) {
+      if (chain) chain->push_back({n->props.name, nth});
+      return c;
+    }
+    if (n->props.type == NodeType::INSTANCE) continue;
+    if (chain) chain->push_back({n->props.name, nth});
+    Guid found = findInLevel(doc, c, key, chain);
+    if (found != kNoGuid) return found;
+    if (chain) chain->pop_back();
+  }
+  return kNoGuid;
+}
+
 static Guid resolvePath(const Document& doc, Guid symbol, const std::vector<Guid>& path, std::vector<Guid>* rest, Guid* stopAt) {
   Guid cur = symbol;
   for (size_t i = 0; i < path.size(); i++) {
@@ -1451,11 +1478,7 @@ static Guid resolvePath(const Document& doc, Guid symbol, const std::vector<Guid
       }
       cur = cn->props.comp().symbolData.symbolID;
     }
-    Guid next = kNoGuid;
-    for (Guid c : doc.children(cur)) {
-      const Node* n = doc.get(c);
-      if (!c.isDerived() && n && n->props.keyOf(c) == path[i]) next = c;
-    }
+    Guid next = findInLevel(doc, cur, path[i], nullptr);
     if (next == kNoGuid) return kNoGuid;
     cur = next;
   }
@@ -1621,37 +1644,49 @@ std::vector<SymbolOverride> Editor::remapOverrides(const std::vector<SymbolOverr
   const Node* fromNode = doc_.get(from);
   const Node* toNode = doc_.get(to);
   if (!toNode) return out;
-  // The names along a path in a main (for Figma's name-and-hierarchy match).
+  // The names along a path in a main (for Figma's name-and-hierarchy match): per level, each layer's name and which
+  // of its same-named siblings it is (a card's two "image" layers stay apart), from the level's root down to it.
+  using Chain = std::vector<std::pair<std::string, int>>;
   auto namesOf = [&](Guid symbol, const std::vector<Guid>& path) {
-    std::vector<std::string> names;
+    std::vector<Chain> names;
     Guid cur = symbol;
     for (Guid key : path) {
       const Node* cn = doc_.get(cur);
       if (cn && cn->props.type == NodeType::INSTANCE && cur != symbol) cur = cn->props.comp().symbolData.symbolID;
-      Guid next = kNoGuid;
-      for (Guid c : doc_.children(cur))
-        if (!c.isDerived() && doc_.get(c)->props.keyOf(c) == key) next = c;
-      if (next == kNoGuid) return std::vector<std::string>{};
-      names.push_back(doc_.get(next)->props.name);
+      Chain chain;
+      Guid next = findInLevel(doc_, cur, key, &chain);
+      if (next == kNoGuid) return std::vector<Chain>{};
+      names.push_back(std::move(chain));
       cur = next;
     }
     return names;
   };
-  auto byNames = [&](Guid symbol, const std::vector<std::string>& names, std::vector<Guid>& path) {
+  auto byNames = [&](Guid symbol, const std::vector<Chain>& names, std::vector<Guid>& path) {
     path.clear();
     Guid cur = symbol;
-    for (const std::string& name : names) {
+    for (const Chain& chain : names) {
       const Node* cn = doc_.get(cur);
       if (cn && cn->props.type == NodeType::INSTANCE && cur != symbol) cur = cn->props.comp().symbolData.symbolID;
-      Guid next = kNoGuid;
-      for (Guid c : doc_.children(cur))
-        if (!c.isDerived() && doc_.get(c)->props.name == name) {
-          next = c;
-          break;
+      Guid at = cur;
+      for (const auto& [name, nth] : chain) {
+        Guid next = kNoGuid, first = kNoGuid;
+        int seen = 0;
+        for (Guid c : doc_.children(at)) {
+          const Node* n = c.isDerived() ? nullptr : doc_.get(c);
+          if (!n || n->props.name != name) continue;
+          if (first == kNoGuid) first = c;
+          if (seen++ == nth) {
+            next = c;
+            break;
+          }
         }
-      if (next == kNoGuid) return kNoGuid;
-      path.push_back(doc_.get(next)->props.keyOf(next));
-      cur = next;
+        if (next == kNoGuid) next = first;  // fewer of that name here: the first
+        if (next == kNoGuid) return kNoGuid;
+        at = next;
+      }
+      if (at == cur) return kNoGuid;
+      path.push_back(doc_.get(at)->props.keyOf(at));
+      cur = at;
     }
     return cur;
   };
@@ -1674,7 +1709,7 @@ std::vector<SymbolOverride> Editor::remapOverrides(const std::vector<SymbolOverr
       bool sameName = dst != kNoGuid && src != kNoGuid && doc_.get(dst)->props.name == doc_.get(src)->props.name;
       if (dst == kNoGuid || !sameName) {
         // Not the same layer by key: a layer with the same names along the way (R4 §3).
-        std::vector<std::string> names = fromNode ? namesOf(from, o.path) : std::vector<std::string>{};
+        std::vector<Chain> names = fromNode ? namesOf(from, o.path) : std::vector<Chain>{};
         if (names.empty()) continue;
         dst = byNames(to, names, r.path);
         if (dst == kNoGuid) continue;
@@ -1814,6 +1849,35 @@ void Editor::transferNestedSwap(Guid ref, Guid from, Guid to) {
   write(c);
 }
 
+// Figma: an instance's layer name is its own — a swap or a variant switch renames it only when it still has its old
+// main's name (its set's, for a variant); a name of its own stays (the owner's sidebar "Button", an instance of the
+// "Buttons" set: Change to renamed it "Buttons", and Smart animate then matched it with another "Button"). Kept as the
+// root override's name.
+static void keepOwnName(const Document& doc, const NodeProps& instance, Guid oldMain, Guid newMain, std::vector<SymbolOverride>& overrides) {
+  auto defaultName = [&](Guid main) -> std::string {
+    const Node* mn = doc.get(main);
+    if (!mn) return std::string();
+    Guid parent = doc.parentOf(main);
+    const Node* pn = doc.get(parent);
+    if (pn && pn->props.isComponentSet()) return pn->props.name;
+    return mn->props.name;
+  };
+  const std::string& name = instance.name;
+  if (name.empty() || name == defaultName(oldMain) || name == defaultName(newMain)) return;
+  for (SymbolOverride& o : overrides)
+    if (o.path.empty()) {
+      if (!(o.mask & F_NAME)) {
+        o.mask |= F_NAME;
+        o.props.name = name;
+      }
+      return;
+    }
+  SymbolOverride root;
+  root.mask = F_NAME;
+  root.props.name = name;
+  overrides.insert(overrides.begin(), std::move(root));
+}
+
 Status Editor::swapInstance(const std::vector<Guid>& refs, Guid main) {
   const Node* mn = doc_.get(main);
   if (mn && mn->props.isComponentSet()) main = defaultVariantOf(doc_, main), mn = doc_.get(main);
@@ -1841,6 +1905,7 @@ Status Editor::swapInstance(const std::vector<Guid>& refs, Guid main) {
       c.props.comp().symbolData = n->props.comp().symbolData;
       c.props.comp().symbolData.symbolID = main;
       c.props.comp().symbolData.overrides = remapOverrides(n->props.comp().symbolData.overrides, old, main, setOf(old) != kNoGuid && setOf(old) == setOf(main));
+      keepOwnName(doc_, n->props, old, main, c.props.comp().symbolData.overrides);
       const auto* defs = defsOf(main);
       for (const auto& a : n->props.comp().componentPropAssignments) {
         bool known = false;
@@ -1935,6 +2000,7 @@ Status Editor::setComponentProperty(Guid ref, const std::string& prop, const jso
       c.props.comp().symbolData = n->props.comp().symbolData;
       c.props.comp().symbolData.symbolID = best;
       c.props.comp().symbolData.overrides = remapOverrides(n->props.comp().symbolData.overrides, symbol, best, true);
+      keepOwnName(doc_, n->props, symbol, best, c.props.comp().symbolData.overrides);
       write(c);
     }
     commit();

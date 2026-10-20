@@ -231,6 +231,7 @@ else()
     tests/unit/proto.wave4.test.cpp
     tests/unit/proto.page_subset.test.cpp
     tests/unit/proto.hug_anchor.test.cpp
+    tests/unit/proto.owner_file.test.cpp
     tests/unit/proto.preview_load.test.cpp
     tests/unit/motion.easing.test.cpp
     tests/unit/devmode.test.cpp

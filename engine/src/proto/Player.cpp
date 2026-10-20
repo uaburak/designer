@@ -2368,7 +2368,7 @@ void Player::snapWalk(Snapshot& s, Guid id, const Mat2x3& parentRel, const std::
   std::unordered_map<std::string, int> seen;
   for (Guid c : doc().children(id)) {
     const NodeProps* cp = props(c);
-    if (!cp) continue;
+    if (!cp || ghosts_.count(c)) continue;
     int k = seen[cp->name]++;
     snapWalk(s, c, rel, key + "/" + cp->name + "#" + std::to_string(k), false, rootTransform);
   }
@@ -2449,7 +2449,7 @@ void Player::smartDest(Guid id, const Snapshot& from, double p, bool rootTransfo
   std::unordered_map<std::string, int> seen;
   for (Guid c : doc().children(id)) {
     const NodeProps* cp = props(c);
-    if (!cp) continue;
+    if (!cp || ghosts_.count(c)) continue;
     int k = seen[cp->name]++;
     smartDest(c, from, p, rootTransform, out, interpRel, destRel, key + "/" + cp->name + "#" + std::to_string(k), false,
               unmatched || parentUnmatched);
@@ -2479,7 +2479,7 @@ void Player::smartSource(Guid id, const std::unordered_set<std::string>& keys, d
   std::unordered_map<std::string, int> seen;
   for (Guid c : kids) {
     const NodeProps* cp = props(c);
-    if (!cp) continue;
+    if (!cp || ghosts_.count(c)) continue;
     int k = seen[cp->name]++;
     smartSource(c, keys, p, out, key + "/" + cp->name + "#" + std::to_string(k), false, !matched || parentUnmatched);
   }
@@ -2549,7 +2549,7 @@ void Player::addFrame(const Side& s, Vec2 offset, double alpha, PropsOverrides&&
   scrollOverrides(s.frame, overrides, !s.overlay, s.scroll);
   // Instances changing state inside it.
   for (auto& ia : instanceAnims_) {
-    if (ia.instance != s.frame && !doc().isAncestor(s.frame, ia.instance)) continue;
+    if (noInstanceAnims_ || (ia.instance != s.frame && !doc().isAncestor(s.frame, ia.instance))) continue;
     double e = instanceProgress(ia);
     PropsOverrides tmp;
     if (isSmart(ia.action)) {
@@ -2790,7 +2790,7 @@ void Player::addFixed(const Side& s, Vec2 offset, const std::function<double(Gui
   std::unordered_map<std::string, int> seen;
   for (Guid c : doc().children(s.frame)) {
     const NodeProps* cp = props(c);
-    if (!cp) continue;
+    if (!cp || ghosts_.count(c)) continue;
     std::string key = "/" + cp->name + "#" + std::to_string(seen[cp->name]++);
     if (!cp->visible || scrollBehavior(*cp) != ScrollBehavior::FIXED) continue;
     double alpha = alphaOf(c, key);
@@ -2821,11 +2821,15 @@ void Player::addMatching(const Side& x, const Side& y, const Anim& a, double p) 
   // with the main transition ("Figma also doesn't include a frame's fill as part of the animation").
   std::unordered_set<std::string> keys = matchedKeys(a.fromSnap, y.frame, false);
   keys.erase(std::string());
-  // A screen moving with the transition: its matching layers hidden (their match draws them), the unmatched layers
-  // inside a matching one fading (`inner`: the source fades them out; the destination leaves them to the match).
+  // A screen moving with the transition: its matching layers hidden (their match draws them). An unmatched layer inside
+  // a matching one moves with the transition too (live Figma, the owner's 1 → 4 Push: "content-1-admin" in the matched
+  // "body / container" slides out under the sidebar, clipped there) — unless it is inside a matching instance, whose
+  // differing insides dissolve in place (the sidebar button's and the breadcrumb's labels): `inner` fades those (the
+  // source fades them out; the destination leaves them to the match).
   auto moving = [&](Guid root, double inner) {
     PropsOverrides out;
-    std::function<void(Guid, const std::string&, bool, bool)> walk = [&](Guid id, const std::string& key, bool isRoot, bool underMatch) {
+    std::function<void(Guid, const std::string&, bool, bool, bool)> walk = [&](Guid id, const std::string& key, bool isRoot, bool underMatch,
+                                                                              bool inInstance) {
       const NodeProps* np = props(id);
       if (!np) return;
       bool matched = !isRoot && keys.count(key) != 0;
@@ -2838,25 +2842,28 @@ void Player::addMatching(const Side& x, const Side& y, const Anim& a, double p) 
         if (doc().children(id).empty() || np->type == NodeType::TEXT || np->isBoolean()) q.opacity = 0;
         out[id] = std::move(q);
       } else if (underMatch) {
-        NodeProps q = *np;
-        q.opacity *= inner;
-        out[id] = std::move(q);
+        if (inInstance) {
+          NodeProps q = *np;
+          q.opacity *= inner;
+          out[id] = std::move(q);
+        }
         return;  // its subtree goes with it
       }
+      bool inst = inInstance || (matched && np->type == NodeType::INSTANCE);
       std::unordered_map<std::string, int> seen;
       for (Guid c : doc().children(id)) {
         const NodeProps* cp = props(c);
-        if (!cp) continue;
-        walk(c, key + "/" + cp->name + "#" + std::to_string(seen[cp->name]++), false, matched);
+        if (!cp || ghosts_.count(c)) continue;
+        walk(c, key + "/" + cp->name + "#" + std::to_string(seen[cp->name]++), false, matched, inst);
       }
     };
-    walk(root, std::string(), true, false);
+    walk(root, std::string(), true, false, false);
     return out;
   };
   Geometry g = geometryOf(a.action.transition);
   Vec2 S = view_.screen;
   auto at = [&](Vec2 from, Vec2 to) { return Vec2{lerp(from.x, to.x, p) * S.x, lerp(from.y, to.y, p) * S.y}; };
-  auto drawX = [&] { addFrame(x, at(g.outFrom, g.outTo), lerp(g.outAlphaFrom, g.outAlphaTo, p), moving(x.frame, 1 - p), 0); };
+  auto drawX = [&] { addFrame(x, at(g.outFrom, g.outTo), lerp(g.outAlphaFrom, g.outAlphaTo, p), moving(x.frame, 0), 0); };
   auto drawY = [&] { addFrame(y, at(g.inFrom, g.inTo), lerp(g.inAlphaFrom, g.inAlphaTo, p), moving(y.frame, 0), 0); };
   if (!g.enteringOnTop) {
     drawY();
@@ -2869,7 +2876,7 @@ void Player::addMatching(const Side& x, const Side& y, const Anim& a, double p) 
   // the moving screen draws them).
   PropsOverrides dst;
   smartDest(y.frame, a.fromSnap, p, false, dst, Mat2x3{}, Mat2x3{}, std::string(), true, false);
-  std::function<void(Guid, const std::string&, bool)> hide = [&](Guid id, const std::string& key, bool isRoot) {
+  std::function<void(Guid, const std::string&, bool, bool)> hide = [&](Guid id, const std::string& key, bool isRoot, bool inInstance) {
     const NodeProps* np = props(id);
     if (!np) return;
     if (isRoot) {
@@ -2881,24 +2888,66 @@ void Player::addMatching(const Side& x, const Side& y, const Anim& a, double p) 
       q.strokeWeight = 0;
       dst[id] = std::move(q);
     } else if (!keys.count(key)) {
+      // Unmatched: the moving screen draws it — unless it is inside a matching instance (it fades in here).
+      if (inInstance) return;
       auto it = dst.find(id);
       NodeProps q = it != dst.end() ? it->second : *np;
       q.visible = false;
       dst[id] = std::move(q);
       return;
-    } else {
-      return;  // a match: drawn with its (fading-in) unmatched children
     }
+    bool inst = inInstance || (!isRoot && np->type == NodeType::INSTANCE);
     std::unordered_map<std::string, int> seen;
     for (Guid c : doc().children(id)) {
       const NodeProps* cp = props(c);
-      if (!cp) continue;
-      hide(c, key + "/" + cp->name + "#" + std::to_string(seen[cp->name]++), false);
+      if (!cp || ghosts_.count(c)) continue;
+      hide(c, key + "/" + cp->name + "#" + std::to_string(seen[cp->name]++), false, inst);
     }
   };
-  hide(y.frame, std::string(), true);
+  hide(y.frame, std::string(), true, false);
   Side ys = y;
   addFrame(ys, {}, 1, std::move(dst), 0);
+  // The source's differing layers inside a matching instance fade out where they are, over the match (they don't
+  // leave with the moving screen, nor go under the destination's matched fills: the sidebar button's old label).
+  PropsOverrides fading;
+  bool anyFading = false;
+  std::function<void(Guid, const std::string&, bool, bool)> fade = [&](Guid id, const std::string& key, bool isRoot, bool inInstance) {
+    const NodeProps* np = props(id);
+    if (!np) return;
+    bool matched = isRoot || keys.count(key) != 0;
+    NodeProps q = *np;
+    if (!matched) {
+      if (inInstance) {
+        q.opacity *= 1 - p;
+        anyFading = anyFading || q.opacity > 0;
+      } else {
+        q.visible = false;
+      }
+      fading[id] = std::move(q);
+      return;
+    }
+    q.fillPaints.clear();
+    q.strokePaints.clear();
+    q.effects.clear();
+    q.strokeWeight = 0;
+    if (doc().children(id).empty() || np->type == NodeType::TEXT || np->isBoolean()) q.opacity = 0;
+    fading[id] = std::move(q);
+    bool inst = inInstance || (!isRoot && np->type == NodeType::INSTANCE);
+    std::unordered_map<std::string, int> seen;
+    for (Guid c : doc().children(id)) {
+      const NodeProps* cp = props(c);
+      if (!cp || ghosts_.count(c)) continue;
+      fade(c, key + "/" + cp->name + "#" + std::to_string(seen[cp->name]++), false, inst);
+    }
+  };
+  fade(x.frame, std::string(), true, false);
+  if (anyFading) {
+    Side xs = x;
+    xs.pos = y.pos;
+    noInstanceAnims_ = true;
+    addFrame(xs, {}, 1, std::move(fading), 0);
+    noInstanceAnims_ = false;
+  }
   // Fixed layers: a match shows as it ends (no transition), the others dissolve.
   addFixed(x, {}, [&](Guid, const std::string& key) { return keys.count(key) ? 0.0 : 1 - p; });
   addFixed(y, {}, [&](Guid, const std::string& key) { return keys.count(key) ? 1.0 : p; });

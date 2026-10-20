@@ -1609,7 +1609,8 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
   const RenderNode& rn = tree_->nodes()[i];
   Guid id = rn.id;
   const NodeProps& p = propsAt(i);
-  if (p.opacity <= 0 || alpha <= 0) return;
+  // A scene item's override may hide a layer the document shows (the prototype player's "drawn by the other pass").
+  if (!p.visible || p.opacity <= 0 || alpha <= 0) return;
   stats_.nodes++;
   // The layer whose paints are set from here (its children set their own): images drawn are noted as its.
   struct Drawing {

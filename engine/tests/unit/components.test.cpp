@@ -2021,3 +2021,44 @@ TEST_CASE("components: a slot's preferred values are components too; Reset prope
   REQUIRE(e.command(CommandId::RESET_OVERRIDES, args("{\"kind\":\"PROPERTY_ASSIGNMENTS\"}")) == OK);
   CHECK(!hasOverride(e, card, {CARD_BUTTON}, F_COMPONENT_PROP_ASSIGNMENTS));
 }
+
+TEST_CASE("components: a variant switch carries overrides of layers inside frames, and same-named layers by their place") {
+  // The owner's "card" (2026-10-20): its image fill sits on the second of two layers named "image" inside a frame,
+  // its button label inside frames; switching to the hover variant and back lost both (only direct children were
+  // looked up, and a name took its first layer).
+  auto nodes = baseChanges();
+  const Guid SET{5, 1}, A{5, 2}, B{5, 3}, AW{5, 4}, AI1{5, 5}, AI2{5, 6}, AT{5, 7}, BW{5, 8}, BI1{5, 9}, BI2{5, 10}, BT{5, 11}, INST{5, 20};
+  NodeChange set = make(SET, NodeType::FRAME, kPage, "~", {0, 500, 400, 200}, "card");
+  set.props.comp().isStateGroup = true;
+  nodes.push_back(set);
+  struct V {
+    Guid v, w, i1, i2, t;
+    const char* name;
+    double x;
+  };
+  for (const V& d : {V{A, AW, AI1, AI2, AT, "State=Default", 0.0}, V{B, BW, BI1, BI2, BT, "State=Hover", 200.0}}) {
+    nodes.push_back(make(d.v, NodeType::SYMBOL, SET, d.x == 0 ? "!" : "\"", {d.x, 0, 150, 100}, d.name));
+    nodes.push_back(make(d.w, NodeType::FRAME, d.v, "!", {0, 0, 150, 100}, "image"));
+    NodeChange r1 = make(d.i1, NodeType::RECTANGLE, d.w, "!", {0, 0, 150, 100}, "image");
+    r1.props.opacity = 0;
+    nodes.push_back(r1);
+    NodeChange r2 = make(d.i2, NodeType::RECTANGLE, d.w, "\"", {0, 0, 150, 100}, "image");
+    r2.props.fillPaints = {Paint::solid(Color::hex(0x00FF00))};
+    nodes.push_back(r2);
+    nodes.push_back(textNode(d.t, d.w, "#", {10, 10, 80, 20}, "1 min read"));
+  }
+  nodes.push_back(instanceOf(INST, A, kPage, "z", {0, 0, 150, 100}));
+  Editor e = load(nodes);
+  e.setProps({sub(INST, {AW, AI2})}, change(F_FILLS, [](NodeProps& p) { p.fillPaints = {Paint::solid(Color::hex(0xFF0000))}; }), 0);
+  e.setProps({sub(INST, {AW, AT})}, change(F_TEXT_DATA, [](NodeProps& p) { p.text().textData.characters = "Edit"; }), 0);
+  REQUIRE(props(e, sub(INST, {AW, AT})).text().textData.characters == "Edit");
+  e.setSelection({INST});
+  auto swap = [&](Guid to) { REQUIRE(e.command(CommandId::SWAP_INSTANCE, args("{\"main\":\"" + to.toString() + "\"}")) == OK); };
+  swap(B);
+  CHECK(props(e, sub(INST, {BW, BT})).text().textData.characters == "Edit");
+  CHECK(props(e, sub(INST, {BW, BI2})).fillPaints[0].color == Color::hex(0xFF0000));
+  CHECK(props(e, sub(INST, {BW, BI1})).opacity == 0);  // the first "image" untouched
+  swap(A);
+  CHECK(props(e, sub(INST, {AW, AT})).text().textData.characters == "Edit");
+  CHECK(props(e, sub(INST, {AW, AI2})).fillPaints[0].color == Color::hex(0xFF0000));
+}

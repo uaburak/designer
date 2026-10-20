@@ -6,7 +6,9 @@
 #include "doctest.h"
 #include "Helpers.h"
 #include "editor/Editor.h"
+#include "gfx/null/NullDevice.h"
 #include "proto/Player.h"
+#include "render/Renderer.h"
 #include "scene/CodecJson.h"
 #include "scene/CodecKiwi.h"
 
@@ -280,4 +282,106 @@ TEST_CASE("smart animate: a text whose font size alone changed scales; other tex
   REQUIRE(q);
   CHECK(q->opacity == doctest::Approx(1));
   CHECK(q->transform.m00 == doctest::Approx(0.75).epsilon(0.02));
+}
+
+TEST_CASE("push with matching layers: an unmatched layer inside a matching frame moves with the push, it doesn't fade in place") {
+  // Live Figma, the owner's 1 → 4 (Push, Animate matching layers): "body" matches, "content-1-admin" / "content-1" don't
+  // — the old content slides out and the new one slides in, at full opacity; the matched sidebar stays.
+  auto nodes = baseChanges();
+  const Guid A{6, 1}, B{6, 2}, SA{6, 3}, SB{6, 4}, WA{6, 5}, WB{6, 6}, CA{6, 7}, CB{6, 8};
+  NodeChange a = make(A, NodeType::FRAME, kPage, "!", {0, 0, 400, 300}, "1");
+  a.props.extra["prototypeInteractions"] = extra(
+      "prototypeInteractions",
+      std::string(R"([{"id":"9:2","event":{"interactionType":"ON_CLICK"},"actions":[{"connectionType":"INTERNAL_NODE","navigationType":"NAVIGATE","transitionNodeID":")") +
+          B.toString() + R"(","transitionType":"PUSH_FROM_RIGHT","transitionDuration":1.0,"easingType":"LINEAR","transitionShouldSmartAnimate":true}]}])");
+  nodes.push_back(a);
+  nodes.push_back(make(B, NodeType::FRAME, kPage, "\"", {500, 0, 400, 300}, "4"));
+  for (auto [frame, side, wrap, content, name] : {std::tuple{A, SA, WA, CA, "content-1-admin"}, std::tuple{B, SB, WB, CB, "content-1"}}) {
+    nodes.push_back(make(side, NodeType::RECTANGLE, frame, "!", {0, 0, 100, 300}, "Sidebar"));
+    nodes.push_back(make(wrap, NodeType::FRAME, frame, "\"", {100, 0, 300, 300}, "body"));
+    nodes.push_back(make(content, NodeType::RECTANGLE, wrap, "!", {0, 0, 300, 300}, name));
+  }
+  Fixture f(nodes);
+  REQUIRE(f.player.start(kPage, A));
+  f.advance(16);
+  f.click(200, 150);
+  f.advance(16);
+  f.advance(484);
+  const PresentScene& s = f.player.scene();
+  // "4" is drawn twice: moving in (offset right of where it ends) and in place (its matches). The new content is drawn
+  // by the moving one only, at full opacity.
+  double inPlace = 1e9, movingAt = -1e9;
+  bool fullWhileMoving = false, fadedInPlace = false, hiddenInPlace = false;
+  for (const PresentItem& it : s.items)
+    if (it.node == B) inPlace = std::min(inPlace, it.parentCss.m02);
+  for (const PresentItem& it : s.items) {
+    if (it.node != B || !it.overrides) continue;
+    auto o = it.overrides->find(CB);
+    bool drawnFull = o == it.overrides->end() || (o->second.visible && o->second.opacity > 0.99);
+    if (it.parentCss.m02 > inPlace + 50) {
+      movingAt = it.parentCss.m02;
+      fullWhileMoving = drawnFull;
+    } else if (o != it.overrides->end() && !o->second.visible) {
+      hiddenInPlace = true;
+    }
+    if (o != it.overrides->end() && o->second.visible && o->second.opacity > 0.01 && o->second.opacity < 0.99) fadedInPlace = true;
+  }
+  CHECK(movingAt > inPlace + 100);
+  CHECK(fullWhileMoving);
+  CHECK(hiddenInPlace);
+  // …and the renderer honours an override's visible = false (it drew the hidden copy at its opacity: in the app the
+  // new content showed faded in place under the moving one).
+  PresentScene one;
+  for (const PresentItem& it : s.items)
+    if (it.node == B && it.parentCss.m02 <= inPlace + 50) one.items.push_back(it);
+  REQUIRE(!one.items.empty());
+  PropsOverrides hidden = *one.items[0].overrides;
+  for (auto& [id, q] : hidden) q.opacity = 0.5;
+  one.items[0].overrides = &hidden;
+  gfx::NullDevice dev;
+  Renderer r(dev);
+  r.setTextLayouts(&f.ed);
+  RenderStats withHidden = r.renderScene(f.ed.document(), kPage, f.ed.viewport(), one);
+  PropsOverrides shown = hidden;
+  shown[CB].visible = true;
+  one.items[0].overrides = &shown;
+  RenderStats withShown = r.renderScene(f.ed.document(), kPage, f.ed.viewport(), one);
+  CHECK(withShown.nodes == withHidden.nodes + 1);
+  CHECK(!fadedInPlace);
+}
+
+TEST_CASE("smart animate: the old state kept while a Change to animates is no layer to match") {
+  // The owner's sidebar: hovering "News" (Change to + Smart animate) keeps its old state beside it while it animates;
+  // that copy took the set's name ("Button") and a click right then matched the next screen's second "Button" with it
+  // (the "Disable Button" pill slid out of the first row).
+  auto nodes = doc(ConstraintType::MIN, ConstraintType::MIN, "SMART_ANIMATE", 1.0);
+  const Guid SCR2{7, 1}, B1{7, 2}, B2{7, 3}, OTHER{7, 4}, GO{7, 5};
+  for (auto& c : nodes)
+    if (c.guid == SCREEN) c.props.name = "Screen";
+  NodeChange other = make(OTHER, NodeType::INSTANCE, SCREEN, "#", {150, 230, 100, 40}, "Btn");
+  other.props.comp().symbolData.symbolID = VB;
+  nodes.push_back(other);
+  NodeChange go = make(GO, NodeType::RECTANGLE, SCREEN, "$", {0, 0, 40, 40}, "go");
+  go.props.extra["prototypeInteractions"] = extra(
+      "prototypeInteractions", std::string(R"([{"id":"9:3","event":{"interactionType":"ON_CLICK"},"actions":[{"connectionType":"INTERNAL_NODE","navigationType":"NAVIGATE","transitionNodeID":")") +
+                                   SCR2.toString() + R"(","transitionType":"SMART_ANIMATE","transitionDuration":1.0,"easingType":"LINEAR"}]}])");
+  nodes.push_back(go);
+  nodes.push_back(make(SCR2, NodeType::FRAME, kPage, "\"", {500, 0, 400, 300}, "Screen"));
+  for (auto [id, y] : {std::pair{B1, 130.0}, std::pair{B2, 230.0}}) {
+    NodeChange b = make(id, NodeType::INSTANCE, SCR2, y < 200 ? "!" : "\"", {150, y, 100, 40}, "Btn");
+    b.props.comp().symbolData.symbolID = VA;
+    nodes.push_back(b);
+  }
+  Fixture f(nodes);
+  REQUIRE(f.player.start(kPage, SCREEN));
+  f.click(200, 150);  // Change to on the first Btn: its old state is kept while it animates
+  f.advance(100);
+  REQUIRE(f.ed.document().children(SCREEN).size() == 4);
+  f.click(20, 20);  // and away, at once
+  f.advance(16);
+  f.advance(300);
+  f.player.scene();
+  const NodeProps* second = f.player.drawnProps(B2);
+  REQUIRE(second);
+  CHECK(second->transform.m12 == doctest::Approx(230).epsilon(0.01));  // from the second Btn (y 230), not the copy (y 130)
 }

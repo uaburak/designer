@@ -507,6 +507,7 @@ class Player {
   static constexpr uint32_t kGhostSession = 0xFFFFFFF0u;
   uint32_t nextGhost_ = 1;
   std::unordered_set<Guid, GuidHash> ghosts_;
+  bool noInstanceAnims_ = false;  // addFrame: a pass that draws only its overrides (addMatching's fading source)
   void dropGhost(Guid ghost);
   void dropGhosts();
   bool hints_ = true;
