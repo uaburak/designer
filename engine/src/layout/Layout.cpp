@@ -387,7 +387,11 @@ std::vector<Layout::Placement> Layout::place(Guid frame, Vec2 size) {
     double gaps = k > 1 ? gap * static_cast<double>(k - 1) : 0;
     if (growTotal > 0) {
       std::vector<bool> frozen(k, false);
-      double remaining = innerP - fixed - gaps;
+      // An Auto gap ("Space between") gives Fill children the whole room: the gap comes out 0 (live Figma, the owner's
+      // "Prototype deneme": a 288 sidebar and a Fill body in 1440 − 2 × 12 padding, gap 12 stored — body 1128 at x 300).
+      const StackJustify justify = p.stack().stackPrimaryAlignItems;
+      const bool autoGap = (justify == StackJustify::SPACE_BETWEEN || justify == StackJustify::SPACE_EVENLY) && !p.hugsPrimary();
+      double remaining = innerP - fixed - (autoGap ? 0 : gaps);
       for (int round = 0; round < 8; round++) {
         double share = 0, weights = 0, bases = 0;
         for (size_t i = b; i < e; i++)

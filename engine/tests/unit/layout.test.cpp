@@ -432,3 +432,27 @@ TEST_CASE("layout: grid — items that fill a row's height don't size a Hug row;
   CHECK(e.document().get(F_GRID_FRAME)->props.size.y == doctest::Approx(26));
   CHECK(e.document().get(a.guid)->props.size.y == doctest::Approx(26));
 }
+
+TEST_CASE("layout: an Auto gap (Space between) gives Fill children the whole room — the gap comes out 0") {
+  // Live Figma 2026-10-20: a 400 row, spacing 20, Space between, [100 · Fill · 50] → the Fill one 250 at x 100, the
+  // last at 350 (with Packed: 210 at 120). The owner's screens: a 288 sidebar and a Fill body, body at 300, not 312.
+  const Guid F{40, 1}, A{40, 2}, B{40, 3}, C{40, 4};
+  NodeChange f = autoLayout(F, StackMode::HORIZONTAL, {0, 0, 400, 100}, 20, 0);
+  f.props.stack().stackPrimaryAlignItems = StackJustify::SPACE_EVENLY;  // Figma's files: "Space between"
+  NodeChange a = make(A, NodeType::RECTANGLE, F, "!", {0, 0, 100, 50});
+  NodeChange b = make(B, NodeType::RECTANGLE, F, "\"", {0, 0, 10, 50});
+  b.props.stackChildPrimaryGrow = 1;
+  NodeChange c = make(C, NodeType::RECTANGLE, F, "#", {0, 0, 50, 50});
+  Editor e = load({f, a, b, c});
+  touch(e, F, 20);
+  CHECK(at(e, B).x == doctest::Approx(100));
+  CHECK(e.document().get(B)->props.size.x == doctest::Approx(250));
+  CHECK(at(e, C).x == doctest::Approx(350));
+  // Packed: the gap stays.
+  NodeChange packed;
+  packed.mask = F_STACK_PRIMARY_ALIGN;
+  packed.props.stack().stackPrimaryAlignItems = StackJustify::MIN;
+  REQUIRE(e.setProps({F}, packed, 0) == OK);
+  CHECK(at(e, B).x == doctest::Approx(120));
+  CHECK(e.document().get(B)->props.size.x == doctest::Approx(210));
+}
