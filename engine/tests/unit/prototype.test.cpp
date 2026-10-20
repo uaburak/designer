@@ -412,6 +412,11 @@ TEST_CASE("prototype.player: Change to on While hovering swaps the instance's va
   CHECK(f.ed.mainOf(INST) == HOV);
   f.player.restart();
   CHECK(f.ed.mainOf(INST) == DEF);
+  // A start at a frame (the inline preview's Restart, a flow picked) is fresh too.
+  f.player.pointer(PointerEvent::MOVE, 120, 110, 0, 0);
+  CHECK(f.ed.mainOf(INST) == HOV);
+  REQUIRE(f.player.start(kPage, SCREEN));
+  CHECK(f.ed.mainOf(INST) == DEF);
 }
 
 TEST_CASE("prototype.player: overflow scrolling, fixed layers, Scroll to, After delay") {

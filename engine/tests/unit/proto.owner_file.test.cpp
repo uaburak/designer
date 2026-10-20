@@ -61,6 +61,12 @@ TEST_CASE("proto.owner_file: a real file's transition, dumped (OWNER_MSG)") {
         player.pointer(PointerEvent::DOWN, x, y, 1, 0);
         player.pointer(PointerEvent::UP, x, y, 0, 0);
       }
+    } else if (op == "down" || op == "up") {
+      double x, y;
+      w >> x >> y;
+      player.pointer(op == "down" ? PointerEvent::DOWN : PointerEvent::UP, x, y, op == "down" ? 1 : 0, 0);
+    } else if (op == "state") {
+      std::printf("state t=%.0f screen %s overlays %zu animating %d\n", t, player.screen().toString().c_str(), player.overlays().size(), player.animating());
     } else if (op == "tick") {
       double ms;
       w >> ms;

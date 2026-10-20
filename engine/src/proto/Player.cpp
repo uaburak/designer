@@ -205,6 +205,10 @@ bool Player::frameExists(Guid id) const {
 bool Player::start(Guid page, Guid start) {
   const NodeProps* pg = props(page);
   if (!pg || pg->type != NodeType::CANVAS) return false;
+  // A start is a fresh prototype, as Figma's Restart and its flow / frame picks are: what the player wrote while it
+  // ran (Change to states, variables, modes) goes back first — the inline preview's Restart and a jump to another frame
+  // or flow come here, not through restart().
+  restoreOriginals();
   page_ = page;
   if (ed_.page() != page) ed_.setCurrentPage(page);
   ed_.derivePage(page);
