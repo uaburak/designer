@@ -593,6 +593,15 @@ What a model needs to make motion graphics as well as with GSAP / Remotion code,
 - **Skew, arcs, star ratio and point count** are keyframable by their schema names (`MOTION_SHEAR`, `ARC_DATA_*`, `STAR_INNER_SCALE`, `POLYGON_COUNT`).
 - **The built-in skill `motion-design`** (`src/shared/agents/motionSkill.ts`): always listed with a turn's skills (the owner's own skill of the same name wins), answered by `get_skill` in main; the system prompt's Motion paragraph (`src/shared/agents/prompts.ts`) sends agents to animate → get_motion_frames → refine, and to the skill. Panel labels: "Animating…" / "Animated layers", "Watching the animation…" / "Watched the animation" (Turkish in `tr/tools.ts`).
 
+### 8.4 As built — sound for motion (2026-10-21; [ours]; free and local)
+
+Agents add sound to motion — while making it, or alone for an existing animation ("generate sound for this"). Details: `docs/motion.md` §9.3.
+- **`generate_sound`** (write) — recipes (23 types, 60 presets: UI clicks / pops / ticks / typing, whooshes, risers, impacts, shimmers, chimes, glitch, pads / drones, beats, music beds by mood and key) synthesised locally and deterministically (`editor/motion/sound/`), stored as WAV and placed as ordinary timeline audio with each sound's sync point on the given time; one undo step per call; `place: false` saves WAV files.
+- **`score_motion`** (read) — the motion as a cue sheet: appear / move (with its peak) / arrive / pop / spin / stagger (per-element times) / rest events, accents, the climax, energy, suggested cues.
+- **`get_sound_mix`** (read) — the mix measured (peak / RMS per second, clipping, pile-ups, flams, bed against effects) with warnings — the agent's ears.
+- **Skill `sound-design`** (`src/shared/agents/soundSkill.ts`), always listed beside `motion-design` (both in `BUILT_IN_SKILLS`, `src/main/agents/host.ts`); motion-design and the system prompt make sound part of making motion unless the user asks for none. Panel labels: "Making sound…" / "Made sound", "Reading the animation's beats…" / "Read the animation's beats", "Listening to the mix…" / "Listened to the mix" (Turkish in `tr/tools.ts`).
+- **No paid service by default.** Phase 2 (not built): an optional ElevenLabs Sound Effects key beside the image keys (`AiSettings.imageKeys` pattern, safeStorage), off by default, the local synth as the fallback.
+
 ## 9. Ownership, merge order — see `docs/roadmap.md` "Round 6"
 
 ## 10. Open questions for the owner
