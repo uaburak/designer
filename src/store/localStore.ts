@@ -1032,6 +1032,9 @@ export class LocalStore {
     if (this.closed) return;
     this.closed = true;
     if (this.gcTimer) this.timers.clearTimeout(this.gcTimer);
+    // The rooms' sockets close first, cleanly (main kills this process 1 s after asking it to stop, and the sends
+    // below may take longer): a socket that never says goodbye is a ghost in the facepile until the room expires it
+    this.multiplayer.close();
     this.comments.close();
     this.usage.close();
     await this.ai.close().catch((e) => this.log("warn", "ai: the quit's send failed", e));
@@ -1043,7 +1046,6 @@ export class LocalStore {
     this.org.close();
     this.branches.close();
     this.notifications.close();
-    this.multiplayer.close();
     await this.files.shutdown();
     await this.ws.queue.idle();
     await this.libraries.queue.idle();

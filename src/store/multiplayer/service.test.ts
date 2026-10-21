@@ -73,6 +73,10 @@ class FakeSocket {
   onerror: ((e: unknown) => void) | null = null;
   private conn: Connection | null = null;
   private room: Room | null = null;
+  /** Whose socket (the signed-in name) */
+  user = "";
+  /** Half-open: nothing gets through either way and no close reaches the room (a slept Mac, a dead route) */
+  deaf = false;
   constructor(url: string) {
     sockets.add(this);
     void this.open(new URL(url));
@@ -85,8 +89,9 @@ class FakeSocket {
     const role = await server.db.roleOf(key, user.id);
     if (!role) return this.closed(1008, "no access");
     this.room = roomOf(key).room;
+    this.user = user.name;
     this.conn = {
-      send: (d) => queueMicrotask(() => this.onmessage?.({ data: typeof d === "string" ? d : d.slice().buffer })),
+      send: (d) => queueMicrotask(() => !this.deaf && this.onmessage?.({ data: typeof d === "string" ? d : d.slice().buffer })),
       close: (code = 1000, reason = "") => queueMicrotask(() => this.closed(code, reason)),
     };
     this.room.connect(this.conn, { userId: user.id, name: user.name, role });
@@ -94,12 +99,12 @@ class FakeSocket {
     this.onopen?.({});
   }
   send(d: string | Uint8Array) {
-    if (this.readyState !== 1) return;
+    if (this.readyState !== 1 || this.deaf) return;
     const data = typeof d === "string" ? d : d.slice();
     queueMicrotask(() => this.conn && this.room?.receive(this.conn, data));
   }
   close(code = 1000, reason = "") {
-    if (this.conn) this.room?.leave(this.conn);
+    if (this.conn && !this.deaf) this.room?.leave(this.conn);
     this.closed(code, reason);
   }
   /** The network drops: the room sees the socket go, the client sees it close */
@@ -1442,5 +1447,62 @@ describe("MultiplayerService, Phase 6: a frame's images (docs/multiplayer.md §1
     expect(b.store.doc(fb)[`${2 * 2 ** 20 + 1}:9`].name).toBe("Photo");
     expect(arrived).toContain(sha1);
     await vi.waitFor(() => expect((b.store.saved.links[fb] as { images?: string[] }).images).toBeUndefined(), { timeout: 5000 });
+  });
+});
+
+describe("MultiplayerService liveness (docs/multiplayer.md §4.1)", () => {
+  const members = (key: string) => [...((rooms.get(key)!.room as any).members as Map<unknown, { userId: string; sessionID: number; client?: string; beat?: boolean }>).values()];
+  const live = (name: string) => [...sockets].filter((s) => s.user === name && s.readyState === 1 && !s.deaf);
+
+  it("says which app it is and sends the heartbeat once ready; the room answers it", async () => {
+    const sent = vi.spyOn(FakeSocket.prototype, "send");
+    const { a, key } = await sharedPair({ a: { heartbeatMs: 10 } });
+    await vi.waitFor(() => expect(sent.mock.calls.filter(([d]) => d === '{"t":"ping"}').length).toBeGreaterThan(1));
+    const mine = members(key).filter((m) => m.client === a.svc.clientId);
+    expect(mine).toHaveLength(1);
+    expect(mine[0].beat).toBe(true);
+    expect(a.svc.clientId).toMatch(/^[0-9a-z]{20}$/);
+    sent.mockRestore();
+  });
+
+  it("gives up a socket that stops answering and comes back as the same app: the room replaces its ghost", async () => {
+    const { a, b, fb, key } = await sharedPair({ a: { heartbeatMs: 10, deadAfterMs: 50 } });
+    await vi.waitFor(async () => expect((await b.svc.fileState(fb)).peers).toHaveLength(1));
+    const before = (await b.svc.fileState(fb)).peers[0].sessionID;
+    // Answered once (so the app knows this room answers its heartbeat), then the route dies without a close either way
+    await new Promise((r) => setTimeout(r, 30));
+    const [old] = live("a");
+    old.deaf = true;
+    await vi.waitFor(() => expect(live("a")).toHaveLength(1), { timeout: 3000 });
+    await vi.waitFor(async () => {
+      const peers = (await b.svc.fileState(fb)).peers;
+      expect(peers).toHaveLength(1);
+      expect(peers[0].sessionID).not.toBe(before);
+    });
+    // The half-open socket is gone from the room: one member per app
+    expect(members(key).filter((m) => m.client === a.svc.clientId)).toHaveLength(1);
+    expect(members(key)).toHaveLength(2);
+  });
+
+  it("keeps a socket whose room never answers the heartbeat (a server without liveness)", async () => {
+    // An older room ignores `{t: "ping"}` after hello (an unknown control) and never answers it
+    const receive = Room.prototype.receive;
+    const spy = vi.spyOn(Room.prototype, "receive").mockImplementation(function (this: Room, c, d) {
+      if (d !== '{"t":"ping"}') receive.call(this, c, d);
+    });
+    const { b, fb } = await sharedPair({ a: { heartbeatMs: 10, deadAfterMs: 30 } });
+    await vi.waitFor(async () => expect((await b.svc.fileState(fb)).peers).toHaveLength(1));
+    const now = live("a");
+    await new Promise((r) => setTimeout(r, 120));
+    expect(live("a")).toEqual(now);
+    spy.mockRestore();
+  });
+
+  it("closes its sockets cleanly when it stops: the others see it leave at once", async () => {
+    const { a, b, fb, key } = await sharedPair();
+    await vi.waitFor(async () => expect((await b.svc.fileState(fb)).peers).toHaveLength(1));
+    a.svc.close();
+    await vi.waitFor(async () => expect((await b.svc.fileState(fb)).peers).toHaveLength(0));
+    expect(members(key)).toHaveLength(1);
   });
 });

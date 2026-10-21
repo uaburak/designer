@@ -2,6 +2,12 @@
 
 First written 2026-10-06 when the first Claude session stopped and the owner moved the work to another Claude account through GitHub (`https://github.com/uaburak/designer`). Updated the same day by the second session, which finished every workstream's partial items and ran the integration round. Read `AGENTS.md`, `docs/architecture.md` and `docs/roadmap.md` first; the contracts in `docs/` decide everything; `docs/research/` holds the verified facts about Figma (with sources).
 
+## Status 2026-10-21 (night, after 1.5.0) — ghost people in the facepile: presence now expires (committed on its branch, not merged; server not deployed)
+
+- The owner's "Wecra -new" showed 7 people, all himself. Cause and fix: `docs/multiplayer.md` §4.1 — members never expired (a killed app / half-open socket leaves no close), no heartbeat, a reconnect joined next to its own half-open socket, and the store closed its room sockets late on quit (after AI/analytics sends; main kills it after 1 s) and not at all on SIGINT/SIGTERM.
+- Server (`server/src/fileRoom.ts`, `roomLiveness.ts`, `src/shared/multiplayer/room.ts`): ping/pong auto-response, sweep of members silent 60 s (15 min for 1.5.0 apps), replace of the same app's older socket at hello, the alarm ringing every 30 s while sockets are open without moving autosave / FILE_UPDATE / Discovery. Client (`src/store/multiplayer/service.ts`, `src/store/index.ts`, `localStore.ts`): heartbeat every 20 s, `hello.client` + `hello.beat`, a silent socket given up after 50 s, sockets closed first on shutdown and on signals; facepile dedupe.
+- **To ship**: no D1 migration. The owner deploys the server (`npm --prefix server run deploy`) — the deploy itself disconnects the rooms' sockets, so the current ghosts should go then; the client half ships in the next app release (old clients keep working; an idle 1.5.0 app is reconnected after 15 min of silence until then). Tests: liveness suites listed in §4.1 + server/shared/store/multiplayer suites (all pass), typecheck. **Not verified** against the deployed Worker (`getWebSocketAutoResponseTimestamp` / auto-response under hibernation) — check after the deploy that a killed app's face leaves within ~90 s.
+
 ## Status 2026-10-21 (evening) — Wecra 1.5.0: web behaviours, motion for agents, sound; owner's notes on sound
 
 Released as 1.5.0 from main (prototype-web + motion-ai merged). The owner tried the generated sound and said: **the sounds don't sit tightly on the videos (sync is off) and they don't sound good enough.** Shipped as is; to do later:

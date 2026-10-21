@@ -18,6 +18,7 @@ import type { RoomPolicy } from "@shared/org/identity";
 import type { EditorController } from "../controller";
 import { AudioCall, type AudioState } from "./audio";
 import { presenceSink } from "./presenceSink";
+import { dedupePeers } from "./facepile";
 
 /** What the engine offers for presence (docs/engine.md "Presence"); absent on an engine built before it */
 interface PresenceEngine {
@@ -343,7 +344,7 @@ export class Presence {
   private apply(s: FileShareState): void {
     const theme = currentTheme().resolved;
     const now = Date.now();
-    const peers: Peer[] = s.peers.map((p: PeerInfo) => ({ id: p.sessionID, userId: p.userId, name: p.name || t("Anonymous"), anonymous: !p.name, role: p.role, color: peerColor(p.sessionID, p.color, theme), presence: (p.presence as PresenceData | undefined) ?? null }));
+    const peers: Peer[] = dedupePeers(s.peers).map((p: PeerInfo) => ({ id: p.sessionID, userId: p.userId, name: p.name || t("Anonymous"), anonymous: !p.name, role: p.role, color: peerColor(p.sessionID, p.color, theme), presence: (p.presence as PresenceData | undefined) ?? null }));
     // When each cursor last moved and each chat last changed (idle cursors and fading bubbles: draw)
     for (const p of peers) {
       const c = p.presence?.cursor;

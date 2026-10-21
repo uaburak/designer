@@ -20,9 +20,15 @@
  * Object storage (docs/cloud.md §1, storage/roomObjects.ts): checkpoints go to the R2 bucket of the file's region (the
  * Worker's `x-region` on every call); once per wake (never awaited by a call or a socket) the room moves one more of
  * its old rows to R2 (`objects.step`), until nothing is left.
+ *
+ * Liveness (docs/multiplayer.md §4.1, 2026-10-21): the app's heartbeat (`{"t":"ping"}`) is answered by the runtime
+ * (`setWebSocketAutoResponse`, no wake) and its time read back (`getWebSocketAutoResponseTimestamp`); members silent too
+ * long are swept (`Room.sweep`) when a socket joins, at most every SWEEP_EVERY_MS on messages, and by the alarm, which
+ * rings at least every SWEEP_EVERY_MS while sockets are open — shared with autosave and Discovery (each tolerates an
+ * early ring; none is pushed later than its own due time by more than one sweep period).
  */
 import { DurableObject } from "cloudflare:workers";
-import { CLOSE_MOVING, type Role } from "../../src/shared/multiplayer/protocol";
+import { CLOSE_MOVING, HEARTBEAT_REPLY, HEARTBEAT_TEXT, type Role } from "../../src/shared/multiplayer/protocol";
 import { Room, type MemberState } from "../../src/shared/multiplayer/room";
 import type { SqlLike } from "./previews";
 import { RoomBox } from "./roomBox";
@@ -34,6 +40,7 @@ import { BROADCAST_KINDS } from "./roomBroadcast";
 import { RoomEkm, KEY_UNAVAILABLE } from "./ekm/room";
 import { discoveryAlarm, discoveryTake, forgetDiscoveryRoom, sharedAlarm, type DiscoveryRoom } from "./discovery/record";
 import { noteRegion, roomObjectsHost } from "./storage/roomHost";
+import { SWEEP_EVERY_MS, withSweep } from "./roomLiveness";
 import type { ObjectStore } from "./storage/objects";
 
 export { MAX_BLOB_BYTES } from "./roomBox";
@@ -65,6 +72,8 @@ export class FileRoom extends DurableObject {
   private ekm: RoomEkm;
   /** This wake's migration step (one per wake, docs/cloud.md §1) */
   private stepped = false;
+  /** The last liveness sweep (this wake) */
+  private sweptAt = 0;
 
   constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
     super(ctx, env);
@@ -86,7 +95,8 @@ export class FileRoom extends DurableObject {
       // The one alarm is shared with Discovery: RoomBox's (after `edited()` or its own alarm) never pushes a stored
       // Discovery due time later (record.ts `sharedAlarm`)
       setAlarm: (at) => {
-        const next = this.discovery ? sharedAlarm(this.discovery, at) : at;
+        const shared = this.discovery ? sharedAlarm(this.discovery, at) : at;
+        const next = withSweep(shared, this.openSockets(), Date.now());
         void (next === null ? ctx.storage.deleteAlarm() : ctx.storage.setAlarm(next));
       },
       broadcast: (frame) => {
@@ -113,6 +123,14 @@ export class FileRoom extends DurableObject {
     this.room = new Room(this.box.storage, (ws, state) => (ws as WebSocket).serializeAttachment(state), {
       onRest: (conn, member, answer) => this.rest.answer(conn, member, answer),
       onRenderer: () => this.rest.renderer(),
+      // Dropped by the room (silent, replaced): a later wake mustn't restore it from its attachment
+      onDropped: (ws) => {
+        try {
+          (ws as WebSocket).serializeAttachment(null);
+        } catch {
+          // already closed
+        }
+      },
     });
     this.rest = new RestJobs({
       sql: ctx.storage.sql as unknown as SqlLike,
@@ -141,6 +159,12 @@ export class FileRoom extends DurableObject {
     for (const ws of ctx.getWebSockets()) {
       const state = ws.deserializeAttachment() as MemberState | null;
       if (state) this.room.restore(ws, state);
+    }
+    // The app's heartbeat is answered by the runtime, without waking the object (its time: `heardAt`)
+    try {
+      ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(HEARTBEAT_TEXT, HEARTBEAT_REPLY));
+    } catch (e) {
+      console.error("room: no heartbeat auto-response", e);
     }
     // The org's key before any event (one D1 read per wake); the rows still plain are sealed then.
     void ctx.blockConcurrencyWhile(async () => void (await this.ekm.check()));
@@ -191,8 +215,11 @@ export class FileRoom extends DurableObject {
         if (!identity.userId) return new Response("no identity", { status: 400 });
         if (this.box.moving()) return Response.json({ error: "this file is moving to another region", code: "moving" }, { status: 503 });
         const pair = new WebSocketPair();
+        // Someone joins: the silent go first (they'd be in the newcomer's peers), and the sweeps keep running
+        this.sweep(true);
         this.ctx.acceptWebSocket(pair[1]);
         this.room.connect(pair[1], identity);
+        await this.armSweep();
         return new Response(null, { status: 101, webSocket: pair[0] });
       }
       case "POST /room/broadcast": {
@@ -288,6 +315,8 @@ export class FileRoom extends DurableObject {
     this.wakeStep();
     const before = this.box.storage.lastSeq();
     this.room.receive(ws, typeof message === "string" ? message : new Uint8Array(message));
+    // After the message: its sender was just heard
+    this.sweep();
     if (this.box.storage.lastSeq() > before) {
       // The writer is among the next version's editors (docs/multiplayer.md §18.6)
       const m = this.room.member(ws);
@@ -324,6 +353,44 @@ export class FileRoom extends DurableObject {
     if (at === null || at > due) await this.ctx.storage.setAlarm(due);
   }
 
+  /** Sockets that are members (a dropped one's attachment is cleared, though the runtime may still list it a moment) */
+  private openSockets(): number {
+    let n = 0;
+    for (const ws of this.ctx.getWebSockets()) {
+      try {
+        if (ws.deserializeAttachment()) n++;
+      } catch {
+        // closed meanwhile
+      }
+    }
+    return n;
+  }
+
+  /** When the runtime last answered `ws`'s heartbeat (ms; null: never) */
+  private heardAt(ws: WebSocket): number | null {
+    try {
+      return this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Members silent too long leave (at most every SWEEP_EVERY_MS unless `now`) */
+  private sweep(now = false): void {
+    const t = Date.now();
+    if (!now && t - this.sweptAt < SWEEP_EVERY_MS) return;
+    this.sweptAt = t;
+    if (this.room.sweep((c) => this.heardAt(c as WebSocket))) this.discover();
+  }
+
+  /** While sockets are open the alarm rings by the next sweep (never later than what autosave / Discovery set) */
+  private async armSweep(): Promise<void> {
+    const at = withSweep(null, this.openSockets(), Date.now());
+    if (at === null) return;
+    const cur = await this.ctx.storage.getAlarm();
+    if (cur === null || cur > at) await this.ctx.storage.setAlarm(at);
+  }
+
   /** Does the file have a webhook FILE_UPDATE could reach? Unknown → yes (the alarm asks D1 again). */
   private wantsFileUpdate(): boolean {
     const now = Date.now();
@@ -340,6 +407,9 @@ export class FileRoom extends DurableObject {
 
   /** Autosave (docs/data.md §6: 30 minutes of edits) and FILE_UPDATE (§16.10: 30 minutes after a burst of edits) */
   async alarm(): Promise<void> {
+    // Liveness first (no I/O): the silent leave; the alarm keeps ringing while sockets are open
+    this.sweep(true);
+    await this.armSweep();
     // No autosave while the key is unavailable: the version's frames couldn't be sealed (the next edit sets the alarm again).
     if ((await this.ekm.check()) === "unavailable") return;
     // Discovery first: its due time moves on, so the box's alarm (set through `sharedAlarm`) doesn't ring again at once
@@ -364,6 +434,11 @@ export class FileRoom extends DurableObject {
 
   webSocketError(ws: WebSocket): void {
     this.room.leave(ws);
+    try {
+      ws.serializeAttachment(null);
+    } catch {
+      // already closed
+    }
     this.discover();
   }
 }

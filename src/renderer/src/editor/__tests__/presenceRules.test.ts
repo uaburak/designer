@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MULTIPLAYER_COLORS, avatarColorIndex, colorIndexOf, leastUsedColor, peerColor } from "@shared/multiplayer/colors";
-import { FACES_UNMEASURED, maxFaces, shownFaces, sortFaces } from "../multiplayer/facepile";
+import { FACES_UNMEASURED, dedupePeers, maxFaces, shownFaces, sortFaces } from "../multiplayer/facepile";
 import { CHAT_FADE_MS, CHAT_GONE_MS, chatOpacity, chatText } from "../multiplayer/presence";
 
 describe("Figma's multiplayer numbers (atlas 19 §4, docs/multiplayer.md §18.5)", () => {
@@ -49,5 +49,17 @@ describe("Figma's multiplayer numbers (atlas 19 §4, docs/multiplayer.md §18.5)
     expect(chatOpacity(CHAT_FADE_MS)).toBe(1);
     expect(chatOpacity((CHAT_FADE_MS + CHAT_GONE_MS) / 2)).toBeCloseTo(0.5);
     expect(chatOpacity(CHAT_GONE_MS)).toBe(0);
+  });
+
+  it("the facepile shows one person's same app once (its newest session); other apps and older apps stay", () => {
+    const peers = [
+      { sessionID: 3, userId: "burak", client: "mac" },
+      { sessionID: 9, userId: "burak", client: "mac" },
+      { sessionID: 5, userId: "burak", client: "laptop" },
+      { sessionID: 6, userId: "ayse", client: "mac" },
+      { sessionID: 7, userId: "old" },
+      { sessionID: 8, userId: "old" },
+    ];
+    expect(dedupePeers(peers).map((p) => p.sessionID)).toEqual([9, 5, 6, 7, 8]);
   });
 });

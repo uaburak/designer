@@ -39,3 +39,18 @@ export function sortFaces<T extends FaceRank>(people: readonly T[], ctx: { prese
     p.anonymous ? 6 : p.id === ctx.presenter ? 1 : p.id === ctx.following ? 2 : ctx.creator?.(p) ? 3 : p.id === ctx.speaker ? 4 : 5;
   return [...people].sort((a, b) => rank(a) - rank(b) || a.name.toLowerCase().localeCompare(b.name.toLowerCase()) || a.id - b.id);
 }
+
+/**
+ * One session per running app (docs/multiplayer.md §4.1): were the room ever to list the same person's same app twice
+ * (an older socket not yet expired), only its newest session (the highest) is kept. Apps that don't say which they are
+ * (no `client`) are all kept. Order is kept.
+ */
+export function dedupePeers<T extends { sessionID: number; userId: string; client?: string }>(peers: readonly T[]): T[] {
+  const newest = new Map<string, number>();
+  for (const p of peers) {
+    if (!p.client) continue;
+    const k = `${p.userId}\u0000${p.client}`;
+    newest.set(k, Math.max(newest.get(k) ?? 0, p.sessionID));
+  }
+  return peers.filter((p) => !p.client || newest.get(`${p.userId}\u0000${p.client}`) === p.sessionID);
+}

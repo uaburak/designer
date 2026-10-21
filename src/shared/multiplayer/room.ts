@@ -21,6 +21,10 @@
  * - Discovery (docs/governance.md §2.11): only for members whose policy says `discovery: true`, the room keeps the last
  *   writer and each cursor chat message's final text (the last text before the bubble closed or the member left); the
  *   host drains them with `drainDiscovery()` after each message and does the I/O. Off: nothing is kept.
+ * - Liveness (protocol.ts HEARTBEAT_*, docs/multiplayer.md §4.1): each member's last word is kept (`seenAt`, written to
+ *   its state at most every SEEN_PERSIST_MS); `sweep()` drops members silent past SILENT_MS (LEGACY_SILENT_MS for apps
+ *   that don't say `hello.beat`) — `peer-left`, then the socket closes with CLOSE_SILENT. A `hello.client` the room
+ *   already has for the same person replaces that older socket (CLOSE_REPLACED): a reconnect never leaves a ghost.
  */
 import {
   decodeChangesUp,
@@ -35,6 +39,12 @@ import {
   PRESENCE_PER_SECOND,
   CLOSE_FULL,
   CLOSE_TOO_OLD,
+  CLOSE_REPLACED,
+  CLOSE_SILENT,
+  HEARTBEAT_REPLY,
+  HEARTBEAT_TEXT,
+  LEGACY_SILENT_MS,
+  SILENT_MS,
   type MultiplayerSignalName,
   type ChangesDown,
   type ClientControl,
@@ -93,7 +103,16 @@ export interface MemberState extends Identity {
   /** Joined past MAX_CURSORS: its cursor isn't relayed unless someone follows it; `observedTold`: it was told once */
   cursorHidden?: boolean;
   observedTold?: boolean;
+  /** When the member last said anything (ms; persisted at most every SEEN_PERSIST_MS): `sweep` drops the silent */
+  seenAt?: number;
+  /** `hello.client`: the running app (one per store process); a new socket of the same person and client replaces this one */
+  client?: string;
+  /** `hello.beat`: the app sends the heartbeat (SILENT_MS applies; else LEGACY_SILENT_MS) */
+  beat?: boolean;
 }
+
+/** `seenAt` reaches the member's persisted state at most this often (an attachment write per frame would be waste) */
+export const SEEN_PERSIST_MS = 15_000;
 
 /** The room's limits (§18.13): Figma's by default, smaller in tests */
 export interface RoomLimits {
@@ -133,8 +152,13 @@ export interface RoomOptions {
   onRenderer?(conn: Connection, member: MemberState): void;
   /** Figma's limits (default: theirs) */
   limits?: Partial<RoomLimits>;
+  /** Silence before a member is dropped (default SILENT_MS; LEGACY_SILENT_MS without `hello.beat`) — smaller in tests */
+  silentMs?: number;
+  legacySilentMs?: number;
   /** The oldest client protocol (hello.v) the room takes (default 0: every client) */
   minProtocol?: number;
+  /** A member the room dropped itself (silent, or replaced): the host forgets the socket's state (hibernation) */
+  onDropped?(conn: Connection): void;
 }
 
 export class Room {
@@ -219,7 +243,7 @@ export class Room {
 
   /** A socket the host accepted for `identity`; it is a member once it says hello. */
   connect(conn: Connection, identity: Identity): void {
-    const state: MemberState = { ...identity, sessionID: 0 };
+    const state: MemberState = { ...identity, sessionID: 0, seenAt: this.now() };
     this.members.set(conn, state);
     this.onState(conn, state);
   }
@@ -227,12 +251,57 @@ export class Room {
   /** A socket kept across hibernation, with the state `onState` last gave. Sends nothing. */
   restore(conn: Connection, state: MemberState): void {
     this.members.set(conn, state);
+    // A socket from before liveness was kept (no `seenAt`): its silence counts from now
+    if (state.seenAt === undefined) {
+      state.seenAt = this.now();
+      this.onState(conn, state);
+    }
+  }
+
+  /** `m` said something: remembered (persisted when the kept time is older than SEEN_PERSIST_MS) */
+  private heard(conn: Connection, m: MemberState): void {
+    const now = this.now();
+    const stale = now - (m.seenAt ?? 0) >= SEEN_PERSIST_MS;
+    m.seenAt = now;
+    if (stale) this.onState(conn, m);
+  }
+
+  /**
+   * Drops members silent too long (a killed app, a slept machine, a half-open socket): `peer-left` to the others, the
+   * socket closed with CLOSE_SILENT. `heardAt(conn)`: when the host last heard the socket without the room (the
+   * runtime's heartbeat auto-response). Returns how many went.
+   */
+  sweep(heardAt?: (conn: Connection) => number | null): number {
+    const now = this.now();
+    let n = 0;
+    for (const [c, m] of [...this.members]) {
+      const last = Math.max(m.seenAt ?? now, heardAt?.(c) ?? 0);
+      const limit = m.beat ? (this.opts.silentMs ?? SILENT_MS) : (this.opts.legacySilentMs ?? LEGACY_SILENT_MS);
+      if (now - last <= limit) continue;
+      this.drop(c, CLOSE_SILENT, "silent");
+      n++;
+    }
+    return n;
+  }
+
+  /** The room drops a member itself: it leaves (others told), the host forgets it, its socket closes */
+  private drop(conn: Connection, code: number, reason: string): void {
+    this.leave(conn);
+    this.opts.onDropped?.(conn);
+    try {
+      conn.close(code, reason);
+    } catch {
+      // already gone
+    }
   }
 
   /** A text or binary frame from `conn`. */
   receive(conn: Connection, data: string | Uint8Array): void {
     const m = this.members.get(conn);
     if (!m) return this.fail(conn, "unauthorized", "not connected");
+    this.heard(conn, m);
+    // The heartbeat, when it reaches the room (the Durable Object's runtime answers it without waking)
+    if (data === HEARTBEAT_TEXT) return void conn.send(HEARTBEAT_REPLY);
     if (typeof data === "string") {
       let msg: ClientControl;
       try {
@@ -240,7 +309,11 @@ export class Room {
       } catch {
         return this.fail(conn, "bad-frame", "not JSON");
       }
-      if (msg.t === "hello") return this.hello(conn, m, msg.since, msg.render === true, (msg as { helper?: unknown }).helper === true, typeof msg.v === "number" ? msg.v : 0);
+      if (msg.t === "hello") {
+        const client = typeof msg.client === "string" && msg.client.length > 0 && msg.client.length <= 64 ? msg.client : undefined;
+        const beat = typeof msg.beat === "number" && msg.beat > 0;
+        return this.hello(conn, m, msg.since, msg.render === true, (msg as { helper?: unknown }).helper === true, typeof msg.v === "number" ? msg.v : 0, client, beat);
+      }
       if (!m.sessionID) return this.fail(conn, "unauthorized", "hello first");
       if (msg.t === "rest-job-done" || msg.t === "rest-job-failed") {
         if (typeof msg.id === "string") this.opts.onRest?.(conn, m, msg);
@@ -371,9 +444,15 @@ export class Room {
     }
   }
 
-  private hello(conn: Connection, m: MemberState, since: number, render = false, helper = false, v = 0): void {
+  private hello(conn: Connection, m: MemberState, since: number, render = false, helper = false, v = 0, client?: string, beat = false): void {
     if (m.sessionID) return;
     if (!Number.isInteger(since) || since < 0) return this.fail(conn, "bad-frame", "bad since");
+    if (beat) m.beat = true;
+    if (client) {
+      m.client = client;
+      // The same app reconnected (a dropped network, a slept Mac, a rehello): its older socket is a ghost — replaced
+      for (const [c, o] of [...this.members]) if (c !== conn && o.userId === m.userId && o.client === client) this.drop(c, CLOSE_REPLACED, "replaced");
+    }
     // Figma's signals (§18.13): an app older than the room takes, a full file
     if (v < (this.opts.minProtocol ?? 0)) return this.refuse(conn, "client-too-old", CLOSE_TOO_OLD);
     const present = [...this.members.values()].filter((o) => o !== m && o.sessionID);
@@ -408,7 +487,7 @@ export class Room {
     });
     for (const f of this.storage.readAfter(since)) conn.send(encodeChangesDown(f));
     this.send(conn, { t: "ready", seq: this.storage.lastSeq() });
-    this.broadcast({ t: "peer-joined", peer: { sessionID: m.sessionID, userId: m.userId, name: m.name, role: roleOf(m), color: m.color } }, conn);
+    this.broadcast({ t: "peer-joined", peer: { sessionID: m.sessionID, userId: m.userId, name: m.name, role: roleOf(m), color: m.color, ...(m.client ? { client: m.client } : {}) } }, conn);
     if (m.render) this.opts.onRenderer?.(conn, m);
   }
 
@@ -447,7 +526,7 @@ function roleOf(m: MemberState): Role {
 }
 
 function peerOf(m: MemberState, presence: unknown = m.presence): PeerInfo {
-  return { sessionID: m.sessionID, userId: m.userId, name: m.name, role: roleOf(m), presence, ...(m.color !== undefined ? { color: m.color } : {}) };
+  return { sessionID: m.sessionID, userId: m.userId, name: m.name, role: roleOf(m), presence, ...(m.color !== undefined ? { color: m.color } : {}), ...(m.client ? { client: m.client } : {}) };
 }
 
 /** A `RoomStorage` in memory — tests, and the room's reference behaviour. */

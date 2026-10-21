@@ -22,7 +22,7 @@ export const CHANGES_DOWN_HEADER = 13;
 export type ClientControl =
   /** First message. `since`: the last seq this client holds (its snapshot's seq, or the last frame it applied). Who
    *  the client is comes from the Worker (the session token on the socket's URL), not from here. */
-  | { t: "hello"; since: number; /** This client can answer REST render jobs (docs/multiplayer.md §16.6): an editor view with the file's engine loaded */ render?: boolean; /** With `render`: the desktop app's hidden render helper (docs/multiplayer.md §16.6), asked after editors and viewers */ helper?: boolean; /** The client's PROTOCOL_VERSION (absent: 0) — a room that needs a newer one answers `client-too-old` (§18.13) */ v?: number }
+  | { t: "hello"; since: number; /** This client can answer REST render jobs (docs/multiplayer.md §16.6): an editor view with the file's engine loaded */ render?: boolean; /** With `render`: the desktop app's hidden render helper (docs/multiplayer.md §16.6), asked after editors and viewers */ helper?: boolean; /** The client's PROTOCOL_VERSION (absent: 0) — a room that needs a newer one answers `client-too-old` (§18.13) */ v?: number; /** This running app's id (random per store process, ≤ 64 chars): a new socket of the same person and client replaces the old one in the room */ client?: string; /** The client sends HEARTBEAT_TEXT every this many ms: the room expires it after SILENT_MS without a word (absent: an older app, LEGACY_SILENT_MS) */ beat?: number }
   /** Ephemeral (never stored): cursor, selection, viewport … opaque to the server. */
   | { t: "presence"; data: unknown }
   /** Ephemeral, to one session of the file (never stored): "Ask to spotlight", audio's WebRTC offers / answers / ICE. */
@@ -30,6 +30,24 @@ export type ClientControl =
   /** A REST render job's parts are uploaded (`PUT /files/:key/rest-jobs/:id/parts/:name`, docs/multiplayer.md §16.6) */
   | { t: "rest-job-done"; id: string; parts: RestJobPart[] }
   | { t: "rest-job-failed"; id: string; err: string };
+
+/**
+ * Liveness (docs/multiplayer.md §4.4, 2026-10-21): presence expires when a client stops talking, Figma's way. The client
+ * sends HEARTBEAT_TEXT every HEARTBEAT_MS once ready; the Durable Object answers HEARTBEAT_REPLY through the runtime's
+ * auto-response (no wake) and reads the time it last did. A member silent for SILENT_MS (a killed process, a slept Mac,
+ * a half-open socket) is dropped — `peer-left` to the others, the socket closed with CLOSE_SILENT. An app that doesn't
+ * say `hello.beat` (1.5.0 and older) is dropped after LEGACY_SILENT_MS of silence. A client that hears nothing for
+ * DEAD_AFTER_MS (its pings unanswered) closes and reconnects.
+ */
+export const HEARTBEAT_TEXT = '{"t":"ping"}';
+export const HEARTBEAT_REPLY = '{"t":"pong"}';
+export const HEARTBEAT_MS = 20_000;
+export const SILENT_MS = 60_000;
+export const LEGACY_SILENT_MS = 15 * 60_000;
+export const DEAD_AFTER_MS = 50_000;
+/** Close codes: dropped as silent (the client reconnects); replaced by a newer socket of the same client (it doesn't) */
+export const CLOSE_SILENT = 4008;
+export const CLOSE_REPLACED = 4011;
 
 /** The largest signal the room relays (a WebRTC offer with its candidates fits easily) */
 export const MAX_SIGNAL_BYTES = 32_000;
@@ -99,6 +117,8 @@ export type ServerControl =
   | { t: "code-connect" }
   /** A REST render job for this client (docs/multiplayer.md §16.6): run it, upload the parts, answer rest-job-done / -failed */
   | { t: "rest-job"; id: string; job: RestJob }
+  /** The heartbeat's answer (HEARTBEAT_REPLY) */
+  | { t: "pong" }
   | { t: "error"; code: "unauthorized" | "forbidden" | "bad-frame" | "too-large" | "too-old"; message: string };
 
 /** On a person's inbox socket, never stored (docs/multiplayer.md §16.6): a room of theirs has no client that can render */
@@ -118,6 +138,8 @@ export interface PeerInfo {
   presence?: unknown;
   /** Its multiplayer colour, an index into MULTIPLAYER_COLORS (absent from a room before Phase 6: by session) */
   color?: number;
+  /** The running app it is (`hello.client`; absent from older apps): one person's app is shown once */
+  client?: string;
 }
 
 /** The largest change batch the room accepts: an SQLite value holds 2 MB. Images travel as blobs (R2), not here. */

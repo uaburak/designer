@@ -10,7 +10,7 @@
  */
 import type { RoomPolicy } from "../../shared/org/identity";
 import { GOVERNANCE_SIGN_IN_ERROR_TEXT, REQUIRES_GOVERNANCE_PLUS, type GovernanceErrorCode, type OrgGate } from "../../shared/org/governance";
-import { CLOSE_FULL, CLOSE_MOVING, CLOSE_TOO_OLD, encodeChangesUp, decodeChangesDown, PROTOCOL_VERSION, type ClientControl, type PeerInfo, type Role, type ServerControl } from "../../shared/multiplayer/protocol";
+import { CLOSE_FULL, CLOSE_MOVING, CLOSE_REPLACED, CLOSE_TOO_OLD, DEAD_AFTER_MS, HEARTBEAT_MS, HEARTBEAT_REPLY, HEARTBEAT_TEXT, encodeChangesUp, decodeChangesDown, PROTOCOL_VERSION, type ClientControl, type PeerInfo, type Role, type ServerControl } from "../../shared/multiplayer/protocol";
 import type { AccessRequest, FileMember, FileShareState, InheritedPerson, LinkAccess, LinkSettingsPatch, MultiplayerNotice, MultiplayerSession, MultiplayerSignal, MultiplayerStatus, OpenIntent, OpeningProgress, RemoteFile, RestJobAnswer, RestJobRequest, SessionEnded, SharedFileInfo } from "../../shared/multiplayer/types";
 import type { RestJob, RestJobPart } from "../../shared/rest/types";
 import { decodeMessage } from "../../shared/schema/codec";
@@ -108,6 +108,10 @@ export interface MultiplayerDeps {
   backoff?(attempt: number): number;
   /** Frames past the room's snapshot before a client compacts (default COMPACT_EVERY) */
   compactEvery?: number;
+  /** Milliseconds between heartbeats on a ready room socket (default HEARTBEAT_MS; 0: none) and the silence after which a
+   *  socket whose heartbeats were answered before is given up (default DEAD_AFTER_MS) — docs/multiplayer.md §4.1 */
+  heartbeatMs?: number;
+  deadAfterMs?: number;
   /** Milliseconds a sent frame waits for its echo before the socket is closed and the link reconnects (default ACK_TIMEOUT_MS) */
   ackTimeoutMs?: number;
   /** Milliseconds between a read's tries when the server is busy or unreachable (default READ_RETRY_DELAYS; [] never) */
@@ -265,11 +269,14 @@ export class MultiplayerService {
   private uploading = new Map<FileKey, AbortController>();
   /** Images coming down after their file opened (docs/cloud.md §4.1): the transfers panel's "Downloading images" */
   readonly downloads: BlobDownloads;
+  /** This running app in the rooms (`hello.client`, docs/multiplayer.md §4.1): a reconnect replaces its older socket */
+  readonly clientId: string;
 
   constructor(
     private host: MultiplayerHost,
     private deps: MultiplayerDeps,
   ) {
+    this.clientId = Array.from({ length: 4 }, () => Math.floor(deps.random() * 0x1000000).toString(36).padStart(5, "0")).join("");
     this.off = host.fileChanges.on((c) => this.live.get(c.fileKey)?.local(c));
     this.uploads = new UploadTracker(deps.uploadClock);
     this.downloads = new BlobDownloads(this.blobSource(), this.uploads, {
@@ -2029,6 +2036,44 @@ class Link {
   /** Sent frames waiting for their echo: local seq → when the link gives up on this socket (ACK_TIMEOUT_MS) */
   private deadlines = new Map<number, number>();
   private watchdog: ReturnType<typeof setTimeout> | null = null;
+  /** The heartbeat (docs/multiplayer.md §4.1): sent every HEARTBEAT_MS once ready; the socket is given up when nothing
+   *  came for DEAD_AFTER_MS — only after the room answered one (an older room ignores it and never answers) */
+  private beat: ReturnType<typeof setInterval> | null = null;
+  private heardAt = 0;
+  private answered = false;
+
+  private startBeat(ws: WebSocketLike): void {
+    this.stopBeat();
+    const every = this.svc.deps_.heartbeatMs ?? HEARTBEAT_MS;
+    if (every <= 0) return;
+    const dead = this.svc.deps_.deadAfterMs ?? DEAD_AFTER_MS;
+    this.beat = setInterval(() => {
+      if (this.ws !== ws) return this.stopBeat();
+      if (this.answered && Date.now() - this.heardAt > dead) {
+        this.svc.host_.log("warn", `multiplayer ${this.fileKey}: the room stopped answering — reconnecting`);
+        return this.abandon(ws, "no pong");
+      }
+      if (ws.readyState === 1) ws.send(HEARTBEAT_TEXT);
+    }, every);
+  }
+
+  private stopBeat(): void {
+    if (this.beat) clearInterval(this.beat);
+    this.beat = null;
+  }
+
+  /** A dead socket (a half-open connection never delivers its close): closed, and the link goes on as if it had */
+  private abandon(ws: WebSocketLike, reason: string): void {
+    const onclose = ws.onclose;
+    ws.onclose = null;
+    ws.onmessage = null;
+    try {
+      ws.close(4000, reason);
+    } catch {
+      // already closing
+    }
+    onclose?.({ code: 4000, reason });
+  }
 
   /** `batch` went out on `ws` (`bytes` of it): its echo is awaited, else the socket closes and the reconnect resends it */
   private awaitAck(ws: WebSocketLike, batch: number, bytes: number): void {
@@ -2074,6 +2119,7 @@ class Link {
     this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
     this.disarm();
+    this.stopBeat();
     this.ws?.close(1000, "closing");
     this.ws = null;
   }
@@ -2116,6 +2162,7 @@ class Link {
     this.ws = null;
     this.ready = false;
     this.peers.clear();
+    this.stopBeat();
     ws.close(1000, "hello again");
     this.connect();
   }
@@ -2299,12 +2346,21 @@ class Link {
         if (r.role !== "viewer") for (const c of await this.svc.host_.backlog(this.fileKey, r.acked)) if (c.kind !== "remote") this.pending.set(c.seq, touchedBy(decodeMessage(c.message)));
         this.notePending();
         const flags = this.svc.renderFlags(this.fileKey);
-        const hello: ClientControl = { t: "hello", since: r.since, v: PROTOCOL_VERSION, ...(flags.render ? { render: true } : {}), ...(flags.helper ? { helper: true } : {}) };
+        // `client`: a reconnect replaces this app's older socket in the room; `beat`: the heartbeat follows (§4.1)
+        const every = this.svc.deps_.heartbeatMs ?? HEARTBEAT_MS;
+        const hello: ClientControl = { t: "hello", since: r.since, v: PROTOCOL_VERSION, client: this.svc.clientId, ...(every > 0 ? { beat: every } : {}), ...(flags.render ? { render: true } : {}), ...(flags.helper ? { helper: true } : {}) };
         ws.send(JSON.stringify(hello));
       });
     };
+    this.heardAt = Date.now();
+    this.answered = false;
     ws.onmessage = (e) => {
       const data = e.data;
+      this.heardAt = Date.now();
+      if (data === HEARTBEAT_REPLY) {
+        this.answered = true;
+        return;
+      }
       // Figma's signals (§18.13) come right before the room closes the socket (or as a bell): said now, not after it
       if (typeof data === "string" && data.includes('"t":"mp-signal"')) {
         const msg = JSON.parse(data) as Extract<ServerControl, { t: "mp-signal" }>;
@@ -2338,6 +2394,7 @@ class Link {
     ws.onclose = (e) => {
       if (this.ws !== ws) return;
       this.disarm();
+      this.stopBeat();
       if (this.ready) this.offlineSince = Date.now();
       this.ws = null;
       this.ready = false;
@@ -2345,6 +2402,9 @@ class Link {
       this.peers.clear();
       this.svc.emitState(this.fileKey);
       if (e.code === CLOSE_UNSHARED) return void this.svc.unlink(this.fileKey);
+      // A newer socket of this same app took this one's place in the room (it is only ever an older one, which the check
+      // above drops); were it this link's own, it waits long before trying again rather than trading places
+      if (e.code === CLOSE_REPLACED) return this.retry(FULL_RETRY_MS);
       // Figma's signals (§18.13): an app too old for the room stops (updating it is the way back); a full file is
       // tried again after a while, its changes kept here meanwhile
       if (e.code === CLOSE_TOO_OLD) {
@@ -2396,7 +2456,8 @@ class Link {
           if (this.limited) this.svc.mpSignal(this.fileKey, "converted-to-viewer", this.pending.size > 0);
           if (msg.cursorHidden) this.svc.mpSignal(this.fileKey, "cursor-hidden", false);
           if (!rec.sessions.includes(msg.sessionID)) rec.sessions = [...rec.sessions.slice(-63), msg.sessionID];
-          this.peers = new Map(msg.peers.map((p) => [p.sessionID, p]));
+          // This app's own older sockets aren't other people (the room replaces them; defensive)
+          this.peers = new Map(msg.peers.filter((p) => p.client !== this.svc.clientId).map((p) => [p.sessionID, p]));
           this.snapshotSeq = msg.snapshotSeq ?? 0;
           this.svc.setPolicy(this.fileKey, msg.policy ?? null, false);
           await this.svc.persist(this.fileKey);
@@ -2421,6 +2482,7 @@ class Link {
           this.wasLive = true;
           this.offlineSince = null;
           this.ready = true;
+          this.startBeat(ws);
           // What the room hasn't acknowledged goes (again) now, in journal order — frames journaled meanwhile with it,
           // never ahead of an older one (a later read finds them; nothing new between the last read and the end).
           if (rec.role !== "viewer" && !this.limited) {
@@ -2439,6 +2501,7 @@ class Link {
           return;
         }
         case "peer-joined":
+          if (msg.peer.client === this.svc.clientId) return;
           this.peers.set(msg.peer.sessionID, msg.peer);
           return this.svc.emitState(this.fileKey);
         case "peer-left":

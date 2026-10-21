@@ -80,6 +80,7 @@ function runStoreProcess(parent: ParentPortLike): void {
           // Answered first, then gone: main waits for the exit.
           onShutdown: () => setTimeout(() => process.exit(0), 20),
         });
+        stopOnSignals(store);
         if (mainPort) server.connect(portTransport(mainPort as never), "main");
         for (const p of early.splice(0)) server.connect(portTransport(p.port as never), p.role);
         parent.postMessage({ type: "ready", wid: store.ws.workspace.wid, generation: msg.generation } satisfies StoreChildMessage);
@@ -91,6 +92,28 @@ function runStoreProcess(parent: ParentPortLike): void {
       },
     );
   });
+}
+
+/**
+ * Stopped from outside (Ctrl-C of `npm run dev` reaches the whole process group, a `kill`, a closed terminal): the rooms'
+ * sockets close cleanly first — a process that just dies leaves its socket in the room, a ghost in everyone's facepile
+ * until the room expires it (docs/multiplayer.md §4.1) — then the store shuts down as on quit (1.5 s at most).
+ */
+function stopOnSignals(store: LocalStore): void {
+  const goodbye = () => {
+    try {
+      store.multiplayer.close();
+    } catch {
+      // closing anyway
+    }
+  };
+  process.once("exit", goodbye);
+  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+    process.once(sig, () => {
+      goodbye();
+      void Promise.race([store.shutdown().catch(() => {}), new Promise((r) => setTimeout(r, 1500))]).finally(() => process.exit(0));
+    });
+  }
 }
 
 if (!isMainThread && (workerData as { designerStoreRole?: string } | null)?.designerStoreRole === COMPACTOR_ROLE) {
