@@ -84,6 +84,27 @@
     overflow: hidden;
     pointer-events: none;
   }
+  /* Website behaviours: the hidden <textarea> a prototype's text input types through, over the field (the IME's
+     candidates appear there); the engine draws the text, the caret and the selection. */
+  .fieldInput {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    border: 0;
+    margin: 0;
+    opacity: 0;
+    resize: none;
+    overflow: hidden;
+    pointer-events: none;
+    caret-color: transparent;
+    background: transparent;
+    color: transparent;
+    font: var(--ds-font-body-medium);
+    white-space: pre;
+  }
   /* Hide UI: the options in the corner bring it back. */
   .corner {
     position: absolute;

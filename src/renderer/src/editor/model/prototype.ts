@@ -112,6 +112,15 @@ export type OverlayPositionType = "CENTER" | "TOP_LEFT" | "TOP_CENTER" | "TOP_RI
 /** Wecra's overlay "Fit to window" (NodeChange.overlayFitWindow, @ours: never in a .fig export; docs/engine.md §3.4). */
 export type OverlayFitWindow = "NONE" | "WIDTH" | "HEIGHT" | "BOTH";
 export type ScrollDirection = "NONE" | "HORIZONTAL" | "VERTICAL" | "BOTH";
+/** Wecra's Prototype › Text input (NodeChange.prototypeTextInput, @ours: never in a .fig export; docs/engine.md §3.4). */
+export type TextInputType = "TEXT" | "PASSWORD" | "EMAIL" | "NUMBER" | "MULTI_LINE";
+export interface PrototypeTextInput {
+  type?: TextInputType;
+  /** UTF-16 units; 0 or absent: no limit */
+  maxLength?: number;
+}
+/** Wecra's Prototype › Cursor (NodeChange.prototypeCursor, @ours): the pointer over the layer while presented. */
+export type PrototypeCursor = "AUTO" | "DEFAULT" | "POINTER" | "TEXT" | "GRAB" | "MOVE" | "NOT_ALLOWED" | "HELP" | "ZOOM_IN" | "ZOOM_OUT" | "CROSSHAIR" | "NONE";
 export type ScrollBehavior = "SCROLLS" | "FIXED_WHEN_CHILD_OF_SCROLLING_FRAME" | "STICKY_SCROLLS";
 
 /** The prototype fields of a node as the engine's reads show them. */
@@ -129,6 +138,10 @@ export interface PrototypeFields {
   scrollBehavior?: ScrollBehavior;
   /** Prototype › Video (absent: all off) */
   videoPlayback?: VideoPlayback;
+  /** Wecra-only: a text layer typed into while presented (absent: not an input) */
+  prototypeTextInput?: PrototypeTextInput;
+  /** Wecra-only: the cursor over the layer while presented (absent: Auto) */
+  prototypeCursor?: PrototypeCursor;
 }
 
 /** Prototype › Video (schema VideoPlayback): Autoplay, Loop, the sound (muted). */
@@ -970,6 +983,31 @@ export const OVERLAY_FITS: { value: OverlayFitWindow; label: string }[] = [
   { value: "WIDTH", label: "Width" },
   { value: "HEIGHT", label: "Height" },
   { value: "BOTH", label: "Width and height" },
+];
+
+/** Prototype › Text input › Type (Wecra-only). */
+export const TEXT_INPUT_TYPES: { value: TextInputType; label: string }[] = [
+  { value: "TEXT", label: "Text" },
+  { value: "PASSWORD", label: "Password" },
+  { value: "EMAIL", label: "Email" },
+  { value: "NUMBER", label: "Number" },
+  { value: "MULTI_LINE", label: "Multi-line" },
+];
+
+/** Prototype › Cursor (Wecra-only): Auto follows the layer (a hand over hotspots, text over inputs…). */
+export const PROTOTYPE_CURSORS: { value: PrototypeCursor; label: string }[] = [
+  { value: "AUTO", label: "Auto" },
+  { value: "DEFAULT", label: "Default" },
+  { value: "POINTER", label: "Pointer" },
+  { value: "TEXT", label: "Text" },
+  { value: "GRAB", label: "Grab" },
+  { value: "MOVE", label: "Move" },
+  { value: "NOT_ALLOWED", label: "Not allowed" },
+  { value: "HELP", label: "Help" },
+  { value: "ZOOM_IN", label: "Zoom in" },
+  { value: "ZOOM_OUT", label: "Zoom out" },
+  { value: "CROSSHAIR", label: "Crosshair" },
+  { value: "NONE", label: "None" },
 ];
 
 export const OVERFLOWS: { value: ScrollDirection; label: string }[] = [

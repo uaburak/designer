@@ -89,4 +89,45 @@ describe("the Prototype tab", () => {
     view.unmount();
     engine.destroy();
   });
+
+  it("a text layer: Text input (+ makes it one, Type, Max length, −); any layer: Cursor — Wecra's website behaviours", async () => {
+    const { view, engine } = await setup();
+    act(() => void engine.applyChanges({ type: "NODE_CHANGES", sessionID: 0, nodeChanges: [{ guid: "2:40", phase: "CREATED", type: "TEXT", name: "Email", parentIndex: { guid: "2:1", position: "&" }, size: { x: 200, y: 20 }, textData: { characters: "Email" } }] } as never));
+    act(() => void engine.setSelection(["2:40"]));
+    const input = () => section(view.host, "Text input");
+    const read = () => engine.readNode("2:40") as { prototypeTextInput?: { type?: string; maxLength?: number }; prototypeCursor?: string };
+    expect(input()).not.toBeNull();
+    expect(input()!.querySelector('[aria-label="Text input type"]')).toBeNull(); // off: the header and its +
+    click(input()!.querySelector('button[aria-label="Add text input"]'));
+    expect(read().prototypeTextInput?.type).toBe("TEXT");
+    const type = input()!.querySelector<HTMLElement>('[aria-label="Text input type"]');
+    expect(type).not.toBeNull();
+    click(type);
+    click([...document.querySelectorAll('[role="option"]')].find((o) => o.textContent?.trim() === "Password") ?? null);
+    expect(read().prototypeTextInput?.type).toBe("PASSWORD");
+    const max = input()!.querySelector<HTMLInputElement>('input[aria-label="Max length"]')!;
+    act(() => max.focus());
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(max, "12");
+      max.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => max.blur());
+    expect(read().prototypeTextInput).toEqual({ type: "PASSWORD", maxLength: 12 });
+    click(input()!.querySelector('button[aria-label="Remove text input"]'));
+    expect(read().prototypeTextInput).toBeUndefined();
+    // Cursor: Auto by default (absent), any of CSS's, back to Auto removes the field.
+    const cursor = section(view.host, "Cursor")!.querySelector<HTMLElement>('[aria-label="Cursor"]');
+    click(cursor);
+    click([...document.querySelectorAll('[role="option"]')].find((o) => o.textContent?.trim() === "Help") ?? null);
+    expect(read().prototypeCursor).toBe("HELP");
+    click(section(view.host, "Cursor")!.querySelector('[aria-label="Cursor"]'));
+    click([...document.querySelectorAll('[role="option"]')].find((o) => o.textContent?.trim() === "Auto") ?? null);
+    expect(read().prototypeCursor).toBeUndefined();
+    // Not a text layer: no Text input section, a Cursor one.
+    act(() => void engine.setSelection(["2:4"]));
+    expect(section(view.host, "Text input")).toBeNull();
+    expect(section(view.host, "Cursor")).not.toBeNull();
+    view.unmount();
+    engine.destroy();
+  });
 });

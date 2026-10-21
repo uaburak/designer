@@ -10,7 +10,8 @@
  * - Options: "Recommended" — the file's first two scales — and "Other scaling options", each with its glyph and "Z"
  *   beside the next one; "Advanced settings ›" (Enable Figma shortcuts, Show hints on click); "Hide UI ⌘\". With a
  *   device: Responsive / Fixed size (its scales — Fit device on screen, Zoom device to fill screen, Show device at
- *   100%, Show device frame — in the footer's device menu).
+ *   100%, Show device frame — in the footer's device menu). Advanced settings also holds Wecra's "Website behaviours"
+ *   (webBehaviours.ts): text inputs typed into through a hidden <textarea> over the field, keyboard focus, cursors.
  * - No footer bar: the ‹ | › stepper floats at the bottom's middle, Restart (R) at its right.
  * - Keys as Figma's: → Space N next frame, ← previous, R restart, Z the next scale option, F full screen (with
  *   "Enable Figma shortcuts"), ? the keyboard shortcuts, ⌘\ Hide UI, Esc leaves (in this tab); interactions with
@@ -27,6 +28,7 @@ import { MOD_ALT, MOD_CTRL, MOD_META, MOD_SHIFT, Status } from "@/engine/abi";
 import { Engine, type ImageSource, type PresentScale, type PresentState } from "@/engine/Engine";
 import type { Guid } from "@/engine/codec";
 import { PresentationVideos } from "./presentationVideos";
+import { readWebBehaviours, webBehavioursFromUrl, writeWebBehaviours } from "./webBehaviours";
 import styles from "./Present.module.css";
 
 export interface PresentationSource {
@@ -120,6 +122,8 @@ export interface PresentUrlOptions {
   hints?: boolean;
   deviceFrame?: boolean;
   hideUi?: boolean;
+  /** Wecra's `web-behaviours=0 | 1`: Website behaviours for this view (else the remembered choice) */
+  webBehaviours?: boolean;
   /** The frame to show (`node-id`), else the flow to start (`starting-point-node-id`) */
   node?: Guid;
 }
@@ -141,6 +145,8 @@ export function presentUrlOptions(params: URLSearchParams): PresentUrlOptions {
   if (params.get("hotspot-hints") === "0") out.hints = false;
   if (params.get("device-frame") === "0") out.deviceFrame = false;
   if (params.get("hide-ui") === "1") out.hideUi = true;
+  const web = webBehavioursFromUrl(params);
+  if (web !== undefined) out.webBehaviours = web;
   const id = (params.get("node-id") ?? params.get("starting-point-node-id") ?? "").replace("-", ":");
   if (/^\d+:\d+$/.test(id)) out.node = id;
   return out;
@@ -249,6 +255,8 @@ export function presentOptions(state: PresentState | null, view: ViewOptions = {
       items: [
         { id: "shortcuts", label: t("Enable Figma shortcuts"), checked: view.shortcuts },
         { id: "hints", label: t("Show hints on click"), checked: state?.hints !== false },
+        // Wecra's (not Figma's): the prototype behaves like the site — inputs, focus, keys, cursors (webBehaviours.ts).
+        { id: "web", label: t("Website behaviours"), checked: state?.webBehaviours !== false },
       ],
     },
     { id: "hide-ui", label: t("Hide UI"), checked: view.hideUi, shortcut: presentHost() === "mac" ? "⌘\\" : "Ctrl+\\" },
@@ -293,6 +301,11 @@ export function deviceName(preset: string | undefined): string {
 export function applyPresentOption(engine: Engine, state: PresentState | null, id: string): void {
   if (id === "hints") engine.presentSetOptions({ hints: state?.hints === false });
   else if (id === "shortcuts") engine.presentSetOptions({ shortcuts: state?.shortcuts === false });
+  else if (id === "web") {
+    const on = state?.webBehaviours === false;
+    writeWebBehaviours(on);
+    engine.presentSetOptions({ webBehaviours: on });
+  }
   else if (id === "frame") engine.presentSetOptions({ deviceFrame: state?.deviceFrame === false });
   else if (id.startsWith("responsive:")) engine.presentSetOptions({ responsive: id === "responsive:on" });
   else if (id.startsWith("scale:")) engine.presentSetOptions({ scale: id.slice(6) as PresentScale });
@@ -386,6 +399,8 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     const { events: _events, ...rest } = s;
     void _events;
     const key = JSON.stringify(rest);
+    // The cursor at once (website behaviours: per hotspot; Figma's: a hand over hotspots, grabbing while dragging).
+    if (canvasRef.current) canvasRef.current.style.cursor = s.cursor ?? (s.scrubbing ? "grabbing" : s.hotspot ? "pointer" : "default");
     if (key !== lastState.current) {
       lastState.current = key;
       setState(s);
@@ -478,7 +493,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     const r = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     engine.setViewport(Math.max(1, r.width), Math.max(1, r.height), dpr, Math.max(1, Math.round(r.width * dpr)), Math.max(1, Math.round(r.height * dpr)));
-    engine.presentSetOptions({ host: presentHost() });
+    engine.presentSetOptions({ host: presentHost(), webBehaviours: urlOptions?.webBehaviours ?? readWebBehaviours() });
     const start = node ?? urlOptions?.node;
     const status = engine.presentStart({ ...(page ? { page } : {}), ...(start ? { node: start } : {}) });
     // (Told after this effect: the page may have gained frames since a failed opening.)
@@ -545,6 +560,11 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       // viewer's own next-frame keys leave ⇧Space alone there).
       if (inline && onClose && (e.key === "Escape" || (e.code === "Space" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey))) {
         e.preventDefault();
+        // Website behaviours: Esc closes the prototype's dismissible overlay first (or leaves a field).
+        if (e.key === "Escape" && engine.presentState().webBehaviours !== false && engine.presentKey("down", e.keyCode, modsOf(e))) {
+          readState();
+          return;
+        }
         onClose();
         return;
       }
@@ -610,7 +630,67 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     const [x, y] = at(e);
     engine.presentPointer(type, x, y, e.buttons, modsOf(e));
     if (type !== POINTER.move) readState();
+    else e.currentTarget.style.cursor = engine.presentCursor();
   };
+
+  // Website behaviours: a text input the prototype focused takes the typing through a hidden <textarea> over it — the
+  // caret, the selection, IME, the clipboard are the browser's; the engine draws them and the text.
+  const fieldRef = useRef<HTMLTextAreaElement>(null);
+  const fieldSerial = useRef<string>("");
+  const field = state?.field ?? null;
+  useEffect(() => {
+    const el = fieldRef.current;
+    if (!el) return;
+    if (!field) {
+      fieldSerial.current = "";
+      if (document.activeElement === el) canvasRef.current?.focus({ preventScroll: true });
+      return;
+    }
+    const serial = `${field.id}#${field.serial}`;
+    if (serial !== fieldSerial.current) {
+      fieldSerial.current = serial;
+      el.value = field.value;
+      el.setSelectionRange(field.start, field.end);
+      // Only when the prototype moved the focus or the caret (a click, Tab): typing elsewhere keeps its focus.
+      if (document.activeElement !== el) el.focus({ preventScroll: true });
+    }
+  }, [field]);
+  const syncField = () => {
+    const el = fieldRef.current;
+    const engine = engineRef.current;
+    if (!el || !engine || engine.destroyed || !field) return;
+    engine.presentText(el.value, el.selectionStart ?? el.value.length, el.selectionEnd ?? el.value.length);
+    readState();
+  };
+  const onFieldKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const engine = engineRef.current;
+    if (!engine || engine.destroyed) return;
+    // Tab, Esc and (one line) Enter are the prototype's: its Key / Gamepad triggers, then focus, leave, submit.
+    const multi = field?.type === "MULTI_LINE";
+    if (e.key === "Tab" || e.key === "Escape" || (e.key === "Enter" && !multi && !e.nativeEvent.isComposing)) {
+      if (engine.presentKey("down", e.keyCode, modsOf(e)) || e.key !== "Escape") e.preventDefault();
+      readState();
+    }
+  };
+  const fieldInput = (
+    <textarea
+      ref={fieldRef}
+      className={styles.fieldInput}
+      aria-label={t("Text input")}
+      aria-hidden={field ? undefined : true}
+      tabIndex={-1}
+      autoComplete="off"
+      autoCorrect="off"
+      autoCapitalize="off"
+      spellCheck={false}
+      inputMode={field?.type === "NUMBER" ? "decimal" : field?.type === "EMAIL" ? "email" : "text"}
+      style={field ? { left: field.rect.x, top: field.rect.y, width: Math.max(1, field.rect.w), height: Math.max(1, field.rect.h) } : undefined}
+      onInput={syncField}
+      onSelect={syncField}
+      onKeyUp={syncField}
+      onKeyDown={onFieldKey}
+    />
+  );
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -679,7 +759,6 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       className={styles.canvas}
       tabIndex={0}
       aria-label={t("Prototype")}
-      style={{ cursor: state?.scrubbing ? "grabbing" : state?.hotspot ? "pointer" : "default" }}
       onPointerDown={onPointer}
       onPointerMove={onPointer}
       onPointerUp={onPointer}
@@ -694,6 +773,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       <div className={styles.inline} data-presentation="inline">
         <div className={styles.stage}>
           {canvas}
+          {fieldInput}
           <div ref={videoHost} className={styles.videos} aria-hidden />
           {!state && !error && (
             <div className={styles.center}>
@@ -771,6 +851,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
         )}
         <div className={styles.stage}>
           {canvas}
+          {fieldInput}
           <div ref={videoHost} className={styles.videos} aria-hidden />
           {hideUi && <div className={styles.corner}>{optionsButton}</div>}
           {!state && !error && (

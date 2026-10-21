@@ -70,6 +70,22 @@ export function figmaExportSchema(): Uint8Array {
 
 const IDENTITY = { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 };
 
+/** Override entries without `@ours` fields; an entry that held nothing else (only its guidPath left) is dropped. */
+function withoutOurFields(entries: NodeChange[]): NodeChange[] {
+  const out: NodeChange[] = [];
+  for (const e of entries) {
+    const keys = Object.keys(e).filter((k) => (e as Record<string, unknown>)[k] !== undefined);
+    if (!keys.some((k) => OUR_NODE_FIELDS.has(k))) {
+      out.push(e);
+      continue;
+    }
+    const kept: Record<string, unknown> = {};
+    for (const k of keys) if (!OUR_NODE_FIELDS.has(k)) kept[k] = (e as Record<string, unknown>)[k];
+    if (Object.keys(kept).some((k) => k !== "guidPath")) out.push(kept as NodeChange);
+  }
+  return out;
+}
+
 /**
  * One node as Figma writes it. Figma writes `visible`, `opacity`, `transform` and the stroke basics on every node (and
  * a TEXT's type settings and paragraph lines) even at their defaults; absence means our default (schema/document.kiwi
@@ -78,6 +94,11 @@ const IDENTITY = { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 };
 function figmaNode(n: NodeChange): NodeChange {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(n)) if (!OUR_NODE_FIELDS.has(k) && v !== undefined) out[k] = v;
+  // An instance's overrides (and derived sublayer data) are NodeChanges too: `@ours` fields set on a sublayer (a text
+  // input's Prototype › Text input, a Cursor) go, and an entry left with only its path goes with them.
+  const sd = out.symbolData as NodeChange["symbolData"] | undefined;
+  if (sd?.symbolOverrides?.length) out.symbolData = { ...sd, symbolOverrides: withoutOurFields(sd.symbolOverrides) };
+  if (Array.isArray(out.derivedSymbolData)) out.derivedSymbolData = withoutOurFields(out.derivedSymbolData as NodeChange[]);
   const root = n.type === "DOCUMENT" || n.type === "CANVAS";
   out.visible ??= true;
   out.opacity ??= 1;

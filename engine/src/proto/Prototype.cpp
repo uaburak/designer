@@ -111,6 +111,8 @@ const char* const kOverlayPositions[] = {"CENTER", "TOP_LEFT", "TOP_CENTER", "TO
 const char* const kMediaActions[] = {"PLAY", "PAUSE", "TOGGLE_PLAY_PAUSE", "MUTE", "UNMUTE", "TOGGLE_MUTE_UNMUTE", "SKIP_FORWARD", "SKIP_BACKWARD", "SKIP_TO"};
 const char* const kOverflows[] = {"NONE", "HORIZONTAL", "VERTICAL", "BOTH"};
 const char* const kOverlayFits[] = {"NONE", "WIDTH", "HEIGHT", "BOTH"};
+const char* const kTextInputTypes[] = {"TEXT", "PASSWORD", "EMAIL", "NUMBER", "MULTI_LINE"};
+const char* const kCursors[] = {"AUTO", "DEFAULT", "POINTER", "TEXT", "GRAB", "MOVE", "NOT_ALLOWED", "HELP", "ZOOM_IN", "ZOOM_OUT", "CROSSHAIR", "NONE"};
 const char* const kScrollBehaviors[] = {"SCROLLS", "FIXED_WHEN_CHILD_OF_SCROLLING_FRAME", "STICKY_SCROLLS"};
 
 Action readAction(const json::Value& v);
@@ -432,6 +434,43 @@ OverlaySettings overlaySettings(const NodeProps& p) {
                            static_cast<float>(num(c->get("b"), 0)), static_cast<float>(num(c->get("a"), 0.25))};
   }
   return s;
+}
+
+bool textInput(const NodeProps& p, TextInputSettings& out) {
+  out = TextInputSettings{};
+  if (p.type != NodeType::TEXT) return false;
+  json::Value v;
+  if (!extraJson(p, "prototypeTextInput", v) || !v.isObject()) return false;
+  out.type = enumOf(v.get("type"), kTextInputTypes, TextInputType::TEXT);
+  if (static_cast<int>(out.type) > static_cast<int>(TextInputType::MULTI_LINE)) out.type = TextInputType::TEXT;
+  out.maxLength = static_cast<uint32_t>(std::max(0.0, num(v.get("maxLength"), 0)));
+  return true;
+}
+
+Cursor cursor(const NodeProps& p) {
+  json::Value v;
+  if (!extraJson(p, "prototypeCursor", v)) return Cursor::AUTO;
+  Cursor c = enumOf(&v, kCursors, Cursor::AUTO);
+  return static_cast<int>(c) > static_cast<int>(Cursor::NONE) ? Cursor::AUTO : c;
+}
+
+const char* cssCursor(Cursor c) {
+  switch (c) {
+    case Cursor::AUTO:
+    case Cursor::DEFAULT: return "default";
+    case Cursor::POINTER: return "pointer";
+    case Cursor::TEXT: return "text";
+    case Cursor::GRAB: return "grab";
+    case Cursor::MOVE: return "move";
+    case Cursor::NOT_ALLOWED: return "not-allowed";
+    case Cursor::HELP: return "help";
+    case Cursor::ZOOM_IN: return "zoom-in";
+    case Cursor::ZOOM_OUT: return "zoom-out";
+    case Cursor::CROSSHAIR: return "crosshair";
+    case Cursor::NONE: return "none";
+    case Cursor::GRABBING: return "grabbing";
+  }
+  return "default";
 }
 
 bool flowStart(const NodeProps& p, Flow& out) {

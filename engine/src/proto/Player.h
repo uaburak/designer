@@ -587,6 +587,94 @@ class Player {
   uint32_t playerSerial_ = 0;  // this player's part of its videos' frame hashes
   // What the player wrote into the document, as it was before (Restart puts it back).
   std::unordered_map<Guid, NodeChange, GuidHash> originals_;
+
+  // ---- Website behaviours (docs/engine.md §3.4 "Website behaviours"; proto/WebBehaviours.cpp) ------------------
+  // The presentation's Options › Advanced settings › "Website behaviours" (on by default): text inputs typed into,
+  // keyboard focus (Tab order, a :focus-visible ring or the component's Focus variant), Enter / Space activate, Esc
+  // closes, a modal keeps focus and gives it back, arrow keys in auto-layout groups, cursors per hotspot, disabled
+  // instances. Off, the player is Figma's. Runtime state only; the stored settings are the @ours fields
+  // prototypeTextInput and prototypeCursor (the .fig export drops them).
+ public:
+  void setWebBehaviours(bool on);
+  bool webBehaviours() const { return web_; }
+  // The focused text input's text and selection as the page's hidden <textarea> has them (UTF-16 offsets).
+  void textInput(const std::string& value, uint32_t start, uint32_t end);
+  // The pointer's cursor now (never AUTO).
+  Cursor cursorNow() const;
+  // Tests and the state: the focused layer (kNoGuid: none), whether its ring shows (keyboard focus), the text input
+  // being typed into (kNoGuid: none) and its text.
+  Guid focused() const;
+  bool focusVisible() const { return focusVisible_ && !focusKey_.empty(); }
+  Guid focusedField() const;
+  const std::string& fieldValue() const { return field_.value; }
+  uint32_t fieldStart() const { return field_.start; }
+  uint32_t fieldEnd() const { return field_.end; }
+  // A layer in a disabled instance (a variant value "Disabled", or a boolean property "Disabled" on): no interactions,
+  // not focusable, the not-allowed cursor.
+  bool disabled(Guid id) const;
+  // The layers Tab goes through now, in order: the top modal overlay's (focus trap), else the screen's and its
+  // overlays'.
+  std::vector<Guid> focusOrder() const;
+
+ private:
+  bool web_ = true;
+  bool lastKeyboard_ = false;  // the last input was a key (focus moved by script shows its ring then, :focus-visible)
+  Cursor cursor_ = Cursor::DEFAULT;
+  std::string focusKey_;       // the focused layer by key (its id changes with an instance's variant above it)
+  bool focusVisible_ = false;
+  // What focusing did (the Focus variant, hover interactions while keyboard-focused): undone on blur.
+  Held focusHeld_;
+  bool focusVariant_ = false;  // focusHeld_ holds a Focus variant (no ring then)
+  struct FocusReturn {
+    Guid overlay = kNoGuid;
+    std::string key;  // what had focus when it opened
+  };
+  std::vector<FocusReturn> focusReturns_;
+  std::vector<Guid> webOverlays_;
+  Guid webBase_ = kNoGuid;
+  struct Field {
+    std::string key, path;
+    TextInputSettings settings;
+    std::string value;  // UTF-8
+    uint32_t start = 0, end = 0, anchor = 0;  // UTF-16
+    bool dragging = false;
+    Guid variable = kNoGuid;  // its characters bound to a string variable: typing writes it
+  };
+  Field field_;
+  bool fieldOn_ = false;
+  uint32_t fieldSerial_ = 0;  // bumped when the player moves the selection (the page's <textarea> takes it)
+  std::unordered_map<std::string, std::string> typed_;  // unbound fields' text by semantic path (carried across screens)
+  std::unordered_map<Guid, std::string, GuidHash> placeholders_;  // fields written: their own characters
+  uint64_t webVersion_ = ~0ull;
+  bool instanceDisabled(Guid inst) const;
+  bool textInputOf(Guid id, TextInputSettings* s = nullptr) const;
+  bool focusable(Guid id) const;
+  bool isLink(Guid id) const;
+  Guid textVariable(Guid id) const;
+  void writeVariable(Guid var, const VariableData& value, Guid source);
+  bool cssOf(Guid id, Mat2x3& out) const;
+  Hit hitOf(Guid id) const;
+  Guid focusVariantOf(Guid inst) const;
+  void focus(Guid id, bool visible);
+  void blur();
+  void applyFocusState();
+  void undoFocusState();
+  void scrollIntoView(Guid id);
+  uint32_t webKey(int keyCode, uint32_t mods);
+  void activate(Guid id);
+  bool moveFocus(int dir);
+  bool arrowFocus(int keyCode);
+  Guid firstFocusable(Guid root) const;
+  void webPointerDown(const Chain& c, Vec2 css);
+  bool webPointerMove(Vec2 css);
+  void webPointerUp();
+  uint32_t fieldIndexAt(Guid node, Vec2 css) const;
+  void syncWeb();
+  void writeField(Guid id, const std::string& value, const TextInputSettings& s);
+  void updateCursor(const Chain& c);
+  void addWebItems();
+  void resetWeb();
+  void webState(json::Writer& w) const;
 };
 
 }  // namespace eng::proto

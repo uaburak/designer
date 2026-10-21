@@ -28,6 +28,7 @@ import { Icon, IconButton, MenuButton, cx, type MenuEntry } from "@/ds";
 import type { Engine, PresentScale, PresentState } from "@/engine/Engine";
 import type { Guid } from "@/engine/codec";
 import { PresentationView, SCALE_ICON, presentHost } from "@/present/PresentationView";
+import { writeWebBehaviours } from "@/present/webBehaviours";
 import { viewRect } from "./canvas/viewInsets";
 import { useEditor, type EditorController } from "./controller";
 import { useUI } from "./hooks";
@@ -249,6 +250,9 @@ function PreviewWindow({ page, node, open }: { page: Guid; node: Guid | null; op
     { id: "actual", label: device ? t("Resize device to 100%") : t("Resize window to 100%"), checked: sameSize(viewer, actual) },
     ...(!device ? [{ id: "aspect", label: t("Reset aspect ratio"), checked: sameSize(viewer, aspectViewerSize(viewer, bp, info.frame)) }] : []),
     ...(state?.hasDeviceFrame ? [{ id: "frame", label: t("Show device frame"), checked: state.deviceFrame !== false }] : []),
+    // Wecra's (not Figma's): the prototype behaves like the site — inputs, focus, keys, cursors (present/webBehaviours.ts).
+    "-",
+    { id: "web", label: t("Website behaviours"), checked: state?.webBehaviours !== false },
   ];
   const resizeViewer = (v: Size) => setBox((b) => ({ ...b, w: v.x, h: v.y + HEADER }));
   const onOption = (id: string) => {
@@ -263,6 +267,11 @@ function PreviewWindow({ page, node, open }: { page: Guid; node: Guid | null; op
     else if (id === "actual") resizeViewer(actual);
     else if (id === "aspect") resizeViewer(aspectViewerSize(viewer, bp, info.frame));
     else if (id === "frame") engine.presentSetOptions({ deviceFrame: s?.deviceFrame === false });
+    else if (id === "web") {
+      const on = s?.webBehaviours === false;
+      writeWebBehaviours(on);
+      engine.presentSetOptions({ webBehaviours: on });
+    }
     refresh();
     document.getElementById("preview-canvas")?.focus({ preventScroll: true });
   };

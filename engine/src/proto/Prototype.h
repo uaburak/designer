@@ -52,6 +52,15 @@ enum class ScrollBehavior : uint8_t { SCROLLS = 0, FIXED = 1, STICKY = 2 };
 // Wecra's overlay "Fit to window" (NodeChange.overlayFitWindow, @ours): the sides of an overlay that take the
 // screen's size while it is presented (docs/engine.md §3.4).
 enum class OverlayFit : uint8_t { NONE = 0, WIDTH = 1, HEIGHT = 2, BOTH = 3 };
+// Wecra's website behaviours (docs/engine.md §3.4): Prototype › Text input (NodeChange.prototypeTextInput, @ours) — a
+// text layer typed into while presented — and Prototype › Cursor (NodeChange.prototypeCursor, @ours).
+enum class TextInputType : uint8_t { TEXT = 0, PASSWORD = 1, EMAIL = 2, NUMBER = 3, MULTI_LINE = 4 };
+struct TextInputSettings {
+  TextInputType type = TextInputType::TEXT;
+  uint32_t maxLength = 0;  // UTF-16 units; 0: no limit
+  bool multiline() const { return type == TextInputType::MULTI_LINE; }
+};
+enum class Cursor : uint8_t { AUTO = 0, DEFAULT, POINTER, TEXT, GRAB, MOVE, NOT_ALLOWED, HELP, ZOOM_IN, ZOOM_OUT, CROSSHAIR, NONE, GRABBING };
 
 const char* triggerName(Trigger t);
 const char* connectionName(Connection c);
@@ -181,6 +190,13 @@ bool flowStart(const NodeProps& p, Flow& out);  // the node's prototypeStartingP
 Device device(const NodeProps& page);
 Color background(const NodeProps& page);  // prototypeBackgroundColor (absent or transparent: black, as Figma)
 VideoSettings videoSettings(const NodeProps& p);
+// Prototype › Text input: false when the layer isn't one (the field absent).
+bool textInput(const NodeProps& p, TextInputSettings& out);
+// Prototype › Cursor (absent: AUTO).
+Cursor cursor(const NodeProps& p);
+// The CSS cursor name ("default", "pointer", "text", "grab", "move", "not-allowed", "help", "zoom-in", "zoom-out",
+// "crosshair", "none", "grabbing"; AUTO reads as "default").
+const char* cssCursor(Cursor c);
 // The layer's first visible VIDEO fill (its index in fillPaints), −1 when it has none.
 int videoFill(const NodeProps& p);
 // The layer's first visible GIF fill (an IMAGE paint with an animatedImage: "GIFs in prototypes" play, atlas 07 §8.5),

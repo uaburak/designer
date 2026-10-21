@@ -3428,6 +3428,8 @@ ENG_EXPORT int32_t engine_present_set_options(Handle h, Ptr ptr, uint32_t len) {
   }
   if (auto* hints = v.get("hints"); hints && hints->isBool()) e->player->setHints(hints->boolean);
   if (auto* keys = v.get("shortcuts"); keys && keys->isBool()) e->player->setShortcuts(keys->boolean);
+  // Options › Advanced settings › "Website behaviours" (docs/engine.md §3.4): text inputs, focus, keys, cursors.
+  if (auto* web = v.get("webBehaviours"); web && web->isBool()) e->player->setWebBehaviours(web->boolean);
   // With a device: Responsive / Fixed size, Show device frame.
   if (auto* r = v.get("responsive"); r && r->isBool()) e->player->setResponsive(r->boolean);
   if (auto* f = v.get("deviceFrame"); f && f->isBool()) e->player->setDeviceFrame(f->boolean);
@@ -3439,6 +3441,33 @@ ENG_EXPORT int32_t engine_present_set_options(Handle h, Ptr ptr, uint32_t len) {
   }
   e->editor.invalidateCanvas();
   return OK;
+}
+
+// Website behaviours: the focused text input's text and selection from the page's hidden <textarea> — {"value",
+// "start", "end"} (UTF-16 offsets). E_INVALID: no text input has the focus.
+ENG_EXPORT int32_t engine_present_text(Handle h, Ptr ptr, uint32_t len) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e || !e->presenting()) return E_HANDLE;
+  json::Value v;
+  if (!json::parse(bytes(ptr, len), v) || !v.isObject()) return E_DECODE;
+  if (e->player->focusedField() == kNoGuid) return E_INVALID;
+  const json::Value* value = v.get("value");
+  auto offset = [&](const char* k) {
+    const json::Value* n = v.get(k);
+    return n && n->isNumber() && n->number > 0 ? static_cast<uint32_t>(n->number) : 0u;
+  };
+  e->player->textInput(value && value->isString() ? value->string : std::string(), offset("start"), offset("end"));
+  return OK;
+}
+
+// The pointer's cursor over the prototype now (proto::Cursor: 1 default, 2 pointer, 3 text, 4 grab, 5 move,
+// 6 not-allowed, 7 help, 8 zoom-in, 9 zoom-out, 10 crosshair, 11 none, 12 grabbing) — read on every pointer move.
+ENG_EXPORT uint32_t engine_present_cursor(Handle h) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e || !e->presenting()) return 1;
+  return static_cast<uint32_t>(e->player->cursorNow());
 }
 
 // The videos the presentation shows and what each should do (Player::mediaJson): {"videos": [{id, hash, playing,

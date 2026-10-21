@@ -233,6 +233,24 @@ export interface PresentVideo {
   seekSerial: number;
 }
 
+/**
+ * A text input the prototype has focused (Prototype › Text input): the page's hidden <textarea> takes the typing and
+ * hands it back (presentText); `serial` changes when the player moved the selection (a click, a filtered value).
+ */
+export interface PresentField {
+  id: Guid;
+  value: string;
+  start: number;
+  end: number;
+  serial: number;
+  type: "TEXT" | "PASSWORD" | "EMAIL" | "NUMBER" | "MULTI_LINE";
+  maxLength: number;
+  rect: { x: number; y: number; w: number; h: number };
+}
+
+/** engine_present_cursor's codes (proto::Cursor) as CSS cursors. */
+const PRESENT_CURSORS = ["default", "default", "pointer", "text", "grab", "move", "not-allowed", "help", "zoom-in", "zoom-out", "crosshair", "none", "grabbing"];
+
 /** engine_present_state. */
 export interface PresentState {
   active: boolean;
@@ -274,6 +292,15 @@ export interface PresentState {
   hotspot?: boolean;
   /** The device's screen on the canvas (CSS px) */
   screenRect?: { x: number; y: number; w: number; h: number };
+  /** Options › Advanced settings › "Website behaviours" (on by default; docs/engine.md §3.4) */
+  webBehaviours?: boolean;
+  /** The CSS cursor over the prototype (website behaviours: per hotspot) */
+  cursor?: string;
+  /** The layer with the keyboard focus, and whether its ring shows */
+  focus?: Guid | null;
+  focusVisible?: boolean;
+  /** The text input being typed into (website behaviours): its text, selection (UTF-16) and place (CSS px) */
+  field?: PresentField | null;
   events: ({ type: "CHANGED" } | { type: "OPEN_URL"; url: string; newTab: boolean })[];
 }
 
@@ -994,10 +1021,24 @@ export class Engine {
     deviceFrame?: boolean;
     /** The machine it plays on: its scroll physics, ⌘ in key triggers */
     host?: "mac" | "windows" | "linux" | "other";
+    /** Options › Advanced settings › "Website behaviours" */
+    webBehaviours?: boolean;
   }): void {
     this.x.presentSetOptions(this.h, encodeText(JSON.stringify(options)));
     this.schedule();
     this.after(undefined);
+  }
+
+  /** The focused text input's text and selection from the page's <textarea> (UTF-16 offsets); false when none has the focus. */
+  presentText(value: string, start: number, end: number): boolean {
+    const status = this.x.presentText(this.h, encodeText(JSON.stringify({ value, start, end })));
+    this.schedule();
+    return this.after(status === Status.OK);
+  }
+
+  /** The CSS cursor over the prototype now (read on every pointer move). */
+  presentCursor(): string {
+    return this.after(PRESENT_CURSORS[this.x.presentCursor(this.h)] ?? "default");
   }
 
   /** The videos the presentation shows now and what each should do (playing, sound, loop, a pending seek). */

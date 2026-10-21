@@ -6,6 +6,9 @@
  * - a top-level frame: Flow starting point (+ / Copy flow link and −; its name, its frame — moving it to another — and
  *   its description), Interactions, Scroll behavior (Overflow);
  * - any other layer: Interactions, Scroll behavior (Position; Overflow for frames);
+ * - a text layer: Text input (Wecra's website behaviours, not Figma's — the layer is typed into while presented: Type,
+ *   Max length; NodeChange.prototypeTextInput, @ours, never in a .fig export);
+ * - any layer: Cursor (Wecra's: the pointer over it while presented, Auto by default; NodeChange.prototypeCursor, @ours);
  * - a video (a layer with a video fill): Video (help.figma.com 8878274530455 "Video properties": "Check the box to
  *   autoplay video", "Click the Loop icon to loop video", "Click the Sound icon to turn the video's default sound
  *   setting on or off") — the schema's videoPlayback.
@@ -28,6 +31,8 @@ import {
   DEVICE_MODELS,
   DEVICE_PRESETS,
   OVERFLOWS,
+  PROTOTYPE_CURSORS,
+  TEXT_INPUT_TYPES,
   deviceOf,
   presetIdentifierOf,
   SCROLL_POSITIONS,
@@ -39,6 +44,9 @@ import {
   nextFlowName,
   type PrototypeFields,
   type PrototypeInteraction,
+  type PrototypeCursor,
+  type PrototypeTextInput,
+  type TextInputType,
   type ScrollBehavior,
   type ScrollDirection,
 } from "../../model/prototype";
@@ -304,6 +312,8 @@ function Selected({
       <InteractionsSection nodes={nodes} frames={frames} onOpen={onOpen} openIndex={openIndex} screens={nodes.length > 1 && nodes.every((n) => n.parentIndex?.guid === page && isFrame(n))} />
       {nodes.every((n) => hasVideoFill(n as never)) && <VideoSection nodes={nodes} />}
       <ScrollSection nodes={nodes} topLevel={topLevel} isFrame={nodes.every(isFrame)} />
+      {nodes.every((n) => n.type === "TEXT") && <TextInputSection nodes={nodes} />}
+      <CursorSection nodes={nodes} />
       {/* Live 2026-10-19 (prototype.txt): "Show prototype settings" — the page's Device, Background and Flows, shown
           with nothing selected — then Figma's tips. (Figma's "Send to Figma Make" row has no counterpart here.) */}
       <div className={styles.settingsRow}>
@@ -535,6 +545,97 @@ function VideoSection({ nodes }: { nodes: ProtoNode[] }) {
           label={muted === true ? t("Sound off") : t("Sound on")}
           pressed={muted === MIXED ? MIXED : !muted}
           onPressedChange={(on) => set({ muted: !on }, "Video sound")}
+        />
+      </div>
+    </PanelSection>
+  );
+}
+
+/** One value of every node, or "mixed". */
+function sameOf<T>(nodes: ProtoNode[], f: (n: ProtoNode) => T): T | "mixed" {
+  const vals = new Set(nodes.map((n) => JSON.stringify(f(n) ?? null)));
+  return vals.size === 1 ? f(nodes[0]) : "mixed";
+}
+
+/**
+ * Prototype › Text input (Wecra's website behaviours; not in Figma, whose prototypes can't be typed into): + makes the
+ * text layer an input — while presented a click or Tab focuses it and typing goes into it, its own text is the
+ * placeholder, characters bound to a string variable write the variable. Type (Text, Password, Email, Number,
+ * Multi-line) and Max length. Stored in NodeChange.prototypeTextInput (@ours: the .fig export drops it).
+ */
+export function TextInputSection({ nodes }: { nodes: ProtoNode[] }) {
+  useT();
+  const ed = useEditor();
+  const off = nodes.every((n) => !n.prototypeTextInput);
+  const type = sameOf(nodes, (n) => n.prototypeTextInput?.type ?? "TEXT");
+  const max = sameOf(nodes, (n) => n.prototypeTextInput?.maxLength ?? 0);
+  const set = (patch: PrototypeTextInput | null, label: string) =>
+    ed.batch(label, () => {
+      for (const n of nodes) ed.engine.setProps([n.guid], protoFields({ prototypeTextInput: patch === null ? null : { ...(n.prototypeTextInput ?? {}), ...patch } }));
+    });
+  return (
+    <PanelSection
+      title={t("Text input")}
+      empty={off}
+      data-text-input-section=""
+      actions={
+        off ? (
+          <IconButton icon="24.plus.small" label={t("Add text input")} tone="secondary" onClick={() => set({ type: "TEXT" }, "Add text input")} />
+        ) : (
+          <IconButton icon="24.minus.small" label={t("Remove text input")} onClick={() => set(null, "Remove text input")} />
+        )
+      }
+    >
+      {!off && (
+        <div className={styles.labelled}>
+          <span className={styles.label}>{t("Type")}</span>
+          <Select
+            label={t("Text input type")}
+            className={styles.grow}
+            value={type === "mixed" ? MIXED : type}
+            options={TEXT_INPUT_TYPES.map((o) => ({ ...o, label: t(o.label) }))}
+            onChange={(v) => set({ type: v as TextInputType }, "Text input type")}
+          />
+        </div>
+      )}
+      {!off && (
+        <div className={styles.labelled}>
+          <span className={styles.label}>{t("Max length")}</span>
+          <TextInput
+            label={t("Max length")}
+            className={styles.grow}
+            value={max === "mixed" ? "" : max ? String(max) : ""}
+            placeholder={max === "mixed" ? t("Mixed") : t("No limit")}
+            onCommit={(text) => {
+              const n = Math.max(0, Math.floor(Number(text.trim() || "0")));
+              if (Number.isFinite(n)) set({ maxLength: n || undefined }, "Text input max length");
+            }}
+          />
+        </div>
+      )}
+    </PanelSection>
+  );
+}
+
+/**
+ * Prototype › Cursor (Wecra's website behaviours): the pointer over the layer while presented — Auto (a hand over
+ * hotspots, an I-beam over text inputs, not-allowed over disabled instances), or one of CSS's; its layers inherit it.
+ * Stored in NodeChange.prototypeCursor (@ours: the .fig export drops it).
+ */
+export function CursorSection({ nodes }: { nodes: ProtoNode[] }) {
+  useT();
+  const ed = useEditor();
+  const value = sameOf(nodes, (n) => n.prototypeCursor ?? "AUTO");
+  return (
+    <PanelSection title={t("Cursor")} data-cursor-section="">
+      <div className={styles.labelled}>
+        <span className={styles.label}>{t("Cursor")}</span>
+        <Select
+          label={t("Cursor")}
+          className={styles.grow}
+          value={value === "mixed" ? MIXED : value}
+          options={PROTOTYPE_CURSORS.map((o) => ({ ...o, label: t(o.label) }))}
+          onChange={(v) => ed.setProps(nodes.map((n) => n.guid), protoFields({ prototypeCursor: v === "AUTO" ? null : (v as PrototypeCursor) }), "Prototype cursor")}
         />
       </div>
     </PanelSection>

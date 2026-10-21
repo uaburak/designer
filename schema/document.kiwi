@@ -1189,6 +1189,34 @@ enum OverlayFitWindow {     // @ours sides of an overlay that take the window's 
   BOTH = 3;
 }
 
+enum PrototypeTextInputType {  // @ours what a text input takes while presented (Wecra; docs/engine.md §3.4 "Website behaviours")
+  TEXT = 0;
+  PASSWORD = 1;
+  EMAIL = 2;
+  NUMBER = 3;
+  MULTI_LINE = 4;
+}
+
+message PrototypeTextInput {   // @ours a text layer typed into while presented (Prototype › Text input; absent = not an input)
+  PrototypeTextInputType type = 1;
+  uint maxLength = 2;          // 0 / absent: no limit
+}
+
+enum PrototypeCursor {         // @ours the pointer over a layer while presented (Prototype › Cursor; absent = Auto)
+  AUTO = 0;
+  DEFAULT = 1;
+  POINTER = 2;
+  TEXT = 3;
+  GRAB = 4;
+  MOVE = 5;
+  NOT_ALLOWED = 6;
+  HELP = 7;
+  ZOOM_IN = 8;
+  ZOOM_OUT = 9;
+  CROSSHAIR = 10;
+  NONE = 11;
+}
+
 message OverlayBackgroundAppearance {
   OverlayBackgroundType backgroundType = 1;
   Color backgroundColor = 2;
@@ -2645,6 +2673,9 @@ message NodeChange {
   OverlayBackgroundInteraction overlayBackgroundInteraction = 200; // @nooverride
   OverlayBackgroundAppearance overlayBackgroundAppearance = 201;   // @nooverride
   OverlayFitWindow overlayFitWindow = 1003;       // @ours @nooverride overlay: Fit to window (Wecra; docs/engine.md §3.4)
+  PrototypeTextInput prototypeTextInput = 1004;   // @ours TEXT: Prototype › Text input (Wecra's website behaviours; docs/engine.md §3.4)
+  byte _r1005 = 1005 [deprecated];               // reserved: overlayEdgeBehavior (docs/research/prototype-web-behaviours.md item 6)
+  PrototypeCursor prototypeCursor = 1006;         // @ours Prototype › Cursor (Wecra's website behaviours; docs/engine.md §3.4)
 
   // --- Figma's layout version stamps: which of Figma's layout rules made the stored geometry. Kept through import and
   // export (a .fig written back keeps them); the engine's own derived data is stamped by Message.derivedDataVersion.

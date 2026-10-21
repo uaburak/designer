@@ -1031,6 +1031,7 @@ export const editor: Record<string, string> = {
   "Show device at 100%": "Cihazı %100 göster",
   "Enable Figma shortcuts": "Figma kısayollarını etkinleştir",
   "Show hints on click": "Tıklayınca ipuçlarını göster",
+  "Website behaviours": "Web sitesi davranışları",
   "Show sidebar": "Kenar çubuğunu göster",
   "Hide sidebar": "Kenar çubuğunu gizle",
   "Hide UI": "Arayüzü gizle",

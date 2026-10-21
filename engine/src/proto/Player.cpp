@@ -213,6 +213,7 @@ bool Player::start(Guid page, Guid start) {
   // ran (Change to states, variables, modes) goes back first — the inline preview's Restart and a jump to another frame
   // or flow come here, not through restart().
   restoreOriginals();
+  resetWeb();
   page_ = page;
   componentStates_.clear();
   nestedStates_.clear();
@@ -281,6 +282,7 @@ void Player::stop() {
   // The file is as it was before presenting: Set variable / Set variable mode / Change to are the prototype's runtime
   // state, never the document's (Figma's prototypes don't edit the file).
   stopTimeline();
+  resetWeb();
   restoreOriginals();
   restoreResponsive();
   dropGhosts();
@@ -1022,6 +1024,8 @@ Player::Chain Player::hitTest(Vec2 css) const {
 
 bool Player::fire(Guid node, Trigger t, const Hit* hotspot, Held* held) {
   if (!hasIx(node)) return false;
+  // Website behaviours: a disabled instance runs nothing (its parent's interactions still do).
+  if (web_ && disabled(node)) return false;
   bool any = false;
   auto list = ix(node);
   // Every interaction of the trigger runs, in the list's order: an instance's inherited ones (its component's own
@@ -1144,10 +1148,11 @@ void Player::hover(const Chain& in, bool live) {
     hotspot_ = hand;
     events_.push_back(Event{});
   }
+  updateCursor(c);
 }
 
 void Player::whileHovering(const Hit& h, const std::string& key) {
-  if (!hasIx(h.id)) return;
+  if (!hasIx(h.id) || (web_ && disabled(h.id))) return;
   std::vector<Interaction> list = ix(h.id);
   // Every While hovering of the layer, one hold: an instance's inherited (its hover state) and its own (an overlay…).
   // Each runs as its own queue (an animated hover state doesn't hold the overlay back).
@@ -1272,6 +1277,7 @@ uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*butto
       }
       Chain c = hitTest(css);
       hover(c);
+      if (web_ && webPointerMove(css)) return 1;  // selecting in a text input
       if (scrub_.active) {
         // On drag: the transition follows the pointer along its vector.
         double p = std::clamp(((css.x - scrub_.from.x) * scrub_.axis.x + (css.y - scrub_.from.y) * scrub_.axis.y) / scrub_.extent, 0.0, 1.0);
@@ -1311,6 +1317,7 @@ uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*butto
       Chain c = hitTest(css);
       hover(c);
       c = hoverChain_;  // as hover left it (hit again if a hover changed what is under the pointer), with its keys
+      if (web_) webPointerDown(c, css);  // focus (a text input takes the caret), or blur
       down_ = true;
       dragFired_ = false;
       downCss_ = css;
@@ -1324,7 +1331,7 @@ uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*butto
       for (auto& h : c.hits)
         if (fire(h.id, Trigger::MOUSE_DOWN, &h)) break;
       for (auto& h : c.hits) {
-        if (!hasIx(h.id)) continue;
+        if (!hasIx(h.id) || (web_ && disabled(h.id))) continue;
         bool any = false;
         for (const Interaction& i : ix(h.id)) {
           if (i.trigger != Trigger::ON_PRESS) continue;
@@ -1345,6 +1352,7 @@ uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*butto
     case PointerEvent::UP: {
       if (!down_) return 0;
       down_ = false;
+      if (web_) webPointerUp();
       if (scrub_.active) endScrub(t);
       if (scrollDrag_.active) {
         endScrollDrag(t);
@@ -1472,6 +1480,7 @@ uint32_t Player::key(bool down, int keyCode, uint32_t mods) {
       if (handled) return;
       const NodeProps* p = props(id);
       if (!p || !p->visible) return;
+      if (web_ && p->type == NodeType::INSTANCE && instanceDisabled(id)) return;  // a disabled instance takes no keys
       // Deepest first.
       const std::vector<Guid> kids = topmostFirst(id);
       for (auto it = kids.begin(); it != kids.end() && !handled; ++it) walk(*it);
@@ -1489,8 +1498,17 @@ uint32_t Player::key(bool down, int keyCode, uint32_t mods) {
       }
     };
     walk(root);
-    if (handled) return 1;
+    if (handled) {
+      syncWeb();
+      return 1;
+    }
   }
+  // Website behaviours: Tab, Enter, Space, Esc, arrows (after the prototype's own Key / Gamepad triggers).
+  if (web_)
+    if (uint32_t r = webKey(keyCode, mods)) {
+      syncWeb();
+      return r;
+    }
   if (mods & (MOD_META | MOD_CTRL | MOD_ALT)) return 0;
   if (!shortcuts_) return 0;
   // The presentation's shortcuts (R8 §9).
@@ -1563,6 +1581,7 @@ void Player::releaseLeftHeld() {
 
 Player::Held* Player::heldById(uint64_t id) {
   if (pressed_.id == id) return &pressed_;
+  if (focusHeld_.id == id) return &focusHeld_;
   for (auto& h : held_)
     if (h.id == id) return &h;
   return nullptr;
@@ -2186,6 +2205,12 @@ void Player::setVariable(const Action& a, Guid source) {
     default: return;
   }
   value.hasDataType = true;
+  writeVariable(var, value, source);
+}
+
+void Player::writeVariable(Guid var, const VariableData& value, Guid source) {
+  const NodeProps* vp = props(var);
+  if (!vp) return;
   remember(var, F_VARIABLE_DATA_VALUES);
   // The value of the mode the hotspot resolves the variable in (help.figma.com 15253268379799: "Any variables
   // contained within a layer that has a set mode will only update the value of that specific mode definition"):
@@ -2634,6 +2659,7 @@ void Player::timelineAction(const Action& a) {
 
 bool Player::tick(double nowMs) {
   now_ = nowMs;
+  syncWeb();
   // The animation clock: at most 1/30 s per frame.
   double step = lastTick_ < 0 ? 0 : std::clamp(nowMs - lastTick_, 0.0, kMaxFrameMs);
   lastTick_ = nowMs;
@@ -3528,6 +3554,8 @@ const PresentScene& Player::scene() {
     s.overlay = true;
     addSlot(nullptr, &s, nullptr);
   }
+  // Website behaviours: the focus ring, a text input's caret and selection.
+  addWebItems();
   // Hotspot hints (atlas 13 §10.4): every layer that reacts, in #30C2FF — the fill at half the opacity, a 2-device-pixel
   // border at full — clipped as the layer is; one 0.7 s fade from full, opacity 1 − ease-out (cubic-bezier(0, 0, 0.58, 1)).
   double since = now_ - hintsAt_;
@@ -3924,6 +3952,7 @@ std::string Player::stateJson() const {
   w.key("hotspot").boolean(hotspot_);
   w.key("screenRect").beginObject().key("x").number(view_.css.x).key("y").number(view_.css.y).key("w").number(view_.css.w)
       .key("h").number(view_.css.h).endObject();
+  webState(w);
   w.endObject();
   return w.take();
 }

@@ -380,6 +380,48 @@ describe("Wecra-only prototype settings stay out of the export (overlay Fit to w
     expect(schema.definitions.find((d) => d.name === "NodeChange")!.fields.some((f) => f.name === "overlayFitWindow")).toBe(false);
   });
 
+  it("never writes Text input or Cursor (website behaviours), on a layer or in an instance's override; byte for byte the file without them", () => {
+    const COMP = g(S + 1, 20), LABEL = g(S + 1, 21), INST = g(S + 1, 22), FIELD = g(S + 1, 23), BOX = g(S + 1, 24), INST2 = g(S + 1, 25);
+    const build = (web: boolean): Message => {
+      const base = ourSnapshot();
+      const extra = (fields: Record<string, unknown>) => (web ? fields : {});
+      return {
+        ...base,
+        nodeChanges: [
+          ...base.nodeChanges!,
+          node(BOX, "FRAME", g(0, 1), "$", { name: "Box", size: { x: 300, y: 60 }, ...extra({ prototypeCursor: "POINTER" }) }),
+          node(FIELD, "TEXT", BOX, "!", { name: "Email", size: { x: 200, y: 20 }, textData: { characters: "Email" }, ...extra({ prototypeTextInput: { type: "EMAIL", maxLength: 40 }, prototypeCursor: "TEXT" }) }),
+          node(COMP, "SYMBOL", g(0, 1), "%", { name: "Input", size: { x: 200, y: 40 } }),
+          node(LABEL, "TEXT", COMP, "!", { name: "Value", size: { x: 180, y: 20 }, textData: { characters: "Value" }, ...extra({ prototypeTextInput: { type: "TEXT" } }) }),
+          // An override holding only Wecra's fields (dropped whole), and one holding Figma's too (kept without ours).
+          node(INST, "INSTANCE", g(0, 1), "&", {
+            name: "Input",
+            size: { x: 200, y: 40 },
+            symbolData: { symbolID: COMP, symbolOverrides: web ? [{ guidPath: { guids: [LABEL] }, prototypeTextInput: { type: "PASSWORD" }, prototypeCursor: "HELP" }] : [] },
+          }),
+          node(INST2, "INSTANCE", g(0, 1), "'", {
+            name: "Input 2",
+            size: { x: 200, y: 40 },
+            symbolData: { symbolID: COMP, symbolOverrides: [{ guidPath: { guids: [LABEL] }, opacity: 0.5, ...extra({ prototypeTextInput: { type: "NUMBER" }, prototypeCursor: "TEXT" }) }] },
+          }),
+        ],
+      } as Message;
+    };
+    const without = decodeCanvas(encodeFigmaCanvas(build(false), codecs), codecs);
+    const withIt = decodeCanvas(encodeFigmaCanvas(build(true), codecs), codecs);
+    expect(withIt.schema).toEqual(without.schema);
+    // Byte for byte: the override entry that held only Wecra's fields goes too.
+    expect(withIt.message).toEqual(without.message);
+    const all = JSON.stringify(figma.decode("Message", withIt.message));
+    expect(all).not.toContain("prototypeTextInput");
+    expect(all).not.toContain("prototypeCursor");
+    const schema = decodeBinarySchema(figmaExportSchema());
+    for (const name of ["PrototypeTextInput", "PrototypeTextInputType", "PrototypeCursor"]) expect(schema.definitions.some((d) => d.name === name)).toBe(false);
+    const fields = schema.definitions.find((d) => d.name === "NodeChange")!.fields.map((f) => f.name);
+    expect(fields).not.toContain("prototypeTextInput");
+    expect(fields).not.toContain("prototypeCursor");
+  });
+
   it("a Figma file read and written back has none (import → export round trip unchanged)", () => {
     const { message } = decodeAnySchema(sampleCanvas.schema, sampleCanvas.message, { keepDerived: true });
     expect(message.nodeChanges!.some((n: any) => n.overlayFitWindow !== undefined)).toBe(false);

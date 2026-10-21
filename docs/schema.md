@@ -11,7 +11,7 @@ Readers: the engine (`docs/engine.md`), storage and sync (`docs/data.md`), the p
 | Topic | Decision |
 |---|---|
 | Basis | **Figma's own Kiwi schema, trimmed.** 183 definitions (87 enums, 11 structs, 85 messages). `NodeChange` keeps 194 of Figma's 610 fields. Every kept field name, number, type and enum value is Figma's; this was checked mechanically (1,307 checks, 0 mismatches, §1.1). |
-| Own additions | Five fields: `NodeChange.clearedFields = 1000`, `NodeChange.librarySubscriptions = 1001`, `NodeChange.invertedCornerMask = 1002` (§3.6, the owner's inverted corners), `NodeChange.overlayFitWindow = 1003` (an overlay's Fit to window, docs/engine.md §3.4), `Message.derivedDataVersion = 100`, plus one message (`LibrarySubscription`) and one enum (`OverlayFitWindow`). Everything else that DesignerV2 needs was already in Figma's schema. |
+| Own additions | Seven fields: `NodeChange.clearedFields = 1000`, `NodeChange.librarySubscriptions = 1001`, `NodeChange.invertedCornerMask = 1002` (§3.6, the owner's inverted corners), `NodeChange.overlayFitWindow = 1003` (an overlay's Fit to window, docs/engine.md §3.4), `NodeChange.prototypeTextInput = 1004` and `NodeChange.prototypeCursor = 1006` (Prototype › Text input and Cursor, docs/engine.md §3.4 "Website behaviours"; 1005 reserved for `overlayEdgeBehavior`), `Message.derivedDataVersion = 100`, plus two messages (`LibrarySubscription`, `PrototypeTextInput`) and three enums (`OverlayFitWindow`, `PrototypeTextInputType`, `PrototypeCursor`). The .fig export drops every `@ours` field, inside instances' override entries too. Everything else that DesignerV2 needs was already in Figma's schema. |
 | One encoding | `Message { type: NODE_CHANGES, nodeChanges[], blobs[] }` is the snapshot, the journal frame, the undo batch, the clipboard payload, the preview snapshot and what the engine emits after every commit. |
 | Data model | A flat map `GUID → NodeChange` (a sparse property bag). Tree and order are one property on the child, `parentIndex {guid, position}`. One top-level field = one property = one unit of last-writer-wins. |
 | Change model | Present field = set. `clearedFields` = unset. `phase CREATED` = new node with its full state; `phase REMOVED` = delete, sent for every node of a removed subtree. Undo = the inverse NodeChanges. |
@@ -669,7 +669,7 @@ Phase 7 (docs/roadmap.md) builds Figma's other products. Each one starts by brin
 - `docs/research/figma/figma-schema-106.kiwi` — Figma's schema embedded in `samples/sections.fig` (document version 106, 637 definitions, `NodeChange` up to 610), dumped with field numbers on 2026-10-11.
 - `figma-schema.kiwi` (up to 530) agrees with it on every shared field (§1.1).
 
-**Already reserved.** Every `NodeChange` number up to 999 is a placeholder today (`_r1 … _r999`, §1.2), and so are the dropped numbers of `Message` and the other kept messages. No number below can collide with ours: our own `NodeChange` fields are 1000–1003, `Message` 100.
+**Already reserved.** Every `NodeChange` number up to 999 is a placeholder today (`_r1 … _r999`, §1.2), and so are the dropped numbers of `Message` and the other kept messages. No number below can collide with ours: our own `NodeChange` fields are 1000–1006, `Message` 100.
 
 **What is not yet reserved**:
 - **Enum values** (kiwi enums need no placeholders, but our enums omit Figma's dropped values):

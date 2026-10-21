@@ -146,7 +146,12 @@ describe("the presentation view's options", () => {
     expect(item("Fit width and height").shortcut).toBe("Z");
     expect(item("Actual size (100%)").shortcut).toBeUndefined();
     expect(item("Fill screen").icon).toBe("24.proto.scale.fill");
-    expect(item("Advanced settings").items?.map((i) => i.label)).toEqual(["Enable Figma shortcuts", "Show hints on click"]);
+    // Then Wecra's "Website behaviours" (on unless the state says off).
+    expect(item("Advanced settings").items?.map((i) => i.label)).toEqual(["Enable Figma shortcuts", "Show hints on click", "Website behaviours"]);
+    expect((item("Advanced settings").items as { checked?: boolean }[])[2].checked).toBe(true);
+    const off = presentOptions(state({ firstFrameWidth: 375, scale: "ACTUAL", webBehaviours: false }));
+    const adv = off.find((e) => e !== "-" && !("header" in e) && e.label === "Advanced settings") as { items: { checked?: boolean }[] };
+    expect(adv.items[2].checked).toBe(false);
   });
 
   it("with a device: Responsive / Fixed size in the options, the device's scaling in the device menu", () => {

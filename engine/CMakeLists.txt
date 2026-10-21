@@ -115,6 +115,7 @@ add_library(eng_core STATIC
   src/proto/Devices.cpp
   src/proto/Prototype.cpp
   src/proto/Player.cpp
+  src/proto/WebBehaviours.cpp
   src/proto/Scroll.cpp
   src/editor/PrototypeEditing.cpp
   src/editor/CanvasNav.cpp
@@ -234,6 +235,7 @@ else()
     tests/unit/proto.rea.test.cpp
     tests/unit/proto.top_scroll.test.cpp
     tests/unit/proto.responsive_height.test.cpp
+    tests/unit/proto.web_behaviours.test.cpp
     tests/unit/proto.nested_components.test.cpp
     tests/unit/proto.instance_interactions.test.cpp
     tests/unit/proto.wave4.test.cpp
