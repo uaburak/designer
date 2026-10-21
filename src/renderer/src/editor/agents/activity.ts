@@ -33,6 +33,9 @@ const TOOL_ACTIVE: Record<string, string> = {
   // Motion for agents (docs/research/motion-for-agents.md)
   animate: "Animating…",
   get_motion_frames: "Watching the animation…",
+  generate_sound: "Making sound…",
+  score_motion: "Reading the animation's beats…",
+  get_sound_mix: "Listening to the mix…",
   // The manager's (docs/studio.md §2.2) and the library's (§3.3)
   delegate_task: "Handing out a task…",
   wait_tasks: "Waiting for the tasks…",

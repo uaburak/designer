@@ -463,6 +463,39 @@ export const TOOLS: ToolDef[] = [
     inputSchema: { type: "object", properties: { nodeId, times: { type: "array", items: { type: "number" } }, count: { type: "number" }, sheet: { type: "boolean" }, columns: { type: "number" }, maxSize: { type: "number" }, gif: { type: "boolean" } } },
     write: false,
   },
+  // Sound for motion (docs/motion.md §9.3): a local synthesiser the agent drives with recipes, the motion as a cue sheet, the mix measured.
+  {
+    name: "generate_sound",
+    title: "Generate sound",
+    description:
+      'Makes sound effects and music locally (free, no service) from recipes and puts them on a top-level frame\'s timeline as ordinary audio clips (editable in the timeline; exported in MP4 / WebM; all sounds of one call = one undo step). nodeId: the frame or a layer in it (default: the selection\'s). sounds: [{type | preset, at (timeline seconds), align: "sync" (default: the sound\'s own moment — a whoosh\'s peak, a riser\'s end, a hit\'s transient — lands on `at`) | "start", name, volumeDb (≤ 0; default by kind: music / ambience −18, beat −14, hits −6, whooshes −9, UI −10, magic −12), row (audio row name; default by kind, shared while clips don\'t overlap), …recipe}]. type: click, tap, pop, tick, typing (count, interval, or times: [s from its start] — e.g. a text stagger\'s), whoosh, swoosh, riser, downlifter, impact, thud, boom, shimmer, sparkle, chime, notification (motif: up | down | success | error | alert | coin | message, or notes ["C5", "E5"]), glitch, pad, swell, drone, beat (pattern: four-on-floor | hiphop | halftime | breakbeat | minimal | light | pulse, or {kick, snare, clap, hat} rows of 16 "x" / "." steps; bpm, bars, swing), music (a bed: mood uplifting | corporate | calm | dreamy | tense | dark | epic | playful | lofi; key "A minor"; bpm; progression ["I", "V", "vi", "IV"]; parts {pad, bass, arp, drums}; fadeIn, fadeOut; loop), stack (layers: [{…recipe, at, gainDb}]). Recipe fields: duration (s; music / beat / drone / pad default to the rest of the timeline, looping when the timeline loops), seed (same seed = same sound; change it for variations), pitch (Hz or "C5"), key, brightness 0–1, intensity 0–1, pan / panTo (−1…1: movement), width, reverb 0–1, delay 0–1, delayTime (s or "1/8"), attack, release, syncAt. preset: a named starting point (click, click.soft, tap.wood, pop.bubble, toggle, typing.fast, whoosh.fast, whoosh.long, whoosh.heavy, swish.air, pass-by, riser.tension, riser.short, reverse-swell, impact.cinematic, hit.punch, logo-hit, glint, magic, chime.success, message, error, alert, coin, glitch.digital, beat.four-on-floor …, music.uplifting … music.lofi). place: false saves WAV files in your working folder instead. Use score_motion first to sync, get_sound_mix after to check; get_skill sound-design has the method.',
+    inputSchema: {
+      type: "object",
+      properties: {
+        nodeId,
+        sounds: { type: "array", items: { type: "object" } },
+        place: { type: "boolean" },
+      },
+      required: ["sounds"],
+    },
+    write: true,
+  },
+  {
+    name: "score_motion",
+    title: "Score motion",
+    description:
+      "Reads a frame's animation as a cue sheet for sound (nodeId: the top-level frame or a layer in it; default: the selection's): events in time order — appear / disappear (opacity), move (start, end, peak = the moment of fastest motion, props, amount, ease), arrive (a move's end), pop (a scale overshoot), spin, cut (an instant change), stagger (a text's per-element start times, or layers doing the same thing in turn), rest (everything still), loop, end — each with a strength 0–1; accents (things landing together), the climax, an energy curve (0–1 per 0.25 s) and suggested cues {t, sound, why} to start from; plus the timeline's existing audio.",
+    inputSchema: { type: "object", properties: { nodeId, fps: { type: "number" } } },
+    write: false,
+  },
+  {
+    name: "get_sound_mix",
+    title: "Get sound mix",
+    description:
+      "Listens to a timeline's audio for you (nodeId: the top-level frame or a layer in it): mixes its clips as the export does and reports peak / RMS dBFS per second, the overall peak and RMS, clipping, pile-ups (3+ effects at once), flams (starts a few ms apart), busy seconds, the bed's level against the effects', and warnings to fix with edit_audio.",
+    inputSchema: { type: "object", properties: { nodeId } },
+    write: false,
+  },
   // Social (docs/social.md §7.2, round 18): posts are top-level frames carrying a record (format, brand, caption …);
   // the same functions the Social mode's controls call (editor/social/actions.ts).
   {

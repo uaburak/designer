@@ -7,7 +7,7 @@
 
 export const MOTION_SKILL = {
   name: "motion-design",
-  description: "Make motion graphics and animated UI in Wecra's Motion (logo stings, UI walkthroughs, stat reveals, kinetic type, sketch → animated interface): storyboard, layers built for motion, an animate script, frames to check, refine, export.",
+  description: "Make motion graphics and animated UI in Wecra's Motion (logo stings, UI walkthroughs, stat reveals, kinetic type, sketch → animated interface): storyboard, layers built for motion, an animate script, frames to check, refine, sound, export.",
   instructions: `Make motion the way a motion designer does, natively — the result stays editable in the timeline and exports to MP4 / GIF / Lottie.
 
 1. Brief → storyboard. Decide the length (UI pieces 3–8 s, a logo sting 2–4 s, social clips 6–15 s), the frame size (1920×1080, 1080×1080, 1080×1920 — or the user's frame) and 3–6 beats with times, e.g. "0–0.8 s background and card in; 0.6–1.6 s title by characters; 1.4–2.2 s list items stagger in; 2.2–3 s button pops; hold to 4 s". One hero move per beat; overlap beats rather than playing them strictly one after another.
@@ -30,7 +30,9 @@ export const MOTION_SKILL = {
 
 4. Look at it: get_motion_frames {nodeId, count: 8} (more around a busy beat with times: [...]). Check: does each beat land where the storyboard says, is anything visible before it should be (a from-state missing), do moves overshoot or collide, is text readable at the hold, is the last frame the intended end state. Refine with animate again — mode "merge" keeps what you didn't touch, or re-send the whole script (mode "replace" owns the properties it animates) — and look again. Two or three rounds are normal.
 
-5. Deliver: export_animation (MP4 for video, GIF for chat previews, LOTTIE for apps) when asked, select the frame (set_selection) and say in a sentence what you made.
+5. Sound: unless the user asked for no sound (or the piece is a silent UI asset — a Lottie icon, a GIF), score it once the motion is final: get_skill sound-design, then score_motion → generate_sound (a bed + effects on the motion's events, one call) → get_sound_mix → fix. Re-timing the motion later means re-placing the sounds (edit_audio offsets, or remove and generate again).
+
+6. Deliver: export_animation (MP4 for video, GIF for chat previews, LOTTIE for apps) when asked, select the frame (set_selection) and say in a sentence what you made.
 
 Units and limits: seconds everywhere; one animate call is one undo step. Layers inside component instances aren't animated one by one (animate the instance, or the main component's own timeline). Text split animates opacity and transforms per element; colour and size apply to the whole text.`,
 } as const;

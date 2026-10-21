@@ -122,6 +122,8 @@ export function scheduleSpans(ctx: BaseAudioContext, destination: AudioNode, spa
 export class AudioLibrary {
   private readonly buffers = new Map<string, AudioBuffer>();
   private readonly peaks = new Map<string, Float32Array>();
+  /** Samples a generated sound handed over (generate_sound, motion/sound/): no decode needed, and node's tests have no AudioContext */
+  private readonly pcm = new Map<string, { sampleRate: number; channels: Float32Array[] }>();
   private readonly loading = new Map<string, Promise<AudioBuffer | null>>();
   private readonly listeners = new Set<() => void>();
   private ctx: AudioContext | null = null;
@@ -140,6 +142,34 @@ export class AudioLibrary {
   }
   peaksOf(hash: string): Float32Array | null {
     return this.peaks.get(hash) ?? null;
+  }
+
+  /** A file's samples: a generated sound's, or the decoded buffer's channels (null: not here yet). */
+  samplesOf(hash: string): { sampleRate: number; channels: Float32Array[] } | null {
+    const own = this.pcm.get(hash);
+    if (own) return own;
+    const b = this.buffers.get(hash);
+    return b ? { sampleRate: b.sampleRate, channels: Array.from({ length: Math.max(2, b.numberOfChannels) }, (_, i) => b.getChannelData(Math.min(i, b.numberOfChannels - 1))) } : null;
+  }
+
+  /**
+   * A sound made here (generate_sound): its samples kept as they are, its peaks drawn, and an AudioBuffer made from them
+   * where Web Audio exists (playback and the export's mix), so the stored WAV needn't be decoded again in this session.
+   */
+  adopt(hash: string, sound: { sampleRate: number; channels: Float32Array[] }): void {
+    this.pcm.set(hash, sound);
+    this.peaks.set(hash, peaksOf(sound.channels, sound.sampleRate));
+    if (!this.buffers.has(hash) && typeof AudioBuffer !== "undefined") {
+      try {
+        const buffer = new AudioBuffer({ numberOfChannels: sound.channels.length, length: sound.channels[0].length, sampleRate: sound.sampleRate });
+        sound.channels.forEach((ch, i) => buffer.copyToChannel(ch as Float32Array<ArrayBuffer>, i));
+        this.buffers.set(hash, buffer);
+      } catch {
+        // No Web Audio here: the samples are enough for the mix check.
+      }
+    }
+    this.version++;
+    this.listeners.forEach((l) => l());
   }
 
   /** Decodes `bytes` for `hash` (an import already has them), keeping the buffer and its peaks. */
