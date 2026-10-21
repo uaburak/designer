@@ -22,6 +22,7 @@ import { appsRunner, openScreenSettings as openScreenPrefs, screenPermission } f
 import { mainFetch } from "../net";
 import { grantProblem, isDeniedPath } from "./reach/paths";
 import { REACH_NOTE, REACH_SKILLS, isReachPolicy, isRepoName, type AccessLogEntry, type ReachCapability, type ReachPatch, type ReachView } from "../../shared/agents/reach";
+import { MOTION_SKILL } from "../../shared/agents/motionSkill";
 import { normalizeAllowedHost } from "../../shared/agents/reachNet";
 import { aiSettings } from "../ai/settings";
 import { ledgerBalance } from "../ai/ledger";
@@ -259,12 +260,16 @@ async function getSkill(name: string): Promise<ToolResult> {
     const on = await reachHub().on();
     if (builtIn.capabilities.some((c) => on.includes(c))) return textResult(`<skill name="${builtIn.name}">\n${builtIn.instructions}\n</skill>`);
   }
+  // The built-in motion-design skill (docs/research/motion-for-agents.md §3e): the owner's own skill of that name wins.
+  const motion = () => textResult(`<skill name="${MOTION_SKILL.name}">\n${MOTION_SKILL.instructions}\n</skill>`);
   try {
     const skills = await (await readyStore()).ai.skills();
     const s = skills.find((k) => k.enabled && k.name === wanted);
+    if (!s && wanted === MOTION_SKILL.name) return motion();
     if (!s) return textResult(`No enabled Skill is named “${wanted}”. The Skills you can use are listed with the message.`, true);
     return textResult(`<skill name="${s.name}">\n${s.instructions}\n</skill>`);
   } catch (err) {
+    if (wanted === MOTION_SKILL.name) return motion();
     return textResult(`Skills aren't available: ${err instanceof Error ? err.message : String(err)}`, true);
   }
 }
@@ -668,6 +673,9 @@ export function startTurn(sender: WebContents, fileKey: string, req: TurnRequest
       request.prompt = `${REACH_NOTE}\n\n${request.prompt}`;
       request.skills = [...(request.skills ?? []), ...REACH_SKILLS.filter((k) => k.capabilities.some((c) => on.includes(c))).map(({ name, description }) => ({ name, description }))];
     }
+    // The built-in motion-design skill, always listed (unless the owner has his own of that name or invoked it).
+    if (!(request.skills ?? []).some((k) => k.name === MOTION_SKILL.name) && request.skill?.name !== MOTION_SKILL.name)
+      request.skills = [...(request.skills ?? []), { name: MOTION_SKILL.name, description: MOTION_SKILL.description }];
     if (spec) runCli(t, spec, request);
     else {
       const srv = serverOf(providerId);

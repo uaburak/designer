@@ -431,8 +431,36 @@ export const TOOLS: ToolDef[] = [
     name: "export_animation",
     title: "Export animation",
     description:
-      "Exports a top-level frame's animation (nodeId: the frame or a layer in it) as a file saved in your working folder (the result gives its path): format MP4 (default, with the timeline's audio), WEBM, GIF (loop: true by default), SVG (animated), LOTTIE (JSON) or DOTLOTTIE; scale 0.5–4 (default 1) or width / height in px; fps 24, 25, 30 (default), 50 or 60; quality LOW | MEDIUM | HIGH (video); name (the file's). The whole timeline once (Ping-pong: there and back). To check motion, export a small GIF and look at its frames — get_screenshot shows the design at rest.",
+      "Exports a top-level frame's animation (nodeId: the frame or a layer in it) as a file saved in your working folder (the result gives its path): format MP4 (default, with the timeline's audio), WEBM, GIF (loop: true by default), SVG (animated), LOTTIE (JSON) or DOTLOTTIE; scale 0.5–4 (default 1) or width / height in px; fps 24, 25, 30 (default), 50 or 60; quality LOW | MEDIUM | HIGH (video); name (the file's). The whole timeline once (Ping-pong: there and back). To look at motion while working, use get_motion_frames — get_screenshot shows the design at rest.",
     inputSchema: { type: "object", properties: { nodeId: { type: "string" }, format: { enum: ["MP4", "WEBM", "GIF", "SVG", "LOTTIE", "DOTLOTTIE"] }, scale: { type: "number" }, width: { type: "number" }, height: { type: "number" }, fps: { type: "number" }, quality: { enum: ["LOW", "MEDIUM", "HIGH"] }, loop: { type: "boolean" }, name: { type: "string" } }, required: ["nodeId"] },
+    write: false,
+  },
+  // Motion for agents (docs/research/motion-for-agents.md, phase 1): a GSAP-like timeline compiled to native keyframes, and frames to look at.
+  {
+    name: "animate",
+    title: "Animate",
+    description:
+      'Animates layers with a GSAP-like timeline script, written as native Motion keyframes (editable in the timeline, exported to MP4 / GIF / Lottie like hand-made motion; one undo step). nodeId: the top-level frame (the timeline; default: the targets\' frame). tweens, in order: {targets, from | to | fromTo: [from, to] | keyframes: [{…props, duration?, ease?}], duration (s, default 0.5), ease, delay, stagger, position, repeat, yoyo, repeatDelay, split, transformOrigin, label} or a label {label: "name", position?}. targets: layer ids ("12:34"), names ("Title" — every layer so named in the frame), paths ("Card/Title", "Cards/*" = the children). A missing end is the value at that time (the rest value, or where earlier tweens left it): `from` renders its values before it starts. position (GSAP\'s): seconds, "<" / ">" (start / end of the previous tween), "<0.2", ">-0.1", "+=0.3" / "-=0.2" (after the end so far), "label", "label+=0.2"; default: after the end so far. stagger: seconds between targets, or {each | amount, from: "start" | "end" | "center" | "edges" | "random" | index}. split: "chars" | "words" | "lines" on a text — its elements play the tween in turn (stagger = the delay between them). repeat (-1: to timeline.duration), yoyo. Props (CSS / GSAP units): x, y (px from rest), rotate (degrees, clockwise +), scale, scaleX, scaleY, skewX (deg), opacity, width, height, cornerRadius, strokeWeight, fill / stroke (colour: "#ff5500", "rgb(…)"), blur (px; a layer blur is added), drawSVG ("0% 100%", "40%", [start, end]: path trim — strokes only), trimStart, trimEnd, arcStart, arcEnd (deg; ellipses: rings, pies), arcInnerRadius (0–1), starInnerRadius, pointCount, gap, padding, paddingTop … ease: GSAP\'s ("power1…4", "sine", "expo", "circ", "back", "elastic", "bounce" + ".in" / ".out" / ".inOut", "back.out(1.7)", "steps(5)", "none"), CSS\'s ("ease-out", "cubic-bezier(…)"), [x1, y1, x2, y2], {type: "spring", stiffness, damping, mass} or {type: "spring", bounce}, or Wecra\'s (EASE_OUT, GENTLE, BOUNCY …). defaults {duration, ease, stagger}. timeline {duration, playback LOOP | ONCE | PING_PONG, fps} (default: grown to the end, never shortened). mode "replace" (default: the properties a script animates are its own) | "merge" (keys added to the layers\' existing ones). offset: seconds added to every position. Then check with get_motion_frames. get_skill motion-design has the method and good defaults.',
+    inputSchema: {
+      type: "object",
+      properties: {
+        nodeId: { type: "string" },
+        tweens: { type: "array", items: { type: "object" } },
+        defaults: { type: "object", properties: { duration: { type: "number" }, ease: {}, stagger: {} } },
+        timeline: { type: "object", properties: { duration: { type: "number" }, playback: { enum: ["LOOP", "ONCE", "PING_PONG"] }, fps: { type: "number" } } },
+        mode: { enum: ["replace", "merge"] },
+        offset: { type: "number" },
+      },
+      required: ["tweens"],
+    },
+    write: true,
+  },
+  {
+    name: "get_motion_frames",
+    title: "Get motion frames",
+    description:
+      "Shows a frame's animation as images, to check and refine motion (nodeId: the top-level frame or a layer in it; default: the selection's): the timeline drawn at `times` (seconds, at most 24) or `count` evenly spread frames (default 6, the first and last included) — as one contact sheet PNG (default; a grid read row by row, each cell under its time; `columns`, `maxSize` its long side, default 1024) or one PNG per frame (`sheet: false`, `maxSize` default 512). `gif: true` also saves a small looping GIF of the whole timeline in your working folder. What it shows is what MP4 / GIF exports contain.",
+    inputSchema: { type: "object", properties: { nodeId, times: { type: "array", items: { type: "number" } }, count: { type: "number" }, sheet: { type: "boolean" }, columns: { type: "number" }, maxSize: { type: "number" }, gif: { type: "boolean" } } },
     write: false,
   },
   // Social (docs/social.md §7.2, round 18): posts are top-level frames carrying a record (format, brand, caption …);

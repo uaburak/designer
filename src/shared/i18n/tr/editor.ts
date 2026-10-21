@@ -1306,6 +1306,12 @@ export const editor: Record<string, string> = {
   "Scale Y": "Ölçek Y",
   "Path trim start": "Yol kesme başlangıcı",
   "Path trim end": "Yol kesme sonu",
+  // Wecra's agent fields (docs/research/motion-for-agents.md §3b)
+  "Skew": "Eğme",
+  "Arc start": "Yay başlangıcı",
+  "Arc end": "Yay sonu",
+  "Arc ratio": "Yay oranı",
+  "Star ratio": "Yıldız oranı",
   // ── Motion mode, increment 2 (the timeline's top edge) ──
   "Resize timeline": "Zaman çizelgesini yeniden boyutlandır",
   // ── Motion, round 8a increment 2 (path trim, the anchor point tool) ──

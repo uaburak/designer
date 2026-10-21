@@ -322,6 +322,13 @@ std::string labelOf(const Slot& s) {
         case VariableField::MOTION_SCALE_XY: return "Scale";
         case VariableField::PATH_TRIM_START: return "Path trim start";
         case VariableField::PATH_TRIM_END: return "Path trim end";
+        // Wecra's agent fields (docs/research/motion-for-agents.md §3b)
+        case VariableField::MOTION_SHEAR: return "Skew";
+        case VariableField::ARC_DATA_STARTING_ANGLE: return "Arc start";
+        case VariableField::ARC_DATA_ENDING_ANGLE: return "Arc end";
+        case VariableField::ARC_DATA_INNER_RADIUS: return "Arc ratio";
+        case VariableField::STAR_INNER_SCALE: return "Star ratio";
+        case VariableField::POLYGON_COUNT: return "Count";
         default: return keyOf(s);
       }
     case Slot::Kind::FILL_COLOR: return "Fill " + std::to_string(s.index + 1);

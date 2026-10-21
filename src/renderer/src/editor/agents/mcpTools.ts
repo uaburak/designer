@@ -29,6 +29,8 @@ import { editorDevData } from "../devmode/round5";
 import { addInteractionTool, getPrototypeTool, prototypeContext, prototypeField, prototypeOf, removeFlowTool, removeInteractionTool, setFlowTool, setPrototypeSettingsTool, updateInteractionTool } from "./prototypeTools";
 import { describeSchema } from "@shared/agents/schemaDescribe";
 import { addAnimationTool, addAudioTool, applyAnimationStyleTool, detachAnimationStyleTool, editAnimationTool, editAudioTool, exportAnimationTool, getMotionTool, removeAnimationsTool, removeKeyframesTool, saveAnimationStyleTool, setKeyframesTool, setTimelineTool } from "./motionTools";
+import { animateTool } from "./animateTool";
+import { getMotionFramesTool } from "./motionFrames";
 import { runSocialTool } from "./socialTools";
 import { reactionsFromDoc } from "./prototypeSpec";
 import { EngineBusy } from "./turns";
@@ -1386,6 +1388,10 @@ export async function runTool(env: ToolEnv, name: string, args: Spec): Promise<T
         return editAudioTool(env, args);
       case "export_animation":
         return await exportAnimationTool(env, args);
+      case "animate":
+        return animateTool(env, args);
+      case "get_motion_frames":
+        return await getMotionFramesTool(env, args);
       case "describe_schema": {
         // An engine command's arguments (run_command's table), e.g. BIND_COMPONENT_PROPERTY's field.
         const command = String(args.field ?? args.name ?? "").trim();
