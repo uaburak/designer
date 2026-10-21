@@ -115,7 +115,10 @@ export async function generateSoundTool(env: ToolEnv, args: Spec): Promise<ToolR
     const align = entry.align === "start" ? "start" : "sync";
     let offset = at - (align === "sync" ? sound.sync : 0);
     let trim = 0;
-    if (offset < 0) (trim = -offset), (offset = 0);
+    if (offset < 0) {
+      trim = -offset;
+      offset = 0;
+    }
     const volumeDb = typeof entry.volumeDb === "number" ? Math.min(0, entry.volumeDb) : typeof entry.volume === "number" ? gainToDb(Math.max(0, Math.min(1, entry.volume))) : FAMILY_DB[sound.family];
     const name = typeof entry.name === "string" && entry.name.trim() ? entry.name.trim().slice(0, 120) : sound.label;
     return { sound, name, row: typeof entry.row === "string" && entry.row.trim() ? entry.row.trim().slice(0, 60) : ROW_NAME[sound.family], offset, trim, length: Math.max(0.001, len - trim), volume: Math.max(0, Math.min(1, dbToGain(volumeDb))), syncAt: offset - trim + sound.sync };

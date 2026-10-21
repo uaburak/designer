@@ -149,7 +149,10 @@ function bezierPeak([x1, y1, x2, y2]: [number, number, number, number]): number 
     const s0 = k / N, s1 = (k + 1) / N;
     const dx = bx(s1) - bx(s0);
     const v = dx > 1e-9 ? Math.abs(by(s1) - by(s0)) / dx : 0;
-    if (v > best + 1e-9) (best = v), (at = (bx(s0) + bx(s1)) / 2);
+    if (v > best + 1e-9) {
+      best = v;
+      at = (bx(s0) + bx(s1)) / 2;
+    }
   }
   return at;
 }
@@ -160,7 +163,10 @@ function bezierOvershoot([x1, y1, x2, y2]: [number, number, number, number]): { 
   for (let k = 0; k <= 64; k++) {
     const s = k / 64;
     const y = 3 * (1 - s) * (1 - s) * s * y1 + 3 * (1 - s) * s * s * y2 + s * s * s;
-    if (y - 1 > by) (by = y - 1), (at = 3 * (1 - s) * (1 - s) * s * x1 + 3 * (1 - s) * s * s * x2 + s * s * s);
+    if (y - 1 > by) {
+      by = y - 1;
+      at = 3 * (1 - s) * (1 - s) * s * x1 + 3 * (1 - s) * s * s * x2 + s * s * s;
+    }
   }
   return { at, by };
 }
@@ -247,7 +253,10 @@ function speedOf(samples: MotionSamples | null | undefined, node: string): ((t0:
       const rb = Math.atan2(b.t[1], b.t[0]);
       const size = Math.max(a.w, a.h, 1);
       const v = (Math.hypot(b.t[4] - a.t[4], b.t[5] - a.t[5]) + Math.abs(sb - sa) * size + Math.abs(rb - ra) * size * 0.5) / dt;
-      if (v > best) (best = v), (at = (times[k] + times[k - 1]) / 2);
+      if (v > best) {
+        best = v;
+        at = (times[k] + times[k - 1]) / 2;
+      }
     }
     return at;
   };
@@ -365,7 +374,7 @@ export function scoreMotion({ resolved, rootSize, samples }: ScoreInput): Motion
     accents.push({ t: r3(group.reduce((a, e) => Math.max(a, e.t), 0)), strength: r2(strength), what: names.slice(0, 4).join(", ") + (names.length > 4 ? ` (+${names.length - 4})` : ""), kinds: [...new Set(group.map((e) => e.type))] });
   }
   const climax = accents.length ? accents.reduce((a, b) => (b.strength > a.strength + 0.05 || (Math.abs(b.strength - a.strength) <= 0.05 && b.t > a.t) ? b : a)) : null;
-  const rest = allMoves.length ? r3(Math.max(...allMoves.map((m) => m.t1), ...events.filter((e) => e.type === "appear" || e.type === "stagger").map((e) => e.end ?? e.t))) : null;
+  const rest = allMoves.length ? r3(Math.min(duration, ...[Math.max(...allMoves.map((m) => m.t1), ...events.filter((e) => e.type === "appear" || e.type === "stagger").map((e) => e.end ?? e.t))])) : null;
 
   // Energy: the moves' strength spread over their spans, per 0.25 s, scaled to the loudest bin.
   const step = 0.25;
@@ -384,8 +393,10 @@ export function scoreMotion({ resolved, rootSize, samples }: ScoreInput): Motion
   events.push({ t: r3(duration), type: "end", strength: 0 });
   if (rest !== null) events.push({ t: rest, type: "rest", strength: 0 });
   events.sort((a, b) => a.t - b.t || a.type.localeCompare(b.type));
+  // Keys past the timeline's end aren't seen or heard.
+  const seen = events.filter((e) => e.t <= duration + 1e-3);
 
-  return { duration: r3(duration), playback: resolved.playback, layers: resolved.layers.length, events: events.slice(0, 400), accents, climax, rest, energy: { step, values: energy.map((e) => r2(e / maxE)) }, cues: cuesOf(events, accents, climax) };
+  return { duration: r3(duration), playback: resolved.playback, layers: resolved.layers.length, events: seen.slice(0, 400), accents, climax, rest, energy: { step, values: energy.map((e) => r2(e / maxE)) }, cues: cuesOf(seen, accents.filter((a) => a.t <= duration + 1e-3), climax && climax.t <= duration + 1e-3 ? climax : null) };
 }
 
 /** A starting cue sheet: whooshes peaking on big moves, hits on strong accents, pops on pops, ticks on staggers, a riser into the climax. */

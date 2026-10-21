@@ -20,7 +20,10 @@ const loudestAt = (p: Pcm) => {
   let best = 0, at = 0;
   for (let i = 0; i + w <= p.channels[0].length; i += w) {
     const e = rms(p, i, i + w);
-    if (e > best) (best = e), (at = (i + w / 2) / SR);
+    if (e > best) {
+      best = e;
+      at = (i + w / 2) / SR;
+    }
   }
   return at;
 };
