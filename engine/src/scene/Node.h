@@ -6,6 +6,7 @@
 // facets replace it.
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <memory>
 #include <map>
@@ -1208,6 +1209,16 @@ struct NodeProps {
     for (uint32_t k = 0; k < 4; k++)
       if ((m & (1u << k)) && cornerRadii[k] > 0) shown |= 1u << k;
     return shown;
+  }
+  // Individual stroke weights (Figma's borderStrokeWeightsIndependent; frames and rectangles only): each side is drawn
+  // with its own border*Weight and strokeWeight isn't drawn (the Plugin API reads it as figma.mixed) — a bottom-only
+  // stroke may sit on a strokeWeight of 0.
+  bool independentStrokeWeights() const { return stroke().borderStrokeWeightsIndependent && (isRectLike() || isFrameLike()); }
+  // The widest weight the stroke is drawn with: strokeWeight, or the widest side's with individual weights.
+  double drawnStrokeWeight() const {
+    if (!independentStrokeWeights()) return strokeWeight;
+    const auto& b = stroke().borderWeights;
+    return std::max(std::max(b[0], b[1]), std::max(b[2], b[3]));
   }
   bool clipsContent() const { return isFrameLike() && !frameMaskDisabled; }
   bool isAutoLayout() const {

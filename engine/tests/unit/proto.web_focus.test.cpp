@@ -16,8 +16,10 @@
 
 #include "doctest.h"
 #include "Helpers.h"
+#include "base/DerivedIds.h"
 #include "editor/Editor.h"
 #include "proto/Player.h"
+#include "proto/Prototype.h"
 #include "scene/CodecJson.h"
 #include "scene/CodecKiwi.h"
 
@@ -477,4 +479,80 @@ TEST_CASE("website behaviours: a text input bound to a string variable writes it
   f.player.restart();
   f.advance(16);
   CHECK(f.chars(Guid{60, 30}).empty());
+}
+
+TEST_CASE("website behaviours: Text input and Cursor are instance overrides — per instance in the player, the main's unchanged") {
+  // An "Input" component holding a Text input "Value" (Text); two instances on Home. A's Value is made a Password
+  // field (Max length 4) with a Crosshair cursor — an override entry on A, as Figma stores a prototype field's.
+  const Guid ISYM{66, 1}, IVAL{66, 2}, IA{66, 3}, IB{66, 4};
+  Fixture f;
+  f.add(ISYM, NodeType::SYMBOL, kPage, "~~~", {0, 2400, 200, 40}, "Input");
+  f.text(IVAL, ISYM, "!", {10, 10, 180, 20}, "Value", "Value", R"({"type":"TEXT"})");
+  f.instance(IA, HOME, "+", {400, 500, 200, 40}, "Input A", ISYM);
+  f.instance(IB, HOME, ",", {600, 500, 180, 40}, "Input B", ISYM);
+  f.ed.setSessionID(1);
+  f.ed.setViewport(800, 600, 1, 800, 600);
+  f.ed.loadDocument(f.nodes, kNoGuid);
+  f.ed.takeEvents();
+  const Guid a = derived::intern(IA, {IVAL}), b = derived::intern(IB, {IVAL});
+  REQUIRE(f.ed.document().get(a));
+  REQUIRE(f.ed.document().get(b));
+  NodeChange c = NodeChange::changed(Guid{0, 0});
+  c.mask = F_EXTRA;
+  c.props.extra["prototypeTextInput"] = extra("prototypeTextInput", R"({"type":"PASSWORD","maxLength":4})");
+  c.props.extra["prototypeCursor"] = extra("prototypeCursor", "\"CROSSHAIR\"");
+  REQUIRE(f.ed.setProps({a}, c, 0) == OK);
+  // Stored on A as an override entry for [Value]; B and the main as they were.
+  const auto& overrides = f.ed.document().get(IA)->props.comp().symbolData.overrides;
+  REQUIRE(overrides.size() == 1);
+  CHECK(overrides[0].path == std::vector<Guid>{IVAL});
+  CHECK(overrides[0].props.extra.count("prototypeTextInput") == 1);
+  CHECK(overrides[0].props.extra.count("prototypeCursor") == 1);
+  CHECK(f.ed.document().get(IB)->props.comp().symbolData.overrides.empty());
+  proto::TextInputSettings s;
+  REQUIRE(proto::textInput(f.ed.document().get(a)->props, s));
+  CHECK(s.type == proto::TextInputType::PASSWORD);
+  CHECK(s.maxLength == 4);
+  CHECK(proto::cursor(f.ed.document().get(a)->props) == proto::Cursor::CROSSHAIR);
+  REQUIRE(proto::textInput(f.ed.document().get(b)->props, s));
+  CHECK(s.type == proto::TextInputType::TEXT);
+  REQUIRE(proto::textInput(f.ed.document().get(IVAL)->props, s));
+  CHECK(s.type == proto::TextInputType::TEXT);
+  CHECK(proto::cursor(f.ed.document().get(IVAL)->props) == proto::Cursor::AUTO);
+  // A change to the main reaches B, not A's overridden field.
+  NodeChange m = NodeChange::changed(Guid{0, 0});
+  m.mask = F_EXTRA;
+  m.props.extra["prototypeTextInput"] = extra("prototypeTextInput", R"({"type":"NUMBER"})");
+  REQUIRE(f.ed.setProps({IVAL}, m, 0) == OK);
+  REQUIRE(proto::textInput(f.ed.document().get(b)->props, s));
+  CHECK(s.type == proto::TextInputType::NUMBER);
+  REQUIRE(proto::textInput(f.ed.document().get(a)->props, s));
+  CHECK(s.type == proto::TextInputType::PASSWORD);
+
+  // The player honours each instance's own.
+  f.player.setScale(proto::ScaleMode::ACTUAL);
+  REQUIRE(f.player.start(kPage, HOME));
+  f.advance(16);
+  f.click(a);
+  REQUIRE(f.player.focusedField() == a);
+  f.player.textInput("secret", 6, 6);
+  CHECK(f.player.fieldValue() == "secr");
+  CHECK(f.chars(a) == "••••");
+  f.click(b);
+  REQUIRE(f.player.focusedField() == b);
+  f.player.textInput("12ab3", 5, 5);
+  CHECK(f.player.fieldValue() == "123");
+  f.hover(a);
+  CHECK(f.player.cursorNow() == proto::Cursor::CROSSHAIR);
+  f.hover(b);
+  CHECK(f.player.cursorNow() == proto::Cursor::TEXT);
+  f.player.stop();
+
+  // Cleared on A (null in the panel / the tools): back to the main's.
+  NodeChange off = NodeChange::changed(Guid{0, 0});
+  off.mask = F_EXTRA;
+  off.props.extra["prototypeCursor"] = "";
+  REQUIRE(f.ed.setProps({a}, off, 0) == OK);
+  CHECK(proto::cursor(f.ed.document().get(a)->props) == proto::Cursor::AUTO);
+  CHECK(f.ed.document().get(IA)->props.comp().symbolData.overrides[0].props.extra.count("prototypeCursor") == 0);
 }

@@ -36,7 +36,7 @@ double clampSize(double v, const NodeProps& p, int a) {
 }
 
 bool hasVisibleStroke(const NodeProps& p) {
-  if (p.strokeWeight <= 0) return false;
+  if (p.drawnStrokeWeight() <= 0) return false;
   for (auto& s : p.strokePaints)
     if (s.visible) return true;
   return false;

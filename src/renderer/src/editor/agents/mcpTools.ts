@@ -843,14 +843,28 @@ function deleteNodes(env: ToolEnv, args: Spec): ToolResult {
 }
 
 function duplicateNodes(env: ToolEnv, args: Spec): ToolResult {
-  const refs = writeTargets(env, { nodeIds: args.nodeIds }, "duplicate_nodes");
-  let copies: Guid[] = [];
+  const listed = writeTargets(env, { nodeIds: args.nodeIds }, "duplicate_nodes");
+  // Each entry is one copy, as Figma's clone() per node: an id listed twice is duplicated twice. Round k duplicates
+  // the ids listed at least k times (one DUPLICATE each round: a selection holds an id once).
+  const refs = [...new Set(listed)];
+  const rounds: Guid[][] = [];
+  const seen = new Map<Guid, number>();
+  for (const id of listed) {
+    const k = seen.get(id) ?? 0;
+    seen.set(id, k + 1);
+    (rounds[k] ??= []).push(id);
+  }
+  const copies: Guid[] = [];
   const problems: string[] = [];
   env.write("Duplicate", () => {
     // The copies are the agent's selection now (the user's stays as it is).
-    env.ed.engine.command("DUPLICATE");
-    copies = [...env.ed.engine.getSelection().refs];
+    for (const [k, round] of rounds.entries()) {
+      if (k > 0) env.ed.engine.setSelection(round);
+      env.ed.engine.command("DUPLICATE");
+      copies.push(...env.ed.engine.getSelection().refs);
+    }
     if (!copies.length) throw new ToolError("The layers couldn't be duplicated.");
+    if (rounds.length > 1) env.ed.engine.setSelection(copies);
     if (args.parentId) {
       const parent = must(env, normId(args.parentId));
       const index = typeof args.index === "number" ? args.index : (parent.childIds?.length ?? 0);

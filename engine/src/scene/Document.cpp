@@ -22,13 +22,13 @@ const Mat2x3 kIdentity;
 // Fields whose change moves a node's box (or its descendants').
 constexpr FieldMask kGeometryFields = F_TRANSFORM | F_SIZE | F_PARENT_INDEX | F_STROKES | F_STROKE_WEIGHT | F_STROKE_ALIGN |
                                       F_TYPE | F_RESIZE_TO_FIT | F_EFFECTS | F_STROKE_CAP | F_STROKE_JOIN | F_MITER_LIMIT |
-                                      F_VECTOR_DATA | F_EXTRA;  // extra: variableWidthPoints (round 12) widen the stroke
+                                      F_VECTOR_DATA | F_EXTRA | F_BORDER_WEIGHTS;  // extra: variableWidthPoints (round 12) widen the stroke
 
 double outerStroke(const NodeProps& p) {
   bool stroke = false;
   for (auto& s : p.strokePaints) stroke |= s.visible;
-  if (!stroke || p.strokeWeight <= 0) return 0;
-  double w = p.strokeWeight;
+  if (!stroke || p.drawnStrokeWeight() <= 0) return 0;
+  double w = p.drawnStrokeWeight();  // individual weights: the widest side
   double reach = p.strokeAlign == StrokeAlign::OUTSIDE ? w : p.strokeAlign == StrokeAlign::CENTER ? w / 2 : 0;
   if (p.isPathShape() && reach > 0) {
     // Miters, square caps and arrowheads reach past half the width.

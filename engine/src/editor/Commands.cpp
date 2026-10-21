@@ -196,9 +196,20 @@ Status Editor::command(CommandId id, const CommandArgs& args) {
     case CommandId::DISTRIBUTE_VERTICAL: distribute(false); return OK;
     case CommandId::ADD_AUTO_LAYOUT: addAutoLayout(); return OK;
     case CommandId::REMOVE_AUTO_LAYOUT: removeAutoLayout(); return OK;
-    case CommandId::CREATE_PAGE: return createPage() == kNoGuid ? E_INVALID : OK;
+    case CommandId::CREATE_PAGE: {
+      // The new page is what the command made (run_command reports it, as Figma's createPage() returns it).
+      Guid page = createPage();
+      if (page == kNoGuid) return E_INVALID;
+      created_ = {page};
+      return OK;
+    }
     case CommandId::DELETE_PAGE: return deletePage(args.page == kNoGuid ? page_ : args.page);
-    case CommandId::DUPLICATE_PAGE: return duplicatePage(args.page == kNoGuid ? page_ : args.page) == kNoGuid ? E_NOT_FOUND : OK;
+    case CommandId::DUPLICATE_PAGE: {
+      Guid page = duplicatePage(args.page == kNoGuid ? page_ : args.page);
+      if (page == kNoGuid) return E_NOT_FOUND;
+      created_ = {page};
+      return OK;
+    }
     case CommandId::BOOLEAN_UNION: return booleanSelection(BooleanOperation::UNION);
     case CommandId::BOOLEAN_SUBTRACT: return booleanSelection(BooleanOperation::SUBTRACT);
     case CommandId::BOOLEAN_INTERSECT: return booleanSelection(BooleanOperation::INTERSECT);

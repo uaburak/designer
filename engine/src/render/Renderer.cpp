@@ -677,7 +677,7 @@ void Renderer::drawShaderPaint(const Document& doc, Guid id, const NodeProps& p,
 }
 
 void Renderer::drawStrokes(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha) {
-  if (!(p.strokeWeight > 0) || !anyVisible(p.strokePaints)) return;
+  if (!(p.drawnStrokeWeight() > 0) || !anyVisible(p.strokePaints)) return;
   bool pattern = false;
   for (const Paint& s : p.strokePaints) pattern |= s.visible && s.type == PaintType::PATTERN;
   if (!pattern) return drawStrokePaints(doc, id, p, m, alpha);
@@ -695,8 +695,8 @@ void Renderer::drawStrokes(const Document& doc, Guid id, const NodeProps& p, con
 }
 
 void Renderer::drawStrokePaints(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha) {
-  if (!(p.strokeWeight > 0) || !anyVisible(p.strokePaints)) return;
-  bool independent = p.stroke().borderStrokeWeightsIndependent && (p.isRectLike() || p.isFrameLike());
+  if (!(p.drawnStrokeWeight() > 0) || !anyVisible(p.strokePaints)) return;
+  bool independent = p.independentStrokeWeights();
   // A dashed frame stroke (a component set's) goes through the stroker like a dashed rectangle's.
   bool dashedFrame = p.isFrameLike() && !p.stroke().dashPattern.empty();
   // A variable width (round 12) goes through the stroker.
@@ -831,7 +831,7 @@ bool opaquePaints(const NodeProps& p) {
         return false;
     return true;
   };
-  return opaque(p.fillPaints) && (!(p.strokeWeight > 0) || opaque(p.strokePaints));
+  return opaque(p.fillPaints) && (!(p.drawnStrokeWeight() > 0) || opaque(p.strokePaints));
 }
 
 // The node's paints made opaque white (its geometry's coverage): what hides a drop shadow under the layer.
@@ -887,8 +887,8 @@ void Renderer::drawAnalyticShadows(const NodeProps& p, const Mat2x3& m, double a
 
 Rect Renderer::blurClampBox(const NodeProps& p, const Rect& ink) {
   Rect box{0, 0, p.size.x, p.size.y};
-  if ((p.strokeAlign == StrokeAlign::OUTSIDE || p.strokeAlign == StrokeAlign::CENTER) && p.strokeWeight > 0 && anyVisible(p.strokePaints)) {
-    double grow = (p.strokeAlign == StrokeAlign::OUTSIDE ? p.strokeWeight : p.strokeWeight / 2) * p.miterLimit;
+  if ((p.strokeAlign == StrokeAlign::OUTSIDE || p.strokeAlign == StrokeAlign::CENTER) && p.drawnStrokeWeight() > 0 && anyVisible(p.strokePaints)) {
+    double grow = (p.strokeAlign == StrokeAlign::OUTSIDE ? p.drawnStrokeWeight() : p.drawnStrokeWeight() / 2) * p.miterLimit;
     // Figma's size.withOnesForZeros(): a line's box is a unit thick before the stroke grows it.
     box = {-grow, -grow, (p.size.x != 0 ? p.size.x : 1) + 2 * grow, (p.size.y != 0 ? p.size.y : 1) + 2 * grow};
   }
@@ -1711,7 +1711,7 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
   bool container = (p.isFrameLike() || p.isGroupLike()) && rn.hasChildren;
   size_t paints = 0;
   for (auto& f : p.fillPaints) paints += f.visible ? 1 : 0;
-  if (p.strokeWeight > 0)
+  if (p.drawnStrokeWeight() > 0)
     for (auto& s : p.strokePaints) paints += s.visible ? 1 : 0;
   bool blend = p.blendMode != BlendMode::PASS_THROUGH && p.blendMode != BlendMode::NORMAL;
   bool opacityLayer = p.opacity < 1 && (container || paints > 1 || p.isTextLike() || generic);
@@ -1743,7 +1743,7 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
   // shadow. Inner shadows under visible strokes — the content without its strokes, the inner shadows, then the
   // strokes — except when a layer blur is there too (Figma's builder keeps the strokes in the content then).
   bool strokes = false;
-  if (p.strokeWeight > 0)
+  if (p.drawnStrokeWeight() > 0)
     for (const Paint& s : p.strokePaints) strokes |= s.visible && s.opacity > 0;
   bool split = generic && !inners.empty() && strokes && !layerBlur;
   int saved = beginLayer(r);

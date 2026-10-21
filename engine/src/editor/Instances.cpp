@@ -49,10 +49,12 @@ constexpr FieldMask kOverridable =
     F_MIN_SIZE | F_MAX_SIZE | F_PROPORTIONS_CONSTRAINED | kTextLayoutFields | F_AUTO_RENAME | F_BLEND_MODE | F_STROKE_CAP |
     F_STROKE_JOIN | F_MITER_LIMIT | F_DASH_PATTERN | F_BORDER_WEIGHTS | F_CORNER_SMOOTHING | F_INVERTED_CORNERS | F_EFFECTS | F_LAYOUT_GRIDS |
     F_OVERRIDDEN_SYMBOL_ID | F_COMPONENT_PROP_ASSIGNMENTS | F_EXTRA | F_PARAM_MAP | F_VARIABLE_MODES | kStyleIdFields;
-// Unmodelled fields an override may carry.
+// Unmodelled fields an override may carry — and Wecra's website behaviours (docs/engine.md §3.4: Prototype › Text
+// input and Cursor, @ours, overridable like Figma's prototype fields; the .fig export drops them from the entries).
 bool overridableExtra(const std::string& key) {
   return key == "exportSettings" || key == "prototypeInteractions" || key == "annotations" || key == "styleIdForFill" ||
-         key == "styleIdForStrokeFill" || key == "styleIdForText" || key == "styleIdForEffect" || key == "styleIdForGrid";
+         key == "styleIdForStrokeFill" || key == "styleIdForText" || key == "styleIdForEffect" || key == "styleIdForGrid" ||
+         key == "prototypeTextInput" || key == "prototypeCursor";
 }
 
 void mergeInto(NodeProps& to, const NodeProps& from, FieldMask mask) {

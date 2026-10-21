@@ -149,7 +149,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "duplicate_nodes",
     title: "Duplicate layers",
-    description: "Duplicates layers with everything inside them (instances stay instances). Optionally into `parentId` at `index` (default: on top) and/or at x, y. Returns the copies' ids and parents, in order. " + WRITE_IDS,
+    description: "Duplicates layers with everything inside them (instances stay instances). Each entry of nodeIds is one copy, as Figma's clone() per node: an id listed twice is duplicated twice. Optionally into `parentId` at `index` (default: on top) and/or at x, y. Returns the copies' ids and parents. " + WRITE_IDS,
     inputSchema: { type: "object", properties: { nodeIds: writeIds, parentId: { type: "string" }, index: { type: "number" }, x: { type: "number" }, y: { type: "number" } }, required: ["nodeIds"] },
     write: true,
   },
@@ -596,7 +596,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "run_command",
     title: "Run command",
-    description: 'Runs any of the app\'s commands (list_commands lists them): {command: "<editor id>", nodeIds} as from the menus / shortcuts with those layers selected, or {engineCommand: "<NAME>", args: {...}, nodeIds?} — an engine command with its arguments (layers as its refs, or nodeIds as its selection); ids it created come back. Never on the user\'s selection: without nodeIds nothing is selected, and an empty nodeIds is an error. Refusals say why. BIND_COMPONENT_PROPERTY {refs, field, prop} applies a main\'s property to its layers — field is Figma\'s componentPropertyReferences key: "characters" (TEXT), "visible" (BOOLEAN) or "mainComponent" (INSTANCE_SWAP); describe_schema {field: "<COMMAND>"} gives any command\'s arguments.',
+    description: 'Runs any of the app\'s commands (list_commands lists them): {command: "<editor id>", nodeIds} as from the menus / shortcuts with those layers selected, or {engineCommand: "<NAME>", args: {...}, nodeIds?} — an engine command with its arguments (layers as its refs, or nodeIds as its selection); the ids it created come back in `created` (CREATE_PAGE / DUPLICATE_PAGE: the new page\'s id, as Figma\'s createPage() returns the page). Never on the user\'s selection: without nodeIds nothing is selected, and an empty nodeIds is an error. Refusals say why. BIND_COMPONENT_PROPERTY {refs, field, prop} applies a main\'s property to its layers — field is Figma\'s componentPropertyReferences key: "characters" (TEXT), "visible" (BOOLEAN) or "mainComponent" (INSTANCE_SWAP); describe_schema {field: "<COMMAND>"} gives any command\'s arguments.',
     inputSchema: { type: "object", properties: { command: { type: "string" }, engineCommand: { type: "string" }, args: { type: "object" }, nodeIds: { ...writeIds, description: "The layers the command acts on (its selection). " + WRITE_IDS } } },
     write: true,
   },

@@ -5,7 +5,13 @@
 // component sets read as COMPONENT_SET, BIND_COMPONENT_PROPERTY's Plugin API fields.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { deflateRawSync, inflateRawSync, zstdCompressSync, zstdDecompressSync } from "node:zlib";
 import { beforeAll, describe, expect, it } from "vitest";
+import type { FigCodecs } from "@shared/fig/compression";
+import { decodeCanvas } from "@shared/fig/container";
+import { encodeFigmaCanvas } from "@shared/fig/figmaExport";
+import { decodeAnySchema } from "@shared/fig/importFig";
+import { decodeMessage } from "@shared/schema/codec";
 import { Engine } from "@/engine/Engine";
 import { EngineStore } from "@/engine/EngineStore";
 import { BUNDLED_FACES, fonts } from "@/engine/fonts";
@@ -19,6 +25,12 @@ import { AgentTurns } from "../agents/turns";
 
 const wasm = join(process.cwd(), "src/renderer/src/engine/wasm/engine.wasm");
 const inter = join(process.cwd(), "src/renderer/src/engine/fonts/Inter-3.19.ttf");
+const codecs: FigCodecs = {
+  inflateRaw: (b) => new Uint8Array(inflateRawSync(b)),
+  deflateRaw: (b) => new Uint8Array(deflateRawSync(b)),
+  zstdDecompress: (b) => new Uint8Array(zstdDecompressSync(b)),
+  zstdCompress: (b) => new Uint8Array(zstdCompressSync(b)),
+};
 
 beforeAll(async () => {
   globalThis.fetch = async () => new Response(null, { status: 404 });
@@ -258,5 +270,72 @@ describe("component sets and component properties", () => {
     expect(text(bad)).toContain("mainComponent");
     const listed = json(await call("list_commands", { query: "BIND_COMPONENT" }));
     expect(listed.engineCommands[0].args).toContain("characters");
+  });
+});
+
+// The demo-page build on prototype-web (2026-10-21): an instance's Text input / Cursor overrides, CREATE_PAGE's id,
+// duplicate_nodes with an id listed twice.
+describe("instance overrides of the website behaviours, CREATE_PAGE, duplicates", () => {
+  it("prototypeTextInput and prototypeCursor on a text inside an instance are its overrides: read back, per instance, never in a .fig", async () => {
+    const { engine, call } = await editor();
+    const r = json(await call("create_nodes", { nodes: [{ type: "FRAME", name: "Input", width: 200, height: 40, children: [{ type: "TEXT", name: "Value", characters: "Value" }] }, { type: "FRAME", name: "Screen", x: 3000, y: 0, width: 600, height: 400 }] }));
+    const [input, screen] = ids(r);
+    const value = kids(engine, input)[0];
+    json(await call("set_properties", { nodeId: value, properties: { prototypeTextInput: { type: "TEXT" } } }));
+    json(await call("run_command", { engineCommand: "CREATE_COMPONENT", nodeIds: [input] }));
+    const insert = async () => json(await call("run_command", { engineCommand: "INSERT_INSTANCE", args: { main: input, parent: screen } })).created[0] as string;
+    const [a, b] = [await insert(), await insert()];
+    const [va, vb] = [kids(engine, a)[0], kids(engine, b)[0]];
+    expect(va.startsWith("I")).toBe(true);
+    const set = json(await call("set_properties", { nodeId: va, properties: { prototypeTextInput: { type: "EMAIL" }, prototypeCursor: "CROSSHAIR" } }));
+    expect(set.summary).toBe("set_properties: everything applied.");
+    const read = (id: string) => engine.readNode(id) as { prototypeTextInput?: { type?: string }; prototypeCursor?: string };
+    expect(read(va).prototypeTextInput?.type).toBe("EMAIL");
+    expect(read(va).prototypeCursor).toBe("CROSSHAIR");
+    expect(read(vb).prototypeTextInput?.type).toBe("TEXT");
+    expect(read(vb).prototypeCursor).toBeUndefined();
+    expect(read(value).prototypeTextInput?.type).toBe("TEXT");
+    // Stored as an override entry on A (Figma's symbolOverrides), not on the main.
+    const overrides = (engine.readNode(a) as { symbolData?: { symbolOverrides?: Record<string, unknown>[] } }).symbolData?.symbolOverrides ?? [];
+    expect(overrides.some((o) => (o.prototypeTextInput as { type?: string } | undefined)?.type === "EMAIL" && o.prototypeCursor === "CROSSHAIR")).toBe(true);
+    // get_design_context reads it back on the instance's layer.
+    const ctx = json(await call("get_design_context", { nodeId: a }));
+    const child = (ctx.nodes[0].children as Record<string, unknown>[])[0];
+    expect(child.prototypeTextInput).toEqual({ type: "EMAIL" });
+    expect(child.prototypeCursor).toBe("CROSSHAIR");
+    // Save local copy: the .fig carries neither the fields nor their override entry.
+    const canvas = decodeCanvas(encodeFigmaCanvas(decodeMessage(engine.encodeDocumentKiwi()), codecs), codecs);
+    const { message } = decodeAnySchema(canvas.schema, canvas.message, { keepDerived: true });
+    expect(JSON.stringify(message)).not.toContain("prototypeTextInput");
+    expect(JSON.stringify(message)).not.toContain("prototypeCursor");
+  });
+
+  it("run_command CREATE_PAGE and DUPLICATE_PAGE return the new page's id in created", async () => {
+    const { engine, call } = await editor();
+    const r = json(await call("run_command", { engineCommand: "CREATE_PAGE" }));
+    expect(r.created).toHaveLength(1);
+    expect(engine.pages().at(-1)!.guid).toBe(r.created[0]);
+    expect(engine.readNode(r.created[0])!.type).toBe("CANVAS");
+    const d = json(await call("run_command", { engineCommand: "DUPLICATE_PAGE", args: { page: r.created[0] } }));
+    expect(d.created).toHaveLength(1);
+    expect(engine.pages().some((p) => p.guid === d.created[0])).toBe(true);
+    expect(d.created[0]).not.toBe(r.created[0]);
+  });
+
+  it("duplicate_nodes makes one copy per entry: an id listed twice is duplicated twice (clone() per node)", async () => {
+    const { engine, call } = await editor();
+    const r = json(await call("create_nodes", { nodes: [{ type: "FRAME", name: "Holder", width: 400, height: 200, children: [{ type: "RECTANGLE", name: "Tab", width: 40, height: 20 }, { type: "RECTANGLE", name: "Pill", width: 40, height: 20 }] }] }));
+    const holder = ids(r)[0];
+    const [tab, pill] = kids(engine, holder);
+    const d = json(await call("duplicate_nodes", { nodeIds: [tab, tab, pill, tab] }));
+    expect(d.copies).toHaveLength(4);
+    const names = kids(engine, holder).map((id) => engine.readNode(id)!.name);
+    expect(names.filter((n) => n === "Tab")).toHaveLength(4);
+    expect(names.filter((n) => n === "Pill")).toHaveLength(2);
+    expect(new Set(d.copies.map((c: { id: string }) => c.id)).size).toBe(4);
+    for (const c of d.copies) expect([tab, pill]).not.toContain(c.id);
+    // Without repeats: one DUPLICATE as before.
+    const once = json(await call("duplicate_nodes", { nodeIds: [pill] }));
+    expect(once.copies).toHaveLength(1);
   });
 });

@@ -66,7 +66,7 @@ Stroke strokeOf(const Document& doc, Guid id, const NodeProps& p) {
   Stroke s;
   for (const Paint& paint : p.strokePaints)
     if (drawable(paint)) s.paints.push_back(&paint);
-  s.weight = p.strokeWeight;
+  s.weight = p.drawnStrokeWeight();  // individual weights: the widest side (strokeWeight may be 0)
   if (!s.present()) return s;
   s.align = p.strokeAlign;
   s.cap = p.strokeCap;
@@ -75,7 +75,7 @@ Stroke strokeOf(const Document& doc, Guid id, const NodeProps& p) {
   s.dashes = p.stroke().dashPattern;
   s.fitDashes = p.isRectLike() || p.isFrameLike();
   s.size = p.size;
-  bool independent = p.stroke().borderStrokeWeightsIndependent && (p.isRectLike() || p.isFrameLike());
+  bool independent = p.independentStrokeWeights();
   bool dashedFrame = p.isFrameLike() && !p.stroke().dashPattern.empty();
   if (!p.extra.empty() && widthProfileAllowed(p)) s.profile = widthPointsOf(p);
   // Figma Draw's brush and dynamic strokes are written as what the canvas draws (docs/draw.md §4.8).

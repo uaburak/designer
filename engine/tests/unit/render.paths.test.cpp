@@ -186,6 +186,59 @@ TEST_CASE("renderer: shadows, layers, blend modes and masks") {
   CHECK(masked);
 }
 
+TEST_CASE("renderer: individual stroke weights draw each side's weight, whatever strokeWeight holds (a bottom-only border)") {
+  // The Tab variants' bottom border (2026-10-21): borderStrokeWeightsIndependent, bottom 2, the other sides and
+  // strokeWeight 0 — Figma draws the bottom side (strokeWeight reads figma.mixed then and isn't drawn).
+  auto tab = [](Guid id, const std::string& pos, double x, double weight, std::array<double, 4> sides) {
+    NodeChange f = make(id, NodeType::FRAME, kPage, pos, {x, 10, 100, 40});
+    f.props.fillPaints.clear();
+    f.props.strokePaints = {Paint::solid(Color::hex(0xFF0000))};
+    f.props.strokeWeight = weight;
+    f.props.strokeAlign = StrokeAlign::INSIDE;
+    f.props.stroke().borderStrokeWeightsIndependent = true;
+    f.props.stroke().borderWeights = sides;
+    return f;
+  };
+  auto reds = [](const Frame& f) {
+    size_t n = 0;
+    for (auto& q : f.instances) n += q.geom[2] == static_cast<float>(ShapeKind::Path) && q.color[0] == 1 && q.color[1] == 0 && q.color[3] > 0;
+    return n;
+  };
+  {
+    Document d;
+    base(d);
+    d.apply(tab({1, 1}, "!", 10, 0, {0, 0, 2, 0}));
+    CHECK(d.get({1, 1})->props.drawnStrokeWeight() == 2);
+    gfx::NullDevice dev;
+    Renderer r(dev);
+    CHECK(reds(record(r, dev, d)) == 1);
+  }
+  {
+    // Every side 0: nothing, whatever strokeWeight says.
+    Document d;
+    base(d);
+    d.apply(tab({1, 2}, "!", 10, 1, {0, 0, 0, 0}));
+    gfx::NullDevice dev;
+    Renderer r(dev);
+    CHECK(reds(record(r, dev, d)) == 0);
+  }
+  {
+    // OUTSIDE: the render bounds reach the bottom side's weight below the box.
+    Document d;
+    base(d);
+    NodeChange f = tab({1, 3}, "!", 10, 0, {0, 0, 6, 0});
+    f.props.strokeAlign = StrokeAlign::OUTSIDE;
+    d.apply(f);
+    CHECK(d.renderBounds({1, 3}).bottom() == doctest::Approx(10 + 40 + 6));
+    NodeChange wider = NodeChange::changed({1, 3});
+    wider.mask = F_BORDER_WEIGHTS;
+    wider.props.stroke().borderStrokeWeightsIndependent = true;
+    wider.props.stroke().borderWeights = {0, 0, 9, 0};
+    d.apply(wider);
+    CHECK(d.renderBounds({1, 3}).bottom() == doctest::Approx(10 + 40 + 9));
+  }
+}
+
 TEST_CASE("renderer: frame titles read on the page's colour") {
   CHECK(Renderer::darkCanvas(Color::hex(0x1E1E1E)));
   CHECK_FALSE(Renderer::darkCanvas(Color::hex(0xF5F5F5)));

@@ -2,6 +2,14 @@
 
 First written 2026-10-06 when the first Claude session stopped and the owner moved the work to another Claude account through GitHub (`https://github.com/uaburak/designer`). Updated the same day by the second session, which finished every workstream's partial items and ran the integration round. Read `AGENTS.md`, `docs/architecture.md` and `docs/roadmap.md` first; the contracts in `docs/` decide everything; `docs/research/` holds the verified facts about Figma (with sources).
 
+## Status 2026-10-21 (night, later) — four designer-tool bugs from the prototype-web demo build (committed on its branch, not merged)
+
+- **Text input / Cursor on an instance's layer:** `prototypeTextInput` / `prototypeCursor` weren't in `Instances.cpp` `overridableExtra`, so `writeOverride` dropped them (set_properties read back nothing, or the main's). Now real override entries (symbolOverrides), read back on the derived row and by `get_design_context` / `get_prototype` (`settingsFromDoc`), played per instance; the .fig export still drops them (`figmaExport.test.ts` extended with engine-shaped one-field entries).
+- **run_command CREATE_PAGE / DUPLICATE_PAGE** return the new page in `created` (engine `created_`); tool docs say so.
+- **duplicate_nodes:** each nodeIds entry is one copy (Figma's clone() per node) — an id listed n times is duplicated n times (round k runs DUPLICATE on the ids listed ≥ k times); documented in the tool.
+- **Bottom-only stroke not drawn:** the tool set `borderStrokeWeightsIndependent` correctly, but the frame's `strokeWeight` was 0 and the renderer (and bounds, hit-testing, layout borders, export) gated on it. `NodeProps::drawnStrokeWeight()` (the widest side with individual weights) replaces those gates; border weights now re-derive render bounds.
+- Tests: native `proto.web_focus` (+1 case), `render.paths` (+1 case); vitest `agentsToolFixes.wasm.test.ts` (+3), `figmaExport.test.ts`. engine:test 1020/1020 (ASan), typecheck, vitest editor/ + shared/ 1703/1703; engine.wasm rebuilt. Not checked in the running app.
+
 ## Status 2026-10-21 (night) — prototype "Website behaviours": anchored popovers, breakpoints, interruptible transitions, toast stacks, Keep state on reload (committed on its branch, not merged)
 
 - Items 6, 7, 8, 9, 12 of `docs/research/prototype-web-behaviours.md` §2 (items 1–5, 10, 11 — text input, focus, keys, cursors, disabled — another branch). docs/engine.md §3.4 "Website behaviours" has the rules. One switch: **Options › Advanced settings › Website behaviours** (presentation tab, Present here, and the inline preview's options), on by default, kept per viewer in this browser (`src/renderer/src/present/webBehaviours.ts`; `web-behaviours=0` in a link); off = Figma's.

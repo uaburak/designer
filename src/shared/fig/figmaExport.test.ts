@@ -381,7 +381,7 @@ describe("Wecra-only prototype settings stay out of the export (overlay Fit to w
   });
 
   it("never writes Text input or Cursor (website behaviours), on a layer or in an instance's override; byte for byte the file without them", () => {
-    const COMP = g(S + 1, 20), LABEL = g(S + 1, 21), INST = g(S + 1, 22), FIELD = g(S + 1, 23), BOX = g(S + 1, 24), INST2 = g(S + 1, 25);
+    const COMP = g(S + 1, 20), LABEL = g(S + 1, 21), INST = g(S + 1, 22), FIELD = g(S + 1, 23), BOX = g(S + 1, 24), INST2 = g(S + 1, 25), INST3 = g(S + 1, 26);
     const build = (web: boolean): Message => {
       const base = ourSnapshot();
       const extra = (fields: Record<string, unknown>) => (web ? fields : {});
@@ -403,6 +403,20 @@ describe("Wecra-only prototype settings stay out of the export (overlay Fit to w
             name: "Input 2",
             size: { x: 200, y: 40 },
             symbolData: { symbolID: COMP, symbolOverrides: [{ guidPath: { guids: [LABEL] }, opacity: 0.5, ...extra({ prototypeTextInput: { type: "NUMBER" }, prototypeCursor: "TEXT" }) }] },
+          }),
+          // As the engine writes an instance's own Text input / Cursor (2026-10-21: overridable): one field per entry,
+          // beside a Figma override on the same layer and one on another.
+          node(INST3, "INSTANCE", g(0, 1), "(", {
+            name: "Input 3",
+            size: { x: 200, y: 40 },
+            symbolData: {
+              symbolID: COMP,
+              symbolOverrides: [
+                ...(web ? [{ guidPath: { guids: [LABEL] }, prototypeCursor: "CROSSHAIR" }] : []),
+                { guidPath: { guids: [LABEL] }, visible: false, ...extra({ prototypeTextInput: { type: "EMAIL", maxLength: 8 } }) },
+                ...(web ? [{ guidPath: { guids: [LABEL] }, prototypeTextInput: { type: "MULTI_LINE" } }] : []),
+              ],
+            },
           }),
         ],
       } as Message;

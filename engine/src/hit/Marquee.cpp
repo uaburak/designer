@@ -58,7 +58,7 @@ std::vector<Guid> marqueeDeepHits(const Document& doc, Guid page, const Rect& re
   auto shows = [](const NodeProps& p) {
     for (auto& f : p.fillPaints)
       if (f.visible) return true;
-    if (p.strokeWeight > 0)
+    if (p.drawnStrokeWeight() > 0)
       for (auto& s : p.strokePaints)
         if (s.visible) return true;
     return false;

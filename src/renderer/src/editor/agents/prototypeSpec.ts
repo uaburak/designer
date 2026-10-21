@@ -595,6 +595,9 @@ export function settingsFromDoc(n: Obj): Obj {
   if (n.overlayBackgroundInteraction === "CLOSE_ON_CLICK_OUTSIDE") out.overlayBackgroundInteraction = "CLOSE_ON_CLICK_OUTSIDE";
   const sp = n.prototypeStartingPoint as { name?: string; description?: string } | undefined;
   if (sp) out.flowStartingPoint = { name: sp.name ?? "", ...(sp.description ? { description: sp.description } : {}) };
+  // Wecra's website behaviours (@ours): Prototype › Text input and Cursor — an instance's overrides included.
+  if (n.prototypeTextInput) out.prototypeTextInput = n.prototypeTextInput;
+  if (n.prototypeCursor && n.prototypeCursor !== "AUTO") out.prototypeCursor = n.prototypeCursor;
   return out;
 }
 

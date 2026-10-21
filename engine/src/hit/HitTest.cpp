@@ -54,10 +54,10 @@ bool hitsOwnShape(const NodeProps& p, Vec2 local, double slop, bool topLevel, bo
   // Filled area: the box for rectangles and frames (not when the frame clips: its content is cut at the rounded edge).
   double area = !clip && hitByBox(p) ? shapeDistance(p, local, true) : d;
   bool fill = anyVisible(p.fillPaints);
-  bool stroke = anyVisible(p.strokePaints) && p.strokeWeight > 0;
+  bool stroke = anyVisible(p.strokePaints) && p.drawnStrokeWeight() > 0;
   double inner = 0, outer = 0;
   if (stroke) {
-    double w = p.strokeWeight;
+    double w = p.drawnStrokeWeight();  // individual weights: the widest side
     switch (p.strokeAlign) {
       case StrokeAlign::INSIDE: inner = w; break;
       case StrokeAlign::OUTSIDE: outer = w; break;
