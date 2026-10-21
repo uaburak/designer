@@ -204,6 +204,53 @@ describe("the Agents panel: one agent's work in view", () => {
     view.unmount();
     engine.destroy();
   });
+
+  it("This chat groups its rows in boxed sections and shows a usage card per agent", async () => {
+    const { view, engine, emit } = await setup();
+    await sendText("Make the mobile version");
+    emit("T1", { type: "usage", usage: { input: 1200, output: 300 } });
+    click($("[data-agents-settings]")!);
+    await settle();
+    const pop = $("[data-chat-settings]")!;
+    // Model first, Usage last (Skills between them: the default skills).
+    const sections = $$("[data-chat-section]", pop).map((s) => s.getAttribute("data-chat-section"));
+    expect(sections[0]).toBe("model");
+    expect(sections[sections.length - 1]).toBe("usage");
+    expect($('[data-chat-section="model"] [data-chat-manager]', pop)).not.toBeNull();
+    // Claude Code reports no plan limits here: this chat's tokens, an empty bar.
+    const card = $('[data-chat-usage="claude-code"]', pop)!;
+    expect(card.textContent).toContain("1.5k tokens");
+    expect($('[data-agent-logo="claude-code"]', card)).not.toBeNull();
+    expect($('[data-chat-usage="codex"]', pop)).toBeNull();
+    expect($("[data-all-settings]", pop)).not.toBeNull();
+    emit("T1", { type: "done" });
+    await settle();
+    view.unmount();
+    engine.destroy();
+  });
+});
+
+describe("the chats list and a chat's header", () => {
+  it("rows show a short title, one status line and the time; inside a chat the header is back + its title", async () => {
+    const { view, engine, emit } = await setup();
+    // A new chat: no list to go back to yet, the header is the tab's.
+    expect($("[data-tab-header-back]")).toBeNull();
+    await sendText("Can you make the mobile version of this login screen?");
+    expect($("[data-tab-header]")?.getAttribute("data-tab-header")).toBe("Make the mobile version");
+    expect($("[data-tab-header] [data-agents-settings]")).not.toBeNull();
+    emit("T1", { type: "text", delta: "Four designs are ready on the canvas. Each has auto layout." });
+    emit("T1", { type: "done" });
+    await settle();
+    click($("[data-tab-header-back]")!);
+    await settle();
+    expect($("[data-tab-header]")?.getAttribute("data-tab-header")).toBe("Agents");
+    const row = $("[data-chat]")!;
+    expect($("[data-chat-title]", row)?.textContent).toBe("Make the mobile version");
+    expect($("[data-chat-status]", row)?.textContent).toBe("Four designs are ready on the canvas.");
+    expect($("[data-chat-time]", row)?.textContent).not.toBe("");
+    view.unmount();
+    engine.destroy();
+  });
 });
 
 // ---- A manager's run, from a chat as kept ----

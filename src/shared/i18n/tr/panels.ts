@@ -1664,4 +1664,6 @@ export const panels: Record<string, string> = {
   "Approvals": "Onaylar",
   "Agents and models": "Ajanlar ve modeller",
   "Manager and Studio": "Yönetici ve Stüdyo",
+  "Working on it…": "Üzerinde çalışıyor…",
+  "Ask before reaching out": "Dışarıya erişmeden önce sor",
 };

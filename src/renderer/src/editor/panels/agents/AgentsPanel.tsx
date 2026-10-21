@@ -7,7 +7,7 @@
  * the panel (AgentSettingsModal.tsx).
  */
 import { Fragment, createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ClipboardEvent, type CSSProperties, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
-import { NO_FILTER, filterChats, matchSnippet, splitMatches, type ChatFilter, type ChatSort } from "../../agents/chatList";
+import { NO_FILTER, chatStatus, filterChats, matchSnippet, splitMatches, type ChatFilter, type ChatSort } from "../../agents/chatList";
 import { Button, Dialog, EmptyState, Icon, IconButton, MenuButton, Portal, SearchField, Select, Spinner, cx, place, timeAgo, tooltipProps, useDismiss, type IconName } from "@/ds";
 import { MAX_ATTACHMENTS, isImageMime, type Attachment, type AttachResult } from "@shared/agents/attachments";
 import type { ProviderInfo } from "@shared/agents/types";
@@ -68,6 +68,8 @@ export function AgentsPanel({ placement = "left", draft = null, onDraftTaken }: 
   // The gear's "This chat" popover, anchored to the gear (a press on it toggles).
   const [gear, setGear] = useState<HTMLSpanElement | null>(null);
   const [quick, setQuick] = useState(false);
+  // Inside a chat (with chats to go back to), the header is the chat's: back and its title.
+  const inChat = state.available && state.chats.length > 0 && state.view !== "list";
   const actions = (
     <>
       <span ref={setGear} className={styles.plus}>
@@ -79,7 +81,11 @@ export function AgentsPanel({ placement = "left", draft = null, onDraftTaken }: 
   return (
     <DraftContext.Provider value={composerDraft}>
       <div className={styles.panel} data-agents="" data-view={state.view} data-settings-open={state.settingsOpen || undefined} data-placement={placement}>
-        <TabHeader title={t("Agents")} actions={actions} />
+        {inChat ? (
+          <TabHeader title={service.currentChat()?.title || t("New chat")} back={{ label: t("Back"), onClick: () => service.setView("list") }} actions={actions} />
+        ) : (
+          <TabHeader title={t("Agents")} actions={actions} />
+        )}
         {!state.available ? (
           <EmptyState icon="24.agents" title={t("Agents run in the desktop app")} body={t("Open this file in Wecra to chat with the AI tools on your computer.")} />
         ) : state.view === "list" && state.chats.length ? (
@@ -146,15 +152,16 @@ function ChatList({ service, chats }: { service: AgentsService; chats: Chat[] })
       </div>
       <div className={styles.scroll} role="list" aria-label={t("Chats")} data-chats-list="">
         {shown.map((c) => {
-          const last = [...c.messages].reverse().find((m) => m.role === "assistant");
           const found = searching && splitMatches(c.title, filter.query).length < 2 ? matchSnippet(c, filter.query) : null;
-          const preview = found ?? (last ? partsText(last).slice(0, 120) || last.error || "" : "");
+          const status = found ?? (state.running[c.id] ? t("Working on it…") : chatStatus(c));
           return (
             <div key={c.id} role="listitem" className={styles.chatRow} data-chat={c.id}>
               <button type="button" className={styles.chatOpen} onClick={() => service.openChat(c.id)}>
-                <span className={styles.chatTitle}><Highlighted text={c.title} query={filter.query} /></span>
-                <span className={styles.chatPreview}><Highlighted text={preview} query={filter.query} /></span>
-                <span className={styles.chatTime}>{timeAgo(c.updatedAt)}</span>
+                <span className={styles.chatTitle} data-chat-title=""><Highlighted text={c.title} query={filter.query} /></span>
+                <span className={styles.chatMeta}>
+                  <span className={styles.chatStatus} data-chat-status=""><Highlighted text={status} query={filter.query} /></span>
+                  <span className={styles.chatTime} data-chat-time="">{timeAgo(c.updatedAt)}</span>
+                </span>
               </button>
               <IconButton icon="24.trash.outline" label={t("Delete chat")} tone="secondary" className={styles.chatDelete} onClick={() => service.deleteChat(c.id)} />
             </div>
@@ -234,12 +241,6 @@ function ChatView({ service, chat }: { service: AgentsService; chat: Chat | null
   };
   return (
     <div className={styles.chat}>
-      {state.chats.length > 0 && (
-        <div className={styles.chatBar}>
-          <IconButton icon="24.arrow.left" label={t("Back")} tone="secondary" onClick={() => service.setView("list")} />
-          <span className={styles.chatBarTitle}>{chat?.title ?? t("New chat")}</span>
-        </div>
-      )}
       <div ref={scroller} className={styles.scroll} data-messages="">
         {!chat || !chat.messages.length ? (
           <div className={styles.intro}>

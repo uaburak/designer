@@ -26,15 +26,18 @@
   .listFoot::before { position: absolute; right: 0; bottom: 100%; left: 0; height: var(--ds-space-6); background: linear-gradient(to bottom, transparent, var(--figma-color-bg)); content: ""; pointer-events: none; }
 
   /* The chats, by recency */
-  .chatRow { position: relative; display: flex; align-items: flex-start; margin: 0 var(--ds-space-2); border-radius: var(--ds-radius-medium); }
+  .chatRow { position: relative; display: flex; align-items: center; margin: 0 var(--ds-space-2); border-radius: var(--ds-radius-large); }
   .chatRow:first-child { margin-top: var(--ds-space-2); }
-  .chatRow:hover { background: var(--figma-color-bg-hover); }
-  .chatOpen { display: grid; flex: 1 1 auto; grid-template-columns: 1fr auto; gap: var(--ds-space-half) var(--ds-space-2); min-width: 0; padding: var(--ds-space-2); border: 0; background: transparent; color: inherit; text-align: left; outline: none; cursor: default; }
-  .chatOpen:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); border-radius: var(--ds-radius-medium); }
+  .chatRow:hover, .chatRow:focus-within { background: var(--ds-color-bg-transparent-hover); }
+  .chatRow:active { background: var(--ds-color-bg-transparent-pressed); }
+  .chatOpen { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--ds-space-half); min-width: 0; padding: var(--ds-space-2) var(--ds-space-3); border: 0; background: transparent; color: inherit; text-align: left; outline: none; cursor: default; }
+  .chatOpen:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); border-radius: var(--ds-radius-large); }
   .chatTitle { overflow: hidden; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); text-overflow: ellipsis; white-space: nowrap; }
-  .chatTime { color: var(--figma-color-text-tertiary); font: var(--ds-font-body-small); }
-  .chatPreview { display: -webkit-box; grid-column: 1 / -1; overflow: hidden; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-  .chatDelete { flex: none; margin: var(--ds-space-1) var(--ds-space-1) 0 0; visibility: hidden; }
+  .chatMeta { display: flex; align-items: baseline; gap: var(--ds-space-2); min-width: 0; }
+  .chatStatus { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); text-overflow: ellipsis; white-space: nowrap; }
+  .chatTime { flex: none; color: var(--figma-color-text-tertiary); font: var(--ds-font-body-small); }
+  .chatRow:hover .chatTime, .chatRow:focus-within .chatTime { visibility: hidden; }
+  .chatDelete { position: absolute; right: var(--ds-space-1); bottom: var(--ds-space-1); visibility: hidden; }
   .chatRow:hover .chatDelete, .chatDelete:focus-visible { visibility: visible; }
 
   /* A new chat */
@@ -439,13 +442,22 @@
   .askedText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   /* "This chat" (the gear's popover) */
-  .pop { display: flex; flex-direction: column; padding: var(--ds-space-2) 0; }
-  .popRow { display: flex; align-items: center; gap: var(--ds-space-2); min-height: var(--ds-size-row); padding: 0 var(--ds-space-2) 0 var(--ds-space-4); }
+  .pop { display: flex; flex-direction: column; gap: var(--ds-space-3); padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-3); }
+  .popRow { display: flex; align-items: center; gap: var(--ds-space-2); min-height: var(--ds-size-row); padding: var(--ds-space-1) var(--ds-space-2) var(--ds-space-1) var(--ds-space-3); }
+  .popRow + .popRow { border-top: 1px solid var(--figma-color-border); }
   .popLabel, .popLabelMain { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); text-overflow: ellipsis; white-space: nowrap; }
   .popLabelMain { color: var(--figma-color-text); }
-  .popSep { height: 1px; margin: var(--ds-space-2) 0; background: var(--figma-color-border); }
-  .popHead { display: flex; align-items: center; height: var(--ds-size-control); padding: 0 var(--ds-space-4); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
-  .popLink { display: flex; align-items: center; width: calc(100% - var(--ds-space-4)); height: var(--ds-size-control); margin: 0 var(--ds-space-2); padding: 0 var(--ds-space-2); border: 0; border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-text); font: var(--ds-font-body-medium); text-align: left; outline: none; cursor: default; }
+  /* "This chat"'s sections: a small label over a box of rows, lines between them */
+  .popSection { display: flex; flex-direction: column; gap: var(--ds-space-1); }
+  .popSectionLabel { margin: 0; padding: 0 var(--ds-space-1); color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); letter-spacing: var(--ds-tracking-body-small); }
+  .popBox { display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-large); background: var(--figma-color-bg-secondary); }
+  .popUsage { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ds-space-2); }
+  .popUsageCard { display: flex; flex-direction: column; gap: var(--ds-space-1); min-width: 0; padding: var(--ds-space-2); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-large); background: var(--figma-color-bg-secondary); }
+  .popUsageName { display: flex; align-items: center; gap: var(--ds-space-1); min-width: 0; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .popUsageLabel, .popUsageCaption { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .popUsageAmount { color: var(--figma-color-text); font: var(--ds-font-body-medium); font-variant-numeric: tabular-nums; }
+  .popUsageCaption { color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); }
+  .popLink { display: flex; align-items: center; width: 100%; height: var(--ds-size-control); margin: 0; padding: 0 var(--ds-space-2); border: 0; border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-text); font: var(--ds-font-body-medium); text-align: left; outline: none; cursor: default; }
   .popLink:hover { background: var(--figma-color-bg-hover); }
   .popLink:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
 

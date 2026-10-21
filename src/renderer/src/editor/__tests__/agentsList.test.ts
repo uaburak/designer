@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { Chat } from "../agents/service";
-import { NO_FILTER, filterChats, matchSnippet, splitMatches } from "../agents/chatList";
+import { NO_FILTER, chatStatus, filterChats, matchSnippet, shortStatus, shortTitle, splitMatches } from "../agents/chatList";
 
 const chat = (id: string, title: string, updatedAt: number, providerId: string | null, texts: string[] = []): Chat => ({
   id,
@@ -58,5 +58,23 @@ describe("the chats list's layout", () => {
     expect(list).toContain("Delete all chats…");
     expect(list).toContain("<Composer service={service} chat={null}");
     expect(list.indexOf("Search chats")).toBeLessThan(list.indexOf("<Composer"));
+  });
+});
+
+describe("a chat's short title and status line", () => {
+  it("cuts the first message to a few words, without the polite opener", () => {
+    expect(shortTitle("Can you make the mobile version of this login screen?")).toBe("Make the mobile version");
+    expect(shortTitle("please redesign the agent panel. It is too busy")).toBe("Redesign the agent panel");
+    expect(shortTitle("  ")).toBe("");
+  });
+  it("takes the answer's first sentence, at most 60 characters", () => {
+    expect(shortStatus("Four designs are ready on the canvas. I used auto layout.")).toBe("Four designs are ready on the canvas.");
+    const long = shortStatus("I finished the remaining screens of the onboarding flow and the settings with dark mode");
+    expect(long.length).toBeLessThanOrEqual(60);
+    expect(long.endsWith("…")).toBe(true);
+  });
+  it("reads the kept status, else the last answer's", () => {
+    expect(chatStatus(chats[2])).toBe("Done: three plans");
+    expect(chatStatus({ ...chats[2], status: "Kept." })).toBe("Kept.");
   });
 });

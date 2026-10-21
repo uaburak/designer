@@ -51,3 +51,40 @@ export function splitMatches(text: string, query: string): string[] {
   const re = new RegExp(`(${words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "gi");
   return text.split(re);
 }
+
+// ---- A chat's short title and status line (the list's rows, the chat's header) ----
+
+const TITLE_WORDS = 4;
+const TITLE_CHARS = 32;
+const STATUS_CHARS = 60;
+/** Openers a title doesn't need ("Can you make…" → "Make…"): English and Turkish. */
+const FILLER = /^(?:(?:please|pls|can you|could you|would you|i want you to|i'd like you to|i would like you to|let's|lütfen|bana|bir)\s+)+/i;
+
+/** A message cut to a few words for a title: "Can you make the mobile version of this login screen?" → "Make the mobile version". */
+export function shortTitle(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim().replace(FILLER, "");
+  const first = flat.split(/(?<=[.!?:])\s/)[0].replace(/[.!?:,;…]+$/, "");
+  let out = "";
+  for (const w of first.split(" ").slice(0, TITLE_WORDS)) {
+    const next = out ? `${out} ${w}` : w;
+    if (next.length > TITLE_CHARS && out) break;
+    out = next;
+  }
+  out = out.slice(0, TITLE_CHARS).replace(/[,;:–—-]+$/, "").trim();
+  return out ? out[0].toLocaleUpperCase() + out.slice(1) : "";
+}
+
+/** An answer's first sentence, ≤ 60 characters: "Four designs are ready on the canvas." */
+export function shortStatus(text: string): string {
+  const flat = text.replace(/[#*_`>]+/g, "").replace(/\s+/g, " ").trim();
+  if (!flat) return "";
+  const first = flat.match(/^.+?[.!?](?=\s|$)/)?.[0] ?? flat;
+  return first.length <= STATUS_CHARS ? first : `${first.slice(0, STATUS_CHARS - 1).replace(/\s+\S*$/, "")}…`;
+}
+
+/** The chat's status line as kept, else from its last answer (older chats). */
+export function chatStatus(chat: Chat): string {
+  if (chat.status) return chat.status;
+  const last = [...chat.messages].reverse().find((m) => m.role === "assistant");
+  return last ? shortStatus(messageText(last)) : "";
+}

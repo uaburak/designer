@@ -10,6 +10,7 @@ import type { AgentSettings, AgentsApi, ChatEvent, ChatTurnMessage, McpClientInf
 import { MAX_ATTACHMENTS, type Attachment, type AttachResult } from "@shared/agents/attachments";
 import { currentOf, type ResolvedModels } from "./models";
 import { addTokens } from "./usage";
+import { messageText, shortStatus, shortTitle } from "./chatList";
 import type { EditorController } from "../controller";
 import { editorBridge } from "../desktop";
 import type { ToolResult } from "@shared/agents/tools";
@@ -108,7 +109,12 @@ export type ChatTask = StudioTask & TaskExtra & { worker?: WorkerLog };
 
 export interface Chat extends StudioChatData {
   id: string;
+  /** A short title (2–5 words) from the first message (chatList.ts shortTitle), or the owner's own (`renamed`) */
   title: string;
+  /** The owner renamed it: kept, never replaced by a derived one */
+  renamed?: boolean;
+  /** One short sentence on where it stands, from the last answer (chatList.ts shortStatus) */
+  status?: string;
   updatedAt: number;
   /** The agent the chat was started with — or switched to since (the picker under the message box) */
   providerId: string | null;
@@ -575,6 +581,12 @@ export class AgentsService implements AgentSetupHost {
     this.set({ current: id, view: "chat" });
   }
 
+  /** The owner's own title: kept over the derived one. */
+  renameChat(id: string, title: string) {
+    const clean = title.trim();
+    if (clean) this.updateChat(id, (c) => ({ ...c, title: clean, renamed: true }));
+  }
+
   deleteChat(id: string) {
     this.queue.stopWhere((t) => t.chatId === id);
     // Its turns' histories go with it (their changes stay in the file).
@@ -761,7 +773,7 @@ export class AgentsService implements AgentSetupHost {
       // The id its attachments were copied under.
       const id = this.draftId ?? uid();
       this.draftId = null;
-      chat = { id, title: (shown ?? (text || files.map((f) => f.name).join(", "))).slice(0, 60), updatedAt: Date.now(), providerId: provider?.id ?? null, model: provider ? this.modelOf(provider) : undefined, effort: provider ? this.effortOf(provider) : undefined, messages: [], ...(this.state.draftConnectors.length ? { connectors: this.state.draftConnectors } : {}) };
+      chat = { id, title: shortTitle(shown ?? text) || files.map((f) => f.name).join(", ").slice(0, 60), updatedAt: Date.now(), providerId: provider?.id ?? null, model: provider ? this.modelOf(provider) : undefined, effort: provider ? this.effortOf(provider) : undefined, messages: [], ...(this.state.draftConnectors.length ? { connectors: this.state.draftConnectors } : {}) };
       this.set({ chats: [chat, ...this.state.chats], current: chat.id, view: "chat", draftConnectors: [] });
     }
     const chatId = chat.id;
@@ -935,6 +947,15 @@ export class AgentsService implements AgentSetupHost {
       changes: record && record.state !== "none" ? { count: touched, state: record.state, ...(record.overwritten.length ? { overwritten: record.overwritten.length } : {}) } : undefined,
     }));
     this.dropCancelled(target.chat, target.message);
+    // The list's row: the answer's first sentence as the chat's status (no model call: the agents are CLIs, a one-shot
+    // turn would cost a process and plan usage), the title kept short unless the owner renamed it.
+    this.updateChat(target.chat, (c) => {
+      const answer = c.messages.find((m) => m.id === target.message);
+      const status = answer ? shortStatus(messageText(answer)) : "";
+      const first = c.messages.find((m) => m.role === "user")?.text ?? "";
+      const title = c.renamed ? c.title : shortTitle(first) || c.title;
+      return { ...c, title, ...(status ? { status } : {}) };
+    });
     // The turn used some of the plan: its limits read again (the CLI's /usage, no model call).
     void this.refreshUsage(target.providerId, true);
     // Attributed in version history: the turn's changes are a named version of their own.
@@ -1027,7 +1048,7 @@ export class AgentsService implements AgentSetupHost {
     if (chat && this.state.running[chat.id]) return false;
     const text = `Fix on “${post.name}”: ${problem.detail}`;
     if (!chat) {
-      chat = { id: uid(), title: text.slice(0, 60), updatedAt: Date.now(), providerId: null, messages: [] };
+      chat = { id: uid(), title: shortTitle(text), updatedAt: Date.now(), providerId: null, messages: [] };
       this.set({ chats: [chat, ...this.state.chats], current: chat.id, view: "chat" });
     }
     const chatId = chat.id;

@@ -2,6 +2,10 @@
 
 First written 2026-10-06 when the first Claude session stopped and the owner moved the work to another Claude account through GitHub (`https://github.com/uaburak/designer`). Updated the same day by the second session, which finished every workstream's partial items and ran the integration round. Read `AGENTS.md`, `docs/architecture.md` and `docs/roadmap.md` first; the contracts in `docs/` decide everything; `docs/research/` holds the verified facts about Figma (with sources).
 
+## Status 2026-10-22 (later) — Agents panel polish (committed on its branch, not merged)
+
+Chat rows: short title + one status line with the time on its right, large-radius hover, no preview block. Titles come from the first message (`shortTitle` in `editor/agents/chatList.ts`, ≤4 words), status from each finished answer's first sentence (`shortStatus`, ≤60 chars) — heuristic only: the agents are CLIs, a one-shot model call would cost a process and plan usage. `Chat.renamed` (via `renameChat`, no UI yet) keeps the owner's title. Inside a chat the tab header is back chevron + the chat's title (`TabHeader`'s `back`), the old back row is gone. "This chat" is 320 wide with boxed Model / Approvals / Skills sections and a Usage grid (a card per agent: most used plan window, else this chat's tokens). Left: a rename UI, an LLM-written title if a cheap one-shot route appears.
+
 ## Status 2026-10-22 — Agents panel v2: one agent's work in view, pinned progress, queue, settings modal (committed on its branch, not merged)
 
 - **Spec:** the owner-approved prototype (scratchpad agents-ui-v2, "Sonra" with a–e). As built: `docs/ai.md` "The Agents panel (v2)".

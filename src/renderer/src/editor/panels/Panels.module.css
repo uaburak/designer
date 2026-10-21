@@ -122,6 +122,9 @@
     white-space: nowrap;
   }
   .tabActions { display: flex; flex: none; align-items: center; }
+  .tabHeader[data-tab-back] { gap: var(--ds-space-1); padding-left: var(--ds-space-2); }
+  .tabHeader[data-tab-back] .tabTitle { font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .tabBack { flex: none; }
   .layersEmpty { padding: var(--ds-space-2) var(--ds-space-4); color: var(--figma-color-text-secondary); }
   .assets { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
   .assetsSearch { padding: var(--ds-space-2) var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-space-4); }
