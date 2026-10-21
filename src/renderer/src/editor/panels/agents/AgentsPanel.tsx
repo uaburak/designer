@@ -1,13 +1,14 @@
 /**
  * The Agents tab (left rail; docs/research/figma/R12-agents-mcp.md §3): Figma's agent chat, driven here by the AI
- * tools on this computer. Its views: the file's chats (by recency, "New chat"), a chat (the prompts with the
- * selection they were about, the agent's answer streamed with its steps, the turn's changes with Undo / Apply,
- * Stop while it runs, the agent and model under the message box), and Agent settings (AgentSettings.tsx).
+ * tools on this computer. Its views: the file's chats (by recency, "New chat") and a chat (the prompts with the
+ * selection they were about, the agent's answer streamed with its steps — open, each a quiet line —, the turn's changes
+ * with Undo / Apply, the run pinned above the message box, Stop while it runs, a message typed meanwhile queued, the
+ * agent and model under the message box). The gear opens "This chat" (ChatSettings.tsx); All settings is a modal over
+ * the panel (AgentSettingsModal.tsx).
  */
 import { Fragment, createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ClipboardEvent, type CSSProperties, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { NO_FILTER, filterChats, matchSnippet, splitMatches, type ChatFilter, type ChatSort } from "../../agents/chatList";
 import { Button, Dialog, EmptyState, Icon, IconButton, MenuButton, Portal, SearchField, Select, Spinner, cx, place, timeAgo, tooltipProps, useDismiss, type IconName } from "@/ds";
-import { readableError } from "@shared/agents/errors";
 import { MAX_ATTACHMENTS, isImageMime, type Attachment, type AttachResult } from "@shared/agents/attachments";
 import type { ProviderInfo } from "@shared/agents/types";
 import { creditsFor, type ConnectorConsent } from "@shared/ai/types";
@@ -15,15 +16,20 @@ import { slashQuery } from "@shared/ai/skillFile";
 import { useConnectors, useSkills } from "./aiData";
 import { useEditor } from "../../controller";
 import { useTopics } from "../../hooks";
-import { agentsOf, toolLabel, type AgentsService, type Chat, type ChatMessage, type ImagePart, type MessagePart } from "../../agents/service";
-import { MODEL_SEP, effortMenu, modelMenu, pickModel } from "../../agents/models";
+import { agentsOf, type AgentsService, type Chat, type ChatMessage, type ImagePart, type MessagePart } from "../../agents/service";
+import { MODEL_SEP, modelMenu, pickModel } from "../../agents/models";
 import { formatTokens, relevantWindows, resetLabel, ringOf, usedLabel } from "../../agents/usage";
-import { elapsedLabel, segmentsOf, toolActiveLabel, type Segment, type ToolPart } from "../../agents/activity";
+import { elapsedLabel, segmentsOf, type Segment } from "../../agents/activity";
 import { REVEAL_MS } from "../../agents/imagePlaceholder";
 import { managerName } from "../../agents/managerName";
 import { TabHeader } from "../TabHeader";
-import { AgentSettings } from "./AgentSettings";
-import { ManagerCard, TaskCard } from "./StudioCards";
+import { AgentSettingsModal } from "./AgentSettingsModal";
+import { ChatSettings } from "./ChatSettings";
+import { ModelPicker } from "./ModelPicker";
+import { RunDock } from "./RunDock";
+import { AgentMark, providerIdOf } from "./AgentMark";
+import { ToolRow } from "./StepRow";
+import { ManagerCard, TaskCard, REVEAL_TASK } from "./StudioCards";
 import styles from "./Agents.module.css";
 import { intlLocale, t, tp, useT } from "@/i18n";
 
@@ -59,25 +65,30 @@ export function AgentsPanel({ placement = "left", draft = null, onDraftTaken }: 
     // Once per panel: providers are refreshed from settings after that.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [service]);
+  // The gear's "This chat" popover, anchored to the gear (a press on it toggles).
+  const [gear, setGear] = useState<HTMLSpanElement | null>(null);
+  const [quick, setQuick] = useState(false);
   const actions = (
     <>
-      <IconButton icon="24.settings.small" label={t("Agent settings")} tone="secondary" disabled={!state.available} onClick={() => service.setView(state.view === "settings" ? "chat" : "settings")} data-agents-settings="" />
+      <span ref={setGear} className={styles.plus}>
+        <IconButton icon="24.settings.small" label={t("Agent settings")} tone="secondary" disabled={!state.available} aria-expanded={quick} aria-haspopup="dialog" onClick={() => setQuick(!quick)} data-agents-settings="" />
+      </span>
       <IconButton icon="24.plus.small" label={t("New chat")} tone="secondary" disabled={!state.available} onClick={() => service.newChat()} />
     </>
   );
   return (
     <DraftContext.Provider value={composerDraft}>
-      <div className={styles.panel} data-agents="" data-view={state.view} data-placement={placement}>
+      <div className={styles.panel} data-agents="" data-view={state.view} data-settings-open={state.settingsOpen || undefined} data-placement={placement}>
         <TabHeader title={t("Agents")} actions={actions} />
         {!state.available ? (
           <EmptyState icon="24.agents" title={t("Agents run in the desktop app")} body={t("Open this file in Wecra to chat with the AI tools on your computer.")} />
-        ) : state.view === "settings" ? (
-          <AgentSettings service={service} />
         ) : state.view === "list" && state.chats.length ? (
           <ChatList service={service} chats={state.chats} />
         ) : (
           <ChatView service={service} chat={service.currentChat()} />
         )}
+        {quick && state.available && <ChatSettings service={service} anchor={gear} onClose={() => setQuick(false)} />}
+        {state.settingsOpen && state.available && <AgentSettingsModal service={service} />}
       </div>
     </DraftContext.Provider>
   );
@@ -194,6 +205,8 @@ const partsText = (m: ChatMessage) => (m.parts ?? []).filter((p): p is Extract<M
 
 const SUGGESTIONS_WITH_SELECTION = ["Make the mobile version of this", "Make this responsive with auto layout", "Rename these layers"];
 const SUGGESTIONS = ["Design a login screen for a mobile app", "What's on this page?"];
+/** How long a task's card is marked after the pinned progress showed it. */
+const FLASH_MS = 900;
 
 function ChatView({ service, chat }: { service: AgentsService; chat: Chat | null }) {
   useT();
@@ -207,6 +220,18 @@ function ChatView({ service, chat }: { service: AgentsService; chat: Chat | null
     if (el) el.scrollTop = el.scrollHeight;
   }, [chat?.messages.length, lastLength]);
   const selection = useSelectionContext(service);
+  // The approvals answered in this view, kept as quiet lines under the answer they were asked in.
+  const [answered, setAnswered] = useState<Answered[]>([]);
+  const lastAnswer = chat ? [...chat.messages].reverse().find((m) => m.role === "assistant") : undefined;
+  // A task row of the pinned progress shows its card: scrolled to, opened, flashed.
+  const reveal = (taskId: string) => {
+    const el = scroller.current?.querySelector<HTMLElement>(`[data-task="${CSS.escape(taskId)}"]`);
+    if (!el) return;
+    el.dispatchEvent(new CustomEvent(REVEAL_TASK));
+    el.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+    el.setAttribute("data-flash", "");
+    setTimeout(() => el.removeAttribute("data-flash"), FLASH_MS);
+  };
   return (
     <div className={styles.chat}>
       {state.chats.length > 0 && (
@@ -232,11 +257,51 @@ function ChatView({ service, chat }: { service: AgentsService; chat: Chat | null
         ) : (
           chat.messages.map((m) => (m.role === "user" ? <UserMessage key={m.id} m={m} /> : <AgentMessage key={m.id} m={m} service={service} />))
         )}
-        {running && chat && state.consents.filter((c) => (c.chatId ? c.chatId === chat.id : c.turnId === state.running[chat.id])).map((c) => (c.confirm ? <ConfirmCard key={c.reqId} c={c} service={service} /> : c.access ? <AccessCard key={c.reqId} c={c} service={service} /> : <ConsentCard key={c.reqId} c={c} service={service} />))}
+        {chat && answered.filter((a) => a.chatId === chat.id && a.messageId === lastAnswer?.id).map((a) => <AnsweredLine key={a.reqId} a={a} />)}
+        {running && chat && state.consents.filter((c) => (c.chatId ? c.chatId === chat.id : c.turnId === state.running[chat.id])).map((c) => {
+          const who = whoAsks(c, chat, service);
+          const answer = (allow: boolean, remember = false, windowId?: string) => {
+            setAnswered((list) => [...list, { reqId: c.reqId, chatId: chat.id, messageId: lastAnswer?.id, allowed: allow, text: askText(c, who.name) }]);
+            service.answerConsent(c.reqId, allow, remember, windowId);
+          };
+          return c.confirm ? <ConfirmCard key={c.reqId} c={c} who={who} answer={answer} /> : c.access ? <AccessCard key={c.reqId} c={c} who={who} answer={answer} /> : <ConsentCard key={c.reqId} c={c} who={who} answer={answer} />;
+        })}
       </div>
+      <RunDock service={service} chat={chat} running={running} onReveal={reveal} />
       <Composer service={service} chat={chat} running={running} />
     </div>
   );
+}
+
+/** An approval answered: a quiet line where its card was ("Allowed · Claude Code, publish the library"). */
+type Answered = { reqId: number; chatId: string; messageId?: string; allowed: boolean; text: string };
+
+function AnsweredLine({ a }: { a: Answered }) {
+  useT();
+  return (
+    <div className={styles.asked} data-consent-answered={a.allowed ? "allowed" : "denied"}>
+      <span className={styles.toolIcon}><Icon name={a.allowed ? "16.check" : "16.close"} /></span>
+      <span className={styles.askedText}>{`${a.allowed ? t("Allowed") : t("Denied")} · ${a.text}`}</span>
+    </div>
+  );
+}
+
+/** Who asks: the manager's task's agent, or the chat turn's (the manager or the agent the answer is from). */
+function whoAsks(c: ConnectorConsent, chat: Chat, service: AgentsService): { name: string; providerId?: string; manager?: boolean } {
+  const state = service.get();
+  const task = chat.tasks?.find((x) => x.worker?.turnId === c.turnId);
+  if (task) return { name: state.providers.find((p) => p.id === task.route.providerId)?.label ?? task.worker?.provider ?? task.route.providerId, providerId: task.route.providerId };
+  const m = chat.messages.find((x) => x.turnId === c.turnId);
+  if (m?.manager) return { name: managerName(service.managerSettings()), manager: true };
+  const label = m?.provider ?? t("Agent");
+  return { name: label, providerId: m?.providerId ?? providerIdOf(label, state.providers) };
+}
+
+/** "Claude Code: publish this file as a library · Wecra UI" — what an answered card leaves. */
+function askText(c: ConnectorConsent, who: string): string {
+  const action = c.confirm ? t(c.confirm.action) : c.access ? t(c.access.action) : t("use {tool}", { tool: c.tool });
+  const target = c.confirm?.target ?? c.access?.target ?? c.connector;
+  return `${who}: ${action}${target ? ` · ${target}` : ""}`;
 }
 
 const TYPE_ICON: Record<string, IconName> = { FRAME: "16.frame", TEXT: "16.text", RECTANGLE: "16.rectangle", COMPONENT: "16.component", SYMBOL: "16.component", INSTANCE: "16.instance", IMAGE: "16.image" };
@@ -299,11 +364,19 @@ function UserMessage({ m }: { m: ChatMessage }) {
 function AgentMessage({ m, service }: { m: ChatMessage; service: AgentsService }) {
   useT();
   const segments = segmentsOf(m);
+  const providerId = m.manager ? undefined : (m.providerId ?? providerIdOf(m.provider, service.get().providers));
+  // A single agent's groups carry its mark; the manager's keep the Agents glyph (turning while it works).
+  const who = !m.manager && m.provider ? { providerId } : undefined;
   return (
     <div className={styles.agent} data-message="assistant" data-state={m.state}>
       {/* The manager's answers carry its name as it is now (Agent settings › Manager › Name) */}
-      {(m.manager || m.provider) && <span className={styles.agentName}>{m.manager ? managerName(service.managerSettings()) : m.provider}</span>}
-      {segments.map((s) => (s.kind === "text" ? <div key={s.key} className={styles.agentText} data-agent-text="">{renderText(s.text)}</div> : <StepGroup key={s.key} seg={s} since={m.startedAt} />))}
+      {(m.manager || m.provider) && (
+        <span className={styles.agentName} data-agent-name="">
+          <AgentMark manager={m.manager} providerId={providerId} />
+          {m.manager ? managerName(service.managerSettings()) : m.provider}
+        </span>
+      )}
+      {segments.map((s) => (s.kind === "text" ? <div key={s.key} className={styles.agentText} data-agent-text="">{renderText(s.text)}</div> : <StepGroup key={s.key} seg={s} since={m.startedAt} who={who} />))}
       {/* The tasks first, the cards under them: a card waits on the owner, nearest the composer */}
       {m.manager && <ManagerTasks messageId={m.id} service={service} />}
       {m.cards?.map((c) => <ManagerCard key={c.id} card={c} service={service} />)}
@@ -339,24 +412,48 @@ function Credits({ usage }: { usage: NonNullable<ChatMessage["usage"]> }) {
   );
 }
 
+type Who = { name: string; providerId?: string; manager?: boolean };
+type Answer = (allow: boolean, remember?: boolean, windowId?: string) => void;
+
+/** An approval's one line: who wants what, the target after it (quieter); details (arguments, a preview) folded. */
+function AskLine({ who, what, target }: { who: Who; what: string; target?: string }) {
+  return (
+    <div className={styles.askLine}>
+      <AgentMark providerId={who.providerId} manager={who.manager} />
+      <span className={styles.askText} data-ask-text="">
+        {t("{who} wants to {action}", { who: who.name, action: what })}
+        {target && <span className={styles.askTarget}>{` · ${target}`}</span>}
+      </span>
+    </div>
+  );
+}
+
+function AskDetails({ text, ...data }: { text: string } & Record<`data-${string}`, string>) {
+  useT();
+  return (
+    <details className={styles.askDetails}>
+      <summary>{t("Details")}</summary>
+      <pre className={styles.consentArgs} {...data}>{text}</pre>
+    </details>
+  );
+}
+
 /** A connector's tool asks to run (its policy is Ask): "Allow once", "Always allow", "Deny" (docs/ai.md §2.11). */
-function ConsentCard({ c, service }: { c: ConnectorConsent; service: AgentsService }) {
+function ConsentCard({ c, who, answer }: { c: ConnectorConsent; who: Who; answer: Answer }) {
   useT();
   const args = JSON.stringify(c.args ?? {}, null, 1);
   return (
-    <div className={styles.consent} role="alertdialog" aria-label={t("{connector} wants to use {tool}", { connector: c.connector, tool: c.tool })} data-consent={c.reqId}>
-      <p className={styles.consentTitle}>
-        {t("{connector} wants to use {tool}", { connector: c.connector, tool: c.tool })}
-      </p>
-      {args !== "{}" && <pre className={styles.consentArgs}>{args.slice(0, 2000)}</pre>}
+    <div className={styles.ask} role="alertdialog" aria-label={t("{connector} wants to use {tool}", { connector: c.connector, tool: c.tool })} data-consent={c.reqId}>
+      <AskLine who={who} what={t("use {tool}", { tool: c.tool })} target={c.connector} />
+      {args !== "{}" && <AskDetails text={args.slice(0, 2000)} />}
       <div className={styles.actions}>
-        <Button variant="primary" onClick={() => service.answerConsent(c.reqId, true)} data-consent-once="">
+        <Button variant="primary" onClick={() => answer(true)} data-consent-once="">
           {t("Allow once")}
         </Button>
-        <Button variant="secondary" onClick={() => service.answerConsent(c.reqId, true, true)} data-consent-always="">
+        <Button variant="secondary" onClick={() => answer(true, true)} data-consent-always="">
           {t("Always allow")}
         </Button>
-        <Button variant="secondary" onClick={() => service.answerConsent(c.reqId, false)} data-consent-deny="">
+        <Button variant="secondary" onClick={() => answer(false)} data-consent-deny="">
           {t("Deny")}
         </Button>
       </div>
@@ -365,24 +462,22 @@ function ConsentCard({ c, service }: { c: ConnectorConsent; service: AgentsServi
 }
 
 /**
- * An agent's destructive or outward action waits for the owner (docs/research/agent-parity.md §4): "Agent wants to
- * ‹action›", the target, what it will save (a skill's text, a comment), "Allow" / "Deny" — never remembered.
+ * An agent's destructive or outward action waits for the owner (docs/research/agent-parity.md §4): one line — who
+ * wants to ‹action› · the target —, what it will save (a skill's text, a comment) folded under Details, "Allow" /
+ * "Deny" — never remembered. Answered, it leaves a quiet line ("Allowed · …").
  */
-function ConfirmCard({ c, service }: { c: ConnectorConsent; service: AgentsService }) {
+function ConfirmCard({ c, who, answer }: { c: ConnectorConsent; who: Who; answer: Answer }) {
   useT();
   const k = c.confirm!;
-  const title = t("Agent wants to {action}", { action: t(k.action) });
   return (
-    <div className={styles.consent} role="alertdialog" aria-label={title} data-consent={c.reqId} data-confirm-consent={c.tool}>
-      <p className={styles.consentTitle}>{title}</p>
-      <span className={styles.consentMeta}>{c.tool}</span>
-      {k.target && <pre className={styles.consentArgs}>{k.target}</pre>}
-      {k.preview && <pre className={styles.consentArgs} data-confirm-preview="">{k.preview}</pre>}
+    <div className={styles.ask} role="alertdialog" aria-label={t("{who} wants to {action}", { who: who.name, action: t(k.action) })} data-consent={c.reqId} data-confirm-consent={c.tool}>
+      <AskLine who={who} what={t(k.action)} target={k.target} />
+      {k.preview && <AskDetails text={k.preview} data-confirm-preview="" />}
       <div className={styles.actions}>
-        <Button variant="primary" onClick={() => service.answerConsent(c.reqId, true)} data-consent-once="">
+        <Button variant="primary" onClick={() => answer(true)} data-consent-once="">
           {t("Allow")}
         </Button>
-        <Button variant="secondary" onClick={() => service.answerConsent(c.reqId, false)} data-consent-deny="">
+        <Button variant="secondary" onClick={() => answer(false)} data-consent-deny="">
           {t("Deny")}
         </Button>
       </div>
@@ -391,44 +486,41 @@ function ConfirmCard({ c, service }: { c: ConnectorConsent; service: AgentsServi
 }
 
 /**
- * Agents' reach asks first (docs/agents-reach.md §3): "Agent wants to open a web page", the target, "Allow once",
+ * Agents' reach asks first (docs/agents-reach.md §3): who wants to open a web page · the target, "Allow once",
  * "Always allow", "Deny" — or, for Local apps, the window picker: the owner's click on a window is the consent.
  */
-function AccessCard({ c, service }: { c: ConnectorConsent; service: AgentsService }) {
+function AccessCard({ c, who, answer }: { c: ConnectorConsent; who: Who; answer: Answer }) {
   useT();
   const a = c.access!;
-  const title = t("Agent wants to {action}", { action: t(a.action) });
   return (
-    <div className={styles.consent} role="alertdialog" aria-label={title} data-consent={c.reqId} data-access-consent={a.capability}>
-      <p className={styles.consentTitle}>{title}</p>
-      <span className={styles.consentMeta}>{c.connector} · {c.tool}</span>
-      {a.target && <pre className={styles.consentArgs}>{a.target}</pre>}
+    <div className={styles.ask} role="alertdialog" aria-label={t("{who} wants to {action}", { who: who.name, action: t(a.action) })} data-consent={c.reqId} data-access-consent={a.capability}>
+      <AskLine who={who} what={t(a.action)} target={a.target} />
       {a.windows ? (
         <>
           {!a.windows.length && <p className={styles.consentMeta}>{t("No windows to pick: open the app and ask again.")}</p>}
           <div className={styles.windowGrid}>
             {a.windows.map((w) => (
-              <button key={w.id} type="button" className={styles.windowTile} onClick={() => service.answerConsent(c.reqId, true, false, w.id)} data-window-pick={w.id}>
+              <button key={w.id} type="button" className={styles.windowTile} onClick={() => answer(true, false, w.id)} data-window-pick={w.id}>
                 <img className={styles.windowThumb} src={w.thumb} alt="" />
                 <span className={styles.windowName}>{w.name}</span>
               </button>
             ))}
           </div>
           <div className={styles.actions}>
-            <Button variant="secondary" onClick={() => service.answerConsent(c.reqId, false)} data-consent-deny="">
+            <Button variant="secondary" onClick={() => answer(false)} data-consent-deny="">
               {t("Deny")}
             </Button>
           </div>
         </>
       ) : (
         <div className={styles.actions}>
-          <Button variant="primary" onClick={() => service.answerConsent(c.reqId, true)} data-consent-once="">
+          <Button variant="primary" onClick={() => answer(true)} data-consent-once="">
             {t("Allow once")}
           </Button>
-          <Button variant="secondary" onClick={() => service.answerConsent(c.reqId, true, true)} data-consent-always="">
+          <Button variant="secondary" onClick={() => answer(true, true)} data-consent-always="">
             {t("Always allow")}
           </Button>
-          <Button variant="secondary" onClick={() => service.answerConsent(c.reqId, false)} data-consent-deny="">
+          <Button variant="secondary" onClick={() => answer(false)} data-consent-deny="">
             {t("Deny")}
           </Button>
         </div>
@@ -438,26 +530,35 @@ function AccessCard({ c, service }: { c: ConnectorConsent; service: AgentsServic
 }
 
 /**
- * A run of the agent's steps as one row, collapsed (Claude's desktop way): the Agents icon, a line, a chevron that
- * opens the steps. While the turn is in it the row is the thinking line — the icon turning, what it does now
- * ("Reading the design…", "Thinking…") in grey with a lighter sweep, the seconds after 5 s (only they re-render each
- * second); then it settles to its last step's words ("Read the design"). An image's group keeps its card under the row.
+ * A run of the agent's steps as a row with its steps open under it — the single agent's work is read without a click;
+ * the row's chevron folds them (then "· 5 steps" says what is folded). The row: the agent's mark (the manager's Agents
+ * glyph), a line, the count, a chevron. While the turn is in it the row is the thinking line — the glyph turning, what
+ * it does now ("Reading the design…", "Thinking…") in grey with a lighter sweep, the seconds after 5 s (only they
+ * re-render each second); then it settles to its last step's words ("Read the design"). Each step is a quiet line: its
+ * icon, what it did and, quieter, what it said of it. An image's group keeps its card under the row.
  */
-function StepGroup({ seg, since }: { seg: Exclude<Segment, { kind: "text" }>; since?: number }) {
-  const [open, setOpen] = useState(false);
+function StepGroup({ seg, since, who }: { seg: Exclude<Segment, { kind: "text" }>; since?: number; who?: { providerId?: string } }) {
+  useT();
+  const [open, setOpen] = useState(true);
   const image = seg.kind === "image" ? seg.image : undefined;
   const hasSteps = seg.steps.length > 0;
   // A card put up for a picture the agent never started, fading out: no row of its own.
   const row = seg.active || hasSteps || image?.state !== "cancelled";
   const thinking = seg.active ? "" : undefined;
+  const n = seg.steps.length;
   const head = (
     <>
-      <span className={cx(styles.groupIcon, seg.active && styles.groupIconActive)} aria-hidden="true">
-        <Icon name="24.agents" />
-      </span>
+      {who ? (
+        <AgentMark providerId={who.providerId} className={styles.groupMark} />
+      ) : (
+        <span className={cx(styles.groupIcon, seg.active && styles.groupIconActive)} aria-hidden="true">
+          <Icon name="24.agents" />
+        </span>
+      )}
       <span className={cx(styles.groupLabel, seg.active && styles.thinkingText)} data-thinking-label={thinking} data-group-label="" aria-live={seg.active ? "polite" : undefined}>
         <HeldLabel label={seg.label} hold={seg.active} />
       </span>
+      {!seg.active && n > 1 && <span className={styles.groupCount} data-group-count={n}>{tp(n, "· {n} step", "· {n} steps")}</span>}
       {seg.active && <Elapsed since={since} />}
       {hasSteps && (
         <span className={cx(styles.groupChevron, open && styles.groupChevronOpen)}>
@@ -573,29 +674,6 @@ function ImageCard({ p }: { p: ImagePart }) {
       {p.state === "placed" && (url ? <img className={styles.imageCardImg} src={url} alt="" draggable={false} onLoad={() => setReveal((r) => (r === "wait" ? "play" : r))} /> : <span className={styles.imageCardFill} />)}
       {(busy || p.state === "cancelled" || reveal !== "none") && <span className={cx(styles.imageCardFill, styles.imageCardBusy)} data-image-veil="" />}
       {caption && <span className={styles.imageCardCaption}>{caption}</span>}
-    </div>
-  );
-}
-
-/** A step in its group: ✓ and what it did, a spinner and what it does; a failed one opens to its whole error. */
-function ToolRow({ p }: { p: ToolPart }) {
-  const [open, setOpen] = useState(false);
-  const icon = <span className={styles.toolIcon}>{p.state === "running" ? <Spinner size={16} /> : p.state === "error" ? <Icon name="16.warning" /> : <Icon name="16.check" />}</span>;
-  if (p.state !== "error" || !p.summary)
-    return (
-      <div className={styles.tool} data-tool={p.name} data-tool-state={p.state} {...tooltipProps(p.summary)}>
-        {icon}
-        <span className={styles.toolLabel}>{p.state === "running" ? toolActiveLabel(p.name) : toolLabel(p.name)}</span>
-      </div>
-    );
-  return (
-    <div className={styles.toolFailed} data-tool={p.name} data-tool-state={p.state}>
-      <button type="button" className={styles.tool} data-tool-state={p.state} aria-expanded={open} onClick={() => setOpen(!open)} data-tool-toggle="">
-        {icon}
-        <span className={styles.toolLabel}>{toolLabel(p.name)}</span>
-        <span className={cx(styles.toolChevron, open && styles.toolChevronOpen)}><Icon name="16.chevron.right" /></span>
-      </button>
-      {open && <div className={styles.toolError} data-tool-error="">{readableError(p.summary)}</div>}
     </div>
   );
 }
@@ -734,24 +812,38 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
     if (id === "files") return add(service.pickAttachments());
     if (id.startsWith("skill:")) return pickSkill(id.slice(6));
     if (id.startsWith("connector:")) return service.toggleConnector(chatId, id.slice(10));
-    if (id === "add-skill" || id === "add-connector") {
-      service.setView("settings");
-      return service.openSetting(id);
-    }
-    if (id === "manage-skills" || id === "manage-connectors") {
-      service.setView("settings");
-      return service.openSetting(null);
-    }
+    if (id === "add-skill" || id === "add-connector") return service.openSetting(id);
+    if (id === "manage-skills") return service.openSetting("section:skills");
+    if (id === "manage-connectors") return service.openSetting("section:connectors");
   };
   const canSend = (!!text.trim() || files.length > 0) && !!provider && !adding;
-  const send = () => {
-    if (!canSend || running) return;
-    void service.send(text, context, files, skills);
+  // A message written while the turn runs waits (one at a time: a new one replaces it) and goes when the turn ends.
+  const [queued, setQueued] = useState<{ chatId: string | null; text: string; context: typeof context; files: Attachment[] } | null>(null);
+  const clear = () => {
     setText("");
     setDropped([]);
     setFiles([]);
     setProblems([]);
   };
+  const send = () => {
+    if (!canSend) return;
+    if (running) {
+      setQueued({ chatId, text, context, files });
+      return clear();
+    }
+    void service.send(text, context, files, skills);
+    clear();
+  };
+  // The turn over: the queued message goes (into the chat it was written in).
+  const waiting = queued && queued.chatId === chatId ? queued : null;
+  const sent = useRef<typeof waiting>(null);
+  useEffect(() => {
+    if (running || !waiting || sent.current === waiting) return;
+    sent.current = waiting;
+    void service.send(waiting.text, waiting.context, waiting.files, skills).finally(() => setQueued((q) => (q === waiting ? null : q)));
+    // Once per turn's end.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [running, waiting]);
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (slashMatches.length && !e.nativeEvent.isComposing) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -860,12 +952,26 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
           ))}
         </div>
       )}
+      {waiting && (
+        <div className={styles.queued} data-queued="">
+          <span className={styles.toolIcon}><Icon name="16.timing" /></span>
+          <span className={styles.queuedText} {...tooltipProps(waiting.text)}>
+            <span className={styles.queuedLabel}>{t("Queued")} · </span>
+            {waiting.text || waiting.files.map((f) => f.name).join(", ")}
+          </span>
+          {/* Now: this turn stops, and the message goes as it ends */}
+          <button type="button" className={styles.link} onClick={() => chat && service.stop(chat.id)} data-queued-now="">
+            {t("Send now")}
+          </button>
+          <IconButton icon="24.close.small" label={t("Remove from queue")} tone="secondary" className={styles.queuedRemove} onClick={() => setQueued(null)} data-queued-remove="" />
+        </div>
+      )}
       <textarea
         ref={input}
         className={styles.input}
         value={text}
         rows={2}
-        placeholder={chat?.messages.length ? t("Reply…") : t("Describe a design or a change")}
+        placeholder={running ? t("Add to the queue… (sent when this finishes)") : chat?.messages.length ? t("Reply…") : t("Describe a design or a change")}
         aria-label={t("Message")}
         onChange={(e) => {
           setText(e.target.value);
@@ -920,12 +1026,8 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
         <span className={styles.barGap} />
         {service.inSocial() && state.providers.some((p) => p.available) ? (
           <SocialAgentMenu service={service} provider={provider} />
-        ) : service.managerProvider() ? (
-          <button type="button" className={styles.noProvider} {...tooltipProps(t("Messages go to the manager (Agent settings › Manager)"))} onClick={() => { service.setView("settings"); service.openSetting("manager"); }} data-manager-chip="">
-            {managerName(service.managerSettings())}
-          </button>
-        ) : provider ? (
-          <ModelMenus service={service} provider={provider} />
+        ) : provider || service.managerProvider() ? (
+          <ModelPicker service={service} provider={provider} />
         ) : (
           <button type="button" className={styles.noProvider} onClick={() => service.setView("settings")}>
             {state.providersLoading ? t("Looking for agents…") : t("Connect an agent")}
@@ -979,49 +1081,6 @@ function SocialAgentMenu({ service, provider }: { service: AgentsService; provid
       className={cx(styles.menu, styles.modelMenu)}
       data-social-agent-menu=""
     />
-  );
-}
-
-/** The model by its short name (the agents as headings in its menu) and, when the agent has one, its effort. */
-function ModelMenus({ service, provider }: { service: AgentsService; provider: ProviderInfo }) {
-  useT();
-  const state = service.get();
-  const { option, effort } = service.current(provider);
-  const efforts = effortMenu(option);
-  return (
-    <>
-      <Select
-        label={t("Model")}
-        variant="ghost"
-        width="hug"
-        value={`${provider.id}${MODEL_SEP}${option?.key ?? ""}`}
-        options={modelMenu(state.providers, state.resolved)}
-        onChange={(v) => {
-          const [id, key] = v.split(MODEL_SEP);
-          const p = state.providers.find((x) => x.id === id);
-          if (!p) return;
-          const next = pickModel(p, key, effort?.id, state.resolved);
-          void service.choose(id, next.model || undefined, p.efforts?.length ? next.effort : undefined);
-        }}
-        className={cx(styles.menu, styles.modelMenu)}
-        data-model-menu=""
-      />
-      {efforts.length > 0 && option && (
-        <Select
-          label={t("Effort")}
-          variant="ghost"
-          width="hug"
-          value={effort?.id ?? ""}
-          options={efforts}
-          onChange={(id) => {
-            const e = option.efforts.find((x) => x.id === id);
-            if (e) void service.choose(provider.id, e.model, option.inSlug ? undefined : id);
-          }}
-          className={styles.menu}
-          data-effort-menu=""
-        />
-      )}
-    </>
   );
 }
 

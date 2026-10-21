@@ -2,6 +2,13 @@
 
 First written 2026-10-06 when the first Claude session stopped and the owner moved the work to another Claude account through GitHub (`https://github.com/uaburak/designer`). Updated the same day by the second session, which finished every workstream's partial items and ran the integration round. Read `AGENTS.md`, `docs/architecture.md` and `docs/roadmap.md` first; the contracts in `docs/` decide everything; `docs/research/` holds the verified facts about Figma (with sources).
 
+## Status 2026-10-22 — Agents panel v2: one agent's work in view, pinned progress, queue, settings modal (committed on its branch, not merged)
+
+- **Spec:** the owner-approved prototype (scratchpad agents-ui-v2, "Sonra" with a–e). As built: `docs/ai.md` "The Agents panel (v2)".
+- **Built:** agents' own marks (`ds/icons/AgentLogo.tsx`: Claude Code, Codex, Gemini, Antigravity, Cursor; the manager keeps the sparkle) on the name line, step groups, model menu (`SelectOption.lead`), settings rows, task cards, dock; step groups open by default with each step's detail, "· N steps" when folded; task cards open by default; the run pinned above the composer (`RunDock.tsx`, pure `agents/progress.ts`); queued message (sent when the run ends; "Send now" stops the run first); 22 px chips; ModelPicker with the manager as an option; approvals one line + "Allowed · …" line; Changes box radius large; gear → "This chat" popover (`ChatSettings.tsx`, Popover gains `bottom-end`); All settings → modal (`AgentSettingsModal.tsx`) with the existing settings components; service: `settingsOpen`, `closeSettings`, messages keep `providerId` / `endedAt`.
+- **Tests:** `editor/__tests__/agentsPanel.dom.test.ts` (5). Typecheck, lint on changed files, editor + i18n + settings + ds suites green.
+- **Left:** `editor/tools/editorShotAgents.mjs` still asserts the old folded steps / in-panel settings — update before its next run. Approvals in the popover sets the policy of the reach capabilities that are on (no other approval mode exists). Manager-run dock verified only in tests (no stand-in manager in the shots). A pre-existing React "setState in render" warning from the Layers panel shows in the shot run.
+
 ## Status 2026-10-21 (late night, later) — default skills: a skill pack shipped with Wecra, editable, with "Opus 5.5 motion" (committed on its branch, not merged)
 
 - **The owner's request:** prepare the skills and put them in Wecra as defaults that can be changed; and an Opus 5.5 skill for Motion. As built: `docs/ai.md` §8.6.

@@ -14,13 +14,14 @@ export function Group({ title, children }: { title: string; children: ReactNode 
   );
 }
 
-type RowProps = { icon: IconName; label: string; badge?: ReactNode; status?: string; on?: boolean; dim?: boolean; onClick: () => void; statusProps?: Record<string, string> } & Record<`data-${string}`, string | undefined>;
+/** `mark`: drawn in the icon's place (an agent's own logo) */
+type RowProps = { icon: IconName; mark?: ReactNode; label: string; badge?: ReactNode; status?: string; on?: boolean; dim?: boolean; onClick: () => void; statusProps?: Record<string, string> } & Record<`data-${string}`, string | undefined>;
 
-export function Row({ icon, label, badge, status, on, dim, onClick, statusProps, ...data }: RowProps) {
+export function Row({ icon, mark, label, badge, status, on, dim, onClick, statusProps, ...data }: RowProps) {
   return (
     <div role="listitem" className={styles.rowItem}>
       <button type="button" className={cx(styles.row, dim && styles.rowDim)} onClick={onClick} {...data}>
-        <span className={styles.rowIcon}><Icon name={icon} /></span>
+        <span className={cx(styles.rowIcon, mark !== undefined && styles.rowMark)}>{mark ?? <Icon name={icon} />}</span>
         <span className={styles.rowLabel}>{label}</span>
         {badge}
         {status && (

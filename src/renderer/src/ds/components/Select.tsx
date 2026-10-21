@@ -18,7 +18,7 @@ import styles from "./Select.module.css";
  * An option; `image` is drawn in place of the label, in the field and in the list (live Stroke settings' "Width
  * profile": the profile as a 62 × 4 image named "Uniform"), the label staying its accessible name.
  */
-export type SelectOption = { value: string; label: string; icon?: IconName; hint?: string; /** A chip after the label (Menu's `chip`: Shader's "Beta") */ chip?: string; disabled?: boolean; image?: ReactNode; /** What the field shows when it is chosen (default: its label; e.g. the agent and its model under the agent's heading) */ valueLabel?: string };
+export type SelectOption = { value: string; label: string; icon?: IconName; hint?: string; /** A chip after the label (Menu's `chip`: Shader's "Beta") */ chip?: string; disabled?: boolean; image?: ReactNode; /** A mark in the icon's place in the list only (an agent's logo by its models) */ lead?: ReactNode; /** What the field shows when it is chosen (default: its label; e.g. the agent and its model under the agent's heading) */ valueLabel?: string };
 /** A list entry: an option, a line ("-"), or a group's heading (Menu's header — e.g. the agent above its models) */
 export type SelectEntry = SelectOption | "-" | { header: string };
 const isOption = (o: SelectEntry | undefined): o is SelectOption => !!o && typeof o === "object" && "value" in o;
@@ -283,7 +283,7 @@ function Listbox({ id, anchor, options, value, isStatic, noCheck, below, width, 
             onClick={() => !o.disabled && onPick(o.value)}
           >
             {!noCheck && <span className={menu.check}>{o.value === value && <Icon name="16.check" />}</span>}
-            {o.icon && <span className={menu.icon}><MenuIcon name={o.icon} /></span>}
+            {(o.icon || o.lead) && <span className={menu.icon}>{o.lead ?? <MenuIcon name={o.icon!} />}</span>}
             {o.image ? (
               <span className={cx(menu.label, styles.imageValue)}>
                 <span className={styles.image} role="img" aria-label={o.label}>

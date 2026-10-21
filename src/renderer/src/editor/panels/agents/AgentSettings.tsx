@@ -5,7 +5,7 @@
  * Sign in / Sign out / Test connection, a line on what it is, its page.
  */
 import { useEffect, useState, type ReactNode } from "react";
-import { Button, IconButton, Select, Spinner, TextInput, cx, showToast, type IconName } from "@/ds";
+import { AgentLogo, Button, IconButton, Select, Spinner, TextInput, cx, hasAgentLogo, showToast, type IconName } from "@/ds";
 import type { AuthState, McpClientInfo, ProviderInfo } from "@shared/agents/types";
 import { modelLabel, type AgentSetupHost } from "../../agents/setup";
 import { shortModelName } from "../../agents/models";
@@ -70,7 +70,7 @@ export function AgentSettings({ service, embedded }: { service: AgentSetupHost; 
   );
 }
 
-function Bar({ title, onBack, action }: { title: string; onBack?: () => void; action?: ReactNode }) {
+export function Bar({ title, onBack, action }: { title: string; onBack?: () => void; action?: ReactNode }) {
   useT();
   return (
     <div className={styles.chatBar}>
@@ -83,23 +83,40 @@ function Bar({ title, onBack, action }: { title: string; onBack?: () => void; ac
 
 // ---- The list -------------------------------------------------------------------------------------------------------
 
+/** "Look again" (the agents on this computer read again), or a spinner while they are. */
+export function LookAgain({ service }: { service: AgentSetupHost }) {
+  useT();
+  return service.get().providersLoading ? <span className={styles.barSpinner}><Spinner size={16} /></span> : <IconButton icon="24.reset.instance.small" label={t("Look again")} tone="secondary" onClick={() => void service.refreshProviders()} />;
+}
+
 function SettingsList({ service }: { service: AgentSetupHost }) {
   useT();
-  const state = service.get();
-  const local = state.providers.filter((p) => !isCustom(p));
-  const custom = state.providers.filter(isCustom);
-  const n = state.mcp.connections.length;
   return (
     <>
-      <Bar
-        title={t("Agent settings")}
-        onBack={service.leaveSettings && (() => service.leaveSettings!())}
-        action={state.providersLoading ? <span className={styles.barSpinner}><Spinner size={16} /></span> : <IconButton icon="24.reset.instance.small" label={t("Look again")} tone="secondary" onClick={() => void service.refreshProviders()} />}
-      />
+      <Bar title={t("Agent settings")} onBack={service.leaveSettings && (() => service.leaveSettings!())} action={<LookAgain service={service} />} />
       <div className={styles.scroll}>
         <Group title={t("Studio")}>
           <Row icon="24.agents" label={t("Manager")} status={managerStatus(service)} on={service.managerSettings().enabled} onClick={() => service.openSetting("manager")} data-settings-row="manager" />
         </Group>
+        <ProviderGroups service={service} />
+        <SkillsGroup service={service} />
+        <ConnectorsGroup service={service} />
+        <AccessGroup service={service} />
+        <McpGroup service={service} />
+        <p className={styles.footnote}>{t("Connected agents show up in the chat’s agent menu.")}</p>
+      </div>
+    </>
+  );
+}
+
+/** The agents on this computer and the servers added, one row each with its mark, its state and a chevron. */
+export function ProviderGroups({ service }: { service: AgentSetupHost }) {
+  useT();
+  const state = service.get();
+  const local = state.providers.filter((p) => !isCustom(p));
+  const custom = state.providers.filter(isCustom);
+  return (
+    <>
         <Group title={t("On this computer")}>
           {state.providersLoading && !local.length && <div className={styles.rowNote}><Spinner size={16} /> {t("Looking for agents…")}</div>}
           {local.map((p) => {
@@ -109,6 +126,7 @@ function SettingsList({ service }: { service: AgentSetupHost }) {
               <Row
                 key={p.id}
                 icon={KIND_ICON(p)}
+                mark={hasAgentLogo(p.id) ? <AgentLogo id={p.id} /> : undefined}
                 label={p.label}
                 status={t(status)}
                 on={on}
@@ -128,24 +146,28 @@ function SettingsList({ service }: { service: AgentSetupHost }) {
           ))}
           <Row icon="24.plus" label={t("Add a server")} onClick={() => service.openSetting("add-server")} data-settings-row="add-server" />
         </Group>
-        <SkillsGroup service={service} />
-        <ConnectorsGroup service={service} />
-        <AccessGroup service={service} />
-        <Group title={t("Connect other apps")}>
-          <Row icon="24.link" label={t("MCP server")} status={!state.mcp.url ? t("Not running") : tp(n, "{n} connection", "{n} connections")} on={n > 0} onClick={() => service.openSetting("mcp")} data-settings-row="mcp" />
-          {state.clients.map((c) => (
-            <Row key={c.id} icon="24.plugin" label={c.label} status={c.connected ? t("Connected") : c.installed ? t("Not connected") : t("Not installed")} on={c.connected} dim={!c.installed} onClick={() => service.openSetting(`client:${c.id}`)} data-client={c.id} data-connected={c.connected ? "" : undefined} />
-          ))}
-        </Group>
-        <p className={styles.footnote}>{t("Connected agents show up in the chat’s agent menu.")}</p>
-      </div>
     </>
+  );
+}
+
+/** Connect other apps: this app's MCP server and the apps that can use it. */
+export function McpGroup({ service }: { service: AgentSetupHost }) {
+  useT();
+  const state = service.get();
+  const n = state.mcp.connections.length;
+  return (
+    <Group title={t("Connect other apps")}>
+      <Row icon="24.link" label={t("MCP server")} status={!state.mcp.url ? t("Not running") : tp(n, "{n} connection", "{n} connections")} on={n > 0} onClick={() => service.openSetting("mcp")} data-settings-row="mcp" />
+      {state.clients.map((c) => (
+        <Row key={c.id} icon="24.plugin" label={c.label} status={c.connected ? t("Connected") : c.installed ? t("Not connected") : t("Not installed")} on={c.connected} dim={!c.installed} onClick={() => service.openSetting(`client:${c.id}`)} data-client={c.id} data-connected={c.connected ? "" : undefined} />
+      ))}
+    </Group>
   );
 }
 
 // ---- An item's page -------------------------------------------------------------------------------------------------
 
-function SettingsPage({ service, item }: { service: AgentSetupHost; item: string }) {
+export function SettingsPage({ service, item }: { service: AgentSetupHost; item: string }) {
   useT();
   const state = service.get();
   const back = () => {

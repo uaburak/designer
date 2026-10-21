@@ -14,10 +14,12 @@ import type { ManagerSettings, ReviewReport, TaskState } from "@shared/studio/ty
 import { managerName } from "../../agents/managerName";
 import { elapsedLabel, segmentsOf } from "../../agents/activity";
 import { modelLabel } from "../../agents/setup";
-import { toolLabel, type AgentsService, type ChatTask } from "../../agents/service";
+import type { AgentsService, ChatTask } from "../../agents/service";
 import type { ViewCard } from "../../agents/managerTools";
 import { BrandForm, ProductForm } from "../../studio/forms";
 import { useUI } from "../../hooks";
+import { AgentMark } from "./AgentMark";
+import { ToolRow } from "./StepRow";
 import styles from "./Agents.module.css";
 import { t, tp, useT } from "@/i18n";
 
@@ -54,9 +56,21 @@ function useNow(on: boolean): number {
   return now;
 }
 
+/** The event the pinned progress's row sends a task's card: open (it is scrolled to). */
+export const REVEAL_TASK = "agents:reveal-task";
+
 export function TaskCard({ task, service }: { task: ChatTask; service: AgentsService }) {
   useT();
-  const [open, setOpen] = useState(false);
+  // Open: the worker's steps are read without a click (the owner folds a card he's done with).
+  const [open, setOpen] = useState(true);
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = root.current;
+    if (!el) return;
+    const show = () => setOpen(true);
+    el.addEventListener(REVEAL_TASK, show);
+    return () => el.removeEventListener(REVEAL_TASK, show);
+  }, []);
   // The prompt as the owner edits it to run the task again (§5.2); null: not editing
   const [editing, setEditing] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -76,7 +90,7 @@ export function TaskCard({ task, service }: { task: ChatTask; service: AgentsSer
     });
   };
   return (
-    <div className={styles.task} data-task={task.id} data-task-state={task.state} data-task-kind={task.kind}>
+    <div ref={root} className={styles.task} data-task={task.id} data-task-state={task.state} data-task-kind={task.kind}>
       <div className={styles.taskHead}>
         <button type="button" className={styles.taskToggle} aria-expanded={open} onClick={() => setOpen(!open)} data-task-toggle="">
           <span className={cx(styles.taskIcon, styles[`task_${task.state}`])}>
@@ -85,6 +99,7 @@ export function TaskCard({ task, service }: { task: ChatTask; service: AgentsSer
           <span className={styles.taskText}>
             <span className={styles.taskName}>{task.title}</span>
             <span className={styles.taskMeta}>
+              {task.kind !== "image" && <AgentMark providerId={task.kind === "agent" ? task.route.providerId : undefined} manager={task.kind === "review"} className={styles.taskMark} />}
               {routeText(task, service.get().providers, images, service.managerSettings())} · <span data-task-state-label="">{t(STATE_LABEL[task.state])}</span>
               {time && ` ${time}`}
               {!!task.credits && ` · ${tp(task.credits, "{n} credit", "{n} credits")}`}
@@ -105,12 +120,7 @@ export function TaskCard({ task, service }: { task: ChatTask; service: AgentsSer
             s.kind === "text" ? (
               <p key={s.key} className={styles.taskSummary}>{s.text}</p>
             ) : (
-              s.steps.map((step) => (
-                <div key={step.id} className={styles.tool} data-tool={step.name} data-tool-state={step.state} {...tooltipProps(step.summary)}>
-                  <span className={styles.toolIcon}>{step.state === "running" ? <Spinner size={16} /> : step.state === "error" ? <Icon name="16.warning" /> : <Icon name="16.check" />}</span>
-                  <span className={styles.toolLabel}>{toolLabel(step.name)}</span>
-                </div>
-              ))
+              s.steps.map((step) => <ToolRow key={step.id} p={step} />)
             )
           )}
           {log?.error && <div className={styles.taskError}>{log.error}</div>}

@@ -15,7 +15,7 @@ import { IconButton } from "./Button";
 import styles from "./Popover.module.css";
 
 /** `left`: flush against the anchor's left side, level with its top (live: the Shader fills browser beside the picker) */
-export type PopoverPlacement = "left-of-panel" | "left" | "bottom-start" | "bottom" | "top" | "right";
+export type PopoverPlacement = "left-of-panel" | "left" | "bottom-start" | "bottom-end" | "bottom" | "top" | "right";
 
 export interface PopoverProps {
   anchor: DOMRect | HTMLElement | null;
@@ -106,8 +106,8 @@ export function Popover({ anchor, placement = "left-of-panel", title, header, he
       el.toggleAttribute("data-arrow-off", y < r.bottom + gap - 0.5);
       el.style.setProperty("--popover-arrow-x", `${Math.round(Math.max(16, Math.min(cx - x, el.offsetWidth - 16)))}px`);
     } else {
-      const side = placement === "bottom-start" ? "bottom" : placement;
-      const p = place(r, { width: el.offsetWidth, height: el.offsetHeight }, view, side, placement === "bottom-start" ? "start" : "center", gap);
+      const side = placement === "bottom-start" || placement === "bottom-end" ? "bottom" : placement;
+      const p = place(r, { width: el.offsetWidth, height: el.offsetHeight }, view, side, placement === "bottom-start" ? "start" : placement === "bottom-end" ? "end" : "center", gap);
       x = p.x;
       y = p.y;
     }

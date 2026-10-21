@@ -35,6 +35,7 @@ export { FocusTrap, useFocusScope } from "./overlay/FocusTrap";
 export { TooltipManager, TooltipBubble, tooltipProps } from "./overlay/TooltipManager";
 
 export { Icon, ICON_NAMES, iconBox, type IconName, type IconProps } from "./icons/Icon";
+export { AgentLogo, hasAgentLogo, type AgentLogoId, type AgentLogoProps } from "./icons/AgentLogo";
 
 export * from "./components/Button";
 export * from "./components/Spinner";

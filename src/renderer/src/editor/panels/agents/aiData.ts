@@ -85,6 +85,12 @@ export async function setDefaultSkillOn(name: string, on: boolean): Promise<void
   await skillsBox.refresh();
 }
 
+/** A skill on or off from a switch (the panel's "This chat"): a default's switch, else the owner's skill saved. */
+export async function toggleSkill(s: SkillEntry, on: boolean): Promise<void> {
+  if (s.origin === "default") return setDefaultSkillOn(s.name, on);
+  await saveSkill({ id: s.id, name: s.name, description: s.description, instructions: s.instructions, enabled: on });
+}
+
 /** Reset to default: the owner's copy of a default goes; the default comes back on or off as his copy was. */
 export async function resetSkill(copy: Pick<AiSkill, "id" | "name" | "enabled">): Promise<void> {
   const repo = skillsRepo();

@@ -51,8 +51,10 @@
   .user { display: flex; flex-direction: column; align-items: flex-end; gap: var(--ds-space-1); margin: var(--ds-space-2) 0 var(--ds-space-3) var(--ds-space-6); }
   .userBubble { max-width: 100%; padding: var(--ds-space-2) var(--ds-space-3); border-radius: var(--ds-radius-large); background: var(--figma-color-bg-secondary); color: var(--figma-color-text); font: var(--ds-font-body-medium); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
   .chips { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--ds-space-1); }
-  .chip { display: inline-flex; align-items: center; gap: var(--ds-space-1); max-width: 100%; height: var(--ds-size-row); padding: 0 var(--ds-space-1-5) 0 var(--ds-space-1); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
-  .chip svg { flex: none; color: var(--figma-color-icon-secondary); }
+  /* The selection's and the files' chips: 22 high, their glyph at 14 (smaller than the message's own text) */
+  .chip { display: inline-flex; align-items: center; gap: var(--ds-space-half); max-width: 100%; height: calc(var(--ds-size-control) - var(--ds-space-half)); padding: 0 var(--ds-space-1) 0 var(--ds-space-half); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .chip svg { flex: none; width: calc(var(--ds-space-4) - var(--ds-space-half)); height: calc(var(--ds-space-4) - var(--ds-space-half)); color: var(--figma-color-icon-secondary); }
+  .chip .fileThumb { width: calc(var(--ds-space-4) - var(--ds-space-half)); height: calc(var(--ds-space-4) - var(--ds-space-half)); }
   .chipName { overflow: hidden; color: var(--figma-color-text); text-overflow: ellipsis; white-space: nowrap; }
   .chipRemove { display: inline-flex; padding: 0; border: 0; border-radius: var(--ds-radius-small); background: transparent; color: var(--figma-color-icon-secondary); outline: none; }
   .chipRemove:hover { color: var(--figma-color-icon); }
@@ -61,7 +63,10 @@
 
   /* The answer: its text, its steps, its changes */
   .agent { display: flex; flex-direction: column; gap: var(--ds-space-1-5); margin-bottom: var(--ds-space-4); }
-  .agentName { color: var(--figma-color-text-tertiary); font: var(--ds-font-body-small); }
+  .agentName { display: inline-flex; align-items: center; gap: var(--ds-space-1); color: var(--figma-color-text-tertiary); font: var(--ds-font-body-small); }
+  /* An agent's mark (AgentMark): its own logo at 16, the manager's sparkle, else the Agents glyph */
+  .mark { display: inline-flex; flex: none; align-items: center; justify-content: center; width: var(--ds-space-4); height: var(--ds-space-4); color: var(--figma-color-icon-secondary); }
+  .mark > svg { width: 100%; height: 100%; }
   .agentText { color: var(--figma-color-text); font: var(--ds-font-body-medium); overflow-wrap: anywhere; user-select: text; }
   .para { margin: 0 0 var(--ds-space-2); }
   .para:last-child { margin-bottom: 0; }
@@ -85,6 +90,11 @@
   .toolIcon { display: inline-flex; flex: none; color: var(--figma-color-icon-tertiary); }
   .tool[data-tool-state="error"] .toolIcon { color: var(--figma-color-icon-danger); }
   .toolLabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* With a detail after it: the label keeps its words (up to most of the line), the detail gives way */
+  .toolLabelLead { flex: none; max-width: 70%; }
+  .toolDetail { flex: 0 1 auto; min-width: 0; overflow: hidden; color: var(--figma-color-text-tertiary); text-overflow: ellipsis; white-space: nowrap; }
+  .groupCount { flex: none; color: var(--figma-color-text-tertiary); }
+  .groupMark { color: var(--figma-color-icon-secondary); }
   .toolFailed { display: flex; flex-direction: column; gap: var(--ds-space-1); }
   .toolFailed > .tool { padding: 0; border: 0; background: transparent; text-align: left; outline: none; cursor: default; }
   .toolFailed > .tool:hover { color: var(--figma-color-text); }
@@ -150,7 +160,7 @@
     .imageCard[data-reveal="play"] .imageCardImg { animation: none; }
     .imageCard[data-reveal="play"] .imageCardBusy { display: none; }
   }
-  .changes { display: flex; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-1-5) var(--ds-space-1-5) var(--ds-space-1-5) var(--ds-space-2); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium); }
+  .changes { display: flex; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-1-5) var(--ds-space-1-5) var(--ds-space-1-5) calc(var(--ds-space-2) + var(--ds-space-half)); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-large); }
   .changesLabel { flex: 1 1 auto; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); }
   .changesHint { color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); }
 
@@ -359,4 +369,101 @@
   .followUp:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .followUp:disabled { color: var(--figma-color-text-disabled); }
   .contextFormat { flex: none; color: var(--figma-color-text-tertiary); }
+
+  /* A settings row's agent logo in the 24 glyph's place */
+  .rowMark { align-items: center; justify-content: center; width: var(--ds-size-control); height: var(--ds-size-control); }
+  .taskMark { display: inline-flex; width: var(--ds-space-3); height: var(--ds-space-3); margin-right: var(--ds-space-1); vertical-align: -2px; }
+  /* A task card the pinned progress pointed at */
+  .task[data-flash] { animation: flash calc(var(--ds-duration-shimmer) / 2) var(--ds-ease-out); }
+  @keyframes flash {
+    0%,
+    40% { background: var(--figma-color-bg-hover); }
+    100% { background: var(--figma-color-bg); }
+  }
+
+  /* The run pinned above the composer (RunDock.tsx): its header line; open, the phases, the progress, a row per task */
+  .dock { flex: none; margin: 0 var(--ds-space-2) var(--ds-space-1-5); padding: var(--ds-space-half) 0; border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-large); background: var(--figma-color-bg); }
+  .dockHead { display: flex; align-items: center; gap: var(--ds-space-1-5); width: 100%; min-height: calc(var(--ds-size-control) + var(--ds-space-half)); padding: 0 var(--ds-space-1-5) 0 var(--ds-space-2); border: 0; background: transparent; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); text-align: left; outline: none; cursor: default; }
+  .dockHead:hover { color: var(--figma-color-text); }
+  .dockHead:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); border-radius: var(--ds-radius-large); }
+  .dockMarks { display: inline-flex; flex: none; }
+  .dockMarks > .mark + .mark { margin-left: calc(var(--ds-space-1) * -1); border-radius: var(--ds-radius-full); background: var(--figma-color-bg); box-shadow: 0 0 0 var(--ds-space-half) var(--figma-color-bg); }
+  .dockTitle { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dockTitle strong { color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .phases { display: flex; flex-wrap: wrap; gap: var(--ds-space-1); padding: 0 var(--ds-space-2) var(--ds-space-1-5); color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); }
+  .phase { display: inline-flex; align-items: center; gap: var(--ds-space-half); }
+  .phase + .phase::before { margin-right: var(--ds-space-half); color: var(--figma-color-text-tertiary); content: "›"; }
+  .phase[data-phase-state="done"] { color: var(--figma-color-text-secondary); }
+  .phase[data-phase-state="on"] { color: var(--figma-color-text); }
+  .progress { display: flex; align-items: center; gap: var(--ds-space-2); padding: 0 var(--ds-space-2) var(--ds-space-1-5); color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); font-variant-numeric: tabular-nums; }
+  .progressBar { position: relative; flex: 1 1 auto; height: var(--ds-space-half); overflow: hidden; border-radius: var(--ds-radius-full); background: var(--figma-color-border); }
+  .progressBar > i { display: block; height: 100%; background: var(--figma-color-icon-secondary); transition: width var(--ds-duration-medium) var(--ds-ease-out); }
+  /* No total known (a single agent's steps): a short piece sweeping across */
+  .progressBar[data-indeterminate] > i { width: 30%; animation: indeterminate var(--ds-duration-shimmer) ease-in-out infinite; }
+  @keyframes indeterminate { from { margin-left: -30%; } to { margin-left: 100%; } }
+  @media (prefers-reduced-motion: reduce) { .progressBar[data-indeterminate] > i { width: 100%; margin-left: 0; opacity: 0.4; animation: none; } }
+  .dockRow { position: relative; display: grid; grid-template-columns: var(--ds-space-4) minmax(0, 1fr) auto auto; grid-template-rows: var(--ds-space-4) var(--ds-space-4); column-gap: var(--ds-space-1-5); align-items: center; margin: 0 var(--ds-space-half); padding: var(--ds-space-1) var(--ds-space-1) var(--ds-space-1) var(--ds-space-1-5); border-radius: var(--ds-radius-medium); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); outline: none; cursor: default; }
+  .dockRow:hover { background: var(--figma-color-bg-hover); }
+  .dockRow:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .dockRow > .mark { grid-row: 1 / 3; }
+  .dockTask { overflow: hidden; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); text-overflow: ellipsis; white-space: nowrap; }
+  .dockTime { color: var(--figma-color-text-tertiary); font-variant-numeric: tabular-nums; }
+  .dockState { display: inline-flex; width: var(--ds-space-4); height: var(--ds-space-4); color: var(--figma-color-icon-secondary); }
+  .dockRow[data-task-state="done"] .dockState { color: var(--figma-color-icon-success); }
+  .dockRow[data-task-state="waiting"] .dockState, .dockRow[data-task-state="failed"] .dockState { color: var(--figma-color-icon-warning); }
+  /* Stop takes the spinner's place on hover */
+  .dockStop { display: none; grid-row: 1; grid-column: 4; width: var(--ds-space-4); height: var(--ds-space-4); }
+  .dockRow:hover .dockStop, .dockStop:focus-visible { display: inline-flex; }
+  .dockRow:hover .dockStateLive { display: none; }
+  .dockSub { display: flex; grid-column: 2 / 5; gap: var(--ds-space-1); min-width: 0; }
+  .dockName { flex: none; color: var(--figma-color-text-tertiary); }
+  .dockStep { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dockStepAsk { color: var(--figma-color-text); }
+  .dockCount { flex: none; color: var(--figma-color-text-tertiary); font-variant-numeric: tabular-nums; }
+
+  /* A message written while the turn runs, above the field: "Queued · …", Send now, ✕ */
+  .queued { display: flex; align-items: center; gap: var(--ds-space-1-5); min-height: var(--ds-size-control); margin: calc(var(--ds-space-half) * -1) 0 0 calc(var(--ds-space-half) * -1); padding: 0 0 0 var(--ds-space-1); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); font: var(--ds-font-body-medium); }
+  .queuedText { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--figma-color-text-secondary); text-overflow: ellipsis; white-space: nowrap; }
+  .queuedLabel { color: var(--figma-color-text-tertiary); }
+  .queued .link { align-self: center; white-space: nowrap; }
+  .queuedRemove { flex: none; }
+
+  /* An approval: one line (who wants what · the target) and its buttons; answered, a quiet line */
+  .ask { display: flex; flex-direction: column; gap: var(--ds-space-2); margin: var(--ds-space-2) 0; padding: var(--ds-space-2) calc(var(--ds-space-2) + var(--ds-space-half)); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-large); background: var(--figma-color-bg); }
+  .askLine { display: flex; align-items: flex-start; gap: var(--ds-space-1-5); color: var(--figma-color-text); font: var(--ds-font-body-medium); }
+  .askText { min-width: 0; overflow-wrap: anywhere; }
+  .askTarget { color: var(--figma-color-text-secondary); }
+  .askDetails summary { color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); cursor: default; }
+  .ask .actions { gap: var(--ds-space-1-5); }
+  .asked { display: flex; align-items: center; gap: var(--ds-space-1-5); min-height: var(--ds-space-5); margin-bottom: var(--ds-space-2); color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); }
+  .askedText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* "This chat" (the gear's popover) */
+  .pop { display: flex; flex-direction: column; padding: var(--ds-space-2) 0; }
+  .popRow { display: flex; align-items: center; gap: var(--ds-space-2); min-height: var(--ds-size-row); padding: 0 var(--ds-space-2) 0 var(--ds-space-4); }
+  .popLabel, .popLabelMain { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); text-overflow: ellipsis; white-space: nowrap; }
+  .popLabelMain { color: var(--figma-color-text); }
+  .popSep { height: 1px; margin: var(--ds-space-2) 0; background: var(--figma-color-border); }
+  .popHead { display: flex; align-items: center; height: var(--ds-size-control); padding: 0 var(--ds-space-4); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .popLink { display: flex; align-items: center; width: calc(100% - var(--ds-space-4)); height: var(--ds-size-control); margin: 0 var(--ds-space-2); padding: 0 var(--ds-space-2); border: 0; border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-text); font: var(--ds-font-body-medium); text-align: left; outline: none; cursor: default; }
+  .popLink:hover { background: var(--figma-color-bg-hover); }
+  .popLink:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+
+  /* Agent settings, the modal (AgentSettingsModal.tsx): Manage libraries' shell — the nav at the left, the section */
+  .settingsModal { width: min(calc(var(--ds-size-library-nav) + var(--ds-size-library-modal)), 100vw); height: min(var(--ds-size-library-modal-height), calc(100vh - var(--ds-space-8))); }
+  .settingsModal > :nth-child(2) { padding: 0; overflow: hidden; }
+  .settingsShell { display: flex; height: 100%; min-height: 0; }
+  .settingsNav { display: flex; flex: none; flex-direction: column; width: var(--ds-size-library-nav); min-width: 0; padding: var(--ds-space-2); overflow-y: auto; border-right: 1px solid var(--figma-color-border); }
+  .settingsTabs { display: flex; flex-direction: column; }
+  .settingsTab { display: flex; align-items: center; gap: var(--ds-space-1); height: var(--ds-size-control); padding: 0 var(--ds-space-2) 0 0; border: 0; border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); text-align: left; outline: none; cursor: default; }
+  .settingsTab svg { color: var(--figma-color-icon-secondary); }
+  .settingsTab:hover { background: var(--figma-color-bg-hover); }
+  .settingsTab[aria-selected="true"] { background: var(--figma-color-bg-secondary); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .settingsTab:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
+  .settingsTabLabel { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* The section scrolls in the modal (the embedded settings' look, with the modal's inset) */
+  .settingsContent { flex: 1 1 auto; min-width: 0; padding: var(--ds-space-4) var(--ds-space-6) var(--ds-space-8); overflow-y: auto; }
+  .usageSection { display: flex; flex-direction: column; gap: var(--ds-space-3); padding: var(--ds-space-3) 0; border-top: 1px solid var(--figma-color-border); }
+  .usageSection:first-child { border-top: 0; }
+  .usageSectionTitle { display: flex; align-items: center; gap: var(--ds-space-1-5); margin: 0; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
 }

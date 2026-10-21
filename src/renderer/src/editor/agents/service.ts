@@ -75,11 +75,15 @@ export interface ChatMessage {
   state?: "running" | "done" | "stopped" | "error";
   /** When the turn was sent (the Thinking… row's seconds) */
   startedAt?: number;
+  /** When it ended (the pinned progress's time) */
+  endedAt?: number;
   error?: string;
   turnId?: string;
   /** The turn's step: how many layers it touched, and whether it is applied / undone / stale */
   changes?: { count: number; state: TurnRecord["state"]; overwritten?: number };
   provider?: string;
+  /** assistant: the agent's id (its mark); older answers have its label only */
+  providerId?: string;
   /** assistant: the turn's tokens (its AI credits on hover — docs/ai.md §7) */
   usage?: TokenUsage;
   /** user: the Skill it ran with /name */
@@ -131,11 +135,14 @@ export interface AgentChoice {
   effort?: string;
 }
 
+/** "settings" (as callers ask for it): opens Agent settings over the view, which stays as it was */
 export type AgentsView = "list" | "chat" | "settings";
 
 export interface AgentsState {
   available: boolean;
-  view: AgentsView;
+  view: Exclude<AgentsView, "settings">;
+  /** Agent settings (the modal over the panel) is open */
+  settingsOpen: boolean;
   /** Agent settings' open page: null for the list, else an item ("provider:antigravity", "add-server", "mcp", "client:cursor") */
   settingsItem: string | null;
   chats: Chat[];
@@ -320,7 +327,7 @@ export class AgentsService implements AgentSetupHost {
     this.storageKey = `designer.agents.chats.${fileId}`;
     this.choiceKey = `designer.agents.choice.${fileId}`;
     this.choice = this.loadChoice();
-    this.state = { available: !!api, view: "list", settingsItem: null, chats: this.load(), current: null, providers: [], providersLoading: false, settings: EMPTY_SETTINGS, mcp: { running: false, url: null, connections: [] }, clients: [], running: {}, usage: {}, resolved: loadResolved(), consents: [], draftConnectors: [], socialDirect: false };
+    this.state = { available: !!api, view: "list", settingsOpen: false, settingsItem: null, chats: this.load(), current: null, providers: [], providersLoading: false, settings: EMPTY_SETTINGS, mcp: { running: false, url: null, connections: [] }, clients: [], running: {}, usage: {}, resolved: loadResolved(), consents: [], draftConnectors: [], socialDirect: false };
     if (!this.state.chats.length) this.state.view = "chat";
     this.queue.restore(this.state.chats.flatMap((c) => c.tasks ?? []));
     if (!api) return;
@@ -534,19 +541,30 @@ export class AgentsService implements AgentSetupHost {
   // ---- Navigation ----
 
   setView(view: AgentsView) {
+    if (view === "settings") {
+      // Agent settings opens over the panel (its modal); the chat or the list stays under it.
+      this.set({ settingsOpen: true, settingsItem: null });
+      void this.refreshSetup();
+      return;
+    }
     // The list's composer starts a new chat: none is the current one there.
-    this.set({ view, settingsItem: null, ...(view === "list" ? { current: null } : {}) });
-    if (view === "settings") void this.refreshSetup();
+    this.set({ view, settingsOpen: false, settingsItem: null, ...(view === "list" ? { current: null } : {}) });
   }
 
-  /** Agent settings: one item's page, or the list (null). */
+  /** Agent settings: one item's page, or its section (null) — the modal opens if it isn't. */
   openSetting(item: string | null) {
-    this.set({ view: "settings", settingsItem: item });
+    if (!this.state.settingsOpen) void this.refreshSetup();
+    this.set({ settingsOpen: true, settingsItem: item });
   }
 
-  /** Agent settings' Back from the list: the chats (or a new one). */
+  /** Agent settings closes: the panel as it was. */
+  closeSettings() {
+    this.set({ settingsOpen: false, settingsItem: null });
+  }
+
+  /** Agent settings' Back from the list: the panel as it was. */
   leaveSettings() {
-    this.setView(this.state.chats.length ? "list" : "chat");
+    this.closeSettings();
   }
 
   newChat() {
@@ -749,7 +767,7 @@ export class AgentsService implements AgentSetupHost {
     const chatId = chat.id;
     if (this.state.running[chatId]) return;
     const user: ChatMessage = { id: uid(), role: "user", text: shown ?? text, context, ...(files.length ? { attachments: files } : {}), ...(invoked ? { skill: invoked.skill.name } : {}) };
-    const answer: ChatMessage = { id: uid(), role: "assistant", parts: [], state: "running", startedAt: Date.now(), provider: manager ? managerName(this.managerSettings()) : provider?.label, ...(manager ? { manager: true } : {}) };
+    const answer: ChatMessage = { id: uid(), role: "assistant", parts: [], state: "running", startedAt: Date.now(), provider: manager ? managerName(this.managerSettings()) : provider?.label, ...(provider ? { providerId: provider.id } : {}), ...(manager ? { manager: true } : {}) };
     // A picture asked for: where it will land, in the chat and on the canvas, from now on (over the selected layer it fills).
     if (provider && !manager && asksForImage(text)) {
       const target = placeholderTarget({ ...this.placeholderEnv(), selection: (context ?? []).map((c) => c.id) });
@@ -912,6 +930,7 @@ export class AgentsService implements AgentSetupHost {
     this.updateMessage(target.chat, target.message, (m) => ({
       ...m,
       state: m.state === "error" ? "error" : event.stopped ? "stopped" : "done",
+      endedAt: Date.now(),
       parts: turnOver(m.parts ?? [], !!event.stopped),
       changes: record && record.state !== "none" ? { count: touched, state: record.state, ...(record.overwritten.length ? { overwritten: record.overwritten.length } : {}) } : undefined,
     }));
