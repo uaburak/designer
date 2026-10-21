@@ -2,6 +2,13 @@
 
 First written 2026-10-06 when the first Claude session stopped and the owner moved the work to another Claude account through GitHub (`https://github.com/uaburak/designer`). Updated the same day by the second session, which finished every workstream's partial items and ran the integration round. Read `AGENTS.md`, `docs/architecture.md` and `docs/roadmap.md` first; the contracts in `docs/` decide everything; `docs/research/` holds the verified facts about Figma (with sources).
 
+## Status 2026-10-21 (evening) — Wecra 1.5.0: web behaviours, motion for agents, sound; owner's notes on sound
+
+Released as 1.5.0 from main (prototype-web + motion-ai merged). The owner tried the generated sound and said: **the sounds don't sit tightly on the videos (sync is off) and they don't sound good enough.** Shipped as is; to do later:
+- **Sync:** cues land a little off the visual moments in exported videos — check the sync points per recipe (whoosh peak, hit transient, riser end) against `score_motion` events and the export mix (frame vs sample offsets, the video encoder's audio delay/priming, MP4 edit lists), and test with a click track on a frame counter.
+- **Quality:** the synthesised sounds are too plain/synthetic. Options: better DSP (layered transients, convolution reverb with real IRs, saturation, EQ), a curated CC0 sample pack mixed with synthesis, or the optional AI provider (ElevenLabs SFX / a music model) behind a key — owner's preference is free first.
+- Also: render long beds in a worker (a 30 s bed blocks ~0.8 s); prototype player doesn't play timeline audio.
+
 ## Status 2026-10-21 (late night) — sound for motion: agents generate sound locally, synced to the animation (committed on its branch, on top of motion-ai; not merged)
 
 - The owner: "make sound while making motion — and alone: I made an animation, go generate sound for it." Free and local (no paid API): `docs/motion.md` §9.3, `docs/ai.md` §8.4.
