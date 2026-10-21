@@ -556,3 +556,47 @@ TEST_CASE("website behaviours: Text input and Cursor are instance overrides — 
   CHECK(proto::cursor(f.ed.document().get(a)->props) == proto::Cursor::AUTO);
   CHECK(f.ed.document().get(IA)->props.comp().symbolData.overrides[0].props.extra.count("prototypeCursor") == 0);
 }
+
+TEST_CASE("website behaviours: a press anywhere on a text input's box focuses it; a frame without one is no box") {
+  Fixture f;
+  f.load();
+  // Field is 300 × 40 at (20, 500), its text 200 × 20 inside at (10, 10): press its empty right end and bottom edge.
+  f.player.pointer(PointerEvent::MOVE, 300, 535, 0, 0);
+  CHECK(f.player.cursorNow() == proto::Cursor::TEXT);
+  f.player.pointer(PointerEvent::DOWN, 300, 535, 1, 0);
+  f.player.pointer(PointerEvent::UP, 300, 535, 0, 0);
+  f.advance(16);
+  CHECK(f.player.focusedField() == EMAIL);
+  // Help holds only an icon (no text input): pressing it blurs.
+  f.player.pointer(PointerEvent::MOVE, 690, 70, 0, 0);
+  f.player.pointer(PointerEvent::DOWN, 690, 70, 1, 0);
+  f.player.pointer(PointerEvent::UP, 690, 70, 0, 0);
+  f.advance(16);
+  CHECK(f.player.focusedField() == kNoGuid);
+}
+
+TEST_CASE("website behaviours: Tab scrolls a layer into view 16 px inside, clear of the page's chrome at the bottom") {
+  const Guid TALL{66, 1}, TOPB{66, 2}, LOWB{66, 3};
+  Fixture f;
+  f.add(TALL, NodeType::FRAME, kPage, "&", {4000, 0, 800, 2000}, "Tall");
+  f.add(TOPB, NodeType::RECTANGLE, TALL, "!", {20, 20, 100, 30}, "Top", ixs({entry("ON_CLICK", kClose)}));
+  f.add(LOWB, NodeType::RECTANGLE, TALL, "\"", {20, 1200, 100, 30}, "Low", ixs({entry("ON_CLICK", kClose)}));
+  f.ed.setSessionID(1);
+  f.ed.setViewport(800, 600, 1, 800, 600);
+  f.ed.loadDocument(f.nodes, kNoGuid);
+  f.player.setScale(proto::ScaleMode::ACTUAL);
+  f.player.setChromeInsets(0, 56);  // the floating stepper: 40 high, 8 over the bottom, and 8 more
+  REQUIRE(f.player.start(kPage, TALL));
+  f.advance(16);
+  CHECK(f.key(kTab) == 1);
+  CHECK(f.player.focused() == TOPB);
+  CHECK(f.player.scrollOf(TALL).y == doctest::Approx(0));
+  CHECK(f.key(kTab) == 1);
+  CHECK(f.player.focused() == LOWB);
+  // Its bottom (1230) at 600 − 56 − 16 = 528 in the window.
+  CHECK(f.player.scrollOf(TALL).y == doctest::Approx(1230 - 528));
+  // Back up: its top 16 px under the window's top.
+  CHECK(f.key(kTab, MOD_SHIFT) == 1);
+  CHECK(f.player.focused() == TOPB);
+  CHECK(f.player.scrollOf(TALL).y == doctest::Approx(4));
+}

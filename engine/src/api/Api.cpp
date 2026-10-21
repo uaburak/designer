@@ -3430,6 +3430,14 @@ ENG_EXPORT int32_t engine_present_set_options(Handle h, Ptr ptr, uint32_t len) {
   if (auto* keys = v.get("shortcuts"); keys && keys->isBool()) e->player->setShortcuts(keys->boolean);
   // Website behaviours (Options › Advanced settings; off: Figma's behaviour).
   if (auto* web = v.get("websiteBehaviours"); web && web->isBool()) e->player->setWebBehaviours(web->boolean);
+  // The page's chrome over the canvas {top, bottom} (CSS px): keyboard focus scrolls layers clear of it.
+  if (auto* insets = v.get("chromeInsets"); insets && insets->isObject()) {
+    auto num = [&](const char* k) {
+      auto* n = insets->get(k);
+      return n && n->isNumber() ? n->number : 0.0;
+    };
+    e->player->setChromeInsets(num("top"), num("bottom"));
+  }
   // With a device: Responsive / Fixed size, Show device frame.
   if (auto* r = v.get("responsive"); r && r->isBool()) e->player->setResponsive(r->boolean);
   if (auto* f = v.get("deviceFrame"); f && f->isBool()) e->player->setDeviceFrame(f->boolean);

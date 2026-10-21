@@ -344,6 +344,43 @@ declare global {
   }
 }
 
+/**
+ * The scale chosen for a file (Options, Z; with a device Responsive / Fixed size), kept in this browser as the flows
+ * sidebar is — the next presentation of that file (a reload, Present here again) starts with it. A link's `scaling`
+ * and a phone's Fit width go over it.
+ */
+const SCALE_PREFIX = "designer.present.scale:";
+export interface KeptScale {
+  scale?: PresentScale;
+  responsive?: boolean;
+}
+export function readKeptScale(file: string): KeptScale {
+  try {
+    const v = JSON.parse(localStorage.getItem(SCALE_PREFIX + file) ?? "null") as KeptScale | null;
+    const out: KeptScale = {};
+    if (v && SCALES.some((s) => s.value === v.scale)) out.scale = v.scale;
+    if (typeof v?.responsive === "boolean") out.responsive = v.responsive;
+    return out;
+  } catch {
+    return {};
+  }
+}
+export function writeKeptScale(file: string, kept: KeptScale): void {
+  try {
+    localStorage.setItem(SCALE_PREFIX + file, JSON.stringify(kept));
+  } catch {
+    /* not remembered */
+  }
+}
+
+/** ⌘R (Ctrl+R off the Mac), nothing else held: Reload. */
+export function isReloadKey(e: { code: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean }, mac = presentHost() === "mac"): boolean {
+  return e.code === "KeyR" && (mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey) && !e.altKey && !e.shiftKey;
+}
+
+/** The desktop app (a view with the preload's bridge): ⌘R reloads no page there. */
+const inDesktopApp = (): boolean => typeof window !== "undefined" && !!(window as unknown as { designer?: unknown }).designer;
+
 const SIDEBAR_KEY = "designer.present.sidebar";
 const readSidebar = (): boolean => {
   try {
@@ -392,10 +429,21 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
 
   // Keep state on reload (webBehaviours.ts): where this prototype's state is kept in the tab's session storage.
   const keptKey = useRef<string | null>(null);
+  // The scale kept for the file (readKeptScale): its key and the scale last read (a change after the start is kept).
+  const keptScale = useRef<{ file: string; last: string | null } | null>(null);
+  // ⌘R in the desktop app: the prototype reloaded (set while presenting).
+  const reloadRef = useRef<(() => void) | null>(null);
+  const footerRef = useRef<HTMLDivElement>(null);
   const readState = useCallback(() => {
     const engine = engineRef.current;
     if (!engine || engine.destroyed) return;
     const s = engine.presentState();
+    const ks = keptScale.current;
+    if (ks && s.active) {
+      const now = JSON.stringify({ scale: s.scale, responsive: s.responsive });
+      if (ks.last !== null && ks.last !== now) writeKeptScale(ks.file, { scale: s.scale, responsive: s.responsive });
+      ks.last = now;
+    }
     for (const e of s.events) if (e.type === "OPEN_URL" && e.url) window.open(e.url, e.newTab ? "_blank" : "_self", "noopener");
     // Restart forgets what was kept.
     if (keptKey.current && s.events.some((e) => e.type === "RESTARTED")) forgetKeptState(keptKey.current);
@@ -522,6 +570,26 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     const mobile = !inline && isMobileBrowser();
     const { scale = mobile ? "FIT_WIDTH" : undefined, hints, deviceFrame = mobile ? false : undefined } = urlOptions ?? {};
     if (scale || hints !== undefined || deviceFrame !== undefined) engine.presentSetOptions({ ...(scale ? { scale } : {}), ...(hints !== undefined ? { hints } : {}), ...(deviceFrame !== undefined ? { deviceFrame } : {}) });
+    // The scale last chosen for this file (not over a link's or a phone's).
+    if (!inline) {
+      const file = source.stateKey ?? source.fileName;
+      if (!scale) {
+        const own = readKeptScale(file);
+        if (own.scale || own.responsive !== undefined) engine.presentSetOptions(own);
+      }
+      keptScale.current = { file, last: null };
+    }
+    // ⌘R in the desktop app (no page reload there): what a reload does to a web page — the prototype starts again where
+    // it started, with what Keep state on reload kept.
+    reloadRef.current = () => {
+      if (engine.destroyed) return;
+      const keep = engine.presentState().websiteBehaviours !== false && readWebOptions().keepState;
+      if (keep) saveKeptState(engine, kept);
+      engine.presentStop();
+      engine.presentStart({ ...(page ? { page } : {}), ...(start ? { node: start } : {}) });
+      if (keep) restoreKeptState(engine, kept);
+      readState();
+    };
     // The videos: played by the browser, decided by the player.
     const videos = new PresentationVideos(engine, source.images, videoHost.current);
     (window as unknown as { __designerVideos?: PresentationVideos }).__designerVideos = videos;
@@ -549,6 +617,8 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     return () => {
       window.removeEventListener("pagehide", onPageHide);
       keptKey.current = null;
+      keptScale.current = null;
+      reloadRef.current = null;
       deriveAhead.current = null;
       if (idle) (typeof cancelIdleCallback === "function" ? cancelIdleCallback : window.clearTimeout)(idle);
       window.clearInterval(timer);
@@ -561,6 +631,26 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     // Shown again: from the `node` of that opening.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, hidden]);
+
+  // The floating stepper and Restart over the canvas's bottom: keyboard focus scrolls layers clear of them.
+  useLayoutEffect(() => {
+    const engine = ready;
+    const canvas = canvasRef.current;
+    if (!engine || engine.destroyed || hidden || !canvas) return;
+    const footer = footerRef.current;
+    const measure = () => {
+      if (engine.destroyed) return;
+      const c = canvas.getBoundingClientRect();
+      const f = footer?.getBoundingClientRect();
+      engine.presentSetOptions({ chromeInsets: { top: 0, bottom: f && f.height > 0 ? Math.max(0, Math.round(c.bottom - f.top)) : 0 } });
+    };
+    measure();
+    if (typeof ResizeObserver !== "function") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(canvas);
+    if (footer) observer.observe(footer);
+    return () => observer.disconnect();
+  }, [ready, hidden, hideUi]);
 
   // Keys: the prototype's first (Key / Gamepad), then the presentation's.
   useEffect(() => {
@@ -603,6 +693,13 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       if (isHideUiKey(e)) {
         e.preventDefault();
         toggleHideUi();
+        return;
+      }
+      // ⌘R: a browser reloads the page itself (Keep state on reload saves on pagehide); the app's menu bar would run the
+      // editor's Rename with it, so the prototype is reloaded here.
+      if (isReloadKey(e) && inDesktopApp()) {
+        e.preventDefault();
+        reloadRef.current?.();
         return;
       }
       if (e.metaKey || e.ctrlKey || e.altKey || inline) return;
@@ -650,7 +747,15 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     engine.presentPointer(type, x, y, e.buttons, modsOf(e));
     if (type !== POINTER.move) readState();
     else e.currentTarget.style.cursor = engine.presentCursor();
+    // A press that focused a text input: the typing goes to its <textarea>, whatever took the focus meanwhile.
+    if (type === POINTER.up) {
+      const el = fieldRef.current;
+      if (el && document.activeElement !== el && !engine.destroyed && engine.presentState().field) el.focus({ preventScroll: true });
+    }
   };
+  // The focus is given on pointerdown (the canvas, or the text input pressed): mousedown's default would take it back to
+  // the canvas (tabindex 0) right after the <textarea> got it — keys then went to the presentation's shortcuts.
+  const onMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => e.preventDefault();
 
   // Website behaviours: a text input the prototype focused takes the typing through a hidden <textarea> over it — the
   // caret, the selection, IME, the clipboard are the browser's; the engine draws them and the text.
@@ -780,6 +885,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       tabIndex={0}
       aria-label={t("Prototype")}
       onPointerDown={onPointer}
+      onMouseDown={onMouseDown}
       onPointerMove={onPointer}
       onPointerUp={onPointer}
       onPointerCancel={onPointer}
@@ -882,7 +988,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
           {error && <div className={styles.center}>{error}</div>}
           {/* Live: no footer bar — the ‹ | › stepper floats at the bottom's middle, Restart (R) at its right. */}
           {!hideUi && (
-            <div className={styles.footer}>
+            <div className={styles.footer} ref={footerRef}>
               <div className={styles.stepper} role="group" aria-label={t("Stepper")}>
                 <IconButton icon="24.proto.frame.previous" label={t("Previous frame")} shortcut="←" disabled={!state?.canPrevious} onClick={() => command("previous")} />
                 <span className={styles.stepperLine} />

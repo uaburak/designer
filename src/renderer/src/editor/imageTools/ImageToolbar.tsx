@@ -22,6 +22,7 @@ import type { EditorController } from "../controller";
 import { editorAi, imageToolsOf, type ImageTools } from "./controller";
 import { registerAiImageRow } from "../ai/actionRows";
 import { findMoreLike } from "../search";
+import { presentationHasKeys } from "../keyboard";
 import { EXPAND_ASPECTS, ImageCanvasOverlays, padForAspect } from "./CanvasOverlays";
 import type { Rgba } from "./pixels";
 import { decodeImage, imageTargets } from "./tools";
@@ -251,6 +252,7 @@ export function ImageToolbar() {
   useEffect(() => {
     if (!mode) return;
     const onKey = (e: KeyboardEvent) => {
+      if (presentationHasKeys(ed, e.target)) return;  // a prototype playing over the editor has the keys
       // Enter applies Vectorize's Recolor (Figma's ✓).
       if (e.key === "Enter" && mode === "vectorize" && tools.state.get().vectorize) {
         e.stopPropagation();
@@ -266,7 +268,7 @@ export function ImageToolbar() {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [mode, tools]);
+  }, [ed, mode, tools]);
 
   const overlays = (
     <>

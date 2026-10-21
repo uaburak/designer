@@ -8,6 +8,7 @@
 
 #include "doctest.h"
 #include "Helpers.h"
+#include "TextHelpers.h"
 #include "editor/Editor.h"
 #include "proto/Player.h"
 #include "scene/CodecJson.h"
@@ -236,6 +237,45 @@ TEST_CASE("proto.web: Stack overlays queue at their edge, the oldest goes past M
   CHECK(!f.player.animating());
 }
 
+TEST_CASE("proto.web: each stacked toast closes after its own After delay; opening another doesn't cancel it") {
+  auto nodes = toastDoc(true);
+  for (auto& n : nodes)
+    if (n.guid == T1 || n.guid == T2 || n.guid == T3)
+      n.props.extra["prototypeInteractions"] = extra(
+          "prototypeInteractions", R"([{"event":{"interactionType":"AFTER_TIMEOUT","transitionTimeout":4},"actions":[{"connectionType":"CLOSE"}]}])");
+  for (auto& n : nodes)
+    if (n.guid == T1 || n.guid == T2 || n.guid == T3) n.props.extra["overlayStack"] = extra("overlayStack", R"({"gap":8,"max":5})");
+  Fixture f(nodes);
+  REQUIRE(f.player.start(kPage, TOAST_SCREEN));
+  f.advance(20);
+  f.click(60, 30);  // Kaydet at 0
+  f.advance(1500);
+  f.click(200, 30);  // Kopyala at 1.5 s
+  REQUIRE(f.player.overlays().size() == 2);
+  f.advance(2700);  // 4.2 s: the first closed on its own
+  REQUIRE(f.player.overlays().size() == 1);
+  CHECK(f.player.overlays()[0].frame == T2);
+  // A third opened, then the second closes at its 4 s and the third at its own.
+  f.click(340, 30);
+  f.advance(1500);  // 5.7 s
+  REQUIRE(f.player.overlays().size() == 1);
+  CHECK(f.player.overlays()[0].frame == T3);
+  f.advance(3000);
+  CHECK(f.player.overlays().empty());
+
+  SUBCASE("Website behaviours off: Figma's — another action drops the waiting After delay") {
+    Fixture g(nodes);
+    g.player.setWebBehaviours(false);
+    REQUIRE(g.player.start(kPage, TOAST_SCREEN));
+    g.advance(20);
+    g.click(60, 30);
+    g.advance(1500);
+    g.click(200, 30);
+    g.advance(2700);
+    CHECK(g.player.overlays().size() == 2);
+  }
+}
+
 TEST_CASE("proto.web: without Stack (or Website behaviours off) toasts overlap at their position, as Figma's") {
   for (bool fieldOn : {false, true}) {
     CAPTURE(fieldOn);
@@ -343,6 +383,96 @@ TEST_CASE("proto.web: a flow's steps are not breakpoints; Website behaviours off
     f.player.setScale(proto::ScaleMode::RESPONSIVE);
     REQUIRE(f.player.start(kPage, HD));
     CHECK(f.player.screen() == HM);
+  }
+}
+
+namespace {
+
+// Inter for the texts (the registry reset afterwards, as editor.agent_tool_fixes.test.cpp).
+struct Fonts {
+  Fonts() {
+    auto& fonts = text::FontRegistry::get();
+    int32_t face = addFontFile(interPath());
+    fonts.bind("Inter", "Regular", face);
+    fonts.takeRequests();
+  }
+  ~Fonts() { text::FontRegistry::get().reset(); }
+};
+
+const Guid LD{10, 1}, LM{10, 2}, LTEXT{10, 3}, LTEXT2{10, 4}, LPANEL{10, 5}, LHEAD{10, 6};
+
+// The tour's screen 10: a 1440 × 900 vertical auto layout (padding 96), two auto-height texts filling its width and a
+// panel filling the rest; with `mobile`, a "Demo / Mobile" at 390 beside it.
+std::vector<NodeChange> reflowDoc(bool mobile, bool header) {
+  auto nodes = baseChanges();
+  NodeChange d = make(LD, NodeType::FRAME, kPage, "!", {0, 0, 1440, 900}, mobile ? "Demo / Desktop" : "Demo");
+  d.props.stack().stackMode = StackMode::VERTICAL;
+  d.props.stack().stackPrimarySizing = StackSize::FIXED;
+  d.props.stack().stackCounterSizing = StackSize::FIXED;
+  d.props.stack().stackPaddingLeft = d.props.stack().stackPaddingRight = 96;
+  d.props.stack().stackPaddingTop = d.props.stack().stackPaddingBottom = 40;
+  d.props.stack().stackSpacing = 8;
+  nodes.push_back(d);
+  if (header) {
+    // The texts in a Header that hugs their height and fills the screen's width.
+    NodeChange h = make(LHEAD, NodeType::FRAME, LD, " ", {96, 40, 1248, 60}, "Header");
+    h.props.stack().stackMode = StackMode::VERTICAL;
+    h.props.stack().stackPrimarySizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
+    h.props.stack().stackCounterSizing = StackSize::FIXED;
+    h.props.stack().stackSpacing = 8;
+    h.props.stackChildAlignSelf = StackCounterAlign::STRETCH;
+    h.props.fillPaints.clear();
+    nodes.push_back(h);
+  }
+  const char* pos[] = {"!", "\""};
+  const Guid texts[] = {LTEXT, LTEXT2};
+  for (int i = 0; i < 2; i++) {
+    NodeChange t = make(texts[i], NodeType::TEXT, header ? LHEAD : LD, pos[i], {96, 40, 1248, 20}, "Description");
+    t.props.text().textData.characters =
+        "How it is built: name the two frames Name / Desktop and Name / Mobile and keep the layers inside them named alike, then play.";
+    t.props.text().textAutoResize = TextAutoResize::HEIGHT;
+    t.props.text().fontName = {"Inter", "Regular", ""};
+    t.props.text().fontSize = 16;
+    t.props.stackChildAlignSelf = StackCounterAlign::STRETCH;
+    nodes.push_back(t);
+  }
+  NodeChange panel = make(LPANEL, NodeType::RECTANGLE, LD, "#", {96, 100, 1248, 500}, "Panel");
+  panel.props.stackChildAlignSelf = StackCounterAlign::STRETCH;
+  panel.props.stackChildPrimaryGrow = 1;
+  nodes.push_back(panel);
+  if (mobile) nodes.push_back(make(LM, NodeType::FRAME, kPage, "\"", {1600, 0, 390, 800}, "Demo / Mobile"));
+  return nodes;
+}
+
+}  // namespace
+
+TEST_CASE("proto.web: under Responsive auto-height texts re-lay out on every width change, narrower and wider again") {
+  Fonts fonts;
+  for (auto [mobile, header] : {std::pair{false, false}, std::pair{true, false}, std::pair{false, true}, std::pair{true, true}}) {
+    CAPTURE(mobile);
+    CAPTURE(header);
+    Fixture f(reflowDoc(mobile, header), 1440, 900);
+    f.player.setScale(proto::ScaleMode::RESPONSIVE);
+    REQUIRE(f.player.start(kPage, LD));
+    f.player.scene();
+    double text0 = f.at(LTEXT).size.y, panel0 = f.at(LPANEL).transform.m12;
+    REQUIRE(text0 > 10);
+    REQUIRE(text0 < 30);  // one line at 1248
+    f.resize(950, 900);
+    CHECK(f.player.screen() == LD);
+    CHECK(f.at(LTEXT).size.y > text0 + 10);  // two lines at 758
+    CHECK(f.at(LPANEL).transform.m12 > panel0 + 20);
+    if (mobile) {
+      f.resize(600, 900);
+      CHECK(f.player.screen() == LM);
+    }
+    f.resize(1440, 900);
+    CHECK(f.player.screen() == LD);
+    CHECK(f.at(LD).size.x == doctest::Approx(1440));
+    CHECK(f.at(LTEXT).size.x == doctest::Approx(1248));
+    CHECK(f.at(LTEXT).size.y == doctest::Approx(text0));
+    CHECK(f.at(LTEXT2).size.y == doctest::Approx(text0));
+    CHECK(f.at(LPANEL).transform.m12 == doctest::Approx(panel0));
   }
 }
 

@@ -1022,6 +1022,8 @@ export class Engine {
     shortcuts?: boolean;
     /** Website behaviours (off: Figma's behaviour) */
     websiteBehaviours?: boolean;
+    /** The page's chrome over the canvas (CSS px from its top / bottom): keyboard focus scrolls layers clear of it */
+    chromeInsets?: { top: number; bottom: number };
     responsive?: boolean;
     deviceFrame?: boolean;
     /** The machine it plays on: its scroll physics, ⌘ in key triggers */

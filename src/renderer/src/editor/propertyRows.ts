@@ -18,7 +18,7 @@ import { useUI } from "./hooks";
 import type { Guid, NodeChange } from "@/engine/codec";
 import { encodeMessage } from "../../../shared/schema/codec";
 import { encodeClipboardKiwi } from "./model/clipboard";
-import { inOverlay, isEditable } from "./keyboard";
+import { inOverlay, isEditable, presentationHasKeys } from "./keyboard";
 import { clickRow, insertRows, ROW_FIELD, rowsMessage, sameLists, withoutRows, type PropertyRows, type RowItem, type RowSection } from "./model/propertyRows";
 import { firstStrokeFields } from "./panels/design/Stroke";
 import { fields, isGroupNode, type PanelNode } from "./panels/design/shared";
@@ -125,7 +125,7 @@ export function pasteRows(ed: EditorController, section: RowSection, items: read
 export function attachPropertyRows(ed: EditorController, canvas: HTMLElement): () => void {
   const key = (e: KeyboardEvent) => {
     if ((e.key !== "Backspace" && e.key !== "Delete") || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || e.isComposing) return;
-    if (isEditable(e.target) || inOverlay(e.target) || !deleteRows(ed)) return;
+    if (isEditable(e.target) || inOverlay(e.target) || presentationHasKeys(ed, e.target) || !deleteRows(ed)) return;
     e.preventDefault();
     e.stopPropagation();
   };

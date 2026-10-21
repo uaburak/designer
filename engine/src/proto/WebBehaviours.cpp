@@ -34,6 +34,7 @@ namespace eng::proto {
 
 namespace {
 
+constexpr double kFocusMargin = 16;  // CSS px kept between a focused layer scrolled into view and the window's edge
 constexpr int kTab = 9, kEnter = 13, kEsc = 27, kSpace = 32, kEnd = 35, kHome = 36, kLeft = 37, kUp = 38, kRight = 39, kDown = 40;
 
 std::string lower(std::string s) {
@@ -181,6 +182,22 @@ bool Player::textInputOf(Guid id, TextInputSettings* s) const {
   return true;
 }
 
+Guid Player::fieldOfBox(Guid box) const {
+  // The input box (a web <input> / <textarea> takes clicks over its whole box, padding included): the frame that holds
+  // a text input as its only focusable child — a frame, component or instance (not a screen, group or section), with no
+  // click of its own. A press anywhere on it focuses that text input.
+  const NodeProps* p = props(box);
+  if (!p || !p->visible || topLevelOf(box) == box || focusable(box)) return kNoGuid;
+  if (p->type != NodeType::FRAME && p->type != NodeType::INSTANCE && p->type != NodeType::SYMBOL) return kNoGuid;
+  Guid found = kNoGuid;
+  for (Guid c : doc().children(box)) {
+    if (!focusable(c)) continue;
+    if (found != kNoGuid || !textInputOf(c)) return kNoGuid;
+    found = c;
+  }
+  return found;
+}
+
 bool Player::isLink(Guid id) const {
   // Navigate / Open link hotspots are links (Figma's accessible prototypes; the web's <a>): Enter, not Space.
   if (hasIx(id))
@@ -286,7 +303,16 @@ void Player::scrollIntoView(Guid id) {
       continue;
     }
     Rect box = view_.css;
-    if (!top) {
+    if (top) {
+      // The window: clear of the page's chrome over it (the floating stepper and Restart), 16 px inside — like CSS's
+      // scroll-padding; a layer taller than what is left keeps its top in view.
+      double over = std::max(0.0, box.bottom() - (ed_.viewport().height - chromeBottom_));
+      double under = std::max(0.0, chromeTop_ - box.y);
+      box.y += under + kFocusMargin;
+      box.h = std::max(1.0, box.h - under - over - 2 * kFocusMargin);
+      box.x += kFocusMargin;
+      box.w = std::max(1.0, box.w - 2 * kFocusMargin);
+    } else {
       Mat2x3 am;
       const NodeProps* ap = props(a);
       if (!ap || !cssOf(a, am)) return;
@@ -655,9 +681,11 @@ void Player::webPointerDown(const Chain& c, Vec2 css) {
   lastKeyboard_ = false;
   // The deepest focusable layer pressed takes the focus (a mouse focus: no ring); pressing nothing focusable blurs.
   for (const Hit& h : c.hits) {
-    if (!focusable(h.id)) continue;
-    bool wasField = fieldOn_ && keyOf(h.id) == field_.key;
-    focus(h.id, false);
+    // A press on a text input's box (around the text layer: its padding, a Multi-line field's empty lines) is on it.
+    Guid target = focusable(h.id) ? h.id : fieldOfBox(h.id);
+    if (target == kNoGuid) continue;
+    bool wasField = fieldOn_ && keyOf(target) == field_.key;
+    focus(target, false);
     if (fieldOn_) {
       Guid node = focusedField();
       uint32_t i = fieldIndexAt(node, css);
@@ -877,7 +905,7 @@ void Player::updateCursor(const Chain& c) {
           cur = Cursor::NOT_ALLOWED;
           break;
         }
-        if (textInputOf(h.id)) {
+        if (textInputOf(h.id) || fieldOfBox(h.id) != kNoGuid) {
           cur = Cursor::TEXT;
           break;
         }

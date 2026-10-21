@@ -10,6 +10,7 @@
 
 #include "text/TextLayout.h"
 
+#include <algorithm>
 #include <deque>
 #include <functional>
 #include <string>
@@ -82,6 +83,12 @@ class Player {
   // player behaves as Figma's.
   void setWebBehaviours(bool on);
   bool webBehaviours() const { return web_; }
+  // The page's own chrome over the prototype (CSS px from the canvas's top / bottom: the presentation's floating stepper
+  // and Restart): keyboard focus scrolls a layer clear of it, 16 px inside (scrollIntoView).
+  void setChromeInsets(double top, double bottom) {
+    chromeTop_ = std::max(0.0, top);
+    chromeBottom_ = std::max(0.0, bottom);
+  }
   // "Keep state on reload" (Options; the page keeps it in its session storage, never the document): the runtime state
   // — the screen, variables and modes the prototype set, component states, scroll positions — as JSON, and back on a
   // player that started the same page (false: not this page, or unreadable). Restart forgets it (the page's part).
@@ -411,6 +418,7 @@ class Player {
   };
   mutable BreakpointMemo breakpoint_;
   bool web_ = true;
+  double chromeTop_ = 0, chromeBottom_ = 0;  // setChromeInsets
   Vec2 overlayPlace(Guid frame, const OverlaySettings& s, const Action* a, const Hit* hotspot) const;
   Chain hitTest(Vec2 css) const;
   // A layer's children in hit order: the topmost first (Canvas stacking "First on top" respected).
@@ -483,6 +491,9 @@ class Player {
   void finishAnim();
   void armTimers(Guid root);
   void dropTimers(Guid root);
+  // Website behaviours: whether `node` is inside an open stacked overlay (a toast): its After delays run whatever ran
+  // meanwhile.
+  bool inStackedOverlay(Guid node) const;
   // Drops the pending delayed interactions of trigger `t` (on `node`, or on any node when it is kNoGuid).
   void cancelDelayed(Trigger t, Guid node = kNoGuid);
   // `live`: the pointer is over the prototype (re-hit-tested after a change under it); false when it left.
@@ -707,6 +718,8 @@ class Player {
   bool instanceDisabled(Guid inst) const;
   bool textInputOf(Guid id, TextInputSettings* s = nullptr) const;
   bool focusable(Guid id) const;
+  // The text input whose input box `box` is (its parent frame holding it as the only focusable child), else none.
+  Guid fieldOfBox(Guid box) const;
   bool isLink(Guid id) const;
   Guid textVariable(Guid id) const;
   void writeVariable(Guid var, const VariableData& value, Guid source);

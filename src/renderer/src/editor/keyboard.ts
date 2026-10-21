@@ -70,9 +70,20 @@ export function runTextKey(ed: EditorController, e: KeyboardEvent): boolean {
   return true;
 }
 
+/**
+ * A prototype plays over the editor and has the keys: Present here (all of them, wherever the focus is), or the inline
+ * preview while it has the focus (`[data-presentation]`) — the editor's shortcuts never act on the document then (a
+ * digit set the selection's opacity while presenting).
+ */
+export function presentationHasKeys(ed: EditorController, target: EventTarget | null = typeof document !== "undefined" ? document.activeElement : null): boolean {
+  if (ed.ui.get().presenting) return true;
+  return typeof Element !== "undefined" && target instanceof Element && !!target.closest("[data-presentation]");
+}
+
 export function attachKeyboard(ed: EditorController, canvas: HTMLCanvasElement): () => void {
   let opacityBuffer: OpacityBuffer | null = null;
   const onKeyDown = (e: KeyboardEvent) => {
+    if (presentationHasKeys(ed, e.target)) return;
     if (e.isComposing || isEditable(e.target) || inOverlay(e.target)) return;
     if (e.defaultPrevented) return; // the engine (on the canvas) or a control used it
     if (e.target !== canvas) {
@@ -115,6 +126,7 @@ export function attachKeyboard(ed: EditorController, canvas: HTMLCanvasElement):
     else c.whenDisabled?.(ed);
   };
   const onKeyUp = (e: KeyboardEvent) => {
+    if (presentationHasKeys(ed, e.target)) return;
     if (e.target === canvas || isEditable(e.target) || inOverlay(e.target)) return;
     ed.engineKey("up", e, modifiersOf(e));
   };

@@ -11,7 +11,7 @@ import type { EditorApi } from "@shared/desktop";
 import type { MenuCommandEvent, MenuStatePatch } from "@shared/ipc";
 import type { EditorController } from "./controller";
 import { COMMAND_BY_ID, COMMANDS, isEnabled, runEditorCommand } from "./commands";
-import { isEditable } from "./keyboard";
+import { isEditable, presentationHasKeys } from "./keyboard";
 import { pref } from "./preferences";
 import { attachAgents } from "./agents/service";
 import { shortcutPrefs } from "./shortcuts/prefs";
@@ -97,6 +97,9 @@ export function attachDesktop(ed: EditorController): () => void {
         return;
       }
       const focused = document.activeElement;
+      // A prototype playing over the editor (Present here, the focused inline preview) keeps the document as it is: no
+      // menu-bar key reaches it then (⌘R ran Rename, ⌘D Duplicate…); a command clicked in the menu still runs.
+      if (c.source === "accelerator" && presentationHasKeys(ed, focused)) return;
       if (isEditable(focused)) {
         const action = menuCommandInField(id, c.source, focused?.closest("[data-canvas-text]") ? "canvas-text" : "dom", pref(ed.ui.get(), "textInputShortcutBlocking"));
         if (action === "native") return void document.execCommand(TEXT_FIELD_COMMANDS[id]);

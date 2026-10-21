@@ -336,8 +336,10 @@ std::vector<Layout::Placement> Layout::place(Guid frame, Vec2 size) {
     it.bc = C == 0 ? b.w : b.h;
     it.grow = cp.stackChildPrimaryGrow > 0 && !p.hugsPrimary() && it.aligned && !cp.fitsChildren() ? cp.stackChildPrimaryGrow : 0;
     it.stretch = cp.stackChildAlignSelf == StackCounterAlign::STRETCH && it.aligned && !cp.fitsChildren();
-    if (it.stretch && C == 0 && !wrap && cp.type == NodeType::TEXT) {
-      // Stretched across a vertical flow: the text wraps at the frame's inner width, its height follows.
+    if (it.stretch && C == 0 && !wrap && (cp.type == NodeType::TEXT || cp.isAutoLayout())) {
+      // Stretched across a vertical flow: the text wraps at the frame's inner width, its height follows — and an
+      // auto-layout child hugging its height lays its content out at that width (not at the width it had before: a
+      // header of auto-height texts kept the height of the last width, one resize behind — prototype Responsive).
       it.size = natural(c, std::max(0.0, innerC - 2 * it.outset), -1);
       Rect b2 = outsetBox(layoutBox(cp.transform, it.size), it.outset);
       it.bp = b2.h;

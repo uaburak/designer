@@ -2752,6 +2752,13 @@ void Player::armTimers(Guid root) {
   walk(root);
 }
 
+bool Player::inStackedOverlay(Guid node) const {
+  if (!web_) return false;
+  for (auto& o : overlays_)
+    if (o.settings.stack && (o.frame == node || doc().isAncestor(o.frame, node))) return true;
+  return false;
+}
+
 void Player::dropTimers(Guid root) {
   timers_.erase(std::remove_if(timers_.begin(), timers_.end(),
                                [&](const Timer& t) { return t.node == root || doc().isAncestor(root, t.node) || !doc().has(t.node); }),
@@ -3202,7 +3209,10 @@ bool Player::tick(double nowMs) {
     std::sort(due.begin(), due.end(), [](const Timer& a, const Timer& b) { return a.at != b.at ? a.at < b.at : a.order < b.order; });
     uint64_t counter = actionCounter_;
     for (auto& t : due) {
-      if (!props(t.node) || t.actions != counter || actionCounter_ != counter) continue;
+      // Website behaviours: an open stacked overlay (a toast) keeps its own After delay whatever ran meanwhile — opening
+      // or closing another toast doesn't cancel it (re-opening one restarts only its own, openOverlay).
+      bool own = inStackedOverlay(t.node);
+      if (!props(t.node) || (!own && (t.actions != counter || actionCounter_ != counter))) continue;
       auto list = ix(t.node);
       if (t.interaction < list.size()) run(t.node, list[t.interaction].actions, nullptr, nullptr);
     }

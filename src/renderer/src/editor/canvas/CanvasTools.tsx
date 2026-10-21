@@ -12,6 +12,7 @@ import { useLocalAssets, useUI } from "../hooks";
 import { applyPickedColor, canvasColorAt, canvasPixelsAround, commitInlineValue, DEFAULT_NUDGE, setNudge } from "../canvasTools";
 import { colorFormat, formatColor, nextEyedropperFormat, useColorFormat } from "../colorFormat";
 import { matchColor, setEyedropperChoice } from "../eyedropper";
+import { presentationHasKeys } from "../keyboard";
 import styles from "./CanvasTools.module.css";
 
 /** The padding or gap value typed over its pill (Enter or leaving keeps it, Esc puts it back). */
@@ -84,6 +85,7 @@ function Loupe() {
   const pointerAt = useRef<{ x: number; y: number } | null>(null);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
+      if (presentationHasKeys(ed, e.target)) return;  // a prototype playing over the editor has the keys
       if (e.key === "Shift") setShift(e.type === "keydown");
       if (e.key === "Enter" && e.type === "keydown" && pointerAt.current) {
         e.preventDefault();
