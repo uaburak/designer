@@ -191,6 +191,9 @@ const TOOL_LABEL: Record<string, string> = {
   // Motion for agents (docs/research/motion-for-agents.md)
   animate: "Animated layers",
   get_motion_frames: "Watched the animation",
+  generate_sound: "Made sound",
+  score_motion: "Read the animation's beats",
+  get_sound_mix: "Listened to the mix",
   // The manager's (docs/studio.md §2.2) and the library's (§3.3)
   delegate_task: "Handed out a task",
   wait_tasks: "Waited for the tasks",
