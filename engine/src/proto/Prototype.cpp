@@ -113,6 +113,7 @@ const char* const kOverflows[] = {"NONE", "HORIZONTAL", "VERTICAL", "BOTH"};
 const char* const kOverlayFits[] = {"NONE", "WIDTH", "HEIGHT", "BOTH"};
 const char* const kTextInputTypes[] = {"TEXT", "PASSWORD", "EMAIL", "NUMBER", "MULTI_LINE"};
 const char* const kCursors[] = {"AUTO", "DEFAULT", "POINTER", "TEXT", "GRAB", "MOVE", "NOT_ALLOWED", "HELP", "ZOOM_IN", "ZOOM_OUT", "CROSSHAIR", "NONE"};
+const char* const kOverlayEdges[] = {"AUTO", "NONE", "FOLLOW_ONLY"};
 const char* const kScrollBehaviors[] = {"SCROLLS", "FIXED_WHEN_CHILD_OF_SCROLLING_FRAME", "STICKY_SCROLLS"};
 
 Action readAction(const json::Value& v);
@@ -425,6 +426,15 @@ OverlaySettings overlaySettings(const NodeProps& p) {
   json::Value v;
   if (extraJson(p, "overlayPositionType", v)) s.position = enumOf(&v, kOverlayPositions, OverlayPosition::CENTER);
   if (extraJson(p, "overlayFitWindow", v)) s.fit = enumOf(&v, kOverlayFits, OverlayFit::NONE);
+  if (extraJson(p, "overlayEdgeBehavior", v)) {
+    s.edge = enumOf(&v, kOverlayEdges, OverlayEdge::AUTO);
+    s.edgeSet = true;
+  }
+  if (extraJson(p, "overlayStack", v) && v.isObject()) {
+    s.stack = true;
+    s.stackGap = std::max(0.0, num(v.get("gap"), 0));
+    s.stackMax = static_cast<int>(std::max(0.0, num(v.get("max"), 0)));
+  }
   if (extraJson(p, "overlayBackgroundInteraction", v)) s.closeOnClickOutside = v.isString() ? v.string == "CLOSE_ON_CLICK_OUTSIDE" : v.numberOr(0) == 1;
   if (extraJson(p, "overlayBackgroundAppearance", v) && v.isObject()) {
     const json::Value* t = v.get("backgroundType");

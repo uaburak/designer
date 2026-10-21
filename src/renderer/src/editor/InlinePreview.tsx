@@ -28,7 +28,7 @@ import { Icon, IconButton, MenuButton, cx, type MenuEntry } from "@/ds";
 import type { Engine, PresentScale, PresentState } from "@/engine/Engine";
 import type { Guid } from "@/engine/codec";
 import { PresentationView, SCALE_ICON, presentHost } from "@/present/PresentationView";
-import { writeWebBehaviours } from "@/present/webBehaviours";
+import { applyWebOption, forgetKeptState, keptStateKey, webMenuEntries } from "@/present/webBehaviours";
 import { viewRect } from "./canvas/viewInsets";
 import { useEditor, type EditorController } from "./controller";
 import { useUI } from "./hooks";
@@ -217,9 +217,12 @@ function PreviewWindow({ page, node, open }: { page: Guid; node: Guid | null; op
     ed.ui.set({ preview: null });
     ed.focusCanvas();
   };
+  // Keep state on reload: where the presentation keeps this prototype's state (PresentationView: file, page, start).
+  const keptKey = () => keptStateKey(source.stateKey ?? source.fileName, page, node);
   const restart = () => {
     const engine = engineRef.current;
     if (!engine || engine.destroyed) return;
+    forgetKeptState(keptKey());
     engine.presentStart(lastFrame.current ? { node: lastFrame.current } : {});
     refresh();
   };
@@ -250,15 +253,19 @@ function PreviewWindow({ page, node, open }: { page: Guid; node: Guid | null; op
     { id: "actual", label: device ? t("Resize device to 100%") : t("Resize window to 100%"), checked: sameSize(viewer, actual) },
     ...(!device ? [{ id: "aspect", label: t("Reset aspect ratio"), checked: sameSize(viewer, aspectViewerSize(viewer, bp, info.frame)) }] : []),
     ...(state?.hasDeviceFrame ? [{ id: "frame", label: t("Show device frame"), checked: state.deviceFrame !== false }] : []),
-    // Wecra's (not Figma's): the prototype behaves like the site — inputs, focus, keys, cursors (present/webBehaviours.ts).
+    // Wecra's (webBehaviours.ts): the prototype plays like a website, as in the presentation's Advanced settings.
     "-",
-    { id: "web", label: t("Website behaviours"), checked: state?.webBehaviours !== false },
+    { id: "advanced", label: t("Advanced settings"), items: webMenuEntries(state) },
   ];
   const resizeViewer = (v: Size) => setBox((b) => ({ ...b, w: v.x, h: v.y + HEADER }));
   const onOption = (id: string) => {
     const engine = engineRef.current;
     const s = stateRef.current;
     if (!engine || engine.destroyed) return;
+    if (applyWebOption(engine, s, id, keptKey)) {
+      refresh();
+      return;
+    }
     if (id.startsWith("scale:")) engine.presentSetOptions({ scale: id.slice(6) as PresentScale });
     else if (id === "device:responsive") engine.presentSetOptions({ responsive: true });
     else if (id === "device:fill") engine.presentSetOptions({ responsive: false, scale: "FILL" });
@@ -267,11 +274,6 @@ function PreviewWindow({ page, node, open }: { page: Guid; node: Guid | null; op
     else if (id === "actual") resizeViewer(actual);
     else if (id === "aspect") resizeViewer(aspectViewerSize(viewer, bp, info.frame));
     else if (id === "frame") engine.presentSetOptions({ deviceFrame: s?.deviceFrame === false });
-    else if (id === "web") {
-      const on = s?.webBehaviours === false;
-      writeWebBehaviours(on);
-      engine.presentSetOptions({ webBehaviours: on });
-    }
     refresh();
     document.getElementById("preview-canvas")?.focus({ preventScroll: true });
   };

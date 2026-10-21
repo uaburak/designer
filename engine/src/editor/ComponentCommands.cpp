@@ -1321,7 +1321,8 @@ namespace {
 // The extra keys Figma's named reset kinds own (the rest of an override's extras are LAYER's "others").
 const char* const kExportKeys[] = {"exportSettings"};
 const char* const kPrototypeKeys[] = {"prototypeInteractions"};
-const char* const kOverlayKeys[] = {"overlayPositionType", "overlayRelativePosition", "overlayBackgroundInteraction", "overlayBackgroundAppearance", "overlayFitWindow"};
+const char* const kOverlayKeys[] = {"overlayPositionType", "overlayRelativePosition", "overlayBackgroundInteraction", "overlayBackgroundAppearance", "overlayFitWindow",
+                                      "overlayEdgeBehavior", "overlayStack"};
 
 constexpr FieldMask kResetFill = F_FILLS | F_STYLE_ID_FILL;
 constexpr FieldMask kResetStroke = F_STROKES | F_STROKE_WEIGHT | F_STROKE_ALIGN | F_STROKE_CAP | F_STROKE_JOIN | F_MITER_LIMIT |

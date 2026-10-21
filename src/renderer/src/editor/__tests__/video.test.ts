@@ -141,17 +141,19 @@ describe("the presentation view's options", () => {
       "Advanced settings",
       "Hide UI",
     ]);
-    const item = (label: string) => entries.find((e) => e !== "-" && !("header" in e) && e.label === label) as { shortcut?: string; icon?: string; items?: { label: string }[] };
+    const item = (label: string) => entries.find((e) => e !== "-" && !("header" in e) && e.label === label) as { shortcut?: string; icon?: string; items?: (string | { label: string })[] };
     // "Z" beside the option Z goes to next; each scale with its glyph.
     expect(item("Fit width and height").shortcut).toBe("Z");
     expect(item("Actual size (100%)").shortcut).toBeUndefined();
     expect(item("Fill screen").icon).toBe("24.proto.scale.fill");
-    // Then Wecra's "Website behaviours" (on unless the state says off).
-    expect(item("Advanced settings").items?.map((i) => i.label)).toEqual(["Enable Figma shortcuts", "Show hints on click", "Website behaviours"]);
-    expect((item("Advanced settings").items as { checked?: boolean }[])[2].checked).toBe(true);
-    const off = presentOptions(state({ firstFrameWidth: 375, scale: "ACTUAL", webBehaviours: false }));
-    const adv = off.find((e) => e !== "-" && !("header" in e) && e.label === "Advanced settings") as { items: { checked?: boolean }[] };
-    expect(adv.items[2].checked).toBe(false);
+    // Figma's two, then Wecra's website behaviours (webBehaviours.ts).
+    expect(item("Advanced settings").items?.map((i) => (typeof i === "string" ? i : i.label))).toEqual([
+      "Enable Figma shortcuts",
+      "Show hints on click",
+      "-",
+      "Website behaviours",
+      "Keep state on reload",
+    ]);
   });
 
   it("with a device: Responsive / Fixed size in the options, the device's scaling in the device menu", () => {

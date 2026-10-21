@@ -709,6 +709,9 @@ function TransitionPreview({ animation, curve, duration }: { animation: Animatio
   );
 }
 
+/** The preset positions a toast stack grows from (top ones downwards, bottom ones upwards). */
+const STACK_POSITIONS: ReadonlySet<OverlayPositionType> = new Set(["TOP_LEFT", "TOP_CENTER", "TOP_RIGHT", "BOTTOM_LEFT", "BOTTOM_CENTER", "BOTTOM_RIGHT"]);
+
 /** Open / Swap overlay: the destination frame's own overlay settings (shared by every interaction that opens it). */
 function OverlaySettings({ frame, trigger }: { frame: Guid; trigger: InteractionType | undefined }) {
   useT();
@@ -718,6 +721,8 @@ function OverlaySettings({ frame, trigger }: { frame: Guid; trigger: Interaction
   const bg = n.overlayBackgroundAppearance;
   const on = bg?.backgroundType === "SOLID_COLOR";
   const color = bg?.backgroundColor ?? { r: 0, g: 0, b: 0, a: 0.25 };
+  const position = n.overlayPositionType ?? "CENTER";
+  const stack = n.overlayStack;
   return (
     <div className={styles.group}>
       <div className={styles.groupTitle}>{t("Overlay")}</div>
@@ -743,6 +748,53 @@ function OverlaySettings({ frame, trigger }: { frame: Guid; trigger: Interaction
           onChange={(v) => ed.setProps([frame], protoFields({ overlayFitWindow: v === "NONE" ? null : (v as OverlayFitWindow) }), "Overlay settings")}
         />
       </div>
+      {/* Wecra-only, with the presentation's Website behaviours: a Manual overlay goes with its hotspot as the page
+          scrolls, opens on its other side at the window's edge and stays inside it (on unless turned off here). */}
+      {position === "MANUAL" && (
+        <div className={styles.checkRow}>
+          <Checkbox
+            label={t("Keep in window")}
+            checked={n.overlayEdgeBehavior !== "NONE"}
+            onChange={(c) => ed.setProps([frame], protoFields({ overlayEdgeBehavior: c ? null : "NONE" }), "Overlay settings")}
+          />
+        </div>
+      )}
+      {/* Wecra-only: overlays at one top or bottom position stack like toasts (the newest at the edge). */}
+      {STACK_POSITIONS.has(position) && (
+        <>
+          <div className={styles.checkRow}>
+            <Checkbox
+              label={t("Stack overlays")}
+              checked={!!n.overlayStack}
+              onChange={(c) => ed.setProps([frame], protoFields({ overlayStack: c ? { gap: 8, max: 3 } : null }), "Overlay settings")}
+            />
+          </div>
+          {stack && (
+            <div className={styles.offsets} data-overlay-stack>
+              <span className={styles.fieldLabel}>{t("Stack")}</span>
+              <NumericInput
+                label={t("Gap between overlays")}
+                prefix={t("Gap")}
+                className={styles.grow}
+                value={stack.gap ?? 0}
+                min={0}
+                precision={0}
+                onChange={(v, info) => ed.edit("Overlay settings", info, () => void ed.engine.setProps([frame], protoFields({ overlayStack: { ...stack, gap: v } })))}
+              />
+              <NumericInput
+                label={t("Most shown at once")}
+                prefix={t("Max")}
+                className={styles.grow}
+                value={stack.max ?? 0}
+                min={0}
+                max={20}
+                precision={0}
+                onChange={(v, info) => ed.edit("Overlay settings", info, () => void ed.engine.setProps([frame], protoFields({ overlayStack: { ...stack, max: v } })))}
+              />
+            </div>
+          )}
+        </>
+      )}
       {trigger !== "ON_HOVER" && trigger !== "ON_PRESS" && (
       // Not for While hovering / While pressing: the overlay goes with the pointer (atlas 13 §6.1).
       <div className={styles.checkRow}>

@@ -61,6 +61,10 @@ struct TextInputSettings {
   bool multiline() const { return type == TextInputType::MULTI_LINE; }
 };
 enum class Cursor : uint8_t { AUTO = 0, DEFAULT, POINTER, TEXT, GRAB, MOVE, NOT_ALLOWED, HELP, ZOOM_IN, ZOOM_OUT, CROSSHAIR, NONE, GRABBING };
+// Wecra's "Keep in window" for a Manual overlay (NodeChange.overlayEdgeBehavior, @ours): AUTO follows its hotspot on
+// scroll, flips to its other side and shifts inside the window (Floating UI's autoUpdate / flip / shift); NONE is
+// Figma's (placed once at open); FOLLOW_ONLY follows without flipping or shifting (docs/engine.md §3.4).
+enum class OverlayEdge : uint8_t { AUTO = 0, NONE = 1, FOLLOW_ONLY = 2 };
 
 const char* triggerName(Trigger t);
 const char* connectionName(Connection c);
@@ -131,6 +135,13 @@ struct OverlaySettings {
   bool background = false;
   Color backgroundColor{0, 0, 0, 0.25f};
   OverlayFit fit = OverlayFit::NONE;  // @ours: Fit to window
+  OverlayEdge edge = OverlayEdge::AUTO;  // @ours: Keep in window (absent: AUTO while Website behaviours is on)
+  bool edgeSet = false;                  // the field is present
+  // @ours: Stack (overlayStack, absent: none) — overlays at one preset position stack like toasts, `stackGap` apart,
+  // at most `stackMax` (0: no limit).
+  bool stack = false;
+  double stackGap = 0;
+  int stackMax = 0;
   bool fitsWidth() const { return fit == OverlayFit::WIDTH || fit == OverlayFit::BOTH; }
   bool fitsHeight() const { return fit == OverlayFit::HEIGHT || fit == OverlayFit::BOTH; }
 };

@@ -1217,6 +1217,17 @@ enum PrototypeCursor {         // @ours the pointer over a layer while presented
   NONE = 11;
 }
 
+enum OverlayEdgeBehavior { // @ours a Manual overlay's "Keep in window" while presented (Wecra; docs/engine.md §3.4)
+  AUTO = 0;         // follows its hotspot on scroll, flips to the other side and shifts inside the window
+  NONE = 1;         // Figma's: placed once at open
+  FOLLOW_ONLY = 2;  // follows its hotspot, never flipped or shifted
+}
+
+message OverlayStack {      // @ours overlays at one preset position stack like toasts (Wecra; docs/engine.md §3.4)
+  float gap = 1;            // between stacked overlays, px
+  uint max = 2;             // the most shown at that position (0: no limit); opening one more closes the oldest
+}
+
 message OverlayBackgroundAppearance {
   OverlayBackgroundType backgroundType = 1;
   Color backgroundColor = 2;
@@ -2674,8 +2685,9 @@ message NodeChange {
   OverlayBackgroundAppearance overlayBackgroundAppearance = 201;   // @nooverride
   OverlayFitWindow overlayFitWindow = 1003;       // @ours @nooverride overlay: Fit to window (Wecra; docs/engine.md §3.4)
   PrototypeTextInput prototypeTextInput = 1004;   // @ours TEXT: Prototype › Text input (Wecra's website behaviours; docs/engine.md §3.4)
-  byte _r1005 = 1005 [deprecated];               // reserved: overlayEdgeBehavior (docs/research/prototype-web-behaviours.md item 6)
+  OverlayEdgeBehavior overlayEdgeBehavior = 1005; // @ours @nooverride overlay: Keep in window (Wecra; docs/engine.md §3.4)
   PrototypeCursor prototypeCursor = 1006;         // @ours Prototype › Cursor (Wecra's website behaviours; docs/engine.md §3.4)
+  OverlayStack overlayStack = 1007;               // @ours @nooverride overlay: Stack (Wecra; docs/engine.md §3.4)
 
   // --- Figma's layout version stamps: which of Figma's layout rules made the stored geometry. Kept through import and
   // export (a .fig written back keeps them); the engine's own derived data is stamped by Message.derivedDataVersion.
@@ -2859,4 +2871,6 @@ message NodeChange {
   byte _r985 = 985 [deprecated]; byte _r986 = 986 [deprecated]; byte _r987 = 987 [deprecated]; byte _r988 = 988 [deprecated]; byte _r989 = 989 [deprecated]; byte _r990 = 990 [deprecated];
   byte _r991 = 991 [deprecated]; byte _r992 = 992 [deprecated]; byte _r993 = 993 [deprecated]; byte _r994 = 994 [deprecated]; byte _r995 = 995 [deprecated]; byte _r996 = 996 [deprecated];
   byte _r997 = 997 [deprecated]; byte _r998 = 998 [deprecated]; byte _r999 = 999 [deprecated];
+  // Wecra's own numbers kept for the prototype's web behaviours (docs/research/prototype-web-behaviours.md §2): 1004 text
+  // input, 1006 cursor.
 }

@@ -422,6 +422,28 @@ describe("Wecra-only prototype settings stay out of the export (overlay Fit to w
     expect(fields).not.toContain("prototypeCursor");
   });
 
+  it("never writes the website behaviours' overlayEdgeBehavior / overlayStack either; byte for byte the file without them", () => {
+    const withWeb = (fields: Record<string, unknown>): Message => {
+      const base = withFit(undefined);
+      return { ...base, nodeChanges: base.nodeChanges!.map((n) => (n.name === "Drawer" ? { ...n, overlayPositionType: "MANUAL", ...fields } : n)) } as Message;
+    };
+    const without = decodeCanvas(encodeFigmaCanvas(withWeb({}), codecs), codecs);
+    for (const fields of [{ overlayEdgeBehavior: "NONE" }, { overlayEdgeBehavior: "FOLLOW_ONLY" }, { overlayStack: { gap: 8, max: 3 } }, { overlayEdgeBehavior: "AUTO", overlayStack: { gap: 0, max: 0 } }]) {
+      const withIt = decodeCanvas(encodeFigmaCanvas(withWeb(fields), codecs), codecs);
+      expect(withIt.message).toEqual(without.message);
+      expect(withIt.schema).toEqual(without.schema);
+      const drawer = byKey(figma.decode("Message", withIt.message)).get(exportIds(withWeb(fields)).key(g(S + 1, 9)));
+      expect(drawer.overlayEdgeBehavior).toBeUndefined();
+      expect(drawer.overlayStack).toBeUndefined();
+      expect(drawer.overlayPositionType).toBe("MANUAL");
+    }
+    // Neither the fields nor their types are in the schema the export embeds.
+    const schema = decodeBinarySchema(figmaExportSchema());
+    for (const name of ["OverlayEdgeBehavior", "OverlayStack"]) expect(schema.definitions.some((d) => d.name === name)).toBe(false);
+    const node = schema.definitions.find((d) => d.name === "NodeChange")!;
+    expect(node.fields.some((f) => f.name === "overlayEdgeBehavior" || f.name === "overlayStack")).toBe(false);
+  });
+
   it("a Figma file read and written back has none (import → export round trip unchanged)", () => {
     const { message } = decodeAnySchema(sampleCanvas.schema, sampleCanvas.message, { keepDerived: true });
     expect(message.nodeChanges!.some((n: any) => n.overlayFitWindow !== undefined)).toBe(false);

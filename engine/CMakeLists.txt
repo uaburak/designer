@@ -235,7 +235,7 @@ else()
     tests/unit/proto.rea.test.cpp
     tests/unit/proto.top_scroll.test.cpp
     tests/unit/proto.responsive_height.test.cpp
-    tests/unit/proto.web_behaviours.test.cpp
+    tests/unit/proto.web_focus.test.cpp
     tests/unit/proto.nested_components.test.cpp
     tests/unit/proto.instance_interactions.test.cpp
     tests/unit/proto.wave4.test.cpp
@@ -243,6 +243,7 @@ else()
     tests/unit/proto.hug_anchor.test.cpp
     tests/unit/proto.owner_file.test.cpp
     tests/unit/proto.preview_load.test.cpp
+    tests/unit/proto.web_behaviours.test.cpp
     tests/unit/motion.easing.test.cpp
     tests/unit/devmode.test.cpp
     tests/unit/r7.selection.test.cpp

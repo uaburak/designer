@@ -71,18 +71,6 @@ uint32_t length16(const std::string& s) { return static_cast<uint32_t>(text::utf
 
 // ---- Switch and state ------------------------------------------------------------------------------------------
 
-void Player::setWebBehaviours(bool on) {
-  if (web_ == on) return;
-  if (!on) {
-    blur();
-    focusReturns_.clear();
-  }
-  web_ = on;
-  cursor_ = hotspot_ ? Cursor::POINTER : Cursor::DEFAULT;
-  dirty_ = true;
-  events_.push_back(Event{});
-}
-
 void Player::resetWeb() {
   // A fresh prototype: nothing focused or typed (what was written goes back with the originals).
   focusHeld_ = Held{};
@@ -95,6 +83,7 @@ void Player::resetWeb() {
   field_ = Field{};
   fieldOn_ = false;
   typed_.clear();
+  secretPaths_.clear();
   placeholders_.clear();
   webVersion_ = ~0ull;
   lastKeyboard_ = false;
@@ -742,6 +731,7 @@ void Player::textInput(const std::string& value, uint32_t start, uint32_t end) {
     writeVariable(field_.variable, d, node);
   } else {
     typed_[field_.path] = text8;
+    if (field_.settings.type == TextInputType::PASSWORD) secretPaths_.insert(field_.path);
     writeField(node, text8, field_.settings);
   }
   actionCounter_++;  // typing is an action: pending After delays and delayed mouse triggers drop

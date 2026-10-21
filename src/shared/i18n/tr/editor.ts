@@ -1030,6 +1030,7 @@ export const editor: Record<string, string> = {
   "Zoom device to fill screen": "Cihazı ekranı dolduracak şekilde yakınlaştır",
   "Show device at 100%": "Cihazı %100 göster",
   "Enable Figma shortcuts": "Figma kısayollarını etkinleştir",
+  "Keep state on reload": "Yenilemede durumu koru",
   "Show hints on click": "Tıklayınca ipuçlarını göster",
   "Website behaviours": "Web sitesi davranışları",
   "Show sidebar": "Kenar çubuğunu göster",

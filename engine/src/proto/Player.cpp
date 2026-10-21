@@ -237,8 +237,10 @@ bool Player::start(Guid page, Guid start) {
     if (!seq.empty()) frame = seq[0];
   }
   if (frame == kNoGuid || !frameExists(frame)) return false;
-  ed_.deriveTree(frame);  // a partial engine derives the screens it shows (Editor::deriveTree)
   restoreResponsive();
+  // Website behaviours: under Responsive, the frame's breakpoint for the window (its other size).
+  if (web_ && responsiveOn() && device(*props(page)).none) frame = breakpointFor(frame, ed_.viewport().width);
+  ed_.deriveTree(frame);  // a partial engine derives the screens it shows (Editor::deriveTree)
   if (!scaleChosen_) {
     // Figma's default scale: the first of the file's order (Fill screen for a presentation, Fit device on screen with a
     // device, otherwise Actual size (100%)).
@@ -259,6 +261,7 @@ bool Player::start(Guid page, Guid start) {
   dropGhosts();
   instanceAnims_.clear();
   scrollAnims_.clear();
+  slides_.clear();
   flings_.clear();
   scrollDrag_ = ScrollDrag{};
   pending_.clear();
@@ -287,6 +290,7 @@ void Player::stop() {
   restoreResponsive();
   dropGhosts();
   instanceAnims_.clear();
+  slides_.clear();
   base_ = kNoGuid;
   overlays_.clear();
   timers_.clear();
@@ -383,6 +387,33 @@ void Player::restart() {
   scrollStore_.clear();
   restoreOriginals();
   start(page_, flow_ != kNoGuid ? flow_ : startFrame_);
+  Event e;
+  e.restarted = true;
+  events_.push_back(e);
+}
+
+void Player::setWebBehaviours(bool on) {
+  if (web_ == on) return;
+  if (!on) {
+    // Nothing focused or typed into any more (proto/WebBehaviours.cpp).
+    blur();
+    focusReturns_.clear();
+  }
+  web_ = on;
+  cursor_ = hotspot_ ? Cursor::POINTER : Cursor::DEFAULT;
+  dirty_ = true;
+  breakpoint_ = BreakpointMemo{};
+  if (!on) {
+    // Figma's again: overlays where Figma's rule puts them, no stacks sliding.
+    slides_.clear();
+    for (auto& o : overlays_)
+      if (o.anchored) {
+        o.pos = o.placed;
+        o.anchored = false;
+      }
+  }
+  if (active()) layout();
+  events_.push_back(Event{});
 }
 
 void Player::restoreOriginals() {
@@ -576,6 +607,16 @@ void Player::layout() {
   const Viewport& vp = ed_.viewport();
   double W = std::max(1.0, vp.width), H = std::max(1.0, vp.height);
   Device dev = device(*props(page_));
+  // Website behaviours, breakpoints: under Responsive (no device) the screen's other size when the window crosses its
+  // width — as a media query swaps a layout, at once, nothing recorded.
+  bool switched = false;
+  if (web_ && !fitting_ && dev.none && !anim_.active && responsiveOn()) {
+    Guid to = breakpointFor(base_, W);
+    if (to != base_ && frameExists(to)) {
+      replaceScreen(to);
+      switched = true;
+    }
+  }
   // Responsive: the frame takes the window's (or the device screen's) size first.
   if (!fitting_) {
     if (responsiveOn()) fitResponsive();
@@ -644,14 +685,304 @@ void Player::layout() {
   v.css = {ox, oy, cw, ch};
   v.toCss = Mat2x3::translate(ox, oy) * Mat2x3::scale(v.s);
   view_ = std::move(v);
+  if (switched) {
+    // The scroll carried from the other size, within this one's range.
+    Vec2 range = topScrollRange(base_);
+    if (auto it = scroll_.find(base_); it != scroll_.end()) it->second = {std::min(it->second.x, range.x), std::min(it->second.y, range.y)};
+  }
   if (!fitting_) fitOverlays();
   replaceOverlays();
 }
 
 void Player::replaceOverlays() {
-  // The window (or Responsive) changed the screen: overlays at a preset position go where it puts them now.
-  for (auto& o : overlays_)
+  // The window (or Responsive) changed the screen: overlays at a preset position go where it puts them now; with
+  // Website behaviours a Manual one follows its hotspot (scrolled, re-laid out) and stays in the window, and Stack ones
+  // queue at their edge.
+  for (auto& o : overlays_) {
+    if (web_ && o.settings.stack && o.settings.position != OverlayPosition::MANUAL && o.settings.position != OverlayPosition::CENTER) continue;
     if (o.settings.position != OverlayPosition::MANUAL) o.pos = overlayPos(o.frame, o.settings, nullptr, nullptr);
+    else if (o.anchored) placeAnchored(o);
+  }
+  if (web_) stackOverlays();
+  // An overlay coming in goes where its place went.
+  if (anim_.active && anim_.slot >= 0 && anim_.slot < static_cast<int>(overlays_.size()) && anim_.y.overlay &&
+      anim_.y.frame == overlays_[static_cast<size_t>(anim_.slot)].frame)
+    anim_.y.pos = overlays_[static_cast<size_t>(anim_.slot)].pos;
+}
+
+// ---- Website behaviours: anchored overlays, toast stacks, breakpoints -------------------------------------
+
+OverlayEdge Player::edgeOf(const OverlaySettings& s) const {
+  // Absent: Keep in window while Website behaviours is on; off, always Figma's.
+  if (!web_) return OverlayEdge::NONE;
+  return s.edgeSet ? s.edge : OverlayEdge::AUTO;
+}
+
+bool Player::shownCss(Guid id, Mat2x3& out) const {
+  Guid top = topLevelOf(id);
+  if (top == kNoGuid) return false;
+  std::vector<Guid> chain;
+  for (Guid cur = id; cur != top; cur = doc().parentOf(cur)) {
+    if (cur == kNoGuid || chain.size() > 4096) return false;
+    chain.push_back(cur);
+  }
+  std::reverse(chain.begin(), chain.end());
+  Mat2x3 m;
+  Vec2 sc;
+  bool firstFixed = !chain.empty() && props(chain[0]) && scrollBehavior(*props(chain[0])) == ScrollBehavior::FIXED;
+  if (top == base_) {
+    Side b = baseSide();
+    // The screen's own scroll as the scene draws it (frameCss: the frame's share; its layers: the rest); its Fixed
+    // children don't scroll.
+    m = firstFixed ? view_.toCss : frameCss(b);
+    sc = firstFixed ? Vec2{} : b.scroll - topShift(base_, b.scroll);
+  } else {
+    const Shown* o = nullptr;
+    for (const Shown& x : overlays_)
+      if (x.frame == top) o = &x;
+    if (!o) return false;
+    Vec2 at = drawnPos(*o);
+    m = view_.toCss * Mat2x3::translate(at.x, at.y);
+    sc = scrollsNested(top) ? scrollOf(top) : Vec2{};
+  }
+  for (Guid c : chain) {
+    const NodeProps* cp = props(c);
+    if (!cp) return false;
+    bool fixed = scrollBehavior(*cp) == ScrollBehavior::FIXED;
+    if ((sc.x != 0 || sc.y != 0) && !fixed) m = m * Mat2x3::translate(-sc.x, -sc.y);
+    m = m * cp->transform;
+    sc = scrollsNested(c) ? scrollOf(c) : Vec2{};
+  }
+  out = m;
+  return true;
+}
+
+void Player::anchor(Shown& s, const Hit& hotspot) {
+  // Floating UI's reference element: the hotspot, found again by key as the page scrolls or re-lays out.
+  Mat2x3 toScreen = view_.toCss.inverse();
+  s.anchored = true;
+  s.anchorKey = keyOf(hotspot.id);
+  s.anchorAt = toScreen.apply(hotspot.toCss.apply({0, 0}));
+  Rect css = transformedBounds(hotspot.toCss, hotspot.size.x, hotspot.size.y);
+  double k = view_.s > 0 ? view_.s : 1;
+  s.anchorBox = {(css.x - view_.css.x) / k, (css.y - view_.css.y) / k, css.w / k, css.h / k};
+  s.placed = s.pos;
+  placeAnchored(s);
+}
+
+void Player::placeAnchored(Shown& o) const {
+  OverlayEdge edge = edgeOf(o.settings);
+  if (!o.anchored || edge == OverlayEdge::NONE) return;
+  Vec2 at = o.anchorAt;
+  Rect box = o.anchorBox;
+  Guid a = byKey(o.anchorKey);
+  const NodeProps* ap = a != kNoGuid ? props(a) : nullptr;
+  Mat2x3 m;
+  if (ap && shownCss(a, m)) {
+    // autoUpdate: where the hotspot is now.
+    double k = view_.s > 0 ? view_.s : 1;
+    at = view_.toCss.inverse().apply(m.apply({0, 0}));
+    Rect css = transformedBounds(m, ap->size.x, ap->size.y);
+    box = {(css.x - view_.css.x) / k, (css.y - view_.css.y) / k, css.w / k, css.h / k};
+  }
+  Vec2 pos = o.placed + (at - o.anchorAt);
+  const NodeProps* p = props(o.frame);
+  if (edge == OverlayEdge::AUTO && p) pos = keepInWindow(p->size, box, pos);
+  if (o.settings.fitsWidth()) pos.x = 0;
+  if (o.settings.fitsHeight()) pos.y = 0;
+  o.pos = pos;
+}
+
+Vec2 Player::keepInWindow(Vec2 size, const Rect& anchor, Vec2 at) const {
+  // Floating UI's flip() then shift(): an overlay running past the window's edge goes to the other side of its hotspot
+  // (mirrored about the hotspot's centre: below with a gap → above with the same gap) when that runs past less; then it
+  // is moved inside the window, 8 px from its edges.
+  constexpr double kMargin = 8;
+  double W = view_.screen.x, H = view_.screen.y;
+  auto overflow = [&](double pos, double len, double room) { return std::max(0.0, kMargin - pos) + std::max(0.0, pos + len - (room - kMargin)); };
+  auto flip = [&](double pos, double len, double a0, double alen, double room) {
+    double mirrored = 2 * a0 + alen - pos - len;
+    double now = overflow(pos, len, room);
+    return now > 0 && overflow(mirrored, len, room) < now ? mirrored : pos;
+  };
+  at.y = flip(at.y, size.y, anchor.y, anchor.h, H);
+  at.x = flip(at.x, size.x, anchor.x, anchor.w, W);
+  auto shift = [&](double pos, double len, double room) { return std::max(kMargin, std::min(pos, room - kMargin - len)); };
+  at.x = shift(at.x, size.x, W);
+  at.y = shift(at.y, size.y, H);
+  return at;
+}
+
+void Player::stackOverlays() {
+  // Toasts: Stack overlays at one preset position, the newest at its edge, the older ones further in (a bottom
+  // position stacks upwards, a top one downwards), `gap` apart. A change of place slides with the overlay's own
+  // transition curve (its opening one; Instant: ease out, 0.25 s).
+  const OverlayPosition positions[] = {OverlayPosition::TOP_LEFT, OverlayPosition::TOP_CENTER, OverlayPosition::TOP_RIGHT,
+                                       OverlayPosition::BOTTOM_LEFT, OverlayPosition::BOTTOM_CENTER, OverlayPosition::BOTTOM_RIGHT};
+  for (OverlayPosition at : positions) {
+    bool top = at == OverlayPosition::TOP_LEFT || at == OverlayPosition::TOP_CENTER || at == OverlayPosition::TOP_RIGHT;
+    double offset = 0;
+    for (size_t k = overlays_.size(); k-- > 0;) {
+      Shown& o = overlays_[k];
+      if (!o.settings.stack || o.settings.position != at) continue;
+      const NodeProps* p = props(o.frame);
+      if (!p) continue;
+      Vec2 target = overlayPos(o.frame, o.settings, nullptr, nullptr);
+      target.y += top ? offset : -offset;
+      offset += p->size.y + o.settings.stackGap;
+      if (std::fabs(target.x - o.pos.x) < 0.01 && std::fabs(target.y - o.pos.y) < 0.01) continue;
+      bool coming = anim_.active && anim_.slot == static_cast<int>(k) && anim_.y.frame == o.frame;
+      Vec2 from = drawnPos(o);
+      o.pos = target;
+      slides_.erase(std::remove_if(slides_.begin(), slides_.end(), [&](const Slide& x) { return x.frame == o.frame; }), slides_.end());
+      if (coming) continue;
+      Slide sl;
+      sl.frame = o.frame;
+      sl.from = from;
+      sl.to = target;
+      sl.action = o.opened;
+      if (sl.action.transition == Transition::INSTANT || durationOf(sl.action) <= 0) {
+        sl.action = Action{};
+        sl.action.transition = Transition::DISSOLVE;
+        sl.action.easing = Easing::OUT_CUBIC;
+        sl.action.duration = 0.25;
+      }
+      sl.duration = durationOf(sl.action) * 1000;
+      slides_.push_back(sl);
+      dirty_ = true;
+    }
+  }
+}
+
+Vec2 Player::drawnPos(const Shown& o) const {
+  for (const Slide& sl : slides_) {
+    if (sl.frame != o.frame) continue;
+    double t = !sl.started ? 0 : sl.duration > 0 ? std::clamp((clock_ - sl.start) / sl.duration, 0.0, 1.0) : 1;
+    double e = ease(sl.action, t);
+    return {lerp(sl.from.x, sl.to.x, e), lerp(sl.from.y, sl.to.y, e)};
+  }
+  return o.pos;
+}
+
+namespace {
+
+std::string lowered(std::string s) {
+  for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  return s;
+}
+
+std::string trimmed(const std::string& s) {
+  size_t b = 0, e = s.size();
+  while (b < e && s[b] == ' ') b++;
+  while (e > b && s[e - 1] == ' ') e--;
+  return s.substr(b, e - b);
+}
+
+// A frame name's group and size ("Home / Desktop" → "Home", "Desktop"; "Home" → "Home", "").
+std::pair<std::string, std::string> breakpointName(const std::string& name) {
+  size_t slash = name.rfind('/');
+  if (slash == std::string::npos) return {trimmed(name), std::string()};
+  return {trimmed(name.substr(0, slash)), trimmed(name.substr(slash + 1))};
+}
+
+// The part after the group names a size: a device class or a width ("Desktop", "Mobile 390", "1440", "md"). A flow's
+// step ("Checkout / 2", "Checkout / Payment") does not.
+bool sizeWord(const std::string& part) {
+  if (part.empty()) return true;
+  static const char* const kWords[] = {"desktop", "laptop", "tablet", "mobile", "phone", "web", "wide", "narrow", "compact", "large",
+                                       "medium", "small", "xl", "lg", "md", "sm", "xs", "xxl", "ipad", "iphone", "android", "tv",
+                                       "landscape", "portrait", "breakpoint"};
+  auto known = [&](std::string t) {
+    if (t.size() > 2 && t.compare(t.size() - 2, 2, "px") == 0) t = t.substr(0, t.size() - 2);
+    if (t.empty()) return false;
+    bool digits = std::all_of(t.begin(), t.end(), [](char c) { return c >= '0' && c <= '9'; });
+    if (digits) return t.size() <= 5 && std::atoi(t.c_str()) >= 240;  // a width, not a step number
+    for (const char* w : kWords)
+      if (t == w) return true;
+    return false;
+  };
+  std::string token;
+  for (char c : lowered(part) + " ") {
+    if (c == ' ' || c == '-' || c == '_' || c == '(' || c == ')' || c == ',') {
+      if (known(token)) return true;
+      token.clear();
+    } else {
+      token += c;
+    }
+  }
+  return false;
+}
+
+}  // namespace
+
+Guid Player::breakpointFor(Guid frame, double width) const {
+  BreakpointMemo& m = breakpoint_;
+  if (m.version == doc().version() && m.frame == frame && m.width == width && m.page == page_) return m.result;
+  m.version = doc().version();
+  m.frame = frame;
+  m.width = width;
+  m.page = page_;
+  m.result = frame;
+  const NodeProps* fp = props(frame);
+  if (!fp || page_ == kNoGuid) return frame;
+  auto [group, size] = breakpointName(fp->name);
+  if (group.empty() || !sizeWord(size)) return frame;
+  auto own = [&](Guid id) {
+    auto it = responsiveSizes_.find(id);
+    return it != responsiveSizes_.end() ? it->second.x : props(id)->size.x;
+  };
+  // The group: top-level frames with the same name, or the same name before " / " and a size after it.
+  std::vector<Guid> members;
+  for (Guid c : screens(doc(), page_)) {
+    const NodeProps* cp = props(c);
+    if (!cp || !frameExists(c) || !cp->isFrameLike() || cp->type == NodeType::SECTION) continue;
+    if (c == frame || cp->name == fp->name) {
+      members.push_back(c);
+      continue;
+    }
+    auto [g, z] = breakpointName(cp->name);
+    if (g == group && sizeWord(z)) members.push_back(c);
+  }
+  if (members.size() < 2) return frame;
+  // Each size takes over half way between its width and the next narrower one's (its min width, as Sites'
+  // breakpointMinWidth would hold it; the narrowest from 0): a 1440 desktop and a 390 mobile switch at 915 — a desktop
+  // design squeezed in a 1300 window, the mobile one stretched in an 800 one, as a site with a ~768–1024 breakpoint.
+  std::vector<double> widths;
+  for (Guid c : members) widths.push_back(own(c));
+  std::sort(widths.begin(), widths.end());
+  widths.erase(std::unique(widths.begin(), widths.end(), [](double a, double b) { return std::fabs(a - b) <= 0.5; }), widths.end());
+  if (widths.size() < 2) return frame;  // sizes alike: not breakpoints
+  double chosen = widths.front();
+  for (size_t i = 1; i < widths.size(); i++)
+    if (width + 0.5 >= (widths[i - 1] + widths[i]) / 2) chosen = widths[i];
+  Guid pick = frame;
+  if (std::fabs(own(frame) - chosen) > 0.5)
+    for (Guid c : members)
+      if (std::fabs(own(c) - chosen) <= 0.5) {
+        pick = c;
+        break;
+      }
+  m.result = pick;
+  return pick;
+}
+
+void Player::replaceScreen(Guid to) {
+  // A media query's swap: the other size at once (no history entry, no transition); hovers on the old one are undone,
+  // component states and scroll positions carried by semantic path as a navigation carries them; variables are global.
+  if (to == base_ || !frameExists(to)) return;
+  ed_.deriveTree(to);
+  Guid left = base_;
+  dropTimers(left);
+  leaveHeld();
+  hoverChain_ = Chain{};
+  base_ = to;
+  Action a;
+  a.stateVersion = 1;
+  carryComponentStates(to, a);
+  carryScroll(left, to, a);
+  armTimers(base_);
+  startTimeline();
+  changed();
 }
 
 // ---- Responsive -----------------------------------------------------------------------------------------
@@ -981,7 +1312,7 @@ Player::Chain Player::hitTest(Vec2 css) const {
   for (int k = static_cast<int>(overlays_.size()) - 1; k >= 0; k--) {
     Side s;
     s.frame = overlays_[static_cast<size_t>(k)].frame;
-    s.pos = overlays_[static_cast<size_t>(k)].pos;
+    s.pos = drawnPos(overlays_[static_cast<size_t>(k)]);
     s.overlay = true;
     std::vector<Hit> hits;
     if (hitWalk(s.frame, frameCss(s), css, hits, true)) {
@@ -1684,6 +2015,12 @@ void Player::runAction(Guid source, const Action& a, const Hit* hotspot, Held* h
 }
 
 void Player::navigate(Guid dest, const Action& a, bool record) {
+  // Website behaviours: under Responsive the destination's size for the window (its breakpoint).
+  if (web_ && page_ != kNoGuid && device(*props(page_)).none && responsiveOn()) {
+    Guid sized = breakpointFor(dest, ed_.viewport().width);
+    if (sized == base_ && sized != dest) return;  // another size of the screen shown: already there
+    dest = sized;
+  }
   if (!frameExists(dest)) return;
   ed_.deriveTree(dest);
   layout();
@@ -1799,12 +2136,35 @@ void Player::openOverlay(Guid dest, const Action& a, const Hit* hotspot, Held* h
   ed_.deriveTree(frame);
   layout();
   for (auto& o : overlays_)
-    if (o.frame == frame) return;  // already open
+    if (o.frame == frame) {
+      // Already open. Website behaviours: a stacked toast shown again stays for its whole delay again.
+      if (web_ && o.settings.stack) {
+        dropTimers(frame);
+        armTimers(frame);
+      }
+      return;
+    }
   fitOverlays(frame);  // Fit to window: sized before it is placed
   Shown s;
   s.frame = frame;
   s.settings = overlaySettings(*props(frame));
   s.pos = overlayPos(frame, s.settings, &a, hotspot);
+  // Website behaviours: a Manual overlay opened from a hotspot stays with it (Keep in window).
+  if (s.settings.position == OverlayPosition::MANUAL && hotspot && edgeOf(s.settings) != OverlayEdge::NONE) anchor(s, *hotspot);
+  // A toast stack at its most: the oldest goes (it leaves the way it came).
+  if (web_ && s.settings.stack && s.settings.stackMax > 0 && s.settings.position != OverlayPosition::MANUAL &&
+      s.settings.position != OverlayPosition::CENTER) {
+    for (;;) {
+      int count = 0, oldest = -1;
+      for (size_t k = 0; k < overlays_.size(); k++)
+        if (overlays_[k].settings.stack && overlays_[k].settings.position == s.settings.position) {
+          if (oldest < 0) oldest = static_cast<int>(k);
+          count++;
+        }
+      if (count < s.settings.stackMax || oldest < 0) break;
+      closeOverlay(oldest, nullptr);
+    }
+  }
   HistoryEntry h;
   h.base = base_;
   h.baseScroll = scrollOf(base_);
@@ -1937,7 +2297,20 @@ void Player::swapInstance(Guid instance, Guid main, const Action& a) {
   // A Smart animate / Dissolve between the two states: the instance's layers as they are now.
   bool animate = !instantSwaps_ && a.transition != Transition::INSTANT && durationOf(a) > 0;
   Snapshot from;
-  if (animate) from = snapshot(instance, true);
+  // Website behaviours, interruptible: a Change to on an instance still animating starts from what is drawn (CSS's
+  // transitions retarget from the current value) — a hover left half way goes back from there, in the time it took
+  // (the reversal shortened), instead of from the hovered state's end.
+  const InstanceAnim* running = nullptr;
+  if (animate && web_)
+    for (const InstanceAnim& x : instanceAnims_)
+      if (x.instance == instance && !x.scrubbing && doc().has(instance)) running = &x;
+  double reached = running ? unit(instanceProgress(*running)) : 1;
+  bool reversal = running && main == running->fromMain;
+  if (animate) from = running ? drawnInstance(*running, reached) : snapshot(instance, true);
+  // (Copied: the running one goes below.)
+  std::vector<InstanceAnim::Around> runningAround = running ? running->around : std::vector<InstanceAnim::Around>{};
+  bool runningSmart = running && isSmart(running->action);
+  running = nullptr;
   // What its new size moves around it: the auto-layout parents it sits in (up to the outermost one) and everything in
   // them but itself, where they are now.
   struct Geo {
@@ -1962,6 +2335,10 @@ void Player::swapInstance(Guid instance, Guid main, const Action& a) {
         for (Guid c : doc().children(id)) walk(c);
       };
       walk(layoutRoot);
+      // Interrupted: the layers around it from where they are drawn.
+      for (const InstanceAnim::Around& r : runningAround)
+        if (auto it = before.find(r.id); it != before.end())
+          it->second = {lerpMatrix(r.t0, r.t1, reached), {lerp(r.s0.x, r.s1.x, reached), lerp(r.s0.y, r.s1.y, reached)}};
     }
   }
   Guid real = instance.isDerived() ? ed_.instanceOfDerived(instance) : instance;
@@ -2013,6 +2390,15 @@ void Player::swapInstance(Guid instance, Guid main, const Action& a) {
     ia.action = a;
     ia.duration = durationOf(a) * 1000;
     ia.fromMain = fromMain;
+    if (reached < 1) {
+      // Interrupted (Website behaviours): the old state's layers fade out from where they had come (Smart animate's
+      // from-snapshot holds the rest); a Dissolve goes on from the opacity it reached. Back to where it came from: in
+      // the time it took — CSS's shortened reversal.
+      if (runningSmart && isSmart(a)) ia.ghostAlpha = reached;
+      else if (!isSmart(a) && reversal) ia.p0 = 1 - reached;
+      else if (!isSmart(a)) ia.ghostAlpha = reached;
+      if (reversal) ia.duration = std::max(1.0, ia.duration * reached);
+    }
     for (auto& [id, g] : before) {
       const NodeProps* np = props(id);
       if (np && (!(np->transform == g.t) || !(np->size == g.s))) ia.around.push_back({id, g.t, np->transform, g.s, np->size});
@@ -2275,11 +2661,32 @@ void Player::setVariableMode(const Action& a) {
 // ---- Time ------------------------------------------------------------------------------------------------
 
 void Player::startAnim(Anim&& a) {
+  // Website behaviours: a transition interrupted by another goes on from where it is drawn (a CSS transition's
+  // retargeting) instead of jumping to its end first (Figma's: the running one is finished).
+  double share = 1;  // of the new one's duration still to run
+  if (anim_.active && web_ && !noAnim_ && !anim_.scrubbing && !anim_.done) {
+    double now = std::clamp(progress(anim_), 0.0, 1.0);
+    if (a.slot == anim_.slot && a.x.frame == anim_.x.frame && a.y.frame == anim_.y.frame && a.reverse != anim_.reverse &&
+        a.x.overlay == anim_.x.overlay && a.y.overlay == anim_.y.overlay && !a.scrubbing) {
+      // The same step played back (Back, a hover's revert, an overlay closed while it opens): from the place it reached,
+      // in the time it took to get there — the reversal shortened as in CSS.
+      a.p0 = a.reverse ? 1 - now : now;
+      a.p1 = 1;
+      share = std::max(0.0, 1 - a.p0);
+      if (a.smart && anim_.smart) a.fromSnap = anim_.fromSnap;
+      anim_.active = false;
+      mediaDirty_ = true;
+    } else if (a.smart && anim_.smart && a.slot == anim_.slot && a.x.frame != kNoGuid && a.x.frame == anim_.y.frame) {
+      // On to another screen by Smart animate: its matching layers start where they are drawn now.
+      a.fromSnap = drawnScreen(anim_);
+    }
+  }
   if (anim_.active) finishAnim();
   if (noAnim_) return;
   animSerial_++;
   a.active = true;
-  a.duration = durationOf(a.action) * 1000;
+  a.duration = durationOf(a.action) * 1000 * share;
+  if (share < 1) a.duration = std::max(1.0, a.duration);
   a.start = clock_;
   a.started = false;
   a.serial = ++motionSerial_;
@@ -2300,7 +2707,7 @@ void Player::finishAnim() {
 
 bool Player::animating() const {
   bool instances = std::any_of(instanceAnims_.begin(), instanceAnims_.end(), [](const InstanceAnim& ia) { return !ia.scrubbing; });
-  return (anim_.active && !anim_.scrubbing) || instances || !scrollAnims_.empty() || !flings_.empty() || timelinePlaying_ ||
+  return (anim_.active && !anim_.scrubbing) || instances || !scrollAnims_.empty() || !slides_.empty() || !flings_.empty() || timelinePlaying_ ||
          hintsPending_ || now_ - hintsAt_ < kHintsMs;
 }
 
@@ -2698,6 +3105,17 @@ bool Player::tick(double nowMs) {
       i++;
     }
   }
+  // Toast stacks sliding into place.
+  for (size_t i = 0; i < slides_.size();) {
+    Slide& sl = slides_[i];
+    if (!sl.started) {
+      sl.start = clock_;
+      sl.started = true;
+    }
+    draw = true;
+    if (clock_ - sl.start >= sl.duration) slides_.erase(slides_.begin() + static_cast<long>(i));
+    else i++;
+  }
   for (size_t i = 0; i < scrollAnims_.size();) {
     auto& s = scrollAnims_[i];
     if (!s.started) {
@@ -2844,9 +3262,12 @@ std::string Player::matchKey(const Document& doc, Guid root, Guid id) {
   return key;
 }
 
-void Player::snapWalk(Snapshot& s, Guid id, const Mat2x3& parentRel, const std::string& key, bool root, bool rootTransform) const {
+void Player::snapWalk(Snapshot& s, Guid id, const Mat2x3& parentRel, const std::string& key, bool root, bool rootTransform,
+                      const PropsOverrides* over) const {
   const NodeProps* p = props(id);
   if (!p) return;
+  if (over)
+    if (auto it = over->find(id); it != over->end()) p = &it->second;
   Mat2x3 rel = root && !rootTransform ? Mat2x3{} : parentRel * p->transform;
   SnapNode n;
   n.id = id;
@@ -2867,13 +3288,51 @@ void Player::snapWalk(Snapshot& s, Guid id, const Mat2x3& parentRel, const std::
     const NodeProps* cp = props(c);
     if (!cp || ghosts_.count(c)) continue;
     int k = seen[cp->name]++;
-    snapWalk(s, c, rel, key + "/" + cp->name + "#" + std::to_string(k), false, rootTransform);
+    snapWalk(s, c, rel, key + "/" + cp->name + "#" + std::to_string(k), false, rootTransform, over);
   }
 }
 
 Player::Snapshot Player::snapshot(Guid root, bool rootTransform) const {
   Snapshot s;
   snapWalk(s, root, Mat2x3{}, std::string(), true, rootTransform);
+  return s;
+}
+
+Player::Snapshot Player::drawnInstance(const InstanceAnim& ia, double e) const {
+  // As addFrame draws it: Smart animate interpolates the new state's layers from the old snapshot; the old state's
+  // unmatched layers (the ghost) fade out — they join the snapshot under their keys where the new state has none, so a
+  // layer going back (a hover undone) comes back from the opacity it reached.
+  PropsOverrides drawn;
+  if (isSmart(ia.action)) smartDest(ia.instance, ia.from, e, true, drawn, Mat2x3{}, Mat2x3{}, std::string(), true, false);
+  Snapshot s;
+  snapWalk(s, ia.instance, Mat2x3{}, std::string(), true, true, &drawn);
+  if (ia.ghost != kNoGuid && doc().has(ia.ghost)) {
+    PropsOverrides fading;
+    if (isSmart(ia.action)) {
+      smartSource(ia.ghost, matchedKeys(ia.from, ia.instance, true), e, fading, std::string(), true, false, props(ia.ghost)->transform);
+    } else {
+      NodeProps q = *props(ia.ghost);
+      q.opacity *= unit(1 - e);
+      fading[ia.ghost] = std::move(q);
+    }
+    if (auto g = fading.find(ia.ghost); g != fading.end()) g->second.opacity *= ia.ghostAlpha;
+    Snapshot old;
+    snapWalk(old, ia.ghost, Mat2x3{}, std::string(), true, true, &fading);
+    for (auto& [k, n] : old.byKey)
+      if (!k.empty()) s.byKey.emplace(k, std::move(n));
+  }
+  if (!isSmart(ia.action))
+    if (auto r = s.byKey.find(std::string()); r != s.byKey.end()) r->second.opacity *= unit(e);
+  return s;
+}
+
+Player::Snapshot Player::drawnScreen(const Anim& a) const {
+  // A Smart animate screen transition's destination as drawn now (its layers between their two places).
+  PropsOverrides drawn;
+  if (a.smart && a.y.frame != kNoGuid && doc().has(a.y.frame))
+    smartDest(a.y.frame, a.fromSnap, std::clamp(progress(a), 0.0, 1.0), false, drawn, Mat2x3{}, Mat2x3{}, std::string(), true, false);
+  Snapshot s;
+  snapWalk(s, a.y.frame, Mat2x3{}, std::string(), true, false, &drawn);
   return s;
 }
 
@@ -3099,6 +3558,7 @@ void Player::addFrame(const Side& s, Vec2 offset, double alpha, PropsOverrides&&
         smartSource(ia.ghost, matchedKeys(ia.from, ia.instance, true), e, tmp, std::string(), true, false, ghostAt);
         if (auto g = tmp.find(ia.ghost), i = tmp.find(ia.instance); g != tmp.end() && i != tmp.end() && !ia.around.empty())
           g->second.transform = i->second.transform;
+        if (auto g = tmp.find(ia.ghost); g != tmp.end()) g->second.opacity *= ia.ghostAlpha;
       }
     } else {
       // Dissolve: the new state fades in over the old one.
@@ -3110,7 +3570,7 @@ void Player::addFrame(const Side& s, Vec2 offset, double alpha, PropsOverrides&&
       if (ia.ghost != kNoGuid)
         if (const NodeProps* gp = props(ia.ghost)) {
           NodeProps q = *gp;
-          q.opacity *= unit(1 - e);
+          q.opacity *= unit(1 - e) * ia.ghostAlpha;
           tmp[ia.ghost] = std::move(q);
         }
     }
@@ -3539,7 +3999,7 @@ const PresentScene& Player::scene() {
       if (k < overlays_.size() && a->y.frame != overlays_[k].frame && a->x.frame != overlays_[k].frame) {
         Side s;
         s.frame = overlays_[k].frame;
-        s.pos = overlays_[k].pos;
+        s.pos = drawnPos(overlays_[k]);
         s.settings = overlays_[k].settings;
         s.overlay = true;
         addSlot(nullptr, &s, nullptr);
@@ -3549,7 +4009,7 @@ const PresentScene& Player::scene() {
     if (k >= overlays_.size()) continue;
     Side s;
     s.frame = overlays_[k].frame;
-    s.pos = overlays_[k].pos;
+    s.pos = drawnPos(overlays_[k]);
     s.settings = overlays_[k].settings;
     s.overlay = true;
     addSlot(nullptr, &s, nullptr);
@@ -3567,7 +4027,7 @@ const PresentScene& Player::scene() {
     for (auto& o : overlays_) {
       Side s;
       s.frame = o.frame;
-      s.pos = o.pos;
+      s.pos = drawnPos(o);
       s.overlay = true;
       roots.emplace_back(o.frame, frameCss(s));
     }
@@ -3871,6 +4331,123 @@ void Player::applyMediaFrames() {
 
 // ---- State ---------------------------------------------------------------------------------------------
 
+std::string Player::saveState() {
+  // Keep state on reload (Website behaviours; the page keeps this in its session storage, never the document): what a
+  // web app's store and the browser's scroll restoration would keep — the screen, the variables and modes the
+  // prototype set, interacted components' states, scroll positions by semantic path.
+  json::Writer w;
+  w.beginObject().key("v").number(1);
+  auto id = [&](const char* k, Guid g) {
+    w.key(k);
+    if (g == kNoGuid) w.null();
+    else w.string(g.toString());
+  };
+  id("page", page_);
+  id("screen", base_);
+  id("start", flow_ != kNoGuid ? flow_ : startFrame_);
+  w.key("components").beginObject();
+  for (const auto& [path, variant] : componentStates_) w.key(path).string(variant.toString());
+  w.endObject();
+  w.key("nested").beginObject();
+  for (const auto& [key, variant] : nestedStates_) w.key(key).string(variant.toString());
+  w.endObject();
+  // Scroll: what was stored when screens were left, and the screen shown now.
+  std::unordered_map<std::string, Vec2> scroll = scrollStore_;
+  for (const auto& [frame, off] : scroll_)
+    if (doc().has(frame) && (frame == base_ || doc().isAncestor(base_, frame))) scroll[semanticPath(frame)] = off;
+  w.key("scroll").beginObject();
+  for (const auto& [path, off] : scroll) w.key(path).beginArray().number(off.x).number(off.y).endArray();
+  w.endObject();
+  // Text typed into text inputs by semantic path (a field bound to a variable is kept with the variables below).
+  w.key("typed").beginObject();
+  for (const auto& [path, text] : typed_)
+    if (!secretPaths_.count(path)) w.key(path).string(text);  // a password is never kept (as a browser's form restore)
+  w.endObject();
+  // Variables and modes: the fields the player wrote, as they are now.
+  w.key("changes").beginArray();
+  for (const auto& [node, orig] : originals_) {
+    FieldMask mask = orig.mask & (F_VARIABLE_DATA_VALUES | F_VARIABLE_MODES);
+    const NodeProps* p = props(node);
+    if (!mask || !p) continue;
+    NodeChange c = NodeChange::changed(node);
+    c.mask = mask;
+    copyFields(c.props, *p, mask);
+    codec::writeChange(w, c);
+  }
+  w.endArray();
+  w.endObject();
+  return w.take();
+}
+
+bool Player::restoreState(const std::string& text) {
+  json::Value v;
+  if (!active() || !json::parse(text, v) || !v.isObject()) return false;
+  const json::Value* ver = v.get("v");
+  if (!ver || ver->numberOr(0) != 1) return false;
+  auto guid = [&](const char* k) {
+    const json::Value* g = v.get(k);
+    bool ok = false;
+    Guid out = g && g->isString() ? Guid::parse(g->string, &ok) : kNoGuid;
+    return ok ? out : kNoGuid;
+  };
+  if (guid("page") != page_) return false;
+  Guid screen = guid("screen");
+  if (screen == kNoGuid || !frameExists(screen) || topLevelOf(screen) != screen) return false;
+  // Variables and modes first (they may show or hide what follows).
+  std::vector<NodeChange> changes;
+  if (const json::Value* list = v.get("changes"); list && list->isArray())
+    for (const json::Value& e : list->array) {
+      NodeChange c;
+      FieldMask allowed = F_VARIABLE_DATA_VALUES | F_VARIABLE_MODES;
+      if (!codec::readChange(e, c) || !doc().has(c.guid) || !(c.mask & allowed)) continue;
+      c.mask &= allowed;
+      remember(c.guid, c.mask);
+      changes.push_back(std::move(c));
+    }
+  if (!changes.empty()) ed_.applyChanges(changes, APPLY_REMOTE);
+  auto states = [&](const char* k, std::unordered_map<std::string, Guid>& out) {
+    out.clear();
+    if (const json::Value* o = v.get(k); o && o->isObject())
+      for (const auto& [path, g] : o->object) {
+        bool ok = false;
+        Guid id = g.isString() ? Guid::parse(g.string, &ok) : kNoGuid;
+        if (ok && doc().has(id)) out[path] = id;
+      }
+  };
+  states("components", componentStates_);
+  states("nested", nestedStates_);
+  // Typed text: shown again by its fields (syncWeb writes them on the next document version check).
+  typed_.clear();
+  if (const json::Value* o = v.get("typed"); o && o->isObject())
+    for (const auto& [path, t] : o->object)
+      if (t.isString()) typed_[path] = t.string;
+  webVersion_ = ~0ull;
+  scrollStore_.clear();
+  if (const json::Value* o = v.get("scroll"); o && o->isObject())
+    for (const auto& [path, xy] : o->object)
+      if (xy.isArray() && xy.array.size() == 2) scrollStore_[path] = {xy.array[0].numberOr(0), xy.array[1].numberOr(0)};
+  // The screen, its components and scroll as they were.
+  for (auto& o : overlays_) dropTimers(o.frame);
+  overlays_.clear();
+  history_.clear();
+  layout();
+  if (screen != base_) {
+    Guid left = base_;
+    replaceScreen(screen);
+    scroll_.erase(left);
+  } else {
+    Action a;
+    a.stateVersion = 1;
+    carryComponentStates(base_, a);
+    carryScroll(kNoGuid, base_, a);
+  }
+  layout();
+  Vec2 range = topScrollRange(base_);
+  if (auto it = scroll_.find(base_); it != scroll_.end()) it->second = {std::min(it->second.x, range.x), std::min(it->second.y, range.y)};
+  changed();
+  return true;
+}
+
 std::string Player::stateJson() const {
   json::Writer w;
   auto id = [&](Guid g) {
@@ -3918,6 +4495,9 @@ std::string Player::stateJson() const {
   w.endArray();
   w.key("hints").boolean(hints_);
   w.key("shortcuts").boolean(shortcuts_);
+  w.key("websiteBehaviours").boolean(web_);
+  // Bumped by every action that changes the prototype's state (the page saves the kept state when it moves).
+  w.key("actions").number(static_cast<double>(actionCounter_));
   {
     // Figma's recommended scales (help "Play your prototypes"): the first frame's width, every frame 16:9.
     double first = 0;

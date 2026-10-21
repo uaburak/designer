@@ -3428,8 +3428,8 @@ ENG_EXPORT int32_t engine_present_set_options(Handle h, Ptr ptr, uint32_t len) {
   }
   if (auto* hints = v.get("hints"); hints && hints->isBool()) e->player->setHints(hints->boolean);
   if (auto* keys = v.get("shortcuts"); keys && keys->isBool()) e->player->setShortcuts(keys->boolean);
-  // Options › Advanced settings › "Website behaviours" (docs/engine.md §3.4): text inputs, focus, keys, cursors.
-  if (auto* web = v.get("webBehaviours"); web && web->isBool()) e->player->setWebBehaviours(web->boolean);
+  // Website behaviours (Options › Advanced settings; off: Figma's behaviour).
+  if (auto* web = v.get("websiteBehaviours"); web && web->isBool()) e->player->setWebBehaviours(web->boolean);
   // With a device: Responsive / Fixed size, Show device frame.
   if (auto* r = v.get("responsive"); r && r->isBool()) e->player->setResponsive(r->boolean);
   if (auto* f = v.get("deviceFrame"); f && f->isBool()) e->player->setDeviceFrame(f->boolean);
@@ -3506,13 +3506,32 @@ ENG_EXPORT int32_t engine_present_state(Handle h) {
   for (auto& ev : e->player->takeEvents()) {
     w.beginObject();
     if (ev.kind == proto::Player::Event::Kind::OPEN_URL) w.key("type").string("OPEN_URL").key("url").string(ev.url).key("newTab").boolean(ev.newTab);
-    else w.key("type").string("CHANGED");
+    else w.key("type").string(ev.restarted ? "RESTARTED" : "CHANGED");
     w.endObject();
   }
   w.endArray();
   state.pop_back();  // the closing brace
   state += ",\"events\":" + w.take() + "}";
   return setResult(std::move(state));
+}
+
+// Keep state on reload (Website behaviours): the prototype's runtime state as JSON (Player::saveState) — the page keeps
+// it in its session storage, never the document.
+ENG_EXPORT int32_t engine_present_save_state(Handle h) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e || !e->presenting()) return E_HANDLE;
+  return setResult(e->player->saveState());
+}
+
+// The state saved before a reload, put back on the prototype just started (E_INVALID: another page, or unreadable).
+ENG_EXPORT int32_t engine_present_restore_state(Handle h, Ptr ptr, uint32_t len) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e || !e->presenting()) return E_HANDLE;
+  if (!e->player->restoreState(std::string(bytes(ptr, len)))) return E_INVALID;
+  e->editor.invalidateCanvas();
+  return OK;
 }
 #include "api/TraceApi.inc"
 #include "api/DrawApi.inc"

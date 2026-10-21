@@ -6,7 +6,6 @@ import type { NodeChange } from "@/engine/codec";
 import { defaultModeToast, unaddedLibraries } from "../libraries";
 import { publishRetryable } from "../panels/libraries/PublishDialog";
 import { isHideUiKey, presentUrlOptions } from "../../present/PresentationView";
-import { readWebBehaviours, writeWebBehaviours } from "../../present/webBehaviours";
 import { missingInScope } from "../panels/MissingFonts";
 import { spanMax, type GridNode } from "../model/grid";
 import { gapUnpacking } from "../variables";
@@ -89,27 +88,6 @@ describe("a prototype link's parameters (atlas 13 §10.6)", () => {
   });
   it("ignores what it doesn't know", () => {
     expect(read("scaling=zoom&hotspot-hints=1&node-id=abc")).toEqual({});
-  });
-  it("Wecra's web-behaviours=0 | 1 (Website behaviours for that view)", () => {
-    expect(read("web-behaviours=0")).toEqual({ webBehaviours: false });
-    expect(read("web-behaviours=1")).toEqual({ webBehaviours: true });
-    expect(read("web-behaviours=yes")).toEqual({});
-  });
-});
-
-describe("Website behaviours: remembered per user on the machine, on by default", () => {
-  it("reads on until turned off, and remembers the choice", () => {
-    const kept = new Map<string, string>();
-    const g = globalThis as { localStorage?: unknown };
-    const before = g.localStorage;
-    g.localStorage = { getItem: (k: string) => kept.get(k) ?? null, setItem: (k: string, v: string) => void kept.set(k, v) };
-    expect(readWebBehaviours()).toBe(true);
-    writeWebBehaviours(false);
-    expect(readWebBehaviours()).toBe(false);
-    expect(kept.get("designer.present.webBehaviours")).toBe("0");
-    writeWebBehaviours(true);
-    expect(readWebBehaviours()).toBe(true);
-    g.localStorage = before;
   });
 });
 

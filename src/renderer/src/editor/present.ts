@@ -108,6 +108,7 @@ export function togglePreview(ed: EditorController): void {
 export function editorPresentationSource(ed: EditorController, page: Guid): PresentationSource {
   const source: PresentationSource = {
     fileName: ed.ui.get().fileName || ed.source.fileName,
+    stateKey: (ed.source as { fileKey?: string }).fileKey,
     load: async () => ({ bytes: ed.engine.encodePageKiwi(page) }),
     // Both engines are in this module: the page's nodes go across directly (no Message written and read).
     loadInto: (engine) => void engine.loadPageOf(ed.engine, page),
