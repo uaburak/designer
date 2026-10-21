@@ -20,6 +20,7 @@ export function storePresentationSource(fileKey: string): PresentationSource {
   let headSeq = 0;
   const source: PresentationSource = {
     fileName: "Prototype",
+    stateKey: fileKey,
     async load() {
       const opened = await store.files.open(fileKey, { mode: "view" });
       headSeq = opened.headSeq;

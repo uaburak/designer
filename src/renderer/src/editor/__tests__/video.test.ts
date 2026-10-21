@@ -141,12 +141,19 @@ describe("the presentation view's options", () => {
       "Advanced settings",
       "Hide UI",
     ]);
-    const item = (label: string) => entries.find((e) => e !== "-" && !("header" in e) && e.label === label) as { shortcut?: string; icon?: string; items?: { label: string }[] };
+    const item = (label: string) => entries.find((e) => e !== "-" && !("header" in e) && e.label === label) as { shortcut?: string; icon?: string; items?: (string | { label: string })[] };
     // "Z" beside the option Z goes to next; each scale with its glyph.
     expect(item("Fit width and height").shortcut).toBe("Z");
     expect(item("Actual size (100%)").shortcut).toBeUndefined();
     expect(item("Fill screen").icon).toBe("24.proto.scale.fill");
-    expect(item("Advanced settings").items?.map((i) => i.label)).toEqual(["Enable Figma shortcuts", "Show hints on click"]);
+    // Figma's two, then Wecra's website behaviours (webBehaviours.ts).
+    expect(item("Advanced settings").items?.map((i) => (typeof i === "string" ? i : i.label))).toEqual([
+      "Enable Figma shortcuts",
+      "Show hints on click",
+      "-",
+      "Website behaviours",
+      "Keep state on reload",
+    ]);
   });
 
   it("with a device: Responsive / Fixed size in the options, the device's scaling in the device menu", () => {

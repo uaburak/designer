@@ -253,6 +253,10 @@ export interface PresentState {
   hints?: boolean;
   /** "Enable Figma shortcuts": R, → Space N, ←, Z (on by default) */
   shortcuts?: boolean;
+  /** "Website behaviours" (Wecra's; on by default): anchored popovers, breakpoints, interruptible transitions, toasts */
+  websiteBehaviours?: boolean;
+  /** Bumped by every action that changes the prototype's state (Keep state on reload saves then) */
+  actions?: number;
   /** The first frame's width (Figma's recommended scales) and whether every frame is 16:9 */
   firstFrameWidth?: number;
   allWide?: boolean;
@@ -274,7 +278,8 @@ export interface PresentState {
   hotspot?: boolean;
   /** The device's screen on the canvas (CSS px) */
   screenRect?: { x: number; y: number; w: number; h: number };
-  events: ({ type: "CHANGED" } | { type: "OPEN_URL"; url: string; newTab: boolean })[];
+  /** RESTARTED: Restart (R) — the state kept for a reload is forgotten */
+  events: ({ type: "CHANGED" } | { type: "RESTARTED" } | { type: "OPEN_URL"; url: string; newTab: boolean })[];
 }
 
 let nextBitmapId = 1;
@@ -990,6 +995,8 @@ export class Engine {
     scale?: PresentScale;
     hints?: boolean;
     shortcuts?: boolean;
+    /** Website behaviours (off: Figma's behaviour) */
+    websiteBehaviours?: boolean;
     responsive?: boolean;
     deviceFrame?: boolean;
     /** The machine it plays on: its scroll physics, ⌘ in key triggers */
@@ -1053,6 +1060,22 @@ export class Engine {
   presentState(): PresentState {
     this.x.presentState(this.h);
     return this.after(JSON.parse(decodeText(this.x.result())) as PresentState);
+  }
+
+  /**
+   * Keep state on reload (Website behaviours): the prototype's runtime state — screen, variables and modes it set,
+   * component states, scroll — as JSON for the page's session storage ("" when nothing is presented).
+   */
+  presentSaveState(): string {
+    if (this.x.presentSaveState(this.h) !== Status.OK) return this.after("");
+    return this.after(decodeText(this.x.result()));
+  }
+
+  /** Puts a presentSaveState back on the prototype just started (false: another page, or unreadable). */
+  presentRestoreState(state: string): boolean {
+    const ok = this.x.presentRestoreState(this.h, encodeText(state)) === Status.OK;
+    this.schedule();
+    return this.after(ok);
   }
 
   // ---- Document ---------------------------------------------------------------

@@ -241,6 +241,7 @@ else()
     tests/unit/proto.hug_anchor.test.cpp
     tests/unit/proto.owner_file.test.cpp
     tests/unit/proto.preview_load.test.cpp
+    tests/unit/proto.web_behaviours.test.cpp
     tests/unit/motion.easing.test.cpp
     tests/unit/devmode.test.cpp
     tests/unit/r7.selection.test.cpp

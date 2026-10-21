@@ -27,11 +27,14 @@ import { MOD_ALT, MOD_CTRL, MOD_META, MOD_SHIFT, Status } from "@/engine/abi";
 import { Engine, type ImageSource, type PresentScale, type PresentState } from "@/engine/Engine";
 import type { Guid } from "@/engine/codec";
 import { PresentationVideos } from "./presentationVideos";
+import { applyWebOption, forgetKeptState, keptStateKey, readWebOptions, restoreKeptState, saveKeptState, webBehavioursParam, webMenuEntries } from "./webBehaviours";
 import styles from "./Present.module.css";
 
 export interface PresentationSource {
   /** The file's name (the top bar) */
   fileName: string;
+  /** The file's key: Keep state on reload keeps a prototype's state under it (else the name) */
+  stateKey?: string;
   /** The document: a kiwi Message (the store's snapshot or the editor's own encoding), and journal frames after it */
   load(): Promise<{ bytes: Uint8Array; frames?: Uint8Array[] }>;
   /** Live changes (kiwi NODE_CHANGES Messages) until the returned function is called */
@@ -122,6 +125,8 @@ export interface PresentUrlOptions {
   hideUi?: boolean;
   /** The frame to show (`node-id`), else the flow to start (`starting-point-node-id`) */
   node?: Guid;
+  /** `web-behaviours=0`: Website behaviours off for this view (Wecra's; webBehaviours.ts) */
+  websiteBehaviours?: boolean;
 }
 
 /**
@@ -143,6 +148,8 @@ export function presentUrlOptions(params: URLSearchParams): PresentUrlOptions {
   if (params.get("hide-ui") === "1") out.hideUi = true;
   const id = (params.get("node-id") ?? params.get("starting-point-node-id") ?? "").replace("-", ":");
   if (/^\d+:\d+$/.test(id)) out.node = id;
+  const web = webBehavioursParam(params);
+  if (web !== undefined) out.websiteBehaviours = web;
   return out;
 }
 
@@ -249,6 +256,9 @@ export function presentOptions(state: PresentState | null, view: ViewOptions = {
       items: [
         { id: "shortcuts", label: t("Enable Figma shortcuts"), checked: view.shortcuts },
         { id: "hints", label: t("Show hints on click"), checked: state?.hints !== false },
+        // Wecra's (webBehaviours.ts): the prototype plays like a website.
+        "-",
+        ...webMenuEntries(state),
       ],
     },
     { id: "hide-ui", label: t("Hide UI"), checked: view.hideUi, shortcut: presentHost() === "mac" ? "⌘\\" : "Ctrl+\\" },
@@ -289,8 +299,9 @@ export function deviceName(preset: string | undefined): string {
   return words.join(" ");
 }
 
-/** Applies an options menu entry (presentOptions' ids) to the engine. */
-export function applyPresentOption(engine: Engine, state: PresentState | null, id: string): void {
+/** Applies an options menu entry (presentOptions' ids) to the engine; `stateKey`: where Keep state on reload keeps it. */
+export function applyPresentOption(engine: Engine, state: PresentState | null, id: string, stateKey?: () => string | null): void {
+  if (applyWebOption(engine, state, id, stateKey)) return;
   if (id === "hints") engine.presentSetOptions({ hints: state?.hints === false });
   else if (id === "shortcuts") engine.presentSetOptions({ shortcuts: state?.shortcuts === false });
   else if (id === "frame") engine.presentSetOptions({ deviceFrame: state?.deviceFrame === false });
@@ -378,11 +389,15 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     }
   }, []);
 
+  // Keep state on reload (webBehaviours.ts): where this prototype's state is kept in the tab's session storage.
+  const keptKey = useRef<string | null>(null);
   const readState = useCallback(() => {
     const engine = engineRef.current;
     if (!engine || engine.destroyed) return;
     const s = engine.presentState();
     for (const e of s.events) if (e.type === "OPEN_URL" && e.url) window.open(e.url, e.newTab ? "_blank" : "_self", "noopener");
+    // Restart forgets what was kept.
+    if (keptKey.current && s.events.some((e) => e.type === "RESTARTED")) forgetKeptState(keptKey.current);
     const { events: _events, ...rest } = s;
     void _events;
     const key = JSON.stringify(rest);
@@ -391,6 +406,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       setState(s);
       onStateRef.current?.(s);
       deriveAhead.current?.();
+      if (keptKey.current && s.active && s.websiteBehaviours !== false && readWebOptions().keepState) saveKeptState(engine, keptKey.current);
     }
   }, []);
 
@@ -478,7 +494,10 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     const r = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     engine.setViewport(Math.max(1, r.width), Math.max(1, r.height), dpr, Math.max(1, Math.round(r.width * dpr)), Math.max(1, Math.round(r.height * dpr)));
-    engine.presentSetOptions({ host: presentHost() });
+    // Website behaviours: the viewer's own setting (a link's web-behaviours=0 over it), before the start picks a breakpoint.
+    const web = readWebOptions();
+    const websiteBehaviours = urlOptions?.websiteBehaviours ?? web.websiteBehaviours;
+    engine.presentSetOptions({ host: presentHost(), websiteBehaviours });
     const start = node ?? urlOptions?.node;
     const status = engine.presentStart({ ...(page ? { page } : {}), ...(start ? { node: start } : {}) });
     // (Told after this effect: the page may have gained frames since a failed opening.)
@@ -486,6 +505,15 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     queueMicrotask(() => setError(failed ? t("This page has no frames to present") : null));
     if (failed) return;
     presentingRef.current = true;
+    // Keep state on reload: what this tab kept for this prototype comes back; saved again as it changes, and as the page
+    // goes (a reload).
+    const kept = keptStateKey(source.stateKey ?? source.fileName, page, start);
+    keptKey.current = kept;
+    if (websiteBehaviours && web.keepState) restoreKeptState(engine, kept);
+    const onPageHide = () => {
+      if (!engine.destroyed && engine.presentState().websiteBehaviours !== false && readWebOptions().keepState) saveKeptState(engine, kept);
+    };
+    window.addEventListener("pagehide", onPageHide);
     // A prototype link's parameters, over the file's own settings; in a mobile browser Fit width and no device frame
     // unless the link says otherwise.
     const mobile = !inline && isMobileBrowser();
@@ -516,6 +544,8 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       if (!idle && !engine.destroyed) idle = idleCall(derive);
     };
     return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      keptKey.current = null;
       deriveAhead.current = null;
       if (idle) (typeof cancelIdleCallback === "function" ? cancelIdleCallback : window.clearTimeout)(idle);
       window.clearInterval(timer);
@@ -551,6 +581,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       // The inline preview's R: from the last frame selected on the canvas.
       if (inline && onRestart && e.code === "KeyR" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
         e.preventDefault();
+        if (keptKey.current) forgetKeptState(keptKey.current);
         onRestart();
         readState();
         return;
@@ -638,7 +669,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     if (id === "sidebar") setSidebar(!sidebar);
     else if (id === "hide-ui") toggleHideUi();
     else if (id === "keys") setKeysOpen(true);
-    else applyPresentOption(engine, state, id);
+    else applyPresentOption(engine, state, id, () => keptKey.current);
     readState();
     canvasRef.current?.focus({ preventScroll: true });
   };
@@ -653,6 +684,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
   };
   const restart = () => {
     if (onRestart) {
+      if (keptKey.current) forgetKeptState(keptKey.current);
       onRestart();
       readState();
     } else {

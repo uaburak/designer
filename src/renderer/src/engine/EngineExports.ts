@@ -401,6 +401,8 @@ export class EngineExports {
   presentSetOptions = (h: number, options: Uint8Array): number =>
     this.withBytes([options], (p) => this.fn("present_set_options")(h, p[0], p[1]));
   presentState = (h: number): number => this.fn("present_state")(h);
+  presentSaveState = (h: number): number => this.fn("present_save_state")(h);
+  presentRestoreState = (h: number, state: Uint8Array): number => this.withBytes([state], (p) => this.fn("present_restore_state")(h, p[0], p[1]));
   presentMedia = (h: number): number => this.fn("present_media")(h);
   presentMediaFrame = (
     h: number, sess: number, local: number, bitmapId: number, width: number, height: number, time: number, duration: number, flags: number, seekSerial: number,
@@ -434,7 +436,7 @@ export const USED_EXPORTS = [
   "image_add_bitmap", "image_add_rgba", "image_failed",
   "vector_edit", "vector_edit_end", "vector_edit_tool", "path_tool", "end_caps", "paint_edit", "paint_edit_end", "paint_edit_stop", "blur_edit", "blur_edit_handle",
   "set_prototype_mode", "set_prototype_selection", "set_viewer_mode", "present_start", "present_stop", "present_pointer", "present_wheel", "present_key", "present_command",
-  "present_set_options", "present_state", "present_media", "present_media_frame",
+  "present_set_options", "present_state", "present_media", "present_media_frame", "present_save_state", "present_restore_state",
   "set_view_options", "set_nudge", "start_guide", "set_annotation_view", "set_annotation_filter", "set_edit_tracking", "edit_scope_push", "edit_scope_pop", "set_focus", "select_measurement", "dev_info",
   "trace", "vectorize_begin", "vectorize_update", "vectorize_end",
   "install_brush", "list_brushes", "brush_preview", "set_draw_tool_settings",

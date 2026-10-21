@@ -28,6 +28,7 @@ import { Icon, IconButton, MenuButton, cx, type MenuEntry } from "@/ds";
 import type { Engine, PresentScale, PresentState } from "@/engine/Engine";
 import type { Guid } from "@/engine/codec";
 import { PresentationView, SCALE_ICON, presentHost } from "@/present/PresentationView";
+import { applyWebOption, forgetKeptState, keptStateKey, webMenuEntries } from "@/present/webBehaviours";
 import { viewRect } from "./canvas/viewInsets";
 import { useEditor, type EditorController } from "./controller";
 import { useUI } from "./hooks";
@@ -216,9 +217,12 @@ function PreviewWindow({ page, node, open }: { page: Guid; node: Guid | null; op
     ed.ui.set({ preview: null });
     ed.focusCanvas();
   };
+  // Keep state on reload: where the presentation keeps this prototype's state (PresentationView: file, page, start).
+  const keptKey = () => keptStateKey(source.stateKey ?? source.fileName, page, node);
   const restart = () => {
     const engine = engineRef.current;
     if (!engine || engine.destroyed) return;
+    forgetKeptState(keptKey());
     engine.presentStart(lastFrame.current ? { node: lastFrame.current } : {});
     refresh();
   };
@@ -249,12 +253,19 @@ function PreviewWindow({ page, node, open }: { page: Guid; node: Guid | null; op
     { id: "actual", label: device ? t("Resize device to 100%") : t("Resize window to 100%"), checked: sameSize(viewer, actual) },
     ...(!device ? [{ id: "aspect", label: t("Reset aspect ratio"), checked: sameSize(viewer, aspectViewerSize(viewer, bp, info.frame)) }] : []),
     ...(state?.hasDeviceFrame ? [{ id: "frame", label: t("Show device frame"), checked: state.deviceFrame !== false }] : []),
+    // Wecra's (webBehaviours.ts): the prototype plays like a website, as in the presentation's Advanced settings.
+    "-",
+    { id: "advanced", label: t("Advanced settings"), items: webMenuEntries(state) },
   ];
   const resizeViewer = (v: Size) => setBox((b) => ({ ...b, w: v.x, h: v.y + HEADER }));
   const onOption = (id: string) => {
     const engine = engineRef.current;
     const s = stateRef.current;
     if (!engine || engine.destroyed) return;
+    if (applyWebOption(engine, s, id, keptKey)) {
+      refresh();
+      return;
+    }
     if (id.startsWith("scale:")) engine.presentSetOptions({ scale: id.slice(6) as PresentScale });
     else if (id === "device:responsive") engine.presentSetOptions({ responsive: true });
     else if (id === "device:fill") engine.presentSetOptions({ responsive: false, scale: "FILL" });

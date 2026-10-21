@@ -111,6 +111,14 @@ export interface PrototypeDevice {
 export type OverlayPositionType = "CENTER" | "TOP_LEFT" | "TOP_CENTER" | "TOP_RIGHT" | "BOTTOM_LEFT" | "BOTTOM_CENTER" | "BOTTOM_RIGHT" | "MANUAL";
 /** Wecra's overlay "Fit to window" (NodeChange.overlayFitWindow, @ours: never in a .fig export; docs/engine.md §3.4). */
 export type OverlayFitWindow = "NONE" | "WIDTH" | "HEIGHT" | "BOTH";
+/** Wecra's overlay "Keep in window" (NodeChange.overlayEdgeBehavior, @ours): a Manual overlay follows its hotspot, flips
+ *  and shifts into the window (AUTO, also when absent), only follows it (FOLLOW_ONLY), or stays where Figma puts it. */
+export type OverlayEdgeBehavior = "AUTO" | "NONE" | "FOLLOW_ONLY";
+/** Wecra's overlay "Stack" (NodeChange.overlayStack, @ours): toasts at one preset position, `gap` apart, at most `max`. */
+export interface OverlayStack {
+  gap?: number;
+  max?: number;
+}
 export type ScrollDirection = "NONE" | "HORIZONTAL" | "VERTICAL" | "BOTH";
 export type ScrollBehavior = "SCROLLS" | "FIXED_WHEN_CHILD_OF_SCROLLING_FRAME" | "STICKY_SCROLLS";
 
@@ -125,6 +133,10 @@ export interface PrototypeFields {
   overlayBackgroundAppearance?: { backgroundType?: "NONE" | "SOLID_COLOR"; backgroundColor?: Color };
   /** Wecra-only: the overlay's sides that take the window's size while presented (absent: None) */
   overlayFitWindow?: OverlayFitWindow;
+  /** Wecra-only: Keep in window (absent: on) */
+  overlayEdgeBehavior?: OverlayEdgeBehavior;
+  /** Wecra-only: Stack (absent: off) */
+  overlayStack?: OverlayStack;
   scrollDirection?: ScrollDirection;
   scrollBehavior?: ScrollBehavior;
   /** Prototype › Video (absent: all off) */

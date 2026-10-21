@@ -76,6 +76,17 @@ class Player {
   // "Enable Figma shortcuts" (help "Play your prototypes"): off, only the prototype's own Key / Gamepad triggers take keys.
   void setShortcuts(bool on) { shortcuts_ = on; }
   bool shortcuts() const { return shortcuts_; }
+  // "Website behaviours" (Options › Advanced settings, on by default; Wecra's, docs/engine.md §3.4 "Website behaviours"):
+  // a Manual overlay follows its hotspot and stays in the window, a screen switches to its other breakpoint on resize
+  // under Responsive, Change to and screen transitions are interruptible, Stack overlays queue like toasts. Off, the
+  // player behaves as Figma's.
+  void setWebBehaviours(bool on);
+  bool webBehaviours() const { return web_; }
+  // "Keep state on reload" (Options; the page keeps it in its session storage, never the document): the runtime state
+  // — the screen, variables and modes the prototype set, component states, scroll positions — as JSON, and back on a
+  // player that started the same page (false: not this page, or unreadable). Restart forgets it (the page's part).
+  std::string saveState();
+  bool restoreState(const std::string& json);
   // With a device: Responsive (true) or Fixed size, and Show device frame.
   void setResponsive(bool on);
   bool responsive() const { return responsive_; }
@@ -105,6 +116,13 @@ class Player {
     Vec2 pos;  // top-left in screen units (the device's screen, unscaled)
     OverlaySettings settings;
     Action opened;  // the transition it came in with: closing plays it backwards (live Figma)
+    // Website behaviours, a Manual overlay opened from a hotspot (Keep in window): the hotspot by key, where its origin
+    // was and its box (screen units) when the overlay opened, and where Figma's rule placed the overlay then — it moves
+    // with the hotspot from there, flipped and shifted into the window.
+    bool anchored = false;
+    std::string anchorKey;
+    Vec2 anchorAt, placed;
+    Rect anchorBox;
   };
   const std::vector<Shown>& overlays() const { return overlays_; }
   Vec2 scrollOf(Guid frame) const;
@@ -126,6 +144,7 @@ class Player {
     enum class Kind : uint8_t { CHANGED, OPEN_URL } kind = Kind::CHANGED;
     std::string url;
     bool newTab = true;
+    bool restarted = false;  // CHANGED by Restart (the page forgets the state it kept)
   };
   std::vector<Event> takeEvents() {
     std::vector<Event> out;
@@ -234,6 +253,8 @@ class Player {
       Vec2 s0, s1;
     };
     std::vector<Around> around;
+    // Website behaviours: interrupted, the old state's layers start at this alpha (where they were drawn).
+    double ghostAlpha = 1;
     bool scrubbing = false;
     double scrubP = 0;
     double p0 = 0, p1 = 1;
@@ -357,6 +378,39 @@ class Player {
   Vec2 nestedScrollRange(Guid frame) const;
   bool scrollsNested(Guid id) const;
   Vec2 overlayPos(Guid frame, const OverlaySettings& s, const Action* a, const Hit* hotspot) const;
+  // Website behaviours: a Manual overlay's Keep in window (anchored to its hotspot, flipped and shifted), and the toast
+  // stacks (Stack overlays at one preset position, the newest at the edge), placed again on every layout.
+  OverlayEdge edgeOf(const OverlaySettings& s) const;
+  void anchor(Shown& s, const Hit& hotspot);
+  void placeAnchored(Shown& o) const;
+  Vec2 keepInWindow(Vec2 size, const Rect& anchor, Vec2 at) const;
+  void stackOverlays();
+  // A shown layer's space → CSS px as the scene draws it (scroll included); false when it isn't shown.
+  bool shownCss(Guid id, Mat2x3& out) const;
+  // Where an overlay is drawn: its place, or on its way there (a stack sliding).
+  Vec2 drawnPos(const Shown& o) const;
+  struct Slide {
+    Guid frame = kNoGuid;
+    Vec2 from, to;
+    Action action;
+    double start = 0, duration = 0;
+    bool started = false;
+  };
+  std::vector<Slide> slides_;
+  // Website behaviours, breakpoints: the frame of `frame`'s responsive group (top-level frames named alike, "Home /
+  // Desktop", "Home / Mobile") a window `width` wide shows — each size from half way between its width and the next
+  // narrower one's; `frame` itself when it has no group.
+  Guid breakpointFor(Guid frame, double width) const;
+  // The shown screen replaced at once by `to` (no history, no transition): its component states and scroll carried.
+  void replaceScreen(Guid to);
+  struct BreakpointMemo {
+    uint64_t version = ~0ull;
+    Guid frame, page;
+    double width = -1;
+    Guid result;
+  };
+  mutable BreakpointMemo breakpoint_;
+  bool web_ = true;
   Vec2 overlayPlace(Guid frame, const OverlaySettings& s, const Action* a, const Hit* hotspot) const;
   Chain hitTest(Vec2 css) const;
   // A layer's children in hit order: the topmost first (Canvas stacking "First on top" respected).
@@ -444,7 +498,13 @@ class Player {
 
   // Scene building.
   Snapshot snapshot(Guid root, bool rootTransform) const;
-  void snapWalk(Snapshot& s, Guid id, const Mat2x3& parentRel, const std::string& key, bool root, bool rootTransform) const;
+  // `over`: the props drawn (a running animation's), where it has them.
+  void snapWalk(Snapshot& s, Guid id, const Mat2x3& parentRel, const std::string& key, bool root, bool rootTransform,
+                const PropsOverrides* over = nullptr) const;
+  // Website behaviours, interruptible transitions: a running Change to's instance as it is drawn at progress `e` (its
+  // old state's fading layers included), and a running screen transition's destination as drawn now.
+  Snapshot drawnInstance(const InstanceAnim& ia, double e) const;
+  Snapshot drawnScreen(const Anim& a) const;
   void smartDest(Guid id, const Snapshot& from, double p, bool rootTransform, PropsOverrides& out, const Mat2x3& parentInterp,
                  const Mat2x3& parentDest, const std::string& key, bool root, bool parentUnmatched) const;
   void smartSource(Guid id, const std::unordered_set<std::string>& keys, double p, PropsOverrides& out, const std::string& key,
