@@ -1,4 +1,5 @@
 import type { AccessConsent } from "../agents/reach";
+import type { ConfirmRequest } from "../agents/appTools";
 
 /** Figma AI in DesignerV2 (docs/ai.md). Shared by main (src/main/ai), the store (src/store/ai, src/store/search), the editor (editor/ai, imageTools, search) and the server (server/src/ai). */
 
@@ -154,6 +155,8 @@ export interface ConnectorConsent {
   chatId?: string;
   /** Agents' reach (docs/agents-reach.md §3): the capability's card — or, for Local apps, the window picker */
   access?: AccessConsent;
+  /** A destructive or outward action of an agent (docs/research/agent-parity.md §4): Allow / Deny, never remembered */
+  confirm?: ConfirmRequest;
 }
 
 export type AiModelId = "isnet" | "swin2sr-x4" | "lama" | "clip-vit-b32" | "minilm-l6";

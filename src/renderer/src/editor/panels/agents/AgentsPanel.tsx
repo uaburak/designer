@@ -232,7 +232,7 @@ function ChatView({ service, chat }: { service: AgentsService; chat: Chat | null
         ) : (
           chat.messages.map((m) => (m.role === "user" ? <UserMessage key={m.id} m={m} /> : <AgentMessage key={m.id} m={m} service={service} />))
         )}
-        {running && chat && state.consents.filter((c) => (c.chatId ? c.chatId === chat.id : c.turnId === state.running[chat.id])).map((c) => (c.access ? <AccessCard key={c.reqId} c={c} service={service} /> : <ConsentCard key={c.reqId} c={c} service={service} />))}
+        {running && chat && state.consents.filter((c) => (c.chatId ? c.chatId === chat.id : c.turnId === state.running[chat.id])).map((c) => (c.confirm ? <ConfirmCard key={c.reqId} c={c} service={service} /> : c.access ? <AccessCard key={c.reqId} c={c} service={service} /> : <ConsentCard key={c.reqId} c={c} service={service} />))}
       </div>
       <Composer service={service} chat={chat} running={running} />
     </div>
@@ -355,6 +355,32 @@ function ConsentCard({ c, service }: { c: ConnectorConsent; service: AgentsServi
         </Button>
         <Button variant="secondary" onClick={() => service.answerConsent(c.reqId, true, true)} data-consent-always="">
           {t("Always allow")}
+        </Button>
+        <Button variant="secondary" onClick={() => service.answerConsent(c.reqId, false)} data-consent-deny="">
+          {t("Deny")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * An agent's destructive or outward action waits for the owner (docs/research/agent-parity.md §4): "Agent wants to
+ * ‹action›", the target, what it will save (a skill's text, a comment), "Allow" / "Deny" — never remembered.
+ */
+function ConfirmCard({ c, service }: { c: ConnectorConsent; service: AgentsService }) {
+  useT();
+  const k = c.confirm!;
+  const title = t("Agent wants to {action}", { action: t(k.action) });
+  return (
+    <div className={styles.consent} role="alertdialog" aria-label={title} data-consent={c.reqId} data-confirm-consent={c.tool}>
+      <p className={styles.consentTitle}>{title}</p>
+      <span className={styles.consentMeta}>{c.tool}</span>
+      {k.target && <pre className={styles.consentArgs}>{k.target}</pre>}
+      {k.preview && <pre className={styles.consentArgs} data-confirm-preview="">{k.preview}</pre>}
+      <div className={styles.actions}>
+        <Button variant="primary" onClick={() => service.answerConsent(c.reqId, true)} data-consent-once="">
+          {t("Allow")}
         </Button>
         <Button variant="secondary" onClick={() => service.answerConsent(c.reqId, false)} data-consent-deny="">
           {t("Deny")}

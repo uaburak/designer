@@ -199,6 +199,24 @@ export class GithubAccess {
     };
   }
 
+  /**
+   * install_skill's source (src/main/agents/skills.ts): a SKILL.md — or a folder's SKILL.md — in a repository the owner
+   * lets agents read, as text. Throws GithubError with the reason.
+   */
+  async readSkillText(args: Record<string, unknown>, ctx: RunContext): Promise<{ text: string; source: string }> {
+    const repo = allowedRepo(args.repo, ctx.settings.github.repos);
+    if (!repo) throw new GithubError(`${String(args.repo ?? "(no repo)")} isn't one of the repositories the owner lets you read (Agent settings › Access › GitHub). For a public repository, give install_skill its address as \`url\` (Access › Web).`);
+    const ref = typeof args.ref === "string" && /^[\w./-]{1,200}$/.test(args.ref) && !args.ref.includes("..") ? args.ref : null;
+    const p0 = cleanRepoPath(args.path);
+    if (p0 === null) throw new GithubError("path: a path inside the repository (no .., no leading /).");
+    const p = /\.md$/i.test(p0) ? p0 : `${p0 ? `${p0}/` : ""}SKILL.md`;
+    const res = await this.api(`/repos/${repo}/contents/${encodePath(p)}${ref ? `?ref=${encodeURIComponent(ref)}` : ""}`, { accept: "application/vnd.github.raw", signal: ctx.signal });
+    const bytes = Buffer.from(await res.arrayBuffer());
+    if (bytes.length > 256 * 1024) throw new GithubError(`${p} is too large for a skill.`);
+    if (bytes.subarray(0, 8000).includes(0)) throw new GithubError(`${p} is a binary file, not a SKILL.md.`);
+    return { text: bytes.toString("utf8"), source: `github:${repo}/${p}` };
+  }
+
   private async listRepos(ctx: RunContext): Promise<ToolResult> {
     const repos = ctx.settings.github.repos;
     if (!repos.length) return error("The owner hasn't picked any repository yet (Agent settings › Access › GitHub).");

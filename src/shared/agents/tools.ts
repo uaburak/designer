@@ -13,6 +13,7 @@
 
 import { layerPropsSchema } from "./layerProps";
 import { actionSchema, deviceSchema, triggerSchema } from "./prototypeSchema";
+import { APP_TOOLS, SKILL_TOOLS } from "./appTools";
 
 export interface ToolDef {
   name: string;
@@ -315,14 +316,14 @@ export const TOOLS: ToolDef[] = [
     name: "set_prototype_settings",
     title: "Set prototype settings",
     description:
-      'The page\'s prototype settings — device (the Prototype tab\'s Device) and backgroundColor — and per layer settings in `nodes`: [{nodeId, overflowDirection: NONE | HORIZONTAL | VERTICAL | BOTH (a frame\'s scrolling), scrollBehavior: SCROLLS | FIXED | STICKY_SCROLLS (a child\'s position when its frame scrolls), overlayPositionType: CENTER | TOP_LEFT | TOP_CENTER | TOP_RIGHT | BOTTOM_LEFT | BOTTOM_CENTER | BOTTOM_RIGHT | MANUAL, overlayBackground: {type: "SOLID_COLOR", color: "#00000066"} | {type: "NONE"}, overlayBackgroundInteraction: NONE | CLOSE_ON_CLICK_OUTSIDE (a frame used as an overlay)}]. null resets a setting. One undo step.',
+      'The page\'s prototype settings — device (the Prototype tab\'s Device) and backgroundColor — and per layer settings in `nodes`: [{nodeId, overflowDirection: NONE | HORIZONTAL | VERTICAL | BOTH (a frame\'s scrolling), scrollBehavior: SCROLLS | FIXED | STICKY_SCROLLS (a child\'s position when its frame scrolls), overlayPositionType: CENTER | TOP_LEFT | TOP_CENTER | TOP_RIGHT | BOTTOM_LEFT | BOTTOM_CENTER | BOTTOM_RIGHT | MANUAL, overlayBackground: {type: "SOLID_COLOR", color: "#00000066"} | {type: "NONE"}, overlayBackgroundInteraction: NONE | CLOSE_ON_CLICK_OUTSIDE (a frame used as an overlay); Wecra\'s website behaviours: prototypeTextInput: {type: TEXT | PASSWORD | EMAIL | NUMBER | MULTI_LINE, maxLength?} (a text layer becomes a field the viewer types into), prototypeCursor: AUTO | DEFAULT | POINTER | TEXT | GRAB | MOVE | NOT_ALLOWED | HELP | ZOOM_IN | ZOOM_OUT | CROSSHAIR | NONE, overlayEdgeBehavior: AUTO (Keep in window: a manual overlay follows its hotspot, flips, shifts inside) | FOLLOW_ONLY | NONE, overlayStack: {gap, max} (toasts queue at a top / bottom overlay position) | null, overlayFitWindow: NONE | WIDTH | HEIGHT | BOTH (the overlay is resized to the window)}]. null resets a setting. One undo step.',
     inputSchema: {
       type: "object",
       properties: {
         pageId: { type: "string" },
         device: deviceSchema,
         backgroundColor: { type: ["string", "null"], description: '"#RRGGBB" (the presentation background); null: the default' },
-        nodes: { type: "array", items: { type: "object", properties: { nodeId: { type: "string" }, overflowDirection: { type: ["string", "null"] }, scrollBehavior: { type: ["string", "null"] }, overlayPositionType: { type: ["string", "null"] }, overlayBackground: {}, overlayBackgroundInteraction: { type: ["string", "null"] } }, required: ["nodeId"] } },
+        nodes: { type: "array", items: { type: "object", properties: { nodeId: { type: "string" }, overflowDirection: { type: ["string", "null"] }, scrollBehavior: { type: ["string", "null"] }, overlayPositionType: { type: ["string", "null"] }, overlayBackground: {}, overlayBackgroundInteraction: { type: ["string", "null"] }, prototypeTextInput: {}, prototypeCursor: { type: ["string", "null"] }, overlayEdgeBehavior: { type: ["string", "null"] }, overlayStack: {}, overlayFitWindow: { type: ["string", "null"] } }, required: ["nodeId"] } },
       },
     },
     write: true,
@@ -709,6 +710,9 @@ export const TOOLS: ToolDef[] = [
     inputSchema: { type: "object", properties: { name: { type: "string", description: "The Skill's name, as listed (lowercase, hyphens), without the /." } }, required: ["name"] },
     write: false,
   },
+  // The app beyond the canvas (appTools.ts, docs/research/agent-parity.md): Skills, comments, versions, export, libraries, Home, Dev Mode, plugins, settings.
+  ...SKILL_TOOLS,
+  ...APP_TOOLS,
 ];
 
 /**
@@ -823,8 +827,8 @@ export const MANAGER_TOOL_NAMES: ReadonlySet<string> = new Set(MANAGER_TOOLS.map
 export const WAITING_TOOLS: ReadonlySet<string> = new Set(["wait_tasks", "ask_choice", "show_form", "report_review", "make_posts", "library_read_labels", "export_animation", "export_posts", "make_brand_library"]);
 export const WAITING_TOOL_MS = 30 * 60_000;
 
-/** Tools main answers itself (never sent to the editor view): `get_skill` (docs/ai.md §2.10). */
-export const MAIN_TOOLS: ReadonlySet<string> = new Set(["get_skill"]);
+/** Tools main answers itself (never sent to the editor view): `get_skill` (docs/ai.md §2.10) and the Skills tools (appTools.ts). */
+export const MAIN_TOOLS: ReadonlySet<string> = new Set(["get_skill", ...SKILL_TOOLS.map((t) => t.name)]);
 
 /** A connector's tool as agents see it through our server (docs/ai.md §2.11): `‹connector›__‹tool›`. */
 export const CONNECTOR_TOOL_SEP = "__";

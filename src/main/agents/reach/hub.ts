@@ -81,7 +81,11 @@ export class ReachHub {
     this.calls.delete(turnId);
   }
 
-  async call(caller: ReachCaller, name: string, args: Record<string, unknown>): Promise<ToolResult> {
+  /**
+   * A reach call through the gate. `run` replaces the capability's runner for this call (install_skill reads its
+   * source through the same policy, consent, budget, time limit and log as read_skill / read_repo_file).
+   */
+  async call(caller: ReachCaller, name: string, args: Record<string, unknown>, run?: ReachRunner): Promise<ToolResult> {
     const def = REACH_TOOL_BY_NAME.get(name);
     if (!def) return error(`Unknown tool: ${name}`);
     const cap = def.capability;
@@ -96,8 +100,8 @@ export class ReachHub {
       return error(`${def.title} is turned off by your organization.`);
     }
     const policy = effectivePolicy(settings, off, cap);
-    const runner = this.o.runners[cap];
-    if (policy === "off" || !runner) {
+    const runner = run ?? this.o.runners[cap];
+    if (policy === "off" || !this.o.runners[cap] || !runner) {
       log("refused", "turned off");
       return error(`${def.title} is turned off. The owner can turn it on in Agent settings › Access.`);
     }

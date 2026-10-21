@@ -22,6 +22,8 @@ import { AgentTurns, EngineBusy, type TurnRecord } from "./turns";
 import type { AgentSetupHost } from "./setup";
 import { creditsFor, type AiSkill, type ConnectorConsent } from "@shared/ai/types";
 import { invokedSkill } from "@shared/ai/skillFile";
+import { SKILL_WRITE_TOOLS } from "@shared/agents/appTools";
+import { skillsBox } from "../panels/agents/aiData";
 import { getStoreClient } from "@/store";
 import { t } from "@/i18n";
 import { MANAGER_TOOLS, type ToolDef } from "@shared/agents/tools";
@@ -862,6 +864,8 @@ export class AgentsService implements AgentSetupHost {
       }
       if (event.state === "error") this.placeholders.fail(turnId, event.id);
     }
+    // An agent changed the owner's Skills (main's skills.ts): the panel and the next message see the new list.
+    if (event.type === "tool" && event.state === "done" && SKILL_WRITE_TOOLS.has(event.name.split("__").pop() ?? "")) void skillsBox.refresh().catch(() => {});
     this.updateMessage(chat, message, (m) => ({ ...m, ...applyEvent(m, event) }));
   }
 

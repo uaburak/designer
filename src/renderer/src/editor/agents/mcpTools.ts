@@ -35,6 +35,7 @@ import { generateSoundTool, getSoundMixTool, scoreMotionTool } from "./soundTool
 import { runSocialTool } from "./socialTools";
 import { reactionsFromDoc } from "./prototypeSpec";
 import { EngineBusy } from "./turns";
+import { runAppTool, type AppServices } from "./appTools";
 
 export interface ToolEnv {
   ed: EditorController;
@@ -50,6 +51,8 @@ export interface ToolEnv {
   requestSelection?: (refs: Guid[]) => void;
   /** Code Connect mappings (get_code_connect_map, get_design_context); default: the store's, through Dev Mode's data */
   codeConnect?: CodeConnectSource | null;
+  /** The app tools' services (appTools.ts): the store's repositories, settings, plugins; default: the real ones */
+  app?: Partial<AppServices>;
 }
 
 const MAX_CONNECTED = 200;
@@ -124,7 +127,7 @@ function targets(env: ToolEnv, args: Spec, fallbackToPage = false): Guid[] {
 }
 
 /** The refs a write is about: only the ids it names — never the user's selection (explicitNodeIds). */
-function writeTargets(env: ToolEnv, args: Spec, tool: string): Guid[] {
+export function writeTargets(env: ToolEnv, args: Spec, tool: string): Guid[] {
   const ids = explicitNodeIds(args, tool).map(normId).filter(Boolean);
   if (!ids.length) throw new ToolError(`${tool}: no nodes given — the ids aren't layer ids ("123:456").`);
   return existing(env, ids);
@@ -1300,6 +1303,9 @@ export async function runTool(env: ToolEnv, name: string, args: Spec): Promise<T
     // Social's tools (docs/social.md §7.2): their own file, as Motion's are.
     const social = await runSocialTool(env, name, args);
     if (social) return social;
+    // The app beyond the canvas (appTools.ts): comments, versions, export, libraries, Home, Dev Mode, plugins, settings.
+    const app = await runAppTool(env, name, args);
+    if (app) return app;
     switch (name) {
       case "get_selection":
         return getSelection(env);

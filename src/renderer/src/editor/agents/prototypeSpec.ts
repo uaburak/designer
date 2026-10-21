@@ -598,10 +598,17 @@ export function settingsFromDoc(n: Obj): Obj {
   // Wecra's website behaviours (@ours): Prototype › Text input and Cursor — an instance's overrides included.
   if (n.prototypeTextInput) out.prototypeTextInput = n.prototypeTextInput;
   if (n.prototypeCursor && n.prototypeCursor !== "AUTO") out.prototypeCursor = n.prototypeCursor;
+  if (n.overlayEdgeBehavior && n.overlayEdgeBehavior !== "AUTO") out.overlayEdgeBehavior = n.overlayEdgeBehavior;
+  if (isObj(n.overlayStack)) out.overlayStack = n.overlayStack;
+  if (n.overlayFitWindow && n.overlayFitWindow !== "NONE") out.overlayFitWindow = n.overlayFitWindow;
   return out;
 }
 
-export const SETTING_KEYS = ["overflowDirection", "scrollBehavior", "overlayPositionType", "overlayBackground", "overlayBackgroundInteraction"] as const;
+export const SETTING_KEYS = ["overflowDirection", "scrollBehavior", "overlayPositionType", "overlayBackground", "overlayBackgroundInteraction", "prototypeTextInput", "prototypeCursor", "overlayEdgeBehavior", "overlayStack", "overlayFitWindow"] as const;
+
+/** Prototype › Cursor's values (Wecra's website behaviours, @ours). */
+export const PROTOTYPE_CURSORS = ["AUTO", "DEFAULT", "POINTER", "TEXT", "GRAB", "MOVE", "NOT_ALLOWED", "HELP", "ZOOM_IN", "ZOOM_OUT", "CROSSHAIR", "NONE"] as const;
+const TEXT_INPUT_TYPES = ["TEXT", "PASSWORD", "EMAIL", "NUMBER", "MULTI_LINE"] as const;
 
 /** A layer's prototype settings (Plugin API names) as document fields; null clears a field. */
 export function settingsToDoc(v: Obj, path: string, errors: Errors): Obj {
@@ -636,6 +643,48 @@ export function settingsToDoc(v: Obj, path: string, errors: Errors): Obj {
     const i = up(v.overlayBackgroundInteraction ?? "NONE");
     if (i !== "NONE" && i !== "CLOSE_ON_CLICK_OUTSIDE") errors.push(`${path}.overlayBackgroundInteraction: NONE or CLOSE_ON_CLICK_OUTSIDE`);
     else out.overlayBackgroundInteraction = i === "NONE" ? null : i;
+  }
+  // Website behaviours (@ours, docs/engine.md §3.4): Prototype › Text input / Cursor, Overlay › Keep in window / Stack / Fit to window.
+  if (v.prototypeTextInput !== undefined) {
+    const ti = v.prototypeTextInput;
+    if (ti === null || ti === false) out.prototypeTextInput = null;
+    else if (!isObj(ti) && ti !== true) errors.push(`${path}.prototypeTextInput: {type: ${TEXT_INPUT_TYPES.join(" | ")}, maxLength?} or null (a text layer only)`);
+    else {
+      const o = (isObj(ti) ? ti : {}) as Obj;
+      const type = up(o.type ?? "TEXT");
+      if (!(TEXT_INPUT_TYPES as readonly string[]).includes(type)) errors.push(`${path}.prototypeTextInput.type: one of ${TEXT_INPUT_TYPES.join(", ")}`);
+      else if (o.maxLength !== undefined && o.maxLength !== null && !(typeof o.maxLength === "number" && Number.isInteger(o.maxLength) && o.maxLength >= 0 && o.maxLength <= 100_000)) errors.push(`${path}.prototypeTextInput.maxLength: a whole number 0–100000 (0: no limit)`);
+      else out.prototypeTextInput = { type, ...(typeof o.maxLength === "number" && o.maxLength > 0 ? { maxLength: o.maxLength } : {}) };
+    }
+  }
+  if (v.prototypeCursor !== undefined) {
+    const c = up(v.prototypeCursor ?? "AUTO");
+    if (!(PROTOTYPE_CURSORS as readonly string[]).includes(c)) errors.push(`${path}.prototypeCursor: one of ${PROTOTYPE_CURSORS.join(", ")}`);
+    else out.prototypeCursor = c === "AUTO" ? null : c;
+  }
+  if (v.overlayEdgeBehavior !== undefined) {
+    const e = up(v.overlayEdgeBehavior ?? "AUTO");
+    if (!["AUTO", "NONE", "FOLLOW_ONLY"].includes(e)) errors.push(`${path}.overlayEdgeBehavior: AUTO (Keep in window: follow, flip, shift), FOLLOW_ONLY or NONE`);
+    else out.overlayEdgeBehavior = e === "AUTO" ? null : e;
+  }
+  if (v.overlayStack !== undefined) {
+    const st = v.overlayStack;
+    if (st === null || st === false) out.overlayStack = null;
+    else if (!isObj(st) && st !== true) errors.push(`${path}.overlayStack: {gap?, max?} (toasts stacked at the overlay's edge) or null`);
+    else {
+      const o = (isObj(st) ? st : {}) as Obj;
+      const num = (k: string, lo: number, hi: number) => (o[k] === undefined ? undefined : typeof o[k] === "number" && (o[k] as number) >= lo && (o[k] as number) <= hi ? (o[k] as number) : NaN);
+      const gap = num("gap", 0, 1000);
+      const max = num("max", 1, 50);
+      if (Number.isNaN(gap) || Number.isNaN(max)) errors.push(`${path}.overlayStack: gap 0–1000 px, max 1–50`);
+      else out.overlayStack = { gap: gap ?? 8, max: max ?? 3 };
+    }
+  }
+  if (v.overlayFitWindow !== undefined) {
+    const f = up(v.overlayFitWindow ?? "NONE");
+    const doc = f === "WIDTH_AND_HEIGHT" ? "BOTH" : f;
+    if (!["NONE", "WIDTH", "HEIGHT", "BOTH"].includes(doc)) errors.push(`${path}.overlayFitWindow: NONE, WIDTH, HEIGHT or BOTH`);
+    else out.overlayFitWindow = doc === "NONE" ? null : doc;
   }
   return out;
 }

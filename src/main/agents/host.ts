@@ -23,6 +23,10 @@ import { mainFetch } from "../net";
 import { grantProblem, isDeniedPath } from "./reach/paths";
 import { REACH_NOTE, REACH_SKILLS, isReachPolicy, isRepoName, type AccessLogEntry, type ReachCapability, type ReachPatch, type ReachView } from "../../shared/agents/reach";
 import { MOTION_SKILL } from "../../shared/agents/motionSkill";
+import { SKILL_TOOL_NAMES, confirmationFor, type ConfirmRequest } from "../../shared/agents/appTools";
+import { runSkillTool, skillSourceVia } from "./skills";
+import { fetchSkill, skillWebRunner, SKILL_WEB_TOOLS, type SkillWebDeps } from "./reach/skillWeb";
+import { lookup } from "node:dns/promises";
 import { SOUND_SKILL } from "../../shared/agents/soundSkill";
 
 /** Wecra's built-in skills (motion-design, sound-design): always listed; the owner's own skill of the same name wins. */
@@ -240,6 +244,15 @@ function runToolInView(fileKey: string, call0: Omit<ToolCall, "reqId">): Promise
 async function runAnyTool(fileKey: string, call: Omit<ToolCall, "reqId">): Promise<ToolResult> {
   if (call.name === "get_skill") return getSkill(String(call.args?.name ?? ""));
   const t = call.turnId ? turns.get(call.turnId) : undefined;
+  // The owner's Skills (appTools.ts, skills.ts): answered here, each change confirmed on the chat's card.
+  if (SKILL_TOOL_NAMES.has(call.name)) return runSkillTool(call.name, call.args ?? {}, skillDeps(t, fileKey, call.client, call.name));
+  // Destructive or outward app actions (trash, restore a version, publish, share, run a plugin …) wait for the owner's click.
+  const confirm = confirmationFor(call.name, call.args ?? {});
+  if (confirm) {
+    const ok = await confirmInChat(t, call.name, confirm);
+    if (ok === null) return textResult(`${call.name} needs the owner's confirmation in Wecra's Agents chat: ask them to do it in the app, or from an Agents chat.`, true);
+    if (!ok) return textResult(`The owner didn't allow ${call.name} (${confirm.target}). Don't call it again for this request.`, true);
+  }
   // Agents' reach (docs/agents-reach.md): through the gate, for the Agents tab's chats only.
   if (reachHub().has(call.name)) {
     if (!t) return textResult(`${call.name} works only in Wecra's Agents chats.`, true);
@@ -250,6 +263,29 @@ async function runAnyTool(fileKey: string, call: Omit<ToolCall, "reqId">): Promi
   if (t?.role !== "manager" && (MANAGER_TOOL_NAMES.has(call.name) || isManagerOnly(call.name))) return textResult(`${call.name} is the manager's tool: a task can't call it.`, true);
   return runToolInView(fileKey, call);
 }
+
+/** The chat's confirmation card (Allow / Deny): the owner's answer, or null when the call has no chat (an outside client). */
+async function confirmInChat(t: Turn | undefined, tool: string, req: ConfirmRequest): Promise<boolean | null> {
+  if (!t) return null;
+  const a = await askConsent({ turnId: t.id, connectorId: "confirm", connector: "Wecra", tool, args: {}, confirm: req }).catch(() => ({ allow: false }));
+  return a.allow === true;
+}
+
+/** Skills' deps (skills.ts): the store, the built-ins, the chat's card, install's source through reach's gate. */
+function skillDeps(t: Turn | undefined, fileKey: string, client: string, tool: string) {
+  return {
+    repo: async () => (await readyStore()).ai,
+    builtIns: [...BUILT_IN_SKILLS, ...REACH_SKILLS].map((k) => ({ name: k.name, description: k.description })),
+    confirm: (req: ConfirmRequest) => confirmInChat(t, tool, req),
+    readSource: skillSourceVia(reachHub(), t ? { turnId: t.id, chatId: t.chatId, fileKey, agent: client } : null, { web: (url, ctx) => fetchSkill(url, ctx, skillWebDeps), github: (args, ctx) => github().readSkillText(args, ctx) }),
+  };
+}
+
+/** Skills from the web (reach/skillWeb.ts): main's fetch, Node's resolver for the public-address check. */
+const skillWebDeps: SkillWebDeps = {
+  fetch: (url, init) => mainFetch(url, init),
+  resolve: async (host) => (await lookup(host, { all: true, verbatim: true })).map((a) => a.address),
+};
 
 /** Names a manager turn listed as its own (the library's tools, which main doesn't know by name). */
 const managerOnlyNames = new Set<string>();
@@ -344,7 +380,12 @@ let githubAccess: GithubAccess | null = null;
 const github = () => (githubAccess ??= new GithubAccess({ path: file("github.json"), fetch: (url, init) => mainFetch(url, init), seal: (s) => sealAsync(s), unseal: (s) => unsealAsync(s), clientId: process.env.WECRA_GITHUB_CLIENT_ID ?? GITHUB_APP_CLIENT_ID }));
 const reachRunners: Partial<Record<ReachCapability, ReachRunner>> = {
   // A capture's layers are made in the turn's file, inside the turn (one undo step with the agent's other writes).
-  web: webRunner({ runInView: (ctx, call) => runToolInView(ctx.fileKey, { turnId: ctx.turnId, client: ctx.agent, name: call.name, args: call.args }) }),
+  web: (() => {
+    const pages = webRunner({ runInView: (ctx, call) => runToolInView(ctx.fileKey, { turnId: ctx.turnId, client: ctx.agent, name: call.name, args: call.args }) });
+    // find_skills / read_skill: plain reads of text (reach/skillWeb.ts), no browser.
+    const skills = skillWebRunner(skillWebDeps);
+    return (tool: string, args: Record<string, unknown>, ctx: Parameters<ReachRunner>[2]) => (SKILL_WEB_TOOLS.has(tool) ? skills(tool, args, ctx) : pages(tool, args, ctx));
+  })(),
   github: (tool, args, ctx) => github().runner()(tool, args, ctx),
   files: filesRunner(),
   // Its card is the window picker: the owner's pick is the consent (docs/agents-reach.md §9).
