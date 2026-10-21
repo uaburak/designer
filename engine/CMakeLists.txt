@@ -190,6 +190,7 @@ else()
     tests/unit/layout.figma_golden.test.cpp
     tests/unit/scene.kiwi.test.cpp
     tests/unit/components.test.cpp
+    tests/unit/components.variant_overrides.test.cpp
     tests/unit/variables.test.cpp
     tests/unit/r6.grid_slots.test.cpp
     tests/unit/variables.extended.test.cpp
@@ -234,6 +235,7 @@ else()
     tests/unit/proto.top_scroll.test.cpp
     tests/unit/proto.responsive_height.test.cpp
     tests/unit/proto.nested_components.test.cpp
+    tests/unit/proto.instance_interactions.test.cpp
     tests/unit/proto.wave4.test.cpp
     tests/unit/proto.page_subset.test.cpp
     tests/unit/proto.hug_anchor.test.cpp

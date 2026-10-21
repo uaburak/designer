@@ -161,6 +161,56 @@ TEST_CASE("proto.owner_file: a real file's transition, dumped (OWNER_MSG)") {
           for (Guid c : d.children(g)) walk(c, level + 1);
       };
       walk(pid(id), 0);
+    } else if (op == "gap" || op == "showgap") {
+      // `gap <id> <value>`: a user's edit of a layer's auto-layout gap (an instance override when it is one);
+      // `showgap <root> <name>`: the gap of the first layer named so under root, with the variant it shows.
+      std::string id;
+      w >> id;
+      Guid g = pid(id);
+      const auto& d = ed.document();
+      if (op == "gap") {
+        double v;
+        w >> v;
+        REQUIRE(d.has(g));
+        NodeChange c;
+        c.mask = F_STACK_SPACING;
+        c.props.stack().stackSpacing = static_cast<float>(v);
+        REQUIRE(ed.setProps({g}, c, 0) == OK);
+        tick(32);
+        continue;
+      }
+      std::string name;
+      w >> name;
+      std::replace(name.begin(), name.end(), '_', ' ');
+      Guid found = kNoGuid;
+      std::function<void(Guid)> find = [&](Guid c) {
+        if (found != kNoGuid) return;
+        if (d.get(c)->props.name == name) {
+          found = c;
+          return;
+        }
+        for (Guid k : d.children(c)) find(k);
+      };
+      find(g);
+      REQUIRE(found != kNoGuid);
+      Guid main = ed.mainOf(found);
+      std::printf("showgap \"%s\" %s = %s gap %.0f\n", name.c_str(), found.toString().c_str(), main != kNoGuid ? d.get(main)->props.name.c_str() : "",
+                  d.get(found)->props.stack().stackSpacing);
+    } else if (op == "ovr") {
+      // A real instance's stored override entries (path, level, fields, interactions): `ovr <id>`.
+      std::string id;
+      w >> id;
+      const auto& d = ed.document();
+      Guid g = pid(id);
+      REQUIRE(d.has(g));
+      for (const SymbolOverride& o : d.get(g)->props.comp().symbolData.overrides) {
+        std::string path;
+        for (Guid k : o.path) path += k.toString() + "/";
+        std::printf("ovr [%s] level %d mask %llx", path.c_str(), o.level, static_cast<unsigned long long>(o.mask));
+        for (const auto& [k, v] : o.props.extra)
+          std::printf(" %s=%s", k.c_str(), k == "prototypeInteractions" ? codec::extraValueToJson("NodeChange", v).substr(0, 4000).c_str() : "…");
+        std::printf("\n");
+      }
     } else if (op == "mains") {
       // Every instance under `id` with the variant it shows now (state dumps before / after).
       std::string id;

@@ -1750,13 +1750,25 @@ std::vector<SymbolOverride> Editor::remapOverrides(const std::vector<SymbolOverr
       }
     }
     if (variant && src != kNoGuid && dst != kNoGuid) {
-      // A variant switch keeps a changed property only where both variants started the same (R4 §3); text and
+      // A variant switch keeps what the instance changed, in every variant (the owner's rule, 2026-10-21: a gap set to
+      // 8 on an instance stays 8 whichever variant it shows, while the mains keep their own values). Figma keeps a
+      // changed property only where both variants started the same (R4 §3) — we keep it where they differ too. What
+      // the entry holds at the old variant's own value isn't a change of the instance: there the new variant's design
+      // shows (a size per axis — a stretched width stays, a height the old variant had follows the new one). Text and
       // names travel by layer name.
       const NodeProps& a = doc_.get(src)->props;
       const NodeProps& b = doc_.get(dst)->props;
       FieldMask keep = F_TEXT_DATA | F_NAME | F_COMPONENT_PROP_ASSIGNMENTS | F_OVERRIDDEN_SYMBOL_ID | F_EXTRA;
       FieldMask differing = differingFields(a, b, r.mask & ~keep);
-      r.mask &= ~differing;
+      FieldMask unchanged = differing & ~differingFields(a, r.props, differing & ~static_cast<FieldMask>(F_SIZE));
+      if (differing & F_SIZE) {
+        unchanged &= ~static_cast<FieldMask>(F_SIZE);
+        auto same = [](double x, double y) { return std::fabs(x - y) < 1e-3; };
+        if (same(r.props.size.x, a.size.x)) r.props.size.x = b.size.x;
+        if (same(r.props.size.y, a.size.y)) r.props.size.y = b.size.y;
+        if (same(r.props.size.x, b.size.x) && same(r.props.size.y, b.size.y)) unchanged |= F_SIZE;
+      }
+      r.mask &= ~unchanged;
     }
     if (onOldText && (r.mask & F_TEXT_DATA)) lostText = nullptr;  // carried by key or by name
     if (r.mask) out.push_back(std::move(r));

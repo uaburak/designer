@@ -6,6 +6,7 @@
 #include <memory>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "motion/Easing.h"
 #include "render/ImageCache.h"
@@ -689,6 +690,95 @@ std::vector<bool> instanceOwnEntries(const NodeProps& own, const NodeProps* main
     mine[k] = inMain ? !copy : !(id != kNoGuid && elsewhere);
   }
   return mine;
+}
+
+namespace {
+
+bool parseInteractionList(const std::string& bytes, json::Value& out) {
+  std::string text = codec::extraValueToJson("NodeChange", bytes);
+  return text != "null" && json::parse(text, out) && out.isArray();
+}
+
+std::string idKey(const json::Value& entry) {
+  const json::Value* id = entry.get("id");
+  return id ? json::encode(*id) : std::string();
+}
+
+}  // namespace
+
+std::string mergeInteractionOverride(const std::string& inherited, const std::string& over) {
+  if (inherited.empty() || over.empty()) return over.empty() ? inherited : over;
+  if (inherited == over) return over;
+  std::string key;
+  key.reserve(inherited.size() + over.size() + 8);
+  key += std::to_string(inherited.size());
+  key += ':';
+  key += inherited;
+  key += over;
+  static ByBytes<std::string> memo;
+  return *memo.get(key, [&] {
+    json::Value base, top;
+    if (!parseInteractionList(over, top)) return over;
+    if (!parseInteractionList(inherited, base)) return over;
+    // The override's entries by id (changed or isDeleted copies of inherited ones, or its own).
+    std::unordered_map<std::string, size_t> byId;
+    for (size_t k = 0; k < top.array.size(); k++)
+      if (top.array[k].isObject())
+        if (std::string id = idKey(top.array[k]); !id.empty() && id != "null") byId.emplace(id, k);
+    json::Value out;
+    out.kind = json::Value::Kind::Array;
+    std::vector<bool> used(top.array.size(), false);
+    // Inherited first, in their order (a changed one in its place, a deleted one marked), then the instance's own:
+    // the component's own state change runs before the instance's actions on the same trigger.
+    for (const json::Value& x : base.array) {
+      if (!x.isObject() || flag(x.get("isDeleted"))) continue;
+      auto at = byId.find(idKey(x));
+      if (at == byId.end()) {
+        out.array.push_back(x);
+        continue;
+      }
+      used[at->second] = true;
+      out.array.push_back(top.array[at->second]);
+    }
+    for (size_t k = 0; k < top.array.size(); k++)
+      if (!used[k]) out.array.push_back(top.array[k]);
+    return encodeField("prototypeInteractions", out);
+  });
+}
+
+std::string keepDeletions(const std::string& before, const std::string& after) {
+  if (before.empty()) return after;
+  json::Value old, now;
+  if (!parseInteractionList(before, old)) return after;
+  if (after.empty()) now.kind = json::Value::Kind::Array;
+  else if (!parseInteractionList(after, now)) return after;
+  std::unordered_set<std::string> ids;
+  for (const json::Value& x : now.array)
+    if (x.isObject()) ids.insert(idKey(x));
+  bool added = false;
+  for (const json::Value& x : old.array) {
+    if (!x.isObject()) continue;
+    std::string id = idKey(x);
+    if (id.empty() || id == "null" || ids.count(id)) continue;
+    json::Value gone = x;
+    bool had = false;
+    for (auto& [k, v] : gone.object)
+      if (k == "isDeleted") {
+        v.kind = json::Value::Kind::Bool;
+        v.boolean = true;
+        had = true;
+      }
+    if (!had) {
+      json::Value t;
+      t.kind = json::Value::Kind::Bool;
+      t.boolean = true;
+      gone.object.emplace_back("isDeleted", t);
+    }
+    now.array.push_back(std::move(gone));
+    ids.insert(id);
+    added = true;
+  }
+  return added ? encodeField("prototypeInteractions", now) : after;
 }
 
 std::string encodeField(const char* key, const json::Value& v) { return codec::extraFromJson("NodeChange", key, v); }

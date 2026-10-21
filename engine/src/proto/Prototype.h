@@ -164,6 +164,16 @@ std::vector<Interaction> instanceInteractions(const NodeProps& own, const NodePr
 // Which of an instance's own interactions() it plays as its own (changed or added on it, not copies of its main's or
 // left from another variant): instanceInteractions' ownIndex, without building the played list.
 std::vector<bool> instanceOwnEntries(const NodeProps& own, const NodeProps* main, const std::vector<const NodeProps*>& variants);
+// A layer's prototypeInteractions inside an instance, an override entry's list over what it inherits (both the
+// field's kiwi bytes), as it plays: every inherited entry in its order — one the override changed (same id) in its
+// place, one it marked isDeleted left out — then the override's own entries. Inherited entries with the override's
+// triggers stay too (Wecra's web rule, docs/engine.md §3.4: the component's state change and the instance's action
+// both run, the component's first; Figma keeps only the instance's for that trigger). Runtime / derived only: the
+// stored override is untouched. Either side empty: the other.
+std::string mergeInteractionOverride(const std::string& inherited, const std::string& over);
+// An edit of a layer inside an instance (its list was `before`, it becomes `after`): the inherited / earlier entries
+// the edit removed stay in the override as isDeleted copies, so the per-trigger merge doesn't bring them back.
+std::string keepDeletions(const std::string& before, const std::string& after);
 Overflow overflow(const NodeProps& p);
 ScrollBehavior scrollBehavior(const NodeProps& p);
 OverlaySettings overlaySettings(const NodeProps& p);

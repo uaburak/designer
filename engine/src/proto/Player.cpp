@@ -1024,7 +1024,13 @@ bool Player::fire(Guid node, Trigger t, const Hit* hotspot, Held* held) {
   if (!hasIx(node)) return false;
   bool any = false;
   auto list = ix(node);
+  // Every interaction of the trigger runs, in the list's order: an instance's inherited ones (its component's own
+  // state change) before its own (an overlay, a navigation…) — Wecra's web rule, docs/engine.md §3.4. A Change to
+  // above may give the layer a new id: the next ones run from the layer by its key.
+  const std::string key = list.size() > 1 ? keyOf(node) : std::string();
   for (size_t k = 0; k < list.size(); k++) {
+    if (k > 0 && !doc().has(node) && !key.empty())
+      if (Guid again = byKey(key); again != kNoGuid) node = again;
     const Interaction& i = list[k];
     // The legacy Mouse in / Mouse out play as Mouse enter / Mouse leave (Figma reads them so).
     bool match = i.trigger == t || (t == Trigger::MOUSE_ENTER && i.trigger == Trigger::MOUSE_IN) ||
@@ -1143,23 +1149,26 @@ void Player::hover(const Chain& in, bool live) {
 void Player::whileHovering(const Hit& h, const std::string& key) {
   if (!hasIx(h.id)) return;
   std::vector<Interaction> list = ix(h.id);
-  const Interaction* first = nullptr;
+  // Every While hovering of the layer, one hold: an instance's inherited (its hover state) and its own (an overlay…).
+  // Each runs as its own queue (an animated hover state doesn't hold the overlay back).
+  std::vector<const Interaction*> hovers;
   for (const Interaction& i : list)
-    if (i.trigger == Trigger::ON_HOVER) {
-      first = &i;
-      break;
-    }
-  if (!first) return;
+    if (i.trigger == Trigger::ON_HOVER) hovers.push_back(&i);
+  if (hovers.empty()) return;
   for (auto& x : held_)
     if (x.hotspotKey == key || x.anchorKey == key || x.anchor == h.id || x.hotspot == h.id) return;  // hovered already
-  std::vector<Action> actions = first->actions;
   Held held;
   held.anchor = h.id;
   held.hotspot = h.id;
   held.anchorKey = key;
   held.hotspotKey = key;
   held.id = ++heldSerial_;
-  run(h.id, actions, &h, &held);
+  for (const Interaction* i : hovers) {
+    Hit at = h;
+    if (!doc().has(at.id))
+      if (Guid again = byKey(key); again != kNoGuid) at.id = again;
+    run(at.id, i->actions, &at, &held);
+  }
   held_.push_back(std::move(held));
 }
 

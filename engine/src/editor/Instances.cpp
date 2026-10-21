@@ -24,6 +24,7 @@
 #include "base/DerivedIds.h"
 #include "editor/Editor.h"
 #include "editor/Refusals.h"
+#include "proto/Prototype.h"
 #include "scene/CodecKiwi.h"
 
 namespace eng {
@@ -63,6 +64,20 @@ void mergeInto(NodeProps& to, const NodeProps& from, FieldMask mask) {
       if (v.empty()) to.extra.erase(k);
       else to.extra[k] = v;
     }
+}
+
+// An override entry applied to a layer while deriving: as mergeInto, but a layer's interactions merge per trigger
+// over what it inherits (proto::mergeInteractionOverride, Figma's rule) instead of replacing the whole list.
+void applyEntry(NodeProps& to, const NodeProps& from, FieldMask mask) {
+  auto over = (mask & F_EXTRA) ? from.extra.find("prototypeInteractions") : from.extra.end();
+  if (over == from.extra.end() || over->second.empty()) {
+    mergeInto(to, from, mask);
+    return;
+  }
+  auto had = to.extra.find("prototypeInteractions");
+  std::string inherited = had != to.extra.end() ? had->second : std::string();
+  mergeInto(to, from, mask);
+  to.extra["prototypeInteractions"] = proto::mergeInteractionOverride(inherited, over->second);
 }
 
 const ComponentPropAssignment* findAssign(const std::vector<ComponentPropAssignment>& list, Guid def) {
@@ -116,11 +131,24 @@ struct Editor::OverrideStack {
       byPath[p].push_back(&o);
     }
   }
+  // As add, for entries made here (kept alive in `owned`).
+  void addOwned(std::vector<SymbolOverride>&& list, const std::vector<Guid>& prefix) {
+    const size_t start = owned.size();
+    for (SymbolOverride& o : list) owned.push_back(std::move(o));  // a deque keeps its elements in place
+    std::vector<const SymbolOverride*> ordered;
+    for (size_t i = start; i < owned.size(); i++) ordered.push_back(&owned[i]);
+    std::stable_sort(ordered.begin(), ordered.end(), [](const SymbolOverride* a, const SymbolOverride* b) { return a->level < b->level; });
+    for (const SymbolOverride* o : ordered) {
+      std::vector<Guid> p = prefix;
+      p.insert(p.end(), o->path.begin(), o->path.end());
+      byPath[p].push_back(o);
+    }
+  }
   void apply(const std::vector<Guid>& path, NodeProps& props) const {
     auto it = byPath.find(path);
     if (it == byPath.end()) return;
     for (auto e = it->second.rbegin(); e != it->second.rend(); ++e)
-      mergeInto(props, (*e)->props, (*e)->mask & kOverridable & ~static_cast<FieldMask>(F_COMPONENT_PROP_ASSIGNMENTS));
+      applyEntry(props, (*e)->props, (*e)->mask & kOverridable & ~static_cast<FieldMask>(F_COMPONENT_PROP_ASSIGNMENTS));
   }
   // The highest-priority entry at `path` carrying `bit`.
   const SymbolOverride* highest(const std::vector<Guid>& path, FieldMask bit) const {
@@ -579,8 +607,23 @@ void Editor::expandChildren(Expansion& ex, Guid symbol, Guid sourceParent, Guid 
       }
       ex.sources.push_back(main);
       ex.sources.push_back(setOf(main));  // its set's properties and name
-      bool swapped = main != xn->props.comp().symbolData.symbolID;
-      if (!swapped) ex.stack.add(xn->props.comp().symbolData.overrides, path, mn ? mn->props.keyOf(main) : kNoGuid);
+      const Guid designed = xn->props.comp().symbolData.symbolID;
+      bool swapped = main != designed;
+      // Switched to another variant of its set (a Change to, the panel's variant property): what its main designed on
+      // it carries to the new variant, as a top-level instance's overrides do (remapOverrides) — finder-segmented's
+      // gap of 8 inside homesearch stayed 8 only in the variant it was set in. A swap to another component drops them
+      // (Figma's).
+      const bool sameSet = swapped && mn && setOf(main) != kNoGuid && setOf(main) == setOf(designed);
+      if (!swapped) {
+        ex.stack.add(xn->props.comp().symbolData.overrides, path, mn ? mn->props.keyOf(main) : kNoGuid);
+      } else if (sameSet && !xn->props.comp().symbolData.overrides.empty()) {
+        const Node* dn = doc_.get(designed);
+        Guid oldRoot = dn ? dn->props.keyOf(designed) : kNoGuid;
+        std::vector<SymbolOverride> own = xn->props.comp().symbolData.overrides;
+        for (SymbolOverride& o : own)
+          if (oldRoot != kNoGuid && !o.path.empty() && o.path.front() == oldRoot) o.path.erase(o.path.begin());
+        ex.stack.addOwned(remapOverrides(own, designed, main, true), path);
+      }
       if (mn) {
         // A variant bound to variables (its own binding, or a usage site's): the variant for this row's modes.
         NodeProps probe = xn->props;
@@ -611,7 +654,8 @@ void Editor::expandChildren(Expansion& ex, Guid symbol, Guid sourceParent, Guid 
       p.type = NodeType::INSTANCE;
       p.comp().symbolData = SymbolData{};
       p.comp().symbolData.symbolID = main;
-      std::vector<ComponentPropAssignment> nested = swapped ? std::vector<ComponentPropAssignment>{} : xn->props.comp().componentPropAssignments;
+      std::vector<ComponentPropAssignment> nested =
+          swapped && !sameSet ? std::vector<ComponentPropAssignment>{} : xn->props.comp().componentPropAssignments;
       ex.stack.assignments(path, nested);
       // Exposed nested instances (Figma's "Expose properties from nested instances"): the instance above holds values
       // for this one's properties; they win over its own.
@@ -1339,6 +1383,12 @@ void Editor::writeDerived(const NodeChange& change) {
   }
   // Bindings go into the override entry sparsely (only the fields that changed).
   if (mask & F_PARAM_MAP) edit.props.parameterConsumptionMap = paramDiff(n->props.parameterConsumptionMap, edit.props.parameterConsumptionMap);
+  // Interactions edited on a layer inside an instance: what the edit removed stays as isDeleted copies (Figma's
+  // bookkeeping), so the per-trigger merge with the main's doesn't bring it back.
+  if (mask & F_EXTRA)
+    if (auto it = edit.props.extra.find("prototypeInteractions"); it != edit.props.extra.end())
+      if (auto was = n->props.extra.find("prototypeInteractions"); was != n->props.extra.end())
+        it->second = proto::keepDeletions(was->second, it->second);
   if (mask) writeOverride(d.instance, d.path, mask, edit.props);
   shown.mask &= ~static_cast<FieldMask>(F_OVERRIDDEN_SYMBOL_ID | F_COMPONENT_PROP_ASSIGNMENTS);
   if (shown.mask) applyDerivedDirect(shown);
