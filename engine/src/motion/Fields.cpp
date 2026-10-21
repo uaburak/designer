@@ -86,6 +86,10 @@ const FieldInfo* fieldByPublicName(const char* name) {
   if (!name || !*name) return nullptr;
   for (const FieldInfo& i : kFields)
     if (i.publicName[0] && std::strcmp(i.publicName, name) == 0) return &i;
+  // Wecra's agents (docs/research/motion-for-agents.md §3b): the fields evaluated but not in Figma's public list (skew,
+  // arcs, star, polygon …) by their schema names — the name the timeline model already reports them by.
+  for (const FieldInfo& i : kFields)
+    if (!i.publicName[0] && std::strcmp(enumName(i.field), name) == 0) return &i;
   return nullptr;
 }
 

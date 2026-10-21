@@ -21,6 +21,7 @@ import {
   KEYFRAME_PROPERTY_FIELDS,
   MOTION_EASING_TYPES,
   TIMING_PROP_KEYS,
+  WECRA_KEYFRAME_FIELDS,
   fieldKey,
   type EasingRef,
   type EffectKeyframeFieldName,
@@ -124,7 +125,8 @@ export interface PublicTimeline {
 
 // ---- Fields and values ------------------------------------------------------------------------------------------
 
-const PROPERTY_FIELDS: ReadonlySet<string> = new Set(KEYFRAME_PROPERTY_FIELDS);
+// Figma's public fields and Wecra's own (skew, arcs, star, polygon: docs/research/motion-for-agents.md §3b).
+const PROPERTY_FIELDS: ReadonlySet<string> = new Set([...KEYFRAME_PROPERTY_FIELDS, ...WECRA_KEYFRAME_FIELDS]);
 const EFFECT_FIELDS: ReadonlySet<string> = new Set(EFFECT_KEYFRAME_FIELDS);
 const EASINGS: ReadonlySet<string> = new Set(MOTION_EASING_TYPES);
 const COLOR_EFFECT_FIELDS: ReadonlySet<string> = new Set(["COLOR", "SECONDARY_COLOR"]);

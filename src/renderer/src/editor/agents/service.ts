@@ -188,6 +188,9 @@ const TOOL_LABEL: Record<string, string> = {
   set_selection: "Selected the result",
   place_image: "Placed an image",
   generate_image: "Made an image",
+  // Motion for agents (docs/research/motion-for-agents.md)
+  animate: "Animated layers",
+  get_motion_frames: "Watched the animation",
   // The manager's (docs/studio.md §2.2) and the library's (§3.3)
   delegate_task: "Handed out a task",
   wait_tasks: "Waited for the tasks",

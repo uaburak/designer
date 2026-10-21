@@ -30,6 +30,9 @@ const TOOL_ACTIVE: Record<string, string> = {
   set_selection: "Selecting the result…",
   place_image: "Placing the image…",
   generate_image: "Making an image…",
+  // Motion for agents (docs/research/motion-for-agents.md)
+  animate: "Animating…",
+  get_motion_frames: "Watching the animation…",
   // The manager's (docs/studio.md §2.2) and the library's (§3.3)
   delegate_task: "Handing out a task…",
   wait_tasks: "Waiting for the tasks…",

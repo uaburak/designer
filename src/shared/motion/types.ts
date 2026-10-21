@@ -24,7 +24,13 @@ export const KEYFRAME_PROPERTY_FIELDS = [
   "TRANSLATION_X", "TRANSLATION_Y", "TRANSLATION_XY", "ROTATION", "SCALE_X", "SCALE_Y", "SCALE_XY",
   "PATH_TRIM_START", "PATH_TRIM_END",
 ] as const;
-export type KeyframePropertyFieldName = (typeof KEYFRAME_PROPERTY_FIELDS)[number];
+/**
+ * Wecra's own keyframe fields (docs/research/motion-for-agents.md §3b): evaluated by the motion layer but not in Figma's
+ * public list — skew (the shear factor, tan of the angle), an ellipse's arc (radians; inner radius 0–1), a star's inner
+ * radius (0–1) and a polygon's or star's point count. Named by their schema names (VariableField), stored as is.
+ */
+export const WECRA_KEYFRAME_FIELDS = ["MOTION_SHEAR", "ARC_DATA_STARTING_ANGLE", "ARC_DATA_ENDING_ANGLE", "ARC_DATA_INNER_RADIUS", "STAR_INNER_SCALE", "POLYGON_COUNT"] as const;
+export type KeyframePropertyFieldName = (typeof KEYFRAME_PROPERTY_FIELDS)[number] | (typeof WECRA_KEYFRAME_FIELDS)[number];
 
 /** Figma's effect keyframe fields (`EffectKeyframeFieldName`). */
 export const EFFECT_KEYFRAME_FIELDS = [
@@ -89,6 +95,13 @@ export const KEYFRAME_FIELDS: Record<KeyframePropertyFieldName, FieldInfo> = {
   SCALE_XY: { variableField: 70, value: "VECTOR", kind: "multiplicative", label: "Scale" },
   PATH_TRIM_START: { variableField: 54, value: "FLOAT", kind: "absolute", clamp: [0, 1], label: "Path trim start" },
   PATH_TRIM_END: { variableField: 55, value: "FLOAT", kind: "absolute", clamp: [0, 1], label: "Path trim end" },
+  // Wecra's (WECRA_KEYFRAME_FIELDS)
+  MOTION_SHEAR: { variableField: 51, value: "FLOAT", kind: "additive", label: "Skew" },
+  ARC_DATA_STARTING_ANGLE: { variableField: 65, value: "FLOAT", kind: "absolute", label: "Arc start" },
+  ARC_DATA_ENDING_ANGLE: { variableField: 66, value: "FLOAT", kind: "absolute", label: "Arc end" },
+  ARC_DATA_INNER_RADIUS: { variableField: 67, value: "FLOAT", kind: "absolute", clamp: [0, 1], label: "Arc ratio" },
+  STAR_INNER_SCALE: { variableField: 72, value: "FLOAT", kind: "absolute", clamp: [0, 1], label: "Star ratio" },
+  POLYGON_COUNT: { variableField: 64, value: "FLOAT", kind: "absolute", clamp: [3, 60], label: "Count" },
 };
 
 // ---- Values and easing -----------------------------------------------------------------------------------------

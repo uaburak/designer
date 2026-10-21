@@ -585,6 +585,14 @@ export interface AiRepository {
 
 **Tests**: `src/store/ai/ai.test.ts` (ledger math, fractions, month rollover at local midnight, Dec → Jan reset, over-limit, checks, the org from the file, history across months, the 5,000-entry cap; Skills round trip with a hand-made file, unique names, the index; reports: absolute totals, debounce, resend only on change, 503 kept, another account dropped; through LocalStore against the real server handler on node:sqlite: files under `spaces/ai`, `ai_usage_daily` filled, read back after a restart), `server/src/ai/usage.test.ts` (idempotent upserts, drops, guests and outsiders, `/v1/ai_usage/daily` returns them, bad bodies, PATs, the rate limit; the two settings keys with their checks and activity rows), `src/main/ai/ledger.test.ts` (org limits, AI off, guests, a store that can't answer), `src/renderer/src/settings/__tests__/ai.dom.test.ts` (the meter and saving, an org's limit, image keys, models, the unavailable states, the AI balance modal), `src/renderer/src/admin/__tests__/settings.dom.test.ts` (+ Settings › AI with its activity sentences).
 
+### 8.3 As built — motion for agents, phase 1 (2026-10-21; [ours])
+
+What a model needs to make motion graphics as well as with GSAP / Remotion code, natively in Wecra (audit, design and phases: `docs/research/motion-for-agents.md`; details: `docs/motion.md` §9.2):
+- **`animate`** (write) — a GSAP-like timeline script (targets by id / name / path, from / to / fromTo / keyframes, the position parameter with labels, stagger, repeat / yoyo, text split by chars / words / lines, transform origin; GSAP, CSS, spring and Wecra eases — bounce, steps and elastic unrolled into exact keys) compiled into native manual keyframe tracks in one undo step.
+- **`get_motion_frames`** (read) — the timeline drawn at chosen or evenly spread times, returned **as images** (one contact sheet PNG, or a PNG per frame; `gif: true` adds a GIF file), so the agent sees its motion and refines it; an outside MCP client gets the same images.
+- **Skew, arcs, star ratio and point count** are keyframable by their schema names (`MOTION_SHEAR`, `ARC_DATA_*`, `STAR_INNER_SCALE`, `POLYGON_COUNT`).
+- **The built-in skill `motion-design`** (`src/shared/agents/motionSkill.ts`): always listed with a turn's skills (the owner's own skill of the same name wins), answered by `get_skill` in main; the system prompt's Motion paragraph (`src/shared/agents/prompts.ts`) sends agents to animate → get_motion_frames → refine, and to the skill. Panel labels: "Animating…" / "Animated layers", "Watching the animation…" / "Watched the animation" (Turkish in `tr/tools.ts`).
+
 ## 9. Ownership, merge order — see `docs/roadmap.md` "Round 6"
 
 ## 10. Open questions for the owner
