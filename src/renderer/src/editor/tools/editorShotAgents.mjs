@@ -739,7 +739,12 @@ function samples() {
  * the usage ring and its card.
  */
 async function composerSection(page, theme, { settle, shot, check, menus }) {
-  await page.getByRole("button", { name: "New chat" }).click();
+  // A new chat: from the list's filter menu (the header has no + any more); inside a chat, Back to the list first.
+  if (await page.locator("[data-tab-header-back]").count()) await page.locator("[data-tab-header-back]").click();
+  if (await page.getByRole("button", { name: "Filter chats" }).count()) {
+    await page.getByRole("button", { name: "Filter chats" }).click();
+    await page.getByText("New chat", { exact: true }).click();
+  }
   await page.evaluate(() => window.__designerEditor.engine.setSelection([]));
   await settle(page);
   const composer = page.locator("[data-composer]");
@@ -899,13 +904,14 @@ async function chatsListSection(page, theme, { settle, shot, check }) {
   await list.waitFor({ timeout: 3000 });
   const rows = () => page.locator("[data-chat]").count();
   const total = await rows();
+  await page.locator("[data-chats-search-open]").click();
   const geo = await page.evaluate(() => {
     const r = (s) => document.querySelector(s)?.getBoundingClientRect();
-    const search = r("[data-chats-bar] input"), foot = r("[data-chats-foot]"), comp = r("[data-chats-foot] [data-composer]"), panel = r("[data-chats]"), scroll = r("[data-chats-list]");
+    const search = r("[data-tab-header] [data-chats-search] input"), foot = r("[data-chats-foot]"), comp = r("[data-chats-foot] [data-composer]"), panel = r("[data-chats]"), scroll = r("[data-chats-list]");
     const fade = getComputedStyle(document.querySelector("[data-chats-foot]"), "::before");
     return { search: search && search.width, comp: comp && comp.bottom, panel: panel && panel.bottom, foot: foot && foot.top, scrollBottom: scroll && scroll.bottom, fade: fade.backgroundImage, fadePos: fade.position };
   });
-  check("Chats list: the search, filter and ••• on top; the composer at the bottom of the panel under the list", geo.search > 100 && (await page.getByRole("button", { name: "Filter chats" }).count()) === 1 && (await page.getByRole("button", { name: "More" }).count()) === 1 && Math.abs(geo.comp - geo.panel) <= 12 && geo.scrollBottom <= geo.foot + 1, JSON.stringify(geo));
+  check("Chats list: search (in the header, over the title) and filter by the gear; the composer at the bottom of the panel under the list", geo.search > 100 && (await page.getByRole("button", { name: "Filter chats" }).count()) === 1 && (await page.getByRole("button", { name: "New chat" }).count()) === 0 && Math.abs(geo.comp - geo.panel) <= 12 && geo.scrollBottom <= geo.foot + 1, JSON.stringify(geo));
   check("Chats list: a gradient fades the list into the panel above the composer", geo.fade.includes("linear-gradient") && geo.fadePos === "absolute", geo.fade);
   await shot(page, `411-agents-chats-list-${theme}`);
   await closeUp(page, "[data-chats]", `chats-list-${theme}`, 0);
@@ -936,10 +942,10 @@ async function chatsListSection(page, theme, { settle, shot, check }) {
   const recentFirst = await page.locator("[data-chat]").evaluateAll((els) => els.map((e) => e.getAttribute("data-chat")));
   check("Chats list: Oldest reverses the order of Recent", total < 2 || JSON.stringify(oldestFirst) === JSON.stringify([...recentFirst].reverse()), JSON.stringify({ oldestFirst, recentFirst }));
 
-  // "•••": New chat, Agent settings, Delete all chats… (asks first).
-  await page.getByRole("button", { name: "More" }).click();
+  // The filter menu's end: New chat, Delete all chats… (asks first).
+  await page.getByRole("button", { name: "Filter chats" }).click();
   const more = (await page.locator('[role="menu"] [role^="menuitem"]').allTextContents()).map((t) => t.trim());
-  check("Chats list: the ••• menu has New chat, Agent settings and Delete all chats…", JSON.stringify(more) === JSON.stringify(["New chat", "Agent settings", "Delete all chats…"]), JSON.stringify(more));
+  check("Chats list: the filter menu ends with New chat and Delete all chats…", JSON.stringify(more.slice(-2)) === JSON.stringify(["New chat", "Delete all chats…"]), JSON.stringify(more));
   await closeUp(page, '[role="menu"]', `chats-more-menu-${theme}`, 8);
   await page.getByText("Delete all chats…", { exact: true }).click();
   check("Chats list: Delete all chats… asks first", (await page.getByRole("dialog", { name: "Delete all chats?" }).count()) === 1);

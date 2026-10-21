@@ -8,7 +8,7 @@
  */
 import { Fragment, createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ClipboardEvent, type CSSProperties, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { NO_FILTER, chatStatus, filterChats, matchSnippet, splitMatches, type ChatFilter, type ChatSort } from "../../agents/chatList";
-import { Button, Dialog, EmptyState, Icon, IconButton, MenuButton, Portal, SearchField, Select, Spinner, cx, place, timeAgo, tooltipProps, useDismiss, type IconName } from "@/ds";
+import { Button, ContextMenu, Dialog, EmptyState, Icon, IconButton, MenuButton, Portal, SearchField, Select, Spinner, cx, place, timeAgo, tooltipProps, useDismiss, type IconName } from "@/ds";
 import { MAX_ATTACHMENTS, isImageMime, type Attachment, type AttachResult } from "@shared/agents/attachments";
 import type { ProviderInfo } from "@shared/agents/types";
 import { creditsFor, type ConnectorConsent } from "@shared/ai/types";
@@ -68,33 +68,125 @@ export function AgentsPanel({ placement = "left", draft = null, onDraftTaken }: 
   // The gear's "This chat" popover, anchored to the gear (a press on it toggles).
   const [gear, setGear] = useState<HTMLSpanElement | null>(null);
   const [quick, setQuick] = useState(false);
+  // The list's search (in the header, over the title), its filter and the "Delete all chats" question.
+  const [filter, setFilter] = useState<ChatFilter>(NO_FILTER);
+  const [searching, setSearching] = useState(false);
+  const [confirmAll, setConfirmAll] = useState(false);
+  const agents = useMemo(() => {
+    const ids = [...new Set(state.chats.map((c) => c.providerId).filter((x): x is string => !!x))];
+    return ids.map((id) => ({ id, label: state.providers.find((p) => p.id === id)?.label ?? id }));
+  }, [state.chats, state.providers]);
+  const listShown = state.available && state.view === "list" && state.chats.length > 0;
   // Inside a chat (with chats to go back to), the header is the chat's: back and its title.
   const inChat = state.available && state.chats.length > 0 && state.view !== "list";
-  const actions = (
+  const closeSearch = () => {
+    setSearching(false);
+    setFilter((f) => ({ ...f, query: "" }));
+  };
+  const gearButton = (
+    <span ref={setGear} className={styles.plus}>
+      <IconButton icon="24.settings.small" label={t("Agent settings")} tone="secondary" disabled={!state.available} aria-expanded={quick} aria-haspopup="dialog" onClick={() => setQuick(!quick)} data-agents-settings="" />
+    </span>
+  );
+  // The list's header: search, the filter menu (with New chat and Delete all chats…), the gear. A new chat is also
+  // the list's composer: a message typed there starts one.
+  const listActions = (
     <>
-      <span ref={setGear} className={styles.plus}>
-        <IconButton icon="24.settings.small" label={t("Agent settings")} tone="secondary" disabled={!state.available} aria-expanded={quick} aria-haspopup="dialog" onClick={() => setQuick(!quick)} data-agents-settings="" />
-      </span>
-      <IconButton icon="24.plus.small" label={t("New chat")} tone="secondary" disabled={!state.available} onClick={() => service.newChat()} />
+      {!searching && <IconButton icon="24.search.small" label={t("Search chats")} tone="secondary" onClick={() => setSearching(true)} data-chats-search-open="" />}
+      <MenuButton
+        label={t("Filter chats")}
+        tooltip
+        className={cx(styles.barButton, (filter.agent || filter.sort !== "recent") && styles.barButtonOn)}
+        align="end"
+        entries={[
+          { header: t("Agent") },
+          { id: "agent:", label: t("All agents"), checked: !filter.agent },
+          ...agents.map((a) => ({ id: `agent:${a.id}`, label: a.label, checked: filter.agent === a.id })),
+          "-",
+          { header: t("Sort by") },
+          { id: "sort:recent", label: t("Recent"), checked: filter.sort === "recent" },
+          { id: "sort:oldest", label: t("Oldest"), checked: filter.sort === "oldest" },
+          "-",
+          { id: "new", label: t("New chat") },
+          { id: "delete-all", label: t("Delete all chats…") },
+        ]}
+        onSelect={(id) => {
+          if (id === "new") service.newChat();
+          else if (id === "delete-all") setConfirmAll(true);
+          else if (id.startsWith("agent:")) setFilter({ ...filter, agent: id.slice(6) || null });
+          else setFilter({ ...filter, sort: id.slice(5) as ChatSort });
+        }}
+        data-chats-filter=""
+      >
+        <Icon name="24.filter" />
+      </MenuButton>
+      {gearButton}
     </>
   );
+  const search =
+    listShown && searching ? (
+      <SearchField
+        className={styles.headerSearch}
+        autoFocus
+        value={filter.query}
+        onChange={(query) => setFilter({ ...filter, query })}
+        placeholder={t("Search chats")}
+        label={t("Search chats")}
+        onKeyDownCapture={(e) => {
+          // Esc leaves the search at once (its query cleared), the title back.
+          if (e.key !== "Escape") return;
+          e.preventDefault();
+          e.stopPropagation();
+          closeSearch();
+        }}
+        onBlur={(e) => {
+          if (!filter.query && !e.currentTarget.contains(e.relatedTarget as Node | null)) setSearching(false);
+        }}
+        data-chats-search=""
+      />
+    ) : undefined;
   return (
     <DraftContext.Provider value={composerDraft}>
       <div className={styles.panel} data-agents="" data-view={state.view} data-settings-open={state.settingsOpen || undefined} data-placement={placement}>
         {inChat ? (
-          <TabHeader title={service.currentChat()?.title || t("New chat")} back={{ label: t("Back"), onClick: () => service.setView("list") }} actions={actions} />
+          <TabHeader title={service.currentChat()?.title || t("New chat")} back={{ label: t("Back"), onClick: () => service.setView("list") }} actions={gearButton} />
         ) : (
-          <TabHeader title={t("Agents")} actions={actions} />
+          <TabHeader title={t("Agents")} search={search} actions={listShown ? listActions : gearButton} />
         )}
         {!state.available ? (
           <EmptyState icon="24.agents" title={t("Agents run in the desktop app")} body={t("Open this file in Wecra to chat with the AI tools on your computer.")} />
-        ) : state.view === "list" && state.chats.length ? (
-          <ChatList service={service} chats={state.chats} />
+        ) : listShown ? (
+          <ChatList service={service} chats={state.chats} filter={filter} />
         ) : (
           <ChatView service={service} chat={service.currentChat()} />
         )}
         {quick && state.available && <ChatSettings service={service} anchor={gear} onClose={() => setQuick(false)} />}
         {state.settingsOpen && state.available && <AgentSettingsModal service={service} />}
+        <Dialog
+          title={t("Delete all chats?")}
+          open={confirmAll}
+          onClose={() => setConfirmAll(false)}
+          footer={
+            <>
+              <Button variant="secondary" size="large" onClick={() => setConfirmAll(false)}>
+                {t("Cancel")}
+              </Button>
+              <Button
+                variant="destructive"
+                size="large"
+                onClick={() => {
+                  setConfirmAll(false);
+                  service.deleteAllChats();
+                }}
+                data-delete-all=""
+              >
+                {t("Delete all")}
+              </Button>
+            </>
+          }
+        >
+          <p className={styles.confirmText}>{tp(state.chats.length, "The chat in this file will be deleted. This can’t be undone.", "The {n} chats in this file will be deleted. This can’t be undone.")}</p>
+        </Dialog>
       </div>
     </DraftContext.Provider>
   );
@@ -103,67 +195,56 @@ export function AgentsPanel({ placement = "left", draft = null, onDraftTaken }: 
 // ---- The chats ------------------------------------------------------------------------------------------------------
 
 /**
- * The chats: a top bar (search by title and message text, the filter menu, "•••"), the list, and — sticky at the
- * bottom, the list fading into the panel under it — the composer: a message sent here starts a new chat and opens it.
+ * The chats (searched and filtered from the panel's header), and — sticky at the bottom, the list fading into the
+ * panel under it — the composer: a message sent here starts a new chat and opens it. A row's context menu renames it
+ * (in the row) or deletes it.
  */
-function ChatList({ service, chats }: { service: AgentsService; chats: Chat[] }) {
+function ChatList({ service, chats, filter }: { service: AgentsService; chats: Chat[]; filter: ChatFilter }) {
   useT();
   const state = service.get();
-  const [filter, setFilter] = useState<ChatFilter>(NO_FILTER);
-  const [confirmAll, setConfirmAll] = useState(false);
   const shown = useMemo(() => filterChats(chats, filter), [chats, filter]);
-  const agents = useMemo(() => {
-    const ids = [...new Set(chats.map((c) => c.providerId).filter((x): x is string => !!x))];
-    return ids.map((id) => ({ id, label: state.providers.find((p) => p.id === id)?.label ?? id }));
-  }, [chats, state.providers]);
   const searching = !!filter.query.trim();
+  const [menu, setMenu] = useState<{ at: { x: number; y: number }; id: string } | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
   return (
     <div className={styles.chats} data-chats="">
-      <div className={styles.listBar} data-chats-bar="">
-        <SearchField className={styles.listSearch} value={filter.query} onChange={(query) => setFilter({ ...filter, query })} placeholder={t("Search chats")} label={t("Search chats")} data-chats-search="" />
-        <MenuButton
-          label={t("Filter chats")}
-          tooltip
-          className={cx(styles.barButton, (filter.agent || filter.sort !== "recent") && styles.barButtonOn)}
-          align="end"
-          entries={[
-            { header: t("Agent") },
-            { id: "agent:", label: t("All agents"), checked: !filter.agent },
-            ...agents.map((a) => ({ id: `agent:${a.id}`, label: a.label, checked: filter.agent === a.id })),
-            "-",
-            { header: t("Sort by") },
-            { id: "sort:recent", label: t("Recent"), checked: filter.sort === "recent" },
-            { id: "sort:oldest", label: t("Oldest"), checked: filter.sort === "oldest" },
-          ]}
-          onSelect={(id) => (id.startsWith("agent:") ? setFilter({ ...filter, agent: id.slice(6) || null }) : setFilter({ ...filter, sort: id.slice(5) as ChatSort }))}
-        >
-          <Icon name="24.filter" />
-        </MenuButton>
-        <MenuButton
-          label={t("More")}
-          tooltip
-          className={styles.barButton}
-          align="end"
-          entries={[{ id: "new", label: t("New chat") }, { id: "settings", label: t("Agent settings") }, "-", { id: "delete-all", label: t("Delete all chats…") }]}
-          onSelect={(id) => (id === "new" ? service.newChat() : id === "settings" ? service.setView("settings") : setConfirmAll(true))}
-        >
-          <Icon name="24.more" />
-        </MenuButton>
-      </div>
       <div className={styles.scroll} role="list" aria-label={t("Chats")} data-chats-list="">
         {shown.map((c) => {
           const found = searching && splitMatches(c.title, filter.query).length < 2 ? matchSnippet(c, filter.query) : null;
           const status = found ?? (state.running[c.id] ? t("Working on it…") : chatStatus(c));
           return (
-            <div key={c.id} role="listitem" className={styles.chatRow} data-chat={c.id}>
-              <button type="button" className={styles.chatOpen} onClick={() => service.openChat(c.id)}>
-                <span className={styles.chatTitle} data-chat-title=""><Highlighted text={c.title} query={filter.query} /></span>
-                <span className={styles.chatMeta}>
-                  <span className={styles.chatStatus} data-chat-status=""><Highlighted text={status} query={filter.query} /></span>
-                  <span className={styles.chatTime} data-chat-time="">{timeAgo(c.updatedAt)}</span>
-                </span>
-              </button>
-              <IconButton icon="24.trash.outline" label={t("Delete chat")} tone="secondary" className={styles.chatDelete} onClick={() => service.deleteChat(c.id)} />
+            <div
+              key={c.id}
+              role="listitem"
+              className={cx(styles.chatRow, menu?.id === c.id && styles.chatRowMenu)}
+              data-chat={c.id}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setMenu({ at: { x: e.clientX, y: e.clientY }, id: c.id });
+              }}
+            >
+              {renaming === c.id ? (
+                <div className={styles.chatOpen}>
+                  <RenameInput
+                    title={c.title}
+                    onDone={(title) => {
+                      if (title !== null) service.renameChat(c.id, title);
+                      setRenaming(null);
+                    }}
+                  />
+                  <span className={styles.chatMeta}>
+                    <span className={styles.chatStatus} data-chat-status="">{status}</span>
+                  </span>
+                </div>
+              ) : (
+                <button type="button" className={styles.chatOpen} onClick={() => service.openChat(c.id)}>
+                  <span className={styles.chatTitle} data-chat-title=""><Highlighted text={c.title} query={filter.query} /></span>
+                  <span className={styles.chatMeta}>
+                    <span className={styles.chatStatus} data-chat-status=""><Highlighted text={status} query={filter.query} /></span>
+                    <span className={styles.chatTime} data-chat-time="">{timeAgo(c.updatedAt)}</span>
+                  </span>
+                </button>
+              )}
             </div>
           );
         })}
@@ -172,32 +253,48 @@ function ChatList({ service, chats }: { service: AgentsService; chats: Chat[] })
       <div className={styles.listFoot} data-chats-foot="">
         <Composer service={service} chat={null} running={false} />
       </div>
-      <Dialog
-        title={t("Delete all chats?")}
-        open={confirmAll}
-        onClose={() => setConfirmAll(false)}
-        footer={
-          <>
-            <Button variant="secondary" size="large" onClick={() => setConfirmAll(false)}>
-              {t("Cancel")}
-            </Button>
-            <Button
-              variant="destructive"
-              size="large"
-              onClick={() => {
-                setConfirmAll(false);
-                service.deleteAllChats();
-              }}
-              data-delete-all=""
-            >
-              {t("Delete all")}
-            </Button>
-          </>
-        }
-      >
-        <p className={styles.confirmText}>{tp(chats.length, "The chat in this file will be deleted. This can’t be undone.", "The {n} chats in this file will be deleted. This can’t be undone.")}</p>
-      </Dialog>
+      {menu && (
+        <ContextMenu
+          at={menu.at}
+          label={t("Chat")}
+          context
+          entries={[{ id: "rename", label: t("Rename") }, "-", { id: "delete", label: t("Delete") }]}
+          onSelect={(id) => {
+            if (id === "rename") setRenaming(menu.id);
+            else if (id === "delete") service.deleteChat(menu.id);
+          }}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </div>
+  );
+}
+
+/** A chat's title edited in its row: Enter or a click away keeps it, Esc leaves it as it was (null). */
+function RenameInput({ title, onDone }: { title: string; onDone: (title: string | null) => void }) {
+  useT();
+  const done = useRef(false);
+  const finish = (v: string | null) => {
+    if (done.current) return;
+    done.current = true;
+    onDone(v);
+  };
+  return (
+    <input
+      className={styles.chatRename}
+      aria-label={t("Chat name")}
+      defaultValue={title}
+      autoFocus
+      spellCheck={false}
+      onFocus={(e) => e.currentTarget.select()}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") finish(e.currentTarget.value);
+        else if (e.key === "Escape") finish(null);
+      }}
+      onBlur={(e) => finish(e.currentTarget.value)}
+      data-chat-rename=""
+    />
   );
 }
 

@@ -50,14 +50,17 @@ describe("the chats list's layout", () => {
     expect(css).toMatch(/\.listFoot \{[^}]*flex: none;[^}]*background: var\(--figma-color-bg\)/);
     expect(css).toMatch(/\.listFoot::before \{[^}]*bottom: 100%;[^}]*linear-gradient\(to bottom, transparent, var\(--figma-color-bg\)\)[^}]*pointer-events: none/);
   });
-  it("puts the search, the filter menu and the more menu on top, the composer (no chat) at the bottom", () => {
+  it("puts search and the filter menu (New chat, Delete all chats…) in the panel's header, no row over the list; the composer (no chat) at the bottom", () => {
+    const panel = tsx.slice(tsx.indexOf("export function AgentsPanel("), tsx.indexOf("function ChatList("));
     const list = tsx.slice(tsx.indexOf("function ChatList("), tsx.indexOf("function Highlighted("));
-    expect(list).toContain('placeholder={t("Search chats")}');
-    expect(list).toContain('label={t("Filter chats")}');
-    expect(list).toContain('label={t("More")}');
-    expect(list).toContain("Delete all chats…");
+    expect(panel).toContain('placeholder={t("Search chats")}');
+    expect(panel).toContain('label={t("Filter chats")}');
+    expect(panel).toContain("Delete all chats…");
+    expect(panel).toContain('label: t("New chat")');
+    expect(panel).not.toContain('label={t("New chat")}');
+    expect(list).not.toContain("SearchField");
+    expect(list).not.toContain("Delete chat");
     expect(list).toContain("<Composer service={service} chat={null}");
-    expect(list.indexOf("Search chats")).toBeLessThan(list.indexOf("<Composer"));
   });
 });
 

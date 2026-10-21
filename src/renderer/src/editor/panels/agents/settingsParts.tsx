@@ -71,3 +71,39 @@ export function Block({ title, children, ...data }: { title?: string; children: 
     </section>
   );
 }
+
+/**
+ * The Agent settings modal's look (AgentSettingsModal.tsx), as This chat's popover: a small label (and its action) over
+ * a box of rows with lines between them, an optional note under it.
+ */
+export function SettingsBox({ label, action, note, children, ...data }: { label?: string; action?: ReactNode; note?: ReactNode; children: ReactNode } & Record<`data-${string}`, string | undefined>) {
+  return (
+    <section className={styles.mSection} {...data}>
+      {(label || action) && (
+        <div className={styles.mSectionHead}>
+          {label && <h3 className={styles.popSectionLabel}>{label}</h3>}
+          {action}
+        </div>
+      )}
+      <div className={cx(styles.popBox, styles.mBox)}>{children}</div>
+      {note && <p className={styles.mNote}>{note}</p>}
+    </section>
+  );
+}
+
+/** A row of a SettingsBox: its mark or icon, its name (and a one-line description under it), what it holds at the right. */
+export function BoxRow({ icon, mark, title, badge, desc, dim, children, ...data }: { icon?: IconName; mark?: ReactNode; title: ReactNode; badge?: ReactNode; desc?: ReactNode; dim?: boolean; children?: ReactNode } & Record<`data-${string}`, string | undefined>) {
+  return (
+    <div className={cx(styles.mRow, dim && styles.mRowDim)} {...data}>
+      {(mark || icon) && <span className={styles.mRowIcon}>{mark ?? <Icon name={icon!} />}</span>}
+      <span className={styles.mRowText}>
+        <span className={styles.mRowLine}>
+          <span className={styles.mRowTitle}>{title}</span>
+          {badge}
+        </span>
+        {desc && <span className={styles.mRowDesc}>{desc}</span>}
+      </span>
+      {children && <span className={styles.mRowEnd}>{children}</span>}
+    </div>
+  );
+}

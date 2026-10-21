@@ -22,7 +22,7 @@ const POLICY_OPTIONS = [
   { value: "off", label: "Off" },
 ];
 
-const connectorStatus = (c: Connector) => (!c.enabled ? t("Off") : c.state === "connected" ? t("Connected") : c.state === "sign-in" ? t("Sign in needed") : c.state === "error" ? t("Can’t connect") : t("Not tested"));
+export const connectorStatus = (c: Connector) => (!c.enabled ? t("Off") : c.state === "connected" ? t("Connected") : c.state === "sign-in" ? t("Sign in needed") : c.state === "error" ? t("Can’t connect") : t("Not tested"));
 
 // ---- The list's groups ----
 

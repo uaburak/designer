@@ -22,7 +22,7 @@ export const CAPABILITIES: { cap: ReachCapability; label: string; icon: IconName
   { cap: "apps", label: "Local apps", icon: "24.window.layout", about: "Agents can see a window of another app on this computer: you pick the window each time. They can't click or type in it." },
 ];
 
-const POLICIES: { value: ReachPolicy; label: string }[] = [
+export const POLICIES: { value: ReachPolicy; label: string }[] = [
   { value: "off", label: "Off" },
   { value: "ask", label: "Ask each time" },
   { value: "allow", label: "Always allow" },
@@ -207,7 +207,7 @@ function AppsPermission({ view }: { view: ReachView }) {
 
 // ── The access log ──
 
-const OUTCOME: Record<AccessLogEntry["outcome"], string> = { ok: "Allowed", denied: "Denied", refused: "Refused", error: "Failed" };
+export const OUTCOME: Record<AccessLogEntry["outcome"], string> = { ok: "Allowed", denied: "Denied", refused: "Refused", error: "Failed" };
 
 function AccessLog({ service }: { service: AgentSetupHost }) {
   useT();

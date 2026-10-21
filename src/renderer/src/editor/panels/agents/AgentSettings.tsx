@@ -22,8 +22,8 @@ const openExternal = (url: string) => {
   else window.open(url, "_blank", "noopener");
 };
 
-const isServer = (p: ProviderInfo) => p.kind === "openai-compatible";
-const isCustom = (p: ProviderInfo) => p.id.startsWith("custom:");
+export const isServer = (p: ProviderInfo) => p.kind === "openai-compatible";
+export const isCustom = (p: ProviderInfo) => p.id.startsWith("custom:");
 
 /** An agent's state, in the list's and its page's words. */
 export function stateText(p: ProviderInfo, auth: AuthState | undefined = p.auth): string {
@@ -50,7 +50,7 @@ const ABOUT: Record<string, { text: string; page?: string }> = {
   lmstudio: { text: "Runs open models on this computer, free and offline. Start LM Studio’s server and load a model, then come back here.", page: "https://lmstudio.ai" },
 };
 
-const KIND_ICON = (p: ProviderInfo): IconName => (isCustom(p) ? "24.globe" : isServer(p) ? "24.agents" : "24.dev-brackets");
+export const KIND_ICON = (p: ProviderInfo): IconName => (isCustom(p) ? "24.globe" : isServer(p) ? "24.agents" : "24.dev-brackets");
 
 /**
  * The list or an item's page, for either host (agents/setup.ts): the Agents tab's gear, Settings › Agents (`embedded`:

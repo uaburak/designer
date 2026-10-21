@@ -9,10 +9,9 @@
   .chatBar { display: flex; flex: none; align-items: center; gap: var(--ds-space-1); height: var(--ds-size-section-header); padding: 0 var(--ds-space-3) 0 var(--ds-space-2); }
   .chatBarTitle { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); text-overflow: ellipsis; white-space: nowrap; }
 
-  /* The chats: the top bar (search, filter, "•••"), the list, the composer sticky under it with the list fading out above */
+  /* The chats: the list (searched and filtered from the header), the composer sticky under it with the list fading out above */
+  .headerSearch { flex: 1 1 auto; min-width: 0; }
   .chats { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
-  .listBar { display: flex; flex: none; align-items: center; gap: var(--ds-space-1); padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-1) var(--ds-space-3); }
-  .listSearch { flex: 1 1 auto; min-width: 0; }
   .barButton { display: inline-flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-control); height: var(--ds-size-control); padding: 0; border: 0; border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-icon); outline: none; cursor: default; }
   .barButton:hover { background: var(--ds-color-bg-transparent-hover); }
   .barButton[data-open] { background: var(--ds-color-bg-transparent-pressed); }
@@ -36,9 +35,8 @@
   .chatMeta { display: flex; align-items: baseline; gap: var(--ds-space-2); min-width: 0; }
   .chatStatus { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); text-overflow: ellipsis; white-space: nowrap; }
   .chatTime { flex: none; color: var(--figma-color-text-tertiary); font: var(--ds-font-body-small); }
-  .chatRow:hover .chatTime, .chatRow:focus-within .chatTime { visibility: hidden; }
-  .chatDelete { position: absolute; right: var(--ds-space-1); bottom: var(--ds-space-1); visibility: hidden; }
-  .chatRow:hover .chatDelete, .chatDelete:focus-visible { visibility: visible; }
+  .chatRowMenu { background: var(--ds-color-bg-transparent-hover); }
+  .chatRename { width: 100%; min-width: 0; height: var(--ds-size-control); margin: calc(-1 * var(--ds-space-half)) 0; padding: 0 var(--ds-space-1); border: 1px solid var(--figma-color-border-selected); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg); color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); outline: none; }
 
   /* A new chat */
   .intro { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: var(--ds-space-6) var(--ds-space-1) 0; }
@@ -475,7 +473,38 @@
   .settingsTabLabel { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* The section scrolls in the modal (the embedded settings' look, with the modal's inset) */
   .settingsContent { flex: 1 1 auto; min-width: 0; padding: var(--ds-space-4) var(--ds-space-6) var(--ds-space-8); overflow-y: auto; }
-  .usageSection { display: flex; flex-direction: column; gap: var(--ds-space-3); padding: var(--ds-space-3) 0; border-top: 1px solid var(--figma-color-border); }
-  .usageSection:first-child { border-top: 0; }
-  .usageSectionTitle { display: flex; align-items: center; gap: var(--ds-space-1-5); margin: 0; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  /* A section's page: its title and a line on it (its action at the right), then boxed sections as in This chat */
+  .mHead { display: flex; align-items: flex-start; gap: var(--ds-space-3); margin-bottom: var(--ds-space-4); }
+  .mHeadText { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--ds-space-1); min-width: 0; }
+  .mTitle { margin: 0; color: var(--figma-color-text); font: var(--ds-font-settings-heading); letter-spacing: var(--ds-tracking-settings-heading); }
+  .mAbout { margin: 0; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+  .mPage { display: flex; flex-direction: column; gap: var(--ds-space-5); }
+  .mSection { display: flex; flex-direction: column; gap: var(--ds-space-1-5); }
+  .mSectionHead { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--ds-space-2); min-height: var(--ds-size-control); }
+  .mBox > * + * { border-top: 1px solid var(--figma-color-border); }
+  .mNote { margin: 0; padding: 0 var(--ds-space-1); color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); letter-spacing: var(--ds-tracking-body-small); }
+  .mEmpty { display: flex; align-items: center; gap: var(--ds-space-2); margin: 0; padding: var(--ds-space-3); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .mRow { display: flex; align-items: center; gap: var(--ds-space-2); min-height: calc(var(--ds-space-10)); padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-3); }
+  .mRowIcon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: var(--ds-space-6); color: var(--figma-color-icon); }
+  .mRowText { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--ds-space-half); min-width: 0; }
+  .mRowLine { display: flex; align-items: center; gap: var(--ds-space-1-5); min-width: 0; }
+  .mRowTitle { min-width: 0; overflow: hidden; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); text-overflow: ellipsis; white-space: nowrap; }
+  .mRowDesc { display: flex; align-items: center; gap: var(--ds-space-1); min-width: 0; overflow: hidden; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); text-overflow: ellipsis; white-space: nowrap; }
+  .mRowDesc > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .mRowDim .mRowTitle, .mRowDim .mRowDesc, .mRowDim .mRowIcon { color: var(--figma-color-text-tertiary); }
+  .mRowEnd { display: flex; flex: none; align-items: center; gap: var(--ds-space-1); }
+  .mCount { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); white-space: nowrap; }
+  .mDanger { color: var(--figma-color-text-danger); }
+  .mCheck { display: flex; align-items: center; min-height: var(--ds-size-row); padding: var(--ds-space-1) var(--ds-space-3); }
+  /* The manager's fields in a box: a row each, the label at the left, the field at most 240 wide */
+  .mBox > .field { min-height: var(--ds-space-10); padding: var(--ds-space-1) var(--ds-space-2) var(--ds-space-1) var(--ds-space-3); }
+  .mBox .fieldLabel { width: calc(var(--ds-space-16) * 2); }
+  .mBox .fieldValue { justify-content: flex-end; }
+  .mBox .fieldSelect { flex: 0 1 calc(var(--ds-space-16) * 4); }
+  /* Usage: the popover's cards, larger, two to a line */
+  .mUsage { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ds-space-3); }
+  .mUsageCard { gap: var(--ds-space-3); padding: var(--ds-space-3) var(--ds-space-4); }
+  .mUsageCard h3 { margin: 0; }
+  .mUsageCard p { margin: 0; }
+  .mUsageTokens { display: flex; flex-direction: column; gap: var(--ds-space-1); padding-top: var(--ds-space-2); border-top: 1px solid var(--figma-color-border); }
 }

@@ -179,25 +179,47 @@ describe("the Agents panel: one agent's work in view", () => {
     const modal = $("[data-agent-settings-modal]")!;
     expect(modal).not.toBeNull();
     expect($$("[data-settings-tab]").map((t) => t.getAttribute("data-settings-tab"))).toEqual(["agents", "manager", "skills", "connectors", "access", "usage"]);
-    // Agents and models: the agents' rows with their own marks; a row opens its page in place, Back to the section.
-    expect($('[data-provider="claude-code"] [data-agent-logo="claude-code"]')).not.toBeNull();
-    expect($('[data-provider="codex"] [data-agent-logo="codex"]')).not.toBeNull();
-    click($('[data-provider="codex"]')!);
+    // Agents and models: a title and its line, the agents in a box — each row its mark, state, model and effort;
+    // its chevron opens its page in place, the nav back to the section.
+    expect($("[data-settings-page]")?.getAttribute("data-settings-page")).toBe("agents");
+    expect($('[data-agent-settings] h2')?.textContent).toBe("Agents and models");
+    const agentsBox = $('[data-settings-box="agents"]')!;
+    expect($('[data-provider="claude-code"] [data-agent-logo="claude-code"]', agentsBox)).not.toBeNull();
+    expect($('[data-provider="codex"] [data-agent-logo="codex"]', agentsBox)).not.toBeNull();
+    expect($('[data-provider="claude-code"] [data-provider-state]', agentsBox)?.textContent).toBe("Connected");
+    expect($('[data-provider-model="claude-code"]', agentsBox)).not.toBeNull();
+    expect($('[data-settings-box="local"]')).not.toBeNull();
+    click($('[data-provider-details="codex"]')!);
     await settle();
     expect($("[data-settings-page]")?.getAttribute("data-settings-page")).toBe("provider:codex");
+    click($('[data-settings-tab="agents"]')!);
+    await settle();
+    expect($("[data-settings-page]")?.getAttribute("data-settings-page")).toBe("agents");
+    // Manager and Studio: the manager's options in boxes.
     click($('[data-settings-tab="manager"]')!);
     await settle();
     expect($("[data-agent-settings-modal]")?.getAttribute("data-settings-section")).toBe("manager");
-    expect($("[data-manager-agent]")).not.toBeNull();
+    expect($('[data-settings-box="manager"] [data-manager-agent]')).not.toBeNull();
+    expect($('[data-settings-box="manager-on"] [data-manager-on]')).not.toBeNull();
+    expect($('[data-settings-box="parallel"] [data-manager-parallel]')).not.toBeNull();
+    // Skills: the list in a box, New skill at the top right.
     click($('[data-settings-tab="skills"]')!);
     await settle();
     expect($("[data-settings-page]")?.getAttribute("data-settings-page")).toBe("skills");
+    expect($('[data-settings-box="skills"]')).not.toBeNull();
+    expect($("[data-new-skill]")).not.toBeNull();
+    // Connectors: the MCP server and the apps in a box.
     click($('[data-settings-tab="connectors"]')!);
     await settle();
-    expect($('[data-settings-row="mcp"]')).not.toBeNull();
+    expect($('[data-settings-box="apps"] [data-settings-row="mcp"]')).not.toBeNull();
+    click($('[data-settings-tab="access"]')!);
+    await settle();
+    expect($("[data-settings-page]")?.getAttribute("data-settings-page")).toBe("access");
+    // Usage: a card per connected agent, its tokens in this chat and today.
     click($('[data-settings-tab="usage"]')!);
     await settle();
-    expect($('[data-usage-agent="claude-code"]')).not.toBeNull();
+    expect($('[data-settings-box="usage"] [data-usage-agent="claude-code"]')).not.toBeNull();
+    expect($('[data-usage-agent="codex"] [data-usage-today]')).not.toBeNull();
     // The panel stays the chat under it.
     expect($("[data-agents]")?.getAttribute("data-view")).not.toBe("settings");
     expect($("[data-composer]")).not.toBeNull();
@@ -248,6 +270,71 @@ describe("the chats list and a chat's header", () => {
     expect($("[data-chat-title]", row)?.textContent).toBe("Make the mobile version");
     expect($("[data-chat-status]", row)?.textContent).toBe("Four designs are ready on the canvas.");
     expect($("[data-chat-time]", row)?.textContent).not.toBe("");
+    view.unmount();
+    engine.destroy();
+  });
+
+  it("the list's header is search, filter and the gear; search takes the title's place until Esc", async () => {
+    const { view, engine, emit } = await setup();
+    await sendText("Make the mobile version");
+    emit("T1", { type: "done" });
+    await settle();
+    // Inside a chat: back, its title and the gear — no list buttons, no +.
+    expect($("[data-tab-header] [data-chats-search-open]")).toBeNull();
+    expect($('[data-tab-header] button[aria-label="New chat"]')).toBeNull();
+    click($("[data-tab-header-back]")!);
+    await settle();
+    const header = $("[data-tab-header]")!;
+    const labels = $$("button", header).map((b) => b.getAttribute("aria-label"));
+    expect(labels).toEqual(["Search chats", "Filter chats", "Agent settings"]);
+    // No search row over the list any more.
+    expect($("[data-chats] [data-chats-search]")).toBeNull();
+    click($("[data-chats-search-open]")!);
+    await settle();
+    expect($("[data-tab-header] h2")).toBeNull();
+    const field = $("[data-tab-header] [data-chats-search] input") as HTMLInputElement;
+    expect(document.activeElement).toBe(field);
+    key(field, "Escape");
+    await settle();
+    expect($("[data-tab-header] h2")?.textContent).toBe("Agents");
+    expect($("[data-chats-search]")).toBeNull();
+    view.unmount();
+    engine.destroy();
+  });
+
+  it("a row has no delete button; its context menu renames it in place or deletes it", async () => {
+    const { view, engine, emit } = await setup();
+    await sendText("Make the mobile version");
+    emit("T1", { type: "done" });
+    await settle();
+    click($("[data-tab-header-back]")!);
+    await settle();
+    const row = $("[data-chat]")!;
+    expect($("button", row)?.getAttribute("aria-label")).toBeNull();
+    expect($$("[data-chat] button").length).toBe(1);
+    const menuOn = (el: Element) =>
+      act(() => {
+        el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 20, clientY: 20 }));
+      });
+    const items = () => $$('#ds-overlays [role^="menuitem"]');
+    menuOn(row);
+    expect(items().map((i) => i.textContent?.trim())).toEqual(["Rename", "Delete"]);
+    click(items()[0]);
+    await settle();
+    const input = $("[data-chat-rename]") as HTMLInputElement;
+    expect(input.value).toBe("Make the mobile version");
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "Login, mobile");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    key(input, "Enter");
+    await settle();
+    expect($("[data-chat-rename]")).toBeNull();
+    expect($("[data-chat] [data-chat-title]")?.textContent).toBe("Login, mobile");
+    menuOn($("[data-chat]")!);
+    click(items()[1]);
+    await settle();
+    expect($("[data-chat]")).toBeNull();
     view.unmount();
     engine.destroy();
   });

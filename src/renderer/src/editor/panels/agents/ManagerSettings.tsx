@@ -11,7 +11,8 @@ import { DEFAULT_MANAGER_NAME, IMAGE_TASKS_AT_ONCE, MANAGER_NAME_MAX, type Agent
 import { managerName } from "../../agents/managerName";
 import { modelLabel, type AgentSetupHost } from "../../agents/setup";
 import { imageRouteOptions, routeOfOption } from "../../agents/imageRoutes";
-import { Block, Field } from "./settingsParts";
+import type { ReactNode } from "react";
+import { Block, Field, SettingsBox } from "./settingsParts";
 import styles from "./Agents.module.css";
 import { t, useT } from "@/i18n";
 
@@ -69,7 +70,24 @@ function RouteFields({ label, route, providers, onChange, withEffort }: { label:
   );
 }
 
-export function ManagerPage({ service }: { service: AgentSetupHost }) {
+/** A part of the page: a Block on the panel's page, a box with its note under it in the modal (`boxed`). */
+function Part({ boxed, title, note, children, ...data }: { boxed?: boolean; title?: string; note?: string; children: ReactNode } & Record<`data-${string}`, string | undefined>) {
+  if (boxed)
+    return (
+      <SettingsBox label={title} note={note} {...data}>
+        {children}
+      </SettingsBox>
+    );
+  return (
+    <Block title={title} {...data}>
+      {children}
+      {note && <p className={styles.pageText}>{note}</p>}
+    </Block>
+  );
+}
+
+/** `boxed`: the Agent settings modal's look (boxed sections), else the panel page's blocks. */
+export function ManagerPage({ service, boxed }: { service: AgentSetupHost; boxed?: boolean }) {
   useT();
   const m = service.managerSettings();
   const providers = service.get().providers;
@@ -81,14 +99,13 @@ export function ManagerPage({ service }: { service: AgentSetupHost }) {
   if (m.image && !options.some((o) => o.id === imageValue)) images.push({ value: imageValue, label: m.image.model ?? m.image.providerId });
   const connected = providers.filter((p) => p.available);
   return (
-    <div className={styles.pageBody} data-manager-settings="">
-      <Block>
+    <div className={boxed ? styles.mPage : styles.pageBody} data-manager-settings="">
+      <Part boxed={boxed} note={t("The manager reads your message, finds the brand and products in the library, hands the work to other agents at the same time and reviews what lands on the canvas. Off, the chat talks to the agent you pick.")} data-settings-box="manager-on">
         <Field label={t("Manager")}>
           <Switch label={t("Manager")} checked={m.enabled} onChange={(enabled) => set({ enabled })} data-manager-on="" />
         </Field>
-        <p className={styles.pageText}>{t("The manager reads your message, finds the brand and products in the library, hands the work to other agents at the same time and reviews what lands on the canvas. Off, the chat talks to the agent you pick.")}</p>
-      </Block>
-      <Block title={t("Manager")}>
+      </Part>
+      <Part boxed={boxed} title={t("Manager")} data-settings-box="manager">
         {/* What the manager is called: its answers in the chat, its avatar and cursor in the file, "Following <name>" */}
         <Field label={t("Name")}>
           <TextInput
@@ -105,38 +122,43 @@ export function ManagerPage({ service }: { service: AgentSetupHost }) {
           />
         </Field>
         <RouteFields label={t("Agent")} route={m.manager} providers={providers} withEffort onChange={(manager) => set({ manager })} />
-      </Block>
-      <Block title={t("General work")}>
+      </Part>
+      <Part boxed={boxed} title={t("General work")} data-settings-box="general">
         <RouteFields label={t("General agent")} route={m.general} providers={providers} onChange={(general) => set({ general })} />
-      </Block>
-      <Block title={t("Images")}>
+      </Part>
+      <Part boxed={boxed} title={t("Images")} data-settings-box="images">
         <Field label={t("Image model")}>
           <Select label={t("Image model")} className={styles.fieldSelect} value={imageValue} options={images} onChange={(v) => set({ image: v === ASK ? null : routeOfOption(v) })} data-manager-image="" />
         </Field>
-      </Block>
-      <Block title={t("Agents it may use")}>
-        {connected.map((p) => (
-          <Checkbox
-            key={p.id}
-            label={p.label}
-            checked={!m.allowed.length || m.allowed.includes(p.id)}
-            onChange={(on) => {
-              const now = m.allowed.length ? m.allowed : connected.map((x) => x.id);
-              const next = on ? [...new Set([...now, p.id])] : now.filter((id) => id !== p.id);
-              // Every connected one checked is the same as none: all of them.
-              set({ allowed: connected.every((x) => next.includes(x.id)) ? [] : next });
-            }}
-            data-manager-allowed={p.id}
-          />
-        ))}
-        {!connected.length && <p className={styles.pageText}>{t("No agent is connected.")}</p>}
-      </Block>
-      <Block title={t("At once")}>
+      </Part>
+      {connected.length > 0 ? (
+        <Part boxed={boxed} title={t("Agents it may use")} data-settings-box="allowed">
+          {connected.map((p) => (
+            <div key={p.id} className={styles.mCheck}>
+              <Checkbox
+                label={p.label}
+                checked={!m.allowed.length || m.allowed.includes(p.id)}
+                onChange={(on) => {
+                  const now = m.allowed.length ? m.allowed : connected.map((x) => x.id);
+                  const next = on ? [...new Set([...now, p.id])] : now.filter((id) => id !== p.id);
+                  // Every connected one checked is the same as none: all of them.
+                  set({ allowed: connected.every((x) => next.includes(x.id)) ? [] : next });
+                }}
+                data-manager-allowed={p.id}
+              />
+            </div>
+          ))}
+        </Part>
+      ) : (
+        <Part boxed={boxed} title={t("Agents it may use")} data-settings-box="allowed">
+          <p className={styles.mEmpty}>{t("No agent is connected.")}</p>
+        </Part>
+      )}
+      <Part boxed={boxed} title={t("At once")} note={t("Agent tasks running together (each is its own process). Pictures run up to {n} at once.", { n: IMAGE_TASKS_AT_ONCE })} data-settings-box="parallel">
         <Field label={t("Tasks at once")}>
           <Select label={t("Tasks at once")} className={styles.fieldSelect} value={String(m.parallel)} options={[1, 2, 3, 4].map((n) => ({ value: String(n), label: String(n) }))} onChange={(v) => set({ parallel: Number(v) })} data-manager-parallel="" />
         </Field>
-        <p className={styles.pageText}>{t("Agent tasks running together (each is its own process). Pictures run up to {n} at once.", { n: IMAGE_TASKS_AT_ONCE })}</p>
-      </Block>
+      </Part>
     </div>
   );
 }
