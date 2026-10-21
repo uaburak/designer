@@ -602,6 +602,41 @@ Agents add sound to motion — while making it, or alone for an existing animati
 - **Skill `sound-design`** (`src/shared/agents/soundSkill.ts`), always listed beside `motion-design` (both in `BUILT_IN_SKILLS`, `src/main/agents/host.ts`); motion-design and the system prompt make sound part of making motion unless the user asks for none. Panel labels: "Making sound…" / "Made sound", "Reading the animation's beats…" / "Read the animation's beats", "Listening to the mix…" / "Listened to the mix" (Turkish in `tr/tools.ts`).
 - **No paid service by default.** Phase 2 (not built): an optional ElevenLabs Sound Effects key beside the image keys (`AiSettings.imageKeys` pattern, safeStorage), off by default, the local synth as the fallback.
 
+### 8.5 As built — agent parity: the app beyond the canvas, Skills for agents (2026-10-21; [ours])
+
+The owner: agents must be able to do and see what he can in the app (not Operator's), e.g. "find yourself a UX skill and add it". The audit, capability by capability, with what is still missing and why: `docs/research/agent-parity.md`.
+
+- **Definitions:** `src/shared/agents/appTools.ts` (`SKILL_TOOLS`, `APP_TOOLS`, `confirmationFor`), spread into `TOOLS`. Every session lists them, outside clients too. Reach's `find_skills` / `read_skill` (capability Web) are in `reach.ts`.
+- **Skills** (main: `src/main/agents/skills.ts`; the store's `ai.skills / saveSkill / removeSkill`, as Agent settings › Skills uses):
+  - `list_skills` lists the person's skills and the built-ins.
+  - `create_skill` takes fields or a whole SKILL.md.
+  - `update_skill` renames, edits, or turns a skill on / off.
+  - `remove_skill` deletes one. Built-ins can't be changed.
+  - `install_skill {url | repo + path}` reads the source through reach's gate (`ReachHub.call` with a per-call runner: policy, Ask card, budget, time limit, access log):
+    - Web: `reach/skillWeb.ts` turns GitHub pages into raw files; every hop gets reachNet's rules plus a public-DNS check, redirects are re-checked, the cap is 256 KB, HTML is refused.
+    - GitHub: `GithubAccess.readSkillText`, repositories the person picked only.
+  - `find_skills` lists SKILL.md skills of a public repository (default `anthropics/skills`), ranked by the query.
+  - Every change waits for the chat's **confirmation card**, which shows the exact name, description, source and instructions. Only the text is kept, and nothing is run; the card notes when the text mentions scripts or commands.
+  - The Agents panel reads the list again when a Skills write finishes (`service.ts`, `skillsBox.refresh`), so the new skill shows and goes with the next message.
+- **App tools** (the view: `src/renderer/src/editor/agents/appTools.ts`, through the same code as the UI):
+  - comments: `get_comments`, `add_comment` (pinned on a layer's top-level frame with its offset, or a page point), `reply_comment`, `edit_comment`, `resolve_comment` (and reactions), `delete_comment`;
+  - versions: `list_versions`, `save_version`, `restore_version` (one undoable "Restore version" step, or `duplicate`);
+  - `export_nodes`: PNG / JPG / SVG / PDF at a scale, or the layer's own settings, as files in the agent's working folder;
+  - libraries: `get_libraries`, `set_library_enabled`, `accept_library_updates`, `insert_library_component`, `publish_library`;
+  - Home: `list_files`, `create_file`, `file_action` (rename, duplicate, move, star, folders, branch, open, trash, restore; never delete forever or empty the trash);
+  - `share_file`: invite, link access, people;
+  - `set_dev_status`: ready for dev / completed / remove, with a description, reported like the menu;
+  - plugins: `list_plugins`, `run_plugin`;
+  - settings: `get_app_settings` / `set_app_setting` (language, theme, mode, Preferences, nudge, view and presentation options). Access, keys, providers, connectors, sessions, tokens and Operator settings are refused by name.
+- **set_prototype_settings** takes the website behaviours: `prototypeTextInput`, `prototypeCursor`, `overlayEdgeBehavior`, `overlayStack`, `overlayFitWindow`. They are validated, `null` clears one, and `get_prototype` reads them back.
+- **Confirmation** (main, `host.ts` `runAnyTool`, before the call reaches the view): `ConnectorConsent.confirm` → the panel's `ConfirmCard` ("Agent wants to ‹action›", the target, a preview, Allow / Deny, never remembered; Turkish in `tr/access.ts`).
+  - Confirmed actions: trash; restore a version; publish a library; share / invite / link access; delete a comment; a comment that @mentions people; run a plugin; every Skills change.
+  - An outside MCP client has no chat, so it is refused these.
+- **Prompt:** `SYSTEM_PROMPT` lists the whole surface, the skill-install recipe and the confirmation rule. The panel's step labels are in `activity.ts` / `service.ts`, Turkish in `tr/tools.ts`.
+- **Tests:**
+  - `src/main/agents/skills.test.ts`: tool lists; the MCP server's list; confirmation rules; URL conversion; SSRF and redirect refusals; `find_skills` with GitHub mocked; install through Ask → card → saved and listed; denied card or read; Web off; outside client; unpicked repository; replace; validation; create / update / remove.
+  - `src/renderer/src/editor/__tests__/agentsApp.wasm.test.ts`: comments, versions with restore and undo, SVG / PDF export, Home, share, dev status, plugins, settings and their refusals, website behaviours.
+
 ## 9. Ownership, merge order — see `docs/roadmap.md` "Round 6"
 
 ## 10. Open questions for the owner

@@ -197,8 +197,8 @@ export const APP_TOOLS: ToolDef[] = [
     name: "file_action",
     title: "File action",
     description:
-      'A file or folder action of Home\'s menus: rename {fileKey, name}, duplicate {fileKey}, move {fileKeys, folderId (null: Drafts)}, star / unstar {fileKey | folderId}, create_folder {name, parentId?, color?}, rename_folder {folderId, name}, open {fileKey}, trash {fileKeys, folderIds} (confirmed by the owner first), restore {fileKeys, folderIds} (from the trash). Deleting forever and emptying the trash stay the owner\'s.',
-    inputSchema: { type: "object", properties: { action: { enum: ["rename", "duplicate", "move", "star", "unstar", "create_folder", "rename_folder", "open", "trash", "restore"] }, fileKey, fileKeys: strs, folderId: { type: ["string", "null"] }, folderIds: strs, name: str, parentId: str, color: str }, required: ["action"] },
+      'A file or folder action of Home\'s menus: rename {fileKey, name}, duplicate {fileKey}, move {fileKeys, folderId (null: Drafts)}, star / unstar {fileKey | folderId}, create_folder {name, parentId?, color?}, rename_folder {folderId, name}, branch {name} (File › Create branch… of this file), open {fileKey}, trash {fileKeys, folderIds} (confirmed by the owner first), restore {fileKeys, folderIds} (from the trash). Deleting forever and emptying the trash stay the owner\'s.',
+    inputSchema: { type: "object", properties: { action: { enum: ["rename", "duplicate", "move", "star", "unstar", "create_folder", "rename_folder", "branch", "open", "trash", "restore"] }, fileKey, fileKeys: strs, folderId: { type: ["string", "null"] }, folderIds: strs, name: str, parentId: str, color: str }, required: ["action"] },
     write: false,
   },
   {

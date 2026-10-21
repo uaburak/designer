@@ -386,6 +386,14 @@ async function filesTool(env: ToolEnv, name: string, args: Spec, s: AppServices)
       const f = await ws.updateFolder(str(args.folderId, "folderId", 200), { name: str(args.name, "name", 200).trim() });
       return textResult({ renamed: { folderId: f.id, name: f.name } });
     }
+    case "branch": {
+      // File › Create branch… (docs/data.md §15): a copy named "<file> / <branch>".
+      const ops = (env.ed.source as { fileOps?: { branch(name: string): Promise<{ fileKey: string; name: string }> } }).fileOps;
+      if (!ops) throw new ToolError("Branches need a file of the workspace.");
+      await env.ed.source.flush();
+      const b = await ops.branch(str(args.name, "name", 200).trim());
+      return textResult({ branch: { fileKey: b.fileKey, name: b.name }, note: "Open it with file_action open; merging stays a review in the app (File › Review and merge)." });
+    }
     case "open": {
       const k = str(args.fileKey, "fileKey", 200);
       await s.openFile(k);
@@ -404,7 +412,7 @@ async function filesTool(env: ToolEnv, name: string, args: Spec, s: AppServices)
     case "empty_trash":
       throw new ToolError("Deleting forever and emptying the trash stay the owner's: ask them to do it in Home › Trash.");
   }
-  throw new ToolError("action: rename, duplicate, move, star, unstar, create_folder, rename_folder, open, trash or restore.");
+  throw new ToolError("action: rename, duplicate, move, star, unstar, create_folder, rename_folder, branch, open, trash or restore.");
 }
 
 async function shareTool(env: ToolEnv, args: Spec, s: AppServices): Promise<ToolResult> {

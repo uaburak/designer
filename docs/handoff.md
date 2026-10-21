@@ -2,6 +2,35 @@
 
 First written 2026-10-06 when the first Claude session stopped and the owner moved the work to another Claude account through GitHub (`https://github.com/uaburak/designer`). Updated the same day by the second session, which finished every workstream's partial items and ran the integration round. Read `AGENTS.md`, `docs/architecture.md` and `docs/roadmap.md` first; the contracts in `docs/` decide everything; `docs/research/` holds the verified facts about Figma (with sources).
 
+## Status 2026-10-21 (late night) — agent parity: agents reach the whole app (not Operator's), and add Skills to themselves (committed on its branch, not merged)
+
+- **The owner's question:** "Can the agent do everything I can? E.g. 'find yourself a UX skill and add it'."
+  - The audit: `docs/research/agent-parity.md`, capability by capability (covered / added / still missing and why).
+  - As built: `docs/ai.md` §8.5.
+- **Skills for agents** (main, `src/main/agents/skills.ts`):
+  - `list_skills`, `create_skill`, `update_skill`, `remove_skill`, `install_skill {url | repo + path}`.
+  - Reach (Web): `find_skills` (SKILL.md skills on GitHub, default `anthropics/skills`) and `read_skill`.
+  - The source is read through reach's gate (policy, Ask card, log). Every change waits for a new **confirmation card** in the chat that shows the skill's text.
+  - Only the text is installed, and the skill shows in Agents › Skills.
+- **App tools** (the view, `editor/agents/appTools.ts`):
+  - comments, version history (restore = one undo step), `export_nodes` (files in the agent's folder);
+  - libraries (enable, accept updates, insert, publish), Home (files, folders, branch, trash / restore — never delete forever);
+  - share, dev status, plugins, settings (`set_app_setting`; Access, keys and Operator refused).
+  - `set_prototype_settings` now takes the website-behaviour fields.
+  - Destructive or outward ones are confirmed in main (`confirmationFor`); outside MCP clients are refused them.
+- **Tests:** `src/main/agents/skills.test.ts` (12), `editor/__tests__/agentsApp.wasm.test.ts` (9). Main / shared / agents / prototype suites pass, and typecheck passes. No C++ change, so no wasm rebuild.
+- **Not verified in the built app:**
+  - an Agents chat installing a skill from anthropics/skills with Access › Web on (network not exercised; GitHub mocked in tests);
+  - the confirmation card's look;
+  - PNG export through the tool (happy-dom has no canvas; SVG / PDF tested).
+- **Left:** see agent-parity.md §4:
+  - Code Connect / dev resource writes;
+  - branch merge review;
+  - swap library;
+  - team and project administration;
+  - Brands deletes;
+  - a live Skills broadcast to other views.
+
 ## Status 2026-10-21 (night, after 1.5.0) — ghost people in the facepile: presence now expires (committed on its branch, not merged; server not deployed)
 
 - The owner's "Wecra -new" showed 7 people, all himself. Cause and fix: `docs/multiplayer.md` §4.1 — members never expired (a killed app / half-open socket leaves no close), no heartbeat, a reconnect joined next to its own half-open socket, and the store closed its room sockets late on quit (after AI/analytics sends; main kills it after 1 s) and not at all on SIGINT/SIGTERM.
