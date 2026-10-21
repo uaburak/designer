@@ -27,7 +27,7 @@ export const SKILL_TOOLS: ToolDef[] = [
     name: "list_skills",
     title: "List skills",
     description:
-      "The owner's Skills (Agents › Skills — reusable instructions agents follow): id, name, description, enabled, size, plus Wecra's built-in ones. get_skill {name} reads one's instructions.",
+      "The owner's Skills (Agents › Skills — reusable instructions agents follow): id, name, description, enabled, size — Wecra's default skills among them (default: true; changed: true when the owner edited one) — plus the built-in ones of agents' reach. get_skill {name} reads one's instructions.",
     inputSchema: { type: "object", properties: {} },
     write: false,
   },
@@ -42,15 +42,15 @@ export const SKILL_TOOLS: ToolDef[] = [
   {
     name: "update_skill",
     title: "Update skill",
-    description: "Changes one of the owner's Skills (by id or name): name, description, instructions, enabled (turn it on / off). The owner confirms the change in the chat first.",
+    description: "Changes one of the owner's Skills (by id or name): name, description, instructions, enabled (turn it on / off). A default skill keeps its name; changing its text saves the owner's own copy, which replaces Wecra's version until remove_skill {reset: true}. The owner confirms the change in the chat first.",
     inputSchema: { type: "object", properties: { id: str, name: str, newName: str, description: str, instructions: str, enabled: { type: "boolean" } } },
     write: false,
   },
   {
     name: "remove_skill",
     title: "Remove skill",
-    description: "Deletes one of the owner's Skills (by id or name). The owner confirms it in the chat first. Built-in skills can't be removed.",
-    inputSchema: { type: "object", properties: { id: str, name: str } },
+    description: "Deletes one of the owner's Skills (by id or name). A default skill isn't deleted: it is turned off (update_skill {enabled: true} turns it on again); `reset: true` on a default the owner changed drops his copy and brings Wecra's version back (Reset to default). The owner confirms it in the chat first. Built-in skills can't be removed.",
+    inputSchema: { type: "object", properties: { id: str, name: str, reset: { type: "boolean" } } },
     write: false,
   },
   {

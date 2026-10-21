@@ -16,7 +16,7 @@
  * No Node or DOM imports: the desktop store (files under `Workspace/spaces/ai/`) and the browser's dev store (keys)
  * both run it through `AiStoreHost`.
  */
-import { type AiAction, type AiBalance, type AiRepository, type AiSkill, type AiUsageEntry } from "../../shared/ai/types";
+import { SKILL_LIMITS, SKILL_NAME_RE, type AiAction, type AiBalance, type AiRepository, type AiSkill, type AiUsageEntry } from "../../shared/ai/types";
 import { parseSkillFile, skillFileText, skillProblem } from "../../shared/ai/skillFile";
 import { AI_REPORT_KEEP_DAYS, AI_REPORT_MAX_ROWS, type AiUsageReportRow } from "../../shared/ai/usageReport";
 import { StoreError } from "../../shared/store/protocol";
@@ -144,6 +144,12 @@ interface SkillMeta {
   updatedAt: number;
 }
 const SKILL_ID = /^[A-Za-z0-9_-]{1,64}$/;
+/** skills.json: the index, and the default skills the owner turned off (by name) */
+interface SkillIndexFile {
+  v: 1;
+  skills: Record<string, SkillMeta>;
+  defaultsOff: string[];
+}
 
 export class AiService {
   private queue = new SerialQueue();
@@ -230,9 +236,22 @@ export class AiService {
 
   // ---- skills ----
 
+  private async skillFile(): Promise<SkillIndexFile> {
+    const raw = await this.readJson<Partial<SkillIndexFile>>("skills.json");
+    const skills = raw?.v === 1 && raw.skills && typeof raw.skills === "object" ? raw.skills : {};
+    const defaultsOff = raw?.v === 1 && Array.isArray(raw.defaultsOff) ? raw.defaultsOff.filter((n): n is string => typeof n === "string" && SKILL_NAME_RE.test(n)) : [];
+    return { v: 1, skills, defaultsOff };
+  }
+
   private async skillIndex(): Promise<Record<string, SkillMeta>> {
-    const raw = await this.readJson<{ v?: number; skills?: Record<string, SkillMeta> }>("skills.json");
-    return raw?.v === 1 && raw.skills && typeof raw.skills === "object" ? raw.skills : {};
+    return (await this.skillFile()).skills;
+  }
+
+  /** skills.json with a changed index, the defaults turned off kept. */
+  private async writeSkillIndex(skills: Record<string, SkillMeta>, defaultsOff?: string[]): Promise<void> {
+    const file = await this.skillFile();
+    const off = defaultsOff ?? file.defaultsOff;
+    await this.host.write("skills.json", JSON.stringify({ v: 1, skills, ...(off.length ? { defaultsOff: off } : {}) }));
   }
 
   private async allSkills(): Promise<AiSkill[]> {
@@ -276,7 +295,7 @@ export class AiService {
       await this.host.write(`skills/${id}.md`, skillFileText(skill));
       const index = await this.skillIndex();
       index[id] = { enabled: skill.enabled, createdAt: skill.createdAt, updatedAt: skill.updatedAt };
-      await this.host.write("skills.json", JSON.stringify({ v: 1, skills: index }));
+      await this.writeSkillIndex(index);
       return skill;
     });
   }
@@ -288,8 +307,23 @@ export class AiService {
       const index = await this.skillIndex();
       if (index[id]) {
         delete index[id];
-        await this.host.write("skills.json", JSON.stringify({ v: 1, skills: index }));
+        await this.writeSkillIndex(index);
       }
+    });
+  }
+
+  /** The default skills turned off (docs/ai.md §8.6), kept in skills.json beside the index. */
+  defaultSkillsOff(): Promise<string[]> {
+    return this.queue.run(async () => (await this.skillFile()).defaultsOff);
+  }
+
+  async setDefaultSkillOn(name: string, on: boolean): Promise<string[]> {
+    if (typeof name !== "string" || !SKILL_NAME_RE.test(name) || name.length > SKILL_LIMITS.name) throw new StoreError("invalid", "ai.setDefaultSkillOn: bad name");
+    return this.queue.run(async () => {
+      const file = await this.skillFile();
+      const off = on ? file.defaultsOff.filter((n) => n !== name) : [...new Set([...file.defaultsOff, name])].sort();
+      await this.writeSkillIndex(file.skills, off);
+      return off;
     });
   }
 
@@ -407,6 +441,8 @@ export class AiService {
       skills: () => this.skills(),
       saveSkill: (s) => this.saveSkill(s),
       removeSkill: (id) => this.removeSkill(id),
+      defaultSkillsOff: () => this.defaultSkillsOff(),
+      setDefaultSkillOn: (name, on) => this.setDefaultSkillOn(name, on),
     };
   }
 

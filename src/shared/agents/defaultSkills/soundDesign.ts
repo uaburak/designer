@@ -1,11 +1,13 @@
+import type { DefaultSkill } from "./types";
+
 /**
- * The built-in **sound-design** skill (docs/motion.md §9.3; [ours]): how an agent scores a motion piece with Wecra's
+ * The default **sound-design** skill (docs/motion.md §9.3; [ours]): how an agent scores a motion piece with Wecra's
  * local sound engine — read the motion (score_motion) → pick a palette → place sounds on its events (generate_sound) →
- * check the mix by numbers (get_sound_mix) → fix. Listed with every chat turn's skills beside motion-design and
- * answered by `get_skill` in main (src/main/agents/host.ts).
+ * check the mix by numbers (get_sound_mix) → fix. One of Wecra's default skills (index.ts), called by motion-opus once the motion
+ * is final.
  */
 
-export const SOUND_SKILL = {
+export const SOUND_SKILL: DefaultSkill = {
   name: "sound-design",
   description: "Score an animation with sound in Wecra's Motion — sound effects synced to the motion and a music bed, made locally (generate_sound), placed on the motion's events (score_motion), checked by numbers (get_sound_mix). Use it when making motion (unless the user doesn't want sound) and for \"add sound to this animation\".",
   instructions: `Score motion the way a sound designer does. You can't listen, so you work from the motion's events and the mix's numbers.
@@ -35,4 +37,4 @@ export const SOUND_SKILL = {
 6. Report in a sentence what you added (bed, families, the key moments) and that the clips are editable in the timeline (move, trim, volume, delete). Exported MP4 / WebM carry the sound; GIF and Lottie don't (Lottie has no audio).
 
 Variations: change seed for a fresh take of the same sound; brightness for darker / brighter, intensity for softer / punchier. Sound for an existing animation ("add sound to this"): same steps, keep the motion as it is. When the user asks for no music or no sound, respect it.`,
-} as const;
+};

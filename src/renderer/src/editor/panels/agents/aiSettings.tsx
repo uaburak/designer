@@ -1,15 +1,17 @@
 /**
  * Agent settings' Skills and Connectors (docs/ai.md §2.10–2.11): the list's two groups, and their pages — a skill's
- * editor (Name = its slash command, Description, Instructions; Upload a file, Export, Disable skill, Delete) and a
+ * editor (Name = its slash command, Description, Instructions; Upload a file, Export, Disable skill, Delete — for
+ * Wecra's default skills, docs/ai.md §8.6: a "Default" badge, saving keeps the owner's copy, Reset to default) and a
  * connector's (its state, Test connection, on/off, each tool's policy Allow / Ask / Off, Remove). Skills are the
  * store's (6g), connectors main's. No editor or engine import (Home's Settings › Agents shows these too).
  */
 import { useRef, useState, type ReactNode } from "react";
-import { Button, Select, Spinner, Switch, TextInput, showToast } from "@/ds";
+import { Badge, Button, Select, Spinner, Switch, TextInput, showToast } from "@/ds";
 import { SKILL_LIMITS, type AiSkill, type Connector, type ConnectorToolPolicy } from "@shared/ai/types";
 import { parseSkillFile, skillFileText, skillNameOf, skillProblem, type SkillDraft } from "@shared/ai/skillFile";
+import { defaultSkillId, type SkillEntry } from "@shared/agents/defaultSkills";
 import type { AgentSetupHost } from "../../agents/setup";
-import { changeConnectors, removeSkill, saveSkill, signInConnector, testConnector, useConnectors, useSkills } from "./aiData";
+import { changeConnectors, removeSkill, resetSkill, saveSkill, setDefaultSkillOn, signInConnector, testConnector, useConnectors, useSkills } from "./aiData";
 import { Block, Field, Group, Row, errorText } from "./settingsParts";
 import styles from "./Agents.module.css";
 import { t, useT } from "@/i18n";
@@ -32,7 +34,17 @@ export function SkillsGroup({ service }: { service: AgentSetupHost }) {
       {loading && <div className={styles.rowNote}><Spinner size={16} /> {t("Reading skills…")}</div>}
       {error && <div className={styles.rowNote} data-skills-error="">{error}</div>}
       {list.map((s) => (
-        <Row key={s.id} icon="24.agents" label={`/${s.name}`} status={s.enabled ? t("On") : t("Off")} on={s.enabled} dim={!s.enabled} onClick={() => service.openSetting(`skill:${s.id}`)} data-skill={s.name} />
+        <Row
+          key={s.id}
+          icon="24.agents"
+          label={`/${s.name}`}
+          badge={s.origin && <Badge className={styles.rowBadge} data-skill-default={s.origin}>{s.origin === "override" ? t("Default · edited") : t("Default")}</Badge>}
+          status={s.enabled ? t("On") : t("Off")}
+          on={s.enabled}
+          dim={!s.enabled}
+          onClick={() => service.openSetting(`skill:${s.id}`)}
+          data-skill={s.name}
+        />
       ))}
       {!error && <Row icon="24.plus" label={t("Add skill")} onClick={() => service.openSetting("add-skill")} data-settings-row="add-skill" />}
     </Group>
@@ -82,7 +94,7 @@ function SkillPage({ service, id }: { service: AgentSetupHost; id?: string }) {
   return <SkillEditor key={skill?.id ?? "new"} service={service} skill={skill} />;
 }
 
-function SkillEditor({ service, skill }: { service: AgentSetupHost; skill?: AiSkill }) {
+function SkillEditor({ service, skill }: { service: AgentSetupHost; skill?: SkillEntry }) {
   useT();
   const [draft, setDraft] = useState<SkillDraft>(skill ? { name: skill.name, description: skill.description, instructions: skill.instructions } : { name: "", description: "", instructions: "" });
   const [problem, setProblem] = useState<string | null>(null);
@@ -95,13 +107,26 @@ function SkillEditor({ service, skill }: { service: AgentSetupHost; skill?: AiSk
     setProblem(null);
     setDraft(parsed);
   };
+  // A default as shipped: saving makes the owner's copy (same name, no id yet); on / off alone is kept apart.
+  const shipped = skill?.origin === "default";
+  const run = async (job: () => Promise<void>) => {
+    setBusy(true);
+    try {
+      await job();
+    } catch (err) {
+      setProblem(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const toggle = () => (skill?.origin === "default" ? run(() => setDefaultSkillOn(skill.name, !skill.enabled)) : save({ enabled: !skill?.enabled }));
   const save = async (patch: Partial<AiSkill> = {}) => {
-    const clean = { ...draft, name: skillNameOf(draft.name) };
+    const clean = { ...draft, name: skill?.origin ? skill.name : skillNameOf(draft.name) };
     const p = skillProblem(clean);
     if (p) return setProblem(p);
     setBusy(true);
     try {
-      const saved = await saveSkill({ ...(skill ? { id: skill.id } : {}), ...clean, enabled: patch.enabled ?? skill?.enabled ?? true });
+      const saved = await saveSkill({ ...(skill && !shipped ? { id: skill.id } : {}), ...clean, enabled: patch.enabled ?? skill?.enabled ?? true });
       showToast({ message: skill ? t("Skill saved") : t("Skill added — type /{name} in a message to use it", { name: saved.name }) });
       service.openSetting(`skill:${saved.id}`);
     } catch (err) {
@@ -123,8 +148,17 @@ function SkillEditor({ service, skill }: { service: AgentSetupHost; skill?: AiSk
           </div>
         </Block>
       )}
+      {skill?.origin && (
+        <Block data-skill-origin={skill.origin}>
+          <p className={styles.pageText}>
+            {skill.origin === "default"
+              ? t("A default skill that comes with Wecra. Your changes are saved as your own copy; Reset to default brings back Wecra’s version.")
+              : t("You changed this default skill. Reset to default brings back Wecra’s version.")}
+          </p>
+        </Block>
+      )}
       <Block title={skill ? undefined : t("Start from scratch")}>
-        <TextInput label={t("Name")} placeholder="brand-voice" value={draft.name} maxLength={SKILL_LIMITS.name} onChange={(v) => setDraft({ ...draft, name: v.toLowerCase().replace(/[^a-z0-9-]+/g, "-") })} data-skill-name="" />
+        <TextInput label={t("Name")} placeholder="brand-voice" value={draft.name} maxLength={SKILL_LIMITS.name} disabled={!!skill?.origin} onChange={(v) => setDraft({ ...draft, name: v.toLowerCase().replace(/[^a-z0-9-]+/g, "-") })} data-skill-name="" />
         <TextInput label={t("Description")} placeholder={t("When to use it")} value={draft.description} maxLength={SKILL_LIMITS.description} onChange={(v) => setDraft({ ...draft, description: v })} data-skill-description="" />
         <textarea className={styles.textArea} aria-label={t("Instructions")} placeholder={t("Instructions")} value={draft.instructions} rows={8} onChange={(e) => setDraft({ ...draft, instructions: e.target.value })} onKeyDown={(e) => e.stopPropagation()} data-skill-instructions="" />
         {problem && <div className={styles.attachProblem} role="alert">{problem}</div>}
@@ -135,24 +169,42 @@ function SkillEditor({ service, skill }: { service: AgentSetupHost; skill?: AiSk
           {skill && (
             <>
               <Button variant="secondary" onClick={() => download(`${skill.name}.md`, skillFileText(draft))}>{t("Export")}</Button>
-              <Button variant="secondary" disabled={busy} onClick={() => void save({ enabled: !skill.enabled })} data-skill-toggle="">
+              <Button variant="secondary" disabled={busy} onClick={() => void toggle()} data-skill-toggle="">
                 {skill.enabled ? t("Disable skill") : t("Enable skill")}
               </Button>
-              <Button
-                variant="secondary"
-                disabled={busy}
-                onClick={async () => {
-                  try {
-                    await removeSkill(skill.id);
-                    service.openSetting(null);
-                  } catch (err) {
-                    setProblem(errorText(err));
+              {skill.origin === "override" && (
+                <Button
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() =>
+                    void run(async () => {
+                      await resetSkill(skill);
+                      showToast({ message: t("Skill reset to default") });
+                      service.openSetting(`skill:${defaultSkillId(skill.name)}`);
+                    })
                   }
-                }}
-                data-skill-delete=""
-              >
-                {t("Delete")}
-              </Button>
+                  data-skill-reset=""
+                >
+                  {t("Reset to default")}
+                </Button>
+              )}
+              {!skill.origin && (
+                <Button
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={async () => {
+                    try {
+                      await removeSkill(skill.id);
+                      service.openSetting(null);
+                    } catch (err) {
+                      setProblem(errorText(err));
+                    }
+                  }}
+                  data-skill-delete=""
+                >
+                  {t("Delete")}
+                </Button>
+              )}
             </>
           )}
         </div>

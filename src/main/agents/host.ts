@@ -22,15 +22,12 @@ import { appsRunner, openScreenSettings as openScreenPrefs, screenPermission } f
 import { mainFetch } from "../net";
 import { grantProblem, isDeniedPath } from "./reach/paths";
 import { REACH_NOTE, REACH_SKILLS, isReachPolicy, isRepoName, type AccessLogEntry, type ReachCapability, type ReachPatch, type ReachView } from "../../shared/agents/reach";
-import { MOTION_SKILL } from "../../shared/agents/motionSkill";
+import { defaultSkillFor, skillToAnswer, withDefaults, type SkillEntry } from "../../shared/agents/defaultSkills";
 import { SKILL_TOOL_NAMES, confirmationFor, type ConfirmRequest } from "../../shared/agents/appTools";
 import { runSkillTool, skillSourceVia } from "./skills";
 import { fetchSkill, skillWebRunner, SKILL_WEB_TOOLS, type SkillWebDeps } from "./reach/skillWeb";
 import { lookup } from "node:dns/promises";
-import { SOUND_SKILL } from "../../shared/agents/soundSkill";
 
-/** Wecra's built-in skills (motion-design, sound-design): always listed; the owner's own skill of the same name wins. */
-const BUILT_IN_SKILLS = [MOTION_SKILL, SOUND_SKILL] as const;
 import { normalizeAllowedHost } from "../../shared/agents/reachNet";
 import { aiSettings } from "../ai/settings";
 import { ledgerBalance } from "../ai/ledger";
@@ -275,7 +272,7 @@ async function confirmInChat(t: Turn | undefined, tool: string, req: ConfirmRequ
 function skillDeps(t: Turn | undefined, fileKey: string, client: string, tool: string) {
   return {
     repo: async () => (await readyStore()).ai,
-    builtIns: [...BUILT_IN_SKILLS, ...REACH_SKILLS].map((k) => ({ name: k.name, description: k.description })),
+    builtIns: REACH_SKILLS.map((k) => ({ name: k.name, description: k.description })),
     confirm: (req: ConfirmRequest) => confirmInChat(t, tool, req),
     readSource: skillSourceVia(reachHub(), t ? { turnId: t.id, chatId: t.chatId, fileKey, agent: client } : null, { web: (url, ctx) => fetchSkill(url, ctx, skillWebDeps), github: (args, ctx) => github().readSkillText(args, ctx) }),
   };
@@ -300,19 +297,25 @@ async function getSkill(name: string): Promise<ToolResult> {
     const on = await reachHub().on();
     if (builtIn.capabilities.some((c) => on.includes(c))) return textResult(`<skill name="${builtIn.name}">\n${builtIn.instructions}\n</skill>`);
   }
-  // The built-in skills (docs/research/motion-for-agents.md §3e, docs/motion.md §9.3): the owner's own skill of that name wins.
-  const builtInSkill = BUILT_IN_SKILLS.find((k) => k.name === wanted);
-  const answerBuiltIn = () => textResult(`<skill name="${builtInSkill!.name}">\n${builtInSkill!.instructions}\n</skill>`);
+  // The owner's skills with Wecra's defaults (docs/ai.md §8.6): his own skill or his copy of a default wins; a default
+  // he turned off isn't answered; an old name (motion-design) answers with the default that took it in.
+  const answer = (s: { name: string; instructions: string }) => textResult(`<skill name="${s.name}">\n${s.instructions}\n</skill>`);
   try {
-    const skills = await (await readyStore()).ai.skills();
-    const s = skills.find((k) => k.enabled && k.name === wanted);
-    if (!s && builtInSkill) return answerBuiltIn();
+    const s = skillToAnswer(wanted, await skillsWithDefaults());
     if (!s) return textResult(`No enabled Skill is named “${wanted}”. The Skills you can use are listed with the message.`, true);
-    return textResult(`<skill name="${s.name}">\n${s.instructions}\n</skill>`);
+    return answer(s);
   } catch (err) {
-    if (builtInSkill) return answerBuiltIn();
+    const d = defaultSkillFor(wanted);
+    if (d) return answer(d);
     return textResult(`Skills aren't available: ${err instanceof Error ? err.message : String(err)}`, true);
   }
+}
+
+/** The store's skills with Wecra's default skills merged in (the defaults the owner turned off, off). */
+async function skillsWithDefaults(): Promise<SkillEntry[]> {
+  const ai = (await readyStore()).ai;
+  const [own, off] = await Promise.all([ai.skills(), ai.defaultSkillsOff().catch(() => [] as string[])]);
+  return withDefaults(own, off);
 }
 
 // ── Connectors (docs/ai.md §2.11): userData/agents/connectors.json, keys sealed in keys.json as "connector:<id>" ──
@@ -719,8 +722,10 @@ export function startTurn(sender: WebContents, fileKey: string, req: TurnRequest
       request.prompt = `${REACH_NOTE}\n\n${request.prompt}`;
       request.skills = [...(request.skills ?? []), ...REACH_SKILLS.filter((k) => k.capabilities.some((c) => on.includes(c))).map(({ name, description }) => ({ name, description }))];
     }
-    // The built-in skills, always listed (unless the owner has his own of that name or invoked it).
-    for (const k of BUILT_IN_SKILLS)
+    // Wecra's default skills that are on (docs/ai.md §8.6), listed even when the view didn't send them (a brief, an
+    // older view); the owner's copy of one is listed with its own description.
+    const defaults = (await skillsWithDefaults().catch(() => withDefaults([]))).filter((k) => k.origin && k.enabled);
+    for (const k of defaults)
       if (!(request.skills ?? []).some((x) => x.name === k.name) && request.skill?.name !== k.name) request.skills = [...(request.skills ?? []), { name: k.name, description: k.description }];
     if (spec) runCli(t, spec, request);
     else {

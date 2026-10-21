@@ -189,4 +189,8 @@ export interface AiRepository {
   skills(): Promise<AiSkill[]>;
   saveSkill(s: { id?: string; name: string; description: string; instructions: string; enabled?: boolean }): Promise<AiSkill>;
   removeSkill(id: string): Promise<void>;
+  /** The default skills (src/shared/agents/defaultSkills) the owner turned off, by name (docs/ai.md §8.6) */
+  defaultSkillsOff(): Promise<string[]>;
+  /** Turns a default skill on or off for this owner; returns the names now off */
+  setDefaultSkillOn(name: string, on: boolean): Promise<string[]>;
 }

@@ -2,6 +2,7 @@ import type { ConfirmRequest } from "../../shared/agents/appTools";
 import { textResult, type ToolResult } from "../../shared/agents/tools";
 import { parseSkillFile, skillNameOf, skillProblem, type SkillDraft } from "../../shared/ai/skillFile";
 import type { AiRepository, AiSkill } from "../../shared/ai/types";
+import { DEFAULT_SKILLS, SKILL_ALIASES, withDefaults, type DefaultSkill, type SkillEntry } from "../../shared/agents/defaultSkills";
 import type { ReachCaller, ReachHub, RunContext } from "./reach/hub";
 
 /**
@@ -11,12 +12,18 @@ import type { ReachCaller, ReachHub, RunContext } from "./reach/hub";
  * so a new one shows in the UI and is offered to agents from the next message. Every change waits for the owner's
  * click on the chat's confirmation card, which shows exactly what will be saved; an outside MCP client (no chat) is
  * refused. A skill is text: its format and size are checked (skillFile.ts), nothing in it is run. Electron-free.
+ *
+ * Wecra's default skills (docs/ai.md §8.6) are listed with them: update_skill on a default saves the owner's copy of
+ * the same name (it overrides the shipped text; only on / off is kept apart, per name, in the store), remove_skill on
+ * a default turns it off (never deleted), remove_skill {reset: true} drops the copy and brings the default back.
  */
 
 export interface SkillToolDeps {
-  repo(): Promise<Pick<AiRepository, "skills" | "saveSkill" | "removeSkill">>;
-  /** Wecra's built-in skills (listed, not editable) */
+  repo(): Promise<Pick<AiRepository, "skills" | "saveSkill" | "removeSkill" | "defaultSkillsOff" | "setDefaultSkillOn">>;
+  /** Built-in skills listed but not editable (agents' reach skills) */
   builtIns: readonly { name: string; description: string }[];
+  /** Wecra's default skills (editable as the owner's copy); default: DEFAULT_SKILLS */
+  defaults?: readonly DefaultSkill[];
   /** The chat's confirmation card: the owner's answer; null without a chat (an outside client) */
   confirm(req: ConfirmRequest): Promise<boolean | null>;
   /** install_skill's source, read through reach's gate (Web or GitHub): its text, or the refusal as a result */
@@ -70,14 +77,30 @@ function preview(d: SkillDraft, extra: string[] = []): string {
   return [`name: ${d.name}`, `description: ${d.description}`, ...extra, "", body].join("\n");
 }
 
-const view = (s: AiSkill) => ({ id: s.id, name: s.name, description: s.description, enabled: s.enabled, characters: s.instructions.length, updatedAt: new Date(s.updatedAt).toISOString() });
+const view = (s: SkillEntry) => ({
+  id: s.id,
+  name: s.name,
+  description: s.description,
+  enabled: s.enabled,
+  characters: s.instructions.length,
+  ...(s.origin ? { default: true, ...(s.origin === "override" ? { changed: true } : {}) } : {}),
+  ...(s.updatedAt ? { updatedAt: new Date(s.updatedAt).toISOString() } : {}),
+});
 
-async function findSkill(deps: SkillToolDeps, args: Record<string, unknown>): Promise<{ all: AiSkill[]; skill: AiSkill | null; why?: string }> {
-  const all = await (await deps.repo()).skills();
+/** The owner's skills with the defaults merged in (a store that can't say which defaults are off: all on). */
+async function allSkills(deps: SkillToolDeps): Promise<SkillEntry[]> {
+  const repo = await deps.repo();
+  const [own, off] = await Promise.all([repo.skills(), repo.defaultSkillsOff().catch(() => [] as string[])]);
+  return withDefaults(own, off, deps.defaults ?? DEFAULT_SKILLS);
+}
+
+async function findSkill(deps: SkillToolDeps, args: Record<string, unknown>): Promise<{ all: SkillEntry[]; skill: SkillEntry | null; why?: string }> {
+  const all = await allSkills(deps);
   const id = str(args.id)?.trim();
   const name = str(args.name)?.trim().replace(/^\//, "").toLowerCase();
   if (!id && !name) return { all, skill: null, why: "Give the skill's id or name (list_skills lists them)." };
-  const skill = all.find((s) => (id && s.id === id) || (!id && s.name === name)) ?? null;
+  const alias = !id && name ? SKILL_ALIASES[name] : undefined;
+  const skill = all.find((s) => (id && s.id === id) || (!id && s.name === name)) ?? (alias ? all.find((s) => s.name === alias) : undefined) ?? null;
   if (!skill) {
     const builtIn = deps.builtIns.some((b) => b.name === name);
     return { all, skill: null, why: builtIn ? `“${name}” is one of Wecra's built-in skills: it can't be changed or removed (create a skill of the same name to use your own instead).` : `No skill ${id ?? `named “${name}”`} (list_skills lists them).` };
@@ -110,15 +133,21 @@ export async function runSkillTool(name: string, args: Record<string, unknown>, 
   try {
     switch (name) {
       case "list_skills": {
-        const all = await (await deps.repo()).skills();
+        const all = await allSkills(deps);
         const own = new Set(all.map((s) => s.name));
-        return textResult({ skills: all.sort((a, b) => a.name.localeCompare(b.name)).map(view), builtIn: deps.builtIns.filter((b) => !own.has(b.name)).map((b) => ({ name: b.name, description: b.description, builtIn: true })), how: "get_skill {name} reads one; create_skill / update_skill / remove_skill / install_skill change them (the owner confirms each)." });
+        return textResult({
+          skills: all.map(view),
+          builtIn: deps.builtIns.filter((b) => !own.has(b.name)).map((b) => ({ name: b.name, description: b.description, builtIn: true })),
+          how: "get_skill {name} reads one; create_skill / update_skill / remove_skill / install_skill change them (the owner confirms each). default: Wecra's default skills — update_skill saves the owner's copy of one (changed: true), remove_skill turns one off, remove_skill {reset: true} brings the default back.",
+        });
       }
       case "create_skill": {
         const d = draftOf(args);
         if ("error" in d) return error(d.error);
-        const all = await (await deps.repo()).skills();
-        if (all.some((s) => s.name === d.name)) return error(`A skill named “${d.name}” already exists: update_skill changes it.`);
+        const all = await allSkills(deps);
+        const same = all.find((s) => s.name === d.name);
+        if (same?.origin === "default") return error(`“${d.name}” is one of Wecra's default skills: update_skill changes it (the owner's copy replaces the default; remove_skill {reset: true} brings it back).`);
+        if (same) return error(`A skill named “${d.name}” already exists: update_skill changes it.`);
         const warn = mentionsCode(d.instructions) ? ["note: it mentions scripts or commands — agents here can't run them; only the text is kept"] : [];
         const ok = await deps.confirm({ action: "add a skill", target: `${d.name} (written by the agent)`, preview: preview(d, warn) });
         if (ok === null) return error(NO_CHAT);
@@ -130,6 +159,7 @@ export async function runSkillTool(name: string, args: Record<string, unknown>, 
         const found = await findSkill(deps, { id: args.id, name: args.id ? undefined : args.name });
         if (!found.skill) return error(found.why!);
         const s = found.skill;
+        if (s.origin && str(args.newName) !== undefined && skillNameOf(str(args.newName)!) !== s.name) return error(`“${s.name}” is a default skill: it keeps its name (create_skill makes a new skill from its text under another name).`);
         const next = {
           name: str(args.newName) !== undefined ? skillNameOf(str(args.newName)!) : s.name,
           description: str(args.description) !== undefined ? str(args.description)!.trim() : s.description,
@@ -141,15 +171,51 @@ export async function runSkillTool(name: string, args: Record<string, unknown>, 
         const enabled = typeof args.enabled === "boolean" ? args.enabled : s.enabled;
         const changes = [next.name !== s.name ? `name → ${next.name}` : "", next.description !== s.description ? "description" : "", next.instructions !== s.instructions ? "instructions" : "", enabled !== s.enabled ? (enabled ? "turn on" : "turn off") : ""].filter(Boolean);
         if (!changes.length) return textResult({ unchanged: view(s) });
-        const ok = await deps.confirm({ action: "change a skill", target: `${s.name}: ${changes.join(", ")}`, preview: next.instructions !== s.instructions || next.description !== s.description ? preview(next) : undefined });
+        const textChanged = next.instructions !== s.instructions || next.description !== s.description;
+        // A default as shipped: its text changed → the owner's copy; only on / off → the store's list of defaults off.
+        const copy = s.origin === "default" && textChanged;
+        const action = copy ? "change a default skill (saved as your own copy)" : s.origin === "default" ? "turn a default skill on or off" : "change a skill";
+        const ok = await deps.confirm({ action, target: `${s.name}: ${changes.join(", ")}`, preview: textChanged ? preview(next) : undefined });
         if (ok === null) return error(NO_CHAT);
         if (!ok) return error(`The owner didn't change “${s.name}”.`);
-        const saved = await save(deps, { id: s.id, ...next, enabled });
-        return textResult({ updated: view(saved), note: NEXT });
+        if (s.origin === "default" && !copy) {
+          await (await deps.repo()).setDefaultSkillOn(s.name, enabled);
+          deps.changed?.();
+          return textResult({ updated: view({ ...s, enabled }), note: NEXT });
+        }
+        const saved = await save(deps, { ...(copy ? {} : { id: s.id }), ...next, enabled });
+        const note = copy ? `${NEXT} It is the owner's copy of the default now; remove_skill {reset: true} brings Wecra's version back.` : NEXT;
+        return textResult({ updated: view({ ...saved, ...(s.origin ? { origin: "override" as const } : {}) }), note });
       }
       case "remove_skill": {
         const found = await findSkill(deps, args);
         if (!found.skill) return error(found.why!);
+        const s = found.skill;
+        if (args.reset === true) {
+          if (!s.origin) return error(`“${s.name}” isn't one of Wecra's default skills: there is nothing to reset to (remove_skill without reset deletes it).`);
+          if (s.origin === "default") return textResult({ unchanged: view(s), note: "It is Wecra's default already." });
+          const ok = await deps.confirm({ action: "reset a skill to Wecra's default", target: `${s.name} — the owner's changes to it are deleted` });
+          if (ok === null) return error(NO_CHAT);
+          if (!ok) return error(`The owner kept his version of “${s.name}”.`);
+          const repo = await deps.repo();
+          await repo.removeSkill(s.id);
+          await repo.setDefaultSkillOn(s.name, s.enabled);
+          deps.changed?.();
+          return textResult({ reset: { name: s.name, enabled: s.enabled } });
+        }
+        if (s.origin) {
+          // A default is never deleted: remove turns it off (the owner's copy too, kept for later).
+          if (!s.enabled) return textResult({ unchanged: view(s), note: "It is off already." });
+          const ok = await deps.confirm({ action: "turn off a default skill", target: `${s.name} — ${s.description.slice(0, 200)}` });
+          if (ok === null) return error(NO_CHAT);
+          if (!ok) return error(`The owner kept “${s.name}” on.`);
+          if (s.origin === "override") await save(deps, { id: s.id, name: s.name, description: s.description, instructions: s.instructions, enabled: false });
+          else {
+            await (await deps.repo()).setDefaultSkillOn(s.name, false);
+            deps.changed?.();
+          }
+          return textResult({ disabled: { name: s.name }, note: "Default skills aren't deleted: it is off now (update_skill {enabled: true} turns it back on)." });
+        }
         const ok = await deps.confirm({ action: "remove a skill", target: `${found.skill.name} — ${found.skill.description.slice(0, 200)}` });
         if (ok === null) return error(NO_CHAT);
         if (!ok) return error(`The owner kept “${found.skill.name}”.`);
@@ -167,14 +233,14 @@ export async function runSkillTool(name: string, args: Record<string, unknown>, 
         const d: SkillDraft = str(args.name) ? { ...parsed, name: skillNameOf(str(args.name)!) } : parsed;
         const problem = skillProblem(d);
         if (problem) return error(problem);
-        const all = await (await deps.repo()).skills();
+        const all = await allSkills(deps);
         const existing = all.find((s) => s.name === d.name);
         if (existing && args.replace !== true) return error(`A skill named “${d.name}” already exists: install_skill with replace: true updates it, or name: "…" adds it under another name.`);
         const extra = [`source: ${src.source}`, ...(mentionsCode(d.instructions) ? ["note: it mentions scripts or commands — only the text is installed, nothing is run"] : [])];
         const ok = await deps.confirm({ action: existing ? "replace a skill with one from outside Wecra" : "add a skill from outside Wecra", target: `${d.name} — ${src.source}`, preview: preview(d, extra) });
         if (ok === null) return error(NO_CHAT);
         if (!ok) return error(`The owner didn't install “${d.name}”. Don't ask again for this request.`);
-        const saved = await save(deps, { ...(existing ? { id: existing.id } : {}), ...d, enabled: args.enabled !== false });
+        const saved = await save(deps, { ...(existing && existing.origin !== "default" ? { id: existing.id } : {}), ...d, enabled: args.enabled !== false });
         return textResult({ installed: view(saved), source: src.source, note: `${NEXT} Only its SKILL.md text was installed.` });
       }
     }

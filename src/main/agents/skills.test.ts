@@ -6,6 +6,7 @@ import { DEFAULT_REACH_SETTINGS, REACH_TOOL_BY_NAME, type AccessLogEntry, type R
 import { APP_TOOLS, SKILL_TOOLS, confirmationFor, type ConfirmRequest } from "../../shared/agents/appTools";
 import { MAIN_TOOLS, TOOL_BY_NAME } from "../../shared/agents/tools";
 import type { AiSkill } from "../../shared/ai/types";
+import { DEFAULT_SKILLS, type DefaultSkill } from "../../shared/agents/defaultSkills";
 import { ReachHub, type ReachConsentRequest } from "./reach/hub";
 import { DEFAULT_SKILL_SOURCES, fetchSkill, rawSkillUrl, scoreSkill, skillHeader, skillWebRunner, type SkillWebDeps } from "./reach/skillWeb";
 import { mentionsCode, runSkillTool, skillSourceVia, type SkillToolDeps } from "./skills";
@@ -36,6 +37,14 @@ function memoryRepo(initial: AiSkill[] = []) {
       return skill;
     },
     removeSkill: async (id: string) => void list.splice(list.findIndex((x) => x.id === id), 1),
+    off: [] as string[],
+    async defaultSkillsOff() {
+      return [...this.off];
+    },
+    async setDefaultSkillOn(name: string, on: boolean) {
+      this.off = on ? this.off.filter((x) => x !== name) : [...new Set([...this.off, name])];
+      return [...this.off];
+    },
   };
 }
 
@@ -57,7 +66,7 @@ function fakeWeb(pages: Record<string, string | { status: number; location?: str
 
 const settings = (web: ReachPolicy, github: ReachPolicy = "off", repos: string[] = []): ReachSettings => ({ ...DEFAULT_REACH_SETTINGS, policies: { ...DEFAULT_REACH_SETTINGS.policies, web, github }, github: { repos } });
 
-function setup(o: { web?: ReachPolicy; github?: ReachPolicy; repos?: string[]; consent?: boolean; confirm?: boolean | null; pages?: Parameters<typeof fakeWeb>[0]; addresses?: Record<string, string[]>; skills?: AiSkill[] } = {}) {
+function setup(o: { web?: ReachPolicy; github?: ReachPolicy; repos?: string[]; consent?: boolean; confirm?: boolean | null; pages?: Parameters<typeof fakeWeb>[0]; addresses?: Record<string, string[]>; skills?: AiSkill[]; defaults?: readonly DefaultSkill[] } = {}) {
   const repo = memoryRepo(o.skills);
   const web = fakeWeb(o.pages ?? { "https://raw.githubusercontent.com/anthropics/skills/main/skills/frontend-design/SKILL.md": SKILL_MD });
   const asks: ReachConsentRequest[] = [];
@@ -75,7 +84,8 @@ function setup(o: { web?: ReachPolicy; github?: ReachPolicy; repos?: string[]; c
   let changed = 0;
   const deps: SkillToolDeps = {
     repo: async () => repo,
-    builtIns: [{ name: "motion-design", description: "Motion" }],
+    builtIns: [{ name: "web-to-design", description: "Web" }],
+    defaults: o.defaults ?? [],
     confirm: async (req) => (cards.push(req), o.confirm === undefined ? true : o.confirm),
     readSource: skillSourceVia(hub, { turnId: "t1", chatId: "c1", fileKey: "f1", agent: "Claude Code" }, {
       web: (url, ctx) => fetchSkill(url, ctx, web),
@@ -196,7 +206,7 @@ describe("install_skill: web or GitHub → the owner's card → Agents › Skill
     expect(s.changed()).toBe(1);
     const listed = (await s.call("list_skills")).json;
     expect(listed.skills.map((k: { name: string }) => k.name)).toEqual(["frontend-design"]);
-    expect(listed.builtIn.map((k: { name: string }) => k.name)).toEqual(["motion-design"]);
+    expect(listed.builtIn.map((k: { name: string }) => k.name)).toEqual(["web-to-design"]);
   });
 
   it("saves nothing when the owner denies the card, or the read", async () => {
@@ -254,11 +264,86 @@ describe("create / update / remove", () => {
     const off = await s.call("update_skill", { name: "ux-review", enabled: false, newName: "ux-audit" });
     expect(off.json.updated).toMatchObject({ name: "ux-audit", enabled: false });
     expect(s.cards[0].target).toContain("turn off");
-    expect((await s.call("remove_skill", { name: "motion-design" })).text).toMatch(/built-in/);
+    expect((await s.call("remove_skill", { name: "web-to-design" })).text).toMatch(/built-in/);
     const denied = setup({ confirm: false, skills: s.repo.list });
     expect((await denied.call("remove_skill", { id: "a1" })).r.isError).toBe(true);
     expect(denied.repo.list).toHaveLength(1);
     expect((await s.call("remove_skill", { id: "a1" })).json.removed.name).toBe("ux-audit");
     expect(s.repo.list).toHaveLength(0);
+  });
+});
+
+describe("Wecra's default skills (docs/ai.md §8.6)", () => {
+  const withPack = (o: Parameters<typeof setup>[0] = {}) => setup({ defaults: DEFAULT_SKILLS, ...o });
+
+  it("lists every default as on, marked default, beside the owner's own", async () => {
+    const s = withPack({ skills: [{ id: "a1", name: "brand-voice", description: "d", instructions: "i", enabled: true, createdAt: 1, updatedAt: 1 }] });
+    const { json } = await s.call("list_skills");
+    const names = json.skills.map((k: { name: string }) => k.name);
+    expect(names).toEqual([...names].sort());
+    for (const d of DEFAULT_SKILLS) expect(json.skills.find((k: { name: string }) => k.name === d.name)).toMatchObject({ id: `default:${d.name}`, default: true, enabled: true });
+    expect(json.skills.find((k: { name: string }) => k.name === "brand-voice").default).toBeUndefined();
+    expect(names).toContain("motion-opus");
+  });
+
+  it("editing a default saves the owner's copy of the same name; reset drops it and keeps on / off", async () => {
+    const s = withPack();
+    expect((await s.call("update_skill", { name: "ux-review", newName: "ux-audit" })).text).toMatch(/keeps its name/);
+    const edited = await s.call("update_skill", { name: "ux-review", instructions: "Our own review steps." });
+    expect(edited.json.updated).toMatchObject({ name: "ux-review", default: true, changed: true });
+    expect(s.cards.at(-1)!.action).toBe("change a default skill (saved as your own copy)");
+    expect(s.repo.list.map((k) => k.name)).toEqual(["ux-review"]);
+    // The copy is what agents read now; editing it again changes the copy in place.
+    await s.call("update_skill", { name: "ux-review", description: "Mine." });
+    expect(s.repo.list).toHaveLength(1);
+    expect(s.repo.list[0]).toMatchObject({ description: "Mine.", instructions: "Our own review steps." });
+    // Turned off as a copy, then reset: the default comes back off.
+    await s.call("update_skill", { name: "ux-review", enabled: false });
+    const reset = await s.call("remove_skill", { name: "ux-review", reset: true });
+    expect(reset.json.reset).toEqual({ name: "ux-review", enabled: false });
+    expect(s.cards.at(-1)!.action).toBe("reset a skill to Wecra's default");
+    expect(s.repo.list).toHaveLength(0);
+    expect(s.repo.off).toEqual(["ux-review"]);
+    const listed = (await s.call("list_skills")).json.skills.find((k: { name: string }) => k.name === "ux-review");
+    expect(listed).toMatchObject({ id: "default:ux-review", enabled: false });
+    expect(listed.changed).toBeUndefined();
+    expect((await s.call("remove_skill", { name: "ux-review", reset: true })).json.unchanged).toBeTruthy();
+  });
+
+  it("remove on a default turns it off (remembered), update {enabled: true} turns it on; nothing is deleted", async () => {
+    const s = withPack();
+    const removed = await s.call("remove_skill", { name: "theme-factory" });
+    expect(removed.json.disabled).toEqual({ name: "theme-factory" });
+    expect(s.cards.at(-1)!.action).toBe("turn off a default skill");
+    expect(s.repo.off).toEqual(["theme-factory"]);
+    expect(s.repo.list).toHaveLength(0);
+    expect((await s.call("remove_skill", { id: "default:theme-factory" })).json.note).toMatch(/off already/);
+    const on = await s.call("update_skill", { name: "theme-factory", enabled: true });
+    expect(on.json.updated).toMatchObject({ enabled: true });
+    expect(s.cards.at(-1)!.action).toBe("turn a default skill on or off");
+    expect(s.repo.off).toEqual([]);
+    expect(s.repo.list).toHaveLength(0);
+    expect(s.changed()).toBe(2);
+  });
+
+  it("an edited default turned off by remove keeps the copy; create can't shadow a default; install replaces as a copy", async () => {
+    const s = withPack();
+    await s.call("update_skill", { name: "frontend-design", instructions: "Mine." });
+    await s.call("remove_skill", { name: "frontend-design" });
+    expect(s.repo.list[0]).toMatchObject({ name: "frontend-design", enabled: false, instructions: "Mine." });
+    expect((await s.call("create_skill", { name: "ux-review", description: "d", instructions: "i" })).text).toMatch(/default skills/);
+    expect((await s.call("remove_skill", { name: "frontend-design", reset: true })).json.reset).toEqual({ name: "frontend-design", enabled: false });
+    const url = "https://github.com/anthropics/skills/tree/main/skills/frontend-design";
+    expect((await s.call("install_skill", { url })).text).toMatch(/already exists/);
+    const installed = await s.call("install_skill", { url, replace: true });
+    expect(installed.json.installed.name).toBe("frontend-design");
+    expect(s.repo.list.map((k) => [k.name, k.instructions.slice(0, 16)])).toEqual([["frontend-design", "# Frontend desig"]]);
+  });
+
+  it("the old motion-design name finds motion-opus; own skills can't be reset", async () => {
+    const s = withPack({ skills: [{ id: "a1", name: "brand-voice", description: "d", instructions: "i", enabled: true, createdAt: 1, updatedAt: 1 }] });
+    const off = await s.call("remove_skill", { name: "motion-design" });
+    expect(off.json.disabled).toEqual({ name: "motion-opus" });
+    expect((await s.call("remove_skill", { name: "brand-voice", reset: true })).text).toMatch(/isn't one of Wecra's default skills/);
   });
 });

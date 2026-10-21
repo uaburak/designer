@@ -2,6 +2,15 @@
 
 First written 2026-10-06 when the first Claude session stopped and the owner moved the work to another Claude account through GitHub (`https://github.com/uaburak/designer`). Updated the same day by the second session, which finished every workstream's partial items and ran the integration round. Read `AGENTS.md`, `docs/architecture.md` and `docs/roadmap.md` first; the contracts in `docs/` decide everything; `docs/research/` holds the verified facts about Figma (with sources).
 
+## Status 2026-10-21 (late night, later) — default skills: a skill pack shipped with Wecra, editable, with "Opus 5.5 motion" (committed on its branch, not merged)
+
+- **The owner's request:** prepare the skills and put them in Wecra as defaults that can be changed; and an Opus 5.5 skill for Motion. As built: `docs/ai.md` §8.6.
+- **The pack** (`src/shared/agents/defaultSkills/`): frontend-design, canvas-design, brand-guidelines, theme-factory, ux-review, accessibility-audit, wecra-design-system, component-authoring, prototype-builder, code-to-design, turkish-microcopy, dev-handoff, social-campaign, **motion-opus**, sound-design.
+- **Decision — motion-opus replaces motion-design:** one motion skill (motion-design's workflow + the craft); `get_skill motion-design` answers with motion-opus. `motionSkill.ts` and `BUILT_IN_SKILLS` are gone; sound-design and code-to-design (reach's built-in) are defaults now.
+- **Editing:** Agents › Skills shows a **Default** badge. Saving a default makes the owner's copy (same name, "Default · edited"); **Reset to default** removes the copy. Disable / Enable is kept per user (`ai.defaultSkillsOff` / `setDefaultSkillOn`, `skills.json` `defaultsOff`). The skill tools: update = copy, remove = off, remove `{reset: true}` = reset.
+- **Tests:** defaultSkills.test.ts (each skill: validation, SKILL.md round trip, only real tool names, checklist), skills.test.ts (+5), ai.test.ts (+1), defaultSkills.dom.test.ts (3), motionOpusSkill.test.ts (the three worked `animate` scripts compile without warnings). Typecheck and lint pass; affected suites pass. No C++ change.
+- **Not verified in the built app:** the badge row's look in Agents › Skills, and an agent actually picking a default from its description.
+
 ## Status 2026-10-21 (late night) — agent parity: agents reach the whole app (not Operator's), and add Skills to themselves (committed on its branch, not merged)
 
 - **The owner's question:** "Can the agent do everything I can? E.g. 'find yourself a UX skill and add it'."

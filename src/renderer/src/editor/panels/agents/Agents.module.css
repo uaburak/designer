@@ -233,7 +233,9 @@
   /* UI3's rows cut the name, never the value: "Antigravity (Google…  ● Connected". Only a status longer than two thirds of
      the row ("Turned off by your organization") is cut too. */
   .rowLabel { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .rowLabel:has(+ .rowStatus) { flex: 0 1 auto; }
+  .rowLabel:has(+ .rowStatus), .rowLabel:has(+ .rowBadge) { flex: 0 1 auto; }
+  /* A default skill's "Default" badge, right after its name (docs/ai.md §8.6). */
+  .rowBadge { flex: none; }
   .rowStatus { display: inline-flex; flex: none; align-items: center; gap: var(--ds-space-1); min-width: 0; max-width: 66%; margin-left: auto; color: var(--figma-color-text-secondary); white-space: nowrap; }
   .rowStatus > span:last-child { overflow: hidden; text-overflow: ellipsis; }
   .rowChevron { display: inline-flex; flex: none; color: var(--figma-color-icon-tertiary); }

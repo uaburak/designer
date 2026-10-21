@@ -152,6 +152,22 @@ describe("Skills (§2.10)", () => {
     expect((await ai.skills()).map((x) => x.name)).toEqual(["release-notes"]);
     await expect(ai.removeSkill("../x")).rejects.toBeInstanceOf(StoreError);
   });
+
+  it("remembers the default skills turned off (§8.6) beside the index, through saves and removes", async () => {
+    const t = { now: 1000 };
+    const { host, files } = memoryHost(t, fakeServer());
+    const ai = new AiService(host);
+    expect(await ai.defaultSkillsOff()).toEqual([]);
+    expect(await ai.setDefaultSkillOn("ux-review", false)).toEqual(["ux-review"]);
+    expect(await ai.setDefaultSkillOn("motion-opus", false)).toEqual(["motion-opus", "ux-review"]);
+    const s = await ai.saveSkill({ name: "brand-voice", description: "Write like us.", instructions: "Short." });
+    await ai.removeSkill(s.id);
+    expect(JSON.parse(files.get("skills.json")!).defaultsOff).toEqual(["motion-opus", "ux-review"]);
+    expect(await ai.setDefaultSkillOn("ux-review", true)).toEqual(["motion-opus"]);
+    // A new service reads it from disk; a bad name is refused.
+    expect(await new AiService(host).defaultSkillsOff()).toEqual(["motion-opus"]);
+    await expect(ai.setDefaultSkillOn("../x", false)).rejects.toBeInstanceOf(StoreError);
+  });
 });
 
 describe("org reports (§2.9)", () => {

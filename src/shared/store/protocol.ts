@@ -182,7 +182,7 @@ export const STORE_METHODS = {
   // Dev Mode (docs/editor.md D-8, round 5g); `devmode` is also an event topic
   devMode: ["devResources", "addDevResource", "editDevResource", "removeDevResource", "codeConnect", "setCodeConnect", "removeCodeConnect", "reportStatus", "viewed", "setStatusNotifications", "prototypeMembers", "invitePrototype", "removePrototype"],
   // AI ledger and Skills (docs/ai.md §8, round 6g) and the search index (round 6d)
-  ai: ["record", "balance", "history", "skills", "saveSkill", "removeSkill"],
+  ai: ["record", "balance", "history", "skills", "saveSkill", "removeSkill", "defaultSkillsOff", "setDefaultSkillOn"],
   search: ["upsert", "remove", "versions", "query", "thumb", "stats", "clear"],
   // The brand and product library (docs/studio.md §3, round 15); `brands` is also an event topic
   brands: ["list", "get", "find", "saveBrand", "removeBrand", "saveProduct", "removeProduct", "addImage", "removeImage", "image"],

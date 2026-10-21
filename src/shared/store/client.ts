@@ -688,6 +688,8 @@ export class StoreClient implements StoreApi {
     skills: () => this.call("ai.skills", []),
     saveSkill: (s) => this.call("ai.saveSkill", [s]),
     removeSkill: (id) => this.call("ai.removeSkill", [id]),
+    defaultSkillsOff: () => this.call("ai.defaultSkillsOff", []),
+    setDefaultSkillOn: (name, on) => this.call("ai.setDefaultSkillOn", [name, on]),
   };
 
   readonly brands: BrandsRepository = {

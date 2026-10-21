@@ -1626,4 +1626,9 @@ export const panels: Record<string, string> = {
   "Add library": "Kütüphane ekle",
   "Add libraries": "Kütüphaneleri ekle",
   "The library couldn't be published: it's too large": "Kütüphane yayınlanamadı: çok büyük",
+  // Default skills (docs/ai.md §8.6)
+  "Default · edited": "Varsayılan · düzenlendi",
+  "A default skill that comes with Wecra. Your changes are saved as your own copy; Reset to default brings back Wecra’s version.": "Wecra ile gelen varsayılan bir yetenek. Değişiklikleriniz kendi kopyanız olarak kaydedilir; Varsayılana sıfırla, Wecra’nın sürümünü geri getirir.",
+  "You changed this default skill. Reset to default brings back Wecra’s version.": "Bu varsayılan yeteneği değiştirdiniz. Varsayılana sıfırla, Wecra’nın sürümünü geri getirir.",
+  "Skill reset to default": "Yetenek varsayılana sıfırlandı",
 };

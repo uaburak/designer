@@ -8,6 +8,7 @@ import { useEffect, useSyncExternalStore } from "react";
 import { getStoreClient } from "@/store";
 import type { AiSkill, Connector } from "@shared/ai/types";
 import type { AgentSetupApi } from "@shared/agents/types";
+import { withDefaults, type SkillEntry } from "@shared/agents/defaultSkills";
 import { t } from "@/i18n";
 
 interface Loaded<T> {
@@ -51,15 +52,18 @@ const errorText = (err: unknown) => (err instanceof Error ? err.message : String
 // ── Skills ──
 
 const skillsRepo = () => getStoreClient().ai;
-export const skillsBox = new Box<AiSkill>(async () => {
+/** The owner's skills with Wecra's default skills merged in (docs/ai.md §8.6): defaults badged, his copies over them. */
+export const skillsBox = new Box<SkillEntry>(async () => {
   try {
-    return (await skillsRepo().skills()).sort((a, b) => a.name.localeCompare(b.name));
+    const repo = skillsRepo();
+    const [own, off] = await Promise.all([repo.skills(), repo.defaultSkillsOff().catch(() => [] as string[])]);
+    return withDefaults(own, off);
   } catch (err) {
     throw new Error(/implemented yet|not built/i.test(errorText(err)) ? t("Skills aren’t available in this version yet.") : errorText(err));
   }
 });
 
-export function useSkills(): Loaded<AiSkill> {
+export function useSkills(): Loaded<SkillEntry> {
   useEffect(() => skillsBox.ensure(), []);
   return useSyncExternalStore(skillsBox.subscribe, skillsBox.get);
 }
@@ -72,6 +76,20 @@ export async function saveSkill(s: { id?: string; name: string; description: str
 
 export async function removeSkill(id: string): Promise<void> {
   await skillsRepo().removeSkill(id);
+  await skillsBox.refresh();
+}
+
+/** Turns a default skill as shipped on or off (kept per user in the store). */
+export async function setDefaultSkillOn(name: string, on: boolean): Promise<void> {
+  await skillsRepo().setDefaultSkillOn(name, on);
+  await skillsBox.refresh();
+}
+
+/** Reset to default: the owner's copy of a default goes; the default comes back on or off as his copy was. */
+export async function resetSkill(copy: Pick<AiSkill, "id" | "name" | "enabled">): Promise<void> {
+  const repo = skillsRepo();
+  await repo.removeSkill(copy.id);
+  await repo.setDefaultSkillOn(copy.name, copy.enabled);
   await skillsBox.refresh();
 }
 
