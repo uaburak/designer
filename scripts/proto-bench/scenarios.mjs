@@ -54,10 +54,17 @@ try {
     };
     window.clearTimeout = (id) => (held.delete(id) ? undefined : realClear(id));
     window.__vtRun = () => {
-      for (const [id, t] of [...held]) if (t.due <= window.__vt) (held.delete(id), t.cb());
+      for (const [id, t] of [...held])
+        if (t.due <= window.__vt) {
+          held.delete(id);
+          t.cb();
+        }
     };
     window.__vtFlush = () => {
-      for (const [id, t] of [...held]) (held.delete(id), realSet(t.cb, 0));
+      for (const [id, t] of [...held]) {
+        held.delete(id);
+        realSet(t.cb, 0);
+      }
     };
   });
   const frameOf = (name) => PTS[Object.keys(PTS).find((k) => k.startsWith(name + "/"))].frame;
