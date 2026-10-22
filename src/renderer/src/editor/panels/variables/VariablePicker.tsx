@@ -17,6 +17,7 @@ import {
   Swatch,
   ToggleIconButton,
   cx,
+  tooltipProps,
   type PopoverPlacement,
 } from "@/ds";
 import type { Color, Guid, Paint } from "@/engine/codec";
@@ -171,6 +172,9 @@ export type VariableListProps = Omit<
   "anchor" | "title" | "placement" | "onClose"
 > & { label?: string; onDone?: () => void };
 
+/** The colour picker's grid / list choice, kept between openings as Figma does */
+let lastGrid = false;
+
 /** The picker's search and list, on its own (the colour picker's Libraries tab shows it too). */
 export function VariableList({
   types,
@@ -190,7 +194,8 @@ export function VariableList({
   onBrowse,
 }: VariableListProps) {
   useT();
-  const [grid, setGrid] = useState(false);
+  const [grid, setGridState] = useState(lastGrid);
+  const setGrid = (on: boolean) => setGridState((lastGrid = on));
   const ed = useEditor();
   const onClose = () => onDone?.();
   const title = t(label);
@@ -261,6 +266,19 @@ export function VariableList({
     const on = current === v.id;
     const r = "remote" in v ? v : null;
     const value = (r && !r.remote.imported ? (remoteDefaultValue(r, (collections ?? []) as never) as Literal | null) : r ? resolveAt(ed, v.id, consumer) : values.get(v.id)) ?? null;
+    const pick = () => {
+      if (r) return pickRemoteVariable(r);
+      onPick(v);
+      onClose();
+    };
+    if (grid && v.type === "COLOR" && value && typeof value === "object") {
+      const c = value as Color;
+      return (
+        <button key={v.id} type="button" role="menuitemradio" aria-checked={on} aria-label={v.name} data-variable={v.name} data-library={r?.remote.libraryName} className={cx(styles.pickSwatch, on && styles.pickSwatchOn)} {...tooltipProps(splitName(v.name).leaf)} onClick={pick}>
+          <Swatch color={colorToHex(c)} opacity={toPercent(c.a ?? 1)} className={styles.pickSwatchChit} />
+        </button>
+      );
+    }
     return (
       <button
         key={v.id}
@@ -270,11 +288,7 @@ export function VariableList({
         data-variable={v.name}
         data-library={r?.remote.libraryName}
         className={cx(styles.pickItem, on && styles.pickItemOn)}
-        onClick={() => {
-          if (r) return pickRemoteVariable(r);
-          onPick(v);
-          onClose();
-        }}
+        onClick={pick}
       >
         <VariableGlyph type={v.type} value={value} />
         <span className={styles.pickName}>{splitName(v.name).leaf}</span>
@@ -290,6 +304,18 @@ export function VariableList({
   const styleItem = (s: Style | RemoteStyle) => {
     const on = currentStyle === s.id;
     const r = "remote" in s ? s : null;
+    const pick = () => {
+      if (r) return pickRemoteStyle(r);
+      onPickStyle?.(s);
+      onClose();
+    };
+    if (grid && s.kind === "FILL") {
+      return (
+        <button key={s.id} type="button" role="menuitemradio" aria-checked={on} aria-label={s.name} data-style={s.name} data-library={r?.remote.libraryName} className={cx(styles.pickSwatch, styles.pickSwatchRound, on && styles.pickSwatchOn)} {...tooltipProps(styleLeaf(s.name))} onClick={pick}>
+          <StyleGlyph style={s} />
+        </button>
+      );
+    }
     return (
       <button
         key={s.id}
@@ -299,11 +325,7 @@ export function VariableList({
         data-style={s.name}
         data-library={r?.remote.libraryName}
         className={cx(styles.pickItem, on && styles.pickItemOn)}
-        onClick={() => {
-          if (r) return pickRemoteStyle(r);
-          onPickStyle?.(s);
-          onClose();
-        }}
+        onClick={pick}
       >
         <StyleGlyph style={s} />
         <span className={styles.pickName}>{styleLeaf(s.name)}</span>
@@ -340,6 +362,9 @@ export function VariableList({
     return out;
   };
 
+  // Figma's grid view: each group's swatches six to a row under its heading
+  const wrap = (items: ReactNode[]) => (grid ? <div className={styles.swatchGrid}>{items}</div> : items);
+
   const localStyles = showLocal ? styleList : [];
   const localCollections = showLocal ? byCollection : [];
   const nothing = !localCollections.length && !localStyles.length && !libraries.length;
@@ -364,14 +389,23 @@ export function VariableList({
         <div className={styles.pickSource}>
           <Select
             label={colorTab ? t("Variable set") : t("Library")}
-            variant={colorTab ? "ghost" : "outlined"}
+            variant="outlined"
             width="hug"
             value={sources.some((o) => o.value === source) ? source : "all"}
             options={sources}
             onChange={setSource}
             data-picker-source=""
           />
-          {colorTab && <ToggleIconButton icon="24.view.grid" label={t("Show as grid")} tone="secondary" pressed={grid} onPressedChange={setGrid} />}
+          {/* Figma's toggle shows the other view: the list glyph in the grid, the grid glyph in the list */}
+          {colorTab && (
+            <ToggleIconButton
+              icon={grid ? "24.view.list" : "24.view.grid"}
+              label={grid ? t("Show as list") : t("Show as grid")}
+              tone="secondary"
+              pressed={false}
+              onPressedChange={() => setGrid(!grid)}
+            />
+          )}
         </div>
       )}
       <div className={cx(styles.pickList, grid && styles.pickGrid)} role="menu" aria-label={title}>
@@ -388,7 +422,7 @@ export function VariableList({
                     {f.folder.split("/").join(" / ")}
                   </div>
                 )}
-                {f.list.map(styleItem)}
+                {wrap(f.list.map(styleItem))}
               </div>
             ))}
           </>
@@ -403,7 +437,7 @@ export function VariableList({
                     {g.group.split("/").join(" / ")}
                   </div>
                 )}
-                {g.vars.map((v) => item(v))}
+                {wrap(g.vars.map((v) => item(v)))}
               </div>
             ))}
           </div>
@@ -414,7 +448,7 @@ export function VariableList({
             {styleFolders(libStyles).map((f) => (
               <div key={`s:${f.folder || "root"}`}>
                 {f.folder && <div className={styles.pickGroup}>{f.folder.split("/").join(" / ")}</div>}
-                {f.list.map(styleItem)}
+                {wrap(f.list.map(styleItem))}
               </div>
             ))}
             {libCollections.map(({ c, vars }) => (
@@ -422,7 +456,7 @@ export function VariableList({
                 {groups(vars).map((g) => (
                   <div key={g.group || "root"}>
                     <div className={styles.pickGroup}>{[c.name, ...(g.group ? g.group.split("/") : [])].join(" / ")}</div>
-                    {g.vars.map((v) => item(v, lib.collections))}
+                    {wrap(g.vars.map((v) => item(v, lib.collections)))}
                   </div>
                 ))}
               </div>

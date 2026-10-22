@@ -36,10 +36,33 @@
   .stylesTab .pickSearch { padding: 0; }
   .stylesTab .pickSearch > * { height: 40px; border-radius: 0; background: transparent; padding-left: var(--ds-space-4); }
   .stylesEmpty { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 19px var(--ds-space-4) var(--ds-space-1); color: var(--figma-color-text-tertiary); }
-  .pickGrid { display: flex; flex-wrap: wrap; gap: var(--ds-space-1); padding: var(--ds-space-2) var(--ds-space-4); }
-  .pickGrid .pickHeader, .pickGrid .pickGroup, .pickGrid .pickSection { flex: 1 0 100%; padding-left: 0; }
-  .pickGrid .pickItem { width: auto; padding: var(--ds-space-1); }
-  .pickGrid .pickName, .pickGrid .pickValue { display: none; }
+  /* Figma's colour Libraries tab with a list: the search over a hairline, the outlined "All libraries" menu and the
+     list / grid toggle, then 32-high rows with a 16 swatch and the leaf name */
+  .colorTab .pickSearch { padding-bottom: var(--ds-space-2); border-bottom: 1px solid var(--figma-color-border); }
+  .colorTab .pickSource { margin-top: var(--ds-space-2); margin-bottom: var(--ds-space-1); }
+  .colorTab .pickItem { height: 32px; }
+  .colorTab .pickGlyph [data-ds="Swatch"] { width: 16px; height: 16px; }
+  /* The grid: under each collection's name and group's, 28 swatches six to a row, 8 apart, 16 in from the sides */
+  .pickGrid .pickHeader { padding-top: var(--ds-space-3); }
+  .pickGrid .pickGroup { padding-top: var(--ds-space-2); padding-bottom: var(--ds-space-2); }
+  .swatchGrid { display: grid; grid-template-columns: repeat(6, 28px); gap: var(--ds-space-2); padding: 0 var(--ds-space-4) var(--ds-space-2); }
+  .pickSwatch {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--ds-radius-tile);
+    background: transparent;
+    outline: none;
+  }
+  .pickSwatch .pickGlyph { width: 28px; }
+  .pickSwatchChit, .pickSwatch [data-ds="Swatch"] { width: 28px; height: 28px; border-radius: var(--ds-radius-tile); }
+  .pickSwatchRound, .pickSwatchRound [data-ds="Swatch"] { border-radius: var(--ds-radius-full); }
+  /* The picked colour: a blue ring a pixel outside it */
+  .pickSwatchOn, .pickSwatch:focus-visible { box-shadow: 0 0 0 1px var(--figma-color-bg), 0 0 0 3px var(--figma-color-border-selected); }
   .pickItem {
     display: flex;
     align-items: center;

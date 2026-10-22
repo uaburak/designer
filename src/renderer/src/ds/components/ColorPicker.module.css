@@ -222,4 +222,7 @@
   .libraries { min-height: 120px; }
   /* Live: the header's "+" (New style or variable) at 180, 4 before × */
   .headerActions { display: flex; margin-right: var(--ds-space-1); }
+  /* The hex field's suggestions (Figma's menu under the field): the variable's group dimmed before its name */
+  .suggest { max-height: 240px; }
+  .suggestGroup { color: var(--ds-color-menu-text-secondary); }
 }

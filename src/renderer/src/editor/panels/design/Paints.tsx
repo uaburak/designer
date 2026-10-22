@@ -43,8 +43,8 @@ import { BoundPaintRow, paintScope } from "./Variables";
 import { remoteDefaultValue, useRemoteAssets } from "../libraries/remoteAssets";
 import { AppliedStyle, StylesButton, sharedStyle } from "./Styles";
 import { VariableList } from "../variables/VariablePicker";
-import { paintVariable, resolveVariable } from "../../model/variables";
-import { applyStyle, bindPaint, createCollection, createVariable } from "../../variables";
+import { paintVariable, resolveVariable, scopeAllows } from "../../model/variables";
+import { applyStyle, bindPaint, createCollection, createVariable, resolveAt } from "../../variables";
 import { CreateStylePopover } from "../variables/EditStyle";
 import { MotionField } from "../../motion/panels/MotionField";
 import { t, useT } from "@/i18n";
@@ -594,6 +594,14 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
   const write = (next: FullPaint, info: ChangeInfo, label: string) => writePaints(ed, refs, field, paints.map((q, j) => (j === index ? next : q)), label, info);
   const label = field === "fillPaints" ? "Fill" : "Stroke";
   const slot = field === "fillPaints" ? "fill" : "stroke";
+  // The hex field's suggestions: this file's colour variables this paint may take, at their value here
+  const scope = paintScope(nodes, field);
+  const colorVariables = assets.variables
+    .filter((v) => v.type === "COLOR" && scopeAllows(v.scopes, scope))
+    .flatMap((v) => {
+      const c = resolveAt(ed, v.id, refs[0] ?? null);
+      return c && typeof c === "object" && "r" in c ? [{ id: v.id, name: v.name, color: c as Color }] : [];
+    });
   // The picker's "+" (Figma's live "New style or variable"): a style from this paint, or a colour variable bound to it.
   const newVariable = () => {
     if (paint.type !== "SOLID" || !paint.color) return;
@@ -621,6 +629,8 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
     <ColorPicker
       headerActions={headerActions}
       value={toPicker(paint)}
+      colorVariables={colorVariables}
+      onPickVariable={(id) => bindPaint(ed, refs, field, index, id)}
       initialTab={(target.kind === "paint" && target.tab) || (paintVariable(paint) ? "libraries" : "custom")}
       offsetX={target.kind === "paint" && target.tab === "libraries" ? 0 : -1}
       libraries={

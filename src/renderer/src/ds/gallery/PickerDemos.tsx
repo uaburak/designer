@@ -9,6 +9,13 @@ import { Cell, Comp, noop, Row } from "./parts";
 import styles from "./Gallery.module.css";
 
 const DOC_COLORS = ["#0c8ce9", "#9747ff", "#14ae5c", "#f24822", "#ffcd29", "#ffffff", "#1e1e1e", "rgba(12, 140, 233, 0.4)"];
+/** The hex field's suggestions (a file's colour variables) */
+const COLOR_VARIABLES = [
+  { id: "1", name: "Grey/800", color: { r: 56 / 255, g: 56 / 255, b: 56 / 255, a: 1 } },
+  { id: "2", name: "Grey/900", color: { r: 30 / 255, g: 30 / 255, b: 30 / 255, a: 1 } },
+  { id: "3", name: "bg/brand", color: { r: 12 / 255, g: 140 / 255, b: 233 / 255, a: 1 } },
+  { id: "4", name: "bg/brand-tertiary", color: { r: 12 / 255, g: 140 / 255, b: 233 / 255, a: 0.4 } },
+];
 const SOLID: PickerPaint = { type: "SOLID", color: { r: 12 / 255, g: 140 / 255, b: 233 / 255, a: 1 }, opacity: 1 };
 const LINEAR: PickerPaint = {
   type: "GRADIENT_LINEAR",
@@ -44,6 +51,8 @@ function LivePicker() {
           anchor={open}
           placement="right"
           documentColors={DOC_COLORS}
+          colorVariables={COLOR_VARIABLES}
+          onPickVariable={(id) => setLog((l) => [...l, `variable ${COLOR_VARIABLES.find((v) => v.id === id)?.name}`])}
           onClose={() => setOpen(null)}
           onChange={(next, info) => {
             setPaint(next);

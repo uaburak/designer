@@ -1139,6 +1139,7 @@ export const panels: Record<string, string> = {
   "Shorten": "Kısalt",
   "Show": "Göster",
   "Show as grid": "Izgara olarak göster",
+  "Show as list": "Liste olarak göster",
   "Show behind transparent areas": "Saydam alanların arkasında göster",
   "Show in all supported properties": "Desteklenen tüm özelliklerde göster",
   "Show less": "Daha az göster",

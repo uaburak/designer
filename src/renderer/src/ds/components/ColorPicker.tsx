@@ -51,6 +51,9 @@ import { Button, IconButton, ToggleIconButton } from "./Button";
 import { ContextMenu, MenuButton, type MenuEntry } from "./Menu";
 import { EmptyState } from "./Misc";
 import { selectAllOnClick } from "../util/selectAll";
+import { Portal } from "../overlay/Portal";
+import { Swatch } from "./Swatch";
+import menu from "./Menu.module.css";
 import { t, useT } from "@/i18n";
 import field from "./Field.module.css";
 import buttons from "./Button.module.css";
@@ -165,6 +168,130 @@ function trackPointer(e: React.PointerEvent<HTMLElement>, area: HTMLElement, onM
   at(e);
 }
 
+/** A colour variable the hex field offers as one types: its id, full name ("Grey/800") and colour. */
+export interface ColorVariableOption {
+  id: string;
+  name: string;
+  color: RGBA;
+}
+
+/**
+ * The hex field with Figma's suggestions: as one types, a menu under the field — the typed colour, the variables of
+ * that colour, a line, then the variables whose name or hex starts like it (their group dimmed). ↑ / ↓ move through
+ * it, Enter takes the row (or the text when none is highlighted), a click takes it, Esc closes it with the edit.
+ */
+function HexField({ value, onCommit, variables, onPickVariable }: { value: string; onCommit: (raw: string) => void; variables?: ColorVariableOption[]; onPickVariable?: (id: string) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const [active, setActive] = useState(-1);
+  const [at, setAt] = useState<{ left: number; top: number; width: number } | null>(null);
+  const cancelled = useRef(false);
+  const input = useRef<HTMLInputElement>(null);
+  const q = draft === null ? "" : draft.trim().replace(/^#/, "").toLowerCase();
+  const rows = useMemo(() => {
+    if (!q || !variables?.length || !onPickVariable) return null;
+    const hex = (c: RGBA) => hexDigits(rgbToHex(c)).toLowerCase();
+    const typed = parseColor(q, { alpha: false });
+    const same = typed ? variables.filter((v) => hex(v.color) === hex(typed.color)) : [];
+    const named = variables.filter((v) => !same.includes(v) && (v.name.toLowerCase().includes(q) || hex(v.color).startsWith(q)));
+    if (!typed && !named.length) return null;
+    return { typed: typed?.color ?? null, same, named };
+  }, [q, variables, onPickVariable]);
+  const picks: (() => void)[] = rows ? [...(rows.typed ? [() => onCommit(draft ?? "")] : []), ...[...rows.same, ...rows.named].map((v) => () => onPickVariable?.(v.id))] : [];
+  useLayoutEffect(() => {
+    const field = input.current?.parentElement?.parentElement;
+    if (!rows || !field) return setAt(null);
+    const r = field.getBoundingClientRect();
+    setAt({ left: r.left, top: r.bottom + 4, width: Math.max(r.width, 200) });
+  }, [rows]);
+  const finish = (pick?: () => void) => {
+    cancelled.current = true;
+    setDraft(null);
+    setActive(-1);
+    pick?.();
+    input.current?.blur();
+  };
+  const row = (key: string, color: RGBA, label: ReactNode, i: number) => (
+    <button
+      key={key}
+      type="button"
+      role="option"
+      aria-selected={active === i}
+      tabIndex={-1}
+      className={menu.item}
+      data-highlighted={active === i ? "" : undefined}
+      onPointerDown={(e) => e.preventDefault()}
+      data-i={i}
+      onPointerEnter={() => setActive(i)}
+    >
+      <Swatch color={rgbToHex(color)} opacity={Math.round((color.a ?? 1) * 100)} />
+      <span className={menu.label}>{label}</span>
+    </button>
+  );
+  const name = (n: string) => {
+    const cut = n.lastIndexOf("/");
+    return cut < 0 ? n : <><span className={styles.suggestGroup}>{n.slice(0, cut + 1)}</span>{n.slice(cut + 1)}</>;
+  };
+  let i = 0;
+  return (
+    <>
+      <input
+        ref={input}
+        aria-label={t("Color")}
+        aria-autocomplete={variables ? "list" : undefined}
+        aria-expanded={rows ? true : undefined}
+        value={draft ?? value}
+        spellCheck={false}
+        className={cx(styles.text, styles.upper)}
+        {...selectAllOnClick}
+        onFocus={(e) => e.currentTarget.select()}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          setActive(-1);
+        }}
+        onBlur={(e) => {
+          const typed = draft !== null && !cancelled.current;
+          cancelled.current = false;
+          setDraft(null);
+          setActive(-1);
+          if (typed) onCommit(e.currentTarget.value);
+        }}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (rows && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+            e.preventDefault();
+            const n = picks.length;
+            setActive((a) => (e.key === "ArrowDown" ? (a + 1) % n : (a <= 0 ? n : a) - 1));
+          } else if (e.key === "Enter") {
+            if (rows && active >= 0 && picks[active]) finish(picks[active]);
+            else e.currentTarget.blur();
+          } else if (e.key === "Escape") {
+            finish();
+          }
+        }}
+      />
+      {rows && at && (
+        <Portal theme="dark">
+          <div
+            role="listbox"
+            aria-label={t("Color")}
+            className={cx(menu.panel, styles.suggest)}
+            style={{ left: at.left, top: at.top, width: at.width }}
+            onClick={(e) => {
+              const n = (e.target as Element).closest("[data-i]")?.getAttribute("data-i");
+              if (n != null) finish(picks[Number(n)]);
+            }}
+          >
+            {rows.typed && row("typed", rows.typed, `#${hexDigits(rgbToHex(rows.typed))}`, i++)}
+            {rows.same.map((v) => row(v.id, v.color, name(v.name), i++))}
+            {(rows.typed || rows.same.length > 0) && rows.named.length > 0 && <div role="separator" className={menu.separator} />}
+            {rows.named.map((v) => row(v.id, v.color, name(v.name), i++))}
+          </div>
+        </Portal>
+      )}
+    </>
+  );
+}
+
 /** A text value committed on Enter or blur (Esc reverts): the hex and CSS fields. */
 function CommitText({ label, value, onCommit, upper }: { label: string; value: string; onCommit: (raw: string) => void; upper?: boolean }) {
   const [draft, setDraft] = useState<string | null>(null);
@@ -229,6 +356,9 @@ export interface ColorPickerProps<P extends PickerPaint> {
   onSwatchSetChange?: (id: string) => void;
   /** The Libraries tab: the editor's variables and styles */
   libraries?: ReactNode;
+  /** The hex field's suggestions (Figma: the file's colour variables as one types); a pick binds `onPickVariable` */
+  colorVariables?: ColorVariableOption[];
+  onPickVariable?: (id: string) => void;
   initialTab?: "custom" | "libraries";
   /** IMAGE: what to preview, and the "Choose image…" action */
   imageUrl?: string | null;
@@ -283,7 +413,7 @@ export interface ColorPickerProps<P extends PickerPaint> {
  */
 export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
   useT();
-  const { value, onChange, onCancel, onClose, anchor, placement = "left-of-panel", paintTypes, disabledTypes, documentColors = [], swatchSets = [], swatchSet: controlledSet, onSwatchSetChange, libraries, initialTab = "custom", imageUrl, onChooseImage, onMakeImage, onRotateGradient, contrastBackground, contrastCategory = "graphics", imageControls, imageAction, pattern, onShaders, shader, offsetX = -1, colorModel, onColorModelChange, stop: controlledStop, onStopChange, headerActions, static: isStatic } = props;
+  const { value, onChange, onCancel, onClose, anchor, placement = "left-of-panel", paintTypes, disabledTypes, documentColors = [], swatchSets = [], swatchSet: controlledSet, onSwatchSetChange, libraries, colorVariables, onPickVariable, initialTab = "custom", imageUrl, onChooseImage, onMakeImage, onRotateGradient, contrastBackground, contrastCategory = "graphics", imageControls, imageAction, pattern, onShaders, shader, offsetX = -1, colorModel, onColorModelChange, stop: controlledStop, onStopChange, headerActions, static: isStatic } = props;
   const [tab, setTab] = useState(initialTab);
   // "Check color contrast" on or off and the level asked for: kept, as Figma's user settings
   // (`color_picker_show_color_contrast`, `color_picker_color_contrast_level`); the category is chosen per picker.
@@ -569,9 +699,9 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
         return (
           <>
             <span className={styles.part}>
-              <CommitText
-                label={t("Color")}
-                upper
+              <HexField
+                variables={colorVariables}
+                onPickVariable={onPickVariable}
                 value={hexDigits(rgbToHex(target))}
                 onCommit={(raw) => {
                   // Figma's colour string: 1–8 hex digits, a name, rgb() / hsl() / oklch()…; its alpha only when typed.
