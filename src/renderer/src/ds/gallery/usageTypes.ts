@@ -1,6 +1,6 @@
 /**
- * The usage index's shape (`npm run ds:usages` → usages.generated.json, read by the Gallery's "Usages in the app" and
- * "Not from the design system" sections). The scanner is tools/ds-usages/scan.ts.
+ * The usage index's shape (`npm run ds:usages` → usages.generated.json, read by the Gallery's Developer page: each ds
+ * component's distinct looks and the hand-made controls that look like it). The scanner is tools/ds-usages/scan.ts.
  */
 
 /** Where a usage is: a path from the repository's root and its 1-based line. */
@@ -24,12 +24,29 @@ export interface DsVariant {
   locs: UsageLoc[];
 }
 
+/**
+ * One visually distinct look of a ds component: its usages collapsed by the props that change how it looks (variant,
+ * tone, size, an icon or prefix given, disabled, width style …); text, handlers, data and run-time props left out.
+ */
+export interface DsLook {
+  /** The appearance props: a literal ("large"), "fixed" / "hug" for a width, "✓" for an icon, prefix, suffix or unit given, "dynamic" for a variant or tone chosen at run time */
+  props: Record<string, string>;
+  /** The literal props of its most used usage, to render the sample with */
+  sample: Record<string, SampleValue>;
+  text?: string;
+  count: number;
+  /** How many distinct prop combinations (variants) it collapses */
+  variants: number;
+  locs: UsageLoc[];
+}
+
 export interface DsComponentUsage {
   name: string;
   count: number;
   /** In how many files */
   files: number;
-  variants: DsVariant[];
+  /** Most used first */
+  looks: DsLook[];
 }
 
 /** A hand-made control: one tag styled by one CSS module class (or none). */
@@ -59,6 +76,10 @@ export interface CustomControl {
   similarWhy?: string;
   /** The class's own box (height, width, padding, radius), resolved to px where a token says */
   box?: Record<string, string>;
+  /** The `similarTo` component's props that would replace it (variant, size, icon …) */
+  suggest?: Record<string, SampleValue>;
+  /** The index in that component's `looks` of the look `suggest` already is in the app, if any */
+  lookIndex?: number;
 }
 
 export interface UsageIndex {

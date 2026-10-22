@@ -1,39 +1,67 @@
 @layer app {
-  .block { padding: var(--ds-space-6) var(--ds-space-6) var(--ds-space-4); border-bottom: 1px solid var(--figma-color-border); background: var(--figma-color-bg); color: var(--figma-color-text); }
-  .head { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--ds-space-2) var(--ds-space-4); margin-bottom: var(--ds-space-4); }
-  .title { margin: 0; font: var(--ds-font-heading-medium); letter-spacing: var(--ds-tracking-heading-medium); }
-  .summary { color: var(--figma-color-text-secondary); }
-  .summary strong { color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); }
-  .hint { color: var(--figma-color-text-tertiary); font: var(--ds-font-code); }
-  .index { display: flex; flex-wrap: wrap; gap: var(--ds-space-1); margin-bottom: var(--ds-space-6); }
-  .indexLink { display: inline-flex; align-items: center; gap: var(--ds-space-1); height: var(--ds-size-control); padding: 0 var(--ds-space-2); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); color: var(--figma-color-text); text-decoration: none; }
-  .indexLink:hover { background: var(--figma-color-bg-tertiary); }
-  .indexCount { color: var(--figma-color-text-secondary); }
+  /* The Developer page: the component list on the left, the selected one on the right; each scrolls on its own */
+  .page { display: grid; grid-template-columns: 280px minmax(0, 1fr); box-sizing: border-box; height: calc(100vh - 48px); min-height: 480px; background: var(--figma-color-bg); color: var(--figma-color-text); }
 
-  .component { margin-bottom: var(--ds-space-8); scroll-margin-top: var(--ds-space-4); }
-  .componentHead { display: flex; align-items: baseline; gap: var(--ds-space-3); margin-bottom: var(--ds-space-3); padding-bottom: var(--ds-space-1); border-bottom: 1px solid var(--figma-color-border); }
-  .componentName { margin: 0; font: var(--ds-font-body-large-strong); letter-spacing: var(--ds-tracking-body-large-strong); }
-  .componentMeta { color: var(--figma-color-text-secondary); }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--ds-space-3); }
-  .more { margin-top: var(--ds-space-2); }
+  .sidebar { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--figma-color-border); }
+  .search { flex: none; padding: var(--ds-space-3) var(--ds-space-3) var(--ds-space-2); }
+  .summary { flex: none; padding: 0 var(--ds-space-4) var(--ds-space-2); color: var(--figma-color-text-secondary); }
+  .list { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 var(--ds-space-2) var(--ds-space-4); }
+  .hint { flex: none; padding: var(--ds-space-2) var(--ds-space-4); border-top: 1px solid var(--figma-color-border); color: var(--figma-color-text-tertiary); font: var(--ds-font-code); }
 
-  .card { display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium-large); background: var(--figma-color-bg); overflow: hidden; }
-  .stage { position: relative; display: flex; align-items: center; justify-content: center; min-height: 72px; max-height: 200px; padding: var(--ds-space-4); overflow: hidden; background: var(--figma-color-bg-secondary); }
-  .stageInner { max-width: 100%; min-width: 0; }
-  .noLive { color: var(--figma-color-text-tertiary); font: var(--ds-font-body-small); letter-spacing: var(--ds-tracking-body-small); text-align: center; }
-  .info { display: flex; flex-direction: column; gap: var(--ds-space-1-5); padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-3); }
-  .row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--ds-space-1); }
-  .count { margin-left: auto; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); white-space: nowrap; }
-  .prop { display: inline-flex; max-width: 100%; padding: 0 var(--ds-space-1); border-radius: var(--ds-radius-small); background: var(--figma-color-bg-secondary); color: var(--figma-color-text-secondary); font: var(--ds-font-code); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .prop b { color: var(--figma-color-text); font-weight: 500; }
-  .propNone { color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); }
-  .source { color: var(--figma-color-text-secondary); font: var(--ds-font-code); overflow-wrap: anywhere; }
-  .why { color: var(--figma-color-text-secondary); }
+  .group { padding-top: var(--ds-space-2); }
+  .groupHead { display: flex; align-items: center; gap: var(--ds-space-1); width: 100%; height: var(--ds-size-control-large); padding: 0 var(--ds-space-2) 0 0; border: 0; border-radius: var(--ds-radius-medium); background: none; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); text-align: left; }
+  .groupHead:hover { background: var(--figma-color-bg-hover); }
+  .groupHead > svg { flex: none; color: var(--figma-color-icon-secondary); }
+  .groupTitle { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .groupCount { color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); }
 
-  .locs summary { color: var(--figma-color-text-brand); cursor: default; user-select: none; }
-  .locs summary:hover { text-decoration: underline; }
-  .locList { margin: var(--ds-space-1) 0 0; padding: 0; list-style: none; max-height: 180px; overflow: auto; color: var(--figma-color-text-secondary); font: var(--ds-font-code); }
+  .item { display: flex; flex-direction: column; justify-content: center; gap: 0; width: 100%; min-height: 40px; padding: var(--ds-space-1) var(--ds-space-2) var(--ds-space-1) var(--ds-space-5); border: 0; border-radius: var(--ds-radius-medium); background: none; color: var(--figma-color-text); text-align: left; }
+  .item:hover { background: var(--figma-color-bg-hover); }
+  .item[aria-current] { background: var(--figma-color-bg-selected); }
+  .itemName { font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .itemMeta { color: var(--figma-color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item[aria-current] .itemMeta { color: var(--figma-color-text-brand); }
+
+  .pane { min-width: 0; min-height: 0; overflow: auto; padding: var(--ds-space-6) var(--ds-space-8) var(--ds-space-16); user-select: text; }
+  .paneHead { max-width: 880px; margin-bottom: var(--ds-space-6); }
+  .title { margin: 0; font: var(--ds-font-heading-large); letter-spacing: var(--ds-tracking-heading-large); }
+  .about { margin: var(--ds-space-1) 0 0; font: var(--ds-font-body-large); letter-spacing: var(--ds-tracking-body-large); }
+  .stats { margin: var(--ds-space-1) 0 0; color: var(--figma-color-text-secondary); }
+  .heading { display: flex; align-items: baseline; gap: var(--ds-space-2); max-width: 880px; margin: var(--ds-space-8) 0 var(--ds-space-1); padding-bottom: var(--ds-space-2); border-bottom: 1px solid var(--figma-color-border); font: var(--ds-font-heading-medium); letter-spacing: var(--ds-tracking-heading-medium); }
+  .paneHead + .heading { margin-top: 0; }
+  .stats { display: flex; align-items: center; flex-wrap: wrap; gap: 0 var(--ds-space-1); }
+  .headingEn { color: var(--figma-color-text-tertiary); font: var(--ds-font-body-large); letter-spacing: var(--ds-tracking-body-large); }
+  .note { max-width: 880px; margin: 0 0 var(--ds-space-4); color: var(--figma-color-text-secondary); }
+
+  /* A look: one large live sample, its words, where it is */
+  .look { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: var(--ds-space-4); max-width: 880px; margin-bottom: var(--ds-space-3); }
+  .stage { position: relative; contain: layout paint; display: flex; align-items: center; justify-content: center; min-height: 104px; padding: var(--ds-space-4); border-radius: var(--ds-radius-large); background: var(--figma-color-bg-secondary); overflow: hidden; }
+  /* Drawn half again as large, so a 2px difference shows */
+  .stageInner { display: flex; align-items: center; justify-content: center; max-width: 100%; min-width: 0; zoom: 1.5; }
+  .noLive { color: var(--figma-color-text-tertiary); text-align: center; zoom: calc(1 / 1.5); }
+  .lookInfo { display: flex; flex-direction: column; align-items: flex-start; gap: var(--ds-space-1); min-width: 0; padding-top: var(--ds-space-2); }
+  .caption { font: var(--ds-font-body-large-strong); letter-spacing: var(--ds-tracking-body-large-strong); }
+  .code { max-width: 100%; padding: 0 var(--ds-space-1); border-radius: var(--ds-radius-small); background: var(--figma-color-bg-secondary); color: var(--figma-color-text-secondary); font: var(--ds-font-code); overflow-wrap: anywhere; }
+
+  .places summary { color: var(--figma-color-text-brand); cursor: default; user-select: none; }
+  .places summary strong { font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .places summary:hover { text-decoration: underline; }
+  .locList { margin: var(--ds-space-1) 0 0; padding: 0; list-style: none; max-height: 200px; overflow: auto; color: var(--figma-color-text-secondary); font: var(--ds-font-code); }
   .locList li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-  .empty { padding: var(--ds-space-4) 0; color: var(--figma-color-text-secondary); }
+  /* A hand-made look-alike beside the ds look that would replace it */
+  .alike { max-width: 880px; margin-bottom: var(--ds-space-6); padding-bottom: var(--ds-space-6); border-bottom: 1px solid var(--figma-color-border); }
+  .pair { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: end; gap: var(--ds-space-3); }
+  .side { display: flex; flex-direction: column; gap: var(--ds-space-1); min-width: 0; margin: 0; }
+  .sideLabel { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .sideWarn { color: var(--figma-color-text-warning); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+  .pairArrow { align-self: center; margin-top: var(--ds-space-5); color: var(--figma-color-icon-tertiary); }
+  .alikeInfo { display: flex; flex-direction: column; align-items: flex-start; gap: var(--ds-space-1); margin-top: var(--ds-space-3); }
+  .replace { font: var(--ds-font-body-large-strong); letter-spacing: var(--ds-tracking-body-large-strong); }
+  .replace code { padding: 0 var(--ds-space-1); border-radius: var(--ds-radius-small); background: var(--figma-color-bg-brand-tertiary); color: var(--figma-color-text-brand); font: var(--ds-font-code); }
+  .meta { color: var(--figma-color-text-secondary); }
+  .diff { margin: 0; padding: 0 0 0 var(--ds-space-4); color: var(--figma-color-text); }
+  .source { color: var(--figma-color-text-secondary); font: var(--ds-font-code); overflow-wrap: anywhere; }
+
+  .empty { max-width: 880px; padding: var(--ds-space-4) 0; color: var(--figma-color-text-secondary); }
 }

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { classInfo, scan, similarTo } from "./scan";
+import { classInfo, lookOf, looksOf, matchLook, scan, similarTo, suggestFor } from "./scan";
 import type { UsageIndex } from "../../src/renderer/src/ds/gallery/usageTypes";
 
 /** A tiny app: a ds, two screens, a CSS module, a test file and a dev tool that must be left out. */
@@ -63,29 +63,39 @@ describe("ds:usages scan", () => {
     expect(index.files).toBe(1);
   });
 
-  it("groups each ds component's uses by their visual props", () => {
+  it("collapses each ds component's uses into its visually distinct looks", () => {
     const button = index.ds.find((c) => c.name === "Button")!;
     expect(button.count).toBe(5);
     expect(button.files).toBe(1);
-    const keys = button.variants.map((v) => v.props);
-    // A computed `disabled` is a run-time state, not a variant: the first two are one
-    expect(keys).toContainEqual({ variant: "primary", children: "text" });
-    expect(button.variants.find((v) => v.props.variant === "primary" && !v.props.disabled)!.count).toBe(2);
-    expect(keys).toContainEqual({ variant: "primary", disabled: "true", children: "text" });
-    // A choice of literals, an icon given, the namespace import
-    expect(keys).toContainEqual({ variant: "secondary | ghost", icon: "✓", children: "text" });
+    const keys = button.looks.map((l) => l.props);
+    // A computed `disabled` is a run-time state, not a look: the first two are one; children text is not a look
+    const primary = button.looks.find((l) => l.props.variant === "primary" && !l.props.disabled)!;
+    expect(primary.props).toEqual({ variant: "primary" });
+    expect(primary.count).toBe(2);
+    expect(primary.text).toBe("Save");
+    expect(keys).toContainEqual({ variant: "primary", disabled: "true" });
+    // A choice of literals takes its first, an icon given, the namespace import
+    expect(keys).toContainEqual({ variant: "secondary", icon: "✓" });
     expect(keys).toContainEqual({ variant: "link" });
-    const choice = button.variants.find((v) => v.props.variant === "secondary | ghost")!;
+    const choice = button.looks.find((l) => l.props.variant === "secondary")!;
     expect(choice.sample).toEqual({ variant: "secondary", icon: "24.plus.small" });
     expect(choice.text).toBe("Add");
-    expect(button.variants.find((v) => v.props.variant === "primary" && !v.props.disabled)!.text).toBe("Save");
     expect(choice.locs).toEqual([{ file: "src/app/Panel.tsx", line: 11 }]);
+    // Most used first
+    expect(button.looks[0]).toBe(primary);
   });
 
   it("follows renamed imports", () => {
     const ib = index.ds.find((c) => c.name === "IconButton")!;
-    expect(ib.variants[0].props).toEqual({ icon: "✓", label: "✓", tone: "secondary" });
-    expect(ib.variants[0].sample).toEqual({ icon: "24.more", label: "More", tone: "secondary" });
+    expect(ib.looks[0].props).toEqual({ icon: "✓", tone: "secondary" });
+    expect(ib.looks[0].sample).toEqual({ icon: "24.more", label: "More", tone: "secondary" });
+  });
+
+  it("says what would replace a look-alike, and which look the app already has", () => {
+    const icon = index.custom.find((c) => c.className === "iconBtn" && c.tag === "button")!;
+    expect(icon.suggest).toEqual({ icon: "24.close" });
+    // The app's only IconButton look is the secondary-toned one: not this
+    expect(icon.lookIndex).toBeUndefined();
   });
 
   it("indexes hand-made controls by their CSS module class", () => {
@@ -125,5 +135,32 @@ describe("helpers", () => {
     expect(similarTo({ tag: "select", className: null, hasText: false, hasIcon: false })?.name).toBe("Select");
     expect(similarTo({ tag: "input", type: "range", className: null, hasText: false, hasIcon: false })?.name).toBe("Slider");
     expect(similarTo({ tag: "div[role=button]", role: "button", className: "card", hasText: false, hasIcon: false })).toBeNull();
+    expect(similarTo({ tag: "textarea", className: null, hasText: false, hasIcon: false })?.name).toBe("TextArea");
+  });
+
+  it("lookOf keeps only what changes the look", () => {
+    expect(lookOf({ variant: "ghost | outlined", size: "large", label: "✓", icon: "✓", children: "text", className: "custom", width: "160", disabled: "dynamic", tone: "dynamic" })).toEqual({ variant: "ghost", size: "large", icon: "✓", width: "fixed", tone: "dynamic" });
+  });
+
+  it("looksOf merges variants that look the same", () => {
+    const looks = looksOf([
+      { props: { variant: "primary", children: "text" }, sample: { variant: "primary" }, text: "A", count: 3, locs: [{ file: "b.tsx", line: 2 }] },
+      { props: { variant: "primary", children: "dynamic", placeholder: "✓" }, sample: { variant: "primary", placeholder: "x" }, count: 1, locs: [{ file: "a.tsx", line: 1 }] },
+      { props: { variant: "ghost" }, sample: { variant: "ghost" }, count: 2, locs: [] },
+    ]);
+    expect(looks.map((l) => [l.props, l.count, l.variants])).toEqual([
+      [{ variant: "primary" }, 4, 2],
+      [{ variant: "ghost" }, 2, 1],
+    ]);
+    expect(looks[0].locs).toEqual([{ file: "a.tsx", line: 1 }, { file: "b.tsx", line: 2 }]);
+    expect(looks[0].sample).toEqual({ variant: "primary", placeholder: "x" });
+  });
+
+  it("suggestFor guesses a Button's variant and size from its class and box", () => {
+    expect(suggestFor({ className: "link", hasText: true, hasIcon: false, box: { padding: "0" } }, "Button")).toEqual({ variant: "link" });
+    expect(suggestFor({ className: "action", hasText: true, hasIcon: true, icon: "24.plus", box: { height: "32px", background: "none", border: "0" } }, "Button")).toEqual({ variant: "ghost", size: "large", icon: "24.plus" });
+    expect(suggestFor({ className: "save", hasText: true, hasIcon: false, box: { height: "24px", background: "var(--figma-color-bg-brand)" } }, "Button")).toEqual({ variant: "primary" });
+    expect(matchLook([{ props: { variant: "ghost", size: "large", icon: "✓" }, sample: {}, count: 1, variants: 1, locs: [] }], { variant: "ghost", size: "large", icon: "24.plus" })).toBe(0);
+    expect(matchLook([{ props: { variant: "ghost" }, sample: {}, count: 1, variants: 1, locs: [] }], { variant: "ghost", size: "large" })).toBe(-1);
   });
 });

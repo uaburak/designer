@@ -1,6 +1,6 @@
 /**
- * `npm run ds:usages`: writes the usage index the Gallery's "Usages in the app" and "Not from the design system"
- * sections read (src/renderer/src/ds/gallery/usages.generated.json). Run it again after changing the app's UI.
+ * `npm run ds:usages`: writes the usage index the Gallery's Developer page
+ * reads (src/renderer/src/ds/gallery/usages.generated.json). Run it again after changing the app's UI.
  */
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -13,6 +13,6 @@ const index = scan({ root, src, ds: join(src, "ds"), exclude: ["engine/Playgroun
 const out = join(src, "ds/gallery/usages.generated.json");
 writeFileSync(out, JSON.stringify(index) + "\n");
 const uses = index.ds.reduce((n, c) => n + c.count, 0);
-const variants = index.ds.reduce((n, c) => n + c.variants.length, 0);
+const looks = index.ds.reduce((n, c) => n + c.looks.length, 0);
 const custom = index.custom.reduce((n, c) => n + c.count, 0);
-console.log(`ds:usages — ${index.files} files: ${index.ds.length} ds components (${uses} uses, ${variants} variants), ${index.custom.length} hand-made controls (${custom} uses) → ${out}`);
+console.log(`ds:usages — ${index.files} files: ${index.ds.length} ds components (${uses} uses, ${looks} distinct looks), ${index.custom.length} hand-made controls (${custom} uses) → ${out}`);

@@ -7,7 +7,7 @@
 import ts from "typescript";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import type { CustomControl, DsComponentUsage, DsVariant, SampleValue, UsageIndex } from "../../src/renderer/src/ds/gallery/usageTypes";
+import type { CustomControl, DsComponentUsage, DsLook, DsVariant, SampleValue, UsageIndex } from "../../src/renderer/src/ds/gallery/usageTypes";
 
 export interface ScanOptions {
   /** The repository's root: locations are relative to it */
@@ -169,11 +169,11 @@ export function similarTo(c: Pick<CustomControl, "tag" | "type" | "role" | "clas
   const h = parseFloat(box.height ?? ""), w = parseFloat(box.width ?? "");
   const size = h && w ? `${w}×${h}` : h ? `${h} high` : "";
   if (c.tag === "select") return { name: "Select", why: "a native <select>" };
-  if (c.tag === "textarea") return { name: "TextInput", why: "a text area" };
+  if (c.tag === "textarea") return { name: "TextArea", why: "a text area" };
   if (c.tag === "input") {
     const type = c.type ?? "text";
     if (type === "checkbox") return /switch|toggle/.test(cls) ? { name: "Switch", why: "a checkbox styled as a switch" } : { name: "Checkbox", why: "a native checkbox" };
-    if (type === "radio") return { name: "Radio", why: "a native radio" };
+    if (type === "radio") return { name: "RadioGroup", why: "a native radio" };
     if (type === "range") return { name: "Slider", why: "a range input" };
     if (type === "color") return { name: "ColorInput", why: "a colour input" };
     if (type === "file" || type === "hidden") return null;
@@ -195,6 +195,93 @@ export function similarTo(c: Pick<CustomControl, "tag" | "type" | "role" | "clas
     if (c.hasText && c.hasIcon) return { name: "Button", why: "a button with an icon and text" };
   }
   return null;
+}
+
+// ── Looks ─────────────────────────────────────────────────────────────────────
+
+/** Props whose value changes how a component looks */
+const LOOK = new Set(["variant", "tone", "size", "shape", "fullWidth", "width", "disabled", "showLabel", "hideLabel", "prefixTone", "floating", "secondary", "compact", "chevron", "header", "collapsible", "axis", "side", "boxLabel", "pad"]);
+/** Props whose presence changes how it looks (an icon is any prop named …icon…) */
+const PRESENCE = new Set(["prefix", "suffix", "unit"]);
+/** A run-time choice of these is still a look of its own ("chosen at run time") */
+const KEEP_DYNAMIC = new Set(["variant", "tone"]);
+
+/** A variant's appearance props: what makes two usages look different (see DsLook). */
+export function lookOf(props: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(props)) {
+    if (isIconProp(k) && !/label/i.test(k)) {
+      if (v === "✓") out.icon = "✓";
+    } else if (PRESENCE.has(k)) {
+      if (v === "✓") out[k] = "✓";
+    } else if (LOOK.has(k)) {
+      if (v === "dynamic") {
+        if (KEEP_DYNAMIC.has(k)) out[k] = "dynamic";
+        continue;
+      }
+      const first = v.split(" | ")[0];
+      if (k === "disabled" && first !== "true") continue;
+      out[k] = k === "width" && /^-?\d/.test(first) ? "fixed" : first;
+    }
+  }
+  return out;
+}
+
+const lookKey = (p: Record<string, string>) => JSON.stringify(Object.keys(p).sort().map((k) => [k, p[k]]));
+
+/** A component's variants collapsed into its distinct looks, most used first. */
+export function looksOf(variants: DsVariant[]): DsLook[] {
+  const looks = new Map<string, DsLook>();
+  for (const v of [...variants].sort((a, b) => b.count - a.count)) {
+    const props = lookOf(v.props);
+    const key = lookKey(props);
+    const l = looks.get(key);
+    if (!l) {
+      looks.set(key, { props, sample: { ...v.sample }, ...(v.text !== undefined ? { text: v.text } : {}), count: v.count, variants: 1, locs: [...v.locs] });
+      continue;
+    }
+    l.count += v.count;
+    l.variants++;
+    for (const [k, val] of Object.entries(v.sample)) if (!(k in l.sample) && !LOOK.has(k)) l.sample[k] = val;
+    if (l.text === undefined && v.text !== undefined) l.text = v.text;
+    for (const loc of v.locs) if (l.locs.length < MAX_LOCS) l.locs.push(loc);
+  }
+  for (const l of looks.values()) l.locs.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
+  return [...looks.values()].sort((a, b) => b.count - a.count);
+}
+
+const transparent = (v: string | undefined) => v === undefined || /^(none|transparent|0)$/.test(v.trim());
+
+/** The ds props that would draw a hand-made look-alike: a Button's variant from its class and fill, a size from its height, an icon if it has one. */
+export function suggestFor(c: Pick<CustomControl, "className" | "hasText" | "hasIcon" | "icon" | "box">, name: string): Record<string, SampleValue> {
+  const cls = (c.className ?? "").toLowerCase();
+  const box = c.box ?? {};
+  const h = parseFloat(box.height ?? box["min-height"] ?? "");
+  const out: Record<string, SampleValue> = {};
+  if (name === "Button") {
+    const bg = box.background;
+    const flat = transparent(bg) && transparent(box.border);
+    if (/link|learn|more|older/.test(cls) || (flat && /^0(px)?$/.test(box.padding ?? "") && !h)) out.variant = "link";
+    else if (/danger|destructive|delete/.test(cls)) out.variant = "destructive";
+    else if (/primary|cta|submit|confirm/.test(cls) || /bg-brand/.test(bg ?? "")) out.variant = "primary";
+    else if (flat) out.variant = "ghost";
+    else out.variant = "secondary";
+    if (h >= 28) out.size = "large";
+    if (c.hasIcon && c.hasText) out.icon = c.icon ?? "24.plus";
+  } else if (name === "IconButton") {
+    if (h >= 28 || parseFloat(box.width ?? "") >= 28) out.size = "large";
+    out.icon = c.icon ?? "24.more";
+  } else if (name === "TextInput" || name === "Select" || name === "SearchField" || name === "NumericInput") {
+    if (h >= 28) out.size = "large";
+    if (name === "TextInput" && transparent(box.background) && transparent(box.border) && box.background !== undefined) out.variant = "ghost";
+  }
+  return out;
+}
+
+/** The look a suggestion already is in the app: same variant, size, tone and icon presence; not a disabled one. */
+export function matchLook(looks: DsLook[], suggest: Record<string, SampleValue>): number {
+  const want = { variant: suggest.variant, size: suggest.size, tone: suggest.tone, icon: suggest.icon !== undefined ? "✓" : undefined };
+  return looks.findIndex((l) => !l.props.disabled && (Object.keys(want) as (keyof typeof want)[]).every((k) => (want[k] === undefined ? l.props[k] === undefined || (k === "size" && l.props[k] === "default") : String(want[k]) === l.props[k])));
 }
 
 // ── The scan ──────────────────────────────────────────────────────────────────
@@ -418,8 +505,16 @@ export function scan(o: ScanOptions): UsageIndex {
   }
 
   const dsOut: DsComponentUsage[] = [...ds]
-    .map(([name, e]) => ({ name, count: e.count, files: e.files.size, variants: [...e.variants.values()].sort((a, b) => b.count - a.count) }))
+    .map(([name, e]) => ({ name, count: e.count, files: e.files.size, looks: looksOf([...e.variants.values()]) }))
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  // What would replace each look-alike, and whether the app already has that look
+  for (const c of custom.values()) {
+    if (!c.similarTo) continue;
+    c.suggest = suggestFor(c, c.similarTo);
+    const looks = dsOut.find((d) => d.name === c.similarTo)?.looks ?? [];
+    const i = matchLook(looks, c.suggest);
+    if (i >= 0) c.lookIndex = i;
+  }
   const customOut: CustomControl[] = [...custom.values()]
     .map(({ files: _files, ...c }) => c)
     .sort((a, b) => b.count - a.count || (a.cssFile ?? "").localeCompare(b.cssFile ?? "") || (a.className ?? "").localeCompare(b.className ?? ""));
