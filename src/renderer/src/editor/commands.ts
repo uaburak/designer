@@ -28,7 +28,9 @@ import { removeAllAutoLayout, suggestAutoLayout } from "./panels/design/layoutAc
 import type { Guid, NodeChange } from "@/engine/codec";
 import { ANIMATION_STYLES, type KeyframeField } from "@shared/motion/types";
 import { applyStyle } from "./motion/presets";
-import { COMPONENT_COMMAND, canPushChanges, goToMainComponent, instanceChanges, mainOf, pageOf, resetChanges, returnToInstance, selectedInstance } from "./components";
+import { COMPONENT_COMMAND, canPushChanges, goToMainComponent, instanceChanges, mainOf, pageOf, resetChanges, returnToInstance, selectedInstance, selectionNodes, setOf } from "./components";
+import { isMultiEdit, setMultiEdit } from "./panels/design/multiEdit";
+import { isComponentSet } from "./model/components";
 import { collapsedLayers } from "./model/layerTree";
 import { openFind, stepFind } from "./find";
 import { adjustText, syncViewOptions, type TextAdjust } from "./canvasTools";
@@ -193,6 +195,13 @@ const theme = (id: string, label: string, preference: ThemePreference): EditorCo
  * An engine command a later milestone brings (E4's booleans, Flatten, masks…): runs and enables itself once
  * abi.ts names it and the engine says it can run; until then shown, disabled.
  */
+/** The component set selected, or the one set of the variants selected (Multi-edit variants'). */
+function selectedVariantSet(ed: EditorController): Guid | null {
+  const nodes = selectionNodes(ed);
+  const sets = new Set(nodes.map((n) => (isComponentSet(n) ? n.guid : setOf(ed, n)?.guid ?? null)));
+  return sets.size === 1 ? [...sets][0] : null;
+}
+
 function pending(id: string, label: string, name: string, keys?: KeyCombo[], extra: Partial<EditorCommand> = {}): EditorCommand {
   return {
     id,
@@ -736,6 +745,18 @@ export const COMMANDS: EditorCommand[] = [
   }),
   pending("object.combine-as-variants", "Combine as variants", COMPONENT_COMMAND.combine),
   pending("object.add-variant", "Add variant", COMPONENT_COMMAND.addVariant),
+  {
+    // Live (the owner's tooltip, 2026-10-22): "Multi-edit variants  Q" in a set's or a variant's header
+    id: "object.multi-edit-variants",
+    label: "Multi-edit variants",
+    keys: [k("KeyQ")],
+    run: (ed) => {
+      const set = selectedVariantSet(ed);
+      if (set) setMultiEdit(set, !isMultiEdit(set));
+    },
+    enabled: (ed) => !!selectedVariantSet(ed),
+    checked: (ed) => isMultiEdit(selectedVariantSet(ed)),
+  },
   pending("object.detach-instance", "Detach instance", COMPONENT_COMMAND.detach, [k("KeyB", { mod: true, alt: true })]),
   {
     id: "object.go-to-main-component",

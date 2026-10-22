@@ -675,10 +675,11 @@ export function ComponentBlock({ sel }: { sel: ComponentSelection }) {
   const variantError = sel.kind === "set" || sel.kind === "variant" ? variantErrorOf(ed, { kind: sel.kind, ref: node.guid }) : null;
   const add = command("object.add-variant");
   const matching = command("edit.select-matching");
+  const multiEdit = command("object.multi-edit-variants");
   const action = (a: ComponentHeaderAction) => {
     switch (a) {
       case "multi-edit":
-        return <ToggleIconButton key={a} icon="24.multi-edit.small" label={t("Multi-edit variants")} tone="secondary" pressed={multi} disabled={!set} onPressedChange={(on) => set && setMultiEdit(set.guid, on)} />;
+        return <ToggleIconButton key={a} icon="24.multi-edit.small" label={t("Multi-edit variants")} shortcut={shortcutOf(multiEdit)} tone="secondary" pressed={multi} disabled={!set} onPressedChange={(on) => set && setMultiEdit(set.guid, on)} />;
       case "add-variant":
         return <IconButton key={a} icon="24.add-variant.small" label={t(add.label)} tone="secondary" disabled={!isEnabled(ed, add)} onClick={() => runEditorCommand(ed, add.id)} />;
       case "matching":
