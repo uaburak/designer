@@ -102,6 +102,7 @@ describe("editor performance rules (wasm, headless)", () => {
     // A first read derives the main's page on an engine with lazy per-page derivation (its COMPONENTS_CHANGED is a
     // document change); the counting starts after it.
     instanceInfo(ed, inst);
+    await Promise.resolve(); // its changes are dispatched after the read (Engine.afterRead)
     const spy = vi.spyOn(engine, "componentInfo");
     // The header's menu, the properties, Push changes and Reset ▸ all ask about the same instance.
     instanceInfo(ed, inst);
