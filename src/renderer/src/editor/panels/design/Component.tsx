@@ -260,6 +260,8 @@ export function InstanceHeader({ instance }: { instance: CNode }) {
       </div>
       <button type="button" className={styles.fromRow} aria-label={t(goTo.label)} {...tooltipProps(t(goTo.label))} disabled={!isEnabled(ed, goTo)} onClick={() => runEditorCommand(ed, goTo.id)}>
         <span className={styles.fromText}>{main ? from : t("Missing component")}</span>
+        {/* Live (2026-10-22): the component glyph after "From this file" */}
+        {main && <Icon name="16.instance" className={styles.fromIcon} />}
       </button>
       <InstanceProperties instance={instance} />
       {picker && <ComponentPicker anchor={picker} title={t("Swap instance")} current={main?.guid ?? null} onPick={(a) => swapTo(ed, [instance.guid], a, main)} onClose={closePicker} />}
@@ -295,7 +297,7 @@ export function InstanceProperties({ instance }: { instance: CNode }) {
   const nested = allNested === instance.guid ? info.nested : shownRows(info.nested);
   return (
     <div className={styles.instanceBody} data-instance-properties="">
-      <PropertyRows info={info} />
+      <PropertyRows info={info} fold={false} />
       {nested.map((n) => (
         <div key={n.id} className={styles.nested} data-nested-instance={n.id}>
           <div className={styles.nestedHeader}>
@@ -350,10 +352,10 @@ function ShowMoreRows({ count, onClick }: { count: number; onClick: () => void }
   );
 }
 
-function PropertyRows({ info }: { info: InstanceInfo }) {
+function PropertyRows({ info, fold = true }: { info: InstanceInfo; /** Live (2026-10-22): an instance's own eight properties all show; a nested instance's fold */ fold?: boolean }) {
   // The instance's rows, variant properties first (instanceInfo's order); unfolded for this instance only.
   const [all, setAll] = useState<string | null>(null);
-  const rows = all === info.instance.guid ? info.rows : shownRows(info.rows);
+  const rows = !fold || all === info.instance.guid ? info.rows : shownRows(info.rows);
   return (
     <>
       {rows.map((r) => (
@@ -416,6 +418,7 @@ function InstancePropertyRow({ info, row }: { info: InstanceInfo; row: PropertyR
             <button type="button" className={styles.swapField} aria-labelledby={labelId} data-swap-property={def.name} aria-expanded={!!picker} onClick={(e) => togglePicker(e.currentTarget)}>
               <Icon name="16.instance" className={styles.swapIcon} />
               <span className={styles.headerText}>{current ? assetLabel(current.name ?? "") : t("None")}</span>
+              <Icon name="16.chevron.down" className={styles.chevron} />
             </button>
             {picker && (
               <ComponentPicker

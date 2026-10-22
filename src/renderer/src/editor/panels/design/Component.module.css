@@ -179,9 +179,8 @@
     outline: none;
   }
   .instanceName:hover, .instanceName[data-open] { background: var(--figma-color-bg-hover); }
-  /* (Live: the name alone at rest; its chevron shows on hover — unverified.) */
-  .nameChevron { flex: none; color: var(--figma-color-icon-secondary); visibility: hidden; }
-  .instanceName:hover .nameChevron, .instanceName[data-open] .nameChevron, .instanceName:focus-visible .nameChevron { visibility: visible; }
+  /* Live (2026-10-22): the chevron after the name at rest too */
+  .nameChevron { flex: none; color: var(--figma-color-icon-secondary); }
   .instanceName:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .fromRow {
     display: flex;
@@ -206,6 +205,7 @@
     outline: none;
   }
   .fromText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fromIcon { flex: none; margin-left: var(--ds-space-1); color: var(--figma-color-icon-secondary); }
   .fromRow:hover:not(:disabled) { background: var(--figma-color-bg-hover); color: var(--figma-color-text); }
   .fromRow:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
 
@@ -219,12 +219,16 @@
   .missingVariantBody { padding: 0 var(--ds-size-panel-pad-right) var(--ds-space-1) var(--ds-size-panel-pad-left); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
   .propRow {
     display: grid;
-    grid-template-columns: var(--ds-size-field) var(--ds-size-field) var(--ds-size-control);
+    /* Live (2026-10-22, a widened panel): the label and the control share the width as the panel's field columns do */
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) var(--ds-size-control);
     gap: var(--ds-space-2);
     align-items: center;
     min-height: var(--ds-size-control);
     padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left);
   }
+  /* Live: Apply variable shows on the row's hover (and while its picker is open) */
+  .propRow > [data-apply-variable] { visibility: hidden; }
+  .propRow:hover > [data-apply-variable], .propRow > [data-apply-variable][aria-expanded="true"], .propRow > [data-apply-variable]:focus-visible { visibility: visible; }
   .propLabel { min-width: 0; overflow: hidden; color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
   /* Figma's row overflow: "Show N more" under the four rows shown (its look is not captured: a row-high text button, G) */
   .showMoreRows {
