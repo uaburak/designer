@@ -470,15 +470,38 @@
   .mSection { display: flex; flex-direction: column; gap: var(--ds-space-1); }
   .mSectionHead { display: flex; align-items: center; justify-content: space-between; gap: var(--ds-space-2); min-height: var(--ds-size-control); padding-right: var(--ds-space-1); }
   .mList { display: flex; flex-direction: column; }
-  /* Sections apart by a line across the page; rows apart by a hairline inset to the text, hidden around a hovered row */
-  .psPage, .mPage { gap: 0; }
-  .psPage > * + *, .mPage > * + * { margin-top: var(--ds-space-3); padding-top: var(--ds-space-3); border-top: 1px solid var(--figma-color-border); }
-  .psPage > * + * { margin-inline: calc(var(--ds-space-2) * -1); padding-inline: var(--ds-space-2); }
-  .mSectionHead { padding-right: var(--ds-space-2); }
-  .mList > * { position: relative; }
-  .mList > * + *::before { position: absolute; top: 0; right: var(--ds-space-2); left: var(--ds-space-2); height: 1px; background: var(--figma-color-border); content: ""; pointer-events: none; }
-  .mList > :hover::before, .mList > :hover + *::before { opacity: 0; }
-  .mNote { margin: 0; padding: 0 var(--ds-space-2); color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); letter-spacing: var(--ds-tracking-body-small); }
+  /*
+   * Agent settings in the Layers panel's measure (LayerRow.module.css): rows on a 32 pitch, one line (the secondary text
+   * after the name), a 16 glyph in tertiary 8 from the name, the hover a 24 highlight 4 down with r 5; no lines between
+   * rows — sections apart by a line across the panel, each under an 11 strong title like "Layers".
+   */
+  .psPage { gap: 0; padding: 0 0 var(--ds-space-6); }
+  .mPage { gap: 0; }
+  .psPage > * + *, .mPage > * + * { margin-top: var(--ds-space-2); padding-top: var(--ds-space-2); border-top: 1px solid var(--figma-color-border); }
+  .psPage > :first-child { padding-top: var(--ds-space-2); }
+  .mSection { gap: 0; }
+  .mSectionHead { min-height: var(--ds-size-row); padding: 0 var(--ds-space-3); }
+  .mSectionHead .popSectionLabel, .mSection > .popSectionLabel { display: flex; align-items: center; min-height: var(--ds-size-row); padding: 0 var(--ds-space-3); color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .mSectionHead .popSectionLabel { padding: 0; }
+  .mList { padding: 0 var(--ds-size-row-inset); }
+  .mList > .mRow, .mList > .mRowNav { position: relative; isolation: isolate; flex-wrap: nowrap; gap: var(--ds-space-2); height: var(--ds-size-layer-row); min-height: 0; padding: 0 var(--ds-space-1); border-radius: 0; background: transparent; }
+  .mList > .mRowLink:hover { background: transparent; }
+  .mList > .mRowLink::before { position: absolute; z-index: -1; inset: var(--ds-space-1) 0; border-radius: var(--ds-radius-medium); content: ""; }
+  .mList > .mRowLink:hover::before { background: var(--figma-color-bg-hover); }
+  .mList .mRowIcon { width: var(--ds-space-4); height: var(--ds-space-4); color: var(--figma-color-icon-tertiary); }
+  .mList .mRowIcon > svg:not([data-agent-logo]) { width: var(--ds-space-6); height: var(--ds-space-6); flex: none; }
+  .mList .mRowDesc { display: block; }
+  .mList .mRowText { flex-direction: row; align-items: center; gap: var(--ds-space-1-5); }
+  .mList .mRowLine { flex: 0 1 auto; }
+  .mList .mRowTitle { font: var(--ds-font-body-medium-regular); letter-spacing: var(--ds-tracking-body-medium-regular); }
+  .mList .mRowDesc { flex: 1 1 0; color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium-regular); letter-spacing: var(--ds-tracking-body-medium-regular); }
+  .mList .mRowEnd { flex: none; }
+  .mList .rowChevron { color: var(--figma-color-icon-tertiary); }
+  .mList > .field { min-height: var(--ds-size-layer-row); padding: 0 var(--ds-space-1); }
+  .mList > .mEmpty { padding: var(--ds-space-2) var(--ds-space-1); }
+  .psPage .mAbout { padding: 0 var(--ds-space-3); }
+  .usageStack { padding: 0 var(--ds-space-4) var(--ds-space-2); }
+  .mNote { margin: 0; padding: var(--ds-space-1) var(--ds-space-3) var(--ds-space-2); color: var(--figma-color-text-tertiary); font: var(--ds-font-body-small); letter-spacing: var(--ds-tracking-body-small); }
   .mEmpty { display: flex; align-items: center; gap: var(--ds-space-2); margin: 0; padding: var(--ds-space-2); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
   .mRow { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-2); min-height: calc(var(--ds-space-8) + var(--ds-space-1)); padding: var(--ds-space-1) var(--ds-space-2); border-radius: var(--ds-radius-medium); }
   .mRowIcon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: var(--ds-space-6); color: var(--figma-color-icon); }

@@ -169,11 +169,7 @@ function AgentsSection({ service }: { service: AgentsService }) {
       </SettingsGroup>
       <SettingsGroup
         label={t("Local models")}
-        action={
-          <Button variant="secondary" onClick={() => service.openSetting("add-server")} data-settings-row="add-server">
-            {t("Add a server")}
-          </Button>
-        }
+        action={<IconButton icon="24.plus" label={t("Add a server")} tone="secondary" onClick={() => service.openSetting("add-server")} data-settings-row="add-server" />}
         data-settings-box="local"
       >
         {local.map((p) => <ProviderRow key={p.id} service={service} p={p} />)}
@@ -210,7 +206,7 @@ function ProviderRow({ service, p }: { service: AgentsService; p: ProviderInfo }
       data-state={isServer(p) ? (p.available ? "connected" : "not-running") : p.auth?.state}
     >
       {needs && (
-        <Button variant="secondary" onClick={open}>
+        <Button variant="link" onClick={open}>
           {needs}
         </Button>
       )}
@@ -275,11 +271,7 @@ function ConnectorsSection({ service }: { service: AgentsService }) {
       {api?.connectors && (
         <SettingsGroup
           label={t("MCP servers")}
-          action={
-            <Button variant="secondary" onClick={() => service.openSetting("add-connector")} data-settings-row="add-connector">
-              {t("Add")}
-            </Button>
-          }
+          action={<IconButton icon="24.plus" label={t("Add")} tone="secondary" onClick={() => service.openSetting("add-connector")} data-settings-row="add-connector" />}
           data-settings-box="connectors"
         >
           {error && <p className={styles.mEmpty}>{error}</p>}
