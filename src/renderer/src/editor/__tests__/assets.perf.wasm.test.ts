@@ -127,6 +127,7 @@ describe("Assets performance rules (wasm, headless)", () => {
     const thumbs = ed.thumbnails;
     const resolve = () => (thumbs as unknown as { resolve: () => void }).resolve();
     ed.components.assets(); // as Assets does first (its reads derive the components' pages)
+    await settle(); // the derived pages' changes are dispatched after the reads (Engine.afterRead)
     // Card 1 nests an instance of the Button 1 set's first variant (21:0); Icon 6 is on its own.
     for (const id of ["31:0", "31:1", "21:0", "11:5"]) expect(thumbs.renderNow(id, 64)).not.toBeNull();
     const stale = (id: string) => thumbs.peek(id, 64)?.stale;

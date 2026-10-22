@@ -1613,7 +1613,7 @@ async function prototypeSection(page, theme) {
   await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
   await settle(page);
-  await page.evaluate(() => window.__designerEditor.setProps(["0:1"], { prototypeDevice: null }, "Prototype device"));
+  await page.evaluate(() => window.__designerEditor.setProps(["0:1"], { prototypeDevice: { type: "NONE", rotation: "NONE" } }, "Prototype device"));
 
   // Conditional: Figma's If expression, typed; an invalid one is outlined in red.
   await page.evaluate(() => {

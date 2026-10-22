@@ -42,6 +42,7 @@ import {
   newInteraction,
   newInteractionId,
   nextFlowName,
+  NO_DEVICE,
   type PrototypeFields,
   type PrototypeInteraction,
   type PrototypeCursor,
@@ -190,7 +191,7 @@ function NothingSelected() {
     ...(deviceValue === "CUSTOM" ? [{ value: "CUSTOM", label: t("Custom size") }] : []),
   ];
   const setDevice = (v: string) => {
-    if (v === "NONE") return void ed.setProps([page], protoFields({ prototypeDevice: null }), "Prototype device");
+    if (v === "NONE") return void ed.setProps([page], protoFields({ prototypeDevice: NO_DEVICE }), "Prototype device");
     if (v === "PRESENTATION") return void ed.setProps([page], protoFields({ prototypeDevice: { type: "PRESENTATION" } }), "Prototype device");
     const p = devicePreset(v);
     if (!p) return;
@@ -473,7 +474,9 @@ function InteractionsSection({
     // Figma's deleted entries (tombstones) stay as they were.
     const kept = all.filter((i) => i.isDeleted);
     const value = [...next, ...kept];
-    ed.setProps([node.guid], protoFields({ prototypeInteractions: value.length ? value : null }), label);
+    // The last one removed: an empty list, not a cleared field (no change in NODE_CHANGES: the journal and a kept
+    // presentation would keep the interaction).
+    ed.setProps([node.guid], protoFields({ prototypeInteractions: value }), label);
   };
   const add = (e: React.MouseEvent<HTMLElement>) => {
     const anchor = (e.currentTarget.closest("section") as HTMLElement | null) ?? null;

@@ -524,9 +524,8 @@ export class Engine {
     return this.on("CURSOR", (e) => handler(e.kind, e.angleDeg));
   }
 
-  /** After every call: drain and dispatch events, and schedule a frame if one is wanted. */
-  private after<T>(value: T): T {
-    if (!this.h) return value;
+  /** The engine's pending events into the queue (in order), and a frame asked for if one is wanted. */
+  private drain(): void {
     if (this.x.eventsPending() && this.x.hasEvents(this.h)) {
       this.x.takeEvents(this.h);
       const events = decodeEvents(this.x.result());
@@ -534,6 +533,35 @@ export class Engine {
       this.queue.push(...events);
     }
     if (this.x.needsFrame(this.h)) this.schedule();
+  }
+
+  private dispatchQueued = false;
+
+  /**
+   * After a read (a node, the camera, the pages…): what the read brought — a page derived on its first read commits
+   * its instances and layout (NODES_CHANGED, STRUCTURE_CHANGED, COMPONENTS_CHANGED…) — is dispatched in a microtask,
+   * not inside the caller. Panels read the engine while React renders them, and a store listener told there updates
+   * other components inside that render (React's "Cannot update a component while rendering a different
+   * component": Pins / ZoomMenu, Selected / Layers, SelectionColorsSection / Assets…). The next call that changes
+   * something dispatches the queue at once, in order, as before.
+   */
+  private afterRead<T>(value: T): T {
+    if (!this.h) return value;
+    this.drain();
+    if (this.queue.length && !this.dispatching && !this.dispatchQueued) {
+      this.dispatchQueued = true;
+      queueMicrotask(() => {
+        this.dispatchQueued = false;
+        this.pump();
+      });
+    }
+    return value;
+  }
+
+  /** After every call: drain and dispatch events, and schedule a frame if one is wanted. */
+  private after<T>(value: T): T {
+    if (!this.h) return value;
+    this.drain();
     if (!this.dispatching) {
       this.dispatching = true;
       try {
@@ -1050,7 +1078,7 @@ export class Engine {
   presentMedia(): PresentVideo[] {
     this.x.presentMedia(this.h);
     const parsed = JSON.parse(decodeText(this.x.result())) as { videos?: PresentVideo[] };
-    return this.after(parsed.videos ?? []);
+    return this.afterRead(parsed.videos ?? []);
   }
 
   /**
@@ -1098,7 +1126,7 @@ export class Engine {
   /** The presentation's state, and what happened since the last read (CHANGED, OPEN_URL). */
   presentState(): PresentState {
     this.x.presentState(this.h);
-    return this.after(JSON.parse(decodeText(this.x.result())) as PresentState);
+    return this.afterRead(JSON.parse(decodeText(this.x.result())) as PresentState);
   }
 
   /**
@@ -1190,7 +1218,7 @@ export class Engine {
 
   pages(): PageInfo[] {
     this.x.pages(this.h);
-    return this.after(decodePages(this.x.result()));
+    return this.afterRead(decodePages(this.x.result()));
   }
 
   setCurrentPage(page: Guid): number {
@@ -1220,7 +1248,7 @@ export class Engine {
 
   getCamera(): Camera {
     this.x.getCamera(this.h);
-    return this.after(decodeCamera(this.x.result()));
+    return this.afterRead(decodeCamera(this.x.result()));
   }
 
   /** Round 18: canvas CSS px → page coordinates under the camera now. */
@@ -1341,7 +1369,7 @@ export class Engine {
 
   getSelection(): Selection {
     this.x.getSelection(this.h);
-    return this.after(decodeSelection(this.x.result()));
+    return this.afterRead(decodeSelection(this.x.result()));
   }
 
   setSelection(refs: readonly Guid[]): number {
@@ -1365,7 +1393,7 @@ export class Engine {
         : encodeRefs(refs);
     this.x.readNodes(this.h, payload, flags);
     // No node found (a page not loaded yet, during a reload): the message has no nodeChanges at all.
-    return this.after(decodeMessage(this.x.result()).nodeChanges ?? []);
+    return this.afterRead(decodeMessage(this.x.result()).nodeChanges ?? []);
   }
 
   /**
@@ -1390,7 +1418,7 @@ export class Engine {
       mask |= 1 << FACET_IDS[f];
       per += FACET_SLOTS[f];
     }
-    if (this.x.readFacets(this.h, ids, mask) !== Status.OK) return this.after(refs.map(() => null));
+    if (this.x.readFacets(this.h, ids, mask) !== Status.OK) return this.afterRead(refs.map(() => null));
     const bytes = this.x.result();
     const a = new Float64Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 8);
     const out: (Record<string, unknown> | null)[] = [];
@@ -1412,7 +1440,7 @@ export class Engine {
       }
       out.push(into);
     }
-    return this.after(out);
+    return this.afterRead(out);
   }
 
   readNode(ref: Guid, options: { childIds?: boolean; fields?: readonly string[] } = {}): NodeChange | null {
@@ -1433,8 +1461,8 @@ export class Engine {
   layerTreeVersioned(page: Guid): { version: number; nodes: NodeChange[] } {
     const [s, l] = this.ids(page);
     const status = this.x.layerTree(this.h, s, l);
-    if (status !== Status.OK) return this.after({ version: 0, nodes: [] });
-    return this.after(JSON.parse(decodeText(this.x.result())) as { version: number; nodes: NodeChange[] });
+    if (status !== Status.OK) return this.afterRead({ version: 0, nodes: [] });
+    return this.afterRead(JSON.parse(decodeText(this.x.result())) as { version: number; nodes: NodeChange[] });
   }
 
   /**
@@ -1447,8 +1475,8 @@ export class Engine {
   layerChanges(page: Guid, since: number): LayerChanges {
     const [s, l] = this.ids(page);
     const status = this.x.layerChanges(this.h, s, l, since);
-    if (status !== Status.OK) return this.after({ version: 0, full: true, nodes: [], removed: [] });
-    return this.after(JSON.parse(decodeText(this.x.result())) as LayerChanges);
+    if (status !== Status.OK) return this.afterRead({ version: 0, full: true, nodes: [], removed: [] });
+    return this.afterRead(JSON.parse(decodeText(this.x.result())) as LayerChanges);
   }
 
   /**
@@ -1601,7 +1629,7 @@ export class Engine {
 
   /** CMD_ENABLED | CMD_CHECKED, for menus. */
   commandState(name: CommandName): number {
-    return this.after(this.x.commandState(this.h, CommandId[name]));
+    return this.afterRead(this.x.commandState(this.h, CommandId[name]));
   }
 
   /**
@@ -1742,7 +1770,7 @@ export class Engine {
 
   /** Traces again into the preview (callers debounce, docs/ai.md §5 "Budget"). Null when no preview is open. */
   vectorizeUpdate(options: TraceOptions): VectorizeStats | null {
-    return this.json(this.x.vectorizeUpdate(this.h, encodeText(JSON.stringify(options))), null);
+    return this.json(this.x.vectorizeUpdate(this.h, encodeText(JSON.stringify(options))), null, true);
   }
 
   /** ✓ (`commit`): the frame replaces the image layer as one undo step and is selected (its id); ✕: back as it was. */
@@ -1757,7 +1785,7 @@ export class Engine {
   /** What a node is on the component side, with its main, changes, properties and exposed instances; null if missing. */
   componentInfo(ref: Guid): ComponentInfo | null {
     const status = this.x.componentInfo(this.h, encodeText(ref));
-    return this.after(status === Status.OK ? (JSON.parse(decodeText(this.x.result())) as ComponentInfo) : null);
+    return this.afterRead(status === Status.OK ? (JSON.parse(decodeText(this.x.result())) as ComponentInfo) : null);
   }
 
   // ---- Variables, modes, styles (docs/engine-build.md "E6 variables") ----
@@ -1771,8 +1799,10 @@ export class Engine {
   }
 
   /** The result slot as JSON when `status` is OK, else `fallback`. */
-  private json<T>(status: number, fallback: T): T {
-    return this.after(status === Status.OK ? (JSON.parse(decodeText(this.x.result())) as T) : fallback);
+  /** A read's JSON result (its events dispatched after it: afterRead); `write` for a call that changes something. */
+  private json<T>(status: number, fallback: T, write = false): T {
+    const value = status === Status.OK ? (JSON.parse(decodeText(this.x.result())) as T) : fallback;
+    return write ? this.after(value) : this.afterRead(value);
   }
 
   /** The file's live collections, in the panel's order (`includeRemote`: library copies too). */
@@ -1832,7 +1862,7 @@ export class Engine {
 
   /** How many layers use a style. */
   styleUsage(id: Guid): number {
-    return Math.max(0, this.after(this.x.styleUsage(this.h, encodeText(id))));
+    return Math.max(0, this.afterRead(this.x.styleUsage(this.h, encodeText(id))));
   }
 
   // ---- Libraries (docs/data.md §9, docs/engine-build.md "E6 libraries") -------------------------
@@ -1847,7 +1877,7 @@ export class Engine {
    * undo step. Keys never change afterwards. Returns every asset's key.
    */
   ensureAssetKeys(refs?: readonly Guid[]): { id: Guid; key: string }[] {
-    return this.json(this.x.ensureAssetKeys(this.h, refs?.length ? encodeRefs(refs) : new Uint8Array()), []);
+    return this.json(this.x.ensureAssetKeys(this.h, refs?.length ? encodeRefs(refs) : new Uint8Array()), [], true);
   }
 
   /**
@@ -1972,14 +2002,14 @@ export class Engine {
   /** The selected text of the text being edited ("" when none), for copy. */
   textSelection(): string {
     this.x.textSelection(this.h);
-    return this.after(decodeText(this.x.result()));
+    return this.afterRead(decodeText(this.x.result()));
   }
 
   /** A TEXT node's layout (baselines, glyphs, missing font…), or null for other nodes. */
   textLayout(ref: Guid): TextLayoutInfo | null {
     const [s, l] = this.ids(ref);
     const status = this.x.textLayout(this.h, s, l);
-    return this.after(status === Status.OK ? decodeTextLayout(this.x.result()) : null);
+    return this.afterRead(status === Status.OK ? decodeTextLayout(this.x.result()) : null);
   }
 
   /**
@@ -1990,7 +2020,7 @@ export class Engine {
   textRangeStyle(ref: Guid, range?: { from: number; to: number }): TextRangeStyle | null {
     const [s, l] = this.ids(ref);
     const status = this.x.textRangeStyle(this.h, s, l, range?.from ?? 0, range?.to ?? 0xffffffff, range ? 0 : 1);
-    return this.after(status === Status.OK ? decodeTextRangeStyle(this.x.result()) : null);
+    return this.afterRead(status === Status.OK ? decodeTextRangeStyle(this.x.result()) : null);
   }
 
   /**
@@ -2054,7 +2084,7 @@ export class Engine {
    */
   pathTool(input: PathToolInput): PathToolState | null {
     if (!this.h) return null;
-    return this.json<PathToolState | null>(this.x.pathTool(this.h, encodeText(JSON.stringify(input))), null);
+    return this.json<PathToolState | null>(this.x.pathTool(this.h, encodeText(JSON.stringify(input))), null, true);
   }
 
   /** An open path's ends (Figma's Start point / End point), or null when the node has none. */
@@ -2203,7 +2233,7 @@ export class Engine {
   installBrush(input: InstallBrushInput): GuidString | null {
     if (!this.h) return null;
     const status = this.x.installBrush(this.h, encodeText(JSON.stringify(input)));
-    return this.json<{ guid: GuidString } | null>(status, null)?.guid ?? null;
+    return this.json<{ guid: GuidString } | null>(status, null, true)?.guid ?? null;
   }
 
   /** The file's BRUSH nodes (ABI engine_list_brushes). */

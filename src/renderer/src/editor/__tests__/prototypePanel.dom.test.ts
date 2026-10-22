@@ -64,7 +64,8 @@ describe("the Prototype tab", () => {
     expect(section(view.host, "Scroll behavior")?.textContent).toContain("Position");
     click(rows()[0].querySelector('button[aria-label="Remove interaction"]'));
     expect(rows()).toHaveLength(0);
-    expect((engine.readNode("2:4") as { prototypeInteractions?: unknown }).prototypeInteractions).toBeUndefined();
+    // An empty list (a cleared field would be no change in NODE_CHANGES: the journal would keep the interaction).
+    expect((engine.readNode("2:4") as { prototypeInteractions?: unknown }).prototypeInteractions).toEqual([]);
     click(section(view.host, "Interactions")!.querySelector('button[aria-label="Add interaction"]'));
     expect(rows()).toHaveLength(1);
     expect(rows()[0].textContent).toContain("None");
