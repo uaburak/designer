@@ -816,6 +816,18 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
         keyStep(e, (dx, dy) => apply({ h: hsv.h, s: clamp01(hsv.s + dx), v: clamp01(hsv.v + dy) }));
       }}
     >
+      {contrastCheck?.lines && (() => {
+        // Figma's dotted area: the colours that fail — under the lighter line and over the darker one
+        const pts = (line: { s: number; v: number }[]) => line.map((p) => `${p.s * 100}% ${(1 - p.v) * 100}%`);
+        const { lighter, darker } = contrastCheck.lines;
+        const below = lighter ? `polygon(${[...pts(lighter), ...(lighter[lighter.length - 1].s < 1 ? ["100% 0%"] : []), "100% 100%", "0% 100%"].join(", ")})` : undefined;
+        const above = darker ? `polygon(${[...pts(darker), "100% 0%", "0% 0%"].join(", ")})` : undefined;
+        return (
+          <span className={styles.contrastFail} style={{ clipPath: below }} aria-hidden>
+            <span style={{ clipPath: above }} />
+          </span>
+        );
+      })()}
       {contrastCheck?.lines && (
         // Where the contrast is exactly the standard's (Figma's lighter / darker luminance lines, white at 80 %).
         <svg className={styles.contrastLines} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden>
@@ -886,9 +898,12 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
   // The check's settings (Figma's COLOR_CONTRAST_SETTINGS_DROPDOWN): the category — Auto (what the layers are read
   // as), or one chosen — and the level, each with its ratio.
   const categoryName = (c: ContrastCategory | null | undefined) => (c === "largeText" ? t("Large text") : c === "normalText" ? t("Normal text") : c === "graphics" ? t("Graphics") : t("Mixed"));
+  // Live: "AA · Essential (3 : 1)", "AAA · Only for text" (graphics have no AAA)
   const ratioText = (level: ContrastLevel) => {
     const r = contrastCategoryShown ? CONTRAST_RATIOS[contrastCategoryShown][level] : null;
-    return r === null ? level : `${level} (${r}:1)`;
+    if (level === "AAA" && contrastCategoryShown === "graphics") return t("AAA · Only for text");
+    const name = level === "AA" ? t("AA · Essential") : t("AAA · Enhanced");
+    return r === null ? name : `${name} (${r} : 1)`;
   };
   const contrastSettings: MenuEntry[] = [
     { header: t("Category") },
@@ -898,47 +913,57 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
     { header: t("Level") },
     ...(["AA", "AAA"] as const).map((l) => ({ id: `level.${l}`, label: ratioText(l), checked: contrastLevelShown === l, radio: true, disabled: contrastCategoryShown === "graphics" && l === "AAA" })),
   ];
-  const contrastRow = contrastCheck ? (
-    <>
-      <div className={styles.contrastRow} role="status" aria-label={t("Contrast")}>
-        <span>{t("Contrast")}</span>
-        <span className={styles.contrastValue}>{contrastCheck.ratio}:1</span>
-        {contrastNeed !== null && (
-          <span className={styles.contrastBadge} data-pass={contrastCheck.met || undefined}>
+  // Live (the owner's 116.png): over the square — the two colours in a circle, "2.13 : 1", ⊘ / ✓ and the level, and
+  // the settings; a failing level is a button that puts in the nearest colour that passes (its thumb shown on hover).
+  const contrastRow = contrastCheck && contrastBackground ? (
+    <div className={styles.contrastRow} role="status" aria-label={t("Contrast")}>
+      <svg className={styles.contrastGlyph} viewBox="0 0 16 16" aria-hidden>
+        <circle cx="8" cy="8" r="7.5" fill={rgbaToCss({ ...contrastBackground, a: 1 })} />
+        <path d="M0.6 6.2C2.5 3.6 5.6 3.8 7.2 6.6C8.6 9 10.5 11.4 14.6 11.4A7.5 7.5 0 1 0 0.6 6.2Z" fill={rgbaToCss(target)} />
+      </svg>
+      <span className={styles.contrastValue}>
+        {contrastCheck.ratio}
+        <span className={styles.contrastOf}> : 1</span>
+      </span>
+      {contrastNeed !== null &&
+        (contrastCheck.met || !contrastCheck.fix ? (
+          <span className={styles.contrastStatus} data-pass={contrastCheck.met || undefined}>
+            <Icon name={contrastCheck.met ? "24.check" : "24.contrast.fail.small"} />
             {contrastLevelShown}
           </span>
-        )}
-        <MenuButton
-          label={t("Contrast settings")}
-          className={buttons.icon}
-          entries={contrastSettings}
-          onSelect={(id) => {
-            if (id.startsWith("category.")) setCategoryChoice(id.slice(9) as ContrastCategory | "auto");
-            else if (id.startsWith("level.")) setContrastLevel(id.slice(6) as ContrastLevel);
-          }}
-        >
-          <Icon name="24.adjust.small" />
-        </MenuButton>
-      </div>
-      {contrastNeed !== null && (
-        <div className={styles.contrastNote}>
-          <span>{contrastCheck.met ? t("Meets {standard}", { standard: contrastLevelShown }) : t("Doesn't meet {standard}", { standard: contrastLevelShown })}</span>
-          {contrastCheck.fix && (
-            <Button
-              variant="link"
-              onPointerEnter={() => setFixPreview(true)}
-              onPointerLeave={() => setFixPreview(false)}
-              onClick={() => {
-                setFixPreview(false);
-                setColor({ ...contrastCheck.fix!, a: target.a }, { final: true, source: "pick" });
-              }}
-            >
-              {t("Auto-correct")}
-            </Button>
-          )}
-        </div>
-      )}
-    </>
+        ) : (
+          <button
+            type="button"
+            className={styles.contrastStatus}
+            aria-label={t("Doesn't meet {standard}", { standard: contrastLevelShown })}
+            {...tooltipProps(t("Auto-correct"))}
+            onPointerEnter={() => setFixPreview(true)}
+            onPointerLeave={() => setFixPreview(false)}
+            onClick={() => {
+              setFixPreview(false);
+              setColor({ ...contrastCheck.fix!, a: target.a }, { final: true, source: "pick" });
+            }}
+          >
+            <Icon name="24.contrast.fail.small" />
+            {contrastLevelShown}
+          </button>
+        ))}
+      <MenuButton
+        label={t("Contrast settings")}
+        className={buttons.icon}
+        entries={contrastSettings}
+        align="center"
+        menuWidth={200}
+        gap={6}
+        flip
+        onSelect={(id) => {
+          if (id.startsWith("category.")) setCategoryChoice(id.slice(9) as ContrastCategory | "auto");
+          else if (id.startsWith("level.")) setContrastLevel(id.slice(6) as ContrastLevel);
+        }}
+      >
+        <Icon name="24.adjust.small" />
+      </MenuButton>
+    </div>
   ) : null;
   // "On this page" first, then the editor's sets (a set it no longer has falls back to the page's).
   const set = swatchSets.find((s) => s.id === (controlledSet ?? ownSet)) ?? null;
@@ -1262,7 +1287,7 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
                 {typeTabs}
                 {onShaders && (
                   <button type="button" role="radio" aria-checked={!!shader} aria-label={t("Shader")} tabIndex={shader ? 0 : -1} className={styles.typeTab} {...tooltipProps(t("Shader (Beta)"))} onClick={(e) => onShaders(e.currentTarget.closest<HTMLElement>('[data-ds="Popover"]') ?? e.currentTarget)}>
-                    <Icon name="24.shader.small" />
+                    <Icon name="24.paint.shader.small" />
                   </button>
                 )}
               </div>
@@ -1271,7 +1296,7 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
                   <Icon name={(value.blendMode ?? "NORMAL") === "NORMAL" ? "24.blendmode.small" : "24.blendmode.active.small"} />
                 </MenuButton>
                 {/* Figma's live picker: "Check color contrast" at 208, the blend mode before it (Solid) */}
-                {showContrast && <ToggleIconButton icon="24.contrast" label={t("Check color contrast")} pressed={contrast} onPressedChange={setContrast} />}
+                {showContrast && <ToggleIconButton icon="24.contrast.check" label={t("Check color contrast")} pressed={contrast} onPressedChange={setContrast} />}
               </span>
             </div>
             {shader}
@@ -1303,10 +1328,10 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
             {!shader && patternBody}
             {!shader && value.type === "SOLID" && (
               <>
+                {contrastRow}
                 {square}
                 {sliders}
                 {modelRow}
-                {contrastRow}
                 {swatchSection}
               </>
             )}

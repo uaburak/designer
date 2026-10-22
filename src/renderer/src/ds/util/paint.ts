@@ -46,12 +46,12 @@ export interface PickerPaint {
 
 export const PAINT_TYPES: { value: PaintType; label: string; icon: string }[] = [
   { value: "SOLID", label: "Solid", icon: "24.fill.solid.small" },
-  { value: "GRADIENT_LINEAR", label: "Linear", icon: "24.gradient.linear.small" },
+  { value: "GRADIENT_LINEAR", label: "Linear", icon: "24.paint.gradient.small" },
   { value: "GRADIENT_RADIAL", label: "Radial", icon: "24.gradient.radial.small" },
   { value: "GRADIENT_ANGULAR", label: "Angular", icon: "24.gradient.angular.small" },
   { value: "GRADIENT_DIAMOND", label: "Diamond", icon: "24.gradient.diamond.small" },
-  { value: "PATTERN", label: "Pattern", icon: "24.fill.pattern.small" },
-  { value: "IMAGE", label: "Image", icon: "24.fill.image.small" },
+  { value: "PATTERN", label: "Pattern", icon: "24.paint.pattern.small" },
+  { value: "IMAGE", label: "Image", icon: "24.paint.image.small" },
   { value: "VIDEO", label: "Video", icon: "24.video" },
 ];
 
@@ -63,9 +63,9 @@ export const PAINT_TYPES: { value: PaintType; label: string; icon: string }[] = 
 export type PaintTab = "SOLID" | "GRADIENT" | "PATTERN" | "IMAGE" | "VIDEO";
 export const PAINT_TABS: { value: PaintTab; label: string; icon: string }[] = [
   { value: "SOLID", label: "Solid", icon: "24.fill.solid.small" },
-  { value: "GRADIENT", label: "Gradient", icon: "24.gradient.linear.small" },
-  { value: "PATTERN", label: "Pattern", icon: "24.fill.pattern.small" },
-  { value: "IMAGE", label: "Image", icon: "24.fill.image.small" },
+  { value: "GRADIENT", label: "Gradient", icon: "24.paint.gradient.small" },
+  { value: "PATTERN", label: "Pattern", icon: "24.paint.pattern.small" },
+  { value: "IMAGE", label: "Image", icon: "24.paint.image.small" },
   { value: "VIDEO", label: "Video", icon: "24.video" },
 ];
 export const GRADIENT_TYPES: { value: GradientType; label: string }[] = [

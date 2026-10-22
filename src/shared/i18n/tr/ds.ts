@@ -170,6 +170,9 @@ export const ds: Record<string, string> = {
   "Meets {standard}": "{standard} düzeyini karşılıyor",
   "Doesn't meet {standard}": "{standard} düzeyini karşılamıyor",
   "Auto-correct": "Otomatik düzelt",
+  "AA · Essential": "AA · Temel",
+  "AAA · Enhanced": "AAA · Gelişmiş",
+  "AAA · Only for text": "AAA · Yalnızca metin için",
 
   // ---- Alignment matrix (Auto layout)
   "Align top left": "Sol üste hizala",

@@ -52,6 +52,7 @@ function LivePicker() {
           placement="right"
           documentColors={DOC_COLORS}
           colorVariables={COLOR_VARIABLES}
+          contrastBackground={{ r: 44 / 255, g: 44 / 255, b: 44 / 255, a: 1 }}
           onPickVariable={(id) => setLog((l) => [...l, `variable ${COLOR_VARIABLES.find((v) => v.id === id)?.name}`])}
           onClose={() => setOpen(null)}
           onChange={(next, info) => {

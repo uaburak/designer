@@ -610,8 +610,11 @@ export interface MenuButtonProps {
   /** With `overField`: which of its edges the list lines up with, and the checked item's offset from its top */
   overAlign?: "left" | "right";
   overOffset?: number;
-  /** `end`: a menu that doesn't fit right of the trigger lines up with its right edge (live: the panel header's menus) */
-  align?: "start" | "end";
+  /**
+   * `end`: a menu that doesn't fit right of the trigger lines up with its right edge (live: the panel header's menus);
+   * `center` (with `menuWidth`): centred under it (live: the colour picker's contrast settings)
+   */
+  align?: "start" | "end" | "center";
   /** The menu's distance under the trigger (default 4; the Design panel's menus 12 — `PANEL_MENU_GAP`) */
   gap?: number;
   /** Opens upwards, `gap` above the trigger, when it doesn't fit under it (16 from the window's bottom) */
@@ -653,7 +656,7 @@ export function MenuButton({ entries, onSelect, children, label, placement = "bo
   const open = () => {
     const r = button.current?.getBoundingClientRect();
     const field = overField ? button.current?.closest(overField)?.getBoundingClientRect() : undefined;
-    if (r) setAt({ x: r.left, y: placement === "top" ? r.top - 8 : r.bottom + gap, over: field ? { rect: field, align: overAlign, dy: overOffset } : undefined, flipX: align === "end" ? r.right + alignOffset : undefined, flipY: flip && placement !== "top" ? r.top - gap : undefined });
+    if (r) setAt({ x: align === "center" && menuWidth ? r.left + r.width / 2 - menuWidth / 2 : r.left, y: placement === "top" ? r.top - 8 : r.bottom + gap, over: field ? { rect: field, align: overAlign, dy: overOffset } : undefined, flipX: align === "end" ? r.right + alignOffset : undefined, flipY: flip && placement !== "top" ? r.top - gap : undefined });
   };
   const close = () => {
     setAt(null);
