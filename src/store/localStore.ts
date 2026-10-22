@@ -1069,8 +1069,13 @@ export class LocalStore {
     this.multiplayer.close();
     this.comments.close();
     this.usage.close();
-    await this.ai.close().catch((e) => this.log("warn", "ai: the quit's send failed", e));
-    await this.analytics.close().catch((e) => this.log("warn", "analytics: the quit's send failed", e));
+    // The quit's sends (up to 2 s each) run alongside the files' flush, not before it: awaited one after the other
+    // first, they used up main's 3 s (a signal's 1.5 s) and the store was killed before the files were closed and the
+    // lock released (a stale lock on the next start).
+    const sends = Promise.all([
+      this.ai.close().catch((e) => this.log("warn", "ai: the quit's send failed", e)),
+      this.analytics.close().catch((e) => this.log("warn", "analytics: the quit's send failed", e)),
+    ]);
     this.orgLibraries.close();
     this.plugins.close();
     this.governanceEvents.close();
@@ -1082,6 +1087,7 @@ export class LocalStore {
     await this.ws.queue.idle();
     await this.libraries.queue.idle();
     await this.compactor.close();
+    await sends;
     await fsp.rm(join(this.dirs.root, ".lock"), { force: true });
     LOCKED_HERE.delete(this.dirs.root);
   }
