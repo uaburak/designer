@@ -874,6 +874,63 @@ describe("MultiplayerService, the upload panel", () => {
   });
 });
 
+describe("MultiplayerService, a library publish's bundles", () => {
+  /** A publish's items: 16,000 small ones (a design kit's payloads and thumbnails) */
+  const kit = () => Array.from({ length: 16_000 }, (_, i) => ({ head: { type: "blob" as const, sha1: i.toString(16).padStart(40, "0") }, bytes: new Uint8Array(64) }));
+  const itemsOf = (body: Uint8Array) => new DataView(body.buffer, body.byteOffset, body.byteLength).getUint32(0, true);
+  /** The server as it spends a bundle: a request's own cost, then its items written to R2 six at a time */
+  const bundleServer = (fixed: number, perWrite: number) => async (m: string, path: string, init: RequestInit) => {
+    if (m !== "POST" || !path.endsWith("/bundle")) return null;
+    await new Promise((r) => setTimeout(r, fixed + Math.ceil(itemsOf(init.body as Uint8Array) / 6) * perWrite));
+    return new Response(null, { status: 204 });
+  };
+
+  it("keeps many small bundles in flight: at least 5× the items a second of 4 bundles of 8 MB / 500", async () => {
+    const { bundlesOf, PUBLISH_CONCURRENCY } = await import("../libraries/org");
+    const { BLOB_CONCURRENCY } = await import("./uploads");
+    const a = await watchedInstallation("a@x.co", bundleServer(10, 5));
+    const fa = a.store.addFile("HeroUI", [node(0, { name: "Document" })]);
+    const timed = async (bundles: Uint8Array[], concurrency: number) => {
+      const t0 = performance.now();
+      await a.svc.uploadParts(fa, bundles.map((bytes) => ({ method: "POST" as const, path: "/libraries/libf_A/bundle", bytes })), { concurrency });
+      return performance.now() - t0;
+    };
+    const before = await timed(bundlesOf(kit(), { bytes: 8 * 1024 * 1024, items: 500 }), BLOB_CONCURRENCY);
+    const after = await timed(bundlesOf(kit()), PUBLISH_CONCURRENCY);
+    // 32 bundles 4 at a time (8 rounds of 430 ms) against 160 bundles 32 at a time (5 rounds of 95 ms)
+    expect(before / after).toBeGreaterThanOrEqual(5);
+  }, 20_000);
+
+  it("says Uploading from the first request, then the bytes of each bundle as it lands", async () => {
+    const { bundlesOf } = await import("../libraries/org");
+    const a = await watchedInstallation("a@x.co", bundleServer(60, 0));
+    const fa = a.store.addFile("HeroUI", [node(0, { name: "Document" })]);
+    const bundles = bundlesOf(kit().slice(0, 1000));
+    await a.svc.uploadParts(fa, bundles.map((bytes) => ({ method: "POST" as const, path: "/libraries/libf_A/bundle", bytes })), { concurrency: 4 });
+    const mine = a.uploads().filter((u) => u.fileKey === fa);
+    // Uploading at 0 at once, before any bundle answered
+    expect(mine[0].state).toBe("queued");
+    expect(mine.find((u) => u.state !== "queued")).toMatchObject({ state: "uploading", bytesSent: 0 });
+    const total = bundles.reduce((n, b) => n + b.length, 0);
+    const sent = mine.filter((u) => u.state === "uploading").map((u) => u.bytesSent);
+    expect(sent).toEqual([...sent].sort((x, y) => x - y));
+    expect(sent.some((n) => n > 0 && n < total)).toBe(true);
+    expect(mine.at(-1)).toMatchObject({ state: "done", bytesSent: total, bytesTotal: total });
+  });
+
+  it("counts a streamed bundle's bytes as they go", async () => {
+    const { bundlesOf } = await import("../libraries/org");
+    const a = await watchedInstallation("a@x.co", () => null, { streamUploads: true });
+    const fa = a.store.addFile("HeroUI", [node(0, { name: "Document" })]);
+    // One bundle of 1.4 MB: the in-process server has no such library, so it refuses it — once its bytes went
+    const big = bundlesOf([{ head: { type: "blob", sha1: "f".repeat(40) }, bytes: new Uint8Array(1_400_000) }]);
+    await a.svc.uploadParts(fa, [{ method: "POST", path: "/libraries/libf_A/bundle", bytes: big[0] }]).catch(() => {});
+    expect(a.streamed.find((s) => s.path.endsWith("/bundle"))).toMatchObject({ got: big[0].length, declared: String(big[0].length) });
+    // Counted as the body was read (its answer refused it: nothing landed); the failure keeps the count
+    expect(a.uploads().filter((u) => u.fileKey === fa).at(-1)).toMatchObject({ state: "failed", bytesSent: big[0].length });
+  });
+});
+
 // --- Wecra 1.1 (docs/cloud.md §4): images to R2, 4 at a time, big ones in parts, the snapshot after them ---
 
 describe("MultiplayerService, images to R2", () => {

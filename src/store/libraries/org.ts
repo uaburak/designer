@@ -27,6 +27,7 @@ import { isLocalLibraryKey, type CollectionModes, type FileLibraries, type Libra
 import type { LibraryNotice, OrgNotice } from "../notifications/service";
 import { httpError, type MultiplayerService } from "../multiplayer/service";
 import { isTransient } from "../multiplayer/http";
+import { pool } from "../multiplayer/uploads";
 import { t as tr } from "../../shared/i18n";
 
 // ---- the server ----------------------------------------------------------------------------------------------------
@@ -41,7 +42,7 @@ export interface LibraryServer {
   onSession?(listener: () => void): Unsubscribe;
   /** PUTs of bytes shown in the upload panel as one upload of `fileKey` (a publish's payloads and images, §5.1 of
    *  docs/multiplayer.md); absent: sent one by one, unseen */
-  upload?(fileKey: FileKey, parts: UploadPart[]): Promise<void>;
+  upload?(fileKey: FileKey, parts: UploadPart[], opts?: { concurrency?: number }): Promise<void>;
 }
 
 /** One request of a publish's uploads: a bundle (POST) or one item (PUT) */
@@ -57,15 +58,25 @@ interface UploadItem {
   bytes: Uint8Array;
 }
 
-/** A bundle's bytes and items at most (the server takes 32 MB / 500: server/src/libraries/libraryBox.ts) */
-export const BUNDLE_BYTES = 8 * 1024 * 1024;
-export const BUNDLE_ITEMS = 500;
+/**
+ * A bundle's bytes and items at most (the server takes 32 MB / 500: server/src/libraries/libraryBox.ts). Small, so
+ * many go at once: the library's object writes a bundle's items to R2 six at a time (a Workers invocation's
+ * simultaneous connections, R2 calls included; more wait), so a publish's throughput comes from bundles overlapping —
+ * each its own request with its own six. PUBLISH_CONCURRENCY × BUNDLE_BYTES bounds the bodies the object holds at once
+ * (48 MB of its 128 MB).
+ */
+export const BUNDLE_BYTES = 1.5 * 1024 * 1024;
+export const BUNDLE_ITEMS = 100;
+/** A publish's bundles in flight at once */
+export const PUBLISH_CONCURRENCY = 32;
+/** An item larger than a bundle goes in a bundle of its own up to this (the server's 32 MB less the frame), else alone */
+export const SOLO_BUNDLE_BYTES = 31 * 1024 * 1024;
 
 /**
  * Items packed into bundles, in order: `[u32 n]` then n × `[u32 headLen][head JSON + size][bytes]` (u32 LE), as
- * `POST /libraries/:key/bundle` reads them; a new bundle when the next item would pass BUNDLE_BYTES or BUNDLE_ITEMS.
+ * `POST /libraries/:key/bundle` reads them; a new bundle when the next item would pass `max.bytes` or `max.items`.
  */
-export function bundlesOf(items: UploadItem[]): Uint8Array[] {
+export function bundlesOf(items: UploadItem[], max: { bytes: number; items: number } = { bytes: BUNDLE_BYTES, items: BUNDLE_ITEMS }): Uint8Array[] {
   const enc = new TextEncoder();
   const out: Uint8Array[] = [];
   let group: { head: Uint8Array; bytes: Uint8Array }[] = [];
@@ -89,7 +100,7 @@ export function bundlesOf(items: UploadItem[]): Uint8Array[] {
   for (const i of items) {
     const head = enc.encode(JSON.stringify({ ...i.head, size: i.bytes.length }));
     const add = 4 + head.length + i.bytes.length;
-    if (group.length && (group.length >= BUNDLE_ITEMS || size + add > BUNDLE_BYTES)) close();
+    if (group.length && (group.length >= max.items || size + add > max.bytes)) close();
     group.push({ head, bytes: i.bytes });
     size += add;
   }
@@ -107,7 +118,7 @@ export function libraryServerOf(mp: MultiplayerService): LibraryServer {
     },
     request: (method, path, body) => mp.request(method, path, body),
     onSession: (listener) => mp.onSession(() => listener()),
-    upload: (fileKey, parts) => mp.uploadParts(fileKey, parts),
+    upload: (fileKey, parts, opts) => mp.uploadParts(fileKey, parts, opts),
   };
 }
 
@@ -628,15 +639,15 @@ export class OrgLibraries {
   }
 
   /**
-   * A publish's bytes: bundles of up to BUNDLE_BYTES / BUNDLE_ITEMS (POST /libraries/:key/bundle), an item larger than
-   * a bundle on its own PUT. A server without bundles (404) gets every item on its own PUT, as before.
+   * A publish's bytes: bundles of up to BUNDLE_BYTES / BUNDLE_ITEMS (POST /libraries/:key/bundle), PUBLISH_CONCURRENCY
+   * at a time; an item larger than a bundle in one of its own, one over SOLO_BUNDLE_BYTES on its own PUT. A server without bundles (404) gets every item on its own PUT, as before.
    */
   private async uploadItems(key: LibraryKey, fileKey: FileKey, items: UploadItem[]): Promise<void> {
     if (!items.length) return;
     const single = (i: UploadItem): UploadPart => ({ method: "PUT", path: i.head.type === "payload" ? `/libraries/${key}/payloads/${i.head.key}/${i.head.versionHash}` : `/libraries/${key}/blobs/${i.head.sha1}`, bytes: i.bytes });
     if (!this.noBundles) {
-      const big = items.filter((i) => i.bytes.length > BUNDLE_BYTES);
-      const parts = [...bundlesOf(items.filter((i) => i.bytes.length <= BUNDLE_BYTES)).map((bytes): UploadPart => ({ method: "POST", path: `/libraries/${key}/bundle`, bytes })), ...big.map(single)];
+      const big = items.filter((i) => i.bytes.length > SOLO_BUNDLE_BYTES);
+      const parts = [...bundlesOf(items.filter((i) => i.bytes.length <= SOLO_BUNDLE_BYTES)).map((bytes): UploadPart => ({ method: "POST", path: `/libraries/${key}/bundle`, bytes })), ...big.map(single)];
       try {
         await this.sendParts(fileKey, parts);
         return;
@@ -650,11 +661,9 @@ export class OrgLibraries {
   }
 
   private async sendParts(fileKey: FileKey, parts: UploadPart[]): Promise<void> {
-    if (this.server.upload) return this.server.upload(fileKey, parts);
-    for (const p of parts) {
-      // Unseen (no upload panel): a failed bundle goes again once
-      await this.send(p.method, p.path, p.bytes).catch((e) => (isTransient(e) ? this.send(p.method, p.path, p.bytes) : Promise.reject(e)));
-    }
+    if (this.server.upload) return this.server.upload(fileKey, parts, { concurrency: PUBLISH_CONCURRENCY });
+    // Unseen (no upload panel): a failed bundle goes again once
+    await pool(parts, PUBLISH_CONCURRENCY, (p) => this.send(p.method, p.path, p.bytes).catch((e) => (isTransient(e) ? this.send(p.method, p.path, p.bytes) : Promise.reject(e))));
   }
 
   private async send(method: string, path: string, body: Uint8Array): Promise<void> {

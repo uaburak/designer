@@ -547,9 +547,10 @@ export class MultiplayerService {
   /**
    * Bytes PUT part by part as one upload of `fileKey` in the panel (a library publish's payloads and images, data.md
    * §16.6): each part tried again through a busy moment; Cancel aborts it (the caller's call fails), no Retry — the
-   * person publishes again.
+   * person publishes again. `concurrency`: parts in flight at once (BLOB_CONCURRENCY by default; a publish's bundles
+   * more, src/store/libraries/org.ts PUBLISH_CONCURRENCY).
    */
-  async uploadParts(fileKey: FileKey, parts: { path: string; bytes: Uint8Array; method?: "PUT" | "POST" }[]): Promise<void> {
+  async uploadParts(fileKey: FileKey, parts: { path: string; bytes: Uint8Array; method?: "PUT" | "POST" }[], opts?: { concurrency?: number }): Promise<void> {
     const meta = this.host.getMeta(fileKey);
     const ac = new AbortController();
     const id = this.uploads.begin({ fileKey, name: meta?.name ?? "Library" }, { cancel: () => ac.abort() });
@@ -563,8 +564,10 @@ export class MultiplayerService {
     let landed = 0;
     const going = new Map<number, number>();
     const say = () => this.uploads.progress(id, landed + [...going.values()].reduce((a, b) => a + b, 0));
+    // Uploading from the first request (not "Waiting to upload…" until a body's first slice or a part's answer)
+    if (parts.length) say();
     try {
-      await pool(parts, BLOB_CONCURRENCY, async (p, i) => {
+      await pool(parts, Math.max(1, opts?.concurrency ?? BLOB_CONCURRENCY), async (p, i) => {
         await withRetry(
           delays,
           () => {

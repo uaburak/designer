@@ -13,6 +13,7 @@ import { decodeMessage, encodeMessage } from "../../../shared/schema/codec";
 import type { StoreApi, Unsubscribe } from "../../../shared/store/repositories";
 import type { FileMeta, PublishAsset } from "../../../shared/store/types";
 import { isOrgLibrary, libraryKeyOfFile } from "../../../shared/libraries/orgTypes";
+import { isDownload } from "../../../shared/multiplayer/uploads";
 import type { Message as EngineMessage } from "@/engine/codec";
 import type { AssetPayload } from "../../../shared/store/types";
 import { messageToEngine, messageToKiwi } from "./engineMessage";
@@ -96,6 +97,10 @@ export function storeLibraryAccess(store: StoreApi, meta: () => FileMeta, onMeta
         scope: record && isOrgLibrary(record) && record.status !== "deleted" ? record.org.scope : null,
       };
     },
+    onUpload: (listener) =>
+      store.multiplayer.watchUploads((e) => {
+        if ("upload" in e && e.upload.fileKey === fileKey && !isDownload(e.upload) && e.upload.bytesTotal > 0) listener(e.upload.bytesSent, e.upload.bytesTotal);
+      }),
     analytics: {
       reports: () => reportsUsage(meta()),
       record: (events) => store.analytics.record(events),

@@ -917,7 +917,14 @@ export type PublishedLibrary = LibraryVersion & { recorded: boolean };
  * refused while a step is open, it runs once that step closes (`whenIdle`). Should it still not run, `recorded` is
  * false (the dialog says so) and the library index records it at its next check (`reconcile`).
  */
-export async function publishLibrary(ed: EditorController, draft: PublishDraft, choices: PublishChoices, onProgress?: (done: number, total: number) => void): Promise<PublishedLibrary> {
+export async function publishLibrary(
+  ed: EditorController,
+  draft: PublishDraft,
+  choices: PublishChoices,
+  onProgress?: (done: number, total: number) => void,
+  /** After drafting: the upload of the payloads and thumbnails, bytes sent of the total, until the commit */
+  onUpload?: (sent: number, total: number) => void,
+): Promise<PublishedLibrary> {
   const access = ed.source.libraries;
   if (!access || !libraryEngine(ed)) throw new Error(t("Libraries aren't available here"));
   const plan = publishPlan(draft, choices.selected);
@@ -962,7 +969,13 @@ export async function publishLibrary(ed: EditorController, draft: PublishDraft, 
   for (const r of draft.removed) if (!choices.selected.has(r.key) && !shipped.has(r.key)) assets.push({ ...r, dependencies: [...r.dependencies] } as EditorPublishAsset);
   onProgress?.(total, total);
   const moves = draft.moves.filter((m) => shipped.has(m.item.key)).map((m) => ({ key: m.item.key, fromLibraryFileKey: m.fromLibraryFileKey, fromKey: m.fromKey, mode: choices.moveModes.get(m.fromKey) ?? ("move" as const) }));
-  const version = await access.publish({ description: choices.description, assets, moves, ...(choices.scope ? { scope: choices.scope } : {}) });
+  const off = onUpload && access.onUpload ? access.onUpload(onUpload) : null;
+  let version: LibraryVersion;
+  try {
+    version = await access.publish({ description: choices.description, assets, moves, ...(choices.scope ? { scope: choices.scope } : {}) });
+  } finally {
+    off?.();
+  }
   ed.libraries.notePublished(version.version);
   let recorded = true;
   if (!ed.engine.destroyed) {

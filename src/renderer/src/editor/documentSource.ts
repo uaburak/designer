@@ -196,6 +196,9 @@ export interface LibraryAccess {
   onChange(listener: (e: LibraryNotice) => void): () => void;
   /** Where a manifest's thumbnail (a blob) can be shown; "" when it can't */
   blobUrl(sha1: string): string;
+  /** This file's upload to the server as it goes (a publish's payloads and thumbnails: the store's `uploads` topic),
+   *  bytes sent of the total. Optional: absent, the publish toast doesn't follow the upload. */
+  onUpload?(listener: (sent: number, total: number) => void): () => void;
 }
 
 /** What a source keeps of the editor's UI between sessions (the store's FileUiState). */

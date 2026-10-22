@@ -182,6 +182,8 @@ export class LocalStore {
     private readonly userDataDir: string | null = null,
     fetchFn?: typeof globalThis.fetch,
     personalDrafts = true,
+    /** Upload bodies streamed: the system's fetch (`open` wraps it, so it says so itself) */
+    private readonly streamUploads = !fetchFn,
   ) {
     this.fetch = fetchFn ?? ((...a: Parameters<typeof globalThis.fetch>) => globalThis.fetch(...a));
     this.workspaceEvents = ws.events;
@@ -238,7 +240,7 @@ export class LocalStore {
       },
       // Upload bodies stream so the upload panel sees their bytes go (Node's fetch streams a request with `duplex`); a
       // test's in-process handler gets them whole
-      { fetch: this.fetch, WebSocket: globalThis.WebSocket as never, random: () => randomInt(0, 2 ** 32) / 2 ** 32, streamUploads: !fetchFn },
+      { fetch: this.fetch, WebSocket: globalThis.WebSocket as never, random: () => randomInt(0, 2 ** 32) / 2 ** 32, streamUploads: this.streamUploads },
     );
     const commentsPath = (fileKey: FileKey) => {
       if (!ws.files.has(fileKey)) throw new StoreError("not-found", tr("No such file"));
@@ -704,7 +706,7 @@ export class LocalStore {
       const libraries = new LocalLibraries({ dirs, workspace: ws, files, blobs, hlc, clock, log });
       await libraries.load();
       ws.sizeOf = (k) => files.cachedSize(k);
-      const store = new LocalStore(dirs, ws, files, blobs, libraries, deviceOrdinal, clock, log, opts.generation ?? 1, compactor, timers, hlc, opts.userDataDir ?? null, withFakeLatency(opts.fetch ?? ((...a: Parameters<typeof fetch>) => globalThis.fetch(...a)), process.env.DESIGNER_FAKE_LATENCY_MS), opts.personalDrafts !== false);
+      const store = new LocalStore(dirs, ws, files, blobs, libraries, deviceOrdinal, clock, log, opts.generation ?? 1, compactor, timers, hlc, opts.userDataDir ?? null, withFakeLatency(opts.fetch ?? ((...a: Parameters<typeof fetch>) => globalThis.fetch(...a)), process.env.DESIGNER_FAKE_LATENCY_MS), opts.personalDrafts !== false, !opts.fetch);
       store.viewerTemplate = opts.viewerTemplate ?? null;
       late.store = store;
       void store.branches.load().catch((e) => log("warn", "loading branches failed", e));

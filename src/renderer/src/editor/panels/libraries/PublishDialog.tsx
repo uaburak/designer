@@ -235,7 +235,7 @@ function Publish() {
         <>
           {progress ? (
             <span className={styles.progress} role="status">
-              <Spinner /> {t("This library is being published… {done}/{total}", { done: progress.done, total: progress.total })}
+              <Spinner /> {progress.uploaded === undefined ? t("This library is being published… {done}/{total}", { done: progress.done, total: progress.total }) : t("This library is uploading… {percent}%", { percent: Math.floor(progress.uploaded * 100) })}
             </span>
           ) : org ? (
             <span className={styles.publishTo}>

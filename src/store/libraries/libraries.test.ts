@@ -684,7 +684,7 @@ describe("LocalStore's org libraries (on disk, over the port)", () => {
 });
 
 describe("publishing a big library (bundles)", () => {
-  it("publishes 8,000 assets with thumbnails in under 50 uploads of the day", async () => {
+  it("publishes 8,000 assets with thumbnails in under 200 uploads of the day (of 3,000)", async () => {
     const { fake, alice, client } = await world();
     const a = client(alice);
     a.host.add("HeroUI", space("libf_A"));
@@ -696,7 +696,7 @@ describe("publishing a big library (bundles)", () => {
     expect(bundles).toBeGreaterThan(1);
     expect(fake.log.filter((l) => l.startsWith("PUT"))).toEqual([]);
     expect(await uploadsToday(fake, alice.user.id)).toBe(bundles);
-    expect(bundles).toBeLessThan(50);
+    expect(bundles).toBeLessThan(200);
     // Every payload and thumbnail charged to the publisher, one row each
     expect((await fake.d1.prepare(`SELECT COUNT(*) AS n FROM stored_items WHERE item LIKE 'l:libf_A:%'`).first<{ n: number }>())!.n).toBe(16000);
   }, 60_000);

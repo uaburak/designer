@@ -1597,6 +1597,8 @@ export const panels: Record<string, string> = {
   "Assembling components, styles and variables… {done}/{total}": "Bileşenler, stiller ve değişkenler hazırlanıyor… {done}/{total}",
   "Publishing {name}… {done}/{total}": "{name} yayınlanıyor… {done}/{total}",
   "This library is being published… {done}/{total}": "Bu kütüphane yayınlanıyor… {done}/{total}",
+  "Uploading {name}… {percent}%": "{name} yükleniyor… %{percent}",
+  "This library is uploading… {percent}%": "Bu kütüphane yükleniyor… %{percent}",
   "Publish to": "Şuna yayınla",
   "Everyone on this file's team": "Bu dosyanın ekibindeki herkes",
   "Publishing to {org} changes this file's settings: anyone in {org} will be able to view it.": "{org} için yayınlamak bu dosyanın ayarlarını değiştirir: {org} içindeki herkes onu görüntüleyebilir.",
