@@ -474,7 +474,9 @@ function InteractionsSection({
     // Figma's deleted entries (tombstones) stay as they were.
     const kept = all.filter((i) => i.isDeleted);
     const value = [...next, ...kept];
-    ed.setProps([node.guid], protoFields({ prototypeInteractions: value.length ? value : null }), label);
+    // The last one removed: an empty list, not a cleared field (no change in NODE_CHANGES: the journal and a kept
+    // presentation would keep the interaction).
+    ed.setProps([node.guid], protoFields({ prototypeInteractions: value }), label);
   };
   const add = (e: React.MouseEvent<HTMLElement>) => {
     const anchor = (e.currentTarget.closest("section") as HTMLElement | null) ?? null;

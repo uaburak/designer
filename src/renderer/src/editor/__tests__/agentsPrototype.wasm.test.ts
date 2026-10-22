@@ -202,4 +202,23 @@ describe("MCP prototype tools", () => {
     engine.presentStop();
     expect(engine.readNode(title)!.textData?.characters).toBe("Merhaba");
   });
+
+  it("removing a layer's last interaction and the device reach the journal (a peer applying the changes)", async () => {
+    const { engine, call, splash, home } = await app();
+    const peer = await Engine.create(null, { sessionID: 2 });
+    peer.loadKiwi(engine.encodeDocumentKiwi());
+    const off = engine.onDocumentChanged((_, e) => void peer.applyChangesKiwi(e.bytes!, "remote"));
+    json(await call("add_interaction", { nodeId: splash, trigger: { type: "ON_CLICK" }, actions: [{ type: "NAVIGATE", destinationId: home }] }));
+    json(await call("set_prototype_settings", { device: "IPHONE_16" }));
+    expect(interactions(peer, splash)).toHaveLength(1);
+    json(await call("remove_interaction", { nodeId: splash, all: true }));
+    json(await call("set_prototype_settings", { device: "NONE" }));
+    expect(interactions(engine, splash)).toHaveLength(0);
+    expect(interactions(peer, splash)).toHaveLength(0);
+    const page = engine.getSelection().pageId;
+    expect((peer.readNode(page) as { prototypeDevice?: { type?: string } }).prototypeDevice?.type ?? "NONE").toBe("NONE");
+    expect(json(await call("get_prototype", {})).device).toBeNull();
+    off();
+    peer.destroy();
+  });
 });

@@ -68,7 +68,8 @@ function writeInteractions(env: ToolEnv, id: Guid, live: PrototypeInteraction[],
   const n = readP(env, id, ["prototypeInteractions"]);
   const kept = (n?.prototypeInteractions ?? []).filter((i) => i.isDeleted);
   const value = [...live, ...kept];
-  const status = env.ed.engine.setProps([id], { prototypeInteractions: value.length ? value : null } as never);
+  // An empty list, never a cleared field: a cleared field is no change in NODE_CHANGES (the journal, a kept presentation).
+  const status = env.ed.engine.setProps([id], { prototypeInteractions: value } as never);
   if (status !== 0) throw new ToolError(`The engine refused the interactions (status ${status}${status === -6 ? ": read-only — a library copy" : ""}).`);
   for (const o of overlays) {
     const s = env.ed.engine.setProps([o.frame], o.fields as never);
