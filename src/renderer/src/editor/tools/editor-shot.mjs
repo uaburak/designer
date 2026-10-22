@@ -3499,8 +3499,8 @@ async function overlays11Section(page, theme) {
   const selHover = await underline();
   check("R25: a hovered selected text keeps a 1 px baseline line in its box (live canvas-text-selected)", selHover.rows.filter((y) => y > selHover.top + 2 && y < selHover.bottom - 2).length === 1, JSON.stringify(selHover));
 
-  // R27: Ellipse + Polygon (7:61, 7:62) selected, the pointer away: tiny white dots with a pink core at their centres,
-  // no ring; the pointer on the selection: rings.
+  // R27: Ellipse + Polygon (7:61, 7:62) selected, the pointer away: tiny plain light dots at their centres — no pink
+  // core since c624812d (live smart-selection-three-equal-rects, a PNG, shows none) —, no ring; on the selection: rings.
   await frameOn(["7:61", "7:62"], 160, 300, 2, 240, 100);
   const [ecx, ecy] = await toScreen(page, 210, 350);
   const dot = await regionPixels(page, { x: Math.round(ecx) - 6, y: Math.round(ecy) - 6, width: 13, height: 13 });
@@ -3515,7 +3515,7 @@ async function overlays11Section(page, theme) {
   await page.mouse.move(...(await toScreen(page, 280, 350)));
   await settle(page);
   const ring = await regionPixels(page, { x: Math.round(ecx) - 6, y: Math.round(ecy) - 6, width: 13, height: 13 });
-  check("R27: off the selection a ~3 px dot (a pink core, a few pixels), on it the 9 px ring", pinkAway >= 1 && pinkAway <= 6 && count(ring, isPink) >= 16, JSON.stringify({ pinkAway, ring: count(ring, isPink), white: count(dot, whiteish) }));
+  check("R27: off the selection a ~3 px light dot (no pink), on it the 9 px ring", pinkAway === 0 && count(dot, whiteish) >= 4 && count(ring, isPink) >= 16, JSON.stringify({ pinkAway, ring: count(ring, isPink), white: count(dot, whiteish) }));
   await shot(page, `215-r11-multi-rings-${theme}`);
   // The Group (7:80): its two layers' centres dotted.
   await frameOn(["7:80"], 1220, 300, 2.38, 140, 80);
@@ -3523,7 +3523,7 @@ async function overlays11Section(page, theme) {
   const gdot = await regionPixels(page, { x: Math.round(gcx) - 5, y: Math.round(gcy) - 5, width: 11, height: 11 });
   // Lighter than the layer (its colour in the region's corner) by 60 and grey: the dot's white.
   const lighter = (d, i) => d[i] > gdot.data[0] + 60 && d[i + 1] > gdot.data[1] + 60 && Math.abs(d[i] - d[i + 2]) < 24;
-  check("R27: a selected group's equally spaced layers get the dots (live canvas-group-selected)", count(gdot, isPink) >= 1 && count(gdot, lighter) >= 2, JSON.stringify({ pink: count(gdot, isPink), white: count(gdot, lighter) }));
+  check("R27: a selected group's equally spaced layers get the light dots (live canvas-group-selected)", count(gdot, isPink) === 0 && count(gdot, lighter) >= 2, JSON.stringify({ pink: count(gdot, isPink), white: count(gdot, lighter) }));
   await shot(page, `216-r11-group-dots-${theme}`);
 }
 
@@ -4220,7 +4220,9 @@ async function menus9Section(page, theme) {
   await page.getByRole("button", { name: "Move tools" }).click();
   await settle(page);
   const dx = await toolbarDx(page);
-  check("r9: Move tools at the chevron, 151 × 72 at 497, 764 (live move-tools-menu.txt; with the toolbar's left)", JSON.stringify(await box(page.getByRole("menu", { name: "Move tools" }))) === JSON.stringify([497 + dx, 764, 151, 72]), JSON.stringify(await box(page.getByRole("menu", { name: "Move tools" }))));
+  // The 2026-10-18 capture (live/2026-10-18/toolbar.txt, 7f531d75): the container's 8 px padding above and below — 88 high,
+  // its bottom 4 above the toolbar.
+  check("r9: Move tools at the chevron, 151 × 88 at 497, 756 (live 2026-10-18 toolbar.txt: 72 of rows + 8 / 8 padding; with the toolbar's left)", JSON.stringify(await box(page.getByRole("menu", { name: "Move tools" }))) === JSON.stringify([497 + dx, 756, 151, 88]), JSON.stringify(await box(page.getByRole("menu", { name: "Move tools" }))));
   await page.keyboard.press("Escape");
   await settle(page);
 
@@ -4311,7 +4313,8 @@ async function menus10Section(page, theme) {
   const bool = page.getByRole("menu").last();
   const bb = await box(bool);
   const litKey = await bool.locator("[data-highlighted]").first().evaluate((el) => [el.textContent, getComputedStyle(el.lastElementChild).color]);
-  check("R10 S8: Boolean menu 151 × 120 (±2 / live boolean-operations-menu.txt), no padding above its rows", Math.abs(bb[2] - 151) <= 2 && bb[3] === 120, JSON.stringify(bb));
+  // Live's five rows (120 high), then ours: a line and Illustrator's Pathfinder ▸ (4ef4ee5d, round 19) — 159.
+  check("R10 S8: Boolean menu 151 × 120 (±2 / live boolean-operations-menu.txt) + a line and Pathfinder (ours), no padding above its rows", Math.abs(bb[2] - 151) <= 2 && bb[3] === 159 && /Pathfinder$/.test((await bool.innerText()).trim()), JSON.stringify(bb) + JSON.stringify(await bool.innerText()));
   check("R10 S10: its first row lit (Union), the lit row's keys #ffffffcc", /^Union/.test(litKey[0]) && litKey[1] === "rgba(255, 255, 255, 0.8)", JSON.stringify(litKey));
   await shot(page, `270-r10-boolean-menu-${theme}`);
   await page.keyboard.press("Escape");
@@ -4326,20 +4329,20 @@ async function menus10Section(page, theme) {
   await page.keyboard.press("Escape");
   await settle(page);
 
-  // A right-click on a frame's title: the frame's menu (live context-frame.txt, 200 × 749) less the five rows that can't
-  // run in this file, which the canvas menus drop as Figma's (Atlas 03 §4; 2026-10-18): 629.
+  // A right-click on a frame's title: the frame's menu (live context-frame.txt, 200 × 749) — the rows Wecra can't run
+  // kept, greyed, so the menu reads as Figma's (the owner's decision, fe135026 menus.ts KEEP_VISIBLE): 749.
   const [tx, ty] = await toScreen(page, 300, 0);
   await page.mouse.click(tx + 10, ty - 8, { button: "right" });
   await settle(page);
   const frameMenu = page.getByRole("menu", { name: "Canvas" });
-  check("R10: a frame title's right click opens the frame's menu (200 × 749 less the rows that can't run: 629, Convert to section)", (await selection(page)).join() === "7:10" && near(await box(frameMenu).then((b) => b.slice(2)), [200, 629]) && (await frameMenu.getByRole("menuitem", { name: "Convert to section" }).count()) === 1, JSON.stringify(await box(frameMenu)));
+  check("R10: a frame title's right click opens the frame's menu (200 × 749 as live, Convert to section)", (await selection(page)).join() === "7:10" && near(await box(frameMenu).then((b) => b.slice(2)), [200, 749]) && (await frameMenu.getByRole("menuitem", { name: "Convert to section" }).count()) === 1, JSON.stringify(await box(frameMenu)));
   await page.keyboard.press("Escape");
-  // A Layers row's menu: Copy first, Rename ⌘R, Rename layers (AI), 200 × 677 (live context-layer-row.txt) less the
-  // rows that can't run here: 557.
+  // A Layers row's menu: Copy first, Rename ⌘R, Rename layers (AI), 200 × 677 (live context-layer-row.txt): the rows
+  // Wecra can't run kept, greyed (fe135026).
   await page.locator('[data-panel="left"] [data-ds="LayerRow"]').filter({ hasText: /^Rect$/ }).first().click({ button: "right" });
   await settle(page);
   const rowMenu = page.getByRole("menu", { name: "Canvas" });
-  check("R10: a Layers row's menu 200 × 677 less the rows that can't run (557) with Rename and Rename layers (AI), no Paste here", near((await box(rowMenu)).slice(2), [200, 557]) && (await rowMenu.getByRole("menuitem", { name: /^Rename/ }).count()) === 2 && (await rowMenu.getByRole("menuitem", { name: "Paste here" }).count()) === 0, JSON.stringify(await box(rowMenu)));
+  check("R10: a Layers row's menu 200 × 677 as live with Rename and Rename layers (AI), no Paste here", near((await box(rowMenu)).slice(2), [200, 677]) && (await rowMenu.getByRole("menuitem", { name: /^Rename/ }).count()) === 2 && (await rowMenu.getByRole("menuitem", { name: "Paste here" }).count()) === 0, JSON.stringify(await box(rowMenu)));
   await shot(page, `271-r10-layer-row-menu-${theme}`);
   await page.keyboard.press("Escape");
 
@@ -4402,7 +4405,8 @@ async function menus10Section(page, theme) {
   check("R10: Find's parent names 10 / 400 and its scope 11 / 400 (live find-layers-search.txt)", weights.join() === "400,400", weights.join());
   await page.keyboard.press("Escape");
 
-  // Assets: the grid (96 tiles at 73 / 185, 125), Back at 65, 93; the Assets button expanded.
+  // Assets: the grid (96 tiles at 73 / 185), Back; the Assets button expanded. Since e267d14f the search sits in the
+  // header (TabSearch) instead of a 44 px row under it: everything 44 higher than live's 125 / 93.
   await page.locator('[data-rail-tab="assets"]').click();
   await settle(page);
   await page.locator("[data-library-card]").first().click();
@@ -4412,8 +4416,10 @@ async function menus10Section(page, theme) {
     const r = e.firstElementChild.getBoundingClientRect();
     return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)];
   }));
-  check("R10: Assets › Created in this file › Capture — 96 tiles at 73 / 185, 125, rows 132 apart (live)", JSON.stringify(tiles) === "[[73,125,96,96],[185,125,96,96],[73,257,96,96]]", JSON.stringify(tiles));
-  check("R10: Back at 65, 93; the Assets button expanded", JSON.stringify((await box(page.locator('[data-panel="left"]').getByRole("button", { name: "Back" }))).slice(0, 2)) === "[65,93]" && (await page.locator('[data-rail-tab="assets"]').getAttribute("aria-expanded")) === "true");
+  check("R10: Assets › Created in this file › Capture — 96 tiles at 73 / 185, 81 (live 125 less the search row), rows 132 apart (live)", JSON.stringify(tiles) === "[[73,81,96,96],[185,81,96,96],[73,213,96,96]]", JSON.stringify(tiles));
+  const backAt = (await box(page.locator('[data-panel="left"]').getByRole("button", { name: "Back" }))).slice(0, 2);
+  const assetsTab = await page.locator('[data-rail-tab="assets"]').getAttribute("aria-expanded");
+  check("R10: Back at 65, 49 (live 93 less the search row); the Assets button expanded", JSON.stringify(backAt) === "[65,49]" && assetsTab === "true", JSON.stringify([backAt, assetsTab]));
   await shot(page, `274-r10-assets-${theme}`);
 }
 
@@ -4835,8 +4841,8 @@ async function menus12Section(page, theme) {
   check("R12 vector edit More menu 189 x 48 at 869, 736 (live vector-edit-more-menu.txt)", same(more, [869, 736, 189, 48]), JSON.stringify(more));
   await page.keyboard.press("Escape");
   await page.evaluate(() => window.__designerEditor.vector.end());
-  // An instance's menu from a right click on its nested layer (Icon, Label): the instance's own, 203 x 749 (live) less
-  // the rows that can't run in this file, dropped as Figma's (Atlas 03 §4): 629.
+  // An instance's menu from a right click on its nested layer (Icon, Label): the instance's own, 203 x 749 (live), the
+  // rows Wecra can't run kept greyed (fe135026).
   await open(page, "&doc=capture");
   const inst = await page.evaluate(() => {
     const ed = window.__designerEditor;
@@ -4869,7 +4875,7 @@ async function menus12Section(page, theme) {
     const got = await box(menu);
     const sel = await page.evaluate(() => window.__designerEditor.selection.join(","));
     const names = await menu.getByRole("menuitem").evaluateAll((els) => els.filter((e) => e.getAttribute("aria-disabled") === null).map((e) => e.textContent));
-    check(`R12 right click on the instance's ${what}: the instance (not the nested layer) with its 203 x 749 menu (live context-instance.txt) less the rows that can't run: 629`, sel === inst && got[2] === 203 && got[3] === 629, `${sel} ${JSON.stringify(got)}`);
+    check(`R12 right click on the instance's ${what}: the instance (not the nested layer) with its 203 x 749 menu (live context-instance.txt)`, sel === inst && got[2] === 203 && got[3] === 749, `${sel} ${JSON.stringify(got)}`);
     check(`R12 right click on the instance's ${what}: Select layer and every instance command enabled`, ["Select layer", "Reset instance", "Detach instance", "Go to main component"].every((n) => names.some((t) => t.startsWith(n))), names.join("|"));
     if (what === "Label") await shot(page, `332-r12-instance-menu-${theme}`);
     await page.keyboard.press("Escape");
