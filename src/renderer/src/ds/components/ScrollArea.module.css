@@ -1,6 +1,7 @@
 @layer ds {
   .root { position: relative; display: flex; flex: 1 1 auto; min-height: 0; min-width: 0; overflow: hidden; }
-  .viewport { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: none; }
+  /* Its own stacking context: what is layered inside (sticky cells, z-indexed rows) stays under the thumbs */
+  .viewport { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: none; isolation: isolate; }
   .viewport::-webkit-scrollbar { display: none; }
   .y { overflow-x: hidden; }
   .x { overflow-y: hidden; }
