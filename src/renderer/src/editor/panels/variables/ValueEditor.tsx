@@ -141,12 +141,11 @@ export function ValueEditor({ variable, mode, collection, className, disabled }:
       ) : variable.type === "COLOR" ? (
         // Figma, on hover: the colour's opacity as a field at the cell's right ("Opacity"), Apply variable inside it
         <span className={styles.opacityField} data-opacity-field="" data-open={picker ? "" : undefined} {...tooltipProps(t("Opacity"))}>
-          <span className={styles.opacityIcon} aria-hidden>
-            <Icon name="24.opacity" />
-          </span>
+          {/* Its glyph scrubs: press and drag left / right (Figma) */}
           <NumericInput
             label={t("Opacity")}
             variant="ghost"
+            prefix="24.opacity"
             value={toPercent((value.value as Color).a ?? 1)}
             unit="%"
             precision={0}

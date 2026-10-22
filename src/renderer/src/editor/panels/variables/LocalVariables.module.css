@@ -240,7 +240,6 @@
     opacity: 0;
   }
   .value:hover .opacityField, .opacityField:focus-within, .opacityField[data-open] { opacity: 1; }
-  .opacityIcon { display: inline-flex; flex: none; color: var(--figma-color-icon-secondary); }
   .opacityField > [data-ds="NumericInput"] { flex: 1 1 auto; min-width: 0; width: auto; }
   .opacityBind { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--ds-radius-small); background: transparent; color: var(--figma-color-icon-secondary); outline: none; }
   .opacityBind:hover { color: var(--figma-color-icon); }
