@@ -141,16 +141,15 @@ export async function studioSection(page, theme, { open, settle, shot, check }) 
   await page.locator("[data-review-leave]").click();
   await page.waitForSelector("[data-agents-send]");
 
-  // Run again (§5.2): the first card opened, its prompt edited, a new task beside it in the same answer.
-  await page.locator("[data-task]").first().locator("[data-task-toggle]").click();
+  // Run again (§5.2): the first card (open by default), its prompt edited, a new task beside it in the same answer.
   await page.locator("[data-task]").first().locator("summary").click();
-  await page.locator("[data-task-edit]").click();
+  await page.locator("[data-task]").first().locator("[data-task-edit]").click();
   const edit = page.locator("[data-task-prompt-edit]");
   check("Studio: Edit puts the task's prompt in a text box", ((await edit.inputValue()) ?? "").startsWith("Make one social post frame"));
   await edit.fill("Make the headline larger, “Liq Humus” in the brand’s green.");
   await page.locator("[data-task]").first().scrollIntoViewIfNeeded();
   await shot(page, `473-studio-task-edit-${theme}`);
-  await page.locator("[data-task-again]").click();
+  await page.locator("[data-task]").first().locator("[data-task-again]").click();
   await page.waitForFunction(() => document.querySelectorAll("[data-task]").length === 3);
   const again = await page.evaluate(() => window.__studioLog.filter((e) => e.role === "worker").at(-1)?.prompt ?? "");
   check("Studio: Run again starts a worker with the edited prompt, a third card in the same answer", again.endsWith("Make the headline larger, “Liq Humus” in the brand’s green.") && JSON.stringify(await states()) === JSON.stringify(["done", "done", "running"]), JSON.stringify(again.slice(-60)));

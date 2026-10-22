@@ -387,7 +387,7 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
     const r = list?.getBoundingClientRect();
     return { headers: [...(list?.querySelectorAll("[data-select-header]") ?? [])].map((h) => h.textContent), options: list?.querySelectorAll('[role="option"]').length ?? 0, labels: [...(list?.querySelectorAll('[role="option"]') ?? [])].map((o) => o.textContent.trim()), top: r?.top ?? -1, bottom: r?.bottom ?? 1e9, height: window.innerHeight, scroll: list ? list.scrollHeight - list.clientHeight : 0 };
   });
-  check("Agents: the model menu lists only connected agents, each a heading over its models (Antigravity's efforts folded: 3.8 Flash, 3.1 Pro)", JSON.stringify(picker.headers) === JSON.stringify(["Claude Code", "Antigravity (Google AI)", "LM Studio"]) && picker.options === 8 && JSON.stringify(picker.labels.slice(4, 6)) === JSON.stringify(["3.8 Flash", "3.1 Pro"]), JSON.stringify(picker));
+  check("Agents: the model menu lists the manager, then only connected agents, each a heading over its models (Antigravity's efforts folded: 3.8 Flash, 3.1 Pro)", JSON.stringify(picker.headers) === JSON.stringify(["Claude Code", "Antigravity (Google AI)", "LM Studio"]) && picker.options === 9 && picker.labels[0] === "Manager" && JSON.stringify(picker.labels.slice(5, 7)) === JSON.stringify(["3.8 Flash", "3.1 Pro"]), JSON.stringify(picker));
   check("Agents: the picker's list is whole on screen (not cut)", picker.top >= 0 && picker.bottom <= picker.height && picker.scroll <= 1, JSON.stringify(picker));
   await shot(page, `401b-agents-picker-${theme}`);
   await page.keyboard.press("Escape");
@@ -406,18 +406,16 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
 
   await page.locator("[data-agents-input]").fill("Make the mobile version of this");
   await page.locator("[data-agents-input]").press("Enter");
-  // Held at create_responsive_variant: its group is the thinking line, saying what it does; the steps stay folded.
+  // Held at create_responsive_variant: its group is the thinking line, saying what it does; its steps open under it.
   const answer = page.locator('[data-message="assistant"]').first();
   const runningGroup = answer.locator('[data-step-group="steps"][data-group-state="running"]');
   await runningGroup.locator("[data-thinking-label]", { hasText: "Making a responsive version…" }).waitFor({ timeout: 5000 });
   const runningState = await answer.evaluate((el) => ({ thinking: el.querySelectorAll("[data-thinking]").length, spinning: el.querySelectorAll("[data-step-group] [data-thinking] svg").length > 0, tools: el.querySelectorAll("[data-tool]").length }));
-  check("Chat steps: while a step runs, its group's row is the thinking line with the step (Making a responsive version…), one per answer, folded", runningState.thinking === 1 && runningState.tools === 0, JSON.stringify(runningState));
-  await runningGroup.locator("[data-group-toggle]").click();
-  check("Chat steps: opened while running, the group lists its steps, the running one with a spinner", (await runningGroup.locator('[data-tool][data-tool-state="running"]').count()) === 1 && (await runningGroup.locator('[data-tool][data-tool-state="done"]').count()) === 2);
+  check("Chat steps: while a step runs, its group's row is the thinking line with the step (Making a responsive version…), one per answer, its steps open", runningState.thinking === 1 && runningState.tools === 3, JSON.stringify(runningState));
+  check("Chat steps: while running, the group lists its steps, the group lists its steps, the running one with a spinner", (await runningGroup.locator('[data-tool][data-tool-state="running"]').count()) === 1 && (await runningGroup.locator('[data-tool][data-tool-state="done"]').count()) === 2);
   await page.mouse.move(0, 0);
   await page.waitForTimeout(200);
   await closeUp(page, '[data-message="assistant"]', `chat-steps-running-${theme}`, 12);
-  await runningGroup.locator("[data-group-toggle]").click();
   await page.evaluate(() => window.__agentsOpen("variant"));
   await page.waitForSelector('[data-message="assistant"][data-state="done"]', { timeout: 15000 });
   await settle(page);
@@ -442,19 +440,17 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
   const segOrder = await answer.evaluate((el) => [...el.children].map((c) => (c.hasAttribute("data-step-group") ? `${c.getAttribute("data-step-group")}: ${c.querySelector("[data-group-label]")?.textContent ?? ""}` : c.hasAttribute("data-agent-text") ? "text" : c.hasAttribute("data-changes") ? "changes" : null)).filter(Boolean));
   check("Chat steps: the answer reads words, a group named by its last step (not Thinking), words, a new group after them, the image's own group, words, the changes", JSON.stringify(segOrder.map((x) => (x.startsWith("steps: ") ? (x.includes("Thinking") ? "steps: Thinking" : "steps") : x))) === JSON.stringify(["text", "steps", "text", "steps", "image: Generate image", "text", "changes"]), JSON.stringify(segOrder));
   const toggles = answer.locator("[data-group-toggle]");
-  check("Chat steps: every group is folded once the turn is over (no step shown, no thinking line)", (await answer.locator("[data-tool]").count()) === 0 && (await answer.locator("[data-thinking]").count()) === 0 && (await toggles.evaluateAll((els) => els.every((e) => e.getAttribute("aria-expanded") === "false"))));
-  await closeUp(page, '[data-message="assistant"]', `chat-steps-collapsed-${theme}`, 12);
-  await toggles.first().click();
+  check("Chat steps: once the turn is over every group stays open (no thinking line)", (await answer.locator("[data-thinking]").count()) === 0 && (await toggles.evaluateAll((els) => els.every((e) => e.getAttribute("aria-expanded") === "true"))));
   const firstSteps = await answer.locator("[data-step-group]").first().locator("[data-group-steps] [data-tool]").evaluateAll((els) => els.map((e) => `${e.getAttribute("data-tool-state")} ${e.textContent}`));
-  check("Chat steps: a click opens the group to its steps, each ✓ and what it did", JSON.stringify(firstSteps) === JSON.stringify(["done Read the design", "done Took a screenshot", "done Made a responsive version", "done Edited layers"]), JSON.stringify(firstSteps));
+  check("Chat steps: the first group lists its steps, each ✓ and what it did", JSON.stringify(firstSteps) === JSON.stringify(["done Read the design", "done Took a screenshot", "done Made a responsive version", "done Edited layers"]), JSON.stringify(firstSteps));
   await page.mouse.move(0, 0);
   await page.waitForTimeout(200);
   await closeUp(page, '[data-message="assistant"]', `chat-steps-expanded-${theme}`, 12);
   await toggles.first().click();
-  check("Chat steps: a second click folds it again", (await answer.locator("[data-tool]").count()) === 0);
-  await toggles.nth(1).click();
-  await toggles.nth(2).click();
-  check("Agents: the steps are listed", (await page.locator('[data-message="assistant"] [data-tool]').count()) === 2);
+  check("Chat steps: a click folds the group, its count after its label", (await answer.locator("[data-step-group]").first().locator("[data-tool]").count()) === 0 && (await answer.locator("[data-step-group]").first().locator("[data-group-count]").count()) === 1);
+  await closeUp(page, '[data-message="assistant"]', `chat-steps-collapsed-${theme}`, 12);
+  await toggles.first().click();
+  check("Agents: the steps are listed", (await page.locator('[data-message="assistant"] [data-tool]').count()) === firstSteps.length + 2);
   const failed = page.locator('[data-tool="generate_image"][data-tool-state="error"]');
   await failed.locator("[data-tool-toggle]").click();
   const errText = (await failed.locator("[data-tool-error]").textContent()) ?? "";
@@ -608,9 +604,8 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
   await shot(page, `406-agents-image-placed-${theme}`);
   await closeUp(page, '[data-message="assistant"]:last-child [data-image-card]', `image-card-placed-${theme}`, 16);
   const imageGroup = last.locator('[data-step-group="image"]');
-  await imageGroup.locator("[data-group-toggle]").click();
   const imageSteps = await imageGroup.locator("[data-group-steps] [data-tool]").allTextContents();
-  check("Chat steps: done, the image's group reads Generate image and opens to Made an image, Placed an image", ((await imageGroup.locator("[data-group-label]").textContent()) ?? "") === "Generate image" && JSON.stringify(imageSteps) === JSON.stringify(["Made an image", "Placed an image"]), JSON.stringify(imageSteps));
+  check("Chat steps: done, the image's group reads Generate image and lists Made an image, Placed an image", ((await imageGroup.locator("[data-group-label]").textContent()) ?? "") === "Generate image" && imageSteps.length === 2 && imageSteps[0].startsWith("Made an image") && imageSteps[1].startsWith("Placed an image"), JSON.stringify(imageSteps));
   await page.mouse.move(0, 0);
   await page.waitForTimeout(200);
   await closeUp(page, '[data-message="assistant"]:last-child', `chat-steps-image-${theme}`, 12);
@@ -645,50 +640,45 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
   await page.waitForFunction(() => !document.querySelector("[data-agent-image-placeholder]"), null, { timeout: 3000 });
   check("Agents: Stop fades the placeholder out and the card says Image not placed", ((await page.locator('[data-message="assistant"]').last().locator('[data-image-card="failed"]').textContent()) ?? "").includes("Image not placed"));
 
-  // Agent settings: a list in groups (one row each: name, state, chevron); a row opens its own page. Studio (round 15)
-  // and Skills (round 6) are groups of their own; Access (round 16) shows with main's reach (EDITOR_ONLY=reach).
-  await page.locator("[data-agents-settings]").click();
-  await page.waitForSelector('[data-agent-settings][data-settings-page="list"]');
-  await page.waitForTimeout(150);
-  const settings = page.locator("[data-agent-settings]");
-  const groups = await settings.locator("h3").allTextContents();
-  check("Agents: settings open as a list grouped Studio / On this computer / Servers / Skills / Connect other apps", JSON.stringify(groups) === JSON.stringify(["Studio", "On this computer", "Servers", "Skills", "Connect other apps"]), JSON.stringify(groups));
-  check("Agents: the list has no paragraphs but one short line", (await settings.locator("p").count()) === 1);
-  const row = (id) => page.locator(`[data-provider="${id}"]`);
-  const stateOf = async (id) => ((await row(id).locator("[data-provider-state]").textContent()) ?? "").trim();
-  const states = { claude: await stateOf("claude-code"), antigravity: await stateOf("antigravity"), codex: await stateOf("codex"), cursor: await stateOf("cursor-agent"), ollama: await stateOf("ollama"), lm: await stateOf("lmstudio") };
-  check("Agents: each row has one state — Connected / Sign in needed / Not installed / Not running", JSON.stringify(states) === JSON.stringify({ claude: "Connected", antigravity: "Connected", codex: "Not installed", cursor: "Sign in needed", ollama: "Not running", lm: "Connected" }), JSON.stringify(states));
-  check("Agents: settings list Claude Code (found) and Ollama (not running)", (await page.locator('[data-provider="claude-code"][data-available]').count()) === 1 && (await page.locator('[data-provider="ollama"]:not([data-available])').count()) === 1);
-  const rowBox = await row("claude-code").boundingBox();
-  check("Agents: rows are 32 px", Math.round(rowBox?.height ?? 0) === 32, JSON.stringify(rowBox));
-  check("Agents: no Gemini CLI anywhere; the MCP server row counts 1 connection; Claude Code is connected as an app", !((await settings.textContent()) ?? "").includes("Gemini CLI") && (await page.locator('[data-settings-row="gemini-key"]').count()) === 0 && ((await page.locator('[data-settings-row="mcp"]').textContent()) ?? "").includes("1 connection") && (await page.locator('[data-client="claude-code"][data-connected]').count()) === 1);
-  const agRow = await row("antigravity").evaluate((e) => {
-    const state = e.querySelector("[data-provider-state]");
-    return { label: e.querySelector("span:nth-child(2)")?.textContent, state: state?.textContent, cut: !!state && state.scrollWidth > state.clientWidth + 1 };
-  });
-  check("Agents: a long name gives way, its state never: Antigravity (Google AI) keeps Connected whole", !agRow.cut && agRow.state === "Connected" && agRow.label === "Antigravity (Google AI)", JSON.stringify(agRow));
-  await shot(page, `403-agents-settings-${theme}`);
-  const openRow = async (sel) => {
-    await page.locator(sel).click();
+  // Agent settings, in the panel (the gear): the home lists the pages; a page is flat sections of rows; a row opens its
+  // detail in place; the panel header's Back goes one level up, and from the home back to the chat as it was.
+  const headerBack = async () => {
+    await page.locator("[data-tab-header-back]").click();
     await page.waitForTimeout(100);
   };
-  const back = async () => {
-    await settings.getByRole("button", { name: "Back" }).click();
+  await page.locator("[data-agents-settings]").click();
+  await page.waitForSelector('[data-agent-settings][data-settings-page="home"]');
+  await page.waitForTimeout(150);
+  const nav = await page.locator("[data-settings-nav]").evaluateAll((els) => els.map((e) => e.getAttribute("data-settings-nav")));
+  check("Agents: settings open in the panel at its home, a row per page", JSON.stringify(nav) === JSON.stringify(["agents", "manager", "skills", "connectors", "access", "usage"]), JSON.stringify(nav));
+  await page.locator('[data-settings-nav="agents"]').click();
+  await page.waitForSelector('[data-agent-settings][data-settings-page="agents"]');
+  await page.waitForTimeout(150);
+  const settings = page.locator('[data-agent-settings][data-settings-page="agents"]');
+  const row = (id) => settings.locator(`[data-provider="${id}"]`);
+  const stateOf = async (id) => ({ on: (await row(id).locator("[data-provider-on]").count()) === 1, line: ((await row(id).locator("[data-provider-state]").textContent().catch(() => "")) ?? "").trim() });
+  const states = { claude: await stateOf("claude-code"), antigravity: await stateOf("antigravity"), codex: await stateOf("codex"), cursor: await stateOf("cursor-agent"), ollama: await stateOf("ollama"), lm: await stateOf("lmstudio") };
+  check("Agents: Agents and models: connected agents with a green dot, the others say Sign in needed / Not installed / Not running", states.claude.on && states.antigravity.on && states.lm.on && !states.codex.on && states.codex.line.startsWith("Not installed") && !states.cursor.on && states.cursor.line.startsWith("Sign in needed") && !states.ollama.on && states.ollama.line.startsWith("Not running"), JSON.stringify(states));
+  check("Agents: settings list Claude Code (found) and Ollama (not running)", (await settings.locator('[data-provider="claude-code"][data-available]').count()) === 1 && (await settings.locator('[data-provider="ollama"]:not([data-available])').count()) === 1);
+  check("Agents: no Gemini CLI anywhere", !((await settings.textContent()) ?? "").includes("Gemini CLI"));
+  const order = await settings.locator('[data-settings-box="agents"] [data-provider]').evaluateAll((els) => els.map((e) => e.getAttribute("data-provider")));
+  check("Agents: Antigravity is listed first after Claude Code", order[0] === "claude-code" && order[1] === "antigravity", JSON.stringify(order));
+  await shot(page, `403-agents-settings-${theme}`);
+  const openRow = async (sel) => {
+    await page.locator(sel).first().click();
     await page.waitForTimeout(100);
   };
   const card = (id) => page.locator(`[data-agent-settings] [data-provider="${id}"]`);
   await openRow('[data-provider="claude-code"]');
   check("Agents: Claude Code's page says Connected with its account and offers Sign out and its model", ((await card("claude-code").textContent()) ?? "").includes("you@example.com") && (await card("claude-code").locator("[data-sign-out]").count()) === 1 && (await card("claude-code").getByRole("combobox", { name: "Model" }).count()) === 1);
-  await back();
-  check("Agents: Back from a page returns to the list", (await page.locator('[data-agent-settings][data-settings-page="list"]').count()) === 1);
+  await headerBack();
+  check("Agents: Back from a page returns to its section", (await page.locator('[data-agent-settings][data-settings-page="agents"]').count()) === 1);
   await openRow('[data-provider="codex"]');
   check("Agents: Codex's page: Not installed with Install", ((await card("codex").locator("[data-provider-state]").textContent()) ?? "") === "Not installed" && (await card("codex").locator("[data-install]").count()) === 1);
-  await back();
+  await headerBack();
   await openRow('[data-provider="cursor-agent"]');
   check("Agents: Cursor Agent's page: Sign in needed with Sign in", ((await card("cursor-agent").locator("[data-provider-state]").textContent()) ?? "") === "Sign in needed" && (await card("cursor-agent").locator("[data-sign-in]").count()) === 1);
-  await back();
-  const order = await settings.locator('[aria-label="On this computer"] [data-provider]').evaluateAll((els) => els.map((e) => e.getAttribute("data-provider")));
-  check("Agents: Antigravity is listed first after Claude Code", order[0] === "claude-code" && order[1] === "antigravity", JSON.stringify(order));
+  await headerBack();
   await openRow('[data-provider="antigravity"]');
   check("Agents: Antigravity's page: Connected with the Google account, its model by its own name, Sign out", ((await card("antigravity").textContent()) ?? "").includes("you@gmail.com") && ((await card("antigravity").getByRole("combobox", { name: "Model" }).textContent()) ?? "").includes("3.8 Flash (Medium)") && (await card("antigravity").locator("[data-sign-out]").count()) === 1);
   const fits = await card("antigravity").evaluate((el) => {
@@ -699,18 +689,28 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
   });
   check("Agents: Antigravity's page: the model by its short name, whole; the Location's last part whole, the full path in its tooltip", !fits.modelCut && fits.model === "3.8 Flash (Medium)" && fits.tail === "/agy" && !fits.tailCut && fits.tooltip === "/Users/you/.local/bin/agy", JSON.stringify(fits));
   await shot(page, `403c-agents-settings-antigravity-${theme}`);
-  await back();
+  await headerBack();
+  await headerBack();
+  // Connectors: the MCP server's row counts its connections; the apps that can connect.
+  await page.locator('[data-settings-nav="connectors"]').click();
+  await page.waitForSelector('[data-agent-settings][data-settings-page="connectors"]');
+  check("Agents: the MCP server row counts 1 connection; Claude Code is connected as an app", ((await page.locator('[data-settings-row="mcp"]').textContent()) ?? "").includes("1 connection") && (await page.locator('[data-client="claude-code"][data-connected]').count()) === 1);
   await openRow('[data-client="cursor"]');
   check("Agents: Cursor's app page offers Connect to Cursor", (await page.getByRole("button", { name: "Connect to Cursor" }).count()) === 1);
-  await back();
+  await headerBack();
   await openRow('[data-client="antigravity"]');
   check("Agents: Antigravity's app page offers Connect to Antigravity", (await page.getByRole("button", { name: "Connect to Antigravity" }).count()) === 1);
-  await back();
+  await headerBack();
   await openRow('[data-settings-row="mcp"]');
   check("Agents: the MCP server's URL is shown", ((await page.locator("[data-mcp-url]").textContent()) ?? "").includes("127.0.0.1"));
-  await back();
+  await headerBack();
+  await headerBack();
+  check("Agents: Back from a section returns to the settings home", (await page.locator('[data-agent-settings][data-settings-page="home"]').count()) === 1);
 
-  await page.locator("[data-agent-settings]").getByRole("button", { name: "Back" }).click();
+  await headerBack();
+  await settle(page);
+  check("Agents: Back from the settings home returns to the chat as it was", (await page.locator("[data-agent-settings]").count()) === 0 && (await page.locator("[data-composer]").count()) === 1);
+  await headerBack();
   await settle(page);
   check("Agents: Back lists the chat", (await page.locator("[data-chat]").count()) === 1);
   await shot(page, `404-agents-chats-${theme}`);
@@ -961,5 +961,5 @@ async function chatsListSection(page, theme, { settle, shot, check }) {
   check("Chats list: a message sent from the list opens a new chat holding it", opened.chat && opened.user.length === 1 && opened.user[0].includes("A new chat from the list"), JSON.stringify(opened));
   await page.getByRole("button", { name: "Back" }).first().click();
   await settle(page);
-  check("Chats list: the new chat is in the list", (await rows()) === total + 1 && ((await page.locator("[data-chat]").first().textContent()) ?? "").includes("A new chat from the list"));
+  check("Chats list: the new chat is in the list, first, by its short title", (await rows()) === total + 1 && ((await page.locator("[data-chat]").first().textContent()) ?? "").includes("new chat"), (await page.locator("[data-chat]").first().textContent()) ?? "");
 }

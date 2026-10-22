@@ -112,6 +112,9 @@ export async function reachSection(page, theme, { open, settle, shot, check }) {
   await page.locator('[data-rail-tab="agents"]').click();
   await page.waitForSelector("[data-composer]");
   await page.getByRole("button", { name: "Agent settings" }).first().click();
+  // Agent settings in the panel: its home, then the Access page (the panel header's Back goes one level up).
+  const back = () => page.locator("[data-tab-header-back]").click();
+  await page.locator('[data-settings-nav="access"]').click();
   await page.waitForSelector("[data-access]");
   const policies = await page.$$eval("[data-access]", (els) => els.map((e) => `${e.getAttribute("data-access")}:${e.getAttribute("data-access-policy")}`));
   check("Access: the group lists Web, GitHub, Local files, Local apps with their policies (GitHub turned off by the org)", JSON.stringify(policies) === JSON.stringify(["web:ask", "github:forced-off", "files:allow", "apps:ask"]), JSON.stringify(policies));
@@ -119,45 +122,46 @@ export async function reachSection(page, theme, { open, settle, shot, check }) {
   await shot(page, `480-reach-access-group-${theme}`);
 
   // Web: Ask each time, an allowed local address.
-  await page.locator('[data-access="web"]').click();
+  await page.locator('[data-access="web"] [class*="mRowTitle"]').click();
   await page.waitForSelector('[data-access-page="web"]');
   await page.locator("[data-allowed-host-input] input").fill("localhost:5173");
   await page.locator("[data-allowed-host-add]").click();
   await page.waitForSelector('[data-allowed-host="localhost:5173"]');
   check("Access › Web: an allowed local address is added", (await page.evaluate(() => JSON.stringify(window.__reachLog.at(-1)))) === JSON.stringify({ set: { allowedHosts: ["localhost:5173"] } }));
   await shot(page, `481-reach-web-${theme}`);
-  await page.getByRole("button", { name: "Back" }).first().click();
+  await back();
 
   // GitHub, turned off by the organization: its select disabled, the reason said.
-  await page.locator('[data-access="github"]').click();
+  await page.locator('[data-access="github"] [class*="mRowTitle"]').click();
   await page.waitForSelector('[data-access-page="github"]');
   check("Access › GitHub: turned off by the organization — the select disabled, the reason said", (await page.locator('[data-access-select="github"] [role="combobox"]').isDisabled()) && ((await page.locator('[data-access-page="github"]').textContent()) ?? "").includes("Your organization turned this off"));
   await shot(page, `482-reach-github-${theme}`);
-  await page.getByRole("button", { name: "Back" }).first().click();
+  await back();
 
   // Local files: the granted folder, Add folder….
-  await page.locator('[data-access="files"]').click();
+  await page.locator('[data-access="files"] [class*="mRowTitle"]').click();
   await page.waitForSelector('[data-access-page="files"]');
   await page.locator("[data-access-add-folder]").click();
   await page.waitForFunction(() => document.querySelectorAll("[data-access-folder]").length === 2);
   check("Access › Local files: the granted folders, one more from Add folder…", (await page.locator("[data-access-folder]").count()) === 2);
   await shot(page, `483-reach-files-${theme}`);
-  await page.getByRole("button", { name: "Back" }).first().click();
+  await back();
 
   // Local apps: Screen Recording not allowed yet, Open System Settings.
-  await page.locator('[data-access="apps"]').click();
+  await page.locator('[data-access="apps"] [class*="mRowTitle"]').click();
   await page.waitForSelector('[data-access-page="apps"]');
   check("Access › Local apps: Screen Recording not allowed yet, with Open System Settings", (await page.locator('[data-screen-permission="denied"]').count()) === 1 && (await page.locator("[data-screen-settings]").count()) === 1);
   await shot(page, `484-reach-apps-${theme}`);
-  await page.getByRole("button", { name: "Back" }).first().click();
+  await back();
 
-  // The access log, newest first, each outcome.
-  await page.locator('[data-settings-row="access-log"]').click();
-  await page.waitForSelector("[data-access-log]");
+  // The access log on the Access page, newest first, each outcome.
+  await page.waitForSelector("[data-log-outcome]");
   const outcomes = await page.$$eval("[data-log-outcome]", (els) => els.map((e) => e.getAttribute("data-log-outcome")));
   check("Access log: the calls newest first, with their outcomes", JSON.stringify(outcomes) === JSON.stringify(["denied", "ok", "refused", "ok"]), JSON.stringify(outcomes));
+  await page.locator("[data-log-outcome]").first().scrollIntoViewIfNeeded();
   await shot(page, `485-reach-log-${theme}`);
-  await page.getByRole("button", { name: "Back" }).first().click();
+  await back();
+  await page.locator('[data-settings-nav="connectors"]').click();
 
   // A connector whose server wants a sign-in (OAuth): Sign in needed in the list; its page signs in, then lists its tools.
   const notion = page.locator('[data-connector="con_notion"]');
@@ -171,8 +175,9 @@ export async function reachSection(page, theme, { open, settle, shot, check }) {
   await page.waitForSelector('[data-connector-account="signed-in"]');
   check("Connectors › Notion: signed in — its tools listed at Ask, Sign out offered, Sign in gone", (await page.locator("[data-connector-tool]").count()) === 2 && (await page.locator("[data-connector-sign-out]").count()) === 1 && (await page.locator("[data-connector-sign-in]").count()) === 0);
   await shot(page, `489-reach-connector-signed-in-${theme}`);
-  await page.getByRole("button", { name: "Back" }).first().click();
-  await page.getByRole("button", { name: "Back" }).first().click();
+  await back();
+  await back();
+  await back();
 
   // In a chat: the web page's card, then the window picker; each answered.
   await page.waitForSelector("[data-composer]");
