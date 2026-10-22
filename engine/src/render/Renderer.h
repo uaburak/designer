@@ -292,6 +292,8 @@ struct Overlay {
   std::vector<Guid> hoverDotted;
   // ⇧ held: the layers a ⇧-click or ⇧-marquee would add (the selection's counterparts), outlined faint (Editor.cpp)
   std::vector<Guid> shiftCandidates;
+  // Frames drawn without their title: ⌥-dragged copies of variants out of their set — instances once dropped (Editor.cpp)
+  std::vector<Guid> noTitle;
   std::vector<Guid> selection;
   bool handles = true;      // resize handles on the selection box
   // Group 1 (live Figma: canvas-rect-selected-hover-radius-handles, autolayout-drag-01 / -08, -r2-07…): the AI

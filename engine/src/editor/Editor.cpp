@@ -1144,6 +1144,14 @@ Overlay Editor::overlay() const {
   }
   // Round 11: a selected auto-layout component's, set's or instance's gaps (with the handles: not while moving).
   if (o.handles && gesture_ != Gesture::Move && text_.node == kNoGuid && vector_.node == kNoGuid) gapBoxesOverlay(o);
+  // ⌥-dragged copies of variants out of their set: no title — they are instances of the variant once dropped (live
+  // Figma: the owner's 2026-10-23 capture shows none; tools/Gestures.cpp turns them into instances at the drop).
+  if (gesture_ == Gesture::Move && duplicating_)
+    for (size_t i = 0; i < targets_.size() && i < originals_.size(); i++) {
+      Guid set = doc_.parentOf(originals_[i]);
+      const Node* sn = doc_.get(set);
+      if (sn && sn->props.isComponentSet() && doc_.parentOf(targets_[i].id) != set) o.noTitle.push_back(targets_[i].id);
+    }
   // ⇧ held with a layer inside a frame selected: its counterparts in the other frames or variants (Select matching
   // layers') outlined faint — what a ⇧-click or a ⇧-marquee then takes (live Figma, the owner's 2026-10-23 captures).
   if ((mods_ & MOD_SHIFT) && !viewer_ && text_.node == kNoGuid && vector_.node == kNoGuid &&

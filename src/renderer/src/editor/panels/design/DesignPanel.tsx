@@ -27,7 +27,7 @@ import { TypographySection } from "./Typography";
 import { EffectsSection, LayoutGuideSection } from "./Effects";
 import { ExportSection, type ExportTarget } from "./Export";
 import { VectorEditPanel } from "./VectorPoints";
-import { usePaintTargets, useSelectedNodes, type PanelNode } from "./shared";
+import { isInstanceSublayer, usePaintTargets, useSelectedNodes, type PanelNode } from "./shared";
 import { designSections, isTypeNode } from "../../draw/panels/drawPanel";
 import { TransformSection } from "../../draw/panels/TransformSection";
 import { AnimationsSection, ClipEasingPage, useClipEasing } from "../../motion/panels/AnimationsSection";
@@ -41,7 +41,7 @@ import draw from "../../draw/panels/DrawPanels.module.css";
 import { TypeHeader } from "./Header";
 import { RelaunchButtons } from "./RelaunchButtons";
 import { VectorOperationNote } from "./VectorOperation";
-import { ComponentBlock, InstanceHeader, componentSelection } from "./Component";
+import { ComponentBlock, InstanceHeader, InstanceTextProperty, componentSelection } from "./Component";
 import { useMultiEditVariants } from "./multiEdit";
 import { ApplyModeButton, ModeRows } from "./Variables";
 import { GridPanel } from "./Grid";
@@ -168,7 +168,10 @@ function Selected({ nodes, paintNodes, onPick }: { nodes: PanelNode[]; paintNode
     <>
       {/* An instance: its name, Go to main component and its properties; a component, set or variant: its name and Properties (Current variant) */}
       {/* (Draw: a component's header without its properties; an instance keeps its swap header) */}
-      {comp?.kind === "instance" ? <InstanceHeader instance={comp.node} /> : comp && !drawMode ? <ComponentBlock sel={comp} /> : <TypeHeader nodes={nodes} />}
+      {/* (A layer inside an instance, not an instance itself: no header row — live Figma 2026-10-23, the panel starts at
+          its bound property or Position) */}
+      {comp?.kind === "instance" ? <InstanceHeader instance={comp.node} /> : comp && !drawMode ? <ComponentBlock sel={comp} /> : nodes.length > 0 && nodes.every(isInstanceSublayer) ? null : <TypeHeader nodes={nodes} />}
+      {nodes.length === 1 && isInstanceSublayer(nodes[0]) && <InstanceTextProperty layer={nodes[0]} />}
       <RelaunchButtons refs={nodes.map((n) => n.guid)} />
       <VectorOperationNote nodes={nodes} />
       {/* Motion mode (docs/motion.md §4.6, §6.5): the selection's preset clips, + to add one, the composite styles (round 8h). */}

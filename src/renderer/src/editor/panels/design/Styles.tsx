@@ -68,7 +68,7 @@ export function StylesButton({ nodes, slot, mixed, onOpenPicker }: { nodes: read
   const current = sharedStyle(nodes, slot);
   return (
     <>
-      <IconButton icon="24.styles" label={mixed ? t("Style") : `${t(SECTION_TITLE[slot])}, ${label}`} tooltip={mixed ? t("Style") : label} tone="secondary" aria-expanded={!!open} data-styles-button={slot} onClick={(e) => (onOpenPicker ? onOpenPicker(sectionTop(e.currentTarget)) : setOpen(open ? null : e.currentTarget))} />
+      <IconButton icon="24.styles" label={mixed ? t("Style") : `${t(SECTION_TITLE[slot])}, ${label}`} tooltip={mixed ? t("Style") : label} tone="secondary" aria-expanded={!!open} data-styles-button={slot} className={styles.sectionStyles} onClick={(e) => (onOpenPicker ? onOpenPicker(sectionTop(e.currentTarget)) : setOpen(open ? null : e.currentTarget))} />
       {open && paints && (
         <VariablePicker
           anchor={open}

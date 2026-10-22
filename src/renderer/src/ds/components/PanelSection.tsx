@@ -26,6 +26,7 @@ export function PanelSection({ title, actions, empty, collapsible, open = true, 
   return (
     <section
       data-ds="PanelSection"
+      data-empty={empty || undefined}
       aria-label={title}
       className={cx(styles.section, collapsible && styles.collapsible, collapsible && !open && styles.closed, empty && styles.empty, hasBody && pad === "default" && styles.padDefault, hasBody && pad === "large" && styles.padLarge, className)}
       {...rest}

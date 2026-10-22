@@ -649,6 +649,7 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     };
     auto has = [](const std::vector<Guid>& ids, Guid id) { return std::find(ids.begin(), ids.end(), id) != ids.end(); };
     for (const FrameTitle& t : frameTitles(doc, page, view, screen_, style, measure, overlay.dev.focus, overlay.motionTitles)) {
+      if (std::find(overlay.noTitle.begin(), overlay.noTitle.end(), t.id) != overlay.noTitle.end()) continue;
       const Node* n = doc.get(t.id);
       if (!n) continue;
       bool isSelected = has(overlay.selection, t.id), hovered = has(overlay.hover, t.id);

@@ -21,15 +21,14 @@ import { SPACING_HIGHLIGHT } from "@/engine/abi";
 import { useEditor } from "../../controller";
 import { command, runEditorCommand, shortcutOf } from "../../commands";
 import { useUI } from "../../hooks";
-import { isAutoLayout, isSpaceBetween, sizingOf, SPACE_BETWEEN } from "../../model/sizing";
-import { roundPanel } from "../../model/geometry";
+import { isAutoLayout, isSpaceBetween, SPACE_BETWEEN } from "../../model/sizing";
 import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
 import { gridDefaults, isGrid, type GridNode } from "../../model/grid";
 import { ALL_SIDES, paddingDisplay, paddingFields, paddingFromText, paddingHighlight, paddingOf, type Padding } from "../../model/padding";
 import { spacingAxes, spacingOf } from "../../model/spacing";
 import { GridDimensionsRow, GridSpanRow } from "./Grid";
 import { VariableField } from "./Variables";
-import { LimitRow, SIZING_LIST_DY, SizeField, sizeLabels, sizeLocked, useLimitAxes } from "./Sizing";
+import { InstanceSizeField, LimitRow, SIZING_LIST_DY, SizeField, sizeLabels, sizeLocked, useLimitAxes } from "./Sizing";
 import { canResizeToFit, resizeToFit, spacingItems, writeSpacing } from "./layoutActions";
 import { cancelScrub, editEach, exitToCanvas, perLayer, scrubEach, stepInfo } from "./Sections";
 import { fields, isFrameNode, isGroupNode, isInstanceSublayer, isTextNode, typeOf, useParents, useSupports, type PanelNode } from "./shared";
@@ -106,7 +105,8 @@ export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
   return (
     <PanelSection title={drawMode ? t("Dimensions") : auto ? t("Auto layout") : t("Layout")} actions={drawMode ? undefined : actions}>
       <PropertyGrid labels={labels} className={cx(auto && !labels && styles.autoLayoutGrid)}>
-        {flowable && <FlowRow nodes={nodes} disabled={flowLocked} onAdd={addAutoLayout} onRemove={removeAutoLayout} />}
+        {/* (A frame inside an instance: no Flow at all — live Figma 2026-10-23, the owner's Button instance) */}
+        {flowable && !locked && <FlowRow nodes={nodes} disabled={flowLocked} onAdd={addAutoLayout} onRemove={removeAutoLayout} />}
         {texts.length > 0 && <TextResizingRow nodes={texts} />}
         <PropertyRow
           label={t(sizes.row)}
@@ -116,8 +116,8 @@ export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
             ) : undefined
           }
         >
-          {locked ? <LockedSize axis="x" nodes={nodes} parents={parents} /> : <SizeField axis="x" nodes={nodes} parents={parents} onAddLimit={limits.open} disabled={sizeLocked(nodes, "x")} />}
-          {locked ? <LockedSize axis="y" nodes={nodes} parents={parents} /> : <SizeField axis="y" nodes={nodes} parents={parents} onAddLimit={limits.open} disabled={sizeLocked(nodes, "y")} />}
+          {locked ? <InstanceSizeField axis="x" nodes={nodes} parents={parents} /> : <SizeField axis="x" nodes={nodes} parents={parents} onAddLimit={limits.open} disabled={sizeLocked(nodes, "x")} />}
+          {locked ? <InstanceSizeField axis="y" nodes={nodes} parents={parents} /> : <SizeField axis="y" nodes={nodes} parents={parents} onAddLimit={limits.open} disabled={sizeLocked(nodes, "y")} />}
         </PropertyRow>
         {!drawMode && limits.axes.map((axis) => (
           <LimitRow key={axis} axis={axis} nodes={nodes} />
@@ -197,29 +197,6 @@ function FlowRow({ nodes, disabled, onAdd, onRemove }: { nodes: PanelNode[]; dis
         onChange={pick}
       />
     </PropertyRow>
-  );
-}
-
-/**
- * W / H of a layer inside an instance: live shows a read-only list (design/nested-instance.txt: an 88 × 32 listbox
- * named "Advanced auto layout settings" at the field's place, 4 above and below its 24 box; the axis letter at 8 and
- * the sizing — "Hug" — at 25, both 11 / 450; the box on the panel's colour). Its options aren't offered (unverified).
- */
-function LockedSize({ axis, nodes, parents }: { axis: "x" | "y"; nodes: PanelNode[]; parents: (PanelNode | null)[] }) {
-  useT();
-  const sizing = mixed(nodes.map((n, i) => sizingOf(n, parents[i], axis)));
-  const value = mixedNumber(nodes.map((n) => roundPanel(n.size?.[axis] ?? 0)));
-  const text = sizing === "HUG" ? t("Hug") : sizing === "FILL" ? t("Fill") : isMixed(value) || value === undefined ? t("Mixed") : String(value);
-  return (
-    // (Live: a "Horizontal / Vertical resizing" box around the list, the list itself not disabled.)
-    <div aria-label={axis === "x" ? t("Horizontal resizing") : t("Vertical resizing")} className={styles.lockedSize} data-locked-size={axis}>
-      <div role="listbox" aria-label={t("Advanced auto layout settings")} className={styles.lockedSizeList}>
-        <div className={styles.lockedSizeBox}>
-          <span className={styles.lockedSizeAxis}>{axis === "x" ? "W" : "H"}</span>
-          <span className={styles.lockedSizeValue}>{text}</span>
-        </div>
-      </div>
-    </div>
   );
 }
 

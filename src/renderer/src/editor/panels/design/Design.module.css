@@ -70,12 +70,19 @@
    */
   .plainDisabled[data-disabled] { background: transparent; opacity: 1; }
   .plainDisabled[data-disabled] input { color: var(--figma-color-text-disabled); }
-  /* A layer inside an instance: its W / H as live's read-only list (88 × 32 around the 24 box) */
-  .lockedSize { display: flex; align-items: center; height: calc(var(--ds-size-control) + var(--ds-space-2)); margin: calc(var(--ds-space-1) * -1) 0; }
-  .lockedSizeList { display: flex; align-items: center; width: 100%; height: 100%; }
-  .lockedSizeBox { display: flex; align-items: center; width: 100%; height: var(--ds-size-control); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); color: var(--figma-color-text); }
-  .lockedSizeAxis { width: 25px; padding-left: var(--ds-space-2); color: var(--figma-color-text-secondary); box-sizing: border-box; }
-  .lockedSizeValue { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  /* An empty Fill / Stroke / Effects / Layout guide: its "Apply styles" shows on the section's hover only (live Figma
+     2026-10-23: opacity 0 until then; open or focused it stays) */
+  [data-empty] .sectionStyles:not([aria-expanded="true"]):not(:focus-visible) { opacity: 0; }
+  [data-empty]:hover .sectionStyles { opacity: 1; }
+  /* A layer inside an instance: W / H as a resizing box (live Figma 2026-10-23): the axis letter at 8, the size, a chevron at
+     the end; the field's colour, lit on hover; a press opens Fixed / Hug / Fill */
+  .instanceSize { display: flex; min-width: 0; }
+  .instanceSizeButton { display: flex; flex: 1 1 auto; align-items: center; gap: var(--ds-space-2); min-width: 0; height: var(--ds-size-control); padding: 0 0 0 var(--ds-space-2); border: 0; border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); color: var(--figma-color-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); text-align: left; outline: none; }
+  .instanceSizeButton:hover, .instanceSizeButton[data-open] { box-shadow: inset 0 0 0 1px var(--figma-color-border); }
+  .instanceSizeButton:focus-visible { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
+  .instanceSizeAxis { flex: none; width: 8px; color: var(--figma-color-text-secondary); }
+  .instanceSizeValue { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .instanceSizeChevron { flex: none; color: var(--figma-color-icon-secondary); }
   /* A section's menu (live stroke-individual-strokes-menu.txt, 117 × 159): no padding above or below, groups 15 apart */
   .panelMenu { padding-block: 0; }
   .panelMenu > [role="separator"] { margin-block: 7px; }

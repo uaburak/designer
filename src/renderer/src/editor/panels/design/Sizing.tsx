@@ -172,6 +172,46 @@ export function SizeField({ axis, nodes, parents, onAddLimit, disabled }: { axis
   );
 }
 
+/**
+ * W / H of a layer inside an instance (live Figma, 2026-10-23: the owner's Button instance): a "Horizontal / Vertical
+ * resizing" box showing the size (or Hug / Fill) with a chevron — no typing; it opens Fixed (n), Hug contents and Fill
+ * container, which override the instance's layer. No min / max.
+ */
+export function InstanceSizeField({ axis, nodes, parents }: { axis: Axis; nodes: PanelNode[]; parents: (PanelNode | null)[] }) {
+  useT();
+  const ed = useEditor();
+  const value = mixedNumber(nodes.map((n) => roundPanel(n.size?.[axis] ?? 0)));
+  const sizing = mixed(nodes.map((n, i) => sizingOf(n, parents[i], axis)));
+  const known = !(isMixed(value) || value === undefined);
+  const glyph = (k: "fixed" | "hug" | "fill"): IconName => `24.al.${axis === "x" ? "width" : "height"}-${k}` as IconName;
+  const fixedLabel = axis === "x" ? (known ? t("Fixed width ({value})", { value: String(value) }) : t("Fixed width")) : known ? t("Fixed height ({value})", { value: String(value) }) : t("Fixed height");
+  const entries: MenuEntry[] = [
+    { id: "FIXED", label: fixedLabel, checked: sizing === "FIXED", icon: glyph("fixed") },
+    ...(nodes.some(canHug) ? [{ id: "HUG", label: t("Hug contents"), checked: sizing === "HUG", disabled: !nodes.every(canHug), icon: glyph("hug") }] : []),
+    ...(nodes.some((n, i) => canFill(n, parents[i])) ? [{ id: "FILL", label: t("Fill container"), checked: sizing === "FILL", disabled: !nodes.every((n, i) => canFill(n, parents[i])), icon: glyph("fill") }] : []),
+  ];
+  const text = sizing === "HUG" ? t("Hug") : sizing === "FILL" ? t("Fill") : known ? String(value) : t("Mixed");
+  return (
+    <div aria-label={axis === "x" ? t("Horizontal resizing") : t("Vertical resizing")} className={styles.instanceSize} data-locked-size={axis}>
+      <MenuButton
+        label={t(axis === "x" ? "Horizontal resizing" : "Vertical resizing")}
+        entries={entries}
+        className={styles.instanceSizeButton}
+        overField={`[data-locked-size="${axis}"]`}
+        overAlign="left"
+        onSelect={(id) => {
+          if (id === "FIXED" || id === "HUG" || id === "FILL") applySizing(ed, nodes, parents, axis, id);
+          ed.focusCanvas();
+        }}
+      >
+        <span className={styles.instanceSizeAxis}>{axis === "x" ? "W" : "H"}</span>
+        <span className={styles.instanceSizeValue}>{text}</span>
+        <Icon name="24.chevron.down" className={styles.instanceSizeChevron} />
+      </MenuButton>
+    </div>
+  );
+}
+
 /** The min / max fields of one axis (shown once a limit exists, or right after "Add min …"). */
 export function LimitRow({ axis, nodes }: { axis: Axis; nodes: PanelNode[] }) {
   useT();

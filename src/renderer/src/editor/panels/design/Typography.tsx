@@ -27,7 +27,7 @@ import { TypeSettings } from "./TypeSettings";
 import { exitToCanvas } from "./Sections";
 import { familyNames, familyStyles, groupStyles, useFontFamilies } from "../../fontList";
 import { FontField } from "./FontPicker";
-import { fields, typeOf, useSupports, type ExtraFields, type FontName, type NumberValue, type PanelNode } from "./shared";
+import { fields, isInstanceSublayer, typeOf, useSupports, type ExtraFields, type FontName, type NumberValue, type PanelNode } from "./shared";
 import { runDraw } from "../../draw/drawTools";
 
 /** A text on a path (TEXT_PATH 41, docs/draw.md §4.4). */
@@ -317,7 +317,8 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
             onChange={(v) => write("Text alignment", { textAlignVertical: v as ExtraFields["textAlignVertical"] })}
           />
         </PropertyRow>
-        {nodes.length === 1 && <BoundPropertyRow layer={nodes[0]} field="TEXT_DATA" type="TEXT" />}
+        {/* (Inside an instance the text's property sits at the panel's top: InstanceTextProperty) */}
+        {nodes.length === 1 && !isInstanceSublayer(nodes[0]) && <BoundPropertyRow layer={nodes[0]} field="TEXT_DATA" type="TEXT" />}
       </PropertyGrid>
       {details && <TypeSettings nodes={nodes} summary={summary} anchor={details} onClose={() => setDetails(null)} />}
     </PanelSection>

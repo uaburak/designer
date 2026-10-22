@@ -23,7 +23,7 @@
  * has them.
  */
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Button, ContextMenu, Icon, IconButton, MenuButton, Popover, PropertyRow, SearchField, Select, Switch, TextInput, ToggleIconButton, cx, showToast, tooltipProps, type IconName, type MenuEntry } from "@/ds";
+import { Button, ContextMenu, Icon, IconButton, MenuButton, Popover, PropertyGrid, PropertyRow, SearchField, Select, Switch, TextInput, ToggleIconButton, cx, showToast, tooltipProps, type IconName, type MenuEntry } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { command, isEnabled, runEditorCommand, shortcutOf } from "../../commands";
@@ -1435,14 +1435,24 @@ function useBindData(layer: Pick<CNode, "guid">, field: BindableField, type: Bin
   const version = useDocVersion();
   return useMemo(() => {
     void version;
+    // A layer inside an instance: its main layer's binding, shown locked; "Go to property" selects the instance it is in.
+    const derived = parseDerivedId(layer.guid);
+    if (derived) {
+      const main = readC(ed, guidStr(derived.path[derived.path.length - 1]));
+      const owner = main ? owningComponent(ed, main) : null;
+      if (!main || !owner) return null;
+      const bound = boundProperty(main, field, owner.definer.componentPropDefs ?? []);
+      const instance = derived.path.length > 1 ? `I${derived.instance};${derived.path.slice(0, -1).map(guidStr).join(";")}` : derived.instance;
+      return { node: main, owner, defs: [] as ComponentPropDef[], bound, instance: instance as Guid };
+    }
     const node = readC(ed, layer.guid);
-    if (!node || parseDerivedId(node.guid)) return null;
+    if (!node) return null;
     const owner = owningComponent(ed, node);
     if (!owner || !canBind({ type }, node.type ?? "")) return null;
     const defs = (owner.definer.componentPropDefs ?? []).filter((d) => d.type === type);
     const bound = boundProperty(node, field, owner.definer.componentPropDefs ?? []);
     if (field === "VISIBLE" && isComponent(node) && !bound) return null;
-    return { node, owner, defs, bound };
+    return { node, owner, defs, bound, instance: null as Guid | null };
   }, [ed, layer.guid, field, type, version]);
 }
 
@@ -1519,6 +1529,19 @@ export function BoundPropertyRow({ layer, field, type }: { layer: Pick<CNode, "g
   const [creating, setCreating] = useState<HTMLElement | null>(null);
   if (!data?.bound) return null;
   const bound = data.bound;
+  if (data.instance) {
+    // Inside an instance (live Figma 2026-10-23): the property's pill dimmed, nothing to change here; its target, at
+    // the row's end, selects the instance whose property it is.
+    const instance = data.instance;
+    return (
+      <PropertyRow span={2} data-bound-property={bound.name} action={<IconButton icon="24.target.small" label={t("Go to property")} tone="secondary" onClick={() => ed.engine.setSelection([instance])} />}>
+        <span className={cx(styles.boundProperty, styles.boundPropertyLocked)} aria-disabled="true">
+          <Icon name={PROPERTY_ICON[type]} />
+          <span className={styles.pillText}>{bound.name}</span>
+        </span>
+      </PropertyRow>
+    );
+  }
   return (
     <PropertyRow
       span={2}
@@ -1533,6 +1556,22 @@ export function BoundPropertyRow({ layer, field, type }: { layer: Pick<CNode, "g
       {picker && <PropertyPicker anchor={picker} owner={data.owner.definer} type={type} current={bound} onPick={(d) => bindLayer(ed, data.node, field, d)} onCreate={setCreating} onClose={() => setPicker(null)} />}
       {creating && <PropertyEditor owner={data.owner.definer} target={{ mode: "create", type, bind: { layer: data.node, field } }} anchor={creating} onClose={() => setCreating(null)} />}
     </PropertyRow>
+  );
+}
+
+/**
+ * A text inside an instance whose content is a property's (live Figma 2026-10-23): that property's locked pill at the
+ * top of the panel, above Position, in a section of its own. Nothing when the text isn't bound.
+ */
+export function InstanceTextProperty({ layer }: { layer: Pick<CNode, "guid"> }) {
+  const data = useBindData(layer, "TEXT_DATA", "TEXT");
+  if (!data?.bound || !data.instance) return null;
+  return (
+    <div className={styles.instanceProperty} data-instance-text-property="">
+      <PropertyGrid>
+        <BoundPropertyRow layer={layer} field="TEXT_DATA" type="TEXT" />
+      </PropertyGrid>
+    </div>
   );
 }
 

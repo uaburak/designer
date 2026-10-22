@@ -331,6 +331,26 @@ TEST_CASE("⇧ with a nested layer selected: its counterparts outlined faint, an
   CHECK(e.overlay().shiftCandidates.empty());
 }
 
+TEST_CASE("an ⌥-dragged copy of a variant out of its set has no title (an instance once dropped, live Figma)") {
+  const Guid SET{14, 1}, V1{14, 2}, V2{14, 3};
+  NodeChange set = make(SET, NodeType::FRAME, kPage, "#", {0, 400, 300, 100}, "Button");
+  set.props.comp().isStateGroup = true;
+  NodeChange v1 = make(V1, NodeType::SYMBOL, SET, "!", {10, 10, 100, 40}, "State=Default");
+  NodeChange v2 = make(V2, NodeType::SYMBOL, SET, "\"", {150, 10, 100, 40}, "State=Hover");
+  Editor e = makeEditor({set, v1, v2});
+  e.setSelection({V1});
+  down(e, 160, 530, MOD_ALT);
+  e.pointer(PointerEvent::MOVE, 300, 700, 0, 1, MOD_ALT);
+  e.pointer(PointerEvent::MOVE, 700, 900, 0, 1, MOD_ALT);
+  REQUIRE(e.selection().size() == 1);
+  Guid copy = e.selection()[0];
+  CHECK(copy != V1);
+  CHECK(e.document().parentOf(copy) != SET);
+  CHECK(e.overlay().noTitle == std::vector<Guid>{copy});
+  up(e, 700, 900, MOD_ALT);
+  CHECK(e.overlay().noTitle.empty());
+}
+
 TEST_CASE("r7 resize: ⌘ ignores constraints — the frame's children stay where they are on the page") {
   Editor e = makeEditor();
   e.setSelection({F});

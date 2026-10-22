@@ -376,6 +376,11 @@
     text-align: left;
     outline: none;
   }
+  /* A layer inside an instance (live Figma 2026-10-23): the pill outlined, its glyph and name dimmed — nothing to pick */
+  .boundPropertyLocked { background: transparent; box-shadow: inset 0 0 0 1px var(--figma-color-border); color: var(--figma-color-text-disabled); cursor: default; }
+  .boundPropertyLocked:hover { background: transparent; }
+  /* Its own section at the panel's top (the text's property, live 155.png): 8 above and below, a hairline under it */
+  .instanceProperty { padding: var(--ds-space-2) 0; border-bottom: 1px solid var(--figma-color-border); }
   .boundProperty:focus-visible { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
   /* Live (2026-10-22): the property picker — search with ×, All libraries with +, "Properties in …", 32 rows */
   .propertyPicker { display: flex; flex-direction: column; }
