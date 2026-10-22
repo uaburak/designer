@@ -4,6 +4,8 @@
 #include "doctest.h"
 #include "editor/Editor.h"
 #include "Helpers.h"
+#include "scene/CodecJson.h"
+#include "scene/CodecKiwi.h"
 
 using namespace eng;
 using namespace eng::test;
@@ -249,4 +251,48 @@ TEST_CASE("txn: a plugin run's slices are one undo step; commitUndo, another edi
   REQUIRE(e.txnBegin("Scrub") == OK);
   CHECK(e.txnBeginRun("Plugin", true) == E_BUSY);
   e.txnCancel();
+}
+
+// A cleared unmodelled field (prototypeStartingPoint, hyperlink, pluginData…) is carried by the forward change — an
+// empty value, written as clearedFields — so a peer, the journal and undo / redo see it (2026-10-22: it was `{guid}`).
+TEST_CASE("txn: clearing an unmodelled field reaches the message; a peer applying it clears it too") {
+  auto change = [](const char* text) {
+    json::Value v;
+    REQUIRE(json::parse(text, v));
+    NodeChange c;
+    REQUIRE(codec::readChange(v, c));
+    return c;
+  };
+  Editor a = makeEditor(), b = makeEditor();
+  auto relay = [&] {
+    auto ev = a.takeEvents();
+    for (auto& d : ev.documents) {
+      // Through the kiwi wire, as the journal and peers get it.
+      codec::KiwiMessage m;
+      REQUIRE(codec::readMessage(codec::writeMessage(1, d.changes), m));
+      REQUIRE(b.applyChanges(m.changes, APPLY_REMOTE) == OK);
+    }
+    return ev;
+  };
+  const char* set = R"({"guid":"1:1","prototypeStartingPoint":{"name":"Flow 1","description":"","position":"!"},"overlayPositionType":"TOP_LEFT"})";
+  REQUIRE(a.setProps({F}, change(set), 0) == OK);
+  relay();
+  REQUIRE(b.document().get(F)->props.extra.count("prototypeStartingPoint") == 1);
+  REQUIRE(a.setProps({F}, change(R"({"guid":"1:1","prototypeStartingPoint":null})"), 0) == OK);
+  auto ev = relay();
+  REQUIRE(ev.documents.size() == 1);
+  const NodeChange& c = ev.documents[0].changes.at(0);
+  CHECK((c.mask & F_EXTRA) != 0);
+  CHECK(c.props.extra.count("prototypeStartingPoint") == 1);
+  CHECK(c.props.extra.at("prototypeStartingPoint").empty());
+  CHECK(a.document().get(F)->props.extra.count("prototypeStartingPoint") == 0);
+  CHECK(b.document().get(F)->props.extra.count("prototypeStartingPoint") == 0);
+  CHECK(b.document().get(F)->props.extra.count("overlayPositionType") == 1);  // untouched: kept
+  // Undo puts it back on the peer, redo clears it again.
+  REQUIRE(a.command(CommandId::UNDO) == OK);
+  relay();
+  CHECK(b.document().get(F)->props.extra.count("prototypeStartingPoint") == 1);
+  REQUIRE(a.command(CommandId::REDO) == OK);
+  relay();
+  CHECK(b.document().get(F)->props.extra.count("prototypeStartingPoint") == 0);
 }

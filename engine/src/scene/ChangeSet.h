@@ -3,6 +3,8 @@
 // changed fields; creations with every field; removals as phase REMOVED.
 #pragma once
 
+#include <set>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -30,6 +32,10 @@ class ChangeSet {
   struct Entry {
     bool existedBefore = false;
     FieldMask mask = 0;
+    // The unmodelled fields (NodeProps::extra keys) written or removed: one gone by the end of the transaction is
+    // carried as a removal (an empty value: clearedFields in kiwi, null in JSON) — the node no longer holds it, so
+    // copying the node's `extra` alone would lose the clear (2026-10-22: Remove link, Remove flow starting point…).
+    std::set<std::string> extraKeys;
   };
   std::vector<Guid> order_;
   std::unordered_map<Guid, Entry, GuidHash> entries_;
