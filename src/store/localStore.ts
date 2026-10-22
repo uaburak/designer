@@ -3,6 +3,7 @@
  * and `LocalAdapter`, the four repositories over them (§8). `LocalAdapter` is always authoritative: the UI reads
  * and writes only through it (over RPC); shared files reach their rooms behind it (multiplayer/service.ts).
  */
+import { execFileSync } from "node:child_process";
 import { randomInt } from "node:crypto";
 import { closeSync, openSync, promises as fsp, writeSync } from "node:fs";
 import { join } from "node:path";
@@ -108,19 +109,47 @@ const defaultLog: Log = (level, message, detail) => {
 /** Workspaces locked by live stores of this process (a stale lock with our own pid is a crashed store). */
 const LOCKED_HERE = new Set<string>();
 
+/** `ps -o etime=` ("[[dd-]hh:]mm:ss") in seconds; null when unreadable. */
+export function parseElapsed(etime: string): number | null {
+  const m = /^\s*(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)\s*$/.exec(etime);
+  if (!m) return null;
+  return ((Number(m[1] ?? 0) * 24 + Number(m[2] ?? 0)) * 60 + Number(m[3])) * 60 + Number(m[4]);
+}
+
+/** When the live process `pid` started (wall clock ms), or null where `ps` can't tell (Windows, an error). */
+function processStartedAt(pid: number): number | null {
+  if (process.platform === "win32") return null;
+  try {
+    const out = execFileSync("ps", ["-o", "etime=", "-p", String(pid)], { encoding: "utf8", timeout: 2000, env: { ...process.env, LC_ALL: "C" } });
+    const s = parseElapsed(out);
+    return s === null ? null : Date.now() - s * 1000;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether a live process that started at `startedAt` (wall clock ms; null: unknown) can be the one that wrote a lock
+ * at `wroteAt`: one started after the lock was written got a dead store's pid (pids are reused), it holds nothing.
+ */
+export function canHoldLock(wroteAt: number | undefined, startedAt: number | null): boolean {
+  if (typeof wroteAt !== "number" || startedAt === null) return true;
+  return startedAt <= wroteAt + 5000; // ps counts whole seconds; slack for that
+}
+
 async function acquireLock(dirs: WorkspaceDirs, now: number, log: Log): Promise<void> {
   const path = join(dirs.root, ".lock");
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const fd = openSync(path, "wx", 0o644);
-      writeSync(fd, JSON.stringify({ pid: process.pid, startedAt: now }));
+      writeSync(fd, JSON.stringify({ pid: process.pid, startedAt: now, wroteAt: Date.now() }));
       closeSync(fd);
       LOCKED_HERE.add(dirs.root);
       return;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
     }
-    const held = await readJsonOrNull<{ pid: number; startedAt: number }>(path);
+    const held = await readJsonOrNull<{ pid: number; startedAt: number; wroteAt?: number }>(path);
     let alive = false;
     if (held && held.pid !== process.pid) {
       try {
@@ -129,6 +158,9 @@ async function acquireLock(dirs: WorkspaceDirs, now: number, log: Log): Promise<
       } catch (e) {
         alive = (e as NodeJS.ErrnoException).code === "EPERM";
       }
+      // A killed store's pid since given to another process must not lock the workspace for good (the store would
+      // fail to start on every try, and main give up, until the lock file was deleted by hand).
+      if (alive && !canHoldLock(held.wroteAt, processStartedAt(held.pid))) alive = false;
     } else if (held?.pid === process.pid) alive = LOCKED_HERE.has(dirs.root);
     if (alive) throw new StoreError("io", tr("The workspace is in use by another process (pid {pid})", { pid: String(held?.pid) }));
     log("warn", `taking over a stale workspace lock (pid ${held?.pid ?? "?"})`);

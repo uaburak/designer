@@ -1,6 +1,8 @@
+import { spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { canHoldLock, parseElapsed } from "../localStore";
 import type { WorkspaceEvent } from "../../shared/store/repositories";
 import { openTestStore, type TestStore } from "../testing/harness";
 
@@ -22,6 +24,30 @@ describe("workspace on disk (docs/data.md §3–§4)", () => {
     expect(JSON.parse(readFileSync(join(t.dir, "device.json"), "utf8")).ordinal).toBe(1);
     // A second store on the same workspace is refused while this one lives.
     await expect(openTestStore({ dir: t.dir })).rejects.toMatchObject({ code: "io" });
+  });
+
+  it("takes over a lock whose pid now belongs to a process started after it was written (pid reuse)", async () => {
+    t = await openTestStore();
+    t.crash();
+    const lock = join(t.dir, "Workspace", ".lock");
+    // A live process that started an hour after the lock was written: not its holder.
+    const sleeper = spawn("sleep", ["30"], { stdio: "ignore" });
+    try {
+      await new Promise((r) => setTimeout(r, 50));
+      writeFileSync(lock, JSON.stringify({ pid: sleeper.pid, startedAt: 0, wroteAt: Date.now() - 3600_000 }));
+      t = await t.reopen();
+      expect(JSON.parse(readFileSync(lock, "utf8")).pid).toBe(process.pid);
+      await t.close();
+      // The same live process, older than the lock: still its holder, refused.
+      writeFileSync(lock, JSON.stringify({ pid: sleeper.pid, startedAt: 0, wroteAt: Date.now() + 3600_000 }));
+      await expect(t.reopen()).rejects.toMatchObject({ code: "io" });
+    } finally {
+      sleeper.kill();
+    }
+    expect(parseElapsed("05:07")).toBe(307);
+    expect(parseElapsed(" 1-02:03:04\n")).toBe(93784);
+    expect(parseElapsed("?")).toBeNull();
+    expect(canHoldLock(undefined, Date.now())).toBe(true);
   });
 
   it("renames the local team (setTeamName): trimmed, 1–100 characters, kept on disk, announced", async () => {
