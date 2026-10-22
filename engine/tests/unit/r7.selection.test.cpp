@@ -517,6 +517,26 @@ TEST_CASE("select matching across frames and variants (help 'Select matching lay
   CHECK(e.selection() == std::vector<Guid>{R1, R5});
 }
 
+TEST_CASE("select matching: an icon in a variant's startContent takes the startContent icons of every variant, not endContent's") {
+  const Guid SET{12, 1}, V1{12, 2}, V2{12, 3}, S1{12, 4}, E1{12, 5}, S2{12, 6}, E2{12, 7}, IS1{12, 8}, IE1{12, 9}, IS2{12, 10}, IE2{12, 11};
+  NodeChange set = make(SET, NodeType::FRAME, kPage, "#", {0, 400, 300, 100}, "Button");
+  set.props.comp().isStateGroup = true;
+  std::vector<NodeChange> nodes{set};
+  auto variant = [&](Guid v, const char* pos, double x, const char* name, Guid s, Guid en, Guid is, Guid ie) {
+    nodes.push_back(make(v, NodeType::SYMBOL, SET, pos, {x, 0, 100, 40}, name));
+    nodes.push_back(make(s, NodeType::FRAME, v, "!", {4, 4, 16, 16}, "startContent"));
+    nodes.push_back(make(en, NodeType::FRAME, v, "\"", {80, 4, 16, 16}, "endContent"));
+    nodes.push_back(make(is, NodeType::ROUNDED_RECTANGLE, s, "!", {0, 0, 16, 16}, "Icon"));
+    nodes.push_back(make(ie, NodeType::ROUNDED_RECTANGLE, en, "!", {0, 0, 16, 16}, "Icon"));
+  };
+  variant(V1, "!", 0, "State=Default", S1, E1, IS1, IE1);
+  variant(V2, "\"", 150, "State=Hover", S2, E2, IS2, IE2);
+  Editor e = makeEditor(nodes);
+  e.setSelection({IS1});
+  REQUIRE(e.command(CommandId::SELECT_MATCHING) == OK);
+  CHECK(e.selection() == std::vector<Guid>{IS1, IS2});
+}
+
 // ---- 13. Tidy up ----------------------------------------------------------------------------------------------------
 
 TEST_CASE("r7 tidy up (233): a rough row and grid laid out evenly at their mean gap") {

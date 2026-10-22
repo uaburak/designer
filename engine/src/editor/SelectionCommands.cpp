@@ -188,10 +188,14 @@ static std::vector<Guid> structuralMatches(const Document& doc, const std::vecto
       Guid up = doc.parentOf(at);
       const Node* un = doc.get(up);
       if (!an || !un || an->props.type == NodeType::CANVAS) break;
+      // The frame or group it sits in is matched by its name too ("startContent" is not "endContent": an icon in one
+      // takes the same icon in the other variants' "startContent", live Figma 2026-10-23) — except where the frames are
+      // a set's variants or the page's (or a section's) own, whose names differ ("Frame 3", "Frame 4").
+      const bool anyName = un->props.type == NodeType::CANVAS || un->props.type == NodeType::SECTION || un->props.isComponentSet();
       std::vector<Guid> found;
       for (Guid sib : doc.children(up)) {
         const Node* sn = doc.get(sib);
-        if (sib == at || !sn || sn->props.type != an->props.type) continue;
+        if (sib == at || !sn || sn->props.type != an->props.type || (!anyName && sn->props.name != an->props.name)) continue;
         Guid cur = sib;
         for (auto it = path.rbegin(); it != path.rend() && cur != kNoGuid; ++it) cur = childAt(cur, it->first, it->second);
         const Node* hit = cur != kNoGuid ? doc.get(cur) : nullptr;
