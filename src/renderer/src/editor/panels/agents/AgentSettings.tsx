@@ -236,6 +236,8 @@ function ProviderPage({ p, service }: { p: ProviderInfo; service: AgentSetupHost
         if (a.state === "signing-in") return;
         setAuth(a);
         void service.refreshProviders();
+      }, () => {
+        /* main couldn't say this time: asked again in 2 s */
       });
     }, 2000);
     return () => clearInterval(timer);

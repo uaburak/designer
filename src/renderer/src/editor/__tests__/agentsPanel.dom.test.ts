@@ -194,6 +194,22 @@ describe("the Agents panel: one agent's work in view", () => {
     b.engine.destroy();
   });
 
+  it("main failing to list the agents or save a pick leaves the panel as it was (no unhandled rejection)", async () => {
+    const { view, engine, ed, api } = await setup();
+    const service = (await import("../agents/service")).agentsOf(ed);
+    const fail = async () => {
+      throw new Error("main is busy");
+    };
+    Object.assign(api, { providers: fail, mcp: fail, setSettings: fail });
+    await act(() => service.refreshProviders());
+    await act(() => service.refreshSetup());
+    await act(() => service.choose("codex"));
+    expect(service.get().providersLoading).toBe(false);
+    expect(service.get().providers.map((p) => p.id)).toEqual(["claude-code", "codex"]);
+    view.unmount();
+    engine.destroy();
+  });
+
   it("drops a queued message removed with its ✕", async () => {
     const { turns, emit, view, engine } = await setup();
     await sendText("Make the mobile version");

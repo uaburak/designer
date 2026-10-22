@@ -668,6 +668,8 @@ export class AgentsService implements AgentSetupHost {
     try {
       const [providers, settings] = await Promise.all([this.api.providers(), this.api.settings()]);
       this.set({ providers, settings });
+    } catch {
+      /* main couldn't list them now: the list stays as it was (Look again asks again) */
     } finally {
       this.set({ providersLoading: false });
     }
@@ -675,8 +677,8 @@ export class AgentsService implements AgentSetupHost {
 
   async refreshSetup() {
     if (!this.api) return;
-    const [mcp, clients] = await Promise.all([this.api.mcp(), this.api.clients()]);
-    this.set({ mcp, clients });
+    const read = await Promise.all([this.api.mcp(), this.api.clients()]).catch(() => null);
+    if (read) this.set({ mcp: read[0], clients: read[1] });
   }
 
   /** Agents the chat can use: installed and signed in (a CLI), answering with models (a server). */
@@ -732,8 +734,9 @@ export class AgentsService implements AgentSetupHost {
     else this.set({});
     void this.refreshUsage(providerId);
     if (!this.api) return;
-    const settings = await this.api.setSettings({ providerId, ...(m ? { models: { [providerId]: m } } : {}) });
-    this.set({ settings });
+    // The chat keeps the pick even if main couldn't save it as the app's default.
+    const settings = await this.api.setSettings({ providerId, ...(m ? { models: { [providerId]: m } } : {}) }).catch(() => null);
+    if (settings) this.set({ settings });
   }
 
   // ---- Usage ----
