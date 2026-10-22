@@ -107,3 +107,102 @@ TEST_CASE("selection: a left click inside a selected component still goes one le
   click(e, 50, 20);
   CHECK(e.selection() == Sel{LB});
 }
+
+// ---- The rest of the audit: Figma's rules as Wecra already had them, kept by these cases -------------------------
+
+namespace {
+uint32_t key(Editor& e, KeyCode k, uint32_t mods = 0) { return e.key(KeyEvent::DOWN, k, 0, mods, false); }
+void drag(Editor& e, Vec2 a, Vec2 b, uint32_t mods = 0) {
+  e.pointer(PointerEvent::DOWN, a.x, a.y, 0, 1, mods, 1);
+  for (int i = 1; i <= 4; i++) e.pointer(PointerEvent::MOVE, a.x + (b.x - a.x) * i / 4, a.y + (b.y - a.y) * i / 4, 0, 1, mods);
+  e.pointer(PointerEvent::UP, b.x, b.y, 0, 0, mods);
+}
+}  // namespace
+
+TEST_CASE("selection: clicks — instance whole, double-click one level down, siblings direct, ⇧ toggles, ⌘ deep") {
+  Editor e = load();
+  click(e, 50, 120);
+  CHECK(e.selection() == Sel{I});  // an instance picks whole
+  click(e, 50, 120, 0, 2);
+  CHECK(e.selection().size() == 1);
+  CHECK(e.selection()[0] != I);  // double-click: one level down
+  click(e, 320, 30);
+  CHECK(e.selection() == Sel{G});
+  click(e, 320, 30, 0, 2);
+  CHECK(e.selection() == Sel{GA});
+  click(e, 380, 30);  // a sibling of the selected layer: picked directly
+  CHECK(e.selection() == Sel{GB});
+  click(e, 330, 130, MOD_SHIFT);
+  CHECK(e.selection() == (Sel{GB, R}));
+  click(e, 330, 130, MOD_SHIFT);
+  CHECK(e.selection() == Sel{GB});
+  click(e, 320, 30, MOD_PRIMARY);
+  CHECK(e.selection() == Sel{GA});
+  click(e, 700, 500);
+  CHECK(e.selection().empty());
+}
+
+TEST_CASE("selection: ⇧Enter parent (not the page), Enter children, Tab wraps, Esc clears") {
+  Editor e = load();
+  e.setSelection({GA});
+  key(e, KeyCode::Enter, MOD_SHIFT);
+  CHECK(e.selection() == Sel{G});
+  key(e, KeyCode::Enter, MOD_SHIFT);
+  CHECK(e.selection() == Sel{F});
+  key(e, KeyCode::Enter, MOD_SHIFT);
+  CHECK(e.selection() == Sel{F});
+  key(e, KeyCode::Enter);
+  CHECK(e.selection() == (Sel{G, R}));
+  e.setSelection({G});
+  key(e, KeyCode::Tab);
+  CHECK(e.selection() == Sel{R});
+  key(e, KeyCode::Tab);
+  CHECK(e.selection() == Sel{G});
+  key(e, KeyCode::Escape);
+  CHECK(e.selection().empty());
+  e.setSelection({I});
+  key(e, KeyCode::Enter);
+  CHECK(e.selection().size() == 2);
+}
+
+TEST_CASE("selection: a marquee over part of a top-level instance takes the instance, not its sublayers") {
+  Editor e = load();
+  drag(e, {-20, 90}, {50, 160});  // over part of the instance
+  CHECK(e.selection() == Sel{I});
+  drag(e, {-20, -20}, {120, 160});  // the main and the instance whole
+  CHECK(e.selection() == (Sel{M, I}));
+  drag(e, {280, 100}, {340, 180});  // part of the frame: its child R
+  CHECK(e.selection() == Sel{R});
+  drag(e, {200, -20}, {600, 300});  // the frame whole
+  CHECK(e.selection() == Sel{F});
+}
+
+TEST_CASE("selection: hover outlines what a click would pick") {
+  Editor e = load();
+  e.pointer(PointerEvent::MOVE, 320, 30, 0, 0, 0);
+  CHECK(e.hover() == G);
+  e.setSelection({M});
+  e.pointer(PointerEvent::MOVE, 50, 20, 0, 0, 0);
+  CHECK(e.hover() == LB);
+  e.pointer(PointerEvent::MOVE, 50, 120, 0, 0, MOD_PRIMARY);
+  CHECK(e.hover() != I);
+}
+
+TEST_CASE("selection: after duplicate, undo, redo and paste") {
+  Editor e = load();
+  e.setSelection({R});
+  REQUIRE(e.command(CommandId::DUPLICATE) == OK);
+  REQUIRE(e.selection().size() == 1);
+  Guid copy = e.selection()[0];
+  CHECK(copy != R);
+  e.command(CommandId::UNDO);
+  CHECK(e.selection() == Sel{R});
+  e.command(CommandId::REDO);
+  CHECK(e.selection() == Sel{copy});
+  Clipboard clip;
+  e.setSelection({R});
+  REQUIRE(e.copySelection(clip));
+  e.setSelection({});
+  CHECK(e.paste(clip, false) == 1);
+  CHECK(e.selection().size() == 1);
+}
