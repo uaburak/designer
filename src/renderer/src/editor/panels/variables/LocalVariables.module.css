@@ -225,6 +225,32 @@
   }
   .value:hover .cellButton, .cellButton:focus-visible, .cellButton[aria-expanded="true"] { opacity: 1; }
   .cellButton:hover { color: var(--figma-color-icon); background: var(--ds-color-bg-transparent-hover); }
+  /* A colour's opacity on hover (Figma): a bordered field at the cell's right — the opacity glyph, the percent, Apply
+     variable — hidden until the pointer is on the cell (or the field is in use) */
+  .opacityField {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    width: 88px;
+    height: var(--ds-size-control);
+    margin-left: auto;
+    border: 1px solid var(--figma-color-border);
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg);
+    opacity: 0;
+  }
+  .value:hover .opacityField, .opacityField:focus-within, .opacityField[data-open] { opacity: 1; }
+  .opacityIcon { display: inline-flex; flex: none; color: var(--figma-color-icon-secondary); }
+  .opacityField > [data-ds="NumericInput"] { flex: 1 1 auto; min-width: 0; width: auto; }
+  .opacityBind { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--ds-radius-small); background: transparent; color: var(--figma-color-icon-secondary); outline: none; }
+  .opacityBind:hover { color: var(--figma-color-icon); }
+  /* Sticky ends (Figma): Name stays at the left and the + / Edit variable column at the right while the modes scroll
+     under them; a 1px line keeps their edge where the grid's gap would show the cells passing under */
+  .nameCell, .headName { position: sticky; left: 0; z-index: 2; box-shadow: 1px 0 0 var(--figma-color-border); }
+  .head.headName { z-index: 1000 !important; }
+  .addMode { position: sticky; right: 0; z-index: 2; box-shadow: -1px 0 0 var(--figma-color-border); }
+  .head.addMode { z-index: 1000; }
+  .groupPath { position: sticky; left: var(--ds-space-4); }
 
   /* The same editor in the Edit variable modal: no table borders */
   .formValue { height: var(--ds-size-control); padding: 0; border: 0; background: transparent; }

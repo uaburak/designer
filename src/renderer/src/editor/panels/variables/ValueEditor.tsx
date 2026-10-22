@@ -138,6 +138,27 @@ export function ValueEditor({ variable, mode, collection, className, disabled }:
         >
           <Icon name="24.detach.small" />
         </button>
+      ) : variable.type === "COLOR" ? (
+        // Figma, on hover: the colour's opacity as a field at the cell's right ("Opacity"), Apply variable inside it
+        <span className={styles.opacityField} data-opacity-field="" data-open={picker ? "" : undefined} {...tooltipProps(t("Opacity"))}>
+          <span className={styles.opacityIcon} aria-hidden>
+            <Icon name="24.opacity" />
+          </span>
+          <NumericInput
+            label={t("Opacity")}
+            variant="ghost"
+            value={toPercent((value.value as Color).a ?? 1)}
+            unit="%"
+            precision={0}
+            min={0}
+            max={100}
+            onChange={(v, info) => set({ ...(value.value as Color), a: Math.max(0, Math.min(100, v)) / 100 }, info)}
+            onCancel={() => ed.cancelEdit()}
+          />
+          <button type="button" className={styles.opacityBind} aria-label={t("Apply variable")} aria-expanded={!!picker} {...tooltipProps(t("Apply variable"))} onClick={(e) => setPicker(e.currentTarget)}>
+            <Icon name="24.variable.small" />
+          </button>
+        </span>
       ) : (
         <button type="button" className={styles.cellButton} aria-label={t("Apply variable")} aria-expanded={!!picker} {...tooltipProps(t("Apply variable"))} onClick={(e) => setPicker(e.currentTarget)}>
           <Icon name="24.variable.small" />
