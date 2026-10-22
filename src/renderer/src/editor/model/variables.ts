@@ -403,6 +403,62 @@ export function groupTree(names: readonly string[]): GroupNode[] {
   return root.children;
 }
 
+/**
+ * Variables in the file's own order: their sortPosition, ties (a .fig's variables often share one — HeroUI's
+ * green / red / yellow … all at the same place) in document order (their place among the internal canvas's children),
+ * then by id — never by name, which would sort the groups A to Z.
+ */
+export function byDocumentOrder(a: Variable, b: Variable): number {
+  if (a.sortPosition !== b.sortPosition) return a.sortPosition < b.sortPosition ? -1 : 1;
+  const pa = a.node.parentIndex?.position ?? "";
+  const pb = b.node.parentIndex?.position ?? "";
+  if (pa !== pb) return pa < pb ? -1 : 1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/**
+ * The Local variables table's order (Figma's): the group tree depth first, each group's own variables before its
+ * subgroups ("colors/common/white" before "colors/common/blue/50"), groups in the order they first appear.
+ */
+export function tableOrder<T extends { name: string }>(vars: readonly T[]): T[] {
+  const parentOf = (p: string) => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
+  const direct = new Map<string, T[]>();
+  const children = new Map<string, string[]>();
+  const known = new Set<string>([""]);
+  for (const v of vars) {
+    const g = splitName(v.name).group;
+    const list = direct.get(g);
+    if (list) list.push(v);
+    else direct.set(g, [v]);
+    // The group and its unseen parents, each under its parent (top down, so first-seen order holds).
+    const chain: string[] = [];
+    for (let p = g; !known.has(p); p = parentOf(p)) chain.push(p);
+    for (const p of chain.reverse()) {
+      known.add(p);
+      const kids = children.get(parentOf(p));
+      if (kids) kids.push(p);
+      else children.set(parentOf(p), [p]);
+    }
+  }
+  const out: T[] = [];
+  const visit = (g: string) => {
+    out.push(...(direct.get(g) ?? []));
+    for (const c of children.get(g) ?? []) visit(c);
+  };
+  visit("");
+  return out;
+}
+
+/** Figma's default name of a collection's first mode. */
+export const DEFAULT_MODE_NAME = "Mode 1";
+
+/**
+ * A mode's column header: a collection with one mode still named "Mode 1" reads "Value" (Figma); a renamed single
+ * mode ("Light", live 2026-10-18) or two or more modes show their names. `value` is the translated "Value".
+ */
+export const modeHeader = (c: Pick<Collection, "modes">, mode: { name: string }, value: string) =>
+  c.modes.length === 1 && mode.name === DEFAULT_MODE_NAME ? value : mode.name;
+
 /** The new name of a variable in a renamed group ("color/bg/x", "color" → "brand" = "brand/bg/x"); null when not in it. */
 export function renameGroupIn(name: string, from: string, to: string): string | null {
   if (!inGroup(name, from) || !from) return null;

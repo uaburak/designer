@@ -2845,15 +2845,15 @@ async function variables6Section(page, theme) {
   await settle(page);
   check("Variables: a collection's menu has Export modes", (await page.getByRole("menuitem", { name: "Export modes" }).count()) === 1);
   await page.keyboard.press("Escape");
-  // Live (rail-variables-table.txt): Minimize is a toggle; Hide panel in the sidebar's header.
-  await win.getByRole("checkbox", { name: "Minimize" }).click();
+  // Minimize: the floating modal (Expand, ×); Hide panel in the sidebar's header.
+  await win.getByRole("button", { name: "Minimize" }).click();
   await settle(page);
   check("Variables: Minimize makes it a modal", (await win.getAttribute("data-minimized")) === "true");
   await shot(page, `153-variables-minimized-${theme}`);
   await win.getByRole("button", { name: "Hide panel" }).click();
   await settle(page);
   check("Variables: Hide panel hides the collections", (await win.getByRole("complementary", { name: "Collections" }).count()) === 0);
-  await win.getByRole("checkbox", { name: "Minimize" }).click();
+  await win.getByRole("button", { name: "Expand" }).click();
   await settle(page);
   check("Variables: Expand fills the window again", (await win.getAttribute("data-minimized")) === null);
 }

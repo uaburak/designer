@@ -27,6 +27,7 @@ import { deferredListener } from "./deferred";
 import {
   aliasMakesCycle,
   boundPaint,
+  byDocumentOrder,
   byPosition,
   cleanName,
   DEFAULT_EASING_VALUE,
@@ -263,7 +264,7 @@ export class VariableIndex {
       .filter((n) => isVariableNode(n) && !n.isSoftDeleted)
       .map(readVariable)
       .filter((v) => order.has(v.collection))
-      .sort((a, b) => order.get(a.collection)! - order.get(b.collection)! || byPosition(a, b));
+      .sort((a, b) => order.get(a.collection)! - order.get(b.collection)! || byDocumentOrder(a, b));
     const styles = (nodes as unknown as StyleNode[])
       .filter((n) => isStyleNode(n) && !n.isSoftDeleted)
       .map(readStyle)

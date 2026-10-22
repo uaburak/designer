@@ -46,25 +46,6 @@
   }
   .searchGroup { display: flex; flex: none; align-items: center; width: 200px; }
   .search { flex: 1 1 auto; min-width: 0; border-radius: var(--ds-radius-medium) 0 0 var(--ds-radius-medium); }
-  .minimize {
-    position: relative;
-    display: inline-flex;
-    flex: none;
-    align-items: center;
-    justify-content: center;
-    width: var(--ds-size-control);
-    height: var(--ds-size-control);
-    margin-right: var(--ds-space-half);
-    border-radius: var(--ds-radius-medium);
-    color: var(--figma-color-icon);
-  }
-  /* The toggle is its own 24 box (live: an input), the glyph drawn over it */
-  .minimize input { position: absolute; inset: 0; margin: 0; border-radius: var(--ds-radius-medium); background: transparent; appearance: none; outline: none; cursor: default; }
-  .minimize input:hover { background: var(--figma-color-bg-hover); }
-  .minimize input:checked { background: var(--figma-color-bg-selected); }
-  .minimize input:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
-  .minimize > :not(input) { position: relative; pointer-events: none; }
-  .minimize[data-on] { color: var(--figma-color-icon-brand); }
   .srOnly { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
   /* Sidebar (live): "Collections" (11 / 600, Collections options and Create collection) and the collections, a line,
@@ -169,9 +150,12 @@
     padding-left: var(--ds-space-4);
     color: var(--figma-color-text);
     font: var(--ds-font-body-medium);
-    font-weight: 600;
     letter-spacing: var(--ds-tracking-body-medium);
   }
+  /* Figma's breadcrumb ("colors / common / blue"): the parents and slashes secondary, the group itself 600 */
+  .groupPath { min-width: 0; overflow: hidden; white-space: pre; text-overflow: ellipsis; }
+  .groupParent { color: var(--figma-color-text-secondary); }
+  .groupLeaf { color: var(--figma-color-text); font-weight: 600; }
   /* A variable (live: its glyph at 16, its name at 44) */
   .nameCell { padding-left: var(--ds-space-4); user-select: none; cursor: default; }
   .nameText { font: var(--ds-font-body-medium-regular); letter-spacing: var(--ds-tracking-body-medium-regular); flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -339,25 +323,28 @@
   .reorderRow:hover { background: var(--figma-color-bg-hover); }
   .reorderOver { box-shadow: inset 0 2px 0 var(--figma-color-border-selected); }
   .reorderName { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  /* Round 6: Minimize — a smaller modal over the canvas, resizable by its edges; Expand fills the window again */
-  /* Minimized (atlas 11 §8.1, Figma's numbers): 642 wide, + the sidebar while it shows, 380 high, at the top right 8 in
-     and 8 down; resized down to 400 × 180 (400 × 300 with no variables), up to the window less 8 on each side */
+  /* Minimize: Figma's floating Variables window over the canvas — moved by its header, resized by its edges and corners
+     (down to 400 × 180, 400 × 300 with no variables), closed by ×, kept 8 inside the window. Its place and size are set
+     inline (LocalVariables.tsx: centred at first, then where it was left this session). */
   .windowMinimized {
-    inset: var(--ds-space-2) var(--ds-space-2) auto auto;
-    width: min(calc(642px + var(--ds-size-panel) + 1px), calc(100% - 2 * var(--ds-space-2)));
-    height: min(380px, calc(100% - 2 * var(--ds-space-2)));
-    min-width: 400px;
-    min-height: 180px;
-    max-width: calc(100% - 2 * var(--ds-space-2));
-    max-height: calc(100% - 2 * var(--ds-space-2));
+    position: fixed;
+    inset: auto;
     overflow: hidden;
-    resize: both;
     border: 1px solid var(--figma-color-border);
     border-radius: var(--ds-radius-large);
-    box-shadow: var(--ds-elevation-500);
+    box-shadow: var(--ds-elevation-500-modal-window);
   }
-  .windowMinimized.noSidebar { width: min(642px, calc(100% - 2 * var(--ds-space-2))); }
-  .windowMinimized[data-empty] { min-height: 300px; }
+  .windowMinimized > .titleBar, .windowMinimized > .toolbar { cursor: default; user-select: none; }
+  /* The resize edges: 6 across each side, 12 at each corner */
+  .modalEdge { position: absolute; z-index: var(--ds-z-resize); touch-action: none; }
+  .modalEdge[data-resize-edge="n"] { top: 0; right: var(--ds-space-3); left: var(--ds-space-3); height: var(--ds-space-1-5); cursor: ns-resize; }
+  .modalEdge[data-resize-edge="s"] { right: var(--ds-space-3); bottom: 0; left: var(--ds-space-3); height: var(--ds-space-1-5); cursor: ns-resize; }
+  .modalEdge[data-resize-edge="e"] { top: var(--ds-space-3); right: 0; bottom: var(--ds-space-3); width: var(--ds-space-1-5); cursor: ew-resize; }
+  .modalEdge[data-resize-edge="w"] { top: var(--ds-space-3); bottom: var(--ds-space-3); left: 0; width: var(--ds-space-1-5); cursor: ew-resize; }
+  .modalEdge[data-resize-edge="ne"] { top: 0; right: 0; width: var(--ds-space-3); height: var(--ds-space-3); cursor: nesw-resize; }
+  .modalEdge[data-resize-edge="sw"] { bottom: 0; left: 0; width: var(--ds-space-3); height: var(--ds-space-3); cursor: nesw-resize; }
+  .modalEdge[data-resize-edge="nw"] { top: 0; left: 0; width: var(--ds-space-3); height: var(--ds-space-3); cursor: nwse-resize; }
+  .modalEdge[data-resize-edge="se"] { right: 0; bottom: 0; width: var(--ds-space-3); height: var(--ds-space-3); cursor: nwse-resize; }
   /* Toggle sidebar: the table takes the whole width */
   .noSidebar { grid-template-columns: minmax(0, 1fr); }
   .noSidebar > .toolbar { grid-column: 1; }

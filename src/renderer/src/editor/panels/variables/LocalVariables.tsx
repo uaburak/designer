@@ -22,17 +22,20 @@
  * to Z, Filter by type, Edit variables on a selection, Copy / Paste, Ungroup
  * and Duplicate group.
  * Esc or × closes it; ⌘Z / ⇧⌘Z undo and redo inside it.
- * Atlas sweep (2026-10-18): minimized, Figma's 642 (+ the sidebar) × 380 at the top right; the Collections menu's
+ * Owner's HeroUI comparison (2026-10-22): minimized it is Figma's floating "Variables" window — centred, moved by its
+ * header, resized by its edges, × to close, Expand, no Share; every column resizes; one "Mode 1" reads "Value"; group
+ * headers are breadcrumbs; the table goes down the group tree in the file's order (a group's own variables first).
+ * Atlas sweep (2026-10-18): minimized, Figma's 642 (+ the sidebar) wide; the Collections menu's
  * All collections / Created in this file (the libraries' collections this file uses listed too, read-only: their
  * values shown, Copy and Extend collection only) and Sort A to Z; a value cell's Create alias / Clear alias.
  */
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { Button, ContextMenu, Icon, IconButton, InlineEdit, MenuButton, ResizeHandle, SearchField, cx, type MenuEntry } from "@/ds";
+import { Button, ContextMenu, Icon, IconButton, InlineEdit, MenuButton, ResizeHandle, SearchField, cx, size, startHeaderDrag, type MenuEntry } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { runEditorCommand } from "../../commands";
 import { useLocalAssets, useUI } from "../../hooks";
-import { aliasMakesCycle, canExtend, formatLiteral, groupTree, inGroup, LIMITS, matchesQuery, orphanMode, resolveVariable, rootOf, splitName, valueIn, VAR_TYPE_ICON, VAR_TYPE_ICON_24, VAR_TYPE_LABEL, VAR_TYPES, type Collection, type GroupNode, type Variable, type VarType } from "../../model/variables";
+import { aliasMakesCycle, canExtend, formatLiteral, groupTree, inGroup, LIMITS, matchesQuery, modeHeader, orphanMode, resolveVariable, rootOf, splitName, tableOrder, valueIn, VAR_TYPE_ICON, VAR_TYPE_ICON_24, VAR_TYPE_LABEL, VAR_TYPES, type Collection, type GroupNode, type Variable, type VarType } from "../../model/variables";
 import {
   addMode,
   createCollection,
@@ -69,7 +72,7 @@ import styles from "./LocalVariables.module.css";
 import { t, tp, useT } from "@/i18n";
 
 type Renaming = { kind: "variable" | "mode" | "collection" | "group"; id: string } | null;
-type Row = { kind: "group"; path: string; label: string } | { kind: "variable"; v: Variable };
+type Row = { kind: "group"; path: string; segments: string[] } | { kind: "variable"; v: Variable };
 type Menu = { x: number; y: number; entries: MenuEntry[]; pick: (id: string) => void } | null;
 
 /**
@@ -111,6 +114,75 @@ function pickJsonFiles(multiple: boolean): Promise<{ name: string; text: string 
 const NAME_WIDTH = 200;
 const NAME_WIDTH_MIN = 50;
 const NAME_WIDTH_MAX = 500;
+/** A mode's column: 280 wide (live rail-variables-table.txt), its right edge dragged like the Name column's. */
+const MODE_WIDTH = 280;
+const MODE_WIDTH_MIN = 120;
+const MODE_WIDTH_MAX = 1000;
+
+/** The columns' widths per collection, kept for the session (reopening the window, switching collections). */
+type Widths = { name: number; modes: Readonly<Record<Guid, number>> };
+const widthsByCollection = new Map<Guid, Widths>();
+const DEFAULT_WIDTHS: Widths = { name: NAME_WIDTH, modes: {} };
+
+/**
+ * The modal (Minimize): a floating window over the canvas, moved by its header, resized by its edges and corners,
+ * kept 8 inside the window. Its place and size, and whether the view was the modal, are kept for the session.
+ */
+type Rect = { x: number; y: number; w: number; h: number };
+const MODAL_MARGIN = 8;
+const MODAL_MIN = { w: 400, h: 180, emptyH: 300 };
+const modalSession: { modal: boolean; rect: Rect | null } = { modal: false, rect: null };
+const EDGES = ["n", "s", "e", "w", "ne", "nw", "se", "sw"] as const;
+type Edge = (typeof EDGES)[number];
+
+/** Forgets the session's modal place and column widths (tests). */
+export function resetLocalVariablesSession(): void {
+  modalSession.modal = false;
+  modalSession.rect = null;
+  widthsByCollection.clear();
+}
+
+/** Clamps a rect into the window (the size first, then the place). */
+function fitRect(r: Rect, minH: number): Rect {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const w = Math.round(Math.max(Math.min(MODAL_MIN.w, vw - 2 * MODAL_MARGIN), Math.min(r.w, vw - 2 * MODAL_MARGIN)));
+  const h = Math.round(Math.max(Math.min(minH, vh - 2 * MODAL_MARGIN), Math.min(r.h, vh - 2 * MODAL_MARGIN)));
+  const x = Math.round(Math.max(MODAL_MARGIN, Math.min(r.x, vw - MODAL_MARGIN - w)));
+  const y = Math.round(Math.max(MODAL_MARGIN, Math.min(r.y, vh - MODAL_MARGIN - h)));
+  return { x, y, w, h };
+}
+
+/** The modal's first place: Figma's 642 (+ the sidebar) wide, centred over the window. */
+function defaultRect(minH: number): Rect {
+  const w = 642 + size.panel + 1;
+  const h = 480;
+  return fitRect({ x: (window.innerWidth - w) / 2, y: (window.innerHeight - h) / 2, w, h }, minH);
+}
+
+/** A resize from `edge`: the edge follows the pointer, the opposite one stays (sizes clamped to the minimum). */
+function resizeRect(start: Rect, edge: Edge, dx: number, dy: number, minH: number): Rect {
+  let { x, y, w, h } = start;
+  if (edge.includes("e")) w = Math.min(start.w + dx, window.innerWidth - MODAL_MARGIN - start.x);
+  if (edge.includes("s")) h = Math.min(start.h + dy, window.innerHeight - MODAL_MARGIN - start.y);
+  if (edge.includes("w")) {
+    x = Math.max(MODAL_MARGIN, start.x + dx);
+    w = start.x + start.w - x;
+  }
+  if (edge.includes("n")) {
+    y = Math.max(MODAL_MARGIN, start.y + dy);
+    h = start.y + start.h - y;
+  }
+  if (w < MODAL_MIN.w) {
+    if (edge.includes("w")) x = start.x + start.w - MODAL_MIN.w;
+    w = MODAL_MIN.w;
+  }
+  if (h < minH) {
+    if (edge.includes("n")) y = start.y + start.h - minH;
+    h = minH;
+  }
+  return fitRect({ x, y, w, h }, minH);
+}
 
 /** help.figma.com "Create and manage variables" (the empty state's Learn more). */
 const VARIABLES_HELP = "https://help.figma.com/hc/en-us/articles/15145852043927";
@@ -120,8 +192,19 @@ export function LocalVariables() {
   const ed = useEditor();
   const a = useLocalAssets();
   const copyVariables = (ids: Guid[]) => rememberCopy(ed, ids);
-  // Minimize (a smaller, resizable modal) / Expand (the whole window again); Toggle sidebar.
-  const [minimized, setMinimized] = useState(false);
+  // Minimize (a floating modal: moved, resized, closed) / Expand (the whole window again); Toggle sidebar.
+  const [minimized, setMinimizedState] = useState(modalSession.modal);
+  const [rect, setRectState] = useState<Rect | null>(modalSession.rect);
+  const setRect = (r: Rect) => {
+    modalSession.rect = r;
+    setRectState(r);
+  };
+  const setMinimized = (on: boolean) => {
+    modalSession.modal = on;
+    setMinimizedState(on);
+    // First time this session: centred over the window (fitted to the empty view's taller minimum when rendered).
+    if (on && !modalSession.rect) setRect(defaultRect(MODAL_MIN.h));
+  };
   const [sidebar, setSidebar] = useState(true);
   const [groupDrop, setGroupDrop] = useState<{ path: string; where: "before" | "after" | "into" } | null>(null);
   const [dropping, setDropping] = useState(false);
@@ -142,8 +225,9 @@ export function LocalVariables() {
   const [reorder, setReorder] = useState<HTMLElement | null>(null);
   // Groups ▸ Collapse groups (live rail-variables-table.txt): the nested groups folded under their parents.
   const [groupsCollapsed, setGroupsCollapsed] = useState(false);
-  // The Name column's width (Figma: 200, its edge dragged 50 … 500, a double-click resets — atlas 11 §8.1).
-  const [nameWidth, setNameWidth] = useState(NAME_WIDTH);
+  // The columns' widths (Figma: Name 200, its edge dragged 50 … 500, a double-click resets — atlas 11 §8.1; each mode
+  // 280, its edge dragged the same way), per collection for the session.
+  const [, setWidthsVersion] = useState(0);
   const fileName = useUI((s) => s.fileName);
   const [bulk, setBulk] = useState<{ ids: Guid[]; anchor: HTMLElement | DOMRect } | null>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -161,6 +245,48 @@ export function LocalVariables() {
     root.current?.focus({ preventScroll: true });
   }, []);
 
+  const widths = (collection && widthsByCollection.get(collection.id)) ?? DEFAULT_WIDTHS;
+  const setWidth = (mode: Guid | null, px: number) => {
+    if (!collection) return;
+    const cur = widthsByCollection.get(collection.id) ?? DEFAULT_WIDTHS;
+    widthsByCollection.set(collection.id, mode ? { ...cur, modes: { ...cur.modes, [mode]: px } } : { ...cur, name: px });
+    setWidthsVersion((n) => n + 1);
+  };
+  const modeWidth = (mode: Guid) => widths.modes[mode] ?? MODE_WIDTH;
+
+  // The modal: placed on first use, kept inside the window when the window resizes.
+  const minH = collection ? MODAL_MIN.h : MODAL_MIN.emptyH;
+  const modalRect = minimized ? fitRect(rect ?? defaultRect(minH), minH) : null;
+  useEffect(() => {
+    if (!minimized) return;
+    const refit = () => setRect(fitRect(modalSession.rect ?? defaultRect(minH), minH));
+    window.addEventListener("resize", refit);
+    return () => window.removeEventListener("resize", refit);
+  }, [minimized, minH]);
+  const dragModal = (e: ReactPointerEvent<HTMLElement>) => {
+    if (!minimized) return;
+    startHeaderDrag(e, root.current, (x, y) => {
+      const cur = modalSession.rect ?? defaultRect(minH);
+      setRect(fitRect({ ...cur, x, y }, minH));
+    });
+  };
+  const startResize = (e: ReactPointerEvent<HTMLElement>, edge: Edge) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const start = modalSession.rect ?? defaultRect(minH);
+    const from = { x: e.clientX, y: e.clientY };
+    const move = (ev: PointerEvent) => setRect(resizeRect(start, edge, ev.clientX - from.x, ev.clientY - from.y, minH));
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
+
   const inCollection = useMemo(() => {
     if (!collection) return [];
     const owner = rootOf(collection).id;
@@ -170,18 +296,14 @@ export function LocalVariables() {
   const shown = inCollection.filter(
     (v) => (!typeFilter || v.type === typeFilter) && inGroup(v.name, group) && matchesQuery(v, query, collection ? formatLiteral(v.type, resolveVariable(v.id, a.lookup)) : "")
   );
-  // A group's variables sit together (where the group first appears); the selected group's own ones first.
-  const firstAt = new Map<string, number>();
-  shown.forEach((v, i) => {
-    const g = splitName(v.name).group;
-    if (!firstAt.has(g)) firstAt.set(g, g === group ? -1 : i);
-  });
-  const ordered = shown.map((v, i) => ({ v, i, at: firstAt.get(splitName(v.name).group)! })).sort((x, y) => x.at - y.at || x.i - y.i).map((x) => x.v);
+  // Figma's order: the group tree depth first, a group's own variables before its subgroups (the selected group's own
+  // ones first, under no header), in the file's order.
+  const ordered = tableOrder(shown);
   const rows: Row[] = [];
   let lastGroup: string | null = null;
   for (const v of ordered) {
     const g = splitName(v.name).group;
-    if (g !== lastGroup && g !== group) rows.push({ kind: "group", path: g, label: (group ? g.slice(group.length + 1) : g).split("/").join(" / ") });
+    if (g !== lastGroup && g !== group) rows.push({ kind: "group", path: g, segments: (group ? g.slice(group.length + 1) : g).split("/") });
     lastGroup = g;
     rows.push({ kind: "variable", v });
   }
@@ -544,7 +666,7 @@ export function LocalVariables() {
   };
 
   // Live (rail-variables-table.txt): Name 200 (resizable), a 280 column per mode, the rest, then 40 for New variable mode / Edit variable.
-  const columns = collection ? `${nameWidth}px repeat(${collection.modes.length}, 280px) minmax(0, 1fr) 40px` : "1fr";
+  const columns = collection ? `${widths.name}px ${collection.modes.map((m) => `${modeWidth(m.id)}px`).join(" ")} minmax(0, 1fr) 40px` : "1fr";
   const modesFull = !!collection && collection.modes.length >= LIMITS.modes;
   const createMenu: MenuEntry[] = VAR_TYPES.map((vt) => ({ id: vt, label: t(VAR_TYPE_LABEL[vt]), icon: VAR_TYPE_ICON[vt] }));
 
@@ -597,6 +719,7 @@ export function LocalVariables() {
       data-local-variables=""
       data-minimized={minimized || undefined}
       data-empty={inCollection.length ? undefined : ""}
+      style={modalRect ? { left: modalRect.x, top: modalRect.y, width: modalRect.w, height: modalRect.h } : undefined}
       onKeyDown={onKeyDown}
       // DTCG files dropped on the view: one new mode per file (help "Modes for variables").
       onDragOver={(e) => {
@@ -616,13 +739,14 @@ export function LocalVariables() {
       }}
     >
       {sidebar && (
-        // Live: the file's name over the collections (13 / 550 at 16, 16), Hide panel at 200, 8.
-        <div className={styles.titleBar}>
-          <span className={styles.fileName}>{fileName}</span>
+        // Live: the file's name over the collections (13 / 550 at 16, 16), Hide panel at 200, 8; the modal reads
+        // "Variables" there (Figma's floating window). The modal moves by either header.
+        <div className={styles.titleBar} data-modal-header={minimized ? "" : undefined} onPointerDown={dragModal}>
+          <span className={styles.fileName}>{minimized ? t("Variables") : fileName}</span>
           <IconButton icon="24.sidebar.closed" size="large" label={t("Hide panel")} tone="secondary" onClick={() => setSidebar(false)} />
         </div>
       )}
-      <div className={styles.toolbar}>
+      <div className={styles.toolbar} data-modal-header={minimized ? "" : undefined} onPointerDown={dragModal}>
         {!sidebar && <IconButton icon="24.sidebar.closed" label={t("Show panel")} tone="secondary" onClick={() => setSidebar(true)} />}
         {/* Live: the collection's name as the table's title (13 / 450) */}
         {/* (a file with no collection: "Variables", 4 further in — live rail-variables-full-view.txt) */}
@@ -642,15 +766,24 @@ export function LocalVariables() {
           </MenuButton>
         </div>
         )}
-        {/* Live: Minimize is a toggle (a smaller, resizable modal while on) */}
-        <label className={styles.minimize} data-on={minimized || undefined}>
-          <input type="checkbox" aria-label={t("Minimize")} checked={minimized} onChange={(e) => setMinimized(e.target.checked)} />
-          <Icon name={minimized ? "24.expand" : "24.minimize"} />
-        </label>
-        <Button variant="primary" size="large" onClick={() => runEditorCommand(ed, "file.share-preview")}>
-          {t("Share")}
-        </Button>
+        {/* Minimize (the floating modal) / Expand (the whole window again): a plain icon button */}
+        <IconButton
+          icon={minimized ? "24.expand" : "24.minimize"}
+          label={minimized ? t("Expand") : t("Minimize")}
+          tone="secondary"
+          data-minimize-toggle=""
+          onClick={() => setMinimized(!minimized)}
+        />
+        {/* The modal: × closes it (no Share there); the whole-window view keeps Share */}
+        {minimized ? (
+          <IconButton icon="24.close" label={t("Close")} tone="secondary" onClick={close} />
+        ) : (
+          <Button variant="primary" size="large" onClick={() => runEditorCommand(ed, "file.share-preview")}>
+            {t("Share")}
+          </Button>
+        )}
       </div>
+      {minimized && EDGES.map((edge) => <div key={edge} className={styles.modalEdge} data-resize-edge={edge} aria-hidden="true" onPointerDown={(e) => startResize(e, edge)} />)}
 
       {sidebar && (
       <aside className={styles.sidebar} aria-label={t("Collections")}>
@@ -775,14 +908,17 @@ export function LocalVariables() {
             <div className={styles.scroll}>
               <div className={styles.table} role="grid" aria-label={collection.name} style={{ gridTemplateColumns: columns }}>
                 <div className={styles.row} role="row">
-                  <div className={cx(styles.cell, styles.head, styles.headName)} role="columnheader">
+                  {/* Each header's right edge resizes its column; a column's header is drawn over the next one's so
+                      the edge's outer half takes the pointer */}
+                  <div className={cx(styles.cell, styles.head, styles.headName)} role="columnheader" style={{ zIndex: collection.modes.length + 2 }}>
                     {t("Name")}
-                    <ResizeHandle side="right" value={nameWidth} min={NAME_WIDTH_MIN} max={NAME_WIDTH_MAX} defaultValue={NAME_WIDTH} onChange={(px) => setNameWidth(px)} />
+                    <ResizeHandle side="right" value={widths.name} min={NAME_WIDTH_MIN} max={NAME_WIDTH_MAX} defaultValue={NAME_WIDTH} onChange={(px) => setWidth(null, px)} />
                   </div>
                   {collection.modes.map((m, i) => (
                     <div
                       key={m.id}
                       className={cx(styles.cell, styles.head, styles.modeHead, i >= LIMITS.modes && styles.modeDisabled)}
+                      style={{ zIndex: collection.modes.length - i + 1 }}
                       role="columnheader"
                       aria-disabled={i >= LIMITS.modes || undefined}
                       data-mode={m.name}
@@ -796,7 +932,8 @@ export function LocalVariables() {
                       <InlineEdit
                         label={t("Rename mode")}
                         className={styles.modeLabel}
-                        value={m.name}
+                        // One mode still named "Mode 1" reads "Value" (Figma); renaming edits the mode's own name.
+                        value={renaming?.kind === "mode" && renaming.id === m.id ? m.name : modeHeader(collection, m, t("Value"))}
                         maxLength={40}
                         editing={renaming?.kind === "mode" && renaming.id === m.id}
                         onEditingChange={(on) => setRenaming(on ? { kind: "mode", id: m.id } : null)}
@@ -806,6 +943,7 @@ export function LocalVariables() {
                         }}
                         onCancel={() => setRenaming(null)}
                       />
+                      <ResizeHandle side="right" value={modeWidth(m.id)} min={MODE_WIDTH_MIN} max={MODE_WIDTH_MAX} defaultValue={MODE_WIDTH} data-mode-resize={m.name} onChange={(px) => setWidth(m.id, px)} />
                     </div>
                   ))}
                   <div className={cx(styles.cell, styles.head, styles.filler)} role="columnheader" />
@@ -829,8 +967,21 @@ export function LocalVariables() {
                 {rows.map((r) =>
                   r.kind === "group" ? (
                     <div key={`g:${r.path}`} className={styles.row} role="row">
+                      {/* Figma's breadcrumb: the parents in the secondary colour, the group itself strong */}
                       <div className={cx(styles.cell, styles.groupCell)} role="rowheader" data-group-row={r.path}>
-                        {r.label}
+                        <span className={styles.groupPath}>
+                          {r.segments.map((s, i) =>
+                            i < r.segments.length - 1 ? (
+                              <span key={i} className={styles.groupParent} data-group-parent="">
+                                {s} /{" "}
+                              </span>
+                            ) : (
+                              <span key={i} className={styles.groupLeaf} data-group-leaf="">
+                                {s}
+                              </span>
+                            )
+                          )}
+                        </span>
                       </div>
                     </div>
                   ) : (
