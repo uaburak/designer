@@ -271,6 +271,27 @@ TEST_CASE("⇧-click picks at the selection's depth in another branch; Tab follo
   CHECK(e.selection() == std::vector<Guid>{A});
 }
 
+TEST_CASE("a frame beside the selection is hit in its whole box (live Figma, the owner's 2026-10-23 recording)") {
+  // A variant with an empty "startContent" frame (an icon in its middle) and a "label" frame, no fills anywhere.
+  const Guid SET{11, 1}, V{11, 2}, SC{11, 3}, IC{11, 4}, LB{11, 5};
+  NodeChange set = make(SET, NodeType::FRAME, kPage, "#", {0, 400, 200, 100}, "Button");
+  set.props.comp().isStateGroup = true;
+  set.props.fillPaints.clear();
+  NodeChange v = make(V, NodeType::SYMBOL, SET, "!", {0, 0, 120, 40}, "State=Default");
+  v.props.fillPaints.clear();
+  NodeChange sc = make(SC, NodeType::FRAME, V, "!", {10, 10, 20, 20}, "startContent");
+  sc.props.fillPaints.clear();
+  NodeChange ic = make(IC, NodeType::ROUNDED_RECTANGLE, SC, "!", {8, 8, 4, 4}, "Icon");
+  NodeChange lb = make(LB, NodeType::FRAME, V, "\"", {40, 10, 60, 20}, "label");
+  lb.props.fillPaints.clear();
+  Editor e = makeEditor({set, v, sc, ic, lb});
+  // The label selected: a click in startContent's corner (world 12, 412 → screen 112, 512), away from the icon, takes it
+  e.setSelection({LB});
+  down(e, 112, 512);
+  up(e, 112, 512);
+  CHECK(e.selection() == std::vector<Guid>{SC});
+}
+
 TEST_CASE("r7 resize: ⌘ ignores constraints — the frame's children stay where they are on the page") {
   Editor e = makeEditor();
   e.setSelection({F});
