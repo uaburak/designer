@@ -256,6 +256,9 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
             disabled={!lhKept}
             onChange={(v, info) => write("Line height", { lineHeight: lhView?.unit === "%" ? { value: v / 100, units: "RAW" } : { value: v, units: "PIXELS" } }, info)}
             onClear={() => write("Line height", { lineHeight: TEXT_DEFAULTS.lineHeight })}
+            // "auto" / "Auto" typed (its label in the UI's language too) puts it back on Auto, as Figma's field does
+            keywords={["Auto", t("Auto")]}
+            onKeyword={() => write("Line height", { lineHeight: TEXT_DEFAULTS.lineHeight })}
             onCancel={() => ed.cancelEdit()}
             onExit={exitToCanvas(ed)}
           />
