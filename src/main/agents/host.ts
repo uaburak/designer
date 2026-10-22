@@ -33,6 +33,7 @@ import { aiSettings } from "../ai/settings";
 import { ledgerBalance } from "../ai/ledger";
 import { overLimit } from "../ai/run";
 import { readyStore } from "../storeHost";
+import { runHomeTool } from "./homeTools";
 import type { AgentSettings, ChatEvent, ManagerToolDef, McpClientId, McpConnection, McpState, ProviderInfo, ToolCall, ToolCallResult, TurnRequest, UsageInfo } from "../../shared/agents/types";
 import { cliSpec, type CliSpec } from "./providers";
 import { runCliProcess, loginUrl, type AuthEnv, type CliModels, type RunResult } from "./providers/turns";
@@ -534,6 +535,8 @@ export async function startAgents(): Promise<void> {
       activeFileKey,
       isOpen: (k) => !!viewFor(k),
       runTool: (fileKey, call) => runAnyTool(fileKey, call),
+      // Home's file tools at Home (no file open): an outside client can find, make and open files
+      runHomeTool: (name, args) => runHomeTool(name, args),
       // A chat's connectors' tools, then the reach tools that are on (outside clients get none: mcpServer.ts).
       extraTools: async (session) => [...(await connectorHub().toolsFor(session.chat?.connectors ?? [])), ...(await reachHub().tools())],
       onConnections: (list) => broadcast(mcpState(list)),

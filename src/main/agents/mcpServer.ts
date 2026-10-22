@@ -59,6 +59,11 @@ export interface McpHost {
   isOpen(fileKey: string): boolean;
   /** Runs a tool in the view that holds `fileKey` */
   runTool(fileKey: string, call: { turnId: string | null; client: string; session?: string; name: string; args: Record<string, unknown> }): Promise<ToolResult>;
+  /**
+   * Home's file tools (list_files, create_file, file_action) with no file to run on: an outside client at Home. Returns
+   * the file it opened (create_file {open}, file_action open), which the session then works on.
+   */
+  runHomeTool?(name: string, args: Record<string, unknown>): Promise<{ result: ToolResult; opened?: string }>;
   /** Tools besides ours for a session (a chat's connectors'); their calls go to `runTool` too */
   extraTools?(session: McpSession): Promise<ExtraTool[]>;
   /** The connections changed (the right panel's count) */
@@ -320,12 +325,28 @@ export class McpServer {
     return this.host.extraTools(session).catch(() => []);
   }
 
+  /** The session moves to `fileKey` once its editor is up (a new tab takes a moment to load), at most ~15 s. */
+  private async bindWhenOpen(session: McpSession, fileKey: string): Promise<void> {
+    for (let i = 0; i < 60 && !this.host.isOpen(fileKey); i++) await new Promise((r) => setTimeout(r, 250));
+    session.fileKey = fileKey;
+  }
+
   /** A tool on the session's file (bound now if it is an outside client's first call). */
   async call(session: McpSession, name: string, args: Record<string, unknown>): Promise<ToolResult> {
     if (!session.fileKey) session.fileKey = this.host.activeFileKey();
     const fileKey = session.fileKey;
     const error = (text: string): ToolResult => ({ content: [{ type: "text", text }], isError: true });
-    if (!fileKey) return error("No design file is open in Wecra. Open a file and try again.");
+    const homeTool = name === "list_files" || name === "create_file" || name === "file_action";
+    if (!fileKey) {
+      if (!homeTool || !this.host.runHomeTool) return error("No design file is open in Wecra. Open a file (list_files, then file_action open) or create one (create_file with open: true) and try again.");
+      try {
+        const r = await this.host.runHomeTool(name, args);
+        if (r.opened) await this.bindWhenOpen(session, r.opened);
+        return r.result;
+      } catch (err) {
+        return error(err instanceof Error ? err.message : String(err));
+      }
+    }
     if (!this.host.isOpen(fileKey)) return error("The file this session works on is closed. Open it again (or start a new session) and try again.");
     // Client-reported to the org's developer logs (docs/governance.md §2.12): batched, fire-and-forget, a no-op for local files.
     try {
@@ -334,10 +355,26 @@ export class McpServer {
       /* never fails a call */
     }
     try {
-      return await this.host.runTool(fileKey, { turnId: session.chat?.turnId ?? null, client: session.client, session: session.id, name, args });
+      const result = await this.host.runTool(fileKey, { turnId: session.chat?.turnId ?? null, client: session.client, session: session.id, name, args });
+      // An outside client that opens another file works on it from then on (a chat's agent stays on its own file)
+      if (!session.chat && !result.isError && homeTool) {
+        const opened = name === "file_action" && args.action === "open" ? String(args.fileKey ?? "") : name === "create_file" && args.open === true ? openedKeyOf(result) : "";
+        if (opened && opened !== fileKey) await this.bindWhenOpen(session, opened);
+      }
+      return result;
     } catch (err) {
       return error(err instanceof Error ? err.message : String(err));
     }
+  }
+}
+
+/** create_file's answer names the file it made: `{"created": {"fileKey": …}}`. */
+function openedKeyOf(result: ToolResult): string {
+  try {
+    const text = (result.content as { type: string; text?: string }[]).find((c) => c.type === "text")?.text ?? "";
+    return String((JSON.parse(text) as { created?: { fileKey?: string } }).created?.fileKey ?? "");
+  } catch {
+    return "";
   }
 }
 

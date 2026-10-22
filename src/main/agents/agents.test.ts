@@ -111,6 +111,26 @@ describe("MCP server", () => {
     expect((await post({ jsonrpc: "2.0", id: 5, method: "tools/list" }, { Authorization: `Bearer ${token}` })).status).toBe(401);
   });
 
+  it("with no file open, Home's file tools run in main and a file opened there becomes the session's", async () => {
+    const { server, post, calls, active } = await start({ file: null });
+    const opened = new Set<string>();
+    (server as unknown as { host: Record<string, unknown> }).host.isOpen = (k: string) => opened.has(k);
+    (server as unknown as { host: Record<string, unknown> }).host.runHomeTool = async (name: string, args: Record<string, unknown>) => {
+      if (name === "create_file" && args.open === true) {
+        opened.add("newFile");
+        return { result: { content: [{ type: "text", text: '{"created":{"fileKey":"newFile"}}' }] }, opened: "newFile" };
+      }
+      return { result: { content: [{ type: "text", text: `${name} ran at Home` }] } };
+    };
+    const a = await post(init());
+    const list = await post({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "list_files", arguments: {} } }, { "Mcp-Session-Id": a.session! });
+    expect(list.body.result.content[0].text).toBe("list_files ran at Home");
+    await post({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "create_file", arguments: { name: "Wecra Design System", open: true } } }, { "Mcp-Session-Id": a.session! });
+    await post({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "get_selection", arguments: {} } }, { "Mcp-Session-Id": a.session! });
+    expect(calls.at(-1)).toMatchObject({ fileKey: "newFile", name: "get_selection" });
+    expect(active.file).toBe(null);
+  });
+
   it("with no file open, a call fails with a word why; connections are counted per session", async () => {
     const { server, post, host } = await start({ file: null });
     const a = await post(init("antigravity-ide"));
