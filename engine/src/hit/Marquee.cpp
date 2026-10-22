@@ -33,7 +33,8 @@ std::vector<Guid> marqueeHits(const Document& doc, Guid page, const Rect& rect, 
     Rect b = doc.worldBounds(c);
     if (!rect.intersects(b)) return;
     const Node* n = doc.get(c);
-    if (n->props.isFrameLike() && !rect.containsRect(b) && !doc.children(c).empty()) {
+    // An instance is one layer here as everywhere it is picked (a click, ⌘-marquee): never its sublayers.
+    if (n->props.isFrameLike() && n->props.type != NodeType::INSTANCE && !rect.containsRect(b) && !doc.children(c).empty()) {
       bool section = n->props.type == NodeType::SECTION;
       for (Guid gc : doc.children(c)) {
         if (section) self(self, gc);

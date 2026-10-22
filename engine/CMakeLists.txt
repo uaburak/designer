@@ -173,6 +173,7 @@ else()
     tests/unit/scene.txn.test.cpp
     tests/unit/undo.test.cpp
     tests/unit/hit.picking.test.cpp
+    tests/unit/selection.figma.test.cpp
     tests/unit/render.camera.test.cpp
     tests/unit/atlas.canvas_shapes.test.cpp
     tests/unit/atlas.layout.test.cpp

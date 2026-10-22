@@ -1296,8 +1296,22 @@ uint32_t Editor::contextMenu(Vec2 s, uint32_t mods) {
     return P_HANDLED;
   }
   auto path = hitPath(doc_, page_, world, pixel());
-  Guid picked = pick(doc_, path, selection_, (mods & MOD_PRIMARY) != 0);
-  if (picked != kNoGuid && !selected(picked)) changeSelection({picked});
+  // The menu opens on what a left press would leave selected (pointerDown's press rule), not on what a click's
+  // release would: a right-click on or inside a selected layer (a component's or instance's sublayer, a group's
+  // layer) keeps that selection, so the menu is the selected layer's (Go to main component…); only ⌘ picks the
+  // deepest layer at once.
+  bool deep = (mods & MOD_PRIMARY) != 0;
+  Guid picked = pick(doc_, path, selection_, deep);
+  bool inSelected = false;
+  if (!deep && picked != kNoGuid)
+    for (Guid p : path) {
+      if (p == picked) break;
+      if (selected(p)) {
+        inSelected = true;
+        break;
+      }
+    }
+  if (picked != kNoGuid && !selected(picked) && !inSelected) changeSelection({picked});
   for (auto& p : hitPaths(doc_, page_, world, pixel(), true)) {
     std::reverse(p.begin(), p.end());
     menu.hits.push_back(std::move(p));
