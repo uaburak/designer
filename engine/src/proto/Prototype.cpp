@@ -958,4 +958,44 @@ void mediaTargets(const Action& a, std::vector<Guid>& out) {
     for (const Action& x : b.actions) mediaTargets(x, out);
 }
 
+bool remapInteractionNodes(std::string& bytes, const std::function<Guid(Guid)>& map) {
+  if (bytes.empty()) return false;
+  std::string text = codec::extraValueToJson("NodeChange", bytes);
+  json::Value v;
+  if (text == "null" || !json::parse(text, v) || !v.isArray()) return false;
+  bool changed = false;
+  std::function<void(json::Value&)> walk = [&](json::Value& x) {
+    if (x.isArray()) {
+      for (json::Value& e : x.array) walk(e);
+      return;
+    }
+    if (!x.isObject()) return;
+    for (size_t k = 0; k < x.object.size();) {
+      auto& [name, val] = x.object[k];
+      if (name == "transitionNodeID" || name == "animationTimelineDefId") {
+        Guid g = guidOf(&val);
+        Guid to = g != kNoGuid ? map(g) : kNoGuid;
+        if (to == kNoGuid && g != kNoGuid) {
+          x.object.erase(x.object.begin() + static_cast<std::ptrdiff_t>(k));
+          changed = true;
+          continue;
+        }
+        if (to != g) {
+          val = guidValue(to);
+          changed = true;
+        }
+      } else {
+        walk(val);
+      }
+      k++;
+    }
+  };
+  walk(v);
+  if (!changed) return false;
+  std::string out = encodeField("prototypeInteractions", v);
+  if (out.empty()) return false;
+  bytes = std::move(out);
+  return true;
+}
+
 }  // namespace eng::proto

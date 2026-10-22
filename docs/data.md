@@ -717,7 +717,7 @@ export interface AssetPayload { key: string; versionHash: string; message: Uint8
 ### 9.4 Consuming
 
 - **Enable**: the per-file Libraries modal lists `listAvailable(fileKey)`, every published library in the workspace, which is "your team" in Figma's wording. "Add to file" or "Remove from file" calls `setEnabled`, which updates `FileMeta.enabledLibraries`. New files start with `Workspace.defaultLibraries`.
-- **Use**: when an instance is inserted, a style applied or a variable bound from a library, the editor calls `getPayloads(lib, [(key, latest versionHash)], {withDependencies: true})`. The engine inserts **read-only copies** on the document's internal-only canvas, mapped to local GUIDs.
+- **Use**: when an instance is inserted, a style applied or a variable bound from a library, the editor calls `getPayloads(lib, [(key, latest versionHash)], {withDependencies: true})`. The engine inserts **read-only copies** on the document's internal-only canvas, mapped to local GUIDs. Every GUID reference is mapped, prototype interactions included (an interactive component's Change to a sibling variant, a navigate inside the asset: `transitionNodeID` / `animationTimelineDefId` point at the copy's own nodes; one outside the payload is dropped), so instances in the consuming file play like the library's. Copies made before this was mapped are repaired when the file opens (`copyInteractionRepairs`).
 
   **Needs from document contract**: use Figma's fields for the copies:
   - components: `sharedSymbolReference {fileKey: lib, symbolID, versionHash, componentKey: key, libraryGUIDToSubscribingGUID}`;
