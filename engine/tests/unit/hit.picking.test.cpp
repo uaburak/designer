@@ -113,12 +113,14 @@ TEST_CASE("pick: Figma's selection depth (picking.ts)") {
   Document d = scene();
   CHECK(pick(d, at(d, 75, 125), {}, false) == F2);   // nothing selected: a top-level frame's child
   CHECK(pick(d, at(d, 20, 20), {}, false) == R1);
-  CHECK(pick(d, at(d, 75, 125), {F2}, false) == R3); // inside a selected layer: the next level down
+  CHECK(pick(d, at(d, 75, 125), {F2}, false) == F2); // inside a selected layer: that layer again (live #10)…
+  CHECK(pick(d, at(d, 75, 125), {F2}, false, true) == R3);  // …a double-click: the next level down
   CHECK(pick(d, at(d, 20, 20), {R3}, false) == R1);  // beside one: its siblings
   CHECK(pick(d, at(d, 75, 125), {}, true) == R3);    // ⌘: the innermost
   CHECK(pick(d, at(d, 5, 5), {}, false) == F);       // a top-level frame's own area: the frame
   CHECK(pick(d, at(d, 20, 320), {}, false) == G);    // a top-level group: the group…
-  CHECK(pick(d, at(d, 20, 320), {G}, false) == GR);  // …then its child once it's selected
+  CHECK(pick(d, at(d, 20, 320), {G}, false) == G);   // …again once it is selected (live #3)…
+  CHECK(pick(d, at(d, 20, 320), {G}, false, true) == GR);  // …its child on a double-click
   CHECK(pick(d, at(d, 155, 155), {}, false) == G2);  // a group inside a frame: the outermost unopened group
   CHECK(pick(d, {}, {}, false) == kNoGuid);
 }

@@ -125,7 +125,7 @@ TEST_CASE("r15 hit-test: rectangles and frames take their rounded-off corners; e
   CHECK(s.e.hover() == INST);
 }
 
-TEST_CASE("r15 instances: the first click (and hover) takes the instance whole; clicks go one level deeper; ⌘ the deepest") {
+TEST_CASE("r15 instances: the first click (and hover) takes the instance whole; double-clicks go one level deeper; ⌘ the deepest") {
   Scene s;
   Guid label = derived::intern(INST, {LABEL});
   // Hover over the instance's label: the instance.
@@ -134,10 +134,14 @@ TEST_CASE("r15 instances: the first click (and hover) takes the instance whole; 
   s.click({120, 122});
   REQUIRE(s.e.selection().size() == 1);
   CHECK(s.e.selection()[0] == INST);
-  // Selected, the instance's layers hover and click one at a time.
+  // Selected, the instance's layers hover one at a time (dotted: a double-click's target); a single click keeps the
+  // instance (live Figma #8), a double-click selects the layer.
   s.move({121, 122});
   CHECK(s.e.hover() == label);
   s.click({121, 122});
+  REQUIRE(s.e.selection().size() == 1);
+  CHECK(s.e.selection()[0] == INST);
+  s.click({121, 122}, 0, 2);
   REQUIRE(s.e.selection().size() == 1);
   CHECK(s.e.selection()[0] == label);
   // Another instance's layer: that instance first.

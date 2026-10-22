@@ -2684,6 +2684,10 @@ class Editor : private LayoutHost, public TextLayouts {
   // selects the pressed layer; a press-drag with nothing movable (instance sublayers, locked layers) is a no-op.
   bool pressInSelected_ = false;
   bool pressNoop_ = false;
+  // A press on empty space inside the selection's box: a drag moves the selection (live Figma MS).
+  bool pressMovesSelection_ = false;
+  // ⇧ on a layer inside a selected one: the click leaves the selection as it is (live Figma K3).
+  bool pressShiftKeeps_ = false;
 
   // Round 8 (tools/CanvasTools.cpp).
   double nudgeSmall_ = 1, nudgeBig_ = 10;

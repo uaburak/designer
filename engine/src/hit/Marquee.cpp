@@ -33,8 +33,10 @@ std::vector<Guid> marqueeHits(const Document& doc, Guid page, const Rect& rect, 
     Rect b = doc.worldBounds(c);
     if (!rect.intersects(b)) return;
     const Node* n = doc.get(c);
-    // An instance is one layer here as everywhere it is picked (a click, ⌘-marquee): never its sublayers.
-    if (n->props.isFrameLike() && n->props.type != NodeType::INSTANCE && !rect.containsRect(b) && !doc.children(c).empty()) {
+    // An instance is one layer here as everywhere it is picked (a click, ⌘-marquee): never its sublayers. A main
+    // component partly covered is taken whole too (live Figma M3, M6).
+    bool whole = n->props.type == NodeType::INSTANCE || n->props.type == NodeType::SYMBOL;
+    if (n->props.isFrameLike() && !whole && !rect.containsRect(b) && !doc.children(c).empty()) {
       bool section = n->props.type == NodeType::SECTION;
       for (Guid gc : doc.children(c)) {
         if (section) self(self, gc);
@@ -45,10 +47,13 @@ std::vector<Guid> marqueeHits(const Document& doc, Guid page, const Rect& rect, 
     out.push_back(c);
   };
   for (Guid c : ordered) take(take, c);
-  // A top-level frame taken whole: then only top-level layers (Figma doesn't mix levels in one marquee).
+  // A top-level frame taken whole (inside the rect): then only top-level layers (Figma doesn't mix levels in one
+  // marquee). An instance or a main component only touched doesn't count.
   bool wholeFrame = false;
   for (Guid id : out)
-    if (doc.parentOf(id) == page && doc.get(id)->props.isFrameLike() && !doc.children(id).empty()) wholeFrame = true;
+    if (doc.parentOf(id) == page && doc.get(id)->props.isFrameLike() && !doc.children(id).empty() &&
+        rect.containsRect(doc.worldBounds(id)))
+      wholeFrame = true;
   if (wholeFrame) out.erase(std::remove_if(out.begin(), out.end(), [&](Guid id) { return doc.parentOf(id) != page; }), out.end());
   return out;
 }

@@ -802,7 +802,9 @@ void Editor::updateHover(Vec2 s, uint32_t mods) {
     if (next == kNoGuid && handleAt(s, hx, hy) == Handle::None) {
       auto path = hitPath(doc_, page_, camera_.toWorld(s), pixel());
       focusFilter(path);
-      next = pick(doc_, path, selection_, (mods & MOD_PRIMARY) != 0);
+      // Inside a selected layer the hover outlines the next level down (dotted inside an instance, the owner's
+      // 46.png) — what a double-click there selects; a single click keeps the selected layer (live Figma #3–#10).
+      next = pick(doc_, path, selection_, (mods & MOD_PRIMARY) != 0, true);
     }
   }
   devHover(s);
@@ -1200,7 +1202,7 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
       return P_HANDLED;
     }
     pressed_ = titled;
-    pressMarquee_ = pressInSelected_ = pressNoop_ = false;
+    pressMarquee_ = pressInSelected_ = pressNoop_ = pressMovesSelection_ = pressShiftKeeps_ = false;
     marqueeScope_ = kNoGuid;
     pressedWasSelected_ = selected(titled);
     if (!pressedWasSelected_) {
@@ -1223,21 +1225,28 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
   if (!viewer_ && clickCount_ >= 2 && !shift && !path.empty()) {
     // Double-click on a text layer: edit it, the word under the pointer selected.
     const Node* hit = doc_.get(path.back());
-    if (hit && hit->props.isTextLike() && !hit->props.locked && (selected(path.back()) || pick(doc_, path, selection_, deep) == path.back())) {
+    if (hit && hit->props.isTextLike() && !hit->props.locked &&
+        (selected(path.back()) || pick(doc_, path, selection_, deep, true) == path.back())) {
       if (startTextEdit(path.back(), false) == OK) return textPointerDown(s, mods, 2);
     }
   }
   if (!viewer_ && clickCount_ >= 2 && !shift && !path.empty()) {
     // Double-click on a selected vector or shape: vector edit mode.
-    Guid hit = pick(doc_, path, selection_, deep);
+    Guid hit = pick(doc_, path, selection_, deep, true);
     if (hit != kNoGuid && selected(hit) && startVectorEdit(hit) == OK) return P_HANDLED;
   }
-  pressed_ = pick(doc_, path, selection_, deep);
+  // A single click picks at the selection's depth (a click inside a selected layer picks it again); the second press
+  // of a double-click goes one level down (live Figma, docs/research/figma/live/behaviour/selection.md).
+  pressed_ = pick(doc_, path, selection_, deep, clickCount_ >= 2);
   pressMarquee_ = false;
   pressInSelected_ = false;
   pressNoop_ = false;
+  pressMovesSelection_ = false;
   marqueeScope_ = kNoGuid;
   pressedWasSelected_ = pressed_ != kNoGuid && selected(pressed_);
+  // ⇧ on a layer inside a selected one (a group's layer, an instance's sublayer): the click changes nothing (live K3) —
+  // only a press on the selected layer itself takes it out.
+  pressShiftKeeps_ = pressedWasSelected_ && !path.empty() && path.back() != pressed_;
   size_t topAt = path.empty() ? 0 : topLevelIndex(doc_, path);
   if (pressed_ == kNoGuid) {
     pressMarquee_ = true;
@@ -1265,6 +1274,13 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
       next.push_back(pressed_);
       changeSelection(std::move(next));
     }
+  }
+  // Empty space (the canvas or a frame's background) inside the selection's box: a drag moves the selection, not a
+  // marquee (live Figma MS); a click there stays a click on empty space.
+  if (pressMarquee_ && !viewer_ && !deep && !shift && !selection_.empty()) {
+    SelectionBox box = selectionBox(doc_, selection_);
+    Vec2 q = box.valid ? box.toWorld.inverse().apply(downWorld_) : Vec2{-1, -1};
+    pressMovesSelection_ = box.valid && q.x >= 0 && q.y >= 0 && q.x <= box.size.x && q.y <= box.size.y;
   }
   gesture_ = Gesture::Press;
   return P_HANDLED | P_CAPTURE;
@@ -1451,7 +1467,12 @@ void Editor::movePointer(Vec2 s, uint32_t mods) {
     }
     case Gesture::Press:
       if (pressNoop_ || (s - downScreen_).length() < kDragThreshold) break;
-      if (pressMarquee_) {
+      if (pressMarquee_ && pressMovesSelection_ && startMove(mods)) {
+        // Empty space inside the selection's box: the selection is dragged, no marquee (live Figma MS).
+        pressMarquee_ = pressMovesSelection_ = false;
+        gesture_ = Gesture::Move;
+        dragMove(world, mods);
+      } else if (pressMarquee_) {
         gesture_ = Gesture::Marquee;
         dragMarquee(world, mods);
       } else if (!viewer_ && startMove(mods)) {
@@ -1764,10 +1785,10 @@ void Editor::finishClick(uint32_t mods) {
   if (pressMarquee_) {
     // ⌘ on a top-level frame's own background: the deepest layer there is the frame, and help.figma.com ("Select
     // layers and objects": "Hold down the modifier key to select the top-level frame or a nested layer") selects it
-    // (⇧ adds it; a selected frame's background is a press on the frame, so ⇧⌘ removes it there). A section stays
-    // canvas.
+    // (⇧ adds it; a selected frame's background is a press on the frame, so ⇧⌘ removes it there). A section's own
+    // empty area selects the section on any click (live Figma K7), though a drag there is a marquee as on a frame.
     const Node* scope = doc_.get(marqueeScope_);
-    if ((downMods_ & MOD_PRIMARY) && scope && scope->props.type != NodeType::SECTION) {
+    if (scope && ((downMods_ & MOD_PRIMARY) || scope->props.type == NodeType::SECTION)) {
       std::vector<Guid> next = shift ? selection_ : std::vector<Guid>{};
       next.push_back(marqueeScope_);
       changeSelection(std::move(next));
@@ -1780,6 +1801,7 @@ void Editor::finishClick(uint32_t mods) {
   }
   if (pressed_ == kNoGuid || !pressedWasSelected_) return;
   if (shift) {
+    if (pressShiftKeeps_) return;  // ⇧ on a layer inside the selected one: nothing changes (live K3)
     std::vector<Guid> next = selection_;
     next.erase(std::remove(next.begin(), next.end(), pressed_), next.end());
     changeSelection(std::move(next));

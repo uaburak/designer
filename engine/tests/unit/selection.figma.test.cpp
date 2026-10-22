@@ -206,3 +206,260 @@ TEST_CASE("selection: after duplicate, undo, redo and paste") {
   CHECK(e.paste(clip, false) == 1);
   CHECK(e.selection().size() == 1);
 }
+
+// ---- The live measurement (docs/research/figma/live/behaviour/selection.md, 2026-10-22): its scene, every row -------
+
+namespace {
+
+// Page children back to front: FrameA (0,0 600×400: R1, G1 = group(R2, E1), F2 = frame(R3), T1, L1 locked, H1 hidden,
+// IA = instance of Button), Button (main: Label text, Icon rect), IT (top-level instance), Chip (set: Default, Hover),
+// CI (Chip inst), Section1 (F3(R4)), AL (auto layout: A0..A2). Screen = world.
+const Guid FA{2, 1}, R1{2, 2}, G1{2, 3}, R2{2, 4}, E1{2, 5}, F2{2, 6}, R3{2, 7}, T1{2, 8}, L1{2, 9}, H1{2, 10}, IA{2, 11},
+    BTN{2, 20}, LBL{2, 21}, ICO{2, 22}, IT{2, 23}, CHIP{2, 30}, CD{2, 31}, CH{2, 32}, CI{2, 33}, S1{2, 40}, F3{2, 41}, R4{2, 42},
+    AL{2, 50}, A0{2, 51}, A1{2, 52}, A2{2, 53}, STATE{2, 99};
+
+NodeChange specInstance(Guid id, Guid main, Guid parent, const std::string& pos, Rect r, const char* name) {
+  NodeChange c = make(id, NodeType::INSTANCE, parent, pos, r, name);
+  c.props.comp().symbolData.symbolID = main;
+  c.props.fillPaints.clear();
+  return c;
+}
+
+NodeChange specText(Guid id, Guid parent, const std::string& pos, Rect r, const char* chars) {
+  NodeChange t = make(id, NodeType::TEXT, parent, pos, r, chars);
+  t.props.text().textData.characters = chars;
+  t.props.text().textAutoResize = TextAutoResize::NONE;
+  return t;
+}
+
+std::vector<NodeChange> specScene() {
+  auto nodes = baseChanges();
+  nodes.push_back(make(FA, NodeType::FRAME, kPage, "!", {0, 0, 600, 400}, "FrameA"));
+  nodes.push_back(make(R1, NodeType::ROUNDED_RECTANGLE, FA, "!", {20, 20, 80, 80}, "R1"));
+  NodeChange g = make(G1, NodeType::FRAME, FA, "\"", {150, 20, 140, 60}, "G1");
+  g.props.resizeToFit = true;
+  g.props.fillPaints.clear();
+  nodes.push_back(g);
+  nodes.push_back(make(R2, NodeType::ROUNDED_RECTANGLE, G1, "!", {0, 0, 60, 60}, "R2"));
+  nodes.push_back(make(E1, NodeType::ELLIPSE, G1, "\"", {80, 0, 60, 60}, "E1"));
+  nodes.push_back(make(F2, NodeType::FRAME, FA, "#", {320, 20, 200, 150}, "F2"));
+  nodes.push_back(make(R3, NodeType::ROUNDED_RECTANGLE, F2, "!", {20, 20, 60, 60}, "R3"));
+  nodes.push_back(specText(T1, FA, "$", {20, 200, 100, 30}, "T1"));
+  NodeChange l = make(L1, NodeType::ROUNDED_RECTANGLE, FA, "%", {150, 200, 60, 60}, "L1");
+  l.props.locked = true;
+  nodes.push_back(l);
+  NodeChange h = make(H1, NodeType::ROUNDED_RECTANGLE, FA, "&", {250, 200, 60, 60}, "H1");
+  h.props.visible = false;
+  nodes.push_back(h);
+  nodes.push_back(specInstance(IA, BTN, FA, "'", {350, 250, 100, 40}, "Button inst A"));
+  nodes.push_back(make(BTN, NodeType::SYMBOL, kPage, "\"", {700, 0, 100, 40}, "Button"));
+  nodes.push_back(specText(LBL, BTN, "!", {10, 10, 50, 20}, "Label"));
+  nodes.push_back(make(ICO, NodeType::ROUNDED_RECTANGLE, BTN, "\"", {70, 10, 20, 20}, "Icon"));
+  nodes.push_back(specInstance(IT, BTN, kPage, "#", {700, 100, 100, 40}, "Button inst top"));
+  NodeChange set = make(CHIP, NodeType::FRAME, kPage, "$", {700, 200, 300, 60}, "Chip");
+  set.props.comp().isStateGroup = true;
+  ComponentPropDef def;
+  def.id = STATE;
+  def.name = "State";
+  def.type = ComponentPropType::VARIANT;
+  set.props.comp().componentPropDefs = {def};
+  nodes.push_back(set);
+  NodeChange cd = make(CD, NodeType::SYMBOL, CHIP, "!", {10, 10, 130, 40}, "State=Default");
+  cd.props.comp().variantPropSpecs = {{STATE, "Default"}};
+  cd.props.fillPaints = {Paint::solid(Color::hex(0xFFFFFF))};
+  nodes.push_back(cd);
+  NodeChange ch = make(CH, NodeType::SYMBOL, CHIP, "\"", {160, 10, 130, 40}, "State=Hover");
+  ch.props.comp().variantPropSpecs = {{STATE, "Hover"}};
+  ch.props.fillPaints = {Paint::solid(Color::hex(0xFFFFFF))};
+  nodes.push_back(ch);
+  nodes.push_back(specInstance(CI, CD, kPage, "%", {700, 300, 130, 40}, "Chip inst"));
+  nodes.push_back(make(S1, NodeType::SECTION, kPage, "&", {0, 500, 500, 300}, "Section1"));
+  nodes.push_back(make(F3, NodeType::FRAME, S1, "!", {50, 50, 200, 150}, "F3"));
+  nodes.push_back(make(R4, NodeType::ROUNDED_RECTANGLE, F3, "!", {20, 20, 60, 60}, "R4"));
+  NodeChange al = make(AL, NodeType::FRAME, kPage, "'", {700, 500, 180, 60}, "AL");
+  al.props.stack().stackMode = StackMode::HORIZONTAL;
+  nodes.push_back(al);
+  nodes.push_back(make(A0, NodeType::ROUNDED_RECTANGLE, AL, "!", {0, 0, 60, 60}, "A0"));
+  nodes.push_back(make(A1, NodeType::ROUNDED_RECTANGLE, AL, "\"", {60, 0, 60, 60}, "A1"));
+  nodes.push_back(make(A2, NodeType::ROUNDED_RECTANGLE, AL, "#", {120, 0, 60, 60}, "A2"));
+  return nodes;
+}
+
+Editor specLoad() {
+  Editor e;
+  e.setSessionID(1);
+  e.setViewport(1400, 1000, 1, 1400, 1000);
+  e.loadDocument(specScene(), kNoGuid);
+  e.setCamera({0, 0, 1});
+  e.takeEvents();
+  return e;
+}
+
+Guid sub(Editor& e, Guid parent, const char* name) {
+  for (Guid c : e.document().children(parent))
+    if (e.document().get(c)->props.name == name) return c;
+  return kNoGuid;
+}
+
+Sel sorted(Sel s) {
+  std::sort(s.begin(), s.end(), [](Guid a, Guid b) { return a.sessionID != b.sessionID ? a.sessionID < b.sessionID : a.localID < b.localID; });
+  return s;
+}
+
+// The selection by layer names, for failure messages.
+std::string names(Editor& e, const Sel& s) {
+  std::string out;
+  for (Guid id : s) out += (out.empty() ? "" : ", ") + (e.document().get(id) ? e.document().get(id)->props.name : "?");
+  return "[" + out + "]";
+}
+
+// Two presses on one spot, the second a double-click's (the first selects, as in Figma).
+void dbl(Editor& e, Vec2 at) {
+  click(e, at.x, at.y, 0, 1);
+  click(e, at.x, at.y, 0, 2);
+}
+
+// On R1, R2, E1, R3, L1, H1, IA's Label, FrameA's background, IT's Label and Icon, the Default variant, Section1's
+// background, R4, F3's background, A0.
+constexpr Vec2 pR1{50, 50}, pR2{180, 50}, pE1{260, 50}, pR3{370, 70}, pL1{180, 230}, pH1{280, 230}, pIALabel{365, 265},
+    pFABg{300, 350}, pITLabel{715, 115}, pITIcon{785, 120}, pCD{730, 220}, pS1Bg{400, 700}, pR4{100, 600}, pF3Bg{200, 680},
+    pA0{730, 530};
+
+}  // namespace
+
+TEST_CASE("selection spec: click (left)") {
+  Editor e = specLoad();
+  Guid itLabel = sub(e, IT, "Label"), itIcon = sub(e, IT, "Icon");
+  REQUIRE(sub(e, IA, "Label") != kNoGuid);
+  REQUIRE(itIcon != kNoGuid);
+  auto row = [&](const char* name, Sel before, Vec2 at, Sel after) {
+    e.setSelection(before);
+    click(e, at.x, at.y);
+    INFO(std::string(name), " got ", names(e, e.selection()), " want ", names(e, after));
+    CHECK(sorted(e.selection()) == sorted(after));
+  };
+  row("#1", {}, pR1, {R1});
+  row("#2", {}, pR2, {G1});
+  row("#3", {G1}, pR2, {G1});
+  row("#4", {}, pR3, {F2});
+  row("#5", {}, pIALabel, {IA});
+  row("#6", {IA}, pIALabel, {IA});
+  row("#7", {}, pITLabel, {IT});
+  row("#8", {IT}, pITLabel, {IT});
+  row("#9", {FA}, pR1, {R1});
+  row("#10", {F2}, pR3, {F2});
+  row("#11", {}, pFABg, {});
+  row("#12", {}, pL1, {});
+  row("#13", {}, pH1, {});
+  row("K7", {}, pS1Bg, {S1});
+  row("K8", {}, pR4, {R4});
+  row("K11", {}, pF3Bg, {});
+  row("K9", {}, pA0, {A0});
+  row("K10", {}, pCD, {CD});
+  row("S1", {R2}, pE1, {E1});
+  row("S2", {itLabel}, pITIcon, {itIcon});
+  row("S3", {R2}, pR1, {R1});
+}
+
+TEST_CASE("selection spec: a double-click goes one level down") {
+  Editor e = specLoad();
+  dbl(e, pR2);
+  CHECK(e.selection() == Sel{R2});  // K5
+  e.setSelection({});
+  dbl(e, pR3);
+  CHECK(e.selection() == Sel{R3});  // K12
+  e.setSelection({});
+  dbl(e, pITLabel);
+  CHECK(e.selection() == Sel{sub(e, IT, "Label")});  // K6
+}
+
+TEST_CASE("selection spec: modifiers") {
+  Editor e = specLoad();
+  click(e, pR2.x, pR2.y, MOD_PRIMARY);
+  CHECK(e.selection() == Sel{R2});  // K1
+  e.setSelection({});
+  click(e, pIALabel.x, pIALabel.y, MOD_PRIMARY);
+  CHECK(e.selection() == Sel{sub(e, IA, "Label")});  // K2
+  e.setSelection({G1});
+  click(e, pR2.x, pR2.y, MOD_SHIFT);
+  CHECK(e.selection() == Sel{G1});  // K3
+  e.setSelection({R1});
+  click(e, pR3.x, pR3.y, MOD_SHIFT);
+  CHECK(sorted(e.selection()) == sorted({R1, F2}));  // K4
+}
+
+TEST_CASE("selection spec: right-click") {
+  Editor e = specLoad();
+  auto row = [&](const char* name, Sel before, Vec2 at, Sel after) {
+    e.setSelection(before);
+    auto ev = rightClick(e, at.x, at.y);
+    INFO(std::string(name), " got ", names(e, e.selection()), " want ", names(e, after));
+    CHECK(ev.contextMenus.size() == 1);
+    CHECK(sorted(e.selection()) == sorted(after));
+  };
+  row("R1", {}, pR2, {G1});
+  row("R2", {IT}, pITLabel, {IT});
+  row("R3", {FA}, pR1, {FA});
+  row("R4", {}, pFABg, {FA});
+  row("R5", {G1}, pR2, {G1});
+  row("R6", {R1, F2}, pR3, {R1, F2});
+}
+
+TEST_CASE("selection spec: marquee") {
+  Editor e = specLoad();
+  drag(e, {-30, 30}, {60, 60});  // M1: from outside over part of FrameA, crossing R1
+  CHECK(e.selection() == Sel{R1});
+  e.setSelection({});
+  drag(e, {60, 110}, {170, 60});  // M2: from FrameA's background over R1 and part of G1
+  CHECK(sorted(e.selection()) == sorted({R1, G1}));
+  e.setSelection({});
+  drag(e, {680, 90}, {720, 120});  // M3: part of the top-level instance
+  CHECK(e.selection() == Sel{IT});
+  e.setSelection({});
+  drag(e, {-30, 480}, {90, 590});  // M5: part of Section1, F3 and R4
+  CHECK(e.selection() == Sel{R4});
+  e.setSelection({});
+  drag(e, {680, -20}, {720, 15});  // M6: part of the main component
+  CHECK(e.selection() == Sel{BTN});
+}
+
+TEST_CASE("selection spec: a press on empty space inside a multi-selection's box drags the selection") {
+  Editor e = specLoad();
+  e.setSelection({R1, F2});
+  Rect r1 = e.document().worldBounds(R1), f2 = e.document().worldBounds(F2);
+  drag(e, {300, 150}, {320, 170});  // FrameA's background, inside the box of R1 + F2
+  CHECK(sorted(e.selection()) == sorted({R1, F2}));  // MS
+  CHECK(e.document().worldBounds(R1).x == doctest::Approx(r1.x + 20));
+  CHECK(e.document().worldBounds(F2).y == doctest::Approx(f2.y + 20));
+}
+
+TEST_CASE("selection spec: keyboard") {
+  Editor e = specLoad();
+  e.setSelection({FA});
+  key(e, KeyCode::Enter);
+  CHECK(sorted(e.selection()) == sorted({R1, G1, F2, T1, L1, H1, IA}));  // E1
+  e.setSelection({G1});
+  key(e, KeyCode::Enter);
+  CHECK(sorted(e.selection()) == sorted({R2, E1}));  // E11
+  e.setSelection({IT});
+  key(e, KeyCode::Enter);
+  CHECK(sorted(e.selection()) == sorted({sub(e, IT, "Label"), sub(e, IT, "Icon")}));  // E5
+  e.setSelection({R1});
+  key(e, KeyCode::Enter, MOD_SHIFT);
+  CHECK(e.selection() == Sel{FA});  // E2
+  for (Sel s : {Sel{R1}, Sel{sub(e, IA, "Label")}, Sel{G1}, Sel{FA}}) {  // E3, E6, E7, E8
+    e.setSelection(s);
+    key(e, KeyCode::Escape);
+    CHECK(e.selection().empty());
+  }
+  e.setSelection({R1});
+  key(e, KeyCode::Tab);
+  CHECK(e.selection() == Sel{IA});  // E4
+  for (Guid want : {H1, L1, T1, F2, G1}) {  // E9
+    key(e, KeyCode::Tab);
+    CHECK(e.selection() == Sel{want});
+  }
+  e.setSelection({R1});
+  key(e, KeyCode::Tab, MOD_SHIFT);
+  CHECK(e.selection() == Sel{G1});  // E10
+}

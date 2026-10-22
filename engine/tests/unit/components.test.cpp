@@ -694,12 +694,13 @@ TEST_CASE("components: text editing inside an instance writes overrides") {
   CHECK(props(e, LABEL).text().textData.characters == "Label");
 }
 
-TEST_CASE("components: picking takes an instance whole; inside once it is selected") {
+TEST_CASE("components: picking takes an instance whole, also once selected; a double-click goes inside") {
   Editor e = load(buttonDoc());
   auto path = hitPath(e.document(), kPage, {50, 120}, 1);
   REQUIRE(!path.empty());
   CHECK(pick(e.document(), path, {}, false) == I);
-  CHECK(pick(e.document(), path, {I}, false) == path.back());
+  CHECK(pick(e.document(), path, {I}, false) == I);  // live Figma #8
+  CHECK(pick(e.document(), path, {I}, false, true) == path.back());
   CHECK(path.back().isDerived());
   CHECK(pick(e.document(), path, {}, true) == path.back());
 }
@@ -1051,8 +1052,11 @@ TEST_CASE("components: a selected instance covered by its children drags by any 
   REQUIRE(ev.documents.size() == 1);
   CHECK(ev.documents[0].label == "Move");
   CHECK(ev.components.empty());  // a move of the instance root re-derives nothing
-  // A click on the background then selects the sublayer.
+  // A click on the background keeps the instance (live Figma #8); a double-click there selects the sublayer.
   e.pointer(PointerEvent::DOWN, 105, 105, 0, 1, 0);
+  e.pointer(PointerEvent::UP, 105, 105, 0, 0, 0);
+  CHECK(e.selection() == std::vector<Guid>{I});
+  e.pointer(PointerEvent::DOWN, 105, 105, 0, 1, 0, 2);
   e.pointer(PointerEvent::UP, 105, 105, 0, 0, 0);
   CHECK(e.selection() == std::vector<Guid>{sub(I, {BG})});
 }
