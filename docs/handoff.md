@@ -2,6 +2,16 @@
 
 First written 2026-10-06 when the first Claude session stopped and the owner moved the work to another Claude account through GitHub (`https://github.com/uaburak/designer`). Updated the same day by the second session, which finished every workstream's partial items and ran the integration round. Read `AGENTS.md`, `docs/architecture.md` and `docs/roadmap.md` first; the contracts in `docs/` decide everything; `docs/research/` holds the verified facts about Figma (with sources).
 
+## Status 2026-10-23 (night) — overnight bug sweep on branch `debug-sweep` (pushed as a branch, NOT merged into main)
+
+The owner asked for an app-wide debugging pass overnight, kept off main. `debug-sweep` = main (302fdc69) + 21 commits; full vitest 440 files / 3,672 tests green, typecheck and lint clean, engine:test 1,026/1,026 (engine.wasm rebuilt). Fixed:
+- Store / main (the owner's "can't save changes" dialog and the stale-lock warning on each dev start): lock holder liveness now also checks the process start time (pid reuse); a new store waits up to 5 s for a holder that is shutting down; concurrent store shutdowns share one promise and usage sends run beside the flush; a journal append that fails half-way truncates the torn frame (was silent loss of later batches); main doesn't restart the store while quitting (Ctrl-C of `npm run dev` left the lock).
+- Engine: a cleared field (Remove link, Remove flow starting point, overlay settings, pluginData, thumbnail, cursor / text input, device) produced an empty `{guid}` change — lost for the journal, peers, undo / redo and a kept presentation; ChangeSet now emits `clearedFields` (tests clearedFields.wasm, scene.txn).
+- Editor: the "Cannot update a component while rendering…" warnings (one root: engine events from reads dispatched inside React renders → reads now dispatch in a microtask); Prototype "No device" and removing the last interaction written as Figma's values.
+- Agents: a queued message survives settings / list / another chat (kept by the service per chat); a turn main ends before its id returns shows its error instead of running forever; deleting a chat stops its running turn; unhandled rejections when main fails.
+- editor-shot drivers updated to the deliberate redesigns (part 1: 889 ok, part 2: 127 ok, 0 FAIL).
+Open: panel11 "Dimensions at 350" is 1 px low (unexplained); ⌘W pressed quickly closes one tab; a code-path second send while a turn starts could start a second turn (not reproducible from the UI).
+
 2026-10-22 (flat settings): in-panel Agent settings have no boxes — sections are a small label over flat rows (SettingsGroup / SettingsRow in settingsParts.tsx); home nav rows are icon + title + chevron, page intros dropped; usage cards stack one per line; agent rows show a green dot + plan line, no model/effort selects, and the whole row opens the detail (controls in a row stopPropagation). To verify in the app: hover/focus on rows, narrow panel.
 
 ## Status 2026-10-22 (newest) — Agent settings inside the panel, attachment thumbnails (committed on its branch, not merged)
