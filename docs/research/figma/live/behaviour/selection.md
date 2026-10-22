@@ -29,6 +29,9 @@ State=Hover), "Chip inst", **Section1** (section; child frame F3(R4)), **AL** (t
 | K8 | none | click R4 (in F3, a frame inside the section) | R4 (frames directly in a section behave as top-level) |
 | K11 | none | click F3's empty area (F3 has children) | nothing |
 | K9 | none | click A0 (child of top-level auto layout frame) | A0 |
+| AL-bg | none | click AL's padding or the gap between its children | **AL** — an auto layout frame's own background selects it (a plain frame's doesn't, #11) |
+| BTN-bg | none | click the main component Button's background (not on Label / Icon) | **Button** |
+| SET-bg | none | click the component set Chip's background between its variants | nothing (like a plain frame) |
 | K10 | none | click variant State=Default (on its fill) | State=Default (the variant) |
 | S1 | R2 (deep, in G1) | click E1 (R2's sibling) | E1 (same depth as the selection) |
 | S2 | Label (deep, in instance) | click Icon (its sibling) | Icon |

@@ -1251,10 +1251,11 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
   if (pressed_ == kNoGuid) {
     pressMarquee_ = true;
   } else if (path.size() == topAt + 1 && doc_.get(path[topAt])->props.isFrameLike() &&
-             doc_.get(path[topAt])->props.type != NodeType::INSTANCE && !pressedWasSelected_ &&
-             !doc_.children(path[topAt]).empty()) {
+             doc_.get(path[topAt])->props.type != NodeType::INSTANCE && doc_.get(path[topAt])->props.type != NodeType::SYMBOL &&
+             !doc_.get(path[topAt])->props.isAutoLayout() && !pressedWasSelected_ && !doc_.children(path[topAt]).empty()) {
     // A top-level frame's (or a section's) own background: a drag is a marquee among its children (⌘: a deep
-    // one), a click selects nothing (live Figma: like empty canvas); ⌘-click selects the frame (finishClick).
+    // one), a click selects nothing (live Figma: like empty canvas); ⌘-click selects the frame (finishClick). Not an
+    // auto layout frame's or a main component's: a press on their padding or gaps selects them (live Figma, selection.md).
     pressMarquee_ = true;
     marqueeScope_ = path[topAt];
   } else if (!pressedWasSelected_) {

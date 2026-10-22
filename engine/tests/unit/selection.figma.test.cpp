@@ -278,6 +278,7 @@ std::vector<NodeChange> specScene() {
   nodes.push_back(make(R4, NodeType::ROUNDED_RECTANGLE, F3, "!", {20, 20, 60, 60}, "R4"));
   NodeChange al = make(AL, NodeType::FRAME, kPage, "'", {700, 500, 180, 60}, "AL");
   al.props.stack().stackMode = StackMode::HORIZONTAL;
+  al.props.stack().stackPaddingTop = 10;  // a band of the frame's own background to click (row AL-bg)
   nodes.push_back(al);
   nodes.push_back(make(A0, NodeType::ROUNDED_RECTANGLE, AL, "!", {0, 0, 60, 60}, "A0"));
   nodes.push_back(make(A1, NodeType::ROUNDED_RECTANGLE, AL, "\"", {60, 0, 60, 60}, "A1"));
@@ -355,6 +356,10 @@ TEST_CASE("selection spec: click (left)") {
   row("K8", {}, pR4, {R4});
   row("K11", {}, pF3Bg, {});
   row("K9", {}, pA0, {A0});
+  // An auto layout frame's or a main component's own background (padding, gaps) selects it — unlike a plain frame's
+  // (#11); a component set's selects nothing like a frame (live Figma 2026-10-22, selection.md).
+  row("AL-bg", {}, Vec2{790, 503}, {AL});
+  row("BTN-bg", {}, Vec2{795, 35}, {BTN});
   row("K10", {}, pCD, {CD});
   row("S1", {R2}, pE1, {E1});
   row("S2", {itLabel}, pITIcon, {itIcon});
