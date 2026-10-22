@@ -51,7 +51,7 @@ describe("the component panels (live design/component.txt, component-set.txt, va
   it("the headers' actions", () => {
     expect(COMPONENT_HEADER_ACTIONS.component).toEqual(["add-variant", "configuration", "more"]);
     expect(COMPONENT_HEADER_ACTIONS.set).toEqual(["multi-edit", "add-variant", "configuration", "more"]);
-    expect(COMPONENT_HEADER_ACTIONS.variant).toEqual(["multi-edit", "matching", "configuration"]);
+    expect(COMPONENT_HEADER_ACTIONS.variant).toEqual(["multi-edit", "matching", "configuration", "more"]);
   });
 
   it("Create property's order: Variant, Text, Boolean, Instance swap, Slot", () => {

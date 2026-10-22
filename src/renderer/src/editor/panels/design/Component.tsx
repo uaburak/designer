@@ -110,7 +110,7 @@ import {
 import { ComponentPicker, useComponentAssets, usePopoverToggle } from "./ComponentPicker";
 import { ComponentConfiguration } from "./ComponentConfiguration";
 import { SlotPropertyEditor } from "./SlotProperty";
-import { ACTION_ICON, actionItem, booleanActions } from "./Header";
+import { ACTION_ICON, actionItem, booleanActions, componentContext, MultiEditToggle } from "./Header";
 import { setMultiEdit, useMultiEdit } from "./multiEdit";
 import { BoundPill } from "./Variables";
 import { SLOT_LEARN_MORE } from "./SlotProperty";
@@ -233,6 +233,10 @@ export function InstanceHeader({ instance }: { instance: CNode }) {
     } else void runMenuItem(ed, id);
   };
   const bound = !!(instance as { componentPropRefs?: unknown[] }).componentPropRefs?.length;
+  const context = componentContext(ed, [instance as unknown as PanelNode]);
+  const parent = instance.parentIndex?.guid ? readC(ed, instance.parentIndex.guid) : null;
+  const nested = !!parent && parent.type !== "CANVAS" && parent.type !== "SECTION";
+  const matching = command("edit.select-matching");
   return (
     <div className={styles.instanceHead} data-instance-header="">
       {/* Live: the name at 17 in 13px/550 (no label: the text names it), More actions at 208; under it "Go to main component" */}
@@ -255,6 +259,9 @@ export function InstanceHeader({ instance }: { instance: CNode }) {
         </div>
         <div className={styles.headerActions}>
           {bound && <BindButton layer={instance} field="OVERRIDDEN_SYMBOL_ID" type="INSTANCE_SWAP" />}
+          {/* Live (2026-10-23): in a variant Multi-edit variants, in a frame Select matching layers, before More */}
+          {context.set && <MultiEditToggle set={context.set} />}
+          {nested && <IconButton icon="24.select-matching.small" label={t(matching.label)} shortcut={shortcutOf(matching)} tone="secondary" disabled={!isEnabled(ed, matching)} onClick={() => runEditorCommand(ed, matching.id)} />}
           <MenuButton label={t("More actions")} entries={more} className={styles.iconMenu} align="end" gap={PANEL_MENU_GAP} flush menuClassName={hstyles.actionsMenu} onSelect={onMore}>
             <Icon name="24.more" />
           </MenuButton>
@@ -604,7 +611,8 @@ export type ComponentHeaderAction = "multi-edit" | "add-variant" | "matching" | 
 export const COMPONENT_HEADER_ACTIONS: Record<Exclude<ComponentSelection["kind"], "instance">, readonly ComponentHeaderAction[]> = {
   component: ["add-variant", "configuration", "more"],
   set: ["multi-edit", "add-variant", "configuration", "more"],
-  variant: ["multi-edit", "matching", "configuration"],
+  // Live 2026-10-23: a variant's row ends with More actions too
+  variant: ["multi-edit", "matching", "configuration", "more"],
 };
 
 /**

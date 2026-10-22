@@ -35,6 +35,9 @@ import { sharedBinding } from "./Variables";
 import { convertFrameKind, frameKindOf, offeredKinds, type FrameKind } from "./frameKind";
 import { PATHFINDER_OPTIONS_ID, PATHFINDERS, pathfinderSubmenu } from "../../pathfinder";
 import { PANEL_MENU_GAP, isFrameNode, typeLabel, typeOf, useParents, useTextEditRef, type PanelNode } from "./shared";
+import { readC, setOf } from "../../components";
+import { isComponent, type CNode } from "../../model/components";
+import { setMultiEdit, useMultiEdit } from "./multiEdit";
 import styles from "./Design.module.css";
 import hstyles from "./Header.module.css";
 import { t, useT } from "@/i18n";
@@ -219,7 +222,7 @@ const EDITABLE = new Set(["VECTOR", "LINE", "STAR", "REGULAR_POLYGON", "ELLIPSE"
 const SHAPES = new Set(["VECTOR", "LINE", "STAR", "REGULAR_POLYGON", "ELLIPSE", "RECTANGLE", "ROUNDED_RECTANGLE", "BOOLEAN_OPERATION"]);
 
 export type HeaderKind = "frame" | "group" | "section" | "rect" | "shape" | "nested" | "boolean" | "text" | "textEdit" | "multi";
-export type HeaderAction = "slot" | "ready" | "create" | "mask" | "boolean" | "edit" | "matching" | "link" | "variable" | "more";
+export type HeaderAction = "slot" | "ready" | "create" | "mask" | "boolean" | "edit" | "matching" | "link" | "variable" | "multiedit" | "more";
 
 /** The header's actions per kind, left to right (live design/*.txt; Convert to slot only inside a main). */
 export const HEADER_ACTIONS: Record<HeaderKind, readonly HeaderAction[]> = {
@@ -258,6 +261,59 @@ export function headerKind(nodes: readonly PanelNode[], inFrame = false, editing
   return "shape";
 }
 
+/** Where the selection sits among components: the set of the variant every layer is in, and whether all are in a main. */
+export function componentContext(ed: EditorController, nodes: readonly PanelNode[]): { set: Guid | null; inMain: boolean } {
+  let set: Guid | null | undefined;
+  let inMain = nodes.length > 0;
+  for (const n of nodes) {
+    let main: CNode | null = null;
+    for (let id = readC(ed, n.guid)?.parentIndex?.guid; id; ) {
+      const p = readC(ed, id);
+      if (!p) break;
+      if (isComponent(p)) {
+        main = p;
+        break;
+      }
+      id = p.parentIndex?.guid;
+    }
+    inMain &&= !!main;
+    const s = main ? (setOf(ed, main)?.guid ?? null) : null;
+    set = set === undefined || set === s ? s : null;
+  }
+  return { set: set ?? null, inMain };
+}
+
+/**
+ * The row Figma shows inside components (live 2026-10-23, the owner's "Wecra Design System-2"): in a variant, Multi-edit
+ * variants takes Create component's place — a frame: Convert to slot · Multi-edit variants · Select matching layers ·
+ * More; a text: Multi-edit · Select matching · Create link · More; two frames: Multi-edit · Select matching · Use as
+ * mask · Boolean operations. In a plain main a vector has Select matching · Use as mask · Boolean operations · More; in
+ * a frame a frame has Select matching · Create component · Use as mask · Boolean operations and a text Select matching
+ * · Create link · Apply variable · More. (A frame in a plain main: Convert to slot · Select matching · Use as mask ·
+ * More, and other layers in a variant, are inferred from those.)
+ */
+export function headerRow(kind: HeaderKind, inFrame: boolean, ctx: { set: Guid | null; inMain: boolean }): readonly HeaderAction[] {
+  if (kind === "textEdit" || kind === "section") return HEADER_ACTIONS[kind];
+  if (ctx.set) {
+    if (kind === "frame") return ["slot", "multiedit", "matching", "more"];
+    if (kind === "text") return ["multiedit", "matching", "link", "more"];
+    if (kind === "multi") return ["multiedit", "matching", "mask", "boolean"];
+    return ["multiedit", "matching", "mask", "more"];
+  }
+  if (kind === "frame") return ctx.inMain ? ["slot", "matching", "mask", "more"] : inFrame ? ["matching", "create", "mask", "boolean"] : HEADER_ACTIONS.frame;
+  if (kind === "text") return ctx.inMain || inFrame ? ["matching", "link", "variable", "more"] : HEADER_ACTIONS.text;
+  if (ctx.inMain && kind !== "multi") return ["matching", "mask", "boolean", "more"];
+  return HEADER_ACTIONS[kind];
+}
+
+/** "Multi-edit variants" (Q): on for the set, one layer picked in a variant takes the same layer in the others. */
+export function MultiEditToggle({ set }: { set: Guid }) {
+  useT();
+  const on = useMultiEdit(set);
+  const c = command("object.multi-edit-variants");
+  return <ToggleIconButton icon="24.multi-edit.small" label={t(c.label)} shortcut={shortcutOf(c)} tone="secondary" pressed={on} onPressedChange={(v) => setMultiEdit(set, v)} />;
+}
+
 /** The header's title: the type ("Image" for a rectangle filled with an image), or "N selected". */
 export function headerTitle(nodes: readonly PanelNode[]): string {
   if (nodes.length > 1) return `${nodes.length} selected`;
@@ -276,6 +332,7 @@ export function TypeHeader({ nodes }: { nodes: PanelNode[] }) {
   const inFrame = !!parent && isFrameNode(parent) && typeOf(parent) !== "SECTION";
   const editing = useTextEditRef();
   const kind = headerKind(nodes, inFrame, editing);
+  const context = componentContext(ed, nodes);
   const title = headerTitle(nodes);
   // (`title` stays English: it names the frame kind the presets menu checks.)
   const shownTitle = nodes.length > 1 ? t("{n} selected", { n: nodes.length }) : t(title);
@@ -303,7 +360,7 @@ export function TypeHeader({ nodes }: { nodes: PanelNode[] }) {
       )}
       <div className={styles.headerActions}>
         {presets && <FrameStatusButton />}
-        <HeaderActions nodes={nodes} kind={kind} />
+        <HeaderActions nodes={nodes} kind={kind} row={headerRow(kind, inFrame, context)} set={context.set} />
       </div>
     </div>
   );
@@ -329,10 +386,9 @@ const IN_ROW: Partial<Record<HeaderAction, string[]>> = {
   edit: ["edit-object"],
 };
 
-function HeaderActions({ nodes, kind }: { nodes: PanelNode[]; kind: HeaderKind }) {
+function HeaderActions({ nodes, kind, row, set }: { nodes: PanelNode[]; kind: HeaderKind; row: readonly HeaderAction[]; set: Guid | null }) {
   useT();
   const ed = useEditor();
-  const row = HEADER_ACTIONS[kind];
   const create = command("object.create-component");
   const mask = command("object.use-as-mask");
   const matching = command("edit.select-matching");
@@ -343,7 +399,7 @@ function HeaderActions({ nodes, kind }: { nodes: PanelNode[]; kind: HeaderKind }
   const render = (a: HeaderAction) => {
     switch (a) {
       case "slot":
-        return isEnabled(ed, toSlot) ? <IconButton key={a} icon="24.slot" label={t(toSlot.label)} shortcut={shortcutOf(toSlot)} tone="secondary" onClick={() => runEditorCommand(ed, toSlot.id)} /> : null;
+        return isEnabled(ed, toSlot) ? <IconButton key={a} icon="24.convert-to-slot" label={t(toSlot.label)} shortcut={shortcutOf(toSlot)} tone="secondary" onClick={() => runEditorCommand(ed, toSlot.id)} /> : null;
       case "ready":
         return <ReadyForDevToggle key={a} />;
       case "create":
@@ -370,6 +426,8 @@ function HeaderActions({ nodes, kind }: { nodes: PanelNode[]; kind: HeaderKind }
         return kind === "multi" && shapesOnly ? null : (
           <IconButton key={a} icon="24.select-matching.small" label={t(matching.label)} shortcut={shortcutOf(matching)} tone="secondary" disabled={!isEnabled(ed, matching)} onClick={() => runEditorCommand(ed, matching.id)} />
         );
+      case "multiedit":
+        return set ? <MultiEditToggle key={a} set={set} /> : null;
       case "link":
         return <CreateLinkToggle key={a} nodes={nodes} />;
       case "variable":
