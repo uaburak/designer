@@ -420,6 +420,9 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
   const [contrast, setContrastState] = useState(() => readSetting(CONTRAST_SHOWN_KEY) === "1");
   const [contrastLevel, setContrastLevelState] = useState<ContrastLevel>(() => (readSetting(CONTRAST_LEVEL_KEY) === "AAA" ? "AAA" : "AA"));
   const [categoryChoice, setCategoryChoice] = useState<ContrastCategory | "auto">("auto");
+  // The ratio's popover of the two colours (where it opens: left of the picker, a little above the ratio)
+  const [pairAt, setPairAt] = useState<DOMRect | null>(null);
+  const pairClosed = useRef(0);
   const [fixPreview, setFixPreview] = useState(false);
   const setContrast = (on: boolean) => {
     setContrastState(on);
@@ -917,14 +920,42 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
   // the settings; a failing level is a button that puts in the nearest colour that passes (its thumb shown on hover).
   const contrastRow = contrastCheck && contrastBackground ? (
     <div className={styles.contrastRow} role="status" aria-label={t("Contrast")}>
-      <svg className={styles.contrastGlyph} viewBox="0 0 16 16" aria-hidden>
-        <circle cx="8" cy="8" r="7.5" fill={rgbaToCss({ ...contrastBackground, a: 1 })} />
-        <path d="M0.6 6.2C2.5 3.6 5.6 3.8 7.2 6.6C8.6 9 10.5 11.4 14.6 11.4A7.5 7.5 0 1 0 0.6 6.2Z" fill={rgbaToCss(target)} />
-      </svg>
       <span className={styles.contrastValue}>
-        {contrastCheck.ratio}
-        <span className={styles.contrastOf}> : 1</span>
+        <button
+          type="button"
+          className={styles.contrastPairButton}
+          aria-label={t("Contrast")}
+          aria-pressed={!!pairAt}
+          aria-expanded={!!pairAt}
+          onClick={(e) => {
+            if (performance.now() - pairClosed.current < 200) return;
+            const chip = e.currentTarget.getBoundingClientRect();
+            const box = pickerBox.current?.closest<HTMLElement>('[data-ds="Popover"]')?.getBoundingClientRect() ?? chip;
+            setPairAt(pairAt ? null : new DOMRect(box.left + 2, chip.top - 10, 0, chip.height));
+          }}
+        >
+          <svg className={styles.contrastGlyph} viewBox="0 0 16 16" aria-hidden>
+            <circle cx="8" cy="8" r="7.5" fill={rgbaToCss({ ...contrastBackground, a: 1 })} />
+            <path d="M0.6 6.2C2.5 3.6 5.6 3.8 7.2 6.6C8.6 9 10.5 11.4 14.6 11.4A7.5 7.5 0 1 0 0.6 6.2Z" fill={rgbaToCss(target)} />
+          </svg>
+          {contrastCheck.ratio}
+          <span className={styles.contrastOf}>{"\u00a0:\u00a01"}</span>
+        </button>
       </span>
+      {pairAt && (
+        // Live (the owner's 120.png): the two colours the ratio is of, in a 180 popover left of the picker
+        <Popover anchor={pairAt} placement="left" width={180} label={t("Contrast")} onClose={() => { pairClosed.current = performance.now(); setPairAt(null); }}>
+          <div className={styles.contrastPair}>
+            {([[t("Foreground"), target], [t("Background"), contrastBackground]] as const).map(([name, c]) => (
+              <div key={name} className={styles.contrastPairRow}>
+                <span className={styles.contrastPairLabel}>{name}</span>
+                <Swatch color={rgbToHex(c)} opacity={Math.round((c.a ?? 1) * 100)} size={16} />
+                <span>{hexDigits(rgbToHex(c))}</span>
+              </div>
+            ))}
+          </div>
+        </Popover>
+      )}
       {contrastNeed !== null &&
         (contrastCheck.met || !contrastCheck.fix ? (
           <span className={styles.contrastStatus} data-pass={contrastCheck.met || undefined}>

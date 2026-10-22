@@ -171,6 +171,7 @@ export const ds: Record<string, string> = {
   "Doesn't meet {standard}": "{standard} düzeyini karşılamıyor",
   "Auto-correct": "Otomatik düzelt",
   "AA · Essential": "AA · Temel",
+  "Foreground": "Ön plan",
   "AAA · Enhanced": "AAA · Gelişmiş",
   "AAA · Only for text": "AAA · Yalnızca metin için",
 
