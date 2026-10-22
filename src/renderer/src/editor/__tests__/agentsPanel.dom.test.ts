@@ -433,6 +433,18 @@ describe("the chats list and a chat's header", () => {
     engine.destroy();
   });
 
+  it("deleting a chat while its agent works stops the turn", async () => {
+    const { view, engine, stopped, ed } = await setup();
+    await sendText("Make the mobile version");
+    const service = (await import("../agents/service")).agentsOf(ed);
+    const id = service.currentChat()!.id;
+    act(() => service.deleteChat(id));
+    await settle();
+    expect(stopped).toEqual(["T1"]);
+    view.unmount();
+    engine.destroy();
+  });
+
   it("a row has no delete button; its context menu renames it in place or deletes it", async () => {
     const { view, engine, emit } = await setup();
     await sendText("Make the mobile version");

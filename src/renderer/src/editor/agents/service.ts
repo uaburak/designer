@@ -637,6 +637,8 @@ export class AgentsService implements AgentSetupHost {
   }
 
   deleteChat(id: string) {
+    // Its running turn stops too: nothing would show it or offer Stop any more.
+    if (this.state.running[id]) this.stop(id);
     this.queue.stopWhere((t) => t.chatId === id);
     // Its turns' histories go with it (their changes stay in the file).
     for (const m of this.state.chats.find((c) => c.id === id)?.messages ?? []) if (m.turnId) this.turns.forget(m.turnId);
