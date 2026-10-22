@@ -1,4 +1,5 @@
 #include "editor/Editor.h"
+#include "editor/Selection.h"
 #include "editor/Refusals.h"
 #include "proto/Prototype.h"
 
@@ -1143,6 +1144,11 @@ Overlay Editor::overlay() const {
   }
   // Round 11: a selected auto-layout component's, set's or instance's gaps (with the handles: not while moving).
   if (o.handles && gesture_ != Gesture::Move && text_.node == kNoGuid && vector_.node == kNoGuid) gapBoxesOverlay(o);
+  // ⇧ held with a layer inside a frame selected: its counterparts in the other frames or variants (Select matching
+  // layers') outlined faint — what a ⇧-click or a ⇧-marquee then takes (live Figma, the owner's 2026-10-23 captures).
+  if ((mods_ & MOD_SHIFT) && !viewer_ && text_.node == kNoGuid && vector_.node == kNoGuid &&
+      (gesture_ == Gesture::None || gesture_ == Gesture::Press || gesture_ == Gesture::Marquee))
+    o.shiftCandidates = shiftCandidates();
   // Round 12: a selected grid's gaps of one axis, the pointer in one of them or dragging it (tools/GridGestures.cpp).
   if (text_.node == kNoGuid && vector_.node == kNoGuid) gridGapOverlay(o);
   o.pixelGrid = (viewOptions_ & VIEW_PIXEL_GRID) != 0;
@@ -2410,11 +2416,22 @@ uint32_t Editor::key(KeyEvent type, KeyCode code, uint32_t /*codepoint*/, uint32
   }
 }
 
+std::vector<Guid> Editor::shiftCandidates() const {
+  // Taken from the selection as the press found it while a marquee runs (the marquee changes the selection).
+  const std::vector<Guid>& from = gesture_ == Gesture::Marquee || gesture_ == Gesture::Press ? baseSelection_ : selection_;
+  std::vector<Guid> out;
+  if (from.empty()) return out;
+  for (Guid g : structuralMatches(doc_, from))
+    if (std::find(from.begin(), from.end(), g) == from.end()) out.push_back(g);
+  return out;
+}
+
 void Editor::modifiers(uint32_t mods) {
   flushQueuedMove();
   if (mods == mods_ && gesture_ == Gesture::None) return;
   uint32_t before = mods_;
   mods_ = mods;
+  if ((before ^ mods) & MOD_SHIFT) needsRender_ = true;  // the ⇧ candidates come and go
   if (gesture_ == Gesture::Move || gesture_ == Gesture::Resize || gesture_ == Gesture::Rotate || gesture_ == Gesture::Draw ||
       gesture_ == Gesture::Marquee || gesture_ == Gesture::Vector || gesture_ == Gesture::Radius ||
       (gesture_ == Gesture::LayoutBar && layoutBarMoved_)) {

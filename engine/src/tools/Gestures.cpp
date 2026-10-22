@@ -3075,6 +3075,16 @@ void Editor::dragMarquee(Vec2 world, uint32_t mods) {
   // ⌘ (held at the press or now): the nested layers under the rect, at any depth (Figma's deep marquee).
   bool deep = ((mods | downMods_) & MOD_PRIMARY) != 0;
   std::vector<Guid> hits = deep ? marqueeDeepHits(doc_, page_, marquee_) : marqueeHits(doc_, page_, marquee_, marqueeScope_);
+  // ⇧ with a layer inside a frame selected: only its counterparts (the faint outlines) are taken — nothing else is
+  // touched (live Figma, the owner's 2026-10-23 capture: a ⇧-marquee over the variants takes only their labels).
+  if ((mods | downMods_) & MOD_SHIFT) {
+    std::vector<Guid> same = shiftCandidates();
+    if (!same.empty()) {
+      hits.clear();
+      for (Guid g : same)
+        if (marquee_.intersects(doc_.worldBounds(g))) hits.push_back(g);
+    }
+  }
   std::vector<Guid> next;
   if ((mods | downMods_) & MOD_SHIFT) next = baseSelection_;
   for (Guid h : hits)

@@ -305,6 +305,32 @@ TEST_CASE("frames are hit in their whole box without ⌘ (live Figma, 2026-10-23
   CHECK(e.selection() == std::vector<Guid>{V});
 }
 
+TEST_CASE("⇧ with a nested layer selected: its counterparts outlined faint, and a ⇧-marquee takes only them (live Figma)") {
+  const Guid SET{13, 1}, V1{13, 2}, V2{13, 3}, L1{13, 4}, L2{13, 5}, S1{13, 6}, S2{13, 7};
+  NodeChange set = make(SET, NodeType::FRAME, kPage, "#", {0, 400, 300, 100}, "Button");
+  set.props.comp().isStateGroup = true;
+  set.props.fillPaints.clear();
+  NodeChange v1 = make(V1, NodeType::SYMBOL, SET, "!", {10, 10, 100, 40}, "State=Default");
+  NodeChange v2 = make(V2, NodeType::SYMBOL, SET, "\"", {150, 10, 100, 40}, "State=Hover");
+  NodeChange s1 = make(S1, NodeType::FRAME, V1, "!", {4, 10, 20, 20}, "startContent");
+  NodeChange s2 = make(S2, NodeType::FRAME, V2, "!", {4, 10, 20, 20}, "startContent");
+  NodeChange l1 = make(L1, NodeType::FRAME, V1, "\"", {30, 10, 50, 20}, "label");
+  NodeChange l2 = make(L2, NodeType::FRAME, V2, "\"", {30, 10, 50, 20}, "label");
+  Editor e = makeEditor({set, v1, v2, s1, s2, l1, l2});
+  e.setSelection({L1});
+  CHECK(e.overlay().shiftCandidates.empty());
+  e.modifiers(MOD_SHIFT);
+  CHECK(e.overlay().shiftCandidates == std::vector<Guid>{L2});
+  // A ⇧-marquee from the set's own background (world 5, 405) over both variants whole: only the labels
+  down(e, 105, 505, MOD_SHIFT);
+  e.pointer(PointerEvent::MOVE, 200, 530, 0, 1, MOD_SHIFT);
+  e.pointer(PointerEvent::MOVE, 395, 560, 0, 1, MOD_SHIFT);
+  up(e, 395, 560, MOD_SHIFT);
+  CHECK(e.selection() == std::vector<Guid>{L1, L2});
+  e.modifiers(0);
+  CHECK(e.overlay().shiftCandidates.empty());
+}
+
 TEST_CASE("r7 resize: ⌘ ignores constraints — the frame's children stay where they are on the page") {
   Editor e = makeEditor();
   e.setSelection({F});

@@ -900,6 +900,16 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     dashedBox(screenBox(view * doc.worldTransform(k) * Mat2x3::translate(lb.x, lb.y), {lb.w, lb.h}, dpr), colorOf(k));
   }
 
+  // ⇧ held: the layers ⇧ would add, outlined 1 px in their chrome colour at half strength (live Figma, the owner's
+  // 2026-10-23 captures: every other variant's "label" faint purple).
+  for (Guid c : overlay.shiftCandidates) {
+    if (!doc.has(c)) continue;
+    Color faint = colorOf(c);
+    faint.a = 0.45;
+    Rect lb = doc.localBounds(c);
+    outline(view * doc.worldTransform(c) * Mat2x3::translate(lb.x, lb.y), {lb.w, lb.h}, ShapeKind::Rect, kSquare, style.selectionWidth, faint);
+  }
+
   // Hover: the hovered layer's own outline — selected layers too (live Figma). A text layer's lines are underlined at
   // their baseline instead (live Figma round 11, canvas-text-hover-baseline-underline: 2 px just under the baseline,
   // across the line's text; a hovered selected text keeps a 1 px one inside its box, canvas-text-selected).

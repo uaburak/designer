@@ -290,6 +290,8 @@ struct Overlay {
   // auto-layout frame under the pointer — not that frame's selected layers, never deeper (live Figma 2026-10-19,
   // docs/research/figma/live/2026-10-18/hover-nested-frames.txt; Figma's STACK_CHILD_HOVER_OUTLINE).
   std::vector<Guid> hoverDotted;
+  // ⇧ held: the layers a ⇧-click or ⇧-marquee would add (the selection's counterparts), outlined faint (Editor.cpp)
+  std::vector<Guid> shiftCandidates;
   std::vector<Guid> selection;
   bool handles = true;      // resize handles on the selection box
   // Group 1 (live Figma: canvas-rect-selected-hover-radius-handles, autolayout-drag-01 / -08, -r2-07…): the AI

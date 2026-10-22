@@ -153,7 +153,7 @@ void Editor::removeKeepingContents() {
 // frame or group — the same type at the same path of names from the frame or group it sits in (the n-th of that name
 // among its siblings), found in that frame's siblings of its type; the nearest level that has any wins. Variants of one
 // set match each other. Empty when the selection has no such counterpart.
-static std::vector<Guid> structuralMatches(const Document& doc, const std::vector<Guid>& sel) {
+std::vector<Guid> structuralMatches(const Document& doc, const std::vector<Guid>& sel) {
   std::vector<Guid> out;
   auto nthOfName = [&](Guid id) {
     const Node* n = doc.get(id);

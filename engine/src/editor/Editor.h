@@ -1719,7 +1719,8 @@ class Editor : private LayoutHost, public TextLayouts {
   void hoverDottedOverlay(Overlay& o) const;
   void gapBoxesOverlay(Overlay& o) const;
   bool autoLayoutGaps(std::vector<Rect>& gaps, Mat2x3& W) const;  // the selected auto-layout component's gaps, in its space
-  bool pointerInGap_ = false;                                    // the pointer is in one of them (they show then)
+  bool pointerInGap_ = false;
+  std::vector<Guid> shiftCandidates() const;  // what ⇧ would add: the selection's counterparts (Select matching layers')                                    // the pointer is in one of them (they show then)
   void startGap(int gap);
   void startLayoutBar(int band);
   void dragLayoutBar(Vec2 world, uint32_t mods);

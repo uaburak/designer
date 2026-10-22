@@ -23,6 +23,10 @@ SelectionBox selectionBox(const Document& doc, const std::vector<Guid>& selectio
 // they share a parent.
 std::vector<std::vector<Guid>> selectionGroups(const Document& doc, const std::vector<Guid>& selection);
 
+// Select matching layers' counterparts (editor/SelectionCommands.cpp): the same layer by its path of names in the
+// other frames, groups or variants — the selection itself first; empty when there are none.
+std::vector<Guid> structuralMatches(const Document& doc, const std::vector<Guid>& selection);
+
 // The selection without nodes whose ancestor is selected too.
 std::vector<Guid> topLevelSelection(const Document& doc, const std::vector<Guid>& selection);
 
