@@ -14,6 +14,7 @@
 import type { Color, Guid, NodeChange, Paint } from "@/engine/codec";
 import { colorToHex } from "./color";
 import { gradientKey, isGradientType, type FullPaint } from "./paints";
+import { paintVariable } from "./variables";
 
 export type PaintField = "fillPaints" | "strokePaints";
 
@@ -31,6 +32,11 @@ export interface SelectionColor {
   color: Color;
   /** The paint's opacity (0..1) */
   opacity: number;
+  /**
+   * The colour variable its paints are bound to: such paints are one row per variable, whatever their colour (live
+   * 2026-10-22: "text/danger", "bg/secondary", "border/danger" as variable fields)
+   */
+  variable?: Guid;
   uses: PaintUse[];
 }
 
@@ -82,9 +88,11 @@ function gather(nodes: readonly NodeChange[]): Map<string, SelectionColor> {
         }
         if (p.type !== "SOLID" || !p.color) return;
         const opacity = p.opacity ?? 1;
-        const key = colorKey(p.color, opacity);
+        const variable = paintVariable(p) ?? undefined;
+        const key = variable ? `var:${variable}` : colorKey(p.color, opacity);
         let entry = out.get(key);
-        if (!entry) out.set(key, (entry = { key, color: { ...p.color, a: 1 }, opacity, uses: [] }));
+        // A variable's row keeps its colour's alpha (a colour variable's alpha is the colour's)
+        if (!entry) out.set(key, (entry = variable ? { key, color: { ...p.color }, opacity, variable, uses: [] } : { key, color: { ...p.color, a: 1 }, opacity, uses: [] }));
         entry.uses.push({ guid: n.guid, field, index });
       });
     }

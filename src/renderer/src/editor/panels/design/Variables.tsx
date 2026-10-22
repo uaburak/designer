@@ -126,7 +126,35 @@ export function VariableField({ nodes, fields, prefix, children, disabled, butto
   );
 }
 
-/** A paint row bound to a colour variable: the swatch (its colour now) and the variable's pill; Detach keeps the colour. */
+/** Figma's tooltip hex: three digits when each pair repeats ("#000"), else six. */
+function shortHex(hex: string): string {
+  const h = hex.replace("#", "").toLowerCase();
+  return h.length === 6 && h[0] === h[1] && h[2] === h[3] && h[4] === h[5] ? `#${h[0]}${h[2]}${h[4]}` : `#${h}`;
+}
+
+/**
+ * A colour bound to a variable, as live shows it (2026-10-22, Fill and Selection colors): an outlined field — the
+ * colour's swatch, the variable's name — whose tooltip is the name, a blank line and "#000 · 89.8%". `onDetach`:
+ * hovering narrows it for Detach variable, 4 after it.
+ */
+export function ColorVariablePill({ id, color, opacity = 1, label, onOpen, onDetach, className }: { id: Guid; color: Color; opacity?: number; label: string; onOpen: (anchor: HTMLElement) => void; onDetach?: () => void; className?: string }) {
+  useT();
+  const { variable, name, missing } = useVariableName(id);
+  const alpha = (color.a ?? 1) * opacity;
+  const pct = Math.round(alpha * 1000) / 10;
+  const tip = [variable?.name ?? name, `${shortHex(colorToHex(color))} · ${pct}%`].join("\n\n");
+  return (
+    <div className={cx(vstyles.colorBound, className)} data-bound-variable={variable?.name ?? name}>
+      <button type="button" className={vstyles.colorPill} aria-label={`${t(label)}: ${variable?.name ?? name}`} {...tooltipProps(tip)} onClick={(e) => onOpen(e.currentTarget)}>
+        <Swatch color={colorToHex(color)} opacity={toPercent(alpha)} size={14} />
+        <span className={cx(vstyles.pillText, missing && vstyles.pillMissing)}>{variable?.name ?? name}</span>
+      </button>
+      {onDetach && <IconButton icon="24.detach.small" label={t("Detach variable")} tone="secondary" className={vstyles.colorDetach} onClick={onDetach} />}
+    </div>
+  );
+}
+
+/** A paint row bound to a colour variable (live 2026-10-22): the outlined variable field; Detach keeps the colour. */
 export function BoundPaintRow({ nodes, field, index, paint, className }: { nodes: readonly PanelNode[]; field: "fillPaints" | "strokePaints"; index: number; paint: Paint; className?: string }) {
   const ed = useEditor();
   const [open, setOpen] = useState<HTMLElement | null>(null);
@@ -135,17 +163,7 @@ export function BoundPaintRow({ nodes, field, index, paint, className }: { nodes
   const color = (paint.color ?? { r: 1, g: 1, b: 1, a: 1 }) as Color;
   return (
     <div className={cx(vstyles.bindWrap, className)} data-bind-field={`${field}[${index}].color`}>
-      <BoundPill
-        id={id}
-        label={field === "fillPaints" ? "Fill" : "Stroke"}
-        swatch={
-          <span className={vstyles.boundPrefix}>
-            <Swatch color={colorToHex(color)} opacity={toPercent((color.a ?? 1) * (paint.opacity ?? 1))} size={14} />
-          </span>
-        }
-        onOpen={setOpen}
-        onDetach={() => bindPaint(ed, refs, field, index, null)}
-      />
+      <ColorVariablePill id={id} color={color} opacity={paint.opacity ?? 1} label={field === "fillPaints" ? "Fill" : "Stroke"} onOpen={setOpen} onDetach={() => bindPaint(ed, refs, field, index, null)} />
       {open && (
         <VariablePicker
           anchor={open}

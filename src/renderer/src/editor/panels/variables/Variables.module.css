@@ -150,6 +150,31 @@
   .bound:hover .detach, .detach:focus-visible { opacity: 1; }
   .detach:hover { color: var(--figma-color-icon); }
 
+  /* ---- A colour bound to a variable (live 2026-10-22, Fill / Stroke / Selection colors): an outlined field, its
+     swatch 5 in and the name at 24; hovering narrows it by 28 for Detach variable (24, 4 after it) ---- */
+  .colorBound { display: flex; flex: 1 1 auto; align-items: center; gap: var(--ds-space-1); min-width: 0; }
+  .colorPill {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-2) 0 5px;
+    border: 1px solid var(--figma-color-border);
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    text-align: left;
+    outline: none;
+  }
+  .colorPill:hover { border-color: var(--figma-color-border-strong); }
+  .colorPill:focus-visible { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); border-color: var(--figma-color-border-selected); }
+  .colorDetach { display: none; flex: none; }
+  .colorBound:hover .colorDetach, .colorDetach:focus-visible { display: inline-flex; }
+
   /* ---- Applied style rows (Fill, Stroke, Effects, Layout guide, Typography) ---- */
   .styleRow { display: flex; align-items: center; padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left); min-height: var(--ds-size-row); }
   .styleBox {

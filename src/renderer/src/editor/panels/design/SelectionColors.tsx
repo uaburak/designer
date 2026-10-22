@@ -30,6 +30,7 @@ import {
   type SelectionColor,
 } from "../../model/selectionColors";
 import type { PickerTarget } from "./Paints";
+import { ColorVariablePill } from "./Variables";
 import type { PanelNode } from "./shared";
 import { t, tp, useT } from "@/i18n";
 import styles from "./Design.module.css";
@@ -215,6 +216,10 @@ export function SelectionColorsSection({ nodes, onPick }: { nodes: PanelNode[]; 
       {/* Keyed by place: a scrub changes the colour's identity and must not remount its field */}
       {shown.map((c, i) => (
         <div key={i} className={`${styles.paintRow} ${styles.colorRow}`}>
+          {c.variable ? (
+            // A colour from a variable: its outlined field (live 2026-10-22), the picker on a click
+            <ColorVariablePill id={c.variable} color={c.color} opacity={c.opacity} label="Color" className={styles.paintField} onOpen={(el) => onPick({ kind: "colors", uses: c.uses, anchor: el.getBoundingClientRect() })} />
+          ) : (
           <ColorInput
             className={styles.paintField}
             label={t("Color")}
@@ -226,6 +231,7 @@ export function SelectionColorsSection({ nodes, onPick }: { nodes: PanelNode[]; 
             onOpacity={(o, info) => writeSelectionColor(ed, c.uses, { opacity: o / 100 }, info)}
             onSwatchClick={(anchor) => onPick({ kind: "colors", uses: c.uses, anchor })}
           />
+          )}
           {/* Figma's live panel: the field as wide as a fill's (156), the target button only on hover */}
           <span className={styles.colorRowSlot} />
           <IconButton className={styles.colorRowAction} icon="24.select-matching.small" label={t("Select matching layers")} tone="secondary" onClick={() => ed.engine.setSelection([...new Set(c.uses.map((u) => u.guid))])} />
