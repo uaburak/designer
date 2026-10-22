@@ -230,21 +230,8 @@
   .openVariables svg { color: var(--figma-color-icon-secondary); }
 
   /* ---- Apply variable mode: one row per collection set on the selection ---- */
-  .modeRow { display: flex; align-items: center; gap: var(--ds-space-2); min-height: var(--ds-size-row); padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left); }
-  .modePill {
-    display: flex;
-    flex: 1 1 auto;
-    align-items: center;
-    gap: var(--ds-space-1);
-    min-width: 0;
-    height: var(--ds-size-control);
-    padding: 0 var(--ds-space-1) 0 var(--ds-space-half);
-    border-radius: var(--ds-radius-medium);
-    background: var(--figma-color-bg-secondary);
-  }
-  .modePill > [data-ds="Select"] { flex: 1 1 auto; min-width: 0; }
-  .modeName { flex: none; max-width: 88px; overflow: hidden; color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
-  .modeIcon { display: inline-flex; flex: none; color: var(--figma-color-icon-secondary); }
+  /* Live (2026-10-22): the collection's name in the first field column, centred in the row, as the panel's labels */
+  .modeName { display: block; overflow: hidden; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); line-height: var(--ds-size-control); letter-spacing: var(--ds-tracking-body-medium); white-space: nowrap; text-overflow: ellipsis; }
 
   /* ---- Edit style / Edit variable popovers ---- */
   .form { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: var(--ds-space-2) var(--ds-space-4) var(--ds-space-4); }

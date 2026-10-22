@@ -354,6 +354,7 @@ export const panels: Record<string, string> = {
   "Detach instance": "Örneği ayır",
   "Detach property": "Özelliği ayır",
   "Go to property": "Özelliğe git",
+  "Remove variable mode": "Değişken modunu kaldır",
   "Properties in {name}": "{name} içindeki özellikler",
   "Detach style": "Stili ayır",
   "Detach variable": "Değişkeni ayır",

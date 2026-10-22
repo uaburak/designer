@@ -9,7 +9,7 @@
  * each mode set there shows as a row with its collection and the mode.
  */
 import { useMemo, useState, type ReactNode } from "react";
-import { FieldPrefix, Icon, MenuButton, Select, Swatch, cx, tooltipProps, type IconName, type MenuEntry } from "@/ds";
+import { FieldPrefix, Icon, IconButton, MenuButton, PropertyGrid, PropertyRow, Select, Swatch, cx, tooltipProps, type IconName, type MenuEntry } from "@/ds";
 import type { Color, Guid, Paint } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { GEOMETRY_GROUPS, useDocumentVersion, useLocalAssets } from "../../hooks";
@@ -236,31 +236,32 @@ export function ModeRows({ refs }: { refs: readonly Guid[] }) {
   if (!refs.length || !per) return null;
   const rows = a.collections.filter((c) => per.every((m) => m.get(c.id)?.explicit));
   if (!rows.length) return null;
+  // Live (2026-10-22, the Page section): the collection's name in the first field column, its mode in an outlined
+  // menu in the second, and "—" at the row's end to put it back on Auto.
   return (
-    <>
+    <PropertyGrid>
       {rows.map((c) => {
         const modes = per.map((m) => m.get(c.id)!.mode);
         const same = modes.every((m) => m === modes[0]);
         const inherited = c.modes.find((x) => x.id === per[0].get(c.id)?.inherited)?.name ?? c.modes[0]?.name;
         return (
-          <div key={c.id} className={vstyles.modeRow} data-mode-row={c.name}>
-            <div className={vstyles.modePill}>
-              <span className={vstyles.modeIcon}>
-                <Icon name="24.variable.mode.small" />
-              </span>
-              <span className={vstyles.modeName}>{c.name}</span>
-              <Select
-                label={t("{name} mode", { name: c.name })}
-                variant="ghost"
-                value={same ? modes[0] : "mixed"}
-                options={[{ value: "auto", label: t("Auto ({mode})", { mode: inherited ?? "" }) }, "-", ...c.modes.map((m) => ({ value: m.id, label: m.name })), ...(same ? [] : [{ value: "mixed", label: t("Mixed"), disabled: true }])]}
-                onChange={(v) => setExplicitMode(ed, refs, c.id, v === "auto" ? null : v)}
-              />
-            </div>
-          </div>
+          <PropertyRow
+            key={c.id}
+            data-mode-row={c.name}
+            action={<IconButton icon="24.minus.small" label={t("Remove variable mode")} tone="secondary" onClick={() => setExplicitMode(ed, refs, c.id, null)} />}
+          >
+            <span className={vstyles.modeName}>{c.name}</span>
+            <Select
+              label={t("{name} mode", { name: c.name })}
+              variant="outlined"
+              value={same ? modes[0] : "mixed"}
+              options={[{ value: "auto", label: t("Auto ({mode})", { mode: inherited ?? "" }) }, "-", ...c.modes.map((m) => ({ value: m.id, label: m.name })), ...(same ? [] : [{ value: "mixed", label: t("Mixed"), disabled: true }])]}
+              onChange={(v) => setExplicitMode(ed, refs, c.id, v === "auto" ? null : v)}
+            />
+          </PropertyRow>
         );
       })}
-    </>
+    </PropertyGrid>
   );
 }
 
