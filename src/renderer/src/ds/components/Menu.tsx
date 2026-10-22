@@ -171,8 +171,9 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
     if (!el) return;
     if (!isStatic && over) {
       const { rect, align = "left", dy = 0 } = over;
-      // Live: a list over its field's left edge is the field + 8 wide (font size); one at its right edge at least 156 (gap).
-      el.style.minWidth = `${align === "left" ? Math.round(rect.width + 8) : 156}px`;
+      // Live: a list over its field's left edge is the field + 8 wide (font size); one at its right edge at least 156 (gap)
+      // unless the caller measured less (a variant's values: 104).
+      el.style.minWidth = `${align === "left" ? Math.round(rect.width + 8) : (minWidth ?? 156)}px`;
       const item = el.querySelector<HTMLElement>('[aria-checked="true"]');
       const { width, height } = el.getBoundingClientRect();
       const top = item ? rect.top - item.offsetTop + dy : rect.bottom + 4;
@@ -213,7 +214,7 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
       el.style.visibility = "visible";
     }
     if (autoFocus) el.focus({ preventScroll: true });
-  }, [x, y, flipX, flipY, above, autoFocus, isStatic, keepTop, over, submenu, extend, home, edges]);
+  }, [x, y, flipX, flipY, above, autoFocus, isStatic, keepTop, over, submenu, extend, home, edges, minWidth]);
 
   // Resting on the bar moves the rows up a row at a time (unverified: live's capture shows the bar at rest).
   const moreScroll = (el: HTMLElement) => {

@@ -95,46 +95,49 @@
   .createPropertyMenu { padding-block: 0; }
   .createPropertyMenu > [aria-haspopup] > svg { margin-left: calc(var(--ds-space-2) * -1); }
 
-  /* "Current variant" (live): the name 92 × 24 at 8 (secondary, 9 in), the value's field 92 at 108 in a 32 row */
+  /* "Current variant" (the owner's 131–135.png): rows 32 apart, the name and the value's box sharing the width 8 apart,
+     from 8 to 40 from the end (92 each at 240); the name secondary, 9 in, lit on hover; renamed in a ringed field */
   .variantRows { display: flex; flex-direction: column; gap: var(--ds-space-2); margin-top: var(--ds-space-2); }
-  .variantRow { display: flex; align-items: center; gap: var(--ds-space-2); height: var(--ds-size-control); padding: 0 var(--ds-space-2); }
+  .variantRow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: var(--ds-space-2); align-items: center; height: var(--ds-size-control); padding: 0 40px 0 var(--ds-space-2); }
   .variantName {
     display: flex;
-    flex: none;
     align-items: center;
-    width: 92px;
+    min-width: 0;
     height: var(--ds-size-control);
     padding: 0 9px;
     border: 0;
     border-radius: var(--ds-radius-medium);
-    background: var(--figma-color-bg);
+    background: transparent;
     color: var(--figma-color-text-secondary);
     font: var(--ds-font-body-medium);
     letter-spacing: var(--ds-tracking-body-medium);
     text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     outline: none;
   }
-  button.variantName:hover { background: var(--figma-color-bg-hover); }
-  .variantName .renameInput { margin-left: -5px; }
-  .variantValue { display: flex; align-items: center; width: 92px; height: var(--ds-space-8); }
-  .variantField { display: flex; width: 92px; height: var(--ds-size-control); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg); }
-  .variantField:hover { box-shadow: inset 0 0 0 1px var(--figma-color-border); }
-  .variantField:focus-within { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
+  button.variantName:hover { background: var(--figma-color-bg-secondary); color: var(--figma-color-text); }
+  .variantNameEditing { padding: 0; }
+  .variantNameEditing .renameInput { height: var(--ds-size-control); padding: 0 9px; border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+  .variantValue { display: flex; align-items: center; min-width: 0; }
+  .variantField { display: flex; flex: 1 1 auto; min-width: 0; height: var(--ds-size-control); border-radius: var(--ds-radius-medium); box-shadow: inset 0 0 0 1px var(--figma-color-border); }
   .variantInput {
-    width: 68px;
+    flex: 1 1 auto;
+    min-width: 0;
     height: var(--ds-size-control);
-    padding: 0 var(--ds-space-1) 0 25px;
+    padding: 0 var(--ds-space-1) 0 var(--ds-space-2);
     border: 0;
     border-radius: var(--ds-radius-medium) 0 0 var(--ds-radius-medium);
-    background: var(--figma-color-bg);
+    background: transparent;
     color: var(--figma-color-text);
     font: var(--ds-font-body-medium);
     letter-spacing: var(--ds-tracking-body-medium);
     text-overflow: ellipsis;
     outline: none;
   }
-  .variantChevron { display: flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-control); height: var(--ds-size-control); padding: 0; border: 0; background: transparent; color: var(--figma-color-icon-secondary); outline: none; }
-  .variantChevron:hover { color: var(--figma-color-icon); }
+  .variantInput:focus { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
+  .variantChevron { display: flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-control); height: var(--ds-size-control); padding: 0; border: 0; background: transparent; color: var(--figma-color-icon); outline: none; }
 
   /* An icon that opens a menu, in an icon button's box */
   .iconMenu {

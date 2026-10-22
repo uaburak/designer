@@ -1119,6 +1119,7 @@ export const panels: Record<string, string> = {
   "Select instances": "Örnekleri seç",
   "Select all instances": "Tüm örnekleri seç",
   "Select variants": "Varyantları seç",
+  "Add new…": "Yeni ekle…",
   "Selection colors": "Seçim renkleri",
   "Send": "Gönder",
   "Server URL": "Sunucu URL'si",

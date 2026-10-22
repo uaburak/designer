@@ -1064,7 +1064,8 @@ export function CurrentVariantSection({ variant }: { variant: CNode }) {
   return (
     <div className={styles.properties}>
       <BlockTitle title={t("Current variant")}>
-        <IconButton icon="24.component.small" label={t("Select component")} tone="secondary" onClick={() => ed.engine.setSelection([data.set.guid])} />
+        {/* Live (the owner's 131.png): the set's top over an arrow up */}
+        <IconButton icon="24.component.set.up.small" label={t("Select component")} tone="secondary" onClick={() => ed.engine.setSelection([data.set.guid])} />
       </BlockTitle>
       <div className={styles.variantRows} data-current-variant="">
         {data.props.map((p) => (
@@ -1080,22 +1081,21 @@ function VariantRow({ set, variant, name, values, value }: { set: CNode; variant
   const ed = useEditor();
   const [renamingName, setRenamingName] = useState(false);
   const [draft, setDraft] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState(false);
   const [list, setList] = useState<DOMRect | null>(null);
   const field = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const cancelled = useRef(false);
   const def = set.componentPropDefs?.find((d) => d.type === "VARIANT" && d.name === name);
+  // A typed value (or, from "Add new…", a new one) is this variant's
   const commit = (typed: string) => {
     const next = typed.trim();
     if (!next || next === value) return;
-    if (renameValue) renameVariantValue(ed, set, name, value, next);
-    else setVariantValueOf(ed, variant, set, name, next);
+    setVariantValueOf(ed, variant, set, name, next);
   };
   return (
     <div className={styles.variantRow} data-variant-property={name}>
       {renamingName ? (
-        <span className={styles.variantName}>
+        <span className={cx(styles.variantName, styles.variantNameEditing)}>
           <RenameInput
             value={name}
             label={t("Property name for {name}", { name })}
@@ -1110,7 +1110,8 @@ function VariantRow({ set, variant, name, values, value }: { set: CNode; variant
           {name}
         </button>
       )}
-      {/* Live (design/variant.txt): a listbox 92 × 32 around the 24 box, the value 68 wide, its chevron part of the box (no button) */}
+      {/* Live (the owner's 131–135.png): an outlined 24 box, the value 8 in, its chevron a 24 part at the end; typing
+          in it rings the value's part blue */}
       <div role="listbox" className={styles.variantValue} aria-label={t("Edit property value for {name}", { name })}>
         <div ref={field} className={styles.variantField}>
           <input
@@ -1125,7 +1126,6 @@ function VariantRow({ set, variant, name, values, value }: { set: CNode; variant
               if (!cancelled.current && draft !== null) commit(e.currentTarget.value);
               cancelled.current = false;
               setDraft(null);
-              setRenameValue(false);
             }}
             onKeyDown={(e) => {
               e.stopPropagation();
@@ -1146,14 +1146,15 @@ function VariantRow({ set, variant, name, values, value }: { set: CNode; variant
         </div>
       </div>
       {list && (
+        // Live 135.png: over the field, its right edges lined up, the checked value on it; "Add new…" under a line
         <ContextMenu
           at={{ x: list.left, y: list.bottom + 4 }}
-          over={{ rect: list, align: "left" }}
-          entries={[...values.map((v) => ({ id: `value:${v}`, label: v, checked: v === value })), { id: "rename", label: t("Rename…"), checked: false }]}
+          over={{ rect: list, align: "right" }}
+          minWidth={104}
+          entries={[...values.map((v) => ({ id: `value:${v}`, label: v, checked: v === value })), "-", { id: "add", label: t("Add new…") }]}
           onSelect={(id) => {
-            if (id === "rename") {
-              setRenameValue(true);
-              setDraft(value);
+            if (id === "add") {
+              setDraft("");
               requestAnimationFrame(() => input.current?.focus());
             } else setVariantValueOf(ed, variant, set, name, id.slice("value:".length));
           }}
