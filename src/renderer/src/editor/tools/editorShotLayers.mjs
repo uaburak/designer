@@ -144,7 +144,8 @@ export async function layersSection(page, theme, { open, settle, check, outDir }
       return { tab: el.dataset.railTab, text: el.innerText.trim(), height: Math.round(b.height), labels: el.closest('[data-ds="Rail"]').hasAttribute("data-labels") };
     })
   );
-  check(`Layers14 rail: File, Agents, Assets, Brands, Tools, Variables drawn as icons only (no names under them; Additional labels off by default)`, tabs.length === 6 && tabs.every((t) => t.text === "" && !t.labels), JSON.stringify(tabs));
+  // No Tools tab since 5f04d7ec (the owner's follow-up 2026-10-19: Tools tab removed).
+  check(`Layers14 rail: File, Agents, Assets, Brands, Variables drawn as icons only (no names under them; Additional labels off by default)`, tabs.map((t) => t.tab).join() === "file,agents,assets,brands,variables" && tabs.every((t) => t.text === "" && !t.labels), JSON.stringify(tabs));
   check(`Layers14 rail: each tab is its 32 tile and 8 around it (40 apart)`, tabs.every((t) => t.height === 40), tabs.map((t) => t.height).join());
   await page.locator('[data-rail-tab="assets"]').hover();
   await page.waitForTimeout(1300); // Figma's 1000 ms tooltip delay (ds timing.tooltip)
@@ -206,13 +207,15 @@ export async function layersSection(page, theme, { open, settle, check, outDir }
     // Every state at once: hovered, selected (start / middle / end of a block), collapsed, expanded, leaves.
     await page.locator('[data-ds="LayerRow"][data-id="9:4"]').hover({ position: { x: 60, y: 16 } });
     await settle(page);
-    const all = await measure();
+    // In the order they're drawn: an expanded frame's row is a sticky header (73cf44c4, VirtualList's stickyBlocks),
+    // rendered after the list's rows.
+    const all = (await measure()).sort((a, b) => a.top - b.top);
     const runs = new Set(all.map((r) => r.run));
     const pitch = all.slice(1).every((r, i) => Math.abs(r.top - all[i].top - 32) < 0.01);
     check(
       `Layers14 rows: every row 32 apart and 32 high, its name's middle and its highlight's box at the same offset — collapsed, expanded, hovered, selected, inside the selection (${[...runs].filter(Boolean).join(" / ")})`,
       pitch && all.every((r) => r.height === 32 && r.name === all[0].name && r.box === all[0].box && r.boxH === all[0].boxH) && runs.has("start") && runs.has("middle") && runs.has("end"),
-      JSON.stringify(all.map((r) => [r.id, r.height, r.name, r.box, r.run]))
+      JSON.stringify(all.map((r) => [r.id, r.top, r.height, r.name, r.box, r.boxH, r.run]))
     );
     // The block is one piece: the gap between two of its rows is the selection's colour, not the panel's.
     const gap = await page.evaluate(() => {

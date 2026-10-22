@@ -192,7 +192,9 @@ export async function spacing15Section(page, theme, { open, settle, check, outDi
     await page.waitForTimeout(700);
     await settle(page);
     const tip = (await pixels(page, tipBox, TOOLTIP)).length - before;
-    check(`Spacing15 ${theme}: …and after the delay its tooltip "Set status" under it`, tip > 1000, `${tip} px more`);
+    // "Set status" (b885c24a, the frame status menu) is a shorter box than round 15's "Mark as ready for dev": on the
+    // dark canvas only its part over the frame's white top counts (~740 px, the old one ~1100).
+    check(`Spacing15 ${theme}: …and after the delay its tooltip "Set status" under it`, tip > 500, `${tip} px more`);
     await crop("spacing15-dev-tooltip", { x: Math.round(ix - 140), y: Math.round(iy - 40), width: 280, height: 110 });
     // A click opens the status menu (docs/editor.md "Frame status (ours)", 2026-10-12); Ready to Dev is Ready for dev.
     await page.mouse.click(ix, iy);

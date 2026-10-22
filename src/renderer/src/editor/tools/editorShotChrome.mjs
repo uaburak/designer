@@ -262,7 +262,7 @@ export async function chromeSection(page, theme, { open, settle, check, outDir, 
   check(`Chrome15 ${theme}: …its 48 × 48 preview 8 in`, !!card?.preview && card.preview.w === 48 && card.preview.h === 48 && card.preview.x === 8 && card.preview.y === 8, JSON.stringify(card?.preview));
   check(`Chrome15 ${theme}: …the hex of the colour under the pointer (#12AB34) and "Click to sample"`, card?.hex === "#12AB34" && /#12AB34/.test(card.text) && /Click to sample/.test(card.text), `${card?.hex} ${JSON.stringify(card?.text)}`);
   if (card) await crop("chrome15-eyedropper", { x: Math.floor(green[0] - 40), y: Math.floor(green[1] - 30), width: 340, height: 130 });
-  // Near the right panel the card slides left along it, 4 off it (live Figma's sat 2–3 px off it).
+  // Near the right panel the card slides left along it, 2 off it (live Figma's sat 2–3 px off it; CARD_MARGIN 2 since fe135026).
   const view = await page.evaluate(() => {
     const b = document.querySelector("[data-canvas-view]").getBoundingClientRect();
     return { right: b.right, bottom: b.bottom };
@@ -271,7 +271,7 @@ export async function chromeSection(page, theme, { open, settle, check, outDir, 
   await settle(page);
   await page.waitForTimeout(100);
   const slid = await page.evaluate(() => document.querySelector("[data-loupe]")?.getBoundingClientRect().right ?? 0);
-  check(`Chrome15 ${theme}: …kept on the canvas near the right panel (its right edge 4 off it)`, Math.abs(slid - (view.right - 4)) < 1, `${slid} vs ${view.right}`);
+  check(`Chrome15 ${theme}: …kept on the canvas near the right panel (its right edge 2 off it)`, Math.abs(slid - (view.right - 2)) < 1, `${slid} vs ${view.right}`);
   await page.mouse.move(...green, { steps: 3 });
   await settle(page);
   await page.mouse.click(...green);

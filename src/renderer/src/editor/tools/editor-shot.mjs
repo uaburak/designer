@@ -261,8 +261,7 @@ async function paintsSection(page, theme) {
   check("Selection colors list gradients (one row each)", (await panel.locator("section[aria-label=\"Selection colors\"]").getByRole("button", { name: "Color: Diamond" }).count()) === 1);
   await shot(page, `27-selection-colors-gradients-${theme}`);
 
-  // Effects: the row, its settings (live Figma's popover); "+" opens the Shader effects (Beta) browser while its
-  // onboarding card is up, then adds Figma's drop shadow.
+  // Effects: the row, its settings (live Figma's popover); "+" adds an Inner shadow and opens its type menu.
   await select("2:10");
   check("an effect row reads Drop shadow", (await panel.locator('[data-effect-row="DROP_SHADOW"]').count()) === 1 && (await panel.locator('[data-effect-row="DROP_SHADOW"]').getByText("Drop shadow").count()) === 1);
   await panel.getByRole("button", { name: "Effect settings" }).click();
@@ -273,20 +272,19 @@ async function paintsSection(page, theme) {
   await shot(page, `28-effect-settings-${theme}`);
   await page.keyboard.press("Escape");
   await select("2:11");
+  // "+" adds an Inner shadow at once and opens its type menu under "+" (a319bce9, live effects-add-menu.txt: Figma's
+  // types, then Shader with a Beta chip); Esc keeps the Inner shadow. The Shader effects browser is the menu's Shader.
   await panel.getByRole("button", { name: "Add effect" }).click();
   await settle(page);
-  const browser = page.getByRole("dialog", { name: "Shader effects" });
-  if ((await browser.count()) === 1) {
-    check("the first + opens Shader effects (Beta): search, the card, Figma's presets", (await browser.getByText("Beta").count()) === 1 && (await browser.locator("[data-shader-onboarding]").count()) === 1 && (await browser.locator("[data-shader-preset]").count()) === 25);
-    await shot(page, `29-shader-effects-${theme}`);
-    await browser.getByRole("button", { name: "Got it" }).click();
-    await settle(page);
-    await panel.getByRole("button", { name: "Add effect" }).click();
-    await settle(page);
-  }
+  const addMenu = page.getByRole("menu", { name: "Effect settings" });
+  const addTypes = (await addMenu.getByRole("menuitem").allInnerTexts()).map((t) => t.trim().replace(/\s+/g, " "));
+  check("+ opens the new effect's type menu: the types, then Shader (Beta)", addTypes.some((t) => t.startsWith("Inner shadow")) && addTypes.some((t) => t.startsWith("Drop shadow")) && addTypes.some((t) => t.startsWith("Shader") && t.includes("Beta")), JSON.stringify(addTypes));
+  await shot(page, `29-effect-add-menu-${theme}`);
+  await page.keyboard.press("Escape");
+  await settle(page);
   const added = (await node(page, "2:11")).effects ?? [];
   const last = added[added.length - 1];
-  check("+ adds a drop shadow 0 4 4 0 #000 25%", added.length === 2 && last.type === "DROP_SHADOW" && last.offset.y === 4 && last.radius === 4 && Math.abs(last.color.a - 0.25) < 0.01, JSON.stringify(last));
+  check("+ adds an inner shadow 0 4 4 0 #000 25%", added.length === 2 && last.type === "INNER_SHADOW" && last.offset.y === 4 && last.radius === 4 && Math.abs(last.color.a - 0.25) < 0.01, JSON.stringify(last));
   // The new types through the header's type menu: Layer blur → Progressive (Start, End), Noise, Texture, Glass.
   const fxOf = async (name) => {
     await panel.getByRole("button", { name: "Effect settings" }).first().click();
@@ -299,7 +297,7 @@ async function paintsSection(page, theme) {
     await settle(page);
   };
   {
-    let d = await fxOf("Drop shadow");
+    let d = await fxOf("Inner shadow");
     await retype(d, "Layer blur");
     d = page.getByRole("dialog", { name: "Layer blur" });
     await d.getByRole("radio", { name: "Progressive" }).click();
@@ -925,6 +923,8 @@ async function librariesSection(page, theme) {
   // ---- Assets: the libraries' cards; a search lists Kit's Button with its thumbnail; a click inserts an instance.
   await page.locator('[data-library-card="Kit"]').waitFor({ timeout: 10000 });
   await shot(page, `75a-assets-library-cards-${theme}`);
+  // The search sits in the panel's header behind its icon since e267d14f (TabSearch, like Agents' list).
+  await page.locator("[data-assets] [data-tab-search-open]").click();
   await page.getByRole("searchbox", { name: "Search all libraries" }).fill("Button");
   await page.locator('[data-assets-section="Kit"] [data-asset-name="Button"]').waitFor({ timeout: 10000 });
   await settle(page);
@@ -2007,7 +2007,10 @@ async function features11Section(page, theme) {
   await page.evaluate(() => localStorage.removeItem("designer.effects.shaderOnboarding"));
   await select(["7:61"]);
   const plain = await page.evaluate(() => Array.from(window.__designerEditor.engine.renderNodeThumbnailPixels({ node: "7:61", maxSize: 60 })?.pixels ?? []));
+  // Since a319bce9 "+" adds an Inner shadow and opens its type menu; the menu's Shader (Beta) opens the browser.
   await panel.getByRole("button", { name: "Add effect" }).click();
+  await settle(page);
+  await page.getByRole("menuitem", { name: /^Shader/ }).click();
   await settle(page);
   const fx = page.getByRole("dialog", { name: "Shader effects" });
   const eb = await fx.boundingBox();
@@ -2535,9 +2538,12 @@ async function designRound9(page, theme, panel, select) {
   // Effects: the row's name 11px / 400; the type menu flips above its button when there is no room below (live 967,449).
   await page.evaluate(() => localStorage.setItem("designer.effects.shaderOnboarding", "done"));
   await select(["7:60"]);
+  // "+" adds an Inner shadow and opens its type menu (a319bce9); Esc keeps it.
   await panel.getByRole("button", { name: "Add effect" }).click();
   await settle(page);
-  const weight = await panel.getByText("Drop shadow", { exact: true }).first().evaluate((el) => getComputedStyle(el).fontWeight);
+  await page.keyboard.press("Escape");
+  await settle(page);
+  const weight = await panel.getByText("Inner shadow", { exact: true }).first().evaluate((el) => getComputedStyle(el).fontWeight);
   check("Design r9: the effect row's name is 11px / 400", weight === "400", weight);
   await panel.getByRole("button", { name: "Effect settings" }).first().click();
   await settle(page);
@@ -2562,6 +2568,8 @@ async function designRound9(page, theme, panel, select) {
   await page.evaluate(() => localStorage.removeItem("designer.effects.shaderOnboarding"));
   await select(["7:60"]);
   await panel.getByRole("button", { name: "Add effect" }).click();
+  await settle(page);
+  await page.getByRole("menuitem", { name: /^Shader/ }).click(); // "+"'s type menu (a319bce9)
   await settle(page);
   const shaders = page.getByRole("dialog", { name: "Shader effects" });
   const sb = await box(shaders);
@@ -2675,6 +2683,8 @@ async function panel10Section(page, theme) {
   // 7. Effect settings: the numbers 110 wide, 1 from the field's end.
   await page.evaluate(() => localStorage.setItem("designer.effects.shaderOnboarding", "done"));
   await panel.getByRole("button", { name: "Add effect" }).click();
+  await settle(page);
+  await page.keyboard.press("Escape"); // "+"'s type menu (a319bce9): the Inner shadow kept
   await settle(page);
   await panel.getByRole("button", { name: "Effect settings" }).first().click();
   await settle(page);
@@ -3836,8 +3846,10 @@ async function devmodeSection(page, theme) {
   await expectText(inspect, "Changed");
   await shot(page, `165-dev-mode-${theme}`);
 
-  // Compare changes: the version saved when it was marked, the button Edited.
-  await inspect.locator("[data-compare-changes]").click();
+  // Compare changes: the version saved when it was marked, the button Edited. Since 7df48fdb (the owner's Figma
+  // capture) it is in the selection header's ⋯ menu, not a button under Inspect.
+  await inspect.locator("[data-selection-header]").getByRole("button", { name: "More options" }).click();
+  await page.getByRole("menuitem", { name: "Compare changes" }).click();
   await page.locator("[data-compare]").waitFor({ timeout: 5000 });
   await page.locator('[data-change="Edited"]').first().waitFor({ timeout: 10000 }).catch(() => {});
   const edited = await page.locator('[data-change="Edited"]').allInnerTexts();
@@ -3991,7 +4003,8 @@ async function leftPanelSection(page, theme) {
       };
       const pages = document.querySelector('[aria-label="Pages"][data-ds="PanelSection"]');
       const layers = document.querySelector('[aria-label="Layers"][data-ds="PanelSection"]');
-      const rows = [...document.querySelectorAll('[data-ds="LayerRow"]')];
+      // In the order drawn: an expanded frame's row is a sticky header rendered after the list's rows (VirtualList).
+      const rows = [...document.querySelectorAll('[data-ds="LayerRow"]')].sort((x, y) => x.getBoundingClientRect().top - y.getBoundingClientRect().top);
       const rowGeo = (row) => ({ id: row.dataset.id, row: rel(row), icon: rel(row.querySelector("span[class*=type]")), name: rel(row.querySelector("span[class*=name]")) });
       return {
         panelX: Math.round(panel.left),
@@ -4017,8 +4030,8 @@ async function leftPanelSection(page, theme) {
   await page.evaluate(() => window.__designerEditor.ui.set({ railLabels: false }));
   check("the navigation bar is 56 + a line; the Figma menu tile at 12, 8", g.rail[2] === 57 && g.menu?.[0] === 12 && g.menu?.[1] === 8, JSON.stringify([g.rail, g.menu]));
   const tabs = Object.fromEntries(g.tabs.map(([t, x, y, w, h]) => [t, [x, y, w, h]]));
-  // Studio's Brands (docs/studio.md §3.2) between Assets and Tools.
-  check("with labels on: File, Agents, Assets, Brands, Tools at y 56 / 112 / 168 / 224 / 280 (56 × 56); Variables at 352", tabs.file?.[1] === 56 && tabs.agents?.[1] === 112 && tabs.assets?.[1] === 168 && tabs.brands?.[1] === 224 && tabs.tools?.[1] === 280 && tabs.variables?.[1] === 352 && tabs.file?.[2] === 56, JSON.stringify(tabs));
+  // Studio's Brands (docs/studio.md §3.2) after Assets; no Tools tab since 5f04d7ec.
+  check("with labels on: File, Agents, Assets, Brands at y 56 / 112 / 168 / 224 (56 × 56); Variables at 296, no Tools", tabs.file?.[1] === 56 && tabs.agents?.[1] === 112 && tabs.assets?.[1] === 168 && tabs.brands?.[1] === 224 && !tabs.tools && tabs.variables?.[1] === 296 && tabs.file?.[2] === 56, JSON.stringify(tabs));
   check("the left panel starts at x 57", g.panelX === 57, String(g.panelX));
   check("Pages: title at 16, Find at 180, Add new page at 208 (8 down)", g.pagesTitle?.[0] === 16 && g.find?.[0] === 180 && g.find?.[1] - g.pagesTop === 8 && g.addPage?.[0] === 208, JSON.stringify([g.pagesTitle, g.find, g.addPage, g.pagesTop]));
   check("a page's name at x 16", g.pageRow?.[0] === 16, JSON.stringify(g.pageRow));

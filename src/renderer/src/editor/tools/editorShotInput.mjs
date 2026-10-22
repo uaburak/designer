@@ -210,7 +210,9 @@ async function panelResize(page, settle, check) {
           const x = Math.max(0, Math.floor((box.x - 12) * k));
           const y = Math.max(0, Math.floor((box.y - 12) * k));
           const w = Math.min(bmp.width - x, Math.ceil((box.width + 24) * k));
-          const h = Math.min(bmp.height - y, Math.ceil((box.height + 24) * k));
+          // Above and beside it the shadow's 12; below it only 2 — the canvas's horizontal scrollbar runs 3 px under the
+          // toolbar (c0db6311, round 16) and rightly follows the canvas's width while a panel's edge is dragged.
+          const h = Math.min(bmp.height - y, Math.ceil((box.height + 14) * k));
           const px = g.getImageData(x, y, w, h).data;
           let hash = 2166136261;
           for (let i = 0; i < px.length; i++) hash = Math.imul(hash ^ px[i], 16777619) >>> 0;

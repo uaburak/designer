@@ -7,8 +7,8 @@
 //    then is dotted purple (46.png); a second click selects that layer — a purple box, the instance dashed purple
 //    around it (45.png). ⌘-click selects the deepest layer at once.
 // 3. A component set's dashed purple border (Figma's own stroke), a main component's layer selected in purple.
-// 4. Layers: the set has the component's four diamonds, its variants the filled diamond; names #d1a8ff, glyphs half
-//    strength (44.png).
+// 4. Layers: the set has the component's four diamonds, its variants the filled diamond; names #d1a8ff, glyphs the
+//    component-secondary #7f699b (44.png).
 /* global window, document, atob, Blob, createImageBitmap, OffscreenCanvas, getComputedStyle */
 import path from "node:path";
 
@@ -217,14 +217,17 @@ export async function components15Section(page, theme, { open, settle, check, ou
     return out;
   }, SET);
   const fourDiamonds = "M8 5.84L6.66 4.5L8 3";
-  const filledDiamond = "M7.29 3.29C7.68 2.9 ";
+  // Figma's 12 px variant diamond since 5f04d7ec (follow-up 2026-10-19: variant rows in Layers).
+  const filledDiamond = "m3 8 5-5 5 5-5 5z";
   check(`Components15 ${theme}: Layers — the set has the component's four diamonds`, rows.set?.d === fourDiamonds && rows.set?.label === "Component", JSON.stringify(rows.set));
   check(`Components15 ${theme}: …its variants the filled diamond`, rows["15:31"]?.d === filledDiamond && rows["15:31"]?.label === "Variant", JSON.stringify(rows["15:31"]));
   check(`Components15 ${theme}: …a lone component the four diamonds`, rows["15:1"]?.d === fourDiamonds, JSON.stringify(rows["15:1"]));
   const purpleName = theme === "dark" ? "rgb(209, 168, 255)" : "rgb(134, 56, 229)";
   check(`Components15 ${theme}: …names in the component purple`, ["set", "15:31", "15:1", "15:10"].every((id) => rows[id]?.name === purpleName), Object.values(rows).map((r) => r.name).join(" "));
-  const half = (c) => /color\(srgb [\d.]+ [\d.]+ [\d.]+ \/ 0\.5\)|rgba\(\d+, \d+, \d+, 0\.5\)/.test(c);
-  check(`Components15 ${theme}: …glyphs the component purple at half strength (44.png: #80699b on #2c2c2c)`, ["set", "15:31", "15:10"].every((id) => half(rows[id]?.glyph ?? "")), Object.values(rows).map((r) => r.glyph).join(" | "));
+  // Since 5f04d7ec the glyph is Figma's design-theme component-secondary, opaque (--ds-color-layer-component-glyph:
+  // dark #7f699b — live's #80699b on #2c2c2c —, light #a38cc0), not the purple at half strength.
+  const glyph = theme === "dark" ? "rgb(127, 105, 155)" : "rgb(163, 140, 192)";
+  check(`Components15 ${theme}: …glyphs in the component-secondary colour (44.png: #80699b on #2c2c2c)`, ["set", "15:31", "15:10"].every((id) => rows[id]?.glyph === glyph), Object.values(rows).map((r) => r.glyph).join(" | "));
   const panel = await page.evaluate((SET) => {
     const b = document.querySelector(`[data-ds="LayerRow"][data-id="${SET}"]`)?.getBoundingClientRect();
     return b ? { x: Math.max(0, Math.floor(b.left - 8)), y: Math.floor(b.top - 8), width: 240, height: 32 * 4 + 16 } : null;
