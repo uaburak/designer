@@ -304,17 +304,37 @@
   .swapIcon { flex: none; color: var(--figma-color-icon-secondary); }
 
   /* The property settings popover */
+  /* Live (the owner's 125–128.png, 304 wide): "Name" / "Value" at 16, their 24 high fields 136 wide at 152; 9 under the
+     header, 10 apart, 8 over the end */
   .editor {
     display: grid;
-    grid-template-columns: 56px minmax(0, 1fr);
-    gap: var(--ds-space-2);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    row-gap: 10px;
     align-items: center;
-    padding: var(--ds-space-2) var(--ds-space-4) var(--ds-space-4);
+    padding: 9px var(--ds-space-4) var(--ds-space-2);
   }
-  .editorLabel { color: var(--figma-color-text-secondary); }
+  .editorLabel { color: var(--figma-color-text); }
+  .editor > .swapIcon, .swapField > .swapIcon { color: var(--figma-color-icon); }
+  /* A variant's Values (live 127 / 128.png): under a hairline, "Values" and the values 32 apart, the fields across to 8
+     from the end; hovering one narrows it for its target (24, 8 from the end) and outlines its variants on the canvas */
+  .editorValues { display: flex; flex-direction: column; padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-4); border-top: 1px solid var(--figma-color-border); }
+  .editorValuesTitle { display: flex; align-items: center; height: 32px; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .editorValues .valueRow { position: relative; height: 32px; gap: var(--ds-space-2); }
+  .editorValues .valueHandle { position: absolute; left: calc(var(--ds-space-4) * -1); width: var(--ds-space-4); justify-content: center; }
+  .valueTarget { display: none; }
+  .editorValues .valueRow:hover .valueTarget { display: inline-flex; }
+  /* An Instance swap's Preferred instances (live 126.png): a 48 row under a hairline — the title 16 in, "Learn more" 8
+     after it, the + 8 from the end (pressed while Select instances is open beside it) */
+  .editorPreferred { padding: 0 var(--ds-space-2) var(--ds-space-1) var(--ds-space-4); border-top: 1px solid var(--figma-color-border); }
+  .editorPreferredHeader { display: flex; align-items: center; gap: var(--ds-space-2); height: 48px; color: var(--figma-color-text); font: var(--ds-font-body-medium); font-weight: 500; letter-spacing: var(--ds-tracking-body-medium); }
+  .learnMore { color: var(--figma-color-text-brand); font-weight: 450; text-decoration: none; }
+  .learnMore:hover { text-decoration: underline; }
+  .preferredAdd { margin-left: auto; }
+  .editorPreferred .preferredRow { height: 32px; }
+  .editorPreferred .preferredRow > :last-child { margin-left: auto; }
   .editorWide { grid-column: 1 / -1; }
   .editorHeader { display: flex; align-items: center; justify-content: space-between; margin-top: var(--ds-space-1); }
-  .editorFooter { display: flex; justify-content: flex-end; margin-top: var(--ds-space-1); }
+  .editorFooter { display: flex; justify-content: flex-end; padding: var(--ds-space-1) var(--ds-space-4) var(--ds-space-3); }
   .preferredRow { display: flex; align-items: center; gap: var(--ds-space-1); }
 
   /* The bind ("Apply property") button and the bound property's pill (component purple) */

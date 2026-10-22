@@ -12,7 +12,7 @@
  * libraries link").
  */
 import { useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Icon, MenuButton, Popover, cx, type MenuEntry } from "@/ds";
+import { Checkbox, Icon, MenuButton, Popover, cx, type MenuEntry } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { useAssetThumbnail } from "../../assetThumbs";
@@ -37,6 +37,11 @@ export interface ComponentPickerProps {
   /** Components not offered (the instance's own ancestors, which would nest it in itself) */
   exclude?: ReadonlySet<Guid>;
   onPick: (asset: ComponentAsset) => void;
+  /**
+   * Several picks (live's "Select instances" for an Instance swap property's preferred values): a row toggles and the
+   * picker stays; "Select all instances" at its foot toggles the rows shown
+   */
+  multiple?: { isSelected: (a: ComponentAsset) => boolean; onChange: (add: readonly ComponentAsset[], remove: readonly ComponentAsset[]) => void };
   onClose: () => void;
 }
 
@@ -158,7 +163,7 @@ function placeOf(anchor: HTMLElement | DOMRect | null): DOMRect | HTMLElement | 
 /** Items mounted per block (48 tall rows, or 64 tiles three to a row 8 apart). */
 const PICKER_BLOCK = 30;
 
-export function ComponentPicker({ anchor, title: titleProp, current, preferredKeys, exclude, onPick, onClose }: ComponentPickerProps) {
+export function ComponentPicker({ anchor, title: titleProp, current, preferredKeys, exclude, onPick, multiple, onClose }: ComponentPickerProps) {
   useT();
   const title = titleProp ?? t("Swap instance");
   const ed = useEditor();
@@ -184,25 +189,27 @@ export function ComponentPicker({ anchor, title: titleProp, current, preferredKe
   const levelName = level.path.length ? level.path[level.path.length - 1] : (pages.find((p) => p.guid === level.page)?.name ?? "");
   const pick = (a: ComponentAsset) => {
     addRecentComponent(file, a.id);
+    if (multiple) return multiple.isSelected(a) ? multiple.onChange([], [a]) : multiple.onChange([a], []);
     onPick(a);
     onClose();
   };
   const item = (a: ComponentAsset) => {
-    const on = currentAsset?.id === a.id;
+    const on = multiple ? multiple.isSelected(a) : currentAsset?.id === a.id;
     const label = assetLabel(a.name);
     return (
       <button
         key={a.id}
         type="button"
-        role="menuitemradio"
+        role={multiple ? "menuitemcheckbox" : "menuitemradio"}
         aria-checked={on}
         aria-label={mode === "grid" ? label : undefined}
         data-asset={a.id}
-        className={cx(styles.item, mode === "grid" && styles.tile)}
+        className={cx(styles.item, mode === "grid" && styles.tile, multiple && on && styles.itemOn)}
         onClick={() => pick(a)}
       >
         <Thumb asset={a} size={mode === "grid" ? 64 : 40} />
         {mode === "list" && <span className={styles.name}>{label}</span>}
+        {multiple && on && mode === "list" && <Icon name="24.check" className={styles.itemCheck} />}
       </button>
     );
   };
@@ -228,7 +235,9 @@ export function ComponentPicker({ anchor, title: titleProp, current, preferredKe
     if (!id) return;
     const set = a.kind === "COMPONENT_SET";
     const target = set ? (ed.engine.readNode(id, { childIds: true })?.childIds?.[0] ?? id) : id;
-    onPick({ id, name: a.name, kind: set ? "set" : "component", target, page: "", pageName: "", frame: null, frameName: null, description: a.description, key: a.key });
+    const asset: ComponentAsset = { id, name: a.name, kind: set ? "set" : "component", target, page: "", pageName: "", frame: null, frameName: null, description: a.description, key: a.key };
+    if (multiple) return multiple.onChange([asset], []);
+    onPick(asset);
     onClose();
   };
   const remoteItem = (lib: string, a: LibraryAsset) => (
@@ -237,6 +246,9 @@ export function ComponentPicker({ anchor, title: titleProp, current, preferredKe
       {mode === "list" && <span className={styles.name}>{assetLabel(a.name)}</span>}
     </button>
   );
+  // The rows shown, for "Select all instances" (this file's: a library's are brought in one at a time)
+  const shown = libKey ? [] : (found ?? (section === "preferred" ? preferred : section === "recent" ? recent : contents.items));
+  const allOn = shown.length > 0 && !!multiple && shown.every((a) => multiple.isSelected(a));
   const placeholder = section === "preferred" ? t("Search preferred") : section === "recent" ? t("Search all libraries") : t("Search in this library");
   // A long list (a search over every component, a page of icons) is mounted a block at a time (LazyBlock.tsx).
   const list = (items: ComponentAsset[]) =>
@@ -316,7 +328,20 @@ export function ComponentPicker({ anchor, title: titleProp, current, preferredKe
             </>
           )}
         </div>
-        {libraries.on && (
+        {multiple && (
+          // Live (the owner's 126.png): a 40 row under a hairline, the label 16 in, its checkbox 16 from the end
+          <label className={styles.selectAll}>
+            <span>{t("Select all instances")}</span>
+            <Checkbox
+              label={t("Select all instances")}
+              hideLabel
+              checked={allOn}
+              disabled={!shown.length}
+              onChange={(on) => (on ? multiple.onChange(shown.filter((a) => !multiple.isSelected(a)), []) : multiple.onChange([], shown))}
+            />
+          </label>
+        )}
+        {libraries.on && !multiple && (
           <button
             type="button"
             className={styles.browse}

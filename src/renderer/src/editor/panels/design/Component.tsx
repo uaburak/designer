@@ -113,6 +113,8 @@ import { SlotPropertyEditor } from "./SlotProperty";
 import { ACTION_ICON, actionItem, booleanActions } from "./Header";
 import { setMultiEdit, useMultiEdit } from "./multiEdit";
 import { BoundPill } from "./Variables";
+import { SLOT_LEARN_MORE } from "./SlotProperty";
+import vstyles from "../variables/Variables.module.css";
 import { VariablePicker } from "../variables/VariablePicker";
 import { PANEL_MENU_GAP, type PanelNode } from "./shared";
 import styles from "./Component.module.css";
@@ -1154,7 +1156,8 @@ function GenericPropertyEditor({ owner, target, anchor, onClose }: { owner: CNod
   const [name, setName] = useState(def?.name ?? (type === "TEXT" && layerName ? layerName : ""));
   const initial = target.mode === "create" ? (target.bind ? valueFromLayer(target.bind.layer, type) : undefined) : def?.initialValue;
   const [value, setValue] = useState<ComponentPropValue | undefined>(initial ?? (type === "BOOL" ? { boolValue: true } : type === "TEXT" ? { textValue: { characters: "Text" } } : type === "NUMBER" ? { floatValue: 0 } : type === "VARIANT" ? { textValue: { characters: "Default" } } : undefined));
-  const [picker, setPicker] = useState<{ kind: "value" | "preferred"; anchor: HTMLElement } | null>(null);
+  const [picker, setPicker] = useState<{ kind: "value" | "preferred"; anchor: HTMLElement | DOMRect } | null>(null);
+  const pickerClosed = useRef(0);
   const [applying, setApplying] = useState<HTMLElement | null>(null);
   const [valueDrag, setValueDrag] = useState<number | null>(null);
   const [valueDrop, setValueDrop] = useState<number | null>(null);
@@ -1170,8 +1173,26 @@ function GenericPropertyEditor({ owner, target, anchor, onClose }: { owner: CNod
   };
   const swapName = value?.guidValue ? readC(ed, guidStr(value.guidValue))?.name : undefined;
   const variants = isComponentSet(owner) && def?.type === "VARIANT" ? variantProperties(owner, variantsOf(ed, owner)).find((p) => p.name === def.name) : undefined;
+  // The variants with a value of this property (Values: hovering one outlines them on the canvas, its target selects them)
+  const withValue = (v: string) => (variants ? variantsOf(ed, owner).filter((n) => variantValues(n, owner.componentPropDefs ?? []).get(variants.name) === v).map((n) => n.guid) : []);
+  const unbind = () => def && bindPropertyVariable(ed, owner.guid, def.name, null);
+  const pill = boundDefault && def ? <BoundPill id={boundDefault} label={t("Value")} onOpen={setApplying} onDetach={unbind} /> : null;
+  // Live (the owner's 125.png): the field's "Apply variable" inside its end on hover, as the design panel's
+  const withApply = (field: React.ReactNode) =>
+    def ? (
+      <div className={vstyles.bindWrap}>
+        {field}
+        <button type="button" className={vstyles.applyButton} aria-label={t("Apply variable")} tabIndex={-1} {...tooltipProps(t("Apply variable"))} onClick={(e) => setApplying(e.currentTarget)}>
+          <Icon name="24.variable.small" />
+        </button>
+      </div>
+    ) : (
+      field
+    );
   return (
-    <Popover anchor={anchor} title={title} width={240} onClose={onClose} label={title}>
+    <Popover anchor={anchor} title={title} width={304} onClose={onClose} label={title}>
+      {/* Live (the owner's 125–128.png, 304 wide): Name and Value in two 136 columns 16 in, 10 apart; then the
+          variant's Values or the swap's Preferred instances, each under a hairline */}
       <div className={styles.editor} data-property-editor={type}>
         <span className={styles.editorLabel}>{t("Name")}</span>
         <TextInput
@@ -1184,54 +1205,29 @@ function GenericPropertyEditor({ owner, target, anchor, onClose }: { owner: CNod
             if (def && v.trim() && v !== def.name) updateProperty(ed, owner, def, { name: v.trim() }, "Rename property");
           }}
         />
-        {type === "BOOL" && boundDefault && def && (
-          <>
-            <span className={styles.editorLabel}>{t("Value")}</span>
-            <BoundPill id={boundDefault} label={t("Value")} onOpen={setApplying} onDetach={() => bindPropertyVariable(ed, owner.guid, def.name, null)} />
-          </>
-        )}
-        {type === "BOOL" && !boundDefault && (
+        {type === "BOOL" && (
           // Live (2026-10-22): a toggle and its "True" / "False"; Apply variable at the row's end on hover.
           <>
             <span className={styles.editorLabel}>{t("Value")}</span>
-            <span className={styles.boolValue}>
-              <Switch showLabel label={value?.boolValue === false ? t("False") : t("True")} checked={value?.boolValue !== false} onChange={(c) => editValue({ boolValue: c })} />
-              {def && <IconButton icon="24.variable.small" label={t("Apply variable")} tone="secondary" className={styles.boolVariable} onClick={(e) => setApplying(e.currentTarget)} />}
-            </span>
+            {pill ?? (
+              <span className={styles.boolValue}>
+                <Switch showLabel label={value?.boolValue === false ? t("False") : t("True")} checked={value?.boolValue !== false} onChange={(c) => editValue({ boolValue: c })} />
+                {def && <IconButton icon="24.variable.small" label={t("Apply variable")} tone="secondary" className={styles.boolVariable} onClick={(e) => setApplying(e.currentTarget)} />}
+              </span>
+            )}
           </>
         )}
-        {type === "TEXT" && boundDefault && def && (
+        {type === "TEXT" && (
           <>
             <span className={styles.editorLabel}>{t("Value")}</span>
-            <BoundPill id={boundDefault} label={t("Value")} onOpen={setApplying} onDetach={() => bindPropertyVariable(ed, owner.guid, def.name, null)} />
+            {pill ?? withApply(<TextInput label={t("Value")} value={value?.textValue?.characters ?? ""} onCommit={(v) => editValue({ textValue: { characters: v } })} />)}
           </>
         )}
-        {type === "TEXT" && !boundDefault && (
+        {type === "NUMBER" && (
           <>
             <span className={styles.editorLabel}>{t("Value")}</span>
-            <TextInput label={t("Value")} value={value?.textValue?.characters ?? ""} onCommit={(v) => editValue({ textValue: { characters: v } })} />
+            {pill ?? withApply(<PropertyNumber label={t("Value")} value={value?.floatValue ?? 0} onCommit={(v) => editValue({ floatValue: v })} />)}
           </>
-        )}
-        {type === "NUMBER" && boundDefault && def && (
-          <>
-            <span className={styles.editorLabel}>{t("Value")}</span>
-            <BoundPill id={boundDefault} label={t("Value")} onOpen={setApplying} onDetach={() => bindPropertyVariable(ed, owner.guid, def.name, null)} />
-          </>
-        )}
-        {type === "NUMBER" && !boundDefault && (
-          <>
-            <span className={styles.editorLabel}>{t("Value")}</span>
-            <PropertyNumber label={t("Value")} value={value?.floatValue ?? 0} onCommit={(v) => editValue({ floatValue: v })} />
-          </>
-        )}
-        {(type === "TEXT" || type === "NUMBER") && def && !boundDefault && (
-          // "Apply variable" (help: a boolean variable for a boolean property's default, a string one for a text one).
-          <span className={cx(styles.editorWide, styles.editorFooterStart)}>
-            <Button variant="secondary" onClick={(e) => setApplying(e.currentTarget)} {...tooltipProps(t("Apply variable"))}>
-              <Icon name="24.variable.small" />
-              {t("Apply variable")}
-            </Button>
-          </span>
         )}
         {applying && def && (
           <VariablePicker
@@ -1248,106 +1244,136 @@ function GenericPropertyEditor({ owner, target, anchor, onClose }: { owner: CNod
             <TextInput label={t("Value")} value={value?.textValue?.characters ?? ""} onCommit={(v) => setValue({ textValue: { characters: v } })} />
           </>
         )}
-        {type === "VARIANT" && variants && (
-          <>
-            <span className={cx(styles.editorLabel, styles.editorWide)}>{t("Values")}</span>
-            {variants.values.map((v, i) => (
-              // Hover a value to reveal its handle; drag to reorder (help "Create and use variants").
-              <div
-                key={v}
-                className={cx(styles.editorWide, styles.valueRow, valueDrop === i && styles.valueDrop)}
-                data-variant-value={v}
-                onDragOver={(e) => {
-                  if (valueDrag === null) return;
-                  e.preventDefault();
-                  setValueDrop(i);
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  if (valueDrag !== null && valueDrag !== i) reorderVariantValues(ed, owner, variants.name, moveValue(variants.values, valueDrag, i));
-                  setValueDrag(null);
-                  setValueDrop(null);
-                }}
-              >
-                <span
-                  className={styles.valueHandle}
-                  draggable
-                  aria-label={t("Reorder {value}", { value: v })}
-                  onDragStart={(e) => {
-                    setValueDrag(i);
-                    e.dataTransfer.effectAllowed = "move";
-                  }}
-                  onDragEnd={() => {
-                    setValueDrag(null);
-                    setValueDrop(null);
-                  }}
-                >
-                  <Icon name="16.drag" />
-                </span>
-                <TextInput label={t("Value {value}", { value: v })} value={v} onCommit={(next) => next.trim() && next !== v && renameVariantValue(ed, owner, variants.name, v, next.trim())} />
-              </div>
-            ))}
-          </>
-        )}
         {type === "INSTANCE_SWAP" && (
           <>
             <span className={styles.editorLabel}>{t("Value")}</span>
             <button type="button" className={styles.swapField} aria-label={t("Value: {value}", { value: swapName ?? t("None") })} onClick={(e) => setPicker({ kind: "value", anchor: e.currentTarget })}>
-              <Icon name="16.instance" className={styles.purpleIcon} />
+              <Icon name="16.instance" className={styles.swapIcon} />
               <span className={styles.headerText}>{swapName ? assetLabel(swapName) : t("Choose a component")}</span>
               <Icon name="16.chevron.down" className={styles.chevron} />
             </button>
           </>
         )}
-        {type === "INSTANCE_SWAP" && def && (
-          <>
-            <span className={cx(styles.editorLabel, styles.editorWide, styles.editorHeader)}>
-              {t("Preferred instances")}
-              <IconButton icon="24.plus.small" label={t("Add preferred instances")} tone="secondary" onClick={(e) => setPicker({ kind: "preferred", anchor: e.currentTarget })} />
-            </span>
-            {preferred.length === 0 && <span className={cx(styles.muted, styles.editorWide)}>{t("None")}</span>}
-            {preferred.map((p) => {
-              const a = assets.find((x) => isPreferred(x, p.key));
-              return (
-                <div key={p.key} className={cx(styles.editorWide, styles.preferredRow)}>
-                  <Icon name={a?.kind === "set" ? "16.component.set" : "16.component"} className={styles.purpleIcon} />
-                  <span className={styles.headerText}>{a ? assetLabel(a.name) : t("Missing component")}</span>
-                  <IconButton
-                    icon="24.minus.small"
-                    label={t("Remove preferred instance")}
-                    tone="secondary"
-                    onClick={() => updateProperty(ed, owner, def, { preferredValues: { ...def.preferredValues, instanceSwapValues: preferred.filter((x) => x.key !== p.key) } }, "Edit preferred values")}
-                  />
-                </div>
-              );
-            })}
-          </>
-        )}
-        {target.mode === "create" && (
-          <div className={cx(styles.editorWide, styles.editorFooter)}>
-            <Button
-              variant="primary"
-              onClick={() => {
-                addProperty(ed, owner, type, { name, value, bind: target.bind });
-                onClose();
+      </div>
+      {type === "VARIANT" && variants && (
+        <div className={styles.editorValues} onMouseLeave={() => ed.engine.setHover([])}>
+          <span className={styles.editorValuesTitle}>{t("Values")}</span>
+          {variants.values.map((v, i) => (
+            // Hover a value: its variants outlined on the canvas, its target at the end; drag the handle to reorder.
+            <div
+              key={v}
+              className={cx(styles.valueRow, valueDrop === i && styles.valueDrop)}
+              data-variant-value={v}
+              onMouseEnter={() => ed.engine.setHover(withValue(v))}
+              onDragOver={(e) => {
+                if (valueDrag === null) return;
+                e.preventDefault();
+                setValueDrop(i);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (valueDrag !== null && valueDrag !== i) reorderVariantValues(ed, owner, variants.name, moveValue(variants.values, valueDrag, i));
+                setValueDrag(null);
+                setValueDrop(null);
               }}
             >
-              {t("Create property")}
-            </Button>
+              <span
+                className={styles.valueHandle}
+                draggable
+                aria-label={t("Reorder {value}", { value: v })}
+                onDragStart={(e) => {
+                  setValueDrag(i);
+                  e.dataTransfer.effectAllowed = "move";
+                }}
+                onDragEnd={() => {
+                  setValueDrag(null);
+                  setValueDrop(null);
+                }}
+              >
+                <Icon name="16.drag" />
+              </span>
+              <TextInput label={t("Value {value}", { value: v })} value={v} onCommit={(next) => next.trim() && next !== v && renameVariantValue(ed, owner, variants.name, v, next.trim())} />
+              <IconButton icon="24.target.small" label={t("Select variants")} tone="secondary" className={styles.valueTarget} onClick={() => ed.engine.setSelection(withValue(v))} />
+            </div>
+          ))}
+        </div>
+      )}
+      {type === "INSTANCE_SWAP" && def && (
+        <div className={styles.editorPreferred}>
+          <div className={styles.editorPreferredHeader}>
+            <span>{t("Preferred instances")}</span>
+            <a className={styles.learnMore} href={SLOT_LEARN_MORE} target="_blank" rel="noreferrer">
+              {t("Learn more")}
+            </a>
+            <ToggleIconButton
+              icon="24.plus.small"
+              label={t("Select preferred values")}
+              tone="secondary"
+              className={styles.preferredAdd}
+              pressed={picker?.kind === "preferred"}
+              onPressedChange={() => {}}
+              onClick={(e) => {
+                if (picker?.kind === "preferred" || performance.now() - pickerClosed.current < 200) return setPicker(null);
+                // Live: Select instances opens beside the +, level with it (kept on screen)
+                const r = e.currentTarget.getBoundingClientRect();
+                setPicker({ kind: "preferred", anchor: new DOMRect(r.right + 240, r.top, 0, 0) });
+              }}
+            />
           </div>
-        )}
-      </div>
+          {preferred.map((p) => {
+            const a = assets.find((x) => isPreferred(x, p.key));
+            return (
+              <div key={p.key} className={styles.preferredRow}>
+                <Icon name={a?.kind === "set" ? "16.component.set" : "16.component"} className={styles.purpleIcon} />
+                <span className={styles.headerText}>{a ? assetLabel(a.name) : t("Missing component")}</span>
+                <IconButton
+                  icon="24.minus.small"
+                  label={t("Remove preferred instance")}
+                  tone="secondary"
+                  onClick={() => updateProperty(ed, owner, def, { preferredValues: { ...def.preferredValues, instanceSwapValues: preferred.filter((x) => x.key !== p.key) } }, "Edit preferred values")}
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {target.mode === "create" && (
+        <div className={styles.editorFooter}>
+          <Button
+            variant="primary"
+            onClick={() => {
+              addProperty(ed, owner, type, { name, value, bind: target.bind });
+              onClose();
+            }}
+          >
+            {t("Create property")}
+          </Button>
+        </div>
+      )}
       {picker && (
         <ComponentPicker
           anchor={picker.anchor}
-          title={picker.kind === "value" ? t("Value") : t("Preferred instances")}
+          title={picker.kind === "value" ? t("Value") : t("Select instances")}
           current={picker.kind === "value" && value?.guidValue ? guidStr(value.guidValue) : null}
+          multiple={
+            picker.kind === "preferred" && def
+              ? {
+                  isSelected: (a) => preferred.some((p) => isPreferred(a, p.key)),
+                  onChange: (add, remove) => {
+                    const kept = preferred.filter((p) => !remove.some((a) => isPreferred(a, p.key)));
+                    const added = add.filter((a) => !kept.some((p) => isPreferred(a, p.key))).map((a) => ({ type: a.kind === "set" ? ("STATE_GROUP" as const) : ("COMPONENT" as const), key: preferredKey(a) }));
+                    updateProperty(ed, owner, def, { preferredValues: { ...def.preferredValues, instanceSwapValues: [...kept, ...added] } }, "Edit preferred values");
+                  },
+                }
+              : undefined
+          }
           onPick={(a) => {
             if (picker.kind === "value") editValue({ guidValue: guidVal(a.target) });
-            else if (def && !preferred.some((p) => isPreferred(a, p.key)))
-              updateProperty(ed, owner, def, { preferredValues: { ...def.preferredValues, instanceSwapValues: [...preferred, { type: a.kind === "set" ? "STATE_GROUP" : "COMPONENT", key: preferredKey(a) }] } }, "Edit preferred values");
           }}
-          onClose={() => setPicker(null)}
+          onClose={() => {
+            pickerClosed.current = performance.now();
+            setPicker(null);
+          }}
         />
       )}
     </Popover>
