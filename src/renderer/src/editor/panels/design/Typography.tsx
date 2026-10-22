@@ -180,6 +180,9 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
           <>
         {/* Figma's live panel: the font rows carry no labels (32 high, the field centred) */}
         <PropertyRow span={2}>
+          {/* A family / style bound to a variable shows its pill, as Figma's panel does (live 2026-10-23); no hover
+              Apply variable on these fields (unverified where Figma offers it) */}
+          <VariableField nodes={nodes} fields={["FONT_FAMILY"]} button={false} disabled={!fontKept}>
           <FontField
             family={family}
             style={style}
@@ -190,8 +193,10 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
             onPreview={nodes.length > MAX_PREVIEW_LAYERS ? undefined : (f) => (f ? ed.edit("Font", { final: false, source: "pick" }, () => void ed.engine.setProps(refs, fields({ fontName: { ...f, postscript: "" } }))) : ed.cancelEdit())}
             onPick={(f) => ed.edit("Font", { final: true, source: "pick" }, () => void ed.engine.setProps(refs, fields({ fontName: { ...f, postscript: "" } })))}
           />
+          </VariableField>
         </PropertyRow>
         <PropertyRow>
+          <VariableField nodes={nodes} fields={["FONT_STYLE"]} button={false} disabled={!fontKept}>
           <Select
             label={t("Font style")}
             variant="ghost"
@@ -206,6 +211,7 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
             ]}
             onChange={(s) => (s === VARIABLE_AXES ? setDetails(document.querySelector<HTMLElement>(`[aria-label="${t("Type settings")}"]`)) : write("Font style", { fontName: { family: isMixed(family) ? "Inter" : family, style: s, postscript: "" } }))}
           />
+          </VariableField>
           <span data-font-size="" style={{ display: "contents" }}>
           {/* Live (design/text.txt): one 88 field, its list's chevron on hover — no hover Apply variable (unverified where Figma
               offers the font size's variable: not in the captured panel) */}

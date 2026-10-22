@@ -235,7 +235,8 @@ export function InstanceHeader({ instance }: { instance: CNode }) {
   const bound = !!(instance as { componentPropRefs?: unknown[] }).componentPropRefs?.length;
   const context = componentContext(ed, [instance as unknown as PanelNode]);
   const parent = instance.parentIndex?.guid ? readC(ed, instance.parentIndex.guid) : null;
-  const nested = !!parent && parent.type !== "CANVAS" && parent.type !== "SECTION";
+  // Not inside an instance (live 2026-10-23: an instance's nested Icon has only its name and More actions)
+  const nested = !!parent && parent.type !== "CANVAS" && parent.type !== "SECTION" && !parseDerivedId(instance.guid);
   const matching = command("edit.select-matching");
   return (
     <div className={styles.instanceHead} data-instance-header="">
@@ -1559,6 +1560,12 @@ export function BoundPropertyRow({ layer, field, type }: { layer: Pick<CNode, "g
   );
 }
 
+/** Whether a layer inside an instance has this field bound to its main's property (its control is then locked). */
+export function useLockedByProperty(layer: Pick<CNode, "guid"> | undefined, field: BindableField, type: BindType): boolean {
+  const data = useBindData(layer ?? { guid: "" as Guid }, field, type);
+  return !!layer && !!data?.instance && !!data.bound;
+}
+
 /**
  * A text inside an instance whose content is a property's (live Figma 2026-10-23): that property's locked pill at the
  * top of the panel, above Position, in a section of its own. Nothing when the text isn't bound.
@@ -1583,6 +1590,9 @@ export function BindButton({ layer, field, type, inline = true }: { layer: Pick<
   const wrap = useRef<HTMLSpanElement>(null);
   const data = useBindData(layer, field, type);
   if (!data) return null;
+  // Inside an instance nothing is bound here (live Figma 2026-10-23): a layer whose visibility is bound shows the button
+  // disabled; a text's property sits at the panel's top instead (InstanceTextProperty), others show none.
+  if (data.instance) return data.bound && type !== "TEXT" ? <IconButton icon="24.property.apply.small" label={t("Apply variable/property")} tone="secondary" disabled /> : null;
   if (!inline) {
     const typeName = t(PROPERTY_TYPE_LABEL[type]).toLowerCase();
     return (

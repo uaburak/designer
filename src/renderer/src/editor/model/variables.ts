@@ -825,8 +825,12 @@ export function variableBindings(n: BindableNode | null | undefined): Map<string
   const out = new Map<string, Guid>();
   for (const raw of n?.parameterConsumptionMap?.entries ?? []) {
     const e = raw as ParameterEntryData;
-    const g = e.variableData?.value?.alias?.guid;
-    if (e.variableData?.dataType === "ALIAS" && g) out.set(e.variableField, guidStr(g));
+    const d = e.variableData;
+    // A font style is bound in Figma's FONT_STYLE shape: a style name (STRING) or weight (FLOAT) alias inside it
+    type Alias = { value?: { alias?: { guid?: GuidValue } } };
+    const fs = d?.dataType === "FONT_STYLE" ? (d.value?.fontStyleValue as { asString?: Alias; asFloat?: Alias } | undefined) : undefined;
+    const g = d?.dataType === "ALIAS" ? d.value?.alias?.guid : (fs?.asString ?? fs?.asFloat)?.value?.alias?.guid;
+    if (g) out.set(e.variableField, guidStr(g));
   }
   return out;
 }

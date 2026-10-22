@@ -12,7 +12,7 @@
 import { useState } from "react";
 import { BLEND_LABEL, BLEND_MODES, Icon, IconButton, MenuButton, MIXED, NumericInput, PanelSection, Popover, PropertyGrid, PropertyRow, Select, SegmentedControl, ToggleIconButton, cx, scrubFrom, type ChangeInfo, type Mixed, type NumericInputProps } from "@/ds";
 import type { Guid } from "@/engine/codec";
-import { BindButton, BoundPropertyRow } from "./Component";
+import { BindButton, BoundPropertyRow, useLockedByProperty } from "./Component";
 import type { CommandName } from "@/engine/abi";
 import { useEditor, type EditorController } from "../../controller";
 import { command, isEnabled, runEditorCommand, shortcutOf } from "../../commands";
@@ -430,6 +430,7 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
   const blendLabel = (b: Mixed<string> | undefined) => (b === undefined || b === MIXED ? t("Mixed") : b === "PASS_THROUGH" ? t("Pass through") : t(BLEND_LABEL[b as keyof typeof BLEND_LABEL] ?? b));
   // Draw (docs/draw.md §5.3): sliders under Opacity and Corner radius; no variable modes.
   const drawMode = useDrawMode();
+  const hideLocked = useLockedByProperty(nodes.length === 1 ? nodes[0] : undefined, "VISIBLE", "BOOL");
 
   return (
     <PanelSection
@@ -442,6 +443,8 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
             label={visible === false ? t("Show") : t("Hide")}
             shortcut={shortcutOf(command("object.toggle-visible"))}
             tone="secondary"
+            // (Inside an instance, visibility bound to a property: locked — live Figma 2026-10-23)
+            disabled={hideLocked}
             onClick={() => ed.setProps(refs, { visible: visible === false }, visible === false ? "Show" : "Hide")}
           />
           {/* Live (2026-10-22): Hide, then Apply boolean property, then the blend mode */}

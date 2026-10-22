@@ -90,7 +90,8 @@ export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
   const addCommand = command("object.add-auto-layout");
   const removeCommand = command("object.remove-auto-layout");
   const actions = auto ? (
-    instances ? undefined : (
+    // (Neither on an instance nor on a layer inside one — live Figma 2026-10-23)
+    instances || locked ? undefined : (
       <ToggleIconButton icon="24.autolayout-on" label={t("Remove auto layout")} tooltip={t("Toggle auto layout")} shortcut={shortcutOf(removeCommand)} tone="secondary" pressed onPressedChange={removeAutoLayout} />
     )
   ) : (

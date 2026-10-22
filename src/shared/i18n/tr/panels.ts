@@ -107,6 +107,7 @@ export const panels: Record<string, string> = {
   "Apply variable": "Değişken uygula",
   "Apply variable mode": "Değişken modu uygula",
   "Apply variable/property to {name}": "{name} öğesine değişken/özellik uygula",
+  "Apply variable/property": "Değişken/özellik uygula",
   "Apply {type} property": "{type} özelliği uygula",
   "Approved by organization admin": "Organizasyon yöneticisi tarafından onaylandı",
   "Approved by workspace admin": "Çalışma alanı yöneticisi tarafından onaylandı",
