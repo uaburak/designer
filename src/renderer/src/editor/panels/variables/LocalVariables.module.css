@@ -165,8 +165,9 @@
   .rowSelected > .cell { background: var(--figma-color-bg-selected); }
   .row[data-drop="before"] > .cell { box-shadow: inset 0 2px 0 var(--figma-color-border-selected-strong); }
   .row[data-drop="after"] > .cell { box-shadow: inset 0 -2px 0 var(--figma-color-border-selected-strong); }
-  .row:hover > .cell { background: var(--figma-color-bg-hover); }
-  .rowSelected:hover > .cell { background: var(--figma-color-bg-selected-hover); }
+  /* Figma: no hover fill on a row; a value being edited selects its row and rings its cell */
+  .row:focus-within > .cell { background: var(--figma-color-bg-selected); }
+  .value:focus-within { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
   /* A value cell (live 2026-10-19: a string's field 261 wide 12 in; a number's 135 wide 12 in; a colour's 16 swatch at 17
      and its hex field 140 wide at 36; a boolean's 28 × 16 switch, then "True" / "False" at 55) */
   .value { padding: 0 var(--ds-space-1) 0 var(--ds-space-3); }
@@ -236,12 +237,14 @@
     width: 88px;
     height: var(--ds-size-control);
     margin-left: auto;
-    border: 1px solid var(--figma-color-border);
     border-radius: var(--ds-radius-medium);
-    background: var(--figma-color-bg);
+    background: var(--figma-color-bg-secondary);
     opacity: 0;
   }
-  .value:hover .opacityField, .opacityField:focus-within, .opacityField[data-open] { opacity: 1; }
+  .value:hover .opacityField, .value:focus-within .opacityField, .opacityField[data-open] { opacity: 1; }
+  /* Apply variable inside it only while the pointer is on the field (its "Opacity" tooltip) */
+  .opacityBind { opacity: 0; }
+  .opacityField:hover .opacityBind, .opacityBind:focus-visible, .opacityBind[aria-expanded="true"] { opacity: 1; }
   .opacityField > [data-ds="NumericInput"] { flex: 1 1 auto; min-width: 0; width: auto; }
   .opacityBind { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--ds-radius-small); background: transparent; color: var(--figma-color-icon-secondary); outline: none; }
   .opacityBind:hover { color: var(--figma-color-icon); }
@@ -267,6 +270,9 @@
   .formValue .colorField [data-ds="TextInput"] { flex: 1 1 auto; width: auto; min-width: 0; }
   .formValue .opacityField { flex: 0 0 84px; width: 84px; margin-left: 0; border: 0; background: var(--figma-color-bg-secondary); opacity: 1; }
   /* Apply variable at the Opacity field's right, shown while the pointer is on the row (Figma's Details) */
+  .formValue:focus-within { box-shadow: none; }
+  /* Figma: the hex is edited inline — no field box on hover or focus (the cell's ring shows the edit) */
+  .colorField [data-ds="TextInput"], .colorField [data-ds="TextInput"] * { border-color: transparent !important; box-shadow: none !important; outline: none !important; background: transparent !important; }
   .formValue .opacityBind { opacity: 0; }
   .formValue:hover .opacityBind, .formValue .opacityBind:focus-visible, .formValue .opacityBind[aria-expanded="true"] { opacity: 1; }
   /* The variable whose Edit variable is open: its row selected, its button in the brand colour (Figma) */
