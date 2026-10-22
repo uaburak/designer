@@ -1076,8 +1076,20 @@ export class LocalStore {
     }
   }
 
-  async shutdown(): Promise<void> {
-    if (this.closed) return;
+  private shuttingDown: Promise<void> | null = null;
+
+  /**
+   * Flushes, closes every file and releases the lock. A second call (main's `store.shutdown` while a signal's is
+   * running) waits for the first: answered at once, it let the entry exit the process mid-flush.
+   */
+  shutdown(): Promise<void> {
+    if (this.shuttingDown) return this.shuttingDown;
+    if (this.closed) return Promise.resolve();
+    this.shuttingDown = this.doShutdown();
+    return this.shuttingDown;
+  }
+
+  private async doShutdown(): Promise<void> {
     this.closed = true;
     if (this.gcTimer) this.timers.clearTimeout(this.gcTimer);
     // The rooms' sockets close first, cleanly (main kills this process 1 s after asking it to stop, and the sends

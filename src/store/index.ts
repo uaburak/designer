@@ -97,7 +97,7 @@ function runStoreProcess(parent: ParentPortLike): void {
 /**
  * Stopped from outside (Ctrl-C of `npm run dev` reaches the whole process group, a `kill`, a closed terminal): the rooms'
  * sockets close cleanly first — a process that just dies leaves its socket in the room, a ghost in everyone's facepile
- * until the room expires it (docs/multiplayer.md §4.1) — then the store shuts down as on quit (1.5 s at most).
+ * until the room expires it (docs/multiplayer.md §4.1) — then the store shuts down as on quit (2.5 s at most: the quit's usage sends take up to 2 s).
  */
 function stopOnSignals(store: LocalStore): void {
   const goodbye = () => {
@@ -111,7 +111,7 @@ function stopOnSignals(store: LocalStore): void {
   for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
     process.once(sig, () => {
       goodbye();
-      void Promise.race([store.shutdown().catch(() => {}), new Promise((r) => setTimeout(r, 1500))]).finally(() => process.exit(0));
+      void Promise.race([store.shutdown().catch(() => {}), new Promise((r) => setTimeout(r, 2500))]).finally(() => process.exit(0));
     });
   }
 }

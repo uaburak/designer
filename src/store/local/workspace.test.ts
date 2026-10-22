@@ -56,6 +56,15 @@ describe("workspace on disk (docs/data.md §3–§4)", () => {
     expect(canHoldLock(undefined, Date.now())).toBe(true);
   });
 
+  it("a second shutdown (main's, during a signal's) waits for the first: the lock is gone when it resolves", async () => {
+    t = await openTestStore();
+    const lock = join(t.dir, "Workspace", ".lock");
+    const first = t.store.shutdown();
+    await t.store.shutdown();
+    expect(existsSync(lock)).toBe(false);
+    await first;
+  });
+
   it("renames the local team (setTeamName): trimmed, 1–100 characters, kept on disk, announced", async () => {
     t = await openTestStore();
     const { workspace } = t.api;
