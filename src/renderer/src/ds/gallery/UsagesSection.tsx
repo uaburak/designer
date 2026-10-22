@@ -559,7 +559,10 @@ export function UsagesSection({ index = USAGE_INDEX, initial }: { index?: UsageI
   const [open, setOpen] = useState<Record<string, boolean>>(() => Object.fromEntries(GROUPS.map((g) => [g.id, g.open || entries.some((e) => e.group === g.id && e.id === selected)])));
   const q = query.trim().toLowerCase();
   const pane = useRef<HTMLDivElement>(null);
-  useEffect(() => pane.current?.scrollTo?.({ top: 0 }), [selected]);
+  // A block body: Chromium's scrollTo may return a promise, which an effect must not return
+  useEffect(() => {
+    pane.current?.scrollTo?.({ top: 0 });
+  }, [selected]);
 
   const uses = index.ds.reduce((n, c) => n + c.count, 0);
   const looks = index.ds.reduce((n, c) => n + c.looks.length, 0);
