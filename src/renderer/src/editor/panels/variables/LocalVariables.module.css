@@ -246,6 +246,11 @@
   .opacityBind { opacity: 0; }
   .opacityField:hover .opacityBind, .opacityBind:focus-visible, .opacityBind[aria-expanded="true"] { opacity: 1; }
   .opacityField > [data-ds="NumericInput"] { flex: 1 1 auto; min-width: 0; width: auto; }
+  /* Typing in it (Figma): the field ringed in blue on the row's fill, Apply variable shown; its input has no box of its own */
+  .opacityField [data-ds="NumericInput"], .opacityField [data-ds="NumericInput"] * { border-color: transparent !important; box-shadow: none !important; outline: none !important; background: transparent !important; }
+  .opacityField:focus-within { background: transparent; box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
+  .opacityField:focus-within .opacityBind { opacity: 1; }
+  .formValue .opacityField:focus-within { background: var(--figma-color-bg-secondary); }
   .opacityBind { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--ds-radius-small); background: transparent; color: var(--figma-color-icon-secondary); outline: none; }
   .opacityBind:hover { color: var(--figma-color-icon); }
   /* Sticky ends (Figma): Name stays at the left and the + / Edit variable column at the right while the modes scroll
