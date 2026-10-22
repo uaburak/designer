@@ -30,7 +30,7 @@
  * values shown, Copy and Extend collection only) and Sort A to Z; a value cell's Create alias / Clear alias.
  */
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { Button, ContextMenu, Icon, IconButton, InlineEdit, MenuButton, ResizeHandle, SearchField, cx, size, startHeaderDrag, type MenuEntry } from "@/ds";
+import { Button, ContextMenu, Icon, IconButton, InlineEdit, MenuButton, ResizeHandle, ScrollArea, SearchField, cx, size, startHeaderDrag, type MenuEntry } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { runEditorCommand } from "../../commands";
@@ -787,6 +787,8 @@ export function LocalVariables() {
 
       {sidebar && (
       <aside className={styles.sidebar} aria-label={t("Collections")}>
+        <ScrollArea axis="y">
+        <div className={styles.sideInner}>
         <section className={styles.collections} aria-label={t("Variable collections")}>
           <div className={styles.sideHeader}>
             <span className={styles.sideHeading}>{t("Collections")}</span>
@@ -880,6 +882,8 @@ export function LocalVariables() {
             {groupRows(tree, 0)}
           </>
         )}
+        </div>
+        </ScrollArea>
       </aside>
       )}
 
@@ -905,7 +909,7 @@ export function LocalVariables() {
           </div>
         ) : (
           <>
-            <div className={styles.scroll}>
+            <ScrollArea axis="both" className={styles.scroll}>
               <div className={styles.table} role="grid" aria-label={collection.name} style={{ gridTemplateColumns: columns }}>
                 <div className={styles.row} role="row">
                   {/* Each header's right edge resizes its column; a column's header is drawn over the next one's so
@@ -1035,7 +1039,7 @@ export function LocalVariables() {
                 )}
               </div>
               {rows.length === 0 && query && <div className={styles.footer}>{t("No results for “{query}”", { query })}</div>}
-            </div>
+            </ScrollArea>
             {/* Live 2026-10-19: a 41 high footer (a 1px line on top) with "Create variable" 8 in */}
             {!locked && (
               <div className={styles.createBar} data-variables-footer="">

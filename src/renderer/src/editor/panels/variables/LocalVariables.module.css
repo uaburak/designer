@@ -50,7 +50,9 @@
 
   /* Sidebar (live): "Collections" (11 / 600, Collections options and Create collection) and the collections, a line,
      then "Groups" (11 / 550, Collapse groups), "All" and the group tree — each with its count at the right */
-  .sidebar { display: flex; flex-direction: column; min-height: 0; overflow: auto; border-right: 1px solid var(--figma-color-border); padding-bottom: var(--ds-space-2); }
+  .sidebar { display: flex; flex-direction: column; min-height: 0; overflow: hidden; border-right: 1px solid var(--figma-color-border); }
+  /* Overlay scrollbars (ds ScrollArea): they take no room from the list or the table */
+  .sideInner { display: flex; flex-direction: column; min-height: 100%; padding-bottom: var(--ds-space-2); }
   .collections { flex: none; padding-bottom: var(--ds-space-2); border-bottom: 1px solid var(--figma-color-border); }
   .sideHeader {
     display: flex;
@@ -106,7 +108,7 @@
 
   /* The table */
   .main { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-  .scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  .scroll { flex: 1 1 auto; min-height: 0; }
   /* Live 2026-10-19 (variables.txt): the cells 40 high, 1px apart — the gaps show the table's own #444 */
   .table { display: grid; gap: 1px; min-width: max-content; padding-bottom: 1px; background: var(--figma-color-border); }
   .row { display: contents; }
@@ -250,6 +252,10 @@
   .addMode { position: sticky; right: 0; z-index: 2; box-shadow: -1px 0 0 var(--figma-color-border); }
   .head.addMode { z-index: 1000; }
   .groupPath { position: sticky; left: var(--ds-space-4); }
+  /* The sticky header keeps its line under it while rows scroll beneath (the grid's gap would leave none) */
+  .head { box-shadow: 0 1px 0 var(--figma-color-border); }
+  .head.headName { box-shadow: 1px 0 0 var(--figma-color-border), 0 1px 0 var(--figma-color-border); }
+  .head.addMode { box-shadow: -1px 0 0 var(--figma-color-border), 0 1px 0 var(--figma-color-border); }
 
   /* The same editor in the Edit variable modal: no table borders */
   .formValue { height: var(--ds-size-control); padding: 0; border: 0; background: transparent; }
