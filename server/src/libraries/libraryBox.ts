@@ -13,6 +13,8 @@
  *   POST /missing {payloads, blobs}      → the same shape, only what isn't stored
  *   PUT  /payload/:key/:hash             the payload's bytes (container prelude checked)
  *   PUT  /blob/:sha1                     an image's bytes (SHA-1 checked)
+ *   POST /batch                          many payloads and images in one call (readBundle's frames; each checked as
+ *                                        the single PUTs check it, all before any is written) → 204
  *   GET  /blob/:sha1                     → bytes
  *   POST /commit {baseVersion, publishedAt, libraryFileKey, description, changes, assets}
  *                                        → 201 {version}; 409 {code: "conflict", latest}; 400 {code: "invalid", missing}
@@ -144,7 +146,7 @@ export class LibraryBox {
         return json({ error: `load: ${(e as Error).message}`, code: "invalid" }, 400);
       }
     }
-    if (m === "PUT" || path === "/commit") {
+    if (m === "PUT" || path === "/commit" || path === "/batch") {
       if (this.host.sql.exec(`SELECT 1 AS x FROM meta WHERE k = 'moving'`).toArray().length) return json({ error: "this library is moving to another region; try again in a moment", code: "moving" }, 503);
     }
     if (path === "/missing" && m === "POST") {
@@ -164,6 +166,7 @@ export class LibraryBox {
       if (!this.hasPayload(payload[1], payload[2])) await this.objects.put(PAYLOADS, [payload[1], payload[2]], bytes);
       return new Response(null, { status: 204 });
     }
+    if (path === "/batch" && m === "POST") return this.batch(new Uint8Array(await req.arrayBuffer()));
     const blob = /^\/blob\/([0-9a-f]{40})$/.exec(path);
     if (blob && m === "PUT") {
       const bytes = new Uint8Array(await req.arrayBuffer());
@@ -285,6 +288,34 @@ export class LibraryBox {
     return new Response(out, { headers: { "content-type": "application/octet-stream" } });
   }
 
+  /** POST /batch: every item checked first (none written when one is bad), then the new ones stored, a few at a time */
+  private async batch(body: Uint8Array): Promise<Response> {
+    let items: BundleItem[];
+    try {
+      items = readBundle(body);
+    } catch (e) {
+      return json({ error: (e as Error).message, code: "invalid" }, 400);
+    }
+    for (const it of items) {
+      if (it.bytes.length > MAX_LIBRARY_BYTES) return json({ error: `${it.type} too large`, code: "too_large" }, 413);
+      if (it.type === "payload") {
+        const prelude = String.fromCharCode(...it.bytes.subarray(0, 8));
+        if (it.bytes.length < 12 || !PRELUDES.includes(prelude)) return json({ error: `payload ${it.key}: a payload is a fig-kiwi container`, code: "invalid" }, 400);
+      } else if ((await sha1Hex(it.bytes)) !== it.sha1) return json({ error: `image ${it.sha1}: the bytes don't match their SHA-1`, code: "invalid" }, 400);
+    }
+    const todo = items.filter((it) => (it.type === "payload" ? !this.hasPayload(it.key, it.versionHash) : !this.hasBlob(it.sha1)));
+    let next = 0;
+    const worker = async () => {
+      for (let it = todo[next++]; it; it = todo[next++]) {
+        if (it.type === "payload") {
+          if (!this.hasPayload(it.key, it.versionHash)) await this.objects.put(PAYLOADS, [it.key, it.versionHash], it.bytes);
+        } else if (!this.hasBlob(it.sha1)) await this.objects.put(BLOBS, [it.sha1], it.bytes);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(BATCH_WRITES, todo.length) }, worker));
+    return new Response(null, { status: 204 });
+  }
+
   private hasPayload(key: string, hash: string): boolean {
     return this.objects.has(PAYLOADS, [key, hash]);
   }
@@ -325,6 +356,63 @@ export function readPayloads(bytes: Uint8Array): { key: string; versionHash: str
     at += head.size;
   }
   return out;
+}
+
+/** One item of a bundle (POST /libraries/:key/bundle, the object's /batch) */
+export type BundleItem = { type: "payload"; key: string; versionHash: string; bytes: Uint8Array } | { type: "blob"; sha1: string; bytes: Uint8Array };
+
+/** Items a bundle holds at most (each may be an R2 write: well under a call's subrequests) */
+export const MAX_BUNDLE_ITEMS = 500;
+/** A bundle's body at most */
+export const MAX_BUNDLE_BYTES = 32 * 1024 * 1024;
+/** R2 writes of a /batch at once */
+const BATCH_WRITES = 6;
+
+/**
+ * A bundle of library bytes, as POST /payloads' answer frames them: `[u32 n]` then n × `[u32 jsonLen][head][bytes]`
+ * (u32 LE), head `{type: "payload", key, versionHash, size}` or `{type: "blob", sha1, size}`. Throws on anything else.
+ */
+export function readBundle(bytes: Uint8Array): BundleItem[] {
+  if (bytes.length < 4) throw new Error("a bundle starts with its item count");
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const n = view.getUint32(0, true);
+  if (n > MAX_BUNDLE_ITEMS) throw new Error(`a bundle holds ${MAX_BUNDLE_ITEMS} items at most`);
+  const dec = new TextDecoder();
+  const out: BundleItem[] = [];
+  let at = 4;
+  for (let i = 0; i < n; i++) {
+    if (at + 4 > bytes.length) throw new Error("the bundle is cut short");
+    const len = view.getUint32(at, true);
+    at += 4;
+    if (len > 1024 || at + len > bytes.length) throw new Error("the bundle is cut short");
+    let head: { type?: unknown; key?: unknown; versionHash?: unknown; sha1?: unknown; size?: unknown };
+    try {
+      head = JSON.parse(dec.decode(bytes.subarray(at, at + len))) as typeof head;
+    } catch {
+      throw new Error("a bundle item's head isn't JSON");
+    }
+    at += len;
+    const size = head.size;
+    if (typeof size !== "number" || !Number.isInteger(size) || size < 0 || at + size > bytes.length) throw new Error("a bundle item's size is wrong");
+    const body = bytes.subarray(at, at + size);
+    at += size;
+    if (head.type === "payload" && typeof head.key === "string" && SHA1.test(head.key) && typeof head.versionHash === "string" && SHA1.test(head.versionHash)) out.push({ type: "payload", key: head.key, versionHash: head.versionHash, bytes: body });
+    else if (head.type === "blob" && typeof head.sha1 === "string" && SHA1.test(head.sha1)) out.push({ type: "blob", sha1: head.sha1, bytes: body });
+    else throw new Error("a bundle item is {type: payload, key, versionHash} or {type: blob, sha1}, SHA-1s");
+  }
+  if (at !== bytes.length) throw new Error("the bundle has bytes after its items");
+  return out;
+}
+
+/** The inverse (tests) */
+export function writeBundle(items: BundleItem[]): Uint8Array {
+  const enc = new TextEncoder();
+  const parts: Uint8Array[] = [u32(items.length)];
+  for (const it of items) {
+    const head = enc.encode(JSON.stringify(it.type === "payload" ? { type: "payload", key: it.key, versionHash: it.versionHash, size: it.bytes.length } : { type: "blob", sha1: it.sha1, size: it.bytes.length }));
+    parts.push(u32(head.length), head, it.bytes);
+  }
+  return concat(parts);
 }
 
 export async function sha1Hex(bytes: Uint8Array): Promise<string> {

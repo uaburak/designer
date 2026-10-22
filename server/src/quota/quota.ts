@@ -153,6 +153,44 @@ export async function reserveStorage(deps: Deps, ownerId: string, item: string, 
   };
 }
 
+/**
+ * `reserveStorage` for many items at once (a library's bundle): their sizes known (the body read), checked together
+ * against the owner's and the server's limits in one round trip, and recorded together once kept — two statements
+ * over json_each and the two totals, whatever the count.
+ */
+export async function reserveStorageMany(deps: Deps, ownerId: string, items: { item: string; bytes: number }[]): Promise<{ commit(): Promise<void> }> {
+  const d1 = deps.db.d1;
+  const byItem = new Map(items.map((i) => [i.item, i.bytes]));
+  const names = JSON.stringify([...byItem.keys()]);
+  const oldQ: Query = { sql: `SELECT item, bytes FROM stored_items WHERE item IN (SELECT value FROM json_each(?1))`, args: [names] };
+  await prefetch(d1, [ownerBytesQ(ownerId), serverBytesQ]);
+  const owner = await one<{ stored_bytes: number; quota_overrides: string }>(d1, ownerBytesQ(ownerId));
+  const { results } = await d1.prepare(oldQ.sql).bind(...oldQ.args).all<{ item: string; bytes: number }>();
+  const old = new Map(results.map((r) => [r.item, r.bytes]));
+  let delta = 0;
+  for (const [item, bytes] of byItem) delta += bytes - (old.get(item) ?? 0);
+  if (delta > 0) {
+    const limit = limitOf(parseOverrides(owner?.quota_overrides), "storage_bytes");
+    if ((owner?.stored_bytes ?? 0) + delta > limit) throw quotaError("storage_bytes", limit);
+    const serverCap = await serverStorageLimit(d1);
+    if (Number.isFinite(serverCap) && (await serverStoredBytes(d1)) + delta > serverCap) throw quotaError("server_storage_bytes", serverCap, 507);
+  }
+  return {
+    async commit() {
+      const rows = JSON.stringify([...byItem].map(([i, b]) => ({ i, b })));
+      await runAll(d1, [
+        d1
+          .prepare(
+            `INSERT INTO stored_items (item, owner_id, bytes) SELECT json_extract(value, '$.i'), ?2, json_extract(value, '$.b') FROM json_each(?1) WHERE true
+             ON CONFLICT (item) DO UPDATE SET bytes = excluded.bytes, owner_id = excluded.owner_id`,
+          )
+          .bind(rows, ownerId),
+        ...(delta ? [d1.prepare(`UPDATE users SET stored_bytes = MAX(0, stored_bytes + ?2) WHERE id = ?1`).bind(ownerId, delta), serverDelta(d1, delta)] : []),
+      ]);
+    },
+  };
+}
+
 /** `item` (known only once uploaded, e.g. by its SHA-1) now weighs `bytes`, charged to `ownerId` */
 export async function chargeStored(deps: Deps, ownerId: string, item: string, bytes: number): Promise<void> {
   const old = (await deps.db.d1.prepare(`SELECT bytes FROM stored_items WHERE item = ?1`).bind(item).first<{ bytes: number }>())?.bytes ?? 0;

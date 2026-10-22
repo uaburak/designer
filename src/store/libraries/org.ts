@@ -26,6 +26,7 @@ import { isAssetKey, isSha1, type AssetPayload, type FileKey, type FileMeta, typ
 import { isLocalLibraryKey, type CollectionModes, type FileLibraries, type LibraryKey, type LibraryMissing, type LibraryScope, type OrgLibraryRecord, type OrgPublishInput } from "../../shared/libraries/orgTypes";
 import type { LibraryNotice, OrgNotice } from "../notifications/service";
 import { httpError, type MultiplayerService } from "../multiplayer/service";
+import { isTransient } from "../multiplayer/http";
 import { t as tr } from "../../shared/i18n";
 
 // ---- the server ----------------------------------------------------------------------------------------------------
@@ -40,7 +41,60 @@ export interface LibraryServer {
   onSession?(listener: () => void): Unsubscribe;
   /** PUTs of bytes shown in the upload panel as one upload of `fileKey` (a publish's payloads and images, §5.1 of
    *  docs/multiplayer.md); absent: sent one by one, unseen */
-  upload?(fileKey: FileKey, parts: { path: string; bytes: Uint8Array }[]): Promise<void>;
+  upload?(fileKey: FileKey, parts: UploadPart[]): Promise<void>;
+}
+
+/** One request of a publish's uploads: a bundle (POST) or one item (PUT) */
+export interface UploadPart {
+  method: "PUT" | "POST";
+  path: string;
+  bytes: Uint8Array;
+}
+
+/** A payload or an image to upload, with its bundle head */
+interface UploadItem {
+  head: { type: "payload"; key: string; versionHash: string } | { type: "blob"; sha1: string };
+  bytes: Uint8Array;
+}
+
+/** A bundle's bytes and items at most (the server takes 32 MB / 500: server/src/libraries/libraryBox.ts) */
+export const BUNDLE_BYTES = 8 * 1024 * 1024;
+export const BUNDLE_ITEMS = 500;
+
+/**
+ * Items packed into bundles, in order: `[u32 n]` then n × `[u32 headLen][head JSON + size][bytes]` (u32 LE), as
+ * `POST /libraries/:key/bundle` reads them; a new bundle when the next item would pass BUNDLE_BYTES or BUNDLE_ITEMS.
+ */
+export function bundlesOf(items: UploadItem[]): Uint8Array[] {
+  const enc = new TextEncoder();
+  const out: Uint8Array[] = [];
+  let group: { head: Uint8Array; bytes: Uint8Array }[] = [];
+  let size = 4;
+  const close = () => {
+    if (!group.length) return;
+    const buf = new Uint8Array(size);
+    const view = new DataView(buf.buffer);
+    view.setUint32(0, group.length, true);
+    let at = 4;
+    for (const g of group) {
+      view.setUint32(at, g.head.length, true);
+      buf.set(g.head, at + 4);
+      buf.set(g.bytes, at + 4 + g.head.length);
+      at += 4 + g.head.length + g.bytes.length;
+    }
+    out.push(buf);
+    group = [];
+    size = 4;
+  };
+  for (const i of items) {
+    const head = enc.encode(JSON.stringify({ ...i.head, size: i.bytes.length }));
+    const add = 4 + head.length + i.bytes.length;
+    if (group.length && (group.length >= BUNDLE_ITEMS || size + add > BUNDLE_BYTES)) close();
+    group.push({ head, bytes: i.bytes });
+    size += add;
+  }
+  close();
+  return out;
 }
 
 export function libraryServerOf(mp: MultiplayerService): LibraryServer {
@@ -208,6 +262,8 @@ export class OrgLibraries {
    * or an Inbox notice for the key forgets it at once.
    */
   private unpublished = new Map<string, number>();
+  /** The server answered 404 to a bundle (an older one): publishes upload each item on its own */
+  private noBundles = false;
 
   constructor(
     private readonly host: OrgLibrariesHost,
@@ -528,24 +584,24 @@ export class OrgLibraries {
     // 1. What the library's object lacks.
     const ask: LibraryMissing = { payloads: req.assets.map((a) => ({ key: a.key, versionHash: a.versionHash })), blobs: [...blobs].filter(isSha1) };
     const lacks = await this.call<LibraryMissing>("POST", `/libraries/${key}/missing`, ask);
-    // 2. Uploads (content-addressed and idempotent: a retry after a failure sends what is still missing), in the
-    // upload panel as one upload of the library's file when the server can show it.
-    const parts: { path: string; bytes: Uint8Array }[] = [];
+    // 2. Uploads (content-addressed and idempotent: a retry after a failure sends what is still missing), in bundles
+    // (one upload of the day each, however many items), in the upload panel as one upload of the library's file when
+    // the server can show it.
+    const items: UploadItem[] = [];
     for (const p of lacks?.payloads ?? []) {
       const a = req.assets.find((x) => x.key === p.key && x.versionHash === p.versionHash);
       if (!a) continue;
       const bytes = containers.get(a.key) ?? (await this.host.cache.readBytes(CACHE.payload(key, a.key, a.versionHash)).catch(() => null));
       if (!bytes) throw new StoreError("invalid", `asset ${a.key} needs its payload`);
-      parts.push({ path: `/libraries/${key}/payloads/${seg(a.key, "asset key")}/${seg(a.versionHash, "version hash")}`, bytes });
+      items.push({ head: { type: "payload", key: seg(a.key, "asset key"), versionHash: seg(a.versionHash, "version hash") }, bytes });
     }
     for (const sha1 of lacks?.blobs ?? []) {
       if (!isSha1(sha1)) continue;
       const bytes = await this.host.blobs.get(sha1).catch(() => null);
       if (!bytes) throw new StoreError("invalid", `image ${sha1} isn't on this computer`);
-      parts.push({ path: `/libraries/${key}/blobs/${sha1}`, bytes });
+      items.push({ head: { type: "blob", sha1 }, bytes });
     }
-    if (parts.length && this.server.upload) await this.server.upload(copy.fileKey, parts);
-    else for (const p of parts) await this.send("PUT", p.path, p.bytes);
+    await this.uploadItems(key, copy.fileKey, items);
     // 3. The commit.
     const scope: LibraryScope = req.scope === "org" || req.scope === "team" ? req.scope : ((await this.cached<OrgLibraryRecord>(CACHE.record(key)))?.org?.scope ?? "team");
     const input: OrgPublishInput = {
@@ -569,6 +625,36 @@ export class OrgLibraries {
     await this.host.patchFile(copy.fileKey, { library: { status: "published", latestVersion: version.version } }).catch((e) => this.host.log("warn", "libraries: the copy's record", e));
     this.emit({ type: "published", libraryFileKey: key, version: version.version });
     return version;
+  }
+
+  /**
+   * A publish's bytes: bundles of up to BUNDLE_BYTES / BUNDLE_ITEMS (POST /libraries/:key/bundle), an item larger than
+   * a bundle on its own PUT. A server without bundles (404) gets every item on its own PUT, as before.
+   */
+  private async uploadItems(key: LibraryKey, fileKey: FileKey, items: UploadItem[]): Promise<void> {
+    if (!items.length) return;
+    const single = (i: UploadItem): UploadPart => ({ method: "PUT", path: i.head.type === "payload" ? `/libraries/${key}/payloads/${i.head.key}/${i.head.versionHash}` : `/libraries/${key}/blobs/${i.head.sha1}`, bytes: i.bytes });
+    if (!this.noBundles) {
+      const big = items.filter((i) => i.bytes.length > BUNDLE_BYTES);
+      const parts = [...bundlesOf(items.filter((i) => i.bytes.length <= BUNDLE_BYTES)).map((bytes): UploadPart => ({ method: "POST", path: `/libraries/${key}/bundle`, bytes })), ...big.map(single)];
+      try {
+        await this.sendParts(fileKey, parts);
+        return;
+      } catch (e) {
+        if (!isNotFound(e)) throw e;
+        // An older server: no bundle route
+        this.noBundles = true;
+      }
+    }
+    await this.sendParts(fileKey, items.map(single));
+  }
+
+  private async sendParts(fileKey: FileKey, parts: UploadPart[]): Promise<void> {
+    if (this.server.upload) return this.server.upload(fileKey, parts);
+    for (const p of parts) {
+      // Unseen (no upload panel): a failed bundle goes again once
+      await this.send(p.method, p.path, p.bytes).catch((e) => (isTransient(e) ? this.send(p.method, p.path, p.bytes) : Promise.reject(e)));
+    }
   }
 
   private async send(method: string, path: string, body: Uint8Array): Promise<void> {

@@ -178,6 +178,9 @@ async function world() {
   return { fake, alice, bob, carol, client };
 }
 
+/** The day's upload count of `userId` on the fake server */
+const uploadsToday = async (fake: RealLibraryServer, userId: string) => (await fake.d1.prepare(`SELECT SUM(n) AS n FROM quota_counters WHERE subject = ?1 AND kind = 'uploads_per_day'`).bind(userId).first<{ n: number | null }>())?.n ?? 0;
+
 const space = (key: string, projectId: string | null = "p1", teamId: string | null = "t1"): FileSpace => ({ orgId: "o1", key, teamId, projectId });
 
 describe("the org registry (docs/data.md §16.3, §16.6)", () => {
@@ -206,10 +209,8 @@ describe("the org registry (docs/data.md §16.3, §16.6)", () => {
     expect(fake.log).toEqual([
       "GET /libraries/libf_A/versions/latest",
       "POST /libraries/libf_A/missing",
-      `PUT /libraries/libf_A/payloads/${button.key}/${button.versionHash}`,
-      `PUT /libraries/libf_A/payloads/${colors.key}/${colors.versionHash}`,
-      `PUT /libraries/libf_A/blobs/${bytesHex(PNG)}`,
-      `PUT /libraries/libf_A/blobs/${bytesHex(IMAGE)}`,
+      // Two payloads and two images in one bundle: one upload of the day
+      "POST /libraries/libf_A/bundle",
       "POST /libraries/libf_A/versions",
     ]);
     const lib = (await fake.library("libf_A"))!;
@@ -224,7 +225,7 @@ describe("the org registry (docs/data.md §16.3, §16.6)", () => {
     fake.log.length = 0;
     const v2 = await a.org.publish({ libraryFileKey: "libf_A", description: "", assets: [{ ...button, thumbnailPng: undefined }, colors], moves: [] });
     expect(v2.version).toBe(2);
-    expect(fake.log.filter((l) => l.startsWith("PUT"))).toEqual([]);
+    expect(fake.log.filter((l) => l.startsWith("PUT") || l.endsWith("/bundle"))).toEqual([]);
     expect((await fake.library("libf_A"))!.scope).toBe("org"); // absent: the library's current scope
 
     // Someone else publishes between this preview and its commit: the commit refuses the stale base.
@@ -679,5 +680,77 @@ describe("LocalStore's org libraries (on disk, over the port)", () => {
     server.close();
     await t.close();
     expect(await fake.events()).toHaveLength(1);
+  });
+});
+
+describe("publishing a big library (bundles)", () => {
+  it("publishes 8,000 assets with thumbnails in under 50 uploads of the day", async () => {
+    const { fake, alice, client } = await world();
+    const a = client(alice);
+    a.host.add("HeroUI", space("libf_A"));
+    const assets = Array.from({ length: 8000 }, (_, i) => asset(`c${i}`, `C${i}`, `c${i}@1`, { thumbnailPng: new Uint8Array([...PNG, i & 255, i >> 8]) }));
+    fake.log.length = 0;
+    const v = await a.org.publish({ libraryFileKey: "libf_A", description: "", assets, moves: [] });
+    expect(v.assets).toHaveLength(8000);
+    const bundles = fake.log.filter((l) => l === "POST /libraries/libf_A/bundle").length;
+    expect(bundles).toBeGreaterThan(1);
+    expect(fake.log.filter((l) => l.startsWith("PUT"))).toEqual([]);
+    expect(await uploadsToday(fake, alice.user.id)).toBe(bundles);
+    expect(bundles).toBeLessThan(50);
+    // Every payload and thumbnail charged to the publisher, one row each
+    expect((await fake.d1.prepare(`SELECT COUNT(*) AS n FROM stored_items WHERE item LIKE 'l:libf_A:%'`).first<{ n: number }>())!.n).toBe(16000);
+  }, 60_000);
+
+  it("falls back to one PUT per item on a server without bundles", async () => {
+    const { fake, alice } = await world();
+    const session = new Session().as(alice);
+    const inner = serverOf(fake, session);
+    const server: LibraryServer = {
+      get signedIn() {
+        return inner.signedIn;
+      },
+      get userId() {
+        return inner.userId;
+      },
+      request: async (method, path, body) => (path.endsWith("/bundle") ? Response.json({ error: "not found" }, { status: 404 }) : inner.request(method, path, body)),
+    };
+    const host = new Host(server);
+    const org = new OrgLibraries(host);
+    host.add("Design System", space("libf_A"));
+    const button = asset("button", "Button", "button@1", { thumbnailPng: PNG });
+    fake.log.length = 0;
+    expect((await org.publish({ libraryFileKey: "libf_A", description: "", assets: [button], moves: [] })).version).toBe(1);
+    expect(fake.log.filter((l) => l.startsWith("PUT"))).toEqual([`PUT /libraries/libf_A/payloads/${button.key}/${button.versionHash}`, `PUT /libraries/libf_A/blobs/${bytesHex(PNG)}`]);
+    // Remembered: the next publish doesn't ask for a bundle again
+    const calls: string[] = [];
+    const seen = server.request;
+    server.request = async (m, p, b) => (calls.push(`${m} ${p}`), seen(m, p, b));
+    await org.publish({ libraryFileKey: "libf_A", description: "", assets: [asset("button", "Button", "button@2")], moves: [] });
+    expect(calls.filter((c) => c.endsWith("/bundle"))).toEqual([]);
+  });
+
+  it("packs bundles by bytes and count, and a failed bundle goes again once", async () => {
+    const { BUNDLE_BYTES, BUNDLE_ITEMS, bundlesOf } = await import("./org");
+    const small = Array.from({ length: BUNDLE_ITEMS + 1 }, (_, i) => ({ head: { type: "blob" as const, sha1: hex(`s${i}`) }, bytes: new Uint8Array(10) }));
+    expect(bundlesOf(small).map((b) => new DataView(b.buffer).getUint32(0, true))).toEqual([BUNDLE_ITEMS, 1]);
+    const half = Array.from({ length: 3 }, (_, i) => ({ head: { type: "blob" as const, sha1: hex(`h${i}`) }, bytes: new Uint8Array(BUNDLE_BYTES / 2) }));
+    expect(bundlesOf(half)).toHaveLength(3);
+
+    const { fake, alice } = await world();
+    const inner = serverOf(fake, new Session().as(alice));
+    let failures = 1;
+    const server: LibraryServer = {
+      signedIn: true,
+      userId: alice.user.id,
+      request: async (method, path, body) => {
+        if (path.endsWith("/bundle") && failures-- > 0) throw new StoreError("offline", "Couldn't reach the server");
+        return inner.request(method, path, body);
+      },
+    };
+    const host = new Host(server);
+    host.add("Design System", space("libf_A"));
+    fake.log.length = 0;
+    expect((await new OrgLibraries(host).publish({ libraryFileKey: "libf_A", description: "", assets: [asset("button", "Button", "button@1")], moves: [] })).version).toBe(1);
+    expect(fake.log.filter((l) => l.endsWith("/bundle"))).toHaveLength(1);
   });
 });

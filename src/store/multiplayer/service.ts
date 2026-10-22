@@ -549,7 +549,7 @@ export class MultiplayerService {
    * §16.6): each part tried again through a busy moment; Cancel aborts it (the caller's call fails), no Retry — the
    * person publishes again.
    */
-  async uploadParts(fileKey: FileKey, parts: { path: string; bytes: Uint8Array }[]): Promise<void> {
+  async uploadParts(fileKey: FileKey, parts: { path: string; bytes: Uint8Array; method?: "PUT" | "POST" }[]): Promise<void> {
     const meta = this.host.getMeta(fileKey);
     const ac = new AbortController();
     const id = this.uploads.begin({ fileKey, name: meta?.name ?? "Library" }, { cancel: () => ac.abort() });
@@ -570,7 +570,7 @@ export class MultiplayerService {
           () => {
             if (ac.signal.aborted) throw canceledError();
             going.set(i, 0);
-            return this.raw("PUT", p.path, p.bytes, {
+            return this.raw(p.method ?? "PUT", p.path, p.bytes, {
               signal: ac.signal,
               onSent: (n) => {
                 going.set(i, n);

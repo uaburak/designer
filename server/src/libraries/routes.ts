@@ -11,6 +11,8 @@
  *   POST  /libraries/:key/missing {payloads, blobs}    the same shape: what the object lacks
  *   PUT   /libraries/:key/payloads/:assetKey/:hash     bytes → 204
  *   PUT   /libraries/:key/blobs/:sha1                  bytes → 204
+ *   POST  /libraries/:key/bundle                       many payloads and blobs (libraryBox.ts readBundle) → 204: one
+ *                                                      upload of the day however many it holds, each item's bytes charged
  *   POST  /libraries/:key/versions OrgPublishInput     {version, library}; 409 conflict on a stale baseVersion
  *   PATCH /libraries/:key {scope}                      {library: OrgLibraryInfo}
  *   POST  /libraries/:key/unpublish                    204
@@ -49,7 +51,7 @@ import { fileEntity, logActivity } from "../activity";
 import type { FileRow } from "../org/db";
 import { body, HttpError, json, noContent, type Ctx } from "../org/http";
 import { reauth } from "../org/reauth";
-import { guardedUpload } from "../quota/quota";
+import { countFor, guardedUpload, reserveStorageMany } from "../quota/quota";
 import { notifyLibraryOverride } from "../notifications";
 import { adminSees, canManage, canUseLibrary, reachOf, usable, type Reach, type Via } from "./access";
 import {
@@ -76,6 +78,7 @@ import {
   type SettingRow,
 } from "./db";
 import { libraryPublishedNotice, librarySettingsNotice, libraryStatusNotice } from "./notices";
+import { MAX_BUNDLE_BYTES, readBundle, type BundleItem } from "./libraryBox";
 
 const KEY = /^[A-Za-z0-9_-]{6,64}$/;
 const MAX_BYTES = 50 * 1024 * 1024;
@@ -188,6 +191,7 @@ export async function librariesRoute(ctx: Ctx): Promise<Response> {
     if (!payloads.every((p) => isSha1((p as { key?: unknown })?.key) && isSha1((p as { versionHash?: unknown })?.versionHash)) || !blobs.every(isSha1)) throw new HttpError(400, "payloads are {key, versionHash} and blobs SHA-1s");
     return libraryFetch(deps, key, "/missing", { method: "POST", body: JSON.stringify({ payloads: payloads.map((p) => ({ key: (p as { key: string }).key, versionHash: (p as { versionHash: string }).versionHash })), blobs }) });
   }
+  if (parts.length === 3 && sub === "bundle" && m === "POST") return bundle(ctx, key);
   if (parts.length === 5 && sub === "payloads" && m === "PUT") {
     if (!isSha1(parts[3]) || !isSha1(parts[4])) throw new HttpError(400, "an asset key and its versionHash are SHA-1s");
     await editable(ctx, key);
@@ -234,6 +238,34 @@ export async function librariesRoute(ctx: Ctx): Promise<Response> {
   throw new HttpError(404, "not found");
 }
 
+
+/**
+ * POST /libraries/:key/bundle: a publish's payloads and images in one request (a publish is one operation, as in
+ * Figma): one `uploads_per_day` count for the request, every item's bytes charged to the publisher as its single PUT
+ * would charge them, and one write into the library's object (/batch, which checks each item as the single PUTs do).
+ */
+async function bundle(ctx: Ctx, key: string): Promise<Response> {
+  const { req, deps } = ctx;
+  await editable(ctx, key);
+  const declared = Number(req.headers.get("content-length") ?? "0");
+  if (declared > MAX_BUNDLE_BYTES) throw new HttpError(413, "a bundle is 32 MB at most");
+  await countFor(deps, ctx.user, "uploads_per_day");
+  const buf = await req.arrayBuffer();
+  if (buf.byteLength > MAX_BUNDLE_BYTES) throw new HttpError(413, "a bundle is 32 MB at most");
+  let items: BundleItem[];
+  try {
+    items = readBundle(new Uint8Array(buf));
+  } catch (e) {
+    throw new HttpError(400, (e as Error).message);
+  }
+  if (!items.length) return noContent();
+  if (items.some((i) => i.bytes.length > MAX_BYTES)) throw new HttpError(413, "larger than 50 MB");
+  const charges = items.map((i) => ({ item: i.type === "payload" ? `l:${key}:p:${i.key}:${i.versionHash}` : `l:${key}:b:${i.sha1}`, bytes: i.bytes.length }));
+  const reservation = await reserveStorageMany(deps, ctx.user.id, charges);
+  const res = await libraryFetch(deps, key, "/batch", { method: "POST", body: buf });
+  if (res.ok) await reservation.commit();
+  return res;
+}
 
 // ---- publishing (§16.6) ---------------------------------------------------------------------------------------------
 
