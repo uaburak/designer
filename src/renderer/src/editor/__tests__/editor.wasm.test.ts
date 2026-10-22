@@ -184,6 +184,12 @@ describe("editor on the engine (wasm, headless)", () => {
     const { attachCanvasMenu, layersUnder } = await import("../canvas/CanvasMenu");
     const canvas = { getBoundingClientRect: () => ({ left: 10, top: 20 }) } as unknown as HTMLCanvasElement;
     const off = attachCanvasMenu(ed, canvas);
+    // Inside a selected layer (the inverse holds the frame 1:1) a right-click keeps the selection, as a press does.
+    const inverse = [...ed.selection];
+    engine.pointer(PointerType.DOWN, 100, 150, 2, 2, 0);
+    engine.pointer(PointerType.UP, 100, 150, 2, 0, 0);
+    expect(ed.selection).toEqual(inverse);
+    engine.setSelection([]);
     engine.pointer(PointerType.DOWN, 100, 150, 2, 2, 0);
     engine.pointer(PointerType.UP, 100, 150, 2, 0, 0);
     off();

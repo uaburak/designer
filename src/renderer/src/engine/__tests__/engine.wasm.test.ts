@@ -223,7 +223,12 @@ describe("engine (wasm, headless)", () => {
     expect(engine.command("SELECT_INVERSE")).toBe(Status.OK);
     expect(engine.getSelection().refs).toEqual(["1:1", "1:20", "1:21", "1:22", "1:23"]);  // "Locked" (1:26) is left out
 
-    // Right-click on Card: it becomes the selection, then CONTEXT_MENU lists what is under the point.
+    // Right-click on Card inside the selected frame 1:1: the selection stays (a press there keeps it, Figma).
+    engine.pointer(PointerType.DOWN, 100, 150, 2, 2, 0);
+    engine.pointer(PointerType.UP, 100, 150, 2, 0, 0);
+    expect(engine.getSelection().refs).toEqual(["1:1", "1:20", "1:21", "1:22", "1:23"]);
+    // Nothing selected, a right-click on Card: it becomes the selection, then CONTEXT_MENU lists what is under the point.
+    engine.setSelection([]);
     const order: string[] = [];
     let menu: EngineEvent | undefined;
     engine.onAny((e) => {
