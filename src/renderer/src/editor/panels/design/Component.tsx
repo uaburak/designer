@@ -918,6 +918,22 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
               {!used.has(id) && (
                 <IconButton icon="24.warning" label={t("Not used within component")} tone="secondary" className={styles.defUnused} data-property-unused={d.name} onClick={(e) => setEditing({ target: { mode: "edit", def: d }, anchor: e.currentTarget })} />
               )}
+              {/* Live (2026-10-22): on hover the row narrows for Edit property (pressed while its settings are open) and
+                  a remove "—" */}
+              <span className={cx(styles.defActions, editing?.target.mode === "edit" && guidStr(editing.target.def.id) === id && styles.defActionsOpen)}>
+                <ToggleIconButton
+                  icon="24.adjust.small"
+                  label={t("Edit property")}
+                  tone="secondary"
+                  pressed={editing?.target.mode === "edit" && guidStr(editing.target.def.id) === id}
+                  onPressedChange={() => undefined}
+                  onClick={(e) => {
+                    const row = e.currentTarget.closest("[data-property-row]")?.querySelector<HTMLElement>("[data-property-def]") ?? e.currentTarget;
+                    setEditing(editing?.target.mode === "edit" && guidStr(editing.target.def.id) === id ? null : { target: { mode: "edit", def: d }, anchor: row });
+                  }}
+                />
+                {!lastVariant(d) && <IconButton icon="24.minus.small" label={t("Delete property")} tone="secondary" onClick={() => deleteProperty(ed, fresh, d)} />}
+              </span>
             </div>
           );
         })}
@@ -1165,17 +1181,13 @@ function GenericPropertyEditor({ owner, target, anchor, onClose }: { owner: CNod
           </>
         )}
         {type === "BOOL" && !boundDefault && (
+          // Live (2026-10-22): a toggle and its "True" / "False"; Apply variable at the row's end on hover.
           <>
             <span className={styles.editorLabel}>{t("Value")}</span>
-            <Select
-              label={t("Value")}
-              value={value?.boolValue === false ? "false" : "true"}
-              options={[
-                { value: "true", label: t("True") },
-                { value: "false", label: t("False") },
-              ]}
-              onChange={(v) => editValue({ boolValue: v === "true" })}
-            />
+            <span className={styles.boolValue}>
+              <Switch showLabel label={value?.boolValue === false ? t("False") : t("True")} checked={value?.boolValue !== false} onChange={(c) => editValue({ boolValue: c })} />
+              {def && <IconButton icon="24.variable.small" label={t("Apply variable")} tone="secondary" className={styles.boolVariable} onClick={(e) => setApplying(e.currentTarget)} />}
+            </span>
           </>
         )}
         {type === "TEXT" && boundDefault && def && (
@@ -1202,7 +1214,7 @@ function GenericPropertyEditor({ owner, target, anchor, onClose }: { owner: CNod
             <PropertyNumber label={t("Value")} value={value?.floatValue ?? 0} onCommit={(v) => editValue({ floatValue: v })} />
           </>
         )}
-        {(type === "BOOL" || type === "TEXT" || type === "NUMBER") && def && !boundDefault && (
+        {(type === "TEXT" || type === "NUMBER") && def && !boundDefault && (
           // "Apply variable" (help: a boolean variable for a boolean property's default, a string one for a text one).
           <span className={cx(styles.editorWide, styles.editorFooterStart)}>
             <Button variant="secondary" onClick={(e) => setApplying(e.currentTarget)} {...tooltipProps(t("Apply variable"))}>

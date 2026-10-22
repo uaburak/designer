@@ -352,11 +352,20 @@ TEST_CASE("components: boolean and text properties; editing a bound field writes
   // A new default reaches instances that didn't set the value.
   e.setSelection({M});
   REQUIRE(e.command(CommandId::EDIT_COMPONENT_PROPERTY, args("{\"prop\":\"Show label\",\"defaultValue\":false}")) == OK);
+  // …and the main's bound layer shows it (Figma: the default is what the main shows).
+  CHECK(!props(e, LABEL).visible);
   e.setSelection({I});
   REQUIRE(e.command(CommandId::RESET_OVERRIDES) == OK);
   CHECK(props(e, I).comp().componentPropAssignments.empty());
   CHECK(!props(e, row).visible);
   CHECK(props(e, row).text().textData.characters == "Label");
+  // A new text default rewrites the main's bound text, and the instance follows; one undo takes both back.
+  e.setSelection({M});
+  REQUIRE(e.command(CommandId::EDIT_COMPONENT_PROPERTY, args("{\"prop\":\"Label#1:2147483646\",\"defaultValue\":\"Go\"}")) == OK);
+  CHECK(props(e, LABEL).text().textData.characters == "Go");
+  CHECK(props(e, row).text().textData.characters == "Go");
+  REQUIRE(e.command(CommandId::UNDO) == OK);
+  CHECK(props(e, LABEL).text().textData.characters == "Label");
 }
 
 TEST_CASE("components: create component, combine as variants, add variant, switch variants keeping overrides") {

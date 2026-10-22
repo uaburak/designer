@@ -275,10 +275,11 @@ export const PROPERTY_TYPE_LABEL: Record<ComponentPropType, string> = { BOOL: "B
 
 /** Each property type's glyph (the Properties rows, the Create property menu, Reset ▸ a property's value). */
 export const PROPERTY_ICON: Record<ComponentPropType, IconName> = {
-  VARIANT: "16.variant",
+  // Live (2026-10-22): an outlined diamond, a T in a box, a diamond in corner marks
+  VARIANT: "16.instance",
   BOOL: "16.visible",
-  TEXT: "16.text",
-  INSTANCE_SWAP: "16.instance",
+  TEXT: "24.variable.type.string",
+  INSTANCE_SWAP: "24.instance.swap.small",
   NUMBER: "16.number",
   SLOT: "16.slot",
 };

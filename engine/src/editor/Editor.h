@@ -1504,6 +1504,8 @@ class Editor : private LayoutHost, public TextLayouts {
   Status setComponentProperty(Guid ref, const std::string& prop, const json::Value& value);
   Status addComponentProperty(Guid ref, const CommandArgs& args);
   Status editComponentProperty(Guid ref, const CommandArgs& args);
+  // The layers bound to `d` under `owner` (a main, or every variant of a set) take its default (visible, text, swap).
+  void applyPropertyDefault(Guid owner, const ComponentPropDef& d);
   Status deleteComponentProperty(Guid ref, const std::string& prop);
   Status bindComponentProperty(const std::vector<Guid>& ids, const std::string& field, const std::string& prop);
   Status restoreComponent(Guid ref);

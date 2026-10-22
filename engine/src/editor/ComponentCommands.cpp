@@ -2285,9 +2285,49 @@ Status Editor::editComponentProperty(Guid ref, const CommandArgs& args) {
     renameVariants(owner);
   } else {
     write(c);
+    // Figma: a property's default is what its main shows — the layers bound to it (in every variant of a set) take the
+    // new default, and the instances that don't set it follow.
+    if (arg(args, "defaultValue")) applyPropertyDefault(owner, *it);
   }
   commit();
   return OK;
+}
+
+void Editor::applyPropertyDefault(Guid owner, const ComponentPropDef& d) {
+  const VariableField f = bindingFieldOf(d.type);
+  std::vector<Guid> swaps;
+  auto visit = [&](auto&& self, Guid id) -> void {
+    for (Guid k : std::vector<Guid>(doc_.children(id))) {
+      if (k.isDerived()) continue;
+      const Node* kn = doc_.get(k);
+      if (!kn) continue;
+      bool bound = false;
+      for (const ParamBinding& b : kn->props.parameterConsumptionMap) bound |= b.propRef == d.id && b.field == f;
+      if (bound) {
+        if (f == VariableField::VISIBLE && d.initialValue.hasBool && kn->props.visible != d.initialValue.boolValue) {
+          NodeChange v = NodeChange::changed(k);
+          v.mask = F_VISIBLE;
+          v.props.visible = d.initialValue.boolValue;
+          write(v);
+        } else if (f == VariableField::TEXT_DATA && kn->props.type == NodeType::TEXT &&
+                   kn->props.text().textData.characters != d.initialValue.textValue.characters) {
+          NodeChange tc = NodeChange::changed(k);
+          tc.mask = F_TEXT_DATA;
+          tc.props.text().textData = kn->props.text().textData;
+          tc.props.text().textData.characters = d.initialValue.textValue.characters;
+          tc.props.text().textData.characterStyleIDs.clear();  // one style: the layer's own
+          tc.props.text().textData.lines.clear();
+          write(tc);
+        } else if (f == VariableField::OVERRIDDEN_SYMBOL_ID && kn->props.type == NodeType::INSTANCE &&
+                   d.initialValue.guidValue != kNoGuid && symbolOf(kn->props) != d.initialValue.guidValue) {
+          swaps.push_back(k);
+        }
+      }
+      self(self, k);
+    }
+  };
+  visit(visit, owner);
+  if (!swaps.empty()) swapInstance(swaps, d.initialValue.guidValue);
 }
 
 Status Editor::deleteComponentProperty(Guid ref, const std::string& prop) {

@@ -99,6 +99,8 @@ function figmaNode(n: NodeChange): NodeChange {
   const sd = out.symbolData as NodeChange["symbolData"] | undefined;
   if (sd?.symbolOverrides?.length) out.symbolData = { ...sd, symbolOverrides: withoutOurFields(sd.symbolOverrides) };
   if (Array.isArray(out.derivedSymbolData)) out.derivedSymbolData = withoutOurFields(out.derivedSymbolData as NodeChange[]);
+  // Variables and collections carry no layer fields in Figma's files (Kardora.fig, AnexEUI - B2C.fig).
+  if (n.type === "VARIABLE" || n.type === "VARIABLE_SET") return out as NodeChange;
   const root = n.type === "DOCUMENT" || n.type === "CANVAS";
   out.visible ??= true;
   out.opacity ??= 1;
@@ -423,6 +425,22 @@ function figmaAssetRefs(nodes: any[]): any[] {
   return nodes.map(fix);
 }
 
+/**
+ * This file's own variables, collections and styles as Figma writes them: no `key` and `isPublishable` written out
+ * (true unless hidden from publishing). Figma's files mark a library's copy by a key with `isPublishable: false`
+ * (Kardora.fig, HeroUI.fig, AnexEUI - B2C.fig); ours went out with their key and without `isPublishable` (our schema's
+ * default, left out), and Figma took them for library copies: an exported file opened with no local variables
+ * (2026-10-22, the owner's "Wecra Design System"). Runs after figmaAssetRefs, which reads the library copies' keys.
+ */
+function figmaLocalAssets(nodes: any[]): any[] {
+  return nodes.map((n) => {
+    const asset = n.type === "VARIABLE" || n.type === "VARIABLE_SET" || !!n.styleType;
+    if (!asset || n.sourceLibraryKey || (n.styleType && n.isPublishable === false && n.key)) return n;
+    const { key: _key, ...rest } = n;
+    return { ...rest, isPublishable: n.isPublishable ?? true };
+  });
+}
+
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 /**
@@ -435,7 +453,7 @@ function figmaAssetRefs(nodes: any[]): any[] {
 export function toFigmaMessage(message: Message): Message {
   const table = NodeTable.fromMessage(message);
   const plain = table.toMessage({ keepDerived: table.derivedDataVersion === FIGMA_DERIVED_DATA_VERSION, sessionID: 0 });
-  return { type: "NODE_CHANGES", sessionID: 0, ackID: 0, nodeChanges: figmaAssetRefs(figmaComponents((plain.nodeChanges ?? []).map(figmaNode))).map(withAssetVersions), blobs: plain.blobs ?? [] };
+  return { type: "NODE_CHANGES", sessionID: 0, ackID: 0, nodeChanges: figmaLocalAssets(figmaAssetRefs(figmaComponents((plain.nodeChanges ?? []).map(figmaNode)))).map(withAssetVersions), blobs: plain.blobs ?? [] };
 }
 
 /** `canvas.fig` bytes for a `.fig` export of `message` (zstd when the codecs have it, else deflate-raw). */

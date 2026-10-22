@@ -319,6 +319,16 @@ describe("components as Figma stores them (components.md task 8)", () => {
     expect(r.styleIdForFill).toEqual({ assetRef: { key: "f".repeat(40), version: "4:5" } });
     expect(r.strokePaints[0].colorVar.value.alias).toEqual({ guid: LVAR });
     expect(out.get(guidKey(VAR))!.guid).toEqual(VAR); // the copy itself keeps its guid
+    // Local assets as Figma writes them (Kardora.fig, HeroUI.fig): no key, isPublishable written out, no layer fields;
+    // with a key and no isPublishable Figma took them for library copies and showed no local variables.
+    const local = out.get(guidKey(LVAR))!;
+    expect(local.key).toBeUndefined();
+    expect(local.isPublishable).toBe(true);
+    expect(local.transform).toBeUndefined();
+    expect(local.size).toBeUndefined();
+    const copy = out.get(guidKey(VAR))!;
+    expect(copy.key).toBe("d".repeat(40));
+    expect(out.get(guidKey(STYLE))!.key).toBe("f".repeat(40)); // a library's style keeps its key and isPublishable false
     // A detached instance's main by key alone: Figma's editor aborts on an assetRef without a version ("" as Figma writes).
     expect(out.get("9:14")!.detachedSymbolId).toEqual({ assetRef: { key: "9".repeat(40), version: "" } });
   });
