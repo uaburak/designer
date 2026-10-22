@@ -42,6 +42,7 @@ import {
   newInteraction,
   newInteractionId,
   nextFlowName,
+  NO_DEVICE,
   type PrototypeFields,
   type PrototypeInteraction,
   type PrototypeCursor,
@@ -190,7 +191,7 @@ function NothingSelected() {
     ...(deviceValue === "CUSTOM" ? [{ value: "CUSTOM", label: t("Custom size") }] : []),
   ];
   const setDevice = (v: string) => {
-    if (v === "NONE") return void ed.setProps([page], protoFields({ prototypeDevice: null }), "Prototype device");
+    if (v === "NONE") return void ed.setProps([page], protoFields({ prototypeDevice: NO_DEVICE }), "Prototype device");
     if (v === "PRESENTATION") return void ed.setProps([page], protoFields({ prototypeDevice: { type: "PRESENTATION" } }), "Prototype device");
     const p = devicePreset(v);
     if (!p) return;

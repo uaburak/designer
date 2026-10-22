@@ -8,7 +8,7 @@ import type { Guid, NodeChange } from "@/engine/codec";
 import { keyBetween } from "@shared/schema/fractionalIndex";
 import { parseColorValue } from "@shared/agents/docSchema";
 import { textResult, type ToolResult } from "@shared/agents/tools";
-import { devicePreset, guidOf, liveInteractions, newInteractionId, nextFlowName, type PrototypeInteraction, type PrototypeStartingPoint } from "../model/prototype";
+import { NO_DEVICE, devicePreset, guidOf, liveInteractions, newInteractionId, nextFlowName, type PrototypeInteraction, type PrototypeStartingPoint } from "../model/prototype";
 import type { ToolEnv } from "./mcpTools";
 import { explicitNodeIds, ToolError } from "./toolError";
 import { normId, type Spec } from "./nodeSpec";
@@ -199,7 +199,7 @@ function pageRef(env: ToolEnv, v: unknown): Guid {
 
 function deviceOfArg(v: unknown, errors: Errors): Obj | null | undefined {
   if (v === undefined) return undefined;
-  if (v === null || v === "NONE") return null;
+  if (v === null || v === "NONE") return { ...NO_DEVICE };
   if (v === "PRESENTATION") return { type: "PRESENTATION" };
   const o: Obj = typeof v === "string" ? { type: "PRESET", presetIdentifier: v } : v && typeof v === "object" ? (v as Obj) : {};
   const type = String(o.type ?? (o.presetIdentifier ? "PRESET" : o.size ? "CUSTOM" : "")).toUpperCase();
@@ -210,7 +210,7 @@ function deviceOfArg(v: unknown, errors: Errors): Obj | null | undefined {
     const y = s && typeof s === "object" ? ((s as Obj).y ?? (s as Obj).height) : undefined;
     return typeof x === "number" && typeof y === "number" && x > 0 && y > 0 ? { x, y } : null;
   };
-  if (type === "NONE") return null;
+  if (type === "NONE") return { ...NO_DEVICE };
   if (type === "PRESENTATION") return { type };
   if (type === "PRESET") {
     const p = devicePreset(String(o.presetIdentifier ?? ""));
@@ -289,7 +289,7 @@ export function prototypeOf(env: ToolEnv, page: Guid): Obj {
   const bg = pageNode?.prototypeBackgroundColor as { r: number; g: number; b: number; a?: number } | undefined;
   return {
     page: { id: page, name: pageNode?.name ?? "" },
-    device: pageNode?.prototypeDevice ?? null,
+    device: (pageNode?.prototypeDevice as { type?: string } | undefined)?.type === "NONE" ? null : (pageNode?.prototypeDevice ?? null),
     ...(bg ? { backgroundColor: hex(bg) } : {}),
     flows: flowsOf(env, page).map(flowView),
     interactions,

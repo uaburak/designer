@@ -108,6 +108,13 @@ export interface PrototypeDevice {
   rotation?: "NONE" | "CCW_90";
 }
 
+/**
+ * "No device", written as Figma's own value (type NONE) — never by clearing the field: a cleared field is no change in
+ * the NODE_CHANGES the journal, undo's peers and a kept presentation receive (kiwi has no "absent"), so the device came
+ * back on the file's next opening and stayed in a presentation kept open.
+ */
+export const NO_DEVICE: PrototypeDevice = { type: "NONE", rotation: "NONE" };
+
 export type OverlayPositionType = "CENTER" | "TOP_LEFT" | "TOP_CENTER" | "TOP_RIGHT" | "BOTTOM_LEFT" | "BOTTOM_CENTER" | "BOTTOM_RIGHT" | "MANUAL";
 /** Wecra's overlay "Fit to window" (NodeChange.overlayFitWindow, @ours: never in a .fig export; docs/engine.md §3.4). */
 export type OverlayFitWindow = "NONE" | "WIDTH" | "HEIGHT" | "BOTH";

@@ -13,7 +13,7 @@ import type { NodeChange } from "@/engine/codec";
 import { EditorController } from "../controller";
 import { memoryDocumentSource } from "../documentSource";
 import { PROTOTYPE_DOCUMENT } from "../fixtures";
-import { liveInteractions, newInteraction, guidJson, type PrototypeFields } from "../model/prototype";
+import { NO_DEVICE, liveInteractions, newInteraction, guidJson, type PrototypeFields } from "../model/prototype";
 import { paintVideoHash, videoPaint } from "../model/paints";
 import { protoFields } from "../panels/prototype/PrototypePanel";
 
@@ -213,6 +213,26 @@ describe("prototyping on the engine (wasm, headless)", () => {
     expect(engine.readNode("2:4")?.name).not.toBe("Renamed");
     engine.setViewerMode(false);
     expect(engine.setProps(["2:4"], { name: "Renamed" })).toBe(Status.OK);
+    engine.destroy();
+  });
+});
+
+describe("Prototype › Device: No device", () => {
+  it("is written as Figma's NONE device, so the change reaches the journal and a presentation kept open", async () => {
+    const { ed, engine } = await editor();
+    // A peer of the editor's document: what the journal replays and a kept presentation applies ("remote").
+    const peer = await Engine.create(null, { sessionID: 2 });
+    peer.load(PROTOTYPE_DOCUMENT);
+    const off = engine.onDocumentChanged((_, e) => void peer.applyChangesKiwi(e.bytes!, "remote"));
+    ed.setProps(["0:1"], protoFields({ prototypeDevice: { type: "PRESET", presetIdentifier: "IPHONE_16", size: { x: 393, y: 852 }, rotation: "NONE" } }), "Prototype device");
+    expect((peer.readNode("0:1") as NodeChange & PrototypeFields).prototypeDevice).toMatchObject({ type: "PRESET" });
+    ed.setProps(["0:1"], protoFields({ prototypeDevice: NO_DEVICE }), "Prototype device");
+    expect((peer.readNode("0:1") as NodeChange & PrototypeFields).prototypeDevice?.type ?? "NONE").toBe("NONE");
+    peer.setViewport(1600, 1000, 1, 1600, 1000);
+    expect(peer.presentStart({ page: "0:1" })).toBe(Status.OK);
+    expect(peer.presentState()).toMatchObject({ hasDeviceFrame: false, deviceType: "NONE" });
+    off();
+    peer.destroy();
     engine.destroy();
   });
 });
