@@ -918,6 +918,14 @@ export function usedPropertyIds(ed: EditorController, owner: CNode): Set<string>
   return out;
 }
 
+/** The layers bound to one of `owner`'s properties, in every variant of a set (hidden ones too). */
+export function boundLayerIds(ed: EditorController, owner: CNode, defId: string): Guid[] {
+  const out: Guid[] = [];
+  const roots = isComponentSet(owner) ? variantsOf(ed, owner) : [owner];
+  for (const r of roots) for (const n of subtree(ed, r.guid)) for (const id of bindingsOf(n).values()) if (guidStr(id) === defId) out.push(n.guid);
+  return out;
+}
+
 /** The instance's root fields a swap brings from the new main (unless the instance overrode them). */
 const SWAP_ROOT_FIELDS = ["name", "size"] as const;
 

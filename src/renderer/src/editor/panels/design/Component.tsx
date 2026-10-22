@@ -64,6 +64,7 @@ import {
   swapInstance,
   updateProperty,
   usedPropertyIds,
+  boundLayerIds,
   valueFromLayer,
   variantErrorOf,
   variantsOf,
@@ -806,6 +807,8 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; def?: ComponentPropDef; exposed?: CNode } | null>(null);
   const addRef = useRef<HTMLSpanElement>(null);
+  // A property row's canvas outlines go with the section (the selection changed under the pointer).
+  useEffect(() => () => ed.engine.setHover([]), [ed]);
   const defs = sortedDefs(fresh.componentPropDefs ?? []);
   // Live (design/component-with-slot.txt): a property no layer uses has "Not used within component" at the row's end.
   const used = useMemo(() => usedPropertyIds(ed, fresh), [ed, fresh]);
@@ -844,6 +847,10 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
               className={cx(styles.defRow, dragOver === id && styles.defDrop)}
               data-property-row={d.name}
               draggable={renaming !== id}
+              // Live (2026-10-22): hovering a property outlines the layers bound to it on the canvas, in every variant
+              // and hidden ones too, as hovering their Layers rows does.
+              onMouseEnter={() => d.type !== "VARIANT" && ed.engine.setHover(boundLayerIds(ed, fresh, id))}
+              onMouseLeave={() => ed.engine.setHover([])}
               onDragStart={(e) => {
                 setDragging(d);
                 e.dataTransfer.effectAllowed = "move";
