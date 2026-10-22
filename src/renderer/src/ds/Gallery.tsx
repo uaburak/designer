@@ -11,12 +11,15 @@ import { TokensSection } from "./gallery/TokensSection";
 import { IconsSection } from "./gallery/IconsSection";
 import { ComponentMatrix } from "./gallery/ComponentMatrix";
 import { ScreensSection } from "./gallery/Screens";
+import { CustomSection, UsagesSection } from "./gallery/UsagesSection";
 import { GalleryContext } from "./gallery/parts";
 import styles from "./gallery/Gallery.module.css";
 
 type Mode = "both" | "light" | "dark";
 const SECTIONS = [
   { value: "all", label: "All sections" },
+  { value: "usages", label: "Usages in the app" },
+  { value: "custom", label: "Not from the design system" },
   { value: "tokens", label: "Tokens" },
   { value: "icons", label: "Icons" },
   { value: "components", label: "Components" },
@@ -36,6 +39,7 @@ function param(name: string): string | null {
  * component in every state, light and dark side by side, and two screens at
  * the reference size. Standalone: it brings its own CSS (global.css → Inter
  * and tokens.css), tooltip manager and toast host.
+ * At the top, how the app uses it: each component's variants as used, and the hand-made controls beside them.
  * URL: ?theme=both|light|dark &section=<id> &component=<Name> &static=1
  */
 export default function Gallery() {
@@ -54,8 +58,8 @@ export default function Gallery() {
       <div className={styles.topbar}>
         <span className={styles.brand}>Design system</span>
         <SegmentedControl label="Themes shown" value={mode} onChange={(v) => setMode(v as Mode)} options={[{ value: "both", label: "Both" }, { value: "light", label: "Light" }, { value: "dark", label: "Dark" }]} />
-        <Select label="Section" value={section} options={SECTIONS} onChange={setSection} width={140} />
-        <SearchField value={query} onChange={setQuery} placeholder="Filter components" style={{ width: 200, flex: "none" }} />
+        <Select label="Section" value={section} options={SECTIONS} onChange={setSection} width={200} />
+        <SearchField value={query} onChange={setQuery} placeholder="Filter components, props, files" style={{ width: 240, flex: "none" }} />
         <Select label="Zoom" value={zoom} options={[{ value: "100", label: "100%" }, { value: "200", label: "200%" }]} onChange={setZoom} width={80} />
         <span className={styles.grow} />
         <Select
@@ -68,6 +72,9 @@ export default function Gallery() {
       </div>
       <div className={styles.scroll}>
         <div style={{ zoom: Number(zoom) / 100 }}>
+          {/* How the app uses the ds, and the controls it makes by hand (the Developer tab; `npm run ds:usages`) */}
+          {show("usages") && <UsagesSection query={query} />}
+          {show("custom") && <CustomSection query={query} />}
           {(show("tokens") || show("icons") || show("components")) && (
             <div className={cx(styles.columns, mode === "both" && styles.both)}>
               {themes.map((t) => (

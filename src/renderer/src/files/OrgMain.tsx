@@ -44,6 +44,7 @@ import { TeamIcon, useIconSrc } from "./parts";
 import type { OrgBackend } from "./storeAccess";
 import { orgDestinations, type OrgPageState } from "./useOrgData";
 import type { IntentHandlers, PrefetchTarget } from "./prefetch";
+import { DeveloperButton } from "./DeveloperButton";
 import styles from "./Files.module.css";
 
 export interface OrgMainProps {
@@ -591,6 +592,7 @@ export function OrgMain(props: OrgMainProps) {
       const drafts: OrgImportPlace = { kind: "org-drafts" };
       actions = noCreate ? null : (
         <>
+          <DeveloperButton />
           <Button variant="tinted" size="large" icon="24.design" tooltip={tr("New design file")} onClick={() => void newDesignFile(null)}>
             {tr("Design")}
           </Button>
@@ -629,6 +631,7 @@ export function OrgMain(props: OrgMainProps) {
       const drafts: OrgImportPlace = { kind: "org-drafts" };
       actions = noCreate ? null : (
         <>
+          <DeveloperButton />
           <Button variant="tinted" size="large" icon="24.design" tooltip={tr("New design file")} onClick={() => void newDesignFile(null)}>
             {tr("Design")}
           </Button>
@@ -788,6 +791,7 @@ export function OrgMain(props: OrgMainProps) {
       actions =
         tab === "main" && creates ? (
           <>
+            <DeveloperButton />
             <Button variant="tinted" size="large" icon="24.design" tooltip={tr("New design file")} onClick={() => void newProject()}>
               {tr("Design")}
             </Button>
@@ -880,6 +884,7 @@ export function OrgMain(props: OrgMainProps) {
                 {tr("New folder")}
               </Button>
             )}
+            <DeveloperButton />
             <Button variant="tinted" size="large" icon="24.design" tooltip={tr("New design file")} onClick={() => void newDesignFile(p.id)}>
               {tr("Design")}
             </Button>

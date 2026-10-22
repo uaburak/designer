@@ -20,6 +20,7 @@ interface HomeBridge {
   nav?: {
     openFile?: (fileKey: string, options?: { title?: string; background?: boolean }) => Promise<unknown>;
     newFile?: (folderId?: string | null, name?: string) => Promise<{ fileKey: string; tabId: string } | null>;
+    openDeveloper?: () => void;
   };
   files?: {
     import?: (folderId: string | null, paths?: string[]) => Promise<ImportResult>;
@@ -44,6 +45,16 @@ export interface OpenDeps {
   workspace?: Pick<WorkspaceRepository, "recordViewed">;
   /** Navigation, replaceable in tests */
   navigate?: (url: string, newTab: boolean) => void;
+}
+
+/**
+ * Home's Developer button: the design system's gallery with every component's usage in the app — in the app the
+ * Developer tab (main opens it), in a browser the `?gallery` page in a new browser tab.
+ */
+export function openDeveloper(navigate: (url: string, newTab: boolean) => void = browserNavigate): void {
+  const d = bridge();
+  if (d?.nav?.openDeveloper) return d.nav.openDeveloper();
+  navigate(`${location.pathname}?gallery`, true);
 }
 
 const browserNavigate = (url: string, newTab: boolean) => {

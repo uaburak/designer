@@ -15,7 +15,7 @@ const api: HomeApi = {
     activate: (tabId) => send("tabs:activate", { tabId: String(tabId) }),
     reopen: () => send("tabs:reopen"),
   },
-  nav,
+  nav: { ...nav, openDeveloper: () => send("nav:open-developer") },
   files,
   home: {
     onState: (cb) => on("home:state", cb),

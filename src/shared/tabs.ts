@@ -18,7 +18,14 @@
 
 export const HOME = "home";
 
-export type TabKind = "file" | "prototype" | "new-tab";
+export type TabKind = "file" | "prototype" | "new-tab" | "developer";
+
+/**
+ * A tab that is a page of the app rather than a file (the new-tab page; `developer`: the design system's gallery with
+ * its usage index, opened from Home's Developer button): no file to flush, never discarded, never in the closed
+ * history, not kept between launches.
+ */
+export const isPageTab = (t: { kind: TabKind } | undefined | null): boolean => t?.kind === "new-tab" || t?.kind === "developer";
 
 /** What a tab's page says about itself (`tab:report`). */
 export interface TabReport {
@@ -210,7 +217,7 @@ export function tabsReducer(state: TabsState, action: TabsAction): TabsState {
   switch (action.type) {
     case "open": {
       const kind = action.kind ?? "file";
-      if (!action.fileKey && kind !== "new-tab") return state;
+      if (!action.fileKey && !isPageTab({ kind })) return state;
       const like = { kind, fileKey: action.fileKey, startNodeId: action.startNodeId };
       const replacing = action.replace ? state.tabs.find((t) => t.id === action.replace && t.kind === "new-tab") : undefined;
       const there = state.tabs.find((t) => sameTab(t, like));
@@ -251,7 +258,7 @@ export function tabsReducer(state: TabsState, action: TabsAction): TabsState {
       if (!closing.length) return state;
       const tabs = state.tabs.filter((t) => !action.ids.includes(t.id));
       const active = action.ids.includes(state.active) ? nextActive(state, action.ids) : state.active;
-      const added = closing.reverse().filter((t) => t.kind !== "new-tab").map(closedOf);
+      const added = closing.reverse().filter((t) => !isPageTab(t)).map(closedOf);
       const closed = [...added, ...state.closed.filter((c) => !added.some((a) => sameTab(a, c)))].slice(0, MAX_CLOSED);
       return arrange({ ...state, tabs, active, closed });
     }

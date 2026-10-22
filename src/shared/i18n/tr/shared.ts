@@ -55,6 +55,7 @@ export const shared: Record<string, string> = {
   "Save Performance Log…": "Performans Günlüğünü Kaydet…",
   "Stop Performance Logging…": "Performans Günlüğünü Durdur…",
   "New tab": "Yeni sekme",
+  "Every component and control as the app uses it": "Uygulamanın kullandığı her bileşen ve kontrol",
   "Open file browser": "Dosya tarayıcısını aç",
   "Import…": "İçe aktar…",
   "Place image…": "Görsel yerleştir…",

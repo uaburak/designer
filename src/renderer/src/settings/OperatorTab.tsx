@@ -6,9 +6,8 @@
  */
 import { useEffect, useState } from "react";
 import { Button, Dialog, Select, Spinner, TextInput, showToast } from "@/ds";
-import { ACCOUNT_QUOTA_KINDS, QUOTA_LABEL, QUOTA_LIMITS, SIGNUP_MODES, SIGNUP_MODE_LABEL, formatBytes, isByteQuota, type AccountQuotaKind, type AccountUsage, type OperatorAccount, type OperatorSettings, type SignupMode } from "@shared/quota";
+import { ACCOUNT_QUOTA_KINDS, QUOTA_LABEL, QUOTA_LIMITS, SIGNUP_MODES, SIGNUP_MODE_LABEL, formatBytes, isByteQuota, type AccountQuotaKind, type OperatorAccount, type OperatorSettings, type SignupMode } from "@shared/quota";
 import { SPEND_GUARD_MODES, SPEND_GUARD_MODE_LABEL, formatSpend, type SpendGuardMode, type SpendGuardStatus } from "@shared/spendGuard";
-import { useAccount } from "../files/account";
 import { Divider, Link, Section } from "./AccountTab";
 import { accountCall } from "./bridge";
 import styles from "./Settings.module.css";
@@ -18,23 +17,7 @@ import { intlLocale, t, tp, useT } from "@/i18n";
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const MB = 1024 * 1024;
 
-/** Whether the signed-in account operates the server (asked once per account) */
-export function useIsOperator(): boolean {
-  const userId = useAccount().state?.user?.id ?? null;
-  const [answer, setAnswer] = useState<{ userId: string; operator: boolean } | null>(null);
-  useEffect(() => {
-    if (!userId) return;
-    let live = true;
-    accountCall<AccountUsage>("GET", "/me/usage").then(
-      (u) => live && setAnswer({ userId, operator: u.operator === true }),
-      () => live && setAnswer({ userId, operator: false }),
-    );
-    return () => {
-      live = false;
-    };
-  }, [userId]);
-  return !!userId && answer?.userId === userId && answer.operator;
-}
+export { useIsOperator } from "./useIsOperator";
 
 export function OperatorTab() {
   useT();

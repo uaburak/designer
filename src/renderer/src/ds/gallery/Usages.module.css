@@ -1,0 +1,39 @@
+@layer app {
+  .block { padding: var(--ds-space-6) var(--ds-space-6) var(--ds-space-4); border-bottom: 1px solid var(--figma-color-border); background: var(--figma-color-bg); color: var(--figma-color-text); }
+  .head { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--ds-space-2) var(--ds-space-4); margin-bottom: var(--ds-space-4); }
+  .title { margin: 0; font: var(--ds-font-heading-medium); letter-spacing: var(--ds-tracking-heading-medium); }
+  .summary { color: var(--figma-color-text-secondary); }
+  .summary strong { color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); }
+  .hint { color: var(--figma-color-text-tertiary); font: var(--ds-font-code); }
+  .index { display: flex; flex-wrap: wrap; gap: var(--ds-space-1); margin-bottom: var(--ds-space-6); }
+  .indexLink { display: inline-flex; align-items: center; gap: var(--ds-space-1); height: var(--ds-size-control); padding: 0 var(--ds-space-2); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); color: var(--figma-color-text); text-decoration: none; }
+  .indexLink:hover { background: var(--figma-color-bg-tertiary); }
+  .indexCount { color: var(--figma-color-text-secondary); }
+
+  .component { margin-bottom: var(--ds-space-8); scroll-margin-top: var(--ds-space-4); }
+  .componentHead { display: flex; align-items: baseline; gap: var(--ds-space-3); margin-bottom: var(--ds-space-3); padding-bottom: var(--ds-space-1); border-bottom: 1px solid var(--figma-color-border); }
+  .componentName { margin: 0; font: var(--ds-font-body-large-strong); letter-spacing: var(--ds-tracking-body-large-strong); }
+  .componentMeta { color: var(--figma-color-text-secondary); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--ds-space-3); }
+  .more { margin-top: var(--ds-space-2); }
+
+  .card { display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium-large); background: var(--figma-color-bg); overflow: hidden; }
+  .stage { position: relative; display: flex; align-items: center; justify-content: center; min-height: 72px; max-height: 200px; padding: var(--ds-space-4); overflow: hidden; background: var(--figma-color-bg-secondary); }
+  .stageInner { max-width: 100%; min-width: 0; }
+  .noLive { color: var(--figma-color-text-tertiary); font: var(--ds-font-body-small); letter-spacing: var(--ds-tracking-body-small); text-align: center; }
+  .info { display: flex; flex-direction: column; gap: var(--ds-space-1-5); padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-3); }
+  .row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--ds-space-1); }
+  .count { margin-left: auto; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); white-space: nowrap; }
+  .prop { display: inline-flex; max-width: 100%; padding: 0 var(--ds-space-1); border-radius: var(--ds-radius-small); background: var(--figma-color-bg-secondary); color: var(--figma-color-text-secondary); font: var(--ds-font-code); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .prop b { color: var(--figma-color-text); font-weight: 500; }
+  .propNone { color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); }
+  .source { color: var(--figma-color-text-secondary); font: var(--ds-font-code); overflow-wrap: anywhere; }
+  .why { color: var(--figma-color-text-secondary); }
+
+  .locs summary { color: var(--figma-color-text-brand); cursor: default; user-select: none; }
+  .locs summary:hover { text-decoration: underline; }
+  .locList { margin: var(--ds-space-1) 0 0; padding: 0; list-style: none; max-height: 180px; overflow: auto; color: var(--figma-color-text-secondary); font: var(--ds-font-code); }
+  .locList li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .empty { padding: var(--ds-space-4) 0; color: var(--figma-color-text-secondary); }
+}

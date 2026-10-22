@@ -1,7 +1,7 @@
 import { app, Menu, shell, type MenuItemConstructorOptions, type WebContents, type WebContentsView } from "electron";
 import { command as commandSpec, isCommandId, layoutCommands, type CommandId, type MenuStatePatch } from "../shared/commands";
 import type { FlushReason, HomeState, ImportResult, IpcEvents, NewFileResult, OpenFileResult, OpenWorkspaceFile, TabFlushed, TabPreview, TabsSnapshot } from "../shared/ipc";
-import { canSplit, DISCARD_AFTER_MS, DISCARD_IDLE_MS, DISCARD_SWEEP_MS, discardable, GROUP_COLORS, groupsOf, HOME, liveAtStart, MENU_CLOSED, neighbourTab, newTabId, splitPartner, tabAtShortcut, tabsReducer, type GroupColor, type Tab, type TabGroup, type TabReport, type TabsAction, type TabsState } from "../shared/tabs";
+import { canSplit, isPageTab, DISCARD_AFTER_MS, DISCARD_IDLE_MS, DISCARD_SWEEP_MS, discardable, GROUP_COLORS, groupsOf, HOME, liveAtStart, MENU_CLOSED, neighbourTab, newTabId, splitPartner, tabAtShortcut, tabsReducer, type GroupColor, type Tab, type TabGroup, type TabReport, type TabsAction, type TabsState } from "../shared/tabs";
 import { isStoreError } from "../shared/store/protocol";
 import type { WorkspaceEvent } from "../shared/store/repositories";
 import { askCrashed, askFlushFailed, askFlushTimeout, askUnresponsive, tellFileError } from "./dialogs";
@@ -276,7 +276,7 @@ export class TabManager {
   async discard(id: string): Promise<boolean> {
     const rt = this.runtime.get(id);
     const tab = this.tab(id);
-    if (!rt || !tab || tab.pinned || tab.kind === "new-tab" || this.visible.includes(id) || rt.crashed || tab.status === "unresponsive") return false;
+    if (!rt || !tab || tab.pinned || isPageTab(tab) || this.visible.includes(id) || rt.crashed || tab.status === "unresponsive") return false;
     const viewedAt = tab.viewedAt;
     const outcome = await askFlush(rt.view.webContents, "discard");
     if (!("ok" in outcome) || !outcome.ok) return false;
@@ -298,7 +298,7 @@ export class TabManager {
    */
   async previewOf(id: string, immediate: boolean): Promise<TabPreview | null> {
     const tab = this.tab(id);
-    if (!tab || tab.kind === "new-tab") return null;
+    if (!tab || isPageTab(tab)) return null;
     let image: string | null = null;
     let time: TabPreview["time"] = tab.viewedAt ? { kind: "viewed", at: tab.viewedAt } : null;
     if (tab.kind === "file") {
@@ -348,7 +348,14 @@ export class TabManager {
         ? { present: "", file: tab.fileKey, tab: tab.id, ...(tab.pageId ? { page: tab.pageId } : {}), ...(tab.startNodeId ? { node: tab.startNodeId } : {}) }
         : { editor: "", file: tab.fileKey, tab: tab.id };
     // The new-tab page: Home's page in a view of its own, for this tab.
-    const view = adopted ?? (tab.kind === "new-tab" ? this.addView("home", tab.id, { newtab: "" }) : this.addView("editor", tab.id, query, tab.fileKey));
+    // The Developer tab: the design system's gallery (`?gallery`) in a Home view of its own; ready when it has loaded.
+    const view =
+      adopted ??
+      (tab.kind === "new-tab" ? this.addView("home", tab.id, { newtab: "" }) : tab.kind === "developer" ? this.addView("home", tab.id, { gallery: "" }) : this.addView("editor", tab.id, query, tab.fileKey));
+    if (tab.kind === "developer")
+      view.webContents.on("did-finish-load", () => {
+        if (this.tab(tab.id)?.status === "loading") this.dispatch({ type: "status", id: tab.id, status: "ready" });
+      });
     const request = this.openRequest;
     this.openRequest = null;
     this.opens = [...this.opens.slice(-9), { at: request?.fileKey === tab.fileKey ? request.at : Date.now(), fileKey: tab.fileKey, tabId: tab.id, adopted: Boolean(adopted), webContentsId: view.webContents.id }];
@@ -439,7 +446,7 @@ export class TabManager {
   reload(id: string) {
     const rt = this.runtime.get(id);
     if (!rt) return;
-    if (this.tab(id)?.kind === "new-tab") return void rt.view.webContents.reload();
+    if (isPageTab(this.tab(id))) return void rt.view.webContents.reload();
     const again = () => {
       if (this.runtime.get(id) !== rt) return;
       rt.crashed = false;
@@ -460,12 +467,12 @@ export class TabManager {
       const go = () => {
         if (this.runtime.get(id) !== rt || rt.view.webContents.isDestroyed()) return;
         rt.crashed = false;
-        if (this.tab(id)?.kind !== "new-tab") this.dispatch({ type: "status", id, status: "loading" });
+        if (!isPageTab(this.tab(id))) this.dispatch({ type: "status", id, status: "loading" });
         const url = rt.view.webContents.getURL();
         if (rewrite && url && rewrite(url) !== url) void rt.view.webContents.loadURL(rewrite(url)).catch(() => {});
         else rt.view.webContents.reload();
       };
-      if (!rt.crashed && this.tab(id)?.kind !== "new-tab") void askFlush(rt.view.webContents, "reload").then(go);
+      if (!rt.crashed && !isPageTab(this.tab(id))) void askFlush(rt.view.webContents, "reload").then(go);
       else go();
     }
   }
@@ -558,14 +565,14 @@ export class TabManager {
     const wasVisible = this.visible;
     this.visible = [tab?.id, beside?.id].filter((v): v is string => Boolean(v));
     for (const gone of wasVisible.filter((v) => !this.visible.includes(v))) {
-      const was = this.tab(gone)?.kind !== "new-tab" ? this.runtime.get(gone) : undefined;
+      const was = !isPageTab(this.tab(gone)) ? this.runtime.get(gone) : undefined;
       if (!was) continue;
       emit(was.view.webContents, "tab:visibility", { visible: false });
       // Hidden: what it holds goes to the store now (nobody waits for the answer).
       if (!was.crashed) void askFlush(was.view.webContents, "hide");
     }
     for (const come of this.visible.filter((v) => !wasVisible.includes(v))) {
-      const rt = this.tab(come)?.kind !== "new-tab" ? this.runtime.get(come) : undefined;
+      const rt = !isPageTab(this.tab(come)) ? this.runtime.get(come) : undefined;
       if (rt) emit(rt.view.webContents, "tab:visibility", { visible: true });
     }
     // Recents (docs/desktop.md §5 step 6).
@@ -682,6 +689,11 @@ export class TabManager {
   /** "+" and ⌘T: the new-tab page in a new tab, beside the one in front (atlas 01 §3). */
   newTab() {
     this.dispatch({ type: "open", kind: "new-tab", fileKey: "", at: Date.now() });
+  }
+
+  /** Home's Developer button: the design system's gallery and the app's usage of it in a tab — its tab in front if open. */
+  openDeveloper() {
+    this.dispatch({ type: "open", kind: "developer", fileKey: "", title: t("Developer"), at: Date.now() });
   }
 
   /** A shared file's link opened from the system: Home in front, which opens it (docs/multiplayer.md §3). */
@@ -873,7 +885,7 @@ export class TabManager {
     for (;;) {
       const rt = this.runtime.get(id);
       const tab = this.tab(id);
-      if (!rt || !tab || rt.crashed || tab.kind === "new-tab") return true;
+      if (!rt || !tab || rt.crashed || isPageTab(tab)) return true;
       const outcome = await askFlush(rt.view.webContents, action === "quit" ? "quit" : "close");
       if ("ok" in outcome && outcome.ok) return true;
       if ("timeout" in outcome) {
@@ -888,7 +900,7 @@ export class TabManager {
 
   /** Every loaded file tab flushed together, without questions (the Mac sleeps or locks). */
   async flushQuietly() {
-    await Promise.all(this.state.tabs.filter((t) => t.kind !== "new-tab" && this.runtime.has(t.id) && !this.runtime.get(t.id)!.crashed).map((t) => askFlush(this.runtime.get(t.id)!.view.webContents, "hide")));
+    await Promise.all(this.state.tabs.filter((t) => !isPageTab(t) && this.runtime.has(t.id) && !this.runtime.get(t.id)!.crashed).map((t) => askFlush(this.runtime.get(t.id)!.view.webContents, "hide")));
   }
 
   /** Tabs closed, each flushed first: false when the person kept one (a failed flush, Cancel). */
@@ -917,7 +929,7 @@ export class TabManager {
     if (this.busy) return false;
     this.busy = true;
     try {
-      const loaded = this.state.tabs.filter((t) => t.kind !== "new-tab" && this.runtime.has(t.id));
+      const loaded = this.state.tabs.filter((t) => !isPageTab(t) && this.runtime.has(t.id));
       // All at once; a question only for one that failed or timed out.
       const flushAction = action;
       const outcomes = await Promise.all(loaded.map(async (t) => ({ t, outcome: this.runtime.get(t.id)!.crashed ? ({ ok: true } as const) : await askFlush(this.runtime.get(t.id)!.view.webContents, flushAction) })));
@@ -956,7 +968,7 @@ export class TabManager {
     let items: MenuItemConstructorOptions[];
     if (id === HOME) items = [copyLink, { type: "separator" }, reload];
     else if (!tab) return;
-    else if (tab.kind === "new-tab") items = [reload, { type: "separator" }, close];
+    else if (isPageTab(tab)) items = [reload, { type: "separator" }, close];
     else {
       const groups = groupsOf(this.state);
       const group: MenuItemConstructorOptions[] = tab.pinned

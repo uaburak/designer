@@ -21,6 +21,7 @@ import * as act from "./actions";
 import { ConfirmDialog, MoveDialog, NewFolderDialog } from "./dialogs";
 import { importWithShell, newDesignFile, onOpenShared, onReveal, onShellCommand, openFile, pickFigFiles, saveLocalCopy, setMenuState, type OpenDeps } from "./desktop";
 import { ItemsView } from "./ItemsView";
+import { DeveloperButton } from "./DeveloperButton";
 import { FileSettingsDialog } from "./FileSettings";
 import { useBranchCounts, useBranchSwitcher, useMainNames } from "./branches";
 import { branchCountTargets } from "./branchesModel";
@@ -1053,6 +1054,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
             )}
             {canCreateFiles(location) && !folderGone && !outsideHome && (
               <>
+                <DeveloperButton />
                 {/* The owner's Home (2026-10-19): a tinted pill like Import — the 24 design glyph, then "Design" */}
                 <Button variant="tinted" size="large" icon="24.design" tooltip={tr("New design file")} shortcut={keys(["mod", "n"])} onClick={() => void newFile()}>
                   {tr("Design")}

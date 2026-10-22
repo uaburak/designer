@@ -546,6 +546,8 @@ export interface IpcSend {
   "updater:restart": void;
   /** Home in front ("Back to files"), the file shown there when given */
   "nav:go-home": { revealFileKey?: string } | undefined;
+  /** Home's Developer button: the Developer tab (the design system's gallery, `?gallery`) in front */
+  "nav:open-developer": void;
   "tab:report": TabReport;
   "tab:flushed": TabFlushed;
   /** What the view says about the menu bar's items (enabled, checked): only what changed */
@@ -738,6 +740,7 @@ export const SEND_ROLES: { [C in keyof IpcSend]: readonly Role[] } = {
   "updater:check": ["tabbar"],
   "updater:restart": ["tabbar"],
   "nav:go-home": ["editor"],
+  "nav:open-developer": ["home"],
   "tab:report": ["editor"],
   "tab:flushed": ["editor"],
   "menu:state": ["home", "editor"],

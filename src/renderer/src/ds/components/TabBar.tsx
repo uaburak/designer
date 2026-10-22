@@ -9,7 +9,7 @@ import { Spinner } from "./Spinner";
 import styles from "./TabBar.module.css";
 
 /** `splitWith`: a split tab's other half (atlas 01 §2.3), the tab right after or before it */
-export type TabBarTab = { id: string; title: string; dirty?: boolean; kind?: "design" | "prototype" | "new-tab"; pinned?: boolean; groupId?: string; splitWith?: string };
+export type TabBarTab = { id: string; title: string; dirty?: boolean; kind?: "design" | "prototype" | "new-tab" | "developer"; pinned?: boolean; groupId?: string; splitWith?: string };
 
 /** Figma's tab group colours (atlas 01 §2.3) */
 export type TabBarGroupColor = "blue" | "red" | "yellow" | "green" | "purple" | "pink" | "persimmon" | "grey";
@@ -356,7 +356,7 @@ export function Tab({ tab, active, onActivate, onClose, onContextMenu, onPointer
         if (e.key === "Enter" || e.key === " ") onActivate();
       }}
     >
-      <span className={styles.glyph}><Icon name={tab.kind === "prototype" ? "16.play" : tab.kind === "new-tab" ? "16.page" : "16.design"} /></span>
+      <span className={styles.glyph}><Icon name={tab.kind === "prototype" ? "16.play" : tab.kind === "new-tab" ? "16.page" : tab.kind === "developer" ? "16.component" : "16.design"} /></span>
       <span className={styles.title}>{tab.title}</span>
       <span className={styles.slot}>
         {tab.dirty && <span className={styles.dot} aria-label={t(STRINGS.unsaved)} />}

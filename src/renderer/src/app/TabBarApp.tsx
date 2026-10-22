@@ -51,8 +51,8 @@ export default function TabBarApp() {
         .filter((tab) => tab.kind !== "home")
         .map((tab) => ({
           id: tab.id,
-          kind: tab.kind === "prototype" ? ("prototype" as const) : tab.kind === "new-tab" ? ("new-tab" as const) : ("design" as const),
-          title: tab.kind === "new-tab" ? t("New tab") : tab.status === "crashed" ? t("{title} — crashed", { title: tab.title }) : tab.status === "unresponsive" ? t("{title} — not responding", { title: tab.title }) : tab.title,
+          kind: tab.kind === "prototype" ? ("prototype" as const) : tab.kind === "new-tab" ? ("new-tab" as const) : tab.kind === "developer" ? ("developer" as const) : ("design" as const),
+          title: tab.kind === "new-tab" ? t("New tab") : tab.kind === "developer" ? t("Developer") : tab.status === "crashed" ? t("{title} — crashed", { title: tab.title }) : tab.status === "unresponsive" ? t("{title} — not responding", { title: tab.title }) : tab.title,
           ...(tab.pinned ? { pinned: true } : {}),
           ...(tab.groupId ? { groupId: tab.groupId } : {}),
           ...(tab.splitWith ? { splitWith: tab.splitWith } : {}),

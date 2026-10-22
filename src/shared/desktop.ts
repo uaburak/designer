@@ -141,6 +141,8 @@ export interface NavApi {
   newFile(folderId?: string | null, name?: string): Promise<NewFileResult>;
   /** Present (R8 §9): the file's presentation view in a new tab (one per file and starting frame; editors only). */
   openPrototype?(fileKey: string, pageId: string, startNodeId?: string, title?: string): Promise<OpenFileResult>;
+  /** Home's Developer button: the design system's gallery with the app's usage of it, in a tab of its own (Home only). */
+  openDeveloper?(): void;
 }
 
 /** Native file dialogs and paths (docs/desktop.md §10.2 "Files and native dialogs"). */
