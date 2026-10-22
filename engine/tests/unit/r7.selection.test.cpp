@@ -404,6 +404,33 @@ TEST_CASE("r7 select matching (232): like layers in the frame; Select all with s
   CHECK((e.commandState(CommandId::SELECT_MATCHING) & CMD_ENABLED) == 0);
 }
 
+TEST_CASE("select matching across frames and variants (help 'Select matching layers'): the same path of names") {
+  // A set with two variants, each a label among other layers; a second frame with the same layer as F.
+  const Guid SET{8, 1}, V1{8, 2}, V2{8, 3}, L1{8, 4}, L2{8, 5}, X1{8, 6}, F2{8, 7}, R5{8, 8};
+  NodeChange set = make(SET, NodeType::FRAME, kPage, "#", {0, 400, 300, 100}, "Button");
+  set.props.comp().isStateGroup = true;
+  NodeChange v1 = make(V1, NodeType::SYMBOL, SET, "!", {0, 0, 100, 40}, "State=Default");
+  NodeChange v2 = make(V2, NodeType::SYMBOL, SET, "\"", {150, 0, 100, 40}, "State=Hover");
+  NodeChange x1 = make(X1, NodeType::TEXT, V1, "!", {0, 0, 20, 20}, "Icon");
+  NodeChange l1 = make(L1, NodeType::TEXT, V1, "\"", {30, 0, 50, 20}, "Label");
+  NodeChange l2 = make(L2, NodeType::TEXT, V2, "!", {30, 0, 60, 20}, "Label");
+  NodeChange f2 = make(F2, NodeType::FRAME, kPage, "$", {700, 0, 300, 300}, "Frame 4");
+  NodeChange r5 = make(R5, NodeType::ROUNDED_RECTANGLE, F2, "!", {0, 0, 10, 10}, "Rectangle 1");
+  Editor e = makeEditor({set, v1, v2, x1, l1, l2, f2, r5});
+  // A layer in a variant: the same layer in the other variants, whatever its size or fill
+  e.setSelection({L1});
+  REQUIRE(e.command(CommandId::SELECT_MATCHING) == OK);
+  CHECK(e.selection() == std::vector<Guid>{L1, L2});
+  // A variant: every variant of its set
+  e.setSelection({V1});
+  REQUIRE(e.command(CommandId::SELECT_MATCHING) == OK);
+  CHECK(e.selection() == std::vector<Guid>{V1, V2});
+  // A layer in a top-level frame: the same layer in the other frames
+  e.setSelection({R1});
+  REQUIRE(e.command(CommandId::SELECT_MATCHING) == OK);
+  CHECK(e.selection() == std::vector<Guid>{R1, R5});
+}
+
 // ---- 13. Tidy up ----------------------------------------------------------------------------------------------------
 
 TEST_CASE("r7 tidy up (233): a rough row and grid laid out evenly at their mean gap") {

@@ -149,12 +149,78 @@ void Editor::removeKeepingContents() {
 
 // ---- Select matching ----------------------------------------------------------------------------------------------
 
+// Figma's "Select matching layers" (help.figma.com "Select matching layers", ⌥⌘A): identical layers across more than one
+// frame or group — the same type at the same path of names from the frame or group it sits in (the n-th of that name
+// among its siblings), found in that frame's siblings of its type; the nearest level that has any wins. Variants of one
+// set match each other. Empty when the selection has no such counterpart.
+static std::vector<Guid> structuralMatches(const Document& doc, const std::vector<Guid>& sel) {
+  std::vector<Guid> out;
+  auto nthOfName = [&](Guid id) {
+    const Node* n = doc.get(id);
+    int nth = 0;
+    for (Guid c : doc.children(doc.parentOf(id))) {
+      if (c == id) break;
+      if (const Node* m = doc.get(c); m && n && m->props.name == n->props.name) nth++;
+    }
+    return nth;
+  };
+  auto childAt = [&](Guid parent, const std::string& name, int nth) -> Guid {
+    for (Guid c : doc.children(parent))
+      if (const Node* m = doc.get(c); m && m->props.name == name && nth-- == 0) return c;
+    return kNoGuid;
+  };
+  for (Guid id : sel) {
+    const Node* n = doc.get(id);
+    if (!n) continue;
+    Guid parent = doc.parentOf(id);
+    const Node* pn = doc.get(parent);
+    if (!pn || pn->props.type == NodeType::CANVAS) continue;
+    // A variant: every variant of its set
+    if (n->props.type == NodeType::SYMBOL && pn->props.isComponentSet()) {
+      for (Guid c : doc.children(parent))
+        if (const Node* m = doc.get(c); m && m->props.type == NodeType::SYMBOL && m->props.visible && !m->props.locked) out.push_back(c);
+      continue;
+    }
+    // The path of names from an ancestor down to the layer, one level more each time up
+    std::vector<std::pair<std::string, int>> path{{n->props.name, nthOfName(id)}};
+    for (Guid at = parent; at != kNoGuid;) {
+      const Node* an = doc.get(at);
+      Guid up = doc.parentOf(at);
+      const Node* un = doc.get(up);
+      if (!an || !un || an->props.type == NodeType::CANVAS) break;
+      std::vector<Guid> found;
+      for (Guid sib : doc.children(up)) {
+        const Node* sn = doc.get(sib);
+        if (sib == at || !sn || sn->props.type != an->props.type) continue;
+        Guid cur = sib;
+        for (auto it = path.rbegin(); it != path.rend() && cur != kNoGuid; ++it) cur = childAt(cur, it->first, it->second);
+        const Node* hit = cur != kNoGuid ? doc.get(cur) : nullptr;
+        if (hit && hit->props.type == n->props.type && hit->props.visible && !hit->props.locked) found.push_back(cur);
+      }
+      if (!found.empty()) {
+        out.push_back(id);
+        out.insert(out.end(), found.begin(), found.end());
+        break;
+      }
+      if (un->props.type == NodeType::CANVAS) break;
+      path.push_back({an->props.name, nthOfName(at)});
+      at = up;
+    }
+  }
+  std::vector<Guid> unique;
+  for (Guid g : out)
+    if (std::find(unique.begin(), unique.end(), g) == unique.end()) unique.push_back(g);
+  return unique.size() > sel.size() ? unique : std::vector<Guid>{};
+}
+
 std::vector<Guid> Editor::matchingLayers(const std::string& mode) const {
   // "Select matching layers" (⌥⌘A, Figma): layers like the selected ones — same type and properties — among the
   // selection's siblings' scope: within the selection's top-level frame or section, else the whole page. Edit ▸
   // "Select all with same …": every layer on the page with that property.
   std::vector<Guid> sel = selection_;
   if (sel.empty() || page_ == kNoGuid) return {};
+  if (mode == "LAYERS")
+    if (std::vector<Guid> same = structuralMatches(doc_, sel); !same.empty()) return same;
   std::vector<const NodeProps*> refs;
   for (Guid id : sel)
     if (const Node* n = doc_.get(id)) refs.push_back(&n->props);
