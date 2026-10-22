@@ -601,8 +601,16 @@ void Editor::selectRelative(int which) {
         add(p && p->props.type != NodeType::CANVAS ? parent : id);
         break;
       }
-      case 2: add(siblings[static_cast<size_t>((i + n - 1) % n)]); break;  // Tab: the next layer down in the Layers list
-      case 3: add(siblings[static_cast<size_t>((i + 1) % n)]); break;      // ⇧Tab: the one above
+      // Tab: the next layer down in the Layers list, ⇧Tab the one above — which lists an auto layout's children in flow
+      // order (live Figma: "label" → "endContent"), every other parent's front first.
+      case 2:
+      case 3: {
+        const Node* p = doc_.get(parent);
+        bool flow = p && p->props.isAutoLayout();
+        long step = (which == 2) == flow ? 1 : n - 1;
+        add(siblings[static_cast<size_t>((i + step) % n)]);
+        break;
+      }
     }
   }
   changeSelection(std::move(next));

@@ -176,7 +176,11 @@ TEST_CASE("r11 component set: \"3 Variants\" in the pill, the \"+\" 4 px under i
     return isFill(q) && sameColor(q, Color{1, 1, 1, 1}) && ((q.origin[2] == 11 && q.origin[3] == 1.5f) || (q.origin[2] == 1.5f && q.origin[3] == 11));
   });
   CHECK(bars.size() == 2);
-  // A pink box in each gap, across the content box: x 116 / 232, y 16 to 24, 1 px inside.
+  // A pink box in each gap, across the content box: x 116 / 232, y 16 to 24, 1 px inside — while the pointer is in one
+  // (the owner, 2026-10-23).
+  CHECK(s.e.overlay().gapBoxes.empty());
+  s.move(s.screen({124, 20}));
+  all = s.draw();
   const Overlay o = s.e.overlay();
   REQUIRE(o.gapBoxes.size() == 2);
   CHECK(o.gapBoxes[0].rect == Rect{116, 16, 16, 8});
@@ -210,9 +214,11 @@ TEST_CASE("r11 component set: the + only with the handles, none for a plain fram
   CHECK(s.e.overlay().gapBoxes.empty());  // no auto layout
   // The Button component and its instance: the gap between their two layers, across the 24-high content box.
   s.e.setSelection({BTN});
+  s.move(s.screen(s.e.document().worldTransform(BTN).apply({44, 22})));
   REQUIRE(s.e.overlay().gapBoxes.size() == 1);
   CHECK(s.e.overlay().gapBoxes[0].rect == Rect{40, 10, 8, 24});
   s.e.setSelection({INST});
+  s.move(s.screen(s.e.document().worldTransform(INST).apply({44, 22})));
   REQUIRE(s.e.overlay().gapBoxes.size() == 1);
   CHECK(s.e.overlay().gapBoxes[0].rect == Rect{40, 10, 8, 24});
   // A plain auto-layout frame: none (live: its gaps show only as the hover bars).

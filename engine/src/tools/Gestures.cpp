@@ -697,18 +697,18 @@ void Editor::hoverDottedOverlay(Overlay& o) const {
   }
 }
 
-void Editor::gapBoxesOverlay(Overlay& o) const {
+bool Editor::autoLayoutGaps(std::vector<Rect>& gaps, Mat2x3& W) const {
   // A selected auto-layout component, component set or instance: each gap between its layers as a box across the
   // content box, from one layer's edge to the next one's (live Figma round 11, canvas-component-set-selected: Chip's
   // two 16-wide gaps from y 16 to 24; canvas-instance-selected: Button's gap across its 24-high content). Rows of a
   // wrapping flow, a grid's and a plain frame's gaps: none (no live capture shows them).
-  if (selection_.size() != 1 || viewer_) return;
+  if (selection_.size() != 1 || viewer_) return false;
   Guid id = selection_[0];
   const Node* n = doc_.get(id);
-  if (!n || !n->props.isComponentish() || !n->props.isAutoLayout()) return;
+  if (!n || !n->props.isComponentish() || !n->props.isAutoLayout()) return false;
   const NodeProps& p = n->props;
   StackMode mode = p.stack().stackMode;
-  if (mode == StackMode::GRID || p.stack().stackWrap == StackWrap::WRAP) return;
+  if (mode == StackMode::GRID || p.stack().stackWrap == StackWrap::WRAP) return false;
   double pad[4];
   Layout::padding(p, pad);
   std::vector<Rect> boxes;
@@ -718,13 +718,23 @@ void Editor::gapBoxesOverlay(Overlay& o) const {
   }
   const bool horizontal = mode == StackMode::HORIZONTAL;
   const double w = p.size.x, h = p.size.y;
-  const Mat2x3 W = doc_.worldTransform(id);
+  W = doc_.worldTransform(id);
   for (size_t i = 1; i < boxes.size(); i++) {
     const Rect& a = boxes[i - 1];
     const Rect& b = boxes[i];
     Rect g = horizontal ? Rect{a.right(), pad[1], b.x - a.right(), h - pad[1] - pad[3]} : Rect{pad[0], a.bottom(), w - pad[0] - pad[2], b.y - a.bottom()};
-    if (g.w > 1e-6 && g.h > 1e-6) o.gapBoxes.push_back({W, g});
+    if (g.w > 1e-6 && g.h > 1e-6) gaps.push_back(g);
   }
+  return !gaps.empty();
+}
+
+void Editor::gapBoxesOverlay(Overlay& o) const {
+  // Only while the pointer is in one of them (the owner, 2026-10-23: always shown they read as part of the design).
+  if (!pointerInGap_) return;
+  std::vector<Rect> gaps;
+  Mat2x3 W;
+  if (!autoLayoutGaps(gaps, W)) return;
+  for (const Rect& g : gaps) o.gapBoxes.push_back({W, g});
 }
 
 bool Editor::selectionHoverChanged(Vec2 s) {
@@ -832,7 +842,7 @@ void Editor::updateHover(Vec2 s, uint32_t mods) {
       focusFilter(path);
       // Inside a selected layer the hover outlines the next level down (dotted inside an instance, the owner's
       // 46.png) — what a double-click there selects; a single click keeps the selected layer (live Figma #3–#10).
-      next = pick(doc_, path, selection_, (mods & MOD_PRIMARY) != 0, true);
+      next = pick(doc_, path, selection_, (mods & MOD_PRIMARY) != 0, true, (mods & MOD_SHIFT) != 0);
     }
   }
   devHover(s);
@@ -848,6 +858,18 @@ void Editor::updateHover(Vec2 s, uint32_t mods) {
     reorderHover_ = oh;
     // The radius handles and gap handles come and go with the pointer over the selection.
     if (selectionHoverChanged(s)) needsRender_ = true;
+    // A selected auto-layout component's gaps show while the pointer is in one.
+    {
+      std::vector<Rect> gaps;
+      Mat2x3 W;
+      bool inGap = false;
+      if (autoLayoutGaps(gaps, W)) {
+        Vec2 q = W.inverse().apply(camera_.toWorld(s));
+        for (const Rect& g : gaps) inGap |= g.contains(q);
+      }
+      if (inGap != pointerInGap_) needsRender_ = true;
+      pointerInGap_ = inGap;
+    }
     // The AI sparkle (Group 1): its box where the last frame drew it, 4 px of slack.
     const Rect& ai = hits_.aiButton;
     bool onAi = ai.w > 0 && s.x >= ai.x - 4 && s.y >= ai.y - 4 && s.x <= ai.right() + 4 && s.y <= ai.bottom() + 4;
@@ -1265,7 +1287,7 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
   }
   // A single click picks at the selection's depth (a click inside a selected layer picks it again); the second press
   // of a double-click goes one level down (live Figma, docs/research/figma/live/behaviour/selection.md).
-  pressed_ = pick(doc_, path, selection_, deep, clickCount_ >= 2);
+  pressed_ = pick(doc_, path, selection_, deep, clickCount_ >= 2, shift && clickCount_ < 2);
   pressMarquee_ = false;
   pressInSelected_ = false;
   pressNoop_ = false;

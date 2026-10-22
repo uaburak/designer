@@ -239,6 +239,38 @@ TEST_CASE("resize across parents (live Figma): each parent's group has its box; 
   CHECK(props(e, R5).size == Vec2{50, 60});
 }
 
+TEST_CASE("⇧-click picks at the selection's depth in another branch; Tab follows an auto layout's flow (live Figma)") {
+  // A set of two variants, each with a "label" frame holding a text.
+  const Guid SET{10, 1}, V1{10, 2}, V2{10, 3}, L1{10, 4}, L2{10, 5}, T1{10, 6}, T2{10, 7}, A{10, 8}, B{10, 9}, C{10, 10};
+  NodeChange set = make(SET, NodeType::FRAME, kPage, "#", {0, 400, 300, 100}, "Button");
+  set.props.comp().isStateGroup = true;
+  NodeChange v1 = make(V1, NodeType::SYMBOL, SET, "!", {0, 0, 100, 40}, "State=Default");
+  NodeChange v2 = make(V2, NodeType::SYMBOL, SET, "\"", {150, 0, 100, 40}, "State=Hover");
+  NodeChange l1 = make(L1, NodeType::FRAME, V1, "!", {30, 10, 50, 20}, "label");
+  NodeChange l2 = make(L2, NodeType::FRAME, V2, "!", {30, 10, 50, 20}, "label");
+  NodeChange t1 = make(T1, NodeType::ROUNDED_RECTANGLE, L1, "!", {0, 0, 50, 20}, "Text");
+  NodeChange t2 = make(T2, NodeType::ROUNDED_RECTANGLE, L2, "!", {0, 0, 50, 20}, "Text");
+  // An auto layout with three layers in a row.
+  NodeChange row = make(Guid{10, 11}, NodeType::FRAME, kPage, "%", {0, 600, 300, 40}, "Row");
+  row.props.stack().stackMode = StackMode::HORIZONTAL;
+  NodeChange a = make(A, NodeType::ROUNDED_RECTANGLE, Guid{10, 11}, "!", {0, 0, 40, 40}, "startContent");
+  NodeChange b = make(B, NodeType::ROUNDED_RECTANGLE, Guid{10, 11}, "\"", {50, 0, 40, 40}, "label");
+  NodeChange c = make(C, NodeType::ROUNDED_RECTANGLE, Guid{10, 11}, "#", {100, 0, 40, 40}, "endContent");
+  Editor e = makeEditor({set, v1, v2, l1, l2, t1, t2, row, a, b, c});
+  // L1 selected; ⇧-click on L2's area (world 180..230 × 410..430 → screen +100): L2 joins it, not V2
+  e.setSelection({L1});
+  down(e, 300, 520, MOD_SHIFT);
+  up(e, 300, 520, MOD_SHIFT);
+  CHECK(e.selection() == std::vector<Guid>{L1, L2});
+  // Tab in an auto layout: the next in flow ("label" → "endContent"), ⇧Tab the one before
+  e.setSelection({B});
+  e.command(CommandId::SELECT_NEXT_SIBLING);
+  CHECK(e.selection() == std::vector<Guid>{C});
+  e.setSelection({B});
+  e.command(CommandId::SELECT_PREV_SIBLING);
+  CHECK(e.selection() == std::vector<Guid>{A});
+}
+
 TEST_CASE("r7 resize: ⌘ ignores constraints — the frame's children stay where they are on the page") {
   Editor e = makeEditor();
   e.setSelection({F});

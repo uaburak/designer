@@ -1,12 +1,40 @@
 #include "hit/Picking.h"
 
+#include <algorithm>
 #include <unordered_set>
 
 namespace eng {
 
-Guid pick(const Document& doc, const std::vector<Guid>& path, const std::vector<Guid>& selection, bool deep, bool enter) {
+static Guid pickAtDepth(const Document& doc, const std::vector<Guid>& path, const std::vector<Guid>& selection, bool enter);
+
+Guid pick(const Document& doc, const std::vector<Guid>& path, const std::vector<Guid>& selection, bool deep, bool enter, bool sameDepth) {
   if (path.empty()) return kNoGuid;
   if (deep) return path.back();
+  Guid picked = pickAtDepth(doc, path, selection, enter);
+  if (!sameDepth || selection.empty()) return picked;
+  // The selected layers' depth: how many layers are above the deepest of them (the page not counted).
+  size_t depth = 0;
+  for (Guid s : selection) {
+    size_t d = 0;
+    for (Guid cur = doc.parentOf(s); cur != kNoGuid; cur = doc.parentOf(cur)) {
+      const Node* n = doc.get(cur);
+      if (!n || n->props.type == NodeType::CANVAS) break;
+      d++;
+    }
+    depth = std::max(depth, d);
+  }
+  size_t at = std::find(path.begin(), path.end(), picked) - path.begin();
+  if (at >= path.size() || at >= depth) return picked;
+  // Down the hit path to that depth, stopping at an instance (picked whole until opened) and at the hit itself.
+  size_t to = std::min(depth, path.size() - 1);
+  for (size_t i = at; i < to; i++) {
+    const Node* n = doc.get(path[i]);
+    if (n && n->props.type == NodeType::INSTANCE) return path[i];
+  }
+  return path[to];
+}
+
+static Guid pickAtDepth(const Document& doc, const std::vector<Guid>& path, const std::vector<Guid>& selection, bool enter) {
   // "Open": what the selection's layers are in (their parents and up) — a click picks at the selection's depth, so a
   // sibling of a deep selection is picked directly (live Figma S1, S2) and a click inside a selected layer picks that
   // layer again (#3, #6, #8, #10: a single click never goes one level down). `enter` (a double-click) opens the
