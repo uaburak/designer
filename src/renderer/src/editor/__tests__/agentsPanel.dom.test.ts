@@ -181,7 +181,7 @@ describe("the Agents panel: one agent's work in view", () => {
     await settle();
   };
 
-  it("the gear opens Agent settings in the panel: This chat, the pages and the usage cards; a page opens in place, Back returns", async () => {
+  it("the gear opens Agent settings in the panel: the pages and the usage cards; a page opens in place, Back returns", async () => {
     const { view, engine, emit } = await setup();
     await sendText("Make the mobile version");
     emit("T1", { type: "usage", usage: { input: 1200, output: 300 } });
@@ -193,10 +193,8 @@ describe("the Agents panel: one agent's work in view", () => {
     expect($("[data-tab-header-back]")).not.toBeNull();
     expect($("[data-composer]")).toBeNull();
     expect(page()).toBe("home");
-    const chat = $("[data-chat-settings]")!;
-    expect($("[data-chat-manager]", chat)?.getAttribute("aria-checked")).toBe("false");
-    expect($("[data-model-menu]", chat)).not.toBeNull();
-    expect($("[data-chat-effort]", chat)).not.toBeNull();
+    // No "This chat" section: the model and effort are the composer's.
+    expect($("[data-chat-settings]")).toBeNull();
     expect($$("[data-settings-nav]").map((r) => r.getAttribute("data-settings-nav"))).toEqual(["agents", "manager", "skills", "connectors", "access", "usage"]);
     // Nav rows: icon, title and chevron — no description line; no boxes anywhere but the usage cards.
     expect($$("[data-settings-nav]").every((r) => !r.querySelector('[class*="mRowDesc"]'))).toBe(true);

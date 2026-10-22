@@ -499,9 +499,11 @@
   .mCheck { display: flex; align-items: center; min-height: var(--ds-size-row); padding: var(--ds-space-1) var(--ds-space-2); }
   /* The manager's fields in a section: a row each, the label at the left, the field at most 240 wide */
   .mList > .field { min-height: calc(var(--ds-space-8) + var(--ds-space-1)); padding: var(--ds-space-1) var(--ds-space-2); }
-  .mList .fieldLabel { width: calc(var(--ds-space-16) * 2); }
-  .mList .fieldValue { justify-content: flex-end; }
-  .mList .fieldSelect { flex: 0 1 calc(var(--ds-space-16) * 4); }
+  .mList .fieldLabel { flex: 1 1 auto; width: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mList .fieldValue { flex: 0 1 60%; justify-content: flex-end; }
+  .mList .fieldSelect { flex: 1 1 auto; }
+  /* A skill's row: its ••• only on hover or while open */
+  .mRow:not(:hover):not(:focus-within) .mRowMore:not([aria-expanded="true"]) { opacity: 0; }
   /* Usage's page: the home's cards, larger */
   .mUsageCard { gap: var(--ds-space-3); padding: var(--ds-space-3) var(--ds-space-4); }
   .mUsageCard h3 { margin: 0; }

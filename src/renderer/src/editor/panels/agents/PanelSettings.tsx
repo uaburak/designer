@@ -12,13 +12,11 @@ import { AgentLogo, Badge, Button, Icon, IconButton, MenuButton, Select, Spinner
 import type { AccessLogEntry, ReachCapability, ReachPolicy } from "@shared/agents/reach";
 import type { ProviderInfo } from "@shared/agents/types";
 import { settingsSectionOf, type AgentsService, type SettingsSection } from "../../agents/service";
-import { managerName } from "../../agents/managerName";
 import { formatTokens, relevantWindows, resetLabel, ringOf, usedLabel } from "../../agents/usage";
 import { KIND_ICON, LookAgain, isCustom, isServer, settingsPageOf, stateText } from "./AgentSettings";
 import { connectorStatus } from "./aiSettings";
 import { CAPABILITIES, OUTCOME, POLICIES, changeReach, useReach } from "./AccessSettings";
 import { ManagerPage } from "./ManagerSettings";
-import { EffortPicker, ModelPicker } from "./ModelPicker";
 import { changeConnectors, removeSkill, resetSkill, toggleSkill, useConnectors, useSkills } from "./aiData";
 import { NavRow, SettingsGroup, SettingsRow, errorText } from "./settingsParts";
 import { AgentMark } from "./AgentMark";
@@ -64,8 +62,7 @@ function SettingsHome({ service }: { service: AgentsService }) {
   useT();
   return (
     <div className={cx(styles.scroll, styles.psPage)} data-agent-settings="" data-settings-page="home">
-      <ThisChat service={service} />
-      <SettingsGroup label={t("Settings")} data-settings-box="pages">
+      <SettingsGroup data-settings-box="pages">
         {SECTIONS.map((s) => (
           <NavRow key={s.id} icon={s.icon} title={t(s.label)} onClick={() => service.openSetting(`section:${s.id}`)} data-settings-nav={s.id} />
         ))}
@@ -78,65 +75,6 @@ function SettingsHome({ service }: { service: AgentsService }) {
 /** A select in a row: it shrinks with the panel. */
 function Field({ children, small }: { children: ReactNode; small?: boolean }) {
   return <span className={cx(styles.psField, small && styles.psFieldSmall)}>{children}</span>;
-}
-
-/** What one changes while chatting: the manager on or off, the model and its effort, how agents ask before reaching out. */
-function ThisChat({ service }: { service: AgentsService }) {
-  useT();
-  const provider = service.activeProvider();
-  const manager = service.managerSettings();
-  return (
-    <SettingsGroup label={t("This chat")} data-chat-settings="" data-settings-box="chat">
-      <SettingsRow title={managerName(manager)} data-chat-section="manager">
-        <Switch label={managerName(manager)} checked={manager.enabled} onChange={(on) => void service.setManager({ enabled: on })} data-chat-manager="" />
-      </SettingsRow>
-      <SettingsRow title={t("Model")} data-chat-section="model">
-        <Field>
-          <ModelPicker service={service} provider={provider} variant="filled" withEffort={false} width={undefined} />
-        </Field>
-      </SettingsRow>
-      {provider && !service.managerProvider() && (
-        <SettingsRow title={t("Effort")} data-chat-effort="">
-          <Field>
-            <EffortPicker service={service} provider={provider} variant="filled" width={undefined} />
-          </Field>
-        </SettingsRow>
-      )}
-      <Approvals service={service} />
-    </SettingsGroup>
-  );
-}
-
-const MIXED = "mixed";
-
-/**
- * Approvals: how the reach that is on asks — Ask each time or Always allow, for every capability that isn't off (Off
- * ones stay off: turning one on is Access's own page). Mixed policies read "Custom".
- */
-function Approvals({ service }: { service: AgentsService }) {
-  useT();
-  const { view } = useReach(service);
-  if (!service.api?.reach || !view) return null;
-  const on = CAPABILITIES.map((c) => c.cap).filter((cap) => !view.forcedOff.includes(cap) && view.settings.policies[cap] !== "off");
-  if (!on.length) return null;
-  const policies = new Set(on.map((cap) => view.settings.policies[cap]));
-  const value = policies.size === 1 ? [...policies][0] : MIXED;
-  return (
-    <SettingsRow title={t("Approvals")} data-chat-approvals="">
-      <Field>
-        <Select
-          label={t("Approvals")}
-          value={value}
-          options={[{ value: "ask", label: t("Ask each time") }, { value: "allow", label: t("Always allow") }, ...(value === MIXED ? [{ value: MIXED, label: t("Custom"), disabled: true }] : [])]}
-          onChange={(v) => {
-            if (v === MIXED) return;
-            const patch = Object.fromEntries(on.map((cap) => [cap, v as ReachPolicy])) as Partial<Record<ReachCapability, ReachPolicy>>;
-            void changeReach((a) => a.set({ policies: patch }));
-          }}
-        />
-      </Field>
-    </SettingsRow>
-  );
 }
 
 /**
@@ -295,17 +233,18 @@ function SkillsSection({ service }: { service: AgentsService }) {
         <SettingsRow
           key={s.id}
           title={`/${s.name}`}
-          badge={s.origin && <Badge className={styles.rowBadge} data-skill-default={s.origin}>{s.origin === "override" ? t("Edited") : t("Default")}</Badge>}
+          badge={s.origin === "override" && <Badge className={styles.rowBadge} data-skill-default={s.origin}>{t("Edited")}</Badge>}
           desc={s.description}
           dim={!s.enabled}
           onClick={() => service.openSetting(`skill:${s.id}`)}
+          chevron={false}
           data-skill={s.name}
+          data-skill-origin={s.origin || undefined}
         >
-          <Switch label={`/${s.name}`} checked={s.enabled} onChange={(on) => void toggleSkill(s, on).catch(fail)} data-skill-switch={s.name} />
           <MenuButton
             label={t("More")}
             tooltip
-            className={styles.barButton}
+            className={cx(styles.barButton, styles.mRowMore)}
             align="end"
             entries={[{ id: "edit", label: t("Edit") }, ...(s.origin === "override" ? [{ id: "reset", label: t("Reset to default") }] : []), ...(!s.origin ? [{ id: "remove", label: t("Remove") }] : [])]}
             onSelect={(id) => {
@@ -316,6 +255,7 @@ function SkillsSection({ service }: { service: AgentsService }) {
           >
             <Icon name="24.more" />
           </MenuButton>
+          <Switch label={`/${s.name}`} checked={s.enabled} onChange={(on) => void toggleSkill(s, on).catch(fail)} data-skill-switch={s.name} />
         </SettingsRow>
       ))}
     </SettingsGroup>
@@ -352,8 +292,7 @@ function ConnectorsSection({ service }: { service: AgentsService }) {
         </SettingsGroup>
       )}
       <SettingsGroup label={t("Connect other apps")} note={t("Apps on this computer that have its token can read and edit the file in front.")} data-settings-box="apps">
-        <SettingsRow icon="24.link" title={t("MCP server")} desc={state.mcp.url ? <span className={styles.mono}>{state.mcp.url}</span> : t("Not running")} onClick={() => service.openSetting("mcp")} data-settings-row="mcp">
-          <span className={styles.mCount}>{tp(n, "{n} connection", "{n} connections")}</span>
+        <SettingsRow icon="24.link" title={t("MCP server")} desc={state.mcp.url ? tp(n, "{n} connection", "{n} connections") : t("Not running")} onClick={() => service.openSetting("mcp")} data-settings-row="mcp">
           {state.mcp.url && <IconButton icon="24.copy.small" label={t("Copy URL")} tone="secondary" onClick={() => void navigator.clipboard.writeText(state.mcp.url!).then(() => showToast({ message: t("Copied to clipboard") }))} />}
         </SettingsRow>
         {state.clients.map((c) => (

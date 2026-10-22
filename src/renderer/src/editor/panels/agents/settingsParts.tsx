@@ -110,7 +110,7 @@ const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
  * A row of a SettingsGroup: its mark or icon, its name (and one secondary line under it), what it holds at the right.
  * `onClick`: the whole row opens its detail (a chevron at the end); the controls in it work without opening it.
  */
-export function SettingsRow({ icon, mark, title, badge, desc, dim, onClick, children, ...data }: { icon?: IconName; mark?: ReactNode; title: ReactNode; badge?: ReactNode; desc?: ReactNode; dim?: boolean; onClick?: () => void; children?: ReactNode } & Record<`data-${string}`, string | undefined>) {
+export function SettingsRow({ icon, mark, title, badge, desc, dim, onClick, chevron = true, children, ...data }: { icon?: IconName; mark?: ReactNode; title: ReactNode; badge?: ReactNode; desc?: ReactNode; dim?: boolean; onClick?: () => void; chevron?: boolean; children?: ReactNode } & Record<`data-${string}`, string | undefined>) {
   const link = onClick
     ? {
         role: "button",
@@ -139,7 +139,7 @@ export function SettingsRow({ icon, mark, title, badge, desc, dim, onClick, chil
           {children}
         </span>
       )}
-      {onClick && <span className={styles.rowChevron}><Icon name="16.chevron.right" /></span>}
+      {onClick && chevron && <span className={styles.rowChevron}><Icon name="16.chevron.right" /></span>}
     </div>
   );
 }
