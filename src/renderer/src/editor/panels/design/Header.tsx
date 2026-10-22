@@ -414,7 +414,7 @@ function TextVariableButton({ nodes }: { nodes: PanelNode[] }) {
   useT();
   const ed = useEditor();
   const [open, setOpen] = useState<HTMLElement | null>(null);
-  const refs = nodes.map((n) => n.guid).filter((id) => !id.startsWith("I"));
+  const refs = nodes.map((n) => n.guid);
   const bound = sharedBinding(nodes, ["TEXT_DATA"]);
   const spec = BIND_TYPE.TEXT_DATA;
   return (
