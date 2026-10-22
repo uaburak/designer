@@ -8,7 +8,7 @@ export const CODE_TO_DESIGN: DefaultSkill = {
 
 ## 0. Which source
 - GitHub: list_repos, repo_tree, search_repo, read_repo_file (Access › GitHub on, the repo allowed).
-- Local folder: list_files, search_files, read_file (Access › Files).
+- Local folder: list_local_files, search_files, read_file (Access › Files).
 - A URL (a deployed site or the owner's dev server): open_web_page to see it, capture_web_design to turn it into layers (Access › Web). The fastest faithful start when a page exists.
 - A capability is off: tell the owner which Access switch is needed; don't guess the design.
 

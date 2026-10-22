@@ -37,14 +37,14 @@ const run = filesRunner();
 describe("local files", () => {
   it("lists without secrets, links not followed, heavy folders not entered", async () => {
     const { ctx } = project();
-    const r = text(await run("list_files", { path: ".", depth: 3 }, ctx));
+    const r = text(await run("list_local_files", { path: ".", depth: 3 }, ctx));
     expect(r).toContain("src/theme.css");
     expect(r).toContain("node_modules/ (not entered)");
     expect(r).toContain("linked → (a link, not followed)");
     expect(r).not.toContain(".env");
     expect(r).not.toContain("notes.txt");
     expect(r).not.toContain("x.css");
-    expect(text(await run("list_files", {}, ctx))).toContain("Granted folders");
+    expect(text(await run("list_local_files", {}, ctx))).toContain("Granted folders");
   });
 
   it("reads text as untrusted data, pictures as images; refuses binaries, secrets and the way out", async () => {

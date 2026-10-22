@@ -12,7 +12,7 @@ Shared types and the rules that decide: `src/shared/agents/reach.ts` (capabiliti
 |---|---|---|
 | **Web** | Open a public web page and see it; capture a page (or a part of it) as layers | `open_web_page`, `capture_web_design` |
 | **GitHub** | Read the repositories the owner picked: their tree, files and a search | `list_repos`, `repo_tree`, `read_repo_file`, `search_repo` |
-| **Local files** | Read inside the folders the owner granted | `list_files`, `read_file`, `search_files` |
+| **Local files** | Read inside the folders the owner granted | `list_local_files`, `read_file`, `search_files` |
 | **Local apps** | See a window the owner picks (a screenshot, its title and size) | `capture_app_window` |
 
 The agent designs with the canvas tools it already has (`create_nodes`, variables, styles, components through `run_command`). The reach tools only read: none writes outside the open design file, runs code it read, or controls another app.
@@ -138,7 +138,7 @@ Each reach call — run, denied, refused or failed — is one line: `{at, capabi
 
 ### 10.3 The tools
 
-- **`list_files {path, depth?}`** → names, kinds and sizes (depth ≤ 4, ≤ 2 000 entries; `node_modules`, `.git` and build folders listed but not entered).
+- **`list_local_files {path, depth?}`** → names, kinds and sizes (depth ≤ 4, ≤ 2 000 entries; `node_modules`, `.git` and build folders listed but not entered).
 - **`read_file {path, offset?}`** → text as untrusted data (≤ 100 000 characters from `offset`), images as images (≤ 4 MB), other binaries refused with their size; files over 10 MB refused.
 - **`search_files {query, path?}`** → file names and text lines that contain `query` (case-insensitive), ≤ 200 matches, ≤ 5 000 files looked at, text files ≤ 1 MB, 10 s.
 

@@ -228,7 +228,7 @@ export const REACH_TOOLS: ReachToolDef[] = [
     write: false,
   },
   {
-    name: "list_files",
+    name: "list_local_files",
     title: "List files",
     capability: "files",
     action: "list local files",

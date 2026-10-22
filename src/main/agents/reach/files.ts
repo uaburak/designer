@@ -75,7 +75,7 @@ async function readFile(args: Record<string, unknown>, ctx: RunContext): Promise
   const r = resolveGrantedPath(String(args.path ?? ""), ctx.settings.files.folders);
   if (!r.ok) return error(r.reason);
   const s = await stat(r.real);
-  if (s.isDirectory()) return error(`${r.real} is a folder: list_files lists it.`);
+  if (s.isDirectory()) return error(`${r.real} is a folder: list_local_files lists it.`);
   if (!s.isFile()) return error(`${r.real} isn't a regular file.`);
   if (s.size > REACH_LIMITS.files.fileBytes) return error(`${r.real} is ${Math.round(s.size / 1024 / 1024)} MB: too large to read.`);
   const ext = /\.([a-z0-9]+)$/i.exec(r.real)?.[1]?.toLowerCase() ?? "";
@@ -158,7 +158,7 @@ async function searchFiles(args: Record<string, unknown>, ctx: RunContext): Prom
 
 export const filesRunner = (): ReachRunner => async (tool, args, ctx) => {
   try {
-    if (tool === "list_files") return await listFiles(args, ctx);
+    if (tool === "list_local_files") return await listFiles(args, ctx);
     if (tool === "read_file") return await readFile(args, ctx);
     if (tool === "search_files") return await searchFiles(args, ctx);
     return error(`Unknown tool: ${tool}`);
