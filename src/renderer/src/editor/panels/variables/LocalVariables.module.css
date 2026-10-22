@@ -253,6 +253,19 @@
 
   /* The same editor in the Edit variable modal: no table borders */
   .formValue { height: var(--ds-size-control); padding: 0; border: 0; background: transparent; }
+  /* A colour: its swatch and hex as one field (in the table, plain; in Edit variable, Figma's filled box beside the
+     Opacity field, which shows there without hover and without Apply variable) */
+  .colorField { display: inline-flex; flex: 0 1 auto; align-items: center; gap: var(--ds-space-1); min-width: 0; }
+  .formValue { gap: var(--ds-space-1); }
+  .formValue .colorField { flex: 1 1 0; height: var(--ds-size-control); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); }
+  .formValue .colorField [data-ds="TextInput"] { flex: 1 1 auto; width: auto; min-width: 0; }
+  .formValue .opacityField { flex: 0 0 84px; width: 84px; margin-left: 0; border: 0; background: var(--figma-color-bg-secondary); opacity: 1; }
+  /* Apply variable at the Opacity field's right, shown while the pointer is on the row (Figma's Details) */
+  .formValue .opacityBind { opacity: 0; }
+  .formValue:hover .opacityBind, .formValue .opacityBind:focus-visible, .formValue .opacityBind[aria-expanded="true"] { opacity: 1; }
+  /* The variable whose Edit variable is open: its row selected, its button in the brand colour (Figma) */
+  .editButton[aria-expanded="true"] { color: var(--figma-color-icon-brand); }
+  .formValue .cellButton { margin-left: 0; }
 
   .footer { display: flex; align-items: center; height: var(--ds-size-section-header); padding: 0 var(--ds-space-2); }
   /* Live 2026-10-19: the footer 41 high, a 1px #444 line on top; "Create variable" 121 × 24 8 in, 11 / 400 at 34 */

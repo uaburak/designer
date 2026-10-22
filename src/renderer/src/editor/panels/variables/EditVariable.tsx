@@ -73,7 +73,7 @@ export function EditVariablePopover({ id, anchor, placement = "bottom-start", on
           onChange={(x) => setTab(x as "details" | "scoping")}
         />
       }
-      width={280}
+      width={300}
       placement={placement}
       onClose={onClose}
       label={t("Edit variable")}
@@ -83,20 +83,20 @@ export function EditVariablePopover({ id, anchor, placement = "bottom-start", on
           <ScopeChecklist type={v.type} scopes={v.scopes} onChange={setScope} />
         </div>
       ) : (
-        <div className={styles.editForm} data-edit-variable={v.name} data-tab="details">
+        <div className={styles.editForm} data-edit-variable={v.name} data-tab="details" tabIndex={-1} data-autofocus="">
           <div className={styles.editRow}>
             <span className={styles.formLabel}>{t("Name")}</span>
-            <TextInput label={t("Name")} variant="outlined" value={v.name} onCommit={(name) => renameVariable(ed, id, name)} autoFocus />
+            <TextInput label={t("Name")} variant="outlined" value={v.name} onCommit={(name) => renameVariable(ed, id, name)} />
           </div>
           <div className={styles.editRow}>
             <span className={styles.formLabel}>{t("Description")}</span>
             <TextArea label={t("Description")} value={v.description} placeholder={t("How to use this variable")} minRows={2} onCommit={(description) => updateVariable(ed, id, { description }, "Edit variable description")} />
           </div>
-          <div className={styles.editSection}>{t("Value")}</div>
+          <div className={styles.editSection}>{t("Values")}</div>
           {c.modes.map((m) => (
             <div key={m.id} className={styles.editRow}>
               <span className={styles.formLabel}>{m.name}</span>
-              <ValueEditor variable={v} mode={m.id} collection={c} className={cx(tableStyles.formValue)} />
+              <ValueEditor variable={v} mode={m.id} collection={c} className={cx(tableStyles.formValue)} form />
             </div>
           ))}
           <div className={styles.editSection}>

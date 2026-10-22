@@ -29,7 +29,7 @@ export function parseColorText(text: string, alpha = 1): Color | null {
   return hexToColor(`#${hex}`, m[2] !== undefined ? Math.min(100, Number(m[2])) / 100 : alpha);
 }
 
-export function ValueEditor({ variable, mode, collection, className, disabled }: { variable: Variable; mode: Guid; collection: Collection; className?: string; disabled?: boolean }) {
+export function ValueEditor({ variable, mode, collection, className, disabled, form }: { variable: Variable; mode: Guid; collection: Collection; className?: string; disabled?: boolean; /** In Edit variable: a colour's hex alone, its opacity in its own field (Figma) */ form?: boolean }) {
   useT();
   const ed = useEditor();
   const a = useLocalAssets();
@@ -58,20 +58,20 @@ export function ValueEditor({ variable, mode, collection, className, disabled }:
       case "COLOR": {
         const c = value.value as Color;
         body = (
-          <>
+          <span className={styles.colorField}>
             <button type="button" className={styles.swatchButton} aria-label={`${label}: ${t("colour")}`} onClick={(e) => setColor(e.currentTarget.getBoundingClientRect())}>
               <Swatch color={colorToHex(c)} opacity={toPercent(c.a ?? 1)} size={16} />
             </button>
             <TextInput
               label={label}
               variant="ghost"
-              value={formatLiteral("COLOR", c)}
+              value={formatLiteral("COLOR", form ? { ...c, a: 1 } : c)}
               onCommit={(text) => {
                 const next = parseColorText(text, c.a ?? 1);
                 if (next) set(next);
               }}
             />
-          </>
+          </span>
         );
         break;
       }

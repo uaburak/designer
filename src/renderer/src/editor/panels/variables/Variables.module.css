@@ -262,8 +262,8 @@
   .formIndent { padding-left: var(--ds-space-6); }
   /* Edit variable (live 2026-10-19, variables.txt): 32 high rows, the label column 16 in (11 / 450, secondary), the
      controls 102 in, 162 wide; "Value" and "Code syntax" 11 / 500 in the text colour, Code syntax's "+" at 248 */
-  .editForm { display: flex; flex-direction: column; padding: var(--ds-space-1) var(--ds-space-4) var(--ds-space-3); }
-  .editRow { display: grid; grid-template-columns: 78px minmax(0, 1fr); align-items: center; column-gap: var(--ds-space-2); min-height: var(--ds-size-row); padding: var(--ds-space-1) 0; }
+  .editForm { display: flex; flex-direction: column; padding: var(--ds-space-1) var(--ds-space-4) var(--ds-space-3); outline: none; }
+  .editRow { display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: center; column-gap: var(--ds-space-2); min-height: var(--ds-size-row); padding: var(--ds-space-1) 0; }
   .editRow > :first-child { align-self: start; line-height: var(--ds-size-control); }
   .editSection {
     display: flex;
@@ -277,6 +277,10 @@
     letter-spacing: var(--ds-tracking-body-medium);
   }
   .editCheck { display: flex; align-items: center; min-height: var(--ds-size-row); margin-top: var(--ds-space-2); }
+  /* Figma: a line across the popover above Values, Code syntax and Hide from publishing */
+  .editSection, .editCheck { margin-inline: calc(var(--ds-space-4) * -1); padding-inline: var(--ds-space-4); border-top: 1px solid var(--figma-color-border); }
+  .editSection { margin-top: var(--ds-space-2); padding-top: var(--ds-space-2); }
+  .editCheck { padding-top: var(--ds-space-2); }
   /* Edit variable's Details | Scoping (atlas 11 §8.4) and the scoping list: a heading over Typography, Gap's grey
      "Auto layout" after its label */
   .editTabs { padding: 0 var(--ds-space-2); }

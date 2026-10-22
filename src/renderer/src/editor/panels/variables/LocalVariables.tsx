@@ -987,7 +987,7 @@ export function LocalVariables() {
                   ) : (
                     <div
                       key={r.v.id}
-                      className={cx(styles.row, selected.has(r.v.id) && styles.rowSelected)}
+                      className={cx(styles.row, (selected.has(r.v.id) || edit?.id === r.v.id) && styles.rowSelected)}
                       role="row"
                       aria-selected={selected.has(r.v.id)}
                       data-variable-row={r.v.id}
