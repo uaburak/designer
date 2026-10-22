@@ -5,12 +5,12 @@
  * Under the list: Create / Update brands library (Social's Brands library, docs/social.md §4.1).
  */
 import { useState } from "react";
-import { Button, Checkbox, Dialog, EmptyState, IconButton, SearchField, Select, Swatch, TextInput, showToast } from "@/ds";
+import { Button, Checkbox, Dialog, EmptyState, IconButton, Select, Swatch, TextInput, showToast } from "@/ds";
 import { foldName, nameScore } from "../../../../shared/studio/library";
 import type { Brand, LabelTier, Product } from "../../../../shared/studio/types";
 import { t, tp, useT } from "@/i18n";
 import { useEditor } from "../controller";
-import { TabHeader } from "../panels/TabHeader";
+import { TabHeader, TabSearch, TabSearchButton } from "../panels/TabHeader";
 import { BrandForm, ProductForm, StoredPicture, brandsRepo, useBrands, useImageUrl } from "./forms";
 import { runLibraryTool } from "./libraryTools";
 import { createBrandsLibrary, storeBrandsLibraryDeps } from "../social/templates/brandLibrary";
@@ -32,12 +32,27 @@ export function BrandsPanel() {
   const brand = "brandId" in view && view.brandId ? (brands?.find((b) => b.id === view.brandId) ?? null) : null;
   const product = view.page === "product" ? (brand?.products.find((p) => p.id === view.productId) ?? null) : null;
   const toBrand = (brandId: string): View => ({ page: "brand", brandId });
+  // The list's search sits in the header over "Brands" (like Agents' list and Assets).
+  const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const listed = !!brands?.length;
   return (
     <div className={styles.panel} data-brands="">
-      {view.page === "list" && <TabHeader title={t("Brands")} actions={<button type="button" className={styles.create} onClick={() => setView({ page: "brand-form" })}>{t("New brand")}</button>} />}
+      {view.page === "list" && (
+        <TabHeader
+          title={t("Brands")}
+          search={listed && (searching || query) ? <TabSearch value={query} onChange={setQuery} label={t("Search brands and products")} onClose={() => setSearching(false)} /> : undefined}
+          actions={
+            <>
+              {listed && !searching && !query && <TabSearchButton label={t("Search brands and products")} onOpen={() => setSearching(true)} />}
+              <IconButton icon="24.plus" label={t("New brand")} tone="secondary" onClick={() => setView({ page: "brand-form" })} data-brands-new="" />
+            </>
+          }
+        />
+      )}
       {view.page === "list" ? (
         <>
-          <BrandList brands={brands} error={error} onOpen={(id) => setView(toBrand(id))} onNew={() => setView({ page: "brand-form" })} />
+          <BrandList brands={brands} error={error} query={query} onOpen={(id) => setView(toBrand(id))} onNew={() => setView({ page: "brand-form" })} />
           {!!brands?.length && <BrandsLibraryButton brands={brands} />}
         </>
       ) : view.page === "brand-form" ? (
@@ -102,14 +117,13 @@ function BrandsLibraryButton({ brands }: { brands: Brand[] }) {
   );
 }
 
+/** A brand's, a product's or a form's header: Back and its title, its actions at the right (the tabs' own header, as in Agents). */
 function Bar({ title, onBack, children }: { title: string; onBack: () => void; children?: React.ReactNode }) {
   useT();
   return (
-    <div className={styles.bar} data-brands-bar="">
-      <IconButton icon="24.arrow.left" label={t("Back")} tone="secondary" onClick={onBack} />
-      <span className={styles.barTitle}>{title}</span>
-      {children}
-    </div>
+    <span style={{ display: "contents" }} data-brands-bar="">
+      <TabHeader title={title} back={{ label: t("Back"), onClick: onBack }} actions={children} />
+    </span>
   );
 }
 
@@ -120,16 +134,14 @@ function Gone({ what, loading, onBack }: { what: "brand" | "product"; loading: b
 
 // ── The list ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
-function BrandList({ brands, error, onOpen, onNew }: { brands: Brand[] | null; error: string | null; onOpen: (id: string) => void; onNew: () => void }) {
+function BrandList({ brands, error, query, onOpen, onNew }: { brands: Brand[] | null; error: string | null; query: string; onOpen: (id: string) => void; onNew: () => void }) {
   useT();
-  const [query, setQuery] = useState("");
   if (error) return <div className={styles.section}><div className={styles.problem} role="alert">{error}</div></div>;
   if (!brands) return null;
   if (!brands.length) return <EmptyState icon="24.library" title={t("No brands yet")} body={t("Add a brand with its logo, colours and products, or ask the manager in the Agents tab to create one.")} action={{ label: t("New brand"), onClick: onNew }} />;
   const shown = foldName(query) ? brands.map((b) => ({ b, s: Math.max(nameScore(b.name, query), ...b.products.map((p) => nameScore(p.name, query))) })).filter((x) => x.s > 0).sort((x, y) => y.s - x.s).map((x) => x.b) : brands;
   return (
     <>
-      <SearchField value={query} onChange={setQuery} placeholder={t("Search brands and products")} label={t("Search brands and products")} className={styles.search} />
       <div className={styles.scroll} role="list" aria-label={t("Brands")}>
         {shown.map((b) => (
           <button key={b.id} type="button" role="listitem" className={styles.row} data-brand={b.id} onClick={() => onOpen(b.id)}>

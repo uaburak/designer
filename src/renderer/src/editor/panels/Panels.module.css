@@ -126,6 +126,7 @@
   .tabHeader[data-tab-back] .tabTitle { font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
   .tabBack { flex: none; }
   .tabHeader[data-tab-searching] { gap: var(--ds-space-2); padding-left: var(--ds-space-3); }
+  .tabSearch { flex: 1 1 auto; min-width: 0; }
   .layersEmpty { padding: var(--ds-space-2) var(--ds-space-4); color: var(--figma-color-text-secondary); }
   .assets { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
   .assetsSearch { padding: var(--ds-space-2) var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-space-4); }

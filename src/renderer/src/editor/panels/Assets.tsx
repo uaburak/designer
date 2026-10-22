@@ -12,7 +12,7 @@
  * local component: Go to main component, Hide when publishing.
  */
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Banner, Button, ContextMenu, EmptyState, IS_MAC, Icon, IconButton, Popover, SearchField, showToast, type MenuEntry } from "@/ds";
+import { Banner, Button, ContextMenu, EmptyState, IS_MAC, Icon, IconButton, Popover, showToast, type MenuEntry } from "@/ds";
 import type { LibraryAsset } from "../../../../shared/store/types";
 import { useEditor, type EditorController } from "../controller";
 import { goToComponent, insertInstance } from "../components";
@@ -28,7 +28,7 @@ import { useComponentAssets } from "./design/ComponentPicker";
 import { ApprovedMark } from "./libraries/LibrariesDialog";
 import { RemoteThumb } from "./libraries/Thumbs";
 import { SimilarAssets, useSimilarComponents } from "../search/Similar";
-import { TabHeader } from "./TabHeader";
+import { TabHeader, TabSearch, TabSearchButton } from "./TabHeader";
 import lstyles from "./libraries/Libraries.module.css";
 import styles from "./Assets.module.css";
 import { t, tp, useLocale, useT } from "@/i18n";
@@ -89,6 +89,8 @@ export function Assets() {
   const local = useComponentAssets();
   const libs = useLibraries();
   const [query, setQuery] = useState("");
+  // The search sits in the header over "Assets" (like Agents' list): open from its icon, or with a library opened.
+  const [searching, setSearching] = useState(false);
   const view = useUI((s) => s.assetsView);
   const at = useUI((s) => s.assetsAt ?? null);
   const [drag, setDrag] = useState<{ asset: Item; x: number; y: number } | null>(null);
@@ -359,30 +361,38 @@ export function Assets() {
     <div ref={root} className={styles.assets} data-assets="">
       <TabHeader
         title={t("Assets")}
+        search={
+          searching || query || open ? (
+            // A library opened: "Search in this library" (live: focused)
+            <span key={open ? open.key : ""} style={{ display: "contents" }} data-assets-search="">
+              <TabSearch value={query} onChange={setQuery} label={open ? t("Search in this library") : t("Search all libraries")} onClose={() => setSearching(false)} />
+            </span>
+          ) : undefined
+        }
         actions={
-          // Live (rail-assets.txt): Libraries at 204, 12 — its blue dot while an enabled library has updates.
-          <span className={lstyles.libButton}>
-            <IconButton icon="24.library.this-file" label={t(librariesButtonLabel(ed))} tone="secondary" data-libraries-button="" onClick={() => openLibraries(pending ? "updates" : "libraries")} />
-            {pending > 0 && <span className={lstyles.badge} data-updates-badge="" aria-hidden />}
-          </span>
+          <>
+            {!searching && !query && !open && <TabSearchButton label={t("Search all libraries")} onOpen={() => setSearching(true)} />}
+            <span ref={settingsButton} style={{ display: "contents" }}>
+              <IconButton
+                icon="24.filter"
+                label={t("Libraries and settings")}
+                tone="secondary"
+                data-assets-settings=""
+                onClick={(e) => {
+                  if (settings) return setSettings(null);
+                  const r = e.currentTarget.getBoundingClientRect();
+                  setSettings({ x: r.right - 160, y: r.bottom + 4 });
+                }}
+              />
+            </span>
+            {/* Libraries — its blue dot while an enabled library has updates */}
+            <span className={lstyles.libButton}>
+              <IconButton icon="24.library.this-file" label={t(librariesButtonLabel(ed))} tone="secondary" data-libraries-button="" onClick={() => openLibraries(pending ? "updates" : "libraries")} />
+              {pending > 0 && <span className={lstyles.badge} data-updates-badge="" aria-hidden />}
+            </span>
+          </>
         }
       />
-      <div className={styles.toolbar}>
-        {/* Live: a library opened focuses "Search in this library" */}
-        <SearchField key={open ? open.key : ""} autoFocus={!!open} data-assets-search="" className={styles.search} value={query} onChange={setQuery} placeholder={open ? t("Search in this library") : t("Search all libraries")} label={open ? t("Search in this library") : t("Search all libraries")} />
-        <div ref={settingsButton} style={{ display: "contents" }}>
-          <IconButton
-            icon="24.libraries-settings"
-            label={t("Libraries and settings")}
-            tone="secondary"
-            onClick={(e) => {
-              if (settings) return setSettings(null);
-              const r = e.currentTarget.getBoundingClientRect();
-              setSettings({ x: r.left, y: r.bottom + 4 });
-            }}
-          />
-        </div>
-      </div>
       {pending > 0 && (
         <Banner tone="brand" icon="24.library" className={lstyles.updatesBanner} action={{ label: t("Review"), onClick: () => openLibraries("updates") }}>
           {tp(pending, "{n} library update available", "{n} library updates available")}
