@@ -12,7 +12,7 @@ import { managerName } from "../../agents/managerName";
 import { modelLabel, type AgentSetupHost } from "../../agents/setup";
 import { imageRouteOptions, routeOfOption } from "../../agents/imageRoutes";
 import type { ReactNode } from "react";
-import { Block, Field, SettingsBox } from "./settingsParts";
+import { Block, Field, SettingsGroup } from "./settingsParts";
 import styles from "./Agents.module.css";
 import { t, useT } from "@/i18n";
 
@@ -70,13 +70,13 @@ function RouteFields({ label, route, providers, onChange, withEffort }: { label:
   );
 }
 
-/** A part of the page: a Block on the panel's page, a box with its note under it in the modal (`boxed`). */
+/** A part of the page: a Block on the panel's page, a flat section with its note under it in the panel (`boxed`). */
 function Part({ boxed, title, note, children, ...data }: { boxed?: boolean; title?: string; note?: string; children: ReactNode } & Record<`data-${string}`, string | undefined>) {
   if (boxed)
     return (
-      <SettingsBox label={title} note={note} {...data}>
+      <SettingsGroup label={title} note={note} {...data}>
         {children}
-      </SettingsBox>
+      </SettingsGroup>
     );
   return (
     <Block title={title} {...data}>
@@ -86,7 +86,7 @@ function Part({ boxed, title, note, children, ...data }: { boxed?: boolean; titl
   );
 }
 
-/** `boxed`: the Agent settings modal's look (boxed sections), else the panel page's blocks. */
+/** `boxed`: the panel's settings look (flat sections), else the panel page's blocks. */
 export function ManagerPage({ service, boxed }: { service: AgentSetupHost; boxed?: boolean }) {
   useT();
   const m = service.managerSettings();

@@ -1,19 +1,17 @@
 /**
  * Agent settings, inside the Agents panel (the gear; `setView("settings")` / `openSetting(…)` from elsewhere): it takes
  * the list's or the chat's place, the panel's header becoming Back and the page's title (Back from the home returns to
- * the list or the chat as it was). The home: "This chat" (the manager, the model and its effort, approvals), a box of
- * the pages — Agents and models, Manager and Studio, Skills, Connectors, Access, Usage — and a usage card per agent. A
- * page is boxed sections (SettingsBox / BoxRow); a detail (an agent, a skill's editor, a connector's tools) opens in
- * place with Back to its page. The logic is the settings pages' own (AgentSettings.tsx, aiSettings.tsx,
- * AccessSettings.tsx, ManagerSettings.tsx, aiData.ts).
+ * the list or the chat as it was). The home: "This chat" (the manager, the model and its effort, approvals), a list of
+ * the pages — Agents and models, Manager and Studio, Skills, Connectors, Access, Usage — and a usage card per agent, one
+ * under another. A page is flat sections (SettingsGroup / SettingsRow: a label over rows, no boxes); a row that leads
+ * to a detail (an agent, a skill's editor, a connector's tools) opens it in place, whole, with Back to its page. The
+ * logic is the settings pages' own (AgentSettings.tsx, aiSettings.tsx, AccessSettings.tsx, ManagerSettings.tsx, aiData.ts).
  */
 import { useEffect, useState, type ReactNode } from "react";
 import { AgentLogo, Badge, Button, Icon, IconButton, MenuButton, Select, Spinner, Switch, cx, hasAgentLogo, showToast, type IconName } from "@/ds";
 import type { AccessLogEntry, ReachCapability, ReachPolicy } from "@shared/agents/reach";
 import type { ProviderInfo } from "@shared/agents/types";
 import { settingsSectionOf, type AgentsService, type SettingsSection } from "../../agents/service";
-import { modelLabel } from "../../agents/setup";
-import { shortModelName } from "../../agents/models";
 import { managerName } from "../../agents/managerName";
 import { formatTokens, relevantWindows, resetLabel, ringOf, usedLabel } from "../../agents/usage";
 import { KIND_ICON, LookAgain, isCustom, isServer, settingsPageOf, stateText } from "./AgentSettings";
@@ -22,18 +20,18 @@ import { CAPABILITIES, OUTCOME, POLICIES, changeReach, useReach } from "./Access
 import { ManagerPage } from "./ManagerSettings";
 import { EffortPicker, ModelPicker } from "./ModelPicker";
 import { changeConnectors, removeSkill, resetSkill, toggleSkill, useConnectors, useSkills } from "./aiData";
-import { BoxRow, NavRow, SettingsBox, errorText } from "./settingsParts";
+import { NavRow, SettingsGroup, SettingsRow, errorText } from "./settingsParts";
 import { AgentMark } from "./AgentMark";
 import styles from "./Agents.module.css";
 import { intlLocale, t, tp, useT } from "@/i18n";
 
-const SECTIONS: { id: SettingsSection; label: string; about: string; nav?: string; icon: IconName }[] = [
-  { id: "agents", label: "Agents and models", about: "The agents on this computer and the models they use for new chats.", icon: "24.agents" },
-  { id: "manager", label: "Manager and Studio", about: "The manager plans the work, hands it to other agents and reviews what they make.", icon: "24.person" },
-  { id: "skills", label: "Skills", about: "Agents use a skill when it fits the task; type /name in a message to call one.", icon: "24.file" },
-  { id: "connectors", label: "Connectors", about: "MCP servers your agents can use, and the apps that connect to this one.", icon: "24.link" },
-  { id: "access", label: "Access", about: "How far agents can reach outside this file.", nav: "What agents can reach, and the access log.", icon: "24.lock.small" },
-  { id: "usage", label: "Usage", about: "What each agent’s plan has used, as its CLI reports it.", icon: "24.recent" },
+const SECTIONS: { id: SettingsSection; label: string; icon: IconName }[] = [
+  { id: "agents", label: "Agents and models", icon: "24.agents" },
+  { id: "manager", label: "Manager and Studio", icon: "24.person" },
+  { id: "skills", label: "Skills", icon: "24.file" },
+  { id: "connectors", label: "Connectors", icon: "24.link" },
+  { id: "access", label: "Access", icon: "24.lock.small" },
+  { id: "usage", label: "Usage", icon: "24.recent" },
 ];
 
 /** What the panel shows while Agent settings is open: its header's title, Back and action, and the page under it. */
@@ -43,7 +41,7 @@ export function panelSettings(service: AgentsService): { title: string; back: ()
   const section = settingsSectionOf(item);
   if (section && (item.startsWith("section:") || item === "manager")) {
     const info = SECTIONS.find((s) => s.id === section)!;
-    return { title: t(info.label), back: () => service.openSetting(null), actions: <PageAction service={service} section={section} />, body: <SectionPage service={service} section={section} about={info.about} /> };
+    return { title: t(info.label), back: () => service.openSetting(null), actions: <PageAction service={service} section={section} />, body: <SectionPage service={service} section={section} /> };
   }
   const page = settingsPageOf(service, item);
   return {
@@ -67,11 +65,11 @@ function SettingsHome({ service }: { service: AgentsService }) {
   return (
     <div className={cx(styles.scroll, styles.psPage)} data-agent-settings="" data-settings-page="home">
       <ThisChat service={service} />
-      <SettingsBox label={t("Settings")} data-settings-box="pages">
+      <SettingsGroup label={t("Settings")} data-settings-box="pages">
         {SECTIONS.map((s) => (
-          <NavRow key={s.id} icon={s.icon} title={t(s.label)} desc={t(s.nav ?? s.about)} onClick={() => service.openSetting(`section:${s.id}`)} data-settings-nav={s.id} />
+          <NavRow key={s.id} icon={s.icon} title={t(s.label)} onClick={() => service.openSetting(`section:${s.id}`)} data-settings-nav={s.id} />
         ))}
-      </SettingsBox>
+      </SettingsGroup>
       <UsageCards service={service} />
     </div>
   );
@@ -88,24 +86,24 @@ function ThisChat({ service }: { service: AgentsService }) {
   const provider = service.activeProvider();
   const manager = service.managerSettings();
   return (
-    <SettingsBox label={t("This chat")} data-chat-settings="" data-settings-box="chat">
-      <BoxRow title={managerName(manager)} data-chat-section="manager">
+    <SettingsGroup label={t("This chat")} data-chat-settings="" data-settings-box="chat">
+      <SettingsRow title={managerName(manager)} data-chat-section="manager">
         <Switch label={managerName(manager)} checked={manager.enabled} onChange={(on) => void service.setManager({ enabled: on })} data-chat-manager="" />
-      </BoxRow>
-      <BoxRow title={t("Model")} data-chat-section="model">
+      </SettingsRow>
+      <SettingsRow title={t("Model")} data-chat-section="model">
         <Field>
           <ModelPicker service={service} provider={provider} variant="filled" withEffort={false} width={undefined} />
         </Field>
-      </BoxRow>
+      </SettingsRow>
       {provider && !service.managerProvider() && (
-        <BoxRow title={t("Effort")} data-chat-effort="">
+        <SettingsRow title={t("Effort")} data-chat-effort="">
           <Field>
             <EffortPicker service={service} provider={provider} variant="filled" width={undefined} />
           </Field>
-        </BoxRow>
+        </SettingsRow>
       )}
       <Approvals service={service} />
-    </SettingsBox>
+    </SettingsGroup>
   );
 }
 
@@ -124,7 +122,7 @@ function Approvals({ service }: { service: AgentsService }) {
   const policies = new Set(on.map((cap) => view.settings.policies[cap]));
   const value = policies.size === 1 ? [...policies][0] : MIXED;
   return (
-    <BoxRow title={t("Approvals")} data-chat-approvals="">
+    <SettingsRow title={t("Approvals")} data-chat-approvals="">
       <Field>
         <Select
           label={t("Approvals")}
@@ -137,7 +135,7 @@ function Approvals({ service }: { service: AgentsService }) {
           }}
         />
       </Field>
-    </BoxRow>
+    </SettingsRow>
   );
 }
 
@@ -168,7 +166,7 @@ function UsageCards({ service }: { service: AgentsService }) {
   return (
     <section className={styles.mSection} data-chat-section="usage">
       <h3 className={styles.popSectionLabel}>{t("Usage")}</h3>
-      <div className={styles.popUsage}>
+      <div className={styles.usageStack} data-usage-stack="">
         {cards.map((c) => (
           <div key={c.p.id} className={styles.popUsageCard} data-chat-usage={c.p.id}>
             <span className={styles.popUsageName}>
@@ -189,14 +187,13 @@ function UsageCards({ service }: { service: AgentsService }) {
 
 // ---- A page ----
 
-function SectionPage({ service, section, about }: { service: AgentsService; section: SettingsSection; about: string }) {
+function SectionPage({ service, section }: { service: AgentsService; section: SettingsSection }) {
   useT();
   useEffect(() => {
     if (section === "agents") void service.refreshProviders();
   }, [service, section]);
   return (
     <div className={cx(styles.scroll, styles.psPage)} data-agent-settings="" data-settings-page={section} data-settings-section={section}>
-      <p className={styles.mAbout}>{t(about)}</p>
       <SectionBody service={service} section={section} />
     </div>
   );
@@ -218,11 +215,6 @@ function SectionBody({ service, section }: { service: AgentsService; section: Se
   return <UsageSection service={service} />;
 }
 
-/** The chevron that opens an item's detail in place. */
-function Details({ label, onClick, ...data }: { label: string; onClick: () => void } & Record<`data-${string}`, string | undefined>) {
-  return <IconButton icon="24.chevron.right" label={label} tone="secondary" onClick={onClick} {...data} />;
-}
-
 // ---- Agents and models ----
 
 function AgentsSection({ service }: { service: AgentsService }) {
@@ -232,12 +224,12 @@ function AgentsSection({ service }: { service: AgentsService }) {
   const local = state.providers.filter(isServer);
   return (
     <>
-      <SettingsBox label={t("On this computer")} note={t("Connected agents show up in the chat’s agent menu.")} data-settings-box="agents">
+      <SettingsGroup label={t("On this computer")} note={t("Connected agents show up in the chat’s agent menu.")} data-settings-box="agents">
         {state.providersLoading && !agents.length && <p className={styles.mEmpty}><Spinner size={16} /> {t("Looking for agents…")}</p>}
         {!state.providersLoading && !agents.length && <p className={styles.mEmpty}>{t("No agent is connected.")}</p>}
         {agents.map((p) => <ProviderRow key={p.id} service={service} p={p} />)}
-      </SettingsBox>
-      <SettingsBox
+      </SettingsGroup>
+      <SettingsGroup
         label={t("Local models")}
         action={
           <Button variant="secondary" onClick={() => service.openSetting("add-server")} data-settings-row="add-server">
@@ -248,59 +240,43 @@ function AgentsSection({ service }: { service: AgentsService }) {
       >
         {local.map((p) => <ProviderRow key={p.id} service={service} p={p} />)}
         {!local.length && <p className={styles.mEmpty}>{t("No servers yet.")}</p>}
-      </SettingsBox>
+      </SettingsGroup>
     </>
   );
 }
 
-/** An agent: its mark, its name and state (its account's plan), its default model and effort, its page. */
+/**
+ * An agent: its mark, its name (a green dot when connected), one line under it — its plan when connected, else its
+ * state; Install / Sign in at the right. The whole row opens its page (its model, effort, account).
+ */
 function ProviderRow({ service, p }: { service: AgentsService; p: ProviderInfo }) {
   useT();
   const status = stateText(p);
   const on = status === "Connected";
   const plan = on && p.auth?.state === "connected" ? p.auth.plan : undefined;
+  const where = isCustom(p) || isServer(p) ? p.detail : undefined;
+  const line = on ? [plan, where].filter(Boolean).join(" · ") : [t(status), where].filter(Boolean).join(" · ");
   const open = () => service.openSetting(`provider:${p.id}`);
   const needs = status === "Not installed" ? t("Install") : status === "Sign in needed" ? t("Sign in") : null;
   return (
-    <BoxRow
+    <SettingsRow
       mark={hasAgentLogo(p.id) ? <AgentLogo id={p.id} /> : undefined}
       icon={KIND_ICON(p)}
       title={p.label}
-      desc={
-        <>
-          {on && <span className={cx(styles.dot, styles.dotOn)} />}
-          <span data-provider-state="">{[t(status), plan, isCustom(p) || isServer(p) ? p.detail : undefined].filter(Boolean).join(" · ")}</span>
-        </>
-      }
+      badge={on ? <span className={cx(styles.dot, styles.dotOn)} data-provider-on="" /> : undefined}
+      desc={line ? <span data-provider-state="">{line}</span> : undefined}
       dim={!on && status !== "Sign in needed"}
+      onClick={open}
       data-provider={p.id}
       data-available={p.available ? "" : undefined}
       data-state={isServer(p) ? (p.available ? "connected" : "not-running") : p.auth?.state}
     >
-      {p.available && p.models.length > 1 && (
-        <Field>
-          <Select
-            label={t("{name} model", { name: p.label })}
-            variant="filled"
-            value={service.modelOf(p) ?? ""}
-            options={p.models.map((m) => ({ value: m, label: modelLabel(m, p), valueLabel: shortModelName(modelLabel(m, p)) }))}
-            onChange={(m) => void service.choose(p.id, m)}
-            data-provider-model={p.id}
-          />
-        </Field>
-      )}
-      {p.available && (
-        <Field small>
-          <EffortPicker service={service} provider={p} variant="filled" width={undefined} />
-        </Field>
-      )}
       {needs && (
         <Button variant="secondary" onClick={open}>
           {needs}
         </Button>
       )}
-      <Details label={t("{name} details", { name: p.label })} onClick={open} data-provider-details={p.id} />
-    </BoxRow>
+    </SettingsRow>
   );
 }
 
@@ -311,17 +287,18 @@ function SkillsSection({ service }: { service: AgentsService }) {
   const { list, loading, error } = useSkills();
   const fail = (err: unknown) => showToast({ message: errorText(err), kind: "error" });
   return (
-    <SettingsBox data-settings-box="skills">
+    <SettingsGroup data-settings-box="skills">
       {loading && <p className={styles.mEmpty}><Spinner size={16} /> {t("Reading skills…")}</p>}
       {error && <p className={styles.mEmpty} data-skills-error="">{error}</p>}
       {!loading && !error && !list.length && <p className={styles.mEmpty}>{t("No skills yet.")}</p>}
       {list.map((s) => (
-        <BoxRow
+        <SettingsRow
           key={s.id}
           title={`/${s.name}`}
           badge={s.origin && <Badge className={styles.rowBadge} data-skill-default={s.origin}>{s.origin === "override" ? t("Edited") : t("Default")}</Badge>}
           desc={s.description}
           dim={!s.enabled}
+          onClick={() => service.openSetting(`skill:${s.id}`)}
           data-skill={s.name}
         >
           <Switch label={`/${s.name}`} checked={s.enabled} onChange={(on) => void toggleSkill(s, on).catch(fail)} data-skill-switch={s.name} />
@@ -339,9 +316,9 @@ function SkillsSection({ service }: { service: AgentsService }) {
           >
             <Icon name="24.more" />
           </MenuButton>
-        </BoxRow>
+        </SettingsRow>
       ))}
-    </SettingsBox>
+    </SettingsGroup>
   );
 }
 
@@ -356,7 +333,7 @@ function ConnectorsSection({ service }: { service: AgentsService }) {
   return (
     <>
       {api?.connectors && (
-        <SettingsBox
+        <SettingsGroup
           label={t("MCP servers")}
           action={
             <Button variant="secondary" onClick={() => service.openSetting("add-connector")} data-settings-row="add-connector">
@@ -368,25 +345,21 @@ function ConnectorsSection({ service }: { service: AgentsService }) {
           {error && <p className={styles.mEmpty}>{error}</p>}
           {!error && !list.length && <p className={styles.mEmpty}>{t("No connectors yet.")}</p>}
           {list.map((c) => (
-            <BoxRow key={c.id} icon="24.link" title={c.name} desc={connectorStatus(c)} dim={!c.enabled} data-connector={c.id}>
+            <SettingsRow key={c.id} icon="24.link" title={c.name} desc={connectorStatus(c)} dim={!c.enabled} onClick={() => service.openSetting(`connector:${c.id}`)} data-connector={c.id}>
               {api.updateConnector && <Switch label={t("{name} on", { name: c.name })} checked={c.enabled} onChange={(on) => void changeConnectors(api.updateConnector!({ id: c.id, enabled: on })).catch((err) => showToast({ message: errorText(err), kind: "error" }))} />}
-              <Details label={t("{name} details", { name: c.name })} onClick={() => service.openSetting(`connector:${c.id}`)} />
-            </BoxRow>
+            </SettingsRow>
           ))}
-        </SettingsBox>
+        </SettingsGroup>
       )}
-      <SettingsBox label={t("Connect other apps")} note={t("Apps on this computer that have its token can read and edit the file in front.")} data-settings-box="apps">
-        <BoxRow icon="24.link" title={t("MCP server")} desc={state.mcp.url ? <span className={styles.mono}>{state.mcp.url}</span> : t("Not running")} data-settings-row="mcp">
+      <SettingsGroup label={t("Connect other apps")} note={t("Apps on this computer that have its token can read and edit the file in front.")} data-settings-box="apps">
+        <SettingsRow icon="24.link" title={t("MCP server")} desc={state.mcp.url ? <span className={styles.mono}>{state.mcp.url}</span> : t("Not running")} onClick={() => service.openSetting("mcp")} data-settings-row="mcp">
           <span className={styles.mCount}>{tp(n, "{n} connection", "{n} connections")}</span>
           {state.mcp.url && <IconButton icon="24.copy.small" label={t("Copy URL")} tone="secondary" onClick={() => void navigator.clipboard.writeText(state.mcp.url!).then(() => showToast({ message: t("Copied to clipboard") }))} />}
-          <Details label={t("MCP server")} onClick={() => service.openSetting("mcp")} />
-        </BoxRow>
+        </SettingsRow>
         {state.clients.map((c) => (
-          <BoxRow key={c.id} icon="24.plugin" title={c.label} desc={c.connected ? t("Connected") : c.installed ? t("Not connected") : t("Not installed")} dim={!c.installed} data-client={c.id} data-connected={c.connected ? "" : undefined}>
-            <Details label={t("{name} details", { name: c.label })} onClick={() => service.openSetting(`client:${c.id}`)} />
-          </BoxRow>
+          <SettingsRow key={c.id} icon="24.plugin" title={c.label} desc={c.connected ? t("Connected") : c.installed ? t("Not connected") : t("Not installed")} dim={!c.installed} onClick={() => service.openSetting(`client:${c.id}`)} data-client={c.id} data-connected={c.connected ? "" : undefined} />
         ))}
-      </SettingsBox>
+      </SettingsGroup>
     </>
   );
 }
@@ -408,7 +381,7 @@ function AccessSection({ service }: { service: AgentsService }) {
   const label = (cap: ReachCapability) => t(CAPABILITIES.find((c) => c.cap === cap)?.label ?? cap);
   return (
     <>
-      <SettingsBox label={t("What agents can reach")} note={t("Ask each time shows a card in the chat before each use; Always allow lets agents use it without asking. Every use is in the access log.")} data-settings-box="access">
+      <SettingsGroup label={t("What agents can reach")} note={t("Ask each time shows a card in the chat before each use; Always allow lets agents use it without asking. Every use is in the access log.")} data-settings-box="access">
         {error && <p className={styles.mEmpty}>{error}</p>}
         {!view && !error && <p className={styles.mEmpty}><Spinner size={16} /></p>}
         {view &&
@@ -416,16 +389,15 @@ function AccessSection({ service }: { service: AgentsService }) {
             const forced = view.forcedOff.includes(cap);
             const policy = forced ? "off" : view.settings.policies[cap];
             return (
-              <BoxRow key={cap} icon={icon} title={t(name)} desc={forced ? t("Turned off by your organization") : t(about)} dim={policy === "off"} data-access={cap} data-access-policy={forced ? "forced-off" : policy}>
+              <SettingsRow key={cap} icon={icon} title={t(name)} desc={forced ? t("Turned off by your organization") : t(about)} dim={policy === "off"} onClick={() => service.openSetting(`access:${cap}`)} data-access={cap} data-access-policy={forced ? "forced-off" : policy}>
                 <Field>
                   <Select label={t("{name} access", { name: t(name) })} variant="filled" disabled={forced} value={policy} options={POLICIES.map((o) => ({ ...o, label: t(o.label) }))} onChange={(v) => void changeReach((x) => x.set({ policies: { [cap]: v as ReachPolicy } }))} data-access-select={cap} />
                 </Field>
-                <Details label={t("{name} details", { name: t(name) })} onClick={() => service.openSetting(`access:${cap}`)} />
-              </BoxRow>
+              </SettingsRow>
             );
           })}
-      </SettingsBox>
-      <SettingsBox
+      </SettingsGroup>
+      <SettingsGroup
         label={t("Access log")}
         action={
           log && log.length > 0 ? (
@@ -439,16 +411,14 @@ function AccessSection({ service }: { service: AgentsService }) {
         {!log && <p className={styles.mEmpty}><Spinner size={16} /></p>}
         {log && !log.length && <p className={styles.mEmpty}>{t("Nothing yet. Each time an agent reaches outside the file, it is listed here.")}</p>}
         {log?.slice(0, LOG_SHOWN).map((e, i) => (
-          <BoxRow key={`${e.at}-${i}`} title={`${label(e.capability)} · ${e.target}`} desc={[when.format(e.at), e.agent, e.tool].filter(Boolean).join(" · ")} data-log-outcome={e.outcome}>
+          <SettingsRow key={`${e.at}-${i}`} title={`${label(e.capability)} · ${e.target}`} desc={[when.format(e.at), e.agent, e.tool].filter(Boolean).join(" · ")} data-log-outcome={e.outcome}>
             <span className={cx(styles.mCount, e.outcome !== "ok" && styles.mDanger)}>{t(OUTCOME[e.outcome])}</span>
-          </BoxRow>
+          </SettingsRow>
         ))}
         {log && log.length > LOG_SHOWN && (
-          <BoxRow title={tp(log.length - LOG_SHOWN, "{n} more", "{n} more")} data-access-log-more="">
-            <Details label={t("Access log")} onClick={() => service.openSetting("access:log")} />
-          </BoxRow>
+          <SettingsRow title={tp(log.length - LOG_SHOWN, "{n} more", "{n} more")} onClick={() => service.openSetting("access:log")} data-access-log-more="" />
         )}
-      </SettingsBox>
+      </SettingsGroup>
     </>
   );
 }
@@ -476,7 +446,7 @@ function UsageSection({ service }: { service: AgentsService }) {
   const today = startOfToday();
   const tokensOf = (c: { tokens?: { input: number; output: number } } | null | undefined) => (c?.tokens ? c.tokens.input + c.tokens.output : 0);
   return (
-    <div className={styles.mUsage} data-settings-box="usage">
+    <div className={styles.usageStack} data-usage-stack="" data-settings-box="usage">
       {agents.map((p) => {
         const info = state.usage[p.id];
         const windows = relevantWindows(info, service.modelOf(p));

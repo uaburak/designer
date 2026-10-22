@@ -2,6 +2,8 @@
 
 First written 2026-10-06 when the first Claude session stopped and the owner moved the work to another Claude account through GitHub (`https://github.com/uaburak/designer`). Updated the same day by the second session, which finished every workstream's partial items and ran the integration round. Read `AGENTS.md`, `docs/architecture.md` and `docs/roadmap.md` first; the contracts in `docs/` decide everything; `docs/research/` holds the verified facts about Figma (with sources).
 
+2026-10-22 (flat settings): in-panel Agent settings have no boxes — sections are a small label over flat rows (SettingsGroup / SettingsRow in settingsParts.tsx); home nav rows are icon + title + chevron, page intros dropped; usage cards stack one per line; agent rows show a green dot + plan line, no model/effort selects, and the whole row opens the detail (controls in a row stopPropagation). To verify in the app: hover/focus on rows, narrow panel.
+
 ## Status 2026-10-22 (newest) — Agent settings inside the panel, attachment thumbnails (committed on its branch, not merged)
 
 The modal and the "This chat" popover are gone (`AgentSettingsModal.tsx`, `ChatSettings.tsx` deleted; Popover's `bottom-end` reverted): the gear opens Agent settings in the panel (`PanelSettings.tsx`; header Back + title; home = This chat box, page rows, usage cards; pages and details with Back), `openSetting(null)` = one level up. Chat attachments: picture thumbnails with a lightbox (`agents:attachment-preview`, main checks the path is a chat's attached image), other files as chips with size; thumbnails made at 112 px. To verify in the app: narrow panel (240 px) rows wrap, the lightbox on a real screenshot.

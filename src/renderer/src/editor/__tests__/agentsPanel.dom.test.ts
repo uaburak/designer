@@ -198,21 +198,29 @@ describe("the Agents panel: one agent's work in view", () => {
     expect($("[data-model-menu]", chat)).not.toBeNull();
     expect($("[data-chat-effort]", chat)).not.toBeNull();
     expect($$("[data-settings-nav]").map((r) => r.getAttribute("data-settings-nav"))).toEqual(["agents", "manager", "skills", "connectors", "access", "usage"]);
-    // Usage cards: Claude Code reports no plan limits here — this chat's tokens; Codex has none to show.
+    // Nav rows: icon, title and chevron — no description line; no boxes anywhere but the usage cards.
+    expect($$("[data-settings-nav]").every((r) => !r.querySelector('[class*="mRowDesc"]'))).toBe(true);
+    expect($$('[data-agent-settings] [class*="Box"]')).toEqual([]);
+    expect($$("[data-settings-list]").length).toBeGreaterThan(0);
+    // Usage cards: one under another (a stack, not a grid). Claude Code reports no plan limits here — this chat's tokens; Codex has none to show.
+    expect($('[data-usage-stack] [data-chat-usage="claude-code"]')?.parentElement?.className).toMatch(/usageStack/);
     const card = $('[data-chat-usage="claude-code"]')!;
     expect(card.textContent).toContain("1.5k tokens");
     expect($('[data-agent-logo="claude-code"]', card)).not.toBeNull();
     expect($('[data-chat-usage="codex"]')).toBeNull();
-    // Agents and models: the agents in a box — each row its mark, state, model; its chevron opens its page.
+    // Agents and models: flat rows — each its mark and a green dot when connected (no "Connected" text, no model or
+    // effort select); the whole row opens its page, its Install / Sign in button doesn't.
     await nav("agents");
     expect(header()).toBe("Agents and models");
     expect(page()).toBe("agents");
+    expect($('[class*="mAbout"]')).toBeNull();
     const agentsBox = $('[data-settings-box="agents"]')!;
     expect($('[data-provider="claude-code"] [data-agent-logo="claude-code"]', agentsBox)).not.toBeNull();
-    expect($('[data-provider="claude-code"] [data-provider-state]', agentsBox)?.textContent).toBe("Connected");
-    expect($('[data-provider-model="claude-code"]', agentsBox)).not.toBeNull();
+    expect($('[data-provider="claude-code"] [data-provider-on]', agentsBox)).not.toBeNull();
+    expect($('[data-provider="claude-code"]', agentsBox)?.textContent).not.toContain("Connected");
+    expect($('[data-provider-model], [data-effort-menu], [role="combobox"], select', agentsBox)).toBeNull();
     expect($('[data-settings-box="local"]')).not.toBeNull();
-    click($('[data-provider-details="codex"]')!);
+    click($('[data-provider="codex"]')!);
     await settle();
     expect(page()).toBe("provider:codex");
     expect(header()).toBe("Codex");

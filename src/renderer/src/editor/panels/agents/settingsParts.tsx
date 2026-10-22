@@ -1,5 +1,5 @@
 /** Agent settings' building blocks (AgentSettings.tsx, aiSettings.tsx): the list's groups and rows, a page's blocks and fields. */
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import { Icon, cx, tooltipProps, type IconName } from "@/ds";
 import styles from "./Agents.module.css";
 
@@ -73,10 +73,10 @@ export function Block({ title, children, ...data }: { title?: string; children: 
 }
 
 /**
- * Agent settings' look in the panel (PanelSettings.tsx): a small label (and its action) over
- * a box of rows with lines between them, an optional note under it.
+ * Agent settings' look in the panel (PanelSettings.tsx): a small label (and its action) over flat rows on the panel's
+ * background — no box, no lines between rows — and an optional note under them.
  */
-export function SettingsBox({ label, action, note, children, ...data }: { label?: string; action?: ReactNode; note?: ReactNode; children: ReactNode } & Record<`data-${string}`, string | undefined>) {
+export function SettingsGroup({ label, action, note, children, ...data }: { label?: string; action?: ReactNode; note?: ReactNode; children: ReactNode } & Record<`data-${string}`, string | undefined>) {
   return (
     <section className={styles.mSection} {...data}>
       {(label || action) && (
@@ -85,30 +85,47 @@ export function SettingsBox({ label, action, note, children, ...data }: { label?
           {action}
         </div>
       )}
-      <div className={cx(styles.popBox, styles.mBox)}>{children}</div>
+      <div className={styles.mList} data-settings-list="">{children}</div>
       {note && <p className={styles.mNote}>{note}</p>}
     </section>
   );
 }
 
-/** A row of a SettingsBox that opens a page: its icon, its name and a line on it, a chevron. */
-export function NavRow({ icon, title, desc, onClick, ...data }: { icon: IconName; title: string; desc?: string; onClick: () => void } & Record<`data-${string}`, string | undefined>) {
+/** A row that opens a page: its icon, its name, a chevron. */
+export function NavRow({ icon, title, onClick, ...data }: { icon: IconName; title: string; onClick: () => void } & Record<`data-${string}`, string | undefined>) {
   return (
-    <button type="button" className={cx(styles.mRow, styles.mRowNav)} onClick={onClick} {...data}>
+    <button type="button" className={cx(styles.mRow, styles.mRowNav, styles.mRowLink)} onClick={onClick} {...data}>
       <span className={styles.mRowIcon}><Icon name={icon} /></span>
       <span className={styles.mRowText}>
         <span className={styles.mRowTitle}>{title}</span>
-        {desc && <span className={styles.mRowDesc}>{desc}</span>}
       </span>
       <span className={styles.rowChevron}><Icon name="16.chevron.right" /></span>
     </button>
   );
 }
 
-/** A row of a SettingsBox: its mark or icon, its name (and a one-line description under it), what it holds at the right. */
-export function BoxRow({ icon, mark, title, badge, desc, dim, children, ...data }: { icon?: IconName; mark?: ReactNode; title: ReactNode; badge?: ReactNode; desc?: ReactNode; dim?: boolean; children?: ReactNode } & Record<`data-${string}`, string | undefined>) {
+const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
+
+/**
+ * A row of a SettingsGroup: its mark or icon, its name (and one secondary line under it), what it holds at the right.
+ * `onClick`: the whole row opens its detail (a chevron at the end); the controls in it work without opening it.
+ */
+export function SettingsRow({ icon, mark, title, badge, desc, dim, onClick, children, ...data }: { icon?: IconName; mark?: ReactNode; title: ReactNode; badge?: ReactNode; desc?: ReactNode; dim?: boolean; onClick?: () => void; children?: ReactNode } & Record<`data-${string}`, string | undefined>) {
+  const link = onClick
+    ? {
+        role: "button",
+        tabIndex: 0,
+        onClick,
+        onKeyDown: (e: KeyboardEvent) => {
+          if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ")) return;
+          e.preventDefault();
+          onClick();
+        },
+        "data-settings-link": "",
+      }
+    : {};
   return (
-    <div className={cx(styles.mRow, dim && styles.mRowDim)} {...data}>
+    <div className={cx(styles.mRow, onClick && styles.mRowLink, dim && styles.mRowDim)} {...link} {...data}>
       {(mark || icon) && <span className={styles.mRowIcon}>{mark ?? <Icon name={icon!} />}</span>}
       <span className={styles.mRowText}>
         <span className={styles.mRowLine}>
@@ -117,7 +134,12 @@ export function BoxRow({ icon, mark, title, badge, desc, dim, children, ...data 
         </span>
         {desc && <span className={styles.mRowDesc}>{desc}</span>}
       </span>
-      {children && <span className={styles.mRowEnd}>{children}</span>}
+      {children && (
+        <span className={styles.mRowEnd} onClick={stop} onKeyDown={stop}>
+          {children}
+        </span>
+      )}
+      {onClick && <span className={styles.rowChevron}><Icon name="16.chevron.right" /></span>}
     </div>
   );
 }
