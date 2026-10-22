@@ -3049,14 +3049,15 @@ ENG_EXPORT int32_t engine_ensure_asset_keys(Handle h, Ptr refsPtr, uint32_t refs
   return setResult(w.take());
 }
 
-// flags: LOCAL_ASSETS_LIST_ONLY (1) — no versionHash / dependencies (Assets' list; the publish flow asks for them).
+// flags: LOCAL_ASSETS_LIST_ONLY (1) — no versionHash / dependencies (Assets' list; the publish flow asks for them);
+// LOCAL_ASSETS_NO_MAIN_HASH (2) — versionHash of styles, variables and collections only, no dependencies.
 ENG_EXPORT int32_t engine_local_assets(Handle h, uint32_t flags) {
   Call call;
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
   json::Writer w;
   w.beginArray();
-  for (auto& a : e->editor.localAssets((flags & 1) != 0)) {
+  for (auto& a : e->editor.localAssets((flags & 1) != 0, (flags & 2) == 0)) {
     w.beginObject();
     writeLocalAsset(w, e->editor, a);
     w.endObject();

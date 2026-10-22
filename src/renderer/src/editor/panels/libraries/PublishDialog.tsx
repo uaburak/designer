@@ -8,13 +8,19 @@
  * pasted from another library (Move to this file / Publish as a copy) and the ones moved out ("Moved to …"); in an
  * org, Publish to (everyone at the organization or the team) and the warning when that widens who can see the file.
  * ⌘Enter publishes. Files in Drafts can't publish ("Move to a folder to publish").
+ *
+ * Publish closes the dialog at once and the publish runs in the background with a progress toast
+ * (libraryPublishJob.ts); opened again meanwhile, the dialog shows that run. On a big file (a design kit's thousands
+ * of components) the changes are looked for in slices that hand the event loop back, each component's property
+ * errors are read once, and the rows are drawn a few hundred per frame.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Banner, Button, Checkbox, Dialog, EmptyState, Icon, IconButton, MIXED, SearchField, Select, Spinner, TextArea, showToast } from "@/ds";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Banner, Button, Checkbox, Dialog, EmptyState, Icon, IconButton, MIXED, SearchField, Select, Spinner, TextArea } from "@/ds";
 import type { LibraryAsset } from "../../../../../shared/store/types";
 import { useEditor } from "../../controller";
 import { useLibraries, useUI } from "../../hooks";
-import { draftPublish, publishLibrary, publishLimitErrors, publishPlan, setHiddenWhenPublishing, type PublishDraft, type PublishItem, type PublishLimitError } from "../../libraries";
+import { draftPublish, publishLimitErrors, publishPlan, setHiddenWhenPublishing, slicer, type PublishDraft, type PublishItem, type PublishLimitError } from "../../libraries";
+import { publishInBackground, publishRun, subscribePublishRun } from "../../libraryPublishJob";
 import { componentPublishErrors, publishErrorLine } from "../../components";
 import type { PropertyPublishError } from "../../model/components";
 import type { LocalAsset } from "../../model/libraries";
@@ -50,30 +56,7 @@ const GROUPS: { title: string; kinds: LibraryAsset["kind"][] }[] = [
 ];
 const LIMIT_TEXT: Record<PublishLimitError, string> = { TOO_MANY_MODES_ERROR: "This collection has more modes than your plan allows", TOO_MANY_VARIABLES_ERROR: "This collection has more than 5,000 variables" };
 
-/** A failed publish, in words (the store's codes; an org library's server refusals come as `forbidden` with their code). */
-export function publishErrorText(e: unknown): string {
-  const code = (e as { code?: string }).code;
-  const detail = ((e as { detail?: { code?: string } }).detail ?? {}).code;
-  if (code === "draft-cannot-publish" || detail === "draft_cannot_publish") return t("Move this file to a folder to publish it");
-  if (code === "branch-cannot-publish" || detail === "branch_cannot_publish") return t("Libraries can only be published from the main file");
-  if (detail === "seat_required") return t("You need a Full seat to publish a library");
-  if (code === "conflict") return t("Someone else published this library. Review the changes and publish again");
-  if (code === "offline") return t("You're offline. Publish again when you're back online");
-  // Figma's `publish_failed {reason: payload_too_large}` (HTTP 413).
-  if (code === "too-large") return t("The library couldn't be published: it's too large");
-  return t("The library couldn't be published");
-}
-
-/**
- * Which failures offer Retry (atlas 12 §3.8: Figma's offline `cant_publish` and its generic and partial errors do; a
- * file that can't publish, a seat, a conflict or a payload too large don't — retrying wouldn't change them).
- */
-export function publishRetryable(e: unknown): boolean {
-  const code = (e as { code?: string }).code;
-  const detail = ((e as { detail?: { code?: string } }).detail ?? {}).code;
-  if (detail === "draft_cannot_publish" || detail === "branch_cannot_publish" || detail === "seat_required") return false;
-  return !["draft-cannot-publish", "branch-cannot-publish", "conflict", "too-large", "forbidden", "read-only"].includes(code ?? "");
-}
+export { publishErrorText, publishRetryable } from "./publishErrors";
 
 export function PublishDialog() {
   const open = useUI((s) => s.publishOpen);
@@ -105,12 +88,15 @@ function Publish() {
   const ed = useEditor();
   const state = useLibraries();
   const [draft, setDraft] = useState<PublishDraft | null>(null);
+  // Each new / modified asset's checks, read once per draft: a collection past the limits, a component's property errors.
+  const [checks, setChecks] = useState<Checks | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [description, setDescription] = useState("");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [moveModes, setMoveModes] = useState<Map<string, "move" | "copy">>(new Map());
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  // A publish of this file running in the background (this dialog's, or one started before it was opened again).
+  const progress = useSyncExternalStore(subscribePublishRun, () => publishRun(ed));
   const [open, setOpen] = useState<Record<Section, boolean>>({ invalid: true, changes: true, unchanged: false, hidden: false });
   const last = useRef<string | null>(null);
   const shift = useShift();
@@ -125,34 +111,36 @@ function Publish() {
   };
   const inDrafts = state.inDrafts;
   const [reload, setReload] = useState(0);
+  // While a publish runs, the changes aren't looked for (the run's result changes them): once it ends, they are.
+  const running = !!progress;
   useEffect(() => {
-    if (inDrafts) return;
+    if (inDrafts || running) return;
     let live = true;
-    void draftPublish(ed)
-      .then((d) => {
-        if (!live) return;
-        setDraft(d);
-        // A component with property errors (Figma's publish errors) or a collection past the limits isn't published:
-        // left out until it is fixed.
-        const limits = publishLimitErrors(ed, d);
-        const publishable = (i: PublishItem) => !limits.has(i.key) && (!isComponentKind(i.asset.kind) || componentPublishErrors(ed, i.asset.guid).length === 0);
-        setSelected(new Set([...d.items.filter((i) => (i.status === "created" || i.status === "modified") && publishable(i)).map((i) => i.key), ...d.removed.map((r) => r.key)]));
-        setMoveModes(new Map(d.moves.map((m) => [m.fromKey, "move" as const])));
-      })
-      .catch((e: unknown) => live && setError(e instanceof Error ? e.message : String(e)));
+    void (async () => {
+      const d = await draftPublish(ed);
+      if (!live) return;
+      const c = await checksOf(ed, d);
+      if (!live) return;
+      setDraft(d);
+      setChecks(c);
+      // A component with property errors (Figma's publish errors) or a collection past the limits isn't published:
+      // left out until it is fixed.
+      const publishable = (i: PublishItem) => !c.limits.has(i.key) && !c.errors.get(i.key)?.length;
+      setSelected(new Set([...d.items.filter((i) => (i.status === "created" || i.status === "modified") && publishable(i)).map((i) => i.key), ...d.removed.map((r) => r.key)]));
+      setMoveModes(new Map(d.moves.map((m) => [m.fromKey, "move" as const])));
+    })().catch((e: unknown) => live && setError(e instanceof Error ? e.message : String(e)));
     return () => {
       live = false;
     };
-  }, [ed, inDrafts, reload]);
+  }, [ed, inDrafts, reload, running]);
 
   const rows = useMemo<Row[]>(() => {
-    if (!draft) return [];
-    const limits = publishLimitErrors(ed, draft);
+    if (!draft || !checks) return [];
     const changed = draft.items
       .filter((i) => i.status === "created" || i.status === "modified")
       .map((i): Row => {
-        const errors = isComponentKind(i.asset.kind) ? componentPublishErrors(ed, i.asset.guid) : [];
-        const limit = limits.get(i.key);
+        const errors = checks.errors.get(i.key) ?? [];
+        const limit = checks.limits.get(i.key);
         return { key: i.key, name: i.asset.name, kind: i.asset.kind, section: errors.length || limit ? "invalid" : "changes", status: i.status as Row["status"], item: i, errors, ...(limit ? { limit } : {}) };
       });
     return [
@@ -161,7 +149,7 @@ function Publish() {
       ...draft.items.filter((i) => i.status === "unchanged" && i.asset.kind !== "VARIABLE").map((i): Row => ({ key: i.key, name: i.asset.name, kind: i.asset.kind, section: "unchanged", status: "unchanged", item: i, errors: [] })),
       ...draft.hidden.map((h): Row => ({ key: h.guid, name: h.name, kind: h.kind, section: "hidden", status: "hidden", hidden: h, errors: [] })),
     ];
-  }, [draft, ed]);
+  }, [draft, checks]);
   const plan = useMemo(() => (draft ? publishPlan(draft, selected) : null), [draft, selected]);
   const q = query.trim().toLowerCase();
   const matches = (r: Row) => !q || r.name.toLowerCase().includes(q);
@@ -187,32 +175,26 @@ function Publish() {
     if (shift.current && from >= 0 && to >= 0) toggle(visible.slice(Math.min(from, to), Math.max(from, to) + 1).filter((x) => !locked(x)).map((x) => x.key), on);
     else toggle([r.key], on);
   };
-  const publish = async () => {
+  // Publish closes the dialog; the run goes on in the background with its toast (libraryPublishJob.ts).
+  const publish = () => {
     if (!draft || !canPublish) return;
-    setProgress({ done: 0, total: draft.items.length });
-    try {
-      const published = await publishLibrary(ed, draft, { description: description.trim(), selected, moveModes, ...(org?.canShare ? { scope: publishTo } : {}) }, (done, total) => setProgress({ done, total }));
-      // Published; should this file not have recorded it on its assets yet (an edit kept the engine busy), it says so.
-      showToast(published.recorded ? { message: t("Library published"), kind: "success" } : { message: t("Library published, but this file couldn't record it yet"), kind: "error" });
-      close();
-    } catch (e) {
-      setProgress(null);
-      showToast({ message: publishErrorText(e), kind: "error", ...(publishRetryable(e) ? { action: { label: t("Retry"), onAction: () => void publish() } } : {}) });
-      // Someone published meanwhile (an org library, docs/data.md §16.6): the changes are looked for again.
-      if ((e as { code?: string }).code === "conflict") setReload((n) => n + 1);
-    }
+    const run = publishInBackground(ed, draft, { description: description.trim(), selected, moveModes, ...(org?.canShare ? { scope: publishTo } : {}) }, { name: ed.ui.get().fileName });
+    if (run.started) close();
   };
   const includeHidden = (h: LocalAsset) => {
     setHiddenWhenPublishing(ed, h.guid, false);
     setDraft(null);
+    setChecks(null);
     setReload((n) => n + 1);
   };
+  // A long list is drawn a few hundred rows per frame (the first ones at once), not thousands in one go.
+  const shown = useProgressiveCount(rows.length);
   const firstPublish = !state.own;
   const count = changes.filter(checked).length;
   const movedOut = draft?.movedOut ?? [];
-  const nothing = !!draft && changes.length === 0 && !draft.moves.length && !movedOut.length;
+  const nothing = !!draft && !!checks && changes.length === 0 && !draft.moves.length && !movedOut.length;
   // Publish is off with nothing checked, while publishing, or before the changes are known (atlas 12 §3.2).
-  const canPublish = !!draft && !progress && (count > 0 || draft.moves.length > 0 || movedOut.length > 0);
+  const canPublish = !!draft && !!checks && !progress && (count > 0 || draft.moves.length > 0 || movedOut.length > 0);
   // Publishing to the organization widens who can see a team file (atlas 12 §3.2's warning banner).
   const widens = !!org && publishTo === "org" && org.scope !== "org";
 
@@ -234,6 +216,8 @@ function Publish() {
     </div>
   );
   const thumb = (r: Row) => (r.item ? <NodeThumb node={r.item.asset.guid} kind={r.kind} size={32} /> : r.removed ? <RemoteThumb asset={r.removed} size={32} /> : <NodeThumb node={r.hidden!.guid} kind={r.kind} size={32} />);
+  const drawn = shown >= rows.length ? null : new Set(rows.slice(0, shown).map((r) => r.key));
+  const draw = (r: Row) => !drawn || drawn.has(r.key);
   const invalid = rows.filter((r) => r.section === "invalid" && matches(r));
   const unchanged = rows.filter((r) => r.section === "unchanged" && matches(r));
   const hidden = rows.filter((r) => r.section === "hidden" && matches(r));
@@ -251,7 +235,7 @@ function Publish() {
         <>
           {progress ? (
             <span className={styles.progress} role="status">
-              <Spinner /> {t("Assembling components, styles and variables… {done}/{total}", { done: progress.done, total: progress.total })}
+              <Spinner /> {t("This library is being published… {done}/{total}", { done: progress.done, total: progress.total })}
             </span>
           ) : org ? (
             <span className={styles.publishTo}>
@@ -269,10 +253,10 @@ function Publish() {
               />
             </span>
           ) : null}
-          <Button variant="secondary" onClick={close} disabled={!!progress}>
+          <Button variant="secondary" onClick={close}>
             {t("Cancel")}
           </Button>
-          <Button variant="primary" loading={!!progress} disabled={!canPublish} onClick={() => void publish()}>
+          <Button variant="primary" loading={!!progress} disabled={!canPublish} onClick={publish}>
             {t("Publish")}
           </Button>
         </>
@@ -286,7 +270,7 @@ function Publish() {
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
             e.preventDefault();
             e.stopPropagation();
-            void publish();
+            publish();
           }
         }}
       >
@@ -306,19 +290,19 @@ function Publish() {
           </Banner>
         )}
         {error && <div className={styles.error}>{error}</div>}
-        {!draft && !error && (
+        {(!draft || !checks) && !error && !progress && (
           <div className={styles.loading}>
             <Spinner /> {t("Looking for changes…")}
           </div>
         )}
         {nothing && !invalid.length && <div className={styles.none}>{t("No changes to publish")}</div>}
-        {draft && (
+        {draft && checks && (
           <div className={styles.changes} role="group" aria-label={t("Changes")}>
             {invalid.length > 0 && (
               <div className={styles.publishSection} data-section="invalid">
                 {header("invalid", t("Invalid components"), invalid)}
                 {open.invalid &&
-                  invalid.map((r) => (
+                  invalid.filter(draw).map((r) => (
                     <div key={r.key} className={styles.changeRow} data-change={r.name} data-status={r.status} data-invalid="">
                       <Checkbox label={r.name} hideLabel checked={false} disabled onChange={() => {}} />
                       {thumb(r)}
@@ -356,7 +340,7 @@ function Publish() {
                         <div className={styles.changeGroupTitle}>
                           {t(g.title)} <span className={styles.meta}>{list.length}</span>
                         </div>
-                        {list.map((r) => {
+                        {list.filter(draw).map((r) => {
                           const users = plan?.usedBy.get(r.key);
                           return (
                             <label key={r.key} className={styles.changeRow} data-change={r.name} data-status={r.status} data-locked={locked(r) ? "" : undefined}>
@@ -379,7 +363,7 @@ function Publish() {
               <div className={styles.publishSection} data-section="unchanged">
                 {header("unchanged", t("Unchanged"), unchanged)}
                 {open.unchanged &&
-                  unchanged.map((r) => (
+                  unchanged.filter(draw).map((r) => (
                     <div key={r.key} className={styles.changeRow} data-change={r.name} data-status="unchanged">
                       {thumb(r)}
                       <span className={styles.changeName}>{r.name}</span>
@@ -394,7 +378,7 @@ function Publish() {
                 {open.hidden && (
                   <>
                     <div className={styles.publishCaption}>{t("These won't be published")}</div>
-                    {hidden.map((r) => (
+                    {hidden.filter(draw).map((r) => (
                       <label key={r.key} className={styles.changeRow} data-change={r.name} data-status="hidden">
                         <Checkbox
                           label={t("Include in publish")}
@@ -453,4 +437,40 @@ function Publish() {
       </div>
     </Dialog>
   );
+}
+
+type Checks = { limits: Map<string, PublishLimitError>; errors: Map<string, PropertyPublishError[]> };
+
+/**
+ * What keeps a new or modified asset out of the publish, read once per draft (the selection and the rows both use
+ * it): a collection past the limits, a component's property errors — in slices that hand the event loop back.
+ */
+async function checksOf(ed: ReturnType<typeof useEditor>, d: PublishDraft): Promise<Checks> {
+  const limits = publishLimitErrors(ed, d);
+  const errors = new Map<string, PropertyPublishError[]>();
+  const slice = slicer();
+  for (const i of d.items) {
+    if ((i.status !== "created" && i.status !== "modified") || !isComponentKind(i.asset.kind)) continue;
+    if (slice.due()) await slice.breathe();
+    const e = componentPublishErrors(ed, i.asset.guid);
+    if (e.length) errors.set(i.key, e);
+  }
+  return { limits, errors };
+}
+
+/** Rows drawn at first, and added per frame after that. */
+const ROWS_FIRST = 200;
+const ROWS_PER_FRAME = 400;
+
+/** How many of `total` rows to draw: ROWS_FIRST at once, ROWS_PER_FRAME more each frame until all are. */
+function useProgressiveCount(total: number): number {
+  const [count, setCount] = useState(ROWS_FIRST);
+  useEffect(() => {
+    if (count >= total) return;
+    const raf = typeof requestAnimationFrame === "function" ? requestAnimationFrame : (f: () => void) => setTimeout(f, 16) as unknown as number;
+    const cancel = typeof cancelAnimationFrame === "function" ? cancelAnimationFrame : (id: number) => clearTimeout(id);
+    const id = raf(() => setCount((c) => c + ROWS_PER_FRAME));
+    return () => cancel(id);
+  }, [count, total]);
+  return count;
 }

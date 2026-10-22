@@ -880,7 +880,10 @@ async function librariesSection(page, theme) {
     if (name) await shot(page, name);
     await dialog.getByRole("button", { name: "Publish", exact: true }).click();
     await page.locator("[data-publish-dialog]").waitFor({ state: "detached", timeout: 10000 });
+    await published();
   };
+  // Publish closes the dialog at once and runs in the background (its toast): done when "Library published" shows.
+  const published = () => page.getByText("Library published").first().waitFor({ timeout: 30000 });
 
   // ---- The Kit publishes (the modal lists its components as new); the Tokens too.
   await open(page, `&file=${keys.kit}`);
@@ -1025,6 +1028,7 @@ async function librariesSection(page, theme) {
   await page.locator('[data-publish-dialog] [data-change="Button"]').getByRole("checkbox").click({ force: true });
   await dialog.getByRole("button", { name: "Publish", exact: true }).click();
   await page.locator("[data-publish-dialog]").waitFor({ state: "detached", timeout: 10000 });
+  await published();
 
   // ---- Moved out: ⌘X of Icons/Heart in the Kit, ⌘V in Kit 2, which publishes with Move to this file; the Kit's
   // Publish then lists it under Moved components ("Moved to Kit 2") and can publish that alone.
@@ -1059,6 +1063,7 @@ async function librariesSection(page, theme) {
   await shot(page, `87-publish-moved-out-${theme}`);
   await dialog.getByRole("button", { name: "Publish", exact: true }).click();
   await page.locator("[data-publish-dialog]").waitFor({ state: "detached", timeout: 10000 });
+  await published();
   await page.evaluate(() => window.__designerEditor.source.flush());
 
   // ---- The App: one row per asset; Update selected instance on a second instance, then Update all (one step).

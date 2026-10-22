@@ -378,7 +378,9 @@ export class LibraryIndex {
     // then no node is read — on an engine with lazy per-page derivation a read of a main derives its whole page, and
     // reading every main derived every page of the file at open.
     const movesRecorded = (record?.movedIn.length ?? 0) > 0;
-    for (const a of ed.engine.localAssets()) {
+    // Keys, published versions and moves: the list alone (no content hashes — every asset's subtree hashed was most of
+    // the time a big file's publish spent here).
+    for (const a of ed.engine.localAssets({ listOnly: true })) {
       const main = a.kind === "COMPONENT" || a.kind === "COMPONENT_SET";
       const move = main ? moveOf(ed, a, movesRecorded) : null;
       const want = a.key ? (listed.get(a.key) ?? null) : null;
@@ -481,7 +483,8 @@ export class LibraryIndex {
     if (this.unpublishedCache?.version === this.docVersion) return this.unpublishedCache.value;
     let value = false;
     try {
-      for (const a of this.ed.engine.localAssets()) {
+      // Mains are judged by new or removed only: their content isn't hashed (`hashMains: false`).
+      for (const a of this.ed.engine.localAssets({ hashMains: false })) {
         if (a.componentSetId) continue; // a variant publishes with its set
         if (a.softDeleted || a.hiddenFromPublishing) {
           if (a.publishedVersion) value = true; // removed (or hidden) since its publish
@@ -646,24 +649,96 @@ function fromEngineAsset(ed: EditorController, e: LocalAssetInfo): LocalAsset {
   };
 }
 
+/**
+ * A macrotask that isn't throttled in a hidden tab (a MessageChannel message, not `setTimeout`): long library work
+ * hands the event loop back between slices, so the editor keeps painting and answering input (a big file — a design
+ * kit's thousands of components — kept the tab busy long enough for macOS to call it not responding).
+ */
+export function yieldToEventLoop(): Promise<void> {
+  if (typeof MessageChannel !== "function") return new Promise((resolve) => setTimeout(resolve, 0));
+  return new Promise((resolve) => {
+    const { port1, port2 } = new MessageChannel();
+    port1.onmessage = () => {
+      port1.close();
+      resolve();
+    };
+    port2.postMessage(null);
+  });
+}
+
+/** Time slices: `due()` says when a slice has run its `ms` (then `breathe()` yields and starts the next one). */
+export function slicer(ms = 12): { due: () => boolean; breathe: () => Promise<void> } {
+  let start = performance.now();
+  return {
+    due: () => performance.now() - start >= ms,
+    breathe: async () => {
+      await yieldToEventLoop();
+      start = performance.now();
+    },
+  };
+}
+
+/** How many assets one `encodeAssets` call takes (between calls the editor gets the event loop back). */
+export const ENCODE_CHUNK = 400;
+/** How many mains one derivation read takes (their pages are derived on a lazy engine: the read's real work). */
+const DERIVE_CHUNK = 200;
+
+type Encoded = Omit<EncodedAsset, "message"> & { message?: Message; bytes?: Uint8Array };
+
+/**
+ * The publishable assets encoded with what they need (closures), in chunks of `ENCODE_CHUNK` keys: the asked ones in
+ * `keys`' order, then each dependency that isn't asked itself, once (what one call over every key gives).
+ */
+async function encodeInChunks(ed: EditorController, keys: readonly string[]): Promise<Encoded[]> {
+  if (!keys.length) return [];
+  // A kiwi-writing engine hands the payloads as the bytes the store keeps (`encodeAssetsKiwi`); else the JSON Messages.
+  const encodeKiwi = engineCall<(keys: string[]) => { assets: (Omit<EncodedAsset, "message"> & { bytes: Uint8Array })[] }>(ed.engine, "encodeAssetsKiwi", "set_wire_format");
+  const encode = (chunk: string[]): Encoded[] => (encodeKiwi ? encodeKiwi(chunk).assets : ed.engine.encodeAssets(chunk).assets);
+  if (keys.length <= ENCODE_CHUNK) return encode([...keys]);
+  const asked = new Set(keys);
+  const out: Encoded[] = [];
+  const deps = new Map<string, Encoded>();
+  for (let i = 0; i < keys.length; i += ENCODE_CHUNK) {
+    if (i) await yieldToEventLoop();
+    if (ed.engine.destroyed) throw new Error(t("Libraries aren't available here"));
+    for (const a of encode(keys.slice(i, i + ENCODE_CHUNK))) {
+      if (!a.dependencyOnly) out.push(a);
+      else if (!asked.has(a.key) && !deps.has(a.key)) deps.set(a.key, a);
+    }
+  }
+  return [...out, ...deps.values()];
+}
+
 /** Keys given to every asset that lacks one, then the publishable ones encoded with what they need (closures). */
-function draftItems(ed: EditorController): { items: PublishItem[]; hiddenCount: number; hidden: LocalAsset[] } {
+async function draftItems(ed: EditorController): Promise<{ items: PublishItem[]; hiddenCount: number; hidden: LocalAsset[] }> {
   ed.engine.ensureAssetKeys();
+  // The list is all the draft reads of `localAssets` (the content hashes come with the payloads): `listOnly` skips
+  // hashing every asset's subtree twice over.
+  const all = ed.engine.localAssets({ listOnly: true });
   // A publish hashes every main: on an engine with lazy per-page derivation the mains' pages are derived first, so
   // `localAssets`' versionHash and `encodeAssets`' agree (a main hashed before its page was derived came out as
   // "modified" right after its own publish). The editor avoids this read everywhere else (opening a file derives only
-  // the page shown); a publish is the user's own action over the whole file.
-  const mains = ed.engine.localAssets().filter((a) => (a.kind === "COMPONENT" || a.kind === "COMPONENT_SET") && !a.softDeleted);
-  if (mains.length) ed.engine.readNodes(mains.map((a) => a.id), { fields: ["guid"] } as never);
-  const all = ed.engine.localAssets();
+  // the page shown); a publish is the user's own action over the whole file — read in slices, yielding between them.
+  const mains = all.filter((a) => (a.kind === "COMPONENT" || a.kind === "COMPONENT_SET") && !a.softDeleted).map((a) => a.id);
+  for (let i = 0; i < mains.length; i += DERIVE_CHUNK) {
+    ed.engine.readNodes(mains.slice(i, i + DERIVE_CHUNK), { fields: ["guid"] } as never);
+    await yieldToEventLoop();
+    if (ed.engine.destroyed) throw new Error(t("Libraries aren't available here"));
+  }
   const top = all.filter((a) => !a.componentSetId && !a.softDeleted); // a variant publishes with its set
   const listed = top.filter((a) => !a.hiddenFromPublishing && !!a.key && (a.kind !== "VARIABLE" || RESOLVED.has(a.resolvedType ?? "")));
-  // A kiwi-writing engine hands the payloads as the bytes the store keeps (`encodeAssetsKiwi`); else the JSON Messages.
-  const keys = listed.map((a) => a.key);
-  const encodeKiwi = engineCall<(keys: string[]) => { assets: (Omit<EncodedAsset, "message"> & { bytes: Uint8Array })[] }>(ed.engine, "encodeAssetsKiwi", "set_wire_format");
-  const encoded: (Omit<EncodedAsset, "message"> & { message?: Message; bytes?: Uint8Array })[] = !listed.length ? [] : encodeKiwi ? encodeKiwi(keys).assets : ed.engine.encodeAssets(keys).assets;
-  const items = encoded.map(
-    (a): PublishItem => ({
+  const encoded = await encodeInChunks(
+    ed,
+    listed.map((a) => a.key)
+  );
+  const items: PublishItem[] = [];
+  const slice = slicer();
+  for (const a of encoded) {
+    if (slice.due()) {
+      await slice.breathe();
+      if (ed.engine.destroyed) throw new Error(t("Libraries aren't available here"));
+    }
+    items.push({
       asset: fromEngineAsset(ed, a),
       key: a.key,
       versionHash: a.versionHash,
@@ -674,8 +749,8 @@ function draftItems(ed: EditorController): { items: PublishItem[]; hiddenCount: 
       ...(a.collectionKey ? { collectionKey: a.collectionKey } : {}),
       ...(a.componentSetKey ? { componentSetKey: a.componentSetKey } : {}),
       ...socialOf(ed, a),
-    })
-  );
+    } as PublishItem);
+  }
   const hidden = top.filter((a) => a.hiddenFromPublishing).map((a) => fromEngineAsset(ed, a));
   return { items, hiddenCount: hidden.length, hidden };
 }
@@ -701,11 +776,13 @@ export function publishLimitErrors(ed: EditorController, draft: Pick<PublishDraf
   const out = new Map<string, PublishLimitError>();
   const collections = draft.items.filter((i) => i.asset.kind === "VARIABLE_COLLECTION" && i.status !== "dependency");
   if (!collections.length || ed.engine.destroyed) return out;
-  const variables = ed.engine.localAssets().filter((a) => a.kind === "VARIABLE" && !a.softDeleted);
+  // Variables per collection, counted once (the list alone: no content hashes).
+  const counts = new Map<string, number>();
+  for (const a of ed.engine.localAssets({ listOnly: true })) if (a.kind === "VARIABLE" && !a.softDeleted && a.collectionId) counts.set(a.collectionId, (counts.get(a.collectionId) ?? 0) + 1);
   for (const c of collections) {
     const modes = (ed.engine.readNode(c.asset.guid, { fields: ["variableSetModes"] } as never) as { variableSetModes?: unknown[] } | null)?.variableSetModes?.length ?? 0;
     if (modes > LIMITS.modes) out.set(c.key, "TOO_MANY_MODES_ERROR");
-    else if (variables.filter((v) => v.collectionId === c.asset.guid).length > LIMITS.variables) out.set(c.key, "TOO_MANY_VARIABLES_ERROR");
+    else if ((counts.get(c.asset.guid) ?? 0) > LIMITS.variables) out.set(c.key, "TOO_MANY_VARIABLES_ERROR");
   }
   return out;
 }
@@ -714,7 +791,7 @@ export function publishLimitErrors(ed: EditorController, draft: Pick<PublishDraf
 export async function draftPublish(ed: EditorController): Promise<PublishDraft> {
   const access = ed.source.libraries;
   if (!access || !libraryEngine(ed)) throw new Error(t("Libraries aren't available here"));
-  const { items, hiddenCount, hidden } = draftItems(ed);
+  const { items, hiddenCount, hidden } = await draftItems(ed);
   const previous = await access.version(access.libraryKey).catch(() => null);
   const preview = await access.previewPublish(items.map((i) => toPublishAsset(i, false)));
   const created = new Set(preview.created.map((a) => a.key));
@@ -727,8 +804,9 @@ export async function draftPublish(ed: EditorController): Promise<PublishDraft> 
     moves.push({ item: i, fromLibraryFileKey: m.pasteFileKey, fromKey: m.oldKey, fromName: (await access.fileName(m.pasteFileKey).catch(() => null)) ?? "another file" });
   }
   const movedOut: PublishDraft["movedOut"] = [];
+  const previousByKey = new Map((previous?.assets ?? []).map((a) => [a.key, a]));
   for (const r of preview.moved) {
-    const asset = previous?.assets.find((a) => a.key === r.fromKey) ?? null;
+    const asset = previousByKey.get(r.fromKey) ?? null;
     movedOut.push({ key: r.fromKey, name: asset?.name ?? "Component", kind: asset?.kind ?? "COMPONENT", asset, toLibraryFileKey: r.toLibraryFileKey, toName: (await access.fileName(r.toLibraryFileKey).catch(() => null)) ?? "another file" });
   }
   return { items, preview, removed: preview.removed, moves, movedOut, previous, hiddenCount, hidden };
@@ -761,15 +839,17 @@ export function publishPlan(draft: PublishDraft, selected: ReadonlySet<string>):
   const shipped = (i: PublishItem) => i.status === "unchanged" || i.status === "dependency" || chosen.has(i.key);
   // Its payload is written now (a new version), so the dependencies inside it are the current ones.
   const writes = (i: PublishItem) => chosen.has(i.key) || (i.status === "dependency" && prev.get(i.key)?.versionHash !== i.versionHash);
-  const usedBy = new Map<string, string[]>();
+  // Names in the order first noted, each once (a Set per key: an icon thousands of components use stays linear).
+  const users = new Map<string, Set<string>>();
   const note = (key: string, name: string) => {
-    const list = usedBy.get(key) ?? [];
-    if (!list.includes(name)) usedBy.set(key, [...list, name]);
+    let set = users.get(key);
+    if (!set) users.set(key, (set = new Set()));
+    set.add(name);
   };
   const queue = draft.items.filter(writes);
   const queued = new Set(queue.map((i) => i.key));
-  while (queue.length) {
-    const i = queue.shift()!;
+  for (let at = 0; at < queue.length; at++) {
+    const i = queue[at];
     for (const dep of i.dependencies) {
       const d = byKey.get(dep);
       if (!d || dep === i.key) continue;
@@ -788,6 +868,8 @@ export function publishPlan(draft: PublishDraft, selected: ReadonlySet<string>):
     const deps = shipped(i) ? i.dependencies : (prev.get(i.key)?.dependencies ?? []);
     for (const dep of deps) if (removed.has(dep) && dep !== i.key) note(dep, i.asset.name);
   }
+  const usedBy = new Map<string, string[]>();
+  for (const [key, set] of users) usedBy.set(key, [...set]);
   return { chosen, usedBy };
 }
 
@@ -844,8 +926,14 @@ export async function publishLibrary(ed: EditorController, draft: PublishDraft, 
   const assets: EditorPublishAsset[] = [];
   const total = draft.items.length;
   let done = 0;
+  // Thumbnails: each drawn by the engine at once (synchronous, short), its PNG encoded off the main thread
+  // (`canvas.toBlob`) — up to THUMB_ENCODES at a time instead of one after another; the editor gets the event loop back
+  // between slices of the loop (a design kit has thousands of components).
+  const encoding = new Set<Promise<void>>();
+  const slice = slicer();
   for (const i of draft.items) {
     onProgress?.(done++, total);
+    if (slice.due()) await slice.breathe();
     const chosen = i.status === "dependency" || i.status === "unchanged" || plan.chosen.has(i.key);
     if (!chosen) {
       // Deselected: as last published (a modified asset's previous version; a new one that only shipped unlisted
@@ -855,16 +943,25 @@ export async function publishLibrary(ed: EditorController, draft: PublishDraft, 
       continue;
     }
     const needsThumb = (i.status === "created" || i.status === "modified") && (i.asset.kind === "COMPONENT" || i.asset.kind === "COMPONENT_SET");
-    const png = needsThumb ? await assetThumbnail(ed, i.asset.guid) : undefined;
-    const entry = toPublishAsset(i, i.status !== "unchanged", png ?? undefined);
+    const entry = toPublishAsset(i, i.status !== "unchanged");
     // Hidden or deleted but still used by a published asset, its Removed row deselected: it stays listed.
     if (i.status === "dependency" && removedKeys.has(i.key) && !choices.selected.has(i.key)) entry.dependencyOnly = false;
     assets.push(entry);
+    const px = needsThumb ? thumbnailPixels(ed, i.asset.guid) : null;
+    if (!px) continue;
+    if (encoding.size >= THUMB_ENCODES) await Promise.race(encoding);
+    const job: Promise<void> = encodePng(px)
+      .then((png) => {
+        if (png) entry.thumbnailPng = png;
+      })
+      .finally(() => encoding.delete(job));
+    encoding.add(job);
   }
+  await Promise.all(encoding);
   const shipped = new Set(assets.map((a) => a.key));
   for (const r of draft.removed) if (!choices.selected.has(r.key) && !shipped.has(r.key)) assets.push({ ...r, dependencies: [...r.dependencies] } as EditorPublishAsset);
   onProgress?.(total, total);
-  const moves = draft.moves.filter((m) => assets.some((a) => a.key === m.item.key)).map((m) => ({ key: m.item.key, fromLibraryFileKey: m.fromLibraryFileKey, fromKey: m.fromKey, mode: choices.moveModes.get(m.fromKey) ?? ("move" as const) }));
+  const moves = draft.moves.filter((m) => shipped.has(m.item.key)).map((m) => ({ key: m.item.key, fromLibraryFileKey: m.fromLibraryFileKey, fromKey: m.fromKey, mode: choices.moveModes.get(m.fromKey) ?? ("move" as const) }));
   const version = await access.publish({ description: choices.description, assets, moves, ...(choices.scope ? { scope: choices.scope } : {}) });
   ed.libraries.notePublished(version.version);
   let recorded = true;
@@ -881,17 +978,29 @@ export async function publishLibrary(ed: EditorController, draft: PublishDraft, 
   return { ...version, recorded };
 }
 
-/** A component's PNG thumbnail (≤ 256 px, the engine's node render), or null where it can't be drawn. */
-export async function assetThumbnail(ed: EditorController, guid: Guid): Promise<Uint8Array | null> {
+/** How many thumbnails a publish encodes as PNG at once (each holds its ≤ 256 × 256 pixels until encoded). */
+const THUMB_ENCODES = 8;
+
+/** A component's thumbnail pixels (≤ 256 px, the engine's node render), or null where it can't be drawn. */
+function thumbnailPixels(ed: EditorController, guid: Guid): Pixels | null {
   const render = engineMethod<(o: { node: Guid; maxSize: number }) => Pixels | null>(ed.engine, "renderNodeThumbnailPixels");
   if (!render || typeof document === "undefined" || typeof document.createElement !== "function") return null;
-  let px: Pixels | null = null;
   try {
-    px = render({ node: guid, maxSize: THUMB });
+    const px = render({ node: guid, maxSize: THUMB });
+    return px && px.width && px.height ? px : null;
   } catch {
     return null;
   }
-  if (!px || !px.width || !px.height) return null;
+}
+
+/** A component's PNG thumbnail (≤ 256 px, the engine's node render), or null where it can't be drawn. */
+export async function assetThumbnail(ed: EditorController, guid: Guid): Promise<Uint8Array | null> {
+  const px = thumbnailPixels(ed, guid);
+  return px ? encodePng(px) : null;
+}
+
+/** Pixels as PNG bytes (the browser's encoder, off the main thread). */
+async function encodePng(px: Pixels): Promise<Uint8Array | null> {
   const canvas = document.createElement("canvas");
   canvas.width = px.width;
   canvas.height = px.height;

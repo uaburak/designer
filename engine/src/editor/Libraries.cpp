@@ -597,7 +597,7 @@ std::string Editor::assetVersionHash(Guid id) const {
   return versionHashOf(id, memo);
 }
 
-std::vector<Editor::AssetInfo> Editor::localAssets(bool listOnly) const {
+std::vector<Editor::AssetInfo> Editor::localAssets(bool listOnly, bool hashMains) const {
   std::vector<Guid> ids;
   doc_.forEach([&](const Node& n) {
     if (assetKindOf(n.guid) != AssetKind::NONE && !isLibraryCopy(n.guid)) ids.push_back(n.guid);
@@ -610,7 +610,10 @@ std::vector<Editor::AssetInfo> Editor::localAssets(bool listOnly) const {
     AssetInfo info;
     fillAssetInfo(id, info);
     info.hidden = assetHidden(id);
-    if (!listOnly) {
+    if (!listOnly && !hashMains) {
+      AssetKind k = assetKindOf(id);
+      if (k != AssetKind::COMPONENT && k != AssetKind::COMPONENT_SET) info.versionHash = versionHashOf(id, memo);
+    } else if (!listOnly) {
       info.versionHash = versionHashOf(id, memo);
       Guid root = payloadRoot(id);
       auto it = depsByRoot.find(root);
@@ -646,10 +649,11 @@ void Editor::encodeAssets(const std::vector<std::string>& keys, std::vector<Enco
   images.clear();
   // The assets asked for, then their dependencies (with keys of their own: the store files payloads by key).
   std::vector<Guid> asked;
+  GuidSet askedSet;
   KeyIndex ix = indexKeys(*this);
   for (const std::string& k : keys) {
     Guid id = ix.local(k);
-    if (id != kNoGuid && std::find(asked.begin(), asked.end(), id) == asked.end()) asked.push_back(id);
+    if (id != kNoGuid && askedSet.insert(id).second) asked.push_back(id);
   }
   std::vector<Guid> roots;
   for (Guid id : asked) roots.push_back(payloadRoot(id));
@@ -674,7 +678,7 @@ void Editor::encodeAssets(const std::vector<std::string>& keys, std::vector<Enco
   std::vector<std::pair<Guid, bool>> entries;  // asset, dependencyOnly
   for (Guid id : asked) entries.push_back({id, false});
   for (Guid d : deps)
-    if (!isLibraryCopy(d) && std::find(asked.begin(), asked.end(), d) == asked.end()) entries.push_back({d, true});
+    if (!isLibraryCopy(d) && !askedSet.count(d)) entries.push_back({d, true});
 
   HashMemo hashes;
   auto hashOf = [&](Guid g) { return versionHashOf(g, hashes); };
@@ -766,12 +770,16 @@ Status Editor::markPublished(const std::vector<PublishedEntry>& entries) {
     Guid id = ix.local(e.key);
     if (id == kNoGuid) continue;
     const NodeProps& p = doc_.get(id)->props;
+    // A moved main, published here: the move is done (docs/data.md §9.5).
+    AssetKind k = assetKindOf(id);
+    bool clearMove = !e.versionHash.empty() && (k == AssetKind::COMPONENT || k == AssetKind::COMPONENT_SET) && p.asset().libraryMoveInfo.present();
+    // Already so (the library index's own check got there first): nothing to write — a big library's second marking
+    // would otherwise be thousands of changes for nothing.
+    if (p.asset().publishedVersion == e.versionHash && !clearMove) continue;
     NodeChange c = NodeChange::changed(id);
     c.mask = F_PUBLISHED_VERSION;
     c.props.asset().publishedVersion = e.versionHash;  // "": the version removed it (no longer published)
-    // A moved main, published here: the move is done (docs/data.md §9.5).
-    AssetKind k = assetKindOf(id);
-    if (!e.versionHash.empty() && (k == AssetKind::COMPONENT || k == AssetKind::COMPONENT_SET) && p.asset().libraryMoveInfo.present()) {
+    if (clearMove) {
       c.mask |= F_LIBRARY_MOVE_INFO;
       c.props.asset().libraryMoveInfo = {};
     }

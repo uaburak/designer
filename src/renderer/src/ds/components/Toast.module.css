@@ -49,5 +49,9 @@
   /* Without a button after it the message ends 16 from the edge (Figma's horizontal padding 16) */
   .toast:not(:has(> button)) { padding-right: var(--ds-space-4); }
   .static { animation: none; }
+  /* A progress toast's bar: 2 px along its foot, inside its rounded corners (ours; Figma's publish bell shows a count) */
+  .toast:has(> .progress) { position: relative; overflow: hidden; }
+  .progress { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--figma-color-bg-tertiary); }
+  .progressFill { display: block; height: 100%; background: var(--figma-color-bg-brand); transition: width var(--ds-duration-medium) linear; }
   @keyframes enter { from { opacity: 0; transform: translateY(8px); } }
 }

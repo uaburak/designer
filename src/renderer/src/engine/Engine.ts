@@ -1853,9 +1853,11 @@ export class Engine {
   /**
    * Every local asset (components, sets, styles, collections, variables), publishable or not, deleted-but-kept too.
    * `listOnly`: without `versionHash` and `dependencies` (empty) — each walks the asset's subtree; Assets' list needs neither.
+   * `hashMains: false`: `versionHash` of styles, variables and collections only (components and sets: ""), no
+   * `dependencies` — an engine without the flag hashes them all (slower, same answer for the others).
    */
-  localAssets(options: { listOnly?: boolean } = {}): LocalAssetInfo[] {
-    return this.json(this.x.localAssets(this.h, options.listOnly ? 1 : 0), []);
+  localAssets(options: { listOnly?: boolean; hashMains?: boolean } = {}): LocalAssetInfo[] {
+    return this.json(this.x.localAssets(this.h, (options.listOnly ? 1 : 0) | (options.hashMains === false ? 2 : 0)), []);
   }
 
   /** Publish payloads: the assets with these keys and their dependencies (`dependencyOnly`), each with its Message. */

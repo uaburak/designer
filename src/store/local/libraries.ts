@@ -43,6 +43,9 @@ import { encodeSnapshot } from "./snapshot";
 import type { LocalWorkspace, Log, WorkspaceDirs } from "./workspace";
 import { t as tr } from "../../shared/i18n";
 
+/** How many assets a publish writes at once (payload file, thumbnail blob: each an fsync'd atomic write). */
+const PUBLISH_WRITES = 16;
+
 export interface LibrariesDeps {
   dirs: WorkspaceDirs;
   workspace: LocalWorkspace;
@@ -189,9 +192,10 @@ export class LocalLibraries {
       const preview = await this.previewPublish(lib, req.assets);
       const prev = await this.latest(lib);
       const now = this.d.clock.now();
-      // 1. Payloads (once per asset version) and thumbnails (blobs).
-      const assets: LibraryAsset[] = [];
-      for (const a of req.assets) {
+      // 1. Payloads (once per asset version) and thumbnails (blobs) — PUBLISH_WRITES assets at a time (a design kit
+      // publishes thousands; one after another, their file writes took most of the publish), in the request's order.
+      const prevThumb = new Map((prev?.assets ?? []).map((p) => [`${p.key}\n${p.versionHash}`, p.thumbnail]));
+      const one = async (a: PublishAsset): Promise<LibraryAsset> => {
         const path = this.payloadPath(lib, a.key, a.versionHash);
         if (!(await exists(path))) {
           if (!(a.payload instanceof Uint8Array)) throw new StoreError("invalid", `asset ${a.key} needs its payload`);
@@ -203,15 +207,17 @@ export class LocalLibraries {
           await ensureDir(join(this.dir(lib), "assets", a.key));
           await atomicWrite(this.d.dirs.tmp, path, encodeSnapshot(a.payload));
         }
-        let thumbnail: LibraryAsset["thumbnail"] = prev?.assets.find((p) => p.key === a.key && p.versionHash === a.versionHash)?.thumbnail ?? null;
+        let thumbnail: LibraryAsset["thumbnail"] = prevThumb.get(`${a.key}\n${a.versionHash}`) ?? null;
         if (a.thumbnailPng instanceof Uint8Array) {
           const dims = pngSize(a.thumbnailPng);
           if (!dims) throw new StoreError("invalid", `asset ${a.key}'s thumbnail must be a PNG`);
           const put = await this.d.blobs.put(a.thumbnailPng, { mime: "image/png" });
           thumbnail = { sha1: put.sha1, width: dims.width, height: dims.height };
         }
-        assets.push(this.toAsset(a, thumbnail));
-      }
+        return this.toAsset(a, thumbnail);
+      };
+      const assets: LibraryAsset[] = [];
+      for (let i = 0; i < req.assets.length; i += PUBLISH_WRITES) assets.push(...(await Promise.all(req.assets.slice(i, i + PUBLISH_WRITES).map(one))));
       // 2. The manifest, then the record (in that order: a record never points at a missing manifest).
       const record = this.records.get(lib);
       const n = (record?.latestVersion ?? 0) + 1;

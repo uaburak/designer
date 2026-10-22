@@ -26,6 +26,10 @@ export type ToastOptions = {
   icon?: IconName;
   /** Called when the user dismisses it with × (Figma's `onDismiss`, which shows the ×); not when it times out or is taken down */
   onDismiss?: () => void;
+  /** Figma's progress bell (a plugin running, a library publishing): a spinner before the message */
+  spinner?: boolean;
+  /** Work done, 0…1: a thin bar along the toast's foot (a progress toast stays until its owner takes it down — no ×) */
+  progress?: number;
 };
 type ToastState = ToastOptions & { id: number; count: number };
 
@@ -77,6 +81,18 @@ export function showToast(options: ToastOptions): number {
   return id;
 }
 
+/**
+ * Changes a toast in place — its message, its progress — without queueing it again or restarting its time (a
+ * progress toast: "Publishing HeroUI… 153/8295"). False when it is gone.
+ */
+export function updateToast(id: number, patch: Partial<Omit<ToastOptions, "delay">>): boolean {
+  const at = queue.findIndex((q) => q.id === id);
+  if (at < 0) return false;
+  queue = queue.map((q, i) => (i === at ? { ...q, ...patch } : q));
+  emit();
+  return true;
+}
+
 /** The toast showing now (null: none) — what ToastHost draws. */
 export const currentToast = (): Readonly<ToastOptions & { id: number }> | null => snapshot.toast;
 
@@ -99,7 +115,7 @@ const subscribe = (l: () => void) => {
 };
 
 /** A toast's look (contract §4.22): 40px, radius 9, dark (red for errors), a repeat count, an action and ×. */
-export function Toast({ message, kind = "default", action, count, icon, spinner, onClose, static: isStatic }: ToastOptions & { count?: number; onClose?: () => void; static?: boolean; spinner?: boolean }) {
+export function Toast({ message, kind = "default", action, count, icon, spinner, progress, onClose, static: isStatic }: ToastOptions & { count?: number; onClose?: () => void; static?: boolean }) {
   useT();
   return (
     <div role={kind === "error" ? "alert" : "status"} data-ds="Toast" data-theme="dark" data-theme-forced="" className={cx(styles.toast, kind === "error" && styles.error, isStatic && styles.static)}>
@@ -115,6 +131,11 @@ export function Toast({ message, kind = "default", action, count, icon, spinner,
         </Button>
       )}
       {onClose && <IconButton icon="24.close.small" label={t(STRINGS.dismiss)} tooltip={false} onClick={onClose} />}
+      {progress !== undefined && (
+        <span className={styles.progress} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(Math.min(1, Math.max(0, progress)) * 100)}>
+          <span className={styles.progressFill} style={{ width: `${Math.min(1, Math.max(0, progress)) * 100}%` }} />
+        </span>
+      )}
     </div>
   );
 }
@@ -140,7 +161,8 @@ export function ToastHost() {
     return () => window.clearTimeout(t.current);
   }, [toast, queued]);
   if (!toast) return null;
-  const lasting = !Number.isFinite(toastDuration(toast));
+  // A progress toast has no ×: its owner takes it down when the work is done.
+  const lasting = !Number.isFinite(toastDuration(toast)) && toast.progress === undefined;
   return (
     <Portal theme="dark">
       <div className={styles.host} aria-live="polite" onPointerEnter={() => window.clearTimeout(timer.current)} onPointerLeave={() => schedule(timer, toast, queued)}>
@@ -150,6 +172,8 @@ export function ToastHost() {
           kind={toast.kind}
           count={toast.count}
           icon={toast.icon}
+          spinner={toast.spinner}
+          progress={toast.progress}
           action={toast.action && { label: toast.action.label, onAction: () => { toast.action?.onAction(); if (!toast.keepOnAction) dismissToast(toast.id); } }}
           onClose={
             lasting || toast.onDismiss
