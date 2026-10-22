@@ -254,9 +254,26 @@ export class SegmentWriter {
     return new SegmentWriter(path, header, afd, goodLength, frames);
   }
 
+  /** Set when a failed append's torn bytes couldn't be cut off: nothing more may follow them. */
+  private broken = false;
+
   append(frame: Uint8Array): void {
+    if (this.broken) throw new Error(`${this.path}: a failed write left a torn frame`);
     let written = 0;
-    while (written < frame.length) written += writeSync(this.fd, frame, written, frame.length - written);
+    try {
+      while (written < frame.length) written += writeSync(this.fd, frame, written, frame.length - written);
+    } catch (e) {
+      // A write that failed part-way (the disk full) leaves a torn frame: cut back to the last whole one, or the next
+      // frames — acknowledged once the batch is sent again — would sit past a hole that a reload stops at and drops.
+      if (written > 0) {
+        try {
+          ftruncateSync(this.fd, this.size);
+        } catch {
+          this.broken = true;
+        }
+      }
+      throw e;
+    }
     this.size += frame.length;
     this.frames++;
     this.dirtyBytes += frame.length;

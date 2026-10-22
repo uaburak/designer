@@ -32,6 +32,7 @@ let restarts: number[] = [];
 let stopping = false;
 let stopped: Promise<void> | null = null;
 let giveUp: () => void = () => {};
+let quitting: () => boolean = () => false;
 let lastError: string | null = null;
 /** Each start's number, never reused: a page's client drops a port older than the one it has */
 let generation = 0;
@@ -95,6 +96,19 @@ function spawn() {
     if (stopping || store !== handle) return;
     console.warn(`[store] exited (${code})`);
     handle.client.close();
+    // The app is quitting (Ctrl-C of `npm run dev` or a kill reaches main and the store together; the store stops
+    // itself first): no new store now — one started here took the lock while main exited and died with it, a stale
+    // lock on the next start. Should the quit be cancelled, a new one starts then.
+    if (quitting()) {
+      store = null;
+      const wait = setInterval(() => {
+        if (stopping || store) return clearInterval(wait);
+        if (quitting()) return;
+        clearInterval(wait);
+        spawn();
+      }, 500);
+      return;
+    }
     restarts = [...restarts.filter((t) => Date.now() - t < 60_000), Date.now()];
     if (restarts.length <= 3) spawn();
     else {
@@ -111,10 +125,11 @@ export function onStoreReady(listener: (client: StoreClient) => void): () => voi
   return () => readyListeners.delete(listener);
 }
 
-/** Started once, in app.whenReady() before the first window. */
-export function startStoreHost(onGiveUp: () => void): void {
+/** Started once, in app.whenReady() before the first window. `isQuitting`: the app's quit is under way (before-quit). */
+export function startStoreHost(onGiveUp: () => void, isQuitting: () => boolean = () => false): void {
   if (store || stopping) return;
   giveUp = onGiveUp;
+  quitting = isQuitting;
   spawn();
 }
 

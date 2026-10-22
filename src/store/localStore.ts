@@ -3,6 +3,7 @@
  * and `LocalAdapter`, the four repositories over them (§8). `LocalAdapter` is always authoritative: the UI reads
  * and writes only through it (over RPC); shared files reach their rooms behind it (multiplayer/service.ts).
  */
+import { execFileSync } from "node:child_process";
 import { randomInt } from "node:crypto";
 import { closeSync, openSync, promises as fsp, writeSync } from "node:fs";
 import { join } from "node:path";
@@ -96,6 +97,8 @@ export interface LocalStoreOptions {
   /** Personal Drafts in the cloud (docs/cloud.md §2): signed in, the workspace is the account's cache (default on;
    *  tests of local files' own behaviour turn it off) */
   personalDrafts?: boolean;
+  /** How long a lock held by another live process is waited for (default 5 s) */
+  lockWaitMs?: number;
 }
 
 const defaultLog: Log = (level, message, detail) => {
@@ -108,19 +111,53 @@ const defaultLog: Log = (level, message, detail) => {
 /** Workspaces locked by live stores of this process (a stale lock with our own pid is a crashed store). */
 const LOCKED_HERE = new Set<string>();
 
-async function acquireLock(dirs: WorkspaceDirs, now: number, log: Log): Promise<void> {
+/** `ps -o etime=` ("[[dd-]hh:]mm:ss") in seconds; null when unreadable. */
+export function parseElapsed(etime: string): number | null {
+  const m = /^\s*(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)\s*$/.exec(etime);
+  if (!m) return null;
+  return ((Number(m[1] ?? 0) * 24 + Number(m[2] ?? 0)) * 60 + Number(m[3])) * 60 + Number(m[4]);
+}
+
+/** When the live process `pid` started (wall clock ms), or null where `ps` can't tell (Windows, an error). */
+function processStartedAt(pid: number): number | null {
+  if (process.platform === "win32") return null;
+  try {
+    const out = execFileSync("ps", ["-o", "etime=", "-p", String(pid)], { encoding: "utf8", timeout: 2000, env: { ...process.env, LC_ALL: "C" } });
+    const s = parseElapsed(out);
+    return s === null ? null : Date.now() - s * 1000;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether a live process that started at `startedAt` (wall clock ms; null: unknown) can be the one that wrote a lock
+ * at `wroteAt`: one started after the lock was written got a dead store's pid (pids are reused), it holds nothing.
+ */
+export function canHoldLock(wroteAt: number | undefined, startedAt: number | null): boolean {
+  if (typeof wroteAt !== "number" || startedAt === null) return true;
+  return startedAt <= wroteAt + 5000; // ps counts whole seconds; slack for that
+}
+
+/**
+ * Takes the workspace's lock. A live holder is waited for up to `waitMs`: the store of an app that is quitting (or of a
+ * main process restarted by `npm run dev`) releases it within a few seconds, and failing at once made main's restarts
+ * (no pause between them) fail too, until it gave up with "Wecra can't save changes right now".
+ */
+async function acquireLock(dirs: WorkspaceDirs, now: number, log: Log, waitMs: number): Promise<void> {
   const path = join(dirs.root, ".lock");
-  for (let attempt = 0; attempt < 2; attempt++) {
+  const deadline = Date.now() + waitMs;
+  for (let takeovers = 0; takeovers < 2; ) {
     try {
       const fd = openSync(path, "wx", 0o644);
-      writeSync(fd, JSON.stringify({ pid: process.pid, startedAt: now }));
+      writeSync(fd, JSON.stringify({ pid: process.pid, startedAt: now, wroteAt: Date.now() }));
       closeSync(fd);
       LOCKED_HERE.add(dirs.root);
       return;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
     }
-    const held = await readJsonOrNull<{ pid: number; startedAt: number }>(path);
+    const held = await readJsonOrNull<{ pid: number; startedAt: number; wroteAt?: number }>(path);
     let alive = false;
     if (held && held.pid !== process.pid) {
       try {
@@ -129,10 +166,21 @@ async function acquireLock(dirs: WorkspaceDirs, now: number, log: Log): Promise<
       } catch (e) {
         alive = (e as NodeJS.ErrnoException).code === "EPERM";
       }
+      // A killed store's pid since given to another process must not lock the workspace for good (the store would
+      // fail to start on every try, and main give up, until the lock file was deleted by hand).
+      if (alive && !canHoldLock(held.wroteAt, processStartedAt(held.pid))) alive = false;
     } else if (held?.pid === process.pid) alive = LOCKED_HERE.has(dirs.root);
-    if (alive) throw new StoreError("io", tr("The workspace is in use by another process (pid {pid})", { pid: String(held?.pid) }));
+    if (alive) {
+      // Another process's (this process's own live store won't let go while we wait)
+      if (held?.pid !== process.pid && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 100));
+        continue;
+      }
+      throw new StoreError("io", tr("The workspace is in use by another process (pid {pid})", { pid: String(held?.pid) }));
+    }
     log("warn", `taking over a stale workspace lock (pid ${held?.pid ?? "?"})`);
     await fsp.rm(path, { force: true });
+    takeovers++;
   }
   throw new StoreError("io", tr("Couldn't lock the workspace"));
 }
@@ -674,7 +722,7 @@ export class LocalStore {
     const log = opts.log ?? defaultLog;
     const dirs = workspaceDirs(opts.workspaceDir);
     await ensureDir(dirs.root);
-    await acquireLock(dirs, clock.now(), log);
+    await acquireLock(dirs, clock.now(), log, opts.lockWaitMs ?? 5000);
     try {
       // tmp/ holds only staging files of interrupted atomic writes; .trash-pending/ finishes earlier deletions.
       await fsp.rm(dirs.tmp, { recursive: true, force: true });
@@ -1028,8 +1076,20 @@ export class LocalStore {
     }
   }
 
-  async shutdown(): Promise<void> {
-    if (this.closed) return;
+  private shuttingDown: Promise<void> | null = null;
+
+  /**
+   * Flushes, closes every file and releases the lock. A second call (main's `store.shutdown` while a signal's is
+   * running) waits for the first: answered at once, it let the entry exit the process mid-flush.
+   */
+  shutdown(): Promise<void> {
+    if (this.shuttingDown) return this.shuttingDown;
+    if (this.closed) return Promise.resolve();
+    this.shuttingDown = this.doShutdown();
+    return this.shuttingDown;
+  }
+
+  private async doShutdown(): Promise<void> {
     this.closed = true;
     if (this.gcTimer) this.timers.clearTimeout(this.gcTimer);
     // The rooms' sockets close first, cleanly (main kills this process 1 s after asking it to stop, and the sends
@@ -1037,8 +1097,13 @@ export class LocalStore {
     this.multiplayer.close();
     this.comments.close();
     this.usage.close();
-    await this.ai.close().catch((e) => this.log("warn", "ai: the quit's send failed", e));
-    await this.analytics.close().catch((e) => this.log("warn", "analytics: the quit's send failed", e));
+    // The quit's sends (up to 2 s each) run alongside the files' flush, not before it: awaited one after the other
+    // first, they used up main's 3 s (a signal's 1.5 s) and the store was killed before the files were closed and the
+    // lock released (a stale lock on the next start).
+    const sends = Promise.all([
+      this.ai.close().catch((e) => this.log("warn", "ai: the quit's send failed", e)),
+      this.analytics.close().catch((e) => this.log("warn", "analytics: the quit's send failed", e)),
+    ]);
     this.orgLibraries.close();
     this.plugins.close();
     this.governanceEvents.close();
@@ -1050,6 +1115,7 @@ export class LocalStore {
     await this.ws.queue.idle();
     await this.libraries.queue.idle();
     await this.compactor.close();
+    await sends;
     await fsp.rm(join(this.dirs.root, ".lock"), { force: true });
     LOCKED_HERE.delete(this.dirs.root);
   }
