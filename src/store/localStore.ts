@@ -97,6 +97,8 @@ export interface LocalStoreOptions {
   /** Personal Drafts in the cloud (docs/cloud.md §2): signed in, the workspace is the account's cache (default on;
    *  tests of local files' own behaviour turn it off) */
   personalDrafts?: boolean;
+  /** How long a lock held by another live process is waited for (default 5 s) */
+  lockWaitMs?: number;
 }
 
 const defaultLog: Log = (level, message, detail) => {
@@ -137,9 +139,15 @@ export function canHoldLock(wroteAt: number | undefined, startedAt: number | nul
   return startedAt <= wroteAt + 5000; // ps counts whole seconds; slack for that
 }
 
-async function acquireLock(dirs: WorkspaceDirs, now: number, log: Log): Promise<void> {
+/**
+ * Takes the workspace's lock. A live holder is waited for up to `waitMs`: the store of an app that is quitting (or of a
+ * main process restarted by `npm run dev`) releases it within a few seconds, and failing at once made main's restarts
+ * (no pause between them) fail too, until it gave up with "Wecra can't save changes right now".
+ */
+async function acquireLock(dirs: WorkspaceDirs, now: number, log: Log, waitMs: number): Promise<void> {
   const path = join(dirs.root, ".lock");
-  for (let attempt = 0; attempt < 2; attempt++) {
+  const deadline = Date.now() + waitMs;
+  for (let takeovers = 0; takeovers < 2; ) {
     try {
       const fd = openSync(path, "wx", 0o644);
       writeSync(fd, JSON.stringify({ pid: process.pid, startedAt: now, wroteAt: Date.now() }));
@@ -162,9 +170,17 @@ async function acquireLock(dirs: WorkspaceDirs, now: number, log: Log): Promise<
       // fail to start on every try, and main give up, until the lock file was deleted by hand).
       if (alive && !canHoldLock(held.wroteAt, processStartedAt(held.pid))) alive = false;
     } else if (held?.pid === process.pid) alive = LOCKED_HERE.has(dirs.root);
-    if (alive) throw new StoreError("io", tr("The workspace is in use by another process (pid {pid})", { pid: String(held?.pid) }));
+    if (alive) {
+      // Another process's (this process's own live store won't let go while we wait)
+      if (held?.pid !== process.pid && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 100));
+        continue;
+      }
+      throw new StoreError("io", tr("The workspace is in use by another process (pid {pid})", { pid: String(held?.pid) }));
+    }
     log("warn", `taking over a stale workspace lock (pid ${held?.pid ?? "?"})`);
     await fsp.rm(path, { force: true });
+    takeovers++;
   }
   throw new StoreError("io", tr("Couldn't lock the workspace"));
 }
@@ -706,7 +722,7 @@ export class LocalStore {
     const log = opts.log ?? defaultLog;
     const dirs = workspaceDirs(opts.workspaceDir);
     await ensureDir(dirs.root);
-    await acquireLock(dirs, clock.now(), log);
+    await acquireLock(dirs, clock.now(), log, opts.lockWaitMs ?? 5000);
     try {
       // tmp/ holds only staging files of interrupted atomic writes; .trash-pending/ finishes earlier deletions.
       await fsp.rm(dirs.tmp, { recursive: true, force: true });

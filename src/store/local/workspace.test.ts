@@ -40,7 +40,13 @@ describe("workspace on disk (docs/data.md §3–§4)", () => {
       await t.close();
       // The same live process, older than the lock: still its holder, refused.
       writeFileSync(lock, JSON.stringify({ pid: sleeper.pid, startedAt: 0, wroteAt: Date.now() + 3600_000 }));
-      await expect(t.reopen()).rejects.toMatchObject({ code: "io" });
+      await expect(t.reopen({ lockWaitMs: 200 })).rejects.toMatchObject({ code: "io" });
+      // Waited for: the holder goes away (a quitting app's store) and the lock is taken.
+      setTimeout(() => sleeper.kill(), 300);
+      const started = Date.now();
+      t = await t.reopen({ lockWaitMs: 5000 });
+      expect(Date.now() - started).toBeGreaterThanOrEqual(250);
+      expect(JSON.parse(readFileSync(lock, "utf8")).pid).toBe(process.pid);
     } finally {
       sleeper.kill();
     }
