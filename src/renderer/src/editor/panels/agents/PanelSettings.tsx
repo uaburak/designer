@@ -1,128 +1,211 @@
 /**
- * Agent settings, all of it ("This chat" › All settings…, the MCP section's button): a modal (the approved prototype's,
- * 780 × 600) with a nav at the left like Manage libraries — Agents and models, Manager and Studio, Skills, Connectors,
- * Access, Usage — and at the right the section's page: its title and a line on it, then boxed sections as in This chat's
- * popover (a small label over a box of rows with lines between them). The logic is the settings pages' own
- * (AgentSettings.tsx, aiSettings.tsx, AccessSettings.tsx, ManagerSettings.tsx, aiData.ts); a detail (an agent's page,
- * a skill's editor, a connector's tools) opens in place with Back to the section. The panel never turns into settings.
+ * Agent settings, inside the Agents panel (the gear; `setView("settings")` / `openSetting(…)` from elsewhere): it takes
+ * the list's or the chat's place, the panel's header becoming Back and the page's title (Back from the home returns to
+ * the list or the chat as it was). The home: "This chat" (the manager, the model and its effort, approvals), a box of
+ * the pages — Agents and models, Manager and Studio, Skills, Connectors, Access, Usage — and a usage card per agent. A
+ * page is boxed sections (SettingsBox / BoxRow); a detail (an agent, a skill's editor, a connector's tools) opens in
+ * place with Back to its page. The logic is the settings pages' own (AgentSettings.tsx, aiSettings.tsx,
+ * AccessSettings.tsx, ManagerSettings.tsx, aiData.ts).
  */
 import { useEffect, useState, type ReactNode } from "react";
-import { AgentLogo, Badge, Button, Dialog, Icon, IconButton, MenuButton, Select, Spinner, Switch, cx, hasAgentLogo, showToast, type IconName } from "@/ds";
+import { AgentLogo, Badge, Button, Icon, IconButton, MenuButton, Select, Spinner, Switch, cx, hasAgentLogo, showToast, type IconName } from "@/ds";
 import type { AccessLogEntry, ReachCapability, ReachPolicy } from "@shared/agents/reach";
 import type { ProviderInfo } from "@shared/agents/types";
-import type { AgentsService } from "../../agents/service";
+import { settingsSectionOf, type AgentsService, type SettingsSection } from "../../agents/service";
 import { modelLabel } from "../../agents/setup";
 import { shortModelName } from "../../agents/models";
+import { managerName } from "../../agents/managerName";
 import { formatTokens, relevantWindows, resetLabel, ringOf, usedLabel } from "../../agents/usage";
-import { KIND_ICON, LookAgain, SettingsPage, isCustom, isServer, stateText } from "./AgentSettings";
+import { KIND_ICON, LookAgain, isCustom, isServer, settingsPageOf, stateText } from "./AgentSettings";
 import { connectorStatus } from "./aiSettings";
 import { CAPABILITIES, OUTCOME, POLICIES, changeReach, useReach } from "./AccessSettings";
 import { ManagerPage } from "./ManagerSettings";
-import { EffortPicker } from "./ModelPicker";
+import { EffortPicker, ModelPicker } from "./ModelPicker";
 import { changeConnectors, removeSkill, resetSkill, toggleSkill, useConnectors, useSkills } from "./aiData";
-import { BoxRow, SettingsBox, errorText } from "./settingsParts";
+import { BoxRow, NavRow, SettingsBox, errorText } from "./settingsParts";
 import { AgentMark } from "./AgentMark";
 import styles from "./Agents.module.css";
 import { intlLocale, t, tp, useT } from "@/i18n";
 
-export type SettingsSection = "agents" | "manager" | "skills" | "connectors" | "access" | "usage";
-
-const SECTIONS: { id: SettingsSection; label: string; about: string; icon: IconName }[] = [
+const SECTIONS: { id: SettingsSection; label: string; about: string; nav?: string; icon: IconName }[] = [
   { id: "agents", label: "Agents and models", about: "The agents on this computer and the models they use for new chats.", icon: "24.agents" },
   { id: "manager", label: "Manager and Studio", about: "The manager plans the work, hands it to other agents and reviews what they make.", icon: "24.person" },
   { id: "skills", label: "Skills", about: "Agents use a skill when it fits the task; type /name in a message to call one.", icon: "24.file" },
   { id: "connectors", label: "Connectors", about: "MCP servers your agents can use, and the apps that connect to this one.", icon: "24.link" },
-  { id: "access", label: "Access", about: "How far agents can reach outside this file.", icon: "24.lock.small" },
+  { id: "access", label: "Access", about: "How far agents can reach outside this file.", nav: "What agents can reach, and the access log.", icon: "24.lock.small" },
   { id: "usage", label: "Usage", about: "What each agent’s plan has used, as its CLI reports it.", icon: "24.recent" },
 ];
 
-/** The section an item's page is in ("provider:codex" → Agents and models; "section:skills" is the section itself). */
-export function sectionOf(item: string | null): SettingsSection | null {
-  if (!item) return null;
-  const kind = item.includes(":") ? item.slice(0, item.indexOf(":")) : item;
-  if (kind === "section") return SECTIONS.find((s) => s.id === item.slice(8))?.id ?? null;
-  if (kind === "provider" || kind === "add-server") return "agents";
-  if (kind === "manager") return "manager";
-  if (kind === "skill" || kind === "add-skill") return "skills";
-  if (kind === "connector" || kind === "add-connector" || kind === "mcp" || kind === "client") return "connectors";
-  if (kind === "access") return "access";
-  return null;
+/** What the panel shows while Agent settings is open: its header's title, Back and action, and the page under it. */
+export function panelSettings(service: AgentsService): { title: string; back: () => void; actions?: ReactNode; body: ReactNode } {
+  const item = service.get().settingsItem;
+  if (!item) return { title: t("Agent settings"), back: () => service.closeSettings(), body: <SettingsHome service={service} /> };
+  const section = settingsSectionOf(item);
+  if (section && (item.startsWith("section:") || item === "manager")) {
+    const info = SECTIONS.find((s) => s.id === section)!;
+    return { title: t(info.label), back: () => service.openSetting(null), actions: <PageAction service={service} section={section} />, body: <SectionPage service={service} section={section} about={info.about} /> };
+  }
+  const page = settingsPageOf(service, item);
+  return {
+    title: page.title,
+    back: () => {
+      service.openSetting(null);
+      void service.refreshProviders();
+    },
+    body: (
+      <div className={styles.settings} data-agent-settings="" data-settings-page={item}>
+        <div className={cx(styles.scroll, styles.page)}>{page.body}</div>
+      </div>
+    ),
+  };
 }
 
-export function AgentSettingsModal({ service }: { service: AgentsService }) {
+// ---- The home ----
+
+function SettingsHome({ service }: { service: AgentsService }) {
+  useT();
+  return (
+    <div className={cx(styles.scroll, styles.psPage)} data-agent-settings="" data-settings-page="home">
+      <ThisChat service={service} />
+      <SettingsBox label={t("Settings")} data-settings-box="pages">
+        {SECTIONS.map((s) => (
+          <NavRow key={s.id} icon={s.icon} title={t(s.label)} desc={t(s.nav ?? s.about)} onClick={() => service.openSetting(`section:${s.id}`)} data-settings-nav={s.id} />
+        ))}
+      </SettingsBox>
+      <UsageCards service={service} />
+    </div>
+  );
+}
+
+/** A select in a row: it shrinks with the panel. */
+function Field({ children, small }: { children: ReactNode; small?: boolean }) {
+  return <span className={cx(styles.psField, small && styles.psFieldSmall)}>{children}</span>;
+}
+
+/** What one changes while chatting: the manager on or off, the model and its effort, how agents ask before reaching out. */
+function ThisChat({ service }: { service: AgentsService }) {
+  useT();
+  const provider = service.activeProvider();
+  const manager = service.managerSettings();
+  return (
+    <SettingsBox label={t("This chat")} data-chat-settings="" data-settings-box="chat">
+      <BoxRow title={managerName(manager)} data-chat-section="manager">
+        <Switch label={managerName(manager)} checked={manager.enabled} onChange={(on) => void service.setManager({ enabled: on })} data-chat-manager="" />
+      </BoxRow>
+      <BoxRow title={t("Model")} data-chat-section="model">
+        <Field>
+          <ModelPicker service={service} provider={provider} variant="filled" withEffort={false} width={undefined} />
+        </Field>
+      </BoxRow>
+      {provider && !service.managerProvider() && (
+        <BoxRow title={t("Effort")} data-chat-effort="">
+          <Field>
+            <EffortPicker service={service} provider={provider} variant="filled" width={undefined} />
+          </Field>
+        </BoxRow>
+      )}
+      <Approvals service={service} />
+    </SettingsBox>
+  );
+}
+
+const MIXED = "mixed";
+
+/**
+ * Approvals: how the reach that is on asks — Ask each time or Always allow, for every capability that isn't off (Off
+ * ones stay off: turning one on is Access's own page). Mixed policies read "Custom".
+ */
+function Approvals({ service }: { service: AgentsService }) {
+  useT();
+  const { view } = useReach(service);
+  if (!service.api?.reach || !view) return null;
+  const on = CAPABILITIES.map((c) => c.cap).filter((cap) => !view.forcedOff.includes(cap) && view.settings.policies[cap] !== "off");
+  if (!on.length) return null;
+  const policies = new Set(on.map((cap) => view.settings.policies[cap]));
+  const value = policies.size === 1 ? [...policies][0] : MIXED;
+  return (
+    <BoxRow title={t("Approvals")} data-chat-approvals="">
+      <Field>
+        <Select
+          label={t("Approvals")}
+          value={value}
+          options={[{ value: "ask", label: t("Ask each time") }, { value: "allow", label: t("Always allow") }, ...(value === MIXED ? [{ value: MIXED, label: t("Custom"), disabled: true }] : [])]}
+          onChange={(v) => {
+            if (v === MIXED) return;
+            const patch = Object.fromEntries(on.map((cap) => [cap, v as ReachPolicy])) as Partial<Record<ReachCapability, ReachPolicy>>;
+            void changeReach((a) => a.set({ policies: patch }));
+          }}
+        />
+      </Field>
+    </BoxRow>
+  );
+}
+
+/**
+ * Usage: a card per connected agent that reports something — its most used plan window (the bar, "12% used", when it
+ * resets), else this chat's tokens with it (no limit known: an empty bar, nothing invented).
+ */
+function UsageCards({ service }: { service: AgentsService }) {
   useT();
   const state = service.get();
-  const item = state.settingsItem;
-  const [section, setSection] = useState<SettingsSection>(() => sectionOf(item) ?? "agents");
-  // A page opened from outside (the composer's "Add skill", Manager…) shows its section.
-  const [seen, setSeen] = useState(item);
-  if (seen !== item) {
-    setSeen(item);
-    const s = sectionOf(item);
-    if (s && s !== section) setSection(s);
-  }
+  const agents = state.providers.filter((p) => p.available);
   useEffect(() => {
-    void service.refreshProviders();
-  }, [service]);
-  // The manager's section is its page; another item's page shows in its own section, with Back to it.
-  const page = item && item !== "manager" && !item.startsWith("section:") && sectionOf(item) === section ? item : null;
-  const info = SECTIONS.find((s) => s.id === section)!;
+    for (const p of agents) void service.refreshUsage(p.id);
+    // Once per opening, for the agents connected then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [service, agents.length]);
+  const chat = service.currentChat();
+  const cards = agents.flatMap((p) => {
+    const windows = relevantWindows(state.usage[p.id], service.modelOf(p));
+    if (windows.length) {
+      const top = windows.reduce((a, b) => (b.usedPct > a.usedPct ? b : a));
+      return [{ p, pct: Math.max(0, Math.min(100, top.usedPct)), state: ringOf([top]).state, amount: usedLabel(top), caption: resetLabel(top) ?? top.label }];
+    }
+    const tokens = chat?.providerId === p.id && chat.tokens ? chat.tokens.input + chat.tokens.output : 0;
+    return tokens ? [{ p, pct: 0, state: "none" as const, amount: t("{tokens} tokens", { tokens: formatTokens(tokens) }), caption: t("This chat") }] : [];
+  });
+  if (!cards.length) return null;
   return (
-    <Dialog title={t("Agent settings")} size="large" header="small" className={styles.settingsModal} open onClose={() => service.closeSettings()}>
-      <div className={styles.settingsShell} data-agent-settings-modal="" data-settings-section={section}>
-        <nav className={styles.settingsNav} aria-label={t("Agent settings")}>
-          <div role="tablist" aria-orientation="vertical" aria-label={t("Agent settings")} className={styles.settingsTabs}>
-            {SECTIONS.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                role="tab"
-                aria-selected={s.id === section}
-                className={styles.settingsTab}
-                onClick={() => {
-                  setSection(s.id);
-                  if (item) service.openSetting(null);
-                }}
-                data-settings-tab={s.id}
-              >
-                <Icon name={s.icon} />
-                <span className={styles.settingsTabLabel}>{t(s.label)}</span>
-              </button>
-            ))}
+    <section className={styles.mSection} data-chat-section="usage">
+      <h3 className={styles.popSectionLabel}>{t("Usage")}</h3>
+      <div className={styles.popUsage}>
+        {cards.map((c) => (
+          <div key={c.p.id} className={styles.popUsageCard} data-chat-usage={c.p.id}>
+            <span className={styles.popUsageName}>
+              <AgentMark providerId={c.p.id} />
+              <span className={styles.popUsageLabel}>{c.p.label}</span>
+            </span>
+            <span className={styles.usageBar}>
+              <span className={styles.usageBarFill} data-usage={c.state} style={{ width: `${c.pct}%` }} />
+            </span>
+            <span className={styles.popUsageAmount}>{c.amount}</span>
+            <span className={styles.popUsageCaption}>{c.caption}</span>
           </div>
-        </nav>
-        {page ? (
-          <div className={cx(styles.settings, styles.embedded, styles.settingsContent)} role="tabpanel" aria-label={t(info.label)} data-agent-settings="" data-settings-page={page}>
-            <SettingsPage service={service} item={page} />
-          </div>
-        ) : (
-          <div className={styles.settingsContent} role="tabpanel" aria-label={t(info.label)} data-agent-settings="" data-settings-page={section}>
-            <div className={styles.mHead}>
-              <div className={styles.mHeadText}>
-                <h2 className={styles.mTitle}>{t(info.label)}</h2>
-                <p className={styles.mAbout}>{t(info.about)}</p>
-              </div>
-              <PageAction service={service} section={section} />
-            </div>
-            <div className={styles.mPage}>
-              <SectionBody service={service} section={section} />
-            </div>
-          </div>
-        )}
+        ))}
       </div>
-    </Dialog>
+    </section>
+  );
+}
+
+// ---- A page ----
+
+function SectionPage({ service, section, about }: { service: AgentsService; section: SettingsSection; about: string }) {
+  useT();
+  useEffect(() => {
+    if (section === "agents") void service.refreshProviders();
+  }, [service, section]);
+  return (
+    <div className={cx(styles.scroll, styles.psPage)} data-agent-settings="" data-settings-page={section} data-settings-section={section}>
+      <p className={styles.mAbout}>{t(about)}</p>
+      <SectionBody service={service} section={section} />
+    </div>
   );
 }
 
 function PageAction({ service, section }: { service: AgentsService; section: SettingsSection }) {
   useT();
   if (section === "agents") return <LookAgain service={service} />;
-  if (section === "skills")
-    return (
-      <Button variant="secondary" onClick={() => service.openSetting("add-skill")} data-new-skill="">
-        {t("New skill")}
-      </Button>
-    );
+  if (section === "skills") return <IconButton icon="24.plus" label={t("New skill")} tone="secondary" onClick={() => service.openSetting("add-skill")} data-new-skill="" />;
   return null;
 }
 
@@ -141,8 +224,6 @@ function Details({ label, onClick, ...data }: { label: string; onClick: () => vo
 }
 
 // ---- Agents and models ----
-
-const FIELD_WIDTH = 144;
 
 function AgentsSection({ service }: { service: AgentsService }) {
   useT();
@@ -197,17 +278,22 @@ function ProviderRow({ service, p }: { service: AgentsService; p: ProviderInfo }
       data-state={isServer(p) ? (p.available ? "connected" : "not-running") : p.auth?.state}
     >
       {p.available && p.models.length > 1 && (
-        <Select
-          label={t("{name} model", { name: p.label })}
-          variant="filled"
-          width={FIELD_WIDTH}
-          value={service.modelOf(p) ?? ""}
-          options={p.models.map((m) => ({ value: m, label: modelLabel(m, p), valueLabel: shortModelName(modelLabel(m, p)) }))}
-          onChange={(m) => void service.choose(p.id, m)}
-          data-provider-model={p.id}
-        />
+        <Field>
+          <Select
+            label={t("{name} model", { name: p.label })}
+            variant="filled"
+            value={service.modelOf(p) ?? ""}
+            options={p.models.map((m) => ({ value: m, label: modelLabel(m, p), valueLabel: shortModelName(modelLabel(m, p)) }))}
+            onChange={(m) => void service.choose(p.id, m)}
+            data-provider-model={p.id}
+          />
+        </Field>
       )}
-      {p.available && <EffortPicker service={service} provider={p} variant="filled" width={FIELD_WIDTH / 2 + 24} />}
+      {p.available && (
+        <Field small>
+          <EffortPicker service={service} provider={p} variant="filled" width={undefined} />
+        </Field>
+      )}
       {needs && (
         <Button variant="secondary" onClick={open}>
           {needs}
@@ -331,7 +417,9 @@ function AccessSection({ service }: { service: AgentsService }) {
             const policy = forced ? "off" : view.settings.policies[cap];
             return (
               <BoxRow key={cap} icon={icon} title={t(name)} desc={forced ? t("Turned off by your organization") : t(about)} dim={policy === "off"} data-access={cap} data-access-policy={forced ? "forced-off" : policy}>
-                <Select label={t("{name} access", { name: t(name) })} variant="filled" width={FIELD_WIDTH} disabled={forced} value={policy} options={POLICIES.map((o) => ({ ...o, label: t(o.label) }))} onChange={(v) => void changeReach((x) => x.set({ policies: { [cap]: v as ReachPolicy } }))} data-access-select={cap} />
+                <Field>
+                  <Select label={t("{name} access", { name: t(name) })} variant="filled" disabled={forced} value={policy} options={POLICIES.map((o) => ({ ...o, label: t(o.label) }))} onChange={(v) => void changeReach((x) => x.set({ policies: { [cap]: v as ReachPolicy } }))} data-access-select={cap} />
+                </Field>
                 <Details label={t("{name} details", { name: t(name) })} onClick={() => service.openSetting(`access:${cap}`)} />
               </BoxRow>
             );

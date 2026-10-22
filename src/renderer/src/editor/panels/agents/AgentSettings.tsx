@@ -169,42 +169,36 @@ export function McpGroup({ service }: { service: AgentSetupHost }) {
 
 export function SettingsPage({ service, item }: { service: AgentSetupHost; item: string }) {
   useT();
-  const state = service.get();
   const back = () => {
     service.openSetting(null);
     void service.refreshProviders();
   };
-  const [kind, id] = item.includes(":") ? [item.slice(0, item.indexOf(":")), item.slice(item.indexOf(":") + 1)] : [item, ""];
-  let title = "";
-  let body: ReactNode = null;
-  if (kind === "provider") {
-    const p = state.providers.find((x) => x.id === id);
-    title = p?.label ?? t("Agent");
-    body = p ? <ProviderPage p={p} service={service} /> : <p className={styles.pageText}>{t("This agent isn’t listed any more.")}</p>;
-  } else if (kind === "client") {
-    const c = state.clients.find((x) => x.id === id);
-    title = c?.label ?? t("App");
-    body = c ? <ClientPage c={c} service={service} /> : null;
-  } else if (kind === "add-server") {
-    title = t("Add a server");
-    body = <AddServer service={service} />;
-  } else if (kind === "manager") {
-    title = t("Manager");
-    body = <ManagerPage service={service} />;
-  } else if (kind === "mcp") {
-    title = t("MCP server");
-    body = <McpPage service={service} />;
-  } else {
-    // Skills and connectors (docs/ai.md §2.10–2.11): aiSettings.tsx
-    const page = aiSettingsPage(kind, id, service) ?? accessSettingsPage(kind, id, service);
-    if (page) ({ title, body } = page);
-  }
+  const { title, body } = settingsPageOf(service, item);
   return (
     <>
       <Bar title={title} onBack={back} />
       <div className={cx(styles.scroll, styles.page)}>{body}</div>
     </>
   );
+}
+
+/** An item's page — its title and body — for a host that draws its own bar (the Agents panel's header). */
+export function settingsPageOf(service: AgentSetupHost, item: string): { title: string; body: ReactNode } {
+  const state = service.get();
+  const [kind, id] = item.includes(":") ? [item.slice(0, item.indexOf(":")), item.slice(item.indexOf(":") + 1)] : [item, ""];
+  if (kind === "provider") {
+    const p = state.providers.find((x) => x.id === id);
+    return { title: p?.label ?? t("Agent"), body: p ? <ProviderPage p={p} service={service} /> : <p className={styles.pageText}>{t("This agent isn’t listed any more.")}</p> };
+  }
+  if (kind === "client") {
+    const c = state.clients.find((x) => x.id === id);
+    return { title: c?.label ?? t("App"), body: c ? <ClientPage c={c} service={service} /> : null };
+  }
+  if (kind === "add-server") return { title: t("Add a server"), body: <AddServer service={service} /> };
+  if (kind === "manager") return { title: t("Manager"), body: <ManagerPage service={service} /> };
+  if (kind === "mcp") return { title: t("MCP server"), body: <McpPage service={service} /> };
+  // Skills and connectors (docs/ai.md §2.10–2.11): aiSettings.tsx
+  return aiSettingsPage(kind, id, service) ?? accessSettingsPage(kind, id, service) ?? { title: "", body: null };
 }
 
 function About({ text, page, label }: { text?: string; page?: string; label: string }) {

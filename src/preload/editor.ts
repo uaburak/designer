@@ -143,6 +143,7 @@ function agentsApi(): AgentsApi {
   attach: (chatId, files) => invoke("agents:attach", { chatId: String(chatId), files: (Array.isArray(files) ? files : []).filter((f) => f?.bytes instanceof Uint8Array).map((f) => ({ name: String(f.name ?? ""), bytes: f.bytes })) }),
   pickAttachments: (chatId) => invoke("agents:pick-attachments", { chatId: String(chatId) }),
   attachClipboard: (chatId) => invoke("agents:attach-clipboard", { chatId: String(chatId) }),
+  attachmentPreview: (path) => invoke("agents:attachment-preview", { path: String(path) }),
   usage: (providerId, fresh) => invoke("agents:usage", { providerId: String(providerId), fresh: fresh === true }),
   onEvent: (cb) => on("agents:event", cb),
   onToolCall: (handler) =>

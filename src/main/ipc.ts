@@ -475,6 +475,7 @@ function registerAgentsIpc() {
   });
   onInvoke("agents:pick-attachments", ({ sender }, p) => agents.pickAttachments(sender, chatOf(p)));
   onInvoke("agents:attach-clipboard", (_c, p) => agents.attachClipboard(chatOf(p)));
+  onInvoke("agents:attachment-preview", (_c, p) => agents.attachmentPreview(str(p?.path, 4096) ?? ""));
   onInvoke("agents:usage", (_c, p) => agents.usage(str(p?.providerId, 100) ?? "", p?.fresh === true));
   onInvoke("agents:mcp", () => agents.mcp());
   onInvoke("agents:clients", () => agents.clients());

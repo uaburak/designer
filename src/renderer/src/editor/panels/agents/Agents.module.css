@@ -51,11 +51,10 @@
   /* The prompt: right, in a bubble, with the selection it was about */
   .user { display: flex; flex-direction: column; align-items: flex-end; gap: var(--ds-space-1); margin: var(--ds-space-2) 0 var(--ds-space-3) var(--ds-space-6); }
   .userBubble { max-width: 100%; padding: var(--ds-space-2) var(--ds-space-3); border-radius: var(--ds-radius-large); background: var(--figma-color-bg-secondary); color: var(--figma-color-text); font: var(--ds-font-body-medium); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
-  .chips { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--ds-space-1); }
+  .chips { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: flex-end; gap: var(--ds-space-1); }
   /* The selection's and the files' chips: 22 high, their glyph at 14 (smaller than the message's own text) */
   .chip { display: inline-flex; align-items: center; gap: var(--ds-space-half); max-width: 100%; height: calc(var(--ds-size-control) - var(--ds-space-half)); padding: 0 var(--ds-space-1) 0 var(--ds-space-half); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
   .chip svg { flex: none; width: calc(var(--ds-space-4) - var(--ds-space-half)); height: calc(var(--ds-space-4) - var(--ds-space-half)); color: var(--figma-color-icon-secondary); }
-  .chip .fileThumb { width: calc(var(--ds-space-4) - var(--ds-space-half)); height: calc(var(--ds-space-4) - var(--ds-space-half)); }
   .chipName { overflow: hidden; color: var(--figma-color-text); text-overflow: ellipsis; white-space: nowrap; }
   .chipRemove { display: inline-flex; padding: 0; border: 0; border-radius: var(--ds-radius-small); background: transparent; color: var(--figma-color-icon-secondary); outline: none; }
   .chipRemove:hover { color: var(--figma-color-icon); }
@@ -183,9 +182,21 @@
   .menu [role="combobox"]:hover, .menu[data-open] [role="combobox"] { color: var(--figma-color-text); }
   .modelMenu { flex: 0 1 auto; }
 
-  /* An attached file: its picture (or a document glyph) at the chip's icon size */
+  /* An attached file that isn't a picture: a chip — its type's glyph, its name, its size */
   .fileChip { max-width: 100%; }
-  .fileThumb { flex: none; width: var(--ds-space-4); height: var(--ds-space-4); border-radius: var(--ds-radius-small); object-fit: cover; }
+  .fileSize { flex: none; color: var(--figma-color-text-tertiary); font: var(--ds-font-body-small); white-space: nowrap; }
+  /* An attached picture: a 52 px square thumbnail, cover-fit; a click opens it larger, ✕ at its corner on hover */
+  .attachTile { position: relative; flex: none; width: calc(var(--ds-space-12) + var(--ds-space-1)); height: calc(var(--ds-space-12) + var(--ds-space-1)); }
+  .attachThumb { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; padding: 0; overflow: hidden; border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-large); background: var(--figma-color-bg-secondary); color: var(--figma-color-icon-secondary); outline: none; cursor: zoom-in; }
+  .attachThumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .attachThumb:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .attachTile .chipRemove { position: absolute; top: calc(var(--ds-space-1) * -1); right: calc(var(--ds-space-1) * -1); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-full); background: var(--figma-color-bg); opacity: 0; transition: opacity var(--ds-duration-fast) var(--ds-ease-out); }
+  .attachTile:hover .chipRemove, .attachTile:focus-within .chipRemove { opacity: 1; }
+  /* An attached picture, larger: over everything on the scrim, Esc or a click closes it */
+  .lightbox { position: fixed; inset: 0; z-index: var(--ds-z-dialog); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--ds-space-2); padding: var(--ds-space-12); background: var(--ds-color-scrim); cursor: zoom-out; }
+  .lightboxImg { display: block; max-width: 100%; max-height: calc(100% - var(--ds-space-8)); min-height: 0; border-radius: var(--ds-radius-large); background: var(--figma-color-bg); box-shadow: var(--ds-elevation-400-menu-panel); object-fit: contain; }
+  .lightboxName { max-width: 100%; overflow: hidden; color: var(--figma-color-text-onbrand); font: var(--ds-font-body-medium); text-overflow: ellipsis; white-space: nowrap; }
+  .lightboxClose { position: absolute; top: var(--ds-space-3); right: var(--ds-space-3); background: var(--figma-color-bg); }
   .attachProblem { color: var(--figma-color-text-danger); font: var(--ds-font-body-medium); overflow-wrap: anywhere; }
 
   /* The usage ring: the most used limit of the plan as a slice (75 % warns, 95 % is full); none reported, the ring alone */
@@ -439,44 +450,21 @@
   .asked { display: flex; align-items: center; gap: var(--ds-space-1-5); min-height: var(--ds-space-5); margin-bottom: var(--ds-space-2); color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); }
   .askedText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-  /* "This chat" (the gear's popover) */
-  .pop { display: flex; flex-direction: column; gap: var(--ds-space-3); padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-3); }
-  .popRow { display: flex; align-items: center; gap: var(--ds-space-2); min-height: var(--ds-size-row); padding: var(--ds-space-1) var(--ds-space-2) var(--ds-space-1) var(--ds-space-3); }
-  .popRow + .popRow { border-top: 1px solid var(--figma-color-border); }
-  .popLabel, .popLabelMain { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); text-overflow: ellipsis; white-space: nowrap; }
-  .popLabelMain { color: var(--figma-color-text); }
-  /* "This chat"'s sections: a small label over a box of rows, lines between them */
-  .popSection { display: flex; flex-direction: column; gap: var(--ds-space-1); }
+  /* Agent settings in the panel (PanelSettings.tsx): its home and pages scroll, boxed sections 16 from the sides */
+  .psPage { display: flex; flex-direction: column; gap: var(--ds-space-4); padding: var(--ds-space-2) var(--ds-space-4) var(--ds-space-6); container-type: inline-size; }
+  .psField { display: flex; flex: 0 1 calc(var(--ds-space-16) * 2.25); min-width: calc(var(--ds-space-16) * 1.25); }
+  .psFieldSmall { flex-basis: calc(var(--ds-space-16) * 1.5); min-width: var(--ds-space-16); }
+  /* A section's label over its box of rows, lines between them */
   .popSectionLabel { margin: 0; padding: 0 var(--ds-space-1); color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); letter-spacing: var(--ds-tracking-body-small); }
   .popBox { display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-large); background: var(--figma-color-bg-secondary); }
+  /* The home's usage cards: two to a line, one when the panel is narrow */
   .popUsage { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ds-space-2); }
+  @container (max-width: 279px) { .popUsage, .mUsage { grid-template-columns: minmax(0, 1fr); } }
   .popUsageCard { display: flex; flex-direction: column; gap: var(--ds-space-1); min-width: 0; padding: var(--ds-space-2); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-large); background: var(--figma-color-bg-secondary); }
   .popUsageName { display: flex; align-items: center; gap: var(--ds-space-1); min-width: 0; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
   .popUsageLabel, .popUsageCaption { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .popUsageAmount { color: var(--figma-color-text); font: var(--ds-font-body-medium); font-variant-numeric: tabular-nums; }
   .popUsageCaption { color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); }
-  .popLink { display: flex; align-items: center; width: 100%; height: var(--ds-size-control); margin: 0; padding: 0 var(--ds-space-2); border: 0; border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-text); font: var(--ds-font-body-medium); text-align: left; outline: none; cursor: default; }
-  .popLink:hover { background: var(--figma-color-bg-hover); }
-  .popLink:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
-
-  /* Agent settings, the modal (AgentSettingsModal.tsx): Manage libraries' shell — the nav at the left, the section */
-  .settingsModal { width: min(calc(var(--ds-size-library-nav) + var(--ds-size-library-modal)), 100vw); height: min(var(--ds-size-library-modal-height), calc(100vh - var(--ds-space-8))); }
-  .settingsModal > :nth-child(2) { padding: 0; overflow: hidden; }
-  .settingsShell { display: flex; height: 100%; min-height: 0; }
-  .settingsNav { display: flex; flex: none; flex-direction: column; width: var(--ds-size-library-nav); min-width: 0; padding: var(--ds-space-2); overflow-y: auto; border-right: 1px solid var(--figma-color-border); }
-  .settingsTabs { display: flex; flex-direction: column; }
-  .settingsTab { display: flex; align-items: center; gap: var(--ds-space-1); height: var(--ds-size-control); padding: 0 var(--ds-space-2) 0 0; border: 0; border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); text-align: left; outline: none; cursor: default; }
-  .settingsTab svg { color: var(--figma-color-icon-secondary); }
-  .settingsTab:hover { background: var(--figma-color-bg-hover); }
-  .settingsTab[aria-selected="true"] { background: var(--figma-color-bg-secondary); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
-  .settingsTab:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
-  .settingsTabLabel { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* The section scrolls in the modal (the embedded settings' look, with the modal's inset) */
-  .settingsContent { flex: 1 1 auto; min-width: 0; padding: var(--ds-space-4) var(--ds-space-6) var(--ds-space-8); overflow-y: auto; }
-  /* A section's page: its title and a line on it (its action at the right), then boxed sections as in This chat */
-  .mHead { display: flex; align-items: flex-start; gap: var(--ds-space-3); margin-bottom: var(--ds-space-4); }
-  .mHeadText { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--ds-space-1); min-width: 0; }
-  .mTitle { margin: 0; color: var(--figma-color-text); font: var(--ds-font-settings-heading); letter-spacing: var(--ds-tracking-settings-heading); }
   .mAbout { margin: 0; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
   .mPage { display: flex; flex-direction: column; gap: var(--ds-space-5); }
   .mSection { display: flex; flex-direction: column; gap: var(--ds-space-1-5); }
@@ -484,15 +472,19 @@
   .mBox > * + * { border-top: 1px solid var(--figma-color-border); }
   .mNote { margin: 0; padding: 0 var(--ds-space-1); color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); letter-spacing: var(--ds-tracking-body-small); }
   .mEmpty { display: flex; align-items: center; gap: var(--ds-space-2); margin: 0; padding: var(--ds-space-3); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
-  .mRow { display: flex; align-items: center; gap: var(--ds-space-2); min-height: calc(var(--ds-space-10)); padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-3); }
+  .mRow { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-2); min-height: calc(var(--ds-space-10)); padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-3); }
   .mRowIcon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: var(--ds-space-6); color: var(--figma-color-icon); }
-  .mRowText { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--ds-space-half); min-width: 0; }
+  .mRowText { display: flex; flex: 1 1 calc(var(--ds-space-16) * 1.75); flex-direction: column; gap: var(--ds-space-half); min-width: 0; }
   .mRowLine { display: flex; align-items: center; gap: var(--ds-space-1-5); min-width: 0; }
   .mRowTitle { min-width: 0; overflow: hidden; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); text-overflow: ellipsis; white-space: nowrap; }
   .mRowDesc { display: flex; align-items: center; gap: var(--ds-space-1); min-width: 0; overflow: hidden; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); text-overflow: ellipsis; white-space: nowrap; }
   .mRowDesc > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .mRowDim .mRowTitle, .mRowDim .mRowDesc, .mRowDim .mRowIcon { color: var(--figma-color-text-tertiary); }
-  .mRowEnd { display: flex; flex: none; align-items: center; gap: var(--ds-space-1); }
+  .mRowEnd { display: flex; flex: 0 1 auto; align-items: center; justify-content: flex-end; gap: var(--ds-space-1); min-width: 0; margin-left: auto; }
+  /* A row that opens a page (the settings home) */
+  .mRowNav { width: 100%; margin: 0; border: 0; border-radius: 0; background: transparent; color: inherit; font: inherit; text-align: left; outline: none; cursor: default; flex-wrap: nowrap; }
+  .mRowNav:hover { background: var(--figma-color-bg-hover); }
+  .mRowNav:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
   .mCount { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); white-space: nowrap; }
   .mDanger { color: var(--figma-color-text-danger); }
   .mCheck { display: flex; align-items: center; min-height: var(--ds-size-row); padding: var(--ds-space-1) var(--ds-space-3); }
@@ -501,7 +493,7 @@
   .mBox .fieldLabel { width: calc(var(--ds-space-16) * 2); }
   .mBox .fieldValue { justify-content: flex-end; }
   .mBox .fieldSelect { flex: 0 1 calc(var(--ds-space-16) * 4); }
-  /* Usage: the popover's cards, larger, two to a line */
+  /* Usage's page: the home's cards, larger, two to a line */
   .mUsage { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ds-space-3); }
   .mUsageCard { gap: var(--ds-space-3); padding: var(--ds-space-3) var(--ds-space-4); }
   .mUsageCard h3 { margin: 0; }

@@ -73,7 +73,7 @@ export function Block({ title, children, ...data }: { title?: string; children: 
 }
 
 /**
- * The Agent settings modal's look (AgentSettingsModal.tsx), as This chat's popover: a small label (and its action) over
+ * Agent settings' look in the panel (PanelSettings.tsx): a small label (and its action) over
  * a box of rows with lines between them, an optional note under it.
  */
 export function SettingsBox({ label, action, note, children, ...data }: { label?: string; action?: ReactNode; note?: ReactNode; children: ReactNode } & Record<`data-${string}`, string | undefined>) {
@@ -88,6 +88,20 @@ export function SettingsBox({ label, action, note, children, ...data }: { label?
       <div className={cx(styles.popBox, styles.mBox)}>{children}</div>
       {note && <p className={styles.mNote}>{note}</p>}
     </section>
+  );
+}
+
+/** A row of a SettingsBox that opens a page: its icon, its name and a line on it, a chevron. */
+export function NavRow({ icon, title, desc, onClick, ...data }: { icon: IconName; title: string; desc?: string; onClick: () => void } & Record<`data-${string}`, string | undefined>) {
+  return (
+    <button type="button" className={cx(styles.mRow, styles.mRowNav)} onClick={onClick} {...data}>
+      <span className={styles.mRowIcon}><Icon name={icon} /></span>
+      <span className={styles.mRowText}>
+        <span className={styles.mRowTitle}>{title}</span>
+        {desc && <span className={styles.mRowDesc}>{desc}</span>}
+      </span>
+      <span className={styles.rowChevron}><Icon name="16.chevron.right" /></span>
+    </button>
   );
 }
 

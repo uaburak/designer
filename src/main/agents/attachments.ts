@@ -98,6 +98,30 @@ export function readFiles(paths: string[], fs: AttachFs = nodeAttachFs): { files
 }
 
 /**
+ * The picture a view asks to see larger (a chat's attachment thumbnail, clicked), kept only when it is an image in a
+ * chat's attachments folder under the agents' work folder (`<work>/<chat>/attachments/<file>`, after symlinks): its
+ * real path, else null.
+ */
+export function previewablePath(workDir: string, path: unknown, fs: AttachFs = nodeAttachFs): string | null {
+  if (typeof path !== "string" || !path || !isAbsolute(path)) return null;
+  let base: string;
+  let real: string;
+  try {
+    base = fs.realpath(workDir);
+    real = fs.realpath(path);
+  } catch {
+    return null;
+  }
+  const parts = relative(base, real).split(/[\\/]/);
+  if (parts.length !== 3 || parts[0] === ".." || isAbsolute(parts[0]) || parts[1] !== ATTACHMENTS_DIR) return null;
+  try {
+    return sniffAttachment(fs.head(real))?.startsWith("image/") ? real : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * A turn's attachments as the view sent them, kept only when each is a file in the chat's attachments folder (after
  * symlinks) — a view can't point an agent at any other file.
  */

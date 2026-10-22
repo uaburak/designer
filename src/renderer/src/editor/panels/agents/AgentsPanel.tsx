@@ -3,8 +3,8 @@
  * tools on this computer. Its views: the file's chats (by recency, "New chat") and a chat (the prompts with the
  * selection they were about, the agent's answer streamed with its steps — open, each a quiet line —, the turn's changes
  * with Undo / Apply, the run pinned above the message box, Stop while it runs, a message typed meanwhile queued, the
- * agent and model under the message box). The gear opens "This chat" (ChatSettings.tsx); All settings is a modal over
- * the panel (AgentSettingsModal.tsx).
+ * agent and model under the message box). The gear opens Agent settings in the panel, in the list's or the chat's place
+ * (PanelSettings.tsx): the header becomes Back and the page's title.
  */
 import { Fragment, createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ClipboardEvent, type CSSProperties, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { NO_FILTER, chatStatus, filterChats, matchSnippet, splitMatches, type ChatFilter, type ChatSort } from "../../agents/chatList";
@@ -23,8 +23,7 @@ import { elapsedLabel, segmentsOf, type Segment } from "../../agents/activity";
 import { REVEAL_MS } from "../../agents/imagePlaceholder";
 import { managerName } from "../../agents/managerName";
 import { TabHeader } from "../TabHeader";
-import { AgentSettingsModal } from "./AgentSettingsModal";
-import { ChatSettings } from "./ChatSettings";
+import { panelSettings } from "./PanelSettings";
 import { ModelPicker } from "./ModelPicker";
 import { RunDock } from "./RunDock";
 import { AgentMark, providerIdOf } from "./AgentMark";
@@ -65,9 +64,6 @@ export function AgentsPanel({ placement = "left", draft = null, onDraftTaken }: 
     // Once per panel: providers are refreshed from settings after that.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [service]);
-  // The gear's "This chat" popover, anchored to the gear (a press on it toggles).
-  const [gear, setGear] = useState<HTMLSpanElement | null>(null);
-  const [quick, setQuick] = useState(false);
   // The list's search (in the header, over the title), its filter and the "Delete all chats" question.
   const [filter, setFilter] = useState<ChatFilter>(NO_FILTER);
   const [searching, setSearching] = useState(false);
@@ -84,10 +80,12 @@ export function AgentsPanel({ placement = "left", draft = null, onDraftTaken }: 
     setFilter((f) => ({ ...f, query: "" }));
   };
   const gearButton = (
-    <span ref={setGear} className={styles.plus}>
-      <IconButton icon="24.settings.small" label={t("Agent settings")} tone="secondary" disabled={!state.available} aria-expanded={quick} aria-haspopup="dialog" onClick={() => setQuick(!quick)} data-agents-settings="" />
+    <span className={styles.plus}>
+      <IconButton icon="24.settings.small" label={t("Agent settings")} tone="secondary" disabled={!state.available} onClick={() => service.setView("settings")} data-agents-settings="" />
     </span>
   );
+  // Agent settings, in the panel: its header (Back and the page's title) and its page in the view's place.
+  const settings = state.available && state.settingsOpen ? panelSettings(service) : null;
   // The list's header: search, the filter menu (with New chat and Delete all chats…), the gear. A new chat is also
   // the list's composer: a message typed there starts one.
   const listActions = (
@@ -148,20 +146,22 @@ export function AgentsPanel({ placement = "left", draft = null, onDraftTaken }: 
   return (
     <DraftContext.Provider value={composerDraft}>
       <div className={styles.panel} data-agents="" data-view={state.view} data-settings-open={state.settingsOpen || undefined} data-placement={placement}>
-        {inChat ? (
+        {settings ? (
+          <TabHeader title={settings.title} back={{ label: t("Back"), onClick: settings.back }} actions={settings.actions} />
+        ) : inChat ? (
           <TabHeader title={service.currentChat()?.title || t("New chat")} back={{ label: t("Back"), onClick: () => service.setView("list") }} actions={gearButton} />
         ) : (
           <TabHeader title={t("Agents")} search={search} actions={listShown ? listActions : gearButton} />
         )}
         {!state.available ? (
           <EmptyState icon="24.agents" title={t("Agents run in the desktop app")} body={t("Open this file in Wecra to chat with the AI tools on your computer.")} />
+        ) : settings ? (
+          settings.body
         ) : listShown ? (
           <ChatList service={service} chats={state.chats} filter={filter} />
         ) : (
           <ChatView service={service} chat={service.currentChat()} />
         )}
-        {quick && state.available && <ChatSettings service={service} anchor={gear} onClose={() => setQuick(false)} />}
-        {state.settingsOpen && state.available && <AgentSettingsModal service={service} />}
         <Dialog
           title={t("Delete all chats?")}
           open={confirmAll}
@@ -421,20 +421,72 @@ function ContextChip({ item, onRemove }: { item: NonNullable<ChatMessage["contex
   );
 }
 
-/** A file attached to a message: its picture (or a document glyph), its name, and ✕ while it is in the composer. */
+/**
+ * A file attached to a message, in the composer and in the sent message: a picture as a small square thumbnail (a click
+ * opens it larger; ✕ on hover while it is in the composer), another file as a chip — its type's glyph, its name, its size.
+ */
 function AttachmentChip({ a, onRemove }: { a: Attachment; onRemove?: () => void }) {
   useT();
+  const [open, setOpen] = useState(false);
   const kind = a.mime === "application/pdf" ? "PDF" : a.mime.replace("image/", "").toUpperCase().replace("JPEG", "JPG");
+  const remove = onRemove && (
+    <button type="button" className={styles.chipRemove} aria-label={t("Remove {name}", { name: a.name })} onClick={onRemove} data-attachment-remove="">
+      <Icon name="16.close" />
+    </button>
+  );
+  if (!isImageMime(a.mime))
+    return (
+      <span className={cx(styles.chip, styles.fileChip)} data-attachment-chip={a.mime} data-attachment-file="" {...tooltipProps(`${a.name} · ${kind} · ${fileSize(a.size)}`)}>
+        <Icon name="16.document" />
+        <span className={styles.chipName}>{a.name}</span>
+        {a.size > 0 && <span className={styles.fileSize} data-attachment-size="">{fileSize(a.size)}</span>}
+        {remove}
+      </span>
+    );
   return (
-    <span className={cx(styles.chip, styles.fileChip)} data-attachment-chip={a.mime} {...tooltipProps(`${a.name} · ${kind} · ${fileSize(a.size)}`)}>
-      {a.thumb ? <img className={styles.fileThumb} src={a.thumb} alt="" draggable={false} /> : <Icon name={isImageMime(a.mime) ? "16.image" : "16.document"} />}
-      <span className={styles.chipName}>{a.name}</span>
-      {onRemove && (
-        <button type="button" className={styles.chipRemove} aria-label={t("Remove {name}", { name: a.name })} onClick={onRemove} data-attachment-remove="">
-          <Icon name="16.close" />
-        </button>
-      )}
+    <span className={styles.attachTile} data-attachment-chip={a.mime} data-attachment-tile="">
+      <button type="button" className={styles.attachThumb} aria-label={t("Open {name}", { name: a.name })} onClick={() => setOpen(true)} data-attachment-open="" {...tooltipProps(`${a.name} · ${kind} · ${fileSize(a.size)}`)}>
+        {a.thumb ? <img src={a.thumb} alt="" draggable={false} /> : <Icon name="16.image" />}
+      </button>
+      {remove}
+      {open && <AttachmentLightbox a={a} onClose={() => setOpen(false)} />}
     </span>
+  );
+}
+
+/** An attached picture, larger, over everything: main's bigger copy (the thumbnail until it comes); Esc or a click closes it. */
+function AttachmentLightbox({ a, onClose }: { a: Attachment; onClose: () => void }) {
+  useT();
+  const ed = useEditor();
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    void agentsOf(ed)
+      .attachmentPreview(a)
+      .then((url) => live && url && setSrc(url));
+    return () => {
+      live = false;
+    };
+  }, [ed, a]);
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      onClose();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onClose]);
+  const shown = src ?? a.thumb;
+  return (
+    <Portal>
+      <div className={styles.lightbox} role="dialog" aria-modal="true" aria-label={a.name} onClick={onClose} data-attachment-lightbox="">
+        {shown ? <img className={styles.lightboxImg} src={shown} alt={a.name} draggable={false} data-lightbox-full={src ? "" : undefined} /> : <Spinner size={24} />}
+        <span className={styles.lightboxName}>{a.name}</span>
+        <IconButton icon="24.close" label={t("Close")} tone="secondary" className={styles.lightboxClose} onClick={onClose} data-lightbox-close="" />
+      </div>
+    </Portal>
   );
 }
 

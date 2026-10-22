@@ -38,7 +38,7 @@ import { cliSpec, type CliSpec } from "./providers";
 import { runCliProcess, loginUrl, type AuthEnv, type CliModels, type RunResult } from "./providers/turns";
 import { ImagePathError, resolveImagePaths } from "./imageArgs";
 import { saveToolFiles } from "./toolFiles";
-import { attachmentsDirOf, clipboardPaths, readFiles, saveAttachments, turnAttachments } from "./attachments";
+import { attachmentsDirOf, clipboardPaths, previewablePath, readFiles, saveAttachments, turnAttachments } from "./attachments";
 import type { AttachResult } from "../../shared/agents/attachments";
 import { configText, connectClient, disconnectClient, listClients, CLIENTS, type ClientEnv } from "./clients";
 import { cliEnv, cliPath, detectProviders, LOCAL_SERVERS, searchPath, spawnCli, spawnShell, which } from "./detect";
@@ -823,7 +823,8 @@ export function viewGone(sender: WebContents) {
 
 /** A small picture of an attached file for its chip: Quick Look's (images and PDFs), else the image scaled down. */
 async function thumbOf(path: string, mime: string, bytes: Uint8Array): Promise<string | undefined> {
-  const size = { width: 64, height: 64 };
+  // The chat shows them as 48–56 px tiles: twice that for a Retina screen.
+  const size = { width: 112, height: 112 };
   try {
     const t = await nativeImage.createThumbnailFromPath(path, size);
     if (!t.isEmpty()) return t.toDataURL();
@@ -838,6 +839,20 @@ async function thumbOf(path: string, mime: string, bytes: Uint8Array): Promise<s
 }
 
 const save = (chatId: string, files: { name: string; bytes: Uint8Array }[]) => saveAttachments(chatDir(String(chatId).slice(0, 80)), files, { thumb: thumbOf });
+
+/** The longest side of an attachment's larger view (the chat's lightbox). */
+const PREVIEW_SIDE = 1600;
+
+/** An attached picture, larger (a data: URL at most PREVIEW_SIDE on its longest side), for the chat's lightbox. */
+export async function attachmentPreview(path: string): Promise<string | null> {
+  const real = previewablePath(file("work"), path);
+  if (!real) return null;
+  const img = nativeImage.createFromPath(real);
+  if (img.isEmpty()) return null;
+  const s = img.getSize();
+  if (Math.max(s.width, s.height) <= PREVIEW_SIDE) return img.toDataURL();
+  return (s.height > s.width ? img.resize({ height: PREVIEW_SIDE }) : img.resize({ width: PREVIEW_SIDE })).toDataURL();
+}
 
 /** Files dropped or pasted in the composer (their bytes, from the view). */
 export const attach = (chatId: string, files: { name: string; bytes: Uint8Array }[]) => save(chatId, files);

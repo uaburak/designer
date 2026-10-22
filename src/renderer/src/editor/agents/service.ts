@@ -141,15 +141,39 @@ export interface AgentChoice {
   effort?: string;
 }
 
-/** "settings" (as callers ask for it): opens Agent settings over the view, which stays as it was */
+/** "settings" (as callers ask for it): opens Agent settings in the panel, in the view's place (which stays, for Back) */
 export type AgentsView = "list" | "chat" | "settings";
+
+/** Agent settings' pages (the panel's settings home lists them). */
+export type SettingsSection = "agents" | "manager" | "skills" | "connectors" | "access" | "usage";
+const SECTION_IDS: readonly SettingsSection[] = ["agents", "manager", "skills", "connectors", "access", "usage"];
+
+/** The page an item is on ("provider:codex" → Agents and models; "section:skills" is the page itself; "manager" is its page). */
+export function settingsSectionOf(item: string | null): SettingsSection | null {
+  if (!item) return null;
+  const kind = item.includes(":") ? item.slice(0, item.indexOf(":")) : item;
+  if (kind === "section") return SECTION_IDS.find((s) => s === item.slice(8)) ?? null;
+  if (kind === "provider" || kind === "add-server") return "agents";
+  if (kind === "manager") return "manager";
+  if (kind === "skill" || kind === "add-skill") return "skills";
+  if (kind === "connector" || kind === "add-connector" || kind === "mcp" || kind === "client") return "connectors";
+  if (kind === "access") return "access";
+  return null;
+}
+
+/** One level up from an item: a detail's page, else the settings home (null). */
+export function settingsParentOf(item: string | null): string | null {
+  if (!item || item.startsWith("section:") || item === "manager") return null;
+  const s = settingsSectionOf(item);
+  return s ? `section:${s}` : null;
+}
 
 export interface AgentsState {
   available: boolean;
   view: Exclude<AgentsView, "settings">;
-  /** Agent settings (the modal over the panel) is open */
+  /** Agent settings is shown in the panel, in the view's place (the view stays under it, for Back) */
   settingsOpen: boolean;
-  /** Agent settings' open page: null for the list, else an item ("provider:antigravity", "add-server", "mcp", "client:cursor") */
+  /** Agent settings' open page: null for its home, "section:skills" for a page, else an item ("provider:antigravity", "add-server", "mcp", "client:cursor") */
   settingsItem: string | null;
   chats: Chat[];
   current: string | null;
@@ -548,7 +572,7 @@ export class AgentsService implements AgentSetupHost {
 
   setView(view: AgentsView) {
     if (view === "settings") {
-      // Agent settings opens over the panel (its modal); the chat or the list stays under it.
+      // Agent settings opens in the panel at its home; the chat or the list stays under it, for Back.
       this.set({ settingsOpen: true, settingsItem: null });
       void this.refreshSetup();
       return;
@@ -557,13 +581,17 @@ export class AgentsService implements AgentSetupHost {
     this.set({ view, settingsOpen: false, settingsItem: null, ...(view === "list" ? { current: null } : {}) });
   }
 
-  /** Agent settings: one item's page, or its section (null) — the modal opens if it isn't. */
+  /**
+   * Agent settings at an item's page (settings opens if it isn't); null: one level up — from a detail its page, from a
+   * page the settings home (a detail's Back, Save and Remove all say null).
+   */
   openSetting(item: string | null) {
     if (!this.state.settingsOpen) void this.refreshSetup();
-    this.set({ settingsOpen: true, settingsItem: item });
+    const next = item ?? (this.state.settingsOpen ? settingsParentOf(this.state.settingsItem) : null);
+    this.set({ settingsOpen: true, settingsItem: next });
   }
 
-  /** Agent settings closes: the panel as it was. */
+  /** Agent settings closes (its home's Back): the list or the chat, as it was. */
   closeSettings() {
     this.set({ settingsOpen: false, settingsItem: null });
   }
@@ -574,11 +602,11 @@ export class AgentsService implements AgentSetupHost {
   }
 
   newChat() {
-    this.set({ current: null, view: "chat" });
+    this.set({ current: null, view: "chat", settingsOpen: false, settingsItem: null });
   }
 
   openChat(id: string) {
-    this.set({ current: id, view: "chat" });
+    this.set({ current: id, view: "chat", settingsOpen: false, settingsItem: null });
   }
 
   /** The owner's own title: kept over the derived one. */
@@ -717,6 +745,11 @@ export class AgentsService implements AgentSetupHost {
     const list = files.slice(0, MAX_ATTACHMENTS + 1);
     const read = await Promise.all(list.map(async (f) => ({ name: f.name || "Pasted image.png", bytes: new Uint8Array(await f.arrayBuffer()) })));
     return this.api.attach(this.draftChatId(), read);
+  }
+
+  /** An attached picture, larger (the chat's lightbox); null when main can't read it. */
+  async attachmentPreview(a: { path: string }): Promise<string | null> {
+    return (await this.api?.attachmentPreview?.(a.path).catch(() => null)) ?? null;
   }
 
   /** The "+" button: main's file dialog. */

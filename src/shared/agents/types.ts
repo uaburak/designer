@@ -244,6 +244,8 @@ export interface AgentsApi {
   pickAttachments(chatId: string): Promise<AttachResult>;
   /** ⌘V of a file or a picture: the system clipboard's files (Finder) or picture (a screenshot), read by main */
   attachClipboard(chatId: string): Promise<AttachResult>;
+  /** An attached picture, larger, for the chat's lightbox (a data: URL; null when it can't be read) */
+  attachmentPreview?(path: string): Promise<string | null>;
   /** The plan's limits, from the agent's own CLI without a model call (null when it reports none) */
   usage(providerId: string, fresh?: boolean): Promise<UsageInfo | null>;
   stop(turnId: string): Promise<void>;

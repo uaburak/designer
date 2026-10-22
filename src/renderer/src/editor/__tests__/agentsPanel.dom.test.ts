@@ -3,7 +3,7 @@
  * The Agents panel as the owner reads one agent's work (2026-10-22): the steps open by default (each a quiet line with
  * its detail), a group folds to "· N steps"; the run pinned above the composer (header, phases, steps, its bar), folded
  * to one line once over; a message typed during the run queued and sent when it ends; the agents' own marks; the gear's
- * "This chat" popover and All settings' modal with the settings pages moved into it. On the real engine, with a fake
+ * Agent settings inside the panel (its home: This chat, the pages, usage cards; a page and Back; a deep link). On the real engine, with a fake
  * agents backend (window.__designerAgents). And the pinned progress for a manager's three tasks, from a chat as kept.
  */
 import { readFileSync } from "node:fs";
@@ -18,6 +18,7 @@ import { $, $$, click, key, mount } from "@/ds/__tests__/dom";
 import { DEFAULT_MANAGER_SETTINGS } from "@shared/studio/types";
 import type { AgentSettings, AgentsApi, ChatEvent, ProviderInfo, TurnEvent, TurnRequest } from "@shared/agents/types";
 import type { ConnectorConsent } from "@shared/ai/types";
+import type { Attachment } from "@shared/agents/attachments";
 import { EditorContext, EditorController } from "../controller";
 import { memoryDocumentSource } from "../documentSource";
 import { PROTOTYPE_DOCUMENT } from "../fixtures";
@@ -38,6 +39,9 @@ beforeAll(async () => {
 const CLAUDE: ProviderInfo = { id: "claude-code", kind: "claude-code", label: "Claude Code", available: true, models: ["sonnet", "opus"], efforts: ["medium", "high"], auth: { state: "connected" } } as ProviderInfo;
 const CODEX: ProviderInfo = { id: "codex", kind: "codex", label: "Codex", available: true, models: ["gpt-5.5"], auth: { state: "connected" } } as ProviderInfo;
 
+const SHOT: Attachment = { id: "a1", name: "Login screenshot.png", mime: "image/png", size: 52_000, path: "/work/c/attachments/a1-Login screenshot.png", thumb: "data:image/png;base64,THUMB" };
+const BRIEF: Attachment = { id: "a2", name: "Brief for the mobile version.pdf", mime: "application/pdf", size: 2048, path: "/work/c/attachments/a2-brief.pdf" };
+
 function backend() {
   const listeners = new Set<(e: TurnEvent) => void>();
   const turns: TurnRequest[] = [];
@@ -54,6 +58,8 @@ function backend() {
     settings: async () => settings,
     setSettings: async (patch: Partial<AgentSettings>) => (settings = { ...settings, ...patch }),
     usage: async () => null,
+    pickAttachments: async () => ({ attachments: [SHOT, BRIEF], errors: [] }),
+    attachmentPreview: async (path: string) => (path === SHOT.path ? "data:image/png;base64,LARGE" : null),
     turn: async (req: TurnRequest) => (turns.push(req), { turnId: `T${turns.length}` }),
     stop: async (turnId: string) => void stopped.push(turnId),
   } as unknown as AgentsApi;
@@ -164,87 +170,143 @@ describe("the Agents panel: one agent's work in view", () => {
     engine.destroy();
   });
 
-  it("the gear opens This chat; All settings opens the modal with the settings pages in it", async () => {
-    const { view, engine } = await setup();
-    click($("[data-agents-settings]")!);
+  const header = () => $("[data-tab-header]")?.getAttribute("data-tab-header");
+  const page = () => $("[data-settings-page]")?.getAttribute("data-settings-page");
+  const back = async () => {
+    click($("[data-tab-header-back]")!);
     await settle();
-    const pop = $("[data-chat-settings]")!;
-    expect(pop).not.toBeNull();
-    expect($("[data-chat-manager]", pop)?.getAttribute("aria-checked")).toBe("false");
-    expect($("[data-model-menu]", pop)).not.toBeNull();
-    expect($("[data-chat-effort]", pop)).not.toBeNull();
-    click($("[data-all-settings]", pop)!);
+  };
+  const nav = async (id: string) => {
+    click($(`[data-settings-nav="${id}"]`)!);
     await settle();
-    expect($("[data-chat-settings]")).toBeNull();
-    const modal = $("[data-agent-settings-modal]")!;
-    expect(modal).not.toBeNull();
-    expect($$("[data-settings-tab]").map((t) => t.getAttribute("data-settings-tab"))).toEqual(["agents", "manager", "skills", "connectors", "access", "usage"]);
-    // Agents and models: a title and its line, the agents in a box — each row its mark, state, model and effort;
-    // its chevron opens its page in place, the nav back to the section.
-    expect($("[data-settings-page]")?.getAttribute("data-settings-page")).toBe("agents");
-    expect($('[data-agent-settings] h2')?.textContent).toBe("Agents and models");
-    const agentsBox = $('[data-settings-box="agents"]')!;
-    expect($('[data-provider="claude-code"] [data-agent-logo="claude-code"]', agentsBox)).not.toBeNull();
-    expect($('[data-provider="codex"] [data-agent-logo="codex"]', agentsBox)).not.toBeNull();
-    expect($('[data-provider="claude-code"] [data-provider-state]', agentsBox)?.textContent).toBe("Connected");
-    expect($('[data-provider-model="claude-code"]', agentsBox)).not.toBeNull();
-    expect($('[data-settings-box="local"]')).not.toBeNull();
-    click($('[data-provider-details="codex"]')!);
-    await settle();
-    expect($("[data-settings-page]")?.getAttribute("data-settings-page")).toBe("provider:codex");
-    click($('[data-settings-tab="agents"]')!);
-    await settle();
-    expect($("[data-settings-page]")?.getAttribute("data-settings-page")).toBe("agents");
-    // Manager and Studio: the manager's options in boxes.
-    click($('[data-settings-tab="manager"]')!);
-    await settle();
-    expect($("[data-agent-settings-modal]")?.getAttribute("data-settings-section")).toBe("manager");
-    expect($('[data-settings-box="manager"] [data-manager-agent]')).not.toBeNull();
-    expect($('[data-settings-box="manager-on"] [data-manager-on]')).not.toBeNull();
-    expect($('[data-settings-box="parallel"] [data-manager-parallel]')).not.toBeNull();
-    // Skills: the list in a box, New skill at the top right.
-    click($('[data-settings-tab="skills"]')!);
-    await settle();
-    expect($("[data-settings-page]")?.getAttribute("data-settings-page")).toBe("skills");
-    expect($('[data-settings-box="skills"]')).not.toBeNull();
-    expect($("[data-new-skill]")).not.toBeNull();
-    // Connectors: the MCP server and the apps in a box.
-    click($('[data-settings-tab="connectors"]')!);
-    await settle();
-    expect($('[data-settings-box="apps"] [data-settings-row="mcp"]')).not.toBeNull();
-    click($('[data-settings-tab="access"]')!);
-    await settle();
-    expect($("[data-settings-page]")?.getAttribute("data-settings-page")).toBe("access");
-    // Usage: a card per connected agent, its tokens in this chat and today.
-    click($('[data-settings-tab="usage"]')!);
-    await settle();
-    expect($('[data-settings-box="usage"] [data-usage-agent="claude-code"]')).not.toBeNull();
-    expect($('[data-usage-agent="codex"] [data-usage-today]')).not.toBeNull();
-    // The panel stays the chat under it.
-    expect($("[data-agents]")?.getAttribute("data-view")).not.toBe("settings");
-    expect($("[data-composer]")).not.toBeNull();
-    view.unmount();
-    engine.destroy();
-  });
+  };
 
-  it("This chat groups its rows in boxed sections and shows a usage card per agent", async () => {
+  it("the gear opens Agent settings in the panel: This chat, the pages and the usage cards; a page opens in place, Back returns", async () => {
     const { view, engine, emit } = await setup();
     await sendText("Make the mobile version");
     emit("T1", { type: "usage", usage: { input: 1200, output: 300 } });
     click($("[data-agents-settings]")!);
     await settle();
-    const pop = $("[data-chat-settings]")!;
-    // Model first, Usage last (Skills between them: the default skills).
-    const sections = $$("[data-chat-section]", pop).map((s) => s.getAttribute("data-chat-section"));
-    expect(sections[0]).toBe("model");
-    expect(sections[sections.length - 1]).toBe("usage");
-    expect($('[data-chat-section="model"] [data-chat-manager]', pop)).not.toBeNull();
-    // Claude Code reports no plan limits here: this chat's tokens, an empty bar.
-    const card = $('[data-chat-usage="claude-code"]', pop)!;
+    // No modal, no popover: the panel's header is Back and "Agent settings", the home in the chat's place.
+    expect($('[role="dialog"]')).toBeNull();
+    expect(header()).toBe("Agent settings");
+    expect($("[data-tab-header-back]")).not.toBeNull();
+    expect($("[data-composer]")).toBeNull();
+    expect(page()).toBe("home");
+    const chat = $("[data-chat-settings]")!;
+    expect($("[data-chat-manager]", chat)?.getAttribute("aria-checked")).toBe("false");
+    expect($("[data-model-menu]", chat)).not.toBeNull();
+    expect($("[data-chat-effort]", chat)).not.toBeNull();
+    expect($$("[data-settings-nav]").map((r) => r.getAttribute("data-settings-nav"))).toEqual(["agents", "manager", "skills", "connectors", "access", "usage"]);
+    // Usage cards: Claude Code reports no plan limits here — this chat's tokens; Codex has none to show.
+    const card = $('[data-chat-usage="claude-code"]')!;
     expect(card.textContent).toContain("1.5k tokens");
     expect($('[data-agent-logo="claude-code"]', card)).not.toBeNull();
-    expect($('[data-chat-usage="codex"]', pop)).toBeNull();
-    expect($("[data-all-settings]", pop)).not.toBeNull();
+    expect($('[data-chat-usage="codex"]')).toBeNull();
+    // Agents and models: the agents in a box — each row its mark, state, model; its chevron opens its page.
+    await nav("agents");
+    expect(header()).toBe("Agents and models");
+    expect(page()).toBe("agents");
+    const agentsBox = $('[data-settings-box="agents"]')!;
+    expect($('[data-provider="claude-code"] [data-agent-logo="claude-code"]', agentsBox)).not.toBeNull();
+    expect($('[data-provider="claude-code"] [data-provider-state]', agentsBox)?.textContent).toBe("Connected");
+    expect($('[data-provider-model="claude-code"]', agentsBox)).not.toBeNull();
+    expect($('[data-settings-box="local"]')).not.toBeNull();
+    click($('[data-provider-details="codex"]')!);
+    await settle();
+    expect(page()).toBe("provider:codex");
+    expect(header()).toBe("Codex");
+    await back();
+    expect(page()).toBe("agents");
+    await back();
+    expect(page()).toBe("home");
+    // Manager and Studio, Skills (New skill in the header), Connectors, Access, Usage.
+    await nav("manager");
+    expect($('[data-settings-box="manager"] [data-manager-agent]')).not.toBeNull();
+    expect($('[data-settings-box="parallel"] [data-manager-parallel]')).not.toBeNull();
+    await back();
+    await nav("skills");
+    expect($('[data-settings-box="skills"]')).not.toBeNull();
+    expect($("[data-tab-header] [data-new-skill]")).not.toBeNull();
+    await back();
+    await nav("connectors");
+    expect($('[data-settings-box="apps"] [data-settings-row="mcp"]')).not.toBeNull();
+    await back();
+    await nav("usage");
+    expect($('[data-settings-box="usage"] [data-usage-agent="claude-code"]')).not.toBeNull();
+    expect($('[data-usage-agent="codex"] [data-usage-today]')).not.toBeNull();
+    await back();
+    // Back from the home: the chat as it was.
+    await back();
+    expect($("[data-agent-settings]")).toBeNull();
+    expect($("[data-composer]")).not.toBeNull();
+    expect(header()).toBe("Make the mobile version");
+    emit("T1", { type: "done" });
+    await settle();
+    view.unmount();
+    engine.destroy();
+  });
+
+  it("openSetting from elsewhere opens that page in the panel; a detail's Back goes to its page", async () => {
+    const { view, engine, ed } = await setup();
+    const service = (await import("../agents/service")).agentsOf(ed);
+    act(() => service.openSetting("add-skill"));
+    await settle();
+    expect(page()).toBe("add-skill");
+    expect(header()).toBe("Add skill");
+    await back();
+    expect(page()).toBe("skills");
+    act(() => service.openSetting("section:connectors"));
+    await settle();
+    expect(page()).toBe("connectors");
+    await back();
+    expect(page()).toBe("home");
+    await back();
+    expect($("[data-agent-settings]")).toBeNull();
+    expect($("[data-composer]")).not.toBeNull();
+    view.unmount();
+    engine.destroy();
+  });
+});
+
+describe("attachments in a chat", () => {
+  it("shows pictures as thumbnails (✕ on hover in the composer, a click opens them larger) and other files as chips", async () => {
+    const { view, engine, turns, emit } = await setup();
+    click($("[data-attach] button")!);
+    await settle();
+    click($$('#ds-overlays [role^="menuitem"]').find((i) => i.textContent?.includes("Add files and photos"))!);
+    await settle();
+    const composer = $("[data-composer]")!;
+    // The picture: a square thumbnail of its own picture, with its ✕; the PDF: a chip with its glyph, name and size.
+    const tile = $('[data-attachment-tile]', composer)!;
+    expect($("img", tile)?.getAttribute("src")).toBe(SHOT.thumb);
+    expect($("[data-attachment-remove]", tile)).not.toBeNull();
+    const file = $("[data-attachment-file]", composer)!;
+    expect(file.textContent).toContain("Brief for the mobile version.pdf");
+    expect($("[data-attachment-size]", file)?.textContent).toBe("2 KB");
+    expect($("[data-attachment-tile]", file)).toBeNull();
+    // A click opens it larger: the thumbnail first, then main's bigger copy; Esc closes it.
+    click($("[data-attachment-open]", tile)!);
+    await settle();
+    expect($("[data-attachment-lightbox] img")?.getAttribute("src")).toBe("data:image/png;base64,LARGE");
+    key(document.body, "Escape");
+    await settle();
+    expect($("[data-attachment-lightbox]")).toBeNull();
+    // ✕ removes one; the message carries the rest, shown the same way without ✕.
+    click($("[data-attachment-remove]", file)!);
+    await settle();
+    expect($("[data-attachment-file]", composer)).toBeNull();
+    await sendText("Make this mobile");
+    expect(turns[0].attachments?.map((a) => a.name)).toEqual([SHOT.name]);
+    const sent = $('[data-message="user"] [data-message-attachments]')!;
+    expect($("[data-attachment-tile] img", sent)?.getAttribute("src")).toBe(SHOT.thumb);
+    expect($("[data-attachment-remove]", sent)).toBeNull();
+    click($("[data-attachment-open]", sent)!);
+    await settle();
+    expect($("[data-attachment-lightbox]")).not.toBeNull();
+    click($("[data-lightbox-close]")!);
+    await settle();
+    expect($("[data-attachment-lightbox]")).toBeNull();
     emit("T1", { type: "done" });
     await settle();
     view.unmount();

@@ -2,7 +2,11 @@
 
 First written 2026-10-06 when the first Claude session stopped and the owner moved the work to another Claude account through GitHub (`https://github.com/uaburak/designer`). Updated the same day by the second session, which finished every workstream's partial items and ran the integration round. Read `AGENTS.md`, `docs/architecture.md` and `docs/roadmap.md` first; the contracts in `docs/` decide everything; `docs/research/` holds the verified facts about Figma (with sources).
 
-## Status 2026-10-22 (latest) — Agent settings modal redesigned, chat list header (committed on its branch, not merged)
+## Status 2026-10-22 (newest) — Agent settings inside the panel, attachment thumbnails (committed on its branch, not merged)
+
+The modal and the "This chat" popover are gone (`AgentSettingsModal.tsx`, `ChatSettings.tsx` deleted; Popover's `bottom-end` reverted): the gear opens Agent settings in the panel (`PanelSettings.tsx`; header Back + title; home = This chat box, page rows, usage cards; pages and details with Back), `openSetting(null)` = one level up. Chat attachments: picture thumbnails with a lightbox (`agents:attachment-preview`, main checks the path is a chat's attached image), other files as chips with size; thumbnails made at 112 px. To verify in the app: narrow panel (240 px) rows wrap, the lightbox on a real screenshot.
+
+## Status 2026-10-22 (earlier) — Agent settings modal redesigned, chat list header (committed on its branch, not merged)
 
 `AgentSettingsModal.tsx` is now its own design (the approved prototype's): left nav, each section a title + one line, then boxed sections like This chat (`SettingsBox` / `BoxRow` in `settingsParts.tsx`): agents with mark, state, model + effort selects and a chevron to their page; Local models with Add a server; Manager (`ManagerPage boxed`); Skills (switch, Default/Edited badge, ••• Edit / Reset to default / Remove, New skill); Connectors (MCP servers with switches, Connect other apps); Access (policy selects per capability, compact log); Usage (cards: windows, resets, tokens this chat / today). Details (agent page, skill editor, connector tools) still open in place via `SettingsPage`. No per-agent enable switch: the service has no such setting. Chat list: search + filter + gear in the tab header (search replaces the title, Esc/blur-empty restores it), no + (New chat and Delete all chats… are in the filter menu; the list's composer starts a chat), no hover delete — a row's context menu has Rename (inline) and Delete. `editorShotAgents.mjs` updated but not run.
 

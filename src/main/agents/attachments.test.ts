@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { attachmentProblem, attachmentsNote, MAX_ATTACHMENTS, safeFileName, sniffAttachment } from "../../shared/agents/attachments";
-import { attachmentsDirOf, clipboardPaths, readFiles, saveAttachments, turnAttachments } from "./attachments";
+import { attachmentsDirOf, clipboardPaths, previewablePath, readFiles, saveAttachments, turnAttachments } from "./attachments";
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
 const PDF = new TextEncoder().encode("%PDF-1.7\n%âãÏÓ\n");
@@ -68,6 +68,20 @@ describe("attachments", () => {
     expect(kept).toEqual([{ path: realpathSync(a.path), name: "shot.png", mime: "image/png" }]);
     expect(turnAttachments(join(root, "work", "none"), [{ path: a.path }])).toEqual([]);
     expect(turnAttachments(chat, "nope")).toEqual([]);
+  });
+
+  it("a picture's larger view: only an image in a chat's attachments folder under the work folder", async () => {
+    const work = join(root, "work");
+    const [png, pdf] = (await saveAttachments(chat, [{ name: "shot.png", bytes: PNG }, { name: "brief.pdf", bytes: PDF }])).attachments;
+    const outside = join(root, "secret.png");
+    writeFileSync(outside, PNG);
+    const link = join(attachmentsDirOf(chat), "link.png");
+    symlinkSync(outside, link);
+    const loose = join(chat, "loose.png");
+    writeFileSync(loose, PNG);
+    expect(previewablePath(work, png.path)).toBe(realpathSync(png.path));
+    // A PDF, a file outside, a symlink out, a file of the chat's folder but not its attachments, a relative path: none.
+    for (const p of [pdf.path, outside, link, loose, "attachments/shot.png", 42]) expect(previewablePath(work, p)).toBeNull();
   });
 
   it("reads picked or copied files, the too large ones unread", () => {

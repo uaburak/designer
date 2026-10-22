@@ -401,6 +401,8 @@ export interface IpcInvoke extends SharedFontsChannels {
   "agents:pick-attachments": { args: [{ chatId: string }]; result: AttachResult };
   /** ⌘V in the composer: the clipboard's files (Finder) or picture, read by main */
   "agents:attach-clipboard": { args: [{ chatId: string }]; result: AttachResult };
+  /** An attached picture, larger (the chat's lightbox): a data: URL, or null when the path isn't a chat's attached image */
+  "agents:attachment-preview": { args: [{ path: string }]; result: string | null };
   /** The plan's limits from the agent's own CLI (`/usage`, no model call), cached a minute unless `fresh` */
   "agents:usage": { args: [{ providerId: string; fresh?: boolean }]; result: UsageInfo | null };
   /** The MCP server: its URL and connections */
@@ -662,6 +664,7 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "agents:attach": ["editor"],
   "agents:pick-attachments": ["editor"],
   "agents:attach-clipboard": ["editor"],
+  "agents:attachment-preview": ["editor"],
   "agents:usage": ["editor"],
   "agents:mcp": ["home", "editor"],
   "agents:clients": ["home", "editor"],
