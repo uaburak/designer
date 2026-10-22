@@ -470,6 +470,14 @@
   .mSection { display: flex; flex-direction: column; gap: var(--ds-space-1); }
   .mSectionHead { display: flex; align-items: center; justify-content: space-between; gap: var(--ds-space-2); min-height: var(--ds-size-control); padding-right: var(--ds-space-1); }
   .mList { display: flex; flex-direction: column; }
+  /* Sections apart by a line across the page; rows apart by a hairline inset to the text, hidden around a hovered row */
+  .psPage, .mPage { gap: 0; }
+  .psPage > * + *, .mPage > * + * { margin-top: var(--ds-space-3); padding-top: var(--ds-space-3); border-top: 1px solid var(--figma-color-border); }
+  .psPage > * + * { margin-inline: calc(var(--ds-space-2) * -1); padding-inline: var(--ds-space-2); }
+  .mSectionHead { padding-right: var(--ds-space-2); }
+  .mList > * { position: relative; }
+  .mList > * + *::before { position: absolute; top: 0; right: var(--ds-space-2); left: var(--ds-space-2); height: 1px; background: var(--figma-color-border); content: ""; pointer-events: none; }
+  .mList > :hover::before, .mList > :hover + *::before { opacity: 0; }
   .mNote { margin: 0; padding: 0 var(--ds-space-2); color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); letter-spacing: var(--ds-tracking-body-small); }
   .mEmpty { display: flex; align-items: center; gap: var(--ds-space-2); margin: 0; padding: var(--ds-space-2); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
   .mRow { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-2); min-height: calc(var(--ds-space-8) + var(--ds-space-1)); padding: var(--ds-space-1) var(--ds-space-2); border-radius: var(--ds-radius-medium); }
