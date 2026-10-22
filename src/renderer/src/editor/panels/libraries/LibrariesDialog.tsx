@@ -218,6 +218,8 @@ function LibraryList({ onOpen, onMissing, onPublish }: { onOpen: (lib: string) =
               <Button variant="primary" className={styles.publishBannerButton} disabled={state.inDrafts} tooltip={state.inDrafts ? t("Move to a folder to publish") : undefined} onClick={onPublish}>
                 {t("Publish this file")}
               </Button>
+              {/* A draft can't be a library (Figma's rule): say so here, not only in the disabled button's tooltip */}
+              {state.inDrafts && <span className={styles.meta2} data-publish-drafts-hint="">{t("Move to a folder to publish")}</span>}
             </div>
           </div>
         )}
