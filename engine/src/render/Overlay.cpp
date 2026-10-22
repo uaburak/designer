@@ -187,9 +187,11 @@ bool Renderer::baselineUnderline(const Document& doc, Guid id, const Mat2x3& vie
   const text::TextLayout* L = texts_->textLayout(id);
   if (!L) return false;
   const double dpr = viewport_.scaleX();
-  bool selected = std::find(overlay.selection.begin(), overlay.selection.end(), id) != overlay.selection.end();
-  const double w = selected ? style.selectionWidth : style.hoverWidth;
-  const Color& color = style.selection;
+  (void)overlay;
+  // 2 px, selected or hovered (live Figma, the owner's 2026-10-23 capture: a selected text keeps its baseline drawn, as
+  // thick as the hover's), in the component purple inside a component or instance.
+  const double w = style.hoverWidth;
+  const Color& color = inComponentChrome(doc, id) ? style.component : style.selection;
   Mat2x3 m = view * doc.worldTransform(id);
   bool upright = std::fabs(m.m01) < 1e-9 && std::fabs(m.m10) < 1e-9 && m.m00 > 0 && m.m11 > 0;
   bool drawn = false;
@@ -384,6 +386,12 @@ static std::string sizeLabel(const Document& doc, const std::vector<Guid>& selec
         if (out.empty() && p.isAutoLayout() && p.stack().stackMode != StackMode::GRID) {
           bool primary = (p.stack().stackMode == StackMode::VERTICAL) == (axis == 1);
           if (primary ? p.hugsPrimary() : p.hugsCounter()) out = " Hug";
+        }
+        // A text in an auto layout hugs the axes it sizes itself on (live Figma, the owner's 2026-10-23 capture: a
+        // label's auto-width text "36 Hug × 16 Hug").
+        if (out.empty() && p.type == NodeType::TEXT && parent && parent->props.isAutoLayout() && p.inFlow()) {
+          TextAutoResize r = p.text().textAutoResize;
+          if (r == TextAutoResize::WIDTH_AND_HEIGHT || (r == TextAutoResize::HEIGHT && axis == 1)) out = " Hug";
         }
       }
     }
@@ -898,7 +906,11 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
   for (Guid h : overlay.hover) {
     const Node* hn = doc.get(h);
     if (!hn) continue;
-    if (hn->props.type == NodeType::TEXT && h != overlay.textNode && baselineUnderline(doc, h, view, overlay, style)) continue;
+    if (hn->props.type == NodeType::TEXT && h != overlay.textNode) {
+      // A selected text's baseline is drawn with the selection already.
+      bool sel = std::find(overlay.selection.begin(), overlay.selection.end(), h) != overlay.selection.end();
+      if ((sel && texts_ && texts_->textLayout(h)) || baselineUnderline(doc, h, view, overlay, style)) continue;
+    }
     // A layer inside an instance (the instance opened, or ⌘ held): its box dotted in the component purple, 1 px, 1.5 px
     // dashes and gaps (live Figma round 15, components15/figma-instance-child-hover.png at 2× — the auto-layout
     // parent's dashes).
@@ -958,7 +970,10 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
   std::vector<std::vector<Guid>> groups = overlay.selectionBox && !overlay.selectionDashed ? selectionGroups(doc, overlay.selection) : std::vector<std::vector<Guid>>{};
   if (groups.size() > 1) {
     const Color& blue = blueSel;
-    for (Guid s : overlay.selection) nodeOutline(s, style.selectionWidth, true);
+    for (Guid s : overlay.selection) {
+      nodeOutline(s, style.selectionWidth, true);
+      if (const Node* sn = doc.get(s); sn && sn->props.type == NodeType::TEXT && s != overlay.textNode) baselineUnderline(doc, s, view, overlay, style);
+    }
     for (const std::vector<Guid>& g : groups) {
       SelectionBox gb = selectionBox(doc, g);
       if (!gb.valid) continue;
@@ -995,6 +1010,9 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
   SelectionBox box = groups.size() > 1 ? SelectionBox{} : selectionBox(doc, overlay.selection);
   if (box.valid && overlay.selectionBox) {
     const Color& blue = blueSel;
+    // A selected text's lines underlined at their baseline, always — not only while hovered (the owner, 2026-10-23).
+    for (Guid s : overlay.selection)
+      if (const Node* sn = doc.get(s); sn && sn->props.type == NodeType::TEXT && s != overlay.textNode) baselineUnderline(doc, s, view, overlay, style);
     // Each selected layer's own outline, 1 px (live Figma: a multi-selection outlines every shape along its path; one
     // selected ellipse, polygon, star or vector is outlined along its path inside the box).
     if (overlay.selection.size() > 1)

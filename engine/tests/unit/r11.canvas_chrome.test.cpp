@@ -254,7 +254,7 @@ TEST_CASE("r11 titles: none over a top-level instance, selected or not; the comp
   CHECK(s.e.selection().empty());
 }
 
-TEST_CASE("r11 text hover: the lines' baseline underlined (2 px; 1 px when selected), no box") {
+TEST_CASE("r11 text hover: the lines' baseline underlined (2 px, selected too — and always while selected), no box") {
   Scene s;
   const OverlayStyle style = OverlayStyle::of(Theme::Dark);
   const text::TextLayout* L = s.e.textLayout(TEXT);
@@ -273,13 +273,18 @@ TEST_CASE("r11 text hover: the lines' baseline underlined (2 px; 1 px when selec
   CHECK(lines[0][3] == 2);
   // No 2 px outline box.
   CHECK(boxes(all, [&](const DrawInstance& q) { return isStroke(q) && sameColor(q, style.selection) && q.geom[0] == 2; }).empty());
-  // Selected and hovered: 1 px.
+  // Selected and hovered: the same 2 px line, once (the owner, 2026-10-23: as live Figma's).
   s.e.setSelection({TEXT});
   s.move(s.screen({line.x + line.width / 2, 400 + line.baseline - 4}));
   all = s.draw();
   lines = boxes(all, [&](const DrawInstance& q) { return isFill(q) && kind(q, ShapeKind::Rect) && sameColor(q, style.selection) && q.origin[2] > 20 && q.origin[3] <= 2; });  // not the size badge
   REQUIRE(lines.size() == 1);
-  CHECK(lines[0][3] == 1);
+  CHECK(lines[0][3] == 2);
+  // Selected, the pointer away: still drawn.
+  s.move({20, 800});
+  all = s.draw();
+  lines = boxes(all, [&](const DrawInstance& q) { return isFill(q) && kind(q, ShapeKind::Rect) && sameColor(q, style.selection) && q.origin[2] > 20 && q.origin[3] <= 2; });
+  REQUIRE(lines.size() == 1);
 }
 
 TEST_CASE("r11 smart selection: tiny dots off the selection, rings on it; a selected group's layers dotted") {
