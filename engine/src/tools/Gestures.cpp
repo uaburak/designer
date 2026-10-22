@@ -737,18 +737,6 @@ void Editor::gapBoxesOverlay(Overlay& o) const {
   for (const Rect& g : gaps) o.gapBoxes.push_back({W, g});
 }
 
-std::vector<Guid> Editor::openForHit() const {
-  // What the selected layers are in, up to the page (not the selected layers themselves): a frame in one of these is
-  // hit in its whole box (hitPath).
-  std::vector<Guid> open;
-  for (Guid s : selection_)
-    for (Guid cur = doc_.parentOf(s); cur != kNoGuid && cur != page_; cur = doc_.parentOf(cur)) {
-      if (std::find(open.begin(), open.end(), cur) != open.end()) break;
-      open.push_back(cur);
-    }
-  return open;
-}
-
 bool Editor::selectionHoverChanged(Vec2 s) {
   bool in = false, near = false;
   if (!selection_.empty()) {
@@ -851,8 +839,7 @@ void Editor::updateHover(Vec2 s, uint32_t mods) {
     next = titleAt(s);
     if (next == kNoGuid && handleAt(s, hx, hy) == Handle::None) {
       // (⌘ picks the innermost and skips unfilled layers, Figma's deep select: no box hits then.)
-      std::vector<Guid> open = (mods & MOD_PRIMARY) ? std::vector<Guid>{} : openForHit();
-      auto path = hitPath(doc_, page_, camera_.toWorld(s), pixel(), &open);
+      auto path = hitPath(doc_, page_, camera_.toWorld(s), pixel(), (mods & MOD_PRIMARY) == 0);
       focusFilter(path);
       // Inside a selected layer the hover outlines the next level down (dotted inside an instance, the owner's
       // 46.png) — what a double-click there selects; a single click keeps the selected layer (live Figma #3–#10).
@@ -1284,8 +1271,7 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
   }
 
   bool deep = (mods & MOD_PRIMARY) != 0, shift = (mods & MOD_SHIFT) != 0;
-  std::vector<Guid> open = deep ? std::vector<Guid>{} : openForHit();
-  auto path = hitPath(doc_, page_, downWorld_, pixel(), &open);
+  auto path = hitPath(doc_, page_, downWorld_, pixel(), !deep);
   focusFilter(path);
   if (!viewer_ && clickCount_ >= 2 && !shift && !path.empty()) {
     // Double-click on a text layer: edit it, the word under the pointer selected.
@@ -1377,8 +1363,7 @@ uint32_t Editor::contextMenu(Vec2 s, uint32_t mods) {
     needsRender_ = true;
     return P_HANDLED;
   }
-  std::vector<Guid> open = (mods & MOD_PRIMARY) ? std::vector<Guid>{} : openForHit();
-  auto path = hitPath(doc_, page_, world, pixel(), &open);
+  auto path = hitPath(doc_, page_, world, pixel(), (mods & MOD_PRIMARY) == 0);
   // The menu opens on what a left press would leave selected (pointerDown's press rule), not on what a click's
   // release would: a right-click on or inside a selected layer (a component's or instance's sublayer, a group's
   // layer) keeps that selection, so the menu is the selected layer's (Go to main component…); only ⌘ picks the

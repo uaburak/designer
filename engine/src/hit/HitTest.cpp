@@ -239,7 +239,7 @@ Guid hitSubtree(const Document& doc, Guid id, Vec2 world, double pixel, int dept
 
 // Calls f(path) for each node hit at `world`, topmost first; stops when f returns false.
 template <typename F>
-void forEachHit(const Document& doc, Guid page, Vec2 world, double pixel, F&& f, bool includeLocked = false, const std::vector<Guid>* open = nullptr) {
+void forEachHit(const Document& doc, Guid page, Vec2 world, double pixel, F&& f, bool includeLocked = false, bool framesByBox = false) {
   // Candidates from the page's spatial index, topmost first; a candidate counts when
   // its own geometry is hit and no hidden ancestor hides it and no clipping ancestor
   // cuts it off.
@@ -309,8 +309,7 @@ void forEachHit(const Document& doc, Guid page, Vec2 world, double pixel, F&& f,
     double slop = (unit > 0 ? pixel / unit : pixel) * kHitSlopCss;
     // Top-level: on the page, or in a section (a section's frames are hit in their whole box, like the page's).
     const Node* parent = doc.get(n->props.parentIndex.guid);
-    bool topLevel = n->props.parentIndex.guid == page || (parent && parent->props.type == NodeType::SECTION) ||
-                    (open && std::find(open->begin(), open->end(), n->props.parentIndex.guid) != open->end());
+    bool topLevel = framesByBox || n->props.parentIndex.guid == page || (parent && parent->props.type == NodeType::SECTION);
     if (!hitsNode(doc, id, m.inverse().apply(world), slop, topLevel)) continue;
     std::vector<Guid> path = doc.pathFromPage(id);
     truncateLocked(path);
@@ -322,7 +321,7 @@ void forEachHit(const Document& doc, Guid page, Vec2 world, double pixel, F&& f,
 
 }  // namespace
 
-std::vector<Guid> hitPath(const Document& doc, Guid page, Vec2 world, double pixel, const std::vector<Guid>* open) {
+std::vector<Guid> hitPath(const Document& doc, Guid page, Vec2 world, double pixel, bool framesByBox) {
   std::vector<Guid> out;
   forEachHit(
       doc, page, world, pixel,
@@ -330,7 +329,7 @@ std::vector<Guid> hitPath(const Document& doc, Guid page, Vec2 world, double pix
         out = std::move(path);
         return false;
       },
-      false, open);
+      false, framesByBox);
   return out;
 }
 
