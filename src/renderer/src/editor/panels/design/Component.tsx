@@ -825,6 +825,51 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
   const [dragging, setDragging] = useState<ComponentPropDef | null>(null);
   // Where a dragged property goes: before or after the row under the pointer (live 129.png: a line in the gap)
   const [dragOver, setDragOver] = useState<{ id: string; after: boolean } | null>(null);
+  // Reordering by pointer, not the system's drag and drop (on macOS that flies a globe in from the window's corner
+  // when its drag image is hidden): past 3 px the row lights and the line follows the pointer; the release drops it.
+  const startDrag = (e: React.PointerEvent, d: ComponentPropDef) => {
+    if (e.button !== 0 || (e.target as Element).closest("input, [data-def-actions]")) return;
+    const from = { x: e.clientX, y: e.clientY };
+    let on = false;
+    let over: { id: string; after: boolean } | null = null;
+    const move = (ev: PointerEvent) => {
+      if (!on) {
+        if (Math.hypot(ev.clientX - from.x, ev.clientY - from.y) < 3) return;
+        on = true;
+        setDragging(d);
+        ed.engine.setHover([]);
+      }
+      const row = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>("[data-property-row-id]");
+      const target = row ? defs.find((x) => guidStr(x.id) === row.dataset.propertyRowId) : undefined;
+      // Within its own group: variant properties always stay above the others (Figma).
+      const next = row && target && (target.type === "VARIANT") === (d.type === "VARIANT") ? { id: guidStr(target.id), after: ev.clientY > row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2 } : null;
+      if (next?.id !== over?.id || next?.after !== over?.after) setDragOver((over = next));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      if (!on) return;
+      // The click that ends a drag isn't one (it would open the row's settings)
+      const eat = (c: MouseEvent) => {
+        c.stopPropagation();
+        c.preventDefault();
+      };
+      window.addEventListener("click", eat, { capture: true, once: true });
+      setTimeout(() => window.removeEventListener("click", eat, { capture: true }), 0);
+      if (over) {
+        const group = defs.filter((x) => (x.type === "VARIANT") === (d.type === "VARIANT"));
+        const at = group.findIndex((x) => guidStr(x.id) === over!.id);
+        const before = over.after ? (group[at + 1] ?? null) : group[at];
+        if (!before || guidStr(before.id) !== guidStr(d.id)) reorderProperty(ed, fresh, d, before);
+      }
+      setDragging(null);
+      setDragOver(null);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
   const lastVariant = (d: ComponentPropDef) => d.type === "VARIANT" && defs.filter((x) => x.type === "VARIANT").length <= 1;
   const onAdd = (id: string) => {
     if (id.startsWith("expose:")) {
@@ -852,39 +897,12 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
               key={id}
               className={cx(styles.defRow, dragging && guidStr(dragging.id) === id && styles.defDragging, dragOver?.id === id && (dragOver.after ? styles.defDropAfter : styles.defDropBefore))}
               data-property-row={d.name}
-              draggable={renaming !== id}
+              data-property-row-id={id}
               // Live (2026-10-22): hovering a property outlines the layers bound to it on the canvas, in every variant
               // and hidden ones too, as hovering their Layers rows does.
-              onMouseEnter={() => d.type !== "VARIANT" && ed.engine.setHover(boundLayerIds(ed, fresh, id))}
+              onMouseEnter={() => !dragging && d.type !== "VARIANT" && ed.engine.setHover(boundLayerIds(ed, fresh, id))}
               onMouseLeave={() => ed.engine.setHover([])}
-              onDragStart={(e) => {
-                setDragging(d);
-                e.dataTransfer.effectAllowed = "move";
-                // Live: no ghost — the row stays lit in place while the line shows where it goes
-                e.dataTransfer.setDragImage(noDragImage(), 0, 0);
-              }}
-              onDragOver={(e) => {
-                // Within its own group: variant properties always stay above the others (Figma).
-                if (!dragging || (dragging.type === "VARIANT") !== (d.type === "VARIANT")) return;
-                e.preventDefault();
-                const r = e.currentTarget.getBoundingClientRect();
-                const after = e.clientY > r.top + r.height / 2;
-                if (dragOver?.id !== id || dragOver.after !== after) setDragOver({ id, after });
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                if (dragging && dragOver) {
-                  const group = defs.filter((x) => (x.type === "VARIANT") === (d.type === "VARIANT"));
-                  const before = dragOver.after ? (group[group.findIndex((x) => guidStr(x.id) === id) + 1] ?? null) : d;
-                  if (!before || guidStr(before.id) !== guidStr(dragging.id)) reorderProperty(ed, fresh, dragging, before);
-                }
-                setDragging(null);
-                setDragOver(null);
-              }}
-              onDragEnd={() => {
-                setDragging(null);
-                setDragOver(null);
-              }}
+              onPointerDown={(e) => renaming !== id && startDrag(e, d)}
             >
               <span className={styles.defHandle} aria-hidden="true">
                 {/* Live 129.png: three lines, 6 wide, 3 apart */}
@@ -942,7 +960,7 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
               )}
               {/* Live (2026-10-22): on hover the row narrows for Edit property (pressed while its settings are open) and
                   a remove "—" */}
-              <span className={cx(styles.defActions, editing?.target.mode === "edit" && guidStr(editing.target.def.id) === id && styles.defActionsOpen)}>
+              <span data-def-actions="" className={cx(styles.defActions, editing?.target.mode === "edit" && guidStr(editing.target.def.id) === id && styles.defActionsOpen)}>
                 <ToggleIconButton
                   icon="24.adjust.small"
                   label={t("Edit property")}
@@ -993,13 +1011,6 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
       {editing && <PropertyEditor owner={fresh} target={editing.target} anchor={editing.anchor} onClose={() => setEditing(null)} />}
     </div>
   );
-}
-
-/** An empty drag image (a property row is dragged without a ghost, as live). */
-let emptyDragImage: HTMLCanvasElement | null = null;
-function noDragImage(): HTMLCanvasElement {
-  emptyDragImage ??= Object.assign(document.createElement("canvas"), { width: 1, height: 1 });
-  return emptyDragImage;
 }
 
 /** An in-place rename (Enter / leaving keeps it, Esc drops it). */
