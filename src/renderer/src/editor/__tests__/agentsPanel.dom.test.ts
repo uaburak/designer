@@ -63,8 +63,9 @@ function backend() {
     turn: async (req: TurnRequest) => (turns.push(req), { turnId: `T${turns.length}` }),
     stop: async (turnId: string) => void stopped.push(turnId),
   } as unknown as AgentsApi;
-  const emit = (turnId: string, event: ChatEvent) => act(() => listeners.forEach((l) => l({ turnId, chatId: "", event })));
-  return { api, turns, stopped, emit };
+  const emitRaw = (turnId: string, event: ChatEvent) => listeners.forEach((l) => l({ turnId, chatId: "", event }));
+  const emit = (turnId: string, event: ChatEvent) => act(() => emitRaw(turnId, event));
+  return { api, turns, stopped, emit, emitRaw };
 }
 
 const settle = () => act(() => new Promise((r) => setTimeout(r, 10)));
@@ -169,6 +170,28 @@ describe("the Agents panel: one agent's work in view", () => {
     await settle();
     view.unmount();
     engine.destroy();
+  });
+
+  it("a turn main ends before its id comes back (AI off) shows its error and isn't left running", async () => {
+    const b = await setup();
+    // Main refuses the turn at once: its error and done reach the view before turn() resolves.
+    (b.api as { turn: AgentsApi["turn"] }).turn = async (req: TurnRequest) => {
+      b.turns.push(req);
+      const turnId = `T${b.turns.length}`;
+      act(() => {
+        b.emitRaw(turnId, { type: "error", message: "AI is turned off in Settings › AI." });
+        b.emitRaw(turnId, { type: "done" });
+      });
+      return { turnId };
+    };
+    await sendText("Make the mobile version");
+    await settle();
+    const answer = $('[data-message="assistant"]')!;
+    expect(answer.getAttribute("data-state")).toBe("error");
+    expect(answer.textContent).toContain("AI is turned off");
+    expect($("[data-agents-stop]")).toBeNull();
+    b.view.unmount();
+    b.engine.destroy();
   });
 
   it("drops a queued message removed with its ✕", async () => {

@@ -210,6 +210,9 @@ export interface QueuedMessage {
 }
 
 const EMPTY_SETTINGS: AgentSettings = { providerId: null, models: {}, custom: [] };
+/** A turn's events held before its id is known: at most this many, this long. */
+const EARLY_EVENTS = 500;
+const EARLY_MS = 30_000;
 
 export function agentsBackend(): AgentsApi | null {
   const desk = editorBridge();
@@ -356,6 +359,11 @@ export class AgentsService implements AgentSetupHost {
   private turnStarts = new Map<string, { selection: Guid[]; page: Guid | null; select?: Guid[] }>();
   /** An outside MCP client's page (set_current_page): never the user's */
   private outsidePages = new Map<string, Guid>();
+  /**
+   * Events of a turn main reported before its id came back to us (a turn refused at once — AI off — is over before
+   * `turn()` resolves): held, then replayed as the turn is known; dropped after a while if it never is.
+   */
+  private early = new Map<string, TurnEvent[]>();
 
   constructor(
     private ed: EditorController,
@@ -891,6 +899,7 @@ export class AgentsService implements AgentSetupHost {
       this.set({ running: { ...this.state.running, [chatId]: turnId } });
       this.updateMessage(chatId, answer.id, (m) => ({ ...m, turnId }));
       if (!manager && chat.providerId !== provider.id) this.updateChat(chatId, (c) => ({ ...c, providerId: provider.id, model: this.modelOf(provider, chat) }));
+      this.replayEarly(turnId);
     } catch (err) {
       this.placeholders.end(answer.id);
       this.updateMessage(chatId, answer.id, (m) => ({ ...m, state: "error", error: err instanceof Error ? err.message : String(err), parts: turnOver(m.parts ?? [], false) }));
@@ -943,11 +952,12 @@ export class AgentsService implements AgentSetupHost {
     if (turnId && this.api) void this.api.stop(turnId);
   }
 
-  private onEvent({ turnId, event }: TurnEvent) {
+  private onEvent(e: TurnEvent) {
+    const { turnId, event } = e;
     const worker = this.workers.get(turnId);
     if (worker) return this.onWorkerEvent(turnId, worker, event);
     const target = this.turnTarget.get(turnId);
-    if (!target) return;
+    if (!target) return this.holdEarly(e);
     const { chat, message } = target;
     if (event.type === "session") {
       // Valid up to the end of this turn (finish() sets upTo); another agent's turn after it makes it stale.
@@ -981,6 +991,24 @@ export class AgentsService implements AgentSetupHost {
     // An agent changed the owner's Skills (main's skills.ts): the panel and the next message see the new list.
     if (event.type === "tool" && event.state === "done" && SKILL_WRITE_TOOLS.has(event.name.split("__").pop() ?? "")) void skillsBox.refresh().catch(() => {});
     this.updateMessage(chat, message, (m) => ({ ...m, ...applyEvent(m, event) }));
+  }
+
+  private holdEarly(e: TurnEvent) {
+    const held = this.early.get(e.turnId);
+    if (held) {
+      if (held.length < EARLY_EVENTS) held.push(e);
+      return;
+    }
+    this.early.set(e.turnId, [e]);
+    setTimeout(() => this.early.delete(e.turnId), EARLY_MS);
+  }
+
+  /** The turn is known now: what main said of it before, in order. */
+  private replayEarly(turnId: string) {
+    const held = this.early.get(turnId);
+    if (!held) return;
+    this.early.delete(turnId);
+    for (const e of held) this.onEvent(e);
   }
 
   private finish(turnId: string, event: Extract<ChatEvent, { type: "done" }>) {
@@ -1366,7 +1394,8 @@ export class AgentsService implements AgentSetupHost {
           this.workers.set(id, { chat: task.chatId, taskId: task.id, providerId: p.id, model, end });
           this.patchTask(task.chatId, task.id, (t) => ({ ...t, worker: { parts: [], state: "running", turnId: id, provider: p.label } }));
           agentPresenceOf(this.ed).join(this.actorOf({ turnId: id, client: p.label }));
-          if (signal.aborted) void api.stop(id);
+          this.replayEarly(id);
+          if (signal.aborted && this.workers.has(id)) void api.stop(id);
         }, reject);
     });
   }
