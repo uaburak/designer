@@ -12,7 +12,7 @@
 import { useState } from "react";
 import { BLEND_LABEL, BLEND_MODES, Icon, IconButton, MenuButton, MIXED, NumericInput, PanelSection, Popover, PropertyGrid, PropertyRow, Select, SegmentedControl, ToggleIconButton, cx, scrubFrom, type ChangeInfo, type Mixed, type NumericInputProps } from "@/ds";
 import type { Guid } from "@/engine/codec";
-import { BindButton } from "./Component";
+import { BindButton, BoundPropertyRow } from "./Component";
 import type { CommandName } from "@/engine/abi";
 import { useEditor, type EditorController } from "../../controller";
 import { command, isEnabled, runEditorCommand, shortcutOf } from "../../commands";
@@ -437,7 +437,6 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
       actions={
         <>
           {!drawMode && <ApplyModeButton refs={refs} />}
-          {nodes.length === 1 && <BindButton layer={nodes[0]} field="VISIBLE" type="BOOL" />}
           <IconButton
             icon={visible === false ? "24.hidden.small" : "24.eye.small"}
             label={visible === false ? t("Show") : t("Hide")}
@@ -445,6 +444,8 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
             tone="secondary"
             onClick={() => ed.setProps(refs, { visible: visible === false }, visible === false ? "Show" : "Hide")}
           />
+          {/* Live (2026-10-22): Hide, then Apply boolean property, then the blend mode */}
+          {nodes.length === 1 && <BindButton layer={nodes[0]} field="VISIBLE" type="BOOL" inline={false} />}
           <MenuButton label={t("Apply blend mode")} tooltip disabled={!blendKept} entries={blendEntries} className={styles.iconMenu} gap={PANEL_MENU_GAP} flush extend align="end" alignOffset={1} menuWidth={118} onSelect={(id) => ed.setProps(refs, fields({ blendMode: id as BlendModeName }), "Blend mode")}>
             <Icon name={blendSet ? "24.blendmode.active.small" : "24.blendmode.small"} />
           </MenuButton>
@@ -510,6 +511,7 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
         )}
         {polygons.length > 0 && countKept && <CountRow nodes={polygons} stars={stars} />}
         {drawMode && ellipses && <ArcRow nodes={nodes} />}
+        {nodes.length === 1 && <BoundPropertyRow layer={nodes[0]} field="VISIBLE" type="BOOL" />}
       </PropertyGrid>
       {!drawMode && <ModeRows refs={refs} />}
     </PanelSection>

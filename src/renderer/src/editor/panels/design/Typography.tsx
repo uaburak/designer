@@ -18,7 +18,7 @@
 import { useState } from "react";
 import { Icon, IconButton, MIXED, MenuButton, NumericInput, PanelSection, PropertyGrid, PropertyRow, SegmentedControl, Select, isMixed, type ChangeInfo, type MenuEntry } from "@/ds";
 import { useEditor } from "../../controller";
-import { BindButton } from "./Component";
+import { BindButton, BoundPropertyRow } from "./Component";
 import { useUI } from "../../hooks";
 import { fieldValue, mixed, mixedNumber, sameData } from "../../model/mixed";
 import { useTextSummary } from "./useTextSummary";
@@ -169,7 +169,7 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
       title={t("Typography")}
       actions={
         <>
-          {nodes.length === 1 && <BindButton layer={nodes[0]} field="TEXT_DATA" type="TEXT" />}
+          {nodes.length === 1 && <BindButton layer={nodes[0]} field="TEXT_DATA" type="TEXT" inline={false} />}
           <StylesButton nodes={nodes} slot="text" />
         </>
       }
@@ -314,6 +314,7 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
             onChange={(v) => write("Text alignment", { textAlignVertical: v as ExtraFields["textAlignVertical"] })}
           />
         </PropertyRow>
+        {nodes.length === 1 && <BoundPropertyRow layer={nodes[0]} field="TEXT_DATA" type="TEXT" />}
       </PropertyGrid>
       {details && <TypeSettings nodes={nodes} summary={summary} anchor={details} onClose={() => setDetails(null)} />}
     </PanelSection>

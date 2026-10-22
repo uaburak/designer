@@ -277,7 +277,7 @@ export const PROPERTY_TYPE_LABEL: Record<ComponentPropType, string> = { BOOL: "B
 export const PROPERTY_ICON: Record<ComponentPropType, IconName> = {
   // Live (2026-10-22): an outlined diamond, a T in a box, a diamond in corner marks
   VARIANT: "16.instance",
-  BOOL: "16.visible",
+  BOOL: "24.variable.type.boolean",
   TEXT: "24.variable.type.string",
   INSTANCE_SWAP: "24.instance.swap.small",
   NUMBER: "16.number",

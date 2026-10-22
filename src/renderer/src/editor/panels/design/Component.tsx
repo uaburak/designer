@@ -23,7 +23,7 @@
  * has them.
  */
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Button, ContextMenu, Icon, IconButton, MenuButton, Popover, Select, Switch, TextInput, ToggleIconButton, cx, showToast, tooltipProps, type IconName, type MenuEntry } from "@/ds";
+import { Button, ContextMenu, Icon, IconButton, MenuButton, Popover, PropertyRow, SearchField, Select, Switch, TextInput, ToggleIconButton, cx, showToast, tooltipProps, type IconName, type MenuEntry } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { command, isEnabled, runEditorCommand, shortcutOf } from "../../commands";
@@ -1360,13 +1360,13 @@ function GenericPropertyEditor({ owner, target, anchor, onClose }: { owner: CNod
  * "Apply {type} property" when the component has properties of that type, else "Create {type} property"; never on an
  * instance's sublayer, nor on a component's own visibility (a Boolean can't hide the main itself) unless it is bound.
  */
-export function BindButton({ layer, field, type }: { layer: Pick<CNode, "guid"> & Partial<CNode>; field: BindableField; type: Exclude<ComponentPropType, "VARIANT"> }) {
-  useT();
+type BindType = Exclude<ComponentPropType, "VARIANT">;
+
+/** A layer's binding to its component's properties of `type`: the layer, its component, the defs, the bound one. */
+function useBindData(layer: Pick<CNode, "guid">, field: BindableField, type: BindType) {
   const ed = useEditor();
   const version = useDocVersion();
-  const [creating, setCreating] = useState<HTMLElement | null>(null);
-  const wrap = useRef<HTMLSpanElement>(null);
-  const data = useMemo(() => {
+  return useMemo(() => {
     void version;
     const node = readC(ed, layer.guid);
     if (!node || parseDerivedId(node.guid)) return null;
@@ -1377,7 +1377,123 @@ export function BindButton({ layer, field, type }: { layer: Pick<CNode, "guid"> 
     if (field === "VISIBLE" && isComponent(node) && !bound) return null;
     return { node, owner, defs, bound };
   }, [ed, layer.guid, field, type, version]);
+}
+
+/** Live (2026-10-22): the property picker under the section's button, its right edge on the button's — 216 wide. */
+const PROPERTY_PICKER_WIDTH = 216;
+const pickerRect = (el: HTMLElement) => {
+  const r = el.getBoundingClientRect();
+  return new DOMRect(r.right - PROPERTY_PICKER_WIDTH, r.top, PROPERTY_PICKER_WIDTH, r.height);
+};
+
+/**
+ * Live (2026-10-22, Appearance): a search with ×, "All libraries" and Create property (+), then "Properties in
+ * {component}" — each of the type's properties with its glyph in the component purple and its default on the right.
+ */
+function PropertyPicker({ anchor, owner, type, current, onPick, onCreate, onClose }: { anchor: DOMRect; owner: CNode; type: BindType; current: ComponentPropDef | null; onPick: (d: ComponentPropDef) => void; onCreate: (anchor: HTMLElement) => void; onClose: () => void }) {
+  useT();
+  const [query, setQuery] = useState("");
+  const typeName = t(PROPERTY_TYPE_LABEL[type]).toLowerCase();
+  const q = query.trim().toLowerCase();
+  const defs = (owner.componentPropDefs ?? []).filter((d) => d.type === type && (!q || d.name.toLowerCase().includes(q)));
+  const valueOf = (d: ComponentPropDef) =>
+    type === "BOOL" ? (d.initialValue?.boolValue === false ? t("False") : t("True")) : type === "TEXT" ? (d.initialValue?.textValue?.characters ?? "") : "";
+  return (
+    <Popover anchor={anchor} placement="bottom-start" width={PROPERTY_PICKER_WIDTH} onClose={onClose} label={t("Apply {type} property", { type: typeName })}>
+      <div className={styles.propertyPicker} data-property-picker={type}>
+        <div className={styles.propertyPickerSearch}>
+          <SearchField value={query} onChange={setQuery} placeholder={t("Search")} autoFocus />
+          <IconButton icon="24.close.small" label={t("Close")} tone="secondary" onClick={onClose} />
+        </div>
+        <div className={styles.propertyPickerSource}>
+          <Select label={t("Library")} variant="outlined" width="hug" value="all" options={[{ value: "all", label: t("All libraries") }]} onChange={() => undefined} />
+          <IconButton icon="24.plus.small" label={t("Create {type} property", { type: typeName })} tone="secondary" onClick={(e) => onCreate(e.currentTarget)} />
+        </div>
+        <div className={styles.propertyPickerList} role="menu">
+          <div className={styles.propertyPickerHeader}>{t("Properties in {name}", { name: owner.name ?? "" })}</div>
+          {defs.map((d) => {
+            const on = !!current && guidStr(current.id) === guidStr(d.id);
+            return (
+              <button
+                key={guidStr(d.id)}
+                type="button"
+                role="menuitemradio"
+                aria-checked={on}
+                className={cx(styles.propertyPickerItem, on && styles.propertyPickerItemOn)}
+                onClick={() => {
+                  onPick(d);
+                  onClose();
+                }}
+              >
+                <span className={styles.propertyPickerGlyph}>
+                  <Icon name={PROPERTY_ICON[type]} />
+                </span>
+                <span className={styles.propertyPickerName}>{d.name}</span>
+                <span className={styles.propertyPickerValue}>{valueOf(d)}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </Popover>
+  );
+}
+
+/**
+ * A section's bound property, as live shows it (2026-10-22, Appearance: "Start content"): a row of its own under the
+ * section's fields — the property's pill in the component purple over both field columns (a click picks another),
+ * Go to property (selects the component, whose Properties list the property), Detach property.
+ */
+export function BoundPropertyRow({ layer, field, type }: { layer: Pick<CNode, "guid">; field: BindableField; type: BindType }) {
+  useT();
+  const ed = useEditor();
+  const data = useBindData(layer, field, type);
+  const [picker, setPicker] = useState<DOMRect | null>(null);
+  const [creating, setCreating] = useState<HTMLElement | null>(null);
+  if (!data?.bound) return null;
+  const bound = data.bound;
+  return (
+    <PropertyRow
+      span={2}
+      data-bound-property={bound.name}
+      action2={<IconButton icon="24.target.small" label={t("Go to property")} tone="secondary" onClick={() => ed.engine.setSelection([data.owner.definer.guid])} />}
+      action={<IconButton icon="24.detach.small" label={t("Detach property")} tone="secondary" onClick={() => bindLayer(ed, data.node, field, null)} />}
+    >
+      <button type="button" className={styles.boundProperty} onClick={(e) => setPicker(picker ? null : e.currentTarget.getBoundingClientRect())}>
+        <Icon name={PROPERTY_ICON[type]} />
+        <span className={styles.pillText}>{bound.name}</span>
+      </button>
+      {picker && <PropertyPicker anchor={picker} owner={data.owner.definer} type={type} current={bound} onPick={(d) => bindLayer(ed, data.node, field, d)} onCreate={setCreating} onClose={() => setPicker(null)} />}
+      {creating && <PropertyEditor owner={data.owner.definer} target={{ mode: "create", type, bind: { layer: data.node, field } }} anchor={creating} onClose={() => setCreating(null)} />}
+    </PropertyRow>
+  );
+}
+
+export function BindButton({ layer, field, type, inline = true }: { layer: Pick<CNode, "guid"> & Partial<CNode>; field: BindableField; type: BindType; /** false: the section's button and picker, the bound property in its own row (BoundPropertyRow) */ inline?: boolean }) {
+  useT();
+  const ed = useEditor();
+  const [creating, setCreating] = useState<HTMLElement | null>(null);
+  const [picker, setPicker] = useState<DOMRect | null>(null);
+  const wrap = useRef<HTMLSpanElement>(null);
+  const data = useBindData(layer, field, type);
   if (!data) return null;
+  if (!inline) {
+    const typeName = t(PROPERTY_TYPE_LABEL[type]).toLowerCase();
+    return (
+      <span ref={wrap} className={styles.contents} data-bind={field}>
+        <ToggleIconButton
+          icon="24.property.apply.small"
+          label={data.defs.length ? t("Apply {type} property", { type: typeName }) : t("Create {type} property", { type: typeName })}
+          tone="secondary"
+          pressed={!!picker}
+          onPressedChange={() => undefined}
+          onClick={(e) => setPicker(picker ? null : pickerRect(e.currentTarget))}
+        />
+        {picker && <PropertyPicker anchor={picker} owner={data.owner.definer} type={type} current={data.bound} onPick={(d) => bindLayer(ed, data.node, field, d)} onCreate={setCreating} onClose={() => setPicker(null)} />}
+        {creating && <PropertyEditor owner={data.owner.definer} target={{ mode: "create", type, bind: { layer: data.node, field } }} anchor={creating} onClose={() => setCreating(null)} />}
+      </span>
+    );
+  }
   const typeName = t(PROPERTY_TYPE_LABEL[type]).toLowerCase();
   const label = data.defs.length ? t("Apply {type} property", { type: typeName }) : t("Create {type} property", { type: typeName });
   const entries: MenuEntry[] = [

@@ -353,6 +353,8 @@ export const panels: Record<string, string> = {
   "Destination": "Hedef",
   "Detach instance": "Örneği ayır",
   "Detach property": "Özelliği ayır",
+  "Go to property": "Özelliğe git",
+  "Properties in {name}": "{name} içindeki özellikler",
   "Detach style": "Stili ayır",
   "Detach variable": "Değişkeni ayır",
   "Detailed": "Ayrıntılı",

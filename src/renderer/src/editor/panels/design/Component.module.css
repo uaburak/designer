@@ -331,6 +331,50 @@
     letter-spacing: var(--ds-tracking-body-medium);
   }
   .pillText { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  /* Live (2026-10-22, Appearance's "Start content"): the bound property over both field columns, 24 high, the component
+     purple's tertiary, its glyph and name in the text colour */
+  .boundProperty {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-2) 0 0;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-component-tertiary);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    text-align: left;
+    outline: none;
+  }
+  .boundProperty:focus-visible { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
+  /* Live (2026-10-22): the property picker — search with ×, All libraries with +, "Properties in …", 32 rows */
+  .propertyPicker { display: flex; flex-direction: column; }
+  .propertyPickerSearch { display: flex; align-items: center; gap: var(--ds-space-1); padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-2); border-bottom: 1px solid var(--figma-color-border); }
+  .propertyPickerSearch > :first-child { flex: 1 1 auto; min-width: 0; }
+  .propertyPickerSource { display: flex; align-items: center; justify-content: space-between; padding: var(--ds-space-2); border-bottom: 1px solid var(--figma-color-border); }
+  .propertyPickerList { display: flex; flex-direction: column; padding: var(--ds-space-2) 0; }
+  .propertyPickerHeader { display: flex; align-items: center; height: var(--ds-size-control-large); padding: 0 var(--ds-space-4); color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .propertyPickerItem {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    height: var(--ds-size-control-large);
+    padding: 0 var(--ds-space-4) 0 var(--ds-space-3);
+    border: 0;
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    text-align: left;
+  }
+  .propertyPickerItem:hover, .propertyPickerItem:focus-visible { background: var(--figma-color-bg-hover); outline: none; }
+  .propertyPickerItemOn { background: var(--figma-color-bg-selected); }
+  .propertyPickerGlyph { display: flex; flex: none; color: var(--figma-color-icon-component); }
+  .propertyPickerName { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .propertyPickerValue { flex: none; max-width: 40%; overflow: hidden; color: var(--figma-color-text-tertiary); white-space: nowrap; text-overflow: ellipsis; }
 
 
   /* Reordering properties: the row a drag would drop before; exposed nested instances under the properties */
