@@ -194,6 +194,19 @@ export interface AgentsState {
   draftConnectors: string[];
   /** Social's composer picked an agent instead of the manager: its turns go straight to that agent (docs/social.md §1.3) */
   socialDirect: boolean;
+  /**
+   * A message written while the chat's turn runs, by chat: it goes when that turn ends (one a chat; a new one replaces
+   * it). Kept here, not in the composer, so it survives the panel's views (settings, the list, another chat).
+   */
+  queued: Record<string, QueuedMessage>;
+}
+
+/** A message waiting for its chat's turn to end. */
+export interface QueuedMessage {
+  text: string;
+  context: ChatMessage["context"];
+  files: Attachment[];
+  skills: readonly AiSkill[];
 }
 
 const EMPTY_SETTINGS: AgentSettings = { providerId: null, models: {}, custom: [] };
@@ -357,7 +370,7 @@ export class AgentsService implements AgentSetupHost {
     this.storageKey = `designer.agents.chats.${fileId}`;
     this.choiceKey = `designer.agents.choice.${fileId}`;
     this.choice = this.loadChoice();
-    this.state = { available: !!api, view: "list", settingsOpen: false, settingsItem: null, chats: this.load(), current: null, providers: [], providersLoading: false, settings: EMPTY_SETTINGS, mcp: { running: false, url: null, connections: [] }, clients: [], running: {}, usage: {}, resolved: loadResolved(), consents: [], draftConnectors: [], socialDirect: false };
+    this.state = { available: !!api, view: "list", settingsOpen: false, settingsItem: null, chats: this.load(), current: null, providers: [], providersLoading: false, settings: EMPTY_SETTINGS, mcp: { running: false, url: null, connections: [] }, clients: [], running: {}, usage: {}, resolved: loadResolved(), consents: [], draftConnectors: [], socialDirect: false, queued: {} };
     if (!this.state.chats.length) this.state.view = "chat";
     this.queue.restore(this.state.chats.flatMap((c) => c.tasks ?? []));
     if (!api) return;
@@ -619,7 +632,9 @@ export class AgentsService implements AgentSetupHost {
     this.queue.stopWhere((t) => t.chatId === id);
     // Its turns' histories go with it (their changes stay in the file).
     for (const m of this.state.chats.find((c) => c.id === id)?.messages ?? []) if (m.turnId) this.turns.forget(m.turnId);
-    this.set({ chats: this.state.chats.filter((c) => c.id !== id), current: this.state.current === id ? null : this.state.current });
+    const queued = { ...this.state.queued };
+    delete queued[id];
+    this.set({ chats: this.state.chats.filter((c) => c.id !== id), current: this.state.current === id ? null : this.state.current, queued });
     this.save();
   }
 
@@ -627,7 +642,7 @@ export class AgentsService implements AgentSetupHost {
   deleteAllChats() {
     for (const id of Object.keys(this.state.running)) this.stop(id);
     this.queue.stopWhere(() => true);
-    this.set({ chats: [], current: null, view: "chat" });
+    this.set({ chats: [], current: null, view: "chat", queued: {} });
     this.save();
   }
 
@@ -663,9 +678,8 @@ export class AgentsService implements AgentSetupHost {
    * The agent a turn uses: the open chat's own (it keeps the agent it was started with until the user switches), else
    * the one last picked in this file, else the app's last pick, else the first usable.
    */
-  activeProvider(): ProviderInfo | null {
+  activeProvider(chat: Chat | null = this.currentChat()): ProviderInfo | null {
     const usable = this.usable();
-    const chat = this.currentChat();
     const ids = [chat?.providerId, this.choice?.providerId, this.state.settings.providerId];
     for (const id of ids) {
       const p = id ? usable.find((x) => x.id === id) : undefined;
@@ -674,17 +688,15 @@ export class AgentsService implements AgentSetupHost {
     return usable[0] ?? null;
   }
 
-  modelOf(p: ProviderInfo): string | undefined {
-    const chat = this.currentChat();
+  modelOf(p: ProviderInfo, chat: Chat | null = this.currentChat()): string | undefined {
     const fits = (m: string | undefined): m is string => !!m && (p.models.includes(m) || p.kind !== "openai-compatible");
     const candidates = [chat?.providerId === p.id ? chat.model : undefined, this.choice?.providerId === p.id ? this.choice.model : undefined, this.state.settings.models[p.id]];
     return candidates.find(fits) ?? p.models[0];
   }
 
   /** The effort a turn of `p` asks for: the chat's, the file's last, else the agent's default (none without an effort flag). */
-  effortOf(p: ProviderInfo): string | undefined {
+  effortOf(p: ProviderInfo, chat: Chat | null = this.currentChat()): string | undefined {
     if (!p.efforts?.length) return undefined;
-    const chat = this.currentChat();
     const candidates = [chat?.providerId === p.id ? chat.effort : undefined, this.choice?.providerId === p.id ? this.choice.effort : undefined];
     return candidates.find((e): e is string => !!e && p.efforts!.includes(e)) ?? p.efforts[0];
   }
@@ -793,6 +805,24 @@ export class AgentsService implements AgentSetupHost {
    * `shown`: what the chat shows for the message when the prompt is a brief (Social's Make starter templates…).
    */
   async send(prompt: string, context: ChatMessage["context"] = this.selectionContext(), attachments: Attachment[] = [], skills: readonly AiSkill[] = [], shown?: string) {
+    return this.sendIn(this.currentChat(), prompt, context, attachments, skills, shown);
+  }
+
+  /** A message while the chat's turn runs: it waits, and goes as that turn ends (whatever the panel shows then). */
+  queueMessage(chatId: string, message: QueuedMessage) {
+    this.set({ queued: { ...this.state.queued, [chatId]: message } });
+  }
+
+  /** The waiting message taken back (its ✕). */
+  unqueueMessage(chatId: string) {
+    if (!this.state.queued[chatId]) return;
+    const queued = { ...this.state.queued };
+    delete queued[chatId];
+    this.set({ queued });
+  }
+
+  /** `send` into a given chat (null: a new one, opened) — the queued message's chat need not be the open one. */
+  private async sendIn(open: Chat | null, prompt: string, context: ChatMessage["context"], attachments: Attachment[], skills: readonly AiSkill[], shown?: string) {
     const files = attachments.slice(0, MAX_ATTACHMENTS);
     const text = prompt.trim();
     const invoked = invokedSkill(text, skills);
@@ -800,13 +830,13 @@ export class AgentsService implements AgentSetupHost {
     if ((!text && !files.length) || !this.api) return;
     // With the manager on, every message is the manager's turn (docs/studio.md §2.2).
     const manager = this.managerProvider();
-    const provider = manager ?? this.activeProvider();
-    let chat = this.currentChat();
+    const provider = manager ?? this.activeProvider(open);
+    let chat = open;
     if (!chat) {
       // The id its attachments were copied under.
       const id = this.draftId ?? uid();
       this.draftId = null;
-      chat = { id, title: shortTitle(shown ?? text) || files.map((f) => f.name).join(", ").slice(0, 60), updatedAt: Date.now(), providerId: provider?.id ?? null, model: provider ? this.modelOf(provider) : undefined, effort: provider ? this.effortOf(provider) : undefined, messages: [], ...(this.state.draftConnectors.length ? { connectors: this.state.draftConnectors } : {}) };
+      chat = { id, title: shortTitle(shown ?? text) || files.map((f) => f.name).join(", ").slice(0, 60), updatedAt: Date.now(), providerId: provider?.id ?? null, model: provider ? this.modelOf(provider, null) : undefined, effort: provider ? this.effortOf(provider, null) : undefined, messages: [], ...(this.state.draftConnectors.length ? { connectors: this.state.draftConnectors } : {}) };
       this.set({ chats: [chat, ...this.state.chats], current: chat.id, view: "chat", draftConnectors: [] });
     }
     const chatId = chat.id;
@@ -829,8 +859,8 @@ export class AgentsService implements AgentSetupHost {
     const pageName = page ? (this.ed.engine.readNode(page, { fields: ["name"] })?.name ?? "") : "";
     try {
       const route = this.managerSettings().manager;
-      const model = manager ? (route.model ?? this.modelOf(provider)) : this.modelOf(provider);
-      const effort = manager ? (route.effort && provider.efforts?.includes(route.effort) ? route.effort : this.effortOf(provider)) : this.effortOf(provider);
+      const model = manager ? (route.model ?? this.modelOf(provider, chat)) : this.modelOf(provider, chat);
+      const effort = manager ? (route.effort && provider.efforts?.includes(route.effort) ? route.effort : this.effortOf(provider, chat)) : this.effortOf(provider, chat);
       const sessionKey = manager ? `manager:${provider.id}` : provider.id;
       const resume = sessionOf(chat, sessionKey);
       // In Social, the manager's instructions carry the board (docs/social.md §7.4).
@@ -860,7 +890,7 @@ export class AgentsService implements AgentSetupHost {
       if (manager) this.managerAborts.set(turnId, new AbortController());
       this.set({ running: { ...this.state.running, [chatId]: turnId } });
       this.updateMessage(chatId, answer.id, (m) => ({ ...m, turnId }));
-      if (!manager && chat.providerId !== provider.id) this.updateChat(chatId, (c) => ({ ...c, providerId: provider.id, model: this.modelOf(provider) }));
+      if (!manager && chat.providerId !== provider.id) this.updateChat(chatId, (c) => ({ ...c, providerId: provider.id, model: this.modelOf(provider, chat) }));
     } catch (err) {
       this.placeholders.end(answer.id);
       this.updateMessage(chatId, answer.id, (m) => ({ ...m, state: "error", error: err instanceof Error ? err.message : String(err), parts: turnOver(m.parts ?? [], false) }));
@@ -993,6 +1023,13 @@ export class AgentsService implements AgentSetupHost {
     void this.refreshUsage(target.providerId, true);
     // Attributed in version history: the turn's changes are a named version of their own.
     if (record && record.state !== "none" && this.ed.source.saveVersion) void this.ed.source.saveVersion({ title: `${target.providerLabel}: ${target.prompt.slice(0, 80)}`, description: "Made in the Agents tab" }).catch(() => {});
+    // A message written meanwhile goes now, into the chat it was written in (stopped, failed or done alike).
+    const waiting = this.state.queued[target.chat];
+    const chat = this.state.chats.find((c) => c.id === target.chat);
+    if (waiting) {
+      this.unqueueMessage(target.chat);
+      if (chat) void this.sendIn(chat, waiting.text, waiting.context, waiting.files, waiting.skills);
+    }
   }
 
   /** A CLI alias's model as its turn reported it ("default" → "claude-opus-5-5"): the menus' short names, kept app-wide. */

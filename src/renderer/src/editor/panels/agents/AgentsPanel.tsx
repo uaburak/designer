@@ -967,8 +967,8 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
     if (id === "manage-connectors") return service.openSetting("section:connectors");
   };
   const canSend = (!!text.trim() || files.length > 0) && !!provider && !adding;
-  // A message written while the turn runs waits (one at a time: a new one replaces it) and goes when the turn ends.
-  const [queued, setQueued] = useState<{ chatId: string | null; text: string; context: typeof context; files: Attachment[] } | null>(null);
+  // A message written while the turn runs waits (one at a time: a new one replaces it) and goes when the turn ends —
+  // kept by the service, so it outlives this composer (settings, the list, another chat).
   const clear = () => {
     setText("");
     setDropped([]);
@@ -977,23 +977,14 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
   };
   const send = () => {
     if (!canSend) return;
-    if (running) {
-      setQueued({ chatId, text, context, files });
+    if (running && chatId) {
+      service.queueMessage(chatId, { text, context, files, skills });
       return clear();
     }
     void service.send(text, context, files, skills);
     clear();
   };
-  // The turn over: the queued message goes (into the chat it was written in).
-  const waiting = queued && queued.chatId === chatId ? queued : null;
-  const sent = useRef<typeof waiting>(null);
-  useEffect(() => {
-    if (running || !waiting || sent.current === waiting) return;
-    sent.current = waiting;
-    void service.send(waiting.text, waiting.context, waiting.files, skills).finally(() => setQueued((q) => (q === waiting ? null : q)));
-    // Once per turn's end.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [running, waiting]);
+  const waiting = chatId ? (state.queued[chatId] ?? null) : null;
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (slashMatches.length && !e.nativeEvent.isComposing) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -1113,7 +1104,7 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
           <button type="button" className={styles.link} onClick={() => chat && service.stop(chat.id)} data-queued-now="">
             {t("Send now")}
           </button>
-          <IconButton icon="24.close.small" label={t("Remove from queue")} tone="secondary" className={styles.queuedRemove} onClick={() => setQueued(null)} data-queued-remove="" />
+          <IconButton icon="24.close.small" label={t("Remove from queue")} tone="secondary" className={styles.queuedRemove} onClick={() => chatId && service.unqueueMessage(chatId)} data-queued-remove="" />
         </div>
       )}
       <textarea

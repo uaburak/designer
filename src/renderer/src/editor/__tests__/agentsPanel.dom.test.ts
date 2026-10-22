@@ -145,6 +145,46 @@ describe("the Agents panel: one agent's work in view", () => {
     engine.destroy();
   });
 
+  it("keeps a queued message while the panel shows settings or the list, and sends it into its chat when the run ends", async () => {
+    const { turns, emit, view, engine } = await setup();
+    await sendText("Make the mobile version");
+    await sendText("Also the tablet one");
+    expect($("[data-queued]")?.textContent).toContain("Also the tablet one");
+    // Agent settings and back: still queued.
+    click($("[data-agents-settings]")!);
+    await settle();
+    click($("[data-tab-header-back]")!);
+    await settle();
+    expect($("[data-queued]")?.textContent).toContain("Also the tablet one");
+    // The list (the chat's composer gone); the run ends there: the message goes into its chat all the same.
+    click($("[data-tab-header-back]")!);
+    await settle();
+    expect($("[data-chats]")).not.toBeNull();
+    emit("T1", { type: "done" });
+    await settle();
+    expect(turns).toHaveLength(2);
+    expect(turns[1].prompt).toBe("Also the tablet one");
+    expect(turns[1].chatId).toBe(turns[0].chatId);
+    emit("T2", { type: "done" });
+    await settle();
+    view.unmount();
+    engine.destroy();
+  });
+
+  it("drops a queued message removed with its ✕", async () => {
+    const { turns, emit, view, engine } = await setup();
+    await sendText("Make the mobile version");
+    await sendText("Also the tablet one");
+    click($("[data-queued-remove]")!);
+    await settle();
+    expect($("[data-queued]")).toBeNull();
+    emit("T1", { type: "done" });
+    await settle();
+    expect(turns).toHaveLength(1);
+    view.unmount();
+    engine.destroy();
+  });
+
   it("folds the pinned run to one line once over; a step group folds to its count", async () => {
     const { emit, view, engine } = await setup();
     await sendText("Rename these layers");
