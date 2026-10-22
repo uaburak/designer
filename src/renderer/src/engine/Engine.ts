@@ -1770,7 +1770,7 @@ export class Engine {
 
   /** Traces again into the preview (callers debounce, docs/ai.md §5 "Budget"). Null when no preview is open. */
   vectorizeUpdate(options: TraceOptions): VectorizeStats | null {
-    return this.json(this.x.vectorizeUpdate(this.h, encodeText(JSON.stringify(options))), null);
+    return this.json(this.x.vectorizeUpdate(this.h, encodeText(JSON.stringify(options))), null, true);
   }
 
   /** ✓ (`commit`): the frame replaces the image layer as one undo step and is selected (its id); ✕: back as it was. */
@@ -1799,8 +1799,10 @@ export class Engine {
   }
 
   /** The result slot as JSON when `status` is OK, else `fallback`. */
-  private json<T>(status: number, fallback: T): T {
-    return this.after(status === Status.OK ? (JSON.parse(decodeText(this.x.result())) as T) : fallback);
+  /** A read's JSON result (its events dispatched after it: afterRead); `write` for a call that changes something. */
+  private json<T>(status: number, fallback: T, write = false): T {
+    const value = status === Status.OK ? (JSON.parse(decodeText(this.x.result())) as T) : fallback;
+    return write ? this.after(value) : this.afterRead(value);
   }
 
   /** The file's live collections, in the panel's order (`includeRemote`: library copies too). */
@@ -1875,7 +1877,7 @@ export class Engine {
    * undo step. Keys never change afterwards. Returns every asset's key.
    */
   ensureAssetKeys(refs?: readonly Guid[]): { id: Guid; key: string }[] {
-    return this.json(this.x.ensureAssetKeys(this.h, refs?.length ? encodeRefs(refs) : new Uint8Array()), []);
+    return this.json(this.x.ensureAssetKeys(this.h, refs?.length ? encodeRefs(refs) : new Uint8Array()), [], true);
   }
 
   /**
@@ -2082,7 +2084,7 @@ export class Engine {
    */
   pathTool(input: PathToolInput): PathToolState | null {
     if (!this.h) return null;
-    return this.json<PathToolState | null>(this.x.pathTool(this.h, encodeText(JSON.stringify(input))), null);
+    return this.json<PathToolState | null>(this.x.pathTool(this.h, encodeText(JSON.stringify(input))), null, true);
   }
 
   /** An open path's ends (Figma's Start point / End point), or null when the node has none. */
@@ -2231,7 +2233,7 @@ export class Engine {
   installBrush(input: InstallBrushInput): GuidString | null {
     if (!this.h) return null;
     const status = this.x.installBrush(this.h, encodeText(JSON.stringify(input)));
-    return this.json<{ guid: GuidString } | null>(status, null)?.guid ?? null;
+    return this.json<{ guid: GuidString } | null>(status, null, true)?.guid ?? null;
   }
 
   /** The file's BRUSH nodes (ABI engine_list_brushes). */

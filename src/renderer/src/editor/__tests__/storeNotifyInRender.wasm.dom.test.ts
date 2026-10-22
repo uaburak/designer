@@ -78,4 +78,24 @@ describe("store notifications out of render", () => {
     expect(errors.filter((e) => e.includes("while rendering a different component"))).toEqual([]);
     engine.destroy();
   });
+
+  it("a read delivers what it derived after the caller, in a microtask; the next write delivers it at once, in order", async () => {
+    const engine = await Engine.create(null, { sessionID: 1 });
+    engine.load(COMPONENTS_DOCUMENT);
+    const seen: string[] = [];
+    engine.onAny((e) => seen.push(e.type));
+    engine.readNodes(["0:3"], { subtree: true, fields: ["type"] });
+    expect(seen).toEqual([]);
+    await Promise.resolve();
+    expect(seen).toContain("STRUCTURE_CHANGED");
+    seen.length = 0;
+    // A page derived by a read, then a write before the microtask: the read's events come first, with the write's.
+    engine.load(COMPONENTS_DOCUMENT);
+    engine.readNodes(["0:3"], { subtree: true, fields: ["type"] });
+    engine.setSelection(["1:1"]);
+    expect(seen.indexOf("STRUCTURE_CHANGED")).toBeGreaterThanOrEqual(0);
+    expect(seen.indexOf("STRUCTURE_CHANGED")).toBeLessThan(seen.lastIndexOf("SELECTION_CHANGED"));
+    await Promise.resolve();
+    engine.destroy();
+  });
 });
