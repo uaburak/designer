@@ -20,33 +20,29 @@
     letter-spacing: var(--ds-tracking-body-medium-strong);
   }
   .pickEmpty { padding: var(--ds-space-2) var(--ds-space-4); color: var(--figma-color-text-secondary); }
-  /* The colour picker's Libraries tab (live, 240 × 203): the search across from 16 (its field at 40), "Variable set" at
-     8,90 with "Show as grid" at 204, "No colors available" in the middle of what's left */
+  /* The colour picker's Libraries tab (the owner's live 112–114.png, 240 wide): the search 40 high across (its field
+     from 40) over a hairline; "All libraries" (outlined, 92 × 24) 8 in and the list / grid toggle 12 from the end, 8
+     above and below, over a hairline; "No colors available" in the middle of what's left */
   .colorTab { min-height: 163px; }
-  .colorTab .pickSearch { padding: var(--ds-space-2) 0 0 var(--ds-space-4); }
-  .colorTab .pickSearch > * { background: transparent; }
-  .colorTab .pickSource { align-items: center; justify-content: space-between; margin-top: 18px; padding: 0 var(--ds-space-3) 0 var(--ds-space-2); border-bottom: 0; }
-  .pickEmptyCentered { display: flex; align-items: center; justify-content: center; min-height: 72px; color: var(--figma-color-text); }
-  /* Live (popovers/fill-picker-libraries-tab.txt): "No colors available" at 157, 43 under the list's top; "All
-     libraries" 9 in, its chevron 9 from the end (92 × 24) */
-  .colorTab .pickEmptyCentered { padding-top: 25px; padding-bottom: 0; }
+  .colorTab .pickSearch { padding: 0; border-bottom: 1px solid var(--figma-color-border); }
+  .colorTab .pickSearch > * { height: 40px; border-radius: 0; background: transparent; padding-left: var(--ds-space-4); }
+  .colorTab .pickSource { align-items: center; justify-content: space-between; padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-2) var(--ds-space-2); }
   .colorTab .pickSource [data-picker-source] > button { padding: 0 9px; }
-  /* A styles popover (live, 216 × 165): the search 40 high across (its field from 40), "No … styles." at 99 and
-     "Browse libraries…" at 129, centred (its glyph first), 12 above the bottom */
-  .stylesTab .pickSearch { padding: 0; }
-  .stylesTab .pickSearch > * { height: 40px; border-radius: 0; background: transparent; padding-left: var(--ds-space-4); }
-  .stylesEmpty { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 19px var(--ds-space-4) var(--ds-space-1); color: var(--figma-color-text-tertiary); }
-  /* Figma's colour Libraries tab with a list: the search over a hairline, the outlined "All libraries" menu and the
-     list / grid toggle, then 32-high rows with a 16 swatch and the leaf name */
-  .colorTab .pickSearch { padding-bottom: var(--ds-space-2); border-bottom: 1px solid var(--figma-color-border); }
-  .colorTab .pickSource { margin-top: var(--ds-space-2); margin-bottom: var(--ds-space-1); }
+  .pickEmptyCentered { display: flex; align-items: center; justify-content: center; min-height: 72px; color: var(--figma-color-text); }
+  .colorTab .pickEmptyCentered { padding-top: 25px; padding-bottom: 0; }
+  /* The list: from 8 under the hairline, the collection's name, its groups' and the colours 32 high each — a 16
+     swatch 20 in, the leaf name at 48 */
+  .colorTab .pickList { padding-top: var(--ds-space-2); }
+  .colorTab .pickHeader, .colorTab .pickGroup, .colorTab .pickSection { display: flex; align-items: center; height: 32px; padding: 0 var(--ds-space-4); }
+  .colorTab .pickGroup { color: var(--figma-color-text); }
   .colorTab .pickItem { height: 32px; }
+  .colorTab .pickGlyph { width: 24px; }
   .colorTab .pickGlyph [data-ds="Swatch"] { width: 16px; height: 16px; }
-  /* The grid: under each collection's name and group's, 28 swatches six to a row, 8 apart, 16 in from the sides */
-  .pickGrid .pickHeader { padding-top: var(--ds-space-3); }
-  .pickGrid .pickGroup { padding-top: var(--ds-space-2); padding-bottom: var(--ds-space-2); }
-  .swatchGrid { display: grid; grid-template-columns: repeat(6, 28px); gap: var(--ds-space-2); padding: 0 var(--ds-space-4) var(--ds-space-2); }
+  /* The grid: 16 under the hairline, then under each heading 28 swatches six to a row, 8 apart, 4 above and below */
+  .colorTab .pickGrid { padding-top: var(--ds-space-4); }
+  .swatchGrid { display: grid; grid-template-columns: repeat(6, 28px); gap: var(--ds-space-2); padding: var(--ds-space-1) var(--ds-space-4); }
   .pickSwatch {
+    position: relative;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -54,15 +50,27 @@
     height: 28px;
     padding: 0;
     border: 0;
-    border-radius: var(--ds-radius-tile);
+    border-radius: var(--ds-radius-medium);
     background: transparent;
     outline: none;
   }
   .pickSwatch .pickGlyph { width: 28px; }
-  .pickSwatchChit, .pickSwatch [data-ds="Swatch"] { width: 28px; height: 28px; border-radius: var(--ds-radius-tile); }
+  .pickSwatchChit, .pickSwatch [data-ds="Swatch"] { width: 28px; height: 28px; border-radius: var(--ds-radius-medium); }
   .pickSwatchRound, .pickSwatchRound [data-ds="Swatch"] { border-radius: var(--ds-radius-full); }
-  /* The picked colour: a blue ring a pixel outside it */
-  .pickSwatchOn, .pickSwatch:focus-visible { box-shadow: 0 0 0 1px var(--figma-color-bg), 0 0 0 3px var(--figma-color-border-selected); }
+  /* The picked colour (live 113.png): a blue edge inside it, a hairline of the surface within */
+  .pickSwatchOn::after, .pickSwatch:focus-visible::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 1px var(--figma-color-border-selected), inset 0 0 0 2px var(--figma-color-bg);
+    pointer-events: none;
+  }
+  /* A styles popover (live, 216 × 165): the search 40 high across (its field from 40), "No … styles." at 99 and
+     "Browse libraries…" at 129, centred (its glyph first), 12 above the bottom */
+  .stylesTab .pickSearch { padding: 0; }
+  .stylesTab .pickSearch > * { height: 40px; border-radius: 0; background: transparent; padding-left: var(--ds-space-4); }
+  .stylesEmpty { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 19px var(--ds-space-4) var(--ds-space-1); color: var(--figma-color-text-tertiary); }
   .pickItem {
     display: flex;
     align-items: center;
