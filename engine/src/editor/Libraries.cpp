@@ -23,6 +23,7 @@
 
 #include "base/Sha1.h"
 #include "editor/Editor.h"
+#include "proto/Prototype.h"
 #include "scene/CodecJson.h"
 #include "scene/CodecKiwi.h"
 
@@ -987,6 +988,20 @@ size_t Editor::remapRefs(NodeProps& p, const GuidMap* own, const GuidMap& map, c
     Guid g;
     p.comp().detachedSymbolId.guid = mapped(p.comp().detachedSymbolId.guid, g) ? g : kNoGuid;  // only a note of where it came from
   }
+  // Prototype interactions (unmodelled: kiwi bytes in `extra`) name their destinations by GUID — an interactive
+  // component's Change to its sibling variant, a navigate inside the asset: the copies of those nodes that came along;
+  // a component of this library already here; else none (another file's node, never a node here sharing its GUID).
+  auto remapProto = [&](NodeProps& q) {
+    auto it = q.extra.find("prototypeInteractions");
+    if (it == q.extra.end() || it->second.empty()) return;
+    proto::remapInteractionNodes(it->second, [&](Guid g) {
+      Guid to;
+      if (mapped(g, to)) return to;
+      return copyByPublishID(libraryKey, g);
+    });
+  };
+  remapProto(p);
+  for (SymbolOverride& o : p.comp().symbolData.overrides) remapProto(o.props);
   // Preferred instances by GUID: the main that came along; one that didn't is the other file's and goes (never a
   // node here that happens to share the GUID). By key: kept (resolved within the main's library when read).
   for (ComponentPropDef& d : p.comp().componentPropDefs) {
@@ -1001,6 +1016,90 @@ size_t Editor::remapRefs(NodeProps& p, const GuidMap* own, const GuidMap& map, c
     d.preferredValues = std::move(kept);
   }
   return unresolved;
+}
+
+std::vector<NodeChange> Editor::copyInteractionRepairs() const {
+  std::vector<NodeChange> out;
+  if (!hasLibraryCopies_) return out;
+  Guid canvas = internalCanvas();
+  if (canvas == kNoGuid) return out;
+  // Every copy's components by (library, the library GUID they carry), built when first needed: a destination in
+  // another asset of the same library (a nested set's variant).
+  std::unordered_map<std::string, Guid> byPublishID;
+  bool indexed = false;
+  auto pubKey = [](const std::string& lib, Guid g) { return lib + "\n" + g.toString(); };
+  for (Guid root : doc_.children(canvas)) {
+    const Node* rn = doc_.get(root);
+    if (!rn || root.isDerived() || rn->props.asset().sourceLibraryKey.empty()) continue;
+    std::vector<Guid> nodes;
+    realSubtree(root, nodes);
+    auto overridesHave = [](const NodeProps& p) {
+      for (const SymbolOverride& o : p.comp().symbolData.overrides)
+        if (proto::hasInteractions(o.props)) return true;
+      return false;
+    };
+    bool any = false;
+    for (Guid g : nodes) {
+      const NodeProps& p = doc_.get(g)->props;
+      if (proto::hasInteractions(p) || overridesHave(p)) any = true;
+    }
+    if (!any) continue;
+    const std::string lib = rn->props.asset().sourceLibraryKey;
+    GuidSet inside(nodes.begin(), nodes.end());
+    GuidMap fromLibrary;  // the library's GUID → this copy's node
+    for (Guid g : nodes) {
+      const NodeProps& p = doc_.get(g)->props;
+      if (isComponentNode(p)) {
+        if (p.asset().publishID != kNoGuid) fromLibrary.emplace(p.asset().publishID, g);
+      } else if (p.overrideKey != kNoGuid) {
+        fromLibrary.emplace(p.overrideKey, g);
+      }
+    }
+    auto map = [&](Guid g) -> Guid {
+      if (inside.count(g)) return g;
+      if (auto it = fromLibrary.find(g); it != fromLibrary.end()) return it->second;
+      if (!indexed) {
+        indexed = true;
+        for (Guid r : doc_.children(canvas)) {
+          const Node* n = doc_.get(r);
+          if (!n || r.isDerived() || n->props.asset().sourceLibraryKey.empty()) continue;
+          std::vector<Guid> inner;
+          realSubtree(r, inner);
+          for (Guid c : inner) {
+            const NodeProps& q = doc_.get(c)->props;
+            if (isComponentNode(q) && q.asset().publishID != kNoGuid) byPublishID.emplace(pubKey(n->props.asset().sourceLibraryKey, q.asset().publishID), c);
+          }
+        }
+      }
+      if (auto it = byPublishID.find(pubKey(lib, g)); it != byPublishID.end()) return it->second;
+      return g;  // not this library's (or gone): left as it is
+    };
+    for (Guid g : nodes) {
+      const NodeProps& p = doc_.get(g)->props;
+      NodeChange c = NodeChange::changed(g);
+      if (proto::hasInteractions(p)) {
+        std::string bytes = p.extra.at("prototypeInteractions");
+        if (proto::remapInteractionNodes(bytes, map)) {
+          c.mask |= F_EXTRA;
+          c.props.extra["prototypeInteractions"] = std::move(bytes);
+        }
+      }
+      if (overridesHave(p)) {
+        SymbolData data = p.comp().symbolData;
+        bool changed = false;
+        for (SymbolOverride& o : data.overrides) {
+          auto it = o.props.extra.find("prototypeInteractions");
+          if (it != o.props.extra.end() && proto::remapInteractionNodes(it->second, map)) changed = true;
+        }
+        if (changed) {
+          c.mask |= F_SYMBOL_DATA;
+          c.props.comp().symbolData = std::move(data);
+        }
+      }
+      if (c.mask) out.push_back(std::move(c));
+    }
+  }
+  return out;
 }
 
 void Editor::writeImports(const SourceNodes& src, std::vector<ImportPlan>& plans, GuidMap& map,

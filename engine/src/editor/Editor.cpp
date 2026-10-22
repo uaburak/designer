@@ -684,7 +684,10 @@ void Editor::relayoutAll() {
   });
   // Conflicting override keys (two layers of one main sharing a key) repaired, as Figma's load does (round 17 B).
   std::vector<Guid> keyRepairs = conflictingOverrideKeys();
-  if (dirty.empty() && instanceDirty_.empty() && unusedDeleted.empty() && bindingsDirty_.empty() && keyRepairs.empty()) return;
+  // Library copies' interactions that still point at the library file's nodes (imported before they were remapped).
+  std::vector<NodeChange> protoRepairs = copyInteractionRepairs();
+  if (dirty.empty() && instanceDirty_.empty() && unusedDeleted.empty() && bindingsDirty_.empty() && keyRepairs.empty() && protoRepairs.empty())
+    return;
   std::sort(dirty.begin(), dirty.end());
   std::sort(unusedDeleted.begin(), unusedDeleted.end());
   begin(TxnKind::SYSTEM, "Layout");
@@ -693,6 +696,12 @@ void Editor::relayoutAll() {
     c.mask = F_OVERRIDE_KEY;
     c.props.overrideKey = kNoGuid;
     write(c);
+  }
+  if (!protoRepairs.empty()) {
+    bool before = libraryWrite_;
+    libraryWrite_ = true;  // a copy is read-only to the user, not to its library's bookkeeping
+    for (NodeChange& c : protoRepairs) write(c);
+    libraryWrite_ = before;
   }
   for (Guid g : unusedDeleted) {
     std::vector<Guid> order;

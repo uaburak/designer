@@ -7,6 +7,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -264,5 +265,11 @@ Geometry geometryOf(Transition t);
 void destinations(const Action& a, std::vector<std::pair<Navigation, Guid>>& out);
 // The videos the action and its branches act on (UPDATE_MEDIA_RUNTIME's `dest`).
 void mediaTargets(const Action& a, std::vector<Guid>& out);
+
+// The nodes a prototypeInteractions field (its kiwi bytes) points at — every action's and branch's transitionNodeID and
+// animationTimelineDefId — rewritten by `map`: a GUID it returns in place of the old one, kNoGuid to drop the
+// reference (the action then goes nowhere). False (bytes untouched) when nothing changed. A library copy's interactions
+// point at its own copies of the library's nodes, never at the library file's GUIDs (docs/data.md §9.2).
+bool remapInteractionNodes(std::string& bytes, const std::function<Guid(Guid)>& map);
 
 }  // namespace eng::proto

@@ -17,7 +17,7 @@ import { openStoreDocument, type StoreDocumentSource } from "../../store/documen
 import { memoryStorage } from "../../store/memory/kv";
 import { MemoryStore } from "../../store/memory/memoryStore";
 import { EditorController } from "../controller";
-import { COMPONENTS_DOCUMENT, VARIABLES_DOCUMENT } from "../fixtures";
+import { COMPONENTS_DOCUMENT, PROTOTYPE_DOCUMENT, VARIABLES_DOCUMENT } from "../fixtures";
 import { goToComponent } from "../components";
 import { acceptUpdates, draftPublish, ensureCopy, hasPublishChanges, insertLibraryComponent, libraryEngine, publishLibrary, publishPlan, restoreRemovedComponent, setHiddenWhenPublishing, setLibraryEnabled, updateId, updateSelectedInstances } from "../libraries";
 import { applyStyle, bindVariable } from "../variables";
@@ -652,5 +652,29 @@ describe("libraries (docs/data.md §9)", () => {
     } finally {
       await bed.close();
     }
+  });
+
+  it("an interactive component's interactions come with it: Change to points at the copy's own variants", async () => {
+    // The owner's HeroUI kit: a Button's While hovering → Change to Hover did nothing in a file using the library.
+    const w = await workspace();
+    const libKey = await w.file("Kit", PROTOTYPE_DOCUMENT);
+    const appKey = await w.file("App", EMPTY);
+    const lib = await w.open(libKey);
+    await publishAll(lib.ed);
+    const app = await w.open(appKey);
+    await setLibraryEnabled(app.ed, libKey, true);
+    const toggle = app.ed.libraries.get().manifests.get(libKey)!.assets.find((a) => a.name === "Toggle")!;
+    expect(await insertLibraryComponent(app.ed, libKey, toggle)).toBeTruthy();
+    const set = copyOfKey(app.ed, libKey, "Toggle")!;
+    const [off, on] = read(app.ed, set.guid).childIds!;
+    type Ix = { actions: { navigationType: string; transitionNodeID?: { sessionID: number; localID: number } }[] }[];
+    const action = (id: string) => (read(app.ed, id).prototypeInteractions as Ix)[0].actions[0];
+    const dest = (id: string) => {
+      const g = action(id).transitionNodeID;
+      return g ? `${g.sessionID}:${g.localID}` : null;
+    };
+    expect(action(off).navigationType).toBe("SWAP_STATE");
+    expect(dest(off)).toBe(on);
+    expect(dest(on)).toBe(off);
   });
 });

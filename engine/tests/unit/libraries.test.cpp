@@ -14,6 +14,8 @@
 #include "Helpers.h"
 #include "base/DerivedIds.h"
 #include "editor/Editor.h"
+#include "proto/Player.h"
+#include "proto/Prototype.h"
 #include "scene/CodecJson.h"
 #include "scene/CodecKiwi.h"
 
@@ -2673,4 +2675,123 @@ TEST_CASE("libraries (r5): an extended collection publishes with its parent and 
   REQUIRE(run(c, CommandId::SET_VARIABLE_VALUE, "{\"variable\":" + q(brandCopy) + ",\"mode\":" + q(mineLight) + R"(,"value":{"r":0,"g":0,"b":0,"a":1}})") == OK);
   REQUIRE(run(c, CommandId::SET_VARIABLE_MODE, "{\"refs\":[" + q(SCREEN) + "],\"collection\":" + q(mine) + ",\"mode\":" + q(mineLight) + "}") == OK);
   CHECK(fillOf(c, RECT) == Color{0, 0, 0, 1});
+}
+
+namespace {
+
+// An interactive component in the library: "Toggle" (State=Off / State=On). Off: While hovering → Change to On; its
+// Knob: On click → Change to On; On's "Go": On click → Navigate to a frame of the library file (not in the payload).
+const Guid TSET{60, 1}, TOFF{60, 2}, TON{60, 3}, TKNOB{60, 4}, TGO{60, 5}, TFRAME{60, 9};
+
+std::string ixBytes(const std::string& text) {
+  json::Value v;
+  REQUIRE(json::parse(text, v));
+  std::string b = codec::extraFromJson("NodeChange", "prototypeInteractions", v);
+  REQUIRE(!b.empty());
+  return b;
+}
+std::string ixEntry(uint32_t id, const char* trigger, const char* nav, Guid dest) {
+  return std::string(R"([{"id":{"sessionID":61,"localID":)") + std::to_string(id) + R"(},"stateManagementVersion":1,"event":{"interactionType":")" +
+         trigger + R"("},"actions":[{"connectionType":"INTERNAL_NODE","navigationType":")" + nav +
+         R"(","transitionType":"INSTANT_TRANSITION","transitionNodeID":")" + dest.toString() + "\"}]}]";
+}
+
+std::vector<NodeChange> toggleLibDoc() {
+  auto nodes = baseChanges();
+  NodeChange set = make(TSET, NodeType::FRAME, kPage, "!", {0, 0, 200, 60}, "Toggle");
+  set.props.comp().isStateGroup = true;
+  nodes.push_back(set);
+  NodeChange off = make(TOFF, NodeType::SYMBOL, TSET, "!", {10, 10, 60, 30}, "State=Off");
+  off.props.extra["prototypeInteractions"] = ixBytes(ixEntry(1, "ON_HOVER", "SWAP_STATE", TON));
+  nodes.push_back(off);
+  NodeChange knob = make(TKNOB, NodeType::ROUNDED_RECTANGLE, TOFF, "!", {0, 0, 20, 20}, "Knob");
+  knob.props.extra["prototypeInteractions"] = ixBytes(ixEntry(2, "ON_CLICK", "SWAP_STATE", TON));
+  nodes.push_back(knob);
+  nodes.push_back(make(TON, NodeType::SYMBOL, TSET, "\"", {100, 10, 60, 30}, "State=On"));
+  NodeChange go = make(TGO, NodeType::ROUNDED_RECTANGLE, TON, "!", {0, 0, 20, 20}, "Go");
+  go.props.extra["prototypeInteractions"] = ixBytes(ixEntry(3, "ON_CLICK", "NAVIGATE", TFRAME));
+  nodes.push_back(go);
+  nodes.push_back(make(TFRAME, NodeType::FRAME, kPage, "\"", {0, 200, 100, 100}, "Elsewhere"));
+  return nodes;
+}
+
+Guid firstDest(const Editor& e, Guid id) {
+  auto list = proto::interactions(props(e, id));
+  if (list.empty() || list[0].actions.empty()) return Guid{0xFFFFFFFFu, 0};
+  return list[0].actions[0].dest;
+}
+
+// Hovers the instance at `x, y` in a presentation of the consumer's Screen: its main while hovered and after.
+std::pair<Guid, Guid> hoverPlay(Editor& c, Guid inst, double x, double y) {
+  c.setViewport(400, 400, 1, 400, 400);  // the screen fills the view: its points are the view's
+  proto::Player player{c};
+  REQUIRE(player.start(kPage, SCREEN));
+  double t = 0;
+  auto advance = [&](double ms) {
+    for (; ms > 0; ms -= 10) player.tick(t += 10);
+  };
+  advance(16);
+  player.pointer(PointerEvent::MOVE, x, y, 0, 0);
+  advance(100);
+  Guid hovered = c.mainOf(inst);
+  player.pointer(PointerEvent::MOVE, 390, 390, 0, 0);
+  advance(100);
+  return {hovered, c.mainOf(inst)};
+}
+
+}  // namespace
+
+TEST_CASE("libraries: an interactive component's interactions come with its copy, pointing at the copy's variants") {
+  // The owner's HeroUI kit: a Button's While hovering → Change to Hover did nothing in a file using the library — the
+  // copies' interactions still named the library file's GUIDs.
+  Editor lib = load(toggleLibDoc(), kLibKey);
+  lib.ensureAssetKeys({TSET});
+  auto messages = publish(lib, {keyOf(lib, TSET)});
+  Editor c = load(consumerDoc(), kConsumerKey);
+  std::vector<Editor::ImportedAsset> out;
+  REQUIRE(c.importLibrary(messages, opts(kLibKey), out) == OK);
+  Guid setCopy = copyOf(c, keyOf(lib, TSET));
+  REQUIRE(setCopy != kNoGuid);
+  auto variants = c.document().children(setCopy);
+  REQUIRE(variants.size() == 2);
+  Guid offCopy = variants[0], onCopy = variants[1];
+  CHECK(props(c, offCopy).asset().publishID == TOFF);
+  CHECK(firstDest(c, offCopy) == onCopy);
+  Guid knobCopy = c.document().children(offCopy)[0];
+  CHECK(firstDest(c, knobCopy) == onCopy);
+  // A destination outside what came (a frame of the library file): no destination here, never a stray GUID.
+  Guid goCopy = c.document().children(onCopy)[0];
+  CHECK(firstDest(c, goCopy) == kNoGuid);
+  CHECK(proto::interactions(props(c, goCopy)).size() == 1);
+
+  // Played: hovering an instance of the copy changes it to On, leaving changes it back.
+  REQUIRE(run(c, CommandId::INSERT_INSTANCE, "{\"main\":" + q(offCopy) + ",\"x\":100,\"y\":100}") == OK);
+  Guid inst = c.selection()[0];
+  Mat2x3 w = c.document().worldTransform(inst);
+  Vec2 at{w.m02 + 30, w.m12 + 15};
+  auto [hovered, after] = hoverPlay(c, inst, at.x, at.y);
+  CHECK(hovered == onCopy);
+  CHECK(after == offCopy);
+
+  // A file holding copies made before (destinations still the library's GUIDs): repaired when it opens.
+  std::vector<NodeChange> saved;
+  auto depth = [&](Guid g) {
+    int d = 0;
+    for (Guid cur = g; cur != kNoGuid; cur = c.document().parentOf(cur)) d++;
+    return d;
+  };
+  c.document().forEach([&](const Node& n) {
+    if (!n.guid.isDerived()) saved.push_back(NodeChange::created(n.guid, n.props));
+  });
+  std::stable_sort(saved.begin(), saved.end(), [&](const NodeChange& a, const NodeChange& b) { return depth(a.guid) < depth(b.guid); });
+  for (NodeChange& n : saved) {
+    if (n.guid == offCopy) n.props.extra["prototypeInteractions"] = ixBytes(ixEntry(1, "ON_HOVER", "SWAP_STATE", TON));
+    if (n.guid == knobCopy) n.props.extra["prototypeInteractions"] = ixBytes(ixEntry(2, "ON_CLICK", "SWAP_STATE", TON));
+  }
+  Editor old = load(saved, kConsumerKey);
+  CHECK(firstDest(old, offCopy) == onCopy);
+  CHECK(firstDest(old, knobCopy) == onCopy);
+  auto [hovered2, after2] = hoverPlay(old, inst, at.x, at.y);
+  CHECK(hovered2 == onCopy);
+  CHECK(after2 == offCopy);
 }

@@ -1484,6 +1484,9 @@ class Editor : private LayoutHost, public TextLayouts {
   // Duplicate effective override keys inside one main's tree: the later ones' overrideKeys (Figma's "conflicting
   // override keys", repaired at load).
   std::vector<Guid> conflictingOverrideKeys() const;
+  // Library copies whose prototype interactions still name the library file's GUIDs (copies made before imports
+  // remapped them): the changes that point them at the copies' own nodes, repaired at load.
+  std::vector<NodeChange> copyInteractionRepairs() const;
   // A variant renamed by hand (round 17 B, Figma's backfillVariantPropDefs): its name's pairs become its values, a new
   // property name a Variant property of the set; an invalid name is kept (the variant shows as conflicting).
   void backfillVariantNames();
