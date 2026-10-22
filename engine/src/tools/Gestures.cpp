@@ -192,6 +192,34 @@ Editor::Handle Editor::handleAt(Vec2 s, int& hx, int& hy) const {
       }
     }
   }
+  // A selection across parents: each group's box has its handles (live Figma); the one hit is remembered for the resize.
+  std::vector<std::vector<Guid>> groups = selectionGroups(doc_, selection_);
+  if (groups.size() > 1) {
+    for (size_t g = 0; g < groups.size(); g++) {
+      SelectionBox gb = selectionBox(doc_, groups[g]);
+      if (!gb.valid) continue;
+      Mat2x3 gm = camera_.matrix() * gb.toWorld;
+      double gw = gb.size.x, gh = gb.size.y;
+      Vec2 gc[4] = {gm.apply({0, 0}), gm.apply({gw, 0}), gm.apply({gw, gh}), gm.apply({0, gh})};
+      const int gcx[4] = {-1, 1, 1, -1}, gcy[4] = {-1, -1, 1, 1};
+      double gsw = (gc[1] - gc[0]).length(), gsh = (gc[3] - gc[0]).length();
+      if (gsw >= OverlayStyle::of(theme_).handlesMinBox && gsh >= OverlayStyle::of(theme_).handlesMinBox)
+        for (int i = 0; i < 4; i++)
+          if ((s - gc[i]).length() <= kCornerReach) {
+            hx = gcx[i], hy = gcy[i], handleGroup_ = g;
+            return Handle::Resize;
+          }
+      if (gsw >= 3 * kEdgeReach && gsh >= 3 * kEdgeReach) {
+        const int ex[4] = {0, 1, 0, -1}, ey[4] = {-1, 0, 1, 0};
+        for (int i = 0; i < 4; i++)
+          if (distanceToSegment(s, gc[i], gc[(i + 1) % 4]) <= kEdgeReach) {
+            hx = ex[i], hy = ey[i], handleGroup_ = g;
+            return Handle::Resize;
+          }
+      }
+    }
+    return Handle::None;
+  }
   Mat2x3 m = camera_.matrix() * box.toWorld;
   double w = box.size.x, h = box.size.y;
   Vec2 c[4] = {m.apply({0, 0}), m.apply({w, 0}), m.apply({w, h}), m.apply({0, h})};
@@ -2675,6 +2703,22 @@ void Editor::startResize(int hx, int hy) {
   if (scaling_ || !motionStartGesture(targetsOf(ids), false)) begin(TxnKind::GESTURE, "Resize");
   box_ = selectionBox(doc_, selection_);
   targets_ = targetsOf(ids);
+  resizeGroups_.clear();
+  if (!scaling_) {
+    // Across parents: the dragged group's box leads; the others follow by the same amounts (dragResize).
+    std::vector<std::vector<Guid>> groups = selectionGroups(doc_, selection_);
+    if (groups.size() > 1) {
+      auto layersOf = [&](const std::vector<Guid>& g) { return g.size() == 1 && doc_.get(g[0])->props.fitsChildren() ? doc_.children(g[0]) : g; };
+      size_t at = std::min(handleGroup_, groups.size() - 1);
+      box_ = selectionBox(doc_, groups[at]);
+      targets_ = targetsOf(layersOf(groups[at]));
+      for (size_t g = 0; g < groups.size(); g++) {
+        if (g == at) continue;
+        resizeGroups_.push_back({selectionBox(doc_, groups[g]), targetsOf(layersOf(groups[g]))});
+        for (const Target& t : resizeGroups_.back().targets) moving.insert(t.id);
+      }
+    }
+  }
   for (const Target& t : targets_) moving.insert(t.id);
   if (scaling_) startScale();
   prepareSnapping(parent, moving);
@@ -2758,7 +2802,7 @@ void Editor::dragResize(Vec2 world, uint32_t mods) {
 
   Mat2x3 boxScale{(x1 - x0) / W, 0, x0, 0, (y1 - y0) / H, y0};
   Mat2x3 S = box_.toWorld * boxScale * box_.toWorld.inverse();
-  for (const Target& t : targets_) {
+  auto resizeTarget = [&](const Target& t, const Mat2x3& S) {
     Mat2x3 nextWorld = S * t.world;
     Mat2x3 local = t.world.inverse() * nextWorld;
     NodeChange c = NodeChange::changed(t.id);
@@ -2779,10 +2823,10 @@ void Editor::dragResize(Vec2 world, uint32_t mods) {
     }
     if (motionDrag_.on) {
       motionPreview(t.id, c.props.transform, c.props.size);  // keyed at pointer-up; constraints and layout don't run
-      continue;
+      return;
     }
     write(c);
-    if (scaling_) continue;  // applyScale places what is in it
+    if (scaling_) return;  // applyScale places what is in it
     keepResizedSize(t.id, handleX_ != 0 || (shift && handleY_ != 0), handleY_ != 0 || (shift && handleX_ != 0));
     // ⌘: a frame's children keep their place on the page (and their size); layout leaves them (ignoreConstraints).
     const Node* tn = doc_.get(t.id);
@@ -2800,6 +2844,15 @@ void Editor::dragResize(Vec2 world, uint32_t mods) {
         if (ignoreConstraints_) write(cc);
       }
     }
+  };
+  for (const Target& t : targets_) resizeTarget(t, S);
+  // A selection across parents: every other group's box moves its edges by the same amounts (live Figma).
+  for (const ResizeGroup& g : resizeGroups_) {
+    double gw = g.box.size.x, gh = g.box.size.y;
+    if (!(gw > 0) || !(gh > 0)) continue;
+    Mat2x3 gs{(gw + (x1 - W) - x0) / gw, 0, x0, 0, (gh + (y1 - H) - y0) / gh, y0};
+    Mat2x3 GS = g.box.toWorld * gs * g.box.toWorld.inverse();
+    for (const Target& t : g.targets) resizeTarget(t, GS);
   }
   if (scaling_) applyScale(handleX_ != 0 ? std::fabs((x1 - x0) / W) : std::fabs((y1 - y0) / H));
   guides_.clear();

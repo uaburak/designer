@@ -17,6 +17,12 @@ struct SelectionBox {
 };
 SelectionBox selectionBox(const Document& doc, const std::vector<Guid>& selection);
 
+// The selection as live Figma draws and resizes it (2026-10-23, the owner's Wecra Design System-2): the top-level
+// selected layers of one parent together — a selection across parents (Select matching layers' across frames) shows a
+// box, handles and size per parent, and a handle dragged on one resizes every group by the same amounts. One group when
+// they share a parent.
+std::vector<std::vector<Guid>> selectionGroups(const Document& doc, const std::vector<Guid>& selection);
+
 // The selection without nodes whose ancestor is selected too.
 std::vector<Guid> topLevelSelection(const Document& doc, const std::vector<Guid>& selection);
 

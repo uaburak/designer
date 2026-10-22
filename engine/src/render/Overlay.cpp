@@ -367,6 +367,35 @@ void Renderer::drawPresenceCursors(const Camera& camera, const Overlay& overlay,
   }
 }
 
+// The size pill's text: "W × H", with "Hug" / "Fill" after an axis of one auto-layout frame or flow child.
+static std::string sizeLabel(const Document& doc, const std::vector<Guid>& selection, Vec2 worldSize) {
+  // One auto-layout frame or flow child: "Hug" / "Fill" after each axis that has it (live Figma: "232 Hug × 72 Hug").
+  std::string sx, sy;
+  if (selection.size() == 1)
+    if (const Node* n = doc.get(selection[0])) {
+      const NodeProps& p = n->props;
+      const Node* parent = doc.get(p.parentIndex.guid);
+      for (int axis = 0; axis < 2; axis++) {
+        std::string& out = axis == 0 ? sx : sy;
+        if (parent && parent->props.isAutoLayout() && p.inFlow() && parent->props.stack().stackMode != StackMode::GRID) {
+          bool along = (parent->props.stack().stackMode == StackMode::VERTICAL) == (axis == 1);
+          if (along ? p.stackChildPrimaryGrow > 0 : p.stackChildAlignSelf == StackCounterAlign::STRETCH) out = " Fill";
+        }
+        if (out.empty() && p.isAutoLayout() && p.stack().stackMode != StackMode::GRID) {
+          bool primary = (p.stack().stackMode == StackMode::VERTICAL) == (axis == 1);
+          if (primary ? p.hugsPrimary() : p.hugsCounter()) out = " Hug";
+        }
+      }
+    }
+  // Hair spaces (U+200A) round the "\u00D7" and before Hug / Fill (the 2026-10-18 comparison, G1: live "120 \u00D7 0" 42 px,
+  // "400 \u00D7 300" 58, "232 Hug \u00D7 72 Hug" 95 at 1\u00D7 \u2014 Inter's full spaces made each pill ~6 px wider; hair spaces land
+  // within a pixel or two of every one).
+  static const std::string kHair = "\u200A";
+  for (std::string* s : {&sx, &sy})
+    if (!s->empty() && (*s)[0] == ' ') *s = kHair + s->substr(1);
+  return formatNumber(worldSize.x) + sx + kHair + "\u00D7" + kHair + formatNumber(worldSize.y) + sy;
+}
+
 void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera, const Overlay& overlay, const OverlayStyle& style) {
   const double dpr = viewport_.scaleX();  // snap to the canvas's real pixels
   if (recordHits_) hits_ = CanvasHits{};
@@ -925,7 +954,45 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
   }
 
   // Selection: each layer's box, the selection's box, its handles and size badge.
-  SelectionBox box = selectionBox(doc, overlay.selection);
+  // Across parents (live Figma, Select matching layers' across frames): a box, handles and size pill per parent.
+  std::vector<std::vector<Guid>> groups = overlay.selectionBox && !overlay.selectionDashed ? selectionGroups(doc, overlay.selection) : std::vector<std::vector<Guid>>{};
+  if (groups.size() > 1) {
+    const Color& blue = blueSel;
+    for (Guid s : overlay.selection) nodeOutline(s, style.selectionWidth, true);
+    for (const std::vector<Guid>& g : groups) {
+      SelectionBox gb = selectionBox(doc, g);
+      if (!gb.valid) continue;
+      Mat2x3 toScreen = view * gb.toWorld;
+      ScreenBox sb = screenBox(toScreen, gb.size, dpr);
+      emit(makeShape(sb.m, sb.size, ShapeKind::Rect, kSquare, blue, 0, blue, 1, 1, 0), Pass::Shape);
+      const double hs = style.handleSize;
+      if (overlay.handles && sb.size.x >= style.handlesMinBox && sb.size.y >= style.handlesMinBox) {
+        Vec2 corners[4] = {{0, 0}, {sb.size.x, 0}, {sb.size.x, sb.size.y}, {0, sb.size.y}};
+        for (auto& c : corners) {
+          Mat2x3 hm = sb.m;
+          Vec2 o = sb.m.apply(c) - sb.m.applyLinear({hs / 2, hs / 2});
+          hm.m02 = std::round(o.x * dpr) / dpr;
+          hm.m12 = std::round(o.y * dpr) / dpr;
+          emit(makeShape(hm, {hs, hs}, ShapeKind::Rect, kSquare, style.handleFill, 1, blue, 1, 1, 0), Pass::Shape);
+        }
+      }
+      if (!overlay.sizeBadge) continue;
+      Mat2x3 w = gb.toWorld;
+      Vec2 worldSize{gb.size.x * std::hypot(w.m00, w.m10), gb.size.y * std::hypot(w.m01, w.m11)};
+      std::string text = overlay.badgeText.empty() ? sizeLabel(doc, g, worldSize) : overlay.badgeText;
+      const text::TextLayout* L = label(text, "Medium", style.labelSize);
+      double tw = L ? L->size.x : 6.2 * static_cast<double>(text.size());
+      double bw = std::round(tw + 2 * style.badgePadding), bh = style.badgeHeight;
+      LabelFrame lf = labelFrame(toScreen, gb.size);
+      Rect r = lf.upright ? transformedBounds(toScreen, gb.size.x, gb.size.y) : lf.box;
+      auto snap = [&](double v) { return lf.upright ? std::round(v * dpr) / dpr : v; };
+      double bx = snap(r.x + r.w / 2 - bw / 2), by = snap(r.bottom() + style.badgeGap), rr = style.badgeRadius;
+      emit(makeShape(lf.place * Mat2x3::translate(bx, by), {bw, bh}, ShapeKind::Rect, {rr, rr, rr, rr}, blue, 1, blue, 0, 0, 0), Pass::Shape);
+      if (L && !L->lines.empty())
+        drawGlyphs(*L, lf.place * Mat2x3::translate(bx + (bw - tw) / 2, snap(by + (bh - L->lines[0].height) / 2)), white, 1);
+    }
+  }
+  SelectionBox box = groups.size() > 1 ? SelectionBox{} : selectionBox(doc, overlay.selection);
   if (box.valid && overlay.selectionBox) {
     const Color& blue = blueSel;
     // Each selected layer's own outline, 1 px (live Figma: a multi-selection outlines every shape along its path; one
@@ -1039,31 +1106,7 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       Rect r = sr;
       Mat2x3 w = box.toWorld;
       Vec2 worldSize{box.size.x * std::hypot(w.m00, w.m10), box.size.y * std::hypot(w.m01, w.m11)};
-      // One auto-layout frame or flow child: "Hug" / "Fill" after each axis that has it (live Figma: "232 Hug × 72 Hug").
-      std::string sx, sy;
-      if (overlay.selection.size() == 1)
-        if (const Node* n = doc.get(overlay.selection[0])) {
-          const NodeProps& p = n->props;
-          const Node* parent = doc.get(p.parentIndex.guid);
-          for (int axis = 0; axis < 2; axis++) {
-            std::string& out = axis == 0 ? sx : sy;
-            if (parent && parent->props.isAutoLayout() && p.inFlow() && parent->props.stack().stackMode != StackMode::GRID) {
-              bool along = (parent->props.stack().stackMode == StackMode::VERTICAL) == (axis == 1);
-              if (along ? p.stackChildPrimaryGrow > 0 : p.stackChildAlignSelf == StackCounterAlign::STRETCH) out = " Fill";
-            }
-            if (out.empty() && p.isAutoLayout() && p.stack().stackMode != StackMode::GRID) {
-              bool primary = (p.stack().stackMode == StackMode::VERTICAL) == (axis == 1);
-              if (primary ? p.hugsPrimary() : p.hugsCounter()) out = " Hug";
-            }
-          }
-        }
-      // Hair spaces (U+200A) round the "\u00D7" and before Hug / Fill (the 2026-10-18 comparison, G1: live "120 \u00D7 0" 42 px,
-      // "400 \u00D7 300" 58, "232 Hug \u00D7 72 Hug" 95 at 1\u00D7 \u2014 Inter's full spaces made each pill ~6 px wider; hair spaces land
-      // within a pixel or two of every one).
-      static const std::string kHair = "\u200A";
-      for (std::string* s : {&sx, &sy})
-        if (!s->empty() && (*s)[0] == ' ') *s = kHair + s->substr(1);
-      std::string text = formatNumber(worldSize.x) + sx + kHair + "\u00D7" + kHair + formatNumber(worldSize.y) + sy;
+      std::string text = sizeLabel(doc, overlay.selection, worldSize);
       if (set) {
         size_t variants = 0;
         for (Guid c : doc.children(overlay.selection[0]))

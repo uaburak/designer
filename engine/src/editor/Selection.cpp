@@ -1,5 +1,6 @@
 #include "editor/Selection.h"
 
+#include <algorithm>
 #include <cmath>
 #include <unordered_set>
 
@@ -51,6 +52,18 @@ SelectionBox selectionBox(const Document& doc, const std::vector<Guid>& selectio
   box.toWorld = frame * Mat2x3::translate(r.x, r.y);
   box.size = {r.w, r.h};
   return box;
+}
+
+std::vector<std::vector<Guid>> selectionGroups(const Document& doc, const std::vector<Guid>& selection) {
+  std::vector<std::vector<Guid>> groups;
+  std::vector<Guid> parents;
+  for (Guid id : topLevelSelection(doc, selection)) {
+    Guid parent = doc.parentOf(id);
+    size_t at = std::find(parents.begin(), parents.end(), parent) - parents.begin();
+    if (at == parents.size()) parents.push_back(parent), groups.emplace_back();
+    groups[at].push_back(id);
+  }
+  return groups;
 }
 
 std::vector<Guid> topLevelSelection(const Document& doc, const std::vector<Guid>& selection) {

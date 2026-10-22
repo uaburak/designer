@@ -5,6 +5,7 @@
 
 #include "doctest.h"
 #include "editor/Editor.h"
+#include "editor/Selection.h"
 #include "Helpers.h"
 
 using namespace eng;
@@ -217,6 +218,25 @@ TEST_CASE("r7 resize: Lock aspect ratio keeps the ratio on the canvas, ⌃ lets 
   e.command(CommandId::UNDO);
   drag(e, {250, 160}, {300, 170}, MOD_SHIFT);
   CHECK(props(e, R2).size == Vec2{100, 100});
+}
+
+TEST_CASE("resize across parents (live Figma): each parent's group has its box; one handle resizes all by the same amounts") {
+  const Guid F2{9, 1}, R5{9, 2};
+  NodeChange f2 = make(F2, NodeType::FRAME, kPage, "$", {600, 0, 300, 300}, "Frame 4");
+  NodeChange r5 = make(R5, NodeType::ROUNDED_RECTANGLE, F2, "!", {10, 10, 50, 50}, "Rectangle 1");
+  Editor e = makeEditor({f2, r5});
+  e.setSelection({R1, R5});  // R1 on screen 110..160; R5 710..760
+  REQUIRE(selectionGroups(e.document(), e.selection()).size() == 2);
+  // R1's right edge, 20 px out: both 20 wider, each from its own left edge
+  drag(e, {160, 135}, {180, 135});
+  CHECK(props(e, R1).size == Vec2{70, 50});
+  CHECK(props(e, R5).size == Vec2{70, 50});
+  CHECK(e.document().worldBounds(R5).x == 610);
+  // R5's handles are its own: its bottom-right corner, 10 px down
+  e.command(CommandId::UNDO);
+  drag(e, {760, 160}, {760, 170});
+  CHECK(props(e, R1).size == Vec2{50, 60});
+  CHECK(props(e, R5).size == Vec2{50, 60});
 }
 
 TEST_CASE("r7 resize: ⌘ ignores constraints — the frame's children stay where they are on the page") {

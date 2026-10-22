@@ -2477,6 +2477,14 @@ class Editor : private LayoutHost, public TextLayouts {
   Guid dropParent_ = kNoGuid;
   Guid snapParent_ = kNoGuid;    // whose children the snapper holds
   SelectionBox box_;
+  // A selection across parents (selectionGroups): the other groups a resize moves by the dragged box's amounts, and which
+  // group's box handleAt found the handle on.
+  struct ResizeGroup {
+    SelectionBox box;
+    std::vector<Target> targets;
+  };
+  std::vector<ResizeGroup> resizeGroups_;
+  mutable size_t handleGroup_ = 0;
   int handleX_ = 0, handleY_ = 0;
   int lineEnd_ = -1;             // dragging a line's start (0) or end (1) handle; -1: a box resize
   int radiusCorner_ = -1;        // dragging a corner radius handle
