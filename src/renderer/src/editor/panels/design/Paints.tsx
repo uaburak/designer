@@ -526,7 +526,7 @@ function useGradientHandles(ed: EditorController, refs: readonly Guid[], field: 
 }
 
 /** The one colour picker of the Design panel, for a paint of the selection, a Selection colors row, or the page. */
-export function PaintPicker({ target, nodes, pageColor, onClose }: { target: PickerTarget; nodes: PanelNode[]; pageColor: Color | null; onClose: () => void }) {
+export function PaintPicker({ target, nodes, pageColor, canvasColor, onClose }: { target: PickerTarget; nodes: PanelNode[]; pageColor: Color | null; /** The page as drawn (the default one is dark in the dark theme): what the contrast check reads behind a top-level layer */ canvasColor: Color; onClose: () => void }) {
   useT();
   const ed = useEditor();
   const [model, setModel] = useColorFormat();
@@ -734,7 +734,7 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
           />
         ) : undefined
       }
-      contrastBackground={paint.type === "SOLID" && nodes.length === 1 ? backgroundBehind(ed, refs[0], pageColor) : null}
+      contrastBackground={paint.type === "SOLID" && nodes.length === 1 ? backgroundBehind(ed, refs[0], canvasColor) : null}
       contrastCategory={contrastCategoryOfNodes(nodes)}
       onRotateGradient={isGradientType(paint.type) ? () => write(gradientRotated90(paint), { final: true, source: "pick" }, "Rotate gradient") : undefined}
       onChange={(next: PickerPaint, info) => {
@@ -872,7 +872,7 @@ export function contrastCategoryOfNodes(nodes: readonly PanelNode[]): ContrastCa
   return selectionCategory(kinds);
 }
 
-function backgroundBehind(ed: EditorController, ref: Guid | undefined, pageColor: Color | null): Color {
+function backgroundBehind(ed: EditorController, ref: Guid | undefined, canvasColor: Color): Color {
   let id = ref ? ed.engine.readNode(ref)?.parentIndex?.guid : undefined;
   for (let i = 0; id && i < 64; i++) {
     const n = ed.engine.readNode(id);
@@ -881,7 +881,7 @@ function backgroundBehind(ed: EditorController, ref: Guid | undefined, pageColor
     if (top?.color) return { ...top.color, a: 1 };
     id = n.parentIndex?.guid;
   }
-  return pageColor ? { ...pageColor, a: 1 } : { r: 1, g: 1, b: 1, a: 1 };
+  return { ...canvasColor, a: 1 };
 }
 
 /** A gradient row of Selection colors edited: every use takes the new stops (each keeps its own handles). */

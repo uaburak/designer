@@ -92,7 +92,7 @@ function trackUiState(ed: EditorController): () => void {
 /** The page's colour as the engine draws it (the default one is dark in the dark theme). */
 function pageColor(ed: EditorController, page: string): string {
   const color = ed.engine.readNode(page)?.backgroundColor ?? DEFAULT_PAGE;
-  if (sameColor(color, DEFAULT_PAGE) && currentTheme().resolved === "dark") return "#1e1e1e";
+  if (sameColor(color, DEFAULT_PAGE) && currentTheme().resolved === "dark") return "#242424";
   return `#${colorToHex(color)}`;
 }
 

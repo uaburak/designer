@@ -246,7 +246,7 @@ export const appColor = {
   "layer-component-glyph": ["#a38cc0", "#7f699b"], // an unselected component / variant / instance row's glyph in Layers: Figma's design-editor --color-icon-component-secondary (figma_app.css [data-editor-theme=design]: pale-purple-450 / -500; live #80699b on #2c2c2c)
   "card-border-hover": ["#cccccc", "#5c5c5c"], // K
   "file-design": ["#0c8ce9", "#0c8ce9"], // K
-  "canvas-default": ["#f5f5f5", "#1e1e1e"], // K
+  "canvas-default": ["#f5f5f5", "#242424"], // K (dark: live Figma 2026-10-22, the owner's 119.png)
   "marquee-fill": ["#0d99ff1a", "#0c8ce926"], // G — drag-select rectangle in Home's grid and list (its border is border-selected)
   // Folder colours (Home): the store's FolderColor ids ("none" is the plain icon-secondary glyph, no token). G — Figma's palette where it has one
   "folder-red": ["#f24822", "#e03e1a"], // = bg-danger

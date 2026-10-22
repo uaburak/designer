@@ -52,7 +52,8 @@ import styles from "./Design.module.css";
 
 /** The engine draws Figma's default page colour (#F5F5F5) as #1E1E1E in the dark theme. */
 const DEFAULT_PAGE = hexToColor("#f5f5f5");
-const DEFAULT_PAGE_DARK = hexToColor("#1e1e1e");
+// Live Figma's dark canvas (the owner's 119 / 120.png: the canvas #242424, the contrast check's Background 242424)
+const DEFAULT_PAGE_DARK = hexToColor("#242424");
 
 export function DesignPanel() {
   useT();
@@ -124,7 +125,7 @@ export function DesignPanel() {
       ) : (
         <Selected nodes={nodes} paintNodes={paintNodes} onPick={open} />
       )}
-      {picker && <PaintPicker target={picker} nodes={paintNodes} pageColor={pageNode?.backgroundColor ?? null} onClose={() => setPicker(null)} />}
+      {picker && <PaintPicker target={picker} nodes={paintNodes} pageColor={pageNode?.backgroundColor ?? null} canvasColor={shownPageColor} onClose={() => setPicker(null)} />}
     </>
   );
 }
