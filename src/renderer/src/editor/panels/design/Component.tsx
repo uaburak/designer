@@ -823,7 +823,8 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
   );
   const exposed = nestedInstances.filter((n) => n.propsAreBubbled === true);
   const [dragging, setDragging] = useState<ComponentPropDef | null>(null);
-  const [dragOver, setDragOver] = useState<string | null>(null);
+  // Where a dragged property goes: before or after the row under the pointer (live 129.png: a line in the gap)
+  const [dragOver, setDragOver] = useState<{ id: string; after: boolean } | null>(null);
   const lastVariant = (d: ComponentPropDef) => d.type === "VARIANT" && defs.filter((x) => x.type === "VARIANT").length <= 1;
   const onAdd = (id: string) => {
     if (id.startsWith("expose:")) {
@@ -849,7 +850,7 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
           return (
             <div
               key={id}
-              className={cx(styles.defRow, dragOver === id && styles.defDrop)}
+              className={cx(styles.defRow, dragging && guidStr(dragging.id) === id && styles.defDragging, dragOver?.id === id && (dragOver.after ? styles.defDropAfter : styles.defDropBefore))}
               data-property-row={d.name}
               draggable={renaming !== id}
               // Live (2026-10-22): hovering a property outlines the layers bound to it on the canvas, in every variant
@@ -859,16 +860,24 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
               onDragStart={(e) => {
                 setDragging(d);
                 e.dataTransfer.effectAllowed = "move";
+                // Live: no ghost — the row stays lit in place while the line shows where it goes
+                e.dataTransfer.setDragImage(noDragImage(), 0, 0);
               }}
               onDragOver={(e) => {
                 // Within its own group: variant properties always stay above the others (Figma).
                 if (!dragging || (dragging.type === "VARIANT") !== (d.type === "VARIANT")) return;
                 e.preventDefault();
-                setDragOver(id);
+                const r = e.currentTarget.getBoundingClientRect();
+                const after = e.clientY > r.top + r.height / 2;
+                if (dragOver?.id !== id || dragOver.after !== after) setDragOver({ id, after });
               }}
               onDrop={(e) => {
                 e.preventDefault();
-                if (dragging && guidStr(dragging.id) !== id) reorderProperty(ed, fresh, dragging, d);
+                if (dragging && dragOver) {
+                  const group = defs.filter((x) => (x.type === "VARIANT") === (d.type === "VARIANT"));
+                  const before = dragOver.after ? (group[group.findIndex((x) => guidStr(x.id) === id) + 1] ?? null) : d;
+                  if (!before || guidStr(before.id) !== guidStr(dragging.id)) reorderProperty(ed, fresh, dragging, before);
+                }
                 setDragging(null);
                 setDragOver(null);
               }}
@@ -878,7 +887,8 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
               }}
             >
               <span className={styles.defHandle} aria-hidden="true">
-                <Icon name="16.drag" />
+                {/* Live 129.png: three lines, 6 wide, 3 apart */}
+                <Icon name="16.drag.lines" />
               </span>
               <button
                 type="button"
@@ -983,6 +993,13 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
       {editing && <PropertyEditor owner={fresh} target={editing.target} anchor={editing.anchor} onClose={() => setEditing(null)} />}
     </div>
   );
+}
+
+/** An empty drag image (a property row is dragged without a ghost, as live). */
+let emptyDragImage: HTMLCanvasElement | null = null;
+function noDragImage(): HTMLCanvasElement {
+  emptyDragImage ??= Object.assign(document.createElement("canvas"), { width: 1, height: 1 });
+  return emptyDragImage;
 }
 
 /** An in-place rename (Enter / leaving keeps it, Esc drops it). */
