@@ -157,9 +157,12 @@ if (!app.requestSingleInstanceLock()) {
     initUpdater();
     installAppMenu(current, Boolean(DEV_URL));
     // The store first: Home and the file tabs get their ports as their pages load.
-    startStoreHost(() => {
-      void askStoreGone().then((answer) => (answer === "quit" ? app.quit() : retryStoreHost()));
-    });
+    startStoreHost(
+      () => {
+        void askStoreGone().then((answer) => (answer === "quit" ? app.quit() : retryStoreHost()));
+      },
+      () => lifecycle.quitting,
+    );
     // The login gate (docs/desktop.md §18.6): the app window when signed in, else the welcome window (its splash
     // while the kept session is read).
     initGate();
