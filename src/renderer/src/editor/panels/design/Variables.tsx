@@ -51,8 +51,10 @@ function useVariableName(id: Guid | null): { variable: Variable | null; name: st
  * The pill of a bound field / paint: its glyph or swatch, the variable's name (a click opens the picker), Detach on
  * hover. `warning`: the bound value isn't used as it is (atlas 11 §6) — the pill in Figma's "warning" style, the
  * reason in its tooltip; otherwise the tooltip is the name, the description and the value, a blank line between.
+ * `showValue` (the owner's choice over Figma, 2026-10-22): the pill reads the value it resolves to, the name stays in
+ * the tooltip.
  */
-export function BoundPill({ id, prefix, swatch, label, warning, value, onOpen, onDetach }: { id: Guid; prefix?: IconName | string; swatch?: ReactNode; label: string; warning?: string | null; value?: string; onOpen: (anchor: HTMLElement) => void; onDetach: () => void }) {
+export function BoundPill({ id, prefix, swatch, label, warning, value, showValue, onOpen, onDetach }: { id: Guid; prefix?: IconName | string; swatch?: ReactNode; label: string; warning?: string | null; value?: string; showValue?: boolean; onOpen: (anchor: HTMLElement) => void; onDetach: () => void }) {
   useT();
   const { variable, name, missing } = useVariableName(id);
   const tip = warning ? t(warning) : [variable?.name ?? name, variable?.description, value].filter(Boolean).join("\n\n");
@@ -61,7 +63,7 @@ export function BoundPill({ id, prefix, swatch, label, warning, value, onOpen, o
       {prefix && <FieldPrefix prefix={prefix} className={vstyles.boundPrefix} />}
       {swatch}
       <button type="button" className={cx(vstyles.pill, warning && vstyles.pillWarning)} aria-label={`${t(label)}: ${variable?.name ?? name}`} {...tooltipProps(tip)} onClick={(e) => onOpen(e.currentTarget)}>
-        <span className={cx(vstyles.pillText, missing && vstyles.pillMissing)}>{name}</span>
+        <span className={cx(vstyles.pillText, missing && vstyles.pillMissing)}>{showValue && value !== undefined && !missing ? value : name}</span>
       </button>
       <button type="button" className={vstyles.detach} aria-label={t("Detach variable")} {...tooltipProps(t("Detach variable"))} onClick={onDetach}>
         <Icon name="24.detach.small" />
@@ -105,7 +107,7 @@ export function VariableField({ nodes, fields, prefix, children, disabled, butto
     const warning = bindingWarning(fields[0], value, nodes[0] as never);
     return (
       <div className={vstyles.bindWrap} data-bind-field={fields.join(",")}>
-        <BoundPill id={bound} prefix={prefix} label={spec.label} warning={warning} value={typeof value === "number" ? formatLiteral("FLOAT", value) : undefined} onOpen={setOpen} onDetach={() => bind(null)} />
+        <BoundPill id={bound} prefix={prefix} label={spec.label} warning={warning} value={typeof value === "number" ? formatLiteral("FLOAT", value) : typeof value === "string" ? value : undefined} showValue onOpen={setOpen} onDetach={() => bind(null)} />
         {picker}
       </div>
     );
