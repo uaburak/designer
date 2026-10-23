@@ -28,6 +28,8 @@ import { setDevStatusOf } from "../devStatus";
 import { PREFERENCES, ACCESSIBILITY_PREFERENCES, pref, setPreference, type PreferenceKey } from "../preferences";
 import { setNudge } from "../canvasTools";
 import { setViewOption } from "../commands";
+import { backendOf } from "../branching/access";
+import { branching } from "../branching/state";
 import { modeOf, setMode, type Mode } from "../devmode/devMode";
 import { readWebOptions, writeWebOptions } from "../../present/webBehaviours";
 
@@ -387,11 +389,20 @@ async function filesTool(env: ToolEnv, name: string, args: Spec, s: AppServices)
       return textResult({ renamed: { folderId: f.id, name: f.name } });
     }
     case "branch": {
-      // File › Create branch… (docs/data.md §15): a copy named "<file> / <branch>".
+      // File › Create branch… (docs/data.md §15) as the dialog makes it: a real branch of this file — kept under its main
+      // (Home's branch menu, See all branches), never listed as a file of its own. Only where the store has no branches,
+      // round 10's copy named "<file> / <branch>".
+      const name = str(args.name, "name", 200).trim();
+      const backend = backendOf(env.ed);
+      const mainFileKey = branching(env.ed).fileKey;
+      await env.ed.source.flush();
+      if (backend && mainFileKey) {
+        const b = await backend.branches.create(mainFileKey, name);
+        return textResult({ branch: { fileKey: b.branchFileKey, name: b.name, mainFileKey }, note: "Open it with file_action open; merging stays a review in the app (File › Review and merge)." });
+      }
       const ops = (env.ed.source as { fileOps?: { branch(name: string): Promise<{ fileKey: string; name: string }> } }).fileOps;
       if (!ops) throw new ToolError("Branches need a file of the workspace.");
-      await env.ed.source.flush();
-      const b = await ops.branch(str(args.name, "name", 200).trim());
+      const b = await ops.branch(name);
       return textResult({ branch: { fileKey: b.fileKey, name: b.name }, note: "Open it with file_action open; merging stays a review in the app (File › Review and merge)." });
     }
     case "open": {
