@@ -27,7 +27,7 @@ if (all || args.includes("--screens"))
     console.log(`screen ${id}`);
   }
 if (all || args.includes("--components"))
-  for (const [set, rec] of Object.entries(manifest.sets)) {
+  for (const [set, rec] of [...Object.entries(manifest.sets), ...Object.entries(manifest.atoms ?? {}).filter(([k, v]) => v?.set && !manifest.sets[k]).map(([k, v]) => [`atom ${k}`, { id: v.set }])]) {
     if (names.length && !names.includes(set)) continue;
     const r = await mcp.call("get_design_context", { nodeId: rec.id ?? rec.section, depth: 60 });
     writeFileSync(join(DIR, `set.${set}.json`), JSON.stringify(r.nodes[0]));

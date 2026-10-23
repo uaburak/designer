@@ -51,6 +51,8 @@ if (S.radius.hairline) RADIUS.set(1, S.radius.hairline);
 const BORDER = new Map([[1, S.border.hairline], [2, S.border.strong]]);
 const DIM = new Map([[16, S.size["icon-16"]], [24, S.size.control], [32, S.size["control-large"]]]);
 
+/** The binding field each tool field writes (what get_design_context's boundVariables and the Design panel read). */
+const TARGET = { paddingTop: ["STACK_PADDING_TOP"], paddingRight: ["STACK_PADDING_RIGHT"], paddingBottom: ["STACK_PADDING_BOTTOM"], paddingLeft: ["STACK_PADDING_LEFT"], itemSpacing: ["STACK_SPACING"], counterAxisSpacing: ["STACK_COUNTER_SPACING"], cornerRadius: ["RECTANGLE_TOP_LEFT_CORNER_RADIUS", "RECTANGLE_TOP_RIGHT_CORNER_RADIUS", "RECTANGLE_BOTTOM_LEFT_CORNER_RADIUS", "RECTANGLE_BOTTOM_RIGHT_CORNER_RADIUS"], strokeWeight: ["STROKE_WEIGHT"], strokeTopWeight: ["BORDER_TOP_WEIGHT"], strokeRightWeight: ["BORDER_RIGHT_WEIGHT"], strokeBottomWeight: ["BORDER_BOTTOM_WEIGHT"], strokeLeftWeight: ["BORDER_LEFT_WEIGHT"], width: ["WIDTH"], height: ["HEIGHT"] };
 const binds = new Map(); // field|variable → ids
 const off = new Map(); // what stays raw: field value → count
 const add = (field, map, value, id, bound) => {
@@ -66,14 +68,18 @@ for (const f of readdirSync(CTX).filter((f) => f.startsWith("set."))) {
       const b = n.boundVariables ?? {};
       if (n.layoutMode) {
         const [t, r, bt, l] = n.padding ?? [0, 0, 0, 0];
-        add("paddingTop", SPACE, t, n.id, b.STACK_VERTICAL_PADDING);
+        add("paddingTop", SPACE, t, n.id, b.STACK_PADDING_TOP);
         add("paddingRight", SPACE, r, n.id, b.STACK_PADDING_RIGHT);
         add("paddingBottom", SPACE, bt, n.id, b.STACK_PADDING_BOTTOM);
-        add("paddingLeft", SPACE, l, n.id, b.STACK_HORIZONTAL_PADDING);
+        add("paddingLeft", SPACE, l, n.id, b.STACK_PADDING_LEFT);
         add("itemSpacing", SPACE, n.itemSpacing ?? 0, n.id, b.STACK_SPACING);
+        if (n.layoutWrap === "WRAP") add("counterAxisSpacing", SPACE, n.counterAxisSpacing ?? 0, n.id, b.STACK_COUNTER_SPACING);
       }
       if (typeof n.cornerRadius === "number" && n.cornerRadius > 0) add("cornerRadius", RADIUS, n.cornerRadius, n.id, b.RECTANGLE_TOP_LEFT_CORNER_RADIUS);
-      if (n.strokes?.length && n.type !== "TEXT") add("strokeWeight", BORDER, n.strokeWeight ?? 1, n.id, b.STROKE_WEIGHT);
+      if (n.strokes?.length && n.type !== "TEXT") {
+        if ("strokeTopWeight" in n) for (const side of ["Top", "Right", "Bottom", "Left"]) { if (n[`stroke${side}Weight`] > 0) add(`stroke${side}Weight`, BORDER, n[`stroke${side}Weight`], n.id, b[`BORDER_${side.toUpperCase()}_WEIGHT`]); }
+        else add("strokeWeight", BORDER, n.strokeWeight ?? 1, n.id, b.STROKE_WEIGHT);
+      }
       if (n.type !== "TEXT" && n.layoutSizingVertical === "FIXED") add("height", DIM, n.height, n.id, b.HEIGHT);
       if (n.type !== "TEXT" && n.layoutSizingHorizontal === "FIXED" && n.width === n.height) add("width", DIM, n.width, n.id, b.WIDTH);
     }
@@ -83,10 +89,41 @@ for (const f of readdirSync(CTX).filter((f) => f.startsWith("set."))) {
   walk(JSON.parse(readFileSync(join(CTX, f), "utf8")));
 }
 let total = 0;
+const failed = [];
+let verified = 0;
 for (const [k, ids] of binds) {
   const [field, variableId] = k.split("|");
   total += ids.length;
   console.log(`${field} → ${variableId}: ${ids.length}${dry ? " (dry)" : ""}`);
-  if (!dry) for (let i = 0; i < ids.length; i += 40) await mcp.call("bind_variable", { nodeIds: ids.slice(i, i + 40), field, variableId }, { soft: true });
+  if (dry) continue;
+  // Every node's result is checked: its reported bindings must carry the field's targets with this variable
+  for (let i = 0; i < ids.length; i += 40) {
+    const batch = ids.slice(i, i + 40);
+    let r;
+    try {
+      r = await mcp.call("bind_variable", { nodeIds: batch, field, variableId });
+    } catch (e) {
+      // the whole batch refused: layer by layer, each refusal listed
+      for (const id of batch) {
+        try {
+          const one = await mcp.call("bind_variable", { nodeIds: [id], field, variableId });
+          verify(one, [id], field, variableId);
+        } catch (e2) {
+          failed.push(`${field} ${id}: ${String(e2.message).slice(0, 140)}`);
+        }
+      }
+      continue;
+    }
+    verify(r, batch, field, variableId);
+  }
 }
-console.log(`sizes: ${total} bound; off the scale (left raw): ${[...off].sort((a, b) => b[1] - a[1]).slice(0, 30).map(([k, v]) => `${k}×${v}`).join(", ")}`);
+function verify(r, batch, field, variableId) {
+  for (const id of batch) {
+    const node = (r.nodes ?? []).find((x) => x.nodeId === id);
+    const ok = node && TARGET[field].every((t) => (node.bindings ?? []).some((bd) => bd.target === t && bd.variable === variableId));
+    if (ok) verified++;
+    else failed.push(`${field} ${id}: not in the result's bindings (${JSON.stringify(node?.bindings?.map((bd) => bd.target) ?? r.summary).slice(0, 120)})`);
+  }
+}
+if (failed.length) console.log(`refused (${failed.length}):\n  ${failed.slice(0, 40).join("\n  ")}`);
+console.log(`sizes: ${total} asked, ${verified} verified in the results; off the scale (left raw): ${[...off].sort((a, b) => b[1] - a[1]).slice(0, 30).map(([k, v]) => `${k}×${v}`).join(", ")}`);
