@@ -27,6 +27,7 @@
     "check": "npm run typecheck && npm run lint && npm test",
     "tokens": "vite-node scripts/gen-tokens.ts",
     "icons": "vite-node scripts/gen-icons.ts",
+    "cursors": "vite-node scripts/gen-cursors.ts",
     "ds:usages": "vite-node tools/ds-usages/bin.ts",
     "brushes": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/brushes.mjs",
     "engine:gen": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON engine/tools/schemagen/schemagen.ts",

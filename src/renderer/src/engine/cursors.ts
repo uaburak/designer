@@ -1,138 +1,83 @@
 /**
- * The engine's CURSOR events as CSS cursors (docs/engine.md §10.4).
+ * The engine's CURSOR events as CSS cursors (docs/engine.md §10.4), in Figma's own art.
  *
- * Figma's canvas cursors are its own pictures, black with a white edge, drawn here as SVG on a 24 × 24 grid and handed
- * to the browser as `image-set()` with a 1× and a 2× picture (crisp on Retina: Chromium rasterizes an SVG cursor at the
- * picture's own size, so the 2× one is drawn 48 × 48 and shown at 24 × 24); the hot spot is in CSS px, the system
- * cursor behind. Resize and rotate cursors are turned to the handle's exact angle on screen (whole degrees), so they
- * follow a rotated layer; the hand, the grabbing hand, the I-beam and "not allowed" are the system's (Figma's own match
- * macOS's).
+ * The pictures are Figma's UI3 canvas cursors, decoded from the resources of Figma's fullscreen wasm with the hot spot
+ * its code gives each (cursorArt/, `npm run cursors`; docs/research/chrome-cursors/README.md): white-edged black
+ * glyphs on a 32 × 32 box. They go to the browser as `image-set()` with a 1× and a 2× picture (crisp on Retina:
+ * Chromium rasterizes an SVG cursor at the picture's own size, so the 2× one is drawn at twice the size and shown at
+ * 1×); the hot spot is in CSS px, the system cursor behind. Resize, rotate and spacing cursors are turned to the
+ * handle's exact angle on screen (whole degrees) about the box's middle, so they follow a rotated layer, as Figma's do.
+ * The text I-beam is the system's (Figma has no I-beam of its own).
  */
 import type { CursorKind } from "./codec";
+import { FIGMA_CURSORS, type FigmaCursorName } from "./cursorArt/figmaCursors.generated";
 
 const PLAIN: Partial<Record<CursorKind, string>> = {
-  HAND: "grab",
-  GRABBING: "grabbing",
   IBEAM: "text",
-  NOT_ALLOWED: "not-allowed",
 };
 
-const svgUrl = (body: string, px: number) =>
-  `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${px}" height="${px}" viewBox="0 0 24 24">${body}</svg>`)}")`;
+const svgUrl = (body: string, w: number, h: number, scale: number) =>
+  `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${w * scale}" height="${h * scale}" viewBox="0 0 ${w} ${h}">${body}</svg>`)}")`;
 
-/** An SVG cursor: `body` on the 24 × 24 grid, at 1× and 2×, the hot spot (CSS px), the system one behind. */
-export function svgCursor(body: string, hotX: number, hotY: number, fallback: string): string {
-  return `image-set(${svgUrl(body, 24)} 1x, ${svgUrl(body, 48)} 2x) ${hotX} ${hotY}, ${fallback}`;
+/** An SVG cursor: `body` on a `w` × `h` box (CSS px), at 1× and 2×, the hot spot (CSS px), the system one behind. */
+export function svgCursor(body: string, hotX: number, hotY: number, fallback: string, w = 32, h = w): string {
+  return `image-set(${svgUrl(body, w, h, 1)} 1x, ${svgUrl(body, w, h, 2)} 2x) ${hotX} ${hotY}, ${fallback}`;
 }
 
-/** A shape drawn as Figma's cursors are: its white edge (a wider white stroke) under it. */
-const haloed = (d: string, fill: string, width = 1.2, halo = 3.2) =>
-  `<path d="${d}" fill="none" stroke="#fff" stroke-width="${halo}" stroke-linejoin="round" stroke-linecap="round"/>` +
-  `<path d="${d}" fill="${fill}" stroke="#000" stroke-width="${width}" stroke-linejoin="round" stroke-linecap="round"/>`;
+const figmaCache = new Map<string, string>();
 
-// The arrow (the default cursor): black with a white edge, the tip at (5, 3).
-const ARROW = `M5 3 L5 18.6 L8.9 14.9 L11.5 20.8 L14.3 19.6 L11.7 13.9 L17.1 13.9 Z`;
-const ARROW_BODY = `<path d="${ARROW}" fill="#000" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/>`;
-/** A small + (white edged) centred at (x, y): the duplicate mark, the comment's. */
-const plus = (x: number, y: number, r = 3) =>
-  `<path d="M${x - r} ${y} H${x + r} M${x} ${y - r} V${y + r}" stroke="#fff" stroke-width="3.6" stroke-linecap="round"/>` +
-  `<path d="M${x - r} ${y} H${x + r} M${x} ${y - r} V${y + r}" stroke="#000" stroke-width="1.4" stroke-linecap="round"/>`;
-const magnifier = (sign: "+" | "-") =>
-  `<g fill="none" stroke-linecap="round"><circle cx="10" cy="10" r="6" stroke="#fff" stroke-width="4"/><path d="M14.5 14.5 L20 20" stroke="#fff" stroke-width="5"/>` +
-  `<circle cx="10" cy="10" r="6" fill="#fff" stroke="#000" stroke-width="1.6"/><path d="M14.5 14.5 L20 20" stroke="#000" stroke-width="2.4"/>` +
-  `<path d="M7.5 10 H12.5${sign === "+" ? " M10 7.5 V12.5" : ""}" stroke="#000" stroke-width="1.4"/></g>`;
-
-// The eyedropper: the pipette leaning right, its tip (the hot spot) at the bottom left, the bulb black.
-const EYEDROPPER_BODY =
-  `<g stroke-linejoin="round" stroke-linecap="round">` +
-  `<path d="M3 21 L4.4 16.6 L13.6 7.4 L16.6 10.4 L7.4 19.6 Z" fill="none" stroke="#fff" stroke-width="3.2"/>` +
-  `<path d="M15.6 3.9 a2.6 2.6 0 0 1 3.7 3.7 L17.6 9.3 L18.4 10.1 L16.5 12 L12 7.5 L13.9 5.6 L14.7 6.4 Z" fill="#000" stroke="#fff" stroke-width="1.4"/>` +
-  `<path d="M3 21 L4.4 16.6 L13.6 7.4 L16.6 10.4 L7.4 19.6 Z" fill="#fff" stroke="#000" stroke-width="1.2"/>` +
-  `<path d="M3 21 L4.4 16.6 L6.6 18.8 Z" fill="#000"/></g>`;
-
-// The pencil: Figma's kit glyph (24.pencil) — pointing up left, its lead (the hot spot) at the top left.
-const PENCIL_BODY =
-  haloed(`M3 3 L8.3 4.8 L19.6 16.1 L16.1 19.6 L4.8 8.3 Z`, "#fff") +
-  `<path d="M4.8 8.3 L8.3 4.8 M13.3 16.8 L16.8 13.3" stroke="#000" stroke-width="1.2" fill="none"/>` +
-  `<path d="M3 3 L5.1 3.7 L3.7 5.1 Z" fill="#000"/>`;
-
-/** One of Figma's 1 px kit glyphs (ds icons, "s24": strokes on the 24 grid) as a cursor: black, white edged. */
-const glyph = (paths: string[], filled: string[] = []) =>
-  paths.map((d) => `<path d="${d}" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>`).join("") +
-  filled.map((d) => `<path d="${d}" fill="#000" stroke="#fff" stroke-width="1.6"/>`).join("") +
-  paths.map((d) => `<path d="${d}" fill="none" stroke="#000" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>`).join("") +
-  filled.map((d) => `<path d="${d}" fill="#000"/>`).join("");
-
-// Vector edit's tools, drawn as their toolbar glyphs (24.bend, 24.paint-bucket, 24.cut, 24.lasso): Bend's anchor (the
-// hot spot) with the curve it bends and its handle; Paint's bucket and drop (its tip); Cut's scissors (the blades'
-// crossing); Lasso's loop and rope (its end).
-const BEND_BODY = glyph(["M6.5 17.5C8 10.5 13 7 17.5 6.5", "M6.5 17.5L5 19", "M15.5 4.5L19.5 8.5"], ["M5.5 16.5h2v2h-2z"]);
-const PAINT_BUCKET_BODY = glyph(["M11 5.5l6.5 6.5-6 6-6.5-6.5 6-6z", "M5 12h12.5", "M9 3.5l2 2"], ["M19.5 15.5c.8 1.2 1 1.8 1 2.3a1 1 0 0 1-2 0c0-.5.2-1.1 1-2.3z"]);
-const CUT_BODY = glyph(["M9.5 16.5a2 2 0 1 1-4 0a2 2 0 1 1 4 0z", "M18.5 16.5a2 2 0 1 1-4 0a2 2 0 1 1 4 0z", "M8.7 14.8L16.5 4.5", "M15.3 14.8L7.5 4.5"]);
-const LASSO_BODY = glyph([
-  "M8.5 15.5C5.5 14.8 4.5 13 4.5 11.5c0-3.3 3.4-6 7.5-6s7.5 2.7 7.5 6-3.4 6-7.5 6c-.9 0-1.8-.1-2.6-.4",
-  "M9.5 14.5c-1.4 0-2.5.9-2.5 2s1 2 2.2 2c.9 0 1.3.8.8 2",
-]);
-
-// The Brush (round 7b): a round brush leaning right — its ferrule and handle — the bristles' tip at the bottom left.
-const BRUSH_BODY = glyph(["M14.5 9.5L20 4", "M13 8l3 3"], ["M3.5 20.5c0-3 1-5.5 3.5-6.5 1.8-.7 3.8.2 4.5 1.8.7 1.8-.2 3.6-2 4.3-2 .8-4 .6-6 .4z"]);
-// Text on path (round 7b): an I-beam over a curve.
-const TEXT_PATH_BODY = glyph(["M7 5.5h4M7 18.5h4M9 5.5v13", "M12.5 20.5c3-1 5.5-3.5 7-7"]);
-
-// The comment pin: a speech bubble with its tail (the hot spot) at the bottom left, a + inside.
-const COMMENT_BODY = haloed(`M3.5 20.5 V11.5 A8 8 0 1 1 11.5 19.5 H3.5 Z`, "#fff", 1.3) + plus(11.5, 11.5, 2.6);
-
-const SVG_CURSORS: Partial<Record<CursorKind, string>> = {
-  DEFAULT: svgCursor(ARROW_BODY, 5, 3, "default"),
-  // ⌥-drag: the arrow with a + (duplicate).
-  MOVE_DUPLICATE: svgCursor(ARROW_BODY + plus(18.5, 18.5), 5, 3, "copy"),
-  // Shape and frame tools: a thin crosshair.
-  CROSSHAIR: svgCursor(
-    `<path d="M12 4 V20 M4 12 H20" stroke="#fff" stroke-width="3" stroke-linecap="round"/><path d="M12 4 V20 M4 12 H20" stroke="#000" stroke-width="1"/>`,
-    12,
-    12,
-    "crosshair"
-  ),
-  ZOOM_IN: svgCursor(magnifier("+"), 10, 10, "zoom-in"),
-  ZOOM_OUT: svgCursor(magnifier("-"), 10, 10, "zoom-out"),
-  EYEDROPPER: svgCursor(EYEDROPPER_BODY, 3, 21, "crosshair"),
-  // The Scale tool (K): the arrow with the scale mark (a corner and its diagonal).
-  SCALE: svgCursor(
-    ARROW_BODY +
-      `<g fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 22 H22 V14" stroke="#fff" stroke-width="3.5"/><path d="M16 16 L21 21" stroke="#fff" stroke-width="3.5"/>` +
-      `<path d="M14 22 H22 V14 M16 16 L21 21" stroke="#000" stroke-width="1.3"/></g>`,
-    5,
-    3,
-    "default"
-  ),
-  COMMENT: svgCursor(COMMENT_BODY, 3, 21, "crosshair"),
-  PENCIL: svgCursor(PENCIL_BODY, 3, 3, "crosshair"),
-  BEND: svgCursor(BEND_BODY, 6, 17, "default"),
-  PAINT_BUCKET: svgCursor(PAINT_BUCKET_BODY, 19, 19, "crosshair"),
-  CUT: svgCursor(CUT_BODY, 12, 10, "crosshair"),
-  LASSO: svgCursor(LASSO_BODY, 10, 21, "crosshair"),
-  // Round 7b (Draw, docs/draw.md §4.7) [look ours]: the Brush — a round brush, its tip (the hot spot) at the bottom left;
-  // Text on path — an I-beam with the path it will follow curving under it.
-  BRUSH: svgCursor(BRUSH_BODY, 3, 21, "crosshair"),
-  TEXT_PATH: svgCursor(TEXT_PATH_BODY, 9, 12, "text"),
-};
-
-const penCache = new Map<string, string>();
-
-/** Figma's pen nib (the tip is the hot spot), with a mark: + adds a point, − removes one, ○ closes the path. */
-export function penCursor(kind: "PEN" | "PEN_ADD" | "PEN_REMOVE" | "PEN_CLOSE"): string {
-  let css = penCache.get(kind);
+/**
+ * One of Figma's cursors by its resource name ("black-ui3" = cursor-black-ui3.svg), at its hot spot; `turn` (whole
+ * degrees, clockwise) turns it about the box's middle.
+ */
+export function figmaCursor(name: FigmaCursorName, fallback: string, turn = 0): string {
+  const key = `${name}|${turn}|${fallback}`;
+  let css = figmaCache.get(key);
   if (!css) {
-    const mark =
-      kind === "PEN_ADD" ? `<path d="M17 18h6M20 15v6"/>` : kind === "PEN_REMOVE" ? `<path d="M17 18h6"/>` : kind === "PEN_CLOSE" ? `<circle cx="20" cy="18" r="2.5"/>` : "";
-    const nib = `<path d="M2 2 L12 6 L15 14 L14 15 L6 12 Z M2 2 L8.5 8.5"/><circle cx="9" cy="9" r="1.4"/>`;
-    const body =
-      `<g fill="none" stroke-linejoin="round" stroke-linecap="round"><g stroke="#fff" stroke-width="3">${nib}${mark}</g>` +
-      `<path d="M2 2 L12 6 L15 14 L14 15 L6 12 Z" fill="#fff"/><g stroke="#000" stroke-width="1.2">${nib}${mark}</g></g>`;
-    css = svgCursor(body, 2, 2, "crosshair");
-    penCache.set(kind, css);
+    const c = FIGMA_CURSORS[name];
+    const body = turn ? `<g transform="rotate(${turn} ${c.w / 2} ${c.h / 2})">${c.body}</g>` : c.body;
+    css = svgCursor(body, c.hot[0], c.hot[1], fallback, c.w, c.h);
+    figmaCache.set(key, css);
   }
   return css;
+}
+
+/** Each engine cursor's picture in Figma's set, and the system cursor behind it. */
+const FIGMA: Partial<Record<CursorKind, [FigmaCursorName, string]>> = {
+  DEFAULT: ["black-ui3", "default"],
+  HAND: ["hand-new-ui3", "grab"],
+  GRABBING: ["hand-press-ui3", "grabbing"],
+  // Every drawing tool (frame, section, slice, shapes, line, arrow, text box) — Figma's crosshair.
+  CROSSHAIR: ["crosshair-ui3", "crosshair"],
+  PEN: ["pen-ui3", "crosshair"],
+  PEN_ADD: ["pen-insert-ui3", "crosshair"],
+  PEN_REMOVE: ["pen-remove-ui3", "crosshair"],
+  // Over the path's first point (closes it) — Figma's pen with the snap dot.
+  PEN_CLOSE: ["pen-snap-ui3", "crosshair"],
+  // ⌥-drag: Figma's two arrows.
+  MOVE_DUPLICATE: ["duplicate-ui3", "copy"],
+  ZOOM_IN: ["zoom-in-ui3", "zoom-in"],
+  ZOOM_OUT: ["zoom-out-ui3", "zoom-out"],
+  EYEDROPPER: ["dropper-ui3", "crosshair"],
+  NOT_ALLOWED: ["not-allowed-ui3", "not-allowed"],
+  COMMENT: ["comments-next-pin-ui3", "crosshair"],
+  // The Scale tool (K) away from a handle: Figma has no picture of its own for it, the arrow.
+  SCALE: ["black-ui3", "default"],
+  PENCIL: ["pencil-ui3", "crosshair"],
+  BEND: ["bend-ui3", "default"],
+  PAINT_BUCKET: ["paint-bucket-ui3", "crosshair"],
+  CUT: ["cut-open", "crosshair"],
+  LASSO: ["vector-lasso", "crosshair"],
+  BRUSH: ["brush", "crosshair"],
+  TEXT_PATH: ["text-curve", "text"],
+};
+
+/** Every picture of Figma's set by name — those the engine has no event for yet (snap, convert, break, deep select…) too. */
+export const FIGMA_CURSOR_NAMES = Object.keys(FIGMA_CURSORS) as FigmaCursorName[];
+
+export function penCursor(kind: "PEN" | "PEN_ADD" | "PEN_REMOVE" | "PEN_CLOSE"): string {
+  const [name, fallback] = FIGMA[kind]!;
+  return figmaCursor(name, fallback);
 }
 
 /** The system resize cursor nearest to `angleDeg` (the fallback behind the drawn one). */
@@ -144,87 +89,52 @@ export function resizeCursorFallback(angleDeg: number): string {
   return "nesw-resize";
 }
 
-const resizeCache = new Map<number, string>();
-
 /**
- * A resize cursor for a handle pointing at `angleDeg` on screen (0 = right, y down): Figma's double arrow — a black
- * shaft with filled heads, white edged — turned to the handle's exact angle (a rotated layer's handles too), whole
- * degrees; the system cursor nearest to it behind.
+ * A resize cursor for a handle pointing at `angleDeg` on screen (0 = right, y down): Figma's double arrow (drawn
+ * across) turned to the handle's exact angle (a rotated layer's handles too), whole degrees; the system cursor nearest
+ * to it behind.
  */
 export function resizeCursor(angleDeg: number): string {
   const a = ((Math.round(angleDeg) % 180) + 180) % 180;
-  let css = resizeCache.get(a);
-  if (!css) {
-    const arrow = `M3.5 12 L8 7.8 L8 11 L16 11 L16 7.8 L20.5 12 L16 16.2 L16 13 L8 13 L8 16.2 Z`;
-    const body =
-      `<g transform="rotate(${a} 12 12)" stroke-linejoin="round">` +
-      `<path d="${arrow}" fill="#fff" stroke="#fff" stroke-width="2.6"/><path d="${arrow}" fill="#000"/></g>`;
-    css = svgCursor(body, 12, 12, resizeCursorFallback(a));
-    resizeCache.set(a, css);
-  }
-  return css;
+  return figmaCursor("resize-ui3", resizeCursorFallback(a), a);
 }
 
-const spacingCache = new Map<number, string>();
-
 /**
- * Figma's spacing cursor over an auto-layout padding or gap handle (live Figma, the owner's recording — round 15,
- * docs/research/figma/live/behaviour/spacing-handles.md): a thin double arrow along the drag with a short bar across
- * its middle, black on a white edge, turned to the drag's angle on screen (0 = across, 90 = up and down).
+ * Figma's spacing cursor over an auto-layout padding or gap handle (round 15, docs/research/figma/live/behaviour/
+ * spacing-handles.md): its double arrow across a bar (cursor-resize-padding), turned to the drag's angle on screen
+ * (0 = across, 90 = up and down).
  */
 export function spacingCursor(angleDeg: number): string {
   const a = ((Math.round(angleDeg) % 180) + 180) % 180;
-  let css = spacingCache.get(a);
-  if (!css) {
-    const lines = `M5.5 12 H18.5 M12 6.5 V17.5`;
-    const heads = `M3.5 12 L7 9 L7 15 Z M20.5 12 L17 9 L17 15 Z`;
-    const body =
-      `<g transform="rotate(${a} 12 12)" stroke-linejoin="round" stroke-linecap="round">` +
-      `<path d="${lines}" fill="none" stroke="#fff" stroke-width="3.4"/><path d="${heads}" fill="#fff" stroke="#fff" stroke-width="2.4"/>` +
-      `<path d="${lines}" fill="none" stroke="#000" stroke-width="1.2"/><path d="${heads}" fill="#000"/></g>`;
-    css = svgCursor(body, 12, 12, a < 45 || a >= 135 ? "col-resize" : "row-resize");
-    spacingCache.set(a, css);
-  }
-  return css;
+  return figmaCursor("resize-padding-ui3", a < 45 || a >= 135 ? "col-resize" : "row-resize", a);
 }
-
-const rotateCache = new Map<number, string>();
 
 /**
  * Figma's rotate cursor for a corner pointing at `angleDeg` on screen (0 = right, y down; a bottom-right corner is
- * 45°): a curved double arrow bulging away from the layer, round the corner, turned to the exact angle (whole degrees).
+ * 45°): its curved double arrow bulging away from the layer round the corner, turned to the exact angle (whole
+ * degrees). Figma's picture is the top-right corner's (−45°).
  */
 export function rotateCursor(angleDeg: number): string {
   const a = ((Math.round(angleDeg) % 360) + 360) % 360;
-  let css = rotateCache.get(a);
-  if (!css) {
-    // Drawn pointing right: an arc about (4, 12), radius 8, ±50°, its heads tangent to it.
-    const arc = `M9.14 5.87 A8 8 0 0 1 9.14 18.13`;
-    const heads = `M12.6 5.4 L9.14 5.87 L9.6 9.3 M12.6 18.6 L9.14 18.13 L9.6 14.7`;
-    const body =
-      `<g transform="rotate(${a} 12 12)" fill="none" stroke-linecap="round" stroke-linejoin="round">` +
-      `<path d="${arc} ${heads}" stroke="#fff" stroke-width="4"/><path d="${arc} ${heads}" stroke="#000" stroke-width="1.5"/></g>`;
-    css = svgCursor(body, 12, 12, "alias");
-    rotateCache.set(a, css);
-  }
-  return css;
+  return figmaCursor("rotate-ui3", "alias", (a + 45) % 360);
 }
 
 export function cssCursor(kind: CursorKind, angleDeg: number): string {
   if (kind === "RESIZE") return resizeCursor(angleDeg);
   if (kind === "ROTATE") return rotateCursor(angleDeg);
   if (kind === "SPACING") return spacingCursor(angleDeg);
-  if (kind === "PEN" || kind === "PEN_ADD" || kind === "PEN_REMOVE" || kind === "PEN_CLOSE") return penCursor(kind);
-  return SVG_CURSORS[kind] ?? PLAIN[kind] ?? "default";
+  const figma = FIGMA[kind];
+  if (figma) return figmaCursor(figma[0], figma[1]);
+  return PLAIN[kind] ?? "default";
 }
 
-/** Every drawn cursor's SVG body and hot spot, for the cursor sheet (editor-shot: docs/research/chrome-cursors/). */
+/** Every cursor as the editor shows it and every picture of Figma's set, for the cursor sheet (editor-shot). */
 export function cursorSheet(): { name: string; css: string }[] {
   const out: { name: string; css: string }[] = [];
-  for (const [k, css] of Object.entries(SVG_CURSORS)) out.push({ name: k, css: css as string });
-  for (const k of ["PEN", "PEN_ADD", "PEN_REMOVE", "PEN_CLOSE"] as const) out.push({ name: k, css: penCursor(k) });
+  for (const k of Object.keys(FIGMA) as CursorKind[]) out.push({ name: k, css: cssCursor(k, 0) });
   for (const d of [0, 45, 90, 135, 30]) out.push({ name: `RESIZE ${d}°`, css: resizeCursor(d) });
   for (const d of [45, 135, 225, 315, 75]) out.push({ name: `ROTATE ${d}°`, css: rotateCursor(d) });
   for (const d of [0, 90, 30]) out.push({ name: `SPACING ${d}°`, css: spacingCursor(d) });
+  for (const n of FIGMA_CURSOR_NAMES) out.push({ name: n, css: figmaCursor(n, "default") });
   return out;
 }
