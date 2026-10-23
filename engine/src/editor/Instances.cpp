@@ -1285,7 +1285,16 @@ void Editor::writeOverride(Guid instance, const std::vector<Guid>& path, FieldMa
       if (overridableExtra(k)) filtered.extra[k] = v;
     if (filtered.extra.empty()) fields &= ~static_cast<FieldMask>(F_EXTRA);
   }
-  mergeInto(it->props, filtered, fields);
+  mergeInto(it->props, filtered, fields & ~static_cast<FieldMask>(F_PARAM_MAP));
+  // The entry keeps its bindings per field, unbind entries included: an unbind is what detaches a binding the layer
+  // inherits from its main (applied when deriving, not here — applying it to the entry would drop it).
+  if (fields & F_PARAM_MAP)
+    for (const ParamBinding& b : filtered.parameterConsumptionMap) {
+      auto& map = it->props.parameterConsumptionMap;
+      auto at = std::find_if(map.begin(), map.end(), [&](const ParamBinding& e) { return e.field == b.field; });
+      if (at != map.end()) *at = b;
+      else map.push_back(b);
+    }
   it->mask |= fields;
   NodeChange c = NodeChange::changed(instance);
   c.mask = F_SYMBOL_DATA;

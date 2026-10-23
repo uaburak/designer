@@ -603,6 +603,44 @@ TEST_CASE("variables: instances resolve their sublayers in their own modes; a va
   CHECK(fill(e, MR) == kRed);
 }
 
+// Figma: a field an instance's layer inherits bound to a variable can be detached there (an override that unbinds it),
+// and a typed value then takes — the owner, 2026-10-23, on a Button instance's padding and its label's font size.
+TEST_CASE("variables: an instance's layer detaches an inherited binding and takes its own value") {
+  Editor e = load(doc());
+  auto [set, light, dark] = theme(e);
+  (void)light;
+  (void)dark;
+  Guid half = variable(e, set, "FLOAT", "half", "50");
+  const Guid M{2, 1}, MR{2, 2}, I{2, 3};
+  std::vector<NodeChange> add;
+  NodeChange m = make(M, NodeType::SYMBOL, kPage, "$", {0, 600, 50, 50}, "Card");
+  add.push_back(m);
+  add.push_back(make(MR, NodeType::ROUNDED_RECTANGLE, M, "!", {0, 0, 50, 50}, "Fill"));
+  NodeChange inst = make(I, NodeType::INSTANCE, kPage, "%", {200, 600, 50, 50}, "Card");
+  inst.props.comp().symbolData.symbolID = M;
+  add.push_back(inst);
+  REQUIRE(e.applyChanges(add, APPLY_USER) == OK);
+  bind(e, MR, "OPACITY", half);
+  Guid row = derived::intern(I, {MR});
+  REQUIRE(e.document().has(row));
+  CHECK(props(e, row).opacity == doctest::Approx(0.5));
+  // Detach on the instance's layer: its binding goes there only, the value stays.
+  CHECK(run(e, CommandId::DETACH_VARIABLE, "{\"refs\":[" + q(row) + "],\"target\":\"OPACITY\"}") == OK);
+  CHECK(props(e, row).parameterConsumptionMap.empty());
+  CHECK(props(e, row).opacity == doctest::Approx(0.5));
+  CHECK(!props(e, MR).parameterConsumptionMap.empty());
+  // A typed value then takes.
+  REQUIRE(e.setProps({row}, change(F_OPACITY, [](NodeProps& p) { p.opacity = 0.3; }), 0) == OK);
+  CHECK(props(e, row).opacity == doctest::Approx(0.3));
+  // And a value typed straight over the inherited binding detaches it too.
+  e.command(CommandId::UNDO);
+  e.command(CommandId::UNDO);
+  REQUIRE(!props(e, row).parameterConsumptionMap.empty());
+  REQUIRE(e.setProps({row}, change(F_OPACITY, [](NodeProps& p) { p.opacity = 0.2; }), 0) == OK);
+  CHECK(props(e, row).opacity == doctest::Approx(0.2));
+  CHECK(props(e, row).parameterConsumptionMap.empty());
+}
+
 TEST_CASE("variables: modes — add copies the default's values, move sets the default, delete and duplicate") {
   Editor e = load(doc());
   auto [set, light, dark] = theme(e);
