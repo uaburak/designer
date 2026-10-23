@@ -23,7 +23,7 @@ import { hasConstraints, type ConstraintHost } from "../../model/constraints";
 import { isAutoLayout } from "../../model/sizing";
 import { ConstraintsRow, ConstraintsToggle } from "./Constraints";
 import { isGrid } from "../../model/grid";
-import { ApplyModeButton, ModeRows, VariableField } from "./Variables";
+import { ApplyModeButton, ModeRows, VariableField, VisibilityVariableButton, VisibilityVariableRow } from "./Variables";
 import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
 import { IDENTITY, panelPosition, roundPanel, rotateTo, rotationOf, withPanelPosition } from "../../model/geometry";
 import { PANEL_MENU_GAP, fields, hasCorners, isFrameNode, isGroupNode, isInstanceSublayer, previewProps, typeOf, useKeeps, useParents, useSupports, useTextEditRef, type BlendModeName, type PanelNode } from "./shared";
@@ -448,6 +448,8 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
             onClick={() => ed.setProps(refs, { visible: visible === false }, visible === false ? "Show" : "Hide")}
           />
           {/* Live (2026-10-22): Hide, then Apply boolean property, then the blend mode */}
+          {/* Visibility from a boolean variable (bound, its row under the fields shows it) */}
+          {!drawMode && !hideLocked && <VisibilityVariableButton nodes={nodes} />}
           {nodes.length === 1 && <BindButton layer={nodes[0]} field="VISIBLE" type="BOOL" inline={false} />}
           <MenuButton label={t("Apply blend mode")} tooltip disabled={!blendKept} entries={blendEntries} className={styles.iconMenu} gap={PANEL_MENU_GAP} flush extend align="end" alignOffset={1} menuWidth={118} onSelect={(id) => ed.setProps(refs, fields({ blendMode: id as BlendModeName }), "Blend mode")}>
             <Icon name={blendSet ? "24.blendmode.active.small" : "24.blendmode.small"} />
@@ -514,6 +516,7 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
         )}
         {polygons.length > 0 && countKept && <CountRow nodes={polygons} stars={stars} />}
         {drawMode && ellipses && <ArcRow nodes={nodes} />}
+        <VisibilityVariableRow nodes={nodes} />
         {nodes.length === 1 && <BoundPropertyRow layer={nodes[0]} field="VISIBLE" type="BOOL" />}
       </PropertyGrid>
       {!drawMode && <ModeRows refs={refs} />}

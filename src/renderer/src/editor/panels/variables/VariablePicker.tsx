@@ -86,6 +86,11 @@ export interface VariablePickerProps {
   query?: string;
   active?: Guid | null;
   onCreate?: () => void;
+  /**
+   * Plain values listed above the variables (a boolean field's True / False: picking one puts the value back in place
+   * of the variable). Filtered by the search like the variables.
+   */
+  literals?: readonly { id: string; label: string; checked?: boolean; onPick: () => void }[];
 }
 
 export function VariableGlyph({
@@ -206,6 +211,7 @@ export function VariableList({
   query: queryFrom,
   active,
   onCreate,
+  literals,
 }: VariableListProps) {
   useT();
   const [grid, setGridState] = useState(lastGrid);
@@ -425,6 +431,24 @@ export function VariableList({
         </div>
       )}
       <div className={cx(styles.pickList, grid && styles.pickGrid)} role="menu" aria-label={title}>
+        {literals
+          ?.filter((l) => !query.trim() || l.label.toLowerCase().includes(query.trim().toLowerCase()))
+          .map((l) => (
+            <button
+              key={l.id}
+              type="button"
+              role="menuitemradio"
+              aria-checked={!!l.checked}
+              data-literal={l.id}
+              className={cx(styles.pickItem, l.checked && styles.pickItemOn)}
+              onClick={() => {
+                l.onPick();
+                onClose();
+              }}
+            >
+              <span className={styles.pickName}>{l.label}</span>
+            </button>
+          ))}
         {source === "all" && libraries.length > 0 && (localStyles.length > 0 || localCollections.length > 0) && (
           <div className={styles.pickSection}>{t("Created in this file")}</div>
         )}

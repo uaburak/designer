@@ -829,7 +829,10 @@ export function variableBindings(n: BindableNode | null | undefined): Map<string
     // A font style is bound in Figma's FONT_STYLE shape: a style name (STRING) or weight (FLOAT) alias inside it
     type Alias = { value?: { alias?: { guid?: GuidValue } } };
     const fs = d?.dataType === "FONT_STYLE" ? (d.value?.fontStyleValue as { asString?: Alias; asFloat?: Alias } | undefined) : undefined;
-    const g = d?.dataType === "ALIAS" ? d.value?.alias?.guid : (fs?.asString ?? fs?.asFloat)?.value?.alias?.guid;
+    // Visibility bound to a boolean is IS_TRUTHY(alias), as Figma's files (and the engine's BIND_VARIABLE) write it
+    const expr = d?.dataType === "EXPRESSION" ? (d.value?.expressionValue as { expressionFunction?: string; expressionArguments?: VariableData[] } | undefined) : undefined;
+    const truthy = expr?.expressionFunction === "IS_TRUTHY" ? expr.expressionArguments?.[0] : undefined;
+    const g = d?.dataType === "ALIAS" ? d.value?.alias?.guid : truthy ? (truthy.dataType === "ALIAS" ? truthy.value?.alias?.guid : undefined) : (fs?.asString ?? fs?.asFloat)?.value?.alias?.guid;
     if (g) out.set(e.variableField, guidStr(g));
   }
   return out;
@@ -838,7 +841,11 @@ export function variableBindings(n: BindableNode | null | undefined): Map<string
 /** The node's `parameterConsumptionMap` with `field` bound to `variable` (null: unbound), other entries kept. */
 export function withVariableBinding(n: BindableNode | null | undefined, field: string, variable: { id: Guid; type: VarType } | null): { entries: ParameterEntryData[] } {
   const entries = ((n?.parameterConsumptionMap?.entries ?? []) as ParameterEntryData[]).filter((e) => e.variableField !== field);
-  if (variable) entries.push({ variableField: field, variableData: { dataType: "ALIAS", resolvedDataType: variable.type, value: { alias: { guid: guidVal(variable.id) } } } });
+  if (!variable) return { entries };
+  const alias: VariableData = { dataType: "ALIAS", resolvedDataType: variable.type, value: { alias: { guid: guidVal(variable.id) } } };
+  // Visibility: IS_TRUTHY(alias), as the engine and Figma write it
+  const data: VariableData = field === "VISIBLE" ? { dataType: "EXPRESSION", resolvedDataType: "BOOLEAN", value: { expressionValue: { expressionFunction: "IS_TRUTHY", expressionArguments: [alias] } } } : alias;
+  entries.push({ variableField: field, variableData: data });
   return { entries };
 }
 
@@ -961,10 +968,14 @@ export function detachedPaint(p: Paint): Paint {
 }
 
 /** An effect's colour variable (`Effect.colorVar`). */
-export const effectVariable = (e: { colorVar?: VariableData } | null | undefined): Guid | null => {
-  const g = e?.colorVar?.dataType === "ALIAS" ? e.colorVar.value?.alias?.guid : undefined;
+export const effectVariable = (e: { colorVar?: VariableData } | null | undefined): Guid | null => effectMemberVariable(e, "color");
+
+/** The variable an effect's `member` is bound to (`Effect.radiusVar`, `colorVar`, `spreadVar`, `xVar`, `yVar`), or null. */
+export function effectMemberVariable(e: object | null | undefined, member: "radius" | "spread" | "x" | "y" | "color"): Guid | null {
+  const d = (e as Record<string, VariableData | undefined> | null | undefined)?.[`${member}Var`];
+  const g = d?.dataType === "ALIAS" ? d.value?.alias?.guid : undefined;
   return g ? guidStr(g) : null;
-};
+}
 
 // ---- Display -------------------------------------------------------------------------------------------------------
 

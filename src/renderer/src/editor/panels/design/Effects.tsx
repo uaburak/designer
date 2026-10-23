@@ -32,6 +32,7 @@ import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEv
 import { BLEND_LABEL, BLEND_MODES, Button, Checkbox, ColorInput, ContextMenu, Icon, IconButton, MenuButton, NumericInput, PanelSection, Popover, SearchField, SegmentedControl, Select, Slider, cx, tooltipProps, useTheme, type ChangeInfo, type IconName, type MenuEntry, type PopoverPlacement } from "@/ds";
 import { guidStr, guidVal, resolveVariable } from "../../model/variables";
 import { VariablePicker } from "../variables/VariablePicker";
+import { EffectColorField, EffectVariableField } from "./Variables";
 import type { BlendMode, Color, Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { engineMethod } from "../../engineCompat";
@@ -376,6 +377,7 @@ export function EffectsSection({ nodes }: { nodes: PanelNode[] }) {
           spreadBlocked={spreadBlocker(nodes)}
           onHandle={markHandle}
           sliders={drawMode}
+          bind={{ nodes, index: open.index }}
           onClose={() => setOpen(null)}
           onChange={(next, info) => writeEffects(ed, refs, effects.map((x, j) => (j === open.index ? next : x)), "Effect", info)}
           onCancel={() => ed.cancelEdit()}
@@ -467,7 +469,10 @@ export function EffectSettings({
   onShaders,
   onHandle,
   sliders = false,
+  bind,
 }: {
+  /** The layers and the effect's index there: its numbers and colour take variables (Effect.radiusVar…); none for a style */
+  bind?: { nodes: readonly PanelNode[]; index: number };
   /** A progressive blur's Start / End field hovered or focused: its handle on the canvas is marked */
   onHandle?: (handle: "START" | "END" | "NONE") => void;
   effect: Effect;
@@ -537,6 +542,15 @@ export function EffectSettings({
   );
   const blend = hasEffectBlend(effect) ? <EffectBlend value={(effect.blendMode as BlendMode | undefined) ?? "NORMAL"} onChange={(b) => onChange({ ...effect, blendMode: b }, pick)} /> : undefined;
   const set = (patch: Partial<Effect>, info: ChangeInfo) => onChange({ ...effect, ...patch }, info);
+  // A field that takes a variable: its pill once bound (a style's effects take none here)
+  const bindable = (member: "x" | "y" | "radius" | "spread", field: ReactNode, prefix?: string) =>
+    bind ? (
+      <EffectVariableField nodes={bind.nodes} index={bind.index} member={member} prefix={prefix}>
+        {field}
+      </EffectVariableField>
+    ) : (
+      field
+    );
   const vec = (key: string, fallback: V2) => (effect[key] as V2 | undefined) ?? fallback;
   const num = (key: string, fallback: number) => (effect[key] as number | undefined) ?? fallback;
   // Draw's slider under a field (an empty label cell keeps the grid's pairs).
@@ -550,14 +564,26 @@ export function EffectSettings({
   const colorRow = (label: string, key: "color" | "secondaryColor", value: Color, aria = "Color") => (
     <>
       <span className={styles.settingsLabel}>{label && t(label)}</span>
-      <ColorInput
-        label={t(aria)}
-        swatchLabel={t("Solid color hex: {hex}", { hex: colorToHex(value).replace("#", "").toUpperCase() })}
-        color={colorToHex(value)}
-        opacity={toPercent(value.a ?? 1)}
-        onColor={(hex, info) => set({ [key]: hexToColor(hex, value.a ?? 1) }, info)}
-        onOpacity={(o, info) => set({ [key]: { ...value, a: o / 100 } }, info)}
-      />
+      {(() => {
+        const input = (
+          <ColorInput
+            label={t(aria)}
+            swatchLabel={t("Solid color hex: {hex}", { hex: colorToHex(value).replace("#", "").toUpperCase() })}
+            color={colorToHex(value)}
+            opacity={toPercent(value.a ?? 1)}
+            onColor={(hex, info) => set({ [key]: hexToColor(hex, value.a ?? 1) }, info)}
+            onOpacity={(o, info) => set({ [key]: { ...value, a: o / 100 } }, info)}
+          />
+        );
+        // The main colour takes a colour variable (Effect.colorVar): its pill once bound
+        return bind && key === "color" ? (
+          <EffectColorField nodes={bind.nodes} index={bind.index} color={value}>
+            {input}
+          </EffectColorField>
+        ) : (
+          input
+        );
+      })()}
     </>
   );
   // A noise's or texture's size (atlas 08 §6.3–6.4): up to 100; Y follows X while the two are equal — it shows X as
@@ -594,16 +620,20 @@ export function EffectSettings({
       <>
         {/* Figma's limits (atlas 08 §6.1): Position and Spread ±30000 (Draw's sliders ±300), Blur 0–250 (slider 0–100) */}
         <span className={styles.settingsLabel}>{t("Position")}</span>
-        <NumericInput label={t("Position X")} prefix="X" min={-SHADOW_MAX} max={SHADOW_MAX} value={offset.x} onChange={(x, info) => set({ offset: { x, y: offset.y } }, info)} onCancel={onCancel} />
+        {bindable("x", <NumericInput className={cx(bind && styles.popNumber)} label={t("Position X")} prefix="X" min={-SHADOW_MAX} max={SHADOW_MAX} value={offset.x} onChange={(x, info) => set({ offset: { x, y: offset.y } }, info)} onCancel={onCancel} />, "X")}
         <span />
-        <NumericInput label={t("Position Y")} prefix="Y" min={-SHADOW_MAX} max={SHADOW_MAX} value={offset.y} onChange={(y, info) => set({ offset: { x: offset.x, y } }, info)} onCancel={onCancel} />
+        {bindable("y", <NumericInput className={cx(bind && styles.popNumber)} label={t("Position Y")} prefix="Y" min={-SHADOW_MAX} max={SHADOW_MAX} value={offset.y} onChange={(y, info) => set({ offset: { x: offset.x, y } }, info)} onCancel={onCancel} />, "Y")}
         <span className={styles.settingsLabel}>{t("Blur")}</span>
-        <NumericInput scrubHandle="previous" label={t("Blur radius")} min={0} max={SHADOW_BLUR_MAX} value={effect.radius ?? 0} onChange={(v, info) => set({ radius: v }, info)} onCancel={onCancel} />
+        {bindable("radius", <NumericInput className={cx(bind && styles.popNumber)} scrubHandle="previous" label={t("Blur radius")} min={0} max={SHADOW_BLUR_MAX} value={effect.radius ?? 0} onChange={(v, info) => set({ radius: v }, info)} onCancel={onCancel} />)}
         {slide("Blur radius", effect.radius ?? 0, [0, 100], (v, info) => set({ radius: v }, info))}
         <span className={styles.settingsLabel}>{t("Spread")}</span>
         {/* Off where it can't draw (a text, a frame without a fill or clip…), saying why; the stored value stays */}
         <span className={styles.fxSpread} {...(spreadBlocked ? tooltipProps(t(SPREAD_WARNING[spreadBlocked])) : {})}>
-          <NumericInput scrubHandle="previous" label={t("Spread")} min={-SHADOW_MAX} max={SHADOW_MAX} disabled={!!spreadBlocked} value={effect.spread ?? 0} onChange={(v, info) => set({ spread: v }, info)} onCancel={onCancel} />
+          {spreadBlocked ? (
+            <NumericInput scrubHandle="previous" label={t("Spread")} min={-SHADOW_MAX} max={SHADOW_MAX} disabled value={effect.spread ?? 0} onChange={(v, info) => set({ spread: v }, info)} onCancel={onCancel} />
+          ) : (
+            bindable("spread", <NumericInput className={cx(bind && styles.popNumber)} scrubHandle="previous" label={t("Spread")} min={-SHADOW_MAX} max={SHADOW_MAX} value={effect.spread ?? 0} onChange={(v, info) => set({ spread: v }, info)} onCancel={onCancel} />)
+          )}
         </span>
         {!spreadBlocked && slide("Spread", effect.spread ?? 0, [-300, 300], (v, info) => set({ spread: v }, info))}
         {colorRow("Color", "color", color)}
@@ -651,7 +681,7 @@ export function EffectSettings({
           <>
             {/* No input max; the slider goes to 500 for a layer blur, 100 for a background blur */}
             <span className={styles.settingsLabel}>{t("Blur")}</span>
-            <NumericInput scrubHandle="previous" label={t("Blur radius")} min={0} value={effect.radius ?? 0} onChange={(v, info) => set({ radius: v }, info)} onCancel={onCancel} />
+            {bindable("radius", <NumericInput className={cx(bind && styles.popNumber)} scrubHandle="previous" label={t("Blur radius")} min={0} value={effect.radius ?? 0} onChange={(v, info) => set({ radius: v }, info)} onCancel={onCancel} />)}
             {slide("Blur radius", effect.radius ?? 0, [0, effect.type === "FOREGROUND_BLUR" ? 500 : 100], (v, info) => set({ radius: v }, info))}
           </>
         )}
