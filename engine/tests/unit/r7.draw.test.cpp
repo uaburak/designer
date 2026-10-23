@@ -516,6 +516,37 @@ geom::Path straight(double length) {
 
 }  // namespace
 
+TEST_CASE("Flatten a text: a VECTOR of its glyph outlines, in its fill (the geometry had none: an empty vector)") {
+  Fonts fonts;
+  Editor e;
+  e.setSessionID(1);
+  auto nodes = baseChanges();
+  const Guid T{1, 41};
+  NodeChange t = make(T, NodeType::TEXT, kPage, "!", {40, 60, 200, 30}, "Hi");
+  t.props.text().textData.characters = "Hi";
+  t.props.text().fontSize = 24;
+  t.props.text().textAutoResize = TextAutoResize::WIDTH_AND_HEIGHT;
+  t.props.fillPaints = {Paint::solid(Color::hex(0xFF0000))};
+  nodes.push_back(t);
+  e.loadDocument(nodes, kNoGuid);
+  const NodeGeometry* g = e.document().geometry(T);
+  REQUIRE(g);
+  REQUIRE(!g->fills.empty());
+  e.setSelection({T});
+  REQUIRE(e.command(CommandId::FLATTEN) == OK);
+  const NodeProps& v = e.document().get(T)->props;
+  CHECK(v.type == NodeType::VECTOR);
+  CHECK(v.shape().vectorData.present);
+  REQUIRE(v.fillPaints.size() == 1);
+  CHECK(v.fillPaints[0].color == Color::hex(0xFF0000));
+  const NodeGeometry* fg = e.document().geometry(T);
+  REQUIRE(fg);
+  REQUIRE(!fg->fills.empty());
+  Rect b = fg->bounds;
+  CHECK(b.w > 10);  // "H" and "i" side by side
+  CHECK(b.h > 10);
+}
+
 TEST_CASE("r7 text path: on a straight line the glyphs sit as TEXT's do, the baseline on the path") {
   Fonts fonts;
   Editor e;

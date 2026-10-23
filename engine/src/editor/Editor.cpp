@@ -93,6 +93,8 @@ const char* cursorName(CursorKind k) {
 }
 
 Editor::Editor() {
+  // A text's geometry is its glyph outlines (Flatten, a text in a boolean, its strokes, Outline stroke, SVG/PDF strokes)
+  doc_.geometryCache().setTextSource([this](Guid id) { return textLayout(id); });
   // Figma Draw's text on a path: its geometry (Flatten, hit-testing, strokes) is its placed glyphs (docs/draw.md §4.4).
   doc_.geometryCache().setTextPathSource([this](Guid id) { return textLayout(id); });
 }
