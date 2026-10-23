@@ -62,6 +62,12 @@
   .fileButton > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .fileButton svg { flex: none; color: var(--figma-color-icon-secondary); }
   .fileRename { width: 100%; }
+  /* Renaming keeps the title as it is (Figma): the name's own type and inset, only the field round it */
+  .fileRename input {
+    margin-left: calc(var(--ds-space-1) + 1px);
+    font: var(--ds-font-body-large-strong);
+    letter-spacing: var(--ds-tracking-body-large-strong);
+  }
 
   /* Pages (live): rows from the header's foot, 8 under the last, the 8px resize handle on the line under them */
   .pages { position: relative; flex: none; }
