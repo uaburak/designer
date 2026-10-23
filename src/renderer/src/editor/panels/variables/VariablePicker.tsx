@@ -11,6 +11,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import {
   Button,
   Icon,
+  IconButton,
   Popover,
   SearchField,
   Select,
@@ -76,6 +77,15 @@ export interface VariablePickerProps {
   /** A styles popover (live: "Effect styles"…): the search across, this text when there are none, "Browse libraries…" */
   stylesTab?: string;
   onBrowse?: () => void;
+  /**
+   * The prototype's Expression builder (live 2026-10-23, 258 wide): no search of its own — the word being typed in the
+   * expression filters the list (`query`); "All libraries" with "+" (create a variable) at the end of its row; the
+   * row Enter would pick (`active`) lit; values in the tertiary colour.
+   */
+  expression?: boolean;
+  query?: string;
+  active?: Guid | null;
+  onCreate?: () => void;
 }
 
 export function VariableGlyph({
@@ -192,6 +202,10 @@ export function VariableList({
   colorTab,
   stylesTab,
   onBrowse,
+  expression,
+  query: queryFrom,
+  active,
+  onCreate,
 }: VariableListProps) {
   useT();
   const [grid, setGridState] = useState(lastGrid);
@@ -200,7 +214,8 @@ export function VariableList({
   const onClose = () => onDone?.();
   const title = t(label);
   const a = useLocalAssets();
-  const [query, setQuery] = useState("");
+  const [ownQuery, setQuery] = useState("");
+  const query = queryFrom ?? ownQuery;
   const offered = useMemo(
     () =>
       a.variables.filter(
@@ -287,7 +302,7 @@ export function VariableList({
         aria-checked={on}
         data-variable={v.name}
         data-library={r?.remote.libraryName}
-        className={cx(styles.pickItem, on && styles.pickItemOn)}
+        className={cx(styles.pickItem, on && styles.pickItemOn, active === v.id && styles.pickItemActive)}
         onClick={pick}
       >
         <VariableGlyph type={v.type} value={value} />
@@ -374,8 +389,8 @@ export function VariableList({
     ...remote.map((lib) => ({ value: lib.library, label: lib.name })),
   ];
   return (
-    <div className={cx(styles.picker, colorTab && styles.colorTab, stylesTab && styles.stylesTab)} data-variable-picker="">
-      <div className={styles.pickSearch}>
+    <div className={cx(styles.picker, colorTab && styles.colorTab, stylesTab && styles.stylesTab, expression && styles.colorTab, expression && styles.expressionTab)} data-variable-picker="">
+      {queryFrom === undefined && <div className={styles.pickSearch}>
         <SearchField
           value={query}
           onChange={setQuery}
@@ -384,8 +399,8 @@ export function VariableList({
           // Live (popovers/effect-styles.txt, typography-styles, layout-guide-styles): the styles' search is expanded
           expanded={!!stylesTab || undefined}
         />
-      </div>
-      {(libraryState.on || colorTab) && (
+      </div>}
+      {(libraryState.on || colorTab || expression) && (
         <div className={styles.pickSource}>
           <Select
             label={colorTab ? t("Variable set") : t("Library")}
@@ -397,6 +412,7 @@ export function VariableList({
             data-picker-source=""
           />
           {/* Figma's toggle shows the other view: the list glyph in the grid, the grid glyph in the list */}
+          {onCreate && <IconButton icon="24.plus" label={t("Create variable")} tone="secondary" onClick={onCreate} />}
           {colorTab && (
             <ToggleIconButton
               icon={grid ? "24.view.list" : "24.view.grid"}

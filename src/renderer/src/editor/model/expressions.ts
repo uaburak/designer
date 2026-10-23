@@ -101,6 +101,31 @@ function tokenize(text: string, vars: readonly ExpressionVariable[]): Token[] | 
   return out;
 }
 
+/** A piece of an expression as the Expression builder shows it: a variable's pill, an operator, or plain text. */
+export type ExpressionSegment = { kind: "var"; id: Guid; text: string } | { kind: "op"; text: string } | { kind: "text"; text: string };
+
+/**
+ * The expression's pieces for display (Figma's Expression builder: variables as pills, operators in the assistive
+ * colour, numbers / strings / true / false as text). Text that doesn't read (a name being typed) stays one text piece.
+ */
+export function expressionSegments(text: string, vars: readonly ExpressionVariable[]): ExpressionSegment[] {
+  const tokens = tokenize(text, vars);
+  if (!Array.isArray(tokens)) {
+    // The part that reads, then the rest as typed
+    const head = text.slice(0, tokens.at).trimEnd();
+    const tail = text.slice(tokens.at).trim();
+    const before = head ? expressionSegments(head, vars) : [];
+    return tail ? [...before, { kind: "text", text: tail }] : before;
+  }
+  return tokens.map((tk, k) => {
+    const end = k + 1 < tokens.length ? tokens[k + 1].at : text.length;
+    const piece = text.slice(tk.at, end).trim();
+    if (tk.kind === "var") return { kind: "var", id: tk.id, text: piece };
+    if (tk.kind === "op" || tk.kind === "(" || tk.kind === ")") return { kind: "op", text: piece };
+    return { kind: "text", text: piece };
+  });
+}
+
 const FN: Record<string, string> = {
   "+": "ADDITION",
   "-": "SUBTRACTION",

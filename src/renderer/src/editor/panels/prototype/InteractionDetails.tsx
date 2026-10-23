@@ -11,7 +11,7 @@
  * choice), and a Navigate to a frame with a video has "Reset video state". Scroll to has its X / Y offset.
  */
 import { useMemo, useRef, useState, type ReactNode } from "react";
-import { Button, Checkbox, ColorInput, Icon, IconButton, NumericInput, Popover, SegmentedControl, Select, TextInput, type ChangeInfo } from "@/ds";
+import { Checkbox, ColorInput, Icon, IconButton, MenuButton, NumericInput, Popover, SegmentedControl, Select, TextInput, cx, type ChangeInfo, type IconName, type MenuEntry } from "@/ds";
 import type { Guid, NodeChange } from "@/engine/codec";
 import { useCurrentPage } from "@/engine/hooks";
 import { useEditor, type EditorController } from "../../controller";
@@ -34,7 +34,10 @@ import {
   MEDIA_CHOICES,
   TRIGGER_ICON,
   actionKind,
+  actionLabel,
   actionMenu,
+  addActionMenu,
+  conditionalBranches,
   formatMediaTime,
   isVideoAction,
   parseMediaTime,
@@ -70,6 +73,8 @@ import {
   type PrototypeInteraction,
 } from "../../model/prototype";
 import { ancestorsOf, protoFields, usePageFrames, type ProtoNode } from "./PrototypePanel";
+import { ExpressionPieces, useExpressionVariables } from "./ExpressionField";
+import { expressionSegments, formatExpression } from "../../model/expressions";
 import { ExpressionField } from "./ExpressionField";
 import styles from "./Prototype.module.css";
 import { t, useT } from "@/i18n";
@@ -124,6 +129,8 @@ export function InteractionDetails({
   useT();
   const ed = useEditor();
   const [n] = useNodes([node]) as (ProtoNode | null)[];
+  // An action added from the one-action dialog is the one the expanded dialog opens on
+  const [added, setAdded] = useState(false);
   const list = liveInteractions(n?.prototypeInteractions);
   const interaction = list[index];
   if (!n || !interaction) return null;
@@ -141,6 +148,23 @@ export function InteractionDetails({
     next[k] = a;
     write({ ...interaction, actions: next }, label, info);
   };
+  // More than one action, or a Conditional: Figma's expanded dialog (live 2026-10-23) — the actions listed on the left
+  // (a Conditional's If / Else with theirs), the chosen one's details on the right.
+  if (actions.length > 1 || actions.some((a) => actionKind(a) === "CONDITIONAL"))
+    return (
+      <ExpandedInteraction
+        key={`${node}:${index}`}
+        node={n}
+        interaction={interaction}
+        others={list}
+        write={write}
+        initial={added ? actions.length - 1 : 0}
+        anchor={anchor}
+        placement={placement}
+        gap={gap}
+        onClose={onClose}
+      />
+    );
   // Round 17 (live 62–63.png): titled "Interaction", "+" (Add action) beside the close button. Live 2026-10-10 (the
   // owner's 85.png; draggable_modal / prototype_interaction_edit_modal measured): 242 wide, the title 24 in; labelled
   // rows (label 16 in, the field at 89, 137 wide, rows 32) in groups 8 + a line + 8 apart — Trigger | Action and its
@@ -156,7 +180,18 @@ export function InteractionDetails({
       onClose={onClose}
       width={242}
       headerActions={
-        <IconButton icon="24.plus.small" label={t("Add action")} tooltip={false} onClick={() => write({ ...interaction, actions: [...actions, actionOfKind("NONE")] }, "Add action")} />
+        <MenuButton
+          label={t("Add action")}
+          entries={asMenu(translated(addActionMenu({ changeTo: variantsFor(ed, node).length > 0, conditional: true, video: false })))}
+          className={styles.iconMenu}
+          onSelect={(v) => {
+            if (v === "ANIMATION_PLAY" || v === "ANIMATION_PLAYHEAD") return;
+            setAdded(true);
+            write({ ...interaction, actions: actions.length ? [...actions, actionOfKind(v as ActionKind)] : [actionOfKind(v as ActionKind)] }, "Add action");
+          }}
+        >
+          <Icon name="24.plus.small" />
+        </MenuButton>
       }
     >
       <div className={styles.details} data-interaction-details>
@@ -193,21 +228,236 @@ export function InteractionDetails({
   );
 }
 
+/** Select options as a menu's entries (the add menus). */
+function asMenu(options: readonly ("-" | { value: string; label: string; icon?: IconName; disabled?: boolean })[]): MenuEntry[] {
+  return options.map((o) => (o === "-" ? "-" : { id: o.value, label: o.label, icon: o.icon, disabled: o.disabled }));
+}
+
+/** Where an action sits: a top-level one, or one of a Conditional's (its block, its index there). */
+type ActionPath = { top: number; branch?: number; index?: number };
+const samePath = (a: ActionPath, b: ActionPath) => a.top === b.top && a.branch === b.branch && a.index === b.index;
+
+/**
+ * Figma's expanded Interaction dialog (measured live 2026-10-23: prototype_interaction_edit_modal, 440 × 320): on the
+ * left (198) the trigger across (8 in, 182 wide) over a line, then the actions as 24-high rows 8 apart — the action's
+ * glyph from 4, its name at 28 and its destination 4 after it; a Conditional as a block (lit in the selected-secondary
+ * colour while it is chosen, its "if" row in the selected colour, rounded on top): "if" and its condition (pills,
+ * operators and values secondary), its actions 24 in under a corner, "else", "Add action" (16 high) for a block
+ * without actions — then a line and "+" (the add menu) and "−" (Delete). On the right (241) the chosen action's
+ * details, as the one-action dialog shows them.
+ */
+function ExpandedInteraction({
+  node,
+  interaction,
+  others,
+  write,
+  initial,
+  anchor,
+  placement,
+  gap,
+  onClose,
+}: {
+  node: ProtoNode;
+  interaction: PrototypeInteraction;
+  others: readonly PrototypeInteraction[];
+  write: (next: PrototypeInteraction, label?: string, info?: ChangeInfo) => void;
+  /** The top-level action chosen first. */
+  initial: number;
+  anchor: DOMRect | HTMLElement | null;
+  placement?: "bottom";
+  gap?: number;
+  onClose: () => void;
+}) {
+  useT();
+  const ed = useEditor();
+  const source = node.guid;
+  const actions = interaction.actions ?? [];
+  const [chosen, setChosen] = useState<ActionPath>({ top: initial });
+  const changeTo = !ed.engine.destroyed && variantsFor(ed, source).length > 0;
+  const videos = useMemo(() => (ed.engine.destroyed ? [] : videoLayersOf(ed, source)), [ed, source]);
+  const vars = useMemo(() => (ed.engine.destroyed ? [] : ed.engine.variables()), [ed]);
+  const exprVars = useExpressionVariables(vars);
+  const at = (p: ActionPath): PrototypeAction | undefined =>
+    p.branch === undefined ? actions[p.top] : conditionalBranches(actions[p.top] ?? {})[p.branch]?.actions?.[p.index ?? 0];
+  const sel = at(chosen) ? chosen : { top: Math.min(chosen.top, Math.max(actions.length - 1, 0)) };
+  const setActions = (next: PrototypeAction[], label: string, info?: ChangeInfo) => write({ ...interaction, actions: next }, label, info);
+  const setBranch = (top: number, b: number, acts: PrototypeAction[], label: string) => {
+    const branches = [...conditionalBranches(actions[top])];
+    branches[b] = { ...branches[b], actions: acts };
+    const next = [...actions];
+    next[top] = { ...actions[top], conditionalActions: branches };
+    setActions(next, label);
+  };
+  const setAt = (p: ActionPath, a: PrototypeAction, label = "Edit action", info?: ChangeInfo) => {
+    if (p.branch === undefined) {
+      const next = [...actions];
+      next[p.top] = a;
+      return setActions(next, label, info);
+    }
+    const acts = [...(conditionalBranches(actions[p.top])[p.branch].actions ?? [])];
+    acts[p.index ?? 0] = a;
+    setBranch(p.top, p.branch, acts, label);
+  };
+  const add = (kind: ActionKind) => {
+    if (kind === ("ANIMATION_PLAY" as ActionKind) || kind === ("ANIMATION_PLAYHEAD" as ActionKind)) return;
+    const a = actionOfKind(kind);
+    if (sel.branch !== undefined) {
+      // Inside a Conditional's block: after the chosen action there
+      const acts = [...(conditionalBranches(actions[sel.top])[sel.branch].actions ?? [])];
+      acts.splice((sel.index ?? 0) + 1, 0, a);
+      setBranch(sel.top, sel.branch, acts, "Add action");
+      setChosen({ top: sel.top, branch: sel.branch, index: (sel.index ?? 0) + 1 });
+      return;
+    }
+    const next = [...actions];
+    next.splice(sel.top + 1, 0, a);
+    setActions(next, "Add action");
+    setChosen({ top: sel.top + 1 });
+  };
+  const remove = () => {
+    if (sel.branch !== undefined) {
+      const acts = (conditionalBranches(actions[sel.top])[sel.branch].actions ?? []).filter((_, j) => j !== sel.index);
+      setBranch(sel.top, sel.branch, acts, "Remove action");
+      setChosen(acts.length ? { ...sel, index: Math.max(0, (sel.index ?? 0) - 1) } : { top: sel.top });
+      return;
+    }
+    setActions(actions.filter((_, k) => k !== sel.top), "Remove action");
+    setChosen({ top: Math.max(0, sel.top - 1) });
+  };
+  const menu = (conditional: boolean) => asMenu(translated(addActionMenu({ changeTo, conditional, video: videos.length > 0 })));
+  const destName = (a: PrototypeAction) => {
+    const kind = actionKind(a);
+    if (kind === "SET_VARIABLE" || kind === "SET_VARIABLE_MODE") return null;
+    const d = guidOf(a.transitionNodeID);
+    return d ? ((ed.engine.readNode(d) as { name?: string } | null)?.name ?? null) : null;
+  };
+  const row = (a: PrototypeAction, p: ActionPath, nested: boolean) => {
+    const kind = actionKind(a);
+    const dest = destName(a);
+    return (
+      <button
+        key={`${p.top}:${p.branch ?? ""}:${p.index ?? ""}`}
+        type="button"
+        className={cx(styles.listRow, nested && styles.listRowNested, samePath(sel, p) && styles.listRowOn)}
+        data-action-row={kind}
+        onClick={() => setChosen(p)}
+      >
+        {nested && <span className={styles.listCorner} aria-hidden />}
+        <Icon name={ACTION_ICON[kind]} />
+        <span className={styles.listName}>{t(actionLabel(kind))}</span>
+        {dest && <span className={styles.listDest}>{dest}</span>}
+      </button>
+    );
+  };
+  const addRow = (top: number, b: number) => (
+    <div className={styles.listAdd} key={`add:${top}:${b}`}>
+      <span className={styles.listCorner} aria-hidden />
+      <MenuButton
+        label={t("Add action")}
+        tooltip={t("Add nested action")}
+        entries={menu(false)}
+        className={styles.listAddButton}
+        onSelect={(v) => {
+          if (v === "ANIMATION_PLAY" || v === "ANIMATION_PLAYHEAD") return;
+          setBranch(top, b, [actionOfKind(v as ActionKind)], "Add action");
+          setChosen({ top, branch: b, index: 0 });
+        }}
+      >
+        {t("Add action")}
+      </MenuButton>
+    </div>
+  );
+  const block = (a: PrototypeAction, k: number) => {
+    const branches = conditionalBranches(a);
+    const on = sel.top === k && sel.branch === undefined;
+    return (
+      <div key={k} className={cx(styles.listBlock, on && styles.listBlockOn)} data-conditional="">
+        {branches.map((b, j) => {
+          const last = j === branches.length - 1;
+          const text = formatExpression(b.condition, (id) => exprVars.find((v) => v.id === id)?.name ?? null);
+          return (
+            <div key={j} className={styles.listBranch}>
+              <button type="button" className={cx(styles.listRow, on && j === 0 && styles.listRowHead)} onClick={() => setChosen({ top: k })} data-branch={last ? "else" : "if"}>
+                {j === 0 && <Icon name={ACTION_ICON.CONDITIONAL} />}
+                <span className={j === 0 ? styles.listName : styles.listElse}>{j === 0 ? "if" : last ? "else" : "else if"}</span>
+                {!last && text && (
+                  <span className={styles.listCondition}>
+                    <ExpressionPieces segments={expressionSegments(text, exprVars)} vars={exprVars} compact />
+                  </span>
+                )}
+              </button>
+              {(b.actions ?? []).map((x, i) => row(x, { top: k, branch: j, index: i }, true))}
+              {!(b.actions ?? []).length && addRow(k, j)}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+  const current = at(sel);
+  return (
+    <Popover anchor={anchor} placement={placement} arrow={placement === "bottom"} gap={gap} title={t("Interaction")} titleInset={24} onClose={onClose} width={440}>
+      <div className={styles.expanded} data-interaction-details="" data-expanded="">
+        <div className={styles.expandedList}>
+          <div className={styles.expandedTrigger}>
+            <TriggerRow interaction={interaction} others={others} video={hasVideoFill(node as never)} onChange={write} compact />
+          </div>
+          <div className={styles.listRows}>{actions.map((a, k) => (actionKind(a) === "CONDITIONAL" ? block(a, k) : row(a, { top: k }, false)))}</div>
+          <div className={styles.listBar}>
+            <MenuButton label={t("Add action")} entries={menu(sel.branch === undefined)} className={styles.iconMenu} onSelect={(v) => add(v as ActionKind)}>
+              <Icon name="24.plus.small" />
+            </MenuButton>
+            <IconButton icon="24.minus.small" label={t("Delete")} tone="secondary" disabled={!current} onClick={remove} />
+          </div>
+        </div>
+        <div className={styles.expandedDetail}>
+          {current && (
+            <ActionEditor
+              key={`${sel.top}:${sel.branch ?? ""}:${sel.index ?? ""}`}
+              source={source}
+              action={current}
+              trigger={interaction.event?.interactionType}
+              depth={sel.branch === undefined ? 0 : 1}
+              panel
+              onChange={(next, label, info) => setAt(sel, next, label, info)}
+            />
+          )}
+        </div>
+      </div>
+    </Popover>
+  );
+}
+
 function TriggerRow({
   interaction,
   others,
   video,
   onChange,
+  compact,
 }: {
   interaction: PrototypeInteraction;
   /** The layer's interactions (a trigger another one uses is disabled, atlas 13 §3.2) */
   others: readonly PrototypeInteraction[];
   video: boolean;
   onChange: (i: PrototypeInteraction, label?: string, info?: ChangeInfo) => void;
+  /** The expanded dialog's: the trigger alone across the list (no label) */
+  compact?: boolean;
 }) {
   useT();
   const type = interaction.event?.interactionType ?? "ON_CLICK";
   const recorder = useRef<HTMLButtonElement>(null);
+  if (compact)
+    return (
+      <Select
+        label={t("Trigger")}
+        variant="outlined"
+        className={cx(styles.iconField, styles.grow)}
+        prefix={TRIGGER_ICON[type]}
+        value={type === "MOUSE_IN" ? "MOUSE_ENTER" : type === "MOUSE_OUT" ? "MOUSE_LEAVE" : type}
+        options={translated(triggerMenu(video || type === "ON_MEDIA_HIT" || type === "ON_MEDIA_END", disabledTriggers(interaction, others)))}
+        onChange={(v) => onChange(withTrigger(interaction, v as InteractionType), "Edit trigger")}
+      />
+    );
   const videoTrigger = type === "ON_MEDIA_HIT" || type === "ON_MEDIA_END";
   return (
     <>
@@ -343,6 +593,7 @@ function ActionEditor({
   depth,
   onChange,
   onRemove,
+  panel,
 }: {
   source: Guid;
   action: PrototypeAction;
@@ -351,6 +602,8 @@ function ActionEditor({
   depth: number;
   onChange: (a: PrototypeAction, label?: string, info?: ChangeInfo) => void;
   onRemove?: () => void;
+  /** The expanded dialog's right column: no line above, a Conditional's condition only (its branches are listed) */
+  panel?: boolean;
 }) {
   useT();
   const ed = useEditor();
@@ -365,7 +618,7 @@ function ActionEditor({
   const destHasVideo = kind === "NAVIGATE" && !!dest && frameHasVideo(ed, dest);
   return (
     <div className={styles.actionBlock} data-action={kind}>
-      <div className={styles.divider} />
+      {!panel && <div className={styles.divider} />}
       <Labelled label={t("Action")} action={onRemove && <IconButton icon="24.minus.small" label={t("Remove action")} tone="secondary" onClick={onRemove} />}>
         <Select
           label={t("Action")}
@@ -489,7 +742,7 @@ function ActionEditor({
       )}
       {kind === "SET_VARIABLE" && <SetVariable action={action} onChange={onChange} />}
       {kind === "SET_VARIABLE_MODE" && <SetVariableMode action={action} onChange={onChange} />}
-      {kind === "CONDITIONAL" && <Conditional source={source} action={action} trigger={trigger} depth={depth} onChange={onChange} />}
+      {kind === "CONDITIONAL" && <ConditionRow action={action} onChange={onChange} />}
       {animates(kind) && <AnimationEditor action={action} kind={kind} trigger={trigger} onChange={onChange} />}
       {(kind === "NAVIGATE" || kind === "CHANGE_TO") && (
         // Live 2026-10-10: a collapsed "State" (chevron, then the title 16 in, 32 high) holding Reset scroll position
@@ -944,69 +1197,31 @@ function SetVariableMode({ action, onChange }: { action: PrototypeAction; onChan
 }
 
 /**
- * Conditional (help.figma.com 15253220891799): "In the If field, write a boolean expression" — typed, or built from
- * the suggested variables and operators, committed with Enter, outlined in red while invalid (model/expressions.ts) —
- * then its actions; "Complete the Else condition … Alternatively, leave the Else action blank." Branches with a
- * condition after the first (else-if blocks a file may hold) show as "Else if".
+ * A Conditional in the expanded dialog's right column (live 2026-10-23): "Condition" on its own row, the expression
+ * field across under it (16 in, 8 from the end); its If / Else actions are rows of the list on the left.
  */
-function Conditional({
-  source,
-  action,
-  trigger,
-  depth,
-  onChange,
-}: {
-  source: Guid;
-  action: PrototypeAction;
-  trigger: InteractionType | undefined;
-  depth: number;
-  onChange: (a: PrototypeAction, label?: string, info?: ChangeInfo) => void;
-}) {
+function ConditionRow({ action, onChange }: { action: PrototypeAction; onChange: (a: PrototypeAction, label?: string, info?: ChangeInfo) => void }) {
   useT();
   const ed = useEditor();
   const vars = useMemo(() => (ed.engine.destroyed ? [] : ed.engine.variables()), [ed]);
-  const stored = action.conditionalActions?.length ? action.conditionalActions : [{ actions: [] }, { actions: [] }];
-  // The Else block is always there (it may stay empty).
-  const branches = stored[stored.length - 1].condition || stored.length === 1 ? [...stored, { actions: [] }] : stored;
-  const setBranch = (b: number, next: { actions?: PrototypeAction[]; condition?: PrototypeAction["targetVariableData"] }) => {
-    const list = [...branches];
-    list[b] = next;
-    onChange({ ...action, conditionalActions: list }, "Edit conditional");
-  };
+  const branches = conditionalBranches(action);
   return (
-    <div className={styles.group}>
-      {branches.map((b, k) => (
-        <div key={k} className={styles.branch}>
-          {k < branches.length - 1 ? (
-            <div className={styles.labelled}>
-              <span className={styles.label}>{k === 0 ? t("If") : t("Else if")}</span>
-              <ExpressionField label={t("Condition")} data={b.condition} vars={vars} onCommit={(data) => setBranch(k, { ...b, condition: data })} />
-            </div>
-          ) : (
-            <div className={styles.groupTitle}>{t("Else")}</div>
-          )}
-          {(b.actions ?? []).map((a, j) => (
-            <ActionEditor
-              key={j}
-              source={source}
-              action={a}
-              trigger={trigger}
-              depth={depth + 1}
-              onChange={(next) => {
-                const acts = [...(b.actions ?? [])];
-                acts[j] = next;
-                setBranch(k, { ...b, actions: acts });
-              }}
-              onRemove={() => setBranch(k, { ...b, actions: (b.actions ?? []).filter((_, i) => i !== j) })}
-            />
-          ))}
-          <div className={styles.row}>
-            <Button variant="ghost" icon="24.plus.small" onClick={() => setBranch(k, { ...b, actions: [...(b.actions ?? []), actionOfKind("NAVIGATE")] })}>
-              {t("Add action")}
-            </Button>
-          </div>
-        </div>
-      ))}
-    </div>
+    <>
+      <div className={styles.fieldRow}>
+        <span className={styles.fieldLabel}>{t("Condition")}</span>
+      </div>
+      <div className={styles.conditionRow}>
+        <ExpressionField
+          label={t("Condition")}
+          data={branches[0].condition}
+          vars={vars}
+          onCommit={(data) => {
+            const next = [...branches];
+            next[0] = { ...next[0], condition: data };
+            onChange({ ...action, conditionalActions: next }, "Edit conditional");
+          }}
+        />
+      </div>
+    </>
   );
 }

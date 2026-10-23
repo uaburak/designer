@@ -383,6 +383,31 @@ export function actionMenu({ changeTo, conditional, video }: { changeTo: boolean
   ];
 }
 
+/**
+ * The actions "Add action" and the expanded dialog's "+" offer (live 2026-10-23): no None; Change to only on a variant;
+ * overlays before variables; Conditional at the top level only (not inside one); the video actions where there are videos.
+ */
+export function addActionMenu({ changeTo, conditional, video }: { changeTo: boolean; conditional: boolean; video: boolean }): MenuEntry[] {
+  const a = (v: ActionKind): MenuEntry => ({ value: v, label: actionLabel(v), icon: ACTION_ICON[v] });
+  return [
+    a("NAVIGATE"), ...(changeTo ? [a("CHANGE_TO")] : []), a("BACK"), a("SCROLL_TO"), a("URL"),
+    "-",
+    a("OVERLAY"), a("SWAP"), a("CLOSE"),
+    "-",
+    a("SET_VARIABLE"), a("SET_VARIABLE_MODE"), ...(conditional ? [a("CONDITIONAL")] : []),
+    ...(video ? ["-" as const, ...VIDEO_ACTIONS.map((v) => a(v.value))] : []),
+    "-",
+    { value: "ANIMATION_PLAY", label: "Play/Pause animation", icon: "24.proto.animation.play", disabled: true },
+    { value: "ANIMATION_PLAYHEAD", label: "Set playhead", icon: "24.proto.playhead", disabled: true },
+  ];
+}
+
+/** A Conditional's blocks with its Else always there (it may stay empty): If (and the Else ifs a file may hold), Else. */
+export function conditionalBranches(a: PrototypeAction): { actions?: PrototypeAction[]; condition?: VariableDataJson }[] {
+  const stored = a.conditionalActions?.length ? a.conditionalActions : [{ actions: [] }, { actions: [] }];
+  return stored[stored.length - 1].condition || stored.length === 1 ? [...stored, { actions: [] }] : stored;
+}
+
 /** Each video action's choices, in Figma's words. */
 export const MEDIA_CHOICES: Partial<Record<ActionKind, { value: MediaAction; label: string }[]>> = {
   VIDEO_PLAY: [

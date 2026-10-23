@@ -121,6 +121,8 @@
   .offsets { grid-template-columns: minmax(0, 64.7fr) minmax(0, 64.65fr) minmax(0, 64.65fr); }
   .fieldLabel { overflow: hidden; color: var(--figma-color-text-secondary); text-overflow: ellipsis; white-space: nowrap; }
   .field > button { padding-left: 9px; }
+  /* In a labelled row the field takes the row's second column (137; live: Destination and Animation alike) */
+  .fieldRow .field, .fieldRowAction .field { width: auto; }
   .iconField > button { padding-left: 9px; }
   .disclosure {
     display: flex;
@@ -240,6 +242,142 @@
     color: var(--figma-color-icon-secondary);
   }
   .iconMenu:hover, .iconMenu[data-open] { background: var(--figma-color-bg-hover); }
+  /* The expanded Interaction dialog (live 2026-10-23, 440 × 320): the list (198) and a line, the details (241) */
+  .expanded { display: flex; height: 280px; }
+  .expandedList { display: flex; flex: none; flex-direction: column; width: 199px; border-right: 1px solid var(--figma-color-border); }
+  .expandedTrigger { display: flex; padding: var(--ds-space-2); border-bottom: 1px solid var(--figma-color-border); }
+  .expandedDetail { flex: 1 1 auto; min-width: 0; padding: var(--ds-space-2) 0; overflow: auto; }
+  .listRows { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--ds-space-2); min-height: 0; padding: var(--ds-space-2); overflow: auto; }
+  .listBar { display: flex; flex: none; padding: var(--ds-space-2); border-top: 1px solid var(--figma-color-border); }
+  /* A row: 24 high, the glyph from 4, the name at 28, the destination 4 after it; one inside a Conditional 24 in under
+     a corner; the chosen one in the selected colour across */
+  .listRow {
+    position: relative;
+    display: flex;
+    flex: none;
+    align-items: center;
+    width: 100%;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-1);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    text-align: left;
+    outline: none;
+  }
+  .listRow:hover { background: var(--figma-color-bg-hover); }
+  .listRow > [data-ds="Icon"] { color: var(--figma-color-icon); }
+  .listRowNested { padding-left: 28px; }
+  .listRowOn, .listRowOn:hover { background: var(--figma-color-bg-selected); }
+  .listName { flex: none; margin-right: var(--ds-space-1); white-space: nowrap; }
+  .listDest { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .listCorner {
+    position: absolute;
+    top: 6px;
+    left: 14px;
+    width: 6px;
+    height: 6px;
+    border-bottom: 1px solid var(--figma-color-icon-tertiary);
+    border-left: 1px solid var(--figma-color-icon-tertiary);
+  }
+  /* A Conditional: its rows 8 apart; while it is chosen lit in the selected-secondary colour, its "if" row in the
+     selected colour (rounded on top) */
+  .listBlock { display: flex; flex: none; flex-direction: column; gap: var(--ds-space-2); border-radius: var(--ds-radius-medium); }
+  .listBlockOn { background: var(--figma-color-bg-selected-secondary); }
+  .listBranch { display: contents; }
+  .listRowHead, .listRowHead:hover { border-radius: var(--ds-radius-medium) var(--ds-radius-medium) 0 0; background: var(--figma-color-bg-selected); }
+  .listElse { padding-left: var(--ds-space-1); }
+  .listCondition { display: inline-flex; align-items: center; min-width: 0; overflow: hidden; }
+  /* "Add action" in an empty block: 16 high, 24 in, in the tertiary colour */
+  .listAdd { position: relative; display: flex; flex: none; align-items: center; height: var(--ds-size-control); padding-left: var(--ds-space-6); }
+  .listAddButton {
+    height: 16px;
+    padding: 0 var(--ds-space-1);
+    border: 0;
+    border-radius: var(--ds-radius-small);
+    background: transparent;
+    color: var(--figma-color-text-tertiary);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+  }
+  .listAddButton:hover, .listAddButton[data-open] { color: var(--figma-color-text); }
+  /* A Conditional's condition in the details: across under its label, 16 in, 8 from the end, 4 below the label's row */
+  .conditionRow { display: flex; padding: var(--ds-space-1) var(--ds-space-2) 0 var(--ds-space-4); }
+
+  /* The expression field (live 2026-10-23): 24 high in the secondary fill, the pieces from 4 in */
+  .exprField {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    min-width: 0;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-1);
+    overflow: hidden;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    white-space: nowrap;
+    text-align: left;
+    outline: none;
+  }
+  .exprField:focus-visible { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
+  .exprPlaceholder { color: var(--figma-color-text-tertiary); }
+  /* A variable: its type glyph (24) and name in the surface colour inside a hairline, 20 high, 4 after the name; in
+     the action list without the glyph, 5 either side */
+  .exprPill {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    height: 20px;
+    padding-right: var(--ds-space-1);
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg);
+    box-shadow: inset 0 0 0 1px var(--figma-color-border);
+    color: var(--figma-color-text);
+  }
+  .exprPill > [data-ds="Icon"] { flex: none; margin: -2px 0; color: var(--figma-color-icon-secondary); }
+  .exprPillCompact { padding: 0 5px; }
+  .exprPillName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Operators in pink, 4 either side; numbers and words as text — secondary in the action list */
+  .exprOp { flex: none; padding: 0 var(--ds-space-1); color: var(--ds-color-expression-operator); }
+  .exprOpCompact { flex: none; padding: 0 var(--ds-space-1); color: var(--figma-color-text-secondary); }
+  .exprText { flex: none; color: var(--figma-color-text); }
+  .exprTextCompact { flex: none; color: var(--figma-color-text-secondary); }
+  /* The Expression builder (live 2026-10-23, 258 wide): the expression after "if" (16 in; the pieces from 34) on a
+     41 high row over a hairline, then the variable list */
+  .builder { display: flex; flex-direction: column; }
+  .builderHead {
+    display: flex;
+    align-items: center;
+    min-height: 41px;
+    padding: 0 var(--ds-space-2) 0 var(--ds-space-4);
+    border-bottom: 1px solid var(--figma-color-border);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+  }
+  .builderInvalid { box-shadow: inset 0 0 0 1px var(--figma-color-border-danger-strong); }
+  .builderPrefix { flex: none; width: 18px; color: var(--figma-color-text); }
+  .builderExpression { display: flex; flex: 1 1 auto; flex-wrap: wrap; align-items: center; min-width: 0; row-gap: var(--ds-space-1); }
+  .builderInput {
+    flex: 1 1 24px;
+    min-width: 24px;
+    height: 20px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--figma-color-text);
+    font: inherit;
+    letter-spacing: inherit;
+    outline: none;
+  }
+  .builderInput::placeholder { color: var(--figma-color-text-tertiary); }
+  .builder .expressionError { padding: var(--ds-space-1) var(--ds-space-4); }
   .expressionError {
     padding: 0 var(--ds-space-2) var(--ds-space-1);
     color: var(--figma-color-text-danger);

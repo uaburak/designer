@@ -277,6 +277,8 @@ export const appColor = {
   "devmode-text": ["#009951", "#79d297"],
   // Dev Mode's code: a CSS value's colour (the owner's capture, dark sampled ≈ #d88fcd; light G)
   "code-value": ["#b5338a", "#d88fcd"],
+  // A prototype expression's operators (live 2026-10-23: dark #fc9ce0; light G, Figma's pink)
+  "expression-operator": ["#ea10ac", "#fc9ce0"],
   // Agents at work (the chat's Thinking… row, an image being made — in the chat and on the canvas): Figma AI's
   // blue → purple → pink → orange sweep, from Figma's own palette (bg-brand, bg-component, the pink and orange above;
   // Figma's exact AI gradient unverified). The fill is the soft wash under it, the shine the light that crosses it.

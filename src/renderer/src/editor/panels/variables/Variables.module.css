@@ -88,6 +88,12 @@
   }
   .pickItem:hover, .pickItem:focus-visible { background: var(--figma-color-bg-hover); }
   .pickItemOn { background: var(--figma-color-bg-selected); }
+  /* The row Enter picks while a variable's name is typed (the Expression builder, live 2026-10-23: #383838 across) */
+  .pickItemActive { background: var(--figma-color-bg-hover); }
+  /* The Expression builder's list (live 2026-10-23): "All libraries" 8 in with "+" 12 from the end, 8 above and below
+     over a hairline, 42 high; then rows 32 high, the values in the tertiary colour */
+  .expressionTab { max-height: 349px; }
+  .expressionTab .pickValue { color: var(--figma-color-text-tertiary); }
   .pickItemOn:hover { background: var(--figma-color-bg-selected-hover); }
   .pickGlyph { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; color: var(--figma-color-icon-secondary); }
   .pickName { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }

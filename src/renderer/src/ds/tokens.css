@@ -453,6 +453,7 @@
     --ds-color-devmode-ruler-band: #14ae5c33;
     --ds-color-devmode-text: #009951;
     --ds-color-code-value: #b5338a;
+    --ds-color-expression-operator: #ea10ac;
     --ds-color-ai-1: #0d99ff;
     --ds-color-ai-2: #9747ff;
     --ds-color-ai-3: #ff24bd;
@@ -704,6 +705,7 @@
     --ds-color-devmode-ruler-band: #507360;
     --ds-color-devmode-text: #79d297;
     --ds-color-code-value: #d88fcd;
+    --ds-color-expression-operator: #fc9ce0;
     --ds-color-ai-1: #0c8ce9;
     --ds-color-ai-2: #8a38f5;
     --ds-color-ai-3: #e81fae;
