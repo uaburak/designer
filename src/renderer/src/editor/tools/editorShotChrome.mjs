@@ -179,7 +179,8 @@ export async function chromeSection(page, theme, { open, settle, check, outDir, 
   await page.evaluate(() => window.__designerEditor.engine.setSelection(["15:1"]));
   await settle(page);
   const cursor = () => page.evaluate(() => decodeURIComponent(window.__designerEditor.canvas.style.cursor));
-  const turn = (css) => Number(/rotate\((-?[\d.]+) 12 12\)/.exec(css)?.[1] ?? NaN);
+  // Figma's pictures (cursorArt/) turn about their 32 × 32 box's middle; unturned ones carry no rotate().
+  const turn = (css) => (/image-set\(/.test(css) && !/rotate\(/.test(css) ? 0 : Number(/rotate\((-?[\d.]+) 16 16\)/.exec(css)?.[1] ?? NaN));
   const centre = at(W / 2, H / 2);
   const br = at(W, H);
   const cornerAngle = (Math.atan2(br[1] - centre[1], br[0] - centre[0]) * 180) / Math.PI;
@@ -191,14 +192,15 @@ export async function chromeSection(page, theme, { open, settle, check, outDir, 
     /image-set\(/.test(resize) && Math.abs(turn(resize) - (((Math.round(cornerAngle) % 180) + 180) % 180)) <= 1,
     `${turn(resize)}`
   );
-  check(`Chrome15 ${theme}: …a 1× and a 2× picture (crisp on Retina)`, /width="24".* 1x, .*width="48".* 2x\) 12 12, /.test(resize));
+  check(`Chrome15 ${theme}: …a 1× and a 2× picture (crisp on Retina)`, /width="32".* 1x, .*width="64".* 2x\) 16 16, /.test(resize));
   const outside = [br[0] + 12 * Math.cos((cornerAngle * Math.PI) / 180), br[1] + 12 * Math.sin((cornerAngle * Math.PI) / 180)];
   await page.mouse.move(...outside);
   await settle(page);
   const rotate = await cursor();
   check(
     `Chrome15 ${theme}: past the corner, the rotate cursor bulges away from the frame, turned to the corner (${Math.round(cornerAngle)}°)`,
-    Math.abs(turn(rotate) - Math.round(cornerAngle)) <= 3 && /alias$/.test(rotate),
+    // Figma's rotate picture is the top-right corner's (−45°): turned by the corner's angle + 45°.
+    Math.abs(turn(rotate) - ((((Math.round(cornerAngle) + 45) % 360) + 360) % 360)) <= 3 && /alias$/.test(rotate),
     `${turn(rotate)}`
   );
   await page.locator("#engine-canvas").focus();
@@ -206,7 +208,7 @@ export async function chromeSection(page, theme, { open, settle, check, outDir, 
   await page.mouse.move(canvasRect.right - 100, canvasRect.bottom - 100);
   await settle(page);
   const pencil = await cursor();
-  check(`Chrome15 ${theme}: ⇧P shows the pencil, its lead the hot spot`, /image-set\(.* 3 3, crosshair$/.test(pencil) && (await page.evaluate(() => window.__designerEditor.store.tool)) === "PENCIL");
+  check(`Chrome15 ${theme}: ⇧P shows the pencil, its lead the hot spot`, /image-set\(.* 8 24, crosshair$/.test(pencil) && (await page.evaluate(() => window.__designerEditor.store.tool)) === "PENCIL");
   await page.keyboard.press("Escape");
   await settle(page);
 
@@ -223,9 +225,9 @@ export async function chromeSection(page, theme, { open, settle, check, outDir, 
       cell.style.cssText = "position:relative;height:96px;border:0.5px solid #ccc";
       const img = document.createElement("img");
       img.src = url;
-      img.style.cssText = "position:absolute;left:36px;top:12px;width:48px;height:48px";
+      img.style.cssText = "position:absolute;left:28px;top:4px";
       const dot = document.createElement("span");
-      dot.style.cssText = `position:absolute;left:${36 + 2 * Number(hot?.[1] ?? 0) - 2}px;top:${12 + 2 * Number(hot?.[2] ?? 0) - 2}px;width:4px;height:4px;border-radius:2px;background:#f24822`;
+      dot.style.cssText = `position:absolute;left:${28 + 2 * Number(hot?.[1] ?? 0) - 2}px;top:${4 + 2 * Number(hot?.[2] ?? 0) - 2}px;width:4px;height:4px;border-radius:2px;background:#f24822`;
       const label = document.createElement("span");
       label.textContent = name;
       label.style.cssText = "position:absolute;left:0;right:0;bottom:6px;text-align:center";

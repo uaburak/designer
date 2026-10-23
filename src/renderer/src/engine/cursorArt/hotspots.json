@@ -1,0 +1,246 @@
+{
+"add-spec": [
+4,
+4
+],
+"annotate-ui3": [
+16,
+16
+],
+"bend-ui3": [
+4,
+4
+],
+"black-move-h-ui3": [
+4,
+4
+],
+"black-move-ui3": [
+4,
+4
+],
+"black-move-v-ui3": [
+4,
+4
+],
+"black-ui3": [
+4,
+4
+],
+"black-var-width": [
+4,
+4
+],
+"break-move-ui3": [
+4,
+4
+],
+"break-snap-ui3": [
+4,
+4
+],
+"break-ui3": [
+4,
+4
+],
+"brush": [
+6,
+6
+],
+"click-ui3": [
+16,
+8
+],
+"comments-next-pin-ui3": [
+8,
+24
+],
+"convert-ui3": [
+4,
+4
+],
+"crosshair-ui3": [
+16,
+16
+],
+"cut-closed": [
+4,
+4
+],
+"cut-open": [
+4,
+4
+],
+"deep-parent-ui3": [
+4,
+4
+],
+"dropper-pointer-ui3": [
+4,
+4
+],
+"dropper-ui3": [
+8,
+24
+],
+"duplicate-snap-ui3": [
+8,
+8
+],
+"duplicate-ui3": [
+8,
+8
+],
+"edit-corners-ui3": [
+4,
+4
+],
+"edit-radius-ui3": [
+4,
+4
+],
+"edit-ratio-ui3": [
+4,
+4
+],
+"eraser-ui3": [
+8,
+24
+],
+"frame-ui3": [
+4,
+4
+],
+"guide-delete-ui3": [
+4,
+4
+],
+"hand-new-ui3": [
+16,
+16
+],
+"hand-press-ui3": [
+16,
+16
+],
+"highlighter-ui3": [
+8,
+24
+],
+"link": [
+11,
+8
+],
+"magic-handle-ui3": [
+16,
+16
+],
+"megaphone": [
+4,
+4
+],
+"move-ui3": [
+16,
+16
+],
+"not-allowed-ui3": [
+4,
+4
+],
+"paint-bucket-insert-ui3": [
+16,
+16
+],
+"paint-bucket-remove-ui3": [
+16,
+16
+],
+"paint-bucket-ui3": [
+16,
+16
+],
+"pen-insert-ui3": [
+4,
+4
+],
+"pen-remove-ui3": [
+4,
+4
+],
+"pen-snap-ui3": [
+4,
+4
+],
+"pen-ui3": [
+4,
+4
+],
+"pencil-ui3": [
+8,
+24
+],
+"position-absolutely-ui3": [
+4,
+4
+],
+"prototyping-ui3": [
+4,
+4
+],
+"resize-padding-bounded-ui3": [
+16,
+16
+],
+"resize-padding-ui3": [
+16,
+16
+],
+"resize-scale-ui3": [
+16,
+16
+],
+"resize-ui3": [
+16,
+16
+],
+"rotate-ui3": [
+16,
+16
+],
+"shapebuilder-insert": [
+5,
+4
+],
+"shapebuilder-remove": [
+5,
+4
+],
+"snap-ui3": [
+4,
+4
+],
+"stamp-ui3": [
+8,
+24
+],
+"text-curve": [
+4,
+4
+],
+"vector-lasso": [
+4,
+4
+],
+"washi-tape-ui3": [
+16,
+16
+],
+"zoom-in-ui3": [
+16,
+16
+],
+"zoom-out-ui3": [
+16,
+16
+]
+}
