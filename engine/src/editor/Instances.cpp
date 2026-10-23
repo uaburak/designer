@@ -625,6 +625,19 @@ void Editor::expandChildren(Expansion& ex, Guid symbol, Guid sourceParent, Guid 
         for (SymbolOverride& o : own)
           if (oldRoot != kNoGuid && !o.path.empty() && o.path.front() == oldRoot) o.path.erase(o.path.begin());
         ex.stack.addOwned(remapOverrides(own, designed, main, true), path);
+      } else if (swapped && !xn->props.comp().symbolData.overrides.empty()) {
+        // Swapped to another component: what its main set on the instance layer itself (its root: opacity, blend,
+        // visibility…) stays, as Figma keeps a swapped icon at 70 %; the overrides of its old main's layers go.
+        const Node* dn = doc_.get(designed);
+        Guid oldRoot = dn ? dn->props.keyOf(designed) : kNoGuid;
+        std::vector<SymbolOverride> root;
+        for (const SymbolOverride& o : xn->props.comp().symbolData.overrides)
+          if (o.path.empty() || (o.path.size() == 1 && o.path.front() == oldRoot)) {
+            root.push_back(o);
+            root.back().path.clear();
+            root.back().mask &= ~static_cast<FieldMask>(F_OVERRIDDEN_SYMBOL_ID | F_COMPONENT_PROP_ASSIGNMENTS);
+          }
+        if (!root.empty()) ex.stack.addOwned(std::move(root), path);
       }
       if (mn) {
         // A variant bound to variables (its own binding, or a usage site's): the variant for this row's modes.

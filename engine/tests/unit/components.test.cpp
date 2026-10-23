@@ -1278,9 +1278,10 @@ TEST_CASE("components: a nested instance keeps its own size, swapped or not; its
     nodes.push_back(s);
   }
   NodeChange ni = instanceOf(NI, ICON, M, "#", {80, 12, 16, 16});
-  SymbolOverride resized;  // Figma writes a resized instance's size as its root override
-  resized.mask = F_SIZE;
+  SymbolOverride resized;  // Figma writes a resized instance's size as its root override; its opacity too
+  resized.mask = F_SIZE | F_OPACITY;
   resized.props.size = {16, 16};
+  resized.props.opacity = 0.7f;
   ni.props.comp().symbolData.overrides = {resized};
   nodes.push_back(ni);
   NodeChange i2 = instanceOf(I2, M, kPage, "%", {0, 300, 100, 40});
@@ -1293,6 +1294,9 @@ TEST_CASE("components: a nested instance keeps its own size, swapped or not; its
   Editor e = load(nodes);
   CHECK(props(e, sub(I, {NI})).size == Vec2{16, 16});
   CHECK(props(e, sub(I2, {NI})).size == Vec2{16, 16});
+  // What the Button main set on the icon layer itself stays through the swap (Figma: a swapped icon keeps its 70 %)
+  CHECK(props(e, sub(I, {NI})).opacity == doctest::Approx(0.7));
+  CHECK(props(e, sub(I2, {NI})).opacity == doctest::Approx(0.7));
   for (Guid shape : {sub(I, {NI, SHAPE}), sub(I2, {NI, SHAPE2})}) {
     REQUIRE(e.document().has(shape));
     CHECK(props(e, shape).size.x == doctest::Approx(8));
