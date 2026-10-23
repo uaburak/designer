@@ -289,3 +289,77 @@ TEST_CASE("proto.nested: hits follow Canvas stacking \"First on top\"") {
   player.pointer(PointerEvent::UP, 100, 125, 0, 0);
   CHECK(player.screen() == X);
 }
+
+TEST_CASE("proto.nested: a segmented control's indicator slides between its variants (Smart animate)") {
+  // The Wecra Design System's Segmented (2026-10-23): a 160 × 24 row of two 80-wide items with an absolute
+  // "indicator" under them (constraints Scale), at x 0 in Selected=1 and 80 in Selected=2; Item 2's click Changes to
+  // Selected=2 with Smart animate: the indicator slides 0 → 80 (one layer, matched by name), not swapped at once.
+  const Guid SEG{7, 1}, S1{7, 2}, S2{7, 3}, SCR{7, 10}, INST{7, 11};
+  auto nodes = baseChanges();
+  uint32_t next = 100;
+  NodeChange set = make(SEG, NodeType::FRAME, kPage, "~", {0, 1000, 400, 100}, "Segmented");
+  set.props.comp().isStateGroup = true;
+  nodes.push_back(set);
+  for (auto [id, pos, x, sel] : {std::tuple{S1, "!", 0.0, 1}, std::tuple{S2, "\"", 200.0, 2}}) {
+    NodeChange v = make(id, NodeType::SYMBOL, SEG, pos, {x, 0, 160, 24}, sel == 1 ? "Selected=1" : "Selected=2");
+    v.props.stack().stackMode = StackMode::HORIZONTAL;
+    nodes.push_back(v);
+    NodeChange ind = make(Guid{9, next++}, NodeType::FRAME, id, "!", {sel == 1 ? 0.0 : 80.0, 0, 80, 24}, "indicator");
+    ind.props.stackPositioning = StackPositioning::ABSOLUTE;
+    ind.props.horizontalConstraint = ConstraintType::SCALE;
+    nodes.push_back(ind);
+    for (int i = 1; i <= 2; i++) {
+      NodeChange item = make(Guid{9, next++}, NodeType::FRAME, id, i == 1 ? "\"" : "#", {(i - 1) * 80.0, 0, 80, 24}, i == 1 ? "Item 1" : "Item 2");
+      item.props.stackChildPrimaryGrow = 1;
+      Guid other = sel == 1 ? S2 : S1;
+      if (i != sel) item.props.extra["prototypeInteractions"] = extra("prototypeInteractions", changeTo(other, "ON_CLICK", "SMART_ANIMATE", 0.2));
+      nodes.push_back(item);
+    }
+  }
+  nodes.push_back(make(SCR, NodeType::FRAME, kPage, "!", {0, 0, 400, 100}, "Screen"));
+  NodeChange inst = make(INST, NodeType::INSTANCE, SCR, "!", {10, 10, 160, 24}, "Segmented");
+  inst.props.comp().symbolData.symbolID = S1;
+  inst.props.fillPaints.clear();
+  nodes.push_back(inst);
+  Editor ed;
+  proto::Player player{ed};
+  ed.setSessionID(1);
+  ed.setViewport(400, 100, 1, 400, 100);
+  ed.loadDocument(nodes, kNoGuid);
+  ed.takeEvents();
+  auto child = [&](const char* name) {
+    for (Guid c : ed.document().children(INST))
+      if (ed.document().get(c)->props.name == name) return c;
+    FAIL("no " << name);
+    return kNoGuid;
+  };
+  Guid ind = child("indicator");
+  CHECK(ed.document().get(ind)->props.size.x == doctest::Approx(80));
+  CHECK(ed.document().get(ind)->props.transform.m02 == doctest::Approx(0));
+  REQUIRE(player.start(kPage, SCR));
+  double t = 0;
+  auto advance = [&](double ms) {
+    while (ms > 0) {
+      double step = std::min(10.0, ms);
+      t += step;
+      ms -= step;
+      player.tick(t);
+    }
+  };
+  advance(16);
+  // Item 2's middle: 10 + 80 + 40, 10 + 12
+  player.pointer(PointerEvent::MOVE, 130, 22, 0, 0);
+  player.pointer(PointerEvent::DOWN, 130, 22, 1, 0);
+  player.pointer(PointerEvent::UP, 130, 22, 0, 0);
+  REQUIRE(ed.mainOf(INST) == S2);
+  advance(100);  // half way (linear, 0.2 s)
+  player.scene();
+  ind = child("indicator");
+  const NodeProps* mid = player.drawnProps(ind);
+  REQUIRE(mid);
+  CHECK(mid->transform.m02 > 20);
+  CHECK(mid->transform.m02 < 60);
+  advance(300);
+  player.scene();
+  CHECK(ed.document().get(child("indicator"))->props.transform.m02 == doctest::Approx(80));
+}
