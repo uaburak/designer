@@ -602,10 +602,12 @@ export function settingsFromDoc(n: Obj): Obj {
   if (isObj(n.overlayStack)) out.overlayStack = n.overlayStack;
   if (n.overlayFitWindow && n.overlayFitWindow !== "NONE") out.overlayFitWindow = n.overlayFitWindow;
   if (n.prototypeScrollbar === true) out.prototypeScrollbar = true;
+  if (isObj(n.prototypeScrollbarColor)) out.prototypeScrollbarColor = colorToHex(n.prototypeScrollbarColor as never);
+  if (typeof n.prototypeScrollbarWidth === "number") out.prototypeScrollbarWidth = n.prototypeScrollbarWidth;
   return out;
 }
 
-export const SETTING_KEYS = ["overflowDirection", "scrollBehavior", "overlayPositionType", "overlayBackground", "overlayBackgroundInteraction", "prototypeTextInput", "prototypeCursor", "overlayEdgeBehavior", "overlayStack", "overlayFitWindow", "prototypeScrollbar"] as const;
+export const SETTING_KEYS = ["overflowDirection", "scrollBehavior", "overlayPositionType", "overlayBackground", "overlayBackgroundInteraction", "prototypeTextInput", "prototypeCursor", "overlayEdgeBehavior", "overlayStack", "overlayFitWindow", "prototypeScrollbar", "prototypeScrollbarColor", "prototypeScrollbarWidth"] as const;
 
 /** Prototype › Cursor's values (Wecra's website behaviours, @ours). */
 export const PROTOTYPE_CURSORS = ["AUTO", "DEFAULT", "POINTER", "TEXT", "GRAB", "MOVE", "NOT_ALLOWED", "HELP", "ZOOM_IN", "ZOOM_OUT", "CROSSHAIR", "NONE"] as const;
@@ -661,6 +663,16 @@ export function settingsToDoc(v: Obj, path: string, errors: Errors): Obj {
   if (v.prototypeScrollbar !== undefined) {
     if (v.prototypeScrollbar !== null && typeof v.prototypeScrollbar !== "boolean") errors.push(`${path}.prototypeScrollbar: true (a scrollbar over a scrolling frame's content), false or null`);
     else out.prototypeScrollbar = v.prototypeScrollbar === true ? true : null;
+  }
+  if (v.prototypeScrollbarColor !== undefined) {
+    const c = v.prototypeScrollbarColor === null ? null : parseColorValue(v.prototypeScrollbarColor);
+    if (v.prototypeScrollbarColor !== null && !c) errors.push(`${path}.prototypeScrollbarColor: the thumb's colour, "#RRGGBBAA" or {r, g, b, a} (0–1), or null (automatic: white or black at 30 %)`);
+    else out.prototypeScrollbarColor = c;
+  }
+  if (v.prototypeScrollbarWidth !== undefined) {
+    const w = v.prototypeScrollbarWidth;
+    if (w !== null && !(typeof w === "number" && Number.isFinite(w) && w >= 2 && w <= 24)) errors.push(`${path}.prototypeScrollbarWidth: the thumb's thickness in px, 2–24, or null (6)`);
+    else out.prototypeScrollbarWidth = w;
   }
   if (v.prototypeCursor !== undefined) {
     const c = up(v.prototypeCursor ?? "AUTO");

@@ -7,7 +7,8 @@
  *   its description), Interactions, Scroll behavior (Overflow);
  * - any other layer: Interactions, Scroll behavior (Position; Overflow for frames);
  * - a frame that scrolls (Overflow not No scrolling): Scrollbar (Wecra's, not Figma's — a scrollbar drawn over the
- *   frame's content while presented and on the canvas; NodeChange.prototypeScrollbar, @ours);
+ *   frame's content while presented and on the canvas; a toggle, on: its Color and Width; NodeChange.prototypeScrollbar
+ *   / prototypeScrollbarColor / prototypeScrollbarWidth, @ours);
  * - a text layer: Text input (Wecra's website behaviours, not Figma's — the layer is typed into while presented: Type,
  *   Max length; NodeChange.prototypeTextInput, @ours, never in a .fig export);
  * - any layer: Cursor (Wecra's: the pointer over it while presented, Auto by default; NodeChange.prototypeCursor, @ours);
@@ -20,13 +21,13 @@
  * prototypeBackgroundColor, scrollDirection, scrollBehavior), so it round-trips with .fig files.
  */
 import { useEffect, useMemo, useState } from "react";
-import { Button, Checkbox, ColorInput, Icon, IconButton, MIXED, PanelSection, SegmentedControl, Select, TextInput, ToggleIconButton, cx, showToast } from "@/ds";
+import { Button, Checkbox, ColorInput, ColorPicker, Icon, IconButton, MIXED, NumericInput, PanelSection, SegmentedControl, Select, Switch, TextInput, ToggleIconButton, cx, showToast, type ChangeInfo } from "@/ds";
 import type { Color, Guid, NodeChange, NodeFields } from "@/engine/codec";
 import { useCurrentPage } from "@/engine/hooks";
 import { keyBetween } from "../../../../../shared/schema/fractionalIndex";
 import { useEditor, type EditorController } from "../../controller";
 import { useDocumentVersion, useNodes, GEOMETRY_GROUPS } from "../../hooks";
-import { colorToHex, hexToColor } from "../../model/color";
+import { colorToHex, hexToColor, toPercent } from "../../model/color";
 import {
   ACTION_ICON,
   actionLabel,
@@ -38,6 +39,7 @@ import {
   deviceOf,
   presetIdentifierOf,
   SCROLL_POSITIONS,
+  SCROLLBAR_WIDTH,
   devicePreset,
   interactionSummary,
   liveInteractions,
@@ -683,16 +685,84 @@ function ScrollSection({ nodes, topLevel, isFrame }: { nodes: ProtoNode[]; topLe
       )}
       {/* Wecra-only (not Figma's): a scrolling frame draws a scrollbar over its content — while presented (its thumb
           follows the scroll and drags it) and on the canvas at scroll 0. NodeChange.prototypeScrollbar, @ours: the
-          .fig export drops it. */}
+          .fig export drops it. A toggle as the instance properties' Boolean rows (label left, switch right); on, its
+          Color and Width under it. */}
       {isFrame && overflow !== "NONE" && (
-        <div className={styles.checkRow} data-scrollbar-row="">
-          <Checkbox
-            label={t("Scrollbar")}
-            checked={scrollbar === "mixed" ? MIXED : scrollbar}
-            onChange={(c) => ed.setProps(refs, protoFields({ prototypeScrollbar: c ? true : null }), "Scrollbar")}
-          />
-        </div>
+        <>
+          <div className={styles.labelled} data-scrollbar-row="">
+            <span className={styles.label}>{t("Scrollbar")}</span>
+            <Switch
+              label={t("Scrollbar")}
+              className={styles.scrollbarSwitch}
+              checked={scrollbar === true}
+              onChange={(c) => ed.setProps(refs, protoFields({ prototypeScrollbar: c ? true : null }), "Scrollbar")}
+            />
+          </div>
+          {scrollbar === true && <ScrollbarSettings nodes={nodes} />}
+        </>
       )}
     </PanelSection>
+  );
+}
+
+/** What the engine draws a thumb in when the frame has no colour of its own (render/FrameScrollbar.h): shown as black at 30 %. */
+const AUTO_SCROLLBAR: Color = { r: 0, g: 0, b: 0, a: 0.3 };
+
+/**
+ * The Scrollbar's settings (Wecra's, @ours): Color — the thumb's colour with its opacity, "Auto" while it has none
+ * (white or black at 30 % by the frame's fill; the minus puts Auto back) — and Width, the thumb's thickness (2–24, 6).
+ */
+function ScrollbarSettings({ nodes }: { nodes: ProtoNode[] }) {
+  useT();
+  const ed = useEditor();
+  const refs = nodes.map((n) => n.guid);
+  const [picker, setPicker] = useState<DOMRect | null>(null);
+  const colors = new Set(nodes.map((n) => JSON.stringify(n.prototypeScrollbarColor ?? null)));
+  const own = colors.size === 1 ? (nodes[0].prototypeScrollbarColor ?? null) : MIXED;
+  const widths = new Set(nodes.map((n) => n.prototypeScrollbarWidth ?? SCROLLBAR_WIDTH.default));
+  const width = widths.size === 1 ? [...widths][0] : MIXED;
+  const shown: Color = own === MIXED || !own ? AUTO_SCROLLBAR : own;
+  const writeColor = (c: Color | null, info: ChangeInfo) => ed.edit("Scrollbar color", info, () => void ed.engine.setProps(refs, protoFields({ prototypeScrollbarColor: c })));
+  const auto = own === null;
+  return (
+    <>
+      <div className={styles.labelled} data-scrollbar-color="">
+        <span className={styles.label}>{t("Color")}</span>
+        <ColorInput
+          className={styles.grow}
+          label={t("Scrollbar color")}
+          color={own === MIXED ? MIXED : colorToHex(shown)}
+          valueLabel={auto ? t("Auto") : undefined}
+          opacity={own === MIXED ? MIXED : toPercent(shown.a ?? 1)}
+          onColor={(hex, info, opacity) => writeColor(hexToColor(hex, opacity !== undefined ? opacity / 100 : (shown.a ?? 1)), info)}
+          onOpacity={(o, info) => writeColor({ ...shown, a: o / 100 }, info)}
+          onSwatchClick={(anchor) => setPicker(anchor)}
+        />
+        {!auto && <IconButton icon="24.minus.small" label={t("Use automatic color")} tone="secondary" onClick={() => writeColor(null, { final: true, source: "type" })} />}
+      </div>
+      <div className={styles.labelled} data-scrollbar-width="">
+        <span className={styles.label}>{t("Width")}</span>
+        <NumericInput
+          className={styles.grow}
+          label={t("Scrollbar width")}
+          prefix="24.stroke-weight"
+          value={width}
+          min={SCROLLBAR_WIDTH.min}
+          max={SCROLLBAR_WIDTH.max}
+          onChange={(v, info) => ed.edit("Scrollbar width", info, () => void ed.engine.setProps(refs, protoFields({ prototypeScrollbarWidth: v })))}
+          onCancel={() => ed.cancelEdit()}
+        />
+      </div>
+      {picker && (
+        <ColorPicker
+          value={{ type: "SOLID", color: { ...shown, a: 1 }, opacity: shown.a ?? 1 }}
+          anchor={picker}
+          paintTypes={["SOLID"]}
+          onChange={(next, info) => writeColor({ ...(next.color ?? shown), a: next.opacity ?? 1 }, info)}
+          onCancel={() => ed.cancelEdit()}
+          onClose={() => setPicker(null)}
+        />
+      )}
+    </>
   );
 }

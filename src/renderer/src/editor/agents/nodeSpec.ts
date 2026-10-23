@@ -587,6 +587,22 @@ const PROPS: Record<string, PropImpl> = {
     hidden: (v) => v !== true,
     write: (v) => ({ prototypeScrollbar: needBool(v) ? true : null }) as unknown as NodeFields,
   },
+  // Its thumb's colour with alpha ("#RRGGBBAA" or {r,g,b,a}; null: the automatic grey) and thickness (2–24; null: 6).
+  prototypeScrollbarColor: {
+    on: framesOnly,
+    read: (n) => {
+      const c = (n as unknown as Obj).prototypeScrollbarColor as Color | undefined;
+      return c ? colorHex(c) : null;
+    },
+    hidden: (v) => v === null || v === undefined,
+    write: (v) => ({ prototypeScrollbarColor: v === null ? null : (parseColor(v) ?? reject('a colour: "#RRGGBBAA" or {r, g, b, a} (0–1)')) }) as unknown as NodeFields,
+  },
+  prototypeScrollbarWidth: {
+    on: framesOnly,
+    read: (n) => ((n as unknown as Obj).prototypeScrollbarWidth as number | undefined) ?? null,
+    hidden: (v) => v === null || v === undefined,
+    write: (v) => ({ prototypeScrollbarWidth: v === null ? null : needNum(v, 2, 24) }) as unknown as NodeFields,
+  },
   // Text.
   characters: { on: textOnly, read: (n) => n.textData?.characters ?? "", hidden: () => false, write: (v) => ({ textData: { characters: typeof v === "string" ? v : reject("a string") } }) },
   fontFamily: { on: textOnly, read: (n) => n.fontName?.family ?? "Inter", hidden: () => false, write: (v, ctx) => ({ fontName: { family: typeof v === "string" && v.trim() ? v.trim() : reject("a font family name"), style: str(ctx.spec.fontStyle) ?? ctx.node.fontName?.style ?? "Regular", postscript: "" } }) },

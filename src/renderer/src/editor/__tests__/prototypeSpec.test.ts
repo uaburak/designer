@@ -105,5 +105,21 @@ describe("prototype Plugin API shapes", () => {
     settingsToDoc({ prototypeScrollbar: "yes" }, "n", errors);
     expect(errors).toHaveLength(1);
     expect(settingsFromDoc({ scrollDirection: "BOTH", prototypeScrollbar: true })).toEqual({ overflowDirection: "BOTH", prototypeScrollbar: true });
+    // Its colour ("#RRGGBBAA" or {r, g, b, a}) and width (2–24); null puts the automatic ones back.
+    const e2: string[] = [];
+    expect(settingsToDoc({ prototypeScrollbarColor: "#FF000080", prototypeScrollbarWidth: 10 }, "n", e2)).toEqual({
+      prototypeScrollbarColor: { r: 1, g: 0, b: 0, a: 128 / 255 },
+      prototypeScrollbarWidth: 10,
+    });
+    expect(settingsToDoc({ prototypeScrollbarColor: { r: 0, g: 0, b: 1, a: 0.4 } }, "n", e2)).toEqual({ prototypeScrollbarColor: { r: 0, g: 0, b: 1, a: 0.4 } });
+    expect(settingsToDoc({ prototypeScrollbarColor: null, prototypeScrollbarWidth: null }, "n", e2)).toEqual({ prototypeScrollbarColor: null, prototypeScrollbarWidth: null });
+    expect(e2).toEqual([]);
+    settingsToDoc({ prototypeScrollbarColor: "red-ish", prototypeScrollbarWidth: 40 }, "n", e2);
+    expect(e2).toHaveLength(2);
+    expect(settingsFromDoc({ prototypeScrollbar: true, prototypeScrollbarColor: { r: 1, g: 0, b: 0, a: 0.5 }, prototypeScrollbarWidth: 10 })).toEqual({
+      prototypeScrollbar: true,
+      prototypeScrollbarColor: "#FF000080",
+      prototypeScrollbarWidth: 10,
+    });
   });
 });

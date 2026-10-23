@@ -1598,28 +1598,16 @@ void Renderer::drawFrameScrollbar(const Document& doc, Guid id, const NodeProps&
   }
   s.horizontal = overflow == 1 || overflow == 3;
   s.vertical = overflow == 2 || overflow == 3;
+  s.thickness = frameScrollbarWidth(p);
   FrameScrollbarThumbs t = frameScrollbarThumbs(s);
   if (!t.h && !t.v) return;
-  // Neutral grey over the content: white at 30 % on a dark frame (the owner's reference, Figma's own panels), black at
-  // 30 % on a light one. A frame without a solid fill shows what is behind it: the nearest one up its parents decides
-  // (a list in a dark panel); none at all, black.
-  bool dark = false, found = false;
-  for (Guid at = id; at != kNoGuid && !found; at = doc.parentOf(at)) {
-    const Node* an = doc.get(at);
-    if (!an) break;
-    const NodeProps& ap = at == id ? p : an->props;
-    for (auto f = ap.fillPaints.rbegin(); f != ap.fillPaints.rend(); ++f) {
-      if (!f->visible || f->type != PaintType::SOLID || f->opacity * f->color.a < 0.5f) continue;
-      dark = 0.2126 * f->color.r + 0.7152 * f->color.g + 0.0722 * f->color.b < 0.5;
-      found = true;
-      break;
-    }
-  }
-  const Color ink = dark ? Color{1, 1, 1, 1} : Color{0, 0, 0, 1};
-  const double r = kFrameScrollbarThickness / 2;
+  // The frame's own colour (prototypeScrollbarColor) or the automatic grey, its alpha the thumb's.
+  const Color ink = frameScrollbarInk(doc, id, p);
+  if (ink.a <= 0) return;
+  const double r = s.thickness / 2;
   const CornerRadii radii{r, r, r, r};
   auto thumb = [&](const Rect& q) {
-    emit(makeShape(m * Mat2x3::translate(q.x, q.y), {q.w, q.h}, ShapeKind::Rect, radii, ink, alpha * 0.3, Color{}, 0, 0, 0), Pass::Shape);
+    emit(makeShape(m * Mat2x3::translate(q.x, q.y), {q.w, q.h}, ShapeKind::Rect, radii, Color{ink.r, ink.g, ink.b, 1}, alpha * ink.a, Color{}, 0, 0, 0), Pass::Shape);
   };
   if (t.v) thumb(t.vThumb);
   if (t.h) thumb(t.hThumb);

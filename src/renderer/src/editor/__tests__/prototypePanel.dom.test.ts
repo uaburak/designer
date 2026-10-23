@@ -136,16 +136,55 @@ describe("the Prototype tab", () => {
     act(() => void engine.setSelection(["2:10"]));
     const scroll = () => section(view.host, "Scroll behavior")!;
     const row = () => scroll().querySelector<HTMLElement>("[data-scrollbar-row]");
-    const read = () => engine.readNode("2:10") as { scrollDirection?: string; prototypeScrollbar?: boolean };
+    const read = () => engine.readNode("2:10") as { scrollDirection?: string; prototypeScrollbar?: boolean; prototypeScrollbarColor?: { r: number; g: number; b: number; a: number }; prototypeScrollbarWidth?: number };
     expect(row()).toBeNull(); // No scrolling: no Scrollbar
     click(scroll().querySelector('[aria-label="Overflow"]'));
     click([...document.querySelectorAll('[role="option"]')].find((o) => o.textContent?.trim() === "Vertical") ?? null);
     expect(read().scrollDirection).toBe("VERTICAL");
     expect(row()?.textContent).toContain("Scrollbar");
-    click(row()!.querySelector("input"));
+    // A toggle (the instance properties' Boolean switch), label on the left; off: no settings under it.
+    const toggle = () => row()!.querySelector<HTMLElement>('[role="switch"][aria-label="Scrollbar"]');
+    expect(toggle()?.getAttribute("aria-checked")).toBe("false");
+    expect(scroll().querySelector("[data-scrollbar-color]")).toBeNull();
+    expect(scroll().querySelector("[data-scrollbar-width]")).toBeNull();
+    click(toggle());
     expect(read().prototypeScrollbar).toBe(true);
-    click(row()!.querySelector("input"));
+    expect(toggle()?.getAttribute("aria-checked")).toBe("true");
+    // On: Color (Auto while it has none, at 30 %) and Width (6).
+    const colorRow = () => scroll().querySelector<HTMLElement>("[data-scrollbar-color]")!;
+    const widthRow = () => scroll().querySelector<HTMLElement>("[data-scrollbar-width]")!;
+    expect(colorRow().textContent).toContain("Color");
+    expect(colorRow().querySelector('button[aria-label="Scrollbar color: Auto"]')).not.toBeNull();
+    const field = (el: HTMLElement, label: string) => el.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
+    const type = (input: HTMLInputElement, text: string) => {
+      act(() => input.focus());
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, text);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      act(() => input.blur());
+    };
+    expect(field(colorRow(), "Scrollbar color opacity").value).toContain("30");
+    expect(widthRow().textContent).toContain("Width");
+    expect(field(widthRow(), "Scrollbar width").value).toBe("6");
+    type(field(widthRow(), "Scrollbar width"), "10");
+    expect(read().prototypeScrollbarWidth).toBe(10);
+    type(field(widthRow(), "Scrollbar width"), "100");
+    expect(read().prototypeScrollbarWidth).toBe(24); // clamped to 2–24
+    // The opacity typed over Auto: black at that opacity, then the hex.
+    type(field(colorRow(), "Scrollbar color opacity"), "50");
+    expect(read().prototypeScrollbarColor).toMatchObject({ r: 0, g: 0, b: 0, a: 0.5 });
+    type(field(colorRow(), "Scrollbar color"), "FF0000");
+    expect(read().prototypeScrollbarColor).toMatchObject({ r: 1, g: 0, b: 0, a: 0.5 });
+    // The swatch opens the colour picker.
+    click(colorRow().querySelector('button[aria-label="Scrollbar color: pick colour"]'));
+    expect(document.querySelector('[data-ds="Popover"]')).not.toBeNull();
+    // The minus puts Auto back.
+    click(colorRow().querySelector('button[aria-label="Use automatic color"]'));
+    expect(read().prototypeScrollbarColor).toBeUndefined();
+    click(toggle());
     expect(read().prototypeScrollbar).toBeUndefined();
+    expect(scroll().querySelector("[data-scrollbar-color]")).toBeNull();
     view.unmount();
     engine.destroy();
   });

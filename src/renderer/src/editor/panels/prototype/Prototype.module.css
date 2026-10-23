@@ -39,6 +39,9 @@
     width: 64px;
     color: var(--figma-color-text-secondary);
   }
+  /* Scrollbar's toggle: the instance properties' Boolean switch (32 × 16; Component.module.css .propSwitch) */
+  .scrollbarSwitch { width: var(--ds-space-8); }
+  .scrollbarSwitch[aria-checked="true"] > span { left: 14px; }
 
   /* Flows (live 2026-10-20): the name 16 in, in the secondary text; select frame, copy flow link and preview at the
      right (24 each) while the row is hovered or holds the focus */

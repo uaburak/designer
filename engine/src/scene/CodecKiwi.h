@@ -157,5 +157,9 @@ bool assignmentVarProp(std::string_view extra, ComponentPropValue& out);
 bool extraBool(const std::map<std::string, std::string, std::less<>>& extra, const char* key, bool fallback);
 // A uint or enum field of a raw sequence (a frame's scrollDirection): `fallback` when absent.
 uint32_t extraUint(const std::map<std::string, std::string, std::less<>>& extra, const char* key, uint32_t fallback);
+// A float field of a raw sequence (a frame's prototypeScrollbarWidth): false when absent or not finite.
+bool extraFloat(const std::map<std::string, std::string, std::less<>>& extra, const char* key, double& out);
+// A Color field of a raw sequence (a frame's prototypeScrollbarColor): false when absent.
+bool extraColor(const std::map<std::string, std::string, std::less<>>& extra, const char* key, Color& out);
 
 }  // namespace eng::codec

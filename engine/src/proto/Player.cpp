@@ -3059,6 +3059,7 @@ FrameScrollbarState Player::scrollbarState(Guid frame, bool top, Vec2 topScroll)
   Overflow o = overflow(*p);
   s.horizontal = o == Overflow::HORIZONTAL || o == Overflow::BOTH;
   s.vertical = o == Overflow::VERTICAL || o == Overflow::BOTH;
+  s.thickness = frameScrollbarWidth(*p);
   if (top) {
     Vec2 f = topShift(frame, topScroll);
     s.box = {f.x, f.y, std::min(p->size.x, view_.screen.x), std::min(p->size.y, view_.screen.y)};

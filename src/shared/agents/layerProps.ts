@@ -59,6 +59,8 @@ export const NAMED_PROPS: Record<string, LayerPropInfo> = {
   // Prototype › Scroll behavior (also set_prototype_settings).
   overflowDirection: { schema: en(["NONE", "HORIZONTAL", "VERTICAL", "BOTH"], "Frames: how the frame scrolls in a prototype (Overflow)"), fields: ["scrollDirection"] },
   prototypeScrollbar: { schema: bool("Frames that scroll (overflowDirection not NONE): Wecra's scrollbar over the content — dragged while presented, shown on the canvas; not in Figma"), fields: ["prototypeScrollbar"] },
+  prototypeScrollbarColor: { schema: { type: ["string", "object", "null"], description: 'Frames with prototypeScrollbar: the thumb\'s colour with its alpha, "#RRGGBBAA" or {r, g, b, a} (0–1); null: automatic (white at 30 % on a dark frame, black at 30 % on a light one)' }, fields: ["prototypeScrollbarColor"] },
+  prototypeScrollbarWidth: { schema: { type: ["number", "null"], minimum: 2, maximum: 24, description: "Frames with prototypeScrollbar: the thumb's thickness in px, 2–24; null: 6" }, fields: ["prototypeScrollbarWidth"] },
   // Text.
   characters: { schema: { type: "string", description: "TEXT: its text" }, fields: ["textData"] },
   fontFamily: { schema: { type: "string", description: 'TEXT: e.g. "Inter"' }, fields: ["fontName"] },

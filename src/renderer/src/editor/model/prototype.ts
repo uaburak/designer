@@ -158,7 +158,14 @@ export interface PrototypeFields {
   prototypeCursor?: PrototypeCursor;
   /** Wecra-only: a scrolling frame's Scrollbar, drawn over its content (absent: off) */
   prototypeScrollbar?: boolean;
+  /** Wecra-only: the Scrollbar's thumb colour with its alpha (absent: white or black at 30 % by the frame's fill) */
+  prototypeScrollbarColor?: Color;
+  /** Wecra-only: the Scrollbar's thumb thickness, px (absent: 6; 2–24) */
+  prototypeScrollbarWidth?: number;
 }
+
+/** The Scrollbar's thumb thickness: its default and limits (engine render/FrameScrollbar.h). */
+export const SCROLLBAR_WIDTH = { default: 6, min: 2, max: 24 } as const;
 
 /** Prototype › Video (schema VideoPlayback): Autoplay, Loop, the sound (muted). */
 export interface VideoPlayback {

@@ -3304,4 +3304,26 @@ uint32_t extraUint(const std::map<std::string, std::string, std::less<>>& extra,
   return v;
 }
 
+bool extraFloat(const std::map<std::string, std::string, std::less<>>& extra, const char* key, double& out) {
+  auto it = extra.find(key);
+  if (it == extra.end() || it->second.empty()) return false;
+  kiwi::ByteBuffer bb(reinterpret_cast<const uint8_t*>(it->second.data()), it->second.size());
+  uint32_t fid;
+  float v;
+  if (!bb.readVarUint(fid) || !bb.readVarFloat(v) || !std::isfinite(v)) return false;
+  out = v;
+  return true;
+}
+
+bool extraColor(const std::map<std::string, std::string, std::less<>>& extra, const char* key, Color& out) {
+  auto it = extra.find(key);
+  if (it == extra.end() || it->second.empty()) return false;
+  kiwi::ByteBuffer bb(reinterpret_cast<const uint8_t*>(it->second.data()), it->second.size());
+  uint32_t fid;
+  Color c;
+  if (!bb.readVarUint(fid) || !bb.readVarFloat(c.r) || !bb.readVarFloat(c.g) || !bb.readVarFloat(c.b) || !bb.readVarFloat(c.a)) return false;
+  out = c;
+  return true;
+}
+
 }  // namespace eng::codec

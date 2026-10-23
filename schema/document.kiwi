@@ -2690,6 +2690,8 @@ message NodeChange {
   PrototypeCursor prototypeCursor = 1006;         // @ours Prototype › Cursor (Wecra's website behaviours; docs/engine.md §3.4)
   OverlayStack overlayStack = 1007;               // @ours @nooverride overlay: Stack (Wecra; docs/engine.md §3.4)
   bool prototypeScrollbar = 1008;                 // @ours a scrolling frame's Scrollbar while presented and on the canvas (Prototype › Scroll behavior; Wecra; docs/engine.md §3.4)
+  Color prototypeScrollbarColor = 1009;           // @ours the Scrollbar's thumb colour with its alpha (absent: white / black at 30 % by the frame's fill; Wecra; docs/engine.md §3.4)
+  float prototypeScrollbarWidth = 1010;           // @ours the Scrollbar's thumb thickness, px (absent: 6; 2–24; Wecra; docs/engine.md §3.4)
 
   // --- Figma's layout version stamps: which of Figma's layout rules made the stored geometry. Kept through import and
   // export (a .fig written back keeps them); the engine's own derived data is stamped by Message.derivedDataVersion.

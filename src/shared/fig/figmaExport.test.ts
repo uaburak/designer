@@ -483,7 +483,7 @@ describe("Wecra-only prototype settings stay out of the export (overlay Fit to w
             size: { x: 200, y: 300 },
             scrollDirection: "VERTICAL",
             prototypeInteractions: ours ? [click, dbl] : [click],
-            ...(ours ? { prototypeScrollbar: true } : {}),
+            ...(ours ? { prototypeScrollbar: true, prototypeScrollbarColor: { r: 1, g: 0, b: 0, a: 0.5 }, prototypeScrollbarWidth: 10 } : {}),
           }),
           node(COMP, "SYMBOL", g(0, 1), "%", { name: "Tile", size: { x: 100, y: 100 } }),
           node(HIT, "RECTANGLE", COMP, "!", { name: "Hit", size: { x: 100, y: 100 }, ...(ours ? { prototypeInteractions: [dbl] } : {}) }),
@@ -510,7 +510,8 @@ describe("Wecra-only prototype settings stay out of the export (overlay Fit to w
     // Neither the enum value nor the field is in the schema the export embeds.
     const schema = decodeBinarySchema(figmaExportSchema());
     expect(schema.definitions.find((d) => d.name === "InteractionType")!.fields.map((f) => f.name)).not.toContain("ON_DOUBLE_CLICK");
-    expect(schema.definitions.find((d) => d.name === "NodeChange")!.fields.map((f) => f.name)).not.toContain("prototypeScrollbar");
+    const fields = schema.definitions.find((d) => d.name === "NodeChange")!.fields.map((f) => f.name);
+    for (const f of ["prototypeScrollbar", "prototypeScrollbarColor", "prototypeScrollbarWidth"]) expect(fields).not.toContain(f);
     // Figma's clipboard envelope leaves the double click out; our own Message keeps it.
     const stripped = withoutOurPrototypeValues(build(true));
     expect(JSON.stringify(stripped)).not.toContain("ON_DOUBLE_CLICK");

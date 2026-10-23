@@ -4,11 +4,14 @@
 //   dblclick; a third click starts a new pair; an instance plays its main's.
 // - Scrollbar (NodeChange.prototypeScrollbar, @ours): a scrolling frame with it on gets thumbs in the scene
 //   (PresentScene::scrollbars, drawn by the renderer after its children) that follow its scroll; dragging one scrolls
-//   the frame, and the press is no click.
+//   the frame, and the press is no click. Its own width and colour (prototypeScrollbarWidth / Color, @ours) size the
+//   thumbs, their hit and their ink.
 #include "doctest.h"
 #include "Helpers.h"
 #include "editor/Editor.h"
+#include "gfx/null/NullDevice.h"
 #include "proto/Player.h"
+#include "render/Renderer.h"
 #include "proto/Prototype.h"
 #include "render/FrameScrollbar.h"
 #include "scene/CodecKiwi.h"
@@ -40,7 +43,8 @@ std::string node(const char* navigation, Guid dest) {
 // Home (375 × 812): a Card (On click → open the overlay "Over") holding a Button (On double click → Next); an instance
 // of the component "Tile" whose "Hit" has On double click → Next; a List (0, 400, 200 × 300, overflow Vertical,
 // Scrollbar on) holding 900 px of Content (On click → Next), and a Short list whose content fits.
-std::vector<NodeChange> scene(bool scrollbar = true) {
+// `width` / `color`: the List's prototypeScrollbarWidth / prototypeScrollbarColor as JSON (none: absent).
+std::vector<NodeChange> scene(bool scrollbar = true, const char* width = nullptr, const char* color = nullptr) {
   auto nodes = baseChanges();
   nodes.push_back(make(HOME, NodeType::FRAME, kPage, "!", {0, 0, 375, 812}, "Home"));
   nodes.push_back(make(NEXT, NodeType::FRAME, kPage, "\"", {500, 0, 375, 812}, "Next"));
@@ -62,6 +66,8 @@ std::vector<NodeChange> scene(bool scrollbar = true) {
   NodeChange list = make(LIST, NodeType::FRAME, HOME, "#", {0, 400, 200, 300}, "List");
   list.props.extra["scrollDirection"] = extra("scrollDirection", R"("VERTICAL")");
   if (scrollbar) list.props.extra["prototypeScrollbar"] = extra("prototypeScrollbar", "true");
+  if (width) list.props.extra["prototypeScrollbarWidth"] = extra("prototypeScrollbarWidth", width);
+  if (color) list.props.extra["prototypeScrollbarColor"] = extra("prototypeScrollbarColor", color);
   nodes.push_back(list);
   NodeChange content = make(CONTENT, NodeType::RECTANGLE, LIST, "!", {0, 0, 200, 900}, "Content");
   content.props.extra["prototypeInteractions"] = extra("prototypeInteractions", ix("ON_CLICK", node("NAVIGATE", NEXT)));
@@ -78,10 +84,10 @@ struct Fixture {
   Editor ed;
   proto::Player player{ed};
   double t = 0;
-  explicit Fixture(bool scrollbar = true) {
+  explicit Fixture(bool scrollbar = true, const char* width = nullptr, const char* color = nullptr) {
     ed.setSessionID(1);
     ed.setViewport(375, 812, 1, 375, 812);
-    ed.loadDocument(scene(scrollbar), kNoGuid);
+    ed.loadDocument(scene(scrollbar, width, color), kNoGuid);
     ed.takeEvents();
     REQUIRE(player.start(kPage, HOME));
     wait(16);
@@ -227,4 +233,57 @@ TEST_CASE("proto.scrollbar: off, no thumbs and a press there is the content's") 
   CHECK(!f.player.scene().scrollbars.count(LIST));
   f.click(193, 420);
   CHECK(f.player.screen() == NEXT);
+}
+
+TEST_CASE("proto.scrollbar: its own width and colour (prototypeScrollbarWidth / Color) size the thumbs, their hit and ink") {
+  // Absent: 6 thick, the automatic ink (black at 30 % over Home's light fill).
+  {
+    Fixture f;
+    const NodeProps& p = f.ed.document().get(LIST)->props;
+    CHECK(frameScrollbarWidth(p) == doctest::Approx(6));
+    Color ink = frameScrollbarInk(f.ed.document(), LIST, p);
+    CHECK(ink.r == doctest::Approx(0));
+    CHECK(ink.a == doctest::Approx(0.3));
+  }
+  // Clamped to 2–24.
+  NodeProps wide, thin;
+  wide.extra["prototypeScrollbarWidth"] = extra("prototypeScrollbarWidth", "40");
+  thin.extra["prototypeScrollbarWidth"] = extra("prototypeScrollbarWidth", "0.5");
+  CHECK(frameScrollbarWidth(wide) == doctest::Approx(24));
+  CHECK(frameScrollbarWidth(thin) == doctest::Approx(2));
+
+  // The List with a 12 px red thumb at 50 %.
+  Fixture f(true, "12", R"({"r":1,"g":0,"b":0,"a":0.5})");
+  const NodeProps& p = f.ed.document().get(LIST)->props;
+  CHECK(frameScrollbarWidth(p) == doctest::Approx(12));
+  Color ink = frameScrollbarInk(f.ed.document(), LIST, p);
+  CHECK(ink.r == doctest::Approx(1));
+  CHECK(ink.g == doctest::Approx(0));
+  CHECK(ink.b == doctest::Approx(0));
+  CHECK(ink.a == doctest::Approx(0.5));
+  FrameScrollbarState st = f.player.scene().scrollbars.at(LIST);
+  CHECK(st.thickness == doctest::Approx(12));
+  FrameScrollbarThumbs t = frameScrollbarThumbs(st);
+  REQUIRE(t.v);
+  // 12 thick, still 4 in from the right edge (200 - 4 - 12) and from the track's ends.
+  CHECK(t.vTrack.x == doctest::Approx(184));
+  CHECK(t.vTrack.w == doctest::Approx(12));
+  CHECK(t.vThumb.w == doctest::Approx(12));
+  CHECK(t.vTrack.h == doctest::Approx(292));
+  CHECK(t.vThumb.h == doctest::Approx(292.0 / 3));
+  // A press at x 185 (on the 12 px thumb, outside a 6 px one and its 4 px slop: 186-200) drags it, and is no click.
+  double y = 400 + t.vThumb.y + 10;
+  f.player.pointer(PointerEvent::MOVE, 185, y, 0, 0, f.t);
+  f.player.pointer(PointerEvent::DOWN, 185, y, 1, 0, f.t);
+  f.player.pointer(PointerEvent::MOVE, 185, y + 30, 1, 0, f.t);
+  CHECK(f.player.scrollOf(LIST).y == doctest::Approx(30 * 600 / (292 - 292.0 / 3)));
+  f.player.pointer(PointerEvent::UP, 185, y + 30, 0, 0, f.t);
+  f.wait(100);
+  CHECK(f.player.screen() == HOME);
+  // The renderer draws the scene with it.
+  gfx::NullDevice dev;
+  Renderer r(dev);
+  r.setTextLayouts(&f.ed);
+  RenderStats rs = r.renderScene(f.ed.document(), kPage, f.ed.viewport(), f.player.scene());
+  CHECK(rs.nodes >= 3);
 }

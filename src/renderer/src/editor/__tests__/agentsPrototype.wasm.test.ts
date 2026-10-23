@@ -180,6 +180,38 @@ describe("MCP prototype tools", () => {
     expect(read(sheet)).toMatchObject({ scrollDirection: "BOTH", prototypeScrollbar: true });
     json(await call("set_prototype_settings", { nodes: [{ nodeId: home, overflowDirection: "HORIZONTAL", prototypeScrollbar: true }] }));
     expect(read(home)).toMatchObject({ scrollDirection: "HORIZONTAL", prototypeScrollbar: true });
+
+    // Its colour and width: "#RRGGBBAA" or {r, g, b, a}, 2–24; null back to the automatic ones.
+    type Rgba = { r: number; g: number; b: number; a: number };
+    const look = (id: string) => engine.readNode(id) as { prototypeScrollbarColor?: Rgba; prototypeScrollbarWidth?: number };
+    const close = (c: Rgba | undefined, want: Rgba) => {
+      expect(c).toBeTruthy();
+      for (const k of ["r", "g", "b", "a"] as const) expect(c![k]).toBeCloseTo(want[k], 2);
+    };
+    const u2 = json(await call("update_nodes", { updates: [{ nodeId: home, prototypeScrollbarColor: "#FF000080", prototypeScrollbarWidth: 10 }] }));
+    expect(u2.summary, JSON.stringify(u2)).toContain("everything applied");
+    close(look(home).prototypeScrollbarColor, { r: 1, g: 0, b: 0, a: 128 / 255 });
+    expect(look(home).prototypeScrollbarWidth).toBe(10);
+    expect(text(await call("update_nodes", { updates: [{ nodeId: home, prototypeScrollbarWidth: 40 }] }))).toContain("24 or less");
+    expect(look(home).prototypeScrollbarWidth).toBe(10);
+    json(await call("update_nodes", { updates: [{ nodeId: home, prototypeScrollbarColor: null, prototypeScrollbarWidth: null }] }));
+    expect(look(home).prototypeScrollbarColor).toBeUndefined();
+    expect(look(home).prototypeScrollbarWidth).toBeUndefined();
+    const s2 = json(await call("set_properties", { nodeId: sheet, properties: { prototypeScrollbarColor: { r: 0, g: 0, b: 1, a: 0.4 }, prototypeScrollbarWidth: 8 } }));
+    expect(s2.summary, JSON.stringify(s2)).toContain("everything applied");
+    close(look(sheet).prototypeScrollbarColor, { r: 0, g: 0, b: 1, a: 0.4 });
+    expect(look(sheet).prototypeScrollbarWidth).toBe(8);
+    json(await call("set_prototype_settings", { nodes: [{ nodeId: home, prototypeScrollbarColor: "#FFFFFF4D", prototypeScrollbarWidth: 12 }] }));
+    close(look(home).prototypeScrollbarColor, { r: 1, g: 1, b: 1, a: 0x4d / 255 });
+    expect(look(home).prototypeScrollbarWidth).toBe(12);
+    const c = json(await call("create_nodes", { parentId: home, nodes: [{ type: "FRAME", name: "Feed", width: 100, height: 100, overflowDirection: "VERTICAL", prototypeScrollbar: true, prototypeScrollbarColor: "#00FF00", prototypeScrollbarWidth: 4 }] }));
+    const feed = c.created?.[0]?.id as string;
+    expect(feed, JSON.stringify(c)).toBeTruthy();
+    close(look(feed).prototypeScrollbarColor, { r: 0, g: 1, b: 0, a: 1 });
+    expect(look(feed).prototypeScrollbarWidth).toBe(4);
+    // get_prototype reads them back.
+    const p = json(await call("get_prototype", {}));
+    expect(p.settings).toEqual(expect.arrayContaining([expect.objectContaining({ nodeId: home, prototypeScrollbar: true, prototypeScrollbarColor: "#FFFFFF4D", prototypeScrollbarWidth: 12 })]));
   });
 
   it("describe_schema gives any field's shape", async () => {
