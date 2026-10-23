@@ -33,6 +33,15 @@ const IMAGE_UPLOAD_MS = 100;
 /** Figma's default page colour, which the engine draws as #1E1E1E in the dark theme (as the Design panel shows it) */
 const DEFAULT_PAGE = hexToColor("#f5f5f5");
 
+/**
+ * View › Rulers (⇧R) as the file kept it; a file without a kept choice opens with the rulers on (the owner's default).
+ * Only a choice the user makes is written (trackUiState), so the default never becomes the file's choice.
+ */
+export function restoreViewOptions(ed: EditorController): void {
+  const kept = ed.source.uiState?.rulers;
+  ed.ui.set({ rulers: typeof kept === "boolean" ? kept : true });
+}
+
 /** Puts back the file's last page, camera, selection and panel widths; true when a camera was restored. */
 export function restoreUiState(ed: EditorController): boolean {
   const state = ed.source.uiState;
@@ -68,11 +77,17 @@ function trackUiState(ed: EditorController): () => void {
   };
   let widths = `${ed.ui.get().leftWidth}:${ed.ui.get().rightWidth}`;
   let widthTimer: ReturnType<typeof setTimeout> | undefined;
+  let rulers = ed.ui.get().rulers;
   const offs = [
     ed.store.subscribe("camera", schedule),
     ed.store.subscribe("selection", schedule),
     ed.store.subscribe("page", schedule),
     ed.ui.subscribe(() => {
+      // View › Rulers turned on or off: the file keeps the choice.
+      if (ed.ui.get().rulers !== rulers) {
+        rulers = ed.ui.get().rulers;
+        set.call(ed.source, { rulers });
+      }
       const next = `${ed.ui.get().leftWidth}:${ed.ui.get().rightWidth}`;
       if (next !== widths) {
         widths = next;

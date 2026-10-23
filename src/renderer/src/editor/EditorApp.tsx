@@ -36,7 +36,8 @@ import { attachKeyboard, runTextKey } from "./keyboard";
 import { attachClipboard, pasteLinkOnText } from "./clipboardIO";
 import { attachPropertyRows } from "./propertyRows";
 import { attachDesktop } from "./desktop";
-import { attachPersistence, noteOpenInfo, restoreUiState } from "./persistence";
+import { attachPersistence, noteOpenInfo, restoreUiState, restoreViewOptions } from "./persistence";
+import { attachPageCameras } from "./pageCameras";
 import { runEditorCommand } from "./commands";
 import { useUI } from "./hooks";
 import { Rail } from "./panels/Rail";
@@ -304,6 +305,8 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
       cleanups.push(attachRound5(ed));
       cleanups.push(attachExportAccess(ed));
       if (visibleRef.current) cleanups.push(attachViewInsets(engine, canvas, visibleRef.current));
+      // View › Rulers as the file kept it (on for a file without a choice).
+      restoreViewOptions(ed);
       // The file's last page and camera when the source kept them, else the first view asked for.
       if (!restoreUiState(ed)) {
         const view = viewRef.current;
@@ -315,6 +318,8 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
           engine.command("ZOOM_TO_FIT");
         } else engine.setCamera({ x: view.at.x + inset.left, y: view.at.y + inset.top, zoom: view.zoom });
       }
+      // Every page keeps its own camera from here on; a page shown for the first time is zoomed to fit.
+      cleanups.push(attachPageCameras(ed));
       noteOpenInfo(ed, { derivedStored });
       cleanups.push(attachPersistence(ed));
       canvas.focus({ preventScroll: true });

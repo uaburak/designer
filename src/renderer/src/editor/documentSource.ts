@@ -209,6 +209,8 @@ export interface EditorUiState {
   rightPanelWidth: number;
   /** Social mode's current brand (docs/social.md §6.2) */
   socialBrandId?: string | null;
+  /** View › Rulers as the user last set it in this file; unset: never chosen (the rulers show) */
+  rulers?: boolean;
 }
 
 /** A saved version, as the version history lists it. */

@@ -384,8 +384,15 @@ export interface FileUiState {
   currentPageId: string | null;
   pages: Record<string, { viewport: { x: number; y: number; zoom: number }; selection: string[] }>;
   leftPanelWidth: number; rightPanelWidth: number;
+  socialBrandId?: string | null;
+  rulers?: boolean;   // View › Rulers as the user last set it; unset: never chosen, the editor shows them
 }
 ```
+
+  Each page's viewport is that page's own: the editor keeps every page's camera in memory while the file is open
+  (`editor/pageCameras.ts`) — switching back to a page puts its camera back, a page shown for the first time in the
+  session is zoomed to fit (an empty one: origin at 100 %) — and `ui.json` keeps each page's last one, of which the
+  open restores the current page's.
 
 - **Undo history** (`undo.kiwi`, local only, per device; atlas 22 §2, wave 6): the engine's export of the local user's
   stacks (Figma's `Message.localUndoStack` 22 / `localRedoStack` 23, each step with its `undoBatchPageIds` 46) — the

@@ -147,6 +147,8 @@ export interface FileUiState {
   rightPanelWidth: number;
   /** Social mode's current brand (docs/social.md §6.2); unset: none picked */
   socialBrandId?: string | null;
+  /** View › Rulers as the user last set it in this file; unset: never chosen (the editor shows them) */
+  rulers?: boolean;
 }
 
 // --- writes (docs/data.md §5.4) ---
