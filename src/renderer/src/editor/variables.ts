@@ -1004,6 +1004,43 @@ export function bindPaint(ed: EditorController, refs: readonly Guid[], field: Pa
   });
 }
 
+/** The members of an effect a variable binds (schema Effect.radiusVar, colorVar, spreadVar, xVar, yVar). */
+export type EffectMember = "radius" | "spread" | "x" | "y" | "color";
+
+/**
+ * Binds effect `index`'s `member` on every ref to a variable (a number; a colour for `color`); null detaches (the value
+ * it shows stays). The engine's BIND_VARIABLE `effects[i].member`; without it, the alias and its value written here.
+ */
+export function bindEffect(ed: EditorController, refs: readonly Guid[], index: number, member: EffectMember, variable: Guid | null): void {
+  const a = assets(ed);
+  const v = variable ? a.lookup.variable(variable) : null;
+  if (variable && (!v || v.type !== (member === "color" ? "COLOR" : "FLOAT"))) return;
+  const target = `effects[${index}].${member}`;
+  if (engineResolves(ed) && (v ? engineDid(ed, VARIABLE_COMMAND.bind, { refs: [...refs], target, variable: v.id }) : engineDid(ed, VARIABLE_COMMAND.detach, { refs: [...refs], target }))) return;
+  ed.batch(variable ? "Apply variable" : "Detach variable", () => {
+    for (const n of ed.engine.readNodes(refs)) {
+      const effects = [...((n.effects ?? []) as Record<string, unknown>[])];
+      const e = effects[index];
+      if (!e) continue;
+      const key = `${member}Var`;
+      const next: Record<string, unknown> = { ...e };
+      if (v) {
+        next[key] = { dataType: "ALIAS", resolvedDataType: v.type, value: { alias: { guid: guidVal(v.id) } } };
+        const value = resolveVariable(v.id, a.lookup);
+        const offset = (e.offset as { x: number; y: number } | undefined) ?? { x: 0, y: 0 };
+        if (member === "color" && value && typeof value === "object") next.color = value;
+        else if (typeof value === "number") {
+          if (member === "x") next.offset = { ...offset, x: value };
+          else if (member === "y") next.offset = { ...offset, y: value };
+          else next[member] = value;
+        }
+      } else delete next[key];
+      effects[index] = next;
+      ed.engine.setProps([n.guid], asFields({ effects }));
+    }
+  });
+}
+
 /** "Extend collection" (R3-32): a collection inheriting `collection`'s variables and modes; its values overridable. */
 export function extendCollection(ed: EditorController, collection: Guid): Guid | null {
   // Chains: C extends B extends A — at most 10 sets (Figma, atlas 11 §3.1).

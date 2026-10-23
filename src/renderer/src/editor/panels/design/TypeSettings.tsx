@@ -18,6 +18,7 @@ import { styleWeight } from "../../fontList";
 import { useEditor } from "../../controller";
 import { AXIS_LABELS, axisTagNumber, featureName, withAxis, type TextSummary } from "../../model/text";
 import { exitToCanvas } from "./Sections";
+import { VariableField } from "./Variables";
 import { fields, type ExtraFields, type PanelNode } from "./shared";
 import { t, useT } from "@/i18n";
 import styles from "./Design.module.css";
@@ -351,7 +352,9 @@ function Basics({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSum
         onChange={(v) => list(v as "NONE" | "ORDERED" | "UNORDERED")}
       />
       <span className={styles.settingsLabel}>{t("Paragraph spacing")}</span>
-      <NumericInput className={styles.settingsField} scrubHandle="previous" label={t("Paragraph spacing")} value={paragraph} min={0} onChange={(v, info) => write("Paragraph spacing", { paragraphSpacing: v }, info)} onCancel={() => ed.cancelEdit()} onExit={exitToCanvas(ed)} />
+      <VariableField nodes={nodes} fields={["PARAGRAPH_SPACING"]} className={styles.settingsField}>
+        <NumericInput scrubHandle="previous" label={t("Paragraph spacing")} value={paragraph} min={0} onChange={(v, info) => write("Paragraph spacing", { paragraphSpacing: v }, info)} onCancel={() => ed.cancelEdit()} onExit={exitToCanvas(ed)} />
+      </VariableField>
       {lineType !== "PLAIN" && (
         <>
           <span className={styles.settingsLabel}>{t("List spacing")}</span>
@@ -577,7 +580,9 @@ function Details({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSu
       {toggle2("Hanging punctuation", hanging === true, applies.hanging, (v) => write("Hanging punctuation", { hangingPunctuation: v }), false)}
       {toggle2("Hanging lists", hangingList === true, applies.hangingList, (v) => write("Hanging lists", { hangingList: v }), false)}
       <span className={styles.settingsLabel}>{t("Paragraph indent")}</span>
-      <NumericInput className={styles.settingsField} scrubHandle="previous" label={t("Paragraph indent")} value={indent} min={0} onChange={(v, i) => write("Paragraph indent", { paragraphIndent: v }, i)} onCancel={() => ed.cancelEdit()} />
+      <VariableField nodes={nodes} fields={["PARAGRAPH_INDENT"]} className={styles.settingsField}>
+        <NumericInput scrubHandle="previous" label={t("Paragraph indent")} value={indent} min={0} onChange={(v, i) => write("Paragraph indent", { paragraphIndent: v }, i)} onCancel={() => ed.cancelEdit()} />
+      </VariableField>
       {heading("Letter case")}
       <span className={styles.settingsLabel}>{t("Case")}</span>
       <SegmentedControl
