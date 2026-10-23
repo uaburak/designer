@@ -358,8 +358,10 @@ export const size = {
   "dev-panel": 320,
   "panel-header": 64,
   "right-header": 80,
-  rail: 56, // live: the navigation bar (a 1px line after it)
-  "rail-item": 56, // live: a tab button, 56 × 56 (tile + label)
+  // The navigation bar (a 1px line after it): 40, the owner's width (2026-10-23; live Figma's is 56), its 32 tiles 4
+  // in; with View › Additional labels it takes a labelled tab's 56 (Rail.module.css, EditorApp.module.css)
+  rail: 40,
+  "rail-item": 56, // live: a labelled tab button, 56 × 56 (tile + label)
   "rail-tile": 32,
   tabbar: 38,
   "tab-home": 40,

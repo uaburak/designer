@@ -10,7 +10,9 @@
  * from one goes on over the rows it crosses, a chevron opens (⌥ opens every level), "Collapse layers" (⌥L) closes
  * all but the selection's branch, a drag reorders and reparents (Engine.moveNodes; past 3 px, as Figma's: the list
  * scrolls while the pointer is past its top or bottom, and resting 1000 ms on the middle third of a closed layer opens
- * it), an open top-level layer's row stays pinned at the top while its layers scroll under it (Figma's sticky header),
+ * it), an open top-level layer's row stays pinned at the top while its layers scroll under it (Figma's sticky header;
+ * a line under it, and under the section's header, while rows are under them), a hidden layer's row and its layers'
+ * are dimmed, name and glyph,
  * and a canvas selection opens its ancestors and scrolls into view (Figma's placement: from above at the top, under a
  * pinned row; from below at mid-height). Figma's rules: docs/research/atlas/02-editor-chrome.md §3.6.
  */
@@ -247,6 +249,8 @@ export function Layers() {
   const selection = useSelection(ed.store).refs;
   const hover = useHover(ed.store);
   const [drop, setDrop] = useState<DropTarget | null>(null);
+  // Rows scrolled under the header: the line under it shows (Figma's divider, only while something is under it).
+  const [scrolled, setScrolled] = useState(false);
   const press = useRef<{ id: Guid; x: number; y: number; dragging: Guid[] | null; deferred: boolean } | null>(null);
   const cellDrag = useRef<CellDrag | null>(null);
   // A drag's hover-to-expand: the closed layer it rests on and its timer.
@@ -535,6 +539,7 @@ export function Layers() {
         aria-label={t("Layers")}
         aria-multiselectable
         data-layer-list=""
+        data-scrolled={scrolled ? "" : undefined}
         onPointerLeave={() => {
           if (!press.current) ed.engine.setHover([]);
         }}
@@ -545,7 +550,10 @@ export function Layers() {
           axis="both"
           contentWidth={width.px}
           // Scrolled sideways, the names fade at the new visible edge (CSS only: no render).
-          onScroll={(e) => syncClip(e.currentTarget)}
+          onScroll={(e) => {
+            syncClip(e.currentTarget);
+            setScrolled(e.currentTarget.scrollTop > 0);
+          }}
           scrollToIndex={firstSelected >= 0 ? firstSelected : undefined}
           // Figma's placement; a nested row coming from above stops under its pinned top-level row.
           scrollAlign="figma"
@@ -577,6 +585,7 @@ export function Layers() {
                 hovered={hover === row.id}
                 locked={node.locked}
                 hidden={!node.visible}
+                hiddenAncestor={node.visible && ancestorsOf(tree, row.id).some((a) => tree.nodes.get(a)?.visible === false)}
                 strong={row.depth === 0 && ((node.type === "FRAME" && !node.group) || node.type === "SECTION" || node.type === "SYMBOL")}
                 renaming={renaming === row.id}
                 run={runs.get(row.id)}

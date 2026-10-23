@@ -1,11 +1,11 @@
 /**
- * The left sidebar (240, resizable): the file header (name ▾ with the Edit file menu and rename, the location,
- * Minimize UI), then what the navigation bar's tab shows — File: Pages and Layers (or Find and replace, ⌘F),
+ * The left sidebar (240, resizable): the file header (name ▾ with the Edit file menu, double-click renames; Minimize
+ * UI — no location line under the name: the owner, 2026-10-23), then what the navigation bar's tab shows — File: Pages and Layers (or Find and replace, ⌘F),
  * Assets, Agents (panels/agents: chats with the AI tools on this computer) and Brands. Figma's Tools tab is not built
  * (the owner, 2026-10-19): the plugins run from Actions (⌘K) › Plugins and the main menu's Plugins ▸, Wecra's image
  * tools from Actions and the image's own entry points.
  */
-import { useCallback, useState, useSyncExternalStore } from "react";
+import { useState } from "react";
 import { Icon, IconButton, MenuButton, ResizeHandle, TextInput, showToast, type MenuEntry } from "@/ds";
 import { useEditor } from "../controller";
 import { command, runEditorCommand, shortcutOf } from "../commands";
@@ -61,11 +61,6 @@ export function FileHeader({ menu }: { menu?: () => MenuEntry[] } = {}) {
   const ed = useEditor();
   const name = useUI((s) => s.fileName);
   const renaming = useUI((s) => s.renaming?.kind === "file");
-  // Where the file is (its folder, or Drafts): follows moves, and an org file's folder name once the store read it.
-  const location = useSyncExternalStore(
-    useCallback((changed: () => void) => ed.source.onMetaChanged?.(changed) ?? (() => {}), [ed]),
-    () => ed.source.location
-  );
   // The Edit file menu in Figma's order (docs/research/atlas/02-editor-chrome.md §3.3, EDITOR_FILENAME_DROPDOWN): the
   // branch rows; version history, the library's, analytics, Export; the color profile; Duplicate, Rename, Move. Built
   // when the menu opens (the branch rows follow the file's branch state).
@@ -90,12 +85,14 @@ export function FileHeader({ menu }: { menu?: () => MenuEntry[] } = {}) {
         {renaming ? (
           <RenameFile name={name} />
         ) : (
-          <MenuButton label={t("Edit file")} entries={menu ?? entries}onSelect={(id) => runEditorCommand(ed, id)} className={styles.fileButton}>
-            <BranchTitle name={name} />
-            <Icon name="16.chevron.down" />
-          </MenuButton>
+          // Figma: a click opens the name's menu, a double-click renames the file in place (Enter / leaving commits, Esc cancels).
+          <span className={styles.fileName} data-file-name="" onDoubleClick={() => runEditorCommand(ed, "file.rename")}>
+            <MenuButton label={t("Edit file")} entries={menu ?? entries} onSelect={(id) => runEditorCommand(ed, id)} className={styles.fileButton}>
+              <BranchTitle name={name} />
+              <Icon name="16.chevron.down" />
+            </MenuButton>
+          </span>
         )}
-        <span className={styles.fileLocation}>{location}</span>
       </div>
       <IconButton icon="24.minimize-ui" size="large" className={styles.fileMinimize} label={t("Minimize UI")} shortcut={shortcutOf(command("view.minimize-ui"))} onClick={() => runEditorCommand(ed, "view.minimize-ui")} />
     </div>

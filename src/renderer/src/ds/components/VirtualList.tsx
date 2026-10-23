@@ -24,7 +24,8 @@ export interface VirtualListProps {
    * Rows pinned at the top while the list scrolls under them (Figma's sticky headers): the block row `index` belongs
    * to — its header row `start` and the row past its end `end` (row indices) — or null. The header is drawn with CSS
    * `position: sticky` in a box spanning its block, so the browser keeps it at the top (and the next block's header
-   * pushes it up) in the same frame as the scroll — never repositioned from a scroll event a frame late.
+   * pushes it up) in the same frame as the scroll — never repositioned from a scroll event a frame late. While its
+   * block's rows are scrolled under it the header carries `data-stuck` (Layers draws its line then).
    */
   stickyBlock?: (index: number) => { start: number; end: number } | null;
   className?: string;
@@ -84,7 +85,7 @@ export function VirtualList({ count, rowHeight, overscan = 8, renderRow, scrollT
   for (const [start, end] of blocks)
     rows.push(
       <div key={`block:${start}`} data-sticky-block="" style={{ position: "absolute", top: start * rowHeight, left: 0, right: 0, height: (Math.min(end, count) - start) * rowHeight, zIndex: 1, pointerEvents: "none" }}>
-        <div data-sticky-row="" style={{ position: "sticky", top: 0, height: rowHeight, background: "var(--figma-color-bg)", pointerEvents: "auto" }}>
+        <div data-sticky-row="" data-stuck={view.top > start * rowHeight ? "" : undefined} style={{ position: "sticky", top: 0, height: rowHeight, background: "var(--figma-color-bg)", pointerEvents: "auto" }}>
           {renderRow(start)}
         </div>
       </div>

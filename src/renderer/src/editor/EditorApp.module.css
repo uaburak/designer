@@ -10,6 +10,8 @@
     letter-spacing: var(--ds-tracking-body-medium);
     user-select: none;
   }
+  /* The navigation bar with its labels on is a labelled tab wide (Rail.module.css): what sits by it follows */
+  .editor:has([data-ds="Rail"][data-labels]) { --ds-size-rail: var(--ds-size-rail-item); }
   .railPlaceholder {
     flex: none;
     width: var(--ds-size-rail);

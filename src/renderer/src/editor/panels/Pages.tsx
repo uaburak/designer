@@ -3,7 +3,8 @@
  * buttons 8 in and 8 apart, the current one highlighted with its name 550; an 8px "Resize handle" on the line under
  * the list). Click
  * goes to a page, double-click renames it, a new page opens its rename, the context menu is live Figma's (menus.ts
- * pageMenu: Copy link to page │ Rename page, Duplicate page │ Move up / down │ Delete page), and a drag reorders. An
+ * pageMenu: Copy link to page │ Rename page, Duplicate page │ Move up / down │ Delete page), and a drag reorders (the
+ * Layers panel's line, its threshold and edge scroll; Esc cancels). An
  * empty page named like a divider is one (Figma's rules, docs/research/atlas/02-editor-chrome.md §3.5): a line on a 16
  * pitch, not a page to go to — or, "--- Components", a titled one; renaming a divider writes "--- <title>". Find (⌘F)
  * opens Find and replace in place of Pages and Layers.
@@ -18,6 +19,7 @@ import { command, shortcutOf } from "../commands";
 import { openFind } from "../find";
 import { pageMenu, runPageMenuItem } from "../menus";
 import { usePages, useUI } from "../hooks";
+import { LAYER_DRAG_THRESHOLD, dragScrollStep } from "../model/layerTree";
 import styles from "./Panels.module.css";
 import { t, useT } from "@/i18n";
 
@@ -70,7 +72,9 @@ export function Pages() {
   const height = useUI((s) => s.pagesHeight ?? null);
   const [open, setOpen] = useState(true);
   const [menu, setMenu] = useState<{ at: { x: number; y: number }; page: Guid } | null>(null);
-  const [drag, setDrag] = useState<{ page: Guid; index: number; dy: number } | null>(null);
+  // A drag: the page moved, and the row the line is drawn before or after.
+  const [drag, setDrag] = useState<{ page: Guid; row: Guid; position: "before" | "after" } | null>(null);
+  const dragged = useRef(false);
   const list = useRef<HTMLDivElement>(null);
 
   // Dividers: only pages named like one are read (their child count), and only those that are empty count — a plain
@@ -89,33 +93,63 @@ export function Pages() {
     if (next && next !== pages.find((p) => p.guid === page)?.name) ed.setProps([page], { name: next }, "Rename page");
   };
 
-  // Drag to reorder: past 4px the row follows the pointer; the drop index counts the other rows whose middle is above it.
+  // Drag to reorder (as the Layers panel's): past 3 px the row stays where it is and a line shows where it goes — the
+  // drop index counts the other rows whose middle is above the pointer —, the list scrolls while the pointer is near or
+  // past its top or bottom, Esc cancels, and the drop moves the page there (one undo step: the engine's move).
   const startDrag = (e: React.PointerEvent, page: Guid) => {
     if (e.button !== 0 || renaming) return;
+    const startX = e.clientX;
     const startY = e.clientY;
     const from = pages.findIndex((p) => p.guid === page);
     let index: number | null = null;
+    const others = () => [...(list.current?.querySelectorAll<HTMLElement>('[data-ds="PageRow"]') ?? [])].filter((_, i) => i !== from);
+    const autoScroll = (y: number) => {
+      const v = list.current;
+      if (!v) return;
+      const r = v.getBoundingClientRect();
+      const edge = PAGE_PITCH / 2;
+      if (y < r.top + edge) v.scrollTop -= dragScrollStep(r.top + edge - y, PAGE_PITCH);
+      else if (y > r.bottom - edge) v.scrollTop += dragScrollStep(y - (r.bottom - edge), PAGE_PITCH);
+    };
     const move = (ev: PointerEvent) => {
-      if (index === null && Math.abs(ev.clientY - startY) < 4) return;
-      const rows = [...(list.current?.querySelectorAll<HTMLElement>('[data-ds="PageRow"]') ?? [])];
-      if (!rows.length) return;
-      index = rows.filter((el, i) => {
-        if (i === from) return false;
+      if (index === null && Math.hypot(ev.clientX - startX, ev.clientY - startY) <= LAYER_DRAG_THRESHOLD) return;
+      autoScroll(ev.clientY);
+      const rows = others();
+      index = rows.filter((el) => {
         const r = el.getBoundingClientRect();
         return r.top + r.height / 2 < ev.clientY;
       }).length;
-      setDrag({ page, index, dy: ev.clientY - startY });
+      const at = rows[index] ?? rows[rows.length - 1];
+      setDrag(at ? { page, row: at.dataset.id ?? "", position: index < rows.length ? "before" : "after" } : null);
     };
-    const up = () => {
+    const end = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("keydown", key, true);
       setDrag(null);
+    };
+    const up = () => {
+      end();
       if (index === null) return;
-      const from = pages.findIndex((p) => p.guid === page);
-      if (from >= 0 && index !== from) ed.engine.moveNodes([page], "0:0", index);
+      dragged.current = true; // the click this release makes doesn't go to the page
+      const at = pages.findIndex((p) => p.guid === page);
+      if (at >= 0 && index !== at) ed.engine.moveNodes([page], "0:0", index);
+    };
+    const cancel = () => {
+      if (index !== null) dragged.current = true;
+      end();
+    };
+    const key = (ev: KeyboardEvent) => {
+      if (ev.key !== "Escape" || index === null) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      cancel();
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    window.addEventListener("keydown", key, true);
   };
 
   const find = command("edit.find");
@@ -150,12 +184,15 @@ export function Pages() {
             dividerTitle={dividers.get(p.guid) || undefined}
             renaming={renaming === p.guid}
             tabIndex={p.guid === current ? 0 : -1}
-            className={drag?.page === p.guid ? styles.pageDragging : undefined}
-            style={drag?.page === p.guid ? { transform: `translateY(${drag.dy}px)` } : undefined}
+            drop={drag?.row === p.guid ? drag.position : undefined}
             onSelect={() => {
+              if (dragged.current) return void (dragged.current = false);
               if (p.guid !== current) ed.engine.setCurrentPage(p.guid);
             }}
-            onPointerDown={(e) => startDrag(e, p.guid)}
+            onPointerDown={(e) => {
+              dragged.current = false;
+              startDrag(e, p.guid);
+            }}
             onDoubleClick={() => ed.ui.set({ renaming: { kind: "page", id: p.guid } })}
             onContextMenu={(e) => {
               e.preventDefault();

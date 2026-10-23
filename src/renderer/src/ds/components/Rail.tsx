@@ -7,9 +7,10 @@ import styles from "./Rail.module.css";
 import { t, useT } from "@/i18n";
 
 /**
- * The editor's navigation bar (contract §4.25, Figma 2026, measured live): 56 wide and a 1px line; the Figma menu
- * (a 32 tile at 12, 8), then tabs as 56 × 56 buttons — a 32 tile and, with View › Additional labels, the tab's
- * name under it (9/14) —, 16 separators with a 24 line; notifications at the bottom. ↑ ↓ move focus.
+ * The editor's navigation bar (contract §4.25, Figma 2026, measured live; 40 wide by the owner's choice): 40 wide and
+ * a 1px line; the Figma menu (a 32 tile at 4, 8), then tabs as 32 tiles 8 apart —, with View › Additional labels, the
+ * bar live Figma's 56 and its tabs 56 × 56 buttons, the tab's name under the tile (9/14) —, 16 separators with a 24
+ * line; notifications at the bottom. ↑ ↓ move focus.
  */
 export function Rail({ children, label = t("Navigation"), labels = true, className, ...rest }: { children: ReactNode; label?: string; labels?: boolean } & HTMLAttributes<HTMLElement>) {
   useT();

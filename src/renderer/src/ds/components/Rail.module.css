@@ -1,5 +1,10 @@
 @layer ds {
-  /* Figma 2026's navigation bar (live): 56 + a 1px line; the menu tile at 12, 8; tabs 56 × 56 from y 56; separators 16 (a 24 line) */
+  /*
+   * The navigation bar: 40 + a 1px line (the owner's width; live Figma 2026's is 56), its 32 tiles centred — the menu
+   * tile at 4, 8 —; separators 16 (a 24 line). With the labels on (View › Additional labels) it is live Figma's 56,
+   * its tabs 56 × 56 from y 56.
+   */
+  .rail[data-labels] { --ds-size-rail: var(--ds-size-rail-item); }
   .rail {
     display: flex;
     flex: none;
@@ -18,7 +23,7 @@
     align-items: center;
     justify-content: center;
     gap: var(--ds-space-half);
-    width: var(--ds-size-rail-item);
+    width: var(--ds-size-rail);
     height: var(--ds-size-rail-item);
     padding: 0;
     border: 0;

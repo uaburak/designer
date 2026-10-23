@@ -42,6 +42,14 @@
   }
   .row[data-drop="before"]::before { top: -1px; }
   .row[data-drop="after"]::after { bottom: -1px; }
+  /* A page drag's line (as the layers'): across the row, in the middle of the 8 between two rows */
+  .page[data-drop="before"]::before, .page[data-drop="after"]::after {
+    content: ""; position: absolute; left: 0; right: 0; z-index: 1; height: 2px; background: var(--figma-color-border-selected); pointer-events: none;
+  }
+  .page[data-drop="before"]::before { top: calc(var(--ds-space-1) * -1 - 1px); }
+  .page[data-drop="after"]::after { bottom: calc(var(--ds-space-1) * -1 - 1px); }
+  /* Above the first page the list's 4 of padding: the line inside it, not cut by the list's top */
+  .page:first-child[data-drop="before"]::before { top: calc(var(--ds-space-1) * -1); }
 
   .indent { flex: none; width: calc(var(--depth, 0) * var(--ds-size-layer-indent)); }
   .chevron {
@@ -92,7 +100,12 @@
   .component .type, .row[data-tone="component"] .type { color: var(--figma-color-icon-component); }
   /* Unselected, the glyph is the component's secondary icon colour (live round 15, components15/figma-layers-component-set.png: #80699b; Figma's design theme: dark pale-purple-500 #7f699b) */
   .row:not([aria-selected="true"], .hiddenLayer).component .type, .row:not([aria-selected="true"], .hiddenLayer)[data-tone="component"] .type { color: var(--ds-color-layer-component-glyph); }
-  .hiddenLayer .name, .hiddenLayer .type { color: var(--figma-color-text-tertiary); }
+  /*
+   * A hidden layer and every layer inside it (Figma): the name in the tertiary text colour, and the glyph dimmed with it
+   * — the tertiary glyph colour is the name's dimmed one, so the glyph goes down by half again (a selected row's too, from its primary colour).
+   */
+  .hiddenLayer .name { color: var(--figma-color-text-tertiary); }
+  .hiddenLayer .type, .hiddenLayer .thumb { color: var(--figma-color-icon-tertiary); opacity: 0.5; }
   .hiddenLayer.component .name, .hiddenLayer.component .type, .hiddenLayer[data-tone="component"] .name, .hiddenLayer[data-tone="component"] .type { color: var(--figma-color-text-component); opacity: 0.5; }
   .rename { flex: 1 1 auto; min-width: 0; margin-left: -5px; }
   .row .rename { margin-right: var(--layer-clip-right, 0px); }

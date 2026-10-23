@@ -37,6 +37,11 @@ export interface LayerRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "onD
   hovered?: boolean;
   locked?: boolean;
   hidden?: boolean;
+  /**
+   * Inside a hidden layer (Figma): dimmed as a hidden row is — its name and its glyph — without the closed eye kept on
+   * (the layer's own eye is open)
+   */
+  hiddenAncestor?: boolean;
   /** Top-level frames, sections, components */
   strong?: boolean;
   renaming?: boolean;
@@ -178,10 +183,10 @@ export function layerListWidth(rows: readonly { depth: number; name: string | nu
  * cells showing (hovered, or a lock / closed eye kept on) move the fade left by their width. A list whose rows are
  * wider than it (`layerListWidth`: the widest row's full extent) scrolls sideways; the cells stick to its visible
  * right edge and it sets `--layer-clip-right` (how much of the row lies past that edge) so the fade sits there too. The glyph is secondary
- * unless the row is selected or a top-level frame; components and instances in purple; hidden layers faded. Enter
+ * unless the row is selected or a top-level frame; components and instances in purple; hidden layers and the layers inside them faded, name and glyph. Enter
  * belongs to the list (select the children), not the row.
  */
-export function LayerRow({ id, depth, name, icon, iconLabel, shape, kind = "default", absolute, tone = "default", expanded, selected, selectedAncestor, hovered, locked, hidden, strong, renaming, run, drop, onToggleExpand, onToggleLock, onToggleVisible, onRename, onPointerDown, onDoubleClick, thumbnail, className, style, ...rest }: LayerRowProps) {
+export function LayerRow({ id, depth, name, icon, iconLabel, shape, kind = "default", absolute, tone = "default", expanded, selected, selectedAncestor, hovered, locked, hidden, hiddenAncestor, strong, renaming, run, drop, onToggleExpand, onToggleLock, onToggleVisible, onRename, onPointerDown, onDoubleClick, thumbnail, className, style, ...rest }: LayerRowProps) {
   useT();
   const large = thumbnail !== undefined;
   const cells = renaming ? { rest: 0, hover: 0 } : tailCells({ locked, hidden, lock: !!onToggleLock, visible: !!onToggleVisible });
@@ -197,9 +202,10 @@ export function LayerRow({ id, depth, name, icon, iconLabel, shape, kind = "defa
       data-hover={hovered || undefined}
       data-run={selected || selectedAncestor ? run : undefined}
       data-drop={drop}
+      data-hidden={hidden ? "" : hiddenAncestor ? "inherited" : undefined}
       data-tone={tone === "component" ? "component" : undefined}
       data-size={large ? "large" : undefined}
-      className={cx(styles.row, large && styles.large, kind !== "default" && styles.component, hidden && styles.hiddenLayer, strong && styles.strong, className)}
+      className={cx(styles.row, large && styles.large, kind !== "default" && styles.component, (hidden || hiddenAncestor) && styles.hiddenLayer, strong && styles.strong, className)}
       style={{ ...style, ["--depth" as string]: depth, ["--tail-rest" as string]: cells.rest, ["--tail-hover" as string]: cells.hover }}
       onPointerDown={onPointerDown}
       onDoubleClick={onDoubleClick}
@@ -250,13 +256,15 @@ export interface PageRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "onSe
   onSelect?: () => void;
   trailing?: ReactNode;
   hovered?: boolean;
+  /** A page drag's drop indicator (as a layer row's): the line before or after this row */
+  drop?: "before" | "after";
 }
 
 /**
  * A page (contract §4.18; live left/pages-add-page-rename.txt): a 224 × 24 button, 8 in, 8 apart; the current one
  * bg-secondary and its name 550; double click renames.
  */
-export function PageRow({ id, name, current, renaming, divider, dividerTitle, onRename, onSelect, trailing, hovered, className, ...rest }: PageRowProps) {
+export function PageRow({ id, name, current, renaming, divider, dividerTitle, onRename, onSelect, trailing, hovered, drop, className, ...rest }: PageRowProps) {
   useT();
   return (
     <div
@@ -265,6 +273,7 @@ export function PageRow({ id, name, current, renaming, divider, dividerTitle, on
       data-id={id}
       aria-current={current ? "page" : undefined}
       data-hover={hovered || undefined}
+      data-drop={drop}
       data-divider={divider && !renaming ? (dividerTitle ? "titled" : "") : undefined}
       className={cx(styles.page, className)}
       onClick={divider ? undefined : onSelect}
