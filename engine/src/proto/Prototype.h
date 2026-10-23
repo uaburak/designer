@@ -19,7 +19,8 @@ namespace eng::proto {
 
 enum class Trigger : uint8_t {
   ON_CLICK = 0, AFTER_TIMEOUT = 1, MOUSE_IN = 2, MOUSE_OUT = 3, ON_HOVER = 4, MOUSE_DOWN = 5, MOUSE_UP = 6,
-  ON_PRESS = 7, NONE = 8, DRAG = 9, ON_KEY_DOWN = 10, ON_MEDIA_HIT = 12, ON_MEDIA_END = 13, MOUSE_ENTER = 14, MOUSE_LEAVE = 15
+  ON_PRESS = 7, NONE = 8, DRAG = 9, ON_KEY_DOWN = 10, ON_MEDIA_HIT = 12, ON_MEDIA_END = 13, MOUSE_ENTER = 14, MOUSE_LEAVE = 15,
+  ON_DOUBLE_CLICK = 100  // @ours "On double click" (Wecra, docs/engine.md §3.4): a .fig export drops its reactions
 };
 enum class Connection : uint8_t {
   NONE = 0, INTERNAL_NODE = 1, URL = 2, BACK = 3, CLOSE = 4, SET_VARIABLE = 5, UPDATE_MEDIA_RUNTIME = 6, CONDITIONAL = 7, SET_VARIABLE_MODE = 8,
@@ -197,6 +198,9 @@ std::string mergeInteractionOverride(const std::string& inherited, const std::st
 std::string keepDeletions(const std::string& before, const std::string& after);
 Overflow overflow(const NodeProps& p);
 ScrollBehavior scrollBehavior(const NodeProps& p);
+// Prototype › Scroll behavior › Scrollbar (NodeChange.prototypeScrollbar, @ours; absent: off): a scrolling frame draws
+// a scrollbar over its content (render/FrameScrollbar.h).
+bool scrollbar(const NodeProps& p);
 OverlaySettings overlaySettings(const NodeProps& p);
 bool flowStart(const NodeProps& p, Flow& out);  // the node's prototypeStartingPoint
 Device device(const NodeProps& page);

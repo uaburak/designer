@@ -520,7 +520,16 @@ class Player {
                  const Mat2x3& parentDest, const std::string& key, bool root, bool parentUnmatched) const;
   void smartSource(Guid id, const std::unordered_set<std::string>& keys, double p, PropsOverrides& out, const std::string& key,
                    bool root, bool parentUnmatched, const Mat2x3& parentRel = Mat2x3{}) const;
-  void scrollOverrides(Guid frame, PropsOverrides& out, bool topLevel, Vec2 topScroll) const;
+  // `bars`: where frames with Wecra's Scrollbar note how far they are scrolled (the scene's PresentScene::scrollbars).
+  void scrollOverrides(Guid frame, PropsOverrides& out, bool topLevel, Vec2 topScroll,
+                       std::unordered_map<Guid, FrameScrollbarState, GuidHash>* bars = nullptr) const;
+  // Wecra's Scrollbar (prototypeScrollbar, @ours): what a frame's thumbs are drawn from — a top-level frame's box is
+  // the part of it on the screen, scrolled by `topScroll`; any other's is the frame, scrolled by its own scroll.
+  FrameScrollbarState scrollbarState(Guid frame, bool top, Vec2 topScroll) const;
+  // A press on a scrollbar thumb (the deepest frame under the pointer with one, its thumb 4 px wider to hit): starts
+  // dragging it (the frame scrolls as the thumb follows the pointer).
+  bool beginThumbDrag(const Chain& c, Vec2 css);
+  void moveThumbDrag(Vec2 css);
   // `fixedAlpha`: the top-level frame's Fixed children's alpha (< 0: `alpha`; 0: left out — drawn by the caller).
   void addFrame(const Side& s, Vec2 offset, double alpha, PropsOverrides&& overrides, double fixedAlpha = -1);
   void addSlot(const Side* x, const Side* y, const Anim* a);
@@ -614,6 +623,19 @@ class Player {
   Scrub scrub_;
   std::deque<Sample> samples_;
   ScrollDrag scrollDrag_;
+  // A scrollbar thumb dragged (Wecra's Scrollbar): the frame, the axis, where the press was in the frame's space as it
+  // was then (`inverse`), the scroll then, and how far the frame scrolls for each unit the thumb moves.
+  struct ThumbDrag {
+    bool active = false;
+    Guid frame = kNoGuid;
+    bool vertical = true;
+    Mat2x3 inverse;
+    Vec2 from, scroll;
+    double perUnit = 0, range = 0;
+  } thumbDrag_;
+  // The last click (On double click: a second click within kDoubleClickMs and kDragThreshold of it), CSS px and ms.
+  double lastClickAt_ = -1e9;
+  Vec2 lastClickCss_;
   std::vector<Fling> flings_;
   Guid wheelFrame_ = kNoGuid;  // the frame the last wheel events scrolled, and when
   double wheelAt_ = -1e9;

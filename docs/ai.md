@@ -631,6 +631,7 @@ The owner: agents must be able to do and see what he can in the app (not Operato
   - plugins: `list_plugins`, `run_plugin`;
   - settings: `get_app_settings` / `set_app_setting` (language, theme, mode, Preferences, nudge, view and presentation options). Access, keys, providers, connectors, sessions, tokens and Operator settings are refused by name.
 - **set_prototype_settings** takes the website behaviours: `prototypeTextInput`, `prototypeCursor`, `overlayEdgeBehavior`, `overlayStack`, `overlayFitWindow`. They are validated, `null` clears one, and `get_prototype` reads them back.
+- **Wecra-only (2026-10-23, engine.md §3.4):** the trigger type `ON_DOUBLE_CLICK` (add_interaction / update_interaction) and `prototypeScrollbar: true | false` (set_prototype_settings, update_nodes / create_nodes beside `overflowDirection`, set_properties beside `scrollDirection`). Both stay out of a .fig export.
 - **Confirmation** (main, `host.ts` `runAnyTool`, before the call reaches the view): `ConnectorConsent.confirm` → the panel's `ConfirmCard` ("Agent wants to ‹action›", the target, a preview, Allow / Deny, never remembered; Turkish in `tr/access.ts`).
   - Confirmed actions: trash; restore a version; publish a library; share / invite / link access; delete a comment; a comment that @mentions people; run a plugin; every Skills change.
   - An outside MCP client has no chat, so it is refused these.

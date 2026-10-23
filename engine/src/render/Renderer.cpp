@@ -17,6 +17,7 @@
 #include "geometry/VariableWidth.h"
 #include "layout/Layout.h"
 #include "render/shader_presets.h"
+#include "scene/CodecKiwi.h"
 #include "scene/Extras.h"
 
 namespace eng {
@@ -1558,11 +1559,63 @@ void Renderer::drawContent(const Document& doc, uint32_t i, const NodeProps& p, 
           }
         }
       }
+      if (lodLeaf_ != i) drawFrameScrollbar(doc, id, p, m, alpha);
       if (clips) popClip();
     }
   }
   // Strokes go over the fills (and over a frame's content).
   if (strokes) drawStrokes(doc, id, p, m, alpha);
+}
+
+void Renderer::drawFrameScrollbar(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha) {
+  // Wecra's Scrollbar (NodeChange.prototypeScrollbar, @ours): the prototype's, so never in an export.
+  if (exporting_ || outlines_ || !p.extra.count("prototypeScrollbar") || !codec::extraBool(p.extra, "prototypeScrollbar", false)) return;
+  uint32_t overflow = codec::extraUint(p.extra, "scrollDirection", 0);  // ScrollDirection: NONE, HORIZONTAL, VERTICAL, BOTH
+  if (overflow == 0 || overflow > 3) return;
+  FrameScrollbarState s;
+  const FrameScrollbarState* played = nullptr;
+  if (sceneScrollbars_)
+    if (auto it = sceneScrollbars_->find(id); it != sceneScrollbars_->end()) played = &it->second;
+  if (played) {
+    s = *played;
+  } else {
+    // The canvas (and a frame the player didn't scroll): at scroll 0, the content as the player measures a nested
+    // scrolling frame's — every visible child but Fixed ones, an auto-layout frame's end padding included.
+    s.box = {0, 0, p.size.x, p.size.y};
+    double right = 0, bottom = 0;
+    for (Guid c : doc.children(id)) {
+      const Node* cn = doc.get(c);
+      if (!cn || !cn->props.visible || codec::extraUint(cn->props.extra, "scrollBehavior", 0) == 1) continue;
+      Rect b = transformedBounds(cn->props.transform, cn->props.size.x, cn->props.size.y);
+      right = std::max(right, b.right());
+      bottom = std::max(bottom, b.bottom());
+    }
+    if (p.isAutoLayout()) {
+      right += p.stack().stackPaddingRight;
+      bottom += p.stack().stackPaddingBottom;
+    }
+    s.range = {std::max(0.0, right - p.size.x), std::max(0.0, bottom - p.size.y)};
+  }
+  s.horizontal = overflow == 1 || overflow == 3;
+  s.vertical = overflow == 2 || overflow == 3;
+  FrameScrollbarThumbs t = frameScrollbarThumbs(s);
+  if (!t.h && !t.v) return;
+  // Neutral grey over the content: white at 30 % on a dark frame (the owner's reference, Figma's own panels), black at
+  // 30 % on a light one (or one without a solid fill).
+  bool dark = false;
+  for (auto f = p.fillPaints.rbegin(); f != p.fillPaints.rend(); ++f) {
+    if (!f->visible || f->type != PaintType::SOLID || f->opacity * f->color.a < 0.5f) continue;
+    dark = 0.2126 * f->color.r + 0.7152 * f->color.g + 0.0722 * f->color.b < 0.5;
+    break;
+  }
+  const Color ink = dark ? Color{1, 1, 1, 1} : Color{0, 0, 0, 1};
+  const double r = kFrameScrollbarThickness / 2;
+  const CornerRadii radii{r, r, r, r};
+  auto thumb = [&](const Rect& q) {
+    emit(makeShape(m * Mat2x3::translate(q.x, q.y), {q.w, q.h}, ShapeKind::Rect, radii, ink, alpha * 0.3, Color{}, 0, 0, 0), Pass::Shape);
+  };
+  if (t.v) thumb(t.vThumb);
+  if (t.h) thumb(t.hThumb);
 }
 
 void Renderer::compositeLayer(int src, int aux, int mode, float opacity, BlendMode bm, const Color& color, Vec2 offset, bool knockout,

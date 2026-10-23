@@ -164,6 +164,24 @@ describe("MCP prototype tools", () => {
     expect(reasons).not.toContain("status -3");
   });
 
+  it("Wecra's On double click and Scrollbar through every write path (add_interaction, update_nodes, set_properties, set_prototype_settings)", async () => {
+    const { engine, call, toggle, home, sheet } = await app();
+    json(await call("add_interaction", { nodeId: toggle, trigger: { type: "ON_DOUBLE_CLICK" }, actions: [{ type: "NAVIGATE", destinationId: sheet }] }));
+    expect(interactions(engine, toggle).map((i) => i.event?.interactionType)).toContain("ON_DOUBLE_CLICK");
+    const read = (id: string) => engine.readNode(id) as { scrollDirection?: string; prototypeScrollbar?: boolean };
+    const u = json(await call("update_nodes", { updates: [{ nodeId: home, overflowDirection: "VERTICAL", prototypeScrollbar: true }] }));
+    expect(u.summary, JSON.stringify(u)).toContain("everything applied");
+    expect(read(home)).toMatchObject({ scrollDirection: "VERTICAL", prototypeScrollbar: true });
+    json(await call("update_nodes", { updates: [{ nodeId: home, prototypeScrollbar: false, overflowDirection: "NONE" }] }));
+    expect(read(home).scrollDirection).toBeUndefined();
+    expect(read(home).prototypeScrollbar).toBeUndefined();
+    const s = json(await call("set_properties", { nodeId: sheet, properties: { scrollDirection: "BOTH", prototypeScrollbar: true } }));
+    expect(s.summary, JSON.stringify(s)).toContain("everything applied");
+    expect(read(sheet)).toMatchObject({ scrollDirection: "BOTH", prototypeScrollbar: true });
+    json(await call("set_prototype_settings", { nodes: [{ nodeId: home, overflowDirection: "HORIZONTAL", prototypeScrollbar: true }] }));
+    expect(read(home)).toMatchObject({ scrollDirection: "HORIZONTAL", prototypeScrollbar: true });
+  });
+
   it("describe_schema gives any field's shape", async () => {
     const { call } = await editor();
     expect(JSON.stringify(json(await call("describe_schema", { field: "Reaction" })))).toContain("trigger");

@@ -571,6 +571,22 @@ const PROPS: Record<string, PropImpl> = {
   itemReverseZIndex: plain("stackReverseZIndex" as keyof NodeFields & string, needBool, { on: autoLayoutOnly }),
   strokesIncludedInLayout: plain("bordersTakeSpace" as keyof NodeFields & string, needBool, { on: autoLayoutOnly }),
   clipsContent: { on: framesOnly, read: (n) => n.frameMaskDisabled !== true, hidden: () => false, write: (v) => ({ frameMaskDisabled: !needBool(v) }) },
+  // Prototype › Scroll behavior: Overflow (Plugin API overflowDirection) and Wecra's Scrollbar (@ours).
+  overflowDirection: {
+    on: framesOnly,
+    read: (n) => (n as unknown as Obj).scrollDirection ?? "NONE",
+    hidden: (v) => !v || v === "NONE",
+    write: (v) => {
+      const d = needEnum(v, ["NONE", "HORIZONTAL", "VERTICAL", "BOTH"] as const);
+      return { scrollDirection: d === "NONE" ? null : d } as unknown as NodeFields;
+    },
+  },
+  prototypeScrollbar: {
+    on: framesOnly,
+    read: (n) => (n as unknown as Obj).prototypeScrollbar === true,
+    hidden: (v) => v !== true,
+    write: (v) => ({ prototypeScrollbar: needBool(v) ? true : null }) as unknown as NodeFields,
+  },
   // Text.
   characters: { on: textOnly, read: (n) => n.textData?.characters ?? "", hidden: () => false, write: (v) => ({ textData: { characters: typeof v === "string" ? v : reject("a string") } }) },
   fontFamily: { on: textOnly, read: (n) => n.fontName?.family ?? "Inter", hidden: () => false, write: (v, ctx) => ({ fontName: { family: typeof v === "string" && v.trim() ? v.trim() : reject("a font family name"), style: str(ctx.spec.fontStyle) ?? ctx.node.fontName?.style ?? "Regular", postscript: "" } }) },

@@ -56,6 +56,9 @@ export const NAMED_PROPS: Record<string, LayerPropInfo> = {
   itemReverseZIndex: { schema: bool('Canvas stacking "First on top"'), fields: ["stackReverseZIndex"] },
   strokesIncludedInLayout: { schema: bool("Strokes included in layout"), fields: ["bordersTakeSpace"] },
   clipsContent: { schema: bool("Frames: clip content"), fields: ["frameMaskDisabled"] },
+  // Prototype › Scroll behavior (also set_prototype_settings).
+  overflowDirection: { schema: en(["NONE", "HORIZONTAL", "VERTICAL", "BOTH"], "Frames: how the frame scrolls in a prototype (Overflow)"), fields: ["scrollDirection"] },
+  prototypeScrollbar: { schema: bool("Frames that scroll (overflowDirection not NONE): Wecra's scrollbar over the content — dragged while presented, shown on the canvas; not in Figma"), fields: ["prototypeScrollbar"] },
   // Text.
   characters: { schema: { type: "string", description: "TEXT: its text" }, fields: ["textData"] },
   fontFamily: { schema: { type: "string", description: 'TEXT: e.g. "Inter"' }, fields: ["fontName"] },

@@ -601,10 +601,11 @@ export function settingsFromDoc(n: Obj): Obj {
   if (n.overlayEdgeBehavior && n.overlayEdgeBehavior !== "AUTO") out.overlayEdgeBehavior = n.overlayEdgeBehavior;
   if (isObj(n.overlayStack)) out.overlayStack = n.overlayStack;
   if (n.overlayFitWindow && n.overlayFitWindow !== "NONE") out.overlayFitWindow = n.overlayFitWindow;
+  if (n.prototypeScrollbar === true) out.prototypeScrollbar = true;
   return out;
 }
 
-export const SETTING_KEYS = ["overflowDirection", "scrollBehavior", "overlayPositionType", "overlayBackground", "overlayBackgroundInteraction", "prototypeTextInput", "prototypeCursor", "overlayEdgeBehavior", "overlayStack", "overlayFitWindow"] as const;
+export const SETTING_KEYS = ["overflowDirection", "scrollBehavior", "overlayPositionType", "overlayBackground", "overlayBackgroundInteraction", "prototypeTextInput", "prototypeCursor", "overlayEdgeBehavior", "overlayStack", "overlayFitWindow", "prototypeScrollbar"] as const;
 
 /** Prototype › Cursor's values (Wecra's website behaviours, @ours). */
 export const PROTOTYPE_CURSORS = ["AUTO", "DEFAULT", "POINTER", "TEXT", "GRAB", "MOVE", "NOT_ALLOWED", "HELP", "ZOOM_IN", "ZOOM_OUT", "CROSSHAIR", "NONE"] as const;
@@ -656,6 +657,10 @@ export function settingsToDoc(v: Obj, path: string, errors: Errors): Obj {
       else if (o.maxLength !== undefined && o.maxLength !== null && !(typeof o.maxLength === "number" && Number.isInteger(o.maxLength) && o.maxLength >= 0 && o.maxLength <= 100_000)) errors.push(`${path}.prototypeTextInput.maxLength: a whole number 0–100000 (0: no limit)`);
       else out.prototypeTextInput = { type, ...(typeof o.maxLength === "number" && o.maxLength > 0 ? { maxLength: o.maxLength } : {}) };
     }
+  }
+  if (v.prototypeScrollbar !== undefined) {
+    if (v.prototypeScrollbar !== null && typeof v.prototypeScrollbar !== "boolean") errors.push(`${path}.prototypeScrollbar: true (a scrollbar over a scrolling frame's content), false or null`);
+    else out.prototypeScrollbar = v.prototypeScrollbar === true ? true : null;
   }
   if (v.prototypeCursor !== undefined) {
     const c = up(v.prototypeCursor ?? "AUTO");

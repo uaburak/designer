@@ -117,6 +117,8 @@ class RenderTree {
   // Figma Draw's transform groups: whether any is drawn here, and the damage a change inside one makes.
   bool hasRepeats_ = false;
   void damageRepeats(const Document& doc);
+  // A change to a child of a frame with Wecra's Scrollbar moves its thumb (the content's extent): the frame's bounds.
+  void damageScrollbars(const Document& doc);
 };
 
 }  // namespace eng

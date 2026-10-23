@@ -16,6 +16,7 @@ import {
   springSettleTime,
   springWithEditorDuration,
   triggerMenu,
+  triggerLabel,
   DEVICE_MODELS,
   DEVICE_PRESETS,
   deviceLabel,
@@ -163,6 +164,13 @@ describe("prototype model", () => {
     const late = { event: { interactionType: "MOUSE_LEAVE" as const, interactionMaintained: true, interactionDuration: 0.5 }, actions: [] };
     expect(disabledTriggers(late, [enter, late]).has("MOUSE_ENTER")).toBe(false);
     expect(triggerMenu(false, off).find((e) => e !== "-" && e.value === "ON_HOVER")).toMatchObject({ disabled: true });
+    // Wecra's On double click (not Figma's): right after On click; a link may open from it; one per layer.
+    const menu = triggerMenu(false).filter((e) => e !== "-").map((e) => (e as { value: string }).value);
+    expect(menu.slice(1, 3)).toEqual(["ON_CLICK", "ON_DOUBLE_CLICK"]);
+    expect(triggerLabel("ON_DOUBLE_CLICK")).toBe("On double click");
+    expect(linkOff.has("ON_DOUBLE_CLICK")).toBe(false);
+    const dbl = { event: { interactionType: "ON_DOUBLE_CLICK" as const }, actions: [] };
+    expect(disabledTriggers(click, [click, dbl]).has("ON_DOUBLE_CLICK")).toBe(true);
   });
 
   it("offers each action Figma's animations (atlas 13 §5.1)", () => {

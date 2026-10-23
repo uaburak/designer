@@ -1093,6 +1093,7 @@ export const panels: Record<string, string> = {
   "Scroll behavior": "Kaydırma davranışı",
   "Scroll to": "Şuraya kaydır",
   "Scroll with parent": "Üst öğeyle kaydır",
+  "Scrollbar": "Kaydırma çubuğu",
   "Scrub video": "Videoda ilerle",
   "Search": "Ara",
   "Search actions": "Eylemlerde ara",

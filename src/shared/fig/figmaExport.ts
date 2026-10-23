@@ -32,6 +32,10 @@ export const FIGMA_FILE_VERSION = 106;
 const OUR_NODE_FIELDS: ReadonlySet<string> = new Set(NODE_FIELDS.filter((f) => f.flags & FIELD_FLAGS.OURS).map((f) => f.name));
 /** Message fields Figma doesn't have (`@ours` in schema/document.kiwi). */
 const OUR_MESSAGE_FIELDS: ReadonlySet<string> = new Set(["derivedDataVersion"]);
+/** Enum values Figma doesn't have (`@ours` in Figma-derived enums): never in an export's schema. */
+const OUR_ENUM_VALUES: Readonly<Record<string, ReadonlySet<string>>> = { InteractionType: new Set(["ON_DOUBLE_CLICK"]) };
+/** Wecra-only triggers (OUR_ENUM_VALUES.InteractionType): their interactions are left out of what Figma reads. */
+const OUR_TRIGGERS = OUR_ENUM_VALUES.InteractionType;
 const PLACEHOLDER = /^_r\d+$/;
 
 function reachable(defs: Definition[], root: string): Set<string> {
@@ -60,7 +64,9 @@ export function figmaExportSchema(): Uint8Array {
     ...d,
     fields:
       d.kind !== "MESSAGE"
-        ? d.fields
+        ? d.kind === "ENUM" && OUR_ENUM_VALUES[d.name]
+          ? d.fields.filter((f) => !OUR_ENUM_VALUES[d.name].has(f.name))
+          : d.fields
         : d.fields.filter((f) => !PLACEHOLDER.test(f.name) && !(d.name === "NodeChange" && OUR_NODE_FIELDS.has(f.name)) && !(d.name === "Message" && OUR_MESSAGE_FIELDS.has(f.name))),
   }));
   const after = reachable(definitions, "Message");
@@ -70,9 +76,48 @@ export function figmaExportSchema(): Uint8Array {
 
 const IDENTITY = { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 };
 
+/**
+ * A node's (or an override entry's) prototypeInteractions without Wecra's own triggers (On double click): what Figma
+ * can read. A list left empty goes (an override entry then inherits its main's again). The node itself when it has none.
+ */
+function withoutOurTriggers<T extends NodeChange>(n: T): T {
+  const list = n.prototypeInteractions;
+  if (!list?.some((i) => OUR_TRIGGERS.has(i.event?.interactionType ?? ""))) return n;
+  const kept = list.filter((i) => !OUR_TRIGGERS.has(i.event?.interactionType ?? ""));
+  const out = { ...n, prototypeInteractions: kept };
+  if (!kept.length) delete (out as Partial<NodeChange>).prototypeInteractions;
+  return out;
+}
+
+/**
+ * The Message without what only Wecra plays — interactions with Wecra's own triggers, on nodes and in instances'
+ * override entries — for Figma's clipboard envelope (Figma reads it with the embedded schema, then into its own enums).
+ * The same Message when it has none.
+ */
+export function withoutOurPrototypeValues(message: Message): Message {
+  let changed = false;
+  const nodeChanges = (message.nodeChanges ?? []).map((n0) => {
+    let n = withoutOurTriggers(n0);
+    const sd = n.symbolData;
+    if (sd?.symbolOverrides?.length) {
+      const entries = sd.symbolOverrides.map(withoutOurTriggers);
+      if (entries.some((e, i) => e !== sd.symbolOverrides![i])) n = { ...n, symbolData: { ...sd, symbolOverrides: entries.filter((e, i) => e === sd.symbolOverrides![i] || Object.keys(e).some((k) => k !== "guidPath")) } };
+    }
+    if (n.derivedSymbolData?.length) {
+      const entries = n.derivedSymbolData.map(withoutOurTriggers);
+      if (entries.some((e, i) => e !== n.derivedSymbolData![i])) n = { ...n, derivedSymbolData: entries };
+    }
+    if (n !== n0) changed = true;
+    return n;
+  });
+  return changed ? { ...message, nodeChanges } : message;
+}
+
 /** Override entries without `@ours` fields; an entry that held nothing else (only its guidPath left) is dropped. */
-function withoutOurFields(entries: NodeChange[]): NodeChange[] {
+function withoutOurFields(entries0: NodeChange[]): NodeChange[] {
   const out: NodeChange[] = [];
+  // Wecra's own triggers go first (an entry holding only those then holds nothing).
+  const entries = entries0.map(withoutOurTriggers).filter((e, i) => e === entries0[i] || Object.keys(e).some((k) => k !== "guidPath" && (e as Record<string, unknown>)[k] !== undefined));
   for (const e of entries) {
     const keys = Object.keys(e).filter((k) => (e as Record<string, unknown>)[k] !== undefined);
     if (!keys.some((k) => OUR_NODE_FIELDS.has(k))) {
@@ -91,7 +136,8 @@ function withoutOurFields(entries: NodeChange[]): NodeChange[] {
  * a TEXT's type settings and paragraph lines) even at their defaults; absence means our default (schema/document.kiwi
  * `@default`, else the kiwi zero value), which need not be Figma's, so they are written out.
  */
-function figmaNode(n: NodeChange): NodeChange {
+function figmaNode(n0: NodeChange): NodeChange {
+  const n = withoutOurTriggers(n0);
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(n)) if (!OUR_NODE_FIELDS.has(k) && v !== undefined) out[k] = v;
   // An instance's overrides (and derived sublayer data) are NodeChanges too: `@ours` fields set on a sublayer (a text

@@ -241,6 +241,7 @@ std::string Editor::protoLabel(const ProtoLink& l) const {
     case proto::Trigger::AFTER_TIMEOUT: return "After delay";
     case proto::Trigger::ON_MEDIA_HIT: return "When video hits";
     case proto::Trigger::ON_MEDIA_END: return "When video ends";
+    case proto::Trigger::ON_DOUBLE_CLICK: return "On double click";  // Wecra's
     default: return {};
   }
 }
