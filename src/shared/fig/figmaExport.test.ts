@@ -17,7 +17,7 @@ import type { FigCodecs } from "./compression";
 import { decodeCanvas, readCanvasChunks } from "./container";
 import { FIGMA_DERIVED_DATA_VERSION } from "./convert";
 import { readFigFile } from "./figFile";
-import { encodeFigmaCanvas, FIGMA_FILE_VERSION, figmaExportSchema, figmaVariantDefId, toFigmaMessage } from "./figmaExport";
+import { encodeFigmaCanvas, FIGMA_FILE_VERSION, figmaExportSchema, figmaVariantDefId, toFigmaMessage, withoutOurPrototypeValues } from "./figmaExport";
 import { decodeAnySchema } from "./importFig";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- Figma-shaped values */
@@ -466,6 +466,56 @@ describe("Wecra-only prototype settings stay out of the export (overlay Fit to w
     for (const name of ["OverlayEdgeBehavior", "OverlayStack"]) expect(schema.definitions.some((d) => d.name === name)).toBe(false);
     const node = schema.definitions.find((d) => d.name === "NodeChange")!;
     expect(node.fields.some((f) => f.name === "overlayEdgeBehavior" || f.name === "overlayStack")).toBe(false);
+  });
+
+  it("never writes On double click reactions or the Scrollbar (Wecra-only); byte for byte the file without them", () => {
+    const BTN = g(S + 1, 30), COMP = g(S + 1, 31), HIT = g(S + 1, 32), INST = g(S + 1, 33);
+    const click = { id: g(S + 1, 40), event: { interactionType: "ON_CLICK" }, actions: [{ connectionType: "BACK" }] };
+    const dbl = { id: g(S + 1, 41), event: { interactionType: "ON_DOUBLE_CLICK" }, actions: [{ connectionType: "BACK" }] };
+    const build = (ours: boolean): Message => {
+      const base = ourSnapshot();
+      return {
+        ...base,
+        nodeChanges: [
+          ...base.nodeChanges!,
+          node(BTN, "FRAME", g(0, 1), "$", {
+            name: "List",
+            size: { x: 200, y: 300 },
+            scrollDirection: "VERTICAL",
+            prototypeInteractions: ours ? [click, dbl] : [click],
+            ...(ours ? { prototypeScrollbar: true } : {}),
+          }),
+          node(COMP, "SYMBOL", g(0, 1), "%", { name: "Tile", size: { x: 100, y: 100 } }),
+          node(HIT, "RECTANGLE", COMP, "!", { name: "Hit", size: { x: 100, y: 100 }, ...(ours ? { prototypeInteractions: [dbl] } : {}) }),
+          // An override holding only a double click (dropped whole), beside a Figma one on the same layer.
+          node(INST, "INSTANCE", g(0, 1), "&", {
+            name: "Tile",
+            size: { x: 100, y: 100 },
+            symbolData: {
+              symbolID: COMP,
+              symbolOverrides: [...(ours ? [{ guidPath: { guids: [HIT] }, prototypeInteractions: [dbl] }] : []), { guidPath: { guids: [HIT] }, opacity: 0.5 }],
+            },
+          }),
+        ],
+      } as Message;
+    };
+    const without = decodeCanvas(encodeFigmaCanvas(build(false), codecs), codecs);
+    const withIt = decodeCanvas(encodeFigmaCanvas(build(true), codecs), codecs);
+    expect(withIt.schema).toEqual(without.schema);
+    expect(withIt.message).toEqual(without.message);
+    const all = JSON.stringify(figma.decode("Message", withIt.message));
+    expect(all).not.toContain("ON_DOUBLE_CLICK");
+    expect(all).not.toContain("prototypeScrollbar");
+    expect(all).toContain("ON_CLICK"); // Figma's own reactions stay
+    // Neither the enum value nor the field is in the schema the export embeds.
+    const schema = decodeBinarySchema(figmaExportSchema());
+    expect(schema.definitions.find((d) => d.name === "InteractionType")!.fields.map((f) => f.name)).not.toContain("ON_DOUBLE_CLICK");
+    expect(schema.definitions.find((d) => d.name === "NodeChange")!.fields.map((f) => f.name)).not.toContain("prototypeScrollbar");
+    // Figma's clipboard envelope leaves the double click out; our own Message keeps it.
+    const stripped = withoutOurPrototypeValues(build(true));
+    expect(JSON.stringify(stripped)).not.toContain("ON_DOUBLE_CLICK");
+    expect(JSON.stringify(build(true))).toContain("ON_DOUBLE_CLICK");
+    expect(withoutOurPrototypeValues(build(false))).toEqual(build(false));
   });
 
   it("a Figma file read and written back has none (import → export round trip unchanged)", () => {

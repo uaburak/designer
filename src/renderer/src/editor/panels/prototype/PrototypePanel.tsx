@@ -6,6 +6,8 @@
  * - a top-level frame: Flow starting point (+ / Copy flow link and −; its name, its frame — moving it to another — and
  *   its description), Interactions, Scroll behavior (Overflow);
  * - any other layer: Interactions, Scroll behavior (Position; Overflow for frames);
+ * - a frame that scrolls (Overflow not No scrolling): Scrollbar (Wecra's, not Figma's — a scrollbar drawn over the
+ *   frame's content while presented and on the canvas; NodeChange.prototypeScrollbar, @ours);
  * - a text layer: Text input (Wecra's website behaviours, not Figma's — the layer is typed into while presented: Type,
  *   Max length; NodeChange.prototypeTextInput, @ours, never in a .fig export);
  * - any layer: Cursor (Wecra's: the pointer over it while presented, Auto by default; NodeChange.prototypeCursor, @ours);
@@ -652,6 +654,7 @@ function ScrollSection({ nodes, topLevel, isFrame }: { nodes: ProtoNode[]; topLe
   };
   const overflow = same((n) => n.scrollDirection ?? "NONE");
   const position = same((n) => n.scrollBehavior ?? "SCROLLS");
+  const scrollbar = same((n) => n.prototypeScrollbar === true);
   return (
     <PanelSection title={t("Scroll behavior")}>
       {!topLevel && (
@@ -675,6 +678,18 @@ function ScrollSection({ nodes, topLevel, isFrame }: { nodes: ProtoNode[]; topLe
             value={overflow === "mixed" ? MIXED : (overflow as string)}
             options={OVERFLOWS.map((o) => ({ ...o, label: t(o.label) }))}
             onChange={(v) => ed.setProps(refs, protoFields({ scrollDirection: v === "NONE" ? null : (v as ScrollDirection) }), "Overflow")}
+          />
+        </div>
+      )}
+      {/* Wecra-only (not Figma's): a scrolling frame draws a scrollbar over its content — while presented (its thumb
+          follows the scroll and drags it) and on the canvas at scroll 0. NodeChange.prototypeScrollbar, @ours: the
+          .fig export drops it. */}
+      {isFrame && overflow !== "NONE" && (
+        <div className={styles.checkRow} data-scrollbar-row="">
+          <Checkbox
+            label={t("Scrollbar")}
+            checked={scrollbar === "mixed" ? MIXED : scrollbar}
+            onChange={(c) => ed.setProps(refs, protoFields({ prototypeScrollbar: c ? true : null }), "Scrollbar")}
           />
         </div>
       )}

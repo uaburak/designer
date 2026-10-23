@@ -155,5 +155,7 @@ bool assignmentVarValue(std::string_view extra, VariableData& out);
 bool assignmentVarProp(std::string_view extra, ComponentPropValue& out);
 // A bool field of a raw sequence (Libraries' isSymbolPublishable): `fallback` when absent.
 bool extraBool(const std::map<std::string, std::string, std::less<>>& extra, const char* key, bool fallback);
+// A uint or enum field of a raw sequence (a frame's scrollDirection): `fallback` when absent.
+uint32_t extraUint(const std::map<std::string, std::string, std::less<>>& extra, const char* key, uint32_t fallback);
 
 }  // namespace eng::codec

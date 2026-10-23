@@ -271,6 +271,18 @@ void RenderTree::damageRepeats(const Document& doc) {
     if (auto it = index_.find(g); it != index_.end()) damage(nodes_[it->second].visual);
 }
 
+void RenderTree::damageScrollbars(const Document& doc) {
+  auto check = [&](Guid parent) {
+    const Node* n = parent != kNoGuid ? doc.get(parent) : nullptr;
+    if (!n || !n->props.extra.count("prototypeScrollbar")) return;
+    if (auto it = index_.find(parent); it != index_.end()) damage(nodes_[it->second].visual);
+  };
+  for (const Document::ChangeRecord& c : changes_) {
+    check(doc.parentOf(c.id));
+    if (c.parentBefore != kNoGuid) check(c.parentBefore);
+  }
+}
+
 void RenderTree::damage(const Rect& r) {
   if (damage_.all || r.w < 0 || r.h < 0) return;
   if (damage_.rects.size() >= 512) {
@@ -322,6 +334,7 @@ bool RenderTree::sync(const Document& doc, Guid page, Guid root) {
     for (const Document::ChangeRecord& k : changes_)
       if (auto it = index_.find(k.id); it != index_.end()) damage(nodes_[it->second].visual);
     damageRepeats(doc);
+    damageScrollbars(doc);
     return true;
   }
   // Two passes: every changed subtree out, then each back in where the document puts it now. Taking them all out
@@ -360,6 +373,7 @@ bool RenderTree::sync(const Document& doc, Guid page, Guid root) {
   }
   damagePatternUsers(doc);
   damageRepeats(doc);
+  damageScrollbars(doc);
   version_ = doc.version();
   return false;
 }

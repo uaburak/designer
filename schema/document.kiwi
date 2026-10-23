@@ -1075,6 +1075,7 @@ enum InteractionType {
   ON_MEDIA_END = 13;        // "When video ends"
   MOUSE_ENTER = 14;
   MOUSE_LEAVE = 15;
+  ON_DOUBLE_CLICK = 100;    // @ours "On double click" (Wecra; docs/engine.md §3.4): reactions with it never go to a .fig or Figma's clipboard
   // Dropped: ON_VOICE=11.
 }
 
@@ -2688,6 +2689,7 @@ message NodeChange {
   OverlayEdgeBehavior overlayEdgeBehavior = 1005; // @ours @nooverride overlay: Keep in window (Wecra; docs/engine.md §3.4)
   PrototypeCursor prototypeCursor = 1006;         // @ours Prototype › Cursor (Wecra's website behaviours; docs/engine.md §3.4)
   OverlayStack overlayStack = 1007;               // @ours @nooverride overlay: Stack (Wecra; docs/engine.md §3.4)
+  bool prototypeScrollbar = 1008;                 // @ours a scrolling frame's Scrollbar while presented and on the canvas (Prototype › Scroll behavior; Wecra; docs/engine.md §3.4)
 
   // --- Figma's layout version stamps: which of Figma's layout rules made the stored geometry. Kept through import and
   // export (a .fig written back keeps them); the engine's own derived data is stamped by Message.derivedDataVersion.

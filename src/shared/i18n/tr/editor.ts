@@ -652,6 +652,7 @@ export const editor: Record<string, string> = {
 
   // Prototype (model/prototype.ts)
   "On click": "Tıklayınca",
+  "On double click": "Çift tıklamada",
   "On drag": "Sürükleyince",
   "While hovering": "Üzerindeyken",
   "While pressing": "Basılıyken",
@@ -713,6 +714,7 @@ export const editor: Record<string, string> = {
   Slow: "Yavaş",
   "Custom spring": "Özel yay",
   Click: "Tıklama",
+  "Double click": "Çift tıklama",
   Drag: "Sürükleme",
   Hover: "Üzerine gelme",
   Press: "Basma",

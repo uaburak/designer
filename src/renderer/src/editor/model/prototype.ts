@@ -16,7 +16,9 @@ export interface GuidJson {
 
 export type InteractionType =
   | "ON_CLICK" | "AFTER_TIMEOUT" | "MOUSE_IN" | "MOUSE_OUT" | "ON_HOVER" | "MOUSE_DOWN" | "MOUSE_UP" | "ON_PRESS" | "NONE" | "DRAG"
-  | "ON_KEY_DOWN" | "ON_MEDIA_HIT" | "ON_MEDIA_END" | "MOUSE_ENTER" | "MOUSE_LEAVE";
+  | "ON_KEY_DOWN" | "ON_MEDIA_HIT" | "ON_MEDIA_END" | "MOUSE_ENTER" | "MOUSE_LEAVE"
+  /** Wecra-only (@ours, InteractionType 100): never in a .fig export or Figma's clipboard */
+  | "ON_DOUBLE_CLICK";
 export type ConnectionType = "NONE" | "INTERNAL_NODE" | "URL" | "BACK" | "CLOSE" | "SET_VARIABLE" | "UPDATE_MEDIA_RUNTIME" | "CONDITIONAL" | "SET_VARIABLE_MODE";
 /** UPDATE_MEDIA_RUNTIME's action (schema MediaAction). */
 export type MediaAction = "PLAY" | "PAUSE" | "TOGGLE_PLAY_PAUSE" | "MUTE" | "UNMUTE" | "TOGGLE_MUTE_UNMUTE" | "SKIP_FORWARD" | "SKIP_BACKWARD" | "SKIP_TO";
@@ -154,6 +156,8 @@ export interface PrototypeFields {
   prototypeTextInput?: PrototypeTextInput;
   /** Wecra-only: the cursor over the layer while presented (absent: Auto) */
   prototypeCursor?: PrototypeCursor;
+  /** Wecra-only: a scrolling frame's Scrollbar, drawn over its content (absent: off) */
+  prototypeScrollbar?: boolean;
 }
 
 /** Prototype › Video (schema VideoPlayback): Autoplay, Loop, the sound (muted). */
@@ -199,6 +203,12 @@ export const TRIGGERS: { value: InteractionType; label: string }[] = [
   { value: "AFTER_TIMEOUT", label: "After delay" },
 ];
 
+/**
+ * Wecra-only triggers (not Figma's; @ours in the schema, dropped from a .fig export and Figma's clipboard): On double
+ * click — a second click within 500 ms and 5 px of the first, after that click's own On click (docs/engine.md §3.4).
+ */
+export const OUR_TRIGGERS: { value: InteractionType; label: string }[] = [{ value: "ON_DOUBLE_CLICK", label: "On double click" }];
+
 /** The video triggers, offered on a video (help: "available for any connection that begins on a video"). */
 export const VIDEO_TRIGGERS: { value: InteractionType; label: string }[] = [
   { value: "ON_MEDIA_HIT", label: "When video hits" },
@@ -208,7 +218,7 @@ export const VIDEO_TRIGGERS: { value: InteractionType; label: string }[] = [
 export function triggerLabel(t: InteractionType | undefined): string {
   if (t === "MOUSE_IN") return "Mouse enter";
   if (t === "MOUSE_OUT") return "Mouse leave";
-  return [...TRIGGERS, ...VIDEO_TRIGGERS].find((x) => x.value === (t ?? "ON_CLICK"))?.label ?? "On click";
+  return [...TRIGGERS, ...OUR_TRIGGERS, ...VIDEO_TRIGGERS].find((x) => x.value === (t ?? "ON_CLICK"))?.label ?? "On click";
 }
 
 /** A video time as Figma's fields show it: m:ss (seconds with a fraction when there is one). */
@@ -267,6 +277,7 @@ export const VIDEO_ACTIONS: { value: ActionKind; label: string }[] = [
 export const TRIGGER_ICON: Record<InteractionType, IconName> = {
   NONE: "24.proto.none",
   ON_CLICK: "24.proto.click",
+  ON_DOUBLE_CLICK: "24.proto.click",
   DRAG: "24.proto.drag",
   ON_HOVER: "24.proto.hover",
   ON_PRESS: "24.proto.press",
@@ -305,14 +316,15 @@ type MenuEntry = { value: string; label: string; icon: IconName; disabled?: bool
 /**
  * Interaction details' Trigger list as live (84.png; live 2026-10-10: 166 wide, rows 24, groups 15 apart): None |
  * On click, On drag, While hovering, While pressing, Key/Gamepad | Mouse enter, Mouse leave, Mouse down, Mouse up |
- * After delay — each with its glyph; on a video the video triggers after (unverified).
+ * After delay — each with its glyph; on a video the video triggers after (unverified). Wecra's On double click (not
+ * Figma's) follows On click.
  */
 export function triggerMenu(video: boolean, disabled: ReadonlySet<InteractionType> = new Set()): MenuEntry[] {
   const t = (v: InteractionType): MenuEntry => ({ value: v, label: triggerLabel(v), icon: TRIGGER_ICON[v], ...(disabled.has(v) ? { disabled: true } : {}) });
   return [
     { value: "NONE", label: "None", icon: TRIGGER_ICON.NONE },
     "-",
-    t("ON_CLICK"), t("DRAG"), t("ON_HOVER"), t("ON_PRESS"), t("ON_KEY_DOWN"),
+    t("ON_CLICK"), t("ON_DOUBLE_CLICK"), t("DRAG"), t("ON_HOVER"), t("ON_PRESS"), t("ON_KEY_DOWN"),
     "-",
     t("MOUSE_ENTER"), t("MOUSE_LEAVE"), t("MOUSE_DOWN"), t("MOUSE_UP"),
     "-",
@@ -346,13 +358,14 @@ function allActions(actions: readonly PrototypeAction[] | undefined): PrototypeA
  */
 export function disabledTriggers(interaction: PrototypeInteraction, others: readonly PrototypeInteraction[]): Set<InteractionType> {
   const out = new Set<InteractionType>();
-  const all: InteractionType[] = ["ON_CLICK", "DRAG", "ON_HOVER", "ON_PRESS", "ON_KEY_DOWN", "MOUSE_ENTER", "MOUSE_LEAVE", "MOUSE_DOWN", "MOUSE_UP", "ON_MEDIA_HIT", "ON_MEDIA_END"];
+  const all: InteractionType[] = ["ON_CLICK", "ON_DOUBLE_CLICK", "DRAG", "ON_HOVER", "ON_PRESS", "ON_KEY_DOWN", "MOUSE_ENTER", "MOUSE_LEAVE", "MOUSE_DOWN", "MOUSE_UP", "ON_MEDIA_HIT", "ON_MEDIA_END"];
   const repeats = new Set<InteractionType>(["ON_KEY_DOWN", "DRAG", "ON_MEDIA_HIT"]);
   // Same trigger: the identity this interaction would have with it (its delay kept) against the others'.
   const used = new Set(others.filter((o) => o !== interaction).map((o) => triggerIdentity(o.event)));
   for (const t of all) if (!repeats.has(t) && used.has(triggerIdentity({ ...interaction.event, interactionType: t }))) out.add(t);
   const actions = allActions(interaction.actions);
-  if (actions.some((a) => a.connectionType === "URL")) for (const t of all) if (t !== "ON_CLICK" && t !== "MOUSE_UP") out.add(t);
+  // (Wecra's On double click is a user gesture too: a link may open from it.)
+  if (actions.some((a) => a.connectionType === "URL")) for (const t of all) if (t !== "ON_CLICK" && t !== "MOUSE_UP" && t !== "ON_DOUBLE_CLICK") out.add(t);
   if (actions.some((a) => a.connectionType === "UPDATE_MEDIA_RUNTIME")) for (const t of ["ON_HOVER", "ON_PRESS", "DRAG"] as const) out.add(t);
   if (interaction.actions?.length === 1 && interaction.actions[0].connectionType === "BACK") for (const t of ["ON_HOVER", "ON_PRESS"] as const) out.add(t);
   out.delete(interaction.event?.interactionType ?? "ON_CLICK");
@@ -848,6 +861,7 @@ export function triggerShortLabel(i: PrototypeInteraction): string {
   const t = i.event?.interactionType ?? "ON_CLICK";
   switch (t) {
     case "ON_CLICK": return tr("Click");
+    case "ON_DOUBLE_CLICK": return tr("Double click");  // Wecra's
     case "DRAG": return tr("Drag");
     case "ON_HOVER": return tr("Hover");
     case "ON_PRESS": return tr("Press");

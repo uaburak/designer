@@ -806,6 +806,8 @@ class Renderer {
   void drawChildren(const Document& doc, uint32_t first, uint32_t end, const Mat2x3& m, double alpha);
   // strokes = false: without the node's own strokes (drawn apart, above its inner shadows).
   void drawContent(const Document& doc, uint32_t i, const NodeProps& p, const Mat2x3& m, double alpha, bool shadowsDone, bool strokes = true);
+  // Wecra's frame scrollbar (render/FrameScrollbar.h) over a scrolling frame's children, when it has one.
+  void drawFrameScrollbar(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha);
   void drawFills(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, bool whiteMask = false);
   void drawStrokes(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha);
   // drawStrokes without PATTERN stroke paints (drawStrokes sends those through drawPattern, masked by the stroke).
@@ -1125,6 +1127,8 @@ class Renderer {
   RenderStats stats_;
   // renderScene: the item's props overrides, and culling off (layers may be drawn away from their tree bounds).
   const PropsOverrides* overrides_ = nullptr;
+  // renderScene: the player's scroll of frames with a scrollbar (PresentScene::scrollbars).
+  const std::unordered_map<Guid, FrameScrollbarState, GuidHash>* sceneScrollbars_ = nullptr;
   bool cull_ = true;
   bool outlines_ = false;  // this frame draws the page in outline mode
   bool layoutGuides_ = true;  // frames' layout grids drawn (View › Layout guides)

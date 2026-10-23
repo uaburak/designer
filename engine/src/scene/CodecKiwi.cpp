@@ -3295,4 +3295,13 @@ bool extraBool(const std::map<std::string, std::string, std::less<>>& extra, con
   return b != 0;
 }
 
+uint32_t extraUint(const std::map<std::string, std::string, std::less<>>& extra, const char* key, uint32_t fallback) {
+  auto it = extra.find(key);
+  if (it == extra.end() || it->second.empty()) return fallback;
+  kiwi::ByteBuffer bb(reinterpret_cast<const uint8_t*>(it->second.data()), it->second.size());
+  uint32_t fid, v;
+  if (!bb.readVarUint(fid) || !bb.readVarUint(v)) return fallback;
+  return v;
+}
+
 }  // namespace eng::codec

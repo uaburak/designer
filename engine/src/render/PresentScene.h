@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "math/Math.h"
+#include "render/FrameScrollbar.h"
 #include "scene/Node.h"
 
 namespace eng {
@@ -38,6 +39,9 @@ struct PresentItem {
 struct PresentScene {
   Color background;
   std::vector<PresentItem> items;
+  // Frames with Wecra's Scrollbar on (prototypeScrollbar): how far each is scrolled, for the thumbs drawn after its
+  // children (a frame not here draws them at scroll 0, as on the canvas).
+  std::unordered_map<Guid, FrameScrollbarState, GuidHash> scrollbars;
 };
 
 }  // namespace eng

@@ -17,7 +17,7 @@ import { docInteractions, isDocShape, reactionsFromDoc, reactionToDoc, settingsF
 type Obj = Record<string, unknown>;
 type ProtoNode = NodeChange & { prototypeInteractions?: PrototypeInteraction[]; prototypeStartingPoint?: PrototypeStartingPoint } & Obj;
 
-const PROTO_FIELDS = ["name", "type", "parentIndex", "prototypeInteractions", "prototypeStartingPoint", "scrollDirection", "scrollBehavior", "overlayPositionType", "overlayBackgroundInteraction", "overlayBackgroundAppearance", "prototypeTextInput", "prototypeCursor", "overlayEdgeBehavior", "overlayStack", "overlayFitWindow"];
+const PROTO_FIELDS = ["name", "type", "parentIndex", "prototypeInteractions", "prototypeStartingPoint", "scrollDirection", "scrollBehavior", "overlayPositionType", "overlayBackgroundInteraction", "overlayBackgroundAppearance", "prototypeTextInput", "prototypeCursor", "overlayEdgeBehavior", "overlayStack", "overlayFitWindow", "prototypeScrollbar"];
 
 const readP = (env: Pick<ToolEnv, "ed">, id: Guid, fields?: string[]) => env.ed.engine.readNode(id, fields ? { fields } : {}) as ProtoNode | null;
 

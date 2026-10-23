@@ -64,7 +64,9 @@ std::vector<std::pair<std::string, std::string>> variantProps(const std::string&
 
 bool isFocusValue(const std::string& v) { return v == "focus" || v == "focused" || v == "focus visible" || v == "focus-visible"; }
 
-bool clickTrigger(Trigger t) { return t == Trigger::ON_CLICK || t == Trigger::ON_PRESS || t == Trigger::MOUSE_DOWN || t == Trigger::MOUSE_UP; }
+bool clickTrigger(Trigger t) {
+  return t == Trigger::ON_CLICK || t == Trigger::ON_PRESS || t == Trigger::MOUSE_DOWN || t == Trigger::MOUSE_UP || t == Trigger::ON_DOUBLE_CLICK;
+}
 
 uint32_t length16(const std::string& s) { return static_cast<uint32_t>(text::utf8To16(s).size()); }
 

@@ -23,6 +23,7 @@ constexpr double kMaxFrameMs = 1000.0 / 30;  // a frame advances the animations 
 constexpr double kReleaseSpeed = 0.15;    // On drag: the release speed (progress per duration) that flips the end
 constexpr double kArrowDelayMs = 500;     // After delay on a screen reached with ← / →: at least this long
 constexpr double kWheelLatchMs = 200;     // wheel events this close keep scrolling the same frame
+constexpr double kDoubleClickMs = 500;    // On double click (@ours): the second click this soon after the first (the OS default)
 
 double lerp(double a, double b, double t) { return a + (b - a) * t; }
 // An eased progress used as an opacity: an overshooting easing never makes a layer more than opaque or less than clear.
@@ -264,6 +265,8 @@ bool Player::start(Guid page, Guid start) {
   slides_.clear();
   flings_.clear();
   scrollDrag_ = ScrollDrag{};
+  thumbDrag_ = ThumbDrag{};
+  lastClickAt_ = -1e9;
   pending_.clear();
   timers_.clear();
   delayed_.clear();
@@ -298,6 +301,7 @@ void Player::stop() {
   pending_.clear();
   flings_.clear();
   scrollDrag_ = ScrollDrag{};
+  thumbDrag_ = ThumbDrag{};
   scene_ = PresentScene{};
   store_.clear();
   clearMedia();
@@ -1473,7 +1477,7 @@ void Player::hover(const Chain& in, bool live) {
     if (!hasIx(h.id)) continue;
     for (auto& i : ix(h.id))
       hand |= i.trigger == Trigger::ON_CLICK || i.trigger == Trigger::ON_PRESS || i.trigger == Trigger::MOUSE_DOWN ||
-              i.trigger == Trigger::MOUSE_UP || i.trigger == Trigger::DRAG;
+              i.trigger == Trigger::MOUSE_UP || i.trigger == Trigger::DRAG || i.trigger == Trigger::ON_DOUBLE_CLICK;
   }
   if (hand != hotspot_) {
     hotspot_ = hand;
@@ -1602,6 +1606,10 @@ uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*butto
   }
   switch (type) {
     case PointerEvent::MOVE: {
+      if (thumbDrag_.active) {
+        moveThumbDrag(css);
+        return 1;
+      }
       if (scrollDrag_.active) {
         moveScrollDrag(css);
         return 1;
@@ -1646,6 +1654,15 @@ uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*butto
     }
     case PointerEvent::DOWN: {
       Chain c = hitTest(css);
+      // A scrollbar thumb takes the press before the layers under it (it is drawn over them).
+      if (beginThumbDrag(c, css)) {
+        down_ = true;
+        dragFired_ = true;  // no click
+        downCss_ = css;
+        downChain_ = Chain{};
+        samples_.clear();
+        return 1;
+      }
       hover(c);
       c = hoverChain_;  // as hover left it (hit again if a hover changed what is under the pointer), with its keys
       if (web_) webPointerDown(c, css);  // focus (a text input takes the caret), or blur
@@ -1683,6 +1700,10 @@ uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*butto
     case PointerEvent::UP: {
       if (!down_) return 0;
       down_ = false;
+      if (thumbDrag_.active) {
+        thumbDrag_ = ThumbDrag{};
+        return 1;
+      }
       if (web_) webPointerUp();
       if (scrub_.active) endScrub(t);
       if (scrollDrag_.active) {
@@ -1735,6 +1756,18 @@ uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*butto
           hintsPending_ = true;
           dirty_ = true;
         }
+        // On double click (Wecra's, @ours): a second click soon after the first and near it — after its own On click,
+        // as a browser's dblclick follows the second click. The deepest layer under the pointer now (the clicks may
+        // have changed what is there) with an On double click runs it; a third click starts a new pair.
+        if (t - lastClickAt_ <= kDoubleClickMs && (css - lastClickCss_).length() <= kDragThreshold) {
+          lastClickAt_ = -1e9;
+          Chain d = hitTest(css);
+          for (auto& h : d.hits)
+            if (doc().has(h.id) && fire(h.id, Trigger::ON_DOUBLE_CLICK, &h)) break;
+        } else {
+          lastClickAt_ = t;
+          lastClickCss_ = css;
+        }
       }
       downChain_ = Chain{};
       return 1;
@@ -1742,6 +1775,7 @@ uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*butto
     case PointerEvent::LEAVE: hover(Chain{}, false); return 1;
     case PointerEvent::CANCEL:
       down_ = false;
+      thumbDrag_ = ThumbDrag{};
       if (scrub_.active) endScrub(t);
       if (scrollDrag_.active) endScrollDrag(t);
       return 1;
@@ -3016,6 +3050,84 @@ void Player::stopFlings(Guid frame) {
   flings_.erase(std::remove_if(flings_.begin(), flings_.end(), [&](const Fling& f) { return f.frame == frame; }), flings_.end());
 }
 
+// ---- Wecra's Scrollbar (prototypeScrollbar, @ours; render/FrameScrollbar.h) -----------------------------------
+
+FrameScrollbarState Player::scrollbarState(Guid frame, bool top, Vec2 topScroll) const {
+  FrameScrollbarState s;
+  const NodeProps* p = props(frame);
+  if (!p) return s;
+  Overflow o = overflow(*p);
+  s.horizontal = o == Overflow::HORIZONTAL || o == Overflow::BOTH;
+  s.vertical = o == Overflow::VERTICAL || o == Overflow::BOTH;
+  if (top) {
+    Vec2 f = topShift(frame, topScroll);
+    s.box = {f.x, f.y, std::min(p->size.x, view_.screen.x), std::min(p->size.y, view_.screen.y)};
+    s.scroll = topScroll;
+    s.range = topScrollRange(frame);
+  } else {
+    s.box = {0, 0, p->size.x, p->size.y};
+    s.scroll = scrollOf(frame);
+    s.range = nestedScrollRange(frame);
+  }
+  return s;
+}
+
+bool Player::beginThumbDrag(const Chain& c, Vec2 css) {
+  for (const Hit& h : c.hits) {
+    const NodeProps* p = props(h.id);
+    if (!p || !p->isFrameLike() || !scrollbar(*p) || overflow(*p) == Overflow::NONE) continue;
+    bool top = h.id == base_ && c.layer == -1;
+    Mat2x3 m = top ? frameCss(baseSide()) : h.toCss;
+    FrameScrollbarState s = scrollbarState(h.id, top, top ? scrollOf(base_) : Vec2{});
+    FrameScrollbarThumbs t = frameScrollbarThumbs(s);
+    Mat2x3 inv = m.inverse();
+    Vec2 local = inv.apply(css);
+    const double slop = kFrameScrollbarInset;
+    auto in = [&](const Rect& r, bool vertical) {
+      Rect g = vertical ? Rect{r.x - slop, r.y, r.w + 2 * slop, r.h} : Rect{r.x, r.y - slop, r.w, r.h + 2 * slop};
+      return g.contains(local);
+    };
+    bool vertical;
+    if (t.v && in(t.vThumb, true)) vertical = true;
+    else if (t.h && in(t.hThumb, false)) vertical = false;
+    else continue;
+    const Rect& track = vertical ? t.vTrack : t.hTrack;
+    const Rect& thumb = vertical ? t.vThumb : t.hThumb;
+    double free = vertical ? track.h - thumb.h : track.w - thumb.w;
+    double range = vertical ? s.range.y : s.range.x;
+    if (free <= 0 || range <= 0) continue;
+    stopFlings(h.id);
+    thumbDrag_ = ThumbDrag{};
+    thumbDrag_.active = true;
+    thumbDrag_.frame = h.id;
+    thumbDrag_.vertical = vertical;
+    thumbDrag_.inverse = inv;
+    thumbDrag_.from = local;
+    thumbDrag_.scroll = {std::clamp(s.scroll.x, 0.0, s.range.x), std::clamp(s.scroll.y, 0.0, s.range.y)};
+    thumbDrag_.perUnit = range / free;
+    thumbDrag_.range = range;
+    return true;
+  }
+  return false;
+}
+
+void Player::moveThumbDrag(Vec2 css) {
+  if (!doc().has(thumbDrag_.frame)) {
+    thumbDrag_ = ThumbDrag{};
+    return;
+  }
+  Vec2 local = thumbDrag_.inverse.apply(css);
+  double d = thumbDrag_.vertical ? local.y - thumbDrag_.from.y : local.x - thumbDrag_.from.x;
+  Vec2 next = thumbDrag_.scroll;
+  double& axis = thumbDrag_.vertical ? next.y : next.x;
+  axis = std::clamp(axis + d * thumbDrag_.perUnit, 0.0, thumbDrag_.range);
+  Vec2 cur = scrollOf(thumbDrag_.frame);
+  if (next.x != cur.x || next.y != cur.y) {
+    scroll_[thumbDrag_.frame] = next;
+    dirty_ = true;
+  }
+}
+
 // ---- Motion timelines ------------------------------------------------------------------------------------
 
 void Player::startTimeline() {
@@ -3508,10 +3620,12 @@ void Player::stick(Guid scroller, double scrollY, PropsOverrides& out) const {
   walk(scroller, 0, true);
 }
 
-void Player::scrollOverrides(Guid frame, PropsOverrides& out, bool topLevel, Vec2 topScroll) const {
+void Player::scrollOverrides(Guid frame, PropsOverrides& out, bool topLevel, Vec2 topScroll,
+                             std::unordered_map<Guid, FrameScrollbarState, GuidHash>* bars) const {
   std::function<void(Guid, bool)> walk = [&](Guid id, bool root) {
     const NodeProps* p = props(id);
     if (!p || !p->visible) return;
+    if (bars && p->isFrameLike() && scrollbar(*p)) (*bars)[id] = scrollbarState(id, root && topLevel, topScroll);
     if (root && topLevel) {
       // A top-level frame moves under the screen as far as it is bigger (the scene's matrix, `topShift`); the rest of
       // its scroll moves its layers inside it, Fixed ones excepted; its sticky layers stay.
@@ -3552,7 +3666,7 @@ void Player::addFrame(const Side& s, Vec2 offset, double alpha, PropsOverrides&&
   // `clamp(lerp(from, to, t), 0, 1)` for opacity, the translation unclamped).
   alpha = unit(alpha);
   if (fixedAlpha >= 0) fixedAlpha = unit(fixedAlpha);
-  scrollOverrides(s.frame, overrides, !s.overlay, s.scroll);
+  scrollOverrides(s.frame, overrides, !s.overlay, s.scroll, &scene_.scrollbars);
   // Instances changing state inside it.
   for (auto& ia : instanceAnims_) {
     if (noInstanceAnims_ || (ia.instance != s.frame && !doc().isAncestor(s.frame, ia.instance))) continue;
@@ -3978,6 +4092,7 @@ void Player::addMatching(const Side& x, const Side& y, const Anim& a, double p) 
 
 const PresentScene& Player::scene() {
   scene_.items.clear();
+  scene_.scrollbars.clear();
   store_.clear();
   if (!active()) return scene_;
   // Every screen drawn is derived (a partial engine's, Editor::deriveTree; a no-op otherwise).

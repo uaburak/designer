@@ -312,6 +312,13 @@ double viewerSpring(const motion::Spring& s, double t) {
   return 1 - (1 + (w0 - v0) * t) * std::exp(-t * w0);
 }
 
+// An interactionType: Figma's by index, ours (ON_DOUBLE_CLICK = 100) by name or number.
+Trigger triggerOf(const json::Value* v) {
+  if (v && v->isString() && v->string == "ON_DOUBLE_CLICK") return Trigger::ON_DOUBLE_CLICK;
+  if (v && v->isNumber() && static_cast<int>(v->number) == static_cast<int>(Trigger::ON_DOUBLE_CLICK)) return Trigger::ON_DOUBLE_CLICK;
+  if (v && v->isNumber() && !(v->number >= 0 && v->number < static_cast<double>(std::size(kTriggers)))) return Trigger::ON_CLICK;
+  return enumOf(v, kTriggers, Trigger::ON_CLICK);
+}
 bool isSpring(Easing e) {
   return e == Easing::SPRING || e == Easing::GENTLE_SPRING || e == Easing::CUSTOM_SPRING || e == Easing::SPRING_PRESET_ONE ||
          e == Easing::SPRING_PRESET_TWO || e == Easing::SPRING_PRESET_THREE;
@@ -322,6 +329,7 @@ double bezier(const motion::Bezier& b, double t) { return motion::cubicBezier(b.
 }  // namespace
 
 const char* triggerName(Trigger t) {
+  if (t == Trigger::ON_DOUBLE_CLICK) return "ON_DOUBLE_CLICK";  // ours, past Figma's numbers
   size_t i = static_cast<size_t>(t);
   return i < std::size(kTriggers) ? kTriggers[i] : "ON_CLICK";
 }
@@ -363,7 +371,7 @@ std::vector<Interaction> readInteractions(const NodeProps& p) {
     i.id = guidOf(x.get("id"));
     i.stateManagementVersion = static_cast<int>(num(x.get("stateManagementVersion"), 0));
     if (const json::Value* e = x.get("event"); e && e->isObject()) {
-      i.trigger = enumOf(e->get("interactionType"), kTriggers, Trigger::ON_CLICK);
+      i.trigger = triggerOf(e->get("interactionType"));
       // After delay: a missing (or negative) timeout plays as 0.8 s; an explicit 0 stays 0 — Figma's viewer
       // (`sQ.transitionTimeout`: value ≥ 0 ? value : .8). Only its Plugin API reads 0 as 0.8 (`|| .8`).
       i.timeout = num(e->get("transitionTimeout"), -1);
@@ -414,6 +422,8 @@ Overflow overflow(const NodeProps& p) {
   if (!extraJson(p, "scrollDirection", v)) return Overflow::NONE;
   return enumOf(&v, kOverflows, Overflow::NONE);
 }
+
+bool scrollbar(const NodeProps& p) { return codec::extraBool(p.extra, "prototypeScrollbar", false); }
 
 ScrollBehavior scrollBehavior(const NodeProps& p) {
   json::Value v;

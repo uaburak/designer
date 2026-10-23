@@ -67,6 +67,7 @@ RenderStats Renderer::renderScene(const Document& doc, Guid page, const Viewport
   beginRecording({0, 0, W, H}, false);
   cull_ = false;
   const double sx = viewport_.scaleX(), sy = viewport_.scaleY();
+  sceneScrollbars_ = &scene.scrollbars;
   for (const PresentItem& item : scene.items) {
     current_ = 0;
     round_ = RoundClip{};
@@ -106,6 +107,7 @@ RenderStats Renderer::renderScene(const Document& doc, Guid page, const Viewport
     drawChildren(doc, static_cast<uint32_t>(i), tree.nodes()[static_cast<size_t>(i)].end, item.parentCss, 1);
     overrides_ = nullptr;
   }
+  sceneScrollbars_ = nullptr;
   cull_ = true;
   current_ = 0;
   scissorEnabled_ = false;

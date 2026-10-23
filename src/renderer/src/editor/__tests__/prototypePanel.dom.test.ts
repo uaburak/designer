@@ -130,4 +130,23 @@ describe("the Prototype tab", () => {
     view.unmount();
     engine.destroy();
   });
+
+  it("a frame that scrolls: Scroll behavior › Scrollbar (Wecra's), shown only with an Overflow", async () => {
+    const { view, engine } = await setup();
+    act(() => void engine.setSelection(["2:10"]));
+    const scroll = () => section(view.host, "Scroll behavior")!;
+    const row = () => scroll().querySelector<HTMLElement>("[data-scrollbar-row]");
+    const read = () => engine.readNode("2:10") as { scrollDirection?: string; prototypeScrollbar?: boolean };
+    expect(row()).toBeNull(); // No scrolling: no Scrollbar
+    click(scroll().querySelector('[aria-label="Overflow"]'));
+    click([...document.querySelectorAll('[role="option"]')].find((o) => o.textContent?.trim() === "Vertical") ?? null);
+    expect(read().scrollDirection).toBe("VERTICAL");
+    expect(row()?.textContent).toContain("Scrollbar");
+    click(row()!.querySelector("input"));
+    expect(read().prototypeScrollbar).toBe(true);
+    click(row()!.querySelector("input"));
+    expect(read().prototypeScrollbar).toBeUndefined();
+    view.unmount();
+    engine.destroy();
+  });
 });

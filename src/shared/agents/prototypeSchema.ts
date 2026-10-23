@@ -7,6 +7,7 @@
  *   trigger.type  ON_CLICK → ON_CLICK, ON_DRAG → DRAG, ON_HOVER (While hovering) → ON_HOVER, ON_PRESS (While pressing)
  *                 → ON_PRESS, ON_KEY_DOWN {keyCodes, device} → ON_KEY_DOWN + keyTrigger, MOUSE_ENTER / MOUSE_LEAVE /
  *                 MOUSE_DOWN / MOUSE_UP {delay s} → the same (+ interactionMaintained = delay ≠ 0,
+ *                 [Wecra's ON_DOUBLE_CLICK → ON_DOUBLE_CLICK (@ours: not Figma's, a .fig export drops it)]
  *                 interactionDuration = delay), AFTER_TIMEOUT {timeout s} → AFTER_TIMEOUT + transitionTimeout (0 or
  *                 missing reads 0.8), ON_MEDIA_HIT {mediaHitTime} / ON_MEDIA_END → the same. New reactions carry
  *                 stateManagementVersion 1.
@@ -32,9 +33,9 @@
 
 type Obj = Record<string, unknown>;
 
-export const TRIGGER_TYPES = ["ON_CLICK", "ON_DRAG", "ON_HOVER", "ON_PRESS", "ON_KEY_DOWN", "MOUSE_ENTER", "MOUSE_LEAVE", "MOUSE_DOWN", "MOUSE_UP", "AFTER_TIMEOUT", "ON_MEDIA_HIT", "ON_MEDIA_END"] as const;
+export const TRIGGER_TYPES = ["ON_CLICK", "ON_DRAG", "ON_HOVER", "ON_PRESS", "ON_KEY_DOWN", "MOUSE_ENTER", "MOUSE_LEAVE", "MOUSE_DOWN", "MOUSE_UP", "AFTER_TIMEOUT", "ON_MEDIA_HIT", "ON_MEDIA_END", "ON_DOUBLE_CLICK"] as const;
 /** Accepted on writes for a trigger type */
-export const TRIGGER_ALIASES: Readonly<Record<string, string>> = { WHILE_HOVERING: "ON_HOVER", WHILE_PRESSING: "ON_PRESS", KEY_DOWN: "ON_KEY_DOWN", KEY_GAMEPAD: "ON_KEY_DOWN", AFTER_DELAY: "AFTER_TIMEOUT", DRAG: "ON_DRAG", ON_TAP: "ON_CLICK", CLICK: "ON_CLICK" };
+export const TRIGGER_ALIASES: Readonly<Record<string, string>> = { WHILE_HOVERING: "ON_HOVER", WHILE_PRESSING: "ON_PRESS", KEY_DOWN: "ON_KEY_DOWN", KEY_GAMEPAD: "ON_KEY_DOWN", AFTER_DELAY: "AFTER_TIMEOUT", DRAG: "ON_DRAG", ON_TAP: "ON_CLICK", CLICK: "ON_CLICK", DOUBLE_CLICK: "ON_DOUBLE_CLICK", ON_DBLCLICK: "ON_DOUBLE_CLICK", DBLCLICK: "ON_DOUBLE_CLICK" };
 
 export const ACTION_TYPES = ["NODE", "NAVIGATE", "CHANGE_TO", "SCROLL_TO", "OPEN_OVERLAY", "SWAP_OVERLAY", "BACK", "CLOSE", "URL", "SET_VARIABLE", "SET_VARIABLE_MODE", "CONDITIONAL", "UPDATE_MEDIA_RUNTIME", "NONE"] as const;
 /** Accepted on writes for an action type (→ a NODE action with that navigation, or another type) */
@@ -81,7 +82,7 @@ export const transitionSchema: Obj = {
 
 export const triggerSchema: Obj = {
   description:
-    'When it fires (Plugin API Trigger): {type: ON_CLICK | ON_DRAG | ON_HOVER (While hovering) | ON_PRESS (While pressing) | MOUSE_ENTER | MOUSE_LEAVE | MOUSE_DOWN | MOUSE_UP (+ delay s) | AFTER_TIMEOUT (+ timeout s, or timeoutMs) | ON_KEY_DOWN (+ keyCodes [JS keyCodes] or keys ["Shift+K", "ArrowRight"], device KEYBOARD | XBOX_ONE | PS4 | SWITCH_PRO | UNKNOWN_CONTROLLER) | ON_MEDIA_HIT (+ mediaHitTime s) | ON_MEDIA_END}. A bare type name is read too ("ON_CLICK"); WHILE_HOVERING, WHILE_PRESSING, KEY_DOWN, AFTER_DELAY are read as their Plugin API names.',
+    'When it fires (Plugin API Trigger): {type: ON_CLICK | ON_DOUBLE_CLICK (Wecra-only: a second click within 0.5 s; not in Figma, left out of a .fig export) | ON_DRAG | ON_HOVER (While hovering) | ON_PRESS (While pressing) | MOUSE_ENTER | MOUSE_LEAVE | MOUSE_DOWN | MOUSE_UP (+ delay s) | AFTER_TIMEOUT (+ timeout s, or timeoutMs) | ON_KEY_DOWN (+ keyCodes [JS keyCodes] or keys ["Shift+K", "ArrowRight"], device KEYBOARD | XBOX_ONE | PS4 | SWITCH_PRO | UNKNOWN_CONTROLLER) | ON_MEDIA_HIT (+ mediaHitTime s) | ON_MEDIA_END}. A bare type name is read too ("ON_CLICK"); WHILE_HOVERING, WHILE_PRESSING, KEY_DOWN, AFTER_DELAY are read as their Plugin API names.',
   anyOf: [
     { type: "string" },
     {

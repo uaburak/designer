@@ -4,7 +4,7 @@
 // zero timeouts 0.8 s, mouse delays live in interactionMaintained / interactionDuration, new reactions carry
 // stateManagementVersion 1, and node.reactions reads as Figma's Reaction.
 import { describe, expect, it } from "vitest";
-import { pluginReactionsFromDoc, reactionsFromDoc, reactionToDoc, type ProtoLookup, type ProtoNodeInfo } from "../agents/prototypeSpec";
+import { pluginReactionsFromDoc, reactionsFromDoc, reactionToDoc, settingsFromDoc, settingsToDoc, type ProtoLookup, type ProtoNodeInfo } from "../agents/prototypeSpec";
 import type { PrototypeAction, PrototypeInteraction } from "../model/prototype";
 
 const node = (id: string, name: string): ProtoNodeInfo => ({ id, name, type: "FRAME", isStateGroup: false, parentType: "CANVAS", parentIsStateGroup: false, pageId: "0:1" });
@@ -89,5 +89,21 @@ describe("prototype Plugin API shapes", () => {
     expect(plugin[0].trigger).toEqual({ type: "ON_CLICK" });
     expect(plugin[0].action).toEqual((plugin[0].actions as unknown[])[0]);
     expect((plugin[0].actions as { transition: unknown }[])[0].transition).toMatchObject({ type: "PUSH", direction: "LEFT" });
+  });
+
+  it("Wecra's ON_DOUBLE_CLICK trigger and Scrollbar setting (not Figma's) go through as they are", () => {
+    for (const type of ["ON_DOUBLE_CLICK", "DOUBLE_CLICK"]) {
+      const r = write({ trigger: { type }, actions: [{ type: "NODE", destinationId: "1:2", navigation: "NAVIGATE" }] });
+      expect(r.errors).toEqual([]);
+      expect(r.doc!.event).toEqual({ interactionType: "ON_DOUBLE_CLICK" });
+      expect(reactionsFromDoc([r.doc!])[0].trigger).toEqual({ type: "ON_DOUBLE_CLICK" });
+    }
+    const errors: string[] = [];
+    expect(settingsToDoc({ overflowDirection: "VERTICAL", prototypeScrollbar: true }, "n", errors)).toEqual({ scrollDirection: "VERTICAL", prototypeScrollbar: true });
+    expect(settingsToDoc({ prototypeScrollbar: false }, "n", errors)).toEqual({ prototypeScrollbar: null });
+    expect(errors).toEqual([]);
+    settingsToDoc({ prototypeScrollbar: "yes" }, "n", errors);
+    expect(errors).toHaveLength(1);
+    expect(settingsFromDoc({ scrollDirection: "BOTH", prototypeScrollbar: true })).toEqual({ overflowDirection: "BOTH", prototypeScrollbar: true });
   });
 });
