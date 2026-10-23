@@ -193,6 +193,10 @@ describe("two passes (Figma's Layers panel)", () => {
     const moved = patchTree(renamed, { removed: [], nodes: [{ guid: "1:10", type: "FRAME", name: "Layer 10", parentIndex: { guid: "0:1", position: "!" }, childIds: [] }] }, undefined, { detailsOnly: true });
     expect(moved.nodes).not.toBe(renamed.nodes);
     expect(moved.nodes.get("1:10")!.children).toEqual([]);
+    // Nor when a row's kind changed in place (Flatten: a rectangle becomes a VECTOR, its glyph follows)
+    const flat = patchTree(moved, { removed: [], nodes: [{ guid: "1:199", type: "VECTOR", name: "Again", parentIndex: { guid: "0:1", position: "!" }, childIds: [] }] }, undefined, { detailsOnly: true });
+    expect(flat.nodes).not.toBe(moved.nodes);
+    expect(flat.nodes.get("1:199")!.type).toBe("VECTOR");
   });
 
   it("a row invalidated reads again when next shown; rows kept with the tree need no read", () => {

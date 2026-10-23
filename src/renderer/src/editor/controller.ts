@@ -546,11 +546,13 @@ export function namesReader(engine: Engine): RowReader {
   return (ids) => (engine.destroyed || !ids.length ? [] : engine.readNodes(ids, { fields: NAME_FIELDS }));
 }
 
-/** Do a delta row's children match the tree's (the delta changed nothing structural about it)? */
+/** Do a delta row's place, kind and children match the tree's (the delta changed nothing structural about it)? */
 function sameChildren(tree: LayerTree, row: NodeChange): boolean {
   const node = tree.nodes.get(row.guid);
   if (!node) return false;
   if ((row.parentIndex?.guid || null) !== node.parent) return false;
+  // Its kind is pass 1's too: Flatten turns a text or a rectangle into a VECTOR in place (its row's glyph follows)
+  if (row.type && row.type !== "NONE" && row.type !== node.type) return false;
   const kids = row.childIds ?? [];
   if (kids.length !== node.children.length) return false;
   for (let i = 0; i < kids.length; i++) if (kids[i] !== node.children[i]) return false;
