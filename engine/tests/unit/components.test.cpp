@@ -414,6 +414,23 @@ TEST_CASE("components: create component, combine as variants, add variant, switc
   CHECK(e.document().parentOf(nv) == set);
   CHECK(props(e, nv).name == "Variant=Variant2, Property 2=Secondary");
   CHECK(props(e, e.document().children(nv)[0]).overrideKey == BR);
+  // Renamed to a new value, then to one the set has: the values are those the variants have, each once (Figma's) — no
+  // "Variant2", "Variant3" left behind, no "Button" twice.
+  auto options = [&](const std::string& prop) {
+    ComponentInfo ci;
+    REQUIRE(e.componentInfo(A, ci));
+    for (auto& p : ci.properties)
+      if (p.name == prop) return p.variantOptions;
+    return std::vector<std::string>{};
+  };
+  CHECK(options("Variant") == std::vector<std::string>{"Button", "Variant2"});
+  const std::string ref = "\"ref\":\"" + nv.toString() + "\"";
+  REQUIRE(e.command(CommandId::SET_VARIANT_PROPERTIES, args("{" + ref + ",\"values\":{\"Variant\":\"Variant3\"}}")) == OK);
+  CHECK(options("Variant") == std::vector<std::string>{"Button", "Variant3"});
+  REQUIRE(e.command(CommandId::SET_VARIANT_PROPERTIES, args("{" + ref + ",\"values\":{\"Variant\":\"Button\"}}")) == OK);
+  CHECK(options("Variant") == std::vector<std::string>{"Button"});
+  for (auto& o : props(e, set).comp().stateGroupPropertyValueOrders)
+    if (o.property == "Variant") CHECK(o.values == std::vector<std::string>{"Button"});
 }
 
 TEST_CASE("components: create component from a frame converts it; from a shape wraps it") {

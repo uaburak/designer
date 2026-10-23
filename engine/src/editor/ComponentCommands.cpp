@@ -289,6 +289,34 @@ Guid Editor::createInstance(Guid symbol, Guid parent, const std::string& positio
   return doc_.has(id) ? id : kNoGuid;  // (refused: a component can't contain an instance of itself)
 }
 
+// A set's value order as Figma keeps it: each variant property's values once, only those a variant has, in the order
+// the set lists them, then any a variant has that the order misses. (Renaming a value to one that is there merged them
+// into a duplicate; a value no variant has any more stayed — the owner's "Numeric3, Numeric4, Numeric4…", 2026-10-23.)
+static std::vector<StateGroupOrder> tidyOrders(const Document& doc, Guid set) {
+  const Node* sn = doc.get(set);
+  std::vector<StateGroupOrder> out;
+  if (!sn) return out;
+  for (const ComponentPropDef& d : sn->props.comp().componentPropDefs) {
+    if (d.type != ComponentPropType::VARIANT) continue;
+    std::vector<std::string> used;
+    for (Guid v : doc.children(set))
+      if (const Node* vn = doc.get(v))
+        for (const VariantPropSpec& sp : vn->props.comp().variantPropSpecs)
+          if (sp.propDefId == d.id && std::find(used.begin(), used.end(), sp.value) == used.end()) used.push_back(sp.value);
+    StateGroupOrder o;
+    o.property = d.name;
+    for (const StateGroupOrder& was : sn->props.comp().stateGroupPropertyValueOrders)
+      if (was.property == d.name)
+        for (const std::string& value : was.values)
+          if (std::find(used.begin(), used.end(), value) != used.end() && std::find(o.values.begin(), o.values.end(), value) == o.values.end())
+            o.values.push_back(value);
+    for (const std::string& value : used)
+      if (std::find(o.values.begin(), o.values.end(), value) == o.values.end()) o.values.push_back(value);
+    out.push_back(std::move(o));
+  }
+  return out;
+}
+
 void Editor::renameVariants(Guid set) {
   const Node* sn = doc_.get(set);
   if (!sn) return;
@@ -310,6 +338,14 @@ void Editor::renameVariants(Guid set) {
     c.mask = F_NAME;
     c.props.name = name;
     write(c);
+  }
+  // The value order follows the variants' values.
+  std::vector<StateGroupOrder> orders = tidyOrders(doc_, set);
+  if (!(orders == doc_.get(set)->props.comp().stateGroupPropertyValueOrders)) {
+    NodeChange o = NodeChange::changed(set);
+    o.mask = F_STATE_GROUP_ORDERS;
+    o.props.comp().stateGroupPropertyValueOrders = std::move(orders);
+    write(o);
   }
 }
 
@@ -421,18 +457,9 @@ std::vector<ComponentProperty> Editor::propertiesOf(Guid level, Guid symbol) con
       if (ok) p.preferredValues.push_back(g);
     }
     if (d->type == ComponentPropType::VARIANT) {
-      // Values in the set's order, then as the variants have them.
-      if (const Node* setNode = doc_.get(set)) {
-        for (const StateGroupOrder& o : setNode->props.comp().stateGroupPropertyValueOrders)
-          if (o.property == d->name) p.variantOptions = o.values;
-        for (Guid v : doc_.children(set)) {
-          const Node* vn = doc_.get(v);
-          if (!vn) continue;
-          for (const VariantPropSpec& s : vn->props.comp().variantPropSpecs)
-            if (s.propDefId == d->id && std::find(p.variantOptions.begin(), p.variantOptions.end(), s.value) == p.variantOptions.end())
-              p.variantOptions.push_back(s.value);
-        }
-      }
+      // Values in the set's order, then as the variants have them — each once, only those a variant has.
+      for (const StateGroupOrder& o : tidyOrders(doc_, set))
+        if (o.property == d->name) p.variantOptions = o.values;
       auto specOf = [&](Guid v) {
         const Node* vn = doc_.get(v);
         if (vn)
