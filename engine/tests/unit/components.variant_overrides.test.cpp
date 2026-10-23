@@ -243,6 +243,10 @@ TEST_CASE("components.variant_overrides: a nested instance that is another compo
     nodes.push_back(v);
     NodeChange fi = make(f, NodeType::INSTANCE, r, "!", {0, 0, 100, 24}, "Field");
     fi.props.comp().symbolData.symbolID = main;
+    SymbolOverride own;  // renamed "Field" (an instance's name is its main's until it has its own)
+    own.mask = F_NAME;
+    own.props.name = "Field";
+    fi.props.comp().symbolData.overrides = {own};
     nodes.push_back(fi);
   }
   NodeChange ri = make(RI, NodeType::INSTANCE, kPage, "d", {0, 0, 200, 32}, "Page row");

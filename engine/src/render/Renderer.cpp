@@ -1601,12 +1601,19 @@ void Renderer::drawFrameScrollbar(const Document& doc, Guid id, const NodeProps&
   FrameScrollbarThumbs t = frameScrollbarThumbs(s);
   if (!t.h && !t.v) return;
   // Neutral grey over the content: white at 30 % on a dark frame (the owner's reference, Figma's own panels), black at
-  // 30 % on a light one (or one without a solid fill).
-  bool dark = false;
-  for (auto f = p.fillPaints.rbegin(); f != p.fillPaints.rend(); ++f) {
-    if (!f->visible || f->type != PaintType::SOLID || f->opacity * f->color.a < 0.5f) continue;
-    dark = 0.2126 * f->color.r + 0.7152 * f->color.g + 0.0722 * f->color.b < 0.5;
-    break;
+  // 30 % on a light one. A frame without a solid fill shows what is behind it: the nearest one up its parents decides
+  // (a list in a dark panel); none at all, black.
+  bool dark = false, found = false;
+  for (Guid at = id; at != kNoGuid && !found; at = doc.parentOf(at)) {
+    const Node* an = doc.get(at);
+    if (!an) break;
+    const NodeProps& ap = at == id ? p : an->props;
+    for (auto f = ap.fillPaints.rbegin(); f != ap.fillPaints.rend(); ++f) {
+      if (!f->visible || f->type != PaintType::SOLID || f->opacity * f->color.a < 0.5f) continue;
+      dark = 0.2126 * f->color.r + 0.7152 * f->color.g + 0.0722 * f->color.b < 0.5;
+      found = true;
+      break;
+    }
   }
   const Color ink = dark ? Color{1, 1, 1, 1} : Color{0, 0, 0, 1};
   const double r = kFrameScrollbarThickness / 2;
