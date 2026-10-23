@@ -209,3 +209,68 @@ TEST_CASE("components.variant_overrides: a layer's interactions in an instance m
       deletedCopy |= codec::extraValueToJson("NodeChange", it->second).find("\"isDeleted\":true") != std::string::npos;
   CHECK(deletedCopy);
 }
+
+TEST_CASE("components.variant_overrides: a nested instance that is another component in the new variant keeps its property values by name") {
+  // The owner's Page row: Default holds a Button "Field" (Label "Inputs" on the row), Editing a Text input "Field" — the
+  // input showed its own "Buttons". Figma keeps a property's value across a swap where the new component has one of the
+  // same name and type.
+  const Guid BTN{21, 1}, BL{21, 2}, INP{21, 3}, IL{21, 4}, RSET{21, 5}, R1{21, 6}, R2{21, 7}, F1{21, 8}, F2{21, 9}, RI{21, 10}, RS{21, 11};
+  auto nodes = baseChanges();
+  auto comp = [&](Guid id, Guid def, double y, const char* name) {
+    NodeChange c = make(id, NodeType::SYMBOL, kPage, y == 0 ? "a" : "b", {600, y, 100, 24}, name);
+    ComponentPropDef d;
+    d.id = def;
+    d.name = "Label";
+    d.type = ComponentPropType::TEXT;
+    d.initialValue.hasText = true;
+    d.initialValue.textValue.characters = name;
+    c.props.comp().componentPropDefs = {d};
+    nodes.push_back(c);
+  };
+  comp(BTN, BL, 0, "Button");
+  comp(INP, IL, 100, "Input");
+  NodeChange set = make(RSET, NodeType::FRAME, kPage, "c", {0, 800, 500, 100}, "Page row");
+  set.props.comp().isStateGroup = true;
+  ComponentPropDef st;
+  st.id = RS;
+  st.name = "State";
+  st.type = ComponentPropType::VARIANT;
+  set.props.comp().componentPropDefs = {st};
+  nodes.push_back(set);
+  for (auto [r, f, main, name, x] : {std::tuple{R1, F1, BTN, "State=Default", 0.0}, std::tuple{R2, F2, INP, "State=Editing", 250.0}}) {
+    NodeChange v = make(r, NodeType::SYMBOL, RSET, x == 0 ? "!" : "\"", {x, 0, 200, 32}, name);
+    v.props.comp().variantPropSpecs = {{RS, std::string(name).substr(6)}};
+    nodes.push_back(v);
+    NodeChange fi = make(f, NodeType::INSTANCE, r, "!", {0, 0, 100, 24}, "Field");
+    fi.props.comp().symbolData.symbolID = main;
+    nodes.push_back(fi);
+  }
+  NodeChange ri = make(RI, NodeType::INSTANCE, kPage, "d", {0, 0, 200, 32}, "Page row");
+  ri.props.comp().symbolData.symbolID = R1;
+  SymbolOverride o;
+  o.path = {F1};
+  o.mask = F_COMPONENT_PROP_ASSIGNMENTS;
+  ComponentPropAssignment a;
+  a.defID = BL;
+  a.value.hasText = true;
+  a.value.textValue.characters = "Inputs";
+  o.props.comp().componentPropAssignments = {a};
+  ri.props.comp().symbolData.overrides = {o};
+  nodes.push_back(ri);
+  Editor e = load(nodes);
+  e.setSelection({RI});
+  REQUIRE(e.command(CommandId::SWAP_INSTANCE, args("{\"main\":\"21:7\"}")) == OK);
+  bool carried = false;
+  for (const SymbolOverride& s : props(e, RI).comp().symbolData.overrides)
+    for (const ComponentPropAssignment& x : s.props.comp().componentPropAssignments)
+      carried |= x.defID == IL && x.value.textValue.characters == "Inputs";
+  CHECK(carried);
+  // Back to the button: the input's Label value goes to the button's Label.
+  e.setSelection({RI});
+  REQUIRE(e.command(CommandId::SWAP_INSTANCE, args("{\"main\":\"21:6\"}")) == OK);
+  carried = false;
+  for (const SymbolOverride& s : props(e, RI).comp().symbolData.overrides)
+    for (const ComponentPropAssignment& x : s.props.comp().componentPropAssignments)
+      carried |= x.defID == BL && x.value.textValue.characters == "Inputs";
+  CHECK(carried);
+}

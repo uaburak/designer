@@ -1701,6 +1701,43 @@ Status Editor::returnToInstanceCmd() {
 
 // ---- Swap, variants, property values ---------------------------------------------------------
 
+namespace {
+// The values an instance gave its properties, onto another component's: a property the new one has keeps its value;
+// one it hasn't goes to its property of the same name and type, if any (Figma keeps "Label" of a button as "Label" of
+// the input it is swapped for); the rest go.
+std::vector<ComponentPropAssignment> carryAssignments(const std::vector<ComponentPropAssignment>& as, const std::vector<ComponentPropDef>* oldDefs,
+                                                      const std::vector<ComponentPropDef>* newDefs) {
+  std::vector<ComponentPropAssignment> out;
+  if (!newDefs) return out;
+  auto find = [](const std::vector<ComponentPropDef>* defs, Guid id) -> const ComponentPropDef* {
+    if (defs)
+      for (const ComponentPropDef& d : *defs)
+        if (d.id == id) return &d;
+    return nullptr;
+  };
+  auto taken = [&](Guid id) {
+    for (const ComponentPropAssignment& o : out)
+      if (o.defID == id) return true;
+    return false;
+  };
+  for (const ComponentPropAssignment& a : as)
+    if (find(newDefs, a.defID)) out.push_back(a);
+  for (const ComponentPropAssignment& a : as) {
+    if (find(newDefs, a.defID)) continue;
+    const ComponentPropDef* was = find(oldDefs, a.defID);
+    if (!was || was->type == ComponentPropType::VARIANT) continue;
+    for (const ComponentPropDef& d : *newDefs)
+      if (d.name == was->name && d.type == was->type && !taken(d.id)) {
+        ComponentPropAssignment c = a;
+        c.defID = d.id;
+        out.push_back(std::move(c));
+        break;
+      }
+  }
+  return out;
+}
+}  // namespace
+
 std::vector<SymbolOverride> Editor::remapOverrides(const std::vector<SymbolOverride>& overrides, Guid from, Guid to, bool variant) const {
   std::vector<SymbolOverride> out;
   const Node* fromNode = doc_.get(from);
@@ -1797,6 +1834,19 @@ std::vector<SymbolOverride> Editor::remapOverrides(const std::vector<SymbolOverr
         if (same(r.props.size.x, b.size.x) && same(r.props.size.y, b.size.y)) unchanged |= F_SIZE;
       }
       r.mask &= ~unchanged;
+    }
+    if ((r.mask & F_COMPONENT_PROP_ASSIGNMENTS) && src != kNoGuid && dst != kNoGuid) {
+      // A nested instance that is another component here: its property values by name (the button's Label → the input's).
+      const NodeProps& a = doc_.get(src)->props;
+      const NodeProps& b = doc_.get(dst)->props;
+      if (a.type == NodeType::INSTANCE && b.type == NodeType::INSTANCE) {
+        Guid was = symbolOf(a), now = (r.mask & F_OVERRIDDEN_SYMBOL_ID) ? r.props.comp().overriddenSymbolID : symbolOf(b);
+        if ((o.mask & F_OVERRIDDEN_SYMBOL_ID) && o.props.comp().overriddenSymbolID != kNoGuid) was = o.props.comp().overriddenSymbolID;
+        if (was != kNoGuid && now != kNoGuid && was != now) {
+          r.props.comp().componentPropAssignments = carryAssignments(r.props.comp().componentPropAssignments, defsOf(was), defsOf(now));
+          if (r.props.comp().componentPropAssignments.empty()) r.mask &= ~static_cast<FieldMask>(F_COMPONENT_PROP_ASSIGNMENTS);
+        }
+      }
     }
     if (onOldText && (r.mask & F_TEXT_DATA)) lostText = nullptr;  // carried by key or by name
     if (r.mask) out.push_back(std::move(r));
@@ -1980,13 +2030,7 @@ Status Editor::swapInstance(const std::vector<Guid>& refs, Guid main) {
       c.props.comp().symbolData.symbolID = main;
       c.props.comp().symbolData.overrides = remapOverrides(n->props.comp().symbolData.overrides, old, main, setOf(old) != kNoGuid && setOf(old) == setOf(main));
       keepOwnName(doc_, n->props, old, main, c.props.comp().symbolData.overrides);
-      const auto* defs = defsOf(main);
-      for (const auto& a : n->props.comp().componentPropAssignments) {
-        bool known = false;
-        if (defs)
-          for (const auto& d : *defs) known |= d.id == a.defID;
-        if (known) c.props.comp().componentPropAssignments.push_back(a);
-      }
+      c.props.comp().componentPropAssignments = carryAssignments(n->props.comp().componentPropAssignments, defsOf(old), defsOf(main));
       write(c);
     }
     any = true;
