@@ -49,11 +49,11 @@ export function campaignPosts(ed: EditorController): Guid[] {
 }
 
 /**
- * Puts text in the agent's composer and shows the Agent tab (the right panel's default): the composer takes focus and
+ * Puts text in the agent's composer and shows the agent (the left panel's Agents tab, docs/social.md §19): the composer takes focus and
  * the selection is the message's context (as anywhere in the Agents panel).
  */
 export function draftForAgent(ed: EditorController, text: string): void {
-  ed.ui.set((s) => ({ socialRightTab: "agent", socialDraft: { id: (s.socialDraft?.id ?? 0) + 1, text }, uiHidden: false }));
+  ed.ui.set((s) => ({ socialRightTab: "agent", railTab: "agents", socialDraft: { id: (s.socialDraft?.id ?? 0) + 1, text }, uiHidden: false }));
 }
 
 /** Ask agent… (a post's menu, the Post section, ⌘K): "About ‹post›: " in the composer, the posts selected as its context. */
@@ -73,7 +73,7 @@ export function askAgent(ed: EditorController, ids: readonly Guid[] = selectedPo
  */
 export function fixWithAgent(ed: EditorController, post: { id: Guid; name: string }, problem: PostProblem): void {
   if (canWritePosts(ed) && fixProblem(ed, editorWriter(ed), post.id, problem.id)) return;
-  ed.ui.set({ socialRightTab: "agent", socialProblem: { post: post.id, problem: problem.id }, uiHidden: false });
+  ed.ui.set({ socialRightTab: "agent", railTab: "agents", socialProblem: { post: post.id, problem: problem.id }, uiHidden: false });
   const agents = agentsOf(ed);
   if (!agents.get().available) return draftForAgent(ed, t("Fix on {name}: {detail}", { name: post.name, detail: problem.detail }));
   if (problem.fix !== "relayout") return agents.fixProblem(post, problem);
@@ -87,7 +87,7 @@ export function fixWithAgent(ed: EditorController, post: { id: Guid; name: strin
  */
 export async function makeStarterTemplates(ed: EditorController, agents: AgentsService = agentsOf(ed)): Promise<void> {
   if (!agents.get().available) return draftForAgent(ed, STARTER_BRIEF);
-  ed.ui.set({ socialRightTab: "agent", uiHidden: false });
+  ed.ui.set({ socialRightTab: "agent", railTab: "agents", uiHidden: false });
   // The brief is the manager's (its tools make the library and the sets): a direct pick in the composer gives way.
   if (agents.get().socialDirect) await agents.chooseInSocial(null);
   await agents.send(STARTER_BRIEF, [], [], [], t("Make starter templates"));

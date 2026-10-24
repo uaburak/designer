@@ -66,6 +66,9 @@ import { ShortcutsPanel } from "./shortcuts/ShortcutsPanel";
 import { MotionMode } from "./motion/MotionMode";
 import { SocialMode } from "./social/SocialMode";
 import { SocialLeftPanel } from "./social/SocialLeftPanel";
+import { SocialAgentPanel } from "./social/SocialAgentPanel";
+import { BoardLabels } from "./social/BoardLabels";
+import { SocialFocus, Spotlight } from "./social/FocusChrome";
 import { SocialRightPanel } from "./social/SocialRightPanel";
 import { SafeAreaOverlay } from "./social/SafeAreaOverlay";
 import { ReviewPins } from "./social/ReviewPins";
@@ -96,6 +99,8 @@ import { RemoteApplier } from "./multiplayer/remoteApply";
 import { CommentsLayer } from "./comments/CommentsLayer";
 import { InlinePreview } from "./InlinePreview";
 import { attachDevMode } from "./devmode/devMode";
+import { attachArranger } from "./social/arrange";
+import { attachPicking } from "./social/focus";
 import { DevLeftPanel, DevMeasurements, DevRightPanel } from "./devmode/DevPanels";
 import { AnnotationEditor } from "./devmode/AnnotationEditor";
 import { CategoriesDialog, FocusBar, MeasurementText, StatusMenu } from "./devmode/DevOverlays";
@@ -302,6 +307,10 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
       // Dev Mode: every edit stamps editInfo (a design marked ready shows "Changed"); the engine's Dev Mode events.
       engine.setEditTracking(true);
       cleanups.push(attachDevMode(ed));
+      // A Social file's board keeps itself laid out (docs/social.md §19).
+      cleanups.push(attachArranger(ed));
+      // ⇧ / ⌘-clicks pick posts without opening the focus view (§19).
+      cleanups.push(attachPicking(ed, canvas));
       cleanups.push(attachRound5(ed));
       cleanups.push(attachExportAccess(ed));
       if (visibleRef.current) cleanups.push(attachViewInsets(engine, canvas, visibleRef.current));
@@ -427,13 +436,15 @@ export function LeftSide() {
   const docked = useUI((s) => !s.uiHidden && !s.uiMinimized);
   const dev = useUI((s) => s.mode === "dev");
   const posts = useUI((s) => s.mode === "social" && s.railTab === "posts");
+  // Social's agent is the left panel's (docs/social.md §19).
+  const agent = useUI((s) => s.mode === "social" && s.railTab === "agents");
   // View › Minimize left navigation bar (round 10): the tabs fold into the left panel's top row (panels/Rail.tsx NavStrip).
   const navMinimized = useUI((s) => !!s.navMinimized);
   if (docked && dev) return <DevLeftPanel />;
   return docked ? (
     <>
       {!navMinimized && <Rail />}
-      {posts ? <SocialLeftPanel /> : <LeftPanel />}
+      {posts ? <SocialLeftPanel /> : agent ? <SocialAgentPanel /> : <LeftPanel />}
     </>
   ) : null;
 }
@@ -464,7 +475,9 @@ export function CanvasLayers() {
   return (
     <>
       <ScreenReaderMirror />
+      {social && <BoardLabels />}
       {social && <SafeAreaOverlay />}
+      {social && <Spotlight />}
       {social && <ReviewPins />}
       <AgentImagePlaceholders />
       {dev && <DevMeasurements />}
@@ -487,6 +500,7 @@ function CanvasOverlays() {
   return (
     <>
       {social && <EmptyBoard />}
+      {social && <SocialFocus />}
       <BrandLibraryBanner />
       <FocusBar />
       <ReadyForDev />

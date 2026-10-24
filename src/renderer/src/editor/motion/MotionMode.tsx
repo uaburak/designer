@@ -325,7 +325,7 @@ function MotionShell() {
         // A segment selected (Figma's): its layer selected, no keyframes — the right panel shows its Easing page (in
         // Social too, its Properties tab brought forward: the page lives in its Design part).
         setMotionUi(ed, { selectedSegments: ids, selectedKeyframes: [], selectedClip: null, selectedAudio: null, clipEasing: null });
-        if (social && ids.length) ed.ui.set({ socialRightTab: "properties" });
+        if (social && ids.length) ed.ui.set({ socialRightTab: "properties", socialPanelTab: "design" });
         const refs = ed.store.selection.refs;
         if (!refs.includes(node)) ed.engine.setSelection(additive ? [...refs, node] : [node]);
       }}

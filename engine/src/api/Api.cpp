@@ -1480,6 +1480,14 @@ ENG_EXPORT int32_t engine_txn_begin_run(Handle h, Ptr ptr, uint32_t len, uint32_
   return e ? e->editor.txnBeginRun(std::string(bytes(ptr, len)), join != 0) : E_HANDLE;
 }
 
+// A follow-up folded into the user's last step (Editor::txnBeginAmend; Social's board arranging after an edit).
+ENG_EXPORT int32_t engine_txn_begin_amend(Handle h, Ptr ptr, uint32_t len) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (e && e->editor.viewerMode() && !e->editor.devEdits()) return E_READONLY;
+  return e ? e->editor.txnBeginAmend(std::string(bytes(ptr, len))) : E_HANDLE;
+}
+
 ENG_EXPORT int32_t engine_txn_commit(Handle h) {
   Call call;
   Engine* e = engineOf(h);

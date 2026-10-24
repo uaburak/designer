@@ -1491,6 +1491,15 @@ export class Engine {
   }
 
   /**
+   * A follow-up folded into the user's last step while there is nothing to redo (Social's board arranging the posts
+   * after an edit, as auto layout reflows inside it), else a step of its own; txnCommit ends it. Status.BUSY while a
+   * gesture or another transaction is open.
+   */
+  txnBeginAmend(label: string): number {
+    return this.after(this.x.txnBeginAmend(this.h, encodeText(label)));
+  }
+
+  /**
    * A plugin's setRange* (docs/plugins.md §5): the text run fields `setProps` writes go to UTF-16 [from, to) of a
    * text that isn't being edited, until `null` clears it.
    */

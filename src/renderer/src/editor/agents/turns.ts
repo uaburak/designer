@@ -113,6 +113,7 @@ export class AgentTurns {
     let done = false;
     try {
       const out = fn();
+      this.ed.runBeforeCommit();
       done = true;
       return out;
     } finally {

@@ -37,9 +37,11 @@ const TABS: { tab: RailTab; icon: "24.social" | "24.rail.file" | "24.rail.agents
 
 /**
  * The tabs shown: the web app has no Agents (they run on the computer: CLI agents, the MCP server — docs/cloud.md §7);
- * Posts only in Social, which has no Agents tab (its agent is the right panel, docs/social.md §6.2)
+ * Posts only in Social, whose agent is the first tab (docs/social.md §19: the agent on the left; in the browser too, where
+ * its panel says agents run on the computer)
  */
-const railTabs = (social: boolean) => TABS.filter((x) => (x.tab === "posts" ? social : x.tab !== "agents" || (!social && !isWebApp())));
+const railTabs = (social: boolean) =>
+  social ? [TABS.find((x) => x.tab === "agents")!, ...TABS.filter((x) => x.tab !== "agents")] : TABS.filter((x) => x.tab !== "posts" && (x.tab !== "agents" || !isWebApp()));
 
 /**
  * View › Minimize left navigation bar (round 10; unverified look — help "Navigate the left sidebar" names the option

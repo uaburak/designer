@@ -16,10 +16,11 @@ import { readSocial, withSocial, type Insets, type PluginDataEntry, type PostPro
 import type { SocialFormat } from "@shared/studio/types";
 import { contrastRatio, type RGBA } from "@/ds";
 import type { EditorController } from "../controller";
+import { isSocialFile } from "../devmode/devMode";
 import { newNodeGuid } from "../variables";
 import { defaults, IDENTITY } from "../agents/nodeSpec";
 import { presenceOf } from "../multiplayer/presence";
-import { placePost, POST_GAP } from "./board";
+import { boardEnd, placePost, POST_GAP, type PlacedPost } from "./board";
 import { cleanHashtags, postRecord, readCampaigns, readPost, socialId, writeCampaigns, writePost } from "./posts";
 import { motionRead } from "../motion/motionState";
 import { readBoard, type SocialBoard } from "./socialState";
@@ -75,9 +76,15 @@ function formatOf(formatId: string, given?: SocialFormat): SocialFormat {
 }
 
 /** Where a new post goes on the board: its campaign's row, a new row, or — the page's first — beside its other layers. */
-function spotFor(board: SocialBoard, campaignId: string | null): { x: number; y: number } {
+function spotFor(ed: EditorController, board: SocialBoard, campaignId: string | null): { x: number; y: number } {
+  if (isSocialFile(ed)) return boardEnd(board.posts);
   if (!board.posts.length && board.others) return { x: board.others.x + board.others.width + POST_GAP, y: board.others.y };
   return placePost(board.posts, campaignId);
+}
+
+/** Where a new post of a campaign goes: a Social file's board end (it is then arranged, §19), else its campaign's row. */
+export function nextSpot(ed: EditorController, posts: readonly PlacedPost[], campaignId: string | null): { x: number; y: number } {
+  return isSocialFile(ed) ? boardEnd(posts) : placePost(posts, campaignId);
 }
 
 /** The page's last child's place, for a layer added on top. */
@@ -101,7 +108,7 @@ export function newPost(ed: EditorController, w: Writer, opts: NewPostOptions): 
     if (!entry?.node) throw new Error(`The template ${opts.template.key} isn't in this file yet`);
     const page = ed.store.page;
     const campaignId = opts.campaignId ?? null;
-    const at = opts.at ?? spotFor(readBoard(ed, page), campaignId);
+    const at = opts.at ?? spotFor(ed, readBoard(ed, page), campaignId);
     const record = postRecord(opts.formatId, { brandId: opts.brandId ?? opts.brand?.id ?? null, campaignId, productIds: opts.productId ? [opts.productId] : [] });
     const tpl = opts.template;
     // The brand and the product's packshot as last read (templates.prepareTemplate fetches them first).
@@ -116,7 +123,7 @@ export function newPost(ed: EditorController, w: Writer, opts: NewPostOptions): 
   }
   const page = ed.store.page;
   const campaignId = opts.campaignId ?? null;
-  const at = opts.at ?? spotFor(readBoard(ed, page), campaignId);
+  const at = opts.at ?? spotFor(ed, readBoard(ed, page), campaignId);
   const record = postRecord(opts.formatId, { brandId: opts.brandId ?? null, campaignId, productIds: opts.productId ? [opts.productId] : [] });
   return w("New post", () => {
     const guid = newNodeGuid(ed);
@@ -175,7 +182,7 @@ export function resizePost(ed: EditorController, w: Writer, ids: readonly Guid[]
       }
       const copy = duplicateFrame(ed, id);
       if (!copy) continue;
-      const at = placePost(readBoard(ed, ed.store.page).posts.filter((p) => p.id !== copy), data.campaignId);
+      const at = nextSpot(ed, readBoard(ed, ed.store.page).posts.filter((p) => p.id !== copy), data.campaignId);
       const t = ed.engine.readNode(copy, { fields: ["transform"] })?.transform ?? IDENTITY;
       ed.engine.setProps([copy], { name: format.name, size: { x: format.width, y: format.height }, transform: { ...t, m02: at.x, m12: at.y } });
       writePost(ed, copy, { ...data, formatId, status: "draft", problems: [], exportedAt: null, group: null });

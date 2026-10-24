@@ -12,7 +12,8 @@ import type { Brand } from "@shared/studio/types";
 import type { EditorController } from "../../controller";
 import type { ImportedImage } from "../../images";
 import type { Writer } from "../actions";
-import { placePost } from "../board";
+import { boardEnd, placePost } from "../board";
+import { isSocialFile } from "../../devmode/devMode";
 import { cleanHashtags, postRecord, readCampaigns, socialId, writeCampaigns } from "../posts";
 import { readBoard } from "../socialState";
 import { applyBrandNow, ensureTemplate, fillSlotsNow, newTemplatePostNow, productPicture } from "./templates";
@@ -143,7 +144,8 @@ export async function importCsvPosts(ed: EditorController, w: Writer, posts: rea
     const made: Guid[] = [];
     for (const { p, brand, product } of resolved) {
       for (const formatId of opts.formatIds) {
-        const at = placePost(readBoard(ed, page).posts, campaign.id);
+        const posts = readBoard(ed, page).posts;
+        const at = isSocialFile(ed) ? boardEnd(posts) : placePost(posts, campaign.id);
         const record = postRecord(formatId, { brandId: brand?.id ?? null, campaignId: campaign.id, productIds: product ? [product.id] : [], caption: p.caption, hashtags: p.hashtags, altText: p.altText });
         const id = newTemplatePostNow(ed, page, { key: opts.key, node, data: entry.data, formatId, at, record });
         fillSlotsNow(ed, id, p.values, product ? pictures.get(product.id) : null);

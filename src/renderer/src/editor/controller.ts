@@ -141,8 +141,8 @@ export class EditorController {
       // The Preferences this machine keeps (preferences.ts).
       ...loadPreferences(),
       ...ui,
-      // A Social file (docs/social.md §18) opens in Social, on its Posts tab, and stays there.
-      ...(source.editorType === "buzz" ? { mode: "social" as const, railTab: ui.railTab && ui.railTab !== "file" && ui.railTab !== "agents" ? ui.railTab : ("posts" as const) } : {}),
+      // A Social file (docs/social.md §18, §19) opens in Social, its agent on the left, and stays there.
+      ...(source.editorType === "buzz" ? { mode: "social" as const, railTab: ui.railTab && ui.railTab !== "file" ? ui.railTab : ("agents" as const) } : {}),
     });
     this.tools = probeTools(engine);
     this.images = new ImageService(engine, source.images ?? null);
@@ -422,8 +422,31 @@ export class EditorController {
     this.engine.txnBegin(label);
     try {
       write();
+      this.runBeforeCommit();
     } finally {
       this.engine.txnCommit();
+    }
+  }
+
+  private readonly commitHooks = new Set<() => void>();
+
+  /**
+   * Something to do inside every write of the chrome (`batch`) and of the agents (their actor's write) just before it
+   * commits — a Social file arranging its board in the same step (social/arrange.ts). Returns its removal.
+   */
+  beforeCommit(hook: () => void): () => void {
+    this.commitHooks.add(hook);
+    return () => void this.commitHooks.delete(hook);
+  }
+
+  /** The hooks of `beforeCommit`, in the write that is open (a hook that throws is skipped). */
+  runBeforeCommit(): void {
+    for (const h of this.commitHooks) {
+      try {
+        h();
+      } catch (err) {
+        console.warn("[editor] before commit:", err);
+      }
     }
   }
 

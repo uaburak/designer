@@ -1,0 +1,18 @@
+@layer app {
+  /* A Social file's board titles and "+" cells over the canvas (docs/social.md §19) [metrics ours] */
+  .layer { position: absolute; inset: 0; z-index: var(--ds-z-base); overflow: hidden; pointer-events: none; }
+  .layer[data-zooming] { visibility: hidden; }
+  .section, .grid, .add { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
+  .section { display: flex; align-items: baseline; gap: var(--ds-space-2); white-space: nowrap; }
+  .sectionName { color: var(--figma-color-text); font: var(--ds-font-heading-large); }
+  .grid { display: flex; align-items: baseline; gap: var(--ds-space-1-5); white-space: nowrap; }
+  .gridName { color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); }
+  .meta, .count { color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); }
+  .add {
+    display: flex; align-items: center; justify-content: center; box-sizing: border-box; padding: 0;
+    border: 1px dashed var(--figma-color-border-strong); border-radius: var(--ds-radius-medium); background: transparent;
+    color: var(--figma-color-icon-secondary); pointer-events: auto; cursor: default;
+  }
+  .add:hover { border-color: var(--figma-color-border-selected); background: var(--figma-color-bg-hover); color: var(--figma-color-icon); }
+  .add:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+}

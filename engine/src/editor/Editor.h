@@ -462,6 +462,10 @@ class Editor : private LayoutHost, public TextLayouts {
   // or undone in the user's history since) — a run's writes are one undo step however many slices made them, and
   // figma.commitUndo() starts the next slice with join = false.
   Status txnBeginRun(const std::string& label, bool join);
+  // A follow-up to the user's last step (ours: Social's board arranging the posts after an edit, docs/social.md §19 —
+  // as auto layout reflows inside the edit's own step): a USER transaction folded into the user's last step when there
+  // is one and nothing to redo; else a step of its own.
+  Status txnBeginAmend(const std::string& label);
   Status txnCommit();
   void txnCancel();
   Status command(CommandId id, double dx = 0, double dy = 0);
@@ -2403,6 +2407,7 @@ class Editor : private LayoutHost, public TextLayouts {
     ChangeSet changes;
     bool run = false;   // txnBeginRun: the step is marked for the next run slice
     bool join = false;  // txnBeginRun(join): folds into the marked step
+    bool amend = false; // txnBeginAmend: folds into the user's last step
     bool peer = false;  // APPLY_PEER: another session's change — every history yields what it wrote
   } txn_;
   // The user's undo count right after the last run slice committed (SIZE_MAX: none, or something else since).

@@ -62,6 +62,7 @@ _engine_hit_test
 _engine_set_props
 _engine_txn_begin
 _engine_txn_begin_run
+_engine_txn_begin_amend
 _engine_set_style_range
 _engine_txn_commit
 _engine_txn_cancel

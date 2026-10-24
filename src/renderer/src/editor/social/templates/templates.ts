@@ -24,7 +24,8 @@ import type { LibraryState } from "../../libraries";
 import { ensureCopy } from "../../libraries";
 import { mediaPaint } from "../../model/paints";
 import { brandsRepo } from "../../studio/forms";
-import { placePost } from "../board";
+import { boardEnd, placePost } from "../board";
+import { isSocialFile } from "../../devmode/devMode";
 import { postRecord, readPost, writePost } from "../posts";
 import { isAnimated, readBoard } from "../socialState";
 import type { Writer } from "../actions";
@@ -602,7 +603,7 @@ export async function insertTemplate(ed: EditorController, w: Writer, opts: { ke
     const formatId = opts.formatId ?? (variant ? entry.data.formats[variant.value] : null) ?? Object.values(entry.data.formats)[0];
     const format = resolveFormat(formatId);
     const board = readBoard(ed, page);
-    const at = opts.at ?? (!board.posts.length && board.others ? { x: board.others.x + board.others.width + 120, y: board.others.y } : placePost(board.posts, opts.campaignId ?? null));
+    const at = opts.at ?? (isSocialFile(ed) ? boardEnd(board.posts) : !board.posts.length && board.others ? { x: board.others.x + board.others.width + 120, y: board.others.y } : placePost(board.posts, opts.campaignId ?? null));
     const record = postRecord(formatId, { brandId: brand?.id ?? null, campaignId: opts.campaignId ?? null, productIds: opts.productId ? [opts.productId] : [] });
     const id = newTemplatePostNow(ed, page, { key: opts.key, node, data: entry.data, formatId, variant: opts.variant, at, record, name: format?.name });
     if (brand) applyBrandNow(ed, [id], brand);
@@ -739,7 +740,7 @@ export function saveAsTemplateNow(ed: EditorController, id: Guid, opts: SaveTemp
   if (!post) return { key, set, post: null };
   // The post goes on as an instance of the template, at the end of its campaign's row.
   const page = ed.store.page;
-  const at = placePost(readBoard(ed, page).posts, post.campaignId);
+  const at = isSocialFile(ed) ? boardEnd(readBoard(ed, page).posts) : placePost(readBoard(ed, page).posts, post.campaignId);
   const instance = insertTemplateInstance(ed, id, page, at);
   writePost(ed, instance, { ...post, template: { key, variant: formatName } });
   return { key, set, post: instance };

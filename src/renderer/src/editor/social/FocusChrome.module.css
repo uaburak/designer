@@ -1,0 +1,31 @@
+@layer app {
+  /* The focus view (docs/social.md §19) [metrics ours]: the board dimmed around the post in focus */
+  .dim { position: absolute; inset: 0; z-index: var(--ds-z-base); overflow: hidden; pointer-events: none; }
+  .hole {
+    position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform;
+    box-shadow: 0 0 0 100vmax color-mix(in srgb, var(--figma-color-bg-secondary) 88%, transparent);
+  }
+  /* The path bar over the visible canvas's top */
+  .bar {
+    position: absolute; top: var(--ds-space-3); left: var(--ds-space-3); right: var(--ds-space-3); z-index: var(--ds-z-base);
+    display: flex; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-1-5) var(--ds-space-2);
+    border-radius: var(--ds-radius-large); background: var(--figma-color-bg); box-shadow: var(--ds-elevation-200);
+  }
+  .path { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); white-space: nowrap; }
+  .name { min-width: 0; overflow: hidden; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); text-overflow: ellipsis; white-space: nowrap; }
+  .spacer { flex: 1 1 auto; }
+  .place { color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); white-space: nowrap; }
+  /* The grid's posts along the bottom, over the toolbar */
+  .strip {
+    position: absolute; bottom: calc(var(--ds-size-toolbar) + var(--ds-space-6)); left: 50%; z-index: var(--ds-z-base); transform: translateX(-50%);
+    display: flex; gap: var(--ds-space-1-5); max-width: calc(100% - 2 * var(--ds-space-6)); padding: var(--ds-space-1-5); overflow-x: auto;
+    border-radius: var(--ds-radius-large); background: var(--figma-color-bg); box-shadow: var(--ds-elevation-200);
+  }
+  .cell {
+    display: flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-social-strip-cell); height: var(--ds-size-social-strip-cell-height); padding: 0;
+    border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-small); background: var(--figma-color-bg-secondary); cursor: default;
+  }
+  .cell[aria-selected="true"] { border: 2px solid var(--figma-color-border-selected); }
+  .cell:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .cell canvas { max-width: 100%; max-height: 100%; }
+}

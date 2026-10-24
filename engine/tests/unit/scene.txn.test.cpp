@@ -250,3 +250,41 @@ TEST_CASE("txn: a plugin run's slices are one undo step; commitUndo, another edi
   CHECK(e.txnBeginRun("Plugin", true) == E_BUSY);
   e.txnCancel();
 }
+
+TEST_CASE("txn: an amend folds into the user's last step; with something to redo, or nothing to undo, it is a step of its own") {
+  Editor e = makeEditor();
+  auto opacity = [&](Guid id, double v) {
+    NodeChange c;
+    c.mask = F_OPACITY;
+    c.props.opacity = v;
+    REQUIRE(e.setProps({id}, c, 0) == OK);
+  };
+  // Nothing to undo yet: a step of its own.
+  REQUIRE(e.txnBeginAmend("Arrange") == OK);
+  opacity(R1, 0.9);
+  REQUIRE(e.txnCommit() == OK);
+  CHECK(e.undoStack().undoCount() == 1);
+  // The user's edit, then the amend: one step, the edit's label.
+  REQUIRE(e.txnBegin("Opacity") == OK);
+  opacity(R2, 0.5);
+  REQUIRE(e.txnCommit() == OK);
+  REQUIRE(e.txnBeginAmend("Arrange") == OK);
+  opacity(R1, 0.4);
+  REQUIRE(e.txnCommit() == OK);
+  CHECK(e.undoStack().undoCount() == 2);
+  CHECK(e.undoStack().undoLabel() == "Opacity");
+  e.command(CommandId::UNDO);
+  CHECK(e.document().get(R1)->props.opacity == doctest::Approx(0.9));
+  CHECK(e.document().get(R2)->props.opacity == 1);
+  // With something to redo the amend doesn't fold into the step below it.
+  REQUIRE(e.txnBeginAmend("Arrange") == OK);
+  opacity(R1, 0.3);
+  REQUIRE(e.txnCommit() == OK);
+  CHECK(e.undoStack().undoCount() == 2);
+  CHECK(e.undoStack().undoLabel() == "Arrange");
+  // It waits while a transaction is open.
+  REQUIRE(e.txnBegin("Scrub") == OK);
+  CHECK(e.txnBeginAmend("Arrange") == E_BUSY);
+  e.txnCancel();
+}
+

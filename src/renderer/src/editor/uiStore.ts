@@ -225,6 +225,12 @@ export interface UIState extends PreferenceFlags {
   socialTable?: boolean;
   /** Social's right panel: the agent (default) or the properties alone (docs/social.md §6.3) */
   socialRightTab?: "agent" | "properties";
+  /** A Social file's right panel on a post in focus: its Design panel (default) or its Post section (docs/social.md §19) */
+  socialPanelTab?: "design" | "post";
+  /** The empty board's strip closed for this session (docs/social.md §19) */
+  socialStarterClosed?: boolean;
+  /** A Social file's last click on the canvas had ⇧ / ⌘: picking posts, the focus view stays closed (docs/social.md §19) */
+  socialPicking?: boolean;
   /** Social: the selected post's timeline shows (MotionMode), and the engine's motion layer with it */
   socialTimeline?: boolean;
   /** Social: text put in the agent's composer from elsewhere (Ask agent…, the empty board's prompts); `id` tells repeats apart */

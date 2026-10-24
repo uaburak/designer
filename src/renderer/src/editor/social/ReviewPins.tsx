@@ -51,7 +51,7 @@ export function ReviewPins() {
                 onClick={() => {
                   applySelection(ed, [row.id], false);
                   // The review card that has it marks it (StudioCards' ReviewCard).
-                  ed.ui.set({ socialRightTab: "agent", socialProblem: { post: row.id, problem: p.id } });
+                  ed.ui.set({ socialRightTab: "agent", railTab: "agents", socialProblem: { post: row.id, problem: p.id } });
                 }}
               >
                 {i + 1}

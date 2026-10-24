@@ -388,6 +388,9 @@ export const size = {
   "motion-timeline-header": 48,
   // Social's posts table, docked the same way (docs/social.md §4.5 [ours]): 240 high.
   "social-table": 240,
+  // A Social file's focus view (docs/social.md §19 [ours]): a cell of the strip of its grid's posts.
+  "social-strip-cell": 40,
+  "social-strip-cell-height": 48,
   "shortcuts-panel": 240,
   "shortcuts-tabs": 38,
   "shortcuts-column": 300,

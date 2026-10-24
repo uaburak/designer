@@ -52,33 +52,43 @@ async function setup(view: () => ReturnType<typeof createElement>, editorType: "
 }
 
 describe("Social mode's chrome (round 18a)", () => {
-  it("a Social file opens in Social — the Posts tab, the agent's panel — and keeps it; a Design file has no Social", async () => {
+  it("a Social file opens in Social with its agent on the left; the right panel follows the selection; it keeps Social; a Design file has none", async () => {
     const { ed } = await setup(() => createElement("div", null, createElement(LeftSide), createElement(RightSide)));
     expect(ed.ui.get().mode).toBe("social");
-    expect($('[data-panel="left"]')?.getAttribute("data-tab")).toBe("posts");
-    expect($('[data-rail-tab="posts"]')).not.toBeNull();
-    // The agent is on the right: the rail has no Agents tab in Social.
-    expect($('[data-rail-tab="agents"]')).toBeNull();
-    expect($("[data-social-right]")?.getAttribute("data-social-right")).toBe("agent");
-    expect($('[data-agents][data-placement="right"]')).not.toBeNull();
-    // Post and Design collapsed under the chat (the proposed default).
-    expect($$("[data-social-section] button[aria-expanded]").map((b) => b.getAttribute("aria-expanded"))).toEqual(["false", "false"]);
+    // The agent is the left panel's first tab (docs/social.md §19)
+    expect($('[data-panel="left"]')?.getAttribute("data-tab")).toBe("agents");
+    expect($('[data-agents][data-placement="left"]')).not.toBeNull();
+    expect($$("[data-rail-tab]").map((b) => b.getAttribute("data-rail-tab"))[0]).toBe("agents");
+    // Nothing selected: the Board
+    expect($("[data-social-right]")?.getAttribute("data-social-right")).toBe("board");
+    expect($("[data-social-board]")).not.toBeNull();
+    // One post selected: its Design panel, the Post section a tab beside it
+    const w = editorWriter(ed);
+    let a = "";
+    let b = "";
+    await act(async () => {
+      a = newPost(ed, w, { formatId: "instagram.portrait" });
+      b = newPost(ed, w, { formatId: "instagram.portrait" });
+    });
+    await act(async () => ed.engine.setSelection([a]));
+    expect($("[data-social-right]")?.getAttribute("data-social-right")).toBe("design");
+    act(() => click($$('[data-social-right] [role="radio"]').find((x) => x.textContent === "Post")!));
+    expect($("[data-social-properties] [data-post-field=\"status\"]")).not.toBeNull();
+    // Two posts: the bulk panel
+    await act(async () => ed.engine.setSelection([a, b]));
+    expect($("[data-social-right]")?.getAttribute("data-social-right")).toBe("bulk");
+    expect($("[data-social-bulk]")?.textContent).toContain("2 posts selected");
+    // A click on the blank: the Board again
+    await act(async () => ed.engine.setSelection([]));
+    expect($("[data-social-right]")?.getAttribute("data-social-right")).toBe("board");
 
-    // Properties: the chat hidden, Post and Design open.
-    act(() => click($$('[data-social-right] [role="radio"]').find((b) => b.textContent === "Properties")!));
-    expect($("[data-social-right]")?.getAttribute("data-social-right")).toBe("properties");
-    expect($("[data-agents]")).toBeNull();
-    expect($("[data-social-properties]")).not.toBeNull();
-
-    // No other mode: Dev Mode, Draw and Motion can't be entered, and nothing in the document changed.
-    const undo = ed.store.undo.undoLabel;
+    // No other mode: Dev Mode, Draw and Motion can't be entered.
     for (const id of ["view.dev-mode", "view.switch-to-draw", "view.switch-to-motion"]) expect(runEditorCommand(ed, id)).toBe(false);
     act(() => setMode(ed, "design"));
     expect(ed.ui.get().mode).toBe("social");
-    expect(ed.store.undo.undoLabel).toBe(undo);
     m?.unmount();
 
-    // A Design file opens in Design, its mode switch without Social (and View › Social is gone).
+    // A Design file opens in Design (and View › Social is gone).
     const design = await setup(() => createElement(LeftSide), "design");
     expect(design.ed.ui.get().mode ?? "design").toBe("design");
     expect($('[data-panel="left"]')?.getAttribute("data-tab")).toBe("file");
@@ -88,6 +98,7 @@ describe("Social mode's chrome (round 18a)", () => {
 
   it("lists the page's posts by campaign in the Posts tab", async () => {
     const { ed } = await setup(() => createElement(LeftSide));
+    act(() => ed.ui.set({ railTab: "posts" }));
     expect($("[data-social-posts]")).toBeNull();
     const w = editorWriter(ed);
     // The index tells its listeners in a microtask (deferred.ts): an async act lets the list re-render

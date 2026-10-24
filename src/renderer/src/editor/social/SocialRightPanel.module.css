@@ -1,9 +1,22 @@
 @layer app {
-  /* Social's right panel (docs/social.md §6.3): the switch, the chat full height, Post and Design under it [metrics ours] */
+  /* A Social file's right panel (docs/social.md §19): Board, bulk, or the post's Design / Post [metrics ours] */
   .switch { position: relative; display: flex; flex: none; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-2) var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-size-panel-pad-left); border-bottom: 1px solid var(--figma-color-border); }
   .switch > :first-child { flex: 1 1 auto; }
-  .badge { flex: none; }
-  .agent { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
-  /* Post and Design under the composer: their headers always, an open one up to half the panel */
-  .under { flex: none; max-height: 50%; overflow-x: hidden; overflow-y: auto; border-top: 1px solid var(--figma-color-border); }
+  .muted { margin: 0; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .bars { display: flex; flex-direction: column; gap: var(--ds-space-2); }
+  .bar { display: grid; grid-template-columns: 1fr auto; row-gap: var(--ds-space-1); }
+  .barLabel { color: var(--figma-color-text); font: var(--ds-font-body-medium); }
+  .track { grid-column: 1 / -1; height: var(--ds-space-1); overflow: hidden; border-radius: var(--ds-radius-full); background: var(--figma-color-bg-tertiary); }
+  .fill { display: block; height: 100%; border-radius: var(--ds-radius-full); background: var(--figma-color-icon); }
+  .grids { display: flex; flex-direction: column; }
+  .gridRow {
+    display: flex; align-items: center; gap: var(--ds-space-2); height: var(--ds-size-row); padding: 0 var(--ds-space-1); border: 0;
+    border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-text); font: var(--ds-font-body-medium); text-align: left; cursor: default;
+  }
+  .gridRow:hover { background: var(--figma-color-bg-hover); }
+  .gridRow:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .gridName { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bulkHead { display: flex; align-items: center; height: var(--ds-size-section-header); padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left); border-bottom: 1px solid var(--figma-color-border); }
+  .bulkTitle { color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); }
+  .actions { display: flex; flex-wrap: wrap; gap: var(--ds-space-2); }
 }

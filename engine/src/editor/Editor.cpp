@@ -116,6 +116,7 @@ void Editor::begin(TxnKind kind, const std::string& label) {
   txn_.label = label;
   txn_.run = false;
   txn_.join = false;
+  txn_.amend = false;
   txn_.peer = false;
   txn_.changes.clear();
   layoutDirty_.clear();
@@ -565,6 +566,8 @@ void Editor::commit(bool mergeWithLast) {
     bool userStack = undoTo_ == 0;
     size_t before = stack.undoCount();
     bool join = txn_.run && txn_.join && userStack && runMark_ != SIZE_MAX && runMark_ == before && !stack.canRedo() && stack.undoLabel() == txn_.label;
+    // An amend folds into the last step the user can undo (nothing to redo: that step is the last thing done).
+    if (txn_.amend && userStack && stack.canUndo() && !stack.canRedo()) join = true;
     // The user's step remembers the vector edit mode it was made in (undo goes back into it).
     if (userStack) stack.noteEditVector(vector_.node);
     stack.commit(selection_, mergeWithLast || join, &doc_);
@@ -1970,6 +1973,14 @@ Status Editor::txnBeginRun(const std::string& label, bool join) {
   begin(TxnKind::USER, label);
   txn_.run = true;
   txn_.join = join;
+  return OK;
+}
+
+Status Editor::txnBeginAmend(const std::string& label) {
+  if (busy() || pathTool_.kind != PathTool::NONE) return E_BUSY;
+  if (txn_.open) return E_BUSY;
+  begin(TxnKind::USER, label);
+  txn_.amend = true;
   return OK;
 }
 
