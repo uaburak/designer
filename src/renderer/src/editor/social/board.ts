@@ -60,16 +60,16 @@ export function placePosts(posts: readonly PlacedPost[], campaignId: string | nu
  * one under the other (the catalogue's platform order; a brand's own sizes last); in a section a grid per format, side
  * by side (the catalogue's format order); in a grid the posts in three columns, in the order they are read on the
  * board (rows top to bottom, left to right in a row — so dragging a post among the others reorders it). Each grid is
- * one container (§24, the owner's capture: Buzz's group): its posts side by side and row on row with no gap, a padding
+ * one container (§24, the owner's capture: Buzz's group): its posts side by side and row on row 8 px apart, no padding
  * round them, the next cell kept for the "+" (a new row when the last is full); the chrome draws the container, its
  * name over it and its card (BoardLabels). Units are the canvas's [ours]: the posts are 1080 px wide.
  */
 export const BOARD = {
   columns: 3,
-  /** Between two posts of a grid, across and down: none, they tile (§24) */
-  gap: 0,
-  /** Round a grid's posts inside its container (the owner's capture: ~10 % of a 1080 post) */
-  pad: 100,
+  /** Between two posts of a grid, across and down, the "+" cell too (the owner, 2026-10-25: 8 px; the container's black between them) */
+  gap: 8,
+  /** Round a grid's posts inside its container: none (the owner, 2026-10-25) */
+  pad: 0,
   /** Between two grids' containers in a section */
   gridGap: 480,
   /** Between two sections */

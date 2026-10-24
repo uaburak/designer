@@ -1,6 +1,6 @@
 /**
  * A Social file's grid view chrome over the canvas (docs/social.md §19, §23, §24 — the owner's capture of Figma Buzz's
- * grid view): each grid is a container — black round its posts, which tile inside it — with its name over it (the
+ * grid view): each grid is a container — its posts inside it 8 px apart, black between them — with its name over it (the
  * platform's when it is the platform's only grid, else the format's) and, as its last cell, a dashed "+" (a click
  * makes a post of the grid's format). The pointer anywhere over a container or its name puts it on its card (Figma's
  * bg-selected round it, the name blue in the band over it); a click on the container's frame or name selects its
@@ -74,12 +74,19 @@ function containersOf(layout: ReturnType<typeof layoutOf>, height: (id: Guid) =>
       const name = s.grids.length === 1 ? platform : f ? t(f.name) : t("Other size");
       const { x, y, width, height: h } = g.frame;
       const p = BOARD.pad;
-      const ring: Box[] = [
+      const ring: Box[] = p > 0 ? [
         { x, y, w: width, h: p },
         { x, y: y + h - p, w: width, h: p },
         { x, y: y + p, w: p, h: h - 2 * p },
         { x: x + width - p, y: y + p, w: p, h: h - 2 * p },
-      ];
+      ] : [];
+      // The gaps between the posts: between the columns, and between the rows (the "+"'s row included)
+      const inner = { x: x + p, y: y + p, w: width - 2 * p, h: h - 2 * p };
+      if (BOARD.gap > 0) {
+        for (let k = 1; k < BOARD.columns; k++) ring.push({ x: inner.x + k * g.column + (k - 1) * BOARD.gap, y: inner.y, w: BOARD.gap, h: inner.h });
+        const tops = [...new Set([...g.ids.map((id) => layout.places.get(id)?.y ?? inner.y), g.next.y].map((v) => Math.round(v)))].sort((a, b) => a - b);
+        for (const top of tops.slice(1)) ring.push({ x: inner.x, y: top - BOARD.gap, w: inner.w, h: BOARD.gap });
+      }
       const place = { x: g.next.x, y: g.next.y, w: g.column, h: g.nextHeight };
       // The cells of the "+"'s row past it, and the room under a shorter post in its row
       const empty: Box[] = [];
