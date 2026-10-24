@@ -686,8 +686,13 @@ TEST_CASE("board drag (a Social file's grid view, docs/social.md §25): a post m
   e.setViewOptions(e.viewOptions() | Editor::VIEW_ASSET_CHROME);
   e.setBoard({Editor::BoardGrid{{P0, P1, P2}, {Rect{0, 0, 100, 100}, Rect{108, 0, 100, 100}, Rect{216, 0, 100, 100}}}});
   e.setSelection({P0});
-  // Over the third cell: the others make room, P0 takes the third cell when dropped
-  drag(e, {50, 50}, {260, 52});
+  // Over the third cell: the others make room, P0 takes the third cell when dropped; while dragged it is drawn over the
+  // others and doesn't snap (as a flow's layer)
+  down(e, 50, 50);
+  steps(e, {50, 50}, {261, 53});
+  CHECK(e.overlay().lifted == std::vector<Guid>{P0});
+  CHECK(world(e, P0).x == doctest::Approx(211));
+  up(e, 261, 53);
   CHECK(world(e, P0).x == doctest::Approx(216));
   CHECK(world(e, P0).y == doctest::Approx(0));
   CHECK(world(e, P1).x == doctest::Approx(0));

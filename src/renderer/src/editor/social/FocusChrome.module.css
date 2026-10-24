@@ -30,6 +30,7 @@
     border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-large); background: var(--figma-color-bg); box-shadow: var(--ds-elevation-200);
     white-space: nowrap;
   }
+  .toolbar[data-dragging] { visibility: hidden; }
   .format {
     display: flex; align-items: center; gap: var(--ds-space-1); box-sizing: border-box;
     height: var(--ds-size-control); padding: 0 var(--ds-space-1) 0 var(--ds-space-2);

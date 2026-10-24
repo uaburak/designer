@@ -134,9 +134,17 @@ export function BoardLabels() {
         return sx >= x0 - CARD_PAD && sx <= x1 + CARD_PAD && sy >= y0 - CARD_BAND && sy <= y1 + CARD_PAD;
       });
       setHot(over?.key ?? null);
+      // A post dragged in its grid (docs/social.md §25) is drawn over the others: the container's black between the
+      // posts (ours, over the canvas) would cross it — gone while a button is down.
+      layer.current?.toggleAttribute("data-dragging", (e.buttons & 1) === 1 && !!over);
     };
+    const up = () => layer.current?.toggleAttribute("data-dragging", false);
     window.addEventListener("pointermove", move, true);
-    return () => window.removeEventListener("pointermove", move, true);
+    window.addEventListener("pointerup", up, true);
+    return () => {
+      window.removeEventListener("pointermove", move, true);
+      window.removeEventListener("pointerup", up, true);
+    };
   }, [ed, containers, focus]);
   if (!containers.length || focus) return null;
   const write = canWritePosts(ed);

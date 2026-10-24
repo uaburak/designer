@@ -92,7 +92,18 @@ export function PostToolbar() {
       el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -100%)`;
     };
     place();
-    return ed.store.subscribe("camera", place);
+    // Gone while the post (or anything) is dragged on the canvas: it would trail behind (docs/social.md §25).
+    const canvas = ed.canvas;
+    const down = () => bar.current?.toggleAttribute("data-dragging", true);
+    const up = () => bar.current?.toggleAttribute("data-dragging", false);
+    canvas?.addEventListener("pointerdown", down);
+    window.addEventListener("pointerup", up, true);
+    const off = ed.store.subscribe("camera", place);
+    return () => {
+      off();
+      canvas?.removeEventListener("pointerdown", down);
+      window.removeEventListener("pointerup", up, true);
+    };
   }, [ed, row]);
   if (!row) return null;
   const f = formatById(row.data.formatId);

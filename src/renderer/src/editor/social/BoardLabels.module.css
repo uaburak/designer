@@ -4,6 +4,7 @@
   .card, .band, .ground, .place { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; box-sizing: border-box; }
   /* The container's ground: its padding round the posts and its empty cells */
   .ground { background: var(--ds-color-social-grid); pointer-events: auto; }
+  .layer[data-dragging] .ground { visibility: hidden; }
   /* Its card when hot: Figma's bg-selected 8 px round it and a 32 px band over it for the name — one shape (two met in
      a hairline where the band's bottom and the sides' top fell on a fractional pixel, the owner's 2026-10-25 capture) */
   .card { pointer-events: none; }

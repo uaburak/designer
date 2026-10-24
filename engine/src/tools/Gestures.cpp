@@ -2188,7 +2188,8 @@ void Editor::dragMove(Vec2 world, uint32_t mods) {
   spacings_.clear();
   Rect box{moveBox_.x + d.x, moveBox_.y + d.y, moveBox_.w, moveBox_.h};
   SnapResult snap;
-  if (snapping && !intoAutoLayout) {
+  // (A Social file's post among its grid's posts: the cells place it, as a flow does — no snapping, §25.)
+  if (snapping && !intoAutoLayout && boardDrag_.grid < 0) {
     if (snapParent_ != parent) {
       GuidSet moving;
       for (const Target& t : targets_) moving.insert(t.id);
