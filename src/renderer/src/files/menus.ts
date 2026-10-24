@@ -16,6 +16,7 @@ export type MenuId =
   | "star"
   | "unstar"
   | "duplicate"
+  | "convert-to-social"
   | "rename"
   | "move"
   | "remove-from-recents"
@@ -44,6 +45,8 @@ export interface MenuContext {
   canMove?: boolean;
   /** File settings… is offered (the backend has it) */
   fileSettings?: boolean;
+  /** Convert to Social file… is offered: one Design file (docs/social.md §18.1) */
+  convertToSocial?: boolean;
 }
 
 const item = (id: MenuId, label: string, extra: Partial<Exclude<MenuEntry, "-" | { header: string }>> = {}): MenuEntry => ({ id, label, ...extra });
@@ -79,6 +82,7 @@ export function itemMenu(ctx: MenuContext): MenuEntry[] {
     star,
     "-",
     item("duplicate", t("Duplicate"), { disabled: !!ctx.folders || !!ctx.exportRestricted }),
+    ...(ctx.convertToSocial && one && !ctx.folders ? [item("convert-to-social", t("Convert to Social file…"))] : []),
     item("rename", t("Rename"), { disabled: !one }),
     ...(ctx.canMove === false ? [] : [item("move", t("Move to folder…"))]),
     ...(ctx.location.kind === "recents" && !ctx.folders ? [item("remove-from-recents", t("Remove from recents"))] : []),

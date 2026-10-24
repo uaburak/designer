@@ -84,6 +84,28 @@ describe("the browser dev store", () => {
     expect((await store.workspace.createFile({ folderId: null, editorType: "slides" as never })).editorType).toBe("design");
   });
 
+  it("Convert to Social file (docs/social.md §18.1): a Social copy of a Design file, named as asked; a file's kind changed", async () => {
+    const store = dev(memoryStorage(), false).client;
+    const design = await store.workspace.createFile({ name: "Sosyal Medya", folderId: null });
+    const copy = await store.workspace.duplicateFile(design.fileKey, { editorType: "buzz", name: "Sosyal Medya" });
+    expect([copy.name, copy.editorType]).toEqual(["Sosyal Medya", "buzz"]);
+    expect((await store.workspace.getFile(design.fileKey)).editorType).toBe("design");
+    // The copy's document is the original's, node GUIDs kept (the conversion names them).
+    const a = await store.files.open(design.fileKey, { mode: "view" });
+    const b = await store.files.open(copy.fileKey, { mode: "view" });
+    expect(b.snapshot).toEqual(a.snapshot);
+    // The conversion handed over in the copy's UI state.
+    await store.files.setUiState(copy.fileKey, { socialConvert: { v: 1, pages: [], removePages: ["0:9"] } });
+    expect((await store.files.open(copy.fileKey, { mode: "view" })).ui?.socialConvert?.removePages).toEqual(["0:9"]);
+    const events: WorkspaceEvent[] = [];
+    store.workspace.watch((e) => events.push(e));
+    expect((await store.workspace.setEditorType(design.fileKey, "buzz")).editorType).toBe("buzz");
+    expect((await store.workspace.getFile(design.fileKey)).editorType).toBe("buzz");
+    expect(events.some((e) => e.type === "file.updated" && e.file.fileKey === design.fileKey && e.file.editorType === "buzz")).toBe(true);
+    // A plain duplicate keeps the kind and says "(Copy)".
+    expect(await store.workspace.duplicateFile(copy.fileKey)).toMatchObject({ name: "Sosyal Medya (Copy)", editorType: "buzz" });
+  });
+
   it("does Home's operations with the store's rules and events", async () => {
     const store = dev(memoryStorage(), false).client;
     const events: WorkspaceEvent["type"][] = [];

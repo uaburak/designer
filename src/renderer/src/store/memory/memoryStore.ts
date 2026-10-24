@@ -1218,7 +1218,8 @@ export class MemoryStore {
     return this.addFile({ name, folderId, snapshot: encodeMessage(newDocumentMessage({ thumbnail: true })), editorType: input?.editorType, draft: true });
   }
 
-  async duplicateFile(fileKey: FileKey): Promise<FileMeta> {
+  /** `opts`: the copy's kind and name (Convert to Social file), else the original's kind and "‹name› (Copy)" */
+  async duplicateFile(fileKey: FileKey, opts?: { editorType?: FileEditorType; name?: string }): Promise<FileMeta> {
     await this.personal.ensureLocal(fileKey);
     const src = this.ws.getMeta(fileKey);
     const d = this.fileData(fileKey);
@@ -1226,13 +1227,13 @@ export class MemoryStore {
     this.saveData(fileKey, d);
     const folderId = src.folderId && !this.ws.isFolderTrashed(src.folderId) ? src.folderId : null;
     return this.addFile({
-      name: `${src.name} (Copy)`,
+      name: typeof opts?.name === "string" && opts.name.trim() ? opts.name.trim().slice(0, 300) : `${src.name} (Copy)`,
       folderId,
       snapshot: duplicateSnapshot(d.snapshot),
       nextLocal: d.nextLocal,
       thumbnail: d.thumbnail,
       thumbSize: src.thumbnail ? { width: src.thumbnail.width, height: src.thumbnail.height } : undefined,
-      editorType: src.editorType,
+      editorType: opts?.editorType !== undefined ? fileEditorType(opts.editorType) : src.editorType,
       draft: true,
     });
   }
@@ -1549,7 +1550,8 @@ export class MemoryStore {
       listFiles: async (query) => ws.listFiles(query),
       getFile: async (fileKey) => ws.getFile(fileKey),
       createFile: (input) => this.createFile(input),
-      duplicateFile: (fileKey) => this.duplicateFile(fileKey),
+      duplicateFile: (fileKey, opts) => this.duplicateFile(fileKey, opts),
+      setEditorType: (fileKey, editorType) => q(() => ws.setEditorType(fileKey, editorType)),
       renameFile: async (fileKey, name) => {
         // A registered draft is renamed on the server first (docs/cloud.md §2); offline, refused
         if (typeof name === "string" && name.trim()) await this.personal.renameFirst(fileKey, name);

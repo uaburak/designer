@@ -67,11 +67,16 @@ const browserNavigate = (url: string, newTab: boolean) => {
  * the editor page (a new browser tab for "Open in new tab").
  */
 export async function openFile(fileKey: FileKey, { newTab = false, title, intent }: { newTab?: boolean; title?: string; intent?: OpenIntent } = {}, deps: OpenDeps = {}): Promise<void> {
+  await openFileTab(fileKey, { newTab, title, intent }, deps);
+}
+
+/** `openFile`, answering whether the file had a tab already (brought in front: its editor is open); undefined in a browser. */
+export async function openFileTab(fileKey: FileKey, { newTab = false, title, intent }: { newTab?: boolean; title?: string; intent?: OpenIntent } = {}, deps: OpenDeps = {}): Promise<{ existing: boolean } | undefined> {
   const d = bridge();
   if (d?.nav?.openFile) {
     // The store keeps a link's intent for the editor (multiplayer.openShared); the browser's editor reads its URL.
-    await d.nav.openFile(fileKey, { title, background: newTab });
-    return;
+    const r = await d.nav.openFile(fileKey, { title, background: newTab });
+    return { existing: !!(r as { existing?: boolean } | undefined)?.existing };
   }
   await deps.workspace?.recordViewed(fileKey).catch(() => {});
   // The web app: what Home wrote is in the browser's cache before the page goes (docs/cloud.md §7)

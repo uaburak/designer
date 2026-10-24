@@ -20,6 +20,7 @@ import { annotationsShown, isSocialFile, modeOf, setMode, toggleAnnotations } fr
 import { audioMuted, hasAudio, splitAudioAtPlayhead, splitTargets, toggleAudioMute } from "./motion/audio/audioEdits";
 import { toggleAutoKeyframe, toggleMotionPlaying } from "./motion/motionState";
 import { askAgent, campaignPosts, exportPostsDialog, safeAreasShown, selectedPosts, toggleSafeAreas } from "./social/SocialMode";
+import { canConvertToSocial, openConvertDialog } from "./social/convert/convert";
 import { MOTION_UI_DEFAULT } from "./uiStore";
 import { round5, setRound5 } from "./devmode/round5";
 import { textSummary, toggledBold, toggledItalic } from "./model/text";
@@ -968,6 +969,8 @@ export const COMMANDS: EditorCommand[] = [
   },
   // Round 10: the workspace's file operations, where the document source has them (objectCommands.ts FileOps).
   { id: "file.duplicate", label: "Duplicate", run: (ed) => void duplicateFile(ed), enabled: (ed) => canDuplicateFile(ed) },
+  // Convert to Social file… (docs/social.md §18.1, wireframe H): a Design file's posts into a Social file (a copy, or this file).
+  { id: "file.convert-to-social", label: "Convert to Social file…", run: (ed) => openConvertDialog(ed), enabled: (ed) => canConvertToSocial(ed) },
   { id: "file.move", label: "Move to folder…", run: (ed) => ed.ui.set({ moveFileDialog: true, uiHidden: false }), enabled: (ed) => !!fileOps(ed) },
   { id: "file.save-local-copy", label: "Save local copy…", run: (ed) => void saveLocalCopy(ed), enabled: canSaveLocalCopy },
   // Branching (Phase 7 round 2b, branching/commands.ts): Create branch…, See all branches, Update from main…, Review

@@ -250,6 +250,10 @@ describe("menus", () => {
     expect(labels(sub)).toEqual(["No color", "Red", "Orange", "Yellow", "Green", "Teal", "Blue", "Purple", "Pink", "Gray"]);
     expect(sub.find((e) => e !== "-" && !("header" in e) && e.checked)).toMatchObject({ label: "Green" });
   });
+  it("a Design file offers Convert to Social file… after Duplicate (docs/social.md §18.1)", () => {
+    expect(labels(itemMenu({ location: { kind: "drafts" }, files: 1, folders: 0, allStarred: false, convertToSocial: true })).slice(7, 9)).toEqual(["Duplicate", "Convert to Social file…"]);
+    expect(labels(itemMenu({ location: { kind: "drafts" }, files: 2, folders: 0, allStarred: false, convertToSocial: true }))).not.toContain("Convert to Social file…");
+  });
   it("several items: Rename is off", () => {
     const m = itemMenu({ location: { kind: "drafts" }, files: 2, folders: 0, allStarred: false });
     expect(m.find((e) => e !== "-" && !("header" in e) && e.label === "Rename")).toMatchObject({ disabled: true });

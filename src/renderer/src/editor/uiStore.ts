@@ -126,6 +126,8 @@ export interface UIState extends PreferenceFlags {
   accessibilityDialog?: boolean;
   /** File › Color profile…: its dialog (Convert / Assign, ColorProfileDialog.tsx) */
   colorProfileDialog?: boolean;
+  /** File › Convert to Social file…: its dialog (social/convert/ConvertToSocialDialog.tsx) */
+  socialConvertDialog?: boolean;
   /** An auto-layout bar's value edited in place (round 8, REQUEST_INLINE_EDIT; viewport px) */
   inlineValueEdit?: {
     ref: Guid;

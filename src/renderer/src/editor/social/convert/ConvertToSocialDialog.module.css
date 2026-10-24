@@ -1,0 +1,18 @@
+/* File › Convert to Social file… (ConvertToSocialDialog.tsx): the result's choice, what was found per page, the footer's counts. */
+@layer app {
+  .body { display: flex; flex-direction: column; gap: var(--ds-space-2); }
+  .note { margin: 0; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .found { margin-top: var(--ds-space-2); color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .list { display: flex; flex-direction: column; gap: var(--ds-space-3); max-height: calc(var(--ds-size-row) * 12); overflow-y: auto; overscroll-behavior: contain; }
+  .page { display: flex; flex-direction: column; gap: var(--ds-space-1); }
+  .pageHead { display: flex; align-items: baseline; gap: var(--ds-space-2); }
+  .pageName { color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .brand { color: var(--figma-color-text-brand); font: var(--ds-font-body-medium); }
+  .row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-1) 0; border-bottom: 1px solid var(--figma-color-border); }
+  .what { display: flex; flex-direction: column; min-width: 0; }
+  .name { min-width: 0; overflow: hidden; color: var(--figma-color-text); font: var(--ds-font-body-medium); text-overflow: ellipsis; white-space: nowrap; }
+  .detail { color: var(--figma-color-text-tertiary); font: var(--ds-font-body-small); }
+  .size { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .leftOut { margin: 0; color: var(--figma-color-text-tertiary); font: var(--ds-font-body-small); }
+  .summary { margin-right: auto; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+}

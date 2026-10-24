@@ -6,6 +6,7 @@ import type { SpaceId } from "../org/repositories";
 import type { BranchStatus } from "../merge/branches";
 import type { CloudFile } from "./cloud";
 import type { SocialTemplateData, TemplateSlotSummary } from "../social/types";
+import type { SocialConversion } from "../social/convert";
 
 export type FileKey = string;
 export type FolderId = string;
@@ -156,6 +157,13 @@ export interface FileUiState {
   socialBrandId?: string | null;
   /** View › Rulers as the user last set it in this file; unset: never chosen (the editor shows them) */
   rulers?: boolean;
+  /**
+   * Convert to Social file (docs/social.md §18.1): the conversion a Social copy applies once when it opens (one undo
+   * step), then clears; null / unset: none waiting
+   */
+  socialConvert?: SocialConversion | null;
+  /** Home's Convert to Social file…: the Design file opens with the dialog shown, then clears it */
+  socialConvertOpen?: boolean;
 }
 
 // --- writes (docs/data.md §5.4) ---
