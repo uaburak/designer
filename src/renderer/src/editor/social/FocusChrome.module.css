@@ -39,6 +39,24 @@
   }
   .format:hover { background: var(--figma-color-bg-hover); }
   .formatName { min-width: 120px; text-align: left; }
+  /* Fill, border, clip: a glyph (and a chevron) on the toolbar's own ground */
+  .tool {
+    display: flex; align-items: center; gap: 0; box-sizing: border-box;
+    height: var(--ds-size-control); padding: 0 2px; border: 0; border-radius: var(--ds-radius-medium);
+    background: transparent; color: var(--figma-color-icon);
+  }
+  .tool:hover { background: var(--figma-color-bg-hover); }
+  .tool[aria-pressed="true"] { background: var(--figma-color-bg-selected); color: var(--figma-color-icon-brand); }
+  .tool:disabled { color: var(--figma-color-icon-disabled); }
+  .tool:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  /* The post's fill: its colour, or what it is */
+  .swatch {
+    width: 14px; height: 14px; margin: 0 var(--ds-space-1); border: 1px solid var(--figma-color-border-strong); border-radius: var(--ds-radius-small);
+    background: var(--figma-color-bg-secondary);
+  }
+  .swatch[data-kind="none"] { background: linear-gradient(to top right, transparent calc(50% - 1px), var(--figma-color-icon-danger) 50%, transparent calc(50% + 1px)); }
+  .swatch[data-kind="gradient"] { background: linear-gradient(90deg, var(--figma-color-bg), var(--figma-color-text)); }
+  .swatch[data-kind="image"] { background: var(--figma-color-bg-tertiary); }
   .sep { align-self: stretch; width: 1px; margin: 0 var(--ds-space-1); background: var(--figma-color-border); }
   .edit {
     display: flex; align-items: center; gap: var(--ds-space-1); box-sizing: border-box;

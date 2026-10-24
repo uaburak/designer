@@ -52,6 +52,33 @@ async function setup(view: () => ReturnType<typeof createElement>, editorType: "
 }
 
 describe("Social mode's chrome (round 18a)", () => {
+  it("the post toolbar (docs/social.md §28, Buzz's inline toolbar): fill, border and clip content on the selected post, each one step", async () => {
+    let id = "";
+    const { ed } = await setup(() => createElement(CanvasLayers));
+    await act(async () => {
+      id = newPost(ed, editorWriter(ed), { formatId: "instagram.portrait" });
+    });
+    await act(async () => ed.engine.setSelection([id]));
+    expect($("[data-post-toolbar]")).not.toBeNull();
+    const read = () => ed.engine.readNode(id, { fields: ["fillPaints", "strokePaints", "dashPattern", "frameMaskDisabled"] })!;
+    const tool = (label: string) => $$("[data-post-toolbar] button").find((b) => b.getAttribute("aria-label") === label)!;
+    // Fill: black
+    act(() => click(tool("Fill")));
+    act(() => click($$('[role="menuitem"]').find((x) => x.textContent?.includes("#000000"))!));
+    expect(read().fillPaints?.[0]).toMatchObject({ type: "SOLID", color: { r: 0, g: 0, b: 0 } });
+    expect(ed.store.undo.undoLabel).toBe("Fill");
+    // Border: dashed, inside
+    act(() => click(tool("Border")));
+    act(() => click($$('[role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]').find((x) => x.textContent === "Dashed")!));
+    expect(read().strokePaints?.length).toBe(1);
+    expect(read().dashPattern?.length).toBe(2);
+    // Clip content off and on
+    act(() => click($("[data-post-clip]")!));
+    expect(read().frameMaskDisabled).toBe(true);
+    act(() => click($("[data-post-clip]")!));
+    expect(read().frameMaskDisabled).toBe(false);
+  });
+
   it("a Social file opens in Social with its agent on the left; the right panel follows the selection; Design and Motion beside it; a Design file has none", async () => {
     const { ed } = await setup(() => createElement("div", null, createElement(LeftSide), createElement(RightSide)));
     expect(ed.ui.get().mode).toBe("social");

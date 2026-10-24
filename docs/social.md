@@ -784,3 +784,9 @@ The owner opened Social-test in the side-by-side dev app (its own data folder, s
 - **Store** (`personal/service.ts`): a Social file registers as one; `refresh` makes a record from elsewhere a Social file when the server says so, and a record here that is one tells a server still calling it Design (registered before this); `setEditorType` (Convert this file) tells the server first (`kindFirst`).
 - Needs the server deployed. Until then, a computer that only has the server's word opens it as Design; File › Convert to Social file… › Convert this file makes it a Social file there.
 
+## 28. The post toolbar as Buzz's inline toolbar (owner, 2026-10-25)
+
+"Complete the toolbar over the post as Buzz's (image, alignment, crop)." Buzz's help ("Edit assets in Figma Buzz"): with an asset selected its inline toolbar has **Size**, the background's **Fill** (colour — the file's colours or the picker —, gradient, image & video) and **Border** (solid or dashed). The owner's capture shows a swatch ▾, a stroke-weight glyph ▾ (the border) and a crop glyph.
+
+`PostToolbar` (FocusChrome.tsx), over the one selected post: **Format** ▾ (§23); **Fill** ▾ — its swatch (the post's solid colour, else what it is) and a menu: the post's brand's colours (else the board's) with white and black, Gradient (the first two of them, top to bottom), Image or video… (a file; the post's fill becomes it), No fill; **Border** ▾ — No border, Solid, Dashed (the brand's first colour, 1 % of the short side, inside) [ours: weight and colour]; **Clip content** (the crop glyph, pressed while on); **Edit**. Each change is one undo step ("Fill", "Border", "Clip content"). Test in `socialPanels.wasm.test.ts`.
+
