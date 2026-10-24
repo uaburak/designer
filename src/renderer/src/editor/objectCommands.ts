@@ -11,6 +11,7 @@ import { dismissToast, showToast } from "@/ds";
 import { isWebApp } from "@/app/webApp";
 import type { Guid, NodeChange } from "@/engine/codec";
 import type { EditorController } from "./controller";
+import type { EditorUiState } from "./documentSource";
 import { exportAllowed } from "./exporting";
 import { readPropertiesClipboard, writePropertiesClipboard } from "./clipboardIO";
 import { fields } from "./panels/design/shared";
@@ -226,6 +227,14 @@ export interface FileOps {
   moveTo(folderId: string | null): Promise<void>;
   /** File › Create branch…: a copy named after the branch ("<file> / <branch>") */
   branch(name: string): Promise<{ fileKey: string; name: string }>;
+  /** Convert to Social file (social/convert, docs/social.md §18.1): a copy of another kind, named `name`. Optional. */
+  duplicateAs?(input: { editorType: "design" | "buzz"; name: string }): Promise<{ fileKey: string; name: string }>;
+  /** Convert this file: the file's kind changed (only where `canChangeKind`). Optional. */
+  setEditorType?(editorType: "design" | "buzz"): Promise<void>;
+  /** False for a file whose kind isn't this computer's to change (an org file: its server's). Optional: absent, it can't. */
+  canChangeKind?(): boolean;
+  /** Writes another file's UI state (the conversion a Social copy applies when it opens). Optional. */
+  setUiStateOf?(fileKey: string, patch: Partial<EditorUiState>): Promise<void>;
 }
 
 export function fileOps(ed: EditorController): FileOps | null {

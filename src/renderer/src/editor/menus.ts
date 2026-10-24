@@ -208,6 +208,7 @@ export const MAIN_MENU: Spec[] = [
       "file.place-image",
       "-",
       "file.duplicate",
+      "file.convert-to-social",
       "file.save-local-copy",
       "file.save-version",
       "file.version-history",

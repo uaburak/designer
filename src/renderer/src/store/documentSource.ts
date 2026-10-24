@@ -432,6 +432,18 @@ class Source implements StoreDocumentSource {
         const meta = await store.workspace.renameFile(copy.fileKey, `${this.meta.name} / ${name}`);
         return { fileKey: meta.fileKey, name: meta.name };
       },
+      // Convert to Social file (docs/social.md §18.1): a copy of the other kind, or this file's kind changed.
+      duplicateAs: async ({ editorType, name }) => {
+        const meta = await store.workspace.duplicateFile(fileKey, { editorType, name });
+        return { fileKey: meta.fileKey, name: meta.name };
+      },
+      setEditorType: async (editorType) => {
+        const meta = await store.workspace.setEditorType(fileKey, editorType);
+        // The editor follows at once (the workspace's "file.updated" may come after the answer).
+        this.meta = { ...this.meta, editorType: meta.editorType };
+      },
+      canChangeKind: () => !this.meta.space && !this.meta.branch,
+      setUiStateOf: (key, patch) => store.files.setUiState(key, patch),
     };
     this.previews = {
       fileKey,

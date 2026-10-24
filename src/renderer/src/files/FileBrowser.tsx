@@ -19,7 +19,7 @@ import { NotificationsBell } from "../notifications/NotificationsBell";
 import { notificationIntent } from "../notifications/intent";
 import * as act from "./actions";
 import { ConfirmDialog, MoveDialog, NewFolderDialog } from "./dialogs";
-import { importWithShell, newDesignFile, onOpenShared, onReveal, onShellCommand, openFile, pickFigFiles, saveLocalCopy, setMenuState, type OpenDeps } from "./desktop";
+import { importWithShell, newDesignFile, onOpenShared, onReveal, onShellCommand, openFile, openFileTab, pickFigFiles, saveLocalCopy, setMenuState, type OpenDeps } from "./desktop";
 import { ItemsView } from "./ItemsView";
 import { DeveloperButton } from "./DeveloperButton";
 import { SocialButton } from "./SocialButton";
@@ -466,6 +466,24 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
         if (copies.length) setSelection({ ids: copies.map(fileItemId), anchor: fileItemId(copies[0]) });
         return;
       }
+      case "convert-to-social": {
+        // The file opens with File › Convert to Social file… shown (docs/social.md §18.1); a file open in a tab already
+        // takes it from its own File menu.
+        const k = t.files[0];
+        if (!k || !backend.convertOnOpen) return;
+        const name = known.find((f) => f.fileKey === k)?.name ?? "";
+        try {
+          await backend.convertOnOpen(k, true);
+          const r = await openFileTab(k, { title: name || undefined }, deps);
+          if (r?.existing) {
+            await backend.convertOnOpen(k, false);
+            toast({ message: tr("“{name}” is open: choose File › Convert to Social file… in its tab", { name }) });
+          }
+        } catch (e) {
+          toast({ kind: "error", message: act.errorText(e) });
+        }
+        return;
+      }
       case "rename":
         if (t.files.length + t.folders.length !== 1) return;
         if (from && !ids.includes(folderItemId(from.id))) {
@@ -631,7 +649,8 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
     const t = selectedTargets(next.ids);
     const byKey = new Map(items.filter((i) => i.kind === "file").map((i) => [i.file.fileKey, i.file] as const));
     const allStarred = t.files.every((k) => byKey.get(k)?.starred) && t.folders.every((f) => starredFolderSet.has(f));
-    const menuCtx = { location, files: t.files.length, folders: t.folders.length, allStarred, color: t.folders.length === 1 && !t.files.length ? folders.get(t.folders[0])?.color : undefined, canMove, fileSettings: !!backend.fileSettings };
+    const convertToSocial = !!backend.convertOnOpen && t.files.length === 1 && !t.folders.length && byKey.get(t.files[0])?.editorType !== "buzz";
+    const menuCtx = { location, files: t.files.length, folders: t.folders.length, allStarred, color: t.folders.length === 1 && !t.files.length ? folders.get(t.folders[0])?.color : undefined, canMove, fileSettings: !!backend.fileSettings, convertToSocial };
     const shown = itemMenu({ ...menuCtx, exportRestricted: exportRestricted(t.files) });
     menuFor(e, shown, t);
     refreshMenuExport(t.files, shown, (restricted) => itemMenu({ ...menuCtx, exportRestricted: restricted }));
@@ -639,7 +658,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   const sidebarFolderMenu = (e: React.MouseEvent, f: Folder) =>
     menuFor(e, itemMenu({ location: { kind: "folders" }, files: 0, folders: 1, allStarred: starredFolderSet.has(f.id), color: f.color }), { files: [], folders: [f.id] }, f);
   const sidebarFileMenu = (e: React.MouseEvent, f: FileListItem) => {
-    const menuCtx = { location: { kind: "starred" } as const, files: 1, folders: 0, allStarred: f.starred, canMove, fileSettings: !!backend.fileSettings };
+    const menuCtx = { location: { kind: "starred" } as const, files: 1, folders: 0, allStarred: f.starred, canMove, fileSettings: !!backend.fileSettings, convertToSocial: !!backend.convertOnOpen && f.editorType !== "buzz" };
     const shown = itemMenu({ ...menuCtx, exportRestricted: exportRestricted([f.fileKey]) });
     menuFor(e, shown, { files: [f.fileKey], folders: [] });
     refreshMenuExport([f.fileKey], shown, (restricted) => itemMenu({ ...menuCtx, exportRestricted: restricted }));

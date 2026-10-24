@@ -75,6 +75,11 @@ export interface FilesBackend {
   shared?: SharedSource;
   /** File settings… (FileSettings.tsx, ours): a file's details, its server report and log, its people and options; absent: not offered */
   fileSettings?: FileSettingsSource;
+  /**
+   * Convert to Social file… (docs/social.md §18.1): the Design file's next open shows the dialog (its FileUiState
+   * `socialConvertOpen`; `on` false takes it back). Absent: not offered.
+   */
+  convertOnOpen?: (fileKey: FileKey, on: boolean) => Promise<void>;
 }
 
 /** The store's snapshot with its journal applied, as one kiwi Message (the editor hands the same to `multiplayer.share`). */
@@ -115,6 +120,7 @@ export function filesBackend(): Promise<FilesBackend> {
       governance: client.governance,
     },
     branches: client.branches,
+    convertOnOpen: (fileKey, on) => client.files.setUiState(fileKey, { socialConvertOpen: on }),
     watchSession: (listener) => client.multiplayer.watchSession(listener),
     exportAccess: (fileKey) => exportAllowedFor(client.multiplayer, fileKey),
     uploads: client.multiplayer,

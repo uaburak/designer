@@ -766,7 +766,8 @@ export class LocalStore {
     return this.addDraft(meta);
   }
 
-  async duplicateFile(fileKey: FileKey): Promise<FileMeta> {
+  /** `opts.editorType` / `opts.name`: the copy's kind and name (Convert to Social file: a Social copy), else the original's kind and "‹name› (Copy)" */
+  async duplicateFile(fileKey: FileKey, opts?: { editorType?: FileEditorType; name?: string }): Promise<FileMeta> {
     this.guard();
     await this.personal.ensureLocal(fileKey);
     const src = this.ws.getMeta(fileKey);
@@ -774,7 +775,8 @@ export class LocalStore {
     const key = newFileKey();
     await this.createDuplicate(key, head.path, head.blobRefs, head.derivedDataVersion);
     const folderId = src.folderId && !this.ws.isFolderTrashed(src.folderId) ? src.folderId : null;
-    const meta = newMeta(key, `${src.name} (Copy)`, folderId, this.clock.now(), src.editorType);
+    const name = typeof opts?.name === "string" && opts.name.trim() ? opts.name.trim().slice(0, 300) : `${src.name} (Copy)`;
+    const meta = newMeta(key, name, folderId, this.clock.now(), opts?.editorType !== undefined ? fileEditorType(opts.editorType) : src.editorType);
     meta.enabledLibraries = [...src.enabledLibraries];
     meta.thumbnail = await this.copyThumbnail(fileKey, key, src.thumbnail);
     return this.addDraft(meta);
@@ -1097,7 +1099,8 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
       return f.sizeBytes ? f : { ...f, sizeBytes: await s.files.sizeOf(fileKey).catch(() => 0) };
     },
     createFile: (input) => s.createFile(input),
-    duplicateFile: (fileKey) => s.duplicateFile(fileKey),
+    duplicateFile: (fileKey, opts) => s.duplicateFile(fileKey, opts),
+    setEditorType: (fileKey, editorType) => q(() => ws.setEditorType(fileKey, editorType)),
     renameFile: async (fileKey, name) => {
       // A registered draft is renamed on the server first (docs/cloud.md §2); offline, refused
       if (typeof name === "string" && name.trim()) await s.personal.renameFirst(fileKey, name);

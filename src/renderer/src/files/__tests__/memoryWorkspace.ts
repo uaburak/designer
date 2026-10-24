@@ -247,10 +247,10 @@ export class MemoryWorkspace implements WorkspaceRepository, MemoryExtras {
     return this.add(input);
   }
 
-  async duplicateFile(fileKey: FileKey) {
+  async duplicateFile(fileKey: FileKey, opts?: { editorType?: FileMeta["editorType"]; name?: string }) {
     const m = this.meta(fileKey);
     const folderOk = m.folderId === null || !this.folderTrashed(m.folderId);
-    const copy = this.add({ name: `${m.name} (Copy)`, folderId: folderOk ? m.folderId : null });
+    const copy = this.add({ name: opts?.name?.trim() || `${m.name} (Copy)`, folderId: folderOk ? m.folderId : null, editorType: opts?.editorType ?? m.editorType });
     const thumb = this.thumbnails.get(fileKey);
     if (thumb) {
       this.thumbnails.set(copy.fileKey, thumb);
@@ -259,6 +259,13 @@ export class MemoryWorkspace implements WorkspaceRepository, MemoryExtras {
       return structuredClone(withThumb);
     }
     return copy;
+  }
+
+  async setEditorType(fileKey: FileKey, editorType: FileMeta["editorType"]) {
+    const next: FileMeta = { ...this.meta(fileKey), editorType: editorType === "buzz" ? "buzz" : "design", updatedAt: this.tick() };
+    this.files.set(fileKey, next);
+    this.emit({ type: "file.updated", file: structuredClone(next) });
+    return structuredClone(next);
   }
 
   async renameFile(fileKey: FileKey, name: string) {

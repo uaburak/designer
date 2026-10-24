@@ -90,7 +90,10 @@ export interface WorkspaceRepository {
   getFile(fileKey: FileKey): Promise<FileListItem>;
   /** `editorType`: "buzz" makes a Social file (default "design") */
   createFile(input: { name?: string; folderId: FolderId | null; editorType?: FileEditorType }): Promise<FileMeta>;
-  duplicateFile(fileKey: FileKey): Promise<FileMeta>;
+  /** A copy "‹name› (Copy)" of the file's kind; `opts`: another kind (Convert to Social file: "buzz") or name */
+  duplicateFile(fileKey: FileKey, opts?: { editorType?: FileEditorType; name?: string }): Promise<FileMeta>;
+  /** Changes a local file's kind (Convert to Social file › Convert this file, docs/social.md §18.1); an org file keeps its own */
+  setEditorType(fileKey: FileKey, editorType: FileEditorType): Promise<FileMeta>;
   renameFile(fileKey: FileKey, name: string): Promise<FileMeta>;
   moveFiles(fileKeys: FileKey[], folderId: FolderId | null): Promise<void>;
 

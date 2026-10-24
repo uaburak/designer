@@ -70,6 +70,7 @@ export const STORE_METHODS = {
     "getFile",
     "createFile",
     "duplicateFile",
+    "setEditorType",
     "renameFile",
     "moveFiles",
     "trash",

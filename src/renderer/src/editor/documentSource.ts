@@ -11,6 +11,7 @@ import type { DocumentFacts, EngineWireFormat, PreparedDocument } from "@/store/
 import type { LibraryEvent } from "../../../shared/store/repositories";
 import type { LibraryAnalyticsRepository, LibraryScope, LibraryUsageEvent, OrgLibrariesRepository, OrgLibraryContext } from "../../../shared/libraries/orgTypes";
 import type { LibraryDiff, LibraryRecord, LibraryVersion, PreviewOptions, PreviewRecord, PublishAsset, PublishPreview } from "../../../shared/store/types";
+import type { SocialConversion } from "../../../shared/social/convert";
 import { memoryImageStore, type ImageStore } from "./images";
 
 export interface DocumentSource {
@@ -216,6 +217,13 @@ export interface EditorUiState {
   socialBrandId?: string | null;
   /** View › Rulers as the user last set it in this file; unset: never chosen (the rulers show) */
   rulers?: boolean;
+  /**
+   * Convert to Social file (docs/social.md §18.1): the conversion a Social copy applies once when it opens (one undo
+   * step), then clears; null / unset: none waiting
+   */
+  socialConvert?: SocialConversion | null;
+  /** Home's Convert to Social file…: the Design file opens with the dialog shown, then clears it */
+  socialConvertOpen?: boolean;
 }
 
 /** A saved version, as the version history lists it. */

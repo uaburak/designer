@@ -406,6 +406,18 @@ export class WorkspaceModel {
     return m;
   }
 
+  /**
+   * A local file's kind changed (Convert to Social file › Convert this file, docs/social.md §18.1): "file.updated" tells
+   * its open editor and Home. An org file's kind is its server's: refused.
+   */
+  async setEditorType(fileKey: FileKey, editorType: unknown): Promise<FileMeta> {
+    const m = this.getMeta(fileKey);
+    if (this.isOrgCopy(m)) throw new StoreError("invalid", "An organization's file keeps its kind");
+    const kind = fileEditorType(editorType);
+    if (m.editorType === kind) return { ...m };
+    return this.patchFile(fileKey, { editorType: kind });
+  }
+
   async moveFiles(fileKeys: FileKey[], folderId: FolderId | null): Promise<void> {
     if (folderId !== null) this.checkParent(folderId);
     for (const k of fileKeys) if (this.isOrgCopy(this.getMeta(k))) throw new StoreError("invalid", "An organization's file moves within its organization");
