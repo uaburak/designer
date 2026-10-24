@@ -397,6 +397,8 @@ export const VIEW_MASK_OUTLINES = 262144;
 /** View › Outlines ▸ Show hidden layers / Show object bounds (Atlas wave 1): outline mode's options. */
 export const VIEW_OUTLINE_HIDDEN = 524288;
 export const VIEW_OUTLINE_BOUNDS = 1048576;
+/** A Social file (docs/social.md §22): its selected posts drawn as Figma Buzz's assets — an outline, no handles. */
+export const VIEW_ASSET_CHROME = 2097152;
 /** engine_encode_selection flags. */
 export const ENCODE_SELECTION_CUT = 1;
 /** engine_encode_document flags: the derived data (derivedSymbolData, derivedTextData, derivedDataVersion) too — kiwi only. */

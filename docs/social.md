@@ -729,3 +729,9 @@ What Buzz's grid view shows (help.figma.com "Explore Figma Buzz", "Create and or
 
 **Still open:** a template's background, accent and logo slots need the Brands library's Brand collection and Logo set — the two new brands reach them once the owner runs Brands › Update brands library (and publishes it); until then the Kuzey Kahve posts carry their colours as overrides.
 
+## 22. A selected post as Buzz's asset (owner, 2026-10-24)
+
+The owner: "selecting a frame is very different in Buzz". Buzz's help: in grid view an asset is selected by its blue outline; a **blue outline** when it has no template guidelines, a **pink outline** when the template's guidelines are on (only unlocked fields edit); its size is set from the toolbar's Size menu, not dragged.
+
+Built in the engine as a view option, `VIEW_ASSET_CHROME` (on while `ui.mode` is "social", `canvasTools.viewOptionsOf`): when every selected layer is a design on the page (`Editor::assetsSelected`), the overlay draws each one's outline `assetWidth` (2 px) — pink (the equal-spacing pink) for a template's post (a component, set or instance), blue for another — and no selection box, handles, size badge, AI sparkle or `</>` status button; `handleAt` gives no resize or rotate handle, so a drag on its corner moves it. A hovered post takes the same colour. A layer inside a post keeps Figma's chrome. Native test in `editor.move.test.cpp`.
+

@@ -1269,6 +1269,13 @@ Overlay Editor::overlay() const {
   if (gesture_ == Gesture::Pencil && pencilPoints_.size() > 1)
     for (size_t i = 1; i < pencilPoints_.size(); i++)
       o.curves.push_back({pencilPoints_[i - 1], pencilPoints_[i - 1], pencilPoints_[i], pencilPoints_[i], 1, true});
+  // A Social file's selected posts (docs/social.md §22): Buzz's assets — their outline alone.
+  o.assetChrome = (viewOptions_ & VIEW_ASSET_CHROME) != 0;
+  if (assetsSelected()) {
+    o.assets = o.selection;
+    o.selectionBox = o.handles = o.sizeBadge = o.aiButton = false;
+    std::erase_if(o.dev.statuses, [](const DevStatusMark& m) { return m.kind == DevStatusMark::Kind::MarkButton; });
+  }
   return o;
 }
 

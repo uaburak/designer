@@ -301,6 +301,10 @@ struct Overlay {
   bool aiButton = false;
   bool aiButtonHovered = false;
   bool sizeBadge = true;    // the W × H badge under the selection
+  // A Social file (VIEW_ASSET_CHROME, docs/social.md §22): its selected posts, each outlined `assetWidth` instead of
+  // the selection's box — pink (a template's post, its guidelines on: Buzz) or blue; a hovered post the same colour.
+  bool assetChrome = false;
+  std::vector<Guid> assets;
   bool selectionBox = true; // the selection's box (off in vector edit mode)
   bool hasMarquee = false;
   Rect marquee;             // world

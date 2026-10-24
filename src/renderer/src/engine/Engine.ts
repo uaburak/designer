@@ -46,6 +46,7 @@ import {
   VIEW_SNAP_OBJECTS,
   VIEW_KEEP_TOOL,
   VIEW_SHOW_DIMENSIONS,
+  VIEW_ASSET_CHROME,
   VIEW_FLIP_RESIZE,
   VIEW_KEYBOARD_ZOOM_SELECTION,
   VIEW_INVERT_ZOOM,
@@ -878,6 +879,7 @@ export class Engine {
     maskOutlines?: boolean;
     outlineHiddenLayers?: boolean;
     outlineObjectBounds?: boolean;
+    assetChrome?: boolean;
   }): void {
     const flags =
       (options.pixelGrid ? VIEW_PIXEL_GRID : 0) |
@@ -899,7 +901,8 @@ export class Engine {
       (options.frameOutlines ? VIEW_FRAME_OUTLINES : 0) |
       (options.maskOutlines ? VIEW_MASK_OUTLINES : 0) |
       (options.outlineHiddenLayers ? VIEW_OUTLINE_HIDDEN : 0) |
-      (options.outlineObjectBounds ? VIEW_OUTLINE_BOUNDS : 0);
+      (options.outlineObjectBounds ? VIEW_OUTLINE_BOUNDS : 0) |
+      (options.assetChrome ? VIEW_ASSET_CHROME : 0);
     this.after(this.x.setViewOptions(this.h, flags));
   }
 

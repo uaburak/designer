@@ -498,6 +498,13 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     bool rounded = ownShape && n->props.isRectLike();
     outline(m, {lb.w, lb.h}, kind, rounded ? geom::clampRadii(n->props.size, n->props.cornerRadii) : kSquare, weight, color);
   };
+  // A Social file's post (docs/social.md §22, Buzz): a template's — a component, set or instance — pink (its
+  // guidelines on), another blue; none for a layer that isn't a design on the page.
+  auto assetInk = [&](Guid id) -> const Color* {
+    const Node* n = doc.get(id);
+    if (!overlay.assetChrome || !n || doc.parentOf(id) != page || !n->props.isFrameLike() || n->props.type == NodeType::SECTION) return nullptr;
+    return inComponentChrome(doc, id) ? &style.spacing : &blue;
+  };
 
   // The pixel grid (View › Pixel grid): a line on every whole canvas unit from 300 % zoom (faint at 300 %, full from
   // 400 %: live Figma), under the other overlays. Group 1 (G6): faint means barely there — live's 300 % and the
@@ -930,7 +937,7 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       dashedBox(screenBox(view * doc.worldTransform(h) * Mat2x3::translate(lb.x, lb.y), {lb.w, lb.h}, dpr), style.component);
       continue;
     }
-    nodeOutline(h, style.hoverWidth, true);
+    nodeOutline(h, style.hoverWidth, true, assetInk(h));
     const NodeProps& hp = hn->props;
     // Group 1 (C 9 #1, the owner's components15/figma-instance-child-hover.png): a hovered instance also dots its inner
     // auto-layout frames' boxes in the component purple.
@@ -1018,6 +1025,9 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
         drawGlyphs(*L, lf.place * Mat2x3::translate(bx + (bw - tw) / 2, snap(by + (bh - L->lines[0].height) / 2)), white, 1);
     }
   }
+  // A Social file's selected posts: each one's outline, `assetWidth` (Buzz's selected asset), nothing else.
+  for (Guid a : overlay.assets)
+    if (const Color* ink = assetInk(a)) nodeOutline(a, style.assetWidth, false, ink);
   SelectionBox box = groups.size() > 1 ? SelectionBox{} : selectionBox(doc, overlay.selection);
   if (box.valid && overlay.selectionBox) {
     const Color& blue = blueSel;

@@ -118,6 +118,8 @@ Guid Editor::titleAt(Vec2 s) const {
 
 Editor::Handle Editor::handleAt(Vec2 s, int& hx, int& hy) const {
   if (!selectingTool() || spaceHeld_ || selection_.empty()) return Handle::None;
+  // A Social file's posts aren't resized or turned on the canvas (Buzz: their size is the format's).
+  if (assetsSelected()) return Handle::None;
   SelectionBox box = selectionBox(doc_, selection_);
   if (!box.valid) return Handle::None;
   for (Guid id : selection_) {
@@ -1900,6 +1902,15 @@ void Editor::prepareSnapping(Guid parent, const std::unordered_set<Guid, GuidHas
   std::vector<double> xs, ys;
   snapLines(parent, xs, ys);
   snapper_.setLines(std::move(xs), std::move(ys));
+}
+
+bool Editor::assetsSelected() const {
+  if (!(viewOptions_ & VIEW_ASSET_CHROME) || selection_.empty()) return false;
+  for (Guid id : selection_) {
+    const Node* n = doc_.get(id);
+    if (!n || doc_.parentOf(id) != page_ || !n->props.isFrameLike() || n->props.type == NodeType::SECTION) return false;
+  }
+  return true;
 }
 
 Guid Editor::focusFloor() const {

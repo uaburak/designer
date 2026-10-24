@@ -44,6 +44,8 @@ export function viewOptionsOf(ui: UIState) {
     maskOutlines: !!ui.maskOutlines,
     outlineHiddenLayers: !!ui.outlineHiddenLayers,
     outlineObjectBounds: !!ui.outlineObjectBounds,
+    // Social (docs/social.md §22): the posts are Buzz's assets — selected, an outline alone
+    assetChrome: ui.mode === "social",
   };
 }
 

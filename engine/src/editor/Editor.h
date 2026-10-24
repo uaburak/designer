@@ -373,9 +373,12 @@ class Editor : private LayoutHost, public TextLayouts {
     VIEW_FRAME_OUTLINES = 131072, VIEW_MASK_OUTLINES = 262144,
     // Atlas wave 1, View › Outlines ▸ Show hidden layers / Show object bounds (Figma's toggle-outline-mode-hidden-layers /
     // -object-bounds, Atlas 04 §9.3): in outline mode, hidden layers outlined too; each layer's box drawn.
-    VIEW_OUTLINE_HIDDEN = 524288, VIEW_OUTLINE_BOUNDS = 1048576
+    VIEW_OUTLINE_HIDDEN = 524288, VIEW_OUTLINE_BOUNDS = 1048576,
+    // A Social file (docs/social.md §22): its posts are Figma Buzz's assets — selected, an outline alone (no box,
+    // handles, size or sparkle; no resizing by the canvas), pink for a template's post.
+    VIEW_ASSET_CHROME = 2097152
   };
-  static constexpr uint32_t kViewOptionsAll = 2097151;
+  static constexpr uint32_t kViewOptionsAll = 4194303;
   static constexpr uint32_t kViewOptionsDefault = VIEW_PIXEL_GRID | VIEW_LAYOUT_GUIDES | VIEW_SNAP_PIXELS | VIEW_SLICES | VIEW_SNAP_GEOMETRY |
                                                   VIEW_SNAP_OBJECTS | VIEW_SHOW_DIMENSIONS | VIEW_FLIP_RESIZE | VIEW_RIGHT_DRAG_PAN;
   void setViewOptions(uint32_t options);
@@ -1793,6 +1796,8 @@ class Editor : private LayoutHost, public TextLayouts {
   // Where new and dropped layers go when nothing under the pointer takes them: the design in focus (Dev Mode's focus
   // view, a Social file's single post — docs/social.md §20: they stay in it), else the page.
   Guid focusFloor() const;
+  // Every selected layer is a design on the page and the asset chrome is on (VIEW_ASSET_CHROME).
+  bool assetsSelected() const;
   void keepResizedSize(Guid id, bool x, bool y);
   void endGesture();
   // Round 17 (haptics): the dragged values as whole steps for the drag in progress (empty: the drag has none), and

@@ -555,3 +555,31 @@ TEST_CASE("move: in focus (one design shown, docs/social.md §20) a layer dragge
   REQUIRE(!kids.empty());
   CHECK(e.document().get(kids.back())->props.type == NodeType::ROUNDED_RECTANGLE);
 }
+
+TEST_CASE("asset chrome (a Social file, docs/social.md §22): a selected design is outlined alone and not resized; a layer in it keeps its handles") {
+  Editor e = load(baseScene());
+  e.setViewOptions(e.viewOptions() | Editor::VIEW_ASSET_CHROME);
+  e.setSelection({F});
+  Overlay o = e.overlay();
+  CHECK(o.assets == std::vector<Guid>{F});
+  CHECK_FALSE(o.handles);
+  CHECK_FALSE(o.sizeBadge);
+  CHECK_FALSE(o.selectionBox);
+  // Its bottom-right corner: no resize there — a drag moves it instead
+  drag(e, {299, 299}, {329, 299});
+  CHECK(world(e, F).w == doctest::Approx(300));
+  CHECK(world(e, F).x == doctest::Approx(30));
+  // Two designs: each outlined, no box
+  e.setSelection({F, G});
+  CHECK(e.overlay().assets.size() == 2);
+  // A layer inside: the usual chrome
+  e.setSelection({A});
+  o = e.overlay();
+  CHECK(o.assets.empty());
+  CHECK(o.handles);
+  // Off (a Design file): the usual chrome on a frame too
+  e.setViewOptions(e.viewOptions() & ~Editor::VIEW_ASSET_CHROME);
+  e.setSelection({F});
+  CHECK(e.overlay().assets.empty());
+  CHECK(e.overlay().handles);
+}

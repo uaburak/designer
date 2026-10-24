@@ -18,6 +18,7 @@ struct OverlayStyle {
   Color badgeText;
   double selectionWidth = 1;
   double hoverWidth = 2;
+  double assetWidth = 2;  // a Social file's selected post (Buzz's asset outline)
   double handleSize = 7;
   double handlesMinBox = 24;  // handles hidden when the box is smaller on screen
   double badgeHeight = 17;  // the size badge and auto layout's value badges (live Figma round 10: 17)
