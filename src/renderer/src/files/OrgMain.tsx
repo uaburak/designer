@@ -45,6 +45,7 @@ import type { OrgBackend } from "./storeAccess";
 import { orgDestinations, type OrgPageState } from "./useOrgData";
 import type { IntentHandlers, PrefetchTarget } from "./prefetch";
 import { DeveloperButton } from "./DeveloperButton";
+import { SocialButton, kindBadge } from "./SocialButton";
 import styles from "./Files.module.css";
 
 export interface OrgMainProps {
@@ -224,12 +225,14 @@ export function OrgMain(props: OrgMainProps) {
     }
   };
 
-  const newDesignFile = async (projectId: string | null) => {
+  /** A new file here (`editorType` "buzz": a Social file, docs/social.md §18) */
+  const newDesignFile = async (projectId: string | null, editorType: "design" | "buzz" = "design") => {
     if (!seatCanCreateDesign(seat)) {
       setDialog({ kind: "ask-upgrade" });
       return;
     }
-    const made = await write(() => (projectId ? org.projects.createFile(projectId) : org.orgs.createDraft(orgId)));
+    const kind = editorType === "buzz" ? { editorType } : undefined;
+    const made = await write(() => (projectId ? org.projects.createFile(projectId, kind) : org.orgs.createDraft(orgId, kind)));
     if (made) openFile(made.fileKey, made.file.name);
   };
 
@@ -450,7 +453,7 @@ export function OrgMain(props: OrgMainProps) {
   const controls = (withFiles = true) => (
     <div className={styles.pageControls}>
       {withFiles && onCreator && me && <Select label={tr("Created by")} variant="outlined" width="hug" value={creator} options={CREATOR_FILTERS.map((c) => ({ value: c, label: tr(CREATOR_LABEL[c]) }))} onChange={(v) => onCreator(v as CreatorFilter)} />}
-      {withFiles && onFilter && <Select label={tr("Files shown")} variant="outlined" width="hug" value={filter} options={(["all", "design"] as FileFilter[]).map((f) => ({ value: f, label: tr(FILTER_LABEL[f]) }))} onChange={(v) => onFilter(v as FileFilter)} />}
+      {withFiles && onFilter && <Select label={tr("Files shown")} variant="outlined" width="hug" value={filter} options={(["all", "design", "buzz"] as FileFilter[]).map((f) => ({ value: f, label: tr(FILTER_LABEL[f]) }))} onChange={(v) => onFilter(v as FileFilter)} />}
       {withFiles && onBrowse && (
         <MenuButton label={tr("Sort")} entries={[{ header: tr("Sort by") }, ...SORT_KEYS.map((k) => ({ id: k, label: tr(SORT_LABEL[k]), checked: sortKey === k }))]} onSelect={(id) => onBrowse({ sort: id as SharedSortKey })}>
           <span className={styles.sortLabel}>
@@ -491,7 +494,7 @@ export function OrgMain(props: OrgMainProps) {
             key={f.key}
             id={`file:${f.key}`}
             columns={columns}
-            cells={{ name: <span className={styles.rowName}><FileKindIcon />{f.name}</span>, place: placeOf?.(f), date: orgFileSubtitle(f, now) }}
+            cells={{ name: <span className={styles.rowName}><FileKindIcon kind={f.editorType} />{f.name}</span>, place: placeOf?.(f), date: orgFileSubtitle(f, now) }}
             selected={selected === `file:${f.key}`}
             onSelect={() => setSelected(`file:${f.key}`)}
             onOpen={() => (f.trashedAt === null ? void openOrgFile(f) : toast({ message: tr("Restore this file to open it") }))}
@@ -530,6 +533,7 @@ export function OrgMain(props: OrgMainProps) {
             subtitle={orgFileSubtitle(f, now)}
             branches={f.branchCount && f.trashedAt === null && onBranches ? { count: f.branchCount, onMenu: (e) => onBranches(e, f) } : undefined}
             place={placeOf?.(f)}
+            kind={kindBadge(f.editorType)}
             starred={!!f.fileKey && !!isStarred?.(f.fileKey)}
             onStar={setStarred && f.trashedAt === null ? (on) => void star(f, on) : undefined}
             selected={selected === `file:${f.key}`}
@@ -593,6 +597,7 @@ export function OrgMain(props: OrgMainProps) {
       actions = noCreate ? null : (
         <>
           <DeveloperButton />
+          <SocialButton onClick={() => void newDesignFile(null, "buzz")} />
           <Button variant="tinted" size="large" icon="24.design" tooltip={tr("New design file")} onClick={() => void newDesignFile(null)}>
             {tr("Design")}
           </Button>
@@ -632,6 +637,7 @@ export function OrgMain(props: OrgMainProps) {
       actions = noCreate ? null : (
         <>
           <DeveloperButton />
+          <SocialButton onClick={() => void newDesignFile(null, "buzz")} />
           <Button variant="tinted" size="large" icon="24.design" tooltip={tr("New design file")} onClick={() => void newDesignFile(null)}>
             {tr("Design")}
           </Button>
@@ -777,10 +783,10 @@ export function OrgMain(props: OrgMainProps) {
         const made = await write(() => org.projects.create(t.id, { name: "Projects" }));
         return made?.id ?? null;
       };
-      const newProject = async () => {
+      const newProject = async (editorType: "design" | "buzz" = "design") => {
         if (!seatCanCreateDesign(seat)) return setDialog({ kind: "ask-upgrade" });
         const at = await projectsFolder();
-        if (at) await newDesignFile(at);
+        if (at) await newDesignFile(at, editorType);
       };
       const importProjects = async (files?: File[]) => {
         if (!seatCanCreateDesign(seat)) return setDialog({ kind: "ask-upgrade" });
@@ -792,6 +798,7 @@ export function OrgMain(props: OrgMainProps) {
         tab === "main" && creates ? (
           <>
             <DeveloperButton />
+            <SocialButton onClick={() => void newProject("buzz")} />
             <Button variant="tinted" size="large" icon="24.design" tooltip={tr("New design file")} onClick={() => void newProject()}>
               {tr("Design")}
             </Button>
@@ -885,6 +892,7 @@ export function OrgMain(props: OrgMainProps) {
               </Button>
             )}
             <DeveloperButton />
+            <SocialButton onClick={() => void newDesignFile(p.id, "buzz")} />
             <Button variant="tinted" size="large" icon="24.design" tooltip={tr("New design file")} onClick={() => void newDesignFile(p.id)}>
               {tr("Design")}
             </Button>

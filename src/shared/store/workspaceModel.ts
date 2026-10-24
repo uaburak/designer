@@ -16,6 +16,7 @@ import {
   isFileKey,
   MAX_FOLDER_DEPTH,
   MAX_RECENTS,
+  type FileEditorType,
   type FileKey,
   type FileListItem,
   type FileMeta,
@@ -626,11 +627,14 @@ export class WorkspaceModel {
   }
 }
 
-export function newMeta(fileKey: FileKey, name: string, folderId: FolderId | null, now: number): FileMeta {
+/** A file kind from a request (a view's, an agent's): "buzz" (a Social file) or else "design". */
+export const fileEditorType = (v: unknown): FileEditorType => (v === "buzz" ? "buzz" : "design");
+
+export function newMeta(fileKey: FileKey, name: string, folderId: FolderId | null, now: number, editorType: FileEditorType = "design"): FileMeta {
   return {
     fileKey,
     name,
-    editorType: "design",
+    editorType,
     folderId,
     createdAt: now,
     updatedAt: now,

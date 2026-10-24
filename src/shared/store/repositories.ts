@@ -8,6 +8,7 @@ import type {
   AssetPayload,
   BatchKind,
   ChangeBatch,
+  FileEditorType,
   FileKey,
   FileListItem,
   FileMeta,
@@ -87,7 +88,8 @@ export interface WorkspaceRepository {
 
   listFiles(query: FileQuery): Promise<FileListItem[]>;
   getFile(fileKey: FileKey): Promise<FileListItem>;
-  createFile(input: { name?: string; folderId: FolderId | null }): Promise<FileMeta>;
+  /** `editorType`: "buzz" makes a Social file (default "design") */
+  createFile(input: { name?: string; folderId: FolderId | null; editorType?: FileEditorType }): Promise<FileMeta>;
   duplicateFile(fileKey: FileKey): Promise<FileMeta>;
   renameFile(fileKey: FileKey, name: string): Promise<FileMeta>;
   moveFiles(fileKeys: FileKey[], folderId: FolderId | null): Promise<void>;

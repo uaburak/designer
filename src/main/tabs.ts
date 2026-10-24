@@ -780,10 +780,10 @@ export class TabManager {
   }
 
   /** A new design file (Drafts unless a folder is given), created by the store and opened (⌘N, Home's New design file, the new-tab page's Design). */
-  async newFile(request: { folderId?: string | null; name?: string; replace?: string } = {}): Promise<NewFileResult> {
+  async newFile(request: { folderId?: string | null; name?: string; editorType?: "buzz"; replace?: string } = {}): Promise<NewFileResult> {
     const requestedAt = Date.now();
     const store = await readyStore();
-    const meta = await store.workspace.createFile({ name: request.name, folderId: request.folderId ?? null });
+    const meta = await store.workspace.createFile({ name: request.name, folderId: request.folderId ?? null, ...(request.editorType ? { editorType: request.editorType } : {}) });
     const { tabId } = this.openFile({ fileKey: meta.fileKey, title: meta.name }, requestedAt, request.replace);
     return { fileKey: meta.fileKey, tabId };
   }

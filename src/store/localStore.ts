@@ -27,7 +27,7 @@ import type {
   WorkspaceEvent,
   WorkspaceRepository,
 } from "../shared/store/repositories";
-import { isFileKey, type FileKey, type FileMeta, type FileSpace, type FolderId, type PreviewRecord, type VersionRecord } from "../shared/store/types";
+import { isFileKey, type FileEditorType, type FileKey, type FileMeta, type FileSpace, type FolderId, type PreviewRecord, type VersionRecord } from "../shared/store/types";
 import { inlineCompactor, type Compactor } from "./compactor";
 import { writeLocalCopy } from "./export/fig";
 import { prepareFigImport } from "./import/fig";
@@ -42,6 +42,7 @@ import { SchemaRegistry, currentMessage, readSnapshotFile } from "./local/snapsh
 import { versionDateLabel } from "./local/versions";
 import { RoomVersions, withRoomVersions } from "./local/versionsRoom";
 import { LocalWorkspace, newMeta, workspaceDirs, type Log, type WorkspaceDirs } from "./local/workspace";
+import { fileEditorType } from "../shared/store/workspaceModel";
 import { previewService, type PreviewSession } from "./preview/previews";
 import { SerialQueue } from "./local/queue";
 import { multiplayerApi } from "./multiplayer/api";
@@ -624,11 +625,11 @@ export class LocalStore {
   private readonly spacesQueue = new SerialQueue();
 
   /** A new org file's local copy (docs/multiplayer.md §14.6): an empty document, its `space` set from the start. */
-  async createOrgFile(input: { name: string; space: FileSpace }): Promise<FileMeta> {
+  async createOrgFile(input: { name: string; space: FileSpace; editorType?: FileEditorType }): Promise<FileMeta> {
     this.guard();
     const fileKey = newFileKey();
     await this.files.createFile(fileKey, codec.encodeMessage(newDocumentMessage({ thumbnail: true })), []);
-    const meta = newMeta(fileKey, input.name.trim() || "Untitled", null, this.clock.now());
+    const meta = newMeta(fileKey, input.name.trim() || "Untitled", null, this.clock.now(), fileEditorType(input.editorType));
     meta.space = { ...input.space };
     return this.ws.queue.run(() => this.ws.addFile(meta));
   }
@@ -751,7 +752,7 @@ export class LocalStore {
     if (this.ws.isFolderTrashed(folderId)) throw new StoreError("trashed", tr("That folder is in Trash"));
   }
 
-  async createFile(input: { name?: string; folderId: FolderId | null }): Promise<FileMeta> {
+  async createFile(input: { name?: string; folderId: FolderId | null; editorType?: FileEditorType }): Promise<FileMeta> {
     this.guard();
     const folderId = input?.folderId ?? null;
     this.checkFolder(folderId);
@@ -760,7 +761,7 @@ export class LocalStore {
     const fileKey = newFileKey();
     const doc = newDocumentMessage({ libraries: libs.map((k) => ({ libraryKey: k, name: this.ws.files.get(k)!.name })), thumbnail: true });
     await this.files.createFile(fileKey, codec.encodeMessage(doc), []);
-    const meta = newMeta(fileKey, name, folderId, this.clock.now());
+    const meta = newMeta(fileKey, name, folderId, this.clock.now(), fileEditorType(input?.editorType));
     meta.enabledLibraries = libs;
     return this.addDraft(meta);
   }
@@ -773,7 +774,7 @@ export class LocalStore {
     const key = newFileKey();
     await this.createDuplicate(key, head.path, head.blobRefs, head.derivedDataVersion);
     const folderId = src.folderId && !this.ws.isFolderTrashed(src.folderId) ? src.folderId : null;
-    const meta = newMeta(key, `${src.name} (Copy)`, folderId, this.clock.now());
+    const meta = newMeta(key, `${src.name} (Copy)`, folderId, this.clock.now(), src.editorType);
     meta.enabledLibraries = [...src.enabledLibraries];
     meta.thumbnail = await this.copyThumbnail(fileKey, key, src.thumbnail);
     return this.addDraft(meta);
@@ -871,7 +872,7 @@ export class LocalStore {
     const { record, path } = await this.files.getVersion(fileKey, id);
     const key = newFileKey();
     await this.createDuplicate(key, path, record.blobRefs, record.derivedDataVersion ?? 0);
-    const meta = newMeta(key, `${src.name} (${record.title ?? versionDateLabel(record.createdAt)})`, null, this.clock.now());
+    const meta = newMeta(key, `${src.name} (${record.title ?? versionDateLabel(record.createdAt)})`, null, this.clock.now(), src.editorType);
     meta.enabledLibraries = [...src.enabledLibraries];
     return this.addDraft(meta);
   }

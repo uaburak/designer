@@ -375,9 +375,9 @@ describe("Adding files in an organization (help.figma.com 360041003114)", () => 
       }
     });
 
-  it("the org's Drafts: Design and Import; Import opens the import path; .fig files dropped on the page are imported", async () => {
+  it("the org's Drafts: Social, Design and Import; Import opens the import path; .fig files dropped on the page are imported", async () => {
     const ctx = await org("bob", () => ({ kind: "org-drafts" }));
-    expect(header()).toEqual(["Design", "Import"]);
+    expect(header()).toEqual(["Social", "Design", "Import"]);
     click(headerButton("Import"));
     await settleLong();
     expect(ctx.shellImport).not.toHaveBeenCalled(); // into an org the page reads the .fig itself (the upload panel path), not main's dialog
@@ -392,9 +392,19 @@ describe("Adding files in an organization (help.figma.com 360041003114)", () => 
     expect(ctx.shellImport).not.toHaveBeenCalled();
   });
 
-  it("a folder: New folder, Design and Import; files dropped on it (or on a subfolder's card) are imported", async () => {
+  it("Social makes a Social file in the org's Drafts (docs/social.md §18): the server's file and the local copy are Social, its card says so", async () => {
+    const ctx = await org("bob", () => ({ kind: "org-drafts" }));
+    click(headerButton("Social"));
+    await settleLong();
+    const drafts = await ctx.me.api.orgs.drafts(ctx.o.id);
+    expect(drafts.map((f) => f.editorType)).toEqual(["buzz"]);
+    expect((await ctx.me.api.workspace.getFile(drafts[0].fileKey!)).editorType).toBe("buzz");
+    expect($('[data-ds="FileCard"] [data-card-kind]')?.textContent).toBe("Social");
+  });
+
+  it("a folder: New folder, Social, Design and Import; files dropped on it (or on a subfolder's card) are imported", async () => {
     const ctx = await org("bob", (ids) => ({ kind: "project", projectId: ids.folderId }));
-    expect(header()).toEqual(["New folder", "Design", "Import"]);
+    expect(header()).toEqual(["New folder", "Social", "Design", "Import"]);
     click(headerButton("Import"));
     await settleLong();
     expect(ctx.shellImport).not.toHaveBeenCalled(); // into an org the page reads the .fig itself (the upload panel path), not main's dialog
@@ -403,9 +413,9 @@ describe("Adding files in an organization (help.figma.com 360041003114)", () => 
     expect(ctx.imported).toEqual(["Logo.fig"]);
   });
 
-  it("a team page: Design and Import add projects to the team directly; files dropped on the page go in", async () => {
+  it("a team page: Social, Design and Import add projects to the team directly; files dropped on the page go in", async () => {
     const ctx = await org("bob", (ids) => ({ kind: "team", teamId: ids.teamId }));
-    expect(header()).toEqual(["Design", "Import"]);
+    expect(header()).toEqual(["Social", "Design", "Import"]);
     expect($$('[data-ds="FolderCard"]')).toHaveLength(0);
     dropFiles($('main [role="listbox"][aria-label="Projects"], main [data-ds="EmptyState"]')!, ["Icons.fig"]);
     await settleLong();

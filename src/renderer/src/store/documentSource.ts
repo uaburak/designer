@@ -446,6 +446,11 @@ class Source implements StoreDocumentSource {
     return this.meta.name;
   }
 
+  /** A Social file (docs/social.md §18) or a Design file */
+  get editorType(): "design" | "buzz" {
+    return this.meta.editorType === "buzz" ? "buzz" : "design";
+  }
+
   /**
    * Where the file is, under its name (Figma: the folder, or Drafts). An org file's is its org folder (`space`), not
    * the local copy's place — a file made in "Design team / Website" said "Drafts"; empty until the folder's name is read.

@@ -15,6 +15,8 @@ import { categoriesOf, encodeCategories, encodeNotes, notesOf, type AnnotationDa
 export type Mode = "design" | "dev" | "draw" | "social" | "motion";
 
 export const modeOf = (ed: EditorController): Mode => ed.ui.get().mode ?? "design";
+/** A Social file (docs/social.md §18): it opens in Social and keeps it — no other mode, no mode switch. */
+export const isSocialFile = (ed: EditorController): boolean => ed.source?.editorType === "buzz";
 export const annotationsShown = (ed: EditorController): boolean => ed.ui.get().annotations ?? true;
 
 /** The engine's view of the mode and of View › Annotations. */
@@ -44,7 +46,7 @@ export function syncEngine(ed: EditorController): void {
  * opens on its Posts tab (its agent is the right panel, docs/social.md §6.2); leaving it, Posts gives way to File.
  */
 export function setMode(ed: EditorController, mode: Mode): void {
-  if (modeOf(ed) === mode) return;
+  if (modeOf(ed) === mode || (isSocialFile(ed) && mode !== "social")) return;
   if (mode !== "dev" && ed.ui.get().focus) closeFocus(ed);
   // Leaving Motion stops the clock; entering it starts from the playhead as it was.
   const motion = mode === "motion" ? (ed.ui.get().motion ?? MOTION_UI_DEFAULT) : { ...(ed.ui.get().motion ?? MOTION_UI_DEFAULT), playing: false };

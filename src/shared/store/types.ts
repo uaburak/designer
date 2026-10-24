@@ -45,11 +45,18 @@ export interface Folder {
   _clk: Clock;
 }
 
+/**
+ * A file's kind (Figma's editorType): a Design file, or a Social file — Figma's Buzz file ("buzz", the name Figma's API
+ * gives it), shown as "Social" (docs/social.md §18). A file keeps its kind for good; the editor opens a Social file in
+ * Social, with no mode switch.
+ */
+export type FileEditorType = "design" | "buzz";
+
 export interface FileMeta {
   fileKey: FileKey;
   /** Default "Untitled" */
   name: string;
-  editorType: "design";
+  editorType: FileEditorType;
   /** null = Drafts */
   folderId: FolderId | null;
   createdAt: number;

@@ -28,6 +28,7 @@ import {
   type BatchKind,
   type ChangeBatch,
   type FileKey,
+  type FileEditorType,
   type FileMeta,
   type FileSpace,
   type FileUiState,
@@ -41,7 +42,7 @@ import {
   type VersionRecord,
   type Workspace,
 } from "../../../../shared/store/types";
-import { defaultPrefs, newMeta, WorkspaceModel } from "../../../../shared/store/workspaceModel";
+import { defaultPrefs, fileEditorType, newMeta, WorkspaceModel } from "../../../../shared/store/workspaceModel";
 import { KV_PREFIX, memoryStorage, parseWithBytes, stringifyWithBytes, type KeyValueStorage } from "./kv";
 import { MemoryLibraries } from "./memoryLibraries";
 import { multiplayerApi } from "../../../../store/multiplayer/api";
@@ -453,7 +454,7 @@ export class MemoryStore {
           if (!kv.set(K.space(orgId), JSON.stringify(cache))) this.log("warn", `the browser's storage is full; ${orgId}'s cache wasn't kept`);
         },
         cachedOrgIds: async () => kv.keys(K.space("")).map((k) => k.slice(K.space("").length)),
-        createOrgFile: (input) => this.addFile({ name: input.name.trim() || "Untitled", folderId: null, snapshot: encodeMessage(newDocumentMessage({ thumbnail: true })), space: input.space }),
+        createOrgFile: (input) => this.addFile({ name: input.name.trim() || "Untitled", folderId: null, snapshot: encodeMessage(newDocumentMessage({ thumbnail: true })), space: input.space, editorType: input.editorType }),
         deleteLocalFile: (fileKey) => this.deleteItems({ files: [fileKey], folders: [] }),
         setFileSpace: async (fileKey, space) => void (await this.ws.queue.run(() => this.ws.setFileSpace(fileKey, space))),
         getMeta: (fileKey) => (this.ws.files.has(fileKey) ? this.ws.getMeta(fileKey) : null),
@@ -1131,6 +1132,8 @@ export class MemoryStore {
     /** A branch's file (docs/data.md §15.2) */
     branch?: FileMeta["branch"];
     enabledLibraries?: FileKey[];
+    /** A Social file (default Design) */
+    editorType?: FileEditorType;
     /** A new file of the person's (Design, Duplicate, Import, a version duplicated): signed in, a draft registered on
      *  the server (docs/cloud.md §2) */
     draft?: boolean;
@@ -1149,7 +1152,7 @@ export class MemoryStore {
       ui: null,
       blobRefs: [...table.imageHashes()],
     });
-    const meta = newMeta(key, input.name, input.folderId, this.clock.now());
+    const meta = newMeta(key, input.name, input.folderId, this.clock.now(), fileEditorType(input.editorType));
     if (input.thumbnail) meta.thumbnail = { version: 1, ...(input.thumbSize ?? { width: 0, height: 0 }) };
     if (input.importedFrom) meta.importedFrom = input.importedFrom;
     if (input.space) meta.space = { ...input.space };
@@ -1208,11 +1211,11 @@ export class MemoryStore {
     if (this.ws.isFolderTrashed(folderId)) throw new StoreError("trashed", "That folder is in Trash");
   }
 
-  async createFile(input: { name?: string; folderId: FolderId | null }): Promise<FileMeta> {
+  async createFile(input: { name?: string; folderId: FolderId | null; editorType?: FileEditorType }): Promise<FileMeta> {
     const folderId = input?.folderId ?? null;
     this.checkFolder(folderId);
     const name = typeof input?.name === "string" && input.name.trim() ? input.name.trim() : "Untitled";
-    return this.addFile({ name, folderId, snapshot: encodeMessage(newDocumentMessage({ thumbnail: true })), draft: true });
+    return this.addFile({ name, folderId, snapshot: encodeMessage(newDocumentMessage({ thumbnail: true })), editorType: input?.editorType, draft: true });
   }
 
   async duplicateFile(fileKey: FileKey): Promise<FileMeta> {
@@ -1229,6 +1232,7 @@ export class MemoryStore {
       nextLocal: d.nextLocal,
       thumbnail: d.thumbnail,
       thumbSize: src.thumbnail ? { width: src.thumbnail.width, height: src.thumbnail.height } : undefined,
+      editorType: src.editorType,
       draft: true,
     });
   }

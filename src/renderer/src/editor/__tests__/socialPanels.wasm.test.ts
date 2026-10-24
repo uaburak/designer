@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-// Social's chrome (docs/social.md §6, round 18a) on the real engine: the mode switch mounts the Posts tab and the agent's
-// right panel and gives Design's back; the Posts list groups by campaign; the Post section's caption counter turns red
+// Social's chrome (docs/social.md §6, round 18a) on the real engine: a Social file (§18) opens on the Posts tab with the
+// agent's right panel and keeps Social, a Design file has no Social; the Posts list groups by campaign; the Post section's caption counter turns red
 // past the format's limit; the safe areas' bands follow the camera's zoom. Round 18c: a review pin picks its problem in
 // the review card; a post goes to the agent with its format.
 import { readFileSync } from "node:fs";
@@ -16,6 +16,7 @@ import { EditorContext, EditorController } from "../controller";
 import { memoryDocumentSource } from "../documentSource";
 import { CanvasLayers, LeftSide, RightSide } from "../EditorApp";
 import { runEditorCommand } from "../commands";
+import { setMode } from "../devmode/devMode";
 import { editorWriter, newCampaign, newPost, setCampaign, setPost } from "../social/actions";
 import { PostSection } from "../social/PostSection";
 import { readPost, writePost } from "../social/posts";
@@ -39,8 +40,9 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-async function setup(view: () => ReturnType<typeof createElement>) {
-  const source = memoryDocumentSource(SAMPLE_DOCUMENT, { fileName: "Test" });
+/** `editorType` "buzz": a Social file (docs/social.md §18), which opens in Social */
+async function setup(view: () => ReturnType<typeof createElement>, editorType: "design" | "buzz" = "buzz") {
+  const source = memoryDocumentSource(SAMPLE_DOCUMENT, { fileName: "Test", editorType });
   const engine = await Engine.create(null, { sessionID: 1 });
   engine.load(await source.load());
   engine.setViewport(1280, 800, 1, 1280, 800);
@@ -50,13 +52,8 @@ async function setup(view: () => ReturnType<typeof createElement>) {
 }
 
 describe("Social mode's chrome (round 18a)", () => {
-  it("the mode switch mounts the Posts tab and the agent's panel, and gives Design's back", async () => {
+  it("a Social file opens in Social — the Posts tab, the agent's panel — and keeps it; a Design file has no Social", async () => {
     const { ed } = await setup(() => createElement("div", null, createElement(LeftSide), createElement(RightSide)));
-    expect($('[data-panel="left"]')?.getAttribute("data-tab")).toBe("file");
-    expect($("[data-social-right]")).toBeNull();
-    expect($('[data-rail-tab="posts"]')).toBeNull();
-
-    act(() => runEditorCommand(ed, "view.mode-social"));
     expect(ed.ui.get().mode).toBe("social");
     expect($('[data-panel="left"]')?.getAttribute("data-tab")).toBe("posts");
     expect($('[data-rail-tab="posts"]')).not.toBeNull();
@@ -73,18 +70,24 @@ describe("Social mode's chrome (round 18a)", () => {
     expect($("[data-agents]")).toBeNull();
     expect($("[data-social-properties]")).not.toBeNull();
 
-    // Back to Design: File, Design's right panel; nothing in the document changed.
+    // No other mode: Dev Mode, Draw and Motion can't be entered, and nothing in the document changed.
     const undo = ed.store.undo.undoLabel;
-    act(() => runEditorCommand(ed, "view.mode-social"));
-    expect(ed.ui.get().mode).toBe("design");
-    expect($('[data-panel="left"]')?.getAttribute("data-tab")).toBe("file");
-    expect($("[data-social-right]")).toBeNull();
+    for (const id of ["view.dev-mode", "view.switch-to-draw", "view.switch-to-motion"]) expect(runEditorCommand(ed, id)).toBe(false);
+    act(() => setMode(ed, "design"));
+    expect(ed.ui.get().mode).toBe("social");
     expect(ed.store.undo.undoLabel).toBe(undo);
+    m?.unmount();
+
+    // A Design file opens in Design, its mode switch without Social (and View › Social is gone).
+    const design = await setup(() => createElement(LeftSide), "design");
+    expect(design.ed.ui.get().mode ?? "design").toBe("design");
+    expect($('[data-panel="left"]')?.getAttribute("data-tab")).toBe("file");
+    expect($('[data-rail-tab="posts"]')).toBeNull();
+    expect(runEditorCommand(design.ed, "view.mode-social")).toBe(false);
   });
 
   it("lists the page's posts by campaign in the Posts tab", async () => {
     const { ed } = await setup(() => createElement(LeftSide));
-    act(() => runEditorCommand(ed, "view.mode-social"));
     expect($("[data-social-posts]")).toBeNull();
     const w = editorWriter(ed);
     // The index tells its listeners in a microtask (deferred.ts): an async act lets the list re-render
@@ -142,8 +145,8 @@ describe("Social mode's chrome (round 18a)", () => {
   it("draws a story's safe-area bands at the camera's zoom", async () => {
     let id = "";
     const { ed, engine } = await setup(() => createElement(CanvasLayers));
-    act(() => {
-      ed.ui.set({ mode: "social" });
+    // The posts index tells its listeners in a microtask (deferred.ts): an async act lets the overlay re-render
+    await act(async () => {
       id = newPost(ed, editorWriter(ed), { formatId: "instagram.story", at: { x: 0, y: 0 } });
       // A square post has no safe area: no bands for it.
       newPost(ed, editorWriter(ed), { formatId: "instagram.square", at: { x: 2000, y: 0 } });
@@ -200,7 +203,6 @@ describe("Social's agent pieces (round 18c)", () => {
     const { ed } = await setup(() => createElement(RightSide));
     let id = "";
     act(() => {
-      runEditorCommand(ed, "view.mode-social");
       id = newPost(ed, editorWriter(ed), { formatId: "linkedin.landscape" });
       ed.engine.setSelection([id]);
     });

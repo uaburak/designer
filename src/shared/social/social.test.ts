@@ -16,13 +16,14 @@ import { SOCIAL_PLUGIN_ID, readSocial, withSocial, type SocialPostData } from ".
 describe("the formats catalogue", () => {
   it("has §5.2's entries with their sizes and safe areas", () => {
     expect(SOCIAL_FORMATS.map((f) => f.id)).toEqual([
-      "instagram.post", "instagram.square", "instagram.landscape", "instagram.carousel", "instagram.story", "instagram.reel",
+      "instagram.post", "instagram.portrait", "instagram.square", "instagram.landscape", "instagram.carousel", "instagram.story", "instagram.reel",
       "linkedin.landscape", "linkedin.square", "linkedin.portrait", "linkedin.document", "linkedin.video", "linkedin.video-vertical",
       "facebook.post", "facebook.story", "x.image", "x.video", "tiktok.video", "tiktok.photo", "youtube.thumbnail", "youtube.short",
       "pinterest.pin", "pinterest.video",
     ]);
     const size = (id: string) => `${formatById(id)!.width}×${formatById(id)!.height}`;
     expect(size("instagram.post")).toBe("1080×1350");
+    expect(size("instagram.portrait")).toBe("1080×1440");
     expect(size("instagram.landscape")).toBe("1080×566");
     expect(size("linkedin.landscape")).toBe("1200×628");
     expect(size("linkedin.square")).toBe("1200×1200");

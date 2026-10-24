@@ -1429,6 +1429,7 @@ export const editor: Record<string, string> = {
   "Change animation duration": "Animasyon süresini değiştir",
   // ── Social mode (docs/social.md, round 18 [ours]): the mode switch, the formats catalogue's names ──
   Social: "Sosyal",
+  "Instagram post 3:4": "Instagram gönderisi 3:4",
   "Instagram square": "Instagram kare",
   "Instagram landscape": "Instagram yatay",
   "Instagram carousel": "Instagram karusel",

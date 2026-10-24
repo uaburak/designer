@@ -5,7 +5,7 @@
  */
 import type { SocialExportPreset } from "./types";
 
-const STATIC_IG = ["instagram.post", "instagram.square", "instagram.landscape", "instagram.carousel", "instagram.story"];
+const STATIC_IG = ["instagram.post", "instagram.portrait", "instagram.square", "instagram.landscape", "instagram.carousel", "instagram.story"];
 
 export const SOCIAL_EXPORT_PRESETS: readonly SocialExportPreset[] = [
   { id: "instagram-image", label: "Instagram image", formatIds: STATIC_IG, still: { format: "JPEG", scale: 1, quality: 0.92 }, maxMB: 8 },

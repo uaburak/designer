@@ -8,7 +8,7 @@ import { Breadcrumb, Button, ContextMenu, EmptyState, Icon, IconButton, MenuButt
 import { keys } from "@/ds/util/keys";
 import { useNow } from "@/ds/util/time";
 import { t as tr, useT } from "@/i18n";
-import type { BrowseView, FileKey, FileListItem, Folder, FolderId, OrgImportPlace, Prefs } from "@shared/store/types";
+import type { BrowseView, FileEditorType, FileKey, FileListItem, Folder, FolderId, OrgImportPlace, Prefs } from "@shared/store/types";
 import type { OpenIntent } from "@shared/multiplayer/types";
 import { accountBridge, accountMenu, useAccount } from "./account";
 import { EXTERNAL_RESTRICTED_TEXT, useAdminWorkspace, useHomeOrg } from "./orgPolicy";
@@ -22,6 +22,7 @@ import { ConfirmDialog, MoveDialog, NewFolderDialog } from "./dialogs";
 import { importWithShell, newDesignFile, onOpenShared, onReveal, onShellCommand, openFile, pickFigFiles, saveLocalCopy, setMenuState, type OpenDeps } from "./desktop";
 import { ItemsView } from "./ItemsView";
 import { DeveloperButton } from "./DeveloperButton";
+import { SocialButton } from "./SocialButton";
 import { FileSettingsDialog } from "./FileSettings";
 import { useBranchCounts, useBranchSwitcher, useMainNames } from "./branches";
 import { branchCountTargets } from "./branchesModel";
@@ -359,13 +360,13 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
     else if (t.files.length) openFiles(t.files);
   };
 
-  const newFile = async () => {
+  const newFile = async (editorType: FileEditorType = "design") => {
     if (outsideHome) {
       toast({ kind: "error", message: tr(EXTERNAL_RESTRICTED_TEXT) });
       return;
     }
     try {
-      await newDesignFile(newFileFolder(location), repo, deps);
+      await newDesignFile(newFileFolder(location), repo, deps, editorType);
     } catch (e) {
       toast({ kind: "error", message: act.errorText(e) });
     }
@@ -1055,6 +1056,8 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
             {canCreateFiles(location) && !folderGone && !outsideHome && (
               <>
                 <DeveloperButton />
+                {/* A Social file (docs/social.md §18): the owner's ask (2026-10-24), between Developer and Design */}
+                <SocialButton onClick={() => void newFile("buzz")} />
                 {/* The owner's Home (2026-10-19): a tinted pill like Import — the 24 design glyph, then "Design" */}
                 <Button variant="tinted" size="large" icon="24.design" tooltip={tr("New design file")} shortcut={keys(["mod", "n"])} onClick={() => void newFile()}>
                   {tr("Design")}

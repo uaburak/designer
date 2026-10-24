@@ -33,6 +33,8 @@ export interface FileCardProps {
   badge?: string;
   /** Where it lives, at the thumbnail's top left (All projects: its team, or "Drafts") */
   place?: string;
+  /** The file's kind, beside `place` (a Social file: "Social" — docs/social.md §18; a Design file: none) */
+  kind?: string;
 }
 
 function CardRename({ value, onDone }: { value: string; onDone: (name: string | null) => void }) {
@@ -41,11 +43,14 @@ function CardRename({ value, onDone }: { value: string; onDone: (name: string | 
   return <TextInput label={t(STRINGS.rename)} value={value} autoFocus onCommit={(v) => (committed.current = v.trim() ? v : null)} onExit={(r) => onDone(r === "escape" ? null : committed.current)} />;
 }
 
-/** A file's kind as Figma marks it in Home (cards, rows, the sidebar): a 16px brand square with the design glyph in white. */
-export function FileKindIcon({ size = 16 }: { size?: 16 | 20 | 24 }) {
+/**
+ * A file's kind as Figma marks it in Home (cards, rows, the sidebar): a 16px brand square with the design glyph in white;
+ * a Social file (`kind` "buzz", docs/social.md §18) the Social glyph.
+ */
+export function FileKindIcon({ size = 16, kind }: { size?: 16 | 20 | 24; kind?: string }) {
   return (
-    <span data-ds="FileKindIcon" className={styles.kindBadge} style={{ width: size, height: size }} aria-hidden>
-      <Icon name="16.design" size={Math.round(size * 0.75)} />
+    <span data-ds="FileKindIcon" data-kind={kind === "buzz" ? "social" : undefined} className={styles.kindBadge} style={{ width: size, height: size }} aria-hidden>
+      <Icon name={kind === "buzz" ? "24.social" : "16.design"} size={Math.round(size * 0.75)} />
     </span>
   );
 }
@@ -58,7 +63,7 @@ export function FileKindIcon({ size = 16 }: { size?: 16 | 20 | 24 }) {
  * at the thumbnail's top right; a 1px ring, 2px grey on hover, 2px blue when
  * selected. Enter opens, Space selects.
  */
-export function FileCard({ id, title, subtitle, thumbnail, starred, selected, renaming, onOpen, onSelect, onContextMenu, onRename, onStar, forceHover, branches, branch, badge, place }: FileCardProps) {
+export function FileCard({ id, title, subtitle, thumbnail, starred, selected, renaming, onOpen, onSelect, onContextMenu, onRename, onStar, forceHover, branches, branch, badge, place, kind }: FileCardProps) {
   useT();
   const hasBranches = !!branches && branches.count > 0;
   return (
@@ -93,7 +98,7 @@ export function FileCard({ id, title, subtitle, thumbnail, starred, selected, re
             {badge}
           </span>
         )}
-        {(hasBranches || branch || place) && (
+        {(hasBranches || branch || place || kind) && (
           <span className={styles.topLeft}>
             {(hasBranches || branch) && (
               <span className={styles.branchIcon} data-branch-icon="" aria-hidden>
@@ -103,6 +108,11 @@ export function FileCard({ id, title, subtitle, thumbnail, starred, selected, re
             {place && (
               <span className={styles.place} data-card-place="">
                 {place}
+              </span>
+            )}
+            {kind && (
+              <span className={styles.place} data-card-kind="">
+                {kind}
               </span>
             )}
           </span>

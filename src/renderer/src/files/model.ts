@@ -225,7 +225,8 @@ export interface ViewSort {
   order: SortOrder;
 }
 /** What the type filter keeps: everything, folders only (where a view lists folders), design files only */
-export type FileFilter = "all" | "folders" | "design";
+/** Home's "Files shown": every kind, folders, or one file kind (a Social file is Figma's Buzz, "buzz") */
+export type FileFilter = "all" | "folders" | "design" | "buzz";
 /** Who made the files shown (where files have a creator: an org's) */
 export type CreatorFilter = "anyone" | "you" | "others";
 
@@ -288,9 +289,9 @@ export function viewSort(view: BrowseView, browse: Pick<Prefs["browse"], "sort" 
 /** Time keys read newest / oldest first; the alphabetical one A to Z / Z to A. */
 export const orderLabels = (sort: SortKey): Record<SortOrder, string> => (sort === "alphabetical" ? { default: "A to Z", reversed: "Z to A" } : { default: "Newest first", reversed: "Oldest first" });
 
-export const FILTER_LABEL: Record<FileFilter, string> = { all: "All files", folders: "Folders", design: "Design files" };
+export const FILTER_LABEL: Record<FileFilter, string> = { all: "All files", folders: "Folders", design: "Design files", buzz: "Social files" };
 /** The type filter's choices here: Folders too where the view lists folders among its files */
-export const fileFilters = (loc: Location): FileFilter[] => (loc.kind === "folder" || loc.kind === "starred" || loc.kind === "search" || loc.kind === "trash" ? ["all", "folders", "design"] : ["all", "design"]);
+export const fileFilters = (loc: Location): FileFilter[] => (loc.kind === "folder" || loc.kind === "starred" || loc.kind === "search" || loc.kind === "trash" ? ["all", "folders", "design", "buzz"] : ["all", "design", "buzz"]);
 
 export const CREATOR_LABEL: Record<CreatorFilter, string> = { anyone: "Anyone", you: "You", others: "Others" };
 export const CREATOR_FILTERS: CreatorFilter[] = ["anyone", "you", "others"];
@@ -343,9 +344,9 @@ export function sortFolders(folders: readonly Folder[], sort: SortKey, order: So
 }
 
 /** Every file is a design file here; the filter is Figma's (FigJam/Slides don't exist in this app). Folders: none. */
-export const filterFiles = (files: readonly FileListItem[], filter: FileFilter): FileListItem[] => (filter === "folders" ? [] : filter === "design" ? files.filter((f) => f.editorType === "design") : [...files]);
+export const filterFiles = (files: readonly FileListItem[], filter: FileFilter): FileListItem[] => (filter === "folders" ? [] : filter === "design" || filter === "buzz" ? files.filter((f) => f.editorType === filter) : [...files]);
 /** Folders show unless a file type is picked. */
-const filterFolders = (folders: readonly Folder[], filter: FileFilter): Folder[] => (filter === "design" ? [] : [...folders]);
+const filterFolders = (folders: readonly Folder[], filter: FileFilter): Folder[] => (filter === "design" || filter === "buzz" ? [] : [...folders]);
 
 export interface ListInput {
   location: Location;

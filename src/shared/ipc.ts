@@ -182,10 +182,11 @@ export interface TabAttach {
   startNodeId?: string;
 }
 
-/** `nav:new-file`: a new design file in a folder (null: Drafts), opened in a tab. */
+/** `nav:new-file`: a new design file in a folder (null: Drafts), opened in a tab; `editorType` "buzz": a Social file. */
 export interface NewFileRequest {
   folderId?: string | null;
   name?: string;
+  editorType?: "design" | "buzz";
 }
 export interface NewFileResult {
   fileKey: string;

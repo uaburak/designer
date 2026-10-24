@@ -154,6 +154,11 @@ export interface EditorToolbarProps {
   onMode: (mode: EditorMode) => void;
   /** Modes this file can't use (shown, disabled) */
   disabledModes?: EditorMode[];
+  /**
+   * The modes the switch shows, in EDITOR_MODES' order (default all). Empty: no switch — a Social file has none, and a
+   * Design file's has no Social (docs/social.md §18).
+   */
+  modes?: EditorMode[];
   /** Tools not available yet (shown dimmed, not clickable, tooltip kept; also greyed in the slot menus) */
   disabledTools?: ToolId[];
   /** Absolutely placed, 12px over its container's bottom; `offset` centres it on the window rather than the canvas */
@@ -173,8 +178,9 @@ export interface EditorToolbarProps {
  * (the current tool ticked) above the toolbar. ← → move within the mode
  * switch. The keys themselves are the editor's (see `toolForKey`).
  */
-export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActive, mode, onMode, disabledModes = [], disabledTools = [], floating, offset, shortcuts, slot }: EditorToolbarProps) {
+export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActive, mode, onMode, disabledModes = [], modes, disabledTools = [], floating, offset, shortcuts, slot }: EditorToolbarProps) {
   useT();
+  const shownModes = modes ? EDITOR_MODES.filter((m) => modes.includes(m.id)) : EDITOR_MODES;
   const shortcutOf = (id: ToolId | "actions", own: string | undefined) => (shortcuts && id in shortcuts ? (shortcuts[id] ?? undefined) : own);
   const modeRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const current = groupOf(tool, mode);
@@ -211,10 +217,11 @@ export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActi
         </>
       )}
       {mode !== "dev" && <ToolButton icon="24.actions" label={t("Actions")} shortcut={shortcutOf("actions", keys(["mod", "k"]))} active={Boolean(actionsActive)} onSelect={() => onActions?.()} />}
-      <ToolbarDivider />
+      {shownModes.length > 0 && <ToolbarDivider />}
+      {shownModes.length > 0 && (
       <div role="radiogroup" aria-label={t("Mode")} className={styles.modes} data-ds="ModeSwitch">
-        {EDITOR_MODES.map((m, i) => {
-          const enabled = (k: number) => !disabledModes.includes(EDITOR_MODES[k].id);
+        {shownModes.map((m, i) => {
+          const enabled = (k: number) => !disabledModes.includes(shownModes[k].id);
           return (
             <button
               key={m.id}
@@ -230,11 +237,11 @@ export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActi
               className={styles.mode}
               onClick={() => enabled(i) && onMode(m.id)}
               onKeyDown={(e) => {
-                const next = rovingTarget(e.key, EDITOR_MODES.length, enabled, i, "horizontal");
+                const next = rovingTarget(e.key, shownModes.length, enabled, i, "horizontal");
                 if (next === null || next < 0) return;
                 e.preventDefault();
                 modeRefs.current[next]?.focus();
-                onMode(EDITOR_MODES[next].id);
+                onMode(shownModes[next].id);
               }}
               {...tooltipProps(t(m.label), m.shortcut, "top", undefined, m.badge && t(m.badge))}
             >
@@ -243,6 +250,7 @@ export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActi
           );
         })}
       </div>
+      )}
     </Toolbar>
   );
 }

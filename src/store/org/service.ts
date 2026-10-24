@@ -25,7 +25,7 @@ import type { AdminRepository, OrgEvent, OrgsRepository, ProjectsRepository, Tea
 import { StoreError } from "../../shared/store/protocol";
 import { ICON_MAX_BYTES, ICON_URL, THUMBNAIL_URL, bytesToDataUrl, iconMime } from "../../shared/org/icons";
 import type { Unsubscribe } from "../../shared/store/repositories";
-import type { FileKey, FileMeta, FileSpace } from "../../shared/store/types";
+import type { FileEditorType, FileKey, FileMeta, FileSpace } from "../../shared/store/types";
 import { isGovernanceCode, type MultiplayerService } from "../multiplayer/service";
 import type { OrgGate } from "../../shared/org/governance";
 import type { OrgNotice } from "../notifications/service";
@@ -40,7 +40,7 @@ export interface OrgHost {
   /** The orgs with a cache */
   cachedOrgIds(): Promise<string[]>;
   /** A new empty design file, already the copy of an org file (it never lists among local Drafts) */
-  createOrgFile(input: { name: string; space: FileSpace }): Promise<FileMeta>;
+  createOrgFile(input: { name: string; space: FileSpace; editorType?: FileEditorType }): Promise<FileMeta>;
   /** A local file gone for good (a creation the server refused) */
   deleteLocalFile(fileKey: FileKey): Promise<void>;
   setFileSpace(fileKey: FileKey, space: FileSpace | null): Promise<void>;
@@ -883,7 +883,7 @@ export class OrgService {
       drafts: async (orgId) => this.withCopies(await this.read(this.draftsSpec(String(orgId)))),
       createDraft: async (orgId, input) => {
         const id = String(orgId);
-        const r = await this.createOrgFile(input?.name, { orgId: id, teamId: null, projectId: null }, (key, name) => this.call("POST", `/orgs/${seg(id, "org")}/drafts`, { key, name, ...(input?.editorType ? { editorType: input.editorType } : {}) }));
+        const r = await this.createOrgFile(input?.name, { orgId: id, teamId: null, projectId: null }, input?.editorType, (key, name) => this.call("POST", `/orgs/${seg(id, "org")}/drafts`, { key, name, ...(input?.editorType ? { editorType: input.editorType } : {}) }));
         this.drop(id, (c) => delete c.files[DRAFTS]);
         this.emit({ type: "files.changed", orgId: id, projectId: null });
         return r;
@@ -1039,10 +1039,11 @@ export class OrgService {
    * A new org file (docs/multiplayer.md §14.6): its local copy, then — in one call — registered through `register` with
    * the copy's snapshot. Offline (or refused) nothing is left behind: the copy goes again.
    */
-  private async createOrgFile(name: unknown, place: Omit<FileSpace, "key">, register: (key: string, name: string) => Promise<unknown>): Promise<{ fileKey: FileKey; file: O.OrgFile }> {
+  private async createOrgFile(name: unknown, place: Omit<FileSpace, "key">, editorType: O.EditorType | undefined, register: (key: string, name: string) => Promise<unknown>): Promise<{ fileKey: FileKey; file: O.OrgFile }> {
     this.requireSession();
     const key = this.mp.newRoomKey("file");
-    const meta = await this.host.createOrgFile({ name: cleanName(name, "Untitled", "file"), space: { ...place, key } });
+    // A Social file (Figma's Buzz) keeps its kind on its copy; the server's other kinds open as Design files here.
+    const meta = await this.host.createOrgFile({ name: cleanName(name, "Untitled", "file"), space: { ...place, key }, ...(editorType === "buzz" ? { editorType } : {}) });
     let answer: unknown;
     try {
       const snapshot = await this.host.headSnapshot(meta.fileKey);
@@ -1369,7 +1370,7 @@ export class OrgService {
         const id = String(projectId);
         const teamId = await this.teamOfProject(id);
         const orgId = await this.orgOfTeam(teamId);
-        const r = await this.createOrgFile(input?.name, { orgId, teamId, projectId: id }, (key, name) => this.call("POST", `${projectPath(id)}/files`, { key, name, ...(input?.editorType ? { editorType: input.editorType } : {}) }));
+        const r = await this.createOrgFile(input?.name, { orgId, teamId, projectId: id }, input?.editorType, (key, name) => this.call("POST", `${projectPath(id)}/files`, { key, name, ...(input?.editorType ? { editorType: input.editorType } : {}) }));
         await filesChanged([], undefined, { added: { ...r.file, orgId, teamId, projectId: id } });
         return r;
       },

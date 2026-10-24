@@ -137,8 +137,8 @@ export interface NavApi {
    */
   openFile(fileKey: string, options?: Omit<OpenWorkspaceFile, "fileKey">): Promise<OpenFileResult>;
   openFile(file: OpenWorkspaceFile): Promise<OpenFileResult>;
-  /** A new design file (Drafts when folderId is null), created by main through the store and opened. */
-  newFile(folderId?: string | null, name?: string): Promise<NewFileResult>;
+  /** A new design file (Drafts when folderId is null), created by main through the store and opened; `editorType` "buzz": a Social file. */
+  newFile(folderId?: string | null, name?: string, editorType?: "design" | "buzz"): Promise<NewFileResult>;
   /** Present (R8 §9): the file's presentation view in a new tab (one per file and starting frame; editors only). */
   openPrototype?(fileKey: string, pageId: string, startNodeId?: string, title?: string): Promise<OpenFileResult>;
   /** Home's Developer button: the design system's gallery with the app's usage of it, in a tab of its own (Home only). */

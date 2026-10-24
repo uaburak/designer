@@ -195,7 +195,7 @@ export function registerIpc() {
     if (!pageId) throw new Error("nav:open-prototype: not a page");
     return ctl.tabs.openPrototype({ fileKey: p.fileKey, pageId, startNodeId: guid(p.startNodeId), title: str(p.title, 300) ?? undefined });
   });
-  onInvoke("nav:new-file", ({ ctl, info }, p) => ctl.tabs.newFile({ folderId: folderOf(p?.folderId), name: str(p?.name, 300) ?? undefined, replace: newTabOf(info) }));
+  onInvoke("nav:new-file", ({ ctl, info }, p) => ctl.tabs.newFile({ folderId: folderOf(p?.folderId), name: str(p?.name, 300) ?? undefined, editorType: p?.editorType === "buzz" ? "buzz" : undefined, replace: newTabOf(info) }));
   onSend("nav:open-developer", ({ ctl }) => ctl.tabs.openDeveloper());
   onSend("nav:go-home", ({ ctl, info }, p) => {
     // "Back to files": Home shows the file it came from, unless told another.

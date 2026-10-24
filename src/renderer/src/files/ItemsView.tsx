@@ -10,6 +10,7 @@ import type { FileListItem, FolderId } from "@shared/store/types";
 import { branchCountLabel, branchTileSubtitle, branchTileTitle } from "./branchesModel";
 import { dateColumn, folderSubtitle, sortView, VIEW_SORTS, type FolderIndex, type Item, type Layout, type Location, type SortKey, type SortOrder } from "./model";
 import { FolderGlyph } from "./parts";
+import { kindBadge } from "./SocialButton";
 import styles from "./Files.module.css";
 
 export interface ItemsViewProps {
@@ -138,7 +139,7 @@ export function ItemsView(props: ItemsViewProps) {
       const at = inTrash ? f.trashedAt : date.value(f);
       const name = (
         <span className={styles.rowName}>
-          {nameCell(item, titleOf(item, f), <span className={styles.kindCell}>{f.branch ? <Icon name="16.branch" /> : <FileKindIcon />}</span>, f.starred)}
+          {nameCell(item, titleOf(item, f), <span className={styles.kindCell}>{f.branch ? <Icon name="16.branch" /> : <FileKindIcon kind={f.editorType} />}</span>, f.starred)}
           {nBranches > 0 && (
             <button type="button" className={styles.rowBranches} data-branches-button="" aria-haspopup="menu" onClick={(e) => onBranches?.(e, f)} onDoubleClick={(e) => e.stopPropagation()}>
               <Icon name="16.branch" />
@@ -158,6 +159,7 @@ export function ItemsView(props: ItemsViewProps) {
           title={titleOf(item, f)}
           subtitle={orgPlace(f) ? `${subtitle} · ${orgPlace(f)}` : subtitle}
           branch={!!f.branch}
+          kind={kindBadge(f.editorType)}
           badge={badgeOf?.(f) ?? undefined}
           branches={nBranches > 0 ? { count: nBranches, onMenu: (e) => onBranches?.(e, f) } : undefined}
           thumbnail={thumbnailUrl(f) ?? undefined}

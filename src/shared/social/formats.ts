@@ -33,6 +33,7 @@ export const PLATFORM_NAMES: Record<Platform, string> = {
 /** Where each limit comes from (§5.3, accessed 2026-10-18): key → the page and what it confirms. */
 export const SOCIAL_SOURCES: Record<string, { url: string; confirms: string }> = {
   "ig-api-media": { url: "https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/media", confirms: "IG image JPEG ≤ 8 MB, width 320–1440, 4:5 … 1.91:1, sRGB; Reels MOV/MP4, HEVC/H.264, AAC ≤ 48 kHz, 23–60 fps, ≤ 1920 wide, 3 s–15 min, ≤ 300 MB, ≤ 25 Mbps; Story video 3–60 s, ≤ 100 MB; carousel ≤ 10; caption 2 200, 30 hashtags, 20 mentions" },
+  "ig-grid-3x4": { url: "https://instantdm.com/blog/instagram-post-size-guide-2026", confirms: "Instagram's profile grid crops every post to 3:4; 1080 × 1440 shows uncropped (a third-party guide, accessed 2026-10-24 — no Instagram help page found)" },
   "meta-reels-image": { url: "https://www.facebook.com/business/ads-guide/update/image/instagram-reels", confirms: "Reels 9:16, 1440 × 2560, safe zone ~14 % top, ~35 % bottom, ~6 % sides" },
   "meta-ig-story-video": { url: "https://en-gb.facebook.com/business/ads-guide/update/video/instagram-story", confirms: "IG Stories 9:16, 14 % / 35 % / 6 %" },
   "meta-fb-story-video": { url: "https://www.facebook.com/business/ads-guide/update/video/facebook-story", confirms: "FB Stories 9:16, 1 s–3 min, ≤ 4 GB, ~14 % (250 px) top, ~20 % (340 px) bottom" },
@@ -75,6 +76,9 @@ type Entry = Omit<PlatformFormat, "tier">;
 const ENTRIES: Entry[] = [
   // Instagram
   { id: "instagram.post", name: "Instagram post", width: 1080, height: 1350, platform: "instagram", kind: "image", aspect: "4:5", safeArea: NONE, caption: IG_CAPTION, image: IG_IMAGE, sources: ["ig-api-media"], unverified: IG_UNVERIFIED },
+  // 3:4 (ours, 2026-10-24): the owner's posts are 1080 × 1440 — what Instagram's profile grid has shown since 2025;
+  // the app takes it uncropped, the Graph API's publishing range (4:5 … 1.91:1) doesn't (we export, not publish)
+  { id: "instagram.portrait", name: "Instagram post 3:4", width: 1080, height: 1440, platform: "instagram", kind: "image", aspect: "3:4", safeArea: NONE, caption: IG_CAPTION, image: IG_IMAGE, sources: ["ig-grid-3x4", "ig-api-media"], unverified: [...IG_UNVERIFIED, "aspect"] },
   { id: "instagram.square", name: "Instagram square", width: 1080, height: 1080, platform: "instagram", kind: "image", aspect: "1:1", safeArea: NONE, caption: IG_CAPTION, image: IG_IMAGE, sources: ["ig-api-media"], unverified: IG_UNVERIFIED },
   { id: "instagram.landscape", name: "Instagram landscape", width: 1080, height: 566, platform: "instagram", kind: "image", aspect: "1.91:1", safeArea: NONE, caption: IG_CAPTION, image: IG_IMAGE, sources: ["ig-api-media"], unverified: IG_UNVERIFIED },
   // One caption for the set; slides may be videos (Reel limits).

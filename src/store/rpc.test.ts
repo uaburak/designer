@@ -30,6 +30,16 @@ describe("the store port protocol (docs/data.md §8.3)", () => {
     await expect(home.workspace.getFile("nope")).rejects.toMatchObject({ name: "StoreError", code: "not-found" });
   });
 
+  it("makes a Social file on disk (docs/social.md §18): it and its copy keep the kind", async () => {
+    bed = await rpcTestbed();
+    const home = await bed.connect("home");
+    const social = await home.workspace.createFile({ name: "Posts", folderId: null, editorType: "buzz" });
+    expect(social.editorType).toBe("buzz");
+    expect((await home.workspace.listFiles({ in: "drafts" })).map((f) => [f.name, f.editorType])).toEqual([["Posts", "buzz"]]);
+    expect((await home.workspace.duplicateFile(social.fileKey)).editorType).toBe("buzz");
+    expect((await home.workspace.createFile({ folderId: null })).editorType).toBe("design");
+  });
+
   it("the login gate (docs/desktop.md §18.6): no file is made or opened without a session, from any port", async () => {
     bed = await rpcTestbed({ requireSession: true });
     const home = await bed.connect("home");

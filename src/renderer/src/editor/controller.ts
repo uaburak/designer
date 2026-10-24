@@ -141,6 +141,8 @@ export class EditorController {
       // The Preferences this machine keeps (preferences.ts).
       ...loadPreferences(),
       ...ui,
+      // A Social file (docs/social.md §18) opens in Social, on its Posts tab, and stays there.
+      ...(source.editorType === "buzz" ? { mode: "social" as const, railTab: ui.railTab && ui.railTab !== "file" && ui.railTab !== "agents" ? ui.railTab : ("posts" as const) } : {}),
     });
     this.tools = probeTools(engine);
     this.images = new ImageService(engine, source.images ?? null);

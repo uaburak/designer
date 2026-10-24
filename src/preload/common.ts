@@ -238,7 +238,7 @@ export const nav: NavApi = {
       nodeId: optStr(target.nodeId),
     });
   }) as NavApi["openFile"],
-  newFile: (folderId, name) => invoke("nav:new-file", { folderId: folderId === undefined || folderId === null ? null : String(folderId), name: optStr(name) }),
+  newFile: (folderId, name, editorType) => invoke("nav:new-file", { folderId: folderId === undefined || folderId === null ? null : String(folderId), name: optStr(name), ...(editorType === "buzz" ? { editorType } : {}) }),
 };
 
 export const files: FilesApi = {

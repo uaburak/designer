@@ -16,10 +16,10 @@ import { openPathTool } from "./canvas/PathToolbar";
 import { canExport, copyAsCode, copyAsPng, copyAsSvg, copyAsText, exportAllowed, exportFramesToPdf, hasTextSelected } from "./exporting";
 import { present, togglePreview } from "./present";
 import { setDevStatus, statusOfTargets, statusTargets } from "./devStatus";
-import { annotationsShown, modeOf, setMode, toggleAnnotations } from "./devmode/devMode";
+import { annotationsShown, isSocialFile, modeOf, setMode, toggleAnnotations } from "./devmode/devMode";
 import { audioMuted, hasAudio, splitAudioAtPlayhead, splitTargets, toggleAudioMute } from "./motion/audio/audioEdits";
 import { toggleAutoKeyframe, toggleMotionPlaying } from "./motion/motionState";
-import { askAgent, campaignPosts, exportPostsDialog, safeAreasShown, selectedPosts, toggleSafeAreas, toggleSocialMode } from "./social/SocialMode";
+import { askAgent, campaignPosts, exportPostsDialog, safeAreasShown, selectedPosts, toggleSafeAreas } from "./social/SocialMode";
 import { MOTION_UI_DEFAULT } from "./uiStore";
 import { round5, setRound5 } from "./devmode/round5";
 import { textSummary, toggledBold, toggledItalic } from "./model/text";
@@ -473,7 +473,8 @@ export const COMMANDS: EditorCommand[] = [
   tool("tool.annotation", "Annotation", "ANNOTATION", [k("KeyY"), k("KeyT", { shift: true })]),
   tool("tool.measurement", "Measurement", "MEASUREMENT", [k("KeyM", { shift: true })]),
   // ⇧D: Design ⇄ Dev Mode (help.figma.com 15023124644247).
-  ui("view.dev-mode", "Dev Mode", [k("KeyD", { shift: true })], (ed) => setMode(ed, modeOf(ed) === "dev" ? "design" : "dev"), (ed) => modeOf(ed) === "dev"),
+  // A Social file keeps Social: no other mode (docs/social.md §18).
+  { ...ui("view.dev-mode", "Dev Mode", [k("KeyD", { shift: true })], (ed) => setMode(ed, modeOf(ed) === "dev" ? "design" : "dev"), (ed) => modeOf(ed) === "dev"), enabled: (ed) => !isSocialFile(ed) },
   tool("tool.hand", "Hand tool", "HAND", [k("KeyH")]),
   // ⌘K: the Actions palette (live toolbar/actions-panel.txt; panels/ActionsPanel.tsx).
   ui("tool.actions", "Actions…", [k("KeyK", { mod: true })], (ed) => ed.ui.set((s) => ({ actionsOpen: !s.actionsOpen, uiHidden: false })), (ed) => !!ed.ui.get().actionsOpen),
@@ -615,21 +616,20 @@ export const COMMANDS: EditorCommand[] = [
   ui("view.multiplayer-cursors", "Multiplayer cursors", [k("Backslash", { mod: true, alt: true })], (ed) => ed.ui.set((s) => ({ multiplayerCursors: s.multiplayerCursors === false })), (ed) => ed.ui.get().multiplayerCursors !== false),
   // Draw (live's View menu and the toolbar's mode switch; docs/draw.md §5.7): Draw's toolbar and panels; Draw starts on
   // Move [unverified]. Again: back to Design (leaving with the Brush puts Move back: draw/drawTools.ts).
-  ui("view.switch-to-draw", "Switch to Draw", undefined, (ed) => {
+  { ...ui("view.switch-to-draw", "Switch to Draw", undefined, (ed) => {
     if (modeOf(ed) === "draw") return setMode(ed, "design");
     setMode(ed, "draw");
     ed.setTool("MOVE");
-  }, (ed) => modeOf(ed) === "draw"),
+  }, (ed) => modeOf(ed) === "draw"), enabled: (ed) => !isSocialFile(ed) },
   // Motion (docs/motion.md §6.1, §6.9): the mode switch's Motion segment, View › Switch to Motion (no shortcut [unverified]).
-  ui("view.switch-to-motion", "Switch to Motion", undefined, (ed) => {
+  { ...ui("view.switch-to-motion", "Switch to Motion", undefined, (ed) => {
     if (modeOf(ed) === "motion") return setMode(ed, "design");
     setMode(ed, "motion");
     ed.setTool("MOVE");
-  }, (ed) => modeOf(ed) === "motion"),
-  // Social (docs/social.md §6.6, ours): the mode switch's Social segment and View › Social (no key: Figma's ⇧D stays Dev
-  // Mode's); New post opens the toolbar's menu; Export campaign… opens Export… for the selected posts' campaigns (nothing
-  // selected: every post on the page, by campaign; docs/social.md §8).
-  ui("view.mode-social", "Social", undefined, (ed) => toggleSocialMode(ed), (ed) => modeOf(ed) === "social"),
+  }, (ed) => modeOf(ed) === "motion"), enabled: (ed) => !isSocialFile(ed) },
+  // Social (docs/social.md §6.6, ours) — a Social file's own mode, no switch to it (§18): New post opens the toolbar's
+  // menu; Export campaign… opens Export… for the selected posts' campaigns (nothing selected: every post on the page, by
+  // campaign; docs/social.md §8).
   { id: "social.new-post", label: "New post…", run: (ed) => ed.ui.set((s) => ({ socialNewPostMenu: (s.socialNewPostMenu ?? 0) + 1, uiHidden: false })), enabled: (ed) => modeOf(ed) === "social" },
   { id: "social.toggle-safe-areas", label: "Safe areas", run: (ed) => toggleSafeAreas(ed), enabled: (ed) => modeOf(ed) === "social", checked: (ed) => modeOf(ed) === "social" && safeAreasShown(ed) },
   { id: "social.table", label: "Table", run: (ed) => ed.ui.set((s) => ({ socialTable: !s.socialTable })), enabled: (ed) => modeOf(ed) === "social", checked: (ed) => modeOf(ed) === "social" && !!ed.ui.get().socialTable },

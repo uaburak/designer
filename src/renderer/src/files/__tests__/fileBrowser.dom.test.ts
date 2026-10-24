@@ -217,6 +217,19 @@ describe("FileBrowser", () => {
     expect(opened.at(-1)?.url).toContain(made!.fileKey);
   });
 
+  it("Social (between Developer and Design) makes a Social file; its card carries the Social badge", async () => {
+    const { ws, opened } = await setup({ kind: "drafts" });
+    const buttons = $$('[data-ds="Button"]').map((b) => b.textContent);
+    expect(buttons.indexOf("Social")).toBe(buttons.indexOf("Design") - 1);
+    click(buttonNamed("Social"));
+    await settle();
+    const made = (await ws.listFiles({ in: "drafts" })).find((f) => f.name === "Untitled");
+    expect(made?.editorType).toBe("buzz");
+    expect(opened.at(-1)?.url).toContain(made!.fileKey);
+    expect(card("Untitled").querySelector("[data-card-kind]")?.textContent).toBe("Social");
+    expect(card("Alpha").querySelector("[data-card-kind]")).toBeNull();
+  });
+
   it("a shared file whose viewers may not export it: no Duplicate or Save local copy… (governance §2.7)", async () => {
     let restricted = "";
     const menuStates: Record<string, boolean>[] = [];

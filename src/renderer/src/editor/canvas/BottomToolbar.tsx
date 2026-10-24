@@ -5,7 +5,7 @@
  * `Overlays`, not the view between the panels): nothing about the panels or
  * the canvas moves it, so a panel drag neither moves nor re-renders it. A slot shows the last
  * tool chosen in it; tools the engine doesn't implement yet are disabled.
- * The mode switch: Draw, Design, Social, Motion, Dev Mode; Social adds its slot (docs/social.md §6.6). In vector edit
+ * The mode switch: Draw, Design, Motion, Dev Mode — none in a Social file, which keeps Social (docs/social.md §18); Social adds its slot (§6.6). In vector edit
  * mode Figma's secondary toolbar opens 8 over it (live toolbar/vector-edit-toolbar.txt): Move, Lasso │ Paint, Bend,
  * Cut, Erase │ More ▾ (Vector editing tools: Shape builder, Variable width) │ Close.
  * Draw mode (docs/draw.md §5.1, §5.2; round 7c): the toolbar's Draw tool set (Move ▾, Shape ▾, Pen, Pencil, Brush,
@@ -14,7 +14,7 @@
  */
 import { getLocale, t, useT } from "@/i18n";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ContextMenu, EditorToolbar, groupOf, IconButton, Toolbar, ToolbarDivider, ToolTextButton, type IconName, type MenuEntry, type ToolGroupId, type ToolId } from "@/ds";
+import { ContextMenu, EditorToolbar, groupOf, IconButton, Toolbar, ToolbarDivider, ToolTextButton, type EditorMode, type IconName, type MenuEntry, type ToolGroupId, type ToolId } from "@/ds";
 import type { ToolName } from "@/engine/abi";
 import { useTool } from "@/engine/hooks";
 import { useEditor } from "../controller";
@@ -23,7 +23,7 @@ import { isCustom } from "../shortcuts/keymap";
 import { useShortcutSettings } from "../shortcuts/prefs";
 import { useUI } from "../hooks";
 import { useStoreSlice } from "../uiStore";
-import { setMode } from "../devmode/devMode";
+import { isSocialFile, setMode } from "../devmode/devMode";
 import { FrameStepper } from "../devmode/FrameStepper";
 import type { VectorTool } from "../vectorEdit";
 import { ImageToolbar } from "../imageTools/ImageToolbar";
@@ -99,6 +99,8 @@ export function BottomToolbar() {
   const motion = useUI((s) => s.mode === "motion");
   const social = useUI((s) => s.mode === "social");
   const mode = dev ? "dev" : draw ? "draw" : motion ? "motion" : social ? "social" : "design";
+  // A Social file has no mode switch; a Design file's has no Social (docs/social.md §18).
+  const modes = isSocialFile(ed) ? SOCIAL_FILE_MODES : DESIGN_FILE_MODES;
   const [groups, setGroups] = useState<Partial<Record<ToolGroupId, ToolId>>>({});
   // A tool chosen by key is remembered in its slot too.
   if (groups[groupOf(tool, mode)] !== tool) setGroups({ ...groups, [groupOf(tool, mode)]: tool });
@@ -146,15 +148,18 @@ export function BottomToolbar() {
       onMode={(m) => {
         if (m === "dev" || m === "design") setMode(ed, m);
         else if (m === "draw") runEditorCommand(ed, "view.switch-to-draw");
-        else if (m === "social") runEditorCommand(ed, "view.mode-social");
         else runEditorCommand(ed, "view.switch-to-motion");
       }}
+      modes={modes}
       shortcuts={shortcuts}
       slot={social ? <SocialToolbarSlot /> : undefined}
       />
     </>
   );
 }
+
+const DESIGN_FILE_MODES: EditorMode[] = ["draw", "design", "motion", "dev"];
+const SOCIAL_FILE_MODES: EditorMode[] = [];
 
 /** Live (toolbar/vector-edit-toolbar.txt): Move, Lasso │ Paint, Bend, Cut, Erase — glyph and name. */
 const VECTOR_TOOL_GROUPS: { id: VectorTool; label: string; icon: IconName }[][] = [

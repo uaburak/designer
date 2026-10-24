@@ -18,6 +18,11 @@ export interface DocumentSource {
   readonly fileName: string;
   /** Where the file lives, under its name ("Drafts", a project's name). */
   readonly location: string;
+  /**
+   * The file's kind (docs/social.md §18): "buzz" — a Social file (Figma's Buzz) — opens in Social and stays there, with no
+   * mode switch; absent or "design": a Design file, whose mode switch has no Social.
+   */
+  readonly editorType?: "design" | "buzz";
   /** The session new nodes are created in (allocated by storage, docs/data.md §1); default 1. */
   readonly sessionID?: number;
   /** The document to open: a snapshot Message (DOCUMENT first, parents before children). */
@@ -304,7 +309,7 @@ export interface MemoryDocumentSource extends DocumentSource {
 /** A DocumentSource held in memory: the snapshot it was given plus every change since. */
 export function memoryDocumentSource(
   document: Message,
-  options: { fileName?: string; location?: string; sessionID?: number; images?: ImageStore; versions?: boolean; uiState?: EditorUiState } = {}
+  options: { fileName?: string; location?: string; editorType?: "design" | "buzz"; sessionID?: number; images?: ImageStore; versions?: boolean; uiState?: EditorUiState } = {}
 ): MemoryDocumentSource {
   const nodes = new Map<Guid, NodeChange>(document.nodeChanges.map((n) => [n.guid, { ...n, phase: "CREATED" as const }]));
   // The document's blobs (vector networks, paths), each change's moved into the same list.
@@ -342,6 +347,7 @@ export function memoryDocumentSource(
       return fileName;
     },
     location: options.location ?? "Drafts",
+    ...(options.editorType ? { editorType: options.editorType } : {}),
     sessionID: options.sessionID ?? 1,
     images: options.images ?? memoryImageStore(),
     ...(options.uiState ? { uiState: structuredClone(options.uiState) } : {}),

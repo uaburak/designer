@@ -221,13 +221,13 @@ export class MemoryWorkspace implements WorkspaceRepository, MemoryExtras {
     return this.item(this.meta(fileKey));
   }
 
-  private add(input: { name?: string; folderId: FolderId | null; createdAt?: number; updatedAt?: number; importedFrom?: FileMeta["importedFrom"] }): FileMeta {
+  private add(input: { name?: string; folderId: FolderId | null; createdAt?: number; updatedAt?: number; importedFrom?: FileMeta["importedFrom"]; editorType?: FileMeta["editorType"] }): FileMeta {
     this.checkParent(input.folderId);
     const t = this.tick();
     const meta: FileMeta = {
       fileKey: randomId(22),
       name: input.name?.trim() || "Untitled",
-      editorType: "design",
+      editorType: input.editorType === "buzz" ? "buzz" : "design",
       folderId: input.folderId,
       createdAt: input.createdAt ?? t,
       updatedAt: input.updatedAt ?? t,
@@ -243,7 +243,7 @@ export class MemoryWorkspace implements WorkspaceRepository, MemoryExtras {
     return structuredClone(meta);
   }
 
-  async createFile(input: { name?: string; folderId: FolderId | null }) {
+  async createFile(input: { name?: string; folderId: FolderId | null; editorType?: FileMeta["editorType"] }) {
     return this.add(input);
   }
 

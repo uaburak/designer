@@ -144,7 +144,7 @@ describe("locations and items", () => {
   const f1 = folder("f1", "Brand");
   const f2 = folder("f2", "Sub", { parentId: "f1" });
   const idx = new FolderIndex([f1, f2]);
-  const files = [file("Logo", { folderId: "f1" }), file("Icons", { folderId: "f1", editorType: "design" })];
+  const files = [file("Logo", { folderId: "f1" }), file("Icons", { folderId: "f1", editorType: "design" }), file("Posts", { folderId: "f1", editorType: "buzz" })];
 
   it("maps locations to store queries and titles", () => {
     expect(fileQuery({ kind: "drafts" })).toEqual({ in: "drafts" });
@@ -156,7 +156,7 @@ describe("locations and items", () => {
   });
   it("a folder lists its subfolders first, then its files", () => {
     const items = listItems({ location: { kind: "folder", folderId: "f1" }, folders: idx, files, counts: { f2: 3 }, sort: "alphabetical", order: "default", filter: "all" });
-    expect(items.map((i) => (i.kind === "folder" ? `folder:${i.folder.name}:${i.fileCount}` : `file:${i.file.name}`))).toEqual(["folder:Sub:3", "file:Icons", "file:Logo"]);
+    expect(items.map((i) => (i.kind === "folder" ? `folder:${i.folder.name}:${i.fileCount}` : `file:${i.file.name}`))).toEqual(["folder:Sub:3", "file:Icons", "file:Logo", "file:Posts"]);
   });
   it("All folders lists the top level; Starred lists starred folders that aren't trashed", () => {
     expect(listItems({ location: { kind: "folders" }, folders: idx, files: [], sort: "last-viewed", order: "default", filter: "all" }).map((i) => i.id)).toEqual(["folder:f1"]);
@@ -170,14 +170,15 @@ describe("locations and items", () => {
     expect(names("default")).toEqual(["Gone too", "Gone", "Z new", "A old"]);
     expect(names("reversed")).toEqual(["Gone", "Gone too", "A old", "Z new"]);
   });
-  it("the type filter: Folders keeps folders only, Design files the files only", () => {
-    const at = (filter: "all" | "folders" | "design") => listItems({ location: { kind: "folder", folderId: "f1" }, folders: idx, files, sort: "alphabetical", order: "default", filter }).map((i) => i.kind);
-    expect(at("all")).toEqual(["folder", "file", "file"]);
+  it("the type filter: Folders keeps folders only, Design files and Social files their kind of file only", () => {
+    const at = (filter: "all" | "folders" | "design" | "buzz") => listItems({ location: { kind: "folder", folderId: "f1" }, folders: idx, files, sort: "alphabetical", order: "default", filter }).map((i) => (i.kind === "file" ? i.file.name : i.kind));
+    expect(at("all")).toEqual(["folder", "Icons", "Logo", "Posts"]);
     expect(at("folders")).toEqual(["folder"]);
-    expect(at("design")).toEqual(["file", "file"]);
-    expect(fileFilters({ kind: "folder", folderId: "f1" })).toEqual(["all", "folders", "design"]);
-    expect(fileFilters({ kind: "drafts" })).toEqual(["all", "design"]);
-    expect(fileFilters({ kind: "recents" })).toEqual(["all", "design"]);
+    expect(at("design")).toEqual(["Icons", "Logo"]);
+    expect(at("buzz")).toEqual(["Posts"]);
+    expect(fileFilters({ kind: "folder", folderId: "f1" })).toEqual(["all", "folders", "design", "buzz"]);
+    expect(fileFilters({ kind: "drafts" })).toEqual(["all", "design", "buzz"]);
+    expect(fileFilters({ kind: "recents" })).toEqual(["all", "design", "buzz"]);
   });
   it("subtitles in Figma's words", () => {
     expect(fileSubtitle(file("A", { updatedAt: NOW - 34 * 60_000 }), NOW)).toBe("Edited 34 minutes ago");

@@ -74,6 +74,16 @@ describe("the browser dev store", () => {
     expect((await store.files.listVersions(landing.fileKey)).map((v) => v.title)).toEqual(["First draft"]);
   });
 
+  it("makes a Social file when asked (docs/social.md §18): it and its copy keep the kind; any other ask is a Design file", async () => {
+    const store = dev(memoryStorage(), false).client;
+    expect((await store.workspace.createFile({ folderId: null })).editorType).toBe("design");
+    const social = await store.workspace.createFile({ folderId: null, editorType: "buzz" });
+    expect(social.editorType).toBe("buzz");
+    expect((await store.workspace.getFile(social.fileKey)).editorType).toBe("buzz");
+    expect((await store.workspace.duplicateFile(social.fileKey)).editorType).toBe("buzz");
+    expect((await store.workspace.createFile({ folderId: null, editorType: "slides" as never })).editorType).toBe("design");
+  });
+
   it("does Home's operations with the store's rules and events", async () => {
     const store = dev(memoryStorage(), false).client;
     const events: WorkspaceEvent["type"][] = [];

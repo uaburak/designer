@@ -5,7 +5,7 @@
  * plain browser a file opens as `?editor&file=<fileKey>`.
  */
 import type { WorkspaceRepository } from "@shared/store/repositories";
-import type { FileKey, FolderId } from "@shared/store/types";
+import type { FileEditorType, FileKey, FolderId } from "@shared/store/types";
 import { intentFromLink, type OpenIntent } from "@shared/multiplayer/types";
 import { isWebApp } from "../app/webApp";
 
@@ -19,7 +19,7 @@ interface HomeBridge {
   role?: string;
   nav?: {
     openFile?: (fileKey: string, options?: { title?: string; background?: boolean }) => Promise<unknown>;
-    newFile?: (folderId?: string | null, name?: string) => Promise<{ fileKey: string; tabId: string } | null>;
+    newFile?: (folderId?: string | null, name?: string, editorType?: "design" | "buzz") => Promise<{ fileKey: string; tabId: string } | null>;
     openDeveloper?: () => void;
   };
   files?: {
@@ -79,14 +79,14 @@ export async function openFile(fileKey: FileKey, { newTab = false, title, intent
   (deps.navigate ?? browserNavigate)(editorUrl(fileKey, intent), newTab);
 }
 
-/** "New design file": `Untitled` in Drafts or the folder shown, opened at once (docs/data.md §4). */
-export async function newDesignFile(folderId: FolderId | null, workspace: Pick<WorkspaceRepository, "createFile" | "recordViewed">, deps: OpenDeps = {}): Promise<FileKey | null> {
+/** "New design file": `Untitled` in Drafts or the folder shown, opened at once (docs/data.md §4); `editorType` "buzz": a Social file (docs/social.md §18). */
+export async function newDesignFile(folderId: FolderId | null, workspace: Pick<WorkspaceRepository, "createFile" | "recordViewed">, deps: OpenDeps = {}, editorType: FileEditorType = "design"): Promise<FileKey | null> {
   const d = bridge();
   if (d?.nav?.newFile) {
-    const r = await d.nav.newFile(folderId);
+    const r = await d.nav.newFile(folderId, undefined, editorType === "buzz" ? "buzz" : undefined);
     if (r) return r.fileKey;
   }
-  const meta = await workspace.createFile({ folderId });
+  const meta = await workspace.createFile({ folderId, ...(editorType === "buzz" ? { editorType } : {}) });
   await openFile(meta.fileKey, { title: meta.name }, { workspace, ...deps });
   return meta.fileKey;
 }
