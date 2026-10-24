@@ -94,6 +94,22 @@ describe("BrandsService", () => {
     expect(edited.labelsConfirmed).toBe(false);
   });
 
+  it("keeps a product's series: trimmed, in the brand's own spelling, cleared by an empty one, kept when not given", async () => {
+    const a = new BrandsService(memoryHost().host);
+    const brand = await a.saveBrand({ name: "MTM Agro" });
+    const old = await a.saveProduct({ brandId: brand.id, name: "Old" });
+    expect(old.series).toBeUndefined();
+    const p = await a.saveProduct({ brandId: brand.id, name: "Venta Fe", series: "  Venta  " });
+    expect(p.series).toBe("Venta");
+    const q = await a.saveProduct({ brandId: brand.id, name: "Venta Zn", series: "VENTA" });
+    expect(q.series).toBe("Venta");
+    const renamed = await a.saveProduct({ id: q.id, brandId: brand.id, name: "Venta Zinc" });
+    expect(renamed.series).toBe("Venta");
+    const cleared = await a.saveProduct({ id: q.id, brandId: brand.id, name: "Venta Zinc", series: "" });
+    expect(cleared.series).toBeNull();
+    expect((await a.saveProduct({ id: p.id, brandId: brand.id, name: "Venta Fe", series: null })).series).toBeNull();
+  });
+
   it("refuses bad input", async () => {
     const a = new BrandsService(memoryHost().host);
     await expect(a.saveBrand({ name: "  " })).rejects.toBeInstanceOf(StoreError);

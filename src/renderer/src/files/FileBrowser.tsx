@@ -3,7 +3,7 @@
  * selection, keyboard, context menus, dialogs and toasts. All data comes from `backend.workspace` and comes back
  * through its watch.
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Breadcrumb, Button, ContextMenu, EmptyState, Icon, IconButton, MenuButton, SegmentedControl, Select, Spinner, showToast, useTheme, type MenuEntry, type ToastOptions } from "@/ds";
 import { keys } from "@/ds/util/keys";
 import { useNow } from "@/ds/util/time";
@@ -109,6 +109,8 @@ const LOCAL_ONLY = new Set<Location["kind"]>(["recents", "drafts", "folders", "f
 type MenuState = { at: { x: number; y: number }; entries: MenuEntry[]; run: (id: string) => void; className?: string };
 
 const DRAG_TYPE = "application/x-designer-items";
+/** Brands (docs/studio.md §3.2): loaded when first shown (it brings the brands library's file maker along) */
+const BrandsHome = lazy(() => import("@/editor/studio/brands/BrandsView").then((m) => ({ default: () => <m.BrandsView /> })));
 const DEFAULT_BROWSE: Prefs["browse"] = { layout: "grid", sort: "last-viewed" };
 const NO_TARGETS: act.Targets = { files: [], folders: [] };
 /** Duplicate or Save local copy… of a file whose viewers may not export it (ours) */
@@ -1014,6 +1016,13 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
           onCreator={setCreator}
           me={me}
         />
+      ) : location.kind === "brands" ? (
+        // Brands (docs/studio.md §3.2): the editor's Brands view, full page, without its agent buttons
+        <main className={styles.main} aria-label={title}>
+          <Suspense fallback={null}>
+            <BrandsHome />
+          </Suspense>
+        </main>
       ) : (
       <main
         className={styles.main}

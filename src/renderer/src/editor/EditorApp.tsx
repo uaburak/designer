@@ -79,6 +79,7 @@ import { shortcutPrefs } from "./shortcuts/prefs";
 import { VersionDialogs } from "./VersionDialogs";
 import { VersionHistoryPanel, VersionLinkOpener, VersionPreview } from "./VersionHistory";
 import { LocalVariables } from "./panels/variables/LocalVariables";
+import { BrandsWindow } from "./studio/brands/BrandsWindow";
 import { RenameLayersDialog } from "./panels/RenameLayers";
 import { LibrariesDialog } from "./panels/libraries/LibrariesDialog";
 import { PublishDialog } from "./panels/libraries/PublishDialog";
@@ -506,6 +507,8 @@ function Overlays() {
       {/* Centred on the window by CSS alone: a panel resized, folded or hidden never moves or re-renders it. */}
       {!hidden && <BottomToolbar />}
       {variables && <LocalVariables />}
+      {/* The Brands tab: the brand library full size over the panels and the canvas (docs/studio.md §3.2) */}
+      <BrandsWindow />
       {/* Live (left-rail-variables-full-view): the "?" stays over the Variables view too */}
       {!hidden && !shortcuts && <Help />}
       <CanvasMenu />

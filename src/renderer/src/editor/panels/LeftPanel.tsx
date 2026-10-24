@@ -19,7 +19,6 @@ import { Assets } from "./Assets";
 import { FindPanel } from "./Find";
 import { NavStrip } from "./Rail";
 import { AgentsPanel } from "./agents/AgentsPanel";
-import { BrandsPanel } from "../studio/BrandsPanel";
 import styles from "./Panels.module.css";
 import { t, useT } from "@/i18n";
 
@@ -47,9 +46,7 @@ export function LeftPanel() {
         <Assets />
       ) : tab === "agents" ? (
         <AgentsPanel />
-      ) : (
-        <BrandsPanel />
-      )}
+      ) : null /* Brands: the full-size view over the panels (studio/brands/BrandsWindow) */}
       <ResizeHandle side="right" value={width} onChange={(px) => ed.ui.set({ leftWidth: px })} />
     </aside>
   );

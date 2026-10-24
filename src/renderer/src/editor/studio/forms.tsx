@@ -8,6 +8,7 @@ import { Button, Checkbox, Icon, IconButton, Select, Swatch, TextInput, cx, norm
 import { t, useT } from "@/i18n";
 import { getStoreClient } from "@/store";
 import { DEFAULT_FORMATS, type Brand, type BrandColor, type BrandImage, type BrandImageRole, type BrandSave, type BrandsRepository, type LabelTier, type Product, type ProductSave, type SocialFormat } from "../../../../shared/studio/types";
+import { foldName } from "../../../../shared/studio/library";
 import styles from "./BrandsPanel.module.css";
 
 // ── The library, as the views read it ─────────────────────────────────────────────────────────────────────────────
@@ -411,11 +412,24 @@ const TIERS = [
   { value: "soft", label: "Soft" },
 ];
 
+/** The series a brand's products use, A to Z (each once, in the spelling first met). */
+export function seriesOf(products: readonly Product[]): string[] {
+  const seen = new Map<string, string>();
+  for (const p of products) {
+    const s = p.series?.trim();
+    if (s && !seen.has(foldName(s))) seen.set(foldName(s), s);
+  }
+  return [...seen.values()].sort((a, b) => foldName(a).localeCompare(foldName(b)));
+}
+
 export function ProductForm({ brandId, productId, prefill, onDone, onCancel, inCard }: ProductFormProps) {
   useT();
   const [loaded, setLoaded] = useState<Product | null>(null);
   const [ready, setReady] = useState(!productId);
   const [name, setName] = useState(prefill?.name ?? "");
+  const [series, setSeries] = useState(prefill?.series ?? "");
+  // The brand's series, offered under the field
+  const [knownSeries, setKnownSeries] = useState<string[]>([]);
   const [shape, setShape] = useState(prefill?.shape ?? "");
   const [notes, setNotes] = useState(prefill?.notes ?? "");
   const [labels, setLabels] = useState<LabelRow[]>(prefill?.labels ?? []);
@@ -423,6 +437,16 @@ export function ProductForm({ brandId, productId, prefill, onDone, onCancel, inC
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const pics = usePictureEdits();
+  useEffect(() => {
+    let alive = true;
+    brandsRepo().get(brandId).then(
+      (b) => alive && setKnownSeries(seriesOf(b?.products ?? [])),
+      () => {}
+    );
+    return () => {
+      alive = false;
+    };
+  }, [brandId]);
   useEffect(() => {
     if (!productId) return;
     let alive = true;
@@ -433,6 +457,7 @@ export function ProductForm({ brandId, productId, prefill, onDone, onCancel, inC
         if (p) {
           setLoaded(p);
           setName(prefill?.name ?? p.name);
+          setSeries(prefill?.series ?? p.series ?? "");
           setShape(prefill?.shape ?? p.shape);
           setNotes(prefill?.notes ?? p.notes);
           setLabels(prefill?.labels ?? p.labels);
@@ -454,7 +479,7 @@ export function ProductForm({ brandId, productId, prefill, onDone, onCancel, inC
     try {
       const repo = brandsRepo();
       const rows = labels.filter((l) => l.text.trim());
-      const saved = await repo.saveProduct({ ...(productId ? { id: productId } : {}), brandId, name, shape, notes, labels: rows, labelsConfirmed: confirmed && rows.length > 0 });
+      const saved = await repo.saveProduct({ ...(productId ? { id: productId } : {}), brandId, name, series: series.trim() || null, shape, notes, labels: rows, labelsConfirmed: confirmed && rows.length > 0 });
       await pics.apply(repo, brandId, saved.id);
       onDone(saved.id);
     } catch (e) {
@@ -490,6 +515,19 @@ export function ProductForm({ brandId, productId, prefill, onDone, onCancel, inC
       <div className={styles.field}>
         <span className={styles.fieldLabel}>{t("Name")}</span>
         <TextInput label={t("Product name")} value={name} placeholder="Liq Humus" autoFocus={!productId} onChange={setName} data-field="name" />
+      </div>
+      <div className={styles.field} data-series-field="">
+        <span className={styles.fieldLabel}>{t("Series")}</span>
+        <TextInput label={t("Series")} value={series} placeholder={t("No series")} onChange={setSeries} data-field="series" />
+        {knownSeries.length > 0 && (
+          <div className={styles.suggestions} role="group" aria-label={t("The brand's series")}>
+            {knownSeries.map((s) => (
+              <button key={s} type="button" className={styles.suggestion} aria-pressed={s === series.trim()} onClick={() => setSeries(s)} data-series-suggestion={s}>
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       <Pictures label={t("Product photos")} role="packshot" {...of("packshot")} />
       <Pictures label={t("Label close-ups")} role="label" {...of("label")} />

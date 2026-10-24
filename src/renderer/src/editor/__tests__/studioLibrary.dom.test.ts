@@ -1,16 +1,14 @@
 // @vitest-environment happy-dom
 // Studio's library on the editor's side (docs/studio.md §3): the Brand and Product forms (pictures staged by a file
-// input, written on save), the Brands panel's pages, and the manager's library tools — all on an in-memory library.
-import { act, createElement } from "react";
+// input, written on save) and the manager's library tools — all on an in-memory library.
+import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { $, $$, mount, type Mounted } from "@/ds/__tests__/dom";
 import type { AiRunEventMsg, AiRunRequest } from "@shared/ai/types";
 import { BrandsService } from "../../../../store/brands/service";
 import { missingFor } from "../../../../shared/studio/library";
 import type { EditorController } from "../controller";
-import { EditorContext } from "../controller";
 import { BrandForm, ProductForm, setBrandsRepository } from "../studio/forms";
-import { BrandsPanel } from "../studio/BrandsPanel";
 import { LIBRARY_TOOLS, runLibraryTool, setLibraryRepository, setLibraryToolsBackend } from "../studio/libraryTools";
 
 const PNG = (() => {
@@ -141,28 +139,7 @@ describe("the forms", () => {
   });
 });
 
-describe("the Brands panel", () => {
-  it("lists brands, opens a brand and a product, shows the label table", async () => {
-    const brand = await svc.saveBrand({ name: "Partner Agro", colors: [{ name: "Leaf", hex: "#1BA37A" }], tone: "calm" });
-    await svc.saveProduct({ brandId: brand.id, name: "Liq Humus", shape: "20 L jerrycan", labels: [{ text: "LIQ HUMUS", tier: "sharp" }] });
-    view = mount(() => createElement(EditorContext.Provider, { value: ed }, createElement(BrandsPanel)), {});
-    await until(() => expect($$("[data-brand]")).toHaveLength(1));
-    act(() => $("[data-brand]").click());
-    await until(() => expect($("[data-brand-page]").textContent).toContain("Leaf #1BA37A"));
-    expect($("[data-brand-page]").textContent).toContain("1080 × 1350");
-    act(() => $("[data-product]").click());
-    await until(() => expect($("[data-product-page]")).not.toBeNull());
-    const page = $("[data-product-page]");
-    expect($('input[aria-label="Label text"]', page)).not.toBeNull();
-    expect(page.textContent).toContain("20 L jerrycan");
-    expect($("[data-read-labels]", page).hasAttribute("disabled")).toBe(true);
-  });
-
-  it("shows an empty state with no brands", async () => {
-    view = mount(() => createElement(EditorContext.Provider, { value: ed }, createElement(BrandsPanel)), {});
-    await until(() => expect(document.body.textContent).toContain("No brands yet"));
-  });
-});
+// The Brands view's pages (the list, a brand, a product): studioBrandsView.dom.test.ts
 
 describe("the library tools", () => {
   it("lists the eight tools of §3.3, none of them a document write", () => {

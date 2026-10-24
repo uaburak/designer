@@ -163,10 +163,15 @@ export async function studioSection(page, theme, { open, settle, shot, check }) 
   await page.waitForSelector("[data-brand]");
   check("Brands: the brand saved from the chat's form is listed", ((await page.locator("[data-brand]").textContent()) ?? "").includes("Partner Agro"));
   await shot(page, `475-studio-brands-list-${theme}`);
-  await page.locator("[data-brand]").click();
+  await page.locator("[data-brand] button[aria-label^='Open']").click();
   await page.waitForSelector("[data-brand-page]");
-  const brandPage = (await page.locator("[data-brand-page]").textContent()) ?? "";
-  check("Brands: the brand's page shows its colour and formats", brandPage.includes("#1BA37A") && brandPage.includes("1080 × 1350"), brandPage.slice(0, 120));
+  // The full-size view (docs/studio.md §3.2): the colours under Identity, the formats under Formats
+  await page.getByRole("tab", { name: /^Identity/ }).click();
+  const identity = (await page.locator("[data-brand-identity]").textContent()) ?? "";
+  await page.getByRole("tab", { name: /^Formats/ }).click();
+  const formats = (await page.locator("[data-brand-formats]").textContent()) ?? "";
+  check("Brands: the brand's page shows its colour and formats", identity.includes("#1BA37A") && formats.includes("1080 × 1350"), identity.slice(0, 120));
+  await page.getByRole("tab", { name: /^Products/ }).click();
   await shot(page, `476-studio-brand-page-${theme}`);
   await page.getByRole("button", { name: "Add product" }).click();
   const form = page.locator("[data-product-form]");

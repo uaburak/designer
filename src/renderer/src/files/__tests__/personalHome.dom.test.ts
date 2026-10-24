@@ -75,7 +75,7 @@ describe("Home's personal space (docs/cloud.md §2)", () => {
   it("signed in: All projects (the Drafts), Shared and Trash, no folders or New folder; the store lists the Drafts again when Home shows", async () => {
     const cloud = fakeCloud(ONLINE);
     await setup(cloud);
-    expect(sidebarLabels()).toEqual(["All projects", "Shared", "Trash"]);
+    expect(sidebarLabels()).toEqual(["All projects", "Shared", "Brands", "Trash"]);
     expect(sidebarLabels()).not.toContain("All folders");
     expect(sidebarLabels()).not.toContain("KOC");
     expect(buttonNamed("New folder")).toBeUndefined();

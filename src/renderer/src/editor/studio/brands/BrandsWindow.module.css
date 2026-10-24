@@ -1,0 +1,6 @@
+@layer app {
+  /* The Brands view over the editor: edge to edge over the canvas and the panels, the navigation bar left visible
+     (as the Variables view, LocalVariables.module.css); with the bar folded into the left panel, the whole window */
+  .window { position: absolute; inset: 0 0 0 calc(var(--ds-size-rail) + 1px); z-index: var(--ds-z-floating); display: flex; background: var(--figma-color-bg); outline: none; }
+  .window[data-nav-minimized] { left: 0; }
+}
