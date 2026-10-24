@@ -19,13 +19,10 @@ struct OverlayStyle {
   double selectionWidth = 1;
   double hoverWidth = 2;
   double assetWidth = 1;  // a Social file's asset view: its post's outline (Buzz's asset view)
-  // A Social file's grid view (docs/social.md §23): a hovered or selected post's card — the owner's Buzz captures (1.25
-  // px per CSS px, their 48 px toolbar 60 px; his 2026-10-24 crops at 1×): 8 px round the post, a 32 px band over it
-  // holding its name (its baseline 10 px over the post), 8 px corners. The band is the name's hover and press zone too.
-  Color assetCard;
+  // A Social file's asset view (docs/social.md §23): the band over its post that its name sits in, the name's hover and
+  // press zone (32 px, the owner's Buzz captures; the card's 8 px padding either side).
   double assetCardPad = 8;
   double assetCardBand = 32;
-  double assetCardRadius = 8;
   // Under this zoom a post's name goes (the owner, 2026-10-24: shown at 10 %, gone at 9 %) — its card is then the
   // padding alone, and the band no longer hovers.
   double assetTitleMinZoom = 0.1;
@@ -206,7 +203,6 @@ struct OverlayStyle {
     s.radiusHandleInset = m.radiusHandleInset;
     s.measure = chrome(t, C::Measure);
     s.spacing = chrome(t, C::SpacingGuide);
-    s.assetCard = chrome(t, C::AssetCard);
     Color gap = chrome(t, C::LayoutGapFill);
     s.autoLayoutBand = Color{gap.r, gap.g, gap.b, 1};
     s.bandAlpha = gap.a;

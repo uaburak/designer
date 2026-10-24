@@ -1,25 +1,30 @@
 @layer app {
-  /* A Social file's grid view over the canvas (docs/social.md §23: Figma Buzz's, the owner's captures at 2×) [metrics ours] */
+  /* A Social file's grid view over the canvas (docs/social.md §24: the owner's Figma Buzz capture, sampled) [metrics ours] */
   .layer { position: absolute; inset: 0; z-index: var(--ds-z-base); overflow: hidden; pointer-events: none; }
-  .dot, .place { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
-  /* The dot: 8 px of the selection blue in a 24 px target; the pointer on it, a 24 px "+" */
-  .dot {
-    display: flex; align-items: center; justify-content: center; box-sizing: border-box;
-    width: var(--ds-size-control); height: var(--ds-size-control); padding: 0; border: 0; border-radius: var(--ds-radius-full);
-    background: transparent; color: transparent; pointer-events: auto; cursor: default;
+  .card, .band, .ground, .place { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; box-sizing: border-box; }
+  /* The container's ground: its padding round the posts and its empty cells */
+  .ground { background: var(--ds-color-social-grid); pointer-events: auto; }
+  /* Its card when hot: Figma's bg-selected 8 px round it (the band over it is the name's) */
+  .card { pointer-events: none; }
+  .card::before {
+    content: ""; position: absolute; inset: 0 -8px -8px -8px;
+    border: 8px solid var(--ds-color-social-card); border-top: 0; border-radius: 0 0 8px 8px;
   }
-  .dot::before {
-    content: ""; position: absolute; inset: 8px; border-radius: var(--ds-radius-full); background: var(--figma-color-bg-brand);
-    transition: inset var(--ds-duration-fast, 120ms) ease-out;
+  /* The name's band over the container: 32 px, the card's colour when hot, the name 10 px over the container */
+  .band {
+    display: flex; align-items: flex-end; height: 32px; margin: 0; padding: 0 8px 6px; border: 0; border-radius: 8px 8px 0 0;
+    background: transparent; color: var(--figma-color-text-secondary); text-align: left; pointer-events: auto; cursor: default;
   }
-  .dot > * { position: relative; opacity: 0; transition: opacity var(--ds-duration-fast, 120ms) ease-out; }
-  .dot[data-hot]::before, .dot:focus-visible::before { inset: 0; }
-  .dot[data-hot], .dot:focus-visible { color: var(--figma-color-icon-onbrand); }
-  .dot[data-hot] > *, .dot:focus-visible > * { opacity: 1; }
-  .dot:focus-visible { outline: none; }
-  /* Where the new post goes: a dashed place of its size */
+  .band[data-on] { background: var(--ds-color-social-card); color: var(--figma-color-text-brand); }
+  .band:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .name { overflow: hidden; font: var(--ds-font-body-medium); white-space: nowrap; text-overflow: ellipsis; }
+  /* The next cell: the canvas's ground, dashed, a "+" a sixth of it */
   .place {
-    box-sizing: border-box; border: 1px dashed var(--figma-color-text-tertiary); background: var(--figma-color-bg-tertiary);
-    pointer-events: none;
+    display: flex; align-items: center; justify-content: center; padding: 0;
+    border: 1px dashed var(--figma-color-border-strong); background: var(--ds-color-social-place);
+    color: var(--ds-color-social-place-icon); pointer-events: auto; cursor: default;
   }
+  .place:hover { color: var(--figma-color-icon-secondary); }
+  .place:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .plus { width: 36%; height: 36%; fill: none; stroke: currentColor; stroke-width: 3; }
 }

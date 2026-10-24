@@ -59,20 +59,22 @@ export function placePosts(posts: readonly PlacedPost[], campaignId: string | nu
  * The board of a Social file, laid out as auto layout would (§19, the owner's ask 2026-10-24): a section per platform,
  * one under the other (the catalogue's platform order; a brand's own sizes last); in a section a grid per format, side
  * by side (the catalogue's format order); in a grid the posts in three columns, in the order they are read on the
- * board (rows top to bottom, left to right in a row — so dragging a post among the others reorders it). Room is kept
- * above each grid for its title, which the chrome draws over the canvas (BoardLabels). Units are the canvas's [ours]:
- * the posts are 1080 px wide; the gap between rows holds each post's name (drawn by the engine, as Buzz's grid view) at
- * a board's zoom (§21: the owner found 80 crowded, the names over the posts above).
+ * board (rows top to bottom, left to right in a row — so dragging a post among the others reorders it). Each grid is
+ * one container (§24, the owner's capture: Buzz's group): its posts side by side and row on row with no gap, a padding
+ * round them, the next cell kept for the "+" (a new row when the last is full); the chrome draws the container, its
+ * name over it and its card (BoardLabels). Units are the canvas's [ours]: the posts are 1080 px wide.
  */
 export const BOARD = {
   columns: 3,
-  /** Between two posts of a grid, across and down (room for the name over a post, on its card: Buzz's grid view) */
-  gap: 320,
-  /** Between two grids of a section */
+  /** Between two posts of a grid, across and down: none, they tile (§24) */
+  gap: 0,
+  /** Round a grid's posts inside its container (the owner's capture: ~10 % of a 1080 post) */
+  pad: 100,
+  /** Between two grids' containers in a section */
   gridGap: 480,
   /** Between two sections */
   sectionGap: 560,
-  /** Above a section's grids: room for the grids' titles, drawn in screen pixels over it */
+  /** Above a section's containers: room for their names and cards, drawn in screen pixels over it */
   sectionHead: 240,
 } as const;
 
@@ -97,8 +99,11 @@ export interface GridBox {
   height: number;
   /** One column's width and the row pitch (where the next post would go) */
   column: number;
-  /** Where a new post of the grid goes: the next cell */
+  /** Where a new post of the grid goes: the next cell (the "+"), as tall as the last row */
   next: { x: number; y: number };
+  nextHeight: number;
+  /** The container: the posts and the next cell, padded */
+  frame: { x: number; y: number; width: number; height: number };
 }
 
 export interface SectionBox {
@@ -141,21 +146,29 @@ export function boardLayout(items: readonly BoardItem[], order: { platformOf(for
     for (const formatId of formats) {
       const posts = readingOrder(grids.get(formatId)!);
       const column = Math.max(...posts.map((p) => p.width));
-      const y0 = top + BOARD.sectionHead;
+      const x0 = left + BOARD.pad;
+      const y0 = top + BOARD.sectionHead + BOARD.pad;
       let y = y0;
+      let lastRow = 0;
       for (let i = 0; i < posts.length; i += BOARD.columns) {
         const row = posts.slice(i, i + BOARD.columns);
-        row.forEach((p, k) => places.set(p.id, { x: left + k * (column + BOARD.gap), y }));
-        y += Math.max(...row.map((p) => p.height)) + BOARD.gap;
+        row.forEach((p, k) => places.set(p.id, { x: x0 + k * (column + BOARD.gap), y }));
+        lastRow = Math.max(...row.map((p) => p.height));
+        y += lastRow + BOARD.gap;
       }
       const n = posts.length;
-      const lastRowTop = n ? y - (Math.max(...posts.slice(Math.floor((n - 1) / BOARD.columns) * BOARD.columns).map((p) => p.height)) + BOARD.gap) : y0;
-      const next = n % BOARD.columns === 0 ? { x: left, y } : { x: left + (n % BOARD.columns) * (column + BOARD.gap), y: lastRowTop };
+      const lastRowTop = n ? y - (lastRow + BOARD.gap) : y0;
+      const full = n % BOARD.columns === 0;
+      const next = full ? { x: x0, y } : { x: x0 + (n % BOARD.columns) * (column + BOARD.gap), y: lastRowTop };
+      const nextHeight = lastRow || column;
       const width = BOARD.columns * column + (BOARD.columns - 1) * BOARD.gap;
       const height = Math.max(0, y - BOARD.gap - y0);
-      boxes.push({ formatId, ids: posts.map((p) => p.id), x: left, y: y0, width, height, column, next });
-      bottom = Math.max(bottom, y0 + height);
-      left += width + BOARD.gridGap;
+      // The container holds the next cell too: a full last row adds a row for it
+      const inner = full ? height + (n ? BOARD.gap : 0) + nextHeight : height;
+      const frame = { x: left, y: y0 - BOARD.pad, width: width + 2 * BOARD.pad, height: inner + 2 * BOARD.pad };
+      boxes.push({ formatId, ids: posts.map((p) => p.id), x: x0, y: y0, width, height, column, next, nextHeight, frame });
+      bottom = Math.max(bottom, frame.y + frame.height);
+      left += frame.width + BOARD.gridGap;
     }
     sections.push({ platform, x: origin.x, y: top, width: left - BOARD.gridGap - origin.x, height: bottom - top, grids: boxes });
     top = bottom + BOARD.sectionGap;

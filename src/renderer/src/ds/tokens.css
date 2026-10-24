@@ -417,6 +417,10 @@
     --ds-color-border-translucent-strong: #00000033;
     --ds-color-bg-transparent-hover: #0000000d;
     --ds-color-bg-transparent-pressed: #0000001a;
+    --ds-color-social-grid: #ffffff;
+    --ds-color-social-card: #e5f4ff;
+    --ds-color-social-place: #f5f5f5;
+    --ds-color-social-place-icon: #b3b3b3;
     --ds-color-asset-card-bg: #0000001a;
     --ds-color-asset-variants-bg: #00000080;
     --ds-color-library-thumb-ring: #0000000d;
@@ -669,6 +673,10 @@
     --ds-color-border-translucent-strong: #ffffff33;
     --ds-color-bg-transparent-hover: #ffffff0d;
     --ds-color-bg-transparent-pressed: #ffffff1a;
+    --ds-color-social-grid: #000000;
+    --ds-color-social-card: #4b5878;
+    --ds-color-social-place: #1f1f1f;
+    --ds-color-social-place-icon: #404040;
     --ds-color-asset-card-bg: #ffffff1a;
     --ds-color-asset-variants-bg: #00000080;
     --ds-color-library-thumb-ring: #0000000d;

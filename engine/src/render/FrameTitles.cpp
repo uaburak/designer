@@ -106,8 +106,8 @@ std::vector<FrameTitle> frameTitles(const Document& doc, Guid page, const Mat2x3
           t.hit = {b.x, y, std::max(0.0, pw), style.sectionPillHeight};
           t.baseline = y + style.sectionPillHeight / 2 + style.sectionTitleSize * 0.36;
           if (pw >= 8) out.push_back(t);
-        } else if (assets && parent == page && !assetNames) {
-          // (Too far out: no name.)
+        } else if (assets && parent == page && (!assetNames || focus == kNoGuid)) {
+          // (The grid view: the posts' names are their containers' — docs/social.md §24; too far out: none.)
         } else if (b.w >= 12 && (n->props.type != NodeType::INSTANCE || (assets && parent == page))) {
           // The name above the frame, from its left edge, as wide as the frame at most. A top-level instance has none,
           // selected or not (live Figma round 11: canvas-instance-selected; menu-context-main-component and

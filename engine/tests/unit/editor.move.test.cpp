@@ -599,12 +599,15 @@ TEST_CASE("asset chrome: a top-level instance (a post from a template) has its n
   };
   CHECK_FALSE(named(I));
   e.setViewOptions(e.viewOptions() | Editor::VIEW_ASSET_CHROME);
+  // In the asset view (the post in focus)
+  REQUIRE(e.setFocus(I) == OK);
   CHECK(named(I));
-  CHECK(named(F));
 }
 
 TEST_CASE("asset chrome: the band over a post, level with its name past its end, hovers and presses the post (docs/social.md §23)") {
   Editor e = load(baseScene());
+  // The asset view (the post in focus): its name and band; the grid view names its containers instead (§24)
+  REQUIRE(e.setFocus(F) == OK);
   // Frame 1 (0, 0, 300 × 300) on screen as on the page; its name "Frame 1" ends ~40 px in
   auto hovered = [&](Vec2 s) {
     e.pointer(PointerEvent::MOVE, s.x, s.y, 0, 0, 0);
@@ -633,11 +636,15 @@ TEST_CASE("asset chrome: a post's name shows at 10 % and goes under it (docs/soc
       if (t.id == Guid{1, 20}) return true;
     return false;
   };
+  // The grid view: no post names (the containers are named, §24); the asset view: its post's
   e.setCamera({0, 0, 0.1});
+  CHECK_FALSE(named());
+  REQUIRE(e.setFocus(Guid{1, 20}) == OK);
   CHECK(named());
   e.setCamera({0, 0, 0.09});
   CHECK_FALSE(named());
   // A Design file's frames keep theirs
+  REQUIRE(e.setFocus(kNoGuid) == OK);
   e.setViewOptions(e.viewOptions() & ~Editor::VIEW_ASSET_CHROME);
   CHECK(named());
 }

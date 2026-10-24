@@ -229,6 +229,15 @@ export const appColor = {
   "border-translucent-strong": ["#00000033", "#ffffff33"], // F
   "bg-transparent-hover": ["#0000000d", "#ffffff0d"], // F
   "bg-transparent-pressed": ["#0000001a", "#ffffff1a"], // F
+  /**
+   * A Social file's grid view (docs/social.md §24, the owner's Figma Buzz captures, sampled): a grid's container (black),
+   * its card when hovered (#4b5878, Figma's bg-selected there), the next cell's ground (the canvas) and its "+" (light
+   * unverified)
+   */
+  "social-grid": ["#ffffff", "#000000"],
+  "social-card": ["#e5f4ff", "#4b5878"],
+  "social-place": ["#f5f5f5", "#1f1f1f"],
+  "social-place-icon": ["#b3b3b3", "#404040"],
   /** Live capture (left/rail-assets.txt): a library card's thumbnail ground (light unverified) */
   "asset-card-bg": ["#0000001a", "#ffffff1a"],
   /** Live capture (left/rail-assets-page-components.txt): a set tile's variant count dot, black 50 % (light unverified) */
@@ -707,8 +716,8 @@ export const canvasChrome: Record<ChromeColorName, Pair> = {
   statusProcess: ["#f24822", "#e03e1a"],
   statusRevised: ["#9747ff", "#8a38f5"],
   statusCancelled: ["#d9d9d9", "#757575"],
-  // A Social file's grid view (docs/social.md §23): the card a hovered or selected post sits on — Figma Buzz's, sampled
-  // #4b5878 on the owner's dark captures (Figma's bg-selected); light: bg-selected's #e5f4ff [unverified].
+  // Kept in the frozen order (append only); unused since docs/social.md §24 (the grid view's card is the chrome's DOM's,
+  // --ds-color-social-card).
   assetCard: ["#e5f4ff", "#4b5878"],
 };
 

@@ -505,8 +505,9 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     if (!overlay.assetChrome || !n || doc.parentOf(id) != page || !n->props.isFrameLike() || n->props.type == NodeType::SECTION) return nullptr;
     return &blue;
   };
-  // The grid view (no design in focus): a hovered or selected post sits on its card instead of an outline.
-  const bool assetCards = overlay.assetChrome && overlay.dev.focus == kNoGuid;
+  // The grid view (no design in focus): its posts tile inside their grids' containers, which the chrome draws with their
+  // names and cards (docs/social.md §24) — a post hovered or selected is outlined 2 px; the asset view's post 1 px.
+  const double assetWeight = overlay.dev.focus == kNoGuid ? style.hoverWidth : style.assetWidth;
 
   // The pixel grid (View › Pixel grid): a line on every whole canvas unit from 300 % zoom (faint at 300 %, full from
   // 400 %: live Figma), under the other overlays. Group 1 (G6): faint means barely there — live's 300 % and the
@@ -645,29 +646,6 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
   // (render/FrameTitles.cpp: the same boxes the editor hit-tests).
   // Prototype mode: flow starting point labels (before the titles: a title moves right past its frame's label).
   if (overlay.prototype.on) drawPrototypeLabels(doc, camera, overlay, style);
-  // A Social file's grid view (docs/social.md §23, Figma Buzz's): a hovered or selected post on a card — its tint round
-  // the post and a band over it that the post's name sits in — drawn round the post (the board is blank there).
-  std::vector<Guid> carded;
-  if (assetCards) {
-    for (Guid a : overlay.assets) carded.push_back(a);
-    for (Guid h : overlay.hover)
-      if (assetInk(h) && std::find(carded.begin(), carded.end(), h) == carded.end()) carded.push_back(h);
-    // Too far out for the post's name (assetTitleMinZoom): the card is the padding alone.
-    const double p = style.assetCardPad, r = style.assetCardRadius;
-    const double band = camera.zoom >= style.assetTitleMinZoom - 1e-9 ? style.assetCardBand : p;
-    const Color& c = style.assetCard;
-    for (Guid a : carded) {
-      const Node* an = doc.get(a);
-      if (!an) continue;
-      Rect b = transformedBounds(view * doc.worldTransform(a), an->props.size.x, an->props.size.y);
-      auto snap = [&](double v) { return std::round(v * dpr) / dpr; };
-      double x0 = snap(b.x), y0 = snap(b.y), x1 = snap(b.right()), y1 = snap(b.bottom());
-      emit(makeShape(Mat2x3::translate(x0 - p, y0 - band), {x1 - x0 + 2 * p, band}, ShapeKind::Rect, {r, r, 0, 0}, c, 1, c, 0, 0, 0), Pass::Shape);
-      emit(makeShape(Mat2x3::translate(x0 - p, y1), {x1 - x0 + 2 * p, p}, ShapeKind::Rect, {0, 0, r, r}, c, 1, c, 0, 0, 0), Pass::Shape);
-      emit(makeShape(Mat2x3::translate(x0 - p, y0), {p, y1 - y0}, ShapeKind::Rect, kSquare, c, 1, c, 0, 0, 0), Pass::Shape);
-      emit(makeShape(Mat2x3::translate(x1, y0), {p, y1 - y0}, ShapeKind::Rect, kSquare, c, 1, c, 0, 0, 0), Pass::Shape);
-    }
-  }
   if (overlay.frameTitles && page != kNoGuid) {
     // The title colours follow the page's background (Figma: light text on a dark canvas), not the UI theme.
     const bool darkPage = style.darkCanvas;
@@ -962,9 +940,9 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       dashedBox(screenBox(view * doc.worldTransform(h) * Mat2x3::translate(lb.x, lb.y), {lb.w, lb.h}, dpr), style.component);
       continue;
     }
-    // A Social file's post: its card (the grid view, drawn above) or its asset view outline.
+    // A Social file's post: its outline alone.
     if (assetInk(h)) {
-      if (!assetCards) nodeOutline(h, style.assetWidth, false, assetInk(h));
+      nodeOutline(h, assetWeight, false, assetInk(h));
       continue;
     }
     nodeOutline(h, style.hoverWidth, true);
@@ -1055,11 +1033,9 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
         drawGlyphs(*L, lf.place * Mat2x3::translate(bx + (bw - tw) / 2, snap(by + (bh - L->lines[0].height) / 2)), white, 1);
     }
   }
-  // A Social file's selected posts: their cards (the grid view, under the titles) or, in the asset view, the post's
-  // outline (Buzz's), nothing else.
-  if (!assetCards)
-    for (Guid a : overlay.assets)
-      if (const Color* ink = assetInk(a)) nodeOutline(a, style.assetWidth, false, ink);
+  // A Social file's selected posts: their outline (Buzz's), nothing else.
+  for (Guid a : overlay.assets)
+    if (const Color* ink = assetInk(a)) nodeOutline(a, assetWeight, false, ink);
   SelectionBox box = groups.size() > 1 ? SelectionBox{} : selectionBox(doc, overlay.selection);
   if (box.valid && overlay.selectionBox) {
     const Color& blue = blueSel;

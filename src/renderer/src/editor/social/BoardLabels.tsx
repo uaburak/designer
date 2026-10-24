@@ -1,34 +1,34 @@
 /**
- * A Social file's grid view chrome over the canvas (docs/social.md §19, §23 — Figma Buzz's grid view): no titles over
- * the grids (each post's name is the engine's, on its card); a small blue dot beside each grid's last post and one under
- * the first post of its last row. The pointer on a dot turns it into a "+" and shows where the new post would go — a
- * dashed place of its size; a click makes it: beside, a post of the grid's format (it is selected); under, the format
- * picked from the New post menu (its own grid). Placed from the camera like the safe areas (no React render per camera
- * change); gone in the asset view. Canvas chrome: never a layer of the document.
+ * A Social file's grid view chrome over the canvas (docs/social.md §19, §23, §24 — the owner's capture of Figma Buzz's
+ * grid view): each grid is a container — black round its posts, which tile inside it — with its name over it (the
+ * platform's when it is the platform's only grid, else the format's) and, as its last cell, a dashed "+" (a click
+ * makes a post of the grid's format). The pointer anywhere over a container or its name puts it on its card (Figma's
+ * bg-selected round it, the name blue in the band over it); a click on the container's frame or name selects its
+ * posts. Placed from the camera like the safe areas (no React render per camera change); gone in the asset view.
+ * Canvas chrome: never a layer of the document — the posts are the engine's, drawn inside.
  */
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ContextMenu, Icon } from "@/ds";
-import { formatById } from "@shared/social/formats";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { Guid } from "@/engine/codec";
+import { formatById, PLATFORM_NAMES } from "@shared/social/formats";
+import type { Platform } from "@shared/social/types";
 import { t, useT } from "@/i18n";
 import { useEditor, type EditorController } from "../controller";
 import { applySelection } from "../agents/mcpTools";
-import { useBrands } from "../studio/forms";
 import { layoutOf } from "./arrange";
-import { BOARD } from "./board";
+import { BOARD, type GridBox } from "./board";
 import { canWritePosts, editorWriter, newPost } from "./actions";
 import { useFocusedPost } from "./focus";
-import { boardBrand, newPostEntries, pickNewPost } from "./NewPostMenu";
 import { useSocialBoard } from "./socialState";
 import styles from "./BoardLabels.module.css";
 
-/** Screen px from a grid's last post to its dot beside it, and from its last row to the dot under it (the owner's Buzz captures, 1.25 px per CSS px) */
-const DOT_BESIDE = 32;
-const DOT_UNDER = 40;
+/** Screen px: the card's band over a container (its name) and its padding round it (the owner's captures) */
+const CARD_BAND = 32;
+const CARD_PAD = 8;
 
 /**
  * Places each child from its canvas box (data-x/y/w/h, canvas units) at the camera now and on every camera change; a
  * `data-above` child sits that many screen px over its point, its bottom there; a `data-center` child is centred on it,
- * moved `data-dx` / `data-dy` screen px.
+ * moved `data-dx` / `data-dy` screen px; `data-grow` widens a child that many screen px.
  */
 export function useCanvasBoxes(ed: EditorController, layer: React.RefObject<HTMLElement | null>, deps: unknown): void {
   useLayoutEffect(() => {
@@ -37,11 +37,12 @@ export function useCanvasBoxes(ed: EditorController, layer: React.RefObject<HTML
       if (!el) return;
       const cam = ed.store.camera;
       for (const child of Array.from(el.children) as HTMLElement[]) {
+        if (child.dataset.x === undefined) continue;
         const x = Number(child.dataset.x) * cam.zoom + cam.x + Number(child.dataset.dx ?? 0);
         const y = Number(child.dataset.y) * cam.zoom + cam.y + Number(child.dataset.dy ?? 0);
         const above = child.dataset.above;
         child.style.transform = above ? `translate(${x}px, ${y - Number(above)}px) translateY(-100%)` : child.dataset.center !== undefined ? `translate(${x}px, ${y}px) translate(-50%, -50%)` : `translate(${x}px, ${y}px)`;
-        if (child.dataset.w) child.style.width = `${Number(child.dataset.w) * cam.zoom}px`;
+        if (child.dataset.w) child.style.width = `${Number(child.dataset.w) * cam.zoom + Number(child.dataset.grow ?? 0)}px`;
         if (child.dataset.h) child.style.height = `${Number(child.dataset.h) * cam.zoom}px`;
       }
     };
@@ -50,19 +51,50 @@ export function useCanvasBoxes(ed: EditorController, layer: React.RefObject<HTML
   }, [ed, layer, deps]);
 }
 
-/** A dot's new post: where it would go (canvas units) and what a click makes. */
-interface Dot {
+type Box = { x: number; y: number; w: number; h: number };
+
+/** A grid's container as the chrome draws it: its frame's four sides and its empty cells past the "+" (canvas units). */
+interface Container {
   key: string;
-  /** The dot's point */
-  x: number;
-  y: number;
-  dx: number;
-  dy: number;
-  /** The dashed place */
-  place: { x: number; y: number; w: number; h: number };
-  label: string;
-  /** Beside: the grid's format; under: the menu */
-  formatId: string | null;
+  formatId: string;
+  name: string;
+  ids: Guid[];
+  frame: GridBox["frame"];
+  ring: Box[];
+  place: Box;
+  empty: Box[];
+}
+
+function containersOf(layout: ReturnType<typeof layoutOf>, height: (id: Guid) => number): Container[] {
+  const out: Container[] = [];
+  for (const s of layout.sections)
+    for (const g of s.grids) {
+      const f = formatById(g.formatId);
+      const platform = s.platform in PLATFORM_NAMES ? PLATFORM_NAMES[s.platform as Platform] : t("Other sizes");
+      const name = s.grids.length === 1 ? platform : f ? t(f.name) : t("Other size");
+      const { x, y, width, height: h } = g.frame;
+      const p = BOARD.pad;
+      const ring: Box[] = [
+        { x, y, w: width, h: p },
+        { x, y: y + h - p, w: width, h: p },
+        { x, y: y + p, w: p, h: h - 2 * p },
+        { x: x + width - p, y: y + p, w: p, h: h - 2 * p },
+      ];
+      const place = { x: g.next.x, y: g.next.y, w: g.column, h: g.nextHeight };
+      // The cells of the "+"'s row past it, and the room under a shorter post in its row
+      const empty: Box[] = [];
+      const cellRight = g.next.x + g.column;
+      if (cellRight < g.x + g.width - 0.5) empty.push({ x: cellRight, y: g.next.y, w: g.x + g.width - cellRight, h: g.nextHeight });
+      for (const id of g.ids) {
+        const at = layout.places.get(id);
+        if (!at) continue;
+        const rowBottom = at.y + Math.max(...g.ids.filter((o) => Math.abs((layout.places.get(o)?.y ?? NaN) - at.y) < 0.5).map(height));
+        const below = rowBottom - (at.y + height(id));
+        if (below > 0.5) empty.push({ x: at.x, y: at.y + height(id), w: g.column, h: below });
+      }
+      out.push({ key: g.formatId, formatId: g.formatId, name, ids: g.ids, frame: g.frame, ring, place, empty });
+    }
+  return out;
 }
 
 export function BoardLabels() {
@@ -70,79 +102,75 @@ export function BoardLabels() {
   const ed = useEditor();
   const board = useSocialBoard(ed);
   const focus = useFocusedPost(ed);
-  const { brands } = useBrands();
-  const layout = useMemo(() => (board.posts.length ? layoutOf(ed, board.page) : null), [ed, board]);
   const layer = useRef<HTMLDivElement>(null);
   const [hot, setHot] = useState<string | null>(null);
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  const dots = useMemo(() => {
-    if (!layout) return [];
-    const out: Dot[] = [];
-    for (const s of layout.sections)
-      for (const g of s.grids) {
-        const rows = (id: string) => board.posts.find((p) => p.id === id);
-        const last = rows(g.ids[g.ids.length - 1]);
-        const at = layout.places.get(g.ids[g.ids.length - 1]);
-        if (!last || !at) continue;
-        const f = formatById(g.formatId);
-        const name = f ? t(f.name) : t("Other size");
-        // The last row: its first post and its bottom
-        const firstOfRow = g.ids[Math.floor((g.ids.length - 1) / BOARD.columns) * BOARD.columns];
-        const rowAt = layout.places.get(firstOfRow) ?? at;
-        const rowPost = rows(firstOfRow) ?? last;
-        const rowBottom = Math.max(...g.ids.slice(Math.floor((g.ids.length - 1) / BOARD.columns) * BOARD.columns).map((id) => (layout.places.get(id)?.y ?? 0) + (rows(id)?.height ?? 0)));
-        out.push({ key: `beside:${g.formatId}`, x: at.x + last.width, y: at.y + last.height / 2, dx: DOT_BESIDE, dy: 0, place: { x: g.next.x, y: g.next.y, w: g.column, h: last.height }, label: t("New {format}", { format: name }), formatId: g.formatId });
-        out.push({ key: `under:${g.formatId}`, x: rowAt.x + rowPost.width / 2, y: rowBottom, dx: 0, dy: DOT_UNDER, place: { x: rowAt.x, y: rowBottom + BOARD.gap, w: rowPost.width, h: rowPost.height }, label: t("New post…"), formatId: null });
-      }
-    return out;
-  }, [layout, board]);
-  useCanvasBoxes(ed, layer, [dots, hot]);
-  if (!layout || focus) return null;
+  const containers = useMemo(() => {
+    if (!board.posts.length) return [];
+    const heights = new Map(board.posts.map((p) => [p.id, p.height]));
+    return containersOf(layoutOf(ed, board.page), (id) => heights.get(id) ?? 0);
+  }, [ed, board]);
+  useCanvasBoxes(ed, layer, [containers, hot]);
+  // The pointer over a container, its name or its card's padding: that container is hot (the canvas or our chrome).
+  useEffect(() => {
+    if (focus || !containers.length) return;
+    const move = (e: PointerEvent) => {
+      const c = ed.canvas?.getBoundingClientRect();
+      if (!c) return;
+      const cam = ed.store.camera;
+      const sx = e.clientX - c.left;
+      const sy = e.clientY - c.top;
+      const over = containers.find((k) => {
+        const x0 = k.frame.x * cam.zoom + cam.x;
+        const y0 = k.frame.y * cam.zoom + cam.y;
+        const x1 = x0 + k.frame.width * cam.zoom;
+        const y1 = y0 + k.frame.height * cam.zoom;
+        return sx >= x0 - CARD_PAD && sx <= x1 + CARD_PAD && sy >= y0 - CARD_BAND && sy <= y1 + CARD_PAD;
+      });
+      setHot(over?.key ?? null);
+    };
+    window.addEventListener("pointermove", move, true);
+    return () => window.removeEventListener("pointermove", move, true);
+  }, [ed, containers, focus]);
+  if (!containers.length || focus) return null;
   const write = canWritePosts(ed);
-  const make = (d: Dot, at: { x: number; y: number }) => {
-    if (!d.formatId) return setMenu(at);
-    const id = newPost(ed, editorWriter(ed), { formatId: d.formatId, brandId: ed.ui.get().socialBrandId ?? null });
+  const selectAll = (k: Container) => applySelection(ed, k.ids, false);
+  const add = (k: Container) => {
+    const id = newPost(ed, editorWriter(ed), { formatId: k.formatId, brandId: ed.ui.get().socialBrandId ?? null });
     applySelection(ed, [id], false);
-    setHot(null);
   };
-  const shown = dots.find((d) => d.key === hot);
   return (
     <div ref={layer} className={styles.layer} data-board-labels="">
-      {shown && <div key={`place:${shown.key}`} className={styles.place} data-x={shown.place.x} data-y={shown.place.y} data-w={shown.place.w} data-h={shown.place.h} data-board-place={shown.key} />}
-      {write &&
-        dots.map((d) => (
+      {containers.flatMap((k) => {
+        const on = hot === k.key;
+        return [
+          on ? <div key={`card:${k.key}`} className={styles.card} data-x={k.frame.x} data-y={k.frame.y} data-w={k.frame.width} data-h={k.frame.height} /> : null,
           <button
-            key={d.key}
+            key={`name:${k.key}`}
             type="button"
-            className={styles.dot}
-            data-x={d.x}
-            data-y={d.y}
-            data-dx={d.dx}
-            data-dy={d.dy}
-            data-center=""
-            data-hot={hot === d.key || undefined}
-            aria-label={d.label}
-            title={d.label}
-            onPointerEnter={() => setHot(d.key)}
-            onPointerLeave={() => setHot((h) => (h === d.key && !menu ? null : h))}
-            onClick={(e) => make(d, { x: e.clientX, y: e.clientY })}
-            data-board-add={d.formatId ?? "menu"}
+            className={styles.band}
+            data-on={on || undefined}
+            data-x={k.frame.x}
+            data-y={k.frame.y}
+            data-w={k.frame.width}
+            data-grow={2 * CARD_PAD}
+            data-dx={-CARD_PAD}
+            data-above={0}
+            onClick={() => selectAll(k)}
+            data-grid-name={k.formatId}
           >
-            <Icon name="24.plus.small" />
-          </button>
-        ))}
-      {menu && (
-        <ContextMenu
-          at={menu}
-          entries={newPostEntries(boardBrand(ed, brands))}
-          label={t("New post")}
-          onSelect={(id) => pickNewPost(ed, id, brands)}
-          onClose={() => {
-            setMenu(null);
-            setHot(null);
-          }}
-        />
-      )}
+            <span className={styles.name}>{k.name}</span>
+          </button>,
+          ...k.ring.map((r, i) => <div key={`ring:${k.key}:${i}`} className={styles.ground} data-x={r.x} data-y={r.y} data-w={r.w} data-h={r.h} onClick={() => selectAll(k)} />),
+          ...k.empty.map((r, i) => <div key={`empty:${k.key}:${i}`} className={styles.ground} data-x={r.x} data-y={r.y} data-w={r.w} data-h={r.h} onClick={() => selectAll(k)} />),
+          write ? (
+            <button key={`add:${k.key}`} type="button" className={styles.place} data-x={k.place.x} data-y={k.place.y} data-w={k.place.w} data-h={k.place.h} aria-label={t("New {format}", { format: k.name })} title={t("New {format}", { format: k.name })} onClick={() => add(k)} data-board-add={k.formatId}>
+              <svg viewBox="0 0 100 100" className={styles.plus} aria-hidden="true">
+                <path d="M50 30v40M30 50h40" />
+              </svg>
+            </button>
+          ) : null,
+        ];
+      })}
     </div>
   );
 }

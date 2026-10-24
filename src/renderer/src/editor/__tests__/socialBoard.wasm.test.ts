@@ -54,17 +54,22 @@ describe("the board's layout (pure)", () => {
     expect(ig.grids.map((g) => g.formatId)).toEqual(["instagram.portrait", "instagram.story"]);
     // Reading order: a and b on the first row (a left of b), then c, then d (a new post: last)
     expect(ig.grids[0].ids).toEqual(["a", "b", "c", "d"]);
+    // Inside each grid's container (§24): its padding round the posts, the posts tiling, the next cell kept
     const col = 1080 + BOARD.gap;
-    expect(places.get("a")).toEqual({ x: 0, y: BOARD.sectionHead });
-    expect(places.get("b")).toEqual({ x: col, y: BOARD.sectionHead });
-    expect(places.get("c")).toEqual({ x: 2 * col, y: BOARD.sectionHead });
-    expect(places.get("d")).toEqual({ x: 0, y: BOARD.sectionHead + 1440 + BOARD.gap });
-    expect(ig.grids[0].next).toEqual({ x: col, y: BOARD.sectionHead + 1440 + BOARD.gap });
-    // The story grid beside the first, after the grid gap
-    expect(places.get("s1")).toEqual({ x: 3 * 1080 + 2 * BOARD.gap + BOARD.gridGap, y: BOARD.sectionHead });
-    // LinkedIn under Instagram's tallest grid, after the section gap
-    expect(li.y).toBe(BOARD.sectionHead + 1440 + BOARD.gap + 1440 + BOARD.sectionGap);
-    expect(places.get("li")).toEqual({ x: 0, y: li.y + BOARD.sectionHead });
+    const top = BOARD.sectionHead + BOARD.pad;
+    expect(places.get("a")).toEqual({ x: BOARD.pad, y: top });
+    expect(places.get("b")).toEqual({ x: BOARD.pad + col, y: top });
+    expect(places.get("c")).toEqual({ x: BOARD.pad + 2 * col, y: top });
+    expect(places.get("d")).toEqual({ x: BOARD.pad, y: top + 1440 + BOARD.gap });
+    expect(ig.grids[0].next).toEqual({ x: BOARD.pad + col, y: top + 1440 + BOARD.gap });
+    expect(ig.grids[0].frame).toEqual({ x: 0, y: BOARD.sectionHead, width: 3 * 1080 + 2 * BOARD.gap + 2 * BOARD.pad, height: 2 * 1440 + BOARD.gap + 2 * BOARD.pad });
+    // The story grid's container beside the first, after the grid gap
+    expect(places.get("s1")).toEqual({ x: ig.grids[0].frame.width + BOARD.gridGap + BOARD.pad, y: top });
+    // One story: its next cell beside it in the container
+    expect(ig.grids[1].next).toEqual({ x: ig.grids[0].frame.width + BOARD.gridGap + BOARD.pad + 1080 + BOARD.gap, y: top });
+    // LinkedIn under Instagram's tallest container, after the section gap
+    expect(li.y).toBe(ig.y + ig.height + BOARD.sectionGap);
+    expect(places.get("li")).toEqual({ x: BOARD.pad, y: li.y + BOARD.sectionHead + BOARD.pad });
   });
 });
 
@@ -79,13 +84,14 @@ describe("a Social file's board (docs/social.md §19)", () => {
       ["instagram.story", [ids[2]]],
     ]);
     const col = 1080 + BOARD.gap;
-    expect(at(ed, ids[3])).toEqual({ x: 2 * col, y: BOARD.sectionHead });
-    expect(at(ed, ids[4])).toEqual({ x: 0, y: BOARD.sectionHead + 1440 + BOARD.gap });
+    const top = BOARD.sectionHead + BOARD.pad;
+    expect(at(ed, ids[3])).toEqual({ x: BOARD.pad + 2 * col, y: top });
+    expect(at(ed, ids[4])).toEqual({ x: BOARD.pad, y: top + 1440 + BOARD.gap });
     // One ⌘Z: the last post goes, nothing else moves
     expect(ed.store.undo.undoLabel).toBe("New post");
     ed.engine.undo();
     expect(ed.engine.readNode(ids[4], { fields: ["type"] })).toBeNull();
-    expect(at(ed, ids[3])).toEqual({ x: 2 * col, y: BOARD.sectionHead });
+    expect(at(ed, ids[3])).toEqual({ x: BOARD.pad + 2 * col, y: top });
   });
 
   it("a post moved among the others is reordered and the grid reflows, in the move's step", async () => {
@@ -95,7 +101,7 @@ describe("a Social file's board (docs/social.md §19)", () => {
     const before = ids.map((id) => at(ed, id));
     // The fourth dropped before the first (as a drag on the canvas commits it)
     const t = ed.engine.readNode(ids[3], { fields: ["transform"] })!.transform!;
-    ed.setProps([ids[3]], { transform: { ...t, m02: -400, m12: BOARD.sectionHead } }, "Move");
+    ed.setProps([ids[3]], { transform: { ...t, m02: -400, m12: BOARD.sectionHead + BOARD.pad } }, "Move");
     await tick();
     expect(layoutOf(ed).sections[0].grids[0].ids).toEqual([ids[3], ids[0], ids[1], ids[2]]);
     expect(at(ed, ids[3])).toEqual(before[0]);
