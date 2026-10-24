@@ -330,9 +330,17 @@ async function route(req: Request, deps: Deps): Promise<Response> {
       });
     }
     if (m === "PATCH") {
-      const body = await readJson<{ name?: string; linkAccess?: string; viewersCanCopy?: unknown; linkPassword?: unknown; access?: unknown; orgLinkAccess?: unknown; protoLinkAccess?: unknown; protoOrgLinkAccess?: unknown; linkExpiresAt?: unknown; space?: unknown }>(req);
+      const body = await readJson<{ name?: string; linkAccess?: string; viewersCanCopy?: unknown; linkPassword?: unknown; access?: unknown; orgLinkAccess?: unknown; protoLinkAccess?: unknown; protoOrgLinkAccess?: unknown; linkExpiresAt?: unknown; space?: unknown; editorType?: unknown }>(req);
       // Between the owner's Drafts and an organization (docs/cloud.md §2): a move of its own
       if (body.space !== undefined) return (await import("./personal/routes")).patchSpace(orgCtx(), f, body.space);
+      // The file's kind (docs/social.md §27): a Design file converted to a Social file, or a draft registered before
+      // drafts kept theirs — by anyone who can edit it.
+      if (body.editorType !== undefined) {
+        need(canChange, "you can only view this file");
+        if (body.editorType !== "design" && body.editorType !== "buzz") throw new HttpError(400, "editorType is design or buzz");
+        await deps.db.d1.prepare(`UPDATE files SET editor_type = ?2, updated_at = ?3 WHERE key = ?1`).bind(key, body.editorType, deps.now()).run();
+        if (Object.keys(body).length === 1) return json({ ok: true, editorType: body.editorType });
+      }
       // The org's sharing policy refuses the whole patch before anything is written (§15.6).
       (await import("./policy/sharing")).checkFilePatch(policy, f, body, deps.now());
       if (body.linkPassword !== undefined) {

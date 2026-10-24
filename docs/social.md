@@ -776,3 +776,11 @@ The owner's capture (a post dropped into the next post, its chrome a child frame
 - **The post, not its layer:** in the grid view a first click anywhere on a post takes the post itself (engine pick: the top-level design under the pointer unless something in it is selected; ⌘ or a double-click goes in, as Figma's groups). A Design file keeps Figma's pick (a top-level frame's layer at once). Native test.
 - **The glide:** a click (press and release within 4 px, the Move tool) that selects a post glides the camera to it (`postView`: it fits what the panels leave, room for its toolbar over it and the canvas toolbar under it; 320 ms ease-out, `glide`) and the right panel shows its Design tab (`socialPanelTab` "design"). Selecting from the agent or the panels doesn't move the camera; a drag reorders (§25).
 
+## 27. A Social file keeps its kind in the cloud (owner, 2026-10-25)
+
+The owner opened Social-test in the side-by-side dev app (its own data folder, signed in) and it opened as a Design file. Cause: a personal draft's kind wasn't the server's — `POST /me/drafts` refused any editorType but "design", the store registered drafts without one and made records of drafts from elsewhere without one, so every computer but the one that made it saw a Design file.
+
+- **Server:** `POST /me/drafts {editorType: "design" | "buzz"}` keeps it (`files.editor_type`); `PATCH /files/:key {editorType}` changes it (anyone who can edit). Moving a draft into an org already carries `editor_type`.
+- **Store** (`personal/service.ts`): a Social file registers as one; `refresh` makes a record from elsewhere a Social file when the server says so, and a record here that is one tells a server still calling it Design (registered before this); `setEditorType` (Convert this file) tells the server first (`kindFirst`).
+- Needs the server deployed. Until then, a computer that only has the server's word opens it as Design; File › Convert to Social file… › Convert this file makes it a Social file there.
+

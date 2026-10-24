@@ -41,7 +41,7 @@ export interface PersonalHost {
   /** Writes these fields of the record (Home hears of it) */
   patchMeta(fileKey: FileKey, patch: Partial<Omit<FileMeta, "fileKey" | "_clk">>): Promise<void>;
   /** A record with no document: a draft listed by the server, never downloaded here */
-  addRemote(input: { name: string; createdAt: number; updatedAt: number; trashedAt: number | null; cloud: CloudFile }): Promise<FileMeta>;
+  addRemote(input: { name: string; createdAt: number; updatedAt: number; trashedAt: number | null; cloud: CloudFile; editorType?: FileMeta["editorType"] }): Promise<FileMeta>;
   /** The record and everything of it go (the draft was deleted on the server) */
   forget(fileKey: FileKey): Promise<void>;
   /** The document goes; the record and its thumbnail stay */
@@ -275,7 +275,9 @@ export class PersonalService {
         fileKey,
         { snapshot, headSeq: head },
         async (k, name) => {
-          const answer = await this.mp.call("POST", "/me/drafts", { key: k, name });
+          // A Social file is a draft of its own kind (docs/social.md §27)
+          const kind = this.host.getMeta(fileKey)?.editorType === "buzz" ? { editorType: "buzz" } : {};
+          const answer = await this.mp.call("POST", "/me/drafts", { key: k, name, ...kind });
           // On the server from here: no longer pending, whatever happens to the upload (its link finishes it)
           await this.host.patchMeta(fileKey, { cloud: { uid, key: k } });
           return answer;
@@ -348,6 +350,10 @@ export class PersonalService {
         if (m.name !== f.name) patch.name = f.name;
         if ((m.trashedAt ?? null) !== (f.trashedAt ?? null)) patch.trashedAt = f.trashedAt;
         if (f.updatedAt > m.updatedAt && m.cloud?.remote) patch.updatedAt = f.updatedAt;
+        // The file's kind (docs/social.md §27): a Social file elsewhere is one here; a Social file here the server still
+        // calls a Design draft (registered before drafts kept their kind) is told so — best effort.
+        if (f.editorType === "buzz" && m.editorType !== "buzz") patch.editorType = "buzz";
+        else if (m.editorType === "buzz" && f.editorType === "design") void this.mp.call("PATCH", `/files/${f.key}`, { editorType: "buzz" }).catch(() => {});
         if (Object.keys(patch).length) await this.host.patchMeta(m.fileKey, patch);
         continue;
       }
@@ -358,7 +364,7 @@ export class PersonalService {
         await this.host.patchMeta(cm.fileKey, { cloud: { uid, key: f.key }, name: f.name, trashedAt: f.trashedAt, folderId: null });
         continue;
       }
-      await this.host.addRemote({ name: f.name, createdAt: f.createdAt, updatedAt: f.updatedAt, trashedAt: f.trashedAt, cloud: { uid, key: f.key, remote: true } });
+      await this.host.addRemote({ name: f.name, createdAt: f.createdAt, updatedAt: f.updatedAt, trashedAt: f.trashedAt, cloud: { uid, key: f.key, remote: true }, ...(f.editorType === "buzz" ? { editorType: "buzz" as const } : {}) });
     }
     // Records of drafts the server no longer lists: deleted, moved into an org, or no longer the person's
     for (const [key, m] of mine) {
@@ -445,6 +451,13 @@ export class PersonalService {
     const [d] = this.registered([fileKey]);
     if (!d) return;
     await this.mp.call("PATCH", `/files/${d.key}`, { name: name.trim() });
+  }
+
+  /** A draft's kind changed (Convert this file, docs/social.md §18.1, §27): the server first; offline, refused */
+  async kindFirst(fileKey: FileKey, editorType: FileMeta["editorType"]): Promise<void> {
+    const [d] = this.registered([fileKey]);
+    if (!d) return;
+    await this.mp.call("PATCH", `/files/${d.key}`, { editorType });
   }
 
   /** Trash or restore drafts: the server first (each one; offline: refused before anything changed here) */

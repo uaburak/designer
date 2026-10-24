@@ -66,7 +66,9 @@ export async function personalRoute(req: Request, url: URL, deps: Deps, caller: 
     const b = await readBody<{ key?: unknown; name?: unknown; editorType?: unknown }>(req);
     const key = b.key === undefined ? `d${randomId(21)}` : typeof b.key === "string" ? b.key : "";
     if (!FILE_KEY.test(key)) throw new HttpError(400, "bad file key");
-    if (b.editorType !== undefined && b.editorType !== "design") throw new HttpError(400, "editorType: personal drafts are design files");
+    // A Social file (Figma's Buzz, docs/social.md §18) is a draft of its own kind, kept on the server (§27)
+    if (b.editorType !== undefined && b.editorType !== "design" && b.editorType !== "buzz") throw new HttpError(400, "editorType: personal drafts are design or buzz files");
+    const editorType = b.editorType === "buzz" ? "buzz" : "design";
     const name = typeof b.name === "string" && b.name.trim() ? b.name.trim().slice(0, 200) : "Untitled";
     requireActive(user);
     // A member whose org restricts external content creates files there only (docs/multiplayer.md §15.6, §15.9).
@@ -80,8 +82,8 @@ export async function personalRoute(req: Request, url: URL, deps: Deps, caller: 
       await requireFileSlot(deps, user);
       const now = deps.now();
       await deps.db.d1
-        .prepare(`INSERT INTO files (key, owner_id, name, created_at, updated_at, space) VALUES (?1, ?2, ?3, ?4, ?4, 'personal') ON CONFLICT (key) DO NOTHING`)
-        .bind(key, user.id, name, now)
+        .prepare(`INSERT INTO files (key, owner_id, name, created_at, updated_at, space, editor_type) VALUES (?1, ?2, ?3, ?4, ?4, 'personal', ?5) ON CONFLICT (key) DO NOTHING`)
+        .bind(key, user.id, name, now, editorType)
         .run();
     }
     const row = await deps.db.d1.prepare(`SELECT key, name, editor_type, created_at, updated_at, trashed_at FROM files WHERE key = ?1 AND owner_id = ?2`).bind(key, user.id).first<DraftRow>();

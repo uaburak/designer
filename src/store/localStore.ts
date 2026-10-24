@@ -537,7 +537,7 @@ export class LocalStore {
       addRemote: async (input) => {
         const fileKey = newFileKey();
         await ensureDir(join(dirs.files, fileKey));
-        const meta = newMeta(fileKey, input.name.trim() || "Untitled", null, input.createdAt);
+        const meta = newMeta(fileKey, input.name.trim() || "Untitled", null, input.createdAt, fileEditorType(input.editorType));
         meta.updatedAt = input.updatedAt;
         meta.trashedAt = input.trashedAt;
         meta.cloud = { ...input.cloud };
@@ -1100,7 +1100,11 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     },
     createFile: (input) => s.createFile(input),
     duplicateFile: (fileKey, opts) => s.duplicateFile(fileKey, opts),
-    setEditorType: (fileKey, editorType) => q(() => ws.setEditorType(fileKey, editorType)),
+    setEditorType: async (fileKey, editorType) => {
+      // A registered draft's kind is the server's too (docs/social.md §27)
+      await s.personal.kindFirst(fileKey, fileEditorType(editorType));
+      return q(() => ws.setEditorType(fileKey, editorType));
+    },
     renameFile: async (fileKey, name) => {
       // A registered draft is renamed on the server first (docs/cloud.md §2); offline, refused
       if (typeof name === "string" && name.trim()) await s.personal.renameFirst(fileKey, name);

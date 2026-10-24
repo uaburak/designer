@@ -138,6 +138,27 @@ describe("new files", () => {
     expect((await t.api.workspace.getFile(offline.fileKey)).cloud?.pendingCreate).toBeUndefined();
   });
 
+  it("a Social file keeps its kind through the server (docs/social.md §27): registered as one, another computer's record is one, Convert this file tells the server", async () => {
+    const { srv, alice, t, signIn, serverDrafts } = await world();
+    await signIn(alice);
+    const social = await t.api.workspace.createFile({ name: "Posts", folderId: null, editorType: "buzz" });
+    const design = await t.api.workspace.createFile({ name: "Logo", folderId: null });
+    await t.store.personal.idle();
+    const kinds = async () => Object.fromEntries(((await srv.call("GET", "/me/drafts", alice.token)).body.files as { name: string; editorType: string }[]).map((f) => [f.name, f.editorType]));
+    expect(await kinds()).toEqual({ Posts: "buzz", Logo: "design" });
+    // Converted here: the server first
+    await t.api.workspace.setEditorType(design.fileKey, "buzz");
+    expect(await kinds()).toEqual({ Posts: "buzz", Logo: "buzz" });
+    // Another computer: the records come as Social files
+    const other = await openTestStore({ fetch: srv.fetch });
+    stores.push(other);
+    await signIn(alice, other);
+    const there = await other.api.workspace.listFiles({ in: "drafts" });
+    expect(Object.fromEntries(there.map((f) => [f.name, f.editorType]))).toEqual({ Posts: "buzz", Logo: "buzz" });
+    expect((await serverDrafts(alice)).length).toBe(2);
+    void social;
+  });
+
   it("an imported .fig is a draft registered on the server", async () => {
     const { srv, alice, t, signIn, serverDrafts } = await world();
     await signIn(alice);

@@ -41,6 +41,19 @@ describe("personal drafts", () => {
     expect((await drafts(bob())).some((f) => f.key === "draft_bob01")).toBe(false);
   });
 
+  it("a Social file is a draft of its own kind (docs/social.md §27): registered so, listed so, converted by PATCH", async () => {
+    const made = await w.call("POST", "/me/drafts", alice(), { key: "draftSocial1", name: "Posts", editorType: "buzz" });
+    expect(made.status).toBe(201);
+    expect(made.body.file).toMatchObject({ editorType: "buzz" });
+    expect((await w.call("POST", "/me/drafts", alice(), { key: "draftSlides1", editorType: "slides" })).status).toBe(400);
+    // A Design draft converted (or one registered before drafts kept their kind)
+    await w.call("POST", "/me/drafts", alice(), { key: "draftDesign1", name: "Old" });
+    expect((await w.call("PATCH", "/files/draftDesign1", alice(), { editorType: "buzz" })).status).toBe(200);
+    expect((await w.call("PATCH", "/files/draftDesign1", alice(), { editorType: "make" })).status).toBe(400);
+    const listed = (await w.call("GET", "/me/drafts", alice())).body.files as { key: string; editorType: string }[];
+    expect(Object.fromEntries(listed.map((f) => [f.key, f.editorType]))).toMatchObject({ draftSocial1: "buzz", draftDesign1: "buzz" });
+  });
+
   it("a file shared outside any org (1.0.x's POST /files) is its owner's draft", async () => {
     expect((await w.call("POST", "/files", alice(), { key: "sharedOld01", name: "Old share" })).status).toBe(201);
     expect((await drafts(alice())).map((f) => f.name)).toEqual(["Old share"]);
