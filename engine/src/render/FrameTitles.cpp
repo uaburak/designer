@@ -77,6 +77,8 @@ std::vector<FrameTitle> frameTitles(const Document& doc, Guid page, const Mat2x3
   std::vector<FrameTitle> out;
   const Guid thumbnail = thumbnailNode(doc);
   Rect near{screen.x - 200, screen.y - 40, screen.w + 400, screen.h + 80};
+  // A Social file's posts lose their names under assetTitleMinZoom (docs/social.md §23).
+  const bool assetNames = std::hypot(view.m00, view.m10) >= style.assetTitleMinZoom - 1e-9;
   auto visit = [&](auto&& self, Guid parent) -> void {
     for (Guid c : doc.children(parent)) {
       const Node* n = doc.get(c);
@@ -104,6 +106,8 @@ std::vector<FrameTitle> frameTitles(const Document& doc, Guid page, const Mat2x3
           t.hit = {b.x, y, std::max(0.0, pw), style.sectionPillHeight};
           t.baseline = y + style.sectionPillHeight / 2 + style.sectionTitleSize * 0.36;
           if (pw >= 8) out.push_back(t);
+        } else if (assets && parent == page && !assetNames) {
+          // (Too far out: no name.)
         } else if (b.w >= 12 && (n->props.type != NodeType::INSTANCE || (assets && parent == page))) {
           // The name above the frame, from its left edge, as wide as the frame at most. A top-level instance has none,
           // selected or not (live Figma round 11: canvas-instance-selected; menu-context-main-component and

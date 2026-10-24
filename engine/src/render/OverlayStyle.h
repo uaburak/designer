@@ -26,6 +26,9 @@ struct OverlayStyle {
   double assetCardPad = 8;
   double assetCardBand = 32;
   double assetCardRadius = 8;
+  // Under this zoom a post's name goes (the owner, 2026-10-24: shown at 10 %, gone at 9 %) — its card is then the
+  // padding alone, and the band no longer hovers.
+  double assetTitleMinZoom = 0.1;
   double handleSize = 7;
   double handlesMinBox = 24;  // handles hidden when the box is smaller on screen
   double badgeHeight = 17;  // the size badge and auto layout's value badges (live Figma round 10: 17)

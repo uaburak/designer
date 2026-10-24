@@ -652,7 +652,9 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     for (Guid a : overlay.assets) carded.push_back(a);
     for (Guid h : overlay.hover)
       if (assetInk(h) && std::find(carded.begin(), carded.end(), h) == carded.end()) carded.push_back(h);
-    const double p = style.assetCardPad, band = style.assetCardBand, r = style.assetCardRadius;
+    // Too far out for the post's name (assetTitleMinZoom): the card is the padding alone.
+    const double p = style.assetCardPad, r = style.assetCardRadius;
+    const double band = camera.zoom >= style.assetTitleMinZoom - 1e-9 ? style.assetCardBand : p;
     const Color& c = style.assetCard;
     for (Guid a : carded) {
       const Node* an = doc.get(a);

@@ -621,3 +621,23 @@ TEST_CASE("asset chrome: the band over a post, level with its name past its end,
   e.pointer(PointerEvent::UP, 250, -8, 0, 0, 0);
   CHECK(e.selection() == std::vector<Guid>{F});
 }
+
+TEST_CASE("asset chrome: a post's name shows at 10 % and goes under it (docs/social.md §23)") {
+  auto nodes = baseScene();
+  // A post-sized frame: at 10 % it is 108 px wide on screen, room for its name
+  nodes.push_back(make(Guid{1, 20}, NodeType::FRAME, kPage, "$", {0, 1000, 1080, 1440}, "Post"));
+  Editor e = load(nodes);
+  e.setViewOptions(e.viewOptions() | Editor::VIEW_ASSET_CHROME);
+  auto named = [&] {
+    for (const FrameTitle& t : e.titles())
+      if (t.id == Guid{1, 20}) return true;
+    return false;
+  };
+  e.setCamera({0, 0, 0.1});
+  CHECK(named());
+  e.setCamera({0, 0, 0.09});
+  CHECK_FALSE(named());
+  // A Design file's frames keep theirs
+  e.setViewOptions(e.viewOptions() & ~Editor::VIEW_ASSET_CHROME);
+  CHECK(named());
+}
