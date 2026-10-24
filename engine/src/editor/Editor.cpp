@@ -1271,6 +1271,8 @@ Overlay Editor::overlay() const {
       o.curves.push_back({pencilPoints_[i - 1], pencilPoints_[i - 1], pencilPoints_[i], pencilPoints_[i], 1, true});
   // A Social file's selected posts (docs/social.md §22): Buzz's assets — their outline alone.
   o.assetChrome = (viewOptions_ & VIEW_ASSET_CHROME) != 0;
+  // On the board (nothing inside a post selected) a post's auto-layout layers aren't dotted under the pointer.
+  if (o.assetChrome && (selection_.empty() || assetsSelected())) o.hoverDotted.clear();
   if (assetsSelected()) {
     o.assets = o.selection;
     o.selectionBox = o.handles = o.sizeBadge = o.aiButton = false;

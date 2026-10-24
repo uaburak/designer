@@ -583,3 +583,22 @@ TEST_CASE("asset chrome (a Social file, docs/social.md §22): a selected design 
   CHECK(e.overlay().assets.empty());
   CHECK(e.overlay().handles);
 }
+
+TEST_CASE("asset chrome: a top-level instance (a post from a template) has its name over it, as Buzz names each asset") {
+  auto nodes = baseScene();
+  const Guid C{1, 9}, I{1, 10};
+  nodes.push_back(make(C, NodeType::SYMBOL, kPage, "$", {600, 0, 100, 100}, "Template"));
+  NodeChange inst = make(I, NodeType::INSTANCE, kPage, "%", {600, 300, 100, 100}, "Post from it");
+  inst.props.comp().symbolData.symbolID = C;
+  nodes.push_back(inst);
+  Editor e = load(nodes);
+  auto named = [&](Guid id) {
+    for (const FrameTitle& t : e.titles())
+      if (t.id == id) return true;
+    return false;
+  };
+  CHECK_FALSE(named(I));
+  e.setViewOptions(e.viewOptions() | Editor::VIEW_ASSET_CHROME);
+  CHECK(named(I));
+  CHECK(named(F));
+}

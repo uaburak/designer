@@ -655,7 +655,7 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       return L ? L->size.x : 6.2 * static_cast<double>(name.size()) * size / 11;
     };
     auto has = [](const std::vector<Guid>& ids, Guid id) { return std::find(ids.begin(), ids.end(), id) != ids.end(); };
-    for (const FrameTitle& t : frameTitles(doc, page, view, screen_, style, measure, overlay.dev.focus, overlay.motionTitles)) {
+    for (const FrameTitle& t : frameTitles(doc, page, view, screen_, style, measure, overlay.dev.focus, overlay.motionTitles, overlay.assetChrome)) {
       if (std::find(overlay.noTitle.begin(), overlay.noTitle.end(), t.id) != overlay.noTitle.end()) continue;
       const Node* n = doc.get(t.id);
       if (!n) continue;
@@ -940,8 +940,8 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     nodeOutline(h, style.hoverWidth, true, assetInk(h));
     const NodeProps& hp = hn->props;
     // Group 1 (C 9 #1, the owner's components15/figma-instance-child-hover.png): a hovered instance also dots its inner
-    // auto-layout frames' boxes in the component purple.
-    if (hp.type == NodeType::INSTANCE)
+    // auto-layout frames' boxes in the component purple — not a Social file's post (Buzz's asset: its outline alone).
+    if (hp.type == NodeType::INSTANCE && !assetInk(h))
       for (Guid k : doc.children(h)) {
         const Node* kn = doc.get(k);
         if (!kn || !kn->props.visible || !kn->props.isAutoLayout()) continue;

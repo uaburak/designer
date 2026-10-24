@@ -73,7 +73,7 @@ bool showsTitle(const Document& doc, Guid id) {
 
 std::vector<FrameTitle> frameTitles(const Document& doc, Guid page, const Mat2x3& view, const Rect& screen, const OverlayStyle& style,
                                     const std::function<double(const std::string&, bool)>& measure, Guid focus,
-                                    const std::vector<Guid>& motion) {
+                                    const std::vector<Guid>& motion, bool assets) {
   std::vector<FrameTitle> out;
   const Guid thumbnail = thumbnailNode(doc);
   Rect near{screen.x - 200, screen.y - 40, screen.w + 400, screen.h + 80};
@@ -104,7 +104,7 @@ std::vector<FrameTitle> frameTitles(const Document& doc, Guid page, const Mat2x3
           t.hit = {b.x, y, std::max(0.0, pw), style.sectionPillHeight};
           t.baseline = y + style.sectionPillHeight / 2 + style.sectionTitleSize * 0.36;
           if (pw >= 8) out.push_back(t);
-        } else if (b.w >= 12 && n->props.type != NodeType::INSTANCE) {
+        } else if (b.w >= 12 && (n->props.type != NodeType::INSTANCE || (assets && parent == page))) {
           // The name above the frame, from its left edge, as wide as the frame at most. A top-level instance has none,
           // selected or not (live Figma round 11: canvas-instance-selected; menu-context-main-component and
           // menu-context-multi-and-smart-selection show the unselected "Button instance" and "Chip instance" bare under
