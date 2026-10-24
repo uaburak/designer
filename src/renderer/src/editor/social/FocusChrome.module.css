@@ -1,14 +1,13 @@
 @layer app {
   /* The focus view (docs/social.md §19, §20) [metrics ours] */
-  /* The path bar over the visible canvas's top */
+  /* The bar over the visible canvas's top, centred and only as wide as it needs (§21: kept small, as Buzz's) */
   .bar {
-    position: absolute; top: var(--ds-space-3); left: var(--ds-space-3); right: var(--ds-space-3); z-index: var(--ds-z-base);
-    display: flex; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-1-5) var(--ds-space-2);
+    position: absolute; top: var(--ds-space-3); left: 50%; z-index: var(--ds-z-base); transform: translateX(-50%);
+    display: flex; align-items: center; gap: var(--ds-space-1); max-width: calc(100% - 2 * var(--ds-space-3)); padding: var(--ds-space-1);
     border-radius: var(--ds-radius-large); background: var(--figma-color-bg); box-shadow: var(--ds-elevation-200);
   }
-  .path { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); white-space: nowrap; }
-  .name { min-width: 0; overflow: hidden; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); text-overflow: ellipsis; white-space: nowrap; }
-  .spacer { flex: 1 1 auto; }
+  .sep { align-self: stretch; width: 1px; margin: var(--ds-space-1) var(--ds-space-1); background: var(--figma-color-border); }
+  .name { min-width: 0; overflow: hidden; padding: 0 var(--ds-space-1); color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); text-overflow: ellipsis; white-space: nowrap; }
   .place { color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); white-space: nowrap; }
   /* The grid's posts along the bottom, over the toolbar */
   .strip {

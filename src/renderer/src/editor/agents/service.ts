@@ -37,6 +37,7 @@ import type { SocialPromptContext } from "@shared/social/types";
 import { readPost, writePost } from "../social/posts";
 import { socialOf } from "../social/socialState";
 import { LIBRARY_TOOLS, runLibraryTool } from "../studio/libraryTools";
+import { LIBRARY_TOOL_NAMES } from "@shared/studio/libraryTools";
 import { blurRegions, runStudioImage } from "../studio/images";
 import { makeBrandLibrary } from "../social/templates/brandLibrary";
 import { postSlots } from "../social/templates/templates";
@@ -366,6 +367,8 @@ export class AgentsService implements AgentSetupHost {
       api.onToolCall(async (call) => {
         // The manager's own tools (docs/studio.md §2.2): its turns only — a worker (or anyone else) is refused.
         if (isManagerTool(call.name)) {
+          // The Brands library is the owner's: an outside client of his (no turn — Claude Code, Claude Desktop) fills it too (docs/social.md §21).
+          if (!call.turnId && LIBRARY_TOOL_NAMES.has(call.name)) return this.studio.library(this.ed, call.name, call.args ?? {});
           const target = call.turnId ? this.turnTarget.get(call.turnId) : undefined;
           if (!call.turnId || target?.role !== "manager") return textResult(`${call.name} is the manager's tool: a task can't call it.`, true);
           agentPresenceOf(this.ed).join(this.actorOf(call));

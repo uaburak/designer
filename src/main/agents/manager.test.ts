@@ -1,5 +1,5 @@
 // The manager in main (docs/studio.md §2.1–2.2): its tools listed for a manager's turn only and refused for a worker,
-// a plain chat or an outside client; several turns of one chat at once, each with its own grant; the settings cleaned.
+// a plain chat or an outside client (who has the library's alone, docs/social.md §21); several turns of one chat at once, each with its own grant; the settings cleaned.
 import { afterEach, describe, expect, it } from "vitest";
 import type { ToolResult } from "../../shared/agents/tools";
 import { MANAGER_TOOLS, WAITING_TOOLS } from "../../shared/agents/tools";
@@ -61,7 +61,9 @@ describe("manager-only tools", () => {
       const l = await list(t);
       expect(l).toContain("create_nodes");
       expect(l).not.toContain("delegate_task");
-      expect(l).not.toContain("library_find");
+      // The Brands library is the owner's to fill from his own outside client (docs/social.md §21), not a worker's or a chat's.
+      if (t === TOKEN) expect(l).toEqual(expect.arrayContaining(["library_find", "library_save_brand", "library_save_product"]));
+      else expect(l).not.toContain("library_find");
     }
     expect((await call(manager, "delegate_task")).result.content[0].text).toBe("delegate_task ran");
     expect(calls).toEqual([{ name: "delegate_task", turnId: "m1" }]);
@@ -69,9 +71,11 @@ describe("manager-only tools", () => {
     expect(refused.result.isError).toBe(true);
     expect(refused.result.content[0].text).toMatch(/manager's tool/);
     expect((await call(TOKEN, "make_posts")).result.isError).toBe(true);
-    // A library tool is unknown to anyone but the manager.
+    // A library tool is unknown to a worker; an outside client's call reaches the editor without a turn.
     expect((await call(worker, "library_find")).error.code).toBe(-32602);
-    expect(calls).toHaveLength(1);
+    expect((await call(TOKEN, "library_find")).result.content[0].text).toBe("library_find ran");
+    expect(calls).toEqual([{ name: "delegate_task", turnId: "m1" }, { name: "library_find", turnId: null }]);
+    calls.splice(1);
     // The worker's own turn and the manager's run side by side, each with its turn id.
     await call(worker, "get_selection");
     await call(manager, "get_selection");

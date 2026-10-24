@@ -162,11 +162,29 @@ describe("Social mode's chrome (round 18a)", () => {
     expect(counter().hasAttribute("data-over")).toBe(false);
   });
 
+  it("a Social file's board shows no bands, no pins: a count badge per post with problems (docs/social.md §21)", async () => {
+    let id = "";
+    const { ed } = await setup(() => createElement(CanvasLayers));
+    await act(async () => {
+      id = newPost(ed, editorWriter(ed), { formatId: "instagram.story", at: { x: 0, y: 0 } });
+    });
+    const problem = { id: "s1", kind: "safe-area" as const, detail: "“CTA” reaches into the bottom band", box: { x: 100, y: 1700, width: 300, height: 80 }, fix: "relayout" as const, source: "check" as const };
+    await act(async () => ed.batch("Pins", () => writePost(ed, id, { ...readPost(ed, id)!, problems: [problem, { ...problem, id: "s2", box: undefined }] })));
+    expect($("[data-safe-areas] [data-post]")).toBeNull();
+    expect($('[data-review-pins] [data-problem="s1"]')).toBeNull();
+    const badge = $(`[data-problem-badge="${id}"]`)!;
+    expect(badge.textContent).toBe("2");
+    act(() => click(badge));
+    expect(ed.store.selection.refs).toEqual([id]);
+  });
+
   it("draws a story's safe-area bands at the camera's zoom", async () => {
     let id = "";
-    const { ed, engine } = await setup(() => createElement(CanvasLayers));
+    // A Design file in Social (a Social file draws them for the post in focus alone, §21)
+    const { ed, engine } = await setup(() => createElement(CanvasLayers), "design");
     // The posts index tells its listeners in a microtask (deferred.ts): an async act lets the overlay re-render
     await act(async () => {
+      ed.ui.set({ mode: "social" });
       id = newPost(ed, editorWriter(ed), { formatId: "instagram.story", at: { x: 0, y: 0 } });
       // A square post has no safe area: no bands for it.
       newPost(ed, editorWriter(ed), { formatId: "instagram.square", at: { x: 2000, y: 0 } });
@@ -200,7 +218,8 @@ describe("Social's agent pieces (round 18c)", () => {
       useUI((s) => s.socialProblem);
       return card ? createElement(ManagerCard, { card, service: agentsOf(ed) }) : null;
     }
-    const { ed } = await setup(() => createElement("div", null, createElement(CanvasLayers), createElement(Card)));
+    // A Design file in Social: its board's pins (a Social file's board shows a badge, §21)
+    const { ed } = await setup(() => createElement("div", null, createElement(CanvasLayers), createElement(Card)), "design");
     let id = "";
     await act(async () => {
       ed.ui.set({ mode: "social" });

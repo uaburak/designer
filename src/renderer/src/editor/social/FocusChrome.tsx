@@ -1,7 +1,7 @@
 /**
  * The focus view's chrome (docs/social.md §19, §20 — the engine draws the post in focus alone, as Buzz's asset view):
- * over the visible canvas, the path bar on top — "← Board", the platform › format, the
- * post's name, its place in its grid with ‹ › — and the strip of its grid's posts at the bottom (a click focuses one,
+ * over the visible canvas, a small bar on top — "← Board", the post's name (its platform › format as its tooltip), its
+ * place in its grid with ‹ › — and the strip of its grid's posts at the bottom (a click focuses one,
  * gliding across). `SocialFocus` drives the camera (focus.ts). Nothing here writes the document.
  */
 import { Button, IconButton } from "@/ds";
@@ -33,12 +33,14 @@ export function SocialFocus() {
   return (
     <>
       <div className={styles.bar} role="toolbar" aria-label={t("Post in focus")} data-focus-bar="">
-        <Button variant="secondary" icon="24.arrow.left" onClick={() => ed.engine.setSelection([])} data-focus-back="">
+        <Button variant="ghost" icon="24.arrow.left" onClick={() => ed.engine.setSelection([])} data-focus-back="">
           {t("Board")}
         </Button>
-        <span className={styles.path}>{f ? `${PLATFORM_NAMES[f.platform]} › ${t(f.name)}` : t("Other size")}</span>
-        <span className={styles.name}>{row.name}</span>
-        <span className={styles.spacer} />
+        <span className={styles.sep} />
+        <span className={styles.name} title={f ? `${PLATFORM_NAMES[f.platform]} › ${t(f.name)}` : t("Other size")}>
+          {row.name}
+        </span>
+        <span className={styles.sep} />
         <IconButton icon="24.chevron.left" label={t("Previous post")} disabled={at <= 0} onClick={() => go(ids[at - 1])} />
         <span className={styles.place}>{t("{n} of {total}", { n: String(at + 1), total: String(ids.length) })}</span>
         <IconButton icon="24.chevron.right" label={t("Next post")} disabled={at >= ids.length - 1} onClick={() => go(ids[at + 1])} />

@@ -1,17 +1,18 @@
 @layer app {
-  /* A Social file's board titles and "+" cells over the canvas (docs/social.md §19) [metrics ours] */
+  /* A Social file's board titles and "+" buttons over the canvas (docs/social.md §19, §21: Buzz's grid view) [metrics ours] */
   .layer { position: absolute; inset: 0; z-index: var(--ds-z-base); overflow: hidden; pointer-events: none; }
-  .section, .grid, .add { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
-  .section { display: flex; align-items: baseline; gap: var(--ds-space-2); white-space: nowrap; }
-  .sectionName { color: var(--figma-color-text); font: var(--ds-font-heading-large); }
+  .grid, .add { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
   .grid { display: flex; align-items: baseline; gap: var(--ds-space-1-5); white-space: nowrap; }
-  .gridName { color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); }
-  .meta, .count { color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); }
+  .layer[data-dense] .grid { visibility: hidden; }
+  .gridName { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium-strong); }
+  .count { color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); }
+  /* Buzz's blue plus beside the last asset: a new one of the same size */
   .add {
-    display: flex; align-items: center; justify-content: center; box-sizing: border-box; padding: 0;
-    border: 1px dashed var(--figma-color-border-strong); border-radius: var(--ds-radius-medium); background: transparent;
-    color: var(--figma-color-icon-secondary); pointer-events: auto; cursor: default;
+    display: flex; align-items: center; justify-content: center; box-sizing: border-box;
+    width: var(--ds-size-control); height: var(--ds-size-control); padding: 0; border: 0; border-radius: var(--ds-radius-full);
+    background: var(--figma-color-bg-brand); color: var(--figma-color-icon-onbrand);
+    box-shadow: var(--ds-elevation-100); pointer-events: auto; cursor: default; opacity: 0.85;
   }
-  .add:hover { border-color: var(--figma-color-border-selected); background: var(--figma-color-bg-hover); color: var(--figma-color-icon); }
-  .add:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .add:hover { background: var(--figma-color-bg-brand-hover); opacity: 1; }
+  .add:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: 2px; }
 }

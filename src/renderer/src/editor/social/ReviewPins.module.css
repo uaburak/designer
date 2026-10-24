@@ -20,6 +20,16 @@
     pointer-events: auto;
     cursor: default;
   }
+  /* A Social file's board: the count of a post's problems in its top right corner (§21) */
+  .badge {
+    position: absolute; top: var(--ds-space-2); right: var(--ds-space-2);
+    display: flex; align-items: center; justify-content: center; box-sizing: border-box;
+    min-width: var(--ds-size-icon-16); height: var(--ds-size-icon-16); padding: 0 var(--ds-space-1); border: 0; border-radius: var(--ds-radius-full);
+    background: var(--figma-color-bg-warning); color: var(--figma-color-icon-onwarning); font: var(--ds-font-body-medium-strong);
+    box-shadow: var(--ds-elevation-100); pointer-events: auto; cursor: default;
+  }
+  .badge:hover { background: var(--figma-color-bg-warning-hover); }
+  .badge:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .pin:hover { background: var(--figma-color-bg-warning-hover); }
   .pin:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
 }

@@ -175,7 +175,8 @@ function BoardPanel() {
             {layout.sections.flatMap((s) =>
               s.grids.map((g) => {
                 const f = formatById(g.formatId);
-                const name = `${s.platform in PLATFORM_NAMES ? PLATFORM_NAMES[s.platform as Platform] : t("Other sizes")} · ${f ? t(f.name) : t("Other size")}`;
+                // A catalogue format's name carries its platform ("Instagram story"); a brand's own size its section's
+                const name = f ? t(f.name) : `${s.platform in PLATFORM_NAMES ? PLATFORM_NAMES[s.platform as Platform] : t("Other sizes")} · ${t("Other size")}`;
                 return (
                   <button
                     key={g.formatId}

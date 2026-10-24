@@ -35,7 +35,8 @@ import { Timeline } from "./timeline/Timeline";
 import { segmentTargets } from "./easing/easingMaths";
 import { anchorPosition } from "./panels/TransformSection";
 import type { PanelNode } from "../panels/design/shared";
-import { syncEngine } from "../devmode/devMode";
+import { isSocialFile, syncEngine } from "../devmode/devMode";
+import { focusedPost } from "../social/focus";
 import { timelineHeader } from "../social/export/exportPosts";
 
 export function MotionMode() {
@@ -47,7 +48,7 @@ export function MotionMode() {
 
 /**
  * Social (docs/social.md §6.1): the timeline along the bottom while the selected post has one with something on it
- * (keyframes, presets, audio), the engine's motion layer on with it (`ui.socialTimeline`, motionLayerOn); its header
+ * (keyframes, presets, audio) — in a Social file the post in focus (§21) — the engine's motion layer on with it (`ui.socialTimeline`, motionLayerOn); its header
  * shows the post's format and video limits (round 18d), and Space plays it (`motion.play-pause`).
  */
 function SocialTimeline() {
@@ -55,6 +56,8 @@ function SocialTimeline() {
   const version = useTopics(ed.store, ["selection", "structure", "undo"]);
   const shows = useMemo(() => {
     void version;
+    // A Social file's board selects many posts at once: the timeline is the post in focus's alone (§21).
+    if (isSocialFile(ed) && !focusedPost(ed)) return false;
     const model = motionRead(() => ed.engine.motionTimeline(), null);
     return !!model && (model.audio.length > 0 || model.layers.some((l) => l.tracks.length > 0 || l.clips.length > 0 || !!l.instance));
   }, [ed, version]);

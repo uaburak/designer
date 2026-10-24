@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net";
 import { MCP_INSTRUCTIONS } from "../../shared/agents/prompts";
 import { MANAGER_TOOL_NAMES, MCP_SERVER_NAME, TOOL_BY_NAME, TOOLS, type ToolResult } from "../../shared/agents/tools";
+import { LIBRARY_TOOLS } from "../../shared/studio/libraryTools";
 import type { McpConnection } from "../../shared/agents/types";
 import { drainGovernanceReports, reportMcpCall } from "../account/governanceReports";
 
@@ -294,6 +295,7 @@ export class McpServer {
           tools: [
             ...TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, annotations: { title: t.title, readOnlyHint: !t.write, destructiveHint: t.name === "delete_nodes" } })),
             ...managerTools(session).map((t) => ({ name: t.name, ...(t.title ? { title: t.title } : {}), description: t.description, inputSchema: t.inputSchema })),
+            ...libraryTools(session).map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, annotations: { title: t.title, readOnlyHint: false } })),
             ...extra.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })),
           ],
         });
@@ -302,7 +304,7 @@ export class McpServer {
         const name = String(m.params?.name ?? "");
         const args = (m.params?.arguments ?? {}) as Record<string, unknown>;
         // The manager's tools are the manager's alone (docs/studio.md §2.2): a worker, a plain chat or an outside client is refused.
-        const own = managerTools(session).some((t) => t.name === name);
+        const own = managerTools(session).some((t) => t.name === name) || libraryTools(session).some((t) => t.name === name);
         if (!own && MANAGER_TOOL_NAMES.has(name)) return ok({ content: [{ type: "text", text: `${name} is the manager's tool: a task can't call it. Do the work you were given with the design tools.` }], isError: true });
         if (!own && !TOOL_BY_NAME.has(name) && !(await this.extraTools(session)).some((t) => t.name === name)) return rpcError(m.id, -32602, `Unknown tool: ${name}`);
         if (typeof args !== "object" || Array.isArray(args)) return rpcError(m.id, -32602, "arguments must be an object");
@@ -380,6 +382,8 @@ function openedKeyOf(result: ToolResult): string {
 
 /** A session's manager-only tools: a manager's turn's, none for anyone else. */
 const managerTools = (session: McpSession): ExtraTool[] => (session.chat?.role === "manager" ? (session.chat.managerTools ?? []) : []);
+/** The Brands library's tools for an outside client (docs/social.md §21): the owner's library, his to fill from Claude Code too; a chat's manager has them among its own. */
+const libraryTools = (session: McpSession) => (session.chat ? [] : LIBRARY_TOOLS);
 
 function readBody(req: IncomingMessage, limit: number): Promise<string> {
   return new Promise((resolve, reject) => {

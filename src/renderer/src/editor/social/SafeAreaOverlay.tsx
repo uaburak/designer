@@ -13,12 +13,11 @@ import { useEditor, type EditorController } from "../controller";
 import { useUI } from "../hooks";
 import { useSocialBoard, type PostRow } from "./socialState";
 import { useFocusedPost } from "./focus";
+import { isSocialFile } from "../devmode/devMode";
 import styles from "./SafeAreaOverlay.module.css";
 
 /** A band thinner than this on screen (px) isn't drawn */
 const MIN_BAND = 8;
-/** The zoom held still this long (ms) before the bands come back */
-const ZOOM_SETTLE_MS = 150;
 
 const SIDES = ["top", "right", "bottom", "left"] as const;
 
@@ -28,29 +27,17 @@ const SIDES = ["top", "right", "bottom", "left"] as const;
  */
 export function useCameraPlacement(ed: EditorController, layer: RefObject<HTMLElement | null>, rows: readonly PostRow[], place: (el: HTMLElement, row: PostRow, cam: { x: number; y: number; zoom: number }) => void): void {
   useLayoutEffect(() => {
-    let zoom = ed.store.camera.zoom;
-    let timer: ReturnType<typeof setTimeout> | undefined;
     const run = () => {
       const el = layer.current;
       if (!el) return;
       const cam = ed.store.camera;
-      if (cam.zoom !== zoom) {
-        zoom = cam.zoom;
-        el.toggleAttribute("data-zooming", true);
-        clearTimeout(timer);
-        timer = setTimeout(() => layer.current?.toggleAttribute("data-zooming", false), ZOOM_SETTLE_MS);
-      }
       for (const child of Array.from(el.children) as HTMLElement[]) {
         const row = rows.find((r) => r.id === child.dataset.post);
         if (row) place(child, row, cam);
       }
     };
     run();
-    const off = ed.store.subscribe("camera", run);
-    return () => {
-      off();
-      clearTimeout(timer);
-    };
+    return ed.store.subscribe("camera", run);
   }, [ed, layer, rows, place]);
 }
 
@@ -88,9 +75,11 @@ export function SafeAreaOverlay() {
   const ed = useEditor();
   const on = useUI((s) => s.socialSafeAreas !== false);
   const board = useSocialBoard(ed);
-  // In focus (a Social file's single post, docs/social.md §20) only that post is drawn: only its bands.
+  // In focus (a Social file's single post, docs/social.md §20) only that post is drawn: only its bands. A Social
+  // file's board is Buzz's grid view, kept quiet (§21): the bands show in focus alone there.
   const focus = useFocusedPost(ed);
-  const rows = useMemo(() => (on ? board.posts.filter((p) => bandsOf(p) && (!focus || p.id === focus)) : []), [on, board, focus]);
+  const social = isSocialFile(ed);
+  const rows = useMemo(() => (on && (focus || !social) ? board.posts.filter((p) => bandsOf(p) && (!focus || p.id === focus)) : []), [on, board, focus, social]);
   const layer = useRef<HTMLDivElement>(null);
   useCameraPlacement(ed, layer, rows, placeBands);
   if (!rows.length) return null;

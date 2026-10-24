@@ -707,7 +707,25 @@ The owner's report: moving a layer from one post to another flickered; a layer t
 
 **Built:**
 - **Asset view as Buzz's.** A post in focus is the engine's single shown design (`Engine.setFocus`, Dev Mode's focus view): only it is drawn and picked. New in the engine: what is dropped or drawn while a design is in focus stays in it (`Editor::focusFloor` — `dropTargetAt` takes only the design and its frames, the Rectangle / Frame / … tools draw into it; the design itself moves as any layer would; native test in `editor.move.test.cpp`). Entering, the board gives way to the post when the camera arrives; leaving, the board is back before the camera moves (no pop, no dim overlay — `Spotlight` is gone).
-- **One camera move.** In a Social file `applySelection` doesn't zoom (the focus view glides; several posts stay on the board).
+- **One camera move.** In a Social file `applySelection` doesn't zoom into a post in focus (the focus view glides); several posts are zoomed to on the board (§21).
 - **No blinking.** The board's titles, the safe areas and the review pins follow the camera through zooms instead of hiding; in focus only the post's own bands and pins show.
 - **Templates** are the rail's own tab after Posts (`SocialTemplatesPanel`: the board's brand and the gallery full height — this file's and the enabled libraries' templates, filters, click or drag to insert, Make starter templates… when there are none), as Buzz keeps them in its left panel; the empty board's Start from a template opens it. The Posts tab is the posts list alone.
 - **Rulers** are off in a Social file unless the file kept its own choice (Buzz has none).
+
+## 21. A quiet board, Buzz's grid view (owner, 2026-10-24) — and a test file with two brands
+
+The owner: "the canvas side looks very ugly, it should be more minimal, like Buzz"; make two imaginary brands with three products each and a template test file showing every feature ("Social-test"); add what Wecra is missing.
+
+What Buzz's grid view shows (help.figma.com "Explore Figma Buzz", "Create and organize assets"; the Plugin API's canvas grid): assets in rows, each under its name, a blue **+** beside an asset adding one of the same size; no headings; the asset view shows one asset. So:
+
+- **Board chrome** (`BoardLabels`): the platform headings and the dashed "+" cells go. Each grid keeps one small secondary title — its format (whose name carries the platform) and its count — over its posts' names; the titles go when the board is zoomed out too far to hold them (`data-dense`). A round brand-blue **+** sits beside each grid's last post (Buzz's), a new post of that format opening in focus.
+- **Spacing** (`BOARD`): 200 between posts across and down (the names between rows no longer sit on the posts above), 480 between grids, 560 between sections, 240 over a section.
+- **Only the post in focus carries its marks:** the safe areas, the review pins and the Social timeline show in focus; on the board each post with problems has one count badge in its top right corner (a click focuses it; its tooltip lists them). Selecting several animated posts no longer opens the timeline.
+- **Focus bar** (`SocialFocus`): a small centred bar — ← Board, the post's name (platform › format as its tooltip), ‹ n of m › — instead of the full-width path bar.
+- **Grids** in the Board panel by the format's name alone ("Instagram story", not "Instagram · Instagram story").
+- **The Brands library for outside clients:** an MCP client of the owner's (Claude Code, Claude Desktop) now lists and calls the library's tools (`library_find`, `library_get`, `library_save_brand`, `library_save_product`, `library_add_image`, …; their definitions moved to `shared/studio/libraryTools.ts`); a worker's or a plain chat's session still doesn't have them, the manager has them among its own.
+
+**The test file** ("Social-test", built through those tools): brands **Toprak Bereket** (agro: HumiPro 1 L, KökGüç 5 L, YaprakMax 1 KG — its labels left unconfirmed) and **Kuzey Kahve** (coffee: Sabah Harmanı, Etiyopya Yirgacheffe, Soğuk Demleme — no packshot), logos and packshots; campaigns Sonbahar Ekimi and Kış Menüsü; templates **Ürün Duyurusu** (Instagram post 3:4) and **Hikâye Kampanya** (story) with headline / body / CTA / label / picture slots (a locked label, character limits); posts from them per product, plain LinkedIn / Facebook / TikTok posts, an animated reel and TikTok, every status, captions and hashtags, a headline over its limit, and the check's problems.
+
+**Still open:** a template's background, accent and logo slots need the Brands library's Brand collection and Logo set — the two new brands reach them once the owner runs Brands › Update brands library (and publishes it); until then the Kuzey Kahve posts carry their colours as overrides.
+

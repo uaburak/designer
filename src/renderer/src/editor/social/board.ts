@@ -60,19 +60,20 @@ export function placePosts(posts: readonly PlacedPost[], campaignId: string | nu
  * one under the other (the catalogue's platform order; a brand's own sizes last); in a section a grid per format, side
  * by side (the catalogue's format order); in a grid the posts in three columns, in the order they are read on the
  * board (rows top to bottom, left to right in a row — so dragging a post among the others reorders it). Room is kept
- * above each section and each grid for its title, which the chrome draws over the canvas (BoardLabels). Units are the
- * canvas's [ours]: the posts are 1080 px wide, so the gaps are a few dozen pixels on screen at a board's zoom.
+ * above each grid for its title, which the chrome draws over the canvas (BoardLabels). Units are the canvas's [ours]:
+ * the posts are 1080 px wide; the gap between rows holds each post's name (drawn by the engine, as Buzz's grid view) at
+ * a board's zoom (§21: the owner found 80 crowded, the names over the posts above).
  */
 export const BOARD = {
   columns: 3,
-  /** Between two posts of a grid */
-  gap: 80,
+  /** Between two posts of a grid, across and down */
+  gap: 200,
   /** Between two grids of a section */
-  gridGap: 400,
+  gridGap: 480,
   /** Between two sections */
-  sectionGap: 720,
-  /** Above a section's grids: room for its title (the platform) and the grids' titles, drawn in screen pixels over it */
-  sectionHead: 600,
+  sectionGap: 560,
+  /** Above a section's grids: room for the grids' titles, drawn in screen pixels over it */
+  sectionHead: 240,
 } as const;
 
 export interface BoardItem {
