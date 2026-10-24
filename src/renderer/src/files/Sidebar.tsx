@@ -165,6 +165,8 @@ export function Sidebar(props: SidebarProps) {
         </DropTarget>
         {/* The owner's Home (2026-10-19): Shared in Recents' place — what others shared with the person, and theirs */}
         <SidebarItem icon="24.person" label={t("Shared")} selected={is("shared")} onClick={() => go({ kind: "shared" })} />
+        {/* Ours (docs/studio.md §3.2): the brand and product library, full page */}
+        <SidebarItem icon="24.library" label={t("Brands")} selected={is("brands")} onClick={() => go({ kind: "brands" })} />
       </div>
       <SidebarDivider />
       <div className={styles.team} onContextMenu={onSpaceContextMenu}>

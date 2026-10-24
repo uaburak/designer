@@ -79,6 +79,7 @@ export const LIBRARY_TOOLS: ToolDef[] = [
         id: { type: "string" },
         brandId,
         name: { type: "string" },
+        series: { type: ["string", "null"], description: 'The distributor\'s series or product line ("Venta"); "" or null: none.' },
         shape: { type: "string", description: '"20 L white translucent jerrycan, handle top left, blue hexagon seal on the cap"' },
         labels: { type: "array", items: labelSpec },
         labelsConfirmed: { type: "boolean" },
@@ -174,6 +175,7 @@ function productView(p: Product) {
   return {
     id: p.id,
     name: p.name,
+    series: p.series ?? null,
     shape: p.shape,
     notes: p.notes,
     images: p.images.map((i) => ({ id: i.id, role: i.role, name: i.name, width: i.width, height: i.height })),
@@ -357,6 +359,7 @@ async function run(name: string, a: Record<string, unknown>): Promise<ToolResult
         id: typeof a.id === "string" ? a.id : undefined,
         brandId: text(a.brandId, "brandId"),
         name: text(a.name, "name"),
+        series: typeof a.series === "string" || a.series === null ? a.series : undefined,
         shape: typeof a.shape === "string" ? a.shape : undefined,
         labels: Array.isArray(a.labels) ? (a.labels as ProductSave["labels"]) : undefined,
         labelsConfirmed: typeof a.labelsConfirmed === "boolean" ? a.labelsConfirmed : undefined,

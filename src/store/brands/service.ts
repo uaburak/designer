@@ -202,6 +202,12 @@ export class BrandsService {
       const now = this.host.now();
       const next: Product = old ? { ...old } : { id: this.newUniqueId((id) => brand.products.some((p) => p.id === id)), brandId: brand.id, name, shape: "", images: [], labels: [], labelsConfirmed: false, notes: "", created: now, updated: now };
       next.name = name;
+      if (s.series !== undefined) {
+        const series = clip(s.series, 80).replace(/\s+/g, " ");
+        // The brand's own spelling of a series it has wins ("venta" joins "Venta")
+        const same = series ? brand.products.find((p) => p.id !== old?.id && p.series && foldName(p.series) === foldName(series))?.series : null;
+        next.series = same ?? (series || null);
+      }
       if (s.shape !== undefined) next.shape = clip(s.shape, 2000);
       if (s.notes !== undefined) next.notes = clip(s.notes, 4000);
       if (s.labels) {

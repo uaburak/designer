@@ -21,6 +21,8 @@ export type Location =
   | { kind: "search"; text: string }
   // Shared (the owner's Home, 2026-10-19, in Recents' place): the files shared with the person, and those they shared
   | { kind: "shared" }
+  // Brands (docs/studio.md §3.2) [ours]: the brand and product library, full page (editor/studio/brands)
+  | { kind: "brands" }
   // An organization's space (docs/multiplayer.md §14.6; org.ts): its drafts, All teams, a team, a folder, its trash,
   // Resources and Admin. The org is the current space (`Prefs.browse.space`).
   | OrgLocation;
@@ -81,6 +83,8 @@ export function locationTitle(loc: Location, folders: readonly Folder[]): string
       return t("Results for “{text}”", { text: loc.text.trim() });
     case "shared":
       return t("Shared");
+    case "brands":
+      return t("Brands");
     case "all-projects":
       return t("All projects");
     case "org-drafts":

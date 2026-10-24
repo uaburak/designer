@@ -19,7 +19,6 @@ import { Assets } from "./Assets";
 import { FindPanel } from "./Find";
 import { NavStrip } from "./Rail";
 import { AgentsPanel } from "./agents/AgentsPanel";
-import { BrandsPanel } from "../studio/BrandsPanel";
 import styles from "./Panels.module.css";
 import { t, useT } from "@/i18n";
 
@@ -30,6 +29,8 @@ export function LeftPanel() {
   const tab = useUI((s) => s.railTab);
   const finding = useUI((s) => !!s.find);
   const navMinimized = useUI((s) => !!s.navMinimized);
+  // What the chrome drafts for the agent (Brands' Ask agent…, Design posts) lands in the Agents tab's composer.
+  const draft = useUI((s) => s.socialDraft ?? null);
   return (
     <aside className={styles.left} style={{ width: width + 1 /* live: 240 and the 1px line */, ["--left-panel-width" as string]: `${width}px` }} aria-label={t("Layers panel")} data-panel="left" data-tab={tab}>
       {navMinimized && <NavStrip />}
@@ -46,10 +47,8 @@ export function LeftPanel() {
       ) : tab === "assets" ? (
         <Assets />
       ) : tab === "agents" ? (
-        <AgentsPanel />
-      ) : (
-        <BrandsPanel />
-      )}
+        <AgentsPanel draft={draft} onDraftTaken={() => ed.ui.set({ socialDraft: null })} />
+      ) : null /* Brands: the full-size view over the panels (studio/brands/BrandsWindow) */}
       <ResizeHandle side="right" value={width} onChange={(px) => ed.ui.set({ leftWidth: px })} />
     </aside>
   );

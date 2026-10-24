@@ -1,0 +1,68 @@
+/** Turkish for Brands, full size (docs/studio.md §3.2): the brand cards, a brand's page, a product's page, Series. */
+export const brands: Record<string, string> = {
+  // ---- The list's cards
+  "{name} options": "{name} seçenekleri",
+  "Label texts confirmed": "Etiket metinleri onaylandı",
+  "{n} series": "{n} seri",
+  "{n} logo": "{n} logo",
+  "{n} logos": "{n} logo",
+  "No logo yet": "Henüz logo yok",
+  "No colours yet": "Henüz renk yok",
+  "No font yet": "Henüz yazı tipi yok",
+  "No products yet": "Henüz ürün yok",
+
+  // ---- A brand's page
+  "No tone described yet.": "Henüz ton tanımlanmadı.",
+  "Ask agent": "Ajana sor",
+  "Design posts": "Gönderi tasarla",
+  Identity: "Kimlik",
+  Filters: "Filtreler",
+  Series: "Seri",
+  "No series": "Serisiz",
+  Readiness: "Hazırlık",
+  "Labels not confirmed": "Etiketler onaylanmadı",
+  "No product photo": "Ürün fotoğrafı yok",
+  "Search in {name}": "{name} içinde ara",
+  "Search products": "Ürünlerde ara",
+  "Sort by name": "Ada göre sırala",
+  "Sort by series": "Seriye göre sırala",
+  "No product matches these filters.": "Bu filtrelere uyan ürün yok.",
+  "No products yet.": "Henüz ürün yok.",
+  "No formats yet.": "Henüz format yok.",
+  "Select {name}": "{name} ürününü seç",
+  "No photo": "Fotoğraf yok",
+  "No shape": "Biçim yok",
+  "No label texts": "Etiket metni yok",
+  // The bulk bar
+  "Selected products": "Seçili ürünler",
+  "{n} product selected": "{n} ürün seçildi",
+  "{n} products selected": "{n} ürün seçildi",
+  "Ask the agent to design…": "Ajandan tasarım iste…",
+  "Read labels": "Etiketleri oku",
+  "Reading labels…": "Etiketler okunuyor…",
+  "Read the label of {n} product: check the texts": "{n} ürünün etiketi okundu: metinleri kontrol et",
+  "Read the labels of {n} products: check the texts": "{n} ürünün etiketleri okundu: metinleri kontrol et",
+  // What Design posts puts in the agent's composer
+  "Design posts for {brand}: ": "{brand} için gönderi tasarla: ",
+  "Design posts for {brand} with {products}: ": "{brand} için {products} ile gönderi tasarla: ",
+
+  // ---- A product's page
+  "Previous product": "Önceki ürün",
+  "Next product": "Sonraki ürün",
+  Pictures: "Görseller",
+  "Product photo": "Ürün fotoğrafı",
+  "Label close-up": "Etiket yakın çekimi",
+  "Add product photos": "Ürün fotoğrafı ekle",
+  "Add label close-ups": "Etiket yakın çekimi ekle",
+  "Brand in the library": "Marka kütüphanede",
+  "Brand logo": "Marka logosu",
+  "Brand colours": "Marka renkleri",
+  "Product in the library": "Ürün kütüphanede",
+  "Shape described": "Biçim tanımlandı",
+  "Complete with the agent": "Ajanla tamamla",
+  "Complete {name} of {brand} in the library: {missing}": "Kütüphanede {brand} markasının {name} ürününü tamamla: {missing}",
+  "New text": "Yeni metin",
+
+  // ---- The product form
+  "The brand's series": "Markanın serileri",
+};

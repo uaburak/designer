@@ -1,5 +1,5 @@
 @layer app {
-  /* The Brands tab (left sidebar) and the brand and product forms (also drawn in the chat's form cards) */
+  /* The brand and product forms (the Brands view's form pages and the chat's form cards) */
   .panel { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
   .scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
   .bar { display: flex; flex: none; align-items: center; gap: var(--ds-space-1); height: var(--ds-size-section-header); padding: 0 var(--ds-space-3) 0 var(--ds-space-2); }
@@ -64,5 +64,11 @@
   .hex { flex: none; width: calc(var(--ds-size-field) + var(--ds-space-2)); }
   .tier { flex: none; width: calc(var(--ds-size-field) - var(--ds-space-2)); }
   .num { flex: none; width: calc(var(--ds-size-field) - var(--ds-space-6)); }
+  /* A field's suggestions (the brand's series): quiet chips under it, the one in the field pressed */
+  .suggestions { display: flex; flex-wrap: wrap; gap: var(--ds-space-1); }
+  .suggestion { height: calc(var(--ds-space-5) + var(--ds-space-half)); padding: 0 var(--ds-space-2); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-full); background: none; color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); outline: none; cursor: default; }
+  .suggestion:hover { background: var(--figma-color-bg-hover); color: var(--figma-color-text); }
+  .suggestion[aria-pressed="true"] { border-color: var(--figma-color-border-selected); background: var(--figma-color-bg-selected); color: var(--figma-color-text); }
+  .suggestion:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--ds-space-2); }
 }

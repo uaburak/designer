@@ -33,6 +33,8 @@ export interface Product {
   id: string;
   brandId: string;
   name: string;
+  /** The distributor's series or product line it belongs to ("Venta", "Seipasa"); null / absent: none */
+  series?: string | null;
   /** "20 L white translucent jerrycan, handle top left, blue hexagon seal on the cap" */
   shape: string;
   images: BrandImage[];
@@ -93,6 +95,8 @@ export interface ProductSave {
   id?: string;
   brandId: string;
   name: string;
+  /** The product's series; "" or null clears it */
+  series?: string | null;
   shape?: string;
   labels?: { id?: string; text: string; tier: LabelTier }[];
   labelsConfirmed?: boolean;
