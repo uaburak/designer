@@ -3,8 +3,9 @@
  * grid view): each grid is a container — its posts inside it 8 px apart, black between them — with its name over it (the
  * platform's when it is the platform's only grid, else the format's) and, as its last cell, a dashed "+" (a click
  * makes a post of the grid's format). The pointer anywhere over a container or its name puts it on its card (Figma's
- * bg-selected round it, the name blue in the band over it); a click on the container's frame or name selects its
- * posts. Placed from the camera like the safe areas (no React render per camera change); gone in the asset view.
+ * bg-selected round it, the name blue in the band over it); a click on the container's black or name selects its
+ * posts. None of it takes the pointer — the canvas pans, scrolls and zooms through it; the clicks are read off the
+ * canvas's own. Placed from the camera like the safe areas (no React render per camera change); gone in the asset view.
  * Canvas chrome: never a layer of the document — the posts are the engine's, drawn inside.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -138,30 +139,55 @@ export function BoardLabels() {
       // posts (ours, over the canvas) would cross it — gone while a button is down.
       layer.current?.toggleAttribute("data-dragging", (e.buttons & 1) === 1 && !!over);
     };
-    const up = () => layer.current?.toggleAttribute("data-dragging", false);
+    // Our pieces take no pointer (the canvas pans, scrolls and zooms through them, the owner 2026-10-25): a click on
+    // the canvas over the "+" makes a post; over the container's black or its name, selects its posts.
+    let press: { x: number; y: number } | null = null;
+    const add = (k: Container) => {
+      const id = newPost(ed, editorWriter(ed), { formatId: k.formatId, brandId: ed.ui.get().socialBrandId ?? null });
+      applySelection(ed, [id], false);
+    };
+    const down = (e: PointerEvent) => {
+      press = e.button === 0 && e.target === ed.canvas && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey ? { x: e.clientX, y: e.clientY } : null;
+    };
+    const up = (e: PointerEvent) => {
+      layer.current?.toggleAttribute("data-dragging", false);
+      const at = press;
+      press = null;
+      const c = ed.canvas?.getBoundingClientRect();
+      if (!at || !c || Math.hypot(e.clientX - at.x, e.clientY - at.y) > 4 || ed.store.tool !== "MOVE") return;
+      const cam = ed.store.camera;
+      const sx = e.clientX - c.left;
+      const sy = e.clientY - c.top;
+      const wx = (sx - cam.x) / cam.zoom;
+      const wy = (sy - cam.y) / cam.zoom;
+      const inBox = (r: Box) => wx >= r.x && wx <= r.x + r.w && wy >= r.y && wy <= r.y + r.h;
+      for (const k of containers) {
+        if (canWritePosts(ed) && inBox(k.place)) return void queueMicrotask(() => add(k));
+        const y0 = k.frame.y * cam.zoom + cam.y;
+        const x0 = k.frame.x * cam.zoom + cam.x;
+        const band = sy >= y0 - CARD_BAND && sy < y0 && sx >= x0 - CARD_PAD && sx <= x0 + k.frame.width * cam.zoom + CARD_PAD;
+        if (band || k.ring.some(inBox) || k.empty.some(inBox)) return void queueMicrotask(() => applySelection(ed, k.ids, false));
+      }
+    };
     window.addEventListener("pointermove", move, true);
+    window.addEventListener("pointerdown", down, true);
     window.addEventListener("pointerup", up, true);
     return () => {
       window.removeEventListener("pointermove", move, true);
+      window.removeEventListener("pointerdown", down, true);
       window.removeEventListener("pointerup", up, true);
     };
   }, [ed, containers, focus]);
   if (!containers.length || focus) return null;
   const write = canWritePosts(ed);
-  const selectAll = (k: Container) => applySelection(ed, k.ids, false);
-  const add = (k: Container) => {
-    const id = newPost(ed, editorWriter(ed), { formatId: k.formatId, brandId: ed.ui.get().socialBrandId ?? null });
-    applySelection(ed, [id], false);
-  };
   return (
     <div ref={layer} className={styles.layer} data-board-labels="">
       {containers.flatMap((k) => {
         const on = hot === k.key;
         return [
           on ? <div key={`card:${k.key}`} className={styles.card} data-x={k.frame.x} data-y={k.frame.y} data-w={k.frame.width} data-h={k.frame.height} /> : null,
-          <button
+          <div
             key={`name:${k.key}`}
-            type="button"
             className={styles.band}
             data-on={on || undefined}
             data-x={k.frame.x}
@@ -170,19 +196,18 @@ export function BoardLabels() {
             data-grow={2 * CARD_PAD}
             data-dx={-CARD_PAD}
             data-above={0}
-            onClick={() => selectAll(k)}
             data-grid-name={k.formatId}
           >
             <span className={styles.name}>{k.name}</span>
-          </button>,
-          ...k.ring.map((r, i) => <div key={`ring:${k.key}:${i}`} className={styles.ground} data-x={r.x} data-y={r.y} data-w={r.w} data-h={r.h} onClick={() => selectAll(k)} />),
-          ...k.empty.map((r, i) => <div key={`empty:${k.key}:${i}`} className={styles.ground} data-x={r.x} data-y={r.y} data-w={r.w} data-h={r.h} onClick={() => selectAll(k)} />),
+          </div>,
+          ...k.ring.map((r, i) => <div key={`ring:${k.key}:${i}`} className={styles.ground} data-x={r.x} data-y={r.y} data-w={r.w} data-h={r.h} />),
+          ...k.empty.map((r, i) => <div key={`empty:${k.key}:${i}`} className={styles.ground} data-x={r.x} data-y={r.y} data-w={r.w} data-h={r.h} />),
           write ? (
-            <button key={`add:${k.key}`} type="button" className={styles.place} data-x={k.place.x} data-y={k.place.y} data-w={k.place.w} data-h={k.place.h} aria-label={t("New {format}", { format: k.name })} title={t("New {format}", { format: k.name })} onClick={() => add(k)} data-board-add={k.formatId}>
+            <div key={`add:${k.key}`} className={styles.place} data-x={k.place.x} data-y={k.place.y} data-w={k.place.w} data-h={k.place.h} data-on={on || undefined} aria-label={t("New {format}", { format: k.name })} data-board-add={k.formatId}>
               <svg viewBox="0 0 100 100" className={styles.plus} aria-hidden="true">
                 <path d="M50 30v40M30 50h40" />
               </svg>
-            </button>
+            </div>
           ) : null,
         ];
       })}
