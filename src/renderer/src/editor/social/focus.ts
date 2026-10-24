@@ -159,6 +159,16 @@ export function viewOf(ed: EditorController, post: PostRow): View {
   return { x: post.x + post.width / 2 - ASSET_COLUMN / 2 / zoom, y: post.y + post.height / 2, zoom };
 }
 
+/** The grid view's view of one post clicked (§26): it fits what the panels leave, room kept for its toolbar over it. */
+export function postView(ed: EditorController, post: PostRow): View {
+  const view = document.querySelector<HTMLElement>("[data-canvas-view]")?.getBoundingClientRect();
+  const w = Math.max(200, (view?.width ?? 1200) - 160);
+  // Room for its toolbar over it and the canvas toolbar under it
+  const h = Math.max(200, (view?.height ?? 800) - 300);
+  const zoom = Math.min(w / Math.max(1, post.width), h / Math.max(1, post.height), 2);
+  return { x: post.x + post.width / 2, y: post.y + post.height / 2, zoom };
+}
+
 /** The view that fits the whole board (every section) in what the panels leave, at most 1. */
 export function boardView(ed: EditorController): View | null {
   const posts = socialOf(ed).get().posts;

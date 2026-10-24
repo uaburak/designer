@@ -719,3 +719,25 @@ TEST_CASE("board drag: a press on a post's background with layers in it takes th
   CHECK(world(e, P0).x == doctest::Approx(108));
   CHECK(world(e, P1).x == doctest::Approx(0));
 }
+
+TEST_CASE("grid view (docs/social.md §26): a click on a post's layer takes the post; a double-click goes in") {
+  auto nodes = baseChanges();
+  const Guid P0{2, 1}, R{2, 9};
+  nodes.push_back(make(P0, NodeType::FRAME, kPage, "!", {0, 0, 100, 100}, "P0"));
+  nodes.push_back(make(R, NodeType::ROUNDED_RECTANGLE, P0, "!", {10, 10, 40, 40}, "R"));
+  Editor e = load(nodes);
+  e.setViewOptions(e.viewOptions() | Editor::VIEW_ASSET_CHROME);
+  down(e, 20, 20);
+  up(e, 20, 20);
+  CHECK(e.selection() == std::vector<Guid>{P0});
+  // The second press of a double-click: the layer
+  e.pointer(PointerEvent::DOWN, 20, 20, 0, 1, 0, 2);
+  e.pointer(PointerEvent::UP, 20, 20, 0, 0, 0, 2);
+  CHECK(e.selection() == std::vector<Guid>{R});
+  // Off (a Design file): Figma's own pick — a top-level frame's layer at once
+  e.setViewOptions(e.viewOptions() & ~Editor::VIEW_ASSET_CHROME);
+  e.setSelection({});
+  down(e, 20, 20);
+  up(e, 20, 20);
+  CHECK(e.selection() == std::vector<Guid>{R});
+}

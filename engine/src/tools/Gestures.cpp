@@ -1293,6 +1293,15 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
   // A single click picks at the selection's depth (a click inside a selected layer picks it again); the second press
   // of a double-click goes one level down (live Figma, docs/research/figma/live/behaviour/selection.md).
   pressed_ = pick(doc_, path, selection_, deep, clickCount_ >= 2, shift && clickCount_ < 2);
+  // A Social file's grid view (docs/social.md §26, Buzz's): a click on a post takes the post, not a layer in it — a
+  // double-click goes in (or ⌘, or a click while something in that post is selected).
+  if ((viewOptions_ & VIEW_ASSET_CHROME) && dev_.focus == kNoGuid && pressed_ != kNoGuid && !deep && clickCount_ < 2 && !path.empty()) {
+    const size_t top = topLevelIndex(doc_, path);
+    const Guid post = top < path.size() ? path[top] : kNoGuid;
+    bool inside = false;
+    for (Guid sel : selection_) inside |= sel == post || doc_.isAncestor(post, sel);
+    if (post != kNoGuid && post != pressed_ && doc_.parentOf(post) == page_ && !inside) pressed_ = post;
+  }
   pressMarquee_ = false;
   pressInSelected_ = false;
   pressNoop_ = false;

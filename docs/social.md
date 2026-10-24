@@ -769,3 +769,10 @@ The owner's capture (a post dropped into the next post, its chrome a child frame
 - **Drawn over the others while dragged** (owner, 2026-10-25: "as auto layout's — the one I move shows on top"): the dragged post is the engine's lifted layer (`Overlay.lifted`, as a flow's), it doesn't snap (no red guides: the cells place it), and the container's black between the posts and the post toolbar hide until the drop (they are DOM over the canvas and would cross it).
 - **The chrome takes no pointer** (owner, 2026-10-25: "on the + and on the black, I can't scroll or pan"): the container's black, its name and the "+" cell are drawn with no pointer events — the canvas pans, scrolls and zooms through them — and their clicks are read off the canvas's own (a press and release within 4 px with the Move tool: over the "+" a new post, over the black or the name the grid's posts). The "+" cell's dash is faint (the border colour), brighter while its container is hovered.
 
+## 26. A click on a post brings it in (owner, 2026-10-25)
+
+"When I click a post — the frame in the section — it centres on screen with an animation, zoomed in, and the Design panel opens."
+
+- **The post, not its layer:** in the grid view a first click anywhere on a post takes the post itself (engine pick: the top-level design under the pointer unless something in it is selected; ⌘ or a double-click goes in, as Figma's groups). A Design file keeps Figma's pick (a top-level frame's layer at once). Native test.
+- **The glide:** a click (press and release within 4 px, the Move tool) that selects a post glides the camera to it (`postView`: it fits what the panels leave, room for its toolbar over it and the canvas toolbar under it; 320 ms ease-out, `glide`) and the right panel shows its Design tab (`socialPanelTab` "design"). Selecting from the agent or the panels doesn't move the camera; a drag reorders (§25).
+

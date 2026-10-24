@@ -18,7 +18,7 @@ import { applySelection } from "../agents/mcpTools";
 import { layoutOf } from "./arrange";
 import { BOARD, type GridBox } from "./board";
 import { canWritePosts, editorWriter, newPost } from "./actions";
-import { useFocusedPost } from "./focus";
+import { glide, postView, useFocusedPost } from "./focus";
 import { useSocialBoard } from "./socialState";
 import styles from "./BoardLabels.module.css";
 
@@ -161,13 +161,24 @@ export function BoardLabels() {
       const wx = (sx - cam.x) / cam.zoom;
       const wy = (sy - cam.y) / cam.zoom;
       const inBox = (r: Box) => wx >= r.x && wx <= r.x + r.w && wy >= r.y && wy <= r.y + r.h;
+      // (After the canvas's own release, which ends its click: a timer, not a microtask — those run between listeners.)
+      const after = (run: () => void) => void setTimeout(() => !ed.engine.destroyed && run(), 0);
       for (const k of containers) {
-        if (canWritePosts(ed) && inBox(k.place)) return void queueMicrotask(() => add(k));
+        if (canWritePosts(ed) && inBox(k.place)) return after(() => add(k));
         const y0 = k.frame.y * cam.zoom + cam.y;
         const x0 = k.frame.x * cam.zoom + cam.x;
         const band = sy >= y0 - CARD_BAND && sy < y0 && sx >= x0 - CARD_PAD && sx <= x0 + k.frame.width * cam.zoom + CARD_PAD;
-        if (band || k.ring.some(inBox) || k.empty.some(inBox)) return void queueMicrotask(() => applySelection(ed, k.ids, false));
+        if (band || k.ring.some(inBox) || k.empty.some(inBox)) return after(() => applySelection(ed, k.ids, false));
       }
+      // A click on a post (the post itself selected, docs/social.md §26): the camera glides to it, its Design panel on.
+      const hit = board.posts.find((p) => wx >= p.x && wx <= p.x + p.width && wy >= p.y && wy <= p.y + p.height);
+      if (hit)
+        after(() => {
+          const sel = ed.store.selection.refs;
+          if (sel.length !== 1 || sel[0] !== hit.id) return;
+          ed.ui.set({ socialPanelTab: "design" });
+          glide(ed, postView(ed, hit));
+        });
     };
     window.addEventListener("pointermove", move, true);
     window.addEventListener("pointerdown", down, true);
@@ -177,7 +188,7 @@ export function BoardLabels() {
       window.removeEventListener("pointerdown", down, true);
       window.removeEventListener("pointerup", up, true);
     };
-  }, [ed, containers, focus]);
+  }, [ed, containers, focus, board]);
   if (!containers.length || focus) return null;
   const write = canWritePosts(ed);
   return (
