@@ -15,8 +15,15 @@ import { categoriesOf, encodeCategories, encodeNotes, notesOf, type AnnotationDa
 export type Mode = "design" | "dev" | "draw" | "social" | "motion";
 
 export const modeOf = (ed: EditorController): Mode => ed.ui.get().mode ?? "design";
-/** A Social file (docs/social.md §18): it opens in Social and keeps it — no other mode, no mode switch. */
+/**
+ * A Social file (docs/social.md §18): it opens in Social; its mode switch is Design · Social · Motion (§23 — Design and
+ * Motion as a Design file's, the board's chrome off).
+ */
 export const isSocialFile = (ed: EditorController): boolean => ed.source?.editorType === "buzz";
+/** A Social file in Social: its board (arranged, Buzz's grid and asset views, docs/social.md §19–§23). */
+export const onBoard = (ed: EditorController): boolean => isSocialFile(ed) && modeOf(ed) === "social";
+/** The modes a Social file has (docs/social.md §23). */
+export const SOCIAL_FILE_MODES: readonly Mode[] = ["design", "social", "motion"];
 export const annotationsShown = (ed: EditorController): boolean => ed.ui.get().annotations ?? true;
 
 /** The engine's view of the mode and of View › Annotations. */
@@ -43,15 +50,18 @@ export function syncEngine(ed: EditorController): void {
 
 /**
  * Design ⇄ Dev Mode (⇧D, the toolbar's switch) ⇄ Draw ⇄ Social ⇄ Motion. Leaving Dev Mode leaves focus view. Social
- * opens on its Posts tab (its agent is the right panel, docs/social.md §6.2); leaving it, Posts gives way to File.
+ * opens on its Posts tab (a Social file's on its agent, docs/social.md §19); leaving it, Posts gives way to File. A
+ * Social file switches between Design, Social and Motion only (§18, §23; a Design file's switch has no Social).
  */
 export function setMode(ed: EditorController, mode: Mode): void {
-  if (modeOf(ed) === mode || (isSocialFile(ed) && mode !== "social")) return;
+  const social = isSocialFile(ed);
+  if (modeOf(ed) === mode || (social && !SOCIAL_FILE_MODES.includes(mode))) return;
   if (mode !== "dev" && ed.ui.get().focus) closeFocus(ed);
   // Leaving Motion stops the clock; entering it starts from the playhead as it was.
   const motion = mode === "motion" ? (ed.ui.get().motion ?? MOTION_UI_DEFAULT) : { ...(ed.ui.get().motion ?? MOTION_UI_DEFAULT), playing: false };
   const tab = ed.ui.get().railTab;
-  const railTab = mode === "social" ? "posts" : tab === "posts" || tab === "templates" ? "file" : tab;
+  // A Social file's Social opens on its agent (docs/social.md §19), keeping a Social tab it was on.
+  const railTab = mode === "social" ? (social ? (tab && tab !== "file" ? tab : "agents") : "posts") : tab === "posts" || tab === "templates" ? "file" : tab;
   ed.ui.set({ mode, motion, railTab, socialTimeline: false, statusMenu: null, annotationEditor: null, measurementEditor: null });
   syncEngine(ed);
   ed.focusCanvas();

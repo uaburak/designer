@@ -14,7 +14,8 @@ import { memoryDocumentSource } from "../documentSource";
 import { editorWriter, newPost } from "../social/actions";
 import { attachArranger, layoutOf } from "../social/arrange";
 import { BOARD, boardLayout } from "../social/board";
-import { focusedPost } from "../social/focus";
+import { focusedPost, postsInOrder, setSocialView, shownPost } from "../social/focus";
+import { setMode } from "../devmode/devMode";
 import { readBoard } from "../social/socialState";
 import { PointerType } from "@/engine/abi";
 import { IDENTITY } from "../agents/nodeSpec";
@@ -161,5 +162,34 @@ describe("a Social file's board (docs/social.md §19)", () => {
     await tick();
     expect(readBoard(ed, ed.store.page).posts.map((p) => p.id)).toEqual([a, b]);
     expect(at(ed, b)).toEqual(pb);
+  });
+
+  it("grid view and asset view (docs/social.md §23): a selected post isn't shown alone on the grid; the asset view shows the selection's post, else the last one, else the first", async () => {
+    const { ed } = await social();
+    const w = editorWriter(ed);
+    const a = newPost(ed, w, { formatId: "instagram.portrait" });
+    const b = newPost(ed, w, { formatId: "instagram.portrait" });
+    expect(postsInOrder(ed)).toEqual([a, b]);
+    ed.engine.setSelection([b]);
+    expect(focusedPost(ed)?.id).toBe(b);
+    expect(shownPost(ed)).toBeNull();
+    setSocialView(ed, "asset");
+    expect(shownPost(ed)).toBe(b);
+    ed.ui.set({ socialAsset: b });
+    ed.engine.setSelection([]);
+    expect(shownPost(ed)).toBe(b);
+    ed.ui.set({ socialAsset: null });
+    expect(shownPost(ed)).toBe(a);
+    // Out of Social (Design, Motion): no asset view, the board isn't arranged
+    setMode(ed, "design");
+    expect(shownPost(ed)).toBeNull();
+    const t = ed.engine.readNode(b, { fields: ["transform"] })!.transform!;
+    ed.setProps([b], { transform: { ...t, m02: 99999, m12: 77 } }, "Move");
+    await tick();
+    expect(at(ed, b)).toEqual({ x: 99999, y: 77 });
+    // Back in Social: arranged again
+    setMode(ed, "social");
+    await tick();
+    expect(at(ed, b)).not.toEqual({ x: 99999, y: 77 });
   });
 });

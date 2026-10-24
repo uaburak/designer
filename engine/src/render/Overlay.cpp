@@ -498,13 +498,15 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     bool rounded = ownShape && n->props.isRectLike();
     outline(m, {lb.w, lb.h}, kind, rounded ? geom::clampRadii(n->props.size, n->props.cornerRadii) : kSquare, weight, color);
   };
-  // A Social file's post (docs/social.md §22, Buzz): a template's — a component, set or instance — pink (its
-  // guidelines on), another blue; none for a layer that isn't a design on the page.
+  // A Social file's post (docs/social.md §22, §23 — Buzz's asset): the selection blue; none for a layer that isn't a
+  // design on the page.
   auto assetInk = [&](Guid id) -> const Color* {
     const Node* n = doc.get(id);
     if (!overlay.assetChrome || !n || doc.parentOf(id) != page || !n->props.isFrameLike() || n->props.type == NodeType::SECTION) return nullptr;
-    return inComponentChrome(doc, id) ? &style.spacing : &blue;
+    return &blue;
   };
+  // The grid view (no design in focus): a hovered or selected post sits on its card instead of an outline.
+  const bool assetCards = overlay.assetChrome && overlay.dev.focus == kNoGuid;
 
   // The pixel grid (View › Pixel grid): a line on every whole canvas unit from 300 % zoom (faint at 300 %, full from
   // 400 %: live Figma), under the other overlays. Group 1 (G6): faint means barely there — live's 300 % and the
@@ -643,6 +645,27 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
   // (render/FrameTitles.cpp: the same boxes the editor hit-tests).
   // Prototype mode: flow starting point labels (before the titles: a title moves right past its frame's label).
   if (overlay.prototype.on) drawPrototypeLabels(doc, camera, overlay, style);
+  // A Social file's grid view (docs/social.md §23, Figma Buzz's): a hovered or selected post on a card — its tint round
+  // the post and a band over it that the post's name sits in — drawn round the post (the board is blank there).
+  std::vector<Guid> carded;
+  if (assetCards) {
+    for (Guid a : overlay.assets) carded.push_back(a);
+    for (Guid h : overlay.hover)
+      if (assetInk(h) && std::find(carded.begin(), carded.end(), h) == carded.end()) carded.push_back(h);
+    const double p = style.assetCardPad, band = style.assetCardBand, r = style.assetCardRadius;
+    const Color& c = style.assetCard;
+    for (Guid a : carded) {
+      const Node* an = doc.get(a);
+      if (!an) continue;
+      Rect b = transformedBounds(view * doc.worldTransform(a), an->props.size.x, an->props.size.y);
+      auto snap = [&](double v) { return std::round(v * dpr) / dpr; };
+      double x0 = snap(b.x), y0 = snap(b.y), x1 = snap(b.right()), y1 = snap(b.bottom());
+      emit(makeShape(Mat2x3::translate(x0 - p, y0 - band), {x1 - x0 + 2 * p, band}, ShapeKind::Rect, {r, r, 0, 0}, c, 1, c, 0, 0, 0), Pass::Shape);
+      emit(makeShape(Mat2x3::translate(x0 - p, y1), {x1 - x0 + 2 * p, p}, ShapeKind::Rect, {0, 0, r, r}, c, 1, c, 0, 0, 0), Pass::Shape);
+      emit(makeShape(Mat2x3::translate(x0 - p, y0), {p, y1 - y0}, ShapeKind::Rect, kSquare, c, 1, c, 0, 0, 0), Pass::Shape);
+      emit(makeShape(Mat2x3::translate(x1, y0), {p, y1 - y0}, ShapeKind::Rect, kSquare, c, 1, c, 0, 0, 0), Pass::Shape);
+    }
+  }
   if (overlay.frameTitles && page != kNoGuid) {
     // The title colours follow the page's background (Figma: light text on a dark canvas), not the UI theme.
     const bool darkPage = style.darkCanvas;
@@ -692,7 +715,7 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       // Components' and instances' names in the component purple, after Figma's icon; a selected or hovered frame's
       // in the selection's text colour (round 17, the owner's live 68–70.png: grey `#828282` on the dark canvas, the
       // pointer on the frame or its name `#7bc4f8`, as selected); others grey.
-      Color ink = n->props.isComponentish() ? componentText : isSelected || hovered ? selectedText : grey;
+      Color ink = n->props.isComponentish() && !assetInk(t.id) ? componentText : isSelected || hovered ? selectedText : grey;
       // A turned frame's name lies along its edge, turned with it (t.place; FrameTitles.h labelFrame): label-local
       // coordinates, snapped to device pixels only when upright.
       auto snap = [&](double v) { return t.upright ? std::round(v * dpr) / dpr : v; };
@@ -937,7 +960,12 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       dashedBox(screenBox(view * doc.worldTransform(h) * Mat2x3::translate(lb.x, lb.y), {lb.w, lb.h}, dpr), style.component);
       continue;
     }
-    nodeOutline(h, style.hoverWidth, true, assetInk(h));
+    // A Social file's post: its card (the grid view, drawn above) or its asset view outline.
+    if (assetInk(h)) {
+      if (!assetCards) nodeOutline(h, style.assetWidth, false, assetInk(h));
+      continue;
+    }
+    nodeOutline(h, style.hoverWidth, true);
     const NodeProps& hp = hn->props;
     // Group 1 (C 9 #1, the owner's components15/figma-instance-child-hover.png): a hovered instance also dots its inner
     // auto-layout frames' boxes in the component purple — not a Social file's post (Buzz's asset: its outline alone).
@@ -1025,9 +1053,11 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
         drawGlyphs(*L, lf.place * Mat2x3::translate(bx + (bw - tw) / 2, snap(by + (bh - L->lines[0].height) / 2)), white, 1);
     }
   }
-  // A Social file's selected posts: each one's outline, `assetWidth` (Buzz's selected asset), nothing else.
-  for (Guid a : overlay.assets)
-    if (const Color* ink = assetInk(a)) nodeOutline(a, style.assetWidth, false, ink);
+  // A Social file's selected posts: their cards (the grid view, under the titles) or, in the asset view, the post's
+  // outline (Buzz's), nothing else.
+  if (!assetCards)
+    for (Guid a : overlay.assets)
+      if (const Color* ink = assetInk(a)) nodeOutline(a, style.assetWidth, false, ink);
   SelectionBox box = groups.size() > 1 ? SelectionBox{} : selectionBox(doc, overlay.selection);
   if (box.valid && overlay.selectionBox) {
     const Color& blue = blueSel;

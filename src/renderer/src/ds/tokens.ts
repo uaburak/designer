@@ -627,6 +627,7 @@ export const CHROME_COLORS = [
   "statusProcess",
   "statusRevised",
   "statusCancelled",
+  "assetCard",
 ] as const;
 
 export type ChromeColorName = (typeof CHROME_COLORS)[number];
@@ -706,6 +707,9 @@ export const canvasChrome: Record<ChromeColorName, Pair> = {
   statusProcess: ["#f24822", "#e03e1a"],
   statusRevised: ["#9747ff", "#8a38f5"],
   statusCancelled: ["#d9d9d9", "#757575"],
+  // A Social file's grid view (docs/social.md §23): the card a hovered or selected post sits on — Figma Buzz's, sampled
+  // #4b5878 on the owner's dark captures (Figma's bg-selected); light: bg-selected's #e5f4ff [unverified].
+  assetCard: ["#e5f4ff", "#4b5878"],
 };
 
 /** Chrome metrics in CSS px at any zoom (§1.4). */

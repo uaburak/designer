@@ -1,17 +1,42 @@
 /**
- * A Social file's focus view (docs/social.md §19): when the selection is one post or lies inside one, that post is in
- * focus — the camera glides from the board to it (centred in what the panels leave, 320 ms, ease-out; a jump with
- * Reduce motion on), the other posts dim, the right panel is the post's Design panel. When the selection empties (a
- * click on the board's blank, Esc up to nothing) the camera glides back to where the board was. Two posts or more
- * selected: no focus (the bulk panel). Only the camera moves: nothing is written, no undo step.
+ * A Social file's two views (docs/social.md §19, §23 — Figma Buzz's grid view and asset view). Grid view: the board,
+ * a click selects a post (no camera move). Asset view: one post shown — the selection's post, else the last one shown,
+ * else the board's first — the camera gliding to it (centred in what the panels and the posts column leave, 320 ms,
+ * ease-out; a jump with Reduce motion on) and back to the board's view when the grid view returns. Only the camera
+ * moves: nothing is written, no undo step.
  */
 import { useEffect, useSyncExternalStore } from "react";
 import type { Guid } from "@/engine/codec";
 import { glideMs } from "@/ds";
 import type { EditorController } from "../controller";
-import { isSocialFile } from "../devmode/devMode";
+import { onBoard } from "../devmode/devMode";
 import { BOARD } from "./board";
+import { layoutOf } from "./arrange";
 import { socialOf, type PostRow } from "./socialState";
+
+/** The asset view's column of posts at the canvas's left (FocusChrome.module.css), CSS px */
+export const ASSET_COLUMN = 72;
+
+/** The board's posts in reading order: sections, their grids, each grid's posts (the asset view's column). */
+export function postsInOrder(ed: EditorController): Guid[] {
+  return layoutOf(ed).sections.flatMap((s) => s.grids.flatMap((g) => g.ids));
+}
+
+/** The view of a Social file's board: grid (Buzz's default) or asset. */
+export const socialView = (ed: EditorController): "grid" | "asset" => (ed.ui.get().socialView === "asset" ? "asset" : "grid");
+
+/**
+ * The post the asset view shows: the selection's post, else the last one shown, else the board's first; null in the
+ * grid view, out of Social, or with no posts.
+ */
+export function shownPost(ed: EditorController): Guid | null {
+  if (!onBoard(ed) || socialView(ed) !== "asset") return null;
+  const selected = focusedPost(ed)?.id;
+  if (selected) return selected;
+  const kept = ed.ui.get().socialAsset;
+  if (kept && socialOf(ed).post(kept)) return kept;
+  return postsInOrder(ed)[0] ?? null;
+}
 
 /** The post the selection is (or is inside of): null for none, several posts, or layers outside a post. */
 export function focusedPost(ed: EditorController): PostRow | null {
@@ -41,7 +66,7 @@ function postOf(ed: EditorController, id: Guid, posts: ReadonlyMap<Guid, PostRow
   return null;
 }
 
-/** The selection's focused post id, re-rendering when it changes (none while picking posts with ⇧ / ⌘). */
+/** The asset view's post (shownPost), re-rendering when it changes. */
 export function useFocusedPost(ed: EditorController): Guid | null {
   return useSyncExternalStore(
     (on) => {
@@ -54,21 +79,30 @@ export function useFocusedPost(ed: EditorController): Guid | null {
         c();
       };
     },
-    () => (isSocialFile(ed) && !ed.ui.get().socialPicking ? (focusedPost(ed)?.id ?? null) : null),
+    () => shownPost(ed),
   );
 }
 
-/**
- * Picking several posts on the board: a click with ⇧ or ⌘ (Ctrl) selects without opening the focus view (the camera
- * stays, so the next ⇧-click lands on the post under it); a plain click opens again. Returns its removal.
- */
-export function attachPicking(ed: EditorController, area: HTMLElement): () => void {
-  const down = (e: PointerEvent) => {
-    if (!isSocialFile(ed) || e.button !== 0) return;
-    ed.ui.set({ socialPicking: e.shiftKey || e.metaKey || e.ctrlKey });
-  };
-  area.addEventListener("pointerdown", down, true);
-  return () => area.removeEventListener("pointerdown", down, true);
+/** The selection's post (focusedPost), re-rendering when it changes: the right panel's post in either view. */
+export function useSelectionPost(ed: EditorController): Guid | null {
+  return useSyncExternalStore(
+    (on) => {
+      const a = ed.store.subscribe("selection", on);
+      const b = socialOf(ed).subscribe(on);
+      return () => {
+        a();
+        b();
+      };
+    },
+    () => focusedPost(ed)?.id ?? null,
+  );
+}
+
+/** Grid view ⇄ asset view (the rail's two buttons, docs/social.md §23). */
+export function setSocialView(ed: EditorController, view: "grid" | "asset"): void {
+  if (socialView(ed) === view) return;
+  ed.ui.set({ socialView: view });
+  ed.focusCanvas();
 }
 
 type View = { x: number; y: number; zoom: number };
@@ -115,13 +149,14 @@ export function glide(ed: EditorController, to: View, ms = 320, done?: () => voi
   };
 }
 
-/** The view that fits a post in what the panels leave (with a margin for the focus bar and the strip). */
+/** The view that fits a post in what the panels and the asset view's column leave (a margin for its toolbar). */
 export function viewOf(ed: EditorController, post: PostRow): View {
   const view = document.querySelector<HTMLElement>("[data-canvas-view]")?.getBoundingClientRect();
-  const w = Math.max(200, (view?.width ?? 1200) - 160);
-  const h = Math.max(200, (view?.height ?? 800) - 260);
+  const w = Math.max(200, (view?.width ?? 1200) - ASSET_COLUMN - 120);
+  const h = Math.max(200, (view?.height ?? 800) - 200);
   const zoom = Math.min(w / Math.max(1, post.width), h / Math.max(1, post.height), 2);
-  return { x: post.x + post.width / 2, y: post.y + post.height / 2, zoom };
+  // Centred right of the column: the view's centre half a column left of the post's
+  return { x: post.x + post.width / 2 - ASSET_COLUMN / 2 / zoom, y: post.y + post.height / 2, zoom };
 }
 
 /** The view that fits the whole board (every section) in what the panels leave, at most 1. */
@@ -150,12 +185,22 @@ function shows(ed: EditorController, v: View, post: PostRow): boolean {
 }
 
 /**
- * Drives the camera of a Social file's focus view: into a post when the selection focuses one (from the board: the
- * board's view kept), from post to post (a glide across), back to the kept view when the focus ends.
+ * Drives the camera of a Social file's asset view: into its post (from the board: the board's view kept), from post to
+ * post (a glide across), back to the kept view when the grid view returns. Unmounted (out of Social), the engine shows
+ * every design again.
  */
 export function useFocusCamera(ed: EditorController, focus: Guid | null): void {
+  useEffect(
+    () => () => {
+      cameraState.get(ed)?.stop();
+      cameraState.delete(ed);
+      if (!ed.engine.destroyed) ed.engine.setFocus(null);
+    },
+    [ed],
+  );
   useEffect(() => {
-    if (!isSocialFile(ed)) return;
+    if (!onBoard(ed)) return;
+    if (focus && ed.ui.get().socialAsset !== focus) ed.ui.set({ socialAsset: focus });
     const state = cameraState.get(ed) ?? { focus: null as Guid | null, board: null as View | null, stop: () => {} };
     cameraState.set(ed, state);
     if (focus === state.focus) return;

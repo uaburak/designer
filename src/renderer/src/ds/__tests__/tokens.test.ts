@@ -93,7 +93,7 @@ describe("themes", () => {
 });
 
 describe("the canvas chrome palette (engine ABI)", () => {
-  it("keeps its 48 colours in their frozen order (append only)", () => {
+  it("keeps its colours in their frozen order (append only)", () => {
     expect(CHROME_COLORS).toEqual([
       "selection", "handleFill", "handleStroke", "hover", "component", "sizeBadgeFill", "sizeBadgeText", "frameTitleOnLight", "frameTitleOnDark",
       "measure", "measureText", "snapGuide", "spacingGuide", "layoutGapFill", "layoutGapStroke", "marqueeFill", "marqueeStroke", "rulerBg",
@@ -109,6 +109,8 @@ describe("the canvas chrome palette (engine ABI)", () => {
       "prototypeNoodleChangeTo", "prototypeChangeToLabelText",
       // Frame status (ours): the owner's statuses' chips in the frame title.
       "statusDone", "statusRToMerge", "statusToBeDone", "statusProcess", "statusRevised", "statusCancelled",
+      // A Social file's grid view (docs/social.md §23): a hovered or selected post's card.
+      "assetCard",
     ]);
   });
 
@@ -152,7 +154,7 @@ describe("generated artefacts", () => {
     expect(boot).toContain('tabbar: ["#e6e6e6","#3b3b3b"]');
     expect(boot).toContain('localStorage.getItem("designer-theme")');
     const header = renderChromeHeader();
-    expect(header).toContain("StatusCancelled = 50, Count");
+    expect(header).toContain("AssetCard = 51, Count");
     expect(header.match(/\/\/ selection/g)).toHaveLength(2);
   });
 

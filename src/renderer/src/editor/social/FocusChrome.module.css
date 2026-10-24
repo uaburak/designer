@@ -1,25 +1,49 @@
 @layer app {
-  /* The focus view (docs/social.md §19, §20) [metrics ours] */
-  /* The bar over the visible canvas's top, centred and only as wide as it needs (§21: kept small, as Buzz's) */
-  .bar {
-    position: absolute; top: var(--ds-space-3); left: 50%; z-index: var(--ds-z-base); transform: translateX(-50%);
-    display: flex; align-items: center; gap: var(--ds-space-1); max-width: calc(100% - 2 * var(--ds-space-3)); padding: var(--ds-space-1);
-    border-radius: var(--ds-radius-large); background: var(--figma-color-bg); box-shadow: var(--ds-elevation-200);
+  /* A Social file's views (docs/social.md §23: Figma Buzz's, the owner's captures at 2×) [metrics ours] */
+  /* The asset view's column of posts along the canvas's left edge */
+  .column {
+    position: absolute; top: 0; bottom: 0; left: 0; z-index: var(--ds-z-base);
+    display: flex; flex-direction: column; align-items: center; gap: var(--ds-space-2); box-sizing: border-box;
+    width: 72px; padding: var(--ds-space-3) 0;
+    border-right: 1px solid var(--figma-color-border); background: var(--figma-color-bg);
   }
-  .sep { align-self: stretch; width: 1px; margin: var(--ds-space-1) var(--ds-space-1); background: var(--figma-color-border); }
-  .name { min-width: 0; overflow: hidden; padding: 0 var(--ds-space-1); color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); text-overflow: ellipsis; white-space: nowrap; }
-  .place { color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); white-space: nowrap; }
-  /* The grid's posts along the bottom, over the toolbar */
-  .strip {
-    position: absolute; bottom: calc(var(--ds-size-toolbar) + var(--ds-space-6)); left: 50%; z-index: var(--ds-z-base); transform: translateX(-50%);
-    display: flex; gap: var(--ds-space-1-5); max-width: calc(100% - 2 * var(--ds-space-6)); padding: var(--ds-space-1-5); overflow-x: auto;
-    border-radius: var(--ds-radius-large); background: var(--figma-color-bg); box-shadow: var(--ds-elevation-200);
+  .add {
+    display: flex; flex: none; align-items: center; justify-content: center; box-sizing: border-box;
+    width: 48px; height: 48px; padding: 0; border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg); color: var(--figma-color-icon);
   }
+  .add:hover { background: var(--figma-color-bg-hover); }
+  .list { display: flex; flex: 1 1 auto; flex-direction: column; align-items: center; gap: var(--ds-space-2); width: 100%; min-height: 0; overflow-y: auto; }
   .cell {
-    display: flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-social-strip-cell); height: var(--ds-size-social-strip-cell-height); padding: 0;
-    border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-small); background: var(--figma-color-bg-secondary); cursor: default;
+    display: flex; flex: none; align-items: center; justify-content: center; box-sizing: border-box;
+    width: 52px; height: 64px; padding: var(--ds-space-1); border: 2px solid transparent; border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary); cursor: default;
   }
-  .cell[aria-selected="true"] { border: 2px solid var(--figma-color-border-selected); }
+  .cell:hover { border-color: var(--figma-color-border); }
+  .cell[aria-selected="true"] { border-color: var(--figma-color-border-selected); }
   .cell:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .cell canvas { max-width: 100%; max-height: 100%; }
+  /* The selected post's toolbar, over its card */
+  .toolbar {
+    position: absolute; top: 0; left: 0; z-index: var(--ds-z-base); will-change: transform;
+    display: flex; align-items: center; gap: var(--ds-space-1); padding: var(--ds-space-1);
+    border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-large); background: var(--figma-color-bg); box-shadow: var(--ds-elevation-200);
+    white-space: nowrap;
+  }
+  .format {
+    display: flex; align-items: center; gap: var(--ds-space-1); box-sizing: border-box;
+    height: var(--ds-size-control); padding: 0 var(--ds-space-1) 0 var(--ds-space-2);
+    border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg); color: var(--figma-color-text); font: var(--ds-font-body-medium);
+  }
+  .format:hover { background: var(--figma-color-bg-hover); }
+  .formatName { min-width: 120px; text-align: left; }
+  .sep { align-self: stretch; width: 1px; margin: 0 var(--ds-space-1); background: var(--figma-color-border); }
+  .edit {
+    display: flex; align-items: center; gap: var(--ds-space-1); box-sizing: border-box;
+    height: var(--ds-size-control); padding: 0 var(--ds-space-2) 0 var(--ds-space-1); border: 0; border-radius: var(--ds-radius-medium);
+    background: transparent; color: var(--figma-color-text); font: var(--ds-font-body-medium);
+  }
+  .edit:hover { background: var(--figma-color-bg-hover); }
+  .edit:focus-visible, .format:focus-visible, .add:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
 }

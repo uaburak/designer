@@ -52,7 +52,7 @@ async function setup(view: () => ReturnType<typeof createElement>, editorType: "
 }
 
 describe("Social mode's chrome (round 18a)", () => {
-  it("a Social file opens in Social with its agent on the left; the right panel follows the selection; it keeps Social; a Design file has none", async () => {
+  it("a Social file opens in Social with its agent on the left; the right panel follows the selection; Design and Motion beside it; a Design file has none", async () => {
     const { ed } = await setup(() => createElement("div", null, createElement(LeftSide), createElement(RightSide)));
     expect(ed.ui.get().mode).toBe("social");
     // The agent is the left panel's first tab (docs/social.md §19)
@@ -82,9 +82,16 @@ describe("Social mode's chrome (round 18a)", () => {
     await act(async () => ed.engine.setSelection([]));
     expect($("[data-social-right]")?.getAttribute("data-social-right")).toBe("board");
 
-    // No other mode: Dev Mode, Draw and Motion can't be entered.
-    for (const id of ["view.dev-mode", "view.switch-to-draw", "view.switch-to-motion"]) expect(runEditorCommand(ed, id)).toBe(false);
+    // Its modes are Design, Social and Motion (docs/social.md §23): no Dev Mode or Draw.
+    for (const id of ["view.dev-mode", "view.switch-to-draw"]) expect(runEditorCommand(ed, id)).toBe(false);
+    act(() => setMode(ed, "dev"));
+    expect(ed.ui.get().mode).toBe("social");
     act(() => setMode(ed, "design"));
+    expect(ed.ui.get().mode).toBe("design");
+    act(() => void runEditorCommand(ed, "view.switch-to-motion"));
+    expect(ed.ui.get().mode).toBe("motion");
+    // Motion again: back to Social
+    act(() => void runEditorCommand(ed, "view.switch-to-motion"));
     expect(ed.ui.get().mode).toBe("social");
     m?.unmount();
 

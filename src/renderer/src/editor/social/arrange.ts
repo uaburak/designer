@@ -11,7 +11,7 @@
 import type { Guid } from "@/engine/codec";
 import { formatById, PLATFORMS, SOCIAL_FORMATS } from "@shared/social/formats";
 import type { EditorController } from "../controller";
-import { isSocialFile } from "../devmode/devMode";
+import { onBoard } from "../devmode/devMode";
 import { boardLayout, type BoardItem, type BoardLayout } from "./board";
 import { readBoard } from "./socialState";
 
@@ -30,7 +30,7 @@ export function layoutOf(ed: EditorController, page: Guid = ed.store.page): Boar
 
 /** Moves the current page's posts to their places, inside the write that is open; true when something moved. */
 export function arrangeNow(ed: EditorController): boolean {
-  if (!isSocialFile(ed) || ed.engine.destroyed) return false;
+  if (!onBoard(ed) || ed.engine.destroyed) return false;
   const page = ed.store.page;
   const posts = readBoard(ed, page).posts;
   if (!posts.length) return false;
@@ -57,7 +57,7 @@ export function arranged(ed: EditorController): boolean {
 }
 
 /**
- * Keeps a Social file's board arranged: writes arrange before they commit; a canvas edit by the user is followed by an
+ * Keeps a Social file's board arranged (in Social; Design and Motion leave the posts where they are, §23): writes arrange before they commit; a canvas edit by the user is followed by an
  * arrange folded into its step; opening a page arranges it as a step of its own (when something is out of place).
  */
 export function attachArranger(ed: EditorController): () => void {
@@ -66,7 +66,7 @@ export function attachArranger(ed: EditorController): () => void {
   let queued = false;
   const amend = () => {
     queued = false;
-    if (ed.engine.destroyed || !isSocialFile(ed) || arranged(ed)) return;
+    if (ed.engine.destroyed || !onBoard(ed) || arranged(ed)) return;
     if (ed.engine.txnBeginAmend("Arrange posts") !== 0) return;
     try {
       arrangeNow(ed);
@@ -82,13 +82,21 @@ export function attachArranger(ed: EditorController): () => void {
   const offDoc = ed.engine.on("DOCUMENT_CHANGED", (e) => {
     // The user's own edits on the canvas (the chrome's and the agents' writes arranged before committing); undo, redo,
     // other sessions and loads put back what was.
-    if (e.kind === "USER" && e.actor === undefined && e.label !== "Arrange posts" && isSocialFile(ed)) later();
+    if (e.kind === "USER" && e.actor === undefined && e.label !== "Arrange posts" && onBoard(ed)) later();
   });
-  const offPage = ed.store.subscribe("page", () => isSocialFile(ed) && later());
+  const offPage = ed.store.subscribe("page", () => onBoard(ed) && later());
+  // Back in Social from Design or Motion (docs/social.md §23), where the posts moved freely: the board again.
+  let wasOn = onBoard(ed);
+  const offMode = ed.ui.subscribe(() => {
+    const on = onBoard(ed);
+    if (on && !wasOn) later();
+    wasOn = on;
+  });
   later();
   return () => {
     offCommit();
     offDoc();
     offPage();
+    offMode();
   };
 }

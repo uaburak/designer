@@ -66,8 +66,8 @@ export function placePosts(posts: readonly PlacedPost[], campaignId: string | nu
  */
 export const BOARD = {
   columns: 3,
-  /** Between two posts of a grid, across and down */
-  gap: 200,
+  /** Between two posts of a grid, across and down (room for the name over a post, on its card: Buzz's grid view) */
+  gap: 320,
   /** Between two grids of a section */
   gridGap: 480,
   /** Between two sections */

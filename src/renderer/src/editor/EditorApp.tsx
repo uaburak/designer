@@ -69,7 +69,7 @@ import { SocialLeftPanel } from "./social/SocialLeftPanel";
 import { SocialAgentPanel } from "./social/SocialAgentPanel";
 import { SocialTemplatesPanel } from "./social/SocialTemplatesPanel";
 import { BoardLabels } from "./social/BoardLabels";
-import { SocialFocus } from "./social/FocusChrome";
+import { PostToolbar, SocialFocus } from "./social/FocusChrome";
 import { SocialRightPanel } from "./social/SocialRightPanel";
 import { SafeAreaOverlay } from "./social/SafeAreaOverlay";
 import { ReviewPins } from "./social/ReviewPins";
@@ -103,7 +103,6 @@ import { CommentsLayer } from "./comments/CommentsLayer";
 import { InlinePreview } from "./InlinePreview";
 import { attachDevMode } from "./devmode/devMode";
 import { attachArranger } from "./social/arrange";
-import { attachPicking } from "./social/focus";
 import { DevLeftPanel, DevMeasurements, DevRightPanel } from "./devmode/DevPanels";
 import { AnnotationEditor } from "./devmode/AnnotationEditor";
 import { CategoriesDialog, FocusBar, MeasurementText, StatusMenu } from "./devmode/DevOverlays";
@@ -312,8 +311,6 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
       cleanups.push(attachDevMode(ed));
       // A Social file's board keeps itself laid out (docs/social.md §19).
       cleanups.push(attachArranger(ed));
-      // ⇧ / ⌘-clicks pick posts without opening the focus view (§19).
-      cleanups.push(attachPicking(ed, canvas));
       cleanups.push(attachRound5(ed));
       cleanups.push(attachExportAccess(ed));
       if (visibleRef.current) cleanups.push(attachViewInsets(engine, canvas, visibleRef.current));
@@ -480,6 +477,7 @@ export function CanvasLayers() {
     <>
       <ScreenReaderMirror />
       {social && <BoardLabels />}
+      {social && <PostToolbar />}
       {social && <SafeAreaOverlay />}
       {social && <ReviewPins />}
       <AgentImagePlaceholders />

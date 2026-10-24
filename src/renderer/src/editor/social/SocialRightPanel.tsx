@@ -25,7 +25,7 @@ import { runEditorCommand } from "../commands";
 import { canExport } from "../exporting";
 import { layoutOf } from "./arrange";
 import { BrandPicker } from "./BrandPicker";
-import { glide, useFocusedPost } from "./focus";
+import { glide, useSelectionPost } from "./focus";
 import { PostSection } from "./PostSection";
 import { askAgent, exportPostsDialog } from "./SocialMode";
 import { socialOf, useSocialBoard } from "./socialState";
@@ -60,7 +60,7 @@ export function SocialRightPanel() {
   useT();
   const ed = useEditor();
   const width = useUI((s) => s.socialRightWidth ?? SOCIAL_RIGHT_PANEL.width);
-  const focus = useFocusedPost(ed);
+  const focus = useSelectionPost(ed);
   const posts = useSelectedPostCount();
   const anything = useSyncExternalStore((on) => ed.store.subscribe("selection", on), () => ed.store.selection.refs.length > 0);
   const view = focus ? "design" : posts > 1 ? "bulk" : anything ? "design" : "board";

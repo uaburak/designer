@@ -23,7 +23,7 @@ import { isCustom } from "../shortcuts/keymap";
 import { useShortcutSettings } from "../shortcuts/prefs";
 import { useUI } from "../hooks";
 import { useStoreSlice } from "../uiStore";
-import { isSocialFile, setMode } from "../devmode/devMode";
+import { isSocialFile, setMode, SOCIAL_FILE_MODES } from "../devmode/devMode";
 import { FrameStepper } from "../devmode/FrameStepper";
 import type { VectorTool } from "../vectorEdit";
 import { ImageToolbar } from "../imageTools/ImageToolbar";
@@ -99,8 +99,8 @@ export function BottomToolbar() {
   const motion = useUI((s) => s.mode === "motion");
   const social = useUI((s) => s.mode === "social");
   const mode = dev ? "dev" : draw ? "draw" : motion ? "motion" : social ? "social" : "design";
-  // A Social file has no mode switch; a Design file's has no Social (docs/social.md §18).
-  const modes = isSocialFile(ed) ? SOCIAL_FILE_MODES : DESIGN_FILE_MODES;
+  // A Social file's switch: Design · Social · Motion; a Design file's has no Social (docs/social.md §18, §23).
+  const modes = isSocialFile(ed) ? (SOCIAL_FILE_MODES as EditorMode[]) : DESIGN_FILE_MODES;
   const [groups, setGroups] = useState<Partial<Record<ToolGroupId, ToolId>>>({});
   // A tool chosen by key is remembered in its slot too.
   if (groups[groupOf(tool, mode)] !== tool) setGroups({ ...groups, [groupOf(tool, mode)]: tool });
@@ -146,7 +146,7 @@ export function BottomToolbar() {
       actionsActive={actionsOpen}
       mode={mode}
       onMode={(m) => {
-        if (m === "dev" || m === "design") setMode(ed, m);
+        if (m === "dev" || m === "design" || m === "social") setMode(ed, m);
         else if (m === "draw") runEditorCommand(ed, "view.switch-to-draw");
         else runEditorCommand(ed, "view.switch-to-motion");
       }}
@@ -159,7 +159,6 @@ export function BottomToolbar() {
 }
 
 const DESIGN_FILE_MODES: EditorMode[] = ["draw", "design", "motion", "dev"];
-const SOCIAL_FILE_MODES: EditorMode[] = [];
 
 /** Live (toolbar/vector-edit-toolbar.txt): Move, Lasso │ Paint, Bend, Cut, Erase — glyph and name. */
 const VECTOR_TOOL_GROUPS: { id: VectorTool; label: string; icon: IconName }[][] = [

@@ -231,8 +231,10 @@ export interface UIState extends PreferenceFlags {
   socialPanelTab?: "design" | "post";
   /** The empty board's strip closed for this session (docs/social.md §19) */
   socialStarterClosed?: boolean;
-  /** A Social file's last click on the canvas had ⇧ / ⌘: picking posts, the focus view stays closed (docs/social.md §19) */
-  socialPicking?: boolean;
+  /** A Social file's board view (docs/social.md §23, Figma Buzz's): every post in its grids, or one post (default grid) */
+  socialView?: "grid" | "asset";
+  /** The asset view's post when nothing in one is selected (the last one shown) */
+  socialAsset?: string | null;
   /** Social: the selected post's timeline shows (MotionMode), and the engine's motion layer with it */
   socialTimeline?: boolean;
   /** Social: text put in the agent's composer from elsewhere (Ask agent…, the empty board's prompts); `id` tells repeats apart */

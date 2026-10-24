@@ -1439,6 +1439,7 @@ export const editor: Record<string, string> = {
   Board: "Pano",
   "Post in focus": "Odaktaki gönderi",
   "Previous post": "Önceki gönderi",
+  "Asset view": "Tekli görünüm",
   "Next post": "Sonraki gönderi",
   "{n} of {total}": "{n} / {total}",
   "Posts in this grid": "Bu griddeki gönderiler",

@@ -474,7 +474,7 @@ export const COMMANDS: EditorCommand[] = [
   tool("tool.annotation", "Annotation", "ANNOTATION", [k("KeyY"), k("KeyT", { shift: true })]),
   tool("tool.measurement", "Measurement", "MEASUREMENT", [k("KeyM", { shift: true })]),
   // ⇧D: Design ⇄ Dev Mode (help.figma.com 15023124644247).
-  // A Social file keeps Social: no other mode (docs/social.md §18).
+  // A Social file has Design, Social and Motion — no Dev Mode or Draw (docs/social.md §23).
   { ...ui("view.dev-mode", "Dev Mode", [k("KeyD", { shift: true })], (ed) => setMode(ed, modeOf(ed) === "dev" ? "design" : "dev"), (ed) => modeOf(ed) === "dev"), enabled: (ed) => !isSocialFile(ed) },
   tool("tool.hand", "Hand tool", "HAND", [k("KeyH")]),
   // ⌘K: the Actions palette (live toolbar/actions-panel.txt; panels/ActionsPanel.tsx).
@@ -623,11 +623,12 @@ export const COMMANDS: EditorCommand[] = [
     ed.setTool("MOVE");
   }, (ed) => modeOf(ed) === "draw"), enabled: (ed) => !isSocialFile(ed) },
   // Motion (docs/motion.md §6.1, §6.9): the mode switch's Motion segment, View › Switch to Motion (no shortcut [unverified]).
+  // A Social file has it too, back to Social (docs/social.md §23).
   { ...ui("view.switch-to-motion", "Switch to Motion", undefined, (ed) => {
-    if (modeOf(ed) === "motion") return setMode(ed, "design");
+    if (modeOf(ed) === "motion") return setMode(ed, isSocialFile(ed) ? "social" : "design");
     setMode(ed, "motion");
     ed.setTool("MOVE");
-  }, (ed) => modeOf(ed) === "motion"), enabled: (ed) => !isSocialFile(ed) },
+  }, (ed) => modeOf(ed) === "motion") },
   // Social (docs/social.md §6.6, ours) — a Social file's own mode, no switch to it (§18): New post opens the toolbar's
   // menu; Export campaign… opens Export… for the selected posts' campaigns (nothing selected: every post on the page, by
   // campaign; docs/social.md §8).

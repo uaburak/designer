@@ -111,7 +111,7 @@ std::vector<FrameTitle> frameTitles(const Document& doc, Guid page, const Mat2x3
           // the main component's "❖ Button").
           // The file's thumbnail shows Figma's thumbnail glyph before its name (a component's too: the glyph says more).
           t.icon = c == thumbnail                                             ? TitleIcon::Thumbnail
-                   : n->props.isComponentish()                                ? TitleIcon::Component
+                   : n->props.isComponentish() && !(assets && parent == page && n->props.type == NodeType::INSTANCE) ? TitleIcon::Component
                    : std::find(motion.begin(), motion.end(), c) != motion.end() ? TitleIcon::Motion
                                                                               : TitleIcon::None;
           double x = b.x;

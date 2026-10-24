@@ -16,6 +16,8 @@ import { useLibraries, useUI } from "../hooks";
 import { MAIN_MENU_WIDTH, mainMenu, runMenuItem } from "../menus";
 import type { RailTab } from "../uiStore";
 import { MissingFontsButton } from "./MissingFonts";
+import { isSocialFile } from "../devmode/devMode";
+import { setSocialView } from "../social/focus";
 import styles from "./Panels.module.css";
 import { isWebApp } from "@/app/webApp";
 import { t, useT } from "@/i18n";
@@ -106,6 +108,8 @@ export function Rail() {
   const ed = useEditor();
   const tab = useUI((s) => s.railTab);
   const social = useUI((s) => s.mode === "social");
+  const view = useUI((s) => s.socialView);
+  const socialFile = isSocialFile(ed);
   const dev = useUI((s) => s.mode === "dev");
   const devTab = useUI((s) => s.devTab);
   const labels = useUI(showsRailLabels);
@@ -136,6 +140,14 @@ export function Rail() {
           </>
         ) : (
           <>
+            {/* A Social file's two views, first as Buzz's (docs/social.md §23) */}
+            {socialFile && social && (
+              <>
+                <RailItem icon="24.view.asset" label={t("Asset view")} active={view === "asset"} data-social-view="asset" onClick={() => setSocialView(ed, "asset")} />
+                <RailItem icon="24.view.grid" label={t("Grid view")} active={view !== "asset"} data-social-view="grid" onClick={() => setSocialView(ed, "grid")} />
+                <RailSeparator />
+              </>
+            )}
             {railTabs(social).map((item) => (
               <RailItem
                 key={item.tab}
