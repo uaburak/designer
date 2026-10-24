@@ -758,3 +758,12 @@ The owner's capture (his MTM Agro posts in Figma Buzz) and words: "I explained i
 - **Spacing (owner, 2026-10-25: "make the black 0 on every side, 8 px between them"):** no padding (`BOARD.pad` 0) — the container is its posts' box —, 8 canvas px between posts across and down, the "+" cell included (`BOARD.gap` 8); the chrome fills the gaps with the container's black.
 - **One card shape (owner, 2026-10-25: "a small line there, and right opposite it — what is it?"):** the hover card was two pieces — the name's band (its own background) and the sides and bottom (a border on another element) — meeting at the band's bottom; on a fractional pixel the two anti-aliased edges left a dark hairline on both sides. Now the card is one shape (one border, 32 px on top, 8 px elsewhere, 8 px corners) and the band only carries the name.
 
+## 25. Posts move in their grid as in auto layout (owner, 2026-10-25)
+
+The owner's capture (a post dropped into the next post, its chrome a child frame's) and words: "I can reorder the frames in the section but must not put one frame into another; but a frame inside a post I can move to another post"; "it should be exactly like our auto-layout behaviour."
+
+- **A post never goes into another** (engine `dropTargetAt`, the asset chrome's grid view): a dragged post's drop target is the page whatever is under it; a layer from a post goes into any post (another's too) but, dragged off every post, stays in the one it came from instead of falling onto the bare page.
+- **Reordering as a flow** (engine `startBoardDrag` / `reorderBoard` / `finishBoardDrag`; TS `boardGrids` → `Engine.setBoard`, kept current by the arranger): each grid's posts in order and their cells. A post dragged in its grid takes the cell nearest its middle; the others slide to their new cells as an auto-layout flow's siblings do (the engine's slides, ≈ 120 ms ease-out, a haptic tick per swap); dropped, every post is at its cell at once — one undo step.
+- **A press on a post takes it** in the grid view, a drag moves it — not Figma's marquee on a top-level frame's background (a Design file's frames keep that; the asset view's post too).
+- Native tests in `editor.move.test.cpp` (no drop into a post, layers into another post and not onto the page, the flow through the cells and its one undo, the press).
+

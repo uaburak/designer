@@ -151,6 +151,7 @@ _engine_set_edit_tracking
 _engine_edit_scope_push
 _engine_edit_scope_pop
 _engine_set_focus
+_engine_set_board
 _engine_select_measurement
 _engine_dev_info
 _engine_present_start

@@ -909,6 +909,14 @@ class Editor : private LayoutHost, public TextLayouts {
   double wallClock() const;
   // Focus view: only `id` (a design on the current page) is drawn, hovered and selected; kNoGuid leaves it.
   Status setFocus(Guid id);
+  // A Social file's board (docs/social.md §25): each grid's posts in their order and the cells they take, as the
+  // board's layout (TS, social/board.ts) puts them — a post dragged among its grid's posts moves through these cells
+  // as a layer through its auto-layout flow (the others slide aside; dropped, it takes its cell).
+  struct BoardGrid {
+    std::vector<Guid> ids;
+    std::vector<Rect> cells;  // page coordinates, one per post
+  };
+  void setBoard(std::vector<BoardGrid> grids);
   Guid focus() const { return dev_.focus; }
   // What the last canvas frame drew that can be clicked (engine_render hands it over).
   void setCanvasHits(const CanvasHits& hits) { hits_ = hits; }
@@ -2455,6 +2463,16 @@ class Editor : private LayoutHost, public TextLayouts {
     bool left = false;          // dragged out of the frame (for the rest of the gesture)
     double along = 0;           // the block's leading coordinate along the flow at the last move (the direction of travel)
   } flowDrag_;
+  // A Social file's board (setBoard) and a post dragged through its grid's cells
+  std::vector<BoardGrid> board_;
+  struct BoardDrag {
+    int grid = -1;            // the dragged post's grid in board_; -1: none
+    std::vector<Guid> order;  // the grid's posts as they stand now, the dragged one at `index`
+    size_t index = 0;
+  } boardDrag_;
+  void startBoardDrag();
+  void reorderBoard();
+  void finishBoardDrag();
   struct Slide {
     Mat2x3 from, to, shown;  // where it slides from and to, and where the slide last put it
     double start = -1;       // ms (tick time); < 0: from the next tick

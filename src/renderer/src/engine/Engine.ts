@@ -950,6 +950,15 @@ export class Engine {
   }
 
   /** Focus view: only `node` (a design on the current page) is drawn and picked; null leaves it. */
+  /**
+   * A Social file's board (docs/social.md §25): each grid's posts in order and the cell each takes (page coordinates); a
+   * post dragged among its grid's posts moves through them as through an auto-layout flow. [] clears it.
+   */
+  setBoard(grids: readonly { ids: readonly Guid[]; cells: readonly { x: number; y: number; width: number; height: number }[] }[]): void {
+    const payload = { grids: grids.map((g) => ({ ids: g.ids, cells: g.cells.map((c) => [c.x, c.y, c.width, c.height]) })) };
+    this.after(this.x.setBoard(this.h, encodeText(JSON.stringify(payload))));
+  }
+
   setFocus(node: Guid | null): number {
     const [s, l] = node ? this.ids(node) : [0xffffffff, 0xffffffff];
     const status = this.x.setFocus(this.h, s, l);

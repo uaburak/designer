@@ -1307,10 +1307,12 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
     pressMarquee_ = true;
   } else if (path.size() == topAt + 1 && doc_.get(path[topAt])->props.isFrameLike() &&
              doc_.get(path[topAt])->props.type != NodeType::INSTANCE && doc_.get(path[topAt])->props.type != NodeType::SYMBOL &&
-             !doc_.get(path[topAt])->props.isAutoLayout() && !pressedWasSelected_ && !doc_.children(path[topAt]).empty()) {
+             !doc_.get(path[topAt])->props.isAutoLayout() && !pressedWasSelected_ && !doc_.children(path[topAt]).empty() &&
+             !((viewOptions_ & VIEW_ASSET_CHROME) && dev_.focus == kNoGuid && doc_.parentOf(path[topAt]) == page_)) {
     // A top-level frame's (or a section's) own background: a drag is a marquee among its children (⌘: a deep
     // one), a click selects nothing (live Figma: like empty canvas); ⌘-click selects the frame (finishClick). Not an
     // auto layout frame's or a main component's: a press on their padding or gaps selects them (live Figma, selection.md).
+    // Nor a Social file's post on its grid view (docs/social.md §25): a press takes the post, a drag moves it (Buzz).
     pressMarquee_ = true;
     marqueeScope_ = path[topAt];
   } else if (!pressedWasSelected_) {
@@ -1727,6 +1729,7 @@ void Editor::endGesture() {
   spacings_.clear();
   hasInsertion_ = false;
   flowDrag_ = {};
+  boardDrag_ = {};
   slides_.clear();
   dropParent_ = kNoGuid;
   snapParent_ = kNoGuid;
@@ -1947,6 +1950,15 @@ Guid Editor::dropTargetAt(Vec2 world, bool force) const {
     if (ok && (best == floor || doc_.paintsBefore(best, id))) best = id;
     return true;
   });
+  // A Social file's board (VIEW_ASSET_CHROME, the grid view; docs/social.md §25): a post moves among the posts — never
+  // into another one (the board reorders it) —; a layer from a post goes into any post, but off every post it stays
+  // in the one it came from rather than fall onto the bare page.
+  if ((viewOptions_ & VIEW_ASSET_CHROME) && dev_.focus == kNoGuid && !targets_.empty()) {
+    bool posts = true;
+    for (const Target& t : targets_) posts &= t.parent == page_;
+    if (posts) return page_;
+    if (best == page_ && doc_.has(targets_.front().parent)) return targets_.front().parent;
+  }
   return best;
 }
 
@@ -1998,6 +2010,7 @@ bool Editor::startMove(uint32_t mods) {
   dropParent_ = snapParent_ = kNoGuid;
   hasInsertion_ = false;
   startFlowDrag();
+  startBoardDrag();
   if (mods & MOD_ALT) setDuplicating(true);
   return true;
 }
@@ -2221,6 +2234,8 @@ void Editor::dragMove(Vec2 world, uint32_t mods) {
     hasInsertion_ = false;
   }
   if (flowDragLive()) slideFrom(shown);
+  // A Social file's post among its grid's posts (docs/social.md §25): the others make room as in a flow.
+  if (boardDrag_.grid >= 0 && !duplicating_) reorderBoard();
   // Group 1 (live autolayout-drag-r2-02): an ⌥-copy off any auto-layout frame shows its distances to the layer it was
   // copied from — red pills, dashed extensions, that layer outlined red (the ⌥ measurement's look).
   {
@@ -2277,6 +2292,96 @@ void Editor::motionDragMove(Vec2 world, uint32_t mods) {
   Mat2x3 by = Mat2x3::translate(d.x, d.y);
   for (const Target& t : targets_) motionPreview(t.id, tidy(doc_.worldTransform(t.parent).inverse() * by * t.world), t.size);
   needsRender_ = true;
+}
+
+// ---- A Social file's board: a post dragged through its grid's cells (docs/social.md §25) -------------------------
+
+void Editor::setBoard(std::vector<BoardGrid> grids) { board_ = std::move(grids); }
+
+void Editor::startBoardDrag() {
+  boardDrag_ = {};
+  // One post of the grid view (the asset chrome, no design in focus), from the page.
+  if (!(viewOptions_ & VIEW_ASSET_CHROME) || dev_.focus != kNoGuid || targets_.size() != 1 || targets_[0].parent != page_) return;
+  const Guid id = targets_[0].id;
+  for (size_t g = 0; g < board_.size(); g++) {
+    const BoardGrid& grid = board_[g];
+    auto it = std::find(grid.ids.begin(), grid.ids.end(), id);
+    if (it == grid.ids.end() || grid.cells.size() != grid.ids.size()) continue;
+    boardDrag_.grid = static_cast<int>(g);
+    boardDrag_.order = grid.ids;
+    boardDrag_.index = static_cast<size_t>(it - grid.ids.begin());
+    return;
+  }
+}
+
+void Editor::reorderBoard() {
+  const BoardGrid& grid = board_[static_cast<size_t>(boardDrag_.grid)];
+  const Guid id = boardDrag_.order[boardDrag_.index];
+  if (!doc_.has(id) || doc_.parentOf(id) != page_) return;
+  // The cell nearest the dragged post's middle takes it.
+  Rect b = doc_.worldBounds(id);
+  Vec2 mid{b.x + b.w / 2, b.y + b.h / 2};
+  size_t best = boardDrag_.index;
+  double bestD = std::numeric_limits<double>::infinity();
+  for (size_t k = 0; k < grid.cells.size(); k++) {
+    const Rect& c = grid.cells[k];
+    double dx = c.x + c.w / 2 - mid.x, dy = c.y + c.h / 2 - mid.y;
+    double d = dx * dx + dy * dy;
+    if (d < bestD) bestD = d, best = k;
+  }
+  if (best == boardDrag_.index) return;
+  std::vector<Guid> order = boardDrag_.order;
+  order.erase(order.begin() + static_cast<std::ptrdiff_t>(boardDrag_.index));
+  order.insert(order.begin() + static_cast<std::ptrdiff_t>(best), id);
+  boardDrag_.order = order;
+  boardDrag_.index = best;
+  // The others slide to their new cells (Figma's flow: ≈ 120 ms, easing out), from where they show now.
+  for (size_t k = 0; k < order.size(); k++) {
+    const Guid c = order[k];
+    const Node* n = doc_.get(c);
+    if (c == id || !n || n->props.parentIndex.guid != page_) continue;
+    Mat2x3 to = n->props.transform;
+    to.m02 = grid.cells[k].x;
+    to.m12 = grid.cells[k].y;
+    auto it = slides_.find(c);
+    Mat2x3 from = it != slides_.end() ? it->second.shown : n->props.transform;
+    if (it != slides_.end() && it->second.to == to) continue;
+    if (from == to) {
+      slides_.erase(c);
+      continue;
+    }
+    slides_[c] = Slide{from, to, from, -1};
+  }
+  hapticTick();
+  applySlides(timeMs_);
+}
+
+void Editor::finishBoardDrag() {
+  if (boardDrag_.grid < 0 || duplicating_) {
+    boardDrag_ = {};
+    return;
+  }
+  const BoardGrid& grid = board_[static_cast<size_t>(boardDrag_.grid)];
+  // Dropped: every post at its cell at once (Figma's drop is instant), the dragged one in its own.
+  for (size_t k = 0; k < boardDrag_.order.size() && k < grid.cells.size(); k++) {
+    const Guid c = boardDrag_.order[k];
+    const Node* n = doc_.get(c);
+    if (!n || n->props.parentIndex.guid != page_) continue;
+    Mat2x3 t = n->props.transform;
+    t.m02 = grid.cells[k].x;
+    t.m12 = grid.cells[k].y;
+    if (k == boardDrag_.index) {
+      if (t == n->props.transform) continue;
+      NodeChange ch = NodeChange::changed(c);
+      ch.mask = F_TRANSFORM;
+      ch.props.transform = t;
+      write(ch);
+    } else {
+      writeQuiet(c, t);
+    }
+  }
+  slides_.clear();
+  boardDrag_ = {};
 }
 
 // ---- Round 15: dragging a layer inside its own auto-layout flow (docs/engine.md §8.6) -------------------------
@@ -2606,6 +2711,7 @@ bool Editor::absoluteAtHome() const {
 
 void Editor::finishMove() {
   if (motionDrag_.on) return motionFinishGesture("Move");
+  finishBoardDrag();
   // Round 15: dropped in its own flow it is already in its place in the document; layout puts it (and any sibling
   // still sliding) there at once (Figma's drop is instant).
   if (!flowDrag_.ids.empty() && doc_.has(flowDrag_.frame)) layoutDirty_.insert(flowDrag_.frame);

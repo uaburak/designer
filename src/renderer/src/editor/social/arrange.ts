@@ -13,7 +13,7 @@ import { formatById, PLATFORMS, SOCIAL_FORMATS } from "@shared/social/formats";
 import type { EditorController } from "../controller";
 import { onBoard } from "../devmode/devMode";
 import { boardLayout, type BoardItem, type BoardLayout } from "./board";
-import { readBoard } from "./socialState";
+import { readBoard, socialOf } from "./socialState";
 
 const RANK = new Map(SOCIAL_FORMATS.map((f, i) => [f.id, i]));
 const ORDER = {
@@ -45,6 +45,22 @@ export function arrangeNow(ed: EditorController): boolean {
     moved = true;
   }
   return moved;
+}
+
+/** Each grid's posts in order and the cells the layout gives them (page coordinates), for the engine's board drag. */
+export function boardGrids(ed: EditorController): { ids: Guid[]; cells: { x: number; y: number; width: number; height: number }[] }[] {
+  const posts = new Map(readBoard(ed, ed.store.page).posts.map((p) => [p.id, p]));
+  const layout = layoutOf(ed);
+  return layout.sections.flatMap((s) =>
+    s.grids.map((g) => ({
+      ids: g.ids,
+      cells: g.ids.map((id) => {
+        const at = layout.places.get(id) ?? { x: 0, y: 0 };
+        const p = posts.get(id);
+        return { x: at.x, y: at.y, width: p?.width ?? g.column, height: p?.height ?? 0 };
+      }),
+    })),
+  );
 }
 
 /** Whether the board is laid out now (nothing to move). */
@@ -93,10 +109,25 @@ export function attachArranger(ed: EditorController): () => void {
     wasOn = on;
   });
   later();
+  // The engine's copy of the grids (docs/social.md §25): a post dragged in its grid moves through its cells.
+  let sent = "";
+  const syncBoard = () => {
+    if (ed.engine.destroyed) return;
+    const grids = onBoard(ed) ? boardGrids(ed) : [];
+    const key = JSON.stringify(grids);
+    if (key === sent) return;
+    sent = key;
+    ed.engine.setBoard(grids);
+  };
+  const offBoard = socialOf(ed).subscribe(syncBoard);
+  const offBoardMode = ed.ui.subscribe(syncBoard);
+  syncBoard();
   return () => {
     offCommit();
     offDoc();
     offPage();
     offMode();
+    offBoard();
+    offBoardMode();
   };
 }

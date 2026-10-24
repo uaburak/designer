@@ -387,6 +387,7 @@ export class EngineExports {
   editScopePush = (h: number, scope: Uint8Array): number => this.withBytes([scope], (p) => this.fn("edit_scope_push")(h, p[0], p[1]));
   editScopePop = (h: number): number => this.fn("edit_scope_pop")(h);
   setFocus = (h: number, sessionID: number, localID: number): number => this.fn("set_focus")(h, sessionID, localID);
+  setBoard = (h: number, board: Uint8Array): number => this.withBytes([board], (p) => this.fn("set_board")(h, p[0], p[1]));
   selectMeasurement = (h: number, sessionID: number, localID: number): number => this.fn("select_measurement")(h, sessionID, localID);
   setAnnotationFilter = (h: number, sessionID: number, localID: number): void => void this.fn("set_annotation_filter")(h, sessionID, localID);
   devInfo = (h: number, pageSessionID: number, pageLocalID: number): number => this.fn("dev_info")(h, pageSessionID, pageLocalID);
@@ -440,7 +441,7 @@ export const USED_EXPORTS = [
   "vector_edit", "vector_edit_end", "vector_edit_tool", "path_tool", "end_caps", "paint_edit", "paint_edit_end", "paint_edit_stop", "blur_edit", "blur_edit_handle",
   "set_prototype_mode", "set_prototype_selection", "set_viewer_mode", "present_start", "present_stop", "present_pointer", "present_wheel", "present_key", "present_command",
   "present_set_options", "present_state", "present_media", "present_media_frame", "present_save_state", "present_restore_state", "present_text", "present_cursor",
-  "set_view_options", "set_nudge", "start_guide", "set_annotation_view", "set_annotation_filter", "set_edit_tracking", "edit_scope_push", "edit_scope_pop", "set_focus", "select_measurement", "dev_info",
+  "set_view_options", "set_nudge", "start_guide", "set_annotation_view", "set_annotation_filter", "set_edit_tracking", "edit_scope_push", "edit_scope_pop", "set_focus", "set_board", "select_measurement", "dev_info",
   "trace", "vectorize_begin", "vectorize_update", "vectorize_end",
   "install_brush", "list_brushes", "brush_preview", "set_draw_tool_settings",
   "set_motion", "motion_timeline", "motion_field_states", "motion_resolved", "motion_render_frame", "motion_shapes", "motion_samples",

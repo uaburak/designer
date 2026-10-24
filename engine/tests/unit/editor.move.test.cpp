@@ -648,3 +648,69 @@ TEST_CASE("asset chrome: a post's name shows at 10 % and goes under it (docs/soc
   e.setViewOptions(e.viewOptions() & ~Editor::VIEW_ASSET_CHROME);
   CHECK(named());
 }
+
+TEST_CASE("asset chrome (a Social file's grid view, docs/social.md §25): a post never drops into another; a layer of a post goes into another post but not onto the page") {
+  Editor e = load(baseScene());
+  e.setViewOptions(e.viewOptions() | Editor::VIEW_ASSET_CHROME);
+  // Frame 2 (a post) dragged onto Frame 1 (another post): it stays on the page
+  e.setSelection({G});
+  drag(e, {150, 500}, {150, 150});
+  CHECK(e.document().parentOf(G) == kPage);
+  // Put it back below, then: A (a layer of Frame 1) dragged into Frame 2 goes into it
+  e.setSelection({G});
+  Rect gb = world(e, G);
+  drag(e, {gb.x + 10, gb.y + 10}, {gb.x + 10, 400 + 10 + (gb.y < 400 ? 400 - gb.y : 0)});
+  gb = world(e, G);
+  e.setSelection({A});
+  Rect ab = world(e, A);
+  drag(e, {ab.x + 5, ab.y + 5}, {gb.x + 100, gb.y + 100});
+  CHECK(e.document().parentOf(A) == G);
+  // Dragged off every post onto the bare page: it stays in Frame 2
+  ab = world(e, A);
+  drag(e, {ab.x + 5, ab.y + 5}, {800, 700});
+  CHECK(e.document().parentOf(A) == G);
+  // Off (a Design file): it falls onto the page
+  e.setViewOptions(e.viewOptions() & ~Editor::VIEW_ASSET_CHROME);
+  ab = world(e, A);
+  drag(e, {ab.x + 5, ab.y + 5}, {800, 100});
+  CHECK(e.document().parentOf(A) == kPage);
+}
+
+TEST_CASE("board drag (a Social file's grid view, docs/social.md §25): a post moves through its grid's cells as through an auto-layout flow") {
+  auto nodes = baseChanges();
+  const Guid P0{2, 1}, P1{2, 2}, P2{2, 3};
+  nodes.push_back(make(P0, NodeType::FRAME, kPage, "!", {0, 0, 100, 100}, "P0"));
+  nodes.push_back(make(P1, NodeType::FRAME, kPage, "\"", {108, 0, 100, 100}, "P1"));
+  nodes.push_back(make(P2, NodeType::FRAME, kPage, "#", {216, 0, 100, 100}, "P2"));
+  Editor e = load(nodes);
+  e.setViewOptions(e.viewOptions() | Editor::VIEW_ASSET_CHROME);
+  e.setBoard({Editor::BoardGrid{{P0, P1, P2}, {Rect{0, 0, 100, 100}, Rect{108, 0, 100, 100}, Rect{216, 0, 100, 100}}}});
+  e.setSelection({P0});
+  // Over the third cell: the others make room, P0 takes the third cell when dropped
+  drag(e, {50, 50}, {260, 52});
+  CHECK(world(e, P0).x == doctest::Approx(216));
+  CHECK(world(e, P0).y == doctest::Approx(0));
+  CHECK(world(e, P1).x == doctest::Approx(0));
+  CHECK(world(e, P2).x == doctest::Approx(108));
+  for (Guid p : {P0, P1, P2}) CHECK(e.document().parentOf(p) == kPage);
+  // One undo puts all three back
+  e.command(CommandId::UNDO);
+  CHECK(world(e, P0).x == doctest::Approx(0));
+  CHECK(world(e, P1).x == doctest::Approx(108));
+  CHECK(world(e, P2).x == doctest::Approx(216));
+}
+
+TEST_CASE("board drag: a press on a post's background with layers in it takes the post and a drag moves it (not a marquee, as on a Design file's frame)") {
+  auto nodes = baseChanges();
+  const Guid P0{2, 1}, P1{2, 2}, R{2, 9};
+  nodes.push_back(make(P0, NodeType::FRAME, kPage, "!", {0, 0, 100, 100}, "P0"));
+  nodes.push_back(make(R, NodeType::ROUNDED_RECTANGLE, P0, "!", {10, 10, 20, 20}, "R"));
+  nodes.push_back(make(P1, NodeType::FRAME, kPage, "\"", {108, 0, 100, 100}, "P1"));
+  Editor e = load(nodes);
+  e.setViewOptions(e.viewOptions() | Editor::VIEW_ASSET_CHROME);
+  e.setBoard({Editor::BoardGrid{{P0, P1}, {Rect{0, 0, 100, 100}, Rect{108, 0, 100, 100}}}});
+  drag(e, {70, 70}, {160, 60});
+  CHECK(e.selection() == std::vector<Guid>{P0});
+  CHECK(world(e, P0).x == doctest::Approx(108));
+  CHECK(world(e, P1).x == doctest::Approx(0));
+}

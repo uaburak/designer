@@ -3271,6 +3271,42 @@ ENG_EXPORT int32_t engine_set_focus(Handle h, uint32_t sessionID, uint32_t local
   return e->editor.setFocus(Guid{sessionID, localID});
 }
 
+// A Social file's board (docs/social.md §25): {grids: [{ids: ["s:l", …], cells: [[x, y, w, h], …]}]} — each grid's
+// posts in order and the cell each takes (page coordinates); a post dragged in its grid moves through them.
+ENG_EXPORT int32_t engine_set_board(Handle h, Ptr ptr, uint32_t len) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  json::Value v;
+  if (!parse(ptr, len, v)) return E_DECODE;
+  const json::Value* list = v.isObject() ? v.get("grids") : nullptr;
+  std::vector<Editor::BoardGrid> grids;
+  if (list && list->isArray())
+    for (const json::Value& g : list->array) {
+      const json::Value* ids = g.get("ids");
+      const json::Value* cells = g.get("cells");
+      if (!ids || !ids->isArray() || !cells || !cells->isArray() || ids->array.size() != cells->array.size()) continue;
+      Editor::BoardGrid grid;
+      bool ok = true;
+      for (const json::Value& id : ids->array) {
+        bool good = false;
+        Guid gid = id.isString() ? Guid::parse(id.string, &good) : Guid{};
+        ok &= good;
+        grid.ids.push_back(gid);
+      }
+      for (const json::Value& c : cells->array) {
+        if (!c.isArray() || c.array.size() != 4) {
+          ok = false;
+          break;
+        }
+        grid.cells.push_back(Rect{c.array[0].number, c.array[1].number, c.array[2].number, c.array[3].number});
+      }
+      if (ok) grids.push_back(std::move(grid));
+    }
+  e->editor.setBoard(std::move(grids));
+  return OK;
+}
+
 // A saved measurement selected on the canvas ((0xffffffff, 0xffffffff): none).
 ENG_EXPORT int32_t engine_select_measurement(Handle h, uint32_t sessionID, uint32_t localID) {
   Call call;
