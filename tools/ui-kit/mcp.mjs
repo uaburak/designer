@@ -1,9 +1,14 @@
 // A tiny MCP client for Wecra's server (src/main/agents/mcpServer.ts): JSON-RPC over POST, Bearer token, Mcp-Session-Id.
-// The url and token come from ~/.claude.json → mcpServers.designer (written by Agents › Set up agents › Claude Code).
+// The url and token come from ~/.claude.json → mcpServers.designer (written by Agents › Set up agents › Claude Code);
+// with DESIGNER_USER_DATA set (`npm run dev:side`'s own data folder), from that app's agents/server.json instead.
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 
 export function endpoint() {
+  if (process.env.DESIGNER_USER_DATA) {
+    const s = JSON.parse(readFileSync(`${process.env.DESIGNER_USER_DATA}/agents/server.json`, "utf8"));
+    return { url: s.url, auth: `Bearer ${s.token}` };
+  }
   const cfg = JSON.parse(readFileSync(`${homedir()}/.claude.json`, "utf8")).mcpServers?.designer;
   if (!cfg?.url) throw new Error("No designer MCP server in ~/.claude.json: Agents › Set up agents for MCP › Claude Code in Wecra");
   return { url: cfg.url, auth: cfg.headers?.Authorization ?? cfg.headers?.authorization };
