@@ -19,6 +19,7 @@ import { isSocialFile, setMode } from "../../devmode/devMode";
 import { fileOps, thumbnailNode } from "../../objectCommands";
 import { canWritePosts, editorWriter, type Writer } from "../actions";
 import { postRecord, readPost, writePost } from "../posts";
+import { boardEndAt } from "../board";
 
 export const CONVERT_LABEL = "Convert to Social file";
 
@@ -108,10 +109,17 @@ export function applyConversion(ed: EditorController, w: Writer, plan: SocialCon
           ed.engine.applyChanges(message, "user");
         }
       }
+      let at = 0;
       for (const p of page.posts) {
-        const n = ed.engine.readNode(p.id, { fields: ["parentIndex"] });
+        const n = ed.engine.readNode(p.id, { fields: ["parentIndex", "transform"] });
         if (!n || n.parentIndex?.guid !== page.pageId) continue;
         if (!readPost(ed, p.id)) writePost(ed, p.id, postRecord(p.formatId, { brandId: page.brandId }));
+        // In the plan's order past the board's end (docs/social.md §19): the board's arrange then keeps a container's
+        // designs together, in its reading order, rather than reading two containers side by side as one grid.
+        if (n.transform && isSocialFile(ed)) {
+          const end = boardEndAt(at++);
+          ed.engine.setProps([p.id], { transform: { ...n.transform, m02: end.x, m12: end.y } });
+        }
         posts++;
       }
     }

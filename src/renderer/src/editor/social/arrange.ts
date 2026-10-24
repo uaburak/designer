@@ -61,12 +61,12 @@ export function arranged(ed: EditorController): boolean {
  * arrange folded into its step; opening a page arranges it as a step of its own (when something is out of place).
  */
 export function attachArranger(ed: EditorController): () => void {
-  if (!isSocialFile(ed)) return () => {};
+  // Every editor: a file can become a Social file while open (Convert this file, docs/social.md §18.1).
   const offCommit = ed.beforeCommit(() => void arrangeNow(ed));
   let queued = false;
   const amend = () => {
     queued = false;
-    if (ed.engine.destroyed || arranged(ed)) return;
+    if (ed.engine.destroyed || !isSocialFile(ed) || arranged(ed)) return;
     if (ed.engine.txnBeginAmend("Arrange posts") !== 0) return;
     try {
       arrangeNow(ed);
@@ -82,9 +82,9 @@ export function attachArranger(ed: EditorController): () => void {
   const offDoc = ed.engine.on("DOCUMENT_CHANGED", (e) => {
     // The user's own edits on the canvas (the chrome's and the agents' writes arranged before committing); undo, redo,
     // other sessions and loads put back what was.
-    if (e.kind === "USER" && e.actor === undefined && e.label !== "Arrange posts") later();
+    if (e.kind === "USER" && e.actor === undefined && e.label !== "Arrange posts" && isSocialFile(ed)) later();
   });
-  const offPage = ed.store.subscribe("page", later);
+  const offPage = ed.store.subscribe("page", () => isSocialFile(ed) && later());
   later();
   return () => {
     offCommit();

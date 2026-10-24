@@ -20,6 +20,7 @@ import { defaults, IDENTITY } from "../agents/nodeSpec";
 import { editorWriter } from "../social/actions";
 import { applyConversion, applyPendingConversion, findInEditor } from "../social/convert/convert";
 import { readPost } from "../social/posts";
+import { attachArranger, layoutOf } from "../social/arrange";
 
 const wasm = join(process.cwd(), "src/renderer/src/engine/wasm/engine.wasm");
 
@@ -35,11 +36,12 @@ function nextKey(parent: string): string {
   return keys[parent];
 }
 
+const frameOf = (guid: string, parent: string, name: string, x: number, y: number, w: number, h: number): NodeChange => frame(guid, parent, name, x, y, w, h);
 const frame = (guid: string, parent: string, name: string, x: number, y: number, w: number, h: number): NodeChange =>
   ({ guid, type: "FRAME", ...defaults("FRAME"), phase: "CREATED", name, transform: { ...IDENTITY, m02: x, m12: y }, size: { x: w, y: h }, parentIndex: { guid: parent, position: nextKey(parent) } }) as NodeChange;
 
 /** "MTM Agro" (the sample's page renamed): container "Post" at (100, 200) with six 1080 × 1440 designs drawn out of order, "PostA", "Frame 25"; a "Thumbnail" page. */
-function document(): Message {
+function document(extra: (frame: typeof frameOf) => NodeChange[] = () => []): Message {
   for (const k of Object.keys(keys)) delete keys[k];
   const base = SAMPLE_DOCUMENT.nodeChanges.map((n) => (n.guid === "0:1" ? { ...n, name: "MTM Agro" } : n));
   // Leave room after the sample's own children on its page.
@@ -52,12 +54,13 @@ function document(): Message {
     frame("9:3", "0:1", "Frame 25", 6200, 0, 189, 100),
     { guid: "9:4", phase: "CREATED", type: "CANVAS", name: "Thumbnail", parentIndex: { guid: "0:0", position: "#" } } as NodeChange,
     frame("9:5", "9:4", "Cover", 0, 0, 1920, 1080),
+    ...extra(frameOf),
   ];
   return { ...SAMPLE_DOCUMENT, nodeChanges: [...base, ...nodes] };
 }
 
-async function setup(options: { editorType?: "design" | "buzz"; uiState?: EditorUiState } = {}) {
-  const source = memoryDocumentSource(document(), { fileName: "Sosyal Medya", ...options });
+async function setup(options: { editorType?: "design" | "buzz"; uiState?: EditorUiState; extra?: Parameters<typeof document>[0] } = {}) {
+  const source = memoryDocumentSource(document(options.extra), { fileName: "Sosyal Medya", ...options });
   const engine = await Engine.create(null, { sessionID: 1 });
   engine.load(await source.load());
   engine.setViewport(1280, 800, 1, 1280, 800);
@@ -141,5 +144,19 @@ describe("Convert to Social file (docs/social.md §18.1)", () => {
     const design = await setup({ uiState: { currentPageId: "0:1", pages: {}, leftPanelWidth: 240, rightPanelWidth: 240, socialConvert: plan } });
     expect(applyPendingConversion(design.ed)).toBe(0);
     expect(design.engine.readNode("9:1")).not.toBeNull();
+  });
+
+  it("two containers side by side stay apart on the board: the first's designs, then the second's (docs/social.md §19)", async () => {
+    // A second container "test" right of "Post", three designs in one row
+    const extra = (f: typeof frameOf) => [f("9:6", "0:1", "test", 3700, 200, 3456, 1500), ...[0, 1, 2].map((i) => f(`9:${20 + i}`, "9:6", `Test ${i}`, i * 1088, 0, 1080, 1440))];
+    const first = await setup({ extra });
+    const plan = planFor(first.ed, true);
+    const { ed, source } = await setup({ editorType: "buzz", extra, uiState: { currentPageId: "0:1", pages: {}, leftPanelWidth: 240, rightPanelWidth: 240, socialConvert: plan } });
+    (source as { setUiState?: (p: Partial<EditorUiState>) => void }).setUiState = () => {};
+    attachArranger(ed);
+    expect(applyPendingConversion(ed)).toBe(10);
+    const grid = layoutOf(ed).sections[0].grids.find((g) => g.formatId === "instagram.portrait")!;
+    expect(grid.ids).toEqual(["9:10", "9:11", "9:12", "9:13", "9:14", "9:15", "9:20", "9:21", "9:22"]);
+    expect(ed.store.undo.undoLabel).toBe("Convert to Social file");
   });
 });

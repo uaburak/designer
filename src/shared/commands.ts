@@ -56,6 +56,8 @@ export const COMMANDS = [
   { id: "file.export-frames-to-pdf", label: "Export frames to PDF…", scope: "editor" },
   { id: "file.share-preview", label: "Share preview…", scope: "editor" },
   { id: "file.duplicate", label: "Duplicate", scope: "view" },
+  // A Design file's posts into a Social file (docs/social.md §18.1); the editor enables it in a Design file only
+  { id: "file.convert-to-social", label: "Convert to Social file…", scope: "editor" },
   { id: "file.rename", label: "Rename", scope: "view" },
   { id: "file.move", label: "Move to folder…", scope: "view" },
   { id: "file.delete", label: "Move to trash", scope: "view" },
@@ -289,6 +291,7 @@ export const MENU_LAYOUT: Record<TopMenu, MenuEntry[]> = {
     "file.share-preview",
     "-",
     "file.duplicate",
+    "file.convert-to-social",
     "file.rename",
     "file.move",
     "file.delete",

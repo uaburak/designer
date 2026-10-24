@@ -38,7 +38,10 @@ export function placePost(posts: readonly PlacedPost[], campaignId: string | nul
  * Where a new post goes on a Social file's board before it is arranged (§19): past every post, in creation order, so
  * the arrange puts it at the end of its grid.
  */
-export const boardEnd = (posts: readonly PlacedPost[]): { x: number; y: number } => ({ x: 10_000_000 + posts.length * 10, y: 10_000_000 });
+export const boardEnd = (posts: readonly PlacedPost[]): { x: number; y: number } => boardEndAt(posts.length);
+
+/** The `i`th place past every post (several new posts in order: the arrange keeps that order). */
+export const boardEndAt = (i: number): { x: number; y: number } => ({ x: 10_000_000 + i * 10, y: 10_000_000 });
 
 /** Several new posts in one campaign, left to right (Studio's rows, make_posts): each placed after the one before. */
 export function placePosts(posts: readonly PlacedPost[], campaignId: string | null, sizes: readonly { width: number; height: number }[]): { x: number; y: number }[] {
