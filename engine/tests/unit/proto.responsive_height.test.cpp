@@ -296,3 +296,40 @@ TEST_CASE("proto.responsive_height: overlay Fit to window") {
     CHECK(f.player.overlays()[0].pos.y == doctest::Approx(0));
   }
 }
+
+TEST_CASE("proto.responsive: an auto layout screen's Fill child grows with the window and its centred layers stay centred") {
+  // The owner's "Figma screen": a horizontal auto layout 1440 × 767 — Left panel 289, Canvas (Fill, no layout) with a
+  // row of shapes pinned Center / Center, Right panel 260. Presented Responsive in a 1840 window the shapes stayed
+  // where they were (left of the middle) in the app — not reproduced here: the engine lays it out right.
+  const Guid LEFT{3, 1}, CANVAS{3, 2}, RIGHT{3, 3}, SHAPES{3, 4};
+  auto nodes = baseChanges();
+  NodeChange s = make(SCREEN, NodeType::FRAME, kPage, "!", {0, 0, 1440, 767}, "Figma screen");
+  s.props.stack().stackMode = StackMode::HORIZONTAL;
+  s.props.stack().stackPrimarySizing = StackSize::FIXED;
+  s.props.stack().stackCounterSizing = StackSize::FIXED;
+  nodes.push_back(s);
+  nodes.push_back(make(LEFT, NodeType::FRAME, SCREEN, "!", {0, 0, 289, 767}, "Left panel"));
+  NodeChange c = make(CANVAS, NodeType::FRAME, SCREEN, "\"", {289, 0, 891, 767}, "Canvas");
+  c.props.stackChildPrimaryGrow = 1;
+  c.props.extra["scrollDirection"] = extra("scrollDirection", "\"BOTH\"");  // the owner's Canvas scrolls both ways
+  nodes.push_back(c);
+  nodes.push_back(make(RIGHT, NodeType::FRAME, SCREEN, "#", {1180, 0, 260, 767}, "Right panel"));
+  NodeChange sh = make(SHAPES, NodeType::FRAME, CANVAS, "!", {77.5, 253.5, 736, 260}, "Content");
+  sh.props.horizontalConstraint = ConstraintType::CENTER;
+  sh.props.verticalConstraint = ConstraintType::CENTER;
+  sh.props.stack().stackMode = StackMode::HORIZONTAL;  // a hugging row of shapes, as the owner's
+  sh.props.stack().stackSpacing = 48;
+  sh.props.stack().stackPrimarySizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
+  sh.props.stack().stackCounterSizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
+  nodes.push_back(sh);
+  nodes.push_back(make(Guid{3, 5}, NodeType::FRAME, SHAPES, "!", {0, 0, 320, 260}, "Frame 1"));
+  nodes.push_back(make(Guid{3, 6}, NodeType::ELLIPSE, SHAPES, "\"", {368, 50, 160, 160}, "Ellipse 1"));
+  nodes.push_back(make(Guid{3, 7}, NodeType::RECTANGLE, SHAPES, "#", {576, 50, 160, 160}, "Rectangle 1"));
+  Fixture f(nodes, 1840, 1000);
+  REQUIRE(f.player.start(kPage, SCREEN));
+  f.player.scene();
+  CHECK(f.at(SCREEN).size.x == doctest::Approx(1840));
+  CHECK(f.at(CANVAS).size.x == doctest::Approx(1291));
+  CHECK(f.at(RIGHT).transform.m02 == doctest::Approx(1580));
+  CHECK(f.at(SHAPES).transform.m02 == doctest::Approx((1291 - 736) / 2.0));
+}
