@@ -1101,16 +1101,18 @@ void Editor::finishLayouts(const std::vector<PendingLayout>& batch) {
     }
   }
   inLayout_ = prevInLayout;
-  // Diverged slots: their content frame (a real child of the instance) sits where the slot is.
+  // Diverged slots: their content frame (a real child of the instance) sits where the slot is, and shows only while
+  // the slot does (a variant that hides the slot — an accordion's closed state — hides what was put in it).
   for (const PendingLayout& p : batch) {
     for (auto& [slot, content] : p.slots) {
       const Node* sn = doc_.get(slot);
       const Node* cn = doc_.get(content);
       if (!sn || !cn) continue;
       NodeChange c = NodeChange::changed(content);
-      c.mask = F_TRANSFORM | F_SIZE;
+      c.mask = F_TRANSFORM | F_SIZE | F_VISIBLE;
       c.props.transform = doc_.worldTransform(p.instance).inverse() * doc_.worldTransform(slot);
       c.props.size = sn->props.size;
+      c.props.visible = sn->props.visible;
       write(c);
     }
   }

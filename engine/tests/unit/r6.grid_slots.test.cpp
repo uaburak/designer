@@ -514,6 +514,29 @@ TEST_CASE("slots: Wrap in new slot frames the selection and makes the frame a sl
   CHECK(!defNamed(e, "Slot"));
 }
 
+TEST_CASE("slots: an instance's own slot content shows only while the slot does (an accordion's closed variant)") {
+  // The owner's Layer item: Open=False hides the slot, and what was put in the instance's slot showed anyway, over the
+  // rows under it.
+  Editor e = load(cardDoc());
+  e.setSelection({CONTENT});
+  REQUIRE(e.command(CommandId::CONVERT_TO_SLOT) == OK);
+  Guid row = derived::intern(I, {CONTENT});
+  REQUIRE(e.command(CommandId::CLEAR_SLOT, args(R"({"ref":")" + row.toString() + "\"}")) == OK);
+  Guid content = kNoGuid;
+  for (Guid c : e.document().children(I))
+    if (!c.isDerived() && e.document().get(c)->props.comp().isSlotContent) content = c;
+  REQUIRE(content != kNoGuid);
+  CHECK(e.document().get(content)->props.visible);
+  NodeChange hide = NodeChange::changed(Guid{0, 0});
+  hide.mask = F_VISIBLE;
+  hide.props.visible = false;
+  REQUIRE(e.setProps({CONTENT}, hide, 0) == OK);
+  CHECK(!e.document().get(content)->props.visible);
+  hide.props.visible = true;
+  REQUIRE(e.setProps({CONTENT}, hide, 0) == OK);
+  CHECK(e.document().get(content)->props.visible);
+}
+
 TEST_CASE("slots: Delete contents empties an instance's slot (diverged) and a main's slot frame") {
   Editor e = load(cardDoc());
   e.setSelection({CONTENT});
