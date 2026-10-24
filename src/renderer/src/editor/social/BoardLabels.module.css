@@ -2,18 +2,18 @@
   /* A Social file's grid view over the canvas (docs/social.md §23: Figma Buzz's, the owner's captures at 2×) [metrics ours] */
   .layer { position: absolute; inset: 0; z-index: var(--ds-z-base); overflow: hidden; pointer-events: none; }
   .dot, .place { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
-  /* The dot: 6 px of the selection blue in a 24 px target; the pointer on it, a 20 px "+" */
+  /* The dot: 8 px of the selection blue in a 24 px target; the pointer on it, a 24 px "+" */
   .dot {
     display: flex; align-items: center; justify-content: center; box-sizing: border-box;
     width: var(--ds-size-control); height: var(--ds-size-control); padding: 0; border: 0; border-radius: var(--ds-radius-full);
     background: transparent; color: transparent; pointer-events: auto; cursor: default;
   }
   .dot::before {
-    content: ""; position: absolute; inset: 9px; border-radius: var(--ds-radius-full); background: var(--figma-color-bg-brand);
+    content: ""; position: absolute; inset: 8px; border-radius: var(--ds-radius-full); background: var(--figma-color-bg-brand);
     transition: inset var(--ds-duration-fast, 120ms) ease-out;
   }
   .dot > * { position: relative; opacity: 0; transition: opacity var(--ds-duration-fast, 120ms) ease-out; }
-  .dot[data-hot]::before, .dot:focus-visible::before { inset: 2px; }
+  .dot[data-hot]::before, .dot:focus-visible::before { inset: 0; }
   .dot[data-hot], .dot:focus-visible { color: var(--figma-color-icon-onbrand); }
   .dot[data-hot] > *, .dot:focus-visible > * { opacity: 1; }
   .dot:focus-visible { outline: none; }

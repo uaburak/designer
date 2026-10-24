@@ -71,8 +71,8 @@ function useSelectedPost(ed: EditorController): string | null {
   );
 }
 
-/** Screen px between the toolbar's bottom and the post's top: over its card's band (Buzz's) */
-const TOOLBAR_GAP = 32;
+/** Screen px between the toolbar's bottom and the post's top: over its card's 32 px band, 12 px clear (Buzz's) */
+const TOOLBAR_GAP = 44;
 
 /** Over the selected post: its format and Edit (Buzz's inline toolbar); with the canvas's layers (canvas px). */
 export function PostToolbar() {

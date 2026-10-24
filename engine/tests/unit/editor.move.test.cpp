@@ -602,3 +602,22 @@ TEST_CASE("asset chrome: a top-level instance (a post from a template) has its n
   CHECK(named(I));
   CHECK(named(F));
 }
+
+TEST_CASE("asset chrome: the band over a post, level with its name past its end, hovers and presses the post (docs/social.md §23)") {
+  Editor e = load(baseScene());
+  // Frame 1 (0, 0, 300 × 300) on screen as on the page; its name "Frame 1" ends ~40 px in
+  auto hovered = [&](Vec2 s) {
+    e.pointer(PointerEvent::MOVE, s.x, s.y, 0, 0, 0);
+    auto h = e.overlay().hover;
+    return std::find(h.begin(), h.end(), F) != h.end();
+  };
+  CHECK_FALSE(hovered({250, -8}));
+  e.setViewOptions(e.viewOptions() | Editor::VIEW_ASSET_CHROME);
+  CHECK(hovered({250, -8}));
+  CHECK(hovered({20, -28}));
+  CHECK_FALSE(hovered({250, -40}));
+  // A press there selects it
+  e.pointer(PointerEvent::DOWN, 250, -8, 0, 1, 0);
+  e.pointer(PointerEvent::UP, 250, -8, 0, 0, 0);
+  CHECK(e.selection() == std::vector<Guid>{F});
+}

@@ -19,12 +19,13 @@ struct OverlayStyle {
   double selectionWidth = 1;
   double hoverWidth = 2;
   double assetWidth = 1;  // a Social file's asset view: its post's outline (Buzz's asset view)
-  // A Social file's grid view (docs/social.md §23): a hovered or selected post's card — the owner's Buzz captures at 2×:
-  // 5 px round the post, a 20 px band over it holding its name, 5 px corners.
+  // A Social file's grid view (docs/social.md §23): a hovered or selected post's card — the owner's Buzz captures (1.25
+  // px per CSS px, their 48 px toolbar 60 px; his 2026-10-24 crops at 1×): 8 px round the post, a 32 px band over it
+  // holding its name (its baseline 10 px over the post), 8 px corners. The band is the name's hover and press zone too.
   Color assetCard;
-  double assetCardPad = 5;
-  double assetCardBand = 20;
-  double assetCardRadius = 5;
+  double assetCardPad = 8;
+  double assetCardBand = 32;
+  double assetCardRadius = 8;
   double handleSize = 7;
   double handlesMinBox = 24;  // handles hidden when the box is smaller on screen
   double badgeHeight = 17;  // the size badge and auto layout's value badges (live Figma round 10: 17)

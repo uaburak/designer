@@ -126,6 +126,10 @@ std::vector<FrameTitle> frameTitles(const Document& doc, Guid page, const Mat2x3
           t.text = {x, t.baseline - ascent, w, ascent + descent};
           // A press takes the title's line from the frame's left edge (2 px of slack around it).
           t.hit = {b.x, t.baseline - ascent - 2, std::max(x + w - b.x, 8.0), ascent + descent + 4};
+          // A Social file's post (docs/social.md §23, Buzz): the whole band over it, across its card, is its name's —
+          // the pointer level with the name, past its end, hovers and presses the post.
+          if (assets && parent == page && t.upright)
+            t.hit = {b.x - style.assetCardPad, b.y - style.assetCardBand, b.w + 2 * style.assetCardPad, style.assetCardBand};
           out.push_back(t);
         }
       }

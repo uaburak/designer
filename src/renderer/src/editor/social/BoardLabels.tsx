@@ -21,9 +21,9 @@ import { boardBrand, newPostEntries, pickNewPost } from "./NewPostMenu";
 import { useSocialBoard } from "./socialState";
 import styles from "./BoardLabels.module.css";
 
-/** Screen px from a grid's last post to its dot beside it, and from its last row to the dot under it (the owner's Buzz captures) */
-const DOT_BESIDE = 20;
-const DOT_UNDER = 25;
+/** Screen px from a grid's last post to its dot beside it, and from its last row to the dot under it (the owner's Buzz captures, 1.25 px per CSS px) */
+const DOT_BESIDE = 32;
+const DOT_UNDER = 40;
 
 /**
  * Places each child from its canvas box (data-x/y/w/h, canvas units) at the camera now and on every camera change; a

@@ -63,8 +63,8 @@ bool showsTitle(const Document& doc, Guid id);
 // instance's (live Figma draws no name over a top-level instance, selected or not). `view` maps world to screen;
 // `measure(name, section)` is the name's width in CSS px at the title's size. `focus` (Dev Mode's focus view): only
 // that frame's. `motion`: the frames that wear the Motion icon (a thumbnail's or a component's own glyph wins).
-// `assets` (a Social file, docs/social.md §22): every design is an asset with its name — a top-level instance too
-// (a post made from a template), as Buzz names each asset.
+// `assets` (a Social file, docs/social.md §22, §23): every design is an asset with its name — a top-level instance too
+// (a post made from a template), as Buzz names each asset — and its hit is the card's whole band over the post.
 std::vector<FrameTitle> frameTitles(const Document& doc, Guid page, const Mat2x3& view, const Rect& screen, const OverlayStyle& style,
                                     const std::function<double(const std::string&, bool)>& measure, Guid focus = kNoGuid,
                                     const std::vector<Guid>& motion = {}, bool assets = false);
