@@ -67,8 +67,9 @@ import { MotionMode } from "./motion/MotionMode";
 import { SocialMode } from "./social/SocialMode";
 import { SocialLeftPanel } from "./social/SocialLeftPanel";
 import { SocialAgentPanel } from "./social/SocialAgentPanel";
+import { SocialTemplatesPanel } from "./social/SocialTemplatesPanel";
 import { BoardLabels } from "./social/BoardLabels";
-import { SocialFocus, Spotlight } from "./social/FocusChrome";
+import { SocialFocus } from "./social/FocusChrome";
 import { SocialRightPanel } from "./social/SocialRightPanel";
 import { SafeAreaOverlay } from "./social/SafeAreaOverlay";
 import { ReviewPins } from "./social/ReviewPins";
@@ -440,13 +441,14 @@ export function LeftSide() {
   const posts = useUI((s) => s.mode === "social" && s.railTab === "posts");
   // Social's agent is the left panel's (docs/social.md §19).
   const agent = useUI((s) => s.mode === "social" && s.railTab === "agents");
+  const templates = useUI((s) => s.mode === "social" && s.railTab === "templates");
   // View › Minimize left navigation bar (round 10): the tabs fold into the left panel's top row (panels/Rail.tsx NavStrip).
   const navMinimized = useUI((s) => !!s.navMinimized);
   if (docked && dev) return <DevLeftPanel />;
   return docked ? (
     <>
       {!navMinimized && <Rail />}
-      {posts ? <SocialLeftPanel /> : agent ? <SocialAgentPanel /> : <LeftPanel />}
+      {posts ? <SocialLeftPanel /> : agent ? <SocialAgentPanel /> : templates ? <SocialTemplatesPanel /> : <LeftPanel />}
     </>
   ) : null;
 }
@@ -479,7 +481,6 @@ export function CanvasLayers() {
       <ScreenReaderMirror />
       {social && <BoardLabels />}
       {social && <SafeAreaOverlay />}
-      {social && <Spotlight />}
       {social && <ReviewPins />}
       <AgentImagePlaceholders />
       {dev && <DevMeasurements />}

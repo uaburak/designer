@@ -12,6 +12,7 @@ import type { Insets } from "@shared/social/types";
 import { useEditor, type EditorController } from "../controller";
 import { useUI } from "../hooks";
 import { useSocialBoard, type PostRow } from "./socialState";
+import { useFocusedPost } from "./focus";
 import styles from "./SafeAreaOverlay.module.css";
 
 /** A band thinner than this on screen (px) isn't drawn */
@@ -87,7 +88,9 @@ export function SafeAreaOverlay() {
   const ed = useEditor();
   const on = useUI((s) => s.socialSafeAreas !== false);
   const board = useSocialBoard(ed);
-  const rows = useMemo(() => (on ? board.posts.filter((p) => bandsOf(p)) : []), [on, board]);
+  // In focus (a Social file's single post, docs/social.md §20) only that post is drawn: only its bands.
+  const focus = useFocusedPost(ed);
+  const rows = useMemo(() => (on ? board.posts.filter((p) => bandsOf(p) && (!focus || p.id === focus)) : []), [on, board, focus]);
   const layer = useRef<HTMLDivElement>(null);
   useCameraPlacement(ed, layer, rows, placeBands);
   if (!rows.length) return null;

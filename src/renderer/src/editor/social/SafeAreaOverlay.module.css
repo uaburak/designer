@@ -1,7 +1,6 @@
 @layer app {
   /* Safe areas over the canvas (docs/social.md §6.4): the bands the platform's UI covers, warning-tinted, dashed edge */
   .layer { position: absolute; inset: 0; z-index: var(--ds-z-base); overflow: hidden; pointer-events: none; }
-  .layer[data-zooming] { visibility: hidden; }
   .post { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
   .band { position: absolute; background: color-mix(in srgb, var(--figma-color-bg-warning-tertiary) 50%, transparent); }
   .band[data-band="top"] { top: 0; right: 0; left: 0; border-bottom: 1px dashed var(--figma-color-border-warning); }

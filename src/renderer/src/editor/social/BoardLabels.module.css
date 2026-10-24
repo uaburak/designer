@@ -1,7 +1,6 @@
 @layer app {
   /* A Social file's board titles and "+" cells over the canvas (docs/social.md §19) [metrics ours] */
   .layer { position: absolute; inset: 0; z-index: var(--ds-z-base); overflow: hidden; pointer-events: none; }
-  .layer[data-zooming] { visibility: hidden; }
   .section, .grid, .add { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
   .section { display: flex; align-items: baseline; gap: var(--ds-space-2); white-space: nowrap; }
   .sectionName { color: var(--figma-color-text); font: var(--ds-font-heading-large); }

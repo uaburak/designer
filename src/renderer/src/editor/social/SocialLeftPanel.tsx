@@ -1,9 +1,9 @@
 /**
  * Social's left panel (docs/social.md §6.2), the navigation bar's Posts tab: the board's brand, the page's posts by
- * campaign with "+" (New post's menu), and the Templates gallery (round 18b, templates/TemplatesGallery.tsx; collapsed
- * by default when the page has posts). Same width and resize handle as Design's left panel.
+ * campaign with "+" (New post's menu); the templates are their own tab since §20 (SocialTemplatesPanel). Same width
+ * and resize handle as Design's left panel.
  */
-import { Icon, MenuButton, PanelSection, ResizeHandle } from "@/ds";
+import { Icon, MenuButton, ResizeHandle } from "@/ds";
 import { t, useT } from "@/i18n";
 import { useEditor } from "../controller";
 import { useUI } from "../hooks";
@@ -14,8 +14,6 @@ import { canWritePosts } from "./actions";
 import { BrandPicker } from "./BrandPicker";
 import { boardBrand, newPostEntries, pickNewPost } from "./NewPostMenu";
 import { PostsList } from "./PostsList";
-import { TemplatesGallery } from "./templates/TemplatesGallery";
-import { useSocialBoard } from "./socialState";
 import panelStyles from "../panels/Panels.module.css";
 import styles from "./SocialLeftPanel.module.css";
 
@@ -24,11 +22,7 @@ export function SocialLeftPanel() {
   const ed = useEditor();
   const width = useUI((s) => s.leftWidth);
   const { brands } = useBrands();
-  const board = useSocialBoard(ed);
-  const templatesOpen = useUI((s) => s.socialTemplatesOpen);
   const navMinimized = useUI((s) => !!s.navMinimized);
-  // Closed by default once the page has posts; the owner's own toggle wins.
-  const templates = templatesOpen ?? board.posts.length === 0;
   return (
     <aside className={panelStyles.left} style={{ width: width + 1 }} aria-label={t("Posts panel")} data-panel="left" data-tab="posts">
       {navMinimized && <NavStrip />}
@@ -46,9 +40,6 @@ export function SocialLeftPanel() {
       <div className={styles.scroll}>
         <PostsList />
       </div>
-      <PanelSection title={t("Templates")} collapsible open={templates} onOpenChange={(open) => ed.ui.set({ socialTemplatesOpen: open })} className={styles.templates} data-social-templates="">
-        <TemplatesGallery />
-      </PanelSection>
       <ResizeHandle side="right" value={width} onChange={(px) => ed.ui.set({ leftWidth: px })} />
     </aside>
   );

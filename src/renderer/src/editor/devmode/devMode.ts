@@ -51,7 +51,7 @@ export function setMode(ed: EditorController, mode: Mode): void {
   // Leaving Motion stops the clock; entering it starts from the playhead as it was.
   const motion = mode === "motion" ? (ed.ui.get().motion ?? MOTION_UI_DEFAULT) : { ...(ed.ui.get().motion ?? MOTION_UI_DEFAULT), playing: false };
   const tab = ed.ui.get().railTab;
-  const railTab = mode === "social" ? "posts" : tab === "posts" ? "file" : tab;
+  const railTab = mode === "social" ? "posts" : tab === "posts" || tab === "templates" ? "file" : tab;
   ed.ui.set({ mode, motion, railTab, socialTimeline: false, statusMenu: null, annotationEditor: null, measurementEditor: null });
   syncEngine(ed);
   ed.focusCanvas();

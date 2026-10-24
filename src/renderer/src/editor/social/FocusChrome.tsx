@@ -1,10 +1,9 @@
 /**
- * The focus view's chrome (docs/social.md §19): over the canvas, the post in focus left bright and the rest of the
- * board dimmed (`Spotlight`); over the visible canvas, the path bar on top — "← Board", the platform › format, the
+ * The focus view's chrome (docs/social.md §19, §20 — the engine draws the post in focus alone, as Buzz's asset view):
+ * over the visible canvas, the path bar on top — "← Board", the platform › format, the
  * post's name, its place in its grid with ‹ › — and the strip of its grid's posts at the bottom (a click focuses one,
  * gliding across). `SocialFocus` drives the camera (focus.ts). Nothing here writes the document.
  */
-import { useLayoutEffect, useRef } from "react";
 import { Button, IconButton } from "@/ds";
 import { formatById, PLATFORM_NAMES } from "@shared/social/formats";
 import { t, useT } from "@/i18n";
@@ -15,34 +14,6 @@ import { useFocusCamera, useFocusedPost } from "./focus";
 import { PostThumb } from "./PostsList";
 import { useSocialBoard } from "./socialState";
 import styles from "./FocusChrome.module.css";
-
-/** The post in focus bright, the board around it dimmed (on the canvas, placed from the camera). */
-export function Spotlight() {
-  const ed = useEditor();
-  const focus = useFocusedPost(ed);
-  const board = useSocialBoard(ed);
-  const row = focus ? board.posts.find((p) => p.id === focus) : null;
-  const el = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    if (!row) return;
-    const place = () => {
-      const c = ed.store.camera;
-      const s = el.current?.style;
-      if (!s) return;
-      s.transform = `translate(${row.x * c.zoom + c.x}px, ${row.y * c.zoom + c.y}px)`;
-      s.width = `${row.width * c.zoom}px`;
-      s.height = `${row.height * c.zoom}px`;
-    };
-    place();
-    return ed.store.subscribe("camera", place);
-  }, [ed, row]);
-  if (!row) return null;
-  return (
-    <div className={styles.dim} aria-hidden data-spotlight="">
-      <div ref={el} className={styles.hole} />
-    </div>
-  );
-}
 
 /** The camera of the focus view, and its bars over the visible canvas while a post is in focus. */
 export function SocialFocus() {

@@ -698,3 +698,16 @@ The owner's asks (2026-10-24): the canvas behaves like auto layout, not a free t
 - **The empty board** (`social/EmptyBoard.tsx`): a strip over the canvas's top, never a modal: a button per common format (Instagram post 3:4, reel, story, LinkedIn square, Facebook post, TikTok video — a click makes the post, its grid appears and it opens in focus), Start from a template, and × (closed for the session; the first post removes it).
 
 **Not built yet:** the tiles' hover checkbox and ⋯ menu (⇧/⌘-click selects several, the canvas menu has the post rows); hiding a grid; grouping other than platform › format (by product, campaign, brand) and sorting other than reading order; Instagram's profile preview (3:4 crop); the board's view per page kept between sessions; ←/→ keys in focus (the arrows nudge, as in Figma; the bar's ‹ › and the strip do it).
+
+## 20. The canvas as Figma Buzz's (owner, 2026-10-24) — the bugs he hit, and the templates back
+
+The owner's report: moving a layer from one post to another flickered; a layer that fell onto the canvas made the zoom jump; "the canvas side should be like Figma Buzz"; the templates he had before were nowhere to be found.
+
+**Causes, measured:** the focus view followed the selection, and a layer dragged inside a post could be dropped into another post or onto the page — the selection then lay in another post (or none), so the camera glided away mid-drag and the dimming overlay jumped with it; a selection that also asked for "zoom to selection" (`applySelection(…, true)`: the Posts list, a template inserted, Duplicate for) zoomed on top of the focus view's glide; the board's titles, the safe areas and the pins hid while the zoom changed, so every glide blinked them off and on; the safe areas and pins of the other posts stayed over a post in focus. The board itself is cheap: 200 posts read and checked in 2–3 ms per commit (a wasm bench), 200 new posts made and arranged in ~180 ms.
+
+**Built:**
+- **Asset view as Buzz's.** A post in focus is the engine's single shown design (`Engine.setFocus`, Dev Mode's focus view): only it is drawn and picked. New in the engine: what is dropped or drawn while a design is in focus stays in it (`Editor::focusFloor` — `dropTargetAt` takes only the design and its frames, the Rectangle / Frame / … tools draw into it; the design itself moves as any layer would; native test in `editor.move.test.cpp`). Entering, the board gives way to the post when the camera arrives; leaving, the board is back before the camera moves (no pop, no dim overlay — `Spotlight` is gone).
+- **One camera move.** In a Social file `applySelection` doesn't zoom (the focus view glides; several posts stay on the board).
+- **No blinking.** The board's titles, the safe areas and the review pins follow the camera through zooms instead of hiding; in focus only the post's own bands and pins show.
+- **Templates** are the rail's own tab after Posts (`SocialTemplatesPanel`: the board's brand and the gallery full height — this file's and the enabled libraries' templates, filters, click or drag to insert, Make starter templates… when there are none), as Buzz keeps them in its left panel; the empty board's Start from a template opens it. The Posts tab is the posts list alone.
+- **Rulers** are off in a Social file unless the file kept its own choice (Buzz has none).

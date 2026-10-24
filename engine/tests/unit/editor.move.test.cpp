@@ -526,3 +526,32 @@ TEST_CASE("move: grid — a drag places the item in the cell under the pointer")
     CHECK(o.gridTrackBoxes[0].a.x == 50);
   }
 }
+
+TEST_CASE("move: in focus (one design shown, docs/social.md §20) a layer dragged out stays in it; a shape drawn outside goes in it") {
+  Editor e = load(baseScene());
+  REQUIRE(e.setFocus(F) == OK);
+  e.setSelection({A});
+  // Over Frame 2 and over the empty page: still Frame 1's (not shown frames take nothing)
+  drag(e, {45, 45}, {125, 455});
+  CHECK(e.document().parentOf(A) == F);
+  drag(e, {125, 455}, {700, 700});
+  CHECK(e.document().parentOf(A) == F);
+  // The design itself moves as any layer would (never into itself)
+  e.setSelection({F});
+  drag(e, {290, 290}, {320, 290});
+  CHECK(e.document().parentOf(F) == kPage);
+  // Out of focus: the page takes it again
+  REQUIRE(e.setFocus(kNoGuid) == OK);
+  Rect fb = world(e, F);
+  e.setSelection({A});
+  Rect ab = world(e, A);
+  drag(e, {ab.x + 5, ab.y + 5}, {ab.x + 5 + (fb.x + fb.w + 300 - ab.x), ab.y + 5});
+  CHECK(e.document().parentOf(A) == kPage);
+  // A rectangle drawn outside the design in focus goes into it
+  REQUIRE(e.setFocus(G) == OK);
+  e.setTool(Tool::RECTANGLE);
+  drag(e, {800, 100}, {850, 150});
+  auto kids = e.document().children(G);
+  REQUIRE(!kids.empty());
+  CHECK(e.document().get(kids.back())->props.type == NodeType::ROUNDED_RECTANGLE);
+}

@@ -26,6 +26,7 @@ import { landInBox, type Box } from "./imagePlaceholder";
 import { svgToMessage } from "../model/svgImport";
 import { codeConnectSnippets, type CodeConnectSource, type ViewSnippet } from "../../../../viewer/inspect/codeConnect";
 import { editorDevData } from "../devmode/round5";
+import { isSocialFile } from "../devmode/devMode";
 import { addInteractionTool, getPrototypeTool, prototypeContext, prototypeField, prototypeOf, removeFlowTool, removeInteractionTool, setFlowTool, setPrototypeSettingsTool, updateInteractionTool } from "./prototypeTools";
 import { describeSchema } from "@shared/agents/schemaDescribe";
 import { addAnimationTool, addAudioTool, applyAnimationStyleTool, detachAnimationStyleTool, editAnimationTool, editAudioTool, exportAnimationTool, getMotionTool, removeAnimationsTool, removeKeyframesTool, saveAnimationStyleTool, setKeyframesTool, setTimelineTool } from "./motionTools";
@@ -1278,7 +1279,9 @@ export function applySelection(ed: EditorController, refs: readonly Guid[], zoom
   for (let i = 0; n && n.type !== "CANVAS" && i < 400; i++) n = n.parentIndex?.guid ? ed.engine.readNode(n.parentIndex.guid, { fields: ["parentIndex", "type"] }) : null;
   if (n && n.guid !== ed.store.page) ed.engine.setCurrentPage(n.guid);
   ed.engine.setSelection(live);
-  if (zoom) ed.engine.command("ZOOM_TO_SELECTION");
+  // A Social file moves its own camera (docs/social.md §20): one post selected glides into it, several stay on the board
+  // — a zoom here too made the view jump twice.
+  if (zoom && !isSocialFile(ed)) ed.engine.command("ZOOM_TO_SELECTION");
 }
 
 function responsiveTool(env: ToolEnv, args: Spec): ToolResult {

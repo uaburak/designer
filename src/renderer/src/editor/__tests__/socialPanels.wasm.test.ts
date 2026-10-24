@@ -96,6 +96,15 @@ describe("Social mode's chrome (round 18a)", () => {
     expect(runEditorCommand(design.ed, "view.mode-social")).toBe(false);
   });
 
+  it("the templates are the rail's own tab after Posts (docs/social.md §20), with the gallery and its starter action", async () => {
+    await setup(() => createElement(LeftSide));
+    expect($$("[data-rail-tab]").map((b) => b.getAttribute("data-rail-tab")).slice(0, 3)).toEqual(["agents", "posts", "templates"]);
+    act(() => click($('[data-rail-tab="templates"]')!));
+    expect($('[data-panel="left"]')?.getAttribute("data-tab")).toBe("templates");
+    expect($('[data-panel="left"]')?.textContent).toContain("No templates yet");
+    expect($('[data-panel="left"]')?.textContent).toContain("Make starter templates…");
+  });
+
   it("lists the page's posts by campaign in the Posts tab", async () => {
     const { ed } = await setup(() => createElement(LeftSide));
     act(() => ed.ui.set({ railTab: "posts" }));

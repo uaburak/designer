@@ -1790,6 +1790,9 @@ class Editor : private LayoutHost, public TextLayouts {
   Guid dropTargetAt(Vec2 world, bool force = false) const;
   // The frame or page a parent's layers belong to (through groups).
   Guid containerOf(Guid parent) const;
+  // Where new and dropped layers go when nothing under the pointer takes them: the design in focus (Dev Mode's focus
+  // view, a Social file's single post — docs/social.md §20: they stay in it), else the page.
+  Guid focusFloor() const;
   void keepResizedSize(Guid id, bool x, bool y);
   void endGesture();
   // Round 17 (haptics): the dragged values as whole steps for the drag in progress (empty: the drag has none), and

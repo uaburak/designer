@@ -46,7 +46,7 @@ export function EmptyBoard() {
         })}
       </div>
       <div className={styles.row}>
-        <Button variant="secondary" onClick={() => ed.ui.set({ railTab: "posts", socialTemplatesOpen: true, variablesOpen: false })}>
+        <Button variant="secondary" onClick={() => ed.ui.set({ railTab: "templates", variablesOpen: false })}>
           {t("Start from a template")}
         </Button>
         <span className={styles.hint}>{t("or tell the agent on the left — its designs land in their grids here")}</span>

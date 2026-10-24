@@ -39,7 +39,8 @@ const DEFAULT_PAGE = hexToColor("#f5f5f5");
  */
 export function restoreViewOptions(ed: EditorController): void {
   const kept = ed.source.uiState?.rulers;
-  ed.ui.set({ rulers: typeof kept === "boolean" ? kept : true });
+  // A Social file opens without them, as Figma Buzz has none (docs/social.md §20); its own choice is kept the same way.
+  ed.ui.set({ rulers: typeof kept === "boolean" ? kept : ed.source.editorType !== "buzz" });
 }
 
 /** Puts back the file's last page, camera, selection and panel widths; true when a camera was restored. */

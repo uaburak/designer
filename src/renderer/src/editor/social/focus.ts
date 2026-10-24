@@ -76,11 +76,12 @@ type View = { x: number; y: number; zoom: number };
 const ease = (t: number) => 1 - Math.pow(1 - t, 4);
 
 /** The camera from where it is to `to` (the visible part's centre and zoom) over `ms`; returns the stop. */
-export function glide(ed: EditorController, to: View, ms = 320): () => void {
+export function glide(ed: EditorController, to: View, ms = 320, done?: () => void): () => void {
   const from = ed.engine.viewCenter();
   const time = glideMs(ms);
   if (time <= 0 || ed.engine.destroyed) {
     ed.engine.centerOn(to.x, to.y, to.zoom);
+    done?.();
     return () => {};
   }
   const start = performance.now();
@@ -92,12 +93,21 @@ export function glide(ed: EditorController, to: View, ms = 320): () => void {
     const zoom = Math.exp(Math.log(from.zoom) + (Math.log(to.zoom) - Math.log(from.zoom)) * k);
     ed.engine.centerOn(from.x + (to.x - from.x) * k, from.y + (to.y - from.y) * k, zoom);
     if (k < 1) frame = requestAnimationFrame(step);
+    else finish();
+  };
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    clearTimeout(land);
+    done?.();
   };
   frame = requestAnimationFrame(step);
   // A page the browser throttles (hidden, in the background) gets no frames: the camera lands where it goes anyway.
   const land = setTimeout(() => {
     cancelAnimationFrame(frame);
     if (!ed.engine.destroyed) ed.engine.centerOn(to.x, to.y, to.zoom);
+    finish();
   }, time + 60);
   return () => {
     cancelAnimationFrame(frame);
@@ -150,6 +160,11 @@ export function useFocusCamera(ed: EditorController, focus: Guid | null): void {
     cameraState.set(ed, state);
     if (focus === state.focus) return;
     state.stop();
+    // The single post shown, as Figma Buzz's asset view (docs/social.md §20): the engine draws and picks only it, and
+    // layers dragged or drawn outside it stay in it — no drop into another post, no fall onto the canvas. Entering, the
+    // board fades to the post once the camera is there; leaving, the board is back before the camera moves.
+    const isolate = () => !ed.engine.destroyed && ed.engine.setFocus(focus);
+    if (!focus || state.focus) isolate();
     if (focus) {
       const post = socialOf(ed).post(focus);
       if (!post) return;
@@ -159,7 +174,7 @@ export function useFocusCamera(ed: EditorController, focus: Guid | null): void {
         const now = ed.engine.viewCenter();
         state.board = shows(ed, now, post) ? now : null;
       }
-      state.stop = glide(ed, viewOf(ed, post));
+      state.stop = glide(ed, viewOf(ed, post), 320, isolate);
     } else {
       const back = state.board ?? boardView(ed);
       if (back) state.stop = glide(ed, back);

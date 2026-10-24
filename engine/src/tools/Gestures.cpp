@@ -1152,9 +1152,10 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
                 : tool_ == Tool::STAR      ? NodeType::STAR
                                            : NodeType::LINE;
     drawArrow_ = tool_ == Tool::ARROW;
-    // Into the innermost frame under the press (the page when none).
-    drawParent_ = page_;
+    // Into the innermost frame under the press (the page when none; in focus, the design in focus).
+    drawParent_ = focusFloor();
     auto path = hitPath(doc_, page_, downWorld_, pixel());
+    focusFilter(path);
     for (auto it = path.rbegin(); it != path.rend(); ++it)
       if (acceptsChildren(*it)) {
         // A section goes on the canvas or into another section only (Figma).
@@ -1901,6 +1902,10 @@ void Editor::prepareSnapping(Guid parent, const std::unordered_set<Guid, GuidHas
   snapper_.setLines(std::move(xs), std::move(ys));
 }
 
+Guid Editor::focusFloor() const {
+  return dev_.focus != kNoGuid && doc_.has(dev_.focus) && acceptsChildren(dev_.focus) ? dev_.focus : page_;
+}
+
 Guid Editor::dropTargetAt(Vec2 world, bool force) const {
   // The topmost frame under the pointer that isn't being moved (nor inside what is): its box, inside every
   // frame that clips it. Instances and locked or hidden frames don't take layers. The pointer decides, not the
@@ -1909,10 +1914,14 @@ Guid Editor::dropTargetAt(Vec2 world, bool force) const {
   (void)force;
   GuidSet moving;
   for (const Target& t : targets_) moving.insert(t.id);
-  Guid best = page_;
+  // In focus (a single design shown): only the design and what is in it take layers; outside it they stay in it.
+  // (The design itself being moved goes where any layer would.)
+  const Guid floor = moving.count(focusFloor()) ? page_ : focusFloor();
+  Guid best = floor;
   doc_.query(page_, Rect{world.x, world.y, 0, 0}, [&](Guid id) {
     const Node* n = doc_.get(id);
     if (!n || !acceptsChildren(id)) return true;
+    if (floor != page_ && id != floor && !doc_.isAncestor(floor, id)) return true;
     if (!doc_.visibleInTree(id)) return true;
     bool ok = true;
     for (Guid cur = id; ok && doc_.has(cur); cur = doc_.parentOf(cur)) {
@@ -1923,7 +1932,7 @@ Guid Editor::dropTargetAt(Vec2 world, bool force) const {
       bool in = q.x >= 0 && q.y >= 0 && q.x <= c->props.size.x && q.y <= c->props.size.y;
       if (!in && (cur == id || c->props.clipsContent())) ok = false;
     }
-    if (ok && (best == page_ || doc_.paintsBefore(best, id))) best = id;
+    if (ok && (best == floor || doc_.paintsBefore(best, id))) best = id;
     return true;
   });
   return best;

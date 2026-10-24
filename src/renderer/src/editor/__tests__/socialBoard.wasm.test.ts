@@ -16,6 +16,8 @@ import { attachArranger, layoutOf } from "../social/arrange";
 import { BOARD, boardLayout } from "../social/board";
 import { focusedPost } from "../social/focus";
 import { readBoard } from "../social/socialState";
+import { PointerType } from "@/engine/abi";
+import { IDENTITY } from "../agents/nodeSpec";
 
 beforeAll(async () => {
   globalThis.fetch = async () => new Response(null, { status: 404 });
@@ -124,5 +126,40 @@ describe("a Social file's board (docs/social.md §19)", () => {
     expect(focusedPost(ed)).toBeNull();
     ed.engine.setSelection([]);
     expect(focusedPost(ed)).toBeNull();
+  });
+
+  it("in focus a layer dragged towards another post or onto the canvas stays in its post (docs/social.md §20)", async () => {
+    const { ed, engine } = await social();
+    const w = editorWriter(ed);
+    const a = newPost(ed, w, { formatId: "instagram.portrait" });
+    const b = newPost(ed, w, { formatId: "instagram.portrait" });
+    // A layer in post a
+    const pa = at(ed, a);
+    const pb = at(ed, b);
+    const res = engine.applyChanges({ type: "NODE_CHANGES", sessionID: 1, nodeChanges: [{ guid: "1:9999", phase: "CREATED", type: "ROUNDED_RECTANGLE", name: "Card", visible: true, opacity: 1, size: { x: 200, y: 200 }, transform: { ...IDENTITY, m02: 100, m12: 100 }, parentIndex: { guid: a, position: "a" }, fillPaints: [{ type: "SOLID", color: { r: 1, g: 0, b: 0, a: 1 }, opacity: 1, visible: true, blendMode: "NORMAL" }] } as never] }, "user");
+    expect(res).toBe(0);
+    const rect = "1:9999";
+    // The camera: page = screen (zoom 1 at the origin of post a)
+    engine.setCamera({ x: -pa.x, y: -pa.y, zoom: 1 });
+    engine.setFocus(a);
+    engine.setSelection([rect]);
+    const drag = (fx: number, fy: number, tx: number, ty: number) => {
+      engine.pointer(PointerType.MOVE, fx, fy, 0, 0, 0);
+      engine.pointer(PointerType.DOWN, fx, fy, 0, 1, 0);
+      for (let i = 1; i <= 8; i++) engine.pointer(PointerType.MOVE, fx + ((tx - fx) * i) / 8, fy + ((ty - fy) * i) / 8, 0, 1, 0);
+      engine.pointer(PointerType.UP, tx, ty, 0, 0, 0);
+    };
+    // Towards post b (right of a on the screen)
+    const before = engine.readNode(rect, { fields: ["transform"] })?.transform?.m02;
+    drag(150, 150, pb.x - pa.x + 150, 150);
+    expect(engine.readNode(rect, { fields: ["transform"] })?.transform?.m02).not.toBe(before); // it did move
+    expect(engine.readNode(rect, { fields: ["parentIndex"] })?.parentIndex?.guid).toBe(a);
+    // Onto the empty canvas below the posts
+    drag(pb.x - pa.x + 150, 150, 150, 3000);
+    expect(engine.readNode(rect, { fields: ["parentIndex"] })?.parentIndex?.guid).toBe(a);
+    // The board stays as it was: only post a and b, in place
+    await tick();
+    expect(readBoard(ed, ed.store.page).posts.map((p) => p.id)).toEqual([a, b]);
+    expect(at(ed, b)).toEqual(pb);
   });
 });

@@ -1,7 +1,6 @@
 @layer app {
   /* Review pins (docs/social.md §6.4): the comments' pin shape (32, its point the bottom-left corner), warning-coloured */
   .layer { position: absolute; inset: 0; z-index: var(--ds-z-base); overflow: hidden; pointer-events: none; }
-  .layer[data-zooming] { visibility: hidden; }
   .post { position: absolute; top: 0; left: 0; width: 0; height: 0; will-change: transform; }
   .pin {
     position: absolute;

@@ -11,6 +11,7 @@ import { t, useT } from "@/i18n";
 import { useEditor } from "../controller";
 import { applySelection } from "../agents/mcpTools";
 import { useCameraPlacement } from "./SafeAreaOverlay";
+import { useFocusedPost } from "./focus";
 import { useSocialBoard, type PostRow } from "./socialState";
 import styles from "./ReviewPins.module.css";
 
@@ -30,7 +31,8 @@ export function ReviewPins() {
   useT();
   const ed = useEditor();
   const board = useSocialBoard(ed);
-  const rows = useMemo(() => board.posts.filter((p) => p.data.problems.some((x) => x.box)), [board]);
+  const focus = useFocusedPost(ed);
+  const rows = useMemo(() => board.posts.filter((p) => p.data.problems.some((x) => x.box) && (!focus || p.id === focus)), [board, focus]);
   const layer = useRef<HTMLDivElement>(null);
   useCameraPlacement(ed, layer, rows, placePins);
   if (!rows.length) return null;
