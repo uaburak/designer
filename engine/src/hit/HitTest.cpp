@@ -237,6 +237,10 @@ Guid hitSubtree(const Document& doc, Guid id, Vec2 world, double pixel, int dept
   return hitsNode(doc, id, local, slop, false) ? id : kNoGuid;
 }
 
+namespace {
+Guid g_openFrame = kNoGuid;  // setOpenFrame
+}  // namespace
+
 // Calls f(path) for each node hit at `world`, topmost first; stops when f returns false.
 template <typename F>
 void forEachHit(const Document& doc, Guid page, Vec2 world, double pixel, F&& f, bool includeLocked = false, bool framesByBox = false) {
@@ -272,10 +276,11 @@ void forEachHit(const Document& doc, Guid page, Vec2 world, double pixel, F&& f,
     const bool booleanItself = n->props.isBoolean();
     if (n->props.fitsChildren() && !transform && !booleanItself) continue;
     bool clipped = false;
-    for (Guid a = n->props.parentIndex.guid; a != kNoGuid && !clipped;) {
+    for (Guid a = n->props.parentIndex.guid, below = id; a != kNoGuid && !clipped;) {
       const Node* an = doc.get(a);
       if (!an || an->props.type == NodeType::CANVAS) break;
-      if (an->props.clipsContent()) {
+      // The open frame's children off its box are on its canvas, not cut off (setOpenFrame)
+      if (an->props.clipsContent() && !(a == g_openFrame && offBox(doc, a, below))) {
         Mat2x3 m = doc.worldTransform(a);
         double unit = std::sqrt(std::fabs(m.determinant()));
         double slop = (unit > 0 ? pixel / unit : pixel) * kHitSlopCss;
@@ -292,6 +297,7 @@ void forEachHit(const Document& doc, Guid page, Vec2 world, double pixel, F&& f,
           for (auto& f : g->fills) inside |= geom::contains(geom::flatten(f.path, slop / 8), m.inverse().apply(world), false);
         if (!inside) clipped = true;
       }
+      below = a;
       a = an->props.parentIndex.guid;
     }
     if (clipped) continue;
@@ -346,6 +352,14 @@ std::vector<std::vector<Guid>> hitPaths(const Document& doc, Guid page, Vec2 wor
       },
       includeLocked);
   return out;
+}
+
+void setOpenFrame(Guid frame) { g_openFrame = frame; }
+Guid openFrame() { return g_openFrame; }
+
+bool offBox(const Document& doc, Guid frame, Guid child) {
+  Rect f = doc.worldBounds(frame), c = doc.worldBounds(child);
+  return c.x >= f.x + f.w || c.x + c.w <= f.x || c.y >= f.y + f.h || c.y + c.h <= f.y;
 }
 
 }  // namespace eng

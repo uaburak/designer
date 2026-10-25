@@ -15,6 +15,7 @@
 #include "geometry/Shapes.h"
 #include "geometry/Stroker.h"
 #include "geometry/VariableWidth.h"
+#include "hit/HitTest.h"
 #include "layout/Layout.h"
 #include "render/shader_presets.h"
 #include "scene/CodecKiwi.h"
@@ -3139,9 +3140,18 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
     if (only == kNoGuid && overlay.dev.focus != kNoGuid) {
       // Focus view: the one design over the page, then the overlays.
       int i = tree.indexOf(overlay.dev.focus);
-      if (i >= 0)
+      if (i >= 0) {
         drawChildren(doc, static_cast<uint32_t>(i), tree.nodes()[static_cast<size_t>(i)].end,
                      view_ * doc.worldTransform(doc.parentOf(overlay.dev.focus)), 1);
+        // Its own canvas (docs/social.md §32): its layers wholly off its box, which its clip cut away, drawn where they
+        // are — so what is drawn beside it in focus shows (an export, a thumbnail and the board still clip them).
+        if (const Node* fn = doc.get(overlay.dev.focus); fn && fn->props.clipsContent() && !exporting_)
+          for (Guid c : doc.children(overlay.dev.focus)) {
+            int ci = tree.indexOf(c);
+            if (ci < 0 || !offBox(doc, overlay.dev.focus, c)) continue;
+            drawChildren(doc, static_cast<uint32_t>(ci), tree.nodes()[static_cast<size_t>(ci)].end, view_ * doc.worldTransform(overlay.dev.focus), 1);
+          }
+      }
       current_ = 0;
       scissorEnabled_ = false;
       drawOverlay(doc, page, camera, overlay, adapted);

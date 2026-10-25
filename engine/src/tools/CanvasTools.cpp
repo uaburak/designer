@@ -226,103 +226,157 @@ void Editor::applyScale(double s) {
   GuidSet roots;
   for (const Target& t : targets_) roots.insert(t.id);
   for (auto& [id, from] : scaleFrom_) {
-    const Node* n = doc_.get(id);
-    if (!n) continue;
-    NodeChange c = NodeChange::changed(id);
-    NodeProps& p = c.props;
-    if (!roots.count(id)) {
-      c.mask |= F_TRANSFORM | F_SIZE;
-      p.transform = from.transform;
-      p.transform.m02 *= s;
-      p.transform.m12 *= s;
-      p.size = {from.size.x * s, from.size.y * s};
-    }
-    if (from.cornerRadii[0] || from.cornerRadii[1] || from.cornerRadii[2] || from.cornerRadii[3]) {
-      c.mask |= F_CORNER_RADII;
-      for (size_t k = 0; k < 4; k++) p.cornerRadii[k] = from.cornerRadii[k] * s;
-    }
-    if (from.strokeWeight > 0) {
-      c.mask |= F_STROKE_WEIGHT;
-      p.strokeWeight = from.strokeWeight * s;
-    }
-    if (from.stroke().borderStrokeWeightsIndependent) {
-      c.mask |= F_BORDER_WEIGHTS;
-      p.stroke().borderStrokeWeightsIndependent = true;
-      for (size_t k = 0; k < 4; k++) p.stroke().borderWeights[k] = from.stroke().borderWeights[k] * s;
-    }
-    if (!from.stroke().dashPattern.empty()) {
-      c.mask |= F_DASH_PATTERN;
-      p.stroke().dashPattern = from.stroke().dashPattern;
-      for (double& v : p.stroke().dashPattern) v *= s;
-    }
-    if (!from.effects.empty()) {
-      c.mask |= F_EFFECTS;
-      p.effects = from.effects;
-      for (Effect& e : p.effects) {
-        e.radius *= s;
-        e.spread *= s;
-        e.offset = {e.offset.x * s, e.offset.y * s};
-      }
-    }
-    if (from.type == NodeType::TEXT) {
-      const auto& t = from.text();
-      c.mask |= F_FONT_SIZE | F_PARAGRAPH_SPACING | F_PARAGRAPH_INDENT;
-      p.text().fontSize = t.fontSize * s;
-      p.text().paragraphSpacing = t.paragraphSpacing * s;
-      p.text().paragraphIndent = t.paragraphIndent * s;
-      if (t.lineHeight.units == NumberUnits::PIXELS) {
-        c.mask |= F_LINE_HEIGHT;
-        p.text().lineHeight = {t.lineHeight.value * s, NumberUnits::PIXELS};
-      }
-      if (t.letterSpacing.units == NumberUnits::PIXELS) {
-        c.mask |= F_LETTER_SPACING;
-        p.text().letterSpacing = {t.letterSpacing.value * s, NumberUnits::PIXELS};
-      }
-      // Per-range sizes too.
-      bool runs = false;
-      TextData data = t.textData;
-      for (TextStyle& r : data.styleOverrideTable) {
-        if (r.mask & R_FONT_SIZE) r.fontSize *= s, runs = true;
-        if ((r.mask & R_LINE_HEIGHT) && r.lineHeight.units == NumberUnits::PIXELS) r.lineHeight.value *= s, runs = true;
-        if ((r.mask & R_LETTER_SPACING) && r.letterSpacing.units == NumberUnits::PIXELS) r.letterSpacing.value *= s, runs = true;
-      }
-      if (runs) {
-        c.mask |= F_TEXT_DATA;
-        p.text().textData = std::move(data);
-      }
-    }
-    if (from.isAutoLayout()) {
-      const StackFacet& st = from.stack();
-      c.mask |= F_STACK_SPACING | F_STACK_PADDING_LEFT | F_STACK_PADDING_TOP | F_STACK_PADDING_RIGHT | F_STACK_PADDING_BOTTOM;
-      p.stack().stackSpacing = st.stackSpacing * s;
-      p.stack().stackPaddingLeft = st.stackPaddingLeft * s;
-      p.stack().stackPaddingTop = st.stackPaddingTop * s;
-      p.stack().stackPaddingRight = st.stackPaddingRight * s;
-      p.stack().stackPaddingBottom = st.stackPaddingBottom * s;
-      if (st.stackCounterSpacing) {
-        c.mask |= F_STACK_COUNTER_SPACING;
-        p.stack().stackCounterSpacing = *st.stackCounterSpacing * s;
-      }
-    }
-    if (from.rare().minSize.x > 0 || from.rare().minSize.y > 0) {
-      c.mask |= F_MIN_SIZE;
-      p.rare().minSize = {from.rare().minSize.x * s, from.rare().minSize.y * s};
-    }
-    if (from.rare().maxSize.x > 0 || from.rare().maxSize.y > 0) {
-      c.mask |= F_MAX_SIZE;
-      p.rare().maxSize = {from.rare().maxSize.x * s, from.rare().maxSize.y * s};
-    }
-    if (!from.rare().layoutGrids.empty()) {
-      c.mask |= F_LAYOUT_GRIDS;
-      p.rare().layoutGrids = from.rare().layoutGrids;
-      for (LayoutGrid& g : p.rare().layoutGrids) {
-        g.offset *= s;
-        g.sectionSize *= s;
-        g.gutterSize *= s;
-      }
-    }
+    if (!doc_.get(id)) continue;
+    NodeChange c = scaledChange(id, from, s, !roots.count(id));
     if (c.mask) write(c);
   }
+}
+
+NodeChange Editor::scaledChange(Guid id, const NodeProps& from, double s, bool place) const {
+  NodeChange c = NodeChange::changed(id);
+  NodeProps& p = c.props;
+  if (place) {
+    c.mask |= F_TRANSFORM | F_SIZE;
+    p.transform = from.transform;
+    p.transform.m02 *= s;
+    p.transform.m12 *= s;
+    p.size = {from.size.x * s, from.size.y * s};
+  }
+  if (from.cornerRadii[0] || from.cornerRadii[1] || from.cornerRadii[2] || from.cornerRadii[3]) {
+    c.mask |= F_CORNER_RADII;
+    for (size_t k = 0; k < 4; k++) p.cornerRadii[k] = from.cornerRadii[k] * s;
+  }
+  if (from.strokeWeight > 0) {
+    c.mask |= F_STROKE_WEIGHT;
+    p.strokeWeight = from.strokeWeight * s;
+  }
+  if (from.stroke().borderStrokeWeightsIndependent) {
+    c.mask |= F_BORDER_WEIGHTS;
+    p.stroke().borderStrokeWeightsIndependent = true;
+    for (size_t k = 0; k < 4; k++) p.stroke().borderWeights[k] = from.stroke().borderWeights[k] * s;
+  }
+  if (!from.stroke().dashPattern.empty()) {
+    c.mask |= F_DASH_PATTERN;
+    p.stroke().dashPattern = from.stroke().dashPattern;
+    for (double& v : p.stroke().dashPattern) v *= s;
+  }
+  if (!from.effects.empty()) {
+    c.mask |= F_EFFECTS;
+    p.effects = from.effects;
+    for (Effect& e : p.effects) {
+      e.radius *= s;
+      e.spread *= s;
+      e.offset = {e.offset.x * s, e.offset.y * s};
+    }
+  }
+  if (from.type == NodeType::TEXT) {
+    const auto& t = from.text();
+    c.mask |= F_FONT_SIZE | F_PARAGRAPH_SPACING | F_PARAGRAPH_INDENT;
+    p.text().fontSize = t.fontSize * s;
+    p.text().paragraphSpacing = t.paragraphSpacing * s;
+    p.text().paragraphIndent = t.paragraphIndent * s;
+    if (t.lineHeight.units == NumberUnits::PIXELS) {
+      c.mask |= F_LINE_HEIGHT;
+      p.text().lineHeight = {t.lineHeight.value * s, NumberUnits::PIXELS};
+    }
+    if (t.letterSpacing.units == NumberUnits::PIXELS) {
+      c.mask |= F_LETTER_SPACING;
+      p.text().letterSpacing = {t.letterSpacing.value * s, NumberUnits::PIXELS};
+    }
+    // Per-range sizes too.
+    bool runs = false;
+    TextData data = t.textData;
+    for (TextStyle& r : data.styleOverrideTable) {
+      if (r.mask & R_FONT_SIZE) r.fontSize *= s, runs = true;
+      if ((r.mask & R_LINE_HEIGHT) && r.lineHeight.units == NumberUnits::PIXELS) r.lineHeight.value *= s, runs = true;
+      if ((r.mask & R_LETTER_SPACING) && r.letterSpacing.units == NumberUnits::PIXELS) r.letterSpacing.value *= s, runs = true;
+    }
+    if (runs) {
+      c.mask |= F_TEXT_DATA;
+      p.text().textData = std::move(data);
+    }
+  }
+  if (from.isAutoLayout()) {
+    const StackFacet& st = from.stack();
+    c.mask |= F_STACK_SPACING | F_STACK_PADDING_LEFT | F_STACK_PADDING_TOP | F_STACK_PADDING_RIGHT | F_STACK_PADDING_BOTTOM;
+    p.stack().stackSpacing = st.stackSpacing * s;
+    p.stack().stackPaddingLeft = st.stackPaddingLeft * s;
+    p.stack().stackPaddingTop = st.stackPaddingTop * s;
+    p.stack().stackPaddingRight = st.stackPaddingRight * s;
+    p.stack().stackPaddingBottom = st.stackPaddingBottom * s;
+    if (st.stackCounterSpacing) {
+      c.mask |= F_STACK_COUNTER_SPACING;
+      p.stack().stackCounterSpacing = *st.stackCounterSpacing * s;
+    }
+  }
+  if (from.rare().minSize.x > 0 || from.rare().minSize.y > 0) {
+    c.mask |= F_MIN_SIZE;
+    p.rare().minSize = {from.rare().minSize.x * s, from.rare().minSize.y * s};
+  }
+  if (from.rare().maxSize.x > 0 || from.rare().maxSize.y > 0) {
+    c.mask |= F_MAX_SIZE;
+    p.rare().maxSize = {from.rare().maxSize.x * s, from.rare().maxSize.y * s};
+  }
+  if (!from.rare().layoutGrids.empty()) {
+    c.mask |= F_LAYOUT_GRIDS;
+    p.rare().layoutGrids = from.rare().layoutGrids;
+    for (LayoutGrid& g : p.rare().layoutGrids) {
+      g.offset *= s;
+      g.sectionSize *= s;
+      g.gutterSize *= s;
+    }
+  }
+  return c;
+}
+
+Status Editor::adaptFrame(Guid frame, Vec2 size, const std::vector<AdaptItem>& items) {
+  if (busy()) return E_BUSY;
+  const Node* fn = doc_.get(frame);
+  if (!fn || !(size.x > 0) || !(size.y > 0)) return E_INVALID;
+  for (const AdaptItem& it : items)
+    if (!doc_.has(it.id) || doc_.parentOf(it.id) != frame) return E_NOT_FOUND;
+  begin(TxnKind::USER, "Edit");
+  // The frame and everything scaled in it keep what is written here: constraints don't move them again this step.
+  adapted_.insert(frame);
+  if (!(fn->props.size == size)) {
+    NodeChange c = NodeChange::changed(frame);
+    c.mask = F_SIZE;
+    c.props.size = size;
+    write(c);
+  }
+  for (const AdaptItem& it : items) {
+    const double s = it.scale > 0 && std::isfinite(it.scale) ? it.scale : 1;
+    // The layer and everything in it, as they are now (a main's layers stay its own: an instance follows its size)
+    std::vector<std::pair<Guid, NodeProps>> sub;
+    auto collect = [&](auto&& self, Guid id) -> void {
+      const Node* n = doc_.get(id);
+      if (!n || id.isDerived()) return;
+      sub.emplace_back(id, n->props);
+      if (n->props.isFrameLike()) adapted_.insert(id);
+      if (n->props.type == NodeType::INSTANCE) return;
+      for (Guid c : doc_.children(id)) self(self, c);
+    };
+    collect(collect, it.id);
+    for (auto& [id, from] : sub) {
+      const bool root = id == it.id;
+      NodeChange c = s == 1 && !root ? NodeChange::changed(id) : scaledChange(id, from, s, !root);
+      if (root) {
+        // Its box at x, y, its size w × h (else scaled)
+        c.mask |= F_TRANSFORM | F_SIZE;
+        c.props.size = {it.w > 0 ? it.w : from.size.x * s, it.h > 0 ? it.h : from.size.y * s};
+        Mat2x3 linear = from.transform;
+        linear.m02 = linear.m12 = 0;
+        Rect b = transformedBounds(linear, c.props.size.x, c.props.size.y);
+        c.props.transform = from.transform;
+        c.props.transform.m02 = it.x - b.x;
+        c.props.transform.m12 = it.y - b.y;
+      }
+      if (c.mask) write(c);
+    }
+  }
+  flushLayout();
+  commit();
+  return OK;
 }
 
 // ---- Ruler guides ---------------------------------------------------------------------------------------------

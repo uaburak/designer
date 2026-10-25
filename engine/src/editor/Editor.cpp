@@ -3,6 +3,7 @@
 #include "editor/Refusals.h"
 #include "proto/Prototype.h"
 
+#include "hit/HitTest.h"
 #include "scene/CodecKiwi.h"
 #include "schema/SchemaTable.h"
 #include "text/TextEdit.h"
@@ -97,6 +98,8 @@ Editor::Editor() {
   doc_.geometryCache().setTextSource([this](Guid id) { return textLayout(id); });
   // Figma Draw's text on a path: its geometry (Flatten, hit-testing, strokes) is its placed glyphs (docs/draw.md §4.4).
   doc_.geometryCache().setTextPathSource([this](Guid id) { return textLayout(id); });
+  // No design in focus yet (an earlier editor's in this module is not ours)
+  setOpenFrame(kNoGuid);
 }
 
 // ---- Transactions -----------------------------------------------------------
@@ -120,6 +123,7 @@ void Editor::begin(TxnKind kind, const std::string& label) {
   txn_.peer = false;
   txn_.changes.clear();
   layoutDirty_.clear();
+  adapted_.clear();
   instanceRefit_.clear();  // the rollback's restored sizes derive those instances again (not layout writes)
   groupsTouched_.clear();
   edited_.clear();

@@ -18,6 +18,7 @@ import { focusedPost, postsInOrder, setSocialView, shownPost } from "../social/f
 import { setMode } from "../devmode/devMode";
 import { readBoard } from "../social/socialState";
 import { readPost } from "../social/posts";
+import { planAdapt } from "../social/adapt";
 import { attachAutoCheck } from "../social/autoCheck";
 import { PointerType } from "@/engine/abi";
 import { IDENTITY } from "../agents/nodeSpec";
@@ -75,6 +76,33 @@ describe("the board's layout (pure)", () => {
   });
 });
 
+describe("a post adapted to another format (docs/social.md §32, pure)", () => {
+  it("a 3:4 post to a story: the background stretched, the title under the story's top band, the button over its bottom band, the product's middle kept, nothing stretched", () => {
+    const margin = { top: 64, right: 64, bottom: 64, left: 64 };
+    const story = { top: 269, right: 65, bottom: 672, left: 65 };
+    const steps = planAdapt(
+      [
+        { id: "bg", x: 0, y: 0, w: 1080, h: 1440 },
+        { id: "title", x: 80, y: 80, w: 700, h: 120 },
+        { id: "product", x: 290, y: 520, w: 500, h: 500 },
+        { id: "button", x: 80, y: 1300, w: 300, h: 80 },
+      ],
+      { w: 1080, h: 1440 },
+      { w: 1080, h: 1920 },
+      margin,
+      story,
+    );
+    const of = (id: string) => steps.find((s) => s.id === id)!;
+    expect(of("bg")).toMatchObject({ x: 0, y: 0, w: 1080, h: 1920 });
+    // Same width: no scaling
+    expect(of("title")).toMatchObject({ scale: 1, y: 269 + 16 });
+    expect(of("button").scale).toBe(1);
+    expect(of("button").y).toBe(1920 - 672 - 80);
+    // The middle third: its centre at the same place across the safe area
+    expect(of("product").y + 250).toBeCloseTo(269 + ((770 - 64) / (1440 - 128)) * (1920 - 269 - 672));
+  });
+});
+
 describe("a Social file's board (docs/social.md §19)", () => {
   it("puts a new post at its grid's end, in the step that made it", async () => {
     const { ed } = await social();
@@ -121,9 +149,10 @@ describe("a Social file's board (docs/social.md §19)", () => {
     const p1 = newPost(ed, w, { formatId: "instagram.portrait" });
     const p2 = newPost(ed, w, { formatId: "instagram.portrait" });
     const s = newPost(ed, w, { formatId: "instagram.story" });
-    // A layer pinned to the story's bottom, stretched across it (its constraints)
+    // A band pinned to the story's bottom, a card under its top band
     const bar = "1:9998";
-    expect(engine.applyChanges({ type: "NODE_CHANGES", sessionID: 1, nodeChanges: [{ guid: bar, phase: "CREATED", type: "ROUNDED_RECTANGLE", name: "Bar", visible: true, opacity: 1, size: { x: 1000, y: 100 }, transform: { ...IDENTITY, m02: 40, m12: 1780 }, horizontalConstraint: "STRETCH", verticalConstraint: "MAX", parentIndex: { guid: s, position: "a" } } as never] }, "user")).toBe(0);
+    const card = "1:9996";
+    expect(engine.applyChanges({ type: "NODE_CHANGES", sessionID: 1, nodeChanges: [{ guid: bar, phase: "CREATED", type: "ROUNDED_RECTANGLE", name: "Bar", visible: true, opacity: 1, size: { x: 1000, y: 100 }, transform: { ...IDENTITY, m02: 40, m12: 1780 }, horizontalConstraint: "STRETCH", verticalConstraint: "MAX", parentIndex: { guid: s, position: "a" } } as never, { guid: card, phase: "CREATED", type: "FRAME", name: "Card", visible: true, opacity: 1, size: { x: 400, y: 200 }, transform: { ...IDENTITY, m02: 100, m12: 300 }, parentIndex: { guid: s, position: "b" } } as never] }, "user")).toBe(0);
     await tick();
     const before = [p1, p2, s].map((id) => at(ed, id));
     engine.setViewOptions({ pixelGrid: false, outlines: false, assetChrome: true });
@@ -140,14 +169,22 @@ describe("a Social file's board (docs/social.md §19)", () => {
     expect(engine.readNode(s, { fields: ["size"] })?.size).toEqual({ x: 1080, y: 1440 });
     expect(layoutOf(ed).sections[0].grids.map((g) => g.ids)).toEqual([[p1, s, p2]]);
     expect(at(ed, s)).toEqual(before[1]);
-    // Its layers follow by their constraints: still on the bottom, as wide
-    expect(engine.readNode(bar, { fields: ["transform"] })?.transform?.m12).toBe(1300);
-    expect(engine.readNode(bar, { fields: ["size"] })?.size).toEqual({ x: 1000, y: 100 });
+    // Its layers adapted (§32): the band across it still at the bottom, its height scaled with the post (¾); the card
+    // under the story's top band now under the post's top margin, scaled ¾
+    const b = engine.readNode(bar, { fields: ["transform", "size"] })!;
+    expect(b.size!.x).toBeCloseTo(1000);
+    expect(b.size!.y).toBeCloseTo(75);
+    expect(b.transform!.m12).toBeCloseTo(1440 - (40 / 672) * 64 - 75, 1);
+    const k = engine.readNode(card, { fields: ["transform", "size"] })!;
+    expect(k.size!.x).toBeCloseTo(300);
+    expect(k.transform!.m12).toBeCloseTo(64 + (300 - 269) * 0.75, 1);
     // One ⌘Z: a story in its own grid again
     ed.engine.undo();
     await tick();
     expect(readPost(ed, s)?.formatId).toBe("instagram.story");
     expect([p1, p2, s].map((id) => at(ed, id))).toEqual(before);
+    expect(engine.readNode(bar, { fields: ["size"] })?.size).toEqual({ x: 1000, y: 100 });
+    expect(engine.readNode(card, { fields: ["size"] })?.size).toEqual({ x: 400, y: 200 });
   });
 
   it("a post checks itself a moment after an edit, its pins as bookkeeping, not an undo step (docs/social.md §30)", async () => {

@@ -992,6 +992,14 @@ export class Engine {
     this.after(this.x.setBoardGround(this.h, encodeText(JSON.stringify(payload))));
   }
 
+  /**
+   * A frame given another size with its layers adapted (docs/social.md §32): each item (a child of the frame) scaled as
+   * the Scale tool scales it, its box put at x, y (and w × h); constraints ignored. One write (inside an open step).
+   */
+  adaptFrame(frame: Guid, size: { x: number; y: number }, items: readonly { id: Guid; scale: number; x: number; y: number; w?: number; h?: number }[]): number {
+    return this.after(this.x.adaptFrame(this.h, encodeText(JSON.stringify({ frame, size: [size.x, size.y], items }))));
+  }
+
   /** The last drop of posts into another grid than theirs (docs/social.md §29) — that grid's key and the posts — taken once. */
   takeBoardDrop(): { grid: string; ids: Guid[] } | null {
     return this.json(this.x.takeBoardDrop(this.h), null);

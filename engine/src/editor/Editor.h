@@ -921,6 +921,14 @@ class Editor : private LayoutHost, public TextLayouts {
     Rect frame;               // its container
   };
   void setBoard(std::vector<BoardGrid> grids);
+  // A frame given another size with its layers adapted to it (a Social post moved to another format, docs/social.md
+  // §32): each item's layer scaled by `scale` (everything in it, as the Scale tool), its box put at `x`, `y` (the
+  // frame's own space) and, given, `w` × `h` — constraints ignored for the frame and everything scaled. One write.
+  struct AdaptItem {
+    Guid id;
+    double scale = 1, x = 0, y = 0, w = -1, h = -1;
+  };
+  Status adaptFrame(Guid frame, Vec2 size, const std::vector<AdaptItem>& items);
   // The last drop of posts into another grid than theirs (that grid's key and the posts brought), taken once.
   struct BoardDrop {
     std::string grid;
@@ -1316,7 +1324,7 @@ class Editor : private LayoutHost, public TextLayouts {
   void base(Guid id, Mat2x3& transform, Vec2& size) const override;
   bool excludedFromFlow(Guid id) const override { return excluded_.count(id) != 0; }
   bool placedByGesture(Guid id) const override { return excluded_.count(id) != 0 || pinned_.count(id) != 0; }
-  bool ignoreConstraints(Guid frame) const override { return ignoreConstraints_; }
+  bool ignoreConstraints(Guid frame) const override { return ignoreConstraints_ || adapted_.count(frame) != 0; }
   bool measureText(Guid id, double width, Vec2& size) override;
   double firstBaseline(Guid id, Vec2 size) override;
   Guid slotContentOf(Guid id) override;
@@ -1791,6 +1799,9 @@ class Editor : private LayoutHost, public TextLayouts {
   // text sizes, auto layout's padding and gaps, layout grids, limits.
   void startScale();
   void applyScale(double s);
+  // One node's props scaled by `s` from `from` (the Scale tool's: everything that has a size); `place` scales its
+  // place and size too (a descendant's), else they are the caller's. Empty mask: nothing to write.
+  NodeChange scaledChange(Guid id, const NodeProps& from, double s, bool place) const;
   // Ruler guides.
   bool rulersOn() const { return (viewOptions_ & VIEW_RULERS) != 0; }
   bool guideAt(Vec2 screen, RulerGuide& out) const;
@@ -2530,6 +2541,7 @@ class Editor : private LayoutHost, public TextLayouts {
   void writeQuiet(Guid id, const Mat2x3& transform);
   bool inLayout_ = false;
   bool ignoreConstraints_ = false;
+  std::unordered_set<Guid, GuidHash> adapted_;  // frames adaptFrame placed this transaction: constraints don't move their layers again
 
   // The gesture in progress.
   Gesture gesture_ = Gesture::None;

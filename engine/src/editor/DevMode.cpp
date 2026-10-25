@@ -286,6 +286,8 @@ Status Editor::setFocus(Guid id) {
   if (id != kNoGuid && !doc_.has(id)) return E_NOT_FOUND;
   if (dev_.focus == id) return OK;
   dev_.focus = id;
+  // The design in focus is its own canvas: what lies off its box is hit (and drawn) there (docs/social.md §32)
+  setOpenFrame(id);
   if (id != kNoGuid) {
     // What is selected outside the design leaves the selection.
     std::vector<Guid> keep;

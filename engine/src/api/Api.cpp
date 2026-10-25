@@ -3370,6 +3370,41 @@ ENG_EXPORT int32_t engine_set_safe_areas(Handle h, Ptr ptr, uint32_t len) {
   return OK;
 }
 
+// A frame given another size with its layers adapted (docs/social.md §32): {frame: "s:l", size: [w, h], items: [{id,
+// scale, x, y, w?, h?}]} — each item a child of the frame, scaled as the Scale tool scales, its box put at x, y (and w ×
+// h); constraints ignored. One write (inside the caller's step when one is open).
+ENG_EXPORT int32_t engine_adapt_frame(Handle h, Ptr ptr, uint32_t len) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  json::Value v;
+  if (!parse(ptr, len, v) || !v.isObject()) return E_DECODE;
+  bool ok = false;
+  const json::Value* f = v.get("frame");
+  Guid frame = f && f->isString() ? Guid::parse(f->string, &ok) : Guid{};
+  const json::Value* size = v.get("size");
+  if (!ok || !size || !size->isArray() || size->array.size() != 2) return E_DECODE;
+  std::vector<Editor::AdaptItem> items;
+  if (const json::Value* list = v.get("items"); list && list->isArray())
+    for (const json::Value& it : list->array) {
+      const json::Value* id = it.get("id");
+      bool good = false;
+      Editor::AdaptItem a;
+      a.id = id && id->isString() ? Guid::parse(id->string, &good) : Guid{};
+      if (!good) return E_DECODE;
+      auto num = [&](const char* k, double& out) {
+        if (const json::Value* x = it.get(k); x && x->isNumber()) out = x->number;
+      };
+      num("scale", a.scale);
+      num("x", a.x);
+      num("y", a.y);
+      num("w", a.w);
+      num("h", a.h);
+      items.push_back(a);
+    }
+  return e->editor.adaptFrame(frame, {size->array[0].number, size->array[1].number}, items);
+}
+
 // A Social file's grid containers' ground (docs/social.md §31): {rects: [[x, y, w, h], …], color: [r, g, b, a]} in page
 // coordinates, drawn on the page under every layer; {rects: []} clears it.
 ENG_EXPORT int32_t engine_set_board_ground(Handle h, Ptr ptr, uint32_t len) {

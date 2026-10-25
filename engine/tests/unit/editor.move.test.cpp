@@ -798,3 +798,50 @@ TEST_CASE("grid view (docs/social.md §26): a click on a post's layer takes the 
   up(e, 20, 20);
   CHECK(e.selection() == std::vector<Guid>{R});
 }
+
+TEST_CASE("asset view (docs/social.md §32): the design in focus is its own canvas — a layer drawn off its box is hit there; elsewhere its clip cuts it") {
+  auto nodes = baseChanges();
+  const Guid P{2, 1}, R{2, 2};
+  nodes.push_back(make(P, NodeType::FRAME, kPage, "!", {0, 0, 100, 100}, "Post"));
+  nodes.push_back(make(R, NodeType::ROUNDED_RECTANGLE, P, "!", {200, 20, 40, 40}, "Beside"));
+  Editor e = load(nodes);
+  // Not in focus: the post clips it away — nothing there
+  down(e, 220, 40);
+  up(e, 220, 40);
+  CHECK(e.selection().empty());
+  // In focus: it is on the post's canvas
+  REQUIRE(e.setFocus(P) == OK);
+  e.pointer(PointerEvent::DOWN, 220, 40, 0, 1, 0, 2);
+  e.pointer(PointerEvent::UP, 220, 40, 0, 0, 0, 2);
+  CHECK(e.selection() == std::vector<Guid>{R});
+  e.setFocus(kNoGuid);
+}
+
+TEST_CASE("adaptFrame (docs/social.md §32): the frame resized, each layer scaled as the Scale tool and put where asked; constraints don't move them again; one undo") {
+  auto nodes = baseChanges();
+  const Guid F{2, 1}, C{2, 2}, R{2, 3}, BAR{2, 4};
+  nodes.push_back(make(F, NodeType::FRAME, kPage, "!", {0, 0, 100, 100}, "Post"));
+  nodes.push_back(make(C, NodeType::FRAME, F, "!", {10, 10, 40, 40}, "Card"));
+  NodeChange r = make(R, NodeType::ROUNDED_RECTANGLE, C, "!", {10, 10, 20, 20}, "Inner");
+  r.props.horizontalConstraint = ConstraintType::STRETCH;
+  nodes.push_back(r);
+  NodeChange bar = make(BAR, NodeType::ROUNDED_RECTANGLE, F, "\"", {0, 80, 100, 20}, "Bar");
+  bar.props.verticalConstraint = ConstraintType::MAX;
+  nodes.push_back(bar);
+  Editor e = load(nodes);
+  REQUIRE(e.adaptFrame(F, {100, 200}, {Editor::AdaptItem{C, 0.5, 5, 5}, Editor::AdaptItem{BAR, 1, 0, 150, 100, 20}}) == OK);
+  const Document& d = e.document();
+  CHECK(d.get(F)->props.size == Vec2{100, 200});
+  CHECK(world(e, C).x == doctest::Approx(5));
+  CHECK(world(e, C).w == doctest::Approx(20));
+  // Inside the card: scaled with it (not stretched again by its constraint)
+  CHECK(world(e, R).x == doctest::Approx(10));
+  CHECK(world(e, R).w == doctest::Approx(10));
+  // The bar where asked (its Bottom constraint would have put it at 180)
+  CHECK(world(e, BAR).y == doctest::Approx(150));
+  e.command(CommandId::UNDO);
+  CHECK(d.get(F)->props.size == Vec2{100, 100});
+  CHECK(world(e, C).w == doctest::Approx(40));
+  CHECK(world(e, R).w == doctest::Approx(20));
+  CHECK(world(e, BAR).y == doctest::Approx(80));
+}

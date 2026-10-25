@@ -22,6 +22,7 @@ import { newNodeGuid } from "../variables";
 import { defaults, IDENTITY } from "../agents/nodeSpec";
 import { presenceOf } from "../multiplayer/presence";
 import { boardEnd, placePost, POST_GAP, type PlacedPost } from "./board";
+import { adaptPost } from "./adapt";
 import { cleanHashtags, postRecord, readCampaigns, readPost, socialId, writeCampaigns, writePost } from "./posts";
 import { motionRead } from "../motion/motionState";
 import { readBoard, type SocialBoard } from "./socialState";
@@ -176,7 +177,8 @@ export function resizePost(ed: EditorController, w: Writer, ids: readonly Guid[]
     const out: Guid[] = [];
     for (const [id, data] of posts) {
       if (!opts.duplicate) {
-        ed.engine.setProps([id], { size: { x: format.width, y: format.height } });
+        // Its layers adapted to the new size (§32), not only the frame
+        if (!adaptPost(ed, id, { width: format.width, height: format.height, formatId }, data.formatId)) ed.engine.setProps([id], { size: { x: format.width, y: format.height } });
         writePost(ed, id, { ...data, formatId, problems: [] });
         out.push(id);
         continue;
@@ -185,7 +187,8 @@ export function resizePost(ed: EditorController, w: Writer, ids: readonly Guid[]
       if (!copy) continue;
       const at = nextSpot(ed, readBoard(ed, ed.store.page).posts.filter((p) => p.id !== copy), data.campaignId);
       const t = ed.engine.readNode(copy, { fields: ["transform"] })?.transform ?? IDENTITY;
-      ed.engine.setProps([copy], { name: format.name, size: { x: format.width, y: format.height }, transform: { ...t, m02: at.x, m12: at.y } });
+      if (!adaptPost(ed, copy, { width: format.width, height: format.height, formatId }, data.formatId)) ed.engine.setProps([copy], { size: { x: format.width, y: format.height } });
+      ed.engine.setProps([copy], { name: format.name, transform: { ...t, m02: at.x, m12: at.y } });
       writePost(ed, copy, { ...data, formatId, status: "draft", problems: [], exportedAt: null, group: null });
       out.push(copy);
     }
@@ -431,7 +434,8 @@ export function checkPost(ed: EditorController, id: Guid): PostProblem[] {
     if (r.hashtags.over) out.push(problem("caption", "hashtags", { key: "captionHashtags", params: { count: String(r.hashtags.count), format: format.name, max: String(r.hashtags.max) } }));
     if (r.mentions.over) out.push(problem("caption", "mentions", { key: "captionMentions", params: { count: String(r.mentions.count), format: format.name, max: String(r.mentions.max) } }));
   }
-  const layers = layersOf(ed, id);
+  // Its layers on it: what lies wholly off its box is on its own canvas, not in the post (§32)
+  const layers = layersOf(ed, id).filter((l) => l.box.x < size.x && l.box.x + l.box.width > 0 && l.box.y < size.y && l.box.y + l.box.height > 0);
   // A logo is the outermost layer tagged or named so (a logo frame's own picture isn't a second one).
   const logoIds = new Set(layers.filter((l) => isLogo(l.node)).map((l) => l.node.guid));
   const logos = layers.filter((l) => logoIds.has(l.node.guid) && !logoIds.has(l.parent));

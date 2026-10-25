@@ -10,7 +10,7 @@
  * The agent is the left panel's (SocialAgentPanel). Its width is its own (`ui.socialRightWidth`), Design mode's
  * untouched; the content changes in place, the width stays (the canvas doesn't jump).
  */
-import { useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { Button, PanelSection, ResizeHandle, SegmentedControl } from "@/ds";
 import { PLATFORM_NAMES, formatById } from "@shared/social/formats";
 import { POST_STATUSES, type Platform, type PostStatus } from "@shared/social/types";
@@ -64,6 +64,16 @@ export function SocialRightPanel() {
   const posts = useSelectedPostCount();
   const anything = useSyncExternalStore((on) => ed.store.subscribe("selection", on), () => ed.store.selection.refs.length > 0);
   const view = focus ? "design" : posts > 1 ? "bulk" : anything ? "design" : "board";
+  // A post picked on the grid view shows its Post tab; opened (its Design glyph, the asset view) its Design tab (§32)
+  useEffect(
+    () =>
+      ed.store.subscribe("selection", () => {
+        const ui = ed.ui.get();
+        if (ui.socialView === "asset" || ed.store.selection.refs.length !== 1 || !socialOf(ed).post(ed.store.selection.refs[0])) return;
+        if (ui.socialPanelTab !== "post") ed.ui.set({ socialPanelTab: "post" });
+      }),
+    [ed],
+  );
   return (
     <aside className={panelStyles.right} style={{ width }} aria-label={t("Social panel")} data-panel="right" data-social-right={view}>
       <RightHeader />

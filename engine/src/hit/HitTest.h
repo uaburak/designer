@@ -45,4 +45,11 @@ std::vector<Guid> hitPath(const Document& doc, Guid page, Vec2 world, double pix
 // there with a padlock).
 std::vector<std::vector<Guid>> hitPaths(const Document& doc, Guid page, Vec2 world, double pixel, bool includeLocked = false);
 
+// A frame shown as its own canvas (a Social file's asset view, docs/social.md §32): its children wholly outside its box
+// aren't cut off by its clip — they are hit where they are, as the renderer draws them. kNoGuid: none.
+void setOpenFrame(Guid frame);
+Guid openFrame();
+// Whether `child` of `frame` lies wholly outside the frame's box (on its canvas)
+bool offBox(const Document& doc, Guid frame, Guid child);
+
 }  // namespace eng
