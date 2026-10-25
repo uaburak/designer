@@ -181,6 +181,7 @@ else()
     tests/unit/atlas.undo_scope.test.cpp
     tests/unit/render.batching.test.cpp
     tests/unit/editor.gestures.test.cpp
+    tests/unit/editor.crop.test.cpp
     tests/unit/api.test.cpp
     tests/unit/r11.type_features.test.cpp
     tests/unit/r12.vector_draw.test.cpp
