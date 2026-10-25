@@ -1877,6 +1877,8 @@ Status Editor::setSelection(const std::vector<Guid>& ids) {
   if (pathTool_.kind != PathTool::NONE && !(ids.size() == 1 && ids[0] == pathTool_.node)) pathToolCancel();
   std::vector<Guid> live;
   for (Guid id : ids) {
+    // A diverged slot's row: the slot is the content frame shown for it (the one Layers row, Figma's slot).
+    if (Guid shown = shownSlotContent(id); shown != kNoGuid) id = shown;
     if (!doc_.has(id) || std::find(live.begin(), live.end(), id) != live.end()) continue;
     const Node* n = doc_.get(id);
     if (n->props.type == NodeType::CANVAS || n->props.type == NodeType::DOCUMENT) continue;

@@ -558,3 +558,218 @@ TEST_CASE("slots: Delete contents empties an instance's slot (diverged) and a ma
   REQUIRE(e.command(CommandId::CLEAR_SLOT, args(R"({"ref":")" + CONTENT.toString() + "\"}")) == OK);
   CHECK(e.document().children(CONTENT).empty());
 }
+
+// ---- Slots on instances: one Layers row, drops into the slot, its auto layout, nested slots ----
+
+namespace {
+
+// A vertical auto-layout card (a title, then a vertical auto-layout slot: 8 apart, 10 in, a default dot) and a small
+// chip component with its own slot; an instance of the card on the page, three rectangles beside it.
+const Guid CARD{3, 1}, TITLE{3, 2}, SLOT{3, 3}, DOT{3, 4}, SLOTDEF{3, 0x7ffffffd};
+const Guid CHIP{3, 20}, CHIPSLOT{3, 21}, CHIPDEF{3, 0x7ffffffc};
+const Guid CI{3, 40}, RA{3, 41}, RB{3, 42}, RC{3, 43};
+
+NodeChange slotFrame(Guid id, Guid parent, const std::string& pos, Rect r, Guid def) {
+  NodeChange s = make(id, NodeType::FRAME, parent, pos, r, "Slot");
+  s.props.comp().isSlot = true;
+  s.props.fillPaints.clear();
+  s.props.stack().stackMode = StackMode::VERTICAL;
+  s.props.stack().stackSpacing = 8;
+  s.props.stack().stackPaddingLeft = s.props.stack().stackPaddingTop = 10;
+  s.props.stack().stackPaddingRight = s.props.stack().stackPaddingBottom = 10;
+  s.props.stack().stackPrimarySizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
+  ParamBinding b;
+  b.field = VariableField::SLOT_CONTENT_ID;
+  b.propRef = def;
+  s.props.parameterConsumptionMap = {b};
+  return s;
+}
+
+std::vector<NodeChange> slotCardDoc() {
+  auto nodes = baseChanges();
+  NodeChange card = make(CARD, NodeType::SYMBOL, kPage, "!", {0, 0, 200, 100}, "Card");
+  card.props.stack().stackMode = StackMode::VERTICAL;
+  card.props.stack().stackPrimarySizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
+  ComponentPropDef d;
+  d.id = SLOTDEF;
+  d.name = "Content";
+  d.type = ComponentPropType::SLOT;
+  card.props.comp().componentPropDefs = {d};
+  nodes.push_back(card);
+  nodes.push_back(make(TITLE, NodeType::ROUNDED_RECTANGLE, CARD, "!", {0, 0, 200, 20}, "Title"));
+  nodes.push_back(slotFrame(SLOT, CARD, "\"", {0, 20, 200, 30}, SLOTDEF));
+  nodes.push_back(make(DOT, NodeType::ELLIPSE, SLOT, "!", {10, 10, 10, 10}, "Dot"));
+  NodeChange chip = make(CHIP, NodeType::SYMBOL, kPage, "\"", {400, 0, 100, 40}, "Chip");
+  ComponentPropDef cd;
+  cd.id = CHIPDEF;
+  cd.name = "Inner";
+  cd.type = ComponentPropType::SLOT;
+  chip.props.comp().componentPropDefs = {cd};
+  nodes.push_back(chip);
+  nodes.push_back(slotFrame(CHIPSLOT, CHIP, "!", {0, 0, 100, 40}, CHIPDEF));
+  NodeChange inst = make(CI, NodeType::INSTANCE, kPage, "#", {0, 300, 200, 100}, "Card");
+  inst.props.comp().symbolData.symbolID = CARD;
+  inst.props.fillPaints.clear();
+  nodes.push_back(inst);
+  nodes.push_back(make(RA, NodeType::ROUNDED_RECTANGLE, kPage, "$", {600, 0, 50, 20}, "A"));
+  nodes.push_back(make(RB, NodeType::ROUNDED_RECTANGLE, kPage, "%", {600, 100, 60, 30}, "B"));
+  nodes.push_back(make(RC, NodeType::ROUNDED_RECTANGLE, kPage, "&", {600, 200, 20, 20}, "C"));
+  return nodes;
+}
+
+Guid contentOf(const Editor& e, Guid instance) {
+  for (Guid c : e.document().children(instance))
+    if (!c.isDerived() && e.document().get(c)->props.comp().isSlotContent) return c;
+  return kNoGuid;
+}
+
+}  // namespace
+
+TEST_CASE("slots: layers moved into an instance's slot go into its content frame at the index, laid out by the slot's auto layout") {
+  Editor e = load(slotCardDoc());
+  Guid row = derived::intern(CI, {SLOT});
+  REQUIRE(e.document().has(row));
+  REQUIRE(e.acceptsChildren(row));
+  // Into the slot, on top of its default (index 1 of one child): the content frame takes the default's copy, then A, B.
+  REQUIRE(e.moveNodes({RA, RB}, row, 1) == 2);
+  Guid content = contentOf(e, CI);
+  REQUIRE(content != kNoGuid);
+  const NodeProps& cp = e.document().get(content)->props;
+  CHECK(cp.stack().stackMode == StackMode::VERTICAL);
+  CHECK(cp.stack().stackSpacing == 8);
+  CHECK(cp.stack().stackPaddingTop == 10);
+  const auto& kids = e.document().children(content);
+  REQUIRE(kids.size() == 3);
+  CHECK(kids[1] == RA);
+  CHECK(kids[2] == RB);
+  // Laid out in the flow: the dot at the padding, A 8 under it, B 8 under A; the slot hugs them, the card too.
+  Rect slotBox = e.document().worldBounds(row);
+  Rect contentBox = e.document().worldBounds(content);
+  CHECK(contentBox == slotBox);
+  CHECK(e.document().worldBounds(kids[0]) == Rect{10, 300 + 20 + 10, 10, 10});
+  CHECK(e.document().worldBounds(RA) == Rect{10, 300 + 20 + 28, 50, 20});
+  CHECK(e.document().worldBounds(RB) == Rect{10, 300 + 20 + 56, 60, 30});
+  CHECK(contentBox.h == doctest::Approx(10 + 10 + 8 + 20 + 8 + 30 + 10));
+  CHECK(e.document().worldBounds(CI).h == doctest::Approx(20 + contentBox.h));
+  // Reorder inside it as in any frame: B to the start of the flow.
+  REQUIRE(e.moveNodes({RB}, content, 0) == 1);
+  CHECK(e.document().children(content)[0] == RB);
+  CHECK(e.document().worldBounds(RB).y == doctest::Approx(300 + 20 + 10));
+  // A layer dropped on the slot row again goes into the same content frame, at that index.
+  REQUIRE(e.moveNodes({RC}, row, 1) == 1);
+  CHECK(contentOf(e, CI) == content);
+  CHECK(e.document().children(content)[1] == RC);
+  CHECK(e.document().worldBounds(RC).y == doctest::Approx(300 + 20 + 10 + 30 + 8));
+  // One undo step each: back to the main's default.
+  e.command(CommandId::UNDO);
+  e.command(CommandId::UNDO);
+  e.command(CommandId::UNDO);
+  CHECK(!e.document().has(content));
+  CHECK(e.document().parentOf(RA) == kPage);
+  CHECK(e.document().has(derived::intern(CI, {SLOT, DOT})));
+}
+
+TEST_CASE("slots: an instance's diverged slot is one Layers row — its content frame in the slot's place, with the slot glyph") {
+  Editor e = load(slotCardDoc());
+  Guid row = derived::intern(CI, {SLOT});
+  Guid title = derived::intern(CI, {TITLE});
+  // Not diverged: the slot row itself (it takes layers).
+  CHECK(e.layerChildren(CI) == std::vector<Guid>{title, row});
+  CHECK(e.layerSlot(row));
+  CHECK(!e.layerSlot(title));
+  REQUIRE(e.moveNodes({RA}, row, 1) == 1);
+  Guid content = contentOf(e, CI);
+  REQUIRE(content != kNoGuid);
+  // Diverged: the content frame where the slot row was (and not again at the end), its layers under it.
+  CHECK(e.layerChildren(CI) == std::vector<Guid>{title, content});
+  CHECK(e.layerParent(content) == CI);
+  CHECK(e.layerSlot(content));
+  CHECK(e.layerHidden(row));
+  CHECK(e.layerChildren(content) == e.document().children(content));
+  CHECK(e.layerParent(RA) == content);
+  // Selecting the slot row selects what it shows.
+  REQUIRE(e.setSelection({row}) == OK);
+  CHECK(e.selection() == std::vector<Guid>{content});
+  // Delete contents and Reset slot on the row as shown.
+  REQUIRE(e.command(CommandId::CLEAR_SLOT) == OK);
+  CHECK(e.document().children(content).empty());
+  CHECK(e.layerChildren(CI) == std::vector<Guid>{title, content});
+  e.setSelection({content});
+  REQUIRE(e.command(CommandId::RESET_SLOT) == OK);
+  CHECK(!e.document().has(content));
+  CHECK(e.layerChildren(CI) == std::vector<Guid>{title, row});
+  CHECK(!e.layerHidden(row));
+}
+
+TEST_CASE("slots: a paste beside a layer of an instance's slot lands in the slot (its content frame), after that layer") {
+  Editor e = load(slotCardDoc());
+  e.setSelection({RA});
+  Clipboard clip;
+  REQUIRE(e.copySelection(clip, false));
+  e.setSelection({derived::intern(CI, {SLOT, DOT})});
+  REQUIRE(e.paste(clip, false) == 1);
+  Guid content = contentOf(e, CI);
+  REQUIRE(content != kNoGuid);
+  const auto& kids = e.document().children(content);
+  REQUIRE(kids.size() == 2);
+  CHECK(e.document().get(kids[1])->props.name == "A");
+  CHECK(e.document().worldBounds(kids[1]).y == doctest::Approx(300 + 20 + 28));  // in the slot's flow
+  // Selected, the slot's own content frame takes a paste too (into it, on top).
+  e.setSelection({content});
+  REQUIRE(e.paste(clip, false) == 1);
+  CHECK(e.document().children(content).size() == 3);
+}
+
+TEST_CASE("slots: an instance inside another instance's slot content takes layers in its own slot (nested slot content)") {
+  auto nodes = slotCardDoc();
+  const Guid CHIPI{3, 50};
+  NodeChange chipInst = make(CHIPI, NodeType::INSTANCE, kPage, "'", {800, 0, 100, 40}, "Chip");
+  chipInst.props.comp().symbolData.symbolID = CHIP;
+  chipInst.props.fillPaints.clear();
+  nodes.push_back(chipInst);
+  Editor e = load(nodes);
+  Guid row = derived::intern(CI, {SLOT});
+  REQUIRE(e.moveNodes({CHIPI}, row, 1) == 1);
+  Guid content = contentOf(e, CI);
+  REQUIRE(content != kNoGuid);
+  REQUIRE(e.document().parentOf(CHIPI) == content);
+  // The chip's own slot, inside the card's slot content: a layer goes into the chip's content frame.
+  Guid inner = derived::intern(CHIPI, {CHIPSLOT});
+  REQUIRE(e.document().has(inner));
+  CHECK(e.acceptsChildren(inner));
+  REQUIRE(e.moveNodes({RA}, inner, 0) == 1);
+  Guid chipContent = contentOf(e, CHIPI);
+  REQUIRE(chipContent != kNoGuid);
+  CHECK(e.document().parentOf(RA) == chipContent);
+  CHECK(e.document().worldBounds(RA).x == doctest::Approx(e.document().worldBounds(chipContent).x + 10));
+  CHECK(e.layerChildren(CHIPI) == std::vector<Guid>{chipContent});
+  // And straight into the content frame shown in the slot's place.
+  REQUIRE(e.moveNodes({RB}, chipContent, 0) == 1);
+  CHECK(e.document().parentOf(RB) == chipContent);
+}
+
+TEST_CASE("slots: a chip the card's slot shows by default (an instance in the main's slot) takes layers in its own slot") {
+  auto nodes = slotCardDoc();
+  const Guid CHIPD{3, 60};
+  NodeChange chipDefault = make(CHIPD, NodeType::INSTANCE, SLOT, "\"", {10, 30, 100, 40}, "Chip");
+  chipDefault.props.comp().symbolData.symbolID = CHIP;
+  chipDefault.props.fillPaints.clear();
+  nodes.push_back(chipDefault);
+  Editor e = load(nodes);
+  Guid inner = derived::intern(CI, {SLOT, CHIPD, CHIPSLOT});
+  REQUIRE(e.document().has(inner));
+  CHECK(e.acceptsChildren(inner));
+  CHECK(e.layerSlot(inner));
+  REQUIRE(e.moveNodes({RA}, inner, 0) == 1);
+  Guid content = e.document().parentOf(RA);
+  REQUIRE(content != kNoGuid);
+  CHECK(e.document().get(content)->props.comp().isSlotContent);
+  CHECK(e.document().parentOf(content) == CI);
+  CHECK(e.shownSlotRow(content) == inner);
+  CHECK(e.layerParent(content) == derived::intern(CI, {SLOT, CHIPD}));
+  // In the chip's slot, at its padding.
+  Rect slot = e.document().worldBounds(inner);
+  CHECK(e.document().worldBounds(content) == slot);
+  CHECK(e.document().worldBounds(RA).x == doctest::Approx(slot.x + 10));
+  CHECK(e.document().worldBounds(RA).y == doctest::Approx(slot.y + 10));
+}

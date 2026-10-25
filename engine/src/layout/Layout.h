@@ -41,6 +41,9 @@ class LayoutHost {
   // A diverged slot inside an instance (a derived slot frame): the content frame it shows, else kNoGuid. A slot
   // that hugs, hugs its content (Figma).
   virtual Guid slotContentOf(Guid id) { return kNoGuid; }
+  // The other way: the slot row a content frame (a real child of the instance) is shown for, else kNoGuid. Its layout
+  // parent is that slot: it takes the slot's place and size, then lays out its own layers.
+  virtual Guid slotRowOf(Guid content) { return kNoGuid; }
 };
 
 class Layout {
@@ -172,6 +175,10 @@ class Layout {
   // Where a child's first baseline is, from the top of its layout box (BASELINE alignment): a text's
   // first line, an auto-layout frame's first child's, else the box's bottom.
   double baselineOf(Guid id, Vec2 size, int depth = 0);
+  // Diverged slots met while arranging (a slot row, the content frame it shows): placed over their slots and laid out
+  // once the roots are (placeSlotContents).
+  void placeSlotContents();
+  std::vector<std::pair<Guid, Guid>> slotContents_;
 
   LayoutHost& host_;
   const Document& doc_;

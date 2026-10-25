@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Guid, NodeChange } from "@/engine/codec";
-import { patchTree } from "../controller";
+import { decodeLayerOutline, OUTLINE_FLAGS, patchTree } from "../controller";
+import { layerIcon, layerKind } from "../panels/Layers";
 import {
   ancestorsOf,
   DETAILS_WINDOW,
@@ -284,5 +285,55 @@ describe("drag and drop", () => {
   it("drags the selection when the pressed row is selected, else that row", () => {
     expect(draggedLayers(tree, rows, ["a1", "G", "A"], "G")).toEqual(["G", "A"]);
     expect(draggedLayers(tree, rows, ["a1", "G"], "B")).toEqual(["B"]);
+  });
+});
+
+describe("an instance's slots (help \"Create and use slots\")", () => {
+  // Page 0:1 holds R (a rectangle) and the instance 5:1: its title (a derived row), the slot it shows from its main
+  // (I5:1;3:3, a derived row that takes layers), and a second slot the engine lists as its content frame 7:1 (one row,
+  // in the slot's place) holding the instance's own layers 7:2 and 7:3.
+  const FRAME = 4; // the outline's type code for FRAME in `types` below
+  const types = ["NONE", "", "", "", "FRAME", "", "", "", "", "", "", "", "", "", "", "INSTANCE"];
+  const ids = ["0:1", "R", "5:1", "I5:1;3:2", "I5:1;3:3", "7:1", "7:2", "7:3"];
+  const parents = [-1, 0, 0, 2, 2, 2, 5, 5];
+  const kinds = [0, FRAME, 15, FRAME | (OUTLINE_FLAGS.derived << 8), FRAME | ((OUTLINE_FLAGS.derived | OUTLINE_FLAGS.slotHost) << 8), FRAME | (OUTLINE_FLAGS.slotHost << 8), FRAME, FRAME];
+  const store = new RowDetailsStore((want) => want.map((guid) => ({ guid, name: guid === "7:1" ? "Content" : guid }) as NodeChange));
+  const outline = decodeLayerOutline({ ids, parents, kinds, types });
+  const t = treeFromOutline("0:1", outline, store);
+
+  it("reads the slot flag of the outline: the content frame is one slot row, its layers under it", () => {
+    expect(outline[5]).toMatchObject({ id: "7:1", slotHost: true });
+    expect(outline[4]).toMatchObject({ derived: true, slotHost: true });
+    expect(outline[3].slotHost).toBeUndefined();
+    const rows = visibleRows(t, new Set(["5:1", "7:1"])).map((r) => `${r.id}@${r.depth}`);
+    expect(rows).toEqual(["5:1@0", "7:1@1", "7:3@2", "7:2@2", "I5:1;3:3@1", "I5:1;3:2@1", "R@0"]);
+  });
+
+  it("draws the slot glyph and names it a slot (the content frame too, whatever its details read)", () => {
+    const content = t.nodes.get("7:1")!;
+    expect(content.slot).toBe(true);
+    expect(layerIcon(content)).toBe("16.slot");
+    expect(layerKind(content)).toBe("Slot");
+    expect(layerIcon(t.nodes.get("I5:1;3:3")!)).toBe("16.slot");
+    expect(layerIcon(t.nodes.get("I5:1;3:2")!)).toBe("16.frame");
+  });
+
+  it("takes drops into a slot — the derived slot row and the content frame — never beside them", () => {
+    const rows = visibleRows(t, new Set(["5:1"])); // 5:1, 7:1, I5:1;3:3, I5:1;3:2, R
+    const at = (id: string) => rows.findIndex((r) => r.id === id);
+    expect(isContainer(t.nodes.get("I5:1;3:3"))).toBe(true);
+    expect(isContainer(t.nodes.get("I5:1;3:2"))).toBe(false);
+    expect(dropTarget(t, rows, at("I5:1;3:3"), 0.1, new Set(["R"]))).toEqual({ row: "I5:1;3:3", position: "inside", parent: "I5:1;3:3", index: 0 });
+    expect(dropTarget(t, rows, at("7:1"), 0.9, new Set(["R"]))).toEqual({ row: "7:1", position: "inside", parent: "7:1", index: 2 });
+    expect(dropTarget(t, rows, at("I5:1;3:2"), 0.5, new Set(["R"]))).toBeNull();
+  });
+
+  it("keeps the slot flag from the engine's layer rows (a delta, a full read)", () => {
+    const rowsTree = treeFromNodes("0:1", [
+      n("0:1", "CANVAS", "0:0", ["5:1"]),
+      n("5:1", "INSTANCE", "0:1", ["7:1"]),
+      n("7:1", "FRAME", "5:1", [], { slotHost: true } as Partial<NodeChange>),
+    ]);
+    expect(rowsTree.nodes.get("7:1")).toMatchObject({ slotHost: true, slot: true });
   });
 });

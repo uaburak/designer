@@ -3062,6 +3062,7 @@ void Editor::motionRelayout(const std::vector<Guid>& dirty) {
     bool measureText(Guid id, double width, Vec2& size) override { return ed.measureText(id, width, size); }
     double firstBaseline(Guid id, Vec2 size) override { return ed.firstBaseline(id, size); }
     Guid slotContentOf(Guid id) override { return ed.slotContentOf(id); }
+    Guid slotRowOf(Guid content) override { return ed.shownSlotRow(content); }
   } host(*this);
   Layout(host).run(dirty);
 }

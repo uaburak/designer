@@ -1133,6 +1133,14 @@ uint32_t Editor::moveNodes(const std::vector<Guid>& ids, Guid parent, uint32_t i
   const Node* pn = doc_.get(parent);
   if (!pn || !pn->props.isContainer()) return 0;
   if (isLibraryCopy(parent)) return 0;  // read-only (docs/schema.md §8.2)
+  // An instance's slot (its derived row, wherever the instance sits — in another one's slot content too): the layers
+  // go into its content frame, made on the first one with copies of what the slot shows (the index counts those).
+  Guid slotRow = kNoGuid;
+  if (parent.isDerived()) {
+    if (!acceptsChildren(parent)) return 0;
+    if (Guid content = slotContentFor(parent, false); content != kNoGuid && doc_.has(content)) parent = content;
+    else slotRow = parent;
+  }
   bool pagesMove = pn->props.type == NodeType::DOCUMENT;
   std::vector<Guid> live;
   for (Guid id : ids) {
@@ -1171,6 +1179,11 @@ uint32_t Editor::moveNodes(const std::vector<Guid>& ids, Guid parent, uint32_t i
   std::stable_sort(live.begin(), live.end(), [&](Guid a, Guid b) { return doc_.paintsBefore(a, b); });
   GuidSet moving(live.begin(), live.end());
   begin(TxnKind::USER, pagesMove ? "Move page" : "Move layers");
+  if (slotRow != kNoGuid) parent = slotContentFor(slotRow, true);
+  if (parent == kNoGuid) {
+    commit();
+    return 0;
+  }
   auto keys = placeManyAt(parent, index, live.size(), moving);
   for (size_t i = 0; i < live.size(); i++) {
     if (pagesMove) {
@@ -1355,8 +1368,10 @@ uint32_t Editor::pasteWith(const Clipboard& clip, uint32_t flags) {
       intoFrame = true;
     } else {
       target = doc_.parentOf(s);
-      // Beside a layer inside an instance: beside the instance itself (and beside a main it would cycle into).
-      while ((isStructuralTarget(target) || cyclesInto(target)) && doc_.has(target) && doc_.get(target)->props.type != NodeType::CANVAS) {
+      // Beside a layer inside an instance: beside the instance itself (and beside a main it would cycle into) — but
+      // beside a layer in an instance's slot, in that slot (its content frame, made on the first layer).
+      while (((isStructuralTarget(target) && !(target.isDerived() && acceptsChildren(target))) || cyclesInto(target)) && doc_.has(target) &&
+             doc_.get(target)->props.type != NodeType::CANVAS) {
         s = target.isDerived() ? instanceOfDerived(target) : target;
         target = doc_.parentOf(s);
       }

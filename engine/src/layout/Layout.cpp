@@ -558,6 +558,9 @@ void Layout::arrange(Guid id, Vec2 size, bool sizeFromParent) {
   const TextAlignHorizontal alignH = live.text().textAlignHorizontal;
   const Mat2x3 transform0 = live.transform;
   const Vec2 size0 = live.size;
+  // A diverged slot: what it shows is laid out over it once this pass has placed it (placeSlotContents).
+  if (frameLike && id.isDerived())
+    if (Guid shown = host_.slotContentOf(id); shown != kNoGuid && host_.slotRowOf(shown) == id) slotContents_.push_back({id, shown});
   if (autoLayout) {
     if (!sizeFromParent) size = natural(id);
     if (!sameSize(size, size0)) host_.writeGeometry(id, sizeFromParent ? transform0 : hugAnchored(doc_, id, transform0, size0, size), size);
@@ -742,6 +745,7 @@ void Layout::settle(Guid id) {
   const Node* n = doc_.get(id);
   if (n) arrange(id, n->props.size, false);
   memo_.clear();
+  placeSlotContents();
 }
 
 void Layout::constrainChildren(Guid frame) {
@@ -759,6 +763,13 @@ void Layout::run(const std::vector<Guid>& dirty, bool everyRoot) {
     for (int guard = 0; guard < 10000; guard++) {
       Guid parent = doc_.parentOf(r);
       const Node* pn = doc_.get(parent);
+      // A diverged slot's content frame is laid out where its slot is: up from the slot (a slot that hugs, hugs it).
+      if (pn && pn->props.type == NodeType::INSTANCE)
+        if (Guid row = host_.slotRowOf(r); row != kNoGuid) {
+          slotContents_.push_back({row, r});
+          r = row;
+          continue;
+        }
       if (!pn || !(pn->props.isAutoLayout() || pn->props.fitsChildren())) break;
       r = parent;
     }
@@ -785,6 +796,30 @@ void Layout::run(const std::vector<Guid>& dirty, bool everyRoot) {
     arrange(r, n->props.size, false);
     memo_.clear();
   }
+  placeSlotContents();
+}
+
+void Layout::placeSlotContents() {
+  // Each diverged slot's content frame takes its slot's place and size (in the instance's space) and lays out its own
+  // layers by its auto layout, the slot's (the content of an instance in it is met here too: until none is left).
+  std::unordered_set<Guid, GuidHash> done;
+  for (size_t guard = 0; !slotContents_.empty() && guard < 10000; guard++) {
+    auto [row, content] = slotContents_.back();
+    slotContents_.pop_back();
+    if (!done.insert(content).second) continue;
+    const Node* rn = doc_.get(row);
+    const Node* cn = doc_.get(content);
+    if (!rn || !cn) continue;
+    Guid instance = doc_.parentOf(content);
+    if (!doc_.has(instance)) continue;
+    memo_.clear();
+    const Mat2x3 t = doc_.worldTransform(instance).inverse() * doc_.worldTransform(row);
+    const Vec2 size = rn->props.size;
+    if (!sameSize(size, cn->props.size) || !(t == cn->props.transform)) host_.writeGeometry(content, t, size);
+    arrange(content, size, true);
+    memo_.clear();
+  }
+  slotContents_.clear();
 }
 
 }  // namespace eng

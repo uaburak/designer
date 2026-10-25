@@ -967,6 +967,28 @@ class Editor : private LayoutHost, public TextLayouts {
   Guid instanceOfDerived(Guid id) const;
   // Whether `id` can take new layers: a frame that isn't an instance and isn't inside one.
   bool acceptsChildren(Guid id) const;
+  // An instance's diverged slot as Figma shows it (help "Create and use slots"): one layer — the slot — holding the
+  // instance's own layers. Ours is a content frame (isSlotContent, a real child of the instance) drawn over the
+  // slot's derived row: `shownSlotContent` is the frame a slot row shows (kNoGuid: the main's content), and
+  // `shownSlotRow` the slot row a content frame stands for.
+  Guid shownSlotContent(Guid row) const;
+  Guid shownSlotRow(Guid content) const;
+  // The Layers panel's tree (engine_layer_tree / _outline / _changes): the document's, but a diverged slot's
+  // content frame is listed in its slot row's place (not again among the instance's own children) and that row
+  // isn't listed (`layerHidden`). `layerSlot`: a row that takes layers as a slot (an instance's slot row or the
+  // content frame shown for it) — the slot glyph, and the panel's drops into it.
+  void layerChildren(Guid id, std::vector<Guid>& out) const;
+  std::vector<Guid> layerChildren(Guid id) const {
+    std::vector<Guid> out;
+    layerChildren(id, out);
+    return out;
+  }
+  Guid layerParent(Guid id) const;
+  bool layerHidden(Guid id) const { return shownSlotContent(id) != kNoGuid; }
+  bool layerSlot(Guid id) const;
+  // The document version at which the slot rows the Layers panel replaces last changed (a delta older than it is
+  // read whole: rows moved between parents without a change of their own).
+  uint64_t slotRowsVersion() const { return slotRowsVersion_; }
   // The real main component (SYMBOL) an instance (real or derived) shows now; kNoGuid when it has none.
   Guid mainOf(Guid instance) const;
   // The interactions a layer plays (editor/PrototypeEditing.cpp): an instance's are its main's with its own changes and
@@ -1288,6 +1310,7 @@ class Editor : private LayoutHost, public TextLayouts {
   bool measureText(Guid id, double width, Vec2& size) override;
   double firstBaseline(Guid id, Vec2 size) override;
   Guid slotContentOf(Guid id) override;
+  Guid slotRowOf(Guid content) override { return shownSlotRow(content); }
 
   // ---- Transactions ----
   void begin(TxnKind kind, const std::string& label);
@@ -2663,6 +2686,7 @@ class Editor : private LayoutHost, public TextLayouts {
   // instance's SLOT assignment): its variables resolve where the slot shows it — the instance's slot row and up.
   std::unordered_map<Guid, Guid, GuidHash> slotHosts_;                    // content frame → its slot row
   std::unordered_map<Guid, std::vector<Guid>, GuidHash> slotContentsOf_;  // instance → the content frames it hosts
+  uint64_t slotRowsVersion_ = 0;                                           // slotRowsVersion()
   // The content frame a node is inside (Figma's form) when its slot row isn't derived yet (kNoGuid: hosted, or not
   // slot content): its bound values stay as stored until it is.
   Guid unhostedSlotContent(Guid id, const NodeProps& p) const;

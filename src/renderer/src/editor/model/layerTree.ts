@@ -26,6 +26,12 @@ export interface OutlineNode {
   stateGroup?: boolean;
   /** An instance's sublayer (ids `I<instance>;<key>…`): it keeps the main's place, no drops, no lock */
   derived?: boolean;
+  /**
+   * An instance's slot (help "Create and use slots"): its slot layer, or — once the instance has its own content
+   * there — the content frame the engine lists in the slot's place (one row, Figma's). It takes layers dropped into
+   * it (a derived slot row too) and shows the slot glyph.
+   */
+  slotHost?: boolean;
 }
 
 /** PASS 2 — what a row shows; read for the rows in view. */
@@ -227,9 +233,10 @@ class Row implements TreeNode {
   readonly group: boolean;
   readonly stateGroup?: true;
   readonly derived?: true;
+  readonly slotHost?: true;
   private readonly store: RowDetailsStore;
 
-  constructor(id: Guid, parent: Guid | null, type: string, children: Guid[], group: boolean, stateGroup: boolean, derived: boolean, store: RowDetailsStore) {
+  constructor(id: Guid, parent: Guid | null, type: string, children: Guid[], group: boolean, stateGroup: boolean, derived: boolean, store: RowDetailsStore, slotHost = false) {
     this.id = id;
     this.parent = parent;
     this.type = type;
@@ -237,19 +244,20 @@ class Row implements TreeNode {
     this.group = group;
     if (stateGroup) this.stateGroup = true;
     if (derived) this.derived = true;
+    if (slotHost) this.slotHost = true;
     this.store = store;
   }
 
   static fromOutline(o: OutlineNode, store: RowDetailsStore): Row {
-    return new Row(o.id, o.parent, o.type, o.children, o.group, o.stateGroup === true, o.derived === true, store);
+    return new Row(o.id, o.parent, o.type, o.children, o.group, o.stateGroup === true, o.derived === true, store, o.slotHost === true);
   }
 
   /** From an engine row (a layer-tree row, or a read with `childIds`) — one allocation per row in pass 1. */
   static fromNode(n: NodeChange, store: RowDetailsStore): Row {
-    const extra = n as NodeChange & { isStateGroup?: boolean; derived?: boolean };
+    const extra = n as NodeChange & { isStateGroup?: boolean; derived?: boolean; slotHost?: boolean };
     const type = n.type ?? "NONE";
     const group = type === "GROUP" || (type === "FRAME" && n.resizeToFit === true);
-    return new Row(n.guid, n.parentIndex?.guid || null, type, n.childIds ?? [], group, extra.isStateGroup === true && type === "FRAME", extra.derived === true || n.guid.startsWith("I"), store);
+    return new Row(n.guid, n.parentIndex?.guid || null, type, n.childIds ?? [], group, extra.isStateGroup === true && type === "FRAME", extra.derived === true || n.guid.startsWith("I"), store, extra.slotHost === true);
   }
 
   get name(): string {
@@ -276,8 +284,9 @@ class Row implements TreeNode {
   get mask(): boolean | undefined {
     return this.store.of(this.id).mask;
   }
+  /** A main's slot frame (its details), or an instance's slot (pass 1: the content frame shown in its place too) */
   get slot(): boolean | undefined {
-    return this.store.of(this.id).slot;
+    return this.slotHost || this.store.of(this.id).slot;
   }
   get media(): RowDetails["media"] {
     return this.store.of(this.id).media;
@@ -332,8 +341,9 @@ export function treeFromOutline(page: Guid, rows: readonly OutlineNode[], detail
   return { page, nodes: map, hasInstances, details };
 }
 
-/** Can layers be dropped inside it? */
+/** Can layers be dropped inside it? (An instance's slot can: the engine puts them into its content.) */
 export function isContainer(node: OutlineNode | undefined): boolean {
+  if (node?.slotHost) return true;
   return !!node && !node.derived && (node.type === "FRAME" || node.type === "GROUP" || node.type === "SECTION" || node.type === "SYMBOL" || node.type === "CANVAS");
 }
 
@@ -544,9 +554,11 @@ export function dropTarget(tree: LayerTree, rows: readonly RowData[], rowIndex: 
   }
   const row = rows[Math.max(0, rowIndex)];
   const node = tree.nodes.get(row.id);
-  if (!node || node.derived) return null;
+  // Inside an instance only its slots take layers (into them, not beside them).
+  if (!node || (node.derived && !node.slotHost)) return null;
   if (moving.has(row.id) || ancestorsOf(tree, row.id).some((a) => moving.has(a))) return null;
-  const position = dropZone(fraction, isContainer(node));
+  // An instance's slot sits among the instance's layers, where nothing else goes: a drop on its row goes into it.
+  const position = node.slotHost ? "inside" : dropZone(fraction, isContainer(node));
   // The top of a layer's children as listed: the top of the paint order, or the flow's start in an auto layout.
   const top = (id: Guid, kids: readonly Guid[]) => (flowOrdered(tree, id) ? 0 : without(kids, moving).length);
   if (position === "inside") return { row: row.id, position, parent: row.id, index: top(row.id, node.children) };

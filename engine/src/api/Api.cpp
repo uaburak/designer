@@ -1134,10 +1134,13 @@ ENG_EXPORT int32_t engine_set_selection(Handle h, Ptr ptr, uint32_t len) {
 }
 
 // One Layers row: {"guid","parentIndex":{"guid"},"type","name","visible","locked","childIds"[, "resizeToFit",
-// "stackMode", "stackWrap", "booleanOperation", "isStateGroup"]} (the last ones only when set).
-void writeLayerRow(json::Writer& w, const Document& doc, Guid id, const NodeProps& p) {
+// "stackMode", "stackWrap", "booleanOperation", "isStateGroup", "slotHost"]} (the last ones only when set). The
+// panel's tree (Editor::layerChildren): an instance's diverged slot is its content frame, in the slot row's place;
+// "slotHost": the row takes layers as an instance's slot.
+void writeLayerRow(json::Writer& w, const Editor& ed, Guid id, const NodeProps& p) {
   w.beginObject().key("guid").string(id.toString());
-  if (p.parentIndex.guid != kNoGuid) w.key("parentIndex").beginObject().key("guid").string(p.parentIndex.guid.toString()).endObject();
+  Guid parent = ed.layerParent(id);
+  if (parent != kNoGuid) w.key("parentIndex").beginObject().key("guid").string(parent.toString()).endObject();
   w.key("type").string(nodeTypeName(p.type)).key("name").string(p.name).key("visible").boolean(p.visible).key("locked").boolean(p.locked);
   if (p.resizeToFit) w.key("resizeToFit").boolean(true);
   if (p.stack().stackMode != StackMode::NONE) w.key("stackMode").string(enumName(p.stack().stackMode));
@@ -1145,21 +1148,26 @@ void writeLayerRow(json::Writer& w, const Document& doc, Guid id, const NodeProp
   if (p.type == NodeType::BOOLEAN_OPERATION) w.key("booleanOperation").string(enumName(p.shape().booleanOperation));
   if (p.comp().isStateGroup) w.key("isStateGroup").boolean(true);
   if (p.stackPositioning == StackPositioning::ABSOLUTE) w.key("stackPositioning").string("ABSOLUTE");
+  if (ed.layerSlot(id)) w.key("slotHost").boolean(true);
   w.key("childIds");
-  writeIds(w, doc.children(id));
+  std::vector<Guid> kids;
+  ed.layerChildren(id, kids);
+  writeIds(w, kids);
   w.endObject();
 }
 
 // The page and every layer under it, parents before children (hidden ones and instance sublayers included).
-void writeLayerRows(json::Writer& w, const Document& doc, Guid page) {
+void writeLayerRows(json::Writer& w, const Editor& ed, Guid page) {
+  const Document& doc = ed.document();
   std::vector<Guid> stack{page};
+  std::vector<Guid> kids;
   while (!stack.empty()) {
     Guid id = stack.back();
     stack.pop_back();
     const Node* n = doc.get(id);
     if (!n) continue;
-    writeLayerRow(w, doc, id, n->props);
-    const std::vector<Guid>& kids = doc.children(id);
+    writeLayerRow(w, ed, id, n->props);
+    ed.layerChildren(id, kids);
     // Pre-order with the first child read first.
     for (size_t i = kids.size(); i-- > 0;) stack.push_back(kids[i]);
   }
@@ -1185,7 +1193,7 @@ ENG_EXPORT int32_t engine_layer_tree(Handle h, uint32_t pageSessionID, uint32_t 
   e->editor.derivePage(page);
   json::Writer w;
   w.beginObject().key("version").number(static_cast<double>(doc.version())).key("nodes").beginArray();
-  writeLayerRows(w, doc, page);
+  writeLayerRows(w, e->editor, page);
   w.endArray().endObject();
   return setResult(w.take());
 }
@@ -1193,8 +1201,9 @@ ENG_EXPORT int32_t engine_layer_tree(Handle h, uint32_t pageSessionID, uint32_t 
 // Pass 1 of Figma's two-pass Layers panel: only the outline of `page` â every row's place and kind, no names â
 // {"version", "ids": [guidâ¦], "parents": [row index, -1 for the page], "kinds": [typeCode | flags << 8],
 // "types": [type name by code]}; rows in pre-order, each node followed by its children bottom first (as
-// engine_layer_tree), hidden layers and instance sublayers included. Flags: 1 instance sublayer, 2 isStateGroup,
-// 4 resizeToFit. Derives the page first.
+// engine_layer_tree), hidden layers and instance sublayers included; the panel's tree (Editor::layerChildren: a
+// diverged slot is its content frame, in the slot row's place). Flags: 1 instance sublayer, 2 isStateGroup,
+// 4 resizeToFit, 8 an instance's slot (takes layers; the slot glyph). Derives the page first.
 ENG_EXPORT int32_t engine_layer_outline(Handle h, uint32_t pageSessionID, uint32_t pageLocalID) {
   Call call;
   Engine* e = engineOf(h);
@@ -1207,6 +1216,8 @@ ENG_EXPORT int32_t engine_layer_outline(Handle h, uint32_t pageSessionID, uint32
   std::vector<int64_t> parents;
   std::vector<uint32_t> kinds;
   std::vector<std::pair<Guid, int64_t>> stack{{page, -1}};
+  std::vector<Guid> kids;
+  const Editor& ed = e->editor;
   while (!stack.empty()) {
     auto [id, parent] = stack.back();
     stack.pop_back();
@@ -1215,9 +1226,10 @@ ENG_EXPORT int32_t engine_layer_outline(Handle h, uint32_t pageSessionID, uint32
     int64_t index = static_cast<int64_t>(ids.size());
     ids.push_back(id);
     parents.push_back(parent);
-    uint32_t flags = (id.isDerived() ? 1u : 0u) | (n->props.comp().isStateGroup ? 2u : 0u) | (n->props.resizeToFit ? 4u : 0u);
+    uint32_t flags = (id.isDerived() ? 1u : 0u) | (n->props.comp().isStateGroup ? 2u : 0u) | (n->props.resizeToFit ? 4u : 0u) |
+                     (ed.layerSlot(id) ? 8u : 0u);
     kinds.push_back(static_cast<uint32_t>(n->props.type) | flags << 8);
-    const std::vector<Guid>& kids = doc.children(id);
+    ed.layerChildren(id, kids);
     for (size_t i = kids.size(); i-- > 0;) stack.push_back({kids[i], index});
   }
   std::string out;
@@ -1265,13 +1277,16 @@ ENG_EXPORT int32_t engine_layer_changes(Handle h, uint32_t pageSessionID, uint32
   if (!doc.has(page)) return E_NOT_FOUND;
   e->editor.derivePage(page);
   std::vector<Document::ChangeRecord> changes;
-  bool delta = since >= 0 && since <= static_cast<double>(doc.version()) && doc.changesSince(static_cast<uint64_t>(since), changes);
+  const Editor& ed = e->editor;
+  // A slot that diverged or went back since then moves rows between parents without a change of theirs: read whole.
+  bool delta = since >= 0 && since <= static_cast<double>(doc.version()) && since >= static_cast<double>(ed.slotRowsVersion()) &&
+               doc.changesSince(static_cast<uint64_t>(since), changes);
   std::vector<Guid> rows, removed;
   std::unordered_set<Guid, GuidHash> seen;
   auto row = [&](Guid id) {
     if (id == kNoGuid || !seen.insert(id).second) return;
     const Node* n = doc.get(id);
-    if (!n) {
+    if (!n || ed.layerHidden(id)) {  // gone, or a diverged slot's row (its content frame is listed instead)
       removed.push_back(id);
       return;
     }
@@ -1289,15 +1304,18 @@ ENG_EXPORT int32_t engine_layer_changes(Handle h, uint32_t pageSessionID, uint32
       row(c.id);
       if (!structural) continue;
       row(c.parentBefore);
-      if (const Node* n = doc.get(c.id)) row(n->props.parentIndex.guid);
+      if (doc.has(c.id)) {
+        row(doc.parentOf(c.id));
+        row(ed.layerParent(c.id));
+      }
     }
   }
   json::Writer w;
   w.beginObject().key("version").number(static_cast<double>(doc.version())).key("full").boolean(!delta).key("nodes").beginArray();
   if (delta) {
-    for (Guid id : rows) writeLayerRow(w, doc, id, doc.get(id)->props);
+    for (Guid id : rows) writeLayerRow(w, ed, id, doc.get(id)->props);
   } else {
-    writeLayerRows(w, doc, page);
+    writeLayerRows(w, ed, page);
     removed.clear();
   }
   w.endArray().key("removed");
