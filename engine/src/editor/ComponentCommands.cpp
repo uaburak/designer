@@ -2765,6 +2765,8 @@ Status Editor::resetSlot(Guid ref) {
       }
   };
   if (ref.isDerived()) findSlot(ref);
+  if (content != kNoGuid && def == kNoGuid)
+    if (Guid row = shownSlotRow(content); row != kNoGuid) findSlot(row);
   if (content != kNoGuid && def == kNoGuid) {
     // Which slot shows this content.
     auto rows = derivedRows_.find(top);
@@ -2782,7 +2784,7 @@ Status Editor::resetSlot(Guid ref) {
   }
   if (def == kNoGuid) return E_INVALID;
   for (auto& a : assignmentsOf(level))
-    if (a.defID == def) content = a.value.guidValue;
+    if (a.defID == def) content = a.value.guidValue != kNoGuid ? a.value.guidValue : codec::assignmentSlotContent(a.extra);
   begin(TxnKind::USER, "Reset slot");
   if (!level.isDerived()) {
     NodeChange c = NodeChange::changed(level);

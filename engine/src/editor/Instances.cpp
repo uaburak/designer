@@ -984,14 +984,19 @@ void Editor::materialize(Guid R) {
   // Slot content it hosts (Figma's form) resolves again in its slot's modes.
   {
     std::vector<Guid>& hosted = slotContentsOf_[R];
+    std::vector<std::pair<Guid, Guid>> before;  // what the Layers panel showed in slot rows' places
     for (Guid c : hosted)
-      if (auto h = slotHosts_.find(c); h != slotHosts_.end() && instanceOfDerived(h->second) == R) slotHosts_.erase(h);
+      if (auto h = slotHosts_.find(c); h != slotHosts_.end() && instanceOfDerived(h->second) == R) {
+        before.push_back({c, h->second});
+        slotHosts_.erase(h);
+      }
     hosted.clear();
     for (auto& [content, row] : ex.hosts) {
       slotHosts_[content] = row;
       hosted.push_back(content);
       markBindingsSubtree(content);
     }
+    if (before != ex.hosts) slotRowsVersion_ = doc_.version();
     if (hosted.empty()) slotContentsOf_.erase(R);
   }
   if (boundRows) instanceBindings_.insert(R);
@@ -1212,6 +1217,49 @@ Guid Editor::slotContentOf(Guid id) {
   Guid c = slotContentFor(id, false);
   const Node* cn = doc_.get(c);
   return cn && cn->props.comp().isSlotContent ? c : kNoGuid;
+}
+
+Guid Editor::shownSlotRow(Guid content) const {
+  if (content.isDerived() || slotHosts_.empty()) return kNoGuid;
+  auto h = slotHosts_.find(content);
+  if (h == slotHosts_.end() || !doc_.has(h->second)) return kNoGuid;
+  // Under the instance whose slot it fills (Figma's form, still under the Internal Only Canvas, isn't drawn there).
+  return doc_.has(content) && doc_.parentOf(content) == instanceOfDerived(h->second) ? h->second : kNoGuid;
+}
+
+Guid Editor::shownSlotContent(Guid row) const {
+  if (!row.isDerived() || slotContentsOf_.empty()) return kNoGuid;
+  Guid instance = instanceOfDerived(row);
+  auto s = slotContentsOf_.find(instance);
+  if (s == slotContentsOf_.end()) return kNoGuid;
+  for (Guid c : s->second)
+    if (auto h = slotHosts_.find(c); h != slotHosts_.end() && h->second == row && doc_.has(c) && doc_.parentOf(c) == instance) return c;
+  return kNoGuid;
+}
+
+void Editor::layerChildren(Guid id, std::vector<Guid>& out) const {
+  out.clear();
+  const std::vector<Guid>& kids = doc_.children(id);
+  if (slotHosts_.empty()) {
+    out = kids;
+    return;
+  }
+  out.reserve(kids.size());
+  for (Guid c : kids) {
+    if (shownSlotRow(c) != kNoGuid) continue;  // listed in its slot row's place
+    Guid shown = shownSlotContent(c);
+    out.push_back(shown != kNoGuid ? shown : c);
+  }
+}
+
+Guid Editor::layerParent(Guid id) const {
+  Guid row = shownSlotRow(id);
+  return doc_.parentOf(row != kNoGuid ? row : id);
+}
+
+bool Editor::layerSlot(Guid id) const {
+  if (id.isDerived()) return acceptsChildren(id);
+  return shownSlotRow(id) != kNoGuid;
 }
 
 Guid Editor::slotContentFor(Guid row, bool create) {

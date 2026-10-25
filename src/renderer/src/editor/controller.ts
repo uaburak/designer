@@ -530,7 +530,7 @@ export interface LayerOutline {
   types: readonly string[];
 }
 /** `LayerOutline.kinds` flags (bits above the type code). */
-export const OUTLINE_FLAGS = { derived: 1, stateGroup: 2, group: 4 } as const;
+export const OUTLINE_FLAGS = { derived: 1, stateGroup: 2, group: 4, slotHost: 8 } as const;
 
 function layerOutlineOf(engine: Engine, page: Guid): { version: number; nodes: OutlineNode[] } | null {
   if (!page) return null;
@@ -554,6 +554,7 @@ export function decodeLayerOutline(o: Pick<LayerOutline, "ids" | "parents" | "ki
     const node: OutlineNode = { id: ids[i], parent: parent?.id ?? null, type, children: [], group: type === "GROUP" || (type === "FRAME" && (flags & OUTLINE_FLAGS.group) !== 0) };
     if (type === "FRAME" && flags & OUTLINE_FLAGS.stateGroup) node.stateGroup = true;
     if (flags & OUTLINE_FLAGS.derived || ids[i].startsWith("I")) node.derived = true;
+    if (flags & OUTLINE_FLAGS.slotHost) node.slotHost = true;
     out[i] = node;
     parent?.children.push(ids[i]);
   }
