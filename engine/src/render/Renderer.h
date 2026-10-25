@@ -609,6 +609,10 @@ class Renderer {
     Color color;
   };
   void setSafeAreas(std::unordered_map<Guid, SafeArea, GuidHash> areas);
+  // A Social file's grid containers' ground (docs/social.md §24, §31): rectangles in page coordinates drawn on the page
+  // under every layer — the black between a grid's posts and in its empty cells — so a post dragged over it covers it
+  // and it stays while anything is dragged. Canvas only, as the safe areas.
+  void setBoardGround(std::vector<Rect> rects, Color color);
   // The content cache (canvas frames only; off by default): see renderCached.
   void setContentCache(bool on) {
     cacheEnabled_ = on;
@@ -1145,6 +1149,9 @@ class Renderer {
   bool outlines_ = false;  // this frame draws the page in outline mode
   bool layoutGuides_ = true;  // frames' layout grids drawn (View › Layout guides)
   std::unordered_map<Guid, Renderer::SafeArea, GuidHash> safeAreas_;  // setSafeAreas
+  std::vector<Rect> boardGround_;   // setBoardGround
+  void drawBoardGround();
+  Color boardGroundColor_;
   bool canvasPass_ = false;                                             // this render is the canvas's (no export, thumbnail)
   Color outlineInk_;       // its colour (light on a dark page, dark on a light one)
 };

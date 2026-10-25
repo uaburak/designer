@@ -983,6 +983,15 @@ export class Engine {
     this.after(this.x.setSafeAreas(this.h, encodeText(JSON.stringify(payload))));
   }
 
+  /**
+   * A Social file's grid containers' ground (docs/social.md §31): rectangles in page coordinates drawn on the page under
+   * every layer, in `color`; canvas only. [] clears it.
+   */
+  setBoardGround(rects: readonly { x: number; y: number; w: number; h: number }[], color: { r: number; g: number; b: number; a: number }): void {
+    const payload = { rects: rects.map((r) => [r.x, r.y, r.w, r.h]), color: [color.r, color.g, color.b, color.a] };
+    this.after(this.x.setBoardGround(this.h, encodeText(JSON.stringify(payload))));
+  }
+
   /** The last drop of posts into another grid than theirs (docs/social.md §29) — that grid's key and the posts — taken once. */
   takeBoardDrop(): { grid: string; ids: Guid[] } | null {
     return this.json(this.x.takeBoardDrop(this.h), null);

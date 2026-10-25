@@ -1,11 +1,12 @@
 /**
  * New post (docs/social.md §6.6) and the toolbar's Social slot [ours]: New post's menu — platform › format, each with
- * its size, then the board's brand's own sizes — Safe areas (a toggle) and Table (round 18b's posts table, a toggle). The same menu opens from the Posts list's "+" and from the command `social.new-post` (⌘K). A pick makes a
+ * its size, then the board's brand's own sizes — Safe areas (a toggle; its right-click sets their opacity and colour,
+ * §30) and Table (round 18b's posts table, a toggle). The same menu opens from the Posts list's "+" and from the command `social.new-post` (⌘K). A pick makes a
  * post of that format on the board (actions.ts `newPost`, one undo step), with the board's brand, then selects it and
  * zooms to it.
  */
-import { useEffect, useRef } from "react";
-import { Icon, MenuButton, ToolButton, showToast, type MenuEntry } from "@/ds";
+import { useEffect, useRef, useState } from "react";
+import { ContextMenu, Icon, MenuButton, ToolButton, showToast, type MenuEntry } from "@/ds";
 import { t, useT } from "@/i18n";
 import { PLATFORMS, PLATFORM_NAMES, brandFormatId, formatsFor, parseBrandFormatId } from "@shared/social/formats";
 import type { Brand } from "@shared/studio/types";
@@ -14,7 +15,7 @@ import { useUI } from "../hooks";
 import { applySelection } from "../agents/mcpTools";
 import { useBrands } from "../studio/forms";
 import { canWritePosts, editorWriter, newPost } from "./actions";
-import { toggleSafeAreas } from "./SocialMode";
+import { SAFE_AREA_OPACITIES, safeAreaLook, setSafeAreaLook, toggleSafeAreas, type SafeAreaColor } from "./SocialMode";
 import styles from "./NewPostMenu.module.css";
 
 const FORMAT = "format:";
@@ -55,6 +56,32 @@ export function pickNewPost(ed: EditorController, id: string, brands: readonly B
   }
 }
 
+const SAFE_COLORS: readonly { id: Exclude<SafeAreaColor, "auto">; label: string; token: string }[] = [
+  { id: "red", label: "Red", token: "--figma-color-bg-danger" },
+  { id: "blue", label: "Blue", token: "--figma-color-bg-brand" },
+  { id: "purple", label: "Purple", token: "--figma-color-bg-component" },
+  { id: "yellow", label: "Yellow", token: "--figma-color-bg-warning" },
+  { id: "green", label: "Green", token: "--figma-color-bg-success" },
+];
+
+/** The Safe areas button's right-click: their opacity, then their colour (Auto: red, else a colour the design isn't) */
+function safeAreaEntries(ed: EditorController): MenuEntry[] {
+  const look = safeAreaLook(ed.ui.get());
+  return [
+    { header: t("Opacity") },
+    ...SAFE_AREA_OPACITIES.map((o) => ({ id: `opacity:${o}`, label: `${Math.round(o * 100)}%`, checked: Math.abs(look.opacity - o) < 1e-3 })),
+    "-",
+    { header: t("Color") },
+    { id: "color:auto", label: t("Auto"), checked: look.color === "auto" },
+    ...SAFE_COLORS.map((c) => ({ id: `color:${c.id}`, label: t(c.label), swatch: `var(${c.token})`, checked: look.color === c.id })),
+  ];
+}
+
+function pickSafeAreaLook(ed: EditorController, id: string): void {
+  if (id.startsWith("opacity:")) setSafeAreaLook(ed, { opacity: Number(id.slice(8)) });
+  else if (id.startsWith("color:")) setSafeAreaLook(ed, { color: id.slice(6) as SafeAreaColor });
+}
+
 /** The toolbar's Social slot: New post ▾, Safe areas, Table. */
 export function SocialToolbarSlot() {
   useT();
@@ -65,6 +92,7 @@ export function SocialToolbarSlot() {
   const asked = useUI((s) => s.socialNewPostMenu ?? 0);
   const wrap = useRef<HTMLSpanElement>(null);
   const first = useRef(asked);
+  const [lookAt, setLookAt] = useState<{ x: number; y: number } | null>(null);
   // `social.new-post` (⌘K): the menu opens as if its button were clicked.
   useEffect(() => {
     if (asked === first.current) return;
@@ -77,7 +105,17 @@ export function SocialToolbarSlot() {
           <Icon name="24.plus" />
         </MenuButton>
       </span>
-      <ToolButton icon="24.safe-area" label={t("Safe areas")} active={safeAreas} onSelect={() => toggleSafeAreas(ed)} />
+      <span
+        className={styles.slot}
+        data-social-safe-areas=""
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setLookAt({ x: e.clientX, y: e.clientY });
+        }}
+      >
+        <ToolButton icon="24.safe-area" label={t("Safe areas")} active={safeAreas} onSelect={() => toggleSafeAreas(ed)} />
+      </span>
+      {lookAt ? <ContextMenu at={lookAt} above context label={t("Safe areas")} entries={safeAreaEntries(ed)} onSelect={(id) => pickSafeAreaLook(ed, id)} onClose={() => setLookAt(null)} /> : null}
       {/* The posts table (docs/social.md §4.5, templates/PostsTable.tsx) */}
       <ToolButton icon="24.table" label={t("Table")} active={table} onSelect={() => ed.ui.set((s) => ({ socialTable: !s.socialTable }))} />
     </>

@@ -1,9 +1,10 @@
 /**
  * Safe areas (docs/social.md §6.4, §30): over each post its safe area's bands (`safeAreaOf`: the platform's UI over
  * stories and reels, what Instagram's profile grid crops, the margin every post keeps), so nothing important is put
- * there — drawn by the engine inside the post as a layout guide's columns are (Figma's 10 % fill, no band over another),
- * so they move with it wherever it goes (dragged, sliding through its grid). Red, unless the design under the bands is
- * red itself: then blue, else purple (read off the post's render a moment after it changes). On by default in Social,
+ * there — drawn by the engine inside the post as a layout guide's columns are (a flat fill, no band over another), so
+ * they move with it wherever it goes (dragged, sliding through its grid). Their opacity (20 % by default) and colour are
+ * the toolbar button's right-click (`safeAreaLook`); the colour "auto" is red, unless the design under the bands is red
+ * itself: then blue, else purple (read off the post's render a moment after it changes). On by default in Social,
  * in the grid view and the asset view; the toolbar's Safe areas (`social.toggle-safe-areas`) turns them off. Canvas
  * chrome: never a layer of the document, never in an export.
  */
@@ -16,6 +17,7 @@ import { useEditor, type EditorController } from "../controller";
 import { useUI } from "../hooks";
 import { useSocialBoard, type PostRow } from "./socialState";
 import { useFocusedPost } from "./focus";
+import { safeAreaLook, type SafeAreaColor } from "./SocialMode";
 
 /**
  * Places a layer's children (each `data-post` names its post's row) from the camera now and on every camera change;
@@ -111,15 +113,24 @@ function useBandTones(ed: EditorController, rows: readonly PostRow[]): ReadonlyM
 const TONE_RENDER = 64;
 const TONE_DELAY = 300;
 
-/** The tones' tokens (their colour at the layout guide's 10 %) */
-const TONE_TOKEN: Record<BandTone, string> = { red: "--figma-color-bg-danger", blue: "--figma-color-bg-brand", purple: "--figma-color-bg-component" };
-const GUIDE_ALPHA = 0.1;
+/** The colours' tokens */
+const TONE_TOKEN: Record<SafeAreaColor | BandTone, string> = {
+  auto: "--figma-color-bg-danger",
+  red: "--figma-color-bg-danger",
+  blue: "--figma-color-bg-brand",
+  purple: "--figma-color-bg-component",
+  yellow: "--figma-color-bg-warning",
+  green: "--figma-color-bg-success",
+};
 
-function toneColor(tone: BandTone): { r: number; g: number; b: number; a: number } {
-  const raw = typeof getComputedStyle === "function" ? getComputedStyle(document.documentElement).getPropertyValue(TONE_TOKEN[tone]).trim() : "";
+/** A colour's token as RGBA at `alpha` (red when the token can't be read) */
+export function safeAreaColor(color: SafeAreaColor | BandTone, alpha: number): { r: number; g: number; b: number; a: number } {
+  const raw = typeof getComputedStyle === "function" ? getComputedStyle(document.documentElement).getPropertyValue(TONE_TOKEN[color]).trim() : "";
   const c = parseCssColor(raw) ?? { r: 1, g: 0, b: 0, a: 1 };
-  return { r: c.r, g: c.g, b: c.b, a: GUIDE_ALPHA };
+  return { r: c.r, g: c.g, b: c.b, a: alpha };
 }
+
+const NO_ROWS: readonly PostRow[] = [];
 
 export function SafeAreaOverlay() {
   const ed = useEditor();
@@ -129,11 +140,14 @@ export function SafeAreaOverlay() {
   // the grid view every post's (§30).
   const focus = useFocusedPost(ed);
   const rows = useMemo(() => (on ? board.posts.filter((p) => !focus || p.id === focus) : []), [on, board, focus]);
-  const tones = useBandTones(ed, rows);
+  // Their look (the toolbar button's right-click): a colour of its own, or each post's tone read off its design
+  const opacity = useUI((s) => safeAreaLook(s).opacity);
+  const color = useUI((s) => safeAreaLook(s).color);
+  const tones = useBandTones(ed, color === "auto" ? rows : NO_ROWS);
   useEffect(() => {
     if (ed.engine.destroyed) return;
-    ed.engine.setSafeAreas(rows.map((p) => ({ id: p.id, insets: bandsOf(p), color: toneColor(tones.get(p.id) ?? "red") })));
-  }, [ed, rows, tones]);
+    ed.engine.setSafeAreas(rows.map((p) => ({ id: p.id, insets: bandsOf(p), color: safeAreaColor(color === "auto" ? (tones.get(p.id) ?? "red") : color, opacity) })));
+  }, [ed, rows, tones, color, opacity]);
   // Gone with Social (or the editor)
   useEffect(() => () => void (!ed.engine.destroyed && ed.engine.setSafeAreas([])), [ed]);
   return null;

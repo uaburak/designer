@@ -3370,6 +3370,26 @@ ENG_EXPORT int32_t engine_set_safe_areas(Handle h, Ptr ptr, uint32_t len) {
   return OK;
 }
 
+// A Social file's grid containers' ground (docs/social.md §31): {rects: [[x, y, w, h], …], color: [r, g, b, a]} in page
+// coordinates, drawn on the page under every layer; {rects: []} clears it.
+ENG_EXPORT int32_t engine_set_board_ground(Handle h, Ptr ptr, uint32_t len) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  json::Value v;
+  if (!parse(ptr, len, v)) return E_DECODE;
+  std::vector<Rect> rects;
+  Color color{0, 0, 0, 1};
+  if (const json::Value* list = v.isObject() ? v.get("rects") : nullptr; list && list->isArray())
+    for (const json::Value& r : list->array)
+      if (r.isArray() && r.array.size() == 4) rects.push_back(Rect{r.array[0].number, r.array[1].number, r.array[2].number, r.array[3].number});
+  if (const json::Value* c = v.isObject() ? v.get("color") : nullptr; c && c->isArray() && c->array.size() == 4)
+    color = Color{static_cast<float>(c->array[0].number), static_cast<float>(c->array[1].number), static_cast<float>(c->array[2].number), static_cast<float>(c->array[3].number)};
+  if (e->renderer) e->renderer->setBoardGround(std::move(rects), color);
+  e->editor.invalidateCanvas();
+  return OK;
+}
+
 // The last drop of posts into another grid than theirs, taken once: {"grid": key, "ids": ["s:l", …]}, or null.
 ENG_EXPORT int32_t engine_take_board_drop(Handle h) {
   Call call;

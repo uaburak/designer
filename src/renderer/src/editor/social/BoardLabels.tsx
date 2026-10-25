@@ -2,7 +2,8 @@
  * A Social file's grid view chrome over the canvas (docs/social.md §19, §23, §24 — the owner's capture of Figma Buzz's
  * grid view): each grid is a container — its posts inside it 8 px apart, black between them — with its name over it (the
  * platform's when it is the platform's only grid, else the format's) and, as its last cell, a dashed "+" (a click
- * makes a post of the grid's format). The pointer anywhere over a container or its name puts it on its card (Figma's
+ * makes a post of the grid's format) — the black is the engine's, drawn on the page under every layer (§31:
+ * `Engine.setBoardGround`), so it stays while a post or a layer is dragged and a dragged post covers it. The pointer anywhere over a container or its name puts it on its card (Figma's
  * bg-selected round it, the name blue in the band over it); a click on the container's black or name selects the
  * container itself, as a section is (§29: not its posts — the card stays, and an Export button at its top right saves
  * every post in it, each its own file, as Figma's Export of a selection). None of it takes the pointer but that button —
@@ -13,6 +14,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Guid } from "@/engine/codec";
 import { formatById, PLATFORM_NAMES } from "@shared/social/formats";
 import type { Platform } from "@shared/social/types";
+import { parseCssColor } from "@/ds";
 import { t, useT } from "@/i18n";
 import { useEditor, type EditorController } from "../controller";
 import { applySelection } from "../agents/mcpTools";
@@ -124,6 +126,14 @@ export function BoardLabels() {
     return containersOf(layoutOf(ed, board.page), (id) => heights.get(id) ?? 0);
   }, [ed, board]);
   useCanvasBoxes(ed, layer, [containers, hot, picked]);
+  // The containers' black, on the page under the posts (the engine's)
+  useEffect(() => {
+    if (ed.engine.destroyed) return;
+    const rects = focus ? [] : containers.flatMap((k) => [...k.ring, ...k.empty]);
+    const raw = typeof getComputedStyle === "function" ? getComputedStyle(document.documentElement).getPropertyValue("--ds-color-social-grid").trim() : "";
+    ed.engine.setBoardGround(rects, parseCssColor(raw) ?? { r: 0, g: 0, b: 0, a: 1 });
+  }, [ed, containers, focus]);
+  useEffect(() => () => void (!ed.engine.destroyed && ed.engine.setBoardGround([], { r: 0, g: 0, b: 0, a: 1 })), [ed]);
   // The grid selected as one gives way to any selection of layers (a post clicked, the Layers panel, ⌘A…)
   useEffect(() => ed.store.subscribe("selection", () => ed.store.selection.refs.length && ed.ui.get().socialGrid && ed.ui.set({ socialGrid: null })), [ed]);
   // The pointer over a container, its name or its card's padding: that container is hot (the canvas or our chrome).
@@ -143,8 +153,7 @@ export function BoardLabels() {
         return sx >= x0 - CARD_PAD && sx <= x1 + CARD_PAD && sy >= y0 - CARD_BAND && sy <= y1 + CARD_PAD;
       });
       setHot(over?.key ?? null);
-      // A post dragged in its grid (docs/social.md §25) is drawn over the others: the container's black between the
-      // posts (ours, over the canvas) would cross it — gone while a button is down.
+      // A post dragged over the "+" (ours, over the canvas) would be crossed by it: the "+" goes while a button is down.
       layer.current?.toggleAttribute("data-dragging", (e.buttons & 1) === 1 && !!over);
     };
     // Our pieces take no pointer (the canvas pans, scrolls and zooms through them, the owner 2026-10-25): a click on
@@ -235,8 +244,6 @@ export function BoardLabels() {
               </button>
             ) : null}
           </div>,
-          ...k.ring.map((r, i) => <div key={`ring:${k.key}:${i}`} className={styles.ground} data-x={r.x} data-y={r.y} data-w={r.w} data-h={r.h} />),
-          ...k.empty.map((r, i) => <div key={`empty:${k.key}:${i}`} className={styles.ground} data-x={r.x} data-y={r.y} data-w={r.w} data-h={r.h} />),
           write ? (
             <div key={`add:${k.key}`} className={styles.place} data-x={k.place.x} data-y={k.place.y} data-w={k.place.w} data-h={k.place.h} data-on={on || undefined} aria-label={t("New {format}", { format: k.name })} data-board-add={k.formatId}>
               <svg viewBox="0 0 100 100" className={styles.plus} aria-hidden="true">

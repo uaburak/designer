@@ -19,6 +19,7 @@ import { applySelection } from "../agents/mcpTools";
 import { agentsOf, type AgentsService } from "../agents/service";
 import { canWritePosts, editorWriter, fixProblem } from "./actions";
 import { socialOf } from "./socialState";
+import type { UIState } from "../uiStore";
 
 export const isSocial = (ed: EditorController): boolean => modeOf(ed) === "social";
 
@@ -27,6 +28,37 @@ export const safeAreasShown = (ed: EditorController): boolean => ed.ui.get().soc
 
 export function toggleSafeAreas(ed: EditorController): void {
   ed.ui.set({ socialSafeAreas: !safeAreasShown(ed) });
+}
+
+export type SafeAreaColor = NonNullable<UIState["socialSafeAreaColor"]>;
+/** The safe areas' opacities offered, and the one they start at (Figma's layout guide is 10 %; the owner found it faint) */
+export const SAFE_AREA_OPACITIES = [0.1, 0.2, 0.3, 0.4, 0.5] as const;
+const SAFE_AREA_DEFAULT_OPACITY = 0.2;
+/** This computer's choice, kept between files and launches (a view preference: the browser's storage, never the file) */
+const LOOK_KEY = "wecra.social.safeAreaLook";
+
+function keptLook(): { opacity?: number; color?: SafeAreaColor } {
+  try {
+    return JSON.parse(localStorage.getItem(LOOK_KEY) ?? "{}") as { opacity?: number; color?: SafeAreaColor };
+  } catch {
+    return {};
+  }
+}
+
+/** The safe areas' opacity and colour: this editor's, else this computer's last, else 20 % and auto. */
+export function safeAreaLook(ui: Pick<UIState, "socialSafeAreaOpacity" | "socialSafeAreaColor">): { opacity: number; color: SafeAreaColor } {
+  const kept = keptLook();
+  return { opacity: ui.socialSafeAreaOpacity ?? kept.opacity ?? SAFE_AREA_DEFAULT_OPACITY, color: ui.socialSafeAreaColor ?? kept.color ?? "auto" };
+}
+
+export function setSafeAreaLook(ed: EditorController, look: { opacity?: number; color?: SafeAreaColor }): void {
+  const next = { ...safeAreaLook(ed.ui.get()), ...look };
+  ed.ui.set({ socialSafeAreaOpacity: next.opacity, socialSafeAreaColor: next.color, socialSafeAreas: true });
+  try {
+    localStorage.setItem(LOOK_KEY, JSON.stringify(next));
+  } catch {
+    // No storage (a private window): this editor keeps it
+  }
 }
 
 /** The selected layers that are posts. */

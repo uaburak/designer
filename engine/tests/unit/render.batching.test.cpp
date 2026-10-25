@@ -522,3 +522,27 @@ TEST_CASE("renderer: a frame's safe area (docs/social.md §30) — four bands in
   RenderStats only = r.render(d, kPage, Camera{}, {800, 600, 1}, Overlay{}, kDark, 0, F);
   CHECK(only.shapes == plain.shapes);
 }
+
+TEST_CASE("renderer: the board's ground (docs/social.md §31) — under every layer, on the canvas only") {
+  Document d;
+  base(d);
+  const Guid F{2, 1};
+  d.apply(make(F, NodeType::FRAME, kPage, "!", {100, 50, 200, 300}, "Post"));
+  gfx::NullDevice dev;
+  Renderer r(dev);
+  RenderStats plain = r.render(d, kPage, Camera{}, {800, 600, 1}, Overlay{}, kDark);
+  r.setBoardGround({Rect{90, 40, 220, 320}}, Color{0, 0, 0, 1});
+  RenderStats with = r.render(d, kPage, Camera{}, {800, 600, 1}, Overlay{}, kDark);
+  CHECK(with.shapes == plain.shapes + 1);
+  // Drawn before the frame: the ground's instance comes first among the page's
+  auto shapes = dev.instancesOf<DrawInstance>(0);
+  int ground = -1, frame = -1;
+  for (size_t i = 0; i < shapes.size(); i++) {
+    if (shapes[i].origin[0] == 90 && shapes[i].origin[1] == 40 && ground < 0) ground = static_cast<int>(i);
+    if (shapes[i].origin[0] == 100 && shapes[i].origin[1] == 50 && frame < 0) frame = static_cast<int>(i);
+  }
+  REQUIRE(ground >= 0);
+  REQUIRE(frame >= 0);
+  CHECK(ground < frame);
+  CHECK(r.render(d, kPage, Camera{}, {800, 600, 1}, Overlay{}, kDark, 0, F).shapes == r.render(d, kPage, Camera{}, {800, 600, 1}, Overlay{}, kDark, 0, F).shapes);
+}

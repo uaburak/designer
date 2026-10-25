@@ -2999,7 +2999,26 @@ void Renderer::drawPageContent(const Document& doc, const Color& page, bool back
                                Color{page.r, page.g, page.b, 1}, 1, Color{}, 0, 0, 0);
     emit(q, Pass::Shape);
   }
+  drawBoardGround();
   drawChildren(doc, 0, static_cast<uint32_t>(tree_->size()), view_, 1);
+}
+
+void Renderer::drawBoardGround() {
+  // The grid containers' ground (setBoardGround) under every layer of the page
+  if (!canvasPass_) return;
+  for (const Rect& r : boardGround_)
+    emit(makeShape(view_ * Mat2x3::translate(r.x, r.y), {r.w, r.h}, ShapeKind::Rect, kSquare, boardGroundColor_, 1, Color{}, 0, 0, 0), Pass::Shape);
+}
+
+void Renderer::setBoardGround(std::vector<Rect> rects, Color color) {
+  auto same = [](const Rect& a, const Rect& b) { return a.x == b.x && a.y == b.y && a.w == b.w && a.h == b.h; };
+  bool changed = rects.size() != boardGround_.size() || color.r != boardGroundColor_.r || color.g != boardGroundColor_.g || color.b != boardGroundColor_.b || color.a != boardGroundColor_.a;
+  for (size_t i = 0; !changed && i < rects.size(); i++) changed = !same(rects[i], boardGround_[i]);
+  if (!changed) return;
+  boardGround_ = std::move(rects);
+  boardGroundColor_ = color;
+  dropCache();
+  dropTiles();
 }
 
 double Renderer::nowMs() const {
@@ -3132,6 +3151,7 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
       if (i >= 0)
         drawChildren(doc, static_cast<uint32_t>(i), tree.nodes()[static_cast<size_t>(i)].end, view_ * doc.worldTransform(doc.parentOf(only)), 1);
     } else {
+      drawBoardGround();
       drawChildren(doc, 0, static_cast<uint32_t>(tree.size()), view_, 1);
       current_ = 0;
       scissorEnabled_ = false;
@@ -3247,6 +3267,7 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
       dropCache();
       cacheEnabled_ = false;
       beginRecording(full, false);
+      drawBoardGround();
       drawChildren(doc, 0, static_cast<uint32_t>(tree_->size()), view_, 1);
       current_ = 0;
       scissorEnabled_ = false;

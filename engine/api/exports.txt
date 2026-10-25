@@ -154,6 +154,7 @@ _engine_set_focus
 _engine_set_board
 _engine_take_board_drop
 _engine_set_safe_areas
+_engine_set_board_ground
 _engine_select_measurement
 _engine_dev_info
 _engine_present_start

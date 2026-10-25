@@ -6,7 +6,7 @@
  * else by an agent — and Leave. A pin goes when its problem is cleared (fixed, no longer found, or left). Placed from
  * the camera like the safe areas, hidden while the canvas zooms.
  */
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Icon, Popover, tooltipProps } from "@/ds";
 import type { PostProblem } from "@shared/social/types";
 import { t, useT } from "@/i18n";
@@ -49,13 +49,49 @@ export function ReviewPins() {
   const layer = useRef<HTMLDivElement>(null);
   const [card, setCard] = useState<{ post: string; problem: string; at: HTMLElement } | null>(null);
   useCameraPlacement(ed, layer, rows, badges ? placeBadge : placePins);
+  // The grid view's Design glyphs take no pointer (the owner, 2026-10-25: over them the canvas still scrolls, pans and
+  // zooms): their hover and click are read off the window's pointer, as the grid's own chrome's are (BoardLabels).
+  useEffect(() => {
+    if (!badges) return;
+    const over = (e: PointerEvent): HTMLElement | null => {
+      for (const b of Array.from(layer.current?.querySelectorAll<HTMLElement>("[data-post-open]") ?? [])) {
+        const r = b.getBoundingClientRect();
+        if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) return b;
+      }
+      return null;
+    };
+    let press: { x: number; y: number; id: string } | null = null;
+    const move = (e: PointerEvent) => {
+      const hit = over(e);
+      for (const b of Array.from(layer.current?.querySelectorAll<HTMLElement>("[data-post-open]") ?? [])) b.toggleAttribute("data-hot", b === hit && e.buttons === 0);
+    };
+    const down = (e: PointerEvent) => {
+      const hit = e.button === 0 && e.target === ed.canvas ? over(e) : null;
+      press = hit ? { x: e.clientX, y: e.clientY, id: hit.dataset.postOpen! } : null;
+    };
+    const up = (e: PointerEvent) => {
+      const at = press;
+      press = null;
+      if (!at || Math.hypot(e.clientX - at.x, e.clientY - at.y) > 4 || ed.store.tool !== "MOVE") return;
+      // After the canvas's own release (a timer: microtasks run between the listeners)
+      setTimeout(() => !ed.engine.destroyed && openPost(ed, at.id), 0);
+    };
+    window.addEventListener("pointermove", move, true);
+    window.addEventListener("pointerdown", down, true);
+    window.addEventListener("pointerup", up, true);
+    return () => {
+      window.removeEventListener("pointermove", move, true);
+      window.removeEventListener("pointerdown", down, true);
+      window.removeEventListener("pointerup", up, true);
+    };
+  }, [ed, badges]);
   if (!rows.length) return null;
   if (badges)
     return (
       <div ref={layer} className={styles.layer} data-review-pins="">
         {rows.map((row) => (
           <div key={row.id} className={styles.post} data-post={row.id}>
-            <button type="button" className={styles.badge} aria-label={t("Open in the asset view")} {...tooltipProps(t("Open in the asset view"))} onClick={() => openPost(ed, row.id)} data-post-open={row.id}>
+            <button type="button" className={styles.badge} aria-label={t("Open in the asset view")} onClick={() => openPost(ed, row.id)} data-post-open={row.id}>
               <Icon name="24.mode.design" />
             </button>
           </div>

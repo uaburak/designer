@@ -25,6 +25,7 @@ import { agentsOf } from "../agents/service";
 import type { ViewCard } from "../agents/managerTools";
 import { useUI } from "../hooks";
 import { bandTone } from "../social/SafeAreaOverlay";
+import { SocialToolbarSlot } from "../social/NewPostMenu";
 
 const wasm = join(process.cwd(), "src/renderer/src/engine/wasm/engine.wasm");
 
@@ -226,7 +227,7 @@ describe("Social mode's chrome (round 18a)", () => {
     let id = "";
     let square = "";
     // A Design file in Social
-    const { ed } = await setup(() => createElement(CanvasLayers), "design");
+    const { ed } = await setup(() => createElement("div", null, createElement(CanvasLayers), createElement(SocialToolbarSlot)), "design");
     const sent = spySafeAreas(ed.engine);
     // The posts index tells its listeners in a microtask (deferred.ts): an async act lets the overlay re-render
     await act(async () => {
@@ -238,8 +239,20 @@ describe("Social mode's chrome (round 18a)", () => {
     const last = sent.at(-1)!;
     expect(last.find((a) => a.id === id)?.insets).toEqual({ top: 269, right: 65, bottom: 672, left: 65 });
     expect(last.find((a) => a.id === square)?.insets).toEqual({ top: 64, right: 135, bottom: 64, left: 135 });
-    // Red at the layout guide's 10 % (the test's engine draws nothing to read a tone off)
-    expect(last[0].color).toMatchObject({ a: 0.1 });
+    // Red at 20 % (the test's engine draws nothing to read a tone off)
+    expect(last[0].color).toMatchObject({ a: 0.2 });
+    // The toolbar button's right-click: 40 %, then blue
+    const slot = $("[data-social-safe-areas]")!;
+    act(() => void slot.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 300, clientY: 700 })));
+    act(() => click($$('[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]').find((x) => x.textContent?.startsWith("40%"))!));
+    await act(async () => {});
+    expect(sent.at(-1)![0].color.a).toBeCloseTo(0.4);
+    act(() => void slot.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 300, clientY: 700 })));
+    act(() => click($$('[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]').find((x) => x.textContent?.startsWith("Blue"))!));
+    await act(async () => {});
+    expect(ed.ui.get().socialSafeAreaColor).toBe("blue");
+    expect(sent.at(-1)![0].color.a).toBeCloseTo(0.4);
+    localStorage.clear();
     // Safe areas off: none
     await act(async () => void runEditorCommand(ed, "social.toggle-safe-areas"));
     expect(sent.at(-1)).toEqual([]);

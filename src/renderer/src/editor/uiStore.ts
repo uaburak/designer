@@ -223,6 +223,9 @@ export interface UIState extends PreferenceFlags {
   /** Social mode (docs/social.md §6): the board's brand (kept per file), safe areas shown (default on), the right panel's width, the posts table */
   socialBrandId?: string | null;
   socialSafeAreas?: boolean;
+  /** The safe areas' look (the toolbar button's right-click, docs/social.md §30): their opacity and colour ("auto": red, else blue or purple) */
+  socialSafeAreaOpacity?: number;
+  socialSafeAreaColor?: "auto" | "red" | "blue" | "purple" | "yellow" | "green";
   socialRightWidth?: number;
   socialTable?: boolean;
   /** Social's right panel: the agent (default) or the properties alone (docs/social.md §6.3) */

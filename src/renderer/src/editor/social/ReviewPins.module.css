@@ -26,9 +26,10 @@
     display: flex; align-items: center; justify-content: center; box-sizing: border-box;
     width: var(--ds-size-control); height: var(--ds-size-control); padding: 0; border: 0; border-radius: var(--ds-radius-medium);
     background: var(--figma-color-bg); color: var(--figma-color-icon); box-shadow: var(--ds-elevation-100);
-    pointer-events: auto; cursor: default;
+    /* No pointer: the canvas scrolls, pans and zooms through it; its hover and click are read off the window's (§30) */
+    pointer-events: none; cursor: default;
   }
-  .badge:hover { background: var(--figma-color-bg-hover); color: var(--figma-color-icon-brand); }
+  .badge[data-hot] { background: var(--figma-color-bg-hover); color: var(--figma-color-icon-brand); }
   .badge:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .pin:hover { background: var(--figma-color-bg-warning-hover); }
   .pin:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
