@@ -10,11 +10,13 @@
 
 #include "editor/Editor.h"
 #include "editor/Selection.h"
+#include "export/Scene.h"
 #include "geometry/Shapes.h"
 #include "hit/HitTest.h"
 #include "hit/Marquee.h"
 #include "hit/Picking.h"
 #include "layout/Reorder.h"
+#include "render/ImageCache.h"
 #include "scene/CodecKiwi.h"
 #include "text/Fonts.h"
 
@@ -2895,6 +2897,32 @@ void Editor::finishMove() {
   commit();
 }
 
+namespace {
+
+// An image fill's picture size in px: the original's when the paint knows it, else what has arrived of it (a tier keeps
+// the ratio, all FILL / FIT need); {0, 0} when neither is known.
+Vec2 picturePixels(const Paint& p) {
+  if (p.originalImageWidth && p.originalImageHeight) return {double(p.originalImageWidth), double(p.originalImageHeight)};
+  if (p.image.present)
+    if (const ImageRegistry::Source* src = ImageRegistry::get().find(p.image); src && src->width && src->height)
+      return {double(src->width), double(src->height)};
+  return {0, 0};
+}
+
+// ⌘-resize's crop (Figma): the layer's box went from `size0` to `size1`, `rel` taking the new box's space to the old
+// one's; the image stays where it was on the page. FILL, FIT and Crop become Crop (STRETCH) with the transform that
+// shows the same pixels; TILE keeps its tiles (they are laid from the layer's corner in px already).
+void cropImagePaint(Paint& p, Vec2 size0, Vec2 size1, const Mat2x3& rel) {
+  if (!isImageLike(p.type) || p.imageScaleMode == ImageScaleMode::TILE) return;
+  Vec2 px = picturePixels(p);
+  if (!(px.x > 0) || !(px.y > 0)) px = size0;  // unknown picture: its ratio taken as the layer's
+  Mat2x3 uv = exporter::imageMatrix(p, size0, px.x, px.y) * rel;  // the new box's space → the image's uv
+  p.transform = uv * Mat2x3{std::max(size1.x, 1e-9), 0, 0, 0, std::max(size1.y, 1e-9), 0};
+  p.imageScaleMode = ImageScaleMode::STRETCH;
+}
+
+}  // namespace
+
 void Editor::startResize(int hx, int hy) {
   lineEnd_ = -1;
   handleX_ = hx;
@@ -2929,6 +2957,22 @@ void Editor::startResize(int hx, int hy) {
     }
   }
   for (const Target& t : targets_) moving.insert(t.id);
+  // The image fills ⌘ crops (dragResize): a layer's own fills, not a style's.
+  cropFills_.clear();
+  if (!scaling_ && !motionDrag_.on) {
+    auto note = [&](const Target& t) {
+      const Node* n = doc_.get(t.id);
+      if (!n || n->props.refs().styleIdForFill.present()) return;
+      for (const Paint& p : n->props.fillPaints)
+        if (isImageLike(p.type) && p.imageScaleMode != ImageScaleMode::TILE) {
+          cropFills_[t.id] = n->props.fillPaints;
+          return;
+        }
+    };
+    for (const Target& t : targets_) note(t);
+    for (const ResizeGroup& g : resizeGroups_)
+      for (const Target& t : g.targets) note(t);
+  }
   if (scaling_) startScale();
   prepareSnapping(parent, moving);
   changeCursor(cursor_, cursorAngle_);
@@ -2950,6 +2994,8 @@ void Editor::dragResize(Vec2 world, uint32_t mods) {
   if (scaling_) shift = true;  // the Scale tool keeps the proportions
   // ⌘: the frames' children stay where they are on the page (constraints ignored, Figma). Scaling places them itself.
   ignoreConstraints_ = scaling_ || (mods & MOD_PRIMARY) != 0;
+  // ⌘ also crops an image fill: the picture stays on the page, the dragged side shows more or less of it (Figma).
+  const bool cropping = !scaling_ && (mods & MOD_PRIMARY) != 0;
   // Snap the dragged edge (boxes turned against the page don't snap); ⌃ turns snapping off.
   bool snapping = !(mods & MOD_CTRL) && axisAligned(box_.toWorld);
   SnapResult snap;
@@ -3017,7 +3063,8 @@ void Editor::dragResize(Vec2 world, uint32_t mods) {
     NodeChange c = NodeChange::changed(t.id);
     c.mask = F_TRANSFORM | F_SIZE;
     const double eps = 1e-6;
-    if (std::fabs(local.m01) < eps && std::fabs(local.m10) < eps) {
+    const bool aligned = std::fabs(local.m01) < eps && std::fabs(local.m10) < eps;
+    if (aligned) {
       // Aligned with the box: the node grows along its own axes (a negative scale flips it).
       double ax = std::fabs(local.m00), ay = std::fabs(local.m11);
       c.props.size = {t.size.x * ax, t.size.y * ay};
@@ -3033,6 +3080,17 @@ void Editor::dragResize(Vec2 world, uint32_t mods) {
     if (motionDrag_.on) {
       motionPreview(t.id, c.props.transform, c.props.size);  // keyed at pointer-up; constraints and layout don't run
       return;
+    }
+    // ⌘ crops the image fills (their pixels kept on the page); without it they are as the gesture found them (scaled
+    // with the layer), so letting ⌘ go mid-drag gives the plain resize back.
+    if (auto crop = cropFills_.find(t.id); crop != cropFills_.end()) {
+      std::vector<Paint> fills = crop->second;
+      if (cropping && aligned) {
+        Mat2x3 rel = t.world.inverse() * doc_.worldTransform(t.parent) * c.props.transform;
+        for (Paint& p : fills) cropImagePaint(p, t.size, c.props.size, rel);
+      }
+      const Node* tn = doc_.get(t.id);
+      if (tn && tn->props.fillPaints != fills) c.mask |= F_FILLS, c.props.fillPaints = std::move(fills);
     }
     write(c);
     if (scaling_) return;  // applyScale places what is in it

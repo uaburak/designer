@@ -2557,6 +2557,9 @@ class Editor : private LayoutHost, public TextLayouts {
     std::vector<Target> targets;
   };
   std::vector<ResizeGroup> resizeGroups_;
+  // ⌘-resize crops image fills (Figma, docs/engine.md "Resize gestures"): the fills of the resized layers that hold an
+  // image, as the gesture found them; each move writes them back, in Crop with the pixels kept, or as they were.
+  std::unordered_map<Guid, std::vector<Paint>, GuidHash> cropFills_;
   mutable size_t handleGroup_ = 0;
   int handleX_ = 0, handleY_ = 0;
   int lineEnd_ = -1;             // dragging a line's start (0) or end (1) handle; -1: a box resize
