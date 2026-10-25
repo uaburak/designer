@@ -29,6 +29,8 @@
     /* No pointer: the canvas scrolls, pans and zooms through it; its hover and click are read off the window's (§30) */
     pointer-events: none; cursor: default;
   }
+  /* Only on the post under the pointer or a selected one (the owner, 2026-10-25) */
+  .post:not([data-over]):not([data-selected]) .badge { visibility: hidden; }
   .badge[data-hot] { background: var(--figma-color-bg-hover); color: var(--figma-color-icon-brand); }
   .badge:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .pin:hover { background: var(--figma-color-bg-warning-hover); }

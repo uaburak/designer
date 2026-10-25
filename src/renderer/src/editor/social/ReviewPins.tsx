@@ -6,7 +6,7 @@
  * else by an agent — and Leave. A pin goes when its problem is cleared (fixed, no longer found, or left). Placed from
  * the camera like the safe areas, hidden while the canvas zooms.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Button, Icon, Popover, tooltipProps } from "@/ds";
 import type { PostProblem } from "@shared/social/types";
 import { t, useT } from "@/i18n";
@@ -47,14 +47,22 @@ export function ReviewPins() {
   const badges = isSocialFile(ed) && !focus;
   const rows = useMemo(() => board.posts.filter((p) => (badges ? true : p.data.problems.some((x) => x.box) && (!focus || p.id === focus))), [board, focus, badges]);
   const layer = useRef<HTMLDivElement>(null);
+  // The selected posts: their glyph shows (else only on hover, the owner 2026-10-25)
+  const selected = useSyncExternalStore(
+    (on) => ed.store.subscribe("selection", on),
+    () => ed.store.selection.refs,
+  );
   const [card, setCard] = useState<{ post: string; problem: string; at: HTMLElement } | null>(null);
   useCameraPlacement(ed, layer, rows, badges ? placeBadge : placePins);
-  // The grid view's Design glyphs take no pointer (the owner, 2026-10-25: over them the canvas still scrolls, pans and
+  // The grid view's Design glyphs show on the post under the pointer or a selected one, and take no pointer (the owner, 2026-10-25: over them the canvas still scrolls, pans and
   // zooms): their hover and click are read off the window's pointer, as the grid's own chrome's are (BoardLabels).
   useEffect(() => {
     if (!badges) return;
     const over = (e: PointerEvent): HTMLElement | null => {
       for (const b of Array.from(layer.current?.querySelectorAll<HTMLElement>("[data-post-open]") ?? [])) {
+        // A glyph not shown can't be clicked
+        const post = b.closest<HTMLElement>("[data-post]");
+        if (!post?.hasAttribute("data-over") && !post?.hasAttribute("data-selected")) continue;
         const r = b.getBoundingClientRect();
         if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) return b;
       }
@@ -62,6 +70,13 @@ export function ReviewPins() {
     };
     let press: { x: number; y: number; id: string } | null = null;
     const move = (e: PointerEvent) => {
+      // The glyph shows on the post under the pointer (and on the selected ones, below)
+      const c = ed.canvas?.getBoundingClientRect();
+      const cam = ed.store.camera;
+      const wx = c ? (e.clientX - c.left - cam.x) / cam.zoom : NaN;
+      const wy = c ? (e.clientY - c.top - cam.y) / cam.zoom : NaN;
+      const under = rows.find((r) => wx >= r.x && wx <= r.x + r.width && wy >= r.y && wy <= r.y + r.height)?.id;
+      for (const el of Array.from(layer.current?.querySelectorAll<HTMLElement>("[data-post]") ?? [])) el.toggleAttribute("data-over", el.dataset.post === under);
       const hit = over(e);
       for (const b of Array.from(layer.current?.querySelectorAll<HTMLElement>("[data-post-open]") ?? [])) b.toggleAttribute("data-hot", b === hit && e.buttons === 0);
     };
@@ -84,13 +99,13 @@ export function ReviewPins() {
       window.removeEventListener("pointerdown", down, true);
       window.removeEventListener("pointerup", up, true);
     };
-  }, [ed, badges]);
+  }, [ed, badges, rows]);
   if (!rows.length) return null;
   if (badges)
     return (
       <div ref={layer} className={styles.layer} data-review-pins="">
         {rows.map((row) => (
-          <div key={row.id} className={styles.post} data-post={row.id}>
+          <div key={row.id} className={styles.post} data-post={row.id} data-selected={selected.includes(row.id) || undefined}>
             <button type="button" className={styles.badge} aria-label={t("Open in the asset view")} onClick={() => openPost(ed, row.id)} data-post-open={row.id}>
               <Icon name="24.mode.design" />
             </button>

@@ -217,6 +217,10 @@ describe("Social mode's chrome (round 18a)", () => {
     expect($('[data-review-pins] [data-problem="s1"]')).toBeNull();
     const open = $(`[data-post-open="${id}"]`)!;
     expect(open.querySelector("svg")).not.toBeNull();
+    // Shown only on the post under the pointer or a selected one
+    expect(open.closest("[data-post]")!.hasAttribute("data-selected")).toBe(false);
+    await act(async () => ed.engine.setSelection([id]));
+    expect(open.closest("[data-post]")!.hasAttribute("data-selected")).toBe(true);
     act(() => click(open));
     expect(ed.store.selection.refs).toEqual([id]);
     expect(ed.ui.get().socialView).toBe("asset");
