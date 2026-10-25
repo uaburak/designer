@@ -601,6 +601,14 @@ class Renderer {
   // The presentation view (proto/Player): `scene`'s items over its background, `page`'s layers through its render
   // tree; no culling (items' props may move layers away from their document place), no content cache.
   RenderStats renderScene(const Document& doc, Guid page, const Viewport& viewport, const PresentScene& scene, gfx::TargetId target = 0);
+  // A Social file's safe areas (docs/social.md §30): over each listed frame its bands — `top`, `right`, `bottom` and
+  // `left` deep, in the frame's own units — filled as a layout guide's columns are, inside it and following it wherever
+  // it is drawn (dragged, sliding, in a flow); on the canvas only, never in an export, a thumbnail or a presentation.
+  struct SafeArea {
+    double top = 0, right = 0, bottom = 0, left = 0;
+    Color color;
+  };
+  void setSafeAreas(std::unordered_map<Guid, SafeArea, GuidHash> areas);
   // The content cache (canvas frames only; off by default): see renderCached.
   void setContentCache(bool on) {
     cacheEnabled_ = on;
@@ -1136,6 +1144,8 @@ class Renderer {
   bool cull_ = true;
   bool outlines_ = false;  // this frame draws the page in outline mode
   bool layoutGuides_ = true;  // frames' layout grids drawn (View › Layout guides)
+  std::unordered_map<Guid, Renderer::SafeArea, GuidHash> safeAreas_;  // setSafeAreas
+  bool canvasPass_ = false;                                             // this render is the canvas's (no export, thumbnail)
   Color outlineInk_;       // its colour (light on a dark page, dark on a light one)
 };
 

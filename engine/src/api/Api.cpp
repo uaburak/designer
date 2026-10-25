@@ -3339,6 +3339,37 @@ ENG_EXPORT int32_t engine_set_board(Handle h, Ptr ptr, uint32_t len) {
   return OK;
 }
 
+// A Social file's safe areas (docs/social.md §30): {areas: [{id: "s:l", insets: [top, right, bottom, left], color: [r,
+// g, b, a]}]} — each frame's bands in its own units, drawn inside it as a layout guide's columns; [] clears them.
+ENG_EXPORT int32_t engine_set_safe_areas(Handle h, Ptr ptr, uint32_t len) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  json::Value v;
+  if (!parse(ptr, len, v)) return E_DECODE;
+  const json::Value* list = v.isObject() ? v.get("areas") : nullptr;
+  std::unordered_map<Guid, Renderer::SafeArea, GuidHash> areas;
+  if (list && list->isArray())
+    for (const json::Value& a : list->array) {
+      const json::Value* id = a.get("id");
+      const json::Value* in = a.get("insets");
+      const json::Value* c = a.get("color");
+      bool ok = false;
+      Guid g = id && id->isString() ? Guid::parse(id->string, &ok) : Guid{};
+      if (!ok || !in || !in->isArray() || in->array.size() != 4 || !c || !c->isArray() || c->array.size() != 4) continue;
+      Renderer::SafeArea s;
+      s.top = in->array[0].number;
+      s.right = in->array[1].number;
+      s.bottom = in->array[2].number;
+      s.left = in->array[3].number;
+      s.color = Color{static_cast<float>(c->array[0].number), static_cast<float>(c->array[1].number), static_cast<float>(c->array[2].number), static_cast<float>(c->array[3].number)};
+      areas[g] = s;
+    }
+  if (e->renderer) e->renderer->setSafeAreas(std::move(areas));
+  e->editor.invalidateCanvas();
+  return OK;
+}
+
 // The last drop of posts into another grid than theirs, taken once: {"grid": key, "ids": ["s:l", …]}, or null.
 ENG_EXPORT int32_t engine_take_board_drop(Handle h) {
   Call call;

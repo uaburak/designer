@@ -1,13 +1,14 @@
 /**
  * Safe areas (docs/social.md §6.4, §30): over each post its safe area's bands (`safeAreaOf`: the platform's UI over
- * stories and reels, what Instagram's profile grid crops, the margin every post keeps) — hatched with a dashed edge, so
- * nothing important is put there. Red, unless the design under the bands is red itself: then blue, else purple (read off
- * the post's render a moment after it changes). DOM over the canvas like the agents' image placeholders: placed
- * straight from the camera (no React render per camera change), a band below 8 px on screen left out. On by default in
- * Social, in the grid view and the asset view; the toolbar's Safe areas (`social.toggle-safe-areas`) turns them off.
- * Canvas chrome: never a layer of the document.
+ * stories and reels, what Instagram's profile grid crops, the margin every post keeps), so nothing important is put
+ * there — drawn by the engine inside the post as a layout guide's columns are (Figma's 10 % fill, no band over another),
+ * so they move with it wherever it goes (dragged, sliding through its grid). Red, unless the design under the bands is
+ * red itself: then blue, else purple (read off the post's render a moment after it changes). On by default in Social,
+ * in the grid view and the asset view; the toolbar's Safe areas (`social.toggle-safe-areas`) turns them off. Canvas
+ * chrome: never a layer of the document, never in an export.
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState, type RefObject } from "react";
+import { parseCssColor } from "@/ds";
 import type { Guid, Pixels } from "@/engine/codec";
 import { safeAreaOf } from "@shared/social/formats";
 import type { Insets } from "@shared/social/types";
@@ -15,12 +16,6 @@ import { useEditor, type EditorController } from "../controller";
 import { useUI } from "../hooks";
 import { useSocialBoard, type PostRow } from "./socialState";
 import { useFocusedPost } from "./focus";
-import styles from "./SafeAreaOverlay.module.css";
-
-/** A band thinner than this on screen (px) isn't drawn */
-const MIN_BAND = 8;
-
-const SIDES = ["top", "right", "bottom", "left"] as const;
 
 /**
  * Places a layer's children (each `data-post` names its post's row) from the camera now and on every camera change;
@@ -116,23 +111,14 @@ function useBandTones(ed: EditorController, rows: readonly PostRow[]): ReadonlyM
 const TONE_RENDER = 64;
 const TONE_DELAY = 300;
 
-function placeBands(el: HTMLElement, row: PostRow, cam: { x: number; y: number; zoom: number }): void {
-  const z = cam.zoom;
-  el.style.transform = `translate(${row.x * z + cam.x}px, ${row.y * z + cam.y}px)`;
-  el.style.width = `${row.width * z}px`;
-  el.style.height = `${row.height * z}px`;
-  const bands = bandsOf(row);
-  for (const band of Array.from(el.children) as HTMLElement[]) {
-    const side = band.dataset.band as (typeof SIDES)[number];
-    const px = (bands?.[side] ?? 0) * z;
-    band.hidden = px < MIN_BAND;
-    band.style.setProperty(side === "top" || side === "bottom" ? "height" : "width", `${px}px`);
-    // The side bands run between the top and bottom ones.
-    if (side === "left" || side === "right") {
-      band.style.top = `${(bands?.top ?? 0) * z}px`;
-      band.style.bottom = `${(bands?.bottom ?? 0) * z}px`;
-    }
-  }
+/** The tones' tokens (their colour at the layout guide's 10 %) */
+const TONE_TOKEN: Record<BandTone, string> = { red: "--figma-color-bg-danger", blue: "--figma-color-bg-brand", purple: "--figma-color-bg-component" };
+const GUIDE_ALPHA = 0.1;
+
+function toneColor(tone: BandTone): { r: number; g: number; b: number; a: number } {
+  const raw = typeof getComputedStyle === "function" ? getComputedStyle(document.documentElement).getPropertyValue(TONE_TOKEN[tone]).trim() : "";
+  const c = parseCssColor(raw) ?? { r: 1, g: 0, b: 0, a: 1 };
+  return { r: c.r, g: c.g, b: c.b, a: GUIDE_ALPHA };
 }
 
 export function SafeAreaOverlay() {
@@ -144,18 +130,11 @@ export function SafeAreaOverlay() {
   const focus = useFocusedPost(ed);
   const rows = useMemo(() => (on ? board.posts.filter((p) => !focus || p.id === focus) : []), [on, board, focus]);
   const tones = useBandTones(ed, rows);
-  const layer = useRef<HTMLDivElement>(null);
-  useCameraPlacement(ed, layer, rows, placeBands);
-  if (!rows.length) return null;
-  return (
-    <div ref={layer} className={styles.layer} aria-hidden data-safe-areas="">
-      {rows.map((p) => (
-        <div key={p.id} className={styles.post} data-post={p.id} data-tone={tones.get(p.id) ?? "red"}>
-          {SIDES.map((side) => (
-            <div key={side} className={styles.band} data-band={side} />
-          ))}
-        </div>
-      ))}
-    </div>
-  );
+  useEffect(() => {
+    if (ed.engine.destroyed) return;
+    ed.engine.setSafeAreas(rows.map((p) => ({ id: p.id, insets: bandsOf(p), color: toneColor(tones.get(p.id) ?? "red") })));
+  }, [ed, rows, tones]);
+  // Gone with Social (or the editor)
+  useEffect(() => () => void (!ed.engine.destroyed && ed.engine.setSafeAreas([])), [ed]);
+  return null;
 }

@@ -41,6 +41,17 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
+/** What the overlay hands the engine's safe areas, call by call */
+function spySafeAreas(engine: Engine) {
+  const sent: { id: string; insets: { top: number; right: number; bottom: number; left: number }; color: { a: number } }[][] = [];
+  const real = engine.setSafeAreas.bind(engine);
+  engine.setSafeAreas = (areas) => {
+    sent.push(areas.map((a) => ({ ...a })));
+    real(areas);
+  };
+  return sent;
+}
+
 /** `editorType` "buzz": a Social file (docs/social.md §18), which opens in Social */
 async function setup(view: () => ReturnType<typeof createElement>, editorType: "design" | "buzz" = "buzz") {
   const source = memoryDocumentSource(SAMPLE_DOCUMENT, { fileName: "Test", editorType });
@@ -194,13 +205,14 @@ describe("Social mode's chrome (round 18a)", () => {
   it("a Social file's grid view shows the safe areas and no pins: on each post the Design glyph, which opens it alone (docs/social.md §21, §29)", async () => {
     let id = "";
     const { ed } = await setup(() => createElement(CanvasLayers));
+    const sent = spySafeAreas(ed.engine);
     await act(async () => {
       id = newPost(ed, editorWriter(ed), { formatId: "instagram.story", at: { x: 0, y: 0 } });
     });
     const problem = { id: "s1", kind: "safe-area" as const, detail: "“CTA” reaches into the bottom band", box: { x: 100, y: 1700, width: 300, height: 80 }, fix: "relayout" as const, source: "check" as const };
     await act(async () => ed.batch("Pins", () => writePost(ed, id, { ...readPost(ed, id)!, problems: [problem, { ...problem, id: "s2", box: undefined }] })));
     // The safe areas show on the grid too (§30); no pins there
-    expect($(`[data-safe-areas] [data-post="${id}"]`)).not.toBeNull();
+    expect(sent.at(-1)?.map((a) => a.id)).toEqual([id]);
     expect($('[data-review-pins] [data-problem="s1"]')).toBeNull();
     const open = $(`[data-post-open="${id}"]`)!;
     expect(open.querySelector("svg")).not.toBeNull();
@@ -210,41 +222,27 @@ describe("Social mode's chrome (round 18a)", () => {
     expect(ed.ui.get().socialPanelTab).toBe("design");
   });
 
-  it("draws a story's safe-area bands at the camera's zoom", async () => {
+  it("hands the engine each post's safe area — drawn inside the post as a layout guide, following it (docs/social.md §30)", async () => {
     let id = "";
     let square = "";
-    // A Design file in Social (a Social file draws them for the post in focus alone, §21)
-    const { ed, engine } = await setup(() => createElement(CanvasLayers), "design");
+    // A Design file in Social
+    const { ed } = await setup(() => createElement(CanvasLayers), "design");
+    const sent = spySafeAreas(ed.engine);
     // The posts index tells its listeners in a microtask (deferred.ts): an async act lets the overlay re-render
     await act(async () => {
       ed.ui.set({ mode: "social" });
       id = newPost(ed, editorWriter(ed), { formatId: "instagram.story", at: { x: 0, y: 0 } });
-      // A square post: the margin over and under it, what the profile grid's 3:4 crops at its sides (§30)
+      // A square post: the margin over and under it, what the profile grid's 3:4 crops at its sides
       square = newPost(ed, editorWriter(ed), { formatId: "instagram.square", at: { x: 2000, y: 0 } });
     });
-    act(() => engine.setCamera({ x: 10, y: 20, zoom: 0.5 }));
-    const post = $(`[data-safe-areas] [data-post="${id}"]`)!;
-    expect($$("[data-safe-areas] [data-post]")).toHaveLength(2);
-    const sq = (side: string) => $(`[data-safe-areas] [data-post="${square}"] [data-band="${side}"]`)!;
-    expect(sq("top").style.height).toBe("32px");
-    expect(sq("left").style.width).toBe("67.5px");
-    // Red by default (the test's engine draws nothing to read a tone off)
-    expect(post.getAttribute("data-tone")).toBe("red");
-    expect(post.style.transform).toBe("translate(10px, 20px)");
-    expect(post.style.width).toBe("540px");
-    expect(post.style.height).toBe("960px");
-    const band = (side: string) => post.querySelector<HTMLElement>(`[data-band="${side}"]`)!;
-    expect(band("top").style.height).toBe("134.5px");
-    expect(band("bottom").style.height).toBe("336px");
-    expect(band("left").style.width).toBe("32.5px");
-    expect(band("left").style.top).toBe("134.5px");
-    // Smaller than 8 px on screen: not drawn.
-    act(() => engine.setCamera({ x: 0, y: 0, zoom: 0.1 }));
-    expect(band("left").hidden).toBe(true);
-    expect(band("top").hidden).toBe(false);
-    // Safe areas off: gone.
-    act(() => runEditorCommand(ed, "social.toggle-safe-areas"));
-    expect($("[data-safe-areas]")).toBeNull();
+    const last = sent.at(-1)!;
+    expect(last.find((a) => a.id === id)?.insets).toEqual({ top: 269, right: 65, bottom: 672, left: 65 });
+    expect(last.find((a) => a.id === square)?.insets).toEqual({ top: 64, right: 135, bottom: 64, left: 135 });
+    // Red at the layout guide's 10 % (the test's engine draws nothing to read a tone off)
+    expect(last[0].color).toMatchObject({ a: 0.1 });
+    // Safe areas off: none
+    await act(async () => void runEditorCommand(ed, "social.toggle-safe-areas"));
+    expect(sent.at(-1)).toEqual([]);
   });
 });
 

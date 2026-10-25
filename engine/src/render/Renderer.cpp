@@ -1527,7 +1527,10 @@ void Renderer::drawContent(const Document& doc, uint32_t i, const NodeProps& p, 
     bool clips = p.clipsContent();
     bool grids = false;
     for (auto& g : p.rare().layoutGrids) grids |= g.visible && layoutGuides_;
-    if ((rn.hasChildren && lodLeaf_ != i) || grids) {
+    const SafeArea* safe = nullptr;
+    if (canvasPass_ && !safeAreas_.empty())
+      if (auto it = safeAreas_.find(id); it != safeAreas_.end()) safe = &it->second;
+    if ((rn.hasChildren && lodLeaf_ != i) || grids || safe) {
       if (clips) pushClip(doc, id, p, m);
       if (lodLeaf_ != i) drawChildren(doc, i + 1, rn.end, m, alpha);
       if (grids) {
@@ -1559,12 +1562,44 @@ void Renderer::drawContent(const Document& doc, uint32_t i, const NodeProps& p, 
           }
         }
       }
+      if (safe) {
+        // The safe area's bands (docs/social.md §30), as a layout guide's columns: the top and bottom ones across the
+        // frame, the side ones between them — no band over another
+        const SafeArea& a = *safe;
+        const double w = p.size.x, h = p.size.y;
+        const double top = std::clamp(a.top, 0.0, h), bottom = std::clamp(a.bottom, 0.0, h - top);
+        auto band = [&](double x, double y, double bw, double bh) {
+          if (bw <= 0 || bh <= 0) return;
+          emit(makeShape(m * Mat2x3::translate(x, y), {bw, bh}, ShapeKind::Rect, kSquare, a.color, alpha, Color{}, 0, 0, 0), Pass::Shape);
+        };
+        band(0, 0, w, top);
+        band(0, h - bottom, w, bottom);
+        const double left = std::clamp(a.left, 0.0, w), right = std::clamp(a.right, 0.0, w - left);
+        band(0, top, left, h - top - bottom);
+        band(w - right, top, right, h - top - bottom);
+      }
       if (lodLeaf_ != i) drawFrameScrollbar(doc, id, p, m, alpha);
       if (clips) popClip();
     }
   }
   // Strokes go over the fills (and over a frame's content).
   if (strokes) drawStrokes(doc, id, p, m, alpha);
+}
+
+void Renderer::setSafeAreas(std::unordered_map<Guid, SafeArea, GuidHash> areas) {
+  auto same = [](const SafeArea& a, const SafeArea& b) {
+    return a.top == b.top && a.right == b.right && a.bottom == b.bottom && a.left == b.left && a.color.r == b.color.r && a.color.g == b.color.g && a.color.b == b.color.b && a.color.a == b.color.a;
+  };
+  bool changed = areas.size() != safeAreas_.size();
+  for (auto it = areas.begin(); !changed && it != areas.end(); ++it) {
+    auto was = safeAreas_.find(it->first);
+    changed = was == safeAreas_.end() || !same(was->second, it->second);
+  }
+  if (!changed) return;
+  safeAreas_ = std::move(areas);
+  // Drawn inside the frames' content: what was cached of them drew the old bands
+  dropCache();
+  dropTiles();
 }
 
 void Renderer::drawFrameScrollbar(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha) {
@@ -3050,6 +3085,7 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
   // Outline mode: the page's pixels are drawn another way — the cache starts over when it turns on or off.
   bool outlines = overlay.outlines && only == kNoGuid && !exporting_;
   bool guides = overlay.layoutGuides || only != kNoGuid || exporting_;
+  canvasPass_ = only == kNoGuid && !exporting_;
   if (outlines != outlines_ || guides != layoutGuides_) {
     outlines_ = outlines;
     layoutGuides_ = guides;

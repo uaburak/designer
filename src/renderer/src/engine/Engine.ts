@@ -974,6 +974,15 @@ export class Engine {
     this.after(this.x.setBoard(this.h, encodeText(JSON.stringify(payload))));
   }
 
+  /**
+   * A Social file's safe areas (docs/social.md §30): each frame's bands (its own units) drawn inside it as a layout
+   * guide's columns, following it wherever it is drawn; canvas only. [] clears them.
+   */
+  setSafeAreas(areas: readonly { id: Guid; insets: { top: number; right: number; bottom: number; left: number }; color: { r: number; g: number; b: number; a: number } }[]): void {
+    const payload = { areas: areas.map((a) => ({ id: a.id, insets: [a.insets.top, a.insets.right, a.insets.bottom, a.insets.left], color: [a.color.r, a.color.g, a.color.b, a.color.a] })) };
+    this.after(this.x.setSafeAreas(this.h, encodeText(JSON.stringify(payload))));
+  }
+
   /** The last drop of posts into another grid than theirs (docs/social.md §29) — that grid's key and the posts — taken once. */
   takeBoardDrop(): { grid: string; ids: Guid[] } | null {
     return this.json(this.x.takeBoardDrop(this.h), null);

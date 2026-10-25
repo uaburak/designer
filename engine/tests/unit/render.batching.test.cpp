@@ -490,3 +490,35 @@ TEST_CASE("renderer: blurs in blurred containers take a capture per level of nes
   size_t second = *distinct.rbegin();
   for (size_t i : drawsOfColour(dev, 0xFF0000)) CHECK(i >= second);
 }
+
+TEST_CASE("renderer: a frame's safe area (docs/social.md §30) — four bands inside it, none over another, on the canvas only") {
+  Document d;
+  base(d);
+  const Guid F{2, 1};
+  d.apply(make(F, NodeType::FRAME, kPage, "!", {100, 50, 200, 300}, "Post"));
+  gfx::NullDevice dev;
+  Renderer r(dev);
+  RenderStats plain = r.render(d, kPage, Camera{}, {800, 600, 1}, Overlay{}, kDark);
+  std::unordered_map<Guid, Renderer::SafeArea, GuidHash> areas;
+  areas[F] = Renderer::SafeArea{20, 10, 40, 10, Color{1, 0, 0, 0.1f}};
+  r.setSafeAreas(areas);
+  RenderStats with = r.render(d, kPage, Camera{}, {800, 600, 1}, Overlay{}, kDark);
+  CHECK(with.shapes == plain.shapes + 4);
+  // The bands, in the area's colour: the top one at the frame's origin, the bottom one 40 over its bottom, the left one under it (between top and bottom)
+  auto shapes = dev.instancesOf<DrawInstance>(0);
+  int bands = 0;
+  bool top = false, left = false;
+  for (const DrawInstance& s : shapes) {
+    // (premultiplied)
+    if (s.color[3] != doctest::Approx(0.1) || s.color[0] != doctest::Approx(0.1) || s.color[1] != doctest::Approx(0)) continue;
+    bands++;
+    top |= s.origin[0] == 100 && s.origin[1] == 50;
+    left |= s.origin[0] == 100 && s.origin[1] == 70;
+  }
+  CHECK(bands == 4);
+  CHECK(top);
+  CHECK(left);
+  // A thumbnail of the frame: none
+  RenderStats only = r.render(d, kPage, Camera{}, {800, 600, 1}, Overlay{}, kDark, 0, F);
+  CHECK(only.shapes == plain.shapes);
+}
