@@ -1,14 +1,18 @@
 /**
  * Review pins (docs/social.md §6.4): one per problem of a post's last review that has a place (`box`), at the box's
  * top left, numbered within the post, in the comments' pin shape (comments/CommentsLayer.tsx) in the warning colour.
- * Hover tells the problem; a click selects the post, shows the Agent tab and selects the problem in the review card that
- * has it (round 18c). A pin goes when its problem is cleared (fixed, no longer found, or left). Placed from the camera
- * like the safe areas, hidden while the canvas zooms.
+ * Hover tells the problem; a click selects its layer (else the post) and opens its card beside the pin (§30): what it
+ * is, in the UI's language, with Fix — at once without a model where the fix is mechanical (actions.ts `fixProblem`),
+ * else by an agent — and Leave. A pin goes when its problem is cleared (fixed, no longer found, or left). Placed from
+ * the camera like the safe areas, hidden while the canvas zooms.
  */
-import { useMemo, useRef } from "react";
-import { Icon, tooltipProps } from "@/ds";
+import { useMemo, useRef, useState } from "react";
+import { Button, Icon, Popover, tooltipProps } from "@/ds";
+import type { PostProblem } from "@shared/social/types";
 import { t, useT } from "@/i18n";
-import { useEditor } from "../controller";
+import { useEditor, type EditorController } from "../controller";
+import { canFixProblem, canWritePosts, editorWriter, leaveProblems, problemText, problemTitle } from "./actions";
+import { fixWithAgent } from "./SocialMode";
 import { applySelection } from "../agents/mcpTools";
 import { useCameraPlacement } from "./SafeAreaOverlay";
 import { openPost, useFocusedPost } from "./focus";
@@ -43,6 +47,7 @@ export function ReviewPins() {
   const badges = isSocialFile(ed) && !focus;
   const rows = useMemo(() => board.posts.filter((p) => (badges ? true : p.data.problems.some((x) => x.box) && (!focus || p.id === focus))), [board, focus, badges]);
   const layer = useRef<HTMLDivElement>(null);
+  const [card, setCard] = useState<{ post: string; problem: string; at: HTMLElement } | null>(null);
   useCameraPlacement(ed, layer, rows, badges ? placeBadge : placePins);
   if (!rows.length) return null;
   if (badges)
@@ -71,10 +76,13 @@ export function ReviewPins() {
                 data-problem={p.id}
                 aria-label={t("Problem {n}: {detail}", { n: String(i + 1), detail: p.detail })}
                 {...tooltipProps(p.detail)}
-                onClick={() => {
-                  applySelection(ed, [row.id], false);
-                  // The review card that has it marks it (StudioCards' ReviewCard).
-                  ed.ui.set({ socialRightTab: "agent", railTab: "agents", socialProblem: { post: row.id, problem: p.id } });
+                onClick={(e) => {
+                  const at = e.currentTarget;
+                  // Its layer selected (a check's problem names it), else the post
+                  applySelection(ed, [layerOf(ed, p.id) ?? row.id], false);
+                  // A review card showing it marks it (StudioCards' ReviewCard)
+                  ed.ui.set({ socialProblem: { post: row.id, problem: p.id } });
+                  setCard((was) => (was?.problem === p.id && was.post === row.id ? null : { post: row.id, problem: p.id, at }));
                 }}
               >
                 {i + 1}
@@ -82,6 +90,50 @@ export function ReviewPins() {
             ))}
         </div>
       ))}
+      {card ? <ProblemCard ed={ed} row={rows.find((r) => r.id === card.post)} problemId={card.problem} at={card.at} onClose={() => setCard(null)} /> : null}
     </div>
+  );
+}
+
+/** The layer a check's problem is about ("check:<kind>:<guid>"), when it is one */
+function layerOf(ed: EditorController, problemId: string): string | null {
+  const about = /^check:[a-z-]+:(.+)$/.exec(problemId)?.[1];
+  if (!about || !/\d:\d/.test(about)) return null;
+  try {
+    return ed.engine.readNode(about, { fields: ["type"] }) ? about : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A pin's card (§30): the problem's title and words, Fix and Leave; gone once the problem is. */
+function ProblemCard({ ed, row, problemId, at, onClose }: { ed: EditorController; row: PostRow | undefined; problemId: string; at: HTMLElement; onClose: () => void }) {
+  useT();
+  const p: PostProblem | undefined = row?.data.problems.find((x) => x.id === problemId);
+  if (!row || !p || !at.isConnected) return null;
+  const write = canWritePosts(ed);
+  const here = write && canFixProblem(ed, row.id, p.id);
+  return (
+    <Popover anchor={at} placement="right" onClose={onClose} label={problemTitle(p)} title={problemTitle(p)} width={280} draggable={false}>
+      <div className={styles.card} data-problem-card={p.id}>
+        <p className={styles.cardText}>{problemText(p)}</p>
+        <div className={styles.cardActions}>
+          <Button variant="ghost" disabled={!write} onClick={() => (leaveProblems(ed, editorWriter(ed), row.id, [p.id]), onClose())} data-problem-leave="">
+            {t("Ignore")}
+          </Button>
+          <Button
+            variant={here ? "primary" : "secondary"}
+            disabled={!write}
+            onClick={() => {
+              fixWithAgent(ed, row, p);
+              onClose();
+            }}
+            data-problem-fix=""
+          >
+            {here ? t("Fix") : t("Fix with agent")}
+          </Button>
+        </div>
+      </div>
+    </Popover>
   );
 }

@@ -77,7 +77,8 @@ export type SlotRole = "logo" | "picture" | "headline" | "body" | "cta" | "label
 export const SLOT_ROLES: readonly SlotRole[] = ["logo", "picture", "headline", "body", "cta", "label", "accent", "background"];
 
 /** A review's problem on a post (§7.3): the manager's visual review ("review") or check_posts' limits ("check"). */
-export type PostProblem = ReviewProblem & { source: "review" | "check" };
+/** `params`: a check's values for its words in the UI's language (actions.ts `problemText`; `detail` is the English) */
+export type PostProblem = ReviewProblem & { source: "review" | "check"; params?: Record<string, string> };
 
 /** On a top-level FRAME (or INSTANCE / SYMBOL): `designer.social` / `post` (§3.1). A frame without it is not a post. */
 export interface SocialPostData {

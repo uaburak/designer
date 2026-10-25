@@ -12,7 +12,7 @@ import type { AiRoute, ImageRouteInfo } from "@shared/ai/types";
 import { DEFAULT_FORMATS, IMAGE_TASKS_AT_ONCE, type AgentRoute, type Brand, type BrandsRepository, type ChatCard, type ImagePrompt, type ManagerSettings, type Product, type ProblemKind, type ReviewItem, type ReviewProblem, type ReviewReport, type SocialFormat, type StudioBrief, type StudioTask, type TaskKind } from "@shared/studio/types";
 import { missingFor } from "@shared/studio/library";
 import { buildFixLabelPrompt, buildImagePrompt, nearestAspectRatio } from "@shared/studio/prompt";
-import { brandFormatId, formatById, resolveFormat } from "@shared/social/formats";
+import { brandFormatId, formatById, resolveFormat, safeAreaOf } from "@shared/social/formats";
 import { SOCIAL_WORKER_LINE } from "@shared/social/managerPrompt";
 import type { PlatformFormat, PostProblem } from "@shared/social/types";
 import { LIBRARY_TOOLS } from "../studio/libraryTools";
@@ -536,8 +536,10 @@ function toolJson(r: ToolResult): Record<string, unknown> {
 /** A post's frame task's prompt in Social: the post exists already (made by new_post); the worker draws in it. */
 export function postPrompt(o: { brand: Brand; products: readonly Product[]; format: SocialFormat; name: string; nodeId: string; request: string; logo?: string; template: boolean }): string {
   const { brand, format } = o;
-  const safe = (format as PlatformFormat).safeArea;
-  const bands = safe && (safe.top || safe.bottom || safe.left || safe.right) ? `keep text and logo out of the platform's bands: ${safe.top} px at the top, ${safe.bottom} px at the bottom, ${safe.left} px at the sides` : "keep text and logo 64 px inside every edge";
+  // The post's safe area (docs/social.md §30): the platform's bands, the profile grid's crop, the margin
+  const safe = safeAreaOf(format.id, format.width, format.height).insets;
+  const px = (v: number) => Math.round(v);
+  const bands = `keep text and logo inside the safe area: ${px(safe.top)} px from the top, ${px(safe.bottom)} px from the bottom, ${px(safe.left)} px from the left, ${px(safe.right)} px from the right`;
   const colors = brand.colors.length ? brand.colors.map((c) => `${c.name} ${c.hex}`).join(", ") : "none given: pick from the logo";
   const fonts = brand.fonts.length ? brand.fonts.join(", ") : "Inter";
   const logo = brand.libraryFileKey

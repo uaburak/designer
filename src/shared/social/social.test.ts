@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { captionCount, captionReport, parseHashtags, parseMentions, publishedText } from "./caption";
-import { FIRST_PLATFORMS, SOCIAL_FORMATS, SOCIAL_SOURCES, brandFormatId, formatById, formatsFor, nearestFormat, parseBrandFormatId, resolveFormat } from "./formats";
+import { FIRST_PLATFORMS, SOCIAL_FORMATS, SOCIAL_SOURCES, brandFormatId, formatById, formatsFor, nearestFormat, parseBrandFormatId, resolveFormat, safeAreaOf } from "./formats";
 import { SOCIAL_EXPORT_PRESETS } from "./presets";
 import { STARTER_BRIEF, socialPrompt } from "./managerPrompt";
 import { managerPrompt, managerReminder } from "../studio/managerPrompt";
@@ -155,5 +155,21 @@ describe("the manager's Social paragraph (§7.4)", () => {
 
   it("the starter brief names §4.2a's sets and formats and leaves publishing to the owner", () => {
     for (const s of ["Product hero (static)", "Product hero (animated)", "Quote / statement", "Announcement", "Carousel cover + slide", "Story / Reel", "instagram.reel", "linkedin.portrait", "save_as_template", "publish nothing yourself"]) expect(STARTER_BRIEF).toContain(s);
+  });
+});
+
+describe("a post's safe area (docs/social.md §30)", () => {
+  it("the deepest of the platform's band, the profile grid's crop and the margin, on each side, at the post's size", () => {
+    // A story: the platform's bands (its sides 65 over the 64 margin)
+    expect(safeAreaOf("instagram.story", 1080, 1920)).toEqual({ insets: { top: 269, right: 65, bottom: 672, left: 65 }, why: { top: "platform", right: "platform", bottom: "platform", left: "platform" } });
+    // A 3:4 post: the margin alone
+    expect(safeAreaOf("instagram.portrait", 1080, 1440).insets).toEqual({ top: 64, right: 64, bottom: 64, left: 64 });
+    // A 4:5 post loses 33.75 px a side to the grid's 3:4 — under the margin; a square 135, over it
+    expect(safeAreaOf("instagram.post", 1080, 1350).why.left).toBe("margin");
+    expect(safeAreaOf("instagram.square", 1080, 1080)).toEqual({ insets: { top: 64, right: 135, bottom: 64, left: 135 }, why: { top: "margin", right: "grid", bottom: "margin", left: "grid" } });
+    // Not Instagram's grid: the margin; at half the size, half of it; a brand's own size, the margin of its short side
+    expect(safeAreaOf("linkedin.square", 1200, 1200).insets.left).toBeCloseTo(71.11, 1);
+    expect(safeAreaOf("instagram.portrait", 540, 720).insets.top).toBe(32);
+    expect(safeAreaOf("brand:b1:wide", 2160, 1080).insets).toEqual({ top: 64, right: 64, bottom: 64, left: 64 });
   });
 });

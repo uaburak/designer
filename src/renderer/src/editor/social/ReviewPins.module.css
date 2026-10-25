@@ -32,4 +32,8 @@
   .badge:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .pin:hover { background: var(--figma-color-bg-warning-hover); }
   .pin:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  /* A pin's card (§30): its words, then Leave and Fix at the right */
+  .card { display: flex; flex-direction: column; gap: var(--ds-space-3); padding: 0 var(--ds-space-4) var(--ds-space-4); }
+  .cardText { margin: 0; color: var(--figma-color-text); font: var(--ds-font-body-medium); }
+  .cardActions { display: flex; justify-content: flex-end; gap: var(--ds-space-2); }
 }

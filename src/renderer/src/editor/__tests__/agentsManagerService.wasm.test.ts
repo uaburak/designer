@@ -271,6 +271,58 @@ describe("Social's leftovers (docs/social.md §17)", () => {
     expect(turns).toHaveLength(0);
   });
 
+  it("more fixes without a model (docs/social.md §30): a card holding the text moved in, a text too wide narrowed, a second logo hidden, hashtags past the limit dropped, a text recoloured to read", async () => {
+    const { ed, turns } = await setup(false);
+    ed.ui.set({ mode: "social" });
+    const w = editorWriter(ed);
+    const make = (parentId: string, nodes: unknown[]) => createNodes({ ed, write: (_l, fn) => fn() }, { parentId, nodes } as never).touched!;
+    const post = newPost(ed, w, { formatId: "instagram.portrait" });
+    // A text in an auto-layout card at the left edge: the card moves (the text can't, its stack places it)
+    const [card] = make(post, [{ type: "FRAME", name: "Card", x: 10, y: 600, width: 300, height: 100, layoutMode: "VERTICAL", children: [{ type: "TEXT", name: "Price", characters: "₺99", fontSize: 40 }] }]);
+    const price = ed.engine.readNodes([card], { subtree: true, fields: ["type"] }).find((n) => n.type === "TEXT")!.guid;
+    // A text wider than the safe area
+    const [wide] = make(post, [{ type: "TEXT", name: "Headline", characters: "A long headline", fontSize: 60, x: 0, y: 300, width: 1080, textAutoResize: "NONE" }]);
+    applyChecks(ed, w, post, checkPost(ed, post));
+    const ids = readPost(ed, post)!.problems.map((p) => p.id);
+    expect(ids).toEqual(expect.arrayContaining([`check:safe-area:${price}`, `check:safe-area:${wide}`]));
+    expect(fixProblem(ed, w, post, `check:safe-area:${price}`)).toBe(true);
+    expect(ed.engine.readNode(card, { fields: ["transform"] })!.transform!.m02).toBeCloseTo(64);
+    expect(fixProblem(ed, w, post, `check:safe-area:${wide}`)).toBe(true);
+    const h = ed.engine.readNode(wide, { fields: ["transform", "size"] })!;
+    expect(h.transform!.m02).toBeCloseTo(64);
+    expect(h.size!.x).toBeCloseTo(1080 - 128);
+    expect(readPost(ed, post)!.problems.filter((p) => p.kind === "safe-area")).toEqual([]);
+    // Two logos: the second hidden
+    const [, copy] = make(post, [{ type: "RECTANGLE", name: "Logo", x: 200, y: 1200, width: 100, height: 100 }, { type: "RECTANGLE", name: "Logo copy", x: 600, y: 1200, width: 100, height: 100 }]);
+    applyChecks(ed, w, post, checkPost(ed, post));
+    expect(fixProblem(ed, w, post, "check:logo:several")).toBe(true);
+    expect(ed.engine.readNode(copy, { fields: ["visible"] })?.visible).toBe(false);
+    // 31 hashtags on a 30-hashtag format: the last one dropped
+    ed.batch("Tags", () => writePost(ed, post, { ...readPost(ed, post)!, hashtags: Array.from({ length: 31 }, (_, i) => `t${i}`) }));
+    applyChecks(ed, w, post, checkPost(ed, post));
+    expect(fixProblem(ed, w, post, "check:caption:hashtags")).toBe(true);
+    expect(readPost(ed, post)!.hashtags).toHaveLength(30);
+    expect(readPost(ed, post)!.problems).toEqual([]);
+    expect(turns).toHaveLength(0);
+  });
+
+  it("a contrast problem is fixed without a model: the text takes a colour that reads over its backdrop (docs/social.md §30)", async () => {
+    const { ed } = await setup(false);
+    ed.ui.set({ mode: "social" });
+    const w = editorWriter(ed);
+    const post = newPost(ed, w, { formatId: "instagram.portrait" });
+    // Light grey on the post's white
+    const [title] = createNodes({ ed, write: (_l, fn) => fn() }, { parentId: post, nodes: [{ type: "TEXT", name: "Title", characters: "Hello", fontSize: 80, x: 200, y: 400, width: 400, height: 100, textAutoResize: "NONE", fills: [{ type: "SOLID", color: "#CCCCCC" }] }] } as never).touched!;
+    applyChecks(ed, w, post, checkPost(ed, post));
+    const problem = readPost(ed, post)!.problems.find((p) => p.kind === "contrast");
+    if (!ed.engine.renderNodeThumbnailPixels({ node: post, maxSize: 64 })) return; // an engine that can't draw has no backdrop to read
+    expect(problem?.id).toBe(`check:contrast:${title}`);
+    expect(fixProblem(ed, w, post, problem!.id)).toBe(true);
+    const fill = (ed.engine.readNode(title, { fields: ["fillPaints"] })!.fillPaints ?? [])[0] as { color?: { r: number } };
+    expect(fill.color?.r).toBe(0);
+    expect(readPost(ed, post)!.problems.filter((p) => p.kind === "contrast")).toEqual([]);
+  });
+
   it("a relayout problem nothing mechanical fixes goes to a worker's task without a manager turn; done, its pin leaves", async () => {
     const { s, ed, turns, emit } = await setup(false);
     ed.ui.set({ mode: "social" });

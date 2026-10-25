@@ -19,7 +19,7 @@ import type { Brand } from "@shared/studio/types";
 import { useEditor, type EditorController } from "../controller";
 import { useTopics } from "../hooks";
 import { useBrands } from "../studio/forms";
-import { canWritePosts, editorWriter, leaveProblems, resizePost, setPost, type PostPatch } from "./actions";
+import { canWritePosts, editorWriter, leaveProblems, problemText, resizePost, setPost, type PostPatch } from "./actions";
 import { applyBrand, applyTemplate, setProduct } from "./templates/templates";
 import { templateOptionsFor, useTemplates } from "./templates/TemplatesGallery";
 import { askAgent, fixWithAgent } from "./SocialMode";
@@ -290,12 +290,12 @@ function Problems({ post, disabled }: { post: PostRow; disabled: boolean }) {
       <span className={styles.label}>{tp(post.data.problems.length, "{n} problem", "{n} problems")}</span>
       {post.data.problems.map((p) => (
         <div key={p.id} className={styles.problem} data-problem={p.id}>
-          <span className={styles.problemText}>{p.detail}</span>
+          <span className={styles.problemText}>{problemText(p)}</span>
           <Button variant="secondary" disabled={disabled} onClick={() => fixWithAgent(ed, post, p)} data-problem-fix="">
             {t("Fix")}
           </Button>
           <Button variant="ghost" disabled={disabled} onClick={() => leaveProblems(ed, editorWriter(ed), post.id, [p.id])}>
-            {t("Leave")}
+            {t("Ignore")}
           </Button>
         </div>
       ))}

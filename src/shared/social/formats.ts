@@ -213,3 +213,43 @@ export function nearestFormat(width: number, height: number, platform?: Platform
   }
   return best;
 }
+
+/**
+ * Text and logos keep this far inside every edge of any post, px on a 1080 px short side (docs/social.md §30) [ours:
+ * no platform publishes one for feed posts; the agents' post prompt has asked for 64 px since round 18].
+ */
+export const SAFE_MARGIN = 64;
+
+/** Why a side of a post's safe area is as deep as it is: the platform's UI over it, Instagram's profile grid cropping it, or the margin */
+export type SafeReason = "platform" | "grid" | "margin";
+
+export interface SafeArea {
+  /** Each side's band, px at the post's size */
+  insets: Insets;
+  why: Record<keyof Insets, SafeReason>;
+}
+
+/**
+ * A post's safe area at its size (docs/social.md §30): on each side the deepest of the platform's band (stories, reels —
+ * `safeArea`), what Instagram's profile grid crops of a feed post wider than 3:4 (centred: SOCIAL_SOURCES ig-grid-3x4)
+ * and the margin (`SAFE_MARGIN`). A brand's own size or an unknown format: the margin alone.
+ */
+export function safeAreaOf(formatId: string | null | undefined, width: number, height: number): SafeArea {
+  const f = formatById(formatId);
+  const sx = f ? width / f.width : 1;
+  const sy = f ? height / f.height : 1;
+  const margin = (SAFE_MARGIN * Math.min(width, height)) / 1080;
+  const platform: Insets = f ? { top: f.safeArea.top * sy, right: f.safeArea.right * sx, bottom: f.safeArea.bottom * sy, left: f.safeArea.left * sx } : { top: 0, right: 0, bottom: 0, left: 0 };
+  // The profile grid shows a feed post at 3:4, centred: a wider one loses its sides
+  const feed = f?.platform === "instagram" && (f.kind === "image" || f.kind === "carousel");
+  const crop = feed && width / height > 3 / 4 + 1e-3 ? (width - (height * 3) / 4) / 2 : 0;
+  const grid: Insets = { top: 0, right: crop, bottom: 0, left: crop };
+  const insets = { top: 0, right: 0, bottom: 0, left: 0 } as Insets;
+  const why = {} as Record<keyof Insets, SafeReason>;
+  for (const side of ["top", "right", "bottom", "left"] as const) {
+    const [deep, reason] = ([[platform[side], "platform"], [grid[side], "grid"], [margin, "margin"]] as const).reduce((a, b) => (b[0] > a[0] ? b : a));
+    insets[side] = deep;
+    why[side] = reason;
+  }
+  return { insets, why };
+}

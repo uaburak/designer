@@ -447,7 +447,7 @@ describe("the manager in Social (docs/social.md §7)", () => {
     const story = r.posts[1].nodeId;
     const prompt = f.workerPrompts.find((p) => p.includes(`(${story})`) && p.includes("Finish one social post"))!;
     expect(prompt).toContain(SOCIAL_WORKER_LINE);
-    expect(prompt).toContain("269 px at the top, 672 px at the bottom");
+    expect(prompt).toContain("269 px from the top, 672 px from the bottom");
     expect(f.workerPrompts.find((p) => p.includes("Animate the post"))).toContain("duration: 6");
     // Each picture went into its post's Picture layer.
     for (const p of r.posts) expect(f.nodes.get(f.nodes.get(p.nodeId)!.children[0])!.fill).toBe("AQID");

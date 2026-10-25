@@ -10,11 +10,12 @@
 import type { Guid, Message, NodeChange, Pixels } from "@/engine/codec";
 import { keyAfter, keyBetween } from "@shared/schema/fractionalIndex";
 import type { ImageArg } from "@shared/agents/images";
-import { formatById, resolveFormat } from "@shared/social/formats";
+import { formatById, resolveFormat, safeAreaOf, type SafeReason } from "@shared/social/formats";
 import { captionReport } from "@shared/social/caption";
 import { readSocial, withSocial, type Insets, type PluginDataEntry, type PostProblem, type SlotRole, type SocialCampaign, type SocialPostData, type TemplateSlotData } from "@shared/social/types";
 import type { SocialFormat } from "@shared/studio/types";
 import { contrastRatio, type RGBA } from "@/ds";
+import { t } from "@/i18n";
 import type { EditorController } from "../controller";
 import { isSocialFile } from "../devmode/devMode";
 import { newNodeGuid } from "../variables";
@@ -312,15 +313,14 @@ function layersOf(ed: EditorController, id: Guid): { node: Layer; box: Box; pare
 const roleOf = (n: Layer): SlotRole | null => readSocial<TemplateSlotData>(n.pluginData, "slot")?.role ?? null;
 const isLogo = (n: Layer): boolean => roleOf(n) === "logo" || /\blogo\b/i.test(n.name ?? "");
 
-/** The bands of the format's safe area a box reaches into (the insets scaled to the post's size). */
-function bandsHit(box: Box, safe: Insets, size: { x: number; y: number }, format: SocialFormat): (keyof Insets)[] {
-  const kx = size.x / format.width;
-  const ky = size.y / format.height;
+/** The sides of a post's safe area (its bands, post px) a box reaches into. */
+function bandsHit(box: Box, safe: Insets, size: { x: number; y: number }): (keyof Insets)[] {
   const sides: (keyof Insets)[] = [];
-  if (safe.top > 0 && box.y < safe.top * ky) sides.push("top");
-  if (safe.bottom > 0 && box.y + box.height > size.y - safe.bottom * ky) sides.push("bottom");
-  if (safe.left > 0 && box.x < safe.left * kx) sides.push("left");
-  if (safe.right > 0 && box.x + box.width > size.x - safe.right * kx) sides.push("right");
+  const e = 0.5;
+  if (safe.top > 0 && box.y < safe.top - e) sides.push("top");
+  if (safe.bottom > 0 && box.y + box.height > size.y - safe.bottom + e) sides.push("bottom");
+  if (safe.left > 0 && box.x < safe.left - e) sides.push("left");
+  if (safe.right > 0 && box.x + box.width > size.x - safe.right + e) sides.push("right");
   return sides;
 }
 
@@ -362,10 +362,53 @@ function backdropOf(px: Pixels, k: number, box: Box, fg: RGBA): RGBA | null {
 
 const CHECK_FIX: Record<"caption" | "safe-area" | "contrast" | "logo" | "video", PostProblem["fix"]> = { caption: "rewrite", "safe-area": "relayout", contrast: "relayout", logo: "relayout", video: "retime" };
 
-/** A check's problem: its id names the kind and what it is about, so the same finding keeps its pin from one check to the next. */
-function problem(kind: keyof typeof CHECK_FIX, about: string, detail: string, box?: Box): PostProblem {
+/**
+ * A check's problem: its id names the kind and what it is about, so the same finding keeps its pin from one check to
+ * the next; `say` its words (an English template of `PROBLEM_TEXT` and its values — `detail` is the English).
+ */
+function problem(kind: keyof typeof CHECK_FIX, about: string, say: { key: ProblemKey; params?: Record<string, string> }, box?: Box): PostProblem {
   const b = box ? { x: Math.round(box.x), y: Math.round(box.y), width: Math.round(box.width), height: Math.round(box.height) } : undefined;
-  return { id: `check:${kind}:${about}`, kind, detail, ...(b ? { box: b } : {}), fix: CHECK_FIX[kind], source: "check" };
+  const params = { ...(say.params ?? {}), say: say.key };
+  return { id: `check:${kind}:${about}`, kind, detail: fill(PROBLEM_TEXT[say.key], say.params ?? {}), ...(b ? { box: b } : {}), fix: CHECK_FIX[kind], source: "check", params };
+}
+
+/** A check's words (English; the UI says them through `t`, problemText) */
+const PROBLEM_TEXT = {
+  captionCount: "The caption is {count} characters; {format} takes {max}.",
+  captionHashtags: "{count} hashtags; {format} takes {max}.",
+  captionMentions: "{count} mentions; {format} takes {max}.",
+  safePlatform: "“{name}” reaches into the {sides} band, which the platform's buttons cover.",
+  safeGrid: "“{name}” reaches into the {sides} edge, which Instagram's profile grid crops.",
+  safeMargin: "“{name}” is too close to the {sides} edge.",
+  logoMissing: "The post has no logo.",
+  logoSeveral: "The post has {count} logos.",
+  videoLength: "The video is {sec} s; {format} takes {min}–{max} s.",
+  videoFps: "The timeline runs at {fps} fps; {format} takes {min}–{max} fps.",
+  contrast: "“{name}” has a contrast of {ratio}:1 over its backdrop; it needs {min}:1.",
+} as const;
+type ProblemKey = keyof typeof PROBLEM_TEXT;
+
+const fill = (text: string, params: Record<string, string>) => text.replace(/\{(\w+)\}/g, (m, k: string) => params[k] ?? m);
+
+/** A safe-area problem's sides, in English ("top and left") — the UI's words come from `problemText` */
+const SIDE_WORDS: Record<keyof Insets, string> = { top: "top", right: "right", bottom: "bottom", left: "left" };
+
+/**
+ * A problem's words in the UI's language (the pins' card, the Post section): a check's from its template and values,
+ * a review's (an agent's) as it wrote them.
+ */
+export function problemText(p: PostProblem): string {
+  const key = p.params?.say as ProblemKey | undefined;
+  if (!key || !(key in PROBLEM_TEXT)) return p.detail;
+  const params = { ...p.params };
+  if (params.sides) params.sides = params.sides.split(",").map((s) => t(SIDE_WORDS[s as keyof Insets] ?? s)).join(t(" and "));
+  return t(PROBLEM_TEXT[key], params);
+}
+
+/** A problem's title in the pins' card */
+export function problemTitle(p: PostProblem): string {
+  const titles: Record<string, string> = { caption: t("Caption"), "safe-area": t("Safe area"), contrast: t("Contrast"), logo: t("Logo"), video: t("Video") };
+  return titles[p.kind] ?? t("Problem");
 }
 
 /**
@@ -384,30 +427,33 @@ export function checkPost(ed: EditorController, id: Guid): PostProblem[] {
   // The caption lives on a carousel's first slide.
   if (format && (!data.group || data.group.index === 0)) {
     const r = captionReport(data.caption, data.hashtags, format);
-    if (r.over) out.push(problem("caption", "count", `The caption is ${r.count} characters; ${format.name} takes ${r.max}.`));
-    if (r.hashtags.over) out.push(problem("caption", "hashtags", `${r.hashtags.count} hashtags; ${format.name} takes ${r.hashtags.max}.`));
-    if (r.mentions.over) out.push(problem("caption", "mentions", `${r.mentions.count} mentions; ${format.name} takes ${r.mentions.max}.`));
+    if (r.over) out.push(problem("caption", "count", { key: "captionCount", params: { count: String(r.count), format: format.name, max: String(r.max) } }));
+    if (r.hashtags.over) out.push(problem("caption", "hashtags", { key: "captionHashtags", params: { count: String(r.hashtags.count), format: format.name, max: String(r.hashtags.max) } }));
+    if (r.mentions.over) out.push(problem("caption", "mentions", { key: "captionMentions", params: { count: String(r.mentions.count), format: format.name, max: String(r.mentions.max) } }));
   }
   const layers = layersOf(ed, id);
   // A logo is the outermost layer tagged or named so (a logo frame's own picture isn't a second one).
   const logoIds = new Set(layers.filter((l) => isLogo(l.node)).map((l) => l.node.guid));
   const logos = layers.filter((l) => logoIds.has(l.node.guid) && !logoIds.has(l.parent));
-  if (format) {
-    for (const l of layers) {
-      if (l.node.type !== "TEXT" && !logos.includes(l)) continue;
-      const sides = bandsHit(l.box, format.safeArea, size, format);
-      if (sides.length) out.push(problem("safe-area", l.node.guid, `“${l.node.name ?? ""}” reaches into ${format.name}'s ${sides.join(" and ")} band, which the platform's buttons cover.`, l.box));
-    }
+  // Text and logos inside the safe area (§30: the platform's bands, the profile grid's crop, the margin)
+  const safe = safeAreaOf(data.formatId, size.x, size.y);
+  for (const l of layers) {
+    if (l.node.type !== "TEXT" && !logos.includes(l)) continue;
+    const sides = bandsHit(l.box, safe.insets, size);
+    if (!sides.length) continue;
+    const why: SafeReason = sides.some((s) => safe.why[s] === "platform") ? "platform" : sides.some((s) => safe.why[s] === "grid") ? "grid" : "margin";
+    const key = why === "platform" ? "safePlatform" : why === "grid" ? "safeGrid" : "safeMargin";
+    out.push(problem("safe-area", l.node.guid, { key, params: { name: l.node.name ?? "", sides: sides.join(",") } }, l.box));
   }
-  if (data.brandId && !logos.length) out.push(problem("logo", "missing", "The post has no logo."));
-  if (logos.length > 1) out.push(problem("logo", "several", `The post has ${logos.length} logos.`, logos[1].box));
+  if (data.brandId && !logos.length) out.push(problem("logo", "missing", { key: "logoMissing" }));
+  if (logos.length > 1) out.push(problem("logo", "several", { key: "logoSeveral", params: { count: String(logos.length) } }, logos[1].box));
   const timeline = motionRead(() => ed.engine.motionTimeline(id), null);
   const animated = !!timeline && (timeline.audio.length > 0 || timeline.layers.some((l) => l.tracks.length > 0 || l.clips.length > 0 || !!l.instance));
   if (format?.video && timeline && animated) {
     const sec = Math.round(timeline.durationUs / 1e4) / 100;
     const v = format.video;
-    if (sec < v.minSec || sec > v.maxSec) out.push(problem("video", "length", `The video is ${sec} s; ${format.name} takes ${v.minSec}–${v.maxSec} s.`));
-    if (timeline.snappingFps < v.fps[0] || timeline.snappingFps > v.fps[1]) out.push(problem("video", "fps", `The timeline runs at ${timeline.snappingFps} fps; ${format.name} takes ${v.fps[0]}–${v.fps[1]} fps.`));
+    if (sec < v.minSec || sec > v.maxSec) out.push(problem("video", "length", { key: "videoLength", params: { sec: String(sec), format: format.name, min: String(v.minSec), max: String(v.maxSec) } }));
+    if (timeline.snappingFps < v.fps[0] || timeline.snappingFps > v.fps[1]) out.push(problem("video", "fps", { key: "videoFps", params: { fps: String(timeline.snappingFps), format: format.name, min: String(v.fps[0]), max: String(v.fps[1]) } }));
   }
   const texts = layers.filter((l) => l.node.type === "TEXT" && l.box.width > 0 && l.box.height > 0);
   const px = texts.length ? motionRead(() => ed.engine.renderNodeThumbnailPixels({ node: id, maxSize: SAMPLE_SIZE }), null) : null;
@@ -419,7 +465,7 @@ export function checkPost(ed: EditorController, id: Guid): PostProblem[] {
       if (!fg || !bg) continue;
       const ratio = contrastRatio(fg, bg);
       const min = ((l.node as { fontSize?: number }).fontSize ?? 0) >= LARGE_TEXT ? 3 : 4.5;
-      if (ratio < min) out.push(problem("contrast", l.node.guid, `“${l.node.name ?? ""}” has a contrast of ${ratio.toFixed(1)}:1 over its backdrop; it needs ${min}:1.`, l.box));
+      if (ratio < min) out.push(problem("contrast", l.node.guid, { key: "contrast", params: { name: l.node.name ?? "", ratio: ratio.toFixed(1), min: String(min) } }, l.box));
     }
   }
   return out;
@@ -445,53 +491,136 @@ export function applyChecks(ed: EditorController, w: Writer, id: Guid, found: re
 
 // ---- Fixes without a model (§7.3, round 18 leftovers) ---------------------------------------------------------------
 
-/** A layer's move inside the safe area's inner rectangle, in the post's coordinates; null when it doesn't fit there. */
-function intoSafeArea(box: Box, safe: Insets, size: { x: number; y: number }, format: SocialFormat): { dx: number; dy: number } | null {
-  const kx = size.x / format.width;
-  const ky = size.y / format.height;
-  const inner = { left: safe.left * kx, top: safe.top * ky, right: size.x - safe.right * kx, bottom: size.y - safe.bottom * ky };
-  if (box.width > inner.right - inner.left || box.height > inner.bottom - inner.top) return null;
+/** A box's move inside the safe area's inner rectangle (post px); null when it doesn't fit there. */
+function intoSafeArea(box: Box, safe: Insets, size: { x: number; y: number }): { dx: number; dy: number } | null {
+  const inner = { left: safe.left, top: safe.top, right: size.x - safe.right, bottom: size.y - safe.bottom };
+  if (box.width > inner.right - inner.left + 0.5 || box.height > inner.bottom - inner.top + 0.5) return null;
   const along = (lo: number, hi: number, min: number, max: number) => (lo < min ? min - lo : hi > max ? max - hi : 0);
   return { dx: along(box.x, box.x + box.width, inner.left, inner.right), dy: along(box.y, box.y + box.height, inner.top, inner.bottom) };
 }
 
+type Placed = ReturnType<typeof layersOf>[number];
+
+/** Whether a layer can be moved by its transform: its parent places it freely, it isn't inside an instance, and its parents neither turn nor scale it. */
+function movable(ed: EditorController, l: Placed): boolean {
+  if (l.node.guid.startsWith("I")) return false;
+  const parent = ed.engine.readNode(l.parent, { fields: ["stackMode"] }) as NodeChange | null;
+  const free = !parent?.stackMode || parent.stackMode === "NONE" || l.node.stackPositioning === "ABSOLUTE";
+  const plain = l.base.m00 === 1 && l.base.m11 === 1 && l.base.m01 === 0 && l.base.m10 === 0;
+  return free && plain;
+}
+
+/** The colours a text may take to read over its backdrop: the brand's (in its order), then black and white */
+function contrastFix(bg: RGBA, min: number, brandHexes: readonly string[]): RGBA {
+  const hex = (h: string): RGBA => {
+    const n = parseInt(h.replace("#", "").slice(0, 6), 16);
+    return { r: ((n >> 16) & 255) / 255, g: ((n >> 8) & 255) / 255, b: (n & 255) / 255, a: 1 };
+  };
+  const brand = brandHexes.map(hex).find((c) => contrastRatio(c, bg) >= min);
+  if (brand) return brand;
+  const black = { r: 0, g: 0, b: 0, a: 1 };
+  const white = { r: 1, g: 1, b: 1, a: 1 };
+  return contrastRatio(black, bg) >= contrastRatio(white, bg) ? black : white;
+}
+
 /**
- * A post's problem fixed where the fix is mechanical, without a model (the Post section's Fix): a text or logo reaching
- * into a safe-area band moved inside it — when it fits there, its parent places it freely (no auto layout, or absolute
- * in it) with no turn or scale, and it isn't a layer inside an instance (Figma doesn't move those); a missing logo
- * shown again (a hidden logo slot), or the post's template applied again over a frame that lost it (its logo slot back,
- * the brand bound). One undo step "Fix problem" with the post checked again in it. Returns false when the fix needs an
- * agent — a caption to rewrite, a timeline to retime, a relayout — and writes nothing then.
+ * How a post's problem gets fixed without a model (§7.3, §30), or null when it needs an agent (a caption to rewrite,
+ * a video's length or frame rate): the write, returning the post (applying a template puts an instance, carrying the record, in the
+ * frame's place).
+ * - safe area: the text or logo — else the nearest layer holding it that moves freely (a card it sits in, an auto-layout
+ *   stack) — moved inside the safe area; a text too wide for it made as wide as the safe area (its height following);
+ * - contrast: the text's colour the brand's first that reads over its backdrop, else black or white;
+ * - a missing logo shown again (a hidden logo slot), or the post's template applied again over a frame that lost it;
+ *   logos past the first hidden;
+ * - hashtags past the format's limit dropped (the last ones).
  */
-export function fixProblem(ed: EditorController, w: Writer, id: Guid, problemId: string): boolean {
+function planFix(ed: EditorController, id: Guid, problemId: string): (() => Guid) | null {
   const data = readPost(ed, id);
   const found = data?.problems.find((p) => p.id === problemId);
-  if (!data || !found) return false;
+  if (!data || !found) return null;
   const [, kind, about] = /^check:([a-z-]+):(.+)$/.exec(found.id) ?? [];
-  // Each fix returns the post (applying a template puts an instance, carrying the record, in the frame's place).
-  let fix: (() => Guid) | null = null;
-  if (kind === "safe-area") {
-    const format = formatById(data.formatId);
+  const size = ed.engine.readNode(id, { fields: ["size"] })?.size;
+  if (kind === "safe-area" && size) {
+    const safe = safeAreaOf(data.formatId, size.x, size.y).insets;
+    const layers = layersOf(ed, id);
+    const byId = new Map(layers.map((l) => [l.node.guid, l]));
+    const layer = byId.get(about);
+    if (!layer) return null;
+    // The layer, else the nearest holder that moves freely — the layer's box brought inside
+    for (let c: Placed | undefined = layer; c; c = byId.get(c.parent)) {
+      if (!movable(ed, c)) continue;
+      const move = intoSafeArea(layer.box, safe, size);
+      const t0 = c.node.transform;
+      if (move && t0) {
+        const target = c.node.guid;
+        return () => (ed.engine.setProps([target], { transform: { ...t0, m02: t0.m02 + move.dx, m12: t0.m12 + move.dy } }), id);
+      }
+      break;
+    }
+    // A text too wide: as wide as the safe area, at its left edge, its height following
+    if (layer.node.type === "TEXT" && movable(ed, layer) && layer.node.transform) {
+      const width = size.x - safe.left - safe.right;
+      const t0 = layer.node.transform;
+      const dy = intoSafeArea({ ...layer.box, x: safe.left, width }, safe, size)?.dy ?? 0;
+      return () => {
+        ed.engine.setProps([about], { textAutoResize: "HEIGHT", size: { x: width, y: layer.node.size?.y ?? layer.box.height } });
+        ed.engine.setProps([about], { transform: { ...t0, m02: t0.m02 + (safe.left - layer.box.x), m12: t0.m12 + dy } });
+        return id;
+      };
+    }
+    return null;
+  }
+  if (kind === "contrast") {
     const layer = layersOf(ed, id).find((l) => l.node.guid === about);
-    const parent = layer ? (ed.engine.readNode(layer.parent, { fields: ["stackMode"] }) as NodeChange | null) : null;
-    const free = !!layer && !about.startsWith("I") && (!parent?.stackMode || parent.stackMode === "NONE" || layer.node.stackPositioning === "ABSOLUTE");
-    const plain = !!layer && layer.base.m00 === 1 && layer.base.m11 === 1 && layer.base.m01 === 0 && layer.base.m10 === 0;
-    const size = ed.engine.readNode(id, { fields: ["size"] })?.size;
-    const move = format && layer && size && free && plain ? intoSafeArea(layer.box, format.safeArea, size, format) : null;
-    const t = layer?.node.transform;
-    if (move && t) fix = () => (ed.engine.setProps([about], { transform: { ...t, m02: t.m02 + move.dx, m12: t.m12 + move.dy } }), id);
-  } else if (kind === "logo" && about === "missing") {
+    const fg = layer ? textColour(layer.node) : null;
+    const px = layer && size ? motionRead(() => ed.engine.renderNodeThumbnailPixels({ node: id, maxSize: SAMPLE_SIZE }), null) : null;
+    const bg = px && fg && layer && size ? backdropOf(px, px.width / Math.max(1, size.x), layer.box, fg) : null;
+    if (!layer || !fg || !bg) return null;
+    const min = ((layer.node as { fontSize?: number }).fontSize ?? 0) >= LARGE_TEXT ? 3 : 4.5;
+    const brand = data.brandId ? templates.knownBrand(data.brandId) : null;
+    const color = contrastFix(bg, min, (brand?.colors ?? []).map((c) => c.hex));
+    const paints = ((layer.node as { fillPaints?: SolidPaint[] }).fillPaints ?? []) as SolidPaint[];
+    const at = paints.findIndex((f) => f.visible !== false && f.type === "SOLID" && f.color);
+    const next = at >= 0 ? paints.map((f, i) => (i === at ? { ...f, color, opacity: 1 } : f)) : [{ type: "SOLID", visible: true, opacity: 1, blendMode: "NORMAL", color }];
+    return () => (ed.engine.setProps([about], { fillPaints: next as never }), id);
+  }
+  if (kind === "logo" && about === "several") {
+    const layers = layersOf(ed, id);
+    const ids = new Set(layers.filter((l) => isLogo(l.node)).map((l) => l.node.guid));
+    const extra = layers.filter((l) => ids.has(l.node.guid) && !ids.has(l.parent)).slice(1).map((l) => l.node.guid);
+    return extra.length ? () => (ed.engine.setProps(extra, { visible: false }), id) : null;
+  }
+  if (kind === "logo" && about === "missing") {
     // A hidden logo slot (or a layer named so): shown again.
     const hidden = (ed.engine.readNodes([id], { subtree: true, fields: ["name", "visible", "pluginData"] }) as Layer[]).find((n) => n.guid !== id && n.visible === false && isLogo(n));
     const entry = !hidden && data.template ? templates.templateByKey(ed, data.template.key) : null;
     const instance = ed.engine.componentInfo(id)?.kind === "INSTANCE";
-    if (hidden) fix = () => (ed.engine.setProps([hidden.guid], { visible: true }), id);
-    else if (entry?.node && !instance) {
+    if (hidden) return () => (ed.engine.setProps([hidden.guid], { visible: true }), id);
+    if (entry?.node && !instance) {
       const brand = data.brandId ? templates.knownBrand(data.brandId) : null;
-      fix = () => templates.applyTemplateNow(ed, [id], entry.node!, entry.data, { key: entry.key, variant: data.template!.variant, brand, picture: null })[0] ?? id;
+      return () => templates.applyTemplateNow(ed, [id], entry.node!, entry.data, { key: entry.key, variant: data.template!.variant, brand, picture: null })[0] ?? id;
     }
+    return null;
   }
-  const run = fix;
+  if (kind === "caption" && about === "hashtags") {
+    const format = formatById(data.formatId);
+    const max = format?.caption.hashtags;
+    if (max === undefined || data.hashtags.length <= max) return null;
+    return () => (writePost(ed, id, { ...data, hashtags: data.hashtags.slice(0, max) }), id);
+  }
+  return null;
+}
+
+/** Whether a post's problem is fixed here and now, without a model (`fixProblem`). */
+export const canFixProblem = (ed: EditorController, id: Guid, problemId: string): boolean => planFix(ed, id, problemId) !== null;
+
+/**
+ * A post's problem fixed where the fix is mechanical, without a model (the pins' card, the Post section's Fix —
+ * `planFix`): one undo step "Fix problem" with the post checked again in it. Returns false when the fix needs an agent
+ * — a caption to rewrite, a video's length or frame rate — and writes nothing then.
+ */
+export function fixProblem(ed: EditorController, w: Writer, id: Guid, problemId: string): boolean {
+  const run = planFix(ed, id, problemId);
   if (!run) return false;
   w("Fix problem", () => {
     const post = run();

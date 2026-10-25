@@ -103,6 +103,7 @@ import { CommentsLayer } from "./comments/CommentsLayer";
 import { InlinePreview } from "./InlinePreview";
 import { attachDevMode } from "./devmode/devMode";
 import { attachArranger } from "./social/arrange";
+import { attachAutoCheck } from "./social/autoCheck";
 import { DevLeftPanel, DevMeasurements, DevRightPanel } from "./devmode/DevPanels";
 import { AnnotationEditor } from "./devmode/AnnotationEditor";
 import { CategoriesDialog, FocusBar, MeasurementText, StatusMenu } from "./devmode/DevOverlays";
@@ -311,6 +312,8 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
       cleanups.push(attachDevMode(ed));
       // A Social file's board keeps itself laid out (docs/social.md §19).
       cleanups.push(attachArranger(ed));
+      // …and its posts check themselves, a moment after an edit (§30)
+      cleanups.push(attachAutoCheck(ed));
       cleanups.push(attachRound5(ed));
       cleanups.push(attachExportAccess(ed));
       if (visibleRef.current) cleanups.push(attachViewInsets(engine, canvas, visibleRef.current));

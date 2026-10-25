@@ -24,6 +24,7 @@ import { ManagerCard } from "../panels/agents/StudioCards";
 import { agentsOf } from "../agents/service";
 import type { ViewCard } from "../agents/managerTools";
 import { useUI } from "../hooks";
+import { bandTone } from "../social/SafeAreaOverlay";
 
 const wasm = join(process.cwd(), "src/renderer/src/engine/wasm/engine.wasm");
 
@@ -190,7 +191,7 @@ describe("Social mode's chrome (round 18a)", () => {
     expect(counter().hasAttribute("data-over")).toBe(false);
   });
 
-  it("a Social file's grid view shows no bands, no pins: on each post the Design glyph, which opens it alone (docs/social.md §21, §29)", async () => {
+  it("a Social file's grid view shows the safe areas and no pins: on each post the Design glyph, which opens it alone (docs/social.md §21, §29)", async () => {
     let id = "";
     const { ed } = await setup(() => createElement(CanvasLayers));
     await act(async () => {
@@ -198,7 +199,8 @@ describe("Social mode's chrome (round 18a)", () => {
     });
     const problem = { id: "s1", kind: "safe-area" as const, detail: "“CTA” reaches into the bottom band", box: { x: 100, y: 1700, width: 300, height: 80 }, fix: "relayout" as const, source: "check" as const };
     await act(async () => ed.batch("Pins", () => writePost(ed, id, { ...readPost(ed, id)!, problems: [problem, { ...problem, id: "s2", box: undefined }] })));
-    expect($("[data-safe-areas] [data-post]")).toBeNull();
+    // The safe areas show on the grid too (§30); no pins there
+    expect($(`[data-safe-areas] [data-post="${id}"]`)).not.toBeNull();
     expect($('[data-review-pins] [data-problem="s1"]')).toBeNull();
     const open = $(`[data-post-open="${id}"]`)!;
     expect(open.querySelector("svg")).not.toBeNull();
@@ -210,18 +212,24 @@ describe("Social mode's chrome (round 18a)", () => {
 
   it("draws a story's safe-area bands at the camera's zoom", async () => {
     let id = "";
+    let square = "";
     // A Design file in Social (a Social file draws them for the post in focus alone, §21)
     const { ed, engine } = await setup(() => createElement(CanvasLayers), "design");
     // The posts index tells its listeners in a microtask (deferred.ts): an async act lets the overlay re-render
     await act(async () => {
       ed.ui.set({ mode: "social" });
       id = newPost(ed, editorWriter(ed), { formatId: "instagram.story", at: { x: 0, y: 0 } });
-      // A square post has no safe area: no bands for it.
-      newPost(ed, editorWriter(ed), { formatId: "instagram.square", at: { x: 2000, y: 0 } });
+      // A square post: the margin over and under it, what the profile grid's 3:4 crops at its sides (§30)
+      square = newPost(ed, editorWriter(ed), { formatId: "instagram.square", at: { x: 2000, y: 0 } });
     });
     act(() => engine.setCamera({ x: 10, y: 20, zoom: 0.5 }));
     const post = $(`[data-safe-areas] [data-post="${id}"]`)!;
-    expect($$("[data-safe-areas] [data-post]")).toHaveLength(1);
+    expect($$("[data-safe-areas] [data-post]")).toHaveLength(2);
+    const sq = (side: string) => $(`[data-safe-areas] [data-post="${square}"] [data-band="${side}"]`)!;
+    expect(sq("top").style.height).toBe("32px");
+    expect(sq("left").style.width).toBe("67.5px");
+    // Red by default (the test's engine draws nothing to read a tone off)
+    expect(post.getAttribute("data-tone")).toBe("red");
     expect(post.style.transform).toBe("translate(10px, 20px)");
     expect(post.style.width).toBe("540px");
     expect(post.style.height).toBe("960px");
@@ -241,7 +249,7 @@ describe("Social mode's chrome (round 18a)", () => {
 });
 
 describe("Social's agent pieces (round 18c)", () => {
-  it("a review pin selects its post, shows the Agent tab and marks its problem in the review card", async () => {
+  it("a review pin selects its post, opens its card (the words, Fix with agent, Ignore) and marks its problem in the review card (docs/social.md §30)", async () => {
     let card: ViewCard | null = null;
     // The card re-renders when the ui changes (as the chat does).
     function Card() {
@@ -262,7 +270,11 @@ describe("Social's agent pieces (round 18c)", () => {
     expect(pin.textContent).toBe("1");
     act(() => click(pin));
     expect(ed.store.selection.refs).toEqual([id]);
-    expect(ed.ui.get()).toMatchObject({ socialRightTab: "agent", socialProblem: { post: id, problem: "s1" } });
+    expect(ed.ui.get()).toMatchObject({ socialProblem: { post: id, problem: "s1" } });
+    // Its card: an agent's problem as it wrote it; no mechanical fix for it, so the agent's
+    const opened = $('[data-problem-card="s1"]')!;
+    expect(opened.textContent).toContain("“CTA” reaches into the bottom band");
+    expect($("[data-problem-fix]")?.textContent).toBe("Fix with agent");
     const row = $('[data-card="review"] [data-review-problem="s1"]')!;
     expect(row.hasAttribute("data-pinned")).toBe(true);
     expect(row.textContent).toContain("Safe area: “CTA” reaches into the bottom band");
@@ -276,5 +288,22 @@ describe("Social's agent pieces (round 18c)", () => {
       ed.engine.setSelection([id]);
     });
     expect(agentsOf(ed).selectionContext()).toEqual([expect.objectContaining({ id, format: "LinkedIn landscape" })]);
+  });
+});
+
+describe("the safe areas' hatch (docs/social.md §30)", () => {
+  /** A 10 × 10 render: `band` the colour of its outer ring of pixels, `middle` the rest */
+  const render = (band: number[], middle: number[]) => {
+    const pixels = new Uint8Array(10 * 10 * 4);
+    for (let y = 0; y < 10; y++)
+      for (let x = 0; x < 10; x++) pixels.set([...(x === 0 || y === 0 || x === 9 || y === 9 ? band : middle), 255], (y * 10 + x) * 4);
+    return { width: 10, height: 10, pixels } as never;
+  };
+  const bands = { top: 10, right: 10, bottom: 10, left: 10 };
+  it("red, unless the design under the bands is red: then blue, else purple", () => {
+    expect(bandTone(render([255, 255, 255], [220, 30, 30]), { width: 100, height: 100 }, bands)).toBe("red");
+    expect(bandTone(render([220, 30, 30], [255, 255, 255]), { width: 100, height: 100 }, bands)).toBe("blue");
+    // Dark red is no red to the eye's hatch: kept
+    expect(bandTone(render([60, 10, 10], [255, 255, 255]), { width: 100, height: 100 }, bands)).toBe("red");
   });
 });

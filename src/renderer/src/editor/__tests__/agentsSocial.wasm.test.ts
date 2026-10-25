@@ -218,7 +218,7 @@ describe("agents' Social tools", () => {
     const { ed, call } = await editor();
     const post = json(await call("new_post", { formatId: "instagram.square", brandId: "b1" })).nodeId;
     expect(json(await call("check_posts", { nodeIds: [post] })).posts[0].problems).toEqual([expect.objectContaining({ kind: "logo", detail: "The post has no logo." })]);
-    json(await call("create_nodes", { parentId: post, nodes: [{ type: "FRAME", name: "Logo", x: 40, y: 40, width: 200, height: 80, children: [{ type: "RECTANGLE", name: "Logo mark" }] }, { type: "RECTANGLE", name: "logo copy", x: 800, y: 40 }] }));
+    json(await call("create_nodes", { parentId: post, nodes: [{ type: "FRAME", name: "Logo", x: 160, y: 80, width: 200, height: 80, children: [{ type: "RECTANGLE", name: "Logo mark" }] }, { type: "RECTANGLE", name: "logo copy", x: 800, y: 80 }] }));
     expect(json(await call("check_posts", { nodeIds: [post] })).posts[0].problems).toEqual([expect.objectContaining({ kind: "logo", detail: "The post has 2 logos." })]);
     void ed;
   });

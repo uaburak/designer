@@ -18,6 +18,7 @@ import { focusedPost, postsInOrder, setSocialView, shownPost } from "../social/f
 import { setMode } from "../devmode/devMode";
 import { readBoard } from "../social/socialState";
 import { readPost } from "../social/posts";
+import { attachAutoCheck } from "../social/autoCheck";
 import { PointerType } from "@/engine/abi";
 import { IDENTITY } from "../agents/nodeSpec";
 
@@ -147,6 +148,26 @@ describe("a Social file's board (docs/social.md §19)", () => {
     await tick();
     expect(readPost(ed, s)?.formatId).toBe("instagram.story");
     expect([p1, p2, s].map((id) => at(ed, id))).toEqual(before);
+  });
+
+  it("a post checks itself a moment after an edit, its pins as bookkeeping, not an undo step (docs/social.md §30)", async () => {
+    const { ed, engine } = await social();
+    const off = attachAutoCheck(ed);
+    const w = editorWriter(ed);
+    const s = newPost(ed, w, { formatId: "instagram.story" });
+    await tick();
+    // A text in the story's bottom band, as the user draws it
+    expect(engine.applyChanges({ type: "NODE_CHANGES", sessionID: 1, nodeChanges: [{ guid: "1:9997", phase: "CREATED", type: "TEXT", name: "CTA", visible: true, opacity: 1, size: { x: 300, y: 80 }, transform: { ...IDENTITY, m02: 100, m12: 1700 }, parentIndex: { guid: s, position: "b" } } as never] }, "user")).toBe(0);
+    const label = ed.store.undo.undoLabel;
+    await new Promise((r) => setTimeout(r, 700));
+    expect(readPost(ed, s)?.problems.map((p) => p.id)).toEqual(["check:safe-area:1:9997"]);
+    expect(ed.store.undo.undoLabel).toBe(label);
+    // Moved out of the band: the pin leaves
+    const t = engine.readNode("1:9997", { fields: ["transform"] })!.transform!;
+    ed.setProps(["1:9997"], { transform: { ...t, m12: 900 } }, "Move");
+    await new Promise((r) => setTimeout(r, 700));
+    expect(readPost(ed, s)?.problems).toEqual([]);
+    off();
   });
 
   it("leaves a Design file's frames where they are", async () => {
