@@ -2308,88 +2308,137 @@ void Editor::motionDragMove(Vec2 world, uint32_t mods) {
 
 void Editor::setBoard(std::vector<BoardGrid> grids) { board_ = std::move(grids); }
 
+std::vector<Guid> Editor::boardRest(size_t grid) const {
+  std::vector<Guid> rest;
+  for (Guid id : board_[grid].ids)
+    if (std::find(boardDrag_.block.begin(), boardDrag_.block.end(), id) == boardDrag_.block.end()) rest.push_back(id);
+  return rest;
+}
+
+Rect Editor::boardCell(size_t grid, size_t k) const {
+  const BoardGrid& g = board_[grid];
+  if (k < g.cells.size()) return g.cells[k];
+  k -= g.cells.size();
+  if (k < g.more.size()) return g.more[k];
+  return !g.more.empty() ? g.more.back() : !g.cells.empty() ? g.cells.back() : g.frame;
+}
+
 void Editor::startBoardDrag() {
   boardDrag_ = {};
-  // One post of the grid view (the asset chrome, no design in focus), from the page.
-  if (!(viewOptions_ & VIEW_ASSET_CHROME) || dev_.focus != kNoGuid || targets_.size() != 1 || targets_[0].parent != page_) return;
-  const Guid id = targets_[0].id;
-  for (size_t g = 0; g < board_.size(); g++) {
-    const BoardGrid& grid = board_[g];
-    auto it = std::find(grid.ids.begin(), grid.ids.end(), id);
-    if (it == grid.ids.end() || grid.cells.size() != grid.ids.size()) continue;
-    boardDrag_.grid = static_cast<int>(g);
-    boardDrag_.order = grid.ids;
-    boardDrag_.index = static_cast<size_t>(it - grid.ids.begin());
-    return;
+  // Posts of the grid view (the asset chrome, no design in focus), from the page — each one in a grid.
+  if (!(viewOptions_ & VIEW_ASSET_CHROME) || dev_.focus != kNoGuid || targets_.empty()) return;
+  GuidSet moving;
+  for (const Target& t : targets_) {
+    if (t.parent != page_) return;
+    moving.insert(t.id);
   }
+  BoardDrag d;
+  for (size_t g = 0; g < board_.size(); g++) {
+    if (board_[g].cells.size() != board_[g].ids.size()) continue;
+    for (Guid id : board_[g].ids)
+      if (moving.count(id)) {
+        d.block.push_back(id);
+        d.from.push_back(static_cast<int>(g));
+      }
+  }
+  if (d.block.empty() || d.block.size() != targets_.size()) return;
+  // The post held leads (the one pressed), else the first.
+  for (size_t k = 0; k < d.block.size(); k++)
+    if (d.block[k] == pressed_) d.lead = k;
+  d.grid = d.from[d.lead];
+  // No place yet: the first move puts the block together where it is held (a selection apart closes up, as a flow's).
+  d.index = BoardDrag::kNoPlace;
+  boardDrag_ = std::move(d);
 }
 
 void Editor::reorderBoard() {
-  const BoardGrid& grid = board_[static_cast<size_t>(boardDrag_.grid)];
-  const Guid id = boardDrag_.order[boardDrag_.index];
-  if (!doc_.has(id) || doc_.parentOf(id) != page_) return;
-  // The cell nearest the dragged post's middle takes it.
-  Rect b = doc_.worldBounds(id);
+  const Guid lead = boardDrag_.block[boardDrag_.lead];
+  if (!doc_.has(lead) || doc_.parentOf(lead) != page_) return;
+  Rect b = doc_.worldBounds(lead);
   Vec2 mid{b.x + b.w / 2, b.y + b.h / 2};
-  size_t best = boardDrag_.index;
+  // The grid: the container the held post's middle is over (else the one it was last over).
+  size_t grid = static_cast<size_t>(boardDrag_.grid);
+  for (size_t g = 0; g < board_.size(); g++) {
+    const Rect& f = board_[g].frame;
+    if (board_[g].cells.size() == board_[g].ids.size() && f.w > 0 && mid.x >= f.x && mid.x <= f.x + f.w && mid.y >= f.y && mid.y <= f.y + f.h) {
+      grid = g;
+      break;
+    }
+  }
+  // The place: the one that puts the held post in the cell whose middle is nearest its own.
+  const size_t rest = boardRest(grid).size();
+  size_t best = 0;
   double bestD = std::numeric_limits<double>::infinity();
-  for (size_t k = 0; k < grid.cells.size(); k++) {
-    const Rect& c = grid.cells[k];
+  for (size_t i = 0; i <= rest; i++) {
+    Rect c = boardCell(grid, i + boardDrag_.lead);
     double dx = c.x + c.w / 2 - mid.x, dy = c.y + c.h / 2 - mid.y;
     double d = dx * dx + dy * dy;
-    if (d < bestD) bestD = d, best = k;
+    if (d < bestD) bestD = d, best = i;
   }
-  if (best == boardDrag_.index) return;
-  std::vector<Guid> order = boardDrag_.order;
-  order.erase(order.begin() + static_cast<std::ptrdiff_t>(boardDrag_.index));
-  order.insert(order.begin() + static_cast<std::ptrdiff_t>(best), id);
-  boardDrag_.order = order;
+  if (static_cast<int>(grid) == boardDrag_.grid && best == boardDrag_.index) return;
+  boardDrag_.grid = static_cast<int>(grid);
   boardDrag_.index = best;
-  // The others slide to their new cells (Figma's flow: ≈ 120 ms, easing out), from where they show now.
-  for (size_t k = 0; k < order.size(); k++) {
-    const Guid c = order[k];
-    const Node* n = doc_.get(c);
-    if (c == id || !n || n->props.parentIndex.guid != page_) continue;
-    Mat2x3 to = n->props.transform;
-    to.m02 = grid.cells[k].x;
-    to.m12 = grid.cells[k].y;
-    auto it = slides_.find(c);
-    Mat2x3 from = it != slides_.end() ? it->second.shown : n->props.transform;
-    if (it != slides_.end() && it->second.to == to) continue;
-    if (from == to) {
-      slides_.erase(c);
-      continue;
+  // Every other post slides to its cell now (Figma's flow: ≈ 120 ms, easing out), from where it shows: the grid
+  // dragged over makes room for the block, the grids it left close the gap, the rest stay.
+  for (size_t g = 0; g < board_.size(); g++) {
+    if (board_[g].cells.size() != board_[g].ids.size()) continue;
+    std::vector<Guid> order = boardRest(g);
+    for (size_t k = 0; k < order.size(); k++) {
+      const Guid c = order[k];
+      const Node* n = doc_.get(c);
+      if (!n || n->props.parentIndex.guid != page_) continue;
+      Rect cell = boardCell(g, g == grid && k >= best ? k + boardDrag_.block.size() : k);
+      Mat2x3 to = n->props.transform;
+      to.m02 = cell.x;
+      to.m12 = cell.y;
+      auto it = slides_.find(c);
+      Mat2x3 from = it != slides_.end() ? it->second.shown : n->props.transform;
+      if (it != slides_.end() && it->second.to == to) continue;
+      if (from == to) {
+        slides_.erase(c);
+        continue;
+      }
+      slides_[c] = Slide{from, to, from, -1};
     }
-    slides_[c] = Slide{from, to, from, -1};
   }
   hapticTick();
   applySlides(timeMs_);
 }
 
 void Editor::finishBoardDrag() {
-  if (boardDrag_.grid < 0 || duplicating_) {
+  if (boardDrag_.grid < 0 || boardDrag_.index == BoardDrag::kNoPlace || duplicating_) {
     boardDrag_ = {};
     return;
   }
-  const BoardGrid& grid = board_[static_cast<size_t>(boardDrag_.grid)];
-  // Dropped: every post at its cell at once (Figma's drop is instant), the dragged one in its own.
-  for (size_t k = 0; k < boardDrag_.order.size() && k < grid.cells.size(); k++) {
-    const Guid c = boardDrag_.order[k];
-    const Node* n = doc_.get(c);
-    if (!n || n->props.parentIndex.guid != page_) continue;
-    Mat2x3 t = n->props.transform;
-    t.m02 = grid.cells[k].x;
-    t.m12 = grid.cells[k].y;
-    if (k == boardDrag_.index) {
-      if (t == n->props.transform) continue;
-      NodeChange ch = NodeChange::changed(c);
-      ch.mask = F_TRANSFORM;
-      ch.props.transform = t;
-      write(ch);
-    } else {
-      writeQuiet(c, t);
-    }
+  const size_t grid = static_cast<size_t>(boardDrag_.grid);
+  const size_t k0 = boardDrag_.index;
+  const size_t n = boardDrag_.block.size();
+  // Dropped: every post at its cell at once (Figma's drop is instant) — the block in its cells (the user's edit), the
+  // others where they slid (as layout writes).
+  auto put = [&](Guid c, const Rect& cell, bool own) {
+    const Node* node = doc_.get(c);
+    if (!node || node->props.parentIndex.guid != page_) return;
+    Mat2x3 t = node->props.transform;
+    t.m02 = cell.x;
+    t.m12 = cell.y;
+    if (!own) return writeQuiet(c, t);
+    if (t == node->props.transform) return;
+    NodeChange ch = NodeChange::changed(c);
+    ch.mask = F_TRANSFORM;
+    ch.props.transform = t;
+    write(ch);
+  };
+  for (size_t g = 0; g < board_.size(); g++) {
+    if (board_[g].cells.size() != board_[g].ids.size()) continue;
+    std::vector<Guid> order = boardRest(g);
+    for (size_t k = 0; k < order.size(); k++) put(order[k], boardCell(g, g == grid && k >= k0 ? k + n : k), false);
   }
+  for (size_t i = 0; i < n; i++) put(boardDrag_.block[i], boardCell(grid, k0 + i), true);
+  // Posts brought from another grid take this one's format (the board's owner resizes them, docs/social.md §29).
+  boardDrop_ = {};
+  for (size_t i = 0; i < n; i++)
+    if (boardDrag_.from[i] != boardDrag_.grid) boardDrop_.ids.push_back(boardDrag_.block[i]);
+  if (!boardDrop_.ids.empty()) boardDrop_.grid = board_[grid].key;
   slides_.clear();
   boardDrag_ = {};
 }

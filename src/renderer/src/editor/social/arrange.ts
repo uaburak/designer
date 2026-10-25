@@ -5,14 +5,17 @@
  * - a write of the chrome (`ed.batch`) or of an agent (its actor's write) arranges before it commits
  *   (`EditorController.beforeCommit`, `arrangeNow`);
  * - an edit made on the canvas (a drag among the posts, ⌘D, Delete, paste) is followed by an arrange folded into it
- *   (`Engine.txnBeginAmend`) — dragging a post among the others reorders it.
+ *   (`Engine.txnBeginAmend`) — dragging a post among the others reorders it; dropped into another grid, it takes that
+ *   grid's format first (§29: a 3:4 post dropped among the stories is a story).
  * Only the current page's top-level posts move; a Design file is never arranged.
  */
 import type { Guid } from "@/engine/codec";
-import { formatById, PLATFORMS, SOCIAL_FORMATS } from "@shared/social/formats";
+import { formatById, PLATFORMS, resolveFormat, SOCIAL_FORMATS } from "@shared/social/formats";
+import type { BoardGrid } from "@/engine/Engine";
 import type { EditorController } from "../controller";
 import { onBoard } from "../devmode/devMode";
-import { boardLayout, type BoardItem, type BoardLayout } from "./board";
+import { resizePost, withinWrite } from "./actions";
+import { BOARD, boardLayout, type BoardItem, type BoardLayout } from "./board";
 import { readBoard, socialOf } from "./socialState";
 
 const RANK = new Map(SOCIAL_FORMATS.map((f, i) => [f.id, i]));
@@ -47,20 +50,55 @@ export function arrangeNow(ed: EditorController): boolean {
   return moved;
 }
 
-/** Each grid's posts in order and the cells the layout gives them (page coordinates), for the engine's board drag. */
-export function boardGrids(ed: EditorController): { ids: Guid[]; cells: { x: number; y: number; width: number; height: number }[] }[] {
+/** Cells past a grid's last post sent to the engine: room for that many posts brought in from another grid at once */
+const MORE_CELLS = 12;
+
+/**
+ * Each grid's posts in order, the cells the layout gives them and the cells past them, and its container (page
+ * coordinates), for the engine's board drag.
+ */
+export function boardGrids(ed: EditorController): BoardGrid[] {
   const posts = new Map(readBoard(ed, ed.store.page).posts.map((p) => [p.id, p]));
   const layout = layoutOf(ed);
   return layout.sections.flatMap((s) =>
-    s.grids.map((g) => ({
-      ids: g.ids,
-      cells: g.ids.map((id) => {
-        const at = layout.places.get(id) ?? { x: 0, y: 0 };
-        const p = posts.get(id);
-        return { x: at.x, y: at.y, width: p?.width ?? g.column, height: p?.height ?? 0 };
-      }),
-    })),
+    s.grids.map((g) => {
+      const n = g.ids.length;
+      const pitch = { x: g.column + BOARD.gap, y: g.nextHeight + BOARD.gap };
+      // The "+"'s cell, then on along its row and the rows under it
+      const first = n % BOARD.columns;
+      const more = Array.from({ length: MORE_CELLS }, (_, i) => {
+        const k = first + i;
+        return { x: g.x + (k % BOARD.columns) * pitch.x, y: g.next.y + Math.floor(k / BOARD.columns) * pitch.y, width: g.column, height: g.nextHeight };
+      });
+      return {
+        key: g.formatId,
+        ids: g.ids,
+        cells: g.ids.map((id) => {
+          const at = layout.places.get(id) ?? { x: 0, y: 0 };
+          const p = posts.get(id);
+          return { x: at.x, y: at.y, width: p?.width ?? g.column, height: p?.height ?? 0 };
+        }),
+        more,
+        frame: g.frame,
+      };
+    }),
   );
+}
+
+/**
+ * Posts dropped into another grid's container (the engine's board drag, docs/social.md §29) take that grid's format:
+ * resized to it — their layers follow by their constraints, as a frame resized in Figma — inside the write that is
+ * open; true when one changed.
+ */
+function adoptDrop(ed: EditorController, drop: { grid: string; ids: readonly Guid[] }): boolean {
+  const board = readBoard(ed, ed.store.page).posts;
+  // The grid's format: the catalogue's, else (a brand's own size) as its posts are
+  const peer = board.find((p) => p.data.formatId === drop.grid);
+  const format = resolveFormat(drop.grid) ?? (peer ? { id: drop.grid, name: peer.name, width: peer.width, height: peer.height } : null);
+  const ids = drop.ids.filter((id) => board.some((p) => p.id === id && p.data.formatId !== drop.grid));
+  if (!format || !ids.length) return false;
+  resizePost(ed, withinWrite, ids, drop.grid, { duplicate: false, format });
+  return true;
 }
 
 /** Whether the board is laid out now (nothing to move). */
@@ -82,9 +120,12 @@ export function attachArranger(ed: EditorController): () => void {
   let queued = false;
   const amend = () => {
     queued = false;
-    if (ed.engine.destroyed || !onBoard(ed) || arranged(ed)) return;
+    if (ed.engine.destroyed || !onBoard(ed)) return;
+    const dropped = ed.engine.takeBoardDrop();
+    if (!dropped && arranged(ed)) return;
     if (ed.engine.txnBeginAmend("Arrange posts") !== 0) return;
     try {
+      if (dropped) adoptDrop(ed, dropped);
       arrangeNow(ed);
     } finally {
       ed.engine.txnCommit();
@@ -113,6 +154,8 @@ export function attachArranger(ed: EditorController): () => void {
   let sent = "";
   const syncBoard = () => {
     if (ed.engine.destroyed) return;
+    // Read through the index: it tells its listeners of a change only once read since the last one
+    socialOf(ed).get();
     const grids = onBoard(ed) ? boardGrids(ed) : [];
     const key = JSON.stringify(grids);
     if (key === sent) return;

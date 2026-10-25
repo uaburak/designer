@@ -1053,8 +1053,7 @@ Overlay Editor::overlay() const {
   // siblings; its outline, handles and size label (and its frame's dashes) stay until the first swap, then go until
   // the drop.
   // A Social file's post dragged among its grid's posts (docs/social.md §25): over the others, as a flow's layer.
-  if (gesture_ == Gesture::Move && boardDrag_.grid >= 0 && boardDrag_.index < boardDrag_.order.size())
-    o.lifted = {boardDrag_.order[boardDrag_.index]};
+  if (gesture_ == Gesture::Move && boardDrag_.grid >= 0) o.lifted = boardDrag_.block;
   if (gesture_ == Gesture::Move && flowDragLive()) {
     o.lifted = flowDrag_.ids;
     if (flowDrag_.chromeHidden) {

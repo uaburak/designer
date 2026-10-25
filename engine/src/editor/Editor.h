@@ -909,14 +909,24 @@ class Editor : private LayoutHost, public TextLayouts {
   double wallClock() const;
   // Focus view: only `id` (a design on the current page) is drawn, hovered and selected; kNoGuid leaves it.
   Status setFocus(Guid id);
-  // A Social file's board (docs/social.md §25): each grid's posts in their order and the cells they take, as the
-  // board's layout (TS, social/board.ts) puts them — a post dragged among its grid's posts moves through these cells
-  // as a layer through its auto-layout flow (the others slide aside; dropped, it takes its cell).
+  // A Social file's board (docs/social.md §25, §29): each grid's posts in order and the cells they take, as the
+  // board's layout (TS, social/board.ts) puts them — posts dragged among a grid's posts (one or several, as one block)
+  // move through these cells as layers through their auto-layout flow (the others slide aside; dropped, they take
+  // their cells); dragged into another grid's container, that grid makes room and theirs closes the gap.
   struct BoardGrid {
+    std::string key;          // the grid's name for the board's owner (its format)
     std::vector<Guid> ids;
     std::vector<Rect> cells;  // page coordinates, one per post
+    std::vector<Rect> more;   // the cells past its last post, in order (where posts brought in go)
+    Rect frame;               // its container
   };
   void setBoard(std::vector<BoardGrid> grids);
+  // The last drop of posts into another grid than theirs (that grid's key and the posts brought), taken once.
+  struct BoardDrop {
+    std::string grid;
+    std::vector<Guid> ids;
+  };
+  BoardDrop takeBoardDrop() { return std::exchange(boardDrop_, BoardDrop{}); }
   Guid focus() const { return dev_.focus; }
   // What the last canvas frame drew that can be clicked (engine_render hands it over).
   void setCanvasHits(const CanvasHits& hits) { hits_ = hits; }
@@ -2489,10 +2499,16 @@ class Editor : private LayoutHost, public TextLayouts {
   // A Social file's board (setBoard) and a post dragged through its grid's cells
   std::vector<BoardGrid> board_;
   struct BoardDrag {
-    int grid = -1;            // the dragged post's grid in board_; -1: none
-    std::vector<Guid> order;  // the grid's posts as they stand now, the dragged one at `index`
-    size_t index = 0;
+    int grid = -1;            // the grid the posts are dragged in now (board_); -1: no board drag
+    std::vector<Guid> block;  // the posts dragged, in board order
+    std::vector<int> from;    // each one's own grid
+    size_t lead = 0;          // the post held (block[lead]): its middle picks the grid and the cell
+    size_t index = kNoPlace;  // where the block goes in `grid`'s posts (the others' order, the block left out)
+    static constexpr size_t kNoPlace = static_cast<size_t>(-1);
   } boardDrag_;
+  BoardDrop boardDrop_;
+  std::vector<Guid> boardRest(size_t grid) const;  // a grid's posts, those dragged left out
+  Rect boardCell(size_t grid, size_t k) const;     // its k-th cell (past its posts: `more`)
   void startBoardDrag();
   void reorderBoard();
   void finishBoardDrag();

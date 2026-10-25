@@ -52,31 +52,25 @@ async function setup(view: () => ReturnType<typeof createElement>, editorType: "
 }
 
 describe("Social mode's chrome (round 18a)", () => {
-  it("the post toolbar (docs/social.md §28, Buzz's inline toolbar): fill, border and clip content on the selected post, each one step", async () => {
+  it("the grid view (docs/social.md §29): no post toolbar; a grid's container selected as one has an Export button and gives way to a post's selection", async () => {
     let id = "";
     const { ed } = await setup(() => createElement(CanvasLayers));
     await act(async () => {
       id = newPost(ed, editorWriter(ed), { formatId: "instagram.portrait" });
     });
     await act(async () => ed.engine.setSelection([id]));
-    expect($("[data-post-toolbar]")).not.toBeNull();
-    const read = () => ed.engine.readNode(id, { fields: ["fillPaints", "strokePaints", "dashPattern", "frameMaskDisabled"] })!;
-    const tool = (label: string) => $$("[data-post-toolbar] button").find((b) => b.getAttribute("aria-label") === label)!;
-    // Fill: black
-    act(() => click(tool("Fill")));
-    act(() => click($$('[role="menuitem"]').find((x) => x.textContent?.includes("#000000"))!));
-    expect(read().fillPaints?.[0]).toMatchObject({ type: "SOLID", color: { r: 0, g: 0, b: 0 } });
-    expect(ed.store.undo.undoLabel).toBe("Fill");
-    // Border: dashed, inside
-    act(() => click(tool("Border")));
-    act(() => click($$('[role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]').find((x) => x.textContent === "Dashed")!));
-    expect(read().strokePaints?.length).toBe(1);
-    expect(read().dashPattern?.length).toBe(2);
-    // Clip content off and on
-    act(() => click($("[data-post-clip]")!));
-    expect(read().frameMaskDisabled).toBe(true);
-    act(() => click($("[data-post-clip]")!));
-    expect(read().frameMaskDisabled).toBe(false);
+    expect($("[data-post-toolbar]")).toBeNull();
+    // The container selected (a click on its name or its black): the selection empty, its Export at the top right
+    await act(async () => {
+      ed.engine.setSelection([]);
+      ed.ui.set({ socialGrid: "instagram.portrait" });
+    });
+    expect($('[data-grid-name="instagram.portrait"]')?.hasAttribute("data-selected")).toBe(true);
+    expect($('[data-grid-export="instagram.portrait"]')?.textContent).toBe("Export");
+    // A post selected: the container no more
+    await act(async () => ed.engine.setSelection([id]));
+    expect(ed.ui.get().socialGrid).toBeNull();
+    expect($("[data-grid-export]")).toBeNull();
   });
 
   it("a Social file opens in Social with its agent on the left; the right panel follows the selection; Design and Motion beside it; a Design file has none", async () => {
@@ -196,7 +190,7 @@ describe("Social mode's chrome (round 18a)", () => {
     expect(counter().hasAttribute("data-over")).toBe(false);
   });
 
-  it("a Social file's board shows no bands, no pins: a count badge per post with problems (docs/social.md §21)", async () => {
+  it("a Social file's grid view shows no bands, no pins: on each post the Design glyph, which opens it alone (docs/social.md §21, §29)", async () => {
     let id = "";
     const { ed } = await setup(() => createElement(CanvasLayers));
     await act(async () => {
@@ -206,10 +200,12 @@ describe("Social mode's chrome (round 18a)", () => {
     await act(async () => ed.batch("Pins", () => writePost(ed, id, { ...readPost(ed, id)!, problems: [problem, { ...problem, id: "s2", box: undefined }] })));
     expect($("[data-safe-areas] [data-post]")).toBeNull();
     expect($('[data-review-pins] [data-problem="s1"]')).toBeNull();
-    const badge = $(`[data-problem-badge="${id}"]`)!;
-    expect(badge.textContent).toBe("2");
-    act(() => click(badge));
+    const open = $(`[data-post-open="${id}"]`)!;
+    expect(open.querySelector("svg")).not.toBeNull();
+    act(() => click(open));
     expect(ed.store.selection.refs).toEqual([id]);
+    expect(ed.ui.get().socialView).toBe("asset");
+    expect(ed.ui.get().socialPanelTab).toBe("design");
   });
 
   it("draws a story's safe-area bands at the camera's zoom", async () => {

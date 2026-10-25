@@ -3,9 +3,10 @@
  * grid view): each grid is a container — its posts inside it 8 px apart, black between them — with its name over it (the
  * platform's when it is the platform's only grid, else the format's) and, as its last cell, a dashed "+" (a click
  * makes a post of the grid's format). The pointer anywhere over a container or its name puts it on its card (Figma's
- * bg-selected round it, the name blue in the band over it); a click on the container's black or name selects its
- * posts. None of it takes the pointer — the canvas pans, scrolls and zooms through it; the clicks are read off the
- * canvas's own. Placed from the camera like the safe areas (no React render per camera change); gone in the asset view.
+ * bg-selected round it, the name blue in the band over it); a click on the container's black or name selects the
+ * container itself, as a section is (§29: not its posts — the card stays, and an Export button at its top right saves
+ * every post in it, each its own file, as Figma's Export of a selection). None of it takes the pointer but that button —
+ * the canvas pans, scrolls and zooms through it; the clicks are read off the canvas's own. Placed from the camera like the safe areas (no React render per camera change); gone in the asset view.
  * Canvas chrome: never a layer of the document — the posts are the engine's, drawn inside.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -15,10 +16,13 @@ import type { Platform } from "@shared/social/types";
 import { t, useT } from "@/i18n";
 import { useEditor, type EditorController } from "../controller";
 import { applySelection } from "../agents/mcpTools";
+import { exportItems, useExportAllowed } from "../exporting";
+import { useUI } from "../hooks";
+import { exportSettingsOf, nextExportSetting } from "../model/exports";
 import { layoutOf } from "./arrange";
 import { BOARD, type GridBox } from "./board";
 import { canWritePosts, editorWriter, newPost } from "./actions";
-import { glide, postView, useFocusedPost } from "./focus";
+import { useFocusedPost } from "./focus";
 import { useSocialBoard } from "./socialState";
 import styles from "./BoardLabels.module.css";
 
@@ -112,12 +116,16 @@ export function BoardLabels() {
   const focus = useFocusedPost(ed);
   const layer = useRef<HTMLDivElement>(null);
   const [hot, setHot] = useState<string | null>(null);
+  const picked = useUI((s) => s.socialGrid ?? null);
+  const canSave = useExportAllowed(ed);
   const containers = useMemo(() => {
     if (!board.posts.length) return [];
     const heights = new Map(board.posts.map((p) => [p.id, p.height]));
     return containersOf(layoutOf(ed, board.page), (id) => heights.get(id) ?? 0);
   }, [ed, board]);
-  useCanvasBoxes(ed, layer, [containers, hot]);
+  useCanvasBoxes(ed, layer, [containers, hot, picked]);
+  // The grid selected as one gives way to any selection of layers (a post clicked, the Layers panel, ⌘A…)
+  useEffect(() => ed.store.subscribe("selection", () => ed.store.selection.refs.length && ed.ui.get().socialGrid && ed.ui.set({ socialGrid: null })), [ed]);
   // The pointer over a container, its name or its card's padding: that container is hot (the canvas or our chrome).
   useEffect(() => {
     if (focus || !containers.length) return;
@@ -168,22 +176,22 @@ export function BoardLabels() {
         const y0 = k.frame.y * cam.zoom + cam.y;
         const x0 = k.frame.x * cam.zoom + cam.x;
         const band = sy >= y0 - CARD_BAND && sy < y0 && sx >= x0 - CARD_PAD && sx <= x0 + k.frame.width * cam.zoom + CARD_PAD;
-        if (band || k.ring.some(inBox) || k.empty.some(inBox)) return after(() => applySelection(ed, k.ids, false));
+        if (band || k.ring.some(inBox) || k.empty.some(inBox))
+          return after(() => {
+            ed.engine.setSelection([]);
+            ed.ui.set({ socialGrid: k.key });
+          });
       }
-      // A click on a post (the post itself selected, docs/social.md §26): the camera glides to it, its Design panel on.
-      const hit = board.posts.find((p) => wx >= p.x && wx <= p.x + p.width && wy >= p.y && wy <= p.y + p.height);
-      if (hit)
-        after(() => {
-          const sel = ed.store.selection.refs;
-          if (sel.length !== 1 || sel[0] !== hit.id) return;
-          ed.ui.set({ socialPanelTab: "design" });
-          glide(ed, postView(ed, hit));
-        });
+      // A click anywhere else lets the grid go (the canvas's own click selects what it hit)
+      if (ed.ui.get().socialGrid) after(() => ed.ui.set({ socialGrid: null }));
     };
+    const key = (e: KeyboardEvent) => e.key === "Escape" && ed.ui.get().socialGrid && ed.ui.set({ socialGrid: null });
     window.addEventListener("pointermove", move, true);
     window.addEventListener("pointerdown", down, true);
     window.addEventListener("pointerup", up, true);
+    window.addEventListener("keydown", key, true);
     return () => {
+      window.removeEventListener("keydown", key, true);
       window.removeEventListener("pointermove", move, true);
       window.removeEventListener("pointerdown", down, true);
       window.removeEventListener("pointerup", up, true);
@@ -191,10 +199,20 @@ export function BoardLabels() {
   }, [ed, containers, focus, board]);
   if (!containers.length || focus) return null;
   const write = canWritePosts(ed);
+  // Every post of the grid, each its own file: its export settings, else Figma's default (PNG 1×)
+  const save = (k: Container) =>
+    void exportItems(
+      ed,
+      ed.engine.readNodes(k.ids).map((n) => {
+        const settings = exportSettingsOf(n as { exportSettings?: unknown });
+        return { ref: n.guid, name: n.name ?? "", settings: settings.length ? settings : [nextExportSetting([])] };
+      }),
+    );
   return (
     <div ref={layer} className={styles.layer} data-board-labels="">
       {containers.flatMap((k) => {
-        const on = hot === k.key;
+        const chosen = picked === k.key;
+        const on = hot === k.key || chosen;
         return [
           on ? <div key={`card:${k.key}`} className={styles.card} data-x={k.frame.x} data-y={k.frame.y} data-w={k.frame.width} data-h={k.frame.height} /> : null,
           <div
@@ -208,8 +226,14 @@ export function BoardLabels() {
             data-dx={-CARD_PAD}
             data-above={0}
             data-grid-name={k.formatId}
+            data-selected={chosen || undefined}
           >
             <span className={styles.name}>{k.name}</span>
+            {chosen && canSave ? (
+              <button type="button" className={styles.export} onClick={() => save(k)} data-grid-export={k.formatId}>
+                {t("Export")}
+              </button>
+            ) : null}
           </div>,
           ...k.ring.map((r, i) => <div key={`ring:${k.key}:${i}`} className={styles.ground} data-x={r.x} data-y={r.y} data-w={r.w} data-h={r.h} />),
           ...k.empty.map((r, i) => <div key={`empty:${k.key}:${i}`} className={styles.ground} data-x={r.x} data-y={r.y} data-w={r.w} data-h={r.h} />),

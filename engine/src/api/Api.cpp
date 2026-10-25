@@ -3289,8 +3289,9 @@ ENG_EXPORT int32_t engine_set_focus(Handle h, uint32_t sessionID, uint32_t local
   return e->editor.setFocus(Guid{sessionID, localID});
 }
 
-// A Social file's board (docs/social.md §25): {grids: [{ids: ["s:l", …], cells: [[x, y, w, h], …]}]} — each grid's
-// posts in order and the cell each takes (page coordinates); a post dragged in its grid moves through them.
+// A Social file's board (docs/social.md §25, §29): {grids: [{key, ids: ["s:l", …], cells: [[x, y, w, h], …], more:
+// [[x, y, w, h], …], frame: [x, y, w, h]}]} — each grid's posts in order, the cell each takes and those past them (page
+// coordinates), and its container; posts dragged on the board move through them.
 ENG_EXPORT int32_t engine_set_board(Handle h, Ptr ptr, uint32_t len) {
   Call call;
   Engine* e = engineOf(h);
@@ -3306,6 +3307,19 @@ ENG_EXPORT int32_t engine_set_board(Handle h, Ptr ptr, uint32_t len) {
       if (!ids || !ids->isArray() || !cells || !cells->isArray() || ids->array.size() != cells->array.size()) continue;
       Editor::BoardGrid grid;
       bool ok = true;
+      auto rect = [&](const json::Value& c, Rect& r) {
+        if (!c.isArray() || c.array.size() != 4) return false;
+        r = Rect{c.array[0].number, c.array[1].number, c.array[2].number, c.array[3].number};
+        return true;
+      };
+      if (const json::Value* key = g.get("key"); key && key->isString()) grid.key = key->string;
+      if (const json::Value* frame = g.get("frame")) ok &= rect(*frame, grid.frame);
+      if (const json::Value* more = g.get("more"); more && more->isArray())
+        for (const json::Value& c : more->array) {
+          Rect r;
+          ok &= rect(c, r);
+          grid.more.push_back(r);
+        }
       for (const json::Value& id : ids->array) {
         bool good = false;
         Guid gid = id.isString() ? Guid::parse(id.string, &good) : Guid{};
@@ -3323,6 +3337,23 @@ ENG_EXPORT int32_t engine_set_board(Handle h, Ptr ptr, uint32_t len) {
     }
   e->editor.setBoard(std::move(grids));
   return OK;
+}
+
+// The last drop of posts into another grid than theirs, taken once: {"grid": key, "ids": ["s:l", …]}, or null.
+ENG_EXPORT int32_t engine_take_board_drop(Handle h) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  Editor::BoardDrop drop = e->editor.takeBoardDrop();
+  json::Writer out;
+  if (drop.ids.empty()) {
+    out.null();
+  } else {
+    out.beginObject().key("grid").string(drop.grid).key("ids").beginArray();
+    for (Guid id : drop.ids) out.string(id.toString());
+    out.endArray().endObject();
+  }
+  return setResult(out.take());
 }
 
 // A saved measurement selected on the canvas ((0xffffffff, 0xffffffff): none).

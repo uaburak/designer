@@ -235,6 +235,8 @@ export interface UIState extends PreferenceFlags {
   socialView?: "grid" | "asset";
   /** The asset view's post when nothing in one is selected (the last one shown) */
   socialAsset?: string | null;
+  /** The grid view's grid selected as one (its container clicked, docs/social.md §29): its format; the engine's selection empty */
+  socialGrid?: string | null;
   /** Social: the selected post's timeline shows (MotionMode), and the engine's motion layer with it */
   socialTimeline?: boolean;
   /** Social: text put in the agent's composer from elsewhere (Ask agent…, the empty board's prompts); `id` tells repeats apart */

@@ -388,6 +388,7 @@ export class EngineExports {
   editScopePop = (h: number): number => this.fn("edit_scope_pop")(h);
   setFocus = (h: number, sessionID: number, localID: number): number => this.fn("set_focus")(h, sessionID, localID);
   setBoard = (h: number, board: Uint8Array): number => this.withBytes([board], (p) => this.fn("set_board")(h, p[0], p[1]));
+  takeBoardDrop = (h: number): number => this.fn("take_board_drop")(h);
   selectMeasurement = (h: number, sessionID: number, localID: number): number => this.fn("select_measurement")(h, sessionID, localID);
   setAnnotationFilter = (h: number, sessionID: number, localID: number): void => void this.fn("set_annotation_filter")(h, sessionID, localID);
   devInfo = (h: number, pageSessionID: number, pageLocalID: number): number => this.fn("dev_info")(h, pageSessionID, pageLocalID);

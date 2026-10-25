@@ -83,6 +83,16 @@ export function useFocusedPost(ed: EditorController): Guid | null {
   );
 }
 
+/**
+ * Opens a post (its Design glyph on the grid view, docs/social.md §29): selected, shown alone in the asset view — the
+ * post grows from its place to the middle (the others gone at once, the camera gliding).
+ */
+export function openPost(ed: EditorController, id: Guid): void {
+  ed.engine.setSelection([id]);
+  ed.ui.set({ socialAsset: id, socialPanelTab: "design" });
+  setSocialView(ed, "asset");
+}
+
 /** The selection's post (focusedPost), re-rendering when it changes: the right panel's post in either view. */
 export function useSelectionPost(ed: EditorController): Guid | null {
   return useSyncExternalStore(
@@ -159,16 +169,6 @@ export function viewOf(ed: EditorController, post: PostRow): View {
   return { x: post.x + post.width / 2 - ASSET_COLUMN / 2 / zoom, y: post.y + post.height / 2, zoom };
 }
 
-/** The grid view's view of one post clicked (§26): it fits what the panels leave, room kept for its toolbar over it. */
-export function postView(ed: EditorController, post: PostRow): View {
-  const view = document.querySelector<HTMLElement>("[data-canvas-view]")?.getBoundingClientRect();
-  const w = Math.max(200, (view?.width ?? 1200) - 160);
-  // Room for its toolbar over it and the canvas toolbar under it
-  const h = Math.max(200, (view?.height ?? 800) - 300);
-  const zoom = Math.min(w / Math.max(1, post.width), h / Math.max(1, post.height), 2);
-  return { x: post.x + post.width / 2, y: post.y + post.height / 2, zoom };
-}
-
 /** The view that fits the whole board (every section) in what the panels leave, at most 1. */
 export function boardView(ed: EditorController): View | null {
   const posts = socialOf(ed).get().posts;
@@ -219,7 +219,8 @@ export function useFocusCamera(ed: EditorController, focus: Guid | null): void {
     // layers dragged or drawn outside it stay in it — no drop into another post, no fall onto the canvas. Entering, the
     // board fades to the post once the camera is there; leaving, the board is back before the camera moves.
     const isolate = () => !ed.engine.destroyed && ed.engine.setFocus(focus);
-    if (!focus || state.focus) isolate();
+    // Entering, the post alone at once: it grows from its place to the middle (§29), not the whole board zooming.
+    isolate();
     if (focus) {
       const post = socialOf(ed).post(focus);
       if (!post) return;
@@ -229,7 +230,7 @@ export function useFocusCamera(ed: EditorController, focus: Guid | null): void {
         const now = ed.engine.viewCenter();
         state.board = shows(ed, now, post) ? now : null;
       }
-      state.stop = glide(ed, viewOf(ed, post), 320, isolate);
+      state.stop = glide(ed, viewOf(ed, post), 420);
     } else {
       const back = state.board ?? boardView(ed);
       if (back) state.stop = glide(ed, back);

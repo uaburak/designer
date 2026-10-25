@@ -1443,6 +1443,7 @@ export const editor: Record<string, string> = {
   "Image or video…": "Görsel veya video…",
   "No fill": "Dolgu yok",
   "No border": "Kenarlık yok",
+  "Open in the asset view": "Tekli görünümde aç",
   "Next post": "Sonraki gönderi",
   "{n} of {total}": "{n} / {total}",
   "Posts in this grid": "Bu griddeki gönderiler",

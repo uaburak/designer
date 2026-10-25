@@ -684,7 +684,7 @@ TEST_CASE("board drag (a Social file's grid view, docs/social.md §25): a post m
   nodes.push_back(make(P2, NodeType::FRAME, kPage, "#", {216, 0, 100, 100}, "P2"));
   Editor e = load(nodes);
   e.setViewOptions(e.viewOptions() | Editor::VIEW_ASSET_CHROME);
-  e.setBoard({Editor::BoardGrid{{P0, P1, P2}, {Rect{0, 0, 100, 100}, Rect{108, 0, 100, 100}, Rect{216, 0, 100, 100}}}});
+  e.setBoard({Editor::BoardGrid{"a", {P0, P1, P2}, {Rect{0, 0, 100, 100}, Rect{108, 0, 100, 100}, Rect{216, 0, 100, 100}}, {}, Rect{0, 0, 316, 100}}});
   e.setSelection({P0});
   // Over the third cell: the others make room, P0 takes the third cell when dropped; while dragged it is drawn over the
   // others and doesn't snap (as a flow's layer)
@@ -705,6 +705,63 @@ TEST_CASE("board drag (a Social file's grid view, docs/social.md §25): a post m
   CHECK(world(e, P2).x == doctest::Approx(216));
 }
 
+TEST_CASE("board drag (docs/social.md §29): several posts move as one block, as several layers through a flow") {
+  auto nodes = baseChanges();
+  const Guid P0{2, 1}, P1{2, 2}, P2{2, 3}, P3{2, 4};
+  nodes.push_back(make(P0, NodeType::FRAME, kPage, "!", {0, 0, 100, 100}, "P0"));
+  nodes.push_back(make(P1, NodeType::FRAME, kPage, "\"", {108, 0, 100, 100}, "P1"));
+  nodes.push_back(make(P2, NodeType::FRAME, kPage, "#", {216, 0, 100, 100}, "P2"));
+  nodes.push_back(make(P3, NodeType::FRAME, kPage, "$", {324, 0, 100, 100}, "P3"));
+  Editor e = load(nodes);
+  e.setViewOptions(e.viewOptions() | Editor::VIEW_ASSET_CHROME);
+  e.setBoard({Editor::BoardGrid{"a", {P0, P1, P2, P3}, {Rect{0, 0, 100, 100}, Rect{108, 0, 100, 100}, Rect{216, 0, 100, 100}, Rect{324, 0, 100, 100}}, {}, Rect{0, 0, 424, 100}}});
+  // P0 and P2 (apart) held by P0, over the third cell: the two together there, P1 and P3 before them
+  e.setSelection({P0, P2});
+  down(e, 50, 50);
+  steps(e, {50, 50}, {262, 50});
+  CHECK(e.overlay().lifted == std::vector<Guid>{P0, P2});
+  up(e, 262, 50);
+  CHECK(world(e, P1).x == doctest::Approx(0));
+  CHECK(world(e, P3).x == doctest::Approx(108));
+  CHECK(world(e, P0).x == doctest::Approx(216));
+  CHECK(world(e, P2).x == doctest::Approx(324));
+  CHECK(e.takeBoardDrop().ids.empty());
+  e.command(CommandId::UNDO);
+  CHECK(world(e, P0).x == doctest::Approx(0));
+  CHECK(world(e, P1).x == doctest::Approx(108));
+  CHECK(world(e, P2).x == doctest::Approx(216));
+  CHECK(world(e, P3).x == doctest::Approx(324));
+}
+
+TEST_CASE("board drag (docs/social.md §29): a post dragged into another grid's container goes into its cells, its own grid closing up") {
+  auto nodes = baseChanges();
+  const Guid P0{2, 1}, P1{2, 2}, Q0{2, 3}, Q1{2, 4};
+  nodes.push_back(make(P0, NodeType::FRAME, kPage, "!", {0, 0, 100, 100}, "P0"));
+  nodes.push_back(make(P1, NodeType::FRAME, kPage, "\"", {108, 0, 100, 100}, "P1"));
+  nodes.push_back(make(Q0, NodeType::FRAME, kPage, "#", {400, 0, 100, 150}, "Q0"));
+  nodes.push_back(make(Q1, NodeType::FRAME, kPage, "$", {508, 0, 100, 150}, "Q1"));
+  Editor e = load(nodes);
+  e.setViewOptions(e.viewOptions() | Editor::VIEW_ASSET_CHROME);
+  e.setBoard({
+      Editor::BoardGrid{"a", {P0, P1}, {Rect{0, 0, 100, 100}, Rect{108, 0, 100, 100}}, {Rect{216, 0, 100, 100}}, Rect{0, 0, 316, 100}},
+      Editor::BoardGrid{"b", {Q0, Q1}, {Rect{400, 0, 100, 150}, Rect{508, 0, 100, 150}}, {Rect{616, 0, 100, 150}, Rect{400, 158, 100, 150}}, Rect{400, 0, 316, 308}},
+  });
+  // P0 over Q1's cell: Q1 makes room, P1 takes P0's cell
+  e.setSelection({P0});
+  down(e, 50, 50);
+  steps(e, {50, 50}, {558, 70});
+  up(e, 558, 70);
+  CHECK(world(e, P0).x == doctest::Approx(508));
+  CHECK(world(e, P0).y == doctest::Approx(0));
+  CHECK(world(e, Q0).x == doctest::Approx(400));
+  CHECK(world(e, Q1).x == doctest::Approx(616));
+  CHECK(world(e, P1).x == doctest::Approx(0));
+  Editor::BoardDrop drop = e.takeBoardDrop();
+  CHECK(drop.grid == "b");
+  CHECK(drop.ids == std::vector<Guid>{P0});
+  CHECK(e.takeBoardDrop().ids.empty());
+}
+
 TEST_CASE("board drag: a press on a post's background with layers in it takes the post and a drag moves it (not a marquee, as on a Design file's frame)") {
   auto nodes = baseChanges();
   const Guid P0{2, 1}, P1{2, 2}, R{2, 9};
@@ -713,7 +770,7 @@ TEST_CASE("board drag: a press on a post's background with layers in it takes th
   nodes.push_back(make(P1, NodeType::FRAME, kPage, "\"", {108, 0, 100, 100}, "P1"));
   Editor e = load(nodes);
   e.setViewOptions(e.viewOptions() | Editor::VIEW_ASSET_CHROME);
-  e.setBoard({Editor::BoardGrid{{P0, P1}, {Rect{0, 0, 100, 100}, Rect{108, 0, 100, 100}}}});
+  e.setBoard({Editor::BoardGrid{"a", {P0, P1}, {Rect{0, 0, 100, 100}, Rect{108, 0, 100, 100}}, {}, Rect{0, 0, 208, 100}}});
   drag(e, {70, 70}, {160, 60});
   CHECK(e.selection() == std::vector<Guid>{P0});
   CHECK(world(e, P0).x == doctest::Approx(108));

@@ -5,7 +5,7 @@
  * either view, as Buzz's inline toolbar (help.figma.com "Edit assets in Figma Buzz": Size, the background's Fill —
  * colour, gradient, image & video —, Border solid or dashed; docs/social.md §28): its format (a click resizes it to
  * another of its platform's), its fill, its border, Clip content, and Edit (the agent, the post as context). Each
- * write is one undo step.
+ * write is one undo step. The toolbar is off for now (the owner, 2026-10-25, docs/social.md §29: not mounted).
  */
 import { useLayoutEffect, useRef, useSyncExternalStore, type ChangeEvent } from "react";
 import type { Paint } from "@/engine/codec";

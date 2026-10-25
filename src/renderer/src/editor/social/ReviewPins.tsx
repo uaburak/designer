@@ -6,12 +6,12 @@
  * like the safe areas, hidden while the canvas zooms.
  */
 import { useMemo, useRef } from "react";
-import { tooltipProps } from "@/ds";
-import { t, tp, useT } from "@/i18n";
+import { Icon, tooltipProps } from "@/ds";
+import { t, useT } from "@/i18n";
 import { useEditor } from "../controller";
 import { applySelection } from "../agents/mcpTools";
 import { useCameraPlacement } from "./SafeAreaOverlay";
-import { useFocusedPost } from "./focus";
+import { openPost, useFocusedPost } from "./focus";
 import { isSocialFile } from "../devmode/devMode";
 import { useSocialBoard, type PostRow } from "./socialState";
 import styles from "./ReviewPins.module.css";
@@ -28,7 +28,7 @@ function placePins(el: HTMLElement, row: PostRow, cam: { x: number; y: number; z
   }
 }
 
-/** A Social file's board (§21): one badge at a post's top right, inside it, instead of its pins */
+/** A Social file's grid view (§21, §29): one button at a post's top right, inside it, instead of its pins */
 function placeBadge(el: HTMLElement, row: PostRow, cam: { x: number; y: number; zoom: number }): void {
   el.style.transform = `translate(${(row.x + row.width) * cam.zoom + cam.x}px, ${row.y * cam.zoom + cam.y}px) translate(-100%, 0)`;
 }
@@ -38,9 +38,10 @@ export function ReviewPins() {
   const ed = useEditor();
   const board = useSocialBoard(ed);
   const focus = useFocusedPost(ed);
-  // A Social file's board is Buzz's grid view, kept quiet: a count per post there, the pins in focus (docs/social.md §21).
+  // A Social file's grid view, kept quiet: on each post the Design mode glyph that opens it (the owner, 2026-10-25:
+  // instead of the problem counts — docs/social.md §29); the pins in the asset view.
   const badges = isSocialFile(ed) && !focus;
-  const rows = useMemo(() => board.posts.filter((p) => (badges ? p.data.problems.length > 0 : p.data.problems.some((x) => x.box) && (!focus || p.id === focus))), [board, focus, badges]);
+  const rows = useMemo(() => board.posts.filter((p) => (badges ? true : p.data.problems.some((x) => x.box) && (!focus || p.id === focus))), [board, focus, badges]);
   const layer = useRef<HTMLDivElement>(null);
   useCameraPlacement(ed, layer, rows, badges ? placeBadge : placePins);
   if (!rows.length) return null;
@@ -49,15 +50,8 @@ export function ReviewPins() {
       <div ref={layer} className={styles.layer} data-review-pins="">
         {rows.map((row) => (
           <div key={row.id} className={styles.post} data-post={row.id}>
-            <button
-              type="button"
-              className={styles.badge}
-              aria-label={tp(row.data.problems.length, "{n} problem", "{n} problems", { n: String(row.data.problems.length) })}
-              {...tooltipProps(row.data.problems.map((p) => p.detail).join("\n"))}
-              onClick={() => applySelection(ed, [row.id], false)}
-              data-problem-badge={row.id}
-            >
-              {row.data.problems.length}
+            <button type="button" className={styles.badge} aria-label={t("Open in the asset view")} {...tooltipProps(t("Open in the asset view"))} onClick={() => openPost(ed, row.id)} data-post-open={row.id}>
+              <Icon name="24.mode.design" />
             </button>
           </div>
         ))}

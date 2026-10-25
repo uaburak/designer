@@ -17,6 +17,7 @@ import { BOARD, boardLayout } from "../social/board";
 import { focusedPost, postsInOrder, setSocialView, shownPost } from "../social/focus";
 import { setMode } from "../devmode/devMode";
 import { readBoard } from "../social/socialState";
+import { readPost } from "../social/posts";
 import { PointerType } from "@/engine/abi";
 import { IDENTITY } from "../agents/nodeSpec";
 
@@ -111,6 +112,41 @@ describe("a Social file's board (docs/social.md §19)", () => {
     ed.engine.undo();
     await tick();
     expect(ids.map((id) => at(ed, id))).toEqual(before);
+  });
+
+  it("a story dragged into the 3:4 grid becomes a 3:4 post where it was dropped, in the drag's step (docs/social.md §29)", async () => {
+    const { ed, engine } = await social();
+    const w = editorWriter(ed);
+    const p1 = newPost(ed, w, { formatId: "instagram.portrait" });
+    const p2 = newPost(ed, w, { formatId: "instagram.portrait" });
+    const s = newPost(ed, w, { formatId: "instagram.story" });
+    // A layer pinned to the story's bottom, stretched across it (its constraints)
+    const bar = "1:9998";
+    expect(engine.applyChanges({ type: "NODE_CHANGES", sessionID: 1, nodeChanges: [{ guid: bar, phase: "CREATED", type: "ROUNDED_RECTANGLE", name: "Bar", visible: true, opacity: 1, size: { x: 1000, y: 100 }, transform: { ...IDENTITY, m02: 40, m12: 1780 }, horizontalConstraint: "STRETCH", verticalConstraint: "MAX", parentIndex: { guid: s, position: "a" } } as never] }, "user")).toBe(0);
+    await tick();
+    const before = [p1, p2, s].map((id) => at(ed, id));
+    engine.setViewOptions({ pixelGrid: false, outlines: false, assetChrome: true });
+    engine.setCamera({ x: 0, y: 0, zoom: 0.1 });
+    // Held at its middle, dropped on p2's middle: p2 makes room, the story takes its cell
+    const from = { x: (before[2].x + 540) * 0.1, y: (before[2].y + 960) * 0.1 };
+    const to = { x: (before[1].x + 540) * 0.1, y: (before[1].y + 960) * 0.1 };
+    engine.pointer(PointerType.MOVE, from.x, from.y, 0, 0, 0);
+    engine.pointer(PointerType.DOWN, from.x, from.y, 0, 1, 0);
+    for (let i = 1; i <= 10; i++) engine.pointer(PointerType.MOVE, from.x + ((to.x - from.x) * i) / 10, from.y + ((to.y - from.y) * i) / 10, 0, 1, 0);
+    engine.pointer(PointerType.UP, to.x, to.y, 0, 0, 0);
+    await tick();
+    expect(readPost(ed, s)?.formatId).toBe("instagram.portrait");
+    expect(engine.readNode(s, { fields: ["size"] })?.size).toEqual({ x: 1080, y: 1440 });
+    expect(layoutOf(ed).sections[0].grids.map((g) => g.ids)).toEqual([[p1, s, p2]]);
+    expect(at(ed, s)).toEqual(before[1]);
+    // Its layers follow by their constraints: still on the bottom, as wide
+    expect(engine.readNode(bar, { fields: ["transform"] })?.transform?.m12).toBe(1300);
+    expect(engine.readNode(bar, { fields: ["size"] })?.size).toEqual({ x: 1000, y: 100 });
+    // One ⌘Z: a story in its own grid again
+    ed.engine.undo();
+    await tick();
+    expect(readPost(ed, s)?.formatId).toBe("instagram.story");
+    expect([p1, p2, s].map((id) => at(ed, id))).toEqual(before);
   });
 
   it("leaves a Design file's frames where they are", async () => {

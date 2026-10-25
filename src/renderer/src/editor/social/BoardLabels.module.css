@@ -18,6 +18,16 @@
     background: transparent; color: var(--figma-color-text-secondary); text-align: left; pointer-events: none;
   }
   .band[data-on] { color: var(--figma-color-text-brand); }
+  /* The grid selected as one: its Export at the band's right (Figma's selection Export, every post its own file) */
+  .export {
+    position: absolute; right: 8px; bottom: 4px;
+    display: flex; align-items: center; box-sizing: border-box;
+    height: var(--ds-size-control); padding: 0 var(--ds-space-2); border: 0; border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-brand); color: var(--figma-color-text-onbrand); font: var(--ds-font-body-medium);
+    pointer-events: auto; cursor: default;
+  }
+  .export:hover { background: var(--figma-color-bg-brand-hover); }
+  .export:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .name { overflow: hidden; font: var(--ds-font-body-medium); white-space: nowrap; text-overflow: ellipsis; }
   /* The next cell: the canvas's ground, faintly dashed (the owner, 2026-10-25), a "+" a sixth of it; brighter on the
      container's hover */

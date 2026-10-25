@@ -323,6 +323,19 @@ export interface PasteOptions {
 
 const pasteFlags = (o: PasteOptions): number => (o.inPlace ? PASTE_IN_PLACE : 0) | (o.over ? PASTE_OVER : 0) | (o.replace ? PASTE_REPLACE : 0);
 
+/** A Social file's grid for the engine's board drag (Engine.setBoard) */
+export type BoardBox = { x: number; y: number; width: number; height: number };
+export interface BoardGrid {
+  /** The grid's format */
+  key: string;
+  ids: readonly Guid[];
+  cells: readonly BoardBox[];
+  /** The cells past its last post, in order */
+  more?: readonly BoardBox[];
+  /** Its container */
+  frame?: BoardBox;
+}
+
 export class Engine {
   /** The engine drawing into `canvas` (which gets the id "engine-canvas" if it has none); `null` = headless. */
   static async create(canvas: HTMLCanvasElement | null, options: EngineOptions = {}): Promise<Engine> {
@@ -951,12 +964,19 @@ export class Engine {
 
   /** Focus view: only `node` (a design on the current page) is drawn and picked; null leaves it. */
   /**
-   * A Social file's board (docs/social.md §25): each grid's posts in order and the cell each takes (page coordinates); a
-   * post dragged among its grid's posts moves through them as through an auto-layout flow. [] clears it.
+   * A Social file's board (docs/social.md §25, §29): each grid's posts in order, the cell each takes and those past them
+   * (page coordinates), and its container; posts dragged among a grid's posts (one or several) move through them as
+   * through an auto-layout flow, and into another grid's container go into its cells. [] clears it.
    */
-  setBoard(grids: readonly { ids: readonly Guid[]; cells: readonly { x: number; y: number; width: number; height: number }[] }[]): void {
-    const payload = { grids: grids.map((g) => ({ ids: g.ids, cells: g.cells.map((c) => [c.x, c.y, c.width, c.height]) })) };
+  setBoard(grids: readonly BoardGrid[]): void {
+    const box = (c: BoardBox) => [c.x, c.y, c.width, c.height];
+    const payload = { grids: grids.map((g) => ({ key: g.key, ids: g.ids, cells: g.cells.map(box), more: (g.more ?? []).map(box), ...(g.frame ? { frame: box(g.frame) } : {}) })) };
     this.after(this.x.setBoard(this.h, encodeText(JSON.stringify(payload))));
+  }
+
+  /** The last drop of posts into another grid than theirs (docs/social.md §29) — that grid's key and the posts — taken once. */
+  takeBoardDrop(): { grid: string; ids: Guid[] } | null {
+    return this.json(this.x.takeBoardDrop(this.h), null);
   }
 
   setFocus(node: Guid | null): number {
