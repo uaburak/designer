@@ -376,6 +376,12 @@ class Player {
   // The interactions a layer has: its own, else (an instance) its main component's — instances inherit them.
   bool hasIx(Guid id) const;
   std::vector<Interaction> ix(Guid id) const;
+  // A layer's played interactions (Editor::playedInteractions), kept until the document changes: every pointer move
+  // asks for the whole hit chain's, and an instance's merge reads every variant of its set (B2C Project: a third of a
+  // hover's time once its variant swaps stopped rebuilding the motion index).
+  const std::vector<Interaction>& played(Guid id) const;
+  mutable std::unordered_map<Guid, std::vector<Interaction>, GuidHash> playedCache_;
+  mutable uint64_t playedCacheVersion_ = ~0ull;
   Guid topLevelOf(Guid id) const;
   void layout();
   void replaceOverlays();

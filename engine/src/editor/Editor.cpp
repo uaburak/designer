@@ -229,7 +229,17 @@ void Editor::noteChange(const NodeChange& c, NodeType typeBefore) {
   if (!pathMemo_.empty() && !c.guid.isDerived() &&
       (c.phase != Phase::CHANGED || (c.mask & (F_PARENT_INDEX | F_SYMBOL_DATA | F_OVERRIDE_KEY | F_TYPE))))
     pathMemo_.clear();
-  motionDocTouched_ = true;
+  // What can change the index: the index holds no derived layer (an instance's sublayers play their main's tracks), so
+  // a write it holds, or a structural one (a layer made, removed, moved or retyped). A prototype's hover swapping a
+  // variant writes derived layers and an instance's symbolData only: it rebuilt the index over the whole file on every
+  // pointer move (~100 ms a hover on B2C Project).
+  // Variables and modes too: a keyframe's easing or a clip's timing bound to a variable resolves in the layer's modes.
+  if (!c.guid.isDerived()) {
+    const Node* tn = c.phase == Phase::REMOVED ? nullptr : doc_.get(c.guid);
+    bool variable = tn && (tn->props.type == NodeType::VARIABLE || tn->props.type == NodeType::VARIABLE_SET);
+    if (c.phase != Phase::CHANGED || (c.mask & (F_PARENT_INDEX | F_TYPE | F_VARIABLE_MODES)) || variable || motionIndex_.contains(c.guid))
+      motionDocTouched_ = true;
+  }
   if (!motionTouched_ && !c.guid.isDerived()) {
     const Node* mn = c.phase == Phase::REMOVED ? nullptr : doc_.get(c.guid);
     if (mn && motion::MotionIndex::mayAnimate(mn->props)) motionTouched_ = true;

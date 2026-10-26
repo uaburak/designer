@@ -152,20 +152,41 @@ const NodeProps* Player::props(Guid id) const {
   return n ? &n->props : nullptr;
 }
 
+const std::vector<Interaction>& Player::played(Guid id) const {
+  if (playedCacheVersion_ != doc().version()) {
+    // Only what changed goes: a variant swap rewrites one instance and its derived layers. A main or a set changed (an
+    // instance plays its main's and reads every variant), or the log gone: everything.
+    std::vector<Document::ChangeRecord> changes;
+    bool all = !doc().changesSince(playedCacheVersion_, changes);
+    for (size_t k = 0; k < changes.size() && !all; k++) {
+      const Document::ChangeRecord& c = changes[k];
+      playedCache_.erase(c.id);
+      if (c.id.isDerived()) continue;
+      const NodeProps* p = props(c.id);
+      if (!p || p->type == NodeType::SYMBOL || (p->type == NodeType::FRAME && p->comp().isStateGroup)) all = true;
+    }
+    if (all) playedCache_.clear();
+    playedCacheVersion_ = doc().version();
+  }
+  auto it = playedCache_.find(id);
+  if (it == playedCache_.end()) it = playedCache_.emplace(id, ed_.playedInteractions(id)).first;
+  return it->second;
+}
+
 bool Player::hasIx(Guid id) const {
   const NodeProps* p = props(id);
   if (!p) return false;
   if (p->type != NodeType::INSTANCE) return hasInteractions(*p);
   const NodeProps* m = props(ed_.mainOf(id));
   if (!hasInteractions(*p) && !(m && hasInteractions(*m))) return false;
-  return !ed_.playedInteractions(id).empty();
+  return !played(id).empty();
 }
 
 std::vector<Interaction> Player::ix(Guid id) const {
   const NodeProps* p = props(id);
   if (!p) return {};
   // An instance plays its main's (the variant it shows now) with its own changes and additions.
-  std::vector<Interaction> list = ed_.playedInteractions(id);
+  std::vector<Interaction> list = played(id);
   // A delay or a duration bound to a number variable (Figma's transitionTimeoutVar / transitionDurationVar): its value
   // in the hotspot's modes, else the literal stored next to it.
   auto seconds = [&](const json::Value& var, double& out) {
@@ -433,7 +454,17 @@ void Player::restoreOriginals() {
 std::vector<Guid> Player::sequence() const {
   SequenceMemo& m = sequence_;
   uint64_t version = doc().version();
-  if (m.version != version || m.page != page_ || m.flow != flow_ || m.start != startFrame_) {
+  // The frames and the navigations between them: a variant swap's writes (derived layers, an instance's symbol, layout)
+  // keep them — only a layer made, removed or moved, or its interactions (extra), read the file again.
+  bool stale = m.version == ~0ull;
+  if (!stale && m.version != version) {
+    std::vector<Document::ChangeRecord> changes;
+    stale = !doc().changesSince(m.version, changes);
+    for (const Document::ChangeRecord& c : changes)
+      if (!c.id.isDerived() && (c.structural || (c.fields & (F_EXTRA | F_PARENT_INDEX)))) stale = true;
+    if (!stale) m.version = version;
+  }
+  if (stale || m.page != page_ || m.flow != flow_ || m.start != startFrame_) {
     m.frames = computeSequence();
     m.version = version;
     m.page = page_;
@@ -460,7 +491,7 @@ std::vector<Guid> Player::upcoming() const {
     if (!p) continue;
     const NodeProps* m = p->type == NodeType::INSTANCE ? props(ed_.mainOf(id)) : nullptr;
     if (hasInteractions(*p) || (m && hasInteractions(*m)))
-      for (auto& i : ed_.playedInteractions(id))
+      for (auto& i : played(id))
         for (auto& a : i.actions) destinations(a, dests);
     for (Guid c : doc().children(id)) stack.push_back(c);
   }
@@ -498,7 +529,7 @@ std::vector<Guid> Player::computeSequence() const {
     // Only the destinations: no variable read (ix), and nothing read for a layer without interactions.
     const NodeProps* m = p->type == NodeType::INSTANCE ? props(ed_.mainOf(id)) : nullptr;
     if (hasInteractions(*p) || (m && hasInteractions(*m)))
-      for (auto& i : ed_.playedInteractions(id))
+      for (auto& i : played(id))
         for (auto& a : i.actions) destinations(a, out);
     for (Guid c : doc().children(id)) collect(c, out);
   };
