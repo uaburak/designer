@@ -649,6 +649,10 @@ void Editor::expandChildren(Expansion& ex, Guid symbol, Guid sourceParent, Guid 
           }
         if (!root.empty()) ex.stack.addOwned(std::move(root), path);
       }
+      // The variant a variable chose (below) takes that variant's size when the layer kept its designed variant's
+      // size (Figma: a variant switch resizes a nested instance its usage hasn't resized — a logo bound to the brand
+      // is each brand's logo at its own size).
+      Guid varFrom = kNoGuid;
       if (mn) {
         // A variant bound to variables (its own binding, or a usage site's): the variant for this row's modes.
         NodeProps probe = xn->props;
@@ -659,6 +663,7 @@ void Editor::expandChildren(Expansion& ex, Guid symbol, Guid sourceParent, Guid 
           ex.readsVars = true;
           Guid v = variantFor(main, b.data, contextAt(id, &probe), &ex.deps);
           if (v != kNoGuid && v != main) {
+            if (varFrom == kNoGuid) varFrom = main;
             main = v;
             mn = doc_.get(main);
             ex.sources.push_back(main);
@@ -674,6 +679,8 @@ void Editor::expandChildren(Expansion& ex, Guid symbol, Guid sourceParent, Guid 
       // Its size is its own, as it sits in its main, swapped or not (Figma: a swapped icon keeps its 20 × 20 where its
       // new main is 24 × 24; Figma's derivedSymbolData leaves out a nested instance whose size is that one).
       p.size = xn->props.size;
+      if (varFrom != kNoGuid && mn)
+        if (const Node* was = doc_.get(varFrom); was && was->props.size == xn->props.size) p.size = mn->props.size;
       ex.stack.apply(path, p);
       applyBindings(xn->props, p, symbol, assigns, nullptr, nullptr, &resolveAtLevel);
       p.type = NodeType::INSTANCE;

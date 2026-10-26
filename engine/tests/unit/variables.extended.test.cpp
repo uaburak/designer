@@ -664,3 +664,36 @@ TEST_CASE("variables r5: Figma's RESOLVE_VARIANT and extension fields round-trip
   CHECK(back[1].props.asset().variableSetModes == set.props.asset().variableSetModes);
   CHECK(back[2].props.asset().overriddenVariableId == o.props.asset().overriddenVariableId);
 }
+
+TEST_CASE("variables r5: a nested variant switched by a variable takes its size unless its usage resized it") {
+  auto nodes = logoDoc();
+  for (NodeChange& c : nodes)
+    if (c.guid == DARK) c.props.size = {60, 30};  // the Dark logo is wider and lower
+  const Guid CARD{3, 1}, NESTED{3, 2}, SIZED{3, 4}, CI{3, 3};
+  nodes.push_back(make(CARD, NodeType::SYMBOL, kPage, "#", {400, 0, 200, 100}, "Card"));
+  nodes.push_back(instanceOf(NESTED, LIGHT, CARD, "!", {10, 10, 40, 40}));
+  nodes.push_back(instanceOf(SIZED, LIGHT, CARD, "\"", {100, 10, 40, 40}));
+  nodes.push_back(instanceOf(CI, CARD, FR, "\"", {100, 10, 200, 100}, "Card"));
+  Editor e = load(nodes);
+  auto [set, day, night] = collection(e, "Theme", "Day", "Night");
+  Guid theme = variable(e, set, "STRING", "logo", "\"Light\"");
+  setValue(e, theme, night, "\"Dark\"");
+  bind(e, NESTED, "componentProperties.Mode", theme);
+  NodeChange resize = NodeChange::changed(SIZED);  // resized by hand
+  resize.mask = F_SIZE;
+  resize.props.size = {50, 50};
+  e.applyChanges({resize}, APPLY_USER);
+  REQUIRE(props(e, SIZED).size.x == doctest::Approx(50));
+  bind(e, SIZED, "componentProperties.Mode", theme);
+  CHECK(props(e, SIZED).size.x == doctest::Approx(50));
+  setMode(e, FR, set, night);
+  Guid row = derived::intern(CI, {NESTED}), sized = derived::intern(CI, {SIZED});
+  REQUIRE(e.document().has(row));
+  CHECK(props(e, row).comp().symbolData.symbolID == DARK);
+  CHECK(props(e, row).size.x == doctest::Approx(60));
+  CHECK(props(e, row).size.y == doctest::Approx(30));
+  CHECK(props(e, sized).size.x == doctest::Approx(50));
+  setMode(e, FR, set, day);
+  CHECK(props(e, row).size.x == doctest::Approx(40));
+  (void)day;
+}
