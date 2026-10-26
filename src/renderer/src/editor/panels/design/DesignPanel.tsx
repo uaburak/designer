@@ -22,6 +22,7 @@ import { AppearanceSection, PositionSection } from "./Sections";
 import { LayoutSection } from "./Layout";
 import { PaintPicker, PaintsSection, type PickerTarget } from "./Paints";
 import { MaskSection } from "./Mask";
+import { ButtonSection } from "./ButtonSection";
 import { SelectionColorsSection } from "./SelectionColors";
 import { TypographySection } from "./Typography";
 import { EffectsSection, LayoutGuideSection } from "./Effects";
@@ -173,6 +174,8 @@ function Selected({ nodes, paintNodes, onPick }: { nodes: PanelNode[]; paintNode
       {comp?.kind === "instance" ? <InstanceHeader instance={comp.node} /> : comp && !drawMode ? <ComponentBlock sel={comp} /> : nodes.length > 0 && nodes.every(isInstanceSublayer) ? null : <TypeHeader nodes={nodes} />}
       {nodes.length === 1 && isInstanceSublayer(nodes[0]) && <InstanceTextProperty layer={nodes[0]} />}
       <RelaunchButtons refs={nodes.map((n) => n.guid)} />
+      {/* A canvas button's links (ours: right-click › Buttons ▸) */}
+      <ButtonSection nodes={nodes} />
       <VectorOperationNote nodes={nodes} />
       {/* Motion mode (docs/motion.md §4.6, §6.5): the selection's preset clips, + to add one, the composite styles (round 8h). */}
       {mode === "motion" && <AnimationsSection nodes={nodes} />}

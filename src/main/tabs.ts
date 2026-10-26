@@ -135,6 +135,8 @@ export class TabManager {
   state: TabsState;
   readonly home: WebContentsView;
   private runtime = new Map<string, Runtime>();
+  /** Where a file tab lands once its editor is ready (`openFile`'s nodeId: a link to a layer; tabId → node) */
+  private landings = new Map<string, string>();
   /** The view in front (HOME or a tab's id) */
   private shown: string | null = null;
   private busy = false;
@@ -720,6 +722,7 @@ export class TabManager {
     if (there) {
       if (replace && this.tab(replace)?.kind === "new-tab") this.dispatch({ type: "close", ids: [replace] });
       if (!file.background) there.ctl.tabs.focusTab(there.tabId);
+      if (file.nodeId) there.ctl.tabs.land(there.tabId, file.nodeId);
       return { tabId: there.tabId, existing: true };
     }
     const find = () => this.state.tabs.find((t) => t.kind === "file" && t.fileKey === file.fileKey);
@@ -729,6 +732,7 @@ export class TabManager {
     this.dispatch({ type: "open", fileKey: file.fileKey, title: file.title, background: file.background, replace: file.background ? undefined : replace, at: Date.now() });
     const tab = find();
     if (!tab) return { tabId: HOME, existing };
+    if (file.nodeId) this.land(tab.id, file.nodeId);
     // A name to show: the store's (Home usually hands it over), and a file that isn't there any more closes again.
     if (!existing && !file.title) void this.checkFile(file.fileKey);
     return { tabId: tab.id, existing };
@@ -793,6 +797,21 @@ export class TabManager {
     const rt = id ? this.runtime.get(id) : undefined;
     if (!id || !rt || rt.view.webContents !== sender) return;
     this.dispatch({ type: "report", id, report: { title: report.title, status: report.status } });
+    if (report.status === "ready") this.flushLanding(id);
+  }
+
+  /** A file tab lands on `nodeId`: now when its editor is ready, else when it reports ready. */
+  land(tabId: string, nodeId: string) {
+    this.landings.set(tabId, nodeId);
+    this.flushLanding(tabId);
+  }
+
+  private flushLanding(tabId: string) {
+    const nodeId = this.landings.get(tabId);
+    const rt = this.runtime.get(tabId);
+    if (!nodeId || !rt || this.tab(tabId)?.status !== "ready") return;
+    this.landings.delete(tabId);
+    emit(rt.view.webContents, "tab:navigate", { nodeId });
   }
 
   // ── The store's word on files ──

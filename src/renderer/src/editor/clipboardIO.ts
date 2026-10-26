@@ -19,6 +19,7 @@
  * Fill / Stroke / Effect rows selected in the Design panel copy as Figma's STYLE_PROPERTIES_* Message, and such a
  * clipboard pastes onto the selected layers' lists, never as layers (propertyRows.ts).
  */
+import { fileKeyOf, hyperlinkOf, parseLinkTarget } from "./model/canvasLinks";
 import { t, tp } from "@/i18n";
 import type { Message, NodeChange } from "@/engine/codec";
 import type { PasteOptions } from "@/engine/Engine";
@@ -263,9 +264,12 @@ export function pastedLink(text: string): string | null {
  */
 export function pasteLinkOnText(ed: EditorController, text: string): boolean {
   const ref = ed.engine.textEdit?.ref;
+  // A layer's link (⌘L "Copy link", model/canvasLinks.ts) links to that layer.
+  const here = fileKeyOf(ed);
+  const layer = /^designer:\/\/file\//.test(text.trim()) ? parseLinkTarget(text, here) : null;
   const url = pastedLink(text);
-  if (!ref || !url || !ed.engine.textSelection()) return false;
-  ed.setProps([ref], fields({ hyperlink: { url }, textDecoration: "UNDERLINE" }), "Create link");
+  if (!ref || (!url && !layer) || !ed.engine.textSelection()) return false;
+  ed.setProps([ref], fields({ hyperlink: layer ? hyperlinkOf(layer, here) : { url: url! }, textDecoration: "UNDERLINE" }), "Create link");
   return true;
 }
 

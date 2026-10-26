@@ -1481,3 +1481,22 @@ Every bound variable shows where Figma shows it. Audit: opacity, corner radius, 
 - **Type settings**: Paragraph spacing and Paragraph indent are `VariableField`s.
 
 Tests: `__tests__/boundVariables.dom.wasm.test.ts`.
+
+## Canvas links and canvas buttons (2026-10-27, ours beyond Figma's links)
+
+- **Text links (Figma's).** Create link (⇧⌘U) or a pasted address links the selected characters to a website or to a
+  layer: ⌘L **Copy link** (Copy/Paste as ▸, Figma's `copy-link`) puts the selection's link on the clipboard as
+  `designer://file/<fileKey>?node-id=1-2&place=<its outermost frame>`. A link to a layer of this file is stored as
+  Figma stores it (`Hyperlink.guid`), to another file's as that link (`Hyperlink.url`). On the canvas (Move tool, no
+  text being edited) the pointer on a link shows a chip under it naming where it goes; a click on the chip follows it
+  — a website in the browser, a layer of this file selected and zoomed to, another file's in its tab (main's
+  `openFile({nodeId})` lands the tab with `tab:navigate` once its editor reports ready). `model/canvasLinks.ts`,
+  `canvas/CanvasLinks.tsx`.
+- **Canvas buttons (ours).** Right-click › Buttons ▸ Primary / Secondary button adds an auto-layout pill ("Go to the
+  Used Variant", link icon, chevron) where the menu opened (inside the section there). Any layer carrying plugin data
+  `wecra` / `canvasButton` (`{links: [{link, place?}]}`) is a button — an instance of a file's own link component
+  works too. A click runs it: one link is followed, several open a menu named by each target's outermost frame
+  ("/home"; another file's by the `place` its link carried). ⌘-click selects the button itself; selected, it takes
+  clicks as any layer, and the Design panel's **Button** section lists its links (+ pastes a ⌘L link or an address,
+  − removes one); its look is the frame's own fill, radius and text. `model/canvasButtons.ts`,
+  `panels/design/ButtonSection.tsx`. Test: `editor/__tests__/canvasLinks.wasm.test.ts`.

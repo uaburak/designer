@@ -212,6 +212,10 @@ export interface UIState extends PreferenceFlags {
   shareOpen: boolean;
   /** "Create link" (⇧⌘U): the link field, over this rect (viewport px: the caret or the layer) */
   linkEditor?: { x: number; y: number; width: number; height: number } | null;
+  /** A text link under the pointer on the canvas (CanvasLinks): its chip under this rect (viewport px) */
+  canvasLink?: { target: import("./model/canvasLinks").LinkTarget; label: string; x: number; y: number; width: number; height: number } | null;
+  /** A canvas button's links, as a menu at this point (viewport px; CanvasLinks) */
+  buttonMenu?: { x: number; y: number; button: Guid } | null;
   /** Grid tracks selected on the canvas (the engine's GRID_TRACKS): the grid, the axis, the tracks' indices */
   gridTracks?: { frame: Guid; axis: "COLUMNS" | "ROWS"; tracks: number[] } | null;
   /** The grid picker's "Open grid settings": the Grid panel for this grid, no track selected */

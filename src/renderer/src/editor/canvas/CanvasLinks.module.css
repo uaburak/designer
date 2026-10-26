@@ -1,0 +1,22 @@
+@layer app {
+  /* A text link's chip under the link (CanvasLinks): where it goes, a click follows it */
+  .chip {
+    position: fixed;
+    z-index: var(--ds-z-floating);
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    max-width: 320px;
+    height: var(--ds-space-6);
+    padding: 0 var(--ds-space-2) 0 var(--ds-space-1);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: var(--ds-color-menu-bg);
+    color: var(--ds-color-menu-text);
+    box-shadow: var(--ds-elevation-200);
+    font: var(--ds-font-body-medium);
+    cursor: pointer;
+  }
+  .chip:hover { background: var(--ds-color-menu-highlight); }
+  .label { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+}

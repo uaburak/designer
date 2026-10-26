@@ -372,7 +372,7 @@ describe("MCP tools: one schema", () => {
     // plugins' relaunch buttons (written by plugins only, docs/plugins.md §8), a change's phase and an instance's property
     // references (component property bindings, run_command); the layout version (run_command SET_STACK_LAYOUT_VERSION); the
     // text layout versions and the optical size's detach flag (Type settings' Update / Revert and Variable tab).
-    const NOT_PROPS = new Set(["guid", "parentIndex", "type", "version", "key", "styleIdForFill", "styleIdForStrokeFill", "componentPropDefs", "count", "pluginRelaunchData", "phase", "componentPropRefs", "stackLayoutVersion", "textUserLayoutVersion", "textExplicitLayoutVersion", "textBidiVersion", "detachOpticalSizeFromFontSize"]);
+    const NOT_PROPS = new Set(["guid", "parentIndex", "type", "version", "key", "styleIdForFill", "styleIdForStrokeFill", "componentPropDefs", "count", "pluginRelaunchData", "pluginData", "phase", "componentPropRefs", "stackLayoutVersion", "textUserLayoutVersion", "textExplicitLayoutVersion", "textBidiVersion", "detachOpticalSizeFromFontSize"]);
     const covered = new Set<string>([...RAW_FIELDS, ...Object.values(NAMED_PROPS).flatMap((p) => p.fields)]);
     const missing = panel.filter((f) => !NOT_PROPS.has(f) && !covered.has(f));
     expect(missing).toEqual([]);

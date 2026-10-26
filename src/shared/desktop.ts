@@ -241,6 +241,8 @@ export interface EditorApi extends DesktopCommon {
     /** title, status */
     report(r: TabReport): void;
     onVisibility(cb: (v: { visible: boolean }) => void): Unsubscribe;
+    /** Main's `tab:navigate`: land on a layer of this file (a link to it opened from another tab) */
+    onNavigate?(cb: (n: { nodeId: string }) => void): Unsubscribe;
     /**
      * Main's flush (docs/desktop.md §6): send every change to the store and
      * await its flush. Resolve when done; a rejection is reported as a failed

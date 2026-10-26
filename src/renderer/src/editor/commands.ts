@@ -10,6 +10,7 @@ import { currentTheme, IS_MAC, keys as keyText, setThemePreference, showToast, t
 import type { EditorController } from "./controller";
 import { rotateSelection, zoomTo } from "./actions";
 import { copyFromMenu, pasteFromMenu } from "./clipboardIO";
+import { fileKeyOf as canvasFileKey, nodeLink, placeName } from "./model/canvasLinks";
 import { engineCommandEnabled, runEngineCommand } from "./engineCompat";
 import { chooseAndPlaceImages } from "./canvas/ImagePlacer";
 import { openPathTool } from "./canvas/PathToolbar";
@@ -335,6 +336,19 @@ function toggleDecoration(ed: EditorController, refs: Guid[], d: "UNDERLINE" | "
   ed.setProps(refs, fields({ textDecoration: on ? "NONE" : d }), d === "UNDERLINE" ? "Underline" : "Strikethrough");
 }
 
+/** ⌘L: the selected layer's link on the clipboard ("Link copied"). */
+async function copySelectionLink(ed: EditorController) {
+  const key = canvasFileKey(ed);
+  const node = ed.selection[0];
+  if (!key || !node) return;
+  try {
+    await navigator.clipboard.writeText(nodeLink(key, node, placeName(ed, node)));
+    showToast({ message: t("Link copied to clipboard") });
+  } catch {
+    showToast({ kind: "error", message: t("Couldn’t copy the link") });
+  }
+}
+
 /** ⇧⌘U "Create link": the link field above the selected characters (or the layer). */
 export function openLinkEditor(ed: EditorController) {
   const edit = ed.engine.textEdit;
@@ -531,6 +545,9 @@ export const COMMANDS: EditorCommand[] = [
   { id: "edit.copy-as-ios", label: "iOS", run: (ed) => void copyAsCode(ed, "ios"), enabled: (ed) => hasSelection(ed) && exportAllowed(ed) },
   { id: "edit.copy-as-android", label: "Android", run: (ed) => void copyAsCode(ed, "android"), enabled: (ed) => hasSelection(ed) && exportAllowed(ed) },
   { id: "edit.copy-as-text", label: "Copy as text", run: (ed) => void copyAsText(ed), enabled: (ed) => hasTextSelected(ed) },
+  // ⌘L "Copy link" (Figma's copy-link, Copy/Paste as ▸): the selected layer's link (model/canvasLinks.ts), for a text's
+  // link or a canvas button's.
+  { id: "edit.copy-link", label: "Copy link", keys: [k("KeyL", { mod: true })], run: (ed) => void copySelectionLink(ed), enabled: (ed) => hasSelection(ed) && !!canvasFileKey(ed) },
   engine("edit.duplicate", "Duplicate", "DUPLICATE", [k("KeyD", { mod: true })]),
   engine("edit.delete", "Delete", "DELETE", [k("Backspace"), k("Delete")]),
   // Round 10: ⌥⌘C / ⌥⌘V (help.figma.com "Copy and paste properties").

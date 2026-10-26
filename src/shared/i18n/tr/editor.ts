@@ -1747,4 +1747,14 @@ export const editor: Record<string, string> = {
   "The video is {sec} s; {format} takes {min}–{max} s.": "Video {sec} sn; {format} {min}–{max} sn alır.",
   "The timeline runs at {fps} fps; {format} takes {min}–{max} fps.": "Zaman çizelgesi {fps} fps; {format} {min}–{max} fps alır.",
   "“{name}” has a contrast of {ratio}:1 over its backdrop; it needs {min}:1.": "“{name}” arka planına göre {ratio}:1 kontrastta; en az {min}:1 olmalı.",
+  // Canvas links and buttons (ours)
+  "Buttons": "Butonlar",
+  "Primary button": "Birincil buton",
+  "Secondary button": "İkincil buton",
+  "Links": "Bağlantılar",
+  "Button": "Buton",
+  "Add link": "Bağlantı ekle",
+  "This button has no links yet: ⌘-click it, then add them in the Design panel": "Bu butonun henüz bağlantısı yok: ⌘ ile tıklayıp seçin, sonra Tasarım panelinden ekleyin",
+  "Paste a layer’s link (⌘L) or a website’s address": "Bir katmanın bağlantısını (⌘L) ya da bir web sitesinin adresini yapıştırın",
+  "Paste a layer’s link or a website": "Katman bağlantısı ya da web sitesi yapıştırın",
 };

@@ -577,6 +577,8 @@ export interface IpcEvents {
   /** An editor view's tab and file (the spare editor adopted for a file that opens) */
   "tab:attach": TabAttach;
   "tab:visibility": { visible: boolean };
+  /** A file tab: land on this layer (a canvas link or button to a layer of this file, opened from another tab; ours) */
+  "tab:navigate": { nodeId: string };
   /** A file tab: send every change to the store and flush it, then answer `tab:flushed` */
   "tab:flush": TabFlush;
   "home:state": HomeState;

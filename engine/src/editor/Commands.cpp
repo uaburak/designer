@@ -1467,8 +1467,15 @@ uint32_t Editor::pasteWith(const Clipboard& clip, uint32_t flags) {
     if (it != kids.end())
       for (const NodeChange* c : it->second) self(self, c->guid);
   };
-  for (const NodeChange* r : roots)
-    if (r->props.type == NodeType::SYMBOL || r->props.isComponentSet()) markWhole(markWhole, r->guid);
+  // Every component or set in the copy, pasted itself or inside a pasted frame or section: the instances that come
+  // along (and mains on the internal canvas, which keep their keys) address its layers by those keys (§5.1).
+  auto findWhole = [&](auto&& self, const NodeChange* c) -> void {
+    if (c->props.type == NodeType::SYMBOL || c->props.isComponentSet()) return markWhole(markWhole, c->guid);
+    auto it = kids.find(c->guid);
+    if (it != kids.end())
+      for (const NodeChange* k : it->second) self(self, k);
+  };
+  for (const NodeChange* r : roots) findWhole(findWhole, r);
   if (spots.empty()) spots.push_back({target, index, d, kNoGuid});
   const NodeProps* replacedProps = nullptr;
   size_t spotIndex = 0;

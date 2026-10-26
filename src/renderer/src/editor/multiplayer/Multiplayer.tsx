@@ -144,8 +144,12 @@ function useLinkLanding() {
       if (!live || !intent) return;
       requestAnimationFrame(() => live && applyIntent(ed, intent));
     });
+    // A canvas link or button in another tab pointing at a layer of this file (main's `tab:navigate`, ours).
+    const tab = (window as unknown as { designer?: { tab?: { onNavigate?: (cb: (n: { nodeId: string }) => void) => () => void } } }).designer?.tab;
+    const off = tab?.onNavigate?.((n) => applyIntent(ed, { nodeId: n.nodeId }));
     return () => {
       live = false;
+      off?.();
     };
   }, [ed]);
 }

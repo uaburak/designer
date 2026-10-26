@@ -47,6 +47,7 @@ import { MinimizedPanels } from "./panels/Minimized";
 import { Rulers } from "./canvas/Rulers";
 import { BottomToolbar } from "./canvas/BottomToolbar";
 import { CanvasMenu, attachCanvasMenu, attachGridTracks } from "./canvas/CanvasMenu";
+import { CanvasLinks, attachCanvasLinks } from "./canvas/CanvasLinks";
 import { TitleRename, attachTitleRename } from "./canvas/TitleRename";
 import { EyedropperLoupe, InlineValueEdit, NudgeDialog } from "./canvas/CanvasTools";
 import { PathfinderOptionsDialog } from "./canvas/PathfinderOptions";
@@ -302,6 +303,7 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
       cleanups.push(attachClipboard(ed));
       cleanups.push(attachPropertyRows(ed, canvas));
       cleanups.push(attachCanvasMenu(ed, canvas));
+      cleanups.push(attachCanvasLinks(ed, canvas));
       cleanups.push(attachGridTracks(ed, canvas));
       cleanups.push(attachTitleRename(ed, canvas));
       cleanups.push(attachCanvasTools(ed, canvas));
@@ -551,6 +553,7 @@ function Overlays() {
       <InlinePreview />
       <ShareDialog />
       <LinkEditor />
+      <CanvasLinks />
       <GridTrackEditor />
       <AnnotationEditor />
       <MeasurementText />

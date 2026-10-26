@@ -4,6 +4,7 @@
  * (the rail's Figma button) with Figma's File / Edit / View / Object / Text /
  * Arrange submenus, and the canvas context menu.
  */
+import { addButton, type ButtonStyle } from "./model/canvasButtons";
 import type { IconName, MenuEntry, MenuItem } from "@/ds";
 import { intlLocale, t } from "@/i18n";
 import { CMD_ENABLED, Status } from "@/engine/abi";
@@ -72,6 +73,29 @@ function build(ed: EditorController, specs: Spec[], prefix: string, checks = fal
 /** Live View menu: 201 wide (main-view.txt); see MAIN_MENU_WIDTH for its .4. */
 const VIEW_WIDTH = 201.4;
 
+const ADD_BUTTON = "add-button:";
+
+/**
+ * Buttons ▸ picked: the button where the menu opened (its top-left at the pointer; the view's middle from a Layers
+ * row), in the innermost section there, else on the page.
+ */
+function addButtonHere(ed: EditorController, style: ButtonStyle): void {
+  const at = ed.ui.get().contextMenu?.canvas ?? null;
+  const view = ed.canvas?.getBoundingClientRect();
+  const p = at ?? { x: (view?.width ?? 0) / 2, y: (view?.height ?? 0) / 2 };
+  const world = ed.engine.screenToWorld(p.x, p.y);
+  const section = ed.engine.hitTest(p.x, p.y).find((id) => ed.engine.readNode(id, { fields: ["type"] })?.type === "SECTION") ?? null;
+  let x = world.x, y = world.y;
+  for (let cur: Guid | undefined = section ?? undefined, guard = 0; cur && guard < 256; guard++) {
+    const n = ed.engine.readNode(cur, { fields: ["transform", "parentIndex", "type"] });
+    if (!n || n.type === "CANVAS") break;
+    x -= n.transform?.m02 ?? 0;
+    y -= n.transform?.m12 ?? 0;
+    cur = n.parentIndex?.guid;
+  }
+  addButton(ed, { x, y }, style, section ?? undefined);
+}
+
 /** Copy as code ▸ (atlas 03 "Copy/Paste as": `copy-as-code` {CSS, CSS (all layers), iOS, Android}). */
 const COPY_AS_CODE: Spec[] = ["edit.copy-as-css", "edit.copy-as-css-recursive", "edit.copy-as-ios", "edit.copy-as-android"];
 
@@ -126,6 +150,10 @@ export function runMenuItem(ed: EditorController, id: string): boolean {
   }
   if (id.startsWith(POST_ROW)) {
     runPostMenu(ed, id.slice(POST_ROW.length), selectedPosts(ed), ed.store.page);
+    return true;
+  }
+  if (id.startsWith(ADD_BUTTON)) {
+    addButtonHere(ed, id.slice(ADD_BUTTON.length) as ButtonStyle);
     return true;
   }
   if (id.startsWith("select-layer:")) {
@@ -535,6 +563,15 @@ function moveToPage(ed: EditorController): MenuEntry | null {
 
 /** Plugins ▸ in the canvas menu (plugins/menus.ts); Widgets ▸ open, its items disabled (widgets aren't built). */
 const PLUGINS = (ed: EditorController): MenuEntry => canvasPluginsMenu(ed, (id, label) => withoutCheck(commandItem(ed, id, label)));
+/** Buttons ▸ (ours): a canvas button where the menu was opened (model/canvasButtons.ts). */
+const BUTTONS = (): MenuEntry => ({
+  id: "submenu:buttons",
+  label: t("Buttons"),
+  items: [
+    { id: `${ADD_BUTTON}primary`, label: t("Primary button") },
+    { id: `${ADD_BUTTON}secondary`, label: t("Secondary button") },
+  ],
+});
 const WIDGETS = (ed: EditorController): MenuEntry => kept({ id: "submenu:widgets", label: t("Widgets"), items: build(ed, ["widgets.manage", "widgets.select-all"], "widgets.") });
 
 /**
@@ -584,7 +621,7 @@ export function canvasMenu(ed: EditorController, layers: { id: Guid; name: strin
       withoutCheck(commandItem(ed, "view.toggle-ui")),
       withoutCheck(commandItem(ed, "view.comments", "Show/Hide comments")),
       "-",
-      ...build(ed, ["canvas.cursor-chat", "tool.actions", PLUGINS, WIDGETS], "canvas."),
+      ...build(ed, ["canvas.cursor-chat", "tool.actions", PLUGINS, WIDGETS, BUTTONS], "canvas."),
     ]);
   }
   const nodes = selectionNodes(ed);
@@ -606,7 +643,7 @@ export function canvasMenu(ed: EditorController, layers: { id: Guid; name: strin
     // Live (context-layer-row.txt): a Layers row's menu has no Paste here.
     ...(row ? [] : ["edit.paste-here"]),
     "edit.paste-to-replace",
-    { label: "Copy/Paste as", items: ["edit.copy-as-text", { label: "Copy as code", items: COPY_AS_CODE }, "edit.copy-as-svg", "edit.copy-as-png", "-", "edit.copy-properties", "edit.paste-properties"] },
+    { label: "Copy/Paste as", items: ["edit.copy-link", "edit.copy-as-text", { label: "Copy as code", items: COPY_AS_CODE }, "edit.copy-as-svg", "edit.copy-as-png", "-", "edit.copy-properties", "edit.paste-properties"] },
     "canvas.send-to-make",
     ...(multi ? [] : ["canvas.find-similar"]),
     ...(allComponents ? [] : [ADD_MOTION]),
@@ -642,6 +679,7 @@ export function canvasMenu(ed: EditorController, layers: { id: Guid; name: strin
     ...componentEntries(ed),
     PLUGINS,
     WIDGETS,
+    BUTTONS,
     "-",
     { id: "object.toggle-visible", label: "Show/Hide" },
     { id: "object.toggle-lock", label: "Lock/Unlock" },
