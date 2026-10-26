@@ -40,6 +40,9 @@ constexpr FieldMask kOwnFields = F_PARENT_INDEX | F_TRANSFORM | F_LOCKED | F_H_C
 // page-only fields and unmodelled ones.
 constexpr FieldMask kNotInherited = kOwnFields | F_TYPE | kComponentFields | F_BACKGROUND_COLOR | F_BACKGROUND_ENABLED |
                                     F_INTERNAL_ONLY | F_EXTRA | kAssetFields;
+// A grid container's fields, unmodelled (in `extra`) but inherited from the main root like its auto layout.
+constexpr const char* kGridContainerKeys[] = {"gridRows", "gridColumns", "gridRowsSizing", "gridColumnsSizing",
+                                              "gridRowGap", "gridColumnGap", "gridReflowEnabled", "gridAutoTracks"};
 // Figma's overridable fields (docs/schema.md §5.4, R4 §3).
 constexpr FieldMask kOverridable =
     F_NAME | F_VISIBLE | F_LOCKED | F_OPACITY | F_SIZE | F_FILLS | F_STROKES | F_STROKE_WEIGHT | F_STROKE_ALIGN | F_CORNER_RADII |
@@ -215,6 +218,13 @@ const std::vector<ComponentPropDef>* Editor::defsOf(Guid symbol) const {
 NodeProps Editor::instanceRoot(const NodeProps& own, const NodeProps& main, Guid mainId) const {
   NodeProps r = main;
   copyFields(r, own, kNotInherited);
+  // A grid's tracks, their sizing, gaps and placement are kept in `extra` but are its main root's like its auto
+  // layout (none is @own): an instance of a grid component lays its layers out on the main's tracks — without them
+  // its items, anchored to those tracks, fell into auto rows. Its own changes come from the override entries.
+  for (const char* k : kGridContainerKeys) {
+    if (auto it = main.extra.find(k); it != main.extra.end()) r.extra[k] = it->second;
+    else r.extra.erase(k);
+  }
   // Bindings: the main root's (its variables), with the instance's own component-property bindings on top (a
   // nested instance's, where it sits in its main); the root override entry adds the instance's own changes.
   r.parameterConsumptionMap = main.parameterConsumptionMap;
@@ -882,8 +892,19 @@ void Editor::materialize(Guid R) {
     }
     NodeChange c = NodeChange::changed(R);
     c.mask = differingFields(rn->props, root, rootMask);
+    // Its grid tracks (kept in `extra`, which the root mask leaves out) follow the main's, key by key.
+    std::map<std::string, std::string> gridExtra;
+    for (const char* k : kGridContainerKeys) {
+      auto had = rn->props.extra.find(k);
+      auto want = root.extra.find(k);
+      std::string from = had != rn->props.extra.end() ? had->second : std::string();
+      std::string to = want != root.extra.end() ? want->second : std::string();
+      if (from != to) gridExtra[k] = to;
+    }
+    if (!gridExtra.empty()) c.mask |= F_EXTRA;
     if (c.mask) {
-      copyFields(c.props, root, c.mask);
+      copyFields(c.props, root, c.mask & ~static_cast<FieldMask>(F_EXTRA));
+      for (auto& [k, v] : gridExtra) c.props.extra[k] = v;
       // Its size from its (new) main on a Hug axis: it keeps the side its constraints hold (Layout::hugAnchored —
       // a variant switch of a centred button grows it around its centre); layout then hugs it from there the same way.
       if ((c.mask & F_SIZE) && !hasStored) {

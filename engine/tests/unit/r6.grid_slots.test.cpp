@@ -773,3 +773,22 @@ TEST_CASE("slots: a chip the card's slot shows by default (an instance in the ma
   CHECK(e.document().worldBounds(RA).x == doctest::Approx(slot.x + 10));
   CHECK(e.document().worldBounds(RA).y == doctest::Approx(slot.y + 10));
 }
+
+TEST_CASE("grid: an instance of a grid component lays its layers out on the main's tracks") {
+  auto nodes = gridScene(false);
+  for (NodeChange& c : nodes)
+    if (c.guid == GRID) c.props.type = NodeType::SYMBOL;
+  const Guid INST{1, 40};
+  NodeChange inst = fromJson(R"({"guid":"1:40","type":"INSTANCE","parentIndex":{"guid":"0:1","position":"\""},"size":{"x":100,"y":100},)"
+                             R"("transform":{"m00":1,"m01":0,"m02":300,"m10":0,"m11":1,"m12":0},"symbolData":{"symbolID":"1:30"}})");
+  nodes.push_back(inst);
+  Editor e = load(nodes);
+  // Item 3 sits in column 1, row 2 of the main; its row in the instance sits there too, not in an auto row.
+  for (Guid item : {I0, I1, I2}) {
+    Guid row = derived::child(INST, item);
+    REQUIRE(e.document().has(row));
+    Rect m = world(e, item), i = world(e, row);
+    CHECK(i.x - 300 == doctest::Approx(m.x));
+    CHECK(i.y == doctest::Approx(m.y));
+  }
+}
