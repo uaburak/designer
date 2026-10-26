@@ -102,6 +102,7 @@ describe("governance (docs/governance.md §4, as built §9 14a–14d)", () => {
     // Not a member's call
     const bob = await w.dev("bob@acme.test");
     await w.call("POST", `/orgs/${w.orgId}/admin/people`, { token: w.admin.token, body: { emails: ["bob@acme.test"], role: "member" } });
+    await w.srv.acceptInvites(bob.token);
     const bobs = await openTestStore({ fetch: w.srv.fetch });
     try {
       await bobs.api.multiplayer.setSession({ server: ORIGIN, token: bob.token });
@@ -189,6 +190,7 @@ describe("governance (docs/governance.md §4, as built §9 14a–14d)", () => {
     const g = t.api.governance;
     const gus = await w.dev("gus@elsewhere.test");
     await w.call("POST", `/orgs/${w.orgId}/admin/people`, { token: w.admin.token, body: { emails: ["gus@elsewhere.test"], role: "guest" } });
+    await w.srv.acceptInvites(gus.token);
     expect((await refusal(g.setGuestExpiration(w.orgId, [gus.id], clock.t + 86_400_000))).detail).toMatchObject({ code: "governance_plus_required" });
     await g.setGovernancePlus(w.orgId, true);
     const at = clock.t + 7 * 86_400_000;
@@ -207,6 +209,7 @@ describe("governance (docs/governance.md §4, as built §9 14a–14d)", () => {
     // (no banner) and any gate after the org was opened once.
     const gus = await w.dev("gus@elsewhere.test");
     await w.call("POST", `/orgs/${w.orgId}/admin/people`, { token: w.admin.token, body: { emails: ["gus@elsewhere.test"], role: "guest" } });
+    await w.srv.acceptInvites(gus.token);
     await t.api.governance.setGovernancePlus(w.orgId, true);
     const at = clock.t + 5 * 86_400_000;
     await t.api.governance.setGuestExpiration(w.orgId, [gus.id], at);

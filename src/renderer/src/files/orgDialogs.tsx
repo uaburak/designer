@@ -9,7 +9,7 @@ import { t, useT } from "@/i18n";
 import { ICON_ACCEPT, ICON_MAX_BYTES, ICON_SIZE, bytesToDataUrl, iconMime } from "@shared/org/icons";
 import type * as O from "@shared/org/types";
 import { searchKey } from "./model";
-import { SEAT_HINT, seatLabel } from "./org";
+import { SEAT_HINT, seatLabel, teamAccessOptions, teamAccessPatch, type TeamAccessChoice } from "./org";
 import { FolderGlyph, TeamIcon } from "./parts";
 import styles from "./Files.module.css";
 
@@ -62,10 +62,27 @@ export function NameDialog({ title, label, confirm, initial = "", onDone, onClos
   );
 }
 
+/** "Create team": its name and "Who has access" (help.figma.com 360039957674) — open to the organization by default. */
+export function CreateTeamDialog({ orgName, onCreate, onClose }: { orgName: string; onCreate: (input: { name: string } & Pick<O.TeamPatch, "orgAccess" | "visibility">) => void; onClose: () => void }) {
+  useT();
+  const [name, setName] = useState("");
+  const [access, setAccess] = useState<TeamAccessChoice>("org-editor");
+  const ok = name.trim().length > 0;
+  const create = () => ok && onCreate({ name: name.trim(), ...teamAccessPatch(access) });
+  return (
+    <Dialog open title={t("Create team")} onClose={onClose} footer={<Footer confirm={t("Create team")} ok={ok} onConfirm={create} onClose={onClose} />}>
+      <div className={styles.dialogField}>
+        <TextInput label={t("Team name")} placeholder={t("Team name")} size="large" value={name} onChange={setName} autoFocus onExit={(r) => (r === "enter" ? create() : r === "escape" && onClose())} />
+        <Select label={t("Who has access")} value={access} options={teamAccessOptions(orgName)} onChange={(v) => setAccess(v as TeamAccessChoice)} />
+      </div>
+    </Dialog>
+  );
+}
+
 /**
  * Delete organization (docs/multiplayer.md §14.17; Figma's own goes through its support): the org's name typed to
  * confirm, as Figma's Delete team asks for the team's name (help.figma.com 360039482174). The org and everything in it
- * are deleted for good 14 days later; admins can restore it until then.
+ * are deleted for good at once.
  */
 export function DeleteOrgDialog({ name, onDelete, onClose }: { name: string; onDelete: () => void; onClose: () => void }) {
   useT();
@@ -75,7 +92,7 @@ export function DeleteOrgDialog({ name, onDelete, onClose }: { name: string; onD
     <Dialog open title={t("Delete {name}?", { name })} onClose={onClose} footer={<Footer confirm={t("Delete organization")} ok={ok} destructive onConfirm={onDelete} onClose={onClose} />}>
       <div className={styles.dialogField}>
         <p className={styles.dialogText}>
-          {t("Everyone in {name} loses access to its teams, folders, files and libraries right away. After 14 days they’re deleted for good, with its drafts, fonts and activity log. Until then, admins can restore the organization.", { name })}
+          {t("Everyone in {name} loses access right away, and its teams, folders, files, libraries, drafts, fonts and activity log are deleted for good. You can’t undo this.", { name })}
         </p>
         <TextInput label={t("Type “{name}” to confirm", { name })} placeholder={name} size="large" value={typed} onChange={setTyped} autoFocus onExit={(r) => (r === "enter" ? ok && onDelete() : r === "escape" && onClose())} />
       </div>

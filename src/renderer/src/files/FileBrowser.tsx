@@ -937,7 +937,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
 
   // Admin replaces the file browser (its own sidebar starts with "Back to files"); a gated org shows its gate instead
   // A deleted org (docs/multiplayer.md §14.17) has no Admin: OrgMain shows its admins Restore
-  if (orgId && location.kind === "admin" && backend.org && !gate && !orgShell.info?.deletedAt) {
+  if (orgId && location.kind === "admin" && backend.org && !gate) {
     return (
       <>
         <AdminApp

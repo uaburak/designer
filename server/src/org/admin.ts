@@ -307,7 +307,12 @@ async function addPeople(ctx: Ctx, orgId: string, input: AddPeopleInput): Promis
   if (ws && !(await ctx.acc.d1.prepare(`SELECT 1 AS x FROM workspaces WHERE id = ?1 AND org_id = ?2`).bind(ws, orgId).first())) throw new HttpError(400, "no such workspace");
   const bg = input.billingGroupId ?? null;
   if (bg && !(await ctx.acc.d1.prepare(`SELECT 1 AS x FROM billing_groups WHERE id = ?1 AND org_id = ?2`).bind(bg, orgId).first())) throw new HttpError(400, "no such billing group");
-  for (const e of emails) await addPerson(ctx.deps, orgId, e, input.role, seat, { by: ctx.user, workspaceId: input.role === "guest" ? null : ws, billingGroupId: bg, req: ctx.req });
+  // Each waits for the person's answer (§14.18): told in the bell now, or at their first sign-in
+  const { tellInvite } = await import("./invites");
+  for (const e of emails) {
+    const added = await addPerson(ctx.deps, orgId, e, input.role, seat, { by: ctx.user, workspaceId: input.role === "guest" ? null : ws, billingGroupId: bg, req: ctx.req, pending: true });
+    if (added.created) await tellInvite(ctx.deps, orgId, e, ctx.user.id);
+  }
   return peopleByIds(ctx, orgId, emails);
 }
 

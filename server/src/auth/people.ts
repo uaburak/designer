@@ -54,8 +54,10 @@ export async function memberRow(deps: Deps, orgId: string, user: Pick<User, "id"
   if (own) return own;
   const pending = await d1.prepare(`SELECT * FROM org_members WHERE org_id = ?1 AND email = ?2 AND user_id IS NULL`).bind(orgId, user.email).first<MemberRow>();
   if (!pending) return null;
-  await d1.prepare(`UPDATE org_members SET user_id = ?3 WHERE org_id = ?1 AND email = ?2`).bind(orgId, pending.email, user.id).run();
-  return { ...pending, user_id: user.id };
+  // Signing in through the org's own identity provider answers an invite waiting for it (§14.18)
+  await d1.prepare(`UPDATE org_members SET user_id = ?3, invite_pending = 0 WHERE org_id = ?1 AND email = ?2`).bind(orgId, pending.email, user.id).run();
+  await d1.prepare(`UPDATE team_members SET user_id = ?3, invite_pending = 0 WHERE email = ?2 AND invite_pending = 1 AND team_id IN (SELECT id FROM teams WHERE org_id = ?1)`).bind(orgId, pending.email, user.id).run();
+  return { ...pending, user_id: user.id, invite_pending: 0 };
 }
 
 export interface EnsureMember {

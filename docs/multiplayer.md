@@ -1265,23 +1265,22 @@ Figma: a team's ⌄ menu (or right-click its name in the sidebar) → **Rename**
 
 Figma has no self-serve "delete organization": an Organization or Enterprise plan is cancelled through billing or Figma's support. A team is deleted from its ⌄ menu by typing its name, and the email lets it be restored for 28 days (help.figma.com 360039482174). **Ours**: org admins delete the organization from Admin › Settings › **Danger zone** › **Delete organization**, typing its name. Anyone but the last admin leaves from the space row's right-click › **Leave organization…** (`DELETE /orgs/:org/me`, unchanged).
 
-- **Soft delete** (`server/src/org/deletion.ts`):
-  - `DELETE /orgs/:org {confirmName}` → `{org}` with `deletedAt` and `purgeAt` (now + 14 days, ours). The org disappears from its members' and guests' `GET /orgs`, and every org route answers 404 (`Access.requireMember`, `container`, `requireTeam`).
-  - Its admins still list it, with `deletedAt` and `purgeAt`. `GET /orgs/:org` and `POST /orgs/:org/restore` stay open to them.
-  - Its files stay readable, read-only, to whoever could open them (`deletedOrgReadOnly`: viewer, no comments, sharing or managing). Open sockets are reauthorized.
-  - Logged `org_delete`. The other people of the org get the bell row `org_deleted` (no `org_id`, so it outlives the org) and an `orgs` notice.
-  - `POST /orgs/:org/restore` puts it back as it was (`org_restore`).
-- **Hard delete**: the daily cron's `purgeDeletedOrgs` (5 orgs a run) takes each org past its `purge_at`:
-  - every file of the org, drafts included: branches, room, comments and grants, its library (the object emptied, "Missing library" for its consumers) and its `f:` / `l:` stored bytes;
-  - the org's `FontObject` (fonts and icons) and the `o:<org>:` stored bytes, each person's and the server's quota totals released (§17);
-  - its `discovery_events` and `developer_logs`;
-  - the `orgs` row, which cascades to teams, folders, people, groups, workspaces, libraries' rows, plugins, tokens, settings and the activity log.
+- **Deleted for good at once** (`server/src/org/deletion.ts`; the owner's call, 2026-10-26 — no grace period, nothing left taking space on the server):
+  - `DELETE /orgs/:org {confirmName}` → 204. The org is first marked deleted (`deleted_at`): it leaves everyone's `GET /orgs`, admins' included, and every org route answers 404. Open sockets are reauthorized. Logged `org_delete`. The other people of the org get the bell row `org_deleted` (no `org_id`, so it outlives the org) and an `orgs` notice.
+  - Then `purgeOrg` runs after the answer (`waitUntil`): every file of the org, drafts included (branches, room, comments and grants, its library — the object emptied, "Missing library" for its consumers — and its `f:` / `l:` stored bytes); the org's `FontObject` (fonts and icons) and the `o:<org>:` stored bytes, each person's and the server's quota totals released (§17); its `discovery_events` and `developer_logs`; the `orgs` row, which cascades to teams, folders, people, groups, workspaces, libraries' rows, plugins, tokens, settings and the activity log. The org then no longer counts toward its creator's `orgs_created`.
+  - A purge cut short is finished by the 5-minute cron's `purgeDeletedOrgs` (every org with `deleted_at`, 5 per run) — and so were the orgs deleted under the old 14-day grace period.
+- There is no Restore (`POST /orgs/:org/restore` is gone). `orgs.purge_at` (migration `0021_org_delete.sql`) is kept, set to the deletion time.
+- **Types**: `OrgsRepository.remove` resolves to nothing; `NotificationKind` `org_deleted`.
+- **Views**: Admin's Danger zone row and `DeleteOrgDialog` (files/orgDialogs.tsx) say it can't be undone. Home leaves Admin for the person's own space once the org is off its list (`orgGone`).
 
-  The org then no longer counts toward its creator's `orgs_created`.
-- **Migration** `0021_org_delete.sql`: `orgs.deleted_at`, `deleted_by`, `purge_at` (indexed).
-- **Types**: `OrgSummary.deletedAt?` and `purgeAt?`; the activity actions `org_delete` and `org_restore`; `NotificationKind` `org_deleted`.
-- **Store**: `orgs.remove(orgId, confirmName)`, `orgs.restore`, `orgs.trashedDrafts` (`GET /orgs/:org/drafts?trashed=1`, the caller's drafts in the trash) and `projects.deleteFilesForever` (`DELETE /files/:key` per file).
-- **Views**: Admin's Danger zone row and `DeleteOrgDialog` (files/orgDialogs.tsx). A deleted org shows its admins "‹Org› was deleted" with **Restore organization** instead of its pages; Admin is closed for it.
+### 14.18 Invitations wait for an answer; teams open to the organization (2026-10-26)
+
+The owner's calls: someone added to the organization, or invited to a team, accepts first; and the org's people reach its files without being added team by team.
+
+- **Pending rows** (migration `0030_invite_accept.sql`): `org_members.invite_pending` and `team_members.invite_pending`. Admin › People › Add people (`addPerson(…, {pending: true})`, the workspace's default teams with it) and a team's Invite (`putTeamMember`; someone outside the org comes in with the team through `inviteEmail(…, {pending: true})`) write rows with `invite_pending = 1` and no `user_id`. Until the answer they give no access and list nothing: every membership query matches by `user_id`, and the by-email matches (`Q.membership`, `Q.teamPeople`, `expiredGuest`, `claimInvites`) skip pending rows. Admin › People lists them as pending; a team's Members as "Invited". SCIM, domain capture, an approved guest request and an approved request to join still add people at once.
+- **The bell** (`server/src/org/invites.ts`): `org_invite` (new) and `team_invite` rows with `state: "pending"` show **Decline / Accept** (`NotificationsPopover`); `team_join_request` shows **Decline / Approve** for the team's admins. All go through `POST /notifications/:id/answer {approve}`. Someone without an account is told at their first sign-in (`tellPendingInvites` in `issueSession`, once per invite). Signing in through the org's own SSO accepts its invite (`memberRow`).
+- **One answer settles the org**: Accept joins the org (logged `org_user_create`, with the home org's `_external` twins) and every team waiting there; Decline on an org invite, or on a team invite of someone not yet in the org, drops the org's row with its teams'; Decline on a team invite of someone already in the org drops that team's row only. The bell rows read Accepted / Declined.
+- **Teams open to the organization by default**: Create team asks "Who has access" (`CreateTeamDialog`), defaulting to "Anyone in ‹org› can edit"; `POST /orgs/:org/teams {orgAccess?, visibility?}` defaults to `editor` / `visible` (Figma lets the creator choose; the default is ours). Teams made before keep their setting (a team's Members › Who has access).
 
 ## 15. Identity and security (contract, Phase 7 round 4; written 2026-10-11)
 

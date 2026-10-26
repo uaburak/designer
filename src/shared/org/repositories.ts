@@ -49,11 +49,9 @@ export interface OrgsRepository {
   leave(orgId: string): Promise<void>;
   /**
    * Admin › Settings › Delete organization (org admins; docs/multiplayer.md §14.17): `confirmName` is the org's name as
-   * typed. The org is hidden from its people and deleted for good 14 days later (`OrgInfo.purgeAt`); until then its
-   * admins still list it (`deletedAt`) and can `restore` it.
+   * typed. The org and everything in it are deleted for good at once.
    */
-  remove(orgId: string, confirmName: string): Promise<O.OrgInfo>;
-  restore(orgId: string): Promise<O.OrgInfo>;
+  remove(orgId: string, confirmName: string): Promise<void>;
   /** The caller's drafts in the trash (Home's Trash: Restore, Delete forever) */
   trashedDrafts(orgId: string): Promise<O.OrgFile[]>;
   /** Admin › Settings › Organization name (org admins; docs/multiplayer.md §14.16) */
@@ -74,7 +72,8 @@ export interface TeamsRepository {
   /** Home's team page — the team, its top-level folders, members and (admins) join requests — in one request, cached
    *  like the parts (an answer at once when cached, refreshed behind). Optional: the dev fakes may not have it */
   page?(teamId: string): Promise<O.TeamPage>;
-  create(orgId: string, input: { name: string; workspaceId?: string | null }): Promise<O.TeamInfo>;
+  /** "Who has access" defaults to anyone in the organization, can edit (ours) */
+  create(orgId: string, input: { name: string; workspaceId?: string | null; orgAccess?: O.Audience; visibility?: "visible" | "hidden" }): Promise<O.TeamInfo>;
   update(teamId: string, patch: O.TeamPatch): Promise<O.TeamInfo>;
   /** "Change icon" (the team's admins): as OrgsRepository.setIcon */
   setIcon(teamId: string, image: Uint8Array): Promise<O.TeamInfo>;

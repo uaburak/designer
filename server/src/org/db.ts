@@ -95,6 +95,8 @@ export interface MemberRow {
   last_active_at: number | null;
   /** 0018 (docs/governance.md §2.13): a guest's access ends then (ms); null: never */
   expires_at?: number | null;
+  /** 0030 (§14.18): 1 while an invite waits for the person's answer (no `user_id` then) */
+  invite_pending?: number;
 }
 
 export interface OrgRow {
@@ -148,14 +150,14 @@ export const Q = {
   team: (teamId: string): Query => ({ sql: `SELECT * FROM teams WHERE id = ?1`, args: [teamId] }),
   project: (id: string): Query => ({ sql: `SELECT * FROM projects WHERE id = ?1`, args: [id] }),
   membership: (orgId: string, u: Who, now: number): Query => ({
-    sql: `SELECT m.* FROM org_members m JOIN orgs o ON o.id = m.org_id WHERE m.org_id = ?1 AND (m.user_id = ?2 OR (m.user_id IS NULL AND m.email = ?3))
+    sql: `SELECT m.* FROM org_members m JOIN orgs o ON o.id = m.org_id WHERE m.org_id = ?1 AND (m.user_id = ?2 OR (m.user_id IS NULL AND m.email = ?3 AND m.invite_pending = 0))
            AND (m.expires_at IS NULL OR o.governance_plus = 0 OR m.expires_at > ?4)`,
     args: [orgId, u.id, u.email, now],
   }),
   gate: (orgId: string, userId: string): Query => ({ sql: `SELECT ${gateCols("?2")} FROM orgs o WHERE o.id = ?1`, args: [orgId, userId] }),
   groups: (orgId: string, userId: string): Query => ({ sql: `SELECT m.group_id FROM user_group_members m JOIN user_groups g ON g.id = m.group_id WHERE m.user_id = ?1 AND g.org_id = ?2`, args: [userId, orgId] }),
   workspaceAdminOf: (orgId: string, userId: string): Query => ({ sql: `SELECT a.workspace_id FROM workspace_admins a JOIN workspaces w ON w.id = a.workspace_id WHERE a.user_id = ?1 AND w.org_id = ?2`, args: [userId, orgId] }),
-  teamPeople: (teamId: string, u: Who): Query => ({ sql: `SELECT user_id, email, role, admin FROM team_members WHERE team_id = ?1 AND (user_id = ?2 OR (user_id IS NULL AND email = ?3))`, args: [teamId, u.id, u.email] }),
+  teamPeople: (teamId: string, u: Who): Query => ({ sql: `SELECT user_id, email, role, admin FROM team_members WHERE team_id = ?1 AND (user_id = ?2 OR (user_id IS NULL AND email = ?3 AND invite_pending = 0))`, args: [teamId, u.id, u.email] }),
   groupGrants: (type: "team" | "project" | "file", id: string, userId: string): Query => ({
     sql: `SELECT group_id, role FROM group_grants WHERE resource_type = ?1 AND resource_id = ?2 AND group_id IN (SELECT group_id FROM user_group_members WHERE user_id = ?3)`,
     args: [type, id, userId],
@@ -300,7 +302,7 @@ export class Access {
       if (await this.membership(orgId)) return false;
       const r = await this.d1
         .prepare(
-          `SELECT 1 AS x FROM org_members m JOIN orgs o ON o.id = m.org_id WHERE m.org_id = ?1 AND (m.user_id = ?2 OR (m.user_id IS NULL AND m.email = ?3))
+          `SELECT 1 AS x FROM org_members m JOIN orgs o ON o.id = m.org_id WHERE m.org_id = ?1 AND (m.user_id = ?2 OR (m.user_id IS NULL AND m.email = ?3 AND m.invite_pending = 0))
            AND m.role = 'guest' AND o.governance_plus = 1 AND m.expires_at IS NOT NULL AND m.expires_at <= ?4 LIMIT 1`,
         )
         .bind(orgId, this.user.id, this.user.email, this.now)
@@ -766,20 +768,23 @@ export async function personIn(d1: D1Like, orgId: string, userId: string): Promi
   return r ? personRef(r) : null;
 }
 
-/** Invites waiting for this email (org, team, folder rows) become this user's — at sign-in, as 0001's members. */
+/**
+ * Invites waiting for this email (org, team, folder rows) become this user's — at sign-in, as 0001's members. Those
+ * waiting for an answer (`invite_pending`) stay as they are: the person is told, and accepts or declines from the bell.
+ */
 export async function claimInvites(d1: D1Like, user: { id: string; email: string }): Promise<void> {
   // A member whose home org restricts external content doesn't accept outside invites (§15.6) [F-external]: those
   // stay pending by email. The would-be home org's invite (an org owning the email's verified domain) is claimed first.
   const domain = emailDomain(user.email);
-  if (domain) await d1.prepare(`UPDATE org_members SET user_id = ?1 WHERE email = ?2 AND user_id IS NULL AND org_id IN (SELECT org_id FROM org_domains WHERE domain = ?3 AND verified_at IS NOT NULL)`).bind(user.id, user.email, domain).run();
+  if (domain) await d1.prepare(`UPDATE org_members SET user_id = ?1 WHERE email = ?2 AND user_id IS NULL AND invite_pending = 0 AND org_id IN (SELECT org_id FROM org_domains WHERE domain = ?3 AND verified_at IS NOT NULL)`).bind(user.id, user.email, domain).run();
   const home = await homeOrgOf(d1, user);
   if (home?.restricted) {
-    await d1.prepare(`UPDATE org_members SET user_id = ?1 WHERE email = ?2 AND user_id IS NULL AND org_id = ?3`).bind(user.id, user.email, home.orgId).run();
-    await d1.prepare(`UPDATE team_members SET user_id = ?1 WHERE email = ?2 AND user_id IS NULL AND team_id IN (SELECT id FROM teams WHERE org_id = ?3)`).bind(user.id, user.email, home.orgId).run();
+    await d1.prepare(`UPDATE org_members SET user_id = ?1 WHERE email = ?2 AND user_id IS NULL AND invite_pending = 0 AND org_id = ?3`).bind(user.id, user.email, home.orgId).run();
+    await d1.prepare(`UPDATE team_members SET user_id = ?1 WHERE email = ?2 AND user_id IS NULL AND invite_pending = 0 AND team_id IN (SELECT id FROM teams WHERE org_id = ?3)`).bind(user.id, user.email, home.orgId).run();
     await d1.prepare(`UPDATE project_members SET user_id = ?1 WHERE email = ?2 AND user_id IS NULL AND project_id IN (SELECT p.id FROM projects p JOIN teams t ON t.id = p.team_id WHERE t.org_id = ?3)`).bind(user.id, user.email, home.orgId).run();
     return;
   }
-  for (const t of ["org_members", "team_members", "project_members"]) await d1.prepare(`UPDATE ${t} SET user_id = ?1 WHERE email = ?2 AND user_id IS NULL`).bind(user.id, user.email).run();
+  for (const t of ["org_members", "team_members", "project_members"]) await d1.prepare(`UPDATE ${t} SET user_id = ?1 WHERE email = ?2 AND user_id IS NULL${t === "project_members" ? "" : " AND invite_pending = 0"}`).bind(user.id, user.email).run();
 }
 
 export async function userByEmail(d1: D1Like, email: string): Promise<{ id: string; email: string; name: string | null } | null> {

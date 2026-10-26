@@ -10,7 +10,7 @@
  */
 import { useEffect, useState, type ReactNode } from "react";
 import { Avatar, Badge, Banner, Breadcrumb, InlineEdit, Button, ContextMenu, EmptyState, FileCard, FileKindIcon, type FileCardProps, FolderCard, Icon, IconButton, ListHeader, ListRow, MenuButton, SegmentedControl, Select, Spinner, Tabs, TextInput, type ListColumn, type MenuEntry, type ToastOptions } from "@/ds";
-import { intlLocale, t as tr, tp, useT } from "@/i18n";
+import { t as tr, tp, useT } from "@/i18n";
 import type * as O from "@shared/org/types";
 import type { FileKey } from "@shared/store/types";
 import { ConfirmDialog } from "./dialogs";
@@ -37,7 +37,7 @@ import {
   viewSeatNotice,
   type TeamAccessChoice,
 } from "./org";
-import { AskToUpgradeDialog, DestinationDialog, IconDialog, NameDialog, TransferDialog, type Destination } from "./orgDialogs";
+import { AskToUpgradeDialog, CreateTeamDialog, DestinationDialog, IconDialog, NameDialog, TransferDialog, type Destination } from "./orgDialogs";
 import { LibraryAnalytics } from "./libraryAnalytics";
 import { OrgLibrariesDialog, TeamFontsDialog, TeamLibrariesDialog, TeamSettingsDialog } from "./orgLibraries";
 import { TeamIcon, useIconSrc } from "./parts";
@@ -137,7 +137,6 @@ const ORG_DRAG = "application/x-designer-org-items";
 type Dragged = { files?: string[]; folder?: string };
 /** Files from the computer (not a card of ours) */
 const draggingFiles = (e: React.DragEvent) => e.dataTransfer.types.includes("Files") && !e.dataTransfer.types.includes(ORG_DRAG);
-const purgeDate = (at: number) => new Date(at).toLocaleDateString(intlLocale(), { month: "long", day: "numeric", year: "numeric" });
 
 type Dialog =
   | { kind: "ask-upgrade" }
@@ -576,20 +575,7 @@ export function OrgMain(props: OrgMainProps) {
 
   const tabs = (main: string) => <Tabs className={styles.orgTabs} label={tr("Sections")} value={tab} tabs={[{ value: "main", label: main }, { value: "members", label: tr("Members") }]} onChange={(v) => setTab(v as "main" | "members")} />;
 
-  const deleted = info?.deletedAt ? info : null;
-  if (deleted) {
-    // A deleted organization (§14.17): only its admins still see it, to restore it before it's deleted for good
-    title = { items: [{ id: "deleted", label: orgName }] };
-    body = (
-      <EmptyState
-        size="page"
-        icon="24.trash.outline"
-        title={tr("{name} was deleted", { name: orgName })}
-        body={tr("Its teams, folders and files will be deleted for good on {date}. Until then, admins can restore it.", { date: purgeDate(deleted.purgeAt ?? deleted.deletedAt!) })}
-        action={isAdmin ? { label: tr("Restore organization"), onClick: () => void write(() => org.orgs.restore(orgId), tr("{name} restored", { name: orgName })) } : undefined}
-      />
-    );
-  } else switch (data.kind) {
+  switch (data.kind) {
     case "all-projects": {
       // Every file the person can open in the org shown, the last opened or added first (created or imported: its createdAt)
       title = { items: [{ id: "all-projects", label: tr("All projects") }] };
@@ -1026,7 +1012,7 @@ export function OrgMain(props: OrgMainProps) {
       {banner}
       {blocked ?? (
         <div className={styles.orgContent} onKeyDown={onKey} onContextMenu={(e) => blankMenu(e, blankArea.entries, blankArea.run)} {...pageDrop(blankArea.onFiles)}>
-          {current || data.kind === "none" || deleted ? body : <div className={`${styles.center} ${styles.pending}`} aria-busy><Spinner size={24} /></div>}
+          {current || data.kind === "none" ? body : <div className={`${styles.center} ${styles.pending}`} aria-busy><Spinner size={24} /></div>}
         </div>
       )}
       {menu && <ContextMenu at={menu.at} entries={menu.entries} onSelect={menu.run} onClose={() => setMenu(null)} />}
@@ -1042,14 +1028,12 @@ export function OrgMain(props: OrgMainProps) {
         />
       )}
       {dialog?.kind === "create-team" && (
-        <NameDialog
-          title={tr("Create team")}
-          label={tr("Team name")}
-          confirm={tr("Create team")}
+        <CreateTeamDialog
+          orgName={orgName}
           onClose={() => setDialog(null)}
-          onDone={async (name) => {
+          onCreate={async (input) => {
             setDialog(null);
-            const t = await write(() => org.teams.create(orgId, { name }));
+            const t = await write(() => org.teams.create(orgId, input));
             if (t) go({ kind: "team", teamId: t.id });
           }}
         />

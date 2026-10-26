@@ -521,7 +521,6 @@ export function createFakeAdminStore(options: { now?: number; me?: string; laten
     },
     leave: unsupported("orgs.leave"),
     remove: unsupported("orgs.remove"),
-    restore: unsupported("orgs.restore"),
     trashedDrafts: unsupported("orgs.trashedDrafts"),
     async update(_orgId, patch) {
       const name = patch.name.trim();

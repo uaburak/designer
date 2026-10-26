@@ -26,7 +26,7 @@ import { randomToken } from "./tokens";
  * with no file (`file_key` null, `file_name` the team's or folder's name), `org_id` / `team_id` set. In the shared
  * `NotificationKind` (and worded by the bell) since 2026-10-18.
  */
-export type OrgNotificationKind = Extract<NotificationKind, "team_invite" | "project_invite" | "team_join_request" | "seat_request" | "seat_request_approved" | "seat_request_denied" | "guest_request" | "library_default_override" | "org_domain_captured">;
+export type OrgNotificationKind = Extract<NotificationKind, "org_invite" | "team_invite" | "project_invite" | "team_join_request" | "seat_request" | "seat_request_approved" | "seat_request_denied" | "guest_request" | "library_default_override" | "org_domain_captured">;
 
 /**
  * Branches' kinds (docs/data.md §15.5, docs/multiplayer.md §14.11; wording to be read from Figma's bell when the UI is
@@ -37,7 +37,7 @@ export type OrgNotificationKind = Extract<NotificationKind, "team_invite" | "pro
 export type BranchNotificationKind = Extract<NotificationKind, "branch_review_request" | "branch_review" | "branch_merged">;
 
 /** Kinds answered with Approve / Deny: the Requests tab and the pending count (the org's are answered on their own routes) */
-const REQUEST_KINDS = `('edit-request', 'team_join_request', 'seat_request', 'guest_request', 'plugin_request')`;
+const REQUEST_KINDS = `('edit-request', 'org_invite', 'team_invite', 'team_join_request', 'seat_request', 'guest_request', 'plugin_request')`;
 
 /**
  * What the store's org cache hears through the inbox (§14.6, §14.11; src/store/notifications/service.ts OrgNotice):
@@ -161,7 +161,12 @@ export async function notificationsRoute(
   }
   if (parts.length === 3 && parts[2] === "answer" && m === "POST") {
     const body = await readJson(req);
-    const n = await deps.db.d1.prepare(`SELECT kind, file_key, actor_id, state FROM notifications WHERE id = ?1 AND user_id = ?2`).bind(parts[1], user.id).first<{ kind: string; file_key: string | null; actor_id: string; state: string | null }>();
+    const n = await deps.db.d1.prepare(`SELECT kind, file_key, actor_id, state, org_id, team_id FROM notifications WHERE id = ?1 AND user_id = ?2`).bind(parts[1], user.id).first<{ kind: string; file_key: string | null; actor_id: string; state: string | null; org_id: string | null; team_id: string | null }>();
+    // An organization's invite (Accept / Decline) or a request to join a team (Approve / Decline): org/invites.ts
+    if (n && n.org_id && (n.kind === "org_invite" || n.kind === "team_invite" || n.kind === "team_join_request")) {
+      if (n.state === "pending") await (await import("./org/invites")).answerOrgNotification(deps, user, req, { ...n, org_id: n.org_id }, body?.approve === true);
+      return json(await page(deps, user.id, { filter: url.searchParams.get("filter") === "requests" ? "requests" : "all", fileKey: null, orgId: null, teamId: null, before: null, limit: PAGE }));
+    }
     if (!n || n.kind !== "edit-request" || !n.file_key) return fail(404, "no such request");
     const access = await canOpen(deps, n.file_key, user.id);
     if (access?.role !== "owner" && access?.role !== "editor") return fail(403, "only people who can edit the file can answer");
@@ -506,6 +511,17 @@ export async function settleOrg(deps: Deps, kind: OrgNotificationKind, orgId: st
       .bind(kind, orgId, actorId, state, teamId ?? null)
       .all<{ user_id: string }>();
     for (const u of new Set(results.map((r) => r.user_id))) await push(deps, u);
+  });
+}
+
+/** The person answered their invites to an org (all of them, or one team's): the bell rows show how (§14.18) */
+export async function settleInvites(deps: Deps, userId: string, orgId: string, state: "approved" | "denied", teamId: string | null): Promise<void> {
+  await safely("an invite answer", async () => {
+    await deps.db.d1
+      .prepare(`UPDATE notifications SET state = ?3 WHERE user_id = ?1 AND org_id = ?2 AND kind IN ('org_invite', 'team_invite') AND state = 'pending' AND (?4 IS NULL OR team_id = ?4)`)
+      .bind(userId, orgId, state, teamId)
+      .run();
+    await push(deps, userId);
   });
 }
 

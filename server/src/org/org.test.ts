@@ -62,6 +62,12 @@ async function signIn(email: string) {
   return r.body as { token: string; user: { id: string; email: string } };
 }
 
+/** The invitee accepts what waits for them in the bell (docs/multiplayer.md §14.18) */
+async function acceptInvites(token: string) {
+  for (const n of (await call("GET", "/notifications?filter=requests", token)).body.items as Any[])
+    if ((n.kind === "org_invite" || n.kind === "team_invite") && n.state === "pending") await call("POST", `/notifications/${n.id}/answer`, token, { approve: true });
+}
+
 const d1 = () => deps.db.d1;
 const reauths = () => rooms.filter((r) => r.path === "/room/reauth");
 const actions = async (orgId: string) => (await d1().prepare(`SELECT action FROM activity_log WHERE org_id = ?1 ORDER BY id`).bind(orgId).all<{ action: string }>()).results.map((r) => r.action);
@@ -72,7 +78,8 @@ async function acme() {
   const bob = await signIn("bob@x.co");
   const org = (await call("POST", "/orgs", alice.token, { name: "Acme" })).body.org;
   await call("POST", `/orgs/${org.id}/admin/people`, alice.token, { emails: ["bob@x.co"], role: "member" });
-  const team = (await call("POST", `/orgs/${org.id}/teams`, alice.token, { name: "Design" })).body.team;
+  await acceptInvites(bob.token);
+  const team = (await call("POST", `/orgs/${org.id}/teams`, alice.token, { name: "Design", orgAccess: "none" })).body.team;
   const folder = (await call("POST", `/teams/${team.id}/projects`, alice.token, { name: "Web" })).body.project;
   const file = (await call("POST", `/projects/${folder.id}/files`, alice.token, { key: "file_web001", name: "Home" })).body.file;
   return { alice, bob, org, team, folder, file };
@@ -123,6 +130,7 @@ describe("teams (§14.12)", () => {
     const { alice, bob, org, team, file } = await acme();
     const carol = await signIn("carol@x.co");
     await call("POST", `/orgs/${org.id}/admin/people`, alice.token, { emails: ["carol@x.co"], role: "member" });
+    await acceptInvites(carol.token);
     expect((await call("POST", `/orgs/${org.id}/teams`, alice.token, { name: "design" })).body.code).toBe("conflict");
     // Bob browses: the Visible team is there, not his; the file isn't open to him
     expect((await call("GET", `/orgs/${org.id}/teams?filter=mine`, bob.token)).body.teams).toEqual([]);

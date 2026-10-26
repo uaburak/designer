@@ -350,6 +350,8 @@ export const collab: Record<string, string> = {
   // Phase 7's organization and branch kinds (leftovers 2026-10-18)
   "Invited you to view a team": "Sizi bir ekibi görüntülemeye davet etti",
   "Invited you to a team": "Sizi bir ekibe davet etti",
+  "Invited you to join the organization": "Sizi organizasyona katılmaya davet etti",
+  "Accepted": "Kabul edildi",
   "Invited you to view a folder": "Sizi bir klasörü görüntülemeye davet etti",
   "Invited you to edit a folder": "Sizi bir klasörü düzenlemeye davet etti",
   "Asked to join the team": "Ekibe katılmak istedi",

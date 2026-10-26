@@ -309,6 +309,11 @@ describe("external activity events in the home org (§15.9, §15.11)", () => {
     expect(await actions()).toContain("org_user_create_external");
     await w.call("PUT", `/teams/teamBeta00000001/members`, b.zed.token, { email: "dan@x.co", role: "viewer" });
     expect(await actions(b.orgId)).toContain("team_member_add");
+    // The twin once Dan accepts the invite (docs/multiplayer.md §14.18)
+    expect(await actions()).not.toContain("team_member_add_external");
+    const invite = ((await w.call("GET", "/notifications?filter=requests", w.people.dan.token)).body.items as Any[]).find((n) => n.kind === "team_invite");
+    await w.call("POST", `/notifications/${invite.id}/answer`, w.people.dan.token, { approve: true });
+    expect(await actions(b.orgId)).toContain("org_user_create");
     expect(await actions()).toContain("team_member_add_external");
   });
 });

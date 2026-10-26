@@ -84,6 +84,13 @@ export class RealOrgServer {
     return { user: { id: out.user.id, email: out.user.email, name }, token: out.token };
   }
 
+  /** The person accepts the invites waiting for them in the bell (docs/multiplayer.md §14.18) */
+  async acceptInvites(token: string): Promise<void> {
+    const page = await this.call("GET", "/notifications?filter=requests", token);
+    for (const n of (page.body?.items ?? []) as { id: string; kind: string; state: string | null }[])
+      if ((n.kind === "org_invite" || n.kind === "team_invite") && n.state === "pending") await this.call("POST", `/notifications/${n.id}/answer`, token, { approve: true });
+  }
+
   /** The handler, as `fetch` */
   readonly fetch: typeof fetch = async (input, init) => {
     if (!this.online) throw new TypeError("fetch failed");

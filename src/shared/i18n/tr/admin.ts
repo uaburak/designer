@@ -988,8 +988,7 @@ export const admin: Record<string, string> = {
   "Built with npm run dist:msi": "npm run dist:msi ile derlenir",
   "Danger zone": "Tehlikeli bölge",
   "Delete organization": "Organizasyonu sil",
-  "Delete the organization with its teams, folders, files, libraries and fonts. Admins can restore it for 14 days; after that it's gone for good.":
-    "Organizasyonu ekipleri, klasörleri, dosyaları, kütüphaneleri ve yazı tipleriyle birlikte silin. Yöneticiler 14 gün boyunca geri yükleyebilir; sonrasında kalıcı olarak silinir.",
+  "Delete the organization for good, with its teams, folders, files, libraries and fonts. You can’t undo this.": "Organizasyonu ekipleri, klasörleri, dosyaları, kütüphaneleri ve yazı tipleriyle birlikte kalıcı olarak silin. Bu işlem geri alınamaz.",
   "Settings saved": "Ayarlar kaydedildi",
   "Authentication changed": "Kimlik doğrulama değiştirildi",
   "Session timeout saved": "Oturum zaman aşımı kaydedildi",

@@ -9,8 +9,7 @@
  *   GET    /orgs/:org/search?text=            OrgSearchResult
  *   POST   /orgs/:org/seat-requests           {seat, note?} → {request}  "Ask to upgrade"
  *   DELETE /orgs/:org/me                      leave (the last admin can't)
- *   DELETE /orgs/:org {confirmName}           {org}  "Delete organization" (admins; deletion.ts, §14.17)
- *   POST   /orgs/:org/restore                 {org}  within the grace period (admins)
+ *   DELETE /orgs/:org {confirmName}           204    "Delete organization" for good (admins; deletion.ts, §14.17)
  *   GET    /orgs/:org/drafts?trashed=1        {files} the caller's drafts in the trash
  *   …/groups → groups.ts, …/teams → teams.ts, …/admin → admin.ts
  *
@@ -62,7 +61,7 @@ export async function orgsRoute(ctx: Ctx): Promise<Response> {
   // Internal policies' prompts and agreement (docs/governance.md §4): open while the caller is gated
   if (parts[2] === "policies") return (await import("../governance/policies")).memberPoliciesRoute(ctx, orgId);
   // Delete organization and Restore (§14.17, deletion.ts): org admins
-  if ((parts.length === 2 && m === "DELETE") || (parts.length === 3 && parts[2] === "restore")) return (await import("./deletion")).orgDeletionRoute(ctx, orgId, orgInfo);
+  if (parts.length === 2 && m === "DELETE") return (await import("./deletion")).orgDeletionRoute(ctx, orgId);
   if (parts.length === 2 && m === "GET") {
     // Not gated: OrgInfo carries the gate (docs/governance.md §2.5), so Home can prompt. A deleted org: its admins only.
     await acc.requireMember(orgId, { guests: true, gate: false, deleted: true });
@@ -127,7 +126,7 @@ export async function orgSummaries(deps: Deps, user: User, req: Request | null):
   const { results } = await deps.db.d1
     .prepare(
       `SELECT o.id, o.name, o.settings, o.icon_hash, o.deleted_at, o.purge_at, m.role, m.seat, m.workspace_id, m.expires_at, ${gateCols("?1")} FROM org_members m JOIN orgs o ON o.id = m.org_id
-       WHERE m.user_id = ?1 AND (m.expires_at IS NULL OR o.governance_plus = 0 OR m.expires_at > ?2) AND (o.deleted_at IS NULL OR m.role = 'admin') ORDER BY o.name`,
+       WHERE m.user_id = ?1 AND (m.expires_at IS NULL OR o.governance_plus = 0 OR m.expires_at > ?2) AND o.deleted_at IS NULL ORDER BY o.name`,
     )
     .bind(user.id, deps.now())
     .all<GateRow & { id: string; name: string; settings: string; icon_hash: string | null; deleted_at: number | null; purge_at: number | null; role: OrgRole; seat: Seat; workspace_id: string | null; expires_at: number | null }>();
@@ -137,8 +136,6 @@ export async function orgSummaries(deps: Deps, user: User, req: Request | null):
     out.push({
       id: r.id, name: r.name, iconUrl: iconUrl(r.id, r.icon_hash), role: r.role, seat: r.seat, workspaceId: r.workspace_id,
       ...(gate ? { gate } : {}), ...(r.g_plus && r.role === "guest" ? { guestExpiresAt: r.expires_at ?? null } : {}),
-      // A deleted org (§14.17) lists for its admins only, to restore it
-      ...(r.deleted_at ? { deletedAt: r.deleted_at, purgeAt: r.purge_at } : {}),
     });
   }
   return out;
@@ -173,7 +170,6 @@ export async function orgInfo(acc: Access, orgId: string): Promise<OrgInfo> {
     governancePlus: !!org.governance_plus,
     ...(gate ? { gate } : {}),
     ...(org.governance_plus && me.role === "guest" ? { guestExpiresAt: me.expires_at ?? null } : {}),
-    ...(org.deleted_at ? { deletedAt: org.deleted_at, purgeAt: org.purge_at ?? null } : {}),
   };
   return info;
 }
@@ -297,9 +293,10 @@ export async function setSeat(deps: Deps, orgId: string, userId: string, seat: S
 
 /**
  * Adds an email to the org (an account's row, or a pending one by email). Existing people keep their row. A member
- * joining a workspace joins its default teams (§14.1; "can edit" — unverified).
+ * joining a workspace joins its default teams (§14.1; "can edit" — unverified). `pending`: an invite that waits for the
+ * person's answer (§14.18) — no `user_id` until they accept, so no access and no listing.
  */
-export async function addPerson(deps: Deps, orgId: string, email: string, role: OrgRole, seat: Seat, opts: { by: User | null; workspaceId?: string | null; billingGroupId?: string | null; req?: Request | null; details?: Record<string, unknown> }): Promise<{ userId: string | null; created: boolean }> {
+export async function addPerson(deps: Deps, orgId: string, email: string, role: OrgRole, seat: Seat, opts: { by: User | null; workspaceId?: string | null; billingGroupId?: string | null; req?: Request | null; details?: Record<string, unknown>; pending?: boolean }): Promise<{ userId: string | null; created: boolean }> {
   const d1 = deps.db.d1;
   const e = normalizeEmail(email);
   const u = await userByEmail(d1, e);
@@ -311,26 +308,29 @@ export async function addPerson(deps: Deps, orgId: string, email: string, role: 
   // A guest's access ends after the org's default duration (Governance+, docs/governance.md §2.13)
   const expiresAt = role === "guest" ? await guestExpiryOnJoin(d1, orgId, now) : null;
   await d1
-    .prepare(`INSERT INTO org_members (org_id, email, user_id, role, seat, workspace_id, billing_group_id, invited_by, created_at, expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`)
-    .bind(orgId, e, u?.id ?? null, role, seat, opts.workspaceId ?? null, opts.billingGroupId ?? null, opts.by?.id ?? null, now, expiresAt)
+    .prepare(`INSERT INTO org_members (org_id, email, user_id, role, seat, workspace_id, billing_group_id, invited_by, created_at, expires_at, invite_pending) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`)
+    .bind(orgId, e, opts.pending ? null : (u?.id ?? null), role, seat, opts.workspaceId ?? null, opts.billingGroupId ?? null, opts.by?.id ?? null, now, expiresAt, opts.pending ? 1 : 0)
     .run();
   const entity = userEntity(u ?? { id: e, email: e, name: null });
   // The org logs org_user_create (guests too); the person's home org, when captured and another, its external twin
-  // (docs/multiplayer.md §15.9, §15.11 — corrected in round 4).
-  await logActivity(deps, { orgId, action: !u ? "org_invite_create" : "org_user_create", actor: opts.by, entity, details: { role, seat, ...(opts.details ?? {}) }, req: opts.req });
-  if (u) await logExternal(deps, u, orgId, "org_user_create_external", entity, { actor: opts.by, details: { role }, req: opts.req });
-  if (opts.workspaceId && role !== "guest") await joinDefaultTeams(deps, opts.workspaceId, e, u?.id ?? null, opts.by);
-  if (u) await orgNotice(deps, [u.id], { what: "orgs" });
-  return { userId: u?.id ?? null, created: true };
+  // (docs/multiplayer.md §15.9, §15.11 — corrected in round 4). An invite waiting for an answer logs org_invite_create;
+  // its org_user_create comes when it's accepted (invites.ts).
+  const joined = !!u && !opts.pending;
+  await logActivity(deps, { orgId, action: joined ? "org_user_create" : "org_invite_create", actor: opts.by, entity, details: { role, seat, ...(opts.details ?? {}) }, req: opts.req });
+  if (u && joined) await logExternal(deps, u, orgId, "org_user_create_external", entity, { actor: opts.by, details: { role }, req: opts.req });
+  if (opts.workspaceId && role !== "guest") await joinDefaultTeams(deps, opts.workspaceId, e, opts.pending ? null : (u?.id ?? null), opts.by, opts.pending);
+  if (u && joined) await orgNotice(deps, [u.id], { what: "orgs" });
+  return { userId: opts.pending ? null : (u?.id ?? null), created: true };
 }
 
-export async function joinDefaultTeams(deps: Deps, workspaceId: string, email: string, userId: string | null, by: User | null): Promise<void> {
+/** `pending`: the person's org invite waits for an answer, and these teams with it (§14.18) */
+export async function joinDefaultTeams(deps: Deps, workspaceId: string, email: string, userId: string | null, by: User | null, pending = false): Promise<void> {
   const d1 = deps.db.d1;
   const { results } = await d1.prepare(`SELECT team_id FROM workspace_default_teams WHERE workspace_id = ?1`).bind(workspaceId).all<{ team_id: string }>();
   for (const { team_id } of results)
     await d1
-      .prepare(`INSERT INTO team_members (team_id, email, user_id, role, admin, invited_by, created_at) VALUES (?1, ?2, ?3, 'editor', 0, ?4, ?5) ON CONFLICT (team_id, email) DO NOTHING`)
-      .bind(team_id, email, userId, by?.id ?? null, deps.now())
+      .prepare(`INSERT INTO team_members (team_id, email, user_id, role, admin, invited_by, created_at, invite_pending) VALUES (?1, ?2, ?3, 'editor', 0, ?4, ?5, ?6) ON CONFLICT (team_id, email) DO NOTHING`)
+      .bind(team_id, email, userId, by?.id ?? null, deps.now(), pending ? 1 : 0)
       .run();
 }
 
@@ -341,7 +341,7 @@ export type InviteOutcome = { kind: "member" | "guest"; userId: string | null; e
  * becomes a guest — Guest membership "Allow" — or waits for an admin ("Require admin approval": a guest request) or is
  * refused ("Block", `guest_blocked`).
  */
-export async function inviteEmail(ctx: Ctx, orgId: string, email: string, resource: { type: "team" | "project" | "file"; id: string; name: string }, role: GrantRole): Promise<InviteOutcome> {
+export async function inviteEmail(ctx: Ctx, orgId: string, email: string, resource: { type: "team" | "project" | "file"; id: string; name: string }, role: GrantRole, opts: { pending?: boolean } = {}): Promise<InviteOutcome> {
   const { deps, user, acc } = ctx;
   const d1 = deps.db.d1;
   const e = normalizeEmail(email);
@@ -360,7 +360,7 @@ export async function inviteEmail(ctx: Ctx, orgId: string, email: string, resour
   // An org admin inviting someone adds them as a member (the owner's decision, 2026-10-11: friends are members;
   // admins add anyone as a member by hand). Everyone else's outside invites make guests (§14.1).
   if (me?.role === "admin" || onDomain) {
-    const added = await addPerson(deps, orgId, e, "member", settings.defaultSeat, { by: user, req: ctx.req, details: { via: resource.type } });
+    const added = await addPerson(deps, orgId, e, "member", settings.defaultSeat, { by: user, req: ctx.req, details: { via: resource.type }, pending: opts.pending });
     return { kind: "member", userId: added.userId, email: e };
   }
   if (settings.guestMembership === "block") throw new HttpError(403, "people outside the organization can't be invited", "guest_blocked");
@@ -376,7 +376,7 @@ export async function inviteEmail(ctx: Ctx, orgId: string, email: string, resour
     for (const admin of await guestAnswerers(d1, orgId, resource)) await notifyOrg(deps, { userId: admin, kind: "guest_request", actorId: user.id, orgId, name: org.name, text: `${e} · ${resource.name}`, role, state: "pending" });
     return { kind: "requested", requestId: id, email: e };
   }
-  const added = await addPerson(deps, orgId, e, "guest", settings.defaultSeat, { by: user, req: ctx.req, details: { via: resource.type } });
+  const added = await addPerson(deps, orgId, e, "guest", settings.defaultSeat, { by: user, req: ctx.req, details: { via: resource.type }, pending: opts.pending });
   return { kind: "guest", userId: added.userId, email: e };
 }
 

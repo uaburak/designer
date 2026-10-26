@@ -525,7 +525,6 @@ export class StoreClient implements StoreApi {
     deleteGroup: (groupId) => this.call("orgs.deleteGroup", [groupId]),
     leave: (orgId) => this.call("orgs.leave", [orgId]),
     remove: (orgId, confirmName) => this.call("orgs.remove", [orgId, confirmName]),
-    restore: (orgId) => this.call("orgs.restore", [orgId]),
     trashedDrafts: (orgId) => this.call("orgs.trashedDrafts", [orgId]),
     update: (orgId, patch) => this.call("orgs.update", [orgId, patch]),
     setIcon: (orgId, image) => this.call("orgs.setIcon", [orgId, image]),

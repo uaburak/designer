@@ -109,7 +109,6 @@ const summaryOf = (v: O.OrgInfo): O.OrgSummary => ({
   workspaceId: v.workspaceId,
   ...(v.gate ? { gate: clone(v.gate) } : {}),
   ...(v.guestExpiresAt !== undefined ? { guestExpiresAt: v.guestExpiresAt } : {}),
-  ...(v.deletedAt ? { deletedAt: v.deletedAt, purgeAt: v.purgeAt ?? null } : {}),
 });
 /** A share registered on the server whose content didn't finish uploading (MultiplayerService.shareTo's `upload_incomplete`) */
 const pendingUpload = (e: unknown): boolean => e instanceof StoreError && (e.detail as { pendingUpload?: unknown } | undefined)?.pendingUpload === true;
@@ -958,16 +957,11 @@ export class OrgService {
       },
       remove: async (orgId, confirmName) => {
         const id = String(orgId);
-        const org = pick<O.OrgInfo>(await this.call("DELETE", `/orgs/${seg(id, "org")}`, { confirmName: String(confirmName ?? "") }), "org");
-        // Its lists go: only the org's row stays (its admins still list it, to restore it)
+        // Deleted for good at once (§14.17): it leaves the list as when leaving it
+        await this.call("DELETE", `/orgs/${seg(id, "org")}`, { confirmName: String(confirmName ?? "") });
         this.caches.delete(id);
-        return this.orgChanged(org);
-      },
-      restore: async (orgId) => {
-        const id = String(orgId);
-        const org = pick<O.OrgInfo>(await this.call("POST", `/orgs/${seg(id, "org")}/restore`), "org");
-        this.caches.delete(id);
-        return this.orgChanged(org);
+        await this.save(id);
+        this.emit({ type: "orgs.changed" });
       },
       trashedDrafts: async (orgId) => this.withCopies(pick<O.OrgFile[]>(await this.call("GET", `/orgs/${seg(String(orgId), "org")}/drafts${query({ trashed: 1 })}`), "files")),
       update: async (orgId, patch) => {
@@ -1119,7 +1113,7 @@ export class OrgService {
       page: async (teamId) => this.read(this.teamPageSpec(await orgOfTeamId(String(teamId)), String(teamId))),
       create: async (orgId, input) => {
         const id = String(orgId);
-        const team = pick<O.TeamInfo>(await this.call("POST", `/orgs/${seg(id, "org")}/teams`, { name: cleanName(input?.name, null, "team"), ...(input?.workspaceId !== undefined ? { workspaceId: input.workspaceId } : {}) }), "team");
+        const team = pick<O.TeamInfo>(await this.call("POST", `/orgs/${seg(id, "org")}/teams`, { name: cleanName(input?.name, null, "team"), ...(input?.workspaceId !== undefined ? { workspaceId: input.workspaceId } : {}), ...(input?.orgAccess ? { orgAccess: input.orgAccess } : {}), ...(input?.visibility ? { visibility: input.visibility } : {}) }), "team");
         this.teamOrg.set(team.id, id);
         await changed(team.id, id, { team });
         return team;

@@ -49,12 +49,14 @@ export type NotificationKind =
   | "org_deleted"
   /**
    * Phase 7's organization kinds (docs/multiplayer.md §14.15, §15.17; data.md §16.14): no file — `fileName` is the team,
-   * folder, library or org named, `placeIconUrl` its icon. An invite to a team / folder (`role`); a request to join a
+   * folder, library or org named, `placeIconUrl` its icon. An invite to the org or a team (`state` pending → approved
+   * | denied: Accept / Decline, §14.18) or to a folder (`role`); a request to join a
    * team (its admins), for a seat (`role` the seat, `text` the note; org admins, `state` pending → answered) and its
    * answer; a request to share with someone outside the org (`text` "‹email› · ‹resource›"); a library turned off by
    * default where it's approved above (`fileName` the library, `text` the workspace or team); an account captured by
    * the org's domain.
    */
+  | "org_invite"
   | "team_invite"
   | "project_invite"
   | "team_join_request"
@@ -266,6 +268,8 @@ export function notificationAction(n: Pick<NotificationItem, "kind" | "count" | 
     case "org_deleted":
       return t("Deleted the organization");
     // Phase 7's kinds. Figma's bell text for them isn't published: the actions in the past tense, as above.
+    case "org_invite":
+      return t("Invited you to join the organization");
     case "team_invite":
       return n.role === "viewer" ? t("Invited you to view a team") : t("Invited you to a team");
     case "project_invite":

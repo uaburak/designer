@@ -1,12 +1,12 @@
 /**
- * Delete organization (docs/multiplayer.md §14.17): who may, the soft delete (hidden, read-only, nothing created),
- * Restore, the notices, and the daily sweep that deletes it for good and releases what its people stored there.
+ * Delete organization (docs/multiplayer.md §14.17): who may, the notices, the purge that deletes it for good at once and
+ * releases what its people stored there, and the cron that finishes a purge cut short.
  */
 import { beforeEach, describe, expect, it } from "vitest";
 import { handle, type Deps } from "../api";
 import { Db } from "../db";
 import { sqliteD1 } from "../testing/sqliteD1";
-import { ORG_DELETE_GRACE_MS, purgeDeletedOrgs } from "./deletion";
+import { purgeDeletedOrgs } from "./deletion";
 
 const ORIGIN = "https://designer.example.workers.dev";
 
@@ -55,6 +55,12 @@ const call = async (method: string, path: string, token?: string, body?: unknown
   const text = await res.text();
   return { status: res.status, body: (text ? JSON.parse(text) : null) as Any };
 };
+/** The invitee accepts what waits for them in the bell (docs/multiplayer.md §14.18) */
+async function acceptInvites(token: string) {
+  for (const n of (await call("GET", "/notifications?filter=requests", token)).body.items as Any[])
+    if ((n.kind === "org_invite" || n.kind === "team_invite") && n.state === "pending") await call("POST", `/notifications/${n.id}/answer`, token, { approve: true });
+}
+
 const signIn = async (email: string) => (await call("POST", "/auth/dev", undefined, { email, name: email.split("@")[0] })).body as { token: string; user: { id: string } };
 const d1 = () => deps.db.d1;
 const count = async (sql: string, ...args: unknown[]) => (await d1().prepare(sql).bind(...args).first<{ n: number }>())!.n;
@@ -65,8 +71,9 @@ async function acme() {
   const bob = await signIn("bob@x.co");
   const org = (await call("POST", "/orgs", alice.token, { name: "Acme" })).body.org;
   await call("POST", `/orgs/${org.id}/admin/people`, alice.token, { emails: ["bob@x.co"], role: "member", seat: "full" });
-  const team = (await call("POST", `/orgs/${org.id}/teams`, alice.token, { name: "Design" })).body.team;
+  const team = (await call("POST", `/orgs/${org.id}/teams`, alice.token, { name: "Design", orgAccess: "none" })).body.team;
   await call("PUT", `/teams/${team.id}/members`, alice.token, { email: "bob@x.co", role: "editor" });
+  await acceptInvites(bob.token);
   const folder = (await call("POST", `/teams/${team.id}/projects`, alice.token, { name: "Web" })).body.project;
   const file = (await call("POST", `/projects/${folder.id}/files`, alice.token, { key: "file_web001", name: "Home" })).body.file;
   const draft = (await call("POST", `/orgs/${org.id}/drafts`, bob.token, { key: "file_bob001", name: "Sketch" })).body.file;
@@ -79,36 +86,9 @@ describe("Delete organization", () => {
     expect((await call("DELETE", `/orgs/${org.id}`, bob.token, { confirmName: "Acme" })).status).toBe(403);
     expect((await call("DELETE", `/orgs/${org.id}`, alice.token, { confirmName: "acme" })).status).toBe(400);
     expect((await call("DELETE", `/orgs/${org.id}`, alice.token, {})).status).toBe(400);
-    const r = await call("DELETE", `/orgs/${org.id}`, alice.token, { confirmName: "Acme" });
-    expect(r.status).toBe(200);
-    expect(r.body.org.deletedAt).toBe(now);
-    expect(r.body.org.purgeAt).toBe(now + ORG_DELETE_GRACE_MS);
-    expect((await call("DELETE", `/orgs/${org.id}`, alice.token, { confirmName: "Acme" })).status).toBe(409);
-    const log = (await d1().prepare(`SELECT action, actor_id FROM activity_log WHERE org_id = ?1 AND action = 'org_delete'`).bind(org.id).all<{ actor_id: string }>()).results;
-    expect(log).toEqual([{ action: "org_delete", actor_id: alice.user.id }]);
-  });
-
-  it("hides the org from its people, keeps its files read-only and refuses anything new", async () => {
-    const { alice, bob, org, team, folder, file } = await acme();
-    await call("DELETE", `/orgs/${org.id}`, alice.token, { confirmName: "Acme" });
-    // Bob: gone from his list and every route
-    expect((await call("GET", "/orgs", bob.token)).body.orgs).toEqual([]);
-    expect((await call("GET", `/orgs/${org.id}`, bob.token)).status).toBe(404);
-    expect((await call("GET", `/orgs/${org.id}/drafts`, bob.token)).status).toBe(404);
-    expect((await call("GET", `/teams/${team.id}`, bob.token)).status).toBe(404);
-    expect((await call("GET", `/projects/${folder.id}`, bob.token)).status).toBe(404);
-    expect((await call("POST", `/orgs/${org.id}/drafts`, bob.token, { key: "file_bob002", name: "x" })).status).toBe(404);
-    // Alice (admin): listed with its dates, to restore it; the rest of the org is closed to her too
-    const listed = (await call("GET", "/orgs", alice.token)).body.orgs;
-    expect(listed.map((o: Any) => [o.id, o.deletedAt, o.purgeAt])).toEqual([[org.id, now, now + ORG_DELETE_GRACE_MS]]);
-    expect((await call("GET", `/orgs/${org.id}`, alice.token)).body.org.deletedAt).toBe(now);
-    expect((await call("GET", `/orgs/${org.id}/teams`, alice.token)).status).toBe(404);
-    expect((await call("GET", `/orgs/${org.id}/admin/people`, alice.token)).status).toBe(404);
-    // Files: read-only for whoever could open them; their rooms re-check open sockets
-    const f = (await call("GET", `/files/${file.key}`, bob.token)).body;
-    expect(f.access).toMatchObject({ canEdit: false, canComment: false, canShare: false, canManage: false });
-    expect((await call("PATCH", `/files/${file.key}`, alice.token, { name: "Renamed" })).status).toBe(403);
-    expect(rooms.filter((r) => r.path === "/room/reauth").map((r) => r.key).sort()).toEqual(["file_bob001", "file_web001"]);
+    expect((await call("DELETE", `/orgs/${org.id}`, alice.token, { confirmName: "Acme" })).status).toBe(204);
+    expect((await call("DELETE", `/orgs/${org.id}`, alice.token, { confirmName: "Acme" })).status).toBe(404);
+    expect((await call("POST", `/orgs/${org.id}/restore`, alice.token)).status).toBe(404);
   });
 
   it("tells its people (a bell row that outlives the org) and refreshes their spaces", async () => {
@@ -121,24 +101,8 @@ describe("Delete organization", () => {
     expect(new Set(notices)).toEqual(new Set([alice.user.id, bob.user.id]));
   });
 
-  it("Restore brings it back as it was (admins only, before the sweep)", async () => {
-    const { alice, bob, org, file } = await acme();
-    await call("DELETE", `/orgs/${org.id}`, alice.token, { confirmName: "Acme" });
-    expect((await call("POST", `/orgs/${org.id}/restore`, bob.token)).status).toBe(404);
-    const r = await call("POST", `/orgs/${org.id}/restore`, alice.token);
-    expect(r.status).toBe(200);
-    expect(r.body.org.deletedAt).toBeUndefined();
-    expect((await call("POST", `/orgs/${org.id}/restore`, alice.token)).status).toBe(409);
-    expect((await call("GET", "/orgs", bob.token)).body.orgs.map((o: Any) => o.id)).toEqual([org.id]);
-    expect((await call("GET", `/files/${file.key}`, bob.token)).body.access.canEdit).toBe(true);
-    const actions = (await d1().prepare(`SELECT action FROM activity_log WHERE org_id = ?1 AND action IN ('org_delete', 'org_restore') ORDER BY id`).bind(org.id).all<{ action: string }>()).results.map((x) => x.action);
-    expect(actions).toEqual(["org_delete", "org_restore"]);
-    now += ORG_DELETE_GRACE_MS + 1;
-    expect(await purgeDeletedOrgs(deps)).toEqual([]);
-  });
-
-  it("the daily sweep deletes it for good after 14 days and releases its people's stored bytes", async () => {
-    const { alice, bob, org, file, draft } = await acme();
+  it("deletes it for good at once and releases its people's stored bytes", async () => {
+    const { alice, bob, org, team, folder, file, draft } = await acme();
     const other = (await call("POST", "/orgs", alice.token, { name: "Other" })).body.org;
     // What Alice and Bob stored: the files' snapshots, a library's bytes, an org font; the server's running total
     const items: [string, string, number][] = [
@@ -153,17 +117,19 @@ describe("Delete organization", () => {
       await d1().prepare(`UPDATE users SET stored_bytes = stored_bytes + ?2 WHERE id = ?1`).bind(owner, bytes).run();
     }
     await d1().prepare(`INSERT INTO quota_counters (subject, kind, window, n) VALUES ('*', 'server_storage_bytes', 0, 2040)`).run();
-    await call("DELETE", `/orgs/${org.id}`, alice.token, { confirmName: "Acme" });
     rooms = [];
-    now += ORG_DELETE_GRACE_MS - 1;
-    expect(await purgeDeletedOrgs(deps)).toEqual([]);
-    now += 2;
-    expect(await purgeDeletedOrgs(deps)).toEqual([org.id]);
+    expect((await call("DELETE", `/orgs/${org.id}`, alice.token, { confirmName: "Acme" })).status).toBe(204);
     expect(await count(`SELECT COUNT(*) AS n FROM orgs WHERE id = ?1`, org.id)).toBe(0);
     expect(await count(`SELECT COUNT(*) AS n FROM files WHERE org_id = ?1 OR key IN (?2, ?3)`, org.id, file.key, draft.key)).toBe(0);
     for (const t of ["teams", "org_members", "activity_log"]) expect(await count(`SELECT COUNT(*) AS n FROM ${t} WHERE org_id = ?1`, org.id), t).toBe(0);
     expect(await count(`SELECT COUNT(*) AS n FROM projects`)).toBe(0);
     expect(rooms.filter((r) => r.path === "/room" && r.method === "DELETE").map((r) => r.key).sort()).toEqual([draft.key, file.key].sort());
+    // Gone for everyone, its admins too
+    expect((await call("GET", "/orgs", bob.token)).body.orgs).toEqual([]);
+    expect((await call("GET", "/orgs", alice.token)).body.orgs.map((o: Any) => o.name)).toEqual(["Other"]);
+    expect((await call("GET", `/teams/${team.id}`, bob.token)).status).toBe(404);
+    expect((await call("GET", `/projects/${folder.id}`, bob.token)).status).toBe(404);
+    expect((await call("GET", `/files/${file.key}`, bob.token)).status).toBe(404);
     // Quotas: what was stored in it is released; the other org's icon stays
     expect(await count(`SELECT stored_bytes AS n FROM users WHERE id = ?1`, alice.user.id)).toBe(40);
     expect(await count(`SELECT stored_bytes AS n FROM users WHERE id = ?1`, bob.user.id)).toBe(0);
@@ -172,7 +138,16 @@ describe("Delete organization", () => {
     // The org no longer counts against its creator's organizations; Bob's bell still says it was deleted
     expect(await count(`SELECT COUNT(*) AS n FROM orgs WHERE created_by = ?1`, alice.user.id)).toBe(1);
     expect(await count(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = ?1 AND kind = 'org_deleted'`, bob.user.id)).toBe(1);
-    expect((await call("GET", "/orgs", alice.token)).body.orgs.map((o: Any) => o.name)).toEqual(["Other"]);
+  });
+
+  it("the cron finishes an org left deleted but not purged (and those from before purges were immediate)", async () => {
+    const { bob, org, file } = await acme();
+    await d1().prepare(`UPDATE orgs SET deleted_at = ?2, purge_at = ?3 WHERE id = ?1`).bind(org.id, now, now + 14 * 86_400_000).run();
+    expect((await call("GET", "/orgs", bob.token)).body.orgs).toEqual([]);
+    expect(await purgeDeletedOrgs(deps)).toEqual([org.id]);
+    expect(await count(`SELECT COUNT(*) AS n FROM orgs WHERE id = ?1`, org.id)).toBe(0);
+    expect(await count(`SELECT COUNT(*) AS n FROM files WHERE key = ?1`, file.key)).toBe(0);
+    expect(await purgeDeletedOrgs(deps)).toEqual([]);
   });
 });
 

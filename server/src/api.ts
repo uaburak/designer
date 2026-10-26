@@ -895,6 +895,8 @@ async function issueSession(user: User, deps: Deps, req: Request, auth: { method
   const exp = seconds(deps) + SESSION_DAYS * 86400;
   // Invites to orgs, teams and folders waiting for this email become this user's (§14.5, as 0001's members).
   await claimInvites(deps.db.d1, user);
+  // Invites waiting for an answer (§14.18) reach the bell of someone who just made their account
+  await (await import("./org/invites")).tellPendingInvites(deps, user);
   await logForUserOrgs(deps, user, "user_sign_in", req, { method: auth.method, ...(auth.orgId ? { org_id: auth.orgId } : {}) });
   const sid = await deps.db.createSession(user.id, { ...deviceFromUserAgent(req.headers.get("user-agent")), ...requestPlace(req) }, deps.now(), auth);
   const token = await signToken({ uid: user.id, tv: user.tokenVersion, sid, exp }, secret(deps));

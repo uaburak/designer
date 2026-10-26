@@ -300,6 +300,7 @@ describe("org spaces", () => {
     const { file } = await a.org.projects.createFile(folder.id, { name: "Spec" });
     const bobUser = await srv.addUser("bob@example.com", "Bob");
     await a.org.teams.invite(team.id, { email: "bob@example.com", role: "editor" });
+    await srv.acceptInvites(bobUser.token);
     const b = await installation(srv, bobUser.token);
     expect((await b.org.orgs.list()).map((o) => [o.name, o.role, o.seat])).toEqual([["Acme", "member", "view"]]);
     expect((await b.org.teams.list(org.id)).map((t) => t.name)).toEqual(["Design"]);
@@ -322,6 +323,7 @@ describe("org spaces", () => {
     const { file: other } = await a.org.projects.createFile(folder.id, { name: "Other" });
     const bobUser = await srv.addUser("bob@example.com", "Bob");
     await a.org.teams.invite(team.id, { email: "bob@example.com", role: "editor" });
+    await srv.acceptInvites(bobUser.token);
     const b = await installation(srv, bobUser.token);
     const keys = async () => (await b.org.projects.files(folder.id)).map((f) => f.key).sort();
     expect(await keys()).toEqual([file.key, other.key].sort());
@@ -418,6 +420,7 @@ describe("org spaces", () => {
     expect(dup).toMatchObject({ code: "conflict", detail: { code: "conflict" } });
     const bobUser = await srv.addUser("bob@example.com");
     await a.org.teams.invite(team.id, { email: "bob@example.com", role: "editor" });
+    await srv.acceptInvites(bobUser.token);
     await a.org.admin.updateSettings(org.id, { teamCreation: "admins", seatApproval: { full: "auto", dev: "manual", collab: "manual" } });
     const b = await installation(srv, bobUser.token);
     expect(await b.org.teams.create(org.id, { name: "Mine" }).catch((e: unknown) => e)).toMatchObject({ code: "forbidden", detail: { code: "admins_only" } });
@@ -616,6 +619,7 @@ describe("names and icons (docs/multiplayer.md §14.16)", () => {
     const { srv, a, org, team } = await acme();
     const bobUser = await srv.addUser("bob@example.com", "Bob");
     await a.org.teams.invite(team.id, { email: "bob@example.com", role: "editor" });
+    await srv.acceptInvites(bobUser.token);
     const b = await installation(srv, bobUser.token);
     expect(await codeOf(b.org.orgs.update(org.id, { name: "Mine" }))).toBe("forbidden");
     expect(await codeOf(b.org.orgs.setIcon(org.id, png("x")))).toBe("forbidden");
@@ -624,30 +628,23 @@ describe("names and icons (docs/multiplayer.md §14.16)", () => {
 });
 
 describe("Delete organization (docs/multiplayer.md §14.17)", () => {
-  it("an admin deletes it with its name typed: hidden from members, kept for admins to restore; Restore brings it back", async () => {
+  it("an admin deletes it with its name typed: gone for good at once, for its admins too", async () => {
     const { srv, a, org, team } = await acme();
     const bobUser = await srv.addUser("bob@example.com", "Bob");
     await a.org.teams.invite(team.id, { email: "bob@example.com", role: "editor" });
+    await srv.acceptInvites(bobUser.token);
     const b = await installation(srv, bobUser.token);
     expect((await b.org.orgs.list()).map((o) => o.id)).toEqual([org.id]);
     expect(await codeOf(b.org.orgs.remove(org.id, "Acme"))).toBe("forbidden");
     expect(await codeOf(a.org.orgs.remove(org.id, "Wrong"))).toBe("invalid");
     a.events.length = 0;
-    const gone = await a.org.orgs.remove(org.id, "Acme");
-    expect(gone.deletedAt).toBeTypeOf("number");
-    expect(gone.purgeAt! - gone.deletedAt!).toBe(14 * 86_400_000);
+    await a.org.orgs.remove(org.id, "Acme");
     expect(a.events).toContainEqual({ type: "orgs.changed" });
-    expect((await a.org.orgs.list()).map((o) => [o.id, !!o.deletedAt])).toEqual([[org.id, true]]);
+    expect(await a.org.orgs.list()).toEqual([]);
     // Bob's list, read again (his app hears the server's notice): the org is gone
     b.notices.send({ what: "orgs" });
     await b.org.idle();
     expect(await b.org.orgs.list()).toEqual([]);
-    const back = await a.org.orgs.restore(org.id);
-    expect(back.deletedAt).toBeUndefined();
-    expect((await a.org.orgs.list())[0].deletedAt).toBeUndefined();
-    b.notices.send({ what: "orgs" });
-    await b.org.idle();
-    expect((await b.org.orgs.list()).map((o) => o.id)).toEqual([org.id]);
   });
 
   it("trashed drafts list in the trash and are deleted forever from there", async () => {

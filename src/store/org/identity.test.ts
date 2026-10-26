@@ -213,6 +213,7 @@ describe("identity (docs/multiplayer.md §15.13, as built §15.16–§15.17)", (
   it("org admins only; signed out → offline; a bad org id never reaches the server", async () => {
     const bob = await w.dev("bob@acme.test");
     await w.call("POST", `/orgs/${w.orgId}/admin/people`, { token: w.admin.token, body: { emails: ["bob@acme.test"], role: "member" } });
+    await w.srv.acceptInvites(bob.token);
     await t.api.multiplayer.setSession({ server: ORIGIN, token: bob.token });
     const e = await refusal(t.api.identity.overview(w.orgId));
     expect(e.code).toBe("forbidden");

@@ -265,8 +265,8 @@ describe("Admin › Settings (round 4)", () => {
 
   it("Delete organization (§14.17): the org's name typed before Delete organization is enabled", async () => {
     const removed: [string, string][] = [];
-    const fake = await open({}, (f) => ({ ...f, orgs: { ...f.orgs, remove: async (orgId: string, name: string) => (removed.push([orgId, name]), f.orgs.get(orgId)) } }));
-    expect(setting("deleteOrg").textContent).toContain("Admins can restore it for 14 days");
+    const fake = await open({}, (f) => ({ ...f, orgs: { ...f.orgs, remove: async (orgId: string, name: string) => void removed.push([orgId, name]) } }));
+    expect(setting("deleteOrg").textContent).toContain("You can’t undo this.");
     click(button("Delete organization", setting("deleteOrg")));
     await settle();
     const name = fake.state.orgName;

@@ -62,6 +62,12 @@ async function signIn(email: string) {
   return r.body as { token: string; user: { id: string; email: string } };
 }
 
+/** The invitee accepts what waits for them in the bell (docs/multiplayer.md §14.18) */
+async function acceptInvites(token: string) {
+  for (const n of (await call("GET", "/notifications?filter=requests", token)).body.items as Any[])
+    if ((n.kind === "org_invite" || n.kind === "team_invite") && n.state === "pending") await call("POST", `/notifications/${n.id}/answer`, token, { approve: true });
+}
+
 
 // The single routes' answers, compared with the page routes'
 
@@ -72,7 +78,8 @@ async function acme() {
   const carol = await signIn("carol@y.co");
   const org = (await call("POST", "/orgs", alice.token, { name: "Acme" })).body.org;
   await call("POST", `/orgs/${org.id}/admin/people`, alice.token, { emails: ["bob@x.co", "dave@x.co"], role: "member" });
-  const team = (await call("POST", `/orgs/${org.id}/teams`, alice.token, { name: "Design" })).body.team;
+  await acceptInvites(bob.token);
+  const team = (await call("POST", `/orgs/${org.id}/teams`, alice.token, { name: "Design", orgAccess: "none" })).body.team;
   const folder = (await call("POST", `/teams/${team.id}/projects`, alice.token, { name: "Web" })).body.project;
   const sub = (await call("POST", `/teams/${team.id}/projects`, alice.token, { name: "Sub", parentId: folder.id })).body.project;
   await call("POST", `/projects/${folder.id}/files`, alice.token, { key: "file_web001", name: "Home" });
@@ -128,6 +135,7 @@ describe("Home's page routes (org/pages.ts)", () => {
   it("a team's page is what its four routes answer, for an admin, a member, a stranger and someone asking to join", async () => {
     const { alice, bob, carol, team } = await acme();
     const dave = await signIn("dave@x.co");
+    await acceptInvites(dave.token);
     // Only those invited, visible: Dave asks to join; Alice (an admin) sees the request, Bob doesn't
     await call("PATCH", `/teams/${team.id}`, alice.token, { orgAccess: "none", workspaceAccess: "none" });
     expect((await call("POST", `/teams/${team.id}/join`, dave.token)).body.status).toBe("requested");

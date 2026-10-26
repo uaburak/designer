@@ -278,7 +278,7 @@ export function SettingsTab() {
       <Group title={t("Danger zone")}>
         <Row
           id="deleteOrg" label={t("Delete organization")}
-          description={t("Delete the organization with its teams, folders, files, libraries and fonts. Admins can restore it for 14 days; after that it's gone for good.")}
+          description={t("Delete the organization for good, with its teams, folders, files, libraries and fonts. You can’t undo this.")}
           disabled={!orgs || !org}
           control={<Button variant="destructive" disabled={!orgs || !org} onClick={() => setEditing("deleteOrg")}>{t("Delete organization")}</Button>}
         />
@@ -375,7 +375,7 @@ export function SettingsTab() {
           onClose={close}
           onDelete={() => {
             close();
-            // Home leaves Admin for the deleted org's page (Restore) once the org reads as deleted
+            // Deleted for good at once: Home leaves Admin for the person's own space once the org is off its list
             void run(() => orgs.remove(orgId, org.name), t("{name} deleted", { name: org.name }));
           }}
         />

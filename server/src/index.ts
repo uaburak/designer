@@ -64,6 +64,8 @@ export default {
       await (await import("./guard/check")).checkSpend(depsOf(env)).catch((e: unknown) => console.error("spend guard: check failed", e));
       const { sweepWebhooks } = await import("./webhooks/deliver");
       await sweepWebhooks({ db: new Db(env.DB), now: () => Date.now(), fetch: (...a) => fetch(...a) });
+      // Deleted organizations whose purge was cut short (docs/multiplayer.md §14.17), deleted for good
+      await (await import("./org/deletion")).purgeDeletedOrgs(depsOf(env)).catch((e: unknown) => console.error("orgs: purge failed", e));
       return;
     }
     await rollup(env.DB, controller.scheduledTime);
@@ -74,8 +76,6 @@ export default {
     await (await import("./discovery/record")).sweepGovernanceLogs(env.DB, controller.scheduledTime);
     // Quota counters of past days, expired previews' rows and stored bytes (docs/multiplayer.md §17)
     await (await import("./quota/quota")).sweepQuotas({ ...depsOf(env), now: () => controller.scheduledTime });
-    // Organizations deleted more than 14 days ago, deleted for good (docs/multiplayer.md §14.17)
-    await (await import("./org/deletion")).purgeDeletedOrgs({ ...depsOf(env), now: () => controller.scheduledTime });
     // Personal drafts in the trash for more than 30 days, deleted for good (docs/cloud.md §2)
     await (await import("./personal/routes")).purgePersonalTrash({ ...depsOf(env), now: () => controller.scheduledTime });
     // Old objects a data region move couldn't delete (docs/multiplayer.md §15.16), deleted now

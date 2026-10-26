@@ -7,7 +7,7 @@ import type { Audience, GrantRole, JoinRequest, OrgRole, Principal, TeamInfo, Te
 import { logActivity, teamEntity } from "../activity";
 import { normalizeEmail } from "../db";
 import { notifyOrg, orgNotice, settleOrg } from "../notifications";
-import { accessibleFiles, personRef, Q, readFirst, type MemberRow, type ProjectRow, type TeamRow } from "./db";
+import { accessibleFiles, personRef, Q, readFirst, userByEmail, type MemberRow, type ProjectRow, type TeamRow } from "./db";
 import { body, cleanName, EMAIL, HttpError, ID, json, noContent, randomId, type Ctx } from "./http";
 import { inviteEmail, orgAdminIds } from "./orgs";
 import { teamFileKeys, reauth } from "./reauth";
@@ -16,6 +16,9 @@ import { iconUrl, teamIconRoute } from "./icons";
 
 const AUDIENCES: readonly Audience[] = ["none", "viewer", "editor"];
 const audienceRank = (a: Audience) => AUDIENCES.indexOf(a);
+const badAudience = (): never => {
+  throw new HttpError(400, "orgAccess is none, viewer or editor");
+};
 
 export async function orgTeamsRoute(ctx: Ctx, orgId: string): Promise<Response> {
   const { parts, m, acc, deps, user } = ctx;
@@ -28,8 +31,12 @@ export async function orgTeamsRoute(ctx: Ctx, orgId: string): Promise<Response> 
   if (m === "POST") {
     if (me.role === "guest") throw new HttpError(403, "guests can't create teams");
     if ((await acc.settings(orgId)).teamCreation === "admins" && me.role !== "admin") throw new HttpError(403, "only admins can create teams in this organization", "admins_only");
-    const b = await body<{ name?: unknown; workspaceId?: unknown }>(ctx.req);
+    const b = await body<{ name?: unknown; workspaceId?: unknown; orgAccess?: unknown; visibility?: unknown }>(ctx.req);
     const name = cleanName(b.name, "name", 100);
+    // "Who has access", chosen when the team is made (help.figma.com 360039957674); ours: open to the organization,
+    // can edit, unless the creator picks otherwise — the owner's rule that the org's people reach its files
+    const orgAccess: Audience = b.orgAccess === undefined ? "editor" : AUDIENCES.includes(b.orgAccess as Audience) ? (b.orgAccess as Audience) : badAudience();
+    const visibility = b.visibility === "hidden" ? "hidden" : "visible";
     await uniqueTeamName(ctx, orgId, name, null);
     let workspaceId: string | null = null;
     if (typeof b.workspaceId === "string") {
@@ -39,7 +46,7 @@ export async function orgTeamsRoute(ctx: Ctx, orgId: string): Promise<Response> 
     } else workspaceId = me.workspace_id;
     const id = randomId();
     const now = deps.now();
-    await acc.d1.prepare(`INSERT INTO teams (id, org_id, workspace_id, name, owner_id, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)`).bind(id, orgId, workspaceId, name, user.id, now).run();
+    await acc.d1.prepare(`INSERT INTO teams (id, org_id, workspace_id, name, owner_id, org_access, visibility, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?8, ?6, ?6)`).bind(id, orgId, workspaceId, name, user.id, now, orgAccess, visibility).run();
     await acc.d1.prepare(`INSERT INTO team_members (team_id, email, user_id, role, admin, created_at) VALUES (?1, ?2, ?3, 'editor', 1, ?4)`).bind(id, user.email, user.id, now).run();
     await logActivity(deps, { orgId, action: "team_create", actor: user, entity: teamEntity({ id, name }), teamId: id, req: ctx.req });
     await orgNotice(deps, [user.id], { what: "teams", orgId });
@@ -277,16 +284,7 @@ export async function teamsRoute(ctx: Ctx): Promise<Response> {
       if (parts.length === 3 && m === "GET") return json({ requests: await joinRequests(ctx, team) });
       if (parts.length === 4 && m === "POST") {
         const { approve } = await body<{ approve?: unknown }>(ctx.req);
-        const req = await acc.d1.prepare(`DELETE FROM team_requests WHERE team_id = ?1 AND user_id = ?2 RETURNING user_id`).bind(team.id, parts[3]).first();
-        if (!req) throw new HttpError(404, "no such request");
-        const u = await acc.d1.prepare(`SELECT u.email FROM users u JOIN org_members m ON m.user_id = u.id AND m.org_id = ?2 WHERE u.id = ?1`).bind(parts[3], orgId).first<{ email: string }>();
-        if (approve === true && u) {
-          // "can edit" (unverified: the role Figma gives an approved request)
-          await acc.d1.prepare(`INSERT INTO team_members (team_id, email, user_id, role, admin, invited_by, created_at) VALUES (?1, ?2, ?3, 'editor', 0, ?4, ?5) ON CONFLICT (team_id, email) DO NOTHING`).bind(team.id, u.email, parts[3], user.id, now).run();
-          await log("team_member_add", { user_id: parts[3], email: u.email, role: "editor", request: true });
-        }
-        await settleOrg(deps, "team_join_request", orgId, parts[3], approve === true ? "approved" : "denied", team.id);
-        await orgNotice(deps, [parts[3]], { what: "teams", orgId });
+        if (!(await answerJoinRequest(ctx, team, parts[3], approve === true))) throw new HttpError(404, "no such request");
         return json({ requests: await joinRequests(ctx, team) });
       }
       break;
@@ -310,6 +308,25 @@ export async function teamsRoute(ctx: Ctx): Promise<Response> {
     }
   }
   throw new HttpError(404, "not found");
+}
+
+/**
+ * A team admin answers a request to join (the team's Requests, or the bell's Approve / Decline): approved, the person
+ * joins as "can edit" (unverified: the role Figma gives an approved request). False when there's no such request.
+ */
+export async function answerJoinRequest(ctx: Ctx, t: TeamRow, requesterId: string, approve: boolean): Promise<boolean> {
+  const { acc, deps, user } = ctx;
+  const req = await acc.d1.prepare(`DELETE FROM team_requests WHERE team_id = ?1 AND user_id = ?2 RETURNING user_id`).bind(t.id, requesterId).first();
+  if (!req) return false;
+  const u = await acc.d1.prepare(`SELECT u.email FROM users u JOIN org_members m ON m.user_id = u.id AND m.org_id = ?2 WHERE u.id = ?1`).bind(requesterId, t.org_id).first<{ email: string }>();
+  if (approve && u) {
+    await acc.d1.prepare(`INSERT INTO team_members (team_id, email, user_id, role, admin, invited_by, created_at) VALUES (?1, ?2, ?3, 'editor', 0, ?4, ?5) ON CONFLICT (team_id, email) DO NOTHING`).bind(t.id, u.email, requesterId, user.id, deps.now()).run();
+    await logActivity(deps, { orgId: t.org_id, action: "team_member_add", actor: user, entity: teamEntity(t), teamId: t.id, details: { user_id: requesterId, email: u.email, role: "editor", request: true }, req: ctx.req });
+  }
+  await settleOrg(deps, "team_join_request", t.org_id, requesterId, approve ? "approved" : "denied", t.id);
+  await orgNotice(deps, [requesterId], { what: "teams", orgId: t.org_id });
+  acc.reset();
+  return true;
 }
 
 async function teamAdminIds(ctx: Ctx, t: TeamRow): Promise<string[]> {
@@ -390,20 +407,17 @@ async function putTeamMember(ctx: Ctx, t: TeamRow, email: unknown, groupId: unkn
     if (existing.user_id && ((existing.role === "editor" && role === "viewer") || (existing.admin === 1 && !admin))) await reauth(deps, await teamFileKeys(acc.d1, t.id), [existing.user_id]);
     return null;
   }
-  const invited = await inviteEmail(ctx, t.org_id, e, { type: "team", id: t.id, name: t.name }, role);
+  // Someone new to the org joins it with the team, both once they accept (§14.18)
+  const invited = await inviteEmail(ctx, t.org_id, e, { type: "team", id: t.id, name: t.name }, role, { pending: true });
   if (invited.kind === "requested") return invited.requestId;
+  // The invite waits for an answer (§14.18): no access until the person accepts it from the bell
   await acc.d1
-    .prepare(`INSERT INTO team_members (team_id, email, user_id, role, admin, invited_by, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`)
-    .bind(t.id, e, invited.userId, role, admin ? 1 : 0, user.id, deps.now())
+    .prepare(`INSERT INTO team_members (team_id, email, user_id, role, admin, invited_by, created_at, invite_pending) VALUES (?1, ?2, NULL, ?3, ?4, ?5, ?6, 1)`)
+    .bind(t.id, e, role, admin ? 1 : 0, user.id, deps.now())
     .run();
-  // The team's org logs team_member_add; a captured person's home org (another org) its external twin (§15.9).
-  await log("team_member_add", { email: e, user_id: invited.userId, role, admin, ...(invited.kind === "guest" ? { guest: true } : {}) });
-  const person = await personById(acc.d1, invited.userId);
-  if (person) await logExternal(deps, person, t.org_id, "team_member_add_external", teamEntity(t), { actor: user, details: { role }, req: ctx.req });
-  if (invited.userId) {
-    await notifyOrg(deps, { userId: invited.userId, kind: "team_invite", actorId: user.id, orgId: t.org_id, teamId: t.id, name: t.name, role });
-    await orgNotice(deps, [invited.userId], { what: "teams", orgId: t.org_id });
-  }
+  await log("team_member_add", { email: e, role, admin, invited: true, ...(invited.kind === "guest" ? { guest: true } : {}) });
+  const person = await userByEmail(acc.d1, e);
+  if (person) await notifyOrg(deps, { userId: person.id, kind: "team_invite", actorId: user.id, orgId: t.org_id, teamId: t.id, name: t.name, role, state: "pending" });
   acc.reset();
   return null;
 }

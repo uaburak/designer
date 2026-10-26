@@ -2,7 +2,8 @@
  * Figma's notifications (docs/multiplayer.md §12; the owner's 2.png, measured at 2x): a 384-wide panel under the bell —
  * "All notifications ⌄" (a menu: all, or one file's) and the settings gear; the tabs All | Requests | Unread (n) with
  * "Mark all as read"; rows newest first (the avatar with what happened as a badge, the person, "<what> · <file>", the
- * comment, the date, a blue dot while unread). A row opens its file (at the comment); a request has Deny / Approve.
+ * comment, the date, a blue dot while unread). A row opens its file (at the comment); a request has Deny / Approve; an
+ * invite to an org or a team Decline / Accept, a request to join a team Decline / Approve (docs/multiplayer.md §14.18).
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button, ContextMenu, Icon, IconButton, Portal, useDismiss, useFocusScope, type MenuEntry } from "@/ds";
@@ -191,6 +192,8 @@ export function NotificationsPopover({ anchor, onClose, onOpen, onOpenSettings }
 function Row({ n, now, busy, onOpen, onAnswer }: { n: NotificationItem; now: number; busy: boolean; onOpen: () => void; onAnswer: (approve: boolean) => void }) {
   useT();
   const request = n.kind === "edit-request";
+  const invite = n.kind === "org_invite" || n.kind === "team_invite";
+  const joinRequest = n.kind === "team_join_request";
   const dev = isDevStatusKind(n.kind);
   const plugin = n.kind === "plugin_request" || n.kind === "plugin_request_answer";
   const badge = isCommentKind(n.kind) ? (n.kind === "reaction" ? (n.count === 1 && n.emoji ? <span className={styles.emoji}>{n.emoji}</span> : <Icon name="16.emoji" />) : <Icon name="24.comment" size={16} />) : dev ? <Icon name="24.dev-brackets" size={16} /> : plugin ? <Icon name="24.plugin" size={16} /> : n.placeIconUrl ? <TeamIcon name={n.fileName} iconUrl={n.placeIconUrl} /> : null;
@@ -242,6 +245,21 @@ function Row({ n, now, busy, onOpen, onAnswer }: { n: NotificationItem; now: num
             </span>
           ) : (
             <span className={styles.answered}>{n.state === "approved" ? t("Approved") : t("Denied")}</span>
+          ))}
+        {/* An invite to the org or a team waits for the person's answer; a request to join a team for its admins' (§14.18) */}
+        {(invite || joinRequest) &&
+          n.state &&
+          (n.state === "pending" ? (
+            <span className={styles.actions} data-notification={invite ? "invite" : "join-request"}>
+              <Button variant="secondary" disabled={busy} onClick={() => onAnswer(false)}>
+                {t("Decline")}
+              </Button>
+              <Button variant="primary" disabled={busy} onClick={() => onAnswer(true)}>
+                {invite ? t("Accept") : t("Approve")}
+              </Button>
+            </span>
+          ) : (
+            <span className={styles.answered}>{n.state === "approved" ? (invite ? t("Accepted") : t("Approved")) : t("Declined")}</span>
           ))}
       </span>
     </div>

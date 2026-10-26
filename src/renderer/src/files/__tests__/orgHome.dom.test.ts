@@ -105,11 +105,14 @@ async function acme(ctx: Awaited<ReturnType<typeof setup>>) {
   await settleLong();
   click(buttonNamed("Create team")!);
   type($('[role="dialog"] input') as HTMLInputElement, "Design");
+  // "Who has access", open to the organization by default (docs/multiplayer.md §14.18)
+  expect($('[role="dialog"]')!.textContent).toContain("Anyone in Acme can edit");
   click(dialogButton("Create team"));
   await settleLong();
   // A team page lists projects, not folders (the owner's Home): the folder its projects go into is made through the store
   const orgId = (await ctx.a.api.orgs.list())[0].id;
   const team = (await ctx.a.api.teams.list(orgId))[0];
+  expect([team.orgAccess, team.visibility]).toEqual(["editor", "visible"]);
   const folder = await act(async () => ctx.a.api.projects.create(team.id, { name: "Web" }));
   await settleLong();
   return { orgId, team, folder };
@@ -278,7 +281,7 @@ describe("Home in an organization", () => {
     const bob = srv.addUser("bob@example.com", "Bob");
     const a = await person(srv, alice.token);
     const org = await a.api.orgs.create({ name: "Acme" });
-    const team = await a.api.teams.create(org.id, { name: "Design" });
+    const team = await a.api.teams.create(org.id, { name: "Design", orgAccess: "none" });
     await a.api.orgs.createGroup(org.id, { name: "Engineers" });
     await a.api.admin.addPeople(org.id, { emails: ["bob@example.com"], role: "member", seat: "full" });
     const b = await person(srv, bob.token);
@@ -487,14 +490,9 @@ describe("Leaving and deleting an organization", () => {
     await settleLong();
     expect(await a.api.orgs.trashedDrafts(o.id)).toEqual([]);
     expect($('[data-ds="EmptyState"]')?.textContent).toContain("Trash is empty");
-    // Deleted: the page says so, with Restore
+    // Deleted: gone for good at once, from the list too
     await a.api.orgs.remove(o.id, "Acme");
     await settleLong();
-    expect($("main")!.textContent).toContain("Acme was deleted");
-    click(buttonNamed("Restore organization")!);
-    await settleLong();
-    expect(toasts.map((t) => t.message)).toContain("Acme restored");
-    expect((await a.api.orgs.list())[0].deletedAt).toBeUndefined();
-    expect($("main")!.textContent).not.toContain("Acme was deleted");
+    expect(await a.api.orgs.list()).toEqual([]);
   });
 });

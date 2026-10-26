@@ -90,12 +90,6 @@ export interface OrgSummary {
   gate?: OrgGate;
   /** Round 14: a guest's access ends then (ms) */
   guestExpiresAt?: number | null;
-  /**
-   * §14.17 "Delete organization": set while the org is deleted and waiting to be deleted for good (only its admins
-   * still list it, to restore it); `purgeAt` is when the daily sweep deletes it and everything in it.
-   */
-  deletedAt?: number | null;
-  purgeAt?: number | null;
 }
 export interface OrgInfo extends OrgSummary {
   createdAt: number;
