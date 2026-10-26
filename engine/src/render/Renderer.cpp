@@ -3093,12 +3093,13 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
   });
   tree.sync(doc, page);
   tree_ = &tree;
-  // The page's own colour, unless it is Figma's default (#F5F5F5), which follows the theme.
+  // The page's own colour, unless it is Figma's default (#F5F5F5 exactly as a new page stores it), which follows the
+  // theme. An #F5F5F5 the user picks is stored a hair off (the panel's chosenPageColor) and stays #F5F5F5.
   Color clear = style.canvas;
   if (const Node* pg = doc.get(page); pg && pg->props.rare().backgroundEnabled) {
     const Color& bg = pg->props.rare().backgroundColor;
     Color light = Color::hex(0xF5F5F5);
-    bool figmaDefault = std::fabs(bg.r - light.r) < 0.003f && std::fabs(bg.g - light.g) < 0.003f && std::fabs(bg.b - light.b) < 0.003f;
+    bool figmaDefault = std::fabs(bg.r - light.r) < 1e-5f && std::fabs(bg.g - light.g) < 1e-5f && std::fabs(bg.b - light.b) < 1e-5f;
     if (!figmaDefault) clear = bg;
   }
   if (only != kNoGuid || exporting_) clear = Color{0, 0, 0, 0};  // a node's thumbnail, an export: transparent around it

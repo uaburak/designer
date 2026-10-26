@@ -20,7 +20,7 @@ import { useTextSummary } from "./useTextSummary";
 import { openMakeImage } from "../../imageTools/ImageToolbar";
 import type { Color, Guid, Paint } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
-import { colorToHex, hexToColor, toPercent } from "../../model/color";
+import { chosenPageColor, colorToHex, hexToColor, toPercent } from "../../model/color";
 import { mixedPaints } from "../../model/mixed";
 import { adjustmentValue, fromPicker, gradientRotated90, hashBytes, IMAGE_ADJUSTMENTS, isGradientType, isImageLike, paintGifHash, paintImageHash, paintLabel, paintSwatch, paintVideoHash, progressivePaintFields, rotated90, toPicker, withAdjustment, type FullPaint } from "../../model/paints";
 import { formatMediaTime } from "../../model/prototype";
@@ -561,7 +561,7 @@ export function PaintPicker({ target, nodes, pageColor, canvasColor, onClose }: 
         anchor={target.anchor}
         colorModel={model}
         onColorModelChange={setModel}
-        onChange={(next, info) => ed.edit("Page colour", info, () => void ed.engine.setProps([target.page], { backgroundColor: { ...(next.color ?? color), a: next.opacity ?? 1 } }))}
+        onChange={(next, info) => ed.edit("Page colour", info, () => void ed.engine.setProps([target.page], { backgroundColor: chosenPageColor({ ...(next.color ?? color), a: next.opacity ?? 1 }) }))}
         onCancel={() => ed.cancelEdit()}
         onClose={onClose}
       />

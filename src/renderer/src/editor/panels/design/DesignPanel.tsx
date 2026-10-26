@@ -17,7 +17,7 @@ import type { Color } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { useNodes, useUI } from "../../hooks";
 import { useStoreSlice } from "../../uiStore";
-import { colorToHex, hexToColor, sameColor, toPercent } from "../../model/color";
+import { chosenPageColor, colorToHex, hexToColor, isDefaultPageColor, toPercent } from "../../model/color";
 import { AppearanceSection, PositionSection } from "./Sections";
 import { LayoutSection } from "./Layout";
 import { PaintPicker, PaintsSection, type PickerTarget } from "./Paints";
@@ -51,7 +51,7 @@ import { McpSection } from "../agents/McpSection";
 import { t, useT } from "@/i18n";
 import styles from "./Design.module.css";
 
-/** The engine draws Figma's default page colour (#F5F5F5) as #1E1E1E in the dark theme. */
+/** The engine draws Figma's default page colour (#F5F5F5, isDefaultPageColor) in the theme's canvas colour. */
 const DEFAULT_PAGE = hexToColor("#f5f5f5");
 // Live Figma's dark canvas (the owner's 119 / 120.png: the canvas #242424, the contrast check's Background 242424)
 const DEFAULT_PAGE_DARK = hexToColor("#242424");
@@ -66,7 +66,7 @@ export function DesignPanel() {
   const [pageNode] = useNodes([page]);
   const { resolved } = useTheme();
   const pageColor = pageNode?.backgroundColor ?? DEFAULT_PAGE;
-  const shownPageColor: Color = resolved === "dark" && sameColor(pageColor, DEFAULT_PAGE) ? DEFAULT_PAGE_DARK : pageColor;
+  const shownPageColor: Color = resolved === "dark" && isDefaultPageColor(pageColor) ? DEFAULT_PAGE_DARK : pageColor;
   // The picker belongs to what it was opened for: a new selection closes it.
   const [pickerKey, setPickerKey] = useState("");
   const key = nodes.map((n) => n.guid).join(",") || page;
@@ -105,8 +105,8 @@ export function DesignPanel() {
                 swatchLabel={t("Solid color hex: {hex}", { hex: colorToHex(shownPageColor).slice(1).toUpperCase() })}
                 color={colorToHex(shownPageColor)}
                 opacity={toPercent(shownPageColor.a ?? 1)}
-                onColor={(hex, info) => ed.edit("Page colour", info, () => void ed.engine.setProps([page], { backgroundColor: hexToColor(hex, pageColor.a ?? 1) }))}
-                onOpacity={(o, info) => ed.edit("Page colour", info, () => void ed.engine.setProps([page], { backgroundColor: { ...shownPageColor, a: o / 100 } }))}
+                onColor={(hex, info) => ed.edit("Page colour", info, () => void ed.engine.setProps([page], { backgroundColor: chosenPageColor(hexToColor(hex, pageColor.a ?? 1)) }))}
+                onOpacity={(o, info) => ed.edit("Page colour", info, () => void ed.engine.setProps([page], { backgroundColor: { ...pageColor, a: o / 100 } }))}
                 onSwatchClick={(anchor) => open({ kind: "page", page, anchor })}
               />
               <ToggleIconButton

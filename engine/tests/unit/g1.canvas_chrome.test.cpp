@@ -299,3 +299,25 @@ TEST_CASE("g1 a layer from outside the auto-layout flow still drops into a frame
   up(e, 160, 190);
   CHECK(e.document().parentOf(LOOSE) == cell(4));
 }
+
+TEST_CASE("g1 a section or frame with an empty name shows no label (no pill, nothing to press); its children keep theirs") {
+  const Guid S{1, 30}, F{1, 31}, B{1, 32}, C{1, 33};
+  auto nodes = baseChanges();
+  auto unnamed = [](NodeChange c) {  // make() names a nameless layer after its type
+    c.props.name.clear();
+    return c;
+  };
+  nodes.push_back(unnamed(make(S, NodeType::SECTION, kPage, "a", {0, 300, 500, 300})));
+  nodes.push_back(make(C, NodeType::FRAME, S, "a", {20, 40, 200, 100}, "Inside"));
+  nodes.push_back(unnamed(make(F, NodeType::FRAME, kPage, "b", {0, 0, 300, 200})));
+  nodes.push_back(make(B, NodeType::SECTION, kPage, "c", {600, 0, 300, 200}, "  "));
+  Editor e = load(nodes);
+  bool inside = false;
+  for (const FrameTitle& t : e.titles()) {
+    CHECK(t.id != S);
+    CHECK(t.id != F);
+    CHECK(t.id != B);
+    inside |= t.id == C;
+  }
+  CHECK(inside);
+}

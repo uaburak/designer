@@ -36,6 +36,21 @@ export function solidPaint(hex: string, opacity = 1): Paint {
 export const sameColor = (a: Color | undefined, b: Color | undefined) =>
   !!a && !!b && byte(a.r) === byte(b.r) && byte(a.g) === byte(b.g) && byte(a.b) === byte(b.b) && Math.abs((a.a ?? 1) - (b.a ?? 1)) < 1 / 512;
 
+/**
+ * Figma's default page colour (#F5F5F5 exactly as a new page stores it) is the one a page shows in the theme's canvas
+ * colour (the engine's Renderer::draw does the same). An #F5F5F5 the user picks is their colour, not the default: it is
+ * stored a hair off (245.2 / 255, still F5 in every field) so it stays #F5F5F5 in the dark theme too.
+ */
+const F5 = Math.fround(245 / 255);
+export const isDefaultPageColor = (c: Color | undefined) =>
+  !!c && [c.r, c.g, c.b].every((v) => Math.abs(Math.fround(v) - F5) < 1e-5) && Math.abs((c.a ?? 1) - 1) < 1 / 512;
+/** The page colour to store for one the user chose: a chosen #F5F5F5 is kept apart from the theme-following default. */
+export function chosenPageColor(c: Color): Color {
+  if (!sameColor(c, { r: F5, g: F5, b: F5, a: c.a ?? 1 })) return c;
+  const v = 245.2 / 255;
+  return { ...c, r: v, g: v, b: v };
+}
+
 /** Relative luminance (sRGB), for "is this page dark?" */
 export function luminance(c: Pick<Color, "r" | "g" | "b">): number {
   const lin = (v: number) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);

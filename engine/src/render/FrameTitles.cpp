@@ -87,7 +87,10 @@ std::vector<FrameTitle> frameTitles(const Document& doc, Guid page, const Mat2x3
       if (focus != kNoGuid && focus != c && !section) continue;
       Mat2x3 toScreen = view * doc.worldTransform(c);
       Rect aabb = transformedBounds(toScreen, n->props.size.x, n->props.size.y);
-      if (aabb.intersects(near)) {
+      // A layer with no name (empty or only spaces — pasted Figma sections often have "") shows no label at all: no
+      // pill, no background, nothing to press (the owner's rule, 2026-10-27).
+      const bool named = n->props.name.find_first_not_of(" \t\r\n") != std::string::npos;
+      if (named && aabb.intersects(near)) {
         FrameTitle t;
         t.id = c;
         t.section = section;

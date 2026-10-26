@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { MIXED } from "@/ds/types";
 import type { Message, Paint } from "@/engine/codec";
 import { CLIPBOARD_TYPE, decodeClipboard, encodeClipboard, envelopeOf, plainTextOf } from "../model/clipboard";
-import { colorToHex, hexToColor } from "../model/color";
+import { chosenPageColor, colorToHex, hexToColor, isDefaultPageColor } from "../model/color";
+import { DEFAULT_PAGE_COLOR } from "@shared/schema/codec";
 import { flip, panelPosition, rotateBy, rotateTo, rotationOf, withPanelPosition, IDENTITY } from "../model/geometry";
 import { mixed, mixedNumber, mixedPaints, sameData } from "../model/mixed";
 import { labelAlpha, rulerLabel, rulerStep, rulerTicks, toScreen } from "../model/rulers";
@@ -164,5 +165,19 @@ describe("document source", () => {
     const nodes = new Map(doc.nodeChanges.map((n) => [n.guid, { ...n }]));
     applyMessage(nodes, { type: "NODE_CHANGES", sessionID: 1, nodeChanges: [{ guid: "1:1", clearedFields: [5] }] }, (id) => (id === 5 ? "name" : undefined));
     expect(nodes.get("1:1")?.name).toBeUndefined();
+  });
+});
+
+describe("page colour", () => {
+  it("keeps a chosen #F5F5F5 apart from Figma's theme-following default", () => {
+    expect(isDefaultPageColor(DEFAULT_PAGE_COLOR)).toBe(true);
+    expect(isDefaultPageColor(hexToColor("#f5f5f5"))).toBe(true);
+    const chosen = chosenPageColor(hexToColor("#F5F5F5"));
+    expect(isDefaultPageColor(chosen)).toBe(false);
+    expect(colorToHex(chosen)).toBe("#f5f5f5");
+    // The 32-bit float the engine keeps is still not the default.
+    expect(isDefaultPageColor({ ...chosen, r: Math.fround(chosen.r), g: Math.fround(chosen.g), b: Math.fround(chosen.b) })).toBe(false);
+    expect(chosenPageColor(hexToColor("#242424"))).toEqual(hexToColor("#242424"));
+    expect(isDefaultPageColor(hexToColor("#f5f5f5", 0.5))).toBe(false);
   });
 });

@@ -13,7 +13,7 @@ import type { Guid, Pixels } from "@/engine/codec";
 import type { EditorController } from "./controller";
 import type { EditorUiState } from "./documentSource";
 import { encodeDocumentBytes, engineDerivedDataVersion } from "./engineCompat";
-import { colorToHex, hexToColor, sameColor } from "./model/color";
+import { colorToHex, hexToColor, isDefaultPageColor } from "./model/color";
 import { thumbnailNode } from "./objectCommands";
 
 /**
@@ -108,7 +108,7 @@ function trackUiState(ed: EditorController): () => void {
 /** The page's colour as the engine draws it (the default one is dark in the dark theme). */
 function pageColor(ed: EditorController, page: string): string {
   const color = ed.engine.readNode(page)?.backgroundColor ?? DEFAULT_PAGE;
-  if (sameColor(color, DEFAULT_PAGE) && currentTheme().resolved === "dark") return "#242424";
+  if (isDefaultPageColor(color) && currentTheme().resolved === "dark") return "#242424";
   return `#${colorToHex(color)}`;
 }
 
