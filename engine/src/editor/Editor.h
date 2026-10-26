@@ -1157,6 +1157,9 @@ class Editor : private LayoutHost, public TextLayouts {
   std::vector<AssetInfo> localAssets(bool listOnly = false, bool hashMains = true) const;
   // The assets with these keys and their dependencies (keys are given to dependencies that lack one).
   void encodeAssets(const std::vector<std::string>& keys, std::vector<EncodedAsset>& out, std::vector<ImageHash>& images);
+  // The same, each asset handed to `sink` as soon as it is made and dropped after: only one payload's nodes are held
+  // at a time (a big library's chunk of payloads, each with its whole closure, once outgrew the 4 GB heap).
+  void encodeAssets(const std::vector<std::string>& keys, const std::function<void(EncodedAsset&)>& sink, std::vector<ImageHash>& images);
   // The content hash of an asset (docs/data.md §9.1): its own content, and the hashes of the hidden (dependency-only)
   // assets it uses, which are never listed on their own.
   std::string assetVersionHash(Guid id) const;

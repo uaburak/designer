@@ -423,7 +423,12 @@ class Player {
   Chain hitTest(Vec2 css) const;
   // A layer's children in hit order: the topmost first (Canvas stacking "First on top" respected).
   std::vector<Guid> topmostFirst(Guid id) const;
-  bool hitWalk(Guid id, const Mat2x3& parentCss, Vec2 css, std::vector<Hit>& out, bool root, Vec2 rootScroll = {}) const;
+  // `stuck`: the sticky layers' offsets as the scene draws them (stuckOf), so a stuck header or sidebar is hit where it shows.
+  bool hitWalk(Guid id, const Mat2x3& parentCss, Vec2 css, std::vector<Hit>& out, bool root, Vec2 rootScroll = {},
+               const PropsOverrides* stuck = nullptr) const;
+  // The sticky offsets of a frame's layers (scrollOverrides' stick calls alone): the base screen by its scroll, nested
+  // scrolling frames by theirs.
+  PropsOverrides stuckOf(Guid frame, bool topLevel, Vec2 topScroll) const;
   Mat2x3 frameCss(const Side& s) const;
   Side baseSide() const;
 

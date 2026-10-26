@@ -23,7 +23,7 @@ import { mainFetch } from "../net";
 import { grantProblem, isDeniedPath } from "./reach/paths";
 import { REACH_NOTE, REACH_SKILLS, isReachPolicy, isRepoName, type AccessLogEntry, type ReachCapability, type ReachPatch, type ReachView } from "../../shared/agents/reach";
 import { defaultSkillFor, skillToAnswer, withDefaults, type SkillEntry } from "../../shared/agents/defaultSkills";
-import { SKILL_TOOL_NAMES, confirmationFor, type ConfirmRequest } from "../../shared/agents/appTools";
+import { OUTSIDE_CLIENT_REFUSED, SKILL_TOOL_NAMES, confirmationFor, type ConfirmRequest } from "../../shared/agents/appTools";
 import { runSkillTool, skillSourceVia } from "./skills";
 import { fetchSkill, skillWebRunner, SKILL_WEB_TOOLS, type SkillWebDeps } from "./reach/skillWeb";
 import { lookup } from "node:dns/promises";
@@ -245,10 +245,11 @@ async function runAnyTool(fileKey: string, call: Omit<ToolCall, "reqId">): Promi
   // The owner's Skills (appTools.ts, skills.ts): answered here, each change confirmed on the chat's card.
   if (SKILL_TOOL_NAMES.has(call.name)) return runSkillTool(call.name, call.args ?? {}, skillDeps(t, fileKey, call.client, call.name));
   // Destructive or outward app actions (trash, restore a version, publish, share, run a plugin …) wait for the owner's click.
+  // An outside client (no chat, no card) takes them itself, sharing excepted (OUTSIDE_CLIENT_REFUSED).
   const confirm = confirmationFor(call.name, call.args ?? {});
-  if (confirm) {
+  if (confirm && !t && OUTSIDE_CLIENT_REFUSED.has(call.name)) return textResult(`${call.name} needs the owner's confirmation in Wecra's Agents chat: ask them to do it in the app, or from an Agents chat.`, true);
+  if (confirm && t) {
     const ok = await confirmInChat(t, call.name, confirm);
-    if (ok === null) return textResult(`${call.name} needs the owner's confirmation in Wecra's Agents chat: ask them to do it in the app, or from an Agents chat.`, true);
     if (!ok) return textResult(`The owner didn't allow ${call.name} (${confirm.target}). Don't call it again for this request.`, true);
   }
   // Agents' reach (docs/agents-reach.md): through the gate, for the Agents tab's chats only.

@@ -1495,7 +1495,7 @@ export async function swapPlan(ed: EditorController, from: string, to: string): 
 }
 
 /** A collection's variables matched by name in the target collection (Figma's swapVariableSetVariablesByName). */
-function swapVariables(ed: EditorController, from: string, collection: LibraryCopy, to: LibraryAsset, target: LibraryVersion): { copy: LibraryCopy; match: LibraryAsset }[] {
+export function swapVariables(ed: EditorController, from: string, collection: LibraryCopy, to: LibraryAsset, target: LibraryVersion): { copy: LibraryCopy; match: LibraryAsset }[] {
   const theirs = target.assets.filter((a) => a.kind === "VARIABLE" && a.collectionKey === to.key);
   const out: { copy: LibraryCopy; match: LibraryAsset }[] = [];
   for (const v of ed.libraries.copies()) {

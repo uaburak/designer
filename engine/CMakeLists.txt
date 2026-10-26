@@ -239,6 +239,7 @@ else()
     tests/unit/proto.rea.test.cpp
     tests/unit/proto.top_scroll.test.cpp
     tests/unit/proto.responsive_height.test.cpp
+    tests/unit/proto.sticky_hit.test.cpp
     tests/unit/proto.web_focus.test.cpp
     tests/unit/proto.nested_components.test.cpp
     tests/unit/proto.instance_interactions.test.cpp

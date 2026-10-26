@@ -146,9 +146,17 @@ export const APP_TOOLS: ToolDef[] = [
   {
     name: "get_libraries",
     title: "Get libraries",
-    description: "Libraries as this file sees them (Assets › Libraries): this file's own library (published or not), every library of the workspace (enabled here or not, its components / styles / variables), and the updates waiting to be accepted. `assets: <libraryFileKey>` lists that library's published assets (key, kind, name) for insert_library_component.",
+    description: "Libraries as this file sees them (Assets › Libraries): this file's own library (published or not), every library of the workspace (enabled here or not, its components / styles / variables), the missing libraries (copies here whose library is gone or unknown — e.g. a Figma import's — with how many assets; swap_library relinks them), and the updates waiting to be accepted. `assets: <libraryFileKey>` lists that library's published assets (key, kind, name) for insert_library_component.",
     inputSchema: { type: "object", properties: { assets: str } },
     write: false,
+  },
+  {
+    name: "swap_library",
+    title: "Swap library",
+    description:
+      "Assets › Libraries › Swap library: the components, styles and variable collections this file uses from one library (`from`: a library key from get_libraries — a missing one too) become their matches in another (`to`), matched by name as Figma does (whitespace ignored; a component to a component first, else a set). The copies are replaced in place, so instances keep their overrides; one undo step; `to` is added to the file. `dryRun: true` lists the rows (used asset, layers using it, its match or null) without swapping. `keys` limits the swap to those used assets; `map` {\"<used asset's key or name>\": \"<target asset's key or name>\"} picks a row's match yourself (a renamed component, a variable collection under another name — its variables then match by name; a dry run says how many); `swapDefaults` (default true) also swaps the styles and collections a library's components use inside them.",
+    inputSchema: { type: "object", properties: { from: str, to: str, keys: strs, map: { type: "object", additionalProperties: str }, swapDefaults: { type: "boolean" }, dryRun: { type: "boolean" } }, required: ["from", "to"] },
+    write: true,
   },
   {
     name: "set_library_enabled",
@@ -267,6 +275,14 @@ export interface ConfirmRequest {
 
 const s = (v: unknown, max = 300) => (typeof v === "string" ? v.slice(0, max) : "");
 const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+
+/**
+ * The confirmed actions an outside MCP client (Claude Code on the owner's machine, with the token he wrote into its
+ * config) still can't take: sharing reaches other people. Everything else confirmed for a chat runs for it without a
+ * card (the owner's decision, 2026-10-26: "çoğu şey için mcp izni"); what is the owner's alone — Operator, Access,
+ * keys, sign-in — has no tool at all.
+ */
+export const OUTSIDE_CLIENT_REFUSED: ReadonlySet<string> = new Set(["share_file"]);
 
 /**
  * The confirmation a call needs before it runs (null: none) — destructive or outward actions only. Main asks for it

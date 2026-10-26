@@ -1276,11 +1276,28 @@ std::vector<Guid> Player::topmostFirst(Guid id) const {
   return std::vector<Guid>(kids.rbegin(), kids.rend());
 }
 
-bool Player::hitWalk(Guid id, const Mat2x3& parentCss, Vec2 css, std::vector<Hit>& out, bool root, Vec2 rootScroll) const {
+PropsOverrides Player::stuckOf(Guid frame, bool topLevel, Vec2 topScroll) const {
+  PropsOverrides out;
+  std::function<void(Guid, bool)> walk = [&](Guid id, bool root) {
+    const NodeProps* p = props(id);
+    if (!p || !p->visible) return;
+    if (root && topLevel) stick(id, topScroll.y, out);
+    else if (scrollsNested(id)) stick(id, scrollOf(id).y, out);
+    for (Guid c : doc().children(id)) walk(c, false);
+  };
+  walk(frame, true);
+  return out;
+}
+
+bool Player::hitWalk(Guid id, const Mat2x3& parentCss, Vec2 css, std::vector<Hit>& out, bool root, Vec2 rootScroll,
+                     const PropsOverrides* stuck) const {
   const NodeProps* p = props(id);
   if (!p || !p->visible || ghosts_.count(id)) return false;
-  // Scrolling: the same offsets the scene draws with.
-  Mat2x3 m = root ? parentCss : parentCss * p->transform;
+  // Scrolling: the same offsets the scene draws with (a stuck layer where its stick moved it).
+  const Mat2x3* tf = &p->transform;
+  if (stuck && !root)
+    if (auto it = stuck->find(id); it != stuck->end()) tf = &it->second.transform;
+  Mat2x3 m = root ? parentCss : parentCss * *tf;
   Vec2 local = m.inverse().apply(css);
   bool inside = local.x >= 0 && local.y >= 0 && local.x <= p->size.x && local.y <= p->size.y;
   if (p->clipsContent() && !inside) return false;
@@ -1300,7 +1317,7 @@ bool Player::hitWalk(Guid id, const Mat2x3& parentCss, Vec2 css, std::vector<Hit
       if (nestedScroll && (pass == 0) != fixed) continue;
       Mat2x3 cb = childBase;
       if (cp && (sc.x != 0 || sc.y != 0) && !fixed) cb = childBase * Mat2x3::translate(-sc.x, -sc.y);
-      if (hitWalk(*it, cb, css, out, false)) {
+      if (hitWalk(*it, cb, css, out, false, {}, stuck)) {
         out.push_back({id, m, p->size});
         return true;
       }
@@ -1319,7 +1336,8 @@ Player::Chain Player::hitTest(Vec2 css) const {
     s.pos = drawnPos(overlays_[static_cast<size_t>(k)]);
     s.overlay = true;
     std::vector<Hit> hits;
-    if (hitWalk(s.frame, frameCss(s), css, hits, true)) {
+    PropsOverrides stuck = stuckOf(s.frame, false, {});
+    if (hitWalk(s.frame, frameCss(s), css, hits, true, {}, stuck.empty() ? nullptr : &stuck)) {
       c.hits = std::move(hits);
       c.layer = k;
       return c;
@@ -1348,7 +1366,8 @@ Player::Chain Player::hitTest(Vec2 css) const {
     }
   }
   hits.clear();
-  if (hitWalk(base_, frameCss(b), css, hits, true, b.scroll - topShift(base_, b.scroll))) {
+  PropsOverrides stuck = stuckOf(base_, true, b.scroll);
+  if (hitWalk(base_, frameCss(b), css, hits, true, b.scroll - topShift(base_, b.scroll), stuck.empty() ? nullptr : &stuck)) {
     c.hits = std::move(hits);
     c.layer = -1;
   }

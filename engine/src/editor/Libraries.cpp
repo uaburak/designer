@@ -647,6 +647,10 @@ std::vector<Editor::AssetInfo> Editor::localAssets(bool listOnly, bool hashMains
 
 void Editor::encodeAssets(const std::vector<std::string>& keys, std::vector<EncodedAsset>& out, std::vector<ImageHash>& images) {
   out.clear();
+  encodeAssets(keys, [&](EncodedAsset& e) { out.push_back(std::move(e)); }, images);
+}
+
+void Editor::encodeAssets(const std::vector<std::string>& keys, const std::function<void(EncodedAsset&)>& sink, std::vector<ImageHash>& images) {
   images.clear();
   // The assets asked for, then their dependencies (with keys of their own: the store files payloads by key).
   std::vector<Guid> asked;
@@ -723,7 +727,10 @@ void Editor::encodeAssets(const std::vector<std::string>& keys, std::vector<Enco
     std::vector<NodeChange> nodes;
     std::vector<ImageHash> images;
   };
-  std::unordered_map<Guid, Payload, GuidHash> payloads;  // by payload root
+  // By payload root, kept only while another entry still needs it (a payload is its root's whole closure).
+  std::unordered_map<Guid, Payload, GuidHash> payloads;
+  std::unordered_map<Guid, size_t, GuidHash> uses;
+  for (auto& entry : entries) ++uses[payloadRoot(entry.first)];
   for (auto& [id, depOnly] : entries) {
     EncodedAsset e;
     fillAssetInfo(id, e.info);
@@ -748,8 +755,14 @@ void Editor::encodeAssets(const std::vector<std::string>& keys, std::vector<Enco
       for (const std::string& hx : mine) pl.images.push_back(ImageHash::fromHex(hx)), imageSet.insert(hx);
       it = payloads.emplace(root, std::move(pl)).first;
     }
-    e.nodes = it->second.nodes;
-    e.images = it->second.images;
+    if (--uses[root] == 0) {
+      e.nodes = std::move(it->second.nodes);
+      e.images = std::move(it->second.images);
+      payloads.erase(it);
+    } else {
+      e.nodes = it->second.nodes;
+      e.images = it->second.images;
+    }
     Guid page = doc_.pageOf(id);
     const Node* pn = doc_.get(page);
     if (pn && !pn->props.rare().internalOnly) {
@@ -758,7 +771,7 @@ void Editor::encodeAssets(const std::vector<std::string>& keys, std::vector<Enco
       std::vector<Guid> path = doc_.pathFromPage(id);
       if (path.size() > 1) e.info.frameId = path[0], e.info.frameName = doc_.get(path[0])->props.name;
     }
-    out.push_back(std::move(e));
+    sink(e);
   }
   for (const std::string& h : imageSet) images.push_back(ImageHash::fromHex(h));
 }

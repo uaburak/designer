@@ -23,7 +23,7 @@ import { writeTargets, type ToolEnv } from "./mcpTools";
 import { base64 } from "./png";
 import { exportAllowed, renderItems, type ExportItem } from "../exporting";
 import { exportSettingsOf, nextExportSetting, parseScale, withConstraint, withFormat, type ExportFormat } from "../model/exports";
-import { acceptUpdates, draftPublish, hasPublishChanges, insertLibraryComponent, publishLibrary, setLibraryEnabled, updateId } from "../libraries";
+import { acceptUpdates, draftPublish, hasPublishChanges, insertLibraryComponent, instancesOn, mainsOf, missingLibraries, publishLibrary, setLibraryEnabled, swapLibrary, swapPlan, swapVariables, updateId } from "../libraries";
 import { setDevStatusOf } from "../devStatus";
 import { PREFERENCES, ACCESSIBILITY_PREFERENCES, pref, setPreference, type PreferenceKey } from "../preferences";
 import { setNudge } from "../canvasTools";
@@ -283,8 +283,54 @@ async function librariesTool(env: ToolEnv, name: string, args: Spec): Promise<To
       return textResult({
         thisFile: { published: !!st.own && st.own.status === "published", version: st.own?.latestVersion ?? null, inDrafts: st.inDrafts },
         libraries: st.available.map((l) => ({ library: l.fileKey, name: l.name, location: l.location, enabled: st.enabled.includes(l.fileKey), counts: l.record.counts, version: l.record.latestVersion })),
+        missing: missingLibraries(st, ed.libraries.copies(), access.libraryKey),
         updates: updates.map((u) => ({ key: updateId(u), library: u.libraryName, kind: u.kind, name: u.copy.name })),
       });
+    }
+    case "swap_library": {
+      const from = str(args.from, "from", 200);
+      if (!ed.libraries.copies().some((c) => c.library === from)) throw new ToolError(`This file uses nothing from ${from} (get_libraries lists the libraries and the missing ones).`);
+      const to = libKey(args.to);
+      if (to === from) throw new ToolError("Swap to another library.");
+      const plan = await swapPlan(ed, from, to);
+      if (!plan) throw new ToolError(`${nameOf(to)} has no published version.`);
+      // Rows matched by the caller (`map`): by the used asset's key or name, to a target asset's key or name (same kind first).
+      const map = args.map && typeof args.map === "object" && !Array.isArray(args.map) ? (args.map as Record<string, unknown>) : {};
+      const listed = plan.target.assets.filter((a) => !a.dependencyOnly);
+      const mapped = new Set<string>();
+      for (const r of plan.rows) {
+        const want = map[r.copy.key] ?? map[r.copy.name];
+        if (typeof want !== "string") continue;
+        const hits = listed.filter((a) => a.key === want || a.name === want);
+        const hit = hits.find((a) => a.kind === r.copy.kind) ?? hits.find((a) => (r.copy.kind === "COMPONENT" || r.copy.kind === "COMPONENT_SET") && (a.kind === "COMPONENT" || a.kind === "COMPONENT_SET"));
+        if (!hit) throw new ToolError(`No ${r.copy.kind} "${want}" in ${nameOf(to)} for "${r.copy.name}" (get_libraries {assets} lists them).`);
+        r.match = hit;
+        mapped.add(r.copy.key);
+      }
+      const variablesOf = (r: (typeof plan.rows)[number]) => (r.copy.kind === "VARIABLE_COLLECTION" && r.match ? { variables: ed.libraries.copies().filter((v) => v.library === from && v.kind === "VARIABLE" && v.collectionKey === r.copy.key).length, variablesMatched: swapVariables(ed, from, r.copy, r.match, plan.target).length } : {});
+      const row = (r: (typeof plan.rows)[number]) => ({ key: r.copy.key, id: r.copy.guid, kind: r.copy.kind, name: r.copy.name, usage: r.usage, match: r.match ? { key: r.match.key, kind: r.match.kind, name: r.match.name } : null, ...(mapped.has(r.copy.key) ? { mapped: true } : {}), ...variablesOf(r) });
+      const unmatched = plan.rows.filter((r) => !r.match).map((r) => ({ kind: r.copy.kind, name: r.copy.name, usage: r.usage }));
+      if (args.dryRun === true) {
+        // Each used component's instances by name (an instance is mostly named after its set: what a lone variant's
+        // copy, named "State=Default", belongs to), the most common first.
+        const byMain = new Map<string, string[]>();
+        for (const i of instancesOn(ed, ed.engine.pages().map((p) => p.guid), { nested: true })) byMain.set(i.main, [...(byMain.get(i.main) ?? []), i.id]);
+        const instanceNames = (r: (typeof plan.rows)[number]) => {
+          if (r.copy.kind !== "COMPONENT" && r.copy.kind !== "COMPONENT_SET") return {};
+          const ids = mainsOf(ed, r.copy.guid).flatMap((m) => byMain.get(m) ?? []);
+          if (!ids.length) return {};
+          const counts = new Map<string, number>();
+          for (const n of ed.engine.readNodes(ids.slice(0, 400), { fields: ["name"] } as never) as { name?: string }[]) counts.set(n.name ?? "", (counts.get(n.name ?? "") ?? 0) + 1);
+          return { instances: ids.length, topLevel: ids.filter((i) => !i.startsWith("I")).length, instanceNames: [...counts].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([n]) => n), sample: ids[0] };
+        };
+        return textResult({ from, to: nameOf(to), rows: plan.rows.length, matched: plan.rows.length - unmatched.length, list: plan.rows.slice(0, 1500).map((r) => ({ ...row(r), ...instanceNames(r) })) });
+      }
+      const only = Array.isArray(args.keys) ? new Set((args.keys as unknown[]).map(String)) : null;
+      const keys = new Set(plan.rows.filter((r) => r.match && (!only || only.has(r.copy.key))).map((r) => r.copy.key));
+      if (!keys.size) return textResult({ swapped: 0, unmatched, note: "Nothing to swap: no used asset has a match by name." });
+      const collections = new Map(plan.rows.filter((r) => r.copy.kind === "VARIABLE_COLLECTION" && r.match && mapped.has(r.copy.key)).map((r) => [r.copy.key, r.match!.key]));
+      const done = await swapLibrary(ed, plan, { keys, collections, swapDefaults: args.swapDefaults !== false });
+      return textResult({ from, to: nameOf(to), swapped: done.assets, variables: done.variables, unmatched: unmatched.slice(0, 500), unmatchedCount: unmatched.length });
     }
     case "set_library_enabled": {
       const k = libKey(args.library);
@@ -569,6 +615,7 @@ export async function runAppTool(env: ToolEnv, name: string, args: Spec): Promis
     case "export_nodes":
       return exportTool(env, args);
     case "get_libraries":
+    case "swap_library":
     case "set_library_enabled":
     case "accept_library_updates":
     case "insert_library_component":

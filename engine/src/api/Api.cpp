@@ -3100,13 +3100,13 @@ ENG_EXPORT int32_t engine_encode_assets(Handle h, Ptr keysPtr, uint32_t keysLen)
   json::Value v;
   if (!parse(keysPtr, keysLen, v)) return E_DECODE;
   if (e->editor.busy()) return E_BUSY;
-  std::vector<Editor::EncodedAsset> assets;
   std::vector<ImageHash> images;
-  e->editor.encodeAssets(readStrings(v, "keys"), assets, images);
   json::Writer w;
   e->attachments.clear();
   w.beginObject().key("assets").beginArray();
-  for (auto& a : assets) {
+  // Each payload written as it is made (its nodes dropped right after): a chunk of a big library's payloads held
+  // whole at once outgrew the heap.
+  e->editor.encodeAssets(readStrings(v, "keys"), [&](Editor::EncodedAsset& a) {
     w.beginObject();
     writeLocalAsset(w, e->editor, a.info);
     w.key("dependencyOnly").boolean(a.dependencyOnly).key("images").beginArray();
@@ -3124,7 +3124,7 @@ ENG_EXPORT int32_t engine_encode_assets(Handle h, Ptr keysPtr, uint32_t keysLen)
       w.endObject();
     }
     w.endObject();
-  }
+  }, images);
   w.endArray().key("images").beginArray();
   for (const ImageHash& i : images) w.string(i.hex());
   w.endArray().endObject();
