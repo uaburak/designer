@@ -26,9 +26,10 @@ export function attachTitleRename(ed: EditorController, canvas: HTMLCanvasElemen
   };
 }
 
+/** An empty name is kept as "" (Figma: no title on the canvas, the glyph alone in Layers). */
 export function renameNode(ed: EditorController, ref: Guid, name: string) {
   const next = name.trim();
-  if (next && next !== ed.store.readNode(ref)?.name) ed.setProps([ref], { name: next }, "Rename");
+  if (next !== ed.store.readNode(ref)?.name) ed.setProps([ref], { name: next }, "Rename");
 }
 
 export function TitleRename() {
@@ -46,6 +47,7 @@ export function TitleRename() {
         label={t("Rename")}
         value={at.name}
         editing
+        allowEmpty
         onCommit={(v) => renameNode(ed, at.ref, v)}
         onExit={close}
         onCancel={() => undefined}

@@ -505,7 +505,8 @@ export function Layers() {
   };
 
   const rename = (id: Guid, name: string | null, exit: string) => {
-    if (name && name !== tree.nodes.get(id)?.name) {
+    // An empty name is kept (Figma: the row shows the glyph alone, the canvas no title); a text's goes back to its characters.
+    if (name !== null && name !== tree.nodes.get(id)?.name) {
       if (tree.nodes.get(id)?.derived) ed.batch("Rename", () => writeOn(ed, id, { name }));
       else ed.setProps([id], { name }, "Rename");
     }

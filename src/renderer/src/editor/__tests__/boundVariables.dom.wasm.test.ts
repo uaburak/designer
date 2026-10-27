@@ -17,10 +17,11 @@ import { memoryDocumentSource } from "../documentSource";
 import { VARIABLES_DOCUMENT } from "../fixtures";
 import { useNodes } from "../hooks";
 import { variableBindings } from "../model/variables";
-import { bindEffect, bindVariable } from "../variables";
+import { bindEffect, bindPaint, bindVariable } from "../variables";
 import { AppearanceSection } from "../panels/design/Sections";
 import { EffectsSection } from "../panels/design/Effects";
 import { TypeSettings } from "../panels/design/TypeSettings";
+import { PaintsSection, type PickerTarget } from "../panels/design/Paints";
 import type { PanelNode } from "../panels/design/shared";
 
 const wasm = join(process.cwd(), "src/renderer/src/engine/wasm/engine.wasm");
@@ -189,5 +190,21 @@ describe("Type settings: paragraph spacing and indent take variables", () => {
     void host;
     expect($('[data-bind-field="PARAGRAPH_SPACING"] [data-bound-variable="spacing/sm"]')).toBeTruthy();
     anchor.remove();
+  });
+});
+
+describe("a fill bound to a colour variable", () => {
+  it("opens the colour picker on its Libraries tab from the variable's pill (Figma), not Apply variable", async () => {
+    const ed = await editor();
+    ed.engine.setProps([CARD], { fillPaints: [{ type: "SOLID", color: { r: 1, g: 1, b: 1, a: 1 }, opacity: 1, visible: true, blendMode: "NORMAL" }] } as never);
+    bindPaint(ed, [CARD], "fillPaints", 0, TEXT_PRIMARY);
+    const picks: PickerTarget[] = [];
+    const host = show(ed, [CARD], (p) => createElement(PaintsSection, { title: "Fill", field: "fillPaints", nodes: p.nodes, onPick: (t: PickerTarget) => picks.push(t) }));
+    const pill = $('[data-bind-field="fillPaints[0].color"] [data-bound-variable="text/primary"] button', host);
+    expect(pill).toBeTruthy();
+    click(pill!);
+    expect(picks).toHaveLength(1);
+    expect(picks[0]).toMatchObject({ kind: "paint", field: "fillPaints", index: 0, tab: "libraries" });
+    expect(picker()).toBeNull();
   });
 });

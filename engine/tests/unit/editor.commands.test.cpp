@@ -379,3 +379,72 @@ TEST_CASE("commands: a group keeps a nested frame's children and a pasted subtre
   CHECK(e.document().children(copy).size() == 3);
   CHECK(props(e, e.document().children(copy)[1]).name == "Rectangle 2");
 }
+
+TEST_CASE("commands: a lone section takes auto layout itself and lays its children out ([ours])") {
+  const Guid S{2, 1}, A{2, 2}, B{2, 3};
+  auto nodes = baseChanges();
+  nodes.push_back(make(S, NodeType::SECTION, kPage, "!", {0, 0, 400, 300}));
+  nodes.back().props.name = "";  // (a section may be nameless)
+  nodes.push_back(make(A, NodeType::ROUNDED_RECTANGLE, S, "!", {20, 20, 50, 50}, "A"));
+  nodes.push_back(make(B, NodeType::ROUNDED_RECTANGLE, S, "\"", {20, 100, 50, 50}, "B"));
+  Editor e;
+  e.setSessionID(1);
+  e.setViewport(800, 600, 2, 1600, 1200);
+  e.loadDocument(nodes, kNoGuid);
+  e.setSelection({S});
+  REQUIRE(e.command(CommandId::ADD_AUTO_LAYOUT) == OK);
+  CHECK(e.selection() == std::vector<Guid>{S});  // not wrapped
+  const NodeProps& p = props(e, S);
+  CHECK(p.type == NodeType::SECTION);
+  CHECK(p.name.empty());
+  CHECK(p.isAutoLayout());
+  CHECK(p.stack().stackMode == StackMode::VERTICAL);
+  CHECK(p.stack().stackPaddingLeft == 20);
+  CHECK(p.stack().stackSpacing == 30);
+  // As a frame's: the padding from where the content sat, so the size stays; it hugs, and a new gap moves B.
+  CHECK(p.stack().stackPaddingBottom == 150);
+  CHECK(p.hugsPrimary());
+  CHECK(p.size == Vec2{400, 300});
+  NodeChange gap;
+  gap.mask = F_STACK_SPACING;
+  gap.props.stack().stackSpacing = 10;
+  REQUIRE(e.setProps({S}, gap, 0) == OK);
+  CHECK(props(e, B).transform.m12 == 80);
+  CHECK(props(e, S).size == Vec2{400, 280});
+  REQUIRE(e.command(CommandId::REMOVE_AUTO_LAYOUT) == OK);
+  CHECK(props(e, S).type == NodeType::SECTION);
+  CHECK(!props(e, S).isAutoLayout());
+  CHECK(props(e, B).transform.m12 == 80);
+}
+
+TEST_CASE("setProps: an empty name is kept; a text renamed by hand stops following its characters, cleared it follows them again") {
+  const Guid T{2, 5};
+  auto nodes = baseChanges();
+  NodeChange t = make(T, NodeType::TEXT, kPage, "!", {0, 0, 100, 20}, "Hello");
+  t.props.text().textData.characters = "Hello";
+  t.props.text().autoRename = true;
+  nodes.push_back(t);
+  Editor e = makeEditor();
+  e.loadDocument(nodes, kNoGuid);
+  NodeChange name;
+  name.mask = F_NAME;
+  name.props.name = "Title";
+  REQUIRE(e.setProps({T}, name, 0) == OK);
+  CHECK(props(e, T).name == "Title");
+  CHECK(!props(e, T).text().autoRename);
+  name.props.name = "";
+  REQUIRE(e.setProps({T}, name, 0) == OK);
+  CHECK(props(e, T).name == "Hello");
+  CHECK(props(e, T).text().autoRename);
+}
+
+TEST_CASE("setProps: a frame's or a section's name can be empty") {
+  Editor e = makeEditor();
+  NodeChange name;
+  name.mask = F_NAME;
+  name.props.name = "";
+  REQUIRE(e.setProps({F}, name, 0) == OK);
+  CHECK(props(e, F).name.empty());
+  e.command(CommandId::UNDO);
+  CHECK(props(e, F).name == "Frame 1");
+}

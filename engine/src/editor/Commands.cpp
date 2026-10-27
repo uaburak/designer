@@ -1031,8 +1031,10 @@ void Editor::addAutoLayout() {
   if (top.empty()) return;
   begin(TxnKind::USER, "Add auto layout");
   const Node* only = top.size() == 1 ? doc_.get(top[0]) : nullptr;
-  if (only && only->props.type == NodeType::FRAME && !only->props.resizeToFit && !only->props.isAutoLayout()) {
-    // A lone frame gets auto layout itself, its padding from where its content sits.
+  const bool lone = only && ((only->props.type == NodeType::FRAME && !only->props.resizeToFit) || only->props.type == NodeType::SECTION);
+  if (lone && !only->props.isAutoLayout()) {
+    // A lone frame gets auto layout itself, its padding from where its content sits. A section too ([ours]: Figma has
+    // no auto layout on sections; docs/schema.md "Auto layout on sections" — written to Figma as a plain section).
     inferAutoLayout(top[0], true);
     changeSelection({top[0]});
   } else {

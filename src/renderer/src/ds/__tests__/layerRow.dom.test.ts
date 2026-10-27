@@ -10,7 +10,8 @@ import { LAYER_NAME_END, LayerRow, layerListWidth, layerRowExtent, tailCells } f
 import { VirtualList } from "../components/VirtualList";
 import { textWidth } from "../util/textWidth";
 import { Rail, RailItem } from "../components/Rail";
-import { $, mount, type Mounted } from "./dom";
+import { InlineEdit } from "../components/InlineEdit";
+import { $, key, mount, spy, type, type Mounted } from "./dom";
 
 const css = (f: string) => readFileSync(join(__dirname, "../components", f), "utf8");
 const noop = () => {};
@@ -121,5 +122,34 @@ describe("Rail: icons only unless labels are on", () => {
     expect(s).toContain(".rail:not([data-labels]) .label { display: none; }");
     expect(s).toContain(".rail:not([data-labels]) .item { height: calc(var(--ds-size-rail-tile) + var(--ds-space-2)); }");
     expect($('[data-ds="RailItem"]').getAttribute("aria-label")).toBe("File");
+  });
+});
+
+describe("an empty name is a name (Figma keeps a layer's name empty)", () => {
+  it("a Layers row's field hands back \"\" when cleared, null when left as it was", () => {
+    const onRename = spy<[string | null, string]>();
+    m = mount(LayerRow, { id: "1:1", depth: 0, name: "Section 1", icon: "16.section", renaming: true, onRename });
+    type($("input") as HTMLInputElement, "");
+    key($("input"), "Enter");
+    expect(onRename.calls[0]?.[0]).toBe("");
+    m.unmount();
+    const again = spy<[string | null, string]>();
+    m = mount(LayerRow, { id: "1:1", depth: 0, name: "", icon: "16.section", renaming: true, onRename: again });
+    key($("input"), "Enter");
+    expect(again.calls[0]?.[0]).toBeNull();
+  });
+
+  it("InlineEdit keeps a cleared field only with allowEmpty (the canvas title's rename)", () => {
+    const onCommit = spy<[string]>();
+    m = mount(InlineEdit, { label: "Rename", value: "Frame 1", editing: true, allowEmpty: true, onCommit });
+    type($("input") as HTMLInputElement, "  ");
+    key($("input"), "Enter");
+    expect(onCommit.calls).toEqual([[""]]);
+    m.unmount();
+    const plain = spy<[string]>();
+    m = mount(InlineEdit, { label: "Rename", value: "Frame 1", editing: true, onCommit: plain });
+    type($("input") as HTMLInputElement, "");
+    key($("input"), "Enter");
+    expect(plain.calls).toHaveLength(0);
   });
 });

@@ -12,8 +12,10 @@ export interface InlineEditProps extends Omit<HTMLAttributes<HTMLSpanElement>, "
   editing: boolean;
   /** Asks to start (double-click, when `editOnDoubleClick`) or reports that editing ended */
   onEditingChange?: (editing: boolean) => void;
-  /** A kept edit: trimmed, not empty, and different from `value` */
+  /** A kept edit: trimmed, not empty (unless `allowEmpty`), and different from `value` */
   onCommit: (next: string) => void;
+  /** A cleared field is kept as "" (a layer's name, as Figma keeps it) instead of putting the name back */
+  allowEmpty?: boolean;
   /** Editing ended with nothing kept (Esc, empty, or unchanged) */
   onCancel?: () => void;
   /** Enter, Esc, Tab or blur, after the commit */
@@ -32,11 +34,11 @@ export interface InlineEditProps extends Omit<HTMLAttributes<HTMLSpanElement>, "
  * nothing jumps. The field opens focused with the text selected; Enter, Tab
  * or leaving keeps it, Esc puts it back. Keys stop at the field.
  */
-export function InlineEdit({ label, value, editing, onEditingChange, onCommit, onExit, onCancel, select = "all", editOnDoubleClick, placeholder, maxLength, className, ...rest }: InlineEditProps) {
+export function InlineEdit({ label, value, editing, onEditingChange, onCommit, onExit, onCancel, select = "all", editOnDoubleClick, placeholder, maxLength, allowEmpty, className, ...rest }: InlineEditProps) {
   return (
     <span data-ds="InlineEdit" data-editing={editing || undefined} className={cx(styles.root, className)} {...rest}>
       {editing ? (
-        <Field label={label} value={value} select={select} placeholder={placeholder} maxLength={maxLength} onDone={(next, reason) => {
+        <Field label={label} value={value} select={select} placeholder={placeholder} maxLength={maxLength} allowEmpty={allowEmpty} onDone={(next, reason) => {
           if (next !== null) onCommit(next);
           else onCancel?.();
           onEditingChange?.(false);
@@ -61,7 +63,7 @@ export function renameSelection(value: string, select: "all" | "name" | "end"): 
   return [0, value.length];
 }
 
-function Field({ label, value, select, placeholder, maxLength, onDone }: { label: string; value: string; select: "all" | "name" | "end"; placeholder?: string; maxLength?: number; onDone: (next: string | null, reason: ExitReason) => void }) {
+function Field({ label, value, select, placeholder, maxLength, allowEmpty, onDone }: { label: string; value: string; select: "all" | "name" | "end"; placeholder?: string; maxLength?: number; allowEmpty?: boolean; onDone: (next: string | null, reason: ExitReason) => void }) {
   const [draft, setDraft] = useState(value);
   const input = useRef<HTMLInputElement>(null);
   const done = useRef(false);
@@ -78,7 +80,7 @@ function Field({ label, value, select, placeholder, maxLength, onDone }: { label
     if (done.current) return;
     done.current = true;
     const next = draft.trim();
-    onDone(keep && next && next !== value ? next : null, reason.current);
+    onDone(keep && (next || allowEmpty) && next !== value ? next : null, reason.current);
   };
   return (
     <>

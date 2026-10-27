@@ -17,7 +17,7 @@ import type { FigCodecs } from "./compression";
 import { decodeCanvas, readCanvasChunks } from "./container";
 import { FIGMA_DERIVED_DATA_VERSION } from "./convert";
 import { readFigFile } from "./figFile";
-import { encodeFigmaCanvas, FIGMA_FILE_VERSION, figmaExportSchema, figmaVariantDefId, toFigmaMessage, withoutOurPrototypeValues } from "./figmaExport";
+import { encodeFigmaCanvas, FIGMA_FILE_VERSION, figmaExportSchema, figmaVariantDefId, toFigmaMessage, withoutOurPrototypeValues, withoutSectionLayouts } from "./figmaExport";
 import { decodeAnySchema } from "./importFig";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- Figma-shaped values */
@@ -191,6 +191,47 @@ describe("the schema round's fields in an export (R17 batch C)", () => {
     const out = byKey(figma.decode("Message", canvas.message)).get(exportIds(withRect).key(g(S + 3, 1)));
     expect(out.fillPaints[0]).toMatchObject({ interpolationColorSpace: "OKLCH", interpolationHueMethod: "INCREASING" });
     expect(out.editScopeInfo.editScopeStacks[0].stack[0]).toMatchObject({ type: "AI", label: "Agent" });
+  });
+});
+
+describe("a section's auto layout ([ours]) goes to Figma as a plain section", () => {
+  const section = node(g(S + 4, 1), "SECTION", g(0, 1), "$", {
+    name: "",
+    size: { x: 90, y: 150 },
+    stackMode: "VERTICAL",
+    stackSpacing: 10,
+    stackHorizontalPadding: 20,
+    stackVerticalPadding: 20,
+    stackPaddingRight: 20,
+    stackPaddingBottom: 20,
+    stackPrimarySizing: "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE",
+    stackCounterSizing: "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE",
+  });
+  const kid = node(g(S + 4, 2), "ROUNDED_RECTANGLE", g(S + 4, 1), "!", { size: { x: 50, y: 50 }, transform: T(20, 80) });
+  const frame = node(g(S + 4, 3), "FRAME", g(0, 1), "%", { size: { x: 50, y: 50 }, stackMode: "HORIZONTAL", stackSpacing: 8 });
+
+  it("a .fig export drops the section's stack fields, keeps a frame's and the children where they were laid out", () => {
+    const base = ourSnapshot();
+    const m = { ...base, nodeChanges: [...base.nodeChanges!, section, kid, frame] } as Message;
+    const out = byKey(figma.decode("Message", decodeCanvas(encodeFigmaCanvas(m, codecs), codecs).message));
+    const sec = out.get(exportIds(m).key(g(S + 4, 1)));
+    expect(sec.type).toBe("SECTION");
+    expect(sec.name).toBe("");
+    for (const k of ["stackMode", "stackSpacing", "stackHorizontalPadding", "stackPrimarySizing", "stackCounterSizing"]) expect(sec[k]).toBeUndefined();
+    expect(sec.size).toEqual({ x: 90, y: 150 });
+    expect(out.get(exportIds(m).key(g(S + 4, 2))).transform).toMatchObject({ m02: 20, m12: 80 });
+    expect(out.get(exportIds(m).key(g(S + 4, 3)))).toMatchObject({ stackMode: "HORIZONTAL", stackSpacing: 8 });
+  });
+
+  it("the clipboard's Figma envelope too (withoutSectionLayouts); a message with none is the same message", () => {
+    const m = { type: "NODE_CHANGES", nodeChanges: [section, kid, frame] } as Message;
+    const plain = withoutSectionLayouts(m);
+    expect(plain.nodeChanges![0].stackMode).toBeUndefined();
+    expect(plain.nodeChanges![0].type).toBe("SECTION");
+    expect(plain.nodeChanges![2].stackMode).toBe("HORIZONTAL");
+    expect(section.stackMode).toBe("VERTICAL"); // not changed in place
+    const none = { type: "NODE_CHANGES", nodeChanges: [kid, frame] } as Message;
+    expect(withoutSectionLayouts(none)).toBe(none);
   });
 });
 

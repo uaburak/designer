@@ -90,6 +90,31 @@ function withoutOurTriggers<T extends NodeChange>(n: T): T {
 }
 
 /**
+ * A section's own auto layout ([ours]: docs/schema.md "Auto layout on sections") — Figma has none on sections, so a
+ * section goes to Figma as a plain one: its stack and grid container fields dropped, its children where the layout put
+ * them (their stored transforms). The node itself when it has none.
+ */
+const SECTION_LAYOUT_FIELDS = [
+  "stackMode", "stackSpacing", "stackHorizontalPadding", "stackVerticalPadding", "stackPaddingRight", "stackPaddingBottom",
+  "stackPrimarySizing", "stackCounterSizing", "stackPrimaryAlignItems", "stackCounterAlignItems", "stackCounterAlignContent",
+  "stackWrap", "stackCounterSpacing", "stackReverseZIndex", "bordersTakeSpace", "stackLayoutVersion",
+  "gridRows", "gridColumns", "gridRowsSizing", "gridColumnsSizing", "gridRowGap", "gridColumnGap", "gridAutoTracks", "gridReflowEnabled",
+] as const;
+function withoutSectionLayout<T extends NodeChange>(n: T): T {
+  if (n.type !== "SECTION" || !SECTION_LAYOUT_FIELDS.some((k) => (n as Record<string, unknown>)[k] !== undefined)) return n;
+  const out = { ...n } as Record<string, unknown>;
+  for (const k of SECTION_LAYOUT_FIELDS) delete out[k];
+  return out as T;
+}
+
+/** The Message with every section plain (`withoutSectionLayout`), for Figma's clipboard envelope; the same Message when none has auto layout. */
+export function withoutSectionLayouts(message: Message): Message {
+  const nodeChanges = message.nodeChanges ?? [];
+  const plain = nodeChanges.map(withoutSectionLayout);
+  return plain.some((n, i) => n !== nodeChanges[i]) ? { ...message, nodeChanges: plain } : message;
+}
+
+/**
  * The Message without what only Wecra plays — interactions with Wecra's own triggers, on nodes and in instances'
  * override entries — for Figma's clipboard envelope (Figma reads it with the embedded schema, then into its own enums).
  * The same Message when it has none.
@@ -137,7 +162,7 @@ function withoutOurFields(entries0: NodeChange[]): NodeChange[] {
  * `@default`, else the kiwi zero value), which need not be Figma's, so they are written out.
  */
 function figmaNode(n0: NodeChange): NodeChange {
-  const n = withoutOurTriggers(n0);
+  const n = withoutSectionLayout(withoutOurTriggers(n0));
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(n)) if (!OUR_NODE_FIELDS.has(k) && v !== undefined) out[k] = v;
   // An instance's overrides (and derived sublayer data) are NodeChanges too: `@ours` fields set on a sublayer (a text

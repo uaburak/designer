@@ -229,7 +229,7 @@ export function PaintsSection({ title, field, nodes, onPick, className }: { titl
               <div key={i} className={cx(styles.paintRow, dragging === d && styles.rowDragging, rows.isSelected(i) && styles.rowSelected)} data-paint-row={p.type} data-reorder-row="" {...rows.rowProps(d)}>
                 {n > 1 && <Grip {...grip(d)} />}
                 {paintVariable(p) ? (
-                  <BoundPaintRow nodes={nodes} field={field} index={i} paint={p} className={cx(styles.paintField, p.visible === false && styles.paintHidden)} />
+                  <BoundPaintRow nodes={nodes} field={field} index={i} paint={p} onPick={(anchor) => onPick({ kind: "paint", field, index: i, anchor, tab: "libraries" })} className={cx(styles.paintField, p.visible === false && styles.paintHidden)} />
                 ) : (
                   // Motion mode: a solid paint's row joined with its colour's keyframe diamond (Figma's Fill row, docs/motion.md §6.5)
                   <MotionField field={{ type: "INDEXED_ITEM", collection: field === "fillPaints" ? "fills" : "strokes", index: i }} disabled={p.type !== "SOLID"} className={styles.paintField}>

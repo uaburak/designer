@@ -18,7 +18,7 @@
 import type { Guid, Message, NodeChange, Vector } from "@/engine/codec";
 import { deflateRawStored, isZstd, inflateRawStored, type FigCodecs } from "../../../../shared/fig/compression";
 import { figmaMetaOf, type FigmaClipboardMeta } from "../../../../shared/fig/figmaClipboard";
-import { withoutOurPrototypeValues } from "../../../../shared/fig/figmaExport";
+import { withoutOurPrototypeValues, withoutSectionLayouts } from "../../../../shared/fig/figmaExport";
 import { decodeCanvas, figContainer, readCanvasChunks } from "../../../../shared/fig/container";
 import { decodeMessage, DOCUMENT_FORMAT_VERSION, encodeMessage, SCHEMA_BINARY, type Message as KiwiMessage } from "../../../../shared/schema/codec";
 import { guidKey } from "../../../../shared/schema/guid";
@@ -245,7 +245,8 @@ export function encodeClipboardKiwi(bytes: Uint8Array, meta: { fileKey?: string 
   const archive = bytesToB64(figContainer(SCHEMA_BINARY, bytes, DOCUMENT_FORMAT_VERSION, STORED));
   // Figma's envelope leaves out what only Wecra plays (an On double click: Figma has no such trigger); our own type
   // keeps everything for a paste into Wecra, which reads it first.
-  const forFigma = withoutOurPrototypeValues(message);
+  // A section's auto layout ([ours]) goes too: Figma gets a plain section, its children where the layout put them.
+  const forFigma = withoutSectionLayouts(withoutOurPrototypeValues(message));
   const envelope = forFigma === message ? archive : bytesToB64(figContainer(SCHEMA_BINARY, encodeMessage(forFigma), DOCUMENT_FORMAT_VERSION, STORED));
   const metaB64 = utf8ToBase64(JSON.stringify({ fileKey: meta.fileKey ?? message.pasteFileKey ?? "", pasteID: meta.pasteID ?? message.pasteID ?? 0, dataType: "scene", app: "designerv2" }));
   return {

@@ -49,7 +49,7 @@ Everything compiles and the DS's checks pass: `npm run typecheck` and `npm run l
   <Skeleton width? height?={16} radius?="small" | "medium" | "medium-large" | "full" />
   ```
 
-  - `InlineEdit` swaps the text for a field in the same font and place, focused with the text selected (`select="name"` leaves out the extension). Enter, Tab or blur keeps a trimmed, changed, non-empty name (`onCommit`); otherwise `onCancel`. Keys stop at the field.
+  - `InlineEdit` swaps the text for a field in the same font and place, focused with the text selected (`select="name"` leaves out the extension). Enter, Tab or blur keeps a trimmed, changed, non-empty name (`onCommit`; with `allowEmpty` a cleared field commits `""` — layer names); otherwise `onCancel`. Keys stop at the field.
   - `CollectionView` leaves keys typed in fields alone, so a rename inside a card is safe. The marquee works in content coordinates, so it survives the collection's own scrolling.
   - The toast with an action (Undo) already existed: `showToast({ message, action: { label: "Undo", onAction } })`.
   - Additions to existing pieces: FileCard and FileRow roots carry `data-collection-item`.

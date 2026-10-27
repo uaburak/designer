@@ -63,13 +63,14 @@ export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
   const limits = useLimitAxes(nodes);
   const refs = nodes.map((n) => n.guid);
   const sections = nodes.some((n) => typeOf(n) === "SECTION");
-  const frames = nodes.every(isFrameNode) && !sections;
+  // A section takes auto layout as a frame does ([ours]: docs/schema.md "Auto layout on sections"); written to Figma as a plain section
+  const frames = nodes.every(isFrameNode);
   const groups = nodes.every((n) => isGroupNode(n));
   const clipFrames = nodes.filter((n) => isFrameNode(n) && typeOf(n) !== "SECTION");
   const auto = autoLayoutKept && frames && nodes.every(isAutoLayout);
   const instances = nodes.some((n) => typeOf(n) === "INSTANCE");
   const instanceFlowState = instanceFlow(nodes);
-  const flowable = autoLayoutKept && !sections && nodes.every((n) => isFrameNode(n) || isGroupNode(n)) && instanceFlowState !== "hidden";
+  const flowable = autoLayoutKept && nodes.every((n) => isFrameNode(n) || isGroupNode(n)) && instanceFlowState !== "hidden";
   const constrained = mixed(nodes.map((n) => n.proportionsConstrained === true));
   const lines = nodes.every((n) => typeOf(n) === "LINE");
   const texts = nodes.filter(isTextNode);
@@ -97,7 +98,7 @@ export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
   ) : (
     <>
       {canResizeToFit(nodes) && <IconButton icon="24.resize-to-fit.small" label={t("Resize to fit")} shortcut="⌥⇧⌘R" tone="secondary" onClick={() => resizeToFit(ed, refs)} />}
-      {(flowable || nodes.length > 1) && !sections && !instanceFlowState && (
+      {(flowable || nodes.length > 1) && !instanceFlowState && (
         <ToggleIconButton icon="24.autolayout-add-vertical" label={t("Use auto layout")} tooltip={t("Toggle auto layout")} shortcut={shortcutOf(addCommand)} tone="secondary" pressed={false} onPressedChange={addAutoLayout} />
       )}
     </>

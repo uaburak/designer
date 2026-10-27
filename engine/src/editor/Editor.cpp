@@ -899,7 +899,7 @@ bool Editor::deriveNextTrees(Guid page, double budgetMs, const std::vector<Guid>
     stack.pop_back();
     const Node* n = id.isDerived() ? nullptr : doc_.get(id);
     if (!n) continue;
-    if (n->props.type == NodeType::SECTION) {
+    if (n->props.type == NodeType::SECTION && !n->props.isAutoLayout()) {  // an auto-layout section ([ours]) is one tree
       const auto& kids = doc_.children(id);
       stack.insert(stack.end(), kids.rbegin(), kids.rend());
       continue;
@@ -1955,6 +1955,16 @@ Status Editor::setProps(const std::vector<Guid>& ids, const NodeChange& props, u
     NodeChange c = NodeChange::changed(id);
     c.mask = differingFields(before, props.props, mask);  // equal values are no-ops
     copyFields(c.props, props.props, c.mask);
+    if ((before.type == NodeType::TEXT || before.type == NodeType::TEXT_PATH) && (mask & F_NAME) && !(mask & F_AUTO_RENAME)) {
+      // A text renamed by hand stops following its characters; one whose name is cleared follows them again (Figma).
+      bool follow = props.props.name.empty();
+      if (follow) {
+        c.props.name = text::layerNameFor(before.text().textData.characters);
+        c.mask = (c.mask & ~static_cast<FieldMask>(F_NAME)) | (c.props.name != before.name ? F_NAME : 0);
+      }
+      c.props.text().autoRename = follow;
+      if (before.text().autoRename != follow) c.mask |= F_AUTO_RENAME;
+    }
     // Motion on (docs/motion.md §4.9): a keyframable field with a track (or any, with auto-keyframe) becomes a keyframe.
     if (motion_.on && c.mask) c.mask &= ~motionRouteWrite(id, c);
     if (!c.mask) continue;

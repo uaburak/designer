@@ -95,8 +95,11 @@ export function ShapeGlyph({ kind, aspect }: ShapeGlyphProps) {
 export const LAYER_ROW_LARGE = 48;
 export const LAYER_THUMB = 32;
 
-/** The inline rename: a ghost field; reports the new name (null when unchanged or cancelled) and how it was left. */
-function RenameField({ value, onDone, className, label = t(STRINGS.rename) }: { value: string; onDone: (name: string | null, exit: ExitReason) => void; className?: string; label?: string }) {
+/**
+ * The inline rename: a ghost field; reports the new name (null when unchanged or cancelled) and how it was left.
+ * `allowEmpty`: a cleared field is a name too, "" (a layer's, as Figma keeps — a page's isn't).
+ */
+function RenameField({ value, onDone, className, label = t(STRINGS.rename), allowEmpty }: { value: string; onDone: (name: string | null, exit: ExitReason) => void; className?: string; label?: string; allowEmpty?: boolean }) {
   useT();
   const committed = useRef<string | null>(null);
   return (
@@ -107,7 +110,7 @@ function RenameField({ value, onDone, className, label = t(STRINGS.rename) }: { 
       value={value}
       autoFocus
       onCommit={(v) => {
-        committed.current = v.trim() ? v : null;
+        committed.current = v.trim() ? v : allowEmpty && value !== "" ? "" : null;
       }}
       onExit={(r) => onDone(r === "escape" ? null : committed.current, r)}
     />
@@ -228,7 +231,7 @@ export function LayerRow({ id, depth, name, icon, iconLabel, shape, kind = "defa
           <span className={styles.type} data-layer-icon="" role={iconLabel ? "img" : undefined} aria-label={iconLabel} {...tooltipProps(iconLabel)}>{shape ? <ShapeGlyph {...shape} /> : <Icon name={icon} size={16} />}{absolute && <span className={styles.absolute} data-layer-absolute=""><Icon name="16.absolute-corners" size={16} /></span>}</span>
         )}
         {renaming ? (
-          <RenameField className={styles.rename} value={name} onDone={(n, r) => onRename?.(n, r)} />
+          <RenameField className={styles.rename} value={name} allowEmpty onDone={(n, r) => onRename?.(n, r)} />
         ) : (
           <span className={styles.name} data-layer-name="">{name}</span>
         )}

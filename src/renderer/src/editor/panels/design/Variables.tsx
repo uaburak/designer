@@ -334,7 +334,11 @@ export function EffectColorField({ nodes, index, color, children }: { nodes: rea
 }
 
 /** A paint row bound to a colour variable (live 2026-10-22): the outlined variable field; Detach keeps the colour. */
-export function BoundPaintRow({ nodes, field, index, paint, className }: { nodes: readonly PanelNode[]; field: "fillPaints" | "strokePaints"; index: number; paint: Paint; className?: string }) {
+/**
+ * A paint bound to a colour variable: its pill opens the colour picker on its Libraries tab, the variable marked
+ * (`onPick`: the section's picker; live Figma — not "Apply variable"); without `onPick`, the variable list.
+ */
+export function BoundPaintRow({ nodes, field, index, paint, onPick, className }: { nodes: readonly PanelNode[]; field: "fillPaints" | "strokePaints"; index: number; paint: Paint; onPick?: (anchor: DOMRect) => void; className?: string }) {
   const ed = useEditor();
   const [open, setOpen] = useState<HTMLElement | null>(null);
   const id = paintVariable(paint)!;
@@ -342,7 +346,7 @@ export function BoundPaintRow({ nodes, field, index, paint, className }: { nodes
   const color = (paint.color ?? { r: 1, g: 1, b: 1, a: 1 }) as Color;
   return (
     <div className={cx(vstyles.bindWrap, className)} data-bind-field={`${field}[${index}].color`}>
-      <ColorVariablePill id={id} color={color} opacity={paint.opacity ?? 1} label={field === "fillPaints" ? "Fill" : "Stroke"} onOpen={setOpen} onDetach={() => bindPaint(ed, refs, field, index, null)} />
+      <ColorVariablePill id={id} color={color} opacity={paint.opacity ?? 1} label={field === "fillPaints" ? "Fill" : "Stroke"} onOpen={onPick ? (el) => onPick(el.getBoundingClientRect()) : setOpen} onDetach={() => bindPaint(ed, refs, field, index, null)} />
       {open && (
         <VariablePicker
           anchor={open}

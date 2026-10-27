@@ -646,8 +646,9 @@ function NameField({ node }: { node: CNode }) {
       onChange={(e) => setDraft(e.target.value)}
       onFocus={(e) => e.currentTarget.select()}
       onBlur={() => {
+        // A cleared field keeps "" (Figma keeps an empty layer name)
         const name = draft?.trim();
-        if (!cancelled.current && name && name !== node.name) ed.setProps([node.guid], { name }, "Rename");
+        if (!cancelled.current && name !== undefined && name !== (node.name ?? "")) ed.setProps([node.guid], { name }, "Rename");
         cancelled.current = false;
         setDraft(null);
       }}
