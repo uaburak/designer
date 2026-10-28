@@ -92,8 +92,9 @@ export function attachDevMode(ed: EditorController): () => void {
     }),
     ed.engine.on("MEASUREMENT_EDIT", (e) => ed.ui.set({ measurementEditor: { id: e.id, text: e.text, ...toViewport(ed, e) } })),
     // The status in a design's title, or the `</>` at a selected design's top right ("mark"): the status menu — the
-    // owner's statuses replace Ready for dev's own (docs/editor.md "Frame status (ours)").
-    ed.engine.on("DEV_STATUS", (e) => ed.ui.set({ statusMenu: { ref: e.ref, ...toViewport(ed, e) } })),
+    // owner's statuses replace Ready for dev's own (docs/editor.md "Frame status (ours)"). Its Changed square
+    // ("changed"): what changed since the status was set, layer by layer (Compare changes).
+    ed.engine.on("DEV_STATUS", (e) => (e.action === "changed" ? ed.ui.set({ compare: { ref: e.ref } }) : ed.ui.set({ statusMenu: { ref: e.ref, ...toViewport(ed, e) } }))),
   ];
   return () => offs.forEach((off) => off());
 }

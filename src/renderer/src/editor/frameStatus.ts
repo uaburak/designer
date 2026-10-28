@@ -13,17 +13,42 @@ import type { Guid, NodeChange } from "@/engine/codec";
 import type { EditorController } from "./controller";
 import { setDevStatusOf } from "./devStatus";
 import { presenceOf } from "./multiplayer/presence";
-import { devStatusFor, statusIn, type FrameStatus, type PluginDataEntry } from "./workflowStatus";
+import { CHANGE_TRACKED, devStatusFor, statusIn, statusSince, type FrameStatus, type PluginDataEntry } from "./workflowStatus";
 
 export { FRAME_STATUS_COLOR, FRAME_STATUSES, frameStatusLabel, statusIn, WORKFLOW_KEY, WORKFLOW_PLUGIN_ID, type FrameStatus } from "./workflowStatus";
 
-type Row = NodeChange & { pluginData?: PluginDataEntry[]; sectionStatusInfo?: { status?: string } | null; resizeToFit?: boolean };
+type Row = NodeChange & {
+  pluginData?: PluginDataEntry[];
+  sectionStatusInfo?: { status?: string; lastUpdateUnixTimestamp?: number } | null;
+  editInfo?: { lastEditedAt?: number } | null;
+  resizeToFit?: boolean;
+};
 
 /** A node's status: ours in pluginData, else the one Figma's Ready for dev stands for. */
 export function frameStatusOf(ed: EditorController, id: Guid): FrameStatus | null {
   if (ed.engine.destroyed) return null;
   const r = ed.engine.readNode(id, { fields: ["pluginData", "sectionStatusInfo"] }) as Row | null;
   return statusIn(r?.pluginData, r?.sectionStatusInfo?.status);
+}
+
+/** When a design's status was set (unix seconds; its pluginData `since`, else Figma's sectionStatusInfo), or null. */
+export function frameStatusSince(ed: EditorController, id: Guid): number | null {
+  if (ed.engine.destroyed) return null;
+  const r = ed.engine.readNode(id, { fields: ["pluginData", "sectionStatusInfo"] }) as Row | null;
+  return statusSince(r?.pluginData, r?.sectionStatusInfo);
+}
+
+/**
+ * Whether a design was edited since its status was set — Done, R to Merge or Ready to Dev (the owner, 2026-10-28; the
+ * engine's Editor::workflowChanged draws its Changed square).
+ */
+export function frameStatusChanged(ed: EditorController, id: Guid): boolean {
+  if (ed.engine.destroyed) return false;
+  const r = ed.engine.readNode(id, { fields: ["pluginData", "sectionStatusInfo", "editInfo"] }) as Row | null;
+  const status = statusIn(r?.pluginData, r?.sectionStatusInfo?.status);
+  if (!status || !CHANGE_TRACKED.has(status)) return false;
+  const since = statusSince(r?.pluginData, r?.sectionStatusInfo);
+  return since !== null && (r?.editInfo?.lastEditedAt ?? 0) > since;
 }
 
 const FRAMEISH = new Set(["FRAME", "SECTION", "SYMBOL", "INSTANCE"]);

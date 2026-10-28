@@ -57,25 +57,30 @@ double Renderer::drawStatusChip(const DevStatusMark& mark, double x, double cent
   return w;
 }
 
-double Renderer::drawStatusIcon(const DevStatusMark& mark, double right, double centerY, const DevOverlay& dev, const OverlayStyle& style) {
+double Renderer::drawStatusIcon(const DevStatusMark& mark, double right, double centerY, const DevOverlay& dev, const OverlayStyle& style,
+                                bool changedSquare) {
   // A design's status in Design mode (the owner, 2026-10-28; live Figma's Ready for dev: a 16 × 16 square of its colour,
   // 4 px corners, the glyph white in it): the status's own glyph (ds/icons/svg/24/status.*.svg, the menu's) — 1 px
   // round strokes from its 24 box, centred in the square. Where the `</>` button's box is: 2 past the frame's right.
   const double dpr = viewport_.scaleX();
+  // `changedSquare`: the design's Changed square instead, `right` its right edge — Figma's Changed yellow, the glyph
+  // dark on it ("±"), its tooltip "Changed".
   const int wf = std::clamp<int>(mark.workflow, 1, kWorkflowCount);
   const double s = kDevButton, r = kDevButtonRadius;
-  double bx = std::round((right - kDevIconWidth / 2 - s / 2) * dpr) / dpr, by = std::round((centerY - s / 2) * dpr) / dpr;
-  const Color fill = style.workflow[wf], ink{1, 1, 1, 1};
+  double bx = std::round((changedSquare ? right - s : right - kDevIconWidth / 2 - s / 2) * dpr) / dpr, by = std::round((centerY - s / 2) * dpr) / dpr;
+  const Color fill = changedSquare ? style.statusChanged : style.workflow[wf];
+  const Color ink = changedSquare ? Color{0, 0, 0, 0.9f} : Color{1, 1, 1, 1};
+  const bool hovered = dev.iconHover == mark.frame && dev.iconHoverChanged == changedSquare;
   emit(makeShape(Mat2x3::translate(bx, by), {s, s}, ShapeKind::Rect, {r, r, r, r}, fill, 1.0, fill, 0.0, 0, 0), Pass::Shape);
   // Hovered (live Figma's Ready for dev): "…" in place of the glyph — three 2 px dots 4 apart —, and after the
   // tooltip delay the status's name under it.
-  if (dev.iconHover == mark.frame) {
+  if (hovered) {
     for (int i = -1; i <= 1; i++)
       emit(makeShape(Mat2x3::translate(bx + s / 2 + 4 * i - 1, by + s / 2 - 1), {2, 2}, ShapeKind::Ellipse, kSquare, ink, 1, ink, 0, 0, 0), Pass::Shape);
     if (dev.tooltip) {
       devTooltip_ = true;
       devTooltipUnder_ = {bx, by, s, s};
-      devTooltipText_ = kWorkflowLabels[wf];
+      devTooltipText_ = changedSquare ? "Changed" : kWorkflowLabels[wf];
     }
   }
   // The glyph's 24 box centred on the square's.
@@ -111,7 +116,12 @@ double Renderer::drawStatusIcon(const DevStatusMark& mark, double right, double 
       prev = p;
     }
   };
-  if (dev.iconHover != mark.frame) switch (wf) {
+  if (hovered) {
+  } else if (changedSquare) {  // Changed: "±"
+    line({9, 10}, {15, 10});
+    line({12, 7}, {12, 13});
+    line({9, 16}, {15, 16});
+  } else switch (wf) {
     case 1:  // Done: a check
       line({7.5, 12.5}, {10.5, 15.5});
       line({10.5, 15.5}, {16.5, 8.5});
@@ -158,7 +168,7 @@ double Renderer::drawStatusIcon(const DevStatusMark& mark, double right, double 
     CanvasHits::Status hit;
     hit.frame = mark.frame;
     hit.rect = {bx, by, s, s};
-    hit.kind = mark.kind;
+    hit.kind = changedSquare ? DevStatusMark::Kind::Changed : mark.kind;
     hits_.statuses.push_back(hit);
   }
   return s;

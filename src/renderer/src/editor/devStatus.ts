@@ -10,7 +10,7 @@ import type { Guid, NodeChange, NodeFields } from "@/engine/codec";
 import { getStoreClient } from "@/store";
 import type { DevModeRepository, DevStatusReport } from "@shared/devmode/types";
 import type { EditorController } from "./controller";
-import { frameStatusForDev, withStatus, type DevStatusValue, type FrameStatus, type PluginDataEntry } from "./workflowStatus";
+import { CHANGE_TRACKED, frameStatusForDev, frameStatusLabel, withStatus, type DevStatusValue, type FrameStatus, type PluginDataEntry } from "./workflowStatus";
 
 type StatusNode = NodeChange & { sectionStatusInfo?: { status?: string } };
 
@@ -82,21 +82,30 @@ export function setDevStatusOf(
   // Figma's field is written when it changes: set, or cleared where there was one (and kept as it is when ours moves
   // between two statuses Figma has no word for). Writing the same status again restarts its clock.
   const hadDev = (r: StatusNode | undefined) => !!r?.sectionStatusInfo?.status && r.sectionStatusInfo.status !== "NONE";
+  const now = Math.floor(Date.now() / 1000);
   ed.batch(label, () => {
     rows.forEach((r, i) => {
-      const change: Record<string, unknown> = { pluginData: withStatus(r?.pluginData, workflow) };
+      const change: Record<string, unknown> = { pluginData: withStatus(r?.pluginData, workflow, now) };
       if (status || hadDev(r)) change.sectionStatusInfo = info;
       ed.engine.setProps([ids[i]], change as unknown as NodeFields);
     });
   });
+  saveStatusVersion(ed, ids, workflow);
   if (!status && !before) return;
   reportDevStatus(ed, ids, status, label === "Done with changes" ? "changed_done" : status === "BUILD" ? "ready" : status === "COMPLETED" ? "completed" : "removed", opts.description);
-  // A design marked ready is compared with the file as it was then (Compare changes): a version saved now
-  // (unverified: whether Figma saves one, or keeps its own snapshot).
-  if (status === "BUILD" && ed.source.saveVersion) {
-    const names = ids.map((id) => ed.engine.readNode(id, { fields: ["name"] })?.name ?? "").filter(Boolean);
-    void ed.source.saveVersion({ title: names.length === 1 ? t("“{name}” marked ready for dev", { name: names[0] }) : t("{n} designs marked ready for dev", { n: names.length }) }).catch(() => {});
-  }
+}
+
+/**
+ * A design given a status that tracks changes (Done, R to Merge, Ready to Dev) is compared with the file as it was then
+ * (its Changed square opens Compare changes): a version saved now (unverified: whether Figma saves one for Ready for
+ * dev, or keeps its own snapshot).
+ */
+function saveStatusVersion(ed: EditorController, ids: readonly Guid[], workflow: FrameStatus | null): void {
+  if (!workflow || !CHANGE_TRACKED.has(workflow) || !ed.source.saveVersion) return;
+  const names = ids.map((id) => ed.engine.readNode(id, { fields: ["name"] })?.name ?? "").filter(Boolean);
+  const status = t(frameStatusLabel(workflow));
+  const title = names.length === 1 ? t("“{name}” marked {status}", { name: names[0], status }) : t("{n} designs marked {status}", { n: names.length, status });
+  void ed.source.saveVersion({ title }).catch(() => {});
 }
 
 /**

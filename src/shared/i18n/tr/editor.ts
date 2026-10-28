@@ -812,8 +812,8 @@ export const editor: Record<string, string> = {
   "This version couldn't be opened": "Bu sürüm açılamadı",
   "{n} autosave version": "{n} otomatik kayıt sürümü",
   "{n} autosave versions": "{n} otomatik kayıt sürümü",
-  "“{name}” marked ready for dev": "“{name}” geliştirmeye hazır olarak işaretlendi",
-  "{n} designs marked ready for dev": "{n} tasarım geliştirmeye hazır olarak işaretlendi",
+  "“{name}” marked {status}": "“{name}” {status} olarak işaretlendi",
+  "{n} designs marked {status}": "{n} tasarım {status} olarak işaretlendi",
 
   // Loader, canvas, overlays
   "Loading file": "Dosya yükleniyor",

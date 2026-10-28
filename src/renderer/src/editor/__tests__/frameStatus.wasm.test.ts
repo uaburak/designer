@@ -17,7 +17,8 @@ import { $, $$, click, mount, type Mounted } from "../../ds/__tests__/dom";
 import { EditorContext, EditorController } from "../controller";
 import { memoryDocumentSource } from "../documentSource";
 import { StatusMenu } from "../devmode/DevOverlays";
-import { canHaveStatus, frameStatusOf, setFrameStatus, WORKFLOW_PLUGIN_ID } from "../frameStatus";
+import { canHaveStatus, frameStatusChanged, frameStatusOf, frameStatusSince, setFrameStatus, WORKFLOW_PLUGIN_ID } from "../frameStatus";
+import { withStatus } from "../workflowStatus";
 import { getPluginData } from "../plugins/api/nodes";
 
 const wasm = join(process.cwd(), "src/renderer/src/engine/wasm/engine.wasm");
@@ -125,6 +126,29 @@ describe("Frame status (ours)", () => {
     act(() => click(row("Cancelled")));
     expect([ours(engine), figma(engine)]).toEqual(["cancelled", null]);
     expect(ed.setProps([FRAME], { name: "Renamed" }, "Rename")).not.toBe(0);
+    engine.destroy();
+  });
+
+  it("Done, R to Merge and Ready to Dev keep when they were set; an edit after it is Changed until Done with changes", async () => {
+    const { ed, engine } = await setup();
+    engine.setEditTracking(true);
+    const before = Math.floor(Date.now() / 1000);
+    setFrameStatus(ed, [FRAME], "r-to-merge");
+    expect(frameStatusSince(ed, FRAME)).toBeGreaterThanOrEqual(before);
+    expect(frameStatusChanged(ed, FRAME)).toBe(false);
+    // Set a minute ago (editInfo counts whole seconds), then an edit inside the design.
+    engine.setProps([FRAME], { pluginData: withStatus(read(engine).pluginData, "r-to-merge", before - 60) } as unknown as NodeFields);
+    expect(frameStatusChanged(ed, FRAME)).toBe(false);
+    expect(ed.setProps([INNER], { opacity: 0.5 }, "Edit")).toBe(0);
+    expect(frameStatusChanged(ed, FRAME)).toBe(true);
+    // A status that tracks nothing: no Changed, no `since`.
+    setFrameStatus(ed, [FRAME], "process");
+    expect(frameStatusChanged(ed, FRAME)).toBe(false);
+    expect(frameStatusSince(ed, FRAME)).toBeNull();
+    // Set again (Done with changes): its clock restarts.
+    setFrameStatus(ed, [FRAME], "done");
+    expect(frameStatusChanged(ed, FRAME)).toBe(false);
+    expect(figma(engine)).toBe("COMPLETED");
     engine.destroy();
   });
 

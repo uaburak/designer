@@ -14,3 +14,6 @@ docs/research/figma/live/behaviour/img/
 
 # The SAML libraries' module, built by server/scripts/build-saml.mjs before every wrangler build
 server/src/*.gen.mjs
+
+# Review screenshots dropped by agents (not part of the app)
+.figma-review/

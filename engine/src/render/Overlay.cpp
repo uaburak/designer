@@ -743,6 +743,11 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
           if (t.frame.w >= cw + 2 * kDevIconWidth) cornerRoom = drawStatusChip(*corner, at.x, at.y, true, true, style) + kDevIconGap;
         } else if (t.frame.w >= 3 * kDevIconWidth) {
           cornerRoom = drawStatusIcon(*corner, at.x, at.y, overlay.dev, style) - (kDevButton - kDevIconWidth) / 2 + kDevIconGap;
+          // Edited since: the Changed square 4 before it (the owner, 2026-10-28).
+          if (corner->changed) {
+            const double statusLeft = at.x - kDevIconWidth / 2 - kDevButton / 2;
+            cornerRoom += drawStatusIcon(*corner, statusLeft - 4, at.y, overlay.dev, style, true) + 4;
+          }
         }
       }
       if (overlay.hideTitle == t.id) continue;  // a grid's track selected: its name gives way (live Figma)

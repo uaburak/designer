@@ -9,6 +9,13 @@
  */
 export const WORKFLOW_PLUGIN_ID = "designer.workflow";
 export const WORKFLOW_KEY = "status";
+/**
+ * When the status was set (unix seconds, as a string) — kept for the statuses that track changes (the owner,
+ * 2026-10-28: Done, R to Merge, Ready to Dev). The design edited later (its editInfo) shows "Changed" beside its status
+ * (the engine's Editor::workflowChanged); its changes are compared with the version saved then.
+ */
+export const WORKFLOW_SINCE_KEY = "since";
+export const CHANGE_TRACKED: ReadonlySet<FrameStatus> = new Set<FrameStatus>(["done", "r-to-merge", "ready-to-dev"]);
 
 /** The owner's list, in his order (the engine's kWorkflowLabels, 1–7). */
 export const FRAME_STATUSES = [
@@ -67,10 +74,24 @@ export function statusIn(entries: readonly PluginDataEntry[] | undefined, sectio
   return frameStatusForDev(sectionStatus);
 }
 
-/** pluginData with our entry set to `status` (or removed, with null); other plugins' entries kept. */
-export function withStatus(entries: readonly PluginDataEntry[] | undefined, status: FrameStatus | null): PluginDataEntry[] {
-  const rest = (entries ?? []).filter((e) => !(e.pluginID === WORKFLOW_PLUGIN_ID && e.key === WORKFLOW_KEY));
-  return status ? [...rest, { pluginID: WORKFLOW_PLUGIN_ID, key: WORKFLOW_KEY, value: status }] : rest;
+/**
+ * pluginData with our entry set to `status` (or removed, with null) and, for a status that tracks changes, `since`
+ * (unix seconds) beside it; other plugins' entries kept.
+ */
+export function withStatus(entries: readonly PluginDataEntry[] | undefined, status: FrameStatus | null, since?: number): PluginDataEntry[] {
+  const rest = (entries ?? []).filter((e) => !(e.pluginID === WORKFLOW_PLUGIN_ID && (e.key === WORKFLOW_KEY || e.key === WORKFLOW_SINCE_KEY)));
+  if (!status) return rest;
+  const out = [...rest, { pluginID: WORKFLOW_PLUGIN_ID, key: WORKFLOW_KEY, value: status }];
+  if (since !== undefined && CHANGE_TRACKED.has(status)) out.push({ pluginID: WORKFLOW_PLUGIN_ID, key: WORKFLOW_SINCE_KEY, value: String(since) });
+  return out;
+}
+
+/** When a design's status was set (unix seconds): our `since`, else Figma's sectionStatusInfo; null if neither. */
+export function statusSince(entries: readonly PluginDataEntry[] | undefined, sectionStatus?: { status?: string; lastUpdateUnixTimestamp?: number } | null): number | null {
+  const e = entries?.find((x) => x.pluginID === WORKFLOW_PLUGIN_ID && x.key === WORKFLOW_SINCE_KEY);
+  const n = e?.value !== undefined ? Number(e.value) : NaN;
+  if (Number.isFinite(n)) return n;
+  return sectionStatus?.status && sectionStatus.status !== "NONE" && sectionStatus.lastUpdateUnixTimestamp !== undefined ? sectionStatus.lastUpdateUnixTimestamp : null;
 }
 
 /**

@@ -27,8 +27,26 @@
   .categories { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: var(--ds-space-2) 0; }
   .categoryRow { display: flex; align-items: center; gap: var(--ds-space-2); }
 
-  /* Changed → Done with changes */
-  .doneWithChanges { display: flex; flex-direction: column; gap: var(--ds-space-3); padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-3); }
+  /* Compare changes opened on a design edited since its status: the review bar under its header (Changed, the
+     reason, Done with changes) */
+  .compareReview {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--ds-space-2);
+    padding: var(--ds-space-2) var(--ds-space-4);
+    border-bottom: 1px solid var(--figma-color-border);
+  }
+  .changedTag {
+    flex: none;
+    padding: 0 var(--ds-space-2);
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-warning);
+    color: var(--figma-color-text-onwarning);
+    font: var(--ds-font-body-medium-strong);
+    line-height: var(--ds-size-control);
+  }
+  .compareReason { flex: 0 1 calc(var(--ds-space-16) * 4); }
 
   /* Focus view's bar, over the canvas's top */
   .focusBar {

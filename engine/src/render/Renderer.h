@@ -201,13 +201,16 @@ struct DevStatusMark {
   // was marked; MarkButton: the `</>` at a selected design's top right without a status (a click opens the menu).
   enum class Kind : uint8_t { MarkButton, Workflow, Changed } kind = Kind::Workflow;
   uint8_t workflow = 0;
-  // After the name (Dev Mode, a section's pill, Changed) rather than at the design's top right (Design mode, where
-  // Ready for dev's `</>` button is).
+  // After the name (a section's pill, Changed) rather than at the design's top right (where Ready for dev's `</>`
+  // button is).
   bool trailing = false;
+  // A status at the top right: the design was edited since it was set (Done, R to Merge, Ready to Dev) — a Changed
+  // square beside it (the owner, 2026-10-28).
+  bool changed = false;
 };
 // The owner's statuses' labels, by Editor::workflowStatus's number (0: none).
 inline constexpr const char* kWorkflowLabels[] = {"", "Done", "R to Merge", "Ready to Dev", "To be done", "Process", "Revised", "Cancelled"};
-inline constexpr int kWorkflowDone = 1, kWorkflowReadyToDev = 3, kWorkflowCancelled = 7, kWorkflowCount = 7;
+inline constexpr int kWorkflowDone = 1, kWorkflowRToMerge = 2, kWorkflowReadyToDev = 3, kWorkflowCancelled = 7, kWorkflowCount = 7;
 struct DevOverlay {
   bool annotations = true;  // View › Annotations (labels, dots and measurements)
   bool dots = false;        // Dev Mode: annotations as dots, the open one as its label
@@ -222,6 +225,7 @@ struct DevOverlay {
   // Round 15: the `</>` button under the pointer (filled: blue, or green "•••" when ready), and whether its tooltip
   // ("Set status", after the tooltip delay) shows.
   Guid iconHover = kNoGuid;
+  bool iconHoverChanged = false;  // the hovered square is the design's Changed one
   bool tooltip = false;
 };
 // Where the last canvas frame drew what can be clicked (CSS px in the canvas), for the editor's hit tests.
@@ -904,9 +908,10 @@ class Renderer {
   // `centerY`; `compact`: the `</>` button's 16 px height and corners): returns its width.
   void drawDevOverlay(const Document& doc, const Camera& camera, const Overlay& overlay, const OverlayStyle& style);
   double drawStatusChip(const DevStatusMark& mark, double x, double centerY, bool alignRight, bool compact, const OverlayStyle& style);
-  // A status in Design mode: its glyph white in a 16 square of its colour, centred where the `</>` button is (right: the frame's
-  // right edge). Returns its width.
-  double drawStatusIcon(const DevStatusMark& mark, double right, double centerY, const DevOverlay& dev, const OverlayStyle& style);
+  // A status at a design's top right: its glyph white in a 16 square of its colour, centred where the `</>` button is
+  // (right: the frame's right edge); `changedSquare`, the Changed square ending at `right`. Returns its width.
+  double drawStatusIcon(const DevStatusMark& mark, double right, double centerY, const DevOverlay& dev, const OverlayStyle& style,
+                        bool changedSquare = false);
   // The `</>` at a selected design's top right (Overlay.cpp): its right edge at `right`, by the title's baseline.
   // The `</>` button at a frame's top right: `right` / `baseline` in label-local px (`place` → screen; FrameTitles.h).
   void drawDevIcon(Guid frame, DevStatusMark::Kind kind, double right, double baseline, const Color& color, const Mat2x3& place, bool upright,

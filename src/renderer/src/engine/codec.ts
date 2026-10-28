@@ -996,7 +996,7 @@ export type EngineEvent =
   /** Dev Mode: the selected saved measurement changed. */
   | { type: "MEASUREMENT_SELECTED"; id: Guid | null }
   /** Dev Mode: a design's status chip ("menu") or the `</>` at a selected design's top right ("mark": toggle Ready for dev) was clicked. */
-  | { type: "DEV_STATUS"; ref: Guid; action: "menu" | "mark"; x: number; y: number; width: number; height: number }
+  | { type: "DEV_STATUS"; ref: Guid; action: "menu" | "mark" | "changed"; x: number; y: number; width: number; height: number }
   /** Motion (docs/motion.md §5): the root's motion model changed (a commit touching a motion node, a binding, the timeline, audio, or the selection's root); the timeline refetches. */
   | { type: "MOTION_CHANGED"; root: Guid | null };
 

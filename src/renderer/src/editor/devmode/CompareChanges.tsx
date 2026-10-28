@@ -8,7 +8,7 @@
  * by the engine's exporter and read through the same engine API.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CodeBlock, EmptyState, FocusTrap, IconButton, Portal, ScrollArea, SegmentedControl, Spinner } from "@/ds";
+import { Button, CodeBlock, EmptyState, FocusTrap, IconButton, Portal, ScrollArea, SegmentedControl, Spinner, TextInput } from "@/ds";
 import { Engine } from "@/engine/Engine";
 import { intlLocale, t, tp, useT } from "@/i18n";
 import type { Guid, Message, NodeChange } from "@/engine/codec";
@@ -19,7 +19,40 @@ import type { VersionInfo } from "../documentSource";
 import { renderEngineExport } from "../exportCore";
 import { useUI } from "../hooks";
 import { codeDiff, diffDesign, versionAtOrBefore, type LayerChange } from "./compare";
+import { frameStatusChanged, frameStatusOf, frameStatusSince, canSetStatus } from "../frameStatus";
+import { devStatusFor, frameStatusLabel } from "../workflowStatus";
+import { setDevStatusOf } from "../devStatus";
 import styles from "./DevMode.module.css";
+
+/**
+ * A design edited since its status was set (the owner, 2026-10-28: Done, R to Merge, Ready to Dev): what changed is the
+ * list below; an optional reason and "Done with changes" give it its status again, now — the Changed square goes, and
+ * the people following the file in Dev Mode are told, with the reason (Figma's Done with changes).
+ */
+function ReviewBar({ root, onDone }: { root: Guid; onDone: () => void }) {
+  useT();
+  const ed = useEditor();
+  const [reason, setReason] = useState("");
+  const status = frameStatusOf(ed, root);
+  if (!status) return null;
+  return (
+    <div className={styles.compareReview} data-done-with-changes="">
+      <span className={styles.changedTag}>{t("Changed")}</span>
+      <span className={styles.hint}>{t("Edited after it was marked {status}. Its changes are listed below.", { status: t(frameStatusLabel(status)) })}</span>
+      <span className={styles.grow} />
+      <TextInput label={t("Reason")} value={reason} placeholder={t("Add a reason (optional)")} onChange={setReason} className={styles.compareReason} />
+      <Button
+        variant="primary"
+        onClick={() => {
+          setDevStatusOf(ed, [root], devStatusFor(status), { workflow: status, description: reason.trim() || undefined, label: "Done with changes" });
+          onDone();
+        }}
+      >
+        {t("Done with changes")}
+      </Button>
+    </div>
+  );
+}
 
 export function CompareChanges() {
   const ref = useUI((s) => s.compare?.ref ?? null);
@@ -74,6 +107,8 @@ function Compare({ root }: { root: Guid }) {
   const [layer, setLayer] = useState<Guid | null>(null);
   const [detail, setDetail] = useState<"properties" | "code">("properties");
   const name = useMemo(() => ed.engine.readNode(root, { fields: ["name"] })?.name ?? "", [ed, root]);
+  // Opened from its Changed square (or Inspect): edited since its status was set — the review bar.
+  const changedSince = useMemo(() => frameStatusChanged(ed, root) && canSetStatus(ed), [ed, root]);
   const images = ed.source.images ? (h: string) => ed.source.images!.get(h) : null;
   const close = () => ed.ui.set({ compare: null });
 
@@ -84,9 +119,9 @@ function Compare({ root }: { root: Guid }) {
       const list = (await ed.source.listVersions?.()) ?? [];
       if (off) return;
       setVersions(list);
-      const info = ed.engine.readNode(root, { fields: ["sectionStatusInfo"] }) as { sectionStatusInfo?: { status?: string; lastUpdateUnixTimestamp?: number } } | null;
-      const since = info?.sectionStatusInfo?.status && info.sectionStatusInfo.status !== "NONE" ? (info.sectionStatusInfo.lastUpdateUnixTimestamp ?? 0) * 1000 : null;
-      setVersion(versionAtOrBefore(list, since)?.id ?? null);
+      // The version saved when its status was set (ours, or Figma's Ready for dev / Completed); none: the latest.
+      const since = frameStatusSince(ed, root);
+      setVersion(versionAtOrBefore(list, since === null ? null : since * 1000)?.id ?? null);
     })();
     return () => {
       off = true;
@@ -174,6 +209,7 @@ function Compare({ root }: { root: Guid }) {
         <span className={styles.grow} />
         <IconButton icon="24.close.small" label={t("Close")} onClick={close} />
       </header>
+      {changedSince && <ReviewBar root={root} onDone={close} />}
       <canvas ref={canvas} id="compare-canvas" className={styles.hiddenCanvas} aria-hidden />
       <div className={styles.compare} data-compare="">
         <nav className={styles.compareNav}>

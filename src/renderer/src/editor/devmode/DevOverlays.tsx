@@ -120,8 +120,8 @@ export function statusOf(ed: EditorController, ref: Guid): "READY" | "COMPLETED"
  * The status menu, opened from the status in a design's title or its `</>` (docs/editor.md "Frame status (ours)": the
  * owner's statuses replace Ready for dev's own menu). A design marked Ready to Dev: first Figma's own actions — Design
  * mode "Open in Dev Mode", "Copy link" (the owner's recording at 21 s); Dev Mode "Show in focus view", "Compare
- * changes" (Done too) — then the statuses with their dots, the current one checked, and "No status". "Changed" (a Ready
- * to Dev design edited since): Figma's reason and "Done with changes".
+ * changes" (Done too) — then the statuses, and "No status". A design edited since its status was set has its own
+ * Changed square, which opens Compare changes (its reason and "Done with changes" are there).
  */
 export function StatusMenu() {
   useT();
@@ -131,7 +131,6 @@ export function StatusMenu() {
   const dev = statusOf(ed, at.ref);
   const current = frameStatusOf(ed, at.ref);
   const close = () => ed.ui.set({ statusMenu: null });
-  if (dev === "CHANGED" && current === "ready-to-dev") return <DoneWithChanges at={at} onClose={close} />;
   const inDev = modeOf(ed) === "dev";
   const figma: MenuEntry[] =
     !inDev && current === "ready-to-dev"
@@ -155,42 +154,6 @@ export function StatusMenu() {
         else if (isStatusRow(id)) pickFrameStatus(ed, [at.ref], id);
       }}
     />
-  );
-}
-
-/** "Changed": optionally a reason, then "Done with changes" (back to Ready for dev). */
-function DoneWithChanges({ at, onClose }: { at: { ref: Guid; x: number; y: number; width: number; height: number }; onClose: () => void }) {
-  useT();
-  const ed = useEditor();
-  const [reason, setReason] = useState("");
-  return (
-    <Popover anchor={new DOMRect(at.x, at.y, at.width, at.height)} placement="bottom-start" onClose={onClose} label={t("Changed")} width={260} title={t("Changed")}>
-      <div className={styles.doneWithChanges} data-done-with-changes="">
-        <div className={styles.hint}>{t("This design was edited after it was marked ready for dev.")}</div>
-        <TextInput label={t("Reason")} value={reason} placeholder={t("Add a reason (optional)")} onChange={setReason} />
-        <div className={styles.noteActions}>
-          <Button
-            variant="secondary"
-            onClick={() => {
-              onClose();
-              ed.ui.set({ compare: { ref: at.ref } });
-            }}
-          >
-            {t("Compare changes")}
-          </Button>
-          <span className={styles.grow} />
-          <Button
-            variant="primary"
-            onClick={() => {
-              setDevStatusOf(ed, [at.ref], "BUILD", { description: reason.trim() || undefined, label: "Done with changes" });
-              onClose();
-            }}
-          >
-            {t("Done with changes")}
-          </Button>
-        </div>
-      </div>
-    </Popover>
   );
 }
 

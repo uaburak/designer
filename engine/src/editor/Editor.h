@@ -945,6 +945,9 @@ class Editor : private LayoutHost, public TextLayouts {
   // R to Merge, Ready to Dev, To be done, Process, Revised, Cancelled; kWorkflowLabels). From pluginData
   // `designer.workflow` / `status`; without that entry, Figma's sectionStatusInfo (BUILD: Ready to Dev, COMPLETED: Done).
   int workflowStatus(Guid id) const;
+  // Whether a design was edited since its status was set (the owner, 2026-10-28): Done, R to Merge and Ready to Dev —
+  // its editInfo later than pluginData `designer.workflow` / `since` (unix seconds), else than sectionStatusInfo's.
+  bool workflowChanged(Guid id) const;
   // The page's saved measurements; the selected one.
   std::vector<annot::Measurement> measurements(Guid page = kNoGuid) const;
   Guid selectedMeasurement() const { return dev_.selectedMeasurement; }
@@ -2641,6 +2644,7 @@ class Editor : private LayoutHost, public TextLayouts {
   // The `</>` button under the pointer and since when (the tick's clock; −1: not yet ticked) — its tooltip after the
   // tooltip delay (500 ms, ds timing.tooltip).
   Guid devIconHover_ = kNoGuid;
+  bool devIconHoverChanged_ = false;  // the pointer on the design's Changed square, not its status
   double devIconSince_ = -1;
   bool devTooltip_ = false;
   // Pressed (its status menu opens): no tooltip again until the pointer leaves the button (the chrome's tooltips never

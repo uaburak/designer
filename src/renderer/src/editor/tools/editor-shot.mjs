@@ -3856,8 +3856,8 @@ async function devmodeSection(page, theme) {
   await page.keyboard.press("Escape");
   await settle(page);
 
-  // Done with changes, from Inspect's status: the owner's Ready to Dev chip, Figma's "Changed" beside it (StatusTag).
-  await inspect.locator('[data-status-chip="ready-to-dev"]').click();
+  // Done with changes, in Compare changes (its Changed square opens it, 2026-10-28): the review bar over the changes.
+  await page.evaluate(() => window.__designerEditor.ui.set({ compare: { ref: "1:1" } }));
   await page.locator("[data-done-with-changes]").waitFor({ timeout: 5000 });
   await page.getByRole("textbox", { name: "Reason" }).fill("Wider button");
   await shot(page, `168-done-with-changes-${theme}`);

@@ -503,7 +503,7 @@ export const tools: Record<string, string> = {
   "Show in focus view": "Odak görünümünde göster",
   "Compare changes": "Değişiklikleri karşılaştır",
   "Status": "Durum",
-  "This design was edited after it was marked ready for dev.": "Bu tasarım, geliştirmeye hazır olarak işaretlendikten sonra düzenlendi.",
+  "Edited after it was marked {status}. Its changes are listed below.": "{status} olarak işaretlendikten sonra düzenlendi. Değişiklikler aşağıda.",
   "Reason": "Neden",
   "Add a reason (optional)": "Bir neden ekleyin (isteğe bağlı)",
   "Done with changes": "Değişiklikler tamamlandı",

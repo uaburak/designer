@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <functional>
 #include <iterator>
@@ -346,6 +347,33 @@ int Editor::workflowStatus(Guid id) const {
   return st->string == "BUILD" ? kWorkflowReadyToDev : st->string == "COMPLETED" ? kWorkflowDone : 0;
 }
 
+bool Editor::workflowChanged(Guid id) const {
+  const int wf = workflowStatus(id);
+  if (wf != kWorkflowDone && wf != kWorkflowReadyToDev && wf != kWorkflowRToMerge) return false;
+  const Node* n = doc_.get(id);
+  if (!n) return false;
+  double since = -1;
+  if (n->props.extra.find("pluginData") != n->props.extra.end()) {
+    json::Value entries = extraJson(n->props, "pluginData");
+    for (const json::Value& e : entries.isArray() ? entries.array : std::vector<json::Value>{}) {
+      const json::Value* plugin = e.isObject() ? e.get("pluginID") : nullptr;
+      const json::Value* key = e.isObject() ? e.get("key") : nullptr;
+      const json::Value* value = e.isObject() ? e.get("value") : nullptr;
+      if (plugin && key && value && plugin->isString() && key->isString() && value->isString() && plugin->string == "designer.workflow" &&
+          key->string == "since")
+        since = std::atof(value->string.c_str());
+    }
+  }
+  if (since < 0 && n->props.extra.find("sectionStatusInfo") != n->props.extra.end()) {
+    json::Value info = extraJson(n->props, "sectionStatusInfo");
+    if (info.isObject() && info.get("lastUpdateUnixTimestamp")) since = info.get("lastUpdateUnixTimestamp")->numberOr(-1);
+  }
+  if (since < 0) return false;
+  json::Value edit = extraJson(n->props, "editInfo");
+  double edited = edit.isObject() && edit.get("lastEditedAt") ? edit.get("lastEditedAt")->numberOr(0) : 0;
+  return edited > since;
+}
+
 std::vector<annot::Measurement> Editor::measurements(Guid page) const {
   const Node* p = doc_.get(page == kNoGuid ? page_ : page);
   return p ? annot::measurementsOf(p->props) : std::vector<annot::Measurement>{};
@@ -408,6 +436,7 @@ void Editor::devOverlay(Overlay& o) const {
   d.dots = dev_.dots;
   d.focus = dev_.focus;
   d.iconHover = devIconHover_;
+  d.iconHoverChanged = devIconHoverChanged_;
   d.tooltip = devTooltip_;
   if (page_ == kNoGuid || !doc_.has(page_)) return;
   // The design a layer is in (the page's child holding it).
@@ -436,16 +465,18 @@ void Editor::devOverlay(Overlay& o) const {
         int wf = workflowStatus(c);
         DevStatusMark mark;
         mark.frame = c;
-        if (wf == kWorkflowReadyToDev && devStatus(c) == 3) {
-          mark.kind = DevStatusMark::Kind::Changed;
+        if (wf) {
           mark.workflow = static_cast<uint8_t>(wf);
-          mark.trailing = true;
-          d.statuses.push_back(mark);
-        } else if (wf) {
-          mark.workflow = static_cast<uint8_t>(wf);
-          // Dev Mode too (the owner, 2026-10-28): its square at the top right, as in Design mode; a section's after its pill.
+          // Dev Mode too (the owner, 2026-10-28): its square at the top right, as in Design mode; a section's after its
+          // pill. Edited since it was set: a Changed square beside it (a section's Changed chip after its status).
           mark.trailing = section;
+          mark.changed = workflowChanged(c);
           d.statuses.push_back(mark);
+          if (section && mark.changed) {
+            DevStatusMark ch = mark;
+            ch.kind = DevStatusMark::Kind::Changed;
+            d.statuses.push_back(ch);
+          }
         } else if (canEditDev() && n->props.type != NodeType::INSTANCE && !section && selected(c)) {
           // (A selected section shows no `</>`: live Figma, canvas-section-selected — Group 1. Its status is set from
           // the Design panel's header.)
@@ -588,11 +619,16 @@ void Editor::devIconHoverAt(Vec2 s) {
   // The `</>` button or a status's square under the pointer: filled / its "…" while hovered; its tooltip after the
   // tooltip delay (tick). Its hit boxes are where the last frame drew them.
   Guid over = kNoGuid;
+  bool overChanged = false;
   if (gesture_ == Gesture::None && !spaceHeld_)
     for (const CanvasHits::Status& h : hits_.statuses)
-      if ((h.kind == DevStatusMark::Kind::MarkButton || h.kind == DevStatusMark::Kind::Workflow) && h.contains(s)) over = h.frame;
-  if (over == devIconHover_) return;
+      if (h.contains(s)) {
+        over = h.frame;
+        overChanged = h.kind == DevStatusMark::Kind::Changed;
+      }
+  if (over == devIconHover_ && overChanged == devIconHoverChanged_) return;
   devIconHover_ = over;
+  devIconHoverChanged_ = overChanged;
   devIconSince_ = -1;
   devTooltip_ = false;
   devIconPressed_ = false;
@@ -623,7 +659,8 @@ uint32_t Editor::devPointerDown(Vec2 s, uint32_t mods) {
     devTooltip_ = false;
     devIconSince_ = -1;
     devIconPressed_ = devIconHover_ != kNoGuid;
-    events_.statusClicks.push_back({h.frame, h.kind == DevStatusMark::Kind::MarkButton ? "mark" : "menu", h.rect});
+    events_.statusClicks.push_back(
+        {h.frame, h.kind == DevStatusMark::Kind::MarkButton ? "mark" : h.kind == DevStatusMark::Kind::Changed ? "changed" : "menu", h.rect});
     needsRender_ = true;
     return P_HANDLED;
   }
@@ -872,6 +909,18 @@ void Editor::noteEdited(const NodeChange& c) {
     bool devOnly = true;
     for (auto& [k, v] : c.props.extra) devOnly &= devField(k);
     if (devOnly) return;
+  }
+  // A design moved on the canvas or renamed — a top-level frame, section or component, or one directly in a section —
+  // is not changed (the owner, 2026-10-28: "Changed" is for what the developer builds; its size and contents count).
+  if (c.phase == Phase::CHANGED && !(c.mask & ~static_cast<FieldMask>(F_TRANSFORM | F_NAME | F_EXTRA))) {
+    bool devOnly = true;
+    for (auto& [k, v] : c.props.extra) devOnly &= devField(k);
+    const Node* n = doc_.get(c.guid);
+    const Node* parent = n ? doc_.get(n->props.parentIndex.guid) : nullptr;
+    const Node* grand = parent ? doc_.get(parent->props.parentIndex.guid) : nullptr;
+    const bool design = n && n->props.isFrameLike() && parent &&
+                        (parent->props.type == NodeType::CANVAS || (parent->props.type == NodeType::SECTION && grand && grand->props.type == NodeType::CANVAS));
+    if (devOnly && design) return;
   }
   if (c.phase == Phase::REMOVED) {
     // The parent the layer left was edited.

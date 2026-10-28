@@ -359,8 +359,30 @@ TEST_CASE("devmode: statuses on titles; editInfo stamped on edits makes a ready 
   CHECK(f.extraJson(B, "editInfo").isNull());
   CHECK(f.ed.devStatus(A) == 3);
   f.frame();
-  REQUIRE(f.r.canvasHits().statuses.size() == 1);
-  CHECK(f.r.canvasHits().statuses[0].kind == DevStatusMark::Kind::Changed);
+  // Its status square and, left of it, the Changed square (the owner, 2026-10-28).
+  REQUIRE(f.r.canvasHits().statuses.size() == 2);
+  CHECK(f.r.canvasHits().statuses[0].kind == DevStatusMark::Kind::Workflow);
+  CHECK(f.r.canvasHits().statuses[1].kind == DevStatusMark::Kind::Changed);
+  // A design moved on the canvas or renamed is not changed (the owner, 2026-10-28): no editInfo for it.
+  {
+    f.now = 2090;
+    double was = f.extraJson(A, "editInfo").get("lastEditedAt")->number;
+    NodeChange mv = NodeChange::changed(A);
+    mv.mask = F_TRANSFORM | F_NAME;
+    mv.props.transform = Mat2x3::translate(40, 0);
+    mv.props.name = "Moved";
+    REQUIRE(f.ed.setProps({A}, mv, 0) == OK);
+    CHECK(f.extraJson(A, "editInfo").get("lastEditedAt")->number == was);
+    f.ed.command(CommandId::UNDO);
+    // Its size is: the design changed.
+    NodeChange rs = NodeChange::changed(A);
+    rs.mask = F_SIZE;
+    rs.props.size = {220, 100};
+    REQUIRE(f.ed.setProps({A}, rs, 0) == OK);
+    CHECK(f.extraJson(A, "editInfo").get("lastEditedAt")->number == 2090);
+    f.ed.command(CommandId::UNDO);
+    f.now = 2060;
+  }
   // Undo takes the edit and its editInfo back.
   f.ed.command(CommandId::UNDO);
   CHECK(f.ed.devStatus(A) == 1);
@@ -457,7 +479,8 @@ TEST_CASE("devmode: the owner's statuses (pluginData) in the title replace Ready
   CHECK(ev.statusClicks[0].frame == A);
   CHECK(ev.statusClicks[0].action == "menu");
 
-  // A Ready to Dev design edited after it was marked: Figma's "Changed"; another status edited stays itself.
+  // A Ready to Dev design edited after it was marked: its status stays, a Changed square beside it (the owner,
+  // 2026-10-28); a status that tracks no changes (Process) edited stays itself.
   f.now = 2000;
   f.setExtra(A, "pluginData", status("ready-to-dev"));
   f.setExtra(A, "sectionStatusInfo", R"({"status":"BUILD","lastUpdateUnixTimestamp":2000})");
@@ -467,12 +490,34 @@ TEST_CASE("devmode: the owner's statuses (pluginData) in the title replace Ready
   c.props.size = {80, 40};
   REQUIRE(f.ed.setProps({CHILD}, c, 0) == OK);
   CHECK(f.ed.devStatus(A) == 3);
+  CHECK(f.ed.workflowChanged(A));
   f.frame();
   REQUIRE(marksOf(A).size() == 1);
-  CHECK(marksOf(A)[0].kind == DevStatusMark::Kind::Changed);
+  CHECK(marksOf(A)[0].kind == DevStatusMark::Kind::Workflow);
+  CHECK(marksOf(A)[0].changed);
+  // The Changed square left of the status: a click on it asks for the changes.
+  const CanvasHits::Status* changedHit = nullptr;
+  for (const auto& h : f.r.canvasHits().statuses)
+    if (h.frame == A && h.kind == DevStatusMark::Kind::Changed) changedHit = &h;
+  REQUIRE(changedHit);
+  CHECK(changedHit->rect.right() < hitOf(A)->rect.x + 1);
+  f.ed.takeEvents();
+  f.click(changedHit->rect.x + 4, changedHit->rect.y + 4);
+  ev = f.ed.takeEvents();
+  REQUIRE(ev.statusClicks.size() == 1);
+  CHECK(ev.statusClicks[0].action == "changed");
   f.setExtra(A, "pluginData", status("process"));
+  CHECK(!f.ed.workflowChanged(A));
   f.frame();
   CHECK(marksOf(A)[0].kind == DevStatusMark::Kind::Workflow);
+  CHECK(!marksOf(A)[0].changed);
+  // R to Merge has no Figma status: ours, since its pluginData `since`.
+  f.setExtra(A, "pluginData", R"([{"pluginID":"designer.workflow","key":"status","value":"r-to-merge"},{"pluginID":"designer.workflow","key":"since","value":"3000"}])");
+  CHECK(!f.ed.workflowChanged(A));
+  f.now = 3060;
+  c.props.size = {90, 40};
+  REQUIRE(f.ed.setProps({CHILD}, c, 0) == OK);
+  CHECK(f.ed.workflowChanged(A));
 
   // Dev Mode (viewer mode with Dev Mode's edits): the squares at the top right too (the owner, 2026-10-28).
   f.ed.setViewerMode(true);
