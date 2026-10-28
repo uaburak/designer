@@ -1,5 +1,5 @@
 /**
- * The left sidebar (240, resizable): the file header (the name, a click renames; ▾ the Edit file menu; Minimize
+ * The left sidebar (240, resizable): the file header (the name, a double-click renames; ▾ the Edit file menu; Minimize
  * UI — no location line under the name: the owner, 2026-10-23), then what the navigation bar's tab shows — File: Pages and Layers (or Find and replace, ⌘F),
  * Assets, Agents (panels/agents: chats with the AI tools on this computer) and Brands. Figma's Tools tab is not built
  * (the owner, 2026-10-19): the plugins run from Actions (⌘K) › Plugins and the main menu's Plugins ▸, Wecra's image
@@ -84,10 +84,10 @@ export function FileHeader({ menu }: { menu?: () => MenuEntry[] } = {}) {
         {renaming ? (
           <RenameFile name={name} />
         ) : (
-          // Figma (live left-panel.txt): the name is the file's field — a click renames it in place (Enter / leaving
-          // commits, Esc cancels) — and the chevron after it, its own 24 button, opens the Edit file menu.
+          // Figma (live left-panel.txt): a double-click on the name renames it in place (Enter / leaving commits, Esc
+          // cancels); the chevron after it, its own 24 button, opens the Edit file menu.
           <span className={styles.fileName} data-file-name="">
-            <button type="button" className={styles.fileButton} onClick={() => runEditorCommand(ed, "file.rename")}>
+            <button type="button" className={styles.fileButton} onDoubleClick={() => runEditorCommand(ed, "file.rename")}>
               <BranchTitle name={name} />
             </button>
             <MenuButton label={t("Edit file menu")} tooltip entries={menu ?? entries} onSelect={(id) => runEditorCommand(ed, id)} className={styles.fileMenu}>

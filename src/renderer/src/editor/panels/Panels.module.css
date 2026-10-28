@@ -39,8 +39,9 @@
     min-width: 0;
   }
   /*
-   * The name's button (a click renames) and the Edit file menu's 24 square right after it, one split pill (live
-   * left-panel.txt: [Edit file menu] 24 × 24 r = 0 5 5 0): the name's hover lights both, the chevron's itself.
+   * The name's button (a double-click renames) and the Edit file menu's 24 square right after it, one split pill (live
+   * left-panel.txt: [Edit file menu] 24 × 24 r = 0 5 5 0). Hovering either lights both; the chevron hovered or open is
+   * the lighter one (the owner's 2026-10-28 capture: the name #383838, the chevron #4e4e4e).
    */
   .fileName { display: flex; align-self: flex-start; gap: 1px; max-width: 100%; min-width: 0; }
   .fileMinimize { flex: none; }
@@ -67,7 +68,8 @@
     padding: 0;
     border-radius: 0 var(--ds-radius-medium) var(--ds-radius-medium) 0;
   }
-  .fileButton:hover, .fileButton:hover + .fileMenu, .fileMenu:hover, .fileMenu[data-open] { background: var(--figma-color-bg-hover); }
+  .fileName:hover > .fileButton, .fileName:hover > .fileMenu, .fileName:has(> .fileMenu[data-open]) > .fileButton { background: var(--figma-color-bg-hover); }
+  .fileName > .fileMenu:hover, .fileName > .fileMenu[data-open] { background: var(--ds-color-file-menu-hover); }
   .fileButton:focus-visible, .fileMenu:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .fileButton > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .fileMenu svg { flex: none; color: var(--figma-color-icon-secondary); }
