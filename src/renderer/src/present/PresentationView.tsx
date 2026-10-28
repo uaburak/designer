@@ -327,6 +327,13 @@ const TOUCH_SLOP = 10;
  * ends of the window, and is placed again only when the window comes within half of it of an end.
  */
 const OVERSCAN = 320;
+/**
+ * …and under it, copies of the page drawn ahead: this tall (CSS px), this many each side of the window, at most this
+ * many device pixels a CSS px (only seen while a fling outruns the canvas: a quarter of the memory at 3x)
+ */
+const TILE = 1024;
+const TILE_KEEP = 6;
+const TILE_DPR = 1.5;
 /** How long two (or more) fingers are held to bring a hidden UI back on a touch screen */
 const RESTORE_HOLD_MS = 800;
 
@@ -796,6 +803,18 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       app.overflow = "visible";
       app.height = "auto";
     }
+    // The page's own draws (placing the canvas, copying the page) aren't changes of its picture
+    let selfDraw = false;
+    const draw = () => {
+      selfDraw = true;
+      engine.frameNow();
+      selfDraw = false;
+    };
+    const scrollTo = (top: number) => {
+      const st = engine.presentState();
+      const s = st.viewScale || 1;
+      engine.presentSetOptions({ baseScroll: [st.baseScroll?.[0] ?? 0, top / s], windowTop: (window.scrollY - top) / s });
+    };
     let placed: number | null = null;
     const place = (force = false) => {
       if (engine.destroyed) return;
@@ -803,23 +822,95 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       const top = Math.round(window.scrollY + window.innerHeight / 2 - canvas.offsetHeight / 2);
       if (!force && placed !== null && Math.abs(top - placed) < OVERSCAN / 2) return;
       placed = top;
-      const st = engine.presentState();
-      const s = st.viewScale || 1;
-      engine.presentSetOptions({ baseScroll: [st.baseScroll?.[0] ?? 0, top / s], windowTop: (window.scrollY - top) / s });
+      scrollTo(top);
       canvas.style.top = `${top}px`;
-      engine.frameNow();
+      draw();
     };
     placeRef.current = place;
-    const onScroll = () => place();
+    // Copies of the page drawn ahead, under the canvas (2026-10-29: a fast fling outran the canvas — the page showed
+    // empty, then in pieces): TILE tall, TILE_KEEP each side of the window, drawn once the page has held still a moment
+    // — nearest first, a few a task, the canvas put back after them — and again after its picture changed (an image
+    // arriving, an accordion opening), the old copy shown meanwhile.
+    const layer = document.createElement("div");
+    layer.style.cssText = "position:absolute;left:0;top:0;width:100%;pointer-events:none";
+    canvas.parentElement?.insertBefore(layer, canvas);
+    const tiles = new Map<number, { el: HTMLCanvasElement; fresh: boolean }>();
+    let tileTimer = 0;
+    const scheduleTiles = (ms: number) => {
+      window.clearTimeout(tileTimer);
+      tileTimer = window.setTimeout(fillTiles, ms);
+    };
+    const fillTiles = () => {
+      if (engine.destroyed) return;
+      const st = engine.presentState();
+      // An overlay or a transition on the canvas isn't the page's: later
+      if ((st.overlays?.length ?? 0) > 0) return scheduleTiles(500);
+      const docH = (st.content?.[1] ?? 0) * (st.viewScale || 1);
+      const middle = Math.floor((window.scrollY + window.innerHeight / 2) / TILE);
+      const want: number[] = [];
+      for (let d = 0; d <= TILE_KEEP; d++) for (const k of d ? [middle + d, middle - d] : [middle]) if (k >= 0 && k * TILE < docH) want.push(k);
+      for (const [k, t] of tiles)
+        if (!want.includes(k)) {
+          t.el.width = 0;
+          t.el.remove();
+          tiles.delete(k);
+        }
+      const todo = want.filter((k) => !tiles.get(k)?.fresh).slice(0, 1);
+      if (!todo.length) return;
+      const w = canvas.width;
+      const dpr = canvas.height / Math.max(1, canvas.offsetHeight);
+      const h = Math.min(canvas.height, Math.round(TILE * dpr));
+      const down = Math.min(1, TILE_DPR / dpr);
+      const tw = Math.round(w * down);
+      const th = Math.round(h * down);
+      for (const n of todo) {
+        let t = tiles.get(n);
+        if (!t) {
+          const el = document.createElement("canvas");
+          el.style.cssText = `position:absolute;left:0;width:100%;height:${TILE}px;top:${n * TILE}px`;
+          layer.append(el);
+          t = { el, fresh: false };
+          tiles.set(n, t);
+        }
+        if (t.el.width !== tw || t.el.height !== th) {
+          t.el.width = tw;
+          t.el.height = th;
+        }
+        scrollTo(n * TILE);
+        draw();
+        t.el.getContext("2d")?.drawImage(canvas, 0, 0, w, h, 0, 0, tw, th);
+        t.fresh = true;
+      }
+      place(true);
+      scheduleTiles(50);
+    };
+    engine.onRender = () => {
+      if (selfDraw) return;
+      for (const t of tiles.values()) t.fresh = false;
+      scheduleTiles(300);
+    };
+    const onScroll = () => {
+      place();
+      scheduleTiles(200);
+    };
     // The browser's bars shown or hidden (the window's height): centred again
-    const onResize = () => place(true);
+    const onResize = () => {
+      place(true);
+      for (const t of tiles.values()) t.fresh = false;
+      scheduleTiles(300);
+    };
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", onResize);
     window.scrollTo(0, 0);
     place(true);
+    scheduleTiles(300);
     return () => {
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onResize);
+      window.clearTimeout(tileTimer);
+      engine.onRender = null;
+      for (const t of tiles.values()) t.el.width = 0;
+      layer.remove();
       placeRef.current = null;
       canvas.style.top = "";
       [html.overflow, html.height] = kept.html as [string, string];

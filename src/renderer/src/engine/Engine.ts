@@ -807,6 +807,9 @@ export class Engine {
   /** Frame times and dropped frames in Figma's histograms (frameTelemetry.ts). */
   readonly frameTelemetry = new FrameTelemetry();
 
+  /** Called after each frame drawn (the canvas's picture changed): a presentation's page keeps copies of it (bare). */
+  onRender: (() => void) | null = null;
+
   private readonly frame = (time: number): void => {
     this.frameRequested = 0;
     if (!this.h) return;
@@ -815,6 +818,7 @@ export class Engine {
       this.x.render(this.h);
       const end = performance.now();
       this.frameTelemetry.record(end - start, end);
+      this.onRender?.();
     }
     const delay = this.x.nextFrameDelay(this.h);
     if (delay === 0) this.schedule();
