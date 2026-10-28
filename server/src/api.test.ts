@@ -397,6 +397,11 @@ describe("files and sharing", () => {
     expect(members.map((x) => `${x.email}:${x.role}`)).toEqual(["e@x.co:owner", "nobody@x.co:editor", "o@x.co:editor"]);
     // The link page keeps the frame and the mode.
     expect(await (await call("GET", "/f/file_own001?node-id=12:34&m=dev")).text()).toContain("designer://open?key=file_own001&amp;node-id=12-34&amp;m=dev");
+    // A prototype's link opens the web app's presentation (a phone has no desktop app), its parameters kept
+    const proto = await call("GET", "/f/file_own001?node-id=12:34&m=proto&scaling=contain");
+    expect(proto.status).toBe(302);
+    expect(proto.headers.get("location")).toBe("/?present&file=file_own001&scaling=contain&node-id=12-34");
+    expect(await (await call("GET", "/f/file_own001")).text()).toContain('href="/?editor&amp;file=file_own001"');
   });
 
   it("serves embeds of files anyone with the link can view, without a password, to anyone", async () => {

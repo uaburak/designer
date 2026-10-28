@@ -941,26 +941,39 @@ async function devSignIn(req: Request, deps: Deps): Promise<Response> {
   return issueSession(user, deps, req, { method: "dev", orgId: null });
 }
 
-/** A file's link opened in a browser: a page that hands it to the desktop app (designer://open?key=…), with the frame
- *  (`node-id`, Figma's "1-2") and the mode (`m=dev` Dev Mode, `m=proto` the prototype) the link carries. */
+/** A file's link opened in a browser, with the frame (`node-id`, Figma's "1-2") and the mode (`m=dev` Dev Mode,
+ *  `m=proto` the prototype) the link carries. A prototype opens in the browser, like Figma's: the web app's
+ *  presentation (`/?present&file=…`, its prototype parameters kept — a phone has no desktop app). Any other link is a
+ *  page that hands it to the desktop app (designer://open?key=…; launched at once except on phones and tablets) or
+ *  opens it in the browser's editor. */
 function linkPage(key: string, params: URLSearchParams): Response {
+  const node = params.get("node-id");
+  const nodeId = node && /^[0-9]+[-:][0-9]+$/.test(node) ? node.replace(":", "-") : null;
+  const mode = params.get("m");
+  if (mode === "proto") {
+    const rest = new URLSearchParams(params);
+    rest.delete("m");
+    rest.delete("node-id");
+    if (nodeId) rest.set("node-id", nodeId);
+    const tail = rest.toString();
+    return new Response(null, { status: 302, headers: { location: `/?present&file=${encodeURIComponent(key)}${tail ? `&${tail}` : ""}`, "cache-control": "no-store" } });
+  }
   const app = new URL("designer://open");
   app.searchParams.set("key", key);
-  const node = params.get("node-id");
-  if (node && /^[0-9]+[-:][0-9]+$/.test(node)) app.searchParams.set("node-id", node.replace(":", "-"));
-  const mode = params.get("m");
-  if (mode === "dev" || mode === "proto") app.searchParams.set("m", mode);
-  return linkHtml(app.toString());
+  if (nodeId) app.searchParams.set("node-id", nodeId);
+  if (mode === "dev") app.searchParams.set("m", mode);
+  return linkHtml(app.toString(), `/?editor&file=${encodeURIComponent(key)}`);
 }
 
-function linkHtml(app: string): Response {
+function linkHtml(app: string, web: string): Response {
   const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Open in Wecra</title>
 <body style="font:14px -apple-system,system-ui;margin:0;display:grid;place-items:center;min-height:100vh;background:#f5f5f5;color:#1e1e1e">
 <div style="text-align:center;max-width:360px;padding:24px"><h1 style="font-size:18px;font-weight:600;margin:0 0 8px">Open this file in Wecra</h1>
-<p style="margin:0 0 20px;color:#666">You need the desktop app and to be logged in with an account that has access.</p>
+<p style="margin:0 0 20px;color:#666">Log in with an account that has access.</p>
 <a href="${app.replace(/&/g, "&amp;")}" style="display:inline-block;padding:8px 16px;border-radius:6px;background:#0d99ff;color:#fff;text-decoration:none;font-weight:500">Open in the app</a>
+<a href="${web.replace(/&/g, "&amp;")}" style="display:inline-block;margin-left:8px;padding:8px 16px;border-radius:6px;background:#e6e6e6;color:#1e1e1e;text-decoration:none;font-weight:500">Open in browser</a>
 <p style="margin:20px 0 0;color:#888;font-size:12px">Or in Wecra: Home › Recents › Shared files › Open link…, and paste this link.</p></div>
-<script>location.href=${JSON.stringify(app)}</script>`;
+<script>if(!/iPhone|iPad|iPod|Android/i.test(navigator.userAgent))location.href=${JSON.stringify(app)}</script>`;
   return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=3600" } });
 }
 
