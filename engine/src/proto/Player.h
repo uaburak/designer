@@ -108,6 +108,11 @@ class Player {
   void setBare(bool on);
   // The base screen's colour: its topmost visible opaque solid fill (false: none).
   bool screenColor(Color& out) const;
+  // Bare: the page scrolls the base screen as a document (the browser's own scrolling, under its bars) — its offset in
+  // frame units, any (negative: above the frame's top); the player's drags don't scroll it then. `windowTop`: where
+  // the browser's window starts in the canvas (frame units; the canvas reaches past it), what Fixed layers stay at
+  // and sticky ones stick to.
+  void setBaseScroll(Vec2 offset, double windowTop = 0);
 
   // Advances transitions, scroll animations and timers to `nowMs`; true when a frame should be drawn.
   bool tick(double nowMs);
@@ -638,6 +643,9 @@ class Player {
   bool deviceFrame_ = true;   // Show device frame
   bool ignoreDevice_ = false;
   bool bare_ = false;
+  double windowTop_ = 0;  // bare: the window's top in the canvas, frame units
+  // The base screen's Fixed layers' frame → CSS: the screen's, at the window's top when bare
+  Mat2x3 fixedToCss() const { return bare_ ? view_.toCss * Mat2x3::translate(0, windowTop_) : view_.toCss; }
   bool fitting_ = false;
   Device pageDevice(Guid page) const;  // the page's device (none while ignoreDevice_)
   std::unordered_map<Guid, Vec2, GuidHash> responsiveSizes_;  // frames resized for Responsive: their own size

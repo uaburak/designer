@@ -22,7 +22,7 @@
  * variant is only the prototype of the editor's inline preview (InlinePreview.tsx draws its window and header).
  */
 import { t, useT } from "@/i18n";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { Button, Dialog, Icon, IconButton, MenuButton, Spinner, showToast, type IconName, type MenuEntry } from "@/ds";
 import { MOD_ALT, MOD_CTRL, MOD_META, MOD_SHIFT, Status } from "@/engine/abi";
 import { Engine, type ImageSource, type PresentScale, type PresentState } from "@/engine/Engine";
@@ -322,6 +322,11 @@ const POINTER_TYPE: Record<string, number> = {
 
 /** CSS px a finger moves before its press is a drag: a tap's jitter (the engine's 5 px is a mouse's) */
 const TOUCH_SLOP = 10;
+/**
+ * Bare on a touch screen, the page is a document the browser scrolls: the canvas reaches this far (CSS px) past both
+ * ends of the window, and is placed again only when the window comes within half of it of an end.
+ */
+const OVERSCAN = 320;
 /** How long two (or more) fingers are held to bring a hidden UI back on a touch screen */
 const RESTORE_HOLD_MS = 800;
 
@@ -452,7 +457,9 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
   // …and says once how it comes back
   const startedBare = useRef(bare);
   useEffect(() => {
-    if (startedBare.current) showToast({ message: t("UI hidden. Touch and hold with two fingers to show it again.") });
+    if (!startedBare.current) return;
+    startedBare.current = false;
+    showToast({ message: t("UI hidden. Touch and hold with two fingers to show it again.") });
   }, []);
   const [keysOpen, setKeysOpen] = useState(false);
   const setSidebar = useCallback((on: boolean) => {
@@ -766,6 +773,81 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     };
   }, [bare, bareColor, state?.screenColor]);
 
+  // Bare, as a website (2026-10-29): the browser scrolls the page — its own scrolling, under its bars, which only a
+  // document's content reaches (a fixed or sticky canvas stopped at their edges, cut off). The canvas is in the document,
+  // the window and OVERSCAN past both ends; scrolling moves it as it moves an image, nothing drawn, and near an end it is
+  // placed again with the base screen scrolled to match, drawn in the same frame.
+  const docHeight = bare && state?.content && state.viewScale ? Math.ceil(state.content[1] * state.viewScale) : 0;
+  const canvasHeight = bare ? Math.max(window.screen?.height || 0, window.innerHeight) + 2 * OVERSCAN : 0;
+  const placeRef = useRef<((force?: boolean) => void) | null>(null);
+  useEffect(() => {
+    const engine = ready;
+    const canvas = canvasRef.current;
+    if (!bare || !engine || engine.destroyed || !canvas) return;
+    const html = document.documentElement.style;
+    const body = document.body.style;
+    const app = document.getElementById("root")?.style;
+    const kept = { html: [html.overflow, html.height], body: [body.overflow, body.height], app: [app?.overflow, app?.height] };
+    html.overflow = "auto";
+    html.height = "auto";
+    body.overflow = "visible";
+    body.height = "auto";
+    if (app) {
+      app.overflow = "visible";
+      app.height = "auto";
+    }
+    let placed: number | null = null;
+    const place = (force = false) => {
+      if (engine.destroyed) return;
+      // Its middle at the window's: what the player centres (an overlay) is in the middle of what is seen
+      const top = Math.round(window.scrollY + window.innerHeight / 2 - canvas.offsetHeight / 2);
+      if (!force && placed !== null && Math.abs(top - placed) < OVERSCAN / 2) return;
+      placed = top;
+      const st = engine.presentState();
+      const s = st.viewScale || 1;
+      engine.presentSetOptions({ baseScroll: [st.baseScroll?.[0] ?? 0, top / s], windowTop: (window.scrollY - top) / s });
+      canvas.style.top = `${top}px`;
+      engine.frameNow();
+    };
+    placeRef.current = place;
+    const onScroll = () => place();
+    // The browser's bars shown or hidden (the window's height): centred again
+    const onResize = () => place(true);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onResize);
+    window.scrollTo(0, 0);
+    place(true);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onResize);
+      placeRef.current = null;
+      canvas.style.top = "";
+      [html.overflow, html.height] = kept.html as [string, string];
+      [body.overflow, body.height] = kept.body as [string, string];
+      if (app) [app.overflow, app.height] = kept.app as [string, string];
+      window.scrollTo(0, 0);
+    };
+  }, [bare, ready]);
+  // A new size (the window, the screen's layout): placed again; a new screen starts at the page's top
+  useEffect(() => placeRef.current?.(true), [docHeight, canvasHeight, state?.viewScale]);
+  useEffect(() => {
+    if (!placeRef.current) return;
+    window.scrollTo(0, 0);
+    placeRef.current(true);
+  }, [state?.screen]);
+  // An overlay open: the page holds still (the prototype takes the touches), the canvas centred on the window
+  const overlayOpen = bare && (state?.overlays?.length ?? 0) > 0;
+  useEffect(() => {
+    if (!overlayOpen) return;
+    placeRef.current?.(true);
+    const html = document.documentElement.style;
+    const kept = html.overflow;
+    html.overflow = "hidden";
+    return () => {
+      html.overflow = kept;
+    };
+  }, [overlayOpen]);
+
   // Keys: the prototype's first (Key / Gamepad), then the presentation's.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -865,6 +947,8 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       } else if (type !== POINTER.move) touchDown.current = null;
     }
     if (type === POINTER.down) {
+      // Bare: the canvas centred on the window first — an overlay the press opens is centred on what is seen
+      placeRef.current?.(true);
       e.currentTarget.setPointerCapture(e.pointerId);
       e.currentTarget.focus({ preventScroll: true });
     }
@@ -1044,7 +1128,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
   );
   const current = flows.find((f) => f.node === state?.flow) ?? null;
   return (
-    <div className={styles.root} data-presentation data-hide-ui={hideUi || undefined} data-bare={bare || undefined} style={bare && bareColor ? { background: bareColor } : undefined}>
+    <div className={styles.root} data-presentation data-hide-ui={hideUi || undefined} data-bare={bare || undefined} style={bare ? ({ background: bareColor ?? undefined, "--doc-h": `${Math.max(docHeight, 1)}px`, "--canvas-h": `${canvasHeight}px` } as CSSProperties) : undefined}>
       {/* Live: a 48 high bar (and its line) — the flows list and comments at the left, the file's name and its ▾
           ("Open in editor") in the middle, Share prototype, Options and full screen at the right. */}
       {!hideUi && (

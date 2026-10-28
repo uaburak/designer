@@ -231,6 +231,10 @@
   }
   .keysNote { margin: var(--ds-space-2) 0 0; color: var(--figma-color-text-secondary); }
   .canvas { display: block; width: 100%; height: 100%; outline: none; touch-action: none; }
+  /* Bare on a touch screen (PresentationView): a document the browser scrolls, the canvas in it (placed by the view) */
+  .root[data-bare] { position: relative; inset: auto; display: block; height: var(--doc-h); }
+  .root[data-bare] .body, .root[data-bare] .stage { display: block; height: 100%; overflow: clip; }
+  .root[data-bare] .canvas { position: absolute; left: 0; height: var(--canvas-h); touch-action: pan-y; }
   .center {
     position: absolute;
     inset: 0;

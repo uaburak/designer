@@ -641,9 +641,24 @@ void Player::setIgnoreDevice(bool on) {
   events_.push_back(Event{});
 }
 
+void Player::setBaseScroll(Vec2 offset, double windowTop) {
+  if (!active() || !bare_) return;
+  Vec2 range = topScrollRange(base_);
+  Vec2 next{std::clamp(offset.x, 0.0, range.x), offset.y};
+  Vec2& cur = scroll_[base_];
+  if (cur.x == next.x && cur.y == next.y && windowTop_ == windowTop) return;
+  windowTop_ = windowTop;
+  stopFlings(base_);
+  cur = next;
+  dirty_ = true;
+}
+
 void Player::setBare(bool on) {
   if (bare_ == on) return;
   bare_ = on;
+  // Out of bare: back within the range (the page may have left it above the frame's top)
+  if (!on)
+    if (auto it = scroll_.find(base_); it != scroll_.end()) it->second.y = std::max(0.0, it->second.y);
   dirty_ = true;
   if (active()) layout();
   events_.push_back(Event{});
@@ -802,7 +817,7 @@ bool Player::shownCss(Guid id, Mat2x3& out) const {
     Side b = baseSide();
     // The screen's own scroll as the scene draws it (frameCss: the frame's share; its layers: the rest); its Fixed
     // children don't scroll.
-    m = firstFixed ? view_.toCss : frameCss(b);
+    m = firstFixed ? fixedToCss() : frameCss(b);
     sc = firstFixed ? Vec2{} : b.scroll - topShift(base_, b.scroll);
   } else {
     const Shown* o = nullptr;
@@ -1345,7 +1360,7 @@ PropsOverrides Player::stuckOf(Guid frame, bool topLevel, Vec2 topScroll) const 
   std::function<void(Guid, bool)> walk = [&](Guid id, bool root) {
     const NodeProps* p = props(id);
     if (!p || !p->visible) return;
-    if (root && topLevel) stick(id, topScroll.y, out);
+    if (root && topLevel) stick(id, topScroll.y + (bare_ ? windowTop_ : 0), out);
     else if (scrollsNested(id)) stick(id, scrollOf(id).y, out);
     for (Guid c : doc().children(id)) walk(c, false);
   };
@@ -1421,7 +1436,7 @@ Player::Chain Player::hitTest(Vec2 css) const {
     for (auto it = kids.begin(); it != kids.end(); ++it) {
       const NodeProps* cp = props(*it);
       if (!cp || scrollBehavior(*cp) != ScrollBehavior::FIXED) continue;
-      if (hitWalk(*it, view_.toCss, css, hits, false)) {
+      if (hitWalk(*it, fixedToCss(), css, hits, false)) {
         hits.push_back({base_, view_.toCss, bp->size});
         c.hits = std::move(hits);
         c.layer = -1;
@@ -3054,7 +3069,7 @@ bool Player::beginScrollDrag(Vec2 at) {
       break;
     }
   }
-  if (frame == kNoGuid && downChain_.layer == -1 && along(topScrollRange(base_))) {
+  if (frame == kNoGuid && downChain_.layer == -1 && !bare_ && along(topScrollRange(base_))) {
     frame = base_;
     top = true;
   }
@@ -3723,7 +3738,7 @@ void Player::scrollOverrides(Guid frame, PropsOverrides& out, bool topLevel, Vec
           q.transform = Mat2x3::translate(-inner.x, -inner.y) * q.transform;
           out[c] = std::move(q);
         }
-      stick(id, topScroll.y, out);
+      stick(id, topScroll.y + (bare_ ? windowTop_ : 0), out);
     } else if (scrollsNested(id)) {
       Vec2 sc = scrollOf(id);
       if (sc.x != 0 || sc.y != 0) {
@@ -3887,7 +3902,7 @@ void Player::addFrame(const Side& s, Vec2 offset, double alpha, PropsOverrides&&
       fixedOverrides[c] = std::move(q);
     }
     store_.push_back(std::move(fixedOverrides));
-    Mat2x3 unscrolled = Mat2x3::translate(offset.x * view_.s, offset.y * view_.s) * view_.toCss;
+    Mat2x3 unscrolled = Mat2x3::translate(offset.x * view_.s, offset.y * view_.s) * fixedToCss();
     for (Guid c : fixed) {
       PresentItem f;
       f.node = c;
@@ -4023,7 +4038,7 @@ void Player::addFixed(const Side& s, Vec2 offset, const std::function<double(Gui
   }
   if (drawn.empty()) return;
   store_.push_back(std::move(own));
-  Mat2x3 unscrolled = Mat2x3::translate(offset.x * view_.s, offset.y * view_.s) * view_.toCss;
+  Mat2x3 unscrolled = Mat2x3::translate(offset.x * view_.s, offset.y * view_.s) * fixedToCss();
   for (Guid c : drawn) {
     PresentItem f;
     f.node = c;
@@ -4738,6 +4753,15 @@ std::string Player::stateJson() const {
   w.key("hasDeviceFrame").boolean(hasDeviceFrame());
   w.key("deviceFrame").boolean(deviceFrame_);
   w.key("responsive").boolean(responsive_);
+  {
+    // Bare: the base screen as the page's document — its scroll, its content's size (frame units) and the view's scale
+    Vec2 s = scrollOf(base_), range = active() ? topScrollRange(base_) : Vec2{};
+    const NodeProps* bp = active() ? props(base_) : nullptr;
+    Vec2 box = bp ? Vec2{std::min(bp->size.x, view_.screen.x), std::min(bp->size.y, view_.screen.y)} : Vec2{};
+    w.key("baseScroll").beginArray().number(s.x).number(s.y).endArray();
+    w.key("content").beginArray().number(range.x + box.x).number(range.y + box.y).endArray();
+    w.key("viewScale").number(view_.s);
+  }
   {
     Color c;
     w.key("screenColor");

@@ -293,6 +293,10 @@ export interface PresentState {
   responsive?: boolean;
   /** The screen's own colour ("#rrggbb": its topmost opaque solid fill), null when it has none */
   screenColor?: string | null;
+  /** The base screen as a document (bare): its scroll and its content's size, frame units; the view's scale */
+  baseScroll?: [number, number];
+  content?: [number, number];
+  viewScale?: number;
   /** An On drag transition follows the pointer */
   scrubbing?: boolean;
   /** The pointer is over something that reacts to it (the hand cursor) */
@@ -1092,6 +1096,10 @@ export class Engine {
     ignoreDevice?: boolean;
     /** Wecra's: the bare screen (Hide UI on a touch screen) — Fit width grows too, the window around it the screen's colour */
     bare?: boolean;
+    /** Bare: the base screen's scroll as the page sets it (frame units; negative: above its top) */
+    baseScroll?: [number, number];
+    /** …and where the browser's window starts in the canvas (frame units): Fixed layers stay there, sticky ones stick */
+    windowTop?: number;
   }): void {
     this.x.presentSetOptions(this.h, encodeText(JSON.stringify(options)));
     this.schedule();

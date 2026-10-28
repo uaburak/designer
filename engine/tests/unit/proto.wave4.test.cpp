@@ -558,6 +558,10 @@ TEST_CASE("proto.wave4: a phone's browser leaves the device out; the bare screen
   auto nodes = screens("");
   for (auto& n : nodes) {
     if (n.guid == kPage) n.props.extra["prototypeDevice"] = extra("prototypeDevice", R"({"type":"PRESET","presetIdentifier":"SURFACE_PRO_8","size":{"x":1440,"y":960}})");
+    if (n.guid == CARD) {
+      n.props.extra["scrollBehavior"] = extra("scrollBehavior", R"("FIXED_WHEN_CHILD_OF_SCROLLING_FRAME")");
+      n.props.extra["prototypeInteractions"] = extra("prototypeInteractions", interaction(navTo(B, "INSTANT_TRANSITION", 0)));
+    }
     if (n.guid == A) {
       Paint fill;
       fill.color = Color::hex(0x336699);
@@ -582,8 +586,25 @@ TEST_CASE("proto.wave4: a phone's browser leaves the device out; the bare screen
   CHECK(f.player.screenRect().w == doctest::Approx(402));
   CHECK(f.player.screenRect().h == doctest::Approx(780));
   CHECK(f.player.stateJson().find(R"("screenColor":"#336699")") != std::string::npos);
+  // The page scrolls it as a document: any offset down, above the frame's top too; the player's drags leave it
+  CHECK(f.player.stateJson().find(R"("content":[375,812])") != std::string::npos);
+  f.player.setBaseScroll({0, -40});
+  CHECK(f.player.scrollOf(A).y == doctest::Approx(-40));
+  CHECK(f.player.stateJson().find(R"("baseScroll":[0,-40])") != std::string::npos);
   f.player.setBare(false);
+  CHECK(f.player.scrollOf(A).y == doctest::Approx(0));
+  f.player.setBaseScroll({0, 100});  // not bare: the page doesn't scroll it
+  CHECK(f.player.scrollOf(A).y == doctest::Approx(0));
   f.player.setIgnoreDevice(false);
   CHECK(f.player.screenRect().w == doctest::Approx(402));
   CHECK(f.player.screenRect().h == doctest::Approx(268));
+  // Bare again: a Fixed layer (the card, 100 down) stays at the window's top in the canvas, not at the canvas's top
+  f.player.setIgnoreDevice(true);
+  f.player.setBare(true);
+  f.player.setBaseScroll({0, 100}, 200);
+  double s = 402.0 / 375;
+  f.click(60, (100 + 50) * s);
+  CHECK(f.player.screen() == A);
+  f.click(60, (200 + 100 + 50) * s);
+  CHECK(f.player.screen() == B);
 }

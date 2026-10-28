@@ -3624,6 +3624,11 @@ ENG_EXPORT int32_t engine_present_set_options(Handle h, Ptr ptr, uint32_t len) {
   // Wecra's: a phone's browser leaves the page's device out; Hide UI on a touch screen shows the screen bare.
   if (auto* d = v.get("ignoreDevice"); d && d->isBool()) e->player->setIgnoreDevice(d->boolean);
   if (auto* b = v.get("bare"); b && b->isBool()) e->player->setBare(b->boolean);
+  if (auto* s = v.get("baseScroll"); s && s->isArray() && s->array.size() == 2 && s->array[0].isNumber() && s->array[1].isNumber())
+    e->player->setBaseScroll({s->array[0].number, s->array[1].number}, [&] {
+      auto* w = v.get("windowTop");
+      return w && w->isNumber() ? w->number : 0.0;
+    }());
   // The machine the prototype plays on: "mac" | "windows" | "linux" | "other" (scroll physics, ⌘ in key triggers).
   if (auto* host = v.get("host"); host && host->isString()) {
     const std::string& h = host->string;
