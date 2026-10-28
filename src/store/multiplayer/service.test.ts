@@ -492,6 +492,27 @@ describe("MultiplayerService", () => {
     expect(c.store.doc(fc)["0:1"].name).toBe("P4");
   });
 
+  it("compacts any frames past the snapshot once the room has been quiet a while", async () => {
+    const a = await installation("a@x.co", undefined, { quietCompactMs: 300 });
+    services.push(a.svc);
+    const fa = a.store.addFile("Quiet", [node(0, { name: "Document" }), node(1, { name: "P" })]);
+    await a.svc.share(fa, { snapshot: a.store.files.get(fa)!.snapshot, headSeq: 0 });
+    await settle();
+    a.store.edit(fa, [node(1, { name: "Edited" })]);
+    await settle();
+    const room = [...rooms.values()][0];
+    expect(room.snapshot!.seq).toBe(0);
+    await new Promise((r) => setTimeout(r, 400));
+    await settle();
+    expect(room.snapshot!.seq).toBeGreaterThan(0);
+    // At most once a QUIET_COMPACT_EVERY_MS from one client: another quiet spell soon after uploads nothing
+    const seq = room.snapshot!.seq;
+    a.store.edit(fa, [node(1, { name: "Again" })]);
+    await new Promise((r) => setTimeout(r, 400));
+    await settle();
+    expect(room.snapshot!.seq).toBe(seq);
+  });
+
   it("replaces a copy left behind the room's history with a fresh one, keeping the old copy", async () => {
     const { a, b, fa, fb } = await sharedPair();
     b.svc.close();

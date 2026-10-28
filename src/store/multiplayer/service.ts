@@ -108,6 +108,10 @@ export interface MultiplayerDeps {
   backoff?(attempt: number): number;
   /** Frames past the room's snapshot before a client compacts (default COMPACT_EVERY) */
   compactEvery?: number;
+  /** Quiet this long after the room's last frame, a client compacts any frames past the snapshot (default
+   *  QUIET_COMPACT_MS; 0: never), at most once a QUIET_COMPACT_EVERY_MS (default) */
+  quietCompactMs?: number;
+  quietCompactEveryMs?: number;
   /** Milliseconds between heartbeats on a ready room socket (default HEARTBEAT_MS; 0: none) and the silence after which a
    *  socket whose heartbeats were answered before is given up (default DEAD_AFTER_MS) — docs/multiplayer.md §4.1 */
   heartbeatMs?: number;
@@ -185,6 +189,14 @@ const CLOSE_ACCESS = 4003;
 export const MOVING_RETRY_MS = 2000;
 /** A client uploads a new snapshot when the room holds this many frames past the last one (the room keeps a tail) */
 export const COMPACT_EVERY = 1000;
+/**
+ * …and when the room has been quiet this long with any frames past it, at most once a QUIET_COMPACT_EVERY_MS from one
+ * client (2026-10-28): frames never carry derived data, so a text edited since the last snapshot had no stored glyph
+ * outlines in the room, and a viewer without its font (a phone opening a prototype set in a local font) drew it in
+ * Inter, wider. The copy's head is the editor's snapshot by then, with fresh outlines.
+ */
+export const QUIET_COMPACT_MS = 2 * 60_000;
+export const QUIET_COMPACT_EVERY_MS = 10 * 60_000;
 /**
  * A frame the room hasn't echoed this long after it went closes the socket, and the reconnect sends it again (Figma:
  * "Disconnecting multiplayer session after not receiving ack for %fs"; its value isn't read — ours), plus ACK_PER_MB_MS
@@ -2019,6 +2031,9 @@ class Link {
   /** The room's latest snapshot seq (welcome), and whether this client is uploading a new one */
   private snapshotSeq = 0;
   private compacting = false;
+  /** The quiet compaction's timer, and when this client last uploaded a snapshot (0: not yet) */
+  private quietTimer: ReturnType<typeof setTimeout> | null = null;
+  private compactedAt = 0;
   /** welcome made this link a viewer's (it was an editor's): unsent local changes are rolled back at `ready` */
   private demoted = false;
   /** `ready` is sending the backlog: frames journaled meanwhile go with it, in order (never ahead of older ones) */
@@ -2121,6 +2136,8 @@ class Link {
   stop(): void {
     this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
+    if (this.quietTimer) clearTimeout(this.quietTimer);
+    this.quietTimer = null;
     this.disarm();
     this.stopBeat();
     this.ws?.close(1000, "closing");
@@ -2214,8 +2231,11 @@ class Link {
 
   /** The room holds many frames past its snapshot: one client (the owner, else the present editor with the lowest
    *  session) uploads a new one from its copy, when its copy is exactly the room's state (nothing pending). */
-  private maybeCompact(rec: LinkRecord): void {
-    if (this.compacting || rec.role === "viewer" || this.limited || this.pending.size || rec.since - this.snapshotSeq < (this.svc.deps_.compactEvery ?? COMPACT_EVERY)) return;
+  private maybeCompact(rec: LinkRecord, quiet = false): void {
+    if (!quiet) this.armQuietCompact(rec);
+    const past = rec.since - this.snapshotSeq;
+    const due = quiet ? past > 0 && Date.now() - this.compactedAt >= (this.svc.deps_.quietCompactEveryMs ?? QUIET_COMPACT_EVERY_MS) : past >= (this.svc.deps_.compactEvery ?? COMPACT_EVERY);
+    if (this.compacting || rec.role === "viewer" || this.limited || this.pending.size || !due) return;
     const writers = [...this.peers.values()].filter((p) => p.role !== "viewer");
     const ownerHere = writers.some((p) => p.role === "owner");
     if (rec.role !== "owner" && (ownerHere || writers.some((p) => p.sessionID < this.session))) return;
@@ -2225,11 +2245,25 @@ class Link {
       try {
         const local = await this.svc.host_.backlog(this.fileKey, rec.acked);
         if (local.some((c) => c.kind !== "remote") || rec.since !== seq || this.pending.size) return;
-        if (await this.svc.uploadSnapshot(this.fileKey, rec.key, seq)) this.snapshotSeq = seq;
+        if (await this.svc.uploadSnapshot(this.fileKey, rec.key, seq)) {
+          this.snapshotSeq = seq;
+          this.compactedAt = Date.now();
+        }
       } finally {
         this.compacting = false;
       }
     });
+  }
+
+  /** The quiet compaction (QUIET_COMPACT_MS after the room's last frame), started again by every frame */
+  private armQuietCompact(rec: LinkRecord): void {
+    const ms = this.svc.deps_.quietCompactMs ?? QUIET_COMPACT_MS;
+    if (!ms || rec.role === "viewer") return;
+    if (this.quietTimer) clearTimeout(this.quietTimer);
+    this.quietTimer = setTimeout(() => {
+      this.quietTimer = null;
+      if (!this.stopped && this.ready) this.maybeCompact(rec, true);
+    }, ms);
   }
 
   /**

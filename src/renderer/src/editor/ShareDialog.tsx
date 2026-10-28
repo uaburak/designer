@@ -294,7 +294,9 @@ function usePeople(ed: EditorController) {
     if (!fileKey || !source) throw new Error(t("This file isn't in your workspace"));
     if (state?.shared) return state;
     await source.flush();
-    const snapshot = ed.engine.encodeDocumentKiwi();
+    // With its derived data (glyph outlines, instance layout), as the editor's own snapshots: a viewer without the
+    // file's fonts (a phone opening the prototype) draws its text as designed
+    const snapshot = ed.engine.encodeDocumentKiwi({ derived: true });
     const s = await store.multiplayer.share(fileKey, { snapshot, headSeq: source.knownHeadSeq });
     await refresh(s);
     return s;
