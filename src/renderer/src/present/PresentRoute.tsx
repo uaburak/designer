@@ -10,18 +10,31 @@ import { useMemo, useState } from "react";
 import { ToastHost, TooltipManager, useThemeRoot } from "@/ds";
 import { getStoreClient } from "@/store";
 import { SharePrototypeDialog } from "@/editor/SharePrototypeDialog";
+import { withLinkPassword } from "@/files/LinkPassword";
 import { PresentationView, presentUrlOptions, type PresentationSource } from "./PresentationView";
 
 const params = new URLSearchParams(location.search);
 
+/**
+ * The local file a key names: the file itself, else — a shared file's link (`/f/<key>?m=proto` in a browser) names the
+ * server's key — its local copy, made from its room the first time (asking for the link's password when it has one).
+ */
+async function localKey(store: ReturnType<typeof getStoreClient>, key: string): Promise<string> {
+  if (await store.workspace.getFile(key).catch(() => null)) return key;
+  const shared = await withLinkPassword((password) => store.multiplayer.openShared(key, password));
+  return shared?.fileKey ?? key;
+}
+
 /** The store's file, read-only, as the presentation's source. */
-export function storePresentationSource(fileKey: string): PresentationSource {
+export function storePresentationSource(key: string): PresentationSource {
   const store = getStoreClient();
   let headSeq = 0;
+  let fileKey = key;
   const source: PresentationSource = {
     fileName: "Prototype",
-    stateKey: fileKey,
+    stateKey: key,
     async load() {
+      fileKey = await localKey(store, key);
       const opened = await store.files.open(fileKey, { mode: "view" });
       headSeq = opened.headSeq;
       source.fileName = opened.meta.name;
