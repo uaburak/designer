@@ -475,12 +475,19 @@ double toleranceOf(int level) { return 0.2 / std::ldexp(1.0, level); }
 
 }  // namespace
 
+namespace {
+
+// A frame with smoothed corners: its outline's path, like a smoothed rectangle (isPathShape) — the SDF has no squircle.
+bool smoothedFrame(const NodeProps& p) { return p.isFrameLike() && p.stroke().cornerSmoothing > 0; }
+
+}  // namespace
+
 void Renderer::drawFills(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, bool whiteMask) {
   std::vector<Paint> white;
   if (whiteMask) white.push_back(Paint::solid(Color{1, 1, 1, 1}));
   const std::vector<Paint>& fills = whiteMask ? white : p.fillPaints;
   if (!anyVisible(fills) && p.type != NodeType::VECTOR) return;
-  bool sdf = !p.isPathShape() && !p.invertedCorners() && (p.isRectLike() || p.isFrameLike() || p.type == NodeType::ELLIPSE);
+  bool sdf = !p.isPathShape() && !p.invertedCorners() && !smoothedFrame(p) && (p.isRectLike() || p.isFrameLike() || p.type == NodeType::ELLIPSE);
   if (sdf) {
     ShapeKind kind = p.type == NodeType::ELLIPSE ? ShapeKind::Ellipse : ShapeKind::Rect;
     CornerRadii radii = kind == ShapeKind::Rect ? geom::clampRadii(p.size, p.cornerRadii) : kSquare;
@@ -708,7 +715,7 @@ void Renderer::drawStrokePaints(const Document& doc, Guid id, const NodeProps& p
   // Path trim (docs/motion.md §4.13): a centre stroke cut by it is drawn from the geometry's trimmed centre line.
   double trimStart = 0, trimEnd = 1;
   bool trimmed = p.strokeAlign == StrokeAlign::CENTER && !p.extra.empty() && pathTrimOf(p, trimStart, trimEnd);
-  bool sdf = !p.isPathShape() && !p.invertedCorners() && !independent && !dashedFrame && !variable && !drawn && !trimmed &&
+  bool sdf = !p.isPathShape() && !p.invertedCorners() && !smoothedFrame(p) && !independent && !dashedFrame && !variable && !drawn && !trimmed &&
              (p.isRectLike() || p.isFrameLike() || p.type == NodeType::ELLIPSE);
   if (sdf) {
     ShapeKind kind = p.type == NodeType::ELLIPSE ? ShapeKind::Ellipse : ShapeKind::Rect;
@@ -1089,7 +1096,7 @@ void Renderer::drawBackgroundBlur(const Document& doc, Guid id, const NodeProps&
   // The node's shape, painted with the blurred backdrop: once per interval between a progressive blur's levels.
   PaintKind kind = glass ? PaintKind::Glass : progressive ? PaintKind::Progressive : PaintKind::Backdrop;
   int intervals = progressive ? b.count - 1 : 1;
-  bool sdf = !p.isPathShape() && !p.invertedCorners() && (p.isRectLike() || p.isFrameLike() || p.type == NodeType::ELLIPSE);
+  bool sdf = !p.isPathShape() && !p.invertedCorners() && !smoothedFrame(p) && (p.isRectLike() || p.isFrameLike() || p.type == NodeType::ELLIPSE);
   const NodeGeometry* g = sdf ? nullptr : doc.geometry(id);
   if (!sdf && !g) return;
   int level = levelOf(levelScale(m));
