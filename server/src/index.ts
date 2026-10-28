@@ -13,6 +13,7 @@ import { Db } from "./db";
 import { rollup } from "./analytics/rollup";
 import type { ObjectNamespace } from "./libraries/db";
 import { roomsOn } from "./policy/region";
+import { wwwRedirect } from "./webApp";
 import type { ObjectStore } from "./storage/objects";
 
 export { FileRoom } from "./fileRoom";
@@ -53,6 +54,8 @@ function depsOf(env: Env, waitUntil?: (p: Promise<unknown>) => void): Deps {
 
 export default {
   fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const www = wwwRedirect(new URL(req.url));
+    if (www) return Promise.resolve(www);
     return handle(req, depsOf(env, (p) => ctx.waitUntil(p)));
   },
 

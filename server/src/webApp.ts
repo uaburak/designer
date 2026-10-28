@@ -12,6 +12,15 @@
  * photos), connections to this origin (HTTP and WebSocket) and to the Google Fonts files the font picker downloads.
  */
 
+/**
+ * `www.<host>` is the same site without `www` (301, path and query kept): Safari completes `wecra.app` to
+ * `www.wecra.app`, while Google sign-in and WEB_ORIGINS know only `wecra.app` (2026-10-28). Null for any other host.
+ */
+export function wwwRedirect(url: URL): Response | null {
+  if (!url.hostname.startsWith("www.")) return null;
+  return Response.redirect(`https://${url.hostname.slice(4)}${url.pathname}${url.search}`, 301);
+}
+
 export interface AssetsBinding {
   fetch(req: Request | string): Promise<Response>;
 }

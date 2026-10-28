@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { handle, type Deps } from "./api";
 import { Db, type D1Like } from "./db";
 import { sqliteD1 } from "./testing/sqliteD1";
-import { appCsp, isAppAsset, isAppRoute } from "./webApp";
+import { appCsp, isAppAsset, isAppRoute, wwwRedirect } from "./webApp";
 
 const ORIGIN = "https://wecra.app";
 const INDEX = '<!doctype html><title>Wecra</title><script type="module" src="/assets/index-AbC123.js"></script>';
@@ -124,5 +124,15 @@ describe("the web app on the Worker (docs/cloud.md §7)", () => {
     expect(isAppAsset("/assets/../secret")).toBe(false);
     expect(isAppAsset("/assets/sub/a.js")).toBe(false);
     expect(appCsp("http://localhost:8787")).toContain("ws://localhost:8787");
+  });
+});
+
+describe("www", () => {
+  it("sends www.wecra.app to wecra.app with its path and query; other hosts pass", () => {
+    const r = wwwRedirect(new URL("https://www.wecra.app/?editor&file=abc"))!;
+    expect(r.status).toBe(301);
+    expect(r.headers.get("location")).toBe("https://wecra.app/?editor&file=abc");
+    expect(wwwRedirect(new URL("https://wecra.app/"))).toBeNull();
+    expect(wwwRedirect(new URL("https://designer.burak-kc-sp.workers.dev/"))).toBeNull();
   });
 });

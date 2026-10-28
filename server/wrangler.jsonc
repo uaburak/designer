@@ -15,8 +15,11 @@
   "rules": [{ "type": "ESModule", "globs": ["**/*.gen.mjs"], "fallthrough": false }],
   "workers_dev": true,
   // wecra.app (the owner's domain, Cloudflare Registrar): the server's public address from Wecra 1.0.4; workers.dev stays
-  // on so apps up to 1.0.3 keep working
-  "routes": [{ "pattern": "wecra.app", "custom_domain": true }],
+  // on so apps up to 1.0.3 keep working. www.wecra.app: only a 301 to wecra.app (webApp.ts wwwRedirect; Safari completes to it)
+  "routes": [
+    { "pattern": "wecra.app", "custom_domain": true },
+    { "pattern": "www.wecra.app", "custom_domain": true }
+  ],
   // Smart Placement (docs/multiplayer.md §17 "Placement"): the Worker's fetch handler runs near what it calls — D1 in
   // Frankfurt — instead of near the caller, when that is faster; a Home page's few D1 round trips then cost ms, not
   // a trip from Turkey each. Durable Objects stay where they are (placed on their own). Takes up to 15 minutes after a
