@@ -172,8 +172,8 @@ describe("Layers: hidden rows and the lines over scrolled rows", () => {
   });
 });
 
-describe("File header: the name, no location; double-click renames", () => {
-  it("shows no location line, a click opens the name's menu, a double-click renames (Enter commits, Esc cancels)", async () => {
+describe("File header: the name, no location; a click renames, the chevron opens the menu", () => {
+  it("shows no location line, the chevron opens Edit file menu, a click on the name renames (Enter commits, Esc cancels)", async () => {
     const { ed, source } = await editor();
     show(ed, FileHeader);
     expect(m!.host.textContent).not.toContain("Drafts");
@@ -181,7 +181,8 @@ describe("File header: the name, no location; double-click renames", () => {
     act(() => button.click());
     expect(button.getAttribute("aria-expanded")).toBe("true");
     act(() => button.click());
-    act(() => void button.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    expect(button.getAttribute("aria-label")).toBe("Edit file menu");
+    act(() => $("[data-file-name] > button:first-child").click());
     const input = $("input") as HTMLInputElement;
     expect(input).toBeTruthy();
     expect(input.value).toBe("Test");
@@ -189,7 +190,7 @@ describe("File header: the name, no location; double-click renames", () => {
     expect($("input")).toBeNull();
     expect(ed.ui.get().fileName).toBe("Test");
 
-    act(() => void $('[data-file-name] [data-ds="MenuButton"]').dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    act(() => $("[data-file-name] > button:first-child").click());
     const field = $("input") as HTMLInputElement;
     act(() => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(field, "Renamed");

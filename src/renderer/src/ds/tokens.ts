@@ -220,6 +220,8 @@ export const appColor = {
   "menu-highlight": ["#0c8ce9", "#0c8ce9"], // live capture (menus/*.txt, popovers/*-menu.txt)
   "menu-text-on-highlight-secondary": ["#ffffffcc", "#ffffffcc"], // K
   "menu-separator": ["#383838", "#383838"], // F
+  /** Figma's canvas blue in both themes (live: a frame title's rename field, 2 px ring — the selection outline's colour) */
+  "canvas-selection": ["#0c8ce9", "#0c8ce9"],
   /** Live capture (popovers/fill-picker-image / -pattern / -video): an empty preview, the shade over a preview */
   "picker-preview-empty": ["#bababa99", "#bababa99"],
   "picker-preview-shade": ["#00000080", "#00000080"],

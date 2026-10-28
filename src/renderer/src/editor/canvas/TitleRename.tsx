@@ -1,7 +1,8 @@
 /**
  * Renaming a frame (or a section) from its title on the canvas: a double-click on the title makes the engine emit
- * REQUEST_RENAME with the title's box (canvas CSS px); the name is edited in place over it, Figma's way — Enter, Tab
- * or leaving keeps it, Esc puts it back.
+ * REQUEST_RENAME with the title's box (canvas CSS px); the name is edited in place over it, Figma's way — the field
+ * hugs the name (it grows as it is typed, the text stays where the title was) and is light whatever the theme (white,
+ * the selection's blue ring and highlight) — Enter, Tab or leaving keeps it, Esc puts it back.
  */
 import { t, useT } from "@/i18n";
 import { InlineEdit } from "@/ds";
@@ -42,7 +43,7 @@ export function TitleRename() {
     ed.focusCanvas();
   };
   return (
-    <div className={styles.root} style={{ left: at.x, top: at.y, width: at.width, height: at.height }} data-title-rename={at.ref}>
+    <div className={styles.root} style={{ left: at.x, top: at.y, height: at.height }} data-theme="light" data-title-rename={at.ref}>
       <InlineEdit
         label={t("Rename")}
         value={at.name}
@@ -51,7 +52,6 @@ export function TitleRename() {
         onCommit={(v) => renameNode(ed, at.ref, v)}
         onExit={close}
         onCancel={() => undefined}
-        className={styles.edit}
       />
     </div>
   );

@@ -38,29 +38,39 @@
     flex-direction: column;
     min-width: 0;
   }
-  /* The name's button in the box that hears its double-click (rename); no box of its own */
-  .fileName { display: contents; }
+  /*
+   * The name's button (a click renames) and the Edit file menu's 24 square right after it, one split pill (live
+   * left-panel.txt: [Edit file menu] 24 × 24 r = 0 5 5 0): the name's hover lights both, the chevron's itself.
+   */
+  .fileName { display: flex; align-self: flex-start; gap: 1px; max-width: 100%; min-width: 0; }
   .fileMinimize { flex: none; }
-  .fileButton {
+  .fileButton, .fileMenu {
     display: flex;
     align-items: center;
-    gap: calc(var(--ds-space-3) - 1px);
-    align-self: flex-start;
-    max-width: 100%;
     height: var(--ds-size-control);
-    padding: 0 var(--ds-space-1) 0 calc(var(--ds-space-1) + 1px);
     border: 0;
-    border-radius: var(--ds-radius-medium);
     background: transparent;
     color: var(--figma-color-text);
-    font: var(--ds-font-body-large-strong);
-    letter-spacing: var(--ds-tracking-body-large-strong);
     outline: none;
   }
-  .fileButton:hover, .fileButton[data-open] { background: var(--figma-color-bg-hover); }
-  .fileButton:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .fileButton {
+    min-width: 0;
+    padding: 0 var(--ds-space-1) 0 calc(var(--ds-space-1) + 1px);
+    border-radius: var(--ds-radius-medium) 0 0 var(--ds-radius-medium);
+    font: var(--ds-font-body-large-strong);
+    letter-spacing: var(--ds-tracking-body-large-strong);
+  }
+  .fileMenu {
+    flex: none;
+    justify-content: center;
+    width: var(--ds-size-control);
+    padding: 0;
+    border-radius: 0 var(--ds-radius-medium) var(--ds-radius-medium) 0;
+  }
+  .fileButton:hover, .fileButton:hover + .fileMenu, .fileMenu:hover, .fileMenu[data-open] { background: var(--figma-color-bg-hover); }
+  .fileButton:focus-visible, .fileMenu:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .fileButton > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .fileButton svg { flex: none; color: var(--figma-color-icon-secondary); }
+  .fileMenu svg { flex: none; color: var(--figma-color-icon-secondary); }
   .fileRename { width: 100%; }
   /* Renaming keeps the title as it is (Figma): the name's own type and inset, only the field round it */
   .fileRename input {

@@ -107,7 +107,8 @@
   .hiddenLayer .name { color: var(--figma-color-text-tertiary); }
   .hiddenLayer .type, .hiddenLayer .thumb { color: var(--figma-color-icon-tertiary); opacity: 0.5; }
   .hiddenLayer.component .name, .hiddenLayer.component .type, .hiddenLayer[data-tone="component"] .name, .hiddenLayer[data-tone="component"] .type { color: var(--figma-color-text-component); opacity: 0.5; }
-  .rename { flex: 1 1 auto; min-width: 0; margin-left: -5px; }
+  /* Renaming keeps the name where it was (Figma): the field starts its text 8 in, so it starts 8 before the name */
+  .rename { flex: 1 1 auto; min-width: 0; margin-left: calc(var(--ds-space-2) * -1); }
   .row .rename { margin-right: var(--layer-clip-right, 0px); }
   /*
    * Lock and eye, 24 each, flush with the highlight's right edge. On a layer row they take no room (a 0-wide tail,

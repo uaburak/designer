@@ -26,7 +26,7 @@ export const SCENARIOS = [
   { id: "editor-draw", title: "Editor — Draw", page: "Editor", url: "?editor", steps: [click('button[aria-label="Draw"]')] },
   // Menus and popovers in the editor
   { id: "menu-main", title: "Main menu", page: "Menus & popovers", url: "?editor", steps: [click('button[aria-label="Main menu"]')] },
-  { id: "menu-file", title: "File name menu", page: "Menus & popovers", url: "?editor", steps: [click('button[aria-label="Edit file"]')] },
+  { id: "menu-file", title: "File name menu", page: "Menus & popovers", url: "?editor", steps: [click('button[aria-label="Edit file menu"]')] },
   { id: "menu-zoom", title: "Zoom menu", page: "Menus & popovers", url: "?editor", steps: [click('button[aria-label="Zoom"]')] },
   { id: "menu-account", title: "Account menu", page: "Menus & popovers", url: "?editor", steps: [click('button[aria-label="Account"]')] },
   { id: "menu-shapes", title: "Shape tools menu", page: "Menus & popovers", url: "?editor", steps: [click('button[aria-label="Shape tools"]')] },

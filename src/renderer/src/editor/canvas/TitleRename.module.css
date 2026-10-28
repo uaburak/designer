@@ -7,6 +7,23 @@
   font: var(--ds-font-body-medium);
 }
 
-.edit {
-  width: 100%;
+/*
+ * Figma's field (live 2026-10-28, a frame title renamed): the canvas blue's 2 px ring, 2 px round, 1 px of white
+ * round the 14 px line — 20 high, the text 3 in, so it stays where the title was.
+ */
+.root [data-ds="InlineEdit"][data-editing] {
+  --title-ring: calc(var(--ds-focus-width) * 2);
+  --title-pad: var(--ds-focus-width);
+  margin: 0 calc((var(--title-ring) + var(--title-pad)) * -1);
+  max-width: none;
+}
+.root [data-ds="InlineEdit"] > span,
+.root [data-ds="InlineEdit"] > input {
+  padding: var(--title-pad);
+  border-width: var(--title-ring);
+  line-height: calc(var(--ds-space-3) + var(--title-ring));
+}
+.root [data-ds="InlineEdit"] > input {
+  border-color: var(--ds-color-canvas-selection);
+  border-radius: var(--ds-radius-small);
 }

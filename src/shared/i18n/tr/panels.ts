@@ -402,7 +402,7 @@ export const panels: Record<string, string> = {
   "Edit brand": "Markayı düzenle",
   "Edit color style": "Renk stilini düzenle",
   "Edit effect style": "Efekt stilini düzenle",
-  "Edit file": "Dosyayı düzenle",
+  "Edit file menu": "Dosya düzenleme menüsü",
   "Edit image with prompt": "Görseli istemle düzenle",
   "Edit layout guide style": "Düzen kılavuzu stilini düzenle",
   "Edit object": "Nesneyi düzenle",

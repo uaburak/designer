@@ -409,6 +409,7 @@
     --ds-color-menu-highlight: #0c8ce9;
     --ds-color-menu-text-on-highlight-secondary: #ffffffcc;
     --ds-color-menu-separator: #383838;
+    --ds-color-canvas-selection: #0c8ce9;
     --ds-color-picker-preview-empty: #bababa99;
     --ds-color-picker-preview-shade: #00000080;
     --ds-color-picker-stop-shadow: #00000026;
@@ -665,6 +666,7 @@
     --ds-color-menu-highlight: #0c8ce9;
     --ds-color-menu-text-on-highlight-secondary: #ffffffcc;
     --ds-color-menu-separator: #383838;
+    --ds-color-canvas-selection: #0c8ce9;
     --ds-color-picker-preview-empty: #bababa99;
     --ds-color-picker-preview-shade: #00000080;
     --ds-color-picker-stop-shadow: #00000026;
