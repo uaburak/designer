@@ -22,7 +22,7 @@
  * variant is only the prototype of the editor's inline preview (InlinePreview.tsx draws its window and header).
  */
 import { t, useT } from "@/i18n";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button, Dialog, Icon, IconButton, MenuButton, Spinner, showToast, type IconName, type MenuEntry } from "@/ds";
 import { MOD_ALT, MOD_CTRL, MOD_META, MOD_SHIFT, Status } from "@/engine/abi";
 import { Engine, type ImageSource, type PresentScale, type PresentState } from "@/engine/Engine";
@@ -319,6 +319,28 @@ const POINTER_TYPE: Record<string, number> = {
   pointerleave: POINTER.leave,
 };
 
+/** CSS px a finger moves before its press is a drag: a tap's jitter (the engine's 5 px is a mouse's) */
+const TOUCH_SLOP = 10;
+/** How long two (or more) fingers are held to bring a hidden UI back on a touch screen */
+const RESTORE_HOLD_MS = 800;
+
+/** A phone or tablet: no corner button with the UI hidden — a two-finger hold brings it back */
+const TOUCH_UI = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+
+/** A screen's first visible solid fill as CSS (the page around it on a phone with the UI hidden), else null */
+export function screenColor(fills: unknown): string | null {
+  if (!Array.isArray(fills)) return null;
+  for (let i = fills.length - 1; i >= 0; i--) {
+    const f = fills[i] as { type?: string; visible?: boolean; opacity?: number; color?: { r: number; g: number; b: number; a?: number } };
+    if (f?.type !== "SOLID" || f.visible === false || !f.color) continue;
+    const a = (f.color.a ?? 1) * (f.opacity ?? 1);
+    if (a < 1) continue;
+    const c = (v: number) => Math.round(Math.min(1, Math.max(0, v)) * 255);
+    return `rgb(${c(f.color.r)}, ${c(f.color.g)}, ${c(f.color.b)})`;
+  }
+  return null;
+}
+
 /** After the next frame is drawn (a hidden page, which draws none: after 100 ms) — what follows is a task of its own. */
 function nextTask(): Promise<void> {
   return new Promise((resolve) => {
@@ -410,12 +432,17 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
   const [hideUi, setHideUi] = useState(!!urlOptions?.hideUi);
   const hideUiRef = useRef(hideUi);
   hideUiRef.current = hideUi;
+  // A phone with the UI hidden: nothing over the prototype, the page edge to edge in the screen's colour (ours)
+  const bare = hideUi && TOUCH_UI && !inline;
   const toggleHideUi = () => {
     const next = !hideUiRef.current;
     hideUiRef.current = next;
     setHideUi(next);
     // Figma: "Remind you how to restore the toolbar and footer."
-    if (next) showToast({ message: t("UI hidden. Use the options button in the corner, or {key}, to show it again.", { key: presentHost() === "mac" ? "⌘\\" : "Ctrl+\\" }) });
+    if (next)
+      showToast({
+        message: TOUCH_UI ? t("UI hidden. Touch and hold with two fingers to show it again.") : t("UI hidden. Use the options button in the corner, or {key}, to show it again.", { key: presentHost() === "mac" ? "⌘\\" : "Ctrl+\\" }),
+      });
   };
   const [keysOpen, setKeysOpen] = useState(false);
   const setSidebar = useCallback((on: boolean) => {
@@ -652,6 +679,86 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     return () => observer.disconnect();
   }, [ready, hidden, hideUi]);
 
+  // A phone with the UI hidden: two (or more) fingers held RESTORE_HOLD_MS bring it back.
+  useEffect(() => {
+    if (!bare) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const stop = () => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+    };
+    const onTouch = (e: TouchEvent) => {
+      if (e.touches.length < 2) return stop();
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        hideUiRef.current = false;
+        setHideUi(false);
+      }, RESTORE_HOLD_MS);
+    };
+    window.addEventListener("touchstart", onTouch, { passive: true });
+    window.addEventListener("touchend", onTouch, { passive: true });
+    window.addEventListener("touchcancel", stop, { passive: true });
+    return () => {
+      stop();
+      window.removeEventListener("touchstart", onTouch);
+      window.removeEventListener("touchend", onTouch);
+      window.removeEventListener("touchcancel", stop);
+    };
+  }, [bare]);
+
+  // …and the prototype fills the width, the page around it (behind the browser's bars, under the notch) in the
+  // screen's own colour, as a website opened in the browser: theme-color, the document's background, viewport-fit.
+  const screen = state?.screen ?? null;
+  useEffect(() => {
+    const engine = ready;
+    if (!bare || !engine || engine.destroyed) return;
+    const before = engine.presentState().scale;
+    if (before !== "FIT_WIDTH") engine.presentSetOptions({ scale: "FIT_WIDTH" });
+    readState();
+    return () => {
+      if (!engine.destroyed && before && before !== "FIT_WIDTH") engine.presentSetOptions({ scale: before });
+      readState();
+    };
+  }, [bare, ready, readState]);
+  const bareColor = useMemo(() => {
+    if (!bare || !ready || ready.destroyed || !screen) return null;
+    try {
+      return screenColor(ready.readNode(screen, { fields: ["fillPaints"] })?.fillPaints);
+    } catch {
+      return null;
+    }
+  }, [bare, ready, screen]);
+  useEffect(() => {
+    if (!bare) return;
+    const html = document.documentElement.style;
+    const body = document.body.style;
+    const kept = { html: html.background, body: body.background };
+    const viewport = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
+    const keptViewport = viewport?.content ?? null;
+    if (viewport && !/viewport-fit/.test(viewport.content)) viewport.content = `${viewport.content}, viewport-fit=cover`;
+    let theme = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    const made = !theme;
+    const keptTheme = theme?.content ?? null;
+    if (bareColor) {
+      html.background = bareColor;
+      body.background = bareColor;
+      if (!theme) {
+        theme = document.createElement("meta");
+        theme.name = "theme-color";
+        document.head.append(theme);
+      }
+      theme.content = bareColor;
+    }
+    return () => {
+      html.background = kept.html;
+      body.background = kept.body;
+      if (viewport && keptViewport !== null) viewport.content = keptViewport;
+      if (theme && made) theme.remove();
+      else if (theme && keptTheme !== null) theme.content = keptTheme;
+    };
+  }, [bare, bareColor]);
+
   // Keys: the prototype's first (Key / Gamepad), then the presentation's.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -735,10 +842,21 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     const r = canvasRef.current!.getBoundingClientRect();
     return [e.clientX - r.left, e.clientY - r.top];
   };
+  // A finger's press, until it moves past TOUCH_SLOP (its jitter before that is no drag: the tap stays a click)
+  const touchDown = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const onPointer = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const engine = engineRef.current;
     if (!engine || engine.destroyed) return;
+    // One pointer plays the prototype: a second finger (the two-finger hold, a pinch) is not a press of its own
+    if (!e.isPrimary) return;
     const type = POINTER_TYPE[e.type] ?? POINTER.move;
+    if (e.pointerType === "touch") {
+      if (type === POINTER.down) touchDown.current = { x: e.clientX, y: e.clientY, moved: false };
+      else if (type === POINTER.move && touchDown.current && !touchDown.current.moved) {
+        if (Math.hypot(e.clientX - touchDown.current.x, e.clientY - touchDown.current.y) < TOUCH_SLOP) return;
+        touchDown.current.moved = true;
+      } else if (type !== POINTER.move) touchDown.current = null;
+    }
     if (type === POINTER.down) {
       e.currentTarget.setPointerCapture(e.pointerId);
       e.currentTarget.focus({ preventScroll: true });
@@ -919,7 +1037,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
   );
   const current = flows.find((f) => f.node === state?.flow) ?? null;
   return (
-    <div className={styles.root} data-presentation data-hide-ui={hideUi || undefined}>
+    <div className={styles.root} data-presentation data-hide-ui={hideUi || undefined} data-bare={bare || undefined} style={bare && bareColor ? { background: bareColor } : undefined}>
       {/* Live: a 48 high bar (and its line) — the flows list and comments at the left, the file's name and its ▾
           ("Open in editor") in the middle, Share prototype, Options and full screen at the right. */}
       {!hideUi && (
@@ -979,7 +1097,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
           {canvas}
           {fieldInput}
           <div ref={videoHost} className={styles.videos} aria-hidden />
-          {hideUi && <div className={styles.corner}>{optionsButton}</div>}
+          {hideUi && !bare && <div className={styles.corner}>{optionsButton}</div>}
           {!state && !error && (
             <div className={styles.center}>
               <Spinner />

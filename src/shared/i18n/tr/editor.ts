@@ -1701,6 +1701,7 @@ export const editor: Record<string, string> = {
   "{n} slide: {format} takes {min}–{max}": "{n} slayt: {format} {min}–{max} slayt alır",
   "{n} slides: {format} takes {min}–{max}": "{n} slayt: {format} {min}–{max} slayt alır",
   "UI hidden. Use the options button in the corner, or {key}, to show it again.": "Arayüz gizlendi. Yeniden göstermek için köşedeki seçenekler düğmesini veya {key} kısayolunu kullanın.",
+  "UI hidden. Touch and hold with two fingers to show it again.": "Arayüz gizlendi. Yeniden göstermek için iki parmağınızla basılı tutun.",
   // Add motion ▸ (compare 2026-10-18, Group 2)
   "Stroke paint": "Kontur boyası",
   "Apply animation style": "Animasyon stili uygula",
