@@ -167,36 +167,23 @@ TEST_CASE("g1 press: a pressed layer keeps its hover outline until it moves") {
   up(e, 260, 30);
 }
 
-TEST_CASE("g1 AI sparkle: by the selection's top-right corner while the pointer is over it; a press asks for it") {
+TEST_CASE("g1 AI sparkle: none by the selection (the owner, 2026-10-28), whatever the pointer does") {
   const Guid R{1, 5};
   auto nodes = baseChanges();
   nodes.push_back(make(R, NodeType::ROUNDED_RECTANGLE, kPage, "a", {100, 100, 120, 90}, "Rect"));
   Editor e = load(nodes);
   gfx::NullDevice device;
   Renderer r{device};
-  auto draw = [&] {
-    r.render(e.document(), e.page(), e.camera(), e.viewport(), e.overlay(), OverlayStyle::of(Theme::Dark));
-    e.setCanvasHits(r.canvasHits());
-  };
   e.setSelection({R});
-  move(e, 600, 600);
-  CHECK(!e.overlay().aiButton);
   move(e, 150, 150);
-  CHECK(e.overlay().aiButton);
-  draw();
-  Rect ai = r.canvasHits().aiButton;
-  REQUIRE(ai.w > 0);
-  CHECK(ai.x + ai.w / 2 == doctest::Approx(220 + 16.5).epsilon(0.02));
-  CHECK(ai.y + ai.h / 2 == doctest::Approx(100 + 16.5).epsilon(0.02));
-  // Onto it (off the selection): it stays, hovered; a press asks TS for it.
-  move(e, ai.x + ai.w / 2, ai.y + ai.h / 2);
-  CHECK(e.overlay().aiButton);
-  CHECK(e.overlay().aiButtonHovered);
+  CHECK(!e.overlay().aiButton);
+  r.render(e.document(), e.page(), e.camera(), e.viewport(), e.overlay(), OverlayStyle::of(Theme::Dark));
+  e.setCanvasHits(r.canvasHits());
+  CHECK(r.canvasHits().aiButton.w == 0);
+  move(e, 236.5, 116.5);
   e.takeEvents();
-  down(e, ai.x + ai.w / 2, ai.y + ai.h / 2);
-  auto ev = e.takeEvents();
-  CHECK(ev.aiButtons.size() == 1);
-  CHECK(e.selection() == std::vector<Guid>{R});
+  down(e, 236.5, 116.5);
+  CHECK(e.takeEvents().aiButtons.empty());
 }
 
 TEST_CASE("g1 a quarter-turned frame's name stays level above its on-screen top-left corner") {

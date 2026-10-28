@@ -3,7 +3,7 @@
  * "Frame status (ours)"). On the canvas the engine draws the status where Ready for dev shows and its click opens the
  * same rows (devmode/DevOverlays.tsx StatusMenu).
  */
-import { MenuButton, type MenuEntry } from "@/ds";
+import { Icon, MenuButton, type MenuEntry } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { usePresence } from "../../multiplayer/presence";
@@ -13,13 +13,16 @@ import styles from "./FrameStatus.module.css";
 
 export const NO_STATUS = "none";
 
-/** The status menu's rows: the statuses with their dots (the current one checked), then "No status". */
-export function frameStatusMenu(current: FrameStatus | null, opts: { disabled?: boolean } = {}): MenuEntry[] {
+/**
+ * The status menu's rows (the owner, 2026-10-28): each status with its own glyph in its colour — no check column, no
+ * dots — the row lit in that colour under the pointer; then "No status".
+ */
+export function frameStatusMenu(opts: { disabled?: boolean } = {}): MenuEntry[] {
   const disabled = opts.disabled || undefined;
   return [
-    ...FRAME_STATUSES.map((s) => ({ id: s.id, label: t(s.label), swatch: FRAME_STATUS_COLOR[s.id], checked: s.id === current, disabled })),
+    ...FRAME_STATUSES.map((s) => ({ id: s.id, label: t(s.label), icon: `24.status.${s.id}` as const, tint: FRAME_STATUS_COLOR[s.id], disabled })),
     "-",
-    { id: NO_STATUS, label: t("No status"), checked: current === null, disabled },
+    { id: NO_STATUS, label: t("No status"), disabled },
   ];
 }
 
@@ -30,17 +33,25 @@ export function pickFrameStatus(ed: EditorController, ids: readonly Guid[], id: 
   setFrameStatus(ed, ids, id === NO_STATUS ? null : (id as FrameStatus));
 }
 
-/** A status's dot and label. */
+/**
+ * A status's glyph and label: the glyph white in a 16 square of the status's colour, as the canvas draws it (the owner,
+ * 2026-10-28: Figma's Ready for dev button); no status, the `</>` alone.
+ */
 function Face({ status, text }: { status: FrameStatus | null; text: string }) {
   return (
     <>
-      <span className={styles.dot} style={status ? { background: FRAME_STATUS_COLOR[status] } : undefined} aria-hidden />
+      <span className={styles.glyph} style={status ? { background: FRAME_STATUS_COLOR[status] } : undefined} aria-hidden>
+        <Icon name={status ? `24.status.${status}` : "24.dev-brackets"} size={24} />
+      </span>
       <span className={styles.text}>{text}</span>
     </>
   );
 }
 
-/** The Design panel header's status button (a frame or section's header): the current status, the menu under it. */
+/**
+ * The Design panel header's status button (a frame or section's header): the current status, the menu under it. It is
+ * the header's Ready for dev button too (Ready to Dev is one of the statuses), so the row shows no `</>` beside it.
+ */
 export function FrameStatusButton() {
   useT();
   const ed = useEditor();
@@ -59,7 +70,7 @@ export function FrameStatusButton() {
   );
   if (viewer) return chip;
   return (
-    <MenuButton label={t("Status")} entries={() => frameStatusMenu(status)} className={styles.headerButton} onSelect={(id) => pickFrameStatus(ed, targets, id)}>
+    <MenuButton label={t("Status")} entries={() => frameStatusMenu()} className={styles.headerButton} onSelect={(id) => pickFrameStatus(ed, targets, id)}>
       {chip}
     </MenuButton>
   );

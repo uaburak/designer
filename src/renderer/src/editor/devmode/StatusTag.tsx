@@ -1,10 +1,11 @@
 /**
  * A design's status as the chrome shows it (workflowStatus.ts `statusShown`): the owner's label with its colour — a
- * filled chip (`chip`: Inspect's header, focus view, as the canvas draws it) or a dot and the label (`dot`: lists and
- * cards) — and Figma's yellow "Changed" beside Ready to Dev edited since. Shared by the editor and the viewer
+ * filled chip (`chip`: Inspect's header, focus view) or its glyph in a square of its colour and the label (`dot`: lists
+ * and cards — the canvas's square, the owner, 2026-10-28) — and Figma's yellow "Changed" beside Ready to Dev edited since. Shared by the editor and the viewer
  * (src/viewer: Dev Mode's panels and developer previews).
  */
 import type { CSSProperties, MouseEvent } from "react";
+import { Icon } from "@/ds";
 import { t, useT } from "@/i18n";
 import { statusShown, type FrameStatus } from "../workflowStatus";
 import styles from "./StatusTag.module.css";
@@ -30,7 +31,9 @@ export function StatusTag({ workflow, dev, variant, onClick }: StatusTagProps) {
   if (variant === "dot")
     return (
       <span className={styles.tag} data-status={workflow}>
-        <span className={styles.dot} style={{ background: s.color }} aria-hidden />
+        <span className={styles.glyph} style={{ background: s.color }} aria-hidden>
+          <Icon name={`24.status.${workflow}`} size={24} />
+        </span>
         <span className={styles.label}>{s.label}</span>
         {changed}
       </span>

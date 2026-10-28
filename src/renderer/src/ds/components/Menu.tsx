@@ -381,6 +381,8 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
               aria-expanded={entry.items ? sub?.index === i : undefined}
               aria-checked={entry.checked}
               aria-disabled={entry.disabled || undefined}
+              data-tint={entry.tint ? "" : undefined}
+              style={entry.tint ? ({ "--menu-tint": entry.tint } as React.CSSProperties) : undefined}
               className={styles.item}
               onPointerEnter={(e) => enter(i, e)}
               onClick={() => pick(i)}

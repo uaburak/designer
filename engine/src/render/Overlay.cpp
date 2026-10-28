@@ -157,6 +157,7 @@ void Renderer::drawDevIcon(Guid frame, DevStatusMark::Kind kind, double right, d
   if (hovered && dev.tooltip && kind == DevStatusMark::Kind::MarkButton) {
     devTooltip_ = true;
     devTooltipUnder_ = screenBox;
+    devTooltipText_ = "Set status";
   }
 }
 
@@ -166,7 +167,7 @@ void Renderer::drawDevTooltip(const OverlayStyle& style) {
   if (!devTooltip_) return;
   devTooltip_ = false;
   const double dpr = viewport_.scaleX();
-  static const std::string text = "Set status";
+  const std::string text = devTooltipText_;
   const text::TextLayout* L = label(text, "Regular", style.labelSize);
   double tw = L ? L->size.x : 6.2 * static_cast<double>(text.size());
   double bw = std::round(tw + 2 * style.tooltipPadding), bh = style.tooltipHeight, r = style.tooltipRadius, a = style.tooltipArrow;
@@ -413,14 +414,27 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
   // Outline mode's options, under the rest of the chrome.
   if (overlay.outlines && (overlay.outlineHidden || overlay.outlineBounds) && page != kNoGuid) drawOutlineOptions(doc, page, view, overlay);
 
-  // Components, component sets and instances — and every layer inside one — are outlined in the component purple
-  // (live Figma; round 15, the owner's screenshots in docs/research/components15/).
-  auto colorOf = [&](Guid id) -> const Color& { return inComponentChrome(doc, id) ? style.component : blue; };
-  // The selection's own chrome (box, handles, badge, padding bars): purple when everything selected is a component, an
-  // instance or a layer inside one.
+  // A design with a status (ours, docs/editor.md "Frame status (ours)"; the owner, 2026-10-28) is outlined in its
+  // status's colour — hovered or selected; no status, the selection's blue. Components, component sets and instances —
+  // and every layer inside one — in the component purple (live Figma; round 15, the owner's screenshots in
+  // docs/research/components15/).
+  auto statusOf = [&](Guid id) -> int {
+    for (const DevStatusMark& m : overlay.dev.statuses)
+      if (m.frame == id && m.kind != DevStatusMark::Kind::MarkButton && m.workflow > 0) return std::min<int>(m.workflow, kWorkflowCount);
+    return 0;
+  };
+  auto colorOf = [&](Guid id) -> const Color& {
+    if (int wf = statusOf(id)) return style.workflow[wf];
+    return inComponentChrome(doc, id) ? style.component : blue;
+  };
+  // The selection's own chrome (box, handles, badge, padding bars): the status's colour when everything selected has
+  // the same status; purple when everything selected is a component, an instance or a layer inside one.
   bool allComponents = !overlay.selection.empty();
   for (Guid s : overlay.selection) allComponents &= &colorOf(s) == &style.component;
-  const Color& blueSel = allComponents ? style.component : blue;
+  const Color* sameStatus = overlay.selection.empty() ? nullptr : &colorOf(overlay.selection.front());
+  for (Guid s : overlay.selection)
+    if (!statusOf(s) || &colorOf(s) != sameStatus) sameStatus = nullptr;
+  const Color& blueSel = sameStatus ? *sameStatus : allComponents ? style.component : blue;
   auto outline = [&](const Mat2x3& toScreen, Vec2 size, ShapeKind kind, const CornerRadii& radii, double weight, const Color& color) {
     ScreenBox b = screenBox(toScreen, size, dpr);
     CornerRadii r = kSquare;
@@ -695,7 +709,12 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       // Components' and instances' names in the component purple, after Figma's icon; a selected or hovered frame's
       // in the selection's text colour (round 17, the owner's live 68–70.png: grey `#828282` on the dark canvas, the
       // pointer on the frame or its name `#7bc4f8`, as selected); others grey.
-      Color ink = n->props.isComponentish() && !assetInk(t.id) ? componentText : isSelected || hovered ? selectedText : grey;
+      // A design with a status (the owner, 2026-10-28): selected or hovered, its name in the status's colour.
+      const int titleStatus = statusOf(t.id);
+      Color ink = (isSelected || hovered) && titleStatus ? style.workflow[titleStatus]
+                  : n->props.isComponentish() && !assetInk(t.id) ? componentText
+                  : isSelected || hovered ? selectedText
+                                          : grey;
       // A turned frame's name lies along its edge, turned with it (t.place; FrameTitles.h labelFrame): label-local
       // coordinates, snapped to device pixels only when upright.
       auto snap = [&](double v) { return t.upright ? std::round(v * dpr) / dpr : v; };
@@ -715,12 +734,15 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
         drawDevIcon(t.id, DevStatusMark::Kind::MarkButton, t.frame.right(), baseline, ink, t.place, t.upright, overlay.dev, style);
       double cornerRoom = 0;
       if (corner && overlay.hideTitle != t.id) {
-        const text::TextLayout* C = label(kWorkflowLabels[std::clamp<int>(corner->workflow, 0, kWorkflowCount)], "Medium", style.labelSize);
-        double cw = std::round((C ? C->size.x : 40) + 2 * 6);
-        if (t.frame.w >= cw + 2 * kDevIconWidth) {
-          // Centred where the `</>` button's box is (8 px above the baseline to 1.6 below, its centre 3.2 above).
-          Vec2 at = t.place.apply({t.frame.right(), baseline - 3.2});
-          cornerRoom = drawStatusChip(*corner, at.x, at.y, true, true, style) + kDevIconGap;
+        // Centred where the `</>` button's box is (8 px above the baseline to 1.6 below, its centre 3.2 above): a status,
+        // its glyph in a square of its colour (the owner, 2026-10-28: Figma's Ready for dev button); Changed, its chip.
+        Vec2 at = t.place.apply({t.frame.right(), baseline - 3.2});
+        if (corner->kind == DevStatusMark::Kind::Changed) {
+          const text::TextLayout* C = label("Changed", "Medium", style.labelSize);
+          double cw = std::round((C ? C->size.x : 40) + 2 * 6);
+          if (t.frame.w >= cw + 2 * kDevIconWidth) cornerRoom = drawStatusChip(*corner, at.x, at.y, true, true, style) + kDevIconGap;
+        } else if (t.frame.w >= 3 * kDevIconWidth) {
+          cornerRoom = drawStatusIcon(*corner, at.x, at.y, overlay.dev, style) - (kDevButton - kDevIconWidth) / 2 + kDevIconGap;
         }
       }
       if (overlay.hideTitle == t.id) continue;  // a grid's track selected: its name gives way (live Figma)

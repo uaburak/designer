@@ -423,8 +423,8 @@ void Editor::devOverlay(Overlay& o) const {
 
   // Statuses in the designs' titles (docs/editor.md "Frame status (ours)": the owner's statuses replace Ready for
   // dev's indicator) — top-level frames, sections and the frames directly in them. Design mode: the chip where Ready
-  // for dev's `</>` button is, at the top right (round 15, the owner's recording at 20–22 s); Dev Mode and sections:
-  // after the name. A Ready to Dev design edited since it was marked: Figma's "Changed" after its name. On a selected
+  // for dev's `</>` button is, at the top right (round 15, the owner's recording at 20–22 s), in Dev Mode too (the owner,
+  // 2026-10-28); sections: after the name. A Ready to Dev design edited since it was marked: Figma's "Changed" after its name. On a selected
   // frame or component without one, the `</>` at its top right, which opens the status menu (live Figma,
   // canvas-autolayout-selected-hover-gap / canvas-grid-frame-selected).
   std::function<void(Guid, int)> walk = [&](Guid parent, int depth) {
@@ -443,7 +443,8 @@ void Editor::devOverlay(Overlay& o) const {
           d.statuses.push_back(mark);
         } else if (wf) {
           mark.workflow = static_cast<uint8_t>(wf);
-          mark.trailing = viewer_ || section;
+          // Dev Mode too (the owner, 2026-10-28): its square at the top right, as in Design mode; a section's after its pill.
+          mark.trailing = section;
           d.statuses.push_back(mark);
         } else if (canEditDev() && n->props.type != NodeType::INSTANCE && !section && selected(c)) {
           // (A selected section shows no `</>`: live Figma, canvas-section-selected — Group 1. Its status is set from
@@ -584,12 +585,12 @@ bool Editor::edgeAt(Vec2 s, int axis, Guid& node, annot::Side& side) const {
 }
 
 void Editor::devIconHoverAt(Vec2 s) {
-  // The `</>` button under the pointer: filled while hovered; its tooltip after the
+  // The `</>` button or a status's square under the pointer: filled / its "…" while hovered; its tooltip after the
   // tooltip delay (tick). Its hit boxes are where the last frame drew them.
   Guid over = kNoGuid;
   if (gesture_ == Gesture::None && !spaceHeld_)
     for (const CanvasHits::Status& h : hits_.statuses)
-      if (h.kind == DevStatusMark::Kind::MarkButton && h.contains(s)) over = h.frame;
+      if ((h.kind == DevStatusMark::Kind::MarkButton || h.kind == DevStatusMark::Kind::Workflow) && h.contains(s)) over = h.frame;
   if (over == devIconHover_) return;
   devIconHover_ = over;
   devIconSince_ = -1;

@@ -53,7 +53,7 @@ const read = (engine: Engine) => engine.readNode(FRAME, { fields: ["pluginData",
 const ours = (engine: Engine) => read(engine).pluginData?.find((e) => e.pluginID === WORKFLOW_PLUGIN_ID)?.value ?? null;
 const figma = (engine: Engine) => read(engine).sectionStatusInfo?.status ?? null;
 const openMenu = (ed: EditorController) => act(() => ed.ui.set({ statusMenu: { ref: FRAME, x: 100, y: 100, width: 40, height: 16 } }));
-const rows = () => $$('[role="menuitemcheckbox"]');
+const rows = () => $$('[role="menuitem"]').filter((r) => r.textContent === "No status" || r.hasAttribute("data-tint"));
 const row = (label: string) => rows().find((r) => r.textContent === label)!;
 
 describe("Frame status (ours)", () => {
@@ -64,7 +64,9 @@ describe("Frame status (ours)", () => {
 
     openMenu(ed);
     expect(rows().map((r) => r.textContent)).toEqual(STATUSES);
-    expect(row("No status").getAttribute("aria-checked")).toBe("true");
+    // No check column (the owner, 2026-10-28): each status its own glyph and colour.
+    expect($$('[role="menuitemcheckbox"]')).toHaveLength(0);
+    expect(row("Ready to Dev").style.getPropertyValue("--menu-tint")).toBe("var(--figma-color-bg-success)");
     act(() => click(row("Ready to Dev")));
     expect(ed.ui.get().statusMenu).toBeNull();
     expect(ours(engine)).toBe("ready-to-dev");
@@ -72,10 +74,9 @@ describe("Frame status (ours)", () => {
     expect(frameStatusOf(ed, FRAME)).toBe("ready-to-dev");
     expect(engine.devInfo().statuses.find((s) => s.ref === FRAME)?.status).toBe("READY");
 
-    // Ready to Dev in Design mode: Figma's own actions first, then the statuses with the current one checked.
+    // Ready to Dev in Design mode: Figma's own actions first, then the statuses.
     openMenu(ed);
     expect($('[role="menuitem"]')?.textContent).toBe("Open in Dev Mode");
-    expect($('[role="menuitemcheckbox"][aria-checked="true"]')?.textContent).toBe("Ready to Dev");
     act(() => click(row("Process")));
     expect(ours(engine)).toBe("process");
     expect(figma(engine)).toBeNull();
@@ -106,7 +107,6 @@ describe("Frame status (ours)", () => {
     ed.setProps([FRAME], { sectionStatusInfo: { status: "BUILD", lastUpdateUnixTimestamp: 1 } } as unknown as NodeFields, "Import");
     expect(frameStatusOf(ed, FRAME)).toBe("ready-to-dev");
     openMenu(ed);
-    expect($('[role="menuitemcheckbox"][aria-checked="true"]')?.textContent).toBe("Ready to Dev");
     act(() => click(row("Revised")));
     expect(frameStatusOf(ed, FRAME)).toBe("revised");
     expect(figma(engine)).toBeNull();
@@ -121,7 +121,7 @@ describe("Frame status (ours)", () => {
     expect([ours(engine), figma(engine)]).toEqual(["ready-to-dev", "BUILD"]);
     // Dev Mode's menu: focus view and Compare changes, then the statuses.
     openMenu(ed);
-    expect($$('[role="menuitem"]').map((r) => r.textContent)).toEqual(["Show in focus view", "Compare changes"]);
+    expect($$('[role="menuitem"]').map((r) => r.textContent)).toEqual(["Show in focus view", "Compare changes", ...STATUSES]);
     act(() => click(row("Cancelled")));
     expect([ours(engine), figma(engine)]).toEqual(["cancelled", null]);
     expect(ed.setProps([FRAME], { name: "Renamed" }, "Rename")).not.toBe(0);

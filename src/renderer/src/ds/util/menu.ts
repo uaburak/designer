@@ -17,6 +17,9 @@ export type MenuItem = {
   icon?: IconName;
   /** A filled dot before the label in this colour — a token, e.g. `var(--figma-color-bg-success)` (the frame status menu) */
   swatch?: string;
+  /** The row's own colour — a token (the frame status menu): its glyph in it, and the highlight in it instead of the
+   *  menu's blue (the glyph and label white on it) */
+  tint?: string;
   /** A space's 16 square before the label (the space switcher's orgs, docs/multiplayer.md §14.16): its picture
    *  (a data: URL) or, without one, the name's initial on a colour */
   spaceAvatar?: { name: string; src?: string | null };

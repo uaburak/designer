@@ -904,6 +904,9 @@ class Renderer {
   // `centerY`; `compact`: the `</>` button's 16 px height and corners): returns its width.
   void drawDevOverlay(const Document& doc, const Camera& camera, const Overlay& overlay, const OverlayStyle& style);
   double drawStatusChip(const DevStatusMark& mark, double x, double centerY, bool alignRight, bool compact, const OverlayStyle& style);
+  // A status in Design mode: its glyph white in a 16 square of its colour, centred where the `</>` button is (right: the frame's
+  // right edge). Returns its width.
+  double drawStatusIcon(const DevStatusMark& mark, double right, double centerY, const DevOverlay& dev, const OverlayStyle& style);
   // The `</>` at a selected design's top right (Overlay.cpp): its right edge at `right`, by the title's baseline.
   // The `</>` button at a frame's top right: `right` / `baseline` in label-local px (`place` → screen; FrameTitles.h).
   void drawDevIcon(Guid frame, DevStatusMark::Kind kind, double right, double baseline, const Color& color, const Mat2x3& place, bool upright,
@@ -915,6 +918,7 @@ class Renderer {
   void drawPresenceCursors(const Camera& camera, const Overlay& overlay, const OverlayStyle& style);
   bool devTooltip_ = false;  // drawDevIcon's tooltip, drawn at the overlay's end over the button's screen box
   Rect devTooltipUnder_;
+  const char* devTooltipText_ = "Set status";  // its text: "Set status", or a status square's label
   // Round 15: auto layout's padding and gap handles, the hatched / outlined area and the value badge
   // (render/SpacingOverlay.cpp).
   // `padding`: the paddings' colour (the selection's chrome: purple in a component or instance); gaps are pink.

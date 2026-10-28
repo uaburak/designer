@@ -45,10 +45,15 @@
   }
   .item::before { content: ""; position: absolute; inset: 0 var(--menu-inset); z-index: -1; border-radius: var(--ds-radius-medium); }
   .item[data-highlighted]::before { background: var(--ds-color-menu-highlight); }
+  /* A row with its own colour (MenuItem `tint`): its glyph in it; highlighted, the row in it, the glyph white */
+  .item[data-tint] .icon { color: var(--menu-tint); }
+  .item[data-tint][data-highlighted]::before { background: var(--menu-tint); }
+  .item[data-tint][data-highlighted] .icon { color: inherit; }
   /* Rows 8 in, the highlight the row itself (live gap / W / H lists over their field, the effect type list) */
   .inset { --menu-inset: 0px; padding-inline: var(--ds-size-menu-pad); }
   .inset .item { border-radius: var(--ds-radius-medium); }
   .inset .item[data-highlighted] { background: var(--ds-color-menu-highlight); }
+  .inset .item[data-tint][data-highlighted] { background: var(--menu-tint); }
   .inset .item::before { content: none; }
   .inset .separator { margin-inline: calc(var(--ds-size-menu-pad) * -1); }
   /*

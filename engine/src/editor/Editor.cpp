@@ -1181,12 +1181,10 @@ Overlay Editor::overlay() const {
   // Round 12: a selected grid's gaps of one axis, the pointer in one of them or dragging it (tools/GridGestures.cpp).
   if (text_.node == kNoGuid && vector_.node == kNoGuid) gridGapOverlay(o);
   o.pixelGrid = (viewOptions_ & VIEW_PIXEL_GRID) != 0;
-  // Group 1: the AI sparkle while the pointer is over the selection or on the sparkle — not while dragging, editing
-  // text or a path, on a spacing bar, in Dev Mode, Prototype or Motion, nor for a viewer.
-  o.aiButton = (gesture_ == Gesture::None || gesture_ == Gesture::Press) && !viewer_ && !selection_.empty() && (pointerNearSelection_ || aiHover_) &&
-               text_.node == kNoGuid && vector_.node == kNoGuid && layoutBarHover_ < 0 && !proto_.on && !motion_.on && !devInspect() &&
-               selectingTool() && !spaceHeld_ && !contextMenuHeld_;
-  o.aiButtonHovered = o.aiButton && aiHover_;
+  // Group 1's AI sparkle by the selection: never (the owner, 2026-10-28 — none on the canvas; the AI actions are in
+  // Actions, ⌘K).
+  o.aiButton = false;
+  o.aiButtonHovered = false;
   o.outlines = (viewOptions_ & VIEW_OUTLINES) != 0;
   o.outlineHidden = (viewOptions_ & VIEW_OUTLINE_HIDDEN) != 0;
   o.outlineBounds = (viewOptions_ & VIEW_OUTLINE_BOUNDS) != 0;

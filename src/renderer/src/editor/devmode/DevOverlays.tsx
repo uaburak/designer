@@ -142,7 +142,7 @@ export function StatusMenu() {
   return (
     <ContextMenu
       at={{ x: at.x, y: at.y + at.height + 4 }}
-      entries={[...figma, ...frameStatusMenu(current, { disabled: !canSetStatus(ed) })]}
+      entries={[...figma, ...frameStatusMenu({ disabled: !canSetStatus(ed) })]}
       label={t("Status")}
       onClose={close}
       onSelect={(id) => {

@@ -1,6 +1,6 @@
 @layer app {
-  /* The Design panel header's status button (ours: editor/frameStatus.ts, docs/editor.md "Frame status (ours)"): a
-     filled dot in the status's colour (FRAME_STATUS_COLOR, tokens) before its label. */
+  /* The Design panel header's status button (ours: editor/frameStatus.ts, docs/editor.md "Frame status (ours)"): the
+     status's glyph in a square of its colour (FRAME_STATUS_COLOR, tokens) before its label. */
   /* It gives way first when the header is full (a long status beside a frame's three actions): its label ellipsizes,
      the actions stay inside the panel. */
   .headerButton { display: inline-flex; flex: 0 1 auto; align-items: center; min-width: 0; padding: 0; border: 0; background: none; }
@@ -11,8 +11,9 @@
     max-width: 100%;
     align-items: center;
     gap: var(--ds-space-1);
-    height: var(--ds-size-icon-16);
-    padding: 0 var(--ds-space-2) 0 var(--ds-space-1);
+    /* The glyph's square 2 in from the pill's round end */
+    height: calc(var(--ds-size-icon-16) + var(--ds-space-1));
+    padding: 0 var(--ds-space-2) 0 calc(var(--ds-space-1) / 2);
     border-radius: var(--ds-radius-full);
     background: var(--figma-color-bg-secondary);
     color: var(--figma-color-text);
@@ -21,10 +22,23 @@
     letter-spacing: var(--ds-tracking-body-medium);
     white-space: nowrap;
   }
-  .dot { flex: none; width: var(--ds-space-2); height: var(--ds-space-2); border-radius: var(--ds-radius-full); }
-  /* No status: an outlined dot, secondary text */
+  /* The status's glyph (its 24 box) white in a 16 square of its colour, 4 px corners — the canvas's (render/AnnotationOverlay.cpp
+     drawStatusIcon) */
+  .glyph {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--ds-size-icon-16);
+    height: var(--ds-size-icon-16);
+    overflow: visible;
+    border-radius: calc(var(--ds-radius-small) * 2);
+    color: var(--figma-color-text-onbrand);
+  }
+  .glyph > svg { flex: none; }
+  /* No status: the `</>` in the secondary colour, no square; secondary text */
   .face[data-frame-status="none"] { color: var(--figma-color-text-secondary); }
-  .face[data-frame-status="none"] .dot { outline: 1px dashed var(--figma-color-border-strong); outline-offset: -1px; }
+  .face[data-frame-status="none"] .glyph { color: var(--figma-color-icon-secondary); }
   /* Cancelled: muted, like disabled */
   .face[data-frame-status="cancelled"] { color: var(--figma-color-text-disabled); }
 }

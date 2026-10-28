@@ -28,6 +28,7 @@ import { commandItem, runMenuItem } from "../../menus";
 import { useTopics } from "../../hooks";
 import { statusOfTargets, statusTargets } from "../../devStatus";
 import { FrameStatusButton } from "./FrameStatusButton";
+import { frameStatusTargets } from "../../frameStatus";
 import { bindVariable } from "../../variables";
 import { OpenVariablesButton, VariablePicker } from "../variables/VariablePicker";
 import { BIND_TYPE } from "../../model/variables";
@@ -359,7 +360,6 @@ export function TypeHeader({ nodes }: { nodes: PanelNode[] }) {
         <span className={styles.typeLabel}>{shownTitle}</span>
       )}
       <div className={styles.headerActions}>
-        {presets && <FrameStatusButton />}
         <HeaderActions nodes={nodes} kind={kind} row={headerRow(kind, inFrame, context)} set={context.set} />
       </div>
     </div>
@@ -401,7 +401,8 @@ function HeaderActions({ nodes, kind, row, set }: { nodes: PanelNode[]; kind: He
       case "slot":
         return isEnabled(ed, toSlot) ? <IconButton key={a} icon="24.convert-to-slot" label={t(toSlot.label)} shortcut={shortcutOf(toSlot)} tone="secondary" onClick={() => runEditorCommand(ed, toSlot.id)} /> : null;
       case "ready":
-        return <ReadyForDevToggle key={a} />;
+        // A frame or section that takes the owner's statuses: their button is Ready for dev's (no `</>` beside it).
+        return frameStatusTargets(ed).length ? <FrameStatusButton key={a} /> : <ReadyForDevToggle key={a} />;
       case "create":
         return <IconButton key={a} icon="24.component.small" label={t(create.label)} shortcut={shortcutOf(create)} tone="secondary" disabled={!isEnabled(ed, create)} onClick={() => runEditorCommand(ed, create.id)} />;
       case "mask":

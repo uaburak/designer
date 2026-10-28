@@ -474,12 +474,12 @@ TEST_CASE("devmode: the owner's statuses (pluginData) in the title replace Ready
   f.frame();
   CHECK(marksOf(A)[0].kind == DevStatusMark::Kind::Workflow);
 
-  // Dev Mode (viewer mode with Dev Mode's edits): chips after the names.
+  // Dev Mode (viewer mode with Dev Mode's edits): the squares at the top right too (the owner, 2026-10-28).
   f.ed.setViewerMode(true);
   f.ed.setDevEdits(true);
   f.frame();
-  CHECK(marksOf(A)[0].trailing);
-  CHECK(marksOf(IN)[0].trailing);
+  CHECK(!marksOf(A)[0].trailing);
+  CHECK(!marksOf(IN)[0].trailing);
 }
 
 TEST_CASE("devmode: editInfo on an instance is its own field, not an override") {

@@ -57,6 +57,113 @@ double Renderer::drawStatusChip(const DevStatusMark& mark, double x, double cent
   return w;
 }
 
+double Renderer::drawStatusIcon(const DevStatusMark& mark, double right, double centerY, const DevOverlay& dev, const OverlayStyle& style) {
+  // A design's status in Design mode (the owner, 2026-10-28; live Figma's Ready for dev: a 16 × 16 square of its colour,
+  // 4 px corners, the glyph white in it): the status's own glyph (ds/icons/svg/24/status.*.svg, the menu's) — 1 px
+  // round strokes from its 24 box, centred in the square. Where the `</>` button's box is: 2 past the frame's right.
+  const double dpr = viewport_.scaleX();
+  const int wf = std::clamp<int>(mark.workflow, 1, kWorkflowCount);
+  const double s = kDevButton, r = kDevButtonRadius;
+  double bx = std::round((right - kDevIconWidth / 2 - s / 2) * dpr) / dpr, by = std::round((centerY - s / 2) * dpr) / dpr;
+  const Color fill = style.workflow[wf], ink{1, 1, 1, 1};
+  emit(makeShape(Mat2x3::translate(bx, by), {s, s}, ShapeKind::Rect, {r, r, r, r}, fill, 1.0, fill, 0.0, 0, 0), Pass::Shape);
+  // Hovered (live Figma's Ready for dev): "…" in place of the glyph — three 2 px dots 4 apart —, and after the
+  // tooltip delay the status's name under it.
+  if (dev.iconHover == mark.frame) {
+    for (int i = -1; i <= 1; i++)
+      emit(makeShape(Mat2x3::translate(bx + s / 2 + 4 * i - 1, by + s / 2 - 1), {2, 2}, ShapeKind::Ellipse, kSquare, ink, 1, ink, 0, 0, 0), Pass::Shape);
+    if (dev.tooltip) {
+      devTooltip_ = true;
+      devTooltipUnder_ = {bx, by, s, s};
+      devTooltipText_ = kWorkflowLabels[wf];
+    }
+  }
+  // The glyph's 24 box centred on the square's.
+  const Vec2 o{bx + s / 2 - 12, by + s / 2 - 12};
+  const double w = 1;
+  auto line = [&](Vec2 a, Vec2 b) {
+    a = a + o, b = b + o;
+    Vec2 d = b - a;
+    double len = d.length();
+    if (len < 1e-9) return;
+    Vec2 u{d.x / len, d.y / len}, n{-u.y, u.x};
+    emit(makeShape(Mat2x3{u.x, n.x, a.x - n.x * w / 2, u.y, n.y, a.y - n.y * w / 2}, {len, w}, ShapeKind::Rect, kSquare, ink, 1, ink, 0, 0, 0),
+         Pass::Shape);
+    for (Vec2 p : {a, b}) emit(makeShape(Mat2x3::translate(p.x - w / 2, p.y - w / 2), {w, w}, ShapeKind::Ellipse, kSquare, ink, 1, ink, 0, 0, 0), Pass::Shape);
+  };
+  auto ring = [&](Vec2 c, double rad) {
+    c = c + o;
+    emit(makeShape(Mat2x3::translate(c.x - rad - w / 2, c.y - rad - w / 2), {2 * rad + w, 2 * rad + w}, ShapeKind::Ellipse, kSquare, ink, 0, ink, 1, w, 0),
+         Pass::Shape);
+  };
+  auto disc = [&](Vec2 c, double rad) {
+    c = c + o;
+    emit(makeShape(Mat2x3::translate(c.x - rad, c.y - rad), {2 * rad, 2 * rad}, ShapeKind::Ellipse, kSquare, ink, 1, ink, 0, 0, 0), Pass::Shape);
+  };
+  // An arc about `c` from angle a0 to a1 (radians, y down), as short strokes.
+  auto arc = [&](Vec2 c, double rad, double a0, double a1) {
+    const int n = 24;
+    Vec2 prev{c.x + rad * std::cos(a0), c.y + rad * std::sin(a0)};
+    for (int i = 1; i <= n; i++) {
+      double a = a0 + (a1 - a0) * i / n;
+      Vec2 p{c.x + rad * std::cos(a), c.y + rad * std::sin(a)};
+      line(prev, p);
+      prev = p;
+    }
+  };
+  if (dev.iconHover != mark.frame) switch (wf) {
+    case 1:  // Done: a check
+      line({7.5, 12.5}, {10.5, 15.5});
+      line({10.5, 15.5}, {16.5, 8.5});
+      break;
+    case 2: {  // R to Merge: a branch merging
+      line({8.5, 8.5}, {8.5, 15.5});
+      Vec2 p0{8.5, 8.5}, p1{8.5, 11.5}, p2{10, 12}, p3{14, 12}, prev = p0;
+      for (int i = 1; i <= 12; i++) {
+        double t = i / 12.0, u = 1 - t;
+        Vec2 p = p0 * (u * u * u) + p1 * (3 * u * u * t) + p2 * (3 * u * t * t) + p3 * (t * t * t);
+        line(prev, p);
+        prev = p;
+      }
+      ring({8.5, 7}, 1.5);
+      ring({8.5, 17}, 1.5);
+      ring({15.5, 12}, 1.5);
+      break;
+    }
+    case 3:  // Ready to Dev: Figma's `</>`
+      line({9, 8.9}, {6.5, 11.4});
+      line({6.5, 11.4}, {9, 13.9});
+      line({13.3, 7.2}, {10.7, 16.8});
+      line({15, 8.9}, {17.5, 11.4});
+      line({17.5, 11.4}, {15, 13.9});
+      break;
+    case 4:  // To be done: an empty ring
+      ring({12, 12}, 5.5);
+      break;
+    case 5:  // Process: a ring, a dot in it
+      ring({12, 12}, 5.5);
+      disc({12, 12}, 2.5);
+      break;
+    case 6:  // Revised: an arrow turning back
+      arc({12, 12}, 5, 0, 2 * 3.14159265358979 - 0.81);
+      line({15.5, 5.5}, {15.5, 8.5});
+      line({15.5, 8.5}, {12.5, 8.5});
+      break;
+    default:  // Cancelled: a ring struck through
+      ring({12, 12}, 5.5);
+      line({8.1, 15.9}, {15.9, 8.1});
+      break;
+  }
+  if (recordHits_) {
+    CanvasHits::Status hit;
+    hit.frame = mark.frame;
+    hit.rect = {bx, by, s, s};
+    hit.kind = mark.kind;
+    hits_.statuses.push_back(hit);
+  }
+  return s;
+}
+
 void Renderer::drawDevOverlay(const Document& doc, const Camera& camera, const Overlay& overlay, const OverlayStyle& style) {
   const DevOverlay& dev = overlay.dev;
   const double dpr = viewport_.scaleX();

@@ -1,6 +1,18 @@
 @layer app {
   .tag { display: inline-flex; flex: none; align-items: center; gap: var(--ds-space-1); min-width: 0; white-space: nowrap; }
-  .dot { flex: none; width: var(--ds-space-2); height: var(--ds-space-2); border-radius: var(--ds-radius-full); }
+  /* The status's glyph (its 24 box) white in a 16 square of its colour, 4 px corners — the canvas's */
+  .glyph {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--ds-size-icon-16);
+    height: var(--ds-size-icon-16);
+    overflow: visible;
+    border-radius: calc(var(--ds-radius-small) * 2);
+    color: var(--figma-color-text-onbrand);
+  }
+  .glyph > svg { flex: none; }
   .label { color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); }
   .tag[data-status="cancelled"] .label { color: var(--figma-color-text-disabled); }
   .changed { color: var(--figma-color-text-warning); font: var(--ds-font-body-medium-strong); }
