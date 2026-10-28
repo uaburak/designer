@@ -101,6 +101,13 @@ class Player {
   bool deviceFrame() const { return deviceFrame_; }
   // Whether the page's device has a frame to draw (a preset we know).
   bool hasDeviceFrame() const;
+  // Wecra's (@ours): a phone's browser leaves the page's device out (the frame itself, fitted to the width), and the bare
+  // screen (Hide UI on a touch screen) fills the width — Fit width grows too — with the window around it in the screen's
+  // own colour, as a website.
+  void setIgnoreDevice(bool on);
+  void setBare(bool on);
+  // The base screen's colour: its topmost visible opaque solid fill (false: none).
+  bool screenColor(Color& out) const;
 
   // Advances transitions, scroll animations and timers to `nowMs`; true when a frame should be drawn.
   bool tick(double nowMs);
@@ -629,7 +636,10 @@ class Player {
   bool scaleChosen_ = false;  // the viewer picked a scale (else Figma's default for the file, chosen at start)
   bool responsive_ = false;   // with a device: Responsive (else Fixed size)
   bool deviceFrame_ = true;   // Show device frame
+  bool ignoreDevice_ = false;
+  bool bare_ = false;
   bool fitting_ = false;
+  Device pageDevice(Guid page) const;  // the page's device (none while ignoreDevice_)
   std::unordered_map<Guid, Vec2, GuidHash> responsiveSizes_;  // frames resized for Responsive: their own size
   Scrub scrub_;
   std::deque<Sample> samples_;

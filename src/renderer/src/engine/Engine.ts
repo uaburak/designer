@@ -291,6 +291,8 @@ export interface PresentState {
   deviceFrame?: boolean;
   /** With a device: Responsive (else Fixed size) */
   responsive?: boolean;
+  /** The screen's own colour ("#rrggbb": its topmost opaque solid fill), null when it has none */
+  screenColor?: string | null;
   /** An On drag transition follows the pointer */
   scrubbing?: boolean;
   /** The pointer is over something that reacts to it (the hand cursor) */
@@ -1086,6 +1088,10 @@ export class Engine {
     deviceFrame?: boolean;
     /** The machine it plays on: its scroll physics, ⌘ in key triggers */
     host?: "mac" | "windows" | "linux" | "other";
+    /** Wecra's: the page's device left out (a phone's browser shows the frame itself) */
+    ignoreDevice?: boolean;
+    /** Wecra's: the bare screen (Hide UI on a touch screen) — Fit width grows too, the window around it the screen's colour */
+    bare?: boolean;
   }): void {
     this.x.presentSetOptions(this.h, encodeText(JSON.stringify(options)));
     this.schedule();

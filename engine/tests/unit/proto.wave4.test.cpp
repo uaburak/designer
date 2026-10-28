@@ -553,3 +553,37 @@ TEST_CASE("proto.wave4: the shown screen's Motion timeline plays; timeline actio
   player.stop();
   CHECK(r->props.opacity == 1);
 }
+
+TEST_CASE("proto.wave4: a phone's browser leaves the device out; the bare screen fills the width in its own colour") {
+  auto nodes = screens("");
+  for (auto& n : nodes) {
+    if (n.guid == kPage) n.props.extra["prototypeDevice"] = extra("prototypeDevice", R"({"type":"PRESET","presetIdentifier":"SURFACE_PRO_8","size":{"x":1440,"y":960}})");
+    if (n.guid == A) {
+      Paint fill;
+      fill.color = Color::hex(0x336699);
+      n.props.fillPaints = {fill};
+    }
+  }
+  Fixture f(nodes, 402, 780);
+  REQUIRE(f.player.start(kPage, A));
+  f.player.setDeviceFrame(false);  // as a phone's browser has it
+  // The page's device: its 1440 × 960 screen, fitted to the width
+  CHECK(f.player.screenRect().w == doctest::Approx(402));
+  CHECK(f.player.screenRect().h == doctest::Approx(268));
+  f.player.setIgnoreDevice(true);
+  f.player.setScale(proto::ScaleMode::FIT_WIDTH);
+  // The frame itself at 100 % (Fit width never grows it), in the middle
+  CHECK(f.player.screenRect().x == doctest::Approx(14));
+  CHECK(f.player.screenRect().w == doctest::Approx(375));
+  CHECK(f.player.stateJson().find(R"("device":false)") != std::string::npos);
+  f.player.setBare(true);
+  // Bare: grown to the width, the window's height of it shown, the window around it the screen's colour
+  CHECK(f.player.screenRect().x == doctest::Approx(0));
+  CHECK(f.player.screenRect().w == doctest::Approx(402));
+  CHECK(f.player.screenRect().h == doctest::Approx(780));
+  CHECK(f.player.stateJson().find(R"("screenColor":"#336699")") != std::string::npos);
+  f.player.setBare(false);
+  f.player.setIgnoreDevice(false);
+  CHECK(f.player.screenRect().w == doctest::Approx(402));
+  CHECK(f.player.screenRect().h == doctest::Approx(268));
+}

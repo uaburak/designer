@@ -179,8 +179,11 @@ interface State {
 }
 
 export interface SessionOptions {
-  /** Only these files' rooms are joined (a browser tab joins only the file it edits; Home tabs none). Default: all. */
-  only?: FileKey[];
+  /**
+   * Only these files' rooms are joined (a browser tab joins only the file it edits or presents; Home tabs none), named by
+   * the local key or by the room's (a prototype link names the room: its copy here is made, or found, after). Default: all.
+   */
+  only?: string[];
 }
 
 const CLOSE_UNSHARED = 4001;
@@ -268,7 +271,7 @@ const imagesOf = (message: Uint8Array): string[] => {
 
 export class MultiplayerService {
   private session: MultiplayerSession | null = null;
-  private only: Set<FileKey> | null = null;
+  private only: Set<string> | null = null;
   private state: State | null = null;
   private live = new Map<FileKey, Link>();
   private listeners = new Set<(fileKey: FileKey, s: FileShareState) => void>();
@@ -1728,7 +1731,7 @@ export class MultiplayerService {
       visit.timer = setTimeout(() => {
         if (this.visits.get(fileKey) !== visit || visit.count > 0) return;
         this.visits.delete(fileKey);
-        if (this.live.get(fileKey) === visit.link && this.only && !this.only.has(fileKey)) {
+        if (this.live.get(fileKey) === visit.link && !this.joins(fileKey)) {
           visit.link.stop();
           this.live.delete(fileKey);
           this.emitState(fileKey);
@@ -1743,8 +1746,15 @@ export class MultiplayerService {
     this.visits.clear();
   }
 
+  /** Whether this client joins `fileKey`'s room (`only`: by its local key or its room's) */
+  private joins(fileKey: FileKey): boolean {
+    if (!this.only) return true;
+    const key = this.record(fileKey)?.key;
+    return this.only.has(fileKey) || (key !== undefined && this.only.has(key));
+  }
+
   private startLink(fileKey: FileKey): void {
-    if (!this.session || this.live.has(fileKey) || (this.only && !this.only.has(fileKey)) || !this.ownLink(fileKey)) return;
+    if (!this.session || this.live.has(fileKey) || !this.joins(fileKey) || !this.ownLink(fileKey)) return;
     const link = new Link(this, fileKey);
     this.live.set(fileKey, link);
     link.start();

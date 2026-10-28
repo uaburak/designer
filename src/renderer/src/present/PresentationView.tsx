@@ -22,7 +22,7 @@
  * variant is only the prototype of the editor's inline preview (InlinePreview.tsx draws its window and header).
  */
 import { t, useT } from "@/i18n";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button, Dialog, Icon, IconButton, MenuButton, Spinner, showToast, type IconName, type MenuEntry } from "@/ds";
 import { MOD_ALT, MOD_CTRL, MOD_META, MOD_SHIFT, Status } from "@/engine/abi";
 import { Engine, type ImageSource, type PresentScale, type PresentState } from "@/engine/Engine";
@@ -327,20 +327,6 @@ const RESTORE_HOLD_MS = 800;
 /** A phone or tablet: no corner button with the UI hidden — a two-finger hold brings it back */
 const TOUCH_UI = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
 
-/** A screen's first visible solid fill as CSS (the page around it on a phone with the UI hidden), else null */
-export function screenColor(fills: unknown): string | null {
-  if (!Array.isArray(fills)) return null;
-  for (let i = fills.length - 1; i >= 0; i--) {
-    const f = fills[i] as { type?: string; visible?: boolean; opacity?: number; color?: { r: number; g: number; b: number; a?: number } };
-    if (f?.type !== "SOLID" || f.visible === false || !f.color) continue;
-    const a = (f.color.a ?? 1) * (f.opacity ?? 1);
-    if (a < 1) continue;
-    const c = (v: number) => Math.round(Math.min(1, Math.max(0, v)) * 255);
-    return `rgb(${c(f.color.r)}, ${c(f.color.g)}, ${c(f.color.b)})`;
-  }
-  return null;
-}
-
 /** After the next frame is drawn (a hidden page, which draws none: after 100 ms) — what follows is a task of its own. */
 function nextTask(): Promise<void> {
   return new Promise((resolve) => {
@@ -592,10 +578,11 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       if (!engine.destroyed && engine.presentState().websiteBehaviours !== false && readWebOptions().keepState) saveKeptState(engine, kept);
     };
     window.addEventListener("pagehide", onPageHide);
-    // A prototype link's parameters, over the file's own settings; in a mobile browser Fit width and no device frame
-    // unless the link says otherwise.
+    // A prototype link's parameters, over the file's own settings; in a mobile browser the frame itself at Fit width (the
+    // page's device left out: a desktop one made a phone's screen a strip) unless the link says otherwise.
     const mobile = !inline && isMobileBrowser();
     const { scale = mobile ? "FIT_WIDTH" : undefined, hints, deviceFrame = mobile ? false : undefined } = urlOptions ?? {};
+    if (mobile) engine.presentSetOptions({ ignoreDevice: true });
     if (scale || hints !== undefined || deviceFrame !== undefined) engine.presentSetOptions({ ...(scale ? { scale } : {}), ...(hints !== undefined ? { hints } : {}), ...(deviceFrame !== undefined ? { deviceFrame } : {}) });
     // The scale last chosen for this file (not over a link's or a phone's).
     if (!inline) {
@@ -709,26 +696,19 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
 
   // …and the prototype fills the width, the page around it (behind the browser's bars, under the notch) in the
   // screen's own colour, as a website opened in the browser: theme-color, the document's background, viewport-fit.
-  const screen = state?.screen ?? null;
   useEffect(() => {
     const engine = ready;
     if (!bare || !engine || engine.destroyed) return;
     const before = engine.presentState().scale;
-    if (before !== "FIT_WIDTH") engine.presentSetOptions({ scale: "FIT_WIDTH" });
+    engine.presentSetOptions({ bare: true, ignoreDevice: true, ...(before !== "FIT_WIDTH" ? { scale: "FIT_WIDTH" } : {}) });
     readState();
     return () => {
-      if (!engine.destroyed && before && before !== "FIT_WIDTH") engine.presentSetOptions({ scale: before });
+      if (!engine.destroyed) engine.presentSetOptions({ bare: false, ignoreDevice: isMobileBrowser(), ...(before && before !== "FIT_WIDTH" ? { scale: before } : {}) });
       readState();
     };
   }, [bare, ready, readState]);
-  const bareColor = useMemo(() => {
-    if (!bare || !ready || ready.destroyed || !screen) return null;
-    try {
-      return screenColor(ready.readNode(screen, { fields: ["fillPaints"] })?.fillPaints);
-    } catch {
-      return null;
-    }
-  }, [bare, ready, screen]);
+  // The engine's (resolved variables, every screen it goes to); white until it is known — never the chrome's grey
+  const bareColor = bare ? (state?.screenColor ?? "#ffffff") : null;
   useEffect(() => {
     if (!bare) return;
     const html = document.documentElement.style;

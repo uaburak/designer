@@ -373,6 +373,18 @@ describe("MultiplayerService", () => {
     expect(b.store.files.get(fb)!.frames.filter((c) => c.kind === "remote").length).toBe(1);
   });
 
+  it("a tab presenting a prototype link joins its room by the room's key (its copy keeps up)", async () => {
+    // Bug (2026-10-28): the web presentation joined no room, so a phone showed the copy made at its first open forever.
+    const { a, b, fa, fb } = await sharedPair();
+    const key = (await b.svc.syncState(fb))!.key;
+    await b.svc.setSession({ server: SERVER, token: await signIn("b@x.co") }, { only: [key] });
+    await settle();
+    a.store.edit(fa, [node(1, { name: "Seen from the phone" })]);
+    await settle();
+    expect(b.store.doc(fb)["0:1"].name).toBe("Seen from the phone");
+    expect((await b.svc.syncState(fb))!.connection).toBe("live");
+  });
+
   it("visits a room this client isn't in (a browser tab joins only its file) and leaves it after the linger", async () => {
     // Bug: a merge from a tab with only the branch open waited on main's copy, whose room that tab never joined.
     const { a, b, fa, fb } = await sharedPair();

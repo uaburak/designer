@@ -80,11 +80,11 @@ export function getStoreClient(): StoreClient {
     });
     client = dev.client;
     // The browser's account (docs/multiplayer.md §2): finish a sign-in coming back from Google, then hand the session to
-    // the store — this tab joins the room of the file it edits.
+    // the store — this tab joins the room of the file it edits or presents (a prototype link's file is the room's key).
     const done = completeWebSignIn();
     void dev.ready.then(async (s) => {
       await done;
-      connectWebSession(s, params.has("editor") ? params.get("file") : null);
+      connectWebSession(s, params.has("editor") || params.has("present") ? params.get("file") : null);
     });
   }
   return client;

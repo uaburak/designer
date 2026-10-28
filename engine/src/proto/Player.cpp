@@ -261,7 +261,7 @@ bool Player::start(Guid page, Guid start) {
   if (frame == kNoGuid || !frameExists(frame)) return false;
   restoreResponsive();
   // Website behaviours: under Responsive, the frame's breakpoint for the window (its other size).
-  if (web_ && responsiveOn() && device(*props(page)).none) frame = breakpointFor(frame, ed_.viewport().width);
+  if (web_ && responsiveOn() && pageDevice(page).none) frame = breakpointFor(frame, ed_.viewport().width);
   ed_.deriveTree(frame);  // a partial engine derives the screens it shows (Editor::deriveTree)
   if (!scaleChosen_) {
     // Figma's default scale: the first of the file's order (Fill screen for a presentation, Fit device on screen with a
@@ -584,7 +584,7 @@ std::vector<ScaleMode> Player::scaleOrder() const {
   // frame 16:9), LARGE (the first frame wider than 1024), SMALL (narrower), each with its order of the five.
   using S = ScaleMode;
   const NodeProps* pg = page_ != kNoGuid ? props(page_) : nullptr;
-  Device dev = pg ? device(*pg) : Device{};
+  Device dev = pg ? pageDevice(page_) : Device{};
   if (!dev.none) return {S::FIT, S::FILL, S::ACTUAL};
   bool wide = true;
   int frames = 0;
@@ -628,9 +628,42 @@ void Player::setDeviceFrame(bool on) {
   events_.push_back(Event{});
 }
 
+Device Player::pageDevice(Guid page) const {
+  const NodeProps* p = page != kNoGuid ? props(page) : nullptr;
+  return p && !ignoreDevice_ ? device(*p) : Device{};
+}
+
+void Player::setIgnoreDevice(bool on) {
+  if (ignoreDevice_ == on) return;
+  ignoreDevice_ = on;
+  dirty_ = true;
+  if (active()) layout();
+  events_.push_back(Event{});
+}
+
+void Player::setBare(bool on) {
+  if (bare_ == on) return;
+  bare_ = on;
+  dirty_ = true;
+  if (active()) layout();
+  events_.push_back(Event{});
+}
+
+bool Player::screenColor(Color& out) const {
+  const NodeProps* p = base_ != kNoGuid ? props(base_) : nullptr;
+  if (!p) return false;
+  for (auto it = p->fillPaints.rbegin(); it != p->fillPaints.rend(); ++it) {
+    if (it->type != PaintType::SOLID || !it->visible || it->color.a * it->opacity < 1) continue;
+    out = it->color;
+    out.a = 1;
+    return true;
+  }
+  return false;
+}
+
 bool Player::hasDeviceFrame() const {
   if (page_ == kNoGuid || !props(page_)) return false;
-  Device dev = device(*props(page_));
+  Device dev = pageDevice(page_);
   const DeviceSpec* spec = nullptr;
   const DeviceModel* model = nullptr;
   return dev.type == Device::Type::PRESET && !dev.none && findDevice(dev.preset, spec, model);
@@ -641,7 +674,7 @@ bool Player::hasDeviceFrame() const {
 void Player::layout() {
   const Viewport& vp = ed_.viewport();
   double W = std::max(1.0, vp.width), H = std::max(1.0, vp.height);
-  Device dev = device(*props(page_));
+  Device dev = pageDevice(page_);
   // Website behaviours, breakpoints: under Responsive (no device) the screen's other size when the window crosses its
   // width — as a media query swaps a layout, at once, nothing recorded.
   bool switched = false;
@@ -707,7 +740,7 @@ void Player::layout() {
     // Figma's viewport modes (atlas 13 §10.1; live 2026-10-20 in the inline preview): Fit width is "scale-down-width"
     // (a narrower window shrinks the frame, a wider one leaves it at 100 %), Fit width and height "scale-down", Fill
     // screen "contain" (the whole frame, as large as the window takes it — never cropped).
-    case ScaleMode::FIT_WIDTH: v.s = std::min(1.0, W / fw); break;
+    case ScaleMode::FIT_WIDTH: v.s = bare_ ? W / fw : std::min(1.0, W / fw); break;  // bare: the width, grown too
     case ScaleMode::FIT: v.s = std::min(1.0, std::min(W / fw, H / fh)); break;  // "It will not scale up the prototype"
     case ScaleMode::FILL: v.s = std::min(W / fw, H / fh); break;
   }
@@ -1024,7 +1057,7 @@ void Player::replaceScreen(Guid to) {
 
 bool Player::responsiveOn() const {
   if (page_ == kNoGuid || !props(page_)) return false;
-  Device dev = device(*props(page_));
+  Device dev = pageDevice(page_);
   return dev.none ? scale_ == ScaleMode::RESPONSIVE : responsive_;
 }
 
@@ -1043,7 +1076,7 @@ void Player::fitResponsive() {
   //   - any other frame is `min-height: 100vh` — max(its height, the window's): a short page fills the window, a
   //     long one keeps its height and scrolls as a whole.
   const Viewport& vp = ed_.viewport();
-  Device dev = device(*props(page_));
+  Device dev = pageDevice(page_);
   Vec2 target = dev.none ? Vec2{std::max(1.0, vp.width), std::max(1.0, vp.height)} : dev.size;
   std::vector<Guid> frames{base_};
   if (anim_.active) {
@@ -1136,7 +1169,7 @@ void Player::fitOverlays(Guid opening) {
   if (opening != kNoGuid) frames.push_back(opening);
   if (frames.empty()) return;
   bool resp = responsiveOn();
-  Device dev = device(*props(page_));
+  Device dev = pageDevice(page_);
   const Viewport& vp = ed_.viewport();
   Vec2 target = dev.none ? Vec2{std::max(1.0, vp.width), std::max(1.0, vp.height)} : dev.size;
   Vec2 baseOwn;
@@ -2100,7 +2133,7 @@ void Player::runAction(Guid source, const Action& a, const Hit* hotspot, Held* h
 
 void Player::navigate(Guid dest, const Action& a, bool record) {
   // Website behaviours: under Responsive the destination's size for the window (its breakpoint).
-  if (web_ && page_ != kNoGuid && device(*props(page_)).none && responsiveOn()) {
+  if (web_ && page_ != kNoGuid && pageDevice(page_).none && responsiveOn()) {
     Guid sized = breakpointFor(dest, ed_.viewport().width);
     if (sized == base_ && sized != dest) return;  // another size of the screen shown: already there
     dest = sized;
@@ -2990,7 +3023,7 @@ void Player::silentBack() {
 scroll::Physics Player::scrollPhysics() const {
   // The device's platform, else the host's (atlas 13 §8.2): iOS / macOS bounce, Android / Windows / Linux clamp.
   if (page_ != kNoGuid && props(page_)) {
-    Device dev = device(*props(page_));
+    Device dev = pageDevice(page_);
     if (dev.type == Device::Type::PRESET) {
       const DeviceSpec* spec = nullptr;
       const DeviceModel* model = nullptr;
@@ -4157,6 +4190,7 @@ const PresentScene& Player::scene() {
   if (mediaDirty_) syncMedia();
   const NodeProps* pg = props(page_);
   scene_.background = pg ? background(*pg) : Color::hex(0x000000);
+  if (Color c; bare_ && screenColor(c)) scene_.background = c;
   // The device frame behind the screen.
   for (const PresentItem& r : view_.under) scene_.items.push_back(r);
   size_t firstScreenItem = scene_.items.size();
@@ -4694,9 +4728,9 @@ std::string Player::stateJson() const {
     w.key("firstFrameWidth").number(first);
     w.key("allWide").boolean(frames > 0 && wide);
   }
-  w.key("device").boolean(page_ != kNoGuid && props(page_) && !device(*props(page_)).none);
+  w.key("device").boolean(page_ != kNoGuid && props(page_) && !pageDevice(page_).none);
   {
-    Device dev = page_ != kNoGuid && props(page_) ? device(*props(page_)) : Device{};
+    Device dev = page_ != kNoGuid && props(page_) ? pageDevice(page_) : Device{};
     static const char* types[] = {"NONE", "PRESET", "CUSTOM", "PRESENTATION"};
     w.key("deviceType").string(types[static_cast<int>(dev.type)]);
     w.key("devicePreset").string(dev.preset);
@@ -4704,6 +4738,17 @@ std::string Player::stateJson() const {
   w.key("hasDeviceFrame").boolean(hasDeviceFrame());
   w.key("deviceFrame").boolean(deviceFrame_);
   w.key("responsive").boolean(responsive_);
+  {
+    Color c;
+    w.key("screenColor");
+    if (active() && screenColor(c)) {
+      char hex[8];
+      auto b = [](float v) { return static_cast<int>(std::lround(std::clamp(v, 0.0f, 1.0f) * 255)); };
+      std::snprintf(hex, sizeof hex, "#%02x%02x%02x", b(c.r), b(c.g), b(c.b));
+      w.string(hex);
+    } else
+      w.null();
+  }
   w.key("scrubbing").boolean(anim_.active && anim_.scrubbing);
   w.key("hotspot").boolean(hotspot_);
   w.key("screenRect").beginObject().key("x").number(view_.css.x).key("y").number(view_.css.y).key("w").number(view_.css.w)

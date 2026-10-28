@@ -278,7 +278,7 @@ async function completeOnce(): Promise<SignInResult | null> {
   }
 }
 
-/** Hands the session to the page's dev store, now and whenever it changes: a tab editing `fileKey` joins its room. */
+/** Hands the session to the page's dev store, now and whenever it changes: a tab editing or presenting `fileKey` (its local key or its room's) joins its room. */
 export function connectWebSession(store: MemoryStore, fileKey: string | null): void {
   const apply = () => {
     const s = readSession();

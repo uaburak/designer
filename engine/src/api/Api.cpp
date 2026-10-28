@@ -3621,6 +3621,9 @@ ENG_EXPORT int32_t engine_present_set_options(Handle h, Ptr ptr, uint32_t len) {
   // With a device: Responsive / Fixed size, Show device frame.
   if (auto* r = v.get("responsive"); r && r->isBool()) e->player->setResponsive(r->boolean);
   if (auto* f = v.get("deviceFrame"); f && f->isBool()) e->player->setDeviceFrame(f->boolean);
+  // Wecra's: a phone's browser leaves the page's device out; Hide UI on a touch screen shows the screen bare.
+  if (auto* d = v.get("ignoreDevice"); d && d->isBool()) e->player->setIgnoreDevice(d->boolean);
+  if (auto* b = v.get("bare"); b && b->isBool()) e->player->setBare(b->boolean);
   // The machine the prototype plays on: "mac" | "windows" | "linux" | "other" (scroll physics, ⌘ in key triggers).
   if (auto* host = v.get("host"); host && host->isString()) {
     const std::string& h = host->string;
