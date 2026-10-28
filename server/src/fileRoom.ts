@@ -24,7 +24,7 @@
  * Liveness (docs/multiplayer.md §4.1, 2026-10-21): the app's heartbeat (`{"t":"ping"}`) is answered by the runtime
  * (`setWebSocketAutoResponse`, no wake) and its time read back (`getWebSocketAutoResponseTimestamp`); members silent too
  * long are swept (`Room.sweep`) when a socket joins, at most every SWEEP_EVERY_MS on messages, and by the alarm, which
- * rings at least every SWEEP_EVERY_MS while sockets are open — shared with autosave and Discovery (each tolerates an
+ * rings at least every SWEEP_EVERY_MS while two or more members' sockets are open — shared with autosave and Discovery (each tolerates an
  * early ring; none is pushed later than its own due time by more than one sweep period).
  */
 import { DurableObject } from "cloudflare:workers";
@@ -383,7 +383,7 @@ export class FileRoom extends DurableObject {
     if (this.room.sweep((c) => this.heardAt(c as WebSocket))) this.discover();
   }
 
-  /** While sockets are open the alarm rings by the next sweep (never later than what autosave / Discovery set) */
+  /** While 2+ sockets are open the alarm rings by the next sweep (never later than what autosave / Discovery set) */
   private async armSweep(): Promise<void> {
     const at = withSweep(null, this.openSockets(), Date.now());
     if (at === null) return;

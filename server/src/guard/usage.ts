@@ -4,10 +4,11 @@
  *
  * - `workersInvocationsAdaptive` sum {requests, cpuTimeUs} — Workers requests and CPU time, every script of the account
  *   (the bill is the account's)
- * - `durableObjectsInvocationsAdaptiveGroups` sum {requests} — Durable Objects requests. With WebSocket Hibernation
- *   (FileRoom, Inbox) incoming messages are counted here one by one but billed 20:1, so
- *   `durableObjectsPeriodicGroups.inboundWebsocketMsgCount` takes them back to their billed twentieth.
- * - `durableObjectsPeriodicGroups` sum {activeTime (µs), inboundWebsocketMsgCount, rowsRead, rowsWritten} — duration in
+ * - `durableObjectsInvocationsAdaptiveGroups` sum {requests} by {type} — Durable Objects requests. With WebSocket
+ *   Hibernation (FileRoom, Inbox) incoming messages wake the object one by one (`type: "hibernation"`) but are billed
+ *   20:1, so those rows count a twentieth. (`durableObjectsPeriodicGroups.inboundWebsocketMsgCount` stays 0 for
+ *   hibernated sockets: on 2026-10-28 it counted 520K messages 1:1 and stopped the server at "95%".)
+ * - `durableObjectsPeriodicGroups` sum {activeTime (µs), rowsRead, rowsWritten} — duration in
  *   GB-s at the objects' 128 MB, SQLite rows
  * - `durableObjectsStorageGroups` max {storedBytes} — the latest day's stored bytes
  * - `d1AnalyticsAdaptiveGroups` sum {rowsRead, rowsWritten}; `d1StorageAdaptiveGroups` max {databaseSizeBytes}, the
@@ -49,8 +50,8 @@ type Row = { sum?: Record<string, number | null>; max?: Record<string, number | 
 /** The queries, by dataset; `{start}` / `{end}` / `{nowIso}` make the month-to-date filter (queryFor) */
 const QUERIES = {
   workers: `workersInvocationsAdaptive(limit: 10000, filter: {datetime_geq: "{start}T00:00:00Z", datetime_leq: "{nowIso}"}) { sum { requests cpuTimeUs } }`,
-  doInvocations: `durableObjectsInvocationsAdaptiveGroups(limit: 10000, filter: {date_geq: "{start}", date_leq: "{end}"}) { sum { requests } }`,
-  doPeriodic: `durableObjectsPeriodicGroups(limit: 10000, filter: {date_geq: "{start}", date_leq: "{end}"}) { sum { activeTime inboundWebsocketMsgCount rowsRead rowsWritten } }`,
+  doInvocations: `durableObjectsInvocationsAdaptiveGroups(limit: 10000, filter: {date_geq: "{start}", date_leq: "{end}"}) { sum { requests } dimensions { type } }`,
+  doPeriodic: `durableObjectsPeriodicGroups(limit: 10000, filter: {date_geq: "{start}", date_leq: "{end}"}) { sum { activeTime rowsRead rowsWritten } }`,
   doStorage: `durableObjectsStorageGroups(limit: 1, filter: {date_geq: "{start}", date_leq: "{end}"}, orderBy: [date_DESC]) { max { storedBytes } dimensions { date } }`,
   d1: `d1AnalyticsAdaptiveGroups(limit: 10000, filter: {date_geq: "{start}", date_leq: "{end}"}) { sum { rowsRead rowsWritten } }`,
   d1Storage: `d1StorageAdaptiveGroups(limit: 10000, filter: {date_geq: "{start}", date_leq: "{end}"}) { max { databaseSizeBytes } dimensions { date databaseId } }`,
@@ -136,11 +137,9 @@ export function toUsage(got: Partial<Record<Dataset, Row[]>>): Usage {
     if (has(workers, "sum", "cpuTimeUs")) u.workers_cpu_ms = sumOf(workers, "cpuTimeUs") / 1000;
   }
   if (doInvocations) {
-    const counted = sumOf(doInvocations, "requests");
-    // Hibernated sockets' incoming messages: counted 1:1 there, billed 20:1. Without the periodic dataset, all of them
-    // stay (more than billed: the guard errs on the safe side).
-    const inbound = doPeriodic ? sumOf(doPeriodic, "inboundWebsocketMsgCount") : 0;
-    u.do_requests = Math.max(0, counted - inbound) + Math.ceil(Math.min(inbound, counted) / 20);
+    // Hibernated sockets' incoming messages: one invocation each, billed 20:1
+    const hibernated = sumOf(doInvocations.filter((r) => r.dimensions?.type === "hibernation"), "requests");
+    u.do_requests = sumOf(doInvocations, "requests") - hibernated + Math.ceil(hibernated / 20);
   }
   if (doPeriodic) {
     u.do_duration_gbs = (sumOf(doPeriodic, "activeTime") / 1e6) * DO_GB;

@@ -47,7 +47,7 @@ function usageAt(f: { workers?: number; d1Written?: number; doStorage?: number }
   return {
     workersInvocationsAdaptive: [{ sum: { requests: (f.workers ?? 0.01) * SPEND_INCLUDED.workers_requests, cpuTimeUs: 1_000_000 } }],
     durableObjectsInvocationsAdaptiveGroups: [{ sum: { requests: 1000 } }],
-    durableObjectsPeriodicGroups: [{ sum: { activeTime: 1e6, inboundWebsocketMsgCount: 0, rowsRead: 10, rowsWritten: 10 } }],
+    durableObjectsPeriodicGroups: [{ sum: { activeTime: 1e6, rowsRead: 10, rowsWritten: 10 } }],
     durableObjectsStorageGroups: [{ max: { storedBytes: (f.doStorage ?? 0.01) * SPEND_INCLUDED.do_storage_bytes }, dimensions: { date: "2026-10-12" } }],
     d1AnalyticsAdaptiveGroups: [{ sum: { rowsRead: 100, rowsWritten: (f.d1Written ?? 0.01) * SPEND_INCLUDED.d1_rows_written } }],
     d1StorageAdaptiveGroups: [{ max: { databaseSizeBytes: 1e6 }, dimensions: { date: "2026-10-12", databaseId: "a" } }],
@@ -135,8 +135,12 @@ describe("usage from Cloudflare's GraphQL Analytics API", () => {
   it("parses each metric: CPU µs → ms, hibernated messages 20:1, active time → GB-s, the latest day's storage", () => {
     const u = toUsage({
       workers: [{ sum: { requests: 100, cpuTimeUs: 5000 } }, { sum: { requests: 50, cpuTimeUs: 1000 } }],
-      doInvocations: [{ sum: { requests: 1000 } }],
-      doPeriodic: [{ sum: { activeTime: 8e6, inboundWebsocketMsgCount: 800, rowsRead: 7, rowsWritten: 3 } }],
+      doInvocations: [
+        { sum: { requests: 150 }, dimensions: { type: "alarm" } },
+        { sum: { requests: 50 }, dimensions: { type: "http" } },
+        { sum: { requests: 800 }, dimensions: { type: "hibernation" } },
+      ],
+      doPeriodic: [{ sum: { activeTime: 8e6, rowsRead: 7, rowsWritten: 3 } }],
       doStorage: [{ max: { storedBytes: 5 }, dimensions: { date: "2026-10-11" } }, { max: { storedBytes: 9 }, dimensions: { date: "2026-10-12" } }],
       d1: [{ sum: { rowsRead: 11, rowsWritten: 4 } }],
       d1Storage: [

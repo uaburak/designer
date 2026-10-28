@@ -20,13 +20,16 @@ const conn = (): Conn => {
 };
 
 describe("room liveness schedule", () => {
-  it("rings by the next sweep only while sockets are open, never later than what autosave / Discovery want", () => {
+  it("rings by the next sweep only while 2+ sockets are open, never later than what autosave / Discovery want", () => {
     const now = 1_000_000;
     expect(withSweep(null, 0, now)).toBeNull();
     expect(withSweep(now + 5, 0, now)).toBe(now + 5);
+    // One alone: nobody to show a ghost to — no ring of its own
+    expect(withSweep(null, 1, now)).toBeNull();
+    expect(withSweep(now + 3_600_000, 1, now)).toBe(now + 3_600_000);
     expect(withSweep(null, 2, now)).toBe(now + SWEEP_EVERY_MS);
-    expect(withSweep(now + 3_600_000, 1, now)).toBe(now + SWEEP_EVERY_MS);
-    expect(withSweep(now + 1000, 1, now)).toBe(now + 1000);
+    expect(withSweep(now + 3_600_000, 2, now)).toBe(now + SWEEP_EVERY_MS);
+    expect(withSweep(now + 1000, 2, now)).toBe(now + 1000);
   });
 
   it("sweeps a silent member on the alarm, and FILE_UPDATE still fires on time after the early rings", () => {
@@ -64,13 +67,9 @@ describe("room liveness schedule", () => {
     expect(ghost.closed).toBe(CLOSE_SILENT);
     expect(live.texts.filter((m) => m.t === "peer-left")).toHaveLength(1);
     expect(open).toBe(1);
-    // The rings go on every SWEEP_EVERY_MS and the webhook's time comes exactly when it was due
-    let fired = false;
-    for (let i = 0; i < 100 && !fired; i++) {
-      expect(alarm).toBeLessThanOrEqual(due);
-      fired = ring();
-    }
-    expect(fired).toBe(true);
+    // Alone now: no more sweep rings — the next is the webhook's, exactly when it was due
+    expect(alarm).toBe(due);
+    expect(ring()).toBe(true);
     expect(clock.t).toBe(due);
     expect(live.closed).toBeUndefined();
   });
