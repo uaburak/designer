@@ -19,7 +19,7 @@ export function multiplayerApi(m: MultiplayerService, owner?: object): Multiplay
       return m.share(fileKey, input);
     },
     listRemote: () => m.listRemote(),
-    openShared: (key, password, intent, opts) => m.openShared(String(key), typeof password === "string" ? password : undefined, cleanIntent(intent), { early: (opts as { early?: unknown } | undefined)?.early === true }),
+    openShared: (key, password, intent, opts) => m.openShared(String(key), typeof password === "string" ? password : undefined, cleanIntent(intent), { early: (opts as { early?: unknown } | undefined)?.early === true, fresh: (opts as { fresh?: unknown } | undefined)?.fresh === true }),
     takeOpenIntent: (fileKey) => m.takeOpenIntent(fileKey),
     unlockFile: (fileKey, password) => m.unlockFile(fileKey, String(password)),
     setLinkPassword: (fileKey, password) => m.setLinkPassword(fileKey, typeof password === "string" && password ? password : null),

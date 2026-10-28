@@ -147,6 +147,7 @@ export function presentUrlOptions(params: URLSearchParams): PresentUrlOptions {
   if (params.get("hotspot-hints") === "0") out.hints = false;
   if (params.get("device-frame") === "0") out.deviceFrame = false;
   if (params.get("hide-ui") === "1") out.hideUi = true;
+  else if (params.get("hide-ui") === "0") out.hideUi = false;
   const id = (params.get("node-id") ?? params.get("starting-point-node-id") ?? "").replace("-", ":");
   if (/^\d+:\d+$/.test(id)) out.node = id;
   const web = webBehavioursParam(params);
@@ -324,6 +325,23 @@ const TOUCH_SLOP = 10;
 /** How long two (or more) fingers are held to bring a hidden UI back on a touch screen */
 const RESTORE_HOLD_MS = 800;
 
+/** Where boot.js finds the colour a phone's presentation of this file had last (`?present&file=`) */
+const presentBgKey = () => `designer-present-bg:${new URLSearchParams(location.search).get("file") ?? ""}`;
+function readPresentBg(): string | null {
+  try {
+    return localStorage.getItem(presentBgKey());
+  } catch {
+    return null;
+  }
+}
+function writePresentBg(color: string): void {
+  try {
+    if (localStorage.getItem(presentBgKey()) !== color) localStorage.setItem(presentBgKey(), color);
+  } catch {
+    /* not remembered */
+  }
+}
+
 /** A phone or tablet: no corner button with the UI hidden — a two-finger hold brings it back */
 const TOUCH_UI = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
 
@@ -415,7 +433,8 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
   const videoHost = useRef<HTMLDivElement>(null);
   // The view's own options: the flows sidebar (remembered), the UI hidden, the keyboard shortcuts dialog.
   const [sidebar, setSidebarState] = useState(readSidebar);
-  const [hideUi, setHideUi] = useState(!!urlOptions?.hideUi);
+  // A prototype opened on a phone starts with the UI hidden (ours: as a website; the link's hide-ui=0 keeps it)
+  const [hideUi, setHideUi] = useState(() => urlOptions?.hideUi ?? (!inline && TOUCH_UI && isMobileBrowser()));
   const hideUiRef = useRef(hideUi);
   hideUiRef.current = hideUi;
   // A phone with the UI hidden: nothing over the prototype, the page edge to edge in the screen's colour (ours)
@@ -430,6 +449,11 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
         message: TOUCH_UI ? t("UI hidden. Touch and hold with two fingers to show it again.") : t("UI hidden. Use the options button in the corner, or {key}, to show it again.", { key: presentHost() === "mac" ? "⌘\\" : "Ctrl+\\" }),
       });
   };
+  // …and says once how it comes back
+  const startedBare = useRef(bare);
+  useEffect(() => {
+    if (startedBare.current) showToast({ message: t("UI hidden. Touch and hold with two fingers to show it again.") });
+  }, []);
   const [keysOpen, setKeysOpen] = useState(false);
   const setSidebar = useCallback((on: boolean) => {
     setSidebarState(on);
@@ -708,7 +732,9 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     };
   }, [bare, ready, readState]);
   // The engine's (resolved variables, every screen it goes to); white until it is known — never the chrome's grey
-  const bareColor = bare ? (state?.screenColor ?? "#ffffff") : null;
+  // (boot.js paints the page in the colour this file's screen had last time, before anything: Safari tints its bars from
+  // the first paint, and a later change of the page's colour didn't reach them — 2026-10-29)
+  const bareColor = bare ? (state?.screenColor ?? readPresentBg() ?? "#ffffff") : null;
   useEffect(() => {
     if (!bare) return;
     const html = document.documentElement.style;
@@ -721,6 +747,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     const made = !theme;
     const keptTheme = theme?.content ?? null;
     if (bareColor) {
+      if (state?.screenColor === bareColor) writePresentBg(bareColor);
       html.background = bareColor;
       body.background = bareColor;
       if (!theme) {
@@ -737,7 +764,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       if (theme && made) theme.remove();
       else if (theme && keptTheme !== null) theme.content = keptTheme;
     };
-  }, [bare, bareColor]);
+  }, [bare, bareColor, state?.screenColor]);
 
   // Keys: the prototype's first (Key / Gamepad), then the presentation's.
   useEffect(() => {

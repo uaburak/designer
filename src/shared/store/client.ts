@@ -476,7 +476,7 @@ export class StoreClient implements StoreApi {
     fileState: (fileKey) => this.call("multiplayer.fileState", [fileKey]),
     share: (fileKey, input) => this.call("multiplayer.share", [fileKey, input]),
     listRemote: () => this.call("multiplayer.listRemote", []),
-    openShared: (key, password, intent) => this.call("multiplayer.openShared", [key, password, intent]),
+    openShared: (key, password, intent, opts) => this.call("multiplayer.openShared", [key, password, intent, opts]),
     takeOpenIntent: (fileKey) => this.call("multiplayer.takeOpenIntent", [fileKey]),
     unlockFile: (fileKey, password) => this.call("multiplayer.unlockFile", [fileKey, password]),
     setLinkPassword: (fileKey, password) => this.call("multiplayer.setLinkPassword", [fileKey, password]),

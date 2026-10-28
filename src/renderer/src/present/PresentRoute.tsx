@@ -14,6 +14,8 @@ import { withLinkPassword } from "@/files/LinkPassword";
 import { PresentationView, presentUrlOptions, type PresentationSource } from "./PresentationView";
 
 const params = new URLSearchParams(location.search);
+/** The desktop app's prototype tab (its copies are kept up by the app; a browser's are filled again from the room) */
+const isDesktop = () => !!(window as unknown as { designer?: unknown }).designer;
 
 /**
  * The local file a key names: the file itself, else — a shared file's link (`/f/<key>?m=proto` in a browser) names the
@@ -21,7 +23,7 @@ const params = new URLSearchParams(location.search);
  */
 async function localKey(store: ReturnType<typeof getStoreClient>, key: string): Promise<string> {
   if (await store.workspace.getFile(key).catch(() => null)) return key;
-  const shared = await withLinkPassword((password) => store.multiplayer.openShared(key, password));
+  const shared = await withLinkPassword((password) => store.multiplayer.openShared(key, password, undefined, { fresh: !isDesktop() }));
   return shared?.fileKey ?? key;
 }
 

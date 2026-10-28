@@ -852,8 +852,8 @@ export class MultiplayerService {
   /** Opens a file shared with the user: its local copy, made from the room's snapshot the first time. A file whose link
    *  has a password (and the user isn't invited) needs `password`; without it the error's detail says
    *  `{passwordRequired: true}` (and `wrong: true` when the one given was wrong). */
-  async openShared(key: string, password?: string, intent?: OpenIntent, opts: { early?: boolean } = {}): Promise<{ fileKey: FileKey }> {
-    const { fileKey } = await this.openSharedCopy(key, password, opts.early === true);
+  async openShared(key: string, password?: string, intent?: OpenIntent, opts: { early?: boolean; fresh?: boolean } = {}): Promise<{ fileKey: FileKey }> {
+    const { fileKey } = await this.openSharedCopy(key, password, opts.early === true, opts.fresh === true);
     if (intent && (intent.nodeId || intent.mode)) this.intents.set(fileKey, intent);
     return { fileKey };
   }
@@ -865,10 +865,13 @@ export class MultiplayerService {
     return i;
   }
 
-  private async openSharedCopy(key: string, password: string | undefined, early: boolean): Promise<{ fileKey: FileKey }> {
+  private async openSharedCopy(key: string, password: string | undefined, early: boolean, fresh = false): Promise<{ fileKey: FileKey }> {
     const st = await this.loadState();
     const had = Object.entries(st.links).find(([, l]) => l.key === key);
-    if (had && this.host.getMeta(had[0])) return { fileKey: had[0] };
+    if (had && this.host.getMeta(had[0])) {
+      if (fresh) await this.refill(had[0]).catch((e: unknown) => this.host.log("warn", "multiplayer: couldn't refresh a shared copy", e));
+      return { fileKey: had[0] };
+    }
     const going = [...this.copying.entries()].find(([, c]) => c.key === key);
     if (going) {
       if (!early) await going[1].done;
@@ -1020,6 +1023,30 @@ export class MultiplayerService {
 
   private passes = new Map<string, string>();
   private locked = new Set<FileKey>();
+
+  /**
+   * A copy filled again from the room's latest snapshot, linked at its seq (`openShared` fresh). Frames never carry
+   * derived data, so a copy kept up by frames alone draws each text edited since in a fallback font where the device
+   * lacks its font (2026-10-29: a phone's prototype, its texts overlapping); the room's snapshot, made from a writer's
+   * copy, has their glyph outlines. A copy with changes of its own the room hasn't taken stays as it is.
+   */
+  private async refill(fileKey: FileKey): Promise<void> {
+    const rec = (await this.loadState()).links[fileKey];
+    if (!rec || rec.pendingUpload || !this.host.fillFile) return;
+    if ((await this.host.backlog(fileKey, rec.acked)).some((c) => c.kind !== "remote")) return;
+    const { seq, snapshot } = await this.roomSnapshot(rec.key);
+    const message = decodeMessage(snapshot);
+    this.live.get(fileKey)?.stop();
+    this.live.delete(fileKey);
+    await this.host.fillFile(fileKey, snapshot, message);
+    const head = Math.max(0, ...(await this.host.backlog(fileKey, 0)).map((c) => c.seq));
+    rec.since = seq;
+    rec.acked = head;
+    delete rec.partial;
+    await this.persist(fileKey);
+    this.startLink(fileKey);
+    await this.queueImages(fileKey, rec.key, this.host.getMeta(fileKey)?.name ?? "Untitled", message);
+  }
 
   /** A local copy made from the room's snapshot (and its images), linked at the snapshot's seq. */
   private async copyFromRoom(key: string, name: string, role: Role, space: FileSpace | null = null, fileKey?: FileKey): Promise<FileKey> {

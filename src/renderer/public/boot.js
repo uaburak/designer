@@ -30,4 +30,20 @@
   // </generated>
   if (/[?&]tabpreview(=|&|$)/.test(location.search)) root.style.backgroundColor = "transparent";
   else root.style.backgroundColor = (/[?&]tabbar(=|&|$)/.test(location.search) ? SURFACE_BG.tabbar : SURFACE_BG.app)[dark ? 1 : 0];
+  // A prototype on a phone (?present in a browser) starts with the UI hidden, edge to edge like a website
+  // (PresentationView's `bare`): the page in its screen's colour from the first paint — the colour it had last time,
+  // else white — and under the notch and the browser's bars, as Safari tints them from the first paint.
+  if (!desktop && /[?&]present(=|&|$)/.test(location.search) && !/[?&]hide-ui=0/.test(location.search) && window.matchMedia("(pointer: coarse)").matches) {
+    var file = (location.search.match(/[?&]file=([^&]*)/) || [])[1] || "";
+    var bg = null;
+    try { bg = localStorage.getItem("designer-present-bg:" + decodeURIComponent(file)); } catch (e) { /* white */ }
+    if (!/^#[0-9a-f]{6}$/i.test(bg || "")) bg = "#ffffff";
+    root.style.backgroundColor = bg;
+    var viewport = document.querySelector('meta[name="viewport"]');
+    if (viewport && !/viewport-fit/.test(viewport.content)) viewport.content += ", viewport-fit=cover";
+    var theme = document.createElement("meta");
+    theme.name = "theme-color";
+    theme.content = bg;
+    document.head.appendChild(theme);
+  }
 })();

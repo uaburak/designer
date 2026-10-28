@@ -172,6 +172,11 @@ class FakeStore implements MultiplayerHost {
   getMeta(fileKey: FileKey) {
     return this.files.get(fileKey)?.meta ?? null;
   }
+  async fillFile(fileKey: FileKey, snapshot: Uint8Array) {
+    const f = this.files.get(fileKey)!;
+    f.snapshot = snapshot;
+    f.frames = [];
+  }
   async setDeviceOrdinal(o: number) {
     this.deviceOrdinal = o;
   }
@@ -523,6 +528,28 @@ describe("MultiplayerService", () => {
     await new Promise((r) => setTimeout(r, 400));
     await settle();
     expect(room.snapshot!.seq).toBe(seq);
+  });
+
+  it("fills a copy again from the room's latest snapshot when a prototype link opens it fresh", async () => {
+    // Bug (2026-10-29): a phone's copy kept up by frames alone drew texts edited since in a fallback font (frames carry no
+    // derived data); the room's snapshot, compacted from a writer's copy, has it.
+    const { a, b, fa, fb, key } = await sharedPair({ a: { quietCompactMs: 300 } });
+    a.store.edit(fa, [node(1, { name: "Later" })]);
+    await new Promise((r) => setTimeout(r, 400));
+    await settle();
+    expect([...rooms.values()][0].snapshot!.seq).toBeGreaterThan(0);
+    expect(b.store.files.get(fb)!.frames.length).toBeGreaterThan(0);
+    expect((await b.svc.openShared(key, undefined, undefined, { fresh: true })).fileKey).toBe(fb);
+    expect(b.store.files.get(fb)!.frames).toEqual([]);
+    expect(b.store.doc(fb)["0:1"].name).toBe("Later");
+    // …and keeps following the room; a copy with a change of its own the room hasn't taken stays as it is
+    a.store.edit(fa, [node(1, { name: "After" })]);
+    await settle();
+    expect(b.store.doc(fb)["0:1"].name).toBe("After");
+    b.svc.close();
+    b.store.edit(fb, [node(1, { name: "Mine" })]);
+    await b.svc.openShared(key, undefined, undefined, { fresh: true });
+    expect(b.store.doc(fb)["0:1"].name).toBe("Mine");
   });
 
   it("replaces a copy left behind the room's history with a fresh one, keeping the old copy", async () => {

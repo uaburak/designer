@@ -284,8 +284,10 @@ export interface MultiplayerRepository {
   /** The local copy of a file shared with the user — by invite or by its link (made from the room's snapshot the first
    *  time). A link with a password needs `password` (the error's detail is `{passwordRequired: true, wrong?: true}`).
    *  `early`: answers once the copy is started rather than made — the file's tab opens at once and `files.open` waits
-   *  for the document, said as `MultiplayerEvent.opening` (Figma's loader). */
-  openShared(key: string, password?: string, intent?: OpenIntent, opts?: { early?: boolean }): Promise<{ fileKey: FileKey }>;
+   *  for the document, said as `MultiplayerEvent.opening` (Figma's loader). `fresh`: a copy made before is filled again
+   *  from the room's latest snapshot (a prototype link in a browser: the snapshot's glyph outlines, which frames never
+   *  carry, draw the texts edited since in fonts the device lacks). */
+  openShared(key: string, password?: string, intent?: OpenIntent, opts?: { early?: boolean; fresh?: boolean }): Promise<{ fileKey: FileKey }>;
   /** Where the link that opened this file asked to land (once; the editor reads it when it opens) */
   takeOpenIntent(fileKey: FileKey): Promise<OpenIntent | null>;
   /** A changed link password for an open shared file (`FileShareState.locked`) */
