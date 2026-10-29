@@ -127,6 +127,8 @@ void Editor::begin(TxnKind kind, const std::string& label) {
   instanceRefit_.clear();  // the rollback's restored sizes derive those instances again (not layout writes)
   groupsTouched_.clear();
   edited_.clear();
+  positioned_.clear();
+  mainsChanged_.clear();
   userGeometry_.clear();
   renamedVariants_.clear();
   replayWrites_.clear();
@@ -614,6 +616,8 @@ void Editor::rollback() {
   layoutDirty_.clear();
   groupsTouched_.clear();
   edited_.clear();
+  positioned_.clear();
+  mainsChanged_.clear();
   userGeometry_.clear();
   renamedVariants_.clear();
   if (!instanceDirty_.empty() || !bindingsDirty_.empty()) {

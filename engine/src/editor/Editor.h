@@ -2273,6 +2273,8 @@ class Editor : private LayoutHost, public TextLayouts {
   std::function<double()> wallClock_;
   std::unordered_set<Guid, GuidHash> userGeometry_;  // this USER step's nodes whose size / transform the user wrote (base)
   std::unordered_set<Guid, GuidHash> edited_;     // this transaction's edited nodes (editInfo)
+  std::unordered_set<Guid, GuidHash> positioned_;  // of edited_, those only moved (a main moved: its instances unchanged)
+  std::unordered_set<Guid, GuidHash> mainsChanged_;  // mains a library update replaced (their instances' designs: Changed)
   std::unordered_set<Guid, GuidHash> scoped_;     // this transaction's written nodes (editScopeInfo)
   std::vector<std::pair<EditScopeType, std::string>> editScopes_;  // editScopePush's stack, outermost first
   std::string editScopeError_;

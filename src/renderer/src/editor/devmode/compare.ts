@@ -13,6 +13,8 @@ export interface PropertyChange {
   label: string;
   before: string;
   after: string;
+  /** On an instance: the sublayer the change is in (what its main component changed), its id and name. */
+  layer?: { id: Guid; name: string };
 }
 
 export interface LayerChange {
@@ -160,14 +162,52 @@ export function propertyChanges(before: NodeChange, after: NodeChange): Property
 }
 
 /**
+ * Each instance's sublayers (derived nodes, nested instances' included) by the instance: the real layer they are in.
+ */
+function sublayersByInstance(nodes: readonly NodeChange[]): Map<Guid, Map<Guid, NodeChange>> {
+  const all = new Map(nodes.map((n) => [n.guid, n]));
+  const out = new Map<Guid, Map<Guid, NodeChange>>();
+  for (const n of nodes) {
+    if (!n.guid.startsWith("I")) continue;
+    let p = n.parentIndex?.guid;
+    for (let guard = 0; p && p.startsWith("I") && guard < 256; guard++) p = all.get(p)?.parentIndex?.guid;
+    if (!p) continue;
+    if (!out.has(p)) out.set(p, new Map());
+    out.get(p)!.set(n.guid, n);
+  }
+  return out;
+}
+
+/**
+ * What an instance shows differently because its main component changed (an edit of the main, an accepted library
+ * update): its sublayers' changed fields, and the sublayers added or deleted — each row named by its sublayer.
+ */
+export function sublayerChanges(before: ReadonlyMap<Guid, NodeChange> | undefined, after: ReadonlyMap<Guid, NodeChange> | undefined): PropertyChange[] {
+  const out: PropertyChange[] = [];
+  const was = before ?? new Map<Guid, NodeChange>();
+  const now = after ?? new Map<Guid, NodeChange>();
+  for (const [id, b] of now) {
+    const a = was.get(id);
+    const layer = { id, name: b.name ?? "" };
+    if (!a) out.push({ field: "layer", label: "Layer", before: "—", after: "Added", layer });
+    else for (const c of propertyChanges(a, b)) if (c.field !== "parentIndex") out.push({ ...c, layer });
+  }
+  for (const [id, a] of was) if (!now.has(id)) out.push({ field: "layer", label: "Layer", before: "—", after: "Deleted", layer: { id, name: a.name ?? "" } });
+  return out;
+}
+
+/**
  * The design's layers that changed, in the current version's layer order (top first, as the Layers list shows them),
  * the deleted ones under their old parent. `before` / `after`: each side's subtree of `root`, parents before children
- * (instance sublayers left out: an instance's changes are its own fields).
+ * (instance sublayers aren't layers of their own here: an instance lists its own fields' changes, then its sublayers'
+ * — what its main component changed — so a design "Changed" by a main's edit shows that instance as Edited).
  */
 export function diffDesign(root: Guid, before: readonly NodeChange[], after: readonly NodeChange[]): LayerChange[] {
   const real = (n: NodeChange) => !n.guid.startsWith("I");
   const was = new Map(before.filter(real).map((n) => [n.guid, n]));
   const now = new Map(after.filter(real).map((n) => [n.guid, n]));
+  const wasSubs = sublayersByInstance(before);
+  const nowSubs = sublayersByInstance(after);
   const out: LayerChange[] = [];
   const kids = (map: Map<Guid, NodeChange>) => {
     const k = new Map<Guid, NodeChange[]>();
@@ -191,6 +231,7 @@ export function diffDesign(root: Guid, before: readonly NodeChange[], after: rea
       if (!a) out.push({ id, name: b.name ?? "", type, kind: "Added", depth, changes: [] });
       else {
         const changes = propertyChanges(a, b);
+        if (type === "INSTANCE") changes.push(...sublayerChanges(wasSubs.get(id), nowSubs.get(id)));
         if (changes.length) out.push({ id, name: b.name ?? "", type, kind: "Edited", depth, changes });
       }
       for (const c of nowKids.get(id) ?? []) visit(c.guid, depth + 1);

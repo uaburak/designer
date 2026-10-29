@@ -545,14 +545,100 @@ TEST_CASE("devmode: editInfo on an instance is its own field, not an override") 
   CHECK(f.extraJson(INST, "editInfo").get("lastEditedAt")->number == 5000);
   CHECK(f.extraJson(A, "editInfo").get("lastEditedAt")->number == 5000);
   for (const SymbolOverride& o : f.ed.document().get(INST)->props.comp().symbolData.overrides) CHECK(!(o.path.empty() && o.mask == F_EXTRA));
-  // An edit inside the main stamps the main, not its instances.
+  // An edit inside the main stamps the main and, as what they show changed, its instances and the designs holding them
+  // (the owner, 2026-10-29) — still no override.
   f.now = 6000;
   NodeChange r = NodeChange::changed(MAIN_RECT);
   r.mask = F_OPACITY;
   r.props.opacity = 0.5;
   REQUIRE(f.ed.setProps({MAIN_RECT}, r, 0) == OK);
   CHECK(f.extraJson(MAIN, "editInfo").get("lastEditedAt")->number == 6000);
-  CHECK(f.extraJson(INST, "editInfo").get("lastEditedAt")->number == 5000);
+  CHECK(f.extraJson(INST, "editInfo").get("lastEditedAt")->number == 6000);
+  CHECK(f.extraJson(A, "editInfo").get("lastEditedAt")->number == 6000);
+  CHECK(f.extraJson(B, "editInfo").isNull());
+  for (const SymbolOverride& o : f.ed.document().get(INST)->props.comp().symbolData.overrides) CHECK(!(o.path.empty() && o.mask == F_EXTRA));
+}
+
+TEST_CASE("devmode: a main component's edit makes the ready designs holding its instances \"Changed\", nested ones too") {
+  // SET holds variants V1, V2; CARD (a main) holds an instance of V1; A holds an instance of CARD, B one of V2; D one of
+  // PLAIN with its nested instance swapped to V1 (an override).
+  const Guid SET{1, 40}, V1{1, 41}, V1_RECT{1, 42}, V2{1, 43}, CARD{1, 44}, CARD_V1{1, 45}, IN_A{1, 46}, IN_B{1, 47},
+      PLAIN{1, 48}, PLAIN_V2{1, 49}, D{1, 50}, IN_D{1, 51};
+  auto nodes = designs();
+  NodeChange set = make(SET, NodeType::FRAME, kPage, "c", {0, 300, 300, 100}, "Button");
+  set.props.comp().isStateGroup = true;
+  nodes.push_back(set);
+  nodes.push_back(make(V1, NodeType::SYMBOL, SET, "a", {0, 0, 100, 100}, "State=One"));
+  nodes.push_back(make(V1_RECT, NodeType::ROUNDED_RECTANGLE, V1, "a", {10, 10, 40, 40}, "Dot"));
+  nodes.push_back(make(V2, NodeType::SYMBOL, SET, "b", {150, 0, 100, 100}, "State=Two"));
+  nodes.push_back(make(CARD, NodeType::SYMBOL, kPage, "d", {400, 300, 200, 200}, "Card"));
+  auto instance = [&](Guid id, Guid parent, Guid main, const char* name) {
+    NodeChange c = make(id, NodeType::INSTANCE, parent, "a", {0, 0, 100, 100}, name);
+    c.props.comp().symbolData.symbolID = main;
+    nodes.push_back(c);
+  };
+  instance(CARD_V1, CARD, V1, "Button");
+  instance(IN_A, A, CARD, "Card");
+  instance(IN_B, B, V2, "Button");
+  nodes.push_back(make(PLAIN, NodeType::SYMBOL, kPage, "e", {700, 300, 100, 100}, "Plain"));
+  instance(PLAIN_V2, PLAIN, V2, "Button");
+  nodes.push_back(make(D, NodeType::FRAME, kPage, "f", {800, 0, 200, 100}, "Design D"));
+  {
+    NodeChange c = make(IN_D, NodeType::INSTANCE, D, "a", {0, 0, 100, 100}, "Plain");
+    c.props.comp().symbolData.symbolID = PLAIN;
+    SymbolOverride o;
+    o.path = {PLAIN_V2};
+    o.props.comp().overriddenSymbolID = V1;
+    c.props.comp().symbolData.overrides.push_back(o);
+    nodes.push_back(c);
+  }
+  Fixture f(nodes);
+  f.ed.setEditTracking(true);
+  f.now = 2000;
+  for (Guid g : {A, B, D}) f.setExtra(g, "sectionStatusInfo", R"({"status":"BUILD","lastUpdateUnixTimestamp":2000})");
+  auto statuses = [&] { return std::vector<int>{f.ed.devStatus(A), f.ed.devStatus(B), f.ed.devStatus(D)}; };
+  REQUIRE(statuses() == std::vector<int>{1, 1, 1});
+  auto opacity = [&](Guid id, float v) {
+    NodeChange c = NodeChange::changed(id);
+    c.mask = F_OPACITY;
+    c.props.opacity = v;
+    REQUIRE(f.ed.setProps({id}, c, 0) == OK);
+  };
+  SUBCASE("inside a variant: its instances, through the component holding one, and a swapped one") {
+    f.now = 2060;
+    opacity(V1_RECT, 0.5f);
+    CHECK(f.extraJson(CARD, "editInfo").get("lastEditedAt")->number == 2060);
+    CHECK(statuses() == std::vector<int>{3, 1, 3});  // V2's instance in B shows the same
+    // Undo takes it back.
+    f.ed.command(CommandId::UNDO);
+    CHECK(statuses() == std::vector<int>{1, 1, 1});
+  }
+  SUBCASE("the variant itself") {
+    f.now = 2060;
+    opacity(V2, 0.5f);
+    // D too: Plain, whose instance it holds, holds one of V2 (that D swapped it away isn't looked into).
+    CHECK(statuses() == std::vector<int>{1, 3, 3});
+  }
+  SUBCASE("the component set's own fields: every variant's instances") {
+    f.now = 2060;
+    opacity(SET, 0.5f);
+    CHECK(statuses() == std::vector<int>{3, 3, 3});
+  }
+  SUBCASE("a variant moved in its set: its instances show the same") {
+    f.now = 2060;
+    NodeChange mv = NodeChange::changed(V1);
+    mv.mask = F_TRANSFORM;
+    mv.props.transform = Mat2x3::translate(0, 20);
+    REQUIRE(f.ed.setProps({V1}, mv, 0) == OK);
+    CHECK(f.extraJson(SET, "editInfo").get("lastEditedAt")->number == 2060);
+    CHECK(statuses() == std::vector<int>{1, 1, 1});
+  }
+  SUBCASE("without tracking nothing is stamped") {
+    f.ed.setEditTracking(false);
+    f.now = 2060;
+    opacity(V1_RECT, 0.5f);
+    CHECK(statuses() == std::vector<int>{1, 1, 1});
+  }
 }
 
 TEST_CASE("devmode: focus view draws and picks one design") {

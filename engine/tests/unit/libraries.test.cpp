@@ -718,6 +718,46 @@ TEST_CASE("libraries: applyLibraryUpdate rewrites copies in place as one undo st
   }
 }
 
+TEST_CASE("libraries: an accepted update makes the ready designs holding the changed component \"Changed\"") {
+  Editor lib = load(libDoc(), kLibKey);
+  makeAssets(lib);
+  lib.ensureAssetKeys({});
+  std::string button = keyOf(lib, BUTTON), icon = keyOf(lib, ICON);
+  auto messages = publish(lib, {button});
+  auto nodes = consumerDoc();
+  const Guid OTHER{1, 3};
+  nodes.push_back(make(OTHER, NodeType::FRAME, kPage, "\"", {500, 0, 100, 100}, "Other"));
+  Editor c = load(nodes, kConsumerKey);
+  double now = 2000;
+  c.setWallClock([&] { return now; });
+  c.setEditTracking(true);
+  std::vector<Editor::ImportedAsset> out;
+  REQUIRE(c.importLibrary(messages, opts(kLibKey), out) == OK);
+  REQUIRE(run(c, CommandId::INSERT_INSTANCE, "{\"main\":" + q(copyOf(c, button)) + ",\"parent\":" + q(SCREEN) + "}") == OK);
+  for (Guid g : {SCREEN, OTHER}) {
+    NodeChange s = NodeChange::changed(g);
+    s.mask = F_EXTRA;
+    json::Value v;
+    REQUIRE(json::parse(R"({"status":"BUILD","lastUpdateUnixTimestamp":2000})", v));
+    s.props.extra["sectionStatusInfo"] = codec::extraFromJson("NodeChange", "sectionStatusInfo", v);
+    REQUIRE(c.setProps({g}, s, 0) == OK);
+  }
+  REQUIRE(c.devStatus(SCREEN) == 1);
+  // Icon changes in the library; the consumer accepts it: Button (holding an Icon) and so Screen show it.
+  REQUIRE(lib.setProps({GLYPH}, change(F_OPACITY, [](NodeProps& p) { p.opacity = 0.25f; }), 0) == OK);
+  auto messages2 = publish(lib, {button});
+  now = 2060;
+  Editor::LibraryOptions o = opts(kLibKey, true);
+  o.hasKeys = true;
+  o.keys = {icon};
+  REQUIRE(c.importLibrary(messages2, o, out) == OK);
+  CHECK(c.devStatus(SCREEN) == 3);
+  CHECK(c.devStatus(OTHER) == 1);
+  // Undo takes the update and the stamps back.
+  REQUIRE(c.command(CommandId::UNDO) == OK);
+  CHECK(c.devStatus(SCREEN) == 1);
+}
+
 TEST_CASE("libraries: an update limited to some keys; a removed asset's copy stays and keeps rendering") {
   Editor lib = load(libDoc(), kLibKey);
   Lib l = makeAssets(lib);

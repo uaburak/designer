@@ -310,8 +310,8 @@ function Compare({ root }: { root: Guid }) {
                 chosen.kind === "Edited" ? (
                   <div className={styles.propDiff} data-properties="">
                     {chosen.changes.map((p) => (
-                      <div key={p.field} className={styles.propRow} data-field={p.field}>
-                        <span className={styles.propLabel}>{t(p.label)}</span>
+                      <div key={`${p.layer?.id ?? ""}/${p.field}`} className={styles.propRow} data-field={p.field}>
+                        <span className={styles.propLabel}>{p.layer ? `${p.layer.name} · ${t(p.label)}` : t(p.label)}</span>
                         <span className={styles.propBefore}>{t(p.before)}</span>
                         <span className={styles.propAfter}>{t(p.after)}</span>
                       </div>

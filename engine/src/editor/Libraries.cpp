@@ -1475,6 +1475,10 @@ Status Editor::importLibrary(const std::vector<std::vector<NodeChange>>& message
     begin(opts.update ? TxnKind::USER : TxnKind::SYSTEM, opts.update ? "Update library assets" : "Library");
     writeImports(src, plans, map);
     if (!toLocal.empty()) relinkCopies(toLocal);
+    // An update accepted: the designs showing a replaced component are edited (Dev Mode's "Changed", stampEdited).
+    if (opts.update && editTracking_)
+      for (const ImportPlan& p : plans)
+        if (p.replace && p.target != kNoGuid) mainsChanged_.insert(p.target);
     commit();
 #ifndef NDEBUG
     if (unresolved_) std::fprintf(stderr, "engine: a library import left %zu main reference(s) pointing at nothing\n", unresolved_);

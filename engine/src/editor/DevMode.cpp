@@ -927,6 +927,11 @@ void Editor::noteEdited(const NodeChange& c) {
     if (const Node* n = doc_.get(c.guid)) edited_.insert(n->props.parentIndex.guid);
     return;
   }
+  // Only moved (a variant in its set, a main in a frame): what its instances show is the same.
+  bool moved = c.phase == Phase::CHANGED && !(c.mask & ~static_cast<FieldMask>(F_TRANSFORM | F_EXTRA));
+  for (auto& [k, v] : c.props.extra) moved &= devField(k);
+  if (!moved) positioned_.erase(c.guid);
+  else if (!edited_.count(c.guid)) positioned_.insert(c.guid);
   edited_.insert(c.guid);
   scoped_.insert(c.guid);
 }
@@ -1040,17 +1045,63 @@ void Editor::stampScopes() {
 }
 
 void Editor::stampEdited() {
-  if (edited_.empty()) return;
+  if (edited_.empty() && mainsChanged_.empty()) return;
   std::unordered_set<Guid, GuidHash> targets;
-  for (Guid g : edited_) {
+  // A main component edited (anything in it, its component set's own fields, a library update replacing it) changes
+  // what its instances show: the designs holding them were edited too, through the components holding those instances
+  // (nested instances), so a design marked ready shows "Changed" (the owner, 2026-10-29).
+  std::unordered_set<Guid, GuidHash> climbed, mains, wave;
+  auto addMain = [&](Guid g) {
+    if (mains.insert(g).second) wave.insert(g);
+  };
+  auto addSet = [&](Guid set) {
+    for (Guid v : doc_.children(set))
+      if (const Node* n = doc_.get(v); n && n->props.type == NodeType::SYMBOL) addMain(v);
+  };
+  auto climb = [&](Guid g, bool moved) {
     for (int guard = 0; guard < 4096 && g != kNoGuid; guard++) {
       const Node* n = doc_.get(g);
       if (!n || n->props.type == NodeType::DOCUMENT) break;
-      if (!targets.insert(g).second) break;  // its ancestors are in already
+      targets.insert(g);
+      if (!moved) {
+        if (!climbed.insert(g).second) break;  // its ancestors are in already
+        if (n->props.type == NodeType::SYMBOL) addMain(g);
+        else if (n->props.isComponentSet() && guard == 0) addSet(g);
+      }
+      moved = false;
       g = n->props.parentIndex.guid;
     }
-  }
+  };
+  for (Guid g : edited_) climb(g, positioned_.count(g) > 0);
+  for (Guid g : mainsChanged_)
+    if (const Node* n = doc_.get(g)) {
+      if (n->props.type == NodeType::SYMBOL) addMain(g);
+      else if (n->props.isComponentSet()) addSet(g);
+    }
   edited_.clear();
+  positioned_.clear();
+  mainsChanged_.clear();
+  // The instances showing one of `wave` — as their main, or a nested instance swapped to it — then the mains holding
+  // those, until none is new.
+  auto shows = [&](const NodeProps& p) {
+    auto swapped = [&](const NodeProps& q) {
+      if (wave.count(q.comp().overriddenSymbolID)) return true;
+      for (const ComponentPropAssignment& a : q.comp().componentPropAssignments)
+        if (a.value.guidValue != kNoGuid && wave.count(a.value.guidValue)) return true;
+      return false;
+    };
+    if (wave.count(p.comp().symbolData.symbolID) || swapped(p)) return true;
+    for (const SymbolOverride& o : p.comp().symbolData.overrides)
+      if (swapped(o.props)) return true;
+    return false;
+  };
+  for (int round = 0; round < 64 && !wave.empty(); round++) {
+    std::vector<Guid> hit;
+    for (auto& [inst, main] : instanceMain_)
+      if (const Node* n = doc_.get(inst); n && !climbed.count(inst) && shows(n->props)) hit.push_back(inst);
+    wave.clear();
+    for (Guid g : hit) climb(g, false);
+  }
   double now = std::floor(wallClock());
   std::vector<Guid> order(targets.begin(), targets.end());
   std::sort(order.begin(), order.end());

@@ -95,6 +95,36 @@ describe("Compare changes", () => {
     expect(diff.some((d) => d.id === "1:1")).toBe(false);
   });
 
+  it("shows an instance Edited by what its main component changed, row by sublayer", () => {
+    const inst = (extra: Partial<NodeChange> = {}) => node("1:2", "1:1", "a", { name: "Button", type: "INSTANCE", ...extra });
+    const before = [
+      node("1:1", "0:1", "a", { name: "Card" }),
+      inst(),
+      node("I1:2;3:1", "1:2", "a", { name: "Label", type: "TEXT", fontSize: 14 }),
+      node("I1:2;3:2", "1:2", "b", { name: "Icon", type: "INSTANCE" }),
+      node("I1:2;3:2;4:1", "I1:2;3:2", "a", { name: "Glyph", opacity: 1 }),
+      node("I1:2;3:3", "1:2", "c", { name: "Old dot" }),
+    ];
+    const after = [
+      node("1:1", "0:1", "a", { name: "Card" }),
+      inst({ editInfo: { lastEditedAt: 9 } } as Partial<NodeChange>),
+      node("I1:2;3:1", "1:2", "a", { name: "Label", type: "TEXT", fontSize: 16 }),
+      node("I1:2;3:2", "1:2", "b", { name: "Icon", type: "INSTANCE" }),
+      node("I1:2;3:2;4:1", "I1:2;3:2", "a", { name: "Glyph", opacity: 0.5 }),
+      node("I1:2;3:4", "1:2", "d", { name: "Badge" }),
+    ];
+    const diff = diffDesign("1:1", before, after);
+    expect(diff.map((d) => [d.name, d.kind])).toEqual([["Button", "Edited"]]);
+    expect(diff[0].changes.map((c) => [c.layer?.name, c.label, c.before, c.after])).toEqual([
+      ["Label", "Font size", "14", "16"],
+      ["Glyph", "Opacity", "100%", "50%"],
+      ["Badge", "Layer", "—", "Added"],
+      ["Old dot", "Layer", "—", "Deleted"],
+    ]);
+    // Unchanged sublayers: nothing listed.
+    expect(diffDesign("1:1", before, before)).toEqual([]);
+  });
+
   it("formats values as the properties list shows them", () => {
     expect(valueText("size", { x: 120, y: 40.5 })).toBe("120 × 40.5");
     expect(valueText("transform", { m00: 1, m01: 0, m02: 12, m10: 0, m11: 1, m12: 30 })).toBe("X 12, Y 30");
