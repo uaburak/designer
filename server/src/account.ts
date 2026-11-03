@@ -32,6 +32,8 @@ export interface Caller {
   user: User;
   sid: string | null;
   scopes: TokenScope[] | null;
+  /** Someone without an account in by a file's link (auth/guest.ts): only that file's viewing routes */
+  guest?: boolean;
 }
 
 const json = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8" } });

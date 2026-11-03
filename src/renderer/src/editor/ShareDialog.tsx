@@ -845,7 +845,7 @@ function ShareSettings({ p, onDone }: { p: People; onDone: () => void }) {
     audience === "anyone"
       ? isOrg
         ? t("Anyone, even those outside your organization, will be able to access this file.")
-        : t("Anyone with the link who is logged in will be able to access this file.")
+        : t("Anyone with the link will be able to access this file.")
       : audience === "org"
         ? t("Anyone at {org} with the link will be able to access this file.", { org: orgName })
         : t("Only people invited to this file can access it.");

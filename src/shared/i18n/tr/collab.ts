@@ -118,6 +118,8 @@ export const collab: Record<string, string> = {
   "Follow": "Takip et",
   "Close": "Kapat",
   "You can only view and comment on this file.": "Bu dosyayı yalnızca görüntüleyebilir ve yorum yapabilirsiniz.",
+  "You can only view this file.": "Bu dosyayı yalnızca görüntüleyebilirsiniz.",
+  "Sign up": "Kaydol",
   "Your organization only allows you to view this file.": "Organizasyonunuz bu dosyayı yalnızca görüntülemenize izin veriyor.",
   "Your organization turned off audio. You left the conversation.": "Organizasyonunuz sesi kapattı. Konuşmadan ayrıldınız.",
   "Any of this file's editors can give you access": "Bu dosyanın düzenleyicilerinden herhangi biri size erişim verebilir",

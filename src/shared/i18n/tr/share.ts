@@ -54,7 +54,7 @@ export const share: Record<string, string> = {
   "Can view, comment and edit this file.": "Bu dosyayı görüntüleyebilir, yorum yapabilir ve düzenleyebilir.",
   "Can view and comment on this file.": "Bu dosyayı görüntüleyebilir ve yorum yapabilir.",
   "Anyone, even those outside your organization, will be able to access this file.": "Organizasyonunuz dışındakiler dahil herkes bu dosyaya erişebilecek.",
-  "Anyone with the link who is logged in will be able to access this file.": "Bağlantıya sahip ve giriş yapmış herkes bu dosyaya erişebilecek.",
+  "Anyone with the link will be able to access this file.": "Bağlantıya sahip herkes bu dosyaya erişebilecek.",
   "Anyone at {org} with the link will be able to access this file.": "{org} içinde bağlantıya sahip herkes bu dosyaya erişebilecek.",
   "Only people invited to this file can access it.": "Bu dosyaya yalnızca davet edilen kişiler erişebilir.",
   "Link expires": "Bağlantının süresi doluyor",

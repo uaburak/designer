@@ -11,6 +11,7 @@ import { ToastHost, TooltipManager, useThemeRoot } from "@/ds";
 import { getStoreClient } from "@/store";
 import { SharePrototypeDialog } from "@/editor/SharePrototypeDialog";
 import { withLinkPassword } from "@/files/LinkPassword";
+import { isWebGuest } from "@/store/webAccount";
 import { PresentationView, presentUrlOptions, type PresentationSource } from "./PresentationView";
 
 const params = new URLSearchParams(location.search);
@@ -21,7 +22,7 @@ const isDesktop = () => !!(window as unknown as { designer?: unknown }).designer
  * The local file a key names: the file itself, else — a shared file's link (`/f/<key>?m=proto` in a browser) names the
  * server's key — its local copy, made from its room the first time (asking for the link's password when it has one).
  */
-async function localKey(store: ReturnType<typeof getStoreClient>, key: string): Promise<string> {
+export async function localKey(store: ReturnType<typeof getStoreClient>, key: string): Promise<string> {
   if (await store.workspace.getFile(key).catch(() => null)) return key;
   const shared = await withLinkPassword((password) => store.multiplayer.openShared(key, password, undefined, { fresh: !isDesktop() }));
   return shared?.fileKey ?? key;
@@ -84,7 +85,8 @@ export default function PresentRoute() {
           page={params.get("page")}
           node={params.get("node")}
           urlOptions={presentUrlOptions(params)}
-          onShare={(screen) => setSharing({ node: screen })}
+          // A guest (no account) copies the prototype's link: the share modal needs an account
+          onShare={isWebGuest() ? undefined : (screen) => setSharing({ node: screen })}
           onOpenEditor={fileKey ? () => openEditor(fileKey) : undefined}
         />
       ) : (

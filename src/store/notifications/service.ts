@@ -134,7 +134,7 @@ export class NotificationsService {
   }
 
   async list(query: NotificationQuery = {}): Promise<NotificationPage> {
-    if (!this.mp.signedIn) return EMPTY;
+    if (!this.mp.signedIn || this.mp.guest) return EMPTY;
     const q = new URLSearchParams();
     if (query.filter === "requests" || query.filter === "unread") q.set("filter", query.filter);
     if (typeof query.fileKey === "string" && query.fileKey) q.set("file", query.fileKey);
@@ -147,7 +147,7 @@ export class NotificationsService {
   }
 
   async markRead(input: { ids?: string[]; all?: boolean; read?: boolean }): Promise<{ unread: number }> {
-    if (!this.mp.signedIn) return { unread: 0 };
+    if (!this.mp.signedIn || this.mp.guest) return { unread: 0 };
     const ids = Array.isArray(input?.ids) ? input.ids.filter((s) => typeof s === "string") : undefined;
     const r = await this.mp.call<{ unread: number; pending: number }>("POST", "/notifications/read", { ...(input?.all === true ? { all: true } : { ids: ids ?? [] }), read: input?.read !== false });
     this.heard(r.unread, r.pending);
@@ -155,13 +155,13 @@ export class NotificationsService {
   }
 
   async prefs(): Promise<NotificationPrefs> {
-    if (!this.mp.signedIn) return this.localPrefs;
+    if (!this.mp.signedIn || this.mp.guest) return this.localPrefs;
     return cleanPrefs(await this.mp.call("GET", "/notifications/prefs"));
   }
 
   async setPrefs(prefs: NotificationPrefs): Promise<NotificationPrefs> {
     const clean = cleanPrefs(prefs);
-    if (!this.mp.signedIn) return (this.localPrefs = clean);
+    if (!this.mp.signedIn || this.mp.guest) return (this.localPrefs = clean);
     return cleanPrefs(await this.mp.call("PUT", "/notifications/prefs", clean));
   }
 
@@ -200,6 +200,8 @@ export class NotificationsService {
   }
 
   private connect(): void {
+    // A guest (a link viewed without an account) has no inbox
+    if (this.mp.guest) return;
     const url = this.mp.wsUrl("/notifications/ws");
     if (!url) return;
     let ws: Socket;
@@ -266,7 +268,7 @@ export class NotificationsService {
   }
 
   private retry(): void {
-    if (!this.mp.signedIn) return;
+    if (!this.mp.signedIn || this.mp.guest) return;
     this.attempt++;
     const ms = this.deps.backoff?.(this.attempt) ?? Math.min(60_000, 1000 * 2 ** Math.min(this.attempt, 6));
     this.timer = setTimeout(() => {

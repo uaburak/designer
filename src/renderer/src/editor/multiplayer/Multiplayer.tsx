@@ -18,6 +18,7 @@ import { useEffect, useRef, useState } from "react";
 import { Avatar, Button, Icon, IconButton, MenuButton, Popover, TextInput, initials, showToast, tooltipProps } from "@/ds";
 import { t, tp, useT } from "@/i18n";
 import { getStoreClient } from "@/store";
+import { isWebGuest, webAccount } from "@/store/webAccount";
 import { useAccount } from "../../files/account";
 import { withLinkPassword } from "../../files/LinkPassword";
 import { useCurrentPage } from "@/engine/hooks";
@@ -351,6 +352,18 @@ function ViewerBanner() {
     };
   }, [fileKey]);
   if (closed) return null;
+  // A guest (a link viewed without an account): commenting and asking to edit need one
+  if (isWebGuest())
+    return (
+      <div className={styles.viewer} role="status" data-viewer-banner="guest">
+        <Icon name="24.info" className={styles.viewerIcon} />
+        <span className={styles.viewerText}>{t("You can only view this file.")}</span>
+        <Button variant="primary" onClick={() => void webAccount.signIn()}>
+          {t("Log in")}
+        </Button>
+        <IconButton icon="24.close.small" label={t("Close")} tooltip={false} onClick={() => setClosed(true)} />
+      </div>
+    );
   if (external)
     return (
       <div className={styles.viewer} role="status" data-viewer-banner="external">

@@ -325,6 +325,61 @@ describe("files and sharing", () => {
     expect(await page.text()).toContain("designer://open?key=file_link01");
   });
 
+  it("lets someone without an account view a file anyone with the link can see, as a viewer only, and nothing else", async () => {
+    const owner = await devSignIn("o@x.co");
+    await call("POST", "/files", { token: owner.token, body: { key: "file_anon01", name: "Open" } });
+    const res = await call("POST", "/auth/guest");
+    expect(res.status).toBe(200);
+    const g = (await res.json()) as { token: string; user: { id: string; name: string } };
+    expect(g.user.id).toMatch(/^g_/);
+    expect(g.user.name).toMatch(/^Anonymous [A-Z][a-z]+$/);
+    // Not shared by link: nothing
+    expect((await call("GET", "/files/file_anon01", { token: g.token })).status).toBe(404);
+    await call("PATCH", "/files/file_anon01", { token: owner.token, body: { linkAccess: "editor" } });
+    // "can edit" by the link is still view only without an account
+    const info = (await (await call("GET", "/files/file_anon01", { token: g.token })).json()) as Record<string, unknown>;
+    expect(info).toMatchObject({ name: "Open", role: "viewer", org: null, access: { role: "viewer", canEdit: false, canComment: false, canExport: false, canShare: false, canDevMode: false, via: ["link"] } });
+    expect((await call("GET", "/files/file_anon01/snapshot", { token: g.token })).status).toBe(200);
+    expect((await call("GET", `/files/file_anon01/blobs/${"a".repeat(40)}`, { token: g.token })).status).toBe(200);
+    roomCalls = [];
+    expect((await call("GET", `/files/file_anon01/ws?token=${g.token}`, { headers: { upgrade: "websocket" } })).status).toBe(200);
+    expect(roomCalls.at(-1)).toMatchObject({ path: "/room/ws", identity: { userId: g.user.id, name: g.user.name, role: "viewer" } });
+    // Writing, exporting, comments, members, requests: log in first
+    for (const [method, path, body] of [
+      ["PUT", "/files/file_anon01/snapshot?seq=0", new Uint8Array([1])],
+      ["GET", "/files/file_anon01/snapshot?purpose=export"],
+      ["PUT", `/files/file_anon01/blobs/${"a".repeat(40)}`, new Uint8Array([1])],
+      ["PATCH", "/files/file_anon01", { name: "Mine" }],
+      ["DELETE", "/files/file_anon01"],
+      ["GET", "/files/file_anon01/members"],
+      ["GET", "/files/file_anon01/comments"],
+      ["POST", "/files/file_anon01/comments", { message: "hi" }],
+      ["POST", "/files/file_anon01/requests"],
+      ["GET", "/files/file_anon01/libraries"],
+      ["GET", "/files"],
+      ["POST", "/files", { key: "file_anon02", name: "x" }],
+      ["GET", "/me"],
+      ["GET", "/notifications"],
+    ] as [string, string, unknown?][]) {
+      const r = await call(method, path, { token: g.token, body });
+      expect(r.status, `${method} ${path}`).toBe(401);
+      expect(((await r.json()) as { code?: string }).code, `${method} ${path}`).toBe("login_required");
+    }
+    // A password: the guest unlocks it like anyone with the link
+    await call("PATCH", "/files/file_anon01", { token: owner.token, body: { linkPassword: "open sesame" } });
+    expect(((await (await call("GET", "/files/file_anon01", { token: g.token })).json()) as { needsPassword: boolean }).needsPassword).toBe(true);
+    expect((await call("GET", "/files/file_anon01/snapshot", { token: g.token })).status).toBe(403);
+    const { pass } = (await (await call("POST", "/files/file_anon01/unlock", { token: g.token, body: { password: "open sesame" } })).json()) as { pass: string };
+    expect((await call("GET", "/files/file_anon01/snapshot", { token: g.token, headers: { "x-file-pass": pass } })).status).toBe(200);
+    // Link turned off: gone for the guest
+    await call("PATCH", "/files/file_anon01", { token: owner.token, body: { linkAccess: "none" } });
+    expect((await call("GET", "/files/file_anon01", { token: g.token })).status).toBe(404);
+    // A guest token is no session, and a forged or expired one is refused
+    expect((await call("GET", "/files/file_anon01", { token: g.token.slice(0, -2) + "xx" })).status).toBe(401);
+    now += 8 * 86400_000;
+    expect((await call("GET", "/files/file_anon01", { token: g.token })).status).toBe(401);
+  });
+
   it("Ask to edit: a viewer asks, editors are told and approve or deny, the viewer becomes an editor", async () => {
     const owner = await devSignIn("o@x.co");
     await call("POST", "/files", { token: owner.token, body: { key: "file_ask001", name: "Asked" } });

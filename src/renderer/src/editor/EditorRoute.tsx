@@ -32,7 +32,8 @@ import { CAPTURE_DOCUMENT, CAPTURE_UI_STATE, COMPONENTS_DOCUMENT, EMPTY_DOCUMENT
 import MOTION_LOGO_DOCUMENT from "./motion/fixtures/figma-logo-motion.json";
 import type { Message } from "@/engine/codec";
 import { PresentationView } from "@/present/PresentationView";
-import { storePresentationSource } from "@/present/PresentRoute";
+import { localKey, storePresentationSource } from "@/present/PresentRoute";
+import { isWebApp } from "@/app/webApp";
 import { SharePrototypeDialog } from "./SharePrototypeDialog";
 import { OpenLoader } from "./OpenLoader";
 import { downloadProgress, setOpenProgress } from "./openProgress";
@@ -264,11 +265,35 @@ function useAdoption(spare: boolean): Adoption | null {
   return adopted;
 }
 
+/**
+ * The web app's `?editor&file=<key>` (a link's "Open in browser", server/src/api.ts linkPage) names the server's key:
+ * its local copy, made from its room the first time (a guest's too) — elsewhere the key is the file's own.
+ */
+function useLocalFile(urlFile: string | null): { key: string | null; error: string | null } {
+  const web = isWebApp();
+  const [state, setState] = useState<{ from: string | null; key: string | null; error: string | null }>({ from: null, key: null, error: null });
+  useEffect(() => {
+    if (!web || !urlFile) return;
+    let live = true;
+    localKey(getStoreClient(), urlFile).then(
+      (key) => live && setState({ from: urlFile, key, error: null }),
+      (e: unknown) => live && setState({ from: urlFile, key: null, error: e instanceof Error ? e.message : String(e) }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [web, urlFile]);
+  if (!web || !urlFile) return { key: urlFile, error: null };
+  return state.from === urlFile ? { key: state.key, error: state.error } : { key: null, error: null };
+}
+
 export default function EditorRoute() {
   useT();
   const params = useMemo(() => new URLSearchParams(location.search), []);
   const doc = params.get("doc");
-  const urlFile = params.get("file");
+  const linked = params.get("file");
+  const local = useLocalFile(linked);
+  const urlFile = local.key;
   // No file and no sample asked for, in the desktop's editor view: the spare, waiting to be adopted.
   const spare = useMemo(() => !urlFile && !doc && editorBridge() !== null, [urlFile, doc]);
   const adopted = useAdoption(spare);
@@ -281,7 +306,7 @@ export default function EditorRoute() {
   // Prototype-only access (docs/editor.md D-6): such a file opens straight into the presentation view, never the editor
   const prototypeOnly = usePrototypeOnly(fileKey);
   const stored = useStoreSource(prototypeOnly === false ? fileKey : null, tabId);
-  const memory = useMemo(() => (fileKey || spare ? null : memorySource(doc)), [fileKey, spare, doc]);
+  const memory = useMemo(() => (fileKey || spare || linked ? null : memorySource(doc)), [fileKey, spare, linked, doc]);
   const source = memory ?? stored.source;
   const onReady = useCallback(
     (ed: EditorController) => {
@@ -294,6 +319,8 @@ export default function EditorRoute() {
     },
     [params]
   );
+  if (local.error) return <div className={styles.status}><span className={styles.error}>{t("The file could not be opened: {error}", { error: local.error })}</span></div>;
+  if (linked && !urlFile) return <OpenLoader />;
   if (fileKey && prototypeOnly) return <PrototypeOnly fileKey={fileKey} />;
   if (!source) {
     if (stored.error) return <div className={styles.status}><span className={styles.error}>{t("The file could not be opened: {error}", { error: stored.error })}</span></div>;

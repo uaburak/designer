@@ -6,6 +6,7 @@ import type { Role } from "../../src/shared/multiplayer/protocol";
 import type { FilePolicy, RoomPolicy, SessionAuth } from "../../src/shared/org/identity";
 import { deviceFromUserAgent } from "../../src/shared/account";
 import { patAllows, personalToken, requestPlace, touchOrgActivity, type Caller } from "./account";
+import { guestAccess, guestToken, guestUser, isGuestPayload, requireGuestRoute } from "./auth/guest";
 import { normalizeEmail, type Db, type User } from "./db";
 import { prefetch, RequestD1, rootD1 } from "./requestD1";
 import type { LiveRange } from "./governance/network";
@@ -147,6 +148,8 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   if (path === "/auth/callback" && m === "GET") return callback(url, deps, req);
   if (path === "/auth/token" && m === "POST") return token(req, deps);
   if (path === "/auth/dev" && m === "POST") return devSignIn(req, deps);
+  // A guest's token for opening a link without an account (auth/guest.ts)
+  if (path === "/auth/guest" && m === "POST") return guestToken(secret(deps), seconds(deps));
   // Identity (docs/multiplayer.md §15): SSO routing, the SAML SP of each org, SCIM — no session.
   if (path === "/auth/sso" && m === "POST") return (await import("./auth/sso")).ssoRoute(req, url, deps);
   // Round 14: the sign-in's second factor (docs/governance.md §2.4)
@@ -173,6 +176,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   const isSocket = (parts[0] === "files" && parts[2] === "ws" && parts.length === 3) || (parts[0] === "notifications" && parts[1] === "ws" && parts.length === 2);
   const caller = await authenticate(req, url, deps, isSocket);
   const user = caller.user;
+  if (caller.guest) requireGuestRoute(parts, m, url);
   // AI usage, daily totals from the people's apps (docs/ai.md §2.9) — sessions only, not personal access tokens.
   // The server's operator (docs/multiplayer.md §17): accounts, suspension, quota overrides, the sign-up mode
   if (parts[0] === "operator") return (await import("./quota/operator")).operatorRoute(req, url, deps, sessionOnly(caller), parts);
@@ -265,7 +269,8 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   const branchOf = await acc.branch(key);
   const guard = branchOf ? ((await acc.fileRow(branchOf.main_key)) ?? f) : f;
   const passOk = guard.link_password !== null && (await validPass(req, url, deps, guard.key, user.id, guard.link_password_version));
-  const access = await acc.file(f, { viaLink: true, passOk });
+  const opened = await acc.file(f, { viaLink: true, passOk });
+  const access = caller.guest ? guestAccess(opened) : opened;
   // Governance+ gates (docs/governance.md §2.5) on every route of an org file, its socket upgrade included: 403
   // {error, code, gate} for the org's people (link visitors from outside aren't gated). No query without the add-on.
   if (f.org_id && access.ok) await acc.checkGate(f.org_id);
@@ -324,7 +329,8 @@ async function route(req: Request, deps: Deps): Promise<Response> {
         // "personal": in its owner's Drafts (docs/cloud.md §2)
         space: f.space ?? null,
         access: a ? fileAccessOf(a) : null,
-        org: a ? await fileOrg(acc, f) : null,
+        // A guest (auth/guest.ts) learns nothing of the org's teams and folders
+        org: a && !caller.guest ? await fileOrg(acc, f) : null,
         branch: (await acc.branch(key)) ? await (await import("./branches")).branchInfo(deps, key) : null,
         policy,
       });
@@ -651,7 +657,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
     case "ws": {
       if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") throw new HttpError(426, "expected a WebSocket");
       // The file's org logs the view; the viewer's home org (captured, another org) its external twin (§15.9).
-      if (inOrg && a) await logFileView(deps, { ...f, org_id: f.org_id! }, user, { prototype: url.searchParams.get("m") === "proto", req, home: await acc.home() });
+      if (inOrg && a && !caller.guest) await logFileView(deps, { ...f, org_id: f.org_id! }, user, { prototype: url.searchParams.get("m") === "proto", req, home: await acc.home() });
       // The org's room policy rides with the upgrade (x-policy → welcome.policy); absent outside orgs.
       // Discovery (docs/governance.md §2.11): the org's setting, with Governance+
       const org = inOrg ? await acc.org(f.org_id!) : null;
@@ -801,6 +807,11 @@ async function authenticate(req: Request, url: URL, deps: Deps, allowQuery: bool
     return { user, sid: null, scopes: pat.scopes };
   }
   const p = await verifyToken<SessionPayload>(raw, secret(deps), seconds(deps));
+  // A guest's token (auth/guest.ts): no account behind it, throttled as the public routes are
+  if (isGuestPayload(p)) {
+    await throttle(deps, req, "public");
+    return { user: guestUser(p), sid: null, scopes: null, guest: true };
+  }
   // The user, the session's touch and (when this isolate's copy is stale) the network ranges in one round trip
   // (docs/multiplayer.md §17, "CPU per request")
   const net = await import("./governance/network");
@@ -969,7 +980,7 @@ function linkHtml(app: string, web: string): Response {
   const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Open in Wecra</title>
 <body style="font:14px -apple-system,system-ui;margin:0;display:grid;place-items:center;min-height:100vh;background:#f5f5f5;color:#1e1e1e">
 <div style="text-align:center;max-width:360px;padding:24px"><h1 style="font-size:18px;font-weight:600;margin:0 0 8px">Open this file in Wecra</h1>
-<p style="margin:0 0 20px;color:#666">Log in with an account that has access.</p>
+<p style="margin:0 0 20px;color:#666">Open it in the app, or view it in your browser — no account needed when the link is open to anyone.</p>
 <a href="${app.replace(/&/g, "&amp;")}" style="display:inline-block;padding:8px 16px;border-radius:6px;background:#0d99ff;color:#fff;text-decoration:none;font-weight:500">Open in the app</a>
 <a href="${web.replace(/&/g, "&amp;")}" style="display:inline-block;margin-left:8px;padding:8px 16px;border-radius:6px;background:#e6e6e6;color:#1e1e1e;text-decoration:none;font-weight:500">Open in browser</a>
 <p style="margin:20px 0 0;color:#888;font-size:12px">Or in Wecra: Home › Recents › Shared files › Open link…, and paste this link.</p></div>

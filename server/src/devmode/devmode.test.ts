@@ -301,5 +301,15 @@ describe("prototype-only access (D-6)", () => {
     const outsider = (await w.call("POST", "/auth/dev", undefined, { email: "out@y.co" })).body;
     expect((await w.call("GET", `/files/${DRAFT}`, outsider.token)).body.access).toMatchObject({ prototypeOnly: true, via: ["link"] });
     expect((await w.call("GET", `/files/${DRAFT}/snapshot`, outsider.token)).status).toBe(200);
+    // Someone without an account (auth/guest.ts): the prototype's viewer too, nothing of the org
+    const guest = (await w.call("POST", "/auth/guest")).body;
+    const seen = (await w.call("GET", `/files/${DRAFT}`, guest.token)).body;
+    expect(seen.access).toMatchObject({ prototypeOnly: true, role: "viewer", canComment: false, via: ["link"] });
+    expect(seen.org).toBeNull();
+    expect((await w.call("GET", `/files/${DRAFT}/snapshot`, guest.token)).status).toBe(200);
+    expect((await w.call("GET", `/files/${DRAFT}/comments`, guest.token)).status).toBe(401);
+    // The org's prototype link is its members' only
+    expect((await w.call("PATCH", `/files/${LIB}`, alice.token, { protoOrgLinkAccess: "viewer" })).status).toBe(200);
+    expect((await w.call("GET", `/files/${LIB}`, guest.token)).status).toBe(404);
   });
 });

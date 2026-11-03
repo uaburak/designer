@@ -22,6 +22,7 @@ import { designPanelTab } from "./design/tabOrder";
 import { rightPanelTabs } from "../draw/panels/drawPanel";
 import { present } from "../present";
 import { useAccount } from "../../files/account";
+import { isWebGuest, webAccount } from "@/store/webAccount";
 import { AgentFaces, Facepile, useFacepile } from "../multiplayer/Multiplayer";
 import { SaveStatusIcon } from "../SaveStatusIcon";
 import { usePresence } from "../multiplayer/presence";
@@ -129,6 +130,8 @@ export function RightHeader({ compact, zoom }: { compact?: boolean; zoom?: React
   const dev = useUI((s) => s.mode === "dev");
   // With other people in the file the facepile takes the account avatar's place (live Figma: your avatar is Multiplayer tools).
   const facepile = useFacepile();
+  // A link viewed without an account (server/src/auth/guest.ts): Figma's Log in and Sign up in place of the account and Share
+  const guest = isWebGuest();
   const account: MenuEntry[] = [{ header: t("Theme") }, commandItem(ed, "theme.light"), commandItem(ed, "theme.dark"), commandItem(ed, "theme.system"), "-", commandItem(ed, "help.shortcuts"), commandItem(ed, "file.back-to-files")];
   const onAccount = (id: string) => runEditorCommand(ed, id);
   const presentEntries: MenuEntry[] = [
@@ -142,7 +145,7 @@ export function RightHeader({ compact, zoom }: { compact?: boolean; zoom?: React
       <AgentFaces />
       {facepile ? (
         <Facepile />
-      ) : (
+      ) : guest ? null : (
         <MenuButton label={t("Account")} entries={account} onSelect={onAccount} className={styles.account}>
           <Avatar name={me?.name || me?.email || "Burak Koç"} src={me?.picture ?? undefined} size={28} />
           <span className={styles.accountMore}><Icon name="16.chevron.down" /></span>
@@ -157,9 +160,20 @@ export function RightHeader({ compact, zoom }: { compact?: boolean; zoom?: React
           <Icon name="16.chevron.down" />
         </MenuButton>
       </span>
-      <Button variant="primary" size="large" className={dev ? `${styles.share} ${styles.devShare}` : styles.share} onClick={() => runEditorCommand(ed, "file.share-preview")} data-requests={presence.requests || undefined}>
-        {t("Share")}
-      </Button>
+      {guest ? (
+        <>
+          <Button variant="secondary" size="large" onClick={() => void webAccount.signIn()}>
+            {t("Log in")}
+          </Button>
+          <Button variant="primary" size="large" className={styles.share} onClick={() => void webAccount.signIn()}>
+            {t("Sign up")}
+          </Button>
+        </>
+      ) : (
+        <Button variant="primary" size="large" className={dev ? `${styles.share} ${styles.devShare}` : styles.share} onClick={() => runEditorCommand(ed, "file.share-preview")} data-requests={presence.requests || undefined}>
+          {t("Share")}
+        </Button>
+      )}
     </div>
   );
 }

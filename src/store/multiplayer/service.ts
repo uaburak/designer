@@ -320,9 +320,12 @@ export class MultiplayerService {
     if (!session) return this.status();
     const st = await this.loadState();
     try {
+      // A guest (no account, server/src/auth/guest.ts) only views: it gets no device ordinal and writes nothing
+      if (this.guest) throw new Error("a guest has no device");
       const { ordinal } = await this.api<{ ordinal: number }>("POST", "/devices", { installationId: st.installationId });
       if (ordinal !== this.host.deviceOrdinal) await this.host.setDeviceOrdinal(ordinal);
     } catch (e) {
+      if (this.guest) return this.status();
       // Offline: shared files wait. The ordinal is only needed before a first share or join, which need the server anyway.
       this.host.log("warn", "multiplayer: couldn't reach the server", e);
     }
@@ -475,6 +478,8 @@ export class MultiplayerService {
       // not JSON
     }
     if (this.ended || this.session !== session) return;
+    // A guest's call that needs an account (server/src/auth/guest.ts): refused, the session itself still good
+    if (code === "login_required") return;
     this.ended = true;
     const e: SessionEnded = { reason: code === "idle_timeout" ? "idle_timeout" : "expired" };
     this.host.log("warn", `multiplayer: the server ended the session (${e.reason})`);
@@ -816,12 +821,20 @@ export class MultiplayerService {
 
   /** The signed-in person's id, read from the session token's payload (unverified: it only keys caches), else null */
   get userId(): string | null {
-    const token = this.session?.token;
-    const part = token?.split(".")[1];
+    const uid = this.tokenPayload()?.uid;
+    return typeof uid === "string" ? uid : null;
+  }
+
+  /** The session is a guest's (a link opened without an account, server/src/auth/guest.ts): it views, nothing more */
+  get guest(): boolean {
+    return this.tokenPayload()?.typ === "guest";
+  }
+
+  private tokenPayload(): { uid?: unknown; typ?: unknown } | null {
+    const part = this.session?.token.split(".")[1];
     if (!part) return null;
     try {
-      const json = JSON.parse(atob(part.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(part.length / 4) * 4, "="))) as { uid?: unknown };
-      return typeof json.uid === "string" ? json.uid : null;
+      return JSON.parse(atob(part.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(part.length / 4) * 4, "="))) as { uid?: unknown; typ?: unknown };
     } catch {
       return null;
     }
@@ -1788,7 +1801,7 @@ export class MultiplayerService {
   }
 
   private needOrdinal(): void {
-    if (this.host.deviceOrdinal <= 1) throw new StoreError("offline", tr("Couldn't reach the server. Check your connection and try again."));
+    if (this.host.deviceOrdinal <= 1 && !this.guest) throw new StoreError("offline", tr("Couldn't reach the server. Check your connection and try again."));
   }
 
   private async keyOf(fileKey: FileKey): Promise<string> {
@@ -2005,6 +2018,7 @@ export async function httpError(res: Response): Promise<StoreError> {
   if (!json) message = message.length > 200 ? "" : message;
   // 401 `idle_timeout` (§15.8): detail.code says it; MultiplayerService has also said `SessionEnded` and dropped the session
   if (res.status === 401 && detail?.code === "idle_timeout") return new StoreError("forbidden", tr("You were logged out because you were inactive."), detail);
+  if (res.status === 401 && detail?.code === "login_required") return new StoreError("forbidden", tr("Log in to do this."), detail);
   if (res.status === 401) return new StoreError("forbidden", tr("Your session expired. Log in again."), detail);
   // Public sign-up's limits (docs/multiplayer.md §17): `detail` keeps `{code, kind, limit}`; the words are the shared ones
   if (isQuotaRefusal(detail)) return new StoreError(res.status === 413 ? "too-large" : "forbidden", quotaMessage(detail.kind, detail.limit), detail);

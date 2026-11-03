@@ -36,6 +36,52 @@ function readSession(): WebSession | null {
   }
 }
 
+/**
+ * A guest (server/src/auth/guest.ts): a link to a file or a prototype opened without an account — Figma lets anyone with
+ * the link view it. The server's guest token (an anonymous name, view only, a week) is kept beside the session and
+ * used only while signed out, only for the file of the link.
+ */
+const GUEST_KEY = "designer.web.guest";
+
+interface WebGuest {
+  server: string;
+  token: string;
+  expiresAt: number;
+  user: { id: string; name: string };
+}
+
+function readGuest(): WebGuest | null {
+  try {
+    const g = JSON.parse(localStorage.getItem(GUEST_KEY) ?? "null") as WebGuest | null;
+    return g && sameServer(g.server, webServer()) && g.expiresAt > Date.now() + 3_600_000 && typeof g.token === "string" ? { ...g, server: webServer() } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The guest's name ("Anonymous Capybara") while the page views a link without an account, else null */
+export function webGuest(): { id: string; name: string } | null {
+  return readSession() ? null : (readGuest()?.user ?? null);
+}
+
+/** The web app viewing a link as a guest (no account): the editor shows Log in / Sign up in place of Share */
+export const isWebGuest = (): boolean => isWebApp() && webGuest() !== null;
+
+/** Makes sure the page has a guest token (asked of the server once a week); false when the server can't be reached */
+export async function ensureWebGuest(): Promise<boolean> {
+  if (readGuest()) return true;
+  try {
+    const res = await fetch(new URL("/auth/guest", webServer()), { method: "POST" });
+    if (!res.ok) return false;
+    const { token, user } = (await res.json()) as { token: string; user: { id: string; name: string } };
+    // The token's own expiry (GUEST_DAYS) is a week; the page asks again a day early
+    localStorage.setItem(GUEST_KEY, JSON.stringify({ server: webServer(), token, expiresAt: Date.now() + 6 * 86_400_000, user } satisfies WebGuest));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** The page's session now (the server and its bearer token), or null signed out — for the page's own server calls */
 export function currentWebSession(): { server: string; token: string; userId: string } | null {
   const s = readSession();
@@ -281,7 +327,8 @@ async function completeOnce(): Promise<SignInResult | null> {
 /** Hands the session to the page's dev store, now and whenever it changes: a tab editing or presenting `fileKey` (its local key or its room's) joins its room. */
 export function connectWebSession(store: MemoryStore, fileKey: string | null): void {
   const apply = () => {
-    const s = readSession();
+    // Signed out, a link's file is viewed as a guest
+    const s = readSession() ?? (fileKey ? readGuest() : null);
     // The rooms, then the personal Drafts (the web app's store follows the account, docs/cloud.md §2)
     void store.setSession(s ? { server: s.server, token: s.token } : null, { only: fileKey ? [fileKey] : [] }).catch((e) => console.warn("[multiplayer]", e));
   };

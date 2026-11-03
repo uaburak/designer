@@ -36,6 +36,7 @@ export const store: Record<string, string> = {
   // Server and sharing
   "Couldn't reach the server. Check your connection and try again.": "Sunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.",
   "Your session expired. Log in again.": "Oturumunuzun süresi doldu. Tekrar giriş yapın.",
+  "Log in to do this.": "Bunu yapmak için giriş yapın.",
   "You were logged out because you were inactive.": "Etkin olmadığınız için oturumunuz kapatıldı.",
   "You don't have access": "Erişiminiz yok",
   "This link has expired": "Bu bağlantının süresi doldu",

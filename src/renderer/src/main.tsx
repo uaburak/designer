@@ -4,7 +4,7 @@ import "@/ds/global.css";
 import { isWebApp, webRoute } from "@/app/webApp";
 import { installTextFieldKeys } from "@/app/textFieldKeys";
 import { initLocale } from "@/i18n";
-import { completeWebSignIn, currentWebSession } from "@/store/webAccount";
+import { completeWebSignIn, currentWebSession, ensureWebGuest } from "@/store/webAccount";
 // TEMPORARY dev tool: the design tokens + report panel (⌥⇧⌘D) — remove with src/renderer/src/devtools/
 import { DevPanel } from "@/devtools/DevPanel";
 
@@ -26,11 +26,18 @@ const webSignedIn = () => currentWebSession() !== null;
 const params = new URLSearchParams(location.search);
 
 const page = (): ComponentType => {
-  // The web app (docs/cloud.md §7): the product's routes only; signed out, a file's address shows the welcome page
-  // (Home's gate) and comes back to the file after Log in
+  // The web app (docs/cloud.md §7): the product's routes only; signed out, a file's address opens it as a guest and
+  // Home shows the welcome page (its gate)
   if (isWebApp()) {
     const route = webRoute(location.search);
     if (route !== "files" && webSignedIn()) return route === "editor" ? lazy(() => import("@/editor/EditorRoute")) : lazy(() => import("@/present/PresentRoute"));
+    // Signed out on a file's or a prototype's link: viewed as a guest, as Figma lets anyone with the link
+    // (server/src/auth/guest.ts); the server refuses what the link doesn't open, and Log in is in the editor's bar
+    if (route !== "files" && !params.has("auth_code")) {
+      // The route's own lazy import (as signed in: Vite preloads its CSS with it), once the guest token is here
+      const Route = route === "editor" ? lazy(() => import("@/editor/EditorRoute")) : lazy(() => import("@/present/PresentRoute"));
+      return lazy(async () => ((await ensureWebGuest()) ? { default: () => <Route /> } : import("@/files/FilesApp")));
+    }
     // Back from Log in on a file's address: the session first, then the file's page
     if (route !== "files" && params.has("auth_code"))
       return lazy(async () => {
