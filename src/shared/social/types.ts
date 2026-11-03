@@ -166,7 +166,7 @@ export interface SocialExportPreset {
 // ── Plugin data (§3) ──────────────────────────────────────────────────────────────────────────────────────────────
 
 export const SOCIAL_PLUGIN_ID = "designer.social";
-export const SOCIAL_KEYS = { post: "post", campaigns: "campaigns", template: "template", slot: "slot", brandLibrary: "brandLibrary" } as const;
+export const SOCIAL_KEYS = { post: "post", campaigns: "campaigns", template: "template", slot: "slot", brandLibrary: "brandLibrary", brand: "brand" } as const;
 export type SocialKey = (typeof SOCIAL_KEYS)[keyof typeof SOCIAL_KEYS];
 
 export type PluginDataEntry = { pluginID?: string; key?: string; value?: string };

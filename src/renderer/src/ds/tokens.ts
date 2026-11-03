@@ -242,6 +242,24 @@ export const appColor = {
   "social-card": ["#e5f4ff", "#4b5878"],
   "social-place": ["#f5f5f5", "#1f1f1f"],
   "social-place-icon": ["#b3b3b3", "#404040"],
+  /**
+   * A Social file's Prototype tab (docs/social.md §33): Instagram's own app colours, light and dark — the preview shows
+   * the posts as the app does, so these are Instagram's, not Figma's: ground, text, secondary text, buttons and the
+   * empty "+" cell, dividers, links, the accent blue, the story ring's three stops, the caption's hover ground
+   */
+  "ig-bg": ["#ffffff", "#000000"],
+  "ig-text": ["#000000", "#f5f5f5"],
+  "ig-text-secondary": ["#737373", "#a8a8a8"],
+  "ig-button": ["#efefef", "#262626"],
+  "ig-divider": ["#dbdbdb", "#262626"],
+  "ig-link": ["#00376b", "#e0f1ff"],
+  "ig-accent": ["#0095f6", "#0095f6"],
+  "ig-ring-1": ["#f9ce34", "#f9ce34"],
+  "ig-ring-2": ["#ee2a7b", "#ee2a7b"],
+  "ig-ring-3": ["#6228d7", "#6228d7"],
+  "ig-hover": ["#0000000d", "#ffffff14"],
+  "ig-story-bar": ["#ffffff59", "#ffffff59"],
+  "ig-on-media": ["#ffffff", "#ffffff"],
   /** Live capture (left/rail-assets.txt): a library card's thumbnail ground (light unverified) */
   "asset-card-bg": ["#0000001a", "#ffffff1a"],
   /** Live capture (left/rail-assets-page-components.txt): a set tile's variant count dot, black 50 % (light unverified) */

@@ -241,6 +241,7 @@ export function BrandForm({ brandId, prefill, onDone, onCancel, inCard }: BrandF
   const [colors, setColors] = useState<BrandColor[]>(prefill?.colors ?? []);
   const [fonts, setFonts] = useState((prefill?.fonts ?? []).join(", "));
   const [tone, setTone] = useState(prefill?.tone ?? "");
+  const [description, setDescription] = useState(prefill?.description ?? "");
   const [formats, setFormats] = useState<SocialFormat[]>(prefill?.formats ?? DEFAULT_FORMATS.map((f) => ({ ...f })));
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -257,6 +258,7 @@ export function BrandForm({ brandId, prefill, onDone, onCancel, inCard }: BrandF
           setColors(prefill?.colors ?? b.colors);
           setFonts((prefill?.fonts ?? b.fonts).join(", "));
           setTone(prefill?.tone ?? b.tone);
+          setDescription(prefill?.description ?? b.description ?? "");
           setFormats(prefill?.formats ?? b.formats);
         }
         setReady(true);
@@ -281,6 +283,7 @@ export function BrandForm({ brandId, prefill, onDone, onCancel, inCard }: BrandF
         colors: good,
         fonts: fonts.split(",").map((f) => f.trim()).filter(Boolean),
         tone,
+        description,
         formats: formats.filter((f) => f.width > 0 && f.height > 0),
         ...(prefill?.libraryFileKey !== undefined ? { libraryFileKey: prefill.libraryFileKey } : {}),
       });
@@ -339,6 +342,10 @@ export function BrandForm({ brandId, prefill, onDone, onCancel, inCard }: BrandF
       <div className={styles.field}>
         <span className={styles.fieldLabel}>{t("Fonts (comma separated)")}</span>
         <TextInput label={t("Fonts")} value={fonts} placeholder="Inter, Playfair Display" onChange={setFonts} />
+      </div>
+      <div className={styles.field}>
+        <span className={styles.fieldLabel}>{t("Description")}</span>
+        <textarea className={styles.textArea} aria-label={t("Description")} placeholder={t("What the brand's profile says about it")} value={description} maxLength={150} rows={2} onChange={(e) => setDescription(e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
       </div>
       <div className={styles.field}>
         <span className={styles.fieldLabel}>{t("Tone and look")}</span>

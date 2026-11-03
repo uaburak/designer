@@ -72,6 +72,10 @@ export interface Brand {
   fonts: string[];
   /** Voice and look, in the owner's words */
   tone: string;
+  /** The profile's bio, as on the brand's Instagram (docs/social.md §34; 150 characters). Missing in brands saved before it */
+  description?: string;
+  /** The logo picture shown as the profile picture (§34), else the first logo */
+  avatar?: string | null;
   logos: BrandImage[];
   formats: SocialFormat[];
   /** A file published as this brand's library (logo components, colour variables, text styles), when there is one */
@@ -87,6 +91,9 @@ export interface BrandSave {
   colors?: BrandColor[];
   fonts?: string[];
   tone?: string;
+  description?: string;
+  /** One of the brand's logos' ids; null: the first logo */
+  avatar?: string | null;
   formats?: SocialFormat[];
   libraryFileKey?: string | null;
 }

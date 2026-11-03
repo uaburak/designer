@@ -1052,7 +1052,7 @@ export class AgentsService implements AgentSetupHost {
   /** What the manager's Social paragraph says about the board (docs/social.md §7.4): its brand, campaigns and counts. */
   private async socialContext(): Promise<SocialPromptContext> {
     const board = socialOf(this.ed).get();
-    const id = this.ed.ui.get().socialBrandId ?? null;
+    const id = board.brandId ?? this.ed.ui.get().socialBrandId ?? null;
     const brand = id ? await this.studio.brands().get(id).catch(() => null) : null;
     return {
       brand: brand ? { id: brand.id, name: brand.name } : null,

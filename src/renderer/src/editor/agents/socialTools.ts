@@ -115,7 +115,7 @@ async function getBoard(env: ToolEnv, args: Spec): Promise<ToolResult> {
   if (node?.type !== "CANVAS") throw new ToolError(`get_board: ${page} isn't a page (get_metadata lists them).`);
   const board = readBoard(env.ed, page);
   const brands = await brandList();
-  const id = env.ed.ui.get().socialBrandId ?? null;
+  const id = board.brandId ?? env.ed.ui.get().socialBrandId ?? null;
   const brand = id ? brands.find((b) => b.id === id) : undefined;
   return textResult({
     pageId: page,

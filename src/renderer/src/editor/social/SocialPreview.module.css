@@ -1,0 +1,116 @@
+@layer app {
+  /*
+   * A Social file's Prototype tab (docs/social.md §33): Instagram's app at 9:16. Every length is the design's 405-wide
+   * phone (Social-new-design, "Mobile / Profil") times --u, one 405th of the screen's width, so the whole screen scales
+   * with the panel as one picture; the colours are Instagram's own (tokens ig-*, light and dark).
+   */
+  .screen {
+    --u: calc(100cqw / 405);
+    container-type: inline-size;
+    position: relative; display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow: hidden;
+    background: var(--ds-color-ig-bg); color: var(--ds-color-ig-text);
+    line-height: 1.35; user-select: none;
+  }
+  /* cqw is the screen's (its children's container), so the text size is set a level in */
+  .screen > * { font-size: calc(13 * var(--u)); }
+  .screen button { font: inherit; color: inherit; }
+  .scroll { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; }
+  .scroll::-webkit-scrollbar { display: none; }
+  .grow { flex: 1 1 auto; }
+  .glyph { width: calc(24 * var(--u)); height: calc(24 * var(--u)); flex: none; }
+  .smallGlyph { width: calc(14 * var(--u)); height: calc(14 * var(--u)); flex: none; }
+
+  /* Profile */
+  .topBar { display: flex; align-items: center; height: calc(44 * var(--u)); padding: 0 calc(16 * var(--u)); }
+  .handle { font-size: calc(20 * var(--u)); font-weight: 700; }
+  .head { display: flex; align-items: center; gap: calc(20 * var(--u)); padding: calc(6 * var(--u)) calc(16 * var(--u)) 0; }
+  .avatarRing {
+    display: grid; place-items: center; flex: none; width: calc(90 * var(--u)); height: calc(90 * var(--u)); padding: 0; border: 0;
+    border-radius: 50%; background: var(--ds-color-ig-divider); cursor: default;
+  }
+  .avatarRing.hasStory { background: linear-gradient(45deg, var(--ds-color-ig-ring-1), var(--ds-color-ig-ring-2) 55%, var(--ds-color-ig-ring-3)); cursor: pointer; }
+  .avatar, .smallAvatar {
+    display: grid; place-items: center; border-radius: 50%; object-fit: cover; background: var(--ds-color-ig-on-media); color: var(--ds-color-ig-accent); font-weight: 700;
+  }
+  .avatar { width: calc(80 * var(--u)); height: calc(80 * var(--u)); box-shadow: 0 0 0 calc(3 * var(--u)) var(--ds-color-ig-bg); font-size: calc(32 * var(--u)); }
+  .smallAvatar { flex: none; width: calc(32 * var(--u)); height: calc(32 * var(--u)); box-shadow: 0 0 0 1px var(--ds-color-ig-divider); font-size: calc(15 * var(--u)); }
+  .stats { display: flex; flex: 1 1 auto; justify-content: space-between; }
+  .stat { display: flex; flex-direction: column; align-items: center; font-size: calc(13 * var(--u)); }
+  .stat strong { font-size: calc(16 * var(--u)); }
+  .bio { display: flex; flex-direction: column; gap: calc(2 * var(--u)); padding: calc(10 * var(--u)) calc(12 * var(--u)) 0; }
+  /* The name and the description: a double-click writes them to the brand (§34), on Instagram's hover ground */
+  .bioName, .bioText { display: block; padding: calc(2 * var(--u)) calc(4 * var(--u)); border-radius: calc(6 * var(--u)); cursor: text; }
+  .bioName { font-weight: 600; }
+  .bioText { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .bioName:hover, .bioText:hover { background: var(--ds-color-ig-hover); }
+  .bioPlaceholder { color: var(--ds-color-ig-text-secondary); }
+  .bioEditing { box-sizing: border-box; width: 100%; border: 0; outline: 0; resize: none; background: var(--ds-color-ig-hover); box-shadow: inset 0 0 0 calc(1.5 * var(--u)) var(--ds-color-ig-accent); color: inherit; font: inherit; }
+  .buttons { display: flex; gap: calc(6 * var(--u)); padding: calc(12 * var(--u)) calc(16 * var(--u)) 0; }
+  .button {
+    flex: 1 1 0; height: calc(32 * var(--u)); border: 0; border-radius: calc(8 * var(--u)); background: var(--ds-color-ig-button);
+    font-weight: 600; cursor: pointer;
+  }
+  .button:disabled, .ringItem:disabled, .newCell:disabled { cursor: default; opacity: 0.5; }
+  .rings { display: flex; gap: calc(14 * var(--u)); padding: calc(16 * var(--u)) calc(14 * var(--u)) calc(12 * var(--u)); overflow-x: auto; scrollbar-width: none; }
+  .ringItem { display: flex; flex: none; flex-direction: column; align-items: center; gap: calc(6 * var(--u)); width: calc(72 * var(--u)); padding: 0; border: 0; background: none; cursor: pointer; }
+  .ring { display: grid; place-items: center; width: calc(68 * var(--u)); height: calc(68 * var(--u)); border-radius: 50%; overflow: hidden; }
+  .ring.hasStory { background: linear-gradient(45deg, var(--ds-color-ig-ring-1), var(--ds-color-ig-ring-2) 55%, var(--ds-color-ig-ring-3)); }
+  .ringPicture { width: calc(62 * var(--u)); height: calc(62 * var(--u)); border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 calc(2 * var(--u)) var(--ds-color-ig-bg); background: var(--ds-color-ig-button); }
+  .newRing { box-shadow: inset 0 0 0 1px var(--ds-color-ig-divider); }
+  .ringName { max-width: 100%; overflow: hidden; font-size: calc(12 * var(--u)); text-overflow: ellipsis; white-space: nowrap; }
+  .tabs { display: flex; border-top: 1px solid var(--ds-color-ig-divider); }
+  .tab { display: grid; place-items: center; flex: 1 1 0; height: calc(44 * var(--u)); color: var(--ds-color-ig-text-secondary); }
+  .tabActive { color: var(--ds-color-ig-text); box-shadow: inset 0 -1px 0 var(--ds-color-ig-text); }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: calc(1.5 * var(--u)); }
+  .cell { position: relative; aspect-ratio: 3 / 4; padding: 0; border: 0; overflow: hidden; background: var(--ds-color-ig-button); cursor: pointer; }
+  .newCell {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(4 * var(--u));
+    background: var(--ds-color-social-place); box-shadow: inset 0 0 0 1px var(--ds-color-social-place-icon); font-size: calc(11 * var(--u)); font-weight: 600;
+  }
+  .cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+
+  /* Post */
+  .navBar { position: relative; display: flex; flex: none; align-items: center; justify-content: center; height: calc(44 * var(--u)); }
+  .navTitle { font-size: calc(16 * var(--u)); font-weight: 700; }
+  .back { position: absolute; left: calc(4 * var(--u)); display: grid; place-items: center; width: calc(36 * var(--u)); height: calc(36 * var(--u)); padding: 0; border: 0; background: none; cursor: pointer; }
+  .postHead { display: flex; align-items: center; gap: calc(10 * var(--u)); padding: calc(10 * var(--u)) calc(12 * var(--u)); }
+  .postWho { display: flex; flex-direction: column; font-size: calc(13 * var(--u)); }
+  .media { position: relative; width: 100%; overflow: hidden; background: var(--ds-color-ig-button); }
+  .actions { display: flex; align-items: center; gap: calc(16 * var(--u)); padding: calc(10 * var(--u)) calc(12 * var(--u)) calc(6 * var(--u)); }
+  .caption {
+    position: relative; display: flex; flex-direction: column; gap: calc(2 * var(--u)); margin: 0 calc(6 * var(--u)) calc(24 * var(--u));
+    padding: calc(8 * var(--u)) calc(44 * var(--u)) calc(8 * var(--u)) calc(6 * var(--u)); border-radius: calc(8 * var(--u)); cursor: text;
+  }
+  .caption:hover { background: var(--ds-color-ig-hover); }
+  .captionEditing, .captionEditing:hover { padding-right: calc(6 * var(--u)); background: var(--ds-color-ig-hover); box-shadow: inset 0 0 0 calc(1.5 * var(--u)) var(--ds-color-ig-accent); }
+  .captionHandle { font-weight: 600; }
+  .captionText { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+  .captionEmpty { color: var(--ds-color-ig-text-secondary); }
+  .hashtags { color: var(--ds-color-ig-link); overflow-wrap: anywhere; }
+  .captionInput {
+    width: 100%; min-height: calc(60 * var(--u)); padding: 0; border: 0; outline: none; resize: none; background: transparent;
+    color: inherit; font: inherit; line-height: inherit;
+  }
+  .copy {
+    position: absolute; top: calc(6 * var(--u)); right: calc(6 * var(--u)); display: none; place-items: center;
+    width: calc(28 * var(--u)); height: calc(28 * var(--u)); padding: 0; border: 0; border-radius: 50%; background: var(--ds-color-ig-button); cursor: pointer;
+  }
+  .caption:hover .copy, .copy:focus-visible { display: grid; }
+
+  /* Story */
+  .story { position: relative; flex: 1 1 auto; overflow: hidden; background: var(--ds-color-ig-bg); cursor: pointer; }
+  .storyTop {
+    position: absolute; inset: 0 0 auto; padding: calc(10 * var(--u)) calc(10 * var(--u)) calc(24 * var(--u));
+    background: linear-gradient(var(--ds-color-scrim), transparent); color: var(--ds-color-ig-on-media);
+  }
+  .bars { display: flex; gap: calc(4 * var(--u)); }
+  .storyBar { flex: 1 1 0; height: calc(2.5 * var(--u)); overflow: hidden; border-radius: calc(2 * var(--u)); background: var(--ds-color-ig-story-bar); }
+  .storyFill { display: block; width: 0; height: 100%; background: var(--ds-color-ig-on-media); }
+  .storyDone { width: 100%; }
+  .storyNow { animation: storyFill linear forwards; }
+  .storyWho { display: flex; align-items: center; gap: calc(8 * var(--u)); margin-top: calc(10 * var(--u)); }
+  .storyRing { opacity: 0.75; }
+  .storyClose { display: grid; place-items: center; padding: 0; border: 0; background: none; color: inherit; cursor: pointer; }
+  @keyframes storyFill { from { width: 0; } to { width: 100%; } }
+  @media (prefers-reduced-motion: reduce) { .storyNow { animation: none; width: 100%; } }
+}

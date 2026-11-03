@@ -236,6 +236,8 @@ export interface UIState extends PreferenceFlags {
   socialRightTab?: "agent" | "properties";
   /** A Social file's right panel on a post in focus: its Design panel (default) or its Post section (docs/social.md §19) */
   socialPanelTab?: "design" | "post";
+  /** A Social file's right panel tabs (docs/social.md §33): Design (default) or Prototype — the board played as Instagram's app */
+  socialSideTab?: "design" | "prototype";
   /** The empty board's strip closed for this session (docs/social.md §19) */
   socialStarterClosed?: boolean;
   /** A Social file's board view (docs/social.md §23, Figma Buzz's): every post in its grids, or one post (default grid) */

@@ -10,15 +10,16 @@
  * The agent is the left panel's (SocialAgentPanel). Its width is its own (`ui.socialRightWidth`), Design mode's
  * untouched; the content changes in place, the width stays (the canvas doesn't jump).
  */
-import { useEffect, useMemo, useSyncExternalStore } from "react";
-import { Button, PanelSection, ResizeHandle, SegmentedControl } from "@/ds";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { Button, PanelSection, ResizeHandle, SegmentedControl, Tabs } from "@/ds";
 import { PLATFORM_NAMES, formatById } from "@shared/social/formats";
 import { POST_STATUSES, type Platform, type PostStatus } from "@shared/social/types";
 import { t, tp, useT } from "@/i18n";
 import { useEditor } from "../controller";
 import { useUI } from "../hooks";
 import { applySelection } from "../agents/mcpTools";
-import { RightHeader } from "../panels/RightPanel";
+import { RightHeader, ZoomMenu } from "../panels/RightPanel";
+import { SocialPreview } from "./SocialPreview";
 import { DesignPanel } from "../panels/design/DesignPanel";
 import { designPanelTab } from "../panels/design/tabOrder";
 import { runEditorCommand } from "../commands";
@@ -56,10 +57,38 @@ function useSelectedPostCount(): number {
   );
 }
 
+/**
+ * The Prototype tab's width (docs/social.md §33): the screen below the tabs at 9:16 — 1080 × 1920, a story exactly —
+ * so the panel's width follows the window's height; the canvas takes the rest.
+ */
+export function previewWidth(height: number): number {
+  return Math.max(SOCIAL_RIGHT_PANEL.minWidth, Math.round((height * 9) / 16));
+}
+
+/** The body's height below the header and the tabs, kept as the window resizes. */
+function useBodyHeight(aside: RefObject<HTMLElement | null>, body: RefObject<HTMLElement | null>): number {
+  const [height, setHeight] = useState(0);
+  useLayoutEffect(() => {
+    const a = aside.current;
+    if (!a) return;
+    const measure = () => setHeight(Math.max(0, a.clientHeight - (body.current?.offsetTop ?? 0)));
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(a);
+    return () => ro.disconnect();
+  }, [aside, body]);
+  return height;
+}
+
 export function SocialRightPanel() {
   useT();
   const ed = useEditor();
-  const width = useUI((s) => s.socialRightWidth ?? SOCIAL_RIGHT_PANEL.width);
+  const side = useUI((s) => s.socialSideTab ?? "design");
+  const aside = useRef<HTMLElement>(null);
+  const body = useRef<HTMLDivElement>(null);
+  const bodyHeight = useBodyHeight(aside, body);
+  const designWidth = useUI((s) => s.socialRightWidth ?? SOCIAL_RIGHT_PANEL.width);
+  const width = side === "prototype" && bodyHeight > 0 ? previewWidth(bodyHeight) : designWidth;
   const focus = useSelectionPost(ed);
   const posts = useSelectedPostCount();
   const anything = useSyncExternalStore((on) => ed.store.subscribe("selection", on), () => ed.store.selection.refs.length > 0);
@@ -75,10 +104,25 @@ export function SocialRightPanel() {
     [ed],
   );
   return (
-    <aside className={panelStyles.right} style={{ width }} aria-label={t("Social panel")} data-panel="right" data-social-right={view}>
+    <aside ref={aside} className={panelStyles.right} style={{ width }} aria-label={t("Social panel")} data-panel="right" data-social-right={side === "prototype" ? "prototype" : view}>
       <RightHeader />
-      {view === "board" ? <BoardPanel /> : view === "bulk" ? <BulkPanel count={posts} /> : <PostDesign post={!!focus} />}
-      <ResizeHandle side="left" value={width} min={SOCIAL_RIGHT_PANEL.minWidth} max={SOCIAL_RIGHT_PANEL.maxWidth} defaultValue={SOCIAL_RIGHT_PANEL.width} onChange={(px) => ed.ui.set({ socialRightWidth: px })} />
+      <div className={panelStyles.rightTabs}>
+        <Tabs
+          label={t("Social panel")}
+          idBase="social-right"
+          value={side}
+          tabs={[
+            { value: "design", label: t("Design"), width: 53 },
+            { value: "prototype", label: t("Prototype"), width: 69 },
+          ]}
+          onChange={(v) => ed.ui.set({ socialSideTab: v as "design" | "prototype" })}
+        />
+        <ZoomMenu />
+      </div>
+      <div ref={body} className={styles.body} role="tabpanel" id={`social-right-panel-${side}`} aria-labelledby={`social-right-tab-${side}`}>
+        {side === "prototype" ? <SocialPreview /> : view === "board" ? <BoardPanel /> : view === "bulk" ? <BulkPanel count={posts} /> : <PostDesign post={!!focus} />}
+      </div>
+      {side === "design" && <ResizeHandle side="left" value={width} min={SOCIAL_RIGHT_PANEL.minWidth} max={SOCIAL_RIGHT_PANEL.maxWidth} defaultValue={SOCIAL_RIGHT_PANEL.width} onChange={(px) => ed.ui.set({ socialRightWidth: px })} />}
     </aside>
   );
 }

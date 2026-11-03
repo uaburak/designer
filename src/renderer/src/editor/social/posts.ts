@@ -82,6 +82,19 @@ export function writeCampaigns(ed: EditorController, page: Guid, list: readonly 
   ed.engine.setProps([page], { pluginData: withSocial(n.pluginData, "campaigns", list.length ? list : null) });
 }
 
+/** A page's brand (docs/social.md §34: each page of a Social file is a brand's account): `{ brandId }` on the page. */
+export function pageBrandIn(entries: readonly PluginDataEntry[] | undefined): string | null {
+  const v = readSocial<{ brandId?: unknown }>(entries, "brand");
+  return typeof v?.brandId === "string" && v.brandId ? v.brandId : null;
+}
+
+/** Writes the page's brand (null removes the entry). Inside a Writer. */
+export function writePageBrand(ed: EditorController, page: Guid, brandId: string | null): void {
+  const n = ed.engine.readNode(page, { fields: ["pluginData"] }) as WithPluginData | null;
+  if (!n) return;
+  ed.engine.setProps([page], { pluginData: withSocial(n.pluginData, "brand", brandId ? { brandId } : null) });
+}
+
 /** Hashtags as a post keeps them: without "#", trimmed, each once (case-insensitive), in order. */
 export function cleanHashtags(tags: readonly string[]): string[] {
   const out: string[] = [];

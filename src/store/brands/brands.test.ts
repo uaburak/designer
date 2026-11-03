@@ -73,6 +73,9 @@ describe("BrandsService", () => {
     const brand = await a.saveBrand({ name: "Partner Agro", colors: [{ name: "Leaf", hex: "#1ba37a" }], tone: "calm, honest" });
     expect(brand.colors).toEqual([{ name: "Leaf", hex: "#1BA37A" }]);
     expect(brand.formats.map((f) => f.id)).toEqual(["post", "story", "square"]);
+    // The profile's bio (§34), Instagram's 150 characters
+    expect((await a.saveBrand({ id: brand.id, name: "Partner Agro", description: ` ${"a".repeat(200)} ` })).description).toHaveLength(150);
+    expect((await a.saveBrand({ id: brand.id, name: "Partner Agro", avatar: "no-such-logo" })).avatar).toBeNull();
     const product = await a.saveProduct({ brandId: brand.id, name: "Liq Humus", shape: "20 L jerrycan", labels: [{ text: "LIQ HUMUS", tier: "sharp" }, { text: "Ingredients …", tier: "soft" }] });
     expect(product.labelsConfirmed).toBe(false);
     expect(product.labels.map((l) => l.id)).toHaveLength(2);

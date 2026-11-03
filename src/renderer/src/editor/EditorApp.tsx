@@ -70,6 +70,7 @@ import { SocialLeftPanel } from "./social/SocialLeftPanel";
 import { SocialAgentPanel } from "./social/SocialAgentPanel";
 import { SocialTemplatesPanel } from "./social/SocialTemplatesPanel";
 import { BoardLabels } from "./social/BoardLabels";
+import { CanvasProfile } from "./social/CanvasProfile";
 import { SocialFocus } from "./social/FocusChrome";
 import { SocialRightPanel } from "./social/SocialRightPanel";
 import { SafeAreaOverlay } from "./social/SafeAreaOverlay";
@@ -482,6 +483,7 @@ export function CanvasLayers() {
     <>
       <ScreenReaderMirror />
       {social && <BoardLabels />}
+      {social && <CanvasProfile />}
       {social && <SafeAreaOverlay />}
       {social && <ReviewPins />}
       <AgentImagePlaceholders />

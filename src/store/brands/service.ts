@@ -173,6 +173,8 @@ export class BrandsService {
       if (s.colors) brand.colors = cleanColors(s.colors);
       if (s.fonts) brand.fonts = s.fonts.map((f) => clip(f, 80)).filter(Boolean).slice(0, 16);
       if (s.tone !== undefined) brand.tone = clip(s.tone, 2000);
+      if (s.description !== undefined) brand.description = clip(s.description, 150);
+      if (s.avatar !== undefined) brand.avatar = s.avatar && brand.logos.some((l) => l.id === s.avatar && l.role === "logo") ? s.avatar : null;
       if (s.formats) brand.formats = cleanFormats(s.formats);
       if (s.libraryFileKey !== undefined) brand.libraryFileKey = s.libraryFileKey ? clip(s.libraryFileKey, 64) : null;
       return this.put(brand);

@@ -20,7 +20,7 @@ import { applySelection } from "../agents/mcpTools";
 import { canWritePosts, editorWriter, newCampaign, resizePost, setCampaign, setPost, withinWrite } from "./actions";
 import { askAgent, exportPostsDialog } from "./SocialMode";
 import { canExport } from "../exporting";
-import { useSocialBoard, type CampaignGroup, type PostRow } from "./socialState";
+import { boardBrandId, useSocialBoard, type CampaignGroup, type PostRow } from "./socialState";
 import styles from "./SocialLeftPanel.module.css";
 
 /** The platform's two-letter mark beside a post [ours: no platform logos in the chrome] */
@@ -254,7 +254,7 @@ export function runPostMenu(ed: EditorController, id: string, ids: readonly Guid
       const copies = resizePost(ed, w, ids, id.slice(DUPLICATE.length), { duplicate: true });
       if (copies.length) applySelection(ed, copies, true);
     } else if (id === NEW_CAMPAIGN) {
-      const campaign = newCampaign(t("New campaign"), ed.ui.get().socialBrandId ?? null);
+      const campaign = newCampaign(t("New campaign"), boardBrandId(ed));
       w("Move to campaign", () => {
         setCampaign(ed, withinWrite, page, campaign);
         setPost(ed, withinWrite, ids, { campaignId: campaign.id });

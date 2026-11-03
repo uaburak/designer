@@ -1,5 +1,7 @@
 @layer app {
   /* A Social file's right panel (docs/social.md §19): Board, bulk, or the post's Design / Post [metrics ours] */
+  /* The tabs' panel: the Design side's views (each a rightBody that scrolls) or the Prototype tab's screen, filling the rest */
+  .body { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
   .switch { position: relative; display: flex; flex: none; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-2) var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-size-panel-pad-left); border-bottom: 1px solid var(--figma-color-border); }
   .switch > :first-child { flex: 1 1 auto; }
   .muted { margin: 0; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }

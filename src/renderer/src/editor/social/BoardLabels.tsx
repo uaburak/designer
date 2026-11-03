@@ -25,7 +25,7 @@ import { layoutOf } from "./arrange";
 import { BOARD, type GridBox } from "./board";
 import { canWritePosts, editorWriter, newPost } from "./actions";
 import { useFocusedPost } from "./focus";
-import { useSocialBoard } from "./socialState";
+import { boardBrandId, useSocialBoard } from "./socialState";
 import styles from "./BoardLabels.module.css";
 
 /** Screen px: the card's band over a container (its name) and its padding round it (the owner's captures) */
@@ -160,7 +160,7 @@ export function BoardLabels() {
     // the canvas over the "+" makes a post; over the container's black or its name, selects its posts.
     let press: { x: number; y: number } | null = null;
     const add = (k: Container) => {
-      const id = newPost(ed, editorWriter(ed), { formatId: k.formatId, brandId: ed.ui.get().socialBrandId ?? null });
+      const id = newPost(ed, editorWriter(ed), { formatId: k.formatId, brandId: boardBrandId(ed) });
       applySelection(ed, [id], false);
     };
     const down = (e: PointerEvent) => {

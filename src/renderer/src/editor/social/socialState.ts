@@ -11,7 +11,7 @@ import { SOCIAL_KEYS, SOCIAL_PLUGIN_ID, type PluginDataEntry, type SocialCampaig
 import type { EditorController } from "../controller";
 import { deferredListener } from "../deferred";
 import { motionRead } from "../motion/motionState";
-import { campaignsIn, postIn } from "./posts";
+import { campaignsIn, pageBrandIn, postIn } from "./posts";
 import type { PlacedPost } from "./board";
 
 export interface PostRow extends PlacedPost {
@@ -38,9 +38,14 @@ export interface SocialBoard {
   posts: PostRow[];
   /** The page's other top-level layers' bounds (where a first post goes beside them), null when there are none */
   others: { x: number; y: number; width: number; height: number } | null;
+  /**
+   * The page's brand (§34: a page is a brand's account): the page's own record, else the one most of its posts carry,
+   * else its campaigns'; null for a page no brand is set up for yet (the profile shows a placeholder).
+   */
+  brandId: string | null;
 }
 
-const EMPTY: SocialBoard = { page: "", campaigns: [], groups: [], posts: [], others: null };
+const EMPTY: SocialBoard = { page: "", campaigns: [], groups: [], posts: [], others: null, brandId: null };
 const POST_TYPES = new Set(["FRAME", "INSTANCE", "SYMBOL"]);
 
 type Row = NodeChange & { pluginData?: PluginDataEntry[] };
@@ -82,7 +87,19 @@ export function readBoard(ed: EditorController, page: Guid): SocialBoard {
   if (loose.length) groups.push({ campaign: null, posts: loose });
   // Within a row, left to right as on the board.
   for (const g of groups) g.posts.sort((a, b) => a.y - b.y || a.x - b.x);
-  return { page, campaigns, groups, posts, others };
+  return { page, campaigns, groups, posts, others, brandId: pageBrandIn(p.pluginData) ?? mostCommon([...posts.map((x) => x.data.brandId), ...campaigns.map((c) => c.brandId)]) };
+}
+
+function mostCommon(ids: readonly (string | null)[]): string | null {
+  const n = new Map<string, number>();
+  let best: string | null = null;
+  for (const id of ids) {
+    if (!id) continue;
+    const k = (n.get(id) ?? 0) + 1;
+    n.set(id, k);
+    if (!best || k > (n.get(best) ?? 0)) best = id;
+  }
+  return best;
 }
 
 /** A post with a timeline that has something on it: keyframes or presets on a layer, or audio. */
@@ -147,6 +164,14 @@ export function socialOf(ed: EditorController): SocialIndex {
   let index = indexes.get(ed);
   if (!index) indexes.set(ed, (index = new SocialIndex(ed)));
   return index;
+}
+
+/**
+ * The board's brand (§34): the current page's (its record, else its posts'), else the file's pick (ui.socialBrandId) —
+ * what new posts and campaigns take and what the profile shows.
+ */
+export function boardBrandId(ed: EditorController): string | null {
+  return socialOf(ed).get().brandId ?? ed.ui.get().socialBrandId ?? null;
 }
 
 /** The current page's board, re-rendering on a change. */

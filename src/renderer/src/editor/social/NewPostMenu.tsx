@@ -15,6 +15,7 @@ import { useUI } from "../hooks";
 import { applySelection } from "../agents/mcpTools";
 import { useBrands } from "../studio/forms";
 import { canWritePosts, editorWriter, newPost } from "./actions";
+import { boardBrandId } from "./socialState";
 import { SAFE_AREA_OPACITIES, safeAreaLook, setSafeAreaLook, toggleSafeAreas, type SafeAreaColor } from "./SocialMode";
 import styles from "./NewPostMenu.module.css";
 
@@ -35,9 +36,9 @@ export function newPostEntries(brand: Brand | null): MenuEntry[] {
   return out;
 }
 
-/** The board's brand (ui.socialBrandId) among the library's brands. */
+/** The board's brand (the page's, else ui.socialBrandId: socialState.boardBrandId) among the library's brands. */
 export function boardBrand(ed: EditorController, brands: readonly Brand[] | null): Brand | null {
-  const id = ed.ui.get().socialBrandId;
+  const id = boardBrandId(ed);
   return (id && brands?.find((b) => b.id === id)) || null;
 }
 

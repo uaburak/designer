@@ -11,7 +11,7 @@ import { useEditor } from "../controller";
 import { useUI } from "../hooks";
 import { applySelection } from "../agents/mcpTools";
 import { canWritePosts, editorWriter, newPost } from "./actions";
-import { useSocialBoard } from "./socialState";
+import { boardBrandId, useSocialBoard } from "./socialState";
 import styles from "./EmptyBoard.module.css";
 
 /** The strip's formats [ours]: the owner's Instagram 3:4 post first, then the formats he makes most. */
@@ -26,7 +26,7 @@ export function EmptyBoard() {
   if (!empty || closed) return null;
   const write = canWritePosts(ed);
   const make = (formatId: string) => {
-    const id = newPost(ed, editorWriter(ed), { formatId, brandId: ed.ui.get().socialBrandId ?? null });
+    const id = newPost(ed, editorWriter(ed), { formatId, brandId: boardBrandId(ed) });
     applySelection(ed, [id], false);
   };
   return (
