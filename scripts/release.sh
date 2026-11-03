@@ -188,10 +188,11 @@ if (winName) files.windows = { name: winName, size: Number(winSize) };
 const notes = notesFile ? fs.readFileSync(notesFile, "utf8").trim() : "";
 const releases = [{ version, date, notes, files }, ...list.filter((r) => r && r.version !== version)];
 // Only the newest KEEP releases keep their files (the newest, and the one before it for a download already under way
-// or a step back); older entries stay for the changelog without files, and their versions are listed for deletion
+// or a step back); older entries stay for the changelog without files. Every older version is listed for deletion,
+// not only the ones losing their files now, so files a failed deletion left behind go at the next release
 const KEEP = 2;
 const prune = [];
-releases.forEach((r, i) => { if (i >= KEEP && r.files) { prune.push(r.version); delete r.files; } });
+releases.forEach((r, i) => { if (i >= KEEP) { prune.push(r.version); delete r.files; } });
 fs.writeFileSync(out, JSON.stringify({ releases }, null, 2) + "\n");
 fs.writeFileSync(out + ".prune", prune.join("\n"));
 ' "$1" "$NEXT" "$VERSION" "$(date +%Y-%m-%d)" "$NOTES" \
@@ -229,20 +230,28 @@ fi
 make_releases "$CURRENT_JSON" || die "couldn't make the new releases.json"
 put "releases.json" "$NEXT"
 
-# Older releases' files leave the bucket (releases.json no longer names them, so no download points at them)
+# Older releases' files leave the bucket (releases.json no longer names them, so no download points at them). Each one
+# still served by get.wecra.app is deleted and checked gone; wrangler can't list a bucket, so the site is asked
 step "Removing older releases' files"
+on_site() { [[ "$(curl -sI -o /dev/null -w '%{http_code}' "https://get.wecra.app/updates/$1" < /dev/null)" == 200 ]]; }
+LEFT=()
 while read -r OLD; do
     [[ -n "$OLD" ]] || continue
     for name in "Wecra-$OLD.dmg" "Wecra-$OLD.dmg.blockmap" "Wecra-$OLD-arm64-mac.zip" "Wecra-$OLD-arm64-mac.zip.blockmap" \
         "Wecra-Setup-$OLD.exe" "Wecra-Setup-$OLD.exe.blockmap"; do
+        # A file that was never uploaded (no Windows build that time) or is already gone is skipped
+        on_site "$name" || continue
         if [[ $DRY_RUN == 1 ]]; then
             echo "  [dry run] npx --prefix site wrangler r2 object delete $BUCKET/updates/$name --remote"
+        elif wrangler r2 object delete "$BUCKET/updates/$name" --remote < /dev/null >/dev/null && ! on_site "$name"; then
+            echo "  updates/$name"
         else
-            # A file that was never uploaded (no Windows build that time) is fine
-            wrangler r2 object delete "$BUCKET/updates/$name" --remote < /dev/null >/dev/null 2>&1 && echo "  updates/$name"
+            LEFT+=("updates/$name")
         fi
     done
 done < "$NEXT.prune"
+# The release itself is out; a file left over is only reported (the next release tries again)
+for name in ${LEFT[@]+"${LEFT[@]}"}; do printf '\033[33mwarning:\033[0m %s is still in %s\n' "$name" "$BUCKET" >&2; done
 if [[ $DRY_RUN == 1 ]]; then
     echo "  The new releases.json (on an empty list):"
     sed 's/^/    /' "$NEXT"
