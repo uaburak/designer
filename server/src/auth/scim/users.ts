@@ -2,9 +2,11 @@
  * SCIM Users (docs/multiplayer.md §15.5; Figma's [F-scim-api]): `id` is our `users.id` (Figma's figmaUserId),
  * `userName` the email. A user is the link `scim_users` plus, while active, the org membership with
  * `provisioned_by 'scim'` and `idp_attributes`. DELETE removes the person from the org and the link — never the account
- * (decision 8). Guests are never managed: a SCIM user who is a guest becomes a member.
+ * (decision 8). Guests are never managed: a SCIM user who is a guest becomes a member. A userName is only taken on a
+ * verified domain of the org that this IdP serves, as SAML sign-in requires: an org may not claim, or rename into its
+ * own domain, an account it doesn't own the address of (that was an account takeover through the next SAML sign-in).
  */
-import { SCIM_ENTERPRISE_SCHEMA, SCIM_FIGMA_SCHEMA, SCIM_SEAT_VALUE, SCIM_USER_SCHEMA } from "../../../../src/shared/org/identity";
+import { SCIM_ENTERPRISE_SCHEMA, SCIM_FIGMA_SCHEMA, SCIM_SEAT_VALUE, SCIM_USER_SCHEMA, emailDomain } from "../../../../src/shared/org/identity";
 import type { Seat } from "../../../../src/shared/org/types";
 import { logActivity, userEntity, type Entity } from "../../activity";
 import { normalizeEmail } from "../../db";
@@ -14,6 +16,7 @@ import { removeFromOrg, setSeat } from "../../org/orgs";
 import { orgFileKeys, reauth } from "../../org/reauth";
 import { orgNotice } from "../../notifications";
 import { accountByEmail, accountForEmail, ensureMember, setNameFromIdp } from "../people";
+import { idpForDomain } from "../saml/config";
 import { ScimError, bool, iso, listResponse, paging, parseFilter, patchOps, readBody, scimJson, str, type ScimCtx } from "./common";
 import { applyGroupsOf } from "./groups";
 
@@ -64,6 +67,12 @@ function userName(v: unknown): string {
   if (e.length > 100) throw new ScimError(400, "userName is longer than 100 characters", "invalidValue");
   if (!EMAIL.test(e)) throw new ScimError(400, "userName must be an email address", "invalidValue");
   return e;
+}
+
+/** Refuses a userName that isn't on a verified domain of the org served by this IdP (the domain SAML sign-in accepts) */
+async function onOwnDomain(ctx: ScimCtx, email: string): Promise<void> {
+  const idp = await idpForDomain(ctx.deps.db.d1, ctx.orgId, emailDomain(email));
+  if (idp?.tenant_id !== ctx.tenantId) throw new ScimError(400, `${email} isn't on a verified domain of the organization served by this identity provider`, "invalidValue");
 }
 
 /** A User resource (POST / PUT body) → the state it describes */
@@ -302,6 +311,7 @@ async function apply(ctx: ScimCtx, l: LinkRow, cur: UserState, next: UserState):
   // Refusals first, before anything is written
   if (cur.figmaAdmin && cur.active && (!next.active || next.figmaAdmin === false)) await keepsAnAdmin(ctx, userId);
   if (next.userName !== cur.userName) {
+    await onOwnDomain(ctx, next.userName);
     const other = await accountByEmail(deps, next.userName);
     if (other && other.id !== userId) throw new ScimError(409, `another account uses ${next.userName}`, "uniqueness");
     const taken = await d1.prepare(`SELECT 1 AS x FROM scim_users WHERE org_id = ?1 AND user_name = ?2 AND user_id <> ?3`).bind(orgId, next.userName, userId).first();
@@ -364,6 +374,7 @@ async function create(ctx: ScimCtx, b: Record<string, unknown>): Promise<Respons
   const { deps, orgId, req } = ctx;
   const d1 = deps.db.d1;
   const st = fromResource(b, null);
+  await onOwnDomain(ctx, st.userName);
   if (await d1.prepare(`SELECT 1 AS x FROM scim_users WHERE org_id = ?1 AND user_name = ?2`).bind(orgId, st.userName).first()) throw new ScimError(409, `${st.userName} is already provisioned`, "uniqueness");
   if (st.externalId && (await d1.prepare(`SELECT 1 AS x FROM scim_users WHERE org_id = ?1 AND external_id = ?2`).bind(orgId, st.externalId).first())) throw new ScimError(409, `externalId ${st.externalId} is already provisioned`, "uniqueness");
   const { user } = await accountForEmail(deps, st.userName, displayNameOf(st));

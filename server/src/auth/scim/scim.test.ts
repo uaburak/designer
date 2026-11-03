@@ -13,6 +13,7 @@ let token: string;
 beforeEach(async () => {
   w = await identityWorld();
   tenant = await w.addIdp();
+  await w.verifiedDomain("acme.test");
   token = (await w.call("POST", `/orgs/${w.orgId}/admin/identity/scim-token`, { token: w.admin.token })).body.token;
 });
 
@@ -155,6 +156,7 @@ describe("Users", () => {
     const admin = await scim("POST", "/Users", okta("alice@acme.test", { roles: undefined }));
     expect(admin.body.id).toBe(w.admin.id);
     expect((await member(w.admin.id)).role).toBe("admin");
+    await w.verifiedDomain("elsewhere.test");
     const gus = await w.dev("gus@elsewhere.test");
     await w.run(`INSERT INTO org_members (org_id, email, user_id, role, seat, created_at) VALUES (?1, 'gus@elsewhere.test', ?2, 'guest', 'view', 1)`, w.orgId, gus.id);
     const g = await scim("POST", "/Users", okta("gus@elsewhere.test"));
@@ -168,6 +170,37 @@ describe("Users", () => {
     expect(await w.rows(`SELECT id FROM users WHERE id = ?1`, gus.id)).toHaveLength(1);
     expect((await scim("GET", `/Users/${gus.id}`)).status).toBe(404);
     expect((await actions()).map((a) => a.action)).toContain("idp_user_delete");
+  });
+});
+
+describe("domains", () => {
+  it("takes userNames only on the org's verified domains its IdP serves: no claiming, or renaming into, someone else's account", async () => {
+    const victim = await w.dev("victim@gmail.test");
+    const off = await scim("POST", "/Users", okta("victim@gmail.test"));
+    expect(off.body).toMatchObject({ status: "400", scimType: "invalidValue" });
+    expect(await w.rows(`SELECT 1 FROM scim_users WHERE user_id = ?1`, victim.id)).toHaveLength(0);
+    expect(await member(victim.id)).toBeUndefined();
+    // a domain added but not verified doesn't count
+    await w.run(`INSERT INTO org_domains (org_id, domain, token, created_at) VALUES (?1, 'pending.test', 'tok', 1)`, w.orgId);
+    expect((await scim("POST", "/Users", okta("pat@pending.test"))).status).toBe(400);
+    // a provisioned person can't be renamed off the org's domains: the email stays
+    const eve = (await scim("POST", "/Users", okta("eve@acme.test"))).body;
+    const rename = await scim("PATCH", `/Users/${eve.id}`, { schemas: [PATCH], Operations: [{ op: "replace", path: "userName", value: "eve@gmail.test" }] });
+    expect(rename.body).toMatchObject({ status: "400", scimType: "invalidValue" });
+    expect((await w.rows(`SELECT email FROM users WHERE id = ?1`, eve.id))[0].email).toBe("eve@acme.test");
+    expect((await scim("PUT", `/Users/${eve.id}`, okta("eve@gmail.test"))).status).toBe(400);
+    expect((await w.rows(`SELECT email FROM users WHERE id = ?1`, victim.id))[0].email).toBe("victim@gmail.test");
+  });
+
+  it("refuses a verified domain mapped to another of the org's IdPs", async () => {
+    const other = "1" + "9".repeat(17);
+    await w.run(`INSERT INTO idp_configs (org_id, tenant_id, provider, idp_entity_id, sso_url, certificates, signing, created_at, updated_at) VALUES (?1, ?2, 'entra', 'https://idp-b.test', 'https://idp-b.test/sso', '[]', 'assertion', 1, 1)`, w.orgId, other);
+    await w.verifiedDomain("beta.test");
+    await w.run(`UPDATE org_domains SET idp_tenant_id = ?2 WHERE org_id = ?1 AND domain = 'beta.test'`, w.orgId, other);
+    expect((await scim("POST", "/Users", okta("bo@beta.test"))).status).toBe(400);
+    expect((await scim("POST", "/Users", okta("eve@acme.test"))).status).toBe(400);
+    await w.run(`UPDATE org_domains SET idp_tenant_id = ?2 WHERE org_id = ?1 AND domain = 'acme.test'`, w.orgId, tenant);
+    expect((await scim("POST", "/Users", okta("eve@acme.test"))).status).toBe(201);
   });
 });
 
