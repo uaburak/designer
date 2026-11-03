@@ -36,7 +36,7 @@ import styles from "./SocialRightPanel.module.css";
 /** The right panel's size in a Social file [ours]: 320 wide (240–560). */
 export const SOCIAL_RIGHT_PANEL = { width: 320, minWidth: 240, maxWidth: 560 };
 
-const STATUS_LABEL: Record<PostStatus, string> = { draft: "Draft", reviewed: "Reviewed", approved: "Approved", exported: "Exported" };
+const STATUS_LABEL: Record<PostStatus, string> = { draft: "Draft", reviewed: "Reviewed", approved: "Approved", exported: "Exported", posted: "Posted" };
 
 /** The selected posts (the selection's top-level frames that are posts). */
 function useSelectedPostCount(): number {

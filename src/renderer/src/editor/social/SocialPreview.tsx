@@ -7,17 +7,18 @@
  *   campaigns that hold stories as story rings, then the feed posts three to a row at 3:4 (Instagram's profile grid).
  *   With no stories only "New" shows; with no posts the grid's first cell is a dashed "+" — both make a post of that
  *   format on the board and open it in the asset view, its own canvas, for the user to design (or the agent, later).
- * - **Post**: a tap on a cell shows that post alone (not the feed under it): its picture, actions, likes, caption and
- *   hashtags. The caption hovered shows a Copy button at its top right (caption and hashtags to the clipboard, a toast);
+ * - **Post**: a tap on a cell shows that post alone (not the feed under it): its picture, a badge with when it went out
+ *   (else when it is planned; §35), its caption and hashtags. The caption hovered shows a Copy button at its top right (caption and hashtags to the clipboard, a toast);
  *   a double-click edits it in place (⌘↵ or a click away saves it as the Post tab's caption, Esc leaves it).
- * - **Story**: a ring plays its campaign's stories full screen with Instagram's bars, five seconds each; a tap on the
+ * - **Story**: a ring plays its campaign's stories full screen with Instagram's bars and each one's date badge, five
+ *   seconds each; a tap on the
  *   left third goes back, elsewhere forward; the last one, or ✕, comes back to the profile.
  *
  * The pictures are the engine's renders of the posts (renderNodeThumbnailPixels), drawn again when the board changes.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { cx, showToast } from "@/ds";
-import { t, useT } from "@/i18n";
+import { intlLocale, t, useT } from "@/i18n";
 import { formatById } from "@shared/social/formats";
 import type { Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../controller";
@@ -206,17 +207,13 @@ function PostScreen({ row, who, onBack }: { row: PostRow; who: Who; onBack: () =
           <span className={styles.postWho}>
             <strong>{who.handle}</strong>
           </span>
+          <span className={styles.grow} />
+          <DateBadge row={row} />
         </div>
         <div className={styles.media} style={{ aspectRatio: `1 / ${ratio}` }}>
           <NodeImage id={row.id} rev={row} cssSize={437 * Math.max(1, ratio)} className={styles.cover} />
         </div>
-        <div className={styles.actions} aria-hidden>
-          <HeartGlyph />
-          <CommentGlyph />
-          <SendGlyph />
-          <span className={styles.grow} />
-          <SaveGlyph />
-        </div>
+        <div className={styles.afterMedia} />
         <Caption row={row} handle={who.handle} />
       </div>
     </>
@@ -313,7 +310,7 @@ function StoryScreen({ ring, index, who, onIndex }: { ring: StoryRing; index: nu
         <div className={styles.storyWho}>
           <AvatarPicture profile={who} className={styles.smallAvatar} />
           <strong>{who.handle}</strong>
-          <span className={styles.storyRing}>{ring.name}</span>
+          <DateBadge row={row} onMedia />
           <span className={styles.grow} />
           <button
             type="button"
@@ -330,6 +327,26 @@ function StoryScreen({ ring, index, who, onIndex }: { ring: StoryRing; index: nu
         </div>
       </div>
     </div>
+  );
+}
+
+/** When a post went out (its date, or only that it did: status Posted), else when it is planned, else that it isn't (§35). */
+export function postDate(row: Pick<PostRow, "data">): { kind: "published" | "scheduled" | "none"; at: number | null } {
+  if (row.data.publishedAt != null || row.data.status === "posted") return { kind: "published", at: row.data.publishedAt ?? null };
+  if (row.data.scheduledAt != null) return { kind: "scheduled", at: row.data.scheduledAt };
+  return { kind: "none", at: null };
+}
+
+/** The post's date as a badge: Posted (green), Scheduled (blue), Not scheduled (muted). */
+function DateBadge({ row, onMedia }: { row: PostRow; onMedia?: boolean }) {
+  const d = postDate(row);
+  const when = d.at === null ? "" : new Intl.DateTimeFormat(intlLocale(), { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(d.at);
+  const label = d.kind === "published" ? (when ? t("Posted {date}", { date: when }) : t("Posted")) : d.kind === "scheduled" ? t("Scheduled {date}", { date: when }) : t("Not scheduled");
+  return (
+    <span className={cx(styles.badge, onMedia && styles.badgeOnMedia)} data-kind={d.kind} data-social-preview-date={d.kind}>
+      <CalendarGlyph />
+      {label}
+    </span>
   );
 }
 
@@ -381,31 +398,11 @@ function BackGlyph() {
     </svg>
   );
 }
-function HeartGlyph() {
+function CalendarGlyph() {
   return (
-    <svg viewBox="0 0 24 24" className={styles.glyph}>
-      <path d="M12 20.5s-7.5-4.4-9.3-9.2C1.5 8 3.6 4.5 7 4.5c2.2 0 3.7 1.3 5 3 1.3-1.7 2.8-3 5-3 3.4 0 5.5 3.5 4.3 6.8-1.8 4.8-9.3 9.2-9.3 9.2z" {...stroke} />
-    </svg>
-  );
-}
-function CommentGlyph() {
-  return (
-    <svg viewBox="0 0 24 24" className={styles.glyph}>
-      <path d="M20.6 16.3A9 9 0 1 0 17.2 20L21.5 21z" {...stroke} />
-    </svg>
-  );
-}
-function SendGlyph() {
-  return (
-    <svg viewBox="0 0 24 24" className={styles.glyph}>
-      <path d="M22 3L2.5 9.5l8 3.5 3.5 8zM22 3L10.5 13" {...stroke} />
-    </svg>
-  );
-}
-function SaveGlyph() {
-  return (
-    <svg viewBox="0 0 24 24" className={styles.glyph}>
-      <path d="M19 21l-7-5-7 5V3h14z" {...stroke} />
+    <svg viewBox="0 0 24 24" className={styles.smallGlyph} aria-hidden>
+      <rect x="3.5" y="5" width="17" height="15.5" rx="2.5" {...stroke} strokeWidth={2} />
+      <path d="M3.5 10h17M8 3v4M16 3v4" {...stroke} strokeWidth={2} />
     </svg>
   );
 }

@@ -76,7 +76,17 @@
   .postHead { display: flex; align-items: center; gap: calc(10 * var(--u)); padding: calc(10 * var(--u)) calc(12 * var(--u)); }
   .postWho { display: flex; flex-direction: column; font-size: calc(13 * var(--u)); }
   .media { position: relative; width: 100%; overflow: hidden; background: var(--ds-color-ig-button); }
-  .actions { display: flex; align-items: center; gap: calc(16 * var(--u)); padding: calc(10 * var(--u)) calc(12 * var(--u)) calc(6 * var(--u)); }
+  /* The post's date (§35): Instagram's actions give way to a badge — Posted, Scheduled or Not scheduled — at the post header's right */
+  .afterMedia { height: calc(10 * var(--u)); }
+  .badge {
+    display: inline-flex; flex: none; align-items: center; gap: calc(4 * var(--u)); height: calc(20 * var(--u)); padding: 0 calc(7 * var(--u));
+    border-radius: calc(10 * var(--u)); background: var(--ds-color-ig-button); color: var(--ds-color-ig-text-secondary);
+    font-size: calc(10.5 * var(--u)); font-weight: 600; white-space: nowrap;
+  }
+  .badge .smallGlyph { width: calc(11 * var(--u)); height: calc(11 * var(--u)); }
+  .badge[data-kind="scheduled"] { background: var(--ds-color-ig-accent); color: var(--ds-color-ig-on-media); }
+  .badge[data-kind="published"] { background: var(--figma-color-bg-success); color: var(--figma-color-text-onsuccess); }
+  .badgeOnMedia[data-kind="none"] { background: var(--ds-color-ig-story-bar); color: var(--ds-color-ig-on-media); }
   .caption {
     position: relative; display: flex; flex-direction: column; gap: calc(2 * var(--u)); margin: 0 calc(6 * var(--u)) calc(24 * var(--u));
     padding: calc(8 * var(--u)) calc(44 * var(--u)) calc(8 * var(--u)) calc(6 * var(--u)); border-radius: calc(8 * var(--u)); cursor: text;
@@ -109,7 +119,6 @@
   .storyDone { width: 100%; }
   .storyNow { animation: storyFill linear forwards; }
   .storyWho { display: flex; align-items: center; gap: calc(8 * var(--u)); margin-top: calc(10 * var(--u)); }
-  .storyRing { opacity: 0.75; }
   .storyClose { display: grid; place-items: center; padding: 0; border: 0; background: none; color: inherit; cursor: pointer; }
   @keyframes storyFill { from { width: 0; } to { width: 100%; } }
   @media (prefers-reduced-motion: reduce) { .storyNow { animation: none; width: 100%; } }

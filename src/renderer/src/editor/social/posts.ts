@@ -35,12 +35,14 @@ export function normalizePost(raw: unknown): SocialPostData | null {
     status: POST_STATUSES.includes(r.status as SocialPostData["status"]) ? (r.status as SocialPostData["status"]) : "draft",
     problems: Array.isArray(r.problems) ? (r.problems.filter((p) => p && typeof p === "object" && typeof (p as PostProblem).id === "string") as PostProblem[]) : [],
     exportedAt: typeof r.exportedAt === "number" ? r.exportedAt : null,
+    scheduledAt: typeof r.scheduledAt === "number" ? r.scheduledAt : null,
+    publishedAt: typeof r.publishedAt === "number" ? r.publishedAt : null,
   };
 }
 
 /** A new post's record: a draft of `formatId`, nothing written yet. */
 export function postRecord(formatId: string, over: Partial<SocialPostData> = {}): SocialPostData {
-  return { v: 1, formatId, brandId: null, productIds: [], campaignId: null, template: null, group: null, caption: "", hashtags: [], altText: "", status: "draft", problems: [], exportedAt: null, ...over };
+  return { v: 1, formatId, brandId: null, productIds: [], campaignId: null, template: null, group: null, caption: "", hashtags: [], altText: "", status: "draft", problems: [], exportedAt: null, scheduledAt: null, publishedAt: null, ...over };
 }
 
 /** The post record in pluginData entries, or null. */

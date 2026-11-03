@@ -1773,4 +1773,11 @@ export const editor: Record<string, string> = {
   "The caption couldn't be copied": "Açıklama kopyalanamadı",
   "Double-click to write a caption": "Açıklama yazmak için çift tıklayın",
   "Copy caption": "Açıklamayı kopyala",
+  // A post's dates (docs/social.md §35)
+  "Scheduled for": "Planlanan tarih",
+  "Posted on": "Paylaşım tarihi",
+  "Posted": "Paylaşıldı",
+  "Scheduled {date}": "Planlandı · {date}",
+  "Posted {date}": "Paylaşıldı · {date}",
+  "Not scheduled": "Planlanmadı",
 };

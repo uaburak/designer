@@ -4,7 +4,8 @@
 // would be posted, and the panel's width from its height at 9:16.
 import { describe, expect, it } from "vitest";
 import type { SocialPostData } from "@shared/social/types";
-import { captionText, isStory, profileOf } from "../social/SocialPreview";
+import { captionText, isStory, postDate, profileOf } from "../social/SocialPreview";
+import { normalizePost } from "../social/posts";
 import { handleOf } from "../social/BrandProfile";
 import { pageBrandIn } from "../social/posts";
 import { SOCIAL_PLUGIN_ID } from "@shared/social/types";
@@ -96,5 +97,13 @@ describe("Prototype tab (docs/social.md §33)", () => {
     expect(handleOf("MTM Agro")).toBe("mtmagro");
     expect(handleOf("İyi Tarım")).toBe("iyitarım");
     expect(handleOf("  ")).toBe("brand");
+  });
+
+  it("badges a post with when it went out, else when it is planned (§35)", () => {
+    expect(postDate(row("a", { scheduledAt: 1, publishedAt: 2 }))).toEqual({ kind: "published", at: 2 });
+    expect(postDate(row("b", { scheduledAt: 1 }))).toEqual({ kind: "scheduled", at: 1 });
+    expect(postDate(row("c"))).toEqual({ kind: "none", at: null });
+    expect(postDate(row("d", { status: "posted" }))).toEqual({ kind: "published", at: null });
+    expect(normalizePost({ formatId: "instagram.post", scheduledAt: 5, publishedAt: "x" })).toMatchObject({ scheduledAt: 5, publishedAt: null });
   });
 });

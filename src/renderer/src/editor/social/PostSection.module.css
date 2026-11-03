@@ -30,6 +30,15 @@
   .chip { display: inline-flex; align-items: center; height: var(--ds-size-control); padding-left: var(--ds-space-1-5); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg); color: var(--figma-color-text); font: var(--ds-font-body-medium); }
   .chipInput { flex: 1 1 var(--ds-space-16); min-width: 0; height: var(--ds-size-control); padding: 0 var(--ds-space-1); border: 0; background: transparent; color: var(--figma-color-text); font: var(--ds-font-body-medium); outline: none; }
 
+  /* Scheduled / Published (§35): the system's date and time picker, as a text input */
+  .dateInput {
+    box-sizing: border-box; width: 100%; min-width: 0; height: var(--ds-size-control); padding: 0 var(--ds-space-1-5); border: 1px solid transparent;
+    border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); color: var(--figma-color-text); font: var(--ds-font-body-medium); color-scheme: light dark;
+  }
+  .dateInput:hover { border-color: var(--figma-color-border); }
+  .dateInput:focus { border-color: var(--figma-color-border-selected); outline: none; }
+  .dateInput:disabled { color: var(--figma-color-text-disabled); }
+
   /* Problems: the detail, Fix, Leave */
   .problem { display: flex; align-items: center; gap: var(--ds-space-1); }
   .problemText { flex: 1 1 auto; min-width: 0; color: var(--figma-color-text-warning); font: var(--ds-font-body-medium); overflow-wrap: anywhere; }

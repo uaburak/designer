@@ -67,7 +67,7 @@ export interface NewPostOptions {
   at?: { x: number; y: number };
 }
 
-export type PostPatch = Partial<Pick<SocialPostData, "brandId" | "productIds" | "campaignId" | "caption" | "hashtags" | "altText" | "status">>;
+export type PostPatch = Partial<Pick<SocialPostData, "brandId" | "productIds" | "campaignId" | "caption" | "hashtags" | "altText" | "status" | "scheduledAt" | "publishedAt">>;
 
 export type SaveAsTemplateOptions = templates.SaveTemplateOptions;
 
@@ -189,7 +189,7 @@ export function resizePost(ed: EditorController, w: Writer, ids: readonly Guid[]
       const t = ed.engine.readNode(copy, { fields: ["transform"] })?.transform ?? IDENTITY;
       if (!adaptPost(ed, copy, { width: format.width, height: format.height, formatId }, data.formatId)) ed.engine.setProps([copy], { size: { x: format.width, y: format.height } });
       ed.engine.setProps([copy], { name: format.name, transform: { ...t, m02: at.x, m12: at.y } });
-      writePost(ed, copy, { ...data, formatId, status: "draft", problems: [], exportedAt: null, group: null });
+      writePost(ed, copy, { ...data, formatId, status: "draft", problems: [], exportedAt: null, publishedAt: null, group: null });
       out.push(copy);
     }
     return out;

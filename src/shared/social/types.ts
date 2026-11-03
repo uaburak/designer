@@ -70,8 +70,9 @@ export interface PlatformFormat extends SocialFormat {
 
 // ── Posts, campaigns, templates (§3) ──────────────────────────────────────────────────────────────────────────────
 
-export type PostStatus = "draft" | "reviewed" | "approved" | "exported";
-export const POST_STATUSES: readonly PostStatus[] = ["draft", "reviewed", "approved", "exported"];
+/** … then "posted": it went out (§35; its date, when known, is `publishedAt`) */
+export type PostStatus = "draft" | "reviewed" | "approved" | "exported" | "posted";
+export const POST_STATUSES: readonly PostStatus[] = ["draft", "reviewed", "approved", "exported", "posted"];
 
 export type SlotRole = "logo" | "picture" | "headline" | "body" | "cta" | "label" | "accent" | "background";
 export const SLOT_ROLES: readonly SlotRole[] = ["logo", "picture", "headline", "body", "cta", "label", "accent", "background"];
@@ -100,6 +101,10 @@ export interface SocialPostData {
   /** The last review's problems on this post (pins, §6.5); cleared when fixed or left */
   problems: PostProblem[];
   exportedAt: number | null;
+  /** When it is planned to go out (ms; docs/social.md §35), null: not planned. Missing in records written before it */
+  scheduledAt?: number | null;
+  /** When it went out (ms), null: not yet */
+  publishedAt?: number | null;
 }
 
 /** A row of posts; on the page (CANVAS) under `designer.social` / `campaigns` as SocialCampaign[] (§3.2). */

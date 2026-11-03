@@ -26,7 +26,7 @@ import { askAgent, fixWithAgent } from "./SocialMode";
 import { useSocialBoard, type PostRow } from "./socialState";
 import styles from "./PostSection.module.css";
 
-const STATUS_LABEL: Record<PostStatus, string> = { draft: "Draft", reviewed: "Reviewed", approved: "Approved", exported: "Exported" };
+const STATUS_LABEL: Record<PostStatus, string> = { draft: "Draft", reviewed: "Reviewed", approved: "Approved", exported: "Exported", posted: "Posted" };
 const ROLE_LABEL: Record<string, string> = { logo: "Logo", picture: "Picture", headline: "Headline", body: "Body", cta: "CTA", label: "Label", accent: "Accent", background: "Background" };
 const NONE = "none";
 
@@ -160,6 +160,16 @@ function PostFields({ posts, brands, campaigns }: { posts: PostRow[]; brands: Br
           <Select label={t("Campaign")} value={campaignId} disabled={!write} options={[...campaigns.map((c) => ({ value: c.id, label: c.name || t("Untitled campaign") })), { value: NONE, label: t("No campaign") }]} onChange={(v) => patch({ campaignId: v === NONE ? null : v })} data-post-field="campaign" />
         </Field>
       </div>
+      {one && (
+        <div className={styles.pair}>
+          <Field label={t("Scheduled for")}>
+            <DateTimeInput label={t("Scheduled for")} value={one.data.scheduledAt ?? null} disabled={!write} onCommit={(scheduledAt) => patch({ scheduledAt })} data-post-field="scheduled" />
+          </Field>
+          <Field label={t("Posted on")}>
+            <DateTimeInput label={t("Posted on")} value={one.data.publishedAt ?? null} disabled={!write} onCommit={(publishedAt) => patch({ publishedAt })} data-post-field="published" />
+          </Field>
+        </div>
+      )}
       {one && one.data.problems.length > 0 && <Problems post={one} disabled={!write} />}
       <div className={styles.actions}>
         <Button variant="secondary" onClick={() => askAgent(ed, ids)} data-post-ask="">
@@ -180,6 +190,31 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 /** A multi-line field written once when it is left (or ⌘↩); Esc puts it back. */
+/** A date and time (the system's picker, local time); cleared: null. Saved when a whole value is picked. */
+function DateTimeInput({ label, value, disabled, onCommit, ...data }: { label: string; value: number | null; disabled?: boolean; onCommit: (v: number | null) => void } & Record<`data-${string}`, string>) {
+  const local = (ms: number) => {
+    const d = new Date(ms);
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
+  return (
+    <input
+      type="datetime-local"
+      className={styles.dateInput}
+      aria-label={label}
+      disabled={disabled}
+      value={value === null ? "" : local(value)}
+      onChange={(e) => {
+        const v = e.currentTarget.value;
+        const ms = v ? new Date(v).getTime() : null;
+        if (ms === null || Number.isFinite(ms)) onCommit(ms);
+      }}
+      onKeyDown={(e) => e.stopPropagation()}
+      {...data}
+    />
+  );
+}
+
 function CommitArea({ label, value, rows, disabled, placeholder, onCommit, onDraft }: { label: string; value: string; rows: number; disabled?: boolean; placeholder?: string; onCommit: (v: string) => void; onDraft?: (v: string) => void }) {
   const [draft, setDraft] = useState<string | null>(null);
   const cancelled = useRef(false);

@@ -27,7 +27,7 @@ import { ROLE_NAMES, TEXT_ROLES, fillSlots, fillSlotsNow, postSlots, slotTexts }
 import { useTemplates } from "./TemplatesGallery";
 import styles from "./Templates.module.css";
 
-const STATUS_LABEL: Record<PostStatus, string> = { draft: "Draft", reviewed: "Reviewed", approved: "Approved", exported: "Exported" };
+const STATUS_LABEL: Record<PostStatus, string> = { draft: "Draft", reviewed: "Reviewed", approved: "Approved", exported: "Exported", posted: "Posted" };
 
 /** A column the table sorts by: the post's name, format, brand, a text slot's role, or a field of its record. */
 export type SortColumn = "name" | "format" | "brand" | SlotRole | "caption" | "hashtags" | "alt" | "status";
