@@ -809,3 +809,43 @@ TEST_CASE("extras: an image's contrast in Figma's ±0.3 (Wecra's older −1…1 
   CHECK(imageContrast(1.f) == doctest::Approx(0.3));
   CHECK(imageContrast(-0.5f) == doctest::Approx(-0.15));
 }
+
+TEST_CASE("renderer: a zoom draws noise one sample a pixel, then draws it supersampled again once it settles") {
+  // Owner, 2026-11-04: zooming in on a layer with a noise stuttered — four sine-hashed noises a pixel over the
+  // screen, every zoom frame. Lighter while the zoom goes on; the settle frame draws it as at rest.
+  Document d;
+  base(d);
+  NodeChange n = card({1, 1}, {10, 10, 100, 100});
+  Effect noise;
+  noise.type = EffectType::NOISE;
+  noise.color = {0, 0, 0, 0.25f};
+  noise.extra = effectExtra({{"noiseType", "\"MONOTONE\""}, {"density", "0.5"}, {"noiseSize", "{\"x\":0.5,\"y\":0.5}"}});
+  n.props.effects = {noise};
+  d.apply(n);
+  gfx::NullDevice dev;
+  Renderer r(dev);
+  r.setContentCache(true);
+  double now = 1000;
+  r.setClock([&] { return now; });
+  const Viewport view{800, 600, 1, 800, 600};
+  Overlay o;
+  o.frameTitles = false;
+  auto code = [&] {
+    auto nm = composites(dev, 6);
+    REQUIRE(nm.size() == 1);
+    return static_cast<int>(nm[0]->call.uniforms[18][3]);
+  };
+  r.render(d, kPage, Camera{}, view, o, kDark);
+  CHECK(code() == static_cast<int>(NoiseType::MONOTONE) + 4);  // at rest: supersampled
+  o.zooming = true;
+  dev.draws.clear();
+  r.render(d, kPage, Camera{0, 0, 4}, view, o, kDark);
+  CHECK(code() == static_cast<int>(NoiseType::MONOTONE));  // zooming: one sample
+  CHECK(r.wantsFrameAt() > now);
+  now += Renderer::kZoomSettleMs + 1;
+  dev.draws.clear();
+  RenderStats s = r.render(d, kPage, Camera{0, 0, 4}, view, o, kDark);  // the settle frame, same camera
+  CHECK(s.cachedRegions == 1);
+  CHECK(code() == static_cast<int>(NoiseType::MONOTONE) + 4);
+  CHECK(r.wantsFrameAt() == 0);
+}

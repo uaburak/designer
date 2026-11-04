@@ -1073,6 +1073,11 @@ class Renderer {
   bool cacheEnabled_ = false;
   bool exporting_ = false;
   bool lodZoom_ = false;  // this frame is part of a zoom: lighter LOD (text as ink bars under kGlyphZoomEmPx)
+  // This frame drew something lighter for the zoom (text as bars, noise one sample a pixel): drawn sharp once it settles.
+  bool lodUsed_ = false;
+  // A noise of this size (node units) drawn 2 × 2 samples a pixel: ≤ 1 (Figma's) — but one sample while a zoom goes
+  // on (the fill rate of four sine-hashed noises a pixel over a zoomed-in screen stuttered the zoom), sharp at rest.
+  bool noiseSupersampled(double noiseSize);
   uint32_t lodLeaf_ = UINT32_MAX;  // the node drawNode found too small to draw its children (LOD)
   struct ContentCache {
     gfx::TargetId target = 0, spare = 0;  // the pixels, and the other one (shifts ping-pong)
@@ -1087,6 +1092,7 @@ class Renderer {
     double fullMs = 0;                    // how long its last full raster took
     double zoomFullMs = 0;                // …and its last one during a zoom (lighter LOD): what a zoom decides by
     double lastZoom = 0, zoomChangedAt = 0, settleAt = 0;
+    bool lodDrawn = false;                // drawn with the zoom's lighter LOD (lodUsed_): drawn again at rest
     // Images arriving on a slow page: when they last made it draw everything, and when the ones that came since are
     // drawn (kImageBatchMs later: a file opening with many images draws them a few at a time, not each alone).
     double imagesAt = 0, imagesWaitAt = 0;

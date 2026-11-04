@@ -164,6 +164,15 @@ bool Renderer::DrawState::operator==(const DrawState& o) const {
          std::memcmp(filters, o.filters, sizeof filters) == 0;
 }
 
+bool Renderer::noiseSupersampled(double noiseSize) {
+  if (noiseSize > 1) return false;
+  if (lodZoom_ && !exporting_) {
+    lodUsed_ = true;
+    return false;
+  }
+  return true;
+}
+
 bool Renderer::darkCanvas(const Color& page) {
   // Figma reads the page's luminance: light text on a dark page, dark text on a light one.
   auto linear = [](float c) { return c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f); };
@@ -405,7 +414,7 @@ bool Renderer::setPaint(DrawInstance& q, DrawState& state, const Paint& paint, c
     q.paint0[0] = static_cast<float>(P.m00), q.paint0[1] = static_cast<float>(P.m01), q.paint0[2] = static_cast<float>(P.m02);
     q.paint1[0] = static_cast<float>(P.m10), q.paint1[1] = static_cast<float>(P.m11), q.paint1[2] = static_cast<float>(P.m12);
     q.paint0[3] = static_cast<float>(std::clamp(x.density, 0.0, 1.0));
-    q.paint1[3] = static_cast<float>(static_cast<int>(x.noiseType) + (x.noiseSize.x <= 1 ? 4 : 0));
+    q.paint1[3] = static_cast<float>(static_cast<int>(x.noiseType) + (noiseSupersampled(x.noiseSize.x) ? 4 : 0));
     kind = PaintKind::Noise;
   } else if (isImageLike(paint.type)) {
     bool failed = false, placeholder = false;
@@ -2051,7 +2060,7 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
       std::memcpy(pc.fx, centred, sizeof centred);
       pc.fx[2][0] = static_cast<float>(std::max(x.noiseSize.x, 1e-3)), pc.fx[2][1] = static_cast<float>(std::max(x.noiseSize.y, 1e-3));
       pc.fx[2][2] = static_cast<float>(std::clamp(x.density, 0.0, 1.0));
-      pc.fx[2][3] = static_cast<float>(static_cast<int>(x.noiseType) + (x.noiseSize.x <= 1 ? 4 : 0));  // ≤ 1: supersampled
+      pc.fx[2][3] = static_cast<float>(static_cast<int>(x.noiseType) + (noiseSupersampled(x.noiseSize.x) ? 4 : 0));  // ≤ 1: supersampled
       premultiply(pc.fx[3], x.noiseType == NoiseType::DUOTONE ? x.secondaryColor : Color{0, 0, 0, 0}, 1);
       stack.push_back(pc);
     }
@@ -3064,6 +3073,7 @@ void Renderer::purgeMemory() {
 RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camera, const Viewport& viewport,
                              const Overlay& overlay, const OverlayStyle& style, gfx::TargetId target, Guid only) {
   lodZoom_ = overlay.zooming;  // refined below on the cached path (only while the zoom is still changing)
+  lodUsed_ = false;
   ensurePipelines();
   frame_++;
   doc_ = &doc;
@@ -3343,6 +3353,8 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
   // glyph coverage either): tens of thousands of 1–6 px glyphs made each zoom frame GPU-bound (owner's Test page:
   // 70 fps drawn sharp at full resolution; 111 with this).
   lodZoom_ = overlay.zooming && now - c.zoomChangedAt < kZoomSettleMs;
+  // Drawn lighter during the zoom: everything again, sharp, now that it has settled.
+  if (c.lodDrawn && !lodZoom_) needFull = true;
   bool slowZoom = same && c.zoom != camera.zoom && overlay.zooming && c.zoomFullMs > kZoomScaledCacheMs &&
                   now - c.zoomChangedAt < kZoomSettleMs;
   // Zooming in, the cache scaled covers the canvas; zooming out it doesn't: tiles fill in around it.
@@ -3455,6 +3467,9 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
       drewFull = true;
       c.fullMs = nowMs() - t0;
       c.zoomFullMs = lodZoom_ ? c.fullMs : 0;  // each zoom measures afresh
+      c.lodDrawn = lodUsed_;
+      // A frame comes when the zoom settles (wantsFrameAt), to draw it sharp.
+      if (lodUsed_) c.settleAt = std::max(c.settleAt, c.zoomChangedAt + kZoomSettleMs);
     }
   }
   if (drewFull) {

@@ -332,26 +332,34 @@ float fnCellHash(vec2 cell) {
 }
 float fnSeedHash(float x) { return fract(sin(x * 91.3458 + 12.345) * 43758.5453); }
 float fnWave(vec2 cell, vec2 k, float s) { return 2.0 * (fract(sin(dot(k, cell) * 0.0625) * (s + 312.0)) - 0.5); }
-vec2 fnGradient(vec2 cell, float x) {
-  float h = fnCellHash(cell);
-  vec2 g = vec2(fnWave(cell, vec2(12.42, 78.23) * fnSeedHash(x + 2.6457), x * h * 1.61803 + 18.345),
-                fnWave(cell, vec2(-19.98, 31.21) * fnSeedHash(x + 3.6055), x * h * 0.61803 + 21.543));
+// A corner's gradient: the cell's hash `h` (shared by every channel), the channel's octave seed `x` and its waves.
+vec2 fnGradient(vec2 cell, float h, float x, vec2 k1, vec2 k2) {
+  vec2 g = vec2(fnWave(cell, k1, x * h * 1.61803 + 18.345), fnWave(cell, k2, x * h * 0.61803 + 21.543));
   return g / max(length(g), 1e-12);
 }
-float fnGradientNoise(vec2 p, float x) {
-  vec2 i = floor(p), f = fract(p);
-  vec2 s = f * f * (3.0 - 2.0 * f);
-  float a = dot(f, fnGradient(i, x));
-  float b = dot(f - vec2(1.0, 0.0), fnGradient(i + vec2(1.0, 0.0), x));
-  float c = dot(f - vec2(0.0, 1.0), fnGradient(i + vec2(0.0, 1.0), x));
-  float d = dot(f - vec2(1.0, 1.0), fnGradient(i + vec2(1.0, 1.0), x));
+// One channel of one octave over the cell at i (f within it, s smoothstepped, h the four corners' hashes).
+float fnGradientNoise(vec2 i, vec2 f, vec2 s, vec4 h, float x) {
+  vec2 k1 = vec2(12.42, 78.23) * fnSeedHash(x + 2.6457), k2 = vec2(-19.98, 31.21) * fnSeedHash(x + 3.6055);
+  float a = dot(f, fnGradient(i, h.x, x, k1, k2));
+  float b = dot(f - vec2(1.0, 0.0), fnGradient(i + vec2(1.0, 0.0), h.y, x, k1, k2));
+  float c = dot(f - vec2(0.0, 1.0), fnGradient(i + vec2(0.0, 1.0), h.z, x, k1, k2));
+  float d = dot(f - vec2(1.0, 1.0), fnGradient(i + vec2(1.0, 1.0), h.w, x, k1, k2));
   return mix(mix(a, b, s.x), mix(c, d, s.x), s.y);
 }
-float fnFbm(float seed, vec2 p) {
-  float sum = 0.0, amplitude = 1.0;
+float fnOctaveSeed(float seed, int octave) { return fract(sin(seed * 91.3458 + float(octave) * 57.123 + 12.345) * 43758.5453); }
+// The fbm of the channels seed, seed + 1, … (n of them, 1–4) at p, in x y z w: one walk of the lattice, each cell's
+// hash computed once for all of them (the same values as one fbm a channel, a third of the sines).
+vec4 fnFbmN(float seed, vec2 p, int n) {
+  vec4 sum = vec4(0.0);
+  float amplitude = 1.0;
   for (int octave = 0; octave < 3; octave++) {
-    float x = fract(sin(seed * 91.3458 + float(octave) * 57.123 + 12.345) * 43758.5453);
-    sum += fnGradientNoise(p, x) / amplitude;
+    vec2 i = floor(p), f = fract(p);
+    vec2 s = f * f * (3.0 - 2.0 * f);
+    vec4 h = vec4(fnCellHash(i), fnCellHash(i + vec2(1.0, 0.0)), fnCellHash(i + vec2(0.0, 1.0)), fnCellHash(i + vec2(1.0, 1.0)));
+    sum.x += fnGradientNoise(i, f, s, h, fnOctaveSeed(seed, octave)) / amplitude;
+    if (n > 1) sum.y += fnGradientNoise(i, f, s, h, fnOctaveSeed(seed + 1.0, octave)) / amplitude;
+    if (n > 2) sum.z += fnGradientNoise(i, f, s, h, fnOctaveSeed(seed + 2.0, octave)) / amplitude;
+    if (n > 3) sum.w += fnGradientNoise(i, f, s, h, fnOctaveSeed(seed + 3.0, octave)) / amplitude;
     p *= 2.0;
     amplitude *= 2.0;
   }
@@ -367,9 +375,10 @@ float fnBand(float v, float density, bool high) {
 // alpha color.a), 1 Mono (the colour where the noise's luminance is in the band), 2 Duo (`second` in the low band,
 // the colour in the high one). Colours premultiplied; the result premultiplied, before the source's alpha.
 vec4 figmaNoise(vec2 p, float seed, float density, int type, vec4 color, vec4 second) {
-  vec3 v = vec3(fnFbm(seed, p), fnFbm(seed + 1.0, p), fnFbm(seed + 2.0, p)) * 0.5 + 0.5;
+  vec4 F = fnFbmN(seed, p, type == 0 ? 4 : 3) * 0.5 + 0.5;
+  vec3 v = F.xyz;
   if (type == 0) {
-    float a = fnBand(fnFbm(seed + 3.0, p) * 0.5 + 0.5, density, false) * color.a;
+    float a = fnBand(F.w, density, false) * color.a;
     return vec4(clamp(2.0 * v - 0.5, 0.0, 1.0) * a, a);
   }
   float l = 0.213 * v.r + 0.715 * v.g + 0.072 * v.b;
@@ -626,7 +635,7 @@ void main() {
 // the blurred alpha behind, knocked out by the node's alpha), 4 inner shadow (colour × the node's alpha × (1 −
 // the blurred alpha)), 5 progressive blur (one interval between two blurred copies), 6 noise (within the source's
 // alpha), 7 texture (the source read through Figma's noise displacement). Modes 5–7 read slots 16–19
-// (kClipFunctions' effectSpace, progressT, figmaNoise, fnFbm; noiseAt, textureShift). Blend modes other than NORMAL read the backdrop and write the
+// (kClipFunctions' effectSpace, progressT, figmaNoise, fnFbmN; noiseAt, textureShift). Blend modes other than NORMAL read the backdrop and write the
 // result (Blend::Replace).
 inline constexpr const char* kCompositeVertex = R"(#version 300 es
 uniform vec4 u_v[20];
@@ -683,7 +692,7 @@ vec4 noiseAt(vec2 dp) {
 // seed + 1) times the radius, in the node's space — in canvas device px.
 vec2 textureShift(vec2 dp) {
   vec2 q = effectSpace(dp) / max(u_v[18].xy, vec2(1e-3));
-  vec2 d = vec2(fnFbm(u_v[8].x, q), fnFbm(u_v[8].x + 1.0, q)) * u_v[18].z;
+  vec2 d = fnFbmN(u_v[8].x, q, 2).xy * u_v[18].z;
   return vec2(dot(u_v[19].xy, d), dot(u_v[19].zw, d));
 }
 

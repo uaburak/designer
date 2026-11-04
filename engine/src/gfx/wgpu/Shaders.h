@@ -142,36 +142,41 @@ fn progressT(dp: vec2f) -> f32 {
   let d = u.v[18].zw - s;
   return clamp(dot(uu - s, d) / max(dot(d, d), 1e-12), 0.0, 1.0);
 }
-// Figma's gradient noise (gl/Shaders.h fnFbm, figmaNoise).
+// Figma's gradient noise (gl/Shaders.h fnFbmN, figmaNoise).
 fn fnCellHash(cell: vec2f) -> f32 {
   let d = glMod(dot(cell, vec2f(12.9898, 78.233)), 3.14159);
   return fract(sin(d * 2.71828) * 438.5453 + 1.73205);
 }
 fn fnSeedHash(x: f32) -> f32 { return fract(sin(x * 91.3458 + 12.345) * 43758.5453); }
 fn fnWave(cell: vec2f, k: vec2f, s: f32) -> f32 { return 2.0 * (fract(sin(dot(k, cell) * 0.0625) * (s + 312.0)) - 0.5); }
-fn fnGradient(cell: vec2f, x: f32) -> vec2f {
-  let h = fnCellHash(cell);
-  let g = vec2f(fnWave(cell, vec2f(12.42, 78.23) * fnSeedHash(x + 2.6457), x * h * 1.61803 + 18.345),
-                fnWave(cell, vec2f(-19.98, 31.21) * fnSeedHash(x + 3.6055), x * h * 0.61803 + 21.543));
+fn fnGradient(cell: vec2f, h: f32, x: f32, k1: vec2f, k2: vec2f) -> vec2f {
+  let g = vec2f(fnWave(cell, k1, x * h * 1.61803 + 18.345), fnWave(cell, k2, x * h * 0.61803 + 21.543));
   return g / max(length(g), 1e-12);
 }
-fn fnGradientNoise(p: vec2f, x: f32) -> f32 {
-  let i = floor(p);
-  let f = fract(p);
-  let s = f * f * (3.0 - 2.0 * f);
-  let a = dot(f, fnGradient(i, x));
-  let b = dot(f - vec2f(1.0, 0.0), fnGradient(i + vec2f(1.0, 0.0), x));
-  let c = dot(f - vec2f(0.0, 1.0), fnGradient(i + vec2f(0.0, 1.0), x));
-  let d = dot(f - vec2f(1.0, 1.0), fnGradient(i + vec2f(1.0, 1.0), x));
+fn fnGradientNoise(i: vec2f, f: vec2f, s: vec2f, h: vec4f, x: f32) -> f32 {
+  let k1 = vec2f(12.42, 78.23) * fnSeedHash(x + 2.6457);
+  let k2 = vec2f(-19.98, 31.21) * fnSeedHash(x + 3.6055);
+  let a = dot(f, fnGradient(i, h.x, x, k1, k2));
+  let b = dot(f - vec2f(1.0, 0.0), fnGradient(i + vec2f(1.0, 0.0), h.y, x, k1, k2));
+  let c = dot(f - vec2f(0.0, 1.0), fnGradient(i + vec2f(0.0, 1.0), h.z, x, k1, k2));
+  let d = dot(f - vec2f(1.0, 1.0), fnGradient(i + vec2f(1.0, 1.0), h.w, x, k1, k2));
   return mix(mix(a, b, s.x), mix(c, d, s.x), s.y);
 }
-fn fnFbm(seed: f32, p0: vec2f) -> f32 {
-  var sum = 0.0;
+fn fnOctaveSeed(seed: f32, octave: i32) -> f32 { return fract(sin(seed * 91.3458 + f32(octave) * 57.123 + 12.345) * 43758.5453); }
+// gl/Shaders.h fnFbmN: channels seed … seed + n − 1 in one walk of the lattice.
+fn fnFbmN(seed: f32, p0: vec2f, n: i32) -> vec4f {
+  var sum = vec4f(0.0);
   var amplitude = 1.0;
   var p = p0;
   for (var octave = 0; octave < 3; octave++) {
-    let x = fract(sin(seed * 91.3458 + f32(octave) * 57.123 + 12.345) * 43758.5453);
-    sum += fnGradientNoise(p, x) / amplitude;
+    let i = floor(p);
+    let f = fract(p);
+    let s = f * f * (3.0 - 2.0 * f);
+    let h = vec4f(fnCellHash(i), fnCellHash(i + vec2f(1.0, 0.0)), fnCellHash(i + vec2f(0.0, 1.0)), fnCellHash(i + vec2f(1.0, 1.0)));
+    sum.x += fnGradientNoise(i, f, s, h, fnOctaveSeed(seed, octave)) / amplitude;
+    if (n > 1) { sum.y += fnGradientNoise(i, f, s, h, fnOctaveSeed(seed + 1.0, octave)) / amplitude; }
+    if (n > 2) { sum.z += fnGradientNoise(i, f, s, h, fnOctaveSeed(seed + 2.0, octave)) / amplitude; }
+    if (n > 3) { sum.w += fnGradientNoise(i, f, s, h, fnOctaveSeed(seed + 3.0, octave)) / amplitude; }
     p *= 2.0;
     amplitude *= 2.0;
   }
@@ -184,9 +189,10 @@ fn fnBand(v0: f32, density: f32, high: bool) -> f32 {
   return step(lo, v) * (1.0 - step(hi, v));
 }
 fn figmaNoise(p: vec2f, seed: f32, density: f32, kind: i32, color: vec4f, second: vec4f) -> vec4f {
-  let v = vec3f(fnFbm(seed, p), fnFbm(seed + 1.0, p), fnFbm(seed + 2.0, p)) * 0.5 + 0.5;
+  let F = fnFbmN(seed, p, select(3, 4, kind == 0)) * 0.5 + 0.5;
+  let v = F.xyz;
   if (kind == 0) {
-    let a = fnBand(fnFbm(seed + 3.0, p) * 0.5 + 0.5, density, false) * color.a;
+    let a = fnBand(F.w, density, false) * color.a;
     return vec4f(clamp(2.0 * v - 0.5, vec3f(0.0), vec3f(1.0)) * a, a);
   }
   let l = 0.213 * v.r + 0.715 * v.g + 0.072 * v.b;
@@ -692,7 +698,7 @@ fn noiseAt(dp: vec2f) -> vec4f {
 }
 fn textureShift(dp: vec2f) -> vec2f {
   let q = effectSpace(dp) / max(u.v[18].xy, vec2f(1e-3));
-  let d = vec2f(fnFbm(u.v[8].x, q), fnFbm(u.v[8].x + 1.0, q)) * u.v[18].z;
+  let d = fnFbmN(u.v[8].x, q, 2).xy * u.v[18].z;
   return vec2f(dot(u.v[19].xy, d), dot(u.v[19].zw, d));
 }
 

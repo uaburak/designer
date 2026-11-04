@@ -36,6 +36,7 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
   float em = maxEmOf(*L);
   if (!L->glyphs.empty() && em * scale < (lodZoom_ ? kGlyphZoomEmPx : kGlyphMinEmPx) && !exporting_ && !L->path) {
     stats_.greeked++;
+    if (lodZoom_ && em * scale >= kGlyphMinEmPx) lodUsed_ = true;  // sharp again once the zoom settles
     const text::LaidGlyph& first = L->glyphs.front();
     const auto* fills = L->styles[first.style].fills;
     const Paint* paint = nullptr;
