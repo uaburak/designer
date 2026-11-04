@@ -1,8 +1,8 @@
 /**
  * A Social file's left panel in the asset view (docs/social.md §36, the owner's ask 2026-11-04): a post opened on its own
  * canvas is designed like a Figma frame, so the panel is the agent above (70% of its height) and that post's layers below —
- * only the post and what is in it, no Pages. Back in the grid view the tabs are as before (SocialLeftPanel,
- * SocialAgentPanel, Design's LeftPanel). Same width and resize handle as Design's left panel.
+ * only the post and what is in it, no Pages. Back in the grid view the tabs are as before (SocialAgentPanel,
+ * SocialTemplatesPanel, Design's LeftPanel). Same width and resize handle as Design's left panel.
  */
 import { useCallback } from "react";
 import { ResizeHandle } from "@/ds";

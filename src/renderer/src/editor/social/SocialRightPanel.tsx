@@ -5,13 +5,13 @@
  *   (a click glides to one), what the review found, Export approved…;
  * - two posts or more: the **bulk** panel — the Post section's shared fields (Mixed where they differ) and the actions
  *   for them all (Ask agent…, Export…, Delete);
- * - one post, or layers inside one (the focus view, focus.ts): Figma's **Design** panel, with the post's own **Post**
- *   section a tab beside it.
+ * - one post, or layers inside one (the focus view, focus.ts): Figma's **Design** panel, or the post's own **Post**
+ *   section — one segmented control at the top, Design | Prototype | Post (§38; Post only with one post).
  * The agent is the left panel's (SocialAgentPanel). Its width is its own (`ui.socialRightWidth`), Design mode's
  * untouched; the content changes in place, the width stays (the canvas doesn't jump).
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
-import { Button, PanelSection, ResizeHandle, SegmentedControl, Tabs } from "@/ds";
+import { Button, PanelSection, ResizeHandle, SegmentedControl } from "@/ds";
 import { PLATFORM_NAMES, formatById } from "@shared/social/formats";
 import { POST_STATUSES, type Platform, type PostStatus } from "@shared/social/types";
 import { t, tp, useT } from "@/i18n";
@@ -93,6 +93,8 @@ export function SocialRightPanel() {
   const posts = useSelectedPostCount();
   const anything = useSyncExternalStore((on) => ed.store.subscribe("selection", on), () => ed.store.selection.refs.length > 0);
   const view = focus ? "design" : posts > 1 ? "bulk" : anything ? "design" : "board";
+  const postTab = useUI((s) => s.socialPanelTab ?? "design");
+  const tab = side === "prototype" ? "prototype" : focus && postTab === "post" ? "post" : "design";
   // A post picked on the grid view shows its Post tab; opened (its Design glyph, the asset view) its Design tab (§32)
   useEffect(
     () =>
@@ -106,39 +108,7 @@ export function SocialRightPanel() {
   return (
     <aside ref={aside} className={panelStyles.right} style={{ width }} aria-label={t("Social panel")} data-panel="right" data-social-right={side === "prototype" ? "prototype" : view}>
       <RightHeader />
-      <div className={panelStyles.rightTabs}>
-        <Tabs
-          label={t("Social panel")}
-          idBase="social-right"
-          value={side}
-          tabs={[
-            { value: "design", label: t("Design"), width: 53 },
-            { value: "prototype", label: t("Prototype"), width: 69 },
-          ]}
-          onChange={(v) => ed.ui.set({ socialSideTab: v as "design" | "prototype" })}
-        />
-        <ZoomMenu />
-      </div>
-      <div ref={body} className={styles.body} role="tabpanel" id={`social-right-panel-${side}`} aria-labelledby={`social-right-tab-${side}`}>
-        {side === "prototype" ? <SocialPreview /> : view === "board" ? <BoardPanel /> : view === "bulk" ? <BulkPanel count={posts} /> : <PostDesign post={!!focus} />}
-      </div>
-      {side === "design" && <ResizeHandle side="left" value={width} min={SOCIAL_RIGHT_PANEL.minWidth} max={SOCIAL_RIGHT_PANEL.maxWidth} defaultValue={SOCIAL_RIGHT_PANEL.width} onChange={(px) => ed.ui.set({ socialRightWidth: px })} />}
-    </aside>
-  );
-}
-
-/** One post (or a layer in it): the Design panel, the post's Post section a tab beside it. */
-function PostDesign({ post }: { post: boolean }) {
-  const ed = useEditor();
-  const tab = useUI((s) => s.socialPanelTab ?? "design");
-  if (!post)
-    return (
-      <div className={panelStyles.rightBody} onKeyDownCapture={designPanelTab}>
-        <DesignPanel />
-      </div>
-    );
-  return (
-    <>
+      {/* One segmented control (the owner, 2026-11-04): Design, Prototype and — with one post — its Post section */}
       <div className={styles.switch}>
         <SegmentedControl
           label={t("Social panel")}
@@ -146,15 +116,28 @@ function PostDesign({ post }: { post: boolean }) {
           value={tab}
           options={[
             { value: "design", label: t("Design") },
-            { value: "post", label: t("Post") },
+            { value: "prototype", label: t("Prototype") },
+            ...(focus ? [{ value: "post", label: t("Post") }] : []),
           ]}
-          onChange={(v) => ed.ui.set({ socialPanelTab: v as "design" | "post" })}
+          onChange={(v) => ed.ui.set(v === "prototype" ? { socialSideTab: "prototype" } : { socialSideTab: "design", socialPanelTab: v as "design" | "post" })}
+          data-social-tab={tab}
         />
+        <ZoomMenu />
       </div>
-      <div className={panelStyles.rightBody} onKeyDownCapture={designPanelTab} data-social-properties="">
-        {tab === "post" ? <PostSection /> : <DesignPanel />}
+      <div ref={body} className={styles.body} role="tabpanel" aria-label={t(tab === "post" ? "Post" : tab === "prototype" ? "Prototype" : "Design")}>
+        {tab === "prototype" ? <SocialPreview /> : view === "board" ? <BoardPanel /> : view === "bulk" ? <BulkPanel count={posts} /> : <PostDesign tab={tab} />}
       </div>
-    </>
+      {side === "design" && <ResizeHandle side="left" value={width} min={SOCIAL_RIGHT_PANEL.minWidth} max={SOCIAL_RIGHT_PANEL.maxWidth} defaultValue={SOCIAL_RIGHT_PANEL.width} onChange={(px) => ed.ui.set({ socialRightWidth: px })} />}
+    </aside>
+  );
+}
+
+/** One post (or a layer in it): the Design panel, or the post's Post section (the panel's segmented control). */
+function PostDesign({ tab }: { tab: "design" | "post" }) {
+  return (
+    <div className={panelStyles.rightBody} onKeyDownCapture={designPanelTab} data-social-properties="">
+      {tab === "post" ? <PostSection /> : <DesignPanel />}
+    </div>
   );
 }
 

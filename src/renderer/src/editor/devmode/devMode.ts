@@ -61,7 +61,7 @@ export function setMode(ed: EditorController, mode: Mode): void {
   const motion = mode === "motion" ? (ed.ui.get().motion ?? MOTION_UI_DEFAULT) : { ...(ed.ui.get().motion ?? MOTION_UI_DEFAULT), playing: false };
   const tab = ed.ui.get().railTab;
   // A Social file's Social opens on its agent (docs/social.md §19), keeping a Social tab it was on.
-  const railTab = mode === "social" ? (social ? (tab && tab !== "file" ? tab : "agents") : "posts") : tab === "posts" || tab === "templates" ? "file" : tab;
+  const railTab = mode === "social" ? (social && tab && tab !== "file" ? tab : "agents") : tab === "templates" ? "file" : tab;
   ed.ui.set({ mode, motion, railTab, socialTimeline: false, statusMenu: null, annotationEditor: null, measurementEditor: null });
   syncEngine(ed);
   ed.focusCanvas();

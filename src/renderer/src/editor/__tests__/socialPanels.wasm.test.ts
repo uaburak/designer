@@ -137,49 +137,13 @@ describe("Social mode's chrome (round 18a)", () => {
     expect(runEditorCommand(design.ed, "view.mode-social")).toBe(false);
   });
 
-  it("the templates are the rail's own tab after Posts (docs/social.md §20), with the gallery and its starter action", async () => {
+  it("the templates are the rail's own tab after the agent (docs/social.md §20, §37: no Posts tab), with the gallery and its starter action", async () => {
     await setup(() => createElement(LeftSide));
-    expect($$("[data-rail-tab]").map((b) => b.getAttribute("data-rail-tab")).slice(0, 3)).toEqual(["agents", "posts", "templates"]);
+    expect($$("[data-rail-tab]").map((b) => b.getAttribute("data-rail-tab")).slice(0, 3)).toEqual(["agents", "templates", "file"]);
     act(() => click($('[data-rail-tab="templates"]')!));
     expect($('[data-panel="left"]')?.getAttribute("data-tab")).toBe("templates");
     expect($('[data-panel="left"]')?.textContent).toContain("No templates yet");
     expect($('[data-panel="left"]')?.textContent).toContain("Make starter templates…");
-  });
-
-  it("lists the page's posts by campaign in the Posts tab", async () => {
-    const { ed } = await setup(() => createElement(LeftSide));
-    act(() => ed.ui.set({ railTab: "posts" }));
-    expect($("[data-social-posts]")).toBeNull();
-    const w = editorWriter(ed);
-    // The index tells its listeners in a microtask (deferred.ts): an async act lets the list re-render
-    await act(async () => {
-      const c = newCampaign("October", null);
-      setCampaign(ed, w, ed.store.page, c);
-      newPost(ed, w, { formatId: "instagram.post", campaignId: c.id });
-      newPost(ed, w, { formatId: "instagram.story", campaignId: c.id });
-      newPost(ed, w, { formatId: "linkedin.square" });
-    });
-    const groups = $$("[data-campaign-header]").map((h) => h.textContent);
-    expect(groups).toEqual(["October2", "No campaign1"]);
-    expect($$("[data-post]").map((r) => r.textContent?.replace(/\s+/g, " ").trim())).toEqual([
-      expect.stringContaining("Instagram post"),
-      expect.stringContaining("Instagram story"),
-      expect.stringContaining("LinkedIn square"),
-    ]);
-    // A click selects the post.
-    const story = $$("[data-post]")[1];
-    act(() => click(story));
-    expect(ed.store.selection.refs).toEqual([story.getAttribute("data-post")]);
-    // ⇧ adds the rows from the last one clicked, across campaigns; ⌘ takes one out.
-    const ids = $$("[data-post]").map((r) => r.getAttribute("data-post"));
-    const press = (el: Element, opts: MouseEventInit) => act(() => void el.dispatchEvent(new MouseEvent("click", { bubbles: true, ...opts })));
-    press($$("[data-post]")[2], { shiftKey: true });
-    expect(ed.store.selection.refs).toEqual([ids[1], ids[2]]);
-    act(() => click($$("[data-post]")[2]));
-    press($$("[data-post]")[0], { shiftKey: true });
-    expect(ed.store.selection.refs).toEqual(ids);
-    press($$("[data-post]")[1], { metaKey: true });
-    expect(ed.store.selection.refs).toEqual([ids[0], ids[2]]);
   });
 
   it("turns the caption's counter red past the format's limit", async () => {

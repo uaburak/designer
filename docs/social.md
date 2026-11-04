@@ -855,4 +855,12 @@ A post's record carries `scheduledAt` (when it is planned to go out) and `publis
 
 ## 36. The asset view's left panel (owner, 2026-11-04)
 
-A post opened in the asset view is designed as a Figma frame on its own, so the left panel there (the Layers or the Agents tab) is `SocialAssetPanel`: the agent in its top 70%, that post's layers below it — only the post and what is in it (`Layers root`, `visibleRows(tree, expanded, root)`: the post always open), no Pages. The grid view keeps the tabs as they were.
+A post opened in the asset view is designed as a Figma frame on its own, so the left panel there on the File tab is `SocialAssetPanel`: the agent in its top 70%, that post's layers below it — only the post and what is in it (`Layers root`, `visibleRows(tree, expanded, root)`: the post always open), no Pages. The Agents tab stays the agent alone (no layers, the owner), and the grid view keeps the tabs as they were.
+
+## 37. No Posts tab (owner, 2026-11-04)
+
+The rail's Posts tab (§6.2: the page's posts by campaign) is gone: the brand is the canvas header's and the Board panel's (§34), browsing the posts the grid view's and the asset view's strip, a post's menu the canvas's own. A Social file's rail is Agents, Templates, File, Assets, Brands; Social opens on Agents, and closing Brands goes back to it. `PostsList.tsx` keeps what the chrome shares: `formatLabel`, `PostThumb`, the post menu and `postCanvasRows`.
+
+## 38. One segmented control in the right panel (owner, 2026-11-04)
+
+The right panel's Design | Prototype tabs (§33) and the post's Design | Post control (§19) are one segmented control under the header, the zoom menu beside it: **Design | Prototype | Post** — Post only while one post (or a layer in it) is the selection. Design shows the Board, bulk or Design panel as before; Prototype the phone (§33); Post the post's Post section. The state is still `ui.socialSideTab` (prototype) and `ui.socialPanelTab` (design / post).

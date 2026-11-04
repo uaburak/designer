@@ -27,9 +27,8 @@ type Open = { at: { x: number; y: number }; entries: MenuEntry[] } | null;
 /** The tabs' names under their icons: off unless View › Additional labels turned them on. */
 export const showsRailLabels = (s: { railLabels?: boolean }): boolean => s.railLabels === true;
 
-const TABS: { tab: RailTab; icon: "24.social" | "24.component" | "24.rail.file" | "24.rail.agents" | "24.rail.assets" | "24.library"; label: string; command?: string }[] = [
-  // Social mode's own (docs/social.md §6.2) [ours]: the posts by campaign and the templates (§20); shown only in Social
-  { tab: "posts", icon: "24.social", label: "Posts" },
+const TABS: { tab: RailTab; icon: "24.component" | "24.rail.file" | "24.rail.agents" | "24.rail.assets" | "24.library"; label: string; command?: string }[] = [
+  // Social mode's own [ours]: the templates (docs/social.md §20; the Posts tab went, §37); shown only in Social
   { tab: "templates", icon: "24.component", label: "Templates" },
   { tab: "file", icon: "24.rail.file", label: "File", command: "view.layers" },
   { tab: "agents", icon: "24.rail.agents", label: "Agents", command: "view.agents" },
@@ -44,7 +43,7 @@ const TABS: { tab: RailTab; icon: "24.social" | "24.component" | "24.rail.file" 
  * its panel says agents run on the computer)
  */
 const railTabs = (social: boolean) =>
-  social ? [TABS.find((x) => x.tab === "agents")!, ...TABS.filter((x) => x.tab !== "agents")] : TABS.filter((x) => x.tab !== "posts" && x.tab !== "templates" && (x.tab !== "agents" || !isWebApp()));
+  social ? [TABS.find((x) => x.tab === "agents")!, ...TABS.filter((x) => x.tab !== "agents")] : TABS.filter((x) => x.tab !== "templates" && (x.tab !== "agents" || !isWebApp()));
 
 /**
  * View › Minimize left navigation bar (round 10; unverified look — help "Navigate the left sidebar" names the option

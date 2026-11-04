@@ -52,7 +52,7 @@ export function BrandsWindow() {
   }, [open]);
   if (!open) return null;
   const close = () => {
-    ed.ui.set({ railTab: modeOf(ed) === "social" ? "posts" : "file" });
+    ed.ui.set({ railTab: modeOf(ed) === "social" ? "agents" : "file" });
     ed.focusCanvas();
   };
   return (

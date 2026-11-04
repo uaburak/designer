@@ -1,7 +1,7 @@
 /**
  * Social (docs/social.md, round 18 [ours]): the interface built around the agent — since §18 (2026-10-24) the mode of a
  * Social file (Figma's Buzz), which opens in it and keeps it, with no mode switch; EditorApp mounts its pieces while
- * `ui.mode` is "social" — the Posts tab on the left (SocialLeftPanel), the agent on the right (SocialRightPanel), the
+ * `ui.mode` is "social" — the agent on the left (SocialAgentPanel; the Posts tab went, §37), the right panel (SocialRightPanel), the
  * safe areas and review pins over the canvas, the empty board, the toolbar's Social slot — and Motion's timeline when
  * the selected post animates (motion/MotionMode.tsx). Switching modes never changes the document and is no undo step.
  *
