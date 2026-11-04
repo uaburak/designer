@@ -41,6 +41,11 @@ describe("Layers: auto layout in flow order (live: AL_horizontal / AL_wrap list 
     expect(flowOrdered(tree, "0:1")).toBe(false);
   });
 
+  it("lists only a root and what is in it, the root always open (a Social post in the asset view, docs/social.md §36)", () => {
+    expect(visibleRows(tree, new Set(), "F").map((r) => [r.id, r.depth])).toEqual([["F", 0], ["f2", 1], ["f1", 1]]);
+    expect(visibleRows(tree, new Set(), "nope").length).toBe(4);
+  });
+
   it("drops above a row in an auto layout go before it in the flow; inside goes first", () => {
     const rows = visibleRows(tree, new Set(["H", "F"]));
     const at = (id: string) => rows.findIndex((r) => r.id === id);

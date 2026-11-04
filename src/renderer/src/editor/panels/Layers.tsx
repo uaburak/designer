@@ -239,7 +239,8 @@ function syncClip(v: HTMLElement | null): void {
 /** A lock / eye drag: the value the first row got, the rows done, the open undo step. */
 type CellDrag = { kind: "lock" | "visible"; value: boolean; done: Set<Guid> };
 
-export function Layers() {
+/** `root`: only that layer and its contents (a Social post in the asset view, docs/social.md §36). */
+export function Layers({ root = null }: { root?: Guid | null } = {}) {
   useT();
   const ed = useEditor();
   const tree = useLayerTree();
@@ -265,7 +266,7 @@ export function Layers() {
   const rowHeight = drawMode ? LAYER_ROW_LARGE : ROW;
   const nameLeft = NAME_LEFT + (drawMode ? LAYER_THUMB - 16 : 0);
 
-  const rows = useMemo(() => visibleRows(tree, expanded), [tree, expanded]);
+  const rows = useMemo(() => visibleRows(tree, expanded, root), [tree, expanded, root]);
   const blockOf = useMemo(() => stickyBlocks(rows), [rows]);
   // Rename layers' rows as their new names are typed in (atlas 18 §4.3)
   const typing = useRenameAnimations();

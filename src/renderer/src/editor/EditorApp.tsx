@@ -68,6 +68,7 @@ import { MotionMode } from "./motion/MotionMode";
 import { SocialMode } from "./social/SocialMode";
 import { SocialLeftPanel } from "./social/SocialLeftPanel";
 import { SocialAgentPanel } from "./social/SocialAgentPanel";
+import { SocialAssetPanel } from "./social/SocialAssetPanel";
 import { SocialTemplatesPanel } from "./social/SocialTemplatesPanel";
 import { BoardLabels } from "./social/BoardLabels";
 import { CanvasProfile } from "./social/CanvasProfile";
@@ -445,13 +446,15 @@ export function LeftSide() {
   // Social's agent is the left panel's (docs/social.md §19).
   const agent = useUI((s) => s.mode === "social" && s.railTab === "agents");
   const templates = useUI((s) => s.mode === "social" && s.railTab === "templates");
+  // A post opened in the asset view: the agent over that post's layers, no Pages (docs/social.md §36)
+  const asset = useUI((s) => s.mode === "social" && s.socialView === "asset" && (s.railTab === "file" || s.railTab === "agents"));
   // View › Minimize left navigation bar (round 10): the tabs fold into the left panel's top row (panels/Rail.tsx NavStrip).
   const navMinimized = useUI((s) => !!s.navMinimized);
   if (docked && dev) return <DevLeftPanel />;
   return docked ? (
     <>
       {!navMinimized && <Rail />}
-      {posts ? <SocialLeftPanel /> : agent ? <SocialAgentPanel /> : templates ? <SocialTemplatesPanel /> : <LeftPanel />}
+      {posts ? <SocialLeftPanel /> : asset ? <SocialAssetPanel /> : agent ? <SocialAgentPanel /> : templates ? <SocialTemplatesPanel /> : <LeftPanel />}
     </>
   ) : null;
 }

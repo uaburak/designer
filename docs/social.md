@@ -852,3 +852,7 @@ A page with no brand shows a placeholder (the page's name, "Double-click to writ
 ## 35. A post's dates (owner, 2026-11-03)
 
 A post's record carries `scheduledAt` (when it is planned to go out) and `publishedAt` (when it went out), ms or null; records written before them read as null, and a resized copy (resize_post's duplicate) keeps the plan but not the posting. The Post tab sets them (Scheduled for / Posted on: the system's date and time picker, local time; cleared: null). A post's status has a last step, **Posted** (it went out — its date, when known, is `publishedAt`; the owner's imported MTM Agro and Partner Agro posts are Posted without one). The Prototype tab drops Instagram's like / comment / share / save row: at the post header's right, opposite the profile picture, and in a story's header in place of the ring's name, a small badge says "Posted · <date>" or "Posted" (green), else "Scheduled · <date>" (blue), else "Not scheduled". The agent's set_post doesn't take them yet.
+
+## 36. The asset view's left panel (owner, 2026-11-04)
+
+A post opened in the asset view is designed as a Figma frame on its own, so the left panel there (the Layers or the Agents tab) is `SocialAssetPanel`: the agent in its top half, that post's layers in its bottom half — only the post and what is in it (`Layers root`, `visibleRows(tree, expanded, root)`: the post always open), no Pages. The grid view keeps the tabs as they were.

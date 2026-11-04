@@ -368,8 +368,12 @@ export function flowOrdered(tree: LayerTree, id: Guid): boolean {
   return mode === "HORIZONTAL" || mode === "VERTICAL";
 }
 
-/** The rows the panel shows: top layer first (flow order in an auto layout); an expanded layer's children follow it, one level deeper. */
-export function visibleRows(tree: LayerTree, expanded: ReadonlySet<Guid>): RowData[] {
+/**
+ * The rows the panel shows: top layer first (flow order in an auto layout); an expanded layer's children follow it, one
+ * level deeper. With `root` (a Social post in the asset view, docs/social.md §36) only that layer and what is in it, the
+ * layer always open.
+ */
+export function visibleRows(tree: LayerTree, expanded: ReadonlySet<Guid>, root?: Guid | null): RowData[] {
   const rows: RowData[] = [];
   const walk = (id: Guid, depth: number) => {
     const node = tree.nodes.get(id);
@@ -386,7 +390,11 @@ export function visibleRows(tree: LayerTree, expanded: ReadonlySet<Guid>): RowDa
       if (open) walk(child.id, depth + 1);
     }
   };
-  walk(tree.page, 0);
+  const top = root ? tree.nodes.get(root) : undefined;
+  if (top) {
+    rows.push({ id: top.id, depth: 0, expandable: top.children.length > 0, expanded: top.children.length > 0 });
+    walk(top.id, 1);
+  } else walk(tree.page, 0);
   return rows;
 }
 

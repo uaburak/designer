@@ -1,0 +1,5 @@
+@layer app {
+  /* The asset view's left panel (docs/social.md §36): the agent and the post's layers, half the height each */
+  .half { display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; overflow: hidden; }
+  .half + .half { border-top: 1px solid var(--figma-color-border); }
+}
