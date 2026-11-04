@@ -855,4 +855,4 @@ A post's record carries `scheduledAt` (when it is planned to go out) and `publis
 
 ## 36. The asset view's left panel (owner, 2026-11-04)
 
-A post opened in the asset view is designed as a Figma frame on its own, so the left panel there (the Layers or the Agents tab) is `SocialAssetPanel`: the agent in its top half, that post's layers in its bottom half — only the post and what is in it (`Layers root`, `visibleRows(tree, expanded, root)`: the post always open), no Pages. The grid view keeps the tabs as they were.
+A post opened in the asset view is designed as a Figma frame on its own, so the left panel there (the Layers or the Agents tab) is `SocialAssetPanel`: the agent in its top 70%, that post's layers below it — only the post and what is in it (`Layers root`, `visibleRows(tree, expanded, root)`: the post always open), no Pages. The grid view keeps the tabs as they were.
