@@ -44,7 +44,7 @@ export const managerStatus = (service: AgentSetupHost) => (service.managerSettin
 const ASK = "ask";
 
 /** An agent and its model (and effort, when it has one) as one route's fields. */
-function RouteFields({ label, route, providers, onChange, withEffort }: { label: string; route: AgentRoute; providers: ProviderInfo[]; onChange: (r: AgentRoute) => void; withEffort?: boolean }) {
+export function RouteFields({ label, route, providers, onChange, withEffort }: { label: string; route: AgentRoute; providers: ProviderInfo[]; onChange: (r: AgentRoute) => void; withEffort?: boolean }) {
   useT();
   const p = providers.find((x) => x.id === route.providerId);
   const agents: SelectEntry[] = providers.map((x) => ({ value: x.id, label: x.label, disabled: !x.available }));

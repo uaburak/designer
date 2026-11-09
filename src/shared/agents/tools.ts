@@ -726,8 +726,8 @@ export const MANAGER_TOOLS: ToolDef[] = [
     name: "delegate_task",
     title: "Delegate task",
     description:
-      "Hands a piece of work to another agent as a task, returned at once ({taskId}); it runs as its own turn with the canvas tools (not yours), its own folder and its own undo step, beside the other tasks. `prompt` must say everything the worker needs (it doesn't see this chat). `agent`: a provider id (default: the general agent of the settings); `dependsOn`: task ids that must be done first (a failed one fails this task). Then wait_tasks.",
-    inputSchema: { type: "object", properties: { kind: { enum: ["agent"] }, title: { type: "string" }, prompt: { type: "string" }, agent: { type: "string" }, model: { type: "string" }, dependsOn: ids }, required: ["title", "prompt"] },
+      "Hands a piece of work to another agent as a task, returned at once ({taskId}); it runs as its own turn with the canvas tools (not yours), its own folder and its own undo step, beside the other tasks. `prompt` must say everything the worker needs (it doesn't see this chat). `member`: a team member's id (its role fits the task: it brings its own instructions, Skills, agent and model); `agent`: a provider id (default: the member's, else the general agent of the settings); `dependsOn`: task ids that must be done first (a failed one fails this task). Then wait_tasks.",
+    inputSchema: { type: "object", properties: { kind: { enum: ["agent"] }, member: { type: "string" }, title: { type: "string" }, prompt: { type: "string" }, agent: { type: "string" }, model: { type: "string" }, dependsOn: ids }, required: ["title", "prompt"] },
     write: false,
   },
   {
@@ -748,7 +748,7 @@ export const MANAGER_TOOLS: ToolDef[] = [
     name: "ask_choice",
     title: "Ask a choice",
     description:
-      "Shows the owner a choice card in the chat and waits for the click: {question, options: [{id, label, detail?}]} → the option picked. `imageRoute: true` instead lists the image models (Gemini API, Gemini CLI, Antigravity, OpenAI) with \"Use this for this chat\" — ask it when pictures are needed and no image model is set. `suggestions: true` shows at most three options as chips under your answer (Social's follow-ups after a review passes) and returns at once — the chip the owner picks comes back as his next message.",
+      "Shows the owner a choice card in the chat and waits for the click: {question, options: [{id, label, detail?}]} → the option picked, or {text}: the owner's own answer typed under the options when none fits (follow it). `imageRoute: true` instead lists the image models (Gemini API, Gemini CLI, Antigravity, OpenAI) with \"Use this for this chat\" — ask it when pictures are needed and no image model is set. `suggestions: true` shows at most three options as chips under your answer (Social's follow-ups after a review passes) and returns at once — the chip the owner picks comes back as his next message.",
     inputSchema: { type: "object", properties: { question: { type: "string" }, options: { type: "array", items: { type: "object", properties: { id: { type: "string" }, label: { type: "string" }, detail: { type: "string" } }, required: ["id", "label"] } }, remember: { type: "boolean" }, imageRoute: { type: "boolean" }, suggestions: { type: "boolean" } } },
     write: false,
   },
@@ -763,21 +763,21 @@ export const MANAGER_TOOLS: ToolDef[] = [
     name: "make_posts",
     title: "Make posts",
     description:
-      "Makes social posts from the library: for each format × variation an image task (the image model, the product references and the strict prompt) and a frame task (the general agent: the frame at the format's size, named \"‹Product› — ‹Format› v‹n›\", the brand's text and logo, a bottom layer \"Picture\"); the picture goes into its frame when both are done; a last review task waits for all. Call it only when library_missing is empty (or the owner said go anyway). Returns the brief and the task ids: wait_tasks on the review task, then review.",
+      "Makes social posts from the library: for each format × variation an image task (the Post Designer's image model when the team has it, else the chat's; the product references and the strict prompt) and a frame task (the Post Designer, else the general agent: the frame at the format's size, named \"‹Product› — ‹Format› v‹n›\", the brand's text and logo, a bottom layer \"Picture\"); the picture goes into its frame when both are done; a Reel (\"instagram.reel\") then gets a Motion pass by the Reels Maker; a last review task waits for all. Call it only when library_missing is empty (or the owner said go anyway). Returns the brief and the task ids: wait_tasks on the review task, then review.",
     inputSchema: {
       type: "object",
       properties: {
         briefId: { type: "string", description: "Run a brief again (its id); else a new brief from the fields below" },
         brand: { type: "string", description: "Brand id" },
         products: { ...ids, description: "Product ids" },
-        formats: { ...ids, description: "Format ids: the brand's (default: post and story), or catalogue ids (list_formats: \"instagram.post\", \"linkedin.landscape\" …)" },
+        formats: { ...ids, description: "Format ids: the brand's (default: post and story), or catalogue ids (list_formats: \"instagram.post\", \"instagram.reel\", \"linkedin.landscape\" …). A Reel is \"instagram.reel\": it is animated" },
         scene: { type: "string" },
         variations: { type: "number", description: "Default 2" },
         request: { type: "string", description: "The owner's words" },
         template: { type: "string", description: "Social: a template's key (list_templates) — the frames are made from it and their slots filled" },
         captions: { type: "boolean", description: "Social: write each post's caption, hashtags and alt text afterwards (default true in Social)" },
         campaign: { type: "string", description: "Social: the campaign's name (default \"‹Products› — ‹Month›\")" },
-        animate: { type: "object", description: "Social: a Motion pass per video format (seconds; style: a composite animation style)", properties: { seconds: { type: "number" }, style: { type: "string" } }, required: ["seconds"] },
+        animate: { type: "object", description: "A Motion pass per video format (seconds, default 8; style: a composite animation style); a Reel always gets one, a Story only when this is given", properties: { seconds: { type: "number" }, style: { type: "string" } }, required: ["seconds"] },
       },
     },
     write: false,

@@ -1,4 +1,5 @@
 import { useEffect, useRef, type RefObject } from "react";
+import { useOverlayWindow } from "./Portal";
 
 /**
  * Closes an overlay on a press outside it (and outside `ignore`, e.g. its
@@ -14,6 +15,9 @@ export function useDismiss(
   useEffect(() => {
     close.current = onClose;
   });
+  // The overlay's own window (another one for a popped-out subtree: Portal's OverlayWindow).
+  const window = useOverlayWindow();
+  const document = window.document;
   useEffect(() => {
     if (!enabled) return;
     const outside = (e: Event) => {
@@ -45,5 +49,5 @@ export function useDismiss(
       window.removeEventListener("blur", shut);
       window.removeEventListener("resize", shut);
     };
-  }, [enabled, inside, ignore, wheel, escape, blur, resize]);
+  }, [enabled, inside, ignore, wheel, escape, blur, resize, window, document]);
 }

@@ -14,7 +14,7 @@ import { Engine } from "@/engine/Engine";
 import { EngineStore } from "@/engine/EngineStore";
 import { loadEngine } from "@/engine/loadEngine";
 import { fonts } from "@/engine/fonts";
-import { $, $$, click, key, mount } from "@/ds/__tests__/dom";
+import { $, $$, click, key, mount, type } from "@/ds/__tests__/dom";
 import { DEFAULT_MANAGER_SETTINGS } from "@shared/studio/types";
 import type { AgentSettings, AgentsApi, ChatEvent, ProviderInfo, TurnEvent, TurnRequest } from "@shared/agents/types";
 import type { ConnectorConsent } from "@shared/ai/types";
@@ -195,7 +195,7 @@ describe("the Agents panel: one agent's work in view", () => {
     expect(page()).toBe("home");
     // No "This chat" section: the model and effort are the composer's.
     expect($("[data-chat-settings]")).toBeNull();
-    expect($$("[data-settings-nav]").map((r) => r.getAttribute("data-settings-nav"))).toEqual(["agents", "manager", "skills", "connectors", "access", "usage"]);
+    expect($$("[data-settings-nav]").map((r) => r.getAttribute("data-settings-nav"))).toEqual(["agents", "manager", "team", "skills", "connectors", "access", "usage"]);
     // Nav rows: icon, title and chevron — no description line; no boxes anywhere but the usage cards.
     expect($$("[data-settings-nav]").every((r) => !r.querySelector('[class*="mRowDesc"]'))).toBe(true);
     expect($$('[data-agent-settings] [class*="Box"]')).toEqual([]);
@@ -477,5 +477,51 @@ describe("the pinned progress of a manager's run", () => {
     click(rows[2]);
     expect(revealed).toEqual(["t3"]);
     view.unmount();
+  });
+});
+
+describe("the team (docs/studio.md §9)", () => {
+  it("Agent settings › Team lists Wecra's members; a new member is saved with its role, skills and tools", async () => {
+    const { ed, view, engine } = await setup();
+    const service = (await import("../agents/service")).agentsOf(ed)!;
+    act(() => service.openSetting("section:team"));
+    await settle();
+    expect($$("[data-member]").map((r) => r.getAttribute("data-member"))).toEqual(["post-designer", "reels-maker", "copywriter", "reviewer"]);
+    act(() => service.openSetting("add-member"));
+    await settle();
+    type(($("[data-member-name] input") ?? $("[data-member-name]")) as HTMLInputElement, "Story Designer");
+    type(($("[data-member-role] input") ?? $("[data-member-role]")) as HTMLInputElement, "Designs Instagram stories");
+    click($('[data-member-all-tools] input') ?? $("[data-member-all-tools]"));
+    await settle();
+    expect($$("[data-member-tools]")).toHaveLength(7);
+    click($('[data-member-tools="app"] input') ?? $('[data-member-tools="app"]'));
+    click($("[data-member-save]"));
+    await settle();
+    const saved = service.team().find((m) => m.id === "story-designer")!;
+    expect(saved).toMatchObject({ name: "Story Designer", role: "Designs Instagram stories", route: null });
+    expect(saved.tools).toEqual(["layers", "styles", "prototype", "motion", "sound", "social"]);
+    expect(service.get().settings.team?.members.map((m) => m.id)).toEqual(["story-designer"]);
+    view.unmount();
+    engine.destroy();
+  });
+
+  it("@ in the composer lists the team; a message to @member goes straight to it — its own session, past the manager", async () => {
+    const { ed, turns, view, engine } = await setup();
+    const service = (await import("../agents/service")).agentsOf(ed)!;
+    await act(() => service.setManager({ enabled: true }));
+    typeInto(input(), "@ree");
+    await settle();
+    expect($$("[data-mention-member]").map((r) => r.getAttribute("data-mention-member"))).toEqual(["reels-maker"]);
+    key(input(), "Enter");
+    await settle();
+    expect(input().value).toBe("@reels-maker ");
+    await sendText("@reels-maker animate the selected post");
+    expect(turns).toHaveLength(1);
+    expect(turns[0].role).toBeUndefined();
+    expect(turns[0].prompt).toBe("animate the selected post");
+    expect(turns[0].member).toMatchObject({ id: "reels-maker", tools: ["layers", "styles", "motion", "sound", "social"] });
+    expect($("[data-agent-name]")?.textContent).toContain("Reels Maker");
+    view.unmount();
+    engine.destroy();
   });
 });

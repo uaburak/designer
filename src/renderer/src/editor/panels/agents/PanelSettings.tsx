@@ -17,6 +17,7 @@ import { KIND_ICON, LookAgain, isCustom, isServer, settingsPageOf, stateText } f
 import { connectorStatus } from "./aiSettings";
 import { CAPABILITIES, OUTCOME, POLICIES, changeReach, useReach } from "./AccessSettings";
 import { ManagerPage } from "./ManagerSettings";
+import { TeamSection } from "./TeamSettings";
 import { changeConnectors, removeSkill, resetSkill, toggleSkill, useConnectors, useSkills } from "./aiData";
 import { NavRow, SettingsGroup, SettingsRow, errorText } from "./settingsParts";
 import { AgentMark } from "./AgentMark";
@@ -26,6 +27,7 @@ import { intlLocale, t, tp, useT } from "@/i18n";
 const SECTIONS: { id: SettingsSection; label: string; icon: IconName }[] = [
   { id: "agents", label: "Agents and models", icon: "24.agents" },
   { id: "manager", label: "Manager and Studio", icon: "24.person" },
+  { id: "team", label: "Team", icon: "24.person" },
   { id: "skills", label: "Skills", icon: "24.file" },
   { id: "connectors", label: "Connectors", icon: "24.link" },
   { id: "access", label: "Access", icon: "24.lock.small" },
@@ -140,6 +142,7 @@ function SectionPage({ service, section }: { service: AgentsService; section: Se
 function PageAction({ service, section }: { service: AgentsService; section: SettingsSection }) {
   useT();
   if (section === "agents") return <LookAgain service={service} />;
+  if (section === "team") return <IconButton icon="24.plus" label={t("New team member")} tone="secondary" onClick={() => service.openSetting("add-member")} data-new-member="" />;
   if (section === "skills") return <IconButton icon="24.plus" label={t("New skill")} tone="secondary" onClick={() => service.openSetting("add-skill")} data-new-skill="" />;
   return null;
 }
@@ -147,6 +150,7 @@ function PageAction({ service, section }: { service: AgentsService; section: Set
 function SectionBody({ service, section }: { service: AgentsService; section: SettingsSection }): ReactNode {
   if (section === "agents") return <AgentsSection service={service} />;
   if (section === "manager") return <ManagerPage service={service} boxed />;
+  if (section === "team") return <TeamSection service={service} />;
   if (section === "skills") return <SkillsSection service={service} />;
   if (section === "connectors") return <ConnectorsSection service={service} />;
   if (section === "access") return <AccessSection service={service} />;

@@ -23,6 +23,9 @@ export interface EngineWasm {
   engineGpuDevice?: unknown;
   /** The canvas's colour space under WebGPU ("srgb" | "display-p3"), as Engine.ts sets the WebGL canvas's. */
   engineColorSpace?: string;
+  /** Emscripten's canvas lookup before `document.querySelector`: a canvas in another document (a pop-out window's) by
+   *  its selector. Set by Engine.ts. */
+  specialHTMLTargets?: Record<string, unknown>;
   /** A WebGPU device failed (lost, or its self test): the engine drawing into `selector` moves to WebGL2. */
   onEngineGfxFailure?: (selector: string, reason: string) => void;
   _malloc(size: number): number;

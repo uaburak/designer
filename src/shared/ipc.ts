@@ -381,7 +381,7 @@ export interface IpcInvoke extends SharedFontsChannels {
   /** The AI tools on this computer (CLIs found, local model servers that answer) */
   "agents:providers": { args: []; result: ProviderInfo[] };
   "agents:settings": { args: []; result: AgentSettings };
-  "agents:set-settings": { args: [Partial<Pick<AgentSettings, "providerId" | "models" | "manager">>]; result: AgentSettings };
+  "agents:set-settings": { args: [Partial<Pick<AgentSettings, "providerId" | "models" | "manager" | "team">>]; result: AgentSettings };
   /** An OpenAI-compatible server by base URL; its key (if any) goes to the OS keychain (safeStorage), never to disk in clear */
   "agents:add-server": { args: [{ label: string; baseUrl: string; apiKey?: string }]; result: AgentSettings };
   "agents:remove-server": { args: [{ id: string }]; result: AgentSettings };
@@ -562,6 +562,11 @@ export interface IpcSend {
   "agents:consent-answer": { reqId: number; allow: boolean; remember?: boolean; windowId?: string };
   /** A step of a scrub: the trackpad's haptic tick (macOS; main throttles it to one a frame — src/main/haptics.ts) */
   "haptics:tick": void;
+  /**
+   * The inline preview's own window (the bare device): its proportions while the user resizes it — the device's
+   * width over its height, and the toolbar's height above it; null: free
+   */
+  "preview:aspect": { ratio: number; extraHeight: number } | null;
 }
 
 export interface IpcEvents {
@@ -752,4 +757,5 @@ export const SEND_ROLES: { [C in keyof IpcSend]: readonly Role[] } = {
   "agents:tool-result": ["editor"],
   "agents:consent-answer": ["editor"],
   "haptics:tick": ["tabbar", "home", "editor"],
+  "preview:aspect": ["editor"],
 };

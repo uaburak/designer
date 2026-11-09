@@ -197,8 +197,8 @@ export const APP_TOOLS: ToolDef[] = [
   {
     name: "create_file",
     title: "Create file",
-    description: "A new design file in Drafts or a folder ({name, folderId}). `open: true` opens it in a new tab (your session stays on this file).",
-    inputSchema: { type: "object", properties: { name: str, folderId: str, open: { type: "boolean" } } },
+    description: 'A new file in Drafts or a folder ({name, folderId}): `kind` "design" (default) or "social" (a Social file, as Home\'s Social button makes). `open: true` opens it in a new tab (your session stays on this file).',
+    inputSchema: { type: "object", properties: { name: str, folderId: str, kind: { enum: ["design", "social"] }, open: { type: "boolean" } } },
     write: false,
   },
   {

@@ -17,7 +17,7 @@ import { memoryDocumentSource } from "../documentSource";
 import { CanvasLayers, LeftSide, RightSide } from "../EditorApp";
 import { runEditorCommand } from "../commands";
 import { setMode } from "../devmode/devMode";
-import { editorWriter, newCampaign, newPost, setCampaign, setPost } from "../social/actions";
+import { editorWriter, newPost, setPost } from "../social/actions";
 import { PostSection } from "../social/PostSection";
 import { readPost, writePost } from "../social/posts";
 import { ManagerCard } from "../panels/agents/StudioCards";

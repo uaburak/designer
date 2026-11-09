@@ -31,7 +31,7 @@ import { removeUploadedFont, uploadFonts, uploadedFonts } from "./uploadedFonts"
 import { figmaConnection } from "./figma";
 import { checkForUpdates, onUpdaterChange, restartToUpdate, updaterStatus } from "./updater";
 import { emit, settleFlush } from "./tabs";
-import { viewOf, type ViewInfo } from "./views";
+import { previewAspect, viewOf, type ViewInfo } from "./views";
 import { controllers, type WindowController } from "./window";
 import { welcomeReady } from "./gate";
 
@@ -319,6 +319,7 @@ export function registerIpc() {
   onInvoke("devmode:link-title", (_c, p) => linkTitle(p?.url));
   // ── Haptics (a scrub's steps; throttled, macOS only) ──
   onSend("haptics:tick", () => void hapticTick());
+  onSend("preview:aspect", ({ sender }, p) => previewAspect(sender, p && typeof p.ratio === "number" && p.ratio > 0 && p.ratio < 100 ? { ratio: p.ratio, extraHeight: Math.min(500, Math.max(0, Number(p.extraHeight) || 0)) } : null));
   onSend("file:reveal-data-folder", () => void shell.openPath(workspaceDir()));
 
   // ── A file tab ──
@@ -424,7 +425,7 @@ const watched = new WeakSet<WebContents>();
 function registerAgentsIpc() {
   onInvoke("agents:providers", () => agents.providers());
   onInvoke("agents:settings", () => agents.agentSettings());
-  onInvoke("agents:set-settings", (_c, p) => agents.setAgentSettings({ providerId: p?.providerId === null ? null : (str(p?.providerId, 100) ?? undefined), models: p?.models && typeof p.models === "object" ? p.models : undefined, manager: p?.manager && typeof p.manager === "object" ? p.manager : undefined }));
+  onInvoke("agents:set-settings", (_c, p) => agents.setAgentSettings({ providerId: p?.providerId === null ? null : (str(p?.providerId, 100) ?? undefined), models: p?.models && typeof p.models === "object" ? p.models : undefined, manager: p?.manager && typeof p.manager === "object" ? p.manager : undefined, team: p?.team && typeof p.team === "object" ? p.team : undefined }));
   onInvoke("agents:add-server", (_c, p) => agents.addServer({ label: str(p?.label, 100) ?? "", baseUrl: str(p?.baseUrl, 2000) ?? "", apiKey: str(p?.apiKey, 4000) ?? undefined }));
   onInvoke("agents:remove-server", (_c, p) => agents.removeServer(str(p?.id, 100) ?? ""));
   onInvoke("agents:test", (_c, p) => agents.testProvider(str(p?.providerId, 100) ?? ""));

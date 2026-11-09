@@ -12,6 +12,7 @@ import { shortModelName } from "../../agents/models";
 import styles from "./Agents.module.css";
 import { Block, Field, Group, PathText, Row, errorText } from "./settingsParts";
 import { ConnectorsGroup, SkillsGroup, aiSettingsPage } from "./aiSettings";
+import { TeamGroup, teamSettingsPage } from "./TeamSettings";
 import { AccessGroup, accessSettingsPage } from "./AccessSettings";
 import { ManagerPage, managerStatus } from "./ManagerSettings";
 import { t, tp, useT } from "@/i18n";
@@ -98,6 +99,7 @@ function SettingsList({ service }: { service: AgentSetupHost }) {
         <Group title={t("Studio")}>
           <Row icon="24.agents" label={t("Manager")} status={managerStatus(service)} on={service.managerSettings().enabled} onClick={() => service.openSetting("manager")} data-settings-row="manager" />
         </Group>
+        <TeamGroup service={service} />
         <ProviderGroups service={service} />
         <SkillsGroup service={service} />
         <ConnectorsGroup service={service} />
@@ -198,7 +200,7 @@ export function settingsPageOf(service: AgentSetupHost, item: string): { title: 
   if (kind === "manager") return { title: t("Manager"), body: <ManagerPage service={service} /> };
   if (kind === "mcp") return { title: t("MCP server"), body: <McpPage service={service} /> };
   // Skills and connectors (docs/ai.md §2.10–2.11): aiSettings.tsx
-  return aiSettingsPage(kind, id, service) ?? accessSettingsPage(kind, id, service) ?? { title: "", body: null };
+  return aiSettingsPage(kind, id, service) ?? teamSettingsPage(kind, id, service) ?? accessSettingsPage(kind, id, service) ?? { title: "", body: null };
 }
 
 function About({ text, page, label }: { text?: string; page?: string; label: string }) {

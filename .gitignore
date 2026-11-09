@@ -17,3 +17,4 @@ server/src/*.gen.mjs
 
 # Review screenshots dropped by agents (not part of the app)
 .figma-review/
+src/renderer/public/device-frames/

@@ -1,16 +1,23 @@
-import type { ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 const ROOT_ID = "ds-overlays";
 
-/** The one overlay root of this document (`<div id="ds-overlays">` at the end of <body>), created on first use. */
-export function overlayRoot(): HTMLElement | null {
-  if (typeof document === "undefined") return null;
-  let el = document.getElementById(ROOT_ID);
+/**
+ * The window a subtree's overlays open in: this one, or another the app drew the subtree into (the inline preview
+ * popped out into its own window, a React portal there) — its menus open there, sized and dismissed by it.
+ */
+export const OverlayWindow = createContext<Window | null>(null);
+export const useOverlayWindow = (): Window => useContext(OverlayWindow) ?? window;
+
+/** The one overlay root of a document (`<div id="ds-overlays">` at the end of <body>), created on first use. */
+export function overlayRoot(doc: Document | undefined = typeof document === "undefined" ? undefined : document): HTMLElement | null {
+  if (!doc) return null;
+  let el = doc.getElementById(ROOT_ID);
   if (!el) {
-    el = document.createElement("div");
+    el = doc.createElement("div");
     el.id = ROOT_ID;
-    document.body.appendChild(el);
+    doc.body.appendChild(el);
   }
   return el;
 }
@@ -43,7 +50,7 @@ export function inheritedTheme(active: Element | null | undefined): "light" | "d
  * trigger), else the document's.
  */
 export function Portal({ children, theme, anchor }: { children: ReactNode; theme?: "light" | "dark"; anchor?: Element | null }) {
-  const root = overlayRoot();
+  const root = overlayRoot(useOverlayWindow().document);
   if (!root) return null;
   // Without an anchor: the theme of what had focus when it opened (its trigger) — the document's in the app, a forced subtree's in the Gallery.
   const inherited = anchor !== undefined ? themeOf(anchor) ?? inheritedTheme(null) : inheritedTheme(document.activeElement);

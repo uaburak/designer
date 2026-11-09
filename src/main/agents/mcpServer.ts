@@ -35,6 +35,8 @@ export interface ChatGrant {
   role?: "manager" | "worker";
   /** A manager's turn: its manager-only tools, listed for it alone and answered by the view */
   managerTools?: ExtraTool[];
+  /** A team member's turn (docs/studio.md §9): the tools it may not call, left out of its list and refused */
+  denied?: string[];
 }
 
 /** A tool besides ours (a connector's, proxied — docs/ai.md §2.11; a manager's own — docs/studio.md §2.2). */
@@ -293,7 +295,7 @@ export class McpServer {
         const extra = await this.extraTools(session);
         return ok({
           tools: [
-            ...TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, annotations: { title: t.title, readOnlyHint: !t.write, destructiveHint: t.name === "delete_nodes" } })),
+            ...TOOLS.filter((t) => !session.chat?.denied?.includes(t.name)).map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, annotations: { title: t.title, readOnlyHint: !t.write, destructiveHint: t.name === "delete_nodes" } })),
             ...managerTools(session).map((t) => ({ name: t.name, ...(t.title ? { title: t.title } : {}), description: t.description, inputSchema: t.inputSchema })),
             ...libraryTools(session).map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, annotations: { title: t.title, readOnlyHint: false } })),
             ...extra.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })),
@@ -305,6 +307,7 @@ export class McpServer {
         const args = (m.params?.arguments ?? {}) as Record<string, unknown>;
         // The manager's tools are the manager's alone (docs/studio.md §2.2): a worker, a plain chat or an outside client is refused.
         const own = managerTools(session).some((t) => t.name === name) || libraryTools(session).some((t) => t.name === name);
+        if (session.chat?.denied?.includes(name)) return ok({ content: [{ type: "text", text: `${name} isn't one of your tools: it is another team member's job. Say what is needed in your answer instead.` }], isError: true });
         if (!own && MANAGER_TOOL_NAMES.has(name)) return ok({ content: [{ type: "text", text: `${name} is the manager's tool: a task can't call it. Do the work you were given with the design tools.` }], isError: true });
         if (!own && !TOOL_BY_NAME.has(name) && !(await this.extraTools(session)).some((t) => t.name === name)) return rpcError(m.id, -32602, `Unknown tool: ${name}`);
         if (typeof args !== "object" || Array.isArray(args)) return rpcError(m.id, -32602, "arguments must be an object");

@@ -71,6 +71,7 @@ const api: EditorApi = {
     report: (r) => send("tab:report", { title: r.title === undefined ? undefined : String(r.title), status: r.status, error: r.error === undefined ? undefined : String(r.error) }),
     onVisibility: (cb) => on("tab:visibility", cb),
     onNavigate: (cb) => on("tab:navigate", cb),
+    previewAspect: (a) => send("preview:aspect", a && Number.isFinite(a.ratio) && a.ratio > 0 ? { ratio: Number(a.ratio), extraHeight: Math.max(0, Number(a.extraHeight) || 0) } : null),
     onFlush: (cb) => {
       flusher = cb;
       return () => {

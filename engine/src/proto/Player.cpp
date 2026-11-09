@@ -628,6 +628,30 @@ void Player::setDeviceFrame(bool on) {
   events_.push_back(Event{});
 }
 
+void Player::setContentInsets(double top, double bottom, bool under) {
+  insetTop_ = std::max(0.0, top);
+  insetBottom_ = std::max(0.0, bottom);
+  insetUnder_ = under;
+  dirty_ = true;
+  if (active()) layout();
+  events_.push_back(Event{});
+}
+
+void Player::setBareDevice(bool on) {
+  bareDevice_ = on;
+  dirty_ = true;
+  if (active()) layout();
+  events_.push_back(Event{});
+}
+
+void Player::setFrameArt(bool on, const FrameArt& art) {
+  hasArt_ = on;
+  art_ = art;
+  dirty_ = true;
+  if (active()) layout();
+  events_.push_back(Event{});
+}
+
 Device Player::pageDevice(Guid page) const {
   const NodeProps* p = page != kNoGuid ? props(page) : nullptr;
   return p && !ignoreDevice_ ? device(*p) : Device{};
@@ -681,7 +705,7 @@ bool Player::hasDeviceFrame() const {
   Device dev = pageDevice(page_);
   const DeviceSpec* spec = nullptr;
   const DeviceModel* model = nullptr;
-  return dev.type == Device::Type::PRESET && !dev.none && findDevice(dev.preset, spec, model);
+  return dev.type == Device::Type::PRESET && !dev.none && (hasArt_ || findDevice(dev.preset, spec, model));
 }
 
 // ---- Geometry --------------------------------------------------------------------------------------------
@@ -714,10 +738,24 @@ void Player::layout() {
     DeviceFrame df;
     const DeviceSpec* spec = nullptr;
     const DeviceModel* model = nullptr;
-    v.framed = deviceFrame_ && dev.type == Device::Type::PRESET && findDevice(dev.preset, spec, model);
-    if (v.framed) df = proto::deviceFrame(*spec, *model, v.screen, dev.rotated);
+    bool art = deviceFrame_ && dev.type == Device::Type::PRESET && hasArt_;
+    v.framed = art || (deviceFrame_ && dev.type == Device::Type::PRESET && findDevice(dev.preset, spec, model));
+    if (art) {
+      // The page's picture: only its room (portrait fractions, turned as the frame is for landscape: the top goes left).
+      double pw = dev.rotated ? v.screen.y : v.screen.x, ph = dev.rotated ? v.screen.x : v.screen.y;
+      double l = art_.left * pw, t = art_.top * ph, r = art_.right * pw, b = art_.bottom * ph;
+      if (dev.rotated) {
+        df.left = t, df.top = r, df.right = b, df.bottom = l;
+      } else {
+        df.left = l, df.top = t, df.right = r, df.bottom = b;
+      }
+      df.screenRadius = art_.radius * pw;
+    } else if (v.framed)
+      df = proto::deviceFrame(*spec, *model, v.screen, dev.rotated);
     // The device on the window, with a margin when it is fitted (Figma leaves room around it).
-    double margin = v.framed ? 32 : 0;
+    // The device as the window (bare device, a picture frame): no margin, as large as the window takes it.
+    bool bareDevice = bareDevice_ && art;
+    double margin = v.framed && !bareDevice ? 32 : 0;
     double tw = v.screen.x + df.left + df.right, th = v.screen.y + df.top + df.bottom;
     double aw = std::max(1.0, W - 2 * margin), ah = std::max(1.0, H - 2 * margin);
     switch (scale_) {
@@ -726,10 +764,24 @@ void Player::layout() {
       case ScaleMode::FILL: v.s = std::min(W / tw, H / th); break;
       default: v.s = std::min(1.0, std::min(aw / tw, ah / th)); break;  // Fit device on screen: it shrinks, never grows
     }
+    if (bareDevice) v.s = std::min(W / tw, H / th);
     double ox = std::round((W - tw * v.s) / 2 + df.left * v.s), oy = std::round((H - th * v.s) / 2 + df.top * v.s);
     v.css = {ox, oy, v.screen.x * v.s, v.screen.y * v.s};
     v.toCss = Mat2x3::translate(ox, oy) * Mat2x3::scale(v.s);
     v.radius = v.framed ? df.screenRadius * v.s : 0;
+    // The page's bars over the screen: the prototype between them (its corners square: the bars and the frame cover
+    // the screen's rounded ones).
+    if (double it = insetTop_, ib = insetBottom_; it + ib > 0 && v.screen.y - it - ib >= 1) {
+      v.screen.y -= it + ib;
+      v.css = {ox, oy + it * v.s, v.screen.x * v.s, v.screen.y * v.s};
+      v.toCss = Mat2x3::translate(ox, oy + it * v.s) * Mat2x3::scale(v.s);
+      v.radius = 0;
+      // Under the status bar and the home indicator (Safari's tab bar): the content scrolls on beneath them.
+      if (insetUnder_) {
+        v.hasClip = true;
+        v.clip = {v.css.x, v.css.y - it * v.s, v.css.w, v.css.h + (it + ib) * v.s};
+      }
+    }
     if (v.framed)
       for (const DeviceShape& sh : df.shapes) {
         PresentItem r;
@@ -1093,6 +1145,8 @@ void Player::fitResponsive() {
   const Viewport& vp = ed_.viewport();
   Device dev = pageDevice(page_);
   Vec2 target = dev.none ? Vec2{std::max(1.0, vp.width), std::max(1.0, vp.height)} : dev.size;
+  // The page's bars over a device's screen take their height off it.
+  if (!dev.none && target.y - insetTop_ - insetBottom_ >= 1) target.y -= insetTop_ + insetBottom_;
   std::vector<Guid> frames{base_};
   if (anim_.active) {
     frames.push_back(anim_.x.frame);
@@ -1232,7 +1286,9 @@ Vec2 Player::topScrollRange(Guid frame) const {
   if (!p) return {};
   Overflow o = overflow(*p);
   Vec2 box{std::min(p->size.x, view_.screen.x), std::min(p->size.y, view_.screen.y)};
-  if (o == Overflow::NONE) return {std::max(0.0, p->size.x - box.x), std::max(0.0, p->size.y - box.y)};
+  // Safe areas (status bar, home indicator): a frame that fits the whole screen doesn't scroll for them.
+  double whole = fullScreenHeight();
+  if (o == Overflow::NONE) return {std::max(0.0, p->size.x - box.x), p->size.y <= whole ? 0.0 : std::max(0.0, p->size.y - box.y)};
   double right = 0, bottom = 0;
   for (Guid c : doc().children(frame)) {
     const NodeProps* cp = props(c);
@@ -1250,8 +1306,13 @@ Vec2 Player::topScrollRange(Guid frame) const {
   bottom = std::max(bottom, box.y);
   Vec2 r;
   if (o == Overflow::HORIZONTAL || o == Overflow::BOTH) r.x = std::max(0.0, right - box.x);
-  if (o == Overflow::VERTICAL || o == Overflow::BOTH) r.y = std::max(0.0, bottom - box.y);
+  if (o == Overflow::VERTICAL || o == Overflow::BOTH) r.y = bottom <= whole ? 0.0 : std::max(0.0, bottom - box.y);
   return r;
+}
+
+double Player::fullScreenHeight() const {
+  // The screen's height with the safe areas the page scrolls under (their room is part of the screen).
+  return view_.screen.y + (insetUnder_ ? insetTop_ + insetBottom_ : 0) + 0.5;
 }
 
 Vec2 Player::topShift(Guid frame, Vec2 scroll) const {
@@ -1259,7 +1320,7 @@ Vec2 Player::topShift(Guid frame, Vec2 scroll) const {
   // that (content running beyond the frame) — or bouncing past either end — moves its layers inside it instead.
   const NodeProps* p = props(frame);
   if (!p) return {};
-  Vec2 room{std::max(0.0, p->size.x - view_.screen.x), std::max(0.0, p->size.y - view_.screen.y)};
+  Vec2 room{std::max(0.0, p->size.x - view_.screen.x), p->size.y <= fullScreenHeight() ? 0.0 : std::max(0.0, p->size.y - view_.screen.y)};
   return {std::clamp(scroll.x, 0.0, room.x), std::clamp(scroll.y, 0.0, room.y)};
 }
 
@@ -2757,6 +2818,11 @@ void Player::setVariableMode(const Action& a) {
     set.guid = Guid{static_cast<uint32_t>(g->get("sessionID")->numberOr(0)), static_cast<uint32_t>(g->get("localID")->numberOr(0))};
   if (const json::Value* r = a.targetVariableSet.get("assetRef"); r && r->isObject())
     if (const json::Value* k = r->get("key"); k && k->isString()) set.key = k->string;
+  setCollectionMode(set, a.targetMode);
+}
+
+void Player::setCollectionMode(AssetId set, Guid mode) {
+  if (!active() || mode == kNoGuid || !set.present()) return;
   Guid coll = ed_.findCollection(set);
   if (coll != kNoGuid) set.guid = coll;
   // The page and every top-level frame shown take the mode (frames' own explicit modes would win otherwise).
@@ -2780,10 +2846,10 @@ void Player::setVariableMode(const Action& a) {
     bool found = false;
     for (auto& e : c.props.refs().variableModeBySetMap)
       if ((set.guid != kNoGuid && e.set.guid == set.guid) || (!set.key.empty() && e.set.key == set.key)) {
-        e.mode = a.targetMode;
+        e.mode = mode;
         found = true;
       }
-    if (!found) c.props.refs().variableModeBySetMap.push_back({set, a.targetMode, {}});
+    if (!found) c.props.refs().variableModeBySetMap.push_back({set, mode, {}});
     changes.push_back(std::move(c));
   }
   ed_.applyChanges(changes, APPLY_REMOTE);
@@ -3841,7 +3907,7 @@ void Player::addFrame(const Side& s, Vec2 offset, double alpha, PropsOverrides&&
   item.parentCss = frameToCss * rootTransform.inverse();
   item.overrides = stored;
   item.clip = true;
-  item.clipCss = view_.css;
+  item.clipCss = view_.clipRect();
   // Fixed layers of nested scrolling frames: above the frame's other layers (Figma moves Fixed layers above the rest
   // of their frame, help "Prototype scroll and overflow behavior"), unscrolled, within their frame.
   struct NestedFixed {
@@ -3909,7 +3975,7 @@ void Player::addFrame(const Side& s, Vec2 offset, double alpha, PropsOverrides&&
       f.parentCss = unscrolled;
       f.overrides = &store_.back();
       f.clip = true;
-      f.clipCss = view_.css;
+      f.clipCss = view_.clipRect();
       scene_.items.push_back(f);
     }
   }
@@ -3925,7 +3991,7 @@ void Player::addSlot(const Side* x, const Side* y, const Anim* a) {
     r.alpha = s.settings.backgroundColor.a * alpha;
     r.color.a = 1;
     r.clip = true;
-    r.clipCss = view_.css;
+    r.clipCss = view_.clipRect();
     scene_.items.push_back(r);
   };
   if (!a) {
@@ -4045,7 +4111,7 @@ void Player::addFixed(const Side& s, Vec2 offset, const std::function<double(Gui
     f.parentCss = unscrolled;
     f.overrides = &store_.back();
     f.clip = true;
-    f.clipCss = view_.css;
+    f.clipCss = view_.clipRect();
     scene_.items.push_back(f);
   }
 }
@@ -4206,6 +4272,35 @@ const PresentScene& Player::scene() {
   const NodeProps* pg = props(page_);
   scene_.background = pg ? background(*pg) : Color::hex(0x000000);
   if (Color c; bare_ && screenColor(c)) scene_.background = c;
+  // The device as the window: nothing around it (the page shows through the canvas) — but its screen is the page's
+  // background, as Figma's viewer around a frame narrower or shorter than the screen (the bars' room included).
+  if (bareDevice_ && hasArt_ && view_.framed) {
+    PresentItem fill;
+    fill.kind = PresentItem::Kind::Rect;
+    fill.rect = {view_.css.x, view_.css.y - insetTop_ * view_.s, view_.css.w, view_.css.h + (insetTop_ + insetBottom_) * view_.s};
+    fill.color = scene_.background;
+    fill.alpha = 1;
+    fill.color.a = 1;
+    scene_.items.push_back(fill);
+    scene_.background = Color{0, 0, 0, 0};
+  }
+  // The safe areas the page scrolls under (the status bar's, the home indicator's): the screen's colour there, behind it.
+  if (insetUnder_ && view_.hasClip) {
+    Color c;
+    Color fill = screenColor(c) ? c : Color::hex(0xFFFFFF);
+    auto band = [&](double y, double h) {
+      if (h <= 0) return;
+      PresentItem r;
+      r.kind = PresentItem::Kind::Rect;
+      r.rect = {view_.clip.x, y, view_.clip.w, h};
+      r.color = fill;
+      r.alpha = 1;
+      r.color.a = 1;
+      scene_.items.push_back(r);
+    };
+    band(view_.clip.y, view_.css.y - view_.clip.y);
+    band(view_.css.bottom(), view_.clip.bottom() - view_.css.bottom());
+  }
   // The device frame behind the screen.
   for (const PresentItem& r : view_.under) scene_.items.push_back(r);
   size_t firstScreenItem = scene_.items.size();
@@ -4752,6 +4847,9 @@ std::string Player::stateJson() const {
   }
   w.key("hasDeviceFrame").boolean(hasDeviceFrame());
   w.key("deviceFrame").boolean(deviceFrame_);
+  w.key("frameArt").boolean(hasArt_);
+  w.key("bareDevice").boolean(bareDevice_);
+  w.key("contentInsets").beginArray().number(insetTop_).number(insetBottom_).endArray();
   w.key("responsive").boolean(responsive_);
   {
     // Bare: the base screen as the page's document — its scroll, its content's size (frame units) and the view's scale

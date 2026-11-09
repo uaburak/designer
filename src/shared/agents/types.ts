@@ -8,6 +8,7 @@ import type { AttachResult, TurnAttachment } from "./attachments";
 import type { Connector, ConnectorConsent, ConnectorToolPolicy } from "../ai/types";
 import type { AccessLogEntry, ReachPatch, ReachView } from "./reach";
 import type { ManagerSettings } from "../studio/types";
+import type { TeamSettings, TurnMember } from "./team";
 
 /** How a provider is driven: a CLI run headless with our MCP server, or an OpenAI-compatible chat API we bridge. */
 export type ProviderKind = "claude-code" | "antigravity" | "codex" | "cursor-agent" | "openai-compatible";
@@ -54,6 +55,8 @@ export interface AgentSettings {
   custom: CustomServer[];
   /** Agent settings › Manager (docs/studio.md §2); absent: DEFAULT_MANAGER_SETTINGS */
   manager?: ManagerSettings;
+  /** Agent settings › Team (docs/studio.md §9): the owner's members and the defaults he removed; absent: the default team */
+  team?: TeamSettings;
 }
 
 export interface ChatTurnMessage {
@@ -103,6 +106,8 @@ export interface TurnRequest {
   role?: "manager" | "worker";
   /** A manager's turn: the manager-only tools the view answers (MANAGER_TOOLS and the library's) */
   managerTools?: ManagerToolDef[];
+  /** A team member runs this turn (docs/studio.md §9): its instructions and Skills open it, its tools are limited */
+  member?: TurnMember;
 }
 
 /** A manager-only tool as a turn carries it to main (listed for that turn's sessions only). */
@@ -226,7 +231,7 @@ export interface ConnectResult {
 export interface AgentsApi {
   providers(): Promise<ProviderInfo[]>;
   settings(): Promise<AgentSettings>;
-  setSettings(patch: Partial<Pick<AgentSettings, "providerId" | "models" | "manager">>): Promise<AgentSettings>;
+  setSettings(patch: Partial<Pick<AgentSettings, "providerId" | "models" | "manager" | "team">>): Promise<AgentSettings>;
   addServer(server: { label: string; baseUrl: string; apiKey?: string }): Promise<AgentSettings>;
   removeServer(id: string): Promise<AgentSettings>;
   test(providerId: string): Promise<{ ok: boolean; models: string[]; error?: string; version?: string }>;

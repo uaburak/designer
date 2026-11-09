@@ -7,6 +7,7 @@ import type { AiRoute } from "../ai/types";
 import type { ManagerSettings } from "./types";
 import type { SocialPromptContext } from "../social/types";
 import { socialPrompt } from "../social/managerPrompt";
+import { teamLines, type TeamEntry } from "../agents/team";
 
 export interface ManagerPromptContext {
   settings: ManagerSettings;
@@ -18,6 +19,15 @@ export interface ManagerPromptContext {
   briefs?: { id: string; request: string }[];
   /** Set when the view is in Social mode (docs/social.md §7.4): the board's brand and campaigns; its paragraph follows */
   social?: SocialPromptContext;
+  /** The owner's team (docs/studio.md §9): members with one job each, picked by their role */
+  team?: TeamEntry[];
+}
+
+/** The team's paragraph: who does what, and that a task goes to the member whose role fits. */
+function teamParagraph(team: readonly TeamEntry[] | undefined): string {
+  const lines = teamLines(team ?? []);
+  if (!lines) return "";
+  return `\n\nYour team — give each task to the member whose role fits it: delegate_task {member: "<id>", title, prompt}. The member brings its own instructions, Skills, agent and model; your prompt only says the task. A task no member fits goes to general work (no member). Split work by job: the design to the post designer, the animation to the reels maker, the texts to the copywriter, a check to the reviewer — with dependsOn when one needs another's result. make_posts already does this: its pictures and frames are the post designer's, a Reel's animation the reels maker's ("a reel and a post" = formats ["instagram.reel", "post"]). After it, give the captions, hashtags and alt text to the copywriter (one delegate_task with the frames' ids, the brand's tone and the request) instead of writing them yourself.\n${lines}`;
 }
 
 export function managerPrompt(ctx: ManagerPromptContext): string {
@@ -40,10 +50,10 @@ The owner's flow:
 4. When everything is ready: make_posts {brand, products, formats, scene, variations, request} (default formats: the brand's Post and Story; default 2 variations). It starts the image and frame tasks and a last review task, and returns their ids. Tell the owner in one line what you started.
 5. wait_tasks on the review task, then review {nodeIds, briefId}: look at every frame carefully (library_image shows you a product's reference photos to compare). Then report_review with each frame ✓ or its problems — kind and fix: sharp-text → fix-label (a label text that must read exactly reads wrong; put its box), soft-text → blur (small print that came out as readable wrong words; put its box), shape / extra / missing → regenerate, layout / brand → relayout. The owner picks what to fix; the fixes come back as task ids: wait_tasks on them, then review the frames that changed again. The loop ends when everything passes or the owner says Leave as is.
 
-Other work (a frame to change, a layout, copy): delegate_task {title, prompt, agent?, dependsOn?} — the prompt must hold everything the worker needs (it doesn't see this chat): which layers (ids), what to do, the brand's colours and fonts when they matter. Then wait_tasks and tell the owner what was done. Several independent tasks run at once (up to ${ctx.settings.parallel}); use dependsOn when one needs another's result.
+Other work (a frame to change, a layout, copy, an animation): delegate_task {member?, title, prompt, agent?, dependsOn?} — the prompt must hold everything the worker needs (it doesn't see this chat): which layers (ids), what to do, the brand's colours and fonts when they matter. Then wait_tasks and tell the owner what was done. Several independent tasks run at once (up to ${ctx.settings.parallel}); use dependsOn when one needs another's result.
 
 General work goes to ${general.providerId}${general.model ? ` · ${general.model}` : ""} unless the owner names another agent. Agents you may hand work to:
-${agents}${briefs}
+${agents}${briefs}${teamParagraph(ctx.team)}
 
 Never make up label texts, product names or brand details: they come from the library or from the owner.]${ctx.social ? `\n\n${socialPrompt(ctx.social)}` : ""}`;
 }
@@ -51,5 +61,5 @@ Never make up label texts, product names or brand details: they come from the li
 /** What a resumed manager session is reminded of each turn (its first turn had the whole instructions). */
 export function managerReminder(ctx: ManagerPromptContext): string {
   const image = ctx.imageRoute ? `${ctx.imageRoute.providerId}${ctx.imageRoute.model ? ` · ${ctx.imageRoute.model}` : ""}` : "not chosen (ask_choice {imageRoute: true})";
-  return `[You are still this chat's manager: library first, ask for what is missing, make_posts / delegate_task, wait_tasks, review, report_review. Image model: ${image}. Answer in the owner's language.]${ctx.social ? `\n[Social mode: get_board first; templates when one fits; captions with set_post within the format's limits; check_posts after changes.${ctx.social.brand ? ` The board's brand: ${ctx.social.brand.name}.` : ""}]` : ""}`;
+  return `[You are still this chat's manager: library first, ask for what is missing, make_posts / delegate_task (to the team member whose role fits${ctx.team?.some((m) => m.enabled) ? `: ${ctx.team.filter((m) => m.enabled).map((m) => m.id).join(", ")}` : ""}), wait_tasks, review, report_review. Image model: ${image}. Answer in the owner's language.]${ctx.social ? `\n[Social mode: get_board first; templates when one fits; captions with set_post within the format's limits; check_posts after changes.${ctx.social.brand ? ` The board's brand: ${ctx.social.brand.name}.` : ""}]` : ""}`;
 }

@@ -115,19 +115,21 @@ export type Edge = "top" | "bottom" | "left" | "right" | "top-left" | "top-right
 
 /**
  * The window resized from `start` by an edge or corner moved (dx, dy); `keepRatio` (⇧) keeps the viewer's proportions,
- * led by the edge's own axis (a corner: the axis moved more). The opposite edges stay where they were.
+ * led by the edge's own axis (a corner: the axis moved more), or `fixedRatio` (height over width) when given. The
+ * opposite edges stay where they were.
  */
-export function resizeBox(start: Box, edge: Edge, dx: number, dy: number, keepRatio: boolean): Box {
+export function resizeBox(start: Box, edge: Edge, dx: number, dy: number, keepRatio: boolean, header = HEADER, fixedRatio?: number): Box {
   const left = edge.includes("left");
   const right = edge.includes("right");
   const top = edge.startsWith("top");
   const bottom = edge.startsWith("bottom");
   let w = start.w + (right ? dx : left ? -dx : 0);
-  let vh = start.h - HEADER + (bottom ? dy : top ? -dy : 0);
+  let vh = start.h - header + (bottom ? dy : top ? -dy : 0);
   w = Math.max(MIN_VIEWER.x, w);
   vh = Math.max(MIN_VIEWER.y, vh);
   if (keepRatio && start.w > 0) {
-    const ratio = (start.h - HEADER) / start.w;
+    // The viewer's height over its width: the start's, or one given (the bare device's own).
+    const ratio = fixedRatio ?? (start.h - header) / start.w;
     const horizontal = left || right;
     const vertical = top || bottom;
     // A corner follows the axis the pointer moved more along (live: +100, +100 → the height leads).
@@ -137,7 +139,7 @@ export function resizeBox(start: Box, edge: Edge, dx: number, dy: number, keepRa
     if (w < MIN_VIEWER.x) [w, vh] = [MIN_VIEWER.x, MIN_VIEWER.x * ratio];
     if (vh < MIN_VIEWER.y) [w, vh] = [MIN_VIEWER.y / ratio, MIN_VIEWER.y];
   }
-  const h = vh + HEADER;
+  const h = vh + header;
   return { x: left ? start.x + start.w - w : start.x, y: top ? start.y + start.h - h : start.y, w, h };
 }
 

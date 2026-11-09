@@ -33,7 +33,7 @@ function shortModel(m: string, p?: ProviderInfo): string {
 }
 
 /** "Claude Code · Sonnet 5.5", "Gemini API · Nano Banana Pro" (an image route's names as main reports them). */
-export function routeText(task: Pick<ChatTask, "kind" | "route">, providers: readonly ProviderInfo[], images: readonly ImageRouteInfo[] = [], manager?: Pick<ManagerSettings, "name">): string {
+export function routeText(task: Pick<ChatTask, "kind" | "route" | "member">, providers: readonly ProviderInfo[], images: readonly ImageRouteInfo[] = [], manager?: Pick<ManagerSettings, "name">): string {
   const p = providers.find((x) => x.id === task.route.providerId);
   if (task.kind === "review") return managerName(manager);
   if (task.kind === "image") {
@@ -41,7 +41,8 @@ export function routeText(task: Pick<ChatTask, "kind" | "route">, providers: rea
     const model = task.route.model ? (r?.models.find((m) => m.id === task.route.model)?.label ?? task.route.model) : null;
     return [r?.label ?? task.route.providerId, model].filter(Boolean).join(" · ");
   }
-  const who = p?.label ?? task.route.providerId;
+  // A team member's task (docs/studio.md §9): "Reels Maker · Claude Code · Sonnet 5.5".
+  const who = [task.member, p?.label ?? task.route.providerId].filter(Boolean).join(" · ");
   return task.route.model ? `${who} · ${shortModel(task.route.model, p)}` : who;
 }
 
@@ -195,8 +196,11 @@ function FollowUps({ card, service }: { card: Extract<ViewCard, { kind: "choice"
 function ChoiceCard({ card, open, service }: { card: Extract<ViewCard, { kind: "choice" }>; open: boolean; service: AgentsService }) {
   useT();
   const [remember, setRemember] = useState(!!card.remember);
+  const [own, setOwn] = useState("");
   const picked = card.answer && "optionId" in card.answer ? card.answer.optionId : null;
+  const wrote = card.answer && "text" in card.answer ? card.answer.text : null;
   if (card.suggestions) return <FollowUps card={card} service={service} />;
+  const sendOwn = () => own.trim() && service.answerCard(card.id, { text: own.trim() });
   return (
     <div className={styles.consent} role="group" aria-label={card.question} data-card="choice" data-card-open={open || undefined}>
       <p className={styles.consentTitle}>{card.question}</p>
@@ -212,7 +216,32 @@ function ChoiceCard({ card, open, service }: { card: Extract<ViewCard, { kind: "
         })}
       </div>
       {card.remember && open && <Checkbox label={t("Use this for this chat")} checked={remember} onChange={setRemember} data-choice-remember="" />}
-      {!open && !picked && <span className={styles.cardAnswer}>{t("Not answered")}</span>}
+      {/* None of the options fits: the owner writes his own answer (an image-model card has nothing to write). */}
+      {open && !card.remember && (
+        <div className={styles.choiceOwn}>
+          <TextArea
+            label={t("Your answer")}
+            placeholder={t("Or write your own answer…")}
+            value={own}
+            onChange={setOwn}
+            minRows={1}
+            maxRows={6}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                sendOwn();
+              }
+            }}
+            data-choice-own=""
+          />
+          <Button variant="primary" disabled={!own.trim()} onClick={sendOwn} data-choice-send="">
+            {t("Send")}
+          </Button>
+        </div>
+      )}
+      {wrote && <p className={cx(styles.choice, styles.choiceOn, styles.choiceWrote)}>{wrote}</p>}
+      {!open && !picked && !wrote && <span className={styles.cardAnswer}>{t("Not answered")}</span>}
     </div>
   );
 }

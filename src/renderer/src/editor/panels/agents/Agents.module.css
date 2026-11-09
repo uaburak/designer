@@ -366,6 +366,10 @@
   .choiceOn, .choiceOn:disabled { border-color: var(--figma-color-border-selected); background: var(--figma-color-bg-selected); color: var(--figma-color-text); }
   .choiceLabel { font: var(--ds-font-body-medium-strong); }
   .choiceDetail { color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); }
+  /* The owner's own answer under a choice card's options */
+  .choiceOwn { display: flex; align-items: flex-end; gap: var(--ds-space-1); }
+  .choiceOwn > textarea { flex: 1 1 auto; min-width: 0; }
+  .choiceWrote { margin: 0; font: var(--ds-font-body-medium); white-space: pre-wrap; }
   .cardAnswer { color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); }
   .reviewItem { display: flex; align-items: flex-start; gap: var(--ds-space-2); }
   .reviewThumb { position: relative; display: block; flex: none; width: calc(var(--ds-space-6) * 2); min-height: var(--ds-space-6); overflow: hidden; border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-tertiary); }

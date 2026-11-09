@@ -747,6 +747,8 @@ TEST_CASE("prototype.devices: presets, models and their frames") {
   CHECK(std::string(spec->id) == "IPHONE_15_PRO_MAX");
   CHECK(spec->models.size() == 4);  // help: "the iPhone 15 Pro Max comes in four different colors"
   CHECK(!proto::findDevice("NOKIA_3310", spec, model));
+  REQUIRE(proto::findDevice("APPLE_IPAD_PRO_11_SILVER", spec, model));  // Figma's own identifier
+  CHECK(std::string(model->id) == "SILVER");
   // Every preset draws a frame around its screen; landscape turns it.
   for (const auto& s : proto::deviceSpecs()) {
     auto f = proto::deviceFrame(s, s.models.front(), {s.width, s.height}, false);
@@ -789,6 +791,46 @@ TEST_CASE("prototype.player: the device frame around the screen, Show device fra
   const PresentScene& plain = f.player.scene();
   CHECK(rects(plain) == 0);
   CHECK(itemOf(plain, A)->clipRadius == 0);
+  // The page's picture of the device (frameArt): no shapes, room left around the screen, the screen's corners rounded.
+  f.player.setDeviceFrame(true);
+  f.player.setFrameArt(true, {0.1, 0.05, 0.1, 0.05, 0.2});
+  const PresentScene& art = f.player.scene();
+  CHECK(rects(art) == 0);
+  CHECK(itemOf(art, A)->clipRadius == doctest::Approx(0.2 * f.player.screenRect().w).epsilon(0.01));
+  Rect ar = f.player.screenRect();
+  CHECK(ar.h * 1.1 <= 1000 - 2 * 32 + 1);  // the device, picture included, fits with Figma's 32 margin
+  CHECK(f.player.stateJson().find("\"frameArt\":true") != std::string::npos);
+  // The device as the window: no margin, the background transparent.
+  f.player.setBareDevice(true);
+  const PresentScene& bareDev = f.player.scene();
+  CHECK(bareDev.background.a == 0);
+  // …but the screen itself is the page's background (a frame narrower than the screen shows it beside).
+  CHECK(bareDev.items.front().kind == PresentItem::Kind::Rect);
+  CHECK(bareDev.items.front().rect.w == doctest::Approx(f.player.screenRect().w));
+  CHECK(f.player.screenRect().h * 1.1 == doctest::Approx(1000).epsilon(0.01));
+  f.player.setBareDevice(false);
+  CHECK(f.player.scene().background.a == 1);
+  // The page's bars over the screen: the prototype between them, the same scale.
+  Rect full = f.player.screenRect();
+  f.player.setContentInsets(100, 50);
+  Rect inner = f.player.screenRect();
+  double k = full.w / 375;
+  CHECK(inner.y == doctest::Approx(full.y + 100 * k));
+  CHECK(inner.h == doctest::Approx(full.h - 150 * k));
+  CHECK(itemOf(f.player.scene(), A)->clipRadius == 0);
+  // Under the status bar: the prototype starts under it, its content still cut to the whole screen (it scrolls on up
+  // beneath it), the room filled with the screen's colour.
+  f.player.setContentInsets(100, 0, true);
+  CHECK(f.player.screenRect().y == doctest::Approx(full.y + 100 * k));
+  const PresentItem* under = itemOf(f.player.scene(), A);
+  REQUIRE(under);
+  CHECK(under->clipCss.y == doctest::Approx(full.y));
+  // A frame that fits the whole screen doesn't scroll for the safe areas.
+  CHECK(f.player.stateJson().find("\"content\":[375,712]") != std::string::npos);  // no range past the 712 shown
+  f.player.setContentInsets(0, 0);
+  CHECK(f.player.screenRect().h == doctest::Approx(full.h));
+  f.player.setFrameArt(false, {});
+  CHECK(rects(f.player.scene()) >= 3);
 
   // No device: Actual size (100%); a page of 16:9 frames: Fill screen.
   Fixture g(screens(), 1200, 1000);

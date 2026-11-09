@@ -24,6 +24,8 @@ export interface OpenAiTurn {
   extraTools?: { name: string; description: string; inputSchema: Record<string, unknown> }[];
   /** Tool rounds before the model must answer */
   maxRounds?: number;
+  /** A team member's turn (docs/studio.md §9): the tools it may not call, not offered */
+  denied?: readonly string[];
 }
 
 type Msg =
@@ -31,7 +33,7 @@ type Msg =
   | { role: "assistant"; content: string | null; tool_calls?: { id: string; type: "function"; function: { name: string; arguments: string } }[] }
   | { role: "tool"; tool_call_id: string; content: string };
 
-export const openAiTools = () => TOOLS.map((t) => ({ type: "function" as const, function: { name: t.name, description: t.description, parameters: t.inputSchema } }));
+export const openAiTools = (denied: readonly string[] = []) => TOOLS.filter((t) => !denied.includes(t.name)).map((t) => ({ type: "function" as const, function: { name: t.name, description: t.description, parameters: t.inputSchema } }));
 
 export const trimBase = (url: string) => url.trim().replace(/\/+$/, "").replace(/\/chat\/completions$/, "");
 
@@ -89,7 +91,7 @@ export async function runOpenAiTurn(t: OpenAiTurn): Promise<void> {
   const doFetch = t.fetch ?? fetch;
   const url = `${trimBase(t.baseUrl)}/chat/completions`;
   const messages: Msg[] = [{ role: "system", content: SYSTEM_PROMPT }, ...t.request.history.slice(-20).map((m) => ({ role: m.role, content: m.text }) as Msg), { role: "user", content: promptWithContext(t.request, "You can't open files here: ask the user about them if you need to.") }];
-  const tools = [...openAiTools(), ...(t.extraTools ?? []).map((x) => ({ type: "function" as const, function: { name: x.name, description: x.description, parameters: x.inputSchema } }))];
+  const tools = [...openAiTools(t.denied), ...(t.extraTools ?? []).map((x) => ({ type: "function" as const, function: { name: x.name, description: x.description, parameters: x.inputSchema } }))];
   const max = t.maxRounds ?? 24;
   for (let round = 0; round <= max; round++) {
     const res = await doFetch(url, {

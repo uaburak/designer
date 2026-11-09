@@ -6,6 +6,7 @@
  */
 import type { AgentSettings, AgentSetupApi, McpClientInfo, McpState, ProviderInfo } from "@shared/agents/types";
 import { DEFAULT_MANAGER_SETTINGS, type ManagerSettings } from "@shared/studio/types";
+import { EMPTY_TEAM, teamOf, type TeamEntry, type TeamSettings } from "@shared/agents/team";
 import { t } from "@/i18n";
 
 export interface AgentSetupState {
@@ -33,6 +34,10 @@ export interface AgentSetupHost {
   /** Agent settings › Manager (docs/studio.md §2.1) */
   managerSettings(): ManagerSettings;
   setManager(patch: Partial<ManagerSettings>): Promise<void>;
+  /** Agent settings › Team (docs/studio.md §9): the whole team, and what is kept of it */
+  team(): TeamEntry[];
+  teamSettings(): TeamSettings;
+  setTeam(team: TeamSettings): Promise<void>;
 }
 
 const MODEL_LABEL: Record<string, string> = { default: "Default", auto: "Auto" };
@@ -106,5 +111,19 @@ export class AgentSetupService implements AgentSetupHost {
     this.set({ settings: { ...this.state.settings, manager: next } });
     if (!this.api) return;
     this.set({ settings: await this.api.setSettings({ manager: next }) });
+  }
+
+  team(): TeamEntry[] {
+    return teamOf(this.state.settings.team);
+  }
+
+  teamSettings(): TeamSettings {
+    return this.state.settings.team ?? EMPTY_TEAM;
+  }
+
+  async setTeam(team: TeamSettings) {
+    this.set({ settings: { ...this.state.settings, team } });
+    if (!this.api) return;
+    this.set({ settings: await this.api.setSettings({ team }) });
   }
 }

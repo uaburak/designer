@@ -2,7 +2,7 @@ import { themeArg } from "./theme";
 import { localeArg } from "./locale";
 import { zoomFactor } from "./interfaceScale";
 import { backendQuery } from "./troubleshooting";
-import { app, Menu, nativeTheme, shell, WebContentsView, type MenuItemConstructorOptions, type WebContents } from "electron";
+import { app, BrowserWindow, Menu, nativeTheme, shell, WebContentsView, type MenuItemConstructorOptions, type WebContents } from "electron";
 import { join } from "node:path";
 import type { Role } from "../shared/ipc";
 import { VIEW_BACKGROUND } from "../shared/layout";
@@ -92,11 +92,96 @@ export function createView(role: Role, windowId: string, tabId: string | null, q
   return view;
 }
 
+/**
+ * The inline preview popped out (InlinePreview.tsx): an editor's own blank window, its page put there by the editor
+ * (a React portal — the same document, the same prototype engine, no second load), a window of its own on the desktop.
+ */
+export const PREVIEW_WINDOW = "wecra-preview";
+
+/** Each editor's preview window (by the editor's webContents id). */
+const previewWindows = new Map<number, BrowserWindow>();
+
+/** The preview window keeps the device's proportions as the user resizes it (null: free) — `preview:aspect`. */
+export function previewAspect(editor: WebContents, aspect: { ratio: number; extraHeight: number } | null): void {
+  const win = previewWindows.get(editor.id);
+  if (!win || win.isDestroyed()) return;
+  win.setAspectRatio(aspect ? aspect.ratio : 0, aspect ? { width: 0, height: Math.round(aspect.extraHeight) } : undefined);
+}
+
+/**
+ * Over the app's own windows only: on top while Wecra is the active app, a window like any other once another app is
+ * (it doesn't float over Claude Code or a browser).
+ */
+function onTopOfAppOnly(win: BrowserWindow): void {
+  const raise = () => {
+    if (!win.isDestroyed()) win.setAlwaysOnTop(true, "floating");
+  };
+  const lower = () => {
+    if (!win.isDestroyed()) win.setAlwaysOnTop(false);
+  };
+  // Elsewhere than the Mac: a window of the app focused or none.
+  const blur = () => setTimeout(() => (BrowserWindow.getFocusedWindow() ? raise() : lower()), 0);
+  if (process.platform === "darwin") {
+    app.on("did-become-active", raise);
+    app.on("did-resign-active", lower);
+  } else {
+    app.on("browser-window-focus", raise);
+    app.on("browser-window-blur", blur);
+  }
+  win.once("closed", () => {
+    app.off("did-become-active", raise);
+    app.off("did-resign-active", lower);
+    app.off("browser-window-focus", raise);
+    app.off("browser-window-blur", blur);
+  });
+  raise();
+}
+
 function harden(contents: WebContents) {
   // Links out of the app open in the browser; the view itself never leaves the app (a file dropped outside the canvas, a stray link).
-  contents.setWindowOpenHandler(({ url }) => {
+  contents.setWindowOpenHandler(({ url, frameName }) => {
+    // `-device`: the device itself is the window (its frame a picture) — frameless, transparent around the device.
+    const device = frameName === `${PREVIEW_WINDOW}-device`;
+    if (url === "about:blank" && (frameName === PREVIEW_WINDOW || device) && viewOf(contents)?.role === "editor")
+      return {
+        action: "allow",
+        overrideBrowserWindowOptions: {
+          title: t("Preview"),
+          minWidth: 160,
+          minHeight: 160,
+          backgroundColor: device ? "#00000000" : backgroundOf("editor"),
+          ...(device ? { frame: false, transparent: true, hasShadow: false } : {}),
+          autoHideMenuBar: true,
+          // Over the app's windows (a click on the canvas doesn't send it behind) — not over other apps' (onTopOfAppOnly).
+          alwaysOnTop: true,
+          // It plays while the editor's window is behind it or minimised.
+          webPreferences: { backgroundThrottling: false },
+        },
+      };
     if (/^(https?:\/\/|mailto:)/i.test(url)) void shell.openExternal(url);
     return { action: "deny" };
+  });
+  // The preview's window is the editor's page only: it opens nothing, goes nowhere, and closes with its editor.
+  contents.on("did-create-window", (win) => {
+    win.webContents.setWindowOpenHandler(({ url }) => {
+      if (/^(https?:\/\/|mailto:)/i.test(url)) void shell.openExternal(url);
+      return { action: "deny" };
+    });
+    win.webContents.on("will-navigate", (e) => e.preventDefault());
+    // A floating panel's level over the app's windows (also in full screen) while Wecra is the active app.
+    if (win.isAlwaysOnTop()) onTopOfAppOnly(win);
+    previewWindows.get(contents.id)?.close();
+    previewWindows.set(contents.id, win);
+    const close = () => {
+      if (!win.isDestroyed()) win.close();
+    };
+    contents.once("destroyed", close);
+    contents.once("did-navigate", close);
+    win.once("closed", () => {
+      if (previewWindows.get(contents.id) === win) previewWindows.delete(contents.id);
+      contents.off("destroyed", close);
+      contents.off("did-navigate", close);
+    });
   });
   contents.on("will-navigate", (e, url) => {
     if (isAppUrl(url)) return;

@@ -386,9 +386,9 @@ async function filesTool(env: ToolEnv, name: string, args: Spec, s: AppServices)
     });
   }
   if (name === "create_file") {
-    const meta = await ws.createFile({ name: opt(args.name)?.slice(0, 200), folderId: opt(args.folderId) ?? null });
+    const meta = await ws.createFile({ name: opt(args.name)?.slice(0, 200), folderId: opt(args.folderId) ?? null, ...(args.kind === "social" ? { editorType: "buzz" as const } : {}) });
     if (args.open === true) await s.openFile(meta.fileKey);
-    return textResult({ created: { fileKey: meta.fileKey, name: meta.name, folderId: meta.folderId }, ...(args.open === true ? { note: "Opened in a new tab; your tools still work on this file." } : {}) });
+    return textResult({ created: { fileKey: meta.fileKey, name: meta.name, folderId: meta.folderId, kind: meta.editorType === "buzz" ? "social" : "design" }, ...(args.open === true ? { note: "Opened in a new tab; your tools still work on this file." } : {}) });
   }
   // file_action
   const keyOr = (v: unknown) => opt(v) ?? mustFileKey(env.ed);

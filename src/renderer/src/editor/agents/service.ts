@@ -29,6 +29,7 @@ import { getStoreClient } from "@/store";
 import { t } from "@/i18n";
 import { MANAGER_TOOLS, type ToolDef } from "@shared/agents/tools";
 import type { ManagerToolDef } from "@shared/agents/types";
+import { EMPTY_TEAM, mentionOf, teamOf, turnMember, type TeamEntry, type TeamSettings, type TurnMember } from "@shared/agents/team";
 import { DEFAULT_MANAGER_SETTINGS, IMAGE_TASKS_AT_ONCE, brandsUnavailable, type BrandsRepository, type ManagerSettings, type StudioTask } from "@shared/studio/types";
 import type { ImageRouteInfo } from "@shared/ai/types";
 import { managerPrompt, managerReminder, type ManagerPromptContext } from "@shared/studio/managerPrompt";
@@ -43,7 +44,7 @@ import { makeBrandLibrary } from "../social/templates/brandLibrary";
 import { postSlots } from "../social/templates/templates";
 import type { Writer } from "../social/actions";
 import { TaskQueue, isEnded, type TaskResult } from "./tasks";
-import { isManagerTool, relayoutTask, runAgain, runManagerTool, type CardAnswer, type ManagerEnv, type StudioChatData, type TaskExtra, type ViewCard } from "./managerTools";
+import { isManagerTool, relayoutTask, runAgain, runManagerTool, shownName, type CardAnswer, type ManagerEnv, type StudioChatData, type TaskExtra, type ViewCard } from "./managerTools";
 import { paintImageHash } from "../model/paints";
 import { agentPresenceOf } from "../multiplayer/agentsOnCanvas";
 import { LEAVE_AFTER_MS, type AgentActor } from "../multiplayer/agentPresence";
@@ -146,8 +147,8 @@ export interface AgentChoice {
 export type AgentsView = "list" | "chat" | "settings";
 
 /** Agent settings' pages (the panel's settings home lists them). */
-export type SettingsSection = "agents" | "manager" | "skills" | "connectors" | "access" | "usage";
-const SECTION_IDS: readonly SettingsSection[] = ["agents", "manager", "skills", "connectors", "access", "usage"];
+export type SettingsSection = "agents" | "manager" | "team" | "skills" | "connectors" | "access" | "usage";
+const SECTION_IDS: readonly SettingsSection[] = ["agents", "manager", "team", "skills", "connectors", "access", "usage"];
 
 /** The page an item is on ("provider:codex" → Agents and models; "section:skills" is the page itself; "manager" is its page). */
 export function settingsSectionOf(item: string | null): SettingsSection | null {
@@ -157,6 +158,7 @@ export function settingsSectionOf(item: string | null): SettingsSection | null {
   if (kind === "provider" || kind === "add-server") return "agents";
   if (kind === "manager") return "manager";
   if (kind === "skill" || kind === "add-skill") return "skills";
+  if (kind === "member" || kind === "add-member") return "team";
   if (kind === "connector" || kind === "add-connector" || kind === "mcp" || kind === "client") return "connectors";
   if (kind === "access") return "access";
   return null;
@@ -801,9 +803,13 @@ export class AgentsService implements AgentSetupHost {
     const invoked = invokedSkill(text, skills);
     const enabled = skills.filter((s) => s.enabled).map((s) => ({ name: s.name, description: s.description }));
     if ((!text && !files.length) || !this.api) return;
-    // With the manager on, every message is the manager's turn (docs/studio.md §2.2).
-    const manager = this.managerProvider();
-    const provider = manager ?? this.activeProvider();
+    // "@reels-maker …" goes straight to that team member (docs/studio.md §9), past the manager.
+    const mention = mentionOf(text);
+    const member = mention ? (this.team().find((m) => m.id === mention.id && m.enabled) ?? null) : null;
+    const memberRoute = member ? this.memberRoute(member) : null;
+    // With the manager on, every other message is the manager's turn (docs/studio.md §2.2).
+    const manager = member ? null : this.managerProvider();
+    const provider = memberRoute?.provider ?? manager ?? this.activeProvider();
     let chat = this.currentChat();
     if (!chat) {
       // The id its attachments were copied under.
@@ -815,7 +821,7 @@ export class AgentsService implements AgentSetupHost {
     const chatId = chat.id;
     if (this.state.running[chatId]) return;
     const user: ChatMessage = { id: uid(), role: "user", text: shown ?? text, context, ...(files.length ? { attachments: files } : {}), ...(invoked ? { skill: invoked.skill.name } : {}) };
-    const answer: ChatMessage = { id: uid(), role: "assistant", parts: [], state: "running", startedAt: Date.now(), provider: manager ? managerName(this.managerSettings()) : provider?.label, ...(provider ? { providerId: provider.id } : {}), ...(manager ? { manager: true } : {}) };
+    const answer: ChatMessage = { id: uid(), role: "assistant", parts: [], state: "running", startedAt: Date.now(), provider: member ? shownName(member) : manager ? managerName(this.managerSettings()) : provider?.label, ...(provider ? { providerId: provider.id } : {}), ...(manager ? { manager: true } : {}) };
     // A picture asked for: where it will land, in the chat and on the canvas, from now on (over the selected layer it fills).
     if (provider && !manager && asksForImage(text)) {
       const target = placeholderTarget({ ...this.placeholderEnv(), selection: (context ?? []).map((c) => c.id) });
@@ -832,13 +838,16 @@ export class AgentsService implements AgentSetupHost {
     const pageName = page ? (this.ed.engine.readNode(page, { fields: ["name"] })?.name ?? "") : "";
     try {
       const route = this.managerSettings().manager;
-      const model = manager ? (route.model ?? this.modelOf(provider)) : this.modelOf(provider);
-      const effort = manager ? (route.effort && provider.efforts?.includes(route.effort) ? route.effort : this.effortOf(provider)) : this.effortOf(provider);
-      const sessionKey = manager ? `manager:${provider.id}` : provider.id;
+      const model = memberRoute ? (memberRoute.model ?? this.modelOf(provider)) : manager ? (route.model ?? this.modelOf(provider)) : this.modelOf(provider);
+      const wanted = memberRoute ? memberRoute.effort : manager ? route.effort : undefined;
+      const effort = wanted && provider.efforts?.includes(wanted) ? wanted : this.effortOf(provider);
+      // A member keeps its own CLI session in the chat, apart from the manager's and the picked agent's.
+      const sessionKey = member ? `member:${member.id}:${provider.id}` : manager ? `manager:${provider.id}` : provider.id;
       const resume = sessionOf(chat, sessionKey);
       // In Social, the manager's instructions carry the board (docs/social.md §7.4).
       const social = manager && this.inSocial() ? await this.socialContext() : undefined;
-      const said = (invoked ? invoked.prompt || `Run the Skill /${invoked.skill.name}.` : text) || (files.length === 1 ? "Look at the attached file." : "Look at the attached files.");
+      const asked = member ? mention!.rest || "Do your job on the selection." : text;
+      const said = (invoked ? invoked.prompt || `Run the Skill /${invoked.skill.name}.` : asked) || (files.length === 1 ? "Look at the attached file." : "Look at the attached files.");
       const { turnId } = await this.api.turn({
         chatId,
         providerId: provider.id,
@@ -847,6 +856,7 @@ export class AgentsService implements AgentSetupHost {
         // The manager's instructions open its turn (its own session keeps them: a reminder after the first).
         prompt: manager ? `${resume ? managerReminder(this.managerContext(chat, social)) : managerPrompt(this.managerContext(chat, social))}\n\n${said}` : said,
         ...(manager ? { role: "manager" as const, managerTools: [...MANAGER_TOOLS, ...LIBRARY_TOOLS].map(managerDef) } : {}),
+        ...(member ? { member: turnMember(member) } : {}),
         ...(invoked ? { skill: { name: invoked.skill.name, instructions: invoked.skill.instructions } } : {}),
         ...(enabled.length ? { skills: enabled } : {}),
         ...(chat.connectors?.length ? { connectors: chat.connectors } : {}),
@@ -856,14 +866,14 @@ export class AgentsService implements AgentSetupHost {
         ...(files.length ? { attachments: files.map((f) => ({ path: f.path, name: f.name, mime: f.mime })) } : {}),
       });
       this.placeholders.rekey(answer.id, turnId);
-      this.turns.start(turnId, provider.label);
+      this.turns.start(turnId, member ? shownName(member) : provider.label);
       this.noteTurnStart(turnId);
       this.turnTarget.set(turnId, { chat: chatId, message: answer.id, providerId: provider.id, providerLabel: provider.label, prompt: text || files.map((f) => f.name).join(", "), model, ...(manager ? { role: "manager" as const, sessionKey } : {}) });
       agentPresenceOf(this.ed).join(this.actorOf({ turnId, client: provider.label }));
       if (manager) this.managerAborts.set(turnId, new AbortController());
       this.set({ running: { ...this.state.running, [chatId]: turnId } });
       this.updateMessage(chatId, answer.id, (m) => ({ ...m, turnId }));
-      if (!manager && chat.providerId !== provider.id) this.updateChat(chatId, (c) => ({ ...c, providerId: provider.id, model: this.modelOf(provider) }));
+      if (!manager && !member && chat.providerId !== provider.id) this.updateChat(chatId, (c) => ({ ...c, providerId: provider.id, model: this.modelOf(provider) }));
     } catch (err) {
       this.placeholders.end(answer.id);
       this.updateMessage(chatId, answer.id, (m) => ({ ...m, state: "error", error: err instanceof Error ? err.message : String(err), parts: turnOver(m.parts ?? [], false) }));
@@ -1125,11 +1135,38 @@ export class AgentsService implements AgentSetupHost {
     this.queue.refresh();
   }
 
+  // ---- The team (docs/studio.md §9) ----
+
+  /** The whole team: Wecra's defaults (the owner's copies in their place) and his own members. */
+  team(): TeamEntry[] {
+    return teamOf(this.state.settings.team);
+  }
+
+  teamSettings(): TeamSettings {
+    return this.state.settings.team ?? EMPTY_TEAM;
+  }
+
+  async setTeam(team: TeamSettings) {
+    this.set({ settings: { ...this.state.settings, team } });
+    if (!this.api) return;
+    this.set({ settings: await this.api.setSettings({ team }) });
+  }
+
+  /** Who runs a member's own turn: its agent when that one can run, else general work's, else the picked agent. */
+  private memberRoute(member: TeamEntry): { provider: ProviderInfo; model?: string; effort?: string } | null {
+    const usable = this.usable();
+    for (const r of [member.route, this.managerSettings().general]) {
+      const p = r && usable.find((x) => x.id === r.providerId);
+      if (p) return { provider: p, ...(r!.model ? { model: r!.model } : {}), ...(r!.effort ? { effort: r!.effort } : {}) };
+    }
+    return null;
+  }
+
   /** What the manager's instructions say about this chat: the settings, the agents it may use, the image model, its briefs — and the board, in Social. */
   private managerContext(chat: Chat, social?: SocialPromptContext): ManagerPromptContext {
     const settings = this.managerSettings();
     const agents = this.usable().filter((p) => !settings.allowed.length || settings.allowed.includes(p.id));
-    return { settings, agents: agents.map((p) => ({ id: p.id, label: p.label, models: p.models })), imageRoute: chat.imageRoute ?? settings.image, briefs: (chat.briefs ?? []).map((b) => ({ id: b.id, request: b.request })), ...(social ? { social } : {}) };
+    return { settings, agents: agents.map((p) => ({ id: p.id, label: p.label, models: p.models })), imageRoute: chat.imageRoute ?? settings.image, briefs: (chat.briefs ?? []).map((b) => ({ id: b.id, request: b.request })), team: this.team(), ...(social ? { social } : {}) };
   }
 
   /** A manager's turn ended (or was stopped): its cards stop waiting; stopped, its tasks stop. */
@@ -1157,7 +1194,8 @@ export class AgentsService implements AgentSetupHost {
       setData: (fn) => this.updateChat(chatId, (c) => ({ ...c, ...fn(c) })),
       ask: (card) => this.ask(chatId, target.message, turnId, card),
       noteTask: (taskId, extra) => this.patchTask(chatId, taskId, (t) => ({ ...t, ...extra })),
-      runWorker: (task, prompt, signal, attachments) => this.runWorker(task, prompt, signal, attachments),
+      runWorker: (task, prompt, signal, attachments, member) => this.runWorker(task, prompt, signal, attachments, member),
+      team: () => this.team(),
       brands: this.studio.brands(),
       library: (name, args) => this.studio.library(this.ed, name, args),
       runImage: (req, signal) => this.studio.runImage(this.ed, req, signal),
@@ -1301,7 +1339,7 @@ export class AgentsService implements AgentSetupHost {
    * An agent task as a worker's turn (docs/studio.md §2.2): its own CLI process or server call, folder, actor and undo
    * step; `role: "worker"`, so main lists no manager tool for it. Resolves with its last answer; Stop stops the turn.
    */
-  private runWorker(task: StudioTask, prompt: string, signal: AbortSignal, attachments?: { path: string; name: string; mime: string }[]): Promise<TaskResult> {
+  private runWorker(task: StudioTask, prompt: string, signal: AbortSignal, attachments?: { path: string; name: string; mime: string }[], member?: TurnMember): Promise<TaskResult> {
     const api = this.api;
     if (!api) return Promise.reject(new Error(t("Agents run in the desktop app.")));
     const p = this.state.providers.find((x) => x.id === task.route.providerId && x.available);
@@ -1325,7 +1363,7 @@ export class AgentsService implements AgentSetupHost {
         resolve({ summary: said.slice(-300) || "Done", ...(touched.length ? { nodeIds: touched.slice(0, 50) } : {}), ...(log.usage ? { credits: creditsFor("agent", log.usage) } : {}) });
       };
       api
-        .turn({ chatId: task.chatId, providerId: p.id, model, ...(effort ? { effort } : {}), prompt, history: [], context: { fileName: this.ed.ui.get().fileName, pageName, selection: [] }, role: "worker", ...(attachments?.length ? { attachments: attachments as TurnRequest["attachments"] } : {}) })
+        .turn({ chatId: task.chatId, providerId: p.id, model, ...(effort ? { effort } : {}), prompt, history: [], context: { fileName: this.ed.ui.get().fileName, pageName, selection: [] }, role: "worker", ...(member ? { member } : {}), ...(attachments?.length ? { attachments: attachments as TurnRequest["attachments"] } : {}) })
         .then(({ turnId: id }) => {
           turnId = id;
           this.turns.start(id, p.label);

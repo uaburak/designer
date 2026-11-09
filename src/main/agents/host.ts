@@ -10,6 +10,7 @@ import type { ToolResult } from "../../shared/agents/tools";
 import { MANAGER_TOOL_NAMES, MCP_SERVER_NAME, WAITING_TOOL_MS, WAITING_TOOLS, textResult } from "../../shared/agents/tools";
 import { cleanManagerSettings, cleanManagerTools } from "../../shared/agents/manager";
 import type { ManagerSettings } from "../../shared/studio/types";
+import { cleanTeam, cleanTurnMember, deniedTools, memberBrief, type TeamSettings, type TurnMember } from "../../shared/agents/team";
 import type { Connector, ConnectorConsent, ConnectorToolPolicy } from "../../shared/ai/types";
 import { ConnectorHub, type ConsentAnswer, type StoredConnector } from "./connectors";
 import { ReachHub, type ReachConsentRequest, type ReachRunner } from "./reach/hub";
@@ -72,6 +73,8 @@ interface Stored {
   token?: string;
   /** Agent settings › Manager (docs/studio.md §2.1); absent: DEFAULT_MANAGER_SETTINGS */
   manager?: ManagerSettings;
+  /** Agent settings › Team (docs/studio.md §9); absent: the default team */
+  team?: TeamSettings;
 }
 
 const dir = () => join(app.getPath("userData"), "agents");
@@ -80,7 +83,7 @@ const file = (name: string) => join(dir(), name);
 function readStored(): Stored {
   try {
     const s = JSON.parse(readFileSync(file("settings.json"), "utf8")) as Partial<Stored>;
-    return { providerId: s.providerId ?? null, models: s.models ?? {}, custom: Array.isArray(s.custom) ? s.custom : [], port: s.port, token: s.token, ...(s.manager ? { manager: cleanManagerSettings(s.manager) } : {}) };
+    return { providerId: s.providerId ?? null, models: s.models ?? {}, custom: Array.isArray(s.custom) ? s.custom : [], port: s.port, token: s.token, ...(s.manager ? { manager: cleanManagerSettings(s.manager) } : {}), ...(s.team ? { team: cleanTeam(s.team) } : {}) };
   } catch {
     return { providerId: null, models: {}, custom: [] };
   }
@@ -131,7 +134,7 @@ const keyOf = (id: string): string | undefined => {
 
 const publicSettings = (s: Stored): AgentSettings => {
   const keys = readKeys();
-  return { providerId: s.providerId, models: s.models, custom: s.custom.map((c) => ({ ...c, hasKey: !!keys[c.id] })), manager: cleanManagerSettings(s.manager) };
+  return { providerId: s.providerId, models: s.models, custom: s.custom.map((c) => ({ ...c, hasKey: !!keys[c.id] })), manager: cleanManagerSettings(s.manager), team: cleanTeam(s.team) };
 };
 
 const clientEnv = (): ClientEnv => ({ home: homedir(), which: (b) => which(b), exists: (p) => existsSync(p) });
@@ -155,6 +158,8 @@ interface Turn {
   managerTools: ManagerToolDef[];
   /** Its CLI's working folder: the chat's own, or a worker's own inside it */
   cwd: string;
+  /** A team member's turn (docs/studio.md §9): the tools it may not call */
+  denied?: string[];
 }
 
 let server: McpServer | null = null;
@@ -311,6 +316,16 @@ async function getSkill(name: string): Promise<ToolResult> {
     if (d) return answer(d);
     return textResult(`Skills aren't available: ${err instanceof Error ? err.message : String(err)}`, true);
   }
+}
+
+/** A member's opening block: its instructions and the instructions of its Skills that exist (the owner's copy wins). */
+async function memberOpening(m: TurnMember): Promise<string> {
+  const entries = await skillsWithDefaults().catch(() => withDefaults([]));
+  const skills = m.skills.flatMap((name) => {
+    const s = skillToAnswer(name, entries) ?? entries.find((k) => k.name === name) ?? defaultSkillFor(name);
+    return s ? [{ name: s.name, instructions: s.instructions }] : [];
+  });
+  return memberBrief(m, skills);
 }
 
 /** The store's skills with Wecra's default skills merged in (the defaults the owner turned off, off). */
@@ -565,12 +580,14 @@ export async function stopAgents(): Promise<void> {
 
 export const agentSettings = (): AgentSettings => publicSettings(readStored());
 
-export function setAgentSettings(patch: Partial<Pick<AgentSettings, "providerId" | "models" | "manager">>): AgentSettings {
+export function setAgentSettings(patch: Partial<Pick<AgentSettings, "providerId" | "models" | "manager" | "team">>): AgentSettings {
   const s = readStored();
   if (typeof patch.providerId === "string" || patch.providerId === null) s.providerId = patch.providerId;
   if (patch.models && typeof patch.models === "object") for (const [k, v] of Object.entries(patch.models)) if (typeof v === "string" && k.length < 100 && v.length < 300) s.models[k] = v;
   // The manager's settings (docs/studio.md §2.1): a whole or partial ManagerSettings over what is kept, cleaned.
   if (patch.manager && typeof patch.manager === "object") s.manager = cleanManagerSettings(patch.manager, cleanManagerSettings(s.manager));
+  // The team (docs/studio.md §9): the whole TeamSettings, cleaned.
+  if (patch.team && typeof patch.team === "object") s.team = cleanTeam(patch.team);
   writeStored(s);
   return publicSettings(s);
 }
@@ -674,13 +691,13 @@ function finishTurn(t: Turn, event?: ChatEvent) {
 function grantFor(t: Turn, client: string): string {
   const role = t.role;
   const managerTools = role === "manager" ? t.managerTools : undefined;
-  if (role === "worker") return server!.grantChat({ fileKey: t.fileKey, turnId: t.id, client, connectors: t.connectors, role });
+  if (role === "worker") return server!.grantChat({ fileKey: t.fileKey, turnId: t.id, client, connectors: t.connectors, role, denied: t.denied });
   const key = `${t.fileKey}/${t.chatId}`;
   let token = chatTokens.get(key);
   if (!token) {
-    token = server!.grantChat({ fileKey: t.fileKey, turnId: t.id, client, connectors: t.connectors, role, managerTools });
+    token = server!.grantChat({ fileKey: t.fileKey, turnId: t.id, client, connectors: t.connectors, role, managerTools, denied: t.denied });
     chatTokens.set(key, token);
-  } else server!.updateChat(token, { turnId: t.id, client, connectors: t.connectors, role, managerTools });
+  } else server!.updateChat(token, { turnId: t.id, client, connectors: t.connectors, role, managerTools, denied: t.denied });
   return token;
 }
 
@@ -704,7 +721,9 @@ export function startTurn(sender: WebContents, fileKey: string, req: TurnRequest
   const cwd = role === "worker" ? join(chatDir(chatId), "tasks", turnId) : chatDir(chatId);
   const managerTools = role === "manager" ? cleanManagerTools(req.managerTools) : [];
   for (const m of managerTools) managerOnlyNames.add(m.name);
-  const t: Turn = { id: turnId, chatId, fileKey, sender, stopped: false, imageDirs: [], connectors: (req.connectors ?? []).filter((id) => known.has(id)), role, managerTools, cwd };
+  // A team member's turn (docs/studio.md §9): its tools limited to its groups.
+  const member = req.member ? cleanTurnMember(req.member) : null;
+  const t: Turn = { id: turnId, chatId, fileKey, sender, stopped: false, imageDirs: [], connectors: (req.connectors ?? []).filter((id) => known.has(id)), role, managerTools, cwd, ...(member?.tools ? { denied: [...deniedTools(member.tools)] } : {}) };
   turns.set(turnId, t);
   // Client-reported to Discovery for an org file (docs/governance.md §2.11): once per turn, fire-and-forget.
   reportAiPrompt(fileKey, String(req.prompt ?? ""), "agents_chat");
@@ -720,6 +739,8 @@ export function startTurn(sender: WebContents, fileKey: string, req: TurnRequest
     const over = await overLimit({ settings: () => ai, balance: ledgerBalance }, "agent");
     if (over) return finishTurn(t, { type: "error", message: over.message });
     if (t.stopped) return finishTurn(t);
+    // A team member (docs/studio.md §9): who it is, its instructions and its Skills open the turn.
+    if (member) request.prompt = `${await memberOpening(member)}\n\n${request.prompt}`;
     // Agents' reach on (docs/agents-reach.md §4.4, §6.3): the untrusted-data note once, and the built-in skills listed.
     const on = await reachHub().on().catch(() => [] as ReachCapability[]);
     if (on.length) {
@@ -793,7 +814,8 @@ async function runServer(t: Turn, srv: { id: string; label: string; baseUrl: str
     signal: abort.signal,
     emit: (e) => emit(t, e),
     extraTools,
-    runTool: (name, args) => runAnyTool(t.fileKey, { turnId: t.id, client: srv.label, name, args }),
+    ...(t.denied ? { denied: t.denied } : {}),
+    runTool: (name, args) => (t.denied?.includes(name) ? Promise.resolve(textResult(`${name} isn't one of your tools.`, true)) : runAnyTool(t.fileKey, { turnId: t.id, client: srv.label, name, args })),
   })
     .then(() => finishTurn(t))
     .catch((err) => finishTurn(t, t.stopped ? undefined : { type: "error", message: `${srv.label}: ${err instanceof Error ? err.message : String(err)}` }));

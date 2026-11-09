@@ -6,6 +6,7 @@ import { MANAGER_TOOLS, WAITING_TOOLS } from "../../shared/agents/tools";
 import { cleanManagerName, cleanManagerSettings, cleanManagerTools } from "../../shared/agents/manager";
 import { DEFAULT_MANAGER_SETTINGS } from "../../shared/studio/types";
 import { McpServer } from "./mcpServer";
+import { deniedTools } from "../../shared/agents/team";
 
 const TOKEN = "outside-token";
 type RpcBody = { result: { tools: { name: string }[]; isError?: boolean; content: { text: string }[] }; error: { code: number } };
@@ -119,5 +120,20 @@ describe("manager settings and tools from a view", () => {
   it("manager tools: MCP names, schemas as objects, no duplicates", () => {
     const tools = cleanManagerTools([libraryTool, { ...libraryTool }, { name: "Bad Name", description: "", inputSchema: {} }, { name: "x_y", description: "d", inputSchema: [] }, "nope"]);
     expect(tools.map((t) => t.name)).toEqual(["library_find"]);
+  });
+});
+
+describe("a team member's turn (docs/studio.md §9)", () => {
+  it("lists none of the tools it hasn't got and refuses them; reading stays", async () => {
+    const { server, calls, list, call } = await start();
+    const token = server.grantChat({ fileKey: "fileA", turnId: "w1", client: "Claude Code", role: "worker", denied: [...deniedTools(["layers", "social"])] });
+    const names = await list(token);
+    expect(names).toEqual(expect.arrayContaining(["get_screenshot", "create_nodes", "set_post"]));
+    expect(names).not.toContain("animate");
+    const refused = await call(token, "animate");
+    expect(refused.result.isError).toBe(true);
+    expect(calls).toEqual([]);
+    await call(token, "create_nodes");
+    expect(calls.map((c) => c.name)).toEqual(["create_nodes"]);
   });
 });

@@ -8,6 +8,7 @@
 import type { ToolContent, ToolResult } from "@shared/agents/tools";
 import { MANAGER_TOOL_NAMES, textResult } from "@shared/agents/tools";
 import type { ProviderInfo } from "@shared/agents/types";
+import { turnMember, type TeamEntry, type TurnMember } from "@shared/agents/team";
 import type { AiRoute, ImageRouteInfo } from "@shared/ai/types";
 import { DEFAULT_FORMATS, IMAGE_TASKS_AT_ONCE, type AgentRoute, type Brand, type BrandsRepository, type ChatCard, type ImagePrompt, type ManagerSettings, type Product, type ProblemKind, type ReviewItem, type ReviewProblem, type ReviewReport, type SocialFormat, type StudioBrief, type StudioTask, type TaskKind } from "@shared/studio/types";
 import { missingFor } from "@shared/studio/library";
@@ -68,7 +69,7 @@ export interface TaskExtra {
  * post's frame as make_posts recorded it).
  */
 export type TaskAgain =
-  | { kind: "worker"; social?: boolean; files?: { path: string; name: string; mime: string }[] }
+  | { kind: "worker"; social?: boolean; files?: { path: string; name: string; mime: string }[]; /** The team member that ran it (docs/studio.md §9) */ member?: string }
   | { kind: "picture"; briefId: string; frameName: string; nodeId?: string; edit?: boolean };
 
 export interface ManagerEnv {
@@ -87,7 +88,9 @@ export interface ManagerEnv {
   /** Notes what the card shows about a task (its prompt) */
   noteTask(taskId: string, extra: TaskExtra): void;
   /** A worker's turn for an agent task (its own actor and folder): resolves with its last answer, rejects on failure */
-  runWorker(task: StudioTask, prompt: string, signal: AbortSignal, attachments?: { path: string; name: string; mime: string }[]): Promise<TaskResult>;
+  runWorker(task: StudioTask, prompt: string, signal: AbortSignal, attachments?: { path: string; name: string; mime: string }[], member?: TurnMember): Promise<TaskResult>;
+  /** The owner's team (docs/studio.md §9); absent: no team, every task is general work */
+  team?(): TeamEntry[];
   brands: BrandsRepository;
   library(name: string, args: Record<string, unknown>): Promise<ToolResult>;
   runImage(req: StudioImageRequest, signal: AbortSignal): Promise<StudioImage>;
@@ -167,9 +170,43 @@ export async function runManagerTool(env: ManagerEnv, name: string, args: Record
 
 // ---- Tasks ------------------------------------------------------------------------------------------------------------
 
-function addTask(env: ManagerEnv, kind: TaskKind, title: string, route: AgentRoute, dependsOn: string[], run: TaskRun): StudioTask {
-  return env.queue.add({ id: `task-${uid()}`, chatId: env.chatId, messageId: env.messageId, kind, title: title.slice(0, 200), route, dependsOn }, run);
+function addTask(env: ManagerEnv, kind: TaskKind, title: string, route: AgentRoute, dependsOn: string[], run: TaskRun, member?: TeamEntry | null): StudioTask {
+  return env.queue.add({ id: `task-${uid()}`, chatId: env.chatId, messageId: env.messageId, kind, title: title.slice(0, 200), route, dependsOn, ...(member ? { member: shownName(member) } : {}) }, run);
 }
+
+// ---- The team (docs/studio.md §9) -----------------------------------------------------------------------------------------
+
+/** The members make_posts gives its frames and its Motion pass to (while they are in the team and on) */
+const POST_DESIGNER = "post-designer";
+const REELS_MAKER = "reels-maker";
+
+/** A member's name as the chat shows it: a default as Wecra ships it in the UI's language. */
+export const shownName = (m: Pick<TeamEntry, "name" | "origin">) => (m.origin === "default" ? t(m.name) : m.name);
+
+/** A team member by id, when it is in the team and on; null otherwise. */
+export function memberOf(env: ManagerEnv, id: string | undefined | null): TeamEntry | null {
+  if (!id) return null;
+  return env.team?.().find((m) => m.id === id && m.enabled) ?? null;
+}
+
+/** Who runs a member's task: its own agent and model, else general work's (and general work's when its agent can't run). */
+function routeOf(env: ManagerEnv, member: TeamEntry | null): AgentRoute {
+  const general = env.settings().general;
+  if (!member?.route) return { ...general };
+  return typeof usableAgent(env, member.route.providerId) === "string" ? { ...general } : { ...member.route };
+}
+
+/** The Post Designer's image model, when it has one that can run now (a chat's own pick wins over it). */
+async function designerImage(env: ManagerEnv): Promise<AiRoute | null> {
+  const wanted = memberOf(env, POST_DESIGNER)?.image;
+  if (!wanted) return null;
+  const routes = await env.imageRoutes().catch(() => [] as ImageRouteInfo[]);
+  return routes.some((r) => r.providerId === wanted.providerId && r.available) ? wanted : null;
+}
+
+/** A worker's turn, run as `member` when there is one: its instructions and Skills open it, its tools are limited. */
+const runAs = (env: ManagerEnv, task: StudioTask, prompt: string, signal: AbortSignal, attachments: { path: string; name: string; mime: string }[] | undefined, member: TeamEntry | null) =>
+  env.runWorker(env.queue.get(task.id)!, prompt, signal, attachments, member ? turnMember(member) : undefined);
 
 /** The agents the manager may hand work to: connected, and in the settings' list when it has one. */
 function usableAgent(env: ManagerEnv, providerId: string): ProviderInfo | string {
@@ -192,17 +229,19 @@ function delegateTask(env: ManagerEnv, args: Record<string, unknown>): ToolResul
   const prompt = str(args.prompt).trim();
   if (!title || !prompt) return textResult("delegate_task needs a title and a prompt.", true);
   if (args.kind !== undefined && args.kind !== "agent") return textResult('Only kind "agent" can be delegated; pictures go through make_posts.', true);
-  const general = env.settings().general;
-  const route: AgentRoute = args.agent ? { providerId: str(args.agent), ...(str(args.model) ? { model: str(args.model) } : {}) } : { ...general, ...(str(args.model) ? { model: str(args.model) } : {}) };
+  const member = memberOf(env, str(args.member));
+  if (str(args.member) && !member) return textResult(`No team member “${str(args.member)}”${env.team?.().length ? `: the team is ${env.team!().filter((m) => m.enabled).map((m) => m.id).join(", ")}` : ""}. Leave member out for general work.`, true);
+  const base = routeOf(env, member);
+  const route: AgentRoute = args.agent ? { providerId: str(args.agent), ...(str(args.model) ? { model: str(args.model) } : {}) } : { ...base, ...(str(args.model) ? { model: str(args.model) } : {}) };
   const agent = usableAgent(env, route.providerId);
   if (typeof agent === "string") return textResult(agent, true);
   const dependsOn = strs(args.dependsOn);
   const unknown = dependsOn.filter((id) => !env.queue.get(id));
   if (unknown.length) return textResult(`No task ${unknown.join(", ")} to depend on.`, true);
   const social = !!env.social?.();
-  const task = addTask(env, "agent", title, route, dependsOn, (signal) => env.runWorker(env.queue.get(task.id)!, workerPrompt(prompt, social), signal));
-  env.noteTask(task.id, { prompt, again: { kind: "worker", social } });
-  return textResult({ taskId: task.id, state: task.state, agent: routeLabel(route) });
+  const task = addTask(env, "agent", title, route, dependsOn, (signal) => runAs(env, task, workerPrompt(prompt, social), signal, undefined, member), member);
+  env.noteTask(task.id, { prompt, again: { kind: "worker", social, ...(member ? { member: member.id } : {}) } });
+  return textResult({ taskId: task.id, state: task.state, agent: routeLabel(route), ...(member ? { member: member.name } : {}) });
 }
 
 /** A task as wait_tasks reports it. */
@@ -255,6 +294,7 @@ async function askChoice(env: ManagerEnv, args: Record<string, unknown>): Promis
     return textResult({ shown: options.slice(0, 3).map((o) => o.label), note: "Shown as chips: end your answer here; a pick comes back as the owner's next message." });
   }
   const answer = await env.ask({ kind: "choice", id: `card-${uid()}`, question, options, ...(args.remember === true ? { remember: true } : {}) });
+  if ("text" in answer) return textResult({ text: answer.text, note: "None of the options: the owner wrote his own answer. Follow what he wrote." });
   if ("cancelled" in answer || !("optionId" in answer)) return textResult("cancelled");
   const picked = options.find((o) => o.id === answer.optionId);
   return textResult({ optionId: answer.optionId, label: picked?.label ?? answer.optionId, ...(answer.remember ? { remember: true } : {}) });
@@ -433,7 +473,8 @@ async function makePosts(env: ManagerEnv, args: Record<string, unknown>): Promis
   const missing = missingFor(brand, products);
   if (missing.length && args.anyway !== true) return textResult({ error: "Something is still missing: ask the owner for it first (or pass anyway: true when he said go anyway).", missing: missing.map((m) => m.message) }, true);
   if (!brief) {
-    const route = await imageRouteFor(env);
+    // The Post Designer's image model when it has one (docs/studio.md §9), else the chat's / the manager's / asked.
+    const route = env.data().imageRoute ?? (await designerImage(env)) ?? (await imageRouteFor(env));
     if (!route) return textResult("The owner didn't pick an image model: nothing was started.");
     const variations = Math.min(4, Math.max(1, Math.round(Number(args.variations) || 2)));
     brief = { id: `brief-${uid()}`, request: str(args.request), brandId: brand.id, productIds: products.map((p) => p.id), formats: formatsFor(brand, strs(args.formats), !!env.social?.()), scene: str(args.scene), variations, imageRoute: route };
@@ -447,6 +488,8 @@ async function makePosts(env: ManagerEnv, args: Record<string, unknown>): Promis
   const general = env.settings().general;
   const agent = usableAgent(env, general.providerId);
   if (typeof agent === "string") return textResult(`The general agent can't run: ${agent}`, true);
+  const designer = memberOf(env, POST_DESIGNER);
+  const reels = memberOf(env, REELS_MAKER);
   const logo = await logoFile(env, brand);
   const posts: PostRecord[] = [];
   const placements: Promise<unknown>[] = [];
@@ -460,19 +503,19 @@ async function makePosts(env: ManagerEnv, args: Record<string, unknown>): Promis
       x += format.width + GAP;
       rowHeight = Math.max(rowHeight, format.height);
       const prompt = buildImagePrompt(b, brand, products, format, v);
-      const frameTask = addTask(env, "agent", t("Frame: {name}", { name }), general, [], async (signal) => {
-        const r = await env.runWorker(env.queue.get(frameTask.id)!, `${WORKER_NOTE}\n\n${framePrompt({ brand, products, format, name, ...at, pageId, request: b.request, logo: logo?.path })}`, signal, logo ? [logo] : undefined);
+      const frameTask = addTask(env, "agent", t("Frame: {name}", { name }), routeOf(env, designer), [], async (signal) => {
+        const r = await runAs(env, frameTask, `${WORKER_NOTE}\n\n${framePrompt({ brand, products, format, name, ...at, pageId, request: b.request, logo: logo?.path })}`, signal, logo ? [logo] : undefined, designer);
         const id = findFrame(env, pageId, name);
         if (!id) throw new Error(`The frame “${name}” wasn't made.`);
         setPost(env, name, b.id, { frameNodeId: id });
         return { ...r, nodeIds: [id] };
-      });
+      }, designer);
       let picture: StudioImage | null = null;
       const imageTask = addTask(env, "image", t("Picture: {name}", { name }), imageTaskRoute(b.imageRoute), [], async (signal) => {
         picture = await runPicture(env, b.imageRoute, prompt, { width: format.width, height: format.height }, signal);
         return { summary: t("A {width} × {height} picture", { width: picture.width, height: picture.height }), credits: picture.credits };
-      });
-      env.noteTask(frameTask.id, { prompt: framePrompt({ brand, products, format, name, ...at, pageId, request: b.request, logo: logo?.path }), again: { kind: "worker", ...(logo ? { files: [logo] } : {}) } });
+      }, designer);
+      env.noteTask(frameTask.id, { prompt: framePrompt({ brand, products, format, name, ...at, pageId, request: b.request, logo: logo?.path }), again: { kind: "worker", ...(logo ? { files: [logo] } : {}), ...(designer ? { member: designer.id } : {}) } });
       env.noteTask(imageTask.id, { prompt: prompt.prompt, post: name, again: { kind: "picture", briefId: b.id, frameName: name } });
       posts.push({ frameName: name, briefId: b.id, formatId: format.id, variation: v, pageId, frameTaskId: frameTask.id, imageTaskId: imageTask.id, prompt: prompt.prompt });
       // When both are done, the picture goes into the frame (§5.4 step 2).
@@ -487,6 +530,23 @@ async function makePosts(env: ManagerEnv, args: Record<string, unknown>): Promis
       // never an unhandled rejection.
       placed.catch(() => undefined);
       started.push(frameTask, imageTask);
+      // A video format (a Reel), or a Story when animate asks: the Motion pass once the picture is in — the Reels Maker's
+      // job (docs/studio.md §9).
+      const catalogue = formatById(format.id);
+      const video = catalogue?.video;
+      if (video && (catalogue.kind === "video" || args.animate)) {
+        const length = Math.min(Math.max(videoSeconds(args), video.minSec), video.maxSec);
+        const style = typeof (args.animate as { style?: unknown } | undefined)?.style === "string" ? String((args.animate as { style: string }).style) : undefined;
+        const motionTask = addTask(env, "agent", t("Animate: {name}", { name }), routeOf(env, reels), [frameTask.id, imageTask.id], async (signal) => {
+          await placed;
+          const nodeId = postOf(env, name, b.id)?.frameNodeId;
+          if (!nodeId || !env.read(nodeId)) throw new Error(`The frame “${name}” isn't on the canvas.`);
+          const motion = animatePrompt({ name, nodeId, seconds: length, ...(style ? { style } : {}) });
+          env.noteTask(motionTask.id, { prompt: motion, again: { kind: "worker", ...(reels ? { member: reels.id } : {}) } });
+          return { ...(await runAs(env, motionTask, `${WORKER_NOTE}\n\n${motion}`, signal, undefined, reels)), nodeIds: [nodeId] };
+        }, reels);
+        started.push(motionTask);
+      }
     }
   }
   env.setData((d) => ({ ...d, posts: [...(d.posts ?? []), ...posts], rows: { pageId: pageId ?? "", x: start.x, nextY: start.y + rowHeight + ROW_GAP } }));
@@ -558,6 +618,12 @@ export function postPrompt(o: { brand: Brand; products: readonly Product[]; form
   ].join("\n");
 }
 
+/** A Reel's length: make_posts' animate.seconds, else 8 s (the animated Story / Reel template's, docs/social.md). */
+const videoSeconds = (args: Record<string, unknown>): number => {
+  const s = (args.animate as { seconds?: unknown } | undefined)?.seconds;
+  return typeof s === "number" && s > 0 ? s : 8;
+};
+
 /** A post's Motion pass (animate, docs/social.md §7.2): its timeline and presets, within the format's length. */
 export function animatePrompt(o: { name: string; nodeId: string; seconds: number; style?: string }): string {
   return [
@@ -578,6 +644,8 @@ async function makeBoardPosts(env: ManagerEnv, args: Record<string, unknown>, b:
   const general = env.settings().general;
   const agent = usableAgent(env, general.providerId);
   if (typeof agent === "string") return textResult(`The general agent can't run: ${agent}`, true);
+  const designer = memberOf(env, POST_DESIGNER);
+  const reels = memberOf(env, REELS_MAKER);
   const pageId = env.page();
   const template = str(args.template);
   const captions = args.captions !== false;
@@ -603,17 +671,17 @@ async function makeBoardPosts(env: ManagerEnv, args: Record<string, unknown>, b:
       if (!nodeId) throw new Error(`The post “${name}” couldn't be made.`);
       const prompt = buildImagePrompt(b, brand, products, format, v);
       const work = postPrompt({ brand, products, format, name, nodeId, request: b.request, logo: logo?.path, template: fromTemplate });
-      const frameTask = addTask(env, "agent", t("Frame: {name}", { name }), general, [], async (signal) => {
-        const r = await env.runWorker(env.queue.get(frameTask.id)!, `${WORKER_NOTE}\n${SOCIAL_WORKER_LINE}\n\n${work}`, signal, logo && !fromTemplate ? [logo] : undefined);
+      const frameTask = addTask(env, "agent", t("Frame: {name}", { name }), routeOf(env, designer), [], async (signal) => {
+        const r = await runAs(env, frameTask, `${WORKER_NOTE}\n${SOCIAL_WORKER_LINE}\n\n${work}`, signal, logo && !fromTemplate ? [logo] : undefined, designer);
         if (!env.read(nodeId)) throw new Error(`The post “${name}” isn't on the board any more.`);
         return { ...r, nodeIds: [nodeId] };
-      });
+      }, designer);
       let picture: StudioImage | null = null;
       const imageTask = addTask(env, "image", t("Picture: {name}", { name }), imageTaskRoute(b.imageRoute), [], async (signal) => {
         picture = await runPicture(env, b.imageRoute, prompt, { width: format.width, height: format.height }, signal);
         return { summary: t("A {width} × {height} picture", { width: picture.width, height: picture.height }), credits: picture.credits };
-      });
-      env.noteTask(frameTask.id, { prompt: work, again: { kind: "worker", social: true, ...(logo && !fromTemplate ? { files: [logo] } : {}) } });
+      }, designer);
+      env.noteTask(frameTask.id, { prompt: work, again: { kind: "worker", social: true, ...(logo && !fromTemplate ? { files: [logo] } : {}), ...(designer ? { member: designer.id } : {}) } });
       env.noteTask(imageTask.id, { prompt: prompt.prompt, post: name, again: { kind: "picture", briefId: b.id, frameName: name, nodeId } });
       posts.push({ frameName: name, briefId: b.id, formatId: base.formatId, variation: v, pageId, frameTaskId: frameTask.id, imageTaskId: imageTask.id, frameNodeId: nodeId, prompt: prompt.prompt });
       const placed = Promise.all([env.queue.ended(frameTask.id), env.queue.ended(imageTask.id)]).then(async ([f, i]) => {
@@ -632,14 +700,15 @@ async function makeBoardPosts(env: ManagerEnv, args: Record<string, unknown>, b:
       started.push(frameTask, imageTask);
       // The Motion pass: after the picture is in, within the format's length.
       const video = (format as PlatformFormat).video;
-      if (seconds && video) {
-        const length = Math.min(Math.max(seconds, video.minSec), video.maxSec);
+      // A Reel always moves; another format with video limits (a Story) when animate asks.
+      if (video && (seconds || (format as PlatformFormat).kind === "video")) {
+        const length = Math.min(Math.max(seconds || videoSeconds(args), video.minSec), video.maxSec);
         const motion = animatePrompt({ name, nodeId, seconds: length, ...(typeof animate?.style === "string" ? { style: animate.style } : {}) });
-        const motionTask = addTask(env, "agent", t("Animate: {name}", { name }), general, [frameTask.id, imageTask.id], async (signal) => {
+        const motionTask = addTask(env, "agent", t("Animate: {name}", { name }), routeOf(env, reels), [frameTask.id, imageTask.id], async (signal) => {
           await placed;
-          return { ...(await env.runWorker(env.queue.get(motionTask.id)!, `${WORKER_NOTE}\n${SOCIAL_WORKER_LINE}\n\n${motion}`, signal)), nodeIds: [nodeId] };
-        });
-        env.noteTask(motionTask.id, { prompt: motion, again: { kind: "worker", social: true } });
+          return { ...(await runAs(env, motionTask, `${WORKER_NOTE}\n${SOCIAL_WORKER_LINE}\n\n${motion}`, signal, undefined, reels)), nodeIds: [nodeId] };
+        }, reels);
+        env.noteTask(motionTask.id, { prompt: motion, again: { kind: "worker", social: true, ...(reels ? { member: reels.id } : {}) } });
         started.push(motionTask);
       }
     }
@@ -773,10 +842,10 @@ async function reportReview(env: ManagerEnv, args: Record<string, unknown>): Pro
  * the Post section (docs/social.md §7.3, without a manager turn) start it.
  */
 export function relayoutTask(env: ManagerEnv, nodeId: string, name: string, problems: readonly Pick<ReviewProblem, "detail" | "box">[], brand: Brand | null): StudioTask {
-  const general = env.settings().general;
+  const designer = memberOf(env, POST_DESIGNER);
   const prompt = `Fix the frame “${name}” (${nodeId}): ${problems.map((p) => `${p.detail}${p.box ? ` (around x ${Math.round(p.box.x)}, y ${Math.round(p.box.y)}, ${Math.round(p.box.width)} × ${Math.round(p.box.height)})` : ""}`).join("; ")}.${brand ? ` The brand: ${brand.name}; colours ${brand.colors.map((c) => c.hex).join(", ") || "as on the frame"}; fonts ${brand.fonts.join(", ") || "as on the frame"}.` : ""} Keep the “Picture” layer as it is; move or restyle only the text and logo, inside the format's safe area.`;
-  const task = addTask(env, "agent", t("Relayout: {name}", { name }), general, [], (signal) => env.runWorker(env.queue.get(task.id)!, workerPrompt(prompt, false), signal));
-  env.noteTask(task.id, { prompt, again: { kind: "worker" } });
+  const task = addTask(env, "agent", t("Relayout: {name}", { name }), routeOf(env, designer), [], (signal) => runAs(env, task, workerPrompt(prompt, false), signal, undefined, designer), designer);
+  env.noteTask(task.id, { prompt, again: { kind: "worker", ...(designer ? { member: designer.id } : {}) } });
   return task;
 }
 
@@ -883,7 +952,7 @@ function pictureTask(env: ManagerEnv, o: { title: string; brief: StudioBrief; no
     const pic = await placePicture(env, frameId, out);
     if (!o.nodeId) setPost(env, o.frameName, o.brief.id, { pictureNodeId: pic });
     return { summary: o.edit ? t("Fixed the label ({width} × {height})", { width: out.width, height: out.height }) : t("Made the picture again ({width} × {height})", { width: out.width, height: out.height }), credits: out.credits, nodeIds: [pic] };
-  });
+  }, memberOf(env, POST_DESIGNER));
   env.noteTask(task.id, { prompt: o.prompt.prompt, post: o.frameName, again: { kind: "picture", briefId: o.brief.id, frameName: o.frameName, ...(o.nodeId ? { nodeId: o.nodeId } : {}), ...(o.edit ? { edit: true } : {}) } });
   return task;
 }
@@ -901,7 +970,8 @@ export async function runAgain(env: ManagerEnv, task: StudioTask & TaskExtra, pr
   if (again.kind === "worker") {
     const agent = usableAgent(env, task.route.providerId);
     if (typeof agent === "string") throw new Error(agent);
-    const next = addTask(env, "agent", task.title, task.route, [], (signal) => env.runWorker(env.queue.get(next.id)!, workerPrompt(words, !!again.social), signal, again.files));
+    const member = memberOf(env, again.member);
+    const next = addTask(env, "agent", task.title, task.route, [], (signal) => runAs(env, next, workerPrompt(words, !!again.social), signal, again.files, member), member);
     env.noteTask(next.id, { prompt: words, again });
     return next;
   }

@@ -102,6 +102,9 @@ export type MenuOver = { rect: DOMRect; align?: "left" | "right"; dy?: number };
 /** Live (menus/main-view.txt: 105 + 787 in a 900-high window): 8 below; main-preferences.txt measured 5 (`edgeBottom`). */
 const SUBMENU_EDGES = { top: 6, bottom: 8 };
 
+/** The window a menu is in (Portal's OverlayWindow: a popped-out preview's own, else this one). */
+const viewOf = (el: Element | null): Window => el?.ownerDocument.defaultView ?? window;
+
 function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlighted, onPick, onBack, onClose, label, context, keepTop, over, dropdown, minWidth, width: fixedWidth, submenu, edgeBottom, flush, className, flipY, extend: extendProp, head, onHighlight }: PanelProps) {
   useT();
   const panel = useRef<HTMLDivElement>(null);
@@ -153,7 +156,7 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
     if (!bar) return;
     bar.style.top = "0px";
     const natural = el.offsetTop + bar.offsetTop;
-    const want = window.innerHeight - 12 - bar.offsetHeight;
+    const want = viewOf(panel.current).innerHeight - 12 - bar.offsetHeight;
     // Shown while rows run past it; at the end of the list it stays in place, hidden.
     const shown = natural > want + 12;
     bar.style.top = shown ? `${want - natural}px` : "0px";
@@ -162,7 +165,7 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
   // (where an extended menu rests: where it opened; a tall submenu 6 from the window's top)
   const home = tall ? SUBMENU_EDGES.top : y;
   const shift = (el: HTMLElement, by: number) => {
-    const lowest = Math.min(home, window.innerHeight - 8 - el.offsetHeight);
+    const lowest = Math.min(home, viewOf(panel.current).innerHeight - 8 - el.offsetHeight);
     el.style.top = `${Math.round(Math.min(home, Math.max(lowest, el.offsetTop - by)))}px`;
     placeMore(el);
   };
@@ -178,15 +181,15 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
       const { width, height } = el.getBoundingClientRect();
       const top = item ? rect.top - item.offsetTop + dy : rect.bottom + 4;
       const left = align === "right" ? rect.right - width : rect.left;
-      el.style.left = `${Math.round(Math.max(8, Math.min(left, window.innerWidth - 8 - width)))}px`;
-      el.style.top = `${Math.round(Math.max(8, Math.min(top, window.innerHeight - 8 - height)))}px`;
+      el.style.left = `${Math.round(Math.max(8, Math.min(left, viewOf(panel.current).innerWidth - 8 - width)))}px`;
+      el.style.top = `${Math.round(Math.max(8, Math.min(top, viewOf(panel.current).innerHeight - 8 - height)))}px`;
       el.style.visibility = "visible";
       if (item) scrollWithin(el, item);
     } else if (!isStatic && extend) {
       el.style.maxHeight = "none";
       el.style.overflowY = "visible";
       const { width } = el.getBoundingClientRect();
-      el.style.left = `${placeMenu(x, y, { width, height: 0 }, { width: window.innerWidth, height: window.innerHeight }, flipX).x}px`;
+      el.style.left = `${placeMenu(x, y, { width, height: 0 }, { width: viewOf(panel.current).innerWidth, height: viewOf(panel.current).innerHeight }, flipX).x}px`;
       el.style.top = `${home}px`;
       el.style.visibility = "visible";
       placeMore(el);
@@ -196,19 +199,19 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
         el.style.maxHeight = "none";
         const natural = el.getBoundingClientRect().height;
         el.style.maxHeight = "";
-        if (natural > window.innerHeight - edges.top - edges.bottom) {
+        if (natural > viewOf(panel.current).innerHeight - edges.top - edges.bottom) {
           setTall(true);
           return;
         }
       }
       const { width, height } = el.getBoundingClientRect();
-      const room = window.innerHeight - 8 - y;
-      const flip = flipY !== undefined && !above && y + height > window.innerHeight - 16 && flipY - height >= 8;
+      const room = viewOf(panel.current).innerHeight - 8 - y;
+      const flip = flipY !== undefined && !above && y + height > viewOf(panel.current).innerHeight - 16 && flipY - height >= 8;
       // Live Figma: a dropdown longer than the room below its trigger stays under it (and scrolls).
       const keep = keepTop && !above && !flip && height > room && room >= 160;
       if (keep) el.style.maxHeight = `${room}px`;
       // A submenu keeps live Figma's margins: 6 above, 5 below (menus/main-object, main-preferences).
-      const p = placeMenu(x, flip ? flipY - height : above ? Math.max(8, y - height) : y, { width, height: keep ? room : height }, { width: window.innerWidth, height: window.innerHeight }, flipX, submenu ? edges : undefined);
+      const p = placeMenu(x, flip ? flipY - height : above ? Math.max(8, y - height) : y, { width, height: keep ? room : height }, { width: viewOf(panel.current).innerWidth, height: viewOf(panel.current).innerHeight }, flipX, submenu ? edges : undefined);
       el.style.left = `${p.x}px`;
       el.style.top = `${p.y}px`;
       el.style.visibility = "visible";
@@ -240,7 +243,7 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
     if (!el || !item) return;
     if (!extend) return scrollWithin(el, item);
     const r = item.getBoundingClientRect();
-    if (r.bottom > window.innerHeight - 8) shift(el, r.bottom - (window.innerHeight - 8));
+    if (r.bottom > viewOf(panel.current).innerHeight - 8) shift(el, r.bottom - (viewOf(panel.current).innerHeight - 8));
     else if (r.top < 8) shift(el, r.top - 8);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `shift` reads the current layout
   }, [active, extend]);
@@ -262,7 +265,7 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
   // Is the pointer heading for the open submenu? (inside the triangle from where it was to the submenu's near edge)
   const headingForSub = (p: { x: number; y: number }) => {
     const from = pointer.current;
-    const el = document.querySelector<HTMLElement>(`[data-menu-parent="${CSS.escape(subId)}"]`);
+    const el = viewOf(panel.current).document.querySelector<HTMLElement>(`[data-menu-parent="${CSS.escape(subId)}"]`);
     if (!from || !el) return false;
     const r = el.getBoundingClientRect();
     const nearX = r.left > from.x ? r.left : r.right;

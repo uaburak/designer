@@ -63,7 +63,8 @@ RenderStats Renderer::renderScene(const Document& doc, Guid page, const Viewport
   tree_ = &kNoTree;  // until an item's screen is drawn
   const int W = viewport.deviceWidth(), H = viewport.deviceHeight();
   const Color& bg = scene.background;
-  float clearColor[4] = {bg.r * bg.a, bg.g * bg.a, bg.b * bg.a, 1};
+  // Premultiplied; a transparent background (the inline preview as a bare device) lets the page show through.
+  float clearColor[4] = {bg.r * bg.a, bg.g * bg.a, bg.b * bg.a, bg.a == 0 ? 0.f : 1.f};
   beginRecording({0, 0, W, H}, false);
   cull_ = false;
   const double sx = viewport_.scaleX(), sy = viewport_.scaleY();

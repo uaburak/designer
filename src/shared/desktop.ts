@@ -243,6 +243,8 @@ export interface EditorApi extends DesktopCommon {
     onVisibility(cb: (v: { visible: boolean }) => void): Unsubscribe;
     /** Main's `tab:navigate`: land on a layer of this file (a link to it opened from another tab) */
     onNavigate?(cb: (n: { nodeId: string }) => void): Unsubscribe;
+    /** The inline preview's own window keeps these proportions as it is resized (the bare device); null: free */
+    previewAspect?(aspect: { ratio: number; extraHeight: number } | null): void;
     /**
      * Main's flush (docs/desktop.md §6): send every change to the store and
      * await its flush. Resolve when done; a rejection is reported as a failed

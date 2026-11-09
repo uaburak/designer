@@ -99,8 +99,24 @@ class Player {
   bool responsive() const { return responsive_; }
   void setDeviceFrame(bool on);
   bool deviceFrame() const { return deviceFrame_; }
-  // Whether the page's device has a frame to draw (a preset we know).
+  // Whether the page's device has a frame to draw (a preset we know, or one the page has a picture of).
   bool hasDeviceFrame() const;
+  // Wecra's (@ours): the page draws the device's frame itself, a picture of the real device (Apple's product bezels)
+  // over the canvas: the player only leaves room for it — insets around the screen as fractions of the portrait
+  // screen's width (left, right) and height (top, bottom), the screen's corner radius as a fraction of its width — and
+  // draws no shapes. Off (`on` false): the frame drawn from shapes, as before.
+  struct FrameArt {
+    double left = 0, top = 0, right = 0, bottom = 0, radius = 0;
+  };
+  void setFrameArt(bool on, const FrameArt& art);
+  // Wecra's: the device is the window (the inline preview as a bare device): with a picture frame, the device fills
+  // the window with no margin, grown too, and the window around it is transparent.
+  void setBareDevice(bool on);
+  // Wecra's: the browser's bars the page draws over a device's screen (Chrome's address bar and toolbar, a Mac's menu
+  // bar): the prototype starts under the top one and ends over the bottom one — screen units, as the screen is shown.
+  // `under`: the top one is the status bar's safe area — the prototype starts under it but scrolls up beneath it (its
+  // room filled with the screen's colour), as an app's page does under iOS's status bar.
+  void setContentInsets(double top, double bottom, bool under = false);
   // Wecra's (@ours): a phone's browser leaves the page's device out (the frame itself, fitted to the width), and the bare
   // screen (Hide UI on a touch screen) fills the width — Fit width grows too — with the window around it in the screen's
   // own colour, as a website.
@@ -361,6 +377,11 @@ class Player {
     Vec2 screen;   // design units
     double s = 1;  // CSS px per unit
     Rect css;      // the screen on the canvas
+    // What the screen's content is cut to (CSS px) when not the screen itself: the room under the status bar the page
+    // scrolls under (setContentInsets' `under`)
+    bool hasClip = false;
+    Rect clip;
+    Rect clipRect() const { return hasClip ? clip : css; }
     Mat2x3 toCss;  // screen units → CSS px
     bool framed = false;     // a device frame is drawn around the screen
     double radius = 0;       // the screen's corner radius (CSS px)
@@ -499,6 +520,11 @@ class Player {
   void scrollTo(Guid dest, const Action& a);
   void setVariable(const Action& a, Guid source);
   void setVariableMode(const Action& a);
+ public:
+  // Wecra's: the viewer's own switch (a Light / Dark toggle over the prototype) — a collection's mode, as a
+  // SET_VARIABLE_MODE action sets it.
+  void setCollectionMode(AssetId set, Guid mode);
+ private:
   void mediaAction(const Action& a);
   Media* mediaEntry(Guid node);
   Media freshMedia(Guid node) const;
@@ -641,6 +667,12 @@ class Player {
   bool scaleChosen_ = false;  // the viewer picked a scale (else Figma's default for the file, chosen at start)
   bool responsive_ = false;   // with a device: Responsive (else Fixed size)
   bool deviceFrame_ = true;   // Show device frame
+  bool hasArt_ = false;
+  bool bareDevice_ = false;
+  double insetTop_ = 0, insetBottom_ = 0;
+  bool insetUnder_ = false;
+  double fullScreenHeight() const;  // the page's bars over a device's screen (screen units)   // the device is the window: no margin, transparent around it       // the page draws the frame (a picture): art_ is its room around the screen
+  FrameArt art_;
   bool ignoreDevice_ = false;
   bool bare_ = false;
   double windowTop_ = 0;  // bare: the window's top in the canvas, frame units

@@ -80,7 +80,8 @@ bool findDevice(const std::string& id, const DeviceSpec*& spec, const DeviceMode
       spec = &s;
     }
   }
-  if (!spec) return false;
+  // Figma's own identifiers carry the maker ("APPLE_IPAD_PRO_11_SILVER", docs/research/b2c-fig-fidelity.md): ours without it.
+  if (!spec) return id.rfind("APPLE_", 0) == 0 && findDevice(id.substr(6), spec, model);
   std::string rest = id.size() > best ? id.substr(best + 1) : std::string();
   for (const DeviceModel& m : spec->models)
     if (rest == m.id) model = &m;

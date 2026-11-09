@@ -1,0 +1,154 @@
+@layer app {
+  /*
+   * A device's own interface (DeviceChrome.tsx): drawn in the device's points, scaled onto its screen. These are the
+   * device's colours, not the app's — iOS's and Android's own inks and materials, imitated — so they are written here
+   * and not taken from the design system's tokens.
+   */
+  .root {
+    --ink: #000000;
+    --ink-soft: rgb(60 60 67 / 0.6);
+    --bar: #f9f9f9;
+    --bar-line: rgb(0 0 0 / 0.12);
+    --field: rgb(118 118 128 / 0.12);
+    --glass: rgb(255 255 255 / 0.5);
+    --glass-edge: rgb(255 255 255 / 0.65);
+    position: absolute;
+    top: 0;
+    left: 0;
+    overflow: hidden;
+    transform-origin: 0 0;
+    pointer-events: none;
+    user-select: none;
+    color: var(--ink);
+    font-family: -apple-system, "SF Pro Text", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .root.dark {
+    --ink: #ffffff;
+    --ink-soft: rgb(235 235 245 / 0.6);
+    --bar: #1c1c1e;
+    --bar-line: rgb(255 255 255 / 0.12);
+    --field: rgb(118 118 128 / 0.24);
+    --glass: rgb(40 40 40 / 0.45);
+    --glass-edge: rgb(255 255 255 / 0.18);
+  }
+  .android { font-family: "Google Sans", Roboto, system-ui, sans-serif; }
+
+  /* ---- Apple's scroll edge effect: the blur grows toward the edge, a soft tint of the page over it ---- */
+  .edge { position: absolute; right: 0; left: 0; }
+  .edge-top { top: 0; }
+  .edge-bottom { bottom: 0; }
+  .edgeStep { position: absolute; inset: 0; }
+  .edgeTint { position: absolute; inset: 0; }
+  .edge-top .edgeTint { background: linear-gradient(to bottom, color-mix(in srgb, var(--tint) 72%, transparent), transparent); }
+  .edge-bottom .edgeTint { background: linear-gradient(to top, color-mix(in srgb, var(--tint) 60%, transparent), transparent); }
+
+
+  /* ---- Status bars ---- */
+  .status { position: absolute; top: 0; right: 0; left: 0; display: flex; align-items: center; justify-content: space-between; }
+  .icons { display: inline-flex; align-items: center; gap: 6px; }
+  .icon { display: block; flex: none; }
+  /* An iPhone's: the time and the icons centred beside the Dynamic Island, on its middle (its top 11, 37 high). */
+  .iphoneStatus { align-items: flex-start; padding-top: 18px; }
+  .homeStatus { align-items: center; padding-top: 0; }
+  .side { display: flex; justify-content: center; }
+  .time { font-size: 17px; font-weight: 600; letter-spacing: -0.4px; line-height: 22px; }
+  .homeStatus .time { font-size: 15px; line-height: 20px; }
+  .ipadStatus { padding: 0 20px; font-size: 15px; font-weight: 600; }
+  .ipadDate { margin-left: 4px; font-weight: 500; }
+  .percent { font-size: 13px; font-weight: 600; }
+  .androidStatus { padding: 0 24px 0 28px; font-size: 14px; font-weight: 500; }
+  .androidStatus .icons { gap: 4px; }
+  .androidTime { letter-spacing: 0.2px; }
+  /* macOS 26: the menu bar is clear over the desktop; here over the page, a light material. */
+  .macMenu { padding: 0 14px; font-size: 13px; background: color-mix(in srgb, var(--tint) 55%, transparent); backdrop-filter: blur(30px) saturate(180%); }
+  .macLeft, .macRight { display: inline-flex; align-items: center; gap: 18px; }
+  .macLeft b { font-weight: 700; }
+
+  /* ---- Home indicator / gesture handle ---- */
+  .home { position: absolute; bottom: 8px; left: 50%; width: 140px; height: 5px; margin-left: -70px; border-radius: 3px; background: var(--ink); }
+  .gesture { bottom: 10px; width: 108px; height: 4px; margin-left: -54px; opacity: 0.85; }
+  .homeOnBar { --ink: #000000; }
+  .dark .homeOnBar { --ink: #ffffff; }
+
+  /* ---- Browser bars ---- */
+  .topBars { position: absolute; top: 0; right: 0; left: 0; display: flex; flex-direction: column; background: var(--bar); box-shadow: 0 0.5px 0 var(--bar-line); }
+  .topBars .status { position: relative; flex: none; }
+  .toolbar { display: flex; flex: 1 1 auto; align-items: center; gap: 14px; min-width: 0; padding: 0 14px; }
+  .glyph { flex: none; width: 24px; height: 24px; color: var(--ink); }
+  .glyphSmall { width: 16px; height: 16px; }
+  .dim { opacity: 0.3; }
+  .domain { overflow: hidden; min-width: 0; white-space: nowrap; text-overflow: ellipsis; }
+  .omnibox, .padAddress, .macAddress {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    height: 40px;
+    padding: 0 14px;
+    border-radius: 20px;
+    background: var(--field);
+    font-size: 16px;
+  }
+  .chromePhone .omnibox { justify-content: center; height: 42px; border-radius: 21px; }
+  .androidChrome { gap: 16px; padding: 0 16px; }
+  .androidChrome .omnibox { height: 44px; border-radius: 22px; }
+  .tabCount { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 20px; height: 20px; border: 2px solid var(--ink); border-radius: 5px; font-size: 12px; font-weight: 700; }
+  .chromeBottom { position: absolute; right: 0; bottom: 0; left: 0; background: var(--bar); box-shadow: 0 -0.5px 0 var(--bar-line); }
+  .chromeBottomRow { display: flex; align-items: center; justify-content: space-around; height: 50px; }
+  .safariPad, .safariMac { gap: 18px; }
+  .padAddress, .macAddress { justify-content: center; max-width: 52%; margin: 0 auto; height: 36px; border-radius: 12px; font-size: 15px; }
+  .aa { font-weight: 600; }
+  .aa small { font-size: 11px; }
+
+  /* Safari on iOS 26: Liquid Glass — a blurred, brightened material, a bright rim, a soft shadow; floating. */
+  .safariBar {
+    --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+    position: absolute;
+    right: 12px;
+    bottom: 26px;
+    left: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: bottom 0.35s var(--ease);
+  }
+  .safariBarLandscape { right: 25%; bottom: 10px; left: 25%; }
+  .glass {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 48px;
+    border-radius: 24px;
+    background: var(--glass);
+    backdrop-filter: blur(14px) saturate(190%) brightness(1.06);
+    box-shadow: inset 0 0.5px 0 var(--glass-edge), inset 0 0 0 0.5px var(--glass-edge), 0 8px 28px rgb(0 0 0 / 0.14), 0 1px 3px rgb(0 0 0 / 0.08);
+  }
+  .glass { transition: width 0.35s var(--ease), height 0.35s var(--ease), margin 0.35s var(--ease), opacity 0.25s var(--ease), transform 0.35s var(--ease), font-size 0.35s var(--ease); }
+  .glassCircle { flex: none; width: 48px; overflow: hidden; }
+  .glassCircle:first-child { margin-right: 8px; }
+  .glassCircle:last-child { margin-left: 8px; }
+  .glassAddress { flex: none; gap: 8px; width: calc(100% - 112px); min-width: 0; padding: 0 16px; font-size: 16px; font-weight: 500; }
+  /* Scrolled down: the address alone, a small capsule lower down; the buttons shrink away. */
+  .safariCollapsed { bottom: 18px; }
+  .safariCollapsed .glassCircle { width: 0; margin: 0; opacity: 0; transform: scale(0.6); }
+  .safariCollapsed .glassAddress { width: 46%; height: 30px; padding: 0 12px; font-size: 13px; }
+  .safariCollapsed .glassAddress svg { display: none; }
+
+  /* Desktop browsers */
+  .lights { display: inline-flex; flex: none; gap: 8px; }
+  .lights i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.15); }
+  .lights i:nth-child(2) { background: #febc2e; }
+  .lights i:nth-child(3) { background: #28c840; }
+  .safariMac .lights { margin-right: 6px; }
+  .chromeDesktop { display: flex; flex: 1 1 auto; flex-direction: column; }
+  .tabStrip { display: flex; flex: none; align-items: flex-end; gap: 10px; height: 38px; padding: 0 12px; background: color-mix(in srgb, var(--ink) 9%, var(--bar)); }
+  .tabStrip .lights { align-self: center; margin-right: 12px; }
+  .tab { display: flex; align-items: center; gap: 8px; width: 220px; height: 32px; padding: 0 10px; border-radius: 10px 10px 0 0; background: var(--bar); font-size: 12px; }
+  .tabTitle { flex: 1 1 auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .favicon { flex: none; width: 14px; height: 14px; border-radius: 3px; background: var(--ink-soft); }
+  .chromeDesktopBar { gap: 12px; }
+  .chromeDesktopBar .omnibox { height: 34px; border-radius: 17px; font-size: 14px; }
+  .avatar { flex: none; width: 24px; height: 24px; border-radius: 50%; background: var(--ink-soft); }
+}

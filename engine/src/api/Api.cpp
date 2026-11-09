@@ -3621,6 +3621,39 @@ ENG_EXPORT int32_t engine_present_set_options(Handle h, Ptr ptr, uint32_t len) {
   // With a device: Responsive / Fixed size, Show device frame.
   if (auto* r = v.get("responsive"); r && r->isBool()) e->player->setResponsive(r->boolean);
   if (auto* f = v.get("deviceFrame"); f && f->isBool()) e->player->setDeviceFrame(f->boolean);
+  // Wecra's: a collection's mode set by the viewer {collection: "s:l", key?, mode: "s:l"} (a Light / Dark toggle).
+  if (auto* vm = v.get("variableMode"); vm && vm->isObject()) {
+    AssetId set;
+    bool ok = false;
+    if (auto* c = vm->get("collection"); c && c->isString()) set.guid = Guid::parse(c->string, &ok);
+    if (auto* k = vm->get("key"); k && k->isString()) set.key = k->string;
+    bool okMode = false;
+    Guid mode = kNoGuid;
+    if (auto* m = vm->get("mode"); m && m->isString()) mode = Guid::parse(m->string, &okMode);
+    if ((ok || !set.key.empty()) && okMode) e->player->setCollectionMode(set, mode);
+  }
+  // Wecra's: the browser's bars over a device's screen {top, bottom} (screen units): the prototype between them.
+  if (auto* ci = v.get("contentInsets"); ci && ci->isObject()) {
+    auto num = [&](const char* k) {
+      auto* n = ci->get(k);
+      return n && n->isNumber() ? n->number : 0.0;
+    };
+    auto* under = ci->get("under");
+    e->player->setContentInsets(num("top"), num("bottom"), under && under->isBool() && under->boolean);
+  }
+  // Wecra's: the device is the window (no margin, transparent around it) when its frame is a picture.
+  if (auto* b = v.get("bareDevice"); b && b->isBool()) e->player->setBareDevice(b->boolean);
+  // Wecra's: the page draws the device frame (a picture) — {left, top, right, bottom, radius}, null: the drawn frame.
+  if (auto* a = v.get("frameArt")) {
+    if (a->isObject()) {
+      auto num = [&](const char* k) {
+        auto* n = a->get(k);
+        return n && n->isNumber() ? n->number : 0.0;
+      };
+      e->player->setFrameArt(true, {num("left"), num("top"), num("right"), num("bottom"), num("radius")});
+    } else
+      e->player->setFrameArt(false, {});
+  }
   // Wecra's: a phone's browser leaves the page's device out; Hide UI on a touch screen shows the screen bare.
   if (auto* d = v.get("ignoreDevice"); d && d->isBool()) e->player->setIgnoreDevice(d->boolean);
   if (auto* b = v.get("bare"); b && b->isBool()) e->player->setBare(b->boolean);

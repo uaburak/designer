@@ -43,9 +43,9 @@ export async function runHomeTool(name: string, args: Record<string, unknown>): 
     };
   }
   if (name === "create_file") {
-    const meta = await ws.createFile({ name: opt(args.name), folderId: opt(args.folderId) ?? null });
+    const meta = await ws.createFile({ name: opt(args.name), folderId: opt(args.folderId) ?? null, ...(args.kind === "social" ? { editorType: "buzz" as const } : {}) });
     if (args.open === true) openFileTab(meta.fileKey, meta.name);
-    return { result: textResult({ created: { fileKey: meta.fileKey, name: meta.name, folderId: meta.folderId }, ...(args.open === true ? { note: "Opened; your tools now work on it." } : {}) }), ...(args.open === true ? { opened: meta.fileKey } : {}) };
+    return { result: textResult({ created: { fileKey: meta.fileKey, name: meta.name, folderId: meta.folderId, kind: meta.editorType === "buzz" ? "social" : "design" }, ...(args.open === true ? { note: "Opened; your tools now work on it." } : {}) }), ...(args.open === true ? { opened: meta.fileKey } : {}) };
   }
   const keys = (): string[] => {
     const list = Array.isArray(args.fileKeys) ? (args.fileKeys as unknown[]).filter((x): x is string => typeof x === "string") : [];

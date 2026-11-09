@@ -10,6 +10,27 @@
     box-shadow: var(--ds-elevation-200);
   }
   .window.focused { box-shadow: var(--ds-elevation-draggable-modal); }
+  /* In a window of its own (Open in separate window): the whole window, its system title bar above. */
+  .popout { position: fixed; inset: 0; }
+  /* What holds the pointer while the header drags the window (InlinePreview: it stays when the window tears off). */
+  .dragProxy { position: fixed; top: 0; left: 0; width: 0; height: 0; }
+  /*
+   * The device itself (its frame a picture): no window around it — the toolbar a floating pill over the device, the
+   * page (or the desktop, in its own window) showing around it.
+   */
+  .window.bare, .window.bare.focused { box-shadow: none; }
+  .frame.bareFrame { overflow: visible; background: transparent; }
+  .frame.bareFrame .header {
+    margin-bottom: var(--ds-space-3);
+    border-bottom-color: transparent;
+    border-radius: var(--ds-radius-large);
+    background: var(--figma-color-bg);
+    box-shadow: var(--ds-elevation-200);
+  }
+  .frame.bareFrame .content { background: transparent; }
+  /* Its own frameless window: the pill moves it. */
+  .popout.bare .header { -webkit-app-region: drag; }
+  .popout.bare .header button { -webkit-app-region: no-drag; }
   .frame {
     display: flex;
     flex-direction: column;

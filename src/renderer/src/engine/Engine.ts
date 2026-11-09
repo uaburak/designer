@@ -289,6 +289,12 @@ export interface PresentState {
   hasDeviceFrame?: boolean;
   /** Show device frame (on by default) */
   deviceFrame?: boolean;
+  /** The page draws the device frame as a picture (frameArt) */
+  frameArt?: boolean;
+  /** The device is the window (bareDevice) */
+  bareDevice?: boolean;
+  /** The browser's bars over the device's screen [top, bottom] (screen units) */
+  contentInsets?: [number, number];
   /** With a device: Responsive (else Fixed size) */
   responsive?: boolean;
   /** The screen's own colour ("#rrggbb": its topmost opaque solid fill), null when it has none */
@@ -342,6 +348,16 @@ export interface BoardGrid {
   frame?: BoardBox;
 }
 
+/**
+ * A canvas in another document (the inline preview popped out into a window of its own, InlinePreview.tsx) is found by
+ * Emscripten through its selector in `specialHTMLTargets` — `document.querySelector` looks in this page only.
+ */
+function foreignTarget(module: EngineExports["module"], canvas: HTMLCanvasElement): void {
+  if (canvas.ownerDocument === document) return;
+  module.specialHTMLTargets ??= {};
+  module.specialHTMLTargets[`#${canvas.id}`] = canvas;
+}
+
 export class Engine {
   /** The engine drawing into `canvas` (which gets the id "engine-canvas" if it has none); `null` = headless. */
   static async create(canvas: HTMLCanvasElement | null, options: EngineOptions = {}): Promise<Engine> {
@@ -349,6 +365,7 @@ export class Engine {
     if (canvas && !canvas.id) canvas.id = "engine-canvas";
     const wire = options.wire ?? "json";
     const gfx = canvas ? await prepareGfx(exports.module, options.gfx) : "webgl2";
+    if (canvas) foreignTarget(exports.module, canvas);
     const handle = exports.create(canvas ? `#${canvas.id}` : null, encodeOptions({ sessionID: options.sessionID ?? 1, theme: options.theme ?? "DARK", wire, gfx }));
     if (!handle) {
       exports.lastError();
@@ -421,9 +438,13 @@ export class Engine {
   moveTo(canvas: HTMLCanvasElement): void {
     if (!this.h || this.headless || canvas === this.canvas) return;
     if (!canvas.id) canvas.id = "engine-canvas";
+    // A frame asked of the old canvas's window: asked again of the new one's.
+    if (this.frameRequested) this.frameWindow().cancelAnimationFrame(this.frameRequested);
+    this.frameRequested = 0;
     this.ownCanvas?.remove();
     this.ownCanvas = null;
     this.canvas = canvas;
+    foreignTarget(this.x.module, canvas);
     const backend = this.x.gfxSwitch(this.h, `#${canvas.id}`, this.gfxBackend === "webgpu" ? 1 : 0);
     this.gfxBackend = backend === 1 ? "webgpu" : "webgl2";
     for (const listener of [...this.canvasListeners]) listener(canvas);
@@ -499,7 +520,7 @@ export class Engine {
 
   destroy(): void {
     if (!this.h) return;
-    if (this.frameRequested) cancelAnimationFrame(this.frameRequested);
+    if (this.frameRequested) this.frameWindow().cancelAnimationFrame(this.frameRequested);
     clearTimeout(this.frameTimer);
     this.unsubscribeFonts();
     Engine.drawing.delete(this);
@@ -783,10 +804,16 @@ export class Engine {
   /** Asks for a frame (render on demand). */
   schedule(): void {
     if (this.frameRequested || !this.h || this.headless || this.paused) return;
-    this.frameRequested = requestAnimationFrame(this.frame);
+    this.frameRequested = this.frameWindow().requestAnimationFrame(this.frame);
   }
 
   private paused = false;
+
+  /** The canvas's window: its frames come from it (a popped-out preview's own window plays while the editor's is hidden). */
+  private frameWindow(): Window {
+    const own = this.canvas?.ownerDocument.defaultView;
+    return own && !own.closed ? own : window;
+  }
 
   /**
    * Paused, the engine draws nothing and asks for no frames (a hidden view's engine: the kept inline preview); changes
@@ -796,7 +823,7 @@ export class Engine {
     if (paused === this.paused) return;
     this.paused = paused;
     if (paused) {
-      if (this.frameRequested) cancelAnimationFrame(this.frameRequested);
+      if (this.frameRequested) this.frameWindow().cancelAnimationFrame(this.frameRequested);
       this.frameRequested = 0;
       clearTimeout(this.frameTimer);
     } else {
@@ -834,7 +861,7 @@ export class Engine {
    */
   frameNow(): void {
     if (!this.h || this.headless || this.paused) return;
-    if (this.frameRequested) cancelAnimationFrame(this.frameRequested);
+    if (this.frameRequested) this.frameWindow().cancelAnimationFrame(this.frameRequested);
     this.frame(performance.now());
   }
 
@@ -1094,6 +1121,15 @@ export class Engine {
     chromeInsets?: { top: number; bottom: number };
     responsive?: boolean;
     deviceFrame?: boolean;
+    /** Wecra's: the page draws the device frame as a picture (present/deviceArt.ts) — the room around the screen as
+     *  fractions of the portrait screen, its corner radius of its width; null: the drawn frame */
+    frameArt?: { left: number; top: number; right: number; bottom: number; radius: number } | null;
+    /** Wecra's: a collection's mode chosen by the viewer (the preview's light / dark toggle), as SET_VARIABLE_MODE sets it */
+    variableMode?: { collection: Guid; key?: string; mode: Guid };
+    /** Wecra's: the browser's bars over a device's screen (present/deviceChrome.ts), screen units: the prototype between them */
+    contentInsets?: { top: number; bottom: number; under?: boolean };
+    /** Wecra's: the device is the window — with a picture frame, no margin and transparent around it (the inline preview) */
+    bareDevice?: boolean;
     /** The machine it plays on: its scroll physics, ⌘ in key triggers */
     host?: "mac" | "windows" | "linux" | "other";
     /** Wecra's: the page's device left out (a phone's browser shows the frame itself) */

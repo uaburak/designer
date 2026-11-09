@@ -13,6 +13,8 @@ import { MAX_ATTACHMENTS, isImageMime, type Attachment, type AttachResult } from
 import type { ProviderInfo } from "@shared/agents/types";
 import { creditsFor, type ConnectorConsent } from "@shared/ai/types";
 import { slashQuery } from "@shared/ai/skillFile";
+import { mentionQuery } from "@shared/agents/team";
+import { memberName, memberRole } from "./TeamSettings";
 import { useConnectors, useSkills } from "./aiData";
 import { useEditor } from "../../controller";
 import { useTopics } from "../../hooks";
@@ -942,6 +944,21 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
   const [slashClosed, setSlashClosed] = useState<string | null>(null);
   const slash = slashQuery(text, caret);
   const slashMatches = slash && slashClosed !== text ? skills.filter((s) => s.enabled && s.name.startsWith(slash.query)).slice(0, 8) : [];
+  // "@" at the message's start: the team's members (docs/studio.md §9) — the message goes straight to the one picked.
+  const at = slashMatches.length ? null : mentionQuery(text, caret);
+  const atMatches = at && slashClosed !== text ? service.team().filter((m) => m.enabled && (m.id.startsWith(at.query) || memberName(m).toLowerCase().includes(at.query))).slice(0, 8) : [];
+  const pickMember = (id: string) => {
+    if (!at) return;
+    const next = `@${id} ${text.slice(at.start + 1 + at.query.length).replace(/^\s+/, "")}`;
+    setText(next);
+    const pos = at.start + id.length + 2;
+    setCaret(pos);
+    setSlashActive(0);
+    requestAnimationFrame(() => {
+      input.current?.focus();
+      input.current?.setSelectionRange(pos, pos);
+    });
+  };
   const on = service.chatConnectors(chatId);
   const chatConnectors = allConnectors.filter((c) => c.enabled && on.includes(c.id));
   const pickSkill = (name: string) => {
@@ -1005,6 +1022,23 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
         e.preventDefault();
         e.stopPropagation();
         return pickSkill(slashMatches[Math.min(slashActive, slashMatches.length - 1)].name);
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        return setSlashClosed(text);
+      }
+    }
+    if (atMatches.length && !e.nativeEvent.isComposing) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        e.stopPropagation();
+        return setSlashActive((i) => (i + (e.key === "ArrowDown" ? 1 : atMatches.length - 1)) % atMatches.length);
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        e.stopPropagation();
+        return pickMember(atMatches[Math.min(slashActive, atMatches.length - 1)].id);
       }
       if (e.key === "Escape") {
         e.preventDefault();
@@ -1098,6 +1132,28 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
             >
               <span className={styles.slashName}>/{s.name}</span>
               <span className={styles.slashDesc}>{s.description}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {atMatches.length > 0 && (
+        <div className={styles.slashList} role="listbox" aria-label={t("Team")} data-mention-list="">
+          {atMatches.map((m, i) => (
+            <button
+              key={m.id}
+              type="button"
+              role="option"
+              aria-selected={i === slashActive}
+              className={styles.slashItem}
+              data-active={i === slashActive || undefined}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => pickMember(m.id)}
+              data-mention-member={m.id}
+            >
+              <span className={styles.slashName}>@{m.id}</span>
+              <span className={styles.slashDesc}>
+                {memberName(m)} · {memberRole(m)}
+              </span>
             </button>
           ))}
         </div>

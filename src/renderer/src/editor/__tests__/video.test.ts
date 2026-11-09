@@ -161,7 +161,7 @@ describe("the presentation view's options", () => {
     const options = labels(presentOptions(s));
     expect(options).toContain("Fixed size");
     expect(options).not.toContain("Fit device on screen");
-    expect(labels(deviceOptions(s))).toEqual(["Fit device on screen", "Zoom device to fill screen", "Show device at 100%", "-", "Show device frame"]);
+    expect(labels(deviceOptions(s))).toEqual(["Fit device on screen", "Zoom device to fill screen", "Show device at 100%", "-", "Show device frame", "-", "Show status bar", "Browser"]);
     expect(deviceName("IPHONE_16_PRO")).toBe("iPhone 16 Pro");
     expect(deviceName("MACBOOK_PRO_14")).toBe("MacBook Pro 14");
     expect(PRESENT_SHORTCUTS.find((k) => k.label === "Next frame")?.keys).toEqual(["→", "Space", "N"]);

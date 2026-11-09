@@ -5,11 +5,12 @@
 // post's picture slot), a task run again from its card with its prompt edited; in Social (docs/social.md §7, round
 // 18c) make_posts on the board (a campaign, posts made at once, templates, the Motion pass), the review's pins and its
 // own fixes, the follow-up chips, make_brand_library until round 18b.
+import { teamOf, type TeamEntry, type TurnMember } from "@shared/agents/team";
 import { describe, expect, it } from "vitest";
 import type { ToolResult } from "@shared/agents/tools";
 import type { ProviderInfo } from "@shared/agents/types";
 import type { ImageRouteInfo } from "@shared/ai/types";
-import { DEFAULT_MANAGER_SETTINGS, brandsUnavailable, type Brand, type BrandsRepository, type ManagerSettings, type Product } from "@shared/studio/types";
+import { DEFAULT_MANAGER_SETTINGS, brandsUnavailable, type Brand, type BrandsRepository, type ManagerSettings, type Product, type StudioTask } from "@shared/studio/types";
 import { formatById } from "@shared/social/formats";
 import { SOCIAL_WORKER_LINE } from "@shared/social/managerPrompt";
 import type { PostProblem } from "@shared/social/types";
@@ -79,7 +80,7 @@ interface Node {
  * `social`: the view is in Social mode — new_post makes a post node (a record with its problems), set_campaign a campaign;
  * `templates`: new_post takes a templateKey (round 18b built), else it refuses it as the view does until then.
  */
-function fakeEnv(o: { settings?: Partial<ManagerSettings>; routes?: ImageRouteInfo[]; withBrand?: Brand; social?: boolean; templates?: boolean } = {}) {
+function fakeEnv(o: { settings?: Partial<ManagerSettings>; routes?: ImageRouteInfo[]; withBrand?: Brand; social?: boolean; templates?: boolean; team?: TeamEntry[] } = {}) {
   const nodes = new Map<string, Node>([
     ["0:1", { name: "Page 1", type: "CANVAS", x: 0, y: 0, width: 0, height: 0, children: ["1:1"] }],
     ["1:1", { name: "Existing", type: "FRAME", x: 0, y: 0, width: 500, height: 400, children: [] }],
@@ -95,6 +96,7 @@ function fakeEnv(o: { settings?: Partial<ManagerSettings>; routes?: ImageRouteIn
   const answers: ((a: CardAnswer) => void)[] = [];
   const workerPrompts: string[] = [];
   const workerFiles: (string[] | undefined)[] = [];
+  const workerMembers: (TurnMember | undefined)[] = [];
   const notes = new Map<string, TaskExtra>();
   const images: StudioImageRequest[] = [];
   const tools: { name: string; args: Record<string, unknown> }[] = [];
@@ -117,8 +119,9 @@ function fakeEnv(o: { settings?: Partial<ManagerSettings>; routes?: ImageRouteIn
       return new Promise((r) => answers.push(r));
     },
     noteTask: (id, extra) => void notes.set(id, { ...notes.get(id), ...extra }),
-    runWorker: async (_task, prompt, _signal, files) => {
+    runWorker: async (_task, prompt, _signal, files, member) => {
       workerPrompts.push(prompt);
+      workerMembers.push(member);
       workerFiles.push(files?.map((x) => x.path));
       // The worker makes the frame it was asked for (named in quotes after "FRAME named exactly"), with its Picture layer.
       const m = /FRAME named exactly “([^”]+)”, (\d+) × (\d+), at x (-?\d+), y (-?\d+)/.exec(prompt);
@@ -167,6 +170,7 @@ function fakeEnv(o: { settings?: Partial<ManagerSettings>; routes?: ImageRouteIn
     page: () => "0:1",
     read: (id) => nodes.get(id) ?? null,
     pictureOf: async (id) => nodes.get(id)?.fill ?? null,
+    ...(o.team ? { team: () => o.team! } : {}),
     ...(o.social
       ? {
           social: () => true,
@@ -175,7 +179,7 @@ function fakeEnv(o: { settings?: Partial<ManagerSettings>; routes?: ImageRouteIn
         }
       : {}),
   };
-  return { env, nodes, cards, answers, workerPrompts, workerFiles, notes, images, tools, blurred, problems, suggested, data: () => data, queue };
+  return { env, nodes, cards, answers, workerPrompts, workerFiles, workerMembers, notes, images, tools, blurred, problems, suggested, data: () => data, queue };
 }
 
 describe("make_posts", () => {
@@ -252,6 +256,14 @@ describe("cards and tasks", () => {
     await tick();
     f.answers[2]({ cancelled: true });
     expect(json(await product)).toBe("cancelled");
+  });
+
+  it("ask_choice: none of the options fits — the owner's own words come back as {text}", async () => {
+    const f = fakeEnv();
+    const choice = runManagerTool(f.env, "ask_choice", { question: "Which products?", options: [{ id: "hib", label: "Stoller HIB" }, { id: "hm", label: "Harvest More" }] });
+    await tick();
+    f.answers[0]({ text: "Algrow, B-Hold ve Maxtech" });
+    expect(json(await choice)).toMatchObject({ text: "Algrow, B-Hold ve Maxtech" });
   });
 
   it("delegate_task: the general agent by default, only allowed agents, dependencies checked; wait_tasks reports", async () => {
@@ -516,3 +528,70 @@ describe("the manager in Social (docs/social.md §7)", () => {
     expect(r.items[0].problems.map((p) => p.fix)).toEqual(["relayout", "rewrite", "relayout", "relayout", "retime"]);
   });
 });
+
+const MAKE_SOCIAL = { brand: "b1", products: ["p1"], formats: ["instagram.story"], variations: 1, request: "Liq Humus story", animate: { seconds: 6 } };
+
+describe("the team (docs/studio.md §9)", () => {
+  const team = () => teamOf({ members: [{ ...teamOf(undefined).find((m) => m.id === "reels-maker")!, route: { providerId: "codex", model: "gpt-5" } }], removed: ["reviewer"] });
+
+  it("delegate_task {member}: the member's own agent, its name on the task, its instructions and tools to the worker; Run again keeps it", async () => {
+    const f = fakeEnv({ team: team() });
+    const a = json(await runManagerTool(f.env, "delegate_task", { member: "reels-maker", title: "Animate", prompt: "Animate the post" }));
+    expect(a).toMatchObject({ agent: "codex · gpt-5", member: "Reels Maker" });
+    expect(f.queue.get(a.taskId)!.member).toBe("Reels Maker");
+    await runManagerTool(f.env, "wait_tasks", { taskIds: [a.taskId] });
+    expect(f.workerMembers[0]).toMatchObject({ id: "reels-maker", skills: ["motion-opus", "sound-design", "social-campaign"], tools: ["layers", "styles", "motion", "sound", "social"] });
+    expect(f.notes.get(a.taskId)!.again).toMatchObject({ kind: "worker", member: "reels-maker" });
+    const again = await runAgain(f.env, { ...f.queue.get(a.taskId)!, ...f.notes.get(a.taskId)! }, "Animate it slower");
+    await f.queue.wait([again.id], 1000);
+    expect(f.workerMembers[1]?.id).toBe("reels-maker");
+    expect(again.member).toBe("Reels Maker");
+  });
+
+  it("a default member runs on general work's agent; an unknown or removed member is refused; no member is general work as before", async () => {
+    const f = fakeEnv({ team: team() });
+    expect(json(await runManagerTool(f.env, "delegate_task", { member: "post-designer", title: "Post", prompt: "Design it" })).agent).toBe("claude-code · claude-sonnet-5-5");
+    const removed = await runManagerTool(f.env, "delegate_task", { member: "reviewer", title: "Check", prompt: "Check it" });
+    expect(removed.isError).toBe(true);
+    expect(removed.content[0]).toMatchObject({ text: expect.stringContaining("post-designer") });
+    const plain = json(await runManagerTool(f.env, "delegate_task", { title: "Rename", prompt: "Rename" }));
+    expect(plain.member).toBeUndefined();
+    await f.queue.wait([plain.taskId], 1000);
+    expect(f.workerMembers.at(-1)).toBeUndefined();
+  });
+
+  it("make_posts in Social: the frames go to the Post Designer and the Motion pass to the Reels Maker", async () => {
+    const f = fakeEnv({ social: true, team: team() });
+    const r = json(await runManagerTool(f.env, "make_posts", MAKE_SOCIAL));
+    const member = (prefix: string) => f.queue.get(r.tasks.find((x: { title: string }) => x.title.startsWith(prefix)).taskId)?.member;
+    expect(member("Frame")).toBe("Post Designer");
+    expect(member("Animate")).toBe("Reels Maker");
+    await f.queue.wait([r.reviewTaskId], 5000);
+    expect(f.workerMembers.map((m) => m?.id)).toEqual(expect.arrayContaining(["post-designer", "reels-maker"]));
+  });
+
+  it("in a Design file: “a reel and a post” — the pictures from the Post Designer's Antigravity, its frames, and the Reel animated by the Reels Maker", async () => {
+    const routes: ImageRouteInfo[] = [{ providerId: "antigravity", label: "Antigravity", available: true, models: [] } as unknown as ImageRouteInfo];
+    const f = fakeEnv({ team: team(), routes, settings: { image: null } });
+    const r = json(await runManagerTool(f.env, "make_posts", { brand: "b1", products: ["p1"], formats: ["instagram.reel", "post"], variations: 1, request: "Hierro'ya bir reels ve post" }));
+    expect(r.imageRoute).toEqual({ providerId: "antigravity" });
+    expect(f.cards).toEqual([]);
+    const byTitle = (prefix: string) => r.tasks.filter((x: { title: string }) => x.title.startsWith(prefix)).map((x: { taskId: string }) => f.queue.get(x.taskId)!);
+    expect(byTitle("Picture").map((x: StudioTask) => [x.member, x.route.providerId])).toEqual([["Post Designer", "antigravity"], ["Post Designer", "antigravity"]]);
+    expect(byTitle("Frame").map((x: StudioTask) => x.member)).toEqual(["Post Designer", "Post Designer"]);
+    // Only the Reel moves; the post stays still.
+    expect(byTitle("Animate").map((x: StudioTask) => [x.title, x.member])).toEqual([["Animate: Liq Humus — Instagram reel v1", "Reels Maker"]]);
+    const [done] = await f.queue.wait([r.reviewTaskId], 5000);
+    expect(done.state).toBe("done");
+    const reel = f.data().posts!.find((p) => p.formatId === "instagram.reel")!;
+    expect(f.workerPrompts.find((p) => p.includes("Animate the post"))).toContain(`(${reel.frameNodeId})`);
+    expect(f.workerMembers.map((m) => m?.id)).toEqual(expect.arrayContaining(["post-designer", "reels-maker"]));
+  });
+
+  it("the Post Designer's image model waits for a chat's own pick, and isn't used while it can't run", async () => {
+    const off: ImageRouteInfo[] = [{ providerId: "antigravity", label: "Antigravity", available: false, models: [] } as unknown as ImageRouteInfo];
+    const f = fakeEnv({ team: team(), routes: off });
+    expect(json(await runManagerTool(f.env, "make_posts", { brand: "b1", products: ["p1"], formats: ["post"], variations: 1 })).imageRoute).toEqual({ providerId: "gemini-images", model: "pro" });
+  });
+});
+

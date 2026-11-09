@@ -27,7 +27,7 @@ export { nextEnabled, rovingTarget } from "./util/rovingFocus";
 export { FOLDER_COLOR_IDS, FOLDER_COLOR_VARS, FOLDER_COLOR_LABEL, folderColor, type FolderColorId } from "./util/folderColor";
 export { clickSelection, moveSelection, inOrder, idsInRect, isToggleModifier, selectionModifiers, useSelection, type SelectionState, type SelectionModifiers } from "./util/selection";
 
-export { Portal, overlayRoot, themeOf } from "./overlay/Portal";
+export { OverlayWindow, Portal, overlayRoot, themeOf, useOverlayWindow } from "./overlay/Portal";
 export { place, placeMenu, placeOverTrigger, EDGE } from "./overlay/position";
 export { useDismiss } from "./overlay/useDismiss";
 export { startHeaderDrag, clampToWindow } from "./overlay/drag";

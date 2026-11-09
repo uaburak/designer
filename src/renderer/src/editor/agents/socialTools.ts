@@ -288,7 +288,7 @@ async function setPostTool(env: ToolEnv, args: Spec): Promise<ToolResult> {
   const formatId = str(args.formatId);
   const brands = await brandList();
   if (formatId) formatFor(formatId, brands);
-  const page = env.ed.store.page;
+  const page = env.page?.() ?? env.ed.store.page;
   const plain = nodes.filter((id) => !readPost(env.ed, id));
   if (plain.length && !formatId) throw new ToolError(`set_post: ${plain.join(", ")} ${plain.length > 1 ? "aren't posts" : "isn't a post"} — pass formatId to make ${plain.length > 1 ? "them posts" : "it one"}.`);
   for (const id of plain) {

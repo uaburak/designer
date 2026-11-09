@@ -23,10 +23,14 @@
  */
 import { t, useT } from "@/i18n";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { flushSync } from "react-dom";
 import { Button, Dialog, Icon, IconButton, MenuButton, Spinner, showToast, type IconName, type MenuEntry } from "@/ds";
 import { MOD_ALT, MOD_CTRL, MOD_META, MOD_SHIFT, Status } from "@/engine/abi";
 import { Engine, type ImageSource, type PresentScale, type PresentState } from "@/engine/Engine";
 import type { Guid } from "@/engine/codec";
+import { artInsets, artPlacement, deviceArt, type DeviceArt } from "./deviceArt";
+import { DeviceChrome } from "./DeviceChrome";
+import { applyDeviceUiOption, chromeKind, chromeLayout, deviceUiEntries, useDeviceUi } from "./deviceUi";
 import { PresentationVideos } from "./presentationVideos";
 import { applyWebOption, forgetKeptState, keptStateKey, readWebOptions, restoreKeptState, saveKeptState, webBehavioursParam, webMenuEntries } from "./webBehaviours";
 import styles from "./Present.module.css";
@@ -107,6 +111,8 @@ export interface PresentationViewProps {
   onClose?: () => void;
   /** The engine is up and presenting (scripts, tests) */
   onReady?: (engine: Engine) => void;
+  /** The device's picture frame (deviceArt.ts) found for the page's device, or null (the inline preview sizes to it) */
+  onDeviceArt?: (art: DeviceArt | null) => void;
   /** Share prototype (the toolbar's; docs/editor.md D-6): with the screen shown; default, the presentation's link copied */
   onShare?: (screen: Guid | null) => void;
   /** Figma's prototype URL parameters (`presentUrlOptions`): the scale, hints, device frame and UI to start with */
@@ -273,6 +279,8 @@ export function deviceOptions(state: PresentState | null): MenuEntry[] {
   return [
     ...DEVICE_SCALES.map((s) => ({ id: `scale:${s.value}`, label: t(s.label), checked: scale === s.value || (s.value === "FIT" && (scale === "FIT_WIDTH" || scale === "RESPONSIVE")) })),
     ...(state?.hasDeviceFrame ? ["-" as const, { id: "frame", label: t("Show device frame"), checked: state.deviceFrame !== false }] : []),
+    // The device's own interface (deviceUi.ts): its status bar, a browser's bars.
+    ...(state?.deviceType === "PRESET" && chromeKind(state.devicePreset) !== "none" ? ["-" as const, ...deviceUiEntries(chromeKind(state.devicePreset))] : []),
   ];
 }
 
@@ -303,7 +311,7 @@ export function deviceName(preset: string | undefined): string {
 
 /** Applies an options menu entry (presentOptions' ids) to the engine; `stateKey`: where Keep state on reload keeps it. */
 export function applyPresentOption(engine: Engine, state: PresentState | null, id: string, stateKey?: () => string | null): void {
-  if (applyWebOption(engine, state, id, stateKey)) return;
+  if (applyWebOption(engine, state, id, stateKey) || applyDeviceUiOption(id)) return;
   if (id === "hints") engine.presentSetOptions({ hints: state?.hints === false });
   else if (id === "shortcuts") engine.presentSetOptions({ shortcuts: state?.shortcuts === false });
   else if (id === "frame") engine.presentSetOptions({ deviceFrame: state?.deviceFrame === false });
@@ -428,7 +436,12 @@ const readSidebar = (): boolean => {
   }
 };
 
-export function PresentationView({ source, page, node, onClose, onReady, onShare, canvasId = "present-canvas", variant = "full", onRestart, onOpenEditor, onState, urlOptions, hidden = false }: PresentationViewProps) {
+/** The window an element is in: this one, or the inline preview's own when it is popped out (InlinePreview.tsx). */
+function viewOf(el: Element): Window & typeof globalThis {
+  return (el.ownerDocument.defaultView ?? window) as Window & typeof globalThis;
+}
+
+export function PresentationView({ source, page, node, onClose, onReady, onDeviceArt, onShare, canvasId = "present-canvas", variant = "full", onRestart, onOpenEditor, onState, urlOptions, hidden = false }: PresentationViewProps) {
   useT();
   const inline = variant === "inline";
   const onStateRef = useRef(onState);
@@ -485,10 +498,22 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
   // ⌘R in the desktop app: the prototype reloaded (set while presenting).
   const reloadRef = useRef<(() => void) | null>(null);
   const footerRef = useRef<HTMLDivElement>(null);
+  // Safari's tab bar (DeviceChrome): shrunk while the page is scrolled down, back as it is scrolled up or changes.
+  const [barsCollapsed, setBarsCollapsed] = useState(false);
+  const lastScroll = useRef<{ screen: string | null; y: number }>({ screen: null, y: 0 });
   const readState = useCallback(() => {
     const engine = engineRef.current;
     if (!engine || engine.destroyed) return;
     const s = engine.presentState();
+    {
+      const y = s.baseScroll?.[1] ?? 0;
+      const last = lastScroll.current;
+      const screen = s.screen ?? null;
+      if (screen !== last.screen || y <= 0) setBarsCollapsed(false);
+      else if (y > last.y + 4 && y > 24) setBarsCollapsed(true);
+      else if (y < last.y - 4) setBarsCollapsed(false);
+      lastScroll.current = { screen, y };
+    }
     const ks = keptScale.current;
     if (ks && s.active) {
       const now = JSON.stringify({ scale: s.scale, responsive: s.responsive });
@@ -555,13 +580,16 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
         if (disposed) return;
       }
       // The size first: the player lays the screen out in the canvas.
-      const observer = new ResizeObserver(() => {
+      // The canvas's own window (the inline preview popped out: another one): its observer, its pixel ratio.
+      const observer = new (viewOf(canvas).ResizeObserver ?? ResizeObserver)(() => {
         const r = canvas.getBoundingClientRect();
-        const dpr = window.devicePixelRatio || 1;
+        const dpr = viewOf(canvas).devicePixelRatio || 1;
         if (r.width > 0 && r.height > 0 && engine && !engine.destroyed) {
           engine.setViewport(r.width, r.height, dpr, Math.max(1, Math.round(r.width * dpr)), Math.max(1, Math.round(r.height * dpr)));
           engine.frameNow(); // drawn before this frame is painted: never a blank or stretched canvas (CanvasController.observeSize)
-          readState();
+          // …and what is laid over it (the device's picture, its interface) moved in the same frame: a resize left them
+          // a frame behind the canvas — the device shook.
+          flushSync(readState);
         }
       });
       observer.observe(canvas);
@@ -594,7 +622,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     }
     engine.setPaused(false);
     const r = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = viewOf(canvas).devicePixelRatio || 1;
     engine.setViewport(Math.max(1, r.width), Math.max(1, r.height), dpr, Math.max(1, Math.round(r.width * dpr)), Math.max(1, Math.round(r.height * dpr)));
     // Website behaviours: the viewer's own setting (a link's web-behaviours=0 over it), before the start picks a breakpoint.
     const web = readWebOptions();
@@ -684,6 +712,74 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, hidden]);
 
+  // The device frame as a picture of the real device (deviceArt.ts): the player leaves its room, the picture goes over
+  // the canvas. A preset without one keeps the drawn frame.
+  const [art, setArt] = useState<DeviceArt | null>(null);
+  const onDeviceArtRef = useRef(onDeviceArt);
+  useEffect(() => {
+    onDeviceArtRef.current = onDeviceArt;
+  }, [onDeviceArt]);
+  const artPreset = state?.deviceType === "PRESET" && state.deviceFrame !== false ? state.devicePreset : undefined;
+  useEffect(() => {
+    const engine = ready;
+    if (!engine || engine.destroyed) return;
+    let gone = false;
+    void deviceArt(artPreset).then((a) => {
+      if (gone || engine.destroyed) return;
+      // The inline preview is the device itself (no margin, transparent around it) when the device is a picture.
+      engine.presentSetOptions({ frameArt: a ? artInsets(a) : null, ...(inline ? { bareDevice: true } : {}) });
+      setArt(a);
+      onDeviceArtRef.current?.(a);
+      readState();
+    });
+    return () => {
+      gone = true;
+    };
+  }, [ready, artPreset, readState, inline]);
+  // The whole screen (the prototype's rect with the browser's bars over it added back).
+  const insets = state?.contentInsets ?? [0, 0];
+  const k = state?.viewScale ?? 1;
+  const screenAll = state?.screenRect && state.screenRect.w > 0 ? { ...state.screenRect, y: state.screenRect.y - insets[0] * k, h: state.screenRect.h + (insets[0] + insets[1]) * k } : null;
+  const artShown = art && artPreset && state?.device && screenAll && !hidden ? artPlacement(art, screenAll) : null;
+  // The device's own interface over its screen (deviceUi.ts): the status bar, a browser's bars; the opaque ones
+  // take their height off the screen (the player lays the prototype out between them).
+  const deviceUi = useDeviceUi();
+  const kind = state?.device && state.deviceType === "PRESET" ? chromeKind(state.devicePreset) : "none";
+  const chrome = kind !== "none" && screenAll ? chromeLayout(kind, state?.devicePreset, deviceUi, screenAll.w > screenAll.h) : null;
+  const chromeTop = chrome?.top ?? 0;
+  const chromeBottom = chrome?.bottom ?? 0;
+  const chromeUnder = chrome?.under ?? false;
+  useEffect(() => {
+    const engine = ready;
+    if (!engine || engine.destroyed) return;
+    engine.presentSetOptions({ contentInsets: { top: chromeTop, bottom: chromeBottom, under: chromeUnder } });
+    readState();
+  }, [ready, chromeTop, chromeBottom, chromeUnder, readState]);
+  const deviceChrome = chrome && screenAll && !hidden && (
+    <DeviceChrome
+      layout={chrome}
+      screen={screenAll}
+      scale={k}
+      radius={art ? (art.radius / art.hole.w) * (Math.min(screenAll.w, screenAll.h) / k) : 0}
+      screenColor={state?.screenColor}
+      site={source.fileName}
+      collapsed={barsCollapsed}
+    />
+  );
+  // The device as the window: the canvas only inside the screen's rounded corners (the picture's frame is over the rest;
+  // the page's background, square, showed outside the device's own corners).
+  const screenMask: CSSProperties | undefined = (() => {
+    if (!artShown || !art || !state?.bareDevice || !screenAll) return undefined;
+    const r = (art.radius / art.hole.w) * Math.min(screenAll.w, screenAll.h);
+    const w = screenAll.w + 1;
+    const h = screenAll.h + 1;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" rx="${r + 0.5}" fill="black"/></svg>`;
+    const image = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+    const at = `${screenAll.x - 0.5}px ${screenAll.y - 0.5}px`;
+    return { maskImage: image, WebkitMaskImage: image, maskPosition: at, WebkitMaskPosition: at, maskSize: `${w}px ${h}px`, WebkitMaskSize: `${w}px ${h}px`, maskRepeat: "no-repeat", WebkitMaskRepeat: "no-repeat" };
+  })();
+  const deviceFrameArt = artShown && art && <img className={styles.deviceArt} src={art.url} alt="" draggable={false} style={artShown} data-device-art="" />;
+
   // The floating stepper and Restart over the canvas's bottom: keyboard focus scrolls layers clear of them.
   useLayoutEffect(() => {
     const engine = ready;
@@ -698,7 +794,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     };
     measure();
     if (typeof ResizeObserver !== "function") return;
-    const observer = new ResizeObserver(measure);
+    const observer = new (viewOf(canvas).ResizeObserver ?? ResizeObserver)(measure);
     observer.observe(canvas);
     if (footer) observer.observe(footer);
     return () => observer.disconnect();
@@ -971,6 +1067,16 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
         readState();
         return;
       }
+      // Wecra's: with a device, Z goes between Responsive and Fixed (Figma's Z cycles the scales).
+      if (e.code === "KeyZ" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+        const st = engine.presentState();
+        if (st.device && st.shortcuts !== false) {
+          e.preventDefault();
+          engine.presentSetOptions({ responsive: !st.responsive });
+          readState();
+          return;
+        }
+      }
       if (engine.presentKey("down", e.keyCode, modsOf(e))) {
         e.preventDefault();
         readState();
@@ -1050,7 +1156,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     // A press that focused a text input: the typing goes to its <textarea>, whatever took the focus meanwhile.
     if (type === POINTER.up) {
       const el = fieldRef.current;
-      if (el && document.activeElement !== el && !engine.destroyed && engine.presentState().field) el.focus({ preventScroll: true });
+      if (el && el.ownerDocument.activeElement !== el && !engine.destroyed && engine.presentState().field) el.focus({ preventScroll: true });
     }
   };
   // The focus is given on pointerdown (the canvas, or the text input pressed): mousedown's default would take it back to
@@ -1067,7 +1173,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
     if (!el) return;
     if (!field) {
       fieldSerial.current = "";
-      if (document.activeElement === el) canvasRef.current?.focus({ preventScroll: true });
+      if (el.ownerDocument.activeElement === el) canvasRef.current?.focus({ preventScroll: true });
       return;
     }
     const serial = `${field.id}#${field.serial}`;
@@ -1076,7 +1182,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       el.value = field.value;
       el.setSelectionRange(field.start, field.end);
       // Only when the prototype moved the focus or the caret (a click, Tab): typing elsewhere keeps its focus.
-      if (document.activeElement !== el) el.focus({ preventScroll: true });
+      if (el.ownerDocument.activeElement !== el) el.focus({ preventScroll: true });
     }
   }, [field]);
   const syncField = () => {
@@ -1182,6 +1288,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       // Its own id: the engine finds its canvas by selector, and the editor's is "engine-canvas".
       id={canvasId}
       className={styles.canvas}
+      style={screenMask}
       tabIndex={0}
       aria-label={t("Prototype")}
       onPointerDown={onPointer}
@@ -1196,9 +1303,11 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
   // The inline preview draws its own header (InlinePreview.tsx: Figma's draggable window); here only the prototype.
   if (inline)
     return (
-      <div className={styles.inline} data-presentation="inline">
+      <div className={styles.inline} data-presentation="inline" data-bare-device={(artShown && state?.bareDevice) || undefined}>
         <div className={styles.stage}>
           {canvas}
+          {deviceChrome}
+          {deviceFrameArt}
           {fieldInput}
           <div ref={videoHost} className={styles.videos} aria-hidden />
           {!state && !error && (
@@ -1277,6 +1386,8 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
         )}
         <div className={styles.stage}>
           {canvas}
+          {deviceChrome}
+          {deviceFrameArt}
           {fieldInput}
           <div ref={videoHost} className={styles.videos} aria-hidden />
           {hideUi && !bare && <div className={styles.corner}>{optionsButton}</div>}
