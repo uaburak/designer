@@ -9,8 +9,6 @@ directories:
   output: dist
 files:
   - out/**
-  # Apple's device bezels (scripts/device-frames.mjs) are for this machine only — their license forbids redistribution
-  - "!out/renderer/device-frames/**"
   - package.json
 asar: true
 # Updates (docs/desktop.md §12.6, docs/site.md): electron-updater reads latest-mac.yml / latest.yml, and the files they

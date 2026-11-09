@@ -7,7 +7,8 @@
 //   node scripts/device-frames.mjs            # downloads (~800 MB, cached in ~/Library/Caches/wecra-device-frames)
 //
 // Apple's Design Resources license allows the bezels for mock-ups of apps for Apple's platforms only, and not their
-// redistribution — the output is git-ignored; every machine that builds the app runs this once.
+// redistribution — the output is git-ignored (every machine that builds the app runs this once); the owner chose
+// (2026-11-09) to ship the pictures inside the app, and scripts/release.sh refuses to build without them.
 import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";

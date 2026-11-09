@@ -95,6 +95,9 @@ if [[ $UPLOAD_ONLY == 0 ]]; then
     xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 \
         || die "no notary credentials named $NOTARY_PROFILE (see the top of this script)"
     [[ -z "$(git status --porcelain)" ]] || die "the working tree isn't clean: commit or stash first"
+    # Apple's device bezels ship inside the app (the owner's decision, 2026-11-09); they are git-ignored, made per machine
+    [[ -f "$ROOT/src/renderer/public/device-frames/manifest.json" ]] \
+        || die "no device frames: run node scripts/device-frames.mjs first"
     CURRENT="$(node -p 'require("./package.json").version')"
     [[ "$CURRENT" != "$VERSION" ]] || die "package.json is already at $VERSION"
     node -e 'const [a,b]=process.argv.slice(1).map(v=>v.split(".").map(Number));process.exit((a[0]-b[0]||a[1]-b[1]||a[2]-b[2])>0?0:1)' "$VERSION" "$CURRENT" \
